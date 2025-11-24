@@ -1,3 +1,12 @@
 [submodule "software/Libraries/SavitzkyGolayFilter"]
 	path = software/Libraries/SavitzkyGolayFilter
 	url = git@github.com:jmderomedi/SavitzkyGolayFilter.git
+[submodule "software/Libraries/espsoftwareserial"]
+	path = software/Libraries/espsoftwareserial
+	url = git@github.com:plerup/espsoftwareserial.git
+[submodule "software/Libraries/SdFat"]
+	path = software/Libraries/SdFat
+	url = git@github.com:greiman/SdFat.git
+[submodule "software/Libraries/Adafruit_NeoPixel"]
+	path = software/Libraries/Adafruit_NeoPixel
+	url = git@github.com:adafruit/Adafruit_NeoPixel.git
