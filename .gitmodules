@@ -10,3 +10,24 @@
 [submodule "software/Libraries/Adafruit_NeoPixel"]
 	path = software/Libraries/Adafruit_NeoPixel
 	url = git@github.com:adafruit/Adafruit_NeoPixel.git
+[submodule "software/Libraries/BasicLinearAlgebra"]
+	path = software/Libraries/BasicLinearAlgebra
+	url = git@github.com:tomstewart89/BasicLinearAlgebra.git
+[submodule "software/Libraries/RunningAverage"]
+	path = software/Libraries/RunningAverage
+	url = git@github.com:RobTillaart/RunningAverage.git
+[submodule "software/Libraries/RunningMedian"]
+	path = software/Libraries/RunningMedian
+	url = git@github.com:RobTillaart/RunningMedian.git
+[submodule "software/Libraries/OneWire"]
+	path = software/Libraries/OneWire
+	url = git@github.com:PaulStoffregen/OneWire.git
+[submodule "software/Libraries/Arduino-Temperature-Control-Library"]
+	path = software/Libraries/Arduino-Temperature-Control-Library
+	url = git@github.com:milesburton/Arduino-Temperature-Control-Library.git
+[submodule "software/Libraries/OneButton"]
+	path = software/Libraries/OneButton
+	url = git@github.com:mathertel/OneButton.git
+[submodule "software/Libraries/arduinoWebSockets"]
+	path = software/Libraries/arduinoWebSockets
+	url = git@github.com:Links2004/arduinoWebSockets.git

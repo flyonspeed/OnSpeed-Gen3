@@ -1,6 +1,6 @@
 
 #include <Arduino.h>
-#include "SoftwareSerial.h"
+//#include "SoftwareSerial.h"
 //#include "EspSoftwareSerial.h"
 
 #include "Globals.h"
