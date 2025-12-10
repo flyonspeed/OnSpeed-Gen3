@@ -26,7 +26,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-#include <ArduinoJson.h>
+//#include <ArduinoJson.h>
 
 #include "Globals.h"
 

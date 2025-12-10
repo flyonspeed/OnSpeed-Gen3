@@ -44,8 +44,8 @@
 #include "freertos/ringbuf.h"
 
 // Arduino libraries
-#include "SdFat.h" // https://github.com/greiman/SdFat
-#include <OneButton.h>            // button click/double click detection https://github.com/mathertel/OneButton
+#include "SdFat.h"          // https://github.com/greiman/SdFat
+#include <OneButton.h>      // button click/double click detection https://github.com/mathertel/OneButton
 #include "SPI.h"
 
 // OnSpeed modules

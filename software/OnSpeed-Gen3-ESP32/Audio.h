@@ -16,7 +16,7 @@ enum EnVoice
 
 enum EnAudioTone
     {
-    enToneNone, enToneLow, enToneHigh
+    enToneNone, enToneDisabled, enToneLow, enToneHigh
     };
 
 
@@ -56,6 +56,7 @@ public:
     // Methods
 public:
     void Init();
+    void inline WriteSample(int16_t iLeftValue, int16_t iRightValue);
     void SetVolume(int iVolumePercent);
     void SetGain(float fLeftGain, float fRightGain);
     void SetVoice(EnVoice enVoice);

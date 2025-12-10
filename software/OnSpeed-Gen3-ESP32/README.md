@@ -30,3 +30,23 @@ the Tools menu select at least the following...
     Partition Scheme: "32M Flash (4.8MB APP/22MB LittleFS)
     Upload Speed: "921600"
 
+## Required Libraries
+
+-- Non-arduino Libs
+    csv-parser
+    tinyxml2
+
+-- Arduino Libs
+    Adafruit_NeoPixel           by Adafruit 1.15.2
+    SavitzkyGolayFilter-master  by James Deromedi 1.0.1 (1.0.0???)
+    SdFat                       by Bill Greiman 2.3.0
+    RunningAverage              by Rob Tilaart 0.4.8
+    RunningMedian               by Rob Tilaart 0.3.10
+    BasicLinearAlgebra          by Tom Stewart 5.1
+    DallasTemperature           by Miles Burton 3.9.0
+    OneButton                   by Matthias Hertel 2.6.1
+    OneWire                     by Jim Studt, et al 2.3.8
+    WebSockets                  by Markus Sattler 2.6.1
+
+-- Arduino Libs not needed for now
+    EspSoftwareSerial           by Dirk Kaar, et al 8.1.0

@@ -27,9 +27,9 @@ void CheckVolumeTask(void * pvParams)
 
         if (g_Config.bVolumeControl)
             {
-            if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5))) 
+            if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
                 {
-                iVolPos = fVolumeSmoothingFactor * ReadVolume() + (1-fVolumeSmoothingFactor) * iVolPos;    
+                iVolPos = fVolumeSmoothingFactor * ReadVolume() + (1.0 - fVolumeSmoothingFactor) * iVolPos;
                 xSemaphoreGive(xSensorMutex);
                 }
 
@@ -39,7 +39,7 @@ void CheckVolumeTask(void * pvParams)
 
             g_Log.printf(MsgLog::EnVolume, MsgLog::EnDebug, "Raw %d  Percent %d\n", iVolPos, iVolumePercent);
             } // end if volume control enabled
-            
+
         } // end while forever
 
     } // end CheckVolumeTask()
