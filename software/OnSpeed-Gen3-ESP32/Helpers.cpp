@@ -6,7 +6,7 @@
 
 float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
     {
-    if ((in_max - in_min) + out_min == 0)
+    if ((in_max - in_min) < 0.0001f)
         return 0;
     else
         return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;

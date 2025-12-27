@@ -20,9 +20,8 @@ void CheckGLimitTask(void * pvParams)
 
         if (g_Config.bOverGWarning == true)
             {
-            // Roll rates, I think. I am surprised there is no absolute value function in
-            // this calculation chain anywhere. //////
-            if (g_AHRS.gRoll >= ASYMMETRIC_GYRO_LIMIT || g_AHRS.gYaw >= ASYMMETRIC_GYRO_LIMIT)
+            // Roll rates, I think.
+            if (fabs(g_AHRS.gRoll) >= ASYMMETRIC_GYRO_LIMIT || fabs(g_AHRS.gYaw) >= ASYMMETRIC_GYRO_LIMIT)
                 {
                 fCalculatedGLimitPositive = g_Config.fLoadLimitPositive * 0.666;
                 fCalculatedGLimitNegative = g_Config.fLoadLimitNegative * 0.666;
