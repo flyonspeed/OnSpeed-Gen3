@@ -122,7 +122,7 @@ public:
         SuCalibrationCurve  AoaCurve;
     };
 
-    // A resizable array of flap position related values. 
+    // A resizable array of flap position related values.
     std::vector<SuFlaps>    aFlaps;
 
     // Volume

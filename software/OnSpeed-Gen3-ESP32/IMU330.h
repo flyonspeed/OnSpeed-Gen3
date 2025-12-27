@@ -11,7 +11,7 @@
 
 class IMU330
 {
-public:  
+public:
   IMU330(SpiIO * pSensorSPI, int CsPort);
 
   // Data
@@ -29,7 +29,7 @@ public:
     String      sYawGyroAxis;
 
     // IMU raw values
-    int16_t     axRaw,   ayRaw,   azRaw;    
+    int16_t     axRaw,   ayRaw,   azRaw;
     int16_t     gxRaw,   gyRaw,   gzRaw;
 
     // IMU values in IMU orientation

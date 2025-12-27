@@ -33,13 +33,13 @@ float CalcAOA (float Pfwd, float P45, int iFlapsIndex, int iSmoothing)
     }
 #endif
 
-    // Calculate smoothing constant 
+    // Calculate smoothing constant
     //// This could probably be done just once
     if (iSmoothing == 0) SmoothingAlpha = 1.0;
     else                 SmoothingAlpha = 1.0 / iSmoothing;
 
     // Calculate raw AOA
-    fAOA = CurveCalc(g_fCoeffP, g_Config.aFlaps[iFlapsIndex].AoaCurve); 
+    fAOA = CurveCalc(g_fCoeffP, g_Config.aFlaps[iFlapsIndex].AoaCurve);
 
     // Now smooth the AOA some. Smoothing is defined by samples of lag, alpha=1/samples
     fAOA = fAOA * SmoothingAlpha + (1-SmoothingAlpha) * fPrevAOA;

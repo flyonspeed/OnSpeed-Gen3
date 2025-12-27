@@ -17,11 +17,11 @@
 #define EXTERN_INIT(var, init)    var = init;
 #define EXTERN_CLASS(var, ...)    var(__VA_ARGS__);
 #else
-#define EXTERN                    extern 
+#define EXTERN                    extern
 #define EXTERN_INIT(var, init)    extern var;
 #define EXTERN_CLASS(var, ...)    extern var;
 #endif
-                      
+
 // hardware version. We have multiple prototypes.
 #define HW_V4B // Bob's hardware
 //#define HW_V4P // Phil's hardware
@@ -268,7 +268,7 @@ EXTERN SemaphoreHandle_t        xSerialLogMutex;
 
 // Right now there is only one scheduled task, reading sensors. Once it starts
 // I want it to always be on the same integer multiple of ticks so it doesn't
-// mess up time alignment of the logged data. I want to have in place the structure 
+// mess up time alignment of the logged data. I want to have in place the structure
 // to be able to schedule periodic tasks relative to each other just in case that
 // becomes useful in the future.
 #define xLAST_TICK_TIME(period_msec)     ((xTaskGetTickCount() / pdMS_TO_TICKS(period_msec)) * pdMS_TO_TICKS(period_msec))
@@ -335,6 +335,6 @@ EXTERN_INIT(bool g_bDebugTasks, true)
 //12 - EFIS Serial TX
 //13 - BOOM TTL RX
 //14 - GND
-//15 - AUDIO GND 
+//15 - AUDIO GND
 
 #endif // defined GLOBALS_H

@@ -2,7 +2,7 @@
 #define KALMAN_FILTER_H_
 
 
-class KalmanFilter 
+class KalmanFilter
 {
 
 public :

@@ -78,7 +78,7 @@ void MsgLog::print(EnModule enModule, EnLevel enLevel, const char * szLogMsg)
     {
     if (enLevel >= asuModule[enModule].enLevel)
         {
-        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
             {
             if      (enLevel == EnError)   Serial.print("ERROR   ");
             else if (enLevel == EnWarning) Serial.print("WARNING ");
@@ -98,7 +98,7 @@ void MsgLog::println(EnModule enModule, EnLevel enLevel, const char * szLogMsg)
     {
     if (enLevel >= asuModule[enModule].enLevel)
         {
-        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
             {
             if      (enLevel == EnError)   Serial.print("ERROR   ");
             else if (enLevel == EnWarning) Serial.print("WARNING ");
@@ -118,7 +118,7 @@ void MsgLog::printf(EnModule enModule, EnLevel enLevel, const char * szFmt, ...)
     {
     if (enLevel >= asuModule[enModule].enLevel)
         {
-        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
             {
             va_list args;
             va_start(args, szFmt);
@@ -147,7 +147,7 @@ size_t  MsgLog::print(const char * szLogMsg)
     {
     size_t  iChars;
 
-    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
         {
         iChars = Serial.print(szLogMsg);
         xSemaphoreGive(xSerialLogMutex);
@@ -161,7 +161,7 @@ size_t  MsgLog::println(const char * szLogMsg)
     {
     size_t  iChars;
 
-    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
         {
         iChars = Serial.println(szLogMsg);
         xSemaphoreGive(xSerialLogMutex);
@@ -175,7 +175,7 @@ size_t  MsgLog::printf(const char * szFmt, ...)
     {
     size_t  iChars;
 
-    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
         {
         va_list args;
         va_start(args, szFmt);
@@ -190,7 +190,7 @@ size_t  MsgLog::printf(const char * szFmt, ...)
 
 void MsgLog::flush()
     {
-    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
         {
         Serial.flush();
         xSemaphoreGive(xSerialLogMutex);

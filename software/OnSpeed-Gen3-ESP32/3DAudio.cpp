@@ -4,7 +4,7 @@
 
 // Move audio with the ball, scaling is 0.08 LateralG/ball width
 // This curve works up to about 0.08 G of lateral acceleration
-#define AUDIO_3D_CURVE(x)         -92.822*x*x + 20.025*x 
+#define AUDIO_3D_CURVE(x)         -92.822*x*x + 20.025*x
 
 float       fChannelGain     = 1.0;
 const float fSmoothingFactor = 0.1;

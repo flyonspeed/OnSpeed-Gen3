@@ -26,21 +26,21 @@ FOSConfig::FOSConfig()
 // Main config functions
 // ----------------------------------------------------------------------------
 
-// Find and load a valid configuration. First load default compiled in values. 
-// Then try loading a configuration stored in flash. Lastly, load a configuration 
-// file from the SD card. 
+// Find and load a valid configuration. First load default compiled in values.
+// Then try loading a configuration stored in flash. Lastly, load a configuration
+// file from the SD card.
 
 void FOSConfig::LoadConfig()
 {
     bool    bStatus = false;
 
-    // Load default config 
+    // Load default config
     LoadDefaultConfiguration();
 
 #ifdef SUPPORT_LITTLEFS
     // Load configuration from flash
     bStatus = LoadConfigurationFileFromFlash(szDefaultConfigFilename);
-    if (bStatus) 
+    if (bStatus)
         bConfigLoaded = true;
 #endif
 
@@ -50,9 +50,9 @@ void FOSConfig::LoadConfig()
         // Load config from file
         g_Log.printf("Loading %s configuration\n", szDefaultConfigFilename);
         bStatus = LoadConfigurationFile(szDefaultConfigFilename);
-        if (bStatus) 
+        if (bStatus)
             bConfigLoaded = true;
-        } 
+        }
 
     // Log what happened
     if (bConfigLoaded)
@@ -131,15 +131,15 @@ bool FOSConfig::SaveConfigurationToFile(char* szFilename)
     // Save XML string to config file
     FsFile  hConfigFile;
 
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000))) 
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
         {
         hConfigFile = g_SdFileSys.open(szFilename, O_WRITE | O_CREAT | O_TRUNC);
-        if (hConfigFile) 
+        if (hConfigFile)
             {
             hConfigFile.print(sConfig);
             hConfigFile.close();
             bStatus = true;
-            } 
+            }
 
         xSemaphoreGive(xWriteMutex);
         }
@@ -166,7 +166,7 @@ bool FOSConfig::LoadConfigurationFileFromFlash(char* szFilename)
     bool    bStatus = false;
 
     // Load configuration from flash
-    if (g_bFlashFS) 
+    if (g_bFlashFS)
         {
         String  sFilename;
         sFilename  = "/";
@@ -174,7 +174,7 @@ bool FOSConfig::LoadConfigurationFileFromFlash(char* szFilename)
 
         File hFlashFile = LittleFS.open(sFilename, "r");
 
-        if (hFlashFile) 
+        if (hFlashFile)
             {
             sConfig = hFlashFile.readString();
             hFlashFile.close();
@@ -212,7 +212,7 @@ bool FOSConfig::SaveConfigurationToFlash(char* szFilename)
     sFilename += szFilename;
 
     File hFlashFile = LittleFS.open(sFilename, "w");
-    if (hFlashFile) 
+    if (hFlashFile)
         {
         hFlashFile.print(sConfig);
         hFlashFile.close();
@@ -276,7 +276,7 @@ bool FOSConfig::LoadDefaultConfiguration()
     iVolumeLowAnalog    =    0;
     iDefaultVolume      =  100;
 //    iVolumePercent      =   25;
-    
+
     bAudio3D            = false;
     bOverGWarning       = false;
 
@@ -516,7 +516,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             }
 
         // Sort flaps data array by flap degrees
-        std::sort(aFlaps.begin(), aFlaps.end(), 
+        std::sort(aFlaps.begin(), aFlaps.end(),
                 [](SuFlaps a, SuFlaps b) { return a.iDegrees < b.iDegrees; } );
 
 
@@ -538,12 +538,12 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         sPortsOrientation   = GetConfigValue(sConfig,"PORTS_ORIENTATION");
         sBoxtopOrientation  = GetConfigValue(sConfig,"BOX_TOP_ORIENTATION");
         sEfisType           = GetConfigValue(sConfig,"EFISTYPE");
-        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialIO::EnVN300;        // iEfisID = 1; 
-        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialIO::EnDynonSkyview; // iEfisID = 2; 
-        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialIO::EnDynonD10;     // iEfisID = 3; 
-        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialIO::EnGarminG5;     // iEfisID = 4; 
-        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialIO::EnGarminG3X;    // iEfisID = 5; 
-        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialIO::EnMglBinary;    // iEfisID = 6; 
+        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialIO::EnVN300;        // iEfisID = 1;
+        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialIO::EnDynonSkyview; // iEfisID = 2;
+        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialIO::EnDynonD10;     // iEfisID = 3;
+        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialIO::EnGarminG5;     // iEfisID = 4;
+        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialIO::EnGarminG3X;    // iEfisID = 5;
+        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialIO::EnMglBinary;    // iEfisID = 6;
         else                             g_EfisSerial.enType = EfisSerialIO::EnNone;         // iEfisID = 0;
 
         // Calibration data source
@@ -633,7 +633,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         String          sDataSource;
 
         if(XmlDoc.Parse(sConfig.c_str()) != XML_SUCCESS)
-            return false; 
+            return false;
 
         XmlRootNode = XmlDoc.FirstChild();
         String     sConfigRoot = XmlRootNode->Value();
@@ -690,7 +690,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         aFlaps.resize(iFlapIdx+1);
 
         // Sort flaps data array by flap degrees
-        std::sort(aFlaps.begin(), aFlaps.end(), 
+        std::sort(aFlaps.begin(), aFlaps.end(),
                 [](SuFlaps a, SuFlaps b) { return a.iDegrees < b.iDegrees; } );
 
         XMLElement * pXmlVolume = XmlRootNode->FirstChildElement("VOLUME");
@@ -730,12 +730,12 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         XML_GET_BOOL(XmlRootNode, "BOOM",             bReadBoom)
         XML_GET_BOOL(XmlRootNode, "SERIALEFISDATA",   bReadEfisData)
         XML_GET_STR(XmlRootNode,  "EFISTYPE",         sEfisType)
-        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialIO::EnVN300;        // iEfisID = 1; 
-        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialIO::EnDynonSkyview; // iEfisID = 2; 
-        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialIO::EnDynonD10;     // iEfisID = 3; 
-        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialIO::EnGarminG5;     // iEfisID = 4; 
-        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialIO::EnGarminG3X;    // iEfisID = 5; 
-        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialIO::EnMglBinary;    // iEfisID = 6; 
+        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialIO::EnVN300;        // iEfisID = 1;
+        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialIO::EnDynonSkyview; // iEfisID = 2;
+        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialIO::EnDynonD10;     // iEfisID = 3;
+        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialIO::EnGarminG5;     // iEfisID = 4;
+        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialIO::EnGarminG3X;    // iEfisID = 5;
+        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialIO::EnMglBinary;    // iEfisID = 6;
         else                             g_EfisSerial.enType = EfisSerialIO::EnNone;         // iEfisID = 0;
 
         // Serial output
@@ -803,9 +803,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
 bool FOSConfig::ToBoolean(String sBool)
 {
-    if (sBool.toInt()==1 || sBool=="YES" || sBool=="ENABLED" || sBool=="ON") 
-      return true; 
-    else 
+    if (sBool.toInt()==1 || sBool=="YES" || sBool=="ENABLED" || sBool=="ON")
+      return true;
+    else
       return false;
 }
 
@@ -925,7 +925,7 @@ String FOSConfig::GetConfigValue(String sConfig,String configName)
     iStartIndex = sConfig.indexOf("<"+configName+">");
     iEndIndex   = sConfig.indexOf("</"+configName+">");
 
-    if (iStartIndex < 0 || iEndIndex < 0) 
+    if (iStartIndex < 0 || iEndIndex < 0)
         return ""; // value not found in config
 
     return sConfig.substring(iStartIndex+configName.length()+2, iEndIndex);
@@ -969,7 +969,7 @@ String FOSConfig::Array2String(SuFloatArray afConfig)
     for (int i=0; i < afConfig.Count; i++)
         {
         sResult.concat(ToString(afConfig.Items[i]));
-        if (i < afConfig.Count-1) 
+        if (i < afConfig.Count-1)
             sResult.concat(",");
         }
     return sResult;
@@ -983,7 +983,7 @@ String FOSConfig::Array2String(SuIntArray aiConfig)
     for (int i=0; i < aiConfig.Count; i++)
     {
         sResult.concat(aiConfig.Items[i]);
-        if (i < aiConfig.Count-1) 
+        if (i < aiConfig.Count-1)
             sResult.concat(",");
     }
     return sResult;

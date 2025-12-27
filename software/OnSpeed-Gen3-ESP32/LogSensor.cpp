@@ -207,7 +207,7 @@ void LogSensor::Open()
     {
         g_Log.println(MsgLog::EnDisk, MsgLog::EnDebug, "Open log file for writing");
 
-        // Find the next file number. 
+        // Find the next file number.
         SdFileSys::SuFileInfoList   suFileList;
         int     iMaxFileNum = 0;
 
@@ -231,7 +231,7 @@ void LogSensor::Open()
 
         m_hLogFile = g_SdFileSys.open(szSensorLogFilename, O_RDWR | O_CREAT | O_TRUNC);
 
-        if (m_hLogFile.isOpen()) 
+        if (m_hLogFile.isOpen())
         {
             // Write the CSV header line
             m_hLogFile.write("timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,AngleofAttack,flapsPos,DataMark");
@@ -240,7 +240,7 @@ void LogSensor::Open()
             m_hLogFile.write(",OAT,TAS");
 #endif
             m_hLogFile.write(",imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll");
-            if (g_Config.bReadBoom) 
+            if (g_Config.bReadBoom)
                 m_hLogFile.write(",boomStatic,boomDynamic,boomAlpha,boomBeta,boomIAS,boomAge");
 
             if (g_Config.bReadEfisData)
@@ -302,7 +302,7 @@ void LogSensor::Write()
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, "%lu,%i,%.2f,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i",
             uTimeStamp, g_Sensors.iPfwd, g_Sensors.PfwdSmoothed, g_Sensors.iP45,g_Sensors.P45Smoothed,
-            g_Sensors.PStatic, g_Sensors.Palt, g_Sensors.IAS, g_Sensors.AOA, 
+            g_Sensors.PStatic, g_Sensors.Palt, g_Sensors.IAS, g_Sensors.AOA,
             g_Flaps.iPosition, g_iDataMark);
         //charsAdded+=sprintf(logLine, "%lu,%i,%.2f,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i",timeStamp,124,124.56,145,145.00,1013.00,5600.00,110.58,10.25,2,0);
 #ifdef OAT_AVAILABLE
@@ -310,17 +310,17 @@ void LogSensor::Write()
 #endif
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.2f,%.2f",
-            g_pIMU->fTempC, 
-            g_pIMU->Az,  g_pIMU->Ay, g_pIMU->Ax, 
-            g_pIMU->Gx, -g_pIMU->Gy, g_pIMU->Gz, 
+            g_pIMU->fTempC,
+            g_pIMU->Az,  g_pIMU->Ay, g_pIMU->Ax,
+            g_pIMU->Gx, -g_pIMU->Gy, g_pIMU->Gz,
             g_AHRS.SmoothedPitch, g_AHRS.SmoothedRoll);
 
         if (g_Config.bReadBoom)
         {
             BoomAge     = millis() - g_BoomSerial.uTimestamp;
             bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f,%.2f,%.2f,%.2f,%i",
-                g_BoomSerial.Static, g_BoomSerial.Dynamic, 
-                g_BoomSerial.Alpha,  g_BoomSerial.Beta,   
+                g_BoomSerial.Static, g_BoomSerial.Dynamic,
+                g_BoomSerial.Alpha,  g_BoomSerial.Beta,
                 g_BoomSerial.IAS, BoomAge);
         } // end boom data
 

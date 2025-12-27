@@ -105,7 +105,7 @@ function onMessage(evt)
     // console.log(evt.data);
     var OnSpeed = JSON.parse(evt.data);
 
-    // I have had a problem with sometimes (probably due to some race condition) the 
+    // I have had a problem with sometimes (probably due to some race condition) the
     // first time through a smoothing loop, the variable to be smoothed is NaN. In this
     // case NaN continues to propigate. These tests make sure the initial smoothed
     // value is not NaN.
@@ -145,7 +145,7 @@ function onMessage(evt)
     flapsPos             = OnSpeed.flapsPos;
     flapIndex            = OnSpeed.flapIndex;
 
-    if (flapIndex == 0) 
+    if (flapIndex == 0)
       {
       // Best glide weight correction= Sqrt(current weight / gross weight) * glide speed at gross weight.
       LDmaxIAS = Math.sqrt(acCurrentWeight/acGrossWeight) * acVldmax;
@@ -153,7 +153,7 @@ function onMessage(evt)
 
     smoothDecelRate = decelRate*smoothingAlphaFwdAcc+smoothDecelRate*(1-smoothingAlphaFwdAcc);
     // FwdAccel = document.getElementById("myRange").value;
-    // if (FwdAccel<-1) decelTranslate=constrain(map(FwdAccel, -3, -1, -186, -18),-186, -18); 
+    // if (FwdAccel<-1) decelTranslate=constrain(map(FwdAccel, -3, -1, -186, -18),-186, -18);
     // else             decelTranslate=constrain(map(FwdAccel, -1,  2,  -18, 150), -18, 150);
     decelTranslate = constrain(56*smoothDecelRate + 38,-186,150);
 
@@ -181,7 +181,7 @@ function onMessage(evt)
         }
 
     lastUpdate=Date.now();
-    } 
+    }
 
   catch (e)
     {

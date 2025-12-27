@@ -44,9 +44,9 @@
 
 #include "audio.h"
 
-//i2s_data_bit_width_t  bps  = I2S_DATA_BIT_WIDTH_32BIT;  // 
+//i2s_data_bit_width_t  bps  = I2S_DATA_BIT_WIDTH_32BIT;  //
 i2s_data_bit_width_t  bps  = I2S_DATA_BIT_WIDTH_16BIT; // Only 16 seems to work well with tones
-//i2s_data_bit_width_t  bps  = I2S_DATA_BIT_WIDTH_8BIT;  // 
+//i2s_data_bit_width_t  bps  = I2S_DATA_BIT_WIDTH_8BIT;  //
 
 i2s_mode_t            mode = I2S_MODE_STD;  // Works
 
@@ -70,9 +70,9 @@ int16_t            aTone_1600Hz[TONE_BUFFER_LEN];
 
 // Tone Pulse Per Sec (PPS)
 #define HIGH_TONE_STALL_PPS    20                 // how many PPS to play during stall
-#define HIGH_TONE_PPS_MAX       6.2     
+#define HIGH_TONE_PPS_MAX       6.2
 #define HIGH_TONE_PPS_MIN       1.5               // 1.5
-#define HIGH_TONE_HZ         1600                 // freq of high tone  
+#define HIGH_TONE_HZ         1600                 // freq of high tone
 #define LOW_TONE_PPS_MAX        8.2
 #define LOW_TONE_PPS_MIN        1.5
 #define LOW_TONE_HZ           400                 // freq of low tone
@@ -114,7 +114,7 @@ static void AudioTestTask(void * pvParams)
     vTaskDelete(nullptr);
     }
 
-/* 
+/*
 FreeRTOS task to play the appropriate noise at the appropriate time.
 When run as a FreeRTOS task about 50 msec is the most audio that gets
 buffered. Make sure no higher priority task takes that much time or
@@ -184,7 +184,7 @@ void AudioPlay::Init()
     // start I2S at the sample rate with 16-bits per sample
     i2s.setPins(I2S_BCK, I2S_LRCK, I2S_DOUT);
     s_bI2sOk = i2s.begin(mode, SAMPLE_RATE, bps, slot);
-    if (!s_bI2sOk) 
+    if (!s_bI2sOk)
     {
         g_Log.println(MsgLog::EnAudio, MsgLog::EnError, "Failed to initialize I2S!");
     }
@@ -310,7 +310,7 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
         i2s.write(iLeftValue);
         i2s.write(iRightValue);
 #endif
-    }    
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -399,7 +399,7 @@ void AudioPlay::PlayVoice(EnVoice enVoice)
         case enVoiceLeft      : PlayPcmBuffer(left_speaker_pcm,  left_speaker_pcm_len,  fLeftVoiceVolume, fRightVoiceVolume*.25); break;
         case enVoiceRight     : PlayPcmBuffer(right_speaker_pcm, right_speaker_pcm_len, fLeftVoiceVolume*.25, fRightVoiceVolume); break;
         default               : break;
-    } 
+    }
 
 }
 
@@ -422,14 +422,14 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 
     switch (enAudioTone)
     {
-        case enToneLow : 
+        case enToneLow :
             PlayToneBuffer(aTone_400Hz, iDataLen, fVolume * fLeftGain, fVolume * fRightGain);
             break;
 
-        case enToneHigh : 
+        case enToneHigh :
             PlayToneBuffer(aTone_1600Hz, iDataLen, fVolume * fLeftGain, fVolume * fRightGain);
             break;
-        
+
         default :
             break;
     }
@@ -470,10 +470,10 @@ void AudioPlay::UpdateTones()
         // play HIGH tone at Pulse Rate 1.5 PPS to 6.2 PPS (depending on AOA value)
         SetTone(enToneHigh);
         fNewPulseFreq = mapfloat(
-            g_Sensors.AOA, 
+            g_Sensors.AOA,
             g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,    // onSpeedAOAslow
             g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,      // stallWarningAOA
-            HIGH_TONE_PPS_MIN, 
+            HIGH_TONE_PPS_MIN,
             HIGH_TONE_PPS_MAX);
         SetPulseFreq(fNewPulseFreq); // when transitioning from solid to high tone make the first one shorter
         }
@@ -606,7 +606,7 @@ void AudioPlay::AudioTest()
 //    pSerial->printf("Tone LOW\n");
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(2000)) goto done;
-    
+
 //    pSerial->printf("G Limit\n");
     g_AudioPlay.SetVoice(enVoiceGLimit);
     if (!DelayOrStop(3000)) goto done;
@@ -614,7 +614,7 @@ void AudioPlay::AudioTest()
 //    pSerial->printf("Tone HIGH\n");
     g_AudioPlay.SetTone(enToneHigh);
     if (!DelayOrStop(2000)) goto done;
-    
+
 //    pSerial->printf("Tone LOW\n");
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(1500)) goto done;
@@ -626,7 +626,7 @@ void AudioPlay::AudioTest()
 //    pSerial->printf("Pulse 4.0 Hz\n");
     g_AudioPlay.SetPulseFreq(3.0);
     if (!DelayOrStop(2000)) goto done;
-    
+
 //    pSerial->printf("Pulse 4.0 Hz\n");
     g_AudioPlay.SetPulseFreq(5.0);
     if (!DelayOrStop(2000)) goto done;
@@ -634,7 +634,7 @@ void AudioPlay::AudioTest()
 //    pSerial->printf("Tone HIGH\n");
     g_AudioPlay.SetTone(enToneHigh);
     if (!DelayOrStop(2000)) goto done;
-    
+
 //    pSerial->printf("Pulse 3.0 Hz\n");
     g_AudioPlay.SetPulseFreq(4.0);
     if (!DelayOrStop(2000)) goto done;

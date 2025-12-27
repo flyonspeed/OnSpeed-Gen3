@@ -55,13 +55,13 @@ void ConsoleSerialIO::Enable(bool bEnable)
 
 // Note: the g_Log routines are generally preferred because they automatically
 // wrap the serial output in a semaphore for safely. There are a few places in
-// this module, however, where it is advantageous to use the serial output 
+// this module, however, where it is advantageous to use the serial output
 // directly and wrap it in a semaphore. For example, in this help printout it
 // is useful to wrap all println() in a semaphore to make sure they stay together.
 
 void ConsoleSerialIO::DisplayConsoleHelp()
     {
-    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
         {
         pSerial->println("");
         pSerial->println("Commands accepted via console:\n");
@@ -106,7 +106,7 @@ void ConsoleSerialIO::Read()
     if (pSerial->available() > 0)
         {
 
-        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
             {
             cSerialCmdChar = pSerial->read();
             xSemaphoreGive(xSerialLogMutex);
@@ -153,27 +153,27 @@ void ConsoleSerialIO::Read()
 
                 // Show files on the flash file system
 #ifdef SUPPORT_LITTLEFS
-                if (g_bFlashFS) 
+                if (g_bFlashFS)
                     {
                     File hFlashRoot = LittleFS.open("/", "r");
 
-                    if (hFlashRoot && hFlashRoot.isDirectory()) 
+                    if (hFlashRoot && hFlashRoot.isDirectory())
                         {
                         g_Log.println("Flash Files");
                         // Iterate through files
                         File hFile = hFlashRoot.openNextFile();
-                        while (hFile) 
+                        while (hFile)
                             {
                             g_Log.printf(szFileListFormat, hFile.name(), (hFile.size() + 50) / 1000.0);
                             hFile = hFlashRoot.openNextFile();
-                            } 
+                            }
                         } // end if open root dir OK
                     } // end if flash enabled
 #endif
 
                 g_Log.println("SD Card Files");
                 // Show files on the SD card
-                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
                     {
                     SdFileSys::SuFileInfoList   suFileList;
 
@@ -193,14 +193,14 @@ void ConsoleSerialIO::Read()
             // ------
             else if (strncasecmp(szCmdToken, "DELETE", 6) == 0)
                 {
-                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
                     {
                     // Delete file
                     szCmdToken = strtok(NULL, " ");
                     if (szCmdToken != NULL)
                         {
                         g_Log.printf("\nDelete '%s' ", szCmdToken);
-                        if (g_SdFileSys.remove(szCmdToken)) 
+                        if (g_SdFileSys.remove(szCmdToken))
                             g_Log.println("SUCCESS");
                         else
                             g_Log.println("FAIL");
@@ -217,7 +217,7 @@ void ConsoleSerialIO::Read()
                 {
                 FsFile  hListFile;
 
-                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
                     {
                     // Print file contents
                     szCmdToken = strtok(NULL, " ");
@@ -225,16 +225,16 @@ void ConsoleSerialIO::Read()
                         {
                         hListFile = g_SdFileSys.open(szCmdToken, O_READ);
 
-                        if (hListFile) 
+                        if (hListFile)
                             {
                             g_Log.println("");
                             g_Log.print(szCmdToken);
                             g_Log.println(":");
 
                             // Read from the file until there's nothing else in it:
-                            if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100))) 
+                            if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
                                 {
-                                while (hListFile.available()) 
+                                while (hListFile.available())
                                     {
                                     pSerial->flush();
                                     pSerial->write(hListFile.read());
@@ -244,8 +244,8 @@ void ConsoleSerialIO::Read()
                             // Close the file:
                             hListFile.close();
                             g_Log.println("\nDONE.");
-                            } 
-                        else 
+                            }
+                        else
                             {
                             // if the file didn't open, print an error:
                             g_Log.print("Error opening ");
@@ -281,7 +281,7 @@ void ConsoleSerialIO::Read()
                             {
                             g_Config.bSdLogging = true;
                             g_Config.SaveConfigurationToFile();
-                            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+                            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
                                 {
                                 g_LogSensor.Open();
                                 xSemaphoreGive(xWriteMutex);
@@ -297,7 +297,7 @@ void ConsoleSerialIO::Read()
                         {
                         g_Config.bSdLogging = false;
                         g_Config.SaveConfigurationToFile();
-                        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+                        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
                             {
                             g_LogSensor.Close();
                             xSemaphoreGive(xWriteMutex);
@@ -324,8 +324,8 @@ void ConsoleSerialIO::Read()
                     g_Log.println("  Module    Level");
                     g_Log.println("---------- -------");
                     for (int iModIdx = 0; iModIdx < g_Log.ModuleCount; iModIdx++)
-                        g_Log.printf("%-10s %s\n", 
-                            g_Log.asuModule[iModIdx].szDescription, 
+                        g_Log.printf("%-10s %s\n",
+                            g_Log.asuModule[iModIdx].szDescription,
                             g_Log.szLevelName(g_Log.asuModule[iModIdx].enLevel));
                     }
 
@@ -353,12 +353,12 @@ void ConsoleSerialIO::Read()
             else if (strncasecmp(szCmdToken, "FORMAT", 6) == 0)
                 {
 
-                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
                     {
                     bool bOrigSdLogging = g_Config.bSdLogging;
 
                     g_Config.bSdLogging = false; // turn off sdLogging
-                    if (bOrigSdLogging) 
+                    if (bOrigSdLogging)
                         {
                         g_LogSensor.Close();
                         }
@@ -424,14 +424,14 @@ void ConsoleSerialIO::Read()
             // -------
             else if (strncasecmp(szCmdToken, "SENSORS", 7) == 0)
                 {
-                if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100))) 
+                if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100)))
                     {
                     uint16_t    uPitotCounts  = g_pPitot->ReadPressureCounts();
                     uint16_t    uAoaCounts    = g_pAOA->ReadPressureCounts();
                     uint16_t    uStaticCounts = g_pStatic->ReadPressureCounts();
 
                     g_Log.printf("\nPorts %s  Box Top %s\r\n", g_Config.sPortsOrientation.c_str(), g_Config.sBoxtopOrientation.c_str());
-                    g_Log.printf("Axis - Forward %s  Lateral %s  Vertical %s\r\n", 
+                    g_Log.printf("Axis - Forward %s  Lateral %s  Vertical %s\r\n",
                             g_pIMU->sForwardGloadAxis.c_str(), g_pIMU->sLateralGloadAxis.c_str(), g_pIMU->sVerticalGloadAxis.c_str());
 
                     g_Log.printf("Accel IMU  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->fAccelX,         g_pIMU->fAccelY,         g_pIMU->fAccelZ);
@@ -451,13 +451,13 @@ void ConsoleSerialIO::Read()
                     }
                 else
                     g_Log.printf(MsgLog::EnMain, MsgLog::EnWarning, "SENSORS - Could not obtain the sensor mutex\n");
-                } 
+                }
 
             // FLAPS
             // -----
             else if (strncasecmp(szCmdToken, "FLAPS", 5) == 0)
                 {
-                if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100))) 
+                if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100)))
                     {
                     g_Flaps.Update();
                     xSemaphoreGive(xSensorMutex);
@@ -465,7 +465,7 @@ void ConsoleSerialIO::Read()
                     }
                 else
                     g_Log.printf(MsgLog::EnMain, MsgLog::EnWarning, "FLAPS - Could not obtain the sensor mutex\n");
-                } 
+                }
 
             // VOLUME
             // ------
@@ -474,7 +474,7 @@ void ConsoleSerialIO::Read()
                 int     iVolPos;
                 int     iVolumePercent;
 
-                if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100))) 
+                if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100)))
                     {
                     iVolPos = ReadVolume();
                     xSemaphoreGive(xSensorMutex);
@@ -485,7 +485,7 @@ void ConsoleSerialIO::Read()
                 iVolumePercent = mapfloat(iVolPos, g_Config.iVolumeLowAnalog, g_Config.iVolumeHighAnalog, 0, 100);
                 g_Log.printf("Volume Control %s\n", g_Config.bVolumeControl ? "ENABLED" : "DISABLED");
                 g_Log.printf("Volume Pot : Raw %5d Mapped %d%%\n", iVolPos, iVolumePercent);
-                g_Log.printf("Current Volume :  %.0f%%  Left Gain %.2f Right Gain %.2f\n", 
+                g_Log.printf("Current Volume :  %.0f%%  Left Gain %.2f Right Gain %.2f\n",
                     g_AudioPlay.fVolume*100, g_AudioPlay.fLeftGain, g_AudioPlay.fRightGain);
                 }
 
@@ -499,7 +499,7 @@ void ConsoleSerialIO::Read()
                 g_Log.print(sConfigString.c_str());
                 g_Log.flush();
                 }
-                                                                                                                      
+
             // AUDIOTEST
             // ---------
             else if (strncasecmp(szCmdToken, "AUDIOTEST", 9) == 0)

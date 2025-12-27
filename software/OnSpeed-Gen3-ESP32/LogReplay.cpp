@@ -64,7 +64,7 @@ void LogReplayTask(void *pvParams)
         // it ran long for some reason (like the CPU is overloaded) or
         // or was stopped for a time (like during sensor cal). Regardless,
         // make sure the xLastWakeTime parameter is set to an integer
-        // multiple of the delay time to maintain time alignment of 
+        // multiple of the delay time to maintain time alignment of
         // the data.
         if (xWasDelayed == pdFALSE)
         {
@@ -207,7 +207,7 @@ bool ReadLogLine()
 
         // Read until a good line is parsed
         bStatus = CsvParser.parse_line(szInLine, CsvHeaders, CsvData);
-        if (bStatus) 
+        if (bStatus)
             {
             break;
             }
@@ -281,13 +281,13 @@ bool ReadLogLine()
 //      else
 //          {
 //          Serial.print("tonetype: ");
-//          if (!highTone) Serial.print("LOW_TONE,"); 
+//          if (!highTone) Serial.print("LOW_TONE,");
 //          else Serial.print("HIGH_TONE,");
 //          Serial.print("tonepulse: ");
 //          Serial.print(pps);
 //          Serial.print(",");
 //          }
-    //Serial.printf(", Flaps:%d %d", g_Flaps.iPosition, g_Flaps.iIndex); 
+    //Serial.printf(", Flaps:%d %d", g_Flaps.iPosition, g_Flaps.iIndex);
     //Serial.println();
 
     return true;
@@ -358,7 +358,7 @@ void ReadTestPot()
     float   fReadAOA;
 
     // Average some flap pot readings
-    if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100)))
     {
         for (int i=0; i<5;i++)
             fFlapRawValue += g_Flaps.Read(); // analogRead(FLAP_PIN);
@@ -379,7 +379,7 @@ void ReadTestPot()
         fReadAOA = 0.0;
 
     // Smooth potentiometer AOA (using flap pot input)
-    g_Sensors.AOA = fReadAOA * smoothingAlpha + g_Sensors.AOA * (1 - smoothingAlpha); 
+    g_Sensors.AOA = fReadAOA * smoothingAlpha + g_Sensors.AOA * (1 - smoothingAlpha);
 
     // Just make sure g_Flaps.iIndex is set and good things will happen
     g_Flaps.iIndex = 0; // flaps up
@@ -400,7 +400,7 @@ void ReadTestPot()
             float ledBrightness = 15+(exp(sin(millis()/2000.0*PI)) - 0.36787944)*63.81; // funky sine wave, https://sean.voisen.org/blog/2011/10/breathing-led-with-arduino/
             analogWrite(PIN_LED2, ledBrightness);
         }
-        else 
+        else
             analogWrite(PIN_LED2,0);
 
         lastLedUpdate=millis();
@@ -455,7 +455,7 @@ void RangeSweepTask(void *pvParams)
 
         else
         {
-            if      (fCurrentRangeSweepValue >  RANGESWEEP_LOW_AOA ) fCurrentRangeSweepValue -= RANGESWEEP_STEP; 
+            if      (fCurrentRangeSweepValue >  RANGESWEEP_LOW_AOA ) fCurrentRangeSweepValue -= RANGESWEEP_STEP;
             else if (fCurrentRangeSweepValue <= RANGESWEEP_LOW_AOA ) fRangeSweepUp = true;
         }
 

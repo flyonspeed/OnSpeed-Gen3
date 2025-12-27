@@ -340,7 +340,7 @@ void EfisSerialIO::Read()
                         {
                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "%lu", uTimestamp);
                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "\nvnAngularRateRoll: %.2f,vnAngularRatePitch: %.2f,vnAngularRateYaw: %.2f,vnVelNedNorth: %.2f,vnVelNedEast: %.2f,vnVelNedDown: %.2f,vnAccelFwd: %.2f,vnAccelLat: %.2f,vnAccelVert: %.2f,vnYaw: %.2f,vnPitch: %.2f,vnRoll: %.2f,vnLinAccFwd: %.2f,vnLinAccLat: %.2f,vnLinAccVert: %.2f,vnYawSigma: %.2f,vnRollSigma: %.2f,vnPitchSigma: %.2f,vnGnssVelNedNorth: %.2f,vnGnssVelNedEast: %.2f,vnGnssVelNedDown: %.2f,vnGnssLat: %.6f,vnGnssLon: %.6f,vnGPSFix: %i,TimeUTC: %s\n",
-                            suVN300.AngularRateRoll, suVN300.AngularRatePitch, suVN300.AngularRateYaw, 
+                            suVN300.AngularRateRoll, suVN300.AngularRatePitch, suVN300.AngularRateYaw,
                             suVN300.VelNedNorth, suVN300.VelNedEast, suVN300.VelNedDown,
                             suVN300.AccelFwd, suVN300.AccelLat, suVN300.AccelVert,
                             suVN300.Yaw, suVN300.Pitch, suVN300.Roll,
@@ -519,7 +519,7 @@ void EfisSerialIO::Read()
                 }
 
                 // Data line terminates with 0D0A, when buffer is empty look for 0A in the incoming stream and dump everything else
-                if ((BufferString.length() > 0 || PrevInChar == char(0x0A)))  
+                if ((BufferString.length() > 0 || PrevInChar == char(0x0A)))
                 {
                     BufferString += InChar;
 
@@ -584,13 +584,13 @@ void EfisSerialIO::Read()
                                     suEfis.Time = BufferString.substring(3, 5)+":"+BufferString.substring(5, 7)+":"+BufferString.substring(7, 9)+"."+BufferString.substring(9, 11);
                                     uTimestamp = millis();
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
-                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "SKYVIEW ADAHRS: IAS %.2f, Pitch %.2f, Roll %.2f, LateralG %.2f, VerticalG %.2f, PercentLift %i, Palt %i, VSI %i, TAS %.2f, OAT %.2f, Heading %i ,Time %s\n", 
-                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll, 
+                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "SKYVIEW ADAHRS: IAS %.2f, Pitch %.2f, Roll %.2f, LateralG %.2f, VerticalG %.2f, PercentLift %i, Palt %i, VSI %i, TAS %.2f, OAT %.2f, Heading %i ,Time %s\n",
+                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll,
                                             suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift,
                                             suEfis.Palt, suEfis.VSI, suEfis.TAS, suEfis.OAT, suEfis.Heading, suEfis.Time.c_str());
                                 } // end if CRC OK
 
-                                else 
+                                else
                                     g_Log.print(MsgLog::EnEfis, MsgLog::EnWarning, "SKYVIEW ADAHRS CRC Failed");
 
                             } // end if Msg Type 1
@@ -621,10 +621,10 @@ void EfisSerialIO::Read()
                                     parseString = BufferString.substring(217, 220);
                                     if (parseString!="XXX") suEfis.PercentPower = parseString.toInt();       else suEfis.PercentPower = -1;
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
-                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "SKYVIEW EMS: FuelRemaining %.2f, FuelFlow %.2f, MAP %.2f, RPM %i, PercentPower %i\n", 
+                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "SKYVIEW EMS: FuelRemaining %.2f, FuelFlow %.2f, MAP %.2f, RPM %i, PercentPower %i\n",
                                             suEfis.FuelRemaining, suEfis.FuelFlow, suEfis.MAP, suEfis.RPM, suEfis.PercentPower);
                                 }
-                                else 
+                                else
                                     g_Log.print(MsgLog::EnEfis, MsgLog::EnWarning, "SKYVIEW EMS CRC Failed");
 
                             } // end if Msg Type 3
@@ -668,11 +668,11 @@ void EfisSerialIO::Read()
                                     uTimestamp = millis();
                                     suEfis.Time = BufferString.substring(0, 2)+":"+BufferString.substring(2, 4)+":"+BufferString.substring(4, 6)+"."+BufferString.substring(6, 8);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
-                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "D10: IAS %.2f, Pitch %.2f, Roll %.2f, LateralG %.2f, VerticalG %.2f, PercentLift %i, Palt %i, VSI %i, Time %s\n", 
+                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "D10: IAS %.2f, Pitch %.2f, Roll %.2f, LateralG %.2f, VerticalG %.2f, PercentLift %i, Palt %i, VSI %i, Time %s\n",
                                             suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift,suEfis.Palt,suEfis.VSI,suEfis.Time.c_str());
                                 }
 
-                                else 
+                                else
                                     g_Log.println(MsgLog::EnEfis, MsgLog::EnDebug, "D10 CRC Failed");
 
                             } // end if length OK
@@ -710,11 +710,11 @@ void EfisSerialIO::Read()
                                     uTimestamp = millis();
                                     suEfis.Time = BufferString.substring(3, 5)+":"+BufferString.substring(5, 7)+":"+BufferString.substring(7, 9)+"."+BufferString.substring(9, 11);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
-                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G5 data: IAS %.2f, Pitch %.2f, Roll %.2f, Heading %i, LateralG %.2f, VerticalG %.2f, Palt %i, VSI %i, Time %s\n", 
+                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G5 data: IAS %.2f, Pitch %.2f, Roll %.2f, Heading %i, LateralG %.2f, VerticalG %.2f, Palt %i, VSI %i, Time %s\n",
                                             suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.Heading, suEfis.LateralG, suEfis.VerticalG,suEfis.Palt,suEfis.VSI,suEfis.Time.c_str());
                                 }
 
-                                else 
+                                else
                                     g_Log.println(MsgLog::EnEfis, MsgLog::EnWarning, "G5 CRC Failed");
 
                             }
@@ -757,11 +757,11 @@ void EfisSerialIO::Read()
                                     uTimestamp = millis();
                                     suEfis.Time = BufferString.substring(3, 5)+":"+BufferString.substring(5, 7)+":"+BufferString.substring(7, 9)+"."+BufferString.substring(9, 11);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
-                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G3X Attitude data: efisIAS %.2f, efisPitch %.2f, efisRoll %.2f, efisHeading %i, efisLateralG %.2f, efisVerticalG %.2f, efisPercentLift %i, efisPalt %i, efisVSI %i,efisTime %s\n", 
+                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G3X Attitude data: efisIAS %.2f, efisPitch %.2f, efisRoll %.2f, efisHeading %i, efisLateralG %.2f, efisVerticalG %.2f, efisPercentLift %i, efisPalt %i, efisVSI %i,efisTime %s\n",
                                             suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.Heading, suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift, suEfis.Palt, suEfis.VSI, suEfis.Time.c_str());
                                 }
 
-                                else 
+                                else
                                     g_Log.println(MsgLog::EnEfis, MsgLog::EnDebug, "G3X Attitude CRC Failed");
                             }
 
@@ -785,11 +785,11 @@ void EfisSerialIO::Read()
                                     parseString = BufferString.substring(18, 22);
                                     if (parseString!="____") suEfis.RPM           = parseString.toInt();
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
-                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G3X EMS: efisFuelRemaining %.2f, efisFuelFlow %.2f, efisMAP %.2f, efisRPM %i\n", 
+                                        g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G3X EMS: efisFuelRemaining %.2f, efisFuelFlow %.2f, efisMAP %.2f, efisRPM %i\n",
                                             suEfis.FuelRemaining, suEfis.FuelFlow, suEfis.MAP, suEfis.RPM);
                                 }
 
-                                else 
+                                else
                                     g_Log.println(MsgLog::EnEfis, MsgLog::EnWarning, "G3X EMS CRC Failed");
                             }
 

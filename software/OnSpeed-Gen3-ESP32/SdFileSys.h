@@ -22,7 +22,7 @@ class SdFileSys
 {
 public:
     SdFileSys();
-    
+
     struct SuFileInfo
         {
         char        szFileName[25];
@@ -40,7 +40,7 @@ protected:
     SdSpiConfig     SpiConfig;
 
 public:
-    bool            bSdAvailable;   
+    bool            bSdAvailable;
 
     // Methods
 public:

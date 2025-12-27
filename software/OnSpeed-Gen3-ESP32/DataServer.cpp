@@ -25,7 +25,7 @@
 //volatile int calSourceID;
 //volatile float accelSumSq;
 //volatile float verticalGload;
- 
+
 // WebSocket server for live data display
 WebSocketsServer    DataServer = WebSocketsServer(81);
 
@@ -77,7 +77,7 @@ void DataServerInit()
 void DataServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length)
     {
 
-    switch(type) 
+    switch(type)
         {
         case WStype_DISCONNECTED:
             g_Log.printf(MsgLog::EnDataServer, MsgLog::EnDebug, "[%u] Disconnected!\n", num);
@@ -101,7 +101,7 @@ void DataServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lengt
             // DataServer.broadcastTXT("message here");
             break;
         case WStype_BIN:
-	    case WStype_ERROR:			
+	    case WStype_ERROR:
 	    case WStype_FRAGMENT_TEXT_START:
 	    case WStype_FRAGMENT_BIN_START:
 	    case WStype_FRAGMENT:
@@ -142,7 +142,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fVerticalGload = sqrt(abs(fAccelSumSq));
     fVerticalGload = round(fVerticalGload * 10.0) / 10.0; // round to 1 decimal place
 
-    if (g_pIMU->Az < 0) 
+    if (g_pIMU->Az < 0)
         fVerticalGload *= -1;
 
     if (isnan(g_Sensors.AOA) || g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
@@ -170,8 +170,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             {
                 // TAS is being updated in an interrupt
                 fWifiFlightpath = RAD2DEG(asin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
-            } 
-            else 
+            }
+            else
                 fWifiFlightpath = 0;
 
             fWifiVSI = MPS2FPM(-g_EfisSerial.suVN300.VelNedDown); // fpm
@@ -186,14 +186,14 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             if (g_EfisSerial.suEfis.TAS > 0)
             {
                 fWifiFlightpath = RAD2DEG(asin(g_AHRS.KalmanVSI/KTS2MPS(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
-            } 
+            }
 
             else
                 if (g_AHRS.fTAS > 0)
                 {
                     fWifiFlightpath = RAD2DEG(asin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
-                } 
-                else 
+                }
+                else
                     fWifiFlightpath=0;
 
             // kalmanVSI is being updated in an interrupt
@@ -214,11 +214,11 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
 
         // Send efisIAS if spherical probe is in use otherwise use OnspeedIAS.
  #ifdef SPHERICAL_PROBE
-//// This logic can't be fully right. What if there is a sperical probe and 
+//// This logic can't be fully right. What if there is a sperical probe and
 //// a VN300? The VN300 doesn't do IAS but there isn't an EFIS to provide IAS
 //// because the VN300 is using that serial port.
         if (g_EfisSerial.enType == EfisSerialIO::EnVN300)
-            fWifiIAS = g_Sensors.IAS;   
+            fWifiIAS = g_Sensors.IAS;
         else
             fWifiIAS = g_EfisSerial.suEfis.IAS;
  #else

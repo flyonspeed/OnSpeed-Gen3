@@ -16,7 +16,7 @@ TickType_t  xLastWakeTime = xTaskGetTickCount();
 void RebootFromSwitch()
 {
     g_Log.println(MsgLog::EnSwitch, MsgLog::EnDebug, "Reboot triggered by 5-second switch press.");
-    
+
     // Play a sound to indicate reboot is happening. Using an existing sound as a placeholder.
     // For a better user experience, you could add a new "rebooting" voice prompt.
     // g_AudioPlay.SetVoice(enVoiceCalMode);

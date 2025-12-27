@@ -48,7 +48,7 @@ void SensorReadTask(void *pvParams)
         // it ran long for some reason (like the CPU is overloaded) or
         // or was stopped for a time (like during sensor cal). Regardless,
         // make sure the xLastWakeTime parameter is set to an integer
-        // multiple of the delay time to maintain time alignment of 
+        // multiple of the delay time to maintain time alignment of
         // the data.
         if (xWasDelayed == pdFALSE)
         {
@@ -69,7 +69,7 @@ void SensorReadTask(void *pvParams)
         // data at a time. There are no other routines that read sensors on a regular
         // basis so it is OK to skip a read if someone else has the mutex. Go ahead
         // and wait 5 msec just in case someone is doing a quick sensor read.
-        if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5))) 
+        if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
         {
             g_Sensors.Read();
             xSemaphoreGive(xSensorMutex);
@@ -83,10 +83,10 @@ void SensorReadTask(void *pvParams)
 
 // ============================================================================
 
-SensorIO::SensorIO() 
+SensorIO::SensorIO()
     : P45Median(g_Config.iPressureSmoothing),
       PfwdMedian(g_Config.iPressureSmoothing),
-      PfwdAvg(10), 
+      PfwdAvg(10),
       P45Avg(10),
       OneWireBus(OAT_PIN),
       OatSensor(&OneWireBus),
@@ -132,9 +132,9 @@ void SensorIO::Read()
     // Update flaps position about once per second
     if (millis() - uLastFlapsReadMs > 1000)
     {
-        if (g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot) 
+        if (g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot)
             g_Flaps.Update();
-        else                                                     
+        else
             g_Flaps.Update(0);
         uLastFlapsReadMs = millis();
     }
@@ -170,8 +170,8 @@ void SensorIO::Read()
 
         // Calculate airspeed
         //PfwdPascal = ((PfwdSmoothed + g_Config.iPFwdBias - 0.1*16383) * 2/(0.8*16383) -1) * 6894.757;
-        
-        // Calculate airspeed from smoothed dynamic pressure        
+
+        // Calculate airspeed from smoothed dynamic pressure
         // The smoothed value is without bias, so we add it back for the PSI conversion.
         float PfwdPSI = g_pPitot->ReadPressurePSI(PfwdSmoothed + g_Config.iPFwdBias);
         PfwdPascal = PSI2MB(PfwdPSI) * 100; // Convert PSI to Pascals
@@ -180,14 +180,14 @@ void SensorIO::Read()
             IAS = sqrt(2*PfwdPascal/1.225)* 1.94384; // knots // physics based calculation
 #ifdef SPHERICAL_PROBE
             IAS = IASCURVE(IAS); // for now use a hardcoded IAS curve for a spherical probe. CAS curve parameters can only take 4 decimals. Not accurate enough.
-#else  
-            if (g_Config.bCasCurveEnabled) 
-                IAS = CurveCalc(g_Sensors.IAS,g_Config.CasCurve);  // use CAS correction curve if enabled 
+#else
+            if (g_Config.bCasCurveEnabled)
+                IAS = CurveCalc(g_Sensors.IAS,g_Config.CasCurve);  // use CAS correction curve if enabled
 #endif
         }
 
         // Catch negative pressure case
-        else 
+        else
             IAS = 0;
     } // end if not in test pot or range sweep mode
 
@@ -215,7 +215,7 @@ void SensorIO::Read()
         {
             g_Log.printf("timeStamp: %lu,iPfwd: %i,PfwdSmoothed: %.2f,iP45: %i,P45Smoothed: %.2f,Pstatic: %.2f,Palt: %.2f,IAS: %.2f,AOA: %.2f,flapsPos: %i,VerticalG: %.2f,LateralG: %.2f,ForwardG: %.2f,RollRate: %.2f,PitchRate: %.2f,YawRate: %.2f, SmoothedPitch %.2f\n",
                 millis(), iPfwd, PfwdSmoothed, iP45, P45Smoothed, PStatic, Palt, IAS, AOA, g_Flaps.iPosition,
-                g_AHRS.AccelVertComp, g_AHRS.AccelLatComp, g_AHRS.AccelFwdComp, 
+                g_AHRS.AccelVertComp, g_AHRS.AccelLatComp, g_AHRS.AccelFwdComp,
                 g_AHRS.gRoll, g_AHRS.gPitch, g_AHRS.gYaw, g_AHRS.SmoothedPitch);
 
             iDecimate = 50;

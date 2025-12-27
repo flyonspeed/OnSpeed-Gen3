@@ -9,7 +9,7 @@
 
 enum EnVoice
     {
-    enVoiceNone, enVoiceDatamark, enVoiceDisabled, enVoiceEnabled, enVoiceGLimit, 
+    enVoiceNone, enVoiceDatamark, enVoiceDisabled, enVoiceEnabled, enVoiceGLimit,
     enVoiceCalCancel, enVoiceCalMode, enVoiceCalSaved, enVoiceOverG, enVoiceVnoChime,
     enVoiceLeft, enVoiceRight,
     };
@@ -40,7 +40,7 @@ public:
     EnAudioTone     enTone;
     unsigned        uToneFreq;
     float           fVolume;            // Audio output volume,from 0.0 to 1.0
-    float           fLeftGain;          // Gain control, mostly for 3D audio, nominally 1.0 but 
+    float           fLeftGain;          // Gain control, mostly for 3D audio, nominally 1.0 but
     float           fRightGain;         // can be higher or lower.
 
     float           fTonePulseMaxSamples;

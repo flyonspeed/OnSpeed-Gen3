@@ -58,9 +58,9 @@ void DataServerTask(void * pvParams)
 
 // ----------------------------------------------------------------------------
 
-void setup() 
+void setup()
 {
-    
+
     delay(1000);
 
     //Serial.begin(115200);
@@ -77,10 +77,10 @@ void setup()
     // ------------------
     /*  Need to look into something called dedicated SPI.
         https://github.com/greiman/SdFat/issues/244
-        says "The only way to get dedicated SPI is to explicitly specify 
+        says "The only way to get dedicated SPI is to explicitly specify
         DEDICATED_SPI using a begin call with SdSpiConfig as the argument like this..."
             #define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-            if (!sd.begin(SD_CONFIG)) 
+            if (!sd.begin(SD_CONFIG))
                 {
                 // handle error
                 }
@@ -104,14 +104,14 @@ void setup()
     // Try mounting the LittleFS file system in flash
 #if 0
     g_bFlashFS = false;
-    if (LittleFS.begin()) 
+    if (LittleFS.begin())
         g_bFlashFS = true;
 
     // Mount failed so try formatting and mounting again
     else
         {
         g_Log.println(MsgLog::EnMain, MsgLog::EnError, "Mount LittleFS failed, trying to format");
-        if (LittleFS.format()) 
+        if (LittleFS.format())
             {
             g_Log.println(MsgLog::EnMain, MsgLog::EnError, "Format LittleFS successful");
             if (LittleFS.begin())
@@ -122,17 +122,17 @@ void setup()
                 }
             else
                 g_Log.println(MsgLog::EnMain, MsgLog::EnError, "Mount LittleFS failed again");
-            } 
-        else 
+            }
+        else
             {
             g_Log.println(MsgLog::EnMain, MsgLog::EnError, "Format LittleFS failed");
             }
         }
 #else
     // Format if fail
-    if (LittleFS.begin(true)) 
+    if (LittleFS.begin(true))
         g_bFlashFS = true;
-#endif 
+#endif
 #endif // SUPPORT_LITTLEFS
 
     // Load configuration
@@ -180,7 +180,7 @@ void setup()
     pinMode(CS_ADC,    OUTPUT); digitalWrite(CS_ADC,    HIGH);
 #endif
     pinMode(SD_CS,     OUTPUT); digitalWrite(SD_CS,     HIGH);
- 
+
     // Init sensor SPI interface
     //  ------------------------
 //  pinMode(SENSOR_SCLK, OUTPUT); digitalWrite(CS_AOA, LOW);
@@ -245,7 +245,7 @@ void setup()
         {
         // Create logfile
         if (g_Config.bSdLogging && bLoggingRingBufferOk)
-            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
                 {
                 g_LogSensor.Open();
                 xSemaphoreGive(xWriteMutex);
@@ -346,7 +346,7 @@ void loop()
     // FreeRTOS doesn't really have very good support for serial port I/O. The
     // problem is that there is no way to block reading from a serial port in
     // an RTOS friendly way. If you use available() then the task just constantly
-    // spins, doing nothing. If you do a read() it spins internal to the read 
+    // spins, doing nothing. If you do a read() it spins internal to the read
     // function, again doing nothing. So do serial I/O the old fashioned way.
     // That is, in line with everything else that needs a chance to run.
 

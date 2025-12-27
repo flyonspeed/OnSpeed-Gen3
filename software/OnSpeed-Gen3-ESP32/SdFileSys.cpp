@@ -1,6 +1,6 @@
-// 
-// 
-// 
+//
+//
+//
 #include <iostream>
 #include <cstring>
 
@@ -27,10 +27,10 @@ SdFileSys::SdFileSys() :
 // ------------------
 /*  Need to look into something called dedicated SPI.
     https://github.com/greiman/SdFat/issues/244
-    says "The only way to get dedicated SPI is to explicitly specify 
+    says "The only way to get dedicated SPI is to explicitly specify
     DEDICATED_SPI using a begin call with SdSpiConfig as the argument like this..."
         #define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-        if (!sd.begin(SD_CONFIG)) 
+        if (!sd.begin(SD_CONFIG))
             {
             // handle error
             }
@@ -65,11 +65,11 @@ bool SdFileSys::Init()
 void SdFileSys::Info()
     {
     uint32_t cardSectorCount = puSD_Card->sectorCount();
-    if (!cardSectorCount) 
+    if (!cardSectorCount)
         {
         g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "Get sector count failed.");
         return;
-        } 
+        }
 
     g_Log.printf("\nCard size: %f GB\n", cardSectorCount * 5.12e-7);
 
@@ -77,7 +77,7 @@ void SdFileSys::Info()
     if      (cardSectorCount > 67108864)  g_Log.printf("exFAT\n");
     else if (cardSectorCount >  4194304)  g_Log.printf("FAT32\n");
     else                                  g_Log.printf("FAT16\n");
-    
+
     }
 
 // ----------------------------------------------------------------------------
@@ -93,14 +93,14 @@ bool SdFileSys::FileList(SuFileInfoList * psuFileInfoList)
     psuFileInfoList->clear();
 
     hRootDir = uSD_FAT.open("/");
-    if (!hRootDir.isOpen()) 
+    if (!hRootDir.isOpen())
         return false;
 
-    while(true) 
+    while(true)
         {
         hFileEntry =  hRootDir.openNextFile();
 
-        if (!hFileEntry.isOpen()) 
+        if (!hFileEntry.isOpen())
             {
             // no more files
             break;
@@ -136,7 +136,7 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
     FatFormatter    fatFormatter;
 
     // Make sure we can talk to the SD card
-    if ((!puSD_Card || puSD_Card->errorCode())) 
+    if ((!puSD_Card || puSD_Card->errorCode()))
         {
         if (pStatusOut != nullptr)
             {
@@ -160,7 +160,7 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
     //    pStatusOut->print(uCardSectorCount * 5.12e-7);
     //    pStatusOut->println(" GBytes");
     //    }
- 
+
     // Do optional erase. I'm not sure what the need for this is.
     if (bErase)
         {
@@ -186,7 +186,7 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
     bool bFormatStatus = uCardSectorCount > 67108864 ?
         exFatFormatter.format(puSD_Card, auSectorBuffer, pStatusOut) :
         fatFormatter.format  (puSD_Card, auSectorBuffer, pStatusOut);
-    if (!bFormatStatus) 
+    if (!bFormatStatus)
         {
         if (pStatusOut != nullptr)
             pStatusOut->println("FORMAT ERROR: Could not format SD card.");
@@ -232,7 +232,7 @@ bool SdFileSys::remove(const char * szFilename)
 
 // Comparison function sorting directory file lists
 
-bool CompareByFileName(const SdFileSys::SuFileInfo & a, SdFileSys::SuFileInfo & b) 
+bool CompareByFileName(const SdFileSys::SuFileInfo & a, SdFileSys::SuFileInfo & b)
     {
     // For now it is just a simple case insensitive compare
     return strcasecmp(a.szFileName, b.szFileName) < 0;

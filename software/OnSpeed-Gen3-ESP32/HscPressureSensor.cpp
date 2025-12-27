@@ -30,7 +30,7 @@ HscPressureSensor::HscPressureSensor(SpiIO * pSensorSPI, int CsPort, int CountsM
     uChipSel     = CsPort;
     SensorSPI    = pSensorSPI;
 
-  // Set up chip select pins as outputs 
+  // Set up chip select pins as outputs
   pinMode(uChipSel, OUTPUT);
 
   } // end contructor
@@ -57,7 +57,7 @@ HscPressureSensor::HscPressureSensor(SpiIO * pSensorSPI, int CsPort, EnPressureS
       break;
     }
 
-  // Set up chip select pins as outputs 
+  // Set up chip select pins as outputs
   pinMode(uChipSel, OUTPUT);
 
   } // end contructor

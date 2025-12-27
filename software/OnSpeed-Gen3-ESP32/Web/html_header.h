@@ -102,7 +102,7 @@ li.dropdown {
     }
 .header-container{
     display: flex;
-    align-items: flex-end;  
+    align-items: flex-end;
     margin: 0px;
     }
 .firmware{
@@ -180,8 +180,8 @@ li.dropdown {
     }
 .signal-3 .bar-4{
     opacity:.2
-    } 
-    
+    }
+
 .form-grid,
 .form-option-box,
 .round-box {
@@ -242,7 +242,7 @@ li.dropdown {
     width: 100%;
     height: 33px;
     padding: 0 8px;
-    -webkit-appearance: none; 
+    -webkit-appearance: none;
     -webkit-border-radius: 3px;
     -moz-border-radius: 3px;
     -ms-border-radius: 3px;
@@ -488,7 +488,7 @@ section {
     margin-top:15px;
     margin-bottom:15px;
     border-radius: 3px;
-    align-items: center;  
+    align-items: center;
     }
 
 section h2 {
@@ -496,7 +496,7 @@ section h2 {
     margin: -22px 0 0;
     padding-left:20px;
     padding-right:20px;
-    margin-left:5px;  
+    margin-left:5px;
     background: #fff;
     font-weight: bold;
     height:22px;
@@ -504,11 +504,11 @@ section h2 {
     border:1px groove threedface;
     font-size: 15px;
     color: #737373;
-    }   
+    }
 
 .content-container{
     display: flex;
-    align-items: flex-end;  
+    align-items: flex-end;
     margin: 0px;
     background:#fff;
     }
@@ -517,7 +517,7 @@ section h2 {
     overflow: hidden;
     display: inline-block;
     }
-                    
+
 .upload-btn {
     border: none;
     color: black;
@@ -530,7 +530,7 @@ section h2 {
     width: 100%;
     padding: 0 8px;
     }
-                    
+
 .upload-btn-wrapper input[type=file] {
     font-size: 100px;
     position: absolute;
@@ -574,8 +574,8 @@ section h2 {
     border-radius: 4px 0 0 4px;
     }
 .switch-field label:last-of-type {
-    border-radius: 0 4px 4px 0;  
-    }   
+    border-radius: 0 4px 4px 0;
+    }
 </style>
 </head>
 
@@ -588,25 +588,25 @@ section h2 {
 
 <ul>
     <li><a href="/">Home</a></li>
-    <li class="dropdown"> 
+    <li class="dropdown">
         <a href="javascript:void(0)" class="dropbtn">Tools</a>
         <div class="dropdown-content">
             <a href="logs">Log Files</a>
             <a href="format">Format SD Card</a>
             <a href="upgrade">Firmware Upgrade</a>
             <a href="reboot">Reboot System</a>
-        </div>    
+        </div>
         </li>
-    <li class="dropdown"> 
+    <li class="dropdown">
         <a href="javascript:void(0)" class="dropbtn">Settings</a>
         <div class="dropdown-content">
             <!-- <a href="wifi">Wifi Connection</a> -->
             <a href="aoaconfig">System Configuration</a>
-            <a href="sensorconfig">Sensor Calibration</a>    
+            <a href="sensorconfig">Sensor Calibration</a>
             <a href="calwiz">AOA Calibration Wizard</a>
-        </div>     
+        </div>
         </li>
     <li>
-        <a href="live">LiveView</a></li>   
+        <a href="live">LiveView</a></li>
 </ul>
 )=====";

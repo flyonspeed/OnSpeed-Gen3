@@ -96,7 +96,7 @@ void WriteDisplayDataTask(void * pvParams)
 
 // ============================================================================
 
-DisplaySerial::DisplaySerial() 
+DisplaySerial::DisplaySerial()
 {
 
 }
@@ -142,9 +142,9 @@ void DisplaySerial::Write()
 #endif
     const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
-    if (fPAltSmoothed == 0.0) 
+    if (fPAltSmoothed == 0.0)
         fPAltSmoothed = M2FT(g_AHRS.KalmanAlt);
-    else 
+    else
         fPAltSmoothed = M2FT(g_AHRS.KalmanAlt) * smoothingAlphaVert/10+ (1-smoothingAlphaVert/10)*fPAltSmoothed; // increased smoothing needed
 
     fVerticalGSmoothed = g_AHRS.AccelVertCorr * smoothingAlphaVert+ (1-smoothingAlphaVert)*fVerticalGSmoothed;
@@ -165,13 +165,13 @@ void DisplaySerial::Write()
         else if ((g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA)       && // LDmaxAOA
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA))   // onSpeedAOAfast
             iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  50, 55);
-        else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA) && 
+        else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA) &&
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA))   // onSpeedAOAslow
             iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  55, 66);
-        else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA) && 
+        else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA) &&
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA))     // stallWarningAOA
             iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, 66, 90);
-        else                                                                          
+        else
             iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA*100/90,90,100);
         iPercentLift = constrain(iPercentLift,0,99);
         }

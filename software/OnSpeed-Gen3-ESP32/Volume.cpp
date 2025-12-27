@@ -24,7 +24,7 @@ void CheckVolumeTask(void * pvParams)
 
         if (g_Config.bVolumeControl)
             {
-            if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5))) 
+            if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
                 {
                 const int iRaw = (int)ReadVolume();
                 if (!bInitialized)
@@ -49,7 +49,7 @@ void CheckVolumeTask(void * pvParams)
             {
             g_AudioPlay.SetVolume(g_Config.iDefaultVolume);
             }
-            
+
         } // end while forever
 
     } // end CheckVolumeTask()

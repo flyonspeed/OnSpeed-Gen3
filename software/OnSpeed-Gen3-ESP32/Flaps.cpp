@@ -49,7 +49,7 @@ void Flaps::Update()
     iIndex = 0;
 
     // Figure out where this value is in the array of flap position values
-    if (g_Config.aFlaps.size() > 1)  
+    if (g_Config.aFlaps.size() > 1)
     {
         int     iPotRangeMidpoint;
         bool    bDecendingOrder = false;
@@ -66,14 +66,14 @@ void Flaps::Update()
             // Not decending order
             if (!bDecendingOrder)
             {
-                if (uValue > iPotRangeMidpoint) 
+                if (uValue > iPotRangeMidpoint)
                     iIndex = iFlapIdx;
-            } 
+            }
 
             // Decending order
             else
             {
-                if (uValue < iPotRangeMidpoint) 
+                if (uValue < iPotRangeMidpoint)
                     iIndex = iFlapIdx;
             }
         } // end for all flap positions

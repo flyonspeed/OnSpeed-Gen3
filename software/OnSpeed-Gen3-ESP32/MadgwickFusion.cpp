@@ -37,7 +37,7 @@
 //-----------------------------------------------------------------------------
 // AHRS algorithm update
 
-Madgwick::Madgwick() 
+Madgwick::Madgwick()
     {
     beta           = betaDef;
     invSampleFreq  = 1.0f / sampleFreqDef;
@@ -80,7 +80,7 @@ void Madgwick::Update(float gx, float gy, float gz, float ax, float ay, float az
     float _2q0mx, _2q0my, _2q0mz, _2q1mx, _2bx, _2bz, _4bx, _4bz, _2q0, _2q1, _2q2, _2q3, _2q0q2, _2q2q3, q0q0, q0q1, q0q2, q0q3, q1q1, q1q2, q1q3, q2q2, q2q3, q3q3;
 
     // Use IMU algorithm if magnetometer measurement invalid (avoids NaN in magnetometer normalisation)
-    if((mx == 0.0f) && (my == 0.0f) && (mz == 0.0f)) 
+    if((mx == 0.0f) && (my == 0.0f) && (mz == 0.0f))
     {
         UpdateIMU(gx, gy, gz, ax, ay, az);
         return;
@@ -98,7 +98,7 @@ void Madgwick::Update(float gx, float gy, float gz, float ax, float ay, float az
     qDot4 = 0.5f * ( q0 * gz + q1 * gy - q2 * gx);
 
     // Compute feedback only if accelerometer measurement valid (avoids NaN in accelerometer normalisation)
-    if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f))) 
+    if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f)))
     {
         // Normalise accelerometer measurement
         recipNorm = invSqrt(ax * ax + ay * ay + az * az);
@@ -198,7 +198,7 @@ void Madgwick::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float
     qDot4 = 0.5f * ( q0 * gz + q1 * gy - q2 * gx);
 
     // Compute feedback only if accelerometer measurement valid (avoids NaN in accelerometer normalisation)
-    if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f))) 
+    if(!((ax == 0.0f) && (ay == 0.0f) && (az == 0.0f)))
         {
         // Normalise accelerometer measurement
         recipNorm = invSqrt(ax * ax + ay * ay + az * az);
@@ -259,7 +259,7 @@ void Madgwick::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float
 // Fast inverse square-root
 // See: http://en.wikipedia.org/wiki/Fast_inverse_square_root
 
-float Madgwick::invSqrt(float x) 
+float Madgwick::invSqrt(float x)
 {
 //  return 1.0 / sqrt(x);
 //  float halfx = 0.5f * x;

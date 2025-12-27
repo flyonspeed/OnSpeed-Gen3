@@ -288,12 +288,12 @@ void IMU330::ConfigAxes()
         // V4B +X back (away from pressure ports)  +Y right (towards USB ports)  +Z down
       {"FORWARD", "LEFT",    "-Y", "Z","-X"}, // TESTED GOOD Paul's
       {"FORWARD", "RIGHT",    "Y","-Z","-X"}, // TESTED GOOD
-      {"FORWARD", "UP",      "-Z","-Y","-X"}, // TESTED GOOD, Vac's RV-4 
+      {"FORWARD", "UP",      "-Z","-Y","-X"}, // TESTED GOOD, Vac's RV-4
       {"FORWARD", "DOWN",     "Z", "Y","-X"}, // TESTED GOOD
 
       {"AFT",     "LEFT",     "Y", "Z", "X"}, // TESTED GOOD
       {"AFT",     "RIGHT",   "-Y","-Z", "X"}, // TESTED GOOD
-      {"AFT",     "UP",      "-Z", "Y", "X"}, // TESTED GOOD, bench box  
+      {"AFT",     "UP",      "-Z", "Y", "X"}, // TESTED GOOD, bench box
       {"AFT",     "DOWN",     "Z","-Y", "X"}, // TESTED GOOD
 
       {"LEFT",    "FORWARD",  "Y", "X","-Z"}, // TESTED GOOD

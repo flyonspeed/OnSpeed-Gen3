@@ -18,7 +18,7 @@ class MsgLog
 
 public:
     MsgLog();
- 
+
 public:
     // Logging levels
     enum EnLevel { EnDebug, EnWarning, EnError, EnOff };

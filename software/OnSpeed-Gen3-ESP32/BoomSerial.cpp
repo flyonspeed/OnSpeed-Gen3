@@ -66,7 +66,7 @@ void BoomSerialIO::Enable(bool bEnable)
 
 // ----------------------------------------------------------------------------
 
-void BoomSerialIO::Read() 
+void BoomSerialIO::Read()
 {
     if (g_Config.bReadBoom)
     {
@@ -82,26 +82,26 @@ void BoomSerialIO::Read()
             LastReceivedTime = millis();
 
             // Prevent buffer overflow
-            if (BufferIndex >= BOOM_BUFFER_SIZE - 1) 
+            if (BufferIndex >= BOOM_BUFFER_SIZE - 1)
             {
                 BufferIndex = 0;
             }
 
-            if ((BufferIndex > 0 || InChar == '$')) 
+            if ((BufferIndex > 0 || InChar == '$'))
             {
-                if (InChar == '\n') 
+                if (InChar == '\n')
                 {
                     // Ensure the string is null-terminated
                     Buffer[BufferIndex] = '\0';
 
-                    if (Buffer[0] == '$' && BufferIndex >= 21) 
+                    if (Buffer[0] == '$' && BufferIndex >= 21)
                     {
                         uTimestamp=millis();
 
 #ifndef NOBOOMCHECKSUM
                         // CRC checking
                         int calcCRC = 0;
-                        for (int i = 0; i < BufferIndex - 4; i++) 
+                        for (int i = 0; i < BufferIndex - 4; i++)
                         {
                             calcCRC += Buffer[i];
                         }
@@ -113,9 +113,9 @@ void BoomSerialIO::Read()
                         hexCRC[2] = '\0';  // null-terminate the string
                         int expectedCRC = (int)strtol(hexCRC, NULL, 16);
 
-                        if (calcCRC != expectedCRC) 
+                        if (calcCRC != expectedCRC)
                             {
-                            g_Log.printf(MsgLog::EnBoom, MsgLog::EnError, "Bad CRC  Expectd 0x%s Calc 0x%s\n", 
+                            g_Log.printf(MsgLog::EnBoom, MsgLog::EnError, "Bad CRC  Expectd 0x%s Calc 0x%s\n",
                                 String(expectedCRC,HEX), String(calcCRC,HEX));
                             } // end bad CRC
 
@@ -149,7 +149,7 @@ void BoomSerialIO::Read()
                 } // end if CR
 
                 // No CR so store the character
-                else 
+                else
                 {
                     Buffer[BufferIndex++] = InChar;
                 }
@@ -157,7 +157,7 @@ void BoomSerialIO::Read()
 
 #ifdef BOOMDATADEBUG
             // Message hasn't started so this must be an error
-            else 
+            else
             {
                 Serial.print(InChar);
             }

@@ -153,7 +153,7 @@ void CfgWebServerInit()
 
     // Wait after init softAP
     delay(100);
-    
+
 
     IPAddress    Ip(192, 168,   0, 1);
     IPAddress NMask(255, 255, 255, 0);
@@ -238,7 +238,7 @@ void CfgWebServerInit()
     // Called when the url is not defined here
     CfgServer.onNotFound(
         []()
-            { 
+            {
             if (!HandleFileRead(CfgServer.uri()))
                 CfgServer.send(404, "text/plain", "File Not Found");
             }
@@ -250,7 +250,7 @@ void CfgWebServerInit()
     if (MDNS.begin("onspeed"))
         MDNS.addService("http", "tcp", 80);
     // DnsServer.start(53, "onspeed.local",  Ip);
-    
+
     } // end setup()
 
 
@@ -330,7 +330,7 @@ void HandleReboot()
         <a href=\"/\">Cancel</a>";
         sPage += pageFooter;
         CfgServer.send(200, "text/html", sPage);
-        } 
+        }
     else
         {
         // reboot system
@@ -444,7 +444,7 @@ function FillInValue(SenderID, ValueName, TargetID)
 
         ReturnValue = GetValue(ValueName);
 
-        if (ReturnValue != null) 
+        if (ReturnValue != null)
             {
             document.getElementById(TargetID).value = ReturnValue;
             document.getElementById(SenderID).value = "Updated!";
@@ -465,7 +465,7 @@ function GetValue(ValueName) {
 
     if (xhr.status === 200) {
         return xhr.responseText;
-        } 
+        }
     else {
         console.error("GetValue() request failed:", xhr.status);
         return null;
@@ -652,7 +652,7 @@ window.addEventListener('load', function()
 
     // logFileToReplay
     String replayLogFileStyle;
-    if (g_Config.suDataSrc.enSrc == SuDataSource::EnReplay) replayLogFileStyle = R"#(style="display:block")#"; 
+    if (g_Config.suDataSrc.enSrc == SuDataSource::EnReplay) replayLogFileStyle = R"#(style="display:block")#";
     else                                                    replayLogFileStyle = R"#(style="display:none")#";
 
 #if 0
@@ -666,12 +666,12 @@ window.addEventListener('load', function()
     sPage += R"#(
         <div class="form-divs flex-col-12 replaylogfilesetting" )#" + replayLogFileStyle + R"#(>
             <label for="id_replayLogFile">Log file to replay</label>
-            <input id="id_replayLogFile" name="logFileName" list="logFiles" value=")#" + 
+            <input id="id_replayLogFile" name="logFileName" list="logFiles" value=")#" +
                 String(g_Config.sReplayLogFileName) + R"#(" onfocus="this.value=''" autocomplete="off" />
                 <datalist id="logFiles">
 )#";
     // Populate with a list of filename on the disk
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
         {
         SdFileSys::SuFileInfoList   suFileList;
 
@@ -770,8 +770,8 @@ window.addEventListener('load', function()
         sPage += "\n"
 R"#(            <div class="form-divs flex-col-1" id="id_aoaCurve)#" + String(iFlapIdx) + R"#(Param0">)#";
 
-        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += " *X<sup>3</sup>+"; 
-        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += " * 0 + "; 
+        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += " *X<sup>3</sup>+";
+        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += " * 0 + ";
         else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 3) sPage += " * 0 + ";
 
         sPage += R"#(</div>)#";
@@ -784,8 +784,8 @@ R"#(</div>)#";
         sPage += "\n"
 R"#(            <div class="form-divs flex-col-1" id="id_aoaCurve)#" + String(iFlapIdx) + R"#(Param1">)#";
 
-        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += " *X<sup>2</sup>+"; 
-        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += " * 0 + "; 
+        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += " *X<sup>2</sup>+";
+        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += " * 0 + ";
         else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 3) sPage += " * 0 + ";
 
         sPage += R"#(</div>)#";
@@ -798,8 +798,8 @@ R"#(</div>)#";
         sPage += "\n"
 R"#(            <div class="form-divs flex-col-1" id="id_aoaCurve)#" + String(iFlapIdx) + R"#(Param2">)#";
 
-        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += "*X<sup></sup>+"; 
-        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += "*ln(x)+ "; 
+        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += "*X<sup></sup>+";
+        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += "*ln(x)+ ";
         else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 3) sPage += "* e^ (";
 
         sPage += R"#(</div>)#";
@@ -812,8 +812,8 @@ R"#(</div>)#";
         sPage += "\n"
 R"#(            <div class="form-divs flex-col-1" id="id_aoaCurve)#" + String(iFlapIdx) + R"#(Param3">)#";
 
-        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += ""; 
-        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += ""; 
+        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += "";
+        else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += "";
         else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 3) sPage += ") * x";
 
         sPage += R"#(</div>)#";
@@ -848,7 +848,7 @@ R"#(        </section>)#" "\n";
         </div>)#";
 
     String casCurveVisibility;
-    if (g_Config.bCasCurveEnabled) casCurveVisibility=R"#(style="display:block")#"; 
+    if (g_Config.bCasCurveEnabled) casCurveVisibility=R"#(style="display:block")#";
     else                           casCurveVisibility=R"#(style="display:none")#";
 
     // CAS curve enable/disable
@@ -882,8 +882,8 @@ R"#(        </section>)#" "\n";
         </div>
         <div id="id_casCurveParam0" class="form-divs flex-col-1 cascurvesetting" )#" + String(casCurveVisibility) + R"#(>)#";
 
-    if      (g_Config.CasCurve.iCurveType==1) sPage += " *X<sup>3</sup>+ "; 
-    else if (g_Config.CasCurve.iCurveType==2) sPage += " * 0 + "; 
+    if      (g_Config.CasCurve.iCurveType==1) sPage += " *X<sup>3</sup>+ ";
+    else if (g_Config.CasCurve.iCurveType==2) sPage += " * 0 + ";
     else if (g_Config.CasCurve.iCurveType==3) sPage += " * 0 + ";
 
     sPage += R"#(</div>
@@ -892,8 +892,8 @@ R"#(        </section>)#" "\n";
         </div>
         <div id="id_casCurveParam1" class="form-divs flex-col-1 cascurvesetting" )#" + String(casCurveVisibility) + R"#(>)#";
 
-    if      (g_Config.CasCurve.iCurveType==1) sPage += " *X<sup>2</sup>+ "; 
-    else if (g_Config.CasCurve.iCurveType==2) sPage += " * 0 + "; 
+    if      (g_Config.CasCurve.iCurveType==1) sPage += " *X<sup>2</sup>+ ";
+    else if (g_Config.CasCurve.iCurveType==2) sPage += " * 0 + ";
     else if (g_Config.CasCurve.iCurveType==3) sPage += " * 0 + ";
 
     sPage += R"#(</div>
@@ -902,8 +902,8 @@ R"#(        </section>)#" "\n";
         </div>
         <div id="id_casCurveParam2" class="form-divs flex-col-1 cascurvesetting" )#" + String(casCurveVisibility) + R"#(>)#";
 
-    if      (g_Config.CasCurve.iCurveType==1) sPage += " *X<sup></sup>+ "; 
-    else if (g_Config.CasCurve.iCurveType==2) sPage += "*ln(x)+"; 
+    if      (g_Config.CasCurve.iCurveType==1) sPage += " *X<sup></sup>+ ";
+    else if (g_Config.CasCurve.iCurveType==2) sPage += "*ln(x)+";
     else if (g_Config.CasCurve.iCurveType==3) sPage += "* e^ (";
 
     sPage += R"#(</div>
@@ -913,8 +913,8 @@ R"#(        </section>)#" "\n";
         <div id="id_casCurveParam3" class="form-divs flex-col-1 cascurvesetting" )#" + String(casCurveVisibility) + R"#(>
 )#";
 
-    if      (g_Config.CasCurve.iCurveType==1) sPage += ""; 
-    else if (g_Config.CasCurve.iCurveType==2) sPage += ""; 
+    if      (g_Config.CasCurve.iCurveType==1) sPage += "";
+    else if (g_Config.CasCurve.iCurveType==2) sPage += "";
     else if (g_Config.CasCurve.iCurveType==3) sPage += " * x)";
 
     sPage += R"#(
@@ -988,7 +988,7 @@ R"#(        </section>)#" "\n";
         defaultVolumeVisibility = R"#(style="display:block")#";
         volumeLevelsVisibility  = R"#(style="display:none")#";
         volumeControlWidth      = "6";
-        } 
+        }
     else
         {
         defaultVolumeVisibility = R"#(style="display:none")#";
@@ -1054,7 +1054,7 @@ R"#(        </section>)#" "\n";
 
     // Load Limit
     String loadLimitVisibility;
-    if (g_Config.bOverGWarning) loadLimitVisibility = R"#(style="display:block")#"; 
+    if (g_Config.bOverGWarning) loadLimitVisibility = R"#(style="display:block")#";
     else                        loadLimitVisibility = R"#(style="display:none")#";
 
     sPage += R"#(
@@ -1069,7 +1069,7 @@ R"#(        </section>)#" "\n";
 
     // Vno chime
     String vnoVisibility;
-    if (g_Config.bVnoChimeEnabled) vnoVisibility = R"#(style="display:block")#"; 
+    if (g_Config.bVnoChimeEnabled) vnoVisibility = R"#(style="display:block")#";
     else                           vnoVisibility = R"#(style="display:none")#";
 
     sPage += R"#(
@@ -1367,24 +1367,24 @@ void HandleConfigSave()
 
     if (CfgServer.hasArg("aoaSmoothing"))
         {
-        if (g_Config.iAoaSmoothing != CfgServer.arg("aoaSmoothing").toInt()) 
+        if (g_Config.iAoaSmoothing != CfgServer.arg("aoaSmoothing").toInt())
             rebootRequired = true;
         g_Config.iAoaSmoothing = CfgServer.arg("aoaSmoothing").toInt();
         }
 
-    if (CfgServer.hasArg("pressureSmoothing")) 
+    if (CfgServer.hasArg("pressureSmoothing"))
         g_Config.iPressureSmoothing = CfgServer.arg("pressureSmoothing").toInt();
 
     if (CfgServer.hasArg("dataSource"))
         {
-//        if (g_Config.sDataSource != CfgServer.arg("dataSource")) 
-        if (String(g_Config.suDataSrc.toCStr()) != CfgServer.arg("dataSource")) 
+//        if (g_Config.sDataSource != CfgServer.arg("dataSource"))
+        if (String(g_Config.suDataSrc.toCStr()) != CfgServer.arg("dataSource"))
             rebootRequired = true;
 //        g_Config.sDataSource = CfgServer.arg("dataSource");
         g_Config.suDataSrc.fromStrSet(CfgServer.arg("dataSource"));
         }
 
-    if (CfgServer.hasArg("logFileName")) 
+    if (CfgServer.hasArg("logFileName"))
         g_Config.sReplayLogFileName = CfgServer.arg("logFileName");
 
 #if 1
@@ -1418,15 +1418,15 @@ void HandleConfigSave()
         iFlapIdx++;
         }
 
-    std::sort(g_Config.aFlaps.begin(), g_Config.aFlaps.end(), 
+    std::sort(g_Config.aFlaps.begin(), g_Config.aFlaps.end(),
             [](FOSConfig::SuFlaps a, FOSConfig::SuFlaps b) { return a.iDegrees < b.iDegrees; } );
 #endif
 
     // Read boom enabled/disabled
-    if (CfgServer.hasArg("readBoom") && CfgServer.arg("readBoom")=="1") g_Config.bReadBoom = true; 
+    if (CfgServer.hasArg("readBoom") && CfgServer.arg("readBoom")=="1") g_Config.bReadBoom = true;
     else                                                                g_Config.bReadBoom = false;
 
-    if (CfgServer.hasArg("casCurveEnabled") && CfgServer.arg("casCurveEnabled")=="1") g_Config.bCasCurveEnabled = true; 
+    if (CfgServer.hasArg("casCurveEnabled") && CfgServer.arg("casCurveEnabled")=="1") g_Config.bCasCurveEnabled = true;
     else                                                                              g_Config.bCasCurveEnabled = false;
 
     if (CfgServer.hasArg("casCurveType")) g_Config.CasCurve.iCurveType=CfgServer.arg("casCurveType").toInt();
@@ -1444,7 +1444,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("boxtopOrientation")) g_Config.sBoxtopOrientation=CfgServer.arg("boxtopOrientation");
 
     // read efis enabled/disabled
-    if (CfgServer.hasArg("readEfisData") && CfgServer.arg("readEfisData")=="1") g_Config.bReadEfisData=true; 
+    if (CfgServer.hasArg("readEfisData") && CfgServer.arg("readEfisData")=="1") g_Config.bReadEfisData=true;
     else                                                                        g_Config.bReadEfisData=false;
 
     // read efis Type
@@ -1454,7 +1454,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");
 
     // read volume control
-    if (CfgServer.hasArg("volumeControl") && CfgServer.arg("volumeControl")=="1") g_Config.bVolumeControl=true; 
+    if (CfgServer.hasArg("volumeControl") && CfgServer.arg("volumeControl")=="1") g_Config.bVolumeControl=true;
     else                                                                          g_Config.bVolumeControl=false;
 
     //read volumePercent
@@ -1470,11 +1470,11 @@ void HandleConfigSave()
     if (CfgServer.hasArg("muteAudioUnderIAS")) g_Config.iMuteAudioUnderIAS=CfgServer.arg("muteAudioUnderIAS").toInt();
 
     // read 3d audio enabled/disabled
-    if (CfgServer.hasArg("audio3D") && CfgServer.arg("audio3D")=="1") g_Config.bAudio3D=true; 
+    if (CfgServer.hasArg("audio3D") && CfgServer.arg("audio3D")=="1") g_Config.bAudio3D=true;
     else                                                              g_Config.bAudio3D=false;
 
     //overgWarning
-    if (CfgServer.hasArg("overgWarning") && CfgServer.arg("overgWarning")=="1") g_Config.bOverGWarning=true; 
+    if (CfgServer.hasArg("overgWarning") && CfgServer.arg("overgWarning")=="1") g_Config.bOverGWarning=true;
     else                                                                        g_Config.bOverGWarning=false;
 
     // loadLimit
@@ -1482,7 +1482,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("loadLimitNegative")) g_Config.fLoadLimitNegative=CfgServer.arg("loadLimitNegative").toFloat();
 
     // vnochime
-    if (CfgServer.hasArg("vnoChimeEnabled") && (CfgServer.arg("vnoChimeEnabled")=="1")) g_Config.bVnoChimeEnabled=true; 
+    if (CfgServer.hasArg("vnoChimeEnabled") && (CfgServer.arg("vnoChimeEnabled")=="1")) g_Config.bVnoChimeEnabled=true;
     else                                                                                g_Config.bVnoChimeEnabled=false;
 
     if (CfgServer.hasArg("Vno")) g_Config.iVno = CfgServer.arg("Vno").toInt();
@@ -1496,7 +1496,7 @@ void HandleConfigSave()
 //    if (CfgServer.hasArg("serialOutPort")) g_Config.sSerialOutPort=CfgServer.arg("serialOutPort");
 
     // sdLogging
-    if (CfgServer.hasArg("sdLogging") && CfgServer.arg("sdLogging")=="1") g_Config.bSdLogging=true; 
+    if (CfgServer.hasArg("sdLogging") && CfgServer.arg("sdLogging")=="1") g_Config.bSdLogging=true;
     else                                                                  g_Config.bSdLogging=false;
 
     // Handle Add Flap
@@ -1579,7 +1579,7 @@ void HandleDefaultConfig()
         CfgServer.sendHeader("Location", "/aoaconfig");
         CfgServer.send(302, "text/plain", "Redirect...");
         return;
-        } 
+        }
     else
         {
         // Display confirmation page
@@ -1614,7 +1614,7 @@ void HandleConfigUpload()
             bUploadedConfigStringGood = false;
             xSemaphoreGive(uploadMutex);
             }
-        } 
+        }
 
     else if (uploadFile.status == UPLOAD_FILE_WRITE)
         {
@@ -1630,7 +1630,7 @@ void HandleConfigUpload()
     else  if (uploadFile.status == UPLOAD_FILE_END)
         {
         g_Log.print(MsgLog::EnWebServer, MsgLog::EnDebug, "UPLOAD End\n");
-        if (xSemaphoreTake(uploadMutex, portMAX_DELAY)) 
+        if (xSemaphoreTake(uploadMutex, portMAX_DELAY))
             {
             // Done uploading, parse and decode the uploaded configuration
             bUploadedConfigStringGood = g_Config.LoadConfigFromString(sUploadedConfigString);
@@ -1657,7 +1657,7 @@ void HandleFinalUpload()
     sPage.reserve(pageHeader.length() + 2048);
     sPage += pageHeader;
 
-    if (xSemaphoreTake(uploadMutex, portMAX_DELAY)) 
+    if (xSemaphoreTake(uploadMutex, portMAX_DELAY))
         {
         if (bUploadedConfigStringGood == true)
             {
@@ -1741,7 +1741,7 @@ sPage += R"#(
 )#";
         } // end if no confirm yes
 
-    
+
     // Second time through with a confirm yes
     else
         {
@@ -2027,19 +2027,19 @@ void HandleFormat()
         <br><br><br>\
         <a href=\"format?confirm=yes\" class=\"button\">Format SD Card</a>\
         <a href=\"/\">Cancel</a>";
-        } 
+        }
 
     else
         {
         bool    bFormatStatus = false;
 //        String formatResponse;
 
-        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000))) 
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
             {
             bool bOrigSdLogging = g_Config.bSdLogging;
 
             g_Config.bSdLogging = false; // turn off sdLogging
-            if (bOrigSdLogging) 
+            if (bOrigSdLogging)
                 {
                 g_LogSensor.Close();
                 }
@@ -2072,7 +2072,7 @@ void HandleFormat()
 //            sPage += "<br>New card size is: ";
 //            formatResponse=getConfigValue(formatResponse,"FORMATDONE");
 //            sPage += formatResponse;
-            } 
+            }
 
         // Format failed
         else
@@ -2204,8 +2204,8 @@ Enter the following aircraft parameters:<br><br>
         String SjsCalibration   = String(jsCalibration);
         String ShtmlCalibration = String(htmlCalibration);
 
-        int contentLength = sPage.length()          +  SjsSGfilter.length()     + SjsRegression.length() + 
-                            ScssChartist.length()   + SjsChartist1.length()     + SjsChartist2.length() + 
+        int contentLength = sPage.length()          +  SjsSGfilter.length()     + SjsRegression.length() +
+                            ScssChartist.length()   + SjsChartist1.length()     + SjsChartist2.length() +
                             SjsCalibration.length() + ShtmlCalibration.length() + pageFooter.length();
         //CfgServer.sendHeader("Content-Length", (String)contentLength);
         CfgServer.setContentLength(CONTENT_LENGTH_UNKNOWN); // send content in chuncks, too large for String
@@ -2304,7 +2304,7 @@ void HandleWifiSettings()
         sPage += "<br><br>Tap a Wifi network below to connect to it:<br><br>\n";
         int n = WiFi.scanNetworks();
 
-        if (n == 0) 
+        if (n == 0)
             {
             sPage += "<br><br>No Wifi networks found.<br><br>Reload this page to scan again.";
             }
@@ -2315,20 +2315,20 @@ void HandleWifiSettings()
             for (int i = 0; i < n; ++i)
                 {
                 rSSI = WiFi.RSSI(i);
-                if      (rSSI > -50)                 iSignalStrength = 4; 
-                else if (rSSI <= -50 && rSSI >  -60) iSignalStrength = 3; 
-                else if (rSSI <= -60 && rSSI >= -70) iSignalStrength = 2; 
+                if      (rSSI > -50)                 iSignalStrength = 4;
+                else if (rSSI <= -50 && rSSI >  -60) iSignalStrength = 3;
+                else if (rSSI <= -60 && rSSI >= -70) iSignalStrength = 2;
                 else                                 iSignalStrength = 1;
                 sPage += "<a href=\"wifi?connect=yes&ssid=" + WiFi.SSID(i);
-                if (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) sPage += "&auth=yes"; 
+                if (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) sPage += "&auth=yes";
                 else                                          sPage += "&auth=no";
-                sPage += "\" class=\"wifibutton\">" + WiFi.SSID(i) + 
-                         "<i class=\"icon__signal-strength signal-" + String(iSignalStrength) + "\">" + 
-                         "<span class=\"bar-1\"></span>\n" + 
-                         "<span class=\"bar-2\"></span>\n" + 
-                         "<span class=\"bar-3\"></span>\n" + 
+                sPage += "\" class=\"wifibutton\">" + WiFi.SSID(i) +
+                         "<i class=\"icon__signal-strength signal-" + String(iSignalStrength) + "\">" +
+                         "<span class=\"bar-1\"></span>\n" +
+                         "<span class=\"bar-2\"></span>\n" +
+                         "<span class=\"bar-3\"></span>\n" +
                          "<span class=\"bar-4\"></span></i>";
-                if (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) sPage += "&#128274"; 
+                if (WiFi.encryptionType(i) != WIFI_AUTH_OPEN) sPage += "&#128274";
                 else                                          sPage += "&#128275";
                 sPage += "</a>";
                 sPage += "<br>\n";
@@ -2410,7 +2410,7 @@ void HandleWifiSettings()
 
 // ----------------------------------------------------------------------------
 
-void HandleLogs() 
+void HandleLogs()
     {
     SdFileSys::SuFileInfoList   suFileList;
     bool        bListStatus = false;
@@ -2489,7 +2489,7 @@ void HandleDelete()
     String sFilename;
 
     // Handle case with no file name
-    if (!CfgServer.hasArg("file")) 
+    if (!CfgServer.hasArg("file"))
         {
 //g_Log.printf("Delete missing file parameter\n");
         CfgServer.send(400, "text/plain", "Missing file parameter");
@@ -2515,12 +2515,12 @@ void HandleDelete()
         <a href=\"/logs\">Cancel</a>";
         sPage += pageFooter;
         CfgServer.send(200, "text/html", sPage);
-        } 
+        }
 
     // File delete has been confirmed
     else
         {
-        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
             {
 //g_Log.printf("Delete %s\n", sFilename.c_str());
             g_SdFileSys.remove(sFilename.c_str());
@@ -2539,7 +2539,7 @@ void HandleDownload()
     {
     FsFile file;
 
-    if (!CfgServer.hasArg("file")) 
+    if (!CfgServer.hasArg("file"))
         {
         CfgServer.send(400, "text/plain", "Missing file parameter");
         return;
@@ -2557,7 +2557,7 @@ void HandleDownload()
         } pauseGuard;
 
     size_t fileSize = 0;
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000))) 
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
         {
         file = g_SdFileSys.open(sFilename.c_str(), O_READ);
         if (file)
@@ -2570,7 +2570,7 @@ void HandleDownload()
         return;
         }
 
-    if (!file) 
+    if (!file)
         {
         CfgServer.send(404, "text/plain", "File not found");
         return;
@@ -2592,7 +2592,7 @@ void HandleDownload()
         // Getting and giving the semaphore is a bit slow
         // but wrapping this in one take / give doesn't speed
         // things that much and not having the sepaphore messes up logging.
-        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000))) 
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
             {
             iLen = file.read(achBuffer, sizeof(achBuffer));
             xSemaphoreGive(xWriteMutex);
@@ -2633,7 +2633,7 @@ void HandleDownload()
             break;
         }
 
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100))) 
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
         {
         file.close();
         xSemaphoreGive(xWriteMutex);
@@ -2851,21 +2851,21 @@ return false;
 
 // format bytes
 
-String sFormatBytes(size_t bytes) 
+String sFormatBytes(size_t bytes)
     {
-    if (bytes < 1024) 
+    if (bytes < 1024)
         {
         return String(bytes) + " B";
-        } 
-    else if (bytes < (1024 * 1024)) 
+        }
+    else if (bytes < (1024 * 1024))
         {
         return String(bytes / 1024.0) + " KB";
-        } 
-    else if (bytes < (1024 * 1024 * 1024)) 
+        }
+    else if (bytes < (1024 * 1024 * 1024))
         {
         return String(bytes / 1024.0 / 1024.0) + " MB";
-        } 
-    else 
+        }
+    else
         {
         return String(bytes / 1024.0 / 1024.0 / 1024.0) + " GB";
     }

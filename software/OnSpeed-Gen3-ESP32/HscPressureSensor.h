@@ -15,7 +15,7 @@
 
 class HscPressureSensor
 {
-public:  
+public:
   HscPressureSensor(SpiIO * pSensorSPI, int CsPort, int CountsMin, int CountsMax, float PressureMin, float PressureMax);
   HscPressureSensor(SpiIO * pSensorSPI, int CsPort, EnPressureSensorType enSensorType);
 

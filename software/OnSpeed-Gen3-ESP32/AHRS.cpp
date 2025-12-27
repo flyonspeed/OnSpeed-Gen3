@@ -36,8 +36,8 @@ void AHRS::Init(float fSampleRate)
 
 //    smoothedPitch = CalcPitch(getAccelForAxis(forwardGloadAxis),getAccelForAxis(lateralGloadAxis), getAccelForAxis(verticalGloadAxis))+pitchBias;
 //    smoothedRoll  = calcRoll( getAccelForAxis(forwardGloadAxis),getAccelForAxis(lateralGloadAxis), getAccelForAxis(verticalGloadAxis))+rollBias;
-    SmoothedPitch = g_pIMU->PitchAC() + g_Config.fPitchBias; 
-    SmoothedRoll  = g_pIMU->RollAC()  + g_Config.fRollBias; 
+    SmoothedPitch = g_pIMU->PitchAC() + g_Config.fPitchBias;
+    SmoothedRoll  = g_pIMU->RollAC()  + g_Config.fRollBias;
 
     // MadGwick attitude filter
     // start Madgwick filter at 238Hz for LSM9DS1 and 208Hz for ISM330DHXC
@@ -95,26 +95,26 @@ void AHRS::Process()
 
     // Calculate installation corrected gyro values
     //// This is a lot of sin() and cos() math on constant values. This should be precalcualted in Init().
-    RollRateCorr  =  g_pIMU->Gx *   cos(fPitchBiasRad) * cos(fYawBiasRad) + 
+    RollRateCorr  =  g_pIMU->Gx *   cos(fPitchBiasRad) * cos(fYawBiasRad) +
 ////                 g_pIMU->Gy * ( cos(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) * - sin(fYawBiasRad) * cos(fRollBiasRad) ) +  THAT "* -" IN THE ORIGINAL LOOKS FISHY
-                     g_pIMU->Gy * ( cos(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) - sin(fYawBiasRad) * cos(fRollBiasRad) ) + 
+                     g_pIMU->Gy * ( cos(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) - sin(fYawBiasRad) * cos(fRollBiasRad) ) +
                      g_pIMU->Gz * ( cos(fYawBiasRad)   * cos(fRollBiasRad) * sin(fPitchBiasRad) + sin(fYawBiasRad) * sin(fRollBiasRad));
-    PitchRateCorr =  g_pIMU->Gx *   cos(fPitchBiasRad) * sin(fYawBiasRad) + 
-                     g_pIMU->Gy * ( sin(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) + cos(fYawBiasRad) * cos(fRollBiasRad)) + 
+    PitchRateCorr =  g_pIMU->Gx *   cos(fPitchBiasRad) * sin(fYawBiasRad) +
+                     g_pIMU->Gy * ( sin(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) + cos(fYawBiasRad) * cos(fRollBiasRad)) +
                      g_pIMU->Gz * ( sin(fYawBiasRad)   * cos(fRollBiasRad) * sin(fPitchBiasRad) - cos(fYawBiasRad) * sin(fRollBiasRad));
-    YawRateCorr   =  g_pIMU->Gx *  -sin(fPitchBiasRad) + 
-                     g_pIMU->Gy *   sin(fRollBiasRad)  * cos(fPitchBiasRad) + 
+    YawRateCorr   =  g_pIMU->Gx *  -sin(fPitchBiasRad) +
+                     g_pIMU->Gy *   sin(fRollBiasRad)  * cos(fPitchBiasRad) +
                      g_pIMU->Gz *   cos(fPitchBiasRad) * cos(fRollBiasRad);
 
     // Displacement from CG calculation is omitted
     AccelVertCorr = -g_pIMU->Ax * sin(fPitchBiasRad)                        +  // OK
-                     g_pIMU->Ay * sin(fRollBiasRad)  * cos(fPitchBiasRad) + 
+                     g_pIMU->Ay * sin(fRollBiasRad)  * cos(fPitchBiasRad) +
                      g_pIMU->Az * cos(fRollBiasRad)  * cos(fPitchBiasRad);
-    AccelLatCorr  =  g_pIMU->Ax * cos(fPitchBiasRad) * sin(fYawBiasRad)   + 
-                     g_pIMU->Ay * (sin(fYawBiasRad)  * sin(fPitchBiasRad) * sin(fRollBiasRad)  + cos(fYawBiasRad) * cos(fRollBiasRad)) + 
+    AccelLatCorr  =  g_pIMU->Ax * cos(fPitchBiasRad) * sin(fYawBiasRad)   +
+                     g_pIMU->Ay * (sin(fYawBiasRad)  * sin(fPitchBiasRad) * sin(fRollBiasRad)  + cos(fYawBiasRad) * cos(fRollBiasRad)) +
                      g_pIMU->Az * (sin(fYawBiasRad)  * cos(fRollBiasRad)  * sin(fPitchBiasRad) - cos(fYawBiasRad) * sin(fRollBiasRad));
-    AccelFwdCorr  =  g_pIMU->Ax * cos(fPitchBiasRad) * cos(fYawBiasRad)   + 
-                     g_pIMU->Ay * (sin(fRollBiasRad) * sin(fPitchBiasRad) * cos(fYawBiasRad)   - sin(fYawBiasRad) * cos(fRollBiasRad)) + 
+    AccelFwdCorr  =  g_pIMU->Ax * cos(fPitchBiasRad) * cos(fYawBiasRad)   +
+                     g_pIMU->Ay * (sin(fRollBiasRad) * sin(fPitchBiasRad) * cos(fYawBiasRad)   - sin(fYawBiasRad) * cos(fRollBiasRad)) +
                      g_pIMU->Az * (cos(fYawBiasRad)  * cos(fRollBiasRad)  * sin(fPitchBiasRad) + sin(fYawBiasRad) * sin(fRollBiasRad));
 
     // Average gyro values, not used for AHRS
@@ -162,20 +162,20 @@ void AHRS::Process()
     MadgFilter.getQuaternion(&q[0],&q[1],&q[2],&q[3]);
 
     // get earth referenced vertical acceleration
-    EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * AccelFwdCorr  + 
-                 2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  + 
+    EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * AccelFwdCorr  +
+                 2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  +
                         (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * AccelVertCorr - 1.0f;
 
     KalFilter.Update(FT2M(g_Sensors.Palt), G2MPS(EarthVertG), float(1/fImuSampleRate), &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
     // zero VSI when airspeed is not yet alive
-    if (g_Sensors.IAS < 25) 
+    if (g_Sensors.IAS < 25)
         KalmanVSI = 0;
 
     // calculate flight path and derived AOA
-    if (g_Sensors.IAS != 0.0) 
+    if (g_Sensors.IAS != 0.0)
         FlightPath = RAD2DEG(asin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
-    else 
+    else
         FlightPath = 0.0;
 
     DerivedAOA = SmoothedPitch - FlightPath;
