@@ -9,8 +9,6 @@
 #include "Globals.h"
 #include "Config.h"
 #include "Flaps.h"
-#include "AOAcalc.h"
-#include <CurveCalc.h>
 #include "SensorIO.h"
 
 // These from config
@@ -111,6 +109,8 @@ void SensorIO::Init()
     // Get initial pressure altitude
     ReadPressureAltMbars();
 
+    // Configure AOA calculator smoothing
+    AoaCalc.setSamples(g_Config.iAoaSmoothing);
 }
 
 // ----------------------------------------------------------------------------
@@ -166,7 +166,10 @@ void SensorIO::Read()
     if ((g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot) &&
         (g_Config.suDataSrc.enSrc != SuDataSource::EnRangeSweep))
     {
-        AOA = CalcAOA(PfwdSmoothed,P45Smoothed, g_Flaps.iIndex, g_Config.iAoaSmoothing);
+        const SuCalibrationCurve& curve = g_Config.aFlaps[g_Flaps.iIndex].AoaCurve;
+        AOACalculatorResult result = AoaCalc.calculate(PfwdSmoothed, P45Smoothed, curve);
+        AOA = result.aoa;
+        g_fCoeffP = result.coeffP;
 
         // Calculate airspeed
         //PfwdPascal = ((PfwdSmoothed + g_Config.iPFwdBias - 0.1*16383) * 2/(0.8*16383) -1) * 6894.757;

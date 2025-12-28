@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cmath>
+#include <algorithm>
 
 // ============================================================================
 // CALIBRATION CONSTANTS
@@ -27,6 +28,15 @@ constexpr float AOA_MAX_VALUE = 40.0f;
 
 /// Minimum valid AOA value (degrees)
 constexpr float AOA_MIN_VALUE = -20.0f;
+
+/// Clamp AOA to valid range, treating NaN as minimum
+inline float clampAOA(float aoa)
+{
+    if (std::isnan(aoa)) {
+        return AOA_MIN_VALUE;
+    }
+    return std::clamp(aoa, AOA_MIN_VALUE, AOA_MAX_VALUE);
+}
 
 // ============================================================================
 // UNIT CONVERSION FUNCTIONS
@@ -108,12 +118,12 @@ struct SuCalibrationCurve {
 // ============================================================================
 
 /// Result of AOA calculation
-/// Returns both the calculated AOA and intermediate values for logging/display
+/// Returns the calculated AOA and intermediate values for logging/display.
+/// Smoothing is handled separately via EMAFilter.
 struct AOAResult {
-    float aoa;           ///< Raw calculated AOA (degrees)
-    float coeffP;        ///< Pressure coefficient used in calculation
-    float smoothedAOA;   ///< After exponential smoothing and clamping
-    bool  valid;         ///< False if calculation failed (e.g., negative Pfwd)
+    float aoa;     ///< Raw calculated AOA (degrees)
+    float coeffP;  ///< Pressure coefficient used in calculation
+    bool  valid;   ///< False if calculation failed (e.g., negative Pfwd)
 };
 
 // ============================================================================
