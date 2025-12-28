@@ -1,8 +1,7 @@
 // this library is sourced from https://github.com/har-in-air/Kalmanfilter_altimeter_vario, on Jun 17, 2020
 
-#include "Arduino.h"
-//#include "common.h"
-#include <math.h>
+#include <algorithm>  // for std::clamp
+#include <cmath>
 #include "KalmanFilter.h"
 
 // Tracks the position z and velocity v of an object moving in a straight line,
@@ -53,8 +52,8 @@ void KalmanFilter::Update(float z, float a, float dt, volatile float* pZ, volati
     v_ += accel * dt;
     z_ += v_ * dt;
 
-    zAccelVariance_ = fabs(accel)/50.0f;
-    zAccelVariance_ = constrain(zAccelVariance_, 1.0f, 50.0f);
+    zAccelVariance_ = std::fabs(accel)/50.0f;
+    zAccelVariance_ = std::clamp(zAccelVariance_, 1.0f, 50.0f);
 
     // Predict State Covariance matrix
     float t00,t01,t02;

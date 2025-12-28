@@ -1,0 +1,20 @@
+{
+  "name": "onspeed_core",
+  "version": "1.0.0",
+  "description": "Core algorithms for OnSpeed AOA indicator: sensor fusion, filtering, and flight calculations",
+  "keywords": ["aoa", "angle-of-attack", "aviation", "ahrs", "kalman", "madgwick", "imu"],
+  "authors": [
+    {
+      "name": "OnSpeed Team",
+      "email": "team@flyonspeed.org",
+      "url": "https://flyonspeed.org"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flyonspeed/OnSpeed-Gen3"
+  },
+  "license": "MIT",
+  "platforms": ["native", "espressif32"],
+  "frameworks": "*"
+}

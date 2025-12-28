@@ -1,0 +1,31 @@
+# Codecov configuration for OnSpeed Gen3
+# https://docs.codecov.io/docs/codecov-yaml
+
+codecov:
+  require_ci_to_pass: yes
+
+coverage:
+  precision: 2
+  round: down
+  range: "40...100"
+
+  status:
+    project:
+      default:
+        # Allow coverage to drop by 1% without failing
+        threshold: 1%
+        target: auto
+    patch:
+      default:
+        target: 50%
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true
+
+# Ignore test files and vendor code in coverage reports
+ignore:
+  - "test/**"
+  - "**/test_*.cpp"
+  - ".pio/**"

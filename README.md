@@ -1,8 +1,10 @@
 # OnSpeed-Gen3
 
 <div align="center">
+
 [![Build](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml/badge.svg)](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 </div>
 
 Gen3 - OnSpeed open source hardware and software
