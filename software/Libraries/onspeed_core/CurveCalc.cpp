@@ -21,13 +21,14 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
 
     // Polynomial: y = a3*x^3 + a2*x^2 + a1*x + a0
     // Coefficients stored as [a3, a2, a1, a0]
+    // Evaluated using Horner's method: y = ((a3*x + a2)*x + a1)*x + a0
+    // See: https://en.wikipedia.org/wiki/Horner%27s_method
     if (curve.iCurveType == 1) {
-        for (int i = 0; i < MAX_CURVE_COEFF; ++i) {
-            int power = MAX_CURVE_COEFF - i - 1;
-            y += curve.afCoeff[i] * std::pow(x, power);
-            ONSPEED_LOG_DEBUG("%.2f * pow(%.2f, %d) + ", curve.afCoeff[i], x, power);
+        y = curve.afCoeff[0];
+        for (int i = 1; i < MAX_CURVE_COEFF; ++i) {
+            y = y * x + curve.afCoeff[i];
         }
-        ONSPEED_LOG_DEBUG("= %.2f\n", y);
+        ONSPEED_LOG_DEBUG("eval at x=%.2f => y=%.2f\n", x, y);
     }
     // Logarithmic: y = a*ln(x) + b
     // Uses last two coefficients: afCoeff[2] = a, afCoeff[3] = b
