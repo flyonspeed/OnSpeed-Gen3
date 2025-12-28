@@ -2,11 +2,12 @@
 #include "Globals.h"
 #include "Helpers.h"
 #include "Volume.h"
+#include <EMAFilter.h>
 #ifdef HW_V4P
 #include "Mcp3204Adc.h"
 #endif
 
-float fVolumeSmoothingFactor = 0.5;
+constexpr float kVolumeSmoothingAlpha = 0.5f;
 
 // ----------------------------------------------------------------------------
 // FreeRTOS task to read the volume control
@@ -14,8 +15,7 @@ float fVolumeSmoothingFactor = 0.5;
 
 void CheckVolumeTask(void * pvParams)
     {
-    int         iVolPos = 0;
-    bool        bInitialized = false;
+    static EMAFilter sVolumeFilter(kVolumeSmoothingAlpha);
 
     while (true)
         {
@@ -27,17 +27,12 @@ void CheckVolumeTask(void * pvParams)
             if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
                 {
                 const int iRaw = (int)ReadVolume();
-                if (!bInitialized)
-                    {
-                    iVolPos = iRaw;
-                    bInitialized = true;
-                    }
-                else
-                    {
-                    iVolPos = (int)(fVolumeSmoothingFactor * iRaw + (1.0f - fVolumeSmoothingFactor) * iVolPos);
-                    }
+                sVolumeFilter.update((float)iRaw);
                 xSemaphoreGive(xSensorMutex);
                 }
+
+            // Use current filter value (preserved if semaphore timed out)
+            int iVolPos = (int)sVolumeFilter.get();
 
             // Set audio volume
             int iVolumePercent = mapfloat(iVolPos, g_Config.iVolumeLowAnalog, g_Config.iVolumeHighAnalog, 0, 100);

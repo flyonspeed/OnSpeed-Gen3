@@ -8,8 +8,10 @@
 
 //SoftwareSerial      DispSerial(DISPLAY_SER_RX, DISPLAY_SER_TX);
 
-const int   serialDisplaySmoothingLat  = 50;    // smoothing serial display data (LateralG)  10hz data.
-const int   serialDisplaySmoothingVert = 20;    // smoothing serial display data (VertG)  10hz data.
+// Smoothing alpha = 2/(N+1) where N is the window size
+constexpr float kSmoothingAlphaLat  = 2.0f / (50 + 1);  // LateralG smoothing (10Hz data)
+constexpr float kSmoothingAlphaVert = 2.0f / (20 + 1);  // VerticalG smoothing (10Hz data)
+constexpr float kSmoothingAlphaPalt = kSmoothingAlphaVert / 10.0f;  // PAlt needs heavier smoothing
 
 static inline bool IsFiniteFloat(float v)
 {
@@ -97,17 +99,25 @@ void WriteDisplayDataTask(void * pvParams)
 // ============================================================================
 
 DisplaySerial::DisplaySerial()
+    : PAltFilter(kSmoothingAlphaPalt)
+    , VerticalGFilter(kSmoothingAlphaVert)
+    , LateralGFilter(kSmoothingAlphaLat)
 {
-
 }
 
 // ----------------------------------------------------------------------------
 
 void DisplaySerial::Init(Stream * pDispSerial)
 {
-    fPAltSmoothed      = 0.0;
-    fVerticalGSmoothed = 1.0;  // start at 1G;
-    fLateralGSmoothed  = 0.0;
+    // Reset and seed filters with sensible defaults
+    PAltFilter.reset();
+    PAltFilter.update(0.0f);         // Seed with 0 altitude
+
+    VerticalGFilter.reset();
+    VerticalGFilter.update(1.0f);    // Seed with 1G (level flight)
+
+    LateralGFilter.reset();
+    LateralGFilter.update(0.0f);     // Seed with 0 lateral G
 
     // In the original G2V3 implementation the panel output port could be
     // selected. In this implementation panel output is a fixed serial
@@ -131,8 +141,6 @@ void DisplaySerial::Write()
     int     iPercentLift;
     float   fDisplayAOA;
     float   fDisplayIAS;
-    float   smoothingAlphaLat  = 2.0 / (serialDisplaySmoothingLat  + 1);
-    float   smoothingAlphaVert = 2.0 / (serialDisplaySmoothingVert + 1);
     int     iDisplayVerticalG;
 
 #ifdef SPHERICAL_PROBE
@@ -142,18 +150,15 @@ void DisplaySerial::Write()
 #endif
     const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
-    if (fPAltSmoothed == 0.0)
-        fPAltSmoothed = M2FT(g_AHRS.KalmanAlt);
-    else
-        fPAltSmoothed = M2FT(g_AHRS.KalmanAlt) * smoothingAlphaVert/10+ (1-smoothingAlphaVert/10)*fPAltSmoothed; // increased smoothing needed
 
-    fVerticalGSmoothed = g_AHRS.AccelVertCorr * smoothingAlphaVert+ (1-smoothingAlphaVert)*fVerticalGSmoothed;
+    float fPAltSmoothed = PAltFilter.update(M2FT(g_AHRS.KalmanAlt));
+    float fVerticalGSmoothed = VerticalGFilter.update(g_AHRS.AccelVertCorr);
+    float fLateralGSmoothed = LateralGFilter.update(g_AHRS.AccelLatCorr);
+
     if (IsFiniteFloat(fVerticalGSmoothed))
         iDisplayVerticalG = (int)ceilf(fVerticalGSmoothed * 10.0f);
     else
         iDisplayVerticalG = 0;
-
-    fLateralGSmoothed = g_AHRS.AccelLatCorr * smoothingAlphaLat+ (1-smoothingAlphaLat)*fLateralGSmoothed;
 
     // don't output precentLift at low speeds.
     if (bIasValidForOutput)

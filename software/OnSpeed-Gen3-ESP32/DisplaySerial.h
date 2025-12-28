@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Globals.h"
+#include <EMAFilter.h>
 
 
 // FreeRTOS task for writing data to a display
@@ -16,9 +17,10 @@ public:
 
     // Data
 public:
-    float       fPAltSmoothed;
-    float       fVerticalGSmoothed;
-    float       fLateralGSmoothed;
+    // EMA filters for display smoothing
+    EMAFilter   PAltFilter;
+    EMAFilter   VerticalGFilter;
+    EMAFilter   LateralGFilter;
 
     // In the original G2V3 implementation the panel output port could be
     // selected. In this implementation panel output is a fixed serial

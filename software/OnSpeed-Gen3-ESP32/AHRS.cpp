@@ -6,19 +6,24 @@
 #include "AHRS.h"
 #include "SensorIO.h"
 
-const float accSmoothing = 0.060899; // accelerometer smoothing, exponential
-const float iasSmoothing = 0.0179;   // airspeed smoothing, exponential [optimized for ISM330 IMU]
+constexpr float kAccSmoothing = 0.060899f; // accelerometer smoothing alpha
+constexpr float kIasSmoothing = 0.0179f;   // airspeed smoothing alpha [optimized for ISM330 IMU]
 
 // ----------------------------------------------------------------------------
 
-AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(gyroSmoothing)
+AHRS::AHRS(int gyroSmoothing)
+    : GxAvg(gyroSmoothing)
+    , GyAvg(gyroSmoothing)
+    , GzAvg(gyroSmoothing)
+    , TasDiffFilter(kIasSmoothing)
+    , AccelFwdFilter(kAccSmoothing)
+    , AccelLatFilter(kAccSmoothing)
+    , AccelVertFilter(kAccSmoothing)
 {
     fTAS     = 0.0;
     fPrevTAS = 0.0;
-    TASdiffSmoothed = 0.0;
 
-    //// This was init'ed from real accelerometer values in previous version.
-    //// Probably should do that again.
+    // These public members are updated from filter.get() each Process() call
     AccelFwdSmoothed  =  0.0;
     AccelLatSmoothed  =  0.0;
     AccelVertSmoothed = -1.0;
@@ -82,7 +87,7 @@ void AHRS::Process()
     // diff IAS and then smooth it. Used for forward acceleration correction
     fTASdiff = fTAS - fPrevTAS;
     fPrevTAS = fTAS;
-    TASdiffSmoothed = iasSmoothing*fTASdiff+(1-iasSmoothing)*TASdiffSmoothed;
+    float fTasDiffSmoothed = TasDiffFilter.update(fTASdiff);
 
     // all TAS are in m/sec at this point
 
@@ -128,7 +133,7 @@ void AHRS::Process()
 
     // calculate linear acceleration compensation
     // correct for forward acceleration
-    AccelFwdCompFactor  = MPS2G((TASdiffSmoothed)/(1/fImuSampleRate)); //1/208hz (update rate), m/sec2 to g
+    AccelFwdCompFactor  = MPS2G((fTasDiffSmoothed)/(1/fImuSampleRate)); //1/208hz (update rate), m/sec2 to g
 
     //centripetal acceleration in m/sec2 = speed in m/sec * angular rate in radians
     AccelLatCompFactor  = MPS2G(DEG2RAD(fTAS * YawRateCorr));
@@ -142,16 +147,14 @@ void AHRS::Process()
     // AccelVertComp     = avg(AvertCorr)+avg(avertCp);
 
     // Smooth accelerometer values and add compensation
-    //aFwdCorrAvg.addValue(AccelFwdCorr);
-    //aFwd=aFwdCorrAvg.getFastAverage(); // corrected, smoothed
-    AccelFwdSmoothed  = accSmoothing * AccelFwdCorr+(1-accSmoothing) * AccelFwdSmoothed;
+    AccelFwdSmoothed  = AccelFwdFilter.update(AccelFwdCorr);
     AccelFwdComp      = AccelFwdSmoothed - AccelFwdCompFactor; //corrected, smoothed and compensated
 
-    AccelLatSmoothed  = accSmoothing*AccelLatCorr+(1-accSmoothing)*AccelLatSmoothed;
-    AccelLatComp      = AccelLatSmoothed-AccelLatCompFactor; //corrected, smoothed and compensated
+    AccelLatSmoothed  = AccelLatFilter.update(AccelLatCorr);
+    AccelLatComp      = AccelLatSmoothed - AccelLatCompFactor; //corrected, smoothed and compensated
 
-    AccelVertSmoothed = accSmoothing*AccelVertCorr+(1-accSmoothing)*AccelVertSmoothed;
-    AccelVertComp     = AccelVertSmoothed+AccelVertCompFactor; //corrected, smoothed and compensated
+    AccelVertSmoothed = AccelVertFilter.update(AccelVertCorr);
+    AccelVertComp     = AccelVertSmoothed + AccelVertCompFactor; //corrected, smoothed and compensated
 
     MadgFilter.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr, AccelFwdComp, AccelLatComp, AccelVertComp);
 
