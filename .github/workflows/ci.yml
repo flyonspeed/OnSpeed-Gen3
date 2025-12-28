@@ -5,12 +5,14 @@ on:
     branches: [master]
     paths:
       - 'software/**'
+      - 'test/**'
       - 'platformio.ini'
       - '.github/workflows/**'
   pull_request:
     branches: [master]
     paths:
       - 'software/**'
+      - 'test/**'
       - 'platformio.ini'
       - '.github/workflows/**'
   # Allow manual trigger
@@ -72,6 +74,93 @@ jobs:
           name: firmware
           path: .pio/build/esp32s3/*.bin
           retention-days: 30
+
+  test:
+    name: Unit Tests + Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+          # Native tests only need Unity framework, use simpler cache key
+          key: ${{ runner.os }}-pio-native-v1
+          restore-keys: |
+            ${{ runner.os }}-pio-native-
+
+      - name: Install PlatformIO and lcov
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+          sudo apt-get update && sudo apt-get install -y lcov
+
+      - name: Run unit tests with coverage
+        run: |
+          # Run tests with coverage instrumentation
+          pio test -e native-coverage -v
+
+          echo "## Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate coverage report
+        run: |
+          # Capture coverage data
+          lcov --capture \
+               --directory .pio/build/native-coverage \
+               --output-file coverage.info \
+               --rc branch_coverage=1
+
+          # Remove test files and system headers from coverage
+          lcov --remove coverage.info \
+               '*/test/*' \
+               '*/.pio/*' \
+               '/usr/*' \
+               --output-file coverage.info \
+               --rc branch_coverage=1 \
+               --ignore-errors unused
+
+          # Generate HTML report
+          genhtml coverage.info \
+                  --output-directory coverage-report \
+                  --rc branch_coverage=1
+
+          # Summary
+          echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          lcov --summary coverage.info 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.info
+          flags: unittests
+          name: onspeed-coverage
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload coverage report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-report/
+          retention-days: 14
 
   static-analysis:
     name: Static Analysis (cppcheck)
