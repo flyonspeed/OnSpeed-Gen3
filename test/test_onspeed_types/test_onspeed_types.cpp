@@ -104,6 +104,22 @@ void test_constants() {
 }
 
 // ============================================================================
+// clampAOA
+// ============================================================================
+
+void test_clampAOA_clamps_high() {
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, AOA_MAX_VALUE, clampAOA(100.0f));
+}
+
+void test_clampAOA_clamps_low() {
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, AOA_MIN_VALUE, clampAOA(-100.0f));
+}
+
+void test_clampAOA_handles_nan() {
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, AOA_MIN_VALUE, clampAOA(std::nanf("")));
+}
+
+// ============================================================================
 // Legacy Macro Tests
 // ============================================================================
 
@@ -142,6 +158,11 @@ int main(int argc, char **argv) {
 
     // Constants
     RUN_TEST(test_constants);
+
+    // clampAOA
+    RUN_TEST(test_clampAOA_clamps_high);
+    RUN_TEST(test_clampAOA_clamps_low);
+    RUN_TEST(test_clampAOA_handles_nan);
 
     // Legacy macros
     RUN_TEST(test_legacy_macros);

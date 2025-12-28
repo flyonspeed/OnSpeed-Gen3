@@ -15,8 +15,8 @@
 
 #include "Globals.h"
 #include "Config.h"
-#include "AOAcalc.h"
 #include "LogReplay.h"
+#include "SensorIO.h"
 
 FsFile                      hReplayFile;
 char                        szInLine[1000];
@@ -247,7 +247,10 @@ bool ReadLogLine()
     // AOA is recalculated, which I think is kind of stinky. I'd rather display the AOA
     // that was calculated during the recording.
 //  SetAOApoints(g_Flaps.iIndex);
-    g_Sensors.AOA = CalcAOA(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed, g_Flaps.iIndex, g_Config.iAoaSmoothing);
+    const SuCalibrationCurve& curve = g_Config.aFlaps[g_Flaps.iIndex].AoaCurve;
+    AOACalculatorResult result = g_Sensors.AoaCalc.calculate(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed, curve);
+    g_Sensors.AOA = result.aoa;
+    g_fCoeffP = result.coeffP;
 
     // VN attitude and VSI
     // vnPitch      = std::stof(CsvData["vnPitch"]);
