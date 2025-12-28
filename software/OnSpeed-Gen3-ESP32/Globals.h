@@ -323,21 +323,4 @@ EXTERN_INIT(volatile bool g_bAudioEnable, true);    //// Move to audio
 // Enable / disable debug logging
 EXTERN_INIT(bool g_bDebugTasks, true)
 
-// DB15 pinout (Gen2 v3 hardware)
-//1 - 14V +PWR
-//2 - EFIS Serial RX
-//3 - PANEL SWITCH
-//4 - GPS Serial RX
-//5 - LED+ Digital/PWM
-//6 - AUDIO RIGHT
-//7 - FLAPS Analog IN
-//8 - AUDIO LEFT
-//9 - OAT Analog IN  (or Display Serial out)
-//10 - VOLUME Analog IN
-//11 - SENSOR PWR 3.3V
-//12 - EFIS Serial TX
-//13 - BOOM TTL RX
-//14 - GND
-//15 - AUDIO GND
-
 #endif // defined GLOBALS_H
