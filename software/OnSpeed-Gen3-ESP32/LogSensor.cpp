@@ -309,7 +309,7 @@ void LogSensor::Write()
             g_Flaps.iPosition, g_iDataMark);
         //charsAdded+=sprintf(logLine, "%lu,%i,%.2f,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i",timeStamp,124,124.56,145,145.00,1013.00,5600.00,110.58,10.25,2,0);
 #ifdef OAT_AVAILABLE
-        bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f", g_Sensors.OatC, MPS2KTS(g_AHRS.TAS));
+        bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f", g_Sensors.OatC, mps2kts(g_AHRS.TAS));
 #endif
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.2f,%.2f",
@@ -359,7 +359,7 @@ void LogSensor::Write()
         } // end EFIS data
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f,%.2f,%.2f",
-            g_AHRS.EarthVertG, g_AHRS.FlightPath, MPS2FPM(g_AHRS.KalmanVSI), M2FT(g_AHRS.KalmanAlt));
+            g_AHRS.EarthVertG, g_AHRS.FlightPath, mps2fpm(g_AHRS.KalmanVSI), m2ft(g_AHRS.KalmanAlt));
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, "\n");
 

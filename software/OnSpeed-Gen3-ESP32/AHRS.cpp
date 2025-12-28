@@ -44,7 +44,7 @@ void AHRS::Init(float fSampleRate)
     MadgFilter.begin(fImuSampleRate, -SmoothedPitch, SmoothedRoll);
 
     // Kalman altitude filter
-    KalFilter.Configure(0.79078, 26.0638, 1e-11, FT2M(g_Sensors.Palt),0.00,0.00); // configure the Kalman filter (Smooth altitude and IVSI from Baro + accelerometers)
+    KalFilter.Configure(0.79078, 26.0638, 1e-11, ft2m(g_Sensors.Palt),0.00,0.00); // configure the Kalman filter (Smooth altitude and IVSI from Baro + accelerometers)
 
 }
 
@@ -74,9 +74,9 @@ void AHRS::Process()
     fISA_temp_k = 15 - Temp_rate * g_Sensors.Palt + Kelvin;
     fOAT_k      = g_Sensors.ReadOatC() + Kelvin;
     fDA         = g_Sensors.Palt+(fISA_temp_k/Temp_rate)*(1-pow(fISA_temp_k/fOAT_k,0.2349690));
-    fTAS        = KTS2MPS(g_Sensors.IAS/pow(1 - 6.8755856 * pow(10,-6) * fDA, 2.12794)); // formulas from https://edwilliams.org/avform147.htm#Mach   // m/sec
+    fTAS        = kts2mps(g_Sensors.IAS/pow(1 - 6.8755856 * pow(10,-6) * fDA, 2.12794)); // formulas from https://edwilliams.org/avform147.htm#Mach   // m/sec
 #else
-    fTAS        = KTS2MPS(g_Sensors.IAS*(1+ g_Sensors.Palt / 1000 * 0.02)); // m/sec
+    fTAS        = kts2mps(g_Sensors.IAS*(1+ g_Sensors.Palt / 1000 * 0.02)); // m/sec
 #endif
 
     // diff IAS and then smooth it. Used for forward acceleration correction
@@ -89,8 +89,8 @@ void AHRS::Process()
     // update AHRS
 
     // correct for installation error
-    fPitchBiasRad = DEG2RAD(g_Config.fPitchBias);
-    fRollBiasRad  = DEG2RAD(g_Config.fRollBias);
+    fPitchBiasRad = deg2rad(g_Config.fPitchBias);
+    fRollBiasRad  = deg2rad(g_Config.fRollBias);
     fYawBiasRad   = 0.0; // assuming zero yaw (twist) on install
 
     // Calculate installation corrected gyro values
@@ -128,11 +128,11 @@ void AHRS::Process()
 
     // calculate linear acceleration compensation
     // correct for forward acceleration
-    AccelFwdCompFactor  = MPS2G((TASdiffSmoothed)/(1/fImuSampleRate)); //1/208hz (update rate), m/sec2 to g
+    AccelFwdCompFactor  = mps2g((TASdiffSmoothed)/(1/fImuSampleRate)); //1/208hz (update rate), m/sec2 to g
 
     //centripetal acceleration in m/sec2 = speed in m/sec * angular rate in radians
-    AccelLatCompFactor  = MPS2G(DEG2RAD(fTAS * YawRateCorr));
-    AccelVertCompFactor = MPS2G(DEG2RAD(fTAS * PitchRateCorr)); // TAS knots to m/sec, pitchrate in radians, m/sec2 to g
+    AccelLatCompFactor  = mps2g(deg2rad(fTAS * YawRateCorr));
+    AccelVertCompFactor = mps2g(deg2rad(fTAS * PitchRateCorr)); // TAS knots to m/sec, pitchrate in radians, m/sec2 to g
 
     // AccelVertCorr = install corrected acceleration, unsmoothed
     // aVert         = install corrected acceleration, smoothed
@@ -166,7 +166,7 @@ void AHRS::Process()
                  2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  +
                         (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * AccelVertCorr - 1.0f;
 
-    KalFilter.Update(FT2M(g_Sensors.Palt), G2MPS(EarthVertG), float(1/fImuSampleRate), &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
+    KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), float(1/fImuSampleRate), &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
     // zero VSI when airspeed is not yet alive
     if (g_Sensors.IAS < 25)
@@ -174,7 +174,7 @@ void AHRS::Process()
 
     // calculate flight path and derived AOA
     if (g_Sensors.IAS != 0.0)
-        FlightPath = RAD2DEG(asin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
+        FlightPath = rad2deg(asin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
     else
         FlightPath = 0.0;
 
@@ -182,9 +182,9 @@ void AHRS::Process()
 
 }
 
-float AHRS::PitchWithBias()         { return PITCH(AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
-float AHRS::PitchWithBiasSmth()     { return PITCH(AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
-float AHRS::PitchWithBiasSmthComp() { return PITCH(AccelFwdComp,     AccelLatComp,     AccelVertComp);     }
-float AHRS::RollWithBias()          { return ROLL (AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
-float AHRS::RollWithBiasSmth()      { return ROLL (AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
-float AHRS::RollWithBiasSmthComp()  { return ROLL (AccelFwdComp,     AccelLatComp,     AccelVertComp);     }
+float AHRS::PitchWithBias()         { return accelPitch(AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
+float AHRS::PitchWithBiasSmth()     { return accelPitch(AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
+float AHRS::PitchWithBiasSmthComp() { return accelPitch(AccelFwdComp,     AccelLatComp,     AccelVertComp);     }
+float AHRS::RollWithBias()          { return accelRoll (AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
+float AHRS::RollWithBiasSmth()      { return accelRoll (AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
+float AHRS::RollWithBiasSmthComp()  { return accelRoll (AccelFwdComp,     AccelLatComp,     AccelVertComp);     }

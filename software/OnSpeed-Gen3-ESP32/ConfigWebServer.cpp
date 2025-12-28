@@ -1805,8 +1805,8 @@ sPage += R"#(
             }
 
         // Calculate pitch from averaged accelerometer reading, i.e. no bias adjustments
-        float fCalcImuPitch = PITCH(aFwdTotal / sensorReadCount, aLatTotal / sensorReadCount, aVertTotal / sensorReadCount);
-        float fCalcImuRoll  = ROLL (aFwdTotal / sensorReadCount, aLatTotal / sensorReadCount, aVertTotal / sensorReadCount);
+        float fCalcImuPitch = accelPitch(aFwdTotal / sensorReadCount, aLatTotal / sensorReadCount, aVertTotal / sensorReadCount);
+        float fCalcImuRoll  = accelRoll (aFwdTotal / sensorReadCount, aLatTotal / sensorReadCount, aVertTotal / sensorReadCount);
 
         // Adjust bias, calculate a new bias
         g_Config.fPitchBias = fTrueAircraftPitch - fCalcImuPitch;
@@ -1817,7 +1817,7 @@ sPage += R"#(
         g_Config.iP45Bias   = int((lP45Total/sensorReadCount));
 
         float fMeasuredStaticMB   = fPStaticTotal/sensorReadCount;
-        float fCalculatedStaticMB = INHG2MB(29.92125535 * pow(((288 - (0.0065 * FT2M(fTrueAircraftPalt))) / 288), 5.2561)); // https://www.weather.gov/media/epz/wxcalc/stationPressure.pdf from inHg to milliBars.
+        float fCalculatedStaticMB = inhg2mb(29.92125535 * pow(((288 - (0.0065 * ft2m(fTrueAircraftPalt))) / 288), 5.2561)); // https://www.weather.gov/media/epz/wxcalc/stationPressure.pdf from inHg to milliBars.
         g_Config.fPStaticBias     = fMeasuredStaticMB - fCalculatedStaticMB;
 
         g_Log.printf(MsgLog::EnWebServer, MsgLog::EnDebug, "Measured Static %8.3f mb Calculated Static %8.3f mb Bias %6.3f\n", fMeasuredStaticMB, fCalculatedStaticMB, g_Config.fPStaticBias);

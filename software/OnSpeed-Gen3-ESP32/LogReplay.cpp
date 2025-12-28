@@ -218,7 +218,7 @@ bool ReadLogLine()
     try { g_Sensors.P45Smoothed  =  std::stof(CsvData["P45Smoothed"].c_str());  } catch (const std::invalid_argument&) { g_Sensors.P45Smoothed   = 0; }
     try { g_Flaps.iPosition      =  std::stoi(CsvData["flapsPos"].c_str());     } catch (const std::invalid_argument&) { g_Flaps.iPosition       = 0; }
 
-    g_fCoeffP = PCOEFF(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed);
+    g_fCoeffP = pressureCoeff(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed);
 
     // Find the flap index from flap degrees
     for (int iFlapsIdx = 0; iFlapsIdx < g_Config.aFlaps.size(); iFlapsIdx++)

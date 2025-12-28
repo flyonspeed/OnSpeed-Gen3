@@ -143,9 +143,9 @@ void DisplaySerial::Write()
     const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
     if (fPAltSmoothed == 0.0)
-        fPAltSmoothed = M2FT(g_AHRS.KalmanAlt);
+        fPAltSmoothed = m2ft(g_AHRS.KalmanAlt);
     else
-        fPAltSmoothed = M2FT(g_AHRS.KalmanAlt) * smoothingAlphaVert/10+ (1-smoothingAlphaVert/10)*fPAltSmoothed; // increased smoothing needed
+        fPAltSmoothed = m2ft(g_AHRS.KalmanAlt) * smoothingAlphaVert/10+ (1-smoothingAlphaVert/10)*fPAltSmoothed; // increased smoothing needed
 
     fVerticalGSmoothed = g_AHRS.AccelVertCorr * smoothingAlphaVert+ (1-smoothingAlphaVert)*fVerticalGSmoothed;
     if (IsFiniteFloat(fVerticalGSmoothed))
@@ -263,7 +263,7 @@ void DisplaySerial::Write()
         const int      iVertG10    = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift    = ClampUInt((unsigned)iPercentLift,           0,       99);
         const int      iAoa10      = SafeScaledInt(fDisplayAOA,          10.0f, -999,    999);
-        const int      iVsi10Fpm   = ClampInt((int)floor(MPS2FPM(g_AHRS.KalmanVSI) / 10.0f), -999, 999);
+        const int      iVsi10Fpm   = ClampInt((int)floor(mps2fpm(g_AHRS.KalmanVSI) / 10.0f), -999, 999);
         const int      iOatC       = ClampInt(iOATc,                              -99,      99);
         const int      iFpa10      = SafeScaledInt(g_AHRS.FlightPath,    10.0f, -999,    999);
         const int      iFlapsDeg   = ClampInt((int)g_Flaps.iPosition,             -99,      99);

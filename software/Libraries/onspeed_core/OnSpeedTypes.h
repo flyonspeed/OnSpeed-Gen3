@@ -126,34 +126,3 @@ struct AOAResult {
     bool  valid;   ///< False if calculation failed (e.g., negative Pfwd)
 };
 
-// ============================================================================
-// LEGACY MACRO COMPATIBILITY
-//
-// These macros provide backwards compatibility with existing code.
-// New code should use the constexpr functions directly.
-// ============================================================================
-
-#ifndef ONSPEED_NO_LEGACY_MACROS
-
-// Unit conversions - delegate to constexpr functions
-#define DEG2RAD(x)    deg2rad(static_cast<float>(x))
-#define RAD2DEG(x)    rad2deg(static_cast<float>(x))
-#define G2MPS(x)      g2mps(static_cast<float>(x))
-#define MPS2G(x)      mps2g(static_cast<float>(x))
-#define FT2M(x)       ft2m(static_cast<float>(x))
-#define M2FT(x)       m2ft(static_cast<float>(x))
-#define MPS2FPM(x)    mps2fpm(static_cast<float>(x))
-#define MPS2KTS(x)    mps2kts(static_cast<float>(x))
-#define KTS2MPS(x)    kts2mps(static_cast<float>(x))
-#define INHG2MB(x)    inhg2mb(static_cast<float>(x))
-#define PSI2MB(x)     psi2mb(static_cast<float>(x))
-#define MB2PSI(x)     mb2psi(static_cast<float>(x))
-
-// Attitude from accelerometer
-#define PITCH(Ax, Ay, Az)  accelPitch(static_cast<float>(Ax), static_cast<float>(Ay), static_cast<float>(Az))
-#define ROLL(Ax, Ay, Az)   accelRoll(static_cast<float>(Ax), static_cast<float>(Ay), static_cast<float>(Az))
-
-// Pressure coefficient
-#define PCOEFF(pfwd, p45)  pressureCoeff(static_cast<float>(pfwd), static_cast<float>(p45))
-
-#endif // ONSPEED_NO_LEGACY_MACROS

@@ -423,7 +423,7 @@ void IMU330::GetGyroForAxis(String gyroAxis, float * pfGyroSign, float ** ppfGry
 
 float IMU330::PitchIMU()
     {
-    return PITCH(fAccelX, fAccelY, fAccelZ);
+    return accelPitch(fAccelX, fAccelY, fAccelZ);
     }
 
 // ----------------------------------------------------------------------------
@@ -432,20 +432,20 @@ float IMU330::PitchIMU()
 
 float IMU330::PitchAC()
     {
-    return PITCH(Ax, Ay, Az);
+    return accelPitch(Ax, Ay, Az);
     }
 
 // ----------------------------------------------------------------------------
 
 float IMU330::RollIMU()
     {
-    return ROLL(fAccelX, fAccelY, fAccelZ);
+    return accelRoll(fAccelX, fAccelY, fAccelZ);
     }
 
 // ----------------------------------------------------------------------------
 
 float IMU330::RollAC()
     {
-    return ROLL(Ax, Ay, Az);
+    return accelRoll(Ax, Ay, Az);
     }
 

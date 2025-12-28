@@ -119,16 +119,6 @@ void test_clampAOA_handles_nan() {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, AOA_MIN_VALUE, clampAOA(std::nanf("")));
 }
 
-// ============================================================================
-// Legacy Macro Tests
-// ============================================================================
-
-void test_legacy_macros() {
-    // Test that legacy macros still work
-    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.5708f, DEG2RAD(90));
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, RAD2DEG(1.5708));
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, PCOEFF(100, 50));
-}
 
 // ============================================================================
 // Main
@@ -163,9 +153,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_clampAOA_clamps_high);
     RUN_TEST(test_clampAOA_clamps_low);
     RUN_TEST(test_clampAOA_handles_nan);
-
-    // Legacy macros
-    RUN_TEST(test_legacy_macros);
 
     return UNITY_END();
 }

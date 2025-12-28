@@ -171,12 +171,12 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             if (g_AHRS.fTAS > 0)
             {
                 // TAS is being updated in an interrupt
-                fWifiFlightpath = RAD2DEG(asin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
+                fWifiFlightpath = rad2deg(asin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
             }
             else
                 fWifiFlightpath = 0;
 
-            fWifiVSI = MPS2FPM(-g_EfisSerial.suVN300.VelNedDown); // fpm
+            fWifiVSI = mps2fpm(-g_EfisSerial.suVN300.VelNedDown); // fpm
             fWifiIAS = g_Sensors.IAS;
         } // end enType = EnVN300
 
@@ -187,19 +187,19 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiRoll  = g_EfisSerial.suEfis.Roll;
             if (g_EfisSerial.suEfis.TAS > 0)
             {
-                fWifiFlightpath = RAD2DEG(asin(g_AHRS.KalmanVSI/KTS2MPS(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
+                fWifiFlightpath = rad2deg(asin(g_AHRS.KalmanVSI/kts2mps(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
             }
 
             else
                 if (g_AHRS.fTAS > 0)
                 {
-                    fWifiFlightpath = RAD2DEG(asin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
+                    fWifiFlightpath = rad2deg(asin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
                 }
                 else
                     fWifiFlightpath=0;
 
             // kalmanVSI is being updated in an interrupt
-            fWifiVSI = MPS2FPM(g_AHRS.KalmanVSI);
+            fWifiVSI = mps2fpm(g_AHRS.KalmanVSI);
             fWifiIAS = g_EfisSerial.suEfis.IAS;
         } // end if enType != EnVN300
 
@@ -212,7 +212,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiPitch      = g_AHRS.SmoothedPitch;      // degrees
         fWifiRoll       = g_AHRS.SmoothedRoll;       // degrees
         fWifiFlightpath = g_AHRS.FlightPath;         // degrees
-        fWifiVSI        = MPS2FPM(g_AHRS.KalmanVSI); // fpm
+        fWifiVSI        = mps2fpm(g_AHRS.KalmanVSI); // fpm
 
         // Send efisIAS if spherical probe is in use otherwise use OnspeedIAS.
  #ifdef SPHERICAL_PROBE
@@ -269,7 +269,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fWifiFlightpath = SafeJsonFloat(fWifiFlightpath, 0.0f);
     fVerticalGload  = SafeJsonFloat(fVerticalGload, 0.0f);
 
-    const float fPAltFt = SafeJsonFloat(M2FT(g_AHRS.KalmanAlt), 0.0f);
+    const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
     const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatCorr, 0.0f);
     const float fCoeffP = SafeJsonFloat((float)g_fCoeffP, 0.0f);
     const float fPitchRate = SafeJsonFloat(g_AHRS.gPitch, 0.0f);

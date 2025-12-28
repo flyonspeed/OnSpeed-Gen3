@@ -177,7 +177,7 @@ void SensorIO::Read()
         // Calculate airspeed from smoothed dynamic pressure
         // The smoothed value is without bias, so we add it back for the PSI conversion.
         float PfwdPSI = g_pPitot->ReadPressurePSI(PfwdSmoothed + g_Config.iPFwdBias);
-        PfwdPascal = PSI2MB(PfwdPSI) * 100; // Convert PSI to Pascals
+        PfwdPascal = psi2mb(PfwdPSI) * 100; // Convert PSI to Pascals
         if (PfwdPascal > 0)
         {
             IAS = sqrt(2*PfwdPascal/1.225)* 1.94384; // knots // physics based calculation

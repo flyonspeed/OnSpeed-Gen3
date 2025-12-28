@@ -127,14 +127,14 @@ float HscPressureSensor::ReadPressurePSI(uint16_t uCounts)
 
 float HscPressureSensor::ReadPressureMillibars()
 {
-    return PSI2MB(ReadPressurePSI());
+    return psi2mb(ReadPressurePSI());
 }
 
 // ----------------------------------------------------------------------------
 
 float HscPressureSensor::ReadPressureMillibars(uint16_t uCounts)
 {
-    return PSI2MB(ReadPressurePSI(uCounts));
+    return psi2mb(ReadPressurePSI(uCounts));
 }
 
 // ----------------------------------------------------------------------------
