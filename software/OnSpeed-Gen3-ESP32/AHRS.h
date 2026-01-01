@@ -5,6 +5,7 @@
 
 #include "Globals.h"
 
+#include <EMAFilter.h>
 #include <MadgwickFusion.h>
 #include <KalmanFilter.h>
 
@@ -37,7 +38,6 @@ public:
     float           SmoothedPitch;
     float           SmoothedRoll;
 
-    float           TASdiffSmoothed;
     float           KalmanAlt;
     float           KalmanVSI;
     float           FlightPath;
@@ -54,6 +54,12 @@ public:
 
     Madgwick        MadgFilter;
     KalmanFilter    KalFilter;
+
+    // EMA filters for smoothing
+    EMAFilter       TasDiffFilter;
+    EMAFilter       AccelFwdFilter;
+    EMAFilter       AccelLatFilter;
+    EMAFilter       AccelVertFilter;
 
 public:
     float           fTAS;

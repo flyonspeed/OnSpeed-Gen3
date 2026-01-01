@@ -17,6 +17,7 @@
 #include "Config.h"
 #include "LogReplay.h"
 #include "SensorIO.h"
+#include <EMAFilter.h>
 
 FsFile                      hReplayFile;
 char                        szInLine[1000];
@@ -352,10 +353,12 @@ void TestPotTask(void *pvParams)
 
 // ----------------------------------------------------------------------------
 
+constexpr float kTestPotSmoothingAlpha = 0.04f;
+static EMAFilter sTestPotAoaFilter(kTestPotSmoothingAlpha);
+
 void ReadTestPot()
     {
     float   fFlapRawValue = 0;
-    float   smoothingAlpha  = 0.04;
     float   fReadAOA;
 
     // Average some flap pot readings
@@ -380,7 +383,7 @@ void ReadTestPot()
         fReadAOA = 0.0;
 
     // Smooth potentiometer AOA (using flap pot input)
-    g_Sensors.AOA = fReadAOA * smoothingAlpha + g_Sensors.AOA * (1 - smoothingAlpha);
+    g_Sensors.AOA = sTestPotAoaFilter.update(fReadAOA);
 
     // Just make sure g_Flaps.iIndex is set and good things will happen
     g_Flaps.iIndex = 0; // flaps up

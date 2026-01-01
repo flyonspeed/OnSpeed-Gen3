@@ -1,13 +1,14 @@
 
 //#include <Arduino.h>
 #include "Globals.h"
+#include <EMAFilter.h>
 
 // Move audio with the ball, scaling is 0.08 LateralG/ball width
 // This curve works up to about 0.08 G of lateral acceleration
 #define AUDIO_3D_CURVE(x)         -92.822*x*x + 20.025*x
 
-float       fChannelGain     = 1.0;
-const float fSmoothingFactor = 0.1;
+constexpr float kChannelGainSmoothing = 0.1f;
+static EMAFilter sChannelGainFilter(kChannelGainSmoothing);
 
 // ----------------------------------------------------------------------------
 
@@ -31,8 +32,8 @@ void Check3DAudioTask(void * pvParams)
             if (fCurveGain > 1.0) fCurveGain = 1.0;
             if (fCurveGain < 0.0) fCurveGain = 0.0;
 
-            fCurveGain   = fCurveGain * iSignLateralG;
-            fChannelGain = fSmoothingFactor * fCurveGain + (1 - fSmoothingFactor) * fChannelGain;
+            fCurveGain = fCurveGain * iSignLateralG;
+            float fChannelGain = sChannelGainFilter.update(fCurveGain);
 
             // With no lateral G's then the gain for each channel is 1.0. As lateral G increase
             // one channel increase gain up to about 2.0. The other channel decrease gain down
