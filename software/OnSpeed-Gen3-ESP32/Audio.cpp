@@ -138,6 +138,11 @@ void AudioPlayTask(void * psuParams)
             continue;
             }
 
+        // This would be more efficient with a semaphore but it works OK for now
+        if (g_AudioPlay.enTone == enToneNone)
+//            vTaskDelay(100 / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(100));
+
         // If a voice play has been selected then play it once. Note that PlayVoice()
         // blocks until it is finished.
         if (g_AudioPlay.enVoice != enVoiceNone)
@@ -145,9 +150,10 @@ void AudioPlayTask(void * psuParams)
             g_AudioPlay.PlayVoice();
             }
 
-        // Keep playing something even if no tone is selected to keep the audio hardware active.
-        // Note that PlayTone() blocks until it finishes writing 100 msec of tone data.
-        g_AudioPlay.PlayTone();
+        // If there is a tone play then keep pumping out tone buffers. Note that PlayTone()
+        // blocks until it finishes writing 100 msec of tone data.
+        if (g_AudioPlay.enTone != enToneNone)
+            g_AudioPlay.PlayTone();
 
     } // end while forever
 
@@ -211,27 +217,6 @@ void AudioPlay::Init()
     // don't fit exactly in the allocated buffer.
     iDataLen = TONE_BUFFER_LEN;
 
-}
-
-// ----------------------------------------------------------------------------
-
-// Write left and write audio samples to the I2S device.
-
-void AudioPlay::WriteSample(int16_t iLeftValue, int16_t iRightValue)
-{
-    union 
-    {
-        int16_t     iSample;
-        uint8_t     abySample[2];
-    } unLeftSample, unRightSample;
-
-    unLeftSample.iSample  = iLeftValue;
-    unRightSample.iSample = iRightValue;
-
-    i2s.write(unLeftSample.abySample[0]);
-    i2s.write(unLeftSample.abySample[1]);
-    i2s.write(unRightSample.abySample[0]);
-    i2s.write(unRightSample.abySample[1]);
 }
 
 // ----------------------------------------------------------------------------
@@ -313,10 +298,18 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
 
     for (int iWordIdx = 0; iWordIdx < iDataLen/2; iWordIdx++)
     {
+#if 1
         iLeftValue  = pPCM[iWordIdx] * fLeftVolume;
         iRightValue = pPCM[iWordIdx] * fRightVolume;
 
-        WriteSample(iLeftValue, iRightValue);
+        i2s.write((iLeftValue      ) & 0x00FF); // LSB first
+        i2s.write((iLeftValue  >> 8) & 0x00FF);
+        i2s.write((iRightValue     ) & 0x00FF);
+        i2s.write((iRightValue >> 8) & 0x00FF);
+#else
+        i2s.write(iLeftValue);
+        i2s.write(iRightValue);
+#endif
     }
 }
 
@@ -354,7 +347,15 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftV
         else
             fTonePulseCounter++;
 
-        WriteSample(iLeftValue, iRightValue);
+#if 1 ////// HMMM... byteswap WORKED IN THE ARDUINO ENVIRONMENT, must be C++17
+        i2s.write((iLeftValue      )  & 0x00FF); // LSB first
+        i2s.write((iLeftValue  >> 8)  & 0x00FF);
+        i2s.write((iRightValue     )  & 0x00FF);
+        i2s.write((iRightValue >> 8)  & 0x00FF);
+#else
+        i2s.write(std::byteswap(iLeftValue));
+        i2s.write(std::byteswap(iRightValue));
+#endif
     } // end for each sample in buffer
 
 }
@@ -417,9 +418,6 @@ void AudioPlay::PlayTone()
 
 void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 {
-    if (g_bAudioEnable == false)
-            enAudioTone = enToneDisabled;
-
     AudioLogDebugNoBlock("PlayTone %d\n", enAudioTone);
 
     switch (enAudioTone)
@@ -432,10 +430,7 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
             PlayToneBuffer(aTone_1600Hz, iDataLen, fVolume * fLeftGain, fVolume * fRightGain);
             break;
 
-        default: // This catches enToneNone and enToneDisabled
-            // Play 100 msec of silence
-            for (int iIdx = 0; iIdx < SAMPLE_RATE / 10; iIdx++)
-                g_AudioPlay.WriteSample(0, 0);
+        default :
             break;
     }
 }
