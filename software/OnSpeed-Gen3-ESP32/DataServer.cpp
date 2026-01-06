@@ -135,6 +135,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fWifiFlightpath;
     float fWifiVSI;
     float fWifiIAS;
+    float fWifiOAT;
     float fAccelSumSq;
     float fVerticalGload;
 
@@ -226,6 +227,16 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
  #endif
     } // end internal cal source
 
+    // OAT: prefer EFIS data, fall back to internal sensor
+    if (g_Config.sCalSource == "EFIS")
+        fWifiOAT = g_EfisSerial.suEfis.OAT;
+    else
+#ifdef OAT_AVAILABLE
+        fWifiOAT = g_Sensors.OatC;
+#else
+        fWifiOAT = 0.0f;
+#endif
+
 #else   // Dummy data
     static float fWifiAOA = 0.0;
     static float fWifiPitch = 0.0;
@@ -256,7 +267,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,\"LDmax\":%.2f,\"OnspeedFast\":%.2f,"
         "\"OnspeedSlow\":%.2f,\"OnspeedWarn\":%.2f,\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
-        "\"PitchRate\":%.2f,\"DecelRate\":%.2f}";
+        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
@@ -266,6 +277,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fWifiVSI        = SafeJsonFloat(fWifiVSI, 0.0f);
     fWifiFlightpath = SafeJsonFloat(fWifiFlightpath, 0.0f);
     fVerticalGload  = SafeJsonFloat(fVerticalGload, 0.0f);
+    fWifiOAT        = SafeJsonFloat(fWifiOAT, 0.0f);
 
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
     const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatCorr, 0.0f);
@@ -295,7 +307,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiVSI,
         fWifiFlightpath,
         fPitchRate,
-        fDecelRate);
+        fDecelRate,
+        fWifiOAT);
 
     if (iChars < 0)
         return 0;
