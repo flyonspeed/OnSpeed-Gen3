@@ -86,6 +86,21 @@ static volatile TaskHandle_t s_xAudioTestTask = nullptr;
 static std::atomic<bool>     s_bAudioTestStopRequested{false};
 static std::atomic<bool>     s_bAudioTestStarting{false};
 
+static inline int16_t ScaleAndClampI16(int16_t sample, float scale)
+    {
+    int32_t scaled = static_cast<int32_t>(sample * scale);
+    if (scaled > 32767)
+        return 32767;
+    if (scaled < -32768)
+        return -32768;
+    return static_cast<int16_t>(scaled);
+    }
+
+static inline uint32_t PackStereoI16(int16_t left, int16_t right)
+    {
+    return static_cast<uint16_t>(left) | (static_cast<uint32_t>(static_cast<uint16_t>(right)) << 16);
+    }
+
 static void AudioLogDebugNoBlock(const char * szFmt, ...)
     {
     if (!g_Log.Test(MsgLog::EnAudio, MsgLog::EnDebug))
@@ -293,24 +308,31 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
     if (!s_bI2sOk)
         return;
 
-    int16_t       * pPCM = (int16_t *)pData;
-    int16_t         iLeftValue, iRightValue;
+    constexpr size_t kFramesPerWrite = 240; // Match default I2S DMA frame count.
+    uint32_t         aFrames[kFramesPerWrite];
+    size_t           iFrameCount = 0;
 
-    for (int iWordIdx = 0; iWordIdx < iDataLen/2; iWordIdx++)
+    const int16_t * pPCM = reinterpret_cast<const int16_t *>(pData);
+    const int       iSampleCount = iDataLen / static_cast<int>(sizeof(int16_t));
+
+    for (int iSampleIdx = 0; iSampleIdx < iSampleCount; iSampleIdx++)
     {
-#if 1
-        iLeftValue  = pPCM[iWordIdx] * fLeftVolume;
-        iRightValue = pPCM[iWordIdx] * fRightVolume;
+        const int16_t iSample = pPCM[iSampleIdx];
+        const int16_t iLeftValue = ScaleAndClampI16(iSample, fLeftVolume);
+        const int16_t iRightValue = ScaleAndClampI16(iSample, fRightVolume);
 
-        i2s.write((iLeftValue      ) & 0x00FF); // LSB first
-        i2s.write((iLeftValue  >> 8) & 0x00FF);
-        i2s.write((iRightValue     ) & 0x00FF);
-        i2s.write((iRightValue >> 8) & 0x00FF);
-#else
-        i2s.write(iLeftValue);
-        i2s.write(iRightValue);
-#endif
+        aFrames[iFrameCount++] = PackStereoI16(iLeftValue, iRightValue);
+        if (iFrameCount == kFramesPerWrite)
+            {
+            i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
+            iFrameCount = 0;
+            }
     }
+
+    if (iFrameCount > 0)
+        {
+        i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
+        }
 }
 
 // ----------------------------------------------------------------------------
@@ -321,22 +343,19 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftV
     if (!s_bI2sOk)
         return;
 
+    constexpr size_t kFramesPerWrite = 240; // Match default I2S DMA frame count.
+    uint32_t         aFrames[kFramesPerWrite];
+    size_t           iFrameCount = 0;
+
     static bool     bPulseLevel = true;
-    int16_t         iLeftValue, iRightValue;
 
     for (int iWordIdx = 0; iWordIdx < iDataLen; iWordIdx++)
     {
         // Apply tone pulse modulation
-        if ((bPulseLevel == true) || (fTonePulseMaxSamples == 0))
-        {
-            iLeftValue  = pData[iWordIdx] * fLeftVolume;
-            iRightValue = pData[iWordIdx] * fRightVolume;
-        }
-        else
-        {
-            iLeftValue  = pData[iWordIdx] * fLeftVolume  * 0.2;
-            iRightValue = pData[iWordIdx] * fRightVolume * 0.2;
-        }
+        const float fPulseScale = ((bPulseLevel == true) || (fTonePulseMaxSamples == 0)) ? 1.0f : 0.2f;
+        const int16_t iSample = pData[iWordIdx];
+        const int16_t iLeftValue = ScaleAndClampI16(iSample, fLeftVolume * fPulseScale);
+        const int16_t iRightValue = ScaleAndClampI16(iSample, fRightVolume * fPulseScale);
 
         // If pulse period exceeded then change pulse level
         if (fTonePulseCounter >= fTonePulseMaxSamples)
@@ -347,17 +366,18 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftV
         else
             fTonePulseCounter++;
 
-#if 1 ////// HMMM... byteswap WORKED IN THE ARDUINO ENVIRONMENT, must be C++17
-        i2s.write((iLeftValue      )  & 0x00FF); // LSB first
-        i2s.write((iLeftValue  >> 8)  & 0x00FF);
-        i2s.write((iRightValue     )  & 0x00FF);
-        i2s.write((iRightValue >> 8)  & 0x00FF);
-#else
-        i2s.write(std::byteswap(iLeftValue));
-        i2s.write(std::byteswap(iRightValue));
-#endif
+        aFrames[iFrameCount++] = PackStereoI16(iLeftValue, iRightValue);
+        if (iFrameCount == kFramesPerWrite)
+            {
+            i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
+            iFrameCount = 0;
+            }
     } // end for each sample in buffer
 
+    if (iFrameCount > 0)
+        {
+        i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
+        }
 }
 
 // ----------------------------------------------------------------------------
