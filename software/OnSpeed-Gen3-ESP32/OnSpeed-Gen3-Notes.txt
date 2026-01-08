@@ -7,7 +7,7 @@ Arduino IDE Setup
    - Arduino IDE → Settings → Additional boards manager URLs, add:
      https://espressif.github.io/arduino-esp32/package_esp32_index.json
    - Tools → Board → Boards Manager → search "esp32"
-   - Install "esp32 by Espressif Systems" version 3.3.3
+   - Install "esp32 by Espressif Systems" version 3.3.5
 
 2. Set Sketchbook location to the "software" folder in this repository:
    Arduino IDE → Settings → Sketchbook location:
@@ -27,7 +27,7 @@ CPU Frequency: 240MHz (WiFi)
 Core Debug Level: None
 USB DFU On Boot: Disabled
 Erase All Flash Before Sketch Upload: Disabled
-Events Run On: Core 1
+Events Run On: Core 0
 Flash Mode: OPI 80MHz
 Flash Size: 32MB (256Mb)
 JTAG Adapter: Disabled
