@@ -1,6 +1,3 @@
-[submodule "software/Libraries/SavitzkyGolayFilter"]
-	path = software/Libraries/SavitzkyGolayFilter
-	url = git@github.com:jmderomedi/SavitzkyGolayFilter.git
 [submodule "software/Libraries/espsoftwareserial"]
 	path = software/Libraries/espsoftwareserial
 	url = git@github.com:plerup/espsoftwareserial.git

@@ -88,7 +88,7 @@ SensorIO::SensorIO()
       PfwdAvg(10),
       P45Median(g_Config.iPressureSmoothing),
       P45Avg(10),
-      IasDerivative(&fIasDerInput, 1, 15),
+      IasDerivative(&fIasDerInput, 15),
       OneWireBus(OAT_PIN),
       OatSensor(&OneWireBus)
 {
