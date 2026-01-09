@@ -67,20 +67,90 @@ pip install platformio
 pio run
 ```
 
-Upload to a connected device:
+Upload to a connected device (auto-detect port):
 
 ```bash
 pio run -t upload
 ```
 
+If auto-detection fails, find your port and specify it explicitly:
+
+```bash
+# List available ports
+ls /dev/cu.usb*
+
+# Upload to specific port
+pio run -t upload --upload-port /dev/cu.usbserial-110
+```
+
 Monitor serial output (Ctrl+C to exit):
 
 ```bash
-pio device monitor
+pio device monitor --port /dev/cu.usbserial-110 --baud 921600
 ```
 
 Or build, upload, and monitor in one command:
 
 ```bash
-pio run -t upload && pio device monitor
+pio run -t upload --upload-port /dev/cu.usbserial-110 && pio device monitor --port /dev/cu.usbserial-110 --baud 921600
 ```
+
+### Building with Arduino IDE
+
+#### Setup
+
+1. Install ESP32 board support:
+   - Arduino IDE → Settings → Additional boards manager URLs, add:
+     `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+   - Tools → Board → Boards Manager → search "esp32"
+   - Install "esp32 by Espressif Systems" version 3.3.5
+
+2. Set Sketchbook location to the `software` folder in this repository:
+   - Arduino IDE → Settings → Sketchbook location: `/path/to/OnSpeed-Gen3/software`
+   - This allows Arduino IDE to find the libraries in `software/Libraries/`
+
+3. Initialize git submodules (if not already done):
+   ```bash
+   git submodule update --init --recursive
+   ```
+
+#### Build Settings
+
+| Setting | Value |
+|---------|-------|
+| Board | ESP32S3 Dev Module Octal (WROOM2) |
+| USB CDC On Boot | Disabled |
+| CPU Frequency | 240MHz (WiFi) |
+| Core Debug Level | None |
+| USB DFU On Boot | Disabled |
+| Erase All Flash Before Sketch Upload | Disabled |
+| Events Run On | Core 0 |
+| Flash Mode | OPI 80MHz |
+| Flash Size | 32MB (256Mb) |
+| JTAG Adapter | Disabled |
+| Arduino Runs On | Core 1 |
+| USB Firmware MSC On Boot | Disabled |
+| Partition Scheme | 32M Flash (4.8MB APP/22MB LittleFS) |
+| PSRAM | OPI PSRAM |
+| Upload Mode | UART0 / Hardware CDC |
+| Upload Speed | 921600 |
+| USB Mode | Hardware CDC and JTAG |
+
+### Libraries
+
+Libraries are provided via git submodules in `software/Libraries/`:
+
+- Adafruit_NeoPixel
+- Arduino-Temperature-Control-Library (DallasTemperature)
+- ArduinoJson
+- BasicLinearAlgebra
+- EspSoftwareSerial
+- ghostl (required by EspSoftwareSerial 8.2.0)
+- OneButton
+- OneWire
+- RunningAverage
+- RunningMedian
+- SdFat
+- arduinoWebSockets
+- csv-parser (vendored)
+- tinyxml2 (vendored)
