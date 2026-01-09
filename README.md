@@ -4,6 +4,7 @@
 
 [![Build](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml/badge.svg)](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Codecov](https://img.shields.io/codecov/c/github/flyonspeed/OnSpeed-Gen3/master.svg?maxAge=3600)](https://codecov.io/gh/flyonspeed/OnSpeed-Gen3)
 
 </div>
 

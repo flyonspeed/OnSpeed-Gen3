@@ -19,13 +19,14 @@ coverage:
       default:
         target: 50%
 
+  # Ignore test files, vendor code, and system headers in coverage reports
+  ignore:
+    - "test/**"
+    - "**/test_*.cpp"
+    - ".pio/**"
+    - "/usr/**"
+
 comment:
   layout: "reach,diff,flags,files"
   behavior: default
   require_changes: true
-
-# Ignore test files and vendor code in coverage reports
-ignore:
-  - "test/**"
-  - "**/test_*.cpp"
-  - ".pio/**"
