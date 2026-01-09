@@ -9,7 +9,7 @@
 
 #include "RunningAverage.h"
 #include "RunningMedian.h"
-#include <SavLayFilter.h>
+#include <SavGolDerivative.h>
 #include <AOACalculator.h>
 
 
@@ -37,7 +37,7 @@ public:
     RunningMedian       P45Median;
     RunningAverage      P45Avg;
 
-    SavLayFilter        IasDerivative;  // Computes the first derivative
+    onspeed::SavGolDerivative IasDerivative;  // Computes the first derivative
     float               fDecelRate;     // Deceleration rate derived from IAS
 
     AOACalculator       AoaCalc;        // AOA calculation with smoothing
