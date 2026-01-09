@@ -76,8 +76,8 @@ void test_linear_ramp_constant_derivative()
     SavGolDerivative filter(&input, 5);
 
     // Feed linear ramp: 0, 10, 20, 30, 40, 50...
-    // After buffer fills, derivative should stabilize to -slope = -10
-    // (negative because filter uses past-future convention)
+    // After buffer fills, derivative should stabilize to +slope = +10
+    // (positive because we use mathematically correct future-past convention)
     float lastDerivative = 0.0f;
 
     for (int i = 0; i < 20; i++) {
@@ -85,11 +85,11 @@ void test_linear_ramp_constant_derivative()
         lastDerivative = filter.Compute();
     }
 
-    // For linear ramp with slope 10, derivative should be -10
-    TEST_ASSERT_FLOAT_WITHIN(0.5f, -10.0f, lastDerivative);
+    // For linear ramp with slope 10, derivative should be +10
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 10.0f, lastDerivative);
 }
 
-void test_negative_derivative_for_increasing_input()
+void test_positive_derivative_for_increasing_input()
 {
     double input = 0.0;
     SavGolDerivative filter(&input, 7);
@@ -103,11 +103,11 @@ void test_negative_derivative_for_increasing_input()
     input = 225.0;  // Continue increasing
     float result = filter.Compute();
 
-    // Filter returns negative for increasing values (past-future convention)
-    TEST_ASSERT_TRUE(result < 0.0f);
+    // Filter returns positive for increasing values (mathematically correct)
+    TEST_ASSERT_TRUE(result > 0.0f);
 }
 
-void test_positive_derivative_for_decreasing_input()
+void test_negative_derivative_for_decreasing_input()
 {
     double input = 100.0;
     SavGolDerivative filter(&input, 7);
@@ -121,8 +121,8 @@ void test_positive_derivative_for_decreasing_input()
     input = 20.0;  // Continue decreasing
     float result = filter.Compute();
 
-    // Filter returns positive for decreasing values (past-future convention)
-    TEST_ASSERT_TRUE(result > 0.0f);
+    // Filter returns negative for decreasing values (mathematically correct)
+    TEST_ASSERT_TRUE(result < 0.0f);
 }
 
 // ============================================================================
@@ -160,11 +160,11 @@ void test_various_window_sizes()
             filter.Compute();
         }
 
-        // Should produce non-zero derivative for linear input
-        // (negative for increasing, due to past-future convention)
+        // Should produce positive derivative for increasing linear input
+        // (mathematically correct: future - past)
         input = 150.0;
         float result = filter.Compute();
-        TEST_ASSERT_TRUE(result < 0.0f);
+        TEST_ASSERT_TRUE(result > 0.0f);
     }
 }
 
@@ -216,8 +216,8 @@ void test_smooths_noisy_signal()
     }
     float avgDerivative = sum / count;
 
-    // Should be close to -10 (negative of underlying slope) despite noise
-    TEST_ASSERT_FLOAT_WITHIN(3.0f, -10.0f, avgDerivative);
+    // Should be close to +10 (the underlying slope) despite noise
+    TEST_ASSERT_FLOAT_WITHIN(3.0f, 10.0f, avgDerivative);
 }
 
 // ============================================================================
@@ -235,8 +235,8 @@ int main(int argc, char** argv)
     // Derivative correctness
     RUN_TEST(test_constant_input_zero_derivative);
     RUN_TEST(test_linear_ramp_constant_derivative);
-    RUN_TEST(test_negative_derivative_for_increasing_input);
-    RUN_TEST(test_positive_derivative_for_decreasing_input);
+    RUN_TEST(test_positive_derivative_for_increasing_input);
+    RUN_TEST(test_negative_derivative_for_decreasing_input);
 
     // Window sizes
     RUN_TEST(test_default_window_on_invalid_size);

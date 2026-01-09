@@ -63,13 +63,14 @@ public:
         }
 
         // Compute derivative using antisymmetric coefficients
-        // For first derivative: sum of coeff[i] * (buffer[half-i] - buffer[half+i])
-        // Note: Order is (past - future) to match original SavLayFilter sign convention
+        // For first derivative: sum of coeff[i] * (buffer[half+i] - buffer[half-i])
+        // This gives mathematically correct sign: positive for increasing input
+        // (Unlike SavLayFilter which used past-future and returned negative for increasing)
         double sum = 0.0;
         int half = _windowSize / 2;
 
         for (int i = 1; i <= half; i++) {
-            sum += _coeffs[i] * (_buffer[half - i] - _buffer[half + i]);
+            sum += _coeffs[i] * (_buffer[half + i] - _buffer[half - i]);
         }
         // Center point contributes 0 for first derivative (coeff * 0)
 
