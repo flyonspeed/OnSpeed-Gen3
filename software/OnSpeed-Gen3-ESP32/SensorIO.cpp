@@ -208,9 +208,10 @@ void SensorIO::Read()
         fIasDerInput = IAS;
 #endif
 
-        // SavLayFilter returns derivative per sample; convert to kts/sec for the 100ms update period.
+        // SavGolDerivative returns derivative per sample; convert to kts/sec for the 100ms update period.
         const float fDecelSampleHz = 10.0f;
-        fDecelRate = -IasDerivative.Compute() * fDecelSampleHz;
+        // Positive for increasing IAS, negative for decreasing IAS (deceleration).
+        fDecelRate = IasDerivative.Compute() * fDecelSampleHz;
     }
 
 #ifdef LOGDATA_PRESSURE_RATE
