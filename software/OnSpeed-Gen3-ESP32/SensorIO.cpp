@@ -194,16 +194,24 @@ void SensorIO::Read()
             IAS = 0;
     } // end if not in test pot or range sweep mode
 
-    // Take derivative of airspeed for decelaration calc
+    // Take derivative of airspeed for deceleration calc.
+    // Match the 10Hz display behavior by updating DecelRate at 100ms intervals.
+    static unsigned long uLastDecelUpdateMs = 0;
+    const unsigned long uNowMs = millis();
+    if ((uNowMs - uLastDecelUpdateMs) >= 100)
+    {
+        uLastDecelUpdateMs = uNowMs;
+
 #ifdef SPHERICAL_PROBE
-    fIasDerInput = g_EfisSerial.suEfis.IAS;
+        fIasDerInput = g_EfisSerial.suEfis.IAS;
 #else
-    fIasDerInput = IAS;
+        fIasDerInput = IAS;
 #endif
-    //// This logic seems suspect but this is the way it is done in the original code
-    // SavLayFilter returns derivative per sample; convert to kts/sec for the 20ms sensor task period.
-    const float fSensorSampleHz = 50.0f;
-    fDecelRate = -IasDerivative.Compute() * fSensorSampleHz;
+
+        // SavLayFilter returns derivative per sample; convert to kts/sec for the 100ms update period.
+        const float fDecelSampleHz = 10.0f;
+        fDecelRate = -IasDerivative.Compute() * fDecelSampleHz;
+    }
 
 #ifdef LOGDATA_PRESSURE_RATE
     g_LogSensor.Write();

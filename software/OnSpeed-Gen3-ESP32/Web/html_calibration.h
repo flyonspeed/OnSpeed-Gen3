@@ -50,7 +50,7 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
           <div align="left">Smoothing: <span id="currentSmoothing"></span></div>
         <div class="slidecontainer">
           <div>
-          <input type="range" min=".02" max=".5" value=".1" step=".01" class="slider" id="smoothingValue" style="width:150px">
+          <input type="range" min=".02" max=".5" value=".04" step=".01" class="slider" id="smoothingValue" style="width:150px">
           </div>
         <div><div style="float:left;font-size:9px">SMOOTH</div><div style="float:right;font-size:9px">RESPONSIVE</div></div>
         </div>

@@ -23,14 +23,15 @@
 #endif
 
 // hardware version. We have multiple prototypes.
-#define HW_V4B // Bob's hardware
-//#define HW_V4P // Phil's hardware
+//#define HW_V4B // Bob's hardware
+#define HW_V4P // Phil's hardware
 
 #define VERSION "4.10"
 
 // v4.10
 //Stop hard-coding VN-300 and instead initialize the EFIS serial with the configured type
 //Log files will get the correct EFIS columns
+// Fixed audio issue, sending I2S 4-bytes at a time
 
 // v 4.9
 // fixes for data download
