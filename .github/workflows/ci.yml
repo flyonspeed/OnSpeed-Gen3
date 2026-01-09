@@ -41,7 +41,7 @@ jobs:
             ~/.platformio/packages
             ~/.platformio/platforms
             ~/.platformio/penv
-          key: ${{ runner.os }}-pio-espressif32-55.03.33-v1
+          key: ${{ runner.os }}-pio-espressif32-55.03.35-v1
           restore-keys: |
             ${{ runner.os }}-pio-espressif32-
 
