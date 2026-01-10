@@ -74,6 +74,7 @@ void setup()
     // Setup FreeRTOS semaphores and error logging
     xWriteMutex     = xSemaphoreCreateMutex();
     xSensorMutex    = xSemaphoreCreateMutex();
+    xAhrsMutex      = xSemaphoreCreateMutex();
     xSerialLogMutex = xSemaphoreCreateMutex();
 
     // Initialize SD card
@@ -255,6 +256,7 @@ void setup()
                 }
 
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
+        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 6, &xTaskReadImu,     1);
         if (bLoggingRingBufferOk)
             xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 0, &xTaskWriteLog,     1);
 #ifdef LOGDATA_PRESSURE_RATE  // sd card write rate
@@ -274,6 +276,7 @@ void setup()
         {
         g_Config.bSdLogging = false;
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
+        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 6, &xTaskReadImu,     1);
         xTaskCreatePinnedToCore(TestPotTask,          "Test Pot",       2000, NULL, 3, &xTaskTestPot,     1);
         g_Log.println("Data Source TESTPOT");
         }
@@ -281,6 +284,7 @@ void setup()
         {
         g_Config.bSdLogging = false;
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
+        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 6, &xTaskReadImu,     1);
         xTaskCreatePinnedToCore(RangeSweepTask,       "Range Sweep",    2000, NULL, 3, &xTaskRangeSweep,  1);
         g_Log.println("Data Source RANGESWEEP");
         }

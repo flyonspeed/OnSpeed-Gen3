@@ -23,15 +23,16 @@
 #endif
 
 // hardware version. We have multiple prototypes.
-//#define HW_V4B // Bob's hardware
-#define HW_V4P // Phil's hardware
+#define HW_V4B // Bob's hardware
+//#define HW_V4P // Phil's hardware
 
-#define VERSION "4.10"
+#define VERSION "4.11"
 
 // v4.10
 //Stop hard-coding VN-300 and instead initialize the EFIS serial with the configured type
 //Log files will get the correct EFIS columns
 // Fixed audio issue, sending I2S 4-bytes at a time
+// Fixed anty decel gauge on web interface
 
 // v 4.9
 // fixes for data download
@@ -215,7 +216,8 @@
 // Serial baud rates
 #define BAUDRATE_CONSOLE       921600
 
-#define IMU_SAMPLE_RATE       50
+// IMU hardware is configured for 208Hz; AHRS runs at this IMU rate.
+#define IMU_SAMPLE_RATE       208
 
 #define GYRO_SMOOTHING        30
 
@@ -224,6 +226,7 @@
 
 EXTERN_INIT(TaskHandle_t             xTaskAudioPlay,     NULL)
 EXTERN_INIT(TaskHandle_t             xTaskReadSensors,   NULL)
+EXTERN_INIT(TaskHandle_t             xTaskReadImu,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskWriteLog,      NULL)
 EXTERN_INIT(TaskHandle_t             xTaskCheckSwitch,   NULL)
 EXTERN_INIT(TaskHandle_t             xTaskDisplaySerial, NULL)
@@ -240,6 +243,7 @@ EXTERN RingbufHandle_t          xLoggingRingBuffer;
 
 EXTERN SemaphoreHandle_t        xWriteMutex;
 EXTERN SemaphoreHandle_t        xSensorMutex;
+EXTERN SemaphoreHandle_t        xAhrsMutex;
 EXTERN SemaphoreHandle_t        xSerialLogMutex;
 
 // Right now there is only one scheduled task, reading sensors. Once it starts

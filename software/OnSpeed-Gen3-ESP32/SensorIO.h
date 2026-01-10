@@ -17,6 +17,7 @@ using onspeed::AOACalculator;
 
 // FreeRTOS task for reading sensors
 void SensorReadTask(void *pvParams);
+void ImuReadTask(void *pvParams);
 
 // ============================================================================
 
