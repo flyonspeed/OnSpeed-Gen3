@@ -1,6 +1,7 @@
 #ifndef KALMAN_FILTER_H_
 #define KALMAN_FILTER_H_
 
+namespace onspeed {
 
 class KalmanFilter
 {
@@ -33,5 +34,7 @@ private :
     float zVariance_;           //  z measurement noise variance fixed
 
 };
+
+} // namespace onspeed
 
 #endif

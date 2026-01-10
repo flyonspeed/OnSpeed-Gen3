@@ -5,6 +5,9 @@
 #include "Globals.h"
 #include "IMU330.h"
 
+using onspeed::accelPitch;
+using onspeed::accelRoll;
+
 // define ISM330 registers
 #define FIFO_CTRL4          0x0A
 #define WHO_AM_I            0x0F  // Who Am I value = 0x6B

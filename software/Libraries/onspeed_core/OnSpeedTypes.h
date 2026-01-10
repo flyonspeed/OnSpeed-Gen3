@@ -6,6 +6,8 @@
 #include <cmath>
 #include <algorithm>
 
+namespace onspeed {
+
 // ============================================================================
 // CALIBRATION CONSTANTS
 // ============================================================================
@@ -125,4 +127,6 @@ struct AOAResult {
     float coeffP;  ///< Pressure coefficient used in calculation
     bool  valid;   ///< False if calculation failed (e.g., negative Pfwd)
 };
+
+} // namespace onspeed
 

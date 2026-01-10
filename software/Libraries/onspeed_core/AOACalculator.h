@@ -6,6 +6,8 @@
 #include "CurveCalc.h"
 #include "EMAFilter.h"
 
+namespace onspeed {
+
 /// Pure AOA calculation
 ///
 /// Converts pressure readings to angle of attack using calibration curve.
@@ -69,3 +71,5 @@ public:
 private:
     EMAFilter _smoother;
 };
+
+} // namespace onspeed

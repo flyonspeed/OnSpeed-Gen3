@@ -6,6 +6,15 @@
 #include "AHRS.h"
 #include "SensorIO.h"
 
+using onspeed::deg2rad;
+using onspeed::rad2deg;
+using onspeed::mps2g;
+using onspeed::kts2mps;
+using onspeed::ft2m;
+using onspeed::g2mps;
+using onspeed::accelPitch;
+using onspeed::accelRoll;
+
 const float accSmoothing = 0.060899; // accelerometer smoothing, exponential
 const float iasSmoothing = 0.0179;   // airspeed smoothing, exponential [optimized for ISM330 IMU]
 

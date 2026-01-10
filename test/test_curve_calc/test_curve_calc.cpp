@@ -5,6 +5,8 @@
 #include <unity.h>
 #include <CurveCalc.h>
 
+using namespace onspeed;
+
 void setUp(void) {
 }
 

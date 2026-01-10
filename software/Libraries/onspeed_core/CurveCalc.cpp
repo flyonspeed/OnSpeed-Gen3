@@ -16,6 +16,8 @@
 #define ONSPEED_LOG_DEBUG(...)
 #endif
 
+namespace onspeed {
+
 float CurveCalc(float x, const SuCalibrationCurve& curve) {
     float y = 0.0f;
 
@@ -55,3 +57,5 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
 
     return y;
 }
+
+} // namespace onspeed

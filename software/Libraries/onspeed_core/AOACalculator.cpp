@@ -3,6 +3,8 @@
 #include "AOACalculator.h"
 #include <cmath>
 
+namespace onspeed {
+
 // ============================================================================
 // Pure AOA calculation
 // ============================================================================
@@ -59,3 +61,5 @@ AOACalculatorResult AOACalculator::calculate(
 
     return out;
 }
+
+} // namespace onspeed

@@ -4,6 +4,8 @@
 #include <AOACalculator.h>
 #include <cmath>
 
+using namespace onspeed;
+
 void setUp(void) {}
 void tearDown(void) {}
 
