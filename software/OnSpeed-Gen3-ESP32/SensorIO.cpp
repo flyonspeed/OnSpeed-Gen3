@@ -11,6 +11,11 @@
 #include "Flaps.h"
 #include "SensorIO.h"
 
+using onspeed::SuCalibrationCurve;
+using onspeed::AOACalculatorResult;
+using onspeed::CurveCalc;
+using onspeed::psi2mb;
+
 // These from config
 //int     aoaSmoothing      = 20; // AOA smoothing window (number of samples to lag)
 //int     pressureSmoothing = 15; // median filter window for pressure smoothing/despiking

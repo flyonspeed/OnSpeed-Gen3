@@ -6,6 +6,9 @@
 #include "Globals.h"
 #include "DisplaySerial.h"
 
+using onspeed::m2ft;
+using onspeed::mps2fpm;
+
 //SoftwareSerial      DispSerial(DISPLAY_SER_RX, DISPLAY_SER_TX);
 
 const int   serialDisplaySmoothingLat  = 50;    // smoothing serial display data (LateralG)  10hz data.

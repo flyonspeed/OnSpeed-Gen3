@@ -4,6 +4,8 @@
 #include <OnSpeedTypes.h>
 #include <cmath>
 
+using namespace onspeed;
+
 void setUp(void) {
 }
 

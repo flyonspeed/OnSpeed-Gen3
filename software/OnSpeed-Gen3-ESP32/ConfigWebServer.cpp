@@ -30,6 +30,11 @@
 
 #include "Globals.h"
 
+using onspeed::accelPitch;
+using onspeed::accelRoll;
+using onspeed::ft2m;
+using onspeed::inhg2mb;
+
 #include "Web/html_logo.h"
 #include "Web/html_header.h"
 #include "Web/html_liveview.h"

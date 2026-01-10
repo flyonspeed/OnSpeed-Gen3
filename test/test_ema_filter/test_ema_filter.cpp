@@ -4,6 +4,8 @@
 #include <EMAFilter.h>
 #include <cmath>
 
+using onspeed::EMAFilter;
+
 void setUp(void) {}
 void tearDown(void) {}
 

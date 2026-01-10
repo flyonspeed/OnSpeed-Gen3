@@ -8,6 +8,9 @@
 #include <MadgwickFusion.h>
 #include <KalmanFilter.h>
 
+using onspeed::Madgwick;
+using onspeed::KalmanFilter;
+
 class AHRS
 {
 public:

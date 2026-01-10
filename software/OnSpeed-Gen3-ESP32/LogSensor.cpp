@@ -11,6 +11,9 @@
 
 #include "LogSensor.h"
 
+using onspeed::m2ft;
+using onspeed::mps2fpm;
+
 #define SYNC_INTERVAL_MS            5000                // How often to sync the log file to disk
 
 // Peformance variables for debugging

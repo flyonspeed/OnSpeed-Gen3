@@ -18,6 +18,7 @@
 #define __Madgwick_h__
 #include <math.h>
 
+namespace onspeed {
 
 //--------------------------------------------------------------------------------------------
 // Variable declaration
@@ -95,4 +96,7 @@ public:
        *z = q3;
     }
 };
+
+} // namespace onspeed
+
 #endif

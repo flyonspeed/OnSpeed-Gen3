@@ -4,6 +4,8 @@
 
 #include "OnSpeedTypes.h"
 
+namespace onspeed {
+
 /// Evaluate a calibration curve
 /// @param x Input value (e.g., pressure coefficient)
 /// @param curve Calibration curve definition
@@ -15,3 +17,5 @@
 /// - Type 3 (Exponential): y = a*e^(b*x) (uses last two coefficients)
 /// - Unknown type: returns 0
 float CurveCalc(float x, const SuCalibrationCurve& curve);
+
+} // namespace onspeed

@@ -7,6 +7,8 @@
 #include <KalmanFilter.h>
 #include <cmath>
 
+using onspeed::KalmanFilter;
+
 // Production tuning parameters from AHRS.cpp line 47
 static const float PROD_Z_VARIANCE = 0.79078f;
 static const float PROD_ACCEL_VARIANCE = 26.0638f;

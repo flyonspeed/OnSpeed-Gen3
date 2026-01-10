@@ -18,6 +18,10 @@
 #include "LogReplay.h"
 #include "SensorIO.h"
 
+using onspeed::pressureCoeff;
+using onspeed::SuCalibrationCurve;
+using onspeed::AOACalculatorResult;
+
 FsFile                      hReplayFile;
 char                        szInLine[1000];
 CSV_Parser                  CsvParser;

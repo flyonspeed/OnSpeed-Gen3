@@ -16,6 +16,8 @@
 #include <MadgwickFusion.h>
 #include <cmath>
 
+using onspeed::Madgwick;
+
 static const float SAMPLE_FREQ = 208.0f;
 static const float DEG2RAD = 3.14159265f / 180.0f;
 

@@ -4,6 +4,8 @@
 
 #include <cmath>
 
+namespace onspeed {
+
 /// Exponential Moving Average (EMA) filter
 ///
 /// Implements first-order IIR low-pass filter:
@@ -105,3 +107,5 @@ private:
     float _alpha;
     bool  _initialized;
 };
+
+} // namespace onspeed

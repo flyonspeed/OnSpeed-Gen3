@@ -6,6 +6,10 @@
 #include <vector>
 #include <OnSpeedTypes.h>  // Core types: SuCalibrationCurve, MAX_CURVE_COEFF, etc.
 
+using onspeed::SuCalibrationCurve;
+using onspeed::MAX_AOA_CURVES;
+using onspeed::MAX_CURVE_COEFF;
+
 // #include "Globals.h"
 
 #define SUPPORT_CONFIG_V1
