@@ -7,6 +7,7 @@
 
 #include <MadgwickFusion.h>
 #include <KalmanFilter.h>
+#include <EKF6.h>
 
 class AHRS
 {
@@ -54,6 +55,9 @@ public:
 
     Madgwick        MadgFilter;
     KalmanFilter    KalFilter;
+
+    // EKF6 attitude filter (alternative to Madgwick)
+    onspeed::EKF6   Ekf6Filter;
 
 public:
     float           fTAS;

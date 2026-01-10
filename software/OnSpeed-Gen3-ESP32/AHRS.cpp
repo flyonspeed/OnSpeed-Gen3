@@ -39,9 +39,20 @@ void AHRS::Init(float fSampleRate)
     SmoothedPitch = g_pIMU->PitchAC() + g_Config.fPitchBias;
     SmoothedRoll  = g_pIMU->RollAC()  + g_Config.fRollBias;
 
-    // MadGwick attitude filter
-    // start Madgwick filter at 238Hz for LSM9DS1 and 208Hz for ISM330DHXC
-    MadgFilter.begin(fImuSampleRate, -SmoothedPitch, SmoothedRoll);
+    // Initialize attitude filter based on config setting
+    // iAhrsAlgorithm: 0=Madgwick (default), 1=EKF6
+    if (g_Config.iAhrsAlgorithm == 1)
+    {
+        // Initialize EKF6 with accelerometer-derived initial attitude
+        // Note: EKF6 expects radians, SmoothedPitch/Roll are in degrees
+        Ekf6Filter.init(deg2rad(SmoothedRoll), deg2rad(-SmoothedPitch));
+    }
+    else
+    {
+        // MadGwick attitude filter (default)
+        // start Madgwick filter at 238Hz for LSM9DS1 and 208Hz for ISM330DHXC
+        MadgFilter.begin(fImuSampleRate, -SmoothedPitch, SmoothedRoll);
+    }
 
     // Kalman altitude filter
     KalFilter.Configure(0.79078, 26.0638, 1e-11, ft2m(g_Sensors.Palt),0.00,0.00); // configure the Kalman filter (Smooth altitude and IVSI from Baro + accelerometers)
@@ -153,18 +164,61 @@ void AHRS::Process()
     AccelVertSmoothed = accSmoothing*AccelVertCorr+(1-accSmoothing)*AccelVertSmoothed;
     AccelVertComp     = AccelVertSmoothed+AccelVertCompFactor; //corrected, smoothed and compensated
 
-    MadgFilter.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr, AccelFwdComp, AccelLatComp, AccelVertComp);
+    // Update attitude filter based on config setting
+    // iAhrsAlgorithm: 0=Madgwick (default), 1=EKF6
+    if (g_Config.iAhrsAlgorithm == 1)
+    {
+        // EKF6 attitude filter
+        // EKF6 expects:
+        //   - Accelerometer in m/s^2 (AccelComp values are in G, multiply by 9.80665)
+        //   - Gyroscope in rad/s (RateCorr values are already in deg/s, convert to rad/s)
+        //   - gamma (flight path angle) in radians
+        const float G_MPS2 = 9.80665f;
+        float dt = 1.0f / fImuSampleRate;
+        float gamma_rad = deg2rad(FlightPath);  // Use previous FlightPath estimate
 
-    SmoothedPitch = -MadgFilter.getPitch();
-    SmoothedRoll  = -MadgFilter.getRoll();
+        onspeed::EKF6::Measurements meas = {
+            .ax = AccelFwdComp * G_MPS2,      // forward accel in m/s^2
+            .ay = AccelLatComp * G_MPS2,      // lateral accel in m/s^2
+            .az = AccelVertComp * G_MPS2,     // vertical accel in m/s^2
+            .p  = deg2rad(RollRateCorr),      // roll rate in rad/s
+            .q  = deg2rad(PitchRateCorr),     // pitch rate in rad/s
+            .r  = deg2rad(YawRateCorr),       // yaw rate in rad/s
+            .gamma = gamma_rad                 // flight path angle in rad
+        };
 
-    // calculate VSI and flightpath
-    MadgFilter.getQuaternion(&q[0],&q[1],&q[2],&q[3]);
+        Ekf6Filter.update(meas, dt);
+        onspeed::EKF6::State state = Ekf6Filter.getState();
 
-    // get earth referenced vertical acceleration
-    EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * AccelFwdCorr  +
-                 2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  +
-                        (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * AccelVertCorr - 1.0f;
+        // EKF6 state uses: phi=roll, theta=pitch (both in radians)
+        // Convert to degrees and apply sign convention to match Madgwick output
+        SmoothedPitch = state.theta_deg();
+        SmoothedRoll  = state.phi_deg();
+
+        // For EKF6, estimate earth vertical G from attitude (simplified)
+        // This is needed for the Kalman altitude filter
+        float sph = sin(state.phi);
+        float cph = cos(state.phi);
+        float sth = sin(state.theta);
+        float cth = cos(state.theta);
+        EarthVertG = -sth * AccelFwdCorr + sph * cth * AccelLatCorr + cph * cth * AccelVertCorr - 1.0f;
+    }
+    else
+    {
+        // Madgwick attitude filter (default)
+        MadgFilter.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr, AccelFwdComp, AccelLatComp, AccelVertComp);
+
+        SmoothedPitch = -MadgFilter.getPitch();
+        SmoothedRoll  = -MadgFilter.getRoll();
+
+        // calculate VSI and flightpath
+        MadgFilter.getQuaternion(&q[0],&q[1],&q[2],&q[3]);
+
+        // get earth referenced vertical acceleration
+        EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * AccelFwdCorr  +
+                     2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  +
+                            (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * AccelVertCorr - 1.0f;
+    }
 
     KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), float(1/fImuSampleRate), &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
@@ -178,7 +232,21 @@ void AHRS::Process()
     else
         FlightPath = 0.0;
 
-    DerivedAOA = SmoothedPitch - FlightPath;
+    // DerivedAOA calculation depends on AHRS algorithm
+    // iAhrsAlgorithm: 0=Madgwick (use pitch - flightpath), 1=EKF6 (use EKF's alpha estimate)
+    if (g_Config.iAhrsAlgorithm == 1)
+    {
+        // EKF6 directly estimates alpha as part of its state vector
+        // This is more accurate than pitch - flightpath because the EKF
+        // fuses gyro and accelerometer data with the kinematic relationship
+        onspeed::EKF6::State state = Ekf6Filter.getState();
+        DerivedAOA = state.alpha_deg();
+    }
+    else
+    {
+        // Madgwick: derive AOA from pitch angle minus flight path angle
+        DerivedAOA = SmoothedPitch - FlightPath;
+    }
 
 }
 

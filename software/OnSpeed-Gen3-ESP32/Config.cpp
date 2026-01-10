@@ -307,6 +307,9 @@ bool FOSConfig::LoadDefaultConfiguration()
     fPitchBias          = 0.0;
     fRollBias           = 0.0;
 
+    // AHRS algorithm: 0=Madgwick (default), 1=EKF6
+    iAhrsAlgorithm      = 0;
+
     // Serial inputs
     bReadBoom           = false;
     bReadEfisData       = false;
@@ -435,6 +438,9 @@ String FOSConfig::ConfigurationToString()
     XML_INSERT_SET(XmlConfigBias, "GZ",      fGzBias)
     XML_INSERT_SET(XmlConfigBias, "PITCH",   fPitchBias)
     XML_INSERT_SET(XmlConfigBias, "ROLL",    fRollBias)
+
+    // AHRS algorithm selection
+    XML_INSERT_SET(XmlConfigRoot, "AHRS_ALGORITHM", iAhrsAlgorithm)
 
     XML_INSERT(XmlConfigRoot, "LOAD_LIMIT")
     XMLElement * XmlConfigLoadLimit = XmlConfigNew;
@@ -759,6 +765,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             XML_GET_FLOAT(pXmlBias, "PITCH",    fPitchBias)
             XML_GET_FLOAT(pXmlBias, "ROLL",     fRollBias)
             }
+
+        // AHRS algorithm selection (default to 0=Madgwick if not present)
+        XML_GET_INT(XmlRootNode, "AHRS_ALGORITHM", iAhrsAlgorithm)
 
         XMLElement * pXmlLoad = XmlRootNode->FirstChildElement("LOAD_LIMIT");
         if (pXmlLoad != NULL)
