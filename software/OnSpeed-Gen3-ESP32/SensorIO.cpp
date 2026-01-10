@@ -36,13 +36,13 @@ void SensorReadTask(void *pvParams)
 //    static unsigned uLoops = 0;
 //    static bool     bSendOK;
 
-    xLastWakeTime = xLAST_TICK_TIME(20);
+    xLastWakeTime = xLAST_TICK_TIME(5);   // 208Hz = ~4.8ms period, use 5ms
 
     while (true)
     {
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(5));
 
         // If this task wasn't delayed before it ran again it means it
         // it ran long for some reason (like the CPU is overloaded) or
@@ -52,7 +52,7 @@ void SensorReadTask(void *pvParams)
         // the data.
         if (xWasDelayed == pdFALSE)
         {
-            xLastWakeTime = xLAST_TICK_TIME(20);
+            xLastWakeTime = xLAST_TICK_TIME(5);
             unsigned long uNow = millis();
             if ((uNow - uLastLateLogMs) > 1000)
             {

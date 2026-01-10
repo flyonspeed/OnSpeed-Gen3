@@ -215,9 +215,9 @@
 // Serial baud rates
 #define BAUDRATE_CONSOLE       921600
 
-#define IMU_SAMPLE_RATE       50
+#define IMU_SAMPLE_RATE       208
 
-#define GYRO_SMOOTHING        30
+#define GYRO_SMOOTHING        125   // Scaled from 30 at 50Hz to maintain same time constant
 
 // RTOS Stuff
 // ----------

@@ -6,8 +6,12 @@
 #include "AHRS.h"
 #include "SensorIO.h"
 
-const float accSmoothing = 0.060899; // accelerometer smoothing, exponential
-const float iasSmoothing = 0.0179;   // airspeed smoothing, exponential [optimized for ISM330 IMU]
+// EMA smoothing constants scaled for 208Hz sample rate
+// To maintain same cutoff frequency when sample rate changes: alpha_new = alpha_old * (fs_old / fs_new)
+// Original 50Hz values: accSmoothing=0.060899, iasSmoothing=0.0179
+// Scale factor: 50/208 = 0.2404
+const float accSmoothing = 0.0146;   // accelerometer smoothing (was 0.060899 at 50Hz)
+const float iasSmoothing = 0.0043;   // airspeed smoothing (was 0.0179 at 50Hz) [optimized for ISM330 IMU]
 
 // ----------------------------------------------------------------------------
 
