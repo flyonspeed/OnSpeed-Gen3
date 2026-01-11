@@ -1,5 +1,6 @@
 
 
+#include <math.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
@@ -15,6 +16,20 @@ using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
 using onspeed::CurveCalc;
 using onspeed::psi2mb;
+
+// Temporary: IMU dt/jitter diagnostics (remove once timing is verified).
+#define ONSPEED_IMU_TIMING_DIAGNOSTICS 1
+
+static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
+{
+    // Calculate pressure altitude. Pstatic in milliBars, Palt in feet.
+    // Bias is stored as millibars to subtract from measured pressure.
+    const float fStaticBiasCorrected = fStaticMbar - g_Config.fPStaticBias;
+    if (fStaticBiasCorrected <= 0.0f)
+        return g_Sensors.Palt;
+
+    return 145366.45f * (1.0f - powf(fStaticBiasCorrected / 1013.25f, 0.190284f));
+}
 
 // These from config
 //int     aoaSmoothing      = 20; // AOA smoothing window (number of samples to lag)
@@ -89,7 +104,24 @@ void ImuReadTask(void *pvParams)
     const uint32_t uRemainderUs    = 1000000UL % IMU_SAMPLE_RATE; // 144us  @ 208Hz
     uint32_t       uRemainderAcc   = 0;
     uint32_t       uNextWakeUs     = micros();
+    uint32_t       uLastImuReadUs  = uNextWakeUs;
     unsigned long  uLastLateLogMs  = 0;
+
+#if ONSPEED_IMU_TIMING_DIAGNOSTICS
+    const float    fExpectedPeriodUs = 1000000.0f / float(IMU_SAMPLE_RATE);
+    unsigned long  uLastDiagPrintMs  = millis();
+    uint32_t       uMinDtUs          = UINT32_MAX;
+    uint32_t       uMaxDtUs          = 0;
+    uint64_t       uSumDtUs          = 0;
+    double         dSumSqDtUs        = 0.0;
+    int32_t        iMinReadErrUs     = INT32_MAX;
+    int32_t        iMaxReadErrUs     = INT32_MIN;
+    int64_t        iSumReadErrUs     = 0;
+    double         dSumSqReadErrUs   = 0.0;
+    uint32_t       uSampleCount      = 0;
+    uint32_t       uLateOver1msCount = 0;
+    uint32_t       uDtOver10msCount  = 0;
+#endif
 
     while (true)
     {
@@ -115,6 +147,9 @@ void ImuReadTask(void *pvParams)
         const int32_t iLateUs = int32_t(micros() - uNextWakeUs);
         if (iLateUs > 1000)
         {
+#if ONSPEED_IMU_TIMING_DIAGNOSTICS
+            ++uLateOver1msCount;
+#endif
             const unsigned long uNowMs = millis();
             if ((uNowMs - uLastLateLogMs) > 1000)
             {
@@ -129,12 +164,77 @@ void ImuReadTask(void *pvParams)
 
         // Read IMU over SPI (guard the bus).
         xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+        const uint32_t uImuReadUs = micros();
         g_pIMU->Read();
+        const float fStaticMbar = g_pStatic->ReadPressureMillibars();
         xSemaphoreGive(xSensorMutex);
+
+        g_Sensors.PStatic = fStaticMbar;
+        g_Sensors.Palt    = PressureAltitudeFeetFromMbar(fStaticMbar);
+
+        const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
+        uLastImuReadUs = uImuReadUs;
+        const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / IMU_SAMPLE_RATE);
+
+#if ONSPEED_IMU_TIMING_DIAGNOSTICS
+        const int32_t iReadErrUs = int32_t(uImuReadUs - uNextWakeUs);
+        if (uDtUs < uMinDtUs) uMinDtUs = uDtUs;
+        if (uDtUs > uMaxDtUs) uMaxDtUs = uDtUs;
+        uSumDtUs += uDtUs;
+        dSumSqDtUs += double(uDtUs) * double(uDtUs);
+
+        if (iReadErrUs < iMinReadErrUs) iMinReadErrUs = iReadErrUs;
+        if (iReadErrUs > iMaxReadErrUs) iMaxReadErrUs = iReadErrUs;
+        iSumReadErrUs += iReadErrUs;
+        dSumSqReadErrUs += double(iReadErrUs) * double(iReadErrUs);
+
+        ++uSampleCount;
+        if (uDtUs > 10000) ++uDtOver10msCount;
+
+        const unsigned long uNowMs = millis();
+        if ((uNowMs - uLastDiagPrintMs) >= 5000 && uSampleCount > 0)
+        {
+            const float fMeanDtUs = float(uSumDtUs) / float(uSampleCount);
+            const double dVarDtUs = (dSumSqDtUs / double(uSampleCount)) - (double(fMeanDtUs) * double(fMeanDtUs));
+            const float fStdDtUs  = (dVarDtUs > 0.0) ? float(sqrt(dVarDtUs)) : 0.0f;
+
+            const float fMeanErrUs = float(iSumReadErrUs) / float(uSampleCount);
+            const double dVarErrUs = (dSumSqReadErrUs / double(uSampleCount)) - (double(fMeanErrUs) * double(fMeanErrUs));
+            const float fStdErrUs  = (dVarErrUs > 0.0) ? float(sqrt(dVarErrUs)) : 0.0f;
+
+            bool bPrinted = false;
+            if (xSemaphoreTake(xSerialLogMutex, 0))
+            {
+                Serial.printf(
+                    "IMU timing: dt(us) avg=%.1f min=%lu max=%lu std=%.1f exp=%.1f | readErr(us) avg=%.1f min=%ld max=%ld std=%.1f | late>1ms=%lu dt>10ms=%lu\n",
+                    fMeanDtUs, (unsigned long)uMinDtUs, (unsigned long)uMaxDtUs, fStdDtUs, fExpectedPeriodUs,
+                    fMeanErrUs, (long)iMinReadErrUs, (long)iMaxReadErrUs, fStdErrUs,
+                    (unsigned long)uLateOver1msCount, (unsigned long)uDtOver10msCount);
+                xSemaphoreGive(xSerialLogMutex);
+                bPrinted = true;
+            }
+
+            if (bPrinted)
+            {
+                uLastDiagPrintMs  = uNowMs;
+                uMinDtUs          = UINT32_MAX;
+                uMaxDtUs          = 0;
+                uSumDtUs          = 0;
+                dSumSqDtUs        = 0.0;
+                iMinReadErrUs     = INT32_MAX;
+                iMaxReadErrUs     = INT32_MIN;
+                iSumReadErrUs     = 0;
+                dSumSqReadErrUs   = 0.0;
+                uSampleCount      = 0;
+                uLateOver1msCount = 0;
+                uDtOver10msCount  = 0;
+            }
+        }
+#endif
 
         // Update AHRS (guard against re-entrant Process() calls).
         xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
-        g_AHRS.Process();
+        g_AHRS.Process(fDtSeconds);
         xSemaphoreGive(xAhrsMutex);
     }
 }
@@ -185,12 +285,7 @@ void SensorIO::Read()
     xSemaphoreTake(xSensorMutex, portMAX_DELAY);
     iPfwd    = g_pPitot->ReadPressureCounts() - g_Config.iPFwdBias;
     iP45     = g_pAOA->ReadPressureCounts()   - g_Config.iP45Bias;
-    PStatic  = g_pStatic->ReadPressureMillibars();
     xSemaphoreGive(xSensorMutex);
-
-    // Calculate pressure altitude. Pstatic in milliBars, Palt in feet.
-    Palt = 145366.45 * (1 - pow((PStatic - g_Config.fPStaticBias) / 1013.25, 0.190284));
-    g_Log.printf(MsgLog::EnPressure, MsgLog::EnDebug, "pStatic %8.3f mb Bias %6.3f mb Palt %5.0f\n", PStatic, g_Config.fPStaticBias, Palt);
 
     // Update flaps position about once per second
     if (millis() - uLastFlapsReadMs > 1000)
@@ -258,7 +353,8 @@ void SensorIO::Read()
     // Match the 10Hz display behavior by updating DecelRate at 100ms intervals.
     static unsigned long uLastDecelUpdateMs = 0;
     const unsigned long uNowMs = millis();
-    if ((uNowMs - uLastDecelUpdateMs) >= 100)
+    const unsigned long uDecelDeltaMs = uNowMs - uLastDecelUpdateMs;
+    if (uDecelDeltaMs >= 100)
     {
         uLastDecelUpdateMs = uNowMs;
 
@@ -268,8 +364,8 @@ void SensorIO::Read()
         fIasDerInput = IAS;
 #endif
 
-        // SavGolDerivative returns derivative per sample; convert to kts/sec for the 100ms update period.
-        const float fDecelSampleHz = 10.0f;
+        // SavGolDerivative returns derivative per sample; scale by actual update frequency (kts/sec).
+        const float fDecelSampleHz = (uDecelDeltaMs > 0) ? (1000.0f / float(uDecelDeltaMs)) : 10.0f;
         // Positive for increasing IAS, negative for decreasing IAS (deceleration).
         fDecelRate = IasDerivative.Compute() * fDecelSampleHz;
     }
@@ -281,19 +377,15 @@ void SensorIO::Read()
 
     if (g_Log.Test(MsgLog::EnSensors, MsgLog::EnDebug) == true)
     {
-        static int iDecimate = 0;  // Decimate to once per second
-
-        if (iDecimate == 0)
+        static unsigned long uLastDebugPrintMs = 0;
+        if ((uNowMs - uLastDebugPrintMs) >= 1000)
         {
+            uLastDebugPrintMs = uNowMs;
             g_Log.printf("timeStamp: %lu,iPfwd: %i,PfwdSmoothed: %.2f,iP45: %i,P45Smoothed: %.2f,Pstatic: %.2f,Palt: %.2f,IAS: %.2f,AOA: %.2f,flapsPos: %i,VerticalG: %.2f,LateralG: %.2f,ForwardG: %.2f,RollRate: %.2f,PitchRate: %.2f,YawRate: %.2f, SmoothedPitch %.2f\n",
                 millis(), iPfwd, PfwdSmoothed, iP45, P45Smoothed, PStatic, Palt, IAS, AOA, g_Flaps.iPosition,
                 g_AHRS.AccelVertComp, g_AHRS.AccelLatComp, g_AHRS.AccelFwdComp,
                 g_AHRS.gRoll, g_AHRS.gPitch, g_AHRS.gYaw, g_AHRS.SmoothedPitch);
-
-            iDecimate = 50;
         }
-        else
-            iDecimate--;
     } // end if debug print
 
 } // end Read()
@@ -310,7 +402,7 @@ float SensorIO::ReadPressureAltMbars()
     xSemaphoreTake(xSensorMutex, portMAX_DELAY);
     PStatic = g_pStatic->ReadPressureMillibars();
     xSemaphoreGive(xSensorMutex);
-    Palt    = 145366.45 * (1 - pow((PStatic - g_Config.fPStaticBias) / 1013.25, 0.190284));
+    Palt    = PressureAltitudeFeetFromMbar(PStatic);
 
     g_Log.printf(MsgLog::EnPressure, MsgLog::EnDebug, "pStatic %8.3f mb Bias %6.3f mb Palt %5.0f\n", PStatic, g_Config.fPStaticBias, Palt);
 

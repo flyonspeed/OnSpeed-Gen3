@@ -65,6 +65,7 @@ public:
     // Methods
     void    Init(float fSampleRate);
     void    Process();
+    void    Process(float deltaTimeSeconds);
 
     float   PitchWithBias();
     float   PitchWithBiasSmth();

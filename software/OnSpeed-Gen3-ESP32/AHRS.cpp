@@ -1,4 +1,5 @@
 
+#include <math.h>
 #include <RunningAverage.h>
 
 #include "Globals.h"
@@ -61,6 +62,13 @@ void AHRS::Init(float fSampleRate)
 
 void AHRS::Process()
 {
+    Process(1.0f / fImuSampleRate);
+}
+
+// ----------------------------------------------------------------------------
+
+void AHRS::Process(float fDeltaTimeSeconds)
+{
     float fTASdiff;
     float fPitchBiasRad;
     float fRollBiasRad;
@@ -72,6 +80,10 @@ void AHRS::Process()
     float AccelLatCompFactor;
     float AccelVertCompFactor;
     float q[4];
+
+    // Use measured dt when available; fall back to nominal sample rate if dt is invalid.
+    if (isnan(fDeltaTimeSeconds) || isinf(fDeltaTimeSeconds) || fDeltaTimeSeconds <= 0.0f)
+        fDeltaTimeSeconds = 1.0f / fImuSampleRate;
 
 #ifdef OAT_AVAILABLE
     const float Kelvin    = 273.15;
@@ -137,7 +149,7 @@ void AHRS::Process()
 
     // calculate linear acceleration compensation
     // correct for forward acceleration
-    AccelFwdCompFactor  = mps2g((TASdiffSmoothed)/(1/fImuSampleRate)); //1/208hz (update rate), m/sec2 to g
+    AccelFwdCompFactor  = mps2g((TASdiffSmoothed)/fDeltaTimeSeconds); // m/sec2 to g
 
     //centripetal acceleration in m/sec2 = speed in m/sec * angular rate in radians
     AccelLatCompFactor  = mps2g(deg2rad(fTAS * YawRateCorr));
@@ -162,6 +174,7 @@ void AHRS::Process()
     AccelVertSmoothed = accSmoothing*AccelVertCorr+(1-accSmoothing)*AccelVertSmoothed;
     AccelVertComp     = AccelVertSmoothed+AccelVertCompFactor; //corrected, smoothed and compensated
 
+    MadgFilter.setDeltaTime(fDeltaTimeSeconds);
     MadgFilter.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr, AccelFwdComp, AccelLatComp, AccelVertComp);
 
     SmoothedPitch = -MadgFilter.getPitch();
@@ -175,7 +188,7 @@ void AHRS::Process()
                  2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  +
                         (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * AccelVertCorr - 1.0f;
 
-    KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), float(1/fImuSampleRate), &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
+    KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), fDeltaTimeSeconds, &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
     // zero VSI when airspeed is not yet alive
     if (g_Sensors.IAS < 25)
