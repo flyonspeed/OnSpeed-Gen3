@@ -25,7 +25,8 @@ AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(
 {
     fTAS     = 0.0;
     fPrevTAS = 0.0;
-    TASdiffSmoothed = 0.0;
+    TASdotSmoothed = 0.0;
+    uLastIasUpdateUs = 0;
 
     //// This was init'ed from real accelerometer values in previous version.
     //// Probably should do that again.
@@ -100,10 +101,33 @@ void AHRS::Process(float fDeltaTimeSeconds)
     fTAS        = kts2mps(g_Sensors.IAS*(1+ g_Sensors.Palt / 1000 * 0.02)); // m/sec
 #endif
 
-    // diff IAS and then smooth it. Used for forward acceleration correction
-    fTASdiff = fTAS - fPrevTAS;
-    fPrevTAS = fTAS;
-    TASdiffSmoothed = iasSmoothing*fTASdiff+(1-iasSmoothing)*TASdiffSmoothed;
+    // Update TAS derivative at IAS update cadence (50Hz), not at the IMU update cadence.
+    const uint32_t uIasUpdateUs = g_Sensors.uIasUpdateUs;
+    if (uIasUpdateUs != uLastIasUpdateUs)
+    {
+        if (uLastIasUpdateUs == 0)
+        {
+            uLastIasUpdateUs = uIasUpdateUs;
+            fPrevTAS = fTAS;
+            TASdotSmoothed = 0.0f;
+        }
+        else
+        {
+            float fIasDtSeconds = float(uint32_t(uIasUpdateUs - uLastIasUpdateUs)) * 1.0e-6f;
+            uLastIasUpdateUs = uIasUpdateUs;
+
+            if (isnan(fIasDtSeconds) || isinf(fIasDtSeconds) || fIasDtSeconds <= 0.0f)
+                fIasDtSeconds = 1.0f / 50.0f;
+
+            fTASdiff = fTAS - fPrevTAS;
+            fPrevTAS = fTAS;
+
+            const float fIasTauSeconds = (1.0f / fImuSampleRate) * ((1.0f / iasSmoothing) - 1.0f);
+            const float fAlpha = fIasDtSeconds / (fIasTauSeconds + fIasDtSeconds);
+            const float fTASdot = fTASdiff / fIasDtSeconds;
+            TASdotSmoothed = fAlpha * fTASdot + (1.0f - fAlpha) * TASdotSmoothed;
+        }
+    }
 
     // all TAS are in m/sec at this point
 
@@ -149,7 +173,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
 
     // calculate linear acceleration compensation
     // correct for forward acceleration
-    AccelFwdCompFactor  = mps2g((TASdiffSmoothed)/fDeltaTimeSeconds); // m/sec2 to g
+    AccelFwdCompFactor  = mps2g(TASdotSmoothed); // m/sec2 to g
 
     //centripetal acceleration in m/sec2 = speed in m/sec * angular rate in radians
     AccelLatCompFactor  = mps2g(deg2rad(fTAS * YawRateCorr));

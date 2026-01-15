@@ -254,6 +254,7 @@ SensorIO::SensorIO()
 {
     Palt       = 0.00;
     fDecelRate = 0.0;
+    uIasUpdateUs = 0;
 }
 
 // ----------------------------------------------------------------------------
@@ -347,11 +348,13 @@ void SensorIO::Read()
         // Catch negative pressure case
         else
             IAS = 0;
-    } // end if not in test pot or range sweep mode
+	    } // end if not in test pot or range sweep mode
 
-    // Take derivative of airspeed for deceleration calc.
-    // Match the 10Hz display behavior by updating DecelRate at 100ms intervals.
-    static unsigned long uLastDecelUpdateMs = 0;
+	    uIasUpdateUs = micros();
+
+	    // Take derivative of airspeed for deceleration calc.
+	    // Match the 10Hz display behavior by updating DecelRate at 100ms intervals.
+	    static unsigned long uLastDecelUpdateMs = 0;
     const unsigned long uNowMs = millis();
     const unsigned long uDecelDeltaMs = uNowMs - uLastDecelUpdateMs;
     if (uDecelDeltaMs >= 100)
