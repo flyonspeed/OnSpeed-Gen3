@@ -29,6 +29,7 @@
 #define VERSION "4.13"
 
 // v4.13 fixed IAS based Forward acceleration correction, IAS now calculates at its own uodate rate not IMU rate
+//Pressure sensor chip selects are reversed between V4P and V4B
 
 // v4.12 fixes: track actual dt instead of assuming base rate. Sample PStatic at IMU rate.
 
@@ -159,8 +160,15 @@
 
 #define CS_IMU               4
 #define CS_STATIC            7
+
+// V4P hardware has PFwd/P45 wired to opposite chip selects.
+#ifdef HW_V4P
+#define CS_AOA               6
+#define CS_PITOT             15
+#else
 #define CS_AOA               15
-#define CS_PITOT             6                // needed to swap these two
+#define CS_PITOT             6
+#endif
 
 #ifdef HW_V4P
 // V4P includes an external MCP3204 ADC on the sensor SPI bus.
