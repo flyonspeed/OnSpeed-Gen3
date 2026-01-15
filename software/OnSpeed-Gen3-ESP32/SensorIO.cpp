@@ -17,8 +17,6 @@ using onspeed::AOACalculatorResult;
 using onspeed::CurveCalc;
 using onspeed::psi2mb;
 
-// Temporary: IMU dt/jitter diagnostics (remove once timing is verified).
-#define ONSPEED_IMU_TIMING_DIAGNOSTICS 1
 
 static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
 {
@@ -107,22 +105,6 @@ void ImuReadTask(void *pvParams)
     uint32_t       uLastImuReadUs  = uNextWakeUs;
     unsigned long  uLastLateLogMs  = 0;
 
-#if ONSPEED_IMU_TIMING_DIAGNOSTICS
-    const float    fExpectedPeriodUs = 1000000.0f / float(IMU_SAMPLE_RATE);
-    unsigned long  uLastDiagPrintMs  = millis();
-    uint32_t       uMinDtUs          = UINT32_MAX;
-    uint32_t       uMaxDtUs          = 0;
-    uint64_t       uSumDtUs          = 0;
-    double         dSumSqDtUs        = 0.0;
-    int32_t        iMinReadErrUs     = INT32_MAX;
-    int32_t        iMaxReadErrUs     = INT32_MIN;
-    int64_t        iSumReadErrUs     = 0;
-    double         dSumSqReadErrUs   = 0.0;
-    uint32_t       uSampleCount      = 0;
-    uint32_t       uLateOver1msCount = 0;
-    uint32_t       uDtOver10msCount  = 0;
-#endif
-
     while (true)
     {
         // Schedule the next tick.
@@ -147,9 +129,6 @@ void ImuReadTask(void *pvParams)
         const int32_t iLateUs = int32_t(micros() - uNextWakeUs);
         if (iLateUs > 1000)
         {
-#if ONSPEED_IMU_TIMING_DIAGNOSTICS
-            ++uLateOver1msCount;
-#endif
             const unsigned long uNowMs = millis();
             if ((uNowMs - uLastLateLogMs) > 1000)
             {
@@ -175,62 +154,6 @@ void ImuReadTask(void *pvParams)
         const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
         uLastImuReadUs = uImuReadUs;
         const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / IMU_SAMPLE_RATE);
-
-#if ONSPEED_IMU_TIMING_DIAGNOSTICS
-        const int32_t iReadErrUs = int32_t(uImuReadUs - uNextWakeUs);
-        if (uDtUs < uMinDtUs) uMinDtUs = uDtUs;
-        if (uDtUs > uMaxDtUs) uMaxDtUs = uDtUs;
-        uSumDtUs += uDtUs;
-        dSumSqDtUs += double(uDtUs) * double(uDtUs);
-
-        if (iReadErrUs < iMinReadErrUs) iMinReadErrUs = iReadErrUs;
-        if (iReadErrUs > iMaxReadErrUs) iMaxReadErrUs = iReadErrUs;
-        iSumReadErrUs += iReadErrUs;
-        dSumSqReadErrUs += double(iReadErrUs) * double(iReadErrUs);
-
-        ++uSampleCount;
-        if (uDtUs > 10000) ++uDtOver10msCount;
-
-        const unsigned long uNowMs = millis();
-        if ((uNowMs - uLastDiagPrintMs) >= 5000 && uSampleCount > 0)
-        {
-            const float fMeanDtUs = float(uSumDtUs) / float(uSampleCount);
-            const double dVarDtUs = (dSumSqDtUs / double(uSampleCount)) - (double(fMeanDtUs) * double(fMeanDtUs));
-            const float fStdDtUs  = (dVarDtUs > 0.0) ? float(sqrt(dVarDtUs)) : 0.0f;
-
-            const float fMeanErrUs = float(iSumReadErrUs) / float(uSampleCount);
-            const double dVarErrUs = (dSumSqReadErrUs / double(uSampleCount)) - (double(fMeanErrUs) * double(fMeanErrUs));
-            const float fStdErrUs  = (dVarErrUs > 0.0) ? float(sqrt(dVarErrUs)) : 0.0f;
-
-            bool bPrinted = false;
-            if (xSemaphoreTake(xSerialLogMutex, 0))
-            {
-                Serial.printf(
-                    "IMU timing: dt(us) avg=%.1f min=%lu max=%lu std=%.1f exp=%.1f | readErr(us) avg=%.1f min=%ld max=%ld std=%.1f | late>1ms=%lu dt>10ms=%lu\n",
-                    fMeanDtUs, (unsigned long)uMinDtUs, (unsigned long)uMaxDtUs, fStdDtUs, fExpectedPeriodUs,
-                    fMeanErrUs, (long)iMinReadErrUs, (long)iMaxReadErrUs, fStdErrUs,
-                    (unsigned long)uLateOver1msCount, (unsigned long)uDtOver10msCount);
-                xSemaphoreGive(xSerialLogMutex);
-                bPrinted = true;
-            }
-
-            if (bPrinted)
-            {
-                uLastDiagPrintMs  = uNowMs;
-                uMinDtUs          = UINT32_MAX;
-                uMaxDtUs          = 0;
-                uSumDtUs          = 0;
-                dSumSqDtUs        = 0.0;
-                iMinReadErrUs     = INT32_MAX;
-                iMaxReadErrUs     = INT32_MIN;
-                iSumReadErrUs     = 0;
-                dSumSqReadErrUs   = 0.0;
-                uSampleCount      = 0;
-                uLateOver1msCount = 0;
-                uDtOver10msCount  = 0;
-            }
-        }
-#endif
 
         // Update AHRS (guard against re-entrant Process() calls).
         xSemaphoreTake(xAhrsMutex, portMAX_DELAY);

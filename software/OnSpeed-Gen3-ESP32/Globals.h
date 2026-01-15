@@ -26,13 +26,19 @@
 //#define HW_V4B // Bob's hardware
 #define HW_V4P // Phil's hardware
 
-#define VERSION "4.12"
+#define VERSION "4.13"
+
+// v4.13 fixed IAS based Forward acceleration correction, IAS now calculates at its own uodate rate not IMU rate
+
+// v4.12 fixes: track actual dt instead of assuming base rate. Sample PStatic at IMU rate.
+
+// v4.11 Fixing sign of deceleration in web based decel gauge, to match fixed SavGolay filter output
 
 // v4.10
 //Stop hard-coding VN-300 and instead initialize the EFIS serial with the configured type
 //Log files will get the correct EFIS columns
 // Fixed audio issue, sending I2S 4-bytes at a time
-// Fixed anty decel gauge on web interface
+// Fixed antsy decel gauge on web interface
 
 // v 4.9
 // fixes for data download
