@@ -1834,11 +1834,14 @@ sPage += R"#(
 
         g_Config.SaveConfigurationToFile();
 
-        // Get update IMU
+        // Refresh IMU/AHRS after updating biases
         xSemaphoreTake(xSensorMutex, portMAX_DELAY);
-        g_pIMU->ReadAccelGyro(false);
-        g_AHRS.Process();
+        g_pIMU->Read();
         xSemaphoreGive(xSensorMutex);
+
+        xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+        g_AHRS.Process();
+        xSemaphoreGive(xAhrsMutex);
 
         //sdLogging=true;
 

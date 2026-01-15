@@ -40,7 +40,7 @@ public:
     float           SmoothedPitch;
     float           SmoothedRoll;
 
-    float           TASdiffSmoothed;
+    float           TASdotSmoothed;
     float           KalmanAlt;
     float           KalmanVSI;
     float           FlightPath;
@@ -61,10 +61,12 @@ public:
 public:
     float           fTAS;
     float           fPrevTAS;
+    uint32_t        uLastIasUpdateUs;
 
     // Methods
     void    Init(float fSampleRate);
     void    Process();
+    void    Process(float deltaTimeSeconds);
 
     float   PitchWithBias();
     float   PitchWithBiasSmth();
