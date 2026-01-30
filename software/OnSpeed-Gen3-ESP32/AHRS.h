@@ -54,6 +54,7 @@ public:
     float           gRoll,gPitch,gYaw;    // Gyro rates in the various axes
 
     float           fImuSampleRate;
+    float           fImuDeltaTime;      // Cached 1.0f / fImuSampleRate
 
     Madgwick        MadgFilter;
     KalmanFilter    KalFilter;

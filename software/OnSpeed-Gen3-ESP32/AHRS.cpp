@@ -44,6 +44,7 @@ AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(
 void AHRS::Init(float fSampleRate)
 {
     fImuSampleRate = fSampleRate;
+    fImuDeltaTime  = 1.0f / fSampleRate;
 
 //    smoothedPitch = CalcPitch(getAccelForAxis(forwardGloadAxis),getAccelForAxis(lateralGloadAxis), getAccelForAxis(verticalGloadAxis))+pitchBias;
 //    smoothedRoll  = calcRoll( getAccelForAxis(forwardGloadAxis),getAccelForAxis(lateralGloadAxis), getAccelForAxis(verticalGloadAxis))+rollBias;
@@ -63,7 +64,7 @@ void AHRS::Init(float fSampleRate)
 
 void AHRS::Process()
 {
-    Process(1.0f / fImuSampleRate);
+    Process(fImuDeltaTime);
 }
 
 // ----------------------------------------------------------------------------
@@ -84,7 +85,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
 
     // Use measured dt when available; fall back to nominal sample rate if dt is invalid.
     if (isnan(fDeltaTimeSeconds) || isinf(fDeltaTimeSeconds) || fDeltaTimeSeconds <= 0.0f)
-        fDeltaTimeSeconds = 1.0f / fImuSampleRate;
+        fDeltaTimeSeconds = fImuDeltaTime;
 
 #ifdef OAT_AVAILABLE
     const float Kelvin    = 273.15;
@@ -122,7 +123,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
             fTASdiff = fTAS - fPrevTAS;
             fPrevTAS = fTAS;
 
-            const float fIasTauSeconds = (1.0f / fImuSampleRate) * ((1.0f / iasSmoothing) - 1.0f);
+            const float fIasTauSeconds = fImuDeltaTime * ((1.0f / iasSmoothing) - 1.0f);
             const float fAlpha = fIasDtSeconds / (fIasTauSeconds + fIasDtSeconds);
             const float fTASdot = fTASdiff / fIasDtSeconds;
             TASdotSmoothed = fAlpha * fTASdot + (1.0f - fAlpha) * TASdotSmoothed;
