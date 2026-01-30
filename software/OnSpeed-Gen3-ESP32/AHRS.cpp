@@ -16,8 +16,13 @@ using onspeed::g2mps;
 using onspeed::accelPitch;
 using onspeed::accelRoll;
 
-const float accSmoothing = 0.060899; // accelerometer smoothing, exponential
-const float iasSmoothing = 0.0179;   // airspeed smoothing, exponential [optimized for ISM330 IMU]
+const float accSmoothing        = 0.060899f;            // accelerometer smoothing alpha
+const float accSmoothingComplement = 1.0f - accSmoothing;  // precomputed (1 - alpha)
+
+const float iasSmoothing = 0.0179f;                             // airspeed smoothing alpha
+const float iasTauFactor = (1.0f / iasSmoothing) - 1.0f;        // tau multiplier for variable-rate EMA
+
+const float kPressureDeltaTime = 1.0f / PRESSURE_SAMPLE_RATE;   // fallback dt for IAS derivative
 
 // ----------------------------------------------------------------------------
 
@@ -118,12 +123,12 @@ void AHRS::Process(float fDeltaTimeSeconds)
             uLastIasUpdateUs = uIasUpdateUs;
 
             if (isnan(fIasDtSeconds) || isinf(fIasDtSeconds) || fIasDtSeconds <= 0.0f)
-                fIasDtSeconds = 1.0f / 50.0f;
+                fIasDtSeconds = kPressureDeltaTime;
 
             fTASdiff = fTAS - fPrevTAS;
             fPrevTAS = fTAS;
 
-            const float fIasTauSeconds = fImuDeltaTime * ((1.0f / iasSmoothing) - 1.0f);
+            const float fIasTauSeconds = fImuDeltaTime * iasTauFactor;
             const float fAlpha = fIasDtSeconds / (fIasTauSeconds + fIasDtSeconds);
             const float fTASdot = fTASdiff / fIasDtSeconds;
             TASdotSmoothed = fAlpha * fTASdot + (1.0f - fAlpha) * TASdotSmoothed;
@@ -190,14 +195,14 @@ void AHRS::Process(float fDeltaTimeSeconds)
     // Smooth accelerometer values and add compensation
     //aFwdCorrAvg.addValue(AccelFwdCorr);
     //aFwd=aFwdCorrAvg.getFastAverage(); // corrected, smoothed
-    AccelFwdSmoothed  = accSmoothing * AccelFwdCorr+(1-accSmoothing) * AccelFwdSmoothed;
+    AccelFwdSmoothed  = accSmoothing * AccelFwdCorr  + accSmoothingComplement * AccelFwdSmoothed;
     AccelFwdComp      = AccelFwdSmoothed - AccelFwdCompFactor; //corrected, smoothed and compensated
 
-    AccelLatSmoothed  = accSmoothing*AccelLatCorr+(1-accSmoothing)*AccelLatSmoothed;
-    AccelLatComp      = AccelLatSmoothed-AccelLatCompFactor; //corrected, smoothed and compensated
+    AccelLatSmoothed  = accSmoothing * AccelLatCorr  + accSmoothingComplement * AccelLatSmoothed;
+    AccelLatComp      = AccelLatSmoothed - AccelLatCompFactor; //corrected, smoothed and compensated
 
-    AccelVertSmoothed = accSmoothing*AccelVertCorr+(1-accSmoothing)*AccelVertSmoothed;
-    AccelVertComp     = AccelVertSmoothed+AccelVertCompFactor; //corrected, smoothed and compensated
+    AccelVertSmoothed = accSmoothing * AccelVertCorr + accSmoothingComplement * AccelVertSmoothed;
+    AccelVertComp     = AccelVertSmoothed + AccelVertCompFactor; //corrected, smoothed and compensated
 
     MadgFilter.setDeltaTime(fDeltaTimeSeconds);
     MadgFilter.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr, AccelFwdComp, AccelLatComp, AccelVertComp);
