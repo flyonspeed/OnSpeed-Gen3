@@ -233,6 +233,10 @@
 // IMU hardware is configured for 208Hz; AHRS runs at this IMU rate.
 #define IMU_SAMPLE_RATE       208
 
+// Pressure sensors (pitot, AOA, static) are read at 50Hz.
+#define PRESSURE_SAMPLE_RATE   50
+#define PRESSURE_INTERVAL_MS   (1000 / PRESSURE_SAMPLE_RATE)
+
 #define GYRO_SMOOTHING        30
 
 // RTOS Stuff
