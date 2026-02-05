@@ -466,6 +466,13 @@ void AudioPlay::UpdateTones()
     if (bAudioTest)
         return;
 
+    // If audio is disabled by button, mute tones
+    if (!g_bAudioEnable)
+        {
+        SetTone(enToneNone);
+        return;
+        }
+
     // If airspeed is low (like taxiing) don't make audio
     if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
         {
