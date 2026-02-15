@@ -42,6 +42,7 @@ flightData.Flightpath     = [];
 flightData.DecelRate      = [];
 var CPtoAOAcurve          = "";
 var CPtoAOAr2             = "";
+var IAStoCPr2             = "";
 var LDmaxSetpoint         = 0;
 var OSFastSetpoint        = 0;
 var OSSlowSetpoint        = 0;
@@ -49,6 +50,7 @@ var StallWarnSetpoint     = 0;
 var calDate;
 var stallIAS;
 var resultCPtoAOA; // CP to AOA regression curve
+var resultIAStoCP; // IAS to CP regression (physics-based: CP = a/IAS^2 + b)
 
 //setInterval(updateAge,500);
 
@@ -266,11 +268,13 @@ function recordData(on)
     // prepare data points for regression
     var dataCPtoAOA=[];
     var dataIAStoAOA=[];
+    var dataIAStoCP=[]; // physics-based: fit CP = a/IAS^2 + b
     var dataIAS=[]; // IAS linear regression to verify that IAS is decreasing
     for (i=0;i<=stallIndex;i++)
       {
       dataCPtoAOA.push([flightData.smoothedCP[i],flightData.DerivedAOA[i]]);
       dataIAStoAOA.push([flightData.IAS[i],flightData.DerivedAOA[i]]);
+      dataIAStoCP.push([1.0/(flightData.IAS[i]*flightData.IAS[i]),flightData.CP[i]]);
       dataIAS.push([i,flightData.IAS[i]]);
       }
     const resultIAS = regression.polynomial(dataIAS, { order: 1, precision:2 });
@@ -293,10 +297,19 @@ function recordData(on)
       CPtoAOAr2=resultCPtoAOA.r2;
       const resultIAStoAOA = regression.polynomial(dataIAStoAOA, { order: 2, precision:4 });
 
+      // Physics-based IAS to CP fit: CP = a * (1/IAS^2) + b
+      // From the lift equation, alpha ~ 1/V^2, and CP is linearly related to alpha,
+      // so CP should also vary as 1/V^2. This replaces the old CPfromIAS single-sample
+      // lookup with a proper curve fit through all pre-stall data.
+      // See DOT/FAA/TC-18/7 (Rogers, 2018) section 2.2, equation (1).
+      resultIAStoCP = regression.polynomial(dataIAStoCP, { order: 1, precision:8 });
+      IAStoCPr2 = resultIAStoCP.r2;
+      console.log("IAStoCP:", resultIAStoCP);
+
       // Update LDmaxIAS
       if (flapIndex>0) LDmaxIAS=flightData.IAS[0]; // assign first seen airspeed (presumably Vfe) to LDmaxIAS when flaps are down.
 
-      // Calculate setpoint AOAs
+      // Calculate setpoint AOAs using fitted IAS->CP curve then CP->AOA polynomial
       LDmaxCP             = CPfromIAS(LDmaxIAS);
       LDmaxSetpoint       = (resultCPtoAOA.equation[0]*LDmaxCP*LDmaxCP+resultCPtoAOA.equation[1]*LDmaxCP+resultCPtoAOA.equation[2]).toFixed(2);
       OSFastCP            = CPfromIAS(stallIAS*OSFastMultiplier);
@@ -403,6 +416,7 @@ function recordData(on)
       document.getElementById('idManeuveringSetpoint').innerHTML=ManeuveringSetpoint;
       document.getElementById('idStallSetpoint').innerHTML=StallSetpoint;
       document.getElementById('idCPtoAOAr2').innerHTML=CPtoAOAr2;
+      document.getElementById('idIAStoCPr2').innerHTML=IAStoCPr2;
       document.getElementById('CPchart').style.display="block";
       document.getElementById('curveResults').style.display="block";
       document.getElementById('saveCalButtons').style.display="block";
@@ -421,11 +435,10 @@ function recordData(on)
 
 function CPfromIAS(IAS)
   {
-  for (i=1;i<flightData.IAS.length;i++)
-    {
-    if (flightData.IAS[i] <= IAS) return flightData.CP[i];
-    }
-  return 0;
+  // Physics-based: CP = a * (1/IAS^2) + b
+  // resultIAStoCP.equation[0] is the slope (a), equation[1] is the intercept (b)
+  var invIAS2 = 1.0 / (IAS * IAS);
+  return resultIAStoCP.equation[0] * invIAS2 + resultIAStoCP.equation[1];
   }
 
 
@@ -444,6 +457,7 @@ function saveData()
   fileContent += ";StallAngle="+StallSetpoint+"\n";
   fileContent += ";CPtoAOACurve: "+CPtoAOAcurve+"\n";
   fileContent += ";CPtoAOAr2="+CPtoAOAr2+"\n";
+  fileContent += ";IAStoCPr2="+IAStoCPr2+"\n";
   fileContent += ";\n";
   fileContent += "; Data:\n";
   fileContent += "IAS,CP,DerivedAOA,Pitch,FlightPath,DecelRate\n";

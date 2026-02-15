@@ -65,7 +65,8 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
     <b>Calibration Results:</b><br><br>
     Stall Speed: <span id="idStallSpeed"></span> kts<br>
     CP to AOA Curve: <span id="idCPtoAOACurve"></span><br>
-    R<sup>2</sup>: <span id="idCPtoAOAr2"></span><br><br>
+    CP to AOA R<sup>2</sup>: <span id="idCPtoAOAr2"></span><br>
+    IAS to CP R<sup>2</sup>: <span id="idIAStoCPr2"></span><br><br>
    <b>Setpoints:</b><br>
       L/Dmax: <span id="idLDmaxSetpoint"></span> deg<br>
       Onspeed Fast: <span id="idOSFastSetpoint"></span> deg<br>
