@@ -56,6 +56,10 @@ public:
     float           fImuSampleRate;
     float           fImuDeltaTime;      // Cached 1.0f / fImuSampleRate
 
+    // Precomputed trig of installation bias angles (constant after Init)
+    float           fSinPitch, fCosPitch;
+    float           fSinRoll,  fCosRoll;
+
     Madgwick        MadgFilter;
     KalmanFilter    KalFilter;
 
