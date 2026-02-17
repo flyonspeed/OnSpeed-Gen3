@@ -274,7 +274,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,\"LDmax\":%.2f,\"OnspeedFast\":%.2f,"
         "\"OnspeedSlow\":%.2f,\"OnspeedWarn\":%.2f,\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
-        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f}";
+        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"Alpha0\":%.2f}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
@@ -315,7 +315,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiFlightpath,
         fPitchRate,
         fDecelRate,
-        fWifiOAT);
+        fWifiOAT,
+        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fAlpha0, 0.0f));
 
     if (iChars < 0)
         return 0;

@@ -230,6 +230,9 @@ void AHRS::Process(float fDeltaTimeSeconds)
     else
         FlightPath = 0.0;
 
+    // DerivedAOA is the fuselage-to-wind angle (body alpha), NOT wing AOA.
+    // At zero lift, DerivedAOA equals alpha_0 (typically negative due to wing
+    // incidence and camber). See g_Config.aFlaps[].fAlpha0.
     DerivedAOA = SmoothedPitch - FlightPath;
 
 }

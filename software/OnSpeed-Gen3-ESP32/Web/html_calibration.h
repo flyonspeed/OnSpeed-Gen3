@@ -73,6 +73,10 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
       Stall Warning: <span id="idStallWarnSetpoint"></span> deg<br>
       Maneuvering Angle: <span id="idManeuveringSetpoint"></span> deg<br>
       Stall Angle: <span id="idStallSetpoint"></span> deg<br>
+   <br><b>Physics Fit:</b><br>
+      Alpha-0 (zero-lift AOA): <span id="idAlpha0"></span> deg<br>
+      Alpha-Stall (fit): <span id="idAlphaStall"></span> deg<br>
+      Physics Fit R<sup>2</sup>: <span id="idPhysicsFitR2"></span><br>
 </div>
 <div id="saveCalButtons" style="display: none;margin-left:40px">
 <br>

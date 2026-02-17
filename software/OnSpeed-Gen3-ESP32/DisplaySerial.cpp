@@ -162,20 +162,27 @@ void DisplaySerial::Write()
     if (bIasValidForOutput)
         {
         fDisplayAOA = g_Sensors.AOA;
-        // Scale percent lift
+        // Scale percent lift (alpha_0 is the zero-lift floor, defaults to 0 for uncalibrated configs)
+        float fAlpha0Floor = g_Config.aFlaps[g_Flaps.iIndex].fAlpha0;
         if       (g_Sensors.AOA <  g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA)          // LDmaxAOA
-            iPercentLift = map(g_Sensors.AOA, 0, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,         0, 50);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, fAlpha0Floor, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, 0.0f, 50.0f);
         else if ((g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA)       && // LDmaxAOA
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA))   // onSpeedAOAfast
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  50, 55);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  50.0f, 55.0f);
         else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA) &&
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA))   // onSpeedAOAslow
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  55, 66);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  55.0f, 66.0f);
         else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA) &&
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA))     // stallWarningAOA
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, 66, 90);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, 66.0f, 90.0f);
         else
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA*100/90,90,100);
+            {
+            // Use fAlphaStall as the upper bound when calibrated, fallback to old formula
+            float fStallCeiling = g_Config.aFlaps[g_Flaps.iIndex].fAlphaStall;
+            if (fStallCeiling <= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA)
+                fStallCeiling = g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA * 100.0f / 90.0f;
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, fStallCeiling, 90.0f, 100.0f);
+            }
         iPercentLift = constrain(iPercentLift,0,99);
         }
     else

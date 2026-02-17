@@ -49,6 +49,10 @@ var StallWarnSetpoint     = 0;
 var calDate;
 var stallIAS;
 var resultCPtoAOA; // CP to AOA regression curve
+var alpha0         = 0; // zero-lift fuselage AOA from physics fit
+var alphaStall     = 0; // stall AOA from physics fit
+var K_fit          = 0; // lift sensitivity from physics fit
+var physicsFitR2   = 0; // R-squared of physics fit
 
 //setInterval(updateAge,500);
 
@@ -293,21 +297,47 @@ function recordData(on)
       CPtoAOAr2=resultCPtoAOA.r2;
       const resultIAStoAOA = regression.polynomial(dataIAStoAOA, { order: 2, precision:4 });
 
+      // Physics fit: DerivedAOA = K / IAS^2 + alpha_0
+      // Linear regression of DerivedAOA vs 1/IAS^2 — uses ALL pre-stall data
+      var dataPhysicsFit = [];
+      for (var j = 0; j <= stallIndex; j++)
+        {
+        var iasVal = flightData.IAS[j];
+        if (iasVal > 0)
+          dataPhysicsFit.push([1.0 / (iasVal * iasVal), flightData.DerivedAOA[j]]);
+        }
+      var resultPhysicsFit = regression.polynomial(dataPhysicsFit, { order: 1, precision: 6 });
+      K_fit        = resultPhysicsFit.equation[0];     // slope = K
+      alpha0       = resultPhysicsFit.equation[1];     // intercept = alpha_0
+      alphaStall   = K_fit / (stallIAS * stallIAS) + alpha0;
+      physicsFitR2 = resultPhysicsFit.r2;
+      console.log("Physics fit: K=" + K_fit + ", alpha0=" + alpha0 + ", alphaStall=" + alphaStall + ", R2=" + physicsFitR2);
+
       // Update LDmaxIAS
       if (flapIndex>0) LDmaxIAS=flightData.IAS[0]; // assign first seen airspeed (presumably Vfe) to LDmaxIAS when flaps are down.
 
-      // Calculate setpoint AOAs
+      // Calculate setpoint AOAs using NAOA fractions from physics fit
+      // LDmax stays CP-based (airspeed-derived, not an NAOA fraction)
       LDmaxCP             = CPfromIAS(LDmaxIAS);
       LDmaxSetpoint       = (resultCPtoAOA.equation[0]*LDmaxCP*LDmaxCP+resultCPtoAOA.equation[1]*LDmaxCP+resultCPtoAOA.equation[2]).toFixed(2);
-      OSFastCP            = CPfromIAS(stallIAS*OSFastMultiplier);
-      OSFastSetpoint      = (resultCPtoAOA.equation[0]*OSFastCP*OSFastCP+resultCPtoAOA.equation[1]*OSFastCP+resultCPtoAOA.equation[2]).toFixed(2);
-      OSslowCP            = CPfromIAS(stallIAS*OSSlowMultiplier);
-      OSSlowSetpoint      = (resultCPtoAOA.equation[0]*OSslowCP*OSslowCP+resultCPtoAOA.equation[1]*OSslowCP+resultCPtoAOA.equation[2]).toFixed(2);
-      StallWarnCP         = CPfromIAS(stallIAS+StallWarnMargin);
-      StallWarnSetpoint   = (resultCPtoAOA.equation[0]*StallWarnCP*StallWarnCP+resultCPtoAOA.equation[1]*StallWarnCP+resultCPtoAOA.equation[2]).toFixed(2);
+
+      // NAOA-based setpoints
+      var alphaRange = alphaStall - alpha0;
+      var NAOAfast   = 0.549;   // = 1/1.35^2, corresponds to 1.35 x Vs
+      var NAOAslow   = 0.640;   // = 1/1.25^2, corresponds to 1.25 x Vs
+      OSFastSetpoint      = (NAOAfast * alphaRange + alpha0).toFixed(2);
+      OSSlowSetpoint      = (NAOAslow * alphaRange + alpha0).toFixed(2);
+
+      // Stall warning from physics fit at Vs + 5 kts
+      var stallWarnIAS    = stallIAS + StallWarnMargin;
+      StallWarnSetpoint   = (K_fit / (stallWarnIAS * stallWarnIAS) + alpha0).toFixed(2);
+
+      // Stall from physics fit (more accurate than polynomial at peak CP)
+      StallSetpoint       = alphaStall.toFixed(2);
+
+      // Maneuvering stays CP-based
       ManeuveringCP       = CPfromIAS(ManeuveringIAS);
       ManeuveringSetpoint = (resultCPtoAOA.equation[0]*ManeuveringCP*ManeuveringCP+resultCPtoAOA.equation[1]*ManeuveringCP+resultCPtoAOA.equation[2]).toFixed(2);
-      StallSetpoint       = (resultCPtoAOA.equation[0]*stallCP*stallCP+resultCPtoAOA.equation[1]*stallCP+resultCPtoAOA.equation[2]).toFixed(2);
       console.log("CPtoAOA:",resultCPtoAOA);
 
       // Build scatterplot data
@@ -403,6 +433,9 @@ function recordData(on)
       document.getElementById('idManeuveringSetpoint').innerHTML=ManeuveringSetpoint;
       document.getElementById('idStallSetpoint').innerHTML=StallSetpoint;
       document.getElementById('idCPtoAOAr2').innerHTML=CPtoAOAr2;
+      document.getElementById('idAlpha0').innerHTML=alpha0.toFixed(2);
+      document.getElementById('idAlphaStall').innerHTML=alphaStall.toFixed(2);
+      document.getElementById('idPhysicsFitR2').innerHTML=physicsFitR2.toFixed(4);
       document.getElementById('CPchart').style.display="block";
       document.getElementById('curveResults').style.display="block";
       document.getElementById('saveCalButtons').style.display="block";
@@ -444,6 +477,9 @@ function saveData()
   fileContent += ";StallAngle="+StallSetpoint+"\n";
   fileContent += ";CPtoAOACurve: "+CPtoAOAcurve+"\n";
   fileContent += ";CPtoAOAr2="+CPtoAOAr2+"\n";
+  fileContent += ";alpha0="+alpha0.toFixed(4)+"\n";
+  fileContent += ";alphaStall="+alphaStall.toFixed(4)+"\n";
+  fileContent += ";physicsFitR2="+physicsFitR2.toFixed(4)+"\n";
   fileContent += ";\n";
   fileContent += "; Data:\n";
   fileContent += "IAS,CP,DerivedAOA,Pitch,FlightPath,DecelRate\n";
@@ -462,7 +498,7 @@ function saveData()
 
 function saveCalibration()
   {
-  params = "flapsPos="+flapsPosCalibrated+"&curve0="+resultCPtoAOA.equation[0]+"&curve1="+resultCPtoAOA.equation[1]+"&curve2="+resultCPtoAOA.equation[2]+"&LDmaxSetpoint="+LDmaxSetpoint+"&OSFastSetpoint="+OSFastSetpoint+"&OSSlowSetpoint="+OSSlowSetpoint+"&StallWarnSetpoint="+StallWarnSetpoint+"&ManeuveringSetpoint="+ManeuveringSetpoint+"&StallSetpoint="+StallSetpoint;
+  params = "flapsPos="+flapsPosCalibrated+"&curve0="+resultCPtoAOA.equation[0]+"&curve1="+resultCPtoAOA.equation[1]+"&curve2="+resultCPtoAOA.equation[2]+"&LDmaxSetpoint="+LDmaxSetpoint+"&OSFastSetpoint="+OSFastSetpoint+"&OSSlowSetpoint="+OSSlowSetpoint+"&StallWarnSetpoint="+StallWarnSetpoint+"&ManeuveringSetpoint="+ManeuveringSetpoint+"&StallSetpoint="+StallSetpoint+"&alpha0="+alpha0+"&alphaStall="+alphaStall;
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/calwiz?step=save", true);
   xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
