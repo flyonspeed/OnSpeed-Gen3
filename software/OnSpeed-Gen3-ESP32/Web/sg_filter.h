@@ -1,5 +1,4 @@
 const char jsSGfilter[] PROGMEM = R"=====(
-<script language="javascript" type="text/javascript">
 //General Least-Squares Smoothing and Differentiation by the Convolution (Savitzky-Golay) Method Peter A. Gorry
 // Filter adapted from https://github.com/mljs/savitzky-golay-generalized
 
@@ -138,5 +137,4 @@ function fullWeights(m, n, s) {
   }
   return weights;
 }
-</script>
 )=====";
