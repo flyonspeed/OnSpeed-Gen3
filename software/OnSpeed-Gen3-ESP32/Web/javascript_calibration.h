@@ -3,14 +3,11 @@ const char jsCalibration[] PROGMEM = R"=====(
 var wsUri                 = "ws://192.168.0.1:81";
 var lastUpdate            = Date.now();
 var lastDisplay           = Date.now();
-var OSFastMultiplier      = 1.35;
-var OSSlowMultiplier      = 1.25;
 var StallWarnMargin       = 5; // knots
 var LDmaxIAS              = 100; // will be calculated later based on flap position
 var AOA                   = 0;
 var IASsmoothed           = 0;
 var IAS                   = 0;
-var prevIAS               = 0;
 var PAlt                  = 0;
 var GLoad                 = 1;
 var GLoadLat              = 0;
@@ -19,7 +16,6 @@ var RollAngle             = 0;
 var smoothingAlpha        = 0.9;
 var smoothingAlphaFwdAcc  = 0.04;
 var liveConnecting        = false;
-var iasArray              = [];
 var flightPath            = 0;
 var iVSI                  = 0;
 var derivedAOA            = 0;
@@ -49,12 +45,10 @@ var StallWarnSetpoint     = 0;
 var calDate;
 var stallIAS;
 var resultCPtoAOA; // CP to AOA regression curve
-var alpha0         = 0; // zero-lift fuselage AOA from physics fit
-var alphaStall     = 0; // stall AOA from physics fit
-var K_fit          = 0; // lift sensitivity from physics fit
-var physicsFitR2   = 0; // R-squared of physics fit
-
-//setInterval(updateAge,500);
+var alpha0         = 0; // zero-lift fuselage AOA from IAS-to-AOA fit
+var alphaStall     = 0; // stall AOA from IAS-to-AOA fit
+var K_fit          = 0; // lift sensitivity from IAS-to-AOA fit
+var IAStoAOAr2   = 0; // R-squared of IAS-to-AOA fit
 
 function init()
   {
@@ -156,9 +150,6 @@ function onMessage(evt)
       }
 
     smoothDecelRate = decelRate*smoothingAlphaFwdAcc+smoothDecelRate*(1-smoothingAlphaFwdAcc);
-    // FwdAccel = document.getElementById("myRange").value;
-    // if (FwdAccel<-1) decelTranslate=constrain(map(FwdAccel, -3, -1, -186, -18),-186, -18);
-    // else             decelTranslate=constrain(map(FwdAccel, -1,  2,  -18, 150), -18, 150);
     decelTranslate = constrain(56*smoothDecelRate + 38,-186,150);
 
     // Update decel needle
@@ -166,8 +157,6 @@ function onMessage(evt)
     document.getElementById("currentFlaps").innerHTML = flapsPos;
     document.getElementById("currentIAS").innerHTML   = IASsmoothed;
     document.getElementById("currentDecel").innerHTML = smoothDecelRate.toFixed(1);
-
-    prevIAS = IAS;
 
     if (dataRecording)
         {
@@ -266,15 +255,13 @@ function recordData(on)
     ManeuveringIAS=stallIAS*Math.sqrt(acGlimit);
 
     console.log('Stall_CP='+stallCP+', Stall_IAS='+stallIAS);
-    // calculate polynomial regressions for CP to Derived AOA for curve, and for IAS to AOA for setpoints.
+    // calculate polynomial regressions for CP to Derived AOA curve (used at runtime by firmware)
     // prepare data points for regression
     var dataCPtoAOA=[];
-    var dataIAStoAOA=[];
     var dataIAS=[]; // IAS linear regression to verify that IAS is decreasing
     for (i=0;i<=stallIndex;i++)
       {
       dataCPtoAOA.push([flightData.smoothedCP[i],flightData.DerivedAOA[i]]);
-      dataIAStoAOA.push([flightData.IAS[i],flightData.DerivedAOA[i]]);
       dataIAS.push([i,flightData.IAS[i]]);
       }
     const resultIAS = regression.polynomial(dataIAS, { order: 1, precision:2 });
@@ -288,56 +275,53 @@ function recordData(on)
       {
       // Airspeed is decreasing
       resultCPtoAOA = regression.polynomial(dataCPtoAOA, { order: 2, precision:4 });
-      //CPtoAOAcurve = resultCPtoAOA.string;
       CPtoAOAcurve="AOA = "+resultCPtoAOA.equation[0].toFixed(4)+" * CP^2 ";
       if (resultCPtoAOA.equation[1]>0) CPtoAOAcurve=CPtoAOAcurve+"+";
       CPtoAOAcurve=CPtoAOAcurve+resultCPtoAOA.equation[1].toFixed(4)+" * CP ";
       if (resultCPtoAOA.equation[2]>0) CPtoAOAcurve=CPtoAOAcurve+"+";
       CPtoAOAcurve=CPtoAOAcurve+resultCPtoAOA.equation[2].toFixed(4);
       CPtoAOAr2=resultCPtoAOA.r2;
-      const resultIAStoAOA = regression.polynomial(dataIAStoAOA, { order: 2, precision:4 });
-
-      // Physics fit: DerivedAOA = K / IAS^2 + alpha_0
-      // Linear regression of DerivedAOA vs 1/IAS^2 — uses ALL pre-stall data
-      var dataPhysicsFit = [];
+      // IAS-to-AOA fit: DerivedAOA = K / IAS^2 + alpha_0  (lift equation)
+      // Linear regression of DerivedAOA vs 1/IAS^2 — uses ALL pre-stall data.
+      // Extracts alpha_0 (zero-lift fuselage AOA) and K (lift sensitivity).
+      // All wizard setpoints are computed from this fit.
+      var dataIAStoAOA = [];
       for (var j = 0; j <= stallIndex; j++)
         {
         var iasVal = flightData.IAS[j];
         if (iasVal > 0)
-          dataPhysicsFit.push([1.0 / (iasVal * iasVal), flightData.DerivedAOA[j]]);
+          dataIAStoAOA.push([1.0 / (iasVal * iasVal), flightData.DerivedAOA[j]]);
         }
-      var resultPhysicsFit = regression.polynomial(dataPhysicsFit, { order: 1, precision: 6 });
-      K_fit        = resultPhysicsFit.equation[0];     // slope = K
-      alpha0       = resultPhysicsFit.equation[1];     // intercept = alpha_0
+      var resultIAStoAOA = regression.polynomial(dataIAStoAOA, { order: 1, precision: 6 });
+      K_fit        = resultIAStoAOA.equation[0];     // slope = K (lift sensitivity)
+      alpha0       = resultIAStoAOA.equation[1];     // intercept = alpha_0 (zero-lift AOA)
       alphaStall   = K_fit / (stallIAS * stallIAS) + alpha0;
-      physicsFitR2 = resultPhysicsFit.r2;
-      console.log("Physics fit: K=" + K_fit + ", alpha0=" + alpha0 + ", alphaStall=" + alphaStall + ", R2=" + physicsFitR2);
+      IAStoAOAr2 = resultIAStoAOA.r2;
+      console.log("IAS-to-AOA fit: K=" + K_fit + ", alpha0=" + alpha0 + ", alphaStall=" + alphaStall + ", R2=" + IAStoAOAr2);
 
       // Update LDmaxIAS
       if (flapIndex>0) LDmaxIAS=flightData.IAS[0]; // assign first seen airspeed (presumably Vfe) to LDmaxIAS when flaps are down.
 
-      // Calculate setpoint AOAs using NAOA fractions from physics fit
-      // LDmax stays CP-based (airspeed-derived, not an NAOA fraction)
-      LDmaxCP             = CPfromIAS(LDmaxIAS);
-      LDmaxSetpoint       = (resultCPtoAOA.equation[0]*LDmaxCP*LDmaxCP+resultCPtoAOA.equation[1]*LDmaxCP+resultCPtoAOA.equation[2]).toFixed(2);
+      // All setpoints computed from the IAS-to-AOA fit: AOA = K / IAS^2 + alpha_0
+      // LDmax and Maneuvering use their IAS directly; OSFast/OSSlow use NAOA fractions.
+      LDmaxSetpoint       = (K_fit / (LDmaxIAS * LDmaxIAS) + alpha0).toFixed(2);
 
-      // NAOA-based setpoints
+      // NAOA-based setpoints (normalized fraction of the stall angle range)
       var alphaRange = alphaStall - alpha0;
       var NAOAfast   = 0.549;   // = 1/1.35^2, corresponds to 1.35 x Vs
       var NAOAslow   = 0.640;   // = 1/1.25^2, corresponds to 1.25 x Vs
       OSFastSetpoint      = (NAOAfast * alphaRange + alpha0).toFixed(2);
       OSSlowSetpoint      = (NAOAslow * alphaRange + alpha0).toFixed(2);
 
-      // Stall warning from physics fit at Vs + 5 kts
+      // Stall warning from fit at Vs + margin
       var stallWarnIAS    = stallIAS + StallWarnMargin;
       StallWarnSetpoint   = (K_fit / (stallWarnIAS * stallWarnIAS) + alpha0).toFixed(2);
 
-      // Stall from physics fit (more accurate than polynomial at peak CP)
+      // Stall from fit (more accurate than polynomial at peak CP)
       StallSetpoint       = alphaStall.toFixed(2);
 
-      // Maneuvering stays CP-based
-      ManeuveringCP       = CPfromIAS(ManeuveringIAS);
-      ManeuveringSetpoint = (resultCPtoAOA.equation[0]*ManeuveringCP*ManeuveringCP+resultCPtoAOA.equation[1]*ManeuveringCP+resultCPtoAOA.equation[2]).toFixed(2);
+      // Maneuvering: Va = Vs * sqrt(G-limit), AOA from fit
+      ManeuveringSetpoint = (K_fit / (ManeuveringIAS * ManeuveringIAS) + alpha0).toFixed(2);
       console.log("CPtoAOA:",resultCPtoAOA);
 
       // Build scatterplot data
@@ -371,34 +355,9 @@ function recordData(on)
         axisX: {
           labelInterpolationFnc: function(value, index) {
             return index % 100 === 0 ? value : null;
-            //  return value;
             },
           type: Chartist.AutoScaleAxis,
-          // onlyInteger: true,
           },
-//        plugins: [
-//          Chartist.plugins.ctAxisTitle({
-//            axisX: {
-//              axisTitle: 'CP',
-//              axisClass: 'ct-axis-title',
-//              offset: {
-//                x: 0,
-//                y: 50
-//                },
-//              textAnchor: 'middle'
-//              },
-//            axisY: {
-//              axisTitle: 'AOA',
-//              axisClass: 'ct-axis-title',
-//              offset: {
-//                x: 0,
-//                y: 0
-//                },
-//              textAnchor: 'middle',
-//              flipTitle: false
-//              }
-//            })
-//          ],
         series:{
           'measuredAOA':{
             showPoint: true,
@@ -416,7 +375,6 @@ function recordData(on)
         ['screen and (min-width: 640px)', {
           axisX: {
             labelInterpolationFnc: function(value, index) {
-              //return index % 20 === 0 ? value : null;
               return value;
               }
             }
@@ -435,7 +393,7 @@ function recordData(on)
       document.getElementById('idCPtoAOAr2').innerHTML=CPtoAOAr2;
       document.getElementById('idAlpha0').innerHTML=alpha0.toFixed(2);
       document.getElementById('idAlphaStall').innerHTML=alphaStall.toFixed(2);
-      document.getElementById('idPhysicsFitR2').innerHTML=physicsFitR2.toFixed(4);
+      document.getElementById('idIAStoAOAr2').innerHTML=IAStoAOAr2.toFixed(4);
       document.getElementById('CPchart').style.display="block";
       document.getElementById('curveResults').style.display="block";
       document.getElementById('saveCalButtons').style.display="block";
@@ -451,15 +409,6 @@ function recordData(on)
     }
   }
 
-
-function CPfromIAS(IAS)
-  {
-  for (i=1;i<flightData.IAS.length;i++)
-    {
-    if (flightData.IAS[i] <= IAS) return flightData.CP[i];
-    }
-  return 0;
-  }
 
 
 function saveData()
@@ -479,7 +428,7 @@ function saveData()
   fileContent += ";CPtoAOAr2="+CPtoAOAr2+"\n";
   fileContent += ";alpha0="+alpha0.toFixed(4)+"\n";
   fileContent += ";alphaStall="+alphaStall.toFixed(4)+"\n";
-  fileContent += ";physicsFitR2="+physicsFitR2.toFixed(4)+"\n";
+  fileContent += ";IAStoAOAr2="+IAStoAOAr2.toFixed(4)+"\n";
   fileContent += ";\n";
   fileContent += "; Data:\n";
   fileContent += "IAS,CP,DerivedAOA,Pitch,FlightPath,DecelRate\n";
