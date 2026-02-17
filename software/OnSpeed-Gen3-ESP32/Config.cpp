@@ -502,10 +502,10 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_STALLWARNAOA"));
         for (iIdx=0; (iIdx<aiValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fSTALLWARNAOA = afValues.Items[iIdx];
 
-        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_STALLAOA"),iFlapsArraySize); // STALLAOA is only availabel after calibration wizard run
+        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_STALLAOA"),iFlapsArraySize); // STALLAOA is only available after calibration wizard run
         for (iIdx=0; (iIdx<aiValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fSTALLAOA = afValues.Items[iIdx];
 
-//        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_MANAOA"),iFlapsArraySize); // MANAOA is only availabel after calibration wizard run
+//        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_MANAOA"),iFlapsArraySize); // MANAOA is only available after calibration wizard run
 //        for (iIdx=0; (iIdx<aiValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fMANAOA = afValues.Items[iIdx];
 
         // aoa curves: AOA_CURVE_FLAPS0, AOA_CURVE_FLAPS1,...
