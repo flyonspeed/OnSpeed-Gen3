@@ -156,6 +156,10 @@ public:
     bool            bReadBoom;
     bool            bReadEfisData;
 
+    // hardware feature toggles
+    bool            bOatSensor;
+    bool            bBoomChecksum;
+
     // serial output
     String          sSerialOutFormat;
 //    String          sSerialOutPort;

@@ -91,11 +91,7 @@
 //AOA probe type
 //#define SPHERICAL_PROBE // uncomment this if using custom OnSpeed spherical head probe.
 
-//boom type
-//#define NOBOOMCHECKSUM    // for booms that don't have a checksum byte in their data stream uncomment this line.
-
-// OAT sensor available
-// #define OAT_AVAILABLE  // DS18B20 sensor
+// Boom checksum and OAT sensor are now runtime config (bBoomChecksum, bOatSensor)
 
 #define SUPPORT_LITTLEFS
 

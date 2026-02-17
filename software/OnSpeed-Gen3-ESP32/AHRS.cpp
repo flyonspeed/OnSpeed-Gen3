@@ -92,20 +92,38 @@ void AHRS::Process(float fDeltaTimeSeconds)
     if (isnan(fDeltaTimeSeconds) || isinf(fDeltaTimeSeconds) || fDeltaTimeSeconds <= 0.0f)
         fDeltaTimeSeconds = fImuDeltaTime;
 
-#ifdef OAT_AVAILABLE
-    const float Kelvin    = 273.15;
-    const float Temp_rate =   0.00198119993;
-    float       fISA_temp_k;
-    float       fOAT_k;
-    float       fDA;
+    // Use the best available OAT source for density-corrected TAS
+    float fOatC;
+    bool  bHaveOat = false;
 
-    fISA_temp_k = 15 - Temp_rate * g_Sensors.Palt + Kelvin;
-    fOAT_k      = g_Sensors.ReadOatC() + Kelvin;
-    fDA         = g_Sensors.Palt+(fISA_temp_k/Temp_rate)*(1-pow(fISA_temp_k/fOAT_k,0.2349690));
-    fTAS        = kts2mps(g_Sensors.IAS/pow(1 - 6.8755856 * pow(10,-6) * fDA, 2.12794)); // formulas from https://edwilliams.org/avform147.htm#Mach   // m/sec
-#else
-    fTAS        = kts2mps(g_Sensors.IAS*(1+ g_Sensors.Palt / 1000 * 0.02)); // m/sec
-#endif
+    // Prefer EFIS OAT when EFIS is the calibration source
+    if (g_Config.sCalSource == "EFIS" && g_Config.bReadEfisData)
+        {
+        fOatC    = g_EfisSerial.suEfis.OAT;
+        bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
+        }
+
+    // Fall back to internal DS18B20 sensor
+    if (!bHaveOat && g_Config.bOatSensor)
+        {
+        fOatC    = g_Sensors.OatC;
+        bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
+        }
+
+    if (bHaveOat)
+        {
+        // Density-corrected TAS
+        const float Kelvin    = 273.15;
+        const float Temp_rate =   0.00198119993;
+        float fISA_temp_k = 15 - Temp_rate * g_Sensors.Palt + Kelvin;
+        float fOAT_k      = fOatC + Kelvin;
+        float fDA          = g_Sensors.Palt + (fISA_temp_k / Temp_rate) * (1 - pow(fISA_temp_k / fOAT_k, 0.2349690));
+        fTAS               = kts2mps(g_Sensors.IAS / pow(1 - 6.8755856 * pow(10,-6) * fDA, 2.12794));
+        }
+    else
+        {
+        fTAS = kts2mps(g_Sensors.IAS * (1 + g_Sensors.Palt / 1000 * 0.02));
+        }
 
     // Update TAS derivative at IAS update cadence (50Hz), not at the IMU update cadence.
     const uint32_t uIasUpdateUs = g_Sensors.uIasUpdateUs;
