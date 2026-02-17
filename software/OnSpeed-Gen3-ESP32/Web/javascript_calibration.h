@@ -3,6 +3,8 @@ const char jsCalibration[] PROGMEM = R"=====(
 var wsUri                 = "ws://192.168.0.1:81";
 var lastUpdate            = Date.now();
 var lastDisplay           = Date.now();
+var OSFastMultiplier      = 1.35; // IAS multiple of Vs — NAOA fraction = 1/multiplier^2
+var OSSlowMultiplier      = 1.25;
 var StallWarnMargin       = 5; // knots
 var LDmaxIAS              = 100; // will be calculated later based on flap position
 var AOA                   = 0;
@@ -306,10 +308,10 @@ function recordData(on)
       // LDmax and Maneuvering use their IAS directly; OSFast/OSSlow use NAOA fractions.
       LDmaxSetpoint       = (K_fit / (LDmaxIAS * LDmaxIAS) + alpha0).toFixed(2);
 
-      // NAOA-based setpoints (normalized fraction of the stall angle range)
+      // NAOA-based setpoints: NAOA = 1/multiplier^2 (from lift equation)
       var alphaRange = alphaStall - alpha0;
-      var NAOAfast   = 0.549;   // = 1/1.35^2, corresponds to 1.35 x Vs
-      var NAOAslow   = 0.640;   // = 1/1.25^2, corresponds to 1.25 x Vs
+      var NAOAfast   = 1.0 / (OSFastMultiplier * OSFastMultiplier);
+      var NAOAslow   = 1.0 / (OSSlowMultiplier * OSSlowMultiplier);
       OSFastSetpoint      = (NAOAfast * alphaRange + alpha0).toFixed(2);
       OSSlowSetpoint      = (NAOAslow * alphaRange + alpha0).toFixed(2);
 
