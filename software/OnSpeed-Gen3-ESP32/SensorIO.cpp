@@ -1,5 +1,6 @@
 
 
+#include <math.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
@@ -10,6 +11,23 @@
 #include "Config.h"
 #include "Flaps.h"
 #include "SensorIO.h"
+
+using onspeed::SuCalibrationCurve;
+using onspeed::AOACalculatorResult;
+using onspeed::CurveCalc;
+using onspeed::psi2mb;
+
+
+static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
+{
+    // Calculate pressure altitude. Pstatic in milliBars, Palt in feet.
+    // Bias is stored as millibars to subtract from measured pressure.
+    const float fStaticBiasCorrected = fStaticMbar - g_Config.fPStaticBias;
+    if (fStaticBiasCorrected <= 0.0f)
+        return g_Sensors.Palt;
+
+    return 145366.45f * (1.0f - powf(fStaticBiasCorrected / 1013.25f, 0.190284f));
+}
 
 // These from config
 //int     aoaSmoothing      = 20; // AOA smoothing window (number of samples to lag)
@@ -36,13 +54,13 @@ void SensorReadTask(void *pvParams)
 //    static unsigned uLoops = 0;
 //    static bool     bSendOK;
 
-    xLastWakeTime = xLAST_TICK_TIME(20);
+    xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
 
     while (true)
     {
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(PRESSURE_INTERVAL_MS));
 
         // If this task wasn't delayed before it ran again it means it
         // it ran long for some reason (like the CPU is overloaded) or
@@ -52,7 +70,7 @@ void SensorReadTask(void *pvParams)
         // the data.
         if (xWasDelayed == pdFALSE)
         {
-            xLastWakeTime = xLAST_TICK_TIME(20);
+            xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
             unsigned long uNow = millis();
             if ((uNow - uLastLateLogMs) > 1000)
             {
@@ -63,21 +81,86 @@ void SensorReadTask(void *pvParams)
 
 //        uCurrMicros = micros();
 
-        // There are some other places in the code where sensors are read, for example
-        // the sensor bias routines. So wrap this sensor reading routine in a
-        // semaphore to make sure only one routine is reading sensors and modifying
-        // data at a time. There are no other routines that read sensors on a regular
-        // basis so it is OK to skip a read if someone else has the mutex. Go ahead
-        // and wait 5 msec just in case someone is doing a quick sensor read.
-        if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
-        {
-            g_Sensors.Read();
-            xSemaphoreGive(xSensorMutex);
-        }
+        g_Sensors.Read();
 
     }
 
 } // end SensorReadTask
+
+
+// ----------------------------------------------------------------------------
+
+// FreeRTOS task for reading IMU + updating AHRS at IMU_SAMPLE_RATE
+
+void ImuReadTask(void *pvParams)
+{
+    (void)pvParams;
+
+    // 1 second = 1,000,000us. Use a fractional accumulator so the average period is exact
+    // for rates that don't divide 1,000,000 evenly.
+    const uint32_t uBasePeriodUs   = 1000000UL / IMU_SAMPLE_RATE; // 4807us @ 208Hz
+    const uint32_t uRemainderUs    = 1000000UL % IMU_SAMPLE_RATE; // 144us  @ 208Hz
+    uint32_t       uRemainderAcc   = 0;
+    uint32_t       uNextWakeUs     = micros();
+    uint32_t       uLastImuReadUs  = uNextWakeUs;
+    unsigned long  uLastLateLogMs  = 0;
+
+    while (true)
+    {
+        // Schedule the next tick.
+        uNextWakeUs += uBasePeriodUs;
+        uRemainderAcc += uRemainderUs;
+        if (uRemainderAcc >= IMU_SAMPLE_RATE)
+        {
+            uNextWakeUs += 1;
+            uRemainderAcc -= IMU_SAMPLE_RATE;
+        }
+
+        // Wait until it's time (coarse sleep then microsecond trim).
+        int32_t iWaitUs = int32_t(uNextWakeUs - micros());
+        if (iWaitUs > 2000)
+            vTaskDelay(pdMS_TO_TICKS((iWaitUs - 1000) / 1000));
+
+        iWaitUs = int32_t(uNextWakeUs - micros());
+        if (iWaitUs > 0)
+            delayMicroseconds(uint32_t(iWaitUs));
+
+        // If this task is running late, log it (rate-limited).
+        const int32_t iLateUs = int32_t(micros() - uNextWakeUs);
+        if (iLateUs > 1000)
+        {
+            const unsigned long uNowMs = millis();
+            if ((uNowMs - uLastLateLogMs) > 1000)
+            {
+                g_Log.println(MsgLog::EnIMU, MsgLog::EnWarning, "ImuReadTask Late");
+                uLastLateLogMs = uNowMs;
+            }
+
+            // Don't try to "catch up" forever; re-sync to now.
+            uNextWakeUs = micros();
+            uRemainderAcc = 0;
+        }
+
+        // Read IMU over SPI (guard the bus).
+        xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+        const uint32_t uImuReadUs = micros();
+        g_pIMU->Read();
+        const float fStaticMbar = g_pStatic->ReadPressureMillibars();
+        xSemaphoreGive(xSensorMutex);
+
+        g_Sensors.PStatic = fStaticMbar;
+        g_Sensors.Palt    = PressureAltitudeFeetFromMbar(fStaticMbar);
+
+        const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
+        uLastImuReadUs = uImuReadUs;
+        const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / IMU_SAMPLE_RATE);
+
+        // Update AHRS (guard against re-entrant Process() calls).
+        xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+        g_AHRS.Process(fDtSeconds);
+        xSemaphoreGive(xAhrsMutex);
+    }
+}
 
 
 
@@ -94,6 +177,7 @@ SensorIO::SensorIO()
 {
     Palt       = 0.00;
     fDecelRate = 0.0;
+    uIasUpdateUs = 0;
 }
 
 // ----------------------------------------------------------------------------
@@ -122,12 +206,10 @@ void SensorIO::Read()
     float           PfwdPascal;
 
     // Read pressure sensors
-    iPfwd   = g_pPitot->ReadPressureCounts() - g_Config.iPFwdBias;
-    iP45    = g_pAOA->ReadPressureCounts()   - g_Config.iP45Bias;
-    ReadPressureAltMbars();
-
-    // Read IMU
-    g_pIMU->Read();
+    xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+    iPfwd    = g_pPitot->ReadPressureCounts() - g_Config.iPFwdBias;
+    iP45     = g_pAOA->ReadPressureCounts()   - g_Config.iP45Bias;
+    xSemaphoreGive(xSensorMutex);
 
     // Update flaps position about once per second
     if (millis() - uLastFlapsReadMs > 1000)
@@ -146,9 +228,6 @@ void SensorIO::Read()
         uLastOatReadMs = millis();
     }
 #endif
-
-    // Process AHRS now
-    g_AHRS.Process();
 
     // Get AOA speed set points for the current flap position.
 //  SetAOApoints(g_Flaps.iIndex);
@@ -192,13 +271,16 @@ void SensorIO::Read()
         // Catch negative pressure case
         else
             IAS = 0;
-    } // end if not in test pot or range sweep mode
+	    } // end if not in test pot or range sweep mode
 
-    // Take derivative of airspeed for deceleration calc.
-    // Match the 10Hz display behavior by updating DecelRate at 100ms intervals.
-    static unsigned long uLastDecelUpdateMs = 0;
+	    uIasUpdateUs = micros();
+
+	    // Take derivative of airspeed for deceleration calc.
+	    // Match the 10Hz display behavior by updating DecelRate at 100ms intervals.
+	    static unsigned long uLastDecelUpdateMs = 0;
     const unsigned long uNowMs = millis();
-    if ((uNowMs - uLastDecelUpdateMs) >= 100)
+    const unsigned long uDecelDeltaMs = uNowMs - uLastDecelUpdateMs;
+    if (uDecelDeltaMs >= 100)
     {
         uLastDecelUpdateMs = uNowMs;
 
@@ -208,8 +290,8 @@ void SensorIO::Read()
         fIasDerInput = IAS;
 #endif
 
-        // SavGolDerivative returns derivative per sample; convert to kts/sec for the 100ms update period.
-        const float fDecelSampleHz = 10.0f;
+        // SavGolDerivative returns derivative per sample; scale by actual update frequency (kts/sec).
+        const float fDecelSampleHz = (uDecelDeltaMs > 0) ? (1000.0f / float(uDecelDeltaMs)) : 10.0f;
         // Positive for increasing IAS, negative for decreasing IAS (deceleration).
         fDecelRate = IasDerivative.Compute() * fDecelSampleHz;
     }
@@ -221,19 +303,15 @@ void SensorIO::Read()
 
     if (g_Log.Test(MsgLog::EnSensors, MsgLog::EnDebug) == true)
     {
-        static int iDecimate = 0;  // Decimate to once per second
-
-        if (iDecimate == 0)
+        static unsigned long uLastDebugPrintMs = 0;
+        if ((uNowMs - uLastDebugPrintMs) >= 1000)
         {
+            uLastDebugPrintMs = uNowMs;
             g_Log.printf("timeStamp: %lu,iPfwd: %i,PfwdSmoothed: %.2f,iP45: %i,P45Smoothed: %.2f,Pstatic: %.2f,Palt: %.2f,IAS: %.2f,AOA: %.2f,flapsPos: %i,VerticalG: %.2f,LateralG: %.2f,ForwardG: %.2f,RollRate: %.2f,PitchRate: %.2f,YawRate: %.2f, SmoothedPitch %.2f\n",
                 millis(), iPfwd, PfwdSmoothed, iP45, P45Smoothed, PStatic, Palt, IAS, AOA, g_Flaps.iPosition,
                 g_AHRS.AccelVertComp, g_AHRS.AccelLatComp, g_AHRS.AccelFwdComp,
                 g_AHRS.gRoll, g_AHRS.gPitch, g_AHRS.gYaw, g_AHRS.SmoothedPitch);
-
-            iDecimate = 50;
         }
-        else
-            iDecimate--;
     } // end if debug print
 
 } // end Read()
@@ -247,8 +325,10 @@ float SensorIO::ReadPressureAltMbars()
 {
 
     // Calculate pressure altitude. Pstatic in milliBars, Palt in feet.
+    xSemaphoreTake(xSensorMutex, portMAX_DELAY);
     PStatic = g_pStatic->ReadPressureMillibars();
-    Palt    = 145366.45 * (1 - pow((PStatic - g_Config.fPStaticBias) / 1013.25, 0.190284));
+    xSemaphoreGive(xSensorMutex);
+    Palt    = PressureAltitudeFeetFromMbar(PStatic);
 
     g_Log.printf(MsgLog::EnPressure, MsgLog::EnDebug, "pStatic %8.3f mb Bias %6.3f mb Palt %5.0f\n", PStatic, g_Config.fPStaticBias, Palt);
 

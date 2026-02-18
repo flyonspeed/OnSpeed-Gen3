@@ -12,9 +12,12 @@
 #include <SavGolDerivative.h>
 #include <AOACalculator.h>
 
+using onspeed::SavGolDerivative;
+using onspeed::AOACalculator;
 
 // FreeRTOS task for reading sensors
 void SensorReadTask(void *pvParams);
+void ImuReadTask(void *pvParams);
 
 // ============================================================================
 
@@ -37,7 +40,7 @@ public:
     RunningMedian       P45Median;
     RunningAverage      P45Avg;
 
-    onspeed::SavGolDerivative IasDerivative;  // Computes the first derivative
+    SavGolDerivative    IasDerivative;  // Computes the first derivative
     float               fDecelRate;     // Deceleration rate derived from IAS
 
     AOACalculator       AoaCalc;        // AOA calculation with smoothing
@@ -50,6 +53,7 @@ public:
     float               OatC;           // OAT in degrees C
     float               IAS;
     float               AOA;            // Averaged AOA
+    uint32_t            uIasUpdateUs;   // Timestamp (micros) of last IAS update
 
     double              fIasDerInput;   // Source for IAS for deceleration calc
 

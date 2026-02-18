@@ -18,6 +18,7 @@
 #define __Madgwick_h__
 #include <math.h>
 
+namespace onspeed {
 
 //--------------------------------------------------------------------------------------------
 // Variable declaration
@@ -45,6 +46,7 @@ private:
 public:
     Madgwick(void);
     void begin(float sampleFrequency, float Pitch, float Roll);
+    void setDeltaTime(float deltaTimeSeconds) { invSampleFreq = deltaTimeSeconds; }
 
     void Update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz);
     void UpdateIMU(float gx, float gy, float gz, float ax, float ay, float az);
@@ -95,4 +97,7 @@ public:
        *z = q3;
     }
 };
+
+} // namespace onspeed
+
 #endif

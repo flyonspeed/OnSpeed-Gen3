@@ -1,4 +1,5 @@
 
+#include <math.h>
 #include <RunningAverage.h>
 
 #include "Globals.h"
@@ -6,8 +7,22 @@
 #include "AHRS.h"
 #include "SensorIO.h"
 
-const float accSmoothing = 0.060899; // accelerometer smoothing, exponential
-const float iasSmoothing = 0.0179;   // airspeed smoothing, exponential [optimized for ISM330 IMU]
+using onspeed::deg2rad;
+using onspeed::rad2deg;
+using onspeed::mps2g;
+using onspeed::kts2mps;
+using onspeed::ft2m;
+using onspeed::g2mps;
+using onspeed::accelPitch;
+using onspeed::accelRoll;
+
+const float accSmoothing        = 0.060899f;            // accelerometer smoothing alpha
+const float accSmoothingComplement = 1.0f - accSmoothing;  // precomputed (1 - alpha)
+
+const float iasSmoothing = 0.0179f;                             // airspeed smoothing alpha
+const float iasTauFactor = (1.0f / iasSmoothing) - 1.0f;        // tau multiplier for variable-rate EMA
+
+const float kPressureDeltaTime = 1.0f / PRESSURE_SAMPLE_RATE;   // fallback dt for IAS derivative
 
 // ----------------------------------------------------------------------------
 
@@ -15,7 +30,8 @@ AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(
 {
     fTAS     = 0.0;
     fPrevTAS = 0.0;
-    TASdiffSmoothed = 0.0;
+    TASdotSmoothed = 0.0;
+    uLastIasUpdateUs = 0;
 
     //// This was init'ed from real accelerometer values in previous version.
     //// Probably should do that again.
@@ -33,26 +49,16 @@ AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(
 void AHRS::Init(float fSampleRate)
 {
     fImuSampleRate = fSampleRate;
+    fImuDeltaTime  = 1.0f / fSampleRate;
 
 //    smoothedPitch = CalcPitch(getAccelForAxis(forwardGloadAxis),getAccelForAxis(lateralGloadAxis), getAccelForAxis(verticalGloadAxis))+pitchBias;
 //    smoothedRoll  = calcRoll( getAccelForAxis(forwardGloadAxis),getAccelForAxis(lateralGloadAxis), getAccelForAxis(verticalGloadAxis))+rollBias;
     SmoothedPitch = g_pIMU->PitchAC() + g_Config.fPitchBias;
     SmoothedRoll  = g_pIMU->RollAC()  + g_Config.fRollBias;
 
-    // Initialize attitude filter based on config setting
-    // iAhrsAlgorithm: 0=Madgwick (default), 1=EKF6
-    if (g_Config.iAhrsAlgorithm == 1)
-    {
-        // Initialize EKF6 with accelerometer-derived initial attitude
-        // Note: EKF6 expects radians, SmoothedPitch/Roll are in degrees
-        Ekf6Filter.init(deg2rad(SmoothedRoll), deg2rad(-SmoothedPitch));
-    }
-    else
-    {
-        // MadGwick attitude filter (default)
-        // start Madgwick filter at 238Hz for LSM9DS1 and 208Hz for ISM330DHXC
-        MadgFilter.begin(fImuSampleRate, -SmoothedPitch, SmoothedRoll);
-    }
+    // MadGwick attitude filter
+    // start Madgwick filter at 238Hz for LSM9DS1 and 208Hz for ISM330DHXC
+    MadgFilter.begin(fImuSampleRate, -SmoothedPitch, SmoothedRoll);
 
     // Kalman altitude filter
     KalFilter.Configure(0.79078, 26.0638, 1e-11, ft2m(g_Sensors.Palt),0.00,0.00); // configure the Kalman filter (Smooth altitude and IVSI from Baro + accelerometers)
@@ -62,6 +68,13 @@ void AHRS::Init(float fSampleRate)
 // ----------------------------------------------------------------------------
 
 void AHRS::Process()
+{
+    Process(fImuDeltaTime);
+}
+
+// ----------------------------------------------------------------------------
+
+void AHRS::Process(float fDeltaTimeSeconds)
 {
     float fTASdiff;
     float fPitchBiasRad;
@@ -74,6 +87,10 @@ void AHRS::Process()
     float AccelLatCompFactor;
     float AccelVertCompFactor;
     float q[4];
+
+    // Use measured dt when available; fall back to nominal sample rate if dt is invalid.
+    if (isnan(fDeltaTimeSeconds) || isinf(fDeltaTimeSeconds) || fDeltaTimeSeconds <= 0.0f)
+        fDeltaTimeSeconds = fImuDeltaTime;
 
 #ifdef OAT_AVAILABLE
     const float Kelvin    = 273.15;
@@ -90,10 +107,33 @@ void AHRS::Process()
     fTAS        = kts2mps(g_Sensors.IAS*(1+ g_Sensors.Palt / 1000 * 0.02)); // m/sec
 #endif
 
-    // diff IAS and then smooth it. Used for forward acceleration correction
-    fTASdiff = fTAS - fPrevTAS;
-    fPrevTAS = fTAS;
-    TASdiffSmoothed = iasSmoothing*fTASdiff+(1-iasSmoothing)*TASdiffSmoothed;
+    // Update TAS derivative at IAS update cadence (50Hz), not at the IMU update cadence.
+    const uint32_t uIasUpdateUs = g_Sensors.uIasUpdateUs;
+    if (uIasUpdateUs != uLastIasUpdateUs)
+    {
+        if (uLastIasUpdateUs == 0)
+        {
+            uLastIasUpdateUs = uIasUpdateUs;
+            fPrevTAS = fTAS;
+            TASdotSmoothed = 0.0f;
+        }
+        else
+        {
+            float fIasDtSeconds = float(uint32_t(uIasUpdateUs - uLastIasUpdateUs)) * 1.0e-6f;
+            uLastIasUpdateUs = uIasUpdateUs;
+
+            if (isnan(fIasDtSeconds) || isinf(fIasDtSeconds) || fIasDtSeconds <= 0.0f)
+                fIasDtSeconds = kPressureDeltaTime;
+
+            fTASdiff = fTAS - fPrevTAS;
+            fPrevTAS = fTAS;
+
+            const float fIasTauSeconds = fImuDeltaTime * iasTauFactor;
+            const float fAlpha = fIasDtSeconds / (fIasTauSeconds + fIasDtSeconds);
+            const float fTASdot = fTASdiff / fIasDtSeconds;
+            TASdotSmoothed = fAlpha * fTASdot + (1.0f - fAlpha) * TASdotSmoothed;
+        }
+    }
 
     // all TAS are in m/sec at this point
 
@@ -139,7 +179,7 @@ void AHRS::Process()
 
     // calculate linear acceleration compensation
     // correct for forward acceleration
-    AccelFwdCompFactor  = mps2g((TASdiffSmoothed)/(1/fImuSampleRate)); //1/208hz (update rate), m/sec2 to g
+    AccelFwdCompFactor  = mps2g(TASdotSmoothed); // m/sec2 to g
 
     //centripetal acceleration in m/sec2 = speed in m/sec * angular rate in radians
     AccelLatCompFactor  = mps2g(deg2rad(fTAS * YawRateCorr));
@@ -155,72 +195,30 @@ void AHRS::Process()
     // Smooth accelerometer values and add compensation
     //aFwdCorrAvg.addValue(AccelFwdCorr);
     //aFwd=aFwdCorrAvg.getFastAverage(); // corrected, smoothed
-    AccelFwdSmoothed  = accSmoothing * AccelFwdCorr+(1-accSmoothing) * AccelFwdSmoothed;
+    AccelFwdSmoothed  = accSmoothing * AccelFwdCorr  + accSmoothingComplement * AccelFwdSmoothed;
     AccelFwdComp      = AccelFwdSmoothed - AccelFwdCompFactor; //corrected, smoothed and compensated
 
-    AccelLatSmoothed  = accSmoothing*AccelLatCorr+(1-accSmoothing)*AccelLatSmoothed;
-    AccelLatComp      = AccelLatSmoothed-AccelLatCompFactor; //corrected, smoothed and compensated
+    AccelLatSmoothed  = accSmoothing * AccelLatCorr  + accSmoothingComplement * AccelLatSmoothed;
+    AccelLatComp      = AccelLatSmoothed - AccelLatCompFactor; //corrected, smoothed and compensated
 
-    AccelVertSmoothed = accSmoothing*AccelVertCorr+(1-accSmoothing)*AccelVertSmoothed;
-    AccelVertComp     = AccelVertSmoothed+AccelVertCompFactor; //corrected, smoothed and compensated
+    AccelVertSmoothed = accSmoothing * AccelVertCorr + accSmoothingComplement * AccelVertSmoothed;
+    AccelVertComp     = AccelVertSmoothed + AccelVertCompFactor; //corrected, smoothed and compensated
 
-    // Update attitude filter based on config setting
-    // iAhrsAlgorithm: 0=Madgwick (default), 1=EKF6
-    if (g_Config.iAhrsAlgorithm == 1)
-    {
-        // EKF6 attitude filter
-        // EKF6 expects:
-        //   - Accelerometer in m/s^2 (AccelComp values are in G, multiply by 9.80665)
-        //   - Gyroscope in rad/s (RateCorr values are already in deg/s, convert to rad/s)
-        //   - gamma (flight path angle) in radians
-        const float G_MPS2 = 9.80665f;
-        float dt = 1.0f / fImuSampleRate;
-        float gamma_rad = deg2rad(FlightPath);  // Use previous FlightPath estimate
+    MadgFilter.setDeltaTime(fDeltaTimeSeconds);
+    MadgFilter.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr, AccelFwdComp, AccelLatComp, AccelVertComp);
 
-        onspeed::EKF6::Measurements meas = {
-            .ax = AccelFwdComp * G_MPS2,      // forward accel in m/s^2
-            .ay = AccelLatComp * G_MPS2,      // lateral accel in m/s^2
-            .az = AccelVertComp * G_MPS2,     // vertical accel in m/s^2
-            .p  = deg2rad(RollRateCorr),      // roll rate in rad/s
-            .q  = deg2rad(PitchRateCorr),     // pitch rate in rad/s
-            .r  = deg2rad(YawRateCorr),       // yaw rate in rad/s
-            .gamma = gamma_rad                 // flight path angle in rad
-        };
+    SmoothedPitch = -MadgFilter.getPitch();
+    SmoothedRoll  = -MadgFilter.getRoll();
 
-        Ekf6Filter.update(meas, dt);
-        onspeed::EKF6::State state = Ekf6Filter.getState();
+    // calculate VSI and flightpath
+    MadgFilter.getQuaternion(&q[0],&q[1],&q[2],&q[3]);
 
-        // EKF6 state uses: phi=roll, theta=pitch (both in radians)
-        // Convert to degrees and apply sign convention to match Madgwick output
-        SmoothedPitch = state.theta_deg();
-        SmoothedRoll  = state.phi_deg();
+    // get earth referenced vertical acceleration
+    EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * AccelFwdCorr  +
+                 2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  +
+                        (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * AccelVertCorr - 1.0f;
 
-        // For EKF6, estimate earth vertical G from attitude (simplified)
-        // This is needed for the Kalman altitude filter
-        float sph = sin(state.phi);
-        float cph = cos(state.phi);
-        float sth = sin(state.theta);
-        float cth = cos(state.theta);
-        EarthVertG = -sth * AccelFwdCorr + sph * cth * AccelLatCorr + cph * cth * AccelVertCorr - 1.0f;
-    }
-    else
-    {
-        // Madgwick attitude filter (default)
-        MadgFilter.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr, AccelFwdComp, AccelLatComp, AccelVertComp);
-
-        SmoothedPitch = -MadgFilter.getPitch();
-        SmoothedRoll  = -MadgFilter.getRoll();
-
-        // calculate VSI and flightpath
-        MadgFilter.getQuaternion(&q[0],&q[1],&q[2],&q[3]);
-
-        // get earth referenced vertical acceleration
-        EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * AccelFwdCorr  +
-                     2.0f * (q[0]*q[1] + q[2]*q[3])                         * AccelLatCorr  +
-                            (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * AccelVertCorr - 1.0f;
-    }
-
-    KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), float(1/fImuSampleRate), &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
+    KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), fDeltaTimeSeconds, &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
     // zero VSI when airspeed is not yet alive
     if (g_Sensors.IAS < 25)
@@ -232,21 +230,7 @@ void AHRS::Process()
     else
         FlightPath = 0.0;
 
-    // DerivedAOA calculation depends on AHRS algorithm
-    // iAhrsAlgorithm: 0=Madgwick (use pitch - flightpath), 1=EKF6 (use EKF's alpha estimate)
-    if (g_Config.iAhrsAlgorithm == 1)
-    {
-        // EKF6 directly estimates alpha as part of its state vector
-        // This is more accurate than pitch - flightpath because the EKF
-        // fuses gyro and accelerometer data with the kinematic relationship
-        onspeed::EKF6::State state = Ekf6Filter.getState();
-        DerivedAOA = state.alpha_deg();
-    }
-    else
-    {
-        // Madgwick: derive AOA from pitch angle minus flight path angle
-        DerivedAOA = SmoothedPitch - FlightPath;
-    }
+    DerivedAOA = SmoothedPitch - FlightPath;
 
 }
 

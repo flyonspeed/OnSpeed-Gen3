@@ -31,6 +31,8 @@
 #define betaDef         0.011617f            // 2 * proportional gain
 #define DEG2RAD(deg)    ((deg) * 0.0174533)    // degrees to radians
 
+namespace onspeed {
+
 //=============================================================================
 // Functions
 
@@ -293,3 +295,5 @@ void Madgwick::computeAngles()
 
     anglesComputed = 1;
 }
+
+} // namespace onspeed

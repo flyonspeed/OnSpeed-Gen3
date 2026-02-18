@@ -5,6 +5,8 @@
 #include "Globals.h"
 #include "HscPressureSensor.h"
 
+using onspeed::psi2mb;
+
 // These pressure ranges are the compensated pressure ranges for the sensor
 
 // Honeywell HSCDRNN1.6BASA3 differential pressure sensor

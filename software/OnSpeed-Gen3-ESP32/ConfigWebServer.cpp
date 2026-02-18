@@ -30,6 +30,11 @@
 
 #include "Globals.h"
 
+using onspeed::accelPitch;
+using onspeed::accelRoll;
+using onspeed::ft2m;
+using onspeed::inhg2mb;
+
 #include "Web/html_logo.h"
 #include "Web/html_header.h"
 #include "Web/html_liveview.h"
@@ -1829,11 +1834,14 @@ sPage += R"#(
 
         g_Config.SaveConfigurationToFile();
 
-        // Get update IMU
+        // Refresh IMU/AHRS after updating biases
         xSemaphoreTake(xSensorMutex, portMAX_DELAY);
-        g_pIMU->ReadAccelGyro(false);
-        g_AHRS.Process();
+        g_pIMU->Read();
         xSemaphoreGive(xSensorMutex);
+
+        xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+        g_AHRS.Process();
+        xSemaphoreGive(xAhrsMutex);
 
         //sdLogging=true;
 

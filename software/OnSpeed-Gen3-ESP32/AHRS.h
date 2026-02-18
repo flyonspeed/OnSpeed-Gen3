@@ -9,6 +9,9 @@
 #include <KalmanFilter.h>
 #include <EKF6.h>
 
+using onspeed::Madgwick;
+using onspeed::KalmanFilter;
+
 class AHRS
 {
 public:
@@ -38,7 +41,7 @@ public:
     float           SmoothedPitch;
     float           SmoothedRoll;
 
-    float           TASdiffSmoothed;
+    float           TASdotSmoothed;
     float           KalmanAlt;
     float           KalmanVSI;
     float           FlightPath;
@@ -52,6 +55,7 @@ public:
     float           gRoll,gPitch,gYaw;    // Gyro rates in the various axes
 
     float           fImuSampleRate;
+    float           fImuDeltaTime;      // Cached 1.0f / fImuSampleRate
 
     Madgwick        MadgFilter;
     KalmanFilter    KalFilter;
@@ -62,10 +66,12 @@ public:
 public:
     float           fTAS;
     float           fPrevTAS;
+    uint32_t        uLastIasUpdateUs;
 
     // Methods
     void    Init(float fSampleRate);
     void    Process();
+    void    Process(float deltaTimeSeconds);
 
     float   PitchWithBias();
     float   PitchWithBiasSmth();

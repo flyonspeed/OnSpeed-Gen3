@@ -4,6 +4,8 @@
 #include <cmath>
 #include "KalmanFilter.h"
 
+namespace onspeed {
+
 // Tracks the position z and velocity v of an object moving in a straight line,
 // (here assumed to be vertical) that is perturbed by random accelerations.
 // sensor measurement of z is assumed to have constant measurement noise
@@ -126,3 +128,5 @@ void KalmanFilter::Update(float z, float a, float dt, volatile float* pZ, volati
     Pzv_ -= kz * Pzv_;
     Pza_ -= kz * Pza_;
 }
+
+} // namespace onspeed

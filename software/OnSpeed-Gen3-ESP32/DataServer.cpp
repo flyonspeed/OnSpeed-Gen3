@@ -12,6 +12,11 @@
 #include "Globals.h"
 #include "DataServer.h"
 
+using onspeed::rad2deg;
+using onspeed::kts2mps;
+using onspeed::m2ft;
+using onspeed::mps2fpm;
+
 // wifi data variables
 //char crc_buffer[250];
 //volatile byte CRC=0;
