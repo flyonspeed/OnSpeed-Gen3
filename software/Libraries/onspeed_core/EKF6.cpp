@@ -27,10 +27,14 @@
  *    the fundamental Euler angle limitation. For aerobatic flight,
  *    consider quaternion-based EKF.
  *
- * 2. Accelerometer Assumption: The measurement model assumes the
- *    only acceleration is gravity. During high-G maneuvers, this
- *    causes attitude errors. The original MATLAB code included
- *    airspeed-derived corrections that are not yet implemented here.
+ * 2. Accelerometer Convention: The measurement model expects the
+ *    aerospace sign convention where az = -g in level flight (sensor
+ *    measures reaction to gravity). The caller (AHRS.cpp) must negate
+ *    the vertical axis if the IMU pipeline uses NED convention where
+ *    az = +g in level flight. Non-gravitational accelerations (TASdot,
+ *    centripetal) are removed upstream in AHRS.cpp before the EKF sees
+ *    the data, so the gravity-only model is correct for the compensated
+ *    inputs it receives.
  *
  * 3. Alpha Observability: AOA is only observable when gamma is known.
  *    If gamma=0 always, alpha will track theta exactly (which may
