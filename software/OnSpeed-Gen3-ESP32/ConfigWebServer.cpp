@@ -1108,6 +1108,15 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_ahrsAlgorithm">AHRS Algorithm</label>
+            <select id="id_ahrsAlgorithm" name="ahrsAlgorithm">
+                <option value="0")#"; if (g_Config.iAhrsAlgorithm == 0) sPage += " selected"; sPage += R"#(>Madgwick (default)</option>
+                <option value="1")#"; if (g_Config.iAhrsAlgorithm == 1) sPage += " selected"; sPage += R"#(>EKF6</option>
+            </select>
+        </div>)#";
+
     // Volume control
     String defaultVolumeVisibility;
     String volumeLevelsVisibility;
@@ -1589,6 +1598,9 @@ void HandleConfigSave()
 
     // read calibration source
     if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");
+
+    // read AHRS algorithm
+    if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();
 
     // read volume control
     if (CfgServer.hasArg("volumeControl") && CfgServer.arg("volumeControl")=="1") g_Config.bVolumeControl=true;
