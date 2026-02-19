@@ -100,7 +100,7 @@ void ToggleAudioEnable()
         // Play turn off sound
         g_AudioPlay.SetVoice(enVoiceDisabled);
 
-        g_Log.println(MsgLog::EnSwitch, MsgLog::EnDebug, "Audio Disabled");
+        g_Log.println(MsgLog::EnSwitch, MsgLog::EnDebug, "Audio Muted (stall warning active)");
         }
     }
 

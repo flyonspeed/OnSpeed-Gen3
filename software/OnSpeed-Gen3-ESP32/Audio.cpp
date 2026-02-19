@@ -479,10 +479,19 @@ void AudioPlay::UpdateTones()
     if (bAudioTest)
         return;
 
-    // If audio is disabled by button, mute tones
+    // If audio is disabled by button, only allow stall warning through
     if (!g_bAudioEnable)
         {
-        SetTone(enToneNone);
+        if (g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA &&
+            g_Sensors.IAS > g_Config.iMuteAudioUnderIAS)
+            {
+            SetTone(enToneHigh);
+            SetPulseFreq(HIGH_TONE_STALL_PPS);
+            }
+        else
+            {
+            SetTone(enToneNone);
+            }
         return;
         }
 
