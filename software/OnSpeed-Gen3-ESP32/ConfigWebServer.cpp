@@ -956,6 +956,16 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
+    // Boom checksum validation
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_boomChecksum">Boom Checksum</label>
+            <select id="id_boomChecksum" name="boomChecksum">
+                <option value="1")#"; if ( g_Config.bBoomChecksum) sPage += " selected"; sPage += R"#(>Enabled</option>
+                <option value="0")#"; if (!g_Config.bBoomChecksum) sPage += " selected"; sPage += R"#(>Disabled</option>
+            </select>
+        </div>)#";
+
     String casCurveVisibility;
     if (g_Config.bCasCurveEnabled) casCurveVisibility=R"#(style="display:block")#";
     else                           casCurveVisibility=R"#(style="display:none")#";
@@ -1076,6 +1086,16 @@ R"#(        </section>)#" "\n";
                 <option value="VN-300")#";    if (g_Config.sEfisType == "VN-300")    sPage += " selected"; sPage += R"#(>VectorNav VN-300 GNSS/INS</option>
                 <option value="VN-100")#";    if (g_Config.sEfisType == "VN-100")    sPage += " selected"; sPage += R"#(>VectorNav VN-100 IMU/AHRS</option>
                 <option value="MGL")#";       if (g_Config.sEfisType == "MGL")       sPage += " selected"; sPage += R"#(>MGL iEFIS</option>
+            </select>
+        </div>)#";
+
+    // Internal OAT sensor (DS18B20)
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_oatSensor">Internal OAT Sensor (DS18B20)</label>
+            <select id="id_oatSensor" name="oatSensor">
+                <option value="1")#"; if ( g_Config.bOatSensor) sPage += " selected"; sPage += R"#(>Enabled</option>
+                <option value="0")#"; if (!g_Config.bOatSensor) sPage += " selected"; sPage += R"#(>Disabled</option>
             </select>
         </div>)#";
 
@@ -1535,6 +1555,10 @@ void HandleConfigSave()
     if (CfgServer.hasArg("readBoom") && CfgServer.arg("readBoom")=="1") g_Config.bReadBoom = true;
     else                                                                g_Config.bReadBoom = false;
 
+    // Boom checksum enabled/disabled
+    if (CfgServer.hasArg("boomChecksum") && CfgServer.arg("boomChecksum")=="1") g_Config.bBoomChecksum = true;
+    else                                                                        g_Config.bBoomChecksum = false;
+
     if (CfgServer.hasArg("casCurveEnabled") && CfgServer.arg("casCurveEnabled")=="1") g_Config.bCasCurveEnabled = true;
     else                                                                              g_Config.bCasCurveEnabled = false;
 
@@ -1558,6 +1582,10 @@ void HandleConfigSave()
 
     // read efis Type
     if (CfgServer.hasArg("efisType")) g_Config.sEfisType=CfgServer.arg("efisType");
+
+    // OAT sensor enabled/disabled
+    if (CfgServer.hasArg("oatSensor") && CfgServer.arg("oatSensor")=="1") g_Config.bOatSensor = true;
+    else                                                                   g_Config.bOatSensor = false;
 
     // read calibration source
     if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");

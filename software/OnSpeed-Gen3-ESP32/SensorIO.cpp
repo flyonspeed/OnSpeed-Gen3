@@ -35,9 +35,7 @@ static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
 
 // Timers to reduce read frequency for less critical sensors
 static uint32_t uLastFlapsReadMs = 0;
-#ifdef OAT_AVAILABLE
 static uint32_t uLastOatReadMs = 0;
-#endif
 
 
 // ----------------------------------------------------------------------------
@@ -184,11 +182,12 @@ SensorIO::SensorIO()
 
 void SensorIO::Init()
 {
-#ifdef OAT_AVAILABLE
-    pinMode(OAT_PIN,INPUT_PULLUP);
-    OatSensor.begin();  // initialize the DS18B20 sensor
-    ReadOatC();
-#endif
+    if (g_Config.bOatSensor)
+        {
+        pinMode(OAT_PIN,INPUT_PULLUP);
+        OatSensor.begin();  // initialize the DS18B20 sensor
+        ReadOatC();
+        }
 
     // Get initial pressure altitude
     ReadPressureAltMbars();
@@ -222,12 +221,11 @@ void SensorIO::Read()
     }
 
     // Update the OAT about once per second
-#ifdef OAT_AVAILABLE
-    if (millis() - uLastOatReadMs > 1000) {
+    if (g_Config.bOatSensor && (millis() - uLastOatReadMs > 1000))
+        {
         ReadOatC();
         uLastOatReadMs = millis();
-    }
-#endif
+        }
 
     // Get AOA speed set points for the current flap position.
 //  SetAOApoints(g_Flaps.iIndex);

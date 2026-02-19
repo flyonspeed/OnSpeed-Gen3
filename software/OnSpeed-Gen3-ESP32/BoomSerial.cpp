@@ -98,30 +98,30 @@ void BoomSerialIO::Read()
                     {
                         uTimestamp=millis();
 
-#ifndef NOBOOMCHECKSUM
-                        // CRC checking
-                        int calcCRC = 0;
-                        for (int i = 0; i < BufferIndex - 4; i++)
-                        {
-                            calcCRC += Buffer[i];
-                        }
-                        calcCRC = calcCRC & 0xFF;
+                        bool bParseData = true;
 
-                        // Extract CRC from buffer and convert from hex string to int
-                        char hexCRC[3];
-                        strncpy(hexCRC, &Buffer[BufferIndex - 3], 2);
-                        hexCRC[2] = '\0';  // null-terminate the string
-                        int expectedCRC = (int)strtol(hexCRC, NULL, 16);
-
-                        if (calcCRC != expectedCRC)
+                        if (g_Config.bBoomChecksum)
                             {
-                            g_Log.printf(MsgLog::EnBoom, MsgLog::EnError, "Bad CRC  Expectd 0x%s Calc 0x%s\n",
-                                String(expectedCRC,HEX), String(calcCRC,HEX));
-                            } // end bad CRC
+                            // CRC checking
+                            int calcCRC = 0;
+                            for (int i = 0; i < BufferIndex - 4; i++)
+                                calcCRC += Buffer[i];
+                            calcCRC = calcCRC & 0xFF;
 
-                        // CRC OK
-                        else
-#endif
+                            char hexCRC[3];
+                            strncpy(hexCRC, &Buffer[BufferIndex - 3], 2);
+                            hexCRC[2] = '\0';
+                            int expectedCRC = (int)strtol(hexCRC, NULL, 16);
+
+                            if (calcCRC != expectedCRC)
+                                {
+                                g_Log.printf(MsgLog::EnBoom, MsgLog::EnError, "Bad CRC  Expectd 0x%s Calc 0x%s\n",
+                                    String(expectedCRC,HEX), String(calcCRC,HEX));
+                                bParseData = false;
+                                }
+                            }
+
+                        if (bParseData)
                         {
                             // Split the string and convert to integers
                             int parseArrayInt[4] = {0, 0, 0, 0};
@@ -142,7 +142,7 @@ void BoomSerialIO::Read()
                             Beta    = BOOM_BETA_CALC(parseArrayInt[3]);
 
                             g_Log.printf(MsgLog::EnBoom, MsgLog::EnDebug, "BOOM: Static %.2f, Dynamic %.2f, Alpha %.2f, Beta %.2f, IAS %.2f\n", Static, Dynamic, Alpha, Beta, IAS);
-                        } // end CRC OK
+                        } // end parse data
                     } // end if full boom message in buffer
 
                     BufferIndex = 0;
