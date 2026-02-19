@@ -26,7 +26,11 @@
 //#define HW_V4B // Bob's hardware
 #define HW_V4P // Phil's hardware
 
-#define VERSION "4.13"
+#define VERSION "4.14"
+
+// v4.14 Fixed external ADC driver: hardware is MCP3202, not MCP3204.
+//Replaced 3204-style 3-byte command framing with correct MCP3202 protocol.
+//Swapped channel assignments to match schematic (CH0=FLAP, CH1=VOLUME).
 
 // v4.13 fixed IAS based Forward acceleration correction, IAS now calculates at its own uodate rate not IMU rate
 //Pressure sensor chip selects are reversed between V4P and V4B
@@ -167,10 +171,11 @@
 #endif
 
 #ifdef HW_V4P
-// V4P includes an external MCP3204 ADC on the sensor SPI bus.
+// V4P includes an external MCP3202 ADC on the sensor SPI bus.
+// Per schematic: CH0 = FLAP_POS, CH1 = CTRL_VOL
 #define CS_ADC               5
-#define ADC_CH_VOLUME        0
-#define ADC_CH_FLAP          1
+#define ADC_CH_FLAP          0
+#define ADC_CH_VOLUME        1
 #endif
 
 #ifdef HW_V4B
