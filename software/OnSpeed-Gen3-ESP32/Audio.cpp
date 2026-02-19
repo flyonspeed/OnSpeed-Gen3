@@ -198,10 +198,23 @@ void AudioPlay::Init()
 {
     // start I2S at the sample rate with 16-bits per sample
     i2s.setPins(I2S_BCK, I2S_LRCK, I2S_DOUT);
-    s_bI2sOk = i2s.begin(mode, SAMPLE_RATE, bps, slot);
+
+    for (int iAttempt = 0; iAttempt < 3; iAttempt++)
+    {
+        if (iAttempt > 0)
+        {
+            i2s.end();
+            delay(50);
+        }
+        s_bI2sOk = i2s.begin(mode, SAMPLE_RATE, bps, slot);
+        if (s_bI2sOk)
+            break;
+        g_Log.printf(MsgLog::EnAudio, MsgLog::EnWarning, "I2S init attempt %d/3 failed\n", iAttempt + 1);
+    }
+
     if (!s_bI2sOk)
     {
-        g_Log.println(MsgLog::EnAudio, MsgLog::EnError, "Failed to initialize I2S!");
+        g_Log.println(MsgLog::EnAudio, MsgLog::EnError, "Failed to initialize I2S after 3 attempts!");
     }
 
     for (int iIdx = 0; iIdx < TONE_BUFFER_LEN; iIdx++)

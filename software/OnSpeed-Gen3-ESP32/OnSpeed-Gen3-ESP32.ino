@@ -232,9 +232,6 @@ void setup()
     // Init audio system
     g_AudioPlay.Init();
 
-    // Play the startup prompt.
-    g_AudioPlay.SetVoice(enVoiceEnabled);
-
     // Setup FreeRTOS tasks
     // --------------------
     xLoggingRingBuffer = xRingbufferCreate(30000, RINGBUF_TYPE_BYTEBUF);    // At least 1 sec of data buffering
@@ -303,6 +300,9 @@ void setup()
     //xTaskCreatePinnedToCore(TaskDummy,     "Dummy",     10000, NULL,              5, &xTaskDummy,     0);
 
     delay(100);
+
+    // Play the startup prompt now that AudioPlayTask is running.
+    g_AudioPlay.SetVoice(enVoiceEnabled);
 
     // Configuration web server
     CfgWebServerInit();
