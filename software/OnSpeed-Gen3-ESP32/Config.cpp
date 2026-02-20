@@ -257,20 +257,8 @@ bool FOSConfig::LoadDefaultConfiguration()
     SuFlaps             suFlaps;
 
     suFlaps.AoaCurve.iCurveType = 1;    // Default to polynomial curve
-#if 0
     for (int iCoeffIdx = 0; iCoeffIdx < MAX_CURVE_COEFF; iCoeffIdx++)
         suFlaps.AoaCurve.afCoeff[iCoeffIdx] = 0.0;
-#else
-        // These approximate values give reasonable results in Vac's plane
-        suFlaps.AoaCurve.afCoeff[0] =  0.0;  // x^3
-        suFlaps.AoaCurve.afCoeff[1] =  8.0;  // x^2
-        suFlaps.AoaCurve.afCoeff[2] = 24.0;  // x^1
-        suFlaps.AoaCurve.afCoeff[3] =  4.5;  // x^0
-#endif
-    suFlaps.fLDMAXAOA       =  8.0;
-    suFlaps.fONSPEEDFASTAOA = 11.0;
-    suFlaps.fONSPEEDSLOWAOA = 14.0;
-    suFlaps.fSTALLWARNAOA   = 16.0;
     aFlaps.push_back(suFlaps);
 
     // Volume
