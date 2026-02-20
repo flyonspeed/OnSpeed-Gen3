@@ -84,6 +84,8 @@ void AHRS::Init(float fSampleRate)
     // Kalman altitude filter
     KalFilter.Configure(0.79078, 26.0638, 1e-11, ft2m(g_Sensors.Palt),0.00,0.00); // configure the Kalman filter (Smooth altitude and IVSI from Baro + accelerometers)
 
+    g_Log.printf(MsgLog::EnAHRS, MsgLog::EnWarning, "AHRS Init (%s, pitch bias %.1f, roll bias %.1f)\n",
+        g_Config.iAhrsAlgorithm == 1 ? "EKF6" : "Madgwick", g_Config.fPitchBias, g_Config.fRollBias);
 }
 
 // ----------------------------------------------------------------------------
