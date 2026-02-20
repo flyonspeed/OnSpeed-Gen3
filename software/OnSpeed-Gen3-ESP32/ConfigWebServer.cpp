@@ -1511,7 +1511,11 @@ void HandleConfigSave()
         }
 
     if (CfgServer.hasArg("pressureSmoothing"))
+        {
+        if (g_Config.iPressureSmoothing != CfgServer.arg("pressureSmoothing").toInt())
+            rebootRequired = true;
         g_Config.iPressureSmoothing = CfgServer.arg("pressureSmoothing").toInt();
+        }
 
     if (CfgServer.hasArg("dataSource"))
         {
