@@ -135,8 +135,17 @@ void AHRS::Process(float fDeltaTimeSeconds)
         const float Temp_rate =   0.00198119993;
         float fISA_temp_k = 15 - Temp_rate * g_Sensors.Palt + Kelvin;
         float fOAT_k      = fOatC + Kelvin;
-        float fDA          = g_Sensors.Palt + (fISA_temp_k / Temp_rate) * (1 - pow(fISA_temp_k / fOAT_k, 0.2349690));
-        fTAS               = kts2mps(g_Sensors.IAS / pow(1 - 6.8755856 * pow(10,-6) * fDA, 2.12794));
+
+        // Guard pow() base values: a negative or zero base with a fractional
+        // exponent returns NaN (IEEE 754).  Bad OAT sensor data could make
+        // fOAT_k <= 0; extreme density altitude could make the IAS divisor <= 0.
+        if (fOAT_k > 0.0f)
+            {
+            float fDA      = g_Sensors.Palt + (fISA_temp_k / Temp_rate) * (1 - pow(fISA_temp_k / fOAT_k, 0.2349690));
+            float fDivisor = 1 - 6.8755856e-6f * fDA;
+            if (fDivisor > 0.0f)
+                fTAS = kts2mps(g_Sensors.IAS / pow(fDivisor, 2.12794));
+            }
         }
     else
         {

@@ -286,7 +286,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
 
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
     const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatCorr, 0.0f);
-    const float fCoeffP = SafeJsonFloat((float)g_fCoeffP, 0.0f);
+    const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
     const float fPitchRate = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
     const float fDecelRate = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
 
