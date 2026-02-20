@@ -164,7 +164,9 @@ EfisSerialIO::EfisSerialIO()
 
 void EfisSerialIO::Init(EnEfisType enEfisType, HardwareSerial * pEfisSerial)
 {
-    uint32_t hwSerialConfig = SerialConfig::SERIAL_8E1; // SERIAL_8N1
+    // All text-based EFIS types (Dynon SkyView, Garmin, etc.) and the VN-300
+    // use 8N1 framing.
+    uint32_t hwSerialConfig = SerialConfig::SERIAL_8N1;
 
     // Save the EFIS type
     enType = enEfisType;

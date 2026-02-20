@@ -1858,6 +1858,29 @@ void HandleSensorConfig()
         sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Calculated True AC Roll:</td><td>"  + String(g_AHRS.RollWithBias())              + "</td><td>Degrees</td></tr>\n";
         sCurrentConfig +=" </table>\n";
 
+        // Determine default pitch/roll/palt values for the form.
+        // Use EFIS data if available and fresh (< 2 seconds old), otherwise
+        // fall back to the OnSpeed AHRS values (current behavior).
+        bool    bUseEfis    = false;
+        float   fDefPitch   = g_AHRS.PitchWithBias();
+        float   fDefRoll    = g_AHRS.RollWithBias();
+        float   fDefPalt    = g_Sensors.Palt;
+
+        if (g_Config.bReadEfisData &&
+            (millis() - g_EfisSerial.uTimestamp < 2000) &&
+            g_EfisSerial.suEfis.Pitch > -90 &&     // not the -100 invalid sentinel
+            g_EfisSerial.suEfis.Roll  > -179)       // not the -180 invalid sentinel
+            {
+            fDefPitch   = g_EfisSerial.suEfis.Pitch;
+            fDefRoll    = g_EfisSerial.suEfis.Roll;
+            fDefPalt    = g_EfisSerial.suEfis.Palt;
+            bUseEfis    = true;
+            }
+
+        String sEfisNote = "";
+        if (bUseEfis)
+            sEfisNote = R"#(<p style="color:green"><b>EFIS data detected:</b> pitch, roll, and altitude pre-populated from EFIS. You can override if needed.</p>)#";
+
 sPage += R"#(
 <br><b>Current sensor calibration:</b><br><br>)#" + sCurrentConfig + R"#(<br>
         <p style="color:black">This procedure will calibrate the system's accelerometers, gyros and pressure sensors.<br><br>
@@ -1869,17 +1892,18 @@ sPage += R"#(
         <br><br>
         Calibration will take a few seconds.
         </p>
+        )#" + sEfisNote + R"#(
         <br>
         <br>
         <form action="sensorconfig" method="GET">
 <table>
         <table>
         <tr><td><label>True Aircraft Pitch (degrees)</label></td>
-        <td><input class="inputField" type="text" name="trueAircraftPitch" value=")#" + String(g_AHRS.PitchWithBias()) + R"#("></td></tr>
+        <td><input class="inputField" type="text" name="trueAircraftPitch" value=")#" + String(fDefPitch) + R"#("></td></tr>
         <tr><td><label>True Aircraft Roll (degrees)</label></td>
-        <td><input class="inputField" type="text" name="trueAircraftRoll" value=")#" + String(g_AHRS.RollWithBias()) + R"#("></td></tr>
+        <td><input class="inputField" type="text" name="trueAircraftRoll" value=")#" + String(fDefRoll) + R"#("></td></tr>
         <tr><td><label>True Aircraft Pressure Altitude (feet)</label></td>
-        <td><input class="inputField" type="text" name="trueAircraftPalt" value=")#" + String(g_Sensors.Palt) + R"#("></td></tr>
+        <td><input class="inputField" type="text" name="trueAircraftPalt" value=")#" + String(fDefPalt) + R"#("></td></tr>
         </table>
 
         <input type="hidden" name="confirm" value="yes">
