@@ -208,7 +208,7 @@
 // EFIS / VN300 Serial
 // TTL/RS232
 #define EFIS_SER_TX         46  // NC
-#define EFIS_SER_RX          9
+#define EFIS_SER_RX         11  // J1 pin 25 → R1_OUT on ADM3202 (was 9, which is T2_IN)
 
 // Boom Serial
 // TTL
@@ -218,7 +218,7 @@
 // M5 Display Serial
 // TTL/RS232
 #define DISPLAY_SER_TX      10
-#define DISPLAY_SER_RX      11  // Normally not used
+#define DISPLAY_SER_RX      11  // Normally not used (shares R1_OUT with EFIS_SER_RX)
 
 // Data logging frequency
 #define LOGDATA_PRESSURE_RATE   // Log at pressure read rate (50 Hz)
