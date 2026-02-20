@@ -56,6 +56,16 @@ void AHRS::Init(float fSampleRate)
     SmoothedPitch = g_pIMU->PitchAC() + g_Config.fPitchBias;
     SmoothedRoll  = g_pIMU->RollAC()  + g_Config.fRollBias;
 
+    // Precompute trig of installation bias angles (constant after config load).
+    // Yaw bias is always zero, so sin(yaw)=0 and cos(yaw)=1 — folded into
+    // the rotation expressions in Process() directly.
+    const float fPitchBiasRad = deg2rad(g_Config.fPitchBias);
+    const float fRollBiasRad  = deg2rad(g_Config.fRollBias);
+    fSinPitch = sinf(fPitchBiasRad);
+    fCosPitch = cosf(fPitchBiasRad);
+    fSinRoll  = sinf(fRollBiasRad);
+    fCosRoll  = cosf(fRollBiasRad);
+
     // Initialize attitude filter based on config setting
     // iAhrsAlgorithm: 0=Madgwick (default), 1=EKF6
     if (g_Config.iAhrsAlgorithm == 1)
@@ -88,9 +98,6 @@ void AHRS::Process()
 void AHRS::Process(float fDeltaTimeSeconds)
 {
     float fTASdiff;
-    float fPitchBiasRad;
-    float fRollBiasRad;
-    float fYawBiasRad;
     float RollRateCorr;
     float PitchRateCorr;
     float YawRateCorr;
@@ -168,34 +175,31 @@ void AHRS::Process(float fDeltaTimeSeconds)
 
     // update AHRS
 
-    // correct for installation error
-    fPitchBiasRad = deg2rad(g_Config.fPitchBias);
-    fRollBiasRad  = deg2rad(g_Config.fRollBias);
-    fYawBiasRad   = 0.0; // assuming zero yaw (twist) on install
+    // Correct for installation error using precomputed trig (from Init).
+    // Yaw bias is always zero: cos(yaw)=1, sin(yaw)=0.
+    // Shorthand: sp=sinPitch, cp=cosPitch, sr=sinRoll, cr=cosRoll.
+    const float sp = fSinPitch, cp = fCosPitch;
+    const float sr = fSinRoll,  cr = fCosRoll;
 
-    // Calculate installation corrected gyro values
-    //// This is a lot of sin() and cos() math on constant values. This should be precalcualted in Init().
-    RollRateCorr  =  g_pIMU->Gx *   cos(fPitchBiasRad) * cos(fYawBiasRad) +
-////                 g_pIMU->Gy * ( cos(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) * - sin(fYawBiasRad) * cos(fRollBiasRad) ) +  THAT "* -" IN THE ORIGINAL LOOKS FISHY
-                     g_pIMU->Gy * ( cos(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) - sin(fYawBiasRad) * cos(fRollBiasRad) ) +
-                     g_pIMU->Gz * ( cos(fYawBiasRad)   * cos(fRollBiasRad) * sin(fPitchBiasRad) + sin(fYawBiasRad) * sin(fRollBiasRad));
-    PitchRateCorr =  g_pIMU->Gx *   cos(fPitchBiasRad) * sin(fYawBiasRad) +
-                     g_pIMU->Gy * ( sin(fYawBiasRad)   * sin(fRollBiasRad) * sin(fPitchBiasRad) + cos(fYawBiasRad) * cos(fRollBiasRad)) +
-                     g_pIMU->Gz * ( sin(fYawBiasRad)   * cos(fRollBiasRad) * sin(fPitchBiasRad) - cos(fYawBiasRad) * sin(fRollBiasRad));
-    YawRateCorr   =  g_pIMU->Gx *  -sin(fPitchBiasRad) +
-                     g_pIMU->Gy *   sin(fRollBiasRad)  * cos(fPitchBiasRad) +
-                     g_pIMU->Gz *   cos(fPitchBiasRad) * cos(fRollBiasRad);
+    // Installation-corrected gyro values (rotation matrix with yaw=0)
+    RollRateCorr  = g_pIMU->Gx *  cp +
+                    g_pIMU->Gy * (sr * sp) +
+                    g_pIMU->Gz * (cr * sp);
+    PitchRateCorr = g_pIMU->Gy *  cr +
+                    g_pIMU->Gz * -sr;
+    YawRateCorr   = g_pIMU->Gx * -sp +
+                    g_pIMU->Gy * (sr * cp) +
+                    g_pIMU->Gz * (cp * cr);
 
-    // Displacement from CG calculation is omitted
-    AccelVertCorr = -g_pIMU->Ax * sin(fPitchBiasRad)                        +  // OK
-                     g_pIMU->Ay * sin(fRollBiasRad)  * cos(fPitchBiasRad) +
-                     g_pIMU->Az * cos(fRollBiasRad)  * cos(fPitchBiasRad);
-    AccelLatCorr  =  g_pIMU->Ax * cos(fPitchBiasRad) * sin(fYawBiasRad)   +
-                     g_pIMU->Ay * (sin(fYawBiasRad)  * sin(fPitchBiasRad) * sin(fRollBiasRad)  + cos(fYawBiasRad) * cos(fRollBiasRad)) +
-                     g_pIMU->Az * (sin(fYawBiasRad)  * cos(fRollBiasRad)  * sin(fPitchBiasRad) - cos(fYawBiasRad) * sin(fRollBiasRad));
-    AccelFwdCorr  =  g_pIMU->Ax * cos(fPitchBiasRad) * cos(fYawBiasRad)   +
-                     g_pIMU->Ay * (sin(fRollBiasRad) * sin(fPitchBiasRad) * cos(fYawBiasRad)   - sin(fYawBiasRad) * cos(fRollBiasRad)) +
-                     g_pIMU->Az * (cos(fYawBiasRad)  * cos(fRollBiasRad)  * sin(fPitchBiasRad) + sin(fYawBiasRad) * sin(fRollBiasRad));
+    // Installation-corrected accelerometer values (same rotation, yaw=0)
+    AccelVertCorr = -g_pIMU->Ax *  sp +
+                     g_pIMU->Ay * (sr * cp) +
+                     g_pIMU->Az * (cr * cp);
+    AccelLatCorr  =  g_pIMU->Ay *  cr +
+                     g_pIMU->Az * -sr;
+    AccelFwdCorr  =  g_pIMU->Ax *  cp +
+                     g_pIMU->Ay * (sr * sp) +
+                     g_pIMU->Az * (cr * sp);
 
     // Average gyro values, not used for AHRS
     GxAvg.addValue(RollRateCorr);
