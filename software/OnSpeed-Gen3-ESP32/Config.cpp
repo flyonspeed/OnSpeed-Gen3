@@ -598,8 +598,11 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Decoded V1 config string");
 
-        g_pIMU->ConfigAxes();
-        g_AHRS.Init(IMU_SAMPLE_RATE);
+        if (g_pIMU != nullptr)
+            {
+            g_pIMU->ConfigAxes();
+            g_AHRS.Init(IMU_SAMPLE_RATE);
+            }
         return true;
 #else
         return false;
@@ -800,8 +803,11 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Decoded V2 config string");
 
-        g_pIMU->ConfigAxes();
-        g_AHRS.Init(IMU_SAMPLE_RATE);
+        if (g_pIMU != nullptr)
+            {
+            g_pIMU->ConfigAxes();
+            g_AHRS.Init(IMU_SAMPLE_RATE);
+            }
         return true;
         }
 
