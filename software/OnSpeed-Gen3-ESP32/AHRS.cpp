@@ -73,7 +73,10 @@ void AHRS::Init(float fSampleRate)
     {
         // Initialize EKF6 with accelerometer-derived initial attitude
         // Note: EKF6 expects radians, SmoothedPitch/Roll are in degrees
-        Ekf6Filter.init(deg2rad(SmoothedRoll), deg2rad(-SmoothedPitch));
+        // EKF6 theta convention (positive = nose up) matches SmoothedPitch,
+        // so no negation is needed.  (Madgwick uses inverted pitch internally,
+        // which is why its begin() call below negates SmoothedPitch.)
+        Ekf6Filter.init(deg2rad(SmoothedRoll), deg2rad(SmoothedPitch));
     }
     else
     {
