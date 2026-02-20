@@ -42,6 +42,7 @@ AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(
     SmoothedRoll  =  0.0;
     FlightPath    =  0.0;
 
+    bIasWasBelowThreshold = true;
 }
 
 // ----------------------------------------------------------------------------
@@ -308,7 +309,19 @@ void AHRS::Process(float fDeltaTimeSeconds)
 
     // zero VSI when airspeed is not yet alive
     if (g_Sensors.IAS < 25)
+    {
         KalmanVSI = 0;
+        bIasWasBelowThreshold = true;
+    }
+    else if (bIasWasBelowThreshold && g_Config.iAhrsAlgorithm == 1)
+    {
+        Ekf6Filter.resetAlphaCovariance();
+        bIasWasBelowThreshold = false;
+    }
+    else
+    {
+        bIasWasBelowThreshold = false;
+    }
 
     // calculate flight path and derived AOA
     if (g_Sensors.IAS != 0.0)

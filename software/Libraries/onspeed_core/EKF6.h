@@ -266,6 +266,21 @@ public:
      */
     const Config& getConfig() const { return config_; }
 
+    /**
+     * @brief Reset alpha covariance to initial uncertainty
+     *
+     * Call this when transitioning from a regime where alpha was
+     * unobservable (e.g., IAS < 25 kt, gamma forced to 0) to one
+     * where real gamma measurements are available.  This resets
+     * P_[2][2] to the initial p_alpha value and zeros all
+     * off-diagonal correlations involving alpha, telling the filter
+     * to re-learn alpha from measurements without disturbing the
+     * alpha state estimate itself.
+     *
+     * Safe to call on an uninitialized filter (no-op).
+     */
+    void resetAlphaCovariance();
+
 private:
     Config config_;                         ///< Filter tuning parameters
     float x_[N_STATES];                     ///< State vector [phi, theta, alpha, bp, bq, br]
