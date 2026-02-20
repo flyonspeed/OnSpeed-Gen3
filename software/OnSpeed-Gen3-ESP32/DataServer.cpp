@@ -237,12 +237,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // OAT: prefer EFIS data, fall back to internal sensor
     if (g_Config.sCalSource == "EFIS")
         fWifiOAT = g_EfisSerial.suEfis.OAT;
-    else
-#ifdef OAT_AVAILABLE
+    else if (g_Config.bOatSensor)
         fWifiOAT = g_Sensors.OatC;
-#else
+    else
         fWifiOAT = 0.0f;
-#endif
 
 #else   // Dummy data
     static float fWifiAOA = 0.0;

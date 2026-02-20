@@ -37,6 +37,7 @@ using onspeed::inhg2mb;
 
 #include "Web/html_logo.h"
 #include "Web/html_header.h"
+#include "Web/html_header_css.h"
 #include "Web/html_liveview.h"
 #include "Web/html_calibration.h"
 #include "Web/javascript_calibration.h"
@@ -112,6 +113,17 @@ void HandleWifiReflash();
 void HandleUpgrade();
 void HandleUpgradeSuccess();
 void HandleUpgradeFailure();
+
+// Static asset handlers (served with ETag caching)
+void HandleCssMain();
+void HandleCssChartist();
+void HandleJsChartist();
+void HandleJsRegression();
+void HandleJsSGFilter();
+void HandleJsCalibration();
+
+// Returns true if a 304 Not Modified was sent (caller should return early).
+bool SendWithETag(const char* contentType);
 
 
 #ifdef SUPPORT_WIFI_CLIENT
@@ -191,6 +203,14 @@ void CfgWebServerInit()
 //    CfgServer.on("/wifireflash",     HTTP_GET,  HandleWifiReflash);
     CfgServer.on("/upgrade",         HTTP_GET,  HandleUpgrade);
 
+    // Static asset endpoints (served with ETag caching)
+    CfgServer.on("/css/main.css",    HTTP_GET,  HandleCssMain);
+    CfgServer.on("/css/chartist.css",HTTP_GET,  HandleCssChartist);
+    CfgServer.on("/js/chartist.js",  HTTP_GET,  HandleJsChartist);
+    CfgServer.on("/js/regression.js",HTTP_GET,  HandleJsRegression);
+    CfgServer.on("/js/sgfilter.js",  HTTP_GET,  HandleJsSGFilter);
+    CfgServer.on("/js/calibration.js",HTTP_GET, HandleJsCalibration);
+
 #ifdef SUPPORT_WIFI_CLIENT
     CfgServer.on("/wifi",            HTTP_GET,  HandleWifiSettings);
 #endif
@@ -249,6 +269,10 @@ void CfgWebServerInit()
             }
         );
 #endif
+    // Register request headers we need to inspect (ESP32 WebServer discards them by default)
+    const char* headersToCollect[] = { "If-None-Match" };
+    CfgServer.collectHeaders(headersToCollect, 1);
+
     // Start server
     CfgServer.begin();
 
@@ -289,9 +313,83 @@ void UpdateHeader()
     }
 
 // ----------------------------------------------------------------------------
+// ETag caching helper.  Returns true if a 304 Not Modified was sent
+// (meaning the caller should return immediately without building a page).
+// Uses VERSION as the ETag value — changes only on firmware update.
+// Cache-Control: no-cache means "store but always revalidate".
+
+bool SendWithETag(const char* contentType)
+    {
+    String sETag = "\"" VERSION "\"";
+    if (CfgServer.hasHeader("If-None-Match") &&
+        CfgServer.header("If-None-Match") == sETag)
+        {
+        CfgServer.send(304);
+        return true;
+        }
+    CfgServer.sendHeader("ETag", sETag);
+    CfgServer.sendHeader("Cache-Control", "no-cache");
+    return false;
+    }
+
+// ----------------------------------------------------------------------------
+// Static asset handlers — served from PROGMEM with ETag caching.
+// After first load the browser caches them; subsequent requests get 304.
+
+void HandleCssMain()
+    {
+    if (SendWithETag("text/css"))
+        return;
+    CfgServer.send_P(200, "text/css", szHtmlHeaderCss);
+    }
+
+void HandleCssChartist()
+    {
+    if (SendWithETag("text/css"))
+        return;
+    CfgServer.send_P(200, "text/css", cssChartist);
+    }
+
+void HandleJsChartist()
+    {
+    if (SendWithETag("application/javascript"))
+        return;
+    // Chartist is split across two PROGMEM arrays; send both via chunked transfer.
+    CfgServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    CfgServer.send(200, "application/javascript", "");
+    CfgServer.sendContent_P(jsChartist1);
+    CfgServer.sendContent_P(jsChartist2);
+    CfgServer.sendContent("");
+    }
+
+void HandleJsRegression()
+    {
+    if (SendWithETag("application/javascript"))
+        return;
+    CfgServer.send_P(200, "application/javascript", jsRegression);
+    }
+
+void HandleJsSGFilter()
+    {
+    if (SendWithETag("application/javascript"))
+        return;
+    CfgServer.send_P(200, "application/javascript", jsSGfilter);
+    }
+
+void HandleJsCalibration()
+    {
+    if (SendWithETag("application/javascript"))
+        return;
+    CfgServer.send_P(200, "application/javascript", jsCalibration);
+    }
+
+// ----------------------------------------------------------------------------
 
 void HandleIndex()
     {
+    if (SendWithETag("text/html"))
+        return;
+
     String      sPage;
 
     UpdateHeader();
@@ -321,6 +419,9 @@ void HandleFavicon()
 
 void HandleReboot()
   {
+    if (SendWithETag("text/html"))
+        return;
+
     String sPage;
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
@@ -354,6 +455,9 @@ void HandleReboot()
 
 void HandleLive()
     {
+    if (SendWithETag("text/html"))
+        return;
+
     String sPage;
     UpdateHeader();
     sPage.reserve(pageHeader.length() + sizeof(htmlLiveView) + pageFooter.length());
@@ -852,6 +956,16 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
+    // Boom checksum validation
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_boomChecksum">Boom Checksum</label>
+            <select id="id_boomChecksum" name="boomChecksum">
+                <option value="1")#"; if ( g_Config.bBoomChecksum) sPage += " selected"; sPage += R"#(>Enabled</option>
+                <option value="0")#"; if (!g_Config.bBoomChecksum) sPage += " selected"; sPage += R"#(>Disabled</option>
+            </select>
+        </div>)#";
+
     String casCurveVisibility;
     if (g_Config.bCasCurveEnabled) casCurveVisibility=R"#(style="display:block")#";
     else                           casCurveVisibility=R"#(style="display:none")#";
@@ -975,12 +1089,31 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
+    // Internal OAT sensor (DS18B20)
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_oatSensor">Internal OAT Sensor (DS18B20)</label>
+            <select id="id_oatSensor" name="oatSensor">
+                <option value="1")#"; if ( g_Config.bOatSensor) sPage += " selected"; sPage += R"#(>Enabled</option>
+                <option value="0")#"; if (!g_Config.bOatSensor) sPage += " selected"; sPage += R"#(>Disabled</option>
+            </select>
+        </div>)#";
+
     sPage += R"#(
         <div class="form-divs flex-col-12">
             <label for="id_calSource">Calibration Data Source</label>
             <select id="id_calSource" name="calSource">
                 <option value="ONSPEED")#"; if (g_Config.sCalSource == "ONSPEED" || g_Config.sCalSource == "") sPage += " selected"; sPage += R"#(>ONSPEED (internal IMU)</option>
                 <option value="EFIS")#";    if (g_Config.sCalSource == "EFIS")                                 sPage += " selected"; sPage += R"#(>EFIS (via serial input)</option>
+            </select>
+        </div>)#";
+
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_ahrsAlgorithm">AHRS Algorithm</label>
+            <select id="id_ahrsAlgorithm" name="ahrsAlgorithm">
+                <option value="0")#"; if (g_Config.iAhrsAlgorithm == 0) sPage += " selected"; sPage += R"#(>Madgwick (default)</option>
+                <option value="1")#"; if (g_Config.iAhrsAlgorithm == 1) sPage += " selected"; sPage += R"#(>EKF6</option>
             </select>
         </div>)#";
 
@@ -1431,6 +1564,10 @@ void HandleConfigSave()
     if (CfgServer.hasArg("readBoom") && CfgServer.arg("readBoom")=="1") g_Config.bReadBoom = true;
     else                                                                g_Config.bReadBoom = false;
 
+    // Boom checksum enabled/disabled
+    if (CfgServer.hasArg("boomChecksum") && CfgServer.arg("boomChecksum")=="1") g_Config.bBoomChecksum = true;
+    else                                                                        g_Config.bBoomChecksum = false;
+
     if (CfgServer.hasArg("casCurveEnabled") && CfgServer.arg("casCurveEnabled")=="1") g_Config.bCasCurveEnabled = true;
     else                                                                              g_Config.bCasCurveEnabled = false;
 
@@ -1455,8 +1592,15 @@ void HandleConfigSave()
     // read efis Type
     if (CfgServer.hasArg("efisType")) g_Config.sEfisType=CfgServer.arg("efisType");
 
+    // OAT sensor enabled/disabled
+    if (CfgServer.hasArg("oatSensor") && CfgServer.arg("oatSensor")=="1") g_Config.bOatSensor = true;
+    else                                                                   g_Config.bOatSensor = false;
+
     // read calibration source
     if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");
+
+    // read AHRS algorithm
+    if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();
 
     // read volume control
     if (CfgServer.hasArg("volumeControl") && CfgServer.arg("volumeControl")=="1") g_Config.bVolumeControl=true;
@@ -1896,6 +2040,9 @@ void HandleWifiReflash()
 
 void HandleUpgrade()
     {
+    if (SendWithETag("text/html"))
+        return;
+
     String sPage;
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
@@ -2023,6 +2170,9 @@ void HandleGetValue()
 
 void HandleFormat()
     {
+    if (SendWithETag("text/html"))
+        return;
+
     String sPage;
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 2048);
@@ -2185,46 +2335,38 @@ Enter the following aircraft parameters:<br><br>
 
     else if (wizardStep == "flydecel")
         {
-         sPage += "<script>";
-         sPage += "acGrossWeight="     + String(iAcGrossWeight)     + ";";
-         sPage += "acCurrentWeight="   + String(iAcCurrentWeight)   + ";";
-         sPage += "acVldmax="          + String(fAcVldmax)          + ";";
-         sPage += "acGlimit="          + String(fAcGlimit)          + ";";
-         sPage += "flapPositionCount=" + String(g_Config.aFlaps.size()) + ";";
+        // Dynamic variables the calibration JS needs
+        sPage += "<script>";
+        sPage += "acGrossWeight="     + String(iAcGrossWeight)     + ";";
+        sPage += "acCurrentWeight="   + String(iAcCurrentWeight)   + ";";
+        sPage += "acVldmax="          + String(fAcVldmax)          + ";";
+        sPage += "acGlimit="          + String(fAcGlimit)          + ";";
+        sPage += "flapPositionCount=" + String(g_Config.aFlaps.size()) + ";";
 
-         // send flap degrees array to javascript
-         sPage += "flapDegrees=[";
-         for (int iFlapIdx=0; iFlapIdx < g_Config.aFlaps.size(); iFlapIdx++)
-             {
-             sPage += String(g_Config.aFlaps[iFlapIdx].iDegrees);
-             if (iFlapIdx < g_Config.aFlaps.size()-1)
-                sPage += ",";
-             }
-         sPage += "];";
-         sPage += "</script>";
+        // send flap degrees array to javascript
+        sPage += "flapDegrees=[";
+        for (int iFlapIdx=0; iFlapIdx < g_Config.aFlaps.size(); iFlapIdx++)
+            {
+            sPage += String(g_Config.aFlaps[iFlapIdx].iDegrees);
+            if (iFlapIdx < g_Config.aFlaps.size()-1)
+               sPage += ",";
+            }
+        sPage += "];";
+        sPage += "</script>";
 
-        // send one by one, too long to send it all at once
-        String SjsSGfilter      = String(jsSGfilter);
-        String SjsRegression    = String(jsRegression);
-        String ScssChartist     = String(cssChartist);
-        String SjsChartist1     = String(jsChartist1);
-        String SjsChartist2     = String(jsChartist2);
-        String SjsCalibration   = String(jsCalibration);
+        // External JS/CSS assets (cached by browser via ETag)
+        sPage += "<link rel=\"stylesheet\" href=\"/css/chartist.css\">";
+        sPage += "<script src=\"/js/chartist.js\"></script>";
+        sPage += "<script src=\"/js/regression.js\"></script>";
+        sPage += "<script src=\"/js/sgfilter.js\"></script>";
+        sPage += "<script src=\"/js/calibration.js\"></script>";
+
+        // Calibration HTML (page-specific, not cached separately)
         String ShtmlCalibration = String(htmlCalibration);
 
-        //int contentLength = sPage.length()          +  SjsSGfilter.length()     + SjsRegression.length() +
-        //                    ScssChartist.length()   + SjsChartist1.length()     + SjsChartist2.length() +
-        //                    SjsCalibration.length() + ShtmlCalibration.length() + pageFooter.length();
-        //CfgServer.sendHeader("Content-Length", (String)contentLength);
-        CfgServer.setContentLength(CONTENT_LENGTH_UNKNOWN); // send content in chuncks, too large for String
+        CfgServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
         CfgServer.send(200, "text/html", "");
         CfgServer.sendContent(sPage);
-        CfgServer.sendContent(SjsSGfilter);
-        CfgServer.sendContent(SjsRegression);
-        CfgServer.sendContent(ScssChartist);
-        CfgServer.sendContent(SjsChartist1);
-        CfgServer.sendContent(SjsChartist2);
-        CfgServer.sendContent(SjsCalibration);
         CfgServer.sendContent(ShtmlCalibration);
         CfgServer.sendContent(pageFooter);
         CfgServer.sendContent("");
