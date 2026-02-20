@@ -51,8 +51,9 @@ void KalmanFilter::Update(float z, float a, float dt, volatile float* pZ, volati
 
     // Predict state
     float accel = a - aBias_;
-    v_ += accel * dt;
-    z_ += v_ * dt;
+    float adt   = accel * dt;
+    z_ += v_ * dt + 0.5f * adt * dt;
+    v_ += adt;
 
     zAccelVariance_ = std::fabs(accel)/50.0f;
     zAccelVariance_ = std::clamp(zAccelVariance_, 1.0f, 50.0f);

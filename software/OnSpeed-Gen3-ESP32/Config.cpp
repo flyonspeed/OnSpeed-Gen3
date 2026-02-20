@@ -307,10 +307,17 @@ bool FOSConfig::LoadDefaultConfiguration()
     fPitchBias          = 0.0;
     fRollBias           = 0.0;
 
+    // AHRS algorithm: 0=Madgwick (default), 1=EKF6
+    iAhrsAlgorithm      = 0;
+
     // Serial inputs
     bReadBoom           = false;
     bReadEfisData       = false;
     sEfisType           = "VN-300";
+
+    // Hardware feature toggles
+    bOatSensor          = false;
+    bBoomChecksum       = true;
 
     // serial output
     sSerialOutFormat    = "ONSPEED";
@@ -417,8 +424,10 @@ String FOSConfig::ConfigurationToString()
     XML_INSERT_SET(XmlConfigOrientation, "BOX_TOP", sBoxtopOrientation.c_str())
 
     XML_INSERT_SET(XmlConfigRoot, "BOOM",           bReadBoom)
+    XML_INSERT_SET(XmlConfigRoot, "BOOMCHECKSUM",  bBoomChecksum)
     XML_INSERT_SET(XmlConfigRoot, "SERIALEFISDATA", bReadEfisData)
     XML_INSERT_SET(XmlConfigRoot, "EFISTYPE",       sEfisType.c_str())
+    XML_INSERT_SET(XmlConfigRoot, "OATSENSOR",     bOatSensor)
 
     XML_INSERT_SET(XmlConfigRoot, "SERIALOUTFORMAT", sSerialOutFormat.c_str())
 //    XML_INSERT_SET(XmlConfigRoot, "SERIALOUTPORT",   sSerialOutPort.c_str())
@@ -435,6 +444,9 @@ String FOSConfig::ConfigurationToString()
     XML_INSERT_SET(XmlConfigBias, "GZ",      fGzBias)
     XML_INSERT_SET(XmlConfigBias, "PITCH",   fPitchBias)
     XML_INSERT_SET(XmlConfigBias, "ROLL",    fRollBias)
+
+    // AHRS algorithm selection
+    XML_INSERT_SET(XmlConfigRoot, "AHRS_ALGORITHM", iAhrsAlgorithm)
 
     XML_INSERT(XmlConfigRoot, "LOAD_LIMIT")
     XMLElement * XmlConfigLoadLimit = XmlConfigNew;
@@ -564,7 +576,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // serial inputs
         bReadBoom           = ToBoolean(GetConfigValue(sConfig,"BOOM"));
+        bBoomChecksum       = ToBoolean(GetConfigValue(sConfig,"BOOMCHECKSUM"));
         bReadEfisData       = ToBoolean(GetConfigValue(sConfig,"SERIALEFISDATA"));
+        bOatSensor          = ToBoolean(GetConfigValue(sConfig,"OATSENSOR"));
 
         // serial output
         sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT");
@@ -731,8 +745,10 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Serial inputs
         XML_GET_BOOL(XmlRootNode, "BOOM",             bReadBoom)
+        XML_GET_BOOL(XmlRootNode, "BOOMCHECKSUM",     bBoomChecksum)
         XML_GET_BOOL(XmlRootNode, "SERIALEFISDATA",   bReadEfisData)
         XML_GET_STR(XmlRootNode,  "EFISTYPE",         sEfisType)
+        XML_GET_BOOL(XmlRootNode, "OATSENSOR",        bOatSensor)
         if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialIO::EnVN300;        // iEfisID = 1;
         else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialIO::EnDynonSkyview; // iEfisID = 2;
         else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialIO::EnDynonD10;     // iEfisID = 3;
@@ -759,6 +775,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             XML_GET_FLOAT(pXmlBias, "PITCH",    fPitchBias)
             XML_GET_FLOAT(pXmlBias, "ROLL",     fRollBias)
             }
+
+        // AHRS algorithm selection (default to 0=Madgwick if not present)
+        XML_GET_INT(XmlRootNode, "AHRS_ALGORITHM", iAhrsAlgorithm)
 
         XMLElement * pXmlLoad = XmlRootNode->FirstChildElement("LOAD_LIMIT");
         if (pXmlLoad != NULL)
