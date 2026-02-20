@@ -249,8 +249,6 @@ void SensorIO::Read()
         g_fCoeffP = result.coeffP;
 
         // Calculate airspeed
-        //PfwdPascal = ((PfwdSmoothed + g_Config.iPFwdBias - 0.1*16383) * 2/(0.8*16383) -1) * 6894.757;
-
         // Calculate airspeed from smoothed dynamic pressure
         // The smoothed value is without bias, so we add it back for the PSI conversion.
         float PfwdPSI = g_pPitot->ReadPressurePSI(PfwdSmoothed + g_Config.iPFwdBias);
