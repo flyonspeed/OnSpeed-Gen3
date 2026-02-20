@@ -385,6 +385,160 @@ void test_ekf6_custom_config(void) {
 }
 
 // ============================================================================
+// Alpha Covariance Reset Tests
+// ============================================================================
+
+void test_ekf6_reset_alpha_covariance_basic(void) {
+    // Simulate ground/taxi: run 30 seconds with gamma=0 (alpha tracks theta).
+    // Then reset alpha covariance, introduce gamma=3deg step, and verify
+    // alpha converges to theta-gamma within 0.5 seconds.
+    //
+    // Use low q_alpha (1e-6) to model slow alpha dynamics — this makes
+    // the covariance shrink during ground time, so the reset effect is
+    // clearly visible.
+
+    EKF6::Config cfg = EKF6::Config::defaults();
+    cfg.q_alpha = 1e-6f;
+    EKF6 ekf(cfg);
+    float theta_true = 5.0f * DEG2RAD;  // 5 deg pitch
+
+    EKF6::Measurements meas = {
+        .ax = G * std::sin(theta_true),
+        .ay = 0.0f,
+        .az = -G * std::cos(theta_true),
+        .p = 0.0f,
+        .q = 0.0f,
+        .r = 0.0f,
+        .gamma = 0.0f  // ground: no flight path info
+    };
+
+    // Run 30 seconds at 208 Hz — P_[2][2] shrinks, filter becomes very confident
+    int n_ground = static_cast<int>(30.0f / DT);
+    for (int i = 0; i < n_ground; i++) {
+        ekf.update(meas, DT);
+    }
+
+    EKF6::State pre_reset = ekf.getState();
+    // Alpha should be close to theta (since gamma=0 the whole time)
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 5.0f, pre_reset.alpha_deg());
+
+    // Reset alpha covariance — tells filter to re-learn alpha
+    ekf.resetAlphaCovariance();
+
+    // Now introduce gamma=3deg step (takeoff)
+    float gamma_new = 3.0f * DEG2RAD;
+    float alpha_expected = (theta_true - gamma_new) * RAD2DEG;  // 2.0 deg
+    meas.gamma = gamma_new;
+
+    // Run 0.5 seconds — should converge quickly after reset
+    int n_converge = static_cast<int>(0.5f / DT);
+    for (int i = 0; i < n_converge; i++) {
+        ekf.update(meas, DT);
+    }
+
+    EKF6::State post = ekf.getState();
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, alpha_expected, post.alpha_deg());
+}
+
+void test_ekf6_stale_alpha_without_reset(void) {
+    // Same scenario as above but WITHOUT reset — proves the problem exists.
+    // With low q_alpha, the covariance shrinks during ground time and
+    // convergence to the new alpha value is dramatically slower.
+
+    EKF6::Config cfg = EKF6::Config::defaults();
+    cfg.q_alpha = 1e-6f;
+    EKF6 ekf(cfg);
+    float theta_true = 5.0f * DEG2RAD;
+
+    EKF6::Measurements meas = {
+        .ax = G * std::sin(theta_true),
+        .ay = 0.0f,
+        .az = -G * std::cos(theta_true),
+        .p = 0.0f,
+        .q = 0.0f,
+        .r = 0.0f,
+        .gamma = 0.0f
+    };
+
+    int n_ground = static_cast<int>(30.0f / DT);
+    for (int i = 0; i < n_ground; i++) {
+        ekf.update(meas, DT);
+    }
+
+    // NO reset — introduce gamma step
+    float gamma_new = 3.0f * DEG2RAD;
+    float alpha_expected = (theta_true - gamma_new) * RAD2DEG;  // 2.0 deg
+    meas.gamma = gamma_new;
+
+    // Run only 0.5 seconds (same as the reset test)
+    int n_converge = static_cast<int>(0.5f / DT);
+    for (int i = 0; i < n_converge; i++) {
+        ekf.update(meas, DT);
+    }
+
+    EKF6::State post = ekf.getState();
+    // Without reset, alpha should still be far from the expected value
+    // (convergence is slow because P_[2][2] is tiny after 30s ground)
+    float error = std::fabs(post.alpha_deg() - alpha_expected);
+    TEST_ASSERT_TRUE_MESSAGE(error > 0.5f,
+        "Alpha converged too fast without reset — stale covariance problem not demonstrated");
+}
+
+void test_ekf6_reset_alpha_covariance_uninitialized(void) {
+    // Calling resetAlphaCovariance on an uninitialized filter should not crash
+    EKF6::Config cfg = EKF6::Config::defaults();
+
+    // Construct without init — the constructor calls init() internally,
+    // so we need to verify reset works on a freshly constructed filter too
+    EKF6 ekf(cfg);
+
+    // Should not crash or produce NaN
+    ekf.resetAlphaCovariance();
+
+    EKF6::State state = ekf.getState();
+    TEST_ASSERT_FALSE(std::isnan(state.alpha));
+}
+
+void test_ekf6_reset_preserves_other_states(void) {
+    // After resetAlphaCovariance, phi/theta/biases should be unchanged
+
+    EKF6 ekf;
+    float theta_true = 10.0f * DEG2RAD;
+    float phi_true = 15.0f * DEG2RAD;
+
+    EKF6::Measurements meas = {
+        .ax = G * std::sin(theta_true),
+        .ay = -G * std::cos(theta_true) * std::sin(phi_true),
+        .az = -G * std::cos(theta_true) * std::cos(phi_true),
+        .p = 0.0f,
+        .q = 0.0f,
+        .r = 0.0f,
+        .gamma = 0.0f
+    };
+
+    // Run 5 seconds to settle
+    int n_samples = static_cast<int>(5.0f / DT);
+    for (int i = 0; i < n_samples; i++) {
+        ekf.update(meas, DT);
+    }
+
+    EKF6::State before = ekf.getState();
+
+    // Reset alpha covariance
+    ekf.resetAlphaCovariance();
+
+    EKF6::State after = ekf.getState();
+
+    // All states should be identical (reset only touches P, not x)
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, before.phi, after.phi);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, before.theta, after.theta);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, before.alpha, after.alpha);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, before.bp, after.bp);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, before.bq, after.bq);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, before.br, after.br);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -410,6 +564,12 @@ int main(int argc, char **argv) {
 
     // Configuration test
     RUN_TEST(test_ekf6_custom_config);
+
+    // Alpha covariance reset tests
+    RUN_TEST(test_ekf6_reset_alpha_covariance_basic);
+    RUN_TEST(test_ekf6_stale_alpha_without_reset);
+    RUN_TEST(test_ekf6_reset_alpha_covariance_uninitialized);
+    RUN_TEST(test_ekf6_reset_preserves_other_states);
 
     return UNITY_END();
 }
