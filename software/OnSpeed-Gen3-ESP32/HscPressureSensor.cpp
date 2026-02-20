@@ -10,14 +10,14 @@ using onspeed::psi2mb;
 // These pressure ranges are the compensated pressure ranges for the sensor
 
 // Honeywell HSCDRNN1.6BASA3 differential pressure sensor
-#define COUNTS_MIN_DIFF      409   // 10% of 4095 (12 bits)
-#define COUNTS_MAX_DIFF     3686   // 90% of 4095 (12 bits)
+#define COUNTS_MIN_DIFF     1638   // 10% of 16383 (14 bits)
+#define COUNTS_MAX_DIFF    14745   // 90% of 16383 (14 bits)
 #define PRESSURE_MIN_DIFF   -1.0   // PSI
 #define PRESSURE_MAX_DIFF    1.0   // PSI
 
 // Honeywell HSCDRRN100MDSA3 absolute pressure sensor
-#define COUNTS_MIN_ABS       409   // 10% of 4095 (12 bits)
-#define COUNTS_MAX_ABS      3686   // 90% of 4095 (12 bits)
+#define COUNTS_MIN_ABS      1638   // 10% of 16383 (14 bits)
+#define COUNTS_MAX_ABS     14745   // 90% of 16383 (14 bits)
 #define PRESSURE_MIN_ABS     0.0   // PSI
 #define PRESSURE_MAX_ABS    23.2   // PSI (1.6 bar)
 

@@ -27,8 +27,7 @@ public:
     uint16_t    uStatusCounts;
     struct SuHSC
     {
-      uint16_t    uExtra    :  2;
-      uint16_t    uCounts   : 12;
+      uint16_t    uCounts   : 14;
       uint16_t    uStatus   :  2;
     } suHSC;
   };
