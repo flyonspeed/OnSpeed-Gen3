@@ -13,6 +13,7 @@
 
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::mps2kts;
 
 #define SYNC_INTERVAL_MS            5000                // How often to sync the log file to disk
 
@@ -241,10 +242,7 @@ void LogSensor::Open()
         {
             // Write the CSV header line
             m_hLogFile.write("timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,AngleofAttack,flapsPos,DataMark");
-
-#ifdef OAT_AVAILABLE
             m_hLogFile.write(",OAT,TAS");
-#endif
             m_hLogFile.write(",imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll");
             if (g_Config.bReadBoom)
                 m_hLogFile.write(",boomStatic,boomDynamic,boomAlpha,boomBeta,boomIAS,boomAge");
@@ -311,9 +309,7 @@ void LogSensor::Write()
             g_Sensors.PStatic, g_Sensors.Palt, g_Sensors.IAS, g_Sensors.AOA,
             g_Flaps.iPosition, g_iDataMark);
         //charsAdded+=sprintf(logLine, "%lu,%i,%.2f,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i",timeStamp,124,124.56,145,145.00,1013.00,5600.00,110.58,10.25,2,0);
-#ifdef OAT_AVAILABLE
-        bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f", g_Sensors.OatC, mps2kts(g_AHRS.TAS));
-#endif
+        bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f", g_Sensors.OatC, mps2kts(g_AHRS.fTAS));
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.2f,%.2f",
             g_pIMU->fTempC,

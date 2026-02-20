@@ -29,10 +29,22 @@
 // Version is now auto-generated from git tags by scripts/generate_buildinfo.py
 // See lib/version/buildinfo.h for BuildInfo::version, BuildInfo::gitSha, etc.
 
+// v4.14 Fixed external ADC driver: hardware is MCP3202, not MCP3204.
+//Replaced 3204-style 3-byte command framing with correct MCP3202 protocol.
+//Swapped channel assignments to match schematic (CH0=FLAP, CH1=VOLUME).
+
+// v4.13 fixed IAS based Forward acceleration correction, IAS now calculates at its own uodate rate not IMU rate
+//Pressure sensor chip selects are reversed between V4P and V4B
+
+// v4.12 fixes: track actual dt instead of assuming base rate. Sample PStatic at IMU rate.
+
+// v4.11 Fixing sign of deceleration in web based decel gauge, to match fixed SavGolay filter output
+
 // v4.10
 //Stop hard-coding VN-300 and instead initialize the EFIS serial with the configured type
 //Log files will get the correct EFIS columns
 // Fixed audio issue, sending I2S 4-bytes at a time
+// Fixed antsy decel gauge on web interface
 
 // v 4.9
 // fixes for data download
@@ -84,11 +96,7 @@
 //AOA probe type
 //#define SPHERICAL_PROBE // uncomment this if using custom OnSpeed spherical head probe.
 
-//boom type
-//#define NOBOOMCHECKSUM    // for booms that don't have a checksum byte in their data stream uncomment this line.
-
-// OAT sensor available
-// #define OAT_AVAILABLE  // DS18B20 sensor
+// Boom checksum and OAT sensor are now runtime config (bBoomChecksum, bOatSensor)
 
 #define SUPPORT_LITTLEFS
 
@@ -153,14 +161,22 @@
 
 #define CS_IMU               4
 #define CS_STATIC            7
+
+// V4P hardware has PFwd/P45 wired to opposite chip selects.
+#ifdef HW_V4P
+#define CS_AOA               6
+#define CS_PITOT             15
+#else
 #define CS_AOA               15
-#define CS_PITOT             6                // needed to swap these two
+#define CS_PITOT             6
+#endif
 
 #ifdef HW_V4P
-// V4P includes an external MCP3204 ADC on the sensor SPI bus.
+// V4P includes an external MCP3202 ADC on the sensor SPI bus.
+// Per schematic: CH0 = FLAP_POS, CH1 = CTRL_VOL
 #define CS_ADC               5
-#define ADC_CH_VOLUME        0
-#define ADC_CH_FLAP          1
+#define ADC_CH_FLAP          0
+#define ADC_CH_VOLUME        1
 #endif
 
 #ifdef HW_V4B
@@ -216,7 +232,12 @@
 // Serial baud rates
 #define BAUDRATE_CONSOLE       921600
 
-#define IMU_SAMPLE_RATE       50
+// IMU hardware is configured for 208Hz; AHRS runs at this IMU rate.
+#define IMU_SAMPLE_RATE       208
+
+// Pressure sensors (pitot, AOA, static) are read at 50Hz.
+#define PRESSURE_SAMPLE_RATE   50
+#define PRESSURE_INTERVAL_MS   (1000 / PRESSURE_SAMPLE_RATE)
 
 #define GYRO_SMOOTHING        30
 
@@ -225,6 +246,7 @@
 
 EXTERN_INIT(TaskHandle_t             xTaskAudioPlay,     NULL)
 EXTERN_INIT(TaskHandle_t             xTaskReadSensors,   NULL)
+EXTERN_INIT(TaskHandle_t             xTaskReadImu,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskWriteLog,      NULL)
 EXTERN_INIT(TaskHandle_t             xTaskCheckSwitch,   NULL)
 EXTERN_INIT(TaskHandle_t             xTaskDisplaySerial, NULL)
@@ -241,6 +263,7 @@ EXTERN RingbufHandle_t          xLoggingRingBuffer;
 
 EXTERN SemaphoreHandle_t        xWriteMutex;
 EXTERN SemaphoreHandle_t        xSensorMutex;
+EXTERN SemaphoreHandle_t        xAhrsMutex;
 EXTERN SemaphoreHandle_t        xSerialLogMutex;
 
 // Right now there is only one scheduled task, reading sensors. Once it starts

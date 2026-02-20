@@ -75,6 +75,7 @@ void setup()
     // Setup FreeRTOS semaphores and error logging
     xWriteMutex     = xSemaphoreCreateMutex();
     xSensorMutex    = xSemaphoreCreateMutex();
+    xAhrsMutex      = xSemaphoreCreateMutex();
     xSerialLogMutex = xSemaphoreCreateMutex();
 
     // Initialize SD card
@@ -217,8 +218,6 @@ void setup()
     // Initialize pitch and roll
     g_pIMU->Read();
 
-    g_AHRS.Init(IMU_SAMPLE_RATE);
-
     // Init pressure sensor classes
     // ----------------------------
     g_pPitot  = new HscPressureSensor(g_pSensorSPI, CS_PITOT,  HSCDRNN1_6BASA3);
@@ -228,11 +227,11 @@ void setup()
     // Init Sensors
     g_Sensors.Init();
 
+    // Init AHRS after sensors so Kalman starts with real pressure altitude.
+    g_AHRS.Init(IMU_SAMPLE_RATE);
+
     // Init audio system
     g_AudioPlay.Init();
-
-    // Play the startup prompt.
-    g_AudioPlay.SetVoice(enVoiceEnabled);
 
     // Setup FreeRTOS tasks
     // --------------------
@@ -256,6 +255,7 @@ void setup()
                 }
 
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
+        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
         if (bLoggingRingBufferOk)
             xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 0, &xTaskWriteLog,     1);
 #ifdef LOGDATA_PRESSURE_RATE  // sd card write rate
@@ -275,6 +275,7 @@ void setup()
         {
         g_Config.bSdLogging = false;
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
+        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
         xTaskCreatePinnedToCore(TestPotTask,          "Test Pot",       2000, NULL, 3, &xTaskTestPot,     1);
         g_Log.println("Data Source TESTPOT");
         }
@@ -282,6 +283,7 @@ void setup()
         {
         g_Config.bSdLogging = false;
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
+        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
         xTaskCreatePinnedToCore(RangeSweepTask,       "Range Sweep",    2000, NULL, 3, &xTaskRangeSweep,  1);
         g_Log.println("Data Source RANGESWEEP");
         }
@@ -299,6 +301,9 @@ void setup()
     //xTaskCreatePinnedToCore(TaskDummy,     "Dummy",     10000, NULL,              5, &xTaskDummy,     0);
 
     delay(100);
+
+    // Play the startup prompt now that AudioPlayTask is running.
+    g_AudioPlay.SetVoice(enVoiceEnabled);
 
     // Configuration web server
     CfgWebServerInit();

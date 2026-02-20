@@ -17,6 +17,7 @@ using onspeed::AOACalculator;
 
 // FreeRTOS task for reading sensors
 void SensorReadTask(void *pvParams);
+void ImuReadTask(void *pvParams);
 
 // ============================================================================
 
@@ -52,6 +53,7 @@ public:
     float               OatC;           // OAT in degrees C
     float               IAS;
     float               AOA;            // Averaged AOA
+    uint32_t            uIasUpdateUs;   // Timestamp (micros) of last IAS update
 
     double              fIasDerInput;   // Source for IAS for deceleration calc
 
