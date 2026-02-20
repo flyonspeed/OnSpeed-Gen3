@@ -298,8 +298,8 @@ bool FOSConfig::LoadDefaultConfiguration()
     sCalSource          = "ONSPEED";
 
     // Biases
-    iPFwdBias           = 2048;
-    iP45Bias            = 2048;
+    iPFwdBias           = 8192;
+    iP45Bias            = 8192;
     fPStaticBias        = 0.0;
     fGxBias             = 0.0;
     fGyBias             = 0.0;
