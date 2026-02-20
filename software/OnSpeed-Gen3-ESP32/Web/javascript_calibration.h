@@ -1,5 +1,4 @@
 const char jsCalibration[] PROGMEM = R"=====(
-<script language="javascript" type="text/javascript">
 var wsUri                 = "ws://192.168.0.1:81";
 var lastUpdate            = Date.now();
 var lastDisplay           = Date.now();
@@ -475,5 +474,4 @@ function saveCalibration()
   xhr.send(params);
   }
 
-</script>
 )=====";

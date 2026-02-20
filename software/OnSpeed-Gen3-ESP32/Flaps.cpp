@@ -3,7 +3,7 @@
 #include "Config.h"
 #include "Flaps.h"
 #ifdef HW_V4P
-#include "Mcp3204Adc.h"
+#include "Mcp3202Adc.h"
 #endif
 
 // ----------------------------------------------------------------------------
@@ -22,7 +22,7 @@ Flaps::Flaps()
 uint16_t Flaps::Read()
 {
 #ifdef HW_V4P
-    return Mcp3204Read(ADC_CH_FLAP);
+    return Mcp3202Read(ADC_CH_FLAP);
 #else
     return analogRead(FLAP_PIN);
 #endif
