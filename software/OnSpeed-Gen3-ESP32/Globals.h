@@ -26,7 +26,8 @@
 //#define HW_V4B // Bob's hardware
 #define HW_V4P // Phil's hardware
 
-#define VERSION "4.14"
+// Version is now auto-generated from git tags by scripts/generate_buildinfo.py
+// See lib/version/buildinfo.h for BuildInfo::version, BuildInfo::gitSha, etc.
 
 // v4.14 Fixed external ADC driver: hardware is MCP3202, not MCP3204.
 //Replaced 3204-style 3-byte command framing with correct MCP3202 protocol.

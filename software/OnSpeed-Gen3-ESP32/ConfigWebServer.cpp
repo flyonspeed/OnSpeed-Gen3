@@ -29,6 +29,7 @@
 #include <ArduinoJson.h>
 
 #include "Globals.h"
+#include <buildinfo.h>
 
 using onspeed::accelPitch;
 using onspeed::accelRoll;
@@ -295,7 +296,7 @@ void UpdateHeader()
     //if (sVersion == "")
     //    sVersion = "UNKNOWN";
 
-    pageHeader.replace("wifi_fw", "OnSpeed Version: " VERSION);
+    pageHeader.replace("wifi_fw", String("OnSpeed Version: ") + BuildInfo::version);
 
 #if 0
     // Update wifi status in html header
