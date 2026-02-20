@@ -1,5 +1,4 @@
 const char jsChartist1[] PROGMEM = R"=====(
-<script language="javascript" type="text/javascript">
 /* Chartist.js 0.11.4
  * Copyright © 2019 Gion Kunz
  * Free to use under either the WTFPL license or the MIT license.

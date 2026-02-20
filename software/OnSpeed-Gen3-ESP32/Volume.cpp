@@ -3,7 +3,7 @@
 #include "Helpers.h"
 #include "Volume.h"
 #ifdef HW_V4P
-#include "Mcp3204Adc.h"
+#include "Mcp3202Adc.h"
 #endif
 
 float fVolumeSmoothingFactor = 0.5;
@@ -61,7 +61,7 @@ void CheckVolumeTask(void * pvParams)
 uint16_t    ReadVolume()
     {
 #ifdef HW_V4P
-    return Mcp3204Read(ADC_CH_VOLUME);
+    return Mcp3202Read(ADC_CH_VOLUME);
 #else
     return analogRead(VOLUME_PIN);
 #endif

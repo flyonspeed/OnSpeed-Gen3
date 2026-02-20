@@ -13,8 +13,8 @@
 
 // ----------------------------------------------------------------------------
 
-// Task to make the panel LED blink when audio is enabled.
-// It might be nice to put in support for error code blinks someday.
+// Task to make the panel LED blink.
+// Audio enabled: fast blink (300ms). Muted: slow blink (1000ms) to indicate stall warning still active.
 
 void HeartbeatLedTask(void * pvParams)
 {
@@ -27,30 +27,47 @@ void HeartbeatLedTask(void * pvParams)
     // Setup the PWM output
     ledcAttachChannel(PIN_LED_KNOB, LEDC_BASE_FREQ, LEDC_TIMER_8_BIT, LEDC_CHANNEL);
 
+    // Tick counter for slow blink timing (muted state)
+    static int slowBlinkCounter = 0;
+
     while (true)
     {
-        // The user requested a 300ms interval for the heartbeat.
+        // Base loop runs at 300ms — fast blink interval
         vTaskDelay(pdMS_TO_TICKS(300));
 
         if (g_bAudioEnable)
         {
-            // If audio is enabled, blink the LED.
+            // Audio enabled: fast blink (300ms interval)
+            slowBlinkCounter = 0;
             if (ledOn)
             {
-                ledcWriteChannel(LEDC_CHANNEL, 0); // Turn LED off
+                ledcWriteChannel(LEDC_CHANNEL, 0);
                 ledOn = false;
             }
             else
             {
-                ledcWriteChannel(LEDC_CHANNEL, 200); // Turn LED on (brightness 200)
+                ledcWriteChannel(LEDC_CHANNEL, 200);
                 ledOn = true;
             }
         }
         else
         {
-            // If audio is disabled, ensure the LED is off.
-            ledcWriteChannel(LEDC_CHANNEL, 0);
-            ledOn = false; // Reset state for when it's re-enabled
+            // Audio muted: slow blink (1000ms ≈ 3 ticks of 300ms)
+            slowBlinkCounter++;
+            if (slowBlinkCounter >= 3)
+            {
+                slowBlinkCounter = 0;
+                if (ledOn)
+                {
+                    ledcWriteChannel(LEDC_CHANNEL, 0);
+                    ledOn = false;
+                }
+                else
+                {
+                    ledcWriteChannel(LEDC_CHANNEL, 200);
+                    ledOn = true;
+                }
+            }
         }
     } // end while forever
 } // end HeartbeatLedTask()
