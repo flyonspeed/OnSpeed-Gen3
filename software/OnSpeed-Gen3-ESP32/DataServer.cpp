@@ -273,7 +273,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,\"LDmax\":%.2f,\"OnspeedFast\":%.2f,"
         "\"OnspeedSlow\":%.2f,\"OnspeedWarn\":%.2f,\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
-        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"Alpha0\":%.2f}";
+        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"Alpha0\":%.2f,\"DerivedAOA\":%.2f}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
@@ -288,8 +288,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
     const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatCorr, 0.0f);
     const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
-    const float fPitchRate = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
-    const float fDecelRate = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
+    const float fPitchRate  = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
+    const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
+    const float fDerivedAOA = SafeJsonFloat(g_AHRS.DerivedAOA, 0.0f);
 
     int iChars = snprintf(
         pOut,
@@ -315,7 +316,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fPitchRate,
         fDecelRate,
         fWifiOAT,
-        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fAlpha0, 0.0f));
+        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fAlpha0, 0.0f),
+        fDerivedAOA);
 
     if (iChars < 0)
         return 0;

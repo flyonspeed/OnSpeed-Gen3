@@ -106,7 +106,7 @@ function onMessage(evt)
     RollAngle     = OnSpeed.Roll;
     iVSI          = OnSpeed.kalmanVSI;
     flightPath    = OnSpeed.flightPath;
-    derivedAOA    = (PitchAngle - flightPath);
+    derivedAOA    = parseFloat(OnSpeed.DerivedAOA);
     pitchRate     = parseFloat(OnSpeed.PitchRate);
     LDmax         = parseFloat(OnSpeed.LDmax);
     OnspeedFast   = parseFloat(OnSpeed.OnspeedFast);
