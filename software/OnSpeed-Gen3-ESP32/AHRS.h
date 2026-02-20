@@ -57,11 +57,20 @@ public:
     float           fImuSampleRate;
     float           fImuDeltaTime;      // Cached 1.0f / fImuSampleRate
 
+    // Precomputed trig of installation bias angles (constant after Init)
+    float           fSinPitch, fCosPitch;
+    float           fSinRoll,  fCosRoll;
+
     Madgwick        MadgFilter;
     KalmanFilter    KalFilter;
 
     // EKF6 attitude filter (alternative to Madgwick)
     onspeed::EKF6   Ekf6Filter;
+
+    // Tracks whether IAS was below the 25 kt threshold for alpha covariance reset.
+    // When IAS transitions from below to above 25 kt, the EKF6 alpha covariance
+    // is reset so the filter re-learns alpha from real gamma measurements.
+    bool            bIasWasBelowThreshold;
 
 public:
     float           fTAS;

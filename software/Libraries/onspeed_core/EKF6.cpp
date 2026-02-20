@@ -140,6 +140,15 @@ EKF6::State EKF6::getState() const {
     return {x_[0], x_[1], x_[2], x_[3], x_[4], x_[5]};
 }
 
+void EKF6::resetAlphaCovariance() {
+    if (!initialized_) return;
+    for (int i = 0; i < N_STATES; i++) {
+        P_[2][i] = 0.0f;
+        P_[i][2] = 0.0f;
+    }
+    P_[2][2] = config_.p_alpha;
+}
+
 //==============================================================================
 // Prediction Step
 //==============================================================================

@@ -6,7 +6,7 @@
 // This curve works up to about 0.08 G of lateral acceleration
 #define AUDIO_3D_CURVE(x)         -92.822*x*x + 20.025*x
 
-float       fChannelGain     = 1.0;
+float       fChannelGain     = 0.0;
 const float fSmoothingFactor = 0.1;
 
 // ----------------------------------------------------------------------------
@@ -33,6 +33,8 @@ void Check3DAudioTask(void * pvParams)
 
             fCurveGain   = fCurveGain * iSignLateralG;
             fChannelGain = fSmoothingFactor * fCurveGain + (1 - fSmoothingFactor) * fChannelGain;
+            if (fChannelGain >  1.0f) fChannelGain =  1.0f;
+            if (fChannelGain < -1.0f) fChannelGain = -1.0f;
 
             // With no lateral G's then the gain for each channel is 1.0. As lateral G increase
             // one channel increase gain up to about 2.0. The other channel decrease gain down
