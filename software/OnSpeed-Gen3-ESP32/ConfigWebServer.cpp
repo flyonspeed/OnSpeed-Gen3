@@ -43,8 +43,6 @@ using onspeed::inhg2mb;
 #include "Web/javascript_calibration.h"
 #include "Web/javascript_chartist1.h"
 #include "Web/javascript_chartist2.h"
-#include "Web/javascript_regression.h"
-#include "Web/sg_filter.h"
 #include "Web/css_chartist.h"
 
 //#define SUPPORT_WIFI_CLIENT
@@ -119,8 +117,6 @@ void HandleUpgradeFailure();
 void HandleCssMain();
 void HandleCssChartist();
 void HandleJsChartist();
-void HandleJsRegression();
-void HandleJsSGFilter();
 void HandleJsCalibration();
 
 // Returns true if a 304 Not Modified was sent (caller should return early).
@@ -209,8 +205,6 @@ void CfgWebServerInit()
     CfgServer.on("/css/main.css",    HTTP_GET,  HandleCssMain);
     CfgServer.on("/css/chartist.css",HTTP_GET,  HandleCssChartist);
     CfgServer.on("/js/chartist.js",  HTTP_GET,  HandleJsChartist);
-    CfgServer.on("/js/regression.js",HTTP_GET,  HandleJsRegression);
-    CfgServer.on("/js/sgfilter.js",  HTTP_GET,  HandleJsSGFilter);
     CfgServer.on("/js/calibration.js",HTTP_GET, HandleJsCalibration);
 
 #ifdef SUPPORT_WIFI_CLIENT
@@ -364,19 +358,6 @@ void HandleJsChartist()
     CfgServer.sendContent("");
     }
 
-void HandleJsRegression()
-    {
-    if (SendWithETag("application/javascript"))
-        return;
-    CfgServer.send_P(200, "application/javascript", jsRegression);
-    }
-
-void HandleJsSGFilter()
-    {
-    if (SendWithETag("application/javascript"))
-        return;
-    CfgServer.send_P(200, "application/javascript", jsSGfilter);
-    }
 
 void HandleJsCalibration()
     {
@@ -2464,8 +2445,6 @@ Enter the following aircraft parameters:<br><br>
         // External JS/CSS assets (cached by browser via ETag)
         sPage += "<link rel=\"stylesheet\" href=\"/css/chartist.css\">";
         sPage += "<script src=\"/js/chartist.js\"></script>";
-        sPage += "<script src=\"/js/regression.js\"></script>";
-        sPage += "<script src=\"/js/sgfilter.js\"></script>";
         sPage += "<script src=\"/js/calibration.js\"></script>";
 
         // Calibration HTML (page-specific, not cached separately)
