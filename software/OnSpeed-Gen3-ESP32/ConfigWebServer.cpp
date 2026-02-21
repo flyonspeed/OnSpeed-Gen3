@@ -1698,6 +1698,24 @@ void HandleConfigSave()
         // Save configuration. Maybe specify a config file name someday. Default for now.
         g_Config.SaveConfigurationToFile();
 
+        // Warn if any flap position has out-of-order AOA setpoints
+        for (size_t i = 0; i < g_Config.aFlaps.size(); i++)
+            {
+            if (!g_Config.aFlaps[i].AreSetpointsOrdered())
+                {
+                sPage += "<br><br><b>WARNING:</b> Flap position " + String(g_Config.aFlaps[i].iDegrees)
+                       + " degrees has AOA setpoints that are not in increasing order"
+                         " (LDMAX &lt; OnSpeedFast &lt; OnSpeedSlow &lt; StallWarn &lt; Stall)."
+                         " Audio behavior may be incorrect.";
+                g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
+                    "Flap %d deg: setpoints not in order (LDMAX=%.1f FAST=%.1f SLOW=%.1f WARN=%.1f STALL=%.1f)\n",
+                    g_Config.aFlaps[i].iDegrees,
+                    g_Config.aFlaps[i].fLDMAXAOA, g_Config.aFlaps[i].fONSPEEDFASTAOA,
+                    g_Config.aFlaps[i].fONSPEEDSLOWAOA, g_Config.aFlaps[i].fSTALLWARNAOA,
+                    g_Config.aFlaps[i].fSTALLAOA);
+                }
+            }
+
         sPage += "<br><br>Configuration saved.";
         if (rebootRequired)
             sPage += R"#(<br><br>Some of the changes require a system reboot to take effect.<br><br><br><a href="reboot?confirm=yes" class="button">Reboot Now</a>)#";
@@ -2432,7 +2450,20 @@ Enter the following aircraft parameters:<br><br>
 
                 // Save configuration
                 g_Config.SaveConfigurationToFile();
-                CfgServer.send(200, "text/html", "SUCCESS: Configuration was saved!");
+                if (!g_Config.aFlaps[iFlapIdx].AreSetpointsOrdered())
+                    {
+                    g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
+                        "Calwiz flap %d deg: setpoints not in order (LDMAX=%.1f FAST=%.1f SLOW=%.1f WARN=%.1f STALL=%.1f)\n",
+                        g_Config.aFlaps[iFlapIdx].iDegrees,
+                        g_Config.aFlaps[iFlapIdx].fLDMAXAOA, g_Config.aFlaps[iFlapIdx].fONSPEEDFASTAOA,
+                        g_Config.aFlaps[iFlapIdx].fONSPEEDSLOWAOA, g_Config.aFlaps[iFlapIdx].fSTALLWARNAOA,
+                        g_Config.aFlaps[iFlapIdx].fSTALLAOA);
+                    CfgServer.send(200, "text/html",
+                        "WARNING: Configuration saved, but AOA setpoints are not in increasing order"
+                        " (LDMAX < OnSpeedFast < OnSpeedSlow < StallWarn < Stall). Audio behavior may be incorrect.");
+                    }
+                else
+                    CfgServer.send(200, "text/html", "SUCCESS: Configuration was saved!");
                 return;
                 } // end if flap position matches
             } // end for flap indexes

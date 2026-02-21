@@ -119,6 +119,15 @@ public:
         float    fAlpha0;       // Zero-lift fuselage AOA (deg), from physics fit
         float    fAlphaStall;   // Stall AOA from physics fit (deg)
 
+        // Returns true if AOA setpoints are in monotonically increasing order.
+        bool AreSetpointsOrdered() const
+            {
+            return fLDMAXAOA < fONSPEEDFASTAOA
+                && fONSPEEDFASTAOA < fONSPEEDSLOWAOA
+                && fONSPEEDSLOWAOA < fSTALLWARNAOA
+                && fSTALLWARNAOA   < fSTALLAOA;
+            }
+
         SuCalibrationCurve  AoaCurve;
     };
 
