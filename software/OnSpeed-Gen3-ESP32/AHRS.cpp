@@ -118,52 +118,57 @@ void AHRS::Process(float fDeltaTimeSeconds)
     if (isnan(fDeltaTimeSeconds) || isinf(fDeltaTimeSeconds) || fDeltaTimeSeconds <= 0.0f)
         fDeltaTimeSeconds = fImuDeltaTime;
 
-    // Use the best available OAT source for density-corrected TAS
-    float fOatC;
-    bool  bHaveOat = false;
-
-    // Prefer EFIS OAT when EFIS is the calibration source and data is fresh
-    if (g_Config.sCalSource == "EFIS" && g_Config.bReadEfisData && g_EfisSerial.IsDataFresh(2000))
-        {
-        fOatC    = g_EfisSerial.suEfis.OAT;
-        bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
-        }
-
-    // Fall back to internal DS18B20 sensor
-    if (!bHaveOat && g_Config.bOatSensor)
-        {
-        fOatC    = g_Sensors.OatC;
-        bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
-        }
-
-    if (bHaveOat)
-        {
-        // Density-corrected TAS
-        const float Kelvin    = 273.15;
-        const float Temp_rate =   0.00198119993;
-        float fISA_temp_k = 15 - Temp_rate * g_Sensors.Palt + Kelvin;
-        float fOAT_k      = fOatC + Kelvin;
-
-        // Guard pow() base values: a negative or zero base with a fractional
-        // exponent returns NaN (IEEE 754).  Bad OAT sensor data could make
-        // fOAT_k <= 0; extreme density altitude could make the IAS divisor <= 0.
-        if (fOAT_k > 0.0f)
-            {
-            float fDA      = g_Sensors.Palt + (fISA_temp_k / Temp_rate) * (1 - pow(fISA_temp_k / fOAT_k, 0.2349690));
-            float fDivisor = 1 - 6.8755856e-6f * fDA;
-            if (fDivisor > 0.0f)
-                fTAS = kts2mps(g_Sensors.IAS / pow(fDivisor, 2.12794));
-            }
-        }
-    else
-        {
-        fTAS = kts2mps(g_Sensors.IAS * (1 + g_Sensors.Palt / 1000 * 0.02));
-        }
-
-    // Update TAS derivative at IAS update cadence (50Hz), not at the IMU update cadence.
+    // Update TAS and TAS derivative at IAS update cadence (50Hz), not at
+    // the IMU update cadence (208Hz).  The density-corrected TAS computation
+    // involves two powf() calls that are expensive on the ESP32-S3's
+    // single-precision FPU; computing them at 50Hz instead of 208Hz saves
+    // ~150µs/cycle with no accuracy loss (IAS/Palt only update at 50Hz).
     const uint32_t uIasUpdateUs = g_Sensors.uIasUpdateUs;
     if (uIasUpdateUs != uLastIasUpdateUs)
     {
+        // Recompute density-corrected TAS (inputs only change at 50Hz)
+        float fOatC;
+        bool  bHaveOat = false;
+
+        // Prefer EFIS OAT when EFIS is the calibration source and data is fresh
+        if (g_Config.bCalSourceEfis && g_Config.bReadEfisData && g_EfisSerial.IsDataFresh(2000))
+            {
+            fOatC    = g_EfisSerial.suEfis.OAT;
+            bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
+            }
+
+        // Fall back to internal DS18B20 sensor
+        if (!bHaveOat && g_Config.bOatSensor)
+            {
+            fOatC    = g_Sensors.OatC;
+            bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
+            }
+
+        if (bHaveOat)
+            {
+            // Density-corrected TAS
+            const float Kelvin    = 273.15f;
+            const float Temp_rate = 0.00198119993f;
+            float fISA_temp_k = 15.0f - Temp_rate * g_Sensors.Palt + Kelvin;
+            float fOAT_k      = fOatC + Kelvin;
+
+            // Guard pow() base values: a negative or zero base with a fractional
+            // exponent returns NaN (IEEE 754).  Bad OAT sensor data could make
+            // fOAT_k <= 0; extreme density altitude could make the IAS divisor <= 0.
+            if (fOAT_k > 0.0f)
+                {
+                float fDA      = g_Sensors.Palt + (fISA_temp_k / Temp_rate) * (1.0f - powf(fISA_temp_k / fOAT_k, 0.2349690f));
+                float fDivisor = 1.0f - 6.8755856e-6f * fDA;
+                if (fDivisor > 0.0f)
+                    fTAS = kts2mps(g_Sensors.IAS / powf(fDivisor, 2.12794f));
+                }
+            }
+        else
+            {
+            fTAS = kts2mps(g_Sensors.IAS * (1.0f + g_Sensors.Palt / 1000.0f * 0.02f));
+            }
+
+        // TAS derivative for deceleration compensation
         if (uLastIasUpdateUs == 0)
         {
             uLastIasUpdateUs = uIasUpdateUs;

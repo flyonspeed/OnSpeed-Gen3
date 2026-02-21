@@ -1633,7 +1633,7 @@ void HandleConfigSave()
     else                                                                   g_Config.bOatSensor = false;
 
     // read calibration source
-    if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");
+    if (CfgServer.hasArg("calSource")) { g_Config.sCalSource=CfgServer.arg("calSource"); g_Config.bCalSourceEfis = (g_Config.sCalSource == "EFIS"); }
 
     // read AHRS algorithm
     if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();

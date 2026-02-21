@@ -154,6 +154,7 @@ public:
 
     // calibration data source
     String          sCalSource;
+    bool            bCalSourceEfis;  // Cached: sCalSource == "EFIS" (avoids String compare in 208Hz loop)
 
     // biases
     int             iPFwdBias;      // Counts
