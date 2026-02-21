@@ -79,6 +79,7 @@ String sClientWifi_Password = "test"; // currently not needed
 int     iAcGrossWeight;
 int     iAcCurrentWeight;
 float   fAcVldmax;
+float   fAcVfe;
 float   fAcGlimit;
 
 String      pageHeader;
@@ -148,11 +149,12 @@ void CfgWebServerInit()
     {
     uploadMutex = xSemaphoreCreateMutex();
 
-    // Calibration wizard variables
-    iAcGrossWeight   = 2700;
-    iAcCurrentWeight = 2500;
-    fAcVldmax        = 91.0;
-    fAcGlimit        = 3.8;
+    // Calibration wizard variables (from saved config, or 0 if not yet set)
+    iAcGrossWeight   = g_Config.iAcGrossWeight;
+    iAcCurrentWeight = g_Config.iAcCurrentWeight;
+    fAcVldmax        = g_Config.fAcBestGlideIAS;
+    fAcVfe           = g_Config.fAcVfe;
+    fAcGlimit        = g_Config.fAcGlimit;
 
     // WIFI INIT
     g_Log.print(MsgLog::EnWebServer, MsgLog::EnDebug, "Starting Access Point");
@@ -1240,6 +1242,30 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
+    // Aircraft parameters
+    sPage += R"#(
+        <h4>Aircraft</h4>
+        <div class="form-divs flex-col-6">
+            <label for="id_acGrossWeight">Gross weight (lbs)</label>
+            <input id="id_acGrossWeight" name="acGrossWeight" type="text" value=")#" + String(g_Config.iAcGrossWeight) + R"#("/>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_acCurrentWeight">Current weight (lbs)</label>
+            <input id="id_acCurrentWeight" name="acCurrentWeight" type="text" value=")#" + String(g_Config.iAcCurrentWeight) + R"#("/>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_acBestGlideIAS">Best glide at gross wt (KIAS)</label>
+            <input id="id_acBestGlideIAS" name="acBestGlideIAS" type="text" value=")#" + String(g_Config.fAcBestGlideIAS) + R"#("/>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_acVfe">Vfe - max flap speed (KIAS)</label>
+            <input id="id_acVfe" name="acVfe" type="text" value=")#" + String(g_Config.fAcVfe) + R"#("/>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_acGlimit">Load factor limit (G)</label>
+            <input id="id_acGlimit" name="acGlimit" type="text" value=")#" + String(g_Config.fAcGlimit) + R"#("/>
+        </div>)#";
+
        // Serial output selection
     sPage += R"#(
         <div class="form-divs flex-col-6">
@@ -1651,6 +1677,13 @@ void HandleConfigSave()
     // sdLogging
     if (CfgServer.hasArg("sdLogging") && CfgServer.arg("sdLogging")=="1") g_Config.bSdLogging=true;
     else                                                                  g_Config.bSdLogging=false;
+
+    // Aircraft parameters
+    if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();
+    if (CfgServer.hasArg("acCurrentWeight"))g_Config.iAcCurrentWeight=CfgServer.arg("acCurrentWeight").toInt();
+    if (CfgServer.hasArg("acBestGlideIAS")) g_Config.fAcBestGlideIAS =CfgServer.arg("acBestGlideIAS").toFloat();
+    if (CfgServer.hasArg("acVfe"))          g_Config.fAcVfe          =CfgServer.arg("acVfe").toFloat();
+    if (CfgServer.hasArg("acGlimit"))       g_Config.fAcGlimit      =CfgServer.arg("acGlimit").toFloat();
 
     // Handle Add Flap
     if (CfgServer.hasArg("addFlapPos"))
@@ -2316,6 +2349,10 @@ void HandleCalWizard()
         {
         sPage += "<br><b>Calibration Wizard</b><br><br>\n";
         sPage += "This wizard will guide you through the AOA calibration process.<br><br>\n";
+
+        if (iAcGrossWeight > 0)
+            sPage += "<i>Values below are from your saved configuration. Update as needed.</i><br><br>\n";
+
         sPage += R"#(
 Enter the following aircraft parameters:<br><br>
 <div class="content-container">
@@ -2334,6 +2371,10 @@ Enter the following aircraft parameters:<br><br>
         <div class="form-divs flex-col-12">
             <label>Best glide airspeed at gross weight (KIAS)</label>
             <input class="inputField" type="text" name="acVldmax" value=")#" + String(fAcVldmax) + R"#(">
+        </div>
+        <div class="form-divs flex-col-12">
+            <label>Max flap extension speed - Vfe (KIAS)</label>
+            <input class="inputField" type="text" name="acVfe" value=")#" + String(fAcVfe) + R"#(">
         </div>
             <div class="form-divs flex-col-12">
             <label>Airframe load factor limit (G)</label>
@@ -2361,7 +2402,16 @@ Enter the following aircraft parameters:<br><br>
         if (CfgServer.hasArg("acGrossWeight"))   iAcGrossWeight   = CfgServer.arg("acGrossWeight").toInt();
         if (CfgServer.hasArg("acCurrentWeight")) iAcCurrentWeight = CfgServer.arg("acCurrentWeight").toInt();
         if (CfgServer.hasArg("acVldmax"))        fAcVldmax        = CfgServer.arg("acVldmax").toFloat();
+        if (CfgServer.hasArg("acVfe"))           fAcVfe           = CfgServer.arg("acVfe").toFloat();
         if (CfgServer.hasArg("acGlimit"))        fAcGlimit        = CfgServer.arg("acGlimit").toFloat();
+
+        // Persist aircraft parameters to config
+        g_Config.iAcGrossWeight   = iAcGrossWeight;
+        g_Config.iAcCurrentWeight = iAcCurrentWeight;
+        g_Config.fAcBestGlideIAS  = fAcVldmax;
+        g_Config.fAcVfe           = fAcVfe;
+        g_Config.fAcGlimit        = fAcGlimit;
+        g_Config.SaveConfigurationToFile();
 
         sPage += "<br><b>Calibration Wizard</b><br><br>";
         sPage += "<form  id=\"id_configWizStartForm\" action=\"calwiz?step=flydecel\" method=\"POST\">\
@@ -2391,6 +2441,7 @@ Enter the following aircraft parameters:<br><br>
         sPage += "acCurrentWeight="   + String(iAcCurrentWeight)   + ";";
         sPage += "acVldmax="          + String(fAcVldmax)          + ";";
         sPage += "acGlimit="          + String(fAcGlimit)          + ";";
+        sPage += "acVfe="             + String(fAcVfe)              + ";";
         sPage += "flapPositionCount=" + String(g_Config.aFlaps.size()) + ";";
 
         // send flap degrees array to javascript

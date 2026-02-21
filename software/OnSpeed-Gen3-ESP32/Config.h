@@ -193,6 +193,13 @@ public:
 //    bool            bSdLoggingConfig;
     bool            bSdLogging;
 
+    // Aircraft parameters (used by calibration wizard)
+    int             iAcGrossWeight;
+    int             iAcCurrentWeight;
+    float           fAcBestGlideIAS;    // Best glide airspeed at gross weight (KIAS)
+    float           fAcVfe;             // Max flap extension speed (KIAS)
+    float           fAcGlimit;          // Airframe load factor limit (G)
+
     // Other config data
     char            szDefaultConfigFilename[14] = "onspeed2.cfg";
     bool            bConfigLoaded;

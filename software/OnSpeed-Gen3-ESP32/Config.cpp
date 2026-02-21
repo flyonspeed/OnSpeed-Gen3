@@ -334,6 +334,13 @@ bool FOSConfig::LoadDefaultConfiguration()
     // SD card logging
     bSdLogging          = false;
 
+    // Aircraft parameters
+    iAcGrossWeight      = 0;
+    iAcCurrentWeight    = 0;
+    fAcBestGlideIAS     = 0.0;
+    fAcVfe              = 0.0;
+    fAcGlimit           = 0.0;
+
     return true;
 }
 
@@ -462,6 +469,14 @@ String FOSConfig::ConfigurationToString()
     XML_INSERT_SET(XmlConfigVNO, "CHIME_ENABLED",  bVnoChimeEnabled)
 
     XML_INSERT_SET(XmlConfigRoot, "SDLOGGING", bSdLogging)
+
+    XML_INSERT(XmlConfigRoot, "AIRCRAFT")
+    XMLElement * XmlConfigAircraft = XmlConfigNew;
+    XML_INSERT_SET(XmlConfigAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
+    XML_INSERT_SET(XmlConfigAircraft, "CURRENT_WEIGHT",  iAcCurrentWeight)
+    XML_INSERT_SET(XmlConfigAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
+    XML_INSERT_SET(XmlConfigAircraft, "VFE",             fAcVfe)
+    XML_INSERT_SET(XmlConfigAircraft, "G_LIMIT",         fAcGlimit)
 
     XmlConfigDoc.Print(&XmlPrint);
     sConfig = XmlPrint.CStr();
@@ -810,6 +825,16 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             }
 
         XML_GET_BOOL(XmlRootNode, "SDLOGGING",        bSdLogging)
+
+        XMLElement * pXmlAircraft = XmlRootNode->FirstChildElement("AIRCRAFT");
+        if (pXmlAircraft != NULL)
+            {
+            XML_GET_INT  (pXmlAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
+            XML_GET_INT  (pXmlAircraft, "CURRENT_WEIGHT",  iAcCurrentWeight)
+            XML_GET_FLOAT(pXmlAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
+            XML_GET_FLOAT(pXmlAircraft, "VFE",             fAcVfe)
+            XML_GET_FLOAT(pXmlAircraft, "G_LIMIT",         fAcGlimit)
+            }
 
         g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Decoded V2 config string");
 
