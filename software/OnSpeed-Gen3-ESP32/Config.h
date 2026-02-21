@@ -179,6 +179,13 @@ public:
 
     // serial output
     String          sSerialOutFormat;
+    enum EnSerialFmt { EnSerialFmtOther, EnSerialFmtG3X, EnSerialFmtOnSpeed };
+    EnSerialFmt     enSerialOutFormat;  // Cached: avoids String compare in 10Hz display loop
+    static EnSerialFmt ParseSerialFmt(const String& s) {
+        if (s == "G3X")     return EnSerialFmtG3X;
+        if (s == "ONSPEED") return EnSerialFmtOnSpeed;
+        return EnSerialFmtOther;
+    }
 //    String          sSerialOutPort;
 
     // load limit

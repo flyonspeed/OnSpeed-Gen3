@@ -1675,7 +1675,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("vnoChimeInterval")) g_Config.uVnoChimeInterval=CfgServer.arg("vnoChimeInterval").toInt();
 
     // serialOutFormat
-    if (CfgServer.hasArg("serialOutFormat")) g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat");
+    if (CfgServer.hasArg("serialOutFormat")) { g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat"); g_Config.enSerialOutFormat = FOSConfig::ParseSerialFmt(g_Config.sSerialOutFormat); }
 
     //serialOutPort
 //    if (CfgServer.hasArg("serialOutPort")) g_Config.sSerialOutPort=CfgServer.arg("serialOutPort");

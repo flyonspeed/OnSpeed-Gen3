@@ -177,9 +177,9 @@ AudioPlay::AudioPlay()
 {
     enVoice              = enVoiceNone;
     enTone               = enToneNone;
-    fVolume              = 0.5;
-    fLeftGain            = 1.0;
-    fRightGain           = 1.0;
+    fVolume              = 0.5f;
+    fLeftGain            = 1.0f;
+    fRightGain           = 1.0f;
 
     fTonePulseMaxSamples = 0;
     fTonePulseCounter    = 0;
@@ -249,9 +249,9 @@ void AudioPlay::Init()
 
 void AudioPlay::SetVolume(int iVolumePercent)
 {
-    if      (iVolumePercent <   0) fVolume = 0.0;
-    else if (iVolumePercent > 100) fVolume = 1.0;
-    else                           fVolume = iVolumePercent / 100.0;
+    if      (iVolumePercent <   0) fVolume = 0.0f;
+    else if (iVolumePercent > 100) fVolume = 1.0f;
+    else                           fVolume = iVolumePercent / 100.0f;
 }
 
 // ----------------------------------------------------------------------------
@@ -302,10 +302,10 @@ void AudioPlay::SetToneFreq(unsigned uToneFreq)
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
     // Outside limits disables tone pulse
-    if ((fPulseFreq < 1.0) || (fPulseFreq > 25.0))
+    if ((fPulseFreq < 1.0f) || (fPulseFreq > 25.0f))
         fTonePulseMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0);  // Tone period in audio samples
+        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // Tone period in audio samples
 
 }
 

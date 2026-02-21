@@ -322,6 +322,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // serial output
     sSerialOutFormat    = "ONSPEED";
+    enSerialOutFormat   = EnSerialFmtOnSpeed;
 
     // load limit
     fLoadLimitPositive  =  4.0;
@@ -605,6 +606,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // serial output
         sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT");
+        enSerialOutFormat   = ParseSerialFmt(sSerialOutFormat);
 //        sSerialOutPort      = GetConfigValue(sConfig,"SERIALOUTPORT");
 
         // Load limit
@@ -789,6 +791,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Serial output
         XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
+        enSerialOutFormat = ParseSerialFmt(sSerialOutFormat);
 //        XML_GET_STR(XmlRootNode, "SERIALOUTPORT",     sSerialOutPort)
 
         XML_GET_STR(XmlRootNode, "CALWIZ_SOURCE",         sCalSource)

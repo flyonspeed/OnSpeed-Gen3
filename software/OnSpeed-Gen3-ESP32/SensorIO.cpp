@@ -255,7 +255,7 @@ void SensorIO::Read()
         PfwdPascal = psi2mb(PfwdPSI) * 100; // Convert PSI to Pascals
         if (PfwdPascal > 0)
         {
-            IAS = sqrt(2*PfwdPascal/1.225)* 1.94384; // knots // physics based calculation
+            IAS = sqrtf(2.0f*PfwdPascal/1.225f) * 1.94384f; // knots // physics based calculation
 #ifdef SPHERICAL_PROBE
             IAS = IASCURVE(IAS); // for now use a hardcoded IAS curve for a spherical probe. CAS curve parameters can only take 4 decimals. Not accurate enough.
 #else

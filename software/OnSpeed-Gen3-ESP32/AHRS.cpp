@@ -30,19 +30,19 @@ const float kMinIasForFlightPath = 25.0f;                      // IAS (kt) below
 
 AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(gyroSmoothing)
 {
-    fTAS     = 0.0;
-    fPrevTAS = 0.0;
-    TASdotSmoothed = 0.0;
+    fTAS     = 0.0f;
+    fPrevTAS = 0.0f;
+    TASdotSmoothed = 0.0f;
     uLastIasUpdateUs = 0;
 
     //// This was init'ed from real accelerometer values in previous version.
     //// Probably should do that again.
-    AccelFwdSmoothed  =  0.0;
-    AccelLatSmoothed  =  0.0;
-    AccelVertSmoothed = -1.0;
-    SmoothedPitch =  0.0;
-    SmoothedRoll  =  0.0;
-    FlightPath    =  0.0;
+    AccelFwdSmoothed  =  0.0f;
+    AccelLatSmoothed  =  0.0f;
+    AccelVertSmoothed = -1.0f;
+    SmoothedPitch =  0.0f;
+    SmoothedRoll  =  0.0f;
+    FlightPath    =  0.0f;
 
     bIasWasBelowThreshold = true;
 }
@@ -302,10 +302,10 @@ void AHRS::Process(float fDeltaTimeSeconds)
         SmoothedRoll  = state.phi_deg();
 
         // Estimate earth vertical G from attitude for the Kalman altitude filter
-        float sph = sin(state.phi);
-        float cph = cos(state.phi);
-        float sth = sin(state.theta);
-        float cth = cos(state.theta);
+        float sph = sinf(state.phi);
+        float cph = cosf(state.phi);
+        float sth = sinf(state.theta);
+        float cth = cosf(state.theta);
         EarthVertG = -sth * AccelFwdCorr + sph * cth * AccelLatCorr + cph * cth * AccelVertCorr - 1.0f;
     }
     else
@@ -348,7 +348,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
     if (g_Sensors.IAS >= kMinIasForFlightPath)
         FlightPath = rad2deg(safeAsin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
     else
-        FlightPath = 0.0;
+        FlightPath = 0.0f;
 
     // DerivedAOA is the fuselage-to-wind angle (body alpha), NOT wing AOA.
     // At zero lift, DerivedAOA equals alpha_0 (typically negative due to wing

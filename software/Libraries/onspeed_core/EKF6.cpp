@@ -181,17 +181,17 @@ void EKF6::predict(float p, float q, float r, float dt) {
     const float r_corr = r - br;
 
     // Compute trigonometric terms
-    const float sph = std::sin(phi);
-    const float cph = std::cos(phi);
-    float cth = std::cos(theta);
+    const float sph = sinf(phi);
+    const float cph = cosf(phi);
+    float cth = cosf(theta);
 
     // Singularity protection: prevent division by zero at theta = ±90°
     // This clamps tan(theta) to approximately ±1000
-    if (std::fabs(cth) < SINGULARITY_THRESHOLD) {
+    if (fabsf(cth) < SINGULARITY_THRESHOLD) {
         cth = (cth >= 0.0f) ? SINGULARITY_THRESHOLD : -SINGULARITY_THRESHOLD;
     }
 
-    const float sth = std::sin(theta);
+    const float sth = sinf(theta);
     const float tth = sth / cth;  // tan(theta)
 
     // Compute state derivatives
@@ -312,10 +312,10 @@ void EKF6::correct(float ax, float ay, float az, float gamma, float g) {
     const float alpha = x_[2];
 
     // Trigonometric terms
-    const float sph = std::sin(phi);
-    const float cph = std::cos(phi);
-    const float sth = std::sin(theta);
-    const float cth = std::cos(theta);
+    const float sph = sinf(phi);
+    const float cph = cosf(phi);
+    const float sth = sinf(theta);
+    const float cth = cosf(theta);
 
     // Predicted measurements
     float z_pred[N_MEAS];
@@ -514,9 +514,9 @@ bool EKF6::invert4x4(const float (*A)[N_MEAS], float (*A_inv)[N_MEAS]) {
     for (int col = 0; col < N_MEAS; col++) {
         // Find pivot (row with largest value in current column)
         int max_row = col;
-        float max_val = std::fabs(work[col][col]);
+        float max_val = fabsf(work[col][col]);
         for (int row = col + 1; row < N_MEAS; row++) {
-            float val = std::fabs(work[row][col]);
+            float val = fabsf(work[row][col]);
             if (val > max_val) {
                 max_val = val;
                 max_row = row;
