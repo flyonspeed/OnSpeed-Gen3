@@ -5,12 +5,14 @@
 
 #include "Globals.h"
 
+#include <EMAFilter.h>
 #include <MadgwickFusion.h>
 #include <KalmanFilter.h>
 #include <EKF6.h>
 
 using onspeed::Madgwick;
 using onspeed::KalmanFilter;
+using onspeed::EMAFilter;
 
 class AHRS
 {
@@ -27,9 +29,9 @@ public:
     float           AccelVertCorr;
 
     // Step 2 - Corrected accelerations are smoothed
-    float           AccelFwdSmoothed;
-    float           AccelLatSmoothed;
-    float           AccelVertSmoothed;
+    EMAFilter       AccelFwdFilter;
+    EMAFilter       AccelLatFilter;
+    EMAFilter       AccelVertFilter;
 
     // Step 3 - Corrected and smoothed acceleration values are compensated for angular rates
     // These are the values that go to the Madgwick functions
