@@ -16,6 +16,7 @@ using onspeed::rad2deg;
 using onspeed::kts2mps;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::fpm2mps;
 
 // wifi data variables
 //char crc_buffer[250];
@@ -193,7 +194,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiRoll  = g_EfisSerial.suEfis.Roll;
             if (g_EfisSerial.suEfis.TAS > 0)
             {
-                fWifiFlightpath = rad2deg(asin(g_AHRS.KalmanVSI/kts2mps(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
+                float fEfisVsiMps = fpm2mps(g_EfisSerial.suEfis.VSI);
+                fWifiFlightpath = rad2deg(asin(fEfisVsiMps / kts2mps(g_EfisSerial.suEfis.TAS)));
             }
 
             else
