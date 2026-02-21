@@ -77,7 +77,7 @@ String sClientWifi_Password = "test"; // currently not needed
 
 // Calibration wizard variables
 int     iAcGrossWeight;
-int     iAcCurrentWeight;
+int     iAcCurrentWeight;   // wizard-only, not persisted in config
 float   fAcVldmax;
 float   fAcVfe;
 float   fAcGlimit;
@@ -151,7 +151,7 @@ void CfgWebServerInit()
 
     // Calibration wizard variables (from saved config, or 0 if not yet set)
     iAcGrossWeight   = g_Config.iAcGrossWeight;
-    iAcCurrentWeight = g_Config.iAcCurrentWeight;
+    iAcCurrentWeight = 0;   // not persisted; pilot enters each wizard run
     fAcVldmax        = g_Config.fAcBestGlideIAS;
     fAcVfe           = g_Config.fAcVfe;
     fAcGlimit        = g_Config.fAcGlimit;
@@ -1250,10 +1250,6 @@ R"#(        </section>)#" "\n";
             <input id="id_acGrossWeight" name="acGrossWeight" type="text" value=")#" + String(g_Config.iAcGrossWeight) + R"#("/>
         </div>
         <div class="form-divs flex-col-6">
-            <label for="id_acCurrentWeight">Current weight (lbs)</label>
-            <input id="id_acCurrentWeight" name="acCurrentWeight" type="text" value=")#" + String(g_Config.iAcCurrentWeight) + R"#("/>
-        </div>
-        <div class="form-divs flex-col-6">
             <label for="id_acBestGlideIAS">Best glide at gross wt (KIAS)</label>
             <input id="id_acBestGlideIAS" name="acBestGlideIAS" type="text" value=")#" + String(g_Config.fAcBestGlideIAS) + R"#("/>
         </div>
@@ -1680,7 +1676,6 @@ void HandleConfigSave()
 
     // Aircraft parameters
     if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();
-    if (CfgServer.hasArg("acCurrentWeight"))g_Config.iAcCurrentWeight=CfgServer.arg("acCurrentWeight").toInt();
     if (CfgServer.hasArg("acBestGlideIAS")) g_Config.fAcBestGlideIAS =CfgServer.arg("acBestGlideIAS").toFloat();
     if (CfgServer.hasArg("acVfe"))          g_Config.fAcVfe          =CfgServer.arg("acVfe").toFloat();
     if (CfgServer.hasArg("acGlimit"))       g_Config.fAcGlimit      =CfgServer.arg("acGlimit").toFloat();
@@ -2405,9 +2400,8 @@ Enter the following aircraft parameters:<br><br>
         if (CfgServer.hasArg("acVfe"))           fAcVfe           = CfgServer.arg("acVfe").toFloat();
         if (CfgServer.hasArg("acGlimit"))        fAcGlimit        = CfgServer.arg("acGlimit").toFloat();
 
-        // Persist aircraft parameters to config
+        // Persist aircraft parameters to config (current weight is wizard-only)
         g_Config.iAcGrossWeight   = iAcGrossWeight;
-        g_Config.iAcCurrentWeight = iAcCurrentWeight;
         g_Config.fAcBestGlideIAS  = fAcVldmax;
         g_Config.fAcVfe           = fAcVfe;
         g_Config.fAcGlimit        = fAcGlimit;

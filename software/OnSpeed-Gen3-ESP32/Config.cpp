@@ -336,7 +336,6 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // Aircraft parameters
     iAcGrossWeight      = 0;
-    iAcCurrentWeight    = 0;
     fAcBestGlideIAS     = 0.0;
     fAcVfe              = 0.0;
     fAcGlimit           = 0.0;
@@ -473,7 +472,6 @@ String FOSConfig::ConfigurationToString()
     XML_INSERT(XmlConfigRoot, "AIRCRAFT")
     XMLElement * XmlConfigAircraft = XmlConfigNew;
     XML_INSERT_SET(XmlConfigAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
-    XML_INSERT_SET(XmlConfigAircraft, "CURRENT_WEIGHT",  iAcCurrentWeight)
     XML_INSERT_SET(XmlConfigAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
     XML_INSERT_SET(XmlConfigAircraft, "VFE",             fAcVfe)
     XML_INSERT_SET(XmlConfigAircraft, "G_LIMIT",         fAcGlimit)
@@ -830,7 +828,6 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         if (pXmlAircraft != NULL)
             {
             XML_GET_INT  (pXmlAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
-            XML_GET_INT  (pXmlAircraft, "CURRENT_WEIGHT",  iAcCurrentWeight)
             XML_GET_FLOAT(pXmlAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
             XML_GET_FLOAT(pXmlAircraft, "VFE",             fAcVfe)
             XML_GET_FLOAT(pXmlAircraft, "G_LIMIT",         fAcGlimit)
