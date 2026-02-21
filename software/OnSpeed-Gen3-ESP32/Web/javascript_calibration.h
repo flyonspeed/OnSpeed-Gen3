@@ -6,6 +6,7 @@ var OSFastMultiplier      = 1.35; // IAS multiple of Vs — NAOA fraction = 1/mu
 var OSSlowMultiplier      = 1.25;
 var StallWarnMargin       = 5; // knots
 var LDmaxIAS              = 100; // will be calculated later based on flap position
+var acVfe                 = 0;  // max flap extension speed, set from config
 var AOA                   = 0;
 var IASsmoothed           = 0;
 var IAS                   = 0;
@@ -300,8 +301,8 @@ function recordData(on)
       IAStoAOAr2 = resultIAStoAOA.r2;
       console.log("IAS-to-AOA fit: K=" + K_fit + ", alpha0=" + alpha0 + ", alphaStall=" + alphaStall + ", R2=" + IAStoAOAr2);
 
-      // Update LDmaxIAS
-      if (flapIndex>0) LDmaxIAS=flightData.IAS[0]; // assign first seen airspeed (presumably Vfe) to LDmaxIAS when flaps are down.
+      // Update LDmaxIAS for flapped calibrations — use configured Vfe
+      if (flapIndex>0 && acVfe>0) LDmaxIAS=acVfe;
 
       // All setpoints computed from the IAS-to-AOA fit: AOA = K / IAS^2 + alpha_0
       // LDmax and Maneuvering use their IAS directly; OSFast/OSSlow use NAOA fractions.
