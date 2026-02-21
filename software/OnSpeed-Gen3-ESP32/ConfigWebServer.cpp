@@ -858,6 +858,14 @@ window.addEventListener('load', function()
                 <label for="id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(Read">&nbsp;</label>
                 <input id="id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(Read" name="flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(Read" type="button" value="Use Live AOA" class="greybutton" onclick="FillInValue(this.id,'AOA','id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(')"/>
             </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_flapAlpha0)#" + String(iFlapIdx) + R"#(">Alpha-0 (zero-lift)</label>
+                <input id="id_flapAlpha0)#" + String(iFlapIdx) + R"#(" name="flapAlpha0)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fAlpha0) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_flapAlphaStall)#" + String(iFlapIdx) + R"#(">Alpha-Stall (from fit)</label>
+                <input id="id_flapAlphaStall)#" + String(iFlapIdx) + R"#(" name="flapAlphaStall)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fAlphaStall) + R"#("/>
+            </div>
             <div class="form-divs flex-col-12">
                 <label for="id_aoaCurve)#" + String(iFlapIdx) + R"#(Type">AOA Curve Type</label>
                 <select id="id_aoaCurve)#" + String(iFlapIdx) + R"#(Type" name="aoaCurve)#" + String(iFlapIdx) + R"#(Type" onchange="curveTypeChange('id_aoaCurve)#" + String(iFlapIdx) + R"#(Type',)#" + String(iFlapIdx) + R"#()">
@@ -1569,6 +1577,8 @@ void HandleConfigSave()
             suFlaps.fONSPEEDFASTAOA = g_Config.ToFloat(CfgServer.arg("flapONSPEEDFASTAOA"+String(iFlapIdx)));
             suFlaps.fONSPEEDSLOWAOA = g_Config.ToFloat(CfgServer.arg("flapONSPEEDSLOWAOA"+String(iFlapIdx)));
             suFlaps.fSTALLWARNAOA   = g_Config.ToFloat(CfgServer.arg("flapSTALLWARNAOA"+String(iFlapIdx)));
+            suFlaps.fAlpha0         = g_Config.ToFloat(CfgServer.arg("flapAlpha0"+String(iFlapIdx)));
+            suFlaps.fAlphaStall     = g_Config.ToFloat(CfgServer.arg("flapAlphaStall"+String(iFlapIdx)));
 
             suFlaps.AoaCurve.iCurveType = CfgServer.arg("aoaCurve"+String(iFlapIdx)+"Type").toInt();
             for (int iCoeffIdx=0; iCoeffIdx< MAX_CURVE_COEFF; iCoeffIdx++)
@@ -1694,6 +1704,8 @@ void HandleConfigSave()
         suFlaps.fSTALLWARNAOA   = 0.0;
         suFlaps.fSTALLAOA       = 0.0;
         suFlaps.fMANAOA         = 0.0;
+        suFlaps.fAlpha0         = 0.0;
+        suFlaps.fAlphaStall     = 0.0;
         suFlaps.AoaCurve.iCurveType = 1;    // Default to polynomial curve
         for (int iCoeffIdx = 0; iCoeffIdx < MAX_CURVE_COEFF; iCoeffIdx++)
             suFlaps.AoaCurve.afCoeff[iCoeffIdx] = 0.0;
