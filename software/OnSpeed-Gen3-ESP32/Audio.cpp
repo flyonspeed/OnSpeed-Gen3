@@ -155,8 +155,7 @@ void AudioPlayTask(void * psuParams)
 
         // This would be more efficient with a semaphore but it works OK for now
         if (g_AudioPlay.enTone == enToneNone)
-//            vTaskDelay(100 / portTICK_PERIOD_MS);
-            vTaskDelay(pdMS_TO_TICKS(100));
+            vTaskDelay(pdMS_TO_TICKS(50));
 
         // If a voice play has been selected then play it once. Note that PlayVoice()
         // blocks until it is finished.
