@@ -115,6 +115,15 @@ public:
         float    fSTALLAOA;
         float    fMANAOA;
 
+        // Returns true if AOA setpoints are in monotonically increasing order.
+        bool AreSetpointsOrdered() const
+            {
+            return fLDMAXAOA < fONSPEEDFASTAOA
+                && fONSPEEDFASTAOA < fONSPEEDSLOWAOA
+                && fONSPEEDSLOWAOA < fSTALLWARNAOA
+                && fSTALLWARNAOA   < fSTALLAOA;
+            }
+
         SuCalibrationCurve  AoaCurve;
     };
 
