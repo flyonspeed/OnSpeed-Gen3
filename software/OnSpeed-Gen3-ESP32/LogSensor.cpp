@@ -255,7 +255,7 @@ void LogSensor::Open()
                     m_hLogFile.write(",efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG,efisPercentLift,efisPalt,efisVSI,efisTAS,efisOAT,efisFuelRemaining,efisFuelFlow,efisMAP,efisRPM,efisPercentPower,efisMagHeading,efisAge,efisTime");
             } // end if EFIS data
 
-            m_hLogFile.write(",EarthVerticalG, FlightPath, VSI, Altitude");
+            m_hLogFile.write(",EarthVerticalG,FlightPath,VSI,Altitude");
             m_hLogFile.write("\n");
 
             m_hLogFile.sync();
