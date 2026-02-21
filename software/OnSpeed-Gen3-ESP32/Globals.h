@@ -26,7 +26,36 @@
 //#define HW_V4B // Bob's hardware
 #define HW_V4P // Phil's hardware
 
-#define VERSION "4.14"
+#define VERSION "4.15"
+
+// v4.15
+// Safety & Reliability
+//   - Detect stale EFIS data; fall back to DS18B20 OAT sensor (#74)
+//   - Use 25 kt IAS threshold constant for FlightPath calculation (#73)
+//   - Re-initialize AHRS after calibration to apply new biases (#57)
+//   - Fix RemoveSpaces buffer, CurveCalc log(0), volatile button flags,
+//     VnoChime interval (#51)
+// Calibration & AOA
+//   - Compute set points via alpha fit, add alpha_0/alpha_stall per flap,
+//     fix PercentLift zero-lift floor and AOA needle mapping (#33)
+//   - Persist wizard aircraft parameters (weight, Vs, Vfe) in config (#75)
+// Display & Data
+//   - Send DerivedAOA over WebSocket instead of reconstructing client-side (#58)
+//   - Remove double-smoothing from LiveView display (#59)
+//   - Remove redundant display serial smoothing (#66)
+//   - Fix OAT always outputting 0 on display serial (#67)
+//   - Fix best-glide speed parsed as integer instead of float (#60)
+//   - Fix first decel-rate sample having incorrect dt (#62)
+// Config Web UI
+//   - Add confirmation dialog to Load Defaults button (#72)
+//   - Warn on out-of-order AOA setpoints when saving config (#71)
+//   - Auto-correct sign on G-limit inputs (#70)
+//   - Fix minor web UI bugs: gauge labels, missing units, layout (#65)
+// Logging & Diagnostics
+//   - Remove leading spaces from CSV column headers (#64)
+//   - Add OFF log level to console MSG command (#69)
+// Cleanup
+//   - Remove dead SetPulseFreq(3.0) call in AudioTest (#68)
 
 // v4.14 Fixed external ADC driver: hardware is MCP3202, not MCP3204.
 //Replaced 3204-style 3-byte command framing with correct MCP3202 protocol.
