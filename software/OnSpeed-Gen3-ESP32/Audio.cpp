@@ -690,7 +690,6 @@ void AudioPlay::AudioTest()
 
 done:
 //    pSerial->printf("Tone OFF, Pulse 4.0 Hz\n");
-    g_AudioPlay.SetPulseFreq(3.0);
     g_AudioPlay.SetPulseFreq(0);
 
 //    pSerial->printf("\n");
