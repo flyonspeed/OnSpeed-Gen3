@@ -2342,7 +2342,7 @@ Enter the following aircraft parameters:<br><br>
         {
         if (CfgServer.hasArg("acGrossWeight"))   iAcGrossWeight   = CfgServer.arg("acGrossWeight").toInt();
         if (CfgServer.hasArg("acCurrentWeight")) iAcCurrentWeight = CfgServer.arg("acCurrentWeight").toInt();
-        if (CfgServer.hasArg("acVldmax"))        fAcVldmax        = CfgServer.arg("acVldmax").toInt();
+        if (CfgServer.hasArg("acVldmax"))        fAcVldmax        = CfgServer.arg("acVldmax").toFloat();
         if (CfgServer.hasArg("acGlimit"))        fAcGlimit        = CfgServer.arg("acGlimit").toFloat();
 
         sPage += "<br><b>Calibration Wizard</b><br><br>";
