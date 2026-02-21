@@ -340,7 +340,7 @@ void LogSensor::Write()
                     g_EfisSerial.suVN300.YawSigma,        g_EfisSerial.suVN300.RollSigma,        g_EfisSerial.suVN300.PitchSigma,
                     g_EfisSerial.suVN300.GnssVelNedNorth, g_EfisSerial.suVN300.GnssVelNedEast,   g_EfisSerial.suVN300.GnssVelNedDown,
                     g_EfisSerial.suVN300.GnssLat,         g_EfisSerial.suVN300.GnssLon,          g_EfisSerial.suVN300.GPSFix,
-                    EfisAge, g_EfisSerial.suVN300.TimeUTC.c_str());
+                    EfisAge, g_EfisSerial.suVN300.szTimeUTC);
             } // end if VN-300
 
             // Other EFIS data sources

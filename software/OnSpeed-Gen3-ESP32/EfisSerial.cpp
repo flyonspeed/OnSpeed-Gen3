@@ -92,7 +92,58 @@ long double array2double(byte buffer[], int startIndex)
     return out;
 }
 
+// Parse len chars starting at pos as float. Returns fallback if field matches sentinel.
+static float parseFieldFloat(const char* buf, int pos, int len,
+                             const char* sentinel, float fallback, float scale)
+{
+    char tmp[16];
+    memcpy(tmp, buf + pos, len);
+    tmp[len] = '\0';
+    if (sentinel && memcmp(tmp, sentinel, len) == 0)
+        return fallback;
+    return strtof(tmp, nullptr) / scale;
+}
 
+static int parseFieldInt(const char* buf, int pos, int len,
+                         const char* sentinel, int fallback, int scale)
+{
+    char tmp[16];
+    memcpy(tmp, buf + pos, len);
+    tmp[len] = '\0';
+    if (sentinel && memcmp(tmp, sentinel, len) == 0)
+        return fallback;
+    return (int)(strtol(tmp, nullptr, 10)) * scale;
+}
+
+// Variants that only update *dest when the field is NOT the sentinel (keep previous value).
+static void parseFieldFloatKeep(const char* buf, int pos, int len,
+                                const char* sentinel, float scale, float* dest)
+{
+    char tmp[16];
+    memcpy(tmp, buf + pos, len);
+    tmp[len] = '\0';
+    if (sentinel && memcmp(tmp, sentinel, len) == 0)
+        return;
+    *dest = strtof(tmp, nullptr) / scale;
+}
+
+static void parseFieldIntKeep(const char* buf, int pos, int len,
+                              const char* sentinel, int scale, int* dest)
+{
+    char tmp[16];
+    memcpy(tmp, buf + pos, len);
+    tmp[len] = '\0';
+    if (sentinel && memcmp(tmp, sentinel, len) == 0)
+        return;
+    *dest = (int)(strtol(tmp, nullptr, 10)) * scale;
+}
+
+// Parse a 2-char hex CRC field at the given position
+static int parseHexCRC(const char* buf, int pos)
+{
+    char szCRC[3] = { buf[pos], buf[pos + 1], '\0' };
+    return (int)strtol(szCRC, nullptr, 16);
+}
 
 // ----------------------------------------------------------------------------
 
@@ -119,8 +170,7 @@ EfisSerialIO::EfisSerialIO()
     suEfis.RPM              = 0;
     suEfis.PercentPower     = 0;
     suEfis.Heading          = -1;
-    suEfis.Time             = "";
-    suEfis.Time.reserve(16);
+    suEfis.szTime[0]        = '\0';
 
     BufferIndex        = 0;
 
@@ -148,14 +198,13 @@ EfisSerialIO::EfisSerialIO()
     suVN300.GPSFix          = 0;
     suVN300.GnssLat         = 0.00L;     // 8 byte double
     suVN300.GnssLon         = 0.00L;
-    suVN300.TimeUTC         = "";
-    suVN300.TimeUTC.reserve(24);
+    suVN300.szTimeUTC[0]    = '\0';
 
     BufferIndex             = 0;
 
     mglMsgLen               = 0;
 
-    BufferString.reserve(256);
+    iBufferLen              = 0;
 
     uTimestamp = millis();
 }
@@ -315,9 +364,9 @@ void EfisSerialIO::Read()
                     //uint16_t vnFracSec = (Buffer[75] << 8) | Buffer[74]; // gps fractional seconds only update at GPS update rates, 5Hz. We'll calculate our own
 
                     // calculate fractional seconds 1/100
-                    String vnFracSec = String(int(millis()/10));
-                    vnFracSec = vnFracSec.substring(vnFracSec.length()-2);
-                    suVN300.TimeUTC = String(vnHour)+":"+String(vnMin)+":"+String(vnSec)+"."+vnFracSec;
+                    int iFrac = (int)(millis() / 10) % 100;
+                    snprintf(suVN300.szTimeUTC, sizeof(suVN300.szTimeUTC),
+                             "%u:%u:%u.%02d", vnHour, vnMin, vnSec, iFrac);
 
                     suVN300.GPSFix           = Buffer[76];
                     suVN300.GnssVelNedNorth  = array2float(Buffer,77);
@@ -349,7 +398,7 @@ void EfisSerialIO::Read()
                             suVN300.LinAccFwd, suVN300.LinAccLat, suVN300.LinAccVert,
                             suVN300.YawSigma, suVN300.RollSigma, suVN300.PitchSigma,
                             suVN300.GnssVelNedNorth, suVN300.GnssVelNedEast, suVN300.GnssVelNedDown,
-                            suVN300.GnssLat, suVN300.GnssLon, suVN300.GPSFix, suVN300.TimeUTC.c_str());
+                            suVN300.GnssLat, suVN300.GnssLon, suVN300.GPSFix, suVN300.szTimeUTC);
                         }
                     efisPacketInProgress = false;
                 }
@@ -454,8 +503,8 @@ void EfisSerialIO::Read()
                             suEfis.VSI          =       mglMsg->Msg1.VSI;                  // vsi in FPM.
                             suEfis.OAT          = float(mglMsg->Msg1.OAT);                 // c
 
-                            // sprintf(efisTime,"%i:%i:%i",byte(Buffer[32]),byte(Buffer[33]),byte(Buffer[34]));  // pull the time out of message.
-                            suEfis.Time = String(Buffer[32])+":"+String(Buffer[33])+":"+String(Buffer[34]);  // get efis time in string.
+                            snprintf(suEfis.szTime, sizeof(suEfis.szTime), "%u:%u:%u",
+                                     Buffer[32], Buffer[33], Buffer[34]);
                             uTimestamp = millis();
 
                             if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
@@ -514,82 +563,62 @@ void EfisSerialIO::Read()
                 lastReceivedEfisTime=millis();
                 packetCount++;
 //                charsreceived++;
-                if  (BufferString.length()>230)
+                if  (iBufferLen > 230)
                 {
                     g_Log.println(MsgLog::EnEfis, MsgLog::EnWarning, "Efis data buffer overflow");
-                    BufferString = ""; // prevent buffer overflow;
+                    iBufferLen = 0; // prevent buffer overflow;
                 }
 
                 // Data line terminates with 0D0A, when buffer is empty look for 0A in the incoming stream and dump everything else
-                if ((BufferString.length() > 0 || PrevInChar == char(0x0A)))
+                if ((iBufferLen > 0 || PrevInChar == char(0x0A)))
                 {
-                    BufferString += InChar;
+                    szBuffer[iBufferLen++] = InChar;
 
                     if (InChar == char(0x0A))
                     {
+                        // Null-terminate for strtol/strtof safety
+                        szBuffer[iBufferLen] = '\0';
+
                         // end of line
                         if (enType == EnDynonSkyview) // Advanced, was "2"
                         {
 #ifdef EFISDATADEBUG
-                            int lineLength=BufferString.length();
-                            if (lineLength!=74 && lineLength!=93 && lineLength!=225)
+                            if (iBufferLen!=74 && iBufferLen!=93 && iBufferLen!=225)
                                 {
                                  g_Log.printf(MsgLog::EnEfis, MsgLog::EnWarning, "Invalid Efis data line length: ");
-                                 g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "%d\n", lineLength);
+                                 g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "%d\n", iBufferLen);
                                 }
 #endif
-                            if (BufferString.length()==74 && BufferString[0]=='!' && BufferString[1]=='1')
+                            if (iBufferLen==74 && szBuffer[0]=='!' && szBuffer[1]=='1')
                             {
                                 // parse Skyview AHRS data
-                                String parseString;
                                 //calculate CRC
                                 int calcCRC=0;
-                                for (int i=0;i<=69;i++) calcCRC+=BufferString[i];
+                                for (int i=0;i<=69;i++) calcCRC+=szBuffer[i];
                                 calcCRC=calcCRC & 0xFF;
 
-                                if (calcCRC==(int)strtol(&BufferString.substring(70, 72)[0],NULL,16)) // convert from hex back into integer for camparison, issue with missing leading zeros when comparing hex formats
+                                if (calcCRC==parseHexCRC(szBuffer, 70))
                                 {
-                                    //float efisIAS
-                                    parseString = BufferString.substring(23, 27);
-                                    if (parseString!="XXXX") suEfis.IAS = parseString.toFloat()/10;      else suEfis.IAS = -1; // knots
-                                    //float efisPitch
-                                    parseString = BufferString.substring(11, 15);
-                                    if (parseString!="XXXX") suEfis.Pitch = parseString.toFloat()/10;    else suEfis.Pitch = -100; // degrees
-                                    // float efisRoll
-                                    parseString = BufferString.substring(15, 20);
-                                    if (parseString!="XXXXX") suEfis.Roll = parseString.toFloat()/10;    else suEfis.Roll = -180; // degrees
-                                    // float MagneticHeading
-                                    parseString = BufferString.substring(20, 23);
-                                    if (parseString!="XXX") suEfis.Heading = parseString.toInt();        else suEfis.Heading = -1;
-                                    // float efisLateralG
-                                    parseString = BufferString.substring(37, 40);
-                                    if (parseString!="XXX") suEfis.LateralG = parseString.toFloat()/100; else suEfis.LateralG = -100;
-                                    // float efisVerticalG
-                                    parseString = BufferString.substring(40, 43);
-                                    if (parseString!="XXX") suEfis.VerticalG = parseString.toFloat()/10; else suEfis.VerticalG = -100;
-                                    // int efisPercentLift
-                                    parseString = BufferString.substring(43, 45);
-                                    if (parseString!="XX") suEfis.PercentLift = parseString.toInt();     else suEfis.PercentLift = -1; // 00 to 99, percentage of stall angle.
-                                    // int efisPalt
-                                    parseString = BufferString.substring(27, 33);
-                                    if (parseString!="XXXXXX") suEfis.Palt = parseString.toInt();        else suEfis.Palt = -10000; // feet
-                                    // int efisVSI
-                                    parseString = BufferString.substring(45, 49);
-                                    if (parseString!="XXXX") suEfis.VSI = parseString.toInt() * 10;      else suEfis.VSI = -10000; // feet/min
-                                    //float efisTAS;
-                                    parseString = BufferString.substring(52, 56);
-                                    if (parseString!="XXXX") suEfis.TAS = parseString.toFloat()/10;      else suEfis.TAS = -1; // kts
-                                    //float efisOAT;
-                                    parseString = BufferString.substring(49, 52);
-                                    if (parseString!="XXX") suEfis.OAT = parseString.toFloat();          else suEfis.OAT = -100; // Celsius
-                                    // String efisTime
-                                    suEfis.Time = BufferString.substring(3, 5)+":"+BufferString.substring(5, 7)+":"+BufferString.substring(7, 9)+"."+BufferString.substring(9, 11);
+                                    suEfis.IAS         = parseFieldFloat(szBuffer, 23, 4, "XXXX",   -1.0f,   10.0f); // knots
+                                    suEfis.Pitch       = parseFieldFloat(szBuffer, 11, 4, "XXXX",   -100.0f, 10.0f); // degrees
+                                    suEfis.Roll        = parseFieldFloat(szBuffer, 15, 5, "XXXXX",  -180.0f, 10.0f); // degrees
+                                    suEfis.Heading     = parseFieldInt  (szBuffer, 20, 3, "XXX",    -1,      1);
+                                    suEfis.LateralG    = parseFieldFloat(szBuffer, 37, 3, "XXX",    -100.0f, 100.0f);
+                                    suEfis.VerticalG   = parseFieldFloat(szBuffer, 40, 3, "XXX",    -100.0f, 10.0f);
+                                    suEfis.PercentLift = parseFieldInt  (szBuffer, 43, 2, "XX",     -1,      1);     // 00 to 99, percentage of stall angle.
+                                    suEfis.Palt        = parseFieldInt  (szBuffer, 27, 6, "XXXXXX", -10000,  1);     // feet
+                                    suEfis.VSI         = parseFieldInt  (szBuffer, 45, 4, "XXXX",   -10000,  10);    // feet/min
+                                    suEfis.TAS         = parseFieldFloat(szBuffer, 52, 4, "XXXX",   -1.0f,   10.0f); // kts
+                                    suEfis.OAT         = parseFieldFloat(szBuffer, 49, 3, "XXX",    -100.0f, 1.0f);  // Celsius
+                                    snprintf(suEfis.szTime, sizeof(suEfis.szTime),
+                                             "%.2s:%.2s:%.2s.%.2s",
+                                             szBuffer+3, szBuffer+5, szBuffer+7, szBuffer+9);
                                     uTimestamp = millis();
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
                                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "SKYVIEW ADAHRS: IAS %.2f, Pitch %.2f, Roll %.2f, LateralG %.2f, VerticalG %.2f, PercentLift %i, Palt %i, VSI %i, TAS %.2f, OAT %.2f, Heading %i ,Time %s\n",
                                             suEfis.IAS, suEfis.Pitch, suEfis.Roll,
                                             suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift,
-                                            suEfis.Palt, suEfis.VSI, suEfis.TAS, suEfis.OAT, suEfis.Heading, suEfis.Time.c_str());
+                                            suEfis.Palt, suEfis.VSI, suEfis.TAS, suEfis.OAT, suEfis.Heading, suEfis.szTime);
                                 } // end if CRC OK
 
                                 else
@@ -597,31 +626,20 @@ void EfisSerialIO::Read()
 
                             } // end if Msg Type 1
 
-                            else if (BufferString.length()==225 && BufferString[0]=='!' && BufferString[1]=='3')
+                            else if (iBufferLen==225 && szBuffer[0]=='!' && szBuffer[1]=='3')
                             {
                                 // parse Skyview EMS data
-                                String parseString;
                                 //calculate CRC
                                 int calcCRC=0;
-                                for (int i=0;i<=220;i++) calcCRC+=BufferString[i];
+                                for (int i=0;i<=220;i++) calcCRC+=szBuffer[i];
                                 calcCRC=calcCRC & 0xFF;
-                                if (calcCRC==(int)strtol(&BufferString.substring(221, 223)[0],NULL,16)) // convert from hex back into integer for camparison, issue with missing leading zeros when comparing hex formats
+                                if (calcCRC==parseHexCRC(szBuffer, 221))
                                 {
-                                    //float efisFuelRemaining=0.00;
-                                    parseString = BufferString.substring(44, 47);
-                                    if (parseString!="XXX") suEfis.FuelRemaining = parseString.toFloat()/10; else suEfis.FuelRemaining = -1; // gallons
-                                    //float efisFuelFlow=0.00;
-                                    parseString = BufferString.substring(29, 32);
-                                    if (parseString!="XXX") suEfis.FuelFlow = parseString.toFloat()/10;      else suEfis.FuelFlow = -1; // gph
-                                    //float efisMAP=0.00;
-                                    parseString = BufferString.substring(26, 29);
-                                    if (parseString!="XXX") suEfis.MAP = parseString.toFloat()/10;           else suEfis.MAP = -1; //inHg
-                                    // int efisRPM=0;
-                                    parseString = BufferString.substring(18, 22);
-                                    if (parseString!="XXXX") suEfis.RPM = parseString.toInt();               else suEfis.RPM = -1;
-                                    // int efisPercentPower=0;
-                                    parseString = BufferString.substring(217, 220);
-                                    if (parseString!="XXX") suEfis.PercentPower = parseString.toInt();       else suEfis.PercentPower = -1;
+                                    suEfis.FuelRemaining = parseFieldFloat(szBuffer, 44, 3, "XXX",  -1.0f, 10.0f); // gallons
+                                    suEfis.FuelFlow      = parseFieldFloat(szBuffer, 29, 3, "XXX",  -1.0f, 10.0f); // gph
+                                    suEfis.MAP           = parseFieldFloat(szBuffer, 26, 3, "XXX",  -1.0f, 10.0f); //inHg
+                                    suEfis.RPM           = parseFieldInt  (szBuffer, 18, 4, "XXXX", -1,    1);
+                                    suEfis.PercentPower  = parseFieldInt  (szBuffer,217, 3, "XXX",  -1,    1);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
                                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "SKYVIEW EMS: FuelRemaining %.2f, FuelFlow %.2f, MAP %.2f, RPM %i, PercentPower %i\n",
                                             suEfis.FuelRemaining, suEfis.FuelFlow, suEfis.MAP, suEfis.RPM, suEfis.PercentPower);
@@ -634,44 +652,38 @@ void EfisSerialIO::Read()
 
                         else if (enType == EnDynonD10) // Dynon D10, was 3
                         {
-                            if (BufferString.length() == DYNON_SERIAL_LEN)
+                            if (iBufferLen == DYNON_SERIAL_LEN)
                             {
                                 // parse Dynon data
-                                String parseString;
                                 //calculate CRC
                                 int calcCRC=0;
-                                for (int i=0;i<=48;i++) calcCRC+=BufferString[i];
+                                for (int i=0;i<=48;i++) calcCRC+=szBuffer[i];
                                 calcCRC=calcCRC & 0xFF;
-                                if (calcCRC==(int)strtol(&BufferString.substring(49, 51)[0],NULL,16)) // convert from hex back into integer for camparison, issue with missing leading zeros when comparing hex formats
+                                if (calcCRC==parseHexCRC(szBuffer, 49))
                                 {
                                     // CRC passed
-                                    parseString        = BufferString.substring(20, 24);
-                                    suEfis.IAS         = parseString.toFloat() / 10 * 1.94384; // m/s to knots
-                                    parseString        = BufferString.substring(8, 12);
-                                    suEfis.Pitch       = parseString.toFloat()/10;
-                                    parseString        = BufferString.substring(12, 17);
-                                    suEfis.Roll        = parseString.toFloat()/10;
-                                    parseString        = BufferString.substring(33, 36);
-                                    suEfis.LateralG    = parseString.toFloat()/100;
-                                    parseString        = BufferString.substring(36, 39);
-                                    suEfis.VerticalG   = parseString.toFloat()/10;
-                                    parseString        = BufferString.substring(39, 41);
-                                    suEfis.PercentLift = parseString.toInt(); // 00 to 99, percentage of stall angle
-                                    parseString        = BufferString.substring(45,47);
-                                    long statusBitInt  = strtol(&parseString[1], NULL, 16);
+                                    suEfis.IAS         = parseFieldFloat(szBuffer, 20, 4, nullptr, 0.0f, 10.0f) * 1.94384f; // m/s to knots
+                                    suEfis.Pitch       = parseFieldFloat(szBuffer,  8, 4, nullptr, 0.0f, 10.0f);
+                                    suEfis.Roll        = parseFieldFloat(szBuffer, 12, 5, nullptr, 0.0f, 10.0f);
+                                    suEfis.LateralG    = parseFieldFloat(szBuffer, 33, 3, nullptr, 0.0f, 100.0f);
+                                    suEfis.VerticalG   = parseFieldFloat(szBuffer, 36, 3, nullptr, 0.0f, 10.0f);
+                                    suEfis.PercentLift = parseFieldInt  (szBuffer, 39, 2, nullptr, 0,    1); // 00 to 99, percentage of stall angle
+                                    // Status byte at position 46 (second char of 45..47 field)
+                                    char szStatus[2] = { szBuffer[46], '\0' };
+                                    long statusBitInt  = strtol(szStatus, nullptr, 16);
                                     if (bitRead(statusBitInt, 0))
                                     {
                                         // when bitmask bit 0 is 1, grab pressure altitude and VSI, otherwise use previous value (skip turn rate and density altitude)
-                                        parseString = BufferString.substring(24, 29);
-                                        suEfis.Palt = parseString.toInt()*3.28084; // meters to feet
-                                        parseString = BufferString.substring(29, 33);
-                                        suEfis.VSI  = int(parseString.toFloat()/10*60); // feet/sec to feet/min
+                                        suEfis.Palt = (int)(parseFieldFloat(szBuffer, 24, 5, nullptr, 0.0f, 1.0f) * 3.28084f); // meters to feet
+                                        suEfis.VSI  = (int)(parseFieldFloat(szBuffer, 29, 4, nullptr, 0.0f, 10.0f) * 60.0f);   // feet/sec to feet/min
                                     }
                                     uTimestamp = millis();
-                                    suEfis.Time = BufferString.substring(0, 2)+":"+BufferString.substring(2, 4)+":"+BufferString.substring(4, 6)+"."+BufferString.substring(6, 8);
+                                    snprintf(suEfis.szTime, sizeof(suEfis.szTime),
+                                             "%.2s:%.2s:%.2s.%.2s",
+                                             szBuffer+0, szBuffer+2, szBuffer+4, szBuffer+6);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
                                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "D10: IAS %.2f, Pitch %.2f, Roll %.2f, LateralG %.2f, VerticalG %.2f, PercentLift %i, Palt %i, VSI %i, Time %s\n",
-                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift,suEfis.Palt,suEfis.VSI,suEfis.Time.c_str());
+                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift,suEfis.Palt,suEfis.VSI,suEfis.szTime);
                                 }
 
                                 else
@@ -682,38 +694,31 @@ void EfisSerialIO::Read()
 
                         else if (enType == EnGarminG5) // G5, was 4
                         {
-                            if (BufferString.length()==59 && BufferString[0]=='=' && BufferString[1]=='1' && BufferString[2]=='1')
+                            if (iBufferLen==59 && szBuffer[0]=='=' && szBuffer[1]=='1' && szBuffer[2]=='1')
                             {
                                 // parse G5 data
-                                String parseString;
                                 //calculate CRC
                                 int calcCRC=0;
-                                for (int i=0;i<=54;i++) calcCRC+=BufferString[i];
+                                for (int i=0;i<=54;i++) calcCRC+=szBuffer[i];
                                 calcCRC=calcCRC & 0xFF;
-                                if (calcCRC==(int)strtol(&BufferString.substring(55, 57)[0],NULL,16)) // convert from hex back into integer for camparison, issue with missing leading zeros when comparing hex formats
+                                if (calcCRC==parseHexCRC(szBuffer, 55))
                                 {
                                     // CRC passed
-                                    parseString = BufferString.substring(23, 27);
-                                    if (parseString!="____")   suEfis.IAS       = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(11, 15);
-                                    if (parseString!="____")   suEfis.Pitch     = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(15, 20);
-                                    if (parseString!="_____")  suEfis.Roll      = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(20, 23);
-                                    if (parseString!="___")    suEfis.Heading   = parseString.toInt();
-                                    parseString = BufferString.substring(37, 40);
-                                    if (parseString!="___")    suEfis.LateralG  = parseString.toFloat()/100;
-                                    parseString = BufferString.substring(40, 43);
-                                    if (parseString!="___")    suEfis.VerticalG = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(27, 33);
-                                    if (parseString!="______") suEfis.Palt      = parseString.toInt(); // feet
-                                    parseString = BufferString.substring(45, 49);
-                                    if (parseString!="____")   suEfis.VSI       = parseString.toInt()*10; //10 fpm
+                                    parseFieldFloatKeep(szBuffer, 23, 4, "____",   10.0f,  &suEfis.IAS);
+                                    parseFieldFloatKeep(szBuffer, 11, 4, "____",   10.0f,  &suEfis.Pitch);
+                                    parseFieldFloatKeep(szBuffer, 15, 5, "_____",  10.0f,  &suEfis.Roll);
+                                    parseFieldIntKeep  (szBuffer, 20, 3, "___",    1,      &suEfis.Heading);
+                                    parseFieldFloatKeep(szBuffer, 37, 3, "___",    100.0f, &suEfis.LateralG);
+                                    parseFieldFloatKeep(szBuffer, 40, 3, "___",    10.0f,  &suEfis.VerticalG);
+                                    parseFieldIntKeep  (szBuffer, 27, 6, "______", 1,      &suEfis.Palt);    // feet
+                                    parseFieldIntKeep  (szBuffer, 45, 4, "____",   10,     &suEfis.VSI);     //10 fpm
                                     uTimestamp = millis();
-                                    suEfis.Time = BufferString.substring(3, 5)+":"+BufferString.substring(5, 7)+":"+BufferString.substring(7, 9)+"."+BufferString.substring(9, 11);
+                                    snprintf(suEfis.szTime, sizeof(suEfis.szTime),
+                                             "%.2s:%.2s:%.2s.%.2s",
+                                             szBuffer+3, szBuffer+5, szBuffer+7, szBuffer+9);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
                                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G5 data: IAS %.2f, Pitch %.2f, Roll %.2f, Heading %i, LateralG %.2f, VerticalG %.2f, Palt %i, VSI %i, Time %s\n",
-                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.Heading, suEfis.LateralG, suEfis.VerticalG,suEfis.Palt,suEfis.VSI,suEfis.Time.c_str());
+                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.Heading, suEfis.LateralG, suEfis.VerticalG,suEfis.Palt,suEfis.VSI,suEfis.szTime);
                                 }
 
                                 else
@@ -725,42 +730,33 @@ void EfisSerialIO::Read()
                         else if (enType == EnGarminG3X) // G3X, was 5
                         {
                             // parse G3X attitude data, 10hz
-                            if (BufferString.length()==59 && BufferString[0]=='=' && BufferString[1]=='1' && BufferString[2]=='1')
+                            if (iBufferLen==59 && szBuffer[0]=='=' && szBuffer[1]=='1' && szBuffer[2]=='1')
                             {
                                 // parse G3X data
-                                String parseString;
                                 //calculate CRC
                                 int calcCRC=0;
-                                for (int i=0;i<=54;i++) calcCRC+=BufferString[i];
+                                for (int i=0;i<=54;i++) calcCRC+=szBuffer[i];
                                 calcCRC=calcCRC & 0xFF;
-                                if (calcCRC==(int)strtol(&BufferString.substring(55, 57)[0],NULL,16)) // convert from hex back into integer for camparison, issue with missing leading zeros when comparing hex formats
+                                if (calcCRC==parseHexCRC(szBuffer, 55))
                                 {
                                     // CRC passed
-                                    parseString = BufferString.substring(23, 27);
-                                    if (parseString!="____")   suEfis.IAS        = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(11, 15);
-                                    if (parseString!="____")   suEfis.Pitch      = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(15, 20);
-                                    if (parseString!="_____")  suEfis.Roll       = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(20, 23);
-                                    if (parseString!="___")    suEfis.Heading    = parseString.toInt();
-                                    parseString = BufferString.substring(37, 40);
-                                    if (parseString!="___")    suEfis.LateralG   = parseString.toFloat()/100;
-                                    parseString = BufferString.substring(40, 43);
-                                    if (parseString!="___")    suEfis.VerticalG  = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(43, 45);
-                                    if (parseString!="__")     suEfis.PercentLift = parseString.toInt();
-                                    parseString = BufferString.substring(27, 33);
-                                    if (parseString!="______") suEfis.Palt       = parseString.toInt(); // feet
-                                    parseString = BufferString.substring(49, 52);
-                                    if (parseString!="___")    suEfis.OAT        = parseString.toInt();
-                                    parseString = BufferString.substring(45, 49); // celsius
-                                    if (parseString!="____")   suEfis.VSI       = parseString.toInt()*10; //10 fpm
+                                    parseFieldFloatKeep(szBuffer, 23, 4, "____",   10.0f,  &suEfis.IAS);
+                                    parseFieldFloatKeep(szBuffer, 11, 4, "____",   10.0f,  &suEfis.Pitch);
+                                    parseFieldFloatKeep(szBuffer, 15, 5, "_____",  10.0f,  &suEfis.Roll);
+                                    parseFieldIntKeep  (szBuffer, 20, 3, "___",    1,      &suEfis.Heading);
+                                    parseFieldFloatKeep(szBuffer, 37, 3, "___",    100.0f, &suEfis.LateralG);
+                                    parseFieldFloatKeep(szBuffer, 40, 3, "___",    10.0f,  &suEfis.VerticalG);
+                                    parseFieldIntKeep  (szBuffer, 43, 2, "__",     1,      &suEfis.PercentLift);
+                                    parseFieldIntKeep  (szBuffer, 27, 6, "______", 1,      &suEfis.Palt);    // feet
+                                    parseFieldFloatKeep(szBuffer, 49, 3, "___",    1.0f,   &suEfis.OAT);     // celsius
+                                    parseFieldIntKeep  (szBuffer, 45, 4, "____",   10,     &suEfis.VSI);     //10 fpm
                                     uTimestamp = millis();
-                                    suEfis.Time = BufferString.substring(3, 5)+":"+BufferString.substring(5, 7)+":"+BufferString.substring(7, 9)+"."+BufferString.substring(9, 11);
+                                    snprintf(suEfis.szTime, sizeof(suEfis.szTime),
+                                             "%.2s:%.2s:%.2s.%.2s",
+                                             szBuffer+3, szBuffer+5, szBuffer+7, szBuffer+9);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
                                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G3X Attitude data: efisIAS %.2f, efisPitch %.2f, efisRoll %.2f, efisHeading %i, efisLateralG %.2f, efisVerticalG %.2f, efisPercentLift %i, efisPalt %i, efisVSI %i,efisTime %s\n",
-                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.Heading, suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift, suEfis.Palt, suEfis.VSI, suEfis.Time.c_str());
+                                            suEfis.IAS, suEfis.Pitch, suEfis.Roll, suEfis.Heading, suEfis.LateralG, suEfis.VerticalG, suEfis.PercentLift, suEfis.Palt, suEfis.VSI, suEfis.szTime);
                                 }
 
                                 else
@@ -768,24 +764,18 @@ void EfisSerialIO::Read()
                             }
 
                             // parse G3X engine data, 5Hz
-                            else if (BufferString.length()==221 && BufferString[0]=='=' && BufferString[1]=='3' && BufferString[2]=='1')
+                            else if (iBufferLen==221 && szBuffer[0]=='=' && szBuffer[1]=='3' && szBuffer[2]=='1')
                             {
-                                String parseString;
                                 //calculate CRC
                                 int calcCRC=0;
-                                for (int i=0;i<=216;i++) calcCRC+=BufferString[i];
+                                for (int i=0;i<=216;i++) calcCRC+=szBuffer[i];
                                 calcCRC=calcCRC & 0xFF;
-                                if (calcCRC==(int)strtol(&BufferString.substring(217, 219)[0],NULL,16)) // convert from hex back into integer for camparison, issue with missing leading zeros when comparing hex formats
+                                if (calcCRC==parseHexCRC(szBuffer, 217))
                                 {
-                                    //float efisFuelRemaining=0.00;
-                                    parseString = BufferString.substring(44, 47);
-                                    if (parseString!="___")  suEfis.FuelRemaining = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(29, 32);
-                                    if (parseString!="___")  suEfis.FuelFlow      = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(26, 29);
-                                    if (parseString!="___")  suEfis.MAP           = parseString.toFloat()/10;
-                                    parseString = BufferString.substring(18, 22);
-                                    if (parseString!="____") suEfis.RPM           = parseString.toInt();
+                                    parseFieldFloatKeep(szBuffer, 44, 3, "___",  10.0f, &suEfis.FuelRemaining);
+                                    parseFieldFloatKeep(szBuffer, 29, 3, "___",  10.0f, &suEfis.FuelFlow);
+                                    parseFieldFloatKeep(szBuffer, 26, 3, "___",  10.0f, &suEfis.MAP);
+                                    parseFieldIntKeep  (szBuffer, 18, 4, "____", 1,     &suEfis.RPM);
                                     if (g_Log.Test(MsgLog::EnEfis, MsgLog::EnDebug))
                                         g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug, "G3X EMS: efisFuelRemaining %.2f, efisFuelFlow %.2f, efisMAP %.2f, efisRPM %i\n",
                                             suEfis.FuelRemaining, suEfis.FuelFlow, suEfis.MAP, suEfis.RPM);
@@ -796,7 +786,7 @@ void EfisSerialIO::Read()
                             }
 
                         } // end efisType GARMIN G3X
-                        BufferString = "";  // reset buffer
+                        iBufferLen = 0;  // reset buffer
                     } // end if 0x0A found
                 } // 0x0A first
 #ifdef EFISDATADEBUG
