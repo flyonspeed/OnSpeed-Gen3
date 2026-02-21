@@ -84,6 +84,15 @@ void test_logarithmic_e() {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, CurveCalc(2.71828f, curve));  // ln(e) ≈ 1
 }
 
+void test_logarithmic_zero_returns_zero() {
+    // log(0) = -Inf, which the old code let through.
+    // Guard returns 0 for non-positive x.
+    SuCalibrationCurve curve = {{0, 0, 10, 5}, 2};
+
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, CurveCalc(0, curve));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, CurveCalc(-1, curve));
+}
+
 // ============================================================================
 // Exponential Curves (iCurveType = 3)
 // ============================================================================
@@ -142,6 +151,7 @@ int main(int argc, char **argv) {
     // Logarithmic tests
     RUN_TEST(test_logarithmic);
     RUN_TEST(test_logarithmic_e);
+    RUN_TEST(test_logarithmic_zero_returns_zero);
 
     // Exponential tests
     RUN_TEST(test_exponential);

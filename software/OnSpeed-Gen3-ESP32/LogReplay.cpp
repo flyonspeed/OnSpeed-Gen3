@@ -303,17 +303,15 @@ bool ReadLogLine()
 
 void RemoveSpaces(char * szLine)
     {
-    // Remove any embedded blank spaces
-    int     iStrLen = strlen(szLine);
-    for (int iStrIdx = 0; iStrIdx < iStrLen; iStrIdx++)
+    // Remove any embedded blank spaces using a read/write pointer approach.
+    // The old loop incremented iStrIdx after shifting, skipping consecutive spaces.
+    int iWrite = 0;
+    for (int iRead = 0; szLine[iRead] != '\0'; iRead++)
         {
-        if (szLine[iStrIdx] == ' ')
-            {
-            for (int iMoveIdx = iStrIdx; iMoveIdx <= iStrLen; iMoveIdx++)
-                szLine[iMoveIdx] = szLine[iMoveIdx+1];
-            iStrLen--;
-            }
+        if (szLine[iRead] != ' ')
+            szLine[iWrite++] = szLine[iRead];
         }
+    szLine[iWrite] = '\0';
     }
 
 //-----------------------------------------------------------------------------

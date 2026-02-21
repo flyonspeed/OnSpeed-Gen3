@@ -14,7 +14,11 @@ void CheckVnoChimeTask(void * pvParams)
         if ((g_Config.bVnoChimeEnabled) && (g_Sensors.IAS > g_Config.iVno))
             {
             g_AudioPlay.SetVoice(enVoiceVnoChime);
-            vTaskDelay(g_Config.uVnoChimeInterval * 1000 / portTICK_PERIOD_MS);
+            // Guard: zero interval would spin the task at full speed.
+            unsigned uInterval = g_Config.uVnoChimeInterval;
+            if (uInterval == 0)
+                uInterval = 1;
+            vTaskDelay(uInterval * 1000 / portTICK_PERIOD_MS);
             }
         }
     } // end CheckVnoChimeTask()

@@ -34,7 +34,10 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
     }
     // Logarithmic: y = a*ln(x) + b
     // Uses last two coefficients: afCoeff[2] = a, afCoeff[3] = b
+    // Guard: log(0) = -Inf, log(negative) = NaN.  Return 0 for non-positive x.
     else if (curve.iCurveType == 2) {
+        if (x <= 0.0f)
+            return 0.0f;
         y = curve.afCoeff[MAX_CURVE_COEFF - 2] * std::log(x)
           + curve.afCoeff[MAX_CURVE_COEFF - 1];
         ONSPEED_LOG_DEBUG("%.2f * log(%.2f) + %.2f = %.2f\n",

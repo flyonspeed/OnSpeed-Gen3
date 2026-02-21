@@ -3,9 +3,10 @@
 #include "Helpers.h"
 #include "Switch.h"
 
-// Switch State
-bool        bSwitchDoSingleClick = false;
-bool        bSwitchDoLongPress   = false;
+// Switch State — volatile because set in OneButton ISR callbacks and
+// read/cleared in the SwitchCheckTask RTOS task.
+volatile bool   bSwitchDoSingleClick = false;
+volatile bool   bSwitchDoLongPress   = false;
 
 BaseType_t  xWasDelayed;
 TickType_t  xLastWakeTime = xTaskGetTickCount();
