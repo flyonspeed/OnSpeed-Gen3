@@ -2006,12 +2006,16 @@ sPage += R"#(
 
         g_Config.SaveConfigurationToFile();
 
-        // Refresh IMU/AHRS after updating biases
+        // Refresh IMU/AHRS after updating biases.
+        // Init() recomputes the installation rotation matrix from the new
+        // pitch/roll biases and re-initializes the attitude filter, matching
+        // the pattern in HandleConfigSave().
         xSemaphoreTake(xSensorMutex, portMAX_DELAY);
         g_pIMU->Read();
         xSemaphoreGive(xSensorMutex);
 
         xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+        g_AHRS.Init(IMU_SAMPLE_RATE);
         g_AHRS.Process();
         xSemaphoreGive(xAhrsMutex);
 
