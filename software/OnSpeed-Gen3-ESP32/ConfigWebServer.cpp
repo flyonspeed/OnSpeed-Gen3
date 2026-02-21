@@ -1633,7 +1633,7 @@ void HandleConfigSave()
     else                                                                   g_Config.bOatSensor = false;
 
     // read calibration source
-    if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");
+    if (CfgServer.hasArg("calSource")) { g_Config.sCalSource=CfgServer.arg("calSource"); g_Config.bCalSourceEfis = (g_Config.sCalSource == "EFIS"); }
 
     // read AHRS algorithm
     if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();
@@ -1675,7 +1675,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("vnoChimeInterval")) g_Config.uVnoChimeInterval=CfgServer.arg("vnoChimeInterval").toInt();
 
     // serialOutFormat
-    if (CfgServer.hasArg("serialOutFormat")) g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat");
+    if (CfgServer.hasArg("serialOutFormat")) { g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat"); g_Config.enSerialOutFormat = FOSConfig::ParseSerialFmt(g_Config.sSerialOutFormat); }
 
     //serialOutPort
 //    if (CfgServer.hasArg("serialOutPort")) g_Config.sSerialOutPort=CfgServer.arg("serialOutPort");

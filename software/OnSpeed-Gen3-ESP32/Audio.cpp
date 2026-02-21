@@ -177,9 +177,9 @@ AudioPlay::AudioPlay()
 {
     enVoice              = enVoiceNone;
     enTone               = enToneNone;
-    fVolume              = 0.5;
-    fLeftGain            = 1.0;
-    fRightGain           = 1.0;
+    fVolume              = 0.5f;
+    fLeftGain            = 1.0f;
+    fRightGain           = 1.0f;
 
     fTonePulseMaxSamples = 0;
     fTonePulseCounter    = 0;
@@ -215,26 +215,26 @@ void AudioPlay::Init()
 
     for (int iIdx = 0; iIdx < TONE_BUFFER_LEN; iIdx++)
         {
-        double  fAngle;
+        float   fAngle;
 
         // Note byte swap to get the tone data in the same endianness as the WAV data
         // 400 Hz tone
 #if 1
-        fAngle = remainder(2.0*M_PI*iIdx*400.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_400Hz[iIdx] = uint16_t(25000 * cos(fAngle));
+        fAngle = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
+        aTone_400Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
 #else
-        float fAngle1 = remainder(2.0*M_PI*iIdx*440.00/SAMPLE_RATE, 2.0*M_PI);   // A
-        // float fAngle2 = remainder(2.0*M_PI*iIdx*523.25/SAMPLE_RATE, 2.0*M_PI);   // C
-        // float fAngle3 = remainder(2.0*M_PI*iIdx*659.25/SAMPLE_RATE, 2.0*M_PI);   // E
-        float fAngle2 = remainder(2.0*M_PI*iIdx*400.00/SAMPLE_RATE, 2.0*M_PI);   // C
-        float fAngle3 = remainder(2.0*M_PI*iIdx*800.00/SAMPLE_RATE, 2.0*M_PI);   // E
-        aTone_400Hz[iIdx] = uint16_t(15000 * cos(fAngle1) +
-                                      3000 * cos(fAngle2) +
-                                      3000 * cos(fAngle3));
+        float fAngle1 = remainderf(2.0f*(float)M_PI*iIdx*440.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // A
+        // float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*523.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
+        // float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*659.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
+        float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
+        float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*800.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
+        aTone_400Hz[iIdx] = uint16_t(15000.0f * cosf(fAngle1) +
+                                      3000.0f * cosf(fAngle2) +
+                                      3000.0f * cosf(fAngle3));
 #endif
         // Setup 1600 Hz tone
-        fAngle = remainder(2.0*M_PI*iIdx*1600.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_1600Hz[iIdx] = uint16_t(25000 * cos(fAngle));
+        fAngle = remainderf(2.0f*(float)M_PI*iIdx*1600.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
+        aTone_1600Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
         }
 
     // Length of the data in the buffer. This may be different for tones that
@@ -249,9 +249,9 @@ void AudioPlay::Init()
 
 void AudioPlay::SetVolume(int iVolumePercent)
 {
-    if      (iVolumePercent <   0) fVolume = 0.0;
-    else if (iVolumePercent > 100) fVolume = 1.0;
-    else                           fVolume = iVolumePercent / 100.0;
+    if      (iVolumePercent <   0) fVolume = 0.0f;
+    else if (iVolumePercent > 100) fVolume = 1.0f;
+    else                           fVolume = iVolumePercent / 100.0f;
 }
 
 // ----------------------------------------------------------------------------
@@ -302,10 +302,10 @@ void AudioPlay::SetToneFreq(unsigned uToneFreq)
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
     // Outside limits disables tone pulse
-    if ((fPulseFreq < 1.0) || (fPulseFreq > 25.0))
+    if ((fPulseFreq < 1.0f) || (fPulseFreq > 25.0f))
         fTonePulseMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0);  // Tone period in audio samples
+        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // Tone period in audio samples
 
 }
 

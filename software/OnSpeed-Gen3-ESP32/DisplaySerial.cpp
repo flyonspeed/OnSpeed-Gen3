@@ -181,7 +181,7 @@ void DisplaySerial::Write()
 
     // Output the data in the appropriate format
 
-    if (g_Config.sSerialOutFormat == "G3X")
+    if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtG3X)
         {
         // Clamp to fixed-width protocol fields to prevent buffer overruns and
         // malformed output when values go out of range.
@@ -214,7 +214,7 @@ void DisplaySerial::Write()
             SerialCRC += (byte)serialOutString[i];
         } // end if G3X
 
-    else if (g_Config.sSerialOutFormat == "ONSPEED")
+    else if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtOnSpeed)
         {
         //  0 - #                         Escape character  '#'
         //  1 - 1                         Sentence ID '1'
@@ -257,7 +257,7 @@ void DisplaySerial::Write()
         const int      iVertG10    = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift    = ClampUInt((unsigned)iPercentLift,           0,       99);
         const int      iAoa10      = SafeScaledInt(fDisplayAOA,          10.0f, -999,    999);
-        const int      iVsi10Fpm   = ClampInt((int)floor(mps2fpm(g_AHRS.KalmanVSI) / 10.0f), -999, 999);
+        const int      iVsi10Fpm   = ClampInt((int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f), -999, 999);
         const int      iOatC       = ClampInt(iOATc,                              -99,      99);
         const int      iFpa10      = SafeScaledInt(g_AHRS.FlightPath,    10.0f, -999,    999);
         const int      iFlapsDeg   = ClampInt((int)g_Flaps.iPosition,             -99,      99);

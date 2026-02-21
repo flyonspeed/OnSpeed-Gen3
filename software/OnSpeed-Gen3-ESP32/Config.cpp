@@ -296,6 +296,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // Calibration data source
     sCalSource          = "ONSPEED";
+    bCalSourceEfis      = false;
 
     // Biases
     iPFwdBias           = 8192;
@@ -321,6 +322,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // serial output
     sSerialOutFormat    = "ONSPEED";
+    enSerialOutFormat   = EnSerialFmtOnSpeed;
 
     // load limit
     fLoadLimitPositive  =  4.0;
@@ -584,6 +586,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Calibration data source
         sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE");
+        bCalSourceEfis       = (sCalSource == "EFIS");
 
         // Biases
         iPFwdBias           =  GetConfigValue(sConfig,"PFWD_BIAS").toInt();
@@ -603,6 +606,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // serial output
         sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT");
+        enSerialOutFormat   = ParseSerialFmt(sSerialOutFormat);
 //        sSerialOutPort      = GetConfigValue(sConfig,"SERIALOUTPORT");
 
         // Load limit
@@ -787,9 +791,11 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Serial output
         XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
+        enSerialOutFormat = ParseSerialFmt(sSerialOutFormat);
 //        XML_GET_STR(XmlRootNode, "SERIALOUTPORT",     sSerialOutPort)
 
         XML_GET_STR(XmlRootNode, "CALWIZ_SOURCE",         sCalSource)
+        bCalSourceEfis = (sCalSource == "EFIS");
 
         XMLElement * pXmlBias = XmlRootNode->FirstChildElement("BIAS");
         if (pXmlBias != NULL)
