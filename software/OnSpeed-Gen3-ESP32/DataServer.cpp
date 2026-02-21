@@ -41,6 +41,10 @@ void    DataServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t le
 size_t  UpdateLiveDataJson(char * pOut, size_t uOutSize);
 
 unsigned long   lNextMillis = 0;
+unsigned long   ulDataIntervalMs = 100;     // default 10 Hz; calibration page sets 20 (50 Hz)
+
+static const unsigned long  ulDefaultIntervalMs = 100;  // 10 Hz
+static const unsigned long  ulMinIntervalMs     = 20;   // 50 Hz max
 
 // ----------------------------------------------------------------------------
 
@@ -59,7 +63,7 @@ void DataServerPoll()
             if (uLen > 0)
                 DataServer.broadcastTXT(szLiveDataJson, uLen);
             }
-        lNextMillis = millis() + 100;
+        lNextMillis = millis() + ulDataIntervalMs;
         }
     }
 
@@ -87,24 +91,29 @@ void DataServerEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lengt
         {
         case WStype_DISCONNECTED:
             g_Log.printf(MsgLog::EnDataServer, MsgLog::EnDebug, "[%u] Disconnected!\n", num);
+            // Reset to default rate when no clients remain
+            if (DataServer.connectedClients(false) == 0)
+                ulDataIntervalMs = ulDefaultIntervalMs;
             break;
         case WStype_CONNECTED:
             {
             IPAddress ip = DataServer.remoteIP(num);
             g_Log.printf(MsgLog::EnDataServer, MsgLog::EnDebug, "[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-
-		    // send message to client
-		    // DataServer.sendTXT(num, "Connected");
             }
             break;
         case WStype_TEXT:
             g_Log.printf(MsgLog::EnDataServer, MsgLog::EnDebug, "[%u] Got Text: %s\n", num, payload);
 
-            // send message to client
-            // DataServer.sendTXT(num, "message here");
-
-            // send data to all connected clients
-            // DataServer.broadcastTXT("message here");
+            // Handle "rate:N" commands from the calibration page
+            if (length > 5 && strncmp((const char *)payload, "rate:", 5) == 0)
+                {
+                unsigned long ulRate = strtoul((const char *)payload + 5, nullptr, 10);
+                if (ulRate >= ulMinIntervalMs)
+                    ulDataIntervalMs = ulRate;
+                else
+                    ulDataIntervalMs = ulDefaultIntervalMs;
+                g_Log.printf(MsgLog::EnDataServer, MsgLog::EnDebug, "WebSocket rate set to %lu ms\n", ulDataIntervalMs);
+                }
             break;
         case WStype_BIN:
 	    case WStype_ERROR:
