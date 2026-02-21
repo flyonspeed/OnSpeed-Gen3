@@ -69,6 +69,7 @@ const char * MsgLog::szLevelName(EnLevel enLevel)
     if      (enLevel == EnDebug)    return "DEBUG";
     else if (enLevel == EnWarning)  return "WARNING";
     else if (enLevel == EnError)    return "ERROR";
+    else if (enLevel == EnOff)      return "OFF";
     else                            return "UNKNOWN";
     }
 
