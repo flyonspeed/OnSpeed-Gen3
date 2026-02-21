@@ -35,7 +35,7 @@ Seven of the original 15 bugs have been fixed, plus the startup audio issue (PR 
 | Bug | File:Line | What | Risk |
 |-----|-----------|------|------|
 | BUG-005/006 | `Switch.cpp:7-8` | Button flags `bSwitchDoSingleClick`/`bSwitchDoLongPress` not `volatile`, non-atomic toggle | **Low** — could miss button presses |
-| BUG-011 | `Globals.h:317` | `g_fCoeffP` is `volatile double` — 64-bit reads not atomic on 32-bit ESP32, value can tear | **Low** — unlikely but possible corrupt read |
+| ~~BUG-011~~ | ~~`Globals.h:317`~~ | ~~`g_fCoeffP` is `volatile double` — 64-bit reads not atomic on 32-bit ESP32, value can tear~~ | **Fixed** — changed to `volatile float` |
 | ~~BUG-012~~ | ~~`AHRS.cpp:143-169`~~ | ~~sin()/cos() of constant bias angles recomputed every cycle at 208 Hz~~ | **Fixed** — PR #41 |
 
 ### ~~Startup Audio Failure~~ (PR #42)

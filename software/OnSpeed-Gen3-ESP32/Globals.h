@@ -310,7 +310,7 @@ EXTERN_INIT(bool g_bPause,   false)
 //// I GOTTA FIND A BETTER HOME FOR THESE ONE OF THESE DAYS
 // Data mark
 EXTERN_INIT(volatile int g_iDataMark, 0)
-EXTERN volatile double g_fCoeffP;                 // coefficient of pressure
+EXTERN volatile float g_fCoeffP;                  // coefficient of pressure
 EXTERN_INIT(volatile bool g_bAudioEnable, true);    //// Move to audio
 
 // Debug data
