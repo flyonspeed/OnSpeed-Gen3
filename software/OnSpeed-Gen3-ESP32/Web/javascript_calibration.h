@@ -52,6 +52,14 @@ var alphaStall     = 0; // stall AOA from IAS-to-AOA fit
 var K_fit          = 0; // lift sensitivity from IAS-to-AOA fit
 var IAStoAOAr2   = 0; // R-squared of IAS-to-AOA fit
 
+// ---- Stacked calibration state ----
+var stackedData = {IAS:[], DerivedAOA:[], CP:[], smoothedIAS:[], smoothedCP:[],
+                   Pitch:[], Flightpath:[], DecelRate:[], stallIASvals:[]};
+var pendingRun  = null;  // the most recent run, waiting for keep/discard
+var stackedRunCount = 0;
+var stackedR2       = 0; // R^2 of fit on stacked data only (without pending run)
+var stackedFlapsPos = -1; // flap setting for the current stack
+
 // ---- WLS helpers ----
 
 // Compute rolling standard deviation of arr[] with a centered window of size winLen.
@@ -300,12 +308,11 @@ function recordData(on)
     console.log("Recording Start, flaps "+flapsPos);
     document.getElementById("idStartInstructions").style.display = "none";
     document.getElementById("idStopInstructions").style.display = "block";
-    // hide chart and results
     document.getElementById('CPchart').style="display:none";
     document.getElementById('curveResults').style.display="none";
     document.getElementById('saveCalButtons').style.display="none";
+    document.getElementById('stackButtons').style.display="none";
 
-    // init data recording arrays
     flightData.IAS=[];
     flightData.DerivedAOA=[];
     flightData.CP=[];
@@ -320,15 +327,13 @@ function recordData(on)
   else
     {
     console.log("Recording Stop");
-    document.getElementById("idStartInstructions").style.display = "block";
     document.getElementById("idStopInstructions").style.display = "none";
 
-    // Calculate smoothed IAS and CP, find max CP and min IAS.
     flapsPosCalibrated = flapsPos;
     flightData.smoothedIAS[0] = flightData.IAS[0];
     flightData.smoothedCP[0]  = flightData.CP[0];
     var stallCP = 0;
-    stallIAS = 100;
+    var runStallIAS = 100;
     var stallIndex = 0;
 
     for (i=1;i<flightData.IAS.length;i++)
@@ -338,17 +343,13 @@ function recordData(on)
       if (flightData.smoothedCP[i]>stallCP)
         {
         stallCP  = flightData.smoothedCP[i];
-        stallIAS = flightData.smoothedIAS[i];
+        runStallIAS = flightData.smoothedIAS[i];
         stallIndex = i;
         }
       }
 
-    // calculate manuvering speed
-    ManeuveringIAS=stallIAS*Math.sqrt(acGlimit);
+    console.log('Stall_CP='+stallCP+', Stall_IAS='+runStallIAS);
 
-    console.log('Stall_CP='+stallCP+', Stall_IAS='+stallIAS);
-
-    // Verify airspeed is decreasing (simple linear fit of IAS vs index)
     var iasIdx = [], iasVals = [], iasOnes = [];
     for (i=0;i<=stallIndex;i++)
       { iasIdx.push(i); iasVals.push(flightData.IAS[i]); iasOnes.push(1); }
@@ -357,181 +358,280 @@ function recordData(on)
     if (stallCP==0)
       {
       alert("Stall not detected, try again, pitch down for stall recovery");
-      console.log("Stall not detected, try again, pitch down for stall recovery");
+      document.getElementById("idStartInstructions").style.display = "block";
+      if (stackedRunCount > 0)
+        { document.getElementById('saveCalButtons').style.display="block"; document.getElementById('stackButtons').style.display="block"; }
       }
-    else if (resultIAS.slope<0)
-      {
-      // Airspeed is decreasing — compute curve fits
-
-      var useWLS = document.getElementById('chkWLS').checked;
-      var weights = new Array(stallIndex + 1);
-      if (useWLS)
-        {
-        var preStallAOA = flightData.DerivedAOA.slice(0, stallIndex + 1);
-        var sigma = rollingSigma(preStallAOA, 29);
-        for (i = 0; i <= stallIndex; i++)
-          weights[i] = 1.0 / Math.max(sigma[i] * sigma[i], 1e-9);
-        }
-      else
-        {
-        for (i = 0; i <= stallIndex; i++)
-          weights[i] = 1.0;
-        }
-
-      // ---- CP-to-AOA quadratic WLS fit (runtime curve) ----
-      var cpArr  = flightData.smoothedCP.slice(0, stallIndex + 1);
-      var aoaArr = flightData.DerivedAOA.slice(0, stallIndex + 1);
-      resultCPtoAOA = wlsQuadratic(cpArr, aoaArr, weights);
-      CPtoAOAcurve="AOA = "+resultCPtoAOA.equation[0].toFixed(4)+" * CP^2 ";
-      if (resultCPtoAOA.equation[1]>0) CPtoAOAcurve=CPtoAOAcurve+"+";
-      CPtoAOAcurve=CPtoAOAcurve+resultCPtoAOA.equation[1].toFixed(4)+" * CP ";
-      if (resultCPtoAOA.equation[2]>0) CPtoAOAcurve=CPtoAOAcurve+"+";
-      CPtoAOAcurve=CPtoAOAcurve+resultCPtoAOA.equation[2].toFixed(4);
-      CPtoAOAr2=resultCPtoAOA.r2;
-
-      // ---- IAS-to-AOA WLS linear fit (physics model for setpoints) ----
-      // DerivedAOA = K / IAS^2 + alpha_0  — linear in x = 1/IAS^2
-      var xIAS = [], yIAS = [], wIAS = [];
-      for (var j = 0; j <= stallIndex; j++)
-        {
-        var iasVal = flightData.IAS[j];
-        if (iasVal > 0)
-          {
-          xIAS.push(1.0 / (iasVal * iasVal));
-          yIAS.push(flightData.DerivedAOA[j]);
-          wIAS.push(weights[j]);
-          }
-        }
-      var resultIAStoAOA = wlsLinear(xIAS, yIAS, wIAS);
-      K_fit        = resultIAStoAOA.slope;       // K (lift sensitivity)
-      alpha0       = resultIAStoAOA.intercept;   // alpha_0 (zero-lift AOA)
-      alphaStall   = K_fit / (stallIAS * stallIAS) + alpha0;
-      IAStoAOAr2   = resultIAStoAOA.r2;
-      console.log("IAS-to-AOA WLS fit: K=" + K_fit + ", alpha0=" + alpha0 + ", alphaStall=" + alphaStall + ", R2=" + IAStoAOAr2);
-
-      // Update LDmaxIAS for flapped calibrations — use configured Vfe
-      if (flapIndex>0 && acVfe>0) LDmaxIAS=acVfe;
-
-      // All setpoints computed from the IAS-to-AOA fit: AOA = K / IAS^2 + alpha_0
-      // LDmax and Maneuvering use their IAS directly; OSFast/OSSlow use NAOA fractions.
-      LDmaxSetpoint       = (K_fit / (LDmaxIAS * LDmaxIAS) + alpha0).toFixed(2);
-
-      // NAOA-based setpoints: NAOA = 1/multiplier^2 (from lift equation)
-      var alphaRange = alphaStall - alpha0;
-      var NAOAfast   = 1.0 / (OSFastMultiplier * OSFastMultiplier);
-      var NAOAslow   = 1.0 / (OSSlowMultiplier * OSSlowMultiplier);
-      OSFastSetpoint      = (NAOAfast * alphaRange + alpha0).toFixed(2);
-      OSSlowSetpoint      = (NAOAslow * alphaRange + alpha0).toFixed(2);
-
-      // Stall warning from fit at Vs + margin
-      var stallWarnIAS    = stallIAS + StallWarnMargin;
-      StallWarnSetpoint   = (K_fit / (stallWarnIAS * stallWarnIAS) + alpha0).toFixed(2);
-
-      // Stall from fit (more accurate than polynomial at peak CP)
-      StallSetpoint       = alphaStall.toFixed(2);
-
-      // Maneuvering: Va = Vs * sqrt(G-limit), AOA from fit
-      ManeuveringSetpoint = (K_fit / (ManeuveringIAS * ManeuveringIAS) + alpha0).toFixed(2);
-      console.log("CPtoAOA:",resultCPtoAOA);
-
-      // Build scatterplot data
-
-      var chartData=new Object();
-      chartData.series=[];
-      chartData.series[0] = new Object();
-      chartData.series[0].name = "measuredAOA";
-      chartData.series[0].data = [];
-
-      chartData.series[1] = new Object();
-      chartData.series[1].name = "predictedAOA";
-      chartData.series[1].data = [];
-
-      for (i=stallIndex; i>0;i--)
-        {
-        dataPoint=new Object();
-        dataPoint.x=flightData.smoothedCP[i];
-        dataPoint.y=flightData.DerivedAOA[i];
-        chartData.series[0].data.push(dataPoint);
-        dataPoint=new Object();
-        dataPoint.x=flightData.smoothedCP[i];
-        dataPoint.y=(resultCPtoAOA.equation[0]*flightData.smoothedCP[i]*flightData.smoothedCP[i]+resultCPtoAOA.equation[1]*flightData.smoothedCP[i]+resultCPtoAOA.equation[2]).toFixed(2);
-        chartData.series[1].data.push(dataPoint);
-        }
-      console.log(chartData);
-
-      // Update chart
-      var options = {
-        showLine: false,
-        axisX: {
-          labelInterpolationFnc: function(value, index) {
-            return index % 100 === 0 ? value : null;
-            },
-          type: Chartist.AutoScaleAxis,
-          },
-        series:{
-          'measuredAOA':{
-            showPoint: true,
-            showLine: false
-            },
-          'predictedAOA':{
-            showPoint: false,
-            showLine: true,
-            lineSmooth: Chartist.Interpolation.simple()
-            }
-          }
-        };
-
-      var responsiveOptions = [
-        ['screen and (min-width: 640px)', {
-          axisX: {
-            labelInterpolationFnc: function(value, index) {
-              return value;
-              }
-            }
-          }]
-        ];
-
-      // Show chart and results
-      document.getElementById('idStallSpeed').innerHTML=stallIAS.toFixed(2);
-      document.getElementById('idCPtoAOACurve').innerHTML=CPtoAOAcurve;
-      document.getElementById('idLDmaxSetpoint').innerHTML=LDmaxSetpoint;
-      document.getElementById('idOSFastSetpoint').innerHTML=OSFastSetpoint;
-      document.getElementById('idOSSlowSetpoint').innerHTML=OSSlowSetpoint;
-      document.getElementById('idStallWarnSetpoint').innerHTML=StallWarnSetpoint;
-      document.getElementById('idManeuveringSetpoint').innerHTML=ManeuveringSetpoint;
-      document.getElementById('idStallSetpoint').innerHTML=StallSetpoint;
-      document.getElementById('idCPtoAOAr2').innerHTML=CPtoAOAr2.toFixed(4);
-      document.getElementById('idAlpha0').innerHTML=alpha0.toFixed(2);
-      document.getElementById('idAlphaStall').innerHTML=alphaStall.toFixed(2);
-      document.getElementById('idIAStoAOAr2').innerHTML=IAStoAOAr2.toFixed(4);
-      var methodLabel = useWLS ? 'WLS' : 'OLS';
-      var r2Label = useWLS ? 'Weighted R<sup>2</sup>' : 'R<sup>2</sup>';
-      document.getElementById('idFitMethod').innerHTML=methodLabel;
-      document.getElementById('idFitMethod2').innerHTML=methodLabel;
-      document.getElementById('idCPtoAOAr2Label').innerHTML=r2Label;
-      document.getElementById('idIAStoAOAr2Label').innerHTML=r2Label;
-      document.getElementById('CPchart').style.display="block";
-      document.getElementById('curveResults').style.display="block";
-      document.getElementById('saveCalButtons').style.display="block";
-
-      new Chartist.Line('.ct-chart', chartData, options, responsiveOptions);
-      }
-
-    else
+    else if (resultIAS.slope>=0)
       {
       alert("Airspeed is increasing, try again");
-      console.log("Airspeed is increasing, try again");
+      document.getElementById("idStartInstructions").style.display = "block";
+      if (stackedRunCount > 0)
+        { document.getElementById('saveCalButtons').style.display="block"; document.getElementById('stackButtons').style.display="block"; }
+      }
+    else
+      {
+      // Check flap consistency
+      if (stackedRunCount > 0 && flapsPos != stackedFlapsPos)
+        {
+        alert("Flap position changed from "+stackedFlapsPos+" to "+flapsPos+". Cannot stack across flap settings. Discard or save current stack first.");
+        document.getElementById("idStartInstructions").style.display = "block";
+        document.getElementById('saveCalButtons').style.display="block";
+        document.getElementById('stackButtons').style.display="block";
+        return;
+        }
+
+      // Store this run as pending
+      pendingRun = {
+        IAS:         flightData.IAS.slice(0, stallIndex+1),
+        DerivedAOA:  flightData.DerivedAOA.slice(0, stallIndex+1),
+        CP:          flightData.CP.slice(0, stallIndex+1),
+        smoothedIAS: flightData.smoothedIAS.slice(0, stallIndex+1),
+        smoothedCP:  flightData.smoothedCP.slice(0, stallIndex+1),
+        Pitch:       flightData.Pitch.slice(0, stallIndex+1),
+        Flightpath:  flightData.Flightpath.slice(0, stallIndex+1),
+        DecelRate:   flightData.DecelRate.slice(0, stallIndex+1),
+        stallIAS:    runStallIAS
+        };
+
+      if (stackedRunCount == 0) stackedFlapsPos = flapsPos;
+
+      // Fit stacked + pending combined
+      var combined = mergeRunData(stackedData, pendingRun);
+      var combinedFit = fitAllData(combined);
+
+      // If there's stacked data, also show the stacked-only R^2 for comparison
+      if (stackedRunCount > 0)
+        {
+        document.getElementById('idStackComparison').style.display="block";
+        document.getElementById('idStackR2').innerHTML = stackedR2.toFixed(4);
+        document.getElementById('idCombinedR2').innerHTML = combinedFit.cpR2.toFixed(4);
+        var el = document.getElementById('idCombinedR2');
+        el.style.color = combinedFit.cpR2 >= stackedR2 ? '#008800' : '#cc0000';
+        }
+      else
+        document.getElementById('idStackComparison').style.display="none";
+
+      // Apply the combined fit as current results
+      applyCombinedFit(combinedFit, combined);
+
+      // Show results, chart, and stacking buttons
+      document.getElementById("idStartInstructions").style.display = "none";
+      document.getElementById('idRunCount').innerHTML = stackedRunCount + " kept + 1 pending";
+      document.getElementById('curveResults').style.display="block";
+      document.getElementById('CPchart').style.display="block";
+      document.getElementById('saveCalButtons').style.display="block";
+      document.getElementById('stackButtons').style.display="block";
       }
     }
+  }
+
+
+function mergeRunData(base, run)
+  {
+  if (!run) return base;
+  var m = {};
+  var keys = ['IAS','DerivedAOA','CP','smoothedIAS','smoothedCP','Pitch','Flightpath','DecelRate'];
+  for (var k = 0; k < keys.length; k++)
+    m[keys[k]] = base[keys[k]].concat(run[keys[k]]);
+  m.stallIASvals = base.stallIASvals.concat([run.stallIAS]);
+  return m;
+  }
+
+
+function fitAllData(data)
+  {
+  var n = data.smoothedCP.length;
+  if (n < 10) return null;
+
+  var useWLS = document.getElementById('chkWLS').checked;
+  var weights = new Array(n);
+  if (useWLS)
+    {
+    var sigma = rollingSigma(data.DerivedAOA, 29);
+    for (var i = 0; i < n; i++)
+      weights[i] = 1.0 / Math.max(sigma[i] * sigma[i], 1e-9);
+    }
+  else
+    {
+    for (var i = 0; i < n; i++)
+      weights[i] = 1.0;
+    }
+
+  var cpResult = wlsQuadratic(data.smoothedCP, data.DerivedAOA, weights);
+
+  var xIAS = [], yIAS = [], wIAS = [];
+  for (var j = 0; j < n; j++)
+    {
+    var v = data.IAS[j];
+    if (v > 0) { xIAS.push(1.0/(v*v)); yIAS.push(data.DerivedAOA[j]); wIAS.push(weights[j]); }
+    }
+  var iasResult = wlsLinear(xIAS, yIAS, wIAS);
+
+  // Average stall IAS from all runs
+  var sIAS = data.stallIASvals;
+  var avgStallIAS = 0;
+  for (var i = 0; i < sIAS.length; i++) avgStallIAS += sIAS[i];
+  avgStallIAS /= sIAS.length;
+
+  return {
+    cpEq: cpResult.equation, cpR2: cpResult.r2,
+    K: iasResult.slope, a0: iasResult.intercept, iasR2: iasResult.r2,
+    stallIAS: avgStallIAS,
+    alphaStall: iasResult.slope / (avgStallIAS * avgStallIAS) + iasResult.intercept
+    };
+  }
+
+
+function applyCombinedFit(fit, data)
+  {
+  resultCPtoAOA = {equation: fit.cpEq};
+  CPtoAOAr2 = fit.cpR2;
+  CPtoAOAcurve = "AOA = "+fit.cpEq[0].toFixed(4)+" * CP^2 ";
+  if (fit.cpEq[1]>0) CPtoAOAcurve += "+";
+  CPtoAOAcurve += fit.cpEq[1].toFixed(4)+" * CP ";
+  if (fit.cpEq[2]>0) CPtoAOAcurve += "+";
+  CPtoAOAcurve += fit.cpEq[2].toFixed(4);
+
+  K_fit      = fit.K;
+  alpha0     = fit.a0;
+  stallIAS   = fit.stallIAS;
+  alphaStall = fit.alphaStall;
+  IAStoAOAr2 = fit.iasR2;
+
+  ManeuveringIAS = stallIAS * Math.sqrt(acGlimit);
+  if (flapIndex>0 && acVfe>0) LDmaxIAS = acVfe;
+
+  LDmaxSetpoint       = (K_fit / (LDmaxIAS * LDmaxIAS) + alpha0).toFixed(2);
+  var alphaRange       = alphaStall - alpha0;
+  OSFastSetpoint      = (1.0/(OSFastMultiplier*OSFastMultiplier) * alphaRange + alpha0).toFixed(2);
+  OSSlowSetpoint      = (1.0/(OSSlowMultiplier*OSSlowMultiplier) * alphaRange + alpha0).toFixed(2);
+  var stallWarnIAS     = stallIAS + StallWarnMargin;
+  StallWarnSetpoint   = (K_fit / (stallWarnIAS * stallWarnIAS) + alpha0).toFixed(2);
+  StallSetpoint       = alphaStall.toFixed(2);
+  ManeuveringSetpoint = (K_fit / (ManeuveringIAS * ManeuveringIAS) + alpha0).toFixed(2);
+
+  // Update display
+  document.getElementById('idStallSpeed').innerHTML = stallIAS.toFixed(2);
+  document.getElementById('idCPtoAOACurve').innerHTML = CPtoAOAcurve;
+  document.getElementById('idLDmaxSetpoint').innerHTML = LDmaxSetpoint;
+  document.getElementById('idOSFastSetpoint').innerHTML = OSFastSetpoint;
+  document.getElementById('idOSSlowSetpoint').innerHTML = OSSlowSetpoint;
+  document.getElementById('idStallWarnSetpoint').innerHTML = StallWarnSetpoint;
+  document.getElementById('idManeuveringSetpoint').innerHTML = ManeuveringSetpoint;
+  document.getElementById('idStallSetpoint').innerHTML = StallSetpoint;
+  document.getElementById('idCPtoAOAr2').innerHTML = CPtoAOAr2.toFixed(4);
+  document.getElementById('idAlpha0').innerHTML = alpha0.toFixed(2);
+  document.getElementById('idAlphaStall').innerHTML = alphaStall.toFixed(2);
+  document.getElementById('idIAStoAOAr2').innerHTML = IAStoAOAr2.toFixed(4);
+  var useWLS = document.getElementById('chkWLS').checked;
+  var methodLabel = useWLS ? 'WLS' : 'OLS';
+  var r2Label = useWLS ? 'Weighted R<sup>2</sup>' : 'R<sup>2</sup>';
+  document.getElementById('idFitMethod').innerHTML = methodLabel;
+  document.getElementById('idFitMethod2').innerHTML = methodLabel;
+  document.getElementById('idCPtoAOAr2Label').innerHTML = r2Label;
+  document.getElementById('idIAStoAOAr2Label').innerHTML = r2Label;
+
+  // Build chart: stacked data (blue) + pending run (orange) + fitted curve
+  var chartData = {series:[]};
+  chartData.series[0] = {name:'stackedAOA', data:[]};
+  chartData.series[1] = {name:'pendingAOA', data:[]};
+  chartData.series[2] = {name:'predictedAOA', data:[]};
+
+  // Stacked data points
+  for (i = stackedData.smoothedCP.length - 1; i >= 0; i--)
+    chartData.series[0].data.push({x:stackedData.smoothedCP[i], y:stackedData.DerivedAOA[i]});
+
+  // Pending run points
+  if (pendingRun)
+    for (i = pendingRun.smoothedCP.length - 1; i >= 0; i--)
+      chartData.series[1].data.push({x:pendingRun.smoothedCP[i], y:pendingRun.DerivedAOA[i]});
+
+  // Fitted curve over all combined data
+  var allCP = data.smoothedCP.slice().sort(function(a,b){return a-b;});
+  var step = Math.max(1, Math.floor(allCP.length / 200));
+  for (i = 0; i < allCP.length; i += step)
+    {
+    var cp = allCP[i];
+    chartData.series[2].data.push({x:cp, y:(fit.cpEq[0]*cp*cp + fit.cpEq[1]*cp + fit.cpEq[2]).toFixed(2)});
+    }
+
+  var options = {
+    showLine: false,
+    axisX: {
+      labelInterpolationFnc: function(value, index) { return index % 100 === 0 ? value : null; },
+      type: Chartist.AutoScaleAxis
+      },
+    series:{
+      'stackedAOA':   {showPoint:true, showLine:false},
+      'pendingAOA':   {showPoint:true, showLine:false},
+      'predictedAOA': {showPoint:false, showLine:true, lineSmooth:Chartist.Interpolation.simple()}
+      }
+    };
+  var responsiveOptions = [
+    ['screen and (min-width: 640px)', { axisX: { labelInterpolationFnc: function(v){return v;} } }]
+    ];
+  new Chartist.Line('.ct-chart', chartData, options, responsiveOptions);
+  }
+
+
+function keepRun()
+  {
+  if (!pendingRun) return;
+  var keys = ['IAS','DerivedAOA','CP','smoothedIAS','smoothedCP','Pitch','Flightpath','DecelRate'];
+  for (var k = 0; k < keys.length; k++)
+    stackedData[keys[k]] = stackedData[keys[k]].concat(pendingRun[keys[k]]);
+  stackedData.stallIASvals.push(pendingRun.stallIAS);
+  stackedRunCount++;
+  pendingRun = null;
+
+  // Recompute stacked-only fit for future comparison
+  var stackFit = fitAllData(stackedData);
+  if (stackFit) stackedR2 = stackFit.cpR2;
+
+  document.getElementById('idRunCount').innerHTML = stackedRunCount + " kept";
+  document.getElementById('idStackComparison').style.display="none";
+  document.getElementById("idStartInstructions").style.display = "block";
+  console.log("Run kept. Stack has " + stackedRunCount + " runs, " + stackedData.IAS.length + " points");
+  }
+
+
+function discardRun()
+  {
+  pendingRun = null;
+  document.getElementById('idStackComparison').style.display="none";
+  document.getElementById("idStartInstructions").style.display = "block";
+
+  if (stackedRunCount > 0)
+    {
+    // Re-show stacked results
+    var stackFit = fitAllData(stackedData);
+    if (stackFit) { applyCombinedFit(stackFit, stackedData); stackedR2 = stackFit.cpR2; }
+    document.getElementById('idRunCount').innerHTML = stackedRunCount + " kept";
+    }
+  else
+    {
+    document.getElementById('curveResults').style.display="none";
+    document.getElementById('CPchart').style.display="none";
+    document.getElementById('saveCalButtons').style.display="none";
+    document.getElementById('stackButtons').style.display="none";
+    }
+  console.log("Run discarded.");
   }
 
 
 
 function saveData()
   {
+  // Export all data: stacked + pending (if any)
+  var allData = pendingRun ? mergeRunData(stackedData, pendingRun) : stackedData;
+  // Fall back to current flightData if nothing is stacked
+  if (allData.IAS.length == 0) allData = flightData;
+
   var fileContent = "";
   fileContent += ";Calibration run Date/Time="+calDate+"\n";
-  fileContent += ";Flap position="+flapsPos+" deg\n";
+  fileContent += ";Flap position="+flapsPosCalibrated+" deg\n";
+  fileContent += ";Runs in stack="+stackedRunCount+(pendingRun ? "+1 pending" : "")+"\n";
   fileContent += ";StallSpeed="+stallIAS.toFixed(2)+" kts\n";
   fileContent += ";AOA Setpoint angles:\n";
   fileContent += ";LDmaxSetpoint="+LDmaxSetpoint+"\n";
@@ -548,14 +648,12 @@ function saveData()
   fileContent += ";\n";
   fileContent += "; Data:\n";
   fileContent += "IAS,CP,DerivedAOA,Pitch,FlightPath,DecelRate\n";
-  for (i=0;i<=flightData.IAS.length-1 ;i++)
-    {
-    fileContent+=flightData.IAS[i]+","+flightData.CP[i]+","+flightData.DerivedAOA[i]+","+flightData.Pitch[i]+","+flightData.Flightpath[i]+","+flightData.DecelRate[i]+"\n";
-    }
+  for (i=0; i<allData.IAS.length; i++)
+    fileContent += allData.IAS[i]+","+allData.CP[i]+","+allData.DerivedAOA[i]+","+allData.Pitch[i]+","+allData.Flightpath[i]+","+allData.DecelRate[i]+"\n";
 
-  var bb = new Blob([fileContent ], { type: 'application/csv' });
+  var bb = new Blob([fileContent], { type: 'application/csv' });
   var a = document.createElement('a');
-  a.download = 'calibration-flap'+flapsPos+'_'+calDate.toISOString().substring(0, 10)+'-'+calDate.getHours()+'_'+calDate.getMinutes()+'.csv';
+  a.download = 'calibration-flap'+flapsPosCalibrated+'_'+calDate.toISOString().substring(0, 10)+'-'+calDate.getHours()+'_'+calDate.getMinutes()+'.csv';
   a.href = window.URL.createObjectURL(bb);
   a.click();
   }
