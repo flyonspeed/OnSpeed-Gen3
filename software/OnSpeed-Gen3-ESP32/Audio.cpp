@@ -29,6 +29,7 @@
 
 #include "Globals.h"
 #include "Helpers.h"
+#include <ToneCalc.h>
 
 #include "Audio/PCM_cal_canceled.h"
 #include "Audio/PCM_cal_mode.h"
@@ -68,13 +69,8 @@ int16_t            aTone_1600Hz[TONE_BUFFER_LEN];
 
 #define FREERTOS
 
-// Tone Pulse Per Sec (PPS)
-#define HIGH_TONE_STALL_PPS    20                 // how many PPS to play during stall
-#define HIGH_TONE_PPS_MAX       6.2
-#define HIGH_TONE_PPS_MIN       1.5               // 1.5
+// Tone frequency and ramp constants (PPS constants moved to onspeed_core/ToneCalc.h)
 #define HIGH_TONE_HZ         1600                 // freq of high tone
-#define LOW_TONE_PPS_MAX        8.2
-#define LOW_TONE_PPS_MIN        1.5
 #define LOW_TONE_HZ           400                 // freq of low tone
 #define TONE_RAMP_TIME         15                 // millisec
 #define STALL_RAMP_TIME         5                 // millisec
@@ -473,83 +469,42 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 
 void AudioPlay::UpdateTones()
     {
-    float   fNewPulseFreq;
-
     // If audio test is in progress then don't do anything
     if (bAudioTest)
         return;
 
-    // If audio is disabled by button, only allow stall warning through
+    onspeed::ToneResult result;
+
     if (!g_bAudioEnable)
         {
-        if (g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA &&
-            g_Sensors.IAS > g_Config.iMuteAudioUnderIAS)
-            {
-            SetTone(enToneHigh);
-            SetPulseFreq(HIGH_TONE_STALL_PPS);
-            }
-        else
-            {
-            SetTone(enToneNone);
-            }
-        return;
+        // Audio disabled by button — only allow stall warning through
+        result = onspeed::calculateToneMuted(
+            g_Sensors.AOA, g_Sensors.IAS,
+            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
+            g_Config.iMuteAudioUnderIAS);
         }
-
-    // If airspeed is low (like taxiing) don't make audio
-    if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
+    else if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
         {
+        // Airspeed too low (taxiing) — mute, but set pulse rate high for quick pickup
 #ifdef TONEDEBUG
         AudioLogDebugNoBlock("AUDIO MUTED: Airspeed too low. Min:%i IAS:%.2f\n",
             g_Config.iMuteAudioUnderIAS, g_Sensors.IAS);
 #endif
-        SetTone(enToneNone);
-        SetPulseFreq(20); // set the update rate to LOW_TONE_PPS_MAX if no tone is playing to pick up a pulsed tone quickly
-        return;
-        }
-
-    // check AOA value and set tone and pauses between tones according to
-    if      (g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA) // stallWarningAOA
-        {
-        // play 20 pps HIGH tone
-        SetTone(enToneHigh);
-        SetPulseFreq(HIGH_TONE_STALL_PPS);
-        }
-    else if (g_Sensors.AOA > (g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA))    // onSpeedAOAslow
-        {
-        // play HIGH tone at Pulse Rate 1.5 PPS to 6.2 PPS (depending on AOA value)
-        SetTone(enToneHigh);
-        fNewPulseFreq = mapfloat(
-            g_Sensors.AOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,    // onSpeedAOAslow
-            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,      // stallWarningAOA
-            HIGH_TONE_PPS_MIN,
-            HIGH_TONE_PPS_MAX);
-        SetPulseFreq(fNewPulseFreq); // when transitioning from solid to high tone make the first one shorter
-        }
-    else if(g_Sensors.AOA >= (g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA)) // onSpeedAOAfast
-        {
-        // play a steady LOW tone
-        SetTone(enToneLow);
-        SetPulseFreq(0);
-        }
-    else if ((g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA) && // LDmaxAOA
-             (g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA < g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA)) // onSpeedAOAfast
-        {  // if L/D max AOA is higher than OnSpeedfast, skip the low tone. This usually happens with full flaps.
-        SetTone(enToneLow);
-        // play LOW tone at Pulse Rate 1.5 PPS to 8.2 PPS (depending on AOA value)
-        fNewPulseFreq = mapfloat(
-            g_Sensors.AOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,       // LDmaxAOA
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA, // onSpeedAOAfast,
-            LOW_TONE_PPS_MIN,
-            LOW_TONE_PPS_MAX);
-        SetPulseFreq(fNewPulseFreq);
+        result = { onspeed::EnToneType::None, 20.0f };
         }
     else
         {
-        SetTone(enToneNone);
-        SetPulseFreq(0);
+        const onspeed::ToneThresholds th = {
+            g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
+            };
+        result = onspeed::calculateTone(g_Sensors.AOA, th);
         }
+
+    SetTone(static_cast<EnAudioTone>(result.enTone));
+    SetPulseFreq(result.fPulseFreq);
     }
 
 // ----------------------------------------------------------------------------
