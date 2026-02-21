@@ -246,11 +246,7 @@ void DisplaySerial::Write()
 
         int gOnsetRate      = 0;
         int spinRecoveryCue = 0;
-#ifdef OAT_AVAILABLE
-        int iOATc           = int(g_Sensors.OatC);
-#else
-        int iOATc           = 0;
-#endif
+        int iOATc           = g_Config.bOatSensor ? int(g_Sensors.OatC) : 0;
 
         const int      iPitch10    = SafeScaledInt(g_AHRS.SmoothedPitch, 10.0f, -999,    999);
         const int      iRoll10     = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
