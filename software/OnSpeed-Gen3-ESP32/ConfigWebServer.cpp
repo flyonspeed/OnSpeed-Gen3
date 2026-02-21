@@ -1278,7 +1278,7 @@ R"#(        </section>)#" "\n";
     // Load default config
     sPage += R"#(
         <div class="form-divs flex-col-5">
-            <a href="/defaultconfig">
+            <a href="/defaultconfig" onclick="return confirm('Load default configuration? Any unsaved changes will be lost.');">
                 <input id="id_loadDefaultConfig" name="loadDefaultConfig" type="button" value="Load Defaults" class="greybutton"/>
             </a>
         </div>)#";
