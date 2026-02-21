@@ -24,6 +24,7 @@ const float iasSmoothing = 0.0179f;                             // airspeed smoo
 const float iasTauFactor = (1.0f / iasSmoothing) - 1.0f;        // tau multiplier for variable-rate EMA
 
 const float kPressureDeltaTime = 1.0f / PRESSURE_SAMPLE_RATE;   // fallback dt for IAS derivative
+const float kMinIasForFlightPath = 25.0f;                      // IAS (kt) below which FlightPath/VSI are zeroed
 
 // ----------------------------------------------------------------------------
 
@@ -323,7 +324,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
     KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), fDeltaTimeSeconds, &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
     // zero VSI when airspeed is not yet alive
-    if (g_Sensors.IAS < 25)
+    if (g_Sensors.IAS < kMinIasForFlightPath)
     {
         KalmanVSI = 0;
         bIasWasBelowThreshold = true;
@@ -339,7 +340,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
     }
 
     // calculate flight path and derived AOA
-    if (g_Sensors.IAS != 0.0)
+    if (g_Sensors.IAS >= kMinIasForFlightPath)
         FlightPath = rad2deg(safeAsin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
     else
         FlightPath = 0.0;
