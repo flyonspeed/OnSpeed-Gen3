@@ -153,6 +153,29 @@ void test_high_g_stability(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, madgwick.getRoll());
 }
 
+// Verify pitch never returns NaN even when quaternion drifts slightly
+// beyond unit length, causing the asin argument to exceed [-1, 1].
+// This is the BUG-S01 regression test.
+void test_pitch_no_nan_at_quaternion_boundary(void) {
+    madgwick.begin(SAMPLE_FREQ, 0.0f, 0.0f);
+
+    // Force quaternion into a state where -2*(q1*q3 - q0*q2) slightly exceeds 1.0.
+    // Direct quaternion manipulation via begin() with 90-degree pitch, then
+    // feed aggressive updates to push rounding past unity.
+    madgwick.begin(SAMPLE_FREQ, 89.9f, 0.0f);
+
+    // Rapid large-amplitude pitch oscillation to stress quaternion normalization
+    for (int i = 0; i < 2000; i++) {
+        float phase = (float)i * 0.5f;
+        madgwick.UpdateIMU(50.0f * sinf(phase), 100.0f * cosf(phase), 30.0f * sinf(phase * 0.7f),
+                           sinf(phase * 0.3f), cosf(phase * 0.4f), -0.5f);
+    }
+
+    float pitch = madgwick.getPitch();
+    TEST_ASSERT_FALSE(std::isnan(pitch));
+    TEST_ASSERT_TRUE(pitch >= -90.0f && pitch <= 90.0f);
+}
+
 // Verify radians accessor works correctly
 void test_radians_accessors(void) {
     madgwick.begin(SAMPLE_FREQ, 0.0f, 0.0f);
@@ -180,6 +203,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_quaternion_remains_normalized);
     RUN_TEST(test_zero_acceleration_handling);
     RUN_TEST(test_high_g_stability);
+    RUN_TEST(test_pitch_no_nan_at_quaternion_boundary);
     RUN_TEST(test_radians_accessors);
     return UNITY_END();
 }

@@ -21,6 +21,7 @@
 // Header files
 
 #include "MadgwickFusion.h"
+#include "OnSpeedTypes.h"
 #include <math.h>
 #include <cstring>
 
@@ -290,7 +291,7 @@ float Madgwick::invSqrt(float x)
 void Madgwick::computeAngles()
 {
     roll  = atan2f(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2);
-    pitch = asinf(-2.0f * (q1*q3 - q0*q2));
+    pitch = safeAsin(-2.0f * (q1*q3 - q0*q2));
     yaw   = atan2f(q1*q2 + q0*q3, 0.5f - q2*q2 - q3*q3);
 
     anglesComputed = 1;
