@@ -18,6 +18,9 @@ const char htmlCalibration[] PROGMEM = R"=====(
 <style>
 body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:middle}.graph .labels.y-labels{text-anchor:end}
 .graph{height:350px;width:210px}.graph .grid{stroke:#ccc;stroke-dasharray:0;stroke-width:1}.labels{font-size:13px}.label-title{font-weight:700;font-size:12px;fill:#000}.data{fill:red;stroke-width:1}
+.ct-series-a .ct-point{stroke:#3366cc}
+.ct-series-b .ct-point{stroke:#dd6600}
+.ct-series-c .ct-line{stroke:#222}
 </style>
 <div id="maintable" style="display:table;margin-top:20px;width:350px">
       <div id="decelgauge" style="display:table-cell">
@@ -31,7 +34,6 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
             <text x="20" y="234">0</text>
             <text x="20" y="289">1</text>
             <text x="20" y="345">+2</text>
-            <!--<text x="50" y="178" class="label-title">Kts/sec</text>-->
           </g>
           <g>
           <rect x="30" y="5" width="160" height="140" style="fill:rgb(255,0,0);fill-opacity:0.8;" />
@@ -63,7 +65,11 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
 
 </div>
 <div id="curveResults" style="display: none;margin-left:65px;margin-top:10px">
-    <b>Calibration Results:</b><br><br>
+    <b>Calibration Results</b> &mdash; Runs: <span id="idRunCount">0</span><br><br>
+    <div id="idStackComparison" style="display:none;margin-bottom:8px;padding:4px;border:1px solid #ccc;background:#f8f8f8">
+      R<sup>2</sup> current stack: <span id="idStackR2"></span><br>
+      R<sup>2</sup> with this run: <span id="idCombinedR2" style="font-weight:bold"></span>
+    </div>
     Stall Speed: <span id="idStallSpeed"></span> kts<br>
     CP to AOA Curve (<span id="idFitMethod">WLS</span>): <span id="idCPtoAOACurve"></span><br>
     <span id="idCPtoAOAr2Label">Weighted R<sup>2</sup></span>: <span id="idCPtoAOAr2"></span><br><br>
@@ -79,10 +85,14 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
       Alpha-Stall: <span id="idAlphaStall"></span> deg<br>
       <span id="idIAStoAOAr2Label">Weighted R<sup>2</sup></span>: <span id="idIAStoAOAr2"></span><br>
 </div>
+<div id="stackButtons" style="display:none;margin-left:40px">
+<button type="submit" class="button" style="background-color:#008800;color:#fff;width:150px" onClick="keepRun()">Keep Run</button>
+<button type="submit" class="button" style="background-color:#cc0000;color:#fff;width:150px" onClick="discardRun()">Discard Run</button>
+</div>
 <div id="saveCalButtons" style="display: none;margin-left:40px">
 <br>
-<button type="submit" class="button" style="background-color:#42a7f5;" onClick="saveCalibration()">Save Calibration</button></span>
-<button type="submit" class="button" style="background-color:#42a7f5;" onClick="saveData()">Save data to File</button><br></span>
+<button type="submit" class="button" style="background-color:#42a7f5;" onClick="saveCalibration()">Save Calibration</button>
+<button type="submit" class="button" style="background-color:#42a7f5;" onClick="saveData()">Save data to File</button><br>
 </div>
 <br>
  <div id="CPchart" style="display:none">
