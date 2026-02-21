@@ -110,4 +110,5 @@ public:
     void Init(EnEfisType enEfisType, HardwareSerial * pEfisSerial);
     void Enable(bool bEnable);
     void Read();
+    bool IsDataFresh(unsigned long maxAgeMs) const { return (millis() - uTimestamp) < maxAgeMs; }
 };

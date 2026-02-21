@@ -121,8 +121,8 @@ void AHRS::Process(float fDeltaTimeSeconds)
     float fOatC;
     bool  bHaveOat = false;
 
-    // Prefer EFIS OAT when EFIS is the calibration source
-    if (g_Config.sCalSource == "EFIS" && g_Config.bReadEfisData)
+    // Prefer EFIS OAT when EFIS is the calibration source and data is fresh
+    if (g_Config.sCalSource == "EFIS" && g_Config.bReadEfisData && g_EfisSerial.IsDataFresh(2000))
         {
         fOatC    = g_EfisSerial.suEfis.OAT;
         bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
