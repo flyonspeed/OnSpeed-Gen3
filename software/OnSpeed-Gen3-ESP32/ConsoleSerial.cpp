@@ -342,6 +342,7 @@ void ConsoleSerialIO::Read()
                         if      (strcasecmp(szLevel, "DEBUG")   == 0) bStatus = g_Log.Set(szModName, MsgLog::EnDebug);
                         else if (strcasecmp(szLevel, "WARNING") == 0) bStatus = g_Log.Set(szModName, MsgLog::EnWarning);
                         else if (strcasecmp(szLevel, "ERROR")   == 0) bStatus = g_Log.Set(szModName, MsgLog::EnError);
+                        else if (strcasecmp(szLevel, "OFF")     == 0) bStatus = g_Log.Set(szModName, MsgLog::EnOff);
                         else g_Log.printf("Level '%s' not recognized\n", szLevel);
 
                         if (bStatus == false)
