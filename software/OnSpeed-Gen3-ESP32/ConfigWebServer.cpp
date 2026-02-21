@@ -1631,8 +1631,8 @@ void HandleConfigSave()
     else                                                                        g_Config.bOverGWarning=false;
 
     // loadLimit
-    if (CfgServer.hasArg("loadLimitPositive")) g_Config.fLoadLimitPositive=CfgServer.arg("loadLimitPositive").toFloat();
-    if (CfgServer.hasArg("loadLimitNegative")) g_Config.fLoadLimitNegative=CfgServer.arg("loadLimitNegative").toFloat();
+    if (CfgServer.hasArg("loadLimitPositive")) g_Config.fLoadLimitPositive= fabsf(CfgServer.arg("loadLimitPositive").toFloat());
+    if (CfgServer.hasArg("loadLimitNegative")) g_Config.fLoadLimitNegative=-fabsf(CfgServer.arg("loadLimitNegative").toFloat());
 
     // vnochime
     if (CfgServer.hasArg("vnoChimeEnabled") && (CfgServer.arg("vnoChimeEnabled")=="1")) g_Config.bVnoChimeEnabled=true;
