@@ -11,8 +11,6 @@ using onspeed::mps2fpm;
 
 //SoftwareSerial      DispSerial(DISPLAY_SER_RX, DISPLAY_SER_TX);
 
-const int   serialDisplaySmoothingLat  = 50;    // smoothing serial display data (LateralG)  10hz data.
-const int   serialDisplaySmoothingVert = 20;    // smoothing serial display data (VertG)  10hz data.
 
 static inline bool IsFiniteFloat(float v)
 {
@@ -108,9 +106,6 @@ DisplaySerial::DisplaySerial()
 
 void DisplaySerial::Init(Stream * pDispSerial)
 {
-    fPAltSmoothed      = 0.0;
-    fVerticalGSmoothed = 1.0;  // start at 1G;
-    fLateralGSmoothed  = 0.0;
 
     // In the original G2V3 implementation the panel output port could be
     // selected. In this implementation panel output is a fixed serial
@@ -134,8 +129,6 @@ void DisplaySerial::Write()
     int     iPercentLift;
     float   fDisplayAOA;
     float   fDisplayIAS;
-    float   smoothingAlphaLat  = 2.0 / (serialDisplaySmoothingLat  + 1);
-    float   smoothingAlphaVert = 2.0 / (serialDisplaySmoothingVert + 1);
     int     iDisplayVerticalG;
 
 #ifdef SPHERICAL_PROBE
@@ -145,18 +138,13 @@ void DisplaySerial::Write()
 #endif
     const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
-    if (fPAltSmoothed == 0.0)
-        fPAltSmoothed = m2ft(g_AHRS.KalmanAlt);
-    else
-        fPAltSmoothed = m2ft(g_AHRS.KalmanAlt) * smoothingAlphaVert/10+ (1-smoothingAlphaVert/10)*fPAltSmoothed; // increased smoothing needed
+    const float fPAltFt = m2ft(g_AHRS.KalmanAlt);
 
-    fVerticalGSmoothed = g_AHRS.AccelVertCorr * smoothingAlphaVert+ (1-smoothingAlphaVert)*fVerticalGSmoothed;
-    if (IsFiniteFloat(fVerticalGSmoothed))
-        iDisplayVerticalG = (int)ceilf(fVerticalGSmoothed * 10.0f);
+    if (IsFiniteFloat(g_AHRS.AccelVertSmoothed))
+        iDisplayVerticalG = (int)ceilf(g_AHRS.AccelVertSmoothed * 10.0f);
     else
         iDisplayVerticalG = 0;
 
-    fLateralGSmoothed = g_AHRS.AccelLatCorr * smoothingAlphaLat+ (1-smoothingAlphaLat)*fLateralGSmoothed;
 
     // don't output precentLift at low speeds.
     if (bIasValidForOutput)
@@ -193,8 +181,8 @@ void DisplaySerial::Write()
         const int      iPitch10   = SafeScaledInt(g_AHRS.SmoothedPitch, 10.0f, -999,    999);
         const int      iRoll10    = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
         const unsigned uIas10     = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
-        const int      iPaltFt    = SafeScaledInt(fPAltSmoothed,         1.0f, -99999, 99999);
-        const int      iLatG100   = SafeScaledInt(-fLateralGSmoothed,  100.0f, -99,      99);
+        const int      iPaltFt    = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
+        const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatSmoothed,  100.0f, -99,      99);
         const int      iVertG10   = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift   = ClampUInt((unsigned)iPercentLift,           0,       99);
 
@@ -260,9 +248,9 @@ void DisplaySerial::Write()
         const int      iPitch10    = SafeScaledInt(g_AHRS.SmoothedPitch, 10.0f, -999,    999);
         const int      iRoll10     = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
         const unsigned uIas10      = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
-        const int      iPaltFt     = SafeScaledInt(fPAltSmoothed,         1.0f, -99999, 99999);
+        const int      iPaltFt     = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
         const int      iYaw10      = SafeScaledInt(g_AHRS.gYaw,          10.0f, -9999,  9999);
-        const int      iLatG100    = SafeScaledInt(-fLateralGSmoothed,  100.0f, -99,      99);
+        const int      iLatG100    = SafeScaledInt(-g_AHRS.AccelLatSmoothed,  100.0f, -99,      99);
         const int      iVertG10    = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift    = ClampUInt((unsigned)iPercentLift,           0,       99);
         const int      iAoa10      = SafeScaledInt(fDisplayAOA,          10.0f, -999,    999);
