@@ -39,6 +39,7 @@ var flightPath     = 0;
 var iVSI           = 0;
 var derivedAOA     = 0;
 var pitchRate      = 0;
+var Alpha0         = 0;
 
 var liveConnecting = false;
 setInterval(updateAge,500);
@@ -123,6 +124,7 @@ function onMessage(evt)
     OnspeedFast   = parseFloat(OnSpeed.OnspeedFast);
     OnspeedSlow   = parseFloat(OnSpeed.OnspeedSlow);
     OnspeedWarn   = parseFloat(OnSpeed.OnspeedWarn);
+    Alpha0        = parseFloat(OnSpeed.Alpha0) || 0;
     lastUpdate    = Date.now();
 
 //      console.log('log:',AOA,IAS,PAlt,GLoad,GLoadLat,PitchAngle,OnSpeed.LDmax,OnSpeed.OnspeedFast,OnSpeed.OnspeedSlow,OnSpeed.OnspeedWarn);
@@ -130,7 +132,7 @@ function onMessage(evt)
     // move AOA line on display
     if (AOA<=LDmax)
       {
-      var aoaline_y=map(AOA, 0, LDmax, 278, 228);
+      var aoaline_y=map(AOA, Alpha0, LDmax, 278, 228);
       }
     else if (AOA>LDmax && AOA<=OnspeedFast)
       {

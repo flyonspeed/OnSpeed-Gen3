@@ -388,6 +388,8 @@ String FOSConfig::ConfigurationToString()
         XML_INSERT_SET(XmlConfigFlaps, "STALLWARNAOA",   aFlaps[iFlapIdx].fSTALLWARNAOA)
         XML_INSERT_SET(XmlConfigFlaps, "STALLAOA",       aFlaps[iFlapIdx].fSTALLAOA)
         XML_INSERT_SET(XmlConfigFlaps, "MANAOA",         aFlaps[iFlapIdx].fMANAOA)
+        XML_INSERT_SET(XmlConfigFlaps, "ALPHA0",         aFlaps[iFlapIdx].fAlpha0)
+        XML_INSERT_SET(XmlConfigFlaps, "ALPHASTALL",     aFlaps[iFlapIdx].fAlphaStall)
 
         XML_INSERT(XmlConfigFlaps, "AOA_CURVE")
         XMLElement * XmlConfigAoACurve = XmlConfigNew;
@@ -519,6 +521,12 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
 //        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_MANAOA"),iFlapsArraySize); // MANAOA is only available after calibration wizard run
 //        for (iIdx=0; (iIdx<aiValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fMANAOA = afValues.Items[iIdx];
+
+        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_ALPHA0"),iFlapsArraySize);
+        for (iIdx=0; (iIdx<afValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fAlpha0 = afValues.Items[iIdx];
+
+        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_ALPHASTALL"),iFlapsArraySize);
+        for (iIdx=0; (iIdx<afValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fAlphaStall = afValues.Items[iIdx];
 
         // aoa curves: AOA_CURVE_FLAPS0, AOA_CURVE_FLAPS1,...
         for (iIdx=0; iIdx<iFlapsArraySize; iIdx++)
@@ -690,6 +698,8 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             XML_GET_FLOAT(pXmlFlaps, "STALLWARNAOA",   suFlaps.fSTALLWARNAOA)
             XML_GET_FLOAT(pXmlFlaps, "STALLAOA",       suFlaps.fSTALLAOA)
             XML_GET_FLOAT(pXmlFlaps, "MANAOA",         suFlaps.fMANAOA)
+            XML_GET_FLOAT(pXmlFlaps, "ALPHA0",         suFlaps.fAlpha0)
+            XML_GET_FLOAT(pXmlFlaps, "ALPHASTALL",     suFlaps.fAlphaStall)
 
             XMLElement * pXmlAoaCurve = pXmlFlaps->FirstChildElement("AOA_CURVE");
             if (pXmlAoaCurve != NULL)

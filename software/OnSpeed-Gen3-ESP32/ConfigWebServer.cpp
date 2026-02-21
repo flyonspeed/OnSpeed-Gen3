@@ -2417,6 +2417,8 @@ Enter the following aircraft parameters:<br><br>
                 g_Config.aFlaps[iFlapIdx].fSTALLWARNAOA   = g_Config.ToFloat(CfgServer.arg("StallWarnSetpoint"));
                 g_Config.aFlaps[iFlapIdx].fSTALLAOA       = g_Config.ToFloat(CfgServer.arg("StallSetpoint"));
                 g_Config.aFlaps[iFlapIdx].fMANAOA         = g_Config.ToFloat(CfgServer.arg("ManeuveringSetpoint"));
+                g_Config.aFlaps[iFlapIdx].fAlpha0         = g_Config.ToFloat(CfgServer.arg("alpha0"));
+                g_Config.aFlaps[iFlapIdx].fAlphaStall     = g_Config.ToFloat(CfgServer.arg("alphaStall"));
 
                 g_Config.aFlaps[iFlapIdx].AoaCurve.afCoeff[0] = 0;
                 g_Config.aFlaps[iFlapIdx].AoaCurve.afCoeff[1] = g_Config.ToFloat(CfgServer.arg("curve0"));

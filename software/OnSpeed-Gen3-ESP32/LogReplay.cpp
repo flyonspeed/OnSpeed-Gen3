@@ -372,9 +372,9 @@ void ReadTestPot()
     // Map the flap pot raw value onto the flap pot raw value limits
     if (g_Config.aFlaps.size() > 1)
         {
-        // Convert raw flap pot postion into an AOA between 0 and 20
-        fReadAOA = mapfloat(fFlapRawValue, g_Config.aFlaps[0].iPotPosition, g_Config.aFlaps.back().iPotPosition, 0.0, 20.0);
-        fReadAOA = constrain(fReadAOA, 0.0, 20.0);
+        // Convert raw flap pot postion into an AOA between -15 and 20
+        fReadAOA = mapfloat(fFlapRawValue, g_Config.aFlaps[0].iPotPosition, g_Config.aFlaps.back().iPotPosition, -15.0, 20.0);
+        fReadAOA = constrain(fReadAOA, -15.0, 20.0);
         }
 
     // Not enough flap positions defined
@@ -417,7 +417,7 @@ void ReadTestPot()
 // RANGESWEEP data source routines
 //-----------------------------------------------------------------------------
 
-#define RANGESWEEP_LOW_AOA     0.0
+#define RANGESWEEP_LOW_AOA   -15.0
 #define RANGESWEEP_HIGH_AOA   18.0
 #define RANGESWEEP_STEP        0.1                  // degrees AOA
 #define RANGESWEEP_INTERVAL_MS 100                  // ms to hold each AOA value

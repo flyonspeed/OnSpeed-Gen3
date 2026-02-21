@@ -344,7 +344,9 @@ void AHRS::Process(float fDeltaTimeSeconds)
     else
         FlightPath = 0.0;
 
-    // DerivedAOA calculation depends on AHRS algorithm
+    // DerivedAOA is the fuselage-to-wind angle (body alpha), NOT wing AOA.
+    // At zero lift, DerivedAOA equals alpha_0 (typically negative due to wing
+    // incidence and camber). See g_Config.aFlaps[].fAlpha0.
     if (g_Config.iAhrsAlgorithm == 1)
     {
         // EKF6 directly estimates alpha as part of its state vector

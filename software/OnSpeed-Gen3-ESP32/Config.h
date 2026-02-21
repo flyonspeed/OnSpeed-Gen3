@@ -105,6 +105,8 @@ public:
             fSTALLWARNAOA   = 0.0;
             fSTALLAOA       = 0.0;
             fMANAOA         = 0.0;
+            fAlpha0         = 0.0;
+            fAlphaStall     = 0.0;
             }
         int      iDegrees;
         int      iPotPosition;
@@ -114,6 +116,8 @@ public:
         float    fSTALLWARNAOA;
         float    fSTALLAOA;
         float    fMANAOA;
+        float    fAlpha0;       // Zero-lift fuselage AOA (deg), from physics fit
+        float    fAlphaStall;   // Stall AOA from physics fit (deg)
 
         SuCalibrationCurve  AoaCurve;
     };
