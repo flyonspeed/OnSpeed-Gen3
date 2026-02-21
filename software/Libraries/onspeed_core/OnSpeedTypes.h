@@ -81,6 +81,18 @@ constexpr float psi2mb(float psi) { return psi * 68.94757f; }
 constexpr float mb2psi(float mb) { return mb * 0.0145038f; }
 
 // ============================================================================
+// SAFE TRIGONOMETRIC FUNCTIONS
+// ============================================================================
+
+/// Clamped asin: clamps input to [-1, 1] to prevent NaN from rounding errors
+/// or ratios that slightly exceed unity (e.g., KalmanVSI/TAS at low airspeed).
+inline float safeAsin(float x) {
+    if (x > 1.0f) x = 1.0f;
+    else if (x < -1.0f) x = -1.0f;
+    return std::asin(x);
+}
+
+// ============================================================================
 // ACCELEROMETER-BASED ATTITUDE ESTIMATION
 // ============================================================================
 

@@ -15,6 +15,7 @@ using onspeed::ft2m;
 using onspeed::g2mps;
 using onspeed::accelPitch;
 using onspeed::accelRoll;
+using onspeed::safeAsin;
 
 const float accSmoothing        = 0.060899f;            // accelerometer smoothing alpha
 const float accSmoothingComplement = 1.0f - accSmoothing;  // precomputed (1 - alpha)
@@ -330,7 +331,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
 
     // calculate flight path and derived AOA
     if (g_Sensors.IAS != 0.0)
-        FlightPath = rad2deg(asin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
+        FlightPath = rad2deg(safeAsin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
     else
         FlightPath = 0.0;
 

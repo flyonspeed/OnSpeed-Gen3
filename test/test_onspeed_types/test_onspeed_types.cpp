@@ -123,6 +123,37 @@ void test_clampAOA_handles_nan() {
 
 
 // ============================================================================
+// safeAsin
+// ============================================================================
+
+void test_safeAsin_normal_range() {
+    // Normal inputs should return standard asin values
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, safeAsin(0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(0.5f), safeAsin(0.5f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(-0.5f), safeAsin(-0.5f));
+}
+
+void test_safeAsin_clamps_above_one() {
+    // Values > 1.0 should be clamped — must not return NaN
+    float result = safeAsin(1.01f);
+    TEST_ASSERT_FALSE(std::isnan(result));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(1.0f), result);
+}
+
+void test_safeAsin_clamps_below_neg_one() {
+    // Values < -1.0 should be clamped — must not return NaN
+    float result = safeAsin(-1.5f);
+    TEST_ASSERT_FALSE(std::isnan(result));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(-1.0f), result);
+}
+
+void test_safeAsin_at_boundaries() {
+    // Exact ±1.0 should work normally
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(1.0f), safeAsin(1.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(-1.0f), safeAsin(-1.0f));
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -155,6 +186,12 @@ int main(int argc, char **argv) {
     RUN_TEST(test_clampAOA_clamps_high);
     RUN_TEST(test_clampAOA_clamps_low);
     RUN_TEST(test_clampAOA_handles_nan);
+
+    // safeAsin
+    RUN_TEST(test_safeAsin_normal_range);
+    RUN_TEST(test_safeAsin_clamps_above_one);
+    RUN_TEST(test_safeAsin_clamps_below_neg_one);
+    RUN_TEST(test_safeAsin_at_boundaries);
 
     return UNITY_END();
 }

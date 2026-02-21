@@ -16,6 +16,7 @@ using onspeed::rad2deg;
 using onspeed::kts2mps;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::safeAsin;
 
 // wifi data variables
 //char crc_buffer[250];
@@ -177,7 +178,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             if (g_AHRS.fTAS > 0)
             {
                 // TAS is being updated in an interrupt
-                fWifiFlightpath = rad2deg(asin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
+                fWifiFlightpath = rad2deg(safeAsin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
             }
             else
                 fWifiFlightpath = 0;
@@ -193,13 +194,13 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiRoll  = g_EfisSerial.suEfis.Roll;
             if (g_EfisSerial.suEfis.TAS > 0)
             {
-                fWifiFlightpath = rad2deg(asin(g_AHRS.KalmanVSI/kts2mps(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
+                fWifiFlightpath = rad2deg(safeAsin(g_AHRS.KalmanVSI/kts2mps(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
             }
 
             else
                 if (g_AHRS.fTAS > 0)
                 {
-                    fWifiFlightpath = rad2deg(asin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
+                    fWifiFlightpath = rad2deg(safeAsin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
                 }
                 else
                     fWifiFlightpath=0;
