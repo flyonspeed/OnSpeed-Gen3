@@ -2346,7 +2346,7 @@ Enter the following aircraft parameters:<br><br>
               Get ready to fly a 1kt/sec deceleration.<br><br>\
               <b>Instructions:</b>\
               <br><br>\
-              1. Set your flaps now and do not change them until after you saved the calibration.<br>
+              1. Set your flaps now and do not change them until after you saved the calibration.<br>\
               2. Fly the entire run at a steady 1kt/sec deceleration (OnSpeed provides feedback).<br>\
               3. Keep the ball in the middle and wings level at all times<br>\
               4. Prioritize pitch smoothness over deceleration rate.<br>\
