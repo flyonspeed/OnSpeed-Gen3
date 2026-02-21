@@ -907,7 +907,7 @@ R"#(</div>)#";
         sPage += "\n"
 R"#(            <div class="form-divs flex-col-1" id="id_aoaCurve)#" + String(iFlapIdx) + R"#(Param2">)#";
 
-        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += "*X<sup></sup>+";
+        if      (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 1) sPage += "*X+";
         else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 2) sPage += "*ln(x)+ ";
         else if (g_Config.aFlaps[iFlapIdx].AoaCurve.iCurveType == 3) sPage += "* e^ (";
 
@@ -1198,11 +1198,11 @@ R"#(        </section>)#" "\n";
     sPage += R"#(
         <div class="form-divs flex-col-6 loadlimitsetting" )#" + String(loadLimitVisibility) + R"#(>
             <label for="id_loadLimitPositive">Positive G limit</label>
-            <input id="id_loadLimitPositive" name="loadLimitPositive" type="text" value=")#" + String(g_Config.fLoadLimitPositive) + R"#("/>
+            <input id="id_loadLimitPositive" name="loadLimitPositive" type="text" value=")#" + String(g_Config.fLoadLimitPositive, 2) + R"#("/>
         </div>
         <div class="form-divs flex-col-6 loadlimitsetting" )#" + String(loadLimitVisibility) + R"#(>
             <label for="id_loadLimitNegative">Negative G limit</label>
-            <input id="id_loadLimitNegative" name="loadLimitNegative" type="text" value=")#" + String(g_Config.fLoadLimitNegative) + R"#("/>
+            <input id="id_loadLimitNegative" name="loadLimitNegative" type="text" value=")#" + String(g_Config.fLoadLimitNegative, 2) + R"#("/>
         </div>)#";
 
     // Vno chime
@@ -2346,7 +2346,7 @@ Enter the following aircraft parameters:<br><br>
               Get ready to fly a 1kt/sec deceleration.<br><br>\
               <b>Instructions:</b>\
               <br><br>\
-              1. Set your flaps now and do not change them until after you saved the calibration.<br\
+              1. Set your flaps now and do not change them until after you saved the calibration.<br>
               2. Fly the entire run at a steady 1kt/sec deceleration (OnSpeed provides feedback).<br>\
               3. Keep the ball in the middle and wings level at all times<br>\
               4. Prioritize pitch smoothness over deceleration rate.<br>\
@@ -2428,8 +2428,6 @@ Enter the following aircraft parameters:<br><br>
                 g_Config.SaveConfigurationToFile();
                 CfgServer.send(200, "text/html", "SUCCESS: Configuration was saved!");
                 return;
-
-                String newconfigString;
                 } // end if flap position matches
             } // end for flap indexes
 
