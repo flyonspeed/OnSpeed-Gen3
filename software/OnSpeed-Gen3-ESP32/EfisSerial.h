@@ -43,7 +43,7 @@ public:
         int     RPM;
         int     PercentPower;
         int     Heading;
-        String  Time;
+        char    szTime[16];
     };
 
     // Decoded VN-300 data
@@ -73,7 +73,7 @@ public:
         byte    GPSFix;
         double  GnssLat;
         double  GnssLon;
-        String  TimeUTC;
+        char    szTimeUTC[24];
     };
 
     // Data
@@ -91,7 +91,8 @@ public:
     byte                BufferIndex;
     byte                PrevInByte;
 
-    String              BufferString;   // Text buffer
+    char                szBuffer[256];  // Text buffer
+    int                 iBufferLen;
     char                PrevInChar;
 
     bool                efisPacketInProgress = false;

@@ -29,6 +29,7 @@
 
 #include "Globals.h"
 #include "Helpers.h"
+#include <ToneCalc.h>
 
 #include "Audio/PCM_cal_canceled.h"
 #include "Audio/PCM_cal_mode.h"
@@ -68,16 +69,14 @@ int16_t            aTone_1600Hz[TONE_BUFFER_LEN];
 
 #define FREERTOS
 
-// Tone Pulse Per Sec (PPS)
-#define HIGH_TONE_STALL_PPS    20                 // how many PPS to play during stall
-#define HIGH_TONE_PPS_MAX       6.2
-#define HIGH_TONE_PPS_MIN       1.5               // 1.5
+// Tone frequency and ramp constants (PPS constants moved to onspeed_core/ToneCalc.h)
 #define HIGH_TONE_HZ         1600                 // freq of high tone
-#define LOW_TONE_PPS_MAX        8.2
-#define LOW_TONE_PPS_MIN        1.5
 #define LOW_TONE_HZ           400                 // freq of low tone
-#define TONE_RAMP_TIME         15                 // millisec
-#define STALL_RAMP_TIME         5                 // millisec
+// Anti-click ramp: 2 ms linear ramp (32 samples at 16 kHz) on pulse edges
+// and tone start/stop.  Short enough to keep pulses crisp, long enough to
+// eliminate the hard amplitude discontinuity that causes audible clicks.
+#define ANTI_CLICK_MS            2
+static constexpr float RAMP_PER_SAMPLE = 1.0f / (ANTI_CLICK_MS * 0.001f * SAMPLE_RATE);
 
 // ----------------------------------------------------------------------------
 
@@ -155,7 +154,6 @@ void AudioPlayTask(void * psuParams)
 
         // This would be more efficient with a semaphore but it works OK for now
         if (g_AudioPlay.enTone == enToneNone)
-//            vTaskDelay(100 / portTICK_PERIOD_MS);
             vTaskDelay(pdMS_TO_TICKS(100));
 
         // If a voice play has been selected then play it once. Note that PlayVoice()
@@ -189,6 +187,10 @@ AudioPlay::AudioPlay()
     fTonePulseCounter    = 0;
 
     bAudioTest           = false;
+
+    // Anti-click envelope state
+    fEnvelopeLevel       = 0.0f;
+    bPulseHigh           = true;
 }
 
 
@@ -221,24 +223,13 @@ void AudioPlay::Init()
         {
         double  fAngle;
 
-        // Note byte swap to get the tone data in the same endianness as the WAV data
         // 400 Hz tone
-#if 1
         fAngle = remainder(2.0*M_PI*iIdx*400.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_400Hz[iIdx] = uint16_t(25000 * cos(fAngle));
-#else
-        float fAngle1 = remainder(2.0*M_PI*iIdx*440.00/SAMPLE_RATE, 2.0*M_PI);   // A
-        // float fAngle2 = remainder(2.0*M_PI*iIdx*523.25/SAMPLE_RATE, 2.0*M_PI);   // C
-        // float fAngle3 = remainder(2.0*M_PI*iIdx*659.25/SAMPLE_RATE, 2.0*M_PI);   // E
-        float fAngle2 = remainder(2.0*M_PI*iIdx*400.00/SAMPLE_RATE, 2.0*M_PI);   // C
-        float fAngle3 = remainder(2.0*M_PI*iIdx*800.00/SAMPLE_RATE, 2.0*M_PI);   // E
-        aTone_400Hz[iIdx] = uint16_t(15000 * cos(fAngle1) +
-                                      3000 * cos(fAngle2) +
-                                      3000 * cos(fAngle3));
-#endif
-        // Setup 1600 Hz tone
+        aTone_400Hz[iIdx] = static_cast<int16_t>(25000 * cos(fAngle));
+
+        // 1600 Hz tone
         fAngle = remainder(2.0*M_PI*iIdx*1600.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_1600Hz[iIdx] = uint16_t(25000 * cos(fAngle));
+        aTone_1600Hz[iIdx] = static_cast<int16_t>(25000 * cos(fAngle));
         }
 
     // Length of the data in the buffer. This may be different for tones that
@@ -305,12 +296,11 @@ void AudioPlay::SetToneFreq(unsigned uToneFreq)
 
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
-    // Outside limits disables tone pulse
+    // Outside limits disables tone pulse (solid tone)
     if ((fPulseFreq < 1.0) || (fPulseFreq > 25.0))
         fTonePulseMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0);  // Tone period in audio samples
-
+        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0);  // Half-period in samples
 }
 
 // ----------------------------------------------------------------------------
@@ -350,7 +340,12 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
 
 // ----------------------------------------------------------------------------
 
-// Play locally generated audio tone buffer
+// Play locally generated audio tone buffer with anti-click envelope.
+//
+// A short 2 ms linear ramp is applied at pulse edges and tone start/stop
+// to eliminate the hard amplitude step that causes audible clicks.  The
+// ramp is short enough to keep pulses sounding crisp.
+
 void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftVolume, float fRightVolume)
 {
     if (!s_bI2sOk)
@@ -360,24 +355,39 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftV
     uint32_t         aFrames[kFramesPerWrite];
     size_t           iFrameCount = 0;
 
-    static bool     bPulseLevel = true;
-
     for (int iWordIdx = 0; iWordIdx < iDataLen; iWordIdx++)
     {
-        // Apply tone pulse modulation
-        const float fPulseScale = ((bPulseLevel == true) || (fTonePulseMaxSamples == 0)) ? 1.0f : 0.2f;
-        const int16_t iSample = pData[iWordIdx];
-        const int16_t iLeftValue = ScaleAndClampI16(iSample, fLeftVolume * fPulseScale);
-        const int16_t iRightValue = ScaleAndClampI16(iSample, fRightVolume * fPulseScale);
+        // Determine target: 1.0 for solid tone or pulse-on, 0.0 for pulse-off
+        const float fTarget = (bPulseHigh || fTonePulseMaxSamples == 0) ? 1.0f : 0.0f;
 
-        // If pulse period exceeded then change pulse level
-        if (fTonePulseCounter >= fTonePulseMaxSamples)
-        {
-            fTonePulseCounter -= fTonePulseMaxSamples;
-            bPulseLevel        = !bPulseLevel;
-        }
-        else
+        // Ramp envelope toward target
+        if (fEnvelopeLevel < fTarget)
+            {
+            fEnvelopeLevel += RAMP_PER_SAMPLE;
+            if (fEnvelopeLevel > fTarget)
+                fEnvelopeLevel = fTarget;
+            }
+        else if (fEnvelopeLevel > fTarget)
+            {
+            fEnvelopeLevel -= RAMP_PER_SAMPLE;
+            if (fEnvelopeLevel < fTarget)
+                fEnvelopeLevel = fTarget;
+            }
+
+        const int16_t iSample = pData[iWordIdx];
+        const int16_t iLeftValue  = ScaleAndClampI16(iSample, fLeftVolume  * fEnvelopeLevel);
+        const int16_t iRightValue = ScaleAndClampI16(iSample, fRightVolume * fEnvelopeLevel);
+
+        // Advance pulse counter and toggle at each half-period
+        if (fTonePulseMaxSamples > 0)
+            {
             fTonePulseCounter++;
+            if (fTonePulseCounter >= fTonePulseMaxSamples)
+                {
+                fTonePulseCounter -= fTonePulseMaxSamples;
+                bPulseHigh = !bPulseHigh;
+                }
+            }
 
         aFrames[iFrameCount++] = PackStereoI16(iLeftValue, iRightValue);
         if (iFrameCount == kFramesPerWrite)
@@ -468,88 +478,46 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
     }
 }
 
-
 // ----------------------------------------------------------------------------
 
 void AudioPlay::UpdateTones()
     {
-    float   fNewPulseFreq;
-
     // If audio test is in progress then don't do anything
     if (bAudioTest)
         return;
 
-    // If audio is disabled by button, only allow stall warning through
+    onspeed::ToneResult result;
+
     if (!g_bAudioEnable)
         {
-        if (g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA &&
-            g_Sensors.IAS > g_Config.iMuteAudioUnderIAS)
-            {
-            SetTone(enToneHigh);
-            SetPulseFreq(HIGH_TONE_STALL_PPS);
-            }
-        else
-            {
-            SetTone(enToneNone);
-            }
-        return;
+        // Audio disabled by button — only allow stall warning through
+        result = onspeed::calculateToneMuted(
+            g_Sensors.AOA, g_Sensors.IAS,
+            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
+            g_Config.iMuteAudioUnderIAS);
         }
-
-    // If airspeed is low (like taxiing) don't make audio
-    if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
+    else if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
         {
+        // Airspeed too low (taxiing) — mute, but set pulse rate high for quick pickup
 #ifdef TONEDEBUG
         AudioLogDebugNoBlock("AUDIO MUTED: Airspeed too low. Min:%i IAS:%.2f\n",
             g_Config.iMuteAudioUnderIAS, g_Sensors.IAS);
 #endif
-        SetTone(enToneNone);
-        SetPulseFreq(20); // set the update rate to LOW_TONE_PPS_MAX if no tone is playing to pick up a pulsed tone quickly
-        return;
-        }
-
-    // check AOA value and set tone and pauses between tones according to
-    if      (g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA) // stallWarningAOA
-        {
-        // play 20 pps HIGH tone
-        SetTone(enToneHigh);
-        SetPulseFreq(HIGH_TONE_STALL_PPS);
-        }
-    else if (g_Sensors.AOA > (g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA))    // onSpeedAOAslow
-        {
-        // play HIGH tone at Pulse Rate 1.5 PPS to 6.2 PPS (depending on AOA value)
-        SetTone(enToneHigh);
-        fNewPulseFreq = mapfloat(
-            g_Sensors.AOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,    // onSpeedAOAslow
-            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,      // stallWarningAOA
-            HIGH_TONE_PPS_MIN,
-            HIGH_TONE_PPS_MAX);
-        SetPulseFreq(fNewPulseFreq); // when transitioning from solid to high tone make the first one shorter
-        }
-    else if(g_Sensors.AOA >= (g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA)) // onSpeedAOAfast
-        {
-        // play a steady LOW tone
-        SetTone(enToneLow);
-        SetPulseFreq(0);
-        }
-    else if ((g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA) && // LDmaxAOA
-             (g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA < g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA)) // onSpeedAOAfast
-        {  // if L/D max AOA is higher than OnSpeedfast, skip the low tone. This usually happens with full flaps.
-        SetTone(enToneLow);
-        // play LOW tone at Pulse Rate 1.5 PPS to 8.2 PPS (depending on AOA value)
-        fNewPulseFreq = mapfloat(
-            g_Sensors.AOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,       // LDmaxAOA
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA, // onSpeedAOAfast,
-            LOW_TONE_PPS_MIN,
-            LOW_TONE_PPS_MAX);
-        SetPulseFreq(fNewPulseFreq);
+        result = { onspeed::EnToneType::None, 20.0f };
         }
     else
         {
-        SetTone(enToneNone);
-        SetPulseFreq(0);
+        const onspeed::ToneThresholds th = {
+            g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
+            };
+        result = onspeed::calculateTone(g_Sensors.AOA, th);
         }
+
+    SetTone(static_cast<EnAudioTone>(result.enTone));
+    SetPulseFreq(result.fPulseFreq);
     }
 
 // ----------------------------------------------------------------------------
