@@ -75,4 +75,9 @@ private:
     void PlayVoice(EnVoice enVoice);
     void PlayTone();
     void PlayTone(EnAudioTone enAudioTone);
+
+    // Anti-click envelope: short linear ramp (2 ms) on pulse edges and
+    // tone start/stop to eliminate hard amplitude discontinuities.
+    float           fEnvelopeLevel;     // Current envelope amplitude, 0.0 to 1.0
+    bool            bPulseHigh;         // Which half of the pulse cycle we're in
 };
