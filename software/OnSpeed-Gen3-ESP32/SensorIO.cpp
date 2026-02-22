@@ -143,11 +143,7 @@ void ImuReadTask(void *pvParams)
         xSemaphoreTake(xSensorMutex, portMAX_DELAY);
         const uint32_t uImuReadUs = micros();
         g_pIMU->Read();
-        const float fStaticMbar = g_pStatic->ReadPressureMillibars();
         xSemaphoreGive(xSensorMutex);
-
-        g_Sensors.PStatic = fStaticMbar;
-        g_Sensors.Palt    = PressureAltitudeFeetFromMbar(fStaticMbar);
 
         const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
         uLastImuReadUs = uImuReadUs;
@@ -204,11 +200,15 @@ void SensorIO::Read()
 {
     float           PfwdPascal;
 
-    // Read pressure sensors
+    // Read pressure sensors (all three at 50 Hz)
     xSemaphoreTake(xSensorMutex, portMAX_DELAY);
     iPfwd    = g_pPitot->ReadPressureCounts() - g_Config.iPFwdBias;
     iP45     = g_pAOA->ReadPressureCounts()   - g_Config.iP45Bias;
+    const float fStaticMbar = g_pStatic->ReadPressureMillibars();
     xSemaphoreGive(xSensorMutex);
+
+    PStatic = fStaticMbar;
+    Palt    = PressureAltitudeFeetFromMbar(fStaticMbar);
 
     // Update flaps position about once per second
     if (millis() - uLastFlapsReadMs > 1000)
