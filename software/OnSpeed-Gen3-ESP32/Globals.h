@@ -167,12 +167,9 @@
 #include "DisplaySerial.h"
 #include "Switch.h"
 #include "Flaps.h"
-#include "gLimit.h"
 #include "Volume.h"
-#include "VnoChime.h"
-#include "3DAudio.h"
 #include "Audio.h"
-#include "HeartBeat.h"
+#include "Housekeeping.h"
 #include "ConfigWebServer.h"
 #include "DataServer.h"
 #include "Helpers.h"
@@ -278,11 +275,7 @@ EXTERN_INIT(TaskHandle_t             xTaskReadImu,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskWriteLog,      NULL)
 EXTERN_INIT(TaskHandle_t             xTaskCheckSwitch,   NULL)
 EXTERN_INIT(TaskHandle_t             xTaskDisplaySerial, NULL)
-EXTERN_INIT(TaskHandle_t             xTaskGLimit,        NULL)
-EXTERN_INIT(TaskHandle_t             xTaskVolume,        NULL)
-EXTERN_INIT(TaskHandle_t             xTaskVnoChime,      NULL)
-EXTERN_INIT(TaskHandle_t             xTask3dAudio,       NULL)
-EXTERN_INIT(TaskHandle_t             xTaskHeartbeat,     NULL)
+EXTERN_INIT(TaskHandle_t             xTaskHousekeeping,  NULL)
 EXTERN_INIT(TaskHandle_t             xTaskLogReplay,     NULL)
 EXTERN_INIT(TaskHandle_t             xTaskTestPot,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskRangeSweep,    NULL)
