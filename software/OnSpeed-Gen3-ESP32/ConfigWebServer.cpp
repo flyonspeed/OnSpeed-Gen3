@@ -2419,6 +2419,14 @@ void HandleGetValue()
             // Intentionally no log here; UI may poll frequently.
             }
 
+        else if (CfgServer.arg("name") == "VNOCHIMETEST")
+            {
+            g_AudioPlay.SetVoice(enVoiceVnoChime);
+            sResponseValue = "Vno Chime";
+            CfgServer.send(200, "text/plain", sResponseValue);
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnDebug, "Request VNOCHIMETEST");
+            }
+
         else
             {
             CfgServer.send(400);
