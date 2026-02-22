@@ -56,8 +56,7 @@ void SpiIO::ReadBytes( unsigned uChipSel, uint8_t * paiData, int iBytes)
 {
     pSPI->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE));
     digitalWrite(uChipSel, LOW);
-    for (int iIdx = 0; iIdx < iBytes; iIdx++)
-      paiData[iIdx] = pSPI->transfer(0x00);
+    pSPI->transferBytes(nullptr, paiData, iBytes);
     digitalWrite(uChipSel, HIGH);
     pSPI->endTransaction();
 }
@@ -98,8 +97,7 @@ void SpiIO::ReadRegBytes(unsigned uChipSel, uint8_t iAddr, uint8_t * paiData, in
     pSPI->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE));
     digitalWrite(uChipSel, LOW);
     pSPI->transfer(iAddr);
-    for (int iIdx = 0; iIdx < iBytes; iIdx++)
-        paiData[iIdx] = pSPI->transfer(0x00);
+    pSPI->transferBytes(nullptr, paiData, iBytes);
     digitalWrite(uChipSel, HIGH);
     pSPI->endTransaction();
     }
@@ -111,8 +109,7 @@ void SpiIO::WriteRegBytes(unsigned uChipSel, uint8_t iAddr, uint8_t * paiData, i
     pSPI->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE));
     digitalWrite(uChipSel, LOW);
     pSPI->transfer(iAddr);
-    for (int iIdx = 0; iIdx < iBytes; iIdx++)
-        pSPI->transfer(paiData[iIdx]);
+    pSPI->transferBytes(paiData, nullptr, iBytes);
     digitalWrite(uChipSel, HIGH);
     pSPI->endTransaction();
     }
