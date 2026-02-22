@@ -1,4 +1,4 @@
 
 #pragma once
 
-void HeartbeatLedTask(void * pvParams);
+// Heartbeat LED logic moved to Housekeeping.cpp

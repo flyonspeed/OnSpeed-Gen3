@@ -521,11 +521,7 @@ void ConsoleSerialIO::Read()
                 PrintTaskInfo(xTaskWriteLog);
                 PrintTaskInfo(xTaskCheckSwitch);
                 PrintTaskInfo(xTaskDisplaySerial);
-                PrintTaskInfo(xTaskGLimit);
-                PrintTaskInfo(xTaskVolume);
-                PrintTaskInfo(xTaskVnoChime);
-                PrintTaskInfo(xTask3dAudio);
-                PrintTaskInfo(xTaskHeartbeat);
+                PrintTaskInfo(xTaskHousekeeping);
                 PrintTaskInfo(xTaskLogReplay);
                 PrintTaskInfo(xTaskTestPot);
                 PrintTaskInfo(xTaskRangeSweep);
