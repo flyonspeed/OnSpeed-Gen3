@@ -1,0 +1,155 @@
+site_name: OnSpeed Gen3 Documentation
+site_description: Open-source AOA indicator for general aviation — installation, configuration, calibration, and flight operations guide
+site_url: https://flyonspeed.github.io/OnSpeed-Gen3/
+repo_url: https://github.com/flyonspeed/OnSpeed-Gen3
+repo_name: flyonspeed/OnSpeed-Gen3
+edit_uri: edit/master/docs/site/docs/
+
+theme:
+  name: material
+  custom_dir: overrides
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/airplane
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.smartsymbols
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/katex.js
+  - https://unpkg.com/katex@0/dist/katex.min.js
+  - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
+
+extra_css:
+  - https://unpkg.com/katex@0/dist/katex.min.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/flyonspeed/OnSpeed-Gen3
+    - icon: fontawesome/solid/globe
+      link: https://www.flyonspeed.org/
+
+copyright: Copyright &copy; 2024-2026 FlyOnSpeed — Open Source (GPLv3)
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - What is OnSpeed?: getting-started/what-is-onspeed.md
+    - How AOA Tones Work: getting-started/how-aoa-tones-work.md
+    - System Overview: getting-started/system-overview.md
+    - What You Need: getting-started/what-you-need.md
+    - Safety & Limitations: getting-started/safety.md
+  - Hardware Installation:
+    - installation/index.md
+    - Mounting the Controller: installation/mounting.md
+    - Pneumatic Plumbing: installation/pneumatics.md
+    - Electrical Wiring: installation/wiring.md
+    - Audio Wiring: installation/audio.md
+    - Optional — AOA Indexer LEDs: installation/indexer.md
+    - Optional — OAT Sensor: installation/oat-sensor.md
+    - Optional — External Display: installation/external-display.md
+    - Optional — Boom Probe: installation/boom-probe.md
+    - Installation Checklist: installation/checklist.md
+  - EFIS Integration:
+    - efis-integration/index.md
+    - Dynon SkyView / HDX: efis-integration/dynon-skyview.md
+    - Dynon D10/D100: efis-integration/dynon-d10.md
+    - Garmin G5: efis-integration/garmin-g5.md
+    - Garmin G3X: efis-integration/garmin-g3x.md
+    - MGL iEFIS: efis-integration/mgl.md
+    - VectorNav VN-300: efis-integration/vectornav.md
+    - No EFIS (Standalone): efis-integration/standalone.md
+  - Software & Firmware:
+    - software/index.md
+    - Flashing Firmware: software/flashing.md
+    - OTA Updates via WiFi: software/ota-update.md
+    - Building from Source: software/building.md
+  - Configuration:
+    - configuration/index.md
+    - Web Interface: configuration/web-interface.md
+    - First-Time Setup: configuration/first-time-setup.md
+    - Sensor Calibration: configuration/sensor-calibration.md
+    - Flap Position Setup: configuration/flap-setup.md
+    - Audio Settings: configuration/audio.md
+    - Advanced Settings: configuration/advanced.md
+    - Backup & Restore: configuration/backup-restore.md
+  - Calibration:
+    - calibration/index.md
+    - How OnSpeed Measures AOA: calibration/how-aoa-works.md
+    - Calibration Wizard: calibration/wizard.md
+    - Verifying Calibration: calibration/verification.md
+  - Flying with OnSpeed:
+    - flying/index.md
+    - What the Tones Mean: flying/tone-map.md
+    - Normal Operations: flying/normal-ops.md
+    - Approach and Landing: flying/approach-landing.md
+    - Warnings and Alerts: flying/warnings.md
+  - Data & Logs:
+    - data-and-logs/index.md
+    - Understanding Logs: data-and-logs/log-format.md
+    - Downloading Logs: data-and-logs/downloading.md
+  - Troubleshooting:
+    - troubleshooting/index.md
+    - No Audio: troubleshooting/no-audio.md
+    - No EFIS Data: troubleshooting/no-efis.md
+    - Erratic Tones: troubleshooting/erratic-tones.md
+    - WiFi Issues: troubleshooting/wifi.md
+    - Console Commands: troubleshooting/console-commands.md
+  - Reference:
+    - reference/index.md
+    - Configuration Parameters: reference/config-parameters.md
+    - CSV Log Columns: reference/log-columns.md
+    - Hardware Specifications: reference/hardware-specs.md
+    - Glossary: reference/glossary.md
