@@ -83,6 +83,7 @@ void ConsoleSerialIO::DisplayConsoleHelp()
         pSerial->println("VOLUME               - Show current volume potentiometer value");
         pSerial->println("CONFIG               - Show current configuration values");
         pSerial->println("AUDIOTEST            - Left & right audio test");
+        pSerial->println("VNOCHIMETEST         - Play Vno chime");
         pSerial->println("TASKS                - Show info about running tasks");
         pSerial->println("COOKIE");
         pSerial->println("");
@@ -510,6 +511,14 @@ void ConsoleSerialIO::Read()
                 {
                 bool bStarted = g_AudioPlay.StartAudioTest();
                 g_Log.printf("AUDIOTEST %s\n", bStarted ? "Started" : "Busy");
+                }
+
+            // VNOCHIMETEST
+            // ------------
+            else if (strncasecmp(szCmdToken, "VNOCHIMETEST", 12) == 0)
+                {
+                g_AudioPlay.SetVoice(enVoiceVnoChime);
+                g_Log.printf("VNOCHIMETEST Playing\n");
                 }
 
             // TASKS
