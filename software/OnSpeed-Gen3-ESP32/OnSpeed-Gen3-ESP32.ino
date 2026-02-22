@@ -13,6 +13,7 @@ Do a text search for comments starting with "////"
 
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+#include "esp_heap_caps.h"
 
 #include <HardwareSerial.h>
 //#include <SoftwareSerial.h>
@@ -234,7 +235,7 @@ void setup()
 
     // Setup FreeRTOS tasks
     // --------------------
-    xLoggingRingBuffer = xRingbufferCreate(30000, RINGBUF_TYPE_BYTEBUF);    // At least 1 sec of data buffering
+    xLoggingRingBuffer = xRingbufferCreateWithCaps(30000, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM);  // 30 KB in PSRAM
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
         {
