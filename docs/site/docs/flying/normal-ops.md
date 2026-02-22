@@ -28,44 +28,52 @@ During the takeoff roll and climb:
 
 1. As you accelerate past the mute threshold (~25 knots), audio becomes active
 2. You'll briefly hear the **slow tones** as you accelerate through the approach speed range
-3. As you reach climb speed, the tones **go silent** (you're fast enough to be in the silent zone)
+3. As you reach climb speed, the tones **go silent** (AOA drops below L/D~MAX~)
 4. This entire transition takes just a few seconds
 
 On a normal takeoff, you hear a brief blip of tone during acceleration — then silence. This is normal.
+
+### Best-Angle Climb (V~X~)
+
+If you need maximum climb gradient (obstacle clearance), fly to the ONSPEED solid tone after takeoff. This corresponds to the AOA for best angle of climb. The tone gives you V~X~ performance without requiring you to know V~X~ as an airspeed — which changes with weight and density altitude.
+
+### Best-Rate Climb (V~Y~)
+
+Best rate of climb occurs near L/D~MAX~ — approximately at the boundary between silence and the first low pulse. Fly just into the low pulse region for approximate V~Y~ performance.
 
 ## Cruise
 
 - **Audio**: Silent
 - **Status**: System is running, logging data, monitoring AOA
 
-Silence during cruise is expected and correct. You're well above approach speed, so the AOA is below the L/Dmax threshold.
+Silence during cruise is expected. You're well above approach speed — the wing is working at a low fraction of its capability. If the Vno chime is enabled, you'll hear a periodic chime if you exceed your configured Vno speed.
 
 ## Descent and Pattern Entry
 
 As you slow down entering the traffic pattern:
 
-1. **Downwind**: Typically silent (above L/Dmax speed)
-2. **Abeam the numbers / power reduction**: You may start hearing the first low pulses as you decelerate
-3. **Base turn**: Low pulsing tone — you're in the approach speed range. Bank angle increases your stall speed, which effectively increases your AOA. The tones compensate for this automatically.
+1. **Downwind**: Typically silent (above L/D~MAX~ speed)
+2. **Abeam the numbers / power reduction**: You may start hearing the first low pulses as you decelerate — this is L/D~MAX~, confirming you're slowing into the approach range
+3. **Base turn**: Low pulsing tone — you're between L/D~MAX~ and ONSPEED. The tone accounts for the increased load factor in the turn automatically.
 
 ## Final Approach
 
 This is where OnSpeed shines:
 
-1. **Fly to the solid tone** — when you hear a steady, non-pulsing low tone, you're at the ideal approach speed for your current weight and configuration
-2. **If the pulse starts** (low tone pulsing), you're slightly fast — reduce power slightly
-3. **If the tone goes high** (high-pitched pulsing), you're slow — add power
-4. **Corrections should be small** — think of flying the tone like flying the glideslope: small, smooth corrections
+1. **Fly to the solid tone** — when the pulsing stops and you hear a steady low tone, you're ONSPEED
+2. **If the pulse starts** (low tone pulsing), you're slightly fast — reduce power slightly or allow the airplane to decelerate
+3. **If the tone goes high** (high-pitched pulsing), effective power is negative — **push**: add power and/or reduce AOA
+4. **Corrections should be small and smooth** — think of flying the tone like flying the glideslope: proportional, measured inputs
 
 !!! tip "Trust the tone in turns"
-    In the base-to-final turn, the load factor increases your stall speed. The airspeed indicator shows a higher number is needed, but the AOA tone automatically compensates. If the tone stays solid through the turn, you're at the right AOA regardless of the bank angle.
+    In the base-to-final turn, load factor increases stall speed. The airspeed indicator can't tell you how much margin you have at your current bank angle, but the AOA tone can. If the tone stays solid through the turn, you're aerodynamically balanced regardless of bank angle.
 
 ## Landing
 
 As you flare:
 
-1. The tone transitions from solid to slow pulsing (you're decelerating below approach speed)
-2. This is normal — you're trading speed for pitch in the flare
+1. The tone transitions from solid to low pulsing (you're decelerating below ONSPEED)
+2. This is normal — you're trading kinetic energy for a pitch change in the flare
 3. On touchdown, the tones will fade as airspeed drops below the mute threshold
 
 ## Shutdown
@@ -80,5 +88,5 @@ If you need to go around:
 
 1. **Add full power** immediately
 2. The tone will transition from whatever you were hearing toward silence as you accelerate
-3. Pitch for climb attitude
-4. The rapid transition from approach tones to silence confirms you're accelerating and building energy
+3. Pitch for climb attitude — don't over-rotate; let speed build
+4. The rapid transition from approach tones to silence confirms you're accelerating and building energy margin

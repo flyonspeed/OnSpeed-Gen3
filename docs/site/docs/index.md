@@ -1,24 +1,24 @@
 # OnSpeed Gen3 — Open-Source AOA for General Aviation
 
-**OnSpeed** is an open-source Angle of Attack (AOA) indicator that gives pilots **audio cues** to fly safely — avoiding stalls, nailing approach speed, and maximizing climb performance. No gauge to watch. Just listen.
+**OnSpeed** is an open-source Angle of Attack (AOA) system that gives pilots **directive audio cues** to maintain positive aircraft control — avoiding stalls, managing energy, and extracting maximum performance. No gauge to watch. Just listen and respond.
 
-The concept was developed by the military (first used in the F-4 Phantom in the 1960s) and has been proven to reduce loss-of-control accidents. OnSpeed brings that technology to experimental general aviation as open-source hardware and software.
+The system provides real-time angle-of-attack information as audio tones, derived from systems originally developed for military carrier operations. It is not a stall warning horn — it is a continuous energy-management cue that tells you how hard the wing is working at every moment.
 
 ---
 
 ## What Does It Do?
 
-OnSpeed continuously measures your angle of attack and converts it to **audio tones piped through your headset**:
+OnSpeed continuously measures angle of attack and converts it to **audio tones piped through your headset**:
 
-| What You Hear | What It Means |
-|---|---|
-| **Silence** | You're fast — everything is fine |
-| **Slow pulsing tone** | Approaching best-glide speed — slowing down |
-| **Steady tone** | You're in the "on speed" band — perfect approach speed |
-| **Fast pulsing tone** | Getting slow — add power or lower the nose |
-| **Continuous warning** | Stall imminent — take immediate action |
+| What You Hear | What It Means | What to Do |
+|---|---|---|
+| **Silence** | Fast — below best-glide AOA | No action |
+| **Slow pulsing, low tone** | Approaching ONSPEED — decelerating into approach range | Normal deceleration |
+| **Steady tone** | **ONSPEED** — balanced effective power | Hold this condition |
+| **Fast pulsing, high tone** | Slow — effective power is negative, unsustainable | **Push**: add power, reduce AOA |
+| **Rapid buzz** | Stall imminent — at the aerodynamic limit | **Unload**: reduce AOA immediately |
 
-Because AOA is independent of weight and G-loading, the tones work correctly in turns, at any weight, and at any altitude. Your approach speed tone is always right.
+Because AOA is independent of weight and G-loading, the tones work correctly in turns, at any weight, and at any altitude. No mental math required.
 
 [Learn how AOA tones work :material-arrow-right:](getting-started/how-aoa-tones-work.md)
 
@@ -46,7 +46,7 @@ Because AOA is independent of weight and G-loading, the tones work correctly in 
 
 - :material-airplane-landing: **[Flying with OnSpeed](flying/index.md)**
 
-    What the tones mean, approach technique, warnings
+    What the tones mean, approach technique, energy management
 
 - :material-wrench: **[Troubleshooting](troubleshooting/index.md)**
 
