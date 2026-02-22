@@ -542,7 +542,7 @@ void test_ekf6_reset_preserves_other_states(void) {
 // Main
 // ============================================================================
 
-int main(int argc, char **argv) {
+int main() {
     UNITY_BEGIN();
 
     // Basic tests

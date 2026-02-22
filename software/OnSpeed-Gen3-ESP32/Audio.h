@@ -57,10 +57,10 @@ public:
 public:
     void Init();
     void SetVolume(int iVolumePercent);
-    void SetGain(float fLeftGain, float fRightGain);
-    void SetVoice(EnVoice enVoice);
+    void SetGain(float fLeftGainIn, float fRightGainIn);
+    void SetVoice(EnVoice enVoiceIn);
     void SetTone(EnAudioTone enAudioTone);
-    void SetToneFreq(unsigned uToneFreq);
+    void SetToneFreq(unsigned uToneFreqIn);
     void SetPulseFreq(float fPulseFreq);
     void UpdateTones();
     bool StartAudioTest();
@@ -69,10 +69,10 @@ public:
     void AudioTest();
 
 private:
-    void PlayPcmBuffer(const unsigned char * pData, int iDataLen, float fLeftVolume, float fRightVolume);
-    void PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftVolume, float fRightVolume);
+    void PlayPcmBuffer(const unsigned char * pData, int iNumBytes, float fLeftVolume, float fRightVolume);
+    void PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLeftVolume, float fRightVolume);
     void PlayVoice();
-    void PlayVoice(EnVoice enVoice);
+    void PlayVoice(EnVoice enVoiceIn);
     void PlayTone();
     void PlayTone(EnAudioTone enAudioTone);
 };
