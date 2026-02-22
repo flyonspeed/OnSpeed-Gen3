@@ -101,7 +101,7 @@ void IMU330::Reset()
     // soft reset accelerometer/gyro
     SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL3_C),  0b00000101);
     delay(100);
-    SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL3_C),  0b00000100);
+    SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL3_C),  0b01000100); // BDU + IF_INC
     delay(100);
 }
 
@@ -153,22 +153,40 @@ void IMU330::Read()
 
 void IMU330::ReadAccelGyro(bool bTempUpdate)
 {
-    uint8_t     aAccelData[6]; // Six bytes from the accelerometer
-    uint8_t     aGyroData[6];  // Six bytes from the gyro
-//    int16_t     axRaw,ayRaw,azRaw;
-//    int16_t     gxRaw,gyRaw,gzRaw;
+    // Registers 0x20–0x2D are contiguous: temp(2) + gyro(6) + accel(6).
+    // Burst-read all needed registers in a single SPI transaction.
+    uint8_t     aBuf[14];
+    int         iOfs;           // byte offset: gyro data starts here
 
-    // Read accelerometer output
-    SensorSPI->ReadRegBytes(uChipSel, IMU_READ_ADDR(OUTX_L_A), aAccelData, 6); // Read 6 bytes, beginning at OUTX_L_A
-    axRaw = (aAccelData[1] << 8) | aAccelData[0]; // Store x-axis values into ax
-    ayRaw = (aAccelData[3] << 8) | aAccelData[2]; // Store y-axis values into ay
-    azRaw = (aAccelData[5] << 8) | aAccelData[4]; // Store z-axis values into az
+    if (bTempUpdate)
+        {
+        // 14-byte burst from 0x20: temp(2) + gyro(6) + accel(6)
+        SensorSPI->ReadRegBytes(uChipSel, IMU_READ_ADDR(ISM330_OUT_TEMP_L), aBuf, 14);
+        iOfs = 2;
 
-    // Read gyro output
-    SensorSPI->ReadRegBytes(uChipSel, IMU_READ_ADDR(OUTX_L_G), aGyroData, 6);  // Read the six raw data registers sequentially into data array
-    gxRaw = (aGyroData[1] << 8) | aGyroData[0]; // Store x-axis values into gx
-    gyRaw = (aGyroData[3] << 8) | aGyroData[2]; // Store y-axis values into gy
-    gzRaw = (aGyroData[5] << 8) | aGyroData[4]; // Store z-axis values into gz
+        int16_t iTempCount = (aBuf[1] << 8) | aBuf[0];
+        fTempC = ((float) (iTempCount / ISM330_TEMP_SCALE + ISM330_TEMP_BIAS));
+        g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Temp: %.1fC\n", fTempC);
+
+        pTempAvg->addValue(fTempC);
+        fTempC = pTempAvg->getFastAverage();
+        }
+    else
+        {
+        // 12-byte burst from 0x22: gyro(6) + accel(6)
+        SensorSPI->ReadRegBytes(uChipSel, IMU_READ_ADDR(OUTX_L_G), aBuf, 12);
+        iOfs = 0;
+        }
+
+    // Parse gyro (6 bytes at iOfs)
+    gxRaw = (aBuf[iOfs+1] << 8) | aBuf[iOfs+0];
+    gyRaw = (aBuf[iOfs+3] << 8) | aBuf[iOfs+2];
+    gzRaw = (aBuf[iOfs+5] << 8) | aBuf[iOfs+4];
+
+    // Parse accel (6 bytes at iOfs+6)
+    axRaw = (aBuf[iOfs+7] << 8) | aBuf[iOfs+6];
+    ayRaw = (aBuf[iOfs+9] << 8) | aBuf[iOfs+8];
+    azRaw = (aBuf[iOfs+11] << 8) | aBuf[iOfs+10];
 
     fAccelX     = axRaw * ACCEL_RES;
     fAccelY     = ayRaw * ACCEL_RES;
@@ -183,22 +201,6 @@ void IMU330::ReadAccelGyro(bool bTempUpdate)
     if (g_Log.Test(MsgLog::EnIMU, MsgLog::EnDebug))
         g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "fAccelX %.3f, fAccelY %.3f, fAccelZ %.3f, fGyroX %.4f, fGyroY %.4f, fGyroZ %.4f\n",
             fAccelX, fAccelY, fAccelZ, fGyroX, fGyroY, fGyroZ);
-
-#if 1
-    // read IMU temperature output
-    if (bTempUpdate)
-        {
-        ReadTempC();
-
-        pTempAvg->addValue(fTempC);
-        fTempC = pTempAvg->getFastAverage();
-        //imuTempDerivativeInput=imuTempRaw;
-        //imuTempRateAvg.addValue(-imuTempDerivative.Compute()*10.0); //10Hz sample rate on imuTemp, SavGolay derivative filter takes 20-25uSec
-        //imuTempRate=imuTempRateAvg.getFastAverage();
-
-//        g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Temp: %.1fC\n",fTempC);
-        }
-#endif
 }
 
 // ----------------------------------------------------------------------------
