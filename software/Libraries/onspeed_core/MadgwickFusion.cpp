@@ -22,7 +22,6 @@
 
 #include "MadgwickFusion.h"
 #include <math.h>
-#include <cstring>
 
 //-------------------------------------------------------------------------------------------
 // Definitions
@@ -258,31 +257,15 @@ void Madgwick::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float
 }
 
 //-------------------------------------------------------------------------------------------
-// Fast inverse square-root
-// See: http://en.wikipedia.org/wiki/Fast_inverse_square_root
+// Inverse square-root using the ESP32-S3 single-precision FPU.
+// The original Quake III bit-hack (0x5f375a86) was slower on this hardware:
+// two memcpy calls for type-punning plus a Newton-Raphson step vs the FPU's
+// hardware-assisted sqrt + divide in ROM.  Also IEEE-754 exact vs ~0.175% error.
 
 float Madgwick::invSqrt(float x)
 {
-//  return 1.0 / sqrt(x);
-//  float halfx = 0.5f * x;
-//  float y = x;
-//  long i = *(long*)&y;
-//  i = 0x5f3759df - (i>>1);
-//  y = *(float*)&i;
-//  y = y * (1.5f - (halfx * y * y));
-//  y = y * (1.5f - (halfx * y * y));
-//  return y;
-
-    // this code uses memcpy instead of old code that breaks strict-aliasing rules
-    float xhalf = 0.5f*x;
-    unsigned int i;
-    //assert(sizeof(x) == sizeof(i));
-    memcpy(&i, &x, sizeof(i));
-    i = 0x5f375a86 - (i>>1);
-    memcpy(&x, &i, sizeof(i));
-    x = x*(1.5f - xhalf*x*x);
-
-    return x;
+    if (x <= 0.0f) return 0.0f;
+    return 1.0f / sqrtf(x);
 }
 
 //-------------------------------------------------------------------------------------------
