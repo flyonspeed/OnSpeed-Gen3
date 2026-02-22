@@ -306,6 +306,9 @@ function recordData(on)
   if (on)
     {
     console.log("Recording Start, flaps "+flapsPos);
+    // Request 50 Hz data rate from ESP32 during recording
+    if (websocket && websocket.readyState === WebSocket.OPEN)
+      websocket.send("rate:20");
     document.getElementById("idStartInstructions").style.display = "none";
     document.getElementById("idStopInstructions").style.display = "block";
     document.getElementById('CPchart').style="display:none";
@@ -327,6 +330,9 @@ function recordData(on)
   else
     {
     console.log("Recording Stop");
+    // Restore default 10 Hz data rate
+    if (websocket && websocket.readyState === WebSocket.OPEN)
+      websocket.send("rate:100");
     document.getElementById("idStopInstructions").style.display = "none";
 
     flapsPosCalibrated = flapsPos;
