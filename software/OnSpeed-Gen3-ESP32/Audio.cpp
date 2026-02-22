@@ -115,6 +115,14 @@ static void AudioLogDebugNoBlock(const char * szFmt, ...)
     xSemaphoreGive(xSerialLogMutex);
     }
 
+// Wake the audio play task if it is blocked on ulTaskNotifyTake().
+// Safe to call from any task context on either core.
+static void NotifyAudioTask()
+    {
+    if (xTaskAudioPlay != NULL)
+        xTaskNotifyGive(xTaskAudioPlay);
+    }
+
 static void AudioTestTask(void * pvParams)
     {
     (void)pvParams;
@@ -149,10 +157,11 @@ void AudioPlayTask(void * psuParams)
             continue;
             }
 
-        // This would be more efficient with a semaphore but it works OK for now
-        if (g_AudioPlay.enTone == enToneNone)
-//            vTaskDelay(100 / portTICK_PERIOD_MS);
-            vTaskDelay(pdMS_TO_TICKS(100));
+        // Block until SetTone/SetVoice sends a notification, or 100ms
+        // elapses as a safety net.  pdTRUE clears the notification count
+        // so stale notifications don't cause extra wakeups.
+        if (g_AudioPlay.enTone == enToneNone && g_AudioPlay.enVoice == enVoiceNone)
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
 
         // If a voice play has been selected then play it once. Note that PlayVoice()
         // blocks until it is finished.
@@ -273,6 +282,9 @@ void AudioPlay::SetGain(float fLeftGain, float fRightGain)
 void AudioPlay::SetVoice(EnVoice enVoice)
 {
     this->enVoice = enVoice;
+
+    if (enVoice != enVoiceNone)
+        NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
@@ -282,6 +294,9 @@ void AudioPlay::SetVoice(EnVoice enVoice)
 void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
     this->enTone = enAudioTone;
+
+    if (enAudioTone != enToneNone)
+        NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
