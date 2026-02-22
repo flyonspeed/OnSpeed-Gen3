@@ -289,7 +289,7 @@ void setup()
 
     // These always run
     xTaskCreatePinnedToCore(AudioPlayTask,        "AudioPlay",      5000,  NULL, 6, &xTaskAudioPlay,     1);
-    xTaskCreatePinnedToCore(WriteDisplayDataTask, "Write Display", 10000,  NULL, 4, &xTaskDisplaySerial, 1);
+    xTaskCreatePinnedToCore(WriteDisplayDataTask, "Write Display",  4000,  NULL, 4, &xTaskDisplaySerial, 1);
     xTaskCreatePinnedToCore(SwitchCheckTask,      "Check Switch",   5000,  NULL, 4, &xTaskCheckSwitch,   1);
     xTaskCreatePinnedToCore(CheckGLimitTask,      "Check G Limit",  2000,  NULL, 0, &xTaskGLimit,        1);
     xTaskCreatePinnedToCore(CheckVolumeTask,      "Check Volume",   2000,  NULL, 0, &xTaskVolume,        1);
