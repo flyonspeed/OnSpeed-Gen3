@@ -15,6 +15,7 @@ Do a text search for comments starting with "////"
 #include "soc/rtc_cntl_reg.h"
 
 #include <HardwareSerial.h>
+#include <WiFi.h>
 //#include <SoftwareSerial.h>
 
 #define MAIN
@@ -43,8 +44,9 @@ void WebServerTask(void * pvParams)
     for(;;)
     {
         CfgWebServerPoll();
-        // Yield to allow other tasks on Core 0 (like WiFi stack) to run
-        vTaskDelay(pdMS_TO_TICKS(5));
+        // Poll at 200 Hz when a client is connected, 20 Hz when idle
+        unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;
+        vTaskDelay(pdMS_TO_TICKS(uDelay));
     }
 }
 
@@ -54,8 +56,9 @@ void DataServerTask(void * pvParams)
     for(;;)
     {
         DataServerPoll();
-        // Yield to allow other tasks on Core 0 (like WiFi stack) to run
-        vTaskDelay(pdMS_TO_TICKS(5));
+        // Poll at 200 Hz when a client is connected, 20 Hz when idle
+        unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;
+        vTaskDelay(pdMS_TO_TICKS(uDelay));
     }
 }
 
