@@ -45,6 +45,13 @@ IMU330::IMU330(SpiIO * pSensorSPI, int CsPort)
     // Set up chip select pins as outputs
     pinMode(uChipSel, OUTPUT);
 
+    sVerticalGloadAxis = "";
+    sLateralGloadAxis  = "";
+    sForwardGloadAxis  = "";
+    sRollGyroAxis      = "";
+    sPitchGyroAxis     = "";
+    sYawGyroAxis       = "";
+
     pTempAvg = new RunningAverage(20);
 
     Ax = 0.0;     // Forward G
@@ -123,21 +130,12 @@ void IMU330::Read()
     ReadAccelGyro(bTempUpdate); // read accelerometers
 
     // Get IMU values in aircraft orientation
-#if 0
-    Az = GetAccelForAxis(sVerticalGloadAxis);
-    Ay = GetAccelForAxis(sLateralGloadAxis);
-    Ax = GetAccelForAxis(sForwardGloadAxis);
-    Gx = GetGyroForAxis(sRollGyroAxis);
-    Gy = GetGyroForAxis(sPitchGyroAxis);
-    Gz = GetGyroForAxis(sYawGyroAxis);
-#else
     Ax = *pfAx * fAxSign;
     Ay = *pfAy * fAySign;
     Az = *pfAz * fAzSign;
     Gx = *pfGx * fGxSign;
     Gy = *pfGy * fGySign;
     Gz = *pfGz * fGzSign;
-#endif
 
     g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug,
         "Ax %.3f, Ay %.3f, Az %.3f, Gx %.4f, Gy %.4f, Gz %.4f, Temp %.2fC\n",
@@ -237,7 +235,7 @@ uint8_t IMU330::WhoAmI()
 
 void IMU330::ConfigAxes()
     {
-    // Get accelerometer axis from box orientation (there must be a better way to do this, but it works for now)
+    // Get accelerometer axis from box orientation
     // orientation arrays defined as box orientation
     // configure axes to North East Down (NED) Axis convention
     // vertical axis (z down), lateral axis (y right), longitudinal axis (x forward)
@@ -251,7 +249,7 @@ void IMU330::ConfigAxes()
 
       // {sPortsOrientation, sBoxtopOrientation, sVerticalGloadAxis, sLateralGloadAxis, sForwardGloadAxis}
 #ifdef HW_V4P
-    String axisMapArray[24][5] = {
+    static const char* const axisMapArray[24][5] = {
         // This is the orientation for the V4P box
         // IMU inside the V4P box is rotated relative to the V4B box:
         // V4P(X)=V4B(-Y)  V4P(Y)=V4B(-X)  V4P(Z)=V4B(-Z)
@@ -286,7 +284,7 @@ void IMU330::ConfigAxes()
       {"DOWN",    "RIGHT",   "-Y", "Z","-X"}
       };
 #else
-    String axisMapArray[24][5] = {
+    static const char* const axisMapArray[24][5] = {
         // This is the orientation for the V4B box
         // V4B +X back (away from pressure ports)  +Y right (towards USB ports)  +Z down
       {"FORWARD", "LEFT",    "-Y", "Z","-X"}, // TESTED GOOD Paul's
@@ -323,7 +321,7 @@ void IMU330::ConfigAxes()
 
     for (int i=0;i<24;i++)
         {
-        if (axisMapArray[i][0] == g_Config.sPortsOrientation && axisMapArray[i][1] == g_Config.sBoxtopOrientation)
+        if (g_Config.sPortsOrientation == axisMapArray[i][0] && g_Config.sBoxtopOrientation == axisMapArray[i][1])
             {
             sVerticalGloadAxis = axisMapArray[i][2];
             sLateralGloadAxis  = axisMapArray[i][3];
@@ -344,22 +342,23 @@ void IMU330::ConfigAxes()
 
     g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "portsOrientation  : %s\n", g_Config.sPortsOrientation.c_str());
     g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "boxtopOrientation : %s\n", g_Config.sBoxtopOrientation.c_str());
-    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Vertical axis     : %s\n", sVerticalGloadAxis.c_str());
-    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Lateral axis      : %s\n", sLateralGloadAxis.c_str());
-    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Forward axis      : %s\n", sForwardGloadAxis.c_str());
-    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Yaw Gyro axis     : %s\n", sYawGyroAxis.c_str());
-    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Pitch Gyro axis   : %s\n", sPitchGyroAxis.c_str());
-    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Roll Gyro axis    : %s\n", sRollGyroAxis.c_str());
+    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Vertical axis     : %s\n", sVerticalGloadAxis);
+    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Lateral axis      : %s\n", sLateralGloadAxis);
+    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Forward axis      : %s\n", sForwardGloadAxis);
+    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Yaw Gyro axis     : %s\n", sYawGyroAxis);
+    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Pitch Gyro axis   : %s\n", sPitchGyroAxis);
+    g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug, "Roll Gyro axis    : %s\n", sRollGyroAxis);
     }
 
 // ----------------------------------------------------------------------------
 
-float IMU330::GetAccelForAxis(String accelAxis)
+float IMU330::GetAccelForAxis(const char* accelAxis)
     {
     float result=0.0;
-    if      (accelAxis[accelAxis.length()-1] == 'X') result = fAccelX;
-    else if (accelAxis[accelAxis.length()-1] == 'Y') result = fAccelY;
-    else                                             result = fAccelZ;
+    char lastChar = accelAxis[strlen(accelAxis)-1];
+    if      (lastChar == 'X') result = fAccelX;
+    else if (lastChar == 'Y') result = fAccelY;
+    else                      result = fAccelZ;
 
     if (accelAxis[0]=='-') result*=-1;
 
@@ -368,24 +367,26 @@ float IMU330::GetAccelForAxis(String accelAxis)
 
 // ----------------------------------------------------------------------------
 
-void IMU330::GetAccelForAxis(String accelAxis, float * pfAccelSign, float ** ppfAccel)
+void IMU330::GetAccelForAxis(const char* accelAxis, float * pfAccelSign, float ** ppfAccel)
     {
-    if      (accelAxis[accelAxis.length()-1] == 'X') *ppfAccel = &fAccelX;
-    else if (accelAxis[accelAxis.length()-1] == 'Y') *ppfAccel = &fAccelY;
-    else                                             *ppfAccel = &fAccelZ;
+    char lastChar = accelAxis[strlen(accelAxis)-1];
+    if      (lastChar == 'X') *ppfAccel = &fAccelX;
+    else if (lastChar == 'Y') *ppfAccel = &fAccelY;
+    else                      *ppfAccel = &fAccelZ;
 
     if (accelAxis[0] == '-') *pfAccelSign = -1;
-    else                   *pfAccelSign =  1;
+    else                     *pfAccelSign =  1;
     }
 
 // ----------------------------------------------------------------------------
 
-float IMU330::GetGyroForAxis(String gyroAxis)
+float IMU330::GetGyroForAxis(const char* gyroAxis)
     {
     float result=0.0;
-    if      (gyroAxis[gyroAxis.length()-1] == 'X') result = fGyroX + g_Config.fGxBias;
-    else if (gyroAxis[gyroAxis.length()-1] == 'Y') result = fGyroY + g_Config.fGyBias;
-    else                                           result = fGyroZ + g_Config.fGzBias;
+    char lastChar = gyroAxis[strlen(gyroAxis)-1];
+    if      (lastChar == 'X') result = fGyroX + g_Config.fGxBias;
+    else if (lastChar == 'Y') result = fGyroY + g_Config.fGyBias;
+    else                      result = fGyroZ + g_Config.fGzBias;
 
     // For gyro the sign is inverted
     if (gyroAxis[0]!='-') result *= -1;
@@ -395,30 +396,17 @@ float IMU330::GetGyroForAxis(String gyroAxis)
 
 // ----------------------------------------------------------------------------
 
-void IMU330::GetGyroForAxis(String gyroAxis, float * pfGyroSign, float ** ppfGryo)
+void IMU330::GetGyroForAxis(const char* gyroAxis, float * pfGyroSign, float ** ppfGryo)
     {
-    if      (gyroAxis[gyroAxis.length()-1] == 'X') *ppfGryo = &fGyroXwBias;
-    else if (gyroAxis[gyroAxis.length()-1] == 'Y') *ppfGryo = &fGyroYwBias;
-    else                                           *ppfGryo = &fGyroZwBias;
+    char lastChar = gyroAxis[strlen(gyroAxis)-1];
+    if      (lastChar == 'X') *ppfGryo = &fGyroXwBias;
+    else if (lastChar == 'Y') *ppfGryo = &fGyroYwBias;
+    else                      *ppfGryo = &fGyroZwBias;
 
     // For gyro the sign is inverted
     if (gyroAxis[0] != '-') *pfGyroSign = -1;
     else                    *pfGyroSign =  1;
     }
-
-// ----------------------------------------------------------------------------
-
-//float IMU330::GetGyroForAxisNoBias(String gyroAxis)
-//    {
-//    float result=0.0;
-//    if      (gyroAxis[gyroAxis.length()-1] == 'X') result = fGyroX;
-//    else if (gyroAxis[gyroAxis.length()-1] == 'Y') result = fGyroY;
-//    else                                           result = fGyroZ;
-//
-//    if (gyroAxis[0]!='-') result*=-1;
-//
-//    return result;
-//    }
 
 // ----------------------------------------------------------------------------
 
