@@ -22,7 +22,7 @@ static constexpr float RAD2DEG = 180.0f / 3.14159265358979f;
 static constexpr float G = 9.80665f;
 
 // Tolerance for floating point comparison
-static constexpr float ABS_TOL = 0.01f;  // 0.01 degrees
+static constexpr float ABS_TOL = 0.001f;  // 0.001 degrees
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -129,7 +129,7 @@ void test_ekf6_pitched_10deg(void) {
     EKF6::State state = ekf.getState();
 
     TEST_ASSERT_FLOAT_WITHIN(ABS_TOL, 0.0f, state.phi_deg());
-    TEST_ASSERT_FLOAT_WITHIN(0.1f, 10.0f, state.theta_deg());  // Within 0.1 deg
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 10.0f, state.theta_deg());
 }
 
 // ============================================================================
@@ -160,7 +160,7 @@ void test_ekf6_banked_20deg(void) {
 
     EKF6::State state = ekf.getState();
 
-    TEST_ASSERT_FLOAT_WITHIN(0.1f, 20.0f, state.phi_deg());  // Within 0.1 deg
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 20.0f, state.phi_deg());
     TEST_ASSERT_FLOAT_WITHIN(ABS_TOL, 0.0f, state.theta_deg());
 }
 
@@ -211,7 +211,7 @@ void test_ekf6_pitch_rate_integration(void) {
     float expected_theta = pitch_rate * pitch_duration * RAD2DEG;
 
     TEST_ASSERT_FLOAT_WITHIN(ABS_TOL, 0.0f, state.phi_deg());
-    TEST_ASSERT_FLOAT_WITHIN(0.5f, expected_theta, state.theta_deg());  // Within 0.5 deg
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, expected_theta, state.theta_deg());
 }
 
 // ============================================================================
@@ -246,7 +246,7 @@ void test_ekf6_gyro_bias_estimation(void) {
     EKF6::State state = ekf.getState();
 
     // Theta should stay near zero (accelerometer corrects drift)
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.0f, state.theta_deg());
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, state.theta_deg());
 
     // Note: Bias estimation converges slowly with this tuning
     // The Octave reference shows bq ~0.39 after 5 seconds
@@ -344,9 +344,9 @@ void test_ekf6_large_attitude_stability(void) {
     TEST_ASSERT_FALSE(std::isnan(state.phi));
     TEST_ASSERT_FALSE(std::isnan(state.theta));
 
-    // Should be reasonably close to true values
-    TEST_ASSERT_FLOAT_WITHIN(5.0f, 45.0f, state.phi_deg());
-    TEST_ASSERT_FLOAT_WITHIN(5.0f, 45.0f, state.theta_deg());
+    // Should be close to true values
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 45.0f, state.phi_deg());
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 45.0f, state.theta_deg());
 }
 
 // ============================================================================
@@ -381,7 +381,7 @@ void test_ekf6_custom_config(void) {
     EKF6::State state = ekf.getState();
 
     // Should be close to 10 deg even after only 1 second
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 10.0f, state.theta_deg());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 10.0f, state.theta_deg());
 }
 
 // ============================================================================
