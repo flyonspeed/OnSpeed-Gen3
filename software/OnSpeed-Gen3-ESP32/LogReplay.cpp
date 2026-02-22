@@ -191,7 +191,6 @@ bool ReadLogLine()
     {
     bool    bStatus;
     int     iCharsRead;
-    long    lTimestamp;
 
     // Read until a good line is read or we run out of lines. Malformed
     // lines result in no data filled in to the CsvData array.
@@ -217,7 +216,6 @@ bool ReadLogLine()
         } // end reading lines looking for a good one
 
     // We got a good line so convert some values
-    try { lTimestamp             =  std::stol(CsvData["timeStamp"].c_str());    } catch (const std::invalid_argument&) { lTimestamp              = 0; }
     try { g_Sensors.PfwdSmoothed =  std::stof(CsvData["PfwdSmoothed"].c_str()); } catch (const std::invalid_argument&) { g_Sensors.PfwdSmoothed  = 0; }
     try { g_Sensors.P45Smoothed  =  std::stof(CsvData["P45Smoothed"].c_str());  } catch (const std::invalid_argument&) { g_Sensors.P45Smoothed   = 0; }
     try { g_Flaps.iPosition      =  std::stoi(CsvData["flapsPos"].c_str());     } catch (const std::invalid_argument&) { g_Flaps.iPosition       = 0; }
@@ -270,7 +268,7 @@ bool ReadLogLine()
 
     g_AudioPlay.UpdateTones();
 
-    //Serial.printf("Time:%ld", lTimestamp);
+    //Serial.printf("Time:%ld", std::stol(CsvData["timeStamp"].c_str()));
     //Serial.printf(", Pfwd:%.1f", g_Sensors.PfwdSmoothed);
     //Serial.printf(", P45:%.1f",  g_Sensors.P45Smoothed);
     //Serial.printf(", IAS:%.1f",  g_Sensors.IAS);

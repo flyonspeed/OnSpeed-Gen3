@@ -292,6 +292,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
     const float fDerivedAOA = SafeJsonFloat(g_AHRS.DerivedAOA, 0.0f);
 
+    // szFormat is a compile-time constant split across lines for readability.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
     int iChars = snprintf(
         pOut,
         uOutSize,
@@ -318,6 +321,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiOAT,
         SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fAlpha0, 0.0f),
         fDerivedAOA);
+#pragma GCC diagnostic pop
 
     if (iChars < 0)
         return 0;

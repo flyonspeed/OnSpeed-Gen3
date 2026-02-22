@@ -87,7 +87,7 @@ void test_reset()
 // Main
 // ============================================================================
 
-int main(int argc, char** argv)
+int main()
 {
     UNITY_BEGIN();
 

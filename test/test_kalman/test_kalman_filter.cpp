@@ -140,7 +140,7 @@ void test_turbulence_stability(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, v);
 }
 
-int main(int argc, char **argv) {
+int main() {
     UNITY_BEGIN();
     RUN_TEST(test_initial_state_preserved);
     RUN_TEST(test_steady_altitude_convergence);
