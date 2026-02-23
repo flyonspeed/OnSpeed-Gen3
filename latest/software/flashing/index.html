@@ -1539,10 +1539,32 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#download-pre-built-firmware" class="md-nav__link">
+  <a href="#which-hardware-do-i-have" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Download Pre-Built Firmware
+        Which Hardware Do I Have?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#download-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Download Firmware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-update-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Update Method?
       
     </span>
   </a>
@@ -2967,10 +2989,32 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#download-pre-built-firmware" class="md-nav__link">
+  <a href="#which-hardware-do-i-have" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Download Pre-Built Firmware
+        Which Hardware Do I Have?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#download-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Download Firmware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#which-update-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Update Method?
       
     </span>
   </a>
@@ -3087,13 +3131,75 @@
 
 <h1 id="flashing-firmware">Flashing Firmware<a class="headerlink" href="#flashing-firmware" title="Permanent link">&para;</a></h1>
 <p>How to flash the OnSpeed firmware to a new or existing controller board.</p>
-<h2 id="download-pre-built-firmware">Download Pre-Built Firmware<a class="headerlink" href="#download-pre-built-firmware" title="Permanent link">&para;</a></h2>
-<p>Pre-built firmware binaries are available from the GitHub repository:</p>
+<h2 id="which-hardware-do-i-have">Which Hardware Do I Have?<a class="headerlink" href="#which-hardware-do-i-have" title="Permanent link">&para;</a></h2>
+<p>OnSpeed Gen3 has two hardware variants with different pin assignments. You must flash the correct firmware for your board.</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Description</th>
+<th>How to identify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>V4P</strong></td>
+<td>Phil's box — most common</td>
+<td>Label on PCB, or if you received your board from Phil</td>
+</tr>
+<tr>
+<td><strong>V4B</strong></td>
+<td>Bob's box</td>
+<td>Label on PCB, or if you received your board from Bob</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition tip">
+<p class="admonition-title">Not sure?</p>
+<p>If you don't know which variant you have, ask the person who built your board, or check for a label on the PCB. V4P is far more common. If you flash the wrong variant, the sensors will read incorrectly — but it won't damage anything, and you can re-flash with the correct version.</p>
+</div>
+<h2 id="download-firmware">Download Firmware<a class="headerlink" href="#download-firmware" title="Permanent link">&para;</a></h2>
+<p>Pre-built firmware binaries are available from GitHub:</p>
 <ol>
-<li>Go to the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases">OnSpeed-Gen3 GitHub releases</a></li>
-<li>Download the latest <code>.bin</code> firmware file</li>
-<li>If no release is available, CI builds produce artifacts on each push — check the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/actions">Actions tab</a></li>
+<li>Go to the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest GitHub release</a></li>
+<li>Download the files for your hardware variant:</li>
 </ol>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it is</th>
+<th>When you need it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>onspeed-vX.Y.Z-v4p-firmware.bin</code></td>
+<td>Application firmware for V4P</td>
+<td>OTA or USB flash</td>
+</tr>
+<tr>
+<td><code>onspeed-vX.Y.Z-v4b-firmware.bin</code></td>
+<td>Application firmware for V4B</td>
+<td>OTA or USB flash</td>
+</tr>
+<tr>
+<td><code>onspeed-vX.Y.Z-bootloader.bin</code></td>
+<td>ESP32 bootloader (same for both variants)</td>
+<td>USB flash only</td>
+</tr>
+<tr>
+<td><code>onspeed-vX.Y.Z-partitions.bin</code></td>
+<td>Flash partition table (same for both variants)</td>
+<td>USB flash only</td>
+</tr>
+</tbody>
+</table>
+<h2 id="which-update-method">Which Update Method?<a class="headerlink" href="#which-update-method" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>OTA (WiFi)</strong>: Use for routine updates when the box is already running and the <code>OnSpeed</code> WiFi network appears. You only need the <code>firmware.bin</code> for your variant. See <a href="../ota-update/">OTA Updates</a>.</li>
+<li><strong>USB (esptool)</strong>: Use for initial flash on a brand-new board, or to recover a bricked device that won't boot. You need all 3 files (bootloader + partitions + firmware). See below.</li>
+</ul>
 <h2 id="flash-via-usb-with-esptool">Flash via USB with esptool<a class="headerlink" href="#flash-via-usb-with-esptool" title="Permanent link">&para;</a></h2>
 <h3 id="install-esptool">Install esptool<a class="headerlink" href="#install-esptool" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>esptool
@@ -3109,9 +3215,17 @@
 </li>
 </ol>
 <h3 id="flash-the-firmware">Flash the Firmware<a class="headerlink" href="#flash-the-firmware" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>esptool.py<span class="w"> </span>--chip<span class="w"> </span>esp32s3<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbmodem1101<span class="w"> </span>--baud<span class="w"> </span><span class="m">921600</span><span class="w"> </span>write_flash<span class="w"> </span>0x0<span class="w"> </span>firmware.bin
+<p>Flash all three files at the correct addresses:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>esptool.py<span class="w"> </span>--chip<span class="w"> </span>esp32s3<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbmodem1101<span class="w"> </span>--baud<span class="w"> </span><span class="m">921600</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>write_flash<span class="w"> </span>0x0<span class="w"> </span>onspeed-v4.15.0-bootloader.bin<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">              </span>0x8000<span class="w"> </span>onspeed-v4.15.0-partitions.bin<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">              </span>0x10000<span class="w"> </span>onspeed-v4.15.0-v4p-firmware.bin
 </code></pre></div>
-<p>Replace <code>/dev/cu.usbmodem1101</code> with your actual serial port and <code>firmware.bin</code> with the downloaded filename.</p>
+<p>Replace <code>/dev/cu.usbmodem1101</code> with your actual serial port. Replace <code>v4p</code> with <code>v4b</code> if you have Bob's hardware.</p>
+<div class="admonition warning">
+<p class="admonition-title">Three files at three addresses</p>
+<p>The bootloader goes at <code>0x0</code>, partitions at <code>0x8000</code>, and firmware at <code>0x10000</code>. Writing firmware to address <code>0x0</code> will overwrite the bootloader and the board won't boot.</p>
+</div>
 <h3 id="verify">Verify<a class="headerlink" href="#verify" title="Permanent link">&para;</a></h3>
 <p>After flashing:</p>
 <ol>
@@ -3123,7 +3237,12 @@
 <h2 id="flash-via-platformio-for-developers">Flash via PlatformIO (for developers)<a class="headerlink" href="#flash-via-platformio-for-developers" title="Permanent link">&para;</a></h2>
 <p>If you have the source code and PlatformIO installed:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">cd</span><span class="w"> </span>OnSpeed-Gen3
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>pio<span class="w"> </span>run<span class="w"> </span>-t<span class="w"> </span>upload
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># Flash V4P (default)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>esp32s3-v4p<span class="w"> </span>-t<span class="w"> </span>upload
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># Flash V4B</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>esp32s3-v4b<span class="w"> </span>-t<span class="w"> </span>upload
 </code></pre></div>
 <p>This builds the firmware from source and uploads it in one step.</p>
 <h2 id="troubleshooting-flash-issues">Troubleshooting Flash Issues<a class="headerlink" href="#troubleshooting-flash-issues" title="Permanent link">&para;</a></h2>

@@ -1567,6 +1567,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-you-need" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What You Need
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-ota" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to Use OTA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-not-to-use-ota" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When NOT to Use OTA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#procedure" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2906,6 +2939,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#what-you-need" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What You Need
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-ota" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to Use OTA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-not-to-use-ota" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When NOT to Use OTA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#procedure" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2965,9 +3031,34 @@
 
 <h1 id="ota-updates-via-wifi">OTA Updates via WiFi<a class="headerlink" href="#ota-updates-via-wifi" title="Permanent link">&para;</a></h1>
 <p>You can update the OnSpeed firmware wirelessly through the web interface — no USB cable needed.</p>
+<h2 id="what-you-need">What You Need<a class="headerlink" href="#what-you-need" title="Permanent link">&para;</a></h2>
+<p>Download the <code>firmware.bin</code> for your hardware variant (V4P or V4B) from the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest GitHub release</a>. You do <strong>not</strong> need the bootloader or partitions files — those are only for <a href="../flashing/">USB flashing</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Your hardware</th>
+<th>Download this file</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V4P (Phil's box)</td>
+<td><code>onspeed-vX.Y.Z-v4p-firmware.bin</code></td>
+</tr>
+<tr>
+<td>V4B (Bob's box)</td>
+<td><code>onspeed-vX.Y.Z-v4b-firmware.bin</code></td>
+</tr>
+</tbody>
+</table>
+<p>Not sure which variant you have? See <a href="../flashing/#which-hardware-do-i-have">Which Hardware Do I Have?</a></p>
+<h2 id="when-to-use-ota">When to Use OTA<a class="headerlink" href="#when-to-use-ota" title="Permanent link">&para;</a></h2>
+<p>Use OTA for routine firmware updates when your OnSpeed is already running and the <code>OnSpeed</code> WiFi network appears. OTA only updates the application firmware, not the bootloader or partition table.</p>
+<h2 id="when-not-to-use-ota">When NOT to Use OTA<a class="headerlink" href="#when-not-to-use-ota" title="Permanent link">&para;</a></h2>
+<p>If the device won't boot or the WiFi network doesn't appear, you need USB recovery instead. See <a href="../flashing/">Flashing Firmware</a>.</p>
 <h2 id="procedure">Procedure<a class="headerlink" href="#procedure" title="Permanent link">&para;</a></h2>
 <ol>
-<li>Download the new firmware <code>.bin</code> file to your phone, tablet, or laptop</li>
+<li>Download the firmware <code>.bin</code> file matching your hardware variant to your phone, tablet, or laptop</li>
 <li>Power on the OnSpeed controller</li>
 <li>Connect to the OnSpeed WiFi (<code>OnSpeed</code> / <code>angleofattack</code>)</li>
 <li>Navigate to: <strong><code>http://192.168.0.1/upgrade</code></strong></li>
