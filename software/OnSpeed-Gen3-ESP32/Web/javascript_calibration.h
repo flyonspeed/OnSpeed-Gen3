@@ -147,7 +147,7 @@ function onMessage(evt)
 
     if (flapIndex == 0)
       {
-      // Best glide weight correction= Sqrt(current weight / gross weight) * glide speed at gross weight.
+      // Best glide weight correction= Sqrt(current weight / max gross weight) * glide speed at max gross weight.
       LDmaxIAS = Math.sqrt(acCurrentWeight/acGrossWeight) * acVldmax;
       }
 

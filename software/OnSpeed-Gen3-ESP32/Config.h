@@ -195,7 +195,7 @@ public:
 
     // Aircraft parameters (used by calibration wizard)
     int             iAcGrossWeight;
-    float           fAcBestGlideIAS;    // Best glide airspeed at gross weight (KIAS)
+    float           fAcBestGlideIAS;    // Best glide airspeed at max gross weight (KIAS)
     float           fAcVfe;             // Max flap extension speed (KIAS)
     float           fAcGlimit;          // Airframe load factor limit (G)
 
