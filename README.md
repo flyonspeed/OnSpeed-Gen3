@@ -55,7 +55,7 @@ Download pre-built firmware from the [latest GitHub release](https://github.com/
 | `onspeed-vX.Y.Z-bootloader.bin` | Bootloader (shared, USB flash only) |
 | `onspeed-vX.Y.Z-partitions.bin` | Partition table (shared, USB flash only) |
 
-**OTA update** (routine): Upload just the `firmware.bin` for your variant via the web interface at `http://192.168.0.1/upgrade`.
+**OTA update** (routine): Upload just the `firmware.bin` for your variant via the web interface at `http://onspeed.local/upgrade`. See the [OTA update docs](https://dev.flyonspeed.org/OnSpeed-Gen3/software/ota-update/) for details.
 
 **USB flash** (initial or recovery):
 ```bash
@@ -68,7 +68,9 @@ esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 --baud 921600 \
 
 See the [documentation site](https://dev.flyonspeed.org/OnSpeed-Gen3/) for full flashing and OTA instructions.
 
-**Versioning:** The firmware version is derived from git tags at build time (e.g., `git tag v4.16.0`). Between tags, the version includes the commit count (e.g., `4.16.1-dev+3`).
+**Development builds** from the latest `master` or any PR are available as CI artifacts. Go to the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml), click a successful run, and download `onspeed-<version>-V4P.zip` or `onspeed-<version>-V4B.zip`. Each zip contains `firmware.bin`, `bootloader.bin`, and `partitions.bin` — for OTA you only need `firmware.bin`. PRs also get a comment with direct download links.
+
+**Versioning:** The firmware version is derived from git tags at build time (e.g., `git tag v4.16.0`). Between tags, the version includes the commit count and short SHA (e.g., `4.16.1-dev.3+abc1234`).
 
 ### Building with PlatformIO
 

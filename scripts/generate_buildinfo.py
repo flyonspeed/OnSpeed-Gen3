@@ -35,10 +35,11 @@ const char* gitSha = "{git_sha}";
 const char* gitShortSha = "{git_short_sha}";
 const char* gitBranch = "{git_branch}";
 const char* buildDate = "{build_date}";
-const bool isRelease = {is_release};
-const int versionMajor = {version_major};
-const int versionMinor = {version_minor};
-const int versionPatch = {version_patch};
+// 'extern' forces external linkage so these override weak defaults
+extern const bool isRelease = {is_release};
+extern const int versionMajor = {version_major};
+extern const int versionMinor = {version_minor};
+extern const int versionPatch = {version_patch};
 
 }}  // namespace BuildInfo
 '''
@@ -90,7 +91,7 @@ def get_version_from_tag() -> tuple[str, int, int, int, bool]:
             commits_ahead = match.group(4)
             if commits_ahead:
                 # Development build: bump patch and add -dev
-                return (f"{major}.{minor}.{patch + 1}-dev+{commits_ahead}", major, minor, patch + 1, False)
+                return (f"{major}.{minor}.{patch + 1}-dev.{commits_ahead}", major, minor, patch + 1, False)
             else:
                 # Exact tag match
                 return (f"{major}.{minor}.{patch}", major, minor, patch, True)
@@ -108,6 +109,10 @@ def generate_buildinfo(output_path: Path) -> None:
     build_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     version_str, major, minor, patch, is_release = get_version_from_tag()
+
+    # Append short SHA as semver build metadata for non-release builds
+    if not is_release and git_short_sha != "unknown":
+        version_str = f"{version_str}+{git_short_sha}"
 
     content = TEMPLATE.format(
         version=version_str,

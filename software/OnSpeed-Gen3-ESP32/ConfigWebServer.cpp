@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include <Arduino.h>
+#include <buildinfo.h>
 
 #include <WiFi.h>               // https://github.com/espressif/arduino-esp32/tree/master/libraries/WiFi
 #include <WiFiClient.h>
@@ -297,7 +298,7 @@ void UpdateHeader()
     //if (sVersion == "")
     //    sVersion = "UNKNOWN";
 
-    pageHeader.replace("wifi_fw", "OnSpeed Version: " VERSION);
+    pageHeader.replace("wifi_fw", String("OnSpeed Version: ") + BuildInfo::version);
 
 #if 0
     // Update wifi status in html header
@@ -317,12 +318,12 @@ void UpdateHeader()
 // ----------------------------------------------------------------------------
 // ETag caching helper.  Returns true if a 304 Not Modified was sent
 // (meaning the caller should return immediately without building a page).
-// Uses VERSION as the ETag value — changes only on firmware update.
+// Uses BuildInfo::version as the ETag value — changes only on firmware update.
 // Cache-Control: no-cache means "store but always revalidate".
 
 bool SendWithETag(const char* contentType)
     {
-    String sETag = "\"" VERSION "\"";
+    String sETag = String("\"") + BuildInfo::version + "\"";
     if (CfgServer.hasHeader("If-None-Match") &&
         CfgServer.header("If-None-Match") == sETag)
         {

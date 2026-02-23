@@ -14,9 +14,11 @@ OnSpeed Gen3 has two hardware variants with different pin assignments. You must 
 !!! tip "Not sure?"
     If you don't know which variant you have, ask the person who built your board, or check for a label on the PCB. V4P is far more common. If you flash the wrong variant, the sensors will read incorrectly — but it won't damage anything, and you can re-flash with the correct version.
 
-## Download Firmware
+## Getting Firmware
 
-Pre-built firmware binaries are available from GitHub:
+### Stable Releases (Recommended)
+
+Pre-built firmware binaries for each release are on GitHub:
 
 1. Go to the [latest GitHub release](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest)
 2. Download the files for your hardware variant:
@@ -27,6 +29,30 @@ Pre-built firmware binaries are available from GitHub:
 | `onspeed-vX.Y.Z-v4b-firmware.bin` | Application firmware for V4B | OTA or USB flash |
 | `onspeed-vX.Y.Z-bootloader.bin` | ESP32 bootloader (same for both variants) | USB flash only |
 | `onspeed-vX.Y.Z-partitions.bin` | Flash partition table (same for both variants) | USB flash only |
+
+### Development Builds
+
+Every push to the `master` branch and every pull request builds firmware automatically. To download a development build:
+
+1. Go to the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml)
+2. Click on a successful workflow run
+3. Scroll to **Artifacts** and download `onspeed-<version>-V4P.zip` or `onspeed-<version>-V4B.zip`
+4. **Unzip** the downloaded file — inside you'll find three `.bin` files:
+
+    | File | What it is | When you need it |
+    |------|-----------|-----------------|
+    | `firmware.bin` | Application firmware | **Always** — this is what you flash for OTA or USB |
+    | `bootloader.bin` | ESP32 bootloader | USB flash only (initial setup or recovery) |
+    | `partitions.bin` | Flash partition table | USB flash only (initial setup or recovery) |
+
+    For a routine **OTA update**, you only need `firmware.bin` — you can ignore the other two files.
+
+!!! note "GitHub account required"
+    Downloading CI artifacts requires a GitHub account. Artifacts are retained for 30 days.
+
+### PR Test Builds
+
+Pull requests that touch firmware code automatically build both variants. A comment on the PR links directly to the downloadable `.zip` artifacts. Download and unzip just like a development build above.
 
 ## Which Update Method?
 

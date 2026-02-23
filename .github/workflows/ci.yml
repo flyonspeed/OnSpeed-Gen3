@@ -18,6 +18,10 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   build:
     name: Build ${{ matrix.variant }}
@@ -36,6 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0          # Full history for generate_buildinfo.py git tags
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -67,17 +72,35 @@ jobs:
           pip install platformio
 
       - name: Build firmware
+        id: build
         run: |
-          pio run -e ${{ matrix.env }}
+          # Capture build output to extract size info
+          pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
-          echo "## Build Size (${{ matrix.variant }})" >> $GITHUB_STEP_SUMMARY
-          pio run -e ${{ matrix.env }} -t size 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
+          # Extract version from generated buildinfo.cpp
+          VERSION=$(grep 'version =' lib/version/buildinfo.cpp | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          # Extract RAM and Flash lines (e.g. "RAM:   [==        ]  21.1% ...")
+          RAM_LINE=$(grep '^RAM:' build.log || true)
+          FLASH_LINE=$(grep '^Flash:' build.log || true)
+          FW_SIZE=$(stat -c%s ".pio/build/${{ matrix.env }}/firmware.bin" 2>/dev/null \
+                    || stat -f%z ".pio/build/${{ matrix.env }}/firmware.bin")
+          FW_KB=$(( FW_SIZE / 1024 ))
+
+          {
+            echo "## Build Size — ${{ matrix.variant }}"
+            echo '```'
+            echo "${RAM_LINE}"
+            echo "${FLASH_LINE}"
+            echo "Firmware image: ${FW_KB} KB"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
 
       - name: Upload firmware artifact
-        if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.env }}
+          name: onspeed-${{ matrix.variant }}-${{ steps.build.outputs.version }}.zip
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
@@ -196,3 +219,46 @@ jobs:
           else
             echo "No issues found." >> $GITHUB_STEP_SUMMARY
           fi
+
+  pr-comment:
+    name: PR Firmware Comment
+    needs: build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Look up artifact download URLs
+        id: artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          API="repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+          BASE="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+
+          V4P=$(gh api "$API" --jq '.artifacts[] | select(.name | test("V4P")) | {name, id}')
+          V4B=$(gh api "$API" --jq '.artifacts[] | select(.name | test("V4B")) | {name, id}')
+
+          echo "v4p_name=$(echo "$V4P" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "v4p_url=${BASE}/$(echo "$V4P" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+          echo "v4b_name=$(echo "$V4B" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "v4b_url=${BASE}/$(echo "$V4B" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky comment with artifact links
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: firmware-artifacts
+          message: |
+            ## Firmware Artifacts
+
+            | Variant | Download |
+            |---------|----------|
+            | **V4P** (Phil's box) | [${{ steps.artifacts.outputs.v4p_name }}](${{ steps.artifacts.outputs.v4p_url }}) |
+            | **V4B** (Bob's box) | [${{ steps.artifacts.outputs.v4b_name }}](${{ steps.artifacts.outputs.v4b_url }}) |
+
+            Each `.zip` contains three files: `firmware.bin`, `bootloader.bin`, and `partitions.bin`.
+            For an **OTA update**, you only need `firmware.bin` — upload it at [`http://onspeed.local/upgrade`](https://dev.flyonspeed.org/OnSpeed-Gen3/software/ota-update/).
+            For a **USB flash** (initial setup or recovery), you need all three — see the [flashing docs](https://dev.flyonspeed.org/OnSpeed-Gen3/software/flashing/).
+
+            Built from `${{ github.head_ref }}` at `${{ github.event.pull_request.head.sha }}`.
+
+            > Downloading these artifacts requires a GitHub login. Artifacts expire after 30 days.
