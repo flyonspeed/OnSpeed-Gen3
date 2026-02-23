@@ -2,6 +2,9 @@
 
 The V-n diagram maps every combination of airspeed and load factor (G) your aircraft can experience. It shows where the aerodynamic limits are, where structural limits are, and — with OnSpeed tone regions overlaid — where each tone lives in the flight envelope.
 
+!!! note "RV-4 flight envelope"
+    This diagram uses RV-4 parameters (Vs=62 kt, +6.0/-3.0 G, Vno=165, Vne=200). Your aircraft's envelope will differ — the concepts and tone region shapes are the same, but the specific speeds and G-limits depend on your aircraft type.
+
 <div id="vn-diagram" markdown>
 
 <div class="vn-controls" markdown>

@@ -68,7 +68,7 @@ Below these lift fractions (higher airspeeds), it is possible to reach the struc
 
 During the `AUDIOTEST` sequence, you'll hear various tones including:
 
-- **Startup chime** — played on power-up
+- **"OnSpeed enabled" announcement** — played on power-up
 - **Calibration mode tone** — indicates calibration wizard is active
 - **Calibration saved tone** — confirms calibration data was saved
 - **Data mark tone** — brief tone when a data mark is placed in the log

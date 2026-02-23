@@ -8,7 +8,6 @@ Choose a location that provides:
 
 - **Rigid mounting** — the IMU measures accelerations. Any vibration or flex in the mount introduces noise. Mount to structure, not fabric or thin sheet metal.
 - **Access to pneumatic lines** — the controller connects to your pitot, AOA, and static systems. Shorter lines mean faster response.
-- **Access to the SD card** — you'll need to reach the microSD slot for card removal (or use WiFi download).
 - **Access to USB port** — for firmware updates and serial console debugging.
 - **Reasonable temperature** — avoid mounting near the engine, exhaust, or heating ducts. The electronics are rated for typical cockpit/cabin temperatures.
 - **Wire routing** — power, audio, EFIS serial, and flap sensor wires all need to reach the controller.
@@ -22,10 +21,10 @@ Choose a location that provides:
 
 ## Physical Mounting
 
-Secure the enclosure using screws, nutplates, or Velcro straps depending on your aircraft's structure. The enclosure has mounting holes/tabs for this purpose.
+Secure the enclosure using screws, nutplates, or **Dual Lock** (3M) depending on your aircraft's structure. The enclosure has mounting holes/tabs for this purpose.
 
-!!! warning "Avoid vibration-coupled mounting"
-    Do not hang the controller by its wires or tubing. It must be rigidly attached to aircraft structure. Vibration degrades IMU performance and can cause intermittent connections.
+!!! warning "Use Dual Lock or rigid fasteners — not regular Velcro"
+    The controller contains an IMU that measures accelerations. Regular hook-and-loop (Velcro) does not hold the box rigid enough and introduces vibration noise that degrades sensor accuracy. Use **3M Dual Lock**, the extreme-strength interlocking fastener, or mechanical fasteners (screws/nutplates). Do not hang the controller by its wires or tubing.
 
 ## Orientation Configuration
 

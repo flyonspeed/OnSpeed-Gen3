@@ -11,8 +11,8 @@ OnSpeed supports two attitude estimation algorithms:
 | **Madgwick** | `0` (default) | Complementary filter, quaternion-based. Well-proven, lower CPU cost. Good for most installations. |
 | **EKF6** | `1` | 6-state Extended Kalman Filter. Estimates pitch, roll, AOA, and 3 gyro biases. More sophisticated, better long-term stability. |
 
-!!! danger "Changing algorithm requires recalibration"
-    The calibration wizard fits curves against Derived AOA, which is computed differently by each algorithm. If you switch between Madgwick and EKF6, you must re-fly the calibration wizard for all flap positions.
+!!! note "Algorithm differences"
+    Both algorithms compute Derived AOA slightly differently, but switching between them does not require recalibration. Your existing calibration curves will work with either algorithm.
 
 ## AOA Smoothing
 

@@ -94,7 +94,7 @@ nav:
     - System Overview: getting-started/system-overview.md
     - What You Need: getting-started/what-you-need.md
     - Safety & Limitations: getting-started/safety.md
-  - Hardware Installation:
+  - Installation:
     - installation/index.md
     - Mounting the Controller: installation/mounting.md
     - Pneumatic Plumbing: installation/pneumatics.md
@@ -105,7 +105,7 @@ nav:
     - Optional — External Display: installation/external-display.md
     - Optional — Boom Probe: installation/boom-probe.md
     - Installation Checklist: installation/checklist.md
-  - EFIS Integration:
+  - EFIS:
     - efis-integration/index.md
     - Dynon SkyView / HDX: efis-integration/dynon-skyview.md
     - Dynon D10/D100: efis-integration/dynon-d10.md
@@ -114,7 +114,7 @@ nav:
     - MGL iEFIS: efis-integration/mgl.md
     - VectorNav VN-300: efis-integration/vectornav.md
     - No EFIS (Standalone): efis-integration/standalone.md
-  - Software & Firmware:
+  - Firmware:
     - software/index.md
     - Flashing Firmware: software/flashing.md
     - OTA Updates via WiFi: software/ota-update.md
@@ -133,14 +133,14 @@ nav:
     - How OnSpeed Measures AOA: calibration/how-aoa-works.md
     - Calibration Wizard: calibration/wizard.md
     - Verifying Calibration: calibration/verification.md
-  - Flying with OnSpeed:
+  - Flying:
     - flying/index.md
     - What the Tones Mean: flying/tone-map.md
     - Flight Envelope (V-n Diagram): flying/vn-diagram.md
     - Normal Operations: flying/normal-ops.md
     - Approach and Landing: flying/approach-landing.md
     - Warnings and Alerts: flying/warnings.md
-  - Data & Logs:
+  - Logs:
     - data-and-logs/index.md
     - Understanding Logs: data-and-logs/log-format.md
     - Downloading Logs: data-and-logs/downloading.md

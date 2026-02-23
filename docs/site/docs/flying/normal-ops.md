@@ -5,8 +5,8 @@ What to expect from OnSpeed during a typical flight.
 ## Startup
 
 1. Power on the aircraft electrical system
-2. The OnSpeed controller boots in ~5 seconds
-3. You'll hear a brief **startup chime** confirming audio is working
+2. The OnSpeed controller boots in ~1 second
+3. You'll hear **"OnSpeed enabled"** confirming audio is working
 4. The heartbeat LED starts blinking
 5. WiFi AP becomes available (SSID: `OnSpeed`)
 

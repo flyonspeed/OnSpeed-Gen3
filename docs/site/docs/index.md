@@ -1,4 +1,4 @@
-# OnSpeed Gen3 — Open-Source AOA for General Aviation
+# OnSpeed Gen3 — Open-Source AOA for GA
 
 **OnSpeed** is an open-source Angle of Attack (AOA) system that gives pilots **directive audio cues** to maintain positive aircraft control — avoiding stalls, managing energy, and extracting maximum performance. No gauge to watch. Just listen and respond.
 
