@@ -1265,10 +1265,43 @@ R"#(        </section>)#" "\n";
             <label for="id_acVfe">Vfe - max flap speed (KIAS)</label>
             <input id="id_acVfe" name="acVfe" type="text" value=")#" + String(g_Config.fAcVfe) + R"#("/>
         </div>
-        <div class="form-divs flex-col-6">
-            <label for="id_acGlimit">Load factor limit (G)</label>
+        <div class="form-divs flex-col-12">
+            <label>Aircraft category / load factor limit (G)</label>
+            <div class="radio-group">
+                <label><input type="radio" name="acGlimitPreset" value="3.80" onchange="setGlimit(this)")#";
+    if (g_Config.fAcGlimit >= 3.795f && g_Config.fAcGlimit <= 3.805f) sPage += " checked";
+    sPage += R"#(> Normal (+3.8G / -1.52G)</label>
+                <label><input type="radio" name="acGlimitPreset" value="4.40" onchange="setGlimit(this)")#";
+    if (g_Config.fAcGlimit >= 4.395f && g_Config.fAcGlimit <= 4.405f) sPage += " checked";
+    sPage += R"#(> Utility (+4.4G / -1.76G)</label>
+                <label><input type="radio" name="acGlimitPreset" value="6.00" onchange="setGlimit(this)")#";
+    if (g_Config.fAcGlimit >= 5.995f && g_Config.fAcGlimit <= 6.005f) sPage += " checked";
+    sPage += R"#(> Aerobatic (+6.0G / -3.0G)</label>
+                <label><input type="radio" name="acGlimitPreset" value="custom" onchange="setGlimit(this)")#";
+    {
+    float fVal = g_Config.fAcGlimit;
+    bool bIsPreset = (fVal >= 3.795f && fVal <= 3.805f)
+                  || (fVal >= 4.395f && fVal <= 4.405f)
+                  || (fVal >= 5.995f && fVal <= 6.005f);
+    if (!bIsPreset) sPage += " checked";
+    sPage += R"#(> Custom</label>
+            </div>
+        </div>
+        <div class="form-divs flex-col-6" id="id_acGlimitCustomDiv" style=")#";
+    if (bIsPreset) sPage += "display:none";
+    sPage += R"#(">
+            <label for="id_acGlimit">Custom G limit</label>
             <input id="id_acGlimit" name="acGlimit" type="text" value=")#" + String(g_Config.fAcGlimit) + R"#("/>
-        </div>)#";
+        </div>
+        <script>
+        function setGlimit(el){
+            var v=el.value,d=document.getElementById('id_acGlimitCustomDiv'),i=document.getElementById('id_acGlimit');
+            if(v==='custom'){d.style.display='';i.focus();}
+            else{d.style.display='none';i.value=v;}
+        }
+        </script>)#";
+    }
+
 
        // Serial output selection
     sPage += R"#(
@@ -2383,13 +2416,45 @@ Enter the following aircraft parameters:<br><br>
             <label>Max flap extension speed - Vfe (KIAS)</label>
             <input class="inputField" type="text" name="acVfe" value=")#" + String(fAcVfe) + R"#(">
         </div>
-            <div class="form-divs flex-col-12">
-            <label>Airframe load factor limit (G)</label>
-            <input class="inputField" type="text" name="acGlimit" value=")#" + String(fAcGlimit) + R"#(">
-            <br>
-            <br>
+        <div class="form-divs flex-col-12">
+            <label>Aircraft category / load factor limit (G)</label>
+            <div class="radio-group">
+                <label><input type="radio" name="wizGlimitPreset" value="3.80" onchange="setGlimit(this)")#";
+    if (fAcGlimit >= 3.795f && fAcGlimit <= 3.805f) sPage += " checked";
+    sPage += R"#(> Normal (+3.8G / -1.52G)</label>
+                <label><input type="radio" name="wizGlimitPreset" value="4.40" onchange="setGlimit(this)")#";
+    if (fAcGlimit >= 4.395f && fAcGlimit <= 4.405f) sPage += " checked";
+    sPage += R"#(> Utility (+4.4G / -1.76G)</label>
+                <label><input type="radio" name="wizGlimitPreset" value="6.00" onchange="setGlimit(this)")#";
+    if (fAcGlimit >= 5.995f && fAcGlimit <= 6.005f) sPage += " checked";
+    sPage += R"#(> Aerobatic (+6.0G / -3.0G)</label>
+                <label><input type="radio" name="wizGlimitPreset" value="custom" onchange="setGlimit(this)")#";
+    {
+    float fVal = fAcGlimit;
+    bool bIsPreset = (fVal >= 3.795f && fVal <= 3.805f)
+                  || (fVal >= 4.395f && fVal <= 4.405f)
+                  || (fVal >= 5.995f && fVal <= 6.005f);
+    if (!bIsPreset) sPage += " checked";
+    sPage += R"#(> Custom</label>
+            </div>
+        </div>
+        <div class="form-divs flex-col-12" id="id_wizGlimitCustomDiv" style=")#";
+    if (bIsPreset) sPage += "display:none";
+    sPage += R"#(">
+            <label>Custom G limit</label>
+            <input class="inputField" type="text" id="id_wizGlimit" name="acGlimit" value=")#" + String(fAcGlimit) + R"#(">
+        </div>
+        <div class="form-divs flex-col-12">
         Note: The above parameters are needed to calculate your best glide speed and maneuvering speed at the current weight.
-        </div>)#";
+        </div>
+        <script>
+        function setGlimit(el){
+            var v=el.value,d=document.getElementById('id_wizGlimitCustomDiv'),i=document.getElementById('id_wizGlimit');
+            if(v==='custom'){d.style.display='';i.focus();}
+            else{d.style.display='none';i.value=v;}
+        }
+        </script>)#";
+    }
 
         sPage += R"#(
         <br><br><br>
