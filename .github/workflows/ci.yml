@@ -1,3 +1,4 @@
+# Builds firmware, runs tests, and posts PR artifacts.
 name: CI
 
 on:
