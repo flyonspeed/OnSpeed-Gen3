@@ -1296,26 +1296,6 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
-    // Aircraft parameters
-    sPage += R"#(
-        <h4>Aircraft</h4>
-        <div class="form-divs flex-col-6">
-            <label for="id_acGrossWeight">Gross weight (lbs)</label>
-            <input id="id_acGrossWeight" name="acGrossWeight" type="text" value=")#" + String(g_Config.iAcGrossWeight) + R"#("/>
-        </div>
-        <div class="form-divs flex-col-6">
-            <label for="id_acBestGlideIAS">Best glide at gross wt (KIAS)</label>
-            <input id="id_acBestGlideIAS" name="acBestGlideIAS" type="text" value=")#" + String(g_Config.fAcBestGlideIAS) + R"#("/>
-        </div>
-        <div class="form-divs flex-col-6">
-            <label for="id_acVfe">Vfe - max flap speed (KIAS)</label>
-            <input id="id_acVfe" name="acVfe" type="text" value=")#" + String(g_Config.fAcVfe) + R"#("/>
-        </div>
-        <div class="form-divs flex-col-6">
-            <label for="id_acGlimit">Load factor limit (G)</label>
-            <input id="id_acGlimit" name="acGlimit" type="text" value=")#" + String(g_Config.fAcGlimit) + R"#("/>
-        </div>)#";
-
        // Serial output selection
     sPage += R"#(
         <div class="form-divs flex-col-6">
@@ -1342,6 +1322,28 @@ R"#(        </section>)#" "\n";
         <div class="form-divs flex-col-6">
         </div>)#";
 #endif
+
+    // Aircraft parameters
+    sPage += R"#(
+        <section id="aircraftsection">
+            <h2>Aircraft</h2>
+            <div class="form-divs flex-col-6">
+                <label for="id_acGrossWeight">Max gross weight (lbs)</label>
+                <input id="id_acGrossWeight" name="acGrossWeight" type="text" value=")#" + String(g_Config.iAcGrossWeight) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_acBestGlideIAS">Best glide at max gross wt (KIAS)</label>
+                <input id="id_acBestGlideIAS" name="acBestGlideIAS" type="text" value=")#" + String(g_Config.fAcBestGlideIAS) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_acVfe">Vfe - max flap speed (KIAS)</label>
+                <input id="id_acVfe" name="acVfe" type="text" value=")#" + String(g_Config.fAcVfe) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_acGlimit">Load factor limit (G)</label>
+                <input id="id_acGlimit" name="acGlimit" type="text" value=")#" + String(g_Config.fAcGlimit) + R"#("/>
+            </div>
+        </section>)#";
       // Load config file
     sPage += R"#(
         <div class="form-divs flex-col-4">
@@ -2555,7 +2557,7 @@ Enter the following aircraft parameters:<br><br>
 
         sPage += R"#(
         <div class="form-divs flex-col-12">
-            <label>Aircraft gross weight (lbs)</label>
+            <label>Aircraft max gross weight (lbs)</label>
             <input class="inputField" type="text" name="acGrossWeight" value=")#" + String(iAcGrossWeight) + R"#(">
         </div>
         <div class="form-divs flex-col-12">
@@ -2563,7 +2565,7 @@ Enter the following aircraft parameters:<br><br>
             <input class="inputField" type="text" name="acCurrentWeight" value=")#" + String(iAcCurrentWeight) + R"#(">
         </div>
         <div class="form-divs flex-col-12">
-            <label>Best glide airspeed at gross weight (KIAS)</label>
+            <label>Best glide airspeed at max gross weight (KIAS)</label>
             <input class="inputField" type="text" name="acVldmax" value=")#" + String(fAcVldmax) + R"#(">
         </div>
         <div class="form-divs flex-col-12">
