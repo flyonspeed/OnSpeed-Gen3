@@ -1,247 +1,247 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/</loc>
+         <loc>https://dev.flyonspeed.org/latest/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/calibration/</loc>
+         <loc>https://dev.flyonspeed.org/latest/calibration/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/calibration/how-aoa-works/</loc>
+         <loc>https://dev.flyonspeed.org/latest/calibration/how-aoa-works/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/calibration/verification/</loc>
+         <loc>https://dev.flyonspeed.org/latest/calibration/verification/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/calibration/wizard/</loc>
+         <loc>https://dev.flyonspeed.org/latest/calibration/wizard/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/advanced/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/advanced/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/audio/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/audio/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/backup-restore/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/backup-restore/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/first-time-setup/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/first-time-setup/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/flap-setup/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/flap-setup/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/sensor-calibration/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/sensor-calibration/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/configuration/web-interface/</loc>
+         <loc>https://dev.flyonspeed.org/latest/configuration/web-interface/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/data-and-logs/</loc>
+         <loc>https://dev.flyonspeed.org/latest/data-and-logs/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/data-and-logs/downloading/</loc>
+         <loc>https://dev.flyonspeed.org/latest/data-and-logs/downloading/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/data-and-logs/log-format/</loc>
+         <loc>https://dev.flyonspeed.org/latest/data-and-logs/log-format/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/dynon-d10/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/dynon-d10/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/dynon-skyview/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/dynon-skyview/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/garmin-g3x/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/garmin-g3x/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/garmin-g5/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/garmin-g5/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/mgl/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/mgl/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/standalone/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/standalone/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/efis-integration/vectornav/</loc>
+         <loc>https://dev.flyonspeed.org/latest/efis-integration/vectornav/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/flying/</loc>
+         <loc>https://dev.flyonspeed.org/latest/flying/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/flying/approach-landing/</loc>
+         <loc>https://dev.flyonspeed.org/latest/flying/approach-landing/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/flying/normal-ops/</loc>
+         <loc>https://dev.flyonspeed.org/latest/flying/normal-ops/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/flying/tone-map/</loc>
+         <loc>https://dev.flyonspeed.org/latest/flying/tone-map/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/flying/vn-diagram/</loc>
+         <loc>https://dev.flyonspeed.org/latest/flying/vn-diagram/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/flying/warnings/</loc>
+         <loc>https://dev.flyonspeed.org/latest/flying/warnings/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/getting-started/</loc>
+         <loc>https://dev.flyonspeed.org/latest/getting-started/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/getting-started/how-aoa-tones-work/</loc>
+         <loc>https://dev.flyonspeed.org/latest/getting-started/how-aoa-tones-work/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/getting-started/safety/</loc>
+         <loc>https://dev.flyonspeed.org/latest/getting-started/safety/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/getting-started/system-overview/</loc>
+         <loc>https://dev.flyonspeed.org/latest/getting-started/system-overview/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/getting-started/what-is-onspeed/</loc>
+         <loc>https://dev.flyonspeed.org/latest/getting-started/what-is-onspeed/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/getting-started/what-you-need/</loc>
+         <loc>https://dev.flyonspeed.org/latest/getting-started/what-you-need/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/audio/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/audio/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/boom-probe/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/boom-probe/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/checklist/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/checklist/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/external-display/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/external-display/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/indexer/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/indexer/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/mounting/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/mounting/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/oat-sensor/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/oat-sensor/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/pneumatics/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/pneumatics/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/installation/wiring/</loc>
+         <loc>https://dev.flyonspeed.org/latest/installation/wiring/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/reference/</loc>
+         <loc>https://dev.flyonspeed.org/latest/reference/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/reference/config-parameters/</loc>
+         <loc>https://dev.flyonspeed.org/latest/reference/config-parameters/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/reference/glossary/</loc>
+         <loc>https://dev.flyonspeed.org/latest/reference/glossary/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/reference/hardware-specs/</loc>
+         <loc>https://dev.flyonspeed.org/latest/reference/hardware-specs/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/reference/log-columns/</loc>
+         <loc>https://dev.flyonspeed.org/latest/reference/log-columns/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/software/</loc>
+         <loc>https://dev.flyonspeed.org/latest/software/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/software/building/</loc>
+         <loc>https://dev.flyonspeed.org/latest/software/building/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/software/flashing/</loc>
+         <loc>https://dev.flyonspeed.org/latest/software/flashing/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/software/ota-update/</loc>
+         <loc>https://dev.flyonspeed.org/latest/software/ota-update/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/troubleshooting/</loc>
+         <loc>https://dev.flyonspeed.org/latest/troubleshooting/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/troubleshooting/console-commands/</loc>
+         <loc>https://dev.flyonspeed.org/latest/troubleshooting/console-commands/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/troubleshooting/erratic-tones/</loc>
+         <loc>https://dev.flyonspeed.org/latest/troubleshooting/erratic-tones/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/troubleshooting/no-audio/</loc>
+         <loc>https://dev.flyonspeed.org/latest/troubleshooting/no-audio/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/troubleshooting/no-efis/</loc>
+         <loc>https://dev.flyonspeed.org/latest/troubleshooting/no-efis/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
     <url>
-         <loc>https://flyonspeed.github.io/OnSpeed-Gen3/latest/troubleshooting/wifi/</loc>
+         <loc>https://dev.flyonspeed.org/latest/troubleshooting/wifi/</loc>
          <lastmod>2026-02-23</lastmod>
     </url>
 </urlset>
