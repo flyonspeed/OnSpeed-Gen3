@@ -7,6 +7,7 @@ edit_uri: edit/master/docs/site/docs/
 
 theme:
   name: material
+  custom_dir: overrides
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -73,11 +74,30 @@ extra_javascript:
   - https://unpkg.com/katex@0/dist/katex.min.js
   - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
   - javascripts/vn-diagram.js
+  - javascripts/feedback.js
 
 extra_css:
   - https://unpkg.com/katex@0/dist/katex.min.css
 
 extra:
+  analytics:
+    provider: custom
+    property: flyonspeed
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/emoticon-happy-outline
+          name: This page was helpful
+          data: 1
+          note: >-
+            Thanks for your feedback!
+        - icon: material/emoticon-sad-outline
+          name: This page could be improved
+          data: 0
+          note: >-
+            Thanks for your feedback! If something is wrong or missing,
+            please <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/new"
+            target="_blank" rel="noopener">open an issue</a>.
   version:
     provider: mike
     default:
