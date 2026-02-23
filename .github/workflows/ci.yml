@@ -46,8 +46,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
-      - name: Cache PlatformIO
+      - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
           path: |
@@ -55,16 +56,14 @@ jobs:
             ~/.platformio/platforms
             ~/.platformio/penv
           key: ${{ runner.os }}-pio-espressif32-55.03.35-v1
-          restore-keys: |
-            ${{ runner.os }}-pio-espressif32-
 
-      - name: Cache pip
+      - name: Cache build objects
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-platformio
+          path: .pio/build/${{ matrix.env }}
+          key: ${{ runner.os }}-build-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'software/**', 'lib/**') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-build-${{ matrix.env }}-
 
       - name: Install PlatformIO
         run: |
@@ -118,18 +117,24 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
-      - name: Cache PlatformIO
+      - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
           path: |
             ~/.platformio/packages
             ~/.platformio/platforms
             ~/.platformio/penv
-          # Native tests only need Unity framework, use simpler cache key
           key: ${{ runner.os }}-pio-native-v1
+
+      - name: Cache test build objects
+        uses: actions/cache@v4
+        with:
+          path: .pio/build/native-coverage
+          key: ${{ runner.os }}-build-native-coverage-${{ hashFiles('platformio.ini', 'software/Libraries/onspeed_core/**', 'test/**') }}
           restore-keys: |
-            ${{ runner.os }}-pio-native-
+            ${{ runner.os }}-build-native-coverage-
 
       - name: Install PlatformIO and lcov
         run: |
