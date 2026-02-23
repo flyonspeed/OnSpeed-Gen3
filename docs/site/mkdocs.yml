@@ -1,6 +1,6 @@
 site_name: OnSpeed Gen3 Documentation
 site_description: Open-source AOA indicator for general aviation — installation, configuration, calibration, and flight operations guide
-site_url: https://flyonspeed.github.io/OnSpeed-Gen3/
+site_url: https://dev.flyonspeed.org/
 repo_url: https://github.com/flyonspeed/OnSpeed-Gen3
 repo_name: flyonspeed/OnSpeed-Gen3
 edit_uri: edit/master/docs/site/docs/
