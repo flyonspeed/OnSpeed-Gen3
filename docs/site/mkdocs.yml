@@ -32,9 +32,10 @@ theme:
     - search.highlight
     - content.code.copy
     - content.action.edit
+  logo: assets/images/logo.png
+  favicon: assets/images/favicon.png
   icon:
     repo: fontawesome/brands/github
-    logo: material/airplane
 
 plugins:
   - search
