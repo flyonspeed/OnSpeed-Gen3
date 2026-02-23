@@ -18,6 +18,10 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   build:
     name: Build ${{ matrix.variant }}
@@ -36,6 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0          # Full history for generate_buildinfo.py git tags
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -74,7 +79,6 @@ jobs:
           pio run -e ${{ matrix.env }} -t size 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
 
       - name: Upload firmware artifact
-        if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ matrix.env }}
@@ -196,3 +200,28 @@ jobs:
           else
             echo "No issues found." >> $GITHUB_STEP_SUMMARY
           fi
+
+  pr-comment:
+    name: PR Firmware Comment
+    needs: build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Post sticky comment with artifact links
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: firmware-artifacts
+          message: |
+            ## Firmware Artifacts
+
+            | Variant | Artifact |
+            |---------|----------|
+            | **V4P** (Phil's box) | `firmware-esp32s3-v4p` |
+            | **V4B** (Bob's box) | `firmware-esp32s3-v4b` |
+
+            **[Download artifacts from this workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})**
+
+            Built from `${{ github.head_ref }}` at ${{ github.event.pull_request.head.sha }}.
+
+            > Downloading artifacts requires a GitHub account. Artifacts expire after 30 days.
