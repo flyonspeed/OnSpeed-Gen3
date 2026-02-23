@@ -31,9 +31,9 @@
 #error "Cannot define both HW_V4B and HW_V4P. Select one hardware variant."
 #endif
 
-// Firmware version is provided by BuildInfo::version (see lib/version/).
+// Firmware version is provided by BuildInfo::version (see software/Libraries/version/).
 // PlatformIO: auto-generated from git tags by scripts/generate_buildinfo.py.
-// Arduino IDE: uses weak-symbol defaults in lib/version/buildinfo_default.cpp.
+// Arduino IDE: uses weak-symbol defaults in software/Libraries/version/buildinfo_default.cpp.
 
 #define SUPPORT_LITTLEFS
 

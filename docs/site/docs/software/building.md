@@ -87,10 +87,10 @@ OnSpeed-Gen3/
 ├── software/
 │   ├── OnSpeed-Gen3-ESP32/          # Main firmware source
 │   └── Libraries/
-│       └── onspeed_core/            # Platform-independent algorithms
+│       ├── onspeed_core/            # Platform-independent algorithms
+│       └── version/                 # Build version info (auto-generated + defaults)
 ├── test/                            # Native unit tests (10 suites, 114 tests)
-├── scripts/                         # Build and analysis scripts
-└── lib/version/                     # Auto-generated build info
+└── scripts/                         # Build and analysis scripts
 ```
 
 ## Contributing

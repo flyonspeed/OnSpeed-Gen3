@@ -9,5 +9,5 @@ software/OnSpeed-Gen3-ESP32/OnSpeed_Gen3-ESP32.vcxproj.filters
 .pio
 
 # auto-generated on each build by PlatformIO
-lib/version/buildinfo.cpp
+software/Libraries/version/buildinfo.cpp
 *.ino.cpp
