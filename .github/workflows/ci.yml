@@ -1,4 +1,3 @@
-# Builds firmware, runs tests, and posts PR artifacts.
 name: CI
 
 on:
@@ -58,19 +57,6 @@ jobs:
             ~/.platformio/penv
           key: ${{ runner.os }}-pio-espressif32-55.03.35-v1
 
-      - name: Cache build objects
-        uses: actions/cache@v4
-        with:
-          path: .pio/build/${{ matrix.env }}
-          key: ${{ runner.os }}-build-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'software/**', 'lib/**') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ matrix.env }}-
-
-      - name: Restore source timestamps from git
-        run: |
-          git ls-files -z | xargs -0 -I{} bash -c \
-            'touch -d "$(git log -1 --format="%cI" -- "{}")" "{}"'
-
       - name: Install PlatformIO
         run: |
           python -m pip install --upgrade pip
@@ -83,7 +69,7 @@ jobs:
           pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
           # Extract version from generated buildinfo.cpp
-          VERSION=$(grep 'version =' lib/version/buildinfo.cpp | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(grep 'version =' software/Libraries/version/buildinfo.cpp | sed 's/.*"\(.*\)".*/\1/')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
           # Extract RAM and Flash lines (e.g. "RAM:   [==        ]  21.1% ...")
@@ -133,19 +119,6 @@ jobs:
             ~/.platformio/platforms
             ~/.platformio/penv
           key: ${{ runner.os }}-pio-native-v1
-
-      - name: Cache test build objects
-        uses: actions/cache@v4
-        with:
-          path: .pio/build/native-coverage
-          key: ${{ runner.os }}-build-native-coverage-${{ hashFiles('platformio.ini', 'software/Libraries/onspeed_core/**', 'test/**') }}
-          restore-keys: |
-            ${{ runner.os }}-build-native-coverage-
-
-      - name: Restore source timestamps from git
-        run: |
-          git ls-files -z | xargs -0 -I{} bash -c \
-            'touch -d "$(git log -1 --format="%cI" -- "{}")" "{}"'
 
       - name: Install PlatformIO and lcov
         run: |
