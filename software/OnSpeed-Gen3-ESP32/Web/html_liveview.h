@@ -27,7 +27,7 @@ var wsUri = "ws://192.168.0.1:81";
 var lastUpdate  = Date.now();
 var lastDisplay = Date.now();
 
-var AOA            = 0;
+var AOA            = -100;
 var IAS            = 0;
 var PAlt           = 0;
 var GLoad          = 1;
@@ -49,6 +49,10 @@ function init()
   // console.log("Init()");
 
   toggleAOA(true)
+
+  // set initial data field values before websocket connects
+  document.getElementById("aoa_aoa").innerHTML='N/A';
+  document.getElementById("aoa_att").innerHTML='N/A';
 
   writeToStatus("CONNECTING...");
   liveConnecting = true;
@@ -117,27 +121,35 @@ function onMessage(evt)
 
 //      console.log('log:',AOA,IAS,PAlt,GLoad,GLoadLat,PitchAngle,OnSpeed.LDmax,OnSpeed.OnspeedFast,OnSpeed.OnspeedSlow,OnSpeed.OnspeedWarn);
 
-    // move AOA line on display
-    if (AOA<=LDmax)
+    // move AOA line on display (hide when AOA is invalid/N/A)
+    if (AOA > -20)
       {
-      var aoaline_y=map(AOA, Alpha0, LDmax, 278, 228);
-      }
-    else if (AOA>LDmax && AOA<=OnspeedFast)
-      {
-      aoaline_y=map(AOA, LDmax, OnspeedFast, 228, 178);
+      if (AOA<=LDmax)
+        {
+        var aoaline_y=map(AOA, Alpha0, LDmax, 278, 228);
+        }
+      else if (AOA>LDmax && AOA<=OnspeedFast)
+        {
+        aoaline_y=map(AOA, LDmax, OnspeedFast, 228, 178);
+        }
+      else
+        if (AOA>OnspeedFast && AOA<=OnspeedSlow)
+          {
+          aoaline_y=map(AOA, OnspeedFast, OnspeedSlow, 178, 113);
+          }
+        else if (AOA>OnspeedSlow)
+          {
+          aoaline_y=map(AOA, OnspeedSlow,OnspeedWarn, 113, 15);
+          //console.log('aoaline',aoaline_y,AOA,OnspeedSlow,OnspeedWarn);
+          }
+
+      document.getElementById("aoaline").setAttribute("y", aoaline_y);
+      document.getElementById("aoaline").style.visibility="visible";
       }
     else
-      if (AOA>OnspeedFast && AOA<=OnspeedSlow)
-        {
-        aoaline_y=map(AOA, OnspeedFast, OnspeedSlow, 178, 113);
-        }
-      else if (AOA>OnspeedSlow)
-        {
-        aoaline_y=map(AOA, OnspeedSlow,OnspeedWarn, 113, 15);
-        //console.log('aoaline',aoaline_y,AOA,OnspeedSlow,OnspeedWarn);
-        }
-
-    document.getElementById("aoaline").setAttribute("y", aoaline_y);
+      {
+      document.getElementById("aoaline").style.visibility="hidden";
+      }
 
     // calc ldmax dot locations
     ldmax_y=228+3;
@@ -296,7 +308,7 @@ updateAttitude(0,0);
         <circle id="onspeeddot" cx="101.8" cy="148.91" r="18" fill="#07a33f" stroke-width=".81089" visibility="hidden"/>
       </g>
       <g fill="#241f1c">
-        <rect id="aoaline" x="52.187" y="144.91" width="100" height="6.6921" style="paint-order:markers fill stroke"/>
+        <rect id="aoaline" x="52.187" y="144.91" width="100" height="6.6921" style="paint-order:markers fill stroke;visibility:hidden"/>
         <circle id="ldmaxleft" cx="46.801" cy="228" r="3.346" stroke-width="1.0419"/>
         <circle id="ldmaxright" cx="157.53" cy="228" r="3.346" stroke-width="1.0419"/>
       </g>
