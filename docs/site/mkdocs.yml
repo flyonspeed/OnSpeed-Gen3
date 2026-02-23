@@ -105,7 +105,7 @@ nav:
     - Optional — External Display: installation/external-display.md
     - Optional — Boom Probe: installation/boom-probe.md
     - Installation Checklist: installation/checklist.md
-  - EFIS:
+  - EFIS Integration:
     - efis-integration/index.md
     - Dynon SkyView / HDX: efis-integration/dynon-skyview.md
     - Dynon D10/D100: efis-integration/dynon-d10.md
