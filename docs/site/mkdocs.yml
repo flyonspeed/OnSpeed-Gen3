@@ -74,6 +74,7 @@ extra_javascript:
   - https://unpkg.com/katex@0/dist/katex.min.js
   - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
   - javascripts/vn-diagram.js
+  - javascripts/tone-simulator.js
 
 extra_css:
   - https://unpkg.com/katex@0/dist/katex.min.css
@@ -145,6 +146,7 @@ nav:
   - Flying:
     - flying/index.md
     - What the Tones Mean: flying/tone-map.md
+    - Tone Simulator: flying/tone-simulator.md
     - Flight Envelope (V-n Diagram): flying/vn-diagram.md
     - Normal Operations: flying/normal-ops.md
     - Approach and Landing: flying/approach-landing.md
