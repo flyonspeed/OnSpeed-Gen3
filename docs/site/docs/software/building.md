@@ -14,15 +14,31 @@ pip install platformio
 
 ### Build
 
+The firmware has two hardware variant environments:
+
+- **`esp32s3-v4p`** — V4P (Phil's box, most common)
+- **`esp32s3-v4b`** — V4B (Bob's box)
+
 ```bash
 cd OnSpeed-Gen3
+
+# Build V4P firmware (default when no -e is specified)
 pio run
+
+# Build a specific variant
+pio run -e esp32s3-v4p
+pio run -e esp32s3-v4b
+
+# Build both variants
+pio run -e esp32s3-v4p -e esp32s3-v4b
 ```
+
+The variant environments differ only in the hardware define (`-DHW_V4P` vs `-DHW_V4B`), which controls pin assignments for pressure sensor chip selects, SD card SPI, and the external ADC.
 
 ### Build and Upload
 
 ```bash
-pio run -t upload
+pio run -e esp32s3-v4p -t upload
 ```
 
 ### Serial Monitor
@@ -41,6 +57,8 @@ pio test -e native -v  # verbose output
 ```
 
 ## Arduino IDE
+
+The Arduino IDE does not use the PlatformIO variant environments. Instead, the hardware variant defaults to V4P in `Globals.h`. To build for V4B, edit `Globals.h` and change the default inside the `#if !defined(HW_V4B) && !defined(HW_V4P)` block.
 
 1. Install Arduino IDE 2.x
 2. Add the ESP32 board URL to **File → Preferences → Additional Boards Manager URLs**
@@ -65,7 +83,7 @@ pio test -e native -v  # verbose output
 
 ```
 OnSpeed-Gen3/
-├── platformio.ini                   # Build configuration
+├── platformio.ini                   # Build configuration (V4P + V4B environments)
 ├── software/
 │   ├── OnSpeed-Gen3-ESP32/          # Main firmware source
 │   └── Libraries/

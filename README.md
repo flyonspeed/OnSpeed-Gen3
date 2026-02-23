@@ -46,18 +46,29 @@ not used and so the size of PSRAM available is not significant.
 
 ### Pre-built Firmware
 
-Each commit to `master` builds firmware automatically via GitHub Actions. To flash without building:
+Download pre-built firmware from the [latest GitHub release](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest). Two hardware variants are built:
 
-1. Go to the [Actions tab](../../actions) and click the latest successful workflow run
-2. Download the `firmware` artifact (contains `.bin` files)
-3. Flash using [esptool](https://docs.espressif.com/projects/esptool/en/latest/esp32/):
-   ```bash
-   pip install esptool
-   esptool.py --chip esp32s3 write_flash 0x0 bootloader.bin 0x8000 partitions.bin 0x10000 firmware.bin
-   ```
-   Or use the [ESP Web Flasher](https://esp.huhn.me/) for a browser-based option.
+| File | Hardware |
+|------|----------|
+| `onspeed-vX.Y.Z-v4p-firmware.bin` | V4P — Phil's box (most common) |
+| `onspeed-vX.Y.Z-v4b-firmware.bin` | V4B — Bob's box |
+| `onspeed-vX.Y.Z-bootloader.bin` | Bootloader (shared, USB flash only) |
+| `onspeed-vX.Y.Z-partitions.bin` | Partition table (shared, USB flash only) |
 
-**Versioning:** The firmware version is derived from git tags at build time. Tag a release with `git tag v4.0.1` and the version string is automatically embedded in the firmware. Between tags, the version includes the commit hash (e.g., `v4.0.0-5-gabc1234` means 5 commits after v4.0.0).
+**OTA update** (routine): Upload just the `firmware.bin` for your variant via the web interface at `http://192.168.0.1/upgrade`.
+
+**USB flash** (initial or recovery):
+```bash
+pip install esptool
+esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 --baud 921600 \
+  write_flash 0x0 onspeed-vX.Y.Z-bootloader.bin \
+              0x8000 onspeed-vX.Y.Z-partitions.bin \
+              0x10000 onspeed-vX.Y.Z-v4p-firmware.bin
+```
+
+See the [documentation site](https://dev.flyonspeed.org/OnSpeed-Gen3/) for full flashing and OTA instructions.
+
+**Versioning:** The firmware version is derived from git tags at build time (e.g., `git tag v4.16.0`). Between tags, the version includes the commit count (e.g., `4.16.1-dev+3`).
 
 ### Building with PlatformIO
 
@@ -65,13 +76,22 @@ Install PlatformIO and build:
 
 ```bash
 pip install platformio
+
+# Build V4P firmware (default)
 pio run
+
+# Build a specific variant
+pio run -e esp32s3-v4p   # Phil's box
+pio run -e esp32s3-v4b   # Bob's box
+
+# Build both variants
+pio run -e esp32s3-v4p -e esp32s3-v4b
 ```
 
 Upload to a connected device (auto-detect port):
 
 ```bash
-pio run -t upload
+pio run -e esp32s3-v4p -t upload
 ```
 
 If auto-detection fails, find your port and specify it explicitly:
@@ -81,19 +101,13 @@ If auto-detection fails, find your port and specify it explicitly:
 ls /dev/cu.usb*
 
 # Upload to specific port
-pio run -t upload --upload-port /dev/cu.usbserial-110
+pio run -e esp32s3-v4p -t upload --upload-port /dev/cu.usbserial-110
 ```
 
 Monitor serial output (Ctrl+C to exit):
 
 ```bash
 pio device monitor --port /dev/cu.usbserial-110 --baud 921600
-```
-
-Or build, upload, and monitor in one command:
-
-```bash
-pio run -t upload --upload-port /dev/cu.usbserial-110 && pio device monitor --port /dev/cu.usbserial-110 --baud 921600
 ```
 
 ### Building with Arduino IDE

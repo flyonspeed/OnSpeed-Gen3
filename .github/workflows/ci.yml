@@ -20,8 +20,16 @@ on:
 
 jobs:
   build:
-    name: Build ESP32 Firmware
+    name: Build ${{ matrix.variant }}
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - variant: V4P
+            env: esp32s3-v4p
+          - variant: V4B
+            env: esp32s3-v4b
 
     steps:
       - name: Checkout code
@@ -60,19 +68,17 @@ jobs:
 
       - name: Build firmware
         run: |
-          # Build the main firmware
-          pio run -e esp32s3
+          pio run -e ${{ matrix.env }}
 
-          # Report build size
-          echo "## Build Size" >> $GITHUB_STEP_SUMMARY
-          pio run -e esp32s3 -t size 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
+          echo "## Build Size (${{ matrix.variant }})" >> $GITHUB_STEP_SUMMARY
+          pio run -e ${{ matrix.env }} -t size 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
 
       - name: Upload firmware artifact
         if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
-          path: .pio/build/esp32s3/*.bin
+          name: firmware-${{ matrix.env }}
+          path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
   test:
