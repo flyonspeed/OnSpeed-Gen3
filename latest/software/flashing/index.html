@@ -1585,13 +1585,52 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#download-firmware" class="md-nav__link">
+  <a href="#getting-firmware" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Download Firmware
+        Getting Firmware
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Getting Firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stable-releases-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable Releases (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#development-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development Builds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pr-test-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PR Test Builds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3035,13 +3074,52 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#download-firmware" class="md-nav__link">
+  <a href="#getting-firmware" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Download Firmware
+        Getting Firmware
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Getting Firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stable-releases-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable Releases (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#development-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development Builds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pr-test-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PR Test Builds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3193,8 +3271,9 @@
 <p class="admonition-title">Not sure?</p>
 <p>If you don't know which variant you have, ask the person who built your board, or check for a label on the PCB. V4P is far more common. If you flash the wrong variant, the sensors will read incorrectly — but it won't damage anything, and you can re-flash with the correct version.</p>
 </div>
-<h2 id="download-firmware">Download Firmware<a class="headerlink" href="#download-firmware" title="Permanent link">&para;</a></h2>
-<p>Pre-built firmware binaries are available from GitHub:</p>
+<h2 id="getting-firmware">Getting Firmware<a class="headerlink" href="#getting-firmware" title="Permanent link">&para;</a></h2>
+<h3 id="stable-releases-recommended">Stable Releases (Recommended)<a class="headerlink" href="#stable-releases-recommended" title="Permanent link">&para;</a></h3>
+<p>Pre-built firmware binaries for each release are on GitHub:</p>
 <ol>
 <li>Go to the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest GitHub release</a></li>
 <li>Download the files for your hardware variant:</li>
@@ -3230,6 +3309,49 @@
 </tr>
 </tbody>
 </table>
+<h3 id="development-builds">Development Builds<a class="headerlink" href="#development-builds" title="Permanent link">&para;</a></h3>
+<p>Every push to the <code>master</code> branch and every pull request builds firmware automatically. To download a development build:</p>
+<ol>
+<li>Go to the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml">Actions tab</a></li>
+<li>Click on a successful workflow run</li>
+<li>Scroll to <strong>Artifacts</strong> and download <code>onspeed-&lt;version&gt;-V4P.zip</code> or <code>onspeed-&lt;version&gt;-V4B.zip</code></li>
+<li>
+<p><strong>Unzip</strong> the downloaded file — inside you'll find three <code>.bin</code> files:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it is</th>
+<th>When you need it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>firmware.bin</code></td>
+<td>Application firmware</td>
+<td><strong>Always</strong> — this is what you flash for OTA or USB</td>
+</tr>
+<tr>
+<td><code>bootloader.bin</code></td>
+<td>ESP32 bootloader</td>
+<td>USB flash only (initial setup or recovery)</td>
+</tr>
+<tr>
+<td><code>partitions.bin</code></td>
+<td>Flash partition table</td>
+<td>USB flash only (initial setup or recovery)</td>
+</tr>
+</tbody>
+</table>
+<p>For a routine <strong>OTA update</strong>, you only need <code>firmware.bin</code> — you can ignore the other two files.</p>
+</li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">GitHub account required</p>
+<p>Downloading CI artifacts requires a GitHub account. Artifacts are retained for 30 days.</p>
+</div>
+<h3 id="pr-test-builds">PR Test Builds<a class="headerlink" href="#pr-test-builds" title="Permanent link">&para;</a></h3>
+<p>Pull requests that touch firmware code automatically build both variants. A comment on the PR links directly to the downloadable <code>.zip</code> artifacts. Download and unzip just like a development build above.</p>
 <h2 id="which-update-method">Which Update Method?<a class="headerlink" href="#which-update-method" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>OTA (WiFi)</strong>: Use for routine updates when the box is already running and the <code>OnSpeed</code> WiFi network appears. You only need the <code>firmware.bin</code> for your variant. See <a href="../ota-update/">OTA Updates</a>.</li>
