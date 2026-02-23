@@ -100,7 +100,7 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: onspeed-${{ steps.build.outputs.version }}-${{ matrix.variant }}.zip
+          name: onspeed-${{ matrix.variant }}-${{ steps.build.outputs.version }}.zip
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
