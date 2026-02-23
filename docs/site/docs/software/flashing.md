@@ -36,7 +36,7 @@ Every push to the `master` branch and every pull request builds firmware automat
 
 1. Go to the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml)
 2. Click on a successful workflow run
-3. Scroll to **Artifacts** and download `firmware-V4P.zip` or `firmware-V4B.zip`
+3. Scroll to **Artifacts** and download `onspeed-<version>-V4P.zip` or `onspeed-<version>-V4B.zip`
 4. **Unzip** the downloaded file — inside you'll find three `.bin` files:
 
     | File | What it is | When you need it |

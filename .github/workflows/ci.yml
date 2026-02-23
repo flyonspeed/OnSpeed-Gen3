@@ -77,6 +77,10 @@ jobs:
           # Capture build output to extract size info
           pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
+          # Extract version from generated buildinfo.cpp
+          VERSION=$(grep 'version =' lib/version/buildinfo.cpp | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
           # Extract RAM and Flash lines (e.g. "RAM:   [==        ]  21.1% ...")
           RAM_LINE=$(grep '^RAM:' build.log || true)
           FLASH_LINE=$(grep '^Flash:' build.log || true)
@@ -96,7 +100,7 @@ jobs:
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.variant }}.zip
+          name: onspeed-${{ steps.build.outputs.version }}-${{ matrix.variant }}.zip
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
@@ -229,14 +233,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           API="repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          ARTIFACTS=$(gh api "$API" --jq '.artifacts[] | {name, id}')
-
-          V4P_ID=$(echo "$ARTIFACTS" | jq -r 'select(.name | test("V4P")) | .id')
-          V4B_ID=$(echo "$ARTIFACTS" | jq -r 'select(.name | test("V4B")) | .id')
-
           BASE="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          echo "v4p_url=${BASE}/${V4P_ID}" >> "$GITHUB_OUTPUT"
-          echo "v4b_url=${BASE}/${V4B_ID}" >> "$GITHUB_OUTPUT"
+
+          V4P=$(gh api "$API" --jq '.artifacts[] | select(.name | test("V4P")) | {name, id}')
+          V4B=$(gh api "$API" --jq '.artifacts[] | select(.name | test("V4B")) | {name, id}')
+
+          echo "v4p_name=$(echo "$V4P" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "v4p_url=${BASE}/$(echo "$V4P" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+          echo "v4b_name=$(echo "$V4B" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "v4b_url=${BASE}/$(echo "$V4B" | jq -r '.id')" >> "$GITHUB_OUTPUT"
 
       - name: Post sticky comment with artifact links
         uses: marocchino/sticky-pull-request-comment@v2
@@ -247,8 +252,8 @@ jobs:
 
             | Variant | Download |
             |---------|----------|
-            | **V4P** (Phil's box) | [firmware-V4P.zip](${{ steps.artifacts.outputs.v4p_url }}) |
-            | **V4B** (Bob's box) | [firmware-V4B.zip](${{ steps.artifacts.outputs.v4b_url }}) |
+            | **V4P** (Phil's box) | [${{ steps.artifacts.outputs.v4p_name }}](${{ steps.artifacts.outputs.v4p_url }}) |
+            | **V4B** (Bob's box) | [${{ steps.artifacts.outputs.v4b_name }}](${{ steps.artifacts.outputs.v4b_url }}) |
 
             Each `.zip` contains three files: `firmware.bin`, `bootloader.bin`, and `partitions.bin`.
             For an **OTA update**, you only need `firmware.bin` — upload it via the web interface at `http://192.168.0.1/upgrade`.
