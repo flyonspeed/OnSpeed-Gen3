@@ -259,20 +259,20 @@ void AudioPlay::SetVolume(int iVolumePercent)
 // Set the channel gains. This is mostly for 3D audio support
 // Nominal gain is 1.0
 
-void AudioPlay::SetGain(float fLeftGain, float fRightGain)
+void AudioPlay::SetGain(float fLeftGainIn, float fRightGainIn)
 {
     // I should probably put in limit checking someday
-    this->fLeftGain  = fLeftGain;
-    this->fRightGain = fRightGain;
+    fLeftGain  = fLeftGainIn;
+    fRightGain = fRightGainIn;
 }
 
 // ----------------------------------------------------------------------------
 
 // Select a voice to play. Voice will play once and reset.
 
-void AudioPlay::SetVoice(EnVoice enVoice)
+void AudioPlay::SetVoice(EnVoice enVoiceIn)
 {
-    this->enVoice = enVoice;
+    enVoice = enVoiceIn;
 }
 
 // ----------------------------------------------------------------------------
@@ -288,7 +288,7 @@ void AudioPlay::SetTone(EnAudioTone enAudioTone)
 
 // Maybe someday.
 
-void AudioPlay::SetToneFreq(unsigned uToneFreq)
+void AudioPlay::SetToneFreq(unsigned uToneFreqIn)
 {
 
 }
@@ -312,7 +312,7 @@ void AudioPlay::SetPulseFreq(float fPulseFreq)
 // ----------------------------------------------------------------------------
 
 // Play converted PCM audio buffer
-void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float fLeftVolume, float fRightVolume)
+void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iNumBytes, float fLeftVolume, float fRightVolume)
 {
     if (!s_bI2sOk)
         return;
@@ -322,7 +322,7 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
     size_t           iFrameCount = 0;
 
     const int16_t * pPCM = reinterpret_cast<const int16_t *>(pData);
-    const int       iSampleCount = iDataLen / static_cast<int>(sizeof(int16_t));
+    const int       iSampleCount = iNumBytes / static_cast<int>(sizeof(int16_t));
 
     for (int iSampleIdx = 0; iSampleIdx < iSampleCount; iSampleIdx++)
     {
@@ -347,7 +347,7 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
 // ----------------------------------------------------------------------------
 
 // Play locally generated audio tone buffer
-void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftVolume, float fRightVolume)
+void AudioPlay::PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLeftVolume, float fRightVolume)
 {
     if (!s_bI2sOk)
         return;
@@ -358,7 +358,7 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftV
 
     static bool     bPulseLevel = true;
 
-    for (int iWordIdx = 0; iWordIdx < iDataLen; iWordIdx++)
+    for (int iWordIdx = 0; iWordIdx < iNumSamples; iWordIdx++)
     {
         // Apply tone pulse modulation
         const float fPulseScale = ((bPulseLevel == true) || (fTonePulseMaxSamples == 0)) ? 1.0f : 0.2f;
@@ -407,14 +407,14 @@ void AudioPlay::PlayVoice()
 
 #define VOICE_BOOST     3.0
 
-void AudioPlay::PlayVoice(EnVoice enVoice)
+void AudioPlay::PlayVoice(EnVoice enVoiceIn)
 {
-    AudioLogDebugNoBlock("PlayVoice %d\n", enVoice);
+    AudioLogDebugNoBlock("PlayVoice %d\n", enVoiceIn);
     // These WAV based audio clips need a volume boost
     float   fLeftVoiceVolume  = fVolume * VOICE_BOOST * fLeftGain;
     float   fRightVoiceVolume = fVolume * VOICE_BOOST * fRightGain;
 
-    switch (enVoice)
+    switch (enVoiceIn)
     {
         case enVoiceDatamark  : PlayPcmBuffer(datamark_pcm,      datamark_pcm_len,      fLeftVoiceVolume, fRightVoiceVolume); break;
         case enVoiceDisabled  : PlayPcmBuffer(disabled_pcm,      disabled_pcm_len,      fLeftVoiceVolume, fRightVoiceVolume); break;

@@ -125,7 +125,7 @@ void test_AOACalculator_reset()
 // Main
 // ============================================================================
 
-int main(int argc, char** argv)
+int main()
 {
     UNITY_BEGIN();
 

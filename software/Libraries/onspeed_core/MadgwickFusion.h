@@ -38,8 +38,6 @@ private:
     float   pitch;
     float   yaw;
     char    anglesComputed;
-    float   initialPitch;
-    float   initialRoll;
 
 //-------------------------------------------------------------------------------------------
 // Function declarations

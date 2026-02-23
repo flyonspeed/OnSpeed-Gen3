@@ -233,7 +233,7 @@ void test_octave_gyro_bias_comparison(void) {
     TEST_ASSERT_TRUE(state.bq_dps() > 0.0f);
 }
 
-int main(int argc, char **argv) {
+int main() {
     UNITY_BEGIN();
 
     RUN_TEST(test_octave_level_flight_comparison);

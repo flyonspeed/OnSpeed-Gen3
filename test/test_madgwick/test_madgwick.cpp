@@ -170,7 +170,7 @@ void test_radians_accessors(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.001f, pitch_deg * DEG2RAD, pitch_rad);
 }
 
-int main(int argc, char **argv) {
+int main() {
     UNITY_BEGIN();
     RUN_TEST(test_level_initialization);
     RUN_TEST(test_pitched_initialization);

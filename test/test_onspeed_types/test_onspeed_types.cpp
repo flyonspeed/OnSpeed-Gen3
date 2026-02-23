@@ -187,7 +187,7 @@ void test_safeAsin_at_boundaries() {
 // Main
 // ============================================================================
 
-int main(int argc, char **argv) {
+int main() {
     UNITY_BEGIN();
 
     // Unit conversions
