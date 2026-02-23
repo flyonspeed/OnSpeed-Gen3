@@ -24,7 +24,6 @@ const float iasSmoothing = 0.0179f;                             // airspeed smoo
 const float iasTauFactor = (1.0f / iasSmoothing) - 1.0f;        // tau multiplier for variable-rate EMA
 
 const float kPressureDeltaTime = 1.0f / PRESSURE_SAMPLE_RATE;   // fallback dt for IAS derivative
-const float kMinIasForFlightPath = 25.0f;                      // IAS (kt) below which FlightPath/VSI are zeroed
 
 // ----------------------------------------------------------------------------
 
@@ -227,23 +226,33 @@ void AHRS::Process(float fDeltaTimeSeconds)
     gYaw = GzAvg.getFastAverage();
 
 
-    // calculate linear acceleration compensation
-    // correct for forward acceleration
-    AccelFwdCompFactor  = mps2g(TASdotSmoothed); // m/sec2 to g
-
-    //centripetal acceleration in m/sec2 = speed in m/sec * angular rate in radians
-    // When EKF6 is active, use its bias-corrected rates (from previous timestep)
-    // for more consistent centripetal compensation.
-    float fYawRateForComp   = YawRateCorr;
-    float fPitchRateForComp = PitchRateCorr;
-    if (g_Config.iAhrsAlgorithm == 1)
+    // Calculate linear acceleration compensation, gated on IAS-alive to prevent
+    // sensor noise from corrupting the AHRS when on the ground.
+    if (g_Sensors.bIasAlive)
     {
-        onspeed::EKF6::State prevState = Ekf6Filter.getState();
-        fYawRateForComp   = YawRateCorr   - rad2deg(prevState.br);
-        fPitchRateForComp = PitchRateCorr - rad2deg(prevState.bq);
+        AccelFwdCompFactor  = mps2g(TASdotSmoothed); // m/sec2 to g
+
+        // Centripetal acceleration in m/sec2 = speed in m/sec * angular rate in radians.
+        // When EKF6 is active, use its bias-corrected rates (from previous timestep)
+        // for more consistent centripetal compensation.
+        float fYawRateForComp   = YawRateCorr;
+        float fPitchRateForComp = PitchRateCorr;
+        if (g_Config.iAhrsAlgorithm == 1)
+        {
+            onspeed::EKF6::State prevState = Ekf6Filter.getState();
+            fYawRateForComp   = YawRateCorr   - rad2deg(prevState.br);
+            fPitchRateForComp = PitchRateCorr - rad2deg(prevState.bq);
+        }
+        AccelLatCompFactor  = mps2g(deg2rad(fTAS * fYawRateForComp));
+        AccelVertCompFactor = mps2g(deg2rad(fTAS * fPitchRateForComp));
     }
-    AccelLatCompFactor  = mps2g(deg2rad(fTAS * fYawRateForComp));
-    AccelVertCompFactor = mps2g(deg2rad(fTAS * fPitchRateForComp));
+    else
+    {
+        AccelFwdCompFactor  = 0.0f;
+        AccelLatCompFactor  = 0.0f;
+        AccelVertCompFactor = 0.0f;
+        TASdotSmoothed      = 0.0f;
+    }
 
     // AccelVertCorr = install corrected acceleration, unsmoothed
     // aVert         = install corrected acceleration, smoothed
@@ -323,8 +332,8 @@ void AHRS::Process(float fDeltaTimeSeconds)
 
     KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), fDeltaTimeSeconds, &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
-    // zero VSI when airspeed is not yet alive
-    if (g_Sensors.IAS < kMinIasForFlightPath)
+    // Zero VSI when airspeed is not yet alive (below hysteresis threshold)
+    if (!g_Sensors.bIasAlive)
     {
         KalmanVSI = 0;
         bIasWasBelowThreshold = true;
@@ -340,7 +349,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
     }
 
     // calculate flight path and derived AOA
-    if (g_Sensors.IAS >= kMinIasForFlightPath)
+    if (g_Sensors.bIasAlive)
         FlightPath = rad2deg(safeAsin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
     else
         FlightPath = 0.0;

@@ -67,8 +67,8 @@ public:
     // EKF6 attitude filter (alternative to Madgwick)
     onspeed::EKF6   Ekf6Filter;
 
-    // Tracks whether IAS was below the 25 kt threshold for alpha covariance reset.
-    // When IAS transitions from below to above 25 kt, the EKF6 alpha covariance
+    // Tracks whether IAS was below the bIasAlive threshold for alpha covariance reset.
+    // When bIasAlive transitions from false to true, the EKF6 alpha covariance
     // is reset so the filter re-learns alpha from real gamma measurements.
     bool            bIasWasBelowThreshold;
 

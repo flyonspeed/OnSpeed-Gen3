@@ -154,7 +154,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     if (g_pIMU->Az < 0)
         fVerticalGload *= -1;
 
-    if (isnan(g_Sensors.AOA) || g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
+    if (isnan(g_Sensors.AOA) || !g_Sensors.bIasAlive)
     {
         fWifiAOA = -100;
     }
