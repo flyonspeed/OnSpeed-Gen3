@@ -119,13 +119,24 @@ public:
         float    fAlpha0;       // Zero-lift fuselage AOA (deg), from physics fit
         float    fAlphaStall;   // Stall AOA from physics fit (deg)
 
-        // Returns true if AOA setpoints are in monotonically increasing order.
-        bool AreSetpointsOrdered() const
+        // Returns empty string if AOA setpoints are in order, or a description
+        // of all pairs that are out of order.  Skips fSTALLAOA from the chain
+        // when it is still at its uncalibrated default (0.0).
+        String SetpointOrderError() const
             {
-            return fLDMAXAOA < fONSPEEDFASTAOA
-                && fONSPEEDFASTAOA < fONSPEEDSLOWAOA
-                && fONSPEEDSLOWAOA < fSTALLWARNAOA
-                && fSTALLWARNAOA   < fSTALLAOA;
+            String sErr;
+            if (fLDMAXAOA >= fONSPEEDFASTAOA)
+                sErr += "LDMAX (" + String(fLDMAXAOA, 1) + ") must be less than OnSpeedFast (" + String(fONSPEEDFASTAOA, 1) + "); ";
+            if (fONSPEEDFASTAOA >= fONSPEEDSLOWAOA)
+                sErr += "OnSpeedFast (" + String(fONSPEEDFASTAOA, 1) + ") must be less than OnSpeedSlow (" + String(fONSPEEDSLOWAOA, 1) + "); ";
+            if (fONSPEEDSLOWAOA >= fSTALLWARNAOA)
+                sErr += "OnSpeedSlow (" + String(fONSPEEDSLOWAOA, 1) + ") must be less than StallWarn (" + String(fSTALLWARNAOA, 1) + "); ";
+            if (fSTALLAOA != 0.0f && fSTALLWARNAOA >= fSTALLAOA)
+                sErr += "StallWarn (" + String(fSTALLWARNAOA, 1) + ") must be less than Stall (" + String(fSTALLAOA, 1) + "); ";
+            // Trim trailing "; "
+            if (sErr.length() > 2)
+                sErr.remove(sErr.length() - 2);
+            return sErr;
             }
 
         SuCalibrationCurve  AoaCurve;
