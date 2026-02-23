@@ -55,7 +55,7 @@ Download pre-built firmware from the [latest GitHub release](https://github.com/
 | `onspeed-vX.Y.Z-bootloader.bin` | Bootloader (shared, USB flash only) |
 | `onspeed-vX.Y.Z-partitions.bin` | Partition table (shared, USB flash only) |
 
-**OTA update** (routine): Upload just the `firmware.bin` for your variant via the web interface at `http://192.168.0.1/upgrade`.
+**OTA update** (routine): Upload just the `firmware.bin` for your variant via the web interface at `http://onspeed.local/upgrade`. See the [OTA update docs](https://dev.flyonspeed.org/OnSpeed-Gen3/software/ota-update/) for details.
 
 **USB flash** (initial or recovery):
 ```bash

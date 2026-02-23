@@ -256,9 +256,9 @@ jobs:
             | **V4B** (Bob's box) | [${{ steps.artifacts.outputs.v4b_name }}](${{ steps.artifacts.outputs.v4b_url }}) |
 
             Each `.zip` contains three files: `firmware.bin`, `bootloader.bin`, and `partitions.bin`.
-            For an **OTA update**, you only need `firmware.bin` — upload it via the web interface at `http://192.168.0.1/upgrade`.
+            For an **OTA update**, you only need `firmware.bin` — upload it at [`http://onspeed.local/upgrade`](https://dev.flyonspeed.org/OnSpeed-Gen3/software/ota-update/).
             For a **USB flash** (initial setup or recovery), you need all three — see the [flashing docs](https://dev.flyonspeed.org/OnSpeed-Gen3/software/flashing/).
 
             Built from `${{ github.head_ref }}` at `${{ github.event.pull_request.head.sha }}`.
 
-            > Requires GitHub login. Artifacts expire after 30 days.
+            > Downloading these artifacts requires a GitHub login. Artifacts expire after 30 days.
