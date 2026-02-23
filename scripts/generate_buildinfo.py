@@ -66,26 +66,27 @@ def get_version_from_tag() -> tuple[str, int, int, int, bool]:
     # Try to get a tag pointing to current commit
     tag = run_git(["describe", "--tags", "--exact-match", "HEAD"])
 
-    if tag and re.match(r"^v?\d+\.\d+\.\d+", tag):
-        # We're on a tagged release
+    if tag and re.match(r"^v?\d+\.\d+", tag):
+        # We're on a tagged release (supports both vX.Y and vX.Y.Z)
         version_str = tag.lstrip("v")
-        match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_str)
+        match = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?", version_str)
         if match:
-            return (
-                version_str,
-                int(match.group(1)),
-                int(match.group(2)),
-                int(match.group(3)),
-                True,
-            )
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            patch = int(match.group(3)) if match.group(3) else 0
+            # Normalize to 3-part version
+            version_str = f"{major}.{minor}.{patch}"
+            return (version_str, major, minor, patch, True)
 
     # Not on a release tag - use describe for dev version
     describe = run_git(["describe", "--tags", "--always"])
     if describe:
-        # Parse vX.Y.Z-N-gSHORTSHA format
-        match = re.match(r"v?(\d+)\.(\d+)\.(\d+)(?:-(\d+)-g([a-f0-9]+))?", describe)
+        # Parse vX.Y[.Z]-N-gSHORTSHA format (supports both 2-part and 3-part tags)
+        match = re.match(r"v?(\d+)\.(\d+)(?:\.(\d+))?(?:-(\d+)-g([a-f0-9]+))?", describe)
         if match:
-            major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3))
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            patch = int(match.group(3)) if match.group(3) else 0
             commits_ahead = match.group(4)
             if commits_ahead:
                 # Development build: bump patch and add -dev

@@ -22,9 +22,14 @@
 #define EXTERN_CLASS(var, ...)    extern var;
 #endif
 
-// hardware version. We have multiple prototypes.
-//#define HW_V4B // Bob's hardware
-#define HW_V4P // Phil's hardware
+// Hardware version. Selected via PlatformIO build flag (-DHW_V4P or -DHW_V4B).
+// Arduino IDE users: uncomment exactly one line below.
+#if !defined(HW_V4B) && !defined(HW_V4P)
+#define HW_V4P   // Default for Arduino IDE (no -D flag)
+#endif
+#if defined(HW_V4B) && defined(HW_V4P)
+#error "Cannot define both HW_V4B and HW_V4P. Select one hardware variant."
+#endif
 
 #define VERSION "4.15"
 
