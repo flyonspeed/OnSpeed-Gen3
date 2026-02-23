@@ -565,4 +565,79 @@ section h2 {
 .switch-field label:last-of-type {
     border-radius: 0 4px 4px 0;
     }
+.sp-row {
+    width: 100%;
+    padding: 8px 5px;
+    border-bottom: 1px solid #e0e0e0;
+    }
+.sp-row label {
+    display: block;
+    color: #737373;
+    font-size: 13px;
+    margin-bottom: 4px;
+    }
+.sp-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    }
+.sp-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+    font-weight: bold;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #f0f0f0;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 !important;
+    }
+.sp-btn:active {
+    background: #ddd;
+    }
+.sp-mult {
+    font-size: 18px;
+    font-weight: bold;
+    color: #000088;
+    min-width: 80px;
+    }
+.sp-ias {
+    font-size: 14px;
+    color: #666;
+    }
+.sp-secondary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #888;
+    }
+.sp-aoa-input {
+    width: 60px !important;
+    height: 24px !important;
+    font-size: 12px !important;
+    padding: 0 4px !important;
+    }
+.sp-live-btn {
+    font-size: 11px !important;
+    padding: 4px 8px !important;
+    height: auto !important;
+    width: auto !important;
+    }
+.sp-info-row {
+    padding: 4px 5px;
+    font-size: 12px;
+    color: #666;
+    }
+.sp-info {
+    margin-right: 16px;
+    }
+.sp-vs-info {
+    font-size: 13px;
+    color: #000088;
+    font-weight: bold;
+    padding: 2px 5px;
+    }
 )=====";

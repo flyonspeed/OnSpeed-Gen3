@@ -107,6 +107,7 @@ public:
             fMANAOA         = 0.0;
             fAlpha0         = 0.0;
             fAlphaStall     = 0.0;
+            fKFit           = 0.0;
             }
         int      iDegrees;
         int      iPotPosition;
@@ -118,6 +119,7 @@ public:
         float    fMANAOA;
         float    fAlpha0;       // Zero-lift fuselage AOA (deg), from physics fit
         float    fAlphaStall;   // Stall AOA from physics fit (deg)
+        float    fKFit;         // Lift sensitivity (deg·kt²) from IAS-to-AOA fit
 
         // Returns true if AOA setpoints are in monotonically increasing order.
         bool AreSetpointsOrdered() const
