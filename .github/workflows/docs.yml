@@ -58,6 +58,16 @@ jobs:
         run: |
           mike deploy --push --update-aliases latest
           mike set-default --push latest
+      - name: Ensure CNAME on gh-pages
+        run: |
+          git checkout gh-pages
+          if [ ! -f CNAME ]; then
+            echo "dev.flyonspeed.org" > CNAME
+            git add CNAME
+            git commit -m "Add CNAME for custom domain"
+            git push origin gh-pages
+          fi
+          git checkout -
 
   # GitHub Release — deploy frozen version snapshot
   deploy-release:
@@ -81,3 +91,13 @@ jobs:
       - name: Deploy release docs
         working-directory: docs/site
         run: mike deploy --push ${{ github.event.release.tag_name }}
+      - name: Ensure CNAME on gh-pages
+        run: |
+          git checkout gh-pages
+          if [ ! -f CNAME ]; then
+            echo "dev.flyonspeed.org" > CNAME
+            git add CNAME
+            git commit -m "Add CNAME for custom domain"
+            git push origin gh-pages
+          fi
+          git checkout -
