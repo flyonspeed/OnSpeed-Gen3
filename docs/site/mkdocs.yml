@@ -7,6 +7,7 @@ edit_uri: edit/master/docs/site/docs/
 
 theme:
   name: material
+  custom_dir: overrides
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -78,6 +79,9 @@ extra_css:
   - https://unpkg.com/katex@0/dist/katex.min.css
 
 extra:
+  analytics:
+    provider: custom
+    property: flyonspeed
   version:
     provider: mike
     default:
