@@ -72,16 +72,31 @@ jobs:
           pip install platformio
 
       - name: Build firmware
+        id: build
         run: |
-          pio run -e ${{ matrix.env }}
+          # Capture build output to extract size info
+          pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
-          echo "## Build Size (${{ matrix.variant }})" >> $GITHUB_STEP_SUMMARY
-          pio run -e ${{ matrix.env }} -t size 2>&1 | tail -20 >> $GITHUB_STEP_SUMMARY
+          # Extract RAM and Flash lines (e.g. "RAM:   [==        ]  21.1% ...")
+          RAM_LINE=$(grep '^RAM:' build.log || true)
+          FLASH_LINE=$(grep '^Flash:' build.log || true)
+          FW_SIZE=$(stat -c%s ".pio/build/${{ matrix.env }}/firmware.bin" 2>/dev/null \
+                    || stat -f%z ".pio/build/${{ matrix.env }}/firmware.bin")
+          FW_KB=$(( FW_SIZE / 1024 ))
+
+          {
+            echo "## Build Size — ${{ matrix.variant }}"
+            echo '```'
+            echo "${RAM_LINE}"
+            echo "${FLASH_LINE}"
+            echo "Firmware image: ${FW_KB} KB"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.env }}
+          name: firmware-${{ matrix.variant }}.zip
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
@@ -208,6 +223,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Look up artifact download URLs
+        id: artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          API="repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+          ARTIFACTS=$(gh api "$API" --jq '.artifacts[] | {name, id}')
+
+          V4P_ID=$(echo "$ARTIFACTS" | jq -r 'select(.name | test("V4P")) | .id')
+          V4B_ID=$(echo "$ARTIFACTS" | jq -r 'select(.name | test("V4B")) | .id')
+
+          BASE="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
+          echo "v4p_url=${BASE}/${V4P_ID}" >> "$GITHUB_OUTPUT"
+          echo "v4b_url=${BASE}/${V4B_ID}" >> "$GITHUB_OUTPUT"
+
       - name: Post sticky comment with artifact links
         uses: marocchino/sticky-pull-request-comment@v2
         with:
@@ -215,13 +245,11 @@ jobs:
           message: |
             ## Firmware Artifacts
 
-            | Variant | Artifact |
+            | Variant | Download |
             |---------|----------|
-            | **V4P** (Phil's box) | `firmware-esp32s3-v4p` |
-            | **V4B** (Bob's box) | `firmware-esp32s3-v4b` |
+            | **V4P** (Phil's box) | [firmware-V4P.zip](${{ steps.artifacts.outputs.v4p_url }}) |
+            | **V4B** (Bob's box) | [firmware-V4B.zip](${{ steps.artifacts.outputs.v4b_url }}) |
 
-            **[Download artifacts from this workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})**
+            Built from `${{ github.head_ref }}` at `${{ github.event.pull_request.head.sha }}`.
 
-            Built from `${{ github.head_ref }}` at ${{ github.event.pull_request.head.sha }}.
-
-            > Downloading artifacts requires a GitHub account. Artifacts expire after 30 days.
+            > Requires GitHub login. Artifacts expire after 30 days.

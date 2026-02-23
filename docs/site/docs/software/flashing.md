@@ -36,14 +36,23 @@ Every push to the `master` branch and every pull request builds firmware automat
 
 1. Go to the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml)
 2. Click on a successful workflow run
-3. Scroll to **Artifacts** and download `firmware-esp32s3-v4p` or `firmware-esp32s3-v4b`
+3. Scroll to **Artifacts** and download `firmware-V4P.zip` or `firmware-V4B.zip`
+4. **Unzip** the downloaded file — inside you'll find three `.bin` files:
+
+    | File | What it is | When you need it |
+    |------|-----------|-----------------|
+    | `firmware.bin` | Application firmware | **Always** — this is what you flash for OTA or USB |
+    | `bootloader.bin` | ESP32 bootloader | USB flash only (initial setup or recovery) |
+    | `partitions.bin` | Flash partition table | USB flash only (initial setup or recovery) |
+
+    For a routine **OTA update**, you only need `firmware.bin` — you can ignore the other two files.
 
 !!! note "GitHub account required"
     Downloading CI artifacts requires a GitHub account. Artifacts are retained for 30 days.
 
 ### PR Test Builds
 
-Pull requests that touch firmware code automatically build both variants. A comment on the PR links directly to the downloadable artifacts. Use these to test a proposed change before it's merged.
+Pull requests that touch firmware code automatically build both variants. A comment on the PR links directly to the downloadable `.zip` artifacts. Download and unzip just like a development build above.
 
 ## Which Update Method?
 
