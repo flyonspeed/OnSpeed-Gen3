@@ -46,8 +46,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
-      - name: Cache PlatformIO
+      - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
           path: |
@@ -55,16 +56,6 @@ jobs:
             ~/.platformio/platforms
             ~/.platformio/penv
           key: ${{ runner.os }}-pio-espressif32-55.03.35-v1
-          restore-keys: |
-            ${{ runner.os }}-pio-espressif32-
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-platformio
-          restore-keys: |
-            ${{ runner.os }}-pip-
 
       - name: Install PlatformIO
         run: |
@@ -78,7 +69,7 @@ jobs:
           pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
           # Extract version from generated buildinfo.cpp
-          VERSION=$(grep 'version =' lib/version/buildinfo.cpp | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(grep 'version =' software/Libraries/version/buildinfo.cpp | sed 's/.*"\(.*\)".*/\1/')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
           # Extract RAM and Flash lines (e.g. "RAM:   [==        ]  21.1% ...")
@@ -118,18 +109,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
-      - name: Cache PlatformIO
+      - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
           path: |
             ~/.platformio/packages
             ~/.platformio/platforms
             ~/.platformio/penv
-          # Native tests only need Unity framework, use simpler cache key
           key: ${{ runner.os }}-pio-native-v1
-          restore-keys: |
-            ${{ runner.os }}-pio-native-
 
       - name: Install PlatformIO and lcov
         run: |

@@ -7,7 +7,7 @@ It extracts version info from git tags (vX.Y.Z format) and writes
 the buildinfo.cpp file with actual values.
 
 Usage:
-    python scripts/generate_buildinfo.py [--output lib/version/buildinfo.cpp]
+    python scripts/generate_buildinfo.py [--output software/Libraries/version/buildinfo.cpp]
 
 For PlatformIO integration, add to platformio.ini:
     extra_scripts = pre:scripts/generate_buildinfo.py
@@ -146,7 +146,7 @@ def main():
     project_root = script_dir.parent
 
     # Default output path
-    output_path = project_root / "lib" / "version" / "buildinfo.cpp"
+    output_path = project_root / "software" / "Libraries" / "version" / "buildinfo.cpp"
 
     # Parse command line args
     if len(sys.argv) > 2 and sys.argv[1] == "--output":
@@ -159,7 +159,7 @@ def main():
 def before_build(source, target, env):
     """Called by PlatformIO before build."""
     project_dir = Path(env.get("PROJECT_DIR", "."))
-    output_path = project_dir / "lib" / "version" / "buildinfo.cpp"
+    output_path = project_dir / "software" / "Libraries" / "version" / "buildinfo.cpp"
     generate_buildinfo(output_path)
 
 
