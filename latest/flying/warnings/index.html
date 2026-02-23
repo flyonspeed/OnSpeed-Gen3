@@ -58,6 +58,41 @@
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
+  
+
+
+  <script>
+  window.goatcounter = {
+    no_onload: true,
+    endpoint: "https://flyonspeed.goatcounter.com/count"
+  }
+</script>
+<script async src="//gc.zgo.at/count.js"
+        data-goatcounter="https://flyonspeed.goatcounter.com/count">
+</script>
+<script>
+  /* Count the initial page load once the script is ready */
+  var _gcInit = setInterval(function() {
+    if (!window.goatcounter || !window.goatcounter.count) return;
+    clearInterval(_gcInit);
+    window.goatcounter.count();
+  }, 100);
+
+  /* Track instant-loading navigations (Material SPA mode) */
+  if (typeof location$ !== "undefined") {
+    location$.subscribe(function(url) {
+      if (window.goatcounter && window.goatcounter.count) {
+        window.goatcounter.count({
+          path:  url.pathname + url.search,
+          title: document.title
+        });
+      }
+    });
+  }
+</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
 
     
     
@@ -3226,6 +3261,8 @@
 
 
 
+
+  
 
 
 
