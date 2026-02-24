@@ -240,6 +240,13 @@ void LogSensor::Open()
 
         if (m_hLogFile.isOpen())
         {
+            // Pre-allocate contiguous clusters to reduce write latency.
+            // At ~25 KB/s (50 Hz × ~500 bytes), 10 MB covers ~7 minutes
+            // before SdFat needs to extend the allocation.
+            // Unused space is released when the file is closed.
+            if (!m_hLogFile.preAllocate(10UL * 1024 * 1024))
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "Log file preAllocate failed");
+
             // Write the CSV header line
             m_hLogFile.write("timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,AngleofAttack,flapsPos,DataMark");
             m_hLogFile.write(",OAT,TAS");

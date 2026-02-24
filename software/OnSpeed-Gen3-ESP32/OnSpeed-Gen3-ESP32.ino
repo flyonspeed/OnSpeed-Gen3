@@ -79,27 +79,6 @@ void setup()
     xSerialLogMutex = xSemaphoreCreateMutex();
 
     // Initialize SD card
-    // ------------------
-    /*  Need to look into something called dedicated SPI.
-        https://github.com/greiman/SdFat/issues/244
-        says "The only way to get dedicated SPI is to explicitly specify
-        DEDICATED_SPI using a begin call with SdSpiConfig as the argument like this..."
-            #define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-            if (!sd.begin(SD_CONFIG))
-                {
-                // handle error
-                }
-
-        The problem is that I don't know how to specify custom pins using SdSpiConfig().
-        Maybe like this...
-
-        SoftSpiDriver<SOFT_MISO_PIN, SOFT_MOSI_PIN, SOFT_SCK_PIN> softSpi;
-        SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-
-    BTW, this could possibly go in a task so that if someone inserts a card
-    while powered up then good things would happen.
-    */
-
     g_SdFileSys.Init();
 
     if (g_SdFileSys.bSdAvailable == false)
@@ -235,7 +214,7 @@ void setup()
 
     // Setup FreeRTOS tasks
     // --------------------
-    xLoggingRingBuffer = xRingbufferCreate(30000, RINGBUF_TYPE_BYTEBUF);    // At least 1 sec of data buffering
+    xLoggingRingBuffer = xRingbufferCreate(60000, RINGBUF_TYPE_BYTEBUF);    // ~2.4 sec of data buffering
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
         {

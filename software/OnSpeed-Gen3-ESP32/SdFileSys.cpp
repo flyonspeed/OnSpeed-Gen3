@@ -17,33 +17,13 @@ bool CompareByFileName(const SdFileSys::SuFileInfo & a, SdFileSys::SuFileInfo & 
 
 SdFileSys::SdFileSys() :
         uSD_SPI(HSPI),
-        SpiConfig(SD_CS, USER_SPI_BEGIN,  1000000UL * 10 /*SdSpiConfig::maxSck*/, &uSD_SPI)
+        SpiConfig(SD_CS, DEDICATED_SPI | USER_SPI_BEGIN, SD_SCK_MHZ(10), &uSD_SPI)
     {
     }
 
 // ----------------------------------------------------------------------------
 
 // Initialize SD card
-// ------------------
-/*  Need to look into something called dedicated SPI.
-    https://github.com/greiman/SdFat/issues/244
-    says "The only way to get dedicated SPI is to explicitly specify
-    DEDICATED_SPI using a begin call with SdSpiConfig as the argument like this..."
-        #define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-        if (!sd.begin(SD_CONFIG))
-            {
-            // handle error
-            }
-
-    The problem is that I don't know how to specify custom pins using SdSpiConfig().
-    Maybe like this...
-
-    SoftSpiDriver<SOFT_MISO_PIN, SOFT_MOSI_PIN, SOFT_SCK_PIN> softSpi;
-    SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-
-BTW, this could possibly go in a task so that if someone inserts a card
-while powered up then good things would happen.
-*/
 
 bool SdFileSys::Init()
     {
