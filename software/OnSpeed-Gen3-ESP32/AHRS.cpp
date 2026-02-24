@@ -295,6 +295,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
         // Convert to degrees to match Madgwick output convention
         SmoothedPitch = state.theta_deg();
         SmoothedRoll  = state.phi_deg();
+        DerivedAOA    = state.alpha_deg();
 
         // Estimate earth vertical G from attitude for the Kalman altitude filter
         float sph = sin(state.phi);
@@ -348,15 +349,10 @@ void AHRS::Process(float fDeltaTimeSeconds)
     // DerivedAOA is the fuselage-to-wind angle (body alpha), NOT wing AOA.
     // At zero lift, DerivedAOA equals alpha_0 (typically negative due to wing
     // incidence and camber). See g_Config.aFlaps[].fAlpha0.
-    if (g_Config.iAhrsAlgorithm == 1)
-    {
-        // EKF6 directly estimates alpha as part of its state vector
-        onspeed::EKF6::State state = Ekf6Filter.getState();
-        DerivedAOA = state.alpha_deg();
-    }
-    else
+    if (g_Config.iAhrsAlgorithm != 1)
     {
         // Madgwick: derive AOA from pitch angle minus flight path angle
+        // (EKF6 path sets DerivedAOA from its alpha state estimate above)
         DerivedAOA = SmoothedPitch - FlightPath;
     }
 

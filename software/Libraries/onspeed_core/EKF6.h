@@ -281,6 +281,13 @@ public:
      */
     void resetAlphaCovariance();
 
+#ifdef UNIT_TEST
+public:
+    const float (*getP() const)[N_STATES] { return P_; }
+    const float* getX() const { return x_; }
+private:
+#endif
+
 private:
     Config config_;                         ///< Filter tuning parameters
     float x_[N_STATES];                     ///< State vector [phi, theta, alpha, bp, bq, br]
