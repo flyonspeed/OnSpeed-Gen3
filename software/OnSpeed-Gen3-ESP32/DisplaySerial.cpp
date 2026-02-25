@@ -136,7 +136,7 @@ void DisplaySerial::Write()
 #else
     fDisplayIAS = g_Sensors.IAS;
 #endif
-    const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
+    const bool bIasValidForOutput = g_Sensors.bIasAlive;
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
     const float fPAltFt = m2ft(g_AHRS.KalmanAlt);
 

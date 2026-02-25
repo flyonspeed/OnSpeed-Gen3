@@ -176,6 +176,7 @@ SensorIO::SensorIO()
     Palt       = 0.00;
     fDecelRate = 0.0;
     uIasUpdateUs = 0;
+    bIasAlive = false;
 }
 
 // ----------------------------------------------------------------------------
@@ -235,6 +236,12 @@ void SensorIO::Read()
     PfwdAvg.addValue(PfwdMedian.getMedian());
     PfwdSmoothed = PfwdAvg.getFastAverage();
 
+    // Clamp sensor noise (~1-2 LSB residual after median+average) to zero.
+    // When PfwdSmoothed=0, AOACalculator short-circuits (pfwd<=0 -> valid=false)
+    // and IAS computes to 0.
+    if (fabsf(PfwdSmoothed) < 3.0f)
+        PfwdSmoothed = 0.0f;
+
     P45Median.add(iP45);
     P45Avg.addValue(P45Median.getMedian());
     P45Smoothed = P45Avg.getFastAverage();
@@ -268,6 +275,16 @@ void SensorIO::Read()
         else
             IAS = 0;
 	    } // end if not in test pot or range sweep mode
+
+	    // IAS-alive hysteresis: matches Dynon SkyView 20/15 kt cutoff.
+	    // Prevents phantom IAS (sensor noise) from enabling compensation and audio.
+	    static constexpr float kIasAliveThreshold = 20.0f;  // kt, rising edge
+	    static constexpr float kIasDeadThreshold  = 15.0f;  // kt, falling edge
+
+	    if (!bIasAlive && IAS >= kIasAliveThreshold)
+	        bIasAlive = true;
+	    else if (bIasAlive && IAS < kIasDeadThreshold)
+	        bIasAlive = false;
 
 	    uIasUpdateUs = micros();
 

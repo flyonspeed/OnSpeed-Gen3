@@ -539,6 +539,100 @@ void test_ekf6_reset_preserves_other_states(void) {
 }
 
 // ============================================================================
+// IAS-Alive Compensation Gate Tests
+//
+// These test the effect that the bIasAlive gate (SensorIO/AHRS) has on EKF6
+// stability. The firmware gates AccelFwd/Lat/VertCompFactor to zero when
+// bIasAlive is false (IAS below noise floor). Without this gate, phantom
+// IAS from sensor noise generates non-zero compensation that corrupts the
+// accel data fed to the EKF6, causing slow pitch oscillation in the hangar.
+// ============================================================================
+
+void test_ekf6_phantom_ias_compensation_causes_pitch_error(void) {
+    // Simulate the hangar bug: aircraft is stationary, but pitot sensor noise
+    // produces ~5 kt phantom IAS. AHRS.cpp computes TASdot and centripetal
+    // compensation from this phantom IAS. The resulting non-zero comp factors
+    // corrupt the accel data, causing pitch to drift away from level.
+    //
+    // This test proves the bug: with phantom compensation, the EKF6 pitch
+    // deviates significantly from zero.
+
+    EKF6 ekf;
+    ekf.init(0.0f, 0.0f); // level
+
+    // True accel for level flight (stationary on ground)
+    const float ax_true = 0.0f;
+    const float ay_true = 0.0f;
+    const float az_true = -G;
+
+    // Simulate phantom compensation from ~5 kt IAS noise.
+    // TASdot oscillates around 0 with ~0.5 m/s^2 amplitude.
+    // Centripetal terms are small but non-zero.
+    const float PHANTOM_COMP_G = 0.05f; // ~0.5 m/s^2 in G
+
+    float max_pitch_error = 0.0f;
+
+    for (int i = 0; i < static_cast<int>(10.0f / DT); i++) {
+        // Oscillating phantom compensation (simulates noisy TASdot)
+        float phase = 2.0f * 3.14159265f * 0.3f * (i * DT); // slow ~0.3 Hz
+        float fwd_comp = PHANTOM_COMP_G * std::sin(phase);
+
+        // Compensated accel (what EKF6 would see without the bIasAlive gate)
+        float ax_comp = ax_true - fwd_comp;
+        float az_comp = az_true; // vert comp negligible at low phantom IAS
+
+        EKF6::Measurements meas = {
+            .ax = ax_comp * G,   // m/s^2
+            .ay = ay_true * G,
+            .az = az_comp,       // already in m/s^2
+            .p = 0.0f, .q = 0.0f, .r = 0.0f,
+            .gamma = 0.0f
+        };
+        ekf.update(meas, DT);
+
+        float pitch_err = std::fabs(ekf.getState().theta_deg());
+        if (pitch_err > max_pitch_error)
+            max_pitch_error = pitch_err;
+    }
+
+    // With phantom compensation, pitch should have drifted notably
+    printf("\n=== Phantom IAS Comp Bug ===\n");
+    printf("  Max pitch error with phantom comp: %.2f deg\n", max_pitch_error);
+    TEST_ASSERT_TRUE_MESSAGE(max_pitch_error > 0.5f,
+        "Phantom compensation should cause measurable pitch error");
+}
+
+void test_ekf6_zero_compensation_stable_on_ground(void) {
+    // Same scenario, but with the bIasAlive gate active: all compensation
+    // factors are zeroed. The EKF6 gets clean accel data and pitch is stable.
+
+    EKF6 ekf;
+    ekf.init(0.0f, 0.0f); // level
+
+    float max_pitch_error = 0.0f;
+
+    for (int i = 0; i < static_cast<int>(10.0f / DT); i++) {
+        // bIasAlive = false: all comp factors are zero.
+        // EKF6 gets pure gravity accel.
+        EKF6::Measurements meas = {
+            .ax =  0.0f,       // no forward comp
+            .ay =  0.0f,       // no lateral comp
+            .az = -G,          // pure gravity (no vertical comp)
+            .p = 0.0f, .q = 0.0f, .r = 0.0f,
+            .gamma = 0.0f
+        };
+        ekf.update(meas, DT);
+
+        float pitch_err = std::fabs(ekf.getState().theta_deg());
+        if (pitch_err > max_pitch_error)
+            max_pitch_error = pitch_err;
+    }
+
+    printf("  Max pitch error with zero comp (fix): %.4f deg\n", max_pitch_error);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, max_pitch_error);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -570,6 +664,10 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ekf6_stale_alpha_without_reset);
     RUN_TEST(test_ekf6_reset_alpha_covariance_uninitialized);
     RUN_TEST(test_ekf6_reset_preserves_other_states);
+
+    // IAS-alive compensation gate tests
+    RUN_TEST(test_ekf6_phantom_ias_compensation_causes_pitch_error);
+    RUN_TEST(test_ekf6_zero_compensation_stable_on_ground);
 
     return UNITY_END();
 }

@@ -54,6 +54,7 @@ public:
     float               IAS;
     float               AOA;            // Averaged AOA
     uint32_t            uIasUpdateUs;   // Timestamp (micros) of last IAS update
+    bool                bIasAlive;      ///< True when IAS is above noise floor with hysteresis
 
     double              fIasDerInput;   // Source for IAS for deceleration calc
 
