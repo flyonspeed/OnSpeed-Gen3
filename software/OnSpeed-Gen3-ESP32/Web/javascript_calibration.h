@@ -46,11 +46,101 @@ var OSSlowSetpoint        = 0;
 var StallWarnSetpoint     = 0;
 var calDate;
 var stallIAS;
-var resultCPtoAOA; // CP to AOA regression curve
+var resultCPtoAOA; // CP to AOA regression curve {equation: [a2, a1, a0]}
 var alpha0         = 0; // zero-lift fuselage AOA from IAS-to-AOA fit
 var alphaStall     = 0; // stall AOA from IAS-to-AOA fit
 var K_fit          = 0; // lift sensitivity from IAS-to-AOA fit
 var IAStoAOAr2   = 0; // R-squared of IAS-to-AOA fit
+
+// ---- WLS helpers ----
+
+// Compute rolling standard deviation of arr[] with a centered window of size winLen.
+// Returns an array the same length as arr.
+function rollingSigma(arr, winLen)
+  {
+  var n = arr.length;
+  var sigma = new Array(n);
+  var half = Math.floor(winLen / 2);
+  for (var i = 0; i < n; i++)
+    {
+    var lo = Math.max(0, i - half);
+    var hi = Math.min(n - 1, i + half);
+    var cnt = hi - lo + 1;
+    var sum = 0, sum2 = 0;
+    for (var j = lo; j <= hi; j++) { sum += arr[j]; sum2 += arr[j] * arr[j]; }
+    var variance = sum2 / cnt - (sum / cnt) * (sum / cnt);
+    sigma[i] = Math.sqrt(Math.max(variance, 0));
+    }
+  return sigma;
+  }
+
+// WLS quadratic fit: y = a2*x^2 + a1*x + a0
+// Returns {equation: [a2, a1, a0], r2: weighted_R2}
+function wlsQuadratic(x, y, w)
+  {
+  var n = x.length;
+  // Accumulate X'WX (3x3 symmetric) and X'Wy (3x1)
+  var s22=0,s21=0,s20=0,s11=0,s10=0,s00=0;
+  var t2=0,t1=0,t0=0;
+  var sumW=0, sumWy=0;
+  for (var i = 0; i < n; i++)
+    {
+    var xi = x[i], yi = y[i], wi = w[i];
+    var x2 = xi*xi;
+    s22 += wi*x2*x2; s21 += wi*x2*xi; s20 += wi*x2;
+    s11 += wi*xi*xi; s10 += wi*xi;    s00 += wi;
+    t2  += wi*x2*yi; t1  += wi*xi*yi; t0  += wi*yi;
+    sumW += wi; sumWy += wi*yi;
+    }
+  // Solve 3x3 via Cramer's rule
+  // det of [[s22,s21,s20],[s21,s11,s10],[s20,s10,s00]]
+  var det = s22*(s11*s00 - s10*s10) - s21*(s21*s00 - s10*s20) + s20*(s21*s10 - s11*s20);
+  if (Math.abs(det) < 1e-30) return {equation:[0,0,0], r2:0};
+  // Adjugate columns
+  var a2 = (t2*(s11*s00-s10*s10) - t1*(s21*s00-s10*s20) + t0*(s21*s10-s11*s20)) / det;
+  var a1 = (s22*(t1*s00-t0*s10) - s21*(t2*s00-t0*s20) + s20*(t2*s10-t1*s20)) / det;
+  var a0 = (s22*(s11*t0-s10*t1) - s21*(s21*t0-s10*t2) + s20*(s21*t1-s11*t2)) / det;
+  // Weighted R^2
+  var ybar = sumWy / sumW;
+  var ssRes = 0, ssTot = 0;
+  for (var i = 0; i < n; i++)
+    {
+    var pred = a2*x[i]*x[i] + a1*x[i] + a0;
+    ssRes += w[i] * (y[i] - pred) * (y[i] - pred);
+    ssTot += w[i] * (y[i] - ybar) * (y[i] - ybar);
+    }
+  var r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  return {equation: [a2, a1, a0], r2: r2};
+  }
+
+// WLS linear fit: y = slope*x + intercept
+// Returns {slope, intercept, r2}
+function wlsLinear(x, y, w)
+  {
+  var n = x.length;
+  var sW=0, sWx=0, sWy=0, sWxx=0, sWxy=0;
+  for (var i = 0; i < n; i++)
+    {
+    var wi = w[i];
+    sW += wi; sWx += wi*x[i]; sWy += wi*y[i];
+    sWxx += wi*x[i]*x[i]; sWxy += wi*x[i]*y[i];
+    }
+  var det = sW*sWxx - sWx*sWx;
+  if (Math.abs(det) < 1e-30) return {slope:0, intercept:0, r2:0};
+  var slope     = (sW*sWxy - sWx*sWy) / det;
+  var intercept = (sWxx*sWy - sWx*sWxy) / det;
+  // Weighted R^2
+  var ybar = sWy / sW;
+  var ssRes = 0, ssTot = 0;
+  for (var i = 0; i < n; i++)
+    {
+    var pred = slope*x[i] + intercept;
+    ssRes += w[i] * (y[i] - pred) * (y[i] - pred);
+    ssTot += w[i] * (y[i] - ybar) * (y[i] - ybar);
+    }
+  var r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  return {slope: slope, intercept: intercept, r2: r2};
+  }
 
 function init()
   {
@@ -257,49 +347,67 @@ function recordData(on)
     ManeuveringIAS=stallIAS*Math.sqrt(acGlimit);
 
     console.log('Stall_CP='+stallCP+', Stall_IAS='+stallIAS);
-    // calculate polynomial regressions for CP to Derived AOA curve (used at runtime by firmware)
-    // prepare data points for regression
-    var dataCPtoAOA=[];
-    var dataIAS=[]; // IAS linear regression to verify that IAS is decreasing
+
+    // Verify airspeed is decreasing (simple linear fit of IAS vs index)
+    var iasIdx = [], iasVals = [], iasOnes = [];
     for (i=0;i<=stallIndex;i++)
-      {
-      dataCPtoAOA.push([flightData.smoothedCP[i],flightData.DerivedAOA[i]]);
-      dataIAS.push([i,flightData.IAS[i]]);
-      }
-    const resultIAS = regression.polynomial(dataIAS, { order: 1, precision:2 });
+      { iasIdx.push(i); iasVals.push(flightData.IAS[i]); iasOnes.push(1); }
+    var resultIAS = wlsLinear(iasIdx, iasVals, iasOnes);
 
     if (stallCP==0)
       {
       alert("Stall not detected, try again, pitch down for stall recovery");
       console.log("Stall not detected, try again, pitch down for stall recovery");
       }
-    else if (resultIAS.equation[0]<0)
+    else if (resultIAS.slope<0)
       {
-      // Airspeed is decreasing
-      resultCPtoAOA = regression.polynomial(dataCPtoAOA, { order: 2, precision:4 });
+      // Airspeed is decreasing — compute curve fits
+
+      var useWLS = document.getElementById('chkWLS').checked;
+      var weights = new Array(stallIndex + 1);
+      if (useWLS)
+        {
+        var preStallAOA = flightData.DerivedAOA.slice(0, stallIndex + 1);
+        var sigma = rollingSigma(preStallAOA, 29);
+        for (i = 0; i <= stallIndex; i++)
+          weights[i] = 1.0 / Math.max(sigma[i] * sigma[i], 1e-9);
+        }
+      else
+        {
+        for (i = 0; i <= stallIndex; i++)
+          weights[i] = 1.0;
+        }
+
+      // ---- CP-to-AOA quadratic WLS fit (runtime curve) ----
+      var cpArr  = flightData.smoothedCP.slice(0, stallIndex + 1);
+      var aoaArr = flightData.DerivedAOA.slice(0, stallIndex + 1);
+      resultCPtoAOA = wlsQuadratic(cpArr, aoaArr, weights);
       CPtoAOAcurve="AOA = "+resultCPtoAOA.equation[0].toFixed(4)+" * CP^2 ";
       if (resultCPtoAOA.equation[1]>0) CPtoAOAcurve=CPtoAOAcurve+"+";
       CPtoAOAcurve=CPtoAOAcurve+resultCPtoAOA.equation[1].toFixed(4)+" * CP ";
       if (resultCPtoAOA.equation[2]>0) CPtoAOAcurve=CPtoAOAcurve+"+";
       CPtoAOAcurve=CPtoAOAcurve+resultCPtoAOA.equation[2].toFixed(4);
       CPtoAOAr2=resultCPtoAOA.r2;
-      // IAS-to-AOA fit: DerivedAOA = K / IAS^2 + alpha_0  (lift equation)
-      // Linear regression of DerivedAOA vs 1/IAS^2 — uses ALL pre-stall data.
-      // Extracts alpha_0 (zero-lift fuselage AOA) and K (lift sensitivity).
-      // All wizard setpoints are computed from this fit.
-      var dataIAStoAOA = [];
+
+      // ---- IAS-to-AOA WLS linear fit (physics model for setpoints) ----
+      // DerivedAOA = K / IAS^2 + alpha_0  — linear in x = 1/IAS^2
+      var xIAS = [], yIAS = [], wIAS = [];
       for (var j = 0; j <= stallIndex; j++)
         {
         var iasVal = flightData.IAS[j];
         if (iasVal > 0)
-          dataIAStoAOA.push([1.0 / (iasVal * iasVal), flightData.DerivedAOA[j]]);
+          {
+          xIAS.push(1.0 / (iasVal * iasVal));
+          yIAS.push(flightData.DerivedAOA[j]);
+          wIAS.push(weights[j]);
+          }
         }
-      var resultIAStoAOA = regression.polynomial(dataIAStoAOA, { order: 1, precision: 6 });
-      K_fit        = resultIAStoAOA.equation[0];     // slope = K (lift sensitivity)
-      alpha0       = resultIAStoAOA.equation[1];     // intercept = alpha_0 (zero-lift AOA)
+      var resultIAStoAOA = wlsLinear(xIAS, yIAS, wIAS);
+      K_fit        = resultIAStoAOA.slope;       // K (lift sensitivity)
+      alpha0       = resultIAStoAOA.intercept;   // alpha_0 (zero-lift AOA)
       alphaStall   = K_fit / (stallIAS * stallIAS) + alpha0;
-      IAStoAOAr2 = resultIAStoAOA.r2;
-      console.log("IAS-to-AOA fit: K=" + K_fit + ", alpha0=" + alpha0 + ", alphaStall=" + alphaStall + ", R2=" + IAStoAOAr2);
+      IAStoAOAr2   = resultIAStoAOA.r2;
+      console.log("IAS-to-AOA WLS fit: K=" + K_fit + ", alpha0=" + alpha0 + ", alphaStall=" + alphaStall + ", R2=" + IAStoAOAr2);
 
       // Update LDmaxIAS for flapped calibrations — use configured Vfe
       if (flapIndex>0 && acVfe>0) LDmaxIAS=acVfe;
@@ -392,10 +500,16 @@ function recordData(on)
       document.getElementById('idStallWarnSetpoint').innerHTML=StallWarnSetpoint;
       document.getElementById('idManeuveringSetpoint').innerHTML=ManeuveringSetpoint;
       document.getElementById('idStallSetpoint').innerHTML=StallSetpoint;
-      document.getElementById('idCPtoAOAr2').innerHTML=CPtoAOAr2;
+      document.getElementById('idCPtoAOAr2').innerHTML=CPtoAOAr2.toFixed(4);
       document.getElementById('idAlpha0').innerHTML=alpha0.toFixed(2);
       document.getElementById('idAlphaStall').innerHTML=alphaStall.toFixed(2);
       document.getElementById('idIAStoAOAr2').innerHTML=IAStoAOAr2.toFixed(4);
+      var methodLabel = useWLS ? 'WLS' : 'OLS';
+      var r2Label = useWLS ? 'Weighted R<sup>2</sup>' : 'R<sup>2</sup>';
+      document.getElementById('idFitMethod').innerHTML=methodLabel;
+      document.getElementById('idFitMethod2').innerHTML=methodLabel;
+      document.getElementById('idCPtoAOAr2Label').innerHTML=r2Label;
+      document.getElementById('idIAStoAOAr2Label').innerHTML=r2Label;
       document.getElementById('CPchart').style.display="block";
       document.getElementById('curveResults').style.display="block";
       document.getElementById('saveCalButtons').style.display="block";
