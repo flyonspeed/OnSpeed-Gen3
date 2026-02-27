@@ -223,7 +223,7 @@ void test_ekf6_gyro_bias_estimation(void) {
     // Filter should keep attitude near level and estimate bias
 
     float bias_dps = 2.0f;
-    float q_bias = bias_dps * DEG2RAD;
+    float q_bias_val = bias_dps * DEG2RAD;
 
     EKF6 ekf;
     ekf.init();
@@ -233,12 +233,13 @@ void test_ekf6_gyro_bias_estimation(void) {
         .ay = 0.0f,
         .az = -G,
         .p = 0.0f,
-        .q = q_bias,  // Gyro reads bias even though aircraft is level
+        .q = q_bias_val,  // Gyro reads bias even though aircraft is level
         .r = 0.0f,
         .gamma = 0.0f
     };
 
-    int n_samples = static_cast<int>(5.0f / DT);
+    // Run for 30 seconds to allow bias to converge
+    int n_samples = static_cast<int>(30.0f / DT);
     for (int i = 0; i < n_samples; i++) {
         ekf.update(meas, DT);
     }
@@ -248,10 +249,54 @@ void test_ekf6_gyro_bias_estimation(void) {
     // Theta should stay near zero (accelerometer corrects drift)
     TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.0f, state.theta_deg());
 
-    // Note: Bias estimation converges slowly with this tuning
-    // The Octave reference shows bq ~0.39 after 5 seconds
-    // Just verify it's moving in the right direction
-    TEST_ASSERT_TRUE(state.bq_dps() > 0.0f);
+    // bq should converge to within 10% of the true 2 deg/s bias
+    TEST_ASSERT_FLOAT_WITHIN(0.2f, bias_dps, state.bq_dps());
+}
+
+void test_ekf6_ground_bias_stability(void) {
+    // Issue #128 regression test: 180 seconds stationary with a 0.3 deg/s
+    // pitch bias (measured from log_022.csv).  With the old q_bias=1e-8 the
+    // bias estimator was frozen and theta drifted to 413 degrees.
+    // With q_bias=1e-5 and angle normalization, theta must stay bounded.
+
+    float bias_dps = 0.3f;
+    float q_bias_val = bias_dps * DEG2RAD;
+
+    EKF6 ekf;  // uses default config (q_bias = 1e-5)
+    ekf.init();
+
+    EKF6::Measurements meas = {
+        .ax = 0.0f,
+        .ay = 0.0f,
+        .az = -G,
+        .p = 0.0f,
+        .q = q_bias_val,  // 0.3 deg/s pitch bias, aircraft is stationary
+        .r = 0.0f,
+        .gamma = 0.0f
+    };
+
+    float max_theta_deg = 0.0f;
+    int n_samples = static_cast<int>(180.0f / DT);
+    for (int i = 0; i < n_samples; i++) {
+        ekf.update(meas, DT);
+
+        EKF6::State state = ekf.getState();
+        float abs_theta = std::fabs(state.theta_deg());
+        if (abs_theta > max_theta_deg) {
+            max_theta_deg = abs_theta;
+        }
+
+        // Hard assert: theta must never exceed 5 degrees
+        TEST_ASSERT_FLOAT_WITHIN_MESSAGE(5.0f, 0.0f, state.theta_deg(),
+            "Theta exceeded 5 deg during 180s ground bias test");
+    }
+
+    EKF6::State final_state = ekf.getState();
+
+    // After 30 seconds, bq should have converged to within 0.1 deg/s
+    // of the true 0.3 deg/s bias.  We check at the end (180s) which
+    // is well past the 30s convergence window.
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, bias_dps, final_state.bq_dps());
 }
 
 // ============================================================================
@@ -347,6 +392,94 @@ void test_ekf6_large_attitude_stability(void) {
     // Should be reasonably close to true values
     TEST_ASSERT_FLOAT_WITHIN(5.0f, 45.0f, state.phi_deg());
     TEST_ASSERT_FLOAT_WITHIN(5.0f, 45.0f, state.theta_deg());
+}
+
+// ============================================================================
+// Angle Normalization Tests
+// ============================================================================
+
+void test_ekf6_theta_clamp_positive(void) {
+    // Force theta past +90° via a large pitch-up gyro rate with no
+    // accelerometer correction (predictOnly), then verify clamping.
+    EKF6 ekf;
+    ekf.init(0.0f, 85.0f * DEG2RAD);  // start near +90°
+
+    EKF6::Measurements meas = {
+        .ax = 0.0f, .ay = 0.0f, .az = -G,
+        .p = 0.0f, .q = 200.0f * DEG2RAD, .r = 0.0f, .gamma = 0.0f
+    };
+
+    // 200 deg/s for 100 steps at 208 Hz ≈ 96° of pitch-up from 85°
+    for (int i = 0; i < 100; i++) {
+        ekf.predictOnly(meas, DT);
+    }
+
+    EKF6::State state = ekf.getState();
+    // Should be clamped at exactly 90°
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, state.theta_deg());
+    TEST_ASSERT_FALSE(std::isnan(state.phi));
+}
+
+void test_ekf6_theta_clamp_negative(void) {
+    // Same but pitch-down past -90°
+    EKF6 ekf;
+    ekf.init(0.0f, -85.0f * DEG2RAD);
+
+    EKF6::Measurements meas = {
+        .ax = 0.0f, .ay = 0.0f, .az = -G,
+        .p = 0.0f, .q = -200.0f * DEG2RAD, .r = 0.0f, .gamma = 0.0f
+    };
+
+    for (int i = 0; i < 100; i++) {
+        ekf.predictOnly(meas, DT);
+    }
+
+    EKF6::State state = ekf.getState();
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -90.0f, state.theta_deg());
+    TEST_ASSERT_FALSE(std::isnan(state.phi));
+}
+
+void test_ekf6_phi_wrap_positive(void) {
+    // Force phi past +180° and verify it wraps to negative range
+    EKF6 ekf;
+    ekf.init(170.0f * DEG2RAD, 0.0f);  // start near +180°
+
+    EKF6::Measurements meas = {
+        .ax = 0.0f, .ay = 0.0f, .az = -G,
+        .p = 50.0f * DEG2RAD, .q = 0.0f, .r = 0.0f, .gamma = 0.0f
+    };
+
+    // Roll past +180° with predict-only steps
+    for (int i = 0; i < 60; i++) {
+        ekf.predictOnly(meas, DT);
+    }
+
+    EKF6::State state = ekf.getState();
+    // phi should have wrapped to negative (between -180 and 0)
+    TEST_ASSERT_TRUE(state.phi_deg() >= -180.0f);
+    TEST_ASSERT_TRUE(state.phi_deg() <= 180.0f);
+    TEST_ASSERT_FALSE(std::isnan(state.phi));
+}
+
+void test_ekf6_phi_wrap_negative(void) {
+    // Force phi past -180° and verify it wraps to positive range
+    EKF6 ekf;
+    ekf.init(-170.0f * DEG2RAD, 0.0f);  // start near -180°
+
+    EKF6::Measurements meas = {
+        .ax = 0.0f, .ay = 0.0f, .az = -G,
+        .p = -50.0f * DEG2RAD, .q = 0.0f, .r = 0.0f, .gamma = 0.0f
+    };
+
+    for (int i = 0; i < 60; i++) {
+        ekf.predictOnly(meas, DT);
+    }
+
+    EKF6::State state = ekf.getState();
+    // phi should have wrapped to positive (between 0 and 180)
+    TEST_ASSERT_TRUE(state.phi_deg() >= -180.0f);
+    TEST_ASSERT_TRUE(state.phi_deg() <= 180.0f);
+    TEST_ASSERT_FALSE(std::isnan(state.phi));
 }
 
 // ============================================================================
@@ -556,11 +689,18 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ekf6_banked_20deg);
     RUN_TEST(test_ekf6_pitch_rate_integration);
     RUN_TEST(test_ekf6_gyro_bias_estimation);
+    RUN_TEST(test_ekf6_ground_bias_stability);
 
     // Numerical stability tests
     RUN_TEST(test_ekf6_no_nan_output);
     RUN_TEST(test_ekf6_zero_dt_handling);
     RUN_TEST(test_ekf6_large_attitude_stability);
+
+    // Angle normalization tests
+    RUN_TEST(test_ekf6_theta_clamp_positive);
+    RUN_TEST(test_ekf6_theta_clamp_negative);
+    RUN_TEST(test_ekf6_phi_wrap_positive);
+    RUN_TEST(test_ekf6_phi_wrap_negative);
 
     // Configuration test
     RUN_TEST(test_ekf6_custom_config);

@@ -136,6 +136,13 @@ void EKF6::update(const Measurements& meas, float dt) {
     correct(meas.ax, meas.ay, meas.az, meas.gamma, GRAVITY);
 }
 
+void EKF6::predictOnly(const Measurements& meas, float dt) {
+    if (!initialized_) {
+        init();
+    }
+    predict(meas.p, meas.q, meas.r, dt);
+}
+
 EKF6::State EKF6::getState() const {
     return {x_[0], x_[1], x_[2], x_[3], x_[4], x_[5]};
 }
@@ -203,6 +210,18 @@ void EKF6::predict(float p, float q, float r, float dt) {
     x_[1] = theta + dt * theta_dot; // theta
     // x_[2] (alpha) unchanged - modeled as constant
     // x_[3:5] (biases) unchanged - modeled as random walk via Q
+
+    // Normalize phi to [-pi, pi] to prevent unbounded growth
+    x_[0] = std::fmod(x_[0] + PI, 2.0f * PI);
+    if (x_[0] < 0.0f) x_[0] += 2.0f * PI;
+    x_[0] -= PI;
+
+    // Clamp theta to [-pi/2, pi/2] — beyond ±90° the accelerometer
+    // Jacobian (H[0][1] = g*cos(theta)) reverses sign, causing the
+    // correction to push theta further away.  The tan(theta) coupling
+    // then amplifies any perturbation through the roll dynamics.
+    if (x_[1] > PI / 2.0f)  x_[1] = PI / 2.0f;
+    if (x_[1] < -PI / 2.0f) x_[1] = -PI / 2.0f;
 
     /*
      * Compute state transition Jacobian F = I + dt * A

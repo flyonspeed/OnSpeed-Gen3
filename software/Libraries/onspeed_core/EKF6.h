@@ -140,7 +140,7 @@ public:
         // Process noise variances (Q matrix diagonal)
         float q_attitude;   ///< Attitude process noise (rad^2), default 0.001
         float q_alpha;      ///< Alpha process noise (rad^2), default 0.0001
-        float q_bias;       ///< Gyro bias drift ((rad/s)^2), default 1e-8
+        float q_bias;       ///< Gyro bias drift ((rad/s)^2), default 1e-5
 
         // Measurement noise variances (R matrix diagonal)
         float r_accel;      ///< Accelerometer noise ((m/s^2)^2), default 0.5
@@ -159,7 +159,7 @@ public:
             return {
                 0.001f,   // q_attitude - allows ~1.8 deg/s attitude change
                 0.0001f,  // q_alpha - AOA changes slowly
-                1e-8f,    // q_bias - biases very stable
+                1e-5f,    // q_bias - allows bias to converge in ~10s
                 0.5f,     // r_accel - typical MEMS accelerometer noise
                 0.01f,    // r_alpha - derived alpha has some uncertainty
                 0.1f,     // p_attitude - moderate initial uncertainty (~18 deg)
@@ -280,6 +280,18 @@ public:
      * Safe to call on an uninitialized filter (no-op).
      */
     void resetAlphaCovariance();
+
+    /**
+     * @brief Prediction-only step (no measurement correction)
+     *
+     * Propagates state forward using gyro measurements for a single
+     * sub-timestep.  Call this for intermediate sub-steps, then call
+     * update() for the final sub-step that includes the correction.
+     *
+     * @param meas Sensor measurements (only p, q, r used)
+     * @param dt   Time step (seconds)
+     */
+    void predictOnly(const Measurements& meas, float dt);
 
 private:
     Config config_;                         ///< Filter tuning parameters
