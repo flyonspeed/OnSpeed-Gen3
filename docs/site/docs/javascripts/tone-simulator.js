@@ -58,22 +58,22 @@
 
   // ── Layout constants ─────────────────────────────────────────
   var SVG_W = 820
-  var SVG_H = 360
+  var SVG_H = 480
 
   // Colored band area (left side)
   var BAND_LEFT = 20
   var BAND_RIGHT = 200
   var BAND_TOP = 20
-  var BAND_BOTTOM = 340
+  var BAND_BOTTOM = 460
 
   // Focal point where fan lines converge (near the aircraft nose)
   // Aircraft faces LEFT (nose toward bands), so focal point is left of aircraft center
   var FOCAL_X = 380
-  var FOCAL_Y = 180
+  var FOCAL_Y = 240
 
   // Aircraft center
   var AC_CX = 560
-  var AC_CY = 180
+  var AC_CY = 240
 
   // AOA range
   var AOA_MIN = -2
@@ -198,7 +198,7 @@
 
     this.soundBtn = document.createElement("button")
     this.soundBtn.className = "ts-sound-btn"
-    this.soundBtn.textContent = "Sound Off"
+    this.soundBtn.textContent = "Sound On"
     controls.appendChild(this.soundBtn)
 
     var aoaCtrl = document.createElement("div")
@@ -385,7 +385,7 @@
 
   ToneSimulator.prototype._stopAudio = function () {
     this.state.audioOn = false
-    this.soundBtn.textContent = "Sound Off"
+    this.soundBtn.textContent = "Sound On"
     this.soundBtn.classList.remove("active")
 
     this._stopPulseLoop()

@@ -13,10 +13,10 @@ OnSpeed continuously measures angle of attack and converts it to **audio tones p
 | What You Hear | What It Means | What to Do |
 |---|---|---|
 | **Silence** | Fast — below best-glide AOA | No action |
-| **Slow pulsing, low tone** | Approaching ONSPEED — decelerating into approach range | Normal deceleration |
-| **Steady tone** | **ONSPEED** — balanced effective power | Hold this condition |
-| **Fast pulsing, high tone** | Slow — effective power is negative, unsustainable | **Push**: add power, reduce AOA |
-| **Rapid buzz** | Stall imminent — at the aerodynamic limit | **Unload**: reduce AOA immediately |
+| **Low-pitch pulsing** | Approaching ONSPEED — decelerating into approach range | Normal deceleration |
+| **ONSPEED solid tone** | **ONSPEED** — balanced effective power | Hold this condition |
+| **High-pitch pulsing** | Slow — effective power is negative, unsustainable | **Push**: add power, reduce AOA |
+| **Stall warning buzz** | Stall imminent — at the aerodynamic limit | **Unload**: reduce AOA immediately |
 
 Because AOA is independent of weight and G-loading, the tones work correctly in turns, at any weight, and at any altitude. No mental math required.
 

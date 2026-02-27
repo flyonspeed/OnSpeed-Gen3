@@ -21,9 +21,9 @@ The simplest verification: fly at known speeds and confirm the tones match.
 
 1. **Cruise speed** — you should hear **silence** (well above L/Dmax AOA)
 2. **Best glide speed** (Vbg) — you should hear the **transition from pulsing to solid** tone (L/Dmax region). For example, if your Vbg is 87 knots, the first tone onset should start around that speed.
-3. **Published approach speed** — you should hear the **solid "on speed" tone**
-4. **Below approach speed** — you should hear **high-pitched pulsing** that speeds up as you slow further
-5. **Near stall** — you should hear the **stall warning** (rapid high pulse)
+3. **Published approach speed** — you should hear the **ONSPEED solid tone**
+4. **Below approach speed** — you should hear **high-pitch pulsing** that speeds up as you slow further
+5. **Near stall** — you should hear the **stall warning buzz** (rapid high-pitch pulse)
 
 If the tones are consistently at the wrong speeds (e.g., stall warning at approach speed, or silence at approach speed), the calibration needs to be re-done.
 

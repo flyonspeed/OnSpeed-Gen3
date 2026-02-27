@@ -53,10 +53,10 @@ The colored bands between the AOA curves show where each OnSpeed tone lives at e
 
 | Region | Color | NAOA Range | Tone |
 |--------|-------|-----------|------|
-| **Stall Warning** | Red | 90–100% | Rapid 20 Hz buzz |
-| **Slow Tone** | Yellow | 64–90% | High-pitched pulsing, speeds up as you slow |
-| **ONSPEED** | Green | 59–64% | Solid low tone — hold this |
-| **Fast Tone** | Blue | 55–59% | Low-pitched pulsing, speeds up as you slow |
+| **Stall Warning** | Red | 90–100% | Stall warning buzz (20 Hz) |
+| **Slow Tone** | Yellow | 64–90% | High-pitch pulsing, speeds up as the wing loses lift |
+| **ONSPEED** | Green | 59–64% | ONSPEED solid tone — hold this |
+| **Fast Tone** | Blue | 55–59% | Low-pitch pulsing, speeds up as the wing loses lift |
 | **Silent** | (none) | Below 55% | No tone |
 
 Notice that these bands follow the same parabolic shape as the stall boundary. At higher G (in a turn, pull-up, or turbulence), the tone region boundaries shift to higher airspeeds — **but your OnSpeed tones automatically track this shift**. The tone you hear always reflects your actual proximity to stall, regardless of G-loading.
