@@ -27,7 +27,7 @@ If you hear tones during taxi, it means either:
 During the takeoff roll and climb:
 
 1. As you accelerate past the mute threshold (~25 knots), audio becomes active
-2. You'll briefly hear the **slow tones** as you accelerate through the approach speed range
+2. You'll briefly hear the **high-pitch pulsing** as you accelerate through the approach speed range
 3. As you reach climb speed, the tones **go silent** (AOA drops below L/D~MAX~)
 4. This entire transition takes just a few seconds
 
@@ -39,7 +39,7 @@ If you need maximum climb gradient (obstacle clearance), fly to the ONSPEED soli
 
 ### Best-Rate Climb (V~Y~)
 
-Best rate of climb occurs near L/D~MAX~ — approximately at the boundary between silence and the first low pulse. Fly just into the low pulse region for approximate V~Y~ performance.
+Best rate of climb occurs near L/D~MAX~ — approximately at the boundary between silence and the first low-pitch pulse. Fly just into the low-pitch pulsing region for approximate V~Y~ performance.
 
 ## Cruise
 
@@ -53,16 +53,16 @@ Silence during cruise is expected. You're well above approach speed — the wing
 As you slow down entering the traffic pattern:
 
 1. **Downwind**: Typically silent (above L/D~MAX~ speed)
-2. **Abeam the numbers / power reduction**: You may start hearing the first low pulses as you decelerate — this is L/D~MAX~, confirming you're slowing into the approach range
-3. **Base turn**: Low pulsing tone — you're between L/D~MAX~ and ONSPEED. The tone accounts for the increased load factor in the turn automatically.
+2. **Abeam the numbers / power reduction**: You may start hearing the first low-pitch pulses as you decelerate — this is L/D~MAX~, confirming you're slowing into the approach range
+3. **Base turn**: Low-pitch pulsing — you're between L/D~MAX~ and ONSPEED. The tone accounts for the increased load factor in the turn automatically.
 
 ## Final Approach
 
 This is where OnSpeed shines:
 
-1. **Fly to the solid tone** — when the pulsing stops and you hear a steady low tone, you're ONSPEED
-2. **If the pulse starts** (low tone pulsing), you're slightly fast — reduce power slightly or allow the airplane to decelerate
-3. **If the tone goes high** (high-pitched pulsing), effective power is negative — **push**: add power and/or reduce AOA
+1. **Fly to the ONSPEED solid tone** — when the pulsing stops and you hear a steady low tone, you're ONSPEED
+2. **If the low-pitch pulsing starts**, you're slightly fast — reduce power slightly or allow the airplane to decelerate
+3. **If you hear high-pitch pulsing**, effective power is negative — **push**: add power and/or reduce AOA
 4. **Corrections should be small and smooth** — think of flying the tone like flying the glideslope: proportional, measured inputs
 
 !!! tip "Trust the tone in turns"
@@ -72,8 +72,8 @@ This is where OnSpeed shines:
 
 As you flare:
 
-1. The tone transitions from solid to low pulsing (you're decelerating below ONSPEED)
-2. This is normal — you're trading kinetic energy for a pitch change in the flare
+1. The tone transitions from the ONSPEED solid tone to high-pitch pulsing (your AOA is increasing above ONSPEED as you decelerate in the flare)
+2. This is normal — you're trading kinetic energy for pitch change, and AOA increases past the ONSPEED band
 3. On touchdown, the tones will fade as airspeed drops below the mute threshold
 
 ## Shutdown
