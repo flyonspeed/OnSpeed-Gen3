@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
     
     
       
@@ -2354,7 +2354,7 @@
   <span class="md-ellipsis">
     
   
-    Warnings and Alerts
+    Summary of Warnings and Alerts
   
 
     
@@ -3010,7 +3010,7 @@
 <p>Hear exactly what OnSpeed sounds like. Click <strong>Sound On</strong>, then move the AOA slider to sweep through the full range of audio cues — from silence through L/D<sub>MAX</sub>, ONSPEED, slow, and stall warning.</p>
 <div class="admonition tip">
 <p class="admonition-title">Turn on sound</p>
-<p>Click <strong>Sound On</strong> and move the slider. Use headphones for the best experience. The tones match the actual firmware output: 400 Hz low tone, 1600 Hz high tone, with pulse rates interpolated exactly as in flight.</p>
+<p>Click <strong>Sound On</strong> and move the slider. Use headphones for the best experience. The tones match the actual firmware output: 400 Hz low-pitch tone, 1600 Hz high-pitch tone, with pulse rates interpolated exactly as in flight.</p>
 </div>
 <div id="tone-simulator"></div>
 
@@ -3020,7 +3020,6 @@
 <tr>
 <th>Region</th>
 <th>Tone</th>
-<th>What It Sounds Like</th>
 <th>Pilot Action</th>
 </tr>
 </thead>
@@ -3028,31 +3027,26 @@
 <tr>
 <td><strong>Fast</strong> (below L/D<sub>MAX</sub>)</td>
 <td>Silence</td>
-<td>Nothing</td>
 <td>No action needed</td>
 </tr>
 <tr>
 <td><strong>L/D<sub>MAX</sub></strong></td>
-<td>Low pulse (400 Hz, 1.5-8.2 pps)</td>
-<td>Slow ticking that speeds up</td>
+<td>Low-pitch pulsing (400 Hz, 1.5–8.2 pps)</td>
 <td>Normal deceleration</td>
 </tr>
 <tr>
 <td><strong>ONSPEED</strong></td>
-<td>Solid low tone (400 Hz)</td>
-<td>Steady hum</td>
+<td>ONSPEED solid tone (400 Hz)</td>
 <td><strong>Hold this</strong></td>
 </tr>
 <tr>
 <td><strong>Slow</strong></td>
-<td>High pulse (1600 Hz, 1.5-6.2 pps)</td>
-<td>High-pitched ticking, speeding up</td>
+<td>High-pitch pulsing (1600 Hz, 1.5–6.2 pps)</td>
 <td><strong>Push</strong> (add power or lower nose)</td>
 </tr>
 <tr>
 <td><strong>Stall Warning</strong></td>
-<td>High buzz (1600 Hz, 20 pps)</td>
-<td>Urgent rapid buzz</td>
+<td>Stall warning buzz (1600 Hz, 20 pps)</td>
 <td><strong>Unload immediately</strong></td>
 </tr>
 </tbody>
@@ -3061,7 +3055,6 @@
 <h2 id="how-this-maps-to-flight">How This Maps to Flight<a class="headerlink" href="#how-this-maps-to-flight" title="Permanent link">&para;</a></h2>
 <p>In the air, moving the slider left (lower AOA) is like speeding up, and moving it right (higher AOA) is like slowing down. The colored bands on the left show the tone regions. As you increase AOA, the indicator line sweeps upward through the bands — just like slowing down in the airplane. The aircraft pitches to match.</p>
 <p>The tones are the same regardless of weight, G-loading, or altitude — OnSpeed uses angle of attack, not airspeed, so the cues are always correct.</p>
-<p>For the complete tone reference, see <a href="../tone-map/">What the Tones Mean</a>. For how the tone regions map across the full flight envelope, see the <a href="../vn-diagram/">V-n Diagram</a>.</p>
 
 
 

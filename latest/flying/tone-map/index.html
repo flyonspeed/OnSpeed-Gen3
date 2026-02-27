@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
     
     
       
@@ -2487,7 +2487,7 @@
   <span class="md-ellipsis">
     
   
-    Warnings and Alerts
+    Summary of Warnings and Alerts
   
 
     
@@ -3277,8 +3277,9 @@
 <h2 id="tone-regions">Tone Regions<a class="headerlink" href="#tone-regions" title="Permanent link">&para;</a></h2>
 <p>As you slow down (AOA increases), you progress through five regions:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a> FAST ─────── L/Dmax ────── ONSPEED ────── SLOW ─────── STALL
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a> (silence)   (low pulse)   (solid tone)   (high pulse)  (high buzz)
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  &lt;50% lift   ~50% lift      ~60% lift    65-90% lift    &gt;90% lift
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a> (silence)   (low-pitch    (ONSPEED       (high-pitch   (stall warning
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>              pulsing)      solid tone)     pulsing)      buzz)
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  &lt;50% lift   ~50% lift      ~60% lift    65-90% lift    &gt;90% lift
 </code></pre></div>
 <h3 id="complete-reference">Complete Reference<a class="headerlink" href="#complete-reference" title="Permanent link">&para;</a></h3>
 <table>
@@ -3306,7 +3307,7 @@
 <tr>
 <td>2</td>
 <td><strong>Approaching</strong></td>
-<td>Low (400 Hz)</td>
+<td>Low-pitch pulsing (400 Hz)</td>
 <td>1.5 → 8.2 pps</td>
 <td>~50–60%</td>
 <td>Between L/D<sub>MAX</sub> and ONSPEED. Decelerating into the approach range.</td>
@@ -3315,7 +3316,7 @@
 <tr>
 <td>3</td>
 <td><strong>ONSPEED</strong></td>
-<td>Low (400 Hz)</td>
+<td>ONSPEED solid tone (400 Hz)</td>
 <td>Solid (0 pps)</td>
 <td>~60%</td>
 <td>Balanced effective power. Thrust and drag matched for current weight.</td>
@@ -3324,7 +3325,7 @@
 <tr>
 <td>4</td>
 <td><strong>Slow</strong></td>
-<td>High (1600 Hz)</td>
+<td>High-pitch pulsing (1600 Hz)</td>
 <td>1.5 → 6.2 pps</td>
 <td>~65–90%</td>
 <td>Effective power is negative. Unsustainable condition.</td>
@@ -3333,7 +3334,7 @@
 <tr>
 <td>5</td>
 <td><strong>Stall Warning</strong></td>
-<td>High (1600 Hz)</td>
+<td>Stall warning buzz (1600 Hz)</td>
 <td>20 pps</td>
 <td>&gt;90%</td>
 <td>At the aerodynamic limit. Stall imminent.</td>
@@ -3344,19 +3345,19 @@
 <h3 id="the-pushpull-decision">The Push/Pull Decision<a class="headerlink" href="#the-pushpull-decision" title="Permanent link">&para;</a></h3>
 <p>The tone pattern tells you whether to push or pull:</p>
 <ul>
-<li><strong>Hear high-pitched pulsing?</strong> → <strong>Push</strong> something: throttle forward, nose down, or both</li>
-<li><strong>Hear solid low tone?</strong> → <strong>Hold</strong>: you're balanced</li>
-<li><strong>Hear low-pitched pulsing?</strong> → <strong>Pull</strong> something: throttle back, allow pitch to increase</li>
-<li><strong>Hear rapid buzz?</strong> → <strong>Unload for control</strong>: reduce AOA immediately</li>
+<li><strong>Hear high-pitch pulsing?</strong> → <strong>Push</strong> something: throttle forward, nose down, or both</li>
+<li><strong>Hear the ONSPEED solid tone?</strong> → <strong>Hold</strong>: you're balanced</li>
+<li><strong>Hear low-pitch pulsing?</strong> → <strong>Pull</strong> something: throttle back, allow pitch to increase</li>
+<li><strong>Hear the stall warning buzz?</strong> → <strong>Unload for control</strong>: reduce AOA immediately</li>
 </ul>
 <p>This logic works in any flight condition — straight and level, in a turn, climbing, descending.</p>
 <h3 id="pulse-rate-details">Pulse Rate Details<a class="headerlink" href="#pulse-rate-details" title="Permanent link">&para;</a></h3>
 <p>Within the pulsing regions, the pulse rate changes linearly:</p>
 <ul>
-<li><strong>Region 2</strong> (L/D<sub>MAX</sub> → ONSPEED): Starts at 1.5 pulses/sec at L/D<sub>MAX</sub>, increases to 8.2 pulses/sec approaching the ONSPEED band</li>
-<li><strong>Region 4</strong> (below ONSPEED → Stall Warning): Starts at 1.5 pulses/sec just below ONSPEED, increases to 6.2 pulses/sec near the stall warning threshold</li>
+<li><strong>Region 2 — Low-pitch pulsing</strong> (L/D<sub>MAX</sub> → ONSPEED): Starts at 1.5 pulses/sec at L/D<sub>MAX</sub> (low-pitch slow tone), increases to 8.2 pulses/sec approaching the ONSPEED band (low-pitch fast tone)</li>
+<li><strong>Region 4 — High-pitch pulsing</strong> (below ONSPEED → Stall Warning): Starts at 1.5 pulses/sec just below ONSPEED (high-pitch slow tone), increases to 6.2 pulses/sec near the stall warning threshold (high-pitch fast tone)</li>
 </ul>
-<p>The <strong>stall warning</strong> (Region 5) is a fixed 20 pulses/sec — an unmistakably urgent buzz. Volume also increases in the slow region, and stall warning overrides any audio muting.</p>
+<p>The <strong>stall warning buzz</strong> (Region 5) is a fixed 20 pulses/sec — an unmistakably urgent buzz. Volume also increases in the slow region, and the stall warning buzz overrides any audio muting.</p>
 <h2 id="key-performance-conditions">Key Performance Conditions<a class="headerlink" href="#key-performance-conditions" title="Permanent link">&para;</a></h2>
 <p>Each tone region corresponds to well-defined aerodynamic performance conditions:</p>
 <h3 id="stall-warning-90-lift">Stall Warning (&gt;90% Lift)<a class="headerlink" href="#stall-warning-90-lift" title="Permanent link">&para;</a></h3>
@@ -3417,32 +3418,32 @@
 </tr>
 <tr>
 <td>~87</td>
-<td>First low pulse</td>
+<td>Low-pitch slow tone</td>
 <td>At L/D<sub>MAX</sub> — best glide speed</td>
 </tr>
 <tr>
 <td>80–75</td>
-<td>Low pulse, speeding up</td>
+<td>Low-pitch pulsing, speeding up</td>
 <td>Decelerating through the approach range</td>
 </tr>
 <tr>
 <td>~72</td>
-<td><strong>Solid low tone</strong></td>
+<td><strong>ONSPEED solid tone</strong></td>
 <td>ONSPEED — balanced effective power</td>
 </tr>
 <tr>
 <td>68</td>
-<td>High pulse starts</td>
+<td>High-pitch slow tone</td>
 <td>Below ONSPEED — energy deficit</td>
 </tr>
 <tr>
 <td>65</td>
-<td>Faster high pulse</td>
+<td>High-pitch fast tone</td>
 <td>Getting slow — correct now</td>
 </tr>
 <tr>
 <td>~62</td>
-<td><strong>Rapid buzz</strong></td>
+<td><strong>Stall warning buzz</strong></td>
 <td>Stall warning — unload immediately</td>
 </tr>
 </tbody>
@@ -3453,12 +3454,12 @@
 </div>
 <h2 id="how-angle-of-attack-relates-to-speed">How Angle of Attack Relates to Speed<a class="headerlink" href="#how-angle-of-attack-relates-to-speed" title="Permanent link">&para;</a></h2>
 <p>As airspeed decreases, angle of attack increases — but not linearly. AOA increases more rapidly as you slow down. Approximately half of the wing's lift-producing capability is used in the lower third of the airplane's speed range. This is why maneuvering near approach speeds can quickly become hazardous: angle of attack rises rapidly with even small increases in G.</p>
-<p>The tone regions are spaced to reflect this reality. The "slow" region (high-pitched pulsing) covers a smaller speed range but a rapidly changing AOA range, giving the pilot progressively more urgent cueing as margin decreases.</p>
+<p>The tone regions are spaced to reflect this reality. The "slow" region (high-pitch pulsing) covers a smaller speed range but a rapidly changing AOA range, giving the pilot progressively more urgent cueing as margin decreases.</p>
 <h2 id="muted-mode">Muted Mode<a class="headerlink" href="#muted-mode" title="Permanent link">&para;</a></h2>
 <p>If you press the audio mute button:</p>
 <ul>
 <li>All tones go silent</li>
-<li><strong>The stall warning still sounds</strong> (safety override)</li>
+<li><strong>The stall warning buzz still sounds</strong> (safety override)</li>
 <li>To unmute, press the button again</li>
 </ul>
 <p>The stall warning in muted mode only fires if both conditions are met:</p>
@@ -3466,6 +3467,10 @@
 <li>AOA is above the stall warning threshold</li>
 <li>IAS is above the mute-under-IAS setting (default: 25 knots)</li>
 </ul>
+<div class="admonition info">
+<p class="admonition-title">Gen3 feature</p>
+<p>The stall warning override in muted mode is a Gen3 feature. Gen2 units do not override the mute for stall warnings.</p>
+</div>
 
 
 

@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.2">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
     
     
       
@@ -783,10 +783,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-low-pulse-ldmax-to-onspeed-5060-lift" class="md-nav__link">
+  <a href="#2-low-pitch-pulsing-ldmax-to-onspeed-5060-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Low Pulse — L/DMAX to ONSPEED (~50–60% Lift)
+        2. Low-Pitch Pulsing — L/DMAX to ONSPEED (~50–60% Lift)
       
     </span>
   </a>
@@ -794,10 +794,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-solid-low-tone-onspeed-60-lift" class="md-nav__link">
+  <a href="#3-onspeed-solid-tone-onspeed-60-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Solid Low Tone — ONSPEED (~60% Lift)
+        3. ONSPEED Solid Tone — ONSPEED (~60% Lift)
       
     </span>
   </a>
@@ -805,10 +805,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#4-high-pulse-below-onspeed-6590-lift" class="md-nav__link">
+  <a href="#4-high-pitch-pulsing-below-onspeed-6590-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. High Pulse — Below ONSPEED (~65–90% Lift)
+        4. High-Pitch Pulsing — Below ONSPEED (~65–90% Lift)
       
     </span>
   </a>
@@ -816,10 +816,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#5-stall-warning-above-90-lift" class="md-nav__link">
+  <a href="#5-stall-warning-buzz-above-90-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Stall Warning — Above ~90% Lift
+        5. Stall Warning Buzz — Above ~90% Lift
       
     </span>
   </a>
@@ -2487,7 +2487,7 @@
   <span class="md-ellipsis">
     
   
-    Warnings and Alerts
+    Summary of Warnings and Alerts
   
 
     
@@ -3128,10 +3128,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-low-pulse-ldmax-to-onspeed-5060-lift" class="md-nav__link">
+  <a href="#2-low-pitch-pulsing-ldmax-to-onspeed-5060-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Low Pulse — L/DMAX to ONSPEED (~50–60% Lift)
+        2. Low-Pitch Pulsing — L/DMAX to ONSPEED (~50–60% Lift)
       
     </span>
   </a>
@@ -3139,10 +3139,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#3-solid-low-tone-onspeed-60-lift" class="md-nav__link">
+  <a href="#3-onspeed-solid-tone-onspeed-60-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Solid Low Tone — ONSPEED (~60% Lift)
+        3. ONSPEED Solid Tone — ONSPEED (~60% Lift)
       
     </span>
   </a>
@@ -3150,10 +3150,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#4-high-pulse-below-onspeed-6590-lift" class="md-nav__link">
+  <a href="#4-high-pitch-pulsing-below-onspeed-6590-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. High Pulse — Below ONSPEED (~65–90% Lift)
+        4. High-Pitch Pulsing — Below ONSPEED (~65–90% Lift)
       
     </span>
   </a>
@@ -3161,10 +3161,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#5-stall-warning-above-90-lift" class="md-nav__link">
+  <a href="#5-stall-warning-buzz-above-90-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Stall Warning — Above ~90% Lift
+        5. Stall Warning Buzz — Above ~90% Lift
       
     </span>
   </a>
@@ -3277,18 +3277,19 @@
 <h2 id="the-tone-map">The Tone Map<a class="headerlink" href="#the-tone-map" title="Permanent link">&para;</a></h2>
 <p>As AOA increases (you slow down or load up), you progress through five regions:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a> FAST ─────── L/Dmax ────── ONSPEED ────── SLOW ─────── STALL
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a> (silence)   (low pulse)   (solid tone)   (high pulse)  (high buzz)
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>              ~50% lift      ~60% lift     65-90% lift    &gt;90% lift
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a> (silence)   (low-pitch    (ONSPEED       (high-pitch   (stall warning
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>              pulsing)      solid tone)     pulsing)      buzz)
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>              ~50% lift      ~60% lift     65-90% lift    &gt;90% lift
 </code></pre></div>
 <h3 id="region-by-region">Region by Region<a class="headerlink" href="#region-by-region" title="Permanent link">&para;</a></h3>
 <h4 id="1-silence-below-ldmax-50-lift">1. Silence — Below L/D<sub>MAX</sub> (~50% Lift)<a class="headerlink" href="#1-silence-below-ldmax-50-lift" title="Permanent link">&para;</a></h4>
 <p>You're above best-glide speed. No tones play. The wing is working at less than half its capability. This is normal for cruise, downwind, and most maneuvering above approach speeds.</p>
-<h4 id="2-low-pulse-ldmax-to-onspeed-5060-lift">2. Low Pulse — L/D<sub>MAX</sub> to ONSPEED (~50–60% Lift)<a class="headerlink" href="#2-low-pulse-ldmax-to-onspeed-5060-lift" title="Permanent link">&para;</a></h4>
-<p>A <strong>low-pitched tone (400 Hz)</strong> begins pulsing slowly (~1.5 pulses/sec), speeding up as you approach the ONSPEED band (up to ~8.2 pulses/sec). This region spans from best-glide speed (maximum range, maximum L/D) down to the ONSPEED condition.</p>
+<h4 id="2-low-pitch-pulsing-ldmax-to-onspeed-5060-lift">2. Low-Pitch Pulsing — L/D<sub>MAX</sub> to ONSPEED (~50–60% Lift)<a class="headerlink" href="#2-low-pitch-pulsing-ldmax-to-onspeed-5060-lift" title="Permanent link">&para;</a></h4>
+<p>A <strong>low-pitch tone (400 Hz)</strong> begins pulsing slowly (~1.5 pulses/sec), speeding up as you approach the ONSPEED band (up to ~8.2 pulses/sec). This region spans from best-glide speed (maximum range, maximum L/D) down to the ONSPEED condition.</p>
 <p>This is the "slightly fast" region. Effective power is positive — the airplane can sustain this condition and has margin available. In gusty conditions, flying in this region provides extra stall margin.</p>
 <p><strong>Pilot action</strong>: Decelerating normally — no correction needed unless you want to slow further.</p>
-<h4 id="3-solid-low-tone-onspeed-60-lift">3. Solid Low Tone — ONSPEED (~60% Lift)<a class="headerlink" href="#3-solid-low-tone-onspeed-60-lift" title="Permanent link">&para;</a></h4>
-<p>The pulse stops and you hear a <strong>steady, solid low-pitched tone (400 Hz)</strong>. This is the ONSPEED condition — balanced effective power, where thrust and drag are matched for the current effective weight.</p>
+<h4 id="3-onspeed-solid-tone-onspeed-60-lift">3. ONSPEED Solid Tone — ONSPEED (~60% Lift)<a class="headerlink" href="#3-onspeed-solid-tone-onspeed-60-lift" title="Permanent link">&para;</a></h4>
+<p>The pulse stops and you hear a <strong>steady, solid low-pitch tone (400 Hz)</strong>. This is the ONSPEED condition — balanced effective power, where thrust and drag are matched for the current effective weight.</p>
 <p>ONSPEED corresponds to:</p>
 <ul>
 <li><strong>V<sub>REF</sub></strong> (approach reference speed at 1G)</li>
@@ -3298,12 +3299,12 @@
 <li><strong>Optimum low-altitude maneuvering</strong></li>
 </ul>
 <p><strong>Pilot action</strong>: Hold this. Fly to keep this tone steady.</p>
-<h4 id="4-high-pulse-below-onspeed-6590-lift">4. High Pulse — Below ONSPEED (~65–90% Lift)<a class="headerlink" href="#4-high-pulse-below-onspeed-6590-lift" title="Permanent link">&para;</a></h4>
-<p>The tone jumps to a <strong>higher pitch (1600 Hz)</strong> and starts pulsing — slowly at first (~1.5 pulses/sec), speeding up as AOA continues to increase (up to ~6.2 pulses/sec). Volume also increases.</p>
+<h4 id="4-high-pitch-pulsing-below-onspeed-6590-lift">4. High-Pitch Pulsing — Below ONSPEED (~65–90% Lift)<a class="headerlink" href="#4-high-pitch-pulsing-below-onspeed-6590-lift" title="Permanent link">&para;</a></h4>
+<p>The tone jumps to a <strong>high pitch (1600 Hz)</strong> and starts pulsing — slowly at first (~1.5 pulses/sec), speeding up as AOA continues to increase (up to ~6.2 pulses/sec). Volume also increases.</p>
 <p>This is the critical region. <strong>Effective power is negative</strong> — the current combination of power and angle of attack is unsustainable. The airplane must either descend, decelerate, or the pilot must correct. The faster the pulsing, the less margin remains.</p>
 <p><strong>Pilot action</strong>: <strong>Push</strong> — add power (push throttle forward) and/or reduce AOA (push forward on the stick/yoke). Both actions reduce the energy deficit.</p>
-<h4 id="5-stall-warning-above-90-lift">5. Stall Warning — Above ~90% Lift<a class="headerlink" href="#5-stall-warning-above-90-lift" title="Permanent link">&para;</a></h4>
-<p>A <strong>rapid high-pitched pulsing (1600 Hz)</strong> at 20 pulses per second — essentially a continuous buzz. The wing is at or near its maximum lift capability. Stall is imminent.</p>
+<h4 id="5-stall-warning-buzz-above-90-lift">5. Stall Warning Buzz — Above ~90% Lift<a class="headerlink" href="#5-stall-warning-buzz-above-90-lift" title="Permanent link">&para;</a></h4>
+<p>A <strong>rapid high-pitch pulsing (1600 Hz)</strong> at 20 pulses per second — essentially a continuous buzz. The wing is at or near its maximum lift capability. Stall is imminent.</p>
 <p><strong>Pilot action</strong>: <strong>Unload for control</strong> — reduce AOA immediately. Ease forward pressure, add power, reduce bank angle. The wing cannot produce more lift; the only recovery is reducing the demand on it.</p>
 <div class="admonition danger">
 <p class="admonition-title">Never ignore the stall warning</p>
@@ -3321,17 +3322,17 @@
 </thead>
 <tbody>
 <tr>
-<td><strong>High-pitched pulsing</strong> (slow)</td>
+<td><strong>High-pitch pulsing</strong> (slow)</td>
 <td><strong>Push</strong></td>
 <td>Add power, reduce AOA, or both</td>
 </tr>
 <tr>
-<td><strong>Solid tone</strong> (ONSPEED)</td>
+<td><strong>ONSPEED solid tone</strong></td>
 <td><strong>Hold</strong></td>
 <td>Maintain current pitch and power</td>
 </tr>
 <tr>
-<td><strong>Low-pitched pulsing</strong> (fast)</td>
+<td><strong>Low-pitch pulsing</strong> (fast)</td>
 <td><strong>Pull</strong></td>
 <td>Reduce power, increase AOA, or both</td>
 </tr>
@@ -3339,8 +3340,8 @@
 </table>
 <p>When flying an approach at ONSPEED, the pilot need only respond to the cueing:</p>
 <ul>
-<li>A slow tone requires <strong>pushing</strong> something — throttle, control pressure, or both</li>
-<li>A fast tone requires <strong>pulling</strong> something — throttle back, ease pitch</li>
+<li>High-pitch pulsing requires <strong>pushing</strong> something — throttle, control pressure, or both</li>
+<li>Low-pitch pulsing requires <strong>pulling</strong> something — throttle back, ease pitch</li>
 <li>The logic works in any flight condition, not just straight-and-level approaches</li>
 </ul>
 <h2 id="tone-characteristics">Tone Characteristics<a class="headerlink" href="#tone-characteristics" title="Permanent link">&para;</a></h2>
@@ -3388,7 +3389,7 @@
 </table>
 <p>Within the pulsing regions, the pulse rate is <strong>interpolated linearly</strong> — you get a smooth, continuous indication of where you are. Faster pulses = closer to the next boundary.</p>
 <h2 id="why-continuous-cueing-works">Why Continuous Cueing Works<a class="headerlink" href="#why-continuous-cueing-works" title="Permanent link">&para;</a></h2>
-<p>The ONSPEED condition is indicated by a <strong>steady tone rather than silence</strong>. The continuous presence of the tone serves as confirmation of system operation. Silence means fast; the absence of tone is itself information.</p>
+<p>The ONSPEED condition is indicated by the <strong>ONSPEED solid tone rather than silence</strong>. The continuous presence of the tone serves as confirmation of system operation. Silence means fast; the absence of tone is itself information.</p>
 <p>This design means you always know the system is working when you need it most — during the approach and landing phase. If you're on speed and the tone disappears, something is wrong with the system, not with your flying.</p>
 <h2 id="3d-audio-optional">3D Audio (Optional)<a class="headerlink" href="#3d-audio-optional" title="Permanent link">&para;</a></h2>
 <p>When enabled, OnSpeed uses the IMU's lateral acceleration to <strong>pan the tones left and right</strong> in your headset. If you're in uncoordinated flight (slipping or skidding), the tone shifts to one ear. Pilots can coordinate rudder inputs intuitively by "stepping on the tone" — applying rudder toward the ear where the tone is louder.</p>
@@ -3397,7 +3398,7 @@
 <p>If you press the audio mute button:</p>
 <ul>
 <li>All normal tones are silenced</li>
-<li>The <strong>stall warning still sounds</strong> (safety override)</li>
+<li>The <strong>stall warning buzz still sounds</strong> (safety override)</li>
 <li>Stall warning in muted mode requires both AOA above the stall threshold AND IAS above the mute-under-IAS setting</li>
 </ul>
 <h2 id="why-this-works">Why This Works<a class="headerlink" href="#why-this-works" title="Permanent link">&para;</a></h2>
