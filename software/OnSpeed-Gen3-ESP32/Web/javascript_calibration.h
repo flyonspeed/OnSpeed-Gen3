@@ -147,7 +147,7 @@ function onMessage(evt)
 
     if (flapIndex == 0)
       {
-      // Best glide weight correction= Sqrt(current weight / gross weight) * glide speed at gross weight.
+      // Best glide weight correction= Sqrt(current weight / max gross weight) * glide speed at max gross weight.
       LDmaxIAS = Math.sqrt(acCurrentWeight/acGrossWeight) * acVldmax;
       }
 
@@ -449,7 +449,7 @@ function saveData()
 
 function saveCalibration()
   {
-  params = "flapsPos="+flapsPosCalibrated+"&curve0="+resultCPtoAOA.equation[0]+"&curve1="+resultCPtoAOA.equation[1]+"&curve2="+resultCPtoAOA.equation[2]+"&LDmaxSetpoint="+LDmaxSetpoint+"&OSFastSetpoint="+OSFastSetpoint+"&OSSlowSetpoint="+OSSlowSetpoint+"&StallWarnSetpoint="+StallWarnSetpoint+"&ManeuveringSetpoint="+ManeuveringSetpoint+"&StallSetpoint="+StallSetpoint+"&alpha0="+alpha0+"&alphaStall="+alphaStall;
+  params = "flapsPos="+flapsPosCalibrated+"&curve0="+resultCPtoAOA.equation[0]+"&curve1="+resultCPtoAOA.equation[1]+"&curve2="+resultCPtoAOA.equation[2]+"&LDmaxSetpoint="+LDmaxSetpoint+"&OSFastSetpoint="+OSFastSetpoint+"&OSSlowSetpoint="+OSSlowSetpoint+"&StallWarnSetpoint="+StallWarnSetpoint+"&ManeuveringSetpoint="+ManeuveringSetpoint+"&StallSetpoint="+StallSetpoint+"&alpha0="+alpha0+"&alphaStall="+alphaStall+"&K_fit="+K_fit;
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/calwiz?step=save", true);
   xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');

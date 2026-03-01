@@ -256,6 +256,7 @@ void LogSensor::Open()
             } // end if EFIS data
 
             m_hLogFile.write(",EarthVerticalG,FlightPath,VSI,Altitude");
+            m_hLogFile.write(",DerivedAOA,CoeffP");
             m_hLogFile.write("\n");
 
             m_hLogFile.sync();
@@ -359,6 +360,9 @@ void LogSensor::Write()
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f,%.2f,%.2f",
             g_AHRS.EarthVertG, g_AHRS.FlightPath, mps2fpm(g_AHRS.KalmanVSI), m2ft(g_AHRS.KalmanAlt));
+
+        bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.4f,%.4f",
+            g_AHRS.DerivedAOA, g_fCoeffP);
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, "\n");
 
