@@ -1,4 +1,4 @@
 
 #pragma once
 
-void CheckVnoChimeTask(void * pvParams);
+// VnoChime logic moved to Housekeeping.cpp
