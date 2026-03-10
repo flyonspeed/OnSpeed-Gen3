@@ -3,6 +3,7 @@ const char htmlCalibration[] PROGMEM = R"=====(
   <br><b>Calibration Wizard</b><br><br>
   <div id="idStartInstructions">
     Decelerate from Vmax (or Vfe). Hit Record when ready!
+    <div style="margin-top:10px"><label><input type="checkbox" id="chkWLS" checked> Use Weighted Least Squares (WLS)</label></div>
     <div align="center" style="margin-top:20px">
     <button type="submit" class="wifibutton" onClick="recordData(true)">Record</button>
     </div>
@@ -64,8 +65,8 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
 <div id="curveResults" style="display: none;margin-left:65px;margin-top:10px">
     <b>Calibration Results:</b><br><br>
     Stall Speed: <span id="idStallSpeed"></span> kts<br>
-    CP to AOA Curve: <span id="idCPtoAOACurve"></span><br>
-    R<sup>2</sup>: <span id="idCPtoAOAr2"></span><br><br>
+    CP to AOA Curve (<span id="idFitMethod">WLS</span>): <span id="idCPtoAOACurve"></span><br>
+    <span id="idCPtoAOAr2Label">Weighted R<sup>2</sup></span>: <span id="idCPtoAOAr2"></span><br><br>
    <b>Setpoints:</b><br>
       L/Dmax: <span id="idLDmaxSetpoint"></span> deg<br>
       Onspeed Fast: <span id="idOSFastSetpoint"></span> deg<br>
@@ -73,10 +74,10 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
       Stall Warning: <span id="idStallWarnSetpoint"></span> deg<br>
       Maneuvering Angle: <span id="idManeuveringSetpoint"></span> deg<br>
       Stall Angle: <span id="idStallSetpoint"></span> deg<br>
-   <br><b>IAS-to-AOA Fit:</b><br>
+   <br><b>IAS-to-AOA Fit (<span id="idFitMethod2">WLS</span>):</b><br>
       Alpha-0 (zero-lift AOA): <span id="idAlpha0"></span> deg<br>
       Alpha-Stall: <span id="idAlphaStall"></span> deg<br>
-      R<sup>2</sup>: <span id="idIAStoAOAr2"></span><br>
+      <span id="idIAStoAOAr2Label">Weighted R<sup>2</sup></span>: <span id="idIAStoAOAr2"></span><br>
 </div>
 <div id="saveCalButtons" style="display: none;margin-left:40px">
 <br>
