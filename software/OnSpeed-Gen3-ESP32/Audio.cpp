@@ -78,6 +78,7 @@ int16_t            aTone_1600Hz[TONE_BUFFER_LEN];
 // ----------------------------------------------------------------------------
 
 static bool         s_bI2sOk = false;
+static bool         s_bAudioUnmuted = false;
 static volatile TaskHandle_t s_xAudioTestTask = nullptr;
 static std::atomic<bool>     s_bAudioTestStopRequested{false};
 static std::atomic<bool>     s_bAudioTestStarting{false};
@@ -475,6 +476,16 @@ void AudioPlay::UpdateTones()
 
     onspeed::ToneResult result;
 
+    // Audio mute hysteresis: unmute at threshold + 5 kt, mute at threshold.
+    // Prevents audio chatter on touchdown (AUD-01).
+    static constexpr int kAudioHysteresisKt = 5;
+    const int iUnmuteThreshold = g_Config.iMuteAudioUnderIAS + kAudioHysteresisKt;
+
+    if (!s_bAudioUnmuted && g_Sensors.IAS >= iUnmuteThreshold)
+        s_bAudioUnmuted = true;
+    else if (s_bAudioUnmuted && g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
+        s_bAudioUnmuted = false;
+
     if (!g_bAudioEnable)
         {
         // Audio disabled by button — only allow stall warning through
@@ -483,7 +494,7 @@ void AudioPlay::UpdateTones()
             g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
             g_Config.iMuteAudioUnderIAS);
         }
-    else if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
+    else if (!s_bAudioUnmuted)
         {
         // Airspeed too low (taxiing) — mute, but set pulse rate high for quick pickup
 #ifdef TONEDEBUG
