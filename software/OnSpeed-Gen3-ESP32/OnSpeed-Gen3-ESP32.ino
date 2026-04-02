@@ -220,9 +220,9 @@ void setup()
 
     // Init pressure sensor classes
     // ----------------------------
-    g_pPitot  = new HscPressureSensor(g_pSensorSPI, CS_PITOT,  HSCDRNN1_6BASA3);
-    g_pAOA    = new HscPressureSensor(g_pSensorSPI, CS_AOA,    HSCDRNN1_6BASA3);
-    g_pStatic = new HscPressureSensor(g_pSensorSPI, CS_STATIC, HSCDRRN100MDSA3);
+    g_pPitot  = new HscPressureSensor(g_pSensorSPI, CS_PITOT,  HSCMRRN001PDSA3);
+    g_pAOA    = new HscPressureSensor(g_pSensorSPI, CS_AOA,    HSCMRRN001PDSA3);
+    g_pStatic = new HscPressureSensor(g_pSensorSPI, CS_STATIC, HSCMRNN1_6BASA3);
 
     // Init Sensors
     g_Sensors.Init();

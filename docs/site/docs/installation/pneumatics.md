@@ -6,9 +6,9 @@ The OnSpeed controller has three pneumatic connections for pressure measurement.
 
 | Port | Sensor | Measures | Connects To |
 |------|--------|----------|-------------|
-| **Pitot** | HSCDRNN1.6BASA3 (differential) | Dynamic pressure (ram air) | Your pitot system (tee fitting) |
-| **AOA** | HSCDRNN1.6BASA3 (differential) | Angle-dependent differential pressure | AOA probe on wing/fuselage |
-| **Static** | HSCDRRN100MDSA3 (absolute) | Barometric/static pressure | Your static system (tee fitting) |
+| **Pitot** | HSCMRRN001PDSA3 (differential) | Dynamic pressure (ram air) | Your pitot system (tee fitting) |
+| **AOA** | HSCMRRN001PDSA3 (differential) | Angle-dependent differential pressure | AOA probe on wing/fuselage |
+| **Static** | HSCMRNN1.6BASA3 (absolute) | Barometric/static pressure | Your static system (tee fitting) |
 
 ## Plumbing Requirements
 

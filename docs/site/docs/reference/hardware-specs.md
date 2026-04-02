@@ -16,9 +16,9 @@
 | Sensor | Part Number | Interface | Key Specs |
 |--------|-------------|-----------|-----------|
 | **IMU** | IMU330 | SPI (CS: GPIO 4) | 6-axis accel/gyro, 208 Hz sample rate |
-| **Pitot Pressure** | HSCDRNN1.6BASA3 | SPI (CS: GPIO 15 V4P) | Differential, 14-bit, ±1.6 PSI |
-| **AOA Pressure** | HSCDRNN1.6BASA3 | SPI (CS: GPIO 6 V4P) | Differential, 14-bit, ±1.6 PSI |
-| **Static Pressure** | HSCDRRN100MDSA3 | SPI (CS: GPIO 7) | Absolute, 14-bit, 0–100 mbar |
+| **Pitot Pressure** | HSCMRRN001PDSA3 | SPI (CS: GPIO 15 V4P) | Differential, 14-bit, ±1 PSI |
+| **AOA Pressure** | HSCMRRN001PDSA3 | SPI (CS: GPIO 6 V4P) | Differential, 14-bit, ±1 PSI |
+| **Static Pressure** | HSCMRNN1.6BASA3 | SPI (CS: GPIO 7) | Absolute, 14-bit, 0–23.2 PSI (1.6 bar) |
 | **External ADC** | MCP3202 | SPI (CS: GPIO 5, V4P only) | 12-bit, 2-channel (flap + volume) |
 
 ## Power
