@@ -1,7 +1,7 @@
 
 #include "SPI_IO.h"
 
-#define SPI_CLK              1000000  // 100 kHz
+#define SPI_CLK              4000000  // 4 MHz (ISM330DHCX rated 10 MHz, HSC sensors ~8 MHz)
 #define SPI_MODE          SPI_MODE0
 
 SpiIO::SpiIO(int SPINum, int ClkPin, int MisoPin, int MosiPin, unsigned DummyCS)
@@ -56,8 +56,7 @@ void SpiIO::ReadBytes( unsigned uChipSel, uint8_t * paiData, int iBytes)
 {
     pSPI->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE));
     digitalWrite(uChipSel, LOW);
-    for (int iIdx = 0; iIdx < iBytes; iIdx++)
-      paiData[iIdx] = pSPI->transfer(0x00);
+    pSPI->transferBytes(nullptr, paiData, iBytes);
     digitalWrite(uChipSel, HIGH);
     pSPI->endTransaction();
 }
@@ -98,21 +97,7 @@ void SpiIO::ReadRegBytes(unsigned uChipSel, uint8_t iAddr, uint8_t * paiData, in
     pSPI->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE));
     digitalWrite(uChipSel, LOW);
     pSPI->transfer(iAddr);
-    for (int iIdx = 0; iIdx < iBytes; iIdx++)
-        paiData[iIdx] = pSPI->transfer(0x00);
-    digitalWrite(uChipSel, HIGH);
-    pSPI->endTransaction();
-    }
-
-// ----------------------------------------------------------------------------
-
-void SpiIO::WriteRegBytes(unsigned uChipSel, uint8_t iAddr, uint8_t * paiData, int iBytes)
-    {
-    pSPI->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE));
-    digitalWrite(uChipSel, LOW);
-    pSPI->transfer(iAddr);
-    for (int iIdx = 0; iIdx < iBytes; iIdx++)
-        pSPI->transfer(paiData[iIdx]);
+    pSPI->transferBytes(nullptr, paiData, iBytes);
     digitalWrite(uChipSel, HIGH);
     pSPI->endTransaction();
     }

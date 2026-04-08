@@ -437,11 +437,11 @@ void ConsoleSerialIO::Read()
 
                     g_Log.printf("\nPorts %s  Box Top %s\r\n", g_Config.sPortsOrientation.c_str(), g_Config.sBoxtopOrientation.c_str());
                     g_Log.printf("Axis - Forward %s  Lateral %s  Vertical %s\r\n",
-                            g_pIMU->sForwardGloadAxis.c_str(), g_pIMU->sLateralGloadAxis.c_str(), g_pIMU->sVerticalGloadAxis.c_str());
+                            g_pIMU->sForwardGloadAxis, g_pIMU->sLateralGloadAxis, g_pIMU->sVerticalGloadAxis);
 
                     g_Log.printf("Accel IMU  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->fAccelX,         g_pIMU->fAccelY,         g_pIMU->fAccelZ);
                     g_Log.printf("Accel A/C  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->Ax,              g_pIMU->Ay,              g_pIMU->Az);
-                    g_Log.printf("Smoothed   X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdSmoothed, g_AHRS.AccelLatSmoothed, g_AHRS.AccelVertSmoothed);
+                    g_Log.printf("Smoothed   X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdFilter.get(), g_AHRS.AccelLatFilter.get(), g_AHRS.AccelVertFilter.get());
                     g_Log.printf("Comp       X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdComp,     g_AHRS.AccelLatComp,     g_AHRS.AccelVertComp);
 
                     g_Log.printf("Pitch        : %5.2f\r\n", g_AHRS.SmoothedPitch);
@@ -530,11 +530,7 @@ void ConsoleSerialIO::Read()
                 PrintTaskInfo(xTaskWriteLog);
                 PrintTaskInfo(xTaskCheckSwitch);
                 PrintTaskInfo(xTaskDisplaySerial);
-                PrintTaskInfo(xTaskGLimit);
-                PrintTaskInfo(xTaskVolume);
-                PrintTaskInfo(xTaskVnoChime);
-                PrintTaskInfo(xTask3dAudio);
-                PrintTaskInfo(xTaskHeartbeat);
+                PrintTaskInfo(xTaskHousekeeping);
                 PrintTaskInfo(xTaskLogReplay);
                 PrintTaskInfo(xTaskTestPot);
                 PrintTaskInfo(xTaskRangeSweep);

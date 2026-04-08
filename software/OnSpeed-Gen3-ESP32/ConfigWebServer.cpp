@@ -1813,7 +1813,7 @@ void HandleConfigSave()
     else                                                                   g_Config.bOatSensor = false;
 
     // read calibration source
-    if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");
+    if (CfgServer.hasArg("calSource")) { g_Config.sCalSource=CfgServer.arg("calSource"); g_Config.bCalSourceEfis = (g_Config.sCalSource == "EFIS"); }
 
     // read AHRS algorithm
     if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();
@@ -1855,7 +1855,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("vnoChimeInterval")) g_Config.uVnoChimeInterval=CfgServer.arg("vnoChimeInterval").toInt();
 
     // serialOutFormat
-    if (CfgServer.hasArg("serialOutFormat")) g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat");
+    if (CfgServer.hasArg("serialOutFormat")) { g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat"); g_Config.enSerialOutFormat = FOSConfig::ParseSerialFmt(g_Config.sSerialOutFormat); }
 
     //serialOutPort
 //    if (CfgServer.hasArg("serialOutPort")) g_Config.sSerialOutPort=CfgServer.arg("serialOutPort");
@@ -1922,18 +1922,16 @@ void HandleConfigSave()
         // Warn if any flap position has out-of-order AOA setpoints
         for (size_t i = 0; i < g_Config.aFlaps.size(); i++)
             {
-            if (!g_Config.aFlaps[i].AreSetpointsOrdered())
+            String sErr = g_Config.aFlaps[i].SetpointOrderError();
+            if (sErr.length() > 0)
                 {
                 sPage += "<br><br><b>WARNING:</b> Flap position " + String(g_Config.aFlaps[i].iDegrees)
-                       + " degrees has AOA setpoints that are not in increasing order"
-                         " (LDMAX &lt; OnSpeedFast &lt; OnSpeedSlow &lt; StallWarn &lt; Stall)."
-                         " Audio behavior may be incorrect.";
+                       + " degrees: " + sErr + "."
+                         " Check the AOA setpoints on the configuration page and ensure they increase"
+                         " from LDMAX through Stall. Audio behavior may be incorrect.";
                 g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
-                    "Flap %d deg: setpoints not in order (LDMAX=%.1f FAST=%.1f SLOW=%.1f WARN=%.1f STALL=%.1f)\n",
-                    g_Config.aFlaps[i].iDegrees,
-                    g_Config.aFlaps[i].fLDMAXAOA, g_Config.aFlaps[i].fONSPEEDFASTAOA,
-                    g_Config.aFlaps[i].fONSPEEDSLOWAOA, g_Config.aFlaps[i].fSTALLWARNAOA,
-                    g_Config.aFlaps[i].fSTALLAOA);
+                    "Flap %d deg: %s\n",
+                    g_Config.aFlaps[i].iDegrees, sErr.c_str());
                 }
             }
 
@@ -2697,17 +2695,16 @@ Enter the following aircraft parameters:<br><br>
 
                 // Save configuration
                 g_Config.SaveConfigurationToFile();
-                if (!g_Config.aFlaps[iFlapIdx].AreSetpointsOrdered())
+                String sErr = g_Config.aFlaps[iFlapIdx].SetpointOrderError();
+                if (sErr.length() > 0)
                     {
                     g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
-                        "Calwiz flap %d deg: setpoints not in order (LDMAX=%.1f FAST=%.1f SLOW=%.1f WARN=%.1f STALL=%.1f)\n",
-                        g_Config.aFlaps[iFlapIdx].iDegrees,
-                        g_Config.aFlaps[iFlapIdx].fLDMAXAOA, g_Config.aFlaps[iFlapIdx].fONSPEEDFASTAOA,
-                        g_Config.aFlaps[iFlapIdx].fONSPEEDSLOWAOA, g_Config.aFlaps[iFlapIdx].fSTALLWARNAOA,
-                        g_Config.aFlaps[iFlapIdx].fSTALLAOA);
+                        "Calwiz flap %d deg: %s\n",
+                        g_Config.aFlaps[iFlapIdx].iDegrees, sErr.c_str());
                     CfgServer.send(200, "text/html",
-                        "WARNING: Configuration saved, but AOA setpoints are not in increasing order"
-                        " (LDMAX < OnSpeedFast < OnSpeedSlow < StallWarn < Stall). Audio behavior may be incorrect.");
+                        ("WARNING: Configuration saved, but " + sErr
+                         + ". Check the AOA setpoints and ensure they increase"
+                           " from LDMAX through Stall. Audio behavior may be incorrect.").c_str());
                     }
                 else
                     CfgServer.send(200, "text/html", "SUCCESS: Configuration was saved!");
