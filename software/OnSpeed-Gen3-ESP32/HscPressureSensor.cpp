@@ -9,13 +9,13 @@ using onspeed::psi2mb;
 
 // These pressure ranges are the compensated pressure ranges for the sensor
 
-// Honeywell HSCDRNN1.6BASA3 differential pressure sensor
+// Honeywell HSCMRRN001PDSA3 differential pressure sensor (pitot, AOA)
 #define COUNTS_MIN_DIFF     1638   // 10% of 16383 (14 bits)
 #define COUNTS_MAX_DIFF    14745   // 90% of 16383 (14 bits)
 #define PRESSURE_MIN_DIFF   -1.0   // PSI
 #define PRESSURE_MAX_DIFF    1.0   // PSI
 
-// Honeywell HSCDRRN100MDSA3 absolute pressure sensor
+// Honeywell HSCMRNN1.6BASA3 absolute pressure sensor (static)
 #define COUNTS_MIN_ABS      1638   // 10% of 16383 (14 bits)
 #define COUNTS_MAX_ABS     14745   // 90% of 16383 (14 bits)
 #define PRESSURE_MIN_ABS     0.0   // PSI
@@ -45,13 +45,13 @@ HscPressureSensor::HscPressureSensor(SpiIO * pSensorSPI, int CsPort, EnPressureS
 
   switch (enSensorType)
     {
-    case HSCDRRN100MDSA3 :    // Honeywell absolute pressure sensor
+    case HSCMRNN1_6BASA3 :    // Honeywell 1.6 bar absolute pressure sensor
       uCountsMin   = COUNTS_MIN_ABS;
       uCountsMax   = COUNTS_MAX_ABS;
       fPressureMin = PRESSURE_MIN_ABS;
       fPressureMax = PRESSURE_MAX_ABS;
       break;
-    case   HSCDRNN1_6BASA3 :  // Honeywell differential pressure sensor
+    case HSCMRRN001PDSA3 :    // Honeywell 1 PSI differential pressure sensor
       uCountsMin   = COUNTS_MIN_DIFF;
       uCountsMax   = COUNTS_MAX_DIFF;
       fPressureMin = PRESSURE_MIN_DIFF;
