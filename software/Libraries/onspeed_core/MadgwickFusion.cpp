@@ -21,15 +21,15 @@
 // Header files
 
 #include "MadgwickFusion.h"
+#include "OnSpeedTypes.h"
 #include <math.h>
-#include <cstring>
 
 //-------------------------------------------------------------------------------------------
 // Definitions
 
 #define sampleFreqDef   208.0f          // sample frequency in Hz
 #define betaDef         0.011617f            // 2 * proportional gain
-#define DEG2RAD(deg)    ((deg) * 0.0174533)    // degrees to radians
+#define DEG2RAD(deg)    ((deg) * 0.0174533f)    // degrees to radians
 
 namespace onspeed {
 
@@ -59,12 +59,12 @@ void Madgwick::begin(float sampleFrequency, float Pitch, float Roll)
 
     // set initial pitch & roll
     float Yaw = 0;
-    float cr2 = cos(DEG2RAD(Roll)  * 0.5);
-    float cp2 = cos(DEG2RAD(Pitch) * 0.5);
-    float cy2 = cos(DEG2RAD(Yaw)   * 0.5);
-    float sr2 = sin(DEG2RAD(Roll)  * 0.5);
-    float sp2 = sin(DEG2RAD(Pitch) * 0.5);
-    float sy2 = sin(DEG2RAD(Yaw)   * 0.5);
+    float cr2 = cosf(DEG2RAD(Roll)  * 0.5f);
+    float cp2 = cosf(DEG2RAD(Pitch) * 0.5f);
+    float cy2 = cosf(DEG2RAD(Yaw)   * 0.5f);
+    float sr2 = sinf(DEG2RAD(Roll)  * 0.5f);
+    float sp2 = sinf(DEG2RAD(Pitch) * 0.5f);
+    float sy2 = sinf(DEG2RAD(Yaw)   * 0.5f);
 
     q0 = cr2*cp2*cy2 + sr2*sp2*sy2;
     q1 = sr2*cp2*cy2 - cr2*sp2*sy2;
@@ -258,31 +258,15 @@ void Madgwick::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float
 }
 
 //-------------------------------------------------------------------------------------------
-// Fast inverse square-root
-// See: http://en.wikipedia.org/wiki/Fast_inverse_square_root
+// Inverse square-root using the ESP32-S3 single-precision FPU.
+// The original Quake III bit-hack (0x5f375a86) was slower on this hardware:
+// two memcpy calls for type-punning plus a Newton-Raphson step vs the FPU's
+// hardware-assisted sqrt + divide in ROM.  Also IEEE-754 exact vs ~0.175% error.
 
 float Madgwick::invSqrt(float x)
 {
-//  return 1.0 / sqrt(x);
-//  float halfx = 0.5f * x;
-//  float y = x;
-//  long i = *(long*)&y;
-//  i = 0x5f3759df - (i>>1);
-//  y = *(float*)&i;
-//  y = y * (1.5f - (halfx * y * y));
-//  y = y * (1.5f - (halfx * y * y));
-//  return y;
-
-    // this code uses memcpy instead of old code that breaks strict-aliasing rules
-    float xhalf = 0.5f*x;
-    unsigned int i;
-    //assert(sizeof(x) == sizeof(i));
-    memcpy(&i, &x, sizeof(i));
-    i = 0x5f375a86 - (i>>1);
-    memcpy(&x, &i, sizeof(i));
-    x = x*(1.5f - xhalf*x*x);
-
-    return x;
+    if (x <= 0.0f) return 0.0f;
+    return 1.0f / sqrtf(x);
 }
 
 //-------------------------------------------------------------------------------------------
@@ -290,7 +274,7 @@ float Madgwick::invSqrt(float x)
 void Madgwick::computeAngles()
 {
     roll  = atan2f(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2);
-    pitch = asinf(-2.0f * (q1*q3 - q0*q2));
+    pitch = safeAsin(-2.0f * (q1*q3 - q0*q2));
     yaw   = atan2f(q1*q2 + q0*q3, 0.5f - q2*q2 - q3*q3);
 
     anglesComputed = 1;

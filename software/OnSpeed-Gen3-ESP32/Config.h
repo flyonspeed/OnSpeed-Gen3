@@ -107,6 +107,7 @@ public:
             fMANAOA         = 0.0;
             fAlpha0         = 0.0;
             fAlphaStall     = 0.0;
+            fKFit           = 0.0;
             }
         int      iDegrees;
         int      iPotPosition;
@@ -118,6 +119,7 @@ public:
         float    fMANAOA;
         float    fAlpha0;       // Zero-lift fuselage AOA (deg), from physics fit
         float    fAlphaStall;   // Stall AOA from physics fit (deg)
+        float    fKFit;         // Lift sensitivity (deg·kt²) from IAS-to-AOA fit
 
         // Returns empty string if AOA setpoints are in order, or a description
         // of all pairs that are out of order.  Skips fSTALLAOA from the chain
@@ -165,6 +167,7 @@ public:
 
     // calibration data source
     String          sCalSource;
+    bool            bCalSourceEfis;  // Cached: sCalSource == "EFIS" (avoids String compare in 208Hz loop)
 
     // biases
     int             iPFwdBias;      // Counts
@@ -189,6 +192,13 @@ public:
 
     // serial output
     String          sSerialOutFormat;
+    enum EnSerialFmt { EnSerialFmtOther, EnSerialFmtG3X, EnSerialFmtOnSpeed };
+    EnSerialFmt     enSerialOutFormat;  // Cached: avoids String compare in 10Hz display loop
+    static EnSerialFmt ParseSerialFmt(const String& s) {
+        if (s == "G3X")     return EnSerialFmtG3X;
+        if (s == "ONSPEED") return EnSerialFmtOnSpeed;
+        return EnSerialFmtOther;
+    }
 //    String          sSerialOutPort;
 
     // load limit
@@ -206,7 +216,7 @@ public:
 
     // Aircraft parameters (used by calibration wizard)
     int             iAcGrossWeight;
-    float           fAcBestGlideIAS;    // Best glide airspeed at gross weight (KIAS)
+    float           fAcBestGlideIAS;    // Best glide airspeed at max gross weight (KIAS)
     float           fAcVfe;             // Max flap extension speed (KIAS)
     float           fAcGlimit;          // Airframe load factor limit (G)
 
