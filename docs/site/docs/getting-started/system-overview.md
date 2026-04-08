@@ -10,9 +10,9 @@ The Gen3 controller board includes:
 |-----------|------|----------|
 | **Microcontroller** | ESP32-S3-WROOM-2 (32MB flash, 8MB PSRAM) | Runs everything — AHRS, audio, WiFi, logging |
 | **IMU** | IMU330 (accel + gyro) | Measures pitch, roll, and accelerations at 208 Hz |
-| **Pitot Pressure** | Honeywell HSCDRNN1.6BASA3 | Dynamic pressure for airspeed (14-bit SPI) |
-| **AOA Pressure** | Honeywell HSCDRNN1.6BASA3 | Differential pressure from AOA probe (14-bit SPI) |
-| **Static Pressure** | Honeywell HSCDRRN100MDSA3 | Barometric pressure for altitude/density |
+| **Pitot Pressure** | Honeywell HSCMRRN001PDSA3 | Dynamic pressure for airspeed (14-bit SPI) |
+| **AOA Pressure** | Honeywell HSCMRRN001PDSA3 | Differential pressure from AOA probe (14-bit SPI) |
+| **Static Pressure** | Honeywell HSCMRNN1.6BASA3 | Barometric pressure for altitude/density |
 | **Audio DAC** | I2S output | Stereo audio at 16 kHz sample rate |
 | **SD Card** | microSD slot | Flight data logging at 50 Hz |
 | **WiFi** | Built into ESP32-S3 | Web-based configuration and log download |
