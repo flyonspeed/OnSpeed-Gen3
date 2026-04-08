@@ -83,6 +83,7 @@ void ConsoleSerialIO::DisplayConsoleHelp()
         pSerial->println("VOLUME               - Show current volume potentiometer value");
         pSerial->println("CONFIG               - Show current configuration values");
         pSerial->println("AUDIOTEST            - Left & right audio test");
+        pSerial->println("VNOCHIMETEST         - Play Vno chime");
         pSerial->println("TASKS                - Show info about running tasks");
         pSerial->println("COOKIE");
         pSerial->println("");
@@ -436,7 +437,7 @@ void ConsoleSerialIO::Read()
 
                     g_Log.printf("\nPorts %s  Box Top %s\r\n", g_Config.sPortsOrientation.c_str(), g_Config.sBoxtopOrientation.c_str());
                     g_Log.printf("Axis - Forward %s  Lateral %s  Vertical %s\r\n",
-                            g_pIMU->sForwardGloadAxis.c_str(), g_pIMU->sLateralGloadAxis.c_str(), g_pIMU->sVerticalGloadAxis.c_str());
+                            g_pIMU->sForwardGloadAxis, g_pIMU->sLateralGloadAxis, g_pIMU->sVerticalGloadAxis);
 
                     g_Log.printf("Accel IMU  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->fAccelX,         g_pIMU->fAccelY,         g_pIMU->fAccelZ);
                     g_Log.printf("Accel A/C  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->Ax,              g_pIMU->Ay,              g_pIMU->Az);
@@ -510,6 +511,14 @@ void ConsoleSerialIO::Read()
                 {
                 bool bStarted = g_AudioPlay.StartAudioTest();
                 g_Log.printf("AUDIOTEST %s\n", bStarted ? "Started" : "Busy");
+                }
+
+            // VNOCHIMETEST
+            // ------------
+            else if (strncasecmp(szCmdToken, "VNOCHIMETEST", 12) == 0)
+                {
+                g_AudioPlay.SetVoice(enVoiceVnoChime);
+                g_Log.printf("VNOCHIMETEST Playing\n");
                 }
 
             // TASKS
