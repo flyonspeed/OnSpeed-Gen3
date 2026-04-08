@@ -296,6 +296,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // Calibration data source
     sCalSource          = "ONSPEED";
+    bCalSourceEfis      = false;
 
     // Biases
     iPFwdBias           = 8192;
@@ -321,6 +322,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // serial output
     sSerialOutFormat    = "ONSPEED";
+    enSerialOutFormat   = EnSerialFmtOnSpeed;
 
     // load limit
     fLoadLimitPositive  =  4.0;
@@ -396,6 +398,7 @@ String FOSConfig::ConfigurationToString()
         XML_INSERT_SET(XmlConfigFlaps, "MANAOA",         aFlaps[iFlapIdx].fMANAOA)
         XML_INSERT_SET(XmlConfigFlaps, "ALPHA0",         aFlaps[iFlapIdx].fAlpha0)
         XML_INSERT_SET(XmlConfigFlaps, "ALPHASTALL",     aFlaps[iFlapIdx].fAlphaStall)
+        XML_INSERT_SET(XmlConfigFlaps, "KFIT",           aFlaps[iFlapIdx].fKFit)
 
         XML_INSERT(XmlConfigFlaps, "AOA_CURVE")
         XMLElement * XmlConfigAoACurve = XmlConfigNew;
@@ -584,6 +587,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Calibration data source
         sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE");
+        bCalSourceEfis       = (sCalSource == "EFIS");
 
         // Biases
         iPFwdBias           =  GetConfigValue(sConfig,"PFWD_BIAS").toInt();
@@ -603,6 +607,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // serial output
         sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT");
+        enSerialOutFormat   = ParseSerialFmt(sSerialOutFormat);
 //        sSerialOutPort      = GetConfigValue(sConfig,"SERIALOUTPORT");
 
         // Load limit
@@ -713,6 +718,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             XML_GET_FLOAT(pXmlFlaps, "MANAOA",         suFlaps.fMANAOA)
             XML_GET_FLOAT(pXmlFlaps, "ALPHA0",         suFlaps.fAlpha0)
             XML_GET_FLOAT(pXmlFlaps, "ALPHASTALL",     suFlaps.fAlphaStall)
+            XML_GET_FLOAT(pXmlFlaps, "KFIT",           suFlaps.fKFit)
 
             XMLElement * pXmlAoaCurve = pXmlFlaps->FirstChildElement("AOA_CURVE");
             if (pXmlAoaCurve != NULL)
@@ -787,9 +793,11 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Serial output
         XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
+        enSerialOutFormat = ParseSerialFmt(sSerialOutFormat);
 //        XML_GET_STR(XmlRootNode, "SERIALOUTPORT",     sSerialOutPort)
 
         XML_GET_STR(XmlRootNode, "CALWIZ_SOURCE",         sCalSource)
+        bCalSourceEfis = (sCalSource == "EFIS");
 
         XMLElement * pXmlBias = XmlRootNode->FirstChildElement("BIAS");
         if (pXmlBias != NULL)

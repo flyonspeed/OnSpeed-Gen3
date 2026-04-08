@@ -9,8 +9,8 @@
 
   enum EnPressureSensorType
   {
-  HSCDRRN100MDSA3,    // Honeywell absolute pressure sensor
-  HSCDRNN1_6BASA3,    // Honeywell differential pressure sensor
+  HSCMRNN1_6BASA3,    // Honeywell 1.6 bar absolute pressure sensor (static)
+  HSCMRRN001PDSA3,    // Honeywell 1 PSI differential pressure sensor (pitot, AOA)
   };
 
 class HscPressureSensor

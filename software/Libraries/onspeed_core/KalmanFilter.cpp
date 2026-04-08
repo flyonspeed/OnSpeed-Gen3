@@ -37,7 +37,7 @@ void KalmanFilter::Configure(float zVariance, float zAccelVariance, float zAccel
     Pva_ = 0.0f;
 
     Paz_ = 0.0f;
-    Pav_ = 0.0;
+    Pav_ = 0.0f;
     Paa_ = 100000.0f;
 }
 
@@ -55,7 +55,7 @@ void KalmanFilter::Update(float z, float a, float dt, volatile float* pZ, volati
     z_ += v_ * dt + 0.5f * adt * dt;
     v_ += adt;
 
-    zAccelVariance_ = std::fabs(accel)/50.0f;
+    zAccelVariance_ = fabsf(accel)/50.0f;
     zAccelVariance_ = std::clamp(zAccelVariance_, 1.0f, 50.0f);
 
     // Predict State Covariance matrix
