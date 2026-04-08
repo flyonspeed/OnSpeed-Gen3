@@ -220,9 +220,9 @@ pio test -e native       # Run all N tests
 
 ## Getting v<version>
 
-**Recommended**: Download `firmware-esp32s3-v4p.bin` (or `-v4b.bin`) from the assets below and flash via the OTA update page in the OnSpeed web UI. See [Flashing Firmware](https://dev.flyonspeed.org/software/flashing/) and [OTA Updates](https://dev.flyonspeed.org/software/ota-update/) in the docs for full instructions, including how to identify which hardware variant you have.
+**Recommended**: Download `onspeed-<version>-v4p-firmware.bin` (or `-v4b-firmware.bin`) from the assets below and flash via the OTA update page in the OnSpeed web UI. See [Flashing Firmware](https://dev.flyonspeed.org/software/flashing/) and [OTA Updates](https://dev.flyonspeed.org/software/ota-update/) in the docs for full instructions, including how to identify which hardware variant you have.
 
-For a fresh-install or recovery flash via USB, the assets also include `bootloader.bin` and `partitions.bin` for each variant; flash addresses are documented in `README.md` and the flashing guide.
+For a fresh-install or recovery flash via USB, the assets also include `onspeed-<version>-bootloader.bin` and `onspeed-<version>-partitions.bin`, which are shared across both variants (identical bytes); flash addresses are documented in `README.md` and the flashing guide.
 ```
 
 #### Writing the bullets
