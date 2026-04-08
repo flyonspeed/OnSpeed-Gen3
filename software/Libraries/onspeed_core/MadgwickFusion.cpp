@@ -29,7 +29,7 @@
 
 #define sampleFreqDef   208.0f          // sample frequency in Hz
 #define betaDef         0.011617f            // 2 * proportional gain
-#define DEG2RAD(deg)    ((deg) * 0.0174533)    // degrees to radians
+#define DEG2RAD(deg)    ((deg) * 0.0174533f)    // degrees to radians
 
 namespace onspeed {
 
@@ -59,12 +59,12 @@ void Madgwick::begin(float sampleFrequency, float Pitch, float Roll)
 
     // set initial pitch & roll
     float Yaw = 0;
-    float cr2 = cos(DEG2RAD(Roll)  * 0.5);
-    float cp2 = cos(DEG2RAD(Pitch) * 0.5);
-    float cy2 = cos(DEG2RAD(Yaw)   * 0.5);
-    float sr2 = sin(DEG2RAD(Roll)  * 0.5);
-    float sp2 = sin(DEG2RAD(Pitch) * 0.5);
-    float sy2 = sin(DEG2RAD(Yaw)   * 0.5);
+    float cr2 = cosf(DEG2RAD(Roll)  * 0.5f);
+    float cp2 = cosf(DEG2RAD(Pitch) * 0.5f);
+    float cy2 = cosf(DEG2RAD(Yaw)   * 0.5f);
+    float sr2 = sinf(DEG2RAD(Roll)  * 0.5f);
+    float sp2 = sinf(DEG2RAD(Pitch) * 0.5f);
+    float sy2 = sinf(DEG2RAD(Yaw)   * 0.5f);
 
     q0 = cr2*cp2*cy2 + sr2*sp2*sy2;
     q1 = sr2*cp2*cy2 - cr2*sp2*sy2;

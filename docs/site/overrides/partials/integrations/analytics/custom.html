@@ -1,0 +1,29 @@
+<script>
+  window.goatcounter = {
+    no_onload: true,
+    endpoint: "https://{{ config.extra.analytics.property }}.goatcounter.com/count"
+  }
+</script>
+<script async src="//gc.zgo.at/count.js"
+        data-goatcounter="https://{{ config.extra.analytics.property }}.goatcounter.com/count">
+</script>
+<script>
+  /* Count the initial page load once the script is ready */
+  var _gcInit = setInterval(function() {
+    if (!window.goatcounter || !window.goatcounter.count) return;
+    clearInterval(_gcInit);
+    window.goatcounter.count();
+  }, 100);
+
+  /* Track instant-loading navigations (Material SPA mode) */
+  if (typeof location$ !== "undefined") {
+    location$.subscribe(function(url) {
+      if (window.goatcounter && window.goatcounter.count) {
+        window.goatcounter.count({
+          path:  url.pathname + url.search,
+          title: document.title
+        });
+      }
+    });
+  }
+</script>
