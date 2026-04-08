@@ -3045,13 +3045,29 @@ void HandleDownload()
 //      CfgServer.send(200, "application/octet-stream", "");
 
     WiFiClient client = CfgServer.client();
-    uint8_t achBuffer[1460];
+
+    // Disable Nagle so TCP segments go out immediately instead of waiting
+    // for the delayed-ACK timer. This alone is typically a 5-10x speedup
+    // for bulk transfers from the ESP32 WebServer.
+    client.setNoDelay(true);
+
+    // 16 KB staging buffer: large enough to amortize SdFat sector-read
+    // overhead and per-mutex scheduler cost, and to feed LwIP enough data
+    // to keep multiple TCP segments in flight. Sector-aligned (16384 =
+    // 32 × 512) so SdFat can pass full sectors to multi-block SPI reads.
+    // Static (not stack) — the WebServer task has only 10 KB of stack,
+    // and only one download runs at a time.
+    static const size_t DOWNLOAD_BUF_SIZE = 16384;
+    static uint8_t      achBuffer[DOWNLOAD_BUF_SIZE];
+
     while (true)
         {
         size_t iLen = 0;
-        // Getting and giving the semaphore is a bit slow
-        // but wrapping this in one take / give doesn't speed
-        // things that much and not having the sepaphore messes up logging.
+        // Take the mutex once per 16 KB chunk instead of once per 1460
+        // bytes — ~11x fewer mutex ops over the full download, and SdFat
+        // can do one multi-block SPI read instead of many small ones.
+        // Logging is paused via the PauseGuard above, so holding the
+        // mutex longer here doesn't starve the log writer.
         if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
             {
             iLen = file.read(achBuffer, sizeof(achBuffer));
@@ -3069,6 +3085,9 @@ void HandleDownload()
         if (iLen == 0)
             break;
 
+        // Hand the whole chunk to LwIP in one call — it will split into
+        // MSS-sized segments internally and queue as many as the TCP
+        // send window allows. Only loop on partial writes (TX buffer full).
         size_t iWritten = 0;
         while (iWritten < iLen)
             {
@@ -3085,12 +3104,13 @@ void HandleDownload()
                 continue;
                 }
             iWritten += iThisWrite;
-            // Yield periodically to keep WiFi/core-0 responsive during large transfers.
-            delay(0);
             }
 
         if (iWritten != iLen)
             break;
+
+        // Yield between chunks to keep WiFi/core-0 responsive.
+        delay(0);
         }
 
     if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
