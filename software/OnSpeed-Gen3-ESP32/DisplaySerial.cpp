@@ -140,8 +140,8 @@ void DisplaySerial::Write()
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
     const float fPAltFt = m2ft(g_AHRS.KalmanAlt);
 
-    if (IsFiniteFloat(g_AHRS.AccelVertSmoothed))
-        iDisplayVerticalG = (int)ceilf(g_AHRS.AccelVertSmoothed * 10.0f);
+    if (IsFiniteFloat(g_AHRS.AccelVertFilter.get()))
+        iDisplayVerticalG = (int)ceilf(g_AHRS.AccelVertFilter.get() * 10.0f);
     else
         iDisplayVerticalG = 0;
 
@@ -189,7 +189,7 @@ void DisplaySerial::Write()
         const int      iRoll10    = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
         const unsigned uIas10     = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
         const int      iPaltFt    = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
-        const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatSmoothed,  100.0f, -99,      99);
+        const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
         const int      iVertG10   = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift   = ClampUInt((unsigned)iPercentLift,           0,       99);
 
@@ -253,7 +253,7 @@ void DisplaySerial::Write()
         const unsigned uIas10      = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
         const int      iPaltFt     = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
         const int      iYaw10      = SafeScaledInt(g_AHRS.gYaw,          10.0f, -9999,  9999);
-        const int      iLatG100    = SafeScaledInt(-g_AHRS.AccelLatSmoothed,  100.0f, -99,      99);
+        const int      iLatG100    = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
         const int      iVertG10    = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift    = ClampUInt((unsigned)iPercentLift,           0,       99);
         const int      iAoa10      = SafeScaledInt(fDisplayAOA,          10.0f, -999,    999);

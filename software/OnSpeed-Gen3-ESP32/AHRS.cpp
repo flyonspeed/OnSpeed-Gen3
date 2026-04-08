@@ -17,8 +17,7 @@ using onspeed::accelPitch;
 using onspeed::accelRoll;
 using onspeed::safeAsin;
 
-const float accSmoothing        = 0.060899f;            // accelerometer smoothing alpha
-const float accSmoothingComplement = 1.0f - accSmoothing;  // precomputed (1 - alpha)
+constexpr float kAccSmoothing = 0.060899f;              // accelerometer smoothing alpha
 
 const float iasSmoothing = 0.0179f;                             // airspeed smoothing alpha
 const float iasTauFactor = (1.0f / iasSmoothing) - 1.0f;        // tau multiplier for variable-rate EMA
@@ -28,18 +27,26 @@ const float kMinIasForFlightPath = 25.0f;                      // IAS (kt) below
 
 // ----------------------------------------------------------------------------
 
-AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(gyroSmoothing)
+AHRS::AHRS(int gyroSmoothing)
+    : AccelFwdFilter(kAccSmoothing)
+    , AccelLatFilter(kAccSmoothing)
+    , AccelVertFilter(kAccSmoothing)
+    , GxAvg(gyroSmoothing)
+    , GyAvg(gyroSmoothing)
+    , GzAvg(gyroSmoothing)
 {
     fTAS     = 0.0f;
     fPrevTAS = 0.0f;
     TASdotSmoothed = 0.0f;
     uLastIasUpdateUs = 0;
 
-    //// This was init'ed from real accelerometer values in previous version.
-    //// Probably should do that again.
-    AccelFwdSmoothed  =  0.0f;
-    AccelLatSmoothed  =  0.0f;
-    AccelVertSmoothed = -1.0f;
+    // Seed the accel filters with the rest state (Z = -1g, X = Y = 0)
+    // so the very first frames before the IMU has produced a sample read
+    // a level-on-the-ground attitude instead of a degenerate (0,0,0).
+    AccelFwdFilter.seed( 0.0f);
+    AccelLatFilter.seed( 0.0f);
+    AccelVertFilter.seed(-1.0f);
+
     SmoothedPitch =  0.0f;
     SmoothedRoll  =  0.0f;
     FlightPath    =  0.0f;
@@ -260,14 +267,9 @@ void AHRS::Process(float fDeltaTimeSeconds)
     // Smooth accelerometer values and add compensation
     //aFwdCorrAvg.addValue(AccelFwdCorr);
     //aFwd=aFwdCorrAvg.getFastAverage(); // corrected, smoothed
-    AccelFwdSmoothed  = accSmoothing * AccelFwdCorr  + accSmoothingComplement * AccelFwdSmoothed;
-    AccelFwdComp      = AccelFwdSmoothed - AccelFwdCompFactor; //corrected, smoothed and compensated
-
-    AccelLatSmoothed  = accSmoothing * AccelLatCorr  + accSmoothingComplement * AccelLatSmoothed;
-    AccelLatComp      = AccelLatSmoothed - AccelLatCompFactor; //corrected, smoothed and compensated
-
-    AccelVertSmoothed = accSmoothing * AccelVertCorr + accSmoothingComplement * AccelVertSmoothed;
-    AccelVertComp     = AccelVertSmoothed + AccelVertCompFactor; //corrected, smoothed and compensated
+    AccelFwdComp = AccelFwdFilter.update(AccelFwdCorr)  - AccelFwdCompFactor;
+    AccelLatComp = AccelLatFilter.update(AccelLatCorr)  - AccelLatCompFactor;
+    AccelVertComp = AccelVertFilter.update(AccelVertCorr) + AccelVertCompFactor;
 
     // Update attitude filter based on config setting
     // iAhrsAlgorithm: 0=Madgwick (default), 1=EKF6
@@ -364,8 +366,8 @@ void AHRS::Process(float fDeltaTimeSeconds)
 }
 
 float AHRS::PitchWithBias()         { return accelPitch(AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
-float AHRS::PitchWithBiasSmth()     { return accelPitch(AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
+float AHRS::PitchWithBiasSmth()     { return accelPitch(AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
 float AHRS::PitchWithBiasSmthComp() { return accelPitch(AccelFwdComp,     AccelLatComp,     AccelVertComp);     }
 float AHRS::RollWithBias()          { return accelRoll (AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
-float AHRS::RollWithBiasSmth()      { return accelRoll (AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
+float AHRS::RollWithBiasSmth()      { return accelRoll (AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
 float AHRS::RollWithBiasSmthComp()  { return accelRoll (AccelFwdComp,     AccelLatComp,     AccelVertComp);     }
