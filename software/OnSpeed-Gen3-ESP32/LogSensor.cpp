@@ -256,6 +256,7 @@ void LogSensor::Open()
             } // end if EFIS data
 
             m_hLogFile.write(",EarthVerticalG,FlightPath,VSI,Altitude");
+            m_hLogFile.write(",DerivedAOA,CoeffP");
             m_hLogFile.write("\n");
 
             m_hLogFile.sync();
@@ -340,7 +341,7 @@ void LogSensor::Write()
                     g_EfisSerial.suVN300.YawSigma,        g_EfisSerial.suVN300.RollSigma,        g_EfisSerial.suVN300.PitchSigma,
                     g_EfisSerial.suVN300.GnssVelNedNorth, g_EfisSerial.suVN300.GnssVelNedEast,   g_EfisSerial.suVN300.GnssVelNedDown,
                     g_EfisSerial.suVN300.GnssLat,         g_EfisSerial.suVN300.GnssLon,          g_EfisSerial.suVN300.GPSFix,
-                    EfisAge, g_EfisSerial.suVN300.TimeUTC.c_str());
+                    EfisAge, g_EfisSerial.suVN300.szTimeUTC);
             } // end if VN-300
 
             // Other EFIS data sources
@@ -359,6 +360,9 @@ void LogSensor::Write()
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f,%.2f,%.2f",
             g_AHRS.EarthVertG, g_AHRS.FlightPath, mps2fpm(g_AHRS.KalmanVSI), m2ft(g_AHRS.KalmanAlt));
+
+        bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.4f,%.4f",
+            g_AHRS.DerivedAOA, g_fCoeffP);
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, "\n");
 

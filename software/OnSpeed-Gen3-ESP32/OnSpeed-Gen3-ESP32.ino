@@ -19,6 +19,7 @@ Do a text search for comments starting with "////"
 
 #define MAIN
 #include "Globals.h"
+#include <buildinfo.h>
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -69,7 +70,7 @@ void setup()
     //Serial.begin(115200);
     Serial.begin(921600);
     Serial.print("\nOnSpeed Gen3 ");
-    Serial.println(VERSION);
+    Serial.println(BuildInfo::version);
 
     // Setup FreeRTOS semaphores and error logging
     xWriteMutex     = xSemaphoreCreateMutex();

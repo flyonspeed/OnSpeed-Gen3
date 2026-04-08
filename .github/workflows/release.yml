@@ -1,0 +1,86 @@
+name: Release Firmware
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - variant: V4P
+            env: esp32s3-v4p
+          - variant: V4B
+            env: esp32s3-v4b
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0          # Full history for generate_buildinfo.py git tags
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+          key: ${{ runner.os }}-pio-espressif32-55.03.35-v1
+          restore-keys: |
+            ${{ runner.os }}-pio-espressif32-
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build firmware
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Prepare release assets
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          # Strip leading 'v' for filename
+          VER="${TAG#v}"
+          VARIANT=$(echo "${{ matrix.variant }}" | tr '[:upper:]' '[:lower:]')
+
+          mkdir -p release-assets
+
+          # Firmware binary (differs per variant)
+          cp .pio/build/${{ matrix.env }}/firmware.bin \
+             "release-assets/onspeed-${VER}-${VARIANT}-firmware.bin"
+
+          # Bootloader and partitions (platform-level, same for both variants)
+          cp .pio/build/${{ matrix.env }}/bootloader.bin \
+             "release-assets/onspeed-${VER}-bootloader.bin"
+          cp .pio/build/${{ matrix.env }}/partitions.bin \
+             "release-assets/onspeed-${VER}-partitions.bin"
+
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/onspeed-*-${{ matrix.variant == 'V4P' && 'v4p' || 'v4b' }}-firmware.bin
+
+      # Only upload bootloader/partitions once (from V4P job) — they're identical
+      - name: Upload shared binaries to release
+        if: matrix.variant == 'V4P'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/onspeed-*-bootloader.bin
+            release-assets/onspeed-*-partitions.bin
