@@ -271,7 +271,7 @@ void setup()
     xTaskCreatePinnedToCore(AudioPlayTask,        "AudioPlay",      5000,  NULL, 6, &xTaskAudioPlay,     1);
     xTaskCreatePinnedToCore(WriteDisplayDataTask, "Write Display", 10000,  NULL, 4, &xTaskDisplaySerial, 1);
     xTaskCreatePinnedToCore(SwitchCheckTask,      "Check Switch",   5000,  NULL, 4, &xTaskCheckSwitch,   1);
-    xTaskCreatePinnedToCore(HousekeepingTask,     "Housekeeping",   3000,  NULL, 0, &xTaskHousekeeping,  1);
+    xTaskCreatePinnedToCore(HousekeepingTask,     "Housekeeping",   4000,  NULL, 0, &xTaskHousekeeping,  1); // Heartbeat init needed 4 KB in v4.10
 
     //xTaskCreatePinnedToCore(TaskDummy,     "Dummy",     10000, NULL,              5, &xTaskDummy,     0);
 

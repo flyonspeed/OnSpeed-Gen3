@@ -12,7 +12,7 @@
 #define ASYMMETRIC_GYRO_LIMIT         15   // degrees/sec rotation on either axis
 
 // 3D Audio: move audio with the ball, scaling is 0.08 LateralG/ball width
-#define AUDIO_3D_CURVE(x)             (-92.822f*x*x + 20.025f*x)
+#define AUDIO_3D_CURVE(x)             (-92.822f*(x)*(x) + 20.025f*(x))
 static const float fSmoothingFactor = 0.1f;
 
 // Volume smoothing
@@ -56,10 +56,10 @@ void HousekeepingTask(void * pvParams)
             float fCalcGLimitPos;
             float fCalcGLimitNeg;
 
-            if (fabs(g_AHRS.gRoll) >= ASYMMETRIC_GYRO_LIMIT || fabs(g_AHRS.gYaw) >= ASYMMETRIC_GYRO_LIMIT)
+            if (fabsf(g_AHRS.gRoll) >= ASYMMETRIC_GYRO_LIMIT || fabsf(g_AHRS.gYaw) >= ASYMMETRIC_GYRO_LIMIT)
             {
-                fCalcGLimitPos = g_Config.fLoadLimitPositive * 0.666f;
-                fCalcGLimitNeg = g_Config.fLoadLimitNegative * 0.666f;
+                fCalcGLimitPos = g_Config.fLoadLimitPositive * (2.0f / 3.0f);
+                fCalcGLimitNeg = g_Config.fLoadLimitNegative * (2.0f / 3.0f);
             }
             else
             {
@@ -94,7 +94,7 @@ void HousekeepingTask(void * pvParams)
             float fLateralG     = g_AHRS.AccelLatCorr;
             int   iSignLateralG = fLateralG >= 0 ? 1 : -1;
 
-            float fCurveGain = AUDIO_3D_CURVE(fabs(fLateralG));
+            float fCurveGain = AUDIO_3D_CURVE(fabsf(fLateralG));
             if (fCurveGain > 1.0f) fCurveGain = 1.0f;
             if (fCurveGain < 0.0f) fCurveGain = 0.0f;
 
@@ -103,8 +103,8 @@ void HousekeepingTask(void * pvParams)
             if (fChannelGain >  1.0f) fChannelGain =  1.0f;
             if (fChannelGain < -1.0f) fChannelGain = -1.0f;
 
-            float fLeftGain  = fabs(-1.0f + fChannelGain);
-            float fRightGain = fabs( 1.0f + fChannelGain);
+            float fLeftGain  = fabsf(-1.0f + fChannelGain);
+            float fRightGain = fabsf( 1.0f + fChannelGain);
             g_AudioPlay.SetGain(fLeftGain, fRightGain);
 
             g_Log.printf(MsgLog::EnAudio, MsgLog::EnDebug, "%0.3fG, Left: %0.3f, Right: %0.3f\n", fLateralG, fLeftGain, fRightGain);

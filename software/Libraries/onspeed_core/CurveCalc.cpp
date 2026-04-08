@@ -38,7 +38,7 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
     else if (curve.iCurveType == 2) {
         if (x <= 0.0f)
             return 0.0f;
-        y = curve.afCoeff[MAX_CURVE_COEFF - 2] * std::log(x)
+        y = curve.afCoeff[MAX_CURVE_COEFF - 2] * logf(x)
           + curve.afCoeff[MAX_CURVE_COEFF - 1];
         ONSPEED_LOG_DEBUG("%.2f * log(%.2f) + %.2f = %.2f\n",
             curve.afCoeff[MAX_CURVE_COEFF - 2], x,
@@ -48,7 +48,7 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
     // Uses last two coefficients: afCoeff[2] = a, afCoeff[3] = b
     else if (curve.iCurveType == 3) {
         y = curve.afCoeff[MAX_CURVE_COEFF - 2]
-          * std::exp(curve.afCoeff[MAX_CURVE_COEFF - 1] * x);
+          * expf(curve.afCoeff[MAX_CURVE_COEFF - 1] * x);
         ONSPEED_LOG_DEBUG("%.2f * exp(%.2f * %.2f) = %.2f\n",
             curve.afCoeff[MAX_CURVE_COEFF - 2],
             curve.afCoeff[MAX_CURVE_COEFF - 1], x, y);
