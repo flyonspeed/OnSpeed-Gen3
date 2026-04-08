@@ -16,6 +16,7 @@ using onspeed::rad2deg;
 using onspeed::kts2mps;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::fpm2mps;
 using onspeed::safeAsin;
 
 // wifi data variables
@@ -194,7 +195,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiRoll  = g_EfisSerial.suEfis.Roll;
             if (g_EfisSerial.suEfis.TAS > 0)
             {
-                fWifiFlightpath = rad2deg(safeAsin(g_AHRS.KalmanVSI/kts2mps(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
+                // Use EFIS VSI (matches the EFIS pitch/roll above) instead of
+                // KalmanVSI to avoid mixing data sources in the same JSON payload.
+                const float fEfisVsiMps = fpm2mps(g_EfisSerial.suEfis.VSI);
+                fWifiFlightpath = rad2deg(safeAsin(fEfisVsiMps / kts2mps(g_EfisSerial.suEfis.TAS)));
             }
 
             else

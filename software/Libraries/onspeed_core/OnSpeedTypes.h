@@ -65,6 +65,9 @@ constexpr float m2ft(float m) { return m * 3.28084f; }
 /// Meters/second to feet/minute
 constexpr float mps2fpm(float mps) { return mps * 196.85f; }
 
+/// Feet/minute to meters/second
+constexpr float fpm2mps(float fpm) { return fpm / 196.85f; }
+
 /// Meters/second to knots
 constexpr float mps2kts(float mps) { return mps * 1.94384f; }
 
