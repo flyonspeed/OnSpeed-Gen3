@@ -161,7 +161,7 @@ void AudioPlayTask(void * psuParams)
             }
 
         // If there is a tone play then keep pumping out tone buffers. Note that PlayTone()
-        // blocks until it finishes writing 100 msec of tone data.
+        // blocks until it finishes writing 50 msec of tone data.
         if (g_AudioPlay.enTone != enToneNone)
             g_AudioPlay.PlayTone();
 
