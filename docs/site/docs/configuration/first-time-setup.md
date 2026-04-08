@@ -75,8 +75,8 @@ Configure these aircraft-specific values:
 | **Vno** | Your aircraft's max structural cruising speed (knots) | 157 |
 | **Positive G-limit** | Maximum positive load factor | 4.0 |
 | **Negative G-limit** | Maximum negative load factor (enter as negative) | -2.0 |
-| **Best Glide IAS** | Best glide speed at gross weight (knots) | 87.5 |
-| **Gross Weight** | Aircraft gross weight (lbs) | 2282 |
+| **Best Glide IAS** | Best glide speed at max gross weight (knots) | 87.5 |
+| **Max Gross Weight** | Aircraft max gross weight (lbs) | 2282 |
 | **Vfe** | Max flaps-extended speed (knots) | 150 |
 
 ## Step 6: Configure Audio

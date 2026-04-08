@@ -33,8 +33,8 @@ The wizard asks for:
 
 | Parameter | What to Enter |
 |-----------|---------------|
-| **Gross Weight** | Current aircraft weight in pounds |
-| **Stall Speed (Vs)** | Published stall speed at gross weight for the current flap setting |
+| **Max Gross Weight** | Aircraft maximum gross weight in pounds |
+| **Stall Speed (Vs)** | Published stall speed at max gross weight for the current flap setting |
 | **Vfe** | Max flaps-extended speed (if calibrating with flaps) |
 | **G-Limit** | Aircraft structural G-limit |
 | **Best Glide IAS** | Best glide speed at current weight |

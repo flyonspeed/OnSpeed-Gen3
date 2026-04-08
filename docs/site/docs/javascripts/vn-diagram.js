@@ -35,9 +35,9 @@
   var PLOT_W  = SVG_W - PAD.left - PAD.right
   var PLOT_H  = SVG_H - PAD.top - PAD.bottom
   var V_MIN   = 0
-  var V_MAX   = 250   // matches PDF x-axis
-  var N_MIN   = -4
-  var N_MAX   = 9     // matches PDF y-axis
+  var V_MAX   = 200   // tightened to RV-4 flight envelope
+  var N_MIN   = -3.5
+  var N_MAX   = 7     // tightened to RV-4 flight envelope
 
   // ── Helpers ────────────────────────────────────────────────────
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }

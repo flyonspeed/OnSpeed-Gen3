@@ -2,13 +2,62 @@
 
 How to flash the OnSpeed firmware to a new or existing controller board.
 
-## Download Pre-Built Firmware
+## Which Hardware Do I Have?
 
-Pre-built firmware binaries are available from the GitHub repository:
+OnSpeed Gen3 has two hardware variants with different pin assignments. You must flash the correct firmware for your board.
 
-1. Go to the [OnSpeed-Gen3 GitHub releases](https://github.com/flyonspeed/OnSpeed-Gen3/releases)
-2. Download the latest `.bin` firmware file
-3. If no release is available, CI builds produce artifacts on each push — check the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions)
+| Variant | Description | How to identify |
+|---------|-------------|-----------------|
+| **V4P** | Phil's box — most common | Label on PCB, or if you received your board from Phil |
+| **V4B** | Bob's box | Label on PCB, or if you received your board from Bob |
+
+!!! tip "Not sure?"
+    If you don't know which variant you have, ask the person who built your board, or check for a label on the PCB. V4P is far more common. If you flash the wrong variant, the sensors will read incorrectly — but it won't damage anything, and you can re-flash with the correct version.
+
+## Getting Firmware
+
+### Stable Releases (Recommended)
+
+Pre-built firmware binaries for each release are on GitHub:
+
+1. Go to the [latest GitHub release](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest)
+2. Download the files for your hardware variant:
+
+| File | What it is | When you need it |
+|------|-----------|-----------------|
+| `onspeed-X.Y.Z-v4p-firmware.bin` | Application firmware for V4P | OTA or USB flash |
+| `onspeed-X.Y.Z-v4b-firmware.bin` | Application firmware for V4B | OTA or USB flash |
+| `onspeed-X.Y.Z-bootloader.bin` | ESP32 bootloader (same for both variants) | USB flash only |
+| `onspeed-X.Y.Z-partitions.bin` | Flash partition table (same for both variants) | USB flash only |
+
+### Development Builds
+
+Every push to the `master` branch and every pull request builds firmware automatically. To download a development build:
+
+1. Go to the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml)
+2. Click on a successful workflow run
+3. Scroll to **Artifacts** and download `onspeed-<version>-V4P.zip` or `onspeed-<version>-V4B.zip`
+4. **Unzip** the downloaded file — inside you'll find three `.bin` files:
+
+    | File | What it is | When you need it |
+    |------|-----------|-----------------|
+    | `firmware.bin` | Application firmware | **Always** — this is what you flash for OTA or USB |
+    | `bootloader.bin` | ESP32 bootloader | USB flash only (initial setup or recovery) |
+    | `partitions.bin` | Flash partition table | USB flash only (initial setup or recovery) |
+
+    For a routine **OTA update**, you only need `firmware.bin` — you can ignore the other two files.
+
+!!! note "GitHub account required"
+    Downloading CI artifacts requires a GitHub account. Artifacts are retained for 30 days.
+
+### PR Test Builds
+
+Pull requests that touch firmware code automatically build both variants. A comment on the PR links directly to the downloadable `.zip` artifacts. Download and unzip just like a development build above.
+
+## Which Update Method?
+
+- **OTA (WiFi)**: Use for routine updates when the box is already running and the `OnSpeed` WiFi network appears. You only need the `firmware.bin` for your variant. See [OTA Updates](ota-update.md).
+- **USB (esptool)**: Use for initial flash on a brand-new board, or to recover a bricked device that won't boot. You need all 3 files (bootloader + partitions + firmware). See below.
 
 ## Flash via USB with esptool
 
@@ -28,11 +77,19 @@ pip install esptool
 
 ### Flash the Firmware
 
+Flash all three files at the correct addresses:
+
 ```bash
-esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 --baud 921600 write_flash 0x0 firmware.bin
+esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 --baud 921600 \
+  write_flash 0x0 onspeed-X.Y.Z-bootloader.bin \
+              0x8000 onspeed-X.Y.Z-partitions.bin \
+              0x10000 onspeed-X.Y.Z-v4p-firmware.bin
 ```
 
-Replace `/dev/cu.usbmodem1101` with your actual serial port and `firmware.bin` with the downloaded filename.
+Replace `/dev/cu.usbmodem1101` with your actual serial port. Replace `v4p` with `v4b` if you have Bob's hardware.
+
+!!! warning "Three files at three addresses"
+    The bootloader goes at `0x0`, partitions at `0x8000`, and firmware at `0x10000`. Writing firmware to address `0x0` will overwrite the bootloader and the board won't boot.
 
 ### Verify
 
@@ -49,7 +106,12 @@ If you have the source code and PlatformIO installed:
 
 ```bash
 cd OnSpeed-Gen3
-pio run -t upload
+
+# Flash V4P (default)
+pio run -e esp32s3-v4p -t upload
+
+# Flash V4B
+pio run -e esp32s3-v4b -t upload
 ```
 
 This builds the firmware from source and uploads it in one step.

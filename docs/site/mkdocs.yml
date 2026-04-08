@@ -1,12 +1,13 @@
 site_name: OnSpeed Gen3 Documentation
 site_description: Open-source AOA indicator for general aviation — installation, configuration, calibration, and flight operations guide
-site_url: https://flyonspeed.github.io/OnSpeed-Gen3/
+site_url: https://dev.flyonspeed.org/
 repo_url: https://github.com/flyonspeed/OnSpeed-Gen3
 repo_name: flyonspeed/OnSpeed-Gen3
 edit_uri: edit/master/docs/site/docs/
 
 theme:
   name: material
+  custom_dir: overrides
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -32,9 +33,10 @@ theme:
     - search.highlight
     - content.code.copy
     - content.action.edit
+  logo: assets/images/logo.png
+  favicon: assets/images/favicon.png
   icon:
     repo: fontawesome/brands/github
-    logo: material/airplane
 
 plugins:
   - search
@@ -72,11 +74,19 @@ extra_javascript:
   - https://unpkg.com/katex@0/dist/katex.min.js
   - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
   - javascripts/vn-diagram.js
+  - javascripts/tone-simulator.js
 
 extra_css:
   - https://unpkg.com/katex@0/dist/katex.min.css
 
 extra:
+  analytics:
+    provider: custom
+    property: flyonspeed
+  version:
+    provider: mike
+    default:
+      - latest
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/flyonspeed/OnSpeed-Gen3
@@ -94,7 +104,7 @@ nav:
     - System Overview: getting-started/system-overview.md
     - What You Need: getting-started/what-you-need.md
     - Safety & Limitations: getting-started/safety.md
-  - Hardware Installation:
+  - Installation:
     - installation/index.md
     - Mounting the Controller: installation/mounting.md
     - Pneumatic Plumbing: installation/pneumatics.md
@@ -114,7 +124,7 @@ nav:
     - MGL iEFIS: efis-integration/mgl.md
     - VectorNav VN-300: efis-integration/vectornav.md
     - No EFIS (Standalone): efis-integration/standalone.md
-  - Software & Firmware:
+  - Firmware:
     - software/index.md
     - Flashing Firmware: software/flashing.md
     - OTA Updates via WiFi: software/ota-update.md
@@ -133,14 +143,15 @@ nav:
     - How OnSpeed Measures AOA: calibration/how-aoa-works.md
     - Calibration Wizard: calibration/wizard.md
     - Verifying Calibration: calibration/verification.md
-  - Flying with OnSpeed:
+  - Flying:
     - flying/index.md
     - What the Tones Mean: flying/tone-map.md
+    - Tone Simulator: flying/tone-simulator.md
     - Flight Envelope (V-n Diagram): flying/vn-diagram.md
     - Normal Operations: flying/normal-ops.md
     - Approach and Landing: flying/approach-landing.md
-    - Warnings and Alerts: flying/warnings.md
-  - Data & Logs:
+    - Summary of Warnings and Alerts: flying/warnings.md
+  - Logs:
     - data-and-logs/index.md
     - Understanding Logs: data-and-logs/log-format.md
     - Downloading Logs: data-and-logs/downloading.md

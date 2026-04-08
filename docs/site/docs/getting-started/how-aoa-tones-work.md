@@ -8,7 +8,8 @@ As AOA increases (you slow down or load up), you progress through five regions:
 
 ```
  FAST ─────── L/Dmax ────── ONSPEED ────── SLOW ─────── STALL
- (silence)   (low pulse)   (solid tone)   (high pulse)  (high buzz)
+ (silence)   (low-pitch    (ONSPEED       (high-pitch   (stall warning
+              pulsing)      solid tone)     pulsing)      buzz)
               ~50% lift      ~60% lift     65-90% lift    >90% lift
 ```
 
@@ -18,17 +19,17 @@ As AOA increases (you slow down or load up), you progress through five regions:
 
 You're above best-glide speed. No tones play. The wing is working at less than half its capability. This is normal for cruise, downwind, and most maneuvering above approach speeds.
 
-#### 2. Low Pulse — L/D~MAX~ to ONSPEED (~50–60% Lift)
+#### 2. Low-Pitch Pulsing — L/D~MAX~ to ONSPEED (~50–60% Lift)
 
-A **low-pitched tone (400 Hz)** begins pulsing slowly (~1.5 pulses/sec), speeding up as you approach the ONSPEED band (up to ~8.2 pulses/sec). This region spans from best-glide speed (maximum range, maximum L/D) down to the ONSPEED condition.
+A **low-pitch tone (400 Hz)** begins pulsing slowly (~1.5 pulses/sec), speeding up as you approach the ONSPEED band (up to ~8.2 pulses/sec). This region spans from best-glide speed (maximum range, maximum L/D) down to the ONSPEED condition.
 
 This is the "slightly fast" region. Effective power is positive — the airplane can sustain this condition and has margin available. In gusty conditions, flying in this region provides extra stall margin.
 
 **Pilot action**: Decelerating normally — no correction needed unless you want to slow further.
 
-#### 3. Solid Low Tone — ONSPEED (~60% Lift)
+#### 3. ONSPEED Solid Tone — ONSPEED (~60% Lift)
 
-The pulse stops and you hear a **steady, solid low-pitched tone (400 Hz)**. This is the ONSPEED condition — balanced effective power, where thrust and drag are matched for the current effective weight.
+The pulse stops and you hear a **steady, solid low-pitch tone (400 Hz)**. This is the ONSPEED condition — balanced effective power, where thrust and drag are matched for the current effective weight.
 
 ONSPEED corresponds to:
 
@@ -40,17 +41,17 @@ ONSPEED corresponds to:
 
 **Pilot action**: Hold this. Fly to keep this tone steady.
 
-#### 4. High Pulse — Below ONSPEED (~65–90% Lift)
+#### 4. High-Pitch Pulsing — Below ONSPEED (~65–90% Lift)
 
-The tone jumps to a **higher pitch (1600 Hz)** and starts pulsing — slowly at first (~1.5 pulses/sec), speeding up as AOA continues to increase (up to ~6.2 pulses/sec). Volume also increases.
+The tone jumps to a **high pitch (1600 Hz)** and starts pulsing — slowly at first (~1.5 pulses/sec), speeding up as AOA continues to increase (up to ~6.2 pulses/sec). Volume also increases.
 
 This is the critical region. **Effective power is negative** — the current combination of power and angle of attack is unsustainable. The airplane must either descend, decelerate, or the pilot must correct. The faster the pulsing, the less margin remains.
 
 **Pilot action**: **Push** — add power (push throttle forward) and/or reduce AOA (push forward on the stick/yoke). Both actions reduce the energy deficit.
 
-#### 5. Stall Warning — Above ~90% Lift
+#### 5. Stall Warning Buzz — Above ~90% Lift
 
-A **rapid high-pitched pulsing (1600 Hz)** at 20 pulses per second — essentially a continuous buzz. The wing is at or near its maximum lift capability. Stall is imminent.
+A **rapid high-pitch pulsing (1600 Hz)** at 20 pulses per second — essentially a continuous buzz. The wing is at or near its maximum lift capability. Stall is imminent.
 
 **Pilot action**: **Unload for control** — reduce AOA immediately. Ease forward pressure, add power, reduce bank angle. The wing cannot produce more lift; the only recovery is reducing the demand on it.
 
@@ -63,14 +64,14 @@ The tone pattern provides a simple decision cue:
 
 | Tone | Decision | Action |
 |------|----------|--------|
-| **High-pitched pulsing** (slow) | **Push** | Add power, reduce AOA, or both |
-| **Solid tone** (ONSPEED) | **Hold** | Maintain current pitch and power |
-| **Low-pitched pulsing** (fast) | **Pull** | Reduce power, increase AOA, or both |
+| **High-pitch pulsing** (slow) | **Push** | Add power, reduce AOA, or both |
+| **ONSPEED solid tone** | **Hold** | Maintain current pitch and power |
+| **Low-pitch pulsing** (fast) | **Pull** | Reduce power, increase AOA, or both |
 
 When flying an approach at ONSPEED, the pilot need only respond to the cueing:
 
-- A slow tone requires **pushing** something — throttle, control pressure, or both
-- A fast tone requires **pulling** something — throttle back, ease pitch
+- High-pitch pulsing requires **pushing** something — throttle, control pressure, or both
+- Low-pitch pulsing requires **pulling** something — throttle back, ease pitch
 - The logic works in any flight condition, not just straight-and-level approaches
 
 ## Tone Characteristics
@@ -87,7 +88,7 @@ Within the pulsing regions, the pulse rate is **interpolated linearly** — you 
 
 ## Why Continuous Cueing Works
 
-The ONSPEED condition is indicated by a **steady tone rather than silence**. The continuous presence of the tone serves as confirmation of system operation. Silence means fast; the absence of tone is itself information.
+The ONSPEED condition is indicated by the **ONSPEED solid tone rather than silence**. The continuous presence of the tone serves as confirmation of system operation. Silence means fast; the absence of tone is itself information.
 
 This design means you always know the system is working when you need it most — during the approach and landing phase. If you're on speed and the tone disappears, something is wrong with the system, not with your flying.
 
@@ -102,7 +103,7 @@ This provides sideslip awareness without requiring a visual scan of the slip/ski
 If you press the audio mute button:
 
 - All normal tones are silenced
-- The **stall warning still sounds** (safety override)
+- The **stall warning buzz still sounds** (safety override)
 - Stall warning in muted mode requires both AOA above the stall threshold AND IAS above the mute-under-IAS setting
 
 ## Why This Works

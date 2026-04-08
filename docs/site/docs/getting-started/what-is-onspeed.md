@@ -46,16 +46,16 @@ OnSpeed maps angle of attack to a continuous spectrum of audio cues. As you slow
 | What You Hear | AOA Condition | What It Means | What to Do |
 |---|---|---|---|
 | **Silence** | Below L/D~MAX~ | You're fast — well above best-glide speed | No action needed |
-| **Slow pulsing, low tone** | L/D~MAX~ to ONSPEED | Approaching the ONSPEED band | Decelerating normally |
-| **Steady tone** | ONSPEED | Balanced effective power at any condition | Hold this — you're on speed |
-| **Fast pulsing, high tone** | Below ONSPEED | Effective power is negative — unsustainable | Push: add power and/or reduce AOA |
-| **Rapid buzz** | Near stall | Stall imminent — no aerodynamic margin | Immediate AOA reduction |
+| **Low-pitch pulsing** | L/D~MAX~ to ONSPEED | Approaching the ONSPEED band | Decelerating normally |
+| **ONSPEED solid tone** | ONSPEED | Balanced effective power at any condition | Hold this — you're on speed |
+| **High-pitch pulsing** | Below ONSPEED | Effective power is negative — unsustainable | Push: add power and/or reduce AOA |
+| **Stall warning buzz** | Near stall | Stall imminent — no aerodynamic margin | Immediate AOA reduction |
 
 The logic is simple:
 
-- **Slow tone → Push** something (throttle forward, nose down)
-- **Fast tone → Pull** something (throttle back, ease back pressure to slow descent rate)
-- **Steady tone → Hold** this condition
+- **High-pitch pulsing → Push** something (throttle forward, nose down)
+- **Low-pitch pulsing → Pull** something (throttle back, ease back pressure to slow descent rate)
+- **ONSPEED solid tone → Hold** this condition
 
 Because AOA is independent of weight and G-loading, the tones work correctly in turns, at any weight, and at any altitude.
 
