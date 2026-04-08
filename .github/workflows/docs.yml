@@ -1,0 +1,103 @@
+name: Documentation
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docs/site/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'docs/site/**'
+      - '.github/workflows/docs.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # PR builds — just validate, no deploy
+  build:
+    name: Build Documentation
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "mkdocs>=1.6,<2" mkdocs-material
+      - name: Build site (strict)
+        working-directory: docs/site
+        run: mkdocs build --strict
+
+  # Master push — deploy as "latest" (always current master)
+  deploy-latest:
+    name: Deploy Latest Docs
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike
+      - name: Configure git
+        run: |
+          git config --global user.name "Docs Deploy Bot"
+          git config --global user.email "docs@flyonspeed.org"
+      - name: Fetch gh-pages
+        run: git fetch origin gh-pages --depth=1 || true
+      - name: Deploy latest docs
+        working-directory: docs/site
+        run: |
+          mike deploy --push --update-aliases latest
+          mike set-default --push latest
+      - name: Ensure CNAME on gh-pages
+        run: |
+          git checkout gh-pages
+          if [ ! -f CNAME ]; then
+            echo "dev.flyonspeed.org" > CNAME
+            git add CNAME
+            git commit -m "Add CNAME for custom domain"
+            git push origin gh-pages
+          fi
+          git checkout -
+
+  # GitHub Release — deploy frozen version snapshot
+  deploy-release:
+    name: Deploy Release Docs
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike
+      - name: Configure git
+        run: |
+          git config --global user.name "Docs Deploy Bot"
+          git config --global user.email "docs@flyonspeed.org"
+      - name: Fetch gh-pages
+        run: git fetch origin gh-pages --depth=1 || true
+      - name: Deploy release docs
+        working-directory: docs/site
+        run: mike deploy --push ${{ github.event.release.tag_name }}
+      - name: Ensure CNAME on gh-pages
+        run: |
+          git checkout gh-pages
+          if [ ! -f CNAME ]; then
+            echo "dev.flyonspeed.org" > CNAME
+            git add CNAME
+            git commit -m "Add CNAME for custom domain"
+            git push origin gh-pages
+          fi
+          git checkout -

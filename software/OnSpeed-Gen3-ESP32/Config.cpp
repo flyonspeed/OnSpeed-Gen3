@@ -296,6 +296,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // Calibration data source
     sCalSource          = "ONSPEED";
+    bCalSourceEfis      = false;
 
     // Biases
     iPFwdBias           = 8192;
@@ -321,6 +322,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // serial output
     sSerialOutFormat    = "ONSPEED";
+    enSerialOutFormat   = EnSerialFmtOnSpeed;
 
     // load limit
     fLoadLimitPositive  =  4.0;
@@ -336,7 +338,6 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // Aircraft parameters
     iAcGrossWeight      = 0;
-    iAcCurrentWeight    = 0;
     fAcBestGlideIAS     = 0.0;
     fAcVfe              = 0.0;
     fAcGlimit           = 0.0;
@@ -397,6 +398,7 @@ String FOSConfig::ConfigurationToString()
         XML_INSERT_SET(XmlConfigFlaps, "MANAOA",         aFlaps[iFlapIdx].fMANAOA)
         XML_INSERT_SET(XmlConfigFlaps, "ALPHA0",         aFlaps[iFlapIdx].fAlpha0)
         XML_INSERT_SET(XmlConfigFlaps, "ALPHASTALL",     aFlaps[iFlapIdx].fAlphaStall)
+        XML_INSERT_SET(XmlConfigFlaps, "KFIT",           aFlaps[iFlapIdx].fKFit)
 
         XML_INSERT(XmlConfigFlaps, "AOA_CURVE")
         XMLElement * XmlConfigAoACurve = XmlConfigNew;
@@ -473,7 +475,6 @@ String FOSConfig::ConfigurationToString()
     XML_INSERT(XmlConfigRoot, "AIRCRAFT")
     XMLElement * XmlConfigAircraft = XmlConfigNew;
     XML_INSERT_SET(XmlConfigAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
-    XML_INSERT_SET(XmlConfigAircraft, "CURRENT_WEIGHT",  iAcCurrentWeight)
     XML_INSERT_SET(XmlConfigAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
     XML_INSERT_SET(XmlConfigAircraft, "VFE",             fAcVfe)
     XML_INSERT_SET(XmlConfigAircraft, "G_LIMIT",         fAcGlimit)
@@ -586,6 +587,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Calibration data source
         sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE");
+        bCalSourceEfis       = (sCalSource == "EFIS");
 
         // Biases
         iPFwdBias           =  GetConfigValue(sConfig,"PFWD_BIAS").toInt();
@@ -605,6 +607,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // serial output
         sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT");
+        enSerialOutFormat   = ParseSerialFmt(sSerialOutFormat);
 //        sSerialOutPort      = GetConfigValue(sConfig,"SERIALOUTPORT");
 
         // Load limit
@@ -715,6 +718,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             XML_GET_FLOAT(pXmlFlaps, "MANAOA",         suFlaps.fMANAOA)
             XML_GET_FLOAT(pXmlFlaps, "ALPHA0",         suFlaps.fAlpha0)
             XML_GET_FLOAT(pXmlFlaps, "ALPHASTALL",     suFlaps.fAlphaStall)
+            XML_GET_FLOAT(pXmlFlaps, "KFIT",           suFlaps.fKFit)
 
             XMLElement * pXmlAoaCurve = pXmlFlaps->FirstChildElement("AOA_CURVE");
             if (pXmlAoaCurve != NULL)
@@ -789,9 +793,11 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Serial output
         XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
+        enSerialOutFormat = ParseSerialFmt(sSerialOutFormat);
 //        XML_GET_STR(XmlRootNode, "SERIALOUTPORT",     sSerialOutPort)
 
         XML_GET_STR(XmlRootNode, "CALWIZ_SOURCE",         sCalSource)
+        bCalSourceEfis = (sCalSource == "EFIS");
 
         XMLElement * pXmlBias = XmlRootNode->FirstChildElement("BIAS");
         if (pXmlBias != NULL)
@@ -830,7 +836,6 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         if (pXmlAircraft != NULL)
             {
             XML_GET_INT  (pXmlAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
-            XML_GET_INT  (pXmlAircraft, "CURRENT_WEIGHT",  iAcCurrentWeight)
             XML_GET_FLOAT(pXmlAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
             XML_GET_FLOAT(pXmlAircraft, "VFE",             fAcVfe)
             XML_GET_FLOAT(pXmlAircraft, "G_LIMIT",         fAcGlimit)

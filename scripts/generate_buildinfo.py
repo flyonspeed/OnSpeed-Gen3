@@ -7,7 +7,7 @@ It extracts version info from git tags (vX.Y.Z format) and writes
 the buildinfo.cpp file with actual values.
 
 Usage:
-    python scripts/generate_buildinfo.py [--output lib/version/buildinfo.cpp]
+    python scripts/generate_buildinfo.py [--output software/Libraries/version/buildinfo.cpp]
 
 For PlatformIO integration, add to platformio.ini:
     extra_scripts = pre:scripts/generate_buildinfo.py
@@ -35,10 +35,11 @@ const char* gitSha = "{git_sha}";
 const char* gitShortSha = "{git_short_sha}";
 const char* gitBranch = "{git_branch}";
 const char* buildDate = "{build_date}";
-const bool isRelease = {is_release};
-const int versionMajor = {version_major};
-const int versionMinor = {version_minor};
-const int versionPatch = {version_patch};
+// 'extern' forces external linkage so these override weak defaults
+extern const bool isRelease = {is_release};
+extern const int versionMajor = {version_major};
+extern const int versionMinor = {version_minor};
+extern const int versionPatch = {version_patch};
 
 }}  // namespace BuildInfo
 '''
@@ -66,30 +67,31 @@ def get_version_from_tag() -> tuple[str, int, int, int, bool]:
     # Try to get a tag pointing to current commit
     tag = run_git(["describe", "--tags", "--exact-match", "HEAD"])
 
-    if tag and re.match(r"^v?\d+\.\d+\.\d+", tag):
-        # We're on a tagged release
+    if tag and re.match(r"^v?\d+\.\d+", tag):
+        # We're on a tagged release (supports both vX.Y and vX.Y.Z)
         version_str = tag.lstrip("v")
-        match = re.match(r"(\d+)\.(\d+)\.(\d+)", version_str)
+        match = re.match(r"(\d+)\.(\d+)(?:\.(\d+))?", version_str)
         if match:
-            return (
-                version_str,
-                int(match.group(1)),
-                int(match.group(2)),
-                int(match.group(3)),
-                True,
-            )
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            patch = int(match.group(3)) if match.group(3) else 0
+            # Normalize to 3-part version
+            version_str = f"{major}.{minor}.{patch}"
+            return (version_str, major, minor, patch, True)
 
     # Not on a release tag - use describe for dev version
     describe = run_git(["describe", "--tags", "--always"])
     if describe:
-        # Parse vX.Y.Z-N-gSHORTSHA format
-        match = re.match(r"v?(\d+)\.(\d+)\.(\d+)(?:-(\d+)-g([a-f0-9]+))?", describe)
+        # Parse vX.Y[.Z]-N-gSHORTSHA format (supports both 2-part and 3-part tags)
+        match = re.match(r"v?(\d+)\.(\d+)(?:\.(\d+))?(?:-(\d+)-g([a-f0-9]+))?", describe)
         if match:
-            major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3))
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            patch = int(match.group(3)) if match.group(3) else 0
             commits_ahead = match.group(4)
             if commits_ahead:
                 # Development build: bump patch and add -dev
-                return (f"{major}.{minor}.{patch + 1}-dev+{commits_ahead}", major, minor, patch + 1, False)
+                return (f"{major}.{minor}.{patch + 1}-dev.{commits_ahead}", major, minor, patch + 1, False)
             else:
                 # Exact tag match
                 return (f"{major}.{minor}.{patch}", major, minor, patch, True)
@@ -107,6 +109,10 @@ def generate_buildinfo(output_path: Path) -> None:
     build_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     version_str, major, minor, patch, is_release = get_version_from_tag()
+
+    # Append short SHA as semver build metadata for non-release builds
+    if not is_release and git_short_sha != "unknown":
+        version_str = f"{version_str}+{git_short_sha}"
 
     content = TEMPLATE.format(
         version=version_str,
@@ -140,7 +146,7 @@ def main():
     project_root = script_dir.parent
 
     # Default output path
-    output_path = project_root / "lib" / "version" / "buildinfo.cpp"
+    output_path = project_root / "software" / "Libraries" / "version" / "buildinfo.cpp"
 
     # Parse command line args
     if len(sys.argv) > 2 and sys.argv[1] == "--output":
@@ -153,7 +159,7 @@ def main():
 def before_build(source, target, env):
     """Called by PlatformIO before build."""
     project_dir = Path(env.get("PROJECT_DIR", "."))
-    output_path = project_dir / "lib" / "version" / "buildinfo.cpp"
+    output_path = project_dir / "software" / "Libraries" / "version" / "buildinfo.cpp"
     generate_buildinfo(output_path)
 
 
