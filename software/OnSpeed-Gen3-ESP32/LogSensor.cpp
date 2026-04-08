@@ -28,6 +28,26 @@ static FsFile       m_hLogFile;
 // non-blocking so SD-card stalls can't backpressure critical tasks.
 static uint32_t      s_uRingDropCount = 0;
 
+// Staging buffer: accumulate log lines and write in 512-byte-aligned
+// chunks so SdFat can pass full sectors straight to multi-block SPI.
+// Accessed from LogSensorCommitTask and LogSensor::Close(); both code
+// paths must hold xWriteMutex when touching szWriteBuf or uBufUsed.
+static const size_t  SECTOR_SIZE    = 512;
+static const size_t  WRITE_BUF_SIZE = SECTOR_SIZE * 4;    // 2048 bytes
+static char          szWriteBuf[WRITE_BUF_SIZE];
+static size_t        uBufUsed       = 0;
+
+// Write any remaining bytes in the staging buffer to the log file.
+// Caller must hold xWriteMutex and ensure m_hLogFile.isOpen().
+static void FlushStagingBufferLocked()
+    {
+    if (uBufUsed > 0 && m_hLogFile.isOpen())
+        {
+        m_hLogFile.write(szWriteBuf, uBufUsed);
+        uBufUsed = 0;
+        }
+    }
+
 static bool Appendf(char * pBuf, size_t uBufSize, int & iLen, const char * szFmt, ...)
     {
     if (pBuf == nullptr || uBufSize == 0)
@@ -74,13 +94,6 @@ static bool Appendf(char * pBuf, size_t uBufSize, int & iLen, const char * szFmt
 
 void LogSensorCommitTask(void *pvParams)
 {
-    // Staging buffer: accumulate log lines and write in 512-byte-aligned
-    // chunks so SdFat can pass full sectors straight to multi-block SPI.
-    static const size_t   SECTOR_SIZE = 512;
-    static const size_t   WRITE_BUF_SIZE = SECTOR_SIZE * 4;    // 2048 bytes
-    static char           szWriteBuf[WRITE_BUF_SIZE];
-    static size_t         uBufUsed = 0;
-
     static size_t         iPrintLen;
     static char         * pchIn;
     static TickType_t     xLastSyncTime = xTaskGetTickCount();
@@ -118,6 +131,25 @@ void LogSensorCommitTask(void *pvParams)
             continue;
             }
 
+        // Take the write mutex for the full drain+write cycle. Both the
+        // staging buffer (szWriteBuf/uBufUsed) and the log file handle
+        // are shared with LogSensor::Close() and other SD-consuming paths,
+        // so serialize all access through xWriteMutex. The first receive
+        // below waits up to 100 ms, so this task will hold the mutex for
+        // up to ~100 ms when idle — still well under the 1000+ ms timeouts
+        // used by every other taker.
+        if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
+            {
+            static unsigned long uLastWarnMs = 0;
+            unsigned long uNow = millis();
+            if ((uNow - uLastWarnMs) > 2000)
+                {
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "SD busy (xWriteMutex); skipping drain");
+                uLastWarnMs = uNow;
+                }
+            continue;
+            }
+
         // Drain available items from the ring buffer into the staging buffer.
         // First receive blocks up to 100 ms (keeps watchdog happy); subsequent
         // receives are non-blocking to batch everything currently queued.
@@ -132,9 +164,14 @@ void LogSensorCommitTask(void *pvParams)
             if (pchIn == NULL)
                 break;
 
-            // Append to staging buffer if it fits, otherwise flush first
+            // If the next item won't fit, stop draining and write what we
+            // have. We'll pick up this item on the next iteration.
             if (uBufUsed + iPrintLen > WRITE_BUF_SIZE)
-                break;      // write what we have, re-receive next iteration
+                {
+                vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
+                pchIn = NULL;
+                break;
+                }
 
             memcpy(szWriteBuf + uBufUsed, pchIn, iPrintLen);
             uBufUsed += iPrintLen;
@@ -156,27 +193,9 @@ void LogSensorCommitTask(void *pvParams)
             }
 
         // Write 512-byte-aligned chunks to disk
+        bool bDidSync = false;
         if (uBufUsed > 0 && m_hLogFile.isOpen() && (g_bPause == false))
         {
-            bool bDidSync = false;
-            if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
-                {
-                static unsigned long uLastWarnMs = 0;
-                unsigned long uNow = millis();
-                if ((uNow - uLastWarnMs) > 2000)
-                    {
-                    g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "SD busy (xWriteMutex); skipping write");
-                    uLastWarnMs = uNow;
-                    }
-                // Return any un-consumed item we broke out of the drain loop with
-                if (pchIn != NULL)
-                    {
-                    vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
-                    pchIn = NULL;
-                    }
-                continue;
-                }
-
             // Write full sectors. Any remainder stays in the buffer for
             // the next batch, keeping writes 512-byte-aligned.
             size_t uAligned   = (uBufUsed / SECTOR_SIZE) * SECTOR_SIZE;
@@ -200,11 +219,7 @@ void LogSensorCommitTask(void *pvParams)
             // Flush any remaining partial sector before sync so the data is on disk.
             if ((xTaskGetTickCount() - xLastSyncTime) > pdMS_TO_TICKS(SYNC_INTERVAL_MS))
             {
-                if (uBufUsed > 0)
-                    {
-                    m_hLogFile.write(szWriteBuf, uBufUsed);
-                    uBufUsed = 0;
-                    }
+                FlushStagingBufferLocked();
                 uSyncStart = micros();
                 m_hLogFile.sync();
                 uSyncEnd   = micros();
@@ -213,20 +228,13 @@ void LogSensorCommitTask(void *pvParams)
                 xLastSyncTime = xTaskGetTickCount();
                 bDidSync = true;
             }
-
-            xSemaphoreGive(xWriteMutex);
-
-            // Never block SD access while waiting on serial output.
-            if (bDidSync)
-                g_Log.print(MsgLog::EnDisk, MsgLog::EnDebug, "Sync\n");
         } // end if data to write
 
-        // Return any un-consumed item we broke out of the drain loop with
-        if (pchIn != NULL)
-            {
-            vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
-            pchIn = NULL;
-            }
+        xSemaphoreGive(xWriteMutex);
+
+        // Never block SD access while waiting on serial output.
+        if (bDidSync)
+            g_Log.print(MsgLog::EnDisk, MsgLog::EnDebug, "Sync\n");
     } // end while forever
 
 } // end TaskWriteSensorLog()
@@ -322,10 +330,15 @@ void LogSensor::Open()
 
 // ----------------------------------------------------------------------------
 
-// Not sure how or when the log file would be closed but here you have it
+// Close the log file. Caller must hold xWriteMutex.
+// Flushes any remaining bytes from the staging buffer before closing, so
+// the last ~1-2 log lines are not lost on graceful shutdown (LOG DISABLE,
+// FORMAT, soft restart). The consumer task holds xWriteMutex while touching
+// szWriteBuf, so this is safe to call from any mutex-holding context.
 
 void LogSensor::Close()
 {
+    FlushStagingBufferLocked();
     m_hLogFile.close();
 }
 

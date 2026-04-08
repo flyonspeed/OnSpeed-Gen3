@@ -214,7 +214,7 @@ void setup()
 
     // Setup FreeRTOS tasks
     // --------------------
-    xLoggingRingBuffer = xRingbufferCreate(60000, RINGBUF_TYPE_BYTEBUF);    // ~2.4 sec of data buffering
+    xLoggingRingBuffer = xRingbufferCreate(60000, RINGBUF_TYPE_BYTEBUF);    // 3+ sec of data buffering (measured ~14 KB/s)
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
         {
