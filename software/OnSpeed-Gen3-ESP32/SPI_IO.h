@@ -25,7 +25,6 @@ public:
     void      WriteRegByte(unsigned uChipSel, uint8_t iAddr, uint8_t iData);
 
     void      ReadRegBytes( unsigned uChipSel, uint8_t bAddr, uint8_t * paiData, int iBytes);
-    void      WriteRegBytes(unsigned uChipSel, uint8_t bAddr, uint8_t * paiData, int iBytes);
 
 };
 

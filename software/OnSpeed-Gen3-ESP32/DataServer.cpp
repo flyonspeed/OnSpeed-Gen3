@@ -148,8 +148,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fVerticalGload;
 
     fAccelSumSq    = g_pIMU->Ax*g_pIMU->Ax + g_pIMU->Ay*g_pIMU->Ay + g_pIMU->Az*g_pIMU->Az;
-    fVerticalGload = sqrt(abs(fAccelSumSq));
-    fVerticalGload = round(fVerticalGload * 10.0) / 10.0; // round to 1 decimal place
+    fVerticalGload = sqrtf(fabsf(fAccelSumSq));
+    fVerticalGload = roundf(fVerticalGload * 10.0f) / 10.0f; // round to 1 decimal place
 
     if (g_pIMU->Az < 0)
         fVerticalGload *= -1;
@@ -165,7 +165,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     }
 
     // Pitch, Roll, VSI, Flightpath
-    if (g_Config.sCalSource == "EFIS")
+    if (g_Config.bCalSourceEfis)
     {
 
         // efis or VN-300 data
@@ -236,7 +236,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     } // end internal cal source
 
     // OAT: prefer EFIS data, fall back to internal sensor
-    if (g_Config.sCalSource == "EFIS")
+    if (g_Config.bCalSourceEfis)
         fWifiOAT = g_EfisSerial.suEfis.OAT;
     else if (g_Config.bOatSensor)
         fWifiOAT = g_Sensors.OatC;
