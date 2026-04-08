@@ -17,8 +17,10 @@
 #include "Config.h"
 #include "LogReplay.h"
 #include "SensorIO.h"
+#include <EMAFilter.h>
 
 using onspeed::pressureCoeff;
+using onspeed::fpm2mps;
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
 
@@ -235,7 +237,7 @@ bool ReadLogLine()
     try { g_Sensors.Palt         =  std::stof(CsvData["Palt"]);                 } catch (const std::invalid_argument&) { g_Sensors.Palt       = 0; }
     try { g_Sensors.IAS          =  std::stof(CsvData["IAS"]);                  } catch (const std::invalid_argument&) { g_Sensors.IAS        = 0; }
     try { g_iDataMark            =  std::stoi(CsvData["DataMark"]);             } catch (const std::invalid_argument&) { g_iDataMark          = 0; }
-    try { g_AHRS.KalmanVSI       =  std::stof(CsvData["VSI"]) / 196.85;         } catch (const std::invalid_argument&) { g_AHRS.KalmanVSI     = 0; }
+    try { g_AHRS.KalmanVSI       =  fpm2mps(std::stof(CsvData["VSI"]));         } catch (const std::invalid_argument&) { g_AHRS.KalmanVSI     = 0; }
     try { g_pIMU->Ax             =  std::stof(CsvData["ForwardG"]);             } catch (const std::invalid_argument&) { g_pIMU->Ax = 0; }   // forward G
     try { g_pIMU->Ay             =  std::stof(CsvData["LateralG"]);             } catch (const std::invalid_argument&) { g_pIMU->Ay = 0; }   // lateralG
     try { g_pIMU->Az             =  std::stof(CsvData["VerticalG"]);            } catch (const std::invalid_argument&) { g_pIMU->Az = 0; }   // vertical G
@@ -352,10 +354,12 @@ void TestPotTask(void *pvParams)
 
 // ----------------------------------------------------------------------------
 
+constexpr float kTestPotSmoothingAlpha = 0.04f;
+static onspeed::EMAFilter sTestPotAoaFilter(kTestPotSmoothingAlpha);
+
 void ReadTestPot()
     {
     float   fFlapRawValue = 0;
-    float   smoothingAlpha  = 0.04;
     float   fReadAOA;
 
     // Average some flap pot readings
@@ -380,7 +384,7 @@ void ReadTestPot()
         fReadAOA = 0.0;
 
     // Smooth potentiometer AOA (using flap pot input)
-    g_Sensors.AOA = fReadAOA * smoothingAlpha + g_Sensors.AOA * (1 - smoothingAlpha);
+    g_Sensors.AOA = sTestPotAoaFilter.update(fReadAOA);
 
     // Just make sure g_Flaps.iIndex is set and good things will happen
     g_Flaps.iIndex = 0; // flaps up

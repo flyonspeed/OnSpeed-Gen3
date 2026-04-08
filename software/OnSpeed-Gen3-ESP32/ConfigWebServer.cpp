@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include <Arduino.h>
+#include <buildinfo.h>
 
 #include <WiFi.h>               // https://github.com/espressif/arduino-esp32/tree/master/libraries/WiFi
 #include <WiFiClient.h>
@@ -297,7 +298,7 @@ void UpdateHeader()
     //if (sVersion == "")
     //    sVersion = "UNKNOWN";
 
-    pageHeader.replace("wifi_fw", "OnSpeed Version: " VERSION);
+    pageHeader.replace("wifi_fw", String("OnSpeed Version: ") + BuildInfo::version);
 
 #if 0
     // Update wifi status in html header
@@ -317,12 +318,12 @@ void UpdateHeader()
 // ----------------------------------------------------------------------------
 // ETag caching helper.  Returns true if a 304 Not Modified was sent
 // (meaning the caller should return immediately without building a page).
-// Uses VERSION as the ETag value — changes only on firmware update.
+// Uses BuildInfo::version as the ETag value — changes only on firmware update.
 // Cache-Control: no-cache means "store but always revalidate".
 
 bool SendWithETag(const char* contentType)
     {
-    String sETag = "\"" VERSION "\"";
+    String sETag = String("\"") + BuildInfo::version + "\"";
     if (CfgServer.hasHeader("If-None-Match") &&
         CfgServer.header("If-None-Match") == sETag)
         {
@@ -559,6 +560,10 @@ function FillInValue(SenderID, ValueName, TargetID)
             {
             document.getElementById(TargetID).value = ReturnValue;
             document.getElementById(SenderID).value = "Updated!";
+            // Refresh setpoint display if this was an AOA field
+            var m = TargetID.match(/^id_flap(LDMAXAOA|ONSPEEDFASTAOA|ONSPEEDSLOWAOA|STALLWARNAOA)(\d+)$/);
+            if (m && typeof updateSetpointDisplay === 'function')
+                updateSetpointDisplay(parseInt(m[2]), m[1]);
             }
         }
 
@@ -826,45 +831,86 @@ window.addEventListener('load', function()
                 <label for="id_flapPotPositions)#" + String(iFlapIdx) + R"#(Read">&nbsp;</label>
                 <input id="id_flapPotPositions)#" + String(iFlapIdx) + R"#(Read" name="flapPotPositions)#" + String(iFlapIdx) + R"#(Read" type="button" value="Read" class="greybutton" onclick="FillInValue(this.id,'FLAPS','id_flapPotPositions)#" + String(iFlapIdx) + R"#(')"/>
             </div>
-            <div class="form-divs flex-col-8">
-                <label for="id_flapLDMAXAOA)#" + String(iFlapIdx) + R"#(">L/Dmax AOA</label>
-                <input id="id_flapLDMAXAOA)#" + String(iFlapIdx) + R"#(" class="curve" name="flapLDMAXAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fLDMAXAOA) + R"#("/>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>L/Dmax</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'LDMAXAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_LDMAXAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <span class="sp-ias" id="id_ias_LDMAXAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'LDMAXAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapLDMAXAOA)#" + String(iFlapIdx) + R"#(" class="sp-aoa-input" name="flapLDMAXAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fLDMAXAOA) + R"#(" onchange="updateSetpointDisplay()#" + String(iFlapIdx) + R"#(,'LDMAXAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapLDMAXAOA)#" + String(iFlapIdx) + R"#(')"/>
+                </div>
+            </div>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>OnSpeed Fast</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'ONSPEEDFASTAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_ONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <span class="sp-ias" id="id_ias_ONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'ONSPEEDFASTAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(" class="sp-aoa-input" name="flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fONSPEEDFASTAOA) + R"#(" onchange="updateSetpointDisplay()#" + String(iFlapIdx) + R"#(,'ONSPEEDFASTAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(')"/>
+                </div>
+            </div>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>OnSpeed Slow</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'ONSPEEDSLOWAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_ONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <span class="sp-ias" id="id_ias_ONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'ONSPEEDSLOWAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(" class="sp-aoa-input" name="flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fONSPEEDSLOWAOA) + R"#(" onchange="updateSetpointDisplay()#" + String(iFlapIdx) + R"#(,'ONSPEEDSLOWAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(')"/>
+                </div>
+            </div>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>Stall Warning</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'STALLWARNAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_STALLWARNAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <span class="sp-ias" id="id_ias_STALLWARNAOA)#" + String(iFlapIdx) + R"#("></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint()#" + String(iFlapIdx) + R"#(,'STALLWARNAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(" class="sp-aoa-input" name="flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fSTALLWARNAOA) + R"#(" onchange="updateSetpointDisplay()#" + String(iFlapIdx) + R"#(,'STALLWARNAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(')"/>
+                </div>
+            </div>
+            <input type="hidden" id="id_flapSTALLAOA)#" + String(iFlapIdx) + R"#(" name="flapSTALLAOA)#" + String(iFlapIdx) + R"#(" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fSTALLAOA) + R"#("/>
+            <input type="hidden" id="id_flapMANAOA)#" + String(iFlapIdx) + R"#(" name="flapMANAOA)#" + String(iFlapIdx) + R"#(" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fMANAOA) + R"#("/>
+            <div class="form-divs flex-col-12 sp-info-row">
+                <span class="sp-info" id="id_stallInfo)#" + String(iFlapIdx) + R"#("></span>
+                <span class="sp-info" id="id_manInfo)#" + String(iFlapIdx) + R"#("></span>
             </div>
             <div class="form-divs flex-col-4">
-                <label for="id_flapLDMAXAOA)#" + String(iFlapIdx) + R"#(Read">&nbsp;</label>
-                <input id="id_flapLDMAXAOA)#" + String(iFlapIdx) + R"#(Read" name="flapLDMAXAOA)#" + String(iFlapIdx) + R"#(Read" type="button" value="Use Live AOA" class="greybutton" onclick="FillInValue(this.id,'AOA','id_flapLDMAXAOA)#" + String(iFlapIdx) + R"#(')"/>
-            </div>
-            <div class="form-divs flex-col-8">
-                <label for="id_flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(">OnSpeed Fast AOA</label>
-                <input id="id_flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(" name="flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fONSPEEDFASTAOA) + R"#("/>
+                <label>K (lift sensitivity)</label>
+                <input id="id_flapKFit)#" + String(iFlapIdx) + R"#(" name="flapKFit)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fKFit) + R"#(" readonly style="background:#eee"/>
             </div>
             <div class="form-divs flex-col-4">
-                <label for="id_flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(Read">&nbsp;</label>
-                <input id="id_flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(Read" name="flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(Read" type="button" value="Use Live AOA" class="greybutton" onclick="FillInValue(this.id,'AOA','id_flapONSPEEDFASTAOA)#" + String(iFlapIdx) + R"#(')"/>
-            </div>
-            <div class="form-divs flex-col-8">
-                <label for="id_flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(">OnSpeed Slow AOA</label>
-                <input id="id_flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(" name="flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fONSPEEDSLOWAOA) + R"#("/>
-            </div>
-            <div class="form-divs flex-col-4">
-                <label for="id_flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(Read">&nbsp;</label>
-                <input id="id_flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(Read" name="flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(Read" type="button" value="Use Live AOA" class="greybutton" onclick="FillInValue(this.id,'AOA','id_flapONSPEEDSLOWAOA)#" + String(iFlapIdx) + R"#(')"/>
-            </div>
-            <div class="form-divs flex-col-8">
-                <label for="id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(">Stall Warning AOA</label>
-                <input id="id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(" name="flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fSTALLWARNAOA) + R"#("/>
-            </div>
-            <div class="form-divs flex-col-4">
-                <label for="id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(Read">&nbsp;</label>
-                <input id="id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(Read" name="flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(Read" type="button" value="Use Live AOA" class="greybutton" onclick="FillInValue(this.id,'AOA','id_flapSTALLWARNAOA)#" + String(iFlapIdx) + R"#(')"/>
-            </div>
-            <div class="form-divs flex-col-6">
-                <label for="id_flapAlpha0)#" + String(iFlapIdx) + R"#(">Alpha-0 (zero-lift)</label>
+                <label>Alpha-0 (zero-lift)</label>
                 <input id="id_flapAlpha0)#" + String(iFlapIdx) + R"#(" name="flapAlpha0)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fAlpha0) + R"#("/>
             </div>
-            <div class="form-divs flex-col-6">
-                <label for="id_flapAlphaStall)#" + String(iFlapIdx) + R"#(">Alpha-Stall (from fit)</label>
+            <div class="form-divs flex-col-4">
+                <label>Alpha-Stall (from fit)</label>
                 <input id="id_flapAlphaStall)#" + String(iFlapIdx) + R"#(" name="flapAlphaStall)#" + String(iFlapIdx) + R"#(" type="text" value=")#" + g_Config.ToString(g_Config.aFlaps[iFlapIdx].fAlphaStall) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-12">
+                <span class="sp-vs-info" id="id_vsInfo)#" + String(iFlapIdx) + R"#("></span>
             </div>
             <div class="form-divs flex-col-12">
                 <label for="id_aoaCurve)#" + String(iFlapIdx) + R"#(Type">AOA Curve Type</label>
@@ -1250,26 +1296,6 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
-    // Aircraft parameters
-    sPage += R"#(
-        <h4>Aircraft</h4>
-        <div class="form-divs flex-col-6">
-            <label for="id_acGrossWeight">Gross weight (lbs)</label>
-            <input id="id_acGrossWeight" name="acGrossWeight" type="text" value=")#" + String(g_Config.iAcGrossWeight) + R"#("/>
-        </div>
-        <div class="form-divs flex-col-6">
-            <label for="id_acBestGlideIAS">Best glide at gross wt (KIAS)</label>
-            <input id="id_acBestGlideIAS" name="acBestGlideIAS" type="text" value=")#" + String(g_Config.fAcBestGlideIAS) + R"#("/>
-        </div>
-        <div class="form-divs flex-col-6">
-            <label for="id_acVfe">Vfe - max flap speed (KIAS)</label>
-            <input id="id_acVfe" name="acVfe" type="text" value=")#" + String(g_Config.fAcVfe) + R"#("/>
-        </div>
-        <div class="form-divs flex-col-6">
-            <label for="id_acGlimit">Load factor limit (G)</label>
-            <input id="id_acGlimit" name="acGlimit" type="text" value=")#" + String(g_Config.fAcGlimit) + R"#("/>
-        </div>)#";
-
        // Serial output selection
     sPage += R"#(
         <div class="form-divs flex-col-6">
@@ -1296,6 +1322,60 @@ R"#(        </section>)#" "\n";
         <div class="form-divs flex-col-6">
         </div>)#";
 #endif
+
+    // Aircraft parameters
+    sPage += R"#(
+        <section id="aircraftsection">
+            <h2>Aircraft</h2>
+            <div class="form-divs flex-col-6">
+                <label for="id_acGrossWeight">Max gross weight (lbs)</label>
+                <input id="id_acGrossWeight" name="acGrossWeight" type="text" value=")#" + String(g_Config.iAcGrossWeight) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_acBestGlideIAS">Best glide at max gross wt (KIAS)</label>
+                <input id="id_acBestGlideIAS" name="acBestGlideIAS" type="text" value=")#" + String(g_Config.fAcBestGlideIAS) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_acVfe">Vfe - max flap speed (KIAS)</label>
+                <input id="id_acVfe" name="acVfe" type="text" value=")#" + String(g_Config.fAcVfe) + R"#("/>
+            </div>
+            <div class="form-divs flex-col-12">
+                <label>Aircraft category / load factor limit (G)</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="acGlimitPreset" value="3.80" onchange="setGlimit(this)")#";
+    if (g_Config.fAcGlimit >= 3.795f && g_Config.fAcGlimit <= 3.805f) sPage += " checked";
+    sPage += R"#(> Normal (+3.8G / -1.52G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="4.40" onchange="setGlimit(this)")#";
+    if (g_Config.fAcGlimit >= 4.395f && g_Config.fAcGlimit <= 4.405f) sPage += " checked";
+    sPage += R"#(> Utility (+4.4G / -1.76G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="6.00" onchange="setGlimit(this)")#";
+    if (g_Config.fAcGlimit >= 5.995f && g_Config.fAcGlimit <= 6.005f) sPage += " checked";
+    sPage += R"#(> Aerobatic (+6.0G / -3.0G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="custom" onchange="setGlimit(this)")#";
+    {
+    float fVal = g_Config.fAcGlimit;
+    bool bIsPreset = (fVal >= 3.795f && fVal <= 3.805f)
+                  || (fVal >= 4.395f && fVal <= 4.405f)
+                  || (fVal >= 5.995f && fVal <= 6.005f);
+    if (!bIsPreset) sPage += " checked";
+    sPage += R"#(> Custom</label>
+                </div>
+            </div>
+            <div class="form-divs flex-col-6" id="id_acGlimitCustomDiv" style=")#";
+    if (bIsPreset) sPage += "display:none";
+    sPage += R"#(">
+                <label for="id_acGlimit">Custom G limit</label>
+                <input id="id_acGlimit" name="acGlimit" type="text" value=")#" + String(g_Config.fAcGlimit) + R"#("/>
+            </div>
+            <script>
+            function setGlimit(el){
+                var v=el.value,d=document.getElementById('id_acGlimitCustomDiv'),i=document.getElementById('id_acGlimit');
+                if(v==='custom'){d.style.display='';i.focus();}
+                else{d.style.display='none';i.value=v;}
+            }
+            </script>
+        </section>)#";
+    }
       // Load config file
     sPage += R"#(
         <div class="form-divs flex-col-4">
@@ -1506,6 +1586,135 @@ function cascurveTypeChange(senderId)
         }
     })#";
 
+    // Setpoint tuning helper functions
+    sPage += R"#(
+
+function hasPhysicsModel(flapIdx) {
+    var a0     = parseFloat(document.getElementById('id_flapAlpha0' + flapIdx).value);
+    var aStall = parseFloat(document.getElementById('id_flapAlphaStall' + flapIdx).value);
+    var k      = parseFloat(document.getElementById('id_flapKFit' + flapIdx).value);
+    return (aStall > a0 + 1.0) && (k > 0);
+}
+function getAlpha0(flapIdx)     { return parseFloat(document.getElementById('id_flapAlpha0' + flapIdx).value); }
+function getAlphaStall(flapIdx) { return parseFloat(document.getElementById('id_flapAlphaStall' + flapIdx).value); }
+function getKFit(flapIdx)       { return parseFloat(document.getElementById('id_flapKFit' + flapIdx).value); }
+
+function kToVs(k, a0, aStall) {
+    var range = aStall - a0;
+    if (range <= 0 || k <= 0) return null;
+    return Math.sqrt(k / range);
+}
+function aoaToIAS(aoa, a0, k) {
+    var d = aoa - a0;
+    if (d <= 0 || k <= 0) return null;
+    return Math.sqrt(k / d);
+}
+function aoaToMultiplier(aoa, a0, aStall) {
+    var naoa = (aoa - a0) / (aStall - a0);
+    if (naoa <= 0.01) return Infinity;
+    return 1.0 / Math.sqrt(naoa);
+}
+function multiplierToAoa(mult, a0, aStall) {
+    var naoa = 1.0 / (mult * mult);
+    return naoa * (aStall - a0) + a0;
+}
+function getFlap(flapIdx) {
+    return {
+        LDMAXAOA:       parseFloat(document.getElementById('id_flapLDMAXAOA' + flapIdx).value),
+        ONSPEEDFASTAOA: parseFloat(document.getElementById('id_flapONSPEEDFASTAOA' + flapIdx).value),
+        ONSPEEDSLOWAOA: parseFloat(document.getElementById('id_flapONSPEEDSLOWAOA' + flapIdx).value),
+        STALLWARNAOA:   parseFloat(document.getElementById('id_flapSTALLWARNAOA' + flapIdx).value),
+        STALLAOA:       parseFloat(document.getElementById('id_flapSTALLAOA' + flapIdx).value),
+        MANAOA:         parseFloat(document.getElementById('id_flapMANAOA' + flapIdx).value)
+    };
+}
+function getAoaBounds(flapIdx, name) {
+    var f = getFlap(flapIdx);
+    switch (name) {
+        case 'LDMAXAOA':       return { min: -10, max: f.ONSPEEDFASTAOA - 0.1 };
+        case 'ONSPEEDFASTAOA': return { min: f.LDMAXAOA + 0.1, max: f.ONSPEEDSLOWAOA - 0.1 };
+        case 'ONSPEEDSLOWAOA': return { min: f.ONSPEEDFASTAOA + 0.1, max: f.STALLWARNAOA - 0.1 };
+        case 'STALLWARNAOA':   return { min: f.ONSPEEDSLOWAOA + 0.1, max: f.STALLAOA - 0.1 };
+        default:               return { min: -20, max: 30 };
+    }
+}
+function tapSetpoint(flapIdx, name, dir) {
+    var a0     = getAlpha0(flapIdx);
+    var aStall = getAlphaStall(flapIdx);
+    var field  = document.getElementById('id_flap' + name + flapIdx);
+    var aoa    = parseFloat(field.value);
+    if (hasPhysicsModel(flapIdx)) {
+        var mult = aoaToMultiplier(aoa, a0, aStall);
+        mult += dir * 0.01;
+        if (mult < 1.0) mult = 1.0;
+        aoa = multiplierToAoa(mult, a0, aStall);
+    } else {
+        aoa -= dir * 0.10;
+    }
+    var bounds = getAoaBounds(flapIdx, name);
+    aoa = Math.max(bounds.min, Math.min(bounds.max, aoa));
+    field.value = aoa.toFixed(2);
+    updateSetpointDisplay(flapIdx, name);
+}
+function updateSetpointDisplay(flapIdx, name) {
+    var a0     = getAlpha0(flapIdx);
+    var aStall = getAlphaStall(flapIdx);
+    var k      = getKFit(flapIdx);
+    var aoa    = parseFloat(document.getElementById('id_flap' + name + flapIdx).value);
+    var multEl = document.getElementById('id_mult_' + name + flapIdx);
+    var iasEl  = document.getElementById('id_ias_' + name + flapIdx);
+    if (!multEl || !iasEl) return;
+    if (hasPhysicsModel(flapIdx)) {
+        var mult = aoaToMultiplier(aoa, a0, aStall);
+        var ias  = aoaToIAS(aoa, a0, k);
+        multEl.textContent = mult.toFixed(2) + ' \u00d7Vs';
+        iasEl.textContent  = ias ? '(~' + Math.round(ias) + ' kt)' : '';
+    } else {
+        multEl.textContent = aoa.toFixed(2) + '\u00b0';
+        iasEl.textContent  = '(calibrate for \u00d7Vs display)';
+    }
+}
+function updateDerivedVs(flapIdx) {
+    var el = document.getElementById('id_vsInfo' + flapIdx);
+    if (!el) return;
+    if (hasPhysicsModel(flapIdx)) {
+        var vs = kToVs(getKFit(flapIdx), getAlpha0(flapIdx), getAlphaStall(flapIdx));
+        el.textContent = vs ? 'Vs = ' + vs.toFixed(1) + ' kt' : '';
+    } else {
+        el.textContent = '';
+    }
+}
+function updateInfoRow(flapIdx) {
+    var stallEl = document.getElementById('id_stallInfo' + flapIdx);
+    var manEl   = document.getElementById('id_manInfo' + flapIdx);
+    if (!stallEl || !manEl) return;
+    if (hasPhysicsModel(flapIdx)) {
+        var a0 = getAlpha0(flapIdx), aStall = getAlphaStall(flapIdx), k = getKFit(flapIdx);
+        var vs = kToVs(k, a0, aStall);
+        var stallAoa = parseFloat(document.getElementById('id_flapSTALLAOA' + flapIdx).value);
+        stallEl.textContent = 'Stall: ' + stallAoa.toFixed(1) + '\u00b0' + (vs ? ' (Vs=' + vs.toFixed(0) + ' kt)' : '');
+        var manAoa = parseFloat(document.getElementById('id_flapMANAOA' + flapIdx).value);
+        if (manAoa > 0) {
+            var va = aoaToIAS(manAoa, a0, k);
+            manEl.textContent = 'Maneuvering: ' + manAoa.toFixed(1) + '\u00b0' + (va ? ' (Va=' + va.toFixed(0) + ' kt)' : '');
+        } else { manEl.textContent = ''; }
+    } else {
+        stallEl.textContent = '';
+        manEl.textContent = '';
+    }
+}
+function initSetpointDisplays() {
+    var names = ['LDMAXAOA','ONSPEEDFASTAOA','ONSPEEDSLOWAOA','STALLWARNAOA'];
+    for (var i = 0; document.getElementById('id_flapAlpha0' + i); i++) {
+        for (var n = 0; n < names.length; n++)
+            updateSetpointDisplay(i, names[n]);
+        updateDerivedVs(i);
+        updateInfoRow(i);
+    }
+}
+initSetpointDisplays();
+)#";
+
     // Disable Delete Flap Position on Enter key
     sPage += R"#(
 
@@ -1577,8 +1786,11 @@ void HandleConfigSave()
             suFlaps.fONSPEEDFASTAOA = g_Config.ToFloat(CfgServer.arg("flapONSPEEDFASTAOA"+String(iFlapIdx)));
             suFlaps.fONSPEEDSLOWAOA = g_Config.ToFloat(CfgServer.arg("flapONSPEEDSLOWAOA"+String(iFlapIdx)));
             suFlaps.fSTALLWARNAOA   = g_Config.ToFloat(CfgServer.arg("flapSTALLWARNAOA"+String(iFlapIdx)));
+            suFlaps.fSTALLAOA       = g_Config.ToFloat(CfgServer.arg("flapSTALLAOA"+String(iFlapIdx)));
+            suFlaps.fMANAOA         = g_Config.ToFloat(CfgServer.arg("flapMANAOA"+String(iFlapIdx)));
             suFlaps.fAlpha0         = g_Config.ToFloat(CfgServer.arg("flapAlpha0"+String(iFlapIdx)));
             suFlaps.fAlphaStall     = g_Config.ToFloat(CfgServer.arg("flapAlphaStall"+String(iFlapIdx)));
+            suFlaps.fKFit           = g_Config.ToFloat(CfgServer.arg("flapKFit"+String(iFlapIdx)));
 
             suFlaps.AoaCurve.iCurveType = CfgServer.arg("aoaCurve"+String(iFlapIdx)+"Type").toInt();
             for (int iCoeffIdx=0; iCoeffIdx< MAX_CURVE_COEFF; iCoeffIdx++)
@@ -1633,7 +1845,7 @@ void HandleConfigSave()
     else                                                                   g_Config.bOatSensor = false;
 
     // read calibration source
-    if (CfgServer.hasArg("calSource")) g_Config.sCalSource=CfgServer.arg("calSource");
+    if (CfgServer.hasArg("calSource")) { g_Config.sCalSource=CfgServer.arg("calSource"); g_Config.bCalSourceEfis = (g_Config.sCalSource == "EFIS"); }
 
     // read AHRS algorithm
     if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();
@@ -1675,7 +1887,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("vnoChimeInterval")) g_Config.uVnoChimeInterval=CfgServer.arg("vnoChimeInterval").toInt();
 
     // serialOutFormat
-    if (CfgServer.hasArg("serialOutFormat")) g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat");
+    if (CfgServer.hasArg("serialOutFormat")) { g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat"); g_Config.enSerialOutFormat = FOSConfig::ParseSerialFmt(g_Config.sSerialOutFormat); }
 
     //serialOutPort
 //    if (CfgServer.hasArg("serialOutPort")) g_Config.sSerialOutPort=CfgServer.arg("serialOutPort");
@@ -1706,6 +1918,7 @@ void HandleConfigSave()
         suFlaps.fMANAOA         = 0.0;
         suFlaps.fAlpha0         = 0.0;
         suFlaps.fAlphaStall     = 0.0;
+        suFlaps.fKFit           = 0.0;
         suFlaps.AoaCurve.iCurveType = 1;    // Default to polynomial curve
         for (int iCoeffIdx = 0; iCoeffIdx < MAX_CURVE_COEFF; iCoeffIdx++)
             suFlaps.AoaCurve.afCoeff[iCoeffIdx] = 0.0;
@@ -1741,18 +1954,16 @@ void HandleConfigSave()
         // Warn if any flap position has out-of-order AOA setpoints
         for (size_t i = 0; i < g_Config.aFlaps.size(); i++)
             {
-            if (!g_Config.aFlaps[i].AreSetpointsOrdered())
+            String sErr = g_Config.aFlaps[i].SetpointOrderError();
+            if (sErr.length() > 0)
                 {
                 sPage += "<br><br><b>WARNING:</b> Flap position " + String(g_Config.aFlaps[i].iDegrees)
-                       + " degrees has AOA setpoints that are not in increasing order"
-                         " (LDMAX &lt; OnSpeedFast &lt; OnSpeedSlow &lt; StallWarn &lt; Stall)."
-                         " Audio behavior may be incorrect.";
+                       + " degrees: " + sErr + "."
+                         " Check the AOA setpoints on the configuration page and ensure they increase"
+                         " from LDMAX through Stall. Audio behavior may be incorrect.";
                 g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
-                    "Flap %d deg: setpoints not in order (LDMAX=%.1f FAST=%.1f SLOW=%.1f WARN=%.1f STALL=%.1f)\n",
-                    g_Config.aFlaps[i].iDegrees,
-                    g_Config.aFlaps[i].fLDMAXAOA, g_Config.aFlaps[i].fONSPEEDFASTAOA,
-                    g_Config.aFlaps[i].fONSPEEDSLOWAOA, g_Config.aFlaps[i].fSTALLWARNAOA,
-                    g_Config.aFlaps[i].fSTALLAOA);
+                    "Flap %d deg: %s\n",
+                    g_Config.aFlaps[i].iDegrees, sErr.c_str());
                 }
             }
 
@@ -2240,6 +2451,14 @@ void HandleGetValue()
             // Intentionally no log here; UI may poll frequently.
             }
 
+        else if (CfgServer.arg("name") == "VNOCHIMETEST")
+            {
+            g_AudioPlay.SetVoice(enVoiceVnoChime);
+            sResponseValue = "Vno Chime";
+            CfgServer.send(200, "text/plain", sResponseValue);
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnDebug, "Request VNOCHIMETEST");
+            }
+
         else
             {
             CfgServer.send(400);
@@ -2368,7 +2587,7 @@ Enter the following aircraft parameters:<br><br>
 
         sPage += R"#(
         <div class="form-divs flex-col-12">
-            <label>Aircraft gross weight (lbs)</label>
+            <label>Aircraft max gross weight (lbs)</label>
             <input class="inputField" type="text" name="acGrossWeight" value=")#" + String(iAcGrossWeight) + R"#(">
         </div>
         <div class="form-divs flex-col-12">
@@ -2376,20 +2595,52 @@ Enter the following aircraft parameters:<br><br>
             <input class="inputField" type="text" name="acCurrentWeight" value=")#" + String(iAcCurrentWeight) + R"#(">
         </div>
         <div class="form-divs flex-col-12">
-            <label>Best glide airspeed at gross weight (KIAS)</label>
+            <label>Best glide airspeed at max gross weight (KIAS)</label>
             <input class="inputField" type="text" name="acVldmax" value=")#" + String(fAcVldmax) + R"#(">
         </div>
         <div class="form-divs flex-col-12">
             <label>Max flap extension speed - Vfe (KIAS)</label>
             <input class="inputField" type="text" name="acVfe" value=")#" + String(fAcVfe) + R"#(">
         </div>
-            <div class="form-divs flex-col-12">
-            <label>Airframe load factor limit (G)</label>
-            <input class="inputField" type="text" name="acGlimit" value=")#" + String(fAcGlimit) + R"#(">
-            <br>
-            <br>
+        <div class="form-divs flex-col-12">
+            <label>Aircraft category / load factor limit (G)</label>
+            <div class="radio-group">
+                <label><input type="radio" name="wizGlimitPreset" value="3.80" onchange="setGlimit(this)")#";
+    if (fAcGlimit >= 3.795f && fAcGlimit <= 3.805f) sPage += " checked";
+    sPage += R"#(> Normal (+3.8G / -1.52G)</label>
+                <label><input type="radio" name="wizGlimitPreset" value="4.40" onchange="setGlimit(this)")#";
+    if (fAcGlimit >= 4.395f && fAcGlimit <= 4.405f) sPage += " checked";
+    sPage += R"#(> Utility (+4.4G / -1.76G)</label>
+                <label><input type="radio" name="wizGlimitPreset" value="6.00" onchange="setGlimit(this)")#";
+    if (fAcGlimit >= 5.995f && fAcGlimit <= 6.005f) sPage += " checked";
+    sPage += R"#(> Aerobatic (+6.0G / -3.0G)</label>
+                <label><input type="radio" name="wizGlimitPreset" value="custom" onchange="setGlimit(this)")#";
+    {
+    float fVal = fAcGlimit;
+    bool bIsPreset = (fVal >= 3.795f && fVal <= 3.805f)
+                  || (fVal >= 4.395f && fVal <= 4.405f)
+                  || (fVal >= 5.995f && fVal <= 6.005f);
+    if (!bIsPreset) sPage += " checked";
+    sPage += R"#(> Custom</label>
+            </div>
+        </div>
+        <div class="form-divs flex-col-12" id="id_wizGlimitCustomDiv" style=")#";
+    if (bIsPreset) sPage += "display:none";
+    sPage += R"#(">
+            <label>Custom G limit</label>
+            <input class="inputField" type="text" id="id_wizGlimit" name="acGlimit" value=")#" + String(fAcGlimit) + R"#(">
+        </div>
+        <div class="form-divs flex-col-12">
         Note: The above parameters are needed to calculate your best glide speed and maneuvering speed at the current weight.
-        </div>)#";
+        </div>
+        <script>
+        function setGlimit(el){
+            var v=el.value,d=document.getElementById('id_wizGlimitCustomDiv'),i=document.getElementById('id_wizGlimit');
+            if(v==='custom'){d.style.display='';i.focus();}
+            else{d.style.display='none';i.value=v;}
+        }
+        </script>)#";
+    }
 
         sPage += R"#(
         <br><br><br>
@@ -2498,6 +2749,7 @@ Enter the following aircraft parameters:<br><br>
                 g_Config.aFlaps[iFlapIdx].fMANAOA         = g_Config.ToFloat(CfgServer.arg("ManeuveringSetpoint"));
                 g_Config.aFlaps[iFlapIdx].fAlpha0         = g_Config.ToFloat(CfgServer.arg("alpha0"));
                 g_Config.aFlaps[iFlapIdx].fAlphaStall     = g_Config.ToFloat(CfgServer.arg("alphaStall"));
+                g_Config.aFlaps[iFlapIdx].fKFit           = g_Config.ToFloat(CfgServer.arg("K_fit"));
 
                 g_Config.aFlaps[iFlapIdx].AoaCurve.afCoeff[0] = 0;
                 g_Config.aFlaps[iFlapIdx].AoaCurve.afCoeff[1] = g_Config.ToFloat(CfgServer.arg("curve0"));
@@ -2507,17 +2759,16 @@ Enter the following aircraft parameters:<br><br>
 
                 // Save configuration
                 g_Config.SaveConfigurationToFile();
-                if (!g_Config.aFlaps[iFlapIdx].AreSetpointsOrdered())
+                String sErr = g_Config.aFlaps[iFlapIdx].SetpointOrderError();
+                if (sErr.length() > 0)
                     {
                     g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
-                        "Calwiz flap %d deg: setpoints not in order (LDMAX=%.1f FAST=%.1f SLOW=%.1f WARN=%.1f STALL=%.1f)\n",
-                        g_Config.aFlaps[iFlapIdx].iDegrees,
-                        g_Config.aFlaps[iFlapIdx].fLDMAXAOA, g_Config.aFlaps[iFlapIdx].fONSPEEDFASTAOA,
-                        g_Config.aFlaps[iFlapIdx].fONSPEEDSLOWAOA, g_Config.aFlaps[iFlapIdx].fSTALLWARNAOA,
-                        g_Config.aFlaps[iFlapIdx].fSTALLAOA);
+                        "Calwiz flap %d deg: %s\n",
+                        g_Config.aFlaps[iFlapIdx].iDegrees, sErr.c_str());
                     CfgServer.send(200, "text/html",
-                        "WARNING: Configuration saved, but AOA setpoints are not in increasing order"
-                        " (LDMAX < OnSpeedFast < OnSpeedSlow < StallWarn < Stall). Audio behavior may be incorrect.");
+                        ("WARNING: Configuration saved, but " + sErr
+                         + ". Check the AOA setpoints and ensure they increase"
+                           " from LDMAX through Stall. Audio behavior may be incorrect.").c_str());
                     }
                 else
                     CfgServer.send(200, "text/html", "SUCCESS: Configuration was saved!");

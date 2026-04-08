@@ -65,6 +65,9 @@ constexpr float m2ft(float m) { return m * 3.28084f; }
 /// Meters/second to feet/minute
 constexpr float mps2fpm(float mps) { return mps * 196.85f; }
 
+/// Feet/minute to meters/second
+constexpr float fpm2mps(float fpm) { return fpm / 196.85f; }
+
 /// Meters/second to knots
 constexpr float mps2kts(float mps) { return mps * 1.94384f; }
 
@@ -104,7 +107,7 @@ inline float mapfloat(float x, float in_min, float in_max,
 inline float safeAsin(float x) {
     if (x > 1.0f) x = 1.0f;
     else if (x < -1.0f) x = -1.0f;
-    return std::asin(x);
+    return asinf(x);
 }
 
 // ============================================================================
@@ -113,12 +116,12 @@ inline float safeAsin(float x) {
 
 /// Pitch from accelerometer readings (degrees)
 inline float accelPitch(float ax, float ay, float az) {
-    return rad2deg(std::atan2(ax, std::sqrt(ay * ay + az * az)));
+    return rad2deg(atan2f(ax, sqrtf(ay * ay + az * az)));
 }
 
 /// Roll from accelerometer readings (degrees)
 inline float accelRoll(float ax, float ay, float az) {
-    return rad2deg(-std::atan2(ay, std::sqrt(ax * ax + az * az)));
+    return rad2deg(-atan2f(ay, sqrtf(ax * ax + az * az)));
 }
 
 // ============================================================================

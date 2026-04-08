@@ -27,11 +27,11 @@ BoomSerialIO::BoomSerialIO()
     uTimestamp      = millis();
 
     MaxAvailable = 0;
-    Static       = 0.0;
-    Dynamic      = 0.0;
-    Alpha        = 0.0;
-    Beta         = 0.0;
-    IAS          = 0.0;
+    Static       = 0.0f;
+    Dynamic      = 0.0f;
+    Alpha        = 0.0f;
+    Beta         = 0.0f;
+    IAS          = 0.0f;
 }
 
 
@@ -115,8 +115,8 @@ void BoomSerialIO::Read()
 
                             if (calcCRC != expectedCRC)
                                 {
-                                g_Log.printf(MsgLog::EnBoom, MsgLog::EnError, "Bad CRC  Expectd 0x%s Calc 0x%s\n",
-                                    String(expectedCRC,HEX), String(calcCRC,HEX));
+                                g_Log.printf(MsgLog::EnBoom, MsgLog::EnError, "Bad CRC  Expectd 0x%02X Calc 0x%02X\n",
+                                    expectedCRC, calcCRC);
                                 bParseData = false;
                                 }
                             }
