@@ -102,15 +102,3 @@ void SpiIO::ReadRegBytes(unsigned uChipSel, uint8_t iAddr, uint8_t * paiData, in
     pSPI->endTransaction();
     }
 
-// ----------------------------------------------------------------------------
-
-void SpiIO::WriteRegBytes(unsigned uChipSel, uint8_t iAddr, uint8_t * paiData, int iBytes)
-    {
-    pSPI->beginTransaction(SPISettings(SPI_CLK, MSBFIRST, SPI_MODE));
-    digitalWrite(uChipSel, LOW);
-    pSPI->transfer(iAddr);
-    pSPI->transferBytes(paiData, nullptr, iBytes);
-    digitalWrite(uChipSel, HIGH);
-    pSPI->endTransaction();
-    }
-
