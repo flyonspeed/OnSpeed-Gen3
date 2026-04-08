@@ -19,6 +19,7 @@ Do a text search for comments starting with "////"
 
 #define MAIN
 #include "Globals.h"
+#include <buildinfo.h>
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -69,7 +70,7 @@ void setup()
     //Serial.begin(115200);
     Serial.begin(921600);
     Serial.print("\nOnSpeed Gen3 ");
-    Serial.println(VERSION);
+    Serial.println(BuildInfo::version);
 
     // Setup FreeRTOS semaphores and error logging
     xWriteMutex     = xSemaphoreCreateMutex();
@@ -78,27 +79,6 @@ void setup()
     xSerialLogMutex = xSemaphoreCreateMutex();
 
     // Initialize SD card
-    // ------------------
-    /*  Need to look into something called dedicated SPI.
-        https://github.com/greiman/SdFat/issues/244
-        says "The only way to get dedicated SPI is to explicitly specify
-        DEDICATED_SPI using a begin call with SdSpiConfig as the argument like this..."
-            #define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-            if (!sd.begin(SD_CONFIG))
-                {
-                // handle error
-                }
-
-        The problem is that I don't know how to specify custom pins using SdSpiConfig().
-        Maybe like this...
-
-        SoftSpiDriver<SOFT_MISO_PIN, SOFT_MOSI_PIN, SOFT_SCK_PIN> softSpi;
-        SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SPI_CLOCK)
-
-    BTW, this could possibly go in a task so that if someone inserts a card
-    while powered up then good things would happen.
-    */
-
     g_SdFileSys.Init();
 
     if (g_SdFileSys.bSdAvailable == false)
@@ -234,7 +214,7 @@ void setup()
 
     // Setup FreeRTOS tasks
     // --------------------
-    xLoggingRingBuffer = xRingbufferCreate(30000, RINGBUF_TYPE_BYTEBUF);    // At least 1 sec of data buffering
+    xLoggingRingBuffer = xRingbufferCreate(60000, RINGBUF_TYPE_BYTEBUF);    // 3+ sec of data buffering (measured ~14 KB/s)
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
         {

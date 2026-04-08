@@ -1,7 +1,7 @@
 
 #include "SPI_IO.h"
 
-#define SPI_CLK              1000000  // 100 kHz
+#define SPI_CLK              4000000  // 4 MHz (ISM330DHCX rated 10 MHz, HSC sensors ~8 MHz)
 #define SPI_MODE          SPI_MODE0
 
 SpiIO::SpiIO(int SPINum, int ClkPin, int MisoPin, int MosiPin, unsigned DummyCS)
