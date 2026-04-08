@@ -272,13 +272,13 @@ void SensorIO::Read()
 	    uIasUpdateUs = micros();
 
 	    // Take derivative of airspeed for deceleration calc.
-	    // Match the 10Hz display behavior by updating DecelRate at 100ms intervals.
+	    // Update at 20 Hz (50 ms) to match tone buffer update rate.
 	    // C++ guarantees static locals are initialized on first function entry,
 	    // so millis() is called at runtime (not at static-init time).
 	    static unsigned long uLastDecelUpdateMs = millis();
     const unsigned long uNowMs = millis();
     const unsigned long uDecelDeltaMs = uNowMs - uLastDecelUpdateMs;
-    if (uDecelDeltaMs >= 100)
+    if (uDecelDeltaMs >= 50)
     {
         uLastDecelUpdateMs = uNowMs;
 
