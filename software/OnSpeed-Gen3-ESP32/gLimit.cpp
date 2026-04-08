@@ -21,10 +21,10 @@ void CheckGLimitTask(void * pvParams)
         if (g_Config.bOverGWarning == true)
             {
             // Roll rates, I think.
-            if (fabs(g_AHRS.gRoll) >= ASYMMETRIC_GYRO_LIMIT || fabs(g_AHRS.gYaw) >= ASYMMETRIC_GYRO_LIMIT)
+            if (fabsf(g_AHRS.gRoll) >= ASYMMETRIC_GYRO_LIMIT || fabsf(g_AHRS.gYaw) >= ASYMMETRIC_GYRO_LIMIT)
                 {
-                fCalculatedGLimitPositive = g_Config.fLoadLimitPositive * 0.666;
-                fCalculatedGLimitNegative = g_Config.fLoadLimitNegative * 0.666;
+                fCalculatedGLimitPositive = g_Config.fLoadLimitPositive * (2.0f / 3.0f);
+                fCalculatedGLimitNegative = g_Config.fLoadLimitNegative * (2.0f / 3.0f);
                 }
             else
                 {

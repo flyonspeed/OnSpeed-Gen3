@@ -4,7 +4,7 @@
 
 // Move audio with the ball, scaling is 0.08 LateralG/ball width
 // This curve works up to about 0.08 G of lateral acceleration
-#define AUDIO_3D_CURVE(x)         -92.822*x*x + 20.025*x
+#define AUDIO_3D_CURVE(x)         (-92.822f*(x)*(x) + 20.025f*(x))
 
 float       fChannelGain     = 0.0;
 const float fSmoothingFactor = 0.1;
@@ -27,12 +27,12 @@ void Check3DAudioTask(void * pvParams)
             fLateralG     = g_AHRS.AccelLatCorr;
             iSignLateralG = fLateralG >= 0 ? 1 : -1;     // (fLateralG > 0) - (fLateralG < 0);
 
-            fCurveGain = AUDIO_3D_CURVE(abs(fLateralG));
-            if (fCurveGain > 1.0) fCurveGain = 1.0;
-            if (fCurveGain < 0.0) fCurveGain = 0.0;
+            fCurveGain = AUDIO_3D_CURVE(fabsf(fLateralG));
+            if (fCurveGain > 1.0f) fCurveGain = 1.0f;
+            if (fCurveGain < 0.0f) fCurveGain = 0.0f;
 
             fCurveGain   = fCurveGain * iSignLateralG;
-            fChannelGain = fSmoothingFactor * fCurveGain + (1 - fSmoothingFactor) * fChannelGain;
+            fChannelGain = fSmoothingFactor * fCurveGain + (1.0f - fSmoothingFactor) * fChannelGain;
             if (fChannelGain >  1.0f) fChannelGain =  1.0f;
             if (fChannelGain < -1.0f) fChannelGain = -1.0f;
 
@@ -40,8 +40,8 @@ void Check3DAudioTask(void * pvParams)
             // one channel increase gain up to about 2.0. The other channel decrease gain down
             // to 0.0. This only works to about 0.08 G of lateral acceleration.
 
-            float fLeftGain  = abs(-1 + fChannelGain);
-            float fRightGain = abs( 1 + fChannelGain);
+            float fLeftGain  = fabsf(-1.0f + fChannelGain);
+            float fRightGain = fabsf( 1.0f + fChannelGain);
             g_AudioPlay.SetGain(fLeftGain, fRightGain);
 
             g_Log.printf(MsgLog::EnAudio, MsgLog::EnDebug, "%0.3fG, Left: %0.3f, Right: %0.3f\n", fLateralG, fLeftGain, fRightGain);
