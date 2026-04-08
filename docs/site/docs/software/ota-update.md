@@ -8,8 +8,8 @@ Download the `firmware.bin` for your hardware variant (V4P or V4B) from the [lat
 
 | Your hardware | Download this file |
 |---------------|-------------------|
-| V4P (Phil's box) | `onspeed-vX.Y.Z-v4p-firmware.bin` |
-| V4B (Bob's box) | `onspeed-vX.Y.Z-v4b-firmware.bin` |
+| V4P (Phil's box) | `onspeed-X.Y.Z-v4p-firmware.bin` |
+| V4B (Bob's box) | `onspeed-X.Y.Z-v4b-firmware.bin` |
 
 Not sure which variant you have? See [Which Hardware Do I Have?](flashing.md#which-hardware-do-i-have)
 

@@ -50,10 +50,10 @@ Download pre-built firmware from the [latest GitHub release](https://github.com/
 
 | File | Hardware |
 |------|----------|
-| `onspeed-vX.Y.Z-v4p-firmware.bin` | V4P — Phil's box (most common) |
-| `onspeed-vX.Y.Z-v4b-firmware.bin` | V4B — Bob's box |
-| `onspeed-vX.Y.Z-bootloader.bin` | Bootloader (shared, USB flash only) |
-| `onspeed-vX.Y.Z-partitions.bin` | Partition table (shared, USB flash only) |
+| `onspeed-X.Y.Z-v4p-firmware.bin` | V4P — Phil's box (most common) |
+| `onspeed-X.Y.Z-v4b-firmware.bin` | V4B — Bob's box |
+| `onspeed-X.Y.Z-bootloader.bin` | Bootloader (shared, USB flash only) |
+| `onspeed-X.Y.Z-partitions.bin` | Partition table (shared, USB flash only) |
 
 **OTA update** (routine): Upload just the `firmware.bin` for your variant via the web interface at `http://onspeed.local/upgrade`. See the [OTA update docs](https://dev.flyonspeed.org/OnSpeed-Gen3/software/ota-update/) for details.
 
@@ -61,9 +61,9 @@ Download pre-built firmware from the [latest GitHub release](https://github.com/
 ```bash
 pip install esptool
 esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 --baud 921600 \
-  write_flash 0x0 onspeed-vX.Y.Z-bootloader.bin \
-              0x8000 onspeed-vX.Y.Z-partitions.bin \
-              0x10000 onspeed-vX.Y.Z-v4p-firmware.bin
+  write_flash 0x0 onspeed-X.Y.Z-bootloader.bin \
+              0x8000 onspeed-X.Y.Z-partitions.bin \
+              0x10000 onspeed-X.Y.Z-v4p-firmware.bin
 ```
 
 See the [documentation site](https://dev.flyonspeed.org/OnSpeed-Gen3/) for full flashing and OTA instructions.

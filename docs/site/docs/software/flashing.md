@@ -25,10 +25,10 @@ Pre-built firmware binaries for each release are on GitHub:
 
 | File | What it is | When you need it |
 |------|-----------|-----------------|
-| `onspeed-vX.Y.Z-v4p-firmware.bin` | Application firmware for V4P | OTA or USB flash |
-| `onspeed-vX.Y.Z-v4b-firmware.bin` | Application firmware for V4B | OTA or USB flash |
-| `onspeed-vX.Y.Z-bootloader.bin` | ESP32 bootloader (same for both variants) | USB flash only |
-| `onspeed-vX.Y.Z-partitions.bin` | Flash partition table (same for both variants) | USB flash only |
+| `onspeed-X.Y.Z-v4p-firmware.bin` | Application firmware for V4P | OTA or USB flash |
+| `onspeed-X.Y.Z-v4b-firmware.bin` | Application firmware for V4B | OTA or USB flash |
+| `onspeed-X.Y.Z-bootloader.bin` | ESP32 bootloader (same for both variants) | USB flash only |
+| `onspeed-X.Y.Z-partitions.bin` | Flash partition table (same for both variants) | USB flash only |
 
 ### Development Builds
 
@@ -81,9 +81,9 @@ Flash all three files at the correct addresses:
 
 ```bash
 esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 --baud 921600 \
-  write_flash 0x0 onspeed-v4.15.0-bootloader.bin \
-              0x8000 onspeed-v4.15.0-partitions.bin \
-              0x10000 onspeed-v4.15.0-v4p-firmware.bin
+  write_flash 0x0 onspeed-X.Y.Z-bootloader.bin \
+              0x8000 onspeed-X.Y.Z-partitions.bin \
+              0x10000 onspeed-X.Y.Z-v4p-firmware.bin
 ```
 
 Replace `/dev/cu.usbmodem1101` with your actual serial port. Replace `v4p` with `v4b` if you have Bob's hardware.

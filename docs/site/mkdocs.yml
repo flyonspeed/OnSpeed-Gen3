@@ -150,7 +150,7 @@ nav:
     - Flight Envelope (V-n Diagram): flying/vn-diagram.md
     - Normal Operations: flying/normal-ops.md
     - Approach and Landing: flying/approach-landing.md
-    - Warnings and Alerts: flying/warnings.md
+    - Summary of Warnings and Alerts: flying/warnings.md
   - Logs:
     - data-and-logs/index.md
     - Understanding Logs: data-and-logs/log-format.md

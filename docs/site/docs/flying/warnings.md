@@ -1,21 +1,21 @@
-# Warnings and Alerts
+# Summary of Warnings and Alerts
 
 OnSpeed provides three types of warnings in addition to the normal AOA tone progression.
 
 ## Stall Warning
 
-**What you hear**: Rapid high-pitched pulsing (1600 Hz) at 20 pulses per second — a continuous buzz.
+**What you hear**: Stall warning buzz — rapid 1600 Hz pulsing at 20 pulses per second.
 
 **When it sounds**: AOA exceeds the stall warning threshold for the current flap setting (approximately 90% or more of the wing's maximum lift capability).
 
 **What to do**: **Unload for control** — reduce AOA immediately. Ease forward pressure, add power, reduce bank angle. The wing is at or near its aerodynamic limit and cannot produce more lift. The only recovery is reducing the demand on it.
 
-!!! danger "Never ignore the stall warning"
-    The stall warning is the most critical safety feature of the system. It sounds even when audio is muted (if IAS is above the mute threshold). Always respond immediately. Do not attempt to "pull through" a maneuver when the stall warning is active.
+!!! danger "Never ignore the stall warning buzz"
+    The stall warning buzz is the most critical safety feature of the system. It sounds even when audio is muted (if IAS is above the mute threshold). Always respond immediately. Do not attempt to "pull through" a maneuver when the stall warning buzz is active.
 
 ### Stall Warning in Muted Mode
 
-If you've pressed the mute button to silence normal tones, the stall warning **still sounds** — but only if both conditions are met:
+If you've pressed the mute button to silence normal tones, the stall warning buzz **still sounds** — but only if both conditions are met:
 
 1. AOA is above the stall warning threshold
 2. IAS is above the mute-under-IAS setting (default: 25 knots)
@@ -24,7 +24,7 @@ The IAS check prevents false stall warnings on the ground or during taxi in wind
 
 ### Stall Warning and Maneuvering
 
-The stall warning activates at the same AOA regardless of airspeed, bank angle, or G-loading. This means it will activate at a higher airspeed in a steep turn than in wings-level flight — exactly when you need it. The airspeed at which the stall warning sounds is not fixed; the AOA at which it sounds is.
+The stall warning buzz activates at the same AOA regardless of airspeed, bank angle, or G-loading. This means it will activate at a higher airspeed in a steep turn than in wings-level flight — exactly when you need it. The airspeed at which the stall warning buzz sounds is not fixed; the AOA at which it sounds is.
 
 ## Vno Overspeed Chime
 
