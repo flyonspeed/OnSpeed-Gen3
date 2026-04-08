@@ -296,6 +296,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // Calibration data source
     sCalSource          = "ONSPEED";
+    bCalSourceEfis      = false;
 
     // Biases
     iPFwdBias           = 8192;
@@ -321,6 +322,7 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // serial output
     sSerialOutFormat    = "ONSPEED";
+    enSerialOutFormat   = EnSerialFmtOnSpeed;
 
     // load limit
     fLoadLimitPositive  =  4.0;
@@ -333,6 +335,12 @@ bool FOSConfig::LoadDefaultConfiguration()
 
     // SD card logging
     bSdLogging          = false;
+
+    // Aircraft parameters
+    iAcGrossWeight      = 0;
+    fAcBestGlideIAS     = 0.0;
+    fAcVfe              = 0.0;
+    fAcGlimit           = 0.0;
 
     return true;
 }
@@ -388,6 +396,9 @@ String FOSConfig::ConfigurationToString()
         XML_INSERT_SET(XmlConfigFlaps, "STALLWARNAOA",   aFlaps[iFlapIdx].fSTALLWARNAOA)
         XML_INSERT_SET(XmlConfigFlaps, "STALLAOA",       aFlaps[iFlapIdx].fSTALLAOA)
         XML_INSERT_SET(XmlConfigFlaps, "MANAOA",         aFlaps[iFlapIdx].fMANAOA)
+        XML_INSERT_SET(XmlConfigFlaps, "ALPHA0",         aFlaps[iFlapIdx].fAlpha0)
+        XML_INSERT_SET(XmlConfigFlaps, "ALPHASTALL",     aFlaps[iFlapIdx].fAlphaStall)
+        XML_INSERT_SET(XmlConfigFlaps, "KFIT",           aFlaps[iFlapIdx].fKFit)
 
         XML_INSERT(XmlConfigFlaps, "AOA_CURVE")
         XMLElement * XmlConfigAoACurve = XmlConfigNew;
@@ -461,6 +472,13 @@ String FOSConfig::ConfigurationToString()
 
     XML_INSERT_SET(XmlConfigRoot, "SDLOGGING", bSdLogging)
 
+    XML_INSERT(XmlConfigRoot, "AIRCRAFT")
+    XMLElement * XmlConfigAircraft = XmlConfigNew;
+    XML_INSERT_SET(XmlConfigAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
+    XML_INSERT_SET(XmlConfigAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
+    XML_INSERT_SET(XmlConfigAircraft, "VFE",             fAcVfe)
+    XML_INSERT_SET(XmlConfigAircraft, "G_LIMIT",         fAcGlimit)
+
     XmlConfigDoc.Print(&XmlPrint);
     sConfig = XmlPrint.CStr();
 
@@ -520,6 +538,12 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 //        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_MANAOA"),iFlapsArraySize); // MANAOA is only available after calibration wizard run
 //        for (iIdx=0; (iIdx<aiValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fMANAOA = afValues.Items[iIdx];
 
+        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_ALPHA0"),iFlapsArraySize);
+        for (iIdx=0; (iIdx<afValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fAlpha0 = afValues.Items[iIdx];
+
+        afValues = ParseFloatCSV(GetConfigValue(sConfig,"SETPOINT_ALPHASTALL"),iFlapsArraySize);
+        for (iIdx=0; (iIdx<afValues.Count) && (iIdx<iFlapsArraySize); iIdx++) aFlaps[iIdx].fAlphaStall = afValues.Items[iIdx];
+
         // aoa curves: AOA_CURVE_FLAPS0, AOA_CURVE_FLAPS1,...
         for (iIdx=0; iIdx<iFlapsArraySize; iIdx++)
             {
@@ -563,6 +587,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Calibration data source
         sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE");
+        bCalSourceEfis       = (sCalSource == "EFIS");
 
         // Biases
         iPFwdBias           =  GetConfigValue(sConfig,"PFWD_BIAS").toInt();
@@ -582,6 +607,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // serial output
         sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT");
+        enSerialOutFormat   = ParseSerialFmt(sSerialOutFormat);
 //        sSerialOutPort      = GetConfigValue(sConfig,"SERIALOUTPORT");
 
         // Load limit
@@ -690,6 +716,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             XML_GET_FLOAT(pXmlFlaps, "STALLWARNAOA",   suFlaps.fSTALLWARNAOA)
             XML_GET_FLOAT(pXmlFlaps, "STALLAOA",       suFlaps.fSTALLAOA)
             XML_GET_FLOAT(pXmlFlaps, "MANAOA",         suFlaps.fMANAOA)
+            XML_GET_FLOAT(pXmlFlaps, "ALPHA0",         suFlaps.fAlpha0)
+            XML_GET_FLOAT(pXmlFlaps, "ALPHASTALL",     suFlaps.fAlphaStall)
+            XML_GET_FLOAT(pXmlFlaps, "KFIT",           suFlaps.fKFit)
 
             XMLElement * pXmlAoaCurve = pXmlFlaps->FirstChildElement("AOA_CURVE");
             if (pXmlAoaCurve != NULL)
@@ -764,9 +793,11 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Serial output
         XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
+        enSerialOutFormat = ParseSerialFmt(sSerialOutFormat);
 //        XML_GET_STR(XmlRootNode, "SERIALOUTPORT",     sSerialOutPort)
 
         XML_GET_STR(XmlRootNode, "CALWIZ_SOURCE",         sCalSource)
+        bCalSourceEfis = (sCalSource == "EFIS");
 
         XMLElement * pXmlBias = XmlRootNode->FirstChildElement("BIAS");
         if (pXmlBias != NULL)
@@ -800,6 +831,15 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             }
 
         XML_GET_BOOL(XmlRootNode, "SDLOGGING",        bSdLogging)
+
+        XMLElement * pXmlAircraft = XmlRootNode->FirstChildElement("AIRCRAFT");
+        if (pXmlAircraft != NULL)
+            {
+            XML_GET_INT  (pXmlAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
+            XML_GET_FLOAT(pXmlAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
+            XML_GET_FLOAT(pXmlAircraft, "VFE",             fAcVfe)
+            XML_GET_FLOAT(pXmlAircraft, "G_LIMIT",         fAcGlimit)
+            }
 
         g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Decoded V2 config string");
 

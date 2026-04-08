@@ -123,6 +123,67 @@ void test_clampAOA_handles_nan() {
 
 
 // ============================================================================
+// mapfloat
+// ============================================================================
+
+void test_mapfloat_identity() {
+    // Mapping [0,10] → [0,10] should be identity
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 5.0f, mapfloat(5.0f, 0.0f, 10.0f, 0.0f, 10.0f));
+}
+
+void test_mapfloat_interpolation() {
+    // Midpoint of [0,10] mapped to [100,200] should be 150
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 150.0f, mapfloat(5.0f, 0.0f, 10.0f, 100.0f, 200.0f));
+}
+
+void test_mapfloat_boundaries() {
+    // At input min → output min; at input max → output max
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.5f, mapfloat(0.0f, 0.0f, 10.0f, 1.5f, 8.2f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 8.2f, mapfloat(10.0f, 0.0f, 10.0f, 1.5f, 8.2f));
+}
+
+void test_mapfloat_degenerate_range() {
+    // When input range is near-zero, returns 0 to avoid division by zero
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, mapfloat(5.0f, 5.0f, 5.0f, 0.0f, 100.0f));
+}
+
+void test_mapfloat_extrapolation() {
+    // Input outside range is not clamped — mapfloat extrapolates
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 200.0f, mapfloat(20.0f, 0.0f, 10.0f, 0.0f, 100.0f));
+}
+
+// ============================================================================
+// safeAsin
+// ============================================================================
+
+void test_safeAsin_normal_range() {
+    // Normal inputs should return standard asin values
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, safeAsin(0.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(0.5f), safeAsin(0.5f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(-0.5f), safeAsin(-0.5f));
+}
+
+void test_safeAsin_clamps_above_one() {
+    // Values > 1.0 should be clamped — must not return NaN
+    float result = safeAsin(1.01f);
+    TEST_ASSERT_FALSE(std::isnan(result));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(1.0f), result);
+}
+
+void test_safeAsin_clamps_below_neg_one() {
+    // Values < -1.0 should be clamped — must not return NaN
+    float result = safeAsin(-1.5f);
+    TEST_ASSERT_FALSE(std::isnan(result));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(-1.0f), result);
+}
+
+void test_safeAsin_at_boundaries() {
+    // Exact ±1.0 should work normally
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(1.0f), safeAsin(1.0f));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, std::asin(-1.0f), safeAsin(-1.0f));
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -155,6 +216,19 @@ int main(int argc, char **argv) {
     RUN_TEST(test_clampAOA_clamps_high);
     RUN_TEST(test_clampAOA_clamps_low);
     RUN_TEST(test_clampAOA_handles_nan);
+
+    // mapfloat
+    RUN_TEST(test_mapfloat_identity);
+    RUN_TEST(test_mapfloat_interpolation);
+    RUN_TEST(test_mapfloat_boundaries);
+    RUN_TEST(test_mapfloat_degenerate_range);
+    RUN_TEST(test_mapfloat_extrapolation);
+
+    // safeAsin
+    RUN_TEST(test_safeAsin_normal_range);
+    RUN_TEST(test_safeAsin_clamps_above_one);
+    RUN_TEST(test_safeAsin_clamps_below_neg_one);
+    RUN_TEST(test_safeAsin_at_boundaries);
 
     return UNITY_END();
 }

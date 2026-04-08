@@ -27,7 +27,6 @@ var wsUri = "ws://192.168.0.1:81";
 var lastUpdate  = Date.now();
 var lastDisplay = Date.now();
 
-var smoothingAlpha = 0.9;
 var AOA            = 0;
 var IAS            = 0;
 var PAlt           = 0;
@@ -39,6 +38,7 @@ var flightPath     = 0;
 var iVSI           = 0;
 var derivedAOA     = 0;
 var pitchRate      = 0;
+var Alpha0         = 0;
 
 var liveConnecting = false;
 setInterval(updateAge,500);
@@ -93,36 +93,26 @@ function onMessage(evt)
   liveConnecting = false;
 
   // connected, got data
-  // smoother values are display with the formula: value = measurement*alpha + previous value*(1-alpha)
   try
     {
     var OnSpeed = JSON.parse(evt.data);
 
-    if (Number.isNaN(AOA))        { AOA        = 0.0; }
-    if (Number.isNaN(IAS))        { IAS        = 0.0; }
-    if (Number.isNaN(PAlt))       { PAlt       = 0.0; }
-    if (Number.isNaN(GLoad))      { GLoad      = 0.0; }
-    if (Number.isNaN(GLoadLat))   { GLoadLat   = 0.0; }
-    if (Number.isNaN(PitchAngle)) { PitchAngle = 0.0; }
-    if (Number.isNaN(RollAngle))  { RollAngle  = 0.0; }
-    if (Number.isNaN(iVSI))       { iVSI       = 0.0; }
-    if (Number.isNaN(flightPath)) { flightPath = 0.0; }
-
-    AOA           = (OnSpeed.AOA            * smoothingAlpha + AOA           * (1 - smoothingAlpha));//.toFixed(2);
-    IAS           = (OnSpeed.IAS            * smoothingAlpha + IAS           * (1 - smoothingAlpha));//.toFixed(2);
-    PAlt          = (OnSpeed.PAlt           * smoothingAlpha + PAlt          * (1 - smoothingAlpha));//.toFixed(2);
-    GLoad         = (OnSpeed.verticalGLoad  * smoothingAlpha + GLoad         * (1 - smoothingAlpha));//.toFixed(2);
-    GLoadLat      = (OnSpeed.lateralGLoad   * smoothingAlpha + GLoadLat      * (1 - smoothingAlpha));//.toFixed(2);
-    PitchAngle    = (OnSpeed.Pitch          * smoothingAlpha + PitchAngle    * (1 - smoothingAlpha));//.toFixed(2);
-    RollAngle     = (OnSpeed.Roll           * smoothingAlpha + RollAngle     * (1 - smoothingAlpha));//.toFixed(2);
-    iVSI          = (OnSpeed.kalmanVSI      * smoothingAlpha + iVSI          * (1 - smoothingAlpha));//.toFixed(2);
-    flightPath    = (OnSpeed.flightPath     * smoothingAlpha + flightPath    * (1 - smoothingAlpha));//.toFixed(2);
-    derivedAOA    = (PitchAngle - flightPath);//.toFixed(2);
+    AOA           = OnSpeed.AOA;
+    IAS           = OnSpeed.IAS;
+    PAlt          = OnSpeed.PAlt;
+    GLoad         = OnSpeed.verticalGLoad;
+    GLoadLat      = OnSpeed.lateralGLoad;
+    PitchAngle    = OnSpeed.Pitch;
+    RollAngle     = OnSpeed.Roll;
+    iVSI          = OnSpeed.kalmanVSI;
+    flightPath    = OnSpeed.flightPath;
+    derivedAOA    = parseFloat(OnSpeed.DerivedAOA);
     pitchRate     = parseFloat(OnSpeed.PitchRate);
     LDmax         = parseFloat(OnSpeed.LDmax);
     OnspeedFast   = parseFloat(OnSpeed.OnspeedFast);
     OnspeedSlow   = parseFloat(OnSpeed.OnspeedSlow);
     OnspeedWarn   = parseFloat(OnSpeed.OnspeedWarn);
+    Alpha0        = parseFloat(OnSpeed.Alpha0) || 0;
     lastUpdate    = Date.now();
 
 //      console.log('log:',AOA,IAS,PAlt,GLoad,GLoadLat,PitchAngle,OnSpeed.LDmax,OnSpeed.OnspeedFast,OnSpeed.OnspeedSlow,OnSpeed.OnspeedWarn);
@@ -130,7 +120,7 @@ function onMessage(evt)
     // move AOA line on display
     if (AOA<=LDmax)
       {
-      var aoaline_y=map(AOA, 0, LDmax, 278, 228);
+      var aoaline_y=map(AOA, Alpha0, LDmax, 278, 228);
       }
     else if (AOA>LDmax && AOA<=OnspeedFast)
       {

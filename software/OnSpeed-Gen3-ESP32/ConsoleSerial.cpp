@@ -83,6 +83,7 @@ void ConsoleSerialIO::DisplayConsoleHelp()
         pSerial->println("VOLUME               - Show current volume potentiometer value");
         pSerial->println("CONFIG               - Show current configuration values");
         pSerial->println("AUDIOTEST            - Left & right audio test");
+        pSerial->println("VNOCHIMETEST         - Play Vno chime");
         pSerial->println("TASKS                - Show info about running tasks");
         pSerial->println("COOKIE");
         pSerial->println("");
@@ -342,6 +343,7 @@ void ConsoleSerialIO::Read()
                         if      (strcasecmp(szLevel, "DEBUG")   == 0) bStatus = g_Log.Set(szModName, MsgLog::EnDebug);
                         else if (strcasecmp(szLevel, "WARNING") == 0) bStatus = g_Log.Set(szModName, MsgLog::EnWarning);
                         else if (strcasecmp(szLevel, "ERROR")   == 0) bStatus = g_Log.Set(szModName, MsgLog::EnError);
+                        else if (strcasecmp(szLevel, "OFF")     == 0) bStatus = g_Log.Set(szModName, MsgLog::EnOff);
                         else g_Log.printf("Level '%s' not recognized\n", szLevel);
 
                         if (bStatus == false)
@@ -435,11 +437,11 @@ void ConsoleSerialIO::Read()
 
                     g_Log.printf("\nPorts %s  Box Top %s\r\n", g_Config.sPortsOrientation.c_str(), g_Config.sBoxtopOrientation.c_str());
                     g_Log.printf("Axis - Forward %s  Lateral %s  Vertical %s\r\n",
-                            g_pIMU->sForwardGloadAxis.c_str(), g_pIMU->sLateralGloadAxis.c_str(), g_pIMU->sVerticalGloadAxis.c_str());
+                            g_pIMU->sForwardGloadAxis, g_pIMU->sLateralGloadAxis, g_pIMU->sVerticalGloadAxis);
 
                     g_Log.printf("Accel IMU  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->fAccelX,         g_pIMU->fAccelY,         g_pIMU->fAccelZ);
                     g_Log.printf("Accel A/C  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->Ax,              g_pIMU->Ay,              g_pIMU->Az);
-                    g_Log.printf("Smoothed   X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdSmoothed, g_AHRS.AccelLatSmoothed, g_AHRS.AccelVertSmoothed);
+                    g_Log.printf("Smoothed   X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdFilter.get(), g_AHRS.AccelLatFilter.get(), g_AHRS.AccelVertFilter.get());
                     g_Log.printf("Comp       X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdComp,     g_AHRS.AccelLatComp,     g_AHRS.AccelVertComp);
 
                     g_Log.printf("Pitch        : %5.2f\r\n", g_AHRS.SmoothedPitch);
@@ -511,6 +513,14 @@ void ConsoleSerialIO::Read()
                 g_Log.printf("AUDIOTEST %s\n", bStarted ? "Started" : "Busy");
                 }
 
+            // VNOCHIMETEST
+            // ------------
+            else if (strncasecmp(szCmdToken, "VNOCHIMETEST", 12) == 0)
+                {
+                g_AudioPlay.SetVoice(enVoiceVnoChime);
+                g_Log.printf("VNOCHIMETEST Playing\n");
+                }
+
             // TASKS
             // -----
             else if (strncasecmp(szCmdToken, "TASKS", 5) == 0)
@@ -520,11 +530,7 @@ void ConsoleSerialIO::Read()
                 PrintTaskInfo(xTaskWriteLog);
                 PrintTaskInfo(xTaskCheckSwitch);
                 PrintTaskInfo(xTaskDisplaySerial);
-                PrintTaskInfo(xTaskGLimit);
-                PrintTaskInfo(xTaskVolume);
-                PrintTaskInfo(xTaskVnoChime);
-                PrintTaskInfo(xTask3dAudio);
-                PrintTaskInfo(xTaskHeartbeat);
+                PrintTaskInfo(xTaskHousekeeping);
                 PrintTaskInfo(xTaskLogReplay);
                 PrintTaskInfo(xTaskTestPot);
                 PrintTaskInfo(xTaskRangeSweep);

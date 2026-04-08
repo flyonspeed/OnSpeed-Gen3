@@ -17,6 +17,7 @@ using onspeed::kts2mps;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
 using onspeed::fpm2mps;
+using onspeed::safeAsin;
 
 // wifi data variables
 //char crc_buffer[250];
@@ -148,8 +149,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fVerticalGload;
 
     fAccelSumSq    = g_pIMU->Ax*g_pIMU->Ax + g_pIMU->Ay*g_pIMU->Ay + g_pIMU->Az*g_pIMU->Az;
-    fVerticalGload = sqrt(abs(fAccelSumSq));
-    fVerticalGload = round(fVerticalGload * 10.0) / 10.0; // round to 1 decimal place
+    fVerticalGload = sqrtf(fabsf(fAccelSumSq));
+    fVerticalGload = roundf(fVerticalGload * 10.0f) / 10.0f; // round to 1 decimal place
 
     if (g_pIMU->Az < 0)
         fVerticalGload *= -1;
@@ -165,7 +166,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     }
 
     // Pitch, Roll, VSI, Flightpath
-    if (g_Config.sCalSource == "EFIS")
+    if (g_Config.bCalSourceEfis)
     {
 
         // efis or VN-300 data
@@ -178,7 +179,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             if (g_AHRS.fTAS > 0)
             {
                 // TAS is being updated in an interrupt
-                fWifiFlightpath = rad2deg(asin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
+                fWifiFlightpath = rad2deg(safeAsin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
             }
             else
                 fWifiFlightpath = 0;
@@ -194,14 +195,16 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiRoll  = g_EfisSerial.suEfis.Roll;
             if (g_EfisSerial.suEfis.TAS > 0)
             {
-                float fEfisVsiMps = fpm2mps(g_EfisSerial.suEfis.VSI);
-                fWifiFlightpath = rad2deg(asin(fEfisVsiMps / kts2mps(g_EfisSerial.suEfis.TAS)));
+                // Use EFIS VSI (matches the EFIS pitch/roll above) instead of
+                // KalmanVSI to avoid mixing data sources in the same JSON payload.
+                const float fEfisVsiMps = fpm2mps(g_EfisSerial.suEfis.VSI);
+                fWifiFlightpath = rad2deg(safeAsin(fEfisVsiMps / kts2mps(g_EfisSerial.suEfis.TAS)));
             }
 
             else
                 if (g_AHRS.fTAS > 0)
                 {
-                    fWifiFlightpath = rad2deg(asin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
+                    fWifiFlightpath = rad2deg(safeAsin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
                 }
                 else
                     fWifiFlightpath=0;
@@ -237,7 +240,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     } // end internal cal source
 
     // OAT: prefer EFIS data, fall back to internal sensor
-    if (g_Config.sCalSource == "EFIS")
+    if (g_Config.bCalSourceEfis)
         fWifiOAT = g_EfisSerial.suEfis.OAT;
     else if (g_Config.bOatSensor)
         fWifiOAT = g_Sensors.OatC;
@@ -274,7 +277,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,\"LDmax\":%.2f,\"OnspeedFast\":%.2f,"
         "\"OnspeedSlow\":%.2f,\"OnspeedWarn\":%.2f,\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
-        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f}";
+        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"Alpha0\":%.2f,\"DerivedAOA\":%.2f}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
@@ -288,9 +291,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
 
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
     const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatCorr, 0.0f);
-    const float fCoeffP = SafeJsonFloat((float)g_fCoeffP, 0.0f);
-    const float fPitchRate = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
-    const float fDecelRate = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
+    const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
+    const float fPitchRate  = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
+    const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
+    const float fDerivedAOA = SafeJsonFloat(g_AHRS.DerivedAOA, 0.0f);
 
     int iChars = snprintf(
         pOut,
@@ -315,7 +319,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiFlightpath,
         fPitchRate,
         fDecelRate,
-        fWifiOAT);
+        fWifiOAT,
+        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fAlpha0, 0.0f),
+        fDerivedAOA);
 
     if (iChars < 0)
         return 0;

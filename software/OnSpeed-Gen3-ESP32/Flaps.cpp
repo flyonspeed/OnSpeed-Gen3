@@ -90,7 +90,14 @@ void Flaps::Update()
 
 void Flaps::Update(int iFlapsIndex)
 {
-    iIndex    = iFlapsIndex;
+    if (g_Config.aFlaps.empty())
+    {
+        iIndex    = 0;
+        iPosition = -1;
+        return;
+    }
+
+    iIndex    = constrain(iFlapsIndex, 0, (int)g_Config.aFlaps.size() - 1);
     iPosition = g_Config.aFlaps[iIndex].iDegrees;
 }
 

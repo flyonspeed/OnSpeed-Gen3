@@ -20,13 +20,13 @@ protected:
     unsigned    uChipSel;
 
 public:
-    // Axis definitions
-    String      sVerticalGloadAxis;
-    String      sLateralGloadAxis;
-    String      sForwardGloadAxis;
-    String      sRollGyroAxis;
-    String      sPitchGyroAxis;
-    String      sYawGyroAxis;
+    // Axis definitions (e.g. "X", "-Y", "Z")
+    const char* sVerticalGloadAxis;
+    const char* sLateralGloadAxis;
+    const char* sForwardGloadAxis;
+    const char* sRollGyroAxis;
+    const char* sPitchGyroAxis;
+    const char* sYawGyroAxis;
 
     // IMU raw values
     int16_t     axRaw,   ayRaw,   azRaw;
@@ -72,11 +72,10 @@ public:
     uint8_t     WhoAmI();
     void        ConfigAxes();
 
-    float       GetAccelForAxis(String accelAxis);
-    void        GetAccelForAxis(String accelAxis, float * pfAccelSign, float ** ppfAccel);
-    float       GetGyroForAxis(String gyroAxis);
-    void        GetGyroForAxis(String gyroAxis, float * pfGyroSign, float ** ppfGryo);
-//    float       GetGyroForAxisNoBias(String gyroAxis);
+    float       GetAccelForAxis(const char* accelAxis);
+    void        GetAccelForAxis(const char* accelAxis, float * pfAccelSign, float ** ppfAccel);
+    float       GetGyroForAxis(const char* gyroAxis);
+    void        GetGyroForAxis(const char* gyroAxis, float * pfGyroSign, float ** ppfGryo);
 
     // Pitch and roll calculations from accelerations
     float       PitchIMU();

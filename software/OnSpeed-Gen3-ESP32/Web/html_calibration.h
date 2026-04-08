@@ -4,13 +4,13 @@ const char htmlCalibration[] PROGMEM = R"=====(
   <div id="idStartInstructions">
     Decelerate from Vmax (or Vfe). Hit Record when ready!
     <div align="center" style="margin-top:20px">
-    <button type="submit" class="wifibutton" onClick="recordData(true)">Record</button>
+    <button type="button" class="wifibutton" onClick="recordData(true)">Record</button>
     </div>
   </div>
   <div id="idStopInstructions" style="display:none;">
     Recording until stall is detected...
     <div align="center" style="margin-top:20px">
-    <button type="submit" class="button" style="width:220px" onclick="recordData(false)">Stop</button>
+    <button type="button" class="button" style="width:220px" onclick="recordData(false)">Stop</button>
     </div>
   </div>
 </div>
@@ -73,11 +73,15 @@ body {font-family:'Open Sans',sans-serif}.graph .labels.x-labels{text-anchor:mid
       Stall Warning: <span id="idStallWarnSetpoint"></span> deg<br>
       Maneuvering Angle: <span id="idManeuveringSetpoint"></span> deg<br>
       Stall Angle: <span id="idStallSetpoint"></span> deg<br>
+   <br><b>IAS-to-AOA Fit:</b><br>
+      Alpha-0 (zero-lift AOA): <span id="idAlpha0"></span> deg<br>
+      Alpha-Stall: <span id="idAlphaStall"></span> deg<br>
+      R<sup>2</sup>: <span id="idIAStoAOAr2"></span><br>
 </div>
 <div id="saveCalButtons" style="display: none;margin-left:40px">
 <br>
-<button type="submit" class="button" style="background-color:#42a7f5;" onClick="saveCalibration()">Save Calibration</button></span>
-<button type="submit" class="button" style="background-color:#42a7f5;" onClick="saveData()">Save data to File</button><br></span>
+<button type="button" class="button" style="background-color:#42a7f5;" onClick="saveCalibration()">Save Calibration</button></span>
+<button type="button" class="button" style="background-color:#42a7f5;" onClick="saveData()">Save data to File</button><br></span>
 </div>
 <br>
  <div id="CPchart" style="display:none">

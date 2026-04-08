@@ -15,32 +15,41 @@ using onspeed::ft2m;
 using onspeed::g2mps;
 using onspeed::accelPitch;
 using onspeed::accelRoll;
+using onspeed::safeAsin;
 
-const float accSmoothing        = 0.060899f;            // accelerometer smoothing alpha
-const float accSmoothingComplement = 1.0f - accSmoothing;  // precomputed (1 - alpha)
+constexpr float kAccSmoothing = 0.060899f;              // accelerometer smoothing alpha
 
 const float iasSmoothing = 0.0179f;                             // airspeed smoothing alpha
 const float iasTauFactor = (1.0f / iasSmoothing) - 1.0f;        // tau multiplier for variable-rate EMA
 
 const float kPressureDeltaTime = 1.0f / PRESSURE_SAMPLE_RATE;   // fallback dt for IAS derivative
+const float kMinIasForFlightPath = 25.0f;                      // IAS (kt) below which FlightPath/VSI are zeroed
 
 // ----------------------------------------------------------------------------
 
-AHRS::AHRS(int gyroSmoothing) : GxAvg(gyroSmoothing),GyAvg(gyroSmoothing),GzAvg(gyroSmoothing)
+AHRS::AHRS(int gyroSmoothing)
+    : AccelFwdFilter(kAccSmoothing)
+    , AccelLatFilter(kAccSmoothing)
+    , AccelVertFilter(kAccSmoothing)
+    , GxAvg(gyroSmoothing)
+    , GyAvg(gyroSmoothing)
+    , GzAvg(gyroSmoothing)
 {
-    fTAS     = 0.0;
-    fPrevTAS = 0.0;
-    TASdotSmoothed = 0.0;
+    fTAS     = 0.0f;
+    fPrevTAS = 0.0f;
+    TASdotSmoothed = 0.0f;
     uLastIasUpdateUs = 0;
 
-    //// This was init'ed from real accelerometer values in previous version.
-    //// Probably should do that again.
-    AccelFwdSmoothed  =  0.0;
-    AccelLatSmoothed  =  0.0;
-    AccelVertSmoothed = -1.0;
-    SmoothedPitch =  0.0;
-    SmoothedRoll  =  0.0;
-    FlightPath    =  0.0;
+    // Seed the accel filters with the rest state (Z = -1g, X = Y = 0)
+    // so the very first frames before the IMU has produced a sample read
+    // a level-on-the-ground attitude instead of a degenerate (0,0,0).
+    AccelFwdFilter.seed( 0.0f);
+    AccelLatFilter.seed( 0.0f);
+    AccelVertFilter.seed(-1.0f);
+
+    SmoothedPitch =  0.0f;
+    SmoothedRoll  =  0.0f;
+    FlightPath    =  0.0f;
 
     bIasWasBelowThreshold = true;
 }
@@ -116,43 +125,57 @@ void AHRS::Process(float fDeltaTimeSeconds)
     if (isnan(fDeltaTimeSeconds) || isinf(fDeltaTimeSeconds) || fDeltaTimeSeconds <= 0.0f)
         fDeltaTimeSeconds = fImuDeltaTime;
 
-    // Use the best available OAT source for density-corrected TAS
-    float fOatC;
-    bool  bHaveOat = false;
-
-    // Prefer EFIS OAT when EFIS is the calibration source
-    if (g_Config.sCalSource == "EFIS" && g_Config.bReadEfisData)
-        {
-        fOatC    = g_EfisSerial.suEfis.OAT;
-        bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
-        }
-
-    // Fall back to internal DS18B20 sensor
-    if (!bHaveOat && g_Config.bOatSensor)
-        {
-        fOatC    = g_Sensors.OatC;
-        bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
-        }
-
-    if (bHaveOat)
-        {
-        // Density-corrected TAS
-        const float Kelvin    = 273.15;
-        const float Temp_rate =   0.00198119993;
-        float fISA_temp_k = 15 - Temp_rate * g_Sensors.Palt + Kelvin;
-        float fOAT_k      = fOatC + Kelvin;
-        float fDA          = g_Sensors.Palt + (fISA_temp_k / Temp_rate) * (1 - pow(fISA_temp_k / fOAT_k, 0.2349690));
-        fTAS               = kts2mps(g_Sensors.IAS / pow(1 - 6.8755856 * pow(10,-6) * fDA, 2.12794));
-        }
-    else
-        {
-        fTAS = kts2mps(g_Sensors.IAS * (1 + g_Sensors.Palt / 1000 * 0.02));
-        }
-
-    // Update TAS derivative at IAS update cadence (50Hz), not at the IMU update cadence.
+    // Update TAS and TAS derivative at IAS update cadence (50Hz), not at
+    // the IMU update cadence (208Hz).  The density-corrected TAS computation
+    // involves two powf() calls that are expensive on the ESP32-S3's
+    // single-precision FPU; computing them at 50Hz instead of 208Hz saves
+    // ~150µs/cycle with no accuracy loss (IAS/Palt only update at 50Hz).
     const uint32_t uIasUpdateUs = g_Sensors.uIasUpdateUs;
     if (uIasUpdateUs != uLastIasUpdateUs)
     {
+        // Recompute density-corrected TAS (inputs only change at 50Hz)
+        float fOatC;
+        bool  bHaveOat = false;
+
+        // Prefer EFIS OAT when EFIS is the calibration source and data is fresh
+        if (g_Config.bCalSourceEfis && g_Config.bReadEfisData && g_EfisSerial.IsDataFresh(2000))
+            {
+            fOatC    = g_EfisSerial.suEfis.OAT;
+            bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
+            }
+
+        // Fall back to internal DS18B20 sensor
+        if (!bHaveOat && g_Config.bOatSensor)
+            {
+            fOatC    = g_Sensors.OatC;
+            bHaveOat = (fOatC > -100.0f && fOatC < 100.0f);
+            }
+
+        if (bHaveOat)
+            {
+            // Density-corrected TAS
+            const float Kelvin    = 273.15f;
+            const float Temp_rate = 0.00198119993f;
+            float fISA_temp_k = 15.0f - Temp_rate * g_Sensors.Palt + Kelvin;
+            float fOAT_k      = fOatC + Kelvin;
+
+            // Guard pow() base values: a negative or zero base with a fractional
+            // exponent returns NaN (IEEE 754).  Bad OAT sensor data could make
+            // fOAT_k <= 0; extreme density altitude could make the IAS divisor <= 0.
+            if (fOAT_k > 0.0f)
+                {
+                float fDA      = g_Sensors.Palt + (fISA_temp_k / Temp_rate) * (1.0f - powf(fISA_temp_k / fOAT_k, 0.2349690f));
+                float fDivisor = 1.0f - 6.8755856e-6f * fDA;
+                if (fDivisor > 0.0f)
+                    fTAS = kts2mps(g_Sensors.IAS / powf(fDivisor, 2.12794f));
+                }
+            }
+        else
+            {
+            fTAS = kts2mps(g_Sensors.IAS * (1.0f + g_Sensors.Palt / 1000.0f * 0.02f));
+            }
+
+        // TAS derivative for deceleration compensation
         if (uLastIasUpdateUs == 0)
         {
             uLastIasUpdateUs = uIasUpdateUs;
@@ -244,14 +267,9 @@ void AHRS::Process(float fDeltaTimeSeconds)
     // Smooth accelerometer values and add compensation
     //aFwdCorrAvg.addValue(AccelFwdCorr);
     //aFwd=aFwdCorrAvg.getFastAverage(); // corrected, smoothed
-    AccelFwdSmoothed  = accSmoothing * AccelFwdCorr  + accSmoothingComplement * AccelFwdSmoothed;
-    AccelFwdComp      = AccelFwdSmoothed - AccelFwdCompFactor; //corrected, smoothed and compensated
-
-    AccelLatSmoothed  = accSmoothing * AccelLatCorr  + accSmoothingComplement * AccelLatSmoothed;
-    AccelLatComp      = AccelLatSmoothed - AccelLatCompFactor; //corrected, smoothed and compensated
-
-    AccelVertSmoothed = accSmoothing * AccelVertCorr + accSmoothingComplement * AccelVertSmoothed;
-    AccelVertComp     = AccelVertSmoothed + AccelVertCompFactor; //corrected, smoothed and compensated
+    AccelFwdComp = AccelFwdFilter.update(AccelFwdCorr)  - AccelFwdCompFactor;
+    AccelLatComp = AccelLatFilter.update(AccelLatCorr)  - AccelLatCompFactor;
+    AccelVertComp = AccelVertFilter.update(AccelVertCorr) + AccelVertCompFactor;
 
     // Update attitude filter based on config setting
     // iAhrsAlgorithm: 0=Madgwick (default), 1=EKF6
@@ -284,12 +302,13 @@ void AHRS::Process(float fDeltaTimeSeconds)
         // Convert to degrees to match Madgwick output convention
         SmoothedPitch = state.theta_deg();
         SmoothedRoll  = state.phi_deg();
+        DerivedAOA    = state.alpha_deg();
 
         // Estimate earth vertical G from attitude for the Kalman altitude filter
-        float sph = sin(state.phi);
-        float cph = cos(state.phi);
-        float sth = sin(state.theta);
-        float cth = cos(state.theta);
+        float sph = sinf(state.phi);
+        float cph = cosf(state.phi);
+        float sth = sinf(state.theta);
+        float cth = cosf(state.theta);
         EarthVertG = -sth * AccelFwdCorr + sph * cth * AccelLatCorr + cph * cth * AccelVertCorr - 1.0f;
     }
     else
@@ -313,7 +332,7 @@ void AHRS::Process(float fDeltaTimeSeconds)
     KalFilter.Update(ft2m(g_Sensors.Palt), g2mps(EarthVertG), fDeltaTimeSeconds, &KalmanAlt, &KalmanVSI); // altitude in meters, acceleration in m/s^2
 
     // zero VSI when airspeed is not yet alive
-    if (g_Sensors.IAS < 25)
+    if (g_Sensors.IAS < kMinIasForFlightPath)
     {
         KalmanVSI = 0;
         bIasWasBelowThreshold = true;
@@ -329,29 +348,26 @@ void AHRS::Process(float fDeltaTimeSeconds)
     }
 
     // calculate flight path and derived AOA
-    if (g_Sensors.IAS != 0.0)
-        FlightPath = rad2deg(asin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
+    if (g_Sensors.IAS >= kMinIasForFlightPath)
+        FlightPath = rad2deg(safeAsin(KalmanVSI/fTAS)); // TAS in m/s, radians to degrees
     else
-        FlightPath = 0.0;
+        FlightPath = 0.0f;
 
-    // DerivedAOA calculation depends on AHRS algorithm
-    if (g_Config.iAhrsAlgorithm == 1)
-    {
-        // EKF6 directly estimates alpha as part of its state vector
-        onspeed::EKF6::State state = Ekf6Filter.getState();
-        DerivedAOA = state.alpha_deg();
-    }
-    else
+    // DerivedAOA is the fuselage-to-wind angle (body alpha), NOT wing AOA.
+    // At zero lift, DerivedAOA equals alpha_0 (typically negative due to wing
+    // incidence and camber). See g_Config.aFlaps[].fAlpha0.
+    if (g_Config.iAhrsAlgorithm != 1)
     {
         // Madgwick: derive AOA from pitch angle minus flight path angle
+        // (EKF6 path sets DerivedAOA from its alpha state estimate above)
         DerivedAOA = SmoothedPitch - FlightPath;
     }
 
 }
 
 float AHRS::PitchWithBias()         { return accelPitch(AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
-float AHRS::PitchWithBiasSmth()     { return accelPitch(AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
+float AHRS::PitchWithBiasSmth()     { return accelPitch(AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
 float AHRS::PitchWithBiasSmthComp() { return accelPitch(AccelFwdComp,     AccelLatComp,     AccelVertComp);     }
 float AHRS::RollWithBias()          { return accelRoll (AccelFwdCorr,     AccelLatCorr,     AccelVertCorr);     }
-float AHRS::RollWithBiasSmth()      { return accelRoll (AccelFwdSmoothed, AccelLatSmoothed, AccelVertSmoothed); }
+float AHRS::RollWithBiasSmth()      { return accelRoll (AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
 float AHRS::RollWithBiasSmthComp()  { return accelRoll (AccelFwdComp,     AccelLatComp,     AccelVertComp);     }

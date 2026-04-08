@@ -11,8 +11,6 @@ using onspeed::mps2fpm;
 
 //SoftwareSerial      DispSerial(DISPLAY_SER_RX, DISPLAY_SER_TX);
 
-const int   serialDisplaySmoothingLat  = 50;    // smoothing serial display data (LateralG)  10hz data.
-const int   serialDisplaySmoothingVert = 20;    // smoothing serial display data (VertG)  10hz data.
 
 static inline bool IsFiniteFloat(float v)
 {
@@ -108,9 +106,6 @@ DisplaySerial::DisplaySerial()
 
 void DisplaySerial::Init(Stream * pDispSerial)
 {
-    fPAltSmoothed      = 0.0;
-    fVerticalGSmoothed = 1.0;  // start at 1G;
-    fLateralGSmoothed  = 0.0;
 
     // In the original G2V3 implementation the panel output port could be
     // selected. In this implementation panel output is a fixed serial
@@ -134,8 +129,6 @@ void DisplaySerial::Write()
     int     iPercentLift;
     float   fDisplayAOA;
     float   fDisplayIAS;
-    float   smoothingAlphaLat  = 2.0 / (serialDisplaySmoothingLat  + 1);
-    float   smoothingAlphaVert = 2.0 / (serialDisplaySmoothingVert + 1);
     int     iDisplayVerticalG;
 
 #ifdef SPHERICAL_PROBE
@@ -145,37 +138,39 @@ void DisplaySerial::Write()
 #endif
     const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
-    if (fPAltSmoothed == 0.0)
-        fPAltSmoothed = m2ft(g_AHRS.KalmanAlt);
-    else
-        fPAltSmoothed = m2ft(g_AHRS.KalmanAlt) * smoothingAlphaVert/10+ (1-smoothingAlphaVert/10)*fPAltSmoothed; // increased smoothing needed
+    const float fPAltFt = m2ft(g_AHRS.KalmanAlt);
 
-    fVerticalGSmoothed = g_AHRS.AccelVertCorr * smoothingAlphaVert+ (1-smoothingAlphaVert)*fVerticalGSmoothed;
-    if (IsFiniteFloat(fVerticalGSmoothed))
-        iDisplayVerticalG = (int)ceilf(fVerticalGSmoothed * 10.0f);
+    if (IsFiniteFloat(g_AHRS.AccelVertFilter.get()))
+        iDisplayVerticalG = (int)ceilf(g_AHRS.AccelVertFilter.get() * 10.0f);
     else
         iDisplayVerticalG = 0;
 
-    fLateralGSmoothed = g_AHRS.AccelLatCorr * smoothingAlphaLat+ (1-smoothingAlphaLat)*fLateralGSmoothed;
 
     // don't output precentLift at low speeds.
     if (bIasValidForOutput)
         {
         fDisplayAOA = g_Sensors.AOA;
-        // Scale percent lift
+        // Scale percent lift (alpha_0 is the zero-lift floor, defaults to 0 for uncalibrated configs)
+        float fAlpha0Floor = g_Config.aFlaps[g_Flaps.iIndex].fAlpha0;
         if       (g_Sensors.AOA <  g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA)          // LDmaxAOA
-            iPercentLift = map(g_Sensors.AOA, 0, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,         0, 50);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, fAlpha0Floor, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, 0.0f, 50.0f);
         else if ((g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA)       && // LDmaxAOA
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA))   // onSpeedAOAfast
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  50, 55);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  50.0f, 55.0f);
         else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA) &&
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA))   // onSpeedAOAslow
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  55, 66);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  55.0f, 66.0f);
         else if ((g_Sensors.AOA >  g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA) &&
                  (g_Sensors.AOA <= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA))     // stallWarningAOA
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, 66, 90);
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,  g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, 66.0f, 90.0f);
         else
-            iPercentLift = map(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA*100/90,90,100);
+            {
+            // Use fAlphaStall as the upper bound when calibrated, fallback to old formula
+            float fStallCeiling = g_Config.aFlaps[g_Flaps.iIndex].fAlphaStall;
+            if (fStallCeiling <= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA)
+                fStallCeiling = g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA * 100.0f / 90.0f;
+            iPercentLift = (int)mapfloat(g_Sensors.AOA, g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, fStallCeiling, 90.0f, 100.0f);
+            }
         iPercentLift = constrain(iPercentLift,0,99);
         }
     else
@@ -186,15 +181,15 @@ void DisplaySerial::Write()
 
     // Output the data in the appropriate format
 
-    if (g_Config.sSerialOutFormat == "G3X")
+    if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtG3X)
         {
         // Clamp to fixed-width protocol fields to prevent buffer overruns and
         // malformed output when values go out of range.
         const int      iPitch10   = SafeScaledInt(g_AHRS.SmoothedPitch, 10.0f, -999,    999);
         const int      iRoll10    = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
         const unsigned uIas10     = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
-        const int      iPaltFt    = SafeScaledInt(fPAltSmoothed,         1.0f, -99999, 99999);
-        const int      iLatG100   = SafeScaledInt(-fLateralGSmoothed,  100.0f, -99,      99);
+        const int      iPaltFt    = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
+        const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
         const int      iVertG10   = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift   = ClampUInt((unsigned)iPercentLift,           0,       99);
 
@@ -219,7 +214,7 @@ void DisplaySerial::Write()
             SerialCRC += (byte)serialOutString[i];
         } // end if G3X
 
-    else if (g_Config.sSerialOutFormat == "ONSPEED")
+    else if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtOnSpeed)
         {
         //  0 - #                         Escape character  '#'
         //  1 - 1                         Sentence ID '1'
@@ -251,22 +246,18 @@ void DisplaySerial::Write()
 
         int gOnsetRate      = 0;
         int spinRecoveryCue = 0;
-#ifdef OAT_AVAILABLE
-        int iOATc           = int(g_Sensors.OatC);
-#else
-        int iOATc           = 0;
-#endif
+        int iOATc           = g_Config.bOatSensor ? int(g_Sensors.OatC) : 0;
 
         const int      iPitch10    = SafeScaledInt(g_AHRS.SmoothedPitch, 10.0f, -999,    999);
         const int      iRoll10     = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
         const unsigned uIas10      = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
-        const int      iPaltFt     = SafeScaledInt(fPAltSmoothed,         1.0f, -99999, 99999);
+        const int      iPaltFt     = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
         const int      iYaw10      = SafeScaledInt(g_AHRS.gYaw,          10.0f, -9999,  9999);
-        const int      iLatG100    = SafeScaledInt(-fLateralGSmoothed,  100.0f, -99,      99);
+        const int      iLatG100    = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
         const int      iVertG10    = ClampInt(iDisplayVerticalG,                -99,      99);
         const unsigned uPctLift    = ClampUInt((unsigned)iPercentLift,           0,       99);
         const int      iAoa10      = SafeScaledInt(fDisplayAOA,          10.0f, -999,    999);
-        const int      iVsi10Fpm   = ClampInt((int)floor(mps2fpm(g_AHRS.KalmanVSI) / 10.0f), -999, 999);
+        const int      iVsi10Fpm   = ClampInt((int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f), -999, 999);
         const int      iOatC       = ClampInt(iOATc,                              -99,      99);
         const int      iFpa10      = SafeScaledInt(g_AHRS.FlightPath,    10.0f, -999,    999);
         const int      iFlapsDeg   = ClampInt((int)g_Flaps.iPosition,             -99,      99);

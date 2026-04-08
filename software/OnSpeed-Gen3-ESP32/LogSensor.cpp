@@ -28,6 +28,26 @@ static FsFile       m_hLogFile;
 // non-blocking so SD-card stalls can't backpressure critical tasks.
 static uint32_t      s_uRingDropCount = 0;
 
+// Staging buffer: accumulate log lines and write in 512-byte-aligned
+// chunks so SdFat can pass full sectors straight to multi-block SPI.
+// Accessed from LogSensorCommitTask and LogSensor::Close(); both code
+// paths must hold xWriteMutex when touching szWriteBuf or uBufUsed.
+static const size_t  SECTOR_SIZE    = 512;
+static const size_t  WRITE_BUF_SIZE = SECTOR_SIZE * 4;    // 2048 bytes
+static char          szWriteBuf[WRITE_BUF_SIZE];
+static size_t        uBufUsed       = 0;
+
+// Write any remaining bytes in the staging buffer to the log file.
+// Caller must hold xWriteMutex and ensure m_hLogFile.isOpen().
+static void FlushStagingBufferLocked()
+    {
+    if (uBufUsed > 0 && m_hLogFile.isOpen())
+        {
+        m_hLogFile.write(szWriteBuf, uBufUsed);
+        uBufUsed = 0;
+        }
+    }
+
 static bool Appendf(char * pBuf, size_t uBufSize, int & iLen, const char * szFmt, ...)
     {
     if (pBuf == nullptr || uBufSize == 0)
@@ -76,7 +96,6 @@ void LogSensorCommitTask(void *pvParams)
 {
     static size_t         iPrintLen;
     static char         * pchIn;
-    //static unsigned       uSyncDelay = 0;
     static TickType_t     xLastSyncTime = xTaskGetTickCount();
     static uint64_t       uWriteStart, uWriteEnd, uWriteDur;
     static uint64_t       uSyncStart,  uSyncEnd,  uSyncDur;
@@ -112,82 +131,110 @@ void LogSensorCommitTask(void *pvParams)
             continue;
             }
 
-        // Receive string from sensor read via Espressif ring buffer
-        // Set the timeout to 100 msec just to keep tickling the watchdog
-        pchIn = (char *)xRingbufferReceive(xLoggingRingBuffer, &iPrintLen, pdMS_TO_TICKS(100));
-        if (pchIn == NULL)
+        // Take the write mutex for the full drain+write cycle. Both the
+        // staging buffer (szWriteBuf/uBufUsed) and the log file handle
+        // are shared with LogSensor::Close() and other SD-consuming paths,
+        // so serialize all access through xWriteMutex. The first receive
+        // below waits up to 100 ms, so this task will hold the mutex for
+        // up to ~100 ms when idle — still well under the 1000+ ms timeouts
+        // used by every other taker.
+        if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
             {
-//            Serial.printf("Ring Buffer rcv NULL\n");
+            static unsigned long uLastWarnMs = 0;
+            unsigned long uNow = millis();
+            if ((uNow - uLastWarnMs) > 2000)
+                {
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "SD busy (xWriteMutex); skipping drain");
+                uLastWarnMs = uNow;
+                }
+            continue;
             }
-        else
-            {
-            if (g_Log.Test(MsgLog::EnDisk, MsgLog::EnDebug))
-                {
-                UBaseType_t uxFree;
-                UBaseType_t uxRead;
-                UBaseType_t uxWrite;
-                UBaseType_t uxAcquire;
-                UBaseType_t uxItemsWaiting;
 
-                vRingbufferGetInfo(xLoggingRingBuffer, &uxFree, &uxRead, &uxWrite, &uxAcquire, &uxItemsWaiting);
-                g_Log.printf(MsgLog::EnDisk, MsgLog::EnDebug, "Ring Buffer - Item Len %d  Waiting %d\n", iPrintLen, uxItemsWaiting);
+        // Drain available items from the ring buffer into the staging buffer.
+        // First receive blocks up to 100 ms (keeps watchdog happy); subsequent
+        // receives are non-blocking to batch everything currently queued.
+        bool bGotData = false;
+        TickType_t xWait = pdMS_TO_TICKS(100);
+
+        while (true)
+            {
+            pchIn = (char *)xRingbufferReceive(xLoggingRingBuffer, &iPrintLen, xWait);
+            xWait = 0;     // subsequent receives are non-blocking
+
+            if (pchIn == NULL)
+                break;
+
+            // If the next item won't fit, stop draining and write what we
+            // have. We'll pick up this item on the next iteration.
+            if (uBufUsed + iPrintLen > WRITE_BUF_SIZE)
+                {
+                vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
+                pchIn = NULL;
+                break;
                 }
 
-#if 1
-            // Make sure file handle is open
-            if (m_hLogFile.isOpen() && (g_bPause == false))
-            {
-                bool bDidSync = false;
-                if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
-                    {
-                    static unsigned long uLastWarnMs = 0;
-                    unsigned long uNow = millis();
-                    if ((uNow - uLastWarnMs) > 2000)
-                        {
-                        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "SD busy (xWriteMutex); dropping log line");
-                        uLastWarnMs = uNow;
-                        }
-                    vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
-                    continue;
-                    }
-
-                // If there is actual string data write it to disk
-                if (iPrintLen > 0)
-                    {
-                    uWriteStart = micros();
-                    m_hLogFile.write(pchIn, iPrintLen);
-                    // m_hLogFile.flush(); // This is very frequent and can cause delays. Rely on periodic sync.
-                    uWriteEnd   = micros();
-                    }
-
-                uWriteDur = uWriteEnd - uWriteStart;
-                uWriteMax = uWriteDur > uWriteMax ? uWriteDur : uWriteMax;
-
-                // Sync periodically. This is a blocking call, so we don't want to do it too often.
-                if ((xTaskGetTickCount() - xLastSyncTime) > pdMS_TO_TICKS(SYNC_INTERVAL_MS))
-                {
-                    uSyncStart = micros();
-                    m_hLogFile.sync();
-                    uSyncEnd   = micros();
-                    uSyncDur   = uSyncEnd - uSyncStart;
-                    uSyncMax   = uSyncDur  > uSyncMax  ? uSyncDur  : uSyncMax;
-                    xLastSyncTime = xTaskGetTickCount();
-                    bDidSync = true;
-                }
-
-                xSemaphoreGive(xWriteMutex);
-
-                // Never block SD access while waiting on serial output.
-                if (bDidSync)
-                    g_Log.print(MsgLog::EnDisk, MsgLog::EnDebug, "Sync\n");
-            } // end if file handle open
-
-             //for (int iIdx = 0; iIdx < iPrintLen; iIdx++)
-             //    Serial.print(pchIn[iIdx]);
-#endif
-            // Remove the log line from the ring buffer
+            memcpy(szWriteBuf + uBufUsed, pchIn, iPrintLen);
+            uBufUsed += iPrintLen;
             vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
-        }
+            pchIn = NULL;
+            bGotData = true;
+            }
+
+        if (g_Log.Test(MsgLog::EnDisk, MsgLog::EnDebug) && bGotData)
+            {
+            UBaseType_t uxFree;
+            UBaseType_t uxRead;
+            UBaseType_t uxWrite;
+            UBaseType_t uxAcquire;
+            UBaseType_t uxItemsWaiting;
+
+            vRingbufferGetInfo(xLoggingRingBuffer, &uxFree, &uxRead, &uxWrite, &uxAcquire, &uxItemsWaiting);
+            g_Log.printf(MsgLog::EnDisk, MsgLog::EnDebug, "Write buf %d bytes  Ring waiting %d\n", uBufUsed, uxItemsWaiting);
+            }
+
+        // Write 512-byte-aligned chunks to disk
+        bool bDidSync = false;
+        if (uBufUsed > 0 && m_hLogFile.isOpen() && (g_bPause == false))
+        {
+            // Write full sectors. Any remainder stays in the buffer for
+            // the next batch, keeping writes 512-byte-aligned.
+            size_t uAligned   = (uBufUsed / SECTOR_SIZE) * SECTOR_SIZE;
+            size_t uRemainder = uBufUsed - uAligned;
+
+            if (uAligned > 0)
+                {
+                uWriteStart = micros();
+                m_hLogFile.write(szWriteBuf, uAligned);
+                uWriteEnd   = micros();
+                uWriteDur   = uWriteEnd - uWriteStart;
+                uWriteMax   = uWriteDur > uWriteMax ? uWriteDur : uWriteMax;
+                }
+
+            // Shift remainder to front of buffer
+            if (uRemainder > 0)
+                memmove(szWriteBuf, szWriteBuf + uAligned, uRemainder);
+            uBufUsed = uRemainder;
+
+            // Sync periodically. This is a blocking call, so we don't want to do it too often.
+            // Flush any remaining partial sector before sync so the data is on disk.
+            if ((xTaskGetTickCount() - xLastSyncTime) > pdMS_TO_TICKS(SYNC_INTERVAL_MS))
+            {
+                FlushStagingBufferLocked();
+                uSyncStart = micros();
+                m_hLogFile.sync();
+                uSyncEnd   = micros();
+                uSyncDur   = uSyncEnd - uSyncStart;
+                uSyncMax   = uSyncDur  > uSyncMax  ? uSyncDur  : uSyncMax;
+                xLastSyncTime = xTaskGetTickCount();
+                bDidSync = true;
+            }
+        } // end if data to write
+
+        xSemaphoreGive(xWriteMutex);
+
+        // Never block SD access while waiting on serial output.
+        if (bDidSync)
+            g_Log.print(MsgLog::EnDisk, MsgLog::EnDebug, "Sync\n");
     } // end while forever
 
 } // end TaskWriteSensorLog()
@@ -240,6 +287,13 @@ void LogSensor::Open()
 
         if (m_hLogFile.isOpen())
         {
+            // Pre-allocate contiguous clusters to reduce write latency.
+            // At ~25 KB/s (50 Hz × ~500 bytes), 10 MB covers ~7 minutes
+            // before SdFat needs to extend the allocation.
+            // Unused space is released when the file is closed.
+            if (!m_hLogFile.preAllocate(10UL * 1024 * 1024))
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "Log file preAllocate failed");
+
             // Write the CSV header line
             m_hLogFile.write("timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,AngleofAttack,flapsPos,DataMark");
             m_hLogFile.write(",OAT,TAS");
@@ -255,7 +309,8 @@ void LogSensor::Open()
                     m_hLogFile.write(",efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG,efisPercentLift,efisPalt,efisVSI,efisTAS,efisOAT,efisFuelRemaining,efisFuelFlow,efisMAP,efisRPM,efisPercentPower,efisMagHeading,efisAge,efisTime");
             } // end if EFIS data
 
-            m_hLogFile.write(",EarthVerticalG, FlightPath, VSI, Altitude");
+            m_hLogFile.write(",EarthVerticalG,FlightPath,VSI,Altitude");
+            m_hLogFile.write(",DerivedAOA,CoeffP");
             m_hLogFile.write("\n");
 
             m_hLogFile.sync();
@@ -275,10 +330,15 @@ void LogSensor::Open()
 
 // ----------------------------------------------------------------------------
 
-// Not sure how or when the log file would be closed but here you have it
+// Close the log file. Caller must hold xWriteMutex.
+// Flushes any remaining bytes from the staging buffer before closing, so
+// the last ~1-2 log lines are not lost on graceful shutdown (LOG DISABLE,
+// FORMAT, soft restart). The consumer task holds xWriteMutex while touching
+// szWriteBuf, so this is safe to call from any mutex-holding context.
 
 void LogSensor::Close()
 {
+    FlushStagingBufferLocked();
     m_hLogFile.close();
 }
 
@@ -340,7 +400,7 @@ void LogSensor::Write()
                     g_EfisSerial.suVN300.YawSigma,        g_EfisSerial.suVN300.RollSigma,        g_EfisSerial.suVN300.PitchSigma,
                     g_EfisSerial.suVN300.GnssVelNedNorth, g_EfisSerial.suVN300.GnssVelNedEast,   g_EfisSerial.suVN300.GnssVelNedDown,
                     g_EfisSerial.suVN300.GnssLat,         g_EfisSerial.suVN300.GnssLon,          g_EfisSerial.suVN300.GPSFix,
-                    EfisAge, g_EfisSerial.suVN300.TimeUTC.c_str());
+                    EfisAge, g_EfisSerial.suVN300.szTimeUTC);
             } // end if VN-300
 
             // Other EFIS data sources
@@ -359,6 +419,9 @@ void LogSensor::Write()
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f,%.2f,%.2f",
             g_AHRS.EarthVertG, g_AHRS.FlightPath, mps2fpm(g_AHRS.KalmanVSI), m2ft(g_AHRS.KalmanAlt));
+
+        bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.4f,%.4f",
+            g_AHRS.DerivedAOA, g_fCoeffP);
 
         bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, "\n");
 

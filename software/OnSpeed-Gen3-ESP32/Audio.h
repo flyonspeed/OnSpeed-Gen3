@@ -26,7 +26,7 @@ void AudioPlayTask(void * psuParams);
 
 //#define SAMPLE_RATE         44100
 #define SAMPLE_RATE         16000
-#define TONE_BUFFER_LEN     SAMPLE_RATE / 10    // 100 msec of audio data
+#define TONE_BUFFER_LEN     SAMPLE_RATE / 20    // 50 msec of audio data
 
 class AudioPlay
 {

@@ -105,6 +105,9 @@ public:
             fSTALLWARNAOA   = 0.0;
             fSTALLAOA       = 0.0;
             fMANAOA         = 0.0;
+            fAlpha0         = 0.0;
+            fAlphaStall     = 0.0;
+            fKFit           = 0.0;
             }
         int      iDegrees;
         int      iPotPosition;
@@ -114,6 +117,29 @@ public:
         float    fSTALLWARNAOA;
         float    fSTALLAOA;
         float    fMANAOA;
+        float    fAlpha0;       // Zero-lift fuselage AOA (deg), from physics fit
+        float    fAlphaStall;   // Stall AOA from physics fit (deg)
+        float    fKFit;         // Lift sensitivity (deg·kt²) from IAS-to-AOA fit
+
+        // Returns empty string if AOA setpoints are in order, or a description
+        // of all pairs that are out of order.  Skips fSTALLAOA from the chain
+        // when it is still at its uncalibrated default (0.0).
+        String SetpointOrderError() const
+            {
+            String sErr;
+            if (fLDMAXAOA >= fONSPEEDFASTAOA)
+                sErr += "LDMAX (" + String(fLDMAXAOA, 1) + ") must be less than OnSpeedFast (" + String(fONSPEEDFASTAOA, 1) + "); ";
+            if (fONSPEEDFASTAOA >= fONSPEEDSLOWAOA)
+                sErr += "OnSpeedFast (" + String(fONSPEEDFASTAOA, 1) + ") must be less than OnSpeedSlow (" + String(fONSPEEDSLOWAOA, 1) + "); ";
+            if (fONSPEEDSLOWAOA >= fSTALLWARNAOA)
+                sErr += "OnSpeedSlow (" + String(fONSPEEDSLOWAOA, 1) + ") must be less than StallWarn (" + String(fSTALLWARNAOA, 1) + "); ";
+            if (fSTALLAOA != 0.0f && fSTALLWARNAOA >= fSTALLAOA)
+                sErr += "StallWarn (" + String(fSTALLWARNAOA, 1) + ") must be less than Stall (" + String(fSTALLAOA, 1) + "); ";
+            // Trim trailing "; "
+            if (sErr.length() > 2)
+                sErr.remove(sErr.length() - 2);
+            return sErr;
+            }
 
         SuCalibrationCurve  AoaCurve;
     };
@@ -141,6 +167,7 @@ public:
 
     // calibration data source
     String          sCalSource;
+    bool            bCalSourceEfis;  // Cached: sCalSource == "EFIS" (avoids String compare in 208Hz loop)
 
     // biases
     int             iPFwdBias;      // Counts
@@ -165,6 +192,13 @@ public:
 
     // serial output
     String          sSerialOutFormat;
+    enum EnSerialFmt { EnSerialFmtOther, EnSerialFmtG3X, EnSerialFmtOnSpeed };
+    EnSerialFmt     enSerialOutFormat;  // Cached: avoids String compare in 10Hz display loop
+    static EnSerialFmt ParseSerialFmt(const String& s) {
+        if (s == "G3X")     return EnSerialFmtG3X;
+        if (s == "ONSPEED") return EnSerialFmtOnSpeed;
+        return EnSerialFmtOther;
+    }
 //    String          sSerialOutPort;
 
     // load limit
@@ -179,6 +213,12 @@ public:
     // SD card logging
 //    bool            bSdLoggingConfig;
     bool            bSdLogging;
+
+    // Aircraft parameters (used by calibration wizard)
+    int             iAcGrossWeight;
+    float           fAcBestGlideIAS;    // Best glide airspeed at max gross weight (KIAS)
+    float           fAcVfe;             // Max flap extension speed (KIAS)
+    float           fAcGlimit;          // Airframe load factor limit (G)
 
     // Other config data
     char            szDefaultConfigFilename[14] = "onspeed2.cfg";

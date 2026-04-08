@@ -17,6 +17,7 @@
 #include "Config.h"
 #include "LogReplay.h"
 #include "SensorIO.h"
+#include <EMAFilter.h>
 
 using onspeed::pressureCoeff;
 using onspeed::fpm2mps;
@@ -304,17 +305,15 @@ bool ReadLogLine()
 
 void RemoveSpaces(char * szLine)
     {
-    // Remove any embedded blank spaces
-    int     iStrLen = strlen(szLine);
-    for (int iStrIdx = 0; iStrIdx < iStrLen; iStrIdx++)
+    // Remove any embedded blank spaces using a read/write pointer approach.
+    // The old loop incremented iStrIdx after shifting, skipping consecutive spaces.
+    int iWrite = 0;
+    for (int iRead = 0; szLine[iRead] != '\0'; iRead++)
         {
-        if (szLine[iStrIdx] == ' ')
-            {
-            for (int iMoveIdx = iStrIdx; iMoveIdx <= iStrLen; iMoveIdx++)
-                szLine[iMoveIdx] = szLine[iMoveIdx+1];
-            iStrLen--;
-            }
+        if (szLine[iRead] != ' ')
+            szLine[iWrite++] = szLine[iRead];
         }
+    szLine[iWrite] = '\0';
     }
 
 //-----------------------------------------------------------------------------
@@ -357,10 +356,12 @@ void TestPotTask(void *pvParams)
 
 // ----------------------------------------------------------------------------
 
+constexpr float kTestPotSmoothingAlpha = 0.04f;
+static onspeed::EMAFilter sTestPotAoaFilter(kTestPotSmoothingAlpha);
+
 void ReadTestPot()
     {
     float   fFlapRawValue = 0;
-    float   smoothingAlpha  = 0.04;
     float   fReadAOA;
 
     // Average some flap pot readings
@@ -375,9 +376,9 @@ void ReadTestPot()
     // Map the flap pot raw value onto the flap pot raw value limits
     if (g_Config.aFlaps.size() > 1)
         {
-        // Convert raw flap pot postion into an AOA between 0 and 20
-        fReadAOA = mapfloat(fFlapRawValue, g_Config.aFlaps[0].iPotPosition, g_Config.aFlaps.back().iPotPosition, 0.0, 20.0);
-        fReadAOA = constrain(fReadAOA, 0.0, 20.0);
+        // Convert raw flap pot postion into an AOA between -15 and 20
+        fReadAOA = mapfloat(fFlapRawValue, g_Config.aFlaps[0].iPotPosition, g_Config.aFlaps.back().iPotPosition, -15.0, 20.0);
+        fReadAOA = constrain(fReadAOA, -15.0, 20.0);
         }
 
     // Not enough flap positions defined
@@ -385,7 +386,7 @@ void ReadTestPot()
         fReadAOA = 0.0;
 
     // Smooth potentiometer AOA (using flap pot input)
-    g_Sensors.AOA = fReadAOA * smoothingAlpha + g_Sensors.AOA * (1 - smoothingAlpha);
+    g_Sensors.AOA = sTestPotAoaFilter.update(fReadAOA);
 
     // Just make sure g_Flaps.iIndex is set and good things will happen
     g_Flaps.iIndex = 0; // flaps up
@@ -420,7 +421,7 @@ void ReadTestPot()
 // RANGESWEEP data source routines
 //-----------------------------------------------------------------------------
 
-#define RANGESWEEP_LOW_AOA     0.0
+#define RANGESWEEP_LOW_AOA   -15.0
 #define RANGESWEEP_HIGH_AOA   18.0
 #define RANGESWEEP_STEP        0.1                  // degrees AOA
 #define RANGESWEEP_INTERVAL_MS 100                  // ms to hold each AOA value

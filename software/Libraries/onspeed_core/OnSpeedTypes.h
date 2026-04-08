@@ -84,17 +84,44 @@ constexpr float psi2mb(float psi) { return psi * 68.94757f; }
 constexpr float mb2psi(float mb) { return mb * 0.0145038f; }
 
 // ============================================================================
+// LINEAR INTERPOLATION
+// ============================================================================
+
+/// Linear interpolation / range mapping.
+/// Maps x from [in_min, in_max] to [out_min, out_max].
+/// Returns 0 if the input range is degenerate (< 0.0001).
+inline float mapfloat(float x, float in_min, float in_max,
+                      float out_min, float out_max)
+{
+    if ((in_max - in_min) < 0.0001f)
+        return 0;
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+// ============================================================================
+// SAFE TRIGONOMETRIC FUNCTIONS
+// ============================================================================
+
+/// Clamped asin: clamps input to [-1, 1] to prevent NaN from rounding errors
+/// or ratios that slightly exceed unity (e.g., KalmanVSI/TAS at low airspeed).
+inline float safeAsin(float x) {
+    if (x > 1.0f) x = 1.0f;
+    else if (x < -1.0f) x = -1.0f;
+    return asinf(x);
+}
+
+// ============================================================================
 // ACCELEROMETER-BASED ATTITUDE ESTIMATION
 // ============================================================================
 
 /// Pitch from accelerometer readings (degrees)
 inline float accelPitch(float ax, float ay, float az) {
-    return rad2deg(std::atan2(ax, std::sqrt(ay * ay + az * az)));
+    return rad2deg(atan2f(ax, sqrtf(ay * ay + az * az)));
 }
 
 /// Roll from accelerometer readings (degrees)
 inline float accelRoll(float ax, float ay, float az) {
-    return rad2deg(-std::atan2(ay, std::sqrt(ax * ax + az * az)));
+    return rad2deg(-atan2f(ay, sqrtf(ax * ax + az * az)));
 }
 
 // ============================================================================

@@ -29,6 +29,7 @@
 
 #include "Globals.h"
 #include "Helpers.h"
+#include <ToneCalc.h>
 
 #include "Audio/PCM_cal_canceled.h"
 #include "Audio/PCM_cal_mode.h"
@@ -68,13 +69,8 @@ int16_t            aTone_1600Hz[TONE_BUFFER_LEN];
 
 #define FREERTOS
 
-// Tone Pulse Per Sec (PPS)
-#define HIGH_TONE_STALL_PPS    20                 // how many PPS to play during stall
-#define HIGH_TONE_PPS_MAX       6.2
-#define HIGH_TONE_PPS_MIN       1.5               // 1.5
+// Tone frequency and ramp constants (PPS constants moved to onspeed_core/ToneCalc.h)
 #define HIGH_TONE_HZ         1600                 // freq of high tone
-#define LOW_TONE_PPS_MAX        8.2
-#define LOW_TONE_PPS_MIN        1.5
 #define LOW_TONE_HZ           400                 // freq of low tone
 #define TONE_RAMP_TIME         15                 // millisec
 #define STALL_RAMP_TIME         5                 // millisec
@@ -119,6 +115,14 @@ static void AudioLogDebugNoBlock(const char * szFmt, ...)
     xSemaphoreGive(xSerialLogMutex);
     }
 
+// Wake the audio play task if it is blocked on ulTaskNotifyTake().
+// Safe to call from any task context on either core.
+static void NotifyAudioTask()
+    {
+    if (xTaskAudioPlay != NULL)
+        xTaskNotifyGive(xTaskAudioPlay);
+    }
+
 static void AudioTestTask(void * pvParams)
     {
     (void)pvParams;
@@ -153,10 +157,11 @@ void AudioPlayTask(void * psuParams)
             continue;
             }
 
-        // This would be more efficient with a semaphore but it works OK for now
-        if (g_AudioPlay.enTone == enToneNone)
-//            vTaskDelay(100 / portTICK_PERIOD_MS);
-            vTaskDelay(pdMS_TO_TICKS(100));
+        // Block until SetTone/SetVoice sends a notification, or 100ms
+        // elapses as a safety net.  pdTRUE clears the notification count
+        // so stale notifications don't cause extra wakeups.
+        if (g_AudioPlay.enTone == enToneNone && g_AudioPlay.enVoice == enVoiceNone)
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
 
         // If a voice play has been selected then play it once. Note that PlayVoice()
         // blocks until it is finished.
@@ -166,7 +171,7 @@ void AudioPlayTask(void * psuParams)
             }
 
         // If there is a tone play then keep pumping out tone buffers. Note that PlayTone()
-        // blocks until it finishes writing 100 msec of tone data.
+        // blocks until it finishes writing 50 msec of tone data.
         if (g_AudioPlay.enTone != enToneNone)
             g_AudioPlay.PlayTone();
 
@@ -181,9 +186,9 @@ AudioPlay::AudioPlay()
 {
     enVoice              = enVoiceNone;
     enTone               = enToneNone;
-    fVolume              = 0.5;
-    fLeftGain            = 1.0;
-    fRightGain           = 1.0;
+    fVolume              = 0.5f;
+    fLeftGain            = 1.0f;
+    fRightGain           = 1.0f;
 
     fTonePulseMaxSamples = 0;
     fTonePulseCounter    = 0;
@@ -219,26 +224,26 @@ void AudioPlay::Init()
 
     for (int iIdx = 0; iIdx < TONE_BUFFER_LEN; iIdx++)
         {
-        double  fAngle;
+        float   fAngle;
 
         // Note byte swap to get the tone data in the same endianness as the WAV data
         // 400 Hz tone
 #if 1
-        fAngle = remainder(2.0*M_PI*iIdx*400.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_400Hz[iIdx] = uint16_t(25000 * cos(fAngle));
+        fAngle = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
+        aTone_400Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
 #else
-        float fAngle1 = remainder(2.0*M_PI*iIdx*440.00/SAMPLE_RATE, 2.0*M_PI);   // A
-        // float fAngle2 = remainder(2.0*M_PI*iIdx*523.25/SAMPLE_RATE, 2.0*M_PI);   // C
-        // float fAngle3 = remainder(2.0*M_PI*iIdx*659.25/SAMPLE_RATE, 2.0*M_PI);   // E
-        float fAngle2 = remainder(2.0*M_PI*iIdx*400.00/SAMPLE_RATE, 2.0*M_PI);   // C
-        float fAngle3 = remainder(2.0*M_PI*iIdx*800.00/SAMPLE_RATE, 2.0*M_PI);   // E
-        aTone_400Hz[iIdx] = uint16_t(15000 * cos(fAngle1) +
-                                      3000 * cos(fAngle2) +
-                                      3000 * cos(fAngle3));
+        float fAngle1 = remainderf(2.0f*(float)M_PI*iIdx*440.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // A
+        // float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*523.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
+        // float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*659.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
+        float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
+        float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*800.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
+        aTone_400Hz[iIdx] = uint16_t(15000.0f * cosf(fAngle1) +
+                                      3000.0f * cosf(fAngle2) +
+                                      3000.0f * cosf(fAngle3));
 #endif
         // Setup 1600 Hz tone
-        fAngle = remainder(2.0*M_PI*iIdx*1600.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_1600Hz[iIdx] = uint16_t(25000 * cos(fAngle));
+        fAngle = remainderf(2.0f*(float)M_PI*iIdx*1600.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
+        aTone_1600Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
         }
 
     // Length of the data in the buffer. This may be different for tones that
@@ -253,9 +258,9 @@ void AudioPlay::Init()
 
 void AudioPlay::SetVolume(int iVolumePercent)
 {
-    if      (iVolumePercent <   0) fVolume = 0.0;
-    else if (iVolumePercent > 100) fVolume = 1.0;
-    else                           fVolume = iVolumePercent / 100.0;
+    if      (iVolumePercent <   0) fVolume = 0.0f;
+    else if (iVolumePercent > 100) fVolume = 1.0f;
+    else                           fVolume = iVolumePercent / 100.0f;
 }
 
 // ----------------------------------------------------------------------------
@@ -277,6 +282,9 @@ void AudioPlay::SetGain(float fLeftGain, float fRightGain)
 void AudioPlay::SetVoice(EnVoice enVoice)
 {
     this->enVoice = enVoice;
+
+    if (enVoice != enVoiceNone)
+        NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
@@ -286,6 +294,9 @@ void AudioPlay::SetVoice(EnVoice enVoice)
 void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
     this->enTone = enAudioTone;
+
+    if (enAudioTone != enToneNone)
+        NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
@@ -306,10 +317,10 @@ void AudioPlay::SetToneFreq(unsigned uToneFreq)
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
     // Outside limits disables tone pulse
-    if ((fPulseFreq < 1.0) || (fPulseFreq > 25.0))
+    if ((fPulseFreq < 1.0f) || (fPulseFreq > 25.0f))
         fTonePulseMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0);  // Tone period in audio samples
+        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // Tone period in audio samples
 
 }
 
@@ -473,83 +484,42 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 
 void AudioPlay::UpdateTones()
     {
-    float   fNewPulseFreq;
-
     // If audio test is in progress then don't do anything
     if (bAudioTest)
         return;
 
-    // If audio is disabled by button, only allow stall warning through
+    onspeed::ToneResult result;
+
     if (!g_bAudioEnable)
         {
-        if (g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA &&
-            g_Sensors.IAS > g_Config.iMuteAudioUnderIAS)
-            {
-            SetTone(enToneHigh);
-            SetPulseFreq(HIGH_TONE_STALL_PPS);
-            }
-        else
-            {
-            SetTone(enToneNone);
-            }
-        return;
+        // Audio disabled by button — only allow stall warning through
+        result = onspeed::calculateToneMuted(
+            g_Sensors.AOA, g_Sensors.IAS,
+            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
+            g_Config.iMuteAudioUnderIAS);
         }
-
-    // If airspeed is low (like taxiing) don't make audio
-    if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
+    else if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
         {
+        // Airspeed too low (taxiing) — mute, but set pulse rate high for quick pickup
 #ifdef TONEDEBUG
         AudioLogDebugNoBlock("AUDIO MUTED: Airspeed too low. Min:%i IAS:%.2f\n",
             g_Config.iMuteAudioUnderIAS, g_Sensors.IAS);
 #endif
-        SetTone(enToneNone);
-        SetPulseFreq(20); // set the update rate to LOW_TONE_PPS_MAX if no tone is playing to pick up a pulsed tone quickly
-        return;
-        }
-
-    // check AOA value and set tone and pauses between tones according to
-    if      (g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA) // stallWarningAOA
-        {
-        // play 20 pps HIGH tone
-        SetTone(enToneHigh);
-        SetPulseFreq(HIGH_TONE_STALL_PPS);
-        }
-    else if (g_Sensors.AOA > (g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA))    // onSpeedAOAslow
-        {
-        // play HIGH tone at Pulse Rate 1.5 PPS to 6.2 PPS (depending on AOA value)
-        SetTone(enToneHigh);
-        fNewPulseFreq = mapfloat(
-            g_Sensors.AOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,    // onSpeedAOAslow
-            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,      // stallWarningAOA
-            HIGH_TONE_PPS_MIN,
-            HIGH_TONE_PPS_MAX);
-        SetPulseFreq(fNewPulseFreq); // when transitioning from solid to high tone make the first one shorter
-        }
-    else if(g_Sensors.AOA >= (g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA)) // onSpeedAOAfast
-        {
-        // play a steady LOW tone
-        SetTone(enToneLow);
-        SetPulseFreq(0);
-        }
-    else if ((g_Sensors.AOA >= g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA) && // LDmaxAOA
-             (g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA < g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA)) // onSpeedAOAfast
-        {  // if L/D max AOA is higher than OnSpeedfast, skip the low tone. This usually happens with full flaps.
-        SetTone(enToneLow);
-        // play LOW tone at Pulse Rate 1.5 PPS to 8.2 PPS (depending on AOA value)
-        fNewPulseFreq = mapfloat(
-            g_Sensors.AOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,       // LDmaxAOA
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA, // onSpeedAOAfast,
-            LOW_TONE_PPS_MIN,
-            LOW_TONE_PPS_MAX);
-        SetPulseFreq(fNewPulseFreq);
+        result = { onspeed::EnToneType::None, 20.0f };
         }
     else
         {
-        SetTone(enToneNone);
-        SetPulseFreq(0);
+        const onspeed::ToneThresholds th = {
+            g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,
+            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
+            };
+        result = onspeed::calculateTone(g_Sensors.AOA, th);
         }
+
+    SetTone(static_cast<EnAudioTone>(result.enTone));
+    SetPulseFreq(result.fPulseFreq);
     }
 
 // ----------------------------------------------------------------------------
@@ -690,7 +660,6 @@ void AudioPlay::AudioTest()
 
 done:
 //    pSerial->printf("Tone OFF, Pulse 4.0 Hz\n");
-    g_AudioPlay.SetPulseFreq(3.0);
     g_AudioPlay.SetPulseFreq(0);
 
 //    pSerial->printf("\n");
