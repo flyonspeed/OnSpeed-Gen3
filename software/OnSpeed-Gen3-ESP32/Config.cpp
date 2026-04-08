@@ -396,6 +396,7 @@ String FOSConfig::ConfigurationToString()
         XML_INSERT_SET(XmlConfigFlaps, "MANAOA",         aFlaps[iFlapIdx].fMANAOA)
         XML_INSERT_SET(XmlConfigFlaps, "ALPHA0",         aFlaps[iFlapIdx].fAlpha0)
         XML_INSERT_SET(XmlConfigFlaps, "ALPHASTALL",     aFlaps[iFlapIdx].fAlphaStall)
+        XML_INSERT_SET(XmlConfigFlaps, "KFIT",           aFlaps[iFlapIdx].fKFit)
 
         XML_INSERT(XmlConfigFlaps, "AOA_CURVE")
         XMLElement * XmlConfigAoACurve = XmlConfigNew;
@@ -713,6 +714,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             XML_GET_FLOAT(pXmlFlaps, "MANAOA",         suFlaps.fMANAOA)
             XML_GET_FLOAT(pXmlFlaps, "ALPHA0",         suFlaps.fAlpha0)
             XML_GET_FLOAT(pXmlFlaps, "ALPHASTALL",     suFlaps.fAlphaStall)
+            XML_GET_FLOAT(pXmlFlaps, "KFIT",           suFlaps.fKFit)
 
             XMLElement * pXmlAoaCurve = pXmlFlaps->FirstChildElement("AOA_CURVE");
             if (pXmlAoaCurve != NULL)
