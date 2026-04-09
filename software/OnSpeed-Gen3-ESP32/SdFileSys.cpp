@@ -17,7 +17,15 @@ bool CompareByFileName(const SdFileSys::SuFileInfo & a, SdFileSys::SuFileInfo & 
 
 SdFileSys::SdFileSys() :
         uSD_SPI(HSPI),
-        SpiConfig(SD_CS, DEDICATED_SPI | USER_SPI_BEGIN, SD_SCK_MHZ(10), &uSD_SPI)
+        // NOTE: do NOT add DEDICATED_SPI here. SdFat's dedicated-SPI mode
+        // skips writeStop() after multi-block writes (see SdSpiCard::writeSectors),
+        // which leaves Arduino-ESP32's SPIClass paramLock held by the writer
+        // task. A subsequent SD access from any other task (e.g. the `list`
+        // console command, web file listing, config reload) eventually calls
+        // spiStop() and tries to give paramLock from a task that doesn't own
+        // it, tripping the FreeRTOS `xTaskPriorityDisinherit` assert and
+        // crashing the board.
+        SpiConfig(SD_CS, USER_SPI_BEGIN, SD_SCK_MHZ(10), &uSD_SPI)
     {
     }
 
@@ -34,8 +42,12 @@ bool SdFileSys::Init()
     // Init FAT file system object
     bSdAvailable = uSD_FAT.begin(SpiConfig);
 
-    // Init low level card stuff
-    puSD_Card = CardFactory.newCard(SpiConfig);
+    // Get the card pointer from the already-initialized FAT object.
+    // Do NOT construct a separate SdCardFactory — SdFat already owns an
+    // internal SdSpiCard initialized by uSD_FAT.begin() above; creating a
+    // second one diverges the card state from what SdFat actually uses for
+    // I/O (and caused the original "SD open failed" boot-time regression).
+    puSD_Card = uSD_FAT.card();
 
     return bSdAvailable;
     }

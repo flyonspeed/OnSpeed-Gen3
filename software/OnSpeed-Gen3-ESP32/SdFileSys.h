@@ -40,8 +40,7 @@ public:
 protected:
     SPIClass        uSD_SPI;        // SD card SPI interface
     SdFat           uSD_FAT;        // Fat file system object
-    SdCard        * puSD_Card;      // Low level SD card access
-    SdCardFactory   CardFactory;
+    SdCard        * puSD_Card;      // Low level SD card access (from uSD_FAT.card())
     SdSpiConfig     SpiConfig;
 
 public:
