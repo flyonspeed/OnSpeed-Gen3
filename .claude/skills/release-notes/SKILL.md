@@ -31,12 +31,25 @@ This skill captures the OnSpeed-specific process for getting from "release v4.X"
 4. **Never describe a safety-critical change without reading the diff.** See the safety-critical file list below.
 5. **Always include a recalibration callout.** Every release. Even if the answer is "no recalibration needed."
 6. **Always calibrate voice against the previous release.** Read it before drafting. The previous release is the canonical example of project tone and structure.
+7. **Always audit the docs site for drift before drafting.** Pilots read the docs to understand what a release means — stale docs turn a clean release into a support problem. See Phase 0 below.
 
 Violating the letter of these rules is violating the spirit. Don't rationalize.
 
 ## Workflow
 
 Create a TodoWrite todo for each phase. Mark complete as you go.
+
+### Phase 0 — Docs audit (mandatory)
+
+Before any scope work on release notes, run the `docs-update` skill against the same release window. The docs site is not hand-maintained prose — it is a derived document whose defaults, console commands, CSV columns, tone thresholds, and wizard fields all come from specific source files in the firmware. If those sources changed since the last release and the docs didn't, the release will ship with documentation that contradicts the code the pilot just flashed.
+
+Invoke the `docs-update` skill with the same version window you intend to release. It will:
+
+1. Walk the firmware-to-docs mapping for every file that changed since the previous tag.
+2. Verify each concrete claim on the docs site against the live code (not `ConfigDefaults.h` — always the `LoadDefaultConfiguration()` function in `Config.cpp`).
+3. Open a separate `docs/drift-fixes-v<version>` PR with a strict mkdocs build.
+
+Do not proceed to Phase 1 of the release workflow until the docs audit PR is open (or the user explicitly says "no drift, continue"). A release with stale docs is a release that generates support tickets the day it ships.
 
 ### Phase 1 — Discover scope
 

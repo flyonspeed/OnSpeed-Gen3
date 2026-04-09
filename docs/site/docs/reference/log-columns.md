@@ -2,16 +2,18 @@
 
 Complete reference for all columns in OnSpeed SD card log files. Data is logged at 50 Hz.
 
-## Core Columns (Always Present)
+Columns are written in three groups: (1) base core columns (`timeStamp` through `Roll`), (2) optional Boom and/or EFIS columns when those features are enabled, (3) derived core columns (`EarthVerticalG` through `CoeffP`). Parse by column name — direct index positions shift when optional blocks are enabled.
+
+## Core Columns — Base
 
 | Column | Units | Description |
 |--------|-------|-------------|
 | `timeStamp` | ms | Milliseconds since power-on |
-| `Pfwd` | counts | Raw pitot pressure (14-bit ADC: 0–16383) |
-| `PfwdSmoothed` | PSI | Pitot pressure after EMA smoothing |
-| `P45` | counts | Raw AOA pressure (14-bit ADC) |
-| `P45Smoothed` | PSI | AOA pressure after EMA smoothing |
-| `PStatic` | PSI | Static (barometric) pressure |
+| `Pfwd` | counts | Pitot pressure, bias subtracted (14-bit ADC) |
+| `PfwdSmoothed` | counts | Pitot pressure after median + running-average smoothing |
+| `P45` | counts | AOA pressure, bias subtracted (14-bit ADC) |
+| `P45Smoothed` | counts | AOA pressure after median + running-average smoothing |
+| `PStatic` | mbar | Static (barometric) pressure |
 | `Palt` | ft | Pressure altitude |
 | `IAS` | knots | Indicated airspeed |
 | `AngleofAttack` | degrees | Computed AOA from pressure polynomial |
@@ -28,11 +30,18 @@ Complete reference for all columns in OnSpeed SD card log files. Data is logged 
 | `YawRate` | deg/s | Yaw angular rate (gyro) |
 | `Pitch` | degrees | Pitch angle (AHRS output, smoothed) |
 | `Roll` | degrees | Roll angle (AHRS output, smoothed) |
+
+## Core Columns — Derived
+
+Appended after any optional Boom/EFIS columns.
+
+| Column | Units | Description |
+|--------|-------|-------------|
 | `EarthVerticalG` | G | Vertical acceleration in Earth frame |
 | `FlightPath` | degrees | Flight path angle = arcsin(VSI/TAS) |
 | `VSI` | fpm | Vertical speed (Kalman filtered) |
 | `Altitude` | ft | Altitude (Kalman filtered, MSL) |
-| `DerivedAOA` | degrees | SmoothedPitch - FlightPath |
+| `DerivedAOA` | degrees | SmoothedPitch − FlightPath |
 | `CoeffP` | — | Pressure coefficient (P45/Pfwd) |
 
 ## Boom Probe Columns (When Boom Enabled)

@@ -66,18 +66,24 @@ To find pot values, physically set each flap position and read the value from th
 
 See [Flap Position Setup](flap-setup.md) for details.
 
-## Step 5: Set Aircraft Limits
+## Step 5: Set Aircraft Parameters
 
-Configure these aircraft-specific values:
+The **Aircraft** section of the config page takes the following. These drive the maneuvering-speed calculation and the best-glide readout.
 
 | Setting | What to Enter | Example (RV-4) |
 |---------|---------------|-----------------|
-| **Vno** | Your aircraft's max structural cruising speed (knots) | 157 |
-| **Positive G-limit** | Maximum positive load factor | 4.0 |
-| **Negative G-limit** | Maximum negative load factor (enter as negative) | -2.0 |
-| **Best Glide IAS** | Best glide speed at max gross weight (knots) | 87.5 |
-| **Max Gross Weight** | Aircraft max gross weight (lbs) | 2282 |
-| **Vfe** | Max flaps-extended speed (knots) | 150 |
+| **Max gross weight** | Aircraft max gross weight (lbs) | 2282 |
+| **Best glide at max gross wt** | Best glide speed at max gross weight (KIAS) | 87.5 |
+| **Vfe** | Max flaps-extended speed (KIAS) | 150 |
+| **Aircraft category / load factor limit** | Radio buttons: Normal (+3.8G / −1.52G), Utility (+4.4G / −1.76G), Aerobatic (+6.0G / −3.0G), or Custom for a value outside the FAR 23 presets | Aerobatic (+6.0G / −3.0G) |
+
+The over-G **warning** thresholds and Vno overspeed chime speed live in separate sections of the same config page. They are distinct from the airframe structural G-limit above.
+
+| Section | Setting | Example (RV-4) |
+|---------|---------|-----------------|
+| Vno Chime | **Vno** — max structural cruising speed (knots) | 157 |
+| Over-G Warning | **Positive G-limit** — positive-G warning threshold | 4.0 |
+| Over-G Warning | **Negative G-limit** — negative-G warning threshold (enter as negative) | -2.0 |
 
 ## Step 6: Configure Audio
 
