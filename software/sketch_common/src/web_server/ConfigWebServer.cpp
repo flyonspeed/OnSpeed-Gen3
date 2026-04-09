@@ -84,7 +84,7 @@ float   fAcVfe;
 float   fAcGlimit;
 
 String      pageHeader;
-String      pageFooter="</body></html>";
+String      pageFooter="</main></body></html>";
 
 // Variables used for upload
 bool        bUploadedConfigStringGood;
@@ -423,14 +423,16 @@ void HandleIndex()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
     sPage += pageHeader;
-    sPage += "<br><br>\n"
-        "<strong>Welcome to the OnSpeed Wifi gateway.</strong><br><br>\n"
-        "General usage guidelines:<br>\n"
-        "<br>\n"
-        "- Connect from one device at a time<br>\n"
-        "- Visit one page at a time<br>\n"
-        "- During log file downloads data recording and tones are disabled<br>\n"
-        "- LiveView is for debugging purposes only. Do not use for flight.<br>\n";
+    sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">\n"
+        "<h2 style=\"margin-top:0;\">Welcome to the OnSpeed Wifi gateway</h2>\n"
+        "<p>General usage guidelines:</p>\n"
+        "<ul style=\"padding-left:20px;\">\n"
+        "<li>Connect from one device at a time</li>\n"
+        "<li>Visit one page at a time</li>\n"
+        "<li>During log file downloads data recording and tones are disabled</li>\n"
+        "<li>LiveView is for debugging purposes only. Do not use for flight.</li>\n"
+        "</ul>\n"
+        "</div>\n";
     sPage += pageFooter;
 
     CfgServer.send(200, "text/html", sPage);
@@ -454,22 +456,25 @@ void HandleReboot()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
     sPage += pageHeader;
+    sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">";
 
     if (CfgServer.arg("confirm").indexOf("yes") < 0)
         {
         // Display confirmation page
-        sPage += "<br><br><p style=\"color:red\">Confirm that you want to reboot OnSpeed.</p>\
-        <br><br><br>\
+        sPage += "<p style=\"color:red\">Confirm that you want to reboot OnSpeed.</p>\
+        <br>\
         <a href=\"reboot?confirm=yes\" class=\"button\">Reboot</a>\
         <a href=\"/\">Cancel</a>";
+        sPage += "</div>";
         sPage += pageFooter;
         CfgServer.send(200, "text/html", sPage);
         }
     else
         {
         // reboot system
-        sPage += "<br><br><p>OnSpeed is rebooting. Wait a few seconds to reconnect.</p>";
+        sPage += "<p>OnSpeed is rebooting. Wait a few seconds to reconnect.</p>";
         sPage += "<script>setTimeout(function () { window.location.href = \"/\";}, 7000);</script>";
+        sPage += "</div>";
         sPage += pageFooter;
         CfgServer.send(200, "text/html", sPage);
         delay(1000);
@@ -2014,6 +2019,7 @@ void HandleConfigSave()
         sPage.reserve(pageHeader.length() + 1024);
         sConfig.reserve(1024);
         sPage += pageHeader;
+        sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">";
 
         // Save configuration. Maybe specify a config file name someday. Default for now.
         g_Config.SaveConfigurationToFile();
@@ -2024,19 +2030,20 @@ void HandleConfigSave()
             String sErr = g_Config.aFlaps[i].SetpointOrderError().c_str();
             if (sErr.length() > 0)
                 {
-                sPage += "<br><br><b>WARNING:</b> Flap position " + String(g_Config.aFlaps[i].iDegrees)
+                sPage += "<p><b>WARNING:</b> Flap position " + String(g_Config.aFlaps[i].iDegrees)
                        + " degrees: " + sErr + "."
                          " Check the AOA setpoints on the configuration page and ensure they increase"
-                         " from LDMAX through Stall. Audio behavior may be incorrect.";
+                         " from LDMAX through Stall. Audio behavior may be incorrect.</p>";
                 g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
                     "Flap %d deg: %s\n",
                     g_Config.aFlaps[i].iDegrees, sErr.c_str());
                 }
             }
 
-        sPage += "<br><br>Configuration saved.";
+        sPage += "<p>Configuration saved.</p>";
         if (rebootRequired)
-            sPage += R"#(<br><br>Some of the changes require a system reboot to take effect.<br><br><br><a href="reboot?confirm=yes" class="button">Reboot Now</a>)#";
+            sPage += R"#(<p>Some of the changes require a system reboot to take effect.</p><br><a href="reboot?confirm=yes" class="button">Reboot Now</a>)#";
+        sPage += "</div>";
         sPage += pageFooter;
 
         CfgServer.send(200, "text/html", sPage);
@@ -2077,11 +2084,12 @@ void HandleDefaultConfig()
         {
         // Display confirmation page
         sPage += R"#(
-<br><br>
+<div class="round-box" style="padding:24px; display:block;">
 <p style="color:red">Confirm that you want to load the Default configuration. This will erase all of your current settings.</p>
-<br><br><br>
+<br>
 <a href="/defaultconfig?confirm=yes" class="button">Load Default Config</a>
 <a href="/aoaconfig">Cancel</a>
+</div>
 )#";
         }
 
@@ -2165,7 +2173,9 @@ void HandleFinalUpload()
 
         else
             {
-            sPage += "<br><br>The uploaded file does not contain a valid configuration. Try another file.";
+            sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">";
+            sPage += "<p>The uploaded file does not contain a valid configuration. Try another file.</p>";
+            sPage += "</div>";
             sPage += pageFooter;
             CfgServer.send(200, "text/html", sPage);
             }
@@ -2184,28 +2194,29 @@ void HandleSensorConfig()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 8192);
     sPage += pageHeader;
+    sPage += "<div class=\"round-box\" style=\"padding:16px; display:block;\">";
 
     // First time through, no "yes" calibration confirm
     if (CfgServer.arg("confirm").indexOf("yes") < 0)
         {
         String sCurrentConfig = "";
-        sCurrentConfig += "\n<table>\n";
-        sCurrentConfig += "<tr><td style=\"padding-right: 20px;\">Pfwd Bias:</td><td>"                + String(g_Config.iPFwdBias)                 + "</td><td>Counts</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">P45 Bias:</td><td>"                 + String(g_Config.iP45Bias)                  + "</td><td>Counts</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Static Bias:</td><td>"              + String(g_Config.fPStaticBias)              + "</td><td>millibars</td></tr>\n";
+        sCurrentConfig += "\n<table class=\"sensor-table\">\n";
+        sCurrentConfig += "<tr><td>Pfwd Bias:</td><td>"                + String(g_Config.iPFwdBias)                 + "</td><td>Counts</td></tr>\n";
+        sCurrentConfig += "<tr><td>P45 Bias:</td><td>"                 + String(g_Config.iP45Bias)                  + "</td><td>Counts</td></tr>\n";
+        sCurrentConfig += "<tr><td>Static Bias:</td><td>"              + String(g_Config.fPStaticBias)              + "</td><td>millibars</td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gx Bias:</td><td>"                  + String(g_Config.fGxBias)                   + "</td><td></td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gy Bias:</td><td>"                  + String(g_Config.fGyBias)                   + "</td><td></td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gz Bias:</td><td>"                  + String(g_Config.fGzBias)                   + "</td><td></td></tr>\n";
+        sCurrentConfig += "<tr><td>gx Bias:</td><td>"                  + String(g_Config.fGxBias)                   + "</td><td></td></tr>\n";
+        sCurrentConfig += "<tr><td>gy Bias:</td><td>"                  + String(g_Config.fGyBias)                   + "</td><td></td></tr>\n";
+        sCurrentConfig += "<tr><td>gz Bias:</td><td>"                  + String(g_Config.fGzBias)                   + "</td><td></td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">IMU Pitch:</td><td>"                + String(g_pIMU->PitchAC())                  + "</td><td>Degrees</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Pitch Bias:</td><td>"               + String(g_Config.fPitchBias)                + "</td><td>Degrees</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Calculated True AC Pitch:</td><td>" + String(g_AHRS.PitchWithBias())             + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>IMU Pitch:</td><td>"                + String(g_pIMU->PitchAC())                  + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Pitch Bias:</td><td>"               + String(g_Config.fPitchBias)                + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Calculated True AC Pitch:</td><td>" + String(g_AHRS.PitchWithBias())             + "</td><td>Degrees</td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">IMU Roll:</td><td>"                 + String(g_pIMU->RollAC())                   + "</td><td>Degrees</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Roll Bias:</td><td>"                + String(g_Config.fRollBias)                 + "</td><td>Degrees</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Calculated True AC Roll:</td><td>"  + String(g_AHRS.RollWithBias())              + "</td><td>Degrees</td></tr>\n";
-        sCurrentConfig +=" </table>\n";
+        sCurrentConfig += "<tr><td>IMU Roll:</td><td>"                 + String(g_pIMU->RollAC())                   + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Roll Bias:</td><td>"                + String(g_Config.fRollBias)                 + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Calculated True AC Roll:</td><td>"  + String(g_AHRS.RollWithBias())              + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "</table>\n";
 
         // Determine default pitch/roll/palt values for the form.
         // Use EFIS data if available and fresh (< 2 seconds old), otherwise
@@ -2245,8 +2256,7 @@ sPage += R"#(
         <br>
         <br>
         <form action="sensorconfig" method="GET">
-<table>
-        <table>
+        <table class="sensor-table">
         <tr><td><label>True Aircraft Pitch (degrees)</label></td>
         <td><input class="inputField" type="text" name="trueAircraftPitch" value=")#" + String(fDefPitch) + R"#("></td></tr>
         <tr><td><label>True Aircraft Roll (degrees)</label></td>
@@ -2370,29 +2380,30 @@ sPage += R"#(
         sPage += "<br>The new parameters are:<br><br>";
 
         String sCurrentConfig = "";
-        sCurrentConfig += "\n<table>\n";
-        sCurrentConfig += "<tr><td style=\"padding-right: 20px;\">Pfwd Bias:</td><td style=\"text-align: right;\">"             + String(g_Config.iPFwdBias)     + "</td><td>Counts</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">P45 Bias:</td><td style=\"text-align: right;\">"              + String(g_Config.iP45Bias)      + "</td><td>Counts</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Measured Static:</td><td style=\"text-align: right;\">"       + String(fMeasuredStaticMB)      + "</td><td>millibars</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Calculated Static:</td><td style=\"text-align: right;\">"     + String(fCalculatedStaticMB)    + "</td><td>millibars</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Static Bias:</td><td style=\"text-align: right;\">"           + String(g_Config.fPStaticBias)  + "</td><td>millibars</td></tr>\n";
+        sCurrentConfig += "\n<table class=\"sensor-table\">\n";
+        sCurrentConfig += "<tr><td>Pfwd Bias:</td><td class=\"num\">"             + String(g_Config.iPFwdBias)     + "</td><td>Counts</td></tr>\n";
+        sCurrentConfig += "<tr><td>P45 Bias:</td><td class=\"num\">"              + String(g_Config.iP45Bias)      + "</td><td>Counts</td></tr>\n";
+        sCurrentConfig += "<tr><td>Measured Static:</td><td class=\"num\">"       + String(fMeasuredStaticMB)      + "</td><td>millibars</td></tr>\n";
+        sCurrentConfig += "<tr><td>Calculated Static:</td><td class=\"num\">"     + String(fCalculatedStaticMB)    + "</td><td>millibars</td></tr>\n";
+        sCurrentConfig += "<tr><td>Static Bias:</td><td class=\"num\">"           + String(g_Config.fPStaticBias)  + "</td><td>millibars</td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gx Bias:</td><td style=\"text-align: right;\">"               + String(g_Config.fGxBias)       + "</td><td></td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gy Bias:</td><td style=\"text-align: right;\">"               + String(g_Config.fGyBias)       + "</td><td></td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gz Bias:</td><td style=\"text-align: right;\">"               + String(g_Config.fGzBias)       + "</td><td></td></tr>\n";
+        sCurrentConfig += "<tr><td>gx Bias:</td><td class=\"num\">"               + String(g_Config.fGxBias)       + "</td><td></td></tr>\n";
+        sCurrentConfig += "<tr><td>gy Bias:</td><td class=\"num\">"               + String(g_Config.fGyBias)       + "</td><td></td></tr>\n";
+        sCurrentConfig += "<tr><td>gz Bias:</td><td class=\"num\">"               + String(g_Config.fGzBias)       + "</td><td></td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Current True AC Pitch:</td><td style=\"text-align: right;\">" + String(g_AHRS.PitchWithBias()) + "</td><td>Degrees</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Pitch Bias:</td><td style=\"text-align: right;\">"            + String(g_Config.fPitchBias)    + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Current True AC Pitch:</td><td class=\"num\">" + String(g_AHRS.PitchWithBias()) + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Pitch Bias:</td><td class=\"num\">"            + String(g_Config.fPitchBias)    + "</td><td>Degrees</td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Current True AC Roll:</td><td style=\"text-align: right;\">"  + String(g_AHRS.RollWithBias())  + "</td><td>Degrees</td></tr>\n";
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Roll Bias:</td><td style=\"text-align: right;\">"             + String(g_Config.fRollBias)     + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Current True AC Roll:</td><td class=\"num\">"  + String(g_AHRS.RollWithBias())  + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig += "<tr><td>Roll Bias:</td><td class=\"num\">"             + String(g_Config.fRollBias)     + "</td><td>Degrees</td></tr>\n";
 
-        sCurrentConfig +=" </table>\n";
+        sCurrentConfig += "</table>\n";
 
         sPage += sCurrentConfig;
 
         } // end else save configure sensor values
 
+    sPage += "</div>";
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
 
@@ -2406,8 +2417,10 @@ void HandleWifiReflash()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
     sPage += pageHeader;
-    sPage += "<br><br><p>Wifi reflash mode disables the Teensy's serial port to enable reflashing the Wifi chip via its microUSB port.\
-    <br><br><span style=\"color:red\">This mode is now activated until reboot.</span></p>";
+    sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">";
+    sPage += "<p>Wifi reflash mode disables the Teensy's serial port to enable reflashing the Wifi chip via its microUSB port.</p>";
+    sPage += "<p><span style=\"color:red\">This mode is now activated until reboot.</span></p>";
+    sPage += "</div>";
     sPage += pageFooter;
 //    sendSerialCommand("$WIFIREFLASH!");
     CfgServer.send(200, "text/html", sPage);
@@ -2424,12 +2437,14 @@ void HandleUpgrade()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
     sPage += pageHeader;
-    sPage += "<br><br><p>Upgrade Wifi module firmware via binary (.bin) file upload\
-    <br><br><br>";
+    sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">";
+    sPage += "<h2 style=\"margin-top:0;\">Firmware Upgrade</h2>";
+    sPage += "<p>Upgrade Wifi module firmware via binary (.bin) file upload.</p>";
     sPage += R"rawliteral(<form method='POST' action='/upload' enctype='multipart/form-data' id='upload_form'>
     <input type='file' name='update'><br><br>
     <input class='redbutton' type='submit' value='Upload'>
     </form>)rawliteral";
+    sPage += "</div>";
     sPage += pageFooter;
 
     CfgServer.send(200, "text/html", sPage);
@@ -2443,9 +2458,11 @@ void HandleUpgradeSuccess()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 2048);
     sPage += pageHeader;
-    sPage += "<br><br><br><br><span style=\"color:black\">Firmware upgrade complete. Wait a few seconds until OnSpeed reboots.</span></p><br><br><br><br>";
+    sPage += "<div class=\"round-box\" style=\"padding:24px; display:block; text-align:center;\">";
+    sPage += "<p><span style=\"color:black\">Firmware upgrade complete. Wait a few seconds until OnSpeed reboots.</span></p>";
     sPage += "<script>setInterval(function () { document.getElementById('rebootprogress').value+=0.1; document.getElementById('rebootprogress').innerHTML=document.getElementById('rebootprogress').value+'%'}, 10);setTimeout(function () { window.location.href = \"/\";}, 10000);</script>";
-    sPage += "<div align=\"center\"><progress id=\"rebootprogress\" max=\"100\" value=\"0\"> 0% </progress></div>";
+    sPage += "<progress id=\"rebootprogress\" max=\"100\" value=\"0\"> 0% </progress>";
+    sPage += "</div>";
 
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
@@ -2459,7 +2476,9 @@ void HandleUpgradeFailure()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
     sPage += pageHeader;
-    sPage += "<br><br><br><br><span style=\"color:red\">Firmware upgrade failed. Power cycle OnSpeed box and try again.</span></p><br><br><br><br>";
+    sPage += "<div class=\"round-box\" style=\"padding:24px; display:block; text-align:center;\">";
+    sPage += "<p><span style=\"color:red\">Firmware upgrade failed. Power cycle OnSpeed box and try again.</span></p>";
+    sPage += "</div>";
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
     }
@@ -2562,12 +2581,13 @@ void HandleFormat()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 2048);
     sPage += pageHeader;
+    sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">";
 
     if (CfgServer.arg("confirm").indexOf("yes")<0)
         {
         // display confirmation sPage
-        sPage += "<br><br><p style=\"color:red\">Confirm that you want to format the internal SD card. You will lose all the files currently on the card.</p>\
-        <br><br><br>\
+        sPage += "<p style=\"color:red\">Confirm that you want to format the internal SD card. You will lose all the files currently on the card.</p>\
+        <br>\
         <a href=\"format?confirm=yes\" class=\"button\">Format SD Card</a>\
         <a href=\"/\">Cancel</a>";
         }
@@ -2611,7 +2631,7 @@ void HandleFormat()
         // Format OK
         if (bFormatStatus == true)
             {
-            sPage += "<br><br><p>SD card has been formatted.</p>";
+            sPage += "<p>SD card has been formatted.</p>";
 //            sPage += "<br>New card size is: ";
 //            formatResponse=getConfigValue(formatResponse,"FORMATDONE");
 //            sPage += formatResponse;
@@ -2620,12 +2640,13 @@ void HandleFormat()
         // Format failed
         else
             {
-            sPage += "<br><br>SD card format ERROR";
+            sPage += "<p>SD card format ERROR</p>";
 //            sPage += "<br><br><p>Error: Could not format SD card. Please reboot and try again.</p>";
             }
 
         } // end else format
 
+    sPage += "</div>";
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
     }
@@ -2998,7 +3019,7 @@ void HandleWifiSettings()
         } // end if not handling connect
 
     UpdateHeader();
-    sPage  = pageHeader + sPage;
+    sPage  = pageHeader + "<div class=\"round-box\" style=\"padding:24px; display:block; text-align:center;\">" + sPage + "</div>";
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
     } // end HandleWifiSettings()
@@ -3017,8 +3038,8 @@ void HandleLogs()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 8192);
     sPage += pageHeader;
-//    sPage += "<p>Available log files:</p>\n";
-    sPage += "<br>\n";
+    sPage += "<div class=\"round-box\" style=\"padding:16px; display:block;\">";
+    sPage += "<h2 style=\"margin-top:0;\">Log Files</h2>";
 
     // Iterate over log file names here
     {
@@ -3041,7 +3062,7 @@ void HandleLogs()
             }
     }
 
-    sPage += "<table>\n";
+    sPage += "<table class=\"logs-table\">\n";
     if (bListStatus == true)
         for (int iIdx=0; iIdx<suFileList.size(); iIdx++)
             {
@@ -3052,7 +3073,7 @@ void HandleLogs()
             sFileLine += "</a>";
             sFileLine += "</td>";
 
-            sFileLine += "<td style=\"padding-left: 20px;text-align: right;\">";
+            sFileLine += "<td class=\"size\">";
             sFileLine += sFormatBytes(suFileList[iIdx].uFileSize);
             sFileLine += "</td>";
 
@@ -3070,9 +3091,10 @@ void HandleLogs()
             } // end for all files in the list
     else
         {
-        sPage += "<tr><td><br><br><span style=\"color:red\">SD card busy or not available.</span></td></tr>\n";
+        sPage += "<tr><td colspan=\"3\"><span style=\"color:red\">SD card busy or not available.</span></td></tr>\n";
         }
     sPage += "</table>\n";
+    sPage += "</div>";
 
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
@@ -3113,10 +3135,12 @@ void HandleDelete()
 
         // Display confirmation page — sFilename is safe (alphanumeric, dash,
         // underscore, dot) after IsSafeLogFilename, so no HTML escaping needed.
-        sPage += "<br><br><p style=\"color:red\">Confirm that you want to delete <b>" + sFilename + "</b></p>\
-        <br><br><br>\
+        sPage += "<div class=\"round-box\" style=\"padding:24px; display:block;\">";
+        sPage += "<p style=\"color:red\">Confirm that you want to delete <b>" + sFilename + "</b></p>\
+        <br>\
         <a href=\"/delete?confirm=yes&file=" + sFilename + "\" class=\"button\">Delete</a>\
         <a href=\"/logs\">Cancel</a>";
+        sPage += "</div>";
         sPage += pageFooter;
         CfgServer.send(200, "text/html", sPage);
         }

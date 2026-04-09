@@ -43,4 +43,32 @@ const char szHtmlHeader[] PROGMEM = R"=====(
     <li>
         <a href="live">LiveView</a></li>
 </ul>
+<button class="nav-toggle" type="button" aria-label="Menu">&#9776; Menu</button>
+<main class="page-container">
+<script>
+(function(){
+var toggle=document.querySelector('.nav-toggle');
+var navList=document.querySelector('ul');
+if(toggle&&navList){
+  toggle.addEventListener('click',function(e){
+    e.stopPropagation();
+    navList.classList.toggle('open');
+  });
+}
+document.addEventListener('click',function(e){
+  var btn=e.target.closest('.dropbtn');
+  if(btn){
+    e.preventDefault();
+    var parent=btn.parentElement;
+    var wasOpen=parent.classList.contains('open');
+    document.querySelectorAll('.dropdown.open').forEach(function(d){d.classList.remove('open');});
+    if(!wasOpen)parent.classList.add('open');
+    return;
+  }
+  if(!e.target.closest('.dropdown')){
+    document.querySelectorAll('.dropdown.open').forEach(function(d){d.classList.remove('open');});
+  }
+});
+})();
+</script>
 )=====";

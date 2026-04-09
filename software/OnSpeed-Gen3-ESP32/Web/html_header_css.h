@@ -2,32 +2,45 @@
 // Main CSS extracted from html_header.h for external serving with ETag caching.
 
 const char szHtmlHeaderCss[] PROGMEM = R"=====(
+*, *::before, *::after {
+    box-sizing: border-box;
+    }
+html, body {
+    margin: 0;
+    padding: 0;
+    }
 body {
     background-color: #cccccc;
     font-family: Arial, Helvetica, Sans-Serif; Color: #000088;
     }
-ul {
+body > ul {
     list-style-type: none;
     margin: 0;
     padding: 0;
     overflow: hidden;
     background-color: #333;
     }
-li {
+body > ul > li {
     float: left;
     }
-li a, .dropbtn {
+body > ul > li a, .dropbtn {
     display: inline-block;
     color: white;
     text-align: center;
     padding: 14px 16px;
     text-decoration: none;
+    background: none;
+    border: none;
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
     }
-li a:hover, .dropdown:hover .dropbtn {
+body > ul > li a:hover, body > ul > li.dropdown:hover .dropbtn, body > ul > li.dropdown.open .dropbtn {
     background-color: red;
     }
-li.dropdown {
+body > ul > li.dropdown {
     display: inline-block;
+    position: relative;
     }
 .dropdown-content {
     display: none;
@@ -45,8 +58,20 @@ li.dropdown {
     text-align: left;
     }
 .dropdown-content a:hover {background-color: #f1f1f1}
-.dropdown:hover .dropdown-content {
+.dropdown:hover .dropdown-content,
+.dropdown.open .dropdown-content {
     display: block;
+    }
+.nav-toggle {
+    display: none;
+    background: #333;
+    color: white;
+    border: none;
+    padding: 12px 16px;
+    font-size: 18px;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
     }
 .button {
     background-color: red;
@@ -62,7 +87,8 @@ li.dropdown {
     border-radius:3px;
     }
 .inputField {
-    width: 245px;
+    width: 100%;
+    max-width: 245px;
     height: 40px;
     margin: 0 .25rem;
     min-width: 125px;
@@ -153,7 +179,7 @@ li.dropdown {
     animation-duration:0.2s;
     animation-delay:0.3s
     }
-.icon__signal-strength.bar-4{
+.icon__signal-strength .bar-4{
     height:100%;
     animation-duration:0.15s;
     animation-delay:0.4s
@@ -161,7 +187,7 @@ li.dropdown {
 .signal-0 .bar-1,.signal-0 .bar-2,.signal-0 .bar-3,.signal-0 .bar-4{
     opacity:.2
     }
-.signal-1 .bar-2,.signal-1 .bar-3,.signal-1.bar-4{
+.signal-1 .bar-2,.signal-1 .bar-3,.signal-1 .bar-4{
     opacity:.2
     }
 .signal-2 .bar-3,.signal-2 .bar-4{
@@ -169,6 +195,19 @@ li.dropdown {
     }
 .signal-3 .bar-4{
     opacity:.2
+    }
+
+.page-container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px;
+    background: #fff;
+    }
+@media (min-width: 1024px) {
+    .page-container {
+        max-width: 1100px;
+        padding: 24px;
+        }
     }
 
 .form-grid,
@@ -179,8 +218,8 @@ li.dropdown {
     flex-direction: row;
     background: #000;
     align-content: stretch;
-    justify-content: flex-end;
-    max-width:500px;
+    justify-content: flex-start;
+    width: 100%;
     align-items: center;
     }
 
@@ -199,10 +238,6 @@ li.dropdown {
     margin-bottom: 26px;
     padding:0px 5px;
     font-size:12px;
-    }
-
-* {
-    box-sizing: border-box;
     }
 
 .form-divs label {
@@ -241,6 +276,7 @@ li.dropdown {
 
 .form-divs select {
     -webkit-appearance: menulist;
+    appearance: menulist;
     }
 
 .form-divs input[type="radio"] {
@@ -251,11 +287,16 @@ li.dropdown {
     margin: 0 4px 0 0;
     border: none;
     }
+.radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    }
 .radio-group label {
-    display: inline;
+    display: inline-flex;
+    align-items: center;
     font-size: 14px;
     color: #333;
-    margin-right: 14px;
     cursor: pointer;
     }
 
@@ -394,7 +435,7 @@ li.dropdown {
     color: red;
     }
 
-@media screen and (max-width: 768) {
+@media screen and (max-width: 1023px) {
     .flex-col-1 {
         width: 100%;
         }
@@ -482,32 +523,34 @@ li.dropdown {
     }
 
 section {
-    border: 1px groove threedface;
-    padding: 0px;
+    border: 1px solid #d0d0d0;
     display: flex;
     flex-wrap: wrap;
     flex-direction: row;
     background: #f0f0f5;
     align-content: stretch;
-    padding-top:10px;
-    margin-top:15px;
-    margin-bottom:15px;
-    border-radius: 3px;
+    padding: 34px 12px 10px 12px;
+    margin: 24px 0;
+    border-radius: 6px;
     align-items: center;
+    position: relative;
+    width: 100%;
     }
 
 section h2 {
-    float: left;
-    margin: -22px 0 0;
-    padding-left:20px;
-    padding-right:20px;
-    margin-left:5px;
-    background: #fff;
-    font-weight: bold;
-    height:22px;
-    border-radius: 3px;
-    border:1px groove threedface;
-    font-size: 15px;
+    position: absolute;
+    top: 10px;
+    left: 16px;
+    margin: 0;
+    padding: 0;
+    float: none;
+    background: transparent;
+    border: none;
+    height: auto;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
     color: #737373;
     }
 
@@ -585,18 +628,29 @@ section h2 {
     width: 100%;
     padding: 8px 5px;
     border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
     }
 .sp-row label {
     display: block;
     color: #737373;
     font-size: 13px;
-    margin-bottom: 4px;
+    margin-bottom: 0;
+    flex: 0 0 auto;
+    min-width: 110px;
     }
 .sp-controls {
     display: flex;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 8px;
-    margin-bottom: 4px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    }
+.sp-mult, .sp-ias {
+    white-space: nowrap;
     }
 .sp-btn {
     width: 36px;
@@ -625,10 +679,12 @@ section h2 {
     }
 .sp-secondary {
     display: flex;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 6px;
     font-size: 12px;
     color: #888;
+    white-space: nowrap;
     }
 .sp-aoa-input {
     width: 60px !important;
@@ -655,5 +711,85 @@ section h2 {
     color: #000088;
     font-weight: bold;
     padding: 2px 5px;
+    }
+
+/* Wrapped tables for raw-table pages (sensor calibration, logs) */
+.sensor-table {
+    width: 100%;
+    border-collapse: collapse;
+    }
+.sensor-table td {
+    padding: 4px 20px 4px 0;
+    font-size: 14px;
+    }
+.sensor-table td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    }
+.logs-table {
+    width: 100%;
+    border-collapse: collapse;
+    }
+.logs-table td {
+    padding: 6px 4px;
+    font-size: 14px;
+    }
+.logs-table td.size {
+    padding-left: 20px;
+    text-align: right;
+    white-space: nowrap;
+    }
+.logs-table td a {
+    color: #000088;
+    }
+
+/* Phone-size nav: hamburger + vertical menu */
+@media (max-width: 599px) {
+    .nav-toggle {
+        display: block;
+        }
+    body > ul {
+        display: none;
+        flex-direction: column;
+        overflow: visible;
+        }
+    body > ul.open {
+        display: flex;
+        }
+    body > ul > li {
+        float: none;
+        width: 100%;
+        }
+    body > ul > li a, .dropbtn {
+        text-align: left;
+        width: 100%;
+        padding: 14px 20px;
+        }
+    body > ul > li.dropdown {
+        display: block;
+        position: static;
+        }
+    .dropdown-content {
+        position: static;
+        box-shadow: none;
+        min-width: 0;
+        background-color: #555;
+        }
+    .dropdown-content a {
+        color: #eee;
+        padding-left: 40px;
+        }
+    .dropdown-content a:hover {
+        background-color: #666;
+        }
+    .dropdown:hover .dropdown-content {
+        display: none;
+        }
+    .dropdown.open .dropdown-content {
+        display: block;
+        }
+    .page-container {
+        padding: 10px;
+        }
     }
 )=====";

@@ -1,6 +1,8 @@
 const char htmlLiveView[] PROGMEM = R"=====(
 <style>
   html, body { margin:0; padding: 0 5px; overflow:hidden;min-height:100% }
+  /* Override .page-container for live view so the SVG dashboard can go full-bleed */
+  .page-container { max-width: none !important; margin: 0 !important; padding: 0 !important; background: transparent !important; }
   #container {width:100%}
   svg {position:absolute;margin:0 auto; display: block;}
   #datafields_aoa {position:relative; margin-top:  5px;font-family: "Arial, Helvetica, sans-serif";font-size:16px; left:0px;}
