@@ -74,13 +74,13 @@ void WriteDisplayDataTask(void * pvParams)
     while (true)
         {
         // No delay happening is a design error so flag it if it happens
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100));  // 100 msec
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(50));  // 50 msec, 20 Hz
         if (xWasDelayed == pdFALSE)
             {
             // If this task runs late, don't "catch up" by running back-to-back and
             // bursting serial data at the display. Re-align to the current tick
             // period instead.
-            xLastWakeTime = xLAST_TICK_TIME(100);
+            xLastWakeTime = xLAST_TICK_TIME(50);
             unsigned long uNow = millis();
             if ((uNow - uLastLateLogMs) > 1000)
                 {
@@ -122,7 +122,7 @@ void DisplaySerial::Write()
     {
     byte            SerialCRC = 0;
 
-//    if (serialOutPort!="NONE" && millis()-serialoutLastUpdate>100) // update every 100ms, 10Hz
+//    if (serialOutPort!="NONE" && millis()-serialoutLastUpdate>50) // update every 50ms, 20Hz
 
     char    serialOutString[200];
 
