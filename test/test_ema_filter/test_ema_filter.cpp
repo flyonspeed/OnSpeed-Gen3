@@ -102,7 +102,7 @@ void test_seed_sets_initial_value_and_blends_next_update()
 // Main
 // ============================================================================
 
-int main(int argc, char** argv)
+int main()
 {
     UNITY_BEGIN();
 

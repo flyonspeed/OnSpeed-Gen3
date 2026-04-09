@@ -515,7 +515,7 @@ void test_sparsity_combined_maneuver(void) {
     }
 }
 
-int main(int argc, char **argv) {
+int main() {
     UNITY_BEGIN();
 
     RUN_TEST(test_sparsity_pitch_rate);

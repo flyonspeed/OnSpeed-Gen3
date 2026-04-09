@@ -202,7 +202,7 @@ void test_smooths_noisy_signal()
 // Main
 // ============================================================================
 
-int main(int argc, char** argv)
+int main()
 {
     UNITY_BEGIN();
 

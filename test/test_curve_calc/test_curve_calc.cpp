@@ -138,7 +138,7 @@ void test_polynomial_zero_input() {
 // Main
 // ============================================================================
 
-int main(int argc, char **argv) {
+int main() {
     UNITY_BEGIN();
 
     // Polynomial tests
