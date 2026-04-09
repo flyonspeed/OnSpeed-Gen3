@@ -2840,10 +2840,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#core-columns-always-present" class="md-nav__link">
+  <a href="#core-columns-base" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Columns (Always Present)
+        Core Columns — Base
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-columns-derived" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Columns — Derived
       
     </span>
   </a>
@@ -2982,10 +2993,21 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#core-columns-always-present" class="md-nav__link">
+  <a href="#core-columns-base" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Columns (Always Present)
+        Core Columns — Base
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-columns-derived" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Columns — Derived
       
     </span>
   </a>
@@ -3052,7 +3074,8 @@
 
 <h1 id="csv-log-columns-reference">CSV Log Columns Reference<a class="headerlink" href="#csv-log-columns-reference" title="Permanent link">&para;</a></h1>
 <p>Complete reference for all columns in OnSpeed SD card log files. Data is logged at 50 Hz.</p>
-<h2 id="core-columns-always-present">Core Columns (Always Present)<a class="headerlink" href="#core-columns-always-present" title="Permanent link">&para;</a></h2>
+<p>Columns are written in three groups: (1) base core columns (<code>timeStamp</code> through <code>Roll</code>), (2) optional Boom and/or EFIS columns when those features are enabled, (3) derived core columns (<code>EarthVerticalG</code> through <code>CoeffP</code>). Parse by column name — direct index positions shift when optional blocks are enabled.</p>
+<h2 id="core-columns-base">Core Columns — Base<a class="headerlink" href="#core-columns-base" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -3070,26 +3093,26 @@
 <tr>
 <td><code>Pfwd</code></td>
 <td>counts</td>
-<td>Raw pitot pressure (14-bit ADC: 0–16383)</td>
+<td>Pitot pressure, bias subtracted (14-bit ADC)</td>
 </tr>
 <tr>
 <td><code>PfwdSmoothed</code></td>
-<td>PSI</td>
-<td>Pitot pressure after EMA smoothing</td>
+<td>counts</td>
+<td>Pitot pressure after median + running-average smoothing</td>
 </tr>
 <tr>
 <td><code>P45</code></td>
 <td>counts</td>
-<td>Raw AOA pressure (14-bit ADC)</td>
+<td>AOA pressure, bias subtracted (14-bit ADC)</td>
 </tr>
 <tr>
 <td><code>P45Smoothed</code></td>
-<td>PSI</td>
-<td>AOA pressure after EMA smoothing</td>
+<td>counts</td>
+<td>AOA pressure after median + running-average smoothing</td>
 </tr>
 <tr>
 <td><code>PStatic</code></td>
-<td>PSI</td>
+<td>mbar</td>
 <td>Static (barometric) pressure</td>
 </tr>
 <tr>
@@ -3172,6 +3195,19 @@
 <td>degrees</td>
 <td>Roll angle (AHRS output, smoothed)</td>
 </tr>
+</tbody>
+</table>
+<h2 id="core-columns-derived">Core Columns — Derived<a class="headerlink" href="#core-columns-derived" title="Permanent link">&para;</a></h2>
+<p>Appended after any optional Boom/EFIS columns.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><code>EarthVerticalG</code></td>
 <td>G</td>
@@ -3195,7 +3231,7 @@
 <tr>
 <td><code>DerivedAOA</code></td>
 <td>degrees</td>
-<td>SmoothedPitch - FlightPath</td>
+<td>SmoothedPitch − FlightPath</td>
 </tr>
 <tr>
 <td><code>CoeffP</code></td>

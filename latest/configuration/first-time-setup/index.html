@@ -1831,10 +1831,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-5-set-aircraft-limits" class="md-nav__link">
+  <a href="#step-5-set-aircraft-parameters" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 5: Set Aircraft Limits
+        Step 5: Set Aircraft Parameters
       
     </span>
   </a>
@@ -3136,10 +3136,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-5-set-aircraft-limits" class="md-nav__link">
+  <a href="#step-5-set-aircraft-parameters" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 5: Set Aircraft Limits
+        Step 5: Set Aircraft Parameters
       
     </span>
   </a>
@@ -3319,8 +3319,8 @@
 </ol>
 <p>To find pot values, physically set each flap position and read the value from the <code>FLAPS</code> console command or the sensor config page.</p>
 <p>See <a href="../flap-setup/">Flap Position Setup</a> for details.</p>
-<h2 id="step-5-set-aircraft-limits">Step 5: Set Aircraft Limits<a class="headerlink" href="#step-5-set-aircraft-limits" title="Permanent link">&para;</a></h2>
-<p>Configure these aircraft-specific values:</p>
+<h2 id="step-5-set-aircraft-parameters">Step 5: Set Aircraft Parameters<a class="headerlink" href="#step-5-set-aircraft-parameters" title="Permanent link">&para;</a></h2>
+<p>The <strong>Aircraft</strong> section of the config page takes the following. These drive the maneuvering-speed calculation and the best-glide readout.</p>
 <table>
 <thead>
 <tr>
@@ -3331,34 +3331,51 @@
 </thead>
 <tbody>
 <tr>
-<td><strong>Vno</strong></td>
-<td>Your aircraft's max structural cruising speed (knots)</td>
-<td>157</td>
-</tr>
-<tr>
-<td><strong>Positive G-limit</strong></td>
-<td>Maximum positive load factor</td>
-<td>4.0</td>
-</tr>
-<tr>
-<td><strong>Negative G-limit</strong></td>
-<td>Maximum negative load factor (enter as negative)</td>
-<td>-2.0</td>
-</tr>
-<tr>
-<td><strong>Best Glide IAS</strong></td>
-<td>Best glide speed at max gross weight (knots)</td>
-<td>87.5</td>
-</tr>
-<tr>
-<td><strong>Max Gross Weight</strong></td>
+<td><strong>Max gross weight</strong></td>
 <td>Aircraft max gross weight (lbs)</td>
 <td>2282</td>
 </tr>
 <tr>
+<td><strong>Best glide at max gross wt</strong></td>
+<td>Best glide speed at max gross weight (KIAS)</td>
+<td>87.5</td>
+</tr>
+<tr>
 <td><strong>Vfe</strong></td>
-<td>Max flaps-extended speed (knots)</td>
+<td>Max flaps-extended speed (KIAS)</td>
 <td>150</td>
+</tr>
+<tr>
+<td><strong>Aircraft category / load factor limit</strong></td>
+<td>Radio buttons: Normal (+3.8G / −1.52G), Utility (+4.4G / −1.76G), Aerobatic (+6.0G / −3.0G), or Custom for a value outside the FAR 23 presets</td>
+<td>Aerobatic (+6.0G / −3.0G)</td>
+</tr>
+</tbody>
+</table>
+<p>The over-G <strong>warning</strong> thresholds and Vno overspeed chime speed live in separate sections of the same config page. They are distinct from the airframe structural G-limit above.</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Setting</th>
+<th>Example (RV-4)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vno Chime</td>
+<td><strong>Vno</strong> — max structural cruising speed (knots)</td>
+<td>157</td>
+</tr>
+<tr>
+<td>Over-G Warning</td>
+<td><strong>Positive G-limit</strong> — positive-G warning threshold</td>
+<td>4.0</td>
+</tr>
+<tr>
+<td>Over-G Warning</td>
+<td><strong>Negative G-limit</strong> — negative-G warning threshold (enter as negative)</td>
+<td>-2.0</td>
 </tr>
 </tbody>
 </table>

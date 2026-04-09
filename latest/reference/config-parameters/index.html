@@ -3239,7 +3239,7 @@
 
 
 <h1 id="configuration-parameters-reference">Configuration Parameters Reference<a class="headerlink" href="#configuration-parameters-reference" title="Permanent link">&para;</a></h1>
-<p>Complete reference of all OnSpeed configuration parameters. Configuration is stored as XML (<code>config.cfg</code>).</p>
+<p>Complete reference of all OnSpeed configuration parameters. Configuration is stored as XML (<code>config.cfg</code>). The <strong>Default</strong> column shows the values set by <code>FOSConfig::LoadDefaultConfiguration()</code> in <code>Config.cpp</code> — what a fresh install or "Load Defaults" button press produces.</p>
 <h2 id="general-settings">General Settings<a class="headerlink" href="#general-settings" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3272,13 +3272,13 @@
 <tr>
 <td><code>REPLAYLOGFILENAME</code></td>
 <td>string</td>
-<td><code>log.csv</code></td>
+<td>(empty)</td>
 <td>Log file to replay when DATASOURCE=REPLAYLOGFILE</td>
 </tr>
 <tr>
 <td><code>SDLOGGING</code></td>
 <td>bool</td>
-<td>true</td>
+<td>false</td>
 <td>Enable SD card data logging</td>
 </tr>
 <tr>
@@ -3291,7 +3291,7 @@
 <td><code>AHRS_ALGORITHM</code></td>
 <td>int</td>
 <td>0</td>
-<td>AHRS algorithm: 0=Madgwick, 1=EKF6</td>
+<td>AHRS algorithm: 0=Madgwick, 1=EKF6. See <a href="../../configuration/advanced/">Advanced Settings</a> before changing.</td>
 </tr>
 </tbody>
 </table>
@@ -3315,7 +3315,7 @@
 <tr>
 <td><code>SERIALEFISDATA</code></td>
 <td>bool</td>
-<td>true</td>
+<td>false</td>
 <td>Enable reading EFIS serial data</td>
 </tr>
 <tr>
@@ -3365,19 +3365,19 @@
 <tr>
 <td><code>VOLUME &gt; ENABLED</code></td>
 <td>bool</td>
-<td>true</td>
+<td>false</td>
 <td>Use hardware volume potentiometer</td>
 </tr>
 <tr>
 <td><code>VOLUME &gt; HIGH_ANALOG</code></td>
 <td>int</td>
-<td>339</td>
+<td>4095</td>
 <td>ADC value at max volume</td>
 </tr>
 <tr>
 <td><code>VOLUME &gt; LOW_ANALOG</code></td>
 <td>int</td>
-<td>170</td>
+<td>0</td>
 <td>ADC value at min volume</td>
 </tr>
 <tr>
@@ -3389,19 +3389,19 @@
 <tr>
 <td><code>VOLUME &gt; ENABLE_3DAUDIO</code></td>
 <td>bool</td>
-<td>true</td>
+<td>false</td>
 <td>Enable stereo lateral-G panning</td>
 </tr>
 <tr>
 <td><code>VOLUME &gt; MUTE_UNDER_IAS</code></td>
 <td>int</td>
-<td>25</td>
+<td>30</td>
 <td>Mute audio below this IAS (knots)</td>
 </tr>
 <tr>
 <td><code>OVERGWARNING</code></td>
 <td>bool</td>
-<td>true</td>
+<td>false</td>
 <td>Enable G-limit warning tone</td>
 </tr>
 </tbody>
@@ -3420,7 +3420,7 @@
 <tr>
 <td><code>VNO &gt; SPEED</code></td>
 <td>int</td>
-<td>157</td>
+<td>150</td>
 <td>Vno speed threshold (knots)</td>
 </tr>
 <tr>
@@ -3432,12 +3432,13 @@
 <tr>
 <td><code>VNO &gt; CHIME_ENABLED</code></td>
 <td>bool</td>
-<td>true</td>
+<td>false</td>
 <td>Enable Vno overspeed chime</td>
 </tr>
 </tbody>
 </table>
 <h2 id="load-limits">Load Limits<a class="headerlink" href="#load-limits" title="Permanent link">&para;</a></h2>
+<p>Over-G warning thresholds (fire when <code>OVERGWARNING</code> is enabled). Distinct from the airframe structural G-limit in <code>AIRCRAFT &gt; G_LIMIT</code>, which drives the maneuvering-speed computation.</p>
 <table>
 <thead>
 <tr>
@@ -3452,13 +3453,13 @@
 <td><code>LOAD_LIMIT &gt; POSITIVE</code></td>
 <td>float</td>
 <td>4.0</td>
-<td>Maximum positive G-load</td>
+<td>Positive-G warning threshold</td>
 </tr>
 <tr>
 <td><code>LOAD_LIMIT &gt; NEGATIVE</code></td>
 <td>float</td>
 <td>-2.0</td>
-<td>Maximum negative G-load</td>
+<td>Negative-G warning threshold</td>
 </tr>
 </tbody>
 </table>
@@ -3489,7 +3490,7 @@
 <td><code>BIAS &gt; PSTATIC</code></td>
 <td>float</td>
 <td>0.0</td>
-<td>Static pressure offset (PSI)</td>
+<td>Static pressure offset (millibars; subtracted from measured mbar)</td>
 </tr>
 <tr>
 <td><code>BIAS &gt; GX</code></td>
@@ -3586,7 +3587,7 @@
 <tr>
 <td><code>BOOM</code></td>
 <td>bool</td>
-<td>true</td>
+<td>false</td>
 <td>Enable boom probe serial input</td>
 </tr>
 <tr>
@@ -3616,27 +3617,27 @@
 <tbody>
 <tr>
 <td><code>AIRCRAFT &gt; GROSS_WEIGHT</code></td>
-<td>float</td>
-<td>2282</td>
-<td>Aircraft weight (lbs)</td>
+<td>int</td>
+<td>0</td>
+<td>Max gross weight (lbs)</td>
 </tr>
 <tr>
 <td><code>AIRCRAFT &gt; BEST_GLIDE_IAS</code></td>
 <td>float</td>
-<td>87.5</td>
-<td>Best glide speed (knots)</td>
+<td>0.0</td>
+<td>Best glide speed at max gross weight (knots)</td>
 </tr>
 <tr>
 <td><code>AIRCRAFT &gt; VFE</code></td>
 <td>float</td>
-<td>150</td>
+<td>0.0</td>
 <td>Max flaps-extended speed (knots)</td>
 </tr>
 <tr>
 <td><code>AIRCRAFT &gt; G_LIMIT</code></td>
 <td>float</td>
-<td>3.5</td>
-<td>Structural G-limit</td>
+<td>0.0</td>
+<td>Airframe structural load factor limit. Used for maneuvering-speed computation. The config page offers FAR 23 category radio buttons (Normal +3.8G, Utility +4.4G, Aerobatic +6.0G) plus a Custom field.</td>
 </tr>
 </tbody>
 </table>

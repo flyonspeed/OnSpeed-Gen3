@@ -2822,6 +2822,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#vnochimetest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VNOCHIMETEST
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#list" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3264,6 +3275,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#vnochimetest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VNOCHIMETEST
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#list" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3449,22 +3471,27 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>AUDIOTEST
 </code></pre></div>
 <p>Plays test tones through left and right channels. Runs as a background task (doesn't block the console). Returns "busy" if already running.</p>
+<h3 id="vnochimetest">VNOCHIMETEST<a class="headerlink" href="#vnochimetest" title="Permanent link">&para;</a></h3>
+<p>Play the Vno overspeed chime once.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>VNOCHIMETEST
+</code></pre></div>
+<p>Useful for verifying the chime audio without having to exceed Vno in flight. Equivalent to the "Test" button on the Vno chime config page.</p>
 <h3 id="list">LIST<a class="headerlink" href="#list" title="Permanent link">&para;</a></h3>
 <p>List all files on the SD card and flash filesystem.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>LIST
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>LIST
 </code></pre></div>
 <p>Shows filenames and sizes for all stored files.</p>
 <h3 id="delete">DELETE<a class="headerlink" href="#delete" title="Permanent link">&para;</a></h3>
 <p>Delete a file from the SD card.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>DELETE log_001.csv
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>DELETE log_001.csv
 </code></pre></div>
 <h3 id="print">PRINT<a class="headerlink" href="#print" title="Permanent link">&para;</a></h3>
 <p>Display the contents of a file to the console.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>PRINT config.cfg
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>PRINT config.cfg
 </code></pre></div>
 <h3 id="format">FORMAT<a class="headerlink" href="#format" title="Permanent link">&para;</a></h3>
 <p>Format the SD card.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>FORMAT
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>FORMAT
 </code></pre></div>
 <div class="admonition danger">
 <p class="admonition-title">This erases all data</p>
@@ -3472,12 +3499,12 @@
 </div>
 <h3 id="tasks">TASKS<a class="headerlink" href="#tasks" title="Permanent link">&para;</a></h3>
 <p>Display FreeRTOS task information.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>TASKS
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>TASKS
 </code></pre></div>
 <p>Shows each running task's name and minimum stack watermark (bytes remaining). Useful for diagnosing stack overflow risks.</p>
 <h3 id="reboot">REBOOT<a class="headerlink" href="#reboot" title="Permanent link">&para;</a></h3>
 <p>Restart the controller.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>REBOOT
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>REBOOT
 </code></pre></div>
 <p>Equivalent to power cycling. Configuration is reloaded from storage.</p>
 <h2 id="tips">Tips<a class="headerlink" href="#tips" title="Permanent link">&para;</a></h2>

@@ -3132,18 +3132,22 @@
 <tr>
 <td><strong>Madgwick</strong></td>
 <td><code>0</code> (default)</td>
-<td>Complementary filter, quaternion-based. Well-proven, lower CPU cost. Good for most installations.</td>
+<td>Complementary filter, quaternion-based. Well-proven, low CPU cost.</td>
 </tr>
 <tr>
 <td><strong>EKF6</strong></td>
 <td><code>1</code></td>
-<td>6-state Extended Kalman Filter. Estimates pitch, roll, AOA, and 3 gyro biases. More sophisticated, better long-term stability.</td>
+<td>6-state Extended Kalman Filter that estimates pitch, roll, AOA, and three gyro biases. See the note below before selecting.</td>
 </tr>
 </tbody>
 </table>
+<div class="admonition warning">
+<p class="admonition-title">EKF6 has a known divergence issue</p>
+<p>EKF6 has a gyro-bias convergence bug (tracked in issue #128 and fix PR #131): with a realistic pitch-rate bias, the filter can drift to attitude values well outside the flight envelope within a couple of minutes on the ground. Leave <code>AHRS_ALGORITHM</code> at <code>0</code> (Madgwick) until the fix lands and is flight-verified.</p>
+</div>
 <div class="admonition note">
-<p class="admonition-title">Algorithm differences</p>
-<p>Both algorithms compute Derived AOA slightly differently, but switching between them does not require recalibration. Your existing calibration curves will work with either algorithm.</p>
+<p class="admonition-title">No recalibration when switching</p>
+<p>Both algorithms compute Derived AOA slightly differently, but switching between them does not require recalibration. Your existing calibration curves work with either algorithm.</p>
 </div>
 <h2 id="aoa-smoothing">AOA Smoothing<a class="headerlink" href="#aoa-smoothing" title="Permanent link">&para;</a></h2>
 <p>Controls the Exponential Moving Average (EMA) filter applied to the AOA signal.</p>
