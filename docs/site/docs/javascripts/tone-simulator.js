@@ -48,7 +48,7 @@
     }
     if (aoa >= TH.onspeedFast)
       return { type: "low", pps: 0, region: "onspeed" }
-    if (aoa >= TH.ldmax) {
+    if (aoa >= TH.ldmax && TH.ldmax < TH.onspeedFast) {
       var pps2 = mapfloat(aoa, TH.ldmax, TH.onspeedFast,
                           LOW_TONE_PPS_MIN, LOW_TONE_PPS_MAX)
       return { type: "low", pps: pps2, region: "fast" }

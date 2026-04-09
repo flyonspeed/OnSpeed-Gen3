@@ -33,11 +33,13 @@ The wizard asks for:
 
 | Parameter | What to Enter |
 |-----------|---------------|
-| **Max Gross Weight** | Aircraft maximum gross weight in pounds |
-| **Stall Speed (Vs)** | Published stall speed at max gross weight for the current flap setting |
-| **Vfe** | Max flaps-extended speed (if calibrating with flaps) |
-| **G-Limit** | Aircraft structural G-limit |
-| **Best Glide IAS** | Best glide speed at current weight |
+| **Aircraft max gross weight (lbs)** | Aircraft maximum gross weight |
+| **Aircraft current weight (lbs)** | Weight for this specific calibration flight — drives the best-glide and maneuvering-speed readouts shown on the results page |
+| **Best glide airspeed at max gross weight (KIAS)** | Published best-glide speed at max gross weight |
+| **Max flap extension speed — Vfe (KIAS)** | Used as the LDmax reference IAS for flapped calibrations |
+| **Aircraft category / load factor limit (G)** | Radio buttons: Normal (+3.8G / −1.52G), Utility (+4.4G / −1.76G), Aerobatic (+6.0G / −3.0G), or Custom for a value outside the FAR 23 presets |
+
+Gross weight, best-glide, Vfe, and G-limit are written back to the saved configuration. Current weight is wizard-only — it affects the displayed equivalent speeds but is not persisted.
 
 ### Step 3: Select Flap Position
 

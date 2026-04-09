@@ -123,6 +123,16 @@ AUDIOTEST
 
 Plays test tones through left and right channels. Runs as a background task (doesn't block the console). Returns "busy" if already running.
 
+### VNOCHIMETEST
+
+Play the Vno overspeed chime once.
+
+```
+VNOCHIMETEST
+```
+
+Useful for verifying the chime audio without having to exceed Vno in flight. Equivalent to the "Test" button on the Vno chime config page.
+
 ### LIST
 
 List all files on the SD card and flash filesystem.
