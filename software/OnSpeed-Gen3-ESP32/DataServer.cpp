@@ -16,6 +16,7 @@ using onspeed::rad2deg;
 using onspeed::kts2mps;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::fpm2mps;
 using onspeed::safeAsin;
 
 // wifi data variables
@@ -148,8 +149,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fVerticalGload;
 
     fAccelSumSq    = g_pIMU->Ax*g_pIMU->Ax + g_pIMU->Ay*g_pIMU->Ay + g_pIMU->Az*g_pIMU->Az;
-    fVerticalGload = sqrt(abs(fAccelSumSq));
-    fVerticalGload = round(fVerticalGload * 10.0) / 10.0; // round to 1 decimal place
+    fVerticalGload = sqrtf(fabsf(fAccelSumSq));
+    fVerticalGload = roundf(fVerticalGload * 10.0f) / 10.0f; // round to 1 decimal place
 
     if (g_pIMU->Az < 0)
         fVerticalGload *= -1;
@@ -165,7 +166,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     }
 
     // Pitch, Roll, VSI, Flightpath
-    if (g_Config.sCalSource == "EFIS")
+    if (g_Config.bCalSourceEfis)
     {
 
         // efis or VN-300 data
@@ -194,7 +195,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiRoll  = g_EfisSerial.suEfis.Roll;
             if (g_EfisSerial.suEfis.TAS > 0)
             {
-                fWifiFlightpath = rad2deg(safeAsin(g_AHRS.KalmanVSI/kts2mps(g_EfisSerial.suEfis.TAS))); // convert efiVSI from fpm to m/s
+                // Use EFIS VSI (matches the EFIS pitch/roll above) instead of
+                // KalmanVSI to avoid mixing data sources in the same JSON payload.
+                const float fEfisVsiMps = fpm2mps(g_EfisSerial.suEfis.VSI);
+                fWifiFlightpath = rad2deg(safeAsin(fEfisVsiMps / kts2mps(g_EfisSerial.suEfis.TAS)));
             }
 
             else
@@ -236,7 +240,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     } // end internal cal source
 
     // OAT: prefer EFIS data, fall back to internal sensor
-    if (g_Config.sCalSource == "EFIS")
+    if (g_Config.bCalSourceEfis)
         fWifiOAT = g_EfisSerial.suEfis.OAT;
     else if (g_Config.bOatSensor)
         fWifiOAT = g_Sensors.OatC;
@@ -292,6 +296,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
     const float fDerivedAOA = SafeJsonFloat(g_AHRS.DerivedAOA, 0.0f);
 
+    // szFormat is a compile-time constant split across lines for readability.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
     int iChars = snprintf(
         pOut,
         uOutSize,
@@ -318,6 +325,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiOAT,
         SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fAlpha0, 0.0f),
         fDerivedAOA);
+#pragma GCC diagnostic pop
 
     if (iChars < 0)
         return 0;

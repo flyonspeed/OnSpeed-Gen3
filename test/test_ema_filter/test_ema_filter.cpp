@@ -83,11 +83,26 @@ void test_reset()
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, f.update(50.0f));  // Re-seeds
 }
 
+void test_seed_sets_initial_value_and_blends_next_update()
+{
+    EMAFilter f(0.5f);
+
+    f.seed(-1.0f);
+
+    // Filter is initialized to -1.0f without going through update().
+    TEST_ASSERT_TRUE(f.isInitialized());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, -1.0f, f.get());
+
+    // Next update blends new sample with the seeded value (does NOT replace it).
+    // alpha=0.5, prev=-1.0, new=1.0 -> 0.5*1.0 + 0.5*-1.0 = 0.0
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, f.update(1.0f));
+}
+
 // ============================================================================
 // Main
 // ============================================================================
 
-int main(int argc, char** argv)
+int main()
 {
     UNITY_BEGIN();
 
@@ -97,6 +112,7 @@ int main(int argc, char** argv)
     RUN_TEST(test_convergence);
     RUN_TEST(test_nan_input_is_ignored);
     RUN_TEST(test_reset);
+    RUN_TEST(test_seed_sets_initial_value_and_blends_next_update);
 
     return UNITY_END();
 }

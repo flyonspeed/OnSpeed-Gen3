@@ -115,6 +115,14 @@ static void AudioLogDebugNoBlock(const char * szFmt, ...)
     xSemaphoreGive(xSerialLogMutex);
     }
 
+// Wake the audio play task if it is blocked on ulTaskNotifyTake().
+// Safe to call from any task context on either core.
+static void NotifyAudioTask()
+    {
+    if (xTaskAudioPlay != NULL)
+        xTaskNotifyGive(xTaskAudioPlay);
+    }
+
 static void AudioTestTask(void * pvParams)
     {
     (void)pvParams;
@@ -149,10 +157,11 @@ void AudioPlayTask(void * psuParams)
             continue;
             }
 
-        // This would be more efficient with a semaphore but it works OK for now
-        if (g_AudioPlay.enTone == enToneNone)
-//            vTaskDelay(100 / portTICK_PERIOD_MS);
-            vTaskDelay(pdMS_TO_TICKS(100));
+        // Block until SetTone/SetVoice sends a notification, or 100ms
+        // elapses as a safety net.  pdTRUE clears the notification count
+        // so stale notifications don't cause extra wakeups.
+        if (g_AudioPlay.enTone == enToneNone && g_AudioPlay.enVoice == enVoiceNone)
+            ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
 
         // If a voice play has been selected then play it once. Note that PlayVoice()
         // blocks until it is finished.
@@ -162,7 +171,7 @@ void AudioPlayTask(void * psuParams)
             }
 
         // If there is a tone play then keep pumping out tone buffers. Note that PlayTone()
-        // blocks until it finishes writing 100 msec of tone data.
+        // blocks until it finishes writing 50 msec of tone data.
         if (g_AudioPlay.enTone != enToneNone)
             g_AudioPlay.PlayTone();
 
@@ -177,9 +186,9 @@ AudioPlay::AudioPlay()
 {
     enVoice              = enVoiceNone;
     enTone               = enToneNone;
-    fVolume              = 0.5;
-    fLeftGain            = 1.0;
-    fRightGain           = 1.0;
+    fVolume              = 0.5f;
+    fLeftGain            = 1.0f;
+    fRightGain           = 1.0f;
 
     fTonePulseMaxSamples = 0;
     fTonePulseCounter    = 0;
@@ -215,26 +224,26 @@ void AudioPlay::Init()
 
     for (int iIdx = 0; iIdx < TONE_BUFFER_LEN; iIdx++)
         {
-        double  fAngle;
+        float   fAngle;
 
         // Note byte swap to get the tone data in the same endianness as the WAV data
         // 400 Hz tone
 #if 1
-        fAngle = remainder(2.0*M_PI*iIdx*400.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_400Hz[iIdx] = uint16_t(25000 * cos(fAngle));
+        fAngle = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
+        aTone_400Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
 #else
-        float fAngle1 = remainder(2.0*M_PI*iIdx*440.00/SAMPLE_RATE, 2.0*M_PI);   // A
-        // float fAngle2 = remainder(2.0*M_PI*iIdx*523.25/SAMPLE_RATE, 2.0*M_PI);   // C
-        // float fAngle3 = remainder(2.0*M_PI*iIdx*659.25/SAMPLE_RATE, 2.0*M_PI);   // E
-        float fAngle2 = remainder(2.0*M_PI*iIdx*400.00/SAMPLE_RATE, 2.0*M_PI);   // C
-        float fAngle3 = remainder(2.0*M_PI*iIdx*800.00/SAMPLE_RATE, 2.0*M_PI);   // E
-        aTone_400Hz[iIdx] = uint16_t(15000 * cos(fAngle1) +
-                                      3000 * cos(fAngle2) +
-                                      3000 * cos(fAngle3));
+        float fAngle1 = remainderf(2.0f*(float)M_PI*iIdx*440.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // A
+        // float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*523.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
+        // float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*659.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
+        float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
+        float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*800.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
+        aTone_400Hz[iIdx] = uint16_t(15000.0f * cosf(fAngle1) +
+                                      3000.0f * cosf(fAngle2) +
+                                      3000.0f * cosf(fAngle3));
 #endif
         // Setup 1600 Hz tone
-        fAngle = remainder(2.0*M_PI*iIdx*1600.0/SAMPLE_RATE, 2.0*M_PI);
-        aTone_1600Hz[iIdx] = uint16_t(25000 * cos(fAngle));
+        fAngle = remainderf(2.0f*(float)M_PI*iIdx*1600.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
+        aTone_1600Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
         }
 
     // Length of the data in the buffer. This may be different for tones that
@@ -249,9 +258,9 @@ void AudioPlay::Init()
 
 void AudioPlay::SetVolume(int iVolumePercent)
 {
-    if      (iVolumePercent <   0) fVolume = 0.0;
-    else if (iVolumePercent > 100) fVolume = 1.0;
-    else                           fVolume = iVolumePercent / 100.0;
+    if      (iVolumePercent <   0) fVolume = 0.0f;
+    else if (iVolumePercent > 100) fVolume = 1.0f;
+    else                           fVolume = iVolumePercent / 100.0f;
 }
 
 // ----------------------------------------------------------------------------
@@ -259,20 +268,23 @@ void AudioPlay::SetVolume(int iVolumePercent)
 // Set the channel gains. This is mostly for 3D audio support
 // Nominal gain is 1.0
 
-void AudioPlay::SetGain(float fLeftGain, float fRightGain)
+void AudioPlay::SetGain(float fLeftGainIn, float fRightGainIn)
 {
     // I should probably put in limit checking someday
-    this->fLeftGain  = fLeftGain;
-    this->fRightGain = fRightGain;
+    fLeftGain  = fLeftGainIn;
+    fRightGain = fRightGainIn;
 }
 
 // ----------------------------------------------------------------------------
 
 // Select a voice to play. Voice will play once and reset.
 
-void AudioPlay::SetVoice(EnVoice enVoice)
+void AudioPlay::SetVoice(EnVoice enVoiceIn)
 {
-    this->enVoice = enVoice;
+    enVoice = enVoiceIn;
+
+    if (enVoiceIn != enVoiceNone)
+        NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
@@ -282,13 +294,16 @@ void AudioPlay::SetVoice(EnVoice enVoice)
 void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
     this->enTone = enAudioTone;
+
+    if (enAudioTone != enToneNone)
+        NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
 
 // Maybe someday.
 
-void AudioPlay::SetToneFreq(unsigned uToneFreq)
+void AudioPlay::SetToneFreq(unsigned uToneFreqIn)
 {
 
 }
@@ -302,17 +317,17 @@ void AudioPlay::SetToneFreq(unsigned uToneFreq)
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
     // Outside limits disables tone pulse
-    if ((fPulseFreq < 1.0) || (fPulseFreq > 25.0))
+    if ((fPulseFreq < 1.0f) || (fPulseFreq > 25.0f))
         fTonePulseMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0);  // Tone period in audio samples
+        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // Tone period in audio samples
 
 }
 
 // ----------------------------------------------------------------------------
 
 // Play converted PCM audio buffer
-void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float fLeftVolume, float fRightVolume)
+void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iNumBytes, float fLeftVolume, float fRightVolume)
 {
     if (!s_bI2sOk)
         return;
@@ -322,7 +337,7 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
     size_t           iFrameCount = 0;
 
     const int16_t * pPCM = reinterpret_cast<const int16_t *>(pData);
-    const int       iSampleCount = iDataLen / static_cast<int>(sizeof(int16_t));
+    const int       iSampleCount = iNumBytes / static_cast<int>(sizeof(int16_t));
 
     for (int iSampleIdx = 0; iSampleIdx < iSampleCount; iSampleIdx++)
     {
@@ -347,7 +362,7 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iDataLen, float f
 // ----------------------------------------------------------------------------
 
 // Play locally generated audio tone buffer
-void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftVolume, float fRightVolume)
+void AudioPlay::PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLeftVolume, float fRightVolume)
 {
     if (!s_bI2sOk)
         return;
@@ -358,7 +373,7 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iDataLen, float fLeftV
 
     static bool     bPulseLevel = true;
 
-    for (int iWordIdx = 0; iWordIdx < iDataLen; iWordIdx++)
+    for (int iWordIdx = 0; iWordIdx < iNumSamples; iWordIdx++)
     {
         // Apply tone pulse modulation
         const float fPulseScale = ((bPulseLevel == true) || (fTonePulseMaxSamples == 0)) ? 1.0f : 0.2f;
@@ -407,14 +422,14 @@ void AudioPlay::PlayVoice()
 
 #define VOICE_BOOST     3.0
 
-void AudioPlay::PlayVoice(EnVoice enVoice)
+void AudioPlay::PlayVoice(EnVoice enVoiceIn)
 {
-    AudioLogDebugNoBlock("PlayVoice %d\n", enVoice);
+    AudioLogDebugNoBlock("PlayVoice %d\n", enVoiceIn);
     // These WAV based audio clips need a volume boost
     float   fLeftVoiceVolume  = fVolume * VOICE_BOOST * fLeftGain;
     float   fRightVoiceVolume = fVolume * VOICE_BOOST * fRightGain;
 
-    switch (enVoice)
+    switch (enVoiceIn)
     {
         case enVoiceDatamark  : PlayPcmBuffer(datamark_pcm,      datamark_pcm_len,      fLeftVoiceVolume, fRightVoiceVolume); break;
         case enVoiceDisabled  : PlayPcmBuffer(disabled_pcm,      disabled_pcm_len,      fLeftVoiceVolume, fRightVoiceVolume); break;

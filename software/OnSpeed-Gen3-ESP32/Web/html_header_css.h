@@ -243,6 +243,22 @@ li.dropdown {
     -webkit-appearance: menulist;
     }
 
+.form-divs input[type="radio"] {
+    width: auto;
+    height: auto;
+    -webkit-appearance: radio;
+    display: inline;
+    margin: 0 4px 0 0;
+    border: none;
+    }
+.radio-group label {
+    display: inline;
+    font-size: 14px;
+    color: #333;
+    margin-right: 14px;
+    cursor: pointer;
+    }
+
 .form-divs.inline-formfield.top-label-gap {
     margin-top: 26px;
     }

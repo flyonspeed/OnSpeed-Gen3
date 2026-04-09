@@ -15,6 +15,7 @@ Do a text search for comments starting with "////"
 #include "soc/rtc_cntl_reg.h"
 
 #include <HardwareSerial.h>
+#include <WiFi.h>
 //#include <SoftwareSerial.h>
 
 #define MAIN
@@ -44,8 +45,9 @@ void WebServerTask(void * pvParams)
     for(;;)
     {
         CfgWebServerPoll();
-        // Yield to allow other tasks on Core 0 (like WiFi stack) to run
-        vTaskDelay(pdMS_TO_TICKS(5));
+        // Poll at 200 Hz when a client is connected, 20 Hz when idle
+        unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;
+        vTaskDelay(pdMS_TO_TICKS(uDelay));
     }
 }
 
@@ -55,8 +57,9 @@ void DataServerTask(void * pvParams)
     for(;;)
     {
         DataServerPoll();
-        // Yield to allow other tasks on Core 0 (like WiFi stack) to run
-        vTaskDelay(pdMS_TO_TICKS(5));
+        // Poll at 200 Hz when a client is connected, 20 Hz when idle
+        unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;
+        vTaskDelay(pdMS_TO_TICKS(uDelay));
     }
 }
 
@@ -199,9 +202,9 @@ void setup()
 
     // Init pressure sensor classes
     // ----------------------------
-    g_pPitot  = new HscPressureSensor(g_pSensorSPI, CS_PITOT,  HSCDRNN1_6BASA3);
-    g_pAOA    = new HscPressureSensor(g_pSensorSPI, CS_AOA,    HSCDRNN1_6BASA3);
-    g_pStatic = new HscPressureSensor(g_pSensorSPI, CS_STATIC, HSCDRRN100MDSA3);
+    g_pPitot  = new HscPressureSensor(g_pSensorSPI, CS_PITOT,  HSCMRRN001PDSA3);
+    g_pAOA    = new HscPressureSensor(g_pSensorSPI, CS_AOA,    HSCMRRN001PDSA3);
+    g_pStatic = new HscPressureSensor(g_pSensorSPI, CS_STATIC, HSCMRNN1_6BASA3);
 
     // Init Sensors
     g_Sensors.Init();
@@ -269,13 +272,9 @@ void setup()
 
     // These always run
     xTaskCreatePinnedToCore(AudioPlayTask,        "AudioPlay",      5000,  NULL, 6, &xTaskAudioPlay,     1);
-    xTaskCreatePinnedToCore(WriteDisplayDataTask, "Write Display", 10000,  NULL, 4, &xTaskDisplaySerial, 1);
+    xTaskCreatePinnedToCore(WriteDisplayDataTask, "Write Display",  4000,  NULL, 4, &xTaskDisplaySerial, 1);
     xTaskCreatePinnedToCore(SwitchCheckTask,      "Check Switch",   5000,  NULL, 4, &xTaskCheckSwitch,   1);
-    xTaskCreatePinnedToCore(CheckGLimitTask,      "Check G Limit",  2000,  NULL, 0, &xTaskGLimit,        1);
-    xTaskCreatePinnedToCore(CheckVolumeTask,      "Check Volume",   2000,  NULL, 0, &xTaskVolume,        1);
-    xTaskCreatePinnedToCore(CheckVnoChimeTask,    "Check Vno",      2000,  NULL, 0, &xTaskVnoChime,      1);
-    xTaskCreatePinnedToCore(Check3DAudioTask,     "Check 3D Audio", 2000,  NULL, 0, &xTask3dAudio,       1); // Stack size 2000
-    xTaskCreatePinnedToCore(HeartbeatLedTask,     "Heartbeat",      4000,  NULL, 0, &xTaskHeartbeat,     1); // Increased stack size
+    xTaskCreatePinnedToCore(HousekeepingTask,     "Housekeeping",   4000,  NULL, 0, &xTaskHousekeeping,  1); // Heartbeat init needed 4 KB in v4.10
 
     //xTaskCreatePinnedToCore(TaskDummy,     "Dummy",     10000, NULL,              5, &xTaskDummy,     0);
 

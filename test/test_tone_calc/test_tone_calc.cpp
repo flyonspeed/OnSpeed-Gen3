@@ -159,7 +159,7 @@ void test_muted_low_ias_silent()
 // Main
 // ============================================================================
 
-int main(int argc, char **argv)
+int main()
 {
     UNITY_BEGIN();
 

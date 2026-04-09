@@ -70,6 +70,15 @@ public:
         _initialized = false;
     }
 
+    /// Seed the filter with a known steady-state value.
+    /// Marks the filter as initialized so the next update() blends
+    /// against this seed instead of replacing it.
+    void seed(float value)
+    {
+        _value = value;
+        _initialized = true;
+    }
+
     /// Change smoothing via sample count.
     /// @param samples Number of samples (0 = no smoothing)
     void setSamples(int samples)
