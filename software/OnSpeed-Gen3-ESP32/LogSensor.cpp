@@ -287,11 +287,22 @@ void LogSensor::Open()
 
         if (m_hLogFile.isOpen())
         {
-            // Pre-allocate contiguous clusters to reduce write latency.
-            // At ~25 KB/s (50 Hz × ~500 bytes), 10 MB covers ~7 minutes
-            // before SdFat needs to extend the allocation.
-            // Unused space is released when the file is closed.
-            if (!m_hLogFile.preAllocate(10UL * 1024 * 1024))
+            // Pre-allocate a small contiguous run of clusters so a burst of
+            // writes after an SD housekeeping pause doesn't also have to
+            // touch the FAT table. SD pauses are <=500 ms, which accumulates
+            // at most ~7 KB in the ring buffer at the measured 14 KB/s log
+            // rate — 256 KB is >30x that worst-case burst with huge margin.
+            //
+            // Sized deliberately small: at 14 KB/s this holds ~18 seconds of
+            // data, so any real logging session blows past the preAllocate
+            // boundary almost immediately and the final on-disk file size
+            // reflects the actual bytes logged. The only case that leaves
+            // unused pre-allocated clusters on disk is a boot-then-immediate
+            // power-off — bounded to <=256 KB per file.
+            //
+            // Unused space is also released explicitly in Close() for the
+            // graceful-shutdown case (LOG DISABLE, FORMAT, soft restart).
+            if (!m_hLogFile.preAllocate(256UL * 1024))
                 g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "Log file preAllocate failed");
 
             // Write the CSV header line
@@ -339,6 +350,13 @@ void LogSensor::Open()
 void LogSensor::Close()
 {
     FlushStagingBufferLocked();
+    // Release any unused tail of the preAllocate() reservation from Open().
+    // truncate() with no arg cuts the file at the current position, which
+    // after all writes equals the actual end of real data. Without this,
+    // a short-lived log file keeps its full preAllocate reservation on
+    // disk regardless of how much was logged.
+    if (m_hLogFile.isOpen())
+        m_hLogFile.truncate();
     m_hLogFile.close();
 }
 
