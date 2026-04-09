@@ -185,6 +185,7 @@ AudioPlay::AudioPlay()
     fVolume              = 0.5f;
     fLeftGain            = 1.0f;
     fRightGain           = 1.0f;
+    fStallVolumeMult     = 1.0f;   // Safe default: full volume until UpdateTones() runs
 
     fTonePulseMaxSamples = 0;
     fTonePulseCounter    = 0;
@@ -463,11 +464,15 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 {
     AudioLogDebugNoBlock("PlayTone %d\n", enAudioTone);
 
-    // Cap per-channel gain to prevent waveform clipping when 3D audio
-    // panning drives fLeftGain/fRightGain up to 2.0. Without this cap,
+    // Apply stall volume ramp first: cruise/on-speed tones are attenuated to
+    // STALL_VOL_MIN (0.25x), pulsed-high tones ramp to STALL_VOL_MAX (1.0x)
+    // at stall warning. Faithful port of Gen2 Tones.ino volume curve.
+    //
+    // Then cap per-channel gain at 1.0 to prevent waveform clipping when 3D
+    // audio panning drives fLeftGain/fRightGain up to 2.0. Without the cap
     // the tone sine wave clips to a square wave at full volume + full pan.
-    float fL = fVolume * fLeftGain;
-    float fR = fVolume * fRightGain;
+    float fL = fVolume * fStallVolumeMult * fLeftGain;
+    float fR = fVolume * fStallVolumeMult * fRightGain;
     if (fL > 1.0f) fL = 1.0f;
     if (fR > 1.0f) fR = 1.0f;
 
@@ -512,7 +517,7 @@ void AudioPlay::UpdateTones()
         AudioLogDebugNoBlock("AUDIO MUTED: Airspeed too low. Min:%i IAS:%.2f\n",
             g_Config.iMuteAudioUnderIAS, g_Sensors.IAS);
 #endif
-        result = { onspeed::EnToneType::None, 20.0f };
+        result = { onspeed::EnToneType::None, 20.0f, onspeed::STALL_VOL_MAX };
         }
     else
         {
@@ -527,6 +532,7 @@ void AudioPlay::UpdateTones()
 
     SetTone(static_cast<EnAudioTone>(result.enTone));
     SetPulseFreq(result.fPulseFreq);
+    fStallVolumeMult = result.fVolumeMult;
     }
 
 // ----------------------------------------------------------------------------
@@ -597,6 +603,11 @@ void AudioPlay::AudioTest()
     bAudioTest = true;
     s_bAudioTestStopRequested.store(false);
 
+    // Save and restore around the test so that when bAudioTest clears and the
+    // sensor loop resumes writing fStallVolumeMult, there's no glitchy one-tick
+    // window at whatever the test last set.
+    const float fSavedStallVolumeMult = fStallVolumeMult;
+
     auto DelayOrStop = [&](uint32_t delayMs) -> bool
         {
         TickType_t remaining = pdMS_TO_TICKS(delayMs);
@@ -627,15 +638,21 @@ void AudioPlay::AudioTest()
     g_AudioPlay.SetVoice(enVoiceRight);
     if (!DelayOrStop(2000)) goto done;
 
+    // Low tone = cruise / on-speed → attenuated to STALL_VOL_MIN
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(2000)) goto done;
 
     g_AudioPlay.SetVoice(enVoiceGLimit);
     if (!DelayOrStop(3000)) goto done;
 
+    // Solid high tone = stall warning → full volume at STALL_VOL_MAX
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MAX;
     g_AudioPlay.SetTone(enToneHigh);
     if (!DelayOrStop(2000)) goto done;
 
+    // Back to pulsed-low sweep (LDmax → OnSpeedFast region) — attenuated
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(1500)) goto done;
 
@@ -648,17 +665,26 @@ void AudioPlay::AudioTest()
     g_AudioPlay.SetPulseFreq(5.0);
     if (!DelayOrStop(2000)) goto done;
 
+    // Pulsed high = approaching stall. Step the ramp multiplier through
+    // its endpoints so the pilot audibly hears the floor → ceiling sweep
+    // that would otherwise only occur across AOA in real flight.
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
     g_AudioPlay.SetTone(enToneHigh);
-    if (!DelayOrStop(2000)) goto done;
-
     g_AudioPlay.SetPulseFreq(4.0);
-    if (!DelayOrStop(2000)) goto done;
+    if (!DelayOrStop(1500)) goto done;
+
+    g_AudioPlay.fStallVolumeMult = (onspeed::STALL_VOL_MIN + onspeed::STALL_VOL_MAX) * 0.5f;
+    if (!DelayOrStop(1500)) goto done;
+
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MAX;
+    if (!DelayOrStop(1500)) goto done;
 
 done:
     g_AudioPlay.SetPulseFreq(0);
 
     g_AudioPlay.SetTone(enToneNone);
 
+    fStallVolumeMult = fSavedStallVolumeMult;
     bAudioTest = false;
     s_bAudioTestStopRequested.store(false);
 }

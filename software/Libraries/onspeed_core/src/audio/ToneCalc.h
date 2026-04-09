@@ -24,8 +24,13 @@ struct ToneThresholds {
 };
 
 struct ToneResult {
-    EnToneType enTone;
-    float      fPulseFreq;   ///< 0 = solid tone, >0 = pulses per second
+    EnToneType enTone      = EnToneType::None;
+    float      fPulseFreq  = 0.0f;   ///< 0 = solid tone, >0 = pulses per second
+    float      fVolumeMult = 1.0f;   ///< 0.0-1.0 multiplier applied to master volume.
+                                     ///< 0.25 in low-tone/on-speed regions, ramps
+                                     ///< 0.25->1.0 in pulsed-high (approaching stall)
+                                     ///< region, 1.0 at stall warning.  Defaults to
+                                     ///< 1.0 (safe "no attenuation") for None tones.
 };
 
 // ============================================================================
@@ -37,6 +42,12 @@ constexpr float HIGH_TONE_PPS_MIN   =  1.5f;
 constexpr float HIGH_TONE_PPS_MAX   =  6.2f;
 constexpr float LOW_TONE_PPS_MIN    =  1.5f;
 constexpr float LOW_TONE_PPS_MAX    =  8.2f;
+
+// Stall volume ramp: cruise/on-speed tones attenuated to STALL_VOL_MIN,
+// stall-warning tones at STALL_VOL_MAX, linear ramp between OnSpeedSlow
+// and StallWarn.  Matches Gen2's HIGH_TONE_VOLUME_MIN / HIGH_TONE_VOLUME_MAX.
+constexpr float STALL_VOL_MIN       =  0.25f;
+constexpr float STALL_VOL_MAX       =  1.0f;
 
 // ============================================================================
 // FUNCTIONS

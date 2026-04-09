@@ -42,6 +42,10 @@ public:
     float           fVolume;            // Audio output volume,from 0.0 to 1.0
     float           fLeftGain;          // Gain control, mostly for 3D audio, nominally 1.0 but
     float           fRightGain;         // can be higher or lower.
+    float           fStallVolumeMult;   // AOA-driven stall volume ramp multiplier (0.25-1.0).
+                                        // Gen2 port: cruise/on-speed tones attenuated, stall
+                                        // warning at full volume, linear ramp between.
+                                        // Applied to tones only, not PCM voice clips.
 
     float           fTonePulseMaxSamples;
     float           fTonePulseCounter;
