@@ -420,7 +420,7 @@ void AudioPlay::PlayVoice()
 
 // Play the commanded voice
 
-#define VOICE_BOOST     3.0
+#define VOICE_BOOST     3.0f  // float to avoid double promotion on ESP32 soft-FPU
 
 void AudioPlay::PlayVoice(EnVoice enVoiceIn)
 {
@@ -467,14 +467,22 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 {
     AudioLogDebugNoBlock("PlayTone %d\n", enAudioTone);
 
+    // Cap per-channel gain to prevent waveform clipping when 3D audio
+    // panning drives fLeftGain/fRightGain up to 2.0. Without this cap,
+    // the tone sine wave clips to a square wave at full volume + full pan.
+    float fL = fVolume * fLeftGain;
+    float fR = fVolume * fRightGain;
+    if (fL > 1.0f) fL = 1.0f;
+    if (fR > 1.0f) fR = 1.0f;
+
     switch (enAudioTone)
     {
         case enToneLow :
-            PlayToneBuffer(aTone_400Hz, iDataLen, fVolume * fLeftGain, fVolume * fRightGain);
+            PlayToneBuffer(aTone_400Hz, iDataLen, fL, fR);
             break;
 
         case enToneHigh :
-            PlayToneBuffer(aTone_1600Hz, iDataLen, fVolume * fLeftGain, fVolume * fRightGain);
+            PlayToneBuffer(aTone_1600Hz, iDataLen, fL, fR);
             break;
 
         default :

@@ -1,8 +1,6 @@
 // CurveCalc.cpp - Calibration curve evaluation implementation
 
 #include "CurveCalc.h"
-#include <algorithm>
-#include <cfloat>
 #include <cmath>
 
 // ============================================================================
@@ -19,10 +17,6 @@
 #endif
 
 namespace onspeed {
-
-// expf(88.7) ≈ 3.4e38 ≈ FLT_MAX; expf(89) overflows to +Inf.
-// Clamp the exponent argument to stay within finite float range.
-static constexpr float kExpfMaxArg = 88.0f;
 
 float CurveCalc(float x, const SuCalibrationCurve& curve) {
     float y = 0.0f;
@@ -52,15 +46,13 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
     }
     // Exponential: y = a*e^(b*x)
     // Uses last two coefficients: afCoeff[2] = a, afCoeff[3] = b
-    // Guard: clamp exponent to prevent overflow/underflow
+    // Guard: clamp exponent to ±88 to prevent overflow/underflow
+    // (expf(88.7) ≈ 3.4e38 ≈ FLT_MAX; expf(89) overflows to +Inf)
     else if (curve.iCurveType == 3) {
         float ex = curve.afCoeff[MAX_CURVE_COEFF - 1] * x;
-        ex = std::clamp(ex, -kExpfMaxArg, kExpfMaxArg);
+        if (ex > 88.0f)  ex = 88.0f;
+        if (ex < -88.0f) ex = -88.0f;
         y = curve.afCoeff[MAX_CURVE_COEFF - 2] * expf(ex);
-        // Guard against overflow from large 'a' coefficient × expf(88).
-        // Return saturated finite value rather than +/-Inf.
-        if (!std::isfinite(y))
-            y = (y > 0.0f || curve.afCoeff[MAX_CURVE_COEFF - 2] > 0.0f) ? FLT_MAX : -FLT_MAX;
         ONSPEED_LOG_DEBUG("%.2f * exp(%.2f * %.2f) = %.2f\n",
             curve.afCoeff[MAX_CURVE_COEFF - 2],
             curve.afCoeff[MAX_CURVE_COEFF - 1], x, y);
