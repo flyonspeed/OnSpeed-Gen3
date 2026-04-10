@@ -592,7 +592,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         // Biases
         iPFwdBias           =  GetConfigValue(sConfig,"PFWD_BIAS").toInt();
         iP45Bias            =  GetConfigValue(sConfig,"P45_BIAS").toInt();
-        fPStaticBias        = -ToFloat(GetConfigValue(sConfig,"PSTATIC_BIAS"));
+        fPStaticBias        =  ToFloat(GetConfigValue(sConfig,"PSTATIC_BIAS"));
         fGxBias             =  ToFloat(GetConfigValue(sConfig,"GX_BIAS"));
         fGyBias             =  ToFloat(GetConfigValue(sConfig,"GY_BIAS"));
         fGzBias             =  ToFloat(GetConfigValue(sConfig,"GZ_BIAS"));
