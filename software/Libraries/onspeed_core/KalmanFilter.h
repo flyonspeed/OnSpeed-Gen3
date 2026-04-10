@@ -29,9 +29,10 @@ private :
     float Pav_;
     float Paa_;
 
-    float zAccelBiasVariance_;  // assumed fixed.
-    float zAccelVariance_;      // dynamic acceleration variance
-    float zVariance_;           //  z measurement noise variance fixed
+    float zAccelBiasVariance_;       // assumed fixed.
+    float zAccelVariance_;           // dynamic acceleration variance
+    float zAccelVarianceFloor_;      // configured minimum for zAccelVariance_
+    float zVariance_;                //  z measurement noise variance fixed
 
 };
 

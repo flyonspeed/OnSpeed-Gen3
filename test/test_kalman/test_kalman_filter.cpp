@@ -73,9 +73,11 @@ void test_climb_velocity_estimation(void) {
         kf.Update(altitude, 0.0f, PROD_DT, &z, &v);
     }
 
-    // Should track altitude and estimate climb rate
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, altitude, z);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, climb_rate, v);
+    // Should track altitude and estimate climb rate.
+    // The configured zAccelVariance floor (26.0638) increases process noise,
+    // which slightly reduces convergence precision vs the old hardcoded 1.0 floor.
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, altitude, z);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, climb_rate, v);
 }
 
 // Test acceleration input contributes to state estimation
@@ -140,6 +142,42 @@ void test_turbulence_stability(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, v);
 }
 
+// Verify that the configured zAccelVariance acts as a floor for the
+// dynamic variance computed in Update(). With a high floor (26.0638) vs
+// a low floor (1.0), the filter's process noise covariance grows faster,
+// producing measurably different state covariance and thus different outputs.
+void test_configured_zAccelVariance_floor_is_used(void) {
+    KalmanFilter kfLow, kfHigh;
+    float start_alt = 1000.0f;
+
+    // Low floor (old hardcoded behavior)
+    kfLow.Configure(PROD_Z_VARIANCE, 1.0f, PROD_ACCEL_BIAS_VARIANCE,
+                     start_alt, 0.0f, 0.0f);
+
+    // High floor (production configured value)
+    kfHigh.Configure(PROD_Z_VARIANCE, PROD_ACCEL_VARIANCE, PROD_ACCEL_BIAS_VARIANCE,
+                      start_alt, 0.0f, 0.0f);
+
+    volatile float zLow, vLow, zHigh, vHigh;
+
+    // Feed identical steady-altitude, zero-accel data to both.
+    // With accel=0, dynamic variance = |0|/50 = 0, so the floor dominates.
+    for (int i = 0; i < 208; i++) {
+        kfLow.Update(start_alt + 1.0f, 0.0f, PROD_DT, &zLow, &vLow);
+        kfHigh.Update(start_alt + 1.0f, 0.0f, PROD_DT, &zHigh, &vHigh);
+    }
+
+    // Both should converge toward the measurement but at different rates.
+    // Higher floor = more process noise = faster convergence to measurement.
+    // The high-floor filter should be closer to (start_alt + 1.0) than the
+    // low-floor filter, proving the configured value actually affects behavior.
+    float errLow  = fabsf((start_alt + 1.0f) - zLow);
+    float errHigh = fabsf((start_alt + 1.0f) - zHigh);
+
+    TEST_ASSERT_TRUE_MESSAGE(errHigh < errLow,
+        "Higher zAccelVariance floor should converge faster to measurement");
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_initial_state_preserved);
@@ -148,5 +186,6 @@ int main() {
     RUN_TEST(test_acceleration_input_affects_state);
     RUN_TEST(test_zero_dt_no_crash);
     RUN_TEST(test_turbulence_stability);
+    RUN_TEST(test_configured_zAccelVariance_floor_is_used);
     return UNITY_END();
 }
