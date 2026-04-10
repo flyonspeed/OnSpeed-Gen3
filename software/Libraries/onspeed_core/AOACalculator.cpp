@@ -2,6 +2,7 @@
 
 #include "AOACalculator.h"
 #include <cmath>
+#include <limits>
 
 namespace onspeed {
 
@@ -30,8 +31,8 @@ AOAResult CalcAOA(
     // Calculate raw AOA from calibration curve
     result.aoa = CurveCalc(result.coeffP, curve);
 
-    // Check for NaN (can occur with bad curve coefficients)
-    if (std::isnan(result.aoa)) {
+    // Check for non-finite results (NaN or Inf from bad curve coefficients)
+    if (!std::isfinite(result.aoa)) {
         result.aoa   = 0.0f;
         result.valid = false;
     }
@@ -55,8 +56,12 @@ AOACalculatorResult AOACalculator::calculate(
     out.coeffP = raw.coeffP;
     out.valid  = raw.valid;
 
-    // Smooth and clamp
-    float valueToSmooth = raw.valid ? raw.aoa : AOA_MIN_VALUE;
+    // Smooth and clamp.
+    // Pass NaN for invalid samples so the EMA filter holds its previous
+    // value instead of dragging the smoothed AOA toward -20 degrees.
+    float valueToSmooth = raw.valid
+        ? raw.aoa
+        : std::numeric_limits<float>::quiet_NaN();
     out.aoa = clampAOA(_smoother.update(valueToSmooth));
 
     return out;

@@ -122,6 +122,53 @@ void test_AOACalculator_reset()
 }
 
 // ============================================================================
+// EMA poisoning regression tests
+// ============================================================================
+
+void test_AOACalculator_invalid_samples_preserve_ema_state()
+{
+    AOACalculator calc(4);  // alpha = 0.25 — moderate smoothing
+    SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
+
+    // Establish steady-state around 5° (coeffP=0.5 => AOA=5)
+    for (int i = 0; i < 20; i++) {
+        calc.calculate(100.0f, 50.0f, curve);
+    }
+
+    // Confirm we're at ~5°
+    AOACalculatorResult baseline = calc.calculate(100.0f, 50.0f, curve);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 5.0f, baseline.aoa);
+
+    // Feed 10 invalid samples (negative pfwd => invalid)
+    for (int i = 0; i < 10; i++) {
+        AOACalculatorResult inv = calc.calculate(-1.0f, 50.0f, curve);
+        TEST_ASSERT_FALSE(inv.valid);
+        // Smoothed AOA should hold near 5°, NOT drag toward -20°
+        TEST_ASSERT_FLOAT_WITHIN(1.0f, 5.0f, inv.aoa);
+    }
+
+    // Resume with valid samples — should still be near 5°
+    AOACalculatorResult resumed = calc.calculate(100.0f, 50.0f, curve);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 5.0f, resumed.aoa);
+}
+
+void test_AOACalculator_zero_pfwd_does_not_drag_ema()
+{
+    AOACalculator calc(2);  // alpha = 0.5
+    SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
+
+    // Seed with AOA = 10°
+    calc.calculate(100.0f, 100.0f, curve);
+
+    // Zero pfwd is invalid
+    AOACalculatorResult inv = calc.calculate(0.0f, 100.0f, curve);
+    TEST_ASSERT_FALSE(inv.valid);
+
+    // With EMA poisoning fixed, smoothed value should still be 10°
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 10.0f, inv.aoa);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -140,6 +187,10 @@ int main()
     RUN_TEST(test_AOACalculator_with_smoothing);
     RUN_TEST(test_AOACalculator_clamps_output);
     RUN_TEST(test_AOACalculator_reset);
+
+    // EMA poisoning regression
+    RUN_TEST(test_AOACalculator_invalid_samples_preserve_ema_state);
+    RUN_TEST(test_AOACalculator_zero_pfwd_does_not_drag_ema);
 
     return UNITY_END();
 }
