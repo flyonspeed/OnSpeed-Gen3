@@ -2,7 +2,6 @@
 
 #include "AOACalculator.h"
 #include <cmath>
-#include <limits>
 
 namespace onspeed {
 
@@ -57,12 +56,16 @@ AOACalculatorResult AOACalculator::calculate(
     out.valid  = raw.valid;
 
     // Smooth and clamp.
-    // Pass NaN for invalid samples so the EMA filter holds its previous
-    // value instead of dragging the smoothed AOA toward -20 degrees.
-    float valueToSmooth = raw.valid
-        ? raw.aoa
-        : std::numeric_limits<float>::quiet_NaN();
-    out.aoa = clampAOA(_smoother.update(valueToSmooth));
+    // Invalid samples must not contaminate the EMA — hold last good value.
+    // Before the filter is seeded (first valid sample hasn't arrived yet),
+    // return the safe floor so downstream doesn't see 0.0 degrees as valid AOA.
+    if (raw.valid) {
+        out.aoa = clampAOA(_smoother.update(raw.aoa));
+    } else if (_smoother.isInitialized()) {
+        out.aoa = clampAOA(_smoother.get());  // hold last good value
+    } else {
+        out.aoa = AOA_MIN_VALUE;  // no valid data yet; safe floor
+    }
 
     return out;
 }

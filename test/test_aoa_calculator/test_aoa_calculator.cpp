@@ -152,6 +152,18 @@ void test_AOACalculator_invalid_samples_preserve_ema_state()
     TEST_ASSERT_FLOAT_WITHIN(0.5f, 5.0f, resumed.aoa);
 }
 
+void test_AOACalculator_first_sample_invalid_returns_floor()
+{
+    // If the very first sample is invalid (before EMA is seeded),
+    // return AOA_MIN_VALUE (safe floor), not 0.0 degrees.
+    AOACalculator calc(4);
+    SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
+
+    AOACalculatorResult r = calc.calculate(-100.0f, 500.0f, curve);  // invalid pfwd
+    TEST_ASSERT_FALSE(r.valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, AOA_MIN_VALUE, r.aoa);
+}
+
 void test_AOACalculator_zero_pfwd_does_not_drag_ema()
 {
     AOACalculator calc(2);  // alpha = 0.5
@@ -189,6 +201,7 @@ int main()
     RUN_TEST(test_AOACalculator_reset);
 
     // EMA poisoning regression
+    RUN_TEST(test_AOACalculator_first_sample_invalid_returns_floor);
     RUN_TEST(test_AOACalculator_invalid_samples_preserve_ema_state);
     RUN_TEST(test_AOACalculator_zero_pfwd_does_not_drag_ema);
 
