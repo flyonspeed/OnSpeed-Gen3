@@ -45,6 +45,7 @@ public:
 
     float           fTonePulseMaxSamples;
     float           fTonePulseCounter;
+    bool            bPulseLevelState;
 
     I2SClass        i2s;
     int             iDataLen;           // Number of data points in the audio tone buffer. Not necessarily the buffer length!

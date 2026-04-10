@@ -192,6 +192,7 @@ AudioPlay::AudioPlay()
 
     fTonePulseMaxSamples = 0;
     fTonePulseCounter    = 0;
+    bPulseLevelState     = true;
 
     bAudioTest           = false;
 }
@@ -293,6 +294,12 @@ void AudioPlay::SetVoice(EnVoice enVoiceIn)
 
 void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
+    if (enAudioTone != this->enTone)
+        {
+        bPulseLevelState  = true;
+        fTonePulseCounter = 0.0f;
+        }
+
     this->enTone = enAudioTone;
 
     if (enAudioTone != enToneNone)
@@ -322,6 +329,8 @@ void AudioPlay::SetPulseFreq(float fPulseFreq)
     else
         fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // Tone period in audio samples
 
+    bPulseLevelState  = true;
+    fTonePulseCounter = 0.0f;
 }
 
 // ----------------------------------------------------------------------------
@@ -371,12 +380,10 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLe
     uint32_t         aFrames[kFramesPerWrite];
     size_t           iFrameCount = 0;
 
-    static bool     bPulseLevel = true;
-
     for (int iWordIdx = 0; iWordIdx < iNumSamples; iWordIdx++)
     {
         // Apply tone pulse modulation
-        const float fPulseScale = ((bPulseLevel == true) || (fTonePulseMaxSamples == 0)) ? 1.0f : 0.2f;
+        const float fPulseScale = ((bPulseLevelState == true) || (fTonePulseMaxSamples == 0)) ? 1.0f : 0.2f;
         const int16_t iSample = pData[iWordIdx];
         const int16_t iLeftValue = ScaleAndClampI16(iSample, fLeftVolume * fPulseScale);
         const int16_t iRightValue = ScaleAndClampI16(iSample, fRightVolume * fPulseScale);
@@ -385,7 +392,7 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLe
         if (fTonePulseCounter >= fTonePulseMaxSamples)
         {
             fTonePulseCounter -= fTonePulseMaxSamples;
-            bPulseLevel        = !bPulseLevel;
+            bPulseLevelState   = !bPulseLevelState;
         }
         else
             fTonePulseCounter++;
