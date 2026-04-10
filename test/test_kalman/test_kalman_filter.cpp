@@ -73,9 +73,10 @@ void test_climb_velocity_estimation(void) {
         kf.Update(altitude, 0.0f, PROD_DT, &z, &v);
     }
 
-    // Should track altitude and estimate climb rate.
-    // The configured zAccelVariance floor (26.0638) increases process noise,
-    // which slightly reduces convergence precision vs the old hardcoded 1.0 floor.
+    // Tolerance widened from 0.01 to 0.05: with the floor at 26.0638 instead of
+    // the old hardcoded 1.0, the filter assigns more uncertainty to the process
+    // model (accel), increasing Kalman gain and changing convergence characteristics
+    // in this zero-acceleration test scenario.
     TEST_ASSERT_FLOAT_WITHIN(0.05f, altitude, z);
     TEST_ASSERT_FLOAT_WITHIN(0.05f, climb_rate, v);
 }

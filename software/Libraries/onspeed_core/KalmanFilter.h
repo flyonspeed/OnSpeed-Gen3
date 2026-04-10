@@ -31,7 +31,7 @@ private :
 
     float zAccelBiasVariance_;       // assumed fixed.
     float zAccelVariance_;           // dynamic acceleration variance
-    float zAccelVarianceFloor_;      // configured minimum for zAccelVariance_
+    float zAccelVarianceFloor_ = 1.0f;  // Safe default matching pre-fix behavior
     float zVariance_;                //  z measurement noise variance fixed
 
 };

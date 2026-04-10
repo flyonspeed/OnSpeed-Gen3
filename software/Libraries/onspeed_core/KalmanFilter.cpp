@@ -22,7 +22,8 @@ KalmanFilter::KalmanFilter()
 void KalmanFilter::Configure(float zVariance, float zAccelVariance, float zAccelBiasVariance, float zInitial, float vInitial, float aBiasInitial)
 {
     zAccelVariance_ = zAccelVariance;
-    zAccelVarianceFloor_ = zAccelVariance;
+    // Clamp to [0, 50] to satisfy std::clamp(value, floor, 50.0f) precondition.
+    zAccelVarianceFloor_ = std::min(zAccelVariance, 50.0f);
     zAccelBiasVariance_ = zAccelBiasVariance;
     zVariance_ = zVariance;
 
