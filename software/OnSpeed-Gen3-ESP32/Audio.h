@@ -45,7 +45,6 @@ public:
 
     float           fTonePulseMaxSamples;
     float           fTonePulseCounter;
-    bool            bPulseLevelState;
 
     I2SClass        i2s;
     int             iDataLen;           // Number of data points in the audio tone buffer. Not necessarily the buffer length!
@@ -70,6 +69,8 @@ public:
     void AudioTest();
 
 private:
+    bool            bPulseLevelState;
+
     void PlayPcmBuffer(const unsigned char * pData, int iNumBytes, float fLeftVolume, float fRightVolume);
     void PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLeftVolume, float fRightVolume);
     void PlayVoice();

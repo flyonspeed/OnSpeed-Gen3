@@ -323,14 +323,22 @@ void AudioPlay::SetToneFreq(unsigned uToneFreqIn)
 
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
-    // Outside limits disables tone pulse
+    float fNewMaxSamples;
     if ((fPulseFreq < 1.0f) || (fPulseFreq > 25.0f))
-        fTonePulseMaxSamples = 0;
+        fNewMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // Tone period in audio samples
+        fNewMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);
 
-    bPulseLevelState  = true;
-    fTonePulseCounter = 0.0f;
+    // Only reset pulse phase when the frequency actually changes.
+    // SetPulseFreq is called at 50 Hz from UpdateTones — unconditional
+    // reset would prevent the pulse envelope from ever completing a cycle.
+    if (fNewMaxSamples != fTonePulseMaxSamples)
+    {
+        bPulseLevelState  = true;
+        fTonePulseCounter = 0.0f;
+    }
+
+    fTonePulseMaxSamples = fNewMaxSamples;
 }
 
 // ----------------------------------------------------------------------------
