@@ -239,7 +239,7 @@ void setup()
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
         xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
         if (bLoggingRingBufferOk)
-            xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 0, &xTaskWriteLog,     1);
+            xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 1, &xTaskWriteLog,     1);
 #ifdef LOGDATA_PRESSURE_RATE  // sd card write rate
         g_Log.println("Logging at 50Hz");
 #else
