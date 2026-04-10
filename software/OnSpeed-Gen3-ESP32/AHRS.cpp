@@ -178,6 +178,12 @@ void AHRS::Process(float fDeltaTimeSeconds)
                 float fDivisor = 1.0f - 6.8755856e-6f * fDA;
                 if (fDivisor > 0.0f)
                     fTAS = kts2mps(g_Sensors.IAS / powf(fDivisor, 2.12794f));
+                else
+                    fTAS = kts2mps(g_Sensors.IAS * (1.0f + g_Sensors.Palt / 1000.0f * 0.02f));
+                }
+            else
+                {
+                fTAS = kts2mps(g_Sensors.IAS * (1.0f + g_Sensors.Palt / 1000.0f * 0.02f));
                 }
             }
         else
