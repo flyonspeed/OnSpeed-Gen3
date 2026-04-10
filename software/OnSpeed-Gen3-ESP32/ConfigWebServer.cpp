@@ -145,13 +145,19 @@ static bool IsSafeLogFilename(const String& s)
     for (size_t i = 0; i < s.length(); i++)
         {
         char c = s.charAt(i);
-        if (!(isalnum(c) || c == '_' || c == '.' || c == '-')) return false;
+        if (!(isalnum((unsigned char)c) || c == '_' || c == '.' || c == '-')) return false;
         }
+    // Only allow log file extensions, not config files (.cfg) or other
+    // sensitive data. Config backup/restore has its own dedicated endpoints.
+    if (!s.endsWith(".csv") && !s.endsWith(".CSV") &&
+        !s.endsWith(".log") && !s.endsWith(".LOG"))
+        return false;
     return true;
     }
 
 // Maximum number of flap positions accepted from a config-save POST.
-static constexpr int kMaxFlapPositions = 10;
+// Matches MAX_AOA_CURVES in OnSpeedTypes.h (architecture limit).
+static constexpr int kMaxFlapPositions = MAX_AOA_CURVES;
 
 // ----------------------------------------------------------------------------
 
@@ -3142,7 +3148,9 @@ void HandleDownload()
     // Send headers to trigger download
     CfgServer.setContentLength(fileSize);
     CfgServer.sendHeader("Content-Type", "application/octet-stream");
-    CfgServer.sendHeader("Content-Disposition", "attachment; filename=" + CfgServer.arg("file"));
+    // Use the validated local, not a second CfgServer.arg() call, so the
+    // Content-Disposition header is guaranteed to reflect the validated name.
+    CfgServer.sendHeader("Content-Disposition", "attachment; filename=" + sRawName);
     CfgServer.sendHeader("Connection", "close");
     CfgServer.send(200);
 //      CfgServer.send(200, "application/octet-stream", "");
