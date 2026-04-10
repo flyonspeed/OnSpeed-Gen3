@@ -46,9 +46,13 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
     }
     // Exponential: y = a*e^(b*x)
     // Uses last two coefficients: afCoeff[2] = a, afCoeff[3] = b
+    // Guard: clamp exponent to ±88 to prevent overflow/underflow
+    // (expf(88.7) ≈ 3.4e38 ≈ FLT_MAX; expf(89) overflows to +Inf)
     else if (curve.iCurveType == 3) {
-        y = curve.afCoeff[MAX_CURVE_COEFF - 2]
-          * expf(curve.afCoeff[MAX_CURVE_COEFF - 1] * x);
+        float ex = curve.afCoeff[MAX_CURVE_COEFF - 1] * x;
+        if (ex > 88.0f)  ex = 88.0f;
+        if (ex < -88.0f) ex = -88.0f;
+        y = curve.afCoeff[MAX_CURVE_COEFF - 2] * expf(ex);
         ONSPEED_LOG_DEBUG("%.2f * exp(%.2f * %.2f) = %.2f\n",
             curve.afCoeff[MAX_CURVE_COEFF - 2],
             curve.afCoeff[MAX_CURVE_COEFF - 1], x, y);
