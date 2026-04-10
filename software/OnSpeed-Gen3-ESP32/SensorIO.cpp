@@ -187,9 +187,12 @@ void SensorIO::Init()
         {
         pinMode(OAT_PIN,INPUT_PULLUP);
         OatSensor.begin();                      // initialize the DS18B20 sensor
-        OatSensor.setWaitForConversion(false);   // enable async (non-blocking) mode
         OatSensor.setResolution(12);             // 12-bit: ~750 ms conversion time
         ReadOatC();                              // blocking read OK before scheduler starts
+        // Switch to async mode AFTER the blocking startup read.
+        // If set before ReadOatC(), the startup read returns stale
+        // DS18B20 power-on-reset value (85 C) instead of real temp.
+        OatSensor.setWaitForConversion(false);
         }
 
     // Get initial pressure altitude
@@ -241,7 +244,19 @@ void SensorIO::Read()
             {
                 OatC = fNew;    // valid reading
             }
-            // else: hold last good value (OatC unchanged)
+            else
+            {
+                // Sensor disconnected or returning garbage; hold last good value.
+                // Log once per minute to avoid spam.
+                static unsigned long uLastOatWarnMs = 0;
+                unsigned long uNow = millis();
+                if ((uNow - uLastOatWarnMs) > 60000)
+                {
+                    g_Log.println(MsgLog::EnSensors, MsgLog::EnWarning,
+                        "OAT sensor read failed; holding last good value");
+                    uLastOatWarnMs = uNow;
+                }
+            }
             bOatConversionPending = false;
             uLastOatReadMs = millis();
         }
@@ -361,8 +376,13 @@ float SensorIO::ReadPressureAltMbars()
 
 float SensorIO::ReadOatC()
 {
-    OatSensor.requestTemperatures();      // Send the command to get temperatures
-    OatC = OatSensor.getTempCByIndex(0);  // Read temperature in �C
-
+    OatSensor.requestTemperatures();
+    float fNew = OatSensor.getTempCByIndex(0);
+    if (fNew > -100.0f && fNew < 100.0f)
+    {
+        OatC = fNew;
+    }
+    // else: sensor disconnected or returning garbage (-127, 85 C POR, etc.)
+    // Hold last good value (OatC unchanged).
     return OatC;
 }
