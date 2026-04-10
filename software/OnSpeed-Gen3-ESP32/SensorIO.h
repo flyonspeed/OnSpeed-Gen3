@@ -65,4 +65,8 @@ public:
     float   ReadPressureAltMbars();
 //  float   GetPressureAltMbars();
 
+private:
+    bool        bOatConversionPending = false;
+    uint32_t    uOatRequestMs = 0;
+
 };

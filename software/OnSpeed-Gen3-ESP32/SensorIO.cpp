@@ -174,6 +174,7 @@ SensorIO::SensorIO()
       OatSensor(&OneWireBus)
 {
     Palt       = 0.00;
+    OatC       = 15.0f;     // ISA standard day until first valid reading
     fDecelRate = 0.0;
     uIasUpdateUs = 0;
 }
@@ -185,8 +186,10 @@ void SensorIO::Init()
     if (g_Config.bOatSensor)
         {
         pinMode(OAT_PIN,INPUT_PULLUP);
-        OatSensor.begin();  // initialize the DS18B20 sensor
-        ReadOatC();
+        OatSensor.begin();                      // initialize the DS18B20 sensor
+        OatSensor.setWaitForConversion(false);   // enable async (non-blocking) mode
+        OatSensor.setResolution(12);             // 12-bit: ~750 ms conversion time
+        ReadOatC();                              // blocking read OK before scheduler starts
         }
 
     // Get initial pressure altitude
@@ -220,12 +223,29 @@ void SensorIO::Read()
         uLastFlapsReadMs = millis();
     }
 
-    // Update the OAT about once per second
-    if (g_Config.bOatSensor && (millis() - uLastOatReadMs > 1000))
+    // Update the OAT asynchronously (non-blocking).
+    // Phase 1: kick off a conversion request once per second.
+    // Phase 2: read the result after the 750 ms conversion completes.
+    if (g_Config.bOatSensor)
+    {
+        if (!bOatConversionPending && (millis() - uLastOatReadMs > 1000))
         {
-        ReadOatC();
-        uLastOatReadMs = millis();
+            OatSensor.requestTemperatures();    // non-blocking with setWaitForConversion(false)
+            bOatConversionPending = true;
+            uOatRequestMs = millis();
         }
+        else if (bOatConversionPending && (millis() - uOatRequestMs >= 800))
+        {
+            float fNew = OatSensor.getTempCByIndex(0);
+            if (fNew > -100.0f && fNew < 100.0f)
+            {
+                OatC = fNew;    // valid reading
+            }
+            // else: hold last good value (OatC unchanged)
+            bOatConversionPending = false;
+            uLastOatReadMs = millis();
+        }
+    }
 
     // Get AOA speed set points for the current flap position.
 //  SetAOApoints(g_Flaps.iIndex);
