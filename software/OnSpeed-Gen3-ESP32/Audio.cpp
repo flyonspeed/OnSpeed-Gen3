@@ -425,9 +425,12 @@ void AudioPlay::PlayVoice()
 void AudioPlay::PlayVoice(EnVoice enVoiceIn)
 {
     AudioLogDebugNoBlock("PlayVoice %d\n", enVoiceIn);
-    // These WAV based audio clips need a volume boost
+    // These WAV based audio clips need a volume boost.
+    // Cap at 1.0 to prevent clipping when 3D panning gain (up to 2.0) combines with VOICE_BOOST.
     float   fLeftVoiceVolume  = fVolume * VOICE_BOOST * fLeftGain;
     float   fRightVoiceVolume = fVolume * VOICE_BOOST * fRightGain;
+    if (fLeftVoiceVolume  > 1.0f) fLeftVoiceVolume  = 1.0f;
+    if (fRightVoiceVolume > 1.0f) fRightVoiceVolume = 1.0f;
 
     switch (enVoiceIn)
     {
