@@ -267,9 +267,9 @@ void SensorIO::Read()
         // Catch negative pressure case
         else
             IAS = 0;
-	    } // end if not in test pot or range sweep mode
 
 	    uIasUpdateUs = micros();
+	    } // end if not in test pot or range sweep mode
 
 	    // Take derivative of airspeed for deceleration calc.
 	    // Update at 20 Hz (50 ms) to match tone buffer update rate.
