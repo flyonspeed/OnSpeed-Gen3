@@ -125,6 +125,11 @@ void AHRS::Process(float fDeltaTimeSeconds)
     if (isnan(fDeltaTimeSeconds) || isinf(fDeltaTimeSeconds) || fDeltaTimeSeconds <= 0.0f)
         fDeltaTimeSeconds = fImuDeltaTime;
 
+    // Clamp excessively large dt (e.g. from task starvation) to prevent a
+    // single giant integration step from destabilising the AHRS filters.
+    if (fDeltaTimeSeconds > 4.0f * fImuDeltaTime)
+        fDeltaTimeSeconds = fImuDeltaTime;
+
     // Update TAS and TAS derivative at IAS update cadence (50Hz), not at
     // the IMU update cadence (208Hz).  The density-corrected TAS computation
     // involves two powf() calls that are expensive on the ESP32-S3's
