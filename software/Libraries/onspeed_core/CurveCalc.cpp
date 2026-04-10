@@ -1,6 +1,7 @@
 // CurveCalc.cpp - Calibration curve evaluation implementation
 
 #include "CurveCalc.h"
+#include <cfloat>
 #include <cmath>
 
 // ============================================================================
@@ -53,6 +54,10 @@ float CurveCalc(float x, const SuCalibrationCurve& curve) {
         if (ex > 88.0f)  ex = 88.0f;
         if (ex < -88.0f) ex = -88.0f;
         y = curve.afCoeff[MAX_CURVE_COEFF - 2] * expf(ex);
+        // Guard against overflow from large 'a' coefficient × expf(88).
+        // Return saturated finite value rather than +/-Inf.
+        if (!std::isfinite(y))
+            y = (y > 0.0f || curve.afCoeff[MAX_CURVE_COEFF - 2] > 0.0f) ? FLT_MAX : -FLT_MAX;
         ONSPEED_LOG_DEBUG("%.2f * exp(%.2f * %.2f) = %.2f\n",
             curve.afCoeff[MAX_CURVE_COEFF - 2],
             curve.afCoeff[MAX_CURVE_COEFF - 1], x, y);

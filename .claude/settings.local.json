@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(python3:*)",
+      "Bash(pio run:*)",
+      "Bash(pio test:*)",
+      "Bash(pip install:*)"
+    ]
+  }
+}
