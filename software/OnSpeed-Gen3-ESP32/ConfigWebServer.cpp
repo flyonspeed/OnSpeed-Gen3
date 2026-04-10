@@ -134,6 +134,25 @@ void HandleWifiSettings();
 
 String sFormatBytes(size_t bytes);
 
+// Reject filenames that contain path-traversal sequences, slashes, or
+// characters outside the expected set for SD-card log files.
+static bool IsSafeLogFilename(const String& s)
+    {
+    if (s.length() == 0 || s.length() > 32) return false;
+    if (s.indexOf('/')  >= 0) return false;
+    if (s.indexOf('\\') >= 0) return false;
+    if (s.indexOf("..") >= 0) return false;
+    for (size_t i = 0; i < s.length(); i++)
+        {
+        char c = s.charAt(i);
+        if (!(isalnum(c) || c == '_' || c == '.' || c == '-')) return false;
+        }
+    return true;
+    }
+
+// Maximum number of flap positions accepted from a config-save POST.
+static constexpr int kMaxFlapPositions = 10;
+
 // ----------------------------------------------------------------------------
 
 // Service the configuration web CfgServer.
@@ -1774,7 +1793,8 @@ void HandleConfigSave()
     // what classes are for, right?
     g_Config.aFlaps.clear();
     int iFlapIdx = 0;
-    while (CfgServer.hasArg("flapDegrees"+String(iFlapIdx)))
+    while (iFlapIdx < kMaxFlapPositions &&
+           CfgServer.hasArg("flapDegrees"+String(iFlapIdx)))
         {
         FOSConfig::SuFlaps  suFlaps;
         if (!CfgServer.hasArg("deleteFlapPos"+String(iFlapIdx)))
@@ -3028,6 +3048,12 @@ void HandleDelete()
 
     sFilename = CfgServer.arg("file");
 
+    if (!IsSafeLogFilename(sFilename))
+        {
+        CfgServer.send(400, "text/plain", "Invalid filename");
+        return;
+        }
+
     // File delete not yet confirmed
     if (CfgServer.arg("confirm").indexOf("yes") < 0)
         {
@@ -3038,7 +3064,8 @@ void HandleDelete()
 
 //g_Log.printf("Confirm delete %s\n", sFilename.c_str());
 
-        // Display confirmation page
+        // Display confirmation page — sFilename is safe (alphanumeric, dash,
+        // underscore, dot) after IsSafeLogFilename, so no HTML escaping needed.
         sPage += "<br><br><p style=\"color:red\">Confirm that you want to delete <b>" + sFilename + "</b></p>\
         <br><br><br>\
         <a href=\"/delete?confirm=yes&file=" + sFilename + "\" class=\"button\">Delete</a>\
@@ -3075,7 +3102,13 @@ void HandleDownload()
         return;
         }
 
-    String sFilename = "/" + CfgServer.arg("file");
+    String sRawName = CfgServer.arg("file");
+    if (!IsSafeLogFilename(sRawName))
+        {
+        CfgServer.send(400, "text/plain", "Invalid filename");
+        return;
+        }
+    String sFilename = "/" + sRawName;
 
     // Pause logging during downloads to avoid SD mutex contention and
     // incomplete transfers (and to match the UI guidance on the index page).
