@@ -131,6 +131,18 @@ void LogSensorCommitTask(void *pvParams)
             continue;
             }
 
+        // When paused (e.g. during web file downloads/listing), stay out
+        // of the mutex entirely so web handlers can access the SD card
+        // without contention.  Just do the ring buffer receive to keep
+        // the watchdog happy, then loop back.
+        if (g_bPause)
+            {
+            pchIn = (char *)xRingbufferReceive(xLoggingRingBuffer, &iPrintLen, pdMS_TO_TICKS(100));
+            if (pchIn != NULL)
+                vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
+            continue;
+            }
+
         // Take the write mutex for the full drain+write cycle. Both the
         // staging buffer (szWriteBuf/uBufUsed) and the log file handle
         // are shared with LogSensor::Close() and other SD-consuming paths,
@@ -194,7 +206,7 @@ void LogSensorCommitTask(void *pvParams)
 
         // Write 512-byte-aligned chunks to disk
         bool bDidSync = false;
-        if (uBufUsed > 0 && m_hLogFile.isOpen() && (g_bPause == false))
+        if (uBufUsed > 0 && m_hLogFile.isOpen())
         {
             // Write full sectors. Any remainder stays in the buffer for
             // the next batch, keeping writes 512-byte-aligned.
