@@ -46,6 +46,20 @@ void HousekeepingTask(void * pvParams)
         vTaskDelay(pdMS_TO_TICKS(100));
         uTick++;
 
+        // --- Snapshot AHRS state under mutex (written by ImuReadTask at 208 Hz) ---
+        float fSnapRoll      = 0.0f;
+        float fSnapYaw       = 0.0f;
+        float fSnapAccelVert = -1.0f;
+        float fSnapAccelLat  = 0.0f;
+        if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(5)))
+        {
+            fSnapRoll      = g_AHRS.gRoll;
+            fSnapYaw       = g_AHRS.gYaw;
+            fSnapAccelVert = g_AHRS.AccelVertCorr;
+            fSnapAccelLat  = g_AHRS.AccelLatCorr;
+            xSemaphoreGive(xAhrsMutex);
+        }
+
         // --- GLimit (every tick, 100ms) with cooldown ---
         if (iGLimitCooldown > 0)
         {
@@ -56,7 +70,7 @@ void HousekeepingTask(void * pvParams)
             float fCalcGLimitPos;
             float fCalcGLimitNeg;
 
-            if (fabsf(g_AHRS.gRoll) >= ASYMMETRIC_GYRO_LIMIT || fabsf(g_AHRS.gYaw) >= ASYMMETRIC_GYRO_LIMIT)
+            if (fabsf(fSnapRoll) >= ASYMMETRIC_GYRO_LIMIT || fabsf(fSnapYaw) >= ASYMMETRIC_GYRO_LIMIT)
             {
                 fCalcGLimitPos = g_Config.fLoadLimitPositive * (2.0f / 3.0f);
                 fCalcGLimitNeg = g_Config.fLoadLimitNegative * (2.0f / 3.0f);
@@ -67,7 +81,7 @@ void HousekeepingTask(void * pvParams)
                 fCalcGLimitNeg = g_Config.fLoadLimitNegative;
             }
 
-            if (g_AHRS.AccelVertCorr >= fCalcGLimitPos || g_AHRS.AccelVertCorr <= fCalcGLimitNeg)
+            if (fSnapAccelVert >= fCalcGLimitPos || fSnapAccelVert <= fCalcGLimitNeg)
             {
                 g_AudioPlay.SetVoice(enVoiceGLimit);
                 iGLimitCooldown = GLIMIT_REPEAT_TIMEOUT_TICKS;
@@ -91,7 +105,7 @@ void HousekeepingTask(void * pvParams)
         // --- 3D Audio (every tick, 100ms) ---
         if (g_Config.bAudio3D)
         {
-            float fLateralG     = g_AHRS.AccelLatCorr;
+            float fLateralG     = fSnapAccelLat;
             int   iSignLateralG = fLateralG >= 0 ? 1 : -1;
 
             float fCurveGain = AUDIO_3D_CURVE(fabsf(fLateralG));
