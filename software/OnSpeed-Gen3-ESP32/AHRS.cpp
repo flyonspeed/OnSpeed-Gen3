@@ -126,7 +126,12 @@ void AHRS::Process(float fDeltaTimeSeconds)
         fDeltaTimeSeconds = fImuDeltaTime;
 
     // Clamp excessively large dt (e.g. from task starvation) to prevent a
-    // single giant integration step from destabilising the AHRS filters.
+    // single giant integration step from destabilising the Madgwick/EKF6
+    // filters.  Falling back to nominal dt is acceptable because the IMU
+    // readings are themselves stale after a long gap — integrating one old
+    // sample over a large true dt is no more correct.  The accelerometer
+    // gravity reference will reconverge attitude within a few hundred ms
+    // once normal 208 Hz cycling resumes.
     if (fDeltaTimeSeconds > 4.0f * fImuDeltaTime)
         fDeltaTimeSeconds = fImuDeltaTime;
 
