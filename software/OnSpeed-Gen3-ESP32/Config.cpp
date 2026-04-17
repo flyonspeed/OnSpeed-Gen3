@@ -592,6 +592,8 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         // Biases
         iPFwdBias           =  GetConfigValue(sConfig,"PFWD_BIAS").toInt();
         iP45Bias            =  GetConfigValue(sConfig,"P45_BIAS").toInt();
+        // Negate: Gen2 V1 configs stored bias for Pstatic+bias (addition),
+        // but Gen3 uses Pstatic-bias (subtraction). Flip sign on load.
         fPStaticBias        = -ToFloat(GetConfigValue(sConfig,"PSTATIC_BIAS"));
         fGxBias             =  ToFloat(GetConfigValue(sConfig,"GX_BIAS"));
         fGyBias             =  ToFloat(GetConfigValue(sConfig,"GY_BIAS"));
