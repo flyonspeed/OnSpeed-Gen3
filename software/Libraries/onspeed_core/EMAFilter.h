@@ -73,8 +73,10 @@ public:
     /// Seed the filter with a known steady-state value.
     /// Marks the filter as initialized so the next update() blends
     /// against this seed instead of replacing it.
+    /// NaN values are ignored to prevent poisoning the filter.
     void seed(float value)
     {
+        if (std::isnan(value)) return;
         _value = value;
         _initialized = true;
     }

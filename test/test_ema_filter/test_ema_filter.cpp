@@ -3,6 +3,7 @@
 #include <unity.h>
 #include <EMAFilter.h>
 #include <cmath>
+#include <limits>
 
 using onspeed::EMAFilter;
 
@@ -83,6 +84,17 @@ void test_reset()
     TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, f.update(50.0f));  // Re-seeds
 }
 
+void test_seed_ignores_nan(void)
+{
+    EMAFilter f(0.5f);
+    f.seed(std::numeric_limits<float>::quiet_NaN());
+    TEST_ASSERT_FALSE(f.isInitialized());
+
+    f.seed(5.0f);
+    TEST_ASSERT_TRUE(f.isInitialized());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 5.0f, f.get());
+}
+
 void test_seed_sets_initial_value_and_blends_next_update()
 {
     EMAFilter f(0.5f);
@@ -112,6 +124,7 @@ int main()
     RUN_TEST(test_convergence);
     RUN_TEST(test_nan_input_is_ignored);
     RUN_TEST(test_reset);
+    RUN_TEST(test_seed_ignores_nan);
     RUN_TEST(test_seed_sets_initial_value_and_blends_next_update);
 
     return UNITY_END();
