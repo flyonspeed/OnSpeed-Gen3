@@ -210,13 +210,20 @@ void SensorIO::Read()
     iP45     = g_pAOA->ReadPressureCounts()   - g_Config.iP45Bias;
     xSemaphoreGive(xSensorMutex);
 
-    // Update flaps position about once per second
+    // Update flaps position about once per second.
+    // Guard with xSensorMutex because g_Flaps.Update() reads the MCP3202
+    // ADC over the same SPI bus used by the pressure sensors and IMU.
+    // Use a short timeout — the flap read is best-effort at 1 Hz.
     if (millis() - uLastFlapsReadMs > 1000)
     {
-        if (g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot)
-            g_Flaps.Update();
-        else
-            g_Flaps.Update(0);
+        if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
+        {
+            if (g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot)
+                g_Flaps.Update();
+            else
+                g_Flaps.Update(0);
+            xSemaphoreGive(xSensorMutex);
+        }
         uLastFlapsReadMs = millis();
     }
 
