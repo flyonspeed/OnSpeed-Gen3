@@ -6,6 +6,7 @@ on:
     paths:
       - 'software/**'
       - 'test/**'
+      - 'tools/**'
       - 'platformio.ini'
       - '.github/workflows/**'
   pull_request:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'software/**'
       - 'test/**'
+      - 'tools/**'
       - 'platformio.ini'
       - '.github/workflows/**'
   # Allow manual trigger
@@ -149,6 +151,25 @@ jobs:
           name: m5-display-firmware
           path: software/OnSpeed-M5-Display/.pio/build/m5stack-core-esp32/*.bin
           retention-days: 30
+
+  test-m5-replay:
+    name: Test M5 Replay Tool
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Run m5-replay frame-builder tests
+        working-directory: tools/m5-replay
+        run: |
+          uv run test_replay.py
+
+          echo "## M5 Replay Tool Tests" >> $GITHUB_STEP_SUMMARY
+          echo "Frame builder unit tests passed — verifies the 80-byte wire format, CRC, field offsets, and clamping match the M5 firmware parser." >> $GITHUB_STEP_SUMMARY
 
   test:
     name: Unit Tests + Coverage
