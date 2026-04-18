@@ -3282,6 +3282,12 @@
 <td>Enable SD card data logging</td>
 </tr>
 <tr>
+<td><code>LOGRATE</code></td>
+<td>int</td>
+<td>50</td>
+<td>Logging rate in Hz: 50 (pressure rate) or 208 (IMU rate)</td>
+</tr>
+<tr>
 <td><code>CALWIZ_SOURCE</code></td>
 <td>string</td>
 <td><code>ONSPEED</code></td>
@@ -3461,6 +3467,18 @@
 <td>-2.0</td>
 <td>Negative-G warning threshold</td>
 </tr>
+<tr>
+<td><code>LOAD_LIMIT &gt; ASYMMETRIC_GYRO_LIMIT</code></td>
+<td>float</td>
+<td>15.0</td>
+<td>Roll/yaw rate (deg/s) above which reduced G-limits apply</td>
+</tr>
+<tr>
+<td><code>LOAD_LIMIT &gt; ASYMMETRIC_REDUCTION</code></td>
+<td>float</td>
+<td>0.667</td>
+<td>G-limit multiplier during asymmetric flight (e.g., 0.667 = &#8532;)</td>
+</tr>
 </tbody>
 </table>
 <h2 id="sensor-biases">Sensor Biases<a class="headerlink" href="#sensor-biases" title="Permanent link">&para;</a></h2>
@@ -3595,6 +3613,12 @@
 <td>bool</td>
 <td>true</td>
 <td>Validate boom data checksums</td>
+</tr>
+<tr>
+<td><code>BOOMCONVERTDATA</code></td>
+<td>bool</td>
+<td>false</td>
+<td>Apply polynomial calibration curves to boom data (false = log raw counts)</td>
 </tr>
 <tr>
 <td><code>OATSENSOR</code></td>

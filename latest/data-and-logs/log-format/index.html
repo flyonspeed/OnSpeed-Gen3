@@ -3217,11 +3217,11 @@
 
 
 <h1 id="understanding-onspeed-logs">Understanding OnSpeed Logs<a class="headerlink" href="#understanding-onspeed-logs" title="Permanent link">&para;</a></h1>
-<p>OnSpeed records flight data to CSV files on the microSD card at <strong>50 Hz</strong> (50 samples per second).</p>
+<p>OnSpeed records flight data to CSV files on the microSD card at <strong>50 Hz</strong> by default (configurable to 208 Hz via the web interface).</p>
 <h2 id="file-format">File Format<a class="headerlink" href="#file-format" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Format</strong>: CSV with headers (comma-separated values)</li>
-<li><strong>Rate</strong>: 50 Hz (one row every 20 ms)</li>
+<li><strong>Rate</strong>: 50 Hz default (one row every 20 ms); optionally 208 Hz (IMU rate)</li>
 <li><strong>Naming</strong>: <code>log_NNN.csv</code> (sequential numbering)</li>
 <li><strong>Size</strong>: A 1-hour flight produces approximately 50–100 MB of data</li>
 </ul>
