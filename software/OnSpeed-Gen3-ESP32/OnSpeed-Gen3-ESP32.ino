@@ -240,11 +240,10 @@ void setup()
         xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
         if (bLoggingRingBufferOk)
             xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 1, &xTaskWriteLog,     1);
-#ifdef LOGDATA_PRESSURE_RATE  // sd card write rate
-        g_Log.println("Logging at 50Hz");
-#else
-        Serial.printf("Logging at %iHz\n",int(g_AHRS.fImuSampleRate));
-#endif
+        if (g_Config.iLogRate == 208)
+            Serial.printf("Logging at %iHz\n", int(g_AHRS.fImuSampleRate));
+        else
+            g_Log.println("Logging at 50Hz");
         g_Log.println("Data Source SENSORS");
         }
     else if (g_Config.suDataSrc.enSrc == SuDataSource::EnReplay)

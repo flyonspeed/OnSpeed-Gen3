@@ -155,10 +155,6 @@
 #define DISPLAY_SER_TX      10
 #define DISPLAY_SER_RX      11  // Normally not used (shares R1_OUT with EFIS_SER_RX)
 
-// Data logging frequency
-#define LOGDATA_PRESSURE_RATE   // Log at pressure read rate (50 Hz)
-//#define LOGDATA_IMU_RATE      // Log at the IMU read rate
-
 #ifdef SPHERICAL_PROBE
   #define IASCURVE(x)           x // Zlin IAS curve
 #endif
