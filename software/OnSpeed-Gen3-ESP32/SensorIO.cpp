@@ -37,6 +37,13 @@ static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
 static uint32_t uLastFlapsReadMs = 0;
 static uint32_t uLastOatReadMs = 0;
 
+// OAT validation: reject DS18B20 disconnected sentinel (-127 C) and
+// power-on-reset value (85 C). Range covers GA ops from FL450 to desert.
+static constexpr float kOatMinC        = -80.0f;
+static constexpr float kOatMaxC        =  80.0f;
+static constexpr float kOatDefaultC    =  15.0f;   // ISA standard day
+static constexpr uint32_t kOatConversionMs = 800;   // DS18B20 12-bit max is 750 ms
+
 
 // ----------------------------------------------------------------------------
 
@@ -174,6 +181,7 @@ SensorIO::SensorIO()
       OatSensor(&OneWireBus)
 {
     Palt       = 0.00;
+    OatC       = kOatDefaultC;
     fDecelRate = 0.0;
     uIasUpdateUs = 0;
 }
@@ -185,8 +193,13 @@ void SensorIO::Init()
     if (g_Config.bOatSensor)
         {
         pinMode(OAT_PIN,INPUT_PULLUP);
-        OatSensor.begin();  // initialize the DS18B20 sensor
-        ReadOatC();
+        OatSensor.begin();                      // initialize the DS18B20 sensor
+        OatSensor.setResolution(12);             // 12-bit: ~750 ms conversion time
+        ReadOatC();                              // blocking read OK before scheduler starts
+        // Switch to async mode AFTER the blocking startup read.
+        // If set before ReadOatC(), the startup read returns stale
+        // DS18B20 power-on-reset value (85 C) instead of real temp.
+        OatSensor.setWaitForConversion(false);
         }
 
     // Get initial pressure altitude
@@ -227,12 +240,41 @@ void SensorIO::Read()
         uLastFlapsReadMs = millis();
     }
 
-    // Update the OAT about once per second
-    if (g_Config.bOatSensor && (millis() - uLastOatReadMs > 1000))
+    // Update the OAT asynchronously (non-blocking).
+    // Phase 1: kick off a conversion request once per second.
+    // Phase 2: read the result after the 750 ms conversion completes.
+    if (g_Config.bOatSensor)
+    {
+        if (!bOatConversionPending && (millis() - uLastOatReadMs > 1000))
         {
-        ReadOatC();
-        uLastOatReadMs = millis();
+            OatSensor.requestTemperatures();    // non-blocking with setWaitForConversion(false)
+            bOatConversionPending = true;
+            uOatRequestMs = millis();
         }
+        else if (bOatConversionPending && (millis() - uOatRequestMs >= kOatConversionMs))
+        {
+            float fNew = OatSensor.getTempCByIndex(0);
+            if (fNew > kOatMinC && fNew < kOatMaxC)
+            {
+                OatC = fNew;    // valid reading
+            }
+            else
+            {
+                // Sensor disconnected or returning garbage; hold last good value.
+                // Log once per minute to avoid spam.
+                static unsigned long uLastOatWarnMs = 0;
+                unsigned long uNow = millis();
+                if ((uNow - uLastOatWarnMs) > 60000)
+                {
+                    g_Log.println(MsgLog::EnSensors, MsgLog::EnWarning,
+                        "OAT sensor read failed; holding last good value");
+                    uLastOatWarnMs = uNow;
+                }
+            }
+            bOatConversionPending = false;
+            uLastOatReadMs = millis();
+        }
+    }
 
     // Get AOA speed set points for the current flap position.
 //  SetAOApoints(g_Flaps.iIndex);
@@ -354,8 +396,12 @@ float SensorIO::ReadPressureAltMbars()
 
 float SensorIO::ReadOatC()
 {
-    OatSensor.requestTemperatures();      // Send the command to get temperatures
-    OatC = OatSensor.getTempCByIndex(0);  // Read temperature in �C
-
+    OatSensor.requestTemperatures();
+    float fNew = OatSensor.getTempCByIndex(0);
+    if (fNew > kOatMinC && fNew < kOatMaxC)
+    {
+        OatC = fNew;
+    }
+    // else: sensor disconnected (-127 C) or POR (85 C); hold last good value.
     return OatC;
 }
