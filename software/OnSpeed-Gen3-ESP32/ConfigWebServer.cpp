@@ -1914,7 +1914,7 @@ void HandleConfigSave()
 
     // Asymmetric G-limit tuning
     if (CfgServer.hasArg("asymmetricGyroLimit")) g_Config.fAsymmetricGyroLimit = fabsf(CfgServer.arg("asymmetricGyroLimit").toFloat());
-    if (CfgServer.hasArg("asymmetricReduction")) g_Config.fAsymmetricReduction = CfgServer.arg("asymmetricReduction").toFloat();
+    if (CfgServer.hasArg("asymmetricReduction")) { float f = CfgServer.arg("asymmetricReduction").toFloat(); g_Config.fAsymmetricReduction = constrain(f, 0.1f, 1.0f); }
 
     // vnochime
     if (CfgServer.hasArg("vnoChimeEnabled") && (CfgServer.arg("vnoChimeEnabled")=="1")) g_Config.bVnoChimeEnabled=true;
@@ -1935,7 +1935,7 @@ void HandleConfigSave()
     else                                                                  g_Config.bSdLogging=false;
 
     // Logging rate
-    if (CfgServer.hasArg("logRate")) g_Config.iLogRate = CfgServer.arg("logRate").toInt();
+    if (CfgServer.hasArg("logRate")) { int v = CfgServer.arg("logRate").toInt(); g_Config.iLogRate = (v == 208) ? 208 : 50; }
 
     // Aircraft parameters
     if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();
