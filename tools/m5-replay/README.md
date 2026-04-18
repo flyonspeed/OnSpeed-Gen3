@@ -51,8 +51,9 @@ uv run replay.py --port /dev/cu.usbserial-XXXX --synthetic
 ```
 
 The M5 should boot into "Looking for Serial data…", auto-detect your
-replay stream, and switch to the AOA chevron display. Press Button A /
-B / C on the M5 face to cycle through the five display modes.
+replay stream, and switch to the AOA chevron display. Press the middle
+button (**Button B**) on the M5 face to cycle through the five display
+modes. **Button A** dims the screen, **Button C** brightens it.
 
 ---
 
