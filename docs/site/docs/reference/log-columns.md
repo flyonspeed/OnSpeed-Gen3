@@ -1,6 +1,6 @@
 # CSV Log Columns Reference
 
-Complete reference for all columns in OnSpeed SD card log files. Data is logged at 50 Hz.
+Complete reference for all columns in OnSpeed SD card log files. Data is logged at 50 Hz by default (configurable to 208 Hz via the web interface).
 
 Columns are written in three groups: (1) base core columns (`timeStamp` through `Roll`), (2) optional Boom and/or EFIS columns when those features are enabled, (3) derived core columns (`EarthVerticalG` through `CoeffP`). Parse by column name — direct index positions shift when optional blocks are enabled.
 

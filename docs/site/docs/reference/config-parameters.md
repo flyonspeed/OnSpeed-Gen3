@@ -11,6 +11,7 @@ Complete reference of all OnSpeed configuration parameters. Configuration is sto
 | `DATASOURCE` | string | `SENSORS` | Data source: `SENSORS`, `TESTPOT`, `RANGESWEEP`, `REPLAYLOGFILE` |
 | `REPLAYLOGFILENAME` | string | (empty) | Log file to replay when DATASOURCE=REPLAYLOGFILE |
 | `SDLOGGING` | bool | false | Enable SD card data logging |
+| `LOGRATE` | int | 50 | Logging rate in Hz: 50 (pressure rate) or 208 (IMU rate) |
 | `CALWIZ_SOURCE` | string | `ONSPEED` | Calibration wizard IAS source: `ONSPEED` or `EFIS` |
 | `AHRS_ALGORITHM` | int | 0 | AHRS algorithm: 0=Madgwick, 1=EKF6. See [Advanced Settings](../configuration/advanced.md) before changing. |
 
@@ -57,6 +58,8 @@ Over-G warning thresholds (fire when `OVERGWARNING` is enabled). Distinct from t
 |----------|------|---------|-------------|
 | `LOAD_LIMIT > POSITIVE` | float | 4.0 | Positive-G warning threshold |
 | `LOAD_LIMIT > NEGATIVE` | float | -2.0 | Negative-G warning threshold |
+| `LOAD_LIMIT > ASYMMETRIC_GYRO_LIMIT` | float | 15.0 | Roll/yaw rate (deg/s) above which reduced G-limits apply |
+| `LOAD_LIMIT > ASYMMETRIC_REDUCTION` | float | 0.667 | G-limit multiplier during asymmetric flight (e.g., 0.667 = 2/3) |
 
 ## Sensor Biases
 
@@ -88,6 +91,7 @@ Over-G warning thresholds (fire when `OVERGWARNING` is enabled). Distinct from t
 |---------|------|---------|-------------|
 | `BOOM` | bool | false | Enable boom probe serial input |
 | `BOOMCHECKSUM` | bool | true | Validate boom data checksums |
+| `BOOMCONVERTDATA` | bool | false | Apply polynomial calibration curves to boom data (false = log raw counts) |
 | `OATSENSOR` | bool | false | Enable DS18B20 OAT sensor |
 
 ## Aircraft Parameters
