@@ -23,11 +23,15 @@ static const uint16_t HEIGHT = 240;
 
 // Port C serial pins. M5Stack Basic exposes Port C on GPIO 16 (RX) /
 // GPIO 17 (TX). M5Stack Core2 moves Port C to GPIO 13 (RX) / GPIO 14
-// (TX) — see M5 product docs and handoff memo in
-// memory/project_m5_core2_port.md. The simulator-demo "case 3" path used
-// GPIO 22 on Basic; Core2 routes that role through Port C too, so both
-// envs land on their Port C RX for this case.
-#ifdef ARDUINO_M5STACK_CORE2
+// (TX). The simulator-demo "case 3" path used GPIO 22 on Basic; Core2
+// routes that role through Port C too, so both envs land on their
+// Port C RX for this case.
+//
+// PlatformIO's m5stack-core2 board definition sets
+// -DARDUINO_M5STACK_Core2 (mixed-case suffix "Core2", not "CORE2") —
+// see $PIO_HOME/platforms/espressif32/boards/m5stack-core2.json.
+// Guard on the exact spelling the toolchain defines.
+#ifdef ARDUINO_M5STACK_Core2
 static constexpr int PORTC_RX    = 13;
 static constexpr int PORTC_TX    = 14;
 static constexpr int SIMDEMO_RX  = 13;

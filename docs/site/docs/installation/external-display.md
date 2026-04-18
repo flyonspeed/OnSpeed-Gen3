@@ -267,11 +267,13 @@ updates can happen over WiFi — no USB cable required.
     - `onspeed-m5-X.Y.Z-basic-firmware.bin` (M5Stack Basic)
     - `onspeed-m5-X.Y.Z-core2-firmware.bin` (M5Stack Core2)
 2. Hold **Button B** while powering the M5 on. It will boot into
-   firmware-update mode and display its WiFi SSID + IP address
-   (typically `192.168.4.1`).
-3. Connect your laptop or phone to that WiFi network.
-4. Open `http://192.168.4.1` in a browser.
-5. Click **Choose file** and select the `firmware.bin` you downloaded,
+   firmware-update mode and display its WiFi SSID, password, and the
+   URL to browse to. The on-screen information is authoritative — use
+   those values rather than the defaults below if they differ.
+3. Connect your laptop or phone to the **`OnSpeedDisplay`** WiFi
+   network using the password **`angleofattack`**.
+4. Open **`http://192.168.0.2/upgrade`** in a browser.
+5. Click **Choose file**, select the `firmware.bin` you downloaded,
    then click **Update**.
 6. The M5 reboots into the new firmware automatically.
 
