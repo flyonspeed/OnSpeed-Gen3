@@ -21,6 +21,22 @@ extern M5Canvas gdraw;
 static const uint16_t WIDTH  = 320;
 static const uint16_t HEIGHT = 240;
 
+// Port C serial pins. M5Stack Basic exposes Port C on GPIO 16 (RX) /
+// GPIO 17 (TX). M5Stack Core2 moves Port C to GPIO 13 (RX) / GPIO 14
+// (TX) — see M5 product docs and handoff memo in
+// memory/project_m5_core2_port.md. The simulator-demo "case 3" path used
+// GPIO 22 on Basic; Core2 routes that role through Port C too, so both
+// envs land on their Port C RX for this case.
+#ifdef ARDUINO_M5STACK_CORE2
+static constexpr int PORTC_RX    = 13;
+static constexpr int PORTC_TX    = 14;
+static constexpr int SIMDEMO_RX  = 13;
+#else
+static constexpr int PORTC_RX    = 16;
+static constexpr int PORTC_TX    = 17;
+static constexpr int SIMDEMO_RX  = 22;
+#endif
+
 // -----------------------------------------------
 
 void SerialRead()
@@ -257,21 +273,21 @@ unsigned int checkSerial()
     String serialString;
 
     // TTL input (including v2 Onspeed with vern's power board)
-    Serial2.begin (115200, SERIAL_8N1, 16, 17,false); //GPIO16 is RX, GPIO17 is TX  (Vern's power board)
+    Serial2.begin(115200, SERIAL_8N1, PORTC_RX, PORTC_TX, false);
     serialString=readSerialbytes();
     Serial2.end();
     if (serialString.indexOf("#1")>=0)
         return 1;
 
     // rs232 input via power board (including v3 Onspeed)
-    Serial2.begin (115200, SERIAL_8N1, 16, 17,true); //GPIO16 is RX, GPIO17 is TX  (Vern's power board)
+    Serial2.begin(115200, SERIAL_8N1, PORTC_RX, PORTC_TX, true);
     serialString=readSerialbytes();
     Serial2.end();
     if (serialString.indexOf("#1")>=0)
         return 2;
 
     // simulator demo M5 with onspeed v3 on pin 9 TTL
-    Serial2.begin (115200, SERIAL_8N1, 22, 17,false); //GPIO22 is RX, GPIO17 is TX  (straight M5)
+    Serial2.begin(115200, SERIAL_8N1, SIMDEMO_RX, PORTC_TX, false);
     serialString=readSerialbytes();
     Serial2.end();
     if (serialString.indexOf("#1") >= 0)
@@ -327,20 +343,20 @@ void serialSetup()
     switch (selectedPort) {
         case 1: {
             // TTL input via power board (including v2 Onspeed)
-            Serial2.begin (115200, SERIAL_8N1, 16, 17,false); //GPIO16 is RX, GPIO17 is TX  (Vern's power board)
-            Serial.println("GPIO16 is RX, GPIO17 is TX, TTL");
+            Serial2.begin(115200, SERIAL_8N1, PORTC_RX, PORTC_TX, false);
+            Serial.printf("Port C: GPIO%d RX / GPIO%d TX, TTL\n", PORTC_RX, PORTC_TX);
             break;
             }
         case 2: {
             // rs232 input via power board (including v3 Onspeed)
-            Serial2.begin (115200, SERIAL_8N1, 16, 17,true); //GPIO16 is RX, GPIO17 is TX  (Vern's power board)
-            Serial.println("GPIO16 is RX, GPIO17 is TX, RS232");
+            Serial2.begin(115200, SERIAL_8N1, PORTC_RX, PORTC_TX, true);
+            Serial.printf("Port C: GPIO%d RX / GPIO%d TX, RS232\n", PORTC_RX, PORTC_TX);
             break;
             }
         case 3: {
             // simulator demo M5 with onspeed v3 on pin 9 TTL
-            Serial2.begin (115200, SERIAL_8N1, 22, 17,false); //GPIO22 is RX, GPIO17 is TX  (straight M5)
-            Serial.println("GPIO22 is RX, GPIO17 is TX, TTL");
+            Serial2.begin(115200, SERIAL_8N1, SIMDEMO_RX, PORTC_TX, false);
+            Serial.printf("Sim demo: GPIO%d RX / GPIO%d TX, TTL\n", SIMDEMO_RX, PORTC_TX);
             break;
             }
         case 0: {
