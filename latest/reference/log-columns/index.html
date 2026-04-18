@@ -3252,22 +3252,22 @@
 <tbody>
 <tr>
 <td><code>boomStatic</code></td>
-<td>PSI</td>
+<td>counts¹</td>
 <td>Static pressure from boom</td>
 </tr>
 <tr>
 <td><code>boomDynamic</code></td>
-<td>PSI</td>
+<td>counts¹</td>
 <td>Dynamic (pitot) pressure from boom</td>
 </tr>
 <tr>
 <td><code>boomAlpha</code></td>
-<td>degrees</td>
+<td>counts¹</td>
 <td>Angle of attack from boom</td>
 </tr>
 <tr>
 <td><code>boomBeta</code></td>
-<td>degrees</td>
+<td>counts¹</td>
 <td>Sideslip angle from boom</td>
 </tr>
 <tr>
@@ -3282,6 +3282,7 @@
 </tr>
 </tbody>
 </table>
+<p>¹ Raw ADC counts by default. When <code>BOOMCONVERTDATA=true</code> the firmware applies the polynomial calibration curves in <code>onspeed_core/BoomConvert.h</code> and writes physical units (PSI for <code>boomStatic</code> / <code>boomDynamic</code>, degrees for <code>boomAlpha</code> / <code>boomBeta</code>). <code>BOOMCONVERTDATA</code> defaults to <code>false</code>.</p>
 <h2 id="efis-columns-dynongarminmgl">EFIS Columns — Dynon/Garmin/MGL<a class="headerlink" href="#efis-columns-dynongarminmgl" title="Permanent link">&para;</a></h2>
 <p>When EFIS type is <code>ADVANCED</code>, <code>DYNOND10</code>, <code>GARMING5</code>, <code>GARMING3X</code>, or <code>MGL</code>:</p>
 <table>
