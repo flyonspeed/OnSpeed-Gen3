@@ -1,0 +1,369 @@
+# M5 Replay — stream OnSpeed data to the M5Stack display without the box
+
+A Python tool that replays OnSpeed SD-card flight logs (or synthetic
+scenarios) to an M5Stack display over a USB-to-TTL serial dongle. Lets you
+bench-test the M5 display firmware at your desk without needing the Gen3
+OnSpeed controller connected.
+
+This is the companion to the M5 display firmware at
+[`software/OnSpeed-M5-Display/`](../../software/OnSpeed-M5-Display/).
+
+---
+
+## What this is for
+
+You have an M5Stack Basic and want to test the five OnSpeed display modes
+(AOA chevron, attitude indicator, narrow AOA, decel gauge, G-load history)
+at your desk. The OnSpeed Gen3 box is mounted in the plane, but the M5 is
+powered from USB-C and just needs a stream of valid `#1` frames on its
+RX pin.
+
+`replay.py` generates those frames from:
+- **A real flight log CSV** (recorded by the Gen3 firmware to the SD card), or
+- **A deterministic synthetic scenario** that cycles through cruise →
+  slow flight → approach → stall → recovery → g-turns so you can
+  regression-test every display mode.
+
+The tool reads your OnSpeed config file (`.cfg`) to pick up per-flap
+setpoints — the frames sent to the M5 use your aircraft's real LDmax,
+OnSpeedFast/Slow, and StallWarn AOAs, so the display colors and
+chevron positions look exactly like what you'd see in the plane.
+
+---
+
+## Quick start
+
+```bash
+# 1. Flash the M5 firmware (one time)
+cd ../../software/OnSpeed-M5-Display
+pio run -e m5stack-core-esp32 -t upload
+
+# 2. Wire the dongle to the M5 (see "Hardware setup" below)
+
+# 3. Start the replay (plays your real flight log)
+cd ../../tools/m5-replay
+uv run replay.py \
+    --port /dev/cu.usbserial-XXXX \
+    --input ~/Downloads/sam_onspeed_aoa_4_11_2026.csv
+
+# Or start with the deterministic synthetic scenario
+uv run replay.py --port /dev/cu.usbserial-XXXX --synthetic
+```
+
+The M5 should boot into "Looking for Serial data…", auto-detect your
+replay stream, and switch to the AOA chevron display. Press Button A /
+B / C on the M5 face to cycle through the five display modes.
+
+---
+
+## Hardware setup
+
+### What to buy
+
+| Item | Purpose | Approx. cost |
+|------|---------|--------------|
+| USB-to-TTL serial dongle (FTDI FT232RL, CP2102, or CH340) | Laptop → M5 serial bridge | $6–15 |
+| 3× female-to-female jumper wires | Dongle ↔ M5 Port C header | $3 |
+| USB-C cable (for the M5) | Power + flashing | (you probably have one) |
+
+Any 3.3 V (or 3.3/5 V switchable) TTL dongle works. I've tested with:
+- Adafruit FTDI Friend
+- SparkFun FTDI Basic
+- Generic "CP2102 USB to TTL" from Amazon
+
+Keep the dongle on **3.3 V** — the M5's GPIO16 RX pin is 3.3 V logic.
+
+### Wiring
+
+The M5Stack Basic exposes GPIO16/17 on **Port C** — the red 4-pin grove
+connector on the right side of the base. Pinout for that connector:
+
+```
+Port C (M5 Basic)
+  [GND] [5V] [GPIO17 TX] [GPIO16 RX]
+```
+
+Connect:
+
+```
+Dongle TX  ─────────►  M5 GPIO16 (RX)
+Dongle GND ─────────►  M5 GND
+```
+
+That's it. Leave the dongle's RX line unconnected — we're one-way. The M5
+is powered through its own USB-C, independently of the dongle.
+
+> **Tip:** if you already have an M5 Port C breakout cable (e.g. the
+> 4-pin Grove cable that ships with some M5 kits), you can plug it
+> directly into the dongle pins with the jumpers.
+
+### Finding the serial port
+
+**macOS:**
+```bash
+ls /dev/cu.usbserial-* /dev/cu.SLAB_USBtoUART 2>/dev/null
+```
+
+**Linux:**
+```bash
+ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+```
+
+**Windows:** open Device Manager → Ports (COM & LPT), look for a new
+COM port when you plug the dongle in. Use `COM4` (or whatever it shows)
+as the `--port` argument.
+
+---
+
+## Usage
+
+### Real flight log
+
+```bash
+uv run replay.py --port /dev/cu.usbserial-XXXX --input path/to/log.csv
+```
+
+Any CSV written by the OnSpeed Gen3 firmware to its SD card works. The
+CSV must have these columns (standard OnSpeed log format — see
+[`LogSensor.cpp:303`](../../software/OnSpeed-Gen3-ESP32/LogSensor.cpp)):
+`timeStamp, Pitch, Roll, IAS, Palt, AngleofAttack, flapsPos, VSI,
+VerticalG, LateralG, YawRate, OAT, FlightPath, DataMark`.
+
+### Synthetic scenario
+
+```bash
+uv run replay.py --port /dev/cu.usbserial-XXXX --synthetic
+```
+
+Cycles forever through this 5-minute script:
+
+| Time (s) | Phase | What happens |
+|----------|-------|--------------|
+| 0–60 | Cruise | IAS 140 kt, AOA ≈ 2°, flaps 0 |
+| 60–120 | Slow flight sweep | IAS 140 → 90 kt, AOA 2 → 8° |
+| 120–180 | Approach | IAS 80 kt, flaps 16, AOA at OnSpeedSlow, gentle roll |
+| 180–210 | Approach-to-stall | AOA climbs past StallWarn to AlphaStall |
+| 210–240 | Recovery | IAS builds back, AOA drops, G excursion |
+| 240–300 | G-turns | ±45° rolls, G up to 1.8 — exercises G-history mode |
+
+After 5 minutes, loops back to cruise.
+
+### Fast-forwarding in a long log
+
+```bash
+uv run replay.py --port $PORT --input log.csv --skip 120
+```
+
+Skips the first 120 seconds (useful for jumping past taxi/takeoff).
+
+### Faster/slower playback
+
+```bash
+uv run replay.py --port $PORT --input log.csv --speed 2.0   # 40 Hz stream
+uv run replay.py --port $PORT --input log.csv --speed 0.5   # 10 Hz stream
+```
+
+> **Note:** the M5 firmware measures its own frame period and compensates.
+> The `DecelRate` display will still show realistic values at any speed
+> because the M5's DecelRate = SavGol(IAS) / measured_dt.
+
+### Looping forever
+
+```bash
+uv run replay.py --port $PORT --input log.csv --loop
+```
+
+### Custom config file
+
+```bash
+uv run replay.py --port $PORT --synthetic --config path/to/your-config.cfg
+```
+
+Defaults to `~/Dropbox/N720AK/OnSpeed Cals/2_20_26_config.cfg`. The tool
+reads per-flap setpoints (LDMAX, OnSpeedFast/Slow, StallWarn, alpha_0,
+alpha_stall) from the config so PercentLift calculations match what the
+real firmware would produce for your aircraft.
+
+### All options
+
+```
+--port PATH       Serial port (e.g. /dev/cu.usbserial-XXXX). Required.
+--input CSV_PATH  OnSpeed SD-card CSV log to replay.
+--synthetic       Use deterministic demo scenario instead of a CSV.
+--config PATH     OnSpeed .cfg file with flap setpoints.
+                  Default: ~/Dropbox/N720AK/OnSpeed Cals/2_20_26_config.cfg
+--skip SECS       Skip N seconds from the CSV start.
+--speed MULT      Playback speed multiplier (default 1.0 = real-time).
+--loop            Restart from the beginning when the stream ends.
+```
+
+---
+
+## Testing
+
+Run the unit tests (validates frame format, field offsets, CRC, clamping):
+
+```bash
+uv run test_replay.py
+```
+
+Expected: `8/8 passed`.
+
+The tests verify:
+- 80-byte total wire length (76 payload + 2 CRC + CRLF)
+- `#1` header
+- CRC matches the sum-of-payload-bytes convention
+- Field offsets round-trip with the M5 parser logic in
+  [`SerialRead.cpp:76–134`](../../software/OnSpeed-M5-Display/src/SerialRead.cpp)
+- Signed fields serialize signs correctly
+- PercentLift buckets match `DisplaySerial.cpp:155–174`
+- Out-of-range values clamp instead of overflowing
+- NaN / inf don't corrupt the frame length
+
+---
+
+## The wire protocol
+
+Each frame is exactly **80 bytes**, transmitted at 115200 8N1. The M5
+firmware parses at byte offsets fixed by the `snprintf` format in
+[`DisplaySerial.cpp:275`](../../software/OnSpeed-Gen3-ESP32/DisplaySerial.cpp):
+
+| Offset | Width | Format | Field              | Scale        |
+|--------|-------|--------|--------------------|--------------|
+| 0–1    | 2     | `#1`   | Header (literal)   | —            |
+| 2–5    | 4     | `%+04i`| Pitch              | deg × 10     |
+| 6–10   | 5     | `%+05i`| Roll               | deg × 10     |
+| 11–14  | 4     | `%04u` | IAS                | kts × 10     |
+| 15–20  | 6     | `%+06i`| Pressure altitude  | ft           |
+| 21–25  | 5     | `%+05i`| Turn rate / yaw    | deg/s × 10   |
+| 26–28  | 3     | `%+03i`| Lateral G          | g × 100      |
+| 29–31  | 3     | `%+03i`| Vertical G         | g × 10       |
+| 32–33  | 2     | `%02u` | Percent lift       | 0–99         |
+| 34–37  | 4     | `%+04i`| AOA                | deg × 10     |
+| 38–41  | 4     | `%+04i`| iVSI               | fpm ÷ 10     |
+| 42–44  | 3     | `%+03i`| OAT                | °C           |
+| 45–48  | 4     | `%+04i`| Flight path angle  | deg × 10     |
+| 49–51  | 3     | `%+03i`| Flap position      | deg          |
+| 52–55  | 4     | `%+04i`| StallWarn AOA      | deg × 10     |
+| 56–59  | 4     | `%+04i`| OnSpeed Slow AOA   | deg × 10     |
+| 60–63  | 4     | `%+04i`| OnSpeed Fast AOA   | deg × 10     |
+| 64–67  | 4     | `%+04i`| Tones-On AOA       | deg × 10     |
+| 68–71  | 4     | `%+04i`| G onset rate       | g/s × 100    |
+| 72–73  | 2     | `%+02i`| Spin recovery cue  | -1/0/+1      |
+| 74–75  | 2     | `%02u` | Data mark          | 0–99         |
+| 76–77  | 2     | hex    | CRC (sum of 0–75, low byte, uppercase hex) | — |
+| 78–79  | 2     | bytes  | `\r\n`             | —            |
+
+Frame rate on the real firmware is **20 Hz** (50 ms), controlled by
+`DISPLAY_SERIAL_PERIOD_MS` in
+[`Globals.h`](../../software/OnSpeed-Gen3-ESP32/Globals.h). The M5
+firmware does not assume this rate — it measures the actual inter-frame
+interval with `micros()` each frame, so this replay tool can stream at
+any cadence and the M5's DecelRate display will still be correct.
+
+---
+
+## Troubleshooting
+
+### M5 stays on "Looking for Serial data"
+
+- **Verify wiring**: dongle TX → M5 GPIO16 (not GPIO17). Shared GND.
+- **Verify dongle TX is alive**: on a fresh USB insertion most FTDI
+  dongles have a TX LED that blinks when data flows.
+- **Check for OS permissions on macOS**: the first time you plug in a
+  cheap CH340 dongle, macOS may require you to approve the driver in
+  System Settings → Privacy & Security.
+- **Serial port in use**: make sure another program isn't holding the
+  port (close `pio device monitor`, Arduino Serial Monitor, etc.).
+
+### M5 shows "ONSPEED CRC Failed"
+
+The frame reached the M5 but the CRC didn't match. Most likely causes:
+
+- **Wrong baud**: the M5 expects 115200. The dongle must match.
+- **Signal inversion**: if you're using an RS-232 dongle (DB9 style),
+  try a plain TTL dongle instead. The M5 auto-detects both, but only
+  one per-port mapping is tried at a time.
+
+Run `uv run test_replay.py` to confirm the tool's own CRCs are well
+formed. All tests should pass.
+
+### M5 boots into the wrong serial-port mode
+
+The M5 remembers the last successful port in ESP32 NVS flash. If you
+plug into a different physical port, hold Button A while the M5 boots —
+that triggers `checkSerial()` to re-probe. (If this isn't working, check
+`main.cpp` setup code in the M5 firmware.)
+
+### `WARN: unexpected frame dt=...` on the M5's USB serial monitor
+
+The M5 flags frame periods outside 20 ms–200 ms. Causes:
+
+- **`--speed` very different from 1.0**: intentional; the warning is
+  just informational.
+- **Laptop CPU load** causing Python's `time.sleep` to jitter: mostly
+  harmless — the next frame will usually land on time.
+- **Real delivery issue** (flaky cable, dongle overheating): investigate.
+
+### Python can't find `serial` module
+
+Use `uv run replay.py` (not `python replay.py`). The PEP-723 header in
+the script declares the `pyserial` dependency and `uv` installs it
+automatically in an ephemeral environment.
+
+---
+
+## How it works
+
+```
+                  ┌─────────────────────────────┐
+                  │  replay.py                  │
+ OnSpeed .cfg ───►│  • parses flap setpoints    │
+ SD-card CSV  ───►│  • reads rows at 20 Hz      │
+                  │  • computes PercentLift     │
+                  │  • builds 80-byte frame     │
+                  │  • writes to serial port    │
+                  └──────────────┬──────────────┘
+                                 │ /dev/cu.usbserial-XXXX
+                                 │ (115200 8N1)
+                                 ▼
+                  ┌─────────────────────────────┐
+                  │  USB-to-TTL dongle          │
+                  │  (FTDI / CP2102)            │
+                  └──────────────┬──────────────┘
+                                 │ 3.3 V TTL
+                                 ▼
+                  ┌─────────────────────────────┐
+                  │  M5Stack Basic              │
+                  │  • SerialRead.cpp parses    │
+                  │  • measures frame dt        │
+                  │  • renders display mode     │
+                  └─────────────────────────────┘
+```
+
+The tool never tries to *emulate* the OnSpeed box — it just faithfully
+replays valid frames. This means:
+
+- **Your real flight data shows up as it was captured**, not a simulation.
+- **Bugs in the M5 firmware surface in the same way as in flight**, so
+  bench testing catches real issues.
+- **The M5 can't tell the difference** between replayed frames and live
+  ones, so you can develop and iterate without the plane.
+
+---
+
+## File layout
+
+```
+tools/m5-replay/
+├── replay.py          # Main tool (single file, PEP-723 deps)
+├── test_replay.py     # Unit tests for the frame builder
+└── README.md          # This file
+```
+
+## Related
+
+- M5 display firmware: [`../../software/OnSpeed-M5-Display/`](../../software/OnSpeed-M5-Display/)
+- Firmware side that sends these frames: [`../../software/OnSpeed-Gen3-ESP32/DisplaySerial.cpp`](../../software/OnSpeed-Gen3-ESP32/DisplaySerial.cpp)
+- M5-side parser: [`../../software/OnSpeed-M5-Display/src/SerialRead.cpp`](../../software/OnSpeed-M5-Display/src/SerialRead.cpp)
+- Log column format: [`../../software/OnSpeed-Gen3-ESP32/LogSensor.cpp`](../../software/OnSpeed-Gen3-ESP32/LogSensor.cpp)
