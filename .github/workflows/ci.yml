@@ -271,8 +271,13 @@ jobs:
           retention-days: 14
 
   static-analysis:
-    name: Static Analysis (cppcheck)
+    name: Static Analysis (cppcheck, ${{ matrix.target }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [main, m5]
 
     steps:
       - name: Checkout code
@@ -287,8 +292,8 @@ jobs:
 
       - name: Run cppcheck
         run: |
-          echo "## Static Analysis Results" >> $GITHUB_STEP_SUMMARY
-          ./scripts/cppcheck.sh --strict 2>&1 | tee cppcheck-output.txt
+          echo "## Static Analysis Results (${{ matrix.target }})" >> $GITHUB_STEP_SUMMARY
+          ./scripts/cppcheck.sh --strict --target ${{ matrix.target }} 2>&1 | tee cppcheck-output.txt
 
           # Add results to summary
           if [ -s cppcheck-output.txt ]; then

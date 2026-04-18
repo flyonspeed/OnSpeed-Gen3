@@ -181,7 +181,7 @@ uint16_t        wgtY0;
 
 // Forward declarations
 void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolean flashing, float Array[]);
-void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t slipValue, boolean flashing, float Array[]);
+void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t slipValue, boolean flashing, const float Array[]);
 void displayAOA();
 void displayDecelGauge();
 void displayGloadHistory();
@@ -190,7 +190,7 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
               int16_t startAngle, int16_t arcAngle, bool clockWise, uint8_t gradMarks,
               int16_t pitch, int16_t roll, int16_t yaw, float flightPathAngle);
 void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale);
-int mapAOA2Display(float aoa, float Array[]);
+int mapAOA2Display(float aoa, const float Array[]);
 int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh);
 void handleUpgrade();
 void handleUpgradeSuccess();
@@ -942,7 +942,7 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolea
 /*
    Draw slip indicator
 */
-void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipValue, boolean flashing,  float Array[])
+void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipValue, boolean flashing,  const float Array[])
 {
     uint16_t CenterX = X0 + W / 2;
     uint16_t CenterY = Y0 + H / 2;
@@ -980,7 +980,6 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
     {
 
     gdraw.fillSprite (TFT_CYAN);
-    arcSize = 160;
 
     /*
     Establish a wide horizontal baseline segment
@@ -1394,7 +1393,7 @@ void displayGloadHistory()
 
 // Convert AOA value to M5 display vertical coordinate
 
-int mapAOA2Display(float aoa, float Array[])
+int mapAOA2Display(float aoa, const float Array[])
 {
     if      (aoa <= Array[0])                    return 192;                                    // display bottom
     else if (aoa >  Array[0] && aoa <= Array[2]) return map2int(aoa,Array[0],Array[2],192,148); // display bottom to L/Dmax
