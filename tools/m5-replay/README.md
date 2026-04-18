@@ -12,11 +12,11 @@ This is the companion to the M5 display firmware at
 
 ## What this is for
 
-You have an M5Stack Basic and want to test the five OnSpeed display modes
-(AOA chevron, attitude indicator, narrow AOA, decel gauge, G-load history)
-at your desk. The OnSpeed Gen3 box is mounted in the plane, but the M5 is
-powered from USB-C and just needs a stream of valid `#1` frames on its
-RX pin.
+You have an M5Stack Basic or Core2 and want to test the five OnSpeed
+display modes (AOA chevron, attitude indicator, narrow AOA, decel gauge,
+G-load history) at your desk. The OnSpeed Gen3 box is mounted in the
+plane, but the M5 is powered from USB-C and just needs a stream of valid
+`#1` frames on its RX pin.
 
 `replay.py` generates those frames from:
 - **A real flight log CSV** (recorded by the Gen3 firmware to the SD card), or
@@ -34,9 +34,10 @@ chevron positions look exactly like what you'd see in the plane.
 ## Quick start
 
 ```bash
-# 1. Flash the M5 firmware (one time)
+# 1. Flash the M5 firmware (one time) — pick the env for your board
 cd ../../software/OnSpeed-M5-Display
-pio run -e m5stack-core-esp32 -t upload
+pio run -e m5stack-core-esp32 -t upload    # M5Stack Basic
+# pio run -e m5stack-core2 -t upload       # M5Stack Core2
 
 # 2. Wire the dongle to the M5 (see "Hardware setup" below)
 
@@ -72,22 +73,30 @@ Any 3.3 V (or 3.3/5 V switchable) TTL dongle works. I've tested with:
 - SparkFun FTDI Basic
 - Generic "CP2102 USB to TTL" from Amazon
 
-Keep the dongle on **3.3 V** — the M5's GPIO16 RX pin is 3.3 V logic.
+Keep the dongle on **3.3 V** — the M5's Port C RX pin is 3.3 V logic.
 
 ### Wiring
 
-The M5Stack Basic exposes GPIO16/17 on **Port C** — the red 4-pin grove
-connector on the right side of the base. Pinout for that connector:
+**Port C** is the red 4-pin grove connector on the right side of the
+M5 base. The RX/TX GPIOs differ between the two boards:
+
+| Board | Port C RX | Port C TX |
+|-------|-----------|-----------|
+| M5Stack Basic | GPIO 16 | GPIO 17 |
+| M5Stack Core2 | GPIO 13 | GPIO 14 |
+
+Pinout for the Port C connector (same physical pin order on both
+boards; only the MCU GPIO mapping changes):
 
 ```
-Port C (M5 Basic)
-  [GND] [5V] [GPIO17 TX] [GPIO16 RX]
+Port C
+  [GND] [5V] [TX] [RX]
 ```
 
-Connect:
+Connect (either board):
 
 ```
-Dongle TX  ─────────►  M5 GPIO16 (RX)
+Dongle TX  ─────────►  M5 Port C RX
 Dongle GND ─────────►  M5 GND
 ```
 
@@ -268,7 +277,8 @@ any cadence and the M5's DecelRate display will still be correct.
 
 ### M5 stays on "Looking for Serial data"
 
-- **Verify wiring**: dongle TX → M5 GPIO16 (not GPIO17). Shared GND.
+- **Verify wiring**: dongle TX → M5 Port C RX pin (GPIO 16 on Basic,
+  GPIO 13 on Core2), not the TX pin. Shared GND.
 - **Verify dongle TX is alive**: on a fresh USB insertion most FTDI
   dongles have a TX LED that blinks when data flows.
 - **Check for OS permissions on macOS**: the first time you plug in a
@@ -335,7 +345,7 @@ automatically in an ephemeral environment.
                                  │ 3.3 V TTL
                                  ▼
                   ┌─────────────────────────────┐
-                  │  M5Stack Basic              │
+                  │  M5Stack Basic or Core2     │
                   │  • SerialRead.cpp parses    │
                   │  • measures frame dt        │
                   │  • renders display mode     │

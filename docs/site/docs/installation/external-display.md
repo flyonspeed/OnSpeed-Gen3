@@ -2,9 +2,10 @@
 
 OnSpeed can drive an external display via serial output, giving you a
 cockpit-mounted visual readout of AOA, airspeed, attitude, flight path,
-deceleration, and G-load. The supported option is an **M5Stack Basic**,
-which runs the open-source [`OnSpeed-M5-Display`](https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display)
-firmware.
+deceleration, and G-load. Two M5Stack units are supported — the
+**M5Stack Basic** and the **M5Stack Core2** — both running the same
+open-source [`OnSpeed-M5-Display`](https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display)
+firmware from a single codebase.
 
 !!! note "Display is supplemental"
     The external display supplements OnSpeed's audio tones — it does not
@@ -13,12 +14,25 @@ firmware.
     post-flight analysis (G-load history), initial familiarization with
     the tones, and as a backup attitude indicator.
 
-## M5Stack Basic display
+## Supported M5Stack units
 
-The M5Stack Basic is a compact self-contained ESP32 development unit
-with a 320×240 color TFT, three front buttons, and a USB-C charging
-port. It receives OnSpeed's serial stream, parses it, and renders any
-of five display modes.
+Both supported units have the same 320×240 ILI9342C color TFT at 40 MHz
+and receive OnSpeed's 20 Hz serial stream over Port C. You can pick
+either one; the firmware is a single binary per board (built from the
+same source) and the on-screen layout is identical.
+
+| | **M5Stack Basic** | **M5Stack Core2** |
+|--|--|--|
+| USB-serial chip | CP2104 | CH9102F |
+| Port C pins | GPIO 16 (RX) / GPIO 17 (TX) | GPIO 13 (RX) / GPIO 14 (TX) |
+| Buttons | Three physical buttons | Three capacitive touch zones below the screen |
+| IMU | MPU9250 | MPU6886 |
+| Power | Direct 5 V | AXP192 PMIC (handled by M5Unified) |
+| PlatformIO env | `m5stack-core-esp32` | `m5stack-core2` |
+
+Either unit works — the Core2 adds a built-in LiPo battery and
+capacitive touch, while the Basic is slightly cheaper and has tactile
+buttons. Wiring, serial protocol, and mounting options are the same.
 
 ### Buttons
 
@@ -27,6 +41,11 @@ of five display modes.
 | **Button A** (left) | Brightness down |
 | **Button B** (middle) | Cycle display mode (0 → 4, then wraps back to 0) |
 | **Button C** (right) | Brightness up |
+
+On the Core2, these are capacitive touch zones below the screen (the
+three dots printed on the bezel); the Basic has physical push buttons.
+The firmware uses M5Unified's unified `M5.BtnA/B/C` API, so behavior is
+identical on both units.
 
 If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
@@ -197,10 +216,15 @@ G unloading you didn't realize you were doing.
 The M5 talks to OnSpeed over a one-way serial link. Only three
 connections are needed.
 
-| OnSpeed pin              | Direction | M5 pin                 |
-|--------------------------|-----------|------------------------|
-| GPIO 10 (DISPLAY_SER_TX) | →         | M5 Port C RX (GPIO 16) |
-| GND                      | ↔         | M5 GND                 |
+| OnSpeed pin              | Direction | M5 Basic Port C RX | M5 Core2 Port C RX |
+|--------------------------|-----------|--------------------|--------------------|
+| GPIO 10 (DISPLAY_SER_TX) | →         | GPIO 16            | GPIO 13            |
+| GND                      | ↔         | GND                | GND                |
+
+Port C on the Basic uses GPIO 16/17; on the Core2 it moves to
+GPIO 13/14. The M5 firmware compiles the correct pins in automatically
+per env — you only need to match the physical Port C pin on whichever
+unit you have.
 
 The OnSpeed serial output can be TTL or RS-232 level. The M5 firmware
 auto-detects on boot by trying three common port configurations (TTL
@@ -227,17 +251,79 @@ supply enough current for the display's backlight.
 
 ## Flashing the M5 firmware
 
+There are three ways to get firmware onto the M5 display, in increasing
+order of complexity:
+
+1. **OTA update** (no cable) — already-flashed M5, WiFi-capable update
+2. **USB flash from a released binary** — new M5, or recovery flash
+3. **Build + flash from source** — developers and advanced users
+
+### 1. OTA update (existing M5, no USB cable)
+
+Once an M5 has been flashed at least once with OnSpeed firmware, future
+updates can happen over WiFi — no USB cable required.
+
+1. Download `firmware.bin` for your board from the [latest release page](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest). Look for:
+    - `onspeed-m5-X.Y.Z-basic-firmware.bin` (M5Stack Basic)
+    - `onspeed-m5-X.Y.Z-core2-firmware.bin` (M5Stack Core2)
+2. Hold **Button B** while powering the M5 on. It will boot into
+   firmware-update mode and display its WiFi SSID, password, and the
+   URL to browse to. The on-screen information is authoritative — use
+   those values rather than the defaults below if they differ.
+3. Connect your laptop or phone to the **`OnSpeedDisplay`** WiFi
+   network using the password **`angleofattack`**.
+4. Open **`http://192.168.0.2/upgrade`** in a browser.
+5. Click **Choose file**, select the `firmware.bin` you downloaded,
+   then click **Update**.
+6. The M5 reboots into the new firmware automatically.
+
+### 2. USB flash from a released binary (new M5)
+
+For a freshly-purchased M5 that's never run OnSpeed firmware, flash it
+once via USB. After that, future updates can use the OTA path above.
+
+**Download the release assets** for your board from the [latest release](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest):
+
+- `onspeed-m5-X.Y.Z-basic-firmware.bin` or `-core2-firmware.bin`
+- `onspeed-m5-X.Y.Z-basic-bootloader.bin` or `-core2-bootloader.bin`
+- `onspeed-m5-X.Y.Z-basic-partitions.bin` or `-core2-partitions.bin`
+
+**Flash with esptool** (install via `pip install esptool`):
+
+```bash
+# Replace PORT with your M5's USB-serial device:
+#   Basic: /dev/cu.usbserial-* (CP2104) on macOS, COMn on Windows
+#   Core2: /dev/cu.usbserial-* (CH9102F) on macOS, COMn on Windows
+
+esptool.py --chip esp32 --port PORT --baud 921600 write_flash \
+    0x1000   onspeed-m5-X.Y.Z-BOARD-bootloader.bin \
+    0x8000   onspeed-m5-X.Y.Z-BOARD-partitions.bin \
+    0x10000  onspeed-m5-X.Y.Z-BOARD-firmware.bin
+```
+
+Replace `BOARD` with `basic` or `core2` and `X.Y.Z` with the release
+version.
+
+Alternatively, [M5Burner](https://docs.m5stack.com/en/download) is a
+GUI tool from M5Stack that can flash custom firmware. Use its
+"Custom firmware" tab and point it at the three release `.bin` files.
+
+### 3. Build and flash from source (developers)
+
 Prerequisites:
 
 - [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation.html)
   installed
-- M5Stack Basic connected to your laptop via USB-C
-
-Flash:
+- M5Stack Basic or Core2 connected to your laptop via USB-C
 
 ```bash
 cd software/OnSpeed-M5-Display
+
+# M5Stack Basic
 pio run -e m5stack-core-esp32 -t upload
+
+# M5Stack Core2
+pio run -e m5stack-core2 -t upload
 ```
 
 Tail the M5's own USB serial for debug output:
@@ -245,6 +331,14 @@ Tail the M5's own USB serial for debug output:
 ```bash
 pio device monitor
 ```
+
+### Getting firmware for an unreleased change (reviewers and testers)
+
+Every pull request that touches M5 display code builds both board
+variants in CI and posts a comment with direct download links to the
+`.zip` artifacts. Look for the "Firmware Artifacts" comment on the PR;
+it includes a table with Basic and Core2 rows. Downloading requires a
+GitHub login; artifacts expire 30 days after the CI run.
 
 ## Bench testing without the OnSpeed box
 
