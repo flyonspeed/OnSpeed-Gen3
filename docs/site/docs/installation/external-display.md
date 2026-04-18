@@ -34,90 +34,152 @@ needing a USB cable.
 
 ### Display modes
 
-The five modes are selected by pressing Button B. The M5 remembers the
-last-used mode across power cycles.
+The five modes are selected by pressing **Button B**, which cycles in
+order: **Primary → Attitude → Indexer-only → Energy → G history →**
+back to Primary. The M5 remembers the last-used mode across power
+cycles.
 
-#### Mode 0 — Primary AOA indexer
+#### Primary — AOA indexer + full readouts
+
+*(Mode 0 — the boot default.)*
 
 !!! info "Screenshot pending"
-    <!-- TODO: add assets/images/m5-mode-0-indexer.png and replace this admonition with the image -->
+    <!-- TODO: add assets/images/m5-mode-0-indexer.png -->
 
-The main flight display. A vertical AOA scale fills the center of the
-screen with numeric IAS (top-left), pressure altitude (top-right),
-vertical G (bottom-left), and percent lift (bottom-right) around the
-edges.
+The main flight display. A vertical AOA indexer widget occupies the
+center of the screen, with supporting readouts around the edges.
 
-**How to read the indexer:**
+**Center — the indexer widget.** Reads from top to bottom and tells
+you where your AOA sits relative to the stall/OnSpeed/LDmax setpoints
+for the current flap configuration:
 
-- **White marker bar** — current AOA position on the vertical scale.
-  Fixed white dots on the left and right edges mark the **LDmax** (best
-  climb) reference.
-- **Bottom (down-pointing) chevrons** turn **light blue** when AOA is
-  between LDmax and OnSpeedFast — "you're a touch fast, lower the nose."
-- **Green donut / arcs** light up when you're in the OnSpeed range
-  (between OnSpeedFast and OnSpeedSlow):
-    - Bottom arc green → lower half of the range
-    - Center dot green → right in the middle — on speed
-    - Top arc green → upper half of the range
-- **Top (up-pointing) chevrons** turn **yellow** when AOA crosses
-  OnSpeedSlow (getting slow), **red** past the midpoint to StallWarn,
-  and **flashing red** above StallWarn (stall imminent).
+- **Top chevrons** (two stylized triangles forming an up-arrow near
+  the top of the widget) — *getting slow* warning.
+    - **Yellow** when AOA crosses OnSpeedSlow and approaches stall.
+    - **Red** past the midpoint between OnSpeedSlow and StallWarn.
+    - **Flashing red** above StallWarn — stall imminent.
+- **Green donut** (two horizontal arcs + center dot in the middle
+  of the widget) — *on-speed* indicator. All three light up when
+  AOA is centered in the OnSpeed band.
+    - Bottom arc green — lower half of the OnSpeed range.
+    - Center dot green — centered (your target on approach).
+    - Top arc green — upper half.
+- **Bottom chevrons** (down-arrow near the bottom of the widget) —
+  *getting fast* warning. **Light blue** when AOA is between LDmax
+  and OnSpeedFast (you're a touch fast for an OnSpeed approach —
+  pull).
+- **White index bar** — a thin horizontal bar that slides up/down
+  the widget showing your current AOA on the scale. Small white
+  dots on the left and right edges of the widget mark the **LDmax**
+  (best-climb / best-glide) reference.
 
-The layout is symmetric top-to-bottom, so the visual cue is always:
-*opposite-color chevrons mean "push in that direction."* Bottom blue
-→ push nose down. Top yellow/red → push nose down even more firmly.
-Center green → hold it.
+Visual language: *opposite-colored chevrons mean "push toward them."*
+Bottom blue → lower the nose. Top yellow/red → raise the nose /
+pull. Center green donut → hold what you've got.
 
-#### Mode 1 — Attitude indicator with AOA
+**Above the widget — percent lift** (0–99, or "99" when saturated).
+A large white number with a black outline — readable against any
+background. 50% = LDmax. 66% ≈ middle of the OnSpeed band. 90% = stall
+warn.
+
+**Corners:**
+
+- Top-left: current **IAS** in knots (big white number) with a green
+  "IAS" label.
+- Top-right: current **vertical G** (big white number) with a green
+  "G" label.
+- Bottom-left: a **flap position** icon (circle with a rotating
+  triangular needle representing the flap angle, plus tick marks
+  for standard detents) with the numeric flap angle inside the
+  circle.
+- Bottom-center: the **slip/skid ball** (green when coordinated, red
+  and flashing at high AOA with large slip).
+
+**Right edge — G-onset rate tape.** A thin orange bar above or
+below a "zero line" ladder at the right side of the screen, showing
+instantaneous onset (rate of G change per second). Useful for
+spotting sudden pull-ups / push-overs during maneuvering.
+
+#### Attitude — backup AI with AOA
+
+*(Mode 1.)*
 
 !!! info "Screenshot pending"
     <!-- TODO: add assets/images/m5-mode-1-attitude.png -->
 
-Backup AI driven from OnSpeed's AHRS. Sky/ground horizon with pitch
-ladder, roll indication, slip ball, and VSI tape on the right edge.
-Numeric fields around the edges: IAS, pressure altitude, vertical G,
-AOA percent-lift, and pitch angle in the center. A magenta flight-path
-circle marks the aircraft's actual vector through the air.
+Full-width backup artificial horizon driven by OnSpeed's AHRS.
+Sky/ground horizon with a pitch ladder (10° increments), roll
+indication via a fixed aircraft reference symbol against a rolling
+horizon, a magenta flight-path marker (concentric rings with
+perpendicular wing bars) showing the aircraft's actual vector through
+the air, slip/skid ball at the bottom, and an orange VSI tape on the
+right edge with a tick ladder for climb/descent rate.
+
+**Corners** follow the same layout as the Primary mode: IAS /
+altitude on top row, G / AOA-percent-lift on bottom row. Numeric
+pitch readout sits in a dark rounded rectangle behind the aircraft
+symbol at the center.
 
 **When to use:** cross-check against the primary AI (not as a
-replacement), or in low-visibility transitions where you want the
-OnSpeed-derived flight path marker.
+replacement), or during instrument transitions where you want the
+OnSpeed-derived flight path marker overlaid on an independent
+attitude source.
 
-#### Mode 2 — Narrow AOA indexer
+#### Indexer-only — panel-minimal
+
+*(Mode 2.)*
 
 !!! info "Screenshot pending"
     <!-- TODO: add assets/images/m5-mode-2-narrow.png -->
 
-Same AOA scale and chevrons as Mode 0, but without the surrounding
-numeric displays. This is the panel-friendly layout — meant for a tall
-narrow cutout beside the ASI, where you want the indexer image but
-don't need the numbers (your primary display already shows IAS, G,
-altitude).
+The Primary mode's indexer widget (chevrons + donut + index bar),
+with all the numeric fields around it **stripped away**. Same stall
+warnings, same on-speed cues, same colors.
 
-#### Mode 3 — Deceleration gauge
+**When to use:** if you already have an EFIS or dedicated ASI/ALT
+display, the numeric readouts on Primary mode are redundant. This
+mode keeps only the visual indexer — ideal for a narrow panel cutout
+beside the primary ASI.
+
+#### Energy — deceleration gauge
+
+*(Mode 3.)*
 
 !!! info "Screenshot pending"
     <!-- TODO: add assets/images/m5-mode-3-decel.png -->
 
-Round analog-style gauge with a needle showing deceleration in **knots
-per second**, plus the same indexer widget. Positive (accelerating)
-readings sit on one side; negative (decelerating, e.g. during flare)
-sit on the other. Smoothed to remove jitter.
+A vertical "energy tape" gauge in the center showing instantaneous
+airspeed deceleration in **knots per second**. A green band marks the
+stable-energy zone (around 0 kt/s); red bands above and below flag
+rapid acceleration or deceleration. A white horizontal bar on the
+tape tracks the current smoothed decel rate.
 
-**When to use:** tuning approach energy. A stabilized approach should
-show small steady decel; rapid swings mean you're pumping the stick.
+Numeric readouts in the corners: **IAS** (left), **Kt/s decel rate**
+(right). An orange VSI tape runs up the right edge; a slip ball sits
+at the bottom.
 
-#### Mode 4 — G-load history
+**When to use:** tuning approach energy. A well-flown stabilized
+approach shows small steady decel (tape near the green band); rapid
+swings indicate you're pumping the stick or fighting turbulence.
+Also useful for gauging flare authority right at touchdown.
+
+#### G history — scrolling G trace
+
+*(Mode 4.)*
 
 !!! info "Screenshot pending"
     <!-- TODO: add assets/images/m5-mode-4-g-history.png -->
 
-Scrolling graph of vertical G over approximately the last 60 seconds,
-with horizontal reference lines at 1G, 2G, etc. Shows cumulative
-G-loading at a glance.
+A scrolling graph of vertical G over approximately the last 60
+seconds. Horizontal reference lines mark each integer G (grey for
+±5, ±4, ±3, ±2, −1, −2; bright white for 1G). The trace is color-
+coded: **green** when positive-G, **yellow** for 0–1G (unloaded),
+**red** for negative G.
 
-**When to use:** post-aerobatic or post-pattern debrief — see the full
-profile rather than just the peak G on the main display.
+**When to use:** post-pattern, post-aerobatic, or post-turbulence
+debrief. Shows the full profile rather than just the instantaneous
+peak on the other pages. Handy for noticing that approach-to-stall
+G unloading you didn't realize you were doing.
 
 ### Status indicators across all modes
 

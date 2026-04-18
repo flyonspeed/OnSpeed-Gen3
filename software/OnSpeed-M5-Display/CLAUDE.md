@@ -1,9 +1,15 @@
 # OnSpeed M5Stack Display
 
 Secondary display firmware for an M5Stack device receiving OnSpeed's `#1`
-display-serial frames. Renders five modes: AOA indexer + numbers (Mode 0),
-attitude indicator (Mode 1), narrow AOA (Mode 2), decel gauge (Mode 3), and
-G-load history (Mode 4).
+display-serial frames. Renders five modes (internally numbered 0–4):
+
+- **Primary** (0, default) — AOA indexer + surrounding IAS/G/flap/slip readouts.
+- **Attitude** (1) — Backup AI with flight-path marker.
+- **Indexer-only** (2) — Same indexer widget, numeric readouts stripped.
+- **Energy** (3) — Deceleration gauge in kt/s.
+- **G history** (4) — 60-second scrolling G trace.
+
+End-user docs: `docs/site/docs/installation/external-display.md`.
 
 - `src/main.cpp` — entry point, mode dispatch, per-mode render functions
 - `src/SerialRead.cpp` — `#1` protocol parser, 20 Hz frame dt measurement
