@@ -37,6 +37,13 @@ static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
 static uint32_t uLastFlapsReadMs = 0;
 static uint32_t uLastOatReadMs = 0;
 
+// OAT validation: reject DS18B20 disconnected sentinel (-127 C) and
+// power-on-reset value (85 C). Range covers GA ops from FL450 to desert.
+static constexpr float kOatMinC        = -80.0f;
+static constexpr float kOatMaxC        =  80.0f;
+static constexpr float kOatDefaultC    =  15.0f;   // ISA standard day
+static constexpr uint32_t kOatConversionMs = 800;   // DS18B20 12-bit max is 750 ms
+
 
 // ----------------------------------------------------------------------------
 
@@ -174,7 +181,7 @@ SensorIO::SensorIO()
       OatSensor(&OneWireBus)
 {
     Palt       = 0.00;
-    OatC       = 15.0f;     // ISA standard day until first valid reading
+    OatC       = kOatDefaultC;
     fDecelRate = 0.0;
     uIasUpdateUs = 0;
 }
@@ -237,10 +244,10 @@ void SensorIO::Read()
             bOatConversionPending = true;
             uOatRequestMs = millis();
         }
-        else if (bOatConversionPending && (millis() - uOatRequestMs >= 800))
+        else if (bOatConversionPending && (millis() - uOatRequestMs >= kOatConversionMs))
         {
             float fNew = OatSensor.getTempCByIndex(0);
-            if (fNew > -80.0f && fNew < 80.0f)
+            if (fNew > kOatMinC && fNew < kOatMaxC)
             {
                 OatC = fNew;    // valid reading
             }
@@ -378,11 +385,10 @@ float SensorIO::ReadOatC()
 {
     OatSensor.requestTemperatures();
     float fNew = OatSensor.getTempCByIndex(0);
-    if (fNew > -80.0f && fNew < 80.0f)
+    if (fNew > kOatMinC && fNew < kOatMaxC)
     {
         OatC = fNew;
     }
-    // else: sensor disconnected or returning garbage (-127, 85 C POR, etc.)
-    // Hold last good value (OatC unchanged).
+    // else: sensor disconnected (-127 C) or POR (85 C); hold last good value.
     return OatC;
 }
