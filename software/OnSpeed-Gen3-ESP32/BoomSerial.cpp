@@ -4,18 +4,32 @@
 #include "Globals.h"
 #include "BoomSerial.h"
 
-// Not sure what these are all about
-// log raw counts for boom, no curves
-#define BOOM_ALPHA_CALC(x)      x
-#define BOOM_BETA_CALC(x)       x
-#define BOOM_STATIC_CALC(x)     x
-#define BOOM_DYNAMIC_CALC(x)    x
+// Boom probe polynomial calibration curves (probe-specific constants)
+static float BoomAlphaCalc(int x)
+{
+    if (!g_Config.bBoomConvertData) return (float)x;
+    float f = (float)x;
+    return 7.0918e-13f*f*f*f*f - 1.1698e-8f*f*f*f + 7.0109e-5f*f*f - 0.21624f*f + 310.21f; // degrees
+}
 
-// boom curves
-//#define BOOM_ALPHA_CALC(x)      7.0918*pow(10,-13)*x*x*x*x - 1.1698*pow(10,-8)*x*x*x + 7.0109*pow(10,-5)*x*x - 0.21624*x + 310.21; //degrees
-//#define BOOM_BETA_CALC(x)       2.0096*pow(10,-13)*x*x*x*x - 3.7124*pow(10,-9)*x*x*x + 2.5497*pow(10,-5)*x*x - 3.7141*pow(10,-2)*x - 72.505; //degrees
-//#define BOOM_STATIC_CALC(x)     0.00012207*(x - 1638)*1000; // millibars
-//#define BOOM_DYNAMIC_CALC(x)    (0.01525902*(x - 1638)) - 100; // millibars
+static float BoomBetaCalc(int x)
+{
+    if (!g_Config.bBoomConvertData) return (float)x;
+    float f = (float)x;
+    return 2.0096e-13f*f*f*f*f - 3.7124e-9f*f*f*f + 2.5497e-5f*f*f - 3.7141e-2f*f - 72.505f; // degrees
+}
+
+static float BoomStaticCalc(int x)
+{
+    if (!g_Config.bBoomConvertData) return (float)x;
+    return 0.00012207f * (x - 1638) * 1000.0f; // millibars
+}
+
+static float BoomDynamicCalc(int x)
+{
+    if (!g_Config.bBoomConvertData) return (float)x;
+    return (0.01525902f * (x - 1638)) - 100.0f; // millibars
+}
 
 #define BOOM_PACKET_SIZE         50
 
@@ -135,11 +149,11 @@ void BoomSerialIO::Read()
                             }
 
                             // Continue processing as before
-                            Static  = BOOM_STATIC_CALC(parseArrayInt[0]);
-                            Dynamic = BOOM_DYNAMIC_CALC(parseArrayInt[1]);
+                            Static  = BoomStaticCalc(parseArrayInt[0]);
+                            Dynamic = BoomDynamicCalc(parseArrayInt[1]);
                             IAS     = 0;
-                            Alpha   = BOOM_ALPHA_CALC(parseArrayInt[2]);
-                            Beta    = BOOM_BETA_CALC(parseArrayInt[3]);
+                            Alpha   = BoomAlphaCalc(parseArrayInt[2]);
+                            Beta    = BoomBetaCalc(parseArrayInt[3]);
 
                             g_Log.printf(MsgLog::EnBoom, MsgLog::EnDebug, "BOOM: Static %.2f, Dynamic %.2f, Alpha %.2f, Beta %.2f, IAS %.2f\n", Static, Dynamic, Alpha, Beta, IAS);
                         } // end parse data
