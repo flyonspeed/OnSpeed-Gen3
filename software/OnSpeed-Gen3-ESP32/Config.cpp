@@ -13,7 +13,7 @@
 #endif
 
 #include "Config.h"
-#include "EfisSerial.h"
+#include "src/io/EfisSerial.h"
 
 using namespace tinyxml2;
 

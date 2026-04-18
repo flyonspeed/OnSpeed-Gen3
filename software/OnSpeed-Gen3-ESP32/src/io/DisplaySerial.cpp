@@ -3,7 +3,7 @@
 #include "SoftwareSerial.h"
 //#include "EspSoftwareSerial.h"
 
-#include "Globals.h"
+#include "../../Globals.h"
 #include "DisplaySerial.h"
 
 using onspeed::m2ft;
