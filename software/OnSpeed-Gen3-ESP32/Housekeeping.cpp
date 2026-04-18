@@ -2,7 +2,7 @@
 #include "Globals.h"
 #include "Helpers.h"
 #include "Housekeeping.h"
-#include "Volume.h"
+#include "src/audio_io/Volume.h"
 #ifdef HW_V4P
 #include "src/drivers/Mcp3202Adc.h"
 #endif

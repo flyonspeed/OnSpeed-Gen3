@@ -27,21 +27,21 @@
 #include <Arduino.h>
 #include <ESP_I2S.h>
 
-#include "Globals.h"
-#include "Helpers.h"
+#include "../../Globals.h"
+#include "../../Helpers.h"
 #include <ToneCalc.h>
 
-#include "Audio/PCM_cal_canceled.h"
-#include "Audio/PCM_cal_mode.h"
-#include "Audio/PCM_cal_saved.h"
-#include "Audio/PCM_datamark.h"
-#include "Audio/PCM_disabled.h"
-#include "Audio/PCM_enabled.h"
-#include "Audio/PCM_glimit.h"
-#include "Audio/PCM_overg.h"
-#include "Audio/PCM_VnoChime.h"
-#include "Audio/PCM_left_speaker.h"
-#include "Audio/PCM_right_speaker.h"
+#include "../../Audio/PCM_cal_canceled.h"
+#include "../../Audio/PCM_cal_mode.h"
+#include "../../Audio/PCM_cal_saved.h"
+#include "../../Audio/PCM_datamark.h"
+#include "../../Audio/PCM_disabled.h"
+#include "../../Audio/PCM_enabled.h"
+#include "../../Audio/PCM_glimit.h"
+#include "../../Audio/PCM_overg.h"
+#include "../../Audio/PCM_VnoChime.h"
+#include "../../Audio/PCM_left_speaker.h"
+#include "../../Audio/PCM_right_speaker.h"
 
 #include "Audio.h"
 
