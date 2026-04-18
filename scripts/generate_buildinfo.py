@@ -157,9 +157,21 @@ def main():
 
 # PlatformIO pre-build hook
 def before_build(source, target, env):
-    """Called by PlatformIO before build."""
-    project_dir = Path(env.get("PROJECT_DIR", "."))
-    output_path = project_dir / "software" / "Libraries" / "version" / "buildinfo.cpp"
+    """Called by PlatformIO before build.
+
+    Writes to software/Libraries/version/buildinfo.cpp relative to the repo
+    root (identified by the presence of the Libraries directory), so both
+    the main firmware and subprojects like OnSpeed-M5-Display share the
+    same regenerated version file.
+    """
+    project_dir = Path(env.get("PROJECT_DIR", ".")).resolve()
+    repo_root = project_dir
+    # Walk up until we find software/Libraries
+    while repo_root != repo_root.parent:
+        if (repo_root / "software" / "Libraries").is_dir():
+            break
+        repo_root = repo_root.parent
+    output_path = repo_root / "software" / "Libraries" / "version" / "buildinfo.cpp"
     generate_buildinfo(output_path)
 
 
