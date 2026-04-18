@@ -53,30 +53,8 @@ BoomSerialIO::BoomSerialIO()
 
 void BoomSerialIO::Init(Stream * pBoomSerial)
 {
-//    uint32_t hwSerialConfig = SerialConfig::SERIAL_8E1;
-
-    // Set the boom serial port driver
     pSerial = pBoomSerial;
-
-    // Start in enabled mode
-//    Enable(true);
-
 }
-
-// ----------------------------------------------------------------------------
-
-#if 0
-// Enable / disable reading of boom data
-
-void BoomSerialIO::Enable(bool bEnable)
-{
-    // If being enabled then flush the input buffer
-    if (!bEnabled && bEnable)
-        pSerial->flush();
-
-    bEnabled = bEnable;
-}
-#endif
 
 // ----------------------------------------------------------------------------
 
