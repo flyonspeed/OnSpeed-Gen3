@@ -8,7 +8,7 @@
 #include "RunningMedian.h"
 
 #include "../../Globals.h"
-#include "../../Config.h"
+#include "../config/Config.h"
 #include "../tasks/Flaps.h"
 #include "SensorIO.h"
 

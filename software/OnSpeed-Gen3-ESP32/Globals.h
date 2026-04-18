@@ -61,7 +61,7 @@
 
 // OnSpeed modules
 #include "ErrorLogger.h"
-#include "Config.h"
+#include "src/config/Config.h"
 #include "src/drivers/SPI_IO.h"
 #include "src/drivers/IMU330.h"
 #include "src/drivers/HscPressureSensor.h"

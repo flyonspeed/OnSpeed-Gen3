@@ -3,7 +3,7 @@
 
 #include "tinyxml2.h"
 
-#include "Globals.h"
+#include "../../Globals.h"
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -13,7 +13,7 @@
 #endif
 
 #include "Config.h"
-#include "src/io/EfisSerial.h"
+#include "../io/EfisSerial.h"
 
 using namespace tinyxml2;
 
