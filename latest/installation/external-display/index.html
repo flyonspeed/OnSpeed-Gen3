@@ -1122,15 +1122,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#m5stack-basic-display" class="md-nav__link">
+  <a href="#supported-m5stack-units" class="md-nav__link">
     <span class="md-ellipsis">
       
-        M5Stack Basic display
+        Supported M5Stack units
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="M5Stack Basic display">
+    <nav class="md-nav" aria-label="Supported M5Stack units">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1279,6 +1279,56 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Flashing the M5 firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-ota-update-existing-m5-no-usb-cable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OTA update (existing M5, no USB cable)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-usb-flash-from-a-released-binary-new-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. USB flash from a released binary (new M5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-build-and-flash-from-source-developers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build and flash from source (developers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-firmware-for-an-unreleased-change-reviewers-and-testers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting firmware for an unreleased change (reviewers and testers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3132,15 +3182,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#m5stack-basic-display" class="md-nav__link">
+  <a href="#supported-m5stack-units" class="md-nav__link">
     <span class="md-ellipsis">
       
-        M5Stack Basic display
+        Supported M5Stack units
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="M5Stack Basic display">
+    <nav class="md-nav" aria-label="Supported M5Stack units">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3290,6 +3340,56 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Flashing the M5 firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-ota-update-existing-m5-no-usb-cable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OTA update (existing M5, no USB cable)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-usb-flash-from-a-released-binary-new-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. USB flash from a released binary (new M5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-build-and-flash-from-source-developers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build and flash from source (developers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-firmware-for-an-unreleased-change-reviewers-and-testers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting firmware for an unreleased change (reviewers and testers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3353,9 +3453,10 @@
 <h1 id="optional-external-display">Optional: External Display<a class="headerlink" href="#optional-external-display" title="Permanent link">&para;</a></h1>
 <p>OnSpeed can drive an external display via serial output, giving you a
 cockpit-mounted visual readout of AOA, airspeed, attitude, flight path,
-deceleration, and G-load. The supported option is an <strong>M5Stack Basic</strong>,
-which runs the open-source <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display"><code>OnSpeed-M5-Display</code></a>
-firmware.</p>
+deceleration, and G-load. Two M5Stack units are supported — the
+<strong>M5Stack Basic</strong> and the <strong>M5Stack Core2</strong> — both running the same
+open-source <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display"><code>OnSpeed-M5-Display</code></a>
+firmware from a single codebase.</p>
 <div class="admonition note">
 <p class="admonition-title">Display is supplemental</p>
 <p>The external display supplements OnSpeed's audio tones — it does not
@@ -3364,11 +3465,55 @@ stay outside during approach. The display is most useful for
 post-flight analysis (G-load history), initial familiarization with
 the tones, and as a backup attitude indicator.</p>
 </div>
-<h2 id="m5stack-basic-display">M5Stack Basic display<a class="headerlink" href="#m5stack-basic-display" title="Permanent link">&para;</a></h2>
-<p>The M5Stack Basic is a compact self-contained ESP32 development unit
-with a 320×240 color TFT, three front buttons, and a USB-C charging
-port. It receives OnSpeed's serial stream, parses it, and renders any
-of five display modes.</p>
+<h2 id="supported-m5stack-units">Supported M5Stack units<a class="headerlink" href="#supported-m5stack-units" title="Permanent link">&para;</a></h2>
+<p>Both supported units have the same 320×240 ILI9342C color TFT at 40 MHz
+and receive OnSpeed's 20 Hz serial stream over Port C. You can pick
+either one; the firmware is a single binary per board (built from the
+same source) and the on-screen layout is identical.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><strong>M5Stack Basic</strong></th>
+<th><strong>M5Stack Core2</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>USB-serial chip</td>
+<td>CP2104</td>
+<td>CH9102F</td>
+</tr>
+<tr>
+<td>Port C pins</td>
+<td>GPIO 16 (RX) / GPIO 17 (TX)</td>
+<td>GPIO 13 (RX) / GPIO 14 (TX)</td>
+</tr>
+<tr>
+<td>Buttons</td>
+<td>Three physical buttons</td>
+<td>Three capacitive touch zones below the screen</td>
+</tr>
+<tr>
+<td>IMU</td>
+<td>MPU9250</td>
+<td>MPU6886</td>
+</tr>
+<tr>
+<td>Power</td>
+<td>Direct 5 V</td>
+<td>AXP192 PMIC (handled by M5Unified)</td>
+</tr>
+<tr>
+<td>PlatformIO env</td>
+<td><code>m5stack-core-esp32</code></td>
+<td><code>m5stack-core2</code></td>
+</tr>
+</tbody>
+</table>
+<p>Either unit works — the Core2 adds a built-in LiPo battery and
+capacitive touch, while the Basic is slightly cheaper and has tactile
+buttons. Wiring, serial protocol, and mounting options are the same.</p>
 <h3 id="buttons">Buttons<a class="headerlink" href="#buttons" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3392,6 +3537,10 @@ of five display modes.</p>
 </tr>
 </tbody>
 </table>
+<p>On the Core2, these are capacitive touch zones below the screen (the
+three dots printed on the bezel); the Basic has physical push buttons.
+The firmware uses M5Unified's unified <code>M5.BtnA/B/C</code> API, so behavior is
+identical on both units.</p>
 <p>If you hold <strong>Button B during boot</strong>, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.</p>
@@ -3563,22 +3712,29 @@ connections are needed.</p>
 <tr>
 <th>OnSpeed pin</th>
 <th>Direction</th>
-<th>M5 pin</th>
+<th>M5 Basic Port C RX</th>
+<th>M5 Core2 Port C RX</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>GPIO 10 (DISPLAY_SER_TX)</td>
 <td>→</td>
-<td>M5 Port C RX (GPIO 16)</td>
+<td>GPIO 16</td>
+<td>GPIO 13</td>
 </tr>
 <tr>
 <td>GND</td>
 <td>↔</td>
-<td>M5 GND</td>
+<td>GND</td>
+<td>GND</td>
 </tr>
 </tbody>
 </table>
+<p>Port C on the Basic uses GPIO 16/17; on the Core2 it moves to
+GPIO 13/14. The M5 firmware compiles the correct pins in automatically
+per env — you only need to match the physical Port C pin on whichever
+unit you have.</p>
 <p>The OnSpeed serial output can be TTL or RS-232 level. The M5 firmware
 auto-detects on boot by trying three common port configurations (TTL
 non-inverted, RS-232 inverted, and a bench-simulator TTL variant).
@@ -3601,32 +3757,94 @@ subsequent boots come up faster.</p>
 <p>Do <strong>not</strong> try to power the M5 from OnSpeed's GPIO pins — they don't
 supply enough current for the display's backlight.</p>
 <h2 id="flashing-the-m5-firmware">Flashing the M5 firmware<a class="headerlink" href="#flashing-the-m5-firmware" title="Permanent link">&para;</a></h2>
+<p>There are three ways to get firmware onto the M5 display, in increasing
+order of complexity:</p>
+<ol>
+<li><strong>OTA update</strong> (no cable) — already-flashed M5, WiFi-capable update</li>
+<li><strong>USB flash from a released binary</strong> — new M5, or recovery flash</li>
+<li><strong>Build + flash from source</strong> — developers and advanced users</li>
+</ol>
+<h3 id="1-ota-update-existing-m5-no-usb-cable">1. OTA update (existing M5, no USB cable)<a class="headerlink" href="#1-ota-update-existing-m5-no-usb-cable" title="Permanent link">&para;</a></h3>
+<p>Once an M5 has been flashed at least once with OnSpeed firmware, future
+updates can happen over WiFi — no USB cable required.</p>
+<ol>
+<li>Download <code>firmware.bin</code> for your board from the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest release page</a>. Look for:<ul>
+<li><code>onspeed-m5-X.Y.Z-basic-firmware.bin</code> (M5Stack Basic)</li>
+<li><code>onspeed-m5-X.Y.Z-core2-firmware.bin</code> (M5Stack Core2)</li>
+</ul>
+</li>
+<li>Hold <strong>Button B</strong> while powering the M5 on. It will boot into
+   firmware-update mode and display its WiFi SSID, password, and the
+   URL to browse to. The on-screen information is authoritative — use
+   those values rather than the defaults below if they differ.</li>
+<li>Connect your laptop or phone to the <strong><code>OnSpeedDisplay</code></strong> WiFi
+   network using the password <strong><code>angleofattack</code></strong>.</li>
+<li>Open <strong><code>http://192.168.0.2/upgrade</code></strong> in a browser.</li>
+<li>Click <strong>Choose file</strong>, select the <code>firmware.bin</code> you downloaded,
+   then click <strong>Update</strong>.</li>
+<li>The M5 reboots into the new firmware automatically.</li>
+</ol>
+<h3 id="2-usb-flash-from-a-released-binary-new-m5">2. USB flash from a released binary (new M5)<a class="headerlink" href="#2-usb-flash-from-a-released-binary-new-m5" title="Permanent link">&para;</a></h3>
+<p>For a freshly-purchased M5 that's never run OnSpeed firmware, flash it
+once via USB. After that, future updates can use the OTA path above.</p>
+<p><strong>Download the release assets</strong> for your board from the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest release</a>:</p>
+<ul>
+<li><code>onspeed-m5-X.Y.Z-basic-firmware.bin</code> or <code>-core2-firmware.bin</code></li>
+<li><code>onspeed-m5-X.Y.Z-basic-bootloader.bin</code> or <code>-core2-bootloader.bin</code></li>
+<li><code>onspeed-m5-X.Y.Z-basic-partitions.bin</code> or <code>-core2-partitions.bin</code></li>
+</ul>
+<p><strong>Flash with esptool</strong> (install via <code>pip install esptool</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Replace PORT with your M5&#39;s USB-serial device:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">#   Basic: /dev/cu.usbserial-* (CP2104) on macOS, COMn on Windows</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1">#   Core2: /dev/cu.usbserial-* (CH9102F) on macOS, COMn on Windows</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>esptool.py<span class="w"> </span>--chip<span class="w"> </span>esp32<span class="w"> </span>--port<span class="w"> </span>PORT<span class="w"> </span>--baud<span class="w"> </span><span class="m">921600</span><span class="w"> </span>write_flash<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span>0x1000<span class="w">   </span>onspeed-m5-X.Y.Z-BOARD-bootloader.bin<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span>0x8000<span class="w">   </span>onspeed-m5-X.Y.Z-BOARD-partitions.bin<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span>0x10000<span class="w">  </span>onspeed-m5-X.Y.Z-BOARD-firmware.bin
+</code></pre></div>
+<p>Replace <code>BOARD</code> with <code>basic</code> or <code>core2</code> and <code>X.Y.Z</code> with the release
+version.</p>
+<p>Alternatively, <a href="https://docs.m5stack.com/en/download">M5Burner</a> is a
+GUI tool from M5Stack that can flash custom firmware. Use its
+"Custom firmware" tab and point it at the three release <code>.bin</code> files.</p>
+<h3 id="3-build-and-flash-from-source-developers">3. Build and flash from source (developers)<a class="headerlink" href="#3-build-and-flash-from-source-developers" title="Permanent link">&para;</a></h3>
 <p>Prerequisites:</p>
 <ul>
 <li><a href="https://docs.platformio.org/en/latest/core/installation.html">PlatformIO CLI</a>
   installed</li>
-<li>M5Stack Basic connected to your laptop via USB-C</li>
+<li>M5Stack Basic or Core2 connected to your laptop via USB-C</li>
 </ul>
-<p>Flash:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>software/OnSpeed-M5-Display
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core-esp32<span class="w"> </span>-t<span class="w"> </span>upload
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd</span><span class="w"> </span>software/OnSpeed-M5-Display
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># M5Stack Basic</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core-esp32<span class="w"> </span>-t<span class="w"> </span>upload
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1"># M5Stack Core2</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core2<span class="w"> </span>-t<span class="w"> </span>upload
 </code></pre></div>
 <p>Tail the M5's own USB serial for debug output:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pio<span class="w"> </span>device<span class="w"> </span>monitor
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pio<span class="w"> </span>device<span class="w"> </span>monitor
 </code></pre></div>
+<h3 id="getting-firmware-for-an-unreleased-change-reviewers-and-testers">Getting firmware for an unreleased change (reviewers and testers)<a class="headerlink" href="#getting-firmware-for-an-unreleased-change-reviewers-and-testers" title="Permanent link">&para;</a></h3>
+<p>Every pull request that touches M5 display code builds both board
+variants in CI and posts a comment with direct download links to the
+<code>.zip</code> artifacts. Look for the "Firmware Artifacts" comment on the PR;
+it includes a table with Basic and Core2 rows. Downloading requires a
+GitHub login; artifacts expire 30 days after the CI run.</p>
 <h2 id="bench-testing-without-the-onspeed-box">Bench testing without the OnSpeed box<a class="headerlink" href="#bench-testing-without-the-onspeed-box" title="Permanent link">&para;</a></h2>
 <p>You can test the M5 display on your desk before connecting it to a
 running OnSpeed box. Use the Python replay tool under
 <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/tools/m5-replay"><code>tools/m5-replay/</code></a>
 with an inexpensive USB-to-TTL dongle:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">cd</span><span class="w"> </span>tools/m5-replay
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># Real flight log</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span>--input<span class="w"> </span>/path/to/OnSpeed_log.csv
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Deterministic synthetic demo (cruise → approach → stall → g-turns)</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span>--synthetic
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>tools/m5-replay
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># Real flight log</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span>--input<span class="w"> </span>/path/to/OnSpeed_log.csv
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Deterministic synthetic demo (cruise → approach → stall → g-turns)</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span>--synthetic
 </code></pre></div>
 <p>See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/tools/m5-replay/README.md"><code>tools/m5-replay/README.md</code></a>
 for the hardware shopping list, wiring diagram, and protocol details.</p>
