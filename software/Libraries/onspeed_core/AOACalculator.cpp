@@ -30,8 +30,8 @@ AOAResult CalcAOA(
     // Calculate raw AOA from calibration curve
     result.aoa = CurveCalc(result.coeffP, curve);
 
-    // Check for NaN (can occur with bad curve coefficients)
-    if (std::isnan(result.aoa)) {
+    // Check for non-finite results (NaN or Inf from bad curve coefficients)
+    if (!std::isfinite(result.aoa)) {
         result.aoa   = 0.0f;
         result.valid = false;
     }
@@ -55,9 +55,17 @@ AOACalculatorResult AOACalculator::calculate(
     out.coeffP = raw.coeffP;
     out.valid  = raw.valid;
 
-    // Smooth and clamp
-    float valueToSmooth = raw.valid ? raw.aoa : AOA_MIN_VALUE;
-    out.aoa = clampAOA(_smoother.update(valueToSmooth));
+    // Smooth and clamp.
+    // Invalid samples must not contaminate the EMA — hold last good value.
+    // Before the filter is seeded (first valid sample hasn't arrived yet),
+    // return the safe floor so downstream doesn't see 0.0 degrees as valid AOA.
+    if (raw.valid) {
+        out.aoa = clampAOA(_smoother.update(raw.aoa));
+    } else if (_smoother.isInitialized()) {
+        out.aoa = clampAOA(_smoother.get());  // hold last good value
+    } else {
+        out.aoa = AOA_MIN_VALUE;  // no valid data yet; safe floor
+    }
 
     return out;
 }
