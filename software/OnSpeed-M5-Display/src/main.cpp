@@ -106,7 +106,9 @@ int16_t         displayType         = 0;
 #endif
 boolean         numericDisplay;
 boolean         flashFlag;
-const uint16_t  updateRateGraphics  = 100;  //milliseconds
+// Match the OnSpeed #1 frame rate (50 ms cadence from DisplaySerial.cpp)
+// so each incoming data frame renders.
+const uint16_t  updateRateGraphics  =  50;  //milliseconds
 const uint16_t  updateRateNumbers   = 500;  //milliseconds
 const uint16_t  flashRate           = 250;  //milliseconds
 
@@ -153,17 +155,19 @@ float           displayDecelRate    = 0.0;
 
 unsigned int    selectedPort        = 0; // selected serial port
 
-// Attitude indicator variables
-int16_t         px0                 = 159;
-int16_t         py0                 = 119;
-int16_t         arcSize             = 115;
-int16_t         arcWidth            = 15;
-int16_t         maxDisplay          = 360;
-int16_t         minDisplay          = 0;
-int16_t         startAngle          = 0;
-int16_t         arcAngle            = 360;
-int16_t         clockWise           = true;
-uint8_t         gradMarks           = 0;
+// Attitude indicator variables (globals; used only at the AiGraph call site
+// to pass initial geometry. `g_` prefix keeps them from shadowing the
+// AiGraph parameters of the same semantic name.)
+int16_t         g_px0               = 159;
+int16_t         g_py0               = 119;
+int16_t         g_arcSize           = 115;
+int16_t         g_arcWidth          = 15;
+int16_t         g_maxDisplay        = 360;
+int16_t         g_minDisplay        = 0;
+int16_t         g_startAngle        = 0;
+int16_t         g_arcAngle          = 360;
+int16_t         g_clockWise         = true;
+uint8_t         g_gradMarks         = 0;
 
 // AOA widget variables and defaults
 uint16_t        wgtWidth;
@@ -172,8 +176,8 @@ uint16_t        wgtX0;
 uint16_t        wgtY0;
 
 // Forward declarations
-void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float AOA, boolean flashFlag, float Array[]);
-void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t Yaw, boolean flashFlag, float Array[]);
+void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolean flashing, float Array[]);
+void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t slipValue, boolean flashing, float Array[]);
 void displayAOA();
 void displayDecelGauge();
 void displayGloadHistory();
@@ -182,8 +186,8 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
               int16_t startAngle, int16_t arcAngle, bool clockWise, uint8_t gradMarks,
               int16_t pitch, int16_t roll, int16_t yaw, float flightPathAngle);
 void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale);
-int mapAOA2Display(float AOA, float Array[]);
-int map2int(float AOA, float inLow, float inHigh, int outLow, int outHigh);
+int mapAOA2Display(float aoa, float Array[]);
+int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh);
 void handleUpgrade();
 void handleUpgradeSuccess();
 void handleUpgradeFailure();
@@ -449,8 +453,8 @@ void loop()
             case 1:
             {
                 // display Attitude Indicator
-                AiGraph (px0, py0, arcSize, arcWidth, maxDisplay, minDisplay, startAngle, arcAngle, clockWise,
-                gradMarks, int(Pitch), int(Roll), 360, FlightPath);
+                AiGraph (g_px0, g_py0, g_arcSize, g_arcWidth, g_maxDisplay, g_minDisplay, g_startAngle, g_arcAngle, g_clockWise,
+                g_gradMarks, int(Pitch), int(Roll), 360, FlightPath);
 
                 // update numeric displays
                 // Update airspeed numeric display
@@ -499,8 +503,9 @@ void loop()
                 // Update pressure altitude numeric display
                 gdraw.setTextColor (TFT_BLACK);
                 gdraw.setTextDatum(MR_DATUM);
-                char PressAltStr[5];
-                sprintf(PressAltStr,"%5.0f", displayPalt);
+                // 5 digits + sign + null; snprintf guards against NaN/inf producing long output.
+                char PressAltStr[8];
+                snprintf(PressAltStr, sizeof(PressAltStr), "%5.0f", displayPalt);
                 gdraw.drawString(PressAltStr,309,18);
 
                 // Update AOA numeric display
@@ -763,7 +768,7 @@ void displayAOA()
 //
 // Draw AOA indicator
 //
-void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float AOA, boolean flashFlag, float Array[])
+void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolean flashing, float Array[])
 {
     float       Theta;
     float       cosTheta;
@@ -785,9 +790,9 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float AOA, boolea
 
     // Chevron changes color midway between "slow" (4) and "stall warning" (7)
     float   chevMid = Array[4] + (Array[7] - Array[4]) / 2.0;
-    if      (AOA > Array[4] && AOA <= chevMid ) Colour = TFT_YELLOW;
-    else if (AOA > chevMid  && AOA <= Array[7]) Colour = TFT_RED;
-    else if (AOA > Array[7] && !flashFlag     ) Colour = TFT_RED;
+    if      (aoa > Array[4] && aoa <= chevMid ) Colour = TFT_YELLOW;
+    else if (aoa > chevMid  && aoa <= Array[7]) Colour = TFT_RED;
+    else if (aoa > Array[7] && !flashing      ) Colour = TFT_RED;
     else                                        Colour = TFT_DARKGREY;
 
     Theta    = PI / 8;
@@ -831,7 +836,7 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float AOA, boolea
     /*
      Bottom chevron
     */
-    if (AOA >= Array [1] && AOA < Array [4]) Colour = TFT_LIGHT_BLUE;
+    if (aoa >= Array [1] && aoa < Array [4]) Colour = TFT_LIGHT_BLUE;
     else                                     Colour = TFT_DARKGREY;
 
     Theta    = PI / 8;
@@ -883,12 +888,12 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float AOA, boolea
     uint16_t    LineWidth    = 8;
 
     // Bottom arc
-    if (AOA >= Array [3] && AOA <= (Array [4] - OnspeedRange * 0.25)) Colour = TFT_GREEN;
+    if (aoa >= Array [3] && aoa <= (Array [4] - OnspeedRange * 0.25)) Colour = TFT_GREEN;
     else                                                              Colour = TFT_DARKGREY;
     myGauges.drawArc(X0, Y0, ArcRadius, 0.0, PI, Colour, LineWidth);
 
     // Top arc
-    if (AOA >= (Array [3] + OnspeedRange * 0.25) && AOA <= Array [4]) Colour = TFT_GREEN;
+    if (aoa >= (Array [3] + OnspeedRange * 0.25) && aoa <= Array [4]) Colour = TFT_GREEN;
     else                                                              Colour = TFT_DARKGREY;
     myGauges.drawArc(X0, Y0, ArcRadius,  PI, PI, Colour, LineWidth);
 
@@ -896,14 +901,14 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float AOA, boolea
     gdraw.fillRect (X0 - W / 3, Y0 - H / 48, 2 * W / 3, H / 24, TFT_BLACK);
 
     // Center dot
-    if (AOA >= (Array [3] + OnspeedRange * 0.25) && AOA <= (Array [4] - OnspeedRange * 0.25)) Colour = TFT_GREEN;
+    if (aoa >= (Array [3] + OnspeedRange * 0.25) && aoa <= (Array [4] - OnspeedRange * 0.25)) Colour = TFT_GREEN;
     else                                                                                      Colour = TFT_DARKGREY;
     gdraw.fillCircle (X0, Y0, bullsEye + 2, Colour);
 
     /*
     Index pointer
     */
-    int indexY = mapAOA2Display(AOA, Array);
+    int indexY = mapAOA2Display(aoa, Array);
     gdraw.fillRect (X0 - W / 2, indexY, W, H / 24, TFT_WHITE);
     gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
 
@@ -921,7 +926,7 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float AOA, boolea
 /*
    Draw slip indicator
 */
-void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t Slip, boolean flashFlag,  float Array[])
+void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipValue, boolean flashing,  float Array[])
 {
     uint16_t CenterX = X0 + W / 2;
     uint16_t CenterY = Y0 + H / 2;
@@ -931,10 +936,10 @@ void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t Slip, 
     */
 
     uint16_t Colour = TFT_GREEN;
-    if ( flashFlag && (abs(Slip) >= 30) && AOA >= Array[7]) Colour = TFT_BLACK;
-    if (!flashFlag && (abs(Slip) >= 30) && AOA >= Array[7]) Colour = TFT_RED;
+    if ( flashing && (abs(slipValue) >= 30) && AOA >= Array[7]) Colour = TFT_BLACK;
+    if (!flashing && (abs(slipValue) >= 30) && AOA >= Array[7]) Colour = TFT_RED;
 
-    gdraw.fillCircle (CenterX + Slip * (W - H - 1) / 99 / 2, CenterY, H / 2 - 1, Colour);
+    gdraw.fillCircle (CenterX + slipValue * (W - H - 1) / 99 / 2, CenterY, H / 2 - 1, Colour);
 
     /*
     Draw slip indicator tick marks in foreground
@@ -1161,8 +1166,8 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
 void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale)
 {
 
-    float px1, px2, px3, px4, px5;
-    float py1, py2, py3, py4, py5;
+    float px1, px2, px3, px4;
+    float py1, py2, py3, py4;
     float xRotate;
     float yRotate;
 
@@ -1175,8 +1180,8 @@ void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t s
 
     gdraw.setTextDatum(MC_DATUM);
 
-    xRotate = (0.10f * arcSize) * cos (roll * DEG_TO_RAD); // establish the width.
-    yRotate = (0.10f * arcSize) * sin (roll * DEG_TO_RAD);
+    xRotate = (0.10f * g_arcSize) * cos (roll * DEG_TO_RAD); // establish the width.
+    yRotate = (0.10f * g_arcSize) * sin (roll * DEG_TO_RAD);
 
     px1 = pxc - xRotate*1.0f;
     py1 = pyc + yRotate*1.0f;
@@ -1368,13 +1373,13 @@ void displayGloadHistory()
 
 // Convert AOA value to M5 display vertical coordinate
 
-int mapAOA2Display(float AOA, float Array[])
+int mapAOA2Display(float aoa, float Array[])
 {
-    if      (AOA <= Array[0])                    return 192;                                    // display bottom
-    else if (AOA >  Array[0] && AOA <= Array[2]) return map2int(AOA,Array[0],Array[2],192,148); // display bottom to L/Dmax
-    else if (AOA >  Array[2] && AOA <= Array[3]) return map2int(AOA,Array[2],Array[3],148,115); // L/Dmax to onspeed fast
-    else if (AOA >  Array[3] && AOA <= Array[4]) return map2int(AOA,Array[3],Array[4],115, 78); // onspeed fast to onspeed slow
-    else if (AOA >  Array[4] && AOA <= Array[7]) return map2int(AOA,Array[4],Array[7], 78,  1); // onspeed slow to stall warning
+    if      (aoa <= Array[0])                    return 192;                                    // display bottom
+    else if (aoa >  Array[0] && aoa <= Array[2]) return map2int(aoa,Array[0],Array[2],192,148); // display bottom to L/Dmax
+    else if (aoa >  Array[2] && aoa <= Array[3]) return map2int(aoa,Array[2],Array[3],148,115); // L/Dmax to onspeed fast
+    else if (aoa >  Array[3] && aoa <= Array[4]) return map2int(aoa,Array[3],Array[4],115, 78); // onspeed fast to onspeed slow
+    else if (aoa >  Array[4] && aoa <= Array[7]) return map2int(aoa,Array[4],Array[7], 78,  1); // onspeed slow to stall warning
     else                                         return 1;                                      // display top
 }
 
@@ -1383,10 +1388,10 @@ int mapAOA2Display(float AOA, float Array[])
 
 // Interpolate display coordinate between two AOA limits
 
-int map2int(float AOA, float inLow, float inHigh, int outLow, int outHigh)
+int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh)
 {
     int Result;
-    Result = round((float)(AOA - inLow) * (outHigh - outLow) / (float)(inHigh - inLow) + outLow);
+    Result = round((float)(aoa - inLow) * (outHigh - outLow) / (float)(inHigh - inLow) + outLow);
     return Result;
 }
 
@@ -1409,7 +1414,7 @@ String HtmlStyle =
 String HtmlTitle =
     "<center>\n"
     "    <h2><u>FlyONSPEED M5 Display</u><br>Upgrade Server</h2>\n"
-    "    <h3>Current Ver "firmwareVersion"</h3>\n"
+    "    <h3>Current Ver " firmwareVersion "</h3>\n"
     "</center>\n";
 
 // -----------------------------------------------
@@ -1477,8 +1482,8 @@ void handleUpgradeSuccess()
         "</script>\n";
 
     page +=
-        "<div align=\"center\">\n";
-        "<progress id=\"rebootprogress\" max=\"100\" value=\"0\"> 0% </progress>\n";
+        "<div align=\"center\">\n"
+        "<progress id=\"rebootprogress\" max=\"100\" value=\"0\"> 0% </progress>\n"
         "</div>\n";
 
     page += "</body></html>\n";
