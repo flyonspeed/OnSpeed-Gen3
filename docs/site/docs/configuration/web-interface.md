@@ -21,7 +21,7 @@ You can also use the mDNS name: **`http://onspeed.local`** (may not work on all 
 | Page | URL | What It Does |
 |------|-----|--------------|
 | **Home** | `/` | Landing page with usage guidelines |
-| **Live View** | `/live` | Real-time AOA gauge, attitude indicator, sensor data (WebSocket, 10 Hz) |
+| **Live View** | `/live` | Real-time AOA gauge, attitude indicator, sensor data (WebSocket, 20 Hz) |
 | **AOA Config** | `/aoaconfig` | Main configuration page — flap settings, audio, EFIS type, orientation |
 | **Sensor Config** | `/sensorconfig` | Sensor bias calibration and orientation setup |
 | **Calibration Wizard** | `/calwiz` | Interactive in-flight calibration wizard |
@@ -32,7 +32,7 @@ You can also use the mDNS name: **`http://onspeed.local`** (may not work on all 
 
 ## Live View
 
-The live view page (`/live`) shows real-time sensor data updated at 10 Hz via WebSocket:
+The live view page (`/live`) shows real-time sensor data updated at 20 Hz via WebSocket. Numeric readouts (AOA, IAS, altitude) are throttled to 2 Hz in the browser for readability; the SVG attitude indicator and AOA bar render on every frame.
 
 - AOA needle position on a visual scale
 - IAS, altitude, G-loads

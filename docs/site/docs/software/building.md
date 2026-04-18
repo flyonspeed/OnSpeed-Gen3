@@ -89,7 +89,7 @@ OnSpeed-Gen3/
 │   └── Libraries/
 │       ├── onspeed_core/            # Platform-independent algorithms
 │       └── version/                 # Build version info (auto-generated + defaults)
-├── test/                            # Native unit tests (11 suites, 119 tests)
+├── test/                            # Native unit tests (12 suites, 136 tests)
 └── scripts/                         # Build and analysis scripts
 ```
 

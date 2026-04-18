@@ -48,12 +48,14 @@ Appended after any optional Boom/EFIS columns.
 
 | Column | Units | Description |
 |--------|-------|-------------|
-| `boomStatic` | PSI | Static pressure from boom |
-| `boomDynamic` | PSI | Dynamic (pitot) pressure from boom |
-| `boomAlpha` | degrees | Angle of attack from boom |
-| `boomBeta` | degrees | Sideslip angle from boom |
+| `boomStatic` | counts¹ | Static pressure from boom |
+| `boomDynamic` | counts¹ | Dynamic (pitot) pressure from boom |
+| `boomAlpha` | counts¹ | Angle of attack from boom |
+| `boomBeta` | counts¹ | Sideslip angle from boom |
 | `boomIAS` | knots | Indicated airspeed from boom |
 | `boomAge` | ms | Time since last boom data packet |
+
+¹ Raw ADC counts by default. When `BOOMCONVERTDATA=true` the firmware applies the polynomial calibration curves in `onspeed_core/BoomConvert.h` and writes physical units (PSI for `boomStatic` / `boomDynamic`, degrees for `boomAlpha` / `boomBeta`). `BOOMCONVERTDATA` defaults to `false`.
 
 ## EFIS Columns — Dynon/Garmin/MGL
 

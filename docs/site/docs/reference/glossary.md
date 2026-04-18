@@ -51,5 +51,5 @@
 | **V~S~** | Stall Speed — the minimum speed at which the aircraft can maintain level flight at a given weight and configuration. Varies with the square root of load factor. |
 | **VSI** | Vertical Speed Indicator — rate of climb or descent, typically in feet per minute |
 | **V--n Diagram** | A plot of load factor (n) vs. airspeed (V) showing the airplane's flight envelope. The curved left boundary represents the aerodynamic limit (stall). |
-| **WebSocket** | A protocol for real-time bidirectional communication. Used by the live view page (10 Hz updates). |
+| **WebSocket** | A protocol for real-time bidirectional communication. Used by the live view page (20 Hz updates). |
 | **×V~S~** | "Times stall speed" — a way to express approach speed as a multiple of stall speed (e.g., 1.3×V~S~ = 1.3 times the stall speed) |
