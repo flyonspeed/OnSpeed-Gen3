@@ -169,6 +169,12 @@
 #define PRESSURE_SAMPLE_RATE   50
 #define PRESSURE_INTERVAL_MS   (1000 / PRESSURE_SAMPLE_RATE)
 
+// Display/panel-side serial output cadence. Single source of truth for
+// the WriteDisplayDataTask and DataServer broadcast rate. Consumers on
+// the other side of the wire (e.g. the M5Stack secondary display) should
+// not assume this value — they should measure their own frame dt.
+#define DISPLAY_SERIAL_PERIOD_MS   50
+
 #define GYRO_SMOOTHING        30
 
 // RTOS Stuff

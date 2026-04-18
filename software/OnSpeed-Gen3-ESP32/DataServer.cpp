@@ -60,7 +60,7 @@ void DataServerPoll()
             if (uLen > 0)
                 DataServer.broadcastTXT(szLiveDataJson, uLen);
             }
-        lNextMillis = millis() + 50;   // 50 msec, 20 Hz
+        lNextMillis = millis() + DISPLAY_SERIAL_PERIOD_MS;
         }
     }
 

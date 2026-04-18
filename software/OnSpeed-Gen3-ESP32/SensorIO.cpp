@@ -327,13 +327,13 @@ void SensorIO::Read()
     } // end if not in test pot or range sweep mode
 
 	    // Take derivative of airspeed for deceleration calc.
-	    // Update at 20 Hz (50 ms) to match tone buffer update rate.
+	    // Update once per display serial period to match tone buffer update rate.
 	    // C++ guarantees static locals are initialized on first function entry,
 	    // so millis() is called at runtime (not at static-init time).
 	    static unsigned long uLastDecelUpdateMs = millis();
     const unsigned long uNowMs = millis();
     const unsigned long uDecelDeltaMs = uNowMs - uLastDecelUpdateMs;
-    if (uDecelDeltaMs >= 50)
+    if (uDecelDeltaMs >= DISPLAY_SERIAL_PERIOD_MS)
     {
         uLastDecelUpdateMs = uNowMs;
 
