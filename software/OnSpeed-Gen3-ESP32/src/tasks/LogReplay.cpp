@@ -13,10 +13,10 @@
 
 #include "csv_parser.hpp"
 
-#include "Globals.h"
-#include "Config.h"
+#include "../../Globals.h"
+#include "../../Config.h"
 #include "LogReplay.h"
-#include "src/drivers/SensorIO.h"
+#include "../drivers/SensorIO.h"
 #include <EMAFilter.h>
 
 using onspeed::pressureCoeff;

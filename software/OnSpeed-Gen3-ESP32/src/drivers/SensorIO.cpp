@@ -8,8 +8,8 @@
 #include "RunningMedian.h"
 
 #include "../../Globals.h"
-#include "Config.h"
-#include "Flaps.h"
+#include "../../Config.h"
+#include "../tasks/Flaps.h"
 #include "SensorIO.h"
 
 using onspeed::SuCalibrationCurve;
