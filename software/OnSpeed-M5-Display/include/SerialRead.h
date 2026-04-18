@@ -34,7 +34,7 @@ extern String          serialBufferString;
 extern unsigned int    selectedPort;
 
 void SerialRead();
-void SerialProcess();
+void SerialProcess(float frameDtSec);
 unsigned int checkSerial();
 String readSerialbytes();
 void serialSetup();

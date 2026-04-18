@@ -12,7 +12,6 @@
 static const float aoaSmoothingAlpha   = 0.7f;  //1 = max smoothing, 0.01 no smoothing.
 static const float slipSmoothingAlpha  = 0.5f;  //1 = max smoothing, 0.01 no smoothing.
 static const float decelSmoothingAlpha = 0.04f;  //1 = max smoothing, 0.01 no smoothing.
-static const float serialRate          = 0.1f;  // 10 Hz
 
 // IAS derivative filter (Savitzky-Golay first derivative, window=15)
 static double iasDerivativeInput;
@@ -136,7 +135,28 @@ void SerialRead()
 
                     serialBufferString="";
 
-                    SerialProcess();
+                    // Measure actual frame period rather than assuming a fixed rate.
+                    // The main firmware's display serial task runs at
+                    // DISPLAY_SERIAL_PERIOD_MS (currently 20 Hz), but hardcoding
+                    // that here is a fragility we don't want — a prior version
+                    // assumed 10 Hz and the Savitzky-Golay IAS derivative was
+                    // divided by the wrong denominator, so DecelRate read half
+                    // its true value. This mirrors how the main firmware's
+                    // AHRS (Madgwick, EKF6) also uses measured dt each tick.
+                    static uint32_t lastFrameMicros = 0;
+                    uint32_t nowMicros = micros();
+                    float frameDtSec = (lastFrameMicros == 0)
+                                           ? 0.05f
+                                           : (nowMicros - lastFrameMicros) * 1e-6f;
+                    lastFrameMicros = nowMicros;
+
+                    // Soft warning if frame cadence drifts outside expected
+                    // band — real firmware targets 50 ms; bench replay tools
+                    // may be slightly off.
+                    if (frameDtSec < 0.020f || frameDtSec > 0.200f)
+                        Serial.printf("WARN: unexpected frame dt=%.3fs\n", frameDtSec);
+
+                    SerialProcess(frameDtSec);
 
                     #ifdef SERIALDATADEBUG
                     Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, AOA: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI,SmoothedAOA);
@@ -184,7 +204,8 @@ void SerialRead()
         if (AOA < 20.0) PercentLift = AOA * 5.0;
         else            PercentLift = 100.0;
 
-        SerialProcess();
+        // Dummy data ticks every 100 ms.
+        SerialProcess(0.1f);
 
         serialMillis = currMillis;
     }
@@ -197,7 +218,7 @@ void SerialRead()
 
 // Preprocess some of the serial data
 
-void SerialProcess()
+void SerialProcess(float frameDtSec)
 {
     // don't display invalid values;
     if (AOA == -100)
@@ -209,13 +230,12 @@ void SerialProcess()
     Slip               = constrain(Slip,-99,99);
     SmoothedAOA        = SmoothedAOA * aoaSmoothingAlpha + (1-aoaSmoothingAlpha) * AOA;
 
-    // compute IAS derivative (deceleration)
-    // SavGolDerivative has correct sign: positive for increasing IAS.
-    // DecelRate should be negative when decelerating (IAS decreasing), which
-    // is what we get directly — no sign inversion needed.
+    // Compute IAS derivative (deceleration) in knots/sec.
+    // SavGolDerivative returns d(IAS)/d(sample); dividing by the measured
+    // frame period converts per-sample to per-second. Sign is already
+    // correct (positive for increasing IAS, negative for deceleration).
     iasDerivativeInput =  IAS;
-    DecelRate          =  iasDerivative.Compute();
-    DecelRate          =  DecelRate/serialRate;
+    DecelRate          =  iasDerivative.Compute() / frameDtSec;
     SmoothedDecelRate  =  DecelRate * decelSmoothingAlpha + SmoothedDecelRate * (1-decelSmoothingAlpha);
 } // end SerialProcess()
 
