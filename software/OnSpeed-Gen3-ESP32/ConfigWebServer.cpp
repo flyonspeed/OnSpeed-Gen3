@@ -1975,11 +1975,15 @@ void HandleConfigSave()
         CfgServer.send(200, "text/html", sPage);
         }
 
-    // Configure anything that needs to be configured based on new config settings
+    // Configure anything that needs to be configured based on new config settings.
+    // Take xAhrsMutex to prevent ImuReadTask (Core 1) from calling
+    // g_AHRS.Process() while we re-initialize AHRS state.
 
     // Configure accelerometer axes
+    xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
     g_pIMU->ConfigAxes();
     g_AHRS.Init(IMU_SAMPLE_RATE);
+    xSemaphoreGive(xAhrsMutex);
 
     } // end HandleConfigSave()
 
@@ -2054,8 +2058,13 @@ void HandleConfigUpload()
         g_Log.print(MsgLog::EnWebServer, MsgLog::EnDebug, "UPLOAD End\n");
         if (xSemaphoreTake(uploadMutex, portMAX_DELAY))
             {
-            // Done uploading, parse and decode the uploaded configuration
+            // Done uploading, parse and decode the uploaded configuration.
+            // LoadConfigFromString() calls g_pIMU->ConfigAxes() and
+            // g_AHRS.Init() internally, so hold xAhrsMutex to prevent
+            // ImuReadTask from calling g_AHRS.Process() concurrently.
+            xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
             bUploadedConfigStringGood = g_Config.LoadConfigFromString(sUploadedConfigString);
+            xSemaphoreGive(xAhrsMutex);
 
             if (bUploadedConfigStringGood)
                 g_Log.print(MsgLog::EnWebServer, MsgLog::EnDebug, "UPLOAD Good Config String\n");
