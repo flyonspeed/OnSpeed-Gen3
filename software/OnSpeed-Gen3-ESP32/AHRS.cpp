@@ -3,9 +3,9 @@
 #include <RunningAverage.h>
 
 #include "Globals.h"
-#include "IMU330.h"
+#include "src/drivers/IMU330.h"
 #include "AHRS.h"
-#include "SensorIO.h"
+#include "src/drivers/SensorIO.h"
 
 using onspeed::deg2rad;
 using onspeed::rad2deg;

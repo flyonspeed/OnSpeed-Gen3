@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 
-#include "Globals.h"
+#include "../../Globals.h"
 #include "HscPressureSensor.h"
 
 using onspeed::psi2mb;

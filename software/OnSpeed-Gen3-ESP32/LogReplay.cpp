@@ -16,7 +16,7 @@
 #include "Globals.h"
 #include "Config.h"
 #include "LogReplay.h"
-#include "SensorIO.h"
+#include "src/drivers/SensorIO.h"
 #include <EMAFilter.h>
 
 using onspeed::pressureCoeff;

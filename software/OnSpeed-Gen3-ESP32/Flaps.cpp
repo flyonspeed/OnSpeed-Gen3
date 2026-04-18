@@ -3,7 +3,7 @@
 #include "Config.h"
 #include "Flaps.h"
 #ifdef HW_V4P
-#include "Mcp3202Adc.h"
+#include "src/drivers/Mcp3202Adc.h"
 #endif
 
 // ----------------------------------------------------------------------------

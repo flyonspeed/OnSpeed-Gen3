@@ -2,7 +2,7 @@
 #include "Globals.h"
 #include "Volume.h"
 #ifdef HW_V4P
-#include "Mcp3202Adc.h"
+#include "src/drivers/Mcp3202Adc.h"
 #endif
 
 // CheckVolumeTask moved to Housekeeping.cpp

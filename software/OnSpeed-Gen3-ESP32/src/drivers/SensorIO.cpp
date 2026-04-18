@@ -7,7 +7,7 @@
 #include "RunningAverage.h"
 #include "RunningMedian.h"
 
-#include "Globals.h"
+#include "../../Globals.h"
 #include "Config.h"
 #include "Flaps.h"
 #include "SensorIO.h"
