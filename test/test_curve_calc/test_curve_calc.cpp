@@ -3,6 +3,7 @@
 // Tests polynomial, logarithmic, and exponential calibration curves.
 
 #include <unity.h>
+#include <cmath>
 #include <CurveCalc.h>
 
 using namespace onspeed;
@@ -114,6 +115,33 @@ void test_exponential_decay() {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 6.065f, CurveCalc(1, curve));  // 10*e^-0.5 ≈ 6.065
 }
 
+void test_exponential_overflow_clamped() {
+    // y = 1*e^(1*x) with x = 1000 would overflow to +Inf without the guard.
+    // The guard clamps the exponent to 88, so result should be finite.
+    SuCalibrationCurve curve = {{0, 0, 1, 1}, 3};
+    float result = CurveCalc(1000, curve);
+    TEST_ASSERT_TRUE(std::isfinite(result));
+    // Should equal e^88 ≈ 1.65e38
+    TEST_ASSERT_FLOAT_WITHIN(1e36f, expf(88.0f), result);
+}
+
+void test_exponential_underflow_clamped() {
+    // y = 1*e^(1*x) with x = -1000. Exponent clamps to -88.
+    // Verify the clamp was applied: result should equal expf(-88).
+    SuCalibrationCurve curve = {{0, 0, 1, 1}, 3};
+    float result = CurveCalc(-1000, curve);
+    TEST_ASSERT_TRUE(std::isfinite(result));
+    TEST_ASSERT_FLOAT_WITHIN(1e-40f, expf(-88.0f), result);
+}
+
+void test_exponential_large_a_overflow_clamped() {
+    // a=100, b=1, x=100 → 100 * expf(88) would overflow to +Inf.
+    // The post-multiply guard should return a finite value (FLT_MAX).
+    SuCalibrationCurve curve = {{0, 0, 100, 1}, 3};
+    float result = CurveCalc(100, curve);
+    TEST_ASSERT_TRUE(std::isfinite(result));
+}
+
 // ============================================================================
 // Edge Cases
 // ============================================================================
@@ -156,6 +184,9 @@ int main() {
     // Exponential tests
     RUN_TEST(test_exponential);
     RUN_TEST(test_exponential_decay);
+    RUN_TEST(test_exponential_overflow_clamped);
+    RUN_TEST(test_exponential_underflow_clamped);
+    RUN_TEST(test_exponential_large_a_overflow_clamped);
 
     // Edge cases
     RUN_TEST(test_unknown_curve_type);
