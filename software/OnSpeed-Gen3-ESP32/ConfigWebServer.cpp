@@ -1022,6 +1022,16 @@ R"#(        </section>)#" "\n";
             </select>
         </div>)#";
 
+    // Boom data conversion
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_boomConvertData">Boom Data Conversion</label>
+            <select id="id_boomConvertData" name="boomConvertData">
+                <option value="0")#"; if (!g_Config.bBoomConvertData) sPage += " selected"; sPage += R"#(>Raw Counts</option>
+                <option value="1")#"; if ( g_Config.bBoomConvertData) sPage += " selected"; sPage += R"#(>Converted (polynomial)</option>
+            </select>
+        </div>)#";
+
     String casCurveVisibility;
     if (g_Config.bCasCurveEnabled) casCurveVisibility=R"#(style="display:block")#";
     else                           casCurveVisibility=R"#(style="display:none")#";
@@ -1261,6 +1271,16 @@ R"#(        </section>)#" "\n";
             <input id="id_loadLimitNegative" name="loadLimitNegative" type="text" value=")#" + String(g_Config.fLoadLimitNegative, 2) + R"#("/>
         </div>)#";
 
+    sPage += R"#(
+        <div class="form-divs flex-col-6 loadlimitsetting" )#" + String(loadLimitVisibility) + R"#(>
+            <label for="id_asymmetricGyroLimit">Asymmetric gyro threshold (deg/s)</label>
+            <input id="id_asymmetricGyroLimit" name="asymmetricGyroLimit" type="text" value=")#" + String(g_Config.fAsymmetricGyroLimit, 1) + R"#("/>
+        </div>
+        <div class="form-divs flex-col-6 loadlimitsetting" )#" + String(loadLimitVisibility) + R"#(>
+            <label for="id_asymmetricReduction">Asymmetric G reduction factor</label>
+            <input id="id_asymmetricReduction" name="asymmetricReduction" type="text" value=")#" + String(g_Config.fAsymmetricReduction, 3) + R"#("/>
+        </div>)#";
+
     // Vno chime
     String vnoVisibility;
     if (g_Config.bVnoChimeEnabled) vnoVisibility = R"#(style="display:block")#";
@@ -1293,6 +1313,16 @@ R"#(        </section>)#" "\n";
             <select id="id_sdLogging" name="sdLogging">
                 <option value="1")#"; if ( g_Config.bSdLogging) sPage += " selected"; sPage += R"#(>Enabled</option>
                 <option value="0")#"; if (!g_Config.bSdLogging) sPage += " selected"; sPage += R"#(>Disabled</option>
+            </select>
+        </div>)#";
+
+    // Logging rate
+    sPage += R"#(
+        <div class="form-divs flex-col-12">
+            <label for="id_logRate">Logging Rate</label>
+            <select id="id_logRate" name="logRate">
+                <option value="50")#"; if (g_Config.iLogRate != 208) sPage += " selected"; sPage += R"#(>50 Hz (pressure rate)</option>
+                <option value="208")#"; if (g_Config.iLogRate == 208) sPage += " selected"; sPage += R"#(>208 Hz (IMU rate)</option>
             </select>
         </div>)#";
 
@@ -1816,6 +1846,10 @@ void HandleConfigSave()
     if (CfgServer.hasArg("boomChecksum") && CfgServer.arg("boomChecksum")=="1") g_Config.bBoomChecksum = true;
     else                                                                        g_Config.bBoomChecksum = false;
 
+    // Boom data conversion
+    if (CfgServer.hasArg("boomConvertData") && CfgServer.arg("boomConvertData")=="1") g_Config.bBoomConvertData = true;
+    else                                                                              g_Config.bBoomConvertData = false;
+
     if (CfgServer.hasArg("casCurveEnabled") && CfgServer.arg("casCurveEnabled")=="1") g_Config.bCasCurveEnabled = true;
     else                                                                              g_Config.bCasCurveEnabled = false;
 
@@ -1878,6 +1912,10 @@ void HandleConfigSave()
     if (CfgServer.hasArg("loadLimitPositive")) g_Config.fLoadLimitPositive= fabsf(CfgServer.arg("loadLimitPositive").toFloat());
     if (CfgServer.hasArg("loadLimitNegative")) g_Config.fLoadLimitNegative=-fabsf(CfgServer.arg("loadLimitNegative").toFloat());
 
+    // Asymmetric G-limit tuning
+    if (CfgServer.hasArg("asymmetricGyroLimit")) g_Config.fAsymmetricGyroLimit = fabsf(CfgServer.arg("asymmetricGyroLimit").toFloat());
+    if (CfgServer.hasArg("asymmetricReduction")) g_Config.fAsymmetricReduction = CfgServer.arg("asymmetricReduction").toFloat();
+
     // vnochime
     if (CfgServer.hasArg("vnoChimeEnabled") && (CfgServer.arg("vnoChimeEnabled")=="1")) g_Config.bVnoChimeEnabled=true;
     else                                                                                g_Config.bVnoChimeEnabled=false;
@@ -1895,6 +1933,9 @@ void HandleConfigSave()
     // sdLogging
     if (CfgServer.hasArg("sdLogging") && CfgServer.arg("sdLogging")=="1") g_Config.bSdLogging=true;
     else                                                                  g_Config.bSdLogging=false;
+
+    // Logging rate
+    if (CfgServer.hasArg("logRate")) g_Config.iLogRate = CfgServer.arg("logRate").toInt();
 
     // Aircraft parameters
     if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();
