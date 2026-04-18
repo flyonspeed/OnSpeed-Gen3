@@ -1,11 +1,11 @@
 # Understanding OnSpeed Logs
 
-OnSpeed records flight data to CSV files on the microSD card at **50 Hz** (50 samples per second).
+OnSpeed records flight data to CSV files on the microSD card at **50 Hz** by default (configurable to 208 Hz via the web interface).
 
 ## File Format
 
 - **Format**: CSV with headers (comma-separated values)
-- **Rate**: 50 Hz (one row every 20 ms)
+- **Rate**: 50 Hz default (one row every 20 ms); optionally 208 Hz (IMU rate)
 - **Naming**: `log_NNN.csv` (sequential numbering)
 - **Size**: A 1-hour flight produces approximately 50–100 MB of data
 

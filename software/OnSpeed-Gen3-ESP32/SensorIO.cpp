@@ -349,9 +349,8 @@ void SensorIO::Read()
         fDecelRate = IasDerivative.Compute() * fDecelSampleHz;
     }
 
-#ifdef LOGDATA_PRESSURE_RATE
-    g_LogSensor.Write();
-#endif
+    if (g_Config.iLogRate != 208)
+        g_LogSensor.Write();
     g_AudioPlay.UpdateTones();
 
     if (g_Log.Test(MsgLog::EnSensors, MsgLog::EnDebug) == true)

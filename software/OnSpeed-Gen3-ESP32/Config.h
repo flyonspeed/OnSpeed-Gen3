@@ -205,6 +205,16 @@ public:
     float           fLoadLimitPositive;
     float           fLoadLimitNegative;
 
+    // Asymmetric G-limit tuning
+    float           fAsymmetricGyroLimit;   // deg/sec roll/yaw threshold for reduced G-limits
+    float           fAsymmetricReduction;   // G-limit reduction factor during asymmetric flight
+
+    // Boom data conversion
+    bool            bBoomConvertData;       // true = apply polynomial conversion, false = raw counts
+
+    // Logging rate
+    int             iLogRate;               // 50 = pressure rate (default), 208 = IMU rate
+
     // vno chime
     int             iVno;                 // aircraft Vno in kts;
     unsigned        uVnoChimeInterval;    // chime interval in seconds

@@ -1,21 +1,7 @@
 
-//#include "SoftwareSerial.h"
-
 #include "Globals.h"
 #include "BoomSerial.h"
-
-// Not sure what these are all about
-// log raw counts for boom, no curves
-#define BOOM_ALPHA_CALC(x)      x
-#define BOOM_BETA_CALC(x)       x
-#define BOOM_STATIC_CALC(x)     x
-#define BOOM_DYNAMIC_CALC(x)    x
-
-// boom curves
-//#define BOOM_ALPHA_CALC(x)      7.0918*pow(10,-13)*x*x*x*x - 1.1698*pow(10,-8)*x*x*x + 7.0109*pow(10,-5)*x*x - 0.21624*x + 310.21; //degrees
-//#define BOOM_BETA_CALC(x)       2.0096*pow(10,-13)*x*x*x*x - 3.7124*pow(10,-9)*x*x*x + 2.5497*pow(10,-5)*x*x - 3.7141*pow(10,-2)*x - 72.505; //degrees
-//#define BOOM_STATIC_CALC(x)     0.00012207*(x - 1638)*1000; // millibars
-//#define BOOM_DYNAMIC_CALC(x)    (0.01525902*(x - 1638)) - 100; // millibars
+#include <BoomConvert.h>
 
 #define BOOM_PACKET_SIZE         50
 
@@ -39,30 +25,8 @@ BoomSerialIO::BoomSerialIO()
 
 void BoomSerialIO::Init(Stream * pBoomSerial)
 {
-//    uint32_t hwSerialConfig = SerialConfig::SERIAL_8E1;
-
-    // Set the boom serial port driver
     pSerial = pBoomSerial;
-
-    // Start in enabled mode
-//    Enable(true);
-
 }
-
-// ----------------------------------------------------------------------------
-
-#if 0
-// Enable / disable reading of boom data
-
-void BoomSerialIO::Enable(bool bEnable)
-{
-    // If being enabled then flush the input buffer
-    if (!bEnabled && bEnable)
-        pSerial->flush();
-
-    bEnabled = bEnable;
-}
-#endif
 
 // ----------------------------------------------------------------------------
 
@@ -135,11 +99,21 @@ void BoomSerialIO::Read()
                             }
 
                             // Continue processing as before
-                            Static  = BOOM_STATIC_CALC(parseArrayInt[0]);
-                            Dynamic = BOOM_DYNAMIC_CALC(parseArrayInt[1]);
+                            if (g_Config.bBoomConvertData)
+                            {
+                                Static  = onspeed::BoomStaticConvert(parseArrayInt[0]);
+                                Dynamic = onspeed::BoomDynamicConvert(parseArrayInt[1]);
+                                Alpha   = onspeed::BoomAlphaConvert(parseArrayInt[2]);
+                                Beta    = onspeed::BoomBetaConvert(parseArrayInt[3]);
+                            }
+                            else
+                            {
+                                Static  = (float)parseArrayInt[0];
+                                Dynamic = (float)parseArrayInt[1];
+                                Alpha   = (float)parseArrayInt[2];
+                                Beta    = (float)parseArrayInt[3];
+                            }
                             IAS     = 0;
-                            Alpha   = BOOM_ALPHA_CALC(parseArrayInt[2]);
-                            Beta    = BOOM_BETA_CALC(parseArrayInt[3]);
 
                             g_Log.printf(MsgLog::EnBoom, MsgLog::EnDebug, "BOOM: Static %.2f, Dynamic %.2f, Alpha %.2f, Beta %.2f, IAS %.2f\n", Static, Dynamic, Alpha, Beta, IAS);
                         } // end parse data

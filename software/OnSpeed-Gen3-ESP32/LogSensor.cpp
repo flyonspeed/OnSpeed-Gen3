@@ -495,4 +495,4 @@ void LogSensor::Write()
 
     } // end if logging enabled
 
-} // end logData()
+} // end LogSensor::Write()

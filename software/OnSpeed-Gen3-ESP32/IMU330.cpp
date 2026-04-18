@@ -141,9 +141,8 @@ void IMU330::Read()
         "Ax %.3f, Ay %.3f, Az %.3f, Gx %.4f, Gy %.4f, Gz %.4f, Temp %.2fC\n",
         Ax, Ay, Az, Gx, Gy, Gz, fTempC);
 
-#ifdef LOGDATA_IMU_RATE
-    logData();
-#endif
+    if (g_Config.iLogRate == 208)
+        g_LogSensor.Write();
 
     }
 

@@ -9,7 +9,6 @@
 
 // GLimit settings
 #define GLIMIT_REPEAT_TIMEOUT_TICKS   30   // 30 x 100ms = 3000ms
-#define ASYMMETRIC_GYRO_LIMIT         15   // degrees/sec rotation on either axis
 
 // 3D Audio: move audio with the ball, scaling is 0.08 LateralG/ball width
 #define AUDIO_3D_CURVE(x)             (-92.822f*(x)*(x) + 20.025f*(x))
@@ -70,10 +69,10 @@ void HousekeepingTask(void * pvParams)
             float fCalcGLimitPos;
             float fCalcGLimitNeg;
 
-            if (fabsf(fSnapRoll) >= ASYMMETRIC_GYRO_LIMIT || fabsf(fSnapYaw) >= ASYMMETRIC_GYRO_LIMIT)
+            if (fabsf(fSnapRoll) >= g_Config.fAsymmetricGyroLimit || fabsf(fSnapYaw) >= g_Config.fAsymmetricGyroLimit)
             {
-                fCalcGLimitPos = g_Config.fLoadLimitPositive * (2.0f / 3.0f);
-                fCalcGLimitNeg = g_Config.fLoadLimitNegative * (2.0f / 3.0f);
+                fCalcGLimitPos = g_Config.fLoadLimitPositive * g_Config.fAsymmetricReduction;
+                fCalcGLimitNeg = g_Config.fLoadLimitNegative * g_Config.fAsymmetricReduction;
             }
             else
             {

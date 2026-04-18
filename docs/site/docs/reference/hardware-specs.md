@@ -45,7 +45,7 @@
 |-----------|-------|
 | **Media** | microSD card (FAT32) |
 | **Interface** | SPI |
-| **Logging Rate** | 50 Hz |
+| **Logging Rate** | 50 Hz default (configurable: 50 or 208 Hz) |
 | **Typical File Size** | ~50–100 MB per hour |
 
 ## Pin Assignments (V4P Hardware)

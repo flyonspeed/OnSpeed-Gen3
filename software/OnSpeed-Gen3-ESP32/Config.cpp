@@ -328,6 +328,13 @@ bool FOSConfig::LoadDefaultConfiguration()
     fLoadLimitPositive  =  4.0;
     fLoadLimitNegative  = -2.0;
 
+    fAsymmetricGyroLimit = 15.0;
+    fAsymmetricReduction = 2.0f / 3.0f;   // 0.666...
+
+    bBoomConvertData     = false;
+
+    iLogRate             = 50;
+
     // vno chime
     iVno                = 150;
     uVnoChimeInterval   = 3;
@@ -436,6 +443,7 @@ String FOSConfig::ConfigurationToString()
 
     XML_INSERT_SET(XmlConfigRoot, "BOOM",           bReadBoom)
     XML_INSERT_SET(XmlConfigRoot, "BOOMCHECKSUM",  bBoomChecksum)
+    XML_INSERT_SET(XmlConfigRoot, "BOOMCONVERTDATA", bBoomConvertData)
     XML_INSERT_SET(XmlConfigRoot, "SERIALEFISDATA", bReadEfisData)
     XML_INSERT_SET(XmlConfigRoot, "EFISTYPE",       sEfisType.c_str())
     XML_INSERT_SET(XmlConfigRoot, "OATSENSOR",     bOatSensor)
@@ -463,6 +471,8 @@ String FOSConfig::ConfigurationToString()
     XMLElement * XmlConfigLoadLimit = XmlConfigNew;
     XML_INSERT_SET(XmlConfigLoadLimit, "POSITIVE", fLoadLimitPositive)
     XML_INSERT_SET(XmlConfigLoadLimit, "NEGATIVE", fLoadLimitNegative)
+    XML_INSERT_SET(XmlConfigLoadLimit, "ASYMMETRIC_GYRO_LIMIT", fAsymmetricGyroLimit)
+    XML_INSERT_SET(XmlConfigLoadLimit, "ASYMMETRIC_REDUCTION",  fAsymmetricReduction)
 
     XML_INSERT(XmlConfigRoot, "VNO")
     XMLElement * XmlConfigVNO = XmlConfigNew;
@@ -471,6 +481,7 @@ String FOSConfig::ConfigurationToString()
     XML_INSERT_SET(XmlConfigVNO, "CHIME_ENABLED",  bVnoChimeEnabled)
 
     XML_INSERT_SET(XmlConfigRoot, "SDLOGGING", bSdLogging)
+    XML_INSERT_SET(XmlConfigRoot, "LOGRATE",   iLogRate)
 
     XML_INSERT(XmlConfigRoot, "AIRCRAFT")
     XMLElement * XmlConfigAircraft = XmlConfigNew;
@@ -782,6 +793,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         // Serial inputs
         XML_GET_BOOL(XmlRootNode, "BOOM",             bReadBoom)
         XML_GET_BOOL(XmlRootNode, "BOOMCHECKSUM",     bBoomChecksum)
+        XML_GET_BOOL(XmlRootNode, "BOOMCONVERTDATA",   bBoomConvertData)
         XML_GET_BOOL(XmlRootNode, "SERIALEFISDATA",   bReadEfisData)
         XML_GET_STR(XmlRootNode,  "EFISTYPE",         sEfisType)
         XML_GET_BOOL(XmlRootNode, "OATSENSOR",        bOatSensor)
@@ -822,6 +834,8 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             {
             XML_GET_FLOAT(pXmlLoad, "POSITIVE",  fLoadLimitPositive)
             XML_GET_FLOAT(pXmlLoad, "NEGATIVE",  fLoadLimitNegative)
+            XML_GET_FLOAT(pXmlLoad, "ASYMMETRIC_GYRO_LIMIT", fAsymmetricGyroLimit)
+            XML_GET_FLOAT(pXmlLoad, "ASYMMETRIC_REDUCTION",  fAsymmetricReduction)
             }
 
         XMLElement * pXmlVno = XmlRootNode->FirstChildElement("VNO");
@@ -833,6 +847,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
             }
 
         XML_GET_BOOL(XmlRootNode, "SDLOGGING",        bSdLogging)
+        XML_GET_INT (XmlRootNode, "LOGRATE",           iLogRate)
 
         XMLElement * pXmlAircraft = XmlRootNode->FirstChildElement("AIRCRAFT");
         if (pXmlAircraft != NULL)

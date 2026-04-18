@@ -1,7 +1,6 @@
 
 #pragma once
 
-//#include <SoftwareSerial.h>
 #include <HardwareSerial.h>
 
 #include "Globals.h"
@@ -18,10 +17,7 @@ public:
 
     // Data
 public:
-//  HardwareSerial    * pSerial;
     Stream            * pSerial;
-
-//    bool                bEnabled;
 
     char                Buffer[BOOM_BUFFER_SIZE];
     byte                BufferIndex;
@@ -39,6 +35,5 @@ public:
     // Methods
 public:
     void Init(Stream * pBoomSerial);
-//    void Enable(bool bEnable);
     void Read();
 };
