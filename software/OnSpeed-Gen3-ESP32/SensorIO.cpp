@@ -273,10 +273,16 @@ void SensorIO::Read()
 
         // Catch negative pressure case
         else
+        {
             IAS = 0;
-	    } // end if not in test pot or range sweep mode
+        }
 
-	    uIasUpdateUs = micros();
+        // Only update the IAS timestamp when IAS was actually computed from
+        // live sensor data. In TestPot/RangeSweep modes IAS is not updated,
+        // so advancing the timestamp would cause AHRS to wastefully recompute
+        // TAS at 50 Hz using stale data.
+        uIasUpdateUs = micros();
+    } // end if not in test pot or range sweep mode
 
 	    // Take derivative of airspeed for deceleration calc.
 	    // Update at 20 Hz (50 ms) to match tone buffer update rate.
