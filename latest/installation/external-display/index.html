@@ -1122,16 +1122,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#m5stack-display" class="md-nav__link">
+  <a href="#m5stack-basic-display" class="md-nav__link">
     <span class="md-ellipsis">
       
-        M5Stack Display
+        M5Stack Basic display
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="M5Stack Display">
+    <nav class="md-nav" aria-label="M5Stack Basic display">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#display-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display modes
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#wiring" class="md-nav__link">
@@ -1145,10 +1156,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#display-data" class="md-nav__link">
+  <a href="#powering-the-m5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Display Data
+        Powering the M5
       
     </span>
   </a>
@@ -1159,7 +1170,7 @@
   <a href="#serial-output-format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Serial Output Format
+        Serial output format
       
     </span>
   </a>
@@ -1168,6 +1179,28 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashing-the-m5-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flashing the M5 firmware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bench-testing-without-the-onspeed-box" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bench testing without the OnSpeed box
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2999,16 +3032,27 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#m5stack-display" class="md-nav__link">
+  <a href="#m5stack-basic-display" class="md-nav__link">
     <span class="md-ellipsis">
       
-        M5Stack Display
+        M5Stack Basic display
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="M5Stack Display">
+    <nav class="md-nav" aria-label="M5Stack Basic display">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#display-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display modes
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#wiring" class="md-nav__link">
@@ -3022,10 +3066,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#display-data" class="md-nav__link">
+  <a href="#powering-the-m5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Display Data
+        Powering the M5
       
     </span>
   </a>
@@ -3036,7 +3080,7 @@
   <a href="#serial-output-format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Serial Output Format
+        Serial output format
       
     </span>
   </a>
@@ -3045,6 +3089,28 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashing-the-m5-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flashing the M5 firmware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bench-testing-without-the-onspeed-box" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bench testing without the OnSpeed box
+      
+    </span>
+  </a>
   
 </li>
       
@@ -3085,41 +3151,144 @@
 
 
 <h1 id="optional-external-display">Optional: External Display<a class="headerlink" href="#optional-external-display" title="Permanent link">&para;</a></h1>
-<p>OnSpeed can drive an external display via serial output, providing a cockpit-mounted visual readout of AOA, airspeed, and other flight data.</p>
-<h2 id="m5stack-display">M5Stack Display<a class="headerlink" href="#m5stack-display" title="Permanent link">&para;</a></h2>
-<p>The M5Stack is a small, self-contained display unit that receives data from OnSpeed over a serial connection.</p>
+<p>OnSpeed can drive an external display via serial output, providing a
+cockpit-mounted visual readout of AOA, airspeed, attitude, and
+deceleration. The most common option is an <strong>M5Stack Basic</strong>, which
+runs the open-source <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display"><code>OnSpeed-M5-Display</code></a>
+firmware ported from the Gen2 project.</p>
+<h2 id="m5stack-basic-display">M5Stack Basic display<a class="headerlink" href="#m5stack-basic-display" title="Permanent link">&para;</a></h2>
+<p>The M5Stack Basic is a compact self-contained ESP32 development unit
+with a 320×240 color TFT, three front buttons, and a USB-C charging
+port. It receives OnSpeed's serial stream, parses it, and renders any
+of five display modes.</p>
+<h3 id="display-modes">Display modes<a class="headerlink" href="#display-modes" title="Permanent link">&para;</a></h3>
+<p>Press Button A / B / C on the front of the M5 to cycle between:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>What it shows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>AOA chevron</strong></td>
+<td>Large animated chevron with the current AOA colored by region (green / yellow / red), plus numeric AOA, IAS, and percent-lift.</td>
+</tr>
+<tr>
+<td><strong>Attitude indicator</strong></td>
+<td>Mini artificial horizon driven from OnSpeed's pitch/roll/flight-path angle; useful as a backup AI.</td>
+</tr>
+<tr>
+<td><strong>Narrow AOA</strong></td>
+<td>Vertical tape layout for AOA, sized for a small panel cutout.</td>
+</tr>
+<tr>
+<td><strong>Decel gauge</strong></td>
+<td>Deceleration rate in knots per second — useful for gauging energy during approach.</td>
+</tr>
+<tr>
+<td><strong>G-load history</strong></td>
+<td>Scrolling graph of vertical G over time. Handy after maneuvering or turbulence.</td>
+</tr>
+</tbody>
+</table>
 <h3 id="wiring">Wiring<a class="headerlink" href="#wiring" title="Permanent link">&para;</a></h3>
+<p>The M5 talks to OnSpeed over a one-way serial link. Connect:</p>
+<table>
+<thead>
+<tr>
+<th>OnSpeed pin</th>
+<th>Direction</th>
+<th>M5 pin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPIO 10 (DISPLAY_SER_TX)</td>
+<td>→</td>
+<td>M5 Port C RX (GPIO 16)</td>
+</tr>
+<tr>
+<td>GND</td>
+<td>↔</td>
+<td>M5 GND</td>
+</tr>
+</tbody>
+</table>
+<p>The OnSpeed serial output can be TTL or RS-232 level. The M5 firmware
+auto-detects on boot by trying three common port configurations (TTL
+direct, RS-232 inverted, and a simulator-friendly variant). Once
+detected, the port mapping is saved to the M5's NVS flash so subsequent
+boots come up faster.</p>
 <ul>
-<li><strong>OnSpeed TX</strong>: GPIO 10 (DISPLAY_SER_TX)</li>
-<li><strong>Display RX</strong>: Connect to the M5Stack's RX input</li>
-<li><strong>Ground</strong>: Shared ground</li>
-<li><strong>Baud rate</strong>: RS-232 level</li>
+<li><strong>Baud rate:</strong> 115200 8N1</li>
+<li><strong>Frame rate:</strong> 20 Hz (every 50 ms). Each frame is 80 ASCII bytes
+  including <code>#1</code> header, fields, CRC, and CRLF.</li>
 </ul>
-<h3 id="display-data">Display Data<a class="headerlink" href="#display-data" title="Permanent link">&para;</a></h3>
-<p>The display serial output includes:</p>
+<h3 id="powering-the-m5">Powering the M5<a class="headerlink" href="#powering-the-m5" title="Permanent link">&para;</a></h3>
+<p>The M5 can be powered from:</p>
 <ul>
-<li>Current AOA</li>
-<li>IAS</li>
-<li>Tone region indicator</li>
-<li>Flap position</li>
-<li>OAT</li>
+<li><strong>Its own USB-C port</strong> — ideal for bench testing or a permanent
+  panel installation if you have avionics USB power.</li>
+<li><strong>Panel 5 V supply</strong> wired into the M5 base's red power pin on
+  Port C. Check the M5Stack documentation for current ratings before
+  wiring to ship power.</li>
 </ul>
-<h3 id="serial-output-format">Serial Output Format<a class="headerlink" href="#serial-output-format" title="Permanent link">&para;</a></h3>
-<p>The output format is configurable via <code>SERIALOUTFORMAT</code> in the configuration:</p>
+<p>Do <strong>not</strong> try to power the M5 from OnSpeed's GPIO pins — they don't
+supply enough current for the display.</p>
+<h3 id="serial-output-format">Serial output format<a class="headerlink" href="#serial-output-format" title="Permanent link">&para;</a></h3>
+<p>The OnSpeed firmware's serial output format is configurable via the
+<code>SERIALOUTFORMAT</code> field in the configuration:</p>
 <ul>
-<li><strong>ONSPEED</strong> — OnSpeed native format</li>
-<li><strong>G3X</strong> — Garmin G3X-compatible format (for use with Garmin displays)</li>
+<li><strong>ONSPEED</strong> — native format (76-byte payload with AOA, setpoints,
+  attitude, flap position, etc.). Use this with <code>OnSpeed-M5-Display</code>.</li>
+<li><strong>G3X</strong> — Garmin G3X-compatible subset for use with Garmin panel
+  displays.</li>
 </ul>
+<h2 id="flashing-the-m5-firmware">Flashing the M5 firmware<a class="headerlink" href="#flashing-the-m5-firmware" title="Permanent link">&para;</a></h2>
+<p>Prerequisites:</p>
+<ul>
+<li><a href="https://docs.platformio.org/en/latest/core/installation.html">PlatformIO CLI</a>
+  installed</li>
+<li>M5Stack Basic connected to your laptop via USB-C</li>
+</ul>
+<p>Flash:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>software/OnSpeed-M5-Display
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core-esp32<span class="w"> </span>-t<span class="w"> </span>upload
+</code></pre></div>
+<p>Tail the M5's own USB serial for debug output:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pio<span class="w"> </span>device<span class="w"> </span>monitor
+</code></pre></div>
+<h2 id="bench-testing-without-the-onspeed-box">Bench testing without the OnSpeed box<a class="headerlink" href="#bench-testing-without-the-onspeed-box" title="Permanent link">&para;</a></h2>
+<p>You can test the M5 display on your desk before connecting it to
+OnSpeed. Use the Python replay tool under
+<a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/tools/m5-replay"><code>tools/m5-replay/</code></a>
+with a cheap USB-to-TTL dongle:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">cd</span><span class="w"> </span>tools/m5-replay
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># Real flight log</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span>--input<span class="w"> </span>/path/to/OnSpeed_log.csv
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Deterministic synthetic demo (cruise → approach → stall → g-turns)</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span>--synthetic
+</code></pre></div>
+<p>See <code>tools/m5-replay/README.md</code> for the full hardware shopping list,
+wiring diagram, and protocol details.</p>
 <h2 id="mounting">Mounting<a class="headerlink" href="#mounting" title="Permanent link">&para;</a></h2>
-<p>Mount the display where it's visible during approach without blocking your view of primary instruments. Common locations:</p>
+<p>Mount the display where it's visible during approach without blocking
+your view of primary instruments. Common locations:</p>
 <ul>
-<li>Panel cutout</li>
-<li>Glareshield mount</li>
+<li>Panel cutout (flush-mount)</li>
+<li>Glareshield mount on a RAM-style ball joint</li>
 <li>Side console</li>
 </ul>
 <div class="admonition note">
 <p class="admonition-title">Display is supplemental</p>
-<p>The external display provides additional visual information. The primary OnSpeed interface remains the audio tones.</p>
+<p>The external display provides additional visual information. The
+primary OnSpeed interface remains the audio tones — your eyes
+should still be outside during approach.</p>
 </div>
 
 
