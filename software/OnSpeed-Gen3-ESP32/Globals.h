@@ -79,8 +79,8 @@
 #include "src/audio_io/Volume.h"
 #include "src/audio_io/Audio.h"
 #include "Housekeeping.h"
-#include "ConfigWebServer.h"
-#include "DataServer.h"
+#include "src/web_server/ConfigWebServer.h"
+#include "src/web_server/DataServer.h"
 #include "Helpers.h"
 
 // Defines
