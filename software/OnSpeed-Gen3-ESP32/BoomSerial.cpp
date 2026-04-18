@@ -1,35 +1,7 @@
 
-//#include "SoftwareSerial.h"
-
 #include "Globals.h"
 #include "BoomSerial.h"
-
-// Boom probe polynomial calibration curves (probe-specific constants)
-static float BoomAlphaCalc(int x)
-{
-    if (!g_Config.bBoomConvertData) return (float)x;
-    float f = (float)x;
-    return 7.0918e-13f*f*f*f*f - 1.1698e-8f*f*f*f + 7.0109e-5f*f*f - 0.21624f*f + 310.21f; // degrees
-}
-
-static float BoomBetaCalc(int x)
-{
-    if (!g_Config.bBoomConvertData) return (float)x;
-    float f = (float)x;
-    return 2.0096e-13f*f*f*f*f - 3.7124e-9f*f*f*f + 2.5497e-5f*f*f - 3.7141e-2f*f - 72.505f; // degrees
-}
-
-static float BoomStaticCalc(int x)
-{
-    if (!g_Config.bBoomConvertData) return (float)x;
-    return 0.00012207f * (x - 1638) * 1000.0f; // millibars
-}
-
-static float BoomDynamicCalc(int x)
-{
-    if (!g_Config.bBoomConvertData) return (float)x;
-    return (0.01525902f * (x - 1638)) - 100.0f; // millibars
-}
+#include <BoomConvert.h>
 
 #define BOOM_PACKET_SIZE         50
 
@@ -127,11 +99,21 @@ void BoomSerialIO::Read()
                             }
 
                             // Continue processing as before
-                            Static  = BoomStaticCalc(parseArrayInt[0]);
-                            Dynamic = BoomDynamicCalc(parseArrayInt[1]);
+                            if (g_Config.bBoomConvertData)
+                            {
+                                Static  = onspeed::BoomStaticConvert(parseArrayInt[0]);
+                                Dynamic = onspeed::BoomDynamicConvert(parseArrayInt[1]);
+                                Alpha   = onspeed::BoomAlphaConvert(parseArrayInt[2]);
+                                Beta    = onspeed::BoomBetaConvert(parseArrayInt[3]);
+                            }
+                            else
+                            {
+                                Static  = (float)parseArrayInt[0];
+                                Dynamic = (float)parseArrayInt[1];
+                                Alpha   = (float)parseArrayInt[2];
+                                Beta    = (float)parseArrayInt[3];
+                            }
                             IAS     = 0;
-                            Alpha   = BoomAlphaCalc(parseArrayInt[2]);
-                            Beta    = BoomBetaCalc(parseArrayInt[3]);
 
                             g_Log.printf(MsgLog::EnBoom, MsgLog::EnDebug, "BOOM: Static %.2f, Dynamic %.2f, Alpha %.2f, Beta %.2f, IAS %.2f\n", Static, Dynamic, Alpha, Beta, IAS);
                         } // end parse data
