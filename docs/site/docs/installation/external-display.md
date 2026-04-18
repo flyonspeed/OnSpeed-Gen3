@@ -2,9 +2,10 @@
 
 OnSpeed can drive an external display via serial output, giving you a
 cockpit-mounted visual readout of AOA, airspeed, attitude, flight path,
-deceleration, and G-load. The supported option is an **M5Stack Basic**,
-which runs the open-source [`OnSpeed-M5-Display`](https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display)
-firmware.
+deceleration, and G-load. Two M5Stack units are supported — the
+**M5Stack Basic** and the **M5Stack Core2** — both running the same
+open-source [`OnSpeed-M5-Display`](https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display)
+firmware from a single codebase.
 
 !!! note "Display is supplemental"
     The external display supplements OnSpeed's audio tones — it does not
@@ -13,12 +14,25 @@ firmware.
     post-flight analysis (G-load history), initial familiarization with
     the tones, and as a backup attitude indicator.
 
-## M5Stack Basic display
+## Supported M5Stack units
 
-The M5Stack Basic is a compact self-contained ESP32 development unit
-with a 320×240 color TFT, three front buttons, and a USB-C charging
-port. It receives OnSpeed's serial stream, parses it, and renders any
-of five display modes.
+Both supported units have the same 320×240 ILI9342C color TFT at 40 MHz
+and receive OnSpeed's 20 Hz serial stream over Port C. You can pick
+either one; the firmware is a single binary per board (built from the
+same source) and the on-screen layout is identical.
+
+| | **M5Stack Basic** | **M5Stack Core2** |
+|--|--|--|
+| USB-serial chip | CP2104 | CH9102F |
+| Port C pins | GPIO 16 (RX) / GPIO 17 (TX) | GPIO 13 (RX) / GPIO 14 (TX) |
+| Buttons | Three physical buttons | Three capacitive touch zones below the screen |
+| IMU | MPU9250 | MPU6886 |
+| Power | Direct 5 V | AXP192 PMIC (handled by M5Unified) |
+| PlatformIO env | `m5stack-core-esp32` | `m5stack-core2` |
+
+Either unit works — the Core2 adds a built-in LiPo battery and
+capacitive touch, while the Basic is slightly cheaper and has tactile
+buttons. Wiring, serial protocol, and mounting options are the same.
 
 ### Buttons
 
@@ -27,6 +41,11 @@ of five display modes.
 | **Button A** (left) | Brightness down |
 | **Button B** (middle) | Cycle display mode (0 → 4, then wraps back to 0) |
 | **Button C** (right) | Brightness up |
+
+On the Core2, these are capacitive touch zones below the screen (the
+three dots printed on the bezel); the Basic has physical push buttons.
+The firmware uses M5Unified's unified `M5.BtnA/B/C` API, so behavior is
+identical on both units.
 
 If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
@@ -197,10 +216,15 @@ G unloading you didn't realize you were doing.
 The M5 talks to OnSpeed over a one-way serial link. Only three
 connections are needed.
 
-| OnSpeed pin              | Direction | M5 pin                 |
-|--------------------------|-----------|------------------------|
-| GPIO 10 (DISPLAY_SER_TX) | →         | M5 Port C RX (GPIO 16) |
-| GND                      | ↔         | M5 GND                 |
+| OnSpeed pin              | Direction | M5 Basic Port C RX | M5 Core2 Port C RX |
+|--------------------------|-----------|--------------------|--------------------|
+| GPIO 10 (DISPLAY_SER_TX) | →         | GPIO 16            | GPIO 13            |
+| GND                      | ↔         | GND                | GND                |
+
+Port C on the Basic uses GPIO 16/17; on the Core2 it moves to
+GPIO 13/14. The M5 firmware compiles the correct pins in automatically
+per env — you only need to match the physical Port C pin on whichever
+unit you have.
 
 The OnSpeed serial output can be TTL or RS-232 level. The M5 firmware
 auto-detects on boot by trying three common port configurations (TTL
@@ -231,13 +255,18 @@ Prerequisites:
 
 - [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation.html)
   installed
-- M5Stack Basic connected to your laptop via USB-C
+- M5Stack Basic or Core2 connected to your laptop via USB-C
 
-Flash:
+Flash — pick the env for your unit:
 
 ```bash
 cd software/OnSpeed-M5-Display
+
+# M5Stack Basic
 pio run -e m5stack-core-esp32 -t upload
+
+# M5Stack Core2
+pio run -e m5stack-core2 -t upload
 ```
 
 Tail the M5's own USB serial for debug output:
