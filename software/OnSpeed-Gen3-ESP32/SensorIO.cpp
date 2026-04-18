@@ -240,7 +240,7 @@ void SensorIO::Read()
         else if (bOatConversionPending && (millis() - uOatRequestMs >= 800))
         {
             float fNew = OatSensor.getTempCByIndex(0);
-            if (fNew > -100.0f && fNew < 100.0f)
+            if (fNew > -80.0f && fNew < 80.0f)
             {
                 OatC = fNew;    // valid reading
             }
@@ -378,7 +378,7 @@ float SensorIO::ReadOatC()
 {
     OatSensor.requestTemperatures();
     float fNew = OatSensor.getTempCByIndex(0);
-    if (fNew > -100.0f && fNew < 100.0f)
+    if (fNew > -80.0f && fNew < 80.0f)
     {
         OatC = fNew;
     }
