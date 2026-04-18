@@ -179,10 +179,15 @@ void AHRS::Process(float fDeltaTimeSeconds)
                 if (fDivisor > 0.0f)
                     fTAS = kts2mps(g_Sensors.IAS / powf(fDivisor, 2.12794f));
                 else
+                    // Density altitude formula overflowed (extreme DA).
+                    // Fall back to simple altitude correction so fTAS isn't
+                    // left at 0, which would corrupt FlightPath via safeAsin.
                     fTAS = kts2mps(g_Sensors.IAS * (1.0f + g_Sensors.Palt / 1000.0f * 0.02f));
                 }
             else
                 {
+                // OAT in Kelvin is non-positive (bad sensor data).
+                // Same fallback — rough TAS is better than zero TAS.
                 fTAS = kts2mps(g_Sensors.IAS * (1.0f + g_Sensors.Palt / 1000.0f * 0.02f));
                 }
             }
