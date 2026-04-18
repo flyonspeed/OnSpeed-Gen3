@@ -84,3 +84,76 @@ jobs:
           files: |
             release-assets/onspeed-*-bootloader.bin
             release-assets/onspeed-*-partitions.bin
+
+  build-m5:
+    name: Build M5 Display ${{ matrix.board }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: basic
+            env: m5stack-core-esp32
+          - board: core2
+            env: m5stack-core2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0          # Full history for generate_buildinfo.py git tags
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+          key: ${{ runner.os }}-pio-m5stack-v1
+          restore-keys: |
+            ${{ runner.os }}-pio-m5stack-
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build M5 Display firmware
+        run: pio run -d software/OnSpeed-M5-Display -e ${{ matrix.env }}
+
+      - name: Prepare release assets
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VER="${TAG#v}"
+          BUILD=software/OnSpeed-M5-Display/.pio/build/${{ matrix.env }}
+
+          mkdir -p release-assets
+
+          # Firmware binary (differs per board)
+          cp "${BUILD}/firmware.bin" \
+             "release-assets/onspeed-m5-${VER}-${{ matrix.board }}-firmware.bin"
+
+          # Bootloader and partitions (uploaded once from the basic job; they
+          # differ between Basic and Core2 at the flash-address level, but
+          # OTA upgrades only replace firmware.bin so most users won't need
+          # them. USB-flash recovery users still need the per-board copy.)
+          cp "${BUILD}/bootloader.bin" \
+             "release-assets/onspeed-m5-${VER}-${{ matrix.board }}-bootloader.bin"
+          cp "${BUILD}/partitions.bin" \
+             "release-assets/onspeed-m5-${VER}-${{ matrix.board }}-partitions.bin"
+
+      - name: Upload M5 firmware to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/onspeed-m5-*-${{ matrix.board }}-firmware.bin
+            release-assets/onspeed-m5-*-${{ matrix.board }}-bootloader.bin
+            release-assets/onspeed-m5-*-${{ matrix.board }}-partitions.bin

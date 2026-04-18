@@ -251,13 +251,68 @@ supply enough current for the display's backlight.
 
 ## Flashing the M5 firmware
 
+There are three ways to get firmware onto the M5 display, in increasing
+order of complexity:
+
+1. **OTA update** (no cable) — already-flashed M5, WiFi-capable update
+2. **USB flash from a released binary** — new M5, or recovery flash
+3. **Build + flash from source** — developers and advanced users
+
+### 1. OTA update (existing M5, no USB cable)
+
+Once an M5 has been flashed at least once with OnSpeed firmware, future
+updates can happen over WiFi — no USB cable required.
+
+1. Download `firmware.bin` for your board from the [latest release page](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest). Look for:
+    - `onspeed-m5-X.Y.Z-basic-firmware.bin` (M5Stack Basic)
+    - `onspeed-m5-X.Y.Z-core2-firmware.bin` (M5Stack Core2)
+2. Hold **Button B** while powering the M5 on. It will boot into
+   firmware-update mode and display its WiFi SSID + IP address
+   (typically `192.168.4.1`).
+3. Connect your laptop or phone to that WiFi network.
+4. Open `http://192.168.4.1` in a browser.
+5. Click **Choose file** and select the `firmware.bin` you downloaded,
+   then click **Update**.
+6. The M5 reboots into the new firmware automatically.
+
+### 2. USB flash from a released binary (new M5)
+
+For a freshly-purchased M5 that's never run OnSpeed firmware, flash it
+once via USB. After that, future updates can use the OTA path above.
+
+**Download the release assets** for your board from the [latest release](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest):
+
+- `onspeed-m5-X.Y.Z-basic-firmware.bin` or `-core2-firmware.bin`
+- `onspeed-m5-X.Y.Z-basic-bootloader.bin` or `-core2-bootloader.bin`
+- `onspeed-m5-X.Y.Z-basic-partitions.bin` or `-core2-partitions.bin`
+
+**Flash with esptool** (install via `pip install esptool`):
+
+```bash
+# Replace PORT with your M5's USB-serial device:
+#   Basic: /dev/cu.usbserial-* (CP2104) on macOS, COMn on Windows
+#   Core2: /dev/cu.usbserial-* (CH9102F) on macOS, COMn on Windows
+
+esptool.py --chip esp32 --port PORT --baud 921600 write_flash \
+    0x1000   onspeed-m5-X.Y.Z-BOARD-bootloader.bin \
+    0x8000   onspeed-m5-X.Y.Z-BOARD-partitions.bin \
+    0x10000  onspeed-m5-X.Y.Z-BOARD-firmware.bin
+```
+
+Replace `BOARD` with `basic` or `core2` and `X.Y.Z` with the release
+version.
+
+Alternatively, [M5Burner](https://docs.m5stack.com/en/download) is a
+GUI tool from M5Stack that can flash custom firmware. Use its
+"Custom firmware" tab and point it at the three release `.bin` files.
+
+### 3. Build and flash from source (developers)
+
 Prerequisites:
 
 - [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation.html)
   installed
 - M5Stack Basic or Core2 connected to your laptop via USB-C
-
-Flash — pick the env for your unit:
 
 ```bash
 cd software/OnSpeed-M5-Display
@@ -274,6 +329,14 @@ Tail the M5's own USB serial for debug output:
 ```bash
 pio device monitor
 ```
+
+### Getting firmware for an unreleased change (reviewers and testers)
+
+Every pull request that touches M5 display code builds both board
+variants in CI and posts a comment with direct download links to the
+`.zip` artifacts. Look for the "Firmware Artifacts" comment on the PR;
+it includes a table with Basic and Core2 rows. Downloading requires a
+GitHub login; artifacts expire 30 days after the CI run.
 
 ## Bench testing without the OnSpeed box
 
