@@ -2,7 +2,7 @@
 // Parses the OnSpeed #1 serial protocol and preprocesses data for display.
 
 #include <Arduino.h>
-#include <M5Stack.h>
+#include <M5Unified.h>
 #include <Free_Fonts.h>
 #include <Preferences.h>
 #include <SavGolDerivative.h>
@@ -17,7 +17,7 @@ static const float decelSmoothingAlpha = 0.04f;  //1 = max smoothing, 0.01 no sm
 static double iasDerivativeInput;
 static onspeed::SavGolDerivative iasDerivative(&iasDerivativeInput, 15);
 
-extern TFT_eSprite gdraw;
+extern M5Canvas gdraw;
 static const uint16_t WIDTH  = 320;
 static const uint16_t HEIGHT = 240;
 
@@ -247,7 +247,7 @@ unsigned int checkSerial()
     gdraw.setColorDepth(8);
     gdraw.createSprite(WIDTH, HEIGHT);
     gdraw.fillSprite (TFT_BLACK);
-    gdraw.setFreeFont(FSS12);
+    gdraw.setFont(FSS12);
     gdraw.setTextDatum(MC_DATUM);
     gdraw.setTextColor (TFT_WHITE);
     gdraw.drawString("Looking for Serial data",160,120);
@@ -347,7 +347,7 @@ void serialSetup()
             gdraw.setColorDepth(8);
             gdraw.createSprite(WIDTH, HEIGHT);
             gdraw.fillSprite (TFT_BLACK);
-            gdraw.setFreeFont(FSS12);
+            gdraw.setFont(FSS12);
             gdraw.setTextDatum(MC_DATUM);
             gdraw.setTextColor (TFT_RED);
             gdraw.drawString("No Serial Stream Detected",160,120);

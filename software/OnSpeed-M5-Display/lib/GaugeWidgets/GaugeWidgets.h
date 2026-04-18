@@ -52,8 +52,8 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   #include "DeviceDefines.h"
   
     #ifdef DEVICE_M5
-     #include <M5Stack.h>
-    #else 
+     #include <M5Unified.h>
+    #else
      #include "VVLink.h"
     #endif
     

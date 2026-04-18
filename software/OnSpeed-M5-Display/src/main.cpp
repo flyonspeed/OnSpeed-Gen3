@@ -31,7 +31,11 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  Ported to Gen3 repository, 2026.
 */
 
-#define VERSION "4.0.0"
+// Runtime-provided version string. Regenerated from git tags each build by
+// scripts/generate_buildinfo.py (see BuildInfo::version in buildinfo.cpp).
+// Non-release builds look like "4.17.1-dev.19+35a823b" — tagged release
+// builds drop the -dev suffix and the +sha metadata.
+#include <buildinfo.h>
 
 //#define SERIALDATADEBUG   // show serial packet debug
 //#define DUMMY_SERIAL_DATA // dummy serial data for display test
@@ -40,22 +44,22 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //#define REPEATER_MODE       // Used to turn on settings for video recorder repeater
 //#define VAC_MODE            // Used to turn on Vac specific features
 
+// REPEATER_MODE/VAC_MODE prefix character (R/V) for the variant, prepended
+// to BuildInfo::version at runtime by the renderers below.
 #if defined(REPEATER_MODE)
-#define firmwareVersion "R" VERSION
-#define IAS_IN_MPH        // uncomment this line for IAS in MPH, otherwise it will display in Kts;
+#define VARIANT_PREFIX "R"
+#define IAS_IN_MPH
 #define DATAMARK_DISPLAY
-
 #elif defined(VAC_MODE)
-#define firmwareVersion "V" VERSION
-#define IAS_IN_MPH        // uncomment this line for IAS in MPH, otherwise it will display in Kts;
+#define VARIANT_PREFIX "V"
+#define IAS_IN_MPH
 #define DATAMARK_DISPLAY
-
 #else
-#define firmwareVersion VERSION
+#define VARIANT_PREFIX ""
 #endif
 
 #include <GaugeWidgets.h>
-#include <M5Stack.h>
+#include <M5Unified.h>
 #include <Free_Fonts.h>
 
 // includes for web firmware update
@@ -81,7 +85,7 @@ uint8_t     aiIP[4]      = {192, 168, 0, 2};
 #define TFT_LIGHT_GREY  0xAD55
 #define TFT_LIGHT_BLUE  0x421F  // 01000 010000 11111 0100001000011111
 
-TFT_eSprite     gdraw = TFT_eSprite(&M5.Lcd);
+M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
 
 float AOAThresholds[8];
@@ -204,12 +208,12 @@ void setup()
     //
     // initialize the M5Stack object and clear display
     //
-    M5.begin();
-    M5.Power.begin();
-    M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setBrightness (50);
+    auto cfg = M5.config();
+    M5.begin(cfg);
+    M5.Display.fillScreen(BLACK);
+    M5.Display.setBrightness(50);
     // mute the speaker (annoying hiss)
-    dacWrite (25,0);
+    dacWrite(25, 0);
 
     gdraw.setColorDepth(8);
     gdraw.createSprite(WIDTH, HEIGHT);
@@ -234,21 +238,21 @@ void setup()
             gdraw.setColorDepth(8);
             gdraw.createSprite(WIDTH, HEIGHT);
             gdraw.fillSprite (TFT_BLACK);
-            gdraw.setFreeFont(FSSB12);
+            gdraw.setFont(FSSB12);
             gdraw.setTextColor (TFT_WHITE);
             gdraw.setTextDatum(MC_DATUM);
             gdraw.drawString("Firmware Upgrade Server",160,20);
 
-            gdraw.setFreeFont(FSS12);
+            gdraw.setFont(FSS12);
             gdraw.setTextDatum(ML_DATUM);
             gdraw.drawString("Wifi SSID: "+String(ssid),20,70);
             gdraw.drawString("Password: "+String(password),20,100);
             gdraw.drawString("Browse to:",20,140);
             gdraw.drawString("http://"+String(aiIP[0])+"."+String(aiIP[1])+"."+String(aiIP[2])+"."+String(aiIP[3])+"/upgrade",20,170);
             gdraw.setTextDatum(ML_DATUM);
-            gdraw.drawString(String(firmwareVersion),5,215);
+            gdraw.drawString(String(VARIANT_PREFIX) + BuildInfo::version, 5, 215);
 
-            gdraw.setFreeFont(FSSB12);
+            gdraw.setFont(FSSB12);
             gdraw.setTextColor (TFT_RED);
             gdraw.setTextDatum(MR_DATUM);
             gdraw.drawString("EXIT",280,215);
@@ -297,13 +301,13 @@ void setup()
                         gdraw.setColorDepth(8);
                         gdraw.createSprite(WIDTH, HEIGHT);
                         gdraw.fillSprite (TFT_BLACK);
-                        gdraw.setFreeFont(FSSB12);
+                        gdraw.setFont(FSSB12);
                         gdraw.setTextColor (TFT_WHITE);
 
                         gdraw.setTextDatum(MC_DATUM);
                         gdraw.drawString("Upgrading Firmware",160,90);
 
-                        gdraw.setFreeFont(FSS12);
+                        gdraw.setFont(FSS12);
                         gdraw.drawString("Please wait...",160,150);
 
                         gdraw.pushSprite (0, 0);
@@ -390,7 +394,7 @@ void loop()
 
     displayBrightness=constrain(displayBrightness,1,255);
 
-    M5.Lcd.setBrightness (displayBrightness);
+    M5.Display.setBrightness(displayBrightness);
 
     if (M5.BtnB.wasPressed())
     {
@@ -418,6 +422,14 @@ void loop()
         gdraw.setColorDepth(8);
         gdraw.createSprite(WIDTH, HEIGHT);
         gdraw.fillSprite (TFT_BLACK);
+        // Reset text anchoring for this frame. M5GFX's print()/setCursor()
+        // honors the current datum; the old M5Stack/TFT_eSPI fork always
+        // anchored setCursor-style output at the top-left regardless.
+        // Re-seat to TL_DATUM here so setCursor(x,y)+print(...) sequences
+        // in this render behave as the Gen2 layout code assumed. Any block
+        // that needs a different datum sets it locally around the
+        // drawString() call and falls back to TL_DATUM for later code.
+        gdraw.setTextDatum(textdatum_t::baseline_left);
 
         // update numbers at a slower rate so they are readable
         if (millis()-numbersUpdateTime>updateRateNumbers)
@@ -456,62 +468,65 @@ void loop()
                 AiGraph (g_px0, g_py0, g_arcSize, g_arcWidth, g_maxDisplay, g_minDisplay, g_startAngle, g_arcAngle, g_clockWise,
                 g_gradMarks, int(Pitch), int(Roll), 360, FlightPath);
 
-                // update numeric displays
-                // Update airspeed numeric display
-                // print labels
-                gdraw.setFreeFont(FSS12);
+                // All four corners use setCursor+print with baseline_left
+                // (frame default) for consistent y semantics. Right-side
+                // alignment is done by computing x = RIGHT_X - textWidth().
+                // RIGHT_X = 303 pulls in from the panel edge to clear the
+                // VSI tick ladder at x=313.
+                constexpr int RIGHT_X = 307;
 
-                gdraw.setCursor(5, 60);
+                // ----- Labels (sit close under/over their numbers) -----
+                constexpr int TOP_LABEL_Y = 55;   // just below number baseline=30
+                constexpr int BOT_LABEL_Y = 223;  // just below number baseline=198
+                gdraw.setFont(FSS12);
+
+                gdraw.setCursor(5, TOP_LABEL_Y);
                 gdraw.setTextColor (TFT_GREY);
-                gdraw.print ("IAS");
+                gdraw.print("IAS");
 
-                gdraw.setCursor(5, 230);
+                gdraw.setCursor(5, BOT_LABEL_Y);
                 gdraw.setTextColor (TFT_LIGHT_GREY);
                 gdraw.print("G");
 
-                gdraw.setCursor(263, 60);
+                gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("ALT"), TOP_LABEL_Y);
                 gdraw.setTextColor (TFT_GREY);
                 gdraw.print("ALT");
 
-                gdraw.setCursor(260, 230);
+                gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("AOA"), BOT_LABEL_Y);
                 gdraw.setTextColor (TFT_LIGHT_GREY);
                 gdraw.print("AOA");
 
-                // update numeric pitch display
-                // same font as labels
-                // dark background for pitch readability
+                // ----- Pitch readout (center, over horizon line) -----
                 gdraw.fillRoundRect(55,129,56,21,3,TFT_DARKGREY);
-
                 gdraw.setTextColor (TFT_WHITE);
                 char PitchStr[4];
                 sprintf(PitchStr,"%1.1f", displayPitch);
-                gdraw.setTextDatum(MR_DATUM);
+                gdraw.setTextDatum(textdatum_t::middle_right);
                 gdraw.drawString(PitchStr,100,138);
+                gdraw.setTextDatum(textdatum_t::baseline_left); // restore
                 // draw degree symbol
                 gdraw.drawCircle (106, 132, 0.50f * 5, TFT_WHITE);
 
-                gdraw.setFreeFont(FSSB18);
+                // ----- Numbers -----
+                gdraw.setFont(FSSB18);
                 gdraw.setTextColor (TFT_BLACK);
+
                 gdraw.setCursor(5, 30);
                 gdraw.print(int(displayIAS));
 
-                // Update G-force numeric display
-                gdraw.setTextColor (TFT_WHITE);
-                gdraw.setCursor(5, 200);
-                gdraw.printf ("%1.1f", displayVerticalG);
-
-                // Update pressure altitude numeric display
-                gdraw.setTextColor (TFT_BLACK);
-                gdraw.setTextDatum(MR_DATUM);
-                // 5 digits + sign + null; snprintf guards against NaN/inf producing long output.
                 char PressAltStr[8];
                 snprintf(PressAltStr, sizeof(PressAltStr), "%5.0f", displayPalt);
-                gdraw.drawString(PressAltStr,309,18);
+                gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth(PressAltStr), 30);
+                gdraw.print(PressAltStr);
 
-                // Update AOA numeric display
                 gdraw.setTextColor (TFT_WHITE);
-                gdraw.setCursor(269, 200);
-                gdraw.printf ("%02d", displayPercentLift);
+                gdraw.setCursor(5, 198);
+                gdraw.printf("%1.1f", displayVerticalG);
+
+                char PctStr[4];
+                snprintf(PctStr, sizeof(PctStr), "%02d", displayPercentLift);
+                gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth(PctStr), 198);
+                gdraw.print(PctStr);
 
                 // Update ball display on attitude page
                 // Increase sensitivity of slip indicator
@@ -598,7 +613,7 @@ void loop()
             gdraw.drawLine (3, 239, 319, 3, TFT_RED);
             gdraw.drawLine (4, 239, 319, 4, TFT_RED);
 
-            gdraw.setFreeFont(FSSB18);
+            gdraw.setFont(FSSB18);
             gdraw.setTextColor (TFT_WHITE);
             gdraw.setTextDatum(MC_DATUM);
             gdraw.fillRect(100,100,120,40,TFT_BLACK);
@@ -646,51 +661,51 @@ void displayAOA()
     #define PERCENT_X_POS   140
     #define PERCENT_Y_POS    27     // Top of chevron
 
-    gdraw.setFreeFont(FSSB18);
+    gdraw.setFont(FSSB18);
 
-    // Black background boarder
+    // Percent lift number (above chevron). Outlined by drawing black
+    // copies at ±3 offset then white on top. Uses setCursor+print with
+    // the frame default datum (baseline_left) — same convention as the
+    // rest of this page.
+    char PctLiftStr[4];
+    snprintf(PctLiftStr, sizeof(PctLiftStr), "%02d", displayPercentLift);
+    const int pctX = (displayPercentLift < 100) ? PERCENT_X_POS : PERCENT_X_POS - 7;
     gdraw.setTextColor (TFT_BLACK);
     for (int xoffset = -3; xoffset <=3; xoffset += 3)
         for (int yoffset = -3; yoffset <=3; yoffset += 3)
         {
-            if (displayPercentLift < 100) gdraw.setCursor(PERCENT_X_POS  +xoffset, PERCENT_Y_POS+yoffset);
-            else                          gdraw.setCursor(PERCENT_X_POS-7+xoffset, PERCENT_Y_POS+yoffset);
-            gdraw.printf ("%02d", displayPercentLift);
+            gdraw.setCursor(pctX + xoffset, PERCENT_Y_POS + yoffset);
+            gdraw.print(PctLiftStr);
         }
-
-    // White text
     gdraw.setTextColor (TFT_WHITE);
-    if (displayPercentLift < 100) gdraw.setCursor(PERCENT_X_POS,   PERCENT_Y_POS);
-    else                          gdraw.setCursor(PERCENT_X_POS-7, PERCENT_Y_POS);
-    gdraw.printf ("%02d", displayPercentLift);
+    gdraw.setCursor(pctX, PERCENT_Y_POS);
+    gdraw.print(PctLiftStr);
 
     if (numericDisplay)
     {
-        // Update airspeed numeric display
-        // -------------------------------
-        gdraw.setFreeFont(FSS18);
+        // Shared layout constants for this page.
+        constexpr int RIGHT_X = 303;   // right-edge anchor, clears VSI ticks
+        constexpr int LABEL_Y = 90;
+        constexpr int NUM_Y   = 130;
 
-        gdraw.setCursor(5, 90);
+        // ----- Labels (IAS left, G right) -----
+        gdraw.setFont(FSS18);
         gdraw.setTextColor (TFT_GREEN);
-        gdraw.print ("IAS ");
-        gdraw.setCursor(278, 90);
-        gdraw.setTextColor (TFT_GREEN);
+        gdraw.setCursor(5, LABEL_Y);
+        gdraw.print("IAS");
+        gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("G"), LABEL_Y);
         gdraw.print("G");
 
-        gdraw.setFreeFont(FSSB18);
-        // update IAS numeric display
+        // ----- Numbers (IAS left, G right, same y) -----
+        gdraw.setFont(FSSB18);
         gdraw.setTextColor (TFT_WHITE);
-        gdraw.setCursor(7, 130);
-        gdraw.print (int(displayIAS));
+        gdraw.setCursor(7, NUM_Y);
+        gdraw.print(int(displayIAS));
 
-        // Update G-force numeric display
-        // ------------------------------
-        gdraw.setFreeFont(FSSB18);
-        gdraw.setTextColor (TFT_WHITE);
-        char GStr[5];
-        sprintf(GStr,"%+1.1f", displayVerticalG);
-        gdraw.setTextDatum(MR_DATUM);
-        gdraw.drawString(GStr,305,118);
+        char GStr[6];
+        snprintf(GStr, sizeof(GStr), "%+1.1f", displayVerticalG);
+        gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth(GStr), NUM_Y);
+        gdraw.print(GStr);
 
         // Update flaps display
         // --------------------
@@ -716,12 +731,13 @@ void displayAOA()
         gdraw.drawPixel(60, 235, TFT_WHITE);
 
         // show numeric flap angle
-        gdraw.setFreeFont(FSS12);
+        gdraw.setFont(FSS12);
         gdraw.setTextColor (TFT_WHITE);
-        gdraw.setTextDatum(MC_DATUM);
+        gdraw.setTextDatum(textdatum_t::middle_center);
         char FlapsChar[2];
         sprintf(FlapsChar,"%i", FlapPos);
         gdraw.drawString(FlapsChar,cX,cY);
+        gdraw.setTextDatum(textdatum_t::baseline_left); // restore
     } // end if numeric display
 
     // Update ball display
@@ -755,7 +771,7 @@ void displayAOA()
 #if defined(DATAMARK_DISPLAY)
     // Draw Data Mark value
     // --------------------
-    gdraw.setFreeFont(FM12);
+    gdraw.setFont(FM12);
     gdraw.setTextColor (TFT_WHITE);
     gdraw.setCursor(10, 15);
     gdraw.printf ("%02d", DataMark);
@@ -1243,14 +1259,15 @@ void displayDecelGauge()
     gdraw.drawRect (109, decelIndex, 102, 7, TFT_BLACK);
 
     // gauge numbers
-    gdraw.setFreeFont(FSS9);
+    gdraw.setFont(FSS9);
     gdraw.setTextColor (TFT_WHITE);
-    gdraw.setTextDatum(MR_DATUM);
+    gdraw.setTextDatum(textdatum_t::middle_right);
     gdraw.drawString("-1",95,106);
     gdraw.drawString("-2",95, 72);
     gdraw.drawString("-3",95, 36);
     gdraw.drawString("0", 95,141);
     gdraw.drawString("1", 95,177);
+    gdraw.setTextDatum(textdatum_t::baseline_left); // restore frame default
 
     // pips
     gdraw.drawLine (99, 106, 107, 106, TFT_LIGHT_GREY);
@@ -1285,30 +1302,30 @@ void displayDecelGauge()
     // Update ball display
     drawSlip(80, 215, 160, 20, Slip, false, AOAThresholds);
 
-    // Update airspeed numeric display
-    gdraw.setFreeFont(FSS18);
-    gdraw.setCursor(5, 90);
+    // Shared layout constants for this page.
+    constexpr int DEC_RIGHT_X     = 303;   // right-edge anchor, clears VSI ticks
+    constexpr int DEC_IAS_LABEL_Y = 90;
+    constexpr int DEC_KTS_LABEL_Y = 90;   // same row as IAS label
+    constexpr int DEC_NUM_Y       = 130;  // both numbers share this y
+
+    // ----- Labels -----
+    gdraw.setFont(FSS18);
     gdraw.setTextColor (TFT_GREEN);
-    gdraw.print ("IAS");
-    gdraw.setTextColor (TFT_GREEN);
-    gdraw.setTextDatum(TR_DATUM);
-    gdraw.drawString("Kt/s",305,65);
+    gdraw.setCursor(5, DEC_IAS_LABEL_Y);
+    gdraw.print("IAS");
+    gdraw.setCursor(DEC_RIGHT_X - (int)gdraw.textWidth("Kt/s"), DEC_KTS_LABEL_Y);
+    gdraw.print("Kt/s");
 
-    gdraw.setFreeFont(FSSB18);
-
-    // update IAS numeric display
+    // ----- Numbers -----
+    gdraw.setFont(FSSB18);
     gdraw.setTextColor (TFT_WHITE);
-    gdraw.setCursor(7, 130);
-    gdraw.print (int(displayIAS));
+    gdraw.setCursor(7, DEC_NUM_Y);
+    gdraw.print(int(displayIAS));
 
-    // Update G-force numeric display
-    gdraw.setFreeFont(FSSB18);
-    gdraw.setTextColor (TFT_WHITE);
-    char DecelStr[5];
-    sprintf(DecelStr,"%+1.1f", displayDecelRate);
-    gdraw.setTextDatum(MR_DATUM);
-    gdraw.drawString(DecelStr,305,118);
-
+    char DecelStr[6];
+    snprintf(DecelStr, sizeof(DecelStr), "%+1.1f", displayDecelRate);
+    gdraw.setCursor(DEC_RIGHT_X - (int)gdraw.textWidth(DecelStr), DEC_NUM_Y);
+    gdraw.print(DecelStr);
 }
 
 
@@ -1332,22 +1349,26 @@ void displayGloadHistory()
     gdraw.drawLine(19,186,319,186,TFT_GREY);
     gdraw.drawLine(19,213,319,213,TFT_GREY);
 
-    // pips
-    gdraw.setFreeFont(FSS12);
+    // pips (middle-right anchors vertically-center the number at the given y)
+    gdraw.setFont(FSS12);
     gdraw.setTextColor (TFT_WHITE);
-    gdraw.setTextDatum(MR_DATUM);
-    gdraw.drawString("5", 5, 27);
-    gdraw.drawString("4", 5, 53);
-    gdraw.drawString("3", 5, 80);
-    gdraw.drawString("2", 5,106);
-    gdraw.drawString("1", 5,133);
-    gdraw.drawString("0", 5,160);
-    gdraw.drawString("-1",3,186);
-    gdraw.drawString("-2",3,213);
+    gdraw.setTextDatum(textdatum_t::middle_right);
+    // Move pips in a few pixels so the leftmost digit is fully visible (M5GFX
+    // renders a little farther right than the old TFT_eSPI fork did).
+    gdraw.drawString("5", 18, 27);
+    gdraw.drawString("4", 18, 53);
+    gdraw.drawString("3", 18, 80);
+    gdraw.drawString("2", 18,106);
+    gdraw.drawString("1", 18,133);
+    gdraw.drawString("0", 18,160);
+    gdraw.drawString("-1",18,186);
+    gdraw.drawString("-2",18,213);
 
-    gdraw.setFreeFont(FSS12);
-    gdraw.setTextDatum(MC_DATUM);
-    gdraw.drawString("G-LOAD [1 min]",160,8);
+    // Top-center anchor keeps the header inside the visible area at y=2.
+    gdraw.setFont(FSS12);
+    gdraw.setTextDatum(textdatum_t::top_center);
+    gdraw.drawString("G-LOAD [1 min]",160,2);
+    gdraw.setTextDatum(textdatum_t::baseline_left); // restore frame default
 
     // draw gHistory
     int         gDisplayIndex = gHistoryIndex;
@@ -1411,11 +1432,18 @@ String HtmlStyle =
     "    }\n"
     "</style>\n";
 
-String HtmlTitle =
-    "<center>\n"
-    "    <h2><u>FlyONSPEED M5 Display</u><br>Upgrade Server</h2>\n"
-    "    <h3>Current Ver " firmwareVersion "</h3>\n"
-    "</center>\n";
+// Constructed at request time so BuildInfo::version is resolved at runtime.
+static String buildHtmlTitle()
+{
+    return String(
+        "<center>\n"
+        "    <h2><u>FlyONSPEED M5 Display</u><br>Upgrade Server</h2>\n"
+        "    <h3>Current Ver ")
+        + VARIANT_PREFIX
+        + BuildInfo::version
+        + "</h3>\n"
+        "</center>\n";
+}
 
 // -----------------------------------------------
 
@@ -1430,7 +1458,7 @@ void handleUpgrade()
     page += "</head>\n";
 
     page += "<body>\n";
-    page += HtmlTitle;
+    page += buildHtmlTitle();
     page +=
         "<div>\n"
         "<p>Upgrade display firmware via binary (.bin) file upload</p>\n"
@@ -1461,7 +1489,7 @@ void handleUpgradeSuccess()
     page += "</head>\n";
 
     page += "<body>\n";
-    page += HtmlTitle;
+    page += buildHtmlTitle();
     page +=
         "<span style=\"color:black\">\n"
         "Firmware upgrade complete.<br>\n"
@@ -1503,7 +1531,7 @@ void handleUpgradeFailure()
     page += "</head>\n";
 
     page += "<body>\n";
-    page += HtmlTitle;
+    page += buildHtmlTitle();
 
     page +=
         "<span style=\"color:red\">\n"
@@ -1527,7 +1555,7 @@ void handleIndex()
     page += "</head>\n";
 
     page += "<body>\n";
-    page += HtmlTitle;
+    page += buildHtmlTitle();
     page += "<a href=\"/upgrade\">Upgrade now</a>\n";
     page += "</body></html>\n";
 
@@ -1540,13 +1568,13 @@ void handleIndex()
 void displaySplashScreen()
 {
     // display splash screen and firmware upgrade option
-    gdraw.setFreeFont(FSSB24);
+    gdraw.setFont(FSSB24);
     gdraw.setTextColor (TFT_WHITE);
     gdraw.setTextDatum(MC_DATUM);
     gdraw.drawString("Fly OnSpeed",160,60);
 
-    gdraw.setFreeFont(FSS9);
-    gdraw.drawString("Version: "+String(firmwareVersion),160,120);
+    gdraw.setFont(FSS9);
+    gdraw.drawString(String("Version: ") + VARIANT_PREFIX + BuildInfo::version, 160, 120);
     gdraw.drawString("To upgrade press Center button",160,220);
     gdraw.pushSprite (0, 0);
     gdraw.deleteSprite();
