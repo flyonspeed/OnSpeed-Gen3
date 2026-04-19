@@ -65,6 +65,11 @@
 #include <OneButton.h>            // button click/double click detection https://github.com/mathertel/OneButton
 #include <SPI.h>
 
+// onspeed_core library discovery anchor. Arduino IDE needs a root-level
+// header included before any subfolder headers (ahrs/, audio/, types/...)
+// can resolve. See software/Libraries/onspeed_core/src/onspeed_core.h.
+#include <onspeed_core.h>
+
 // OnSpeed modules
 #include "src/util/ErrorLogger.h"
 #include "src/config/Config.h"

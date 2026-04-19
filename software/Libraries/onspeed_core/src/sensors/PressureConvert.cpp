@@ -18,7 +18,7 @@ std::optional<float> CountsToPsi(uint16_t counts, HscRange range)
     if (counts < range.countsMin || counts > range.countsMax)
         return std::nullopt;
 
-    // HSC transfer function (Honeywell Application Note AN000334, §3.2):
+    // HSC linear transfer function per the HSC datasheet:
     //   PSI = (counts - countsMin) * (psiMax - psiMin)
     //         / (countsMax - countsMin) + psiMin
     //
@@ -53,7 +53,7 @@ float StaticMbarToPaltFt(float staticMbar)
     if (staticMbar <= 0.0f)
         return 0.0f;
 
-    // ISA barometric altitude formula (ICAO Doc 7488/3 §2):
+    // ISA barometric altitude formula (international standard atmosphere):
     //   Palt = 145366.45 * (1 - (P / P0)^0.190284)
     //
     // P0 = 1013.25 mbar (ISA sea-level standard pressure)

@@ -1,7 +1,7 @@
 // PressureConvert.h — raw HSC counts -> PSI -> IAS / Palt math
 //
 // Pure functions over raw sensor data. All atmospheric formulas are
-// International Standard Atmosphere (ISA ICAO Doc 7488/3).
+// International Standard Atmosphere (ISA).
 //
 // Currently called by:
 //   sketch: drivers/HscPressureSensor.cpp  (counts -> PSI)
@@ -38,7 +38,7 @@ struct HscRange {
 // ============================================================================
 
 // Raw 14-bit HSC counts -> PSI using the linear HSC transfer function
-// (Honeywell Application Note AN000334):
+// (linear counts-to-pressure transfer function):
 //
 //   PSI = (counts - countsMin) * (psiMax - psiMin) / (countsMax - countsMin) + psiMin
 //
