@@ -252,22 +252,23 @@ void IMU330::ConfigAxes()
 
     for (int i = 0; i < kImuOrientationRowCount; i++)
         {
-        if (g_Config.sPortsOrientation == axisMapArray[i].portsOrientation &&
-            g_Config.sBoxtopOrientation == axisMapArray[i].boxtopOrientation)
+        const ImuOrientationRow& row = axisMapArray[i];
+        if (g_Config.sPortsOrientation == row.portsOrientation &&
+            g_Config.sBoxtopOrientation == row.boxtopOrientation)
             {
-            sVerticalGloadAxis = axisMapArray[i].verticalGloadAxis;
-            sLateralGloadAxis  = axisMapArray[i].lateralGloadAxis;
-            sForwardGloadAxis  = axisMapArray[i].forwardGloadAxis;
+            sVerticalGloadAxis = row.verticalGloadAxis;
+            sLateralGloadAxis  = row.lateralGloadAxis;
+            sForwardGloadAxis  = row.forwardGloadAxis;
             sYawGyroAxis       = sVerticalGloadAxis;
             sPitchGyroAxis     = sLateralGloadAxis;
             sRollGyroAxis      = sForwardGloadAxis;
 
-            GetAccelForAxis(axisMapArray[i].verticalGloadAxis, &fAzSign, &pfAz);
-            GetAccelForAxis(axisMapArray[i].lateralGloadAxis,  &fAySign, &pfAy);
-            GetAccelForAxis(axisMapArray[i].forwardGloadAxis,  &fAxSign, &pfAx);
-            GetGyroForAxis( axisMapArray[i].verticalGloadAxis, &fGzSign, &pfGz);    //// CHECK THESE!!!
-            GetGyroForAxis( axisMapArray[i].lateralGloadAxis,  &fGySign, &pfGy);
-            GetGyroForAxis( axisMapArray[i].forwardGloadAxis,  &fGxSign, &pfGx);
+            GetAccelForAxis(row.verticalGloadAxis, &fAzSign, &pfAz);
+            GetAccelForAxis(row.lateralGloadAxis,  &fAySign, &pfAy);
+            GetAccelForAxis(row.forwardGloadAxis,  &fAxSign, &pfAx);
+            GetGyroForAxis( row.verticalGloadAxis, &fGzSign, &pfGz);    //// CHECK THESE!!!
+            GetGyroForAxis( row.lateralGloadAxis,  &fGySign, &pfGy);
+            GetGyroForAxis( row.forwardGloadAxis,  &fGxSign, &pfGx);
             break;
             }
         }

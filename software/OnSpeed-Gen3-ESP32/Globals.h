@@ -34,8 +34,9 @@
 // Compile-time feature flags (not board selectors)
 // ---------------------------------------------------------------------------
 // SPHERICAL_PROBE: enable Zlin IAS curve for spherical probe installations.
-// This is a probe geometry flag, not a board flag. Future work (issue #133)
-// may move this to runtime config.
+// This is a probe geometry flag, not a board flag. Never defined by any
+// build environment — all `#ifdef SPHERICAL_PROBE` blocks in the codebase
+// are effectively dead. Removal tracked in issue #180.
 #ifdef SPHERICAL_PROBE
   #define IASCURVE(x)           x
 #endif
