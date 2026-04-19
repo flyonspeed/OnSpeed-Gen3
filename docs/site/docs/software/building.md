@@ -156,15 +156,28 @@ mechanism — verified with `arduino-cli compile`.
 
 **`Globals.h` is the umbrella header.** It includes every project header under
 `src/`. A `.cpp` file that starts with `#include "Globals.h"` therefore does
-not need to also include its own paired header (`Foo.cpp` does not need
-`#include "Foo.h"` when `Foo.h` is already pulled in by `Globals.h`). Add a
-bare `#include "Foo.h"` only for headers that `Globals.h` does not include
-(e.g. `Mcp3202Adc.h`).
+not need to also include its own paired header.
 
-**Do not write** `#include "../../Globals.h"` or `#include "../tasks/Flaps.h"`.
-Filesystem-relative paths break when files move, create ambiguity, and — under
-Arduino IDE's file-cache model — bypass `#pragma once` guards causing
+**Every project `#include` uses the full path from the sketch root — no
+exceptions for same-directory siblings.** Per the [Google C++ Style Guide][1]:
+
+> All of a project's header files should be listed as descendants of the
+> project's source directory without use of UNIX directory aliases `.` or
+> `..`.
+
+Example — inside `src/drivers/SPI_IO.cpp`, including the paired header:
+
+```cpp
+#include "src/drivers/SPI_IO.h"    // full path, even though it lives next door
+```
+
+**Do not write** `#include "../../Globals.h"`, `#include "../tasks/Flaps.h"`,
+or `#include "SPI_IO.h"` (bare same-directory). Filesystem-relative paths and
+bare same-directory includes break when files move, create ambiguity, and —
+under Arduino IDE's file-cache model — bypass `#pragma once` guards causing
 redefinition errors.
+
+[1]: https://google.github.io/styleguide/cppguide.html#Names_and_Order_of_Includes
 
 ## Core-Extraction Tooling
 

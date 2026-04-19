@@ -5,7 +5,7 @@
 #include <Arduino.h>
 #include "RunningAverage.h"
 
-#include "SPI_IO.h"
+#include "src/drivers/SPI_IO.h"
 
 // IMU functions
 
