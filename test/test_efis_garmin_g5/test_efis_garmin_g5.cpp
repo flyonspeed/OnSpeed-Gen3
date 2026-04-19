@@ -33,6 +33,7 @@
 #include <efis/GarminG5.h>
 #include <types/EfisFrame.h>
 
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 
@@ -137,13 +138,14 @@ void test_g5_valid_frame_heading(void)
 
 void test_g5_no_aoa_field(void)
 {
-    // G5 does not output AOA%; the field should be -1.0 (EfisFrame default).
+    // G5 does not output AOA%; the field stays at kEfisFieldAbsent (NaN)
+    // so applyFrame() holds the prior suEfis value instead of overwriting.
     char buf[59];
     buildG5Frame(buf, 0.0f, 0.0f, 0, 100.0f, 3000, 0.0f, 1.0f, 0);
     GarminG5Parser parser;
     auto frame = feedAll(parser, buf, 59);
     TEST_ASSERT_TRUE(frame.has_value());
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, -1.0f, frame->aoaPercent);
+    TEST_ASSERT_FALSE(std::isfinite(frame->aoaPercent));
 }
 
 void test_g5_source_is_garmin(void)

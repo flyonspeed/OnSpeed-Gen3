@@ -39,6 +39,7 @@
 #include <efis/DynonSkyview.h>
 #include <types/EfisFrame.h>
 
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 
@@ -377,6 +378,31 @@ void test_tas_field(void)
     TEST_ASSERT_FLOAT_WITHIN(0.15f, 95.0f, frame->tasKt);
 }
 
+void test_adahrs_sentinel_ias_leaves_field_absent(void)
+{
+    // When the Dynon cannot compute a field it emits 'XXXX' (or the
+    // per-width variant). The parser must leave the field at
+    // kEfisFieldAbsent (NaN) so applyFrame() holds the prior suEfis value.
+    char buf[74];
+    buildAdahrsFrame(buf, 2.3f, 5.0f, 270, 110.0f, 5500, 0.10f, 1.0f, 62, 5000, 8.0f, 118.0f);
+    // Overwrite IAS with the 4-char sentinel.
+    buf[23] = 'X'; buf[24] = 'X'; buf[25] = 'X'; buf[26] = 'X';
+    // Recompute CRC so the frame is otherwise valid.
+    int crc = 0;
+    for (int i = 0; i <= 69; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[70] = tmp[0]; buf[71] = tmp[1];
+
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FALSE(std::isfinite(frame->iasKt));
+    // Pitch was not sentineled so it remains finite.
+    TEST_ASSERT_FLOAT_WITHIN(0.15f, 2.3f, frame->pitchDeg);
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -402,5 +428,6 @@ int main(int, char**)
     RUN_TEST(test_vsi_field);
     RUN_TEST(test_oat_field);
     RUN_TEST(test_tas_field);
+    RUN_TEST(test_adahrs_sentinel_ias_leaves_field_absent);
     return UNITY_END();
 }

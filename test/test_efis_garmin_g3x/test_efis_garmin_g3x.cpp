@@ -160,6 +160,27 @@ void test_g3x_ems_frame_parses(void)
                           static_cast<int>(frame->source));
 }
 
+void test_g3x_ems_frame_leaves_attitude_airspeed_absent(void)
+{
+    // EMS carries engine data only — it must not overwrite the attitude
+    // or airspeed fields that the =21 attitude frame populated. Every
+    // EfisFrame numeric field should be kEfisFieldAbsent (NaN) so
+    // applyFrame() preserves the prior suEfis values.
+    char buf[221];
+    buildG3XEmsFrame(buf);
+    GarminG3XParser parser;
+    auto frame = feedAll(parser, buf, 221);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FALSE(std::isfinite(frame->iasKt));
+    TEST_ASSERT_FALSE(std::isfinite(frame->paltFt));
+    TEST_ASSERT_FALSE(std::isfinite(frame->vsiFpm));
+    TEST_ASSERT_FALSE(std::isfinite(frame->pitchDeg));
+    TEST_ASSERT_FALSE(std::isfinite(frame->rollDeg));
+    TEST_ASSERT_FALSE(std::isfinite(frame->verticalG));
+    TEST_ASSERT_FALSE(std::isfinite(frame->lateralG));
+    TEST_ASSERT_FALSE(std::isfinite(frame->oatCelsius));
+}
+
 void test_g3x_interleaved_att_and_ems(void)
 {
     char att[59];
@@ -247,6 +268,7 @@ int main(int, char**)
     RUN_TEST(test_g3x_att_has_oat_field);
     RUN_TEST(test_g3x_source_is_garmin);
     RUN_TEST(test_g3x_ems_frame_parses);
+    RUN_TEST(test_g3x_ems_frame_leaves_attitude_airspeed_absent);
     RUN_TEST(test_g3x_interleaved_att_and_ems);
     RUN_TEST(test_g3x_truncated_no_output);
     RUN_TEST(test_g3x_corrupted_crc_no_output);

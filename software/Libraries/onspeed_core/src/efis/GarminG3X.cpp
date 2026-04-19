@@ -7,8 +7,12 @@
 
 #include <efis/GarminG3X.h>
 
+#include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+
+#include <types/EfisFrame.h>
 
 namespace onspeed::efis {
 
@@ -119,16 +123,31 @@ void GarminG3XParser::DecodeAttitude()
 
     EfisFrame out;
 
-    out.iasKt      = parseFieldFloat(buf_, 23, 4, "____",   -1.0f,  10.0f);
-    out.pitchDeg   = parseFieldFloat(buf_, 11, 4, "____",   -1.0f,  10.0f);
-    out.rollDeg    = parseFieldFloat(buf_, 15, 5, "_____",  -1.0f,  10.0f);
-    out.headingDeg = static_cast<float>(parseFieldInt(buf_, 20, 3, "___", -1, 1));
-    out.lateralG   = parseFieldFloat(buf_, 37, 3, "___",    -1.0f, 100.0f);
-    out.verticalG  = parseFieldFloat(buf_, 40, 3, "___",    -1.0f,  10.0f);
-    out.aoaPercent = static_cast<float>(parseFieldInt(buf_, 43, 2, "__", -1, 1));
-    out.paltFt     = static_cast<float>(parseFieldInt(buf_, 27, 6, "______", -1, 1));
-    out.oatCelsius = parseFieldFloat(buf_, 49, 3, "___",    -1.0f,  1.0f);
-    out.vsiFpm     = static_cast<float>(parseFieldInt(buf_, 45, 4, "____", -1, 10));
+    // Sentinel for G3X is '_'. Fallback = NaN marks the field absent, so
+    // applyFrame() holds the previous suEfis value on sentinel match.
+    const float kNaN = kEfisFieldAbsent;
+    out.iasKt      = parseFieldFloat(buf_, 23, 4, "____",   kNaN,  10.0f);
+    out.pitchDeg   = parseFieldFloat(buf_, 11, 4, "____",   kNaN,  10.0f);
+    out.rollDeg    = parseFieldFloat(buf_, 15, 5, "_____",  kNaN,  10.0f);
+    {
+        const int raw = parseFieldInt(buf_, 20, 3, "___", INT32_MIN, 1);
+        out.headingDeg = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
+    out.lateralG   = parseFieldFloat(buf_, 37, 3, "___",    kNaN, 100.0f);
+    out.verticalG  = parseFieldFloat(buf_, 40, 3, "___",    kNaN,  10.0f);
+    {
+        const int raw = parseFieldInt(buf_, 43, 2, "__", INT32_MIN, 1);
+        out.aoaPercent = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
+    {
+        const int raw = parseFieldInt(buf_, 27, 6, "______", INT32_MIN, 1);
+        out.paltFt = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
+    out.oatCelsius = parseFieldFloat(buf_, 49, 3, "___",    kNaN,  1.0f);
+    {
+        const int raw = parseFieldInt(buf_, 45, 4, "____", INT32_MIN, 10);
+        out.vsiFpm = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
     out.source     = EfisSource::Garmin;
 
     pending_ = out;
@@ -145,9 +164,10 @@ void GarminG3XParser::DecodeEms()
     if (calcCRC != parseHexCRC(buf_, 217))
         return;
 
-    // EMS frame carries engine data only. EfisFrame does not have fields for
-    // RPM/MAP/FuelFlow/FuelRemaining; return a frame with source set to signal
-    // a valid EMS frame arrived, remaining fields at defaults.
+    // EMS carries engine data only (RPM, MAP, fuel flow). EfisFrame has no
+    // engine fields, so emit an all-absent frame: every numeric field stays
+    // at kEfisFieldAbsent and applyFrame() holds all prior suEfis values.
+    // The source is still set so consumers can log that EMS arrived.
     EfisFrame out;
     out.source = EfisSource::Garmin;
     pending_   = out;

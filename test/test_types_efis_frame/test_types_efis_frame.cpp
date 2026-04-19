@@ -3,29 +3,37 @@
 #include <unity.h>
 #include <types/EfisFrame.h>
 
+#include <cmath>
+
 using onspeed::EfisFrame;
 using onspeed::EfisSource;
+using onspeed::kEfisFieldAbsent;
 
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_default_initializes_fields_to_expected_values(void)
+void test_default_initializes_fields_to_absent(void)
 {
+    // Every numeric field defaults to kEfisFieldAbsent (NaN). Parsers set
+    // fields only when they actually decoded a valid value; consumers test
+    // std::isfinite() to decide whether to apply or hold the prior value.
     EfisFrame e;
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.pitchDeg);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.rollDeg);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.headingDeg);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.iasKt);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.tasKt);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.paltFt);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.vsiFpm);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.oatCelsius);
-    TEST_ASSERT_EQUAL_FLOAT(-1.0f, e.aoaPercent);  // -1 sentinel for "unsupported"
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.lateralG);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.verticalG);
+    TEST_ASSERT_FALSE(std::isfinite(e.pitchDeg));
+    TEST_ASSERT_FALSE(std::isfinite(e.rollDeg));
+    TEST_ASSERT_FALSE(std::isfinite(e.headingDeg));
+    TEST_ASSERT_FALSE(std::isfinite(e.iasKt));
+    TEST_ASSERT_FALSE(std::isfinite(e.tasKt));
+    TEST_ASSERT_FALSE(std::isfinite(e.paltFt));
+    TEST_ASSERT_FALSE(std::isfinite(e.vsiFpm));
+    TEST_ASSERT_FALSE(std::isfinite(e.oatCelsius));
+    TEST_ASSERT_FALSE(std::isfinite(e.aoaPercent));
+    TEST_ASSERT_FALSE(std::isfinite(e.lateralG));
+    TEST_ASSERT_FALSE(std::isfinite(e.verticalG));
     TEST_ASSERT_EQUAL_INT(static_cast<int>(EfisSource::None),
                           static_cast<int>(e.source));
     TEST_ASSERT_EQUAL_UINT32(0u, e.timestampUs);
+    // kEfisFieldAbsent is the NaN sentinel itself.
+    TEST_ASSERT_FALSE(std::isfinite(kEfisFieldAbsent));
 }
 
 void test_fields_are_writable(void)
@@ -60,7 +68,7 @@ void test_size_is_reasonable(void)
 int main(int, char**)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_default_initializes_fields_to_expected_values);
+    RUN_TEST(test_default_initializes_fields_to_absent);
     RUN_TEST(test_fields_are_writable);
     RUN_TEST(test_size_is_reasonable);
     return UNITY_END();

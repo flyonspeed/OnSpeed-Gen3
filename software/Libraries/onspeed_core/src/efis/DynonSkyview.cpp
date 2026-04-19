@@ -6,8 +6,12 @@
 
 #include <efis/DynonSkyview.h>
 
+#include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
+
+#include <types/EfisFrame.h>
 
 namespace onspeed::efis {
 
@@ -133,17 +137,32 @@ bool DynonSkyviewParser::DecodeAdahrs(EfisFrame& out)
     if (calcCRC != parseHexCRC(buf_, 70))
         return false;
 
-    out.iasKt      = parseFieldFloat(buf_, 23, 4, "XXXX",   -1.0f,   10.0f);
-    out.pitchDeg   = parseFieldFloat(buf_, 11, 4, "XXXX",   -100.0f, 10.0f);
-    out.rollDeg    = parseFieldFloat(buf_, 15, 5, "XXXXX",  -180.0f, 10.0f);
-    out.headingDeg = static_cast<float>(parseFieldInt(buf_, 20, 3, "XXX", -1, 1));
-    out.lateralG   = parseFieldFloat(buf_, 37, 3, "XXX",    -100.0f, 100.0f);
-    out.verticalG  = parseFieldFloat(buf_, 40, 3, "XXX",    -100.0f, 10.0f);
-    out.aoaPercent = static_cast<float>(parseFieldInt(buf_, 43, 2, "XX", -1, 1));
-    out.paltFt     = static_cast<float>(parseFieldInt(buf_, 27, 6, "XXXXXX", -10000, 1));
-    out.vsiFpm     = static_cast<float>(parseFieldInt(buf_, 45, 4, "XXXX", -10000, 10));
-    out.tasKt      = parseFieldFloat(buf_, 52, 4, "XXXX",   -1.0f,   10.0f);
-    out.oatCelsius = parseFieldFloat(buf_, 49, 3, "XXX",    -100.0f, 1.0f);
+    // Sentinel = 'XXXX'. Fallback = NaN marks the field absent so applyFrame()
+    // will hold the prior suEfis value rather than overwrite with junk.
+    const float kNaN = kEfisFieldAbsent;
+    out.iasKt      = parseFieldFloat(buf_, 23, 4, "XXXX",   kNaN, 10.0f);
+    out.pitchDeg   = parseFieldFloat(buf_, 11, 4, "XXXX",   kNaN, 10.0f);
+    out.rollDeg    = parseFieldFloat(buf_, 15, 5, "XXXXX",  kNaN, 10.0f);
+    {
+        const int raw = parseFieldInt(buf_, 20, 3, "XXX", INT32_MIN, 1);
+        out.headingDeg = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
+    out.lateralG   = parseFieldFloat(buf_, 37, 3, "XXX",    kNaN, 100.0f);
+    out.verticalG  = parseFieldFloat(buf_, 40, 3, "XXX",    kNaN, 10.0f);
+    {
+        const int raw = parseFieldInt(buf_, 43, 2, "XX", INT32_MIN, 1);
+        out.aoaPercent = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
+    {
+        const int raw = parseFieldInt(buf_, 27, 6, "XXXXXX", INT32_MIN, 1);
+        out.paltFt = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
+    {
+        const int raw = parseFieldInt(buf_, 45, 4, "XXXX", INT32_MIN, 10);
+        out.vsiFpm = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+    }
+    out.tasKt      = parseFieldFloat(buf_, 52, 4, "XXXX",   kNaN, 10.0f);
+    out.oatCelsius = parseFieldFloat(buf_, 49, 3, "XXX",    kNaN, 1.0f);
     out.source     = EfisSource::Dynon;
     return true;
 }
@@ -159,17 +178,10 @@ bool DynonSkyviewParser::DecodeEms(EfisFrame& out)
     if (calcCRC != parseHexCRC(buf_, 221))
         return false;
 
-    // EMS frame carries engine data only — no attitude fields.
-    // Consumers merge frames; here we carry only what the original firmware
-    // extracted from the !3 frame. The remaining EfisFrame fields are
-    // left at their defaults.
-    //
-    // NOTE: EfisFrame does not have RPM/MAP/FuelFlow/FuelRemaining/PercentPower
-    // fields (those were in SuEfisData, not part of the normalised type).
-    // The original firmware stored them in suEfis; for now this parser
-    // returns an EfisFrame to signal a valid EMS frame was received.
-    // The fields that *do* exist on EfisFrame (none carry EMS data) are
-    // left at defaults.
+    // EMS carries engine data only (RPM, MAP, fuel flow, PercentPower).
+    // EfisFrame has no engine fields, so leave every numeric field at
+    // kEfisFieldAbsent — applyFrame() will hold all prior suEfis values.
+    // Source is still set so consumers can log that EMS arrived this frame.
     out.source = EfisSource::Dynon;
     return true;
 }

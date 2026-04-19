@@ -2,6 +2,8 @@
 #include "Globals.h"
 #include "src/io/EfisSerialPort.h"
 
+#include <cmath>
+
 // ---------------------------------------------------------------------------
 // EfisSerialPort
 // ---------------------------------------------------------------------------
@@ -138,28 +140,31 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
 {
     using onspeed::EfisSource;
 
-    // Sentinel -1 values from the parser mean "field not supported / not
-    // available in this frame". We only update suEfis when the value is
-    // valid (not the sentinel).
+    // Each EfisFrame field defaults to NaN (see kEfisFieldAbsent). Parsers
+    // write only the fields they actually decoded this frame; everything
+    // else stays NaN. isfinite() tells us to apply or hold — there is no
+    // per-field sentinel value to track.
 
-    if (frame.iasKt >= 0.0f)         suEfis.IAS         = frame.iasKt;
-    if (frame.pitchDeg > -100.0f)    suEfis.Pitch       = frame.pitchDeg;
-    if (frame.rollDeg  > -180.0f)    suEfis.Roll        = frame.rollDeg;
-    if (frame.headingDeg >= 0.0f)    suEfis.Heading     = static_cast<int>(frame.headingDeg);
-    if (frame.lateralG  > -100.0f)   suEfis.LateralG    = frame.lateralG;
-    if (frame.verticalG > -100.0f)   suEfis.VerticalG   = frame.verticalG;
-    if (frame.aoaPercent >= 0.0f)    suEfis.PercentLift = static_cast<int>(frame.aoaPercent);
-    if (frame.paltFt > -10000.0f)    suEfis.Palt        = static_cast<int>(frame.paltFt);
-    if (frame.vsiFpm > -10000.0f)    suEfis.VSI         = static_cast<int>(frame.vsiFpm);
-    if (frame.tasKt >= 0.0f)         suEfis.TAS         = frame.tasKt;
-    if (frame.oatCelsius > -100.0f)  suEfis.OAT         = frame.oatCelsius;
+    if (std::isfinite(frame.iasKt))      suEfis.IAS         = frame.iasKt;
+    if (std::isfinite(frame.pitchDeg))   suEfis.Pitch       = frame.pitchDeg;
+    if (std::isfinite(frame.rollDeg))    suEfis.Roll        = frame.rollDeg;
+    if (std::isfinite(frame.headingDeg)) suEfis.Heading     = static_cast<int>(frame.headingDeg);
+    if (std::isfinite(frame.lateralG))   suEfis.LateralG    = frame.lateralG;
+    if (std::isfinite(frame.verticalG))  suEfis.VerticalG   = frame.verticalG;
+    if (std::isfinite(frame.aoaPercent)) suEfis.PercentLift = static_cast<int>(frame.aoaPercent);
+    if (std::isfinite(frame.paltFt))     suEfis.Palt        = static_cast<int>(frame.paltFt);
+    if (std::isfinite(frame.vsiFpm))     suEfis.VSI         = static_cast<int>(frame.vsiFpm);
+    if (std::isfinite(frame.tasKt))      suEfis.TAS         = frame.tasKt;
+    if (std::isfinite(frame.oatCelsius)) suEfis.OAT         = frame.oatCelsius;
 
-    // VN-300: also update suVN300 attitude fields from the normalised frame.
+    // VN-300: also mirror valid attitude into suVN300 so other consumers
+    // (display, log, HUD) can read a consistent attitude regardless of
+    // which path populated it.
     if (frame.source == EfisSource::Vn300)
     {
-        suVN300.Pitch = frame.pitchDeg;
-        suVN300.Roll  = frame.rollDeg;
-        suVN300.Yaw   = frame.headingDeg;
+        if (std::isfinite(frame.pitchDeg))   suVN300.Pitch = frame.pitchDeg;
+        if (std::isfinite(frame.rollDeg))    suVN300.Roll  = frame.rollDeg;
+        if (std::isfinite(frame.headingDeg)) suVN300.Yaw   = frame.headingDeg;
     }
 }
 

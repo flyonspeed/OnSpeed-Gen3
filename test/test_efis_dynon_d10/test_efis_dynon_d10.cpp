@@ -161,15 +161,19 @@ void test_d10_status_bit0_enables_palt_vsi(void)
     TEST_ASSERT_FLOAT_WITHIN(20.0f, 300.0f, frame->vsiFpm);
 }
 
-void test_d10_status_bit0_zero_leaves_palt_zero(void)
+void test_d10_status_bit0_zero_leaves_palt_absent(void)
 {
+    // When status bit 0 = 0 the D10 is signalling "Palt/VSI not valid this
+    // frame — hold your last values". The parser marks both fields absent
+    // (NaN) so applyFrame() will preserve the prior suEfis values rather
+    // than overwrite them with 0.
     char buf[53];
     buildD10Frame(buf, 0.0f, 0.0f, 50.0f, 1676.4f, 5.0f, 0.0f, 1.0f, 0, 0x0);
     DynonD10Parser parser;
     auto frame = primeAndFeed(parser, buf, 53);
     TEST_ASSERT_TRUE(frame.has_value());
-    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, frame->paltFt);
-    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, frame->vsiFpm);
+    TEST_ASSERT_FALSE(std::isfinite(frame->paltFt));
+    TEST_ASSERT_FALSE(std::isfinite(frame->vsiFpm));
 }
 
 void test_d10_source_is_dynon(void)
@@ -256,7 +260,7 @@ int main(int, char**)
     RUN_TEST(test_d10_valid_frame_pitch);
     RUN_TEST(test_d10_valid_frame_roll);
     RUN_TEST(test_d10_status_bit0_enables_palt_vsi);
-    RUN_TEST(test_d10_status_bit0_zero_leaves_palt_zero);
+    RUN_TEST(test_d10_status_bit0_zero_leaves_palt_absent);
     RUN_TEST(test_d10_source_is_dynon);
     RUN_TEST(test_d10_truncated_no_output);
     RUN_TEST(test_d10_corrupted_crc_no_output);

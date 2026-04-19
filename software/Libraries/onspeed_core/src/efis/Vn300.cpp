@@ -166,14 +166,16 @@ void Vn300Parser::Decode()
 
     pendingData_ = data;
 
-    // Populate normalised EfisFrame from the VN-300 attitude fields.
+    // Populate normalised EfisFrame from the VN-300 attitude fields. Only
+    // attitude is written; IAS/TAS/Palt/VSI/OAT stay at kEfisFieldAbsent
+    // (NaN) so applyFrame() will hold any values an on-board sensor or
+    // another EFIS source populated earlier.
     EfisFrame frame;
-    frame.pitchDeg  = data.pitch;
-    frame.rollDeg   = data.roll;
+    frame.pitchDeg   = data.pitch;
+    frame.rollDeg    = data.roll;
     frame.headingDeg = data.yaw;
-    // VN-300 does not supply IAS/TAS/Palt/VSI/OAT directly — those remain 0.
-    frame.source    = EfisSource::Vn300;
-    pendingFrame_ = frame;
+    frame.source     = EfisSource::Vn300;
+    pendingFrame_    = frame;
 }
 
 }   // namespace onspeed::efis
