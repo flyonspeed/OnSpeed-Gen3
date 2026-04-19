@@ -1,6 +1,6 @@
 
 #include <math.h>
-#include <RunningAverage.h>
+#include "RunningAverage.h"
 
 #include "Globals.h"
 #include "src/drivers/IMU330.h"

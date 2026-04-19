@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include <RunningAverage.h>
+#include "RunningAverage.h"
 
 #include "Globals.h"
 

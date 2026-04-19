@@ -177,6 +177,30 @@ bare same-directory includes break when files move, create ambiguity, and —
 under Arduino IDE's file-cache model — bypass `#pragma once` guards causing
 redefinition errors.
 
+### Quotes vs. angle brackets
+
+Per Google style, angle brackets are reserved for libraries that *require*
+them. Everything else uses quotes — including most third-party libraries.
+
+| Category | Bracket style | Examples |
+|---|---|---|
+| C system headers | `<>` | `<stdint.h>`, `<unistd.h>` |
+| C++ standard library | `<>` | `<optional>`, `<string>`, `<cstdint>` |
+| Arduino / ESP32 framework | `<>` | `<Arduino.h>`, `<HardwareSerial.h>`, `<WiFi.h>`, `<LittleFS.h>` |
+| `onspeed_core` library headers | `<>` | `<ToneCalc.h>`, `<types/ImuSample.h>` |
+| Vendored third-party libraries under `software/Libraries/` | `""` | `"SdFat.h"`, `"FreeRTOS.h"`, `"tinyxml2.h"`, `"RunningAverage.h"`, `"RunningMedian.h"` |
+| Project files (sketch-side) | `""` with sketch-root-relative path | `"Globals.h"`, `"src/drivers/SPI_IO.h"` |
+
+Google's rule: *"Headers should only be included using an angle-bracketed
+path if the library requires you to do so"* — treat the system vs. vendored
+boundary as the rule. If the library publishes its headers through the
+compiler's system include path (Arduino core, ESP-IDF built-ins), use `<>`.
+If it ships as a vendored dep under `software/Libraries/`, use `""`.
+
+New code follows the table above. When adding a new third-party dependency,
+check whether it lives under `software/Libraries/` (quotes) or comes from
+the Arduino/ESP32 framework's built-in library path (angle brackets).
+
 [1]: https://google.github.io/styleguide/cppguide.html#Names_and_Order_of_Includes
 
 ## Core-Extraction Tooling

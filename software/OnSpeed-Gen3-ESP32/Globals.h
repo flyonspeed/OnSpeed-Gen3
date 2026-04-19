@@ -63,7 +63,7 @@
 #define DISABLE_FS_H_WARNING  // Suppress SdFat warning about FS.h - we use SdFat's File types
 #include "SdFat.h"            // https://github.com/greiman/SdFat
 #include <OneButton.h>            // button click/double click detection https://github.com/mathertel/OneButton
-#include "SPI.h"
+#include <SPI.h>
 
 // OnSpeed modules
 #include "src/util/ErrorLogger.h"
