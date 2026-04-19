@@ -1,8 +1,6 @@
 
 //#include <Arduino.h>
 
-#include "tinyxml2.h"
-
 #include "Globals.h"
 
 #ifdef SUPPORT_LITTLEFS
@@ -12,16 +10,47 @@
 #include <LittleFS.h>
 #endif
 
+#include <config/ConfigXmlEmit.h>
+#include <config/ConfigXmlParse.h>
+
 #include "src/io/EfisSerialPort.h"
 
-using namespace tinyxml2;
-
 
 // ============================================================================
-// Note: the constructor, LoadDefaults(), and the data struct now live in
-// onspeed_core/config/OnSpeedConfig.{h,cpp}. Only sketch-side I/O methods
-// remain here.
+// Note: the constructor, LoadDefaults(), and the data struct live in
+// onspeed_core/config/OnSpeedConfig.{h,cpp}.  XML parse/emit lives in
+// onspeed_core/config/ConfigXml{Parse,Emit}.{h,cpp}.  Only sketch-side
+// bits remain here: SD/flash file I/O, the V1 legacy CSV parser (Task 3
+// will push that into core too), and the post-parse side effects on
+// global state (EFIS type cache, volume, IMU/AHRS reinit).
 // ============================================================================
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+// Apply post-parse side effects that touch global state — factored out so
+// both the V2 (core) parse and the V1 (legacy, still here) path can call
+// the same helper after updating the member fields.
+static void ApplyPostParseSideEffects(FOSConfig& cfg)
+{
+    if (!cfg.bVolumeControl)
+        g_AudioPlay.SetVolume(cfg.iDefaultVolume);
+
+    if      (cfg.sEfisType == "VN-300")    g_EfisSerial.enType = EfisSerialPort::EnVN300;
+    else if (cfg.sEfisType == "ADVANCED")  g_EfisSerial.enType = EfisSerialPort::EnDynonSkyview;
+    else if (cfg.sEfisType == "DYNOND10")  g_EfisSerial.enType = EfisSerialPort::EnDynonD10;
+    else if (cfg.sEfisType == "GARMING5")  g_EfisSerial.enType = EfisSerialPort::EnGarminG5;
+    else if (cfg.sEfisType == "GARMING3X") g_EfisSerial.enType = EfisSerialPort::EnGarminG3X;
+    else if (cfg.sEfisType == "MGL")       g_EfisSerial.enType = EfisSerialPort::EnMglBinary;
+    else                                   g_EfisSerial.enType = EfisSerialPort::EnNone;
+
+    if (g_pIMU != nullptr)
+        {
+        g_pIMU->ConfigAxes();
+        g_AHRS.Init(kImuSampleRateHz);
+        }
+}
 
 // ----------------------------------------------------------------------------
 // Main config functions
@@ -231,155 +260,24 @@ bool FOSConfig::SaveConfigurationToFlash(char* szFilename)
 #endif
 
 // ----------------------------------------------------------------------------
-// To / From string conversion functions
+// XML emit — delegates to onspeed_core/config/ConfigXmlEmit.
 // ----------------------------------------------------------------------------
-
-/*
-You will note that in several places when polynomial coefficients are stored
-it will seem kind of bass-ackwards. That is because in the data array that
-holds the coefficients the highest array index holds the lowest power
-coefficient. But in the XML I *really* want <X0> to correspond to the coefficient
-for the X^0 term, <X1> to correspond to the coefficient for X^1 term, etc.
-Someday I may go refactor the code to make the array indexes match the XML
-config tags, but the user never sees these so I defer that for now.
-*/
-
-#define XML_INSERT(root, name)                          \
-    XmlConfigNew = root->InsertNewChildElement(name);
-
-#define XML_INSERT_SET(root, name, value)               \
-    XmlConfigNew = root->InsertNewChildElement(name);   \
-    XmlConfigNew->SetText(value);
 
 String FOSConfig::ConfigurationToString()
 {
-    XMLPrinter      XmlPrint;
-    XMLDocument     XmlConfigDoc;
-    XMLElement    * XmlConfigRoot;
-    XMLElement    * XmlConfigNew;
-    String          sConfig = "";
-
-    sConfig = "";
-
-    XmlConfigRoot = XmlConfigDoc.NewElement("CONFIG2");
-    XmlConfigDoc.InsertEndChild(XmlConfigRoot);
-
-    XML_INSERT_SET(XmlConfigRoot, "AOA_SMOOTHING", iAoaSmoothing)
-    XML_INSERT_SET(XmlConfigRoot, "PRESSURE_SMOOTHING", iPressureSmoothing)
-    XML_INSERT_SET(XmlConfigRoot, "DATASOURCE", suDataSrc.toCStr())
-    XML_INSERT_SET(XmlConfigRoot, "REPLAYLOGFILENAME", sReplayLogFileName.c_str())
-
-    for (int iFlapIdx = 0; iFlapIdx < aFlaps.size(); iFlapIdx++)
-        {
-        XML_INSERT(XmlConfigRoot, "FLAP_POSITION")
-        XMLElement * XmlConfigFlaps = XmlConfigNew;
-        XML_INSERT_SET(XmlConfigFlaps, "DEGREES",        aFlaps[iFlapIdx].iDegrees)
-        XML_INSERT_SET(XmlConfigFlaps, "POT_VALUE",      aFlaps[iFlapIdx].iPotPosition)
-        XML_INSERT_SET(XmlConfigFlaps, "LDMAXAOA",       aFlaps[iFlapIdx].fLDMAXAOA)
-        XML_INSERT_SET(XmlConfigFlaps, "ONSPEEDFASTAOA", aFlaps[iFlapIdx].fONSPEEDFASTAOA)
-        XML_INSERT_SET(XmlConfigFlaps, "ONSPEEDSLOWAOA", aFlaps[iFlapIdx].fONSPEEDSLOWAOA)
-        XML_INSERT_SET(XmlConfigFlaps, "STALLWARNAOA",   aFlaps[iFlapIdx].fSTALLWARNAOA)
-        XML_INSERT_SET(XmlConfigFlaps, "STALLAOA",       aFlaps[iFlapIdx].fSTALLAOA)
-        XML_INSERT_SET(XmlConfigFlaps, "MANAOA",         aFlaps[iFlapIdx].fMANAOA)
-        XML_INSERT_SET(XmlConfigFlaps, "ALPHA0",         aFlaps[iFlapIdx].fAlpha0)
-        XML_INSERT_SET(XmlConfigFlaps, "ALPHASTALL",     aFlaps[iFlapIdx].fAlphaStall)
-        XML_INSERT_SET(XmlConfigFlaps, "KFIT",           aFlaps[iFlapIdx].fKFit)
-
-        XML_INSERT(XmlConfigFlaps, "AOA_CURVE")
-        XMLElement * XmlConfigAoACurve = XmlConfigNew;
-        XML_INSERT_SET(XmlConfigAoACurve, "TYPE", aFlaps[iFlapIdx].AoaCurve.iCurveType)
-        XML_INSERT_SET(XmlConfigAoACurve, "X3",   aFlaps[iFlapIdx].AoaCurve.afCoeff[0])
-        XML_INSERT_SET(XmlConfigAoACurve, "X2",   aFlaps[iFlapIdx].AoaCurve.afCoeff[1])
-        XML_INSERT_SET(XmlConfigAoACurve, "X1",   aFlaps[iFlapIdx].AoaCurve.afCoeff[2])
-        XML_INSERT_SET(XmlConfigAoACurve, "X0",   aFlaps[iFlapIdx].AoaCurve.afCoeff[3])
-        }
-
-    XML_INSERT(XmlConfigRoot, "VOLUME")
-    XMLElement * XmlConfigVolume = XmlConfigNew;
-    XML_INSERT_SET(XmlConfigVolume, "ENABLED",        bVolumeControl)
-    XML_INSERT_SET(XmlConfigVolume, "HIGH_ANALOG",    iVolumeHighAnalog)
-    XML_INSERT_SET(XmlConfigVolume, "LOW_ANALOG",     iVolumeLowAnalog)
-    XML_INSERT_SET(XmlConfigVolume, "DEFAULT",        iDefaultVolume)
-    XML_INSERT_SET(XmlConfigVolume, "ENABLE_3DAUDIO", bAudio3D)
-    XML_INSERT_SET(XmlConfigVolume, "MUTE_UNDER_IAS", iMuteAudioUnderIAS)
-
-    XML_INSERT_SET(XmlConfigRoot, "OVERGWARNING", bOverGWarning)
-
-    XML_INSERT(XmlConfigRoot, "CAS_CURVE")
-    XMLElement * XmlConfigCasCurve = XmlConfigNew;
-    XML_INSERT_SET(XmlConfigCasCurve, "TYPE", CasCurve.iCurveType)
-    XML_INSERT_SET(XmlConfigCasCurve, "X3",   CasCurve.afCoeff[0])
-    XML_INSERT_SET(XmlConfigCasCurve, "X2",   CasCurve.afCoeff[1])
-    XML_INSERT_SET(XmlConfigCasCurve, "X1",   CasCurve.afCoeff[2])
-    XML_INSERT_SET(XmlConfigCasCurve, "X0",   CasCurve.afCoeff[3])
-    XML_INSERT_SET(XmlConfigCasCurve, "ENABLED", bCasCurveEnabled)
-
-    XML_INSERT(XmlConfigRoot, "ORIENTATION")
-    XMLElement * XmlConfigOrientation = XmlConfigNew;
-    XML_INSERT_SET(XmlConfigOrientation, "PORTS",   sPortsOrientation.c_str())
-    XML_INSERT_SET(XmlConfigOrientation, "BOX_TOP", sBoxtopOrientation.c_str())
-
-    XML_INSERT_SET(XmlConfigRoot, "BOOM",           bReadBoom)
-    XML_INSERT_SET(XmlConfigRoot, "BOOMCHECKSUM",  bBoomChecksum)
-    XML_INSERT_SET(XmlConfigRoot, "BOOMCONVERTDATA", bBoomConvertData)
-    XML_INSERT_SET(XmlConfigRoot, "SERIALEFISDATA", bReadEfisData)
-    XML_INSERT_SET(XmlConfigRoot, "EFISTYPE",       sEfisType.c_str())
-    XML_INSERT_SET(XmlConfigRoot, "OATSENSOR",     bOatSensor)
-
-    XML_INSERT_SET(XmlConfigRoot, "SERIALOUTFORMAT", sSerialOutFormat.c_str())
-//    XML_INSERT_SET(XmlConfigRoot, "SERIALOUTPORT",   sSerialOutPort.c_str())
-
-    XML_INSERT_SET(XmlConfigRoot, "CALWIZ_SOURCE", sCalSource.c_str())
-
-    XML_INSERT(XmlConfigRoot, "BIAS")
-    XMLElement * XmlConfigBias = XmlConfigNew;
-    XML_INSERT_SET(XmlConfigBias, "PFWD",    iPFwdBias)
-    XML_INSERT_SET(XmlConfigBias, "P45",     iP45Bias)
-    XML_INSERT_SET(XmlConfigBias, "PSTATIC", fPStaticBias)
-    XML_INSERT_SET(XmlConfigBias, "GX",      fGxBias)
-    XML_INSERT_SET(XmlConfigBias, "GY",      fGyBias)
-    XML_INSERT_SET(XmlConfigBias, "GZ",      fGzBias)
-    XML_INSERT_SET(XmlConfigBias, "PITCH",   fPitchBias)
-    XML_INSERT_SET(XmlConfigBias, "ROLL",    fRollBias)
-
-    // AHRS algorithm selection
-    XML_INSERT_SET(XmlConfigRoot, "AHRS_ALGORITHM", iAhrsAlgorithm)
-
-    XML_INSERT(XmlConfigRoot, "LOAD_LIMIT")
-    XMLElement * XmlConfigLoadLimit = XmlConfigNew;
-    XML_INSERT_SET(XmlConfigLoadLimit, "POSITIVE", fLoadLimitPositive)
-    XML_INSERT_SET(XmlConfigLoadLimit, "NEGATIVE", fLoadLimitNegative)
-    XML_INSERT_SET(XmlConfigLoadLimit, "ASYMMETRIC_GYRO_LIMIT", fAsymmetricGyroLimit)
-    XML_INSERT_SET(XmlConfigLoadLimit, "ASYMMETRIC_REDUCTION",  fAsymmetricReduction)
-
-    XML_INSERT(XmlConfigRoot, "VNO")
-    XMLElement * XmlConfigVNO = XmlConfigNew;
-    XML_INSERT_SET(XmlConfigVNO, "SPEED",          iVno)
-    XML_INSERT_SET(XmlConfigVNO, "CHIME_INTERVAL", uVnoChimeInterval)
-    XML_INSERT_SET(XmlConfigVNO, "CHIME_ENABLED",  bVnoChimeEnabled)
-
-    XML_INSERT_SET(XmlConfigRoot, "SDLOGGING", bSdLogging)
-    XML_INSERT_SET(XmlConfigRoot, "LOGRATE",   iLogRate)
-
-    XML_INSERT(XmlConfigRoot, "AIRCRAFT")
-    XMLElement * XmlConfigAircraft = XmlConfigNew;
-    XML_INSERT_SET(XmlConfigAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
-    XML_INSERT_SET(XmlConfigAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
-    XML_INSERT_SET(XmlConfigAircraft, "VFE",             fAcVfe)
-    XML_INSERT_SET(XmlConfigAircraft, "G_LIMIT",         fAcGlimit)
-
-    XmlConfigDoc.Print(&XmlPrint);
-    sConfig = XmlPrint.CStr();
-
-    return sConfig;
+    // Cast to the base OnSpeedConfig — EmitXml only needs core fields.
+    std::string sXml = onspeed::config::EmitXml(static_cast<const onspeed::config::OnSpeedConfig&>(*this));
+    return String(sXml.c_str());
 }
 
 
 // ----------------------------------------------------------------------------
+// XML parse — V2 delegates to core; V1 (legacy CSV tags) stays here until
+// Task 3 lifts it too.
+// ----------------------------------------------------------------------------
 
 bool FOSConfig::LoadConfigFromString(String sConfig)
 {
-
     // Original CONFIG format
     // ----------------------
     if (sConfig.indexOf("<CONFIG>" ) >= 0 && sConfig.indexOf("</CONFIG>" ) >= 0)
@@ -453,8 +351,6 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         iVolumeHighAnalog   = GetConfigValue(sConfig,"VOLUME_HIGH_ANALOG").toInt();
         iVolumeLowAnalog    = GetConfigValue(sConfig,"VOLUME_LOW_ANALOG").toInt();
         iDefaultVolume      = GetConfigValue(sConfig,"VOLUME_DEFAULT").toInt();
-        if (!bVolumeControl)
-            g_AudioPlay.SetVolume(iDefaultVolume);
 
         bAudio3D            = ToBoolean(GetConfigValue(sConfig,"3DAUDIO"));
         bOverGWarning       = ToBoolean(GetConfigValue(sConfig,"OVERGWARNING"));
@@ -466,13 +362,6 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         sPortsOrientation   = GetConfigValue(sConfig,"PORTS_ORIENTATION").c_str();
         sBoxtopOrientation  = GetConfigValue(sConfig,"BOX_TOP_ORIENTATION").c_str();
         sEfisType           = GetConfigValue(sConfig,"EFISTYPE").c_str();
-        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialPort::EnVN300;        // iEfisID = 1;
-        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialPort::EnDynonSkyview; // iEfisID = 2;
-        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialPort::EnDynonD10;     // iEfisID = 3;
-        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialPort::EnGarminG5;     // iEfisID = 4;
-        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialPort::EnGarminG3X;    // iEfisID = 5;
-        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialPort::EnMglBinary;    // iEfisID = 6;
-        else                             g_EfisSerial.enType = EfisSerialPort::EnNone;         // iEfisID = 0;
 
         // Calibration data source
         sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE").c_str();
@@ -499,7 +388,6 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         // serial output
         sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT").c_str();
         enSerialOutFormat   = OnSpeedConfig::ParseSerialFmt(sSerialOutFormat);
-//        sSerialOutPort      = GetConfigValue(sConfig,"SERIALOUTPORT");
 
         // Load limit
         fLoadLimitPositive  = GetConfigValue(sConfig,"LOADLIMITPOSITIVE").toFloat();
@@ -515,234 +403,37 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Decoded V1 config string");
 
-        if (g_pIMU != nullptr)
-            {
-            g_pIMU->ConfigAxes();
-            g_AHRS.Init(kImuSampleRateHz);
-            }
+        ApplyPostParseSideEffects(*this);
         return true;
 #else
         return false;
 #endif
         }
 
-    // CONFIG2 format
+    // CONFIG2 format — delegated to onspeed_core/config/ConfigXmlParse.
     // --------------
-
-#define XML_GET_INT(root, name, value)                          \
-    {                                                           \
-    int          iTemp;                                         \
-    XMLElement * XmlElement = root->FirstChildElement(name);    \
-    if ((XmlElement                       != nullptr) &&        \
-        (XmlElement->QueryIntText(&iTemp) == XML_SUCCESS))      \
-        value = iTemp;                                          \
-    }
-
-#define XML_GET_FLOAT(root, name, value)                        \
-    {                                                           \
-    float        fTemp;                                         \
-    XMLElement * XmlElement = root->FirstChildElement(name);    \
-    if ((XmlElement                         != nullptr) &&      \
-        (XmlElement->QueryFloatText(&fTemp) == XML_SUCCESS))    \
-        value = fTemp;                                          \
-    }
-
-#define XML_GET_BOOL(root, name, value)                         \
-    {                                                           \
-    bool         bTemp;                                         \
-    XMLElement * XmlElement = root->FirstChildElement(name);    \
-    if ((XmlElement                        != nullptr) &&       \
-        (XmlElement->QueryBoolText(&bTemp) == XML_SUCCESS))     \
-        value = bTemp;                                          \
-    }
-
-#define XML_GET_STR(root, name, value)                          \
-    {                                                           \
-    const char * szTemp;                                        \
-    XMLElement * XmlElement = root->FirstChildElement(name);    \
-    if ((XmlElement                       != nullptr) &&        \
-        ((szTemp = XmlElement->GetText()) != nullptr))          \
-        value = szTemp;                                         \
-    }
-
     else if (sConfig.indexOf("<CONFIG2>" ) >= 0 && sConfig.indexOf("</CONFIG2>" ) >= 0)
         {
-        XMLDocument     XmlDoc;
-        XMLNode       * XmlRootNode;
-        String          sDataSource;
+        std::string xml(sConfig.c_str(), sConfig.length());
+        onspeed::config::XmlParseStatus status = onspeed::config::ParseXml(xml, *this);
 
-        if(XmlDoc.Parse(sConfig.c_str()) != XML_SUCCESS)
+        // TooManyFlaps is a warning, not a hard failure: the first
+        // MAX_AOA_CURVES entries were parsed successfully and the config
+        // is usable.  Log it so the user knows and move on.
+        if (status == onspeed::config::XmlParseStatus::TooManyFlaps)
+            {
+            g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+                          "Config had too many FLAP_POSITION entries; truncated to MAX_AOA_CURVES");
+            }
+        else if (status != onspeed::config::XmlParseStatus::Ok)
+            {
+            g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning, "CONFIG2 XML parse failed");
             return false;
-
-        XmlRootNode = XmlDoc.FirstChild();
-        String     sConfigRoot = XmlRootNode->Value();
-
-        XML_GET_INT(XmlRootNode, "AOA_SMOOTHING",      iAoaSmoothing)
-        XML_GET_INT(XmlRootNode, "PRESSURE_SMOOTHING", iPressureSmoothing)
-
-        XML_GET_STR(XmlRootNode, "DATASOURCE",         sDataSource)
-        suDataSrc.fromStrSet(sDataSource.c_str());
-
-        XML_GET_STR(XmlRootNode, "REPLAYLOGFILENAME", sReplayLogFileName)
-
-        int          iFlapIdx  = -1;
-        XMLElement * pXmlFlaps = XmlRootNode->FirstChildElement("FLAP_POSITION");
-
-        // If there is flaps info in the config string then clear out any previous
-        // flaps information.
-        if (pXmlFlaps != NULL)
-            aFlaps.clear();
-
-        while (pXmlFlaps != NULL)
-            {
-            iFlapIdx++;
-
-            SuFlaps     suFlaps;
-
-            XML_GET_INT  (pXmlFlaps, "DEGREES",        suFlaps.iDegrees)
-            XML_GET_INT  (pXmlFlaps, "POT_VALUE",      suFlaps.iPotPosition)
-            XML_GET_FLOAT(pXmlFlaps, "LDMAXAOA",       suFlaps.fLDMAXAOA)
-            XML_GET_FLOAT(pXmlFlaps, "ONSPEEDFASTAOA", suFlaps.fONSPEEDFASTAOA)
-            XML_GET_FLOAT(pXmlFlaps, "ONSPEEDSLOWAOA", suFlaps.fONSPEEDSLOWAOA)
-            XML_GET_FLOAT(pXmlFlaps, "STALLWARNAOA",   suFlaps.fSTALLWARNAOA)
-            XML_GET_FLOAT(pXmlFlaps, "STALLAOA",       suFlaps.fSTALLAOA)
-            XML_GET_FLOAT(pXmlFlaps, "MANAOA",         suFlaps.fMANAOA)
-            XML_GET_FLOAT(pXmlFlaps, "ALPHA0",         suFlaps.fAlpha0)
-            XML_GET_FLOAT(pXmlFlaps, "ALPHASTALL",     suFlaps.fAlphaStall)
-            XML_GET_FLOAT(pXmlFlaps, "KFIT",           suFlaps.fKFit)
-
-            XMLElement * pXmlAoaCurve = pXmlFlaps->FirstChildElement("AOA_CURVE");
-            if (pXmlAoaCurve != NULL)
-                {
-                XML_GET_INT  (pXmlAoaCurve, "TYPE",       suFlaps.AoaCurve.iCurveType)
-                XML_GET_FLOAT(pXmlAoaCurve, "X3",         suFlaps.AoaCurve.afCoeff[0])
-                XML_GET_FLOAT(pXmlAoaCurve, "X2",         suFlaps.AoaCurve.afCoeff[1])
-                XML_GET_FLOAT(pXmlAoaCurve, "X1",         suFlaps.AoaCurve.afCoeff[2])
-                XML_GET_FLOAT(pXmlAoaCurve, "X0",         suFlaps.AoaCurve.afCoeff[3])
-                }
-
-            // Save the new values to the flaps data array
-            if (iFlapIdx < aFlaps.size())   aFlaps[iFlapIdx] = suFlaps;
-            else                            aFlaps.push_back(suFlaps);
-
-            pXmlFlaps = pXmlFlaps->NextSiblingElement("FLAP_POSITION");
-            } // end for each FLAP_POSITION section
-
-        // This is in case the new set of flaps data is smaller
-        aFlaps.resize(iFlapIdx+1);
-
-        // Sort flaps data array by flap degrees
-        std::sort(aFlaps.begin(), aFlaps.end(),
-                [](SuFlaps a, SuFlaps b) { return a.iDegrees < b.iDegrees; } );
-
-        XMLElement * pXmlVolume = XmlRootNode->FirstChildElement("VOLUME");
-        if (pXmlVolume != NULL)
-            {
-            XML_GET_BOOL (pXmlVolume, "ENABLED",        bVolumeControl)
-            XML_GET_INT  (pXmlVolume, "HIGH_ANALOG",    iVolumeHighAnalog)
-            XML_GET_INT  (pXmlVolume, "LOW_ANALOG",     iVolumeLowAnalog)
-            XML_GET_INT  (pXmlVolume, "DEFAULT",        iDefaultVolume)
-            XML_GET_BOOL (pXmlVolume, "ENABLE_3DAUDIO", bAudio3D)
-            XML_GET_INT  (pXmlVolume, "MUTE_UNDER_IAS", iMuteAudioUnderIAS)
-            }
-        if (!bVolumeControl)
-            g_AudioPlay.SetVolume(iDefaultVolume);
-
-        XML_GET_BOOL (XmlRootNode, "OVERGWARNING", bOverGWarning)
-
-        XMLElement * pXmlCasCurve = XmlRootNode->FirstChildElement("CAS_CURVE");
-        if (pXmlCasCurve != NULL)
-            {
-            XML_GET_INT  (pXmlCasCurve, "TYPE",       CasCurve.iCurveType)
-            XML_GET_FLOAT(pXmlCasCurve, "X3",         CasCurve.afCoeff[0])
-            XML_GET_FLOAT(pXmlCasCurve, "X2",         CasCurve.afCoeff[1])
-            XML_GET_FLOAT(pXmlCasCurve, "X1",         CasCurve.afCoeff[2])
-            XML_GET_FLOAT(pXmlCasCurve, "X0",         CasCurve.afCoeff[3])
-            XML_GET_BOOL (pXmlCasCurve, "ENABLED",    bCasCurveEnabled)
-            }
-
-        XMLElement * pXmlOrientation = XmlRootNode->FirstChildElement("ORIENTATION");
-        if (pXmlOrientation != NULL)
-            {
-            XML_GET_STR(pXmlOrientation, "PORTS",     sPortsOrientation)
-            XML_GET_STR(pXmlOrientation, "BOX_TOP",   sBoxtopOrientation)
-            }
-
-        // Serial inputs
-        XML_GET_BOOL(XmlRootNode, "BOOM",             bReadBoom)
-        XML_GET_BOOL(XmlRootNode, "BOOMCHECKSUM",     bBoomChecksum)
-        XML_GET_BOOL(XmlRootNode, "BOOMCONVERTDATA",   bBoomConvertData)
-        XML_GET_BOOL(XmlRootNode, "SERIALEFISDATA",   bReadEfisData)
-        XML_GET_STR(XmlRootNode,  "EFISTYPE",         sEfisType)
-        XML_GET_BOOL(XmlRootNode, "OATSENSOR",        bOatSensor)
-        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialPort::EnVN300;        // iEfisID = 1;
-        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialPort::EnDynonSkyview; // iEfisID = 2;
-        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialPort::EnDynonD10;     // iEfisID = 3;
-        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialPort::EnGarminG5;     // iEfisID = 4;
-        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialPort::EnGarminG3X;    // iEfisID = 5;
-        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialPort::EnMglBinary;    // iEfisID = 6;
-        else                             g_EfisSerial.enType = EfisSerialPort::EnNone;         // iEfisID = 0;
-
-        // Serial output
-        XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
-        enSerialOutFormat = OnSpeedConfig::ParseSerialFmt(sSerialOutFormat);
-//        XML_GET_STR(XmlRootNode, "SERIALOUTPORT",     sSerialOutPort)
-
-        XML_GET_STR(XmlRootNode, "CALWIZ_SOURCE",         sCalSource)
-        bCalSourceEfis = (sCalSource == "EFIS");
-
-        XMLElement * pXmlBias = XmlRootNode->FirstChildElement("BIAS");
-        if (pXmlBias != NULL)
-            {
-            XML_GET_INT  (pXmlBias, "PFWD",     iPFwdBias)
-            XML_GET_INT  (pXmlBias, "P45",      iP45Bias)
-            XML_GET_FLOAT(pXmlBias, "PSTATIC",  fPStaticBias)
-            XML_GET_FLOAT(pXmlBias, "GX",       fGxBias)
-            XML_GET_FLOAT(pXmlBias, "GY",       fGyBias)
-            XML_GET_FLOAT(pXmlBias, "GZ",       fGzBias)
-            XML_GET_FLOAT(pXmlBias, "PITCH",    fPitchBias)
-            XML_GET_FLOAT(pXmlBias, "ROLL",     fRollBias)
-            }
-
-        // AHRS algorithm selection (default to 0=Madgwick if not present)
-        XML_GET_INT(XmlRootNode, "AHRS_ALGORITHM", iAhrsAlgorithm)
-
-        XMLElement * pXmlLoad = XmlRootNode->FirstChildElement("LOAD_LIMIT");
-        if (pXmlLoad != NULL)
-            {
-            XML_GET_FLOAT(pXmlLoad, "POSITIVE",  fLoadLimitPositive)
-            XML_GET_FLOAT(pXmlLoad, "NEGATIVE",  fLoadLimitNegative)
-            XML_GET_FLOAT(pXmlLoad, "ASYMMETRIC_GYRO_LIMIT", fAsymmetricGyroLimit)
-            XML_GET_FLOAT(pXmlLoad, "ASYMMETRIC_REDUCTION",  fAsymmetricReduction)
-            }
-
-        XMLElement * pXmlVno = XmlRootNode->FirstChildElement("VNO");
-        if (pXmlVno != NULL)
-            {
-            XML_GET_INT  (pXmlVno, "SPEED",           iVno)
-            XML_GET_INT  (pXmlVno, "CHIME_INTERVAL",  uVnoChimeInterval)
-            XML_GET_BOOL (pXmlVno, "CHIME_ENABLED",   bVnoChimeEnabled)
-            }
-
-        XML_GET_BOOL(XmlRootNode, "SDLOGGING",        bSdLogging)
-        XML_GET_INT (XmlRootNode, "LOGRATE",           iLogRate)
-
-        XMLElement * pXmlAircraft = XmlRootNode->FirstChildElement("AIRCRAFT");
-        if (pXmlAircraft != NULL)
-            {
-            XML_GET_INT  (pXmlAircraft, "GROSS_WEIGHT",    iAcGrossWeight)
-            XML_GET_FLOAT(pXmlAircraft, "BEST_GLIDE_IAS",  fAcBestGlideIAS)
-            XML_GET_FLOAT(pXmlAircraft, "VFE",             fAcVfe)
-            XML_GET_FLOAT(pXmlAircraft, "G_LIMIT",         fAcGlimit)
             }
 
         g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Decoded V2 config string");
 
-        if (g_pIMU != nullptr)
-            {
-            g_pIMU->ConfigAxes();
-            g_AHRS.Init(kImuSampleRateHz);
-            }
+        ApplyPostParseSideEffects(*this);
         return true;
         }
 
@@ -757,7 +448,8 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
 
 // ----------------------------------------------------------------------------
-// Utility functions
+// Utility functions (used by the V1 legacy path above; Task 3 lifts them
+// into core with ConfigV1Parse).
 // ----------------------------------------------------------------------------
 
 bool FOSConfig::ToBoolean(String sBool)
@@ -949,4 +641,3 @@ String FOSConfig::Array2String(SuIntArray aiConfig)
 }
 
 #endif
-

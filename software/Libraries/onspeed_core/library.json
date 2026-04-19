@@ -16,5 +16,8 @@
   },
   "license": "MIT",
   "platforms": ["native", "espressif32"],
-  "frameworks": "*"
+  "frameworks": "*",
+  "dependencies": {
+    "tinyxml2": "*"
+  }
 }

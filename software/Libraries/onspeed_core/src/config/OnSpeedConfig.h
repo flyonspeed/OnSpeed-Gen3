@@ -59,11 +59,11 @@ struct SuDataSource {
         EnUnknown
     } enSrc;
 
-    const char * toCStr() {
+    const char * toCStr() const {
         return toCStr(enSrc);
     }
 
-    const char * toCStr(EnDataSource enDataSource) {
+    const char * toCStr(EnDataSource enDataSource) const {
         if      (enDataSource == EnDataSource::EnSensors)    return "SENSORS";
         else if (enDataSource == EnDataSource::EnReplay)     return "REPLAYLOGFILE";
         else if (enDataSource == EnDataSource::EnTestPot)    return "TESTPOT";
