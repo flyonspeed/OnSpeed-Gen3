@@ -17,8 +17,6 @@
 #ifndef HARDWARE_MAP_H
 #define HARDWARE_MAP_H
 
-#include <stdint.h>
-
 // ---------------------------------------------------------------------------
 // Hardware-variant guard
 //
