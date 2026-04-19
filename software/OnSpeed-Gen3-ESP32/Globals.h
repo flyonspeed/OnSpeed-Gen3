@@ -22,18 +22,23 @@
 #define EXTERN_CLASS(var, ...)    extern var;
 #endif
 
-// Hardware version. Selected via PlatformIO build flag (-DHW_V4P or -DHW_V4B).
-// Arduino IDE users: uncomment exactly one line below.
-#if !defined(HW_V4B) && !defined(HW_V4P)
-#define HW_V4P   // Default for Arduino IDE (no -D flag)
-#endif
-#if defined(HW_V4B) && defined(HW_V4P)
-#error "Cannot define both HW_V4B and HW_V4P. Select one hardware variant."
-#endif
+// Board-specific pin and timing definitions. This must be included before any
+// module headers that reference pin numbers or sample rates.
+#include "HardwareMap.h"
 
 // Firmware version is provided by BuildInfo::version (see software/Libraries/version/).
 // PlatformIO: auto-generated from git tags by scripts/generate_buildinfo.py.
 // Arduino IDE: uses weak-symbol defaults in software/Libraries/version/buildinfo_default.cpp.
+
+// ---------------------------------------------------------------------------
+// Compile-time feature flags (not board selectors)
+// ---------------------------------------------------------------------------
+// SPHERICAL_PROBE: enable Zlin IAS curve for spherical probe installations.
+// This is a probe geometry flag, not a board flag. Future work (issue #133)
+// may move this to runtime config.
+#ifdef SPHERICAL_PROBE
+  #define IASCURVE(x)           x
+#endif
 
 #define SUPPORT_LITTLEFS
 
@@ -82,100 +87,6 @@
 #include "src/web_server/ConfigWebServer.h"
 #include "src/web_server/DataServer.h"
 #include "Helpers.h"
-
-// Defines
-// =======
-
-// ESP32 pin definitions
-// ---------------------
-
-#define SENSOR_MISO         18
-#define SENSOR_MOSI         17
-#define SENSOR_SCLK         16
-
-#define CS_IMU               4
-#define CS_STATIC            7
-
-// V4P hardware has PFwd/P45 wired to opposite chip selects.
-#ifdef HW_V4P
-#define CS_AOA               6
-#define CS_PITOT             15
-#else
-#define CS_AOA               15
-#define CS_PITOT             6
-#endif
-
-#ifdef HW_V4P
-// V4P includes an external MCP3202 ADC on the sensor SPI bus.
-// Per schematic: CH0 = FLAP_POS, CH1 = CTRL_VOL
-#define CS_ADC               5
-#define ADC_CH_FLAP          0
-#define ADC_CH_VOLUME        1
-#endif
-
-#ifdef HW_V4B
-#define SD_SCLK             42
-#define SD_MISO             41
-#define SD_MOSI             40
-#define SD_CS               39
-#endif
-
-#ifdef HW_V4P // a couple of pins are swapped here
-#define SD_SCLK             41
-#define SD_MISO             42
-#define SD_MOSI             40
-#define SD_CS               39
-#endif
-
-
-
-//#define TESTPOT_PIN           A20           // pin 39 on Teensy 3.6, pin 10 on DB15
-#define VOLUME_PIN           1
-#define FLAP_PIN             2
-
-//#define PIN_LED1            38              // internal LED for showing serial input state.
-#define PIN_LED_KNOB        13              // external LED for showing AOA status (audio on/off)
-#define OAT_PIN             14              // OAT analog input pin
-#define SWITCH_PIN          12
-
-// USB is "Serial"
-
-// EFIS / VN300 Serial
-// TTL/RS232
-#define EFIS_SER_TX         46  // NC
-#define EFIS_SER_RX         11  // J1 pin 25 → R1_OUT on ADM3202 (was 9, which is T2_IN)
-
-// Boom Serial
-// TTL
-#define BOOM_SER_TX          8  // NC
-#define BOOM_SER_RX          3
-
-// M5 Display Serial
-// TTL/RS232
-#define DISPLAY_SER_TX      10
-#define DISPLAY_SER_RX      11  // Normally not used (shares R1_OUT with EFIS_SER_RX)
-
-#ifdef SPHERICAL_PROBE
-  #define IASCURVE(x)           x // Zlin IAS curve
-#endif
-
-// Serial baud rates
-#define BAUDRATE_CONSOLE       921600
-
-// IMU hardware is configured for 208Hz; AHRS runs at this IMU rate.
-#define IMU_SAMPLE_RATE       208
-
-// Pressure sensors (pitot, AOA, static) are read at 50Hz.
-#define PRESSURE_SAMPLE_RATE   50
-#define PRESSURE_INTERVAL_MS   (1000 / PRESSURE_SAMPLE_RATE)
-
-// Display/panel-side serial output cadence. Single source of truth for
-// the WriteDisplayDataTask and DataServer broadcast rate. Consumers on
-// the other side of the wire (e.g. the M5Stack secondary display) should
-// not assume this value — they should measure their own frame dt.
-#define DISPLAY_SERIAL_PERIOD_MS   50
-
-#define GYRO_SMOOTHING        30
 
 // RTOS Stuff
 // ----------
