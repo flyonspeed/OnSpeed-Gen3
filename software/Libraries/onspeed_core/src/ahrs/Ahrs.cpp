@@ -116,12 +116,14 @@ void Ahrs::Init(const AhrsInputs& seedFrame, float seedPaltFt)
     outputs_.pitchDeg = fSeedPitch;
     outputs_.rollDeg  = fSeedRoll;
 
-    // Reset TAS state so the first Step does not see stale derivative.
-    tas_ = 0.0f;
-    prevTas_ = 0.0f;
-    tasDotSmoothed_ = 0.0f;
-    lastIasUpdateUs_ = 0;
-    iasWasBelowThreshold_ = true;
+    // NOTE: TAS state (tas_, prevTas_, tasDotSmoothed_, lastIasUpdateUs_,
+    // iasWasBelowThreshold_) is intentionally NOT reset here. Legacy
+    // AHRS::Init() also did not reset it. Init() is called from the web
+    // UI on every config save (ConfigWebServer.cpp:2052,2363 and
+    // Config.cpp:52), and zeroing TAS would inject a one-frame
+    // forward-accel-comp glitch (~0.05g during deceleration) that would
+    // briefly perturb Madgwick/EKF6 attitude. The constructor initializes
+    // these fields once at boot; we leave them alone on Init().
 }
 
 // ----------------------------------------------------------------------------

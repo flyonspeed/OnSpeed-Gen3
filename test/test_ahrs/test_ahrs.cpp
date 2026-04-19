@@ -350,8 +350,13 @@ void test_step_gyro_averages_follow_input(void)
 // a spurious large derivative.
 // ---------------------------------------------------------------------
 
-void test_init_resets_tas_state(void)
+void test_init_does_not_reset_tas_state(void)
 {
+    // Init() must NOT reset TAS state — matches legacy AHRS::Init()
+    // behavior. The web UI calls Init() on every config save; if Init()
+    // zeroed TAS state, every save during flight would inject a
+    // ~0.05g forward-accel-comp glitch that briefly perturbs Madgwick/
+    // EKF6 attitude. The constructor handles initial zero-init at boot.
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
@@ -361,9 +366,11 @@ void test_init_resets_tas_state(void)
     a.Step(in, kDt);
     TEST_ASSERT_TRUE(a.tasMps() > 0.0f);
 
-    // Re-init should zero TAS.
+    // Re-init should preserve TAS so the next Step doesn't see a
+    // discontinuity (= legacy behavior).
+    const float tasBeforeReInit = a.tasMps();
     a.Init(in, 0.0f);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.tasMps());
+    TEST_ASSERT_EQUAL_FLOAT(tasBeforeReInit, a.tasMps());
 }
 
 // ---------------------------------------------------------------------
@@ -451,7 +458,7 @@ int main(void)
     RUN_TEST(test_step_guards_nan_dt);
     RUN_TEST(test_step_ekf6_level_stable);
     RUN_TEST(test_step_gyro_averages_follow_input);
-    RUN_TEST(test_init_resets_tas_state);
+    RUN_TEST(test_init_does_not_reset_tas_state);
 
     RUN_TEST(test_tas_uses_efis_oat_when_enabled);
     RUN_TEST(test_reconfigure_algorithm_change);

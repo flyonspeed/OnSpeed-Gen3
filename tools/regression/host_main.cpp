@@ -123,11 +123,40 @@ bool ParseRow(const std::string& line, InputRow& out)
 // 20 ms (50 Hz cadence) by stepping the timestamp in 4-frame increments
 // (~208 / 50).  This mirrors the production firmware's pressure-task
 // cadence — the AHRS sees a fresh IAS value every ~4 IMU frames.
-onspeed::AhrsInputs BuildInputs(const InputRow& row,
+//
+// IMPORTANT — what this harness IS and is NOT:
+//
+// IS: a bit-stability gate. Reruns of this harness on the same input
+//     CSV should produce a byte-identical golden. Future PRs that
+//     touch onspeed_core/ahrs/ that change any output field by more
+//     than rtol=1e-5 will fail the snapshot check and require either
+//     justification or a regenerated golden.
+//
+// IS NOT: a behavioral-correctness gate vs. legacy AHRS::Process.
+//     The recorded `short_replay.csv` is the SD-card CSV log written
+//     by production firmware at 50 Hz, not raw 208 Hz IMU data. The
+//     harness feeds it as if each row is one 208 Hz IMU frame, so
+//     paltFt jumps that span ~20 ms of real time get processed at
+//     ~4.8 ms harness dt. Result: Kalman VSI values inflate ~4× and
+//     the asin(VSI/TAS) flight-path saturates at ±90°. Many golden
+//     values are physically absurd. They are still REPRODUCIBLE,
+//     which is what the gate checks.
+//
+//     A future harness PR could either (a) generate genuine 208 Hz
+//     IMU input by holding paltFt across the appropriate number of
+//     IMU frames, or (b) record a real 208 Hz IMU stream during a
+//     bench session. Either would let the golden contain physically
+//     sane values. Out of scope for the AHRS extraction.
+//
+// `iasUpdateTimestampUs` advances at the production 50 Hz pressure
+// cadence so the TAS density correction inside Ahrs::Step is gated
+// correctly even though we provide one input row per IMU frame.
+onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
                                 size_t frameIdx,
                                 bool oatPresentInLog)
 {
     onspeed::AhrsInputs in;
+    const InputRow& row = rows[frameIdx];
     in.imu.accelXG      = row.ax;
     in.imu.accelYG      = row.ay;
     in.imu.accelZG      = row.az;
@@ -205,12 +234,12 @@ int main()
     }
 
     // Init from the very first row's IMU sample (and that row's Palt).
-    onspeed::AhrsInputs seed = BuildInputs(rows.front(), 0, oatPresentInLog);
+    onspeed::AhrsInputs seed = BuildInputs(rows, 0, oatPresentInLog);
     ahrs.Init(seed, rows.front().palt_ft);
 
     for (size_t i = 0; i < rows.size(); ++i) {
         const InputRow& r = rows[i];
-        const onspeed::AhrsInputs in = BuildInputs(r, i, oatPresentInLog);
+        const onspeed::AhrsInputs in = BuildInputs(rows, i, oatPresentInLog);
         const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
 
         // Tone decision driven by the AHRS-derived AOA (real signal,
