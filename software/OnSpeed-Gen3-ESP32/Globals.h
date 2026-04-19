@@ -70,6 +70,11 @@
 // can resolve. See software/Libraries/onspeed_core/src/onspeed_core.h.
 #include <onspeed_core.h>
 
+// OnSpeed core: pure, platform-free decision modules
+#include <audio/GLimitDecision.h>
+#include <audio/VnoChimeDecision.h>
+#include <audio/VolumeCurve.h>
+
 // OnSpeed modules
 #include "src/util/ErrorLogger.h"
 #include "src/config/Config.h"
@@ -153,6 +158,11 @@ EXTERN Flaps                    g_Flaps;
 EXTERN_CLASS(OneButton          g_Switch, SWITCH_PIN, true)
 
 EXTERN AudioPlay                g_AudioPlay;
+
+// Stateful chime detectors (onspeed_core). Instantiated once; each
+// HousekeepingTask iteration passes a freshly-snapshotted input struct.
+EXTERN onspeed::audio::GLimitDetector   g_GLimitDetector;
+EXTERN onspeed::audio::VnoChimeDetector g_VnoChimeDetector;
 
 EXTERN_INIT(bool g_bFlashFS, false)     // One of the on-board flash file systems (e.g. LittleFS) ready
 EXTERN_INIT(bool g_bPause,   false)

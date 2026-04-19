@@ -4,9 +4,6 @@
 #include "src/audio_io/Volume.h"
 #include "src/drivers/Mcp3202Adc.h"
 
-// GLimit settings
-#define GLIMIT_REPEAT_TIMEOUT_TICKS   30   // 30 x 100ms = 3000ms
-
 // 3D Audio: move audio with the ball, scaling is 0.08 LateralG/ball width
 #define AUDIO_3D_CURVE(x)             (-92.822f*(x)*(x) + 20.025f*(x))
 static const float fSmoothingFactor = 0.1f;
@@ -29,20 +26,25 @@ void HousekeepingTask(void * pvParams)
 
     // Local state
     uint32_t uTick           = 0;
-    int      iGLimitCooldown = 0;
-    int      iVnoCooldown    = 0;
     int      iVolPos         = 0;
     bool     bVolInit        = false;
-    float    fChannelGain    = 0.0f;
     bool     bLedOn          = false;
     int      iSlowBlinkCounter = 0;
+    float    fChannelGain    = 0.0f;
 
     while (true)
     {
         vTaskDelay(pdMS_TO_TICKS(100));
         uTick++;
 
+        // Monotonic millisecond clock passed into all core decision functions.
+        // xTaskGetTickCount() * portTICK_PERIOD_MS gives the elapsed ms since boot.
+        uint32_t nowMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
         // --- Snapshot AHRS state under mutex (written by ImuReadTask at 208 Hz) ---
+        // All AHRS fields read here are copied into plain local variables so the
+        // decision functions below never touch shared globals.  This is the
+        // audit #010 fix: the old code read g_AHRS members outside the mutex.
         float fSnapRoll      = 0.0f;
         float fSnapYaw       = 0.0f;
         float fSnapAccelVert = -1.0f;
@@ -56,46 +58,56 @@ void HousekeepingTask(void * pvParams)
             xSemaphoreGive(xAhrsMutex);
         }
 
-        // --- GLimit (every tick, 100ms) with cooldown ---
-        if (iGLimitCooldown > 0)
+        // --- GLimit (every tick, 100ms) ---
+        // Build input and config snapshots from globals, then delegate the
+        // trigger decision to the pure GLimitDetector in onspeed_core.
+        if (g_Config.bOverGWarning)
         {
-            iGLimitCooldown--;
-        }
-        else if (g_Config.bOverGWarning)
-        {
-            float fCalcGLimitPos;
-            float fCalcGLimitNeg;
+            onspeed::audio::GLimitInputs glInputs;
+            glInputs.verticalG   = fSnapAccelVert;
+            glInputs.rollRateDps = fSnapRoll;
+            glInputs.yawRateDps  = fSnapYaw;
+            glInputs.tickMs      = nowMs;
 
-            if (fabsf(fSnapRoll) >= g_Config.fAsymmetricGyroLimit || fabsf(fSnapYaw) >= g_Config.fAsymmetricGyroLimit)
-            {
-                fCalcGLimitPos = g_Config.fLoadLimitPositive * g_Config.fAsymmetricReduction;
-                fCalcGLimitNeg = g_Config.fLoadLimitNegative * g_Config.fAsymmetricReduction;
-            }
-            else
-            {
-                fCalcGLimitPos = g_Config.fLoadLimitPositive;
-                fCalcGLimitNeg = g_Config.fLoadLimitNegative;
-            }
+            onspeed::audio::GLimitConfig glCfg;
+            glCfg.positiveLimitG      = g_Config.fLoadLimitPositive;
+            glCfg.negativeLimitG      = g_Config.fLoadLimitNegative;
+            glCfg.asymmetricGyroDps   = g_Config.fAsymmetricGyroLimit;
+            glCfg.asymmetricReduction = g_Config.fAsymmetricReduction;
+            glCfg.repeatTimeoutMs     = 3000;
 
-            if (fSnapAccelVert >= fCalcGLimitPos || fSnapAccelVert <= fCalcGLimitNeg)
+            if (g_GLimitDetector.Update(glInputs, glCfg))
             {
                 g_AudioPlay.SetVoice(enVoiceGLimit);
-                iGLimitCooldown = GLIMIT_REPEAT_TIMEOUT_TICKS;
             }
         }
 
-        // --- VnoChime (every tick, 100ms) with cooldown ---
-        if (iVnoCooldown > 0)
+        // --- VnoChime (every tick, 100ms) ---
+        if (g_Config.bVnoChimeEnabled)
         {
-            iVnoCooldown--;
-        }
-        else if (g_Config.bVnoChimeEnabled && (g_Sensors.IAS > g_Config.iVno))
-        {
-            g_AudioPlay.SetVoice(enVoiceVnoChime);
+            // IAS is written by the sensor task; snapshot under xSensorMutex.
+            float fSnapIAS = 0.0f;
+            if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
+            {
+                fSnapIAS = g_Sensors.IAS;
+                xSemaphoreGive(xSensorMutex);
+            }
+
+            onspeed::audio::VnoChimeInputs vnoIn;
+            vnoIn.iasKt  = fSnapIAS;
+            vnoIn.tickMs = nowMs;
+
+            onspeed::audio::VnoChimeConfig vnoCfg;
+            vnoCfg.vnoKt = static_cast<float>(g_Config.iVno);
+            // Guard against zero interval; minimum 1 second (10 ticks x 100ms)
             unsigned uInterval = g_Config.uVnoChimeInterval;
-            if (uInterval == 0)
-                uInterval = 1;
-            iVnoCooldown = uInterval * 10;   // seconds -> 100ms ticks
+            if (uInterval == 0) uInterval = 1;
+            vnoCfg.repeatIntervalMs = uInterval * 1000U;
+
+            if (g_VnoChimeDetector.Update(vnoIn, vnoCfg))
+            {
+                g_AudioPlay.SetVoice(enVoiceVnoChime);
+            }
         }
 
         // --- 3D Audio (every tick, 100ms) ---
@@ -140,7 +152,16 @@ void HousekeepingTask(void * pvParams)
                     xSemaphoreGive(xSensorMutex);
                 }
 
-                int iVolumePercent = mapfloat(iVolPos, g_Config.iVolumeLowAnalog, g_Config.iVolumeHighAnalog, 0, 100);
+                // Use VolumeCurve::MapPotToGain to convert the smoothed ADC
+                // reading into a 0–1 gain, then scale to the integer percent
+                // that SetVolume expects.
+                onspeed::audio::VolumeCurveConfig volCfg;
+                volCfg.lowAnalog  = g_Config.iVolumeLowAnalog;
+                volCfg.highAnalog = g_Config.iVolumeHighAnalog;
+
+                float fGain = onspeed::audio::MapPotToGain(iVolPos, volCfg);
+                int iVolumePercent = static_cast<int>(fGain * 100.0f);
+
                 g_AudioPlay.SetVolume(iVolumePercent);
 
                 g_Log.printf(MsgLog::EnVolume, MsgLog::EnDebug, "Raw %d  Percent %d\n", iVolPos, iVolumePercent);
