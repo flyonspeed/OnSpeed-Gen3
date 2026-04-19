@@ -250,23 +250,24 @@ void IMU330::ConfigAxes()
     // keeps all the downstream axisMapArray[i][j] indexing unchanged.
     const auto& axisMapArray = kImuOrientationTable;
 
-    for (int i=0;i<24;i++)
+    for (int i = 0; i < kImuOrientationRowCount; i++)
         {
-        if (g_Config.sPortsOrientation == axisMapArray[i][0] && g_Config.sBoxtopOrientation == axisMapArray[i][1])
+        if (g_Config.sPortsOrientation == axisMapArray[i].portsOrientation &&
+            g_Config.sBoxtopOrientation == axisMapArray[i].boxtopOrientation)
             {
-            sVerticalGloadAxis = axisMapArray[i][2];
-            sLateralGloadAxis  = axisMapArray[i][3];
-            sForwardGloadAxis  = axisMapArray[i][4];
+            sVerticalGloadAxis = axisMapArray[i].verticalGloadAxis;
+            sLateralGloadAxis  = axisMapArray[i].lateralGloadAxis;
+            sForwardGloadAxis  = axisMapArray[i].forwardGloadAxis;
             sYawGyroAxis       = sVerticalGloadAxis;
             sPitchGyroAxis     = sLateralGloadAxis;
             sRollGyroAxis      = sForwardGloadAxis;
 
-            GetAccelForAxis(axisMapArray[i][2], &fAzSign, &pfAz);
-            GetAccelForAxis(axisMapArray[i][3], &fAySign, &pfAy);
-            GetAccelForAxis(axisMapArray[i][4], &fAxSign, &pfAx);
-            GetGyroForAxis( axisMapArray[i][2], &fGzSign, &pfGz);    //// CHECK THESE!!!
-            GetGyroForAxis( axisMapArray[i][3], &fGySign, &pfGy);
-            GetGyroForAxis( axisMapArray[i][4], &fGxSign, &pfGx);
+            GetAccelForAxis(axisMapArray[i].verticalGloadAxis, &fAzSign, &pfAz);
+            GetAccelForAxis(axisMapArray[i].lateralGloadAxis,  &fAySign, &pfAy);
+            GetAccelForAxis(axisMapArray[i].forwardGloadAxis,  &fAxSign, &pfAx);
+            GetGyroForAxis( axisMapArray[i].verticalGloadAxis, &fGzSign, &pfGz);    //// CHECK THESE!!!
+            GetGyroForAxis( axisMapArray[i].lateralGloadAxis,  &fGySign, &pfGy);
+            GetGyroForAxis( axisMapArray[i].forwardGloadAxis,  &fGxSign, &pfGx);
             break;
             }
         }

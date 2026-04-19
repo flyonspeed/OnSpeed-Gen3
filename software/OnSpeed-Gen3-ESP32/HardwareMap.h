@@ -93,19 +93,21 @@ constexpr int kI2sLrck = 47;
 // init time and applies the rotation in its ConfigAxes() path, so
 // consumers downstream of the IMU see samples already in the canonical
 // aircraft frame.
-//
-// Format per row:
-//   {sPortsOrientation, sBoxtopOrientation,
-//    sVerticalGloadAxis, sLateralGloadAxis, sForwardGloadAxis}
 // ---------------------------------------------------------------------------
+struct ImuOrientationRow {
+    const char* portsOrientation;
+    const char* boxtopOrientation;
+    const char* verticalGloadAxis;
+    const char* lateralGloadAxis;
+    const char* forwardGloadAxis;
+};
+
 constexpr int kImuOrientationRowCount = 24;
-constexpr int kImuOrientationColCount = 5;
 
 #ifdef HW_V4P
 // V4P box: IMU is rotated relative to V4B.
 // V4P(X) = V4B(-Y)   V4P(Y) = V4B(-X)   V4P(Z) = V4B(-Z)
-inline constexpr const char* const kImuOrientationTable
-    [kImuOrientationRowCount][kImuOrientationColCount] = {
+inline constexpr ImuOrientationRow kImuOrientationTable[kImuOrientationRowCount] = {
     {"FORWARD", "LEFT",     "X", "-Z",  "Y"},
     {"FORWARD", "RIGHT",   "-X",  "Z",  "Y"},
     {"FORWARD", "UP",       "Z",  "X",  "Y"},
@@ -138,8 +140,7 @@ inline constexpr const char* const kImuOrientationTable
 };
 #else  // HW_V4B
 // V4B box: +X back (away from pressure ports), +Y right, +Z down.
-inline constexpr const char* const kImuOrientationTable
-    [kImuOrientationRowCount][kImuOrientationColCount] = {
+inline constexpr ImuOrientationRow kImuOrientationTable[kImuOrientationRowCount] = {
     {"FORWARD", "LEFT",    "-Y",  "Z", "-X"}, // TESTED GOOD Paul's
     {"FORWARD", "RIGHT",    "Y", "-Z", "-X"}, // TESTED GOOD
     {"FORWARD", "UP",      "-Z", "-Y", "-X"}, // TESTED GOOD, Vac's RV-4
