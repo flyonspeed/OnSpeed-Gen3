@@ -34,7 +34,7 @@ void RebootFromSwitch()
 void SwitchCheckTask(void * pvParams)
     {
     // Setup OneButton switch
-    pinMode(SWITCH_PIN,   INPUT_PULLUP);
+    pinMode(kPinSwitch,   INPUT_PULLUP);
     // OneButton press timing values are in milliseconds (not "tick()" calls).
     // 1 second long-press for DataMark.
     g_Switch.setPressMs(1000);

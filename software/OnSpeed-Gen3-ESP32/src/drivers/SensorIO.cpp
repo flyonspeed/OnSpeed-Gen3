@@ -95,7 +95,7 @@ void SensorReadTask(void *pvParams)
 
 // ----------------------------------------------------------------------------
 
-// FreeRTOS task for reading IMU + updating AHRS at IMU_SAMPLE_RATE
+// FreeRTOS task for reading IMU + updating AHRS at kImuSampleRateHz
 
 void ImuReadTask(void *pvParams)
 {
@@ -103,8 +103,8 @@ void ImuReadTask(void *pvParams)
 
     // 1 second = 1,000,000us. Use a fractional accumulator so the average period is exact
     // for rates that don't divide 1,000,000 evenly.
-    const uint32_t uBasePeriodUs   = 1000000UL / IMU_SAMPLE_RATE; // 4807us @ 208Hz
-    const uint32_t uRemainderUs    = 1000000UL % IMU_SAMPLE_RATE; // 144us  @ 208Hz
+    const uint32_t uBasePeriodUs   = 1000000UL / kImuSampleRateHz; // 4807us @ 208Hz
+    const uint32_t uRemainderUs    = 1000000UL % kImuSampleRateHz; // 144us  @ 208Hz
     uint32_t       uRemainderAcc   = 0;
     uint32_t       uNextWakeUs     = micros();
     uint32_t       uLastImuReadUs  = uNextWakeUs;
@@ -115,10 +115,10 @@ void ImuReadTask(void *pvParams)
         // Schedule the next tick.
         uNextWakeUs += uBasePeriodUs;
         uRemainderAcc += uRemainderUs;
-        if (uRemainderAcc >= IMU_SAMPLE_RATE)
+        if (uRemainderAcc >= kImuSampleRateHz)
         {
             uNextWakeUs += 1;
-            uRemainderAcc -= IMU_SAMPLE_RATE;
+            uRemainderAcc -= kImuSampleRateHz;
         }
 
         // Wait until it's time (coarse sleep then microsecond trim).
@@ -158,7 +158,7 @@ void ImuReadTask(void *pvParams)
 
         const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
         uLastImuReadUs = uImuReadUs;
-        const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / IMU_SAMPLE_RATE);
+        const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / kImuSampleRateHz);
 
         // Update AHRS (guard against re-entrant Process() calls).
         xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
