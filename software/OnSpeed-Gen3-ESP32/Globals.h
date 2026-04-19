@@ -87,7 +87,7 @@
 #include "src/tasks/LogReplay.h"
 #include "src/tasks/AHRS.h"
 #include "src/io/ConsoleSerial.h"
-#include "src/io/EfisSerial.h"
+#include "src/io/EfisSerialPort.h"
 #include "src/io/BoomSerial.h"
 #include "src/io/DisplaySerial.h"
 #include "src/drivers/Switch.h"
@@ -149,7 +149,7 @@ EXTERN  LogSensor               g_LogSensor;
 EXTERN_CLASS(AHRS               g_AHRS, GYRO_SMOOTHING)
 
 EXTERN ConsoleSerialIO          g_ConsoleSerial;
-EXTERN EfisSerialIO             g_EfisSerial;
+EXTERN EfisSerialPort           g_EfisSerial;
 EXTERN BoomSerialIO             g_BoomSerial;
 EXTERN DisplaySerial            g_DisplaySerial;
 

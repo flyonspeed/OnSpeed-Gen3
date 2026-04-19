@@ -307,7 +307,7 @@ void LogSensor::Open()
 
             if (g_Config.bReadEfisData)
             {
-                if (g_EfisSerial.enType == EfisSerialIO::EnVN300) // VN-300 type data
+                if (g_EfisSerial.enType == EfisSerialPort::EnVN300) // VN-300 type data
                     m_hLogFile.write(",vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,vnVelNedNorth,vnVelNedEast,vnVelNedDown,vnAccelFwd,vnAccelLat,vnAccelVert,vnYaw,vnPitch,vnRoll,vnLinAccFwd,vnLinAccLat,vnLinAccVert,vnYawSigma,vnRollSigma,vnPitchSigma,vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,vnTimeUTC");
                 else
                     m_hLogFile.write(",efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG,efisPercentLift,efisPalt,efisVSI,efisTAS,efisOAT,efisFuelRemaining,efisFuelFlow,efisMAP,efisRPM,efisPercentPower,efisMagHeading,efisAge,efisTime");
@@ -393,7 +393,7 @@ void LogSensor::Write()
         if (g_Config.bReadEfisData)
         {
             EfisAge = millis() - g_EfisSerial.uTimestamp;
-            if (g_EfisSerial.enType == EfisSerialIO::EnVN300) // VN-300 type data
+            if (g_EfisSerial.enType == EfisSerialPort::EnVN300) // VN-300 type data
             {
                 bOk &= Appendf(szLogLine, sizeof(szLogLine), iLineLen, ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.6f,%.6f,%i,%i,%s",
                     g_EfisSerial.suVN300.AngularRateRoll, g_EfisSerial.suVN300.AngularRatePitch, g_EfisSerial.suVN300.AngularRateYaw,
