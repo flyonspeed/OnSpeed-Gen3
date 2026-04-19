@@ -201,6 +201,30 @@ New code follows the table above. When adding a new third-party dependency,
 check whether it lives under `software/Libraries/` (quotes) or comes from
 the Arduino/ESP32 framework's built-in library path (angle brackets).
 
+### Include every stdlib header you use
+
+The macOS libc++ used for local native builds forwards transitive includes
+more aggressively than Linux libstdc++ used in CI. A `.cpp` file that calls
+`strtof` must `#include <cstdlib>` explicitly, even if the call happens to
+compile on macOS without it (because `<cstring>` or another header pulled
+`stdlib.h` in transitively). CI's Linux GCC build is authoritative — if
+Linux CI fails with "`strtof` was not declared," the file is missing the
+header, not CI.
+
+Common symbols to watch:
+
+| Symbol | Header |
+|---|---|
+| `strtof`, `strtod`, `strtol`, `strtoul`, `atoi`, `atof` | `<cstdlib>` |
+| `strlen`, `strcmp`, `memcpy`, `memset` | `<cstring>` |
+| `printf`, `snprintf`, `fprintf` | `<cstdio>` |
+| `sqrt`, `sinf`, `cosf`, `fabsf`, `powf` | `<cmath>` |
+| `std::min`, `std::max`, `std::sort` | `<algorithm>` |
+| `std::optional` | `<optional>` |
+| `std::string_view` | `<string_view>` |
+| `int32_t`, `uint16_t`, etc. | `<cstdint>` |
+| `size_t`, `ptrdiff_t` | `<cstddef>` |
+
 [1]: https://google.github.io/styleguide/cppguide.html#Names_and_Order_of_Includes
 
 ## Core invariants and regression tooling
