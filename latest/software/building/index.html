@@ -1774,21 +1774,32 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#include-every-stdlib-header-you-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Include every stdlib header you use
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-extraction-tooling" class="md-nav__link">
+  <a href="#core-invariants-and-regression-tooling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core-Extraction Tooling
+        Core invariants and regression tooling
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Core-Extraction Tooling">
+    <nav class="md-nav" aria-label="Core invariants and regression tooling">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3293,21 +3304,32 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#include-every-stdlib-header-you-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Include every stdlib header you use
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-extraction-tooling" class="md-nav__link">
+  <a href="#core-invariants-and-regression-tooling" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core-Extraction Tooling
+        Core invariants and regression tooling
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Core-Extraction Tooling">
+    <nav class="md-nav" aria-label="Core invariants and regression tooling">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3573,10 +3595,65 @@ If it ships as a vendored dep under <code>software/Libraries/</code>, use <code>
 <p>New code follows the table above. When adding a new third-party dependency,
 check whether it lives under <code>software/Libraries/</code> (quotes) or comes from
 the Arduino/ESP32 framework's built-in library path (angle brackets).</p>
-<h2 id="core-extraction-tooling">Core-Extraction Tooling<a class="headerlink" href="#core-extraction-tooling" title="Permanent link">&para;</a></h2>
-<p>Three tools guard structural invariants and catch behavior regressions during
-the ongoing core-extraction refactor. All three run in CI on every pull
-request; local invocation is identical.</p>
+<h3 id="include-every-stdlib-header-you-use">Include every stdlib header you use<a class="headerlink" href="#include-every-stdlib-header-you-use" title="Permanent link">&para;</a></h3>
+<p>The macOS libc++ used for local native builds forwards transitive includes
+more aggressively than Linux libstdc++ used in CI. A <code>.cpp</code> file that calls
+<code>strtof</code> must <code>#include &lt;cstdlib&gt;</code> explicitly, even if the call happens to
+compile on macOS without it (because <code>&lt;cstring&gt;</code> or another header pulled
+<code>stdlib.h</code> in transitively). CI's Linux GCC build is authoritative — if
+Linux CI fails with "<code>strtof</code> was not declared," the file is missing the
+header, not CI.</p>
+<p>Common symbols to watch:</p>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Header</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>strtof</code>, <code>strtod</code>, <code>strtol</code>, <code>strtoul</code>, <code>atoi</code>, <code>atof</code></td>
+<td><code>&lt;cstdlib&gt;</code></td>
+</tr>
+<tr>
+<td><code>strlen</code>, <code>strcmp</code>, <code>memcpy</code>, <code>memset</code></td>
+<td><code>&lt;cstring&gt;</code></td>
+</tr>
+<tr>
+<td><code>printf</code>, <code>snprintf</code>, <code>fprintf</code></td>
+<td><code>&lt;cstdio&gt;</code></td>
+</tr>
+<tr>
+<td><code>sqrt</code>, <code>sinf</code>, <code>cosf</code>, <code>fabsf</code>, <code>powf</code></td>
+<td><code>&lt;cmath&gt;</code></td>
+</tr>
+<tr>
+<td><code>std::min</code>, <code>std::max</code>, <code>std::sort</code></td>
+<td><code>&lt;algorithm&gt;</code></td>
+</tr>
+<tr>
+<td><code>std::optional</code></td>
+<td><code>&lt;optional&gt;</code></td>
+</tr>
+<tr>
+<td><code>std::string_view</code></td>
+<td><code>&lt;string_view&gt;</code></td>
+</tr>
+<tr>
+<td><code>int32_t</code>, <code>uint16_t</code>, etc.</td>
+<td><code>&lt;cstdint&gt;</code></td>
+</tr>
+<tr>
+<td><code>size_t</code>, <code>ptrdiff_t</code></td>
+<td><code>&lt;cstddef&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="core-invariants-and-regression-tooling">Core invariants and regression tooling<a class="headerlink" href="#core-invariants-and-regression-tooling" title="Permanent link">&para;</a></h2>
+<p>Three tools guard the <code>onspeed_core</code> library boundary and catch behavior
+regressions. All three run in CI on every pull request; local invocation
+is identical.</p>
 <h3 id="scriptscheck_core_puritysh"><code>scripts/check_core_purity.sh</code><a class="headerlink" href="#scriptscheck_core_puritysh" title="Permanent link">&para;</a></h3>
 <p>Verifies that no file under <code>software/Libraries/onspeed_core/</code> includes a
 platform header (<code>Arduino.h</code>, <code>FreeRTOS.h</code>, ESP-IDF headers) or calls a
@@ -3610,10 +3687,10 @@ differently after a refactor.</p>
 <a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Accept an intentional behavior change (commit the new golden with the PR)</span>
 <a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>./tools/regression/run_snapshot.py<span class="w"> </span>--update-golden
 </code></pre></div>
-<p>The harness pipeline is minimal at this stage (IAS/Palt pass-through with a
-placeholder tone decision). Each subsequent extraction PR that moves a new
-module into <code>onspeed_core</code> extends <code>host_main.cpp</code> and regenerates the golden
-as part of its commit.</p>
+<p>The harness's pipeline (<code>tools/regression/host_main.cpp</code>) exercises the
+current <code>onspeed_core</code> modules end-to-end. When adding a new module to
+<code>onspeed_core</code>, extend <code>host_main.cpp</code> to exercise it and commit an
+updated golden alongside the code change.</p>
 <h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
 <p>See the <a href="https://github.com/flyonspeed/OnSpeed-Gen3">GitHub repository</a> for contribution guidelines, issue tracking, and pull request workflow.</p>
 
