@@ -1,0 +1,99 @@
+// proto/LogCsv.h — CSV row formatting and parsing for the OnSpeed SD log
+//
+// The firmware writes CSV rows to the SD card at 50 Hz (default).  The
+// LogReplay task reads back those same rows for bench testing.  This
+// module is the single source of truth for the column list, their order,
+// units, and precision.  Any change here MUST be followed by:
+//
+//   1. Bumping kFormatVersion in LogCsv.cpp.
+//   2. Updating the "Log columns" page of the docs site.
+//   3. Updating any offline analysis tooling that depends on column order.
+//
+// Column layout (always-present groups separated by blank lines):
+//
+//   timeStamp, Pfwd, PfwdSmoothed, P45, P45Smoothed, PStatic, Palt,
+//   IAS, AngleofAttack, flapsPos, DataMark,
+//   OAT, TAS,
+//   imuTemp, VerticalG, LateralG, ForwardG,
+//   RollRate, PitchRate, YawRate, Pitch, Roll,
+//
+//   [if boom enabled]
+//   boomStatic, boomDynamic, boomAlpha, boomBeta, boomIAS, boomAge,
+//
+//   [if EFIS enabled and type == VN-300]
+//   vnAngularRateRoll, vnAngularRatePitch, vnAngularRateYaw,
+//   vnVelNedNorth, vnVelNedEast, vnVelNedDown,
+//   vnAccelFwd, vnAccelLat, vnAccelVert,
+//   vnYaw, vnPitch, vnRoll,
+//   vnLinAccFwd, vnLinAccLat, vnLinAccVert,
+//   vnYawSigma, vnRollSigma, vnPitchSigma,
+//   vnGnssVelNedNorth, vnGnssVelNedEast, vnGnssVelNedDown,
+//   vnGnssLat, vnGnssLon, vnGPSFix, vnDataAge, vnTimeUTC,
+//
+//   [if EFIS enabled and type != VN-300]
+//   efisIAS, efisPitch, efisRoll, efisLateralG, efisVerticalG,
+//   efisPercentLift, efisPalt, efisVSI, efisTAS, efisOAT,
+//   efisFuelRemaining, efisFuelFlow, efisMAP, efisRPM,
+//   efisPercentPower, efisMagHeading, efisAge, efisTime,
+//
+//   EarthVerticalG, FlightPath, VSI, Altitude,
+//   DerivedAOA, CoeffP
+
+#ifndef ONSPEED_CORE_PROTO_LOG_CSV_H
+#define ONSPEED_CORE_PROTO_LOG_CSV_H
+
+#include <cstddef>
+#include <string_view>
+#include <types/LogRow.h>
+
+namespace onspeed::proto::log_csv {
+
+// Log format version.  Increment whenever column names, order, units, or
+// precision change.  Consumer tools can use this to detect incompatible logs.
+inline constexpr int kFormatVersion = 1;
+
+// Conservative upper bounds for the two output buffers.
+// Both are sized to accommodate the VN-300 variant, which is the widest row.
+inline constexpr size_t kHeaderMaxBytes = 2048;
+inline constexpr size_t kRowMaxBytes    = 2048;
+
+// ---------------------------------------------------------------------------
+// WriteHeader
+//
+// Writes the CSV header line (column names, comma-separated, no trailing
+// newline) into `out`.  Returns the number of bytes written, or 0 on error.
+// `out` must have at least kHeaderMaxBytes of space.
+// ---------------------------------------------------------------------------
+size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity);
+
+// ---------------------------------------------------------------------------
+// FormatRow
+//
+// Formats a single data row into `out`.  No trailing newline is appended;
+// the caller adds one when writing to a file.
+// Returns the number of bytes written, or 0 on error (e.g. truncation).
+// `out` must have at least kRowMaxBytes of space.
+//
+// Issue #182 note: imuPitchRateDps in LogRow holds the raw (un-negated)
+// gyro pitch rate.  FormatRow applies the sign flip when emitting the
+// PitchRate column so that the CSV file is byte-identical to the previous
+// (pre-refactor) format.
+// ---------------------------------------------------------------------------
+size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity);
+
+// ---------------------------------------------------------------------------
+// ParseRow
+//
+// Parses a single CSV data line (not the header) into `row`.  The parser
+// is header-agnostic: it expects columns in the exact order produced by
+// FormatRow, and uses the presence flags already set on `row` (boomEnabled,
+// efisEnabled, efisIsVn300) to decide how many optional columns to consume.
+//
+// Returns true on success, false on malformed input (too few fields, etc.).
+// Tolerates trailing CR/LF and empty trailing fields.
+// ---------------------------------------------------------------------------
+bool ParseRow(std::string_view line, onspeed::LogRow& row);
+
+}   // namespace onspeed::proto::log_csv
+
+#endif  // ONSPEED_CORE_PROTO_LOG_CSV_H

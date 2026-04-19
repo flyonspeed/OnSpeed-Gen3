@@ -11,12 +11,12 @@
 //#include "freertos/message_buffer.h"
 //#include "freertos/ringbuf.h"
 
-#include "csv_parser.hpp"
-
 #include "Globals.h"
 #include "src/config/Config.h"
 #include "src/drivers/SensorIO.h"
 #include <filters/EMAFilter.h>
+#include <proto/LogCsv.h>
+#include <types/LogRow.h>
 
 using onspeed::pressureCoeff;
 using onspeed::fpm2mps;
@@ -24,10 +24,12 @@ using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
 
 FsFile                      hReplayFile;
-char                        szInLine[1000];
-CSV_Parser                  CsvParser;
-CSV_FIELDS                  CsvHeaders;
-KEY_VAL_FIELDS              CsvData;
+static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
+
+// Feature flags detected from the log file header line.
+static bool                 s_bReplayBoom  = false;
+static bool                 s_bReplayEfis  = false;
+static bool                 s_bReplayVn300 = false;
 
 bool OpenReplayLog(String sLogFile);
 bool ReadLogLine();
@@ -108,7 +110,6 @@ void LogReplayTask(void *pvParams)
 
 bool OpenReplayLog(String sLogFile)
     {
-    bool    bStatus = false;
     int     iCharsRead = 0;
 
     if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
@@ -133,9 +134,7 @@ bool OpenReplayLog(String sLogFile)
         return false;
         }
 
-//        digitalWrite(PIN_LED1, HIGH);
-
-    // Read the CSV header line
+    // Read the CSV header line.
     iCharsRead = hReplayFile.fgets(szInLine, sizeof(szInLine));
     xSemaphoreGive(xWriteMutex);
     if (iCharsRead <= 0)
@@ -143,27 +142,33 @@ bool OpenReplayLog(String sLogFile)
 
     RemoveSpaces(szInLine);
 
-    bStatus = CsvParser.parse_line(szInLine, CsvHeaders);
-    if (bStatus == false)
-        goto fail;
+    // Detect optional column groups from the header so ParseRow knows the
+    // column layout.  Presence of "boomStatic" indicates boom columns;
+    // "efisIAS" indicates standard EFIS; "vnAngularRateRoll" indicates VN-300.
+    {
+    s_bReplayBoom  = strstr(szInLine, "boomStatic")         != nullptr;
+    s_bReplayVn300 = strstr(szInLine, "vnAngularRateRoll")  != nullptr;
+    s_bReplayEfis  = s_bReplayVn300 ||
+                     strstr(szInLine, "efisIAS")            != nullptr;
+    }
 
-    // Make sure required headers are present
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "PfwdSmoothed") == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "P45Smoothed")  == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "flapsPos")     == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "Palt")         == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "IAS")          == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "DataMark")     == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "VSI")          == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "VerticalG")    == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "LateralG")     == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "ForwardG")     == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "RollRate")     == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "PitchRate")    == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "YawRate")      == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "Pitch")        == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "Roll")         == CsvHeaders.end()) goto fail;
-    if (std::find(CsvHeaders.begin(), CsvHeaders.end(), "FlightPath")   == CsvHeaders.end()) goto fail;
+    // Validate that the required core columns are present.
+    if (strstr(szInLine, "PfwdSmoothed") == nullptr) goto fail;
+    if (strstr(szInLine, "P45Smoothed")  == nullptr) goto fail;
+    if (strstr(szInLine, "flapsPos")     == nullptr) goto fail;
+    if (strstr(szInLine, "Palt")         == nullptr) goto fail;
+    if (strstr(szInLine, "IAS")          == nullptr) goto fail;
+    if (strstr(szInLine, "DataMark")     == nullptr) goto fail;
+    if (strstr(szInLine, "VSI")          == nullptr) goto fail;
+    if (strstr(szInLine, "VerticalG")    == nullptr) goto fail;
+    if (strstr(szInLine, "LateralG")     == nullptr) goto fail;
+    if (strstr(szInLine, "ForwardG")     == nullptr) goto fail;
+    if (strstr(szInLine, "RollRate")     == nullptr) goto fail;
+    if (strstr(szInLine, "PitchRate")    == nullptr) goto fail;
+    if (strstr(szInLine, "YawRate")      == nullptr) goto fail;
+    if (strstr(szInLine, "Pitch")        == nullptr) goto fail;
+    if (strstr(szInLine, "Roll")         == nullptr) goto fail;
+    if (strstr(szInLine, "FlightPath")   == nullptr) goto fail;
 
     g_Log.printf("Replaying data from log file: %s\n", sLogFile.c_str());
     return true;
@@ -190,12 +195,9 @@ fail:
 
 bool ReadLogLine()
     {
-    bool    bStatus;
-    int     iCharsRead;
+    int iCharsRead = 0;
 
-    // Read until a good line is read or we run out of lines. Malformed
-    // lines result in no data filled in to the CsvData array.
-    iCharsRead = 0;
+    // Read until a good line is read or we run out of lines.
     while (true)
         {
         if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
@@ -206,97 +208,70 @@ bool ReadLogLine()
         if (iCharsRead <= 0)
             return false;
 
-        RemoveSpaces(szInLine);
+        // Parse the CSV line using the core formatter (position-based, not
+        // header-name-based).  Feature flags were detected from the header in
+        // OpenReplayLog.
+        onspeed::LogRow row;
+        row.boomEnabled = s_bReplayBoom;
+        row.efisEnabled = s_bReplayEfis;
+        row.efisIsVn300 = s_bReplayVn300;
 
-        // Read until a good line is parsed
-        bStatus = CsvParser.parse_line(szInLine, CsvHeaders, CsvData);
-        if (bStatus)
+        bool bOk = onspeed::proto::log_csv::ParseRow(
+                std::string_view(szInLine, (size_t)iCharsRead), row);
+        if (!bOk)
+            continue;
+
+        // Unpack the LogRow into the global sensor/AHRS state that the rest
+        // of the firmware reads.
+        g_Sensors.PfwdSmoothed = row.pfwdSmoothed;
+        g_Sensors.P45Smoothed  = row.p45Smoothed;
+        g_Flaps.iPosition      = row.flapsPos;
+
+        g_fCoeffP = pressureCoeff(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed);
+
+        // Find the flap index from flap degrees
+        for (int iFlapsIdx = 0; iFlapsIdx < (int)g_Config.aFlaps.size(); iFlapsIdx++)
             {
-            break;
+            if (g_Flaps.iPosition == g_Config.aFlaps[iFlapsIdx].iDegrees)
+                {
+                g_Flaps.iIndex = iFlapsIdx;
+                break;
+                }
             }
+
+        g_Sensors.Palt       = row.paltFt;
+        g_Sensors.IAS        = row.iasKt;
+        g_iDataMark          = row.dataMark;
+        g_AHRS.KalmanVSI     = fpm2mps(row.vsiFpm);
+
+        // IMU state — ParseRow stores the raw (un-negated) gyro pitch rate
+        // back into imuPitchRateDps (issue #182).
+        g_pIMU->Ax = row.imuForwardG;
+        g_pIMU->Ay = row.imuLateralG;
+        g_pIMU->Az = row.imuVerticalG;
+        g_pIMU->Gx = row.imuRollRateDps;
+        g_pIMU->Gy = row.imuPitchRateDps;   // un-negated raw value
+        g_pIMU->Gz = row.imuYawRateDps;
+
+        g_AHRS.SmoothedPitch = row.pitchDeg;
+        g_AHRS.SmoothedRoll  = row.rollDeg;
+        g_AHRS.FlightPath    = row.flightPathDeg;
+
+        // AOA is recalculated from the smoothed pressures.
+        const SuCalibrationCurve& curve = g_Config.aFlaps[g_Flaps.iIndex].AoaCurve;
+        AOACalculatorResult result = g_Sensors.AoaCalc.calculate(
+                g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed, curve);
+        g_Sensors.AOA = result.aoa;
+        g_fCoeffP     = result.coeffP;
+
+        g_AHRS.AccelLatCorr  = g_pIMU->Ay;
+        g_AHRS.AccelVertCorr = g_pIMU->Az;
+
+        g_AudioPlay.UpdateTones();
+
+        return true;
         } // end reading lines looking for a good one
-
-    // We got a good line so convert some values
-    try { g_Sensors.PfwdSmoothed =  std::stof(CsvData["PfwdSmoothed"].c_str()); } catch (const std::invalid_argument&) { g_Sensors.PfwdSmoothed  = 0; }
-    try { g_Sensors.P45Smoothed  =  std::stof(CsvData["P45Smoothed"].c_str());  } catch (const std::invalid_argument&) { g_Sensors.P45Smoothed   = 0; }
-    try { g_Flaps.iPosition      =  std::stoi(CsvData["flapsPos"].c_str());     } catch (const std::invalid_argument&) { g_Flaps.iPosition       = 0; }
-
-    g_fCoeffP = pressureCoeff(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed);
-
-    // Find the flap index from flap degrees
-    for (int iFlapsIdx = 0; iFlapsIdx < g_Config.aFlaps.size(); iFlapsIdx++)
-        {
-        if (g_Flaps.iPosition == g_Config.aFlaps[iFlapsIdx].iDegrees)
-            {
-            g_Flaps.iIndex = iFlapsIdx;
-            break;
-            }
-        }
-
-    try { g_Sensors.Palt         =  std::stof(CsvData["Palt"]);                 } catch (const std::invalid_argument&) { g_Sensors.Palt       = 0; }
-    try { g_Sensors.IAS          =  std::stof(CsvData["IAS"]);                  } catch (const std::invalid_argument&) { g_Sensors.IAS        = 0; }
-    try { g_iDataMark            =  std::stoi(CsvData["DataMark"]);             } catch (const std::invalid_argument&) { g_iDataMark          = 0; }
-    try { g_AHRS.KalmanVSI       =  fpm2mps(std::stof(CsvData["VSI"]));         } catch (const std::invalid_argument&) { g_AHRS.KalmanVSI     = 0; }
-    try { g_pIMU->Ax             =  std::stof(CsvData["ForwardG"]);             } catch (const std::invalid_argument&) { g_pIMU->Ax = 0; }   // forward G
-    try { g_pIMU->Ay             =  std::stof(CsvData["LateralG"]);             } catch (const std::invalid_argument&) { g_pIMU->Ay = 0; }   // lateralG
-    try { g_pIMU->Az             =  std::stof(CsvData["VerticalG"]);            } catch (const std::invalid_argument&) { g_pIMU->Az = 0; }   // vertical G
-    try { g_pIMU->Gx             =  std::stof(CsvData["RollRate"]);             } catch (const std::invalid_argument&) { g_pIMU->Gx = 0; }   // roll
-    try { g_pIMU->Gy             = -std::stof(CsvData["PitchRate"]);            } catch (const std::invalid_argument&) { g_pIMU->Gy = 0; }   // pitch (reversed in log file)
-    try { g_pIMU->Gz             =  std::stof(CsvData["YawRate"]);              } catch (const std::invalid_argument&) { g_pIMU->Gz = 0; }   // yaw
-    try { g_AHRS.SmoothedPitch   =  std::stof(CsvData["Pitch"]);                } catch (const std::invalid_argument&) { g_AHRS.SmoothedPitch = 0; }
-    try { g_AHRS.SmoothedRoll    =  std::stof(CsvData["Roll"]);                 } catch (const std::invalid_argument&) { g_AHRS.SmoothedRoll  = 0; }
-    try { g_AHRS.FlightPath      =  std::stof(CsvData["FlightPath"]);           } catch (const std::invalid_argument&) { g_AHRS.FlightPath    = 0; }
-
-    // AOA is recalculated, which I think is kind of stinky. I'd rather display the AOA
-    // that was calculated during the recording.
-//  SetAOApoints(g_Flaps.iIndex);
-    const SuCalibrationCurve& curve = g_Config.aFlaps[g_Flaps.iIndex].AoaCurve;
-    AOACalculatorResult result = g_Sensors.AoaCalc.calculate(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed, curve);
-    g_Sensors.AOA = result.aoa;
-    g_fCoeffP = result.coeffP;
-
-    // VN attitude and VSI
-    // vnPitch      = std::stof(CsvData["vnPitch"]);
-    // vnRoll       = std::stof(CsvData["vnRoll"]);
-    // vnVelNedDown = std::stof(CsvData["vnVelNedDown"]);
-
-    // Update TAS
-    // Ballpark TAS 2% per thousand feet pressure altitude, in m/sec
-    // smoothedTAS = TASAvg.getFastAverage();
-
-    g_AHRS.AccelLatCorr   = g_pIMU->Ay;
-    g_AHRS.AccelVertCorr  = g_pIMU->Az;
-
-    g_AudioPlay.UpdateTones();
-
-    //Serial.printf("Time:%ld", std::stol(CsvData["timeStamp"].c_str()));
-    //Serial.printf(", Pfwd:%.1f", g_Sensors.PfwdSmoothed);
-    //Serial.printf(", P45:%.1f",  g_Sensors.P45Smoothed);
-    //Serial.printf(", IAS:%.1f",  g_Sensors.IAS);
-    //Serial.printf(", AOA:%.2f",  g_Sensors.AOA);
-    //Serial.printf(", Pitch:%.2f", g_AHRS.SmoothedPitch);
-//    Serial.print(", efisPitch: ");
-//    Serial.print(efisPitch);
-//    Serial.printf(", Palt:%.0f", g_Sensors.Palt);
-    // Print tone type & pps
-//    Serial.print(",tonemode: ");
-//      if      (toneMode==TONE_OFF  ) Serial.print("TONE_OFF,");
-//      else if (toneMode==PULSE_TONE) Serial.print("PULSE_TONE,");
-//      else if (toneMode==SOLID_TONE) Serial.print("SOLID_TONE,");
-//      else
-//          {
-//          Serial.print("tonetype: ");
-//          if (!highTone) Serial.print("LOW_TONE,");
-//          else Serial.print("HIGH_TONE,");
-//          Serial.print("tonepulse: ");
-//          Serial.print(pps);
-//          Serial.print(",");
-//          }
-    //Serial.printf(", Flaps:%d %d", g_Flaps.iPosition, g_Flaps.iIndex);
-    //Serial.println();
-
-    return true;
-}
+    }
 
 // ----------------------------------------------------------------------------
 
