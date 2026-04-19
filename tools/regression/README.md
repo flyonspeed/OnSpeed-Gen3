@@ -1,7 +1,8 @@
 # Snapshot Regression Harness
 
 Catches behavior regressions in `onspeed_core` that unit tests miss. Used as
-a gate during the [core extraction refactor](../../docs/superpowers/specs/2026-04-18-onspeed-core-extraction-design.md).
+a gate during the core extraction refactor established in PRs #178 and #179 —
+platform code belongs in the sketch, pure logic in `onspeed_core/`.
 
 ## What it does
 
