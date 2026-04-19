@@ -79,19 +79,14 @@ public:
     bool LoadDefaultConfiguration() { return LoadDefaults(); }
     void LoadConfig();
 
+    // String conversion helpers — still used by the web server for
+    // rendering config values in HTML.  The V1 CSV-field helpers
+    // (ParseIntCSV, ParseFloatCSV, ParseCurveCSV, GetConfigValue, etc.)
+    // moved into onspeed_core/config/ConfigV1Parse as part of PR 3.1
+    // Task 3 and are no longer exposed sketch-side.
     bool   ToBoolean(String sBool);
     float  ToFloat(String sFloat);
     String ToString(float fFloat);
-#ifdef SUPPORT_CONFIG_V1
-    SuIntArray          ParseIntCSV(String sConfig);
-    SuFloatArray        ParseFloatCSV(String sConfig, int limit=MAX_AOA_CURVES);
-    SuCalibrationCurve  ParseCurveCSV(String sConfig);
-    String              GetConfigValue(String sConfig, String configName);
-    String              MakeConfig(String configName, String configValue);
-    String              Curve2String(SuCalibrationCurve sConfig);
-    String              Array2String(SuFloatArray       afConfig);
-    String              Array2String(SuIntArray         aiConfig);
-#endif
 
     String ConfigurationToString();
     bool   LoadConfigFromString(String sConfig);
