@@ -812,20 +812,32 @@ void test_status_to_string(void)
 }
 
 // ============================================================================
-// Empty REPLAYLOGFILENAME tag (self-closing-ish) parses as empty string.
+// Empty text node leaves the prior value untouched (matches historical
+// XML_GET_STR macro behavior). Critical: in the production load flow the
+// caller runs LoadDefaults() first; an empty <EFISTYPE></EFISTYPE> in the
+// XML must NOT clobber the default to "" because that disables EFIS reads
+// silently in ApplyPostParseSideEffects.
 // ============================================================================
 
-void test_empty_text_tag_gives_empty_string(void)
+void test_empty_text_tag_preserves_prior_value(void)
 {
     static constexpr const char* kEmpty = R"XML(<CONFIG2>
         <REPLAYLOGFILENAME></REPLAYLOGFILENAME>
+        <EFISTYPE></EFISTYPE>
+        <PORTS></PORTS>
     </CONFIG2>)XML";
 
     OnSpeedConfig cfg;
-    cfg.sReplayLogFileName = "stale";
+    cfg.sReplayLogFileName = "stale.csv";
+    cfg.sEfisType          = "VN-300";
+    cfg.sPortsOrientation  = "FORWARD";
     XmlParseStatus st = ParseXml(kEmpty, cfg);
     TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok), static_cast<int>(st));
-    TEST_ASSERT_EQUAL_STRING("", cfg.sReplayLogFileName.c_str());
+    // Empty tag must not wipe the prior value — would silently disable EFIS,
+    // corrupt IMU axis lookup, and drop the bCalSourceEfis cache.
+    TEST_ASSERT_EQUAL_STRING("stale.csv", cfg.sReplayLogFileName.c_str());
+    TEST_ASSERT_EQUAL_STRING("VN-300",    cfg.sEfisType.c_str());
+    TEST_ASSERT_EQUAL_STRING("FORWARD",   cfg.sPortsOrientation.c_str());
 }
 
 // ============================================================================
@@ -919,7 +931,7 @@ int main(int argc, char** argv)
     RUN_TEST(test_single_flap_entry_roundtrip);
     RUN_TEST(test_unknown_tag_ignored);
     RUN_TEST(test_status_to_string);
-    RUN_TEST(test_empty_text_tag_gives_empty_string);
+    RUN_TEST(test_empty_text_tag_preserves_prior_value);
     RUN_TEST(test_parse_exactly_max_flaps_ok);
     RUN_TEST(test_ahrs_algorithm_parse);
     RUN_TEST(test_cal_source_efis_cache);

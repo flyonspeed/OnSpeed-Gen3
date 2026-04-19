@@ -90,10 +90,14 @@ static bool GetString(const XMLElement* root, const char* name, std::string& val
     if (el == nullptr) return false;
     const char* txt = el->GetText();
     if (txt == nullptr) {
-        // XML like <REPLAYLOGFILENAME></REPLAYLOGFILENAME> — treat as
-        // empty string (present but no text content).
-        value.clear();
-        return true;
+        // Empty/null text node — leave `value` untouched. Matches the
+        // historical XML_GET_STR macro behavior so a malformed config with
+        // an empty tag (e.g. <EFISTYPE></EFISTYPE>) does not wipe the
+        // in-memory value that LoadDefaults() set. Wiping would silently
+        // disable EFIS, corrupt IMU axis orientation, and drop the
+        // bCalSourceEfis cache, since ApplyPostParseSideEffects falls
+        // through every branch when these strings are "".
+        return false;
     }
     value = txt;
     return true;
