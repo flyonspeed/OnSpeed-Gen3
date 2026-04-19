@@ -140,35 +140,35 @@ inline constexpr const char* const kImuOrientationTable
 // V4B box: +X back (away from pressure ports), +Y right, +Z down.
 inline constexpr const char* const kImuOrientationTable
     [kImuOrientationRowCount][kImuOrientationColCount] = {
-    {"FORWARD", "LEFT",    "-Y",  "Z", "-X"},
-    {"FORWARD", "RIGHT",    "Y", "-Z", "-X"},
-    {"FORWARD", "UP",      "-Z", "-Y", "-X"},
-    {"FORWARD", "DOWN",     "Z",  "Y", "-X"},
+    {"FORWARD", "LEFT",    "-Y",  "Z", "-X"}, // TESTED GOOD Paul's
+    {"FORWARD", "RIGHT",    "Y", "-Z", "-X"}, // TESTED GOOD
+    {"FORWARD", "UP",      "-Z", "-Y", "-X"}, // TESTED GOOD, Vac's RV-4
+    {"FORWARD", "DOWN",     "Z",  "Y", "-X"}, // TESTED GOOD
 
-    {"AFT",     "LEFT",     "Y",  "Z",  "X"},
-    {"AFT",     "RIGHT",   "-Y", "-Z",  "X"},
-    {"AFT",     "UP",      "-Z",  "Y",  "X"},
-    {"AFT",     "DOWN",     "Z", "-Y",  "X"},
+    {"AFT",     "LEFT",     "Y",  "Z",  "X"}, // TESTED GOOD
+    {"AFT",     "RIGHT",   "-Y", "-Z",  "X"}, // TESTED GOOD
+    {"AFT",     "UP",      "-Z",  "Y",  "X"}, // TESTED GOOD, bench box
+    {"AFT",     "DOWN",     "Z", "-Y",  "X"}, // TESTED GOOD
 
-    {"LEFT",    "FORWARD",  "Y",  "X", "-Z"},
-    {"LEFT",    "AFT",     "-Y",  "X",  "Z"},
-    {"LEFT",    "UP",      "-Z",  "X", "-Y"},
-    {"LEFT",    "DOWN",     "Z",  "X",  "Y"},
+    {"LEFT",    "FORWARD",  "Y",  "X", "-Z"}, // TESTED GOOD
+    {"LEFT",    "AFT",     "-Y",  "X",  "Z"}, // TESTED GOOD
+    {"LEFT",    "UP",      "-Z",  "X", "-Y"}, // TESTED GOOD, Zlin Z-50
+    {"LEFT",    "DOWN",     "Z",  "X",  "Y"}, // TESTED GOOD
 
-    {"RIGHT",   "FORWARD", "-Y", "-X", "-Z"},
-    {"RIGHT",   "AFT",      "Y", "-X",  "Z"},
-    {"RIGHT",   "UP",      "-Z", "-X",  "Y"},
-    {"RIGHT",   "DOWN",     "Z", "-X", "-Y"},
+    {"RIGHT",   "FORWARD", "-Y", "-X", "-Z"}, // TESTED GOOD
+    {"RIGHT",   "AFT",      "Y", "-X",  "Z"}, // TESTED GOOD
+    {"RIGHT",   "UP",      "-Z", "-X",  "Y"}, // TESTED GOOD
+    {"RIGHT",   "DOWN",     "Z", "-X", "-Y"}, // TESTED GOOD, Tron's RV-8
 
-    {"UP",      "FORWARD", "-X",  "Y", "-Z"},
-    {"UP",      "AFT",     "-X", "-Y",  "Z"},
-    {"UP",      "LEFT",    "-X",  "Z",  "Y"},
-    {"UP",      "RIGHT",   "-X", "-Z", "-Y"},
+    {"UP",      "FORWARD", "-X",  "Y", "-Z"}, // TESTED GOOD
+    {"UP",      "AFT",     "-X", "-Y",  "Z"}, // TESTED GOOD
+    {"UP",      "LEFT",    "-X",  "Z",  "Y"}, // TESTED GOOD
+    {"UP",      "RIGHT",   "-X", "-Z", "-Y"}, // TESTED GOOD, Doc's box on Vac's RV-4
 
-    {"DOWN",    "FORWARD",  "X", "-Y", "-Z"},
-    {"DOWN",    "AFT",      "X",  "Y",  "Z"},
-    {"DOWN",    "LEFT",     "X",  "Z", "-Y"},
-    {"DOWN",    "RIGHT",    "X", "-Z",  "Y"}
+    {"DOWN",    "FORWARD",  "X", "-Y", "-Z"}, // TESTED GOOD
+    {"DOWN",    "AFT",      "X",  "Y",  "Z"}, // TESTED GOOD, Lenny's RV-10
+    {"DOWN",    "LEFT",     "X",  "Z", "-Y"}, // TESTED GOOD
+    {"DOWN",    "RIGHT",    "X", "-Z",  "Y"}  // TESTED GOOD
 };
 #endif
 
@@ -240,11 +240,12 @@ constexpr int kDisplaySerialPeriodMs = 50;
 constexpr int kGyroSmoothing = 30;
 
 // ---------------------------------------------------------------------------
-// Legacy #define aliases (shim during transition; remove in a later PR)
+// Legacy #define aliases (transitional shim — removed in PR 0.4 cleanup).
 //
 // These let unmodified code that still uses SCREAMING_SNAKE_CASE names
-// compile unchanged. Once every file is migrated to the constexpr names,
-// these aliases can be removed in a cleanup PR.
+// compile unchanged. Once every file is migrated to the constexpr names
+// (PR 0.4 sketch root cleanup completes the migration), this block goes
+// away.
 // ---------------------------------------------------------------------------
 #define SENSOR_MISO               kSensorMiso
 #define SENSOR_MOSI               kSensorMosi
