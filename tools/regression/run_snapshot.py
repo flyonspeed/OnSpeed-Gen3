@@ -29,6 +29,7 @@ from __future__ import annotations
 import csv
 import subprocess
 import sys
+from itertools import zip_longest
 from pathlib import Path
 
 import click
@@ -57,7 +58,7 @@ def build_shim() -> None:
 
 def run_shim(input_csv: Path) -> str:
     """Pipe input_csv through the shim and return its stdout."""
-    with input_csv.open("r") as f:
+    with input_csv.open("r", encoding="utf-8") as f:
         proc = subprocess.run(
             [str(EXECUTABLE)],
             stdin=f,
@@ -91,16 +92,24 @@ def diff_rows(
     actual: list[list[str]],
     tol: float,
 ) -> list[tuple[int, list[str], list[str]]]:
-    """Return a list of (row_index, golden_row, actual_row) tuples for mismatches."""
+    """Return a list of (row_index, golden_row, actual_row) tuples for mismatches.
+
+    Uses zip_longest so that rows present in one list but missing in the other
+    are reported individually rather than silently truncated.
+    """
     diffs = []
-    for i, (g, a) in enumerate(zip(golden, actual)):
+    for i, (g, a) in enumerate(zip_longest(golden, actual, fillvalue=None)):
+        if g is None:
+            diffs.append((i, ["<missing>"], a))
+            continue
+        if a is None:
+            diffs.append((i, g, ["<missing>"]))
+            continue
         if len(g) != len(a):
             diffs.append((i, g, a))
             continue
         if not all(float_equal(g[j], a[j], tol) for j in range(len(g))):
             diffs.append((i, g, a))
-    if len(golden) != len(actual):
-        diffs.append((-1, [f"len={len(golden)}"], [f"len={len(actual)}"]))
     return diffs
 
 
@@ -157,7 +166,7 @@ def main(
 
     if update_golden:
         golden_csv.parent.mkdir(parents=True, exist_ok=True)
-        golden_csv.write_text(output)
+        golden_csv.write_text(output, encoding="utf-8")
         click.echo(f"Updated golden: {golden_csv}")
         sys.exit(0)
 
@@ -168,7 +177,7 @@ def main(
         )
         sys.exit(3)
 
-    golden_text = golden_csv.read_text()
+    golden_text = golden_csv.read_text(encoding="utf-8")
 
     g_header, g_rows = read_csv_rows(golden_text)
     a_header, a_rows = read_csv_rows(output)
