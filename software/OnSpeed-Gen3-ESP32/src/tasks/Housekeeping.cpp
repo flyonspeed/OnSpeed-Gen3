@@ -3,9 +3,7 @@
 #include "../../Helpers.h"
 #include "Housekeeping.h"
 #include "../audio_io/Volume.h"
-#ifdef HW_V4P
 #include "../drivers/Mcp3202Adc.h"
-#endif
 
 // GLimit settings
 #define GLIMIT_REPEAT_TIMEOUT_TICKS   30   // 30 x 100ms = 3000ms

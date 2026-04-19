@@ -1,12 +1,16 @@
 #include "Mcp3202Adc.h"
 #include "../../Globals.h"
 
-#ifdef HW_V4P
-
 static constexpr uint32_t kMcp3202SpiClockHz = 1000000;
 
 uint16_t Mcp3202Read(uint8_t channel)
 {
+    // Defensive: should never be called on boards without the MCP3202.
+    // Well-written callers guard with `if constexpr (kHasExternalMcp3202)`,
+    // but this return catches any future caller that forgets the guard.
+    if constexpr (!kHasExternalMcp3202)
+        return 0;
+
     if (g_pSensorSPI == nullptr || g_pSensorSPI->pSPI == nullptr)
         return 0;
 
@@ -19,16 +23,14 @@ uint16_t Mcp3202Read(uint8_t channel)
     const uint8_t configByte = uint8_t(0xA0 | (channel << 6)); // CH0=0xA0, CH1=0xE0
 
     g_pSensorSPI->pSPI->beginTransaction(SPISettings(kMcp3202SpiClockHz, MSBFIRST, SPI_MODE0));
-    digitalWrite(CS_ADC, LOW);
+    digitalWrite(kCsAdc, LOW);
 
     (void)g_pSensorSPI->pSPI->transfer(0x01);                // start bit
     uint8_t rx1 = g_pSensorSPI->pSPI->transfer(configByte);  // config; returns null + B11..B8
     uint8_t rx2 = g_pSensorSPI->pSPI->transfer(0x00);        // returns B7..B0
 
-    digitalWrite(CS_ADC, HIGH);
+    digitalWrite(kCsAdc, HIGH);
     g_pSensorSPI->pSPI->endTransaction();
 
     return uint16_t(((rx1 & 0x0F) << 8) | rx2);
 }
-
-#endif
