@@ -66,7 +66,7 @@
 #include "SPI.h"
 
 // OnSpeed modules
-#include "ErrorLogger.h"
+#include "src/util/ErrorLogger.h"
 #include "src/config/Config.h"
 #include "src/drivers/SPI_IO.h"
 #include "src/drivers/IMU330.h"
@@ -87,7 +87,7 @@
 #include "src/tasks/Housekeeping.h"
 #include "src/web_server/ConfigWebServer.h"
 #include "src/web_server/DataServer.h"
-#include "Helpers.h"
+#include "src/util/Helpers.h"
 
 // RTOS Stuff
 // ----------
