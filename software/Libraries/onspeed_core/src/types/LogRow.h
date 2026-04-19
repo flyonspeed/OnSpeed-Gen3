@@ -67,12 +67,10 @@ struct LogRow {
     float imuForwardG   = 0.0f;   // forward  (Ax)
 
     // IMU gyro rates in aircraft body axes (degrees/second).
-    // NOTE: imuPitchRateDps is sign-inverted relative to ImuSample::gyroPitchDps —
-    // a historical quirk of the logger format that downstream tools depend on.
-    // Issue #182 tracks moving the sign flip into the CSV formatter so LogRow
-    // is internally consistent with ImuSample.
+    // These are un-negated raw sensor values, consistent with ImuSample.
+    // The sign flip for the PitchRate CSV column lives in LogCsv::FormatRow.
     float imuRollRateDps  = 0.0f;   // Gx
-    float imuPitchRateDps = 0.0f;   // -Gy (see note above; see issue #182)
+    float imuPitchRateDps = 0.0f;   // Gy (raw; FormatRow emits -imuPitchRateDps)
     float imuYawRateDps   = 0.0f;   // Gz
 
     // Smoothed pitch and roll from the AHRS filter (degrees).
