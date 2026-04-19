@@ -137,6 +137,64 @@ OnSpeed-Gen3/
 └── scripts/                         # Build and analysis scripts
 ```
 
+## Core-Extraction Tooling
+
+Three tools guard structural invariants and catch behavior regressions during
+the ongoing core-extraction refactor. All three run in CI on every pull
+request; local invocation is identical.
+
+### `scripts/check_core_purity.sh`
+
+Verifies that no file under `software/Libraries/onspeed_core/` includes a
+platform header (`Arduino.h`, `FreeRTOS.h`, ESP-IDF headers) or calls a
+platform API (`millis()`, `xTaskCreate`, `Serial.`, etc.). Run before every
+commit that touches `onspeed_core/`:
+
+```bash
+./scripts/check_core_purity.sh
+```
+
+Exits non-zero and prints the offending file + line if a forbidden pattern is
+found. The purity invariant is what makes `onspeed_core` compile with plain
+`g++` on the host — and therefore with any future hardware.
+
+### `scripts/check_board_flags.sh`
+
+Verifies that `HW_V4P` and `HW_V4B` appear only in `HardwareMap.h`. Every
+other sketch file must read `if constexpr (kHasExternalMcp3202)` (or another
+topology flag) instead of `#ifdef HW_V4*`.
+
+```bash
+./scripts/check_board_flags.sh
+```
+
+This is the mechanical proof that the multi-board design works. When a new
+board (e.g. Gen2v4) is added later, it should require writing one new
+`HardwareMap.h` and nothing else — this check fails if any file outside
+`HardwareMap.h` references a board flag, preventing future PRs from
+re-introducing the compile-time-fork style the refactor moved away from.
+
+### `tools/regression/run_snapshot.py`
+
+Builds `tools/regression/host_main.cpp` against the current `onspeed_core`,
+feeds it a recorded flight-log excerpt, and diffs the output against a
+committed golden file. Catches behavioral regressions that per-module unit
+tests miss — for example, when individually-correct modules compose slightly
+differently after a refactor.
+
+```bash
+# Check for regression
+./tools/regression/run_snapshot.py
+
+# Accept an intentional behavior change (commit the new golden with the PR)
+./tools/regression/run_snapshot.py --update-golden
+```
+
+The harness pipeline is minimal at this stage (IAS/Palt pass-through with a
+placeholder tone decision). Each subsequent extraction PR that moves a new
+module into `onspeed_core` extends `host_main.cpp` and regenerates the golden
+as part of its commit.
+
 ## Contributing
 
 See the [GitHub repository](https://github.com/flyonspeed/OnSpeed-Gen3) for contribution guidelines, issue tracking, and pull request workflow.
