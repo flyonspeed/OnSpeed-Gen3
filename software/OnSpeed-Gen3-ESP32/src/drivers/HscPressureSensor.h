@@ -43,6 +43,15 @@ public:
   unsigned      uCountsMin, uCountsMax;
   float         fPressureMin, fPressureMax;
 
+  // Raw snapshot of the last-good pressure reading. An implementation detail
+  // below SensorSample — the full SensorSample (IAS, Palt, OAT, etc.) is
+  // assembled by SensorIO::Snapshot() which aggregates multiple sensors.
+  struct RawPressureSnapshot {
+      uint16_t rawCounts   = 0;
+      float    pressurePsi = 0.0f;
+      uint32_t timestampUs = 0;
+  };
+
   // Methods
 public:
   uint16_t ReadPressureCounts();
@@ -54,6 +63,10 @@ public:
   float    ReadPressureMillibars(uint16_t uCounts);
 
   UnHSC    ReadStatusCounts();
+
+  // Returns the last-good pressure reading as a typed snapshot.
+  // Does NOT trigger a new SPI read — uses the cached last-good counts.
+  RawPressureSnapshot Snapshot() const;
 
 };
 

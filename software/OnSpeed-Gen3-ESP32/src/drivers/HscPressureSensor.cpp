@@ -150,3 +150,21 @@ HscPressureSensor::UnHSC HscPressureSensor::ReadStatusCounts()
 
     return unData;
   } // end ReadCounts
+
+// ----------------------------------------------------------------------------
+
+HscPressureSensor::RawPressureSnapshot HscPressureSensor::Snapshot() const
+  {
+    RawPressureSnapshot out;
+    out.rawCounts = uLastGoodCounts;
+    if (bHasLastGoodCounts)
+        {
+        // Inline the same linear interpolation used by ReadPressurePSI(uint16_t).
+        out.pressurePsi = static_cast<float>(out.rawCounts - uCountsMin)
+                          * (fPressureMax - fPressureMin)
+                          / static_cast<float>(uCountsMax - uCountsMin)
+                          + fPressureMin;
+        }
+    out.timestampUs = 0;   // HSC driver does not maintain a read timestamp
+    return out;
+  }

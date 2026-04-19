@@ -372,3 +372,19 @@ float IMU330::RollAC()
     return accelRoll(Ax, Ay, Az);
     }
 
+// ----------------------------------------------------------------------------
+
+onspeed::ImuSample IMU330::Snapshot() const
+    {
+    onspeed::ImuSample out;
+    out.accelXG      = Ax;       // forward G (installation-bias applied)
+    out.accelYG      = Ay;       // lateral G
+    out.accelZG      = Az;       // vertical G
+    out.gyroRollDps  = Gx;       // roll rate  (deg/s)
+    out.gyroPitchDps = Gy;       // pitch rate (deg/s)
+    out.gyroYawDps   = Gz;       // yaw rate   (deg/s)
+    out.tempCelsius  = fTempC;   // IMU die temperature
+    out.timestampUs  = 0;        // IMU330 does not track a read timestamp
+    return out;
+    }
+

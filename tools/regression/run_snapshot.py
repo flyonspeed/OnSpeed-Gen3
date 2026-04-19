@@ -15,7 +15,22 @@ Usage:
   ./run_snapshot.py                   # run against the default golden
   ./run_snapshot.py --update-golden   # regenerate the golden from the current build
   ./run_snapshot.py --input PATH      # use a different input CSV
-  ./run_snapshot.py --tolerance 1e-3  # float equality tolerance (default 1e-6)
+  ./run_snapshot.py --rtol 1e-4       # relative tolerance (default 1e-5)
+  ./run_snapshot.py --atol 1e-3       # absolute tolerance (default 1e-4)
+
+Tolerance model
+---------------
+Uses `math.isclose(a, b, rel_tol=rtol, abs_tol=atol)` — matches if EITHER the
+relative or the absolute difference is within tolerance. Defaults (rtol=1e-5,
+atol=1e-4) are chosen so that:
+
+  * atol=1e-4 catches any change that would show up in the %.4f CSV output.
+    Two values that round to the same 4-decimal string stay within atol.
+  * rtol=1e-5 catches per-value drift >= 0.001% on large-magnitude fields
+    (altitude, TAS) where absolute tolerance would be silly-tight.
+
+An absolute-only tolerance breaks for both extremes: too loose on small values,
+too tight on large ones. `math.isclose` gets both right.
 
 Exits:
   0 — output matches the golden within tolerance
@@ -27,6 +42,7 @@ Exits:
 from __future__ import annotations
 
 import csv
+import math
 import subprocess
 import sys
 from itertools import zip_longest
@@ -80,9 +96,17 @@ def read_csv_rows(text: str) -> tuple[list[str], list[list[str]]]:
     return header, rows
 
 
-def float_equal(a: str, b: str, tol: float) -> bool:
+def float_equal(a: str, b: str, rtol: float, atol: float) -> bool:
+    """Return True if `a` and `b` parse as floats that are close per rtol+atol,
+    or (if either fails to parse as a float) if they're string-equal.
+
+    Uses math.isclose semantics: match if either the relative or absolute
+    difference is within tolerance. This is correct for both small values
+    (where absolute tolerance dominates) and large values (where relative
+    tolerance dominates).
+    """
     try:
-        return abs(float(a) - float(b)) <= tol
+        return math.isclose(float(a), float(b), rel_tol=rtol, abs_tol=atol)
     except ValueError:
         return a == b
 
@@ -90,7 +114,8 @@ def float_equal(a: str, b: str, tol: float) -> bool:
 def diff_rows(
     golden: list[list[str]],
     actual: list[list[str]],
-    tol: float,
+    rtol: float,
+    atol: float,
 ) -> list[tuple[int, list[str], list[str]]]:
     """Return a list of (row_index, golden_row, actual_row) tuples for mismatches.
 
@@ -108,7 +133,7 @@ def diff_rows(
         if len(g) != len(a):
             diffs.append((i, g, a))
             continue
-        if not all(float_equal(g[j], a[j], tol) for j in range(len(g))):
+        if not all(float_equal(g[j], a[j], rtol, atol) for j in range(len(g))):
             diffs.append((i, g, a))
     return diffs
 
@@ -134,10 +159,16 @@ def diff_rows(
     help="Regenerate the golden from the current build. Commit the result.",
 )
 @click.option(
-    "--tolerance",
+    "--rtol",
     type=float,
-    default=1e-6,
-    help="Float equality tolerance (default 1e-6).",
+    default=1e-5,
+    help="Relative tolerance for float comparison (default 1e-5).",
+)
+@click.option(
+    "--atol",
+    type=float,
+    default=1e-4,
+    help="Absolute tolerance for float comparison (default 1e-4, matches %.4f wire precision).",
 )
 @click.option(
     "--no-build",
@@ -148,7 +179,8 @@ def main(
     input_csv: Path,
     golden_csv: Path,
     update_golden: bool,
-    tolerance: float,
+    rtol: float,
+    atol: float,
     no_build: bool,
 ) -> None:
     if not no_build:
@@ -186,16 +218,21 @@ def main(
         click.echo(f"Header mismatch:\n  golden: {g_header}\n  actual: {a_header}", err=True)
         sys.exit(2)
 
-    diffs = diff_rows(g_rows, a_rows, tolerance)
+    diffs = diff_rows(g_rows, a_rows, rtol, atol)
     if diffs:
-        click.echo(f"✗ {len(diffs)} row(s) differ from golden (tolerance {tolerance}):", err=True)
+        click.echo(
+            f"✗ {len(diffs)} row(s) differ from golden (rtol={rtol}, atol={atol}):",
+            err=True,
+        )
         for idx, g, a in diffs[:10]:
             click.echo(f"  row {idx}:\n    golden: {g}\n    actual: {a}", err=True)
         if len(diffs) > 10:
             click.echo(f"  ... and {len(diffs) - 10} more", err=True)
         sys.exit(2)
 
-    click.echo(f"✓ {len(a_rows)} rows match golden within tolerance {tolerance}")
+    click.echo(
+        f"✓ {len(a_rows)} rows match golden (rtol={rtol}, atol={atol})"
+    )
 
 
 if __name__ == "__main__":
