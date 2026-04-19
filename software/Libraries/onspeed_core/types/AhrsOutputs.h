@@ -22,15 +22,19 @@ struct AhrsOutputs {
     float derivedAoaDeg = 0.0f;   // pitch minus flight-path; primary AOA signal
 
     // True airspeed and its smoothed first derivative.
-    float tasMps    = 0.0f;   // true airspeed (meters/second)
-    float tasDotMps2 = 0.0f;  // smoothed TAS derivative (m/s^2); used for decel compensation
+    float tasMps     = 0.0f;   // true airspeed (meters/second)
+    float tasDotMps2 = 0.0f;   // smoothed TAS derivative (m/s²); used for
+                                // forward-acceleration compensation in AHRS.
+                                // Computed as d(TAS_mps)/dt in AHRS::Step,
+                                // then converted to g via mps2g() for the
+                                // accelerometer correction term.
 
     // Kalman-filtered altitude and vertical speed.
     float kalmanAltFt  = 0.0f;   // altitude (feet)
     float kalmanVsiFpm = 0.0f;   // vertical speed (feet/minute)
 
-    // Earth-frame vertical G-load (g).
-    float earthVertGLoad = 0.0f;
+    // Earth-frame vertical G (g).
+    float earthVertG = 0.0f;
 
     // Running-averaged gyro rates used for display (degrees/second).
     float gyroRollFiltDps  = 0.0f;

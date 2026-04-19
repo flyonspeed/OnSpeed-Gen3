@@ -14,6 +14,11 @@ namespace onspeed {
 // Identifies which EFIS vendor produced this frame. Allows consumers to
 // apply vendor-specific corrections or log the source without storing it
 // separately.
+//
+// Note: Dynon covers both SkyView and D10; Garmin covers both G5 and G3X.
+// The vendor-model distinction matters in the parser-dispatch layer
+// (EFIS driver picks which byte-level parser to use), not in this
+// post-parse normalized frame — consumers do not branch on model.
 enum class EfisSource {
     None,
     Dynon,
@@ -41,8 +46,8 @@ struct EfisFrame {
     float aoaPercent = -1.0f;   // 0..100 percent of stall AOA
 
     // G-loads.
-    float lateralGLoad  = 0.0f;   // lateral (side) G
-    float verticalGLoad = 0.0f;   // vertical (normal) G
+    float lateralG  = 0.0f;   // lateral (side) G
+    float verticalG = 0.0f;   // vertical (normal) G
 
     // Source identifier.
     EfisSource source = EfisSource::None;

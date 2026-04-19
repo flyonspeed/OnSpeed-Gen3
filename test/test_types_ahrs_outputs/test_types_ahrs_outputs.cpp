@@ -19,7 +19,7 @@ void test_default_initializes_all_fields_to_zero(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.tasDotMps2);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.kalmanAltFt);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.kalmanVsiFpm);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.earthVertGLoad);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.earthVertG);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.gyroRollFiltDps);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.gyroPitchFiltDps);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.gyroYawFiltDps);
@@ -37,7 +37,7 @@ void test_fields_are_writable(void)
     a.tasDotMps2       = -0.5f;
     a.kalmanAltFt      = 3500.0f;
     a.kalmanVsiFpm     = -200.0f;
-    a.earthVertGLoad   = 1.02f;
+    a.earthVertG       = 1.02f;
     a.gyroRollFiltDps  =  0.3f;
     a.gyroPitchFiltDps =  0.1f;
     a.gyroYawFiltDps   = -0.05f;

@@ -21,8 +21,8 @@ void test_default_initializes_fields_to_expected_values(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.vsiFpm);
     TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.oatCelsius);
     TEST_ASSERT_EQUAL_FLOAT(-1.0f, e.aoaPercent);  // -1 sentinel for "unsupported"
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.lateralGLoad);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.verticalGLoad);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.lateralG);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f,  e.verticalG);
     TEST_ASSERT_EQUAL_INT(static_cast<int>(EfisSource::None),
                           static_cast<int>(e.source));
     TEST_ASSERT_EQUAL_UINT32(0u, e.timestampUs);
