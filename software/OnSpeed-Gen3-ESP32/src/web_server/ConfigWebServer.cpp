@@ -36,17 +36,17 @@ using onspeed::accelRoll;
 using onspeed::ft2m;
 using onspeed::inhg2mb;
 
-#include "../../Web/html_logo.h"
-#include "../../Web/html_header.h"
-#include "../../Web/html_header_css.h"
-#include "../../Web/html_liveview.h"
-#include "../../Web/html_calibration.h"
-#include "../../Web/javascript_calibration.h"
-#include "../../Web/javascript_chartist1.h"
-#include "../../Web/javascript_chartist2.h"
-#include "../../Web/javascript_regression.h"
-#include "../../Web/sg_filter.h"
-#include "../../Web/css_chartist.h"
+#include "Web/html_logo.h"
+#include "Web/html_header.h"
+#include "Web/html_header_css.h"
+#include "Web/html_liveview.h"
+#include "Web/html_calibration.h"
+#include "Web/javascript_calibration.h"
+#include "Web/javascript_chartist1.h"
+#include "Web/javascript_chartist2.h"
+#include "Web/javascript_regression.h"
+#include "Web/sg_filter.h"
+#include "Web/css_chartist.h"
 
 //#define SUPPORT_WIFI_CLIENT
 
