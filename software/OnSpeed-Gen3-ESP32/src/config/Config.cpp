@@ -18,11 +18,10 @@ using namespace tinyxml2;
 
 
 // ============================================================================
-
-FOSConfig::FOSConfig()
-    {
-    LoadDefaultConfiguration();
-    }
+// Note: the constructor, LoadDefaults(), and the data struct now live in
+// onspeed_core/config/OnSpeedConfig.{h,cpp}. Only sketch-side I/O methods
+// remain here.
+// ============================================================================
 
 // ----------------------------------------------------------------------------
 // Main config functions
@@ -232,126 +231,6 @@ bool FOSConfig::SaveConfigurationToFlash(char* szFilename)
 #endif
 
 // ----------------------------------------------------------------------------
-
-// Load default configuration
-
-bool FOSConfig::LoadDefaultConfiguration()
-{
-    // ALL config items should be initialized to reasonable values here.
-
-    iAoaSmoothing       = 20;
-    iPressureSmoothing  = 15;
-    iMuteAudioUnderIAS  = 30;
-
-    suDataSrc.enSrc     = SuDataSource::EnSensors;
-    //suDataSrc.enSrc     = SuDataSource::EnTestPot;
-    //suDataSrc.enSrc     = SuDataSource::EnRangeSweep;
-    //suDataSrc.enSrc     = SuDataSource::EnReplay;
-
-    sReplayLogFileName  = "";
-
-    // Flap positions
-    // Note that default flap values are set in the constructor in the header file
-    aFlaps.clear();
-    SuFlaps             suFlaps;
-
-    suFlaps.AoaCurve.iCurveType = 1;    // Default to polynomial curve
-#if 0
-    for (int iCoeffIdx = 0; iCoeffIdx < MAX_CURVE_COEFF; iCoeffIdx++)
-        suFlaps.AoaCurve.afCoeff[iCoeffIdx] = 0.0;
-#else
-        // These approximate values give reasonable results in Vac's plane
-        suFlaps.AoaCurve.afCoeff[0] =  0.0;  // x^3
-        suFlaps.AoaCurve.afCoeff[1] =  8.0;  // x^2
-        suFlaps.AoaCurve.afCoeff[2] = 24.0;  // x^1
-        suFlaps.AoaCurve.afCoeff[3] =  4.5;  // x^0
-#endif
-    suFlaps.fLDMAXAOA       =  8.0;
-    suFlaps.fONSPEEDFASTAOA = 11.0;
-    suFlaps.fONSPEEDSLOWAOA = 14.0;
-    suFlaps.fSTALLWARNAOA   = 16.0;
-    aFlaps.push_back(suFlaps);
-
-    // Volume
-    bVolumeControl      = false;
-    iVolumeHighAnalog   = 4095;
-    iVolumeLowAnalog    =    0;
-    iDefaultVolume      =  100;
-//    iVolumePercent      =   25;
-
-    bAudio3D            = false;
-    bOverGWarning       = false;
-
-    // CAS curve
-    CasCurve.iCurveType = 1;
-    CasCurve.afCoeff[0] = 0.0;  // x^3
-    CasCurve.afCoeff[1] = 0.0;  // x^2
-    CasCurve.afCoeff[2] = 1.0;  // x^1
-    CasCurve.afCoeff[3] = 0.0;  // x^0
-    bCasCurveEnabled    = false;
-
-    sPortsOrientation   = "FORWARD";
-    sBoxtopOrientation  = "UP";
-
-    // Calibration data source
-    sCalSource          = "ONSPEED";
-    bCalSourceEfis      = false;
-
-    // Biases
-    iPFwdBias           = 8192;
-    iP45Bias            = 8192;
-    fPStaticBias        = 0.0;
-    fGxBias             = 0.0;
-    fGyBias             = 0.0;
-    fGzBias             = 0.0;
-    fPitchBias          = 0.0;
-    fRollBias           = 0.0;
-
-    // AHRS algorithm: 0=Madgwick (default), 1=EKF6
-    iAhrsAlgorithm      = 0;
-
-    // Serial inputs
-    bReadBoom           = false;
-    bReadEfisData       = false;
-    sEfisType           = "VN-300";
-
-    // Hardware feature toggles
-    bOatSensor          = false;
-    bBoomChecksum       = true;
-
-    // serial output
-    sSerialOutFormat    = "ONSPEED";
-    enSerialOutFormat   = EnSerialFmtOnSpeed;
-
-    // load limit
-    fLoadLimitPositive  =  4.0;
-    fLoadLimitNegative  = -2.0;
-
-    fAsymmetricGyroLimit = 15.0;
-    fAsymmetricReduction = 2.0f / 3.0f;   // 0.666...
-
-    bBoomConvertData     = false;
-
-    iLogRate             = 50;
-
-    // vno chime
-    iVno                = 150;
-    uVnoChimeInterval   = 3;
-    bVnoChimeEnabled    = false;
-
-    // SD card logging
-    bSdLogging          = false;
-
-    // Aircraft parameters
-    iAcGrossWeight      = 0;
-    fAcBestGlideIAS     = 0.0;
-    fAcVfe              = 0.0;
-    fAcGlimit           = 0.0;
-
-    return true;
-}
-
-// ----------------------------------------------------------------------------
 // To / From string conversion functions
 // ----------------------------------------------------------------------------
 
@@ -517,9 +396,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         iMuteAudioUnderIAS  = GetConfigValue(sConfig,"MUTE_AUDIO_UNDER_IAS").toInt();
 
         sDataSource  = GetConfigValue(sConfig,"DATASOURCE");
-        suDataSrc.fromStrSet(sDataSource);
+        suDataSrc.fromStrSet(sDataSource.c_str());
 
-        sReplayLogFileName  = GetConfigValue(sConfig,"REPLAYLOGFILENAME");
+        sReplayLogFileName  = GetConfigValue(sConfig,"REPLAYLOGFILENAME").c_str();
 
         // Flap position related values
         aiValues = ParseIntCSV(GetConfigValue(sConfig,"FLAPDEGREES"));
@@ -584,9 +463,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         CasCurve            = ParseCurveCSV(GetConfigValue(sConfig,"CAS_CURVE"));
         bCasCurveEnabled    = ToBoolean(GetConfigValue(sConfig,"CAS_ENABLED"));
 
-        sPortsOrientation   = GetConfigValue(sConfig,"PORTS_ORIENTATION");
-        sBoxtopOrientation  = GetConfigValue(sConfig,"BOX_TOP_ORIENTATION");
-        sEfisType           = GetConfigValue(sConfig,"EFISTYPE");
+        sPortsOrientation   = GetConfigValue(sConfig,"PORTS_ORIENTATION").c_str();
+        sBoxtopOrientation  = GetConfigValue(sConfig,"BOX_TOP_ORIENTATION").c_str();
+        sEfisType           = GetConfigValue(sConfig,"EFISTYPE").c_str();
         if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialPort::EnVN300;        // iEfisID = 1;
         else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialPort::EnDynonSkyview; // iEfisID = 2;
         else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialPort::EnDynonD10;     // iEfisID = 3;
@@ -596,7 +475,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         else                             g_EfisSerial.enType = EfisSerialPort::EnNone;         // iEfisID = 0;
 
         // Calibration data source
-        sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE");
+        sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE").c_str();
         bCalSourceEfis       = (sCalSource == "EFIS");
 
         // Biases
@@ -618,8 +497,8 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         bOatSensor          = ToBoolean(GetConfigValue(sConfig,"OATSENSOR"));
 
         // serial output
-        sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT");
-        enSerialOutFormat   = ParseSerialFmt(sSerialOutFormat);
+        sSerialOutFormat    = GetConfigValue(sConfig,"SERIALOUTFORMAT").c_str();
+        enSerialOutFormat   = OnSpeedConfig::ParseSerialFmt(sSerialOutFormat);
 //        sSerialOutPort      = GetConfigValue(sConfig,"SERIALOUTPORT");
 
         // Load limit
@@ -702,7 +581,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         XML_GET_INT(XmlRootNode, "PRESSURE_SMOOTHING", iPressureSmoothing)
 
         XML_GET_STR(XmlRootNode, "DATASOURCE",         sDataSource)
-        suDataSrc.fromStrSet(sDataSource);
+        suDataSrc.fromStrSet(sDataSource.c_str());
 
         XML_GET_STR(XmlRootNode, "REPLAYLOGFILENAME", sReplayLogFileName)
 
@@ -806,7 +685,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         // Serial output
         XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
-        enSerialOutFormat = ParseSerialFmt(sSerialOutFormat);
+        enSerialOutFormat = OnSpeedConfig::ParseSerialFmt(sSerialOutFormat);
 //        XML_GET_STR(XmlRootNode, "SERIALOUTPORT",     sSerialOutPort)
 
         XML_GET_STR(XmlRootNode, "CALWIZ_SOURCE",         sCalSource)

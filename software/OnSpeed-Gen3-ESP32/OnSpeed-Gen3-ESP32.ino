@@ -244,7 +244,7 @@ void setup()
         }
     else if (g_Config.suDataSrc.enSrc == SuDataSource::EnReplay)
         {
-        suLogReplayParams.sReplayLogFile = g_Config.sReplayLogFileName;
+        suLogReplayParams.sReplayLogFile = g_Config.sReplayLogFileName.c_str();
         xTaskCreatePinnedToCore(LogReplayTask,        "Log Replay",  10000, &suLogReplayParams, 3, &xTaskLogReplay, 1);
         g_Log.println("Data Source REPLAYLOGFILE");
         }
