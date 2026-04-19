@@ -8,13 +8,13 @@
 // Input CSV columns (header row required, must match exactly):
 //   ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz
 //
-// Output CSV columns:
+// Output CSV columns (kOutputHeader below):
 //   ias_kt,palt_ft,oat_c,tone_freq_hz,tone_level
 //
 // The output columns are minimal at PR 0.3 because onspeed_core does not
 // yet contain AHRS, audio synthesis, or other later-phase modules. Each
 // Phase 1+ PR that moves a new module to core adds corresponding output
-// columns here.
+// columns here and updates kOutputHeader.
 
 #include <cstdio>
 #include <cstdlib>
@@ -28,6 +28,25 @@
 
 namespace {
 
+// Input and output schemas are kept side-by-side so that adding a column
+// to one prompts updating the other.
+constexpr char kInputHeader[]  = "ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz";
+constexpr char kOutputHeader[] = "ias_kt,palt_ft,oat_c,tone_freq_hz,tone_level";
+
+// Placeholder AOA thresholds (degrees) matching clean-flap setpoints for a
+// typical GA aircraft.  Phase 1+ will replace these with values read from the
+// per-flap config loaded at startup.
+constexpr onspeed::ToneThresholds kCleanThresholds {
+    /* fLDMAXAOA      */ 3.0f,
+    /* fONSPEEDFASTAOA*/ 6.5f,
+    /* fONSPEEDSLOWAOA*/ 9.5f,
+    /* fSTALLWARNAOA  */ 12.5f,
+};
+
+// Lift-equation constant K such that AOA = K / IAS² gives a plausible
+// AOA at cruise.  Chosen so that 100 kt → ~4° (mid-cruise, Low tone solid).
+constexpr float kLiftK = 40000.0f;
+
 struct InputRow {
     float ias_kt;
     float palt_ft;
@@ -40,9 +59,7 @@ bool ParseHeader(const std::string& line)
 {
     // Expect an exact header — if this changes, bump the golden and
     // every caller. Keeping it strict is the feature.
-    const char* kExpected =
-        "ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz";
-    return line == kExpected;
+    return line == kInputHeader;
 }
 
 bool ParseRow(const std::string& line, InputRow& out)
@@ -84,7 +101,7 @@ int main()
     }
 
     // Emit output header.
-    std::printf("ias_kt,palt_ft,oat_c,tone_freq_hz,tone_level\n");
+    std::printf("%s\n", kOutputHeader);
 
     size_t row_count = 0;
     while (std::getline(std::cin, line)) {
@@ -96,11 +113,39 @@ int main()
             return 1;
         }
 
-        // For PR 0.3 the pipeline is trivial — pass IAS / Palt / OAT through
-        // and compute a placeholder tone decision based on raw IAS. Later
-        // PRs add: AOA calculation, AHRS, audio mixer outputs, etc.
-        float tone_freq_hz = (r.ias_kt > 60.0f) ? 500.0f : 1000.0f;
-        int tone_level = (r.ias_kt > 40.0f) ? 1 : 0;
+        // Derive a placeholder AOA from IAS using the lift equation
+        //   AOA = K / IAS²
+        // This is intentionally simplified — no AHRS pitch, no pressure
+        // sensors — because Phase 0.3 is about harness plumbing, not
+        // algorithm accuracy.  The constant K is tuned so cruise IAS
+        // maps to a plausible on-speed AOA.  Phase 1+ will replace this
+        // with the real DerivedAOA from the extracted AHRS module.
+        float fake_aoa = (r.ias_kt > 1.0f)
+                         ? (kLiftK / (r.ias_kt * r.ias_kt))
+                         : onspeed::AOA_MAX_VALUE;
+
+        onspeed::ToneResult result = onspeed::calculateTone(fake_aoa, kCleanThresholds);
+
+        // Map ToneResult to the two output columns.
+        //   tone_freq_hz: pulse rate (Hz), or the base carrier frequency as a
+        //                 sentinel for "solid" (0 PPS → 440 Hz) and "no tone" (0).
+        //   tone_level:   0 = no tone, 1 = low tone, 2 = high tone.
+        float tone_freq_hz = 0.0f;
+        int   tone_level   = 0;
+        switch (result.enTone) {
+        case onspeed::EnToneType::None:
+            tone_freq_hz = 0.0f;
+            tone_level   = 0;
+            break;
+        case onspeed::EnToneType::Low:
+            tone_freq_hz = result.fPulseFreq;   // 0 = solid low tone
+            tone_level   = 1;
+            break;
+        case onspeed::EnToneType::High:
+            tone_freq_hz = result.fPulseFreq;   // 1.5–20 PPS
+            tone_level   = 2;
+            break;
+        }
 
         std::printf("%.4f,%.4f,%.4f,%.4f,%d\n",
                     r.ias_kt, r.palt_ft, r.oat_c,
