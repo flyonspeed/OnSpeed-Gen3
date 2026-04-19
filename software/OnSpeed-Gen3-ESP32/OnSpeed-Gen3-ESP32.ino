@@ -148,7 +148,7 @@ void setup()
 
     // The M5 display and the boom get to share
     uint32_t    SerialConfig = SerialConfig::SERIAL_8N1;
-    Serial1.begin(115200, SerialConfig, BOOM_SER_RX, DISPLAY_SER_TX, false);
+    Serial1.begin(115200, SerialConfig, kBoomRx, kDisplayTx, false);
 
     // Init boom serial
     g_BoomSerial.Init(&Serial1);
@@ -163,9 +163,10 @@ void setup()
     pinMode(kCsStatic, OUTPUT); digitalWrite(kCsStatic, HIGH);
     pinMode(kCsAoa,    OUTPUT); digitalWrite(kCsAoa,    HIGH);
     pinMode(kCsPitot,  OUTPUT); digitalWrite(kCsPitot,  HIGH);
-    if constexpr (kHasExternalMcp3202) {
+    if constexpr (kHasExternalMcp3202)
+        {
         pinMode(kCsAdc, OUTPUT); digitalWrite(kCsAdc, HIGH);
-    }
+        }
     pinMode(kSdCs,     OUTPUT); digitalWrite(kSdCs,     HIGH);
 
     // Init sensor SPI interface
@@ -173,7 +174,7 @@ void setup()
 
     // Initialize IMU class
     // --------------------
-    g_pIMU = new IMU330(g_pSensorSPI, CS_IMU);
+    g_pIMU = new IMU330(g_pSensorSPI, kCsImu);
     delay(100);
     g_pIMU->Init();
 
@@ -197,9 +198,9 @@ void setup()
 
     // Init pressure sensor classes
     // ----------------------------
-    g_pPitot  = new HscPressureSensor(g_pSensorSPI, CS_PITOT,  HSCMRRN001PDSA3);
-    g_pAOA    = new HscPressureSensor(g_pSensorSPI, CS_AOA,    HSCMRRN001PDSA3);
-    g_pStatic = new HscPressureSensor(g_pSensorSPI, CS_STATIC, HSCMRNN1_6BASA3);
+    g_pPitot  = new HscPressureSensor(g_pSensorSPI, kCsPitot,  HSCMRRN001PDSA3);
+    g_pAOA    = new HscPressureSensor(g_pSensorSPI, kCsAoa,    HSCMRRN001PDSA3);
+    g_pStatic = new HscPressureSensor(g_pSensorSPI, kCsStatic, HSCMRNN1_6BASA3);
 
     // Init Sensors
     g_Sensors.Init();
