@@ -10,11 +10,12 @@
 #include "Globals.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
+#include <sensors/PressureConvert.h>
+#include <sensors/OatConvert.h>
 
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
 using onspeed::CurveCalc;
-using onspeed::psi2mb;
 
 
 static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
@@ -25,7 +26,8 @@ static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
     if (fStaticBiasCorrected <= 0.0f)
         return g_Sensors.Palt;
 
-    return 145366.45f * (1.0f - powf(fStaticBiasCorrected / 1013.25f, 0.190284f));
+    // Delegate the ISA formula to the platform-independent core function.
+    return onspeed::sensors::StaticMbarToPaltFt(fStaticBiasCorrected);
 }
 
 // These from config
@@ -36,12 +38,10 @@ static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
 static uint32_t uLastFlapsReadMs = 0;
 static uint32_t uLastOatReadMs = 0;
 
-// OAT validation: reject DS18B20 disconnected sentinel (-127 C) and
-// power-on-reset value (85 C). Range covers GA ops from FL450 to desert.
-static constexpr float kOatMinC        = -80.0f;
-static constexpr float kOatMaxC        =  80.0f;
-static constexpr float kOatDefaultC    =  15.0f;   // ISA standard day
-static constexpr uint32_t kOatConversionMs = 800;   // DS18B20 12-bit max is 750 ms
+// OAT validation is now delegated to onspeed::sensors::FilterOat() in core.
+// The valid range, disconnect sentinel, and POR sentinel are all defined there.
+static constexpr float kOatDefaultC       = 15.0f;   // ISA standard day fallback
+static constexpr uint32_t kOatConversionMs = 800;    // DS18B20 12-bit max is 750 ms
 
 
 // ----------------------------------------------------------------------------
@@ -214,8 +214,6 @@ void SensorIO::Init()
 
 void SensorIO::Read()
 {
-    float           PfwdPascal;
-
     // Read pressure sensors
     xSemaphoreTake(xSensorMutex, portMAX_DELAY);
     iPfwd    = g_pPitot->ReadPressureCounts() - g_Config.iPFwdBias;
@@ -253,9 +251,13 @@ void SensorIO::Read()
         else if (bOatConversionPending && (millis() - uOatRequestMs >= kOatConversionMs))
         {
             float fNew = OatSensor.getTempCByIndex(0);
-            if (fNew > kOatMinC && fNew < kOatMaxC)
+            // Delegate sentinel and range filtering to the platform-independent
+            // core function (OatConvert::FilterOat). Returns nullopt for
+            // -127 (disconnect), 85 (POR), or out-of-range values.
+            auto validated = onspeed::sensors::FilterOat(fNew);
+            if (validated.has_value())
             {
-                OatC = fNew;    // valid reading
+                OatC = *validated;    // valid reading
             }
             else
             {
@@ -296,26 +298,19 @@ void SensorIO::Read()
         AOA = result.aoa;
         g_fCoeffP = result.coeffP;
 
-        // Calculate airspeed
-        // Calculate airspeed from smoothed dynamic pressure
+        // Calculate airspeed from smoothed dynamic pressure.
         // The smoothed value is without bias, so we add it back for the PSI conversion.
         float PfwdPSI = g_pPitot->ReadPressurePSI(PfwdSmoothed + g_Config.iPFwdBias);
-        PfwdPascal = psi2mb(PfwdPSI) * 100; // Convert PSI to Pascals
-        if (PfwdPascal > 0)
+        // Delegate the pitot equation to the platform-independent core function.
+        IAS = onspeed::sensors::PitotPsiToIasKt(PfwdPSI);
+        if (IAS > 0.0f)
         {
-            IAS = sqrtf(2.0f*PfwdPascal/1.225f) * 1.94384f; // knots // physics based calculation
 #ifdef SPHERICAL_PROBE
             IAS = IASCURVE(IAS); // for now use a hardcoded IAS curve for a spherical probe. CAS curve parameters can only take 4 decimals. Not accurate enough.
 #else
             if (g_Config.bCasCurveEnabled)
                 IAS = CurveCalc(g_Sensors.IAS,g_Config.CasCurve);  // use CAS correction curve if enabled
 #endif
-        }
-
-        // Catch negative pressure case
-        else
-        {
-            IAS = 0;
         }
 
         // Only update the IAS timestamp when IAS was actually computed from
@@ -396,11 +391,11 @@ float SensorIO::ReadOatC()
 {
     OatSensor.requestTemperatures();
     float fNew = OatSensor.getTempCByIndex(0);
-    if (fNew > kOatMinC && fNew < kOatMaxC)
-    {
-        OatC = fNew;
-    }
-    // else: sensor disconnected (-127 C) or POR (85 C); hold last good value.
+    auto validated = onspeed::sensors::FilterOat(fNew);
+    if (validated.has_value())
+        OatC = *validated;
+    // else: disconnect sentinel (-127°C), POR value (85°C), or out-of-range;
+    // hold last good value. Caller logs if needed.
     return OatC;
 }
 
@@ -411,10 +406,17 @@ onspeed::SensorSample SensorIO::Snapshot() const
     onspeed::SensorSample out;
     out.iasKt       = IAS;
     out.paltFt      = Palt;
+    out.psMbar      = PStatic;
     out.oatCelsius  = g_Config.bOatSensor ? OatC : onspeed::kOatInvalid;
-    // psMbar, ptMbar, p45Mbar: SensorIO does not yet cache raw mbar values;
-    // PR 1.2 will add them. Fields default to 0 until then.
-    // densityAltitudeFt: not yet computed by SensorIO; PR 1.2 will add it.
+
+    // Density altitude: only meaningful with a valid OAT reading.
+    // When OAT is absent (kOatInvalid), use ISA temperature at Palt so the
+    // result equals pressure altitude — a safe, conservative fallback.
+    const float oatForDa = (out.oatCelsius != onspeed::kOatInvalid)
+                           ? out.oatCelsius
+                           : (15.0f - 0.001981f * Palt);
+    out.densityAltitudeFt = onspeed::sensors::DensityAltitudeFt(Palt, oatForDa);
+
     out.timestampUs = uIasUpdateUs;
     return out;
 }

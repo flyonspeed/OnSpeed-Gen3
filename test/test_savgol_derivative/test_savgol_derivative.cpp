@@ -1,7 +1,7 @@
 // test_savgol_derivative.cpp - Unit tests for SavGolDerivative
 
 #include <unity.h>
-#include <SavGolDerivative.h>
+#include <filters/SavGolDerivative.h>
 #include <cmath>
 
 using onspeed::SavGolDerivative;

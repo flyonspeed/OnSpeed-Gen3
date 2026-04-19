@@ -29,7 +29,7 @@
 
 #include "Globals.h"
 #include "src/util/Helpers.h"
-#include <ToneCalc.h>
+#include <audio/ToneCalc.h>
 
 #include "Audio/PCM_cal_canceled.h"
 #include "Audio/PCM_cal_mode.h"

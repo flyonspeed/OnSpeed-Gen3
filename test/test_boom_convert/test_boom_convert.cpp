@@ -5,7 +5,7 @@
 
 #include <unity.h>
 #include <cmath>
-#include <BoomConvert.h>
+#include <sensors/BoomConvert.h>
 
 using namespace onspeed;
 

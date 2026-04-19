@@ -5,10 +5,10 @@
 
 #include "Globals.h"
 
-#include <EMAFilter.h>
-#include <MadgwickFusion.h>
-#include <KalmanFilter.h>
-#include <EKF6.h>
+#include <filters/EMAFilter.h>
+#include <ahrs/MadgwickFusion.h>
+#include <ahrs/KalmanFilter.h>
+#include <ahrs/EKF6.h>
 
 using onspeed::Madgwick;
 using onspeed::KalmanFilter;

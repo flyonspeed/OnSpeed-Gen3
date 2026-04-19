@@ -3,6 +3,7 @@
 #include <SPI.h>
 
 #include "Globals.h"
+#include <sensors/PressureConvert.h>
 
 using onspeed::psi2mb;
 
@@ -121,7 +122,22 @@ float HscPressureSensor::ReadPressurePSI()
 
 float HscPressureSensor::ReadPressurePSI(uint16_t uCounts)
 {
-    return (uCounts - uCountsMin) * (fPressureMax - fPressureMin) / (uCountsMax - uCountsMin) + fPressureMin;
+    // Delegate to the platform-independent transfer function in onspeed_core.
+    // If counts are outside the sensor's valid window, CountsToPsi returns
+    // nullopt; fall back to the clamped endpoint so the caller sees a
+    // saturated but numeric value rather than an uninitialized float.
+    onspeed::sensors::HscRange range{
+        static_cast<uint16_t>(uCountsMin),
+        static_cast<uint16_t>(uCountsMax),
+        fPressureMin,
+        fPressureMax,
+    };
+    auto result = onspeed::sensors::CountsToPsi(uCounts, range);
+    if (result.has_value())
+        return *result;
+
+    // Saturated: return the endpoint that matches which limit was breached.
+    return (uCounts < uCountsMin) ? fPressureMin : fPressureMax;
 }
 
 // ----------------------------------------------------------------------------
@@ -159,11 +175,15 @@ HscPressureSensor::RawPressureSnapshot HscPressureSensor::Snapshot() const
     out.rawCounts = uLastGoodCounts;
     if (bHasLastGoodCounts)
         {
-        // Inline the same linear interpolation used by ReadPressurePSI(uint16_t).
-        out.pressurePsi = static_cast<float>(out.rawCounts - uCountsMin)
-                          * (fPressureMax - fPressureMin)
-                          / static_cast<float>(uCountsMax - uCountsMin)
-                          + fPressureMin;
+        // Delegate to the platform-independent transfer function.
+        onspeed::sensors::HscRange range{
+            static_cast<uint16_t>(uCountsMin),
+            static_cast<uint16_t>(uCountsMax),
+            fPressureMin,
+            fPressureMax,
+        };
+        auto result = onspeed::sensors::CountsToPsi(out.rawCounts, range);
+        out.pressurePsi = result.value_or(fPressureMin);
         }
     out.timestampUs = 0;   // HSC driver does not maintain a read timestamp
     return out;

@@ -1,7 +1,7 @@
 // test_tone_calc.cpp - Unit tests for ToneCalc (extracted from Audio.cpp)
 
 #include <unity.h>
-#include <ToneCalc.h>
+#include <audio/ToneCalc.h>
 
 using namespace onspeed;
 

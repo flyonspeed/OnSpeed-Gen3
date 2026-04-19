@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "OnSpeedTypes.h"
+#include <util/OnSpeedTypes.h>
 
 namespace onspeed {
 

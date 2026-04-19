@@ -13,7 +13,7 @@
 //   roll = -MadgFilter.getRoll()
 
 #include <unity.h>
-#include <MadgwickFusion.h>
+#include <ahrs/MadgwickFusion.h>
 #include <cmath>
 
 using onspeed::Madgwick;

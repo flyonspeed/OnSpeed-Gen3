@@ -4,7 +4,7 @@
 // The filter runs at IMU rate (~208 Hz, dt ≈ 0.0048s)
 
 #include <unity.h>
-#include <KalmanFilter.h>
+#include <ahrs/KalmanFilter.h>
 #include <cmath>
 
 using onspeed::KalmanFilter;

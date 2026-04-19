@@ -9,8 +9,8 @@
 
 #include "RunningAverage.h"
 #include "RunningMedian.h"
-#include <SavGolDerivative.h>
-#include <AOACalculator.h>
+#include <filters/SavGolDerivative.h>
+#include <aoa/AOACalculator.h>
 #include <types/SensorSample.h>
 
 using onspeed::SavGolDerivative;
