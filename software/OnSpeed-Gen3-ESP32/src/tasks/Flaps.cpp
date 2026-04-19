@@ -2,6 +2,7 @@
 #include "Globals.h"
 #include "src/config/Config.h"
 #include "src/drivers/Mcp3202Adc.h"
+#include <sensors/FlapsDetector.h>
 
 // ----------------------------------------------------------------------------
 
@@ -32,51 +33,27 @@ void Flaps::Update()
     // Read the analog value
     uValue = Read();
 
-    // If there are no flap definitions then set the position to -1. That
-    // should get someone's attention.
-    if (g_Config.aFlaps.size() == 0)
+    // Build a temporary array of pot positions for the core detector.
+    // The config stores iPotPosition as int; cast to uint16_t (ADC range
+    // is 0–4095, so fits).
+    const size_t nFlaps = g_Config.aFlaps.size();
+    if (nFlaps == 0u)
     {
         iPosition = -1;
         return;
     }
 
-    // Set it to flap zero if there are no multiple positions available
-    iIndex = 0;
+    uint16_t potPositions[MAX_AOA_CURVES];
+    for (size_t i = 0u; i < nFlaps && i < MAX_AOA_CURVES; ++i)
+        potPositions[i] = static_cast<uint16_t>(g_Config.aFlaps[i].iPotPosition);
 
-    // Figure out where this value is in the array of flap position values
-    if (g_Config.aFlaps.size() > 1)
-    {
-        int     iPotRangeMidpoint;
-        bool    bDecendingOrder = false;
+    // Delegate the midpoint-threshold detection to the platform-independent
+    // core function. It handles both ascending and descending wiring.
+    onspeed::FlapState state = onspeed::sensors::DetectFlaps(uValue, potPositions, nFlaps);
 
-        // If the first flap pot position is greater than the last flap pot position then
-        // the pot positions must be in decending order.
-        if (g_Config.aFlaps[0].iPotPosition > g_Config.aFlaps[g_Config.aFlaps.size()-1].iPotPosition)
-            bDecendingOrder = true;
-
-        for (int iFlapIdx = 1; iFlapIdx < g_Config.aFlaps.size(); iFlapIdx++)
-        {
-            iPotRangeMidpoint = (g_Config.aFlaps[iFlapIdx].iPotPosition + g_Config.aFlaps[iFlapIdx-1].iPotPosition) / 2;
-
-            // Not decending order
-            if (!bDecendingOrder)
-            {
-                if (uValue > iPotRangeMidpoint)
-                    iIndex = iFlapIdx;
-            }
-
-            // Decending order
-            else
-            {
-                if (uValue < iPotRangeMidpoint)
-                    iIndex = iFlapIdx;
-            }
-        } // end for all flap positions
-
-    } // end if number of flap cal points is greater than 1
-
-    // Set the flap position based on the index value just found
-    Update(iIndex);
+    // Transfer the detected index back to our member fields, then resolve
+    // the degree value from config. Update(int) handles clamping.
+    Update(state.detectedIndex);
 }
 
 // ----------------------------------------------------------------------------
