@@ -15,9 +15,9 @@ void test_default_initializes_fields_to_expected_values(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.iasKt);
     TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.paltFt);
     TEST_ASSERT_EQUAL_FLOAT(kOatInvalid, s.oatCelsius);  // sentinel, not zero
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.psPsi);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.ptPsi);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.p45Psi);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.psMbar);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.ptMbar);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.p45Mbar);
     TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.densityAltitudeFt);
     TEST_ASSERT_EQUAL_UINT32(0u,        s.timestampUs);
 }
@@ -28,9 +28,9 @@ void test_fields_are_writable(void)
     s.iasKt              = 95.0f;
     s.paltFt             = 3500.0f;
     s.oatCelsius         = 15.0f;
-    s.psPsi              = 12.5f;
-    s.ptPsi              = 12.7f;
-    s.p45Psi             = 0.05f;
+    s.psMbar             = 1013.25f;
+    s.ptMbar             = 1013.5f;
+    s.p45Mbar            = 0.5f;
     s.densityAltitudeFt  = 4200.0f;
     s.timestampUs        = 123456789u;
 

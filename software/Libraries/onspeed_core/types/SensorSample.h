@@ -3,6 +3,10 @@
 // Snapshot of one pressure-sensor read, converted to engineering units.
 // Produced by PressureConvert in PR 1.2; consumed by AHRS, display serial,
 // log CSV.
+//
+// Pressure unit note: all raw pressure fields (ps, pt, p45) are in millibars
+// (mbar), matching the rest of the firmware (SensorIO::PStatic, LogRow,
+// LogSensor).  There are no PSI values in this struct.
 
 #ifndef ONSPEED_CORE_TYPES_SENSOR_SAMPLE_H
 #define ONSPEED_CORE_TYPES_SENSOR_SAMPLE_H
@@ -25,10 +29,10 @@ struct SensorSample {
     // is absent, not yet read, or reported an error.
     float oatCelsius = kOatInvalid;
 
-    // Raw pressures from individual sensors (PSI).
-    float psPsi  = 0.0f;   // static pressure
-    float ptPsi  = 0.0f;   // pitot (total) pressure, not IAS-corrected
-    float p45Psi = 0.0f;   // differential AOA pressure, signed
+    // Raw pressures from individual sensors (millibars).
+    float psMbar  = 0.0f;   // static pressure (mbar)
+    float ptMbar  = 0.0f;   // pitot (total) pressure, not IAS-corrected (mbar)
+    float p45Mbar = 0.0f;   // differential AOA pressure, signed (mbar)
 
     // Density altitude (feet). Set to 0 if OAT is invalid.
     float densityAltitudeFt = 0.0f;

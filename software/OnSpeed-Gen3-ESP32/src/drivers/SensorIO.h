@@ -67,8 +67,9 @@ public:
 //  float   GetPressureAltMbars();
 
     // Returns the current aggregated sensor reading as a core POD struct.
-    // psPsi, ptPsi, p45Psi, and densityAltitudeFt are not yet tracked by this
-    // class (PR 1.2 will add them); those fields default to 0 in this PR.
+    // psMbar, ptMbar, p45Mbar, and densityAltitudeFt are not yet tracked by
+    // this class (PR 1.2 will add them); those fields default to 0 in this PR.
+    // oatCelsius is set to onspeed::kOatInvalid when bOatSensor is false.
     onspeed::SensorSample Snapshot() const;
 
 private:

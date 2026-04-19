@@ -411,8 +411,8 @@ onspeed::SensorSample SensorIO::Snapshot() const
     onspeed::SensorSample out;
     out.iasKt       = IAS;
     out.paltFt      = Palt;
-    out.oatCelsius  = OatC;
-    // psPsi, ptPsi, p45Psi: SensorIO does not yet cache raw PSI values;
+    out.oatCelsius  = g_Config.bOatSensor ? OatC : onspeed::kOatInvalid;
+    // psMbar, ptMbar, p45Mbar: SensorIO does not yet cache raw mbar values;
     // PR 1.2 will add them. Fields default to 0 until then.
     // densityAltitudeFt: not yet computed by SensorIO; PR 1.2 will add it.
     out.timestampUs = uIasUpdateUs;
