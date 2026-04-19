@@ -203,11 +203,11 @@ the Arduino/ESP32 framework's built-in library path (angle brackets).
 
 [1]: https://google.github.io/styleguide/cppguide.html#Names_and_Order_of_Includes
 
-## Core-Extraction Tooling
+## Core invariants and regression tooling
 
-Three tools guard structural invariants and catch behavior regressions during
-the ongoing core-extraction refactor. All three run in CI on every pull
-request; local invocation is identical.
+Three tools guard the `onspeed_core` library boundary and catch behavior
+regressions. All three run in CI on every pull request; local invocation
+is identical.
 
 ### `scripts/check_core_purity.sh`
 
@@ -256,10 +256,10 @@ differently after a refactor.
 ./tools/regression/run_snapshot.py --update-golden
 ```
 
-The harness pipeline is minimal at this stage (IAS/Palt pass-through with a
-placeholder tone decision). Each subsequent extraction PR that moves a new
-module into `onspeed_core` extends `host_main.cpp` and regenerates the golden
-as part of its commit.
+The harness's pipeline (`tools/regression/host_main.cpp`) exercises the
+current `onspeed_core` modules end-to-end. When adding a new module to
+`onspeed_core`, extend `host_main.cpp` to exercise it and commit an
+updated golden alongside the code change.
 
 ## Contributing
 
