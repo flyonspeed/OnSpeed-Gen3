@@ -327,6 +327,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -343,11 +344,13 @@ jobs:
             ~/.platformio/penv
           key: ${{ runner.os }}-pio-regression-v1
 
-      - name: Install uv and PlatformIO
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install PlatformIO
         run: |
           python -m pip install --upgrade pip
           pip install platformio
-          pip install uv
 
       - name: Run regression harness
         run: ./tools/regression/run_snapshot.py
