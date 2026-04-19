@@ -11,3 +11,6 @@ After installing the hardware, you need to configure the OnSpeed system for your
 - **[Audio Settings](audio.md)** — Volume, mute threshold, 3D audio, Vno chime
 - **[Advanced Settings](advanced.md)** — AHRS algorithm, smoothing, CAS curve
 - **[Backup & Restore](backup-restore.md)** — Save and load configuration files
+
+A complete example of the XML configuration format (for reference or SD card deployment) is available at
+[example-default-config.xml](./example-default-config.xml).
