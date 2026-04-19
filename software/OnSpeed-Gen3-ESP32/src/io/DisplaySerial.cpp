@@ -4,9 +4,13 @@
 //#include "EspSoftwareSerial.h"
 
 #include "Globals.h"
+#include <proto/DisplaySerial.h>
 
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::proto::DisplayBuildInputs;
+using onspeed::proto::BuildDisplayFrame;
+using onspeed::proto::kDisplayFrameSizeBytes;
 
 //SoftwareSerial      DispSerial(DISPLAY_SER_RX, DISPLAY_SER_TX);
 
@@ -53,12 +57,6 @@ static inline unsigned SafeScaledUInt(float value, float scale, unsigned minValu
     if (scaled > (long)maxValue) scaled = (long)maxValue;
     return (unsigned)scaled;
 }
-
-static inline unsigned WrapUInt(unsigned value, unsigned modulo)
-{
-    return (modulo == 0) ? value : (value % modulo);
-}
-
 
 // ----------------------------------------------------------------------------
 
@@ -211,99 +209,57 @@ void DisplaySerial::Write()
         SerialCRC = 0x00;
         for (int i = 0; i < 55; i++)
             SerialCRC += (byte)serialOutString[i];
+
+        // Send data out the appropriate serial port
+        pSerial->print(serialOutString);
+        pSerial->printf("%02X",SerialCRC);
+        pSerial->println();
         } // end if G3X
 
     else if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtOnSpeed)
         {
-        //  0 - #                         Escape character  '#'
-        //  1 - 1                         Sentence ID '1'
-        //  2 - %+04i  Pitch              Pitch, 4 bytes, 0.1 degree, positive = up
-        //  6 - %+05i  Roll               Roll, 5 bytes, 0.1 degree, positive = right
-        // 11 - %04u   IAS                IAS, 4 bytes, 0.1 kts
-        // 15 - %+06i  PALT               PALT, 6 bytes, 1 ft
-        // 21 - %+05i  Rate of Turn       Rate of Turn,  5 bytes, .1 deg/sec, positive = right
-        // 26 - %+03i  LateralG           Lateral G, 3 bytes , 0.01g, positive = leftward
-        // 29 - %+03i  VerticalG          VerticalG, 3 bytes, 0.1g, positive = upward
-        // 32 - %02i   Percent Lift       Percent Lift, 2 bytes, 00-99%
-        // 34 - %+04i  AOA Degrees        AOA Degrees, 4 bytes, 0.1 degree
-        // 38 - %+04i  iVSI               iVSI, 4 bytes, 10 fpm, positive up [-999;999]
-        // 42 - %+03i  OAT                OAT, 3 bytes, 1 deg C
-        // 45 - %+04i  FlightPath         FlightPath angle, 4 bytes, 0.1 degree
-        // 49 - %+03i  Flaps              Flaps Pos, 3 bytes, 1 degree, with +/-sign
-        // 52 - %+04i  StallWarn          StallWarn AOA, 4 bytes, 0.1 degrees
-        // 56 - %+04i  OnSpeedSlow        OnSpeedSlow AOA, 4 bytes, 0.1 degrees
-        // 60 - %+04i  OnSpeedFast        OnSpeedFast AOA, 4 bytes, 0.1 degrees
-        // 64 - %+04i  Tones On           Tones On AOA, 4 bytes, 0.1 degrees
-        // 68 - %+04i  G onset rate       G onset rate, 4 bytes, 0.01 G/sec
-        // 72 - %+02i  Spin Recovery Cue  Spin Recovery Cue, 2 bytes, -1/0/+1
-        // 74 - %02u   DataMark           DataMark, 2 bytes
-        // 76 -                           Checksum, 2 bytes, ASCII HEX, sum of all previous bytes
-        // 78 -                           CR/LF,2 bytes, 0x0D 0x0A
+        // Build the 80-byte #1 frame via the shared core module so the layout
+        // is defined in exactly one place (onspeed_core/proto/DisplaySerial.h).
+        //
+        // The per-field scale factors, clamps, and sign conventions are
+        // documented there. BuildDisplayFrame produces the same bytes that
+        // the previous hand-coded snprintf/CRC block did for any given set
+        // of inputs.
 
-// Actual...
-// #1+2147483647+21474836470000+2147483647+0001+02-0900+000+000-127+000+40+145+124+086+047+000+000A5
+        const int iOATc = g_Config.bOatSensor ? int(g_Sensors.OatC) : 0;
 
-        int gOnsetRate      = 0;
-        int spinRecoveryCue = 0;
-        int iOATc           = g_Config.bOatSensor ? int(g_Sensors.OatC) : 0;
+        DisplayBuildInputs inputs;
+        inputs.pitchDeg          = g_AHRS.SmoothedPitch;
+        inputs.rollDeg           = g_AHRS.SmoothedRoll;
+        inputs.iasKt             = fIasForOutput;
+        inputs.paltFt            = fPAltFt;
+        inputs.turnRateDps       = g_AHRS.gYaw;
+        inputs.lateralG          = -g_AHRS.AccelLatFilter.get();  // negated: positive = leftward
+        inputs.verticalGScaled10 = static_cast<float>(iDisplayVerticalG);
+        inputs.percentLift       = iPercentLift;
+        inputs.aoaDeg            = fDisplayAOA;
+        inputs.vsiFpm10          = ClampInt(
+                                       (int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f),
+                                       -999, 999);
+        inputs.oatC              = iOATc;
+        inputs.flightPathDeg     = g_AHRS.FlightPath;
+        inputs.flapsDeg          = (int)g_Flaps.iPosition;
+        inputs.stallWarnAoaDeg   = g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA;
+        inputs.onSpeedSlowAoaDeg = g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA;
+        inputs.onSpeedFastAoaDeg = g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA;
+        inputs.tonesOnAoaDeg     = g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA;
+        inputs.gOnsetRate        = 0.0f;
+        inputs.spinRecoveryCue   = 0;
+        inputs.dataMark          = (int)((unsigned)g_iDataMark % 100u);
 
-        const int      iPitch10    = SafeScaledInt(g_AHRS.SmoothedPitch, 10.0f, -999,    999);
-        const int      iRoll10     = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
-        const unsigned uIas10      = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
-        const int      iPaltFt     = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
-        const int      iYaw10      = SafeScaledInt(g_AHRS.gYaw,          10.0f, -9999,  9999);
-        const int      iLatG100    = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
-        const int      iVertG10    = ClampInt(iDisplayVerticalG,                -99,      99);
-        const unsigned uPctLift    = ClampUInt((unsigned)iPercentLift,           0,       99);
-        const int      iAoa10      = SafeScaledInt(fDisplayAOA,          10.0f, -999,    999);
-        const int      iVsi10Fpm   = ClampInt((int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f), -999, 999);
-        const int      iOatC       = ClampInt(iOATc,                              -99,      99);
-        const int      iFpa10      = SafeScaledInt(g_AHRS.FlightPath,    10.0f, -999,    999);
-        const int      iFlapsDeg   = ClampInt((int)g_Flaps.iPosition,             -99,      99);
-        const int      iStall10    = SafeScaledInt(g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,  10.0f, -999, 999);
-        const int      iSlow10     = SafeScaledInt(g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA, 10.0f, -999, 999);
-        const int      iFast10     = SafeScaledInt(g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA, 10.0f, -999, 999);
-        const int      iLdMax10    = SafeScaledInt(g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,       10.0f, -999, 999);
-        const int      iOnset100   = ClampInt((int)(gOnsetRate * 100),            -999,    999);
-        const int      iSpinCue    = ClampInt((int)spinRecoveryCue,                 -9,      9);
-        const unsigned uDataMark2  = WrapUInt((unsigned)g_iDataMark,               100);
+        uint8_t frameBuf[kDisplayFrameSizeBytes];
+        const size_t nBytes = BuildDisplayFrame(inputs, frameBuf, sizeof(frameBuf));
 
-        const int iChars = snprintf(
-            serialOutString,
-            sizeof(serialOutString),
-            "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+02i%02u",
-            iPitch10,
-            iRoll10,
-            uIas10,
-            iPaltFt,
-            iYaw10,
-            iLatG100,
-            iVertG10,
-            uPctLift,
-            iAoa10,
-            iVsi10Fpm,
-            iOatC,
-            iFpa10,
-            iFlapsDeg,
-            iStall10,
-            iSlow10,
-            iFast10,
-            iLdMax10,
-            iOnset100,
-            iSpinCue,
-            uDataMark2);
-
-        // Expected fixed-length payload is 76 bytes.
-        if (iChars != 76)
+        if (nBytes != kDisplayFrameSizeBytes)
             return;
 
-        SerialCRC = 0x00;
-        for (int i = 0; i < 76; i++)
-            SerialCRC += (byte)serialOutString[i];
+        // Write the complete frame (80 bytes, already includes CRC + CRLF).
+        pSerial->write(frameBuf, kDisplayFrameSizeBytes);
         } // end if ONSPEED
 
-    // Send data out the appropriate serial port
-    pSerial->print(serialOutString);
-    pSerial->printf("%02X",SerialCRC);
-    pSerial->println();
     } // end Write()
