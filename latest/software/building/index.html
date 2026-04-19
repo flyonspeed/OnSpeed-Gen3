@@ -1752,6 +1752,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#core-extraction-tooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core-Extraction Tooling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core-Extraction Tooling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scriptscheck_core_puritysh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scripts/check_core_purity.sh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scriptscheck_board_flagssh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scripts/check_board_flags.sh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolsregressionrun_snapshotpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tools/regression/run_snapshot.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#contributing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3193,6 +3243,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#core-extraction-tooling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core-Extraction Tooling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core-Extraction Tooling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scriptscheck_core_puritysh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scripts/check_core_purity.sh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scriptscheck_board_flagssh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        scripts/check_board_flags.sh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#toolsregressionrun_snapshotpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tools/regression/run_snapshot.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#contributing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3335,6 +3435,47 @@
 <a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>├── test/                            # Native unit tests (12 suites, 136 tests)
 <a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>└── scripts/                         # Build and analysis scripts
 </code></pre></div>
+<h2 id="core-extraction-tooling">Core-Extraction Tooling<a class="headerlink" href="#core-extraction-tooling" title="Permanent link">&para;</a></h2>
+<p>Three tools guard structural invariants and catch behavior regressions during
+the ongoing core-extraction refactor. All three run in CI on every pull
+request; local invocation is identical.</p>
+<h3 id="scriptscheck_core_puritysh"><code>scripts/check_core_purity.sh</code><a class="headerlink" href="#scriptscheck_core_puritysh" title="Permanent link">&para;</a></h3>
+<p>Verifies that no file under <code>software/Libraries/onspeed_core/</code> includes a
+platform header (<code>Arduino.h</code>, <code>FreeRTOS.h</code>, ESP-IDF headers) or calls a
+platform API (<code>millis()</code>, <code>xTaskCreate</code>, <code>Serial.</code>, etc.). Run before every
+commit that touches <code>onspeed_core/</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>./scripts/check_core_purity.sh
+</code></pre></div>
+<p>Exits non-zero and prints the offending file + line if a forbidden pattern is
+found. The purity invariant is what makes <code>onspeed_core</code> compile with plain
+<code>g++</code> on the host — and therefore with any future hardware.</p>
+<h3 id="scriptscheck_board_flagssh"><code>scripts/check_board_flags.sh</code><a class="headerlink" href="#scriptscheck_board_flagssh" title="Permanent link">&para;</a></h3>
+<p>Verifies that <code>HW_V4P</code> and <code>HW_V4B</code> appear only in <code>HardwareMap.h</code>. Every
+other sketch file must read <code>if constexpr (kHasExternalMcp3202)</code> (or another
+topology flag) instead of <code>#ifdef HW_V4*</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>./scripts/check_board_flags.sh
+</code></pre></div>
+<p>This is the mechanical proof that the multi-board design works. When a new
+board (e.g. Gen2v4) is added later, it should require writing one new
+<code>HardwareMap.h</code> and nothing else — this check fails if any file outside
+<code>HardwareMap.h</code> references a board flag, preventing future PRs from
+re-introducing the compile-time-fork style the refactor moved away from.</p>
+<h3 id="toolsregressionrun_snapshotpy"><code>tools/regression/run_snapshot.py</code><a class="headerlink" href="#toolsregressionrun_snapshotpy" title="Permanent link">&para;</a></h3>
+<p>Builds <code>tools/regression/host_main.cpp</code> against the current <code>onspeed_core</code>,
+feeds it a recorded flight-log excerpt, and diffs the output against a
+committed golden file. Catches behavioral regressions that per-module unit
+tests miss — for example, when individually-correct modules compose slightly
+differently after a refactor.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Check for regression</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>./tools/regression/run_snapshot.py
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Accept an intentional behavior change (commit the new golden with the PR)</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>./tools/regression/run_snapshot.py<span class="w"> </span>--update-golden
+</code></pre></div>
+<p>The harness pipeline is minimal at this stage (IAS/Palt pass-through with a
+placeholder tone decision). Each subsequent extraction PR that moves a new
+module into <code>onspeed_core</code> extends <code>host_main.cpp</code> and regenerates the golden
+as part of its commit.</p>
 <h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
 <p>See the <a href="https://github.com/flyonspeed/OnSpeed-Gen3">GitHub repository</a> for contribution guidelines, issue tracking, and pull request workflow.</p>
 
