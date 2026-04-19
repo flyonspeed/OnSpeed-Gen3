@@ -11,6 +11,7 @@
 #include <audio/WavDecode.h>
 
 #include <cstdint>
+#include <cstdio>   // std::snprintf — Linux libstdc++ doesn't pull this transitively
 #include <cstring>
 #include <vector>
 

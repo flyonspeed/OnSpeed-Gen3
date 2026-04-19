@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>   // std::snprintf — Linux libstdc++ doesn't pull this transitively
 #include <cstdlib>
 #include <vector>
 
