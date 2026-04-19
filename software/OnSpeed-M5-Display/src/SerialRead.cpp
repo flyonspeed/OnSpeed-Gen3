@@ -5,8 +5,13 @@
 #include <M5Unified.h>
 #include <Free_Fonts.h>
 #include <Preferences.h>
-#include <SavGolDerivative.h>
+#include <filters/SavGolDerivative.h>
+#include <proto/DisplaySerial.h>
 #include "SerialRead.h"
+
+using onspeed::proto::ParseDisplayFrame;
+using onspeed::proto::kDisplayFrameSizeBytes;
+using onspeed::proto::DisplayFrame;
 
 // Smoothing constants
 static const float aoaSmoothingAlpha   = 0.7f;  //1 = max smoothing, 0.01 no smoothing.
@@ -80,78 +85,36 @@ void SerialRead()
                 Serial.println(serialBufferString);
                 #endif
 
-                // parse Onspeed data stream
-                String parseString;
+                // Parse the frame via the shared core module.
+                // ParseDisplayFrame verifies the checksum and extracts all fields.
+                auto result = ParseDisplayFrame(
+                    reinterpret_cast<const uint8_t*>(serialBufferString.c_str()),
+                    kDisplayFrameSizeBytes);
 
-                //calculate CRC
-                int calcCRC = 0;
-                for (int i = 0;i <= 75; i++)
-                    calcCRC+=serialBufferString[i];
-                calcCRC = calcCRC & 0xFF;
-
-                // convert from hex back into integer for comparison
-                if (calcCRC == (int)strtol(&serialBufferString.substring(76, 78)[0],NULL,16))
+                if (result.has_value())
                 {
-                    // CRC passed
-                    parseString=serialBufferString.substring(2, 6);
-                    Pitch=parseString.toFloat()/10;
+                    const DisplayFrame& f = result.value();
 
-                    parseString=serialBufferString.substring(6, 11);
-                    Roll=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(11, 15);
-                    IAS=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(15, 21);
-                    Palt=parseString.toFloat();
-
-                    parseString=serialBufferString.substring(21, 26);
-                    TurnRate=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(26, 29);
-                    LateralG=parseString.toFloat()/100;
-
-                    parseString=serialBufferString.substring(29, 32);
-                    VerticalG=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(32, 34);
-                    PercentLift=parseString.toInt();
-
-                    parseString=serialBufferString.substring(34, 38);
-                    AOA=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(38, 42);
-                    iVSI=parseString.toFloat()*10;
-
-                    parseString=serialBufferString.substring(42, 45);
-                    OAT=parseString.toInt();
-
-                    parseString=serialBufferString.substring(45, 49);
-                    FlightPath=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(49, 52);
-                    FlapPos=parseString.toInt();
-
-                    parseString=serialBufferString.substring(52, 56);
-                    OnSpeedStallWarnAOA=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(56, 60);
-                    OnSpeedSlowAOA=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(60, 64);
-                    OnSpeedFastAOA=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(64, 68);
-                    OnSpeedTonesOnAOA=parseString.toFloat()/10;
-
-                    parseString=serialBufferString.substring(68, 72);
-                    gOnsetRate=parseString.toFloat()/100;
-
-                    parseString=serialBufferString.substring(72, 74);
-                    SpinRecoveryCue=parseString.toInt();
-
-                    parseString=serialBufferString.substring(74, 76);
-                    DataMark=parseString.toInt();
+                    Pitch               = f.pitchDeg;
+                    Roll                = f.rollDeg;
+                    IAS                 = f.iasKt;
+                    Palt                = f.paltFt;
+                    TurnRate            = f.turnRateDps;
+                    LateralG            = f.lateralG;
+                    VerticalG           = f.verticalG;
+                    PercentLift         = f.percentLift;
+                    AOA                 = f.aoaDeg;
+                    iVSI                = f.vsiFpm;
+                    OAT                 = f.oatC;
+                    FlightPath          = f.flightPathDeg;
+                    FlapPos             = f.flapsDeg;
+                    OnSpeedStallWarnAOA = f.stallWarnAoaDeg;
+                    OnSpeedSlowAOA      = f.onSpeedSlowAoaDeg;
+                    OnSpeedFastAOA      = f.onSpeedFastAoaDeg;
+                    OnSpeedTonesOnAOA   = f.tonesOnAoaDeg;
+                    gOnsetRate          = f.gOnsetRate;
+                    SpinRecoveryCue     = f.spinRecoveryCue;
+                    DataMark            = f.dataMark;
 
                     serialBufferString="";
 
@@ -184,7 +147,7 @@ void SerialRead()
                     #endif
 
                     serialMillis=millis();
-                } // end if CRC passed
+                } // end if parse succeeded
                 else
                     Serial.println("ONSPEED CRC Failed");
 
