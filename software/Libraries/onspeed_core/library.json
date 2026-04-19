@@ -16,11 +16,5 @@
   },
   "license": "MIT",
   "platforms": ["native", "espressif32"],
-  "frameworks": "*",
-  "build": {
-    "srcFilter": [
-      "+<*.cpp>",
-      "+<proto/*.cpp>"
-    ]
-  }
+  "frameworks": "*"
 }
