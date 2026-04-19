@@ -1,276 +1,94 @@
-// ConfigFunctions
+// Config.h — sketch-side wrapper around onspeed::config::OnSpeedConfig.
+//
+// The config data struct + defaults loader lives in onspeed_core
+// (software/Libraries/onspeed_core/src/config/OnSpeedConfig.h).  This header
+// adds the sketch-owned XML parse/emit and SD/flash I/O methods on top of it
+// via inheritance, keeping the legacy `FOSConfig` name so the 400+ existing
+// `g_Config.xxx` call sites don't need to change.
+//
+// Task 2 of PR 3.1 will port the XML code into core, at which point this
+// wrapper will collapse to just the SD/flash file I/O methods.
 
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
+#include <Arduino.h>
 #include <vector>
+
+#include <onspeed_core.h>
+#include <config/OnSpeedConfig.h>
 #include <util/OnSpeedTypes.h>  // Core types: SuCalibrationCurve, MAX_CURVE_COEFF, etc.
 
+// Re-export core types at global scope so legacy call sites that reference
+// SuFlaps / SuDataSource / EnDataSource / SuIntArray / SuFloatArray without
+// any namespace qualifier keep compiling.
 using onspeed::SuCalibrationCurve;
 using onspeed::MAX_AOA_CURVES;
 using onspeed::MAX_CURVE_COEFF;
-
-// #include "Globals.h"
-
-#define SUPPORT_CONFIG_V1
-
-    // Data Structures
-    // ---------------
-
-    // These are mostly config item definitions but they are used in some other places
-    // so they are defined outside of th config class.
-
+using onspeed::config::SuDataSource;
 #ifdef SUPPORT_CONFIG_V1
-    typedef struct  {
-      int Count;
-      int Items[MAX_AOA_CURVES];
-    } SuIntArray;
-
-    typedef struct  {
-      int       Count;
-      float     Items[MAX_AOA_CURVES];
-    } SuFloatArray;
+using onspeed::config::SuIntArray;
+using onspeed::config::SuFloatArray;
 #endif
 
-// ============================================================================
-
-struct SuDataSource
-{
-    enum EnDataSource
-    {
-        EnSensors,
-        EnReplay,
-        EnTestPot,
-        EnRangeSweep,
-        EnUnknown
-    } enSrc;
-
-    const char * toCStr()
-        {
-        return toCStr(enSrc);
-        }
-
-    const char * toCStr(EnDataSource enDataSource)
-        {
-        if      (enDataSource == EnDataSource::EnSensors)    return "SENSORS";
-        else if (enDataSource == EnDataSource::EnReplay)     return "REPLAYLOGFILE";
-        else if (enDataSource == EnDataSource::EnTestPot)    return "TESTPOT";
-        else if (enDataSource == EnDataSource::EnRangeSweep) return "RANGESWEEP";
-        else if (enDataSource == EnDataSource::EnUnknown)    return "UNKNOWN";
-        else                                                 return "UNKNOWN";
-        }
-
-    void fromStrSet(String  sDataSource)
-        {
-        enSrc = fromStr(sDataSource);
-        }
-
-     EnDataSource fromStr(String  sDataSource)
-        {
-        if      (sDataSource == "SENSORS")        return EnDataSource::EnSensors;
-        else if (sDataSource == "REPLAYLOGFILE")  return EnDataSource::EnReplay;
-        else if (sDataSource == "TESTPOT")        return EnDataSource::EnTestPot;
-        else if (sDataSource == "RANGESWEEP")     return EnDataSource::EnRangeSweep;
-        else                                      return EnDataSource::EnUnknown;
-        }
-};
-
+// SuFlaps is a member of OnSpeedConfig; a global alias keeps the unqualified
+// name available (e.g. the sort-lambda `[](SuFlaps a, SuFlaps b) ...` in
+// Config.cpp).  FOSConfig also inherits it so `FOSConfig::SuFlaps` still works.
+using SuFlaps = onspeed::config::OnSpeedConfig::SuFlaps;
 
 // ============================================================================
+// FOSConfig — adds Arduino/SD-card I/O methods to the core struct.
+// All data fields are inherited from onspeed::config::OnSpeedConfig.
+// ============================================================================
 
-class FOSConfig
+class FOSConfig : public onspeed::config::OnSpeedConfig
 {
 public:
-    FOSConfig();
+    FOSConfig() = default;  // core constructor calls LoadDefaults()
 
-    // Config data
-    // -----------
-public:
-    // These are the config items that are saved to persistent memory and/or disk
-    int             iAoaSmoothing;
-    int             iPressureSmoothing;
-    int             iMuteAudioUnderIAS;
-    SuDataSource    suDataSrc;
-    String          sReplayLogFileName;
+    // Re-export the enum and static parser helper with Arduino String so the
+    // legacy `FOSConfig::EnSerialFmtG3X` / `FOSConfig::ParseSerialFmt(String)`
+    // call sites continue to compile.  Values mirror the core enum.
+    using EnSerialFmt = onspeed::config::OnSpeedConfig::EnSerialFmt;
+    static constexpr EnSerialFmt EnSerialFmtOther   = onspeed::config::OnSpeedConfig::EnSerialFmtOther;
+    static constexpr EnSerialFmt EnSerialFmtG3X     = onspeed::config::OnSpeedConfig::EnSerialFmtG3X;
+    static constexpr EnSerialFmt EnSerialFmtOnSpeed = onspeed::config::OnSpeedConfig::EnSerialFmtOnSpeed;
 
-    struct SuFlaps
-    {
-        SuFlaps()
-            {
-            iDegrees        = 0;
-            iPotPosition    = 0;
-            fLDMAXAOA       = 0.0;
-            fONSPEEDFASTAOA = 0.0;
-            fONSPEEDSLOWAOA = 0.0;
-            fSTALLWARNAOA   = 0.0;
-            fSTALLAOA       = 0.0;
-            fMANAOA         = 0.0;
-            fAlpha0         = 0.0;
-            fAlphaStall     = 0.0;
-            fKFit           = 0.0;
-            }
-        int      iDegrees;
-        int      iPotPosition;
-        float    fLDMAXAOA;
-        float    fONSPEEDFASTAOA;
-        float    fONSPEEDSLOWAOA;
-        float    fSTALLWARNAOA;
-        float    fSTALLAOA;
-        float    fMANAOA;
-        float    fAlpha0;       // Zero-lift fuselage AOA (deg), from physics fit
-        float    fAlphaStall;   // Stall AOA from physics fit (deg)
-        float    fKFit;         // Lift sensitivity (deg·kt²) from IAS-to-AOA fit
-
-        // Returns empty string if AOA setpoints are in order, or a description
-        // of all pairs that are out of order.  Skips fSTALLAOA from the chain
-        // when it is still at its uncalibrated default (0.0).
-        String SetpointOrderError() const
-            {
-            String sErr;
-            if (fLDMAXAOA >= fONSPEEDFASTAOA)
-                sErr += "LDMAX (" + String(fLDMAXAOA, 1) + ") must be less than OnSpeedFast (" + String(fONSPEEDFASTAOA, 1) + "); ";
-            if (fONSPEEDFASTAOA >= fONSPEEDSLOWAOA)
-                sErr += "OnSpeedFast (" + String(fONSPEEDFASTAOA, 1) + ") must be less than OnSpeedSlow (" + String(fONSPEEDSLOWAOA, 1) + "); ";
-            if (fONSPEEDSLOWAOA >= fSTALLWARNAOA)
-                sErr += "OnSpeedSlow (" + String(fONSPEEDSLOWAOA, 1) + ") must be less than StallWarn (" + String(fSTALLWARNAOA, 1) + "); ";
-            if (fSTALLAOA != 0.0f && fSTALLWARNAOA >= fSTALLAOA)
-                sErr += "StallWarn (" + String(fSTALLWARNAOA, 1) + ") must be less than Stall (" + String(fSTALLAOA, 1) + "); ";
-            // Trim trailing "; "
-            if (sErr.length() > 2)
-                sErr.remove(sErr.length() - 2);
-            return sErr;
-            }
-
-        SuCalibrationCurve  AoaCurve;
-    };
-
-    // A resizable array of flap position related values.
-    std::vector<SuFlaps>    aFlaps;
-
-    // Volume
-    bool            bVolumeControl;
-    int             iVolumeHighAnalog;
-    int             iVolumeLowAnalog;
-    int             iDefaultVolume;     // Percent from 0 to 100
-//  int             iVolumePercent;     // Percent from 0 to 100
-    bool            bAudio3D;           // 3D audio enabled
-    bool            bOverGWarning;
-
-    // CAS curve
-    SuCalibrationCurve  CasCurve;         // calibrated airspeed curve (polynomial)
-    bool                bCasCurveEnabled;
-
-    // Box orientation
-    String          sPortsOrientation;
-    String          sBoxtopOrientation;
-    String          sEfisType;
-
-    // calibration data source
-    String          sCalSource;
-    bool            bCalSourceEfis;  // Cached: sCalSource == "EFIS" (avoids String compare in 208Hz loop)
-
-    // biases
-    int             iPFwdBias;      // Counts
-    int             iP45Bias;       // Counts
-    float           fPStaticBias;   // millibars
-    float           fGxBias;
-    float           fGyBias;
-    float           fGzBias;
-    float           fPitchBias;
-    float           fRollBias;
-
-    // AHRS algorithm selection: 0=Madgwick (default), 1=EKF6
-    int             iAhrsAlgorithm;
-
-    // serial inputs
-    bool            bReadBoom;
-    bool            bReadEfisData;
-
-    // hardware feature toggles
-    bool            bOatSensor;
-    bool            bBoomChecksum;
-
-    // serial output
-    String          sSerialOutFormat;
-    enum EnSerialFmt { EnSerialFmtOther, EnSerialFmtG3X, EnSerialFmtOnSpeed };
-    EnSerialFmt     enSerialOutFormat;  // Cached: avoids String compare in 10Hz display loop
     static EnSerialFmt ParseSerialFmt(const String& s) {
         if (s == "G3X")     return EnSerialFmtG3X;
         if (s == "ONSPEED") return EnSerialFmtOnSpeed;
         return EnSerialFmtOther;
     }
-//    String          sSerialOutPort;
 
-    // load limit
-    float           fLoadLimitPositive;
-    float           fLoadLimitNegative;
+    // ------------------------------------------------------------------------
+    // Sketch-owned methods — XML parse/emit + SD/flash file I/O.
+    // Task 2 will push the XML bits into core; SD/flash stay here.
+    // ------------------------------------------------------------------------
 
-    // Asymmetric G-limit tuning
-    float           fAsymmetricGyroLimit;   // deg/sec roll/yaw threshold for reduced G-limits
-    float           fAsymmetricReduction;   // G-limit reduction factor during asymmetric flight
-
-    // Boom data conversion
-    bool            bBoomConvertData;       // true = apply polynomial conversion, false = raw counts
-
-    // Logging rate
-    int             iLogRate;               // 50 = pressure rate (default), 208 = IMU rate
-
-    // vno chime
-    int             iVno;                 // aircraft Vno in kts;
-    unsigned        uVnoChimeInterval;    // chime interval in seconds
-    bool            bVnoChimeEnabled;
-
-    // SD card logging
-//    bool            bSdLoggingConfig;
-    bool            bSdLogging;
-
-    // Aircraft parameters (used by calibration wizard)
-    int             iAcGrossWeight;
-    float           fAcBestGlideIAS;    // Best glide airspeed at max gross weight (KIAS)
-    float           fAcVfe;             // Max flap extension speed (KIAS)
-    float           fAcGlimit;          // Airframe load factor limit (G)
-
-    // Other config data
-    char            szDefaultConfigFilename[14] = "onspeed2.cfg";
-    bool            bConfigLoaded;
-
-  // Methods
-  // -------
-public:
-    bool                LoadConfigurationFile(char* szFilename);
-    bool                SaveConfigurationToFile();
-    bool                SaveConfigurationToFile(char* szFilename);
+    bool LoadConfigurationFile(char* szFilename);
+    bool SaveConfigurationToFile();
+    bool SaveConfigurationToFile(char* szFilename);
 
 #ifdef SUPPORT_LITTLEFS
-    bool                LoadConfigurationFileFromFlash(char* szFilename);
-    bool                SaveConfigurationToFlash();
-    bool                SaveConfigurationToFlash(char* szFilename);
+    bool LoadConfigurationFileFromFlash(char* szFilename);
+    bool SaveConfigurationToFlash();
+    bool SaveConfigurationToFlash(char* szFilename);
 #endif
 
-    bool                LoadDefaultConfiguration();
-    void                LoadConfig();
+    // Back-compat alias for the core's LoadDefaults().
+    bool LoadDefaultConfiguration() { return LoadDefaults(); }
+    void LoadConfig();
 
-    bool                ToBoolean(String sBool);
-    float               ToFloat(String sFloat);
-    String              ToString(float fFloat);
-#ifdef SUPPORT_CONFIG_V1
-  SuIntArray          ParseIntCSV(String sConfig);
-  SuFloatArray        ParseFloatCSV(String sConfig, int limit=MAX_AOA_CURVES);
-  SuCalibrationCurve  ParseCurveCSV(String sConfig);
-  String              GetConfigValue(String sConfig,String configName);
-  String              MakeConfig(String configName, String configValue);
-  String              Curve2String(SuCalibrationCurve  sConfig);
-  String              Array2String(SuFloatArray       afConfig);
-  String              Array2String(SuIntArray         aiConfig);
-#endif
+    // String conversion helpers — still used by the web server for
+    // rendering config values in HTML.  The V1 CSV-field helpers
+    // (ParseIntCSV, ParseFloatCSV, ParseCurveCSV, GetConfigValue, etc.)
+    // moved into onspeed_core/config/ConfigV1Parse as part of PR 3.1
+    // Task 3 and are no longer exposed sketch-side.
+    bool   ToBoolean(String sBool);
+    float  ToFloat(String sFloat);
+    String ToString(float fFloat);
 
-  String              ConfigurationToString();
-  bool                LoadConfigFromString(String sConfig);
-  //void                AddCRC(String &sConfig);
-
-  //float               array2float(byte buffer[], int startIndex);
-  //long double         array2double(byte buffer[], int startIndex);
-  //void                configChecksum(String &sConfig, String &checksumString);
-
-}; // end class FOSConfig
-#endif // _CONFIG_H_
+    String ConfigurationToString();
+    bool   LoadConfigFromString(String sConfig);
+};
+#endif  // _CONFIG_H_

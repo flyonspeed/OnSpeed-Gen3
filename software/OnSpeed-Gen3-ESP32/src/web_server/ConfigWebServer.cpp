@@ -800,7 +800,7 @@ window.addEventListener('load', function()
     sPage += R"#(
         <div class="form-divs flex-col-12 replaylogfilesetting" )#" + replayLogFileStyle + R"#(>
             <label for="id_replayLogFile">Log file to replay</label>
-            <input id="id_replayLogFile" name="logFileName" type="text" value=")#" + String(g_Config.sReplayLogFileName) + R"#(" />
+            <input id="id_replayLogFile" name="logFileName" type="text" value=")#" + String(g_Config.sReplayLogFileName.c_str()) + R"#(" />
         </div>
 )#";
 #else
@@ -808,7 +808,7 @@ window.addEventListener('load', function()
         <div class="form-divs flex-col-12 replaylogfilesetting" )#" + replayLogFileStyle + R"#(>
             <label for="id_replayLogFile">Log file to replay</label>
             <input id="id_replayLogFile" name="logFileName" list="logFiles" value=")#" +
-                String(g_Config.sReplayLogFileName) + R"#(" onfocus="this.value=''" autocomplete="off" />
+                String(g_Config.sReplayLogFileName.c_str()) + R"#(" onfocus="this.value=''" autocomplete="off" />
                 <datalist id="logFiles">
 )#";
     // Populate with a list of filename on the disk
@@ -1817,11 +1817,11 @@ void HandleConfigSave()
         if (String(g_Config.suDataSrc.toCStr()) != CfgServer.arg("dataSource"))
             rebootRequired = true;
 //        g_Config.sDataSource = CfgServer.arg("dataSource");
-        g_Config.suDataSrc.fromStrSet(CfgServer.arg("dataSource"));
+        g_Config.suDataSrc.fromStrSet(CfgServer.arg("dataSource").c_str());
         }
 
     if (CfgServer.hasArg("logFileName"))
-        g_Config.sReplayLogFileName = CfgServer.arg("logFileName");
+        g_Config.sReplayLogFileName = CfgServer.arg("logFileName").c_str();
 
 #if 1
     // Save flap setting info to a new set of array elements.
@@ -1888,24 +1888,24 @@ void HandleConfigSave()
         }
 
     // read portsOrientation
-    if (CfgServer.hasArg("portsOrientation")) g_Config.sPortsOrientation=CfgServer.arg("portsOrientation");
+    if (CfgServer.hasArg("portsOrientation")) g_Config.sPortsOrientation=CfgServer.arg("portsOrientation").c_str();
 
     // read boxtopOrientation
-    if (CfgServer.hasArg("boxtopOrientation")) g_Config.sBoxtopOrientation=CfgServer.arg("boxtopOrientation");
+    if (CfgServer.hasArg("boxtopOrientation")) g_Config.sBoxtopOrientation=CfgServer.arg("boxtopOrientation").c_str();
 
     // read efis enabled/disabled
     if (CfgServer.hasArg("readEfisData") && CfgServer.arg("readEfisData")=="1") g_Config.bReadEfisData=true;
     else                                                                        g_Config.bReadEfisData=false;
 
     // read efis Type
-    if (CfgServer.hasArg("efisType")) g_Config.sEfisType=CfgServer.arg("efisType");
+    if (CfgServer.hasArg("efisType")) g_Config.sEfisType=CfgServer.arg("efisType").c_str();
 
     // OAT sensor enabled/disabled
     if (CfgServer.hasArg("oatSensor") && CfgServer.arg("oatSensor")=="1") g_Config.bOatSensor = true;
     else                                                                   g_Config.bOatSensor = false;
 
     // read calibration source
-    if (CfgServer.hasArg("calSource")) { g_Config.sCalSource=CfgServer.arg("calSource"); g_Config.bCalSourceEfis = (g_Config.sCalSource == "EFIS"); }
+    if (CfgServer.hasArg("calSource")) { g_Config.sCalSource=CfgServer.arg("calSource").c_str(); g_Config.bCalSourceEfis = (g_Config.sCalSource == "EFIS"); }
 
     // read AHRS algorithm
     if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();
@@ -1951,7 +1951,7 @@ void HandleConfigSave()
     if (CfgServer.hasArg("vnoChimeInterval")) g_Config.uVnoChimeInterval=CfgServer.arg("vnoChimeInterval").toInt();
 
     // serialOutFormat
-    if (CfgServer.hasArg("serialOutFormat")) { g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat"); g_Config.enSerialOutFormat = FOSConfig::ParseSerialFmt(g_Config.sSerialOutFormat); }
+    if (CfgServer.hasArg("serialOutFormat")) { g_Config.sSerialOutFormat=CfgServer.arg("serialOutFormat").c_str(); g_Config.enSerialOutFormat = onspeed::config::OnSpeedConfig::ParseSerialFmt(g_Config.sSerialOutFormat); }
 
     //serialOutPort
 //    if (CfgServer.hasArg("serialOutPort")) g_Config.sSerialOutPort=CfgServer.arg("serialOutPort");
@@ -2021,7 +2021,7 @@ void HandleConfigSave()
         // Warn if any flap position has out-of-order AOA setpoints
         for (size_t i = 0; i < g_Config.aFlaps.size(); i++)
             {
-            String sErr = g_Config.aFlaps[i].SetpointOrderError();
+            String sErr = g_Config.aFlaps[i].SetpointOrderError().c_str();
             if (sErr.length() > 0)
                 {
                 sPage += "<br><br><b>WARNING:</b> Flap position " + String(g_Config.aFlaps[i].iDegrees)
@@ -2835,7 +2835,7 @@ Enter the following aircraft parameters:<br><br>
 
                 // Save configuration
                 g_Config.SaveConfigurationToFile();
-                String sErr = g_Config.aFlaps[iFlapIdx].SetpointOrderError();
+                String sErr = g_Config.aFlaps[iFlapIdx].SetpointOrderError().c_str();
                 if (sErr.length() > 0)
                     {
                     g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
