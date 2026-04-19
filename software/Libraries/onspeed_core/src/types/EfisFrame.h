@@ -8,8 +8,21 @@
 #define ONSPEED_CORE_TYPES_EFIS_FRAME_H
 
 #include <cstdint>
+#include <limits>
 
 namespace onspeed {
+
+// "Field absent in this frame" sentinel. Parsers leave a field at this
+// value when the underlying protocol either does not carry it, or carries
+// a vendor-specific "temporarily unavailable" marker (Dynon D10 status bit,
+// Garmin `____` placeholder, MGL missing message, etc.) that means
+// "hold the previous value".
+//
+// Consumers test std::isfinite() at the boundary: finite -> apply,
+// non-finite -> skip (preserve the prior suEfis value). This lets every
+// parser be write-only for the fields it actually decoded this frame and
+// preserves the hold-last-value semantics the vendors expect.
+inline constexpr float kEfisFieldAbsent = std::numeric_limits<float>::quiet_NaN();
 
 // Identifies which EFIS vendor produced this frame. Allows consumers to
 // apply vendor-specific corrections or log the source without storing it
@@ -28,26 +41,27 @@ enum class EfisSource {
 };
 
 struct EfisFrame {
-    // Attitude (degrees).
-    float pitchDeg   = 0.0f;
-    float rollDeg    = 0.0f;
-    float headingDeg = 0.0f;
+    // Attitude (degrees). Default = absent; set by parser only if the frame
+    // carries a valid value for that field.
+    float pitchDeg   = kEfisFieldAbsent;
+    float rollDeg    = kEfisFieldAbsent;
+    float headingDeg = kEfisFieldAbsent;
 
     // Airspeed and altitude.
-    float iasKt  = 0.0f;   // indicated airspeed (knots)
-    float tasKt  = 0.0f;   // true airspeed (knots)
-    float paltFt = 0.0f;   // pressure altitude (feet)
-    float vsiFpm = 0.0f;   // vertical speed (feet/minute)
+    float iasKt  = kEfisFieldAbsent;   // indicated airspeed (knots)
+    float tasKt  = kEfisFieldAbsent;   // true airspeed (knots)
+    float paltFt = kEfisFieldAbsent;   // pressure altitude (feet)
+    float vsiFpm = kEfisFieldAbsent;   // vertical speed (feet/minute)
 
     // Air data.
-    float oatCelsius = 0.0f;   // outside air temperature (Celsius)
+    float oatCelsius = kEfisFieldAbsent;   // outside air temperature (Celsius)
 
-    // AOA / lift. -1 if not supported by this EFIS type.
-    float aoaPercent = -1.0f;   // 0..100 percent of stall AOA
+    // AOA / lift, 0..100 percent of stall AOA.
+    float aoaPercent = kEfisFieldAbsent;
 
     // G-loads.
-    float lateralG  = 0.0f;   // lateral (side) G
-    float verticalG = 0.0f;   // vertical (normal) G
+    float lateralG  = kEfisFieldAbsent;   // lateral (side) G
+    float verticalG = kEfisFieldAbsent;   // vertical (normal) G
 
     // Source identifier.
     EfisSource source = EfisSource::None;

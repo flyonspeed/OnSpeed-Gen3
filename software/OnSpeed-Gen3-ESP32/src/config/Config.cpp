@@ -12,7 +12,7 @@
 #include <LittleFS.h>
 #endif
 
-#include "src/io/EfisSerial.h"
+#include "src/io/EfisSerialPort.h"
 
 using namespace tinyxml2;
 
@@ -587,13 +587,13 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         sPortsOrientation   = GetConfigValue(sConfig,"PORTS_ORIENTATION");
         sBoxtopOrientation  = GetConfigValue(sConfig,"BOX_TOP_ORIENTATION");
         sEfisType           = GetConfigValue(sConfig,"EFISTYPE");
-        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialIO::EnVN300;        // iEfisID = 1;
-        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialIO::EnDynonSkyview; // iEfisID = 2;
-        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialIO::EnDynonD10;     // iEfisID = 3;
-        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialIO::EnGarminG5;     // iEfisID = 4;
-        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialIO::EnGarminG3X;    // iEfisID = 5;
-        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialIO::EnMglBinary;    // iEfisID = 6;
-        else                             g_EfisSerial.enType = EfisSerialIO::EnNone;         // iEfisID = 0;
+        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialPort::EnVN300;        // iEfisID = 1;
+        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialPort::EnDynonSkyview; // iEfisID = 2;
+        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialPort::EnDynonD10;     // iEfisID = 3;
+        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialPort::EnGarminG5;     // iEfisID = 4;
+        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialPort::EnGarminG3X;    // iEfisID = 5;
+        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialPort::EnMglBinary;    // iEfisID = 6;
+        else                             g_EfisSerial.enType = EfisSerialPort::EnNone;         // iEfisID = 0;
 
         // Calibration data source
         sCalSource           = GetConfigValue(sConfig,"CALWIZ_SOURCE");
@@ -796,13 +796,13 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         XML_GET_BOOL(XmlRootNode, "SERIALEFISDATA",   bReadEfisData)
         XML_GET_STR(XmlRootNode,  "EFISTYPE",         sEfisType)
         XML_GET_BOOL(XmlRootNode, "OATSENSOR",        bOatSensor)
-        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialIO::EnVN300;        // iEfisID = 1;
-        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialIO::EnDynonSkyview; // iEfisID = 2;
-        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialIO::EnDynonD10;     // iEfisID = 3;
-        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialIO::EnGarminG5;     // iEfisID = 4;
-        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialIO::EnGarminG3X;    // iEfisID = 5;
-        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialIO::EnMglBinary;    // iEfisID = 6;
-        else                             g_EfisSerial.enType = EfisSerialIO::EnNone;         // iEfisID = 0;
+        if      (sEfisType=="VN-300")    g_EfisSerial.enType = EfisSerialPort::EnVN300;        // iEfisID = 1;
+        else if (sEfisType=="ADVANCED")  g_EfisSerial.enType = EfisSerialPort::EnDynonSkyview; // iEfisID = 2;
+        else if (sEfisType=="DYNOND10")  g_EfisSerial.enType = EfisSerialPort::EnDynonD10;     // iEfisID = 3;
+        else if (sEfisType=="GARMING5")  g_EfisSerial.enType = EfisSerialPort::EnGarminG5;     // iEfisID = 4;
+        else if (sEfisType=="GARMING3X") g_EfisSerial.enType = EfisSerialPort::EnGarminG3X;    // iEfisID = 5;
+        else if (sEfisType=="MGL")       g_EfisSerial.enType = EfisSerialPort::EnMglBinary;    // iEfisID = 6;
+        else                             g_EfisSerial.enType = EfisSerialPort::EnNone;         // iEfisID = 0;
 
         // Serial output
         XML_GET_STR(XmlRootNode, "SERIALOUTFORMAT",   sSerialOutFormat)
