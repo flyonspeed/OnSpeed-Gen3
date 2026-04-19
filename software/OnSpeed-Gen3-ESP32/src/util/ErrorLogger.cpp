@@ -1,6 +1,5 @@
 
-#include "../../Globals.h"
-#include "ErrorLogger.h"
+#include "Globals.h"
 
 // ----------------------------------------------------------------------------
 

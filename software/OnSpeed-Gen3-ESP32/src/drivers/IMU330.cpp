@@ -2,8 +2,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 
-#include "../../Globals.h"
-#include "IMU330.h"
+#include "Globals.h"
 
 using onspeed::accelPitch;
 using onspeed::accelRoll;

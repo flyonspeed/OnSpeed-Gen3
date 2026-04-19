@@ -4,7 +4,7 @@
 //#include <SoftwareSerial.h>
 #include <HardwareSerial.h>
 
-#include "../../Globals.h"
+#include "Globals.h"
 
 class EfisSerialIO
 {

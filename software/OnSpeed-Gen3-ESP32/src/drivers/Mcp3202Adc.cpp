@@ -1,5 +1,5 @@
 #include "Mcp3202Adc.h"
-#include "../../Globals.h"
+#include "Globals.h"
 
 static constexpr uint32_t kMcp3202SpiClockHz = 1000000;
 

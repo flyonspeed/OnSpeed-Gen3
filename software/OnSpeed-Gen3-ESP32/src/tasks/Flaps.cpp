@@ -1,8 +1,7 @@
 
-#include "../../Globals.h"
-#include "../config/Config.h"
-#include "Flaps.h"
-#include "../drivers/Mcp3202Adc.h"
+#include "Globals.h"
+#include "src/config/Config.h"
+#include "src/drivers/Mcp3202Adc.h"
 
 // ----------------------------------------------------------------------------
 

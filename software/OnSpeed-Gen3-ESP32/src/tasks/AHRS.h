@@ -3,7 +3,7 @@
 
 #include <RunningAverage.h>
 
-#include "../../Globals.h"
+#include "Globals.h"
 
 #include <EMAFilter.h>
 #include <MadgwickFusion.h>

@@ -137,6 +137,35 @@ OnSpeed-Gen3/
 └── scripts/                         # Build and analysis scripts
 ```
 
+## Include Style
+
+All project-internal `#include` directives use **sketch-root-relative paths**
+(Google/LLVM C++ Style Guide convention):
+
+```cpp
+#include "Globals.h"              // top-level sketch header
+#include "src/util/Helpers.h"     // file in a subdirectory
+#include "Web/html_logo.h"        // generated asset
+#include <ToneCalc.h>             // onspeed_core library (angle brackets)
+#include <Arduino.h>              // framework library (angle brackets)
+```
+
+The `-Isoftware/OnSpeed-Gen3-ESP32` flag in `platformio.ini` makes this work
+for PlatformIO. Arduino IDE 2.x resolves sketch-root includes by the same
+mechanism — verified with `arduino-cli compile`.
+
+**`Globals.h` is the umbrella header.** It includes every project header under
+`src/`. A `.cpp` file that starts with `#include "Globals.h"` therefore does
+not need to also include its own paired header (`Foo.cpp` does not need
+`#include "Foo.h"` when `Foo.h` is already pulled in by `Globals.h`). Add a
+bare `#include "Foo.h"` only for headers that `Globals.h` does not include
+(e.g. `Mcp3202Adc.h`).
+
+**Do not write** `#include "../../Globals.h"` or `#include "../tasks/Flaps.h"`.
+Filesystem-relative paths break when files move, create ambiguity, and — under
+Arduino IDE's file-cache model — bypass `#pragma once` guards causing
+redefinition errors.
+
 ## Core-Extraction Tooling
 
 Three tools guard structural invariants and catch behavior regressions during

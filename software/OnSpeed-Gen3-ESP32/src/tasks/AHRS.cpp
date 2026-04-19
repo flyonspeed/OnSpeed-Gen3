@@ -2,10 +2,9 @@
 #include <math.h>
 #include <RunningAverage.h>
 
-#include "../../Globals.h"
-#include "../drivers/IMU330.h"
-#include "AHRS.h"
-#include "../drivers/SensorIO.h"
+#include "Globals.h"
+#include "src/drivers/IMU330.h"
+#include "src/drivers/SensorIO.h"
 
 using onspeed::deg2rad;
 using onspeed::rad2deg;

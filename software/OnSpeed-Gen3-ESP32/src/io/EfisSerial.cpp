@@ -1,7 +1,6 @@
 
-#include "../../Globals.h"
+#include "Globals.h"
 #include "src/util/Helpers.h"
-#include "EfisSerial.h"
 
 #define EFIS_PACKET_SIZE        512
 #define DYNON_SERIAL_LEN         53     // 53 with live data, 52 with logged data

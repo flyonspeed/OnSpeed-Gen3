@@ -29,7 +29,7 @@
 
 #include <ArduinoJson.h>
 
-#include "../../Globals.h"
+#include "Globals.h"
 
 using onspeed::accelPitch;
 using onspeed::accelRoll;
