@@ -201,13 +201,37 @@ New code follows the table above. When adding a new third-party dependency,
 check whether it lives under `software/Libraries/` (quotes) or comes from
 the Arduino/ESP32 framework's built-in library path (angle brackets).
 
+### Include every stdlib header you use
+
+The macOS libc++ used for local native builds forwards transitive includes
+more aggressively than Linux libstdc++ used in CI. A `.cpp` file that calls
+`strtof` must `#include <cstdlib>` explicitly, even if the call happens to
+compile on macOS without it (because `<cstring>` or another header pulled
+`stdlib.h` in transitively). CI's Linux GCC build is authoritative — if
+Linux CI fails with "`strtof` was not declared," the file is missing the
+header, not CI.
+
+Common symbols to watch:
+
+| Symbol | Header |
+|---|---|
+| `strtof`, `strtod`, `strtol`, `strtoul`, `atoi`, `atof` | `<cstdlib>` |
+| `strlen`, `strcmp`, `memcpy`, `memset` | `<cstring>` |
+| `printf`, `snprintf`, `fprintf` | `<cstdio>` |
+| `sqrt`, `sinf`, `cosf`, `fabsf`, `powf` | `<cmath>` |
+| `std::min`, `std::max`, `std::sort` | `<algorithm>` |
+| `std::optional` | `<optional>` |
+| `std::string_view` | `<string_view>` |
+| `int32_t`, `uint16_t`, etc. | `<cstdint>` |
+| `size_t`, `ptrdiff_t` | `<cstddef>` |
+
 [1]: https://google.github.io/styleguide/cppguide.html#Names_and_Order_of_Includes
 
-## Core-Extraction Tooling
+## Core invariants and regression tooling
 
-Three tools guard structural invariants and catch behavior regressions during
-the ongoing core-extraction refactor. All three run in CI on every pull
-request; local invocation is identical.
+Three tools guard the `onspeed_core` library boundary and catch behavior
+regressions. All three run in CI on every pull request; local invocation
+is identical.
 
 ### `scripts/check_core_purity.sh`
 
@@ -256,10 +280,10 @@ differently after a refactor.
 ./tools/regression/run_snapshot.py --update-golden
 ```
 
-The harness pipeline is minimal at this stage (IAS/Palt pass-through with a
-placeholder tone decision). Each subsequent extraction PR that moves a new
-module into `onspeed_core` extends `host_main.cpp` and regenerates the golden
-as part of its commit.
+The harness's pipeline (`tools/regression/host_main.cpp`) exercises the
+current `onspeed_core` modules end-to-end. When adding a new module to
+`onspeed_core`, extend `host_main.cpp` to exercise it and commit an
+updated golden alongside the code change.
 
 ## Contributing
 
