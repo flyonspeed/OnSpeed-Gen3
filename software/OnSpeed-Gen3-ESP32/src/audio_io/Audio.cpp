@@ -13,8 +13,20 @@
     Be sure to add "const" to the array holding the PCM data in the header file.
         const unsigned char overg_pcm[] ....
 
-    Consider using this library instead...
-    https://github.com/earlephilhower/BackgroundAudio
+    ------------------------------------------------------------------------
+
+    PR 3.3 split:
+
+      Pure PCM math now lives in onspeed_core/audio/:
+        - ToneSynth   : cosine synthesis + pulse gate
+        - WavDecode   : PCM byte array / WAV header → PcmAsset view
+        - AudioMixer  : mono PCM → stereo int16 with gain/pan/pulse
+
+      This file is now a thin I2S driver / task wrapper that feeds the
+      core modules.  Buffer arithmetic, clamping, pan, and pulse shaping
+      are validated by native unit tests (test_tone_synth,
+      test_wav_decode, test_audio_mixer) — on-device we only have to
+      trust the i2s.write pump.
 
  */
 
@@ -29,7 +41,10 @@
 
 #include "Globals.h"
 #include "src/util/Helpers.h"
+#include <audio/AudioMixer.h>
 #include <audio/ToneCalc.h>
+#include <audio/ToneSynth.h>
+#include <audio/WavDecode.h>
 
 #include "Audio/PCM_cal_canceled.h"
 #include "Audio/PCM_cal_mode.h"
@@ -53,8 +68,13 @@ i2s_mode_t            mode = I2S_MODE_STD;  // Works
 i2s_slot_mode_t       slot = I2S_SLOT_MODE_STEREO;    // Works better
 //i2s_slot_mode_t       slot = I2S_SLOT_MODE_MONO;    // Works
 
-int16_t            aTone_400Hz[TONE_BUFFER_LEN];
-int16_t            aTone_1600Hz[TONE_BUFFER_LEN];
+static int16_t     aTone_400Hz[TONE_BUFFER_LEN];
+static int16_t     aTone_1600Hz[TONE_BUFFER_LEN];
+
+// Persistent mixer state used by PlayToneBuffer so the pulse phase survives
+// across the 50 ms-per-call pump loop.  Replaces the old `static bool
+// bPulseLevel` inside PlayToneBuffer.
+static onspeed::audio::MixerState s_ToneMixerState;
 
 // I2S pins are defined in HardwareMap.h as kI2sBck, kI2sDout, kI2sLrck.
 
@@ -72,21 +92,6 @@ static bool         s_bI2sOk = false;
 static volatile TaskHandle_t s_xAudioTestTask = nullptr;
 static std::atomic<bool>     s_bAudioTestStopRequested{false};
 static std::atomic<bool>     s_bAudioTestStarting{false};
-
-static inline int16_t ScaleAndClampI16(int16_t sample, float scale)
-    {
-    int32_t scaled = static_cast<int32_t>(sample * scale);
-    if (scaled > 32767)
-        return 32767;
-    if (scaled < -32768)
-        return -32768;
-    return static_cast<int16_t>(scaled);
-    }
-
-static inline uint32_t PackStereoI16(int16_t left, int16_t right)
-    {
-    return static_cast<uint16_t>(left) | (static_cast<uint32_t>(static_cast<uint16_t>(right)) << 16);
-    }
 
 static void AudioLogDebugNoBlock(const char * szFmt, ...)
     {
@@ -213,34 +218,20 @@ void AudioPlay::Init()
         g_Log.println(MsgLog::EnAudio, MsgLog::EnError, "Failed to initialize I2S after 3 attempts!");
     }
 
-    for (int iIdx = 0; iIdx < TONE_BUFFER_LEN; iIdx++)
-        {
-        float   fAngle;
-
-        // Note byte swap to get the tone data in the same endianness as the WAV data
-        // 400 Hz tone
-#if 1
-        fAngle = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
-        aTone_400Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
-#else
-        float fAngle1 = remainderf(2.0f*(float)M_PI*iIdx*440.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // A
-        // float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*523.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
-        // float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*659.25f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
-        float fAngle2 = remainderf(2.0f*(float)M_PI*iIdx*400.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // C
-        float fAngle3 = remainderf(2.0f*(float)M_PI*iIdx*800.0f/SAMPLE_RATE, 2.0f*(float)M_PI);   // E
-        aTone_400Hz[iIdx] = uint16_t(15000.0f * cosf(fAngle1) +
-                                      3000.0f * cosf(fAngle2) +
-                                      3000.0f * cosf(fAngle3));
-#endif
-        // Setup 1600 Hz tone
-        fAngle = remainderf(2.0f*(float)M_PI*iIdx*1600.0f/SAMPLE_RATE, 2.0f*(float)M_PI);
-        aTone_1600Hz[iIdx] = uint16_t(25000.0f * cosf(fAngle));
-        }
+    // Precompute the 400 Hz and 1600 Hz tone buffers using the shared
+    // onspeed_core synth routine.  Byte-for-byte matches the legacy
+    // Audio.cpp init loop that seeded aTone_400Hz / aTone_1600Hz with
+    // 25000 * cos(2*pi*i*freq/SR).
+    onspeed::audio::SynthesizeLegacyCosine(
+        static_cast<float>(LOW_TONE_HZ), SAMPLE_RATE,
+        aTone_400Hz, TONE_BUFFER_LEN);
+    onspeed::audio::SynthesizeLegacyCosine(
+        static_cast<float>(HIGH_TONE_HZ), SAMPLE_RATE,
+        aTone_1600Hz, TONE_BUFFER_LEN);
 
     // Length of the data in the buffer. This may be different for tones that
     // don't fit exactly in the allocated buffer.
     iDataLen = TONE_BUFFER_LEN;
-
 }
 
 // ----------------------------------------------------------------------------
@@ -296,7 +287,7 @@ void AudioPlay::SetTone(EnAudioTone enAudioTone)
 
 void AudioPlay::SetToneFreq(unsigned uToneFreqIn)
 {
-
+    (void)uToneFreqIn;
 }
 
 // ----------------------------------------------------------------------------
@@ -317,37 +308,50 @@ void AudioPlay::SetPulseFreq(float fPulseFreq)
 
 // ----------------------------------------------------------------------------
 
-// Play converted PCM audio buffer
+// Play converted PCM audio buffer (voice clip).  Composes pan/gain via
+// onspeed_core AudioMixer into a local stereo frame buffer, then hands
+// the packed frames to the I2S driver in 240-frame DMA chunks.
 void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iNumBytes, float fLeftVolume, float fRightVolume)
 {
     if (!s_bI2sOk)
         return;
 
     constexpr size_t kFramesPerWrite = 240; // Match default I2S DMA frame count.
+    int16_t          aStereo[kFramesPerWrite * 2];  // interleaved L,R
     uint32_t         aFrames[kFramesPerWrite];
-    size_t           iFrameCount = 0;
 
-    const int16_t * pPCM = reinterpret_cast<const int16_t *>(pData);
-    const int       iSampleCount = iNumBytes / static_cast<int>(sizeof(int16_t));
+    onspeed::audio::PcmAsset asset = onspeed::audio::FromRawPcm(
+        pData, static_cast<size_t>(iNumBytes), SAMPLE_RATE, 1);
+    if (asset.empty())
+        return;
 
-    for (int iSampleIdx = 0; iSampleIdx < iSampleCount; iSampleIdx++)
+    onspeed::audio::MixerInputs inp;
+    inp.leftScale  = fLeftVolume;
+    inp.rightScale = fRightVolume;
+    // Voice playback: no pulse gating.
+    inp.pulseSpec.halfPeriodSamples = 0.0f;
+
+    onspeed::audio::MixerState voiceState;   // local, voice has no persistent pulse
+
+    size_t remaining = asset.sampleCount;
+    const int16_t* src = asset.samples;
+
+    while (remaining > 0)
     {
-        const int16_t iSample = pPCM[iSampleIdx];
-        const int16_t iLeftValue = ScaleAndClampI16(iSample, fLeftVolume);
-        const int16_t iRightValue = ScaleAndClampI16(iSample, fRightVolume);
+        const size_t n = remaining < kFramesPerWrite ? remaining : kFramesPerWrite;
+        inp.in = src;
+        onspeed::audio::Mix(inp, aStereo, n, voiceState);
 
-        aFrames[iFrameCount++] = PackStereoI16(iLeftValue, iRightValue);
-        if (iFrameCount == kFramesPerWrite)
-            {
-            i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
-            iFrameCount = 0;
-            }
-    }
-
-    if (iFrameCount > 0)
+        for (size_t j = 0; j < n; ++j)
         {
-        i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
+            aFrames[j] = onspeed::audio::PackStereoI16(aStereo[2 * j + 0],
+                                                        aStereo[2 * j + 1]);
         }
+        i2s.write(reinterpret_cast<const uint8_t *>(aFrames), n * sizeof(aFrames[0]));
+
+        src       += n;
+        remaining -= n;
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -359,40 +363,41 @@ void AudioPlay::PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLe
         return;
 
     constexpr size_t kFramesPerWrite = 240; // Match default I2S DMA frame count.
+    int16_t          aStereo[kFramesPerWrite * 2];
     uint32_t         aFrames[kFramesPerWrite];
-    size_t           iFrameCount = 0;
 
-    static bool     bPulseLevel = true;
+    onspeed::audio::MixerInputs inp;
+    inp.leftScale  = fLeftVolume;
+    inp.rightScale = fRightVolume;
+    inp.pulseSpec.halfPeriodSamples = fTonePulseMaxSamples;
+    inp.pulseSpec.offScale          = 0.2f;   // Legacy "ducked" pulse level
 
-    for (int iWordIdx = 0; iWordIdx < iNumSamples; iWordIdx++)
+    // Persist the tone-mixer state across calls / chunks so the pulse
+    // gate phase continues smoothly (matches the legacy `static bool
+    // bPulseLevel` behaviour of the old PlayToneBuffer()).
+    size_t remaining = static_cast<size_t>(iNumSamples);
+    const int16_t* src = pData;
+
+    while (remaining > 0)
     {
-        // Apply tone pulse modulation
-        const float fPulseScale = ((bPulseLevel == true) || (fTonePulseMaxSamples == 0)) ? 1.0f : 0.2f;
-        const int16_t iSample = pData[iWordIdx];
-        const int16_t iLeftValue = ScaleAndClampI16(iSample, fLeftVolume * fPulseScale);
-        const int16_t iRightValue = ScaleAndClampI16(iSample, fRightVolume * fPulseScale);
+        const size_t n = remaining < kFramesPerWrite ? remaining : kFramesPerWrite;
+        inp.in = src;
+        onspeed::audio::Mix(inp, aStereo, n, s_ToneMixerState);
 
-        // If pulse period exceeded then change pulse level
-        if (fTonePulseCounter >= fTonePulseMaxSamples)
+        for (size_t j = 0; j < n; ++j)
         {
-            fTonePulseCounter -= fTonePulseMaxSamples;
-            bPulseLevel        = !bPulseLevel;
+            aFrames[j] = onspeed::audio::PackStereoI16(aStereo[2 * j + 0],
+                                                        aStereo[2 * j + 1]);
         }
-        else
-            fTonePulseCounter++;
+        i2s.write(reinterpret_cast<const uint8_t *>(aFrames), n * sizeof(aFrames[0]));
 
-        aFrames[iFrameCount++] = PackStereoI16(iLeftValue, iRightValue);
-        if (iFrameCount == kFramesPerWrite)
-            {
-            i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
-            iFrameCount = 0;
-            }
-    } // end for each sample in buffer
+        src       += n;
+        remaining -= n;
+    }
 
-    if (iFrameCount > 0)
-        {
-        i2s.write(reinterpret_cast<const uint8_t *>(aFrames), iFrameCount * sizeof(aFrames[0]));
-        }
+    // Keep the legacy public counter in sync so external observers (if any)
+    // can still see the current pulse progress.
+    fTonePulseCounter = s_ToneMixerState.pulse.counter;
 }
 
 // ----------------------------------------------------------------------------
@@ -434,8 +439,8 @@ void AudioPlay::PlayVoice(EnVoice enVoiceIn)
         case enVoiceCalSaved  : PlayPcmBuffer(cal_saved_pcm,     cal_saved_pcm_len,     fLeftVoiceVolume, fRightVoiceVolume); break;
         case enVoiceOverG     : PlayPcmBuffer(overg_pcm,         overg_pcm_len,         fLeftVoiceVolume, fRightVoiceVolume); break;
         case enVoiceVnoChime  : PlayPcmBuffer(VnoChime_pcm,      VnoChime_pcm_len,      fLeftVoiceVolume, fRightVoiceVolume); break;
-        case enVoiceLeft      : PlayPcmBuffer(left_speaker_pcm,  left_speaker_pcm_len,  fLeftVoiceVolume, fRightVoiceVolume*.25); break;
-        case enVoiceRight     : PlayPcmBuffer(right_speaker_pcm, right_speaker_pcm_len, fLeftVoiceVolume*.25, fRightVoiceVolume); break;
+        case enVoiceLeft      : PlayPcmBuffer(left_speaker_pcm,  left_speaker_pcm_len,  fLeftVoiceVolume, fRightVoiceVolume*.25f); break;
+        case enVoiceRight     : PlayPcmBuffer(right_speaker_pcm, right_speaker_pcm_len, fLeftVoiceVolume*.25f, fRightVoiceVolume); break;
         default               : break;
     }
 
@@ -616,55 +621,42 @@ void AudioPlay::AudioTest()
     if (s_bAudioTestStopRequested.load())
         goto done;
 
-//    pSerial->printf("Left Voice\n");
     g_AudioPlay.SetVoice(enVoiceLeft);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("Right Voice\n");
     g_AudioPlay.SetVoice(enVoiceRight);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("Tone LOW\n");
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("G Limit\n");
     g_AudioPlay.SetVoice(enVoiceGLimit);
     if (!DelayOrStop(3000)) goto done;
 
-//    pSerial->printf("Tone HIGH\n");
     g_AudioPlay.SetTone(enToneHigh);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("Tone LOW\n");
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(1500)) goto done;
 
-//    pSerial->printf("Pulse 2.0 Hz\n");
     g_AudioPlay.SetPulseFreq(3.0);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("Pulse 4.0 Hz\n");
     g_AudioPlay.SetPulseFreq(3.0);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("Pulse 4.0 Hz\n");
     g_AudioPlay.SetPulseFreq(5.0);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("Tone HIGH\n");
     g_AudioPlay.SetTone(enToneHigh);
     if (!DelayOrStop(2000)) goto done;
 
-//    pSerial->printf("Pulse 3.0 Hz\n");
     g_AudioPlay.SetPulseFreq(4.0);
     if (!DelayOrStop(2000)) goto done;
 
 done:
-//    pSerial->printf("Tone OFF, Pulse 4.0 Hz\n");
     g_AudioPlay.SetPulseFreq(0);
 
-//    pSerial->printf("\n");
     g_AudioPlay.SetTone(enToneNone);
 
     bAudioTest = false;
