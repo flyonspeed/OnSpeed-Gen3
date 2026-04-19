@@ -137,6 +137,47 @@ OnSpeed-Gen3/
 └── scripts/                         # Build and analysis scripts
 ```
 
+## Core-Extraction Tooling
+
+Two scripts guard the `onspeed_core` platform boundary and catch behavior
+regressions during the ongoing core-extraction refactor.
+
+### `scripts/check_core_purity.sh`
+
+Verifies that no file under `software/Libraries/onspeed_core/` includes a
+platform header (`Arduino.h`, `FreeRTOS.h`, ESP-IDF headers) or calls a
+platform API (`millis()`, `xTaskCreate`, `Serial.`, etc.). Run before every
+commit that touches `onspeed_core/`:
+
+```bash
+./scripts/check_core_purity.sh
+```
+
+Exits non-zero and prints the offending file + line if a forbidden pattern is
+found. The purity invariant is what makes `onspeed_core` compile with plain
+`g++` on the host — and therefore with any future hardware.
+
+### `tools/regression/run_snapshot.py`
+
+Builds `tools/regression/host_main.cpp` against the current `onspeed_core`,
+feeds it a recorded flight-log excerpt, and diffs the output against a
+committed golden file. Catches behavioral regressions that per-module unit
+tests miss — for example, when individually-correct modules compose slightly
+differently after a refactor.
+
+```bash
+# Check for regression
+./tools/regression/run_snapshot.py
+
+# Accept an intentional behavior change (commit the new golden with the PR)
+./tools/regression/run_snapshot.py --update-golden
+```
+
+The harness pipeline is minimal at this stage (IAS/Palt pass-through with a
+placeholder tone decision). Each subsequent extraction PR that moves a new
+module into `onspeed_core` extends `host_main.cpp` and regenerates the golden
+as part of its commit.
+
 ## Contributing
 
 See the [GitHub repository](https://github.com/flyonspeed/OnSpeed-Gen3) for contribution guidelines, issue tracking, and pull request workflow.
