@@ -148,7 +148,7 @@ void setup()
 
     // The M5 display and the boom get to share
     uint32_t    SerialConfig = SerialConfig::SERIAL_8N1;
-    Serial1.begin(115200, SerialConfig, BOOM_SER_RX, DISPLAY_SER_TX, false);
+    Serial1.begin(115200, SerialConfig, kBoomRx, kDisplayTx, false);
 
     // Init boom serial
     g_BoomSerial.Init(&Serial1);
@@ -159,26 +159,22 @@ void setup()
 
     // Get all the chip select pins in the proper state before starting
     // ----------------------------------------------------------------
-    pinMode(CS_IMU,    OUTPUT); digitalWrite(CS_IMU,    HIGH);
-    pinMode(CS_STATIC, OUTPUT); digitalWrite(CS_STATIC, HIGH);
-    pinMode(CS_AOA,    OUTPUT); digitalWrite(CS_AOA,    HIGH);
-    pinMode(CS_PITOT,  OUTPUT); digitalWrite(CS_PITOT,  HIGH);
-#ifdef HW_V4P
-    pinMode(CS_ADC,    OUTPUT); digitalWrite(CS_ADC,    HIGH);
-#endif
-    pinMode(SD_CS,     OUTPUT); digitalWrite(SD_CS,     HIGH);
+    pinMode(kCsImu,    OUTPUT); digitalWrite(kCsImu,    HIGH);
+    pinMode(kCsStatic, OUTPUT); digitalWrite(kCsStatic, HIGH);
+    pinMode(kCsAoa,    OUTPUT); digitalWrite(kCsAoa,    HIGH);
+    pinMode(kCsPitot,  OUTPUT); digitalWrite(kCsPitot,  HIGH);
+    if constexpr (kHasExternalMcp3202)
+        {
+        pinMode(kCsAdc, OUTPUT); digitalWrite(kCsAdc, HIGH);
+        }
+    pinMode(kSdCs,     OUTPUT); digitalWrite(kSdCs,     HIGH);
 
     // Init sensor SPI interface
-    //  ------------------------
-//  pinMode(SENSOR_SCLK, OUTPUT); digitalWrite(CS_AOA, LOW);
-//  pinMode(SENSOR_MOSI, OUTPUT); digitalWrite(CS_AOA, LOW);
-//  pinMode(SENSOR_MISO, INPUT);
-    g_pSensorSPI = new SpiIO(FSPI, SENSOR_SCLK, SENSOR_MISO, SENSOR_MOSI, CS_IMU);
-//  g_pSensorSPI = new SpiIO(HSPI, SENSOR_SCLK, SENSOR_MISO, SENSOR_MOSI, CS_IMU);
+    g_pSensorSPI = new SpiIO(FSPI, kSensorSclk, kSensorMiso, kSensorMosi, kCsImu);
 
     // Initialize IMU class
     // --------------------
-    g_pIMU = new IMU330(g_pSensorSPI, CS_IMU);
+    g_pIMU = new IMU330(g_pSensorSPI, kCsImu);
     delay(100);
     g_pIMU->Init();
 
@@ -202,15 +198,15 @@ void setup()
 
     // Init pressure sensor classes
     // ----------------------------
-    g_pPitot  = new HscPressureSensor(g_pSensorSPI, CS_PITOT,  HSCMRRN001PDSA3);
-    g_pAOA    = new HscPressureSensor(g_pSensorSPI, CS_AOA,    HSCMRRN001PDSA3);
-    g_pStatic = new HscPressureSensor(g_pSensorSPI, CS_STATIC, HSCMRNN1_6BASA3);
+    g_pPitot  = new HscPressureSensor(g_pSensorSPI, kCsPitot,  HSCMRRN001PDSA3);
+    g_pAOA    = new HscPressureSensor(g_pSensorSPI, kCsAoa,    HSCMRRN001PDSA3);
+    g_pStatic = new HscPressureSensor(g_pSensorSPI, kCsStatic, HSCMRNN1_6BASA3);
 
     // Init Sensors
     g_Sensors.Init();
 
     // Init AHRS after sensors so Kalman starts with real pressure altitude.
-    g_AHRS.Init(IMU_SAMPLE_RATE);
+    g_AHRS.Init(kImuSampleRateHz);
 
     // Init audio system
     g_AudioPlay.Init();

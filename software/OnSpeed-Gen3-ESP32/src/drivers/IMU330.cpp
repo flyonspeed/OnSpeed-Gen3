@@ -246,95 +246,29 @@ void IMU330::ConfigAxes()
     sLateralGloadAxis  = "";
     sForwardGloadAxis  = "";
 
-      // {sPortsOrientation, sBoxtopOrientation, sVerticalGloadAxis, sLateralGloadAxis, sForwardGloadAxis}
-#ifdef HW_V4P
-    static const char* const axisMapArray[24][5] = {
-        // This is the orientation for the V4P box
-        // IMU inside the V4P box is rotated relative to the V4B box:
-        // V4P(X)=V4B(-Y)  V4P(Y)=V4B(-X)  V4P(Z)=V4B(-Z)
-      {"FORWARD", "LEFT",     "X","-Z", "Y"},
-      {"FORWARD", "RIGHT",   "-X", "Z", "Y"},
-      {"FORWARD", "UP",       "Z", "X", "Y"},
-      {"FORWARD", "DOWN",    "-Z","-X", "Y"},
+    // Per-board orientation table from HardwareMap.h. The local reference
+    // keeps all the downstream axisMapArray[i][j] indexing unchanged.
+    const auto& axisMapArray = kImuOrientationTable;
 
-      {"AFT",     "LEFT",    "-X","-Z","-Y"},
-      {"AFT",     "RIGHT",    "X", "Z","-Y"},
-      {"AFT",     "UP",       "Z","-X","-Y"},
-      {"AFT",     "DOWN",    "-Z", "X","-Y"},
-
-      {"LEFT",    "FORWARD", "-X","-Y", "Z"},
-      {"LEFT",    "AFT",      "X","-Y","-Z"},
-      {"LEFT",    "UP",       "Z","-Y", "X"},
-      {"LEFT",    "DOWN",    "-Z","-Y","-X"},
-
-      {"RIGHT",   "FORWARD",  "X", "Y", "Z"},
-      {"RIGHT",   "AFT",     "-X", "Y","-Z"},
-      {"RIGHT",   "UP",       "Z", "Y","-X"},
-      {"RIGHT",   "DOWN",    "-Z", "Y", "X"},
-
-      {"UP",      "FORWARD",  "Y","-X", "Z"},
-      {"UP",      "AFT",      "Y", "X","-Z"},
-      {"UP",      "LEFT",     "Y","-Z","-X"},
-      {"UP",      "RIGHT",    "Y", "Z", "X"},
-
-      {"DOWN",    "FORWARD", "-Y", "X", "Z"},
-      {"DOWN",    "AFT",     "-Y","-X","-Z"},
-      {"DOWN",    "LEFT",    "-Y","-Z", "X"},
-      {"DOWN",    "RIGHT",   "-Y", "Z","-X"}
-      };
-#else
-    static const char* const axisMapArray[24][5] = {
-        // This is the orientation for the V4B box
-        // V4B +X back (away from pressure ports)  +Y right (towards USB ports)  +Z down
-      {"FORWARD", "LEFT",    "-Y", "Z","-X"}, // TESTED GOOD Paul's
-      {"FORWARD", "RIGHT",    "Y","-Z","-X"}, // TESTED GOOD
-      {"FORWARD", "UP",      "-Z","-Y","-X"}, // TESTED GOOD, Vac's RV-4
-      {"FORWARD", "DOWN",     "Z", "Y","-X"}, // TESTED GOOD
-
-      {"AFT",     "LEFT",     "Y", "Z", "X"}, // TESTED GOOD
-      {"AFT",     "RIGHT",   "-Y","-Z", "X"}, // TESTED GOOD
-      {"AFT",     "UP",      "-Z", "Y", "X"}, // TESTED GOOD, bench box
-      {"AFT",     "DOWN",     "Z","-Y", "X"}, // TESTED GOOD
-
-      {"LEFT",    "FORWARD",  "Y", "X","-Z"}, // TESTED GOOD
-      {"LEFT",    "AFT",     "-Y", "X", "Z"}, // TESTED GOOD
-      {"LEFT",    "UP",      "-Z", "X","-Y"}, // TESTED GOOD, Zlin Z-50
-      {"LEFT",    "DOWN",     "Z", "X", "Y"}, // TESTED GOOD
-
-      {"RIGHT",   "FORWARD", "-Y","-X","-Z"}, // TESTED GOOD
-      {"RIGHT",   "AFT",      "Y","-X", "Z"}, // TESTED GOOD
-      {"RIGHT",   "UP",      "-Z","-X", "Y"}, // TESTED GOOD
-      {"RIGHT",   "DOWN",     "Z","-X","-Y"}, // TESTED GOOD, Tron's RV-8
-
-      {"UP",      "FORWARD", "-X", "Y","-Z"}, // TESTED GOOD
-      {"UP",      "AFT",     "-X","-Y", "Z"}, // TESTED GOOD
-      {"UP",      "LEFT",    "-X", "Z", "Y"}, // TESTED GOOD
-      {"UP",      "RIGHT",   "-X","-Z","-Y"}, // TESTED GOOD, Doc's box on Vac's RV-4
-
-      {"DOWN",    "FORWARD",  "X","-Y","-Z"}, // TESTED GOOD
-      {"DOWN",    "AFT",      "X", "Y", "Z"}, // TESTED GOOD, Lenny's RV-10
-      {"DOWN",    "LEFT",     "X", "Z","-Y"}, // TESTED GOOD
-      {"DOWN",    "RIGHT",    "X","-Z", "Y"}  // TESTED GOOD
-      };
-#endif
-
-    for (int i=0;i<24;i++)
+    for (int i = 0; i < kImuOrientationRowCount; i++)
         {
-        if (g_Config.sPortsOrientation == axisMapArray[i][0] && g_Config.sBoxtopOrientation == axisMapArray[i][1])
+        const ImuOrientationRow& row = axisMapArray[i];
+        if (g_Config.sPortsOrientation == row.portsOrientation &&
+            g_Config.sBoxtopOrientation == row.boxtopOrientation)
             {
-            sVerticalGloadAxis = axisMapArray[i][2];
-            sLateralGloadAxis  = axisMapArray[i][3];
-            sForwardGloadAxis  = axisMapArray[i][4];
+            sVerticalGloadAxis = row.verticalGloadAxis;
+            sLateralGloadAxis  = row.lateralGloadAxis;
+            sForwardGloadAxis  = row.forwardGloadAxis;
             sYawGyroAxis       = sVerticalGloadAxis;
             sPitchGyroAxis     = sLateralGloadAxis;
             sRollGyroAxis      = sForwardGloadAxis;
 
-            GetAccelForAxis(axisMapArray[i][2], &fAzSign, &pfAz);
-            GetAccelForAxis(axisMapArray[i][3], &fAySign, &pfAy);
-            GetAccelForAxis(axisMapArray[i][4], &fAxSign, &pfAx);
-            GetGyroForAxis( axisMapArray[i][2], &fGzSign, &pfGz);    //// CHECK THESE!!!
-            GetGyroForAxis( axisMapArray[i][3], &fGySign, &pfGy);
-            GetGyroForAxis( axisMapArray[i][4], &fGxSign, &pfGx);
+            GetAccelForAxis(row.verticalGloadAxis, &fAzSign, &pfAz);
+            GetAccelForAxis(row.lateralGloadAxis,  &fAySign, &pfAy);
+            GetAccelForAxis(row.forwardGloadAxis,  &fAxSign, &pfAx);
+            GetGyroForAxis( row.verticalGloadAxis, &fGzSign, &pfGz);    //// CHECK THESE!!!
+            GetGyroForAxis( row.lateralGloadAxis,  &fGySign, &pfGy);
+            GetGyroForAxis( row.forwardGloadAxis,  &fGxSign, &pfGx);
             break;
             }
         }

@@ -3,12 +3,9 @@
 
 #include <Arduino.h>
 
-// Reads 12-bit counts (0..4095) from a Microchip MCP3202 (single-ended, MSB first).
-// Uses the existing sensor SPI bus (SCLK/MOSI/MISO) and a dedicated CS pin.
-//
-// Only available on HW_V4P builds.
-#ifdef HW_V4P
+// Read a 12-bit sample (0..4095) from the external MCP3202 ADC (single-ended,
+// MSB first). Uses the shared sensor SPI bus and the kCsAdc chip-select pin.
+// Returns 0 on boards without the external ADC (kHasExternalMcp3202 == false).
 uint16_t Mcp3202Read(uint8_t channel);
-#endif
 
 #endif

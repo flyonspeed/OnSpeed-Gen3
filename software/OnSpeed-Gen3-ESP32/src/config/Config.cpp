@@ -640,7 +640,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         if (g_pIMU != nullptr)
             {
             g_pIMU->ConfigAxes();
-            g_AHRS.Init(IMU_SAMPLE_RATE);
+            g_AHRS.Init(kImuSampleRateHz);
             }
         return true;
 #else
@@ -863,7 +863,7 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
         if (g_pIMU != nullptr)
             {
             g_pIMU->ConfigAxes();
-            g_AHRS.Init(IMU_SAMPLE_RATE);
+            g_AHRS.Init(kImuSampleRateHz);
             }
         return true;
         }

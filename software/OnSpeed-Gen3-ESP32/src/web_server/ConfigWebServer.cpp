@@ -2049,7 +2049,7 @@ void HandleConfigSave()
     // Configure accelerometer axes
     xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
     g_pIMU->ConfigAxes();
-    g_AHRS.Init(IMU_SAMPLE_RATE);
+    g_AHRS.Init(kImuSampleRateHz);
     xSemaphoreGive(xAhrsMutex);
 
     } // end HandleConfigSave()
@@ -2360,7 +2360,7 @@ sPage += R"#(
         xSemaphoreGive(xSensorMutex);
 
         xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
-        g_AHRS.Init(IMU_SAMPLE_RATE);
+        g_AHRS.Init(kImuSampleRateHz);
         g_AHRS.Process();
         xSemaphoreGive(xAhrsMutex);
 

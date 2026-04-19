@@ -1,9 +1,7 @@
 
 #include "../../Globals.h"
 #include "Volume.h"
-#ifdef HW_V4P
 #include "../drivers/Mcp3202Adc.h"
-#endif
 
 // CheckVolumeTask moved to Housekeeping.cpp
 
@@ -13,9 +11,8 @@
 
 uint16_t    ReadVolume()
     {
-#ifdef HW_V4P
-    return Mcp3202Read(ADC_CH_VOLUME);
-#else
-    return analogRead(VOLUME_PIN);
-#endif
+    if constexpr (kHasExternalMcp3202)
+        return Mcp3202Read(kAdcChVolume);
+    else
+        return analogRead(kPinVolume);
     }

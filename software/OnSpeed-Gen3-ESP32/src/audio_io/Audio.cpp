@@ -57,15 +57,7 @@ i2s_slot_mode_t       slot = I2S_SLOT_MODE_STEREO;    // Works better
 int16_t            aTone_400Hz[TONE_BUFFER_LEN];
 int16_t            aTone_1600Hz[TONE_BUFFER_LEN];
 
-#ifdef HW_V4P
-    #define I2S_BCK     20
-    #define I2S_DOUT    19
-    #define I2S_LRCK    8
-#else  // V4B defaults
-    #define I2S_BCK     45
-    #define I2S_DOUT    48
-    #define I2S_LRCK    47
-#endif
+// I2S pins are defined in HardwareMap.h as kI2sBck, kI2sDout, kI2sLrck.
 
 #define FREERTOS
 
@@ -202,7 +194,7 @@ AudioPlay::AudioPlay()
 void AudioPlay::Init()
 {
     // start I2S at the sample rate with 16-bits per sample
-    i2s.setPins(I2S_BCK, I2S_LRCK, I2S_DOUT);
+    i2s.setPins(kI2sBck, kI2sLrck, kI2sDout);
 
     for (int iAttempt = 0; iAttempt < 3; iAttempt++)
     {
