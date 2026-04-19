@@ -11,6 +11,7 @@
 #include "RunningMedian.h"
 #include <SavGolDerivative.h>
 #include <AOACalculator.h>
+#include <types/SensorSample.h>
 
 using onspeed::SavGolDerivative;
 using onspeed::AOACalculator;
@@ -64,6 +65,11 @@ public:
     float   ReadOatC();
     float   ReadPressureAltMbars();
 //  float   GetPressureAltMbars();
+
+    // Returns the current aggregated sensor reading as a core POD struct.
+    // psPsi, ptPsi, p45Psi, and densityAltitudeFt are not yet tracked by this
+    // class (PR 1.2 will add them); those fields default to 0 in this PR.
+    onspeed::SensorSample Snapshot() const;
 
 private:
     bool        bOatConversionPending = false;

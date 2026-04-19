@@ -6,6 +6,7 @@
 #include "RunningAverage.h"
 
 #include "src/drivers/SPI_IO.h"
+#include <types/ImuSample.h>
 
 // IMU functions
 
@@ -82,6 +83,12 @@ public:
     float       PitchAC();
     float       RollIMU();
     float       RollAC();
+
+    // Returns the current IMU reading as a core POD struct. Composition
+    // point for the future Ahrs::Step call in PR 3.2 — this method bridges
+    // the hardware driver side and the board-agnostic core.
+    // Note: IMU330 does not maintain a read timestamp; timestampUs is 0.
+    onspeed::ImuSample Snapshot() const;
 };
 
 #endif

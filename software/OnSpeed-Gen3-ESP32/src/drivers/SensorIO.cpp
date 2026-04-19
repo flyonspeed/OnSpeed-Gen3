@@ -403,3 +403,18 @@ float SensorIO::ReadOatC()
     // else: sensor disconnected (-127 C) or POR (85 C); hold last good value.
     return OatC;
 }
+
+// ----------------------------------------------------------------------------
+
+onspeed::SensorSample SensorIO::Snapshot() const
+{
+    onspeed::SensorSample out;
+    out.iasKt       = IAS;
+    out.paltFt      = Palt;
+    out.oatCelsius  = OatC;
+    // psPsi, ptPsi, p45Psi: SensorIO does not yet cache raw PSI values;
+    // PR 1.2 will add them. Fields default to 0 until then.
+    // densityAltitudeFt: not yet computed by SensorIO; PR 1.2 will add it.
+    out.timestampUs = uIasUpdateUs;
+    return out;
+}
