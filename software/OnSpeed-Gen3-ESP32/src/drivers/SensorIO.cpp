@@ -11,6 +11,7 @@
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
 #include <sensors/PressureConvert.h>
+#include <sensors/OatConvert.h>
 
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
@@ -37,12 +38,10 @@ static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
 static uint32_t uLastFlapsReadMs = 0;
 static uint32_t uLastOatReadMs = 0;
 
-// OAT validation: reject DS18B20 disconnected sentinel (-127 C) and
-// power-on-reset value (85 C). Range covers GA ops from FL450 to desert.
-static constexpr float kOatMinC        = -80.0f;
-static constexpr float kOatMaxC        =  80.0f;
-static constexpr float kOatDefaultC    =  15.0f;   // ISA standard day
-static constexpr uint32_t kOatConversionMs = 800;   // DS18B20 12-bit max is 750 ms
+// OAT validation is now delegated to onspeed::sensors::FilterOat() in core.
+// The valid range, disconnect sentinel, and POR sentinel are all defined there.
+static constexpr float kOatDefaultC       = 15.0f;   // ISA standard day fallback
+static constexpr uint32_t kOatConversionMs = 800;    // DS18B20 12-bit max is 750 ms
 
 
 // ----------------------------------------------------------------------------
@@ -252,9 +251,13 @@ void SensorIO::Read()
         else if (bOatConversionPending && (millis() - uOatRequestMs >= kOatConversionMs))
         {
             float fNew = OatSensor.getTempCByIndex(0);
-            if (fNew > kOatMinC && fNew < kOatMaxC)
+            // Delegate sentinel and range filtering to the platform-independent
+            // core function (OatConvert::FilterOat). Returns nullopt for
+            // -127 (disconnect), 85 (POR), or out-of-range values.
+            auto validated = onspeed::sensors::FilterOat(fNew);
+            if (validated.has_value())
             {
-                OatC = fNew;    // valid reading
+                OatC = *validated;    // valid reading
             }
             else
             {
@@ -388,11 +391,11 @@ float SensorIO::ReadOatC()
 {
     OatSensor.requestTemperatures();
     float fNew = OatSensor.getTempCByIndex(0);
-    if (fNew > kOatMinC && fNew < kOatMaxC)
-    {
-        OatC = fNew;
-    }
-    // else: sensor disconnected (-127 C) or POR (85 C); hold last good value.
+    auto validated = onspeed::sensors::FilterOat(fNew);
+    if (validated.has_value())
+        OatC = *validated;
+    // else: disconnect sentinel (-127°C), POR value (85°C), or out-of-range;
+    // hold last good value. Caller logs if needed.
     return OatC;
 }
 
