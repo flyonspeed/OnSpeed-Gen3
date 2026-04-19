@@ -5,7 +5,7 @@
 #include <OneWire.h>            //https://github.com/PaulStoffregen/OneWire
 #include <DallasTemperature.h>  //https://github.com/milesburton/Arduino-Temperature-Control-Library
 
-#include "../../Globals.h"
+#include "Globals.h"
 
 #include "RunningAverage.h"
 #include "RunningMedian.h"

@@ -3,7 +3,7 @@
 
 #include <HardwareSerial.h>
 
-#include "../../Globals.h"
+#include "Globals.h"
 
 #define BOOM_BUFFER_SIZE    127
 

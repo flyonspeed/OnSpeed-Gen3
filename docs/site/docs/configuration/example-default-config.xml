@@ -1,3 +1,13 @@
+<!--
+Example default configuration for the OnSpeed Gen3 firmware.
+
+Place a customized version of this file at the root of the SD card as
+"onspeed.cfg" to override the firmware's built-in defaults at boot. The
+firmware also exposes the same parameters through the web UI at
+http://192.168.0.1/config — use whichever workflow you prefer.
+
+This file is an EXAMPLE only — it is not loaded by the firmware build.
+-->
 <CONFIG>
 <AOA_SMOOTHING>15</AOA_SMOOTHING>
 <PRESSURE_SMOOTHING>15</PRESSURE_SMOOTHING>

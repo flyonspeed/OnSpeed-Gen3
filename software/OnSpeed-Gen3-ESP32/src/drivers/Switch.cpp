@@ -1,7 +1,6 @@
 
 #include "Globals.h"
-#include "Helpers.h"
-#include "Switch.h"
+#include "src/util/Helpers.h"
 
 // Switch State — volatile because set in OneButton ISR callbacks and
 // read/cleared in the SwitchCheckTask RTOS task.

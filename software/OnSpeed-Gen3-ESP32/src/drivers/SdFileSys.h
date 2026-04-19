@@ -11,17 +11,13 @@
 
 #include <vector>
 
-#if defined(ARDUINO) && ARDUINO >= 100
-	#include "Arduino.h"
-#else
-	#include "WProgram.h"
-#endif
-
+#include <Arduino.h>
 #include <SPI.h>
+
 #ifndef DISABLE_FS_H_WARNING
 #define DISABLE_FS_H_WARNING
 #endif
-#include <SdFat.h>
+#include "SdFat.h"
 
 class SdFileSys
 {

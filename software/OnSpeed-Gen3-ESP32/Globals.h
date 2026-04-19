@@ -63,10 +63,10 @@
 #define DISABLE_FS_H_WARNING  // Suppress SdFat warning about FS.h - we use SdFat's File types
 #include "SdFat.h"            // https://github.com/greiman/SdFat
 #include <OneButton.h>            // button click/double click detection https://github.com/mathertel/OneButton
-#include "SPI.h"
+#include <SPI.h>
 
 // OnSpeed modules
-#include "ErrorLogger.h"
+#include "src/util/ErrorLogger.h"
 #include "src/config/Config.h"
 #include "src/drivers/SPI_IO.h"
 #include "src/drivers/IMU330.h"
@@ -80,14 +80,14 @@
 #include "src/io/EfisSerial.h"
 #include "src/io/BoomSerial.h"
 #include "src/io/DisplaySerial.h"
-#include "Switch.h"
+#include "src/drivers/Switch.h"
 #include "src/tasks/Flaps.h"
 #include "src/audio_io/Volume.h"
 #include "src/audio_io/Audio.h"
 #include "src/tasks/Housekeeping.h"
 #include "src/web_server/ConfigWebServer.h"
 #include "src/web_server/DataServer.h"
-#include "Helpers.h"
+#include "src/util/Helpers.h"
 
 // RTOS Stuff
 // ----------

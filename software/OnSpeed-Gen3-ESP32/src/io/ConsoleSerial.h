@@ -3,7 +3,7 @@
 
 #include <HardwareSerial.h>
 
-#include "../../Globals.h"
+#include "Globals.h"
 
 //#include <SoftwareSerial.h>
 #include <HardwareSerial.h>

@@ -9,8 +9,7 @@
 
 #include <ArduinoJson.h>
 
-#include "../../Globals.h"
-#include "DataServer.h"
+#include "Globals.h"
 
 using onspeed::rad2deg;
 using onspeed::kts2mps;

@@ -4,7 +4,7 @@
 
 #include "freertos/idf_additions.h"
 
-#include "../../Globals.h"
+#include "Globals.h"
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -13,8 +13,7 @@
 #include <LittleFS.h>
 #endif
 
-#include "../../Helpers.h"
-#include "ConsoleSerial.h"
+#include "src/util/Helpers.h"
 
 
 std::string Base64_Decode(std::string sEncodedString);

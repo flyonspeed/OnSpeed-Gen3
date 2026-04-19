@@ -7,10 +7,9 @@
 #include "RunningAverage.h"
 #include "RunningMedian.h"
 
-#include "../../Globals.h"
-#include "../config/Config.h"
-#include "../tasks/Flaps.h"
-#include "SensorIO.h"
+#include "Globals.h"
+#include "src/config/Config.h"
+#include "src/tasks/Flaps.h"
 
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;

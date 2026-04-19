@@ -27,23 +27,22 @@
 #include <Arduino.h>
 #include <ESP_I2S.h>
 
-#include "../../Globals.h"
-#include "../../Helpers.h"
+#include "Globals.h"
+#include "src/util/Helpers.h"
 #include <ToneCalc.h>
 
-#include "../../Audio/PCM_cal_canceled.h"
-#include "../../Audio/PCM_cal_mode.h"
-#include "../../Audio/PCM_cal_saved.h"
-#include "../../Audio/PCM_datamark.h"
-#include "../../Audio/PCM_disabled.h"
-#include "../../Audio/PCM_enabled.h"
-#include "../../Audio/PCM_glimit.h"
-#include "../../Audio/PCM_overg.h"
-#include "../../Audio/PCM_VnoChime.h"
-#include "../../Audio/PCM_left_speaker.h"
-#include "../../Audio/PCM_right_speaker.h"
+#include "Audio/PCM_cal_canceled.h"
+#include "Audio/PCM_cal_mode.h"
+#include "Audio/PCM_cal_saved.h"
+#include "Audio/PCM_datamark.h"
+#include "Audio/PCM_disabled.h"
+#include "Audio/PCM_enabled.h"
+#include "Audio/PCM_glimit.h"
+#include "Audio/PCM_overg.h"
+#include "Audio/PCM_VnoChime.h"
+#include "Audio/PCM_left_speaker.h"
+#include "Audio/PCM_right_speaker.h"
 
-#include "Audio.h"
 
 //i2s_data_bit_width_t  bps  = I2S_DATA_BIT_WIDTH_32BIT;  //
 i2s_data_bit_width_t  bps  = I2S_DATA_BIT_WIDTH_16BIT; // Only 16 seems to work well with tones

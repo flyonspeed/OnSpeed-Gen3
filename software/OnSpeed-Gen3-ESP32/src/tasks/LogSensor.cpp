@@ -7,9 +7,8 @@
 #include <cstdarg>
 #include <cstdio>
 
-#include "../../Globals.h"
+#include "Globals.h"
 
-#include "LogSensor.h"
 
 using onspeed::m2ft;
 using onspeed::mps2fpm;

@@ -1,9 +1,8 @@
 
-#include "../../Globals.h"
-#include "../../Helpers.h"
-#include "Housekeeping.h"
-#include "../audio_io/Volume.h"
-#include "../drivers/Mcp3202Adc.h"
+#include "Globals.h"
+#include "src/util/Helpers.h"
+#include "src/audio_io/Volume.h"
+#include "src/drivers/Mcp3202Adc.h"
 
 // GLimit settings
 #define GLIMIT_REPEAT_TIMEOUT_TICKS   30   // 30 x 100ms = 3000ms

@@ -1,7 +1,6 @@
 
-#include "../../Globals.h"
-#include "Volume.h"
-#include "../drivers/Mcp3202Adc.h"
+#include "Globals.h"
+#include "src/drivers/Mcp3202Adc.h"
 
 // CheckVolumeTask moved to Housekeeping.cpp
 
