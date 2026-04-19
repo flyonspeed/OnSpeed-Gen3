@@ -1710,6 +1710,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Arduino IDE">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verifying-an-arduino-ide-build-from-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying an Arduino IDE build from the command line
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3134,6 +3151,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Arduino IDE">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verifying-an-arduino-ide-build-from-the-command-line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying an Arduino IDE build from the command line
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3232,22 +3266,57 @@
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>pio<span class="w"> </span><span class="nb">test</span><span class="w"> </span>-e<span class="w"> </span>native<span class="w"> </span>-v<span class="w">  </span><span class="c1"># verbose output</span>
 </code></pre></div>
 <h2 id="arduino-ide">Arduino IDE<a class="headerlink" href="#arduino-ide" title="Permanent link">&para;</a></h2>
-<p>The Arduino IDE does not use the PlatformIO variant environments. Instead, the hardware variant defaults to V4P in <code>Globals.h</code>. To build for V4B, edit <code>Globals.h</code> and change the default inside the <code>#if !defined(HW_V4B) &amp;&amp; !defined(HW_V4P)</code> block.</p>
+<p>The Arduino IDE does not use the PlatformIO variant environments. Instead, the hardware variant defaults to V4P via the guard block at the top of <code>HardwareMap.h</code>. To build for V4B, edit the guard block and change the default <code>HW_V4P</code> to <code>HW_V4B</code>.</p>
 <ol>
 <li>Install Arduino IDE 2.x</li>
-<li>Add the ESP32 board URL to <strong>File → Preferences → Additional Boards Manager URLs</strong></li>
-<li>Install the ESP32 board package via <strong>Tools → Board Manager</strong></li>
+<li>Add the ESP32 board URL to <strong>File → Preferences → Additional Boards Manager URLs</strong>:
+   <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>https://espressif.github.io/arduino-esp32/package_esp32_index.json
+</code></pre></div></li>
+<li>Install the ESP32 board package version <strong>3.3.5</strong> via <strong>Tools → Board Manager</strong></li>
 <li>Set board to <strong>ESP32S3 Dev Module Octal (WROOM2)</strong></li>
 <li>Configure Tools menu:<ul>
+<li>PSRAM: <strong>OPI PSRAM</strong></li>
 <li>Flash Mode: <strong>OPI 80 MHz</strong></li>
 <li>Flash Size: <strong>32MB (256 Mb)</strong></li>
 <li>Partition Scheme: <strong>32M Flash (4.8MB APP/22MB LittleFS)</strong></li>
 <li>Upload Speed: <strong>921600</strong></li>
+<li>USB Mode: <strong>Hardware CDC and JTAG</strong></li>
+<li>USB CDC On Boot: <strong>Disabled</strong></li>
 </ul>
 </li>
 <li>Open <code>software/OnSpeed-Gen3-ESP32/OnSpeed-Gen3-ESP32.ino</code></li>
 <li>Compile and upload</li>
 </ol>
+<h3 id="verifying-an-arduino-ide-build-from-the-command-line">Verifying an Arduino IDE build from the command line<a class="headerlink" href="#verifying-an-arduino-ide-build-from-the-command-line" title="Permanent link">&para;</a></h3>
+<p>Arduino IDE ships a bundled <code>arduino-cli</code> that uses the exact same compile pipeline as the GUI. This is the best way to sanity-check "does the firmware still build under Arduino IDE?" without clicking through the GUI — useful in CI or when reviewing a PR that touches includes or layout.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># The arduino-cli binary bundled inside Arduino IDE 2.x on macOS:</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nv">ARDUINO_CLI</span><span class="o">=</span><span class="s2">&quot;/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli&quot;</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Set up an isolated test environment (one-time setup):</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>/tmp/arduino-test
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="s2">&quot;</span><span class="nv">$ARDUINO_CLI</span><span class="s2">&quot;</span><span class="w"> </span>config<span class="w"> </span>init<span class="w"> </span>--dest-file<span class="w"> </span>/tmp/arduino-test/arduino-cli.yaml<span class="w"> </span>--overwrite
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="s2">&quot;</span><span class="nv">$ARDUINO_CLI</span><span class="s2">&quot;</span><span class="w"> </span>--config-file<span class="w"> </span>/tmp/arduino-test/arduino-cli.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>board_manager.additional_urls<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">    </span><span class="s2">&quot;https://espressif.github.io/arduino-esp32/package_esp32_index.json&quot;</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="s2">&quot;</span><span class="nv">$ARDUINO_CLI</span><span class="s2">&quot;</span><span class="w"> </span>--config-file<span class="w"> </span>/tmp/arduino-test/arduino-cli.yaml<span class="w"> </span>core<span class="w"> </span>update-index
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="s2">&quot;</span><span class="nv">$ARDUINO_CLI</span><span class="s2">&quot;</span><span class="w"> </span>--config-file<span class="w"> </span>/tmp/arduino-test/arduino-cli.yaml<span class="w"> </span>core<span class="w"> </span>install<span class="w"> </span>esp32:esp32@3.3.5
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="c1"># Point arduino-cli at this repo&#39;s bundled libraries (so we don&#39;t need to copy</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="c1"># them into ~/Documents/Arduino/libraries/):</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="s2">&quot;</span><span class="nv">$ARDUINO_CLI</span><span class="s2">&quot;</span><span class="w"> </span>--config-file<span class="w"> </span>/tmp/arduino-test/arduino-cli.yaml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="w">    </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>directories.user<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/software
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="c1"># Verify compile (no upload):</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a><span class="s2">&quot;</span><span class="nv">$ARDUINO_CLI</span><span class="s2">&quot;</span><span class="w"> </span>--config-file<span class="w"> </span>/tmp/arduino-test/arduino-cli.yaml<span class="w"> </span>compile<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a><span class="w">    </span>--fqbn<span class="w"> </span><span class="s1">&#39;esp32:esp32:esp32s3-octal:PSRAM=opi,FlashSize=32M,FlashMode=opi,PartitionScheme=app5M_little24M_32MB,USBMode=hwcdc,CDCOnBoot=default&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a><span class="w">    </span>software/OnSpeed-Gen3-ESP32
+</code></pre></div>
+<p>The FQBN options encode the Tools-menu settings from step 5 above — keep them in sync if you change any of the settings.</p>
+<p>Expected output ends with something like:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Sketch uses 2176519 bytes (46%) of program storage space. Maximum is 4718592 bytes.
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>Global variables use 67784 bytes (20%) of dynamic memory, leaving 259896 bytes for local variables. Maximum is 327680 bytes.
+</code></pre></div></p>
+<p>To build for V4B, temporarily edit <code>HardwareMap.h</code>'s guard block to default to <code>HW_V4B</code>, re-run the compile, then revert.</p>
 <h2 id="build-notes">Build Notes<a class="headerlink" href="#build-notes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Target</strong>: ESP32-S3-WROOM-2 (32MB Flash, 8MB PSRAM)</li>
@@ -3256,15 +3325,15 @@
 <li><strong>Build versioning</strong>: <code>scripts/generate_buildinfo.py</code> runs as a pre-build hook, extracting version from git tags into <code>BuildInfo::version</code>, <code>BuildInfo::gitShortSha</code>, etc.</li>
 </ul>
 <h2 id="project-structure">Project Structure<a class="headerlink" href="#project-structure" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>OnSpeed-Gen3/
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>├── platformio.ini                   # Build configuration (V4P + V4B environments)
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>├── software/
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>│   ├── OnSpeed-Gen3-ESP32/          # Main firmware source
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>│   └── Libraries/
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>│       ├── onspeed_core/            # Platform-independent algorithms
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>│       └── version/                 # Build version info (auto-generated + defaults)
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>├── test/                            # Native unit tests (12 suites, 136 tests)
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>└── scripts/                         # Build and analysis scripts
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>OnSpeed-Gen3/
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>├── platformio.ini                   # Build configuration (V4P + V4B environments)
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>├── software/
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>│   ├── OnSpeed-Gen3-ESP32/          # Main firmware source
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>│   └── Libraries/
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>│       ├── onspeed_core/            # Platform-independent algorithms
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>│       └── version/                 # Build version info (auto-generated + defaults)
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>├── test/                            # Native unit tests (12 suites, 136 tests)
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>└── scripts/                         # Build and analysis scripts
 </code></pre></div>
 <h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
 <p>See the <a href="https://github.com/flyonspeed/OnSpeed-Gen3">GitHub repository</a> for contribution guidelines, issue tracking, and pull request workflow.</p>
