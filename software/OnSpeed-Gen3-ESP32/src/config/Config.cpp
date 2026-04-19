@@ -12,7 +12,7 @@
 #include <LittleFS.h>
 #endif
 
-#include "src/io/EfisSerial.h"
+#include "src/io/EfisSerialPort.h"
 
 using namespace tinyxml2;
 
