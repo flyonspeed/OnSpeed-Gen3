@@ -370,14 +370,17 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     }
 
     // ---- Publish outputs ----
+    kalmanAltMeters_ = static_cast<float>(kalmanAltMeters);
+    kalmanVsiMps_    = kalVsiMpsForFlightPath;
+
     outputs_.pitchDeg        = SmoothedPitch;
     outputs_.rollDeg         = SmoothedRoll;
     outputs_.flightPathDeg   = FlightPath;
     outputs_.derivedAoaDeg   = DerivedAOA;
     outputs_.tasMps          = tas_;
     outputs_.tasDotMps2      = tasDotSmoothed_;
-    outputs_.kalmanAltFt     = onspeed::m2ft(static_cast<float>(kalmanAltMeters));
-    outputs_.kalmanVsiFpm    = onspeed::mps2fpm(kalVsiMpsForFlightPath);
+    outputs_.kalmanAltFt     = onspeed::m2ft(kalmanAltMeters_);
+    outputs_.kalmanVsiFpm    = onspeed::mps2fpm(kalmanVsiMps_);
     outputs_.earthVertG      = EarthVertG;
     outputs_.gyroRollFiltDps  = gRoll;
     outputs_.gyroPitchFiltDps = gPitch;

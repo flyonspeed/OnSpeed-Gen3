@@ -89,11 +89,13 @@ void AHRS::PublishCoreState_()
     TASdotSmoothed = out.tasDotMps2;
 
     // KalmanAlt and KalmanVSI are stored in legacy units (meters and m/s
-    // respectively) for source compatibility.  Core publishes feet and
-    // fpm; convert back here so consumers (LogSensor::row.altitudeFt =
-    // m2ft(g_AHRS.KalmanAlt), etc.) see exactly what they used to.
-    KalmanAlt = onspeed::ft2m(out.kalmanAltFt);
-    KalmanVSI = onspeed::fpm2mps(out.kalmanVsiFpm);
+    // respectively) for source compatibility.  Core exposes the raw
+    // metric values via kalmanAltMeters()/kalmanVsiMps() to avoid the
+    // m -> ft -> m round-trip the published outputs would otherwise
+    // require.  Consumers wrap these in m2ft()/mps2fpm() — same as
+    // before extraction.
+    KalmanAlt = core_.kalmanAltMeters();
+    KalmanVSI = core_.kalmanVsiMps();
 
     AccelFwdCorr  = core_.accelFwdCorrG();
     AccelLatCorr  = core_.accelLatCorrG();
