@@ -75,11 +75,11 @@ done < <(find "$SKETCH_DIR" \
 if [ $VIOLATIONS -gt 0 ]; then
     echo
     echo "✗ $VIOLATIONS file(s) reference HW_V4P / HW_V4B outside HardwareMap.h"
-    echo "  The two-layer driver design requires that only HardwareMap.h knows"
-    echo "  about board flags. Other files should read 'if constexpr' against"
+    echo "  The two-layer driver design (PR #179) requires that only HardwareMap.h"
+    echo "  knows about board flags. Other files should read 'if constexpr' against"
     echo "  HardwareMap.h's topology constants (e.g. kHasExternalMcp3202)."
-    echo "  See docs/superpowers/specs/2026-04-18-onspeed-core-extraction-design.md"
-    echo "  §Two-layer drivers."
+    echo "  Adding a new board should mean writing a new HardwareMap.h — not"
+    echo "  editing any other source file."
     exit 1
 fi
 

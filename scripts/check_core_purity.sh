@@ -104,7 +104,8 @@ if [ $VIOLATIONS -gt 0 ]; then
     echo
     echo "✗ $VIOLATIONS forbidden-pattern match(es) found in onspeed_core/"
     echo "  onspeed_core must remain platform-free (no Arduino, FreeRTOS, ESP-IDF, etc)."
-    echo "  See docs/superpowers/specs/2026-04-18-onspeed-core-extraction-design.md §Design Rules"
+    echo "  The boundary was established in PRs #178 and #179 — platform code belongs"
+    echo "  in the sketch, pure logic belongs in onspeed_core/."
     exit 1
 fi
 

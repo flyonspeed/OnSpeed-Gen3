@@ -139,8 +139,9 @@ OnSpeed-Gen3/
 
 ## Core-Extraction Tooling
 
-Two scripts guard the `onspeed_core` platform boundary and catch behavior
-regressions during the ongoing core-extraction refactor.
+Three tools guard structural invariants and catch behavior regressions during
+the ongoing core-extraction refactor. All three run in CI on every pull
+request; local invocation is identical.
 
 ### `scripts/check_core_purity.sh`
 
@@ -156,6 +157,22 @@ commit that touches `onspeed_core/`:
 Exits non-zero and prints the offending file + line if a forbidden pattern is
 found. The purity invariant is what makes `onspeed_core` compile with plain
 `g++` on the host — and therefore with any future hardware.
+
+### `scripts/check_board_flags.sh`
+
+Verifies that `HW_V4P` and `HW_V4B` appear only in `HardwareMap.h`. Every
+other sketch file must read `if constexpr (kHasExternalMcp3202)` (or another
+topology flag) instead of `#ifdef HW_V4*`.
+
+```bash
+./scripts/check_board_flags.sh
+```
+
+This is the mechanical proof that the multi-board design works. When a new
+board (e.g. Gen2v4) is added later, it should require writing one new
+`HardwareMap.h` and nothing else — this check fails if any file outside
+`HardwareMap.h` references a board flag, preventing future PRs from
+re-introducing the compile-time-fork style the refactor moved away from.
 
 ### `tools/regression/run_snapshot.py`
 
