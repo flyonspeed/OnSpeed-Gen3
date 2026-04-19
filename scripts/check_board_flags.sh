@@ -68,6 +68,12 @@ while IFS= read -r -d '' FILE; do
         echo
         VIOLATIONS=$((VIOLATIONS + 1))
     fi
+    # Note: *.ino files are scanned alongside .cpp/.h.  The sketch's .ino is
+    # a valid place for platform glue, but after PR 0.2 it has no direct
+    # board-flag references — the two-layer design means only HardwareMap.h
+    # knows about HW_V4*.  Scanning .ino here future-proofs the invariant:
+    # a future PR that accidentally re-introduces HW_V4P in the sketch entry
+    # point will be caught immediately.
 done < <(find "$SKETCH_DIR" \
               \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' -o -name '*.ino' \) \
               -print0)

@@ -85,8 +85,25 @@ while IFS= read -r -d '' FILE; do
         echo "Checking: $REL"
     fi
 
-    # Strip line comments for matching (block comments left in — conservative).
-    STRIPPED=$(sed -E 's|//.*$||' "$FILE")
+    # Strip block comments, line comments, and string literals before pattern
+    # matching.  Without this, a comment like
+    #   /* This used to #include <Arduino.h> before the refactor */
+    # or a string like
+    #   const char* msg = "Serial.println failed";
+    # would false-match a forbidden pattern.
+    #
+    # We use perl (portable across macOS BSD and Linux GNU) for the multi-line
+    # block-comment strip, then sed for the single-line passes:
+    #   Step 1: perl -0777 slurps the whole file; s|/\*.*?\*/||gs removes /* … */
+    #           spans across newlines.
+    #   Step 2: sed strips // line comments.
+    #   Step 3: sed replaces double-quoted string content with "" so the string
+    #           contents cannot match a forbidden pattern.  Approximation:
+    #           no escape handling, no multi-line strings — sufficient for
+    #           the flat, native-only onspeed_core sources.
+    STRIPPED=$(perl -0777 -pe 's|/\*.*?\*/||gs' "$FILE" \
+               | sed -E 's|//.*$||' \
+               | sed -E 's|"[^"]*"|\"\"|g')
 
     for PATTERN in "${FORBIDDEN_PATTERNS[@]}"; do
         MATCHES=$(echo "$STRIPPED" | grep -nE "$PATTERN" || true)
