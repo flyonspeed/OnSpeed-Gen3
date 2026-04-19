@@ -1,3 +1,26 @@
+// AHRS.h — sketch-side wrapper around the platform-free
+// onspeed::ahrs::Ahrs core class (PR 3.2 extraction).
+//
+// As of PR 3.2, all AHRS math lives in
+// software/Libraries/onspeed_core/src/ahrs/Ahrs.{h,cpp}. This sketch
+// class is reduced to a thin task-side adapter that:
+//
+//   * Owns one onspeed::ahrs::Ahrs instance configured from g_Config.
+//   * Builds an AhrsInputs each frame from g_pIMU + g_Sensors +
+//     g_EfisSerial.
+//   * Calls Ahrs::Step(...) and mirrors the result into public fields
+//     so existing readers (DisplaySerial, LogSensor, ConsoleSerial,
+//     web liveview, LogReplay write-back, etc.) keep their old
+//     g_AHRS.SmoothedPitch / .AccelFwdFilter.get() / .KalmanVSI access
+//     patterns.  A future PR will migrate consumers to a
+//     `Published<AhrsOutputs>` snapshot holder; this PR only moves the
+//     math into core.
+//
+// The sketch-side EMA accel filters and gyro RunningAverages are kept
+// purely for legacy read access — `update()` / `addValue()` are never
+// called on them.  Each Process() call seeds them with the core's
+// freshly-computed values so consumers reading `.get()` /
+// `.getFastAverage()` see the same numbers the core just produced.
 
 #pragma once
 
@@ -5,76 +28,78 @@
 
 #include "Globals.h"
 
-#include <filters/EMAFilter.h>
-#include <ahrs/MadgwickFusion.h>
-#include <ahrs/KalmanFilter.h>
+#include <ahrs/Ahrs.h>
 #include <ahrs/EKF6.h>
+#include <ahrs/KalmanFilter.h>
+#include <ahrs/MadgwickFusion.h>
+#include <filters/EMAFilter.h>
+#include <types/AhrsInputs.h>
 
-using onspeed::Madgwick;
-using onspeed::KalmanFilter;
 using onspeed::EMAFilter;
+using onspeed::KalmanFilter;
+using onspeed::Madgwick;
 
 class AHRS
 {
 public:
     AHRS(int gyroSmoothing);
 
-    // IMU acceleration values are used to eventualy calcuate smoothed and
-    // corrected pitch and roll. Here are the 3 steps they go through before
-    // they are eventually handed to the Madgwick functions.
+    // === Public fields kept for legacy consumer compatibility ===
 
-    // Step 1 - IMU raw acceleration readings ard corrected for pitch and roll bias
+    // Step 1 - IMU raw acceleration corrected for installation bias
     float           AccelFwdCorr;
     float           AccelLatCorr;
     float           AccelVertCorr;
 
-    // Step 2 - Corrected accelerations are smoothed
+    // Step 2 - Corrected accelerations smoothed (mirror of core EMA state).
+    // These filter objects are seeded each frame — `update()` is never
+    // called on them.  Consumers read `.get()` directly.
     EMAFilter       AccelFwdFilter;
     EMAFilter       AccelLatFilter;
     EMAFilter       AccelVertFilter;
 
-    // Step 3 - Corrected and smoothed acceleration values are compensated for angular rates
-    // These are the values that go to the Madgwick functions
+    // Step 3 - Smoothed acceleration with linear/centripetal compensation
     float           AccelFwdComp;
     float           AccelLatComp;
     float           AccelVertComp;
 
-    // These are what eventually come out of the Madgwick filter
+    // Latest attitude estimate (degrees).
     float           SmoothedPitch;
     float           SmoothedRoll;
 
+    // Derived signals.
     float           TASdotSmoothed;
-    float           KalmanAlt;
-    float           KalmanVSI;
-    float           FlightPath;
+    float           KalmanAlt;          // meters (legacy convention)
+    float           KalmanVSI;          // m/s   (legacy convention)
+    float           FlightPath;         // degrees
     float           EarthVertG;
     float           DerivedAOA;
 
+    // Display-rate gyro running averages (mirror of core RunningMean).
     RunningAverage  GxAvg;
     RunningAverage  GyAvg;
     RunningAverage  GzAvg;
 
-    float           gRoll,gPitch,gYaw;    // Gyro rates in the various axes
+    float           gRoll, gPitch, gYaw;
 
     float           fImuSampleRate;
-    float           fImuDeltaTime;      // Cached 1.0f / fImuSampleRate
+    float           fImuDeltaTime;
 
-    // Precomputed trig of installation bias angles (constant after Init)
+    // Precomputed trig of installation bias angles.  Kept only as
+    // legacy read-only state; the core class owns the "live" trig.
     float           fSinPitch, fCosPitch;
     float           fSinRoll,  fCosRoll;
 
+    // Legacy filter objects.  Read-only after PR 3.2 — DerivedAOA logic
+    // and accel smoothing both run in core.  These remain for any
+    // consumer that grabs internal state by reference (none today, but
+    // kept to avoid a bigger refactor in this PR).
     Madgwick        MadgFilter;
     KalmanFilter    KalFilter;
-
-    // EKF6 attitude filter (alternative to Madgwick)
     onspeed::EKF6   Ekf6Filter;
 
-    // Tracks whether IAS was below the 25 kt threshold for alpha covariance reset.
-    // When IAS transitions from below to above 25 kt, the EKF6 alpha covariance
-    // is reset so the filter re-learns alpha from real gamma measurements.
     bool            bIasWasBelowThreshold;
 
-public:
     float           fTAS;
     float           fPrevTAS;
     uint32_t        uLastIasUpdateUs;
@@ -91,4 +116,20 @@ public:
     float   RollWithBiasSmth();
     float   RollWithBiasSmthComp();
 
+private:
+    onspeed::ahrs::Ahrs core_;
+    int                 iGyroSmoothing_;
+
+    // Build a fresh AhrsConfig from g_Config and the cached
+    // gyroSmoothing window.  Called on every Init() so config edits
+    // (e.g. user changing pitch bias via the web UI) take effect.
+    onspeed::ahrs::AhrsConfig MakeCfg_() const;
+
+    // Snapshot AhrsInputs from globals (g_pIMU, g_Sensors, g_EfisSerial,
+    // g_Config).  Called once per Process() frame.
+    onspeed::AhrsInputs SnapshotInputs_() const;
+
+    // Mirror core outputs into the public fields above so legacy
+    // consumers see the same values they always did.
+    void PublishCoreState_();
 };
