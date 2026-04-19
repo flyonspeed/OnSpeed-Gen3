@@ -2,9 +2,9 @@
 
 #pragma once
 
-#include "OnSpeedTypes.h"
-#include "CurveCalc.h"
-#include "EMAFilter.h"
+#include <util/OnSpeedTypes.h>
+#include <aoa/CurveCalc.h>
+#include <filters/EMAFilter.h>
 
 namespace onspeed {
 

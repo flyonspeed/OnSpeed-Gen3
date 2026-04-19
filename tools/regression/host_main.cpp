@@ -24,7 +24,7 @@
 #include <sstream>
 
 // onspeed_core includes (only the ones currently in core)
-#include <ToneCalc.h>
+#include <audio/ToneCalc.h>
 
 namespace {
 

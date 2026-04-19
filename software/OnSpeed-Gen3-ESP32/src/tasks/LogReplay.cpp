@@ -16,7 +16,7 @@
 #include "Globals.h"
 #include "src/config/Config.h"
 #include "src/drivers/SensorIO.h"
-#include <EMAFilter.h>
+#include <filters/EMAFilter.h>
 
 using onspeed::pressureCoeff;
 using onspeed::fpm2mps;

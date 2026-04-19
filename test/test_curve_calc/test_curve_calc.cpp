@@ -4,7 +4,7 @@
 
 #include <unity.h>
 #include <cmath>
-#include <CurveCalc.h>
+#include <aoa/CurveCalc.h>
 
 using namespace onspeed;
 

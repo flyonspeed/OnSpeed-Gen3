@@ -4,7 +4,7 @@
 #define _HELPER_H_
 
 #include <cstdint>
-#include <OnSpeedTypes.h>
+#include <util/OnSpeedTypes.h>
 
 using onspeed::mapfloat;
 

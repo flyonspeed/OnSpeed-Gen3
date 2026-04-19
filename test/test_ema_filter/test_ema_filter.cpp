@@ -1,7 +1,7 @@
 // test_ema_filter.cpp - Unit tests for EMAFilter
 
 #include <unity.h>
-#include <EMAFilter.h>
+#include <filters/EMAFilter.h>
 #include <cmath>
 #include <limits>
 

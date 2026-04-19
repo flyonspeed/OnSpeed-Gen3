@@ -1,7 +1,7 @@
 // test_onspeed_types.cpp - Unit tests for OnSpeedTypes.h
 
 #include <unity.h>
-#include <OnSpeedTypes.h>
+#include <util/OnSpeedTypes.h>
 #include <cmath>
 
 using namespace onspeed;

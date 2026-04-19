@@ -1,6 +1,6 @@
 
 #include "Globals.h"
-#include <BoomConvert.h>
+#include <sensors/BoomConvert.h>
 
 #define BOOM_PACKET_SIZE         50
 

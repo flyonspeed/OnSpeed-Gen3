@@ -1,7 +1,7 @@
 // test_aoa_calculator.cpp - Unit tests for CalcAOA and AOACalculator
 
 #include <unity.h>
-#include <AOACalculator.h>
+#include <aoa/AOACalculator.h>
 #include <cmath>
 
 using namespace onspeed;

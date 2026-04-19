@@ -21,7 +21,7 @@
 // Header files
 
 #include "MadgwickFusion.h"
-#include "OnSpeedTypes.h"
+#include <util/OnSpeedTypes.h>
 #include <math.h>
 
 //-------------------------------------------------------------------------------------------

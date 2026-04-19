@@ -12,7 +12,7 @@
  */
 
 #include <unity.h>
-#include <EKF6.h>
+#include <ahrs/EKF6.h>
 #include <cmath>
 #include <cstdio>
 #include <cstring>

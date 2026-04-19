@@ -4,7 +4,7 @@
 #define _CONFIG_H_
 
 #include <vector>
-#include <OnSpeedTypes.h>  // Core types: SuCalibrationCurve, MAX_CURVE_COEFF, etc.
+#include <util/OnSpeedTypes.h>  // Core types: SuCalibrationCurve, MAX_CURVE_COEFF, etc.
 
 using onspeed::SuCalibrationCurve;
 using onspeed::MAX_AOA_CURVES;
