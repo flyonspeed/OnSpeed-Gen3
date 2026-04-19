@@ -80,7 +80,7 @@
 #include "src/io/EfisSerial.h"
 #include "src/io/BoomSerial.h"
 #include "src/io/DisplaySerial.h"
-#include "Switch.h"
+#include "src/drivers/Switch.h"
 #include "src/tasks/Flaps.h"
 #include "src/audio_io/Volume.h"
 #include "src/audio_io/Audio.h"
