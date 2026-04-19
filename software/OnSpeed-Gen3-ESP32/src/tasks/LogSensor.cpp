@@ -7,7 +7,7 @@
 #include <cstdarg>
 #include <cstdio>
 
-#include "Globals.h"
+#include "../../Globals.h"
 
 #include "LogSensor.h"
 

@@ -1,10 +1,10 @@
 
-#include "Globals.h"
-#include "Helpers.h"
+#include "../../Globals.h"
+#include "../../Helpers.h"
 #include "Housekeeping.h"
-#include "Volume.h"
+#include "../audio_io/Volume.h"
 #ifdef HW_V4P
-#include "Mcp3202Adc.h"
+#include "../drivers/Mcp3202Adc.h"
 #endif
 
 // GLimit settings

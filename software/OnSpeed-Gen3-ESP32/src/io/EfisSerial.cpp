@@ -1,6 +1,6 @@
 
-#include "Globals.h"
-#include "Helpers.h"
+#include "../../Globals.h"
+#include "../../Helpers.h"
 #include "EfisSerial.h"
 
 #define EFIS_PACKET_SIZE        512

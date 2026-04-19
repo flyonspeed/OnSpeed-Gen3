@@ -1,9 +1,9 @@
 
-#include "Globals.h"
-#include "Config.h"
+#include "../../Globals.h"
+#include "../config/Config.h"
 #include "Flaps.h"
 #ifdef HW_V4P
-#include "Mcp3202Adc.h"
+#include "../drivers/Mcp3202Adc.h"
 #endif
 
 // ----------------------------------------------------------------------------

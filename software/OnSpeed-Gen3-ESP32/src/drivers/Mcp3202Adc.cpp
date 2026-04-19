@@ -1,5 +1,5 @@
 #include "Mcp3202Adc.h"
-#include "Globals.h"
+#include "../../Globals.h"
 
 #ifdef HW_V4P
 

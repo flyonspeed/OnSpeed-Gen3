@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 
-#include "Globals.h"
+#include "../../Globals.h"
 #include "IMU330.h"
 
 using onspeed::accelPitch;

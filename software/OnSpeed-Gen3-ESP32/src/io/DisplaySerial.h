@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include "Globals.h"
+#include "../../Globals.h"
 
 
 // FreeRTOS task for writing data to a display

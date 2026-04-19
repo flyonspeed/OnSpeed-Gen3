@@ -4,7 +4,7 @@
 #include <iostream>
 #include <cstring>
 
-#include "Globals.h"
+#include "../../Globals.h"
 #include "SdFileSys.h"
 
 using namespace std;
