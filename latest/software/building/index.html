@@ -1749,6 +1749,40 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Project Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sketch-shell-sketch_common-symlink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketch shell + sketch_common/ symlink
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sketch shell + sketch_common/ symlink">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#windows-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows users
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3279,6 +3313,40 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Project Structure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sketch-shell-sketch_common-symlink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketch shell + sketch_common/ symlink
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sketch shell + sketch_common/ symlink">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#windows-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows users
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3506,21 +3574,62 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>OnSpeed-Gen3/
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>├── platformio.ini                   # Build configuration (V4P + V4B environments)
 <a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>├── software/
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>│   ├── OnSpeed-Gen3-ESP32/          # Main firmware source
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>│   └── Libraries/
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>│       ├── onspeed_core/            # Platform-independent algorithms
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>│       └── version/                 # Build version info (auto-generated + defaults)
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>├── test/                            # Native unit tests (12 suites, 136 tests)
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>└── scripts/                         # Build and analysis scripts
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>│   ├── sketch_common/               # Shared sketch source (used by every board)
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>│   │   └── src/                     # Globals.h + drivers/, io/, audio_io/,
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>│   │                                # config/, tasks/, util/, web_server/
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>│   ├── OnSpeed-Gen3-ESP32/          # Gen3 sketch shell (.ino + HardwareMap.h)
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>│   │   ├── OnSpeed-Gen3-ESP32.ino
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>│   │   ├── HardwareMap.h            # Gen3-specific pins
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>│   │   ├── Audio/                   # PCM byte-array assets
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>│   │   ├── Web/                     # HTML/JS/CSS byte-array assets
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>│   │   └── src -&gt; ../sketch_common/src   # symlink
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>│   └── Libraries/
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>│       ├── onspeed_core/            # Platform-independent algorithms
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>│       └── version/                 # Build version info (auto-generated + defaults)
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>├── test/                            # Native unit tests
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>└── scripts/                         # Build and analysis scripts
 </code></pre></div>
+<h3 id="sketch-shell-sketch_common-symlink">Sketch shell + <code>sketch_common/</code> symlink<a class="headerlink" href="#sketch-shell-sketch_common-symlink" title="Permanent link">&para;</a></h3>
+<p>Each per-board sketch folder is a thin shell containing only the Arduino
+entry-point <code>.ino</code>, a board-specific <code>HardwareMap.h</code>, the asset folders
+(<code>Audio/</code>, <code>Web/</code>), and a <code>src/</code> symlink that points at <code>sketch_common/src/</code>.
+All actual driver / IO / task / config / web-server code lives once in
+<code>software/sketch_common/src/</code> and is shared across boards.</p>
+<p>A future Gen2v4 sketch folder would be:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>software/OnSpeed-Gen2v4-ESP32/
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>├── OnSpeed-Gen2v4-ESP32.ino
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>├── HardwareMap.h           # Gen2v4-specific pins
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>├── Audio/
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>├── Web/
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>└── src -&gt; ../sketch_common/src   # same symlink target as Gen3
+</code></pre></div>
+<p>PlatformIO's <code>src_dir = software/OnSpeed-Gen3-ESP32</code> and the
+<code>-Isoftware/OnSpeed-Gen3-ESP32</code> include flag both resolve through the
+symlink, so sketch-root-relative includes like <code>#include "src/Globals.h"</code>
+and <code>#include "src/drivers/SPI_IO.h"</code> keep working unchanged. Arduino IDE
+2.x follows the symlink during its <code>src/**</code> traversal and compiles the
+same way (verified via <code>arduino-cli compile</code>).</p>
+<h4 id="windows-users">Windows users<a class="headerlink" href="#windows-users" title="Permanent link">&para;</a></h4>
+<p>Git symlinks need explicit opt-in on Windows. Before cloning:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>git<span class="w"> </span>config<span class="w"> </span>--global<span class="w"> </span>core.symlinks<span class="w"> </span><span class="nb">true</span>
+</code></pre></div>
+<p>You also need either Windows 10/11 Developer Mode enabled or to clone in
+an Administrator shell, otherwise Git stores <code>src</code> as a 20-byte text
+file containing the literal string <code>../sketch_common/src</code> and the build
+fails immediately with "no source files found." If you've already
+cloned without <code>core.symlinks</code>, run <code>git rm software/OnSpeed-Gen3-ESP32/src</code>
+then <code>git checkout software/OnSpeed-Gen3-ESP32/src</code> after enabling the
+config — Git will then recreate it as a real symlink.</p>
+<p>macOS, Linux, and the GitHub Actions Ubuntu runners handle the symlink
+natively without any setup.</p>
 <h2 id="include-style">Include Style<a class="headerlink" href="#include-style" title="Permanent link">&para;</a></h2>
 <p>All project-internal <code>#include</code> directives use <strong>sketch-root-relative paths</strong>
 (Google/LLVM C++ Style Guide convention):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;Globals.h&quot;</span><span class="c1">              // top-level sketch header</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;src/util/Helpers.h&quot;</span><span class="c1">     // file in a subdirectory</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;Web/html_logo.h&quot;</span><span class="c1">        // generated asset</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;ToneCalc.h&gt;</span><span class="c1">             // onspeed_core library (angle brackets)</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;Arduino.h&gt;</span><span class="c1">              // framework library (angle brackets)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;Globals.h&quot;</span><span class="c1">              // top-level sketch header</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;src/util/Helpers.h&quot;</span><span class="c1">     // file in a subdirectory</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;Web/html_logo.h&quot;</span><span class="c1">        // generated asset</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;ToneCalc.h&gt;</span><span class="c1">             // onspeed_core library (angle brackets)</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;Arduino.h&gt;</span><span class="c1">              // framework library (angle brackets)</span>
 </code></pre></div>
 <p>The <code>-Isoftware/OnSpeed-Gen3-ESP32</code> flag in <code>platformio.ini</code> makes this work
 for PlatformIO. Arduino IDE 2.x resolves sketch-root includes by the same
@@ -3536,7 +3645,7 @@ project's source directory without use of UNIX directory aliases <code>.</code> 
 <code>..</code>.</p>
 </blockquote>
 <p>Example — inside <code>src/drivers/SPI_IO.cpp</code>, including the paired header:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;src/drivers/SPI_IO.h&quot;</span><span class="c1">    // full path, even though it lives next door</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="cp">#include</span><span class="w"> </span><span class="cpf">&quot;src/drivers/SPI_IO.h&quot;</span><span class="c1">    // full path, even though it lives next door</span>
 </code></pre></div>
 <p><strong>Do not write</strong> <code>#include "../../Globals.h"</code>, <code>#include "../tasks/Flaps.h"</code>,
 or <code>#include "SPI_IO.h"</code> (bare same-directory). Filesystem-relative paths and
@@ -3659,7 +3768,7 @@ is identical.</p>
 platform header (<code>Arduino.h</code>, <code>FreeRTOS.h</code>, ESP-IDF headers) or calls a
 platform API (<code>millis()</code>, <code>xTaskCreate</code>, <code>Serial.</code>, etc.). Run before every
 commit that touches <code>onspeed_core/</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>./scripts/check_core_purity.sh
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>./scripts/check_core_purity.sh
 </code></pre></div>
 <p>Exits non-zero and prints the offending file + line if a forbidden pattern is
 found. The purity invariant is what makes <code>onspeed_core</code> compile with plain
@@ -3668,7 +3777,7 @@ found. The purity invariant is what makes <code>onspeed_core</code> compile with
 <p>Verifies that <code>HW_V4P</code> and <code>HW_V4B</code> appear only in <code>HardwareMap.h</code>. Every
 other sketch file must read <code>if constexpr (kHasExternalMcp3202)</code> (or another
 topology flag) instead of <code>#ifdef HW_V4*</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>./scripts/check_board_flags.sh
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>./scripts/check_board_flags.sh
 </code></pre></div>
 <p>This is the mechanical proof that the multi-board design works. When a new
 board (e.g. Gen2v4) is added later, it should require writing one new
@@ -3681,11 +3790,11 @@ feeds it a recorded flight-log excerpt, and diffs the output against a
 committed golden file. Catches behavioral regressions that per-module unit
 tests miss — for example, when individually-correct modules compose slightly
 differently after a refactor.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Check for regression</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>./tools/regression/run_snapshot.py
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Accept an intentional behavior change (commit the new golden with the PR)</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>./tools/regression/run_snapshot.py<span class="w"> </span>--update-golden
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Check for regression</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>./tools/regression/run_snapshot.py
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Accept an intentional behavior change (commit the new golden with the PR)</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>./tools/regression/run_snapshot.py<span class="w"> </span>--update-golden
 </code></pre></div>
 <p>The harness's pipeline (<code>tools/regression/host_main.cpp</code>) exercises the
 current <code>onspeed_core</code> modules end-to-end. When adding a new module to
