@@ -40,74 +40,89 @@ void tearDown(void) {}
 // Hand-maintained expected lists — independent of the schema, on purpose.
 // ---------------------------------------------------------------------------
 
-// Top-level fields, identified by formName (the unique lookup key).
-static const char* const kExpectedTopLevelFormNames[] = {
-    "aoaSmoothing",
-    "pressureSmoothing",
-    "dataSource",
-    "logFileName",
-    "readBoom",
-    "boomChecksum",
-    "boomConvertData",
-    "casCurveEnabled",
-    "casCurveType",
-    "casCurveCoeff0",
-    "casCurveCoeff1",
-    "casCurveCoeff2",
-    "casCurveCoeff3",
-    "portsOrientation",
-    "boxtopOrientation",
-    "readEfisData",
-    "efisType",
-    "oatSensor",
-    "calSource",
-    "ahrsAlgorithm",
-    "volumeControl",
-    "defaultVolume",
-    "volumeLowAnalog",
-    "volumeHighAnalog",
-    "muteAudioUnderIAS",
-    "audio3D",
-    "overgWarning",
-    "loadLimitPositive",
-    "loadLimitNegative",
-    "asymmetricGyroLimit",
-    "asymmetricReduction",
-    "vnoChimeEnabled",
-    "Vno",
-    "vnoChimeInterval",
-    "sdLogging",
-    "logRate",
-    "serialOutFormat",
-    "acGrossWeight",
-    "acBestGlideIAS",
-    "acVfe",
-    "acGlimit",
+// Each entry pairs a formName (the unique lookup key the POST handler
+// reads via CfgServer.arg(...)) with the XML tag used by ConfigXmlParse/
+// Emit. Pinning both catches a silent rename of either side: if a
+// future PR changes kSchema's xmlTag from "AOA_SMOOTHING" to
+// "AOA_SMOTHING", this test fails — old config files would silently
+// stop loading the field correctly otherwise.
+struct ExpectedField {
+    const char* formName;
+    const char* xmlTag;
+};
+
+// Top-level fields.
+static constexpr ExpectedField kExpectedTopLevel[] = {
+    {"aoaSmoothing",        "AOA_SMOOTHING"},
+    {"pressureSmoothing",   "PRESSURE_SMOOTHING"},
+    {"dataSource",          "DATASOURCE"},
+    {"logFileName",         "REPLAYLOGFILENAME"},
+    {"readBoom",            "BOOM"},
+    {"boomChecksum",        "BOOMCHECKSUM"},
+    {"boomConvertData",     "BOOMCONVERTDATA"},
+    {"casCurveEnabled",     "ENABLED"},
+    {"casCurveType",        "TYPE"},
+    {"casCurveCoeff0",      "X3"},
+    {"casCurveCoeff1",      "X2"},
+    {"casCurveCoeff2",      "X1"},
+    {"casCurveCoeff3",      "X0"},
+    {"portsOrientation",    "PORTS"},
+    {"boxtopOrientation",   "BOX_TOP"},
+    {"readEfisData",        "SERIALEFISDATA"},
+    {"efisType",            "EFISTYPE"},
+    {"oatSensor",           "OATSENSOR"},
+    {"calSource",           "CALWIZ_SOURCE"},
+    {"ahrsAlgorithm",       "AHRS_ALGORITHM"},
+    // <VOLUME>...</VOLUME> nested children:
+    {"volumeControl",       "ENABLED"},
+    {"defaultVolume",       "DEFAULT"},
+    {"volumeLowAnalog",     "LOW_ANALOG"},
+    {"volumeHighAnalog",    "HIGH_ANALOG"},
+    {"muteAudioUnderIAS",   "MUTE_UNDER_IAS"},
+    {"audio3D",             "ENABLE_3DAUDIO"},
+    {"overgWarning",        "OVERGWARNING"},
+    // <LOAD_LIMIT>...</LOAD_LIMIT> nested children:
+    {"loadLimitPositive",   "POSITIVE"},
+    {"loadLimitNegative",   "NEGATIVE"},
+    {"asymmetricGyroLimit", "ASYMMETRIC_GYRO_LIMIT"},
+    {"asymmetricReduction", "ASYMMETRIC_REDUCTION"},
+    // <VNO>...</VNO> nested children:
+    {"vnoChimeEnabled",     "CHIME_ENABLED"},
+    {"Vno",                 "SPEED"},
+    {"vnoChimeInterval",    "CHIME_INTERVAL"},
+    {"sdLogging",           "SDLOGGING"},
+    {"logRate",             "LOGRATE"},
+    {"serialOutFormat",     "SERIALOUTFORMAT"},
+    // <AIRCRAFT>...</AIRCRAFT> nested children:
+    {"acGrossWeight",       "GROSS_WEIGHT"},
+    {"acBestGlideIAS",      "BEST_GLIDE_IAS"},
+    {"acVfe",               "VFE"},
+    {"acGlimit",            "G_LIMIT"},
 };
 static constexpr std::size_t kExpectedTopLevelCount =
-    sizeof(kExpectedTopLevelFormNames) / sizeof(kExpectedTopLevelFormNames[0]);
+    sizeof(kExpectedTopLevel) / sizeof(kExpectedTopLevel[0]);
 
 // Per-flap fields.
-static const char* const kExpectedFlapFormNames[] = {
-    "flapDegrees",
-    "flapPotPositions",
-    "flapLDMAXAOA",
-    "flapONSPEEDFASTAOA",
-    "flapONSPEEDSLOWAOA",
-    "flapSTALLWARNAOA",
-    "flapSTALLAOA",
-    "flapMANAOA",
-    "flapKFit",
-    "flapAlpha0",
-    "flapAlphaStall",
-    "aoaCurveType",
-    "aoaCurveCoeff0",
-    "aoaCurveCoeff1",
-    "aoaCurveCoeff2",
-    "aoaCurveCoeff3",
+static constexpr ExpectedField kExpectedFlap[] = {
+    {"flapDegrees",        "DEGREES"},
+    {"flapPotPositions",   "POT_VALUE"},
+    {"flapLDMAXAOA",       "LDMAXAOA"},
+    {"flapONSPEEDFASTAOA", "ONSPEEDFASTAOA"},
+    {"flapONSPEEDSLOWAOA", "ONSPEEDSLOWAOA"},
+    {"flapSTALLWARNAOA",   "STALLWARNAOA"},
+    {"flapSTALLAOA",       "STALLAOA"},
+    {"flapMANAOA",         "MANAOA"},
+    {"flapKFit",           "KFIT"},
+    {"flapAlpha0",         "ALPHA0"},
+    {"flapAlphaStall",     "ALPHASTALL"},
+    {"aoaCurveType",       "TYPE"},
+    {"aoaCurveCoeff0",     "X3"},
+    {"aoaCurveCoeff1",     "X2"},
+    {"aoaCurveCoeff2",     "X1"},
+    {"aoaCurveCoeff3",     "X0"},
 };
 static constexpr std::size_t kExpectedFlapCount =
-    sizeof(kExpectedFlapFormNames) / sizeof(kExpectedFlapFormNames[0]);
+    sizeof(kExpectedFlap) / sizeof(kExpectedFlap[0]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,15 +137,16 @@ static bool SchemaContainsFormName(const FieldDef* schema, std::size_t count,
     return false;
 }
 
-static bool ExpectedContainsFormName(const char* const* expected,
+static bool ExpectedContainsFormName(const ExpectedField* expected,
                                      std::size_t count,
                                      std::string_view formName)
 {
     for (std::size_t i = 0; i < count; ++i) {
-        if (formName == expected[i]) return true;
+        if (formName == expected[i].formName) return true;
     }
     return false;
 }
+
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -153,10 +169,10 @@ void test_every_expected_top_level_field_in_schema(void)
 {
     for (std::size_t i = 0; i < kExpectedTopLevelCount; ++i) {
         bool present = SchemaContainsFormName(kSchema, kSchemaCount,
-                                              kExpectedTopLevelFormNames[i]);
+                                              kExpectedTopLevel[i].formName);
         if (!present) {
             std::string msg = "missing top-level field in kSchema: ";
-            msg += kExpectedTopLevelFormNames[i];
+            msg += kExpectedTopLevel[i].formName;
             TEST_FAIL_MESSAGE(msg.c_str());
         }
     }
@@ -166,10 +182,10 @@ void test_every_expected_flap_field_in_schema(void)
 {
     for (std::size_t i = 0; i < kExpectedFlapCount; ++i) {
         bool present = SchemaContainsFormName(kFlapSchema, kFlapSchemaCount,
-                                              kExpectedFlapFormNames[i]);
+                                              kExpectedFlap[i].formName);
         if (!present) {
             std::string msg = "missing per-flap field in kFlapSchema: ";
-            msg += kExpectedFlapFormNames[i];
+            msg += kExpectedFlap[i].formName;
             TEST_FAIL_MESSAGE(msg.c_str());
         }
     }
@@ -179,7 +195,7 @@ void test_every_expected_flap_field_in_schema(void)
 void test_no_extra_fields_in_top_level_schema(void)
 {
     for (std::size_t i = 0; i < kSchemaCount; ++i) {
-        bool present = ExpectedContainsFormName(kExpectedTopLevelFormNames,
+        bool present = ExpectedContainsFormName(kExpectedTopLevel,
                                                 kExpectedTopLevelCount,
                                                 kSchema[i].formName);
         if (!present) {
@@ -194,7 +210,7 @@ void test_no_extra_fields_in_top_level_schema(void)
 void test_no_extra_fields_in_flap_schema(void)
 {
     for (std::size_t i = 0; i < kFlapSchemaCount; ++i) {
-        bool present = ExpectedContainsFormName(kExpectedFlapFormNames,
+        bool present = ExpectedContainsFormName(kExpectedFlap,
                                                 kExpectedFlapCount,
                                                 kFlapSchema[i].formName);
         if (!present) {
@@ -313,7 +329,13 @@ void test_numeric_ranges_sensible(void)
 
 // (8) Spot-check that specific xmlTags match what ConfigXmlParse expects.
 //     Pinning a few key tags catches accidental rename.
-void test_known_xml_tags_pinned(void)
+// Walks every schema entry and asserts its xmlTag matches the expected
+// value pinned in kExpectedTopLevel / kExpectedFlap. A silent rename in
+// kSchema (e.g. typo from "AOA_SMOOTHING" to "AOA_SMOTHING") would let
+// old config files fail to load that field with no error — this test
+// catches it. Pinning all 41+16 entries (instead of spot-checking 6)
+// makes the gate symmetric with the formName completeness checks.
+void test_every_xml_tag_matches_expected(void)
 {
     auto findByForm = [](const FieldDef* schema, std::size_t count,
                          std::string_view formName) -> const FieldDef* {
@@ -323,31 +345,37 @@ void test_known_xml_tags_pinned(void)
         return nullptr;
     };
 
-    const FieldDef* p;
+    for (std::size_t i = 0; i < kExpectedTopLevelCount; ++i) {
+        const FieldDef* p = findByForm(kSchema, kSchemaCount,
+                                       kExpectedTopLevel[i].formName);
+        TEST_ASSERT_NOT_NULL(p);
+        if (std::string_view(p->xmlTag) != kExpectedTopLevel[i].xmlTag) {
+            std::string msg = "kSchema entry '";
+            msg += kExpectedTopLevel[i].formName;
+            msg += "': xmlTag is '";
+            msg += p->xmlTag;
+            msg += "', expected '";
+            msg += kExpectedTopLevel[i].xmlTag;
+            msg += "'";
+            TEST_FAIL_MESSAGE(msg.c_str());
+        }
+    }
 
-    p = findByForm(kSchema, kSchemaCount, "aoaSmoothing");
-    TEST_ASSERT_NOT_NULL(p);
-    TEST_ASSERT_EQUAL_STRING("AOA_SMOOTHING", p->xmlTag);
-
-    p = findByForm(kSchema, kSchemaCount, "overgWarning");
-    TEST_ASSERT_NOT_NULL(p);
-    TEST_ASSERT_EQUAL_STRING("OVERGWARNING", p->xmlTag);
-
-    p = findByForm(kSchema, kSchemaCount, "ahrsAlgorithm");
-    TEST_ASSERT_NOT_NULL(p);
-    TEST_ASSERT_EQUAL_STRING("AHRS_ALGORITHM", p->xmlTag);
-
-    p = findByForm(kFlapSchema, kFlapSchemaCount, "flapLDMAXAOA");
-    TEST_ASSERT_NOT_NULL(p);
-    TEST_ASSERT_EQUAL_STRING("LDMAXAOA", p->xmlTag);
-
-    p = findByForm(kFlapSchema, kFlapSchemaCount, "flapAlphaStall");
-    TEST_ASSERT_NOT_NULL(p);
-    TEST_ASSERT_EQUAL_STRING("ALPHASTALL", p->xmlTag);
-
-    p = findByForm(kFlapSchema, kFlapSchemaCount, "aoaCurveCoeff0");
-    TEST_ASSERT_NOT_NULL(p);
-    TEST_ASSERT_EQUAL_STRING("X3", p->xmlTag);
+    for (std::size_t i = 0; i < kExpectedFlapCount; ++i) {
+        const FieldDef* p = findByForm(kFlapSchema, kFlapSchemaCount,
+                                       kExpectedFlap[i].formName);
+        TEST_ASSERT_NOT_NULL(p);
+        if (std::string_view(p->xmlTag) != kExpectedFlap[i].xmlTag) {
+            std::string msg = "kFlapSchema entry '";
+            msg += kExpectedFlap[i].formName;
+            msg += "': xmlTag is '";
+            msg += p->xmlTag;
+            msg += "', expected '";
+            msg += kExpectedFlap[i].xmlTag;
+            msg += "'";
+            TEST_FAIL_MESSAGE(msg.c_str());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +397,6 @@ int main(int, char**)
     RUN_TEST(test_flap_entries_well_formed);
     RUN_TEST(test_enum_entries_have_choices);
     RUN_TEST(test_numeric_ranges_sensible);
-    RUN_TEST(test_known_xml_tags_pinned);
+    RUN_TEST(test_every_xml_tag_matches_expected);
     return UNITY_END();
 }

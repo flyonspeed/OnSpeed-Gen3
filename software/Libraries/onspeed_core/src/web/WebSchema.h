@@ -158,13 +158,16 @@ inline constexpr FieldDef kSchema[] = {
     {"BOOMCHECKSUM",       "boomChecksum",      "Boom Checksum",              "", FieldType::Bool,   0.0f, 0.0f, ONSPEED_CHOICES(kBoolChoices), false},
     {"BOOMCONVERTDATA",    "boomConvertData",   "Boom Data Conversion",       "", FieldType::Enum,   0.0f, 0.0f, ONSPEED_CHOICES(kBoomConvertChoices), false},
 
-    // CAS curve
-    {"CAS_CURVE_ENABLED",  "casCurveEnabled",   "Airspeed Calibration",       "", FieldType::Bool,   0.0f, 0.0f, ONSPEED_CHOICES(kBoolChoices), false},
-    {"CAS_CURVE_TYPE",     "casCurveType",      "Airspeed Calibration Curve Type", "", FieldType::Enum, 0.0f, 0.0f, ONSPEED_CHOICES(kCurveTypeChoices), false},
-    {"CAS_CURVE_COEFF0",   "casCurveCoeff0",    "CAS Coefficient 0",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
-    {"CAS_CURVE_COEFF1",   "casCurveCoeff1",    "CAS Coefficient 1",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
-    {"CAS_CURVE_COEFF2",   "casCurveCoeff2",    "CAS Coefficient 2",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
-    {"CAS_CURVE_COEFF3",   "casCurveCoeff3",    "CAS Coefficient 3",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
+    // CAS curve. Actual XML structure is <CAS_CURVE><ENABLED/TYPE/X3/X2/X1/X0/></CAS_CURVE>
+    // (nested, not flat). Schema xmlTag here uses the leaf tag because a
+    // future WebSchema-driven XML reader/writer would walk the nesting via
+    // a parent pointer; the leaf names match ConfigXmlEmit/Parse exactly.
+    {"ENABLED",            "casCurveEnabled",   "Airspeed Calibration",       "", FieldType::Bool,   0.0f, 0.0f, ONSPEED_CHOICES(kBoolChoices), false},
+    {"TYPE",               "casCurveType",      "Airspeed Calibration Curve Type", "", FieldType::Enum, 0.0f, 0.0f, ONSPEED_CHOICES(kCurveTypeChoices), false},
+    {"X3",                 "casCurveCoeff0",    "CAS Coefficient 0",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
+    {"X2",                 "casCurveCoeff1",    "CAS Coefficient 1",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
+    {"X1",                 "casCurveCoeff2",    "CAS Coefficient 2",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
+    {"X0",                 "casCurveCoeff3",    "CAS Coefficient 3",          "", FieldType::Float, -1e6f, 1e6f, nullptr, 0, false},
 
     // Orientation
     {"PORTS",              "portsOrientation",  "Pressure ports orientation", "", FieldType::Enum,   0.0f, 0.0f, ONSPEED_CHOICES(kOrientationChoices), false},
@@ -179,13 +182,15 @@ inline constexpr FieldDef kSchema[] = {
     {"CALWIZ_SOURCE",      "calSource",         "Calibration Data Source",    "", FieldType::Enum,   0.0f, 0.0f, ONSPEED_CHOICES(kCalSourceChoices), false},
     {"AHRS_ALGORITHM",     "ahrsAlgorithm",     "AHRS Algorithm",             "", FieldType::Enum,   0.0f, 0.0f, ONSPEED_CHOICES(kAhrsAlgorithmChoices), false},
 
-    // Volume / audio
-    {"VOLUME_ENABLED",     "volumeControl",     "Volume Potentiometer",       "",   FieldType::Bool, 0.0f,     0.0f,   ONSPEED_CHOICES(kBoolChoices), false},
-    {"VOLUME_DEFAULT",     "defaultVolume",     "Volume %",                   "%",  FieldType::Int,  0.0f,     100.0f, nullptr, 0, false},
-    {"VOLUME_LOW_ANALOG",  "volumeLowAnalog",   "Low Vol. value",             "",   FieldType::Int,  0.0f,     5000.0f, nullptr, 0, false},
-    {"VOLUME_HIGH_ANALOG", "volumeHighAnalog",  "High Vol. value",            "",   FieldType::Int,  0.0f,     5000.0f, nullptr, 0, false},
-    {"MUTE_UNDER_IAS",     "muteAudioUnderIAS", "Mute below IAS",             "kts", FieldType::Int, 0.0f,     500.0f, nullptr, 0, false},
-    {"ENABLE_3DAUDIO",     "audio3D",           "3D Audio",                   "",   FieldType::Bool, 0.0f,     0.0f,   ONSPEED_CHOICES(kBoolChoices), false},
+    // Volume / audio. Actual XML structure is <VOLUME><ENABLED/HIGH_ANALOG/
+    // LOW_ANALOG/DEFAULT/ENABLE_3DAUDIO/MUTE_UNDER_IAS/></VOLUME>. Schema
+    // xmlTag is the leaf tag.
+    {"ENABLED",            "volumeControl",     "Volume Potentiometer",       "",    FieldType::Bool, 0.0f,     0.0f,   ONSPEED_CHOICES(kBoolChoices), false},
+    {"DEFAULT",            "defaultVolume",     "Volume %",                   "%",   FieldType::Int,  0.0f,     100.0f, nullptr, 0, false},
+    {"LOW_ANALOG",         "volumeLowAnalog",   "Low Vol. value",             "",    FieldType::Int,  0.0f,     5000.0f, nullptr, 0, false},
+    {"HIGH_ANALOG",        "volumeHighAnalog",  "High Vol. value",            "",    FieldType::Int,  0.0f,     5000.0f, nullptr, 0, false},
+    {"MUTE_UNDER_IAS",     "muteAudioUnderIAS", "Mute below IAS",             "kts", FieldType::Int,  0.0f,     500.0f, nullptr, 0, false},
+    {"ENABLE_3DAUDIO",     "audio3D",           "3D Audio",                   "",    FieldType::Bool, 0.0f,     0.0f,   ONSPEED_CHOICES(kBoolChoices), false},
 
     // G-limit / load
     {"OVERGWARNING",           "overgWarning",        "OverG audio warning",            "",      FieldType::Bool,  0.0f,  0.0f, ONSPEED_CHOICES(kBoolChoices), false},
