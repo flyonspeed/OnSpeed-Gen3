@@ -142,6 +142,22 @@ inline constexpr EnumChoice kSerialOutFormatChoices[] = {
 // the renderer that walks this array produces a visually similar page.  Form
 // names are taken from HandleConfig() verbatim; xmlTags are taken from
 // ConfigXmlParse.cpp verbatim.
+//
+// Intentionally NOT in this schema (set elsewhere, not user-editable
+// via the main config page):
+//   - 8 BIAS fields (iPFwdBias, iP45Bias, fPStaticBias, fGxBias,
+//     fGyBias, fGzBias, fPitchBias, fRollBias) — set via the
+//     calibration wizard / sensor-config page in ConfigWebServer.cpp.
+//   - enSerialOutFormat — cached side effect of parsing
+//     sSerialOutFormat. Not directly user-editable.
+//   - bCalSourceEfis — same: cached side effect of sCalSource ==
+//     "EFIS".
+//   - bConfigLoaded, szDefaultConfigFilename — internal lifecycle
+//     state.
+// If a future PR adds any of these to the schema, double-check that the
+// wizard / sensor-config page is also updated, and that the cached
+// side-effect fields stay derived (not user-set) — otherwise stale
+// values can silently override parser output.
 // ============================================================================
 
 inline constexpr FieldDef kSchema[] = {

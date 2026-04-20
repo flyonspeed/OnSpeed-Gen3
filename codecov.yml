@@ -12,12 +12,12 @@ coverage:
   status:
     project:
       default:
-        # Allow coverage to drop by 1% without failing
-        threshold: 1%
         target: auto
+        threshold: 1%    # tolerate 1% drop without failing
     patch:
       default:
-        target: 50%
+        target: 70%
+        threshold: 5%
 
   # Ignore test files, vendor code, and system headers in coverage reports
   ignore:
@@ -27,6 +27,6 @@ coverage:
     - "/usr/**"
 
 comment:
-  layout: "reach,diff,flags,files"
+  layout: "diff, files"
   behavior: default
-  require_changes: true
+  require_changes: true   # only post if something changed
