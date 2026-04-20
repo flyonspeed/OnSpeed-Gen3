@@ -19,7 +19,7 @@ Do a text search for comments starting with "////"
 //#include <SoftwareSerial.h>
 
 #define MAIN
-#include "Globals.h"
+#include "src/Globals.h"
 #include <buildinfo.h>
 
 #ifdef SUPPORT_LITTLEFS
