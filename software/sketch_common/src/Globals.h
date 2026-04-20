@@ -146,7 +146,7 @@ EXTERN HscPressureSensor      * g_pStatic;  // Static pressure
 EXTERN  SensorIO                g_Sensors;
 EXTERN  LogSensor               g_LogSensor;
 
-EXTERN_CLASS(AHRS               g_AHRS, GYRO_SMOOTHING)
+EXTERN_CLASS(AHRS               g_AHRS, kGyroSmoothing)
 
 EXTERN ConsoleSerialIO          g_ConsoleSerial;
 EXTERN EfisSerialPort           g_EfisSerial;
@@ -155,7 +155,7 @@ EXTERN DisplaySerial            g_DisplaySerial;
 
 EXTERN Flaps                    g_Flaps;
 
-EXTERN_CLASS(OneButton          g_Switch, SWITCH_PIN, true)
+EXTERN_CLASS(OneButton          g_Switch, kPinSwitch, true)
 
 EXTERN AudioPlay                g_AudioPlay;
 

@@ -238,44 +238,4 @@ constexpr int kDisplaySerialPeriodMs = 50;
 // Gyro running-average window length (samples).
 constexpr int kGyroSmoothing = 30;
 
-// ---------------------------------------------------------------------------
-// Legacy #define aliases (transitional shim — removed in PR 0.4 cleanup).
-//
-// These let unmodified code that still uses SCREAMING_SNAKE_CASE names
-// compile unchanged. Once every file is migrated to the constexpr names
-// (PR 0.4 sketch root cleanup completes the migration), this block goes
-// away.
-// ---------------------------------------------------------------------------
-#define SENSOR_MISO               kSensorMiso
-#define SENSOR_MOSI               kSensorMosi
-#define SENSOR_SCLK               kSensorSclk
-#define CS_IMU                    kCsImu
-#define CS_STATIC                 kCsStatic
-#define CS_AOA                    kCsAoa
-#define CS_PITOT                  kCsPitot
-#define CS_ADC                    kCsAdc
-#define ADC_CH_FLAP               kAdcChFlap
-#define ADC_CH_VOLUME             kAdcChVolume
-#define SD_SCLK                   kSdSclk
-#define SD_MISO                   kSdMiso
-#define SD_MOSI                   kSdMosi
-#define SD_CS                     kSdCs
-#define VOLUME_PIN                kPinVolume
-#define FLAP_PIN                  kPinFlap
-#define PIN_LED_KNOB              kPinLedKnob
-#define OAT_PIN                   kPinOat
-#define SWITCH_PIN                kPinSwitch
-#define EFIS_SER_TX               kEfisTx
-#define EFIS_SER_RX               kEfisRx
-#define BOOM_SER_TX               kBoomTx
-#define BOOM_SER_RX               kBoomRx
-#define DISPLAY_SER_TX            kDisplayTx
-#define DISPLAY_SER_RX            kDisplayRx
-#define BAUDRATE_CONSOLE          kBaudConsole
-#define IMU_SAMPLE_RATE           kImuSampleRateHz
-#define PRESSURE_SAMPLE_RATE      kPressureSampleRateHz
-#define PRESSURE_INTERVAL_MS      kPressureIntervalMs
-#define DISPLAY_SERIAL_PERIOD_MS  kDisplaySerialPeriodMs
-#define GYRO_SMOOTHING            kGyroSmoothing
-
 #endif  // HARDWARE_MAP_H
