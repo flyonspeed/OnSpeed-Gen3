@@ -80,11 +80,15 @@ run_cppcheck() {
     echo "Running cppcheck on $label ($src_dir)..."
     echo ""
 
-    # Collect only the file types present (M5 src/ has no .h files; main
-    # firmware has both). Bare globs expanding to literals break cppcheck.
-    shopt -s nullglob
-    local files=("$src_dir"/*.cpp "$src_dir"/*.h)
-    shopt -u nullglob
+    # Recursively collect all .cpp and .h files. Pre-PR-4.2 sketch root
+    # contained .cpp/.h files at top level; post-PR-4.2 they all live
+    # under src/ (a symlink to sketch_common/src/). A non-recursive
+    # *.cpp glob would scan effectively nothing for the main firmware.
+    # -L tells find to follow symlinks so it descends into src/.
+    local files=()
+    while IFS= read -r -d '' f; do
+        files+=("$f")
+    done < <(find -L "$src_dir" -type f \( -name "*.cpp" -o -name "*.h" \) -print0)
 
     cppcheck "${COMMON_ARGS[@]}" \
         -I "$src_dir" \
