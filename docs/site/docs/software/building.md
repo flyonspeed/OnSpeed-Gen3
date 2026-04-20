@@ -129,13 +129,66 @@ To build for V4B, temporarily edit `HardwareMap.h`'s guard block to default to `
 OnSpeed-Gen3/
 ├── platformio.ini                   # Build configuration (V4P + V4B environments)
 ├── software/
-│   ├── OnSpeed-Gen3-ESP32/          # Main firmware source
+│   ├── sketch_common/               # Shared sketch source (used by every board)
+│   │   └── src/                     # Globals.h + drivers/, io/, audio_io/,
+│   │                                # config/, tasks/, util/, web_server/
+│   ├── OnSpeed-Gen3-ESP32/          # Gen3 sketch shell (.ino + HardwareMap.h)
+│   │   ├── OnSpeed-Gen3-ESP32.ino
+│   │   ├── HardwareMap.h            # Gen3-specific pins
+│   │   ├── Audio/                   # PCM byte-array assets
+│   │   ├── Web/                     # HTML/JS/CSS byte-array assets
+│   │   └── src -> ../sketch_common/src   # symlink
 │   └── Libraries/
 │       ├── onspeed_core/            # Platform-independent algorithms
 │       └── version/                 # Build version info (auto-generated + defaults)
-├── test/                            # Native unit tests (12 suites, 136 tests)
+├── test/                            # Native unit tests
 └── scripts/                         # Build and analysis scripts
 ```
+
+### Sketch shell + `sketch_common/` symlink
+
+Each per-board sketch folder is a thin shell containing only the Arduino
+entry-point `.ino`, a board-specific `HardwareMap.h`, the asset folders
+(`Audio/`, `Web/`), and a `src/` symlink that points at `sketch_common/src/`.
+All actual driver / IO / task / config / web-server code lives once in
+`software/sketch_common/src/` and is shared across boards.
+
+A future Gen2v4 sketch folder would be:
+
+```
+software/OnSpeed-Gen2v4-ESP32/
+├── OnSpeed-Gen2v4-ESP32.ino
+├── HardwareMap.h           # Gen2v4-specific pins
+├── Audio/
+├── Web/
+└── src -> ../sketch_common/src   # same symlink target as Gen3
+```
+
+PlatformIO's `src_dir = software/OnSpeed-Gen3-ESP32` and the
+`-Isoftware/OnSpeed-Gen3-ESP32` include flag both resolve through the
+symlink, so sketch-root-relative includes like `#include "src/Globals.h"`
+and `#include "src/drivers/SPI_IO.h"` keep working unchanged. Arduino IDE
+2.x follows the symlink during its `src/**` traversal and compiles the
+same way (verified via `arduino-cli compile`).
+
+#### Windows users
+
+Git symlinks need explicit opt-in on Windows. Before cloning:
+
+```bash
+git config --global core.symlinks true
+```
+
+You also need either Windows 10/11 Developer Mode enabled or to clone in
+an Administrator shell, otherwise Git stores `src` as a 20-byte text
+file containing the literal string `../sketch_common/src` and the build
+fails immediately with "no source files found." If you've already
+cloned without `core.symlinks`, run `git rm software/OnSpeed-Gen3-ESP32/src`
+then `git checkout software/OnSpeed-Gen3-ESP32/src` after enabling the
+config — Git will then recreate it as a real symlink.
+
+macOS, Linux, and the GitHub Actions Ubuntu runners handle the symlink
+natively without any setup.
 
 ## Include Style
 
