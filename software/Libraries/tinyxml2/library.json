@@ -1,0 +1,20 @@
+{
+  "name": "tinyxml2",
+  "version": "11.0.0",
+  "description": "Simple, small, efficient C++ XML parser. Vendored copy — upstream https://github.com/leethomason/tinyxml2",
+  "keywords": ["xml", "parser"],
+  "authors": [
+    {
+      "name": "Lee Thomason",
+      "url": "http://www.grinninglizard.com/"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/leethomason/tinyxml2"
+  },
+  "license": "Zlib",
+  "platforms": ["native", "espressif32"],
+  "frameworks": "*",
+  "headers": "tinyxml2.h"
+}
