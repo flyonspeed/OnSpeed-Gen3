@@ -135,7 +135,7 @@ uv run replay.py --port /dev/cu.usbserial-XXXX --input path/to/log.csv
 
 Any CSV written by the OnSpeed Gen3 firmware to its SD card works. The
 CSV must have these columns (standard OnSpeed log format — see
-[`LogSensor.cpp:303`](../../software/OnSpeed-Gen3-ESP32/LogSensor.cpp)):
+[`LogSensor.cpp:303`](../../software/sketch_common/src/tasks/LogSensor.cpp)):
 `timeStamp, Pitch, Roll, IAS, Palt, AngleofAttack, flapsPos, VSI,
 VerticalG, LateralG, YawRate, OAT, FlightPath, DataMark`.
 
@@ -236,7 +236,7 @@ The tests verify:
 
 Each frame is exactly **80 bytes**, transmitted at 115200 8N1. The M5
 firmware parses at byte offsets fixed by the `snprintf` format in
-[`DisplaySerial.cpp:275`](../../software/OnSpeed-Gen3-ESP32/DisplaySerial.cpp):
+[`DisplaySerial.cpp:275`](../../software/sketch_common/src/io/DisplaySerial.cpp):
 
 | Offset | Width | Format | Field              | Scale        |
 |--------|-------|--------|--------------------|--------------|
@@ -265,8 +265,8 @@ firmware parses at byte offsets fixed by the `snprintf` format in
 | 78–79  | 2     | bytes  | `\r\n`             | —            |
 
 Frame rate on the real firmware is **20 Hz** (50 ms), controlled by
-`DISPLAY_SERIAL_PERIOD_MS` in
-[`Globals.h`](../../software/OnSpeed-Gen3-ESP32/Globals.h). The M5
+`kDisplaySerialPeriodMs` in
+[`HardwareMap.h`](../../software/OnSpeed-Gen3-ESP32/HardwareMap.h). The M5
 firmware does not assume this rate — it measures the actual inter-frame
 interval with `micros()` each frame, so this replay tool can stream at
 any cadence and the M5's DecelRate display will still be correct.
@@ -375,6 +375,6 @@ tools/m5-replay/
 ## Related
 
 - M5 display firmware: [`../../software/OnSpeed-M5-Display/`](../../software/OnSpeed-M5-Display/)
-- Firmware side that sends these frames: [`../../software/OnSpeed-Gen3-ESP32/DisplaySerial.cpp`](../../software/OnSpeed-Gen3-ESP32/DisplaySerial.cpp)
+- Firmware side that sends these frames: [`../../software/sketch_common/src/io/DisplaySerial.cpp`](../../software/sketch_common/src/io/DisplaySerial.cpp)
 - M5-side parser: [`../../software/OnSpeed-M5-Display/src/SerialRead.cpp`](../../software/OnSpeed-M5-Display/src/SerialRead.cpp)
-- Log column format: [`../../software/OnSpeed-Gen3-ESP32/LogSensor.cpp`](../../software/OnSpeed-Gen3-ESP32/LogSensor.cpp)
+- Log column format: [`../../software/sketch_common/src/tasks/LogSensor.cpp`](../../software/sketch_common/src/tasks/LogSensor.cpp)

@@ -39,7 +39,7 @@
 // simultaneous flash of both firmwares.
 //
 // Used by:
-//   Gen3 firmware: software/OnSpeed-Gen3-ESP32/src/io/DisplaySerial.cpp
+//   Gen3 firmware: software/sketch_common/src/io/DisplaySerial.cpp
 //   M5 firmware:   software/OnSpeed-M5-Display/src/SerialRead.cpp
 
 #ifndef ONSPEED_CORE_PROTO_DISPLAY_SERIAL_H
@@ -58,7 +58,7 @@ inline constexpr size_t kDisplayFrameSizeBytes = 80;
 inline constexpr size_t kDisplayFrameChecksumLen = 76;
 
 /// Nominal period between frames (milliseconds). Matches
-/// DISPLAY_SERIAL_PERIOD_MS in the Gen3 firmware's Globals.h.
+/// kDisplaySerialPeriodMs in the Gen3 firmware's HardwareMap.h.
 inline constexpr int kDisplayFramePeriodMs = 50;
 
 // ============================================================================

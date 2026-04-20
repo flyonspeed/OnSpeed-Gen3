@@ -1,7 +1,7 @@
 // ConfigV1Parse.cpp — see ConfigV1Parse.h for the public interface.
 //
 // This is a verbatim port of the <CONFIG> branch of FOSConfig::
-// LoadConfigFromString() (software/OnSpeed-Gen3-ESP32/src/config/Config.cpp
+// LoadConfigFromString() (software/sketch_common/src/config/Config.cpp
 // on branch `extraction/phase-3-1-config`, before this task) with the
 // following adaptations:
 //
