@@ -318,6 +318,39 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "The two-layer driver design requires board flags to live ONLY in \`HardwareMap.h\`. Replace \`#ifdef HW_V4P\` blocks in other files with \`if constexpr (kHasExternalMcp3202)\` (or another topology flag)." >> $GITHUB_STEP_SUMMARY
 
+  docs-completeness:
+    name: Config Docs Completeness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check every XML tag in ConfigXmlEmit is documented
+        run: ./scripts/check_docs_completeness.py
+
+      - name: Summary on success
+        if: success()
+        run: echo "✓ Every XML tag written by ConfigXmlEmit is documented in config-parameters.md" >> $GITHUB_STEP_SUMMARY
+
+      - name: Summary on failure
+        if: failure()
+        run: |
+          echo "## ✗ Config Docs Drift" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "One or more XML tags that ConfigXmlEmit writes to \`config.cfg\` are missing from \`docs/site/docs/reference/config-parameters.md\`." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See the job log for the exact tag list. Fix by adding the missing tag to the reference doc in the expected form:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '  - Top-level: `` `TAG` ``' >> $GITHUB_STEP_SUMMARY
+          echo '  - Nested:    `` `PARENT > TAG` ``' >> $GITHUB_STEP_SUMMARY
+          echo '  - Per-flap (bare, under "Per-Flap Position Settings" section): `` `TAG` ``' >> $GITHUB_STEP_SUMMARY
+
   snapshot-regression:
     name: Snapshot Regression
     runs-on: ubuntu-latest
