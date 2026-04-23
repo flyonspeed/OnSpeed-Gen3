@@ -248,6 +248,36 @@ void test_g5_vsi_field(void)
     TEST_ASSERT_FLOAT_WITHIN(20.0f, 2000.0f, frame->vsiFpm);
 }
 
+// Noise on the serial line without a frame terminator: the parser must reset
+// once bufLen_ > 230 so a subsequent valid frame still parses.
+void test_g5_buffer_overflow_resets_and_recovers(void)
+{
+    GarminG5Parser parser;
+    parser.FeedByte(static_cast<uint8_t>('='));
+    for (int i = 0; i < 250; i++)
+        parser.FeedByte(static_cast<uint8_t>('x'));
+    TEST_ASSERT_FALSE(parser.TakeFrame().has_value());
+
+    char buf[59];
+    buildG5Frame(buf, 1.0f, 2.0f, 90, 95.0f, 3000, 0.0f, 1.0f, 0);
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(0.15f, 95.0f, frame->iasKt);
+}
+
+// 59-byte frame with leading '=' but wrong inner magic ('=XX...') exercises
+// the Decode()-time magic check at GarminG5.cpp:108-109 (previously uncovered).
+void test_g5_wrong_inner_magic_discarded_at_decode(void)
+{
+    GarminG5Parser parser;
+    char buf[59];
+    buildG5Frame(buf, 0.0f, 0.0f, 0, 100.0f, 3000, 0.0f, 1.0f, 0);
+    buf[1] = 'X';   // was '1'
+    buf[2] = 'X';   // was '1'
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_FALSE(frame.has_value());
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -264,5 +294,7 @@ int main(int, char**)
     RUN_TEST(test_g5_take_frame_clears_pending);
     RUN_TEST(test_g5_palt_field);
     RUN_TEST(test_g5_vsi_field);
+    RUN_TEST(test_g5_buffer_overflow_resets_and_recovers);
+    RUN_TEST(test_g5_wrong_inner_magic_discarded_at_decode);
     return UNITY_END();
 }

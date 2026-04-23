@@ -314,6 +314,78 @@ void test_mgl_garbage_then_valid_msg1(void)
     TEST_ASSERT_TRUE(frame.has_value());
 }
 
+// --------------------------------------------------------------------------
+// Edge cases from coverage analysis (MglBinary.cpp:133, 181, 199, 212-213).
+// --------------------------------------------------------------------------
+
+// Unknown MessageType lands in the default: branch of the Decode switch.
+// Covers MglBinary.cpp:212-213.
+void test_mgl_unknown_message_type_silently_discarded(void)
+{
+    uint8_t buf[44];
+    buildMglMsg1(buf, 5500, 500, 520, 0, 0, 20);
+    buf[4] = 5;   // MessageType 5 — not defined in the parser
+
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 44);
+    TEST_ASSERT_FALSE(frame.has_value());
+}
+
+// Msg1 body size check — build a frame with MessageLength announcing a
+// 60-byte total payload but MessageType=1. Parser collects all 60 bytes
+// then hits "if (bufLen_ != 44) break;" at MglBinary.cpp:180-181.
+void test_mgl_msg1_wrong_body_length_rejected(void)
+{
+    uint8_t buf[60];
+    memset(buf, 0, sizeof(buf));
+    buf[0] = 0x05; buf[1] = 0x02;
+    buf[2] = 40;             // MessageLength = 40, total length = 60
+    buf[3] = 0xFF ^ 40;
+    buf[4] = 1;              // MessageType = 1 (primary)
+    buf[5] = 5; buf[6] = 0; buf[7] = 1;
+    // Body bytes [8..59] remain zero; Decode will fail the length gate.
+
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 60);
+    TEST_ASSERT_FALSE(frame.has_value());
+}
+
+// Same for Msg3. Parser collects a 60-byte total frame (MessageType=3 with
+// wrong-length body), hits "if (bufLen_ != 40) break;" at line 199.
+void test_mgl_msg3_wrong_body_length_rejected(void)
+{
+    uint8_t buf[60];
+    memset(buf, 0, sizeof(buf));
+    buf[0] = 0x05; buf[1] = 0x02;
+    buf[2] = 40;
+    buf[3] = 0xFF ^ 40;
+    buf[4] = 3;              // MessageType = 3 (attitude)
+    buf[5] = 5; buf[6] = 0; buf[7] = 1;
+
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 60);
+    TEST_ASSERT_FALSE(frame.has_value());
+}
+
+// MessageLength byte 0x00 is treated as 256 (so total message length is
+// 276 bytes). Covers MglBinary.cpp:133. We send exactly 276 bytes with
+// MessageType=5 (unknown) — the parser walks the full buffer, dispatches,
+// and drops the frame at the default case. No frame should emerge.
+void test_mgl_message_length_zero_wraps_to_256(void)
+{
+    uint8_t buf[276];
+    memset(buf, 0, sizeof(buf));
+    buf[0] = 0x05; buf[1] = 0x02;
+    buf[2] = 0x00;           // MessageLength = 0 → treated as 256
+    buf[3] = 0xFF;           // 0x00 ^ 0xFF = 0xFF
+    buf[4] = 5;              // unknown type so it doesn't accidentally emit
+    buf[5] = 5; buf[6] = 0; buf[7] = 1;
+
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 276);
+    TEST_ASSERT_FALSE(frame.has_value());
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -331,5 +403,9 @@ int main(int, char**)
     RUN_TEST(test_mgl_reset_clears_state);
     RUN_TEST(test_mgl_interleaved_msg1_msg3);
     RUN_TEST(test_mgl_garbage_then_valid_msg1);
+    RUN_TEST(test_mgl_unknown_message_type_silently_discarded);
+    RUN_TEST(test_mgl_msg1_wrong_body_length_rejected);
+    RUN_TEST(test_mgl_msg3_wrong_body_length_rejected);
+    RUN_TEST(test_mgl_message_length_zero_wraps_to_256);
     return UNITY_END();
 }

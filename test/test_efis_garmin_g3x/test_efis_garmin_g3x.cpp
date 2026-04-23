@@ -260,6 +260,26 @@ void test_g3x_ems_corrupted_crc_no_output(void)
     TEST_ASSERT_FALSE(frame.has_value());
 }
 
+// Noise on the serial line without a frame terminator: the parser must reset
+// once bufLen_ > 230 so a subsequent valid frame still parses.
+void test_g3x_buffer_overflow_resets_and_recovers(void)
+{
+    GarminG3XParser parser;
+    // Start with '=' to enter collection mode, then feed 250 junk bytes with
+    // no '\n' terminator.
+    parser.FeedByte(static_cast<uint8_t>('='));
+    for (int i = 0; i < 250; i++)
+        parser.FeedByte(static_cast<uint8_t>('x'));
+    TEST_ASSERT_FALSE(parser.TakeFrame().has_value());
+
+    // A valid 59-byte attitude frame must still parse.
+    char buf[59];
+    buildG3XAttFrame(buf, 1.5f, 3.0f, 120, 95.0f, 2500, 0.0f, 1.0f, 30, 0, 12.0f);
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(0.15f, 95.0f, frame->iasKt);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -276,5 +296,6 @@ int main(int, char**)
     RUN_TEST(test_g3x_reset_clears_state);
     RUN_TEST(test_g3x_garbage_then_valid_parses);
     RUN_TEST(test_g3x_ems_corrupted_crc_no_output);
+    RUN_TEST(test_g3x_buffer_overflow_resets_and_recovers);
     return UNITY_END();
 }

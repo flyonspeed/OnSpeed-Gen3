@@ -435,6 +435,95 @@ void test_reconfigure_algorithm_change(void)
 }
 
 // ---------------------------------------------------------------------
+// TAS density-correction fallback paths.
+//
+// Ahrs.cpp:181-182 (!bHaveOat fallback) — runs when useEfisOat and
+// useInternalOat are both false, OR when the supplied OAT fails the
+// oatInBand check (|OAT_C| >= 100). Must produce a finite, nonzero TAS
+// — never silently return 0, which would corrupt FlightPath via
+// safeAsin(VSI/TAS).
+//
+// Ahrs.cpp:173-174 (fDivisor <= 0 fallback) — extreme DA overflow.
+//
+// NOTE on Ahrs.cpp:177-178 (fOAT_k <= 0 fallback): this branch is
+// unreachable by construction. oatInBand() rejects any OAT with
+// |c| >= 100 before we get to the Kelvin conversion. For fOAT_k to go
+// <= 0 we'd need OAT_C <= -273.15, but -100 is the tightest band. So
+// we don't have a test for 177-178 — it's defensive-but-dead code.
+// ---------------------------------------------------------------------
+
+void test_tas_fallback_when_oat_out_of_band(void)
+{
+    // OAT_C = -300 fails oatInBand(); bHaveOat stays false and we take
+    // the simple-altitude-multiplier fallback at line 181-182.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt         = 100.0f;
+    in.sensors.paltFt        = 5000.0f;
+    in.iasUpdateTimestampUs  = 1'000'000u;
+    in.useInternalOat        = true;
+    in.sensors.oatCelsius    = -300.0f;
+    a.Init(in, 5000.0f);
+    a.Step(in, kDt);
+
+    TEST_ASSERT_TRUE(std::isfinite(a.tasMps()));
+    TEST_ASSERT_TRUE(a.tasMps() > 0.0f);
+}
+
+void test_tas_fallback_when_divisor_overflows_at_extreme_altitude(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    // Density-altitude formula: fDivisor = 1 - 6.8755856e-6 * fDA.
+    // Push paltFt huge so fDA pushes fDivisor to 0 or negative.
+    in.sensors.iasKt         = 100.0f;
+    in.sensors.paltFt        = 200000.0f;   // 200 kft — unphysical but tests the guard
+    in.iasUpdateTimestampUs  = 1'000'000u;
+    in.useInternalOat        = true;
+    in.sensors.oatCelsius    = -55.0f;      // realistic cold stratospheric-ish OAT
+    a.Init(in, in.sensors.paltFt);
+    a.Step(in, kDt);
+
+    // Fallback should kick in and still produce a finite, positive TAS.
+    TEST_ASSERT_TRUE(std::isfinite(a.tasMps()));
+    TEST_ASSERT_TRUE(a.tasMps() > 0.0f);
+}
+
+// EKF6 alpha-covariance reset on the IAS=25 kt transition (Ahrs.cpp:354-357).
+// When the aircraft accelerates through 25 kt in EKF6 mode, the filter's
+// alpha covariance is reset so it re-learns alpha from real gamma
+// measurements. This path has no test coverage despite EKF6 being an
+// active iAhrsAlgorithm option.
+void test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    a.Init(in, 0.0f);
+
+    // Below threshold: stay here a while so iasWasBelowThreshold_ is true.
+    in.sensors.iasKt = 10.0f;
+    for (int i = 0; i < 50; ++i) a.Step(in, kDt);
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().pitchDeg));
+
+    // Cross up through 25 kt — this triggers the reset branch.
+    in.sensors.iasKt = 30.0f;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    a.Step(in, kDt);
+    // Continue a few more steps; filter must stay finite post-reset.
+    for (int i = 0; i < 10; ++i) {
+        in.iasUpdateTimestampUs += 20'000u;
+        a.Step(in, kDt);
+    }
+
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().pitchDeg));
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().rollDeg));
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().derivedAoaDeg));
+}
+
+// ---------------------------------------------------------------------
 // test main
 // ---------------------------------------------------------------------
 
@@ -462,6 +551,10 @@ int main(void)
 
     RUN_TEST(test_tas_uses_efis_oat_when_enabled);
     RUN_TEST(test_reconfigure_algorithm_change);
+
+    RUN_TEST(test_tas_fallback_when_oat_out_of_band);
+    RUN_TEST(test_tas_fallback_when_divisor_overflows_at_extreme_altitude);
+    RUN_TEST(test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing);
 
     return UNITY_END();
 }

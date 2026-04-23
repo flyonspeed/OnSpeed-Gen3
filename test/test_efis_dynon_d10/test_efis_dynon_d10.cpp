@@ -253,6 +253,27 @@ void test_d10_two_frames_both_parse(void)
     TEST_ASSERT_FLOAT_WITHIN(0.15f, 4.0f, f2->pitchDeg);
 }
 
+// Noise on the serial line: arbitrary bytes without a line terminator should
+// not hang the parser. The overflow guard at FeedByte resets bufLen_ = 0 when
+// it exceeds 230. After overflow, a subsequent valid '\n'-primed frame must
+// parse cleanly.
+void test_d10_buffer_overflow_resets_and_recovers(void)
+{
+    DynonD10Parser parser;
+    parser.FeedByte('\n');   // prime lineStart_
+    // Feed 250 junk bytes (no '\n' terminator) — triggers the reset at > 230.
+    for (int i = 0; i < 250; i++)
+        parser.FeedByte(static_cast<uint8_t>('x'));
+    TEST_ASSERT_FALSE(parser.TakeFrame().has_value());
+
+    // Now a valid frame should still parse.
+    char buf[53];
+    buildD10Frame(buf, 3.0f, 7.0f, 50.0f, 1500.0f, 0.0f, 0.0f, 1.0f, 42, 0x0);
+    auto frame = primeAndFeed(parser, buf, 53);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(0.15f, 3.0f, frame->pitchDeg);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -267,5 +288,6 @@ int main(int, char**)
     RUN_TEST(test_d10_wrong_length_no_output);
     RUN_TEST(test_d10_reset_clears_state);
     RUN_TEST(test_d10_two_frames_both_parse);
+    RUN_TEST(test_d10_buffer_overflow_resets_and_recovers);
     return UNITY_END();
 }
