@@ -83,7 +83,6 @@ uint8_t     aiIP[4]      = {192, 168, 0, 2};
 
 #define TFT_GREY        0x7BEF
 #define TFT_LIGHT_GREY  0xAD55
-#define TFT_LIGHT_BLUE  0x421F  // 01000 010000 11111 0100001000011111
 
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
@@ -866,9 +865,12 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolea
     gdraw.fillTriangle(XA1, YA1, XA2, YA2, XA3, YA3, Colour);
 
     /*
-     Bottom chevron
+     Bottom chevron — FAA green/yellow/red progression: green covers the
+     "fast but safe" band (LDmax → OnSpeedFast), matching the donut green
+     for OnSpeed. Yellow/red escalate on the top chevrons as AOA rises
+     toward stall.
     */
-    if (aoa >= Array [1] && aoa < Array [4]) Colour = TFT_LIGHT_BLUE;
+    if (aoa >= Array [1] && aoa < Array [4]) Colour = TFT_GREEN;
     else                                     Colour = TFT_DARKGREY;
 
     Theta    = PI / 8;

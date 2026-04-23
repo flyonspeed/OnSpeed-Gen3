@@ -35,12 +35,14 @@ Use the LED strip's adhesive backing or small screws/brackets to secure it.
 
 ## Color Scheme
 
-The indexer LEDs display colors corresponding to AOA regions:
+The indexer LEDs follow the standard FAA green/yellow/red progression, matching the M5 secondary display and the web liveview indexer:
 
 | AOA Region | Color | Meaning |
 |-----------|-------|---------|
-| Fast | Green | Well above approach speed |
-| Approaching | Yellow | Approaching on-speed band |
-| On Speed | Blue/White | Target approach speed |
-| Slow | Red | Below target, getting slow |
-| Stall | Flashing Red | Stall warning |
+| Fast | Green | Above approach speed but safe |
+| On Speed | Green | Target approach speed |
+| Slow | Yellow | Below on-speed, approaching stall warning |
+| Stall Warning | Red | Stall warning AOA reached |
+| Stall | Flashing Red | Beyond stall warning — stall imminent |
+
+Green covers the whole safe band (fast but safe, and on-speed); yellow and red escalate as AOA rises toward stall.
