@@ -16,7 +16,10 @@ coverage:
         threshold: 1%    # tolerate 1% drop without failing
     patch:
       default:
-        target: 70%
+        target: 50%      # extraction PRs often add small testable files at
+                         # partial coverage; 50% is forgiving enough that
+                         # moving code without tests doesn't block CI, while
+                         # still flagging untested fresh adds.
         threshold: 5%
 
   # Ignore test files, vendor code, and system headers in coverage reports
@@ -27,6 +30,6 @@ coverage:
     - "/usr/**"
 
 comment:
-  layout: "diff, files"
+  layout: "reach,diff,flags,files"
   behavior: default
   require_changes: true   # only post if something changed

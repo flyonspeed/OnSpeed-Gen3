@@ -85,10 +85,16 @@ run_cppcheck() {
     # under src/ (a symlink to sketch_common/src/). A non-recursive
     # *.cpp glob would scan effectively nothing for the main firmware.
     # -L tells find to follow symlinks so it descends into src/.
+    #
+    # Exclude Audio/ and Web/ — these folders hold generated PCM byte
+    # arrays and embedded HTML/JS/CSS strings. They're data-as-.h-file,
+    # not real source; cppcheck output on them is noise.
     local files=()
     while IFS= read -r -d '' f; do
         files+=("$f")
-    done < <(find -L "$src_dir" -type f \( -name "*.cpp" -o -name "*.h" \) -print0)
+    done < <(find -L "$src_dir" \
+        \( -path "$src_dir/Audio" -o -path "$src_dir/Web" \) -prune -o \
+        -type f \( -name "*.cpp" -o -name "*.h" \) -print0)
 
     cppcheck "${COMMON_ARGS[@]}" \
         -I "$src_dir" \

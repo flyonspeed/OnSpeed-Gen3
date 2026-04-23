@@ -39,7 +39,7 @@ from typing import Iterator, Optional
 
 import serial
 
-FRAME_PERIOD_S = 0.050  # 20 Hz, matches DISPLAY_SERIAL_PERIOD_MS
+FRAME_PERIOD_S = 0.050  # 20 Hz, matches kDisplaySerialPeriodMs in HardwareMap.h
 BAUD = 115200
 
 
