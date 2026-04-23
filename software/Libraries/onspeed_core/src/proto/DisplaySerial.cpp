@@ -93,7 +93,7 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int      iStall10    = SafeScaledInt(in.stallWarnAoaDeg,   10.0f, -999, 999);
     const int      iSlow10     = SafeScaledInt(in.onSpeedSlowAoaDeg, 10.0f, -999, 999);
     const int      iFast10     = SafeScaledInt(in.onSpeedFastAoaDeg, 10.0f, -999, 999);
-    const int      iLdMax10    = SafeScaledInt(in.tonesOnAoaDeg,     10.0f, -999, 999);
+    const int      iTonesOn10  = SafeScaledInt(in.tonesOnAoaDeg,     10.0f, -999, 999);
     const int      iOnset100   = SafeScaledInt(in.gOnsetRate, 100.0f, -999, 999);
     const int      iSpinCue    = ClampInt(in.spinRecoveryCue, -9, 9);
     const unsigned uDataMark2  = static_cast<unsigned>(in.dataMark) % 100u;
@@ -124,7 +124,7 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
         iStall10,
         iSlow10,
         iFast10,
-        iLdMax10,
+        iTonesOn10,
         iOnset100,
         iSpinCue,
         uDataMark2);
@@ -224,7 +224,7 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     int      iStall10    = 0;
     int      iSlow10     = 0;
     int      iFast10     = 0;
-    int      iLdMax10    = 0;
+    int      iTonesOn10  = 0;
     int      iOnset100   = 0;
     int      iSpinCue    = 0;
     unsigned uDataMark   = 0;
@@ -245,7 +245,7 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     if (!extractInt(52, 4, &iStall10))   return std::nullopt;
     if (!extractInt(56, 4, &iSlow10))    return std::nullopt;
     if (!extractInt(60, 4, &iFast10))    return std::nullopt;
-    if (!extractInt(64, 4, &iLdMax10))   return std::nullopt;
+    if (!extractInt(64, 4, &iTonesOn10)) return std::nullopt;
     if (!extractInt(68, 4, &iOnset100))  return std::nullopt;
     if (!extractInt(72, 2, &iSpinCue))   return std::nullopt;
     if (!extractUInt(74, 2, &uDataMark)) return std::nullopt;
@@ -267,7 +267,7 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     f.stallWarnAoaDeg   = static_cast<float>(iStall10)  / 10.0f;
     f.onSpeedSlowAoaDeg = static_cast<float>(iSlow10)   / 10.0f;
     f.onSpeedFastAoaDeg = static_cast<float>(iFast10)   / 10.0f;
-    f.tonesOnAoaDeg     = static_cast<float>(iLdMax10)  / 10.0f;
+    f.tonesOnAoaDeg     = static_cast<float>(iTonesOn10) / 10.0f;
     f.gOnsetRate        = static_cast<float>(iOnset100) / 100.0f;
     f.spinRecoveryCue   = iSpinCue;
     f.dataMark          = static_cast<int>(uDataMark);

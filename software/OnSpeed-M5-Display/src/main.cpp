@@ -131,7 +131,6 @@ float           LateralG            = 0.0;
 float           SmoothedLateralG;
 float           FlightPath          = 0.0;
 int             FlapPos             = 0;
-float           TurnRate            = 0.0;
 int             OAT                 = 0;
 int16_t         Slip                = 0;
 

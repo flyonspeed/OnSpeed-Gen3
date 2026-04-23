@@ -99,7 +99,6 @@ void SerialRead()
                     Roll                = f.rollDeg;
                     IAS                 = f.iasKt;
                     Palt                = f.paltFt;
-                    TurnRate            = f.turnRateDps;
                     LateralG            = f.lateralG;
                     VerticalG           = f.verticalG;
                     PercentLift         = f.percentLift;
@@ -166,7 +165,6 @@ void SerialRead()
         Roll                = 0.0;
         IAS                 = 100.0;
         Palt                = 2500.0;
-        TurnRate            = 0.0;
         LateralG            = 0.0;
         VerticalG           = 0.0;
         iVSI                = 0.0;
