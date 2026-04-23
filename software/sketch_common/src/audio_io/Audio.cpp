@@ -33,6 +33,7 @@
 #include <bit>
 #include <cstdarg>
 #include <atomic>
+#include <cmath>
 
 #include <math.h>
 
@@ -42,6 +43,7 @@
 #include "src/Globals.h"
 #include "src/util/Helpers.h"
 #include <audio/AudioMixer.h>
+#include <audio/Envelope.h>
 #include <audio/ToneCalc.h>
 #include <audio/ToneSynth.h>
 #include <audio/WavDecode.h>
@@ -71,20 +73,49 @@ i2s_slot_mode_t       slot = I2S_SLOT_MODE_STEREO;    // Works better
 static int16_t     aTone_400Hz[TONE_BUFFER_LEN];
 static int16_t     aTone_1600Hz[TONE_BUFFER_LEN];
 
-// Persistent mixer state used by PlayToneBuffer so the pulse phase survives
-// across the 50 ms-per-call pump loop.  Replaces the old `static bool
-// bPulseLevel` inside PlayToneBuffer.
+// Tone source phase index — advanced modulo TONE_BUFFER_LEN as we pump
+// frames out.  Keeping this monotonic across pump calls preserves the
+// continuous-sine carrier behaviour of Gen2 (sinewave1 was free-running;
+// only its amplitude was modulated by the envelope).
+static size_t s_ToneSrcIdx = 0;
+
+// Mixer state retained for the legacy pulse-gate path.  Tones now use the
+// DAHDR envelope below as their primary gate; pulseSpec is left zero.
 static onspeed::audio::MixerState s_ToneMixerState;
+
+// DAHDR envelope owned by AudioPlay's tone path.  All amplitude shaping
+// (per-pulse onset, release on stop, smooth re-trigger on tone/PPS change)
+// flows through this single state machine — the Gen2 perceptual model.
+static onspeed::audio::Envelope   s_ToneEnvelope;
+
+// Last tone-type / PPS / solid-mode sent into the envelope.  Used to
+// detect transitions (solid → pulsed-high gets Gen2's shortened first
+// pulse delay) AND to debounce SetTone()/SetPulseFreq() calls so the
+// envelope only re-arms when the *shape* changes — UpdateTones() runs
+// at 208 Hz and would otherwise re-trigger the envelope every tick,
+// stomping on its natural pulse cycle.
+static EnAudioTone s_LastEnvTone           = enToneNone;
+static float       s_LastEnvHalfPeriod     = -1.0f;   // -1 = no spec armed yet
+static bool        s_LastEnvWasSolid       = false;
 
 // I2S pins are defined in HardwareMap.h as kI2sBck, kI2sDout, kI2sLrck.
 
 #define FREERTOS
 
-// Tone frequency and ramp constants (PPS constants moved to onspeed_core/ToneCalc.h)
+// Tone frequency and ramp constants (PPS constants moved to onspeed_core/ToneCalc.h).
+// Ramp times ported verbatim from Gen2 Tones.ino.
 #define HIGH_TONE_HZ         1600                 // freq of high tone
 #define LOW_TONE_HZ           400                 // freq of low tone
-#define TONE_RAMP_TIME         15                 // millisec
-#define STALL_RAMP_TIME         5                 // millisec
+#define TONE_RAMP_TIME         15                 // millisec, normal ramp
+#define STALL_RAMP_TIME         5                 // millisec, stall (20 PPS)
+
+// Verbatim port of Gen2's solid↔high transition delay constant:
+//   1000 / LOW_TONE_PPS_MAX / 2 = 1000 / 8.2 / 2 ≈ 60.97 ms
+// Used as the first-pulse silent delay when transitioning solid → pulsed
+// or as the silent delay before a solid tone begins (high → solid).
+// See Tones.ino:11 + Tones.ino:63.
+static constexpr float SOLID_TRANSITION_DELAY_MS =
+    1000.0f / onspeed::LOW_TONE_PPS_MAX / 2.0f;
 
 // ----------------------------------------------------------------------------
 
@@ -93,6 +124,68 @@ static bool         s_bAudioUnmuted = false;    // Hysteretic mute state; see Up
 static volatile TaskHandle_t s_xAudioTestTask = nullptr;
 static std::atomic<bool>     s_bAudioTestStopRequested{false};
 static std::atomic<bool>     s_bAudioTestStarting{false};
+
+// ----------------------------------------------------------------------------
+// Envelope spec builders — port Gen2's per-pulse DAHD shape and per-mode
+// transitions.  See Envelope.h for the lineage.
+
+static inline float MsToSamples(float ms)
+{
+    return ms * (SAMPLE_RATE / 1000.0f);
+}
+
+// Build an envelope spec for a pulsed tone at `pps`.
+//   isStall    — true at stall warning PPS; uses the snappier 5 ms ramp.
+//   fromSolid  — true if the previous note was solid; uses Gen2's
+//                shortened ~61 ms first-pulse delay so the new pulsed
+//                tone arrives within one perceptual half-period.
+//
+// Gen2's per-pulse shape (Tones.ino:104-120):
+//   tone_length = pulse_delay - 3 ms          (3 ms inter-pulse safety)
+//   delay       = tone_length / 2             (silent first half)
+//   attack      = ramp_time
+//   hold        = tone_length/2 - 2*ramp_time
+//   decay       = ramp_time
+//   release     = ramp_time
+static onspeed::audio::EnvelopeSpec MakePulseSpec(float pps,
+                                                  bool isStall,
+                                                  bool fromSolid)
+{
+    const float pulseDelayMs = 1000.0f / pps;          // full period
+    const float toneLengthMs = pulseDelayMs - 3.0f;    // Gen2 safety margin
+    const float rampMs       = isStall ? STALL_RAMP_TIME : TONE_RAMP_TIME;
+    const float delayMs      = fromSolid
+                                 ? SOLID_TRANSITION_DELAY_MS
+                                 : (toneLengthMs * 0.5f);
+    float       holdMs       = (toneLengthMs * 0.5f) - 2.0f * rampMs;
+    if (holdMs < 0.0f) holdMs = 0.0f;
+
+    onspeed::audio::EnvelopeSpec s;
+    s.delaySamples   = MsToSamples(delayMs);
+    s.attackSamples  = MsToSamples(rampMs);
+    s.holdSamples    = MsToSamples(holdMs);
+    s.decaySamples   = MsToSamples(rampMs);
+    s.releaseSamples = MsToSamples(rampMs);
+    s.isSolid        = false;
+    return s;
+}
+
+// Build an envelope spec for a solid tone.  Gen2 (Tones.ino:62-71) uses
+// a fixed 61 ms silent delay before the attack so a high → solid
+// transition feels smooth; from idle there's no need for the delay.
+static onspeed::audio::EnvelopeSpec MakeSolidSpec(bool fromHigh)
+{
+    onspeed::audio::EnvelopeSpec s;
+    s.delaySamples   = fromHigh ? MsToSamples(SOLID_TRANSITION_DELAY_MS) : 0.0f;
+    s.attackSamples  = MsToSamples(TONE_RAMP_TIME);
+    s.holdSamples    = 0.0f;
+    s.decaySamples   = 0.0f;
+    s.releaseSamples = MsToSamples(TONE_RAMP_TIME);
+    s.isSolid        = true;
+    return s;
+}
+
+// ----------------------------------------------------------------------------
 
 static void AudioLogDebugNoBlock(const char * szFmt, ...)
     {
@@ -132,19 +225,17 @@ static void AudioTestTask(void * pvParams)
 
 /*
 FreeRTOS task to play the appropriate noise at the appropriate time.
-When run as a FreeRTOS task about 50 msec is the most audio that gets
-buffered. Make sure no higher priority task takes that much time or
-else the output audio will have gaps and glitches.
-This AudioPlayTask() should run at a higher priority to make sure it
-can write data out to the audio chip in a timely fashion. Even though
-some voice audio playbacks are long (1 sec or more) and the write routine
-will block because the DMA memory is full, the block seems to give up
-the processor gracefully, even at the higher priority. In other words,
-this doesn't seem to hog the CPU, even at a higher priority.
+Each PlayTone() call writes one 15 ms (240-frame) chunk to I2S, so this
+task wakes ~67 times per second when a tone is active.  The short pump
+bounds the SetTone()→audible-attack latency at ~15 ms, which keeps Gen2's
+61 ms solid→pulsed transition timing inside one half-period at 6.2 PPS
+(80 ms half-period).  Make sure no higher-priority task takes longer
+than the pump period or audio will gap.
 */
 
 void AudioPlayTask(void * psuParams)
 {
+    (void)psuParams;
     while (true)
     {
         if (!s_bI2sOk)
@@ -154,22 +245,23 @@ void AudioPlayTask(void * psuParams)
             continue;
             }
 
-        // Block until SetTone/SetVoice sends a notification, or 100ms
-        // elapses as a safety net.  pdTRUE clears the notification count
-        // so stale notifications don't cause extra wakeups.
-        if (g_AudioPlay.enTone == enToneNone && g_AudioPlay.enVoice == enVoiceNone)
+        // Sleep when nothing is playing AND the envelope has fully drained.
+        // The release ramp on SetTone(None) needs a few more pump calls to
+        // reach zero — keep pumping until s_ToneEnvelope is idle so the
+        // tone fades out cleanly instead of cutting off mid-cycle.
+        if (g_AudioPlay.enTone == enToneNone &&
+            g_AudioPlay.enVoice == enVoiceNone &&
+            s_ToneEnvelope.IsIdle())
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
 
-        // If a voice play has been selected then play it once. Note that PlayVoice()
-        // blocks until it is finished.
+        // Voice clip plays once and resets.  Blocks until done.
         if (g_AudioPlay.enVoice != enVoiceNone)
-            {
             g_AudioPlay.PlayVoice();
-            }
 
-        // If there is a tone play then keep pumping out tone buffers. Note that PlayTone()
-        // blocks until it finishes writing 50 msec of tone data.
-        if (g_AudioPlay.enTone != enToneNone)
+        // Tone path: pump while a tone is selected OR the envelope is
+        // still releasing.  The envelope's idle state is the canonical
+        // "tone fully stopped" signal.
+        if (g_AudioPlay.enTone != enToneNone || !s_ToneEnvelope.IsIdle())
             g_AudioPlay.PlayTone();
 
     } // end while forever
@@ -186,6 +278,9 @@ AudioPlay::AudioPlay()
     fVolume              = 0.5f;
     fLeftGain            = 1.0f;
     fRightGain           = 1.0f;
+    // Default to STALL_VOL_MAX so a tone-via-AudioTest before UpdateTones()
+    // fires plays at full amplitude, not the cruise floor.
+    fStallVolumeMult     = onspeed::STALL_VOL_MAX;
 
     fTonePulseMaxSamples = 0;
     fTonePulseCounter    = 0;
@@ -272,14 +367,72 @@ void AudioPlay::SetVoice(EnVoice enVoiceIn)
 
 // ----------------------------------------------------------------------------
 
-// Select a precomputed tone to play. Tone will continue to play until turned off.
+// Select a precomputed tone to play. Tone will continue to play until
+// turned off.  This is the single funnel for tone-state changes — it
+// builds a fresh envelope spec from the current (enTone, PPS) pair and
+// hands it to the envelope's NoteOn().  If the envelope is mid-flight
+// it will release cleanly first, then arm the new spec — Gen2's
+// `noteOff(); noteOn();` pattern.
 
 void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
+    if (enAudioTone == enToneNone)
+    {
+        // Stop request: release the envelope.  AudioPlayTask keeps pumping
+        // until the release reaches zero, so the tail fades cleanly.
+        s_ToneEnvelope.NoteOff();
+        s_LastEnvTone       = enToneNone;
+        s_LastEnvHalfPeriod = -1.0f;
+        s_LastEnvWasSolid   = false;
+        this->enTone = enAudioTone;
+        return;
+    }
+
+    // Determine the new envelope shape inputs.
+    const bool  bSolid = (fTonePulseMaxSamples == 0.0f);
+    const float fHalf  = bSolid ? 0.0f : fTonePulseMaxSamples;
+
+    // Debounce: if neither tone-type, solid/pulsed mode, nor PPS has
+    // changed since the last NoteOn, leave the running envelope alone.
+    // This is critical because UpdateTones() runs at 208 Hz and would
+    // otherwise stomp on the natural pulse cycle every sensor tick.
+    // Tolerance on PPS comparison: ~1 sample of half-period (negligible
+    // perceptually, swallows fp noise from the 16 kHz × 1/PPS conversion).
+    if (enAudioTone == s_LastEnvTone &&
+        bSolid       == s_LastEnvWasSolid &&
+        std::fabs(fHalf - s_LastEnvHalfPeriod) <= 1.0f)
+    {
+        // Same shape — let the envelope keep cycling naturally.
+        this->enTone = enAudioTone;
+        return;
+    }
+
+    // Build a fresh spec for the new shape.
+    onspeed::audio::EnvelopeSpec spec;
+    if (bSolid)
+    {
+        // Solid tone (currently used only for low cruise).  If we're
+        // coming from a high pulsed tone, Gen2 inserts a fixed silent
+        // delay (~61 ms) for a smoother perceptual transition.
+        const bool fromHigh = (s_LastEnvTone == enToneHigh);
+        spec = MakeSolidSpec(fromHigh);
+    }
+    else
+    {
+        const float fPps     = SAMPLE_RATE / (fHalf * 2.0f);
+        const bool isStall   = (fPps >= onspeed::HIGH_TONE_STALL_PPS - 0.5f);
+        const bool fromSolid = s_LastEnvWasSolid;
+        spec = MakePulseSpec(fPps, isStall, fromSolid);
+    }
+
+    s_ToneEnvelope.NoteOn(spec);
+    s_LastEnvTone       = enAudioTone;
+    s_LastEnvHalfPeriod = fHalf;
+    s_LastEnvWasSolid   = bSolid;
+
     this->enTone = enAudioTone;
 
-    if (enAudioTone != enToneNone)
-        NotifyAudioTask();
+    NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
@@ -293,18 +446,30 @@ void AudioPlay::SetToneFreq(unsigned uToneFreqIn)
 
 // ----------------------------------------------------------------------------
 
-// Make a tone envelope that generates a 50% duty cycle pulse at the commanded
-// frequency. In the previous code the range of allowed frequencies was
-// from 1.5 PPS to 6.2 PPS depending on AOA value.
+// Set the per-tone pulse rate in Hz.  Range 1.0–25.0 PPS produces a pulsed
+// tone; anything outside disables pulsing (solid).  Updates the per-pulse
+// half-period counter used by both the legacy mixer path and (now) the
+// envelope spec builder above.  When called while a tone is active, also
+// re-trigger the envelope so the new rate takes effect cleanly with a
+// fresh release-then-attack rather than mid-cycle.
 
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
-    // Outside limits disables tone pulse
+    const float prevHalfPeriod = fTonePulseMaxSamples;
+
     if ((fPulseFreq < 1.0f) || (fPulseFreq > 25.0f))
         fTonePulseMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // Tone period in audio samples
+        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // half-period in samples
 
+    // If a tone is active and the rate (or solid/pulsed mode) changed,
+    // refresh the envelope so the new shape takes effect on the next pulse.
+    // SetTone handles the in-flight noteOff/noteOn transition for us.
+    if (this->enTone != enToneNone &&
+        fTonePulseMaxSamples != prevHalfPeriod)
+    {
+        SetTone(this->enTone);
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -357,48 +522,51 @@ void AudioPlay::PlayPcmBuffer(const unsigned char * pData, int iNumBytes, float 
 
 // ----------------------------------------------------------------------------
 
-// Play locally generated audio tone buffer
+// Play one pump-sized chunk of the source PCM tone buffer through the
+// envelope-driven mixer to I2S.  Source PCM is read with a wrap-around
+// index so the cosine carrier stays phase-continuous across pump calls
+// (Gen2 model: continuous sine, envelope-shaped amplitude).
+//
+// `pData` is the precomputed cosine table; `iNumSamples` is its length
+// (TONE_BUFFER_LEN).  Per-channel gain (`fLeftVolume`, `fRightVolume`)
+// is the master*stallVol*pan composition computed by PlayTone().
 void AudioPlay::PlayToneBuffer(const int16_t * pData, int iNumSamples, float fLeftVolume, float fRightVolume)
 {
     if (!s_bI2sOk)
         return;
 
-    constexpr size_t kFramesPerWrite = 240; // Match default I2S DMA frame count.
+    constexpr size_t kFramesPerWrite = TONE_PUMP_FRAMES;  // 240 samples = 15 ms
+    int16_t          aSource[kFramesPerWrite];
     int16_t          aStereo[kFramesPerWrite * 2];
     uint32_t         aFrames[kFramesPerWrite];
 
+    const size_t srcLen = static_cast<size_t>(iNumSamples);
+
+    // Copy one pump chunk from the source table with phase-continuous
+    // wrap-around.  Cheaper than mod-indexing per sample inside the mixer
+    // and lets the mixer remain agnostic to source layout.
+    for (size_t i = 0; i < kFramesPerWrite; ++i)
+    {
+        aSource[i] = pData[(s_ToneSrcIdx + i) % srcLen];
+    }
+    s_ToneSrcIdx = (s_ToneSrcIdx + kFramesPerWrite) % srcLen;
+
     onspeed::audio::MixerInputs inp;
+    inp.in         = aSource;
     inp.leftScale  = fLeftVolume;
     inp.rightScale = fRightVolume;
-    inp.pulseSpec.halfPeriodSamples = fTonePulseMaxSamples;
-    inp.pulseSpec.offScale          = 0.2f;   // Legacy "ducked" pulse level
+    inp.envelope   = &s_ToneEnvelope;
+    // Envelope path supersedes the legacy pulse-gate; halfPeriodSamples
+    // stays 0 so the mixer ignores it.
 
-    // Persist the tone-mixer state across calls / chunks so the pulse
-    // gate phase continues smoothly (matches the legacy `static bool
-    // bPulseLevel` behaviour of the old PlayToneBuffer()).
-    size_t remaining = static_cast<size_t>(iNumSamples);
-    const int16_t* src = pData;
+    onspeed::audio::Mix(inp, aStereo, kFramesPerWrite, s_ToneMixerState);
 
-    while (remaining > 0)
+    for (size_t j = 0; j < kFramesPerWrite; ++j)
     {
-        const size_t n = remaining < kFramesPerWrite ? remaining : kFramesPerWrite;
-        inp.in = src;
-        onspeed::audio::Mix(inp, aStereo, n, s_ToneMixerState);
-
-        for (size_t j = 0; j < n; ++j)
-        {
-            aFrames[j] = onspeed::audio::PackStereoI16(aStereo[2 * j + 0],
-                                                        aStereo[2 * j + 1]);
-        }
-        i2s.write(reinterpret_cast<const uint8_t *>(aFrames), n * sizeof(aFrames[0]));
-
-        src       += n;
-        remaining -= n;
+        aFrames[j] = onspeed::audio::PackStereoI16(aStereo[2 * j + 0],
+                                                    aStereo[2 * j + 1]);
     }
-
-    // Keep the legacy public counter in sync so external observers (if any)
-    // can still see the current pulse progress.
-    fTonePulseCounter = s_ToneMixerState.pulse.counter;
+    i2s.write(reinterpret_cast<const uint8_t *>(aFrames), sizeof(aFrames));
 }
 
 // ----------------------------------------------------------------------------
@@ -458,21 +626,43 @@ void AudioPlay::PlayTone()
 
 // ----------------------------------------------------------------------------
 
-// Play the selected tone
+// Play one pump-sized chunk of the currently-selected tone.
+//
+// During envelope release (after SetTone(None)), enTone has been cleared
+// but s_ToneEnvelope is still ramping down — we use s_LastEnvTone to
+// keep feeding the same source table so the release ramp lands on a
+// continuous carrier instead of a sudden source switch.
+//
+// Per-channel scaling composes Gen2's four amplitude layers in one
+// expression, in the order (from inside out):
+//
+//   sample × fStallVolumeMult × fVolume × fLeftGain  (× envelope.gate)
+//   ──────  ──────────────────  ───────  ─────────     ──────────────
+//   carrier  per-PPS volume     master    3D pan       per-sample shape
+//
+// Each non-envelope layer can step between buffers; the envelope's
+// silent phases (delay/release) mask those steps perceptually.
 
 void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 {
     AudioLogDebugNoBlock("PlayTone %d\n", enAudioTone);
 
-    // Cap per-channel gain to prevent waveform clipping when 3D audio
-    // panning drives fLeftGain/fRightGain up to 2.0. Without this cap,
-    // the tone sine wave clips to a square wave at full volume + full pan.
-    float fL = fVolume * fLeftGain;
-    float fR = fVolume * fRightGain;
+    // During release the caller passes enToneNone but we want to keep
+    // pumping the last tone's source so the envelope decays cleanly.
+    EnAudioTone effectiveTone = (enAudioTone != enToneNone)
+                                  ? enAudioTone
+                                  : s_LastEnvTone;
+    if (effectiveTone == enToneNone)
+        return;   // nothing to play, nothing to release
+
+    // Compose the four amplitude layers, capping to 1.0 to prevent
+    // waveform clipping when 3D pan ≥ 1.0 combines with master volume.
+    float fL = fVolume * fStallVolumeMult * fLeftGain;
+    float fR = fVolume * fStallVolumeMult * fRightGain;
     if (fL > 1.0f) fL = 1.0f;
     if (fR > 1.0f) fR = 1.0f;
 
-    switch (enAudioTone)
+    switch (effectiveTone)
     {
         case enToneLow :
             PlayToneBuffer(aTone_400Hz, iDataLen, fL, fR);
@@ -546,15 +736,29 @@ void AudioPlay::UpdateTones(const ActiveFlapSnapshot& snap)
         AudioLogDebugNoBlock("AUDIO MUTED: Airspeed too low. Min:%i IAS:%.2f\n",
             iMuteThreshold, g_Sensors.IAS);
 #endif
-        result = { onspeed::EnToneType::None, 20.0f };
+        result = { onspeed::EnToneType::None, 20.0f, onspeed::STALL_VOL_MIN };
         }
     else
         {
         result = onspeed::calculateTone(g_Sensors.AOA, th);
         }
 
+    // Capture the per-PPS amplitude multiplier so PlayTone() picks it up
+    // on the next pump.  Single float written by this task and read by
+    // the audio task — no mutex needed (matches the existing pattern for
+    // fVolume / fLeftGain / fRightGain).
+    fStallVolumeMult = result.fVolumeMult;
+
+    // Update half-period silently first so SetTone() builds the envelope
+    // spec from the new rate.  We assign fTonePulseMaxSamples directly
+    // (rather than calling SetPulseFreq) to avoid double-triggering the
+    // envelope when both rate and tone change in the same tick.
+    if ((result.fPulseFreq < 1.0f) || (result.fPulseFreq > 25.0f))
+        fTonePulseMaxSamples = 0;
+    else
+        fTonePulseMaxSamples = SAMPLE_RATE / (result.fPulseFreq * 2.0f);
+
     SetTone(static_cast<EnAudioTone>(result.enTone));
-    SetPulseFreq(result.fPulseFreq);
     }
 
 // ----------------------------------------------------------------------------
@@ -625,6 +829,12 @@ void AudioPlay::AudioTest()
     bAudioTest = true;
     s_bAudioTestStopRequested.store(false);
 
+    // Save the per-PPS volume multiplier and restore it on exit so that
+    // when bAudioTest clears and UpdateTones() resumes writing the live
+    // value, there's no glitchy one-tick window at whatever the test
+    // sequence last set.
+    const float fSavedStallVolumeMult = fStallVolumeMult;
+
     auto DelayOrStop = [&](uint32_t delayMs) -> bool
         {
         TickType_t remaining = pdMS_TO_TICKS(delayMs);
@@ -655,15 +865,22 @@ void AudioPlay::AudioTest()
     g_AudioPlay.SetVoice(enVoiceRight);
     if (!DelayOrStop(2000)) goto done;
 
+    // Solid low (cruise / on-speed) → attenuated to STALL_VOL_MIN
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(2000)) goto done;
 
     g_AudioPlay.SetVoice(enVoiceGLimit);
     if (!DelayOrStop(3000)) goto done;
 
+    // Solid high (would only occur as a transient; played here for testing)
+    // → full STALL_VOL_MAX volume
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MAX;
     g_AudioPlay.SetTone(enToneHigh);
     if (!DelayOrStop(2000)) goto done;
 
+    // Pulsed low sweep (LDmax → OnSpeedFast region) — attenuated
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
     g_AudioPlay.SetTone(enToneLow);
     if (!DelayOrStop(1500)) goto done;
 
@@ -676,17 +893,25 @@ void AudioPlay::AudioTest()
     g_AudioPlay.SetPulseFreq(5.0);
     if (!DelayOrStop(2000)) goto done;
 
+    // Pulsed high (approaching stall).  Step the per-PPS volume ramp
+    // through floor → midpoint → ceiling so the pilot can audibly verify
+    // the Gen2 amplitude ramp without flying.
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
     g_AudioPlay.SetTone(enToneHigh);
-    if (!DelayOrStop(2000)) goto done;
-
     g_AudioPlay.SetPulseFreq(4.0);
-    if (!DelayOrStop(2000)) goto done;
+    if (!DelayOrStop(1500)) goto done;
+
+    g_AudioPlay.fStallVolumeMult = (onspeed::STALL_VOL_MIN + onspeed::STALL_VOL_MAX) * 0.5f;
+    if (!DelayOrStop(1500)) goto done;
+
+    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MAX;
+    if (!DelayOrStop(1500)) goto done;
 
 done:
     g_AudioPlay.SetPulseFreq(0);
-
     g_AudioPlay.SetTone(enToneNone);
 
+    fStallVolumeMult = fSavedStallVolumeMult;
     bAudioTest = false;
     s_bAudioTestStopRequested.store(false);
 }

@@ -393,6 +393,136 @@ void test_mix_of_synthesized_tone_preserves_peak(void)
 }
 
 // ============================================================================
+// Mix — envelope path (DAHDR gate)
+// ============================================================================
+
+void test_mix_envelope_idle_produces_silence(void)
+{
+    // Envelope in idle state should produce zero output even with full gain.
+    const std::size_t kN = 64;
+    std::vector<std::int16_t> mono(kN, 25000);
+    std::vector<std::int16_t> out(2 * kN);
+
+    onspeed::audio::Envelope env;  // Idle by default
+    MixerInputs inp;
+    inp.in = mono.data();
+    inp.leftScale  = 1.0f;
+    inp.rightScale = 1.0f;
+    inp.envelope   = &env;
+
+    MixerState st;
+    Mix(inp, out.data(), kN, st);
+
+    for (std::size_t i = 0; i < kN; ++i) {
+        TEST_ASSERT_EQUAL_INT16(0, out[2 * i + 0]);
+        TEST_ASSERT_EQUAL_INT16(0, out[2 * i + 1]);
+    }
+}
+
+void test_mix_envelope_pulse_silent_during_delay(void)
+{
+    // First N samples of a pulse should be silent (Delay phase).
+    const std::size_t kN = 100;
+    std::vector<std::int16_t> mono(kN, 20000);
+    std::vector<std::int16_t> out(2 * kN);
+
+    onspeed::audio::Envelope env;
+    onspeed::audio::EnvelopeSpec spec;
+    spec.delaySamples   = 50.0f;
+    spec.attackSamples  = 10.0f;
+    spec.holdSamples    = 30.0f;
+    spec.decaySamples   = 10.0f;
+    spec.releaseSamples = 10.0f;
+    env.NoteOn(spec);
+
+    MixerInputs inp;
+    inp.in = mono.data();
+    inp.leftScale  = 1.0f;
+    inp.rightScale = 1.0f;
+    inp.envelope   = &env;
+
+    MixerState st;
+    Mix(inp, out.data(), kN, st);
+
+    // First 50 samples (delay phase) should be exactly 0
+    for (std::size_t i = 0; i < 50; ++i) {
+        TEST_ASSERT_EQUAL_INT16(0, out[2 * i + 0]);
+        TEST_ASSERT_EQUAL_INT16(0, out[2 * i + 1]);
+    }
+    // Sample 50+ should have non-zero values (attack phase)
+    bool sawNonZero = false;
+    for (std::size_t i = 51; i < kN; ++i) {
+        if (out[2 * i + 0] != 0) sawNonZero = true;
+    }
+    TEST_ASSERT_TRUE(sawNonZero);
+}
+
+void test_mix_envelope_overrides_pulse_gate(void)
+{
+    // When envelope is provided, pulseSpec is ignored.
+    const std::size_t kN = 32;
+    std::vector<std::int16_t> mono(kN, 10000);
+    std::vector<std::int16_t> out(2 * kN);
+
+    onspeed::audio::Envelope env;
+    // Solid spec, immediate attack so envelope reaches full quickly
+    onspeed::audio::EnvelopeSpec spec;
+    spec.delaySamples = 0.0f;
+    spec.attackSamples = 0.0f;
+    spec.isSolid = true;
+    env.NoteOn(spec);
+
+    MixerInputs inp;
+    inp.in = mono.data();
+    inp.leftScale  = 1.0f;
+    inp.rightScale = 1.0f;
+    inp.envelope   = &env;
+    // pulseSpec is set to a normally-active state — should be ignored
+    inp.pulseSpec.halfPeriodSamples = 8.0f;
+    inp.pulseSpec.offScale          = 0.0f;
+
+    MixerState st;
+    Mix(inp, out.data(), kN, st);
+
+    // All samples should be at full amplitude (envelope sustains at 1.0).
+    // If pulse-gate were active they'd alternate to 0.
+    for (std::size_t i = 0; i < kN; ++i) {
+        TEST_ASSERT_EQUAL_INT16(10000, out[2 * i + 0]);
+    }
+}
+
+void test_mix_envelope_per_channel_scale_composes(void)
+{
+    // Envelope multiplies both channels equally by the same gate, on top of
+    // independent per-channel scales.
+    const std::size_t kN = 32;
+    std::vector<std::int16_t> mono(kN, 20000);
+    std::vector<std::int16_t> out(2 * kN);
+
+    onspeed::audio::Envelope env;
+    onspeed::audio::EnvelopeSpec spec;
+    spec.delaySamples = 0.0f;
+    spec.attackSamples = 0.0f;
+    spec.isSolid = true;
+    env.NoteOn(spec);
+
+    MixerInputs inp;
+    inp.in = mono.data();
+    inp.leftScale  = 0.25f;   // simulates STALL_VOL_MIN
+    inp.rightScale = 1.0f;    // simulates STALL_VOL_MAX (after pan)
+    inp.envelope   = &env;
+
+    MixerState st;
+    Mix(inp, out.data(), kN, st);
+
+    // Each channel should be scaled by its scale times gate (1.0).
+    for (std::size_t i = 0; i < kN; ++i) {
+        TEST_ASSERT_INT16_WITHIN(2, 5000, out[2 * i + 0]);
+        TEST_ASSERT_INT16_WITHIN(2, 20000, out[2 * i + 1]);
+    }
+}
+
+// ============================================================================
 
 int main(int, char**)
 {
@@ -424,6 +554,11 @@ int main(int, char**)
     RUN_TEST(test_mix_pulse_respects_pan);
 
     RUN_TEST(test_mix_of_synthesized_tone_preserves_peak);
+
+    RUN_TEST(test_mix_envelope_idle_produces_silence);
+    RUN_TEST(test_mix_envelope_pulse_silent_during_delay);
+    RUN_TEST(test_mix_envelope_overrides_pulse_gate);
+    RUN_TEST(test_mix_envelope_per_channel_scale_composes);
 
     return UNITY_END();
 }

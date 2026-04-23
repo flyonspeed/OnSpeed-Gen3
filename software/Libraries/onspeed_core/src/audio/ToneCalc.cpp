@@ -36,12 +36,12 @@ ToneResult calculateTone(float fAOA, const ToneThresholds& th)
         th.fONSPEEDSLOWAOA <= 0.0f ||
         th.fSTALLWARNAOA   <= 0.0f)
     {
-        return { EnToneType::None, 0.0f };
+        return { EnToneType::None, 0.0f, STALL_VOL_MIN };
     }
 
     if (fAOA >= th.fSTALLWARNAOA)
     {
-        return { EnToneType::High, HIGH_TONE_STALL_PPS };
+        return { EnToneType::High, HIGH_TONE_STALL_PPS, STALL_VOL_MAX };
     }
 
     if (fAOA > th.fONSPEEDSLOWAOA)
@@ -49,12 +49,16 @@ ToneResult calculateTone(float fAOA, const ToneThresholds& th)
         float fPPS = mapfloat(fAOA,
                               th.fONSPEEDSLOWAOA, th.fSTALLWARNAOA,
                               HIGH_TONE_PPS_MIN, HIGH_TONE_PPS_MAX);
-        return { EnToneType::High, fPPS };
+        // Match Gen2's per-PPS amplitude ramp on the high pulsed region.
+        float fVol = mapfloat(fAOA,
+                              th.fONSPEEDSLOWAOA, th.fSTALLWARNAOA,
+                              STALL_VOL_MIN, STALL_VOL_MAX);
+        return { EnToneType::High, fPPS, fVol };
     }
 
     if (fAOA >= th.fONSPEEDFASTAOA)
     {
-        return { EnToneType::Low, 0.0f };
+        return { EnToneType::Low, 0.0f, STALL_VOL_MIN };
     }
 
     if (fAOA >= th.fLDMAXAOA && th.fLDMAXAOA < th.fONSPEEDFASTAOA)
@@ -62,10 +66,10 @@ ToneResult calculateTone(float fAOA, const ToneThresholds& th)
         float fPPS = mapfloat(fAOA,
                               th.fLDMAXAOA, th.fONSPEEDFASTAOA,
                               LOW_TONE_PPS_MIN, LOW_TONE_PPS_MAX);
-        return { EnToneType::Low, fPPS };
+        return { EnToneType::Low, fPPS, STALL_VOL_MIN };
     }
 
-    return { EnToneType::None, 0.0f };
+    return { EnToneType::None, 0.0f, STALL_VOL_MIN };
 }
 
 ToneResult calculateToneMuted(float fAOA, float fIAS,
@@ -76,12 +80,12 @@ ToneResult calculateToneMuted(float fAOA, float fIAS,
     // no stall threshold configured there is nothing meaningful to
     // cut through.
     if (fSTALLWARNAOA <= 0.0f)
-        return { EnToneType::None, 0.0f };
+        return { EnToneType::None, 0.0f, STALL_VOL_MIN };
 
     if (fAOA >= fSTALLWARNAOA && fIAS > iMuteUnderIAS)
-        return { EnToneType::High, HIGH_TONE_STALL_PPS };
+        return { EnToneType::High, HIGH_TONE_STALL_PPS, STALL_VOL_MAX };
 
-    return { EnToneType::None, 0.0f };
+    return { EnToneType::None, 0.0f, STALL_VOL_MIN };
 }
 
 } // namespace onspeed
