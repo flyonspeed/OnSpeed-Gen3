@@ -20,7 +20,10 @@ constexpr float kIasTauFactor      = (1.0f / kIasSmoothing) - 1.0f;
 constexpr float kMinIasForFlightPath = 25.0f;              // kt
 constexpr float kEkfGravityMps2    = 9.80665f;
 constexpr float kKalZVariance      = 0.79078f;
-constexpr float kKalAccelVariance  = 26.0638f;
+// Lower bound for KalmanFilter's per-update accel-variance clamp. Higher
+// values make the filter distrust the accel input and lean on baro
+// altitude — smoother but laggier VSI.
+constexpr float kKalAccelVariance  = 1.0f;
 constexpr float kKalAccelBiasVar   = 1e-11f;
 
 // OAT validity window matches legacy logic: |T_C| < 100.
