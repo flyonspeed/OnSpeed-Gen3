@@ -205,7 +205,7 @@ void SerialRead()
         IAS                 = 100.0;
         Palt                = 2500.0;
         LateralG            = 0.0;
-        VerticalG           = 0.0;
+        VerticalG           = 1.0;  // 1g straight-and-level (bench realism)
         iVSI                = 0.0;
         OAT                 = 70;
         FlightPath          = 0.0;
