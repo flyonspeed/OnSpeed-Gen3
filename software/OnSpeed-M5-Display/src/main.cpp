@@ -476,8 +476,13 @@ void loop()
                 constexpr int RIGHT_X = 307;
 
                 // ----- Labels (sit close under/over their numbers) -----
-                constexpr int TOP_LABEL_Y = 55;   // just below number baseline=30
-                constexpr int BOT_LABEL_Y = 223;  // just below number baseline=198
+                // Tuned against the baseline_left datum convention. The
+                // previous layout placed labels ~7 px higher because
+                // pitchGraph() left MC_DATUM active (centered text).
+                // After the datum-restore fix, +7 keeps the visual
+                // position stable.
+                constexpr int TOP_LABEL_Y = 62;   // just below number baseline=30
+                constexpr int BOT_LABEL_Y = 230;  // just below number baseline=198
                 gdraw.setFont(FSS12);
 
                 gdraw.setCursor(5, TOP_LABEL_Y);
@@ -1249,6 +1254,7 @@ void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t s
         py4 -= yRotate*0.75f;
         myGauges.printNum (String (i)+"o", px4, py4, 8, 12, roll, TFT_BLACK, ML_DATUM);
     }
+    gdraw.setTextDatum(textdatum_t::baseline_left); // restore project datum convention
 } // end pitchGraph
 
 
