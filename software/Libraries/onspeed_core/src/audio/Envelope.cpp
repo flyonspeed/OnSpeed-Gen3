@@ -42,11 +42,35 @@ void Envelope::NoteOn(const EnvelopeSpec& spec)
         return;
     }
 
-    // In-flight note: queue the new spec and trigger a release.  Once the
-    // release reaches zero, Tick() will fire the queued NoteOn.
+    if (phase_ == EnvPhase::Sustain)
+    {
+        // Solid tone → new spec (pulsed or different solid): Sustain never
+        // auto-exits, so we must release from the sustained level.  The
+        // release tail (15 ms) hides behind the new spec's ~61 ms silent
+        // Delay phase — Gen2's solid→pulsed transition trick
+        // (Tones.ino:11, :63).
+        pendingSpec_ = spec;
+        notePending_ = true;
+        NoteOff();
+        return;
+    }
+
+    // Mid-pulse (Delay / Attack / Hold / Decay): queue the new spec and
+    // let the current pulse finish naturally.  Decay picks up
+    // pendingSpec_ at the pulse boundary (see Tick() below).
+    //
+    // This debounces rapid parameter churn without silencing the audio:
+    // Gen3's UpdateTones() runs at 208 Hz (vs Gen2's ~20 Hz), so when
+    // AOA chatters near the stall-warn threshold the PPS jumps
+    // discontinuously between 6.2 and 20 PPS on many sensor ticks.
+    // If every such call triggered a Release, the envelope would spend
+    // its life in Release/Attack transitions and produce rattly,
+    // indistinct audio.  With pulse-boundary queueing the currently
+    // playing pulse always finishes cleanly; only the *next* pulse
+    // reflects the latest spec, and only the most-recent pending
+    // spec wins (replacement, not chaining).
     pendingSpec_ = spec;
     notePending_ = true;
-    NoteOff();
 }
 
 void Envelope::NoteOff()
