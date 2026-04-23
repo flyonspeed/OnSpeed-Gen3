@@ -16,11 +16,10 @@
 //     `Published<AhrsOutputs>` snapshot holder; this PR only moves the
 //     math into core.
 //
-// The sketch-side EMA accel filters and gyro RunningMeans are kept
-// purely for legacy read access — `update()` / `addValue()` are never
-// called on them.  Each Process() call seeds them with the core's
-// freshly-computed values so consumers reading `.get()` /
-// `.getFastAverage()` see the same numbers the core just produced.
+// The sketch-side EMA accel filters are kept purely for legacy read
+// access — `update()` is never called on them.  Each Process() call
+// seeds them with the core's freshly-computed values so consumers
+// reading `.get()` see the same numbers the core just produced.
 
 #pragma once
 
@@ -31,7 +30,6 @@
 #include <ahrs/KalmanFilter.h>
 #include <ahrs/MadgwickFusion.h>
 #include <filters/EMAFilter.h>
-#include <filters/RunningMean.h>
 #include <types/AhrsInputs.h>
 
 using onspeed::EMAFilter;
@@ -73,11 +71,6 @@ public:
     float           FlightPath;         // degrees
     float           EarthVertG;
     float           DerivedAOA;
-
-    // Display-rate gyro running averages (mirror of core RunningMean).
-    onspeed::RunningMean GxAvg;
-    onspeed::RunningMean GyAvg;
-    onspeed::RunningMean GzAvg;
 
     float           gRoll, gPitch, gYaw;
 

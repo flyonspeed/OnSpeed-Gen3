@@ -128,9 +128,6 @@ AHRS::AHRS(int gyroSmoothing)
     : AccelFwdFilter(kAccSmoothing)
     , AccelLatFilter(kAccSmoothing)
     , AccelVertFilter(kAccSmoothing)
-    , GxAvg(gyroSmoothing)
-    , GyAvg(gyroSmoothing)
-    , GzAvg(gyroSmoothing)
     , core_(onspeed::ahrs::AhrsConfig{
           /* pitchBiasDeg */          0.0f,
           /* rollBiasDeg  */          0.0f,
