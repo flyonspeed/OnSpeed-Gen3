@@ -77,6 +77,14 @@ The Docker image (`Dockerfile.coverage`) pins `ubuntu:24.04` to match GitHub Act
 
 First run: ~3-4 minutes (Docker pulls base image, installs PlatformIO, warms the native platform cache). Subsequent runs: ~40 seconds on warm cache.
 
+#### Scope
+
+The report covers `software/Libraries/onspeed_core/` only. Vendored dependencies (`software/Libraries/tinyxml2/`) are filtered out via `lcov --remove` in `scripts/coverage-inner.sh` — testing upstream libraries is not our job, and including tinyxml2 dragged the headline coverage number down by ~20 points with zero actionable signal.
+
+#### Branch coverage caveat
+
+gcov records a C++ exception-unwind edge on every heap-allocating call (`std::string`, `std::vector`, `new`, etc.). Those edges can only be covered by a test that induces `std::bad_alloc` — not a meaningful target for a 32-MB-flash embedded system. The `--rc no_exception_branch=1` flag that would suppress them over-filters on our build (strips 98% of branches, not just exception edges), so we leave it off. Read the branch coverage number accordingly — the gap between line coverage (~93%) and branch coverage (~61%) is dominated by allocator-throw edges, not missing control-flow tests.
+
 ## Arduino IDE
 
 The Arduino IDE does not use the PlatformIO variant environments. Instead, the hardware variant defaults to V4P via the guard block at the top of `HardwareMap.h`. To build for V4B, edit the guard block and change the default `HW_V4P` to `HW_V4B`.
