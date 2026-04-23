@@ -2,12 +2,12 @@
 
 #include <math.h>
 #include <OneWire.h>
-#include <DallasTemperature.h>
 
 #include "RunningAverage.h"
 #include "RunningMedian.h"
 
 #include "src/Globals.h"
+#include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
 #include <sensors/PressureConvert.h>
@@ -177,7 +177,7 @@ SensorIO::SensorIO()
       P45Avg(10),
       IasDerivative(&fIasDerInput, 15),
       OneWireBus(kPinOat),
-      OatSensor(&OneWireBus)
+      OatSensor(OneWireBus)
 {
     Palt       = 0.00;
     OatC       = kOatDefaultC;
@@ -192,13 +192,8 @@ void SensorIO::Init()
     if (g_Config.bOatSensor)
         {
         pinMode(kPinOat,INPUT_PULLUP);
-        OatSensor.begin();                      // initialize the DS18B20 sensor
-        OatSensor.setResolution(12);             // 12-bit: ~750 ms conversion time
+        OatSensor.Begin(12);                     // 12-bit: ~750 ms conversion time
         ReadOatC();                              // blocking read OK before scheduler starts
-        // Switch to async mode AFTER the blocking startup read.
-        // If set before ReadOatC(), the startup read returns stale
-        // DS18B20 power-on-reset value (85 C) instead of real temp.
-        OatSensor.setWaitForConversion(false);
         }
 
     // Get initial pressure altitude
@@ -244,13 +239,13 @@ void SensorIO::Read()
     {
         if (!bOatConversionPending && (millis() - uLastOatReadMs > 1000))
         {
-            OatSensor.requestTemperatures();    // non-blocking with setWaitForConversion(false)
+            OatSensor.RequestConversion();      // non-blocking kick
             bOatConversionPending = true;
             uOatRequestMs = millis();
         }
         else if (bOatConversionPending && (millis() - uOatRequestMs >= kOatConversionMs))
         {
-            float fNew = OatSensor.getTempCByIndex(0);
+            float fNew = OatSensor.ReadCelsius();
             // Delegate sentinel and range filtering to the platform-independent
             // core function (OatConvert::FilterOat). Returns nullopt for
             // -127 (disconnect), 85 (POR), or out-of-range values.
@@ -389,8 +384,10 @@ float SensorIO::ReadPressureAltMbars()
 
 float SensorIO::ReadOatC()
 {
-    OatSensor.requestTemperatures();
-    float fNew = OatSensor.getTempCByIndex(0);
+    // Blocking read — only called during Init() before the scheduler
+    // starts. Ds18b20::BlockingReadCelsius does request + 750ms wait
+    // + read scratchpad in one call.
+    float fNew = OatSensor.BlockingReadCelsius();
     auto validated = onspeed::sensors::FilterOat(fNew);
     if (validated.has_value())
         OatC = *validated;

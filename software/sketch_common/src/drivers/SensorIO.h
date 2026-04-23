@@ -3,9 +3,9 @@
 
 // For OAT OneWire
 #include <OneWire.h>            //https://github.com/PaulStoffregen/OneWire
-#include <DallasTemperature.h>  //https://github.com/milesburton/Arduino-Temperature-Control-Library
 
 #include "src/Globals.h"
+#include "src/drivers/Ds18b20.h"
 
 #include "RunningAverage.h"
 #include "RunningMedian.h"
@@ -47,7 +47,7 @@ public:
     AOACalculator       AoaCalc;        // AOA calculation with smoothing
 
     OneWire             OneWireBus;
-    DallasTemperature   OatSensor;
+    Ds18b20             OatSensor;
 
     float               PStatic;        // Static pressure in millibars
     float               Palt;           // Pressure altitude in feet, corrected for bias
