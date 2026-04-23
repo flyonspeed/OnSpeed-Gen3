@@ -34,13 +34,22 @@ void Mix(const MixerInputs& inputs,
     if (inputs.in == nullptr || outStereo == nullptr || frameCount == 0)
         return;
 
-    const bool pulsing = (inputs.pulseSpec.halfPeriodSamples > 0.0f);
+    const bool useEnvelope = (inputs.envelope != nullptr);
+    const bool pulsing     = !useEnvelope &&
+                             (inputs.pulseSpec.halfPeriodSamples > 0.0f);
 
     for (std::size_t i = 0; i < frameCount; ++i) {
-        // Per-sample gate factor
-        float gate = 1.0f;
-        if (pulsing)
+        // Per-sample gate factor.  Envelope path is preferred (Gen2-faithful
+        // DAHDR shape); pulse-gate is the legacy fallback for voice and for
+        // callers that don't need full envelope shaping.
+        float gate;
+        if (useEnvelope) {
+            gate = inputs.envelope->Tick();
+        } else if (pulsing) {
             gate = state.pulse.isOnPhase ? 1.0f : inputs.pulseSpec.offScale;
+        } else {
+            gate = 1.0f;
+        }
 
         const float effL = inputs.leftScale  * gate;
         const float effR = inputs.rightScale * gate;

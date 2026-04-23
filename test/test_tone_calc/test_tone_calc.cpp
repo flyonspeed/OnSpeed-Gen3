@@ -267,6 +267,81 @@ void test_muted_mode_fires_with_only_stallwarn_configured()
 }
 
 // ============================================================================
+// Per-PPS volume ramp (Gen2 port)
+// ============================================================================
+
+void test_vol_below_ldmax_min()
+{
+    ToneResult r = calculateTone(5.0f, kClean);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MIN, r.fVolumeMult);
+}
+
+void test_vol_pulsed_low_min()
+{
+    ToneResult r = calculateTone(kClean.fLDMAXAOA, kClean);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MIN, r.fVolumeMult);
+}
+
+void test_vol_solid_low_min()
+{
+    ToneResult r = calculateTone(kClean.fONSPEEDFASTAOA, kClean);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MIN, r.fVolumeMult);
+}
+
+void test_vol_just_above_onspeedslow_near_min()
+{
+    float fJustAbove = kClean.fONSPEEDSLOWAOA + 0.01f;
+    ToneResult r = calculateTone(fJustAbove, kClean);
+    // Just above the bottom of the high-tone region → very close to STALL_VOL_MIN
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, STALL_VOL_MIN, r.fVolumeMult);
+}
+
+void test_vol_midway_onspeedslow_to_stallwarn_midpoint()
+{
+    float fMid = (kClean.fONSPEEDSLOWAOA + kClean.fSTALLWARNAOA) / 2.0f;
+    ToneResult r = calculateTone(fMid, kClean);
+    float fExpected = (STALL_VOL_MIN + STALL_VOL_MAX) / 2.0f;
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, fExpected, r.fVolumeMult);
+}
+
+void test_vol_just_below_stallwarn_near_max()
+{
+    float fJustBelow = kClean.fSTALLWARNAOA - 0.01f;
+    ToneResult r = calculateTone(fJustBelow, kClean);
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, STALL_VOL_MAX, r.fVolumeMult);
+}
+
+void test_vol_at_stallwarn_max()
+{
+    ToneResult r = calculateTone(kClean.fSTALLWARNAOA, kClean);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MAX, r.fVolumeMult);
+}
+
+void test_vol_above_stallwarn_max()
+{
+    ToneResult r = calculateTone(25.0f, kClean);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MAX, r.fVolumeMult);
+}
+
+void test_vol_full_flaps_pulsed_low_min()
+{
+    ToneResult r = calculateTone(9.5f, kFullFlaps);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MIN, r.fVolumeMult);
+}
+
+void test_vol_muted_stall_max()
+{
+    ToneResult r = calculateToneMuted(17.0f, 80.0f, 16.48f, 25);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MAX, r.fVolumeMult);
+}
+
+void test_vol_muted_silent_min()
+{
+    ToneResult r = calculateToneMuted(14.0f, 80.0f, 16.48f, 25);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, STALL_VOL_MIN, r.fVolumeMult);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -305,6 +380,19 @@ int main()
     RUN_TEST(test_partial_calibration_silent_above_stallwarn);
     RUN_TEST(test_partial_calibration_missing_ldmax_only);
     RUN_TEST(test_muted_mode_fires_with_only_stallwarn_configured);
+
+    // Per-PPS volume ramp (Gen2 port)
+    RUN_TEST(test_vol_below_ldmax_min);
+    RUN_TEST(test_vol_pulsed_low_min);
+    RUN_TEST(test_vol_solid_low_min);
+    RUN_TEST(test_vol_just_above_onspeedslow_near_min);
+    RUN_TEST(test_vol_midway_onspeedslow_to_stallwarn_midpoint);
+    RUN_TEST(test_vol_just_below_stallwarn_near_max);
+    RUN_TEST(test_vol_at_stallwarn_max);
+    RUN_TEST(test_vol_above_stallwarn_max);
+    RUN_TEST(test_vol_full_flaps_pulsed_low_min);
+    RUN_TEST(test_vol_muted_stall_max);
+    RUN_TEST(test_vol_muted_silent_min);
 
     return UNITY_END();
 }

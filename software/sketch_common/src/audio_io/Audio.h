@@ -26,7 +26,19 @@ void AudioPlayTask(void * psuParams);
 
 //#define SAMPLE_RATE         44100
 #define SAMPLE_RATE         16000
-#define TONE_BUFFER_LEN     SAMPLE_RATE / 20    // 50 msec of audio data
+// Source PCM tone buffer (precomputed cosine).  Size is sample-rate / 20 so
+// the index wraps every 50 ms — phase-continuous across pump calls because
+// the buffer length is exactly 1/20 of a second of full cycles for both
+// 400 Hz and 1600 Hz (both periods divide evenly).
+#define TONE_BUFFER_LEN     SAMPLE_RATE / 20
+
+// Audio buffer pump size: 240 samples = 15 ms at 16 kHz.  Matches the
+// I2S DMA chunk size.  Keeping the pump short (vs the historical 50 ms)
+// bounds the latency between SetTone() and the next audible attack at
+// ~15 ms, so Gen2's 61 ms solid→high transition timing still lands
+// inside one half-period at 6.2 PPS (80 ms).  See Tones.ino design notes
+// in Envelope.h.
+#define TONE_PUMP_FRAMES    240
 
 class AudioPlay
 {
@@ -42,6 +54,13 @@ public:
     float           fVolume;            // Audio output volume,from 0.0 to 1.0
     float           fLeftGain;          // Gain control, mostly for 3D audio, nominally 1.0 but
     float           fRightGain;         // can be higher or lower.
+
+    // AOA-driven per-PPS volume multiplier ported from Gen2 Tones.ino.
+    // Cruise/on-speed tones play at STALL_VOL_MIN (0.25), stall warning
+    // hits STALL_VOL_MAX (1.0), pulsed-high interpolates between.
+    // Updated by UpdateTones() at the sensor task rate (~208 Hz).
+    // Tones only — voice clips bypass this multiplier.
+    float           fStallVolumeMult;
 
     float           fTonePulseMaxSamples;
     float           fTonePulseCounter;

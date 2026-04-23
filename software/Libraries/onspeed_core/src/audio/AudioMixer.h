@@ -1,18 +1,30 @@
-// AudioMixer.h — stereo PCM mixer with per-channel gain, pan, and optional
-// pulse-gate modulation.
+// AudioMixer.h — stereo PCM mixer with per-channel gain, pan, optional
+// pulse-gate modulation, and optional DAHDR envelope shaping.
 //
 // Takes a mono int16 PCM input (either a synthesized tone buffer from
 // ToneSynth or a voice-prompt PCM asset from WavDecode) and produces
 // stereo interleaved int16 output after applying:
 //
-//   left_sample  = clamp(in_sample * leftScale  * pulseGate(i))
-//   right_sample = clamp(in_sample * rightScale * pulseGate(i))
+//   gate = envelope ? envelope.Tick()
+//                   : pulseGate(i)               // legacy fallback
+//   left_sample  = clamp(in_sample * leftScale  * gate)
+//   right_sample = clamp(in_sample * rightScale * gate)
 //
 // Pan is expressed via independent left/right gain factors — the caller
-// is expected to precompute these from (masterVolume * channelGain) and
-// any 3D-audio panning, capping each at 1.0 to prevent waveform clipping
-// when panning combines with full gain.  This mirrors the existing
-// Audio.cpp behavior (see PlayVoice / PlayTone: `if (fL > 1.0f) fL = 1.0f`).
+// composes these from (masterVolume * channelGain * stallVolMult * pan)
+// and caps each at 1.0 to prevent waveform clipping.
+//
+// **Envelope path (preferred for tones)**: pass a non-null `envelope`
+// pointer in `MixerInputs`.  The envelope's per-sample Tick() value
+// becomes the gate.  This is the Gen2-faithful path: the silent phases
+// of the DAHDR envelope mask any inter-buffer step changes in
+// leftScale/rightScale (volume, 3D panning), giving click-free
+// transitions for every parameter change.
+//
+// **Pulse-gate fallback**: when `envelope == nullptr`, the legacy
+// per-sample on/off toggle is used (gate = 1.0 on-phase, offScale on
+// off-phase, switching at halfPeriodSamples).  Retained for voice
+// playback and for callers that don't need full envelope shaping.
 //
 // No dynamic allocation. Output buffer must be sized for 2*frameCount
 // int16 values (interleaved L,R,L,R,...).  Input and output buffers
@@ -24,6 +36,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "Envelope.h"
 #include "ToneSynth.h"   // PulseGateSpec / PulseGateState
 
 namespace onspeed::audio {
@@ -33,22 +46,25 @@ struct MixerInputs {
     // Mono PCM source samples.  Must be non-null if frameCount > 0.
     const int16_t* in = nullptr;
 
-    // Per-channel scale factors (0.0 = silent, 1.0 = unity).  The caller
-    // composes these from (masterVolume * channelGain) and is responsible
-    // for any 3D-panning ramp.  Values above 1.0 clip; values below 0.0
-    // invert the phase (pass through, at the caller's risk).
+    // Per-channel scale factors (0.0 = silent, 1.0 = unity).  Caller
+    // composes from (masterVolume * stallVolMult * channelGain * panFactor)
+    // and is responsible for clipping protection (cap each at 1.0).
     float leftScale  = 1.0f;
     float rightScale = 1.0f;
 
-    // Optional pulse-gate modulation.  If spec.halfPeriodSamples > 0 the
-    // amplitude toggles between (1.0 * scale) and (spec.offScale * scale)
-    // each half-period.  Set halfPeriodSamples = 0 to disable gating.
+    // Preferred per-sample gate: a DAHDR envelope, advanced one Tick()
+    // per output sample.  When non-null this overrides pulseSpec entirely
+    // — the caller drives pulse rate and shape via envelope NoteOn/Off.
+    Envelope* envelope = nullptr;
+
+    // Legacy pulse-gate.  Used only when envelope == nullptr.  Set
+    // halfPeriodSamples = 0 to pass through (gate = 1.0 every sample).
     PulseGateSpec  pulseSpec;
 };
 
-// Caller-owned state for AudioMixer — tracks pulse-gate phase across
-// successive calls so pulse continuity is preserved when Mix() is
-// invoked repeatedly with small frame batches.
+// Caller-owned state for AudioMixer.  Tracks pulse-gate phase for the
+// legacy path; the envelope owns its own state (passed by pointer in
+// MixerInputs).
 struct MixerState {
     PulseGateState pulse;
 };
@@ -65,8 +81,7 @@ void Mix(const MixerInputs& inputs,
 
 // Convenience: pack left/right int16 samples into a single uint32 matching
 // the legacy firmware's I2S DMA word layout (low 16 bits = left, high 16
-// bits = right).  Exposed so the sketch's I2sSink can keep using its
-// pre-existing frame buffer layout after extraction.
+// bits = right).
 std::uint32_t PackStereoI16(std::int16_t left, std::int16_t right);
 
 }   // namespace onspeed::audio
