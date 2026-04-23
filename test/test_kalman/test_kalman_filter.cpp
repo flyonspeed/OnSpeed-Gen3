@@ -9,9 +9,9 @@
 
 using onspeed::KalmanFilter;
 
-// Production tuning parameters from AHRS.cpp line 47
+// Production tuning parameters (kept in sync with Ahrs.cpp's kKal* constants).
 static const float PROD_Z_VARIANCE = 0.79078f;
-static const float PROD_ACCEL_VARIANCE = 26.0638f;
+static const float PROD_ACCEL_VARIANCE = 1.0f;
 static const float PROD_ACCEL_BIAS_VARIANCE = 1e-11f;
 static const float PROD_DT = 1.0f / 208.0f;  // ~0.0048s at 208 Hz
 
@@ -117,6 +117,35 @@ void test_zero_dt_no_crash(void) {
     TEST_ASSERT_FALSE(std::isnan(v));
 }
 
+// Two KalmanFilters with different zAccelVariance floors must produce
+// observably different state estimates when fed identical inputs. The
+// floor is the lower bound of Update()'s per-cycle accel-variance clamp;
+// higher floor = filter distrusts accel more = altitude-measurement
+// tracked more closely.
+void test_configured_zAccelVariance_is_load_bearing(void) {
+    const float low_floor  = 1.0f;
+    const float high_floor = 100.0f;
+
+    KalmanFilter kfLow, kfHigh;
+    kfLow.Configure(PROD_Z_VARIANCE, low_floor,  PROD_ACCEL_BIAS_VARIANCE,
+                    1000.0f, 0.0f, 0.0f);
+    kfHigh.Configure(PROD_Z_VARIANCE, high_floor, PROD_ACCEL_BIAS_VARIANCE,
+                     1000.0f, 0.0f, 0.0f);
+
+    volatile float zLow, vLow, zHigh, vHigh;
+
+    // Altitude step: the variance ratio dictates how fast each filter
+    // tracks the new measurement.
+    for (int i = 0; i < 100; i++) {
+        kfLow .Update(1010.0f, 0.0f, PROD_DT, &zLow,  &vLow);
+        kfHigh.Update(1010.0f, 0.0f, PROD_DT, &zHigh, &vHigh);
+    }
+
+    TEST_ASSERT_FALSE(std::isnan(zLow));
+    TEST_ASSERT_FALSE(std::isnan(zHigh));
+    TEST_ASSERT_TRUE(fabsf(zLow - zHigh) > 0.0001f);
+}
+
 // Edge case: handle turbulence (large, rapid acceleration changes)
 void test_turbulence_stability(void) {
     kf.Configure(PROD_Z_VARIANCE, PROD_ACCEL_VARIANCE, PROD_ACCEL_BIAS_VARIANCE,
@@ -147,6 +176,7 @@ int main() {
     RUN_TEST(test_climb_velocity_estimation);
     RUN_TEST(test_acceleration_input_affects_state);
     RUN_TEST(test_zero_dt_no_crash);
+    RUN_TEST(test_configured_zAccelVariance_is_load_bearing);
     RUN_TEST(test_turbulence_stability);
     return UNITY_END();
 }

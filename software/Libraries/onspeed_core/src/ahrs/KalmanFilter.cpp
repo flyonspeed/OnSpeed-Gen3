@@ -22,6 +22,7 @@ KalmanFilter::KalmanFilter()
 void KalmanFilter::Configure(float zVariance, float zAccelVariance, float zAccelBiasVariance, float zInitial, float vInitial, float aBiasInitial)
 {
     zAccelVariance_ = zAccelVariance;
+    configuredZAccelVariance_ = zAccelVariance;
     zAccelBiasVariance_ = zAccelBiasVariance;
     zVariance_ = zVariance;
 
@@ -55,8 +56,11 @@ void KalmanFilter::Update(float z, float a, float dt, volatile float* pZ, volati
     z_ += v_ * dt + 0.5f * adt * dt;
     v_ += adt;
 
-    zAccelVariance_ = fabsf(accel)/50.0f;
-    zAccelVariance_ = std::clamp(zAccelVariance_, 1.0f, 50.0f);
+    // Grow accel-variance with observed magnitude, clamped between the
+    // caller-configured floor and an upper safety bound.
+    zAccelVariance_ = std::clamp(fabsf(accel) / 50.0f,
+                                 configuredZAccelVariance_,
+                                 50.0f);
 
     // Predict State Covariance matrix
     float t00,t01,t02;
