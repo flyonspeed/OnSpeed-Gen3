@@ -83,7 +83,19 @@ The report covers `software/Libraries/onspeed_core/` only. Vendored dependencies
 
 #### Branch coverage caveat
 
-gcov records a C++ exception-unwind edge on every heap-allocating call (`std::string`, `std::vector`, `new`, etc.). Those edges can only be covered by a test that induces `std::bad_alloc` — not a meaningful target for a 32-MB-flash embedded system. The `--rc no_exception_branch=1` flag that would suppress them over-filters on our build (strips 98% of branches, not just exception edges), so we leave it off. Read the branch coverage number accordingly — the gap between line coverage (~93%) and branch coverage (~61%) is dominated by allocator-throw edges, not missing control-flow tests.
+gcov records a C++ exception-unwind edge on every heap-allocating call (`std::string`, `std::vector`, `new`, etc.). Those edges can only be covered by a test that induces `std::bad_alloc` — not a meaningful target for a 32-MB-flash embedded system. The `--rc no_exception_branch=1` flag that would suppress them over-filters on our build (strips 98% of branches, not just exception edges), so we leave it off. Read the branch coverage number accordingly — the gap between line coverage (~97%) and branch coverage (~65%) is dominated by allocator-throw edges, not missing control-flow tests.
+
+#### The `codecov-style` row
+
+The summary output ends with a row:
+
+```
+  codecov-style.....: 77.4% (fully=1967 partial=505 missed=69)
+```
+
+This mirrors the metric Codecov uses on the PR status page: a line only counts as "fully" covered if every branch on it was taken. The formula is `fully / (fully + partial + missed)` — partials count as misses in the numerator. Our local branch-level classification is stricter than Codecov's block-level classification, so Codecov will typically report a few points higher (~83% when local shows ~77%). Drive local up and Codecov rises with it.
+
+The `partial` count is the target to shrink. A line is partial when it executed but at least one of its branches didn't — typically error-path branches like `if (!ParseFloat(...)) return false;` where the error case isn't exercised by tests. Click into any file in `coverage-report/index.html` to see which specific lines are partial (yellow/orange highlight).
 
 ## Arduino IDE
 

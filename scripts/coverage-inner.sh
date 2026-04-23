@@ -68,17 +68,55 @@ echo "==> Coverage summary"
 # lcov --summary in lcov 2.0 sometimes prints "no data found" for branches
 # even when branch data is present in the tracefile. Fall back to direct
 # parsing so our summary is always accurate.
+#
+# Also compute "fully / partial / missed" classification per line. A line
+# is "fully" covered if it executed AND every branch on it was taken;
+# "partial" if it executed but some branch wasn't taken; "missed" if it
+# never executed. This is similar to Codecov's headline metric (Codecov
+# uses block-level rather than branch-level classification, so its
+# numbers run a few points higher). Tracking "partial" locally lets us
+# target files that need branch-coverage work, not just line-coverage.
 SUMMARY="$(awk '
-/^DA:/ { lf++; split($0, a, ","); if (a[2]+0 > 0) lh++ }
+/^SF:/ { f = $0 }
+/^DA:/ {
+    split($0, a, ",")
+    lineNo = a[1]; sub(/^DA:/, "", lineNo)
+    key = f":"lineNo
+    line_seen[key] = 1
+    line_hit[key]  = (a[2]+0 > 0) ? 1 : 0
+    lf++; if (a[2]+0 > 0) lh++
+}
 /^FNDA:/ { fnf++; split($0, a, ","); sub(/^FNDA:/, "", a[1]); if (a[1]+0 > 0) fnh++ }
-/^BRDA:/ { bf++; n=split($0, a, ","); if (a[n] != "-" && a[n]+0 > 0) bh++ }
+/^BRDA:/ {
+    bf++
+    n = split($0, a, ",")
+    lineNo = a[1]; sub(/^BRDA:/, "", lineNo)
+    key = f":"lineNo
+    taken = a[n]
+    if (taken == "-") next
+    br_total[key]++
+    if (taken+0 > 0) { br_hit[key]++; bh++ }
+}
 END {
+    fully = 0; partial = 0; missed = 0
+    for (k in line_seen) {
+        if (!line_hit[k]) { missed++; continue }
+        t = br_total[k] + 0
+        h = br_hit[k]   + 0
+        # No branches on this line, or every branch taken → fully covered.
+        # Otherwise the line executed but some branch was missed → partial.
+        if (t == 0 || h == t) fully++
+        else                  partial++
+    }
     lp = (lf > 0) ? 100*lh/lf : 0
     fp = (fnf > 0) ? 100*fnh/fnf : 0
     bp = (bf > 0) ? 100*bh/bf : 0
-    printf "  lines......: %5.1f%% (%d of %d lines)\n",       lp, lh,  lf
-    printf "  functions..: %5.1f%% (%d of %d functions)\n",   fp, fnh, fnf
-    printf "  branches...: %5.1f%% (%d of %d branches)\n",    bp, bh,  bf
+    tot = fully + partial + missed
+    codecov_pct = (tot > 0) ? 100*fully/tot : 0
+    printf "  lines.............: %5.1f%% (%d of %d lines)\n",         lp, lh, lf
+    printf "  functions.........: %5.1f%% (%d of %d functions)\n",     fp, fnh, fnf
+    printf "  branches..........: %5.1f%% (%d of %d branches)\n",      bp, bh, bf
+    printf "  codecov-style.....: %5.1f%% (fully=%d partial=%d missed=%d)\n", codecov_pct, fully, partial, missed
 }' coverage.info)"
 
 echo "$SUMMARY"
