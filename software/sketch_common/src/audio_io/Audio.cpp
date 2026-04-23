@@ -33,7 +33,6 @@
 #include <bit>
 #include <cstdarg>
 #include <atomic>
-#include <cmath>
 
 #include <math.h>
 
@@ -88,15 +87,17 @@ static onspeed::audio::MixerState s_ToneMixerState;
 // flows through this single state machine — the Gen2 perceptual model.
 static onspeed::audio::Envelope   s_ToneEnvelope;
 
-// Last tone-type / PPS / solid-mode sent into the envelope.  Used to
-// detect transitions (solid → pulsed-high gets Gen2's shortened first
-// pulse delay) AND to debounce SetTone()/SetPulseFreq() calls so the
-// envelope only re-arms when the *shape* changes — UpdateTones() runs
-// at 208 Hz and would otherwise re-trigger the envelope every tick,
-// stomping on its natural pulse cycle.
-static EnAudioTone s_LastEnvTone           = enToneNone;
-static float       s_LastEnvHalfPeriod     = -1.0f;   // -1 = no spec armed yet
-static bool        s_LastEnvWasSolid       = false;
+// Carrier identity of the currently-armed (or releasing) tone.  Sketch-
+// side state because the envelope core knows nothing about Low vs High
+// 16 kHz cosine tables.  Two consumers:
+//   1. PlayTone() during Release: keep feeding the released tone's
+//      source PCM so the envelope tail decays on the correct carrier.
+//   2. SetTone() solid→pulsed transition: lets us notice when the
+//      previous *carrier* was the high tone (Gen2's high→solid
+//      shortened-delay trick, Tones.ino:63).
+// Spec-shape debouncing and solid/pulsed detection live in the
+// Envelope class itself — this is the only sketch-side state needed.
+static EnAudioTone s_LastEnvTone = enToneNone;
 
 // I2S pins are defined in HardwareMap.h as kI2sBck, kI2sDout, kI2sLrck.
 
@@ -378,59 +379,41 @@ void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
     if (enAudioTone == enToneNone)
     {
-        // Stop request: release the envelope.  AudioPlayTask keeps pumping
+        // Stop request: release the envelope.  AudioPlayTask keeps
+        // pumping (using s_LastEnvTone to source the right carrier)
         // until the release reaches zero, so the tail fades cleanly.
         s_ToneEnvelope.NoteOff();
-        s_LastEnvTone       = enToneNone;
-        s_LastEnvHalfPeriod = -1.0f;
-        s_LastEnvWasSolid   = false;
         this->enTone = enAudioTone;
         return;
     }
 
-    // Determine the new envelope shape inputs.
-    const bool  bSolid = (fTonePulseMaxSamples == 0.0f);
-    const float fHalf  = bSolid ? 0.0f : fTonePulseMaxSamples;
-
-    // Debounce: if neither tone-type, solid/pulsed mode, nor PPS has
-    // changed since the last NoteOn, leave the running envelope alone.
-    // This is critical because UpdateTones() runs at 208 Hz and would
-    // otherwise stomp on the natural pulse cycle every sensor tick.
-    // Tolerance on PPS comparison: ~1 sample of half-period (negligible
-    // perceptually, swallows fp noise from the 16 kHz × 1/PPS conversion).
-    if (enAudioTone == s_LastEnvTone &&
-        bSolid       == s_LastEnvWasSolid &&
-        std::fabs(fHalf - s_LastEnvHalfPeriod) <= 1.0f)
-    {
-        // Same shape — let the envelope keep cycling naturally.
-        this->enTone = enAudioTone;
-        return;
-    }
-
-    // Build a fresh spec for the new shape.
+    // Build the envelope spec for the requested tone.  Gen2's
+    // transition tricks (fromSolid 61 ms delay, fromHigh→solid 61 ms
+    // delay) read the previous state directly — solid/pulsed comes
+    // from the envelope itself; carrier identity comes from
+    // s_LastEnvTone.
     onspeed::audio::EnvelopeSpec spec;
-    if (bSolid)
+    if (fTonePulseMaxSamples == 0.0f)
     {
-        // Solid tone (currently used only for low cruise).  If we're
-        // coming from a high pulsed tone, Gen2 inserts a fixed silent
-        // delay (~61 ms) for a smoother perceptual transition.
+        // Solid tone (currently used only for low cruise).
         const bool fromHigh = (s_LastEnvTone == enToneHigh);
         spec = MakeSolidSpec(fromHigh);
     }
     else
     {
-        const float fPps     = SAMPLE_RATE / (fHalf * 2.0f);
+        const float fPps     = SAMPLE_RATE / (fTonePulseMaxSamples * 2.0f);
         const bool isStall   = (fPps >= onspeed::HIGH_TONE_STALL_PPS - 0.5f);
-        const bool fromSolid = s_LastEnvWasSolid;
+        const bool fromSolid = s_ToneEnvelope.IsCurrentSolid();
         spec = MakePulseSpec(fPps, isStall, fromSolid);
     }
 
+    // The Envelope owns all state-transition policy: this is a no-op
+    // if active and the spec matches, queues if mid-pulse, releases
+    // if Sustain.  Safe to call from UpdateTones() at 208 Hz.
     s_ToneEnvelope.NoteOn(spec);
-    s_LastEnvTone       = enAudioTone;
-    s_LastEnvHalfPeriod = fHalf;
-    s_LastEnvWasSolid   = bSolid;
 
-    this->enTone = enAudioTone;
+    s_LastEnvTone = enAudioTone;
+    this->enTone  = enAudioTone;
 
     NotifyAudioTask();
 }
@@ -446,30 +429,26 @@ void AudioPlay::SetToneFreq(unsigned uToneFreqIn)
 
 // ----------------------------------------------------------------------------
 
-// Set the per-tone pulse rate in Hz.  Range 1.0–25.0 PPS produces a pulsed
-// tone; anything outside disables pulsing (solid).  Updates the per-pulse
-// half-period counter used by both the legacy mixer path and (now) the
-// envelope spec builder above.  When called while a tone is active, also
-// re-trigger the envelope so the new rate takes effect cleanly with a
-// fresh release-then-attack rather than mid-cycle.
+// Set the per-tone pulse rate in Hz.  Range 1.0–25.0 PPS produces a
+// pulsed tone; anything outside disables pulsing (solid).  Stores the
+// half-period; the envelope shape is rebuilt by the next SetTone()
+// call.  Callers that change PPS independently of tone-type should
+// call SetTone(currentTone) afterwards if they want the envelope to
+// pick up the new rate (UpdateTones does this naturally; AudioTest
+// also chains through SetTone for transitions).
 
 void AudioPlay::SetPulseFreq(float fPulseFreq)
 {
-    const float prevHalfPeriod = fTonePulseMaxSamples;
-
     if ((fPulseFreq < 1.0f) || (fPulseFreq > 25.0f))
         fTonePulseMaxSamples = 0;
     else
-        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);  // half-period in samples
+        fTonePulseMaxSamples = SAMPLE_RATE / (fPulseFreq * 2.0f);
 
-    // If a tone is active and the rate (or solid/pulsed mode) changed,
-    // refresh the envelope so the new shape takes effect on the next pulse.
-    // SetTone handles the in-flight noteOff/noteOn transition for us.
-    if (this->enTone != enToneNone &&
-        fTonePulseMaxSamples != prevHalfPeriod)
-    {
+    // If a tone is active, refresh the envelope so the new rate takes
+    // effect on the next pulse boundary.  NoteOn debounces internally
+    // if the rebuilt spec matches what's already running.
+    if (this->enTone != enToneNone)
         SetTone(this->enTone);
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -749,15 +728,11 @@ void AudioPlay::UpdateTones(const ActiveFlapSnapshot& snap)
     // fVolume / fLeftGain / fRightGain).
     fStallVolumeMult = result.fVolumeMult;
 
-    // Update half-period silently first so SetTone() builds the envelope
-    // spec from the new rate.  We assign fTonePulseMaxSamples directly
-    // (rather than calling SetPulseFreq) to avoid double-triggering the
-    // envelope when both rate and tone change in the same tick.
-    if ((result.fPulseFreq < 1.0f) || (result.fPulseFreq > 25.0f))
-        fTonePulseMaxSamples = 0;
-    else
-        fTonePulseMaxSamples = SAMPLE_RATE / (result.fPulseFreq * 2.0f);
-
+    // SetPulseFreq stores the half-period; SetTone builds the envelope
+    // spec from it.  Both calls funnel into Envelope::NoteOn(), which
+    // debounces identical re-triggers internally — safe to invoke at
+    // 208 Hz without disturbing the running pulse cycle.
+    SetPulseFreq(result.fPulseFreq);
     SetTone(static_cast<EnAudioTone>(result.enTone));
     }
 

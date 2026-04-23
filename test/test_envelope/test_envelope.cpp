@@ -400,6 +400,246 @@ void test_zero_release_drops_immediately(void)
 }
 
 // ----------------------------------------------------------------------------
+// IsActive — used by sketch debounce logic to avoid leaving the envelope
+// stuck Idle when SetTone(same shape) is called after a release.
+
+void test_isactive_idle_returns_false(void)
+{
+    Envelope env;
+    TEST_ASSERT_FALSE(env.IsActive());
+}
+
+void test_isactive_during_pulse_returns_true(void)
+{
+    Envelope env;
+    env.NoteOn(MakePulse(20.0f, 10.0f, 50.0f, 10.0f));
+    // Tick into delay
+    env.Tick();
+    TEST_ASSERT_TRUE(env.IsActive());
+    // Tick well into hold
+    for (int i = 0; i < 50; ++i) env.Tick();
+    TEST_ASSERT_TRUE(env.IsActive());
+}
+
+void test_isactive_during_sustain_returns_true(void)
+{
+    Envelope env;
+    env.NoteOn(MakeSolid(0.0f, 5.0f, 5.0f));
+    for (int i = 0; i < 10; ++i) env.Tick();
+    TEST_ASSERT_EQUAL(EnvPhase::Sustain, env.Phase());
+    TEST_ASSERT_TRUE(env.IsActive());
+}
+
+void test_isactive_during_release_returns_false(void)
+{
+    // Release is "winding down, not actively playing" — sketch debounce
+    // must NOT skip a fresh NoteOn during release, otherwise the envelope
+    // would finish releasing and stay Idle indefinitely.
+    Envelope env;
+    env.NoteOn(MakeSolid(0.0f, 5.0f, 100.0f));
+    for (int i = 0; i < 10; ++i) env.Tick();
+    env.NoteOff();
+    TEST_ASSERT_EQUAL(EnvPhase::Release, env.Phase());
+    TEST_ASSERT_FALSE(env.IsActive());
+}
+
+void test_release_then_same_noteon_re_arms(void)
+{
+    // Reproduces a real failure mode: SetTone(None) was called
+    // (NoteOff), then SetTone(same shape) before Release completed.
+    // The sketch debounce uses IsActive() exactly to avoid skipping
+    // this NoteOn — because if it were skipped, the envelope would
+    // finish releasing and produce silence forever.
+    Envelope env;
+    EnvelopeSpec spec = MakePulse(10.0f, 10.0f, 30.0f, 10.0f, 50.0f);
+    env.NoteOn(spec);
+    for (int i = 0; i < 30; ++i) env.Tick();
+    env.NoteOff();
+    TEST_ASSERT_FALSE(env.IsActive());
+
+    // Sketch detects "not active" → does NOT debounce → calls NoteOn
+    env.NoteOn(spec);
+    TEST_ASSERT_TRUE(env.IsActive());
+    // Pump and verify we cycle a pulse
+    bool sawHigh = false;
+    for (int i = 0; i < 200; ++i)
+    {
+        if (env.Tick() > 0.99f) { sawHigh = true; break; }
+    }
+    TEST_ASSERT_TRUE(sawHigh);
+}
+
+// ----------------------------------------------------------------------------
+// Internal debounce — NoteOn with same spec while active is a no-op.
+// This is the critical property that lets the sketch call SetTone() at
+// 208 Hz from UpdateTones() without disturbing the running pulse cycle.
+
+void test_noteon_with_identical_spec_is_noop(void)
+{
+    Envelope env;
+    EnvelopeSpec spec = MakePulse(50.0f, 10.0f, 50.0f, 10.0f, 10.0f);
+    env.NoteOn(spec);
+    // Tick into Hold
+    for (int i = 0; i < 65; ++i) env.Tick();
+    TEST_ASSERT_EQUAL(EnvPhase::Hold, env.Phase());
+
+    // Re-trigger with the identical spec — should be a no-op.
+    env.NoteOn(spec);
+    TEST_ASSERT_EQUAL(EnvPhase::Hold, env.Phase());
+    TEST_ASSERT_FALSE(env.HasPending());
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, env.Level());
+}
+
+void test_noteon_with_floating_point_noise_is_noop(void)
+{
+    // Real PPS-driven specs go through SAMPLE_RATE / (pps * 2.0) which
+    // produces float-noise differences across calls.  Debounce should
+    // tolerate sub-sample differences.
+    Envelope env;
+    EnvelopeSpec a = MakePulse(50.0f, 10.0f, 50.0f, 10.0f, 10.0f);
+    env.NoteOn(a);
+    for (int i = 0; i < 30; ++i) env.Tick();
+
+    EnvelopeSpec b = a;
+    b.delaySamples   += 0.3f;   // sub-sample noise
+    b.attackSamples  -= 0.4f;
+    b.holdSamples    += 0.2f;
+    env.NoteOn(b);
+    TEST_ASSERT_FALSE(env.HasPending());
+}
+
+void test_noteon_with_meaningful_change_queues(void)
+{
+    Envelope env;
+    EnvelopeSpec a = MakePulse(50.0f, 10.0f, 50.0f, 10.0f, 10.0f);
+    env.NoteOn(a);
+    for (int i = 0; i < 30; ++i) env.Tick();
+
+    EnvelopeSpec c = a;
+    c.holdSamples += 100.0f;   // > 1 sample — meaningful
+    env.NoteOn(c);
+    TEST_ASSERT_TRUE(env.HasPending());
+}
+
+void test_noteon_with_isolid_change_queues(void)
+{
+    // Solid vs pulsed flag is structural — never debounce across modes.
+    Envelope env;
+    env.NoteOn(MakePulse(0.0f, 5.0f, 50.0f, 5.0f, 5.0f));
+    for (int i = 0; i < 30; ++i) env.Tick();
+    EnvelopeSpec solid = MakePulse(0.0f, 5.0f, 50.0f, 5.0f, 5.0f);
+    solid.isSolid = true;
+    env.NoteOn(solid);
+    TEST_ASSERT_TRUE(env.HasPending());
+}
+
+void test_chatter_at_threshold_does_not_silence(void)
+{
+    // Reproduces the user's reported failure mode: at 208 Hz the sketch
+    // alternates between two PPS values across the stall threshold every
+    // few ms.  With internal debounce + queueing, the envelope must
+    // continue producing audible pulses (level > some threshold for some
+    // contiguous samples) — NOT churn into perpetual Release/Attack.
+    Envelope env;
+    EnvelopeSpec slow = MakePulse(20.0f, 10.0f, 50.0f, 10.0f, 10.0f);   // 100-sample period
+    EnvelopeSpec fast = MakePulse(5.0f, 5.0f, 15.0f, 5.0f, 5.0f);       // 35-sample period
+    env.NoteOn(slow);
+
+    // Simulate ~2000 samples of envelope ticks with sketch-side chatter
+    // every 8 samples (~ stall threshold ping-pong on a fast loop).
+    int peakSamples = 0;
+    bool wasHigh = false;
+    int peaksSeen = 0;
+    for (int i = 0; i < 4000; ++i)
+    {
+        if ((i % 8) == 0)
+            env.NoteOn((i / 8) & 1 ? fast : slow);
+        float v = env.Tick();
+        if (v > 0.95f)
+        {
+            peakSamples++;
+            if (!wasHigh) { peaksSeen++; wasHigh = true; }
+        }
+        else if (v < 0.05f)
+        {
+            wasHigh = false;
+        }
+    }
+    // Without queueing+debounce we'd see almost no peak samples (envelope
+    // would always be ramping).  With it, we should see plenty of pulses.
+    TEST_ASSERT_TRUE_MESSAGE(peakSamples > 100,
+        "Envelope failed to produce sustained pulses under chatter");
+    TEST_ASSERT_TRUE_MESSAGE(peaksSeen >= 5,
+        "Envelope failed to produce distinct pulses under chatter");
+}
+
+// ----------------------------------------------------------------------------
+// IsCurrentSolid — used by sketch to detect solid→pulsed transitions
+// (Gen2's 61 ms silent-delay trick).
+
+void test_iscurrentsolid_idle_false(void)
+{
+    Envelope env;
+    TEST_ASSERT_FALSE(env.IsCurrentSolid());
+}
+
+void test_iscurrentsolid_pulsed_false(void)
+{
+    Envelope env;
+    env.NoteOn(MakePulse(0.0f, 5.0f, 30.0f, 5.0f, 5.0f));
+    for (int i = 0; i < 10; ++i) env.Tick();
+    TEST_ASSERT_FALSE(env.IsCurrentSolid());
+}
+
+void test_iscurrentsolid_solid_true(void)
+{
+    Envelope env;
+    env.NoteOn(MakeSolid(0.0f, 5.0f, 5.0f));
+    for (int i = 0; i < 10; ++i) env.Tick();
+    TEST_ASSERT_EQUAL(EnvPhase::Sustain, env.Phase());
+    TEST_ASSERT_TRUE(env.IsCurrentSolid());
+}
+
+void test_iscurrentsolid_releasing_false(void)
+{
+    // Once we've started releasing, we're no longer "currently solid"
+    // even though the spec was solid — IsActive() is false.
+    Envelope env;
+    env.NoteOn(MakeSolid(0.0f, 5.0f, 100.0f));
+    for (int i = 0; i < 10; ++i) env.Tick();
+    env.NoteOff();
+    TEST_ASSERT_EQUAL(EnvPhase::Release, env.Phase());
+    TEST_ASSERT_FALSE(env.IsCurrentSolid());
+}
+
+// ----------------------------------------------------------------------------
+// NoteOff clears any pending re-trigger — explicit stop wins.
+
+void test_noteoff_clears_pending(void)
+{
+    Envelope env;
+    env.NoteOn(MakePulse(20.0f, 10.0f, 50.0f, 10.0f, 10.0f));
+    for (int i = 0; i < 30; ++i) env.Tick();
+    // Queue a new spec
+    env.NoteOn(MakePulse(5.0f, 5.0f, 5.0f, 5.0f, 5.0f));
+    TEST_ASSERT_TRUE(env.HasPending());
+    // Stop request — should win over the queued spec
+    env.NoteOff();
+    TEST_ASSERT_FALSE(env.HasPending());
+    // Drain the release
+    for (int i = 0; i < 100; ++i)
+    {
+        env.Tick();
+        if (env.IsIdle()) break;
+    }
+    TEST_ASSERT_TRUE(env.IsIdle());
+    // Stay idle — the previously-queued spec should NOT have fired
+    for (int i = 0; i < 50; ++i)
+        TEST_ASSERT_EQUAL_FLOAT(0.0f, env.Tick());
+    TEST_ASSERT_TRUE(env.IsIdle());
+}
+
+// ----------------------------------------------------------------------------
 // Reset
 
 void test_reset_clears_state(void)
@@ -444,6 +684,25 @@ int main()
     RUN_TEST(test_zero_attack_jumps_to_unity);
     RUN_TEST(test_zero_hold_skips_to_decay);
     RUN_TEST(test_zero_release_drops_immediately);
+
+    RUN_TEST(test_isactive_idle_returns_false);
+    RUN_TEST(test_isactive_during_pulse_returns_true);
+    RUN_TEST(test_isactive_during_sustain_returns_true);
+    RUN_TEST(test_isactive_during_release_returns_false);
+    RUN_TEST(test_release_then_same_noteon_re_arms);
+
+    RUN_TEST(test_noteon_with_identical_spec_is_noop);
+    RUN_TEST(test_noteon_with_floating_point_noise_is_noop);
+    RUN_TEST(test_noteon_with_meaningful_change_queues);
+    RUN_TEST(test_noteon_with_isolid_change_queues);
+    RUN_TEST(test_chatter_at_threshold_does_not_silence);
+
+    RUN_TEST(test_iscurrentsolid_idle_false);
+    RUN_TEST(test_iscurrentsolid_pulsed_false);
+    RUN_TEST(test_iscurrentsolid_solid_true);
+    RUN_TEST(test_iscurrentsolid_releasing_false);
+
+    RUN_TEST(test_noteoff_clears_pending);
 
     RUN_TEST(test_reset_clears_state);
     return UNITY_END();

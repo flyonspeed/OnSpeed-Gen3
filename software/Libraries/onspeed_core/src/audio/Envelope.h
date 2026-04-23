@@ -73,17 +73,36 @@ class Envelope {
 public:
     Envelope() = default;
 
-    // Trigger a new envelope.  Behaviour mirrors Gen2's
-    // `noteOff(); ... noteOn();` pattern:
-    //   - If currently Idle or Release, the new spec arms immediately
-    //     and the next Tick() begins the Delay (or Attack) phase.
-    //   - Otherwise the new spec is queued; the envelope transitions to
-    //     Release and the queued NoteOn fires automatically when the
-    //     release ramp reaches zero.
+    // Request a new envelope shape.  Owns all state-transition policy so
+    // callers (e.g. UpdateTones at 208 Hz) can call freely without
+    // worrying about disturbing the running envelope.  Behaviour:
+    //
+    //   Active + same spec   → no-op (debounced; current pulse cycle
+    //                          continues unstomped).
+    //   Idle or Release      → arm immediately; next Tick() starts the
+    //                          new Delay (or Attack) phase from level 0
+    //                          (Idle) or from current decaying level
+    //                          (Release).  Calling here after a NoteOff
+    //                          re-arms cleanly even if the release
+    //                          hasn't reached zero yet.
+    //   Sustain (solid tone) → queue new spec and start releasing the
+    //                          held level.  Queued spec fires when the
+    //                          release tail reaches zero.  This is
+    //                          Gen2's solid→pulsed transition: the
+    //                          release tail (15 ms) hides behind the
+    //                          new spec's silent Delay (~61 ms).
+    //   Mid-pulse (Delay/    → queue new spec and let the current pulse
+    //   Attack/Hold/Decay)     finish naturally.  Decay picks up the
+    //                          queued spec at the pulse boundary.
+    //                          This is what makes 208 Hz parameter
+    //                          churn (e.g. AOA chatter at the stall
+    //                          threshold) sound clean — only the
+    //                          most-recent pending spec survives.
     void NoteOn(const EnvelopeSpec& spec);
 
     // Begin releasing toward zero from the current level.  No-op if
-    // already Idle or Release.
+    // already Idle or Release.  Also clears any queued spec — an
+    // explicit stop request always wins over a pending re-trigger.
     void NoteOff();
 
     // Advance one audio sample, returning the gate level [0, 1].
@@ -94,6 +113,24 @@ public:
     float    Level() const   { return level_; }
     bool     IsIdle() const  { return phase_ == EnvPhase::Idle; }
     bool     HasPending() const { return notePending_; }
+
+    // True iff the envelope is in an actively-playing phase (Delay,
+    // Attack, Hold, Decay, Sustain).  Returns false during Release
+    // (winding down) and Idle (stopped).
+    bool IsActive() const
+    {
+        return phase_ != EnvPhase::Idle && phase_ != EnvPhase::Release;
+    }
+
+    // Returns true if the currently-active spec is a solid (sustain)
+    // tone.  Used by the sketch to decide whether the *next* tone
+    // change is a solid→pulsed transition (so it can apply Gen2's
+    // 61 ms silent-delay trick).  Only meaningful when IsActive() —
+    // returns false during Release/Idle.
+    bool IsCurrentSolid() const
+    {
+        return IsActive() && spec_.isSolid;
+    }
 
     // Reset to a clean idle state.  Used by the sketch when the audio
     // hardware is (re)initialised; not normally needed at runtime.
