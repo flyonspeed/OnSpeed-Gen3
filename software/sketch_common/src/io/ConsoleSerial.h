@@ -5,9 +5,6 @@
 
 #include "src/Globals.h"
 
-//#include <SoftwareSerial.h>
-#include <HardwareSerial.h>
-
 #define CONSOLE_BUFFER_SIZE    127
 
 

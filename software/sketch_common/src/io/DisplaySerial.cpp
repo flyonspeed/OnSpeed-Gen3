@@ -1,7 +1,5 @@
 
 #include <Arduino.h>
-#include "SoftwareSerial.h"
-//#include "EspSoftwareSerial.h"
 
 #include "src/Globals.h"
 #include <aoa/PercentLift.h>
@@ -13,8 +11,6 @@ using onspeed::aoa::ComputePercentLift;
 using onspeed::proto::DisplayBuildInputs;
 using onspeed::proto::BuildDisplayFrame;
 using onspeed::proto::kDisplayFrameSizeBytes;
-
-//SoftwareSerial      DispSerial(kDisplayRx, kDisplayTx);
 
 
 static inline bool IsFiniteFloat(float v)

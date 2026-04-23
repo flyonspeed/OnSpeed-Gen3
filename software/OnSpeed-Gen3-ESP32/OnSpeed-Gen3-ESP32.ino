@@ -16,7 +16,6 @@ Do a text search for comments starting with "////"
 
 #include <HardwareSerial.h>
 #include <WiFi.h>
-//#include <SoftwareSerial.h>
 
 #define MAIN
 #include "src/Globals.h"

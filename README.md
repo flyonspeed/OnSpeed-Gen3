@@ -157,14 +157,8 @@ pio device monitor --port /dev/cu.usbserial-110 --baud 921600
 
 Libraries are provided via git submodules in `software/Libraries/`:
 
-- Adafruit_NeoPixel
-- ArduinoJson
-- BasicLinearAlgebra
-- EspSoftwareSerial
-- ghostl (required by EspSoftwareSerial 8.2.0)
 - OneButton
 - OneWire
 - SdFat
 - arduinoWebSockets
-- csv-parser (vendored)
 - tinyxml2 (vendored)
