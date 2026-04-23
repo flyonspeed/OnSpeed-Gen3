@@ -3104,7 +3104,7 @@
 </ul>
 <p>Use the LED strip's adhesive backing or small screws/brackets to secure it.</p>
 <h2 id="color-scheme">Color Scheme<a class="headerlink" href="#color-scheme" title="Permanent link">&para;</a></h2>
-<p>The indexer LEDs display colors corresponding to AOA regions:</p>
+<p>The indexer LEDs follow the standard FAA green/yellow/red progression, matching the M5 secondary display and the web liveview indexer:</p>
 <table>
 <thead>
 <tr>
@@ -3117,30 +3117,31 @@
 <tr>
 <td>Fast</td>
 <td>Green</td>
-<td>Well above approach speed</td>
-</tr>
-<tr>
-<td>Approaching</td>
-<td>Yellow</td>
-<td>Approaching on-speed band</td>
+<td>Above approach speed but safe</td>
 </tr>
 <tr>
 <td>On Speed</td>
-<td>Blue/White</td>
+<td>Green</td>
 <td>Target approach speed</td>
 </tr>
 <tr>
 <td>Slow</td>
+<td>Yellow</td>
+<td>Below on-speed, approaching stall warning</td>
+</tr>
+<tr>
+<td>Stall Warning</td>
 <td>Red</td>
-<td>Below target, getting slow</td>
+<td>Stall warning AOA reached</td>
 </tr>
 <tr>
 <td>Stall</td>
 <td>Flashing Red</td>
-<td>Stall warning</td>
+<td>Beyond stall warning — stall imminent</td>
 </tr>
 </tbody>
 </table>
+<p>Green covers the whole safe band (fast but safe, and on-speed); yellow and red escalate as AOA rises toward stall.</p>
 
 
 

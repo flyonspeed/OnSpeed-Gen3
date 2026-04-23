@@ -82,7 +82,7 @@
       "  --vn-stall-fill: rgba(230, 50, 50, 0.30);",       // red/pink
       "  --vn-slow-fill: rgba(255, 230, 0, 0.40);",         // yellow
       "  --vn-onspeed-fill: rgba(50, 180, 50, 0.40);",      // green
-      "  --vn-fast-fill: rgba(100, 180, 240, 0.30);",       // light blue
+      "  --vn-fast-fill: rgba(50, 180, 50, 0.20);",         // green, half-opacity of on-speed so the bands stay distinguishable
       "  --vn-caution-fill: rgba(255, 230, 0, 0.25);",      // yellow caution (Vno–Vne)
       // Curve strokes
       "  --vn-stall-curve: #000000;",
@@ -106,7 +106,7 @@
       "  --vn-label-onspeed: #1a7a1a;",
       "  --vn-label-ldmax: #1a7a1a;",
       "  --vn-label-slow: #b8860b;",
-      "  --vn-label-fast: #2266aa;",
+      "  --vn-label-fast: #1a7a1a;",
       "  --vn-label-tp: #cc3333;",
       "  --vn-label-vref: #cc3333;",
       "}",
@@ -120,7 +120,7 @@
       "  --vn-stall-fill: rgba(239, 83, 80, 0.30);",
       "  --vn-slow-fill: rgba(255, 235, 59, 0.30);",
       "  --vn-onspeed-fill: rgba(102, 187, 106, 0.35);",
-      "  --vn-fast-fill: rgba(100, 181, 246, 0.25);",
+      "  --vn-fast-fill: rgba(102, 187, 106, 0.18);",
       "  --vn-caution-fill: rgba(255, 235, 59, 0.15);",
       "  --vn-stall-curve: #cccccc;",
       "  --vn-aoa-curve: #cccccc;",
@@ -139,7 +139,7 @@
       "  --vn-label-onspeed: #66bb6a;",
       "  --vn-label-ldmax: #66bb6a;",
       "  --vn-label-slow: #fdd835;",
-      "  --vn-label-fast: #64b5f6;",
+      "  --vn-label-fast: #81c784;",
       "  --vn-label-tp: #ef5350;",
       "  --vn-label-vref: #ef5350;",
       "}",
@@ -474,7 +474,7 @@
     this._fillBetweenCurves(g, curveSW, curveOS, "var(--vn-slow-fill)")
     // ONSPEED: green (between onspeed-slow and onspeed-fast)
     this._fillBetweenCurves(g, curveOS, curveOF, "var(--vn-onspeed-fill)")
-    // Fast tone: light blue (between onspeed-fast and L/Dmax)
+    // Fast tone: green (between onspeed-fast and L/Dmax)
     this._fillBetweenCurves(g, curveOF, curveLd, "var(--vn-fast-fill)")
   }
 
@@ -855,7 +855,7 @@
     }
     if (naoa >= D.naoaLdmax) {
       return { name: "Fast",
-        badge: '<span class="vn-tone-badge" style="background:#4499cc;color:#fff;">Fast Tone</span>' }
+        badge: '<span class="vn-tone-badge" style="background:#81c784;color:#000;">Fast Tone</span>' }
     }
     return { name: "Silent",
       badge: '<span class="vn-tone-badge" style="background:#ccc;color:#333;">Silent</span>' }
