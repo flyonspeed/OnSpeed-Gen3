@@ -224,38 +224,41 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         // Used for gauge drawing only. They may be directly addresses from the main program.
         //
 
-        bool     clockWise;  
-        bool     rangeValid[NUM_RANGES + 1];
-        int32_t  rangeTop [NUM_RANGES + 1];
-        int32_t  rangeBot [NUM_RANGES + 1];
-        int32_t  rangeColor [NUM_RANGES + 1];
-        int32_t  pointerValue [NUM_POINTERS + 1];
-        int32_t  pointerType [NUM_POINTERS + 1];
-        int32_t  pointerColor [NUM_POINTERS + 1];
-        char     pointerTag [NUM_POINTERS + 1];
-            
-        int16_t  maxDisplay, minDisplay; 
-        int16_t  barWidth; 
-        int16_t  barSize;
+        // In-class default initializers so every Gauges instance (static, stack,
+        // or heap) is fully zero-initialized without relying on the caller
+        // invoking setters before first use. See finding 045.
+        bool     clockWise        = true;
+        bool     rangeValid[NUM_RANGES + 1]   = {};
+        int32_t  rangeTop  [NUM_RANGES + 1]   = {};
+        int32_t  rangeBot  [NUM_RANGES + 1]   = {};
+        int32_t  rangeColor[NUM_RANGES + 1]   = {};
+        int32_t  pointerValue[NUM_POINTERS + 1] = {};
+        int32_t  pointerType [NUM_POINTERS + 1] = {};
+        int32_t  pointerColor[NUM_POINTERS + 1] = {};
+        char     pointerTag  [NUM_POINTERS + 1] = {};
+
+        int16_t  maxDisplay = 0, minDisplay = 0;
+        int16_t  barWidth   = 0;
+        int16_t  barSize    = 0;
 
         // The following variables are accessible after drawing a gauge, and are used to help position additional text.
-        int16_t topDatumX, topDatumY, btmDatumX, btmDatumY; // endpoint text datum helpers
-        
+        int16_t topDatumX = 0, topDatumY = 0, btmDatumX = 0, btmDatumY = 0;
+
         //
         //used for Gauges, Lines, Triangles, Rectangles and Arcs.
-        //    
-        int16_t  gradMarks;         // number of intervals between marks
-        uint16_t gradMajorColor ;  
-        uint16_t gradMajorLength;
-        uint16_t gradMajorWidth;
-        uint16_t gradMinorColor ;
-        uint16_t gradMinorLength; 
-        uint16_t gradMinorWidth;
-        uint8_t  gradLineEnd;		// graduation marks have their own line end type
-        
-        uint16_t fillColor, lineColor, edgeColor;
-        uint16_t lineWidth, edgeWidth;     
-        uint8_t  lineEnd, edgeEnd;
+        //
+        int16_t  gradMarks       = 0;
+        uint16_t gradMajorColor  = 0xFFFF;  // white
+        uint16_t gradMajorLength = 0;
+        uint16_t gradMajorWidth  = 0;
+        uint16_t gradMinorColor  = 0xFFFF;
+        uint16_t gradMinorLength = 0;
+        uint16_t gradMinorWidth  = 0;
+        uint8_t  gradLineEnd     = 0;
+
+        uint16_t fillColor = 0x0000, lineColor = 0xFFFF, edgeColor = 0xFFFF;
+        uint16_t lineWidth = 1, edgeWidth = 0;
+        uint8_t  lineEnd   = 0, edgeEnd   = 0;
 
       private:
 
