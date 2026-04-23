@@ -135,8 +135,12 @@ pio run -e m5stack-core-esp32 -t upload
 PLATFORMIO_BUILD_FLAGS='-DDUMMY_SERIAL_DATA' pio run -e m5stack-core-esp32 -t upload
 ```
 
-Strict-warning build flags match the main firmware (`-Wall -Wextra
--Werror -Wshadow -Wformat=2 -Wunreachable-code -Wnull-dereference`).
+Strict-warning build flags: `-Wall -Wextra -Werror -Wshadow -Wformat=2
+-Wunreachable-code -Wnull-dereference`. M5 project code and its includes
+(M5Unified, M5GFX, WebServer, WiFi) are clean under strict `-Werror=shadow`
+— stricter than the main Gen3 firmware, which has to downgrade shadow
+because ghostl (pulled in via arduinoWebSockets) and Arduino Network
+headers shadow members we can't fix upstream.
 `-Wno-error=format-nonliteral` is downgraded because the Arduino
 framework's `WebServer` and `WiFi` headers trip it (included by
 `main.cpp` directly — M5Unified doesn't bundle a WebServer).
