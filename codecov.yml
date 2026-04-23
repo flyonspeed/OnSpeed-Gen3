@@ -22,12 +22,17 @@ coverage:
                          # still flagging untested fresh adds.
         threshold: 5%
 
-  # Ignore test files, vendor code, and system headers in coverage reports
+  # Ignore test files, vendor code, and system headers in coverage reports.
+  # Kept in sync with the lcov filter in scripts/coverage-inner.sh — Codecov
+  # otherwise lists files it finds in the repo that aren't in coverage.info
+  # and counts them as 0% coverage, which re-introduces the tinyxml2 drag
+  # we filtered out at lcov time.
   ignore:
     - "test/**"
     - "**/test_*.cpp"
     - ".pio/**"
     - "/usr/**"
+    - "software/Libraries/tinyxml2/**"
 
 comment:
   layout: "reach,diff,flags,files"
