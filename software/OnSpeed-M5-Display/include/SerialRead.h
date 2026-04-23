@@ -14,7 +14,6 @@ extern float           LateralG;
 extern float           SmoothedLateralG;
 extern float           FlightPath;
 extern int             FlapPos;
-extern float           TurnRate;
 extern int             OAT;
 extern int16_t         Slip;
 extern float           OnSpeedStallWarnAOA;

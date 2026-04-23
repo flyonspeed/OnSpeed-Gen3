@@ -91,7 +91,7 @@ struct DisplayBuildInputs {
     float stallWarnAoaDeg   = 0.0f;  // stall-warning AOA setpoint (deg)
     float onSpeedSlowAoaDeg = 0.0f;  // on-speed slow AOA setpoint (deg)
     float onSpeedFastAoaDeg = 0.0f;  // on-speed fast AOA setpoint (deg)
-    float tonesOnAoaDeg     = 0.0f;  // tones-on (LdMax) AOA setpoint (deg)
+    float tonesOnAoaDeg     = 0.0f;  // tones-on AOA setpoint (deg); sourced from per-flap fLDMAXAOA config
     float gOnsetRate        = 0.0f;  // G onset rate (G/s), currently always 0.0
     int   spinRecoveryCue   = 0;     // –1 / 0 / +1, currently always 0
     int   dataMark          = 0;     // data mark 0–99 (wraps mod 100)
