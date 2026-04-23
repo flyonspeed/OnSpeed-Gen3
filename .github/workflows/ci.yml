@@ -9,6 +9,8 @@ on:
       - 'tools/**'
       - 'platformio.ini'
       - '.github/workflows/**'
+      - 'scripts/**'
+      - 'docs/site/docs/reference/**'
   pull_request:
     branches: [master]
     paths:
@@ -17,6 +19,8 @@ on:
       - 'tools/**'
       - 'platformio.ini'
       - '.github/workflows/**'
+      - 'scripts/**'
+      - 'docs/site/docs/reference/**'
   # Allow manual trigger
   workflow_dispatch:
 

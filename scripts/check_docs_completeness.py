@@ -60,61 +60,53 @@ _CALL_RE = re.compile(
 )
 
 
-def extract_tags_from_emit(source: str) -> tuple[dict[str, str], dict[str, str]]:
+_COMMENT_RE = re.compile(r'//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def _strip_comments(source: str) -> str:
+    """Remove C/C++ comments so example `AddBool(...)` snippets in comments
+    don't produce spurious leaf entries."""
+    return _COMMENT_RE.sub('', source)
+
+
+def extract_leaves_from_emit(source: str) -> set[tuple[str, str]]:
     """
-    Parse ConfigXmlEmit.cpp and return:
-      parents:  {local_var_name -> parent_element_tag_name}
-                e.g. {"root": "CONFIG2", "vol": "VOLUME", "flap": "FLAP_POSITION"}
-      leaf_tags: {tag_name -> parent_tag_name_or_"" if top-level}
-                 e.g. {"AOA_SMOOTHING": "", "ENABLED": "VOLUME",
-                       "X3": "CAS_CURVE" or "AOA_CURVE" (last-wins is fine
-                       because we document nested separately when needed)}
+    Parse ConfigXmlEmit.cpp and return the set of (parent, leaf) pairs
+    written by Add{Bool,Int,Float,String,Unsigned} calls.
 
-    The approach walks `Add*` calls in source order. `AddElem(p, "NAME")`
-    defines a new parent variable; subsequent Add* calls on that variable
-    attach their NAME underneath it.
+    `parent` is the XML container tag ("VOLUME", "CAS_CURVE", etc.) or
+    "" for top-level (direct children of <CONFIG2>).
+
+    The same leaf name can appear under multiple parents (e.g. "X3"
+    under both AOA_CURVE and CAS_CURVE, "ENABLED" under both VOLUME
+    and CAS_CURVE). The set-of-pairs shape preserves both — a flat
+    {leaf: parent} dict would silently lose the first occurrence.
     """
-    parents: dict[str, str] = {}
-    leaf_tags: dict[str, str] = {}
+    source = _strip_comments(source)
 
-    # Seed the root parent. In ConfigXmlEmit the top-level root is the var
-    # passed into EmitXml; callers use "root" by convention.
-    parents["root"] = "CONFIG2"
-
-    for fn, parent_var, name in _CALL_RE.findall(source):
-        if fn == "Elem":
-            # AddElem(parent_var, "CONTAINER_NAME") — record that the
-            # returned pointer is a new parent. But the source is written
-            # as e.g. `XMLElement* vol = AddElem(root, "VOLUME");` — the
-            # assigned variable name is to the LEFT of =, not captured by
-            # our regex. Walk back through the source to find the
-            # enclosing assignment.
-            # Handled below via a second pass.
-            continue
-        else:
-            leaf_tags[name] = parents.get(parent_var, "<unknown>")
-
-    # Second pass: associate each AddElem call's returned XMLElement* with
-    # its variable name, so downstream `Add*(vol, "LEAF", ...)` calls can
-    # be resolved. Match lines like:
+    # First pass: map every local XMLElement* var name to the container
+    # tag it represents. Match lines like:
     #   XMLElement* vol = AddElem(root, "VOLUME");
-    _ELEM_ASSIGN_RE = re.compile(
+    parents: dict[str, str] = {"root": "CONFIG2"}
+    elem_assign_re = re.compile(
         r'XMLElement\s*\*\s*(\w+)\s*=\s*AddElem\s*\(\s*(\w+)\s*,\s*"([^"]+)"',
     )
-    for var_name, parent_var, container_name in _ELEM_ASSIGN_RE.findall(source):
+    for var_name, _parent_var, container_name in elem_assign_re.findall(source):
         parents[var_name] = container_name
 
-    # Now re-walk with parents populated.
-    leaf_tags.clear()
+    # Second pass: every Add{Bool,Int,Float,String,Unsigned} call is a
+    # leaf under whatever parent variable it targets.
+    leaves: set[tuple[str, str]] = set()
     for fn, parent_var, name in _CALL_RE.findall(source):
         if fn == "Elem":
             continue
         parent_tag = parents.get(parent_var, "<unknown>")
-        # Top-level tags sit under root == CONFIG2; they're written in docs
+        # Top-level tags sit under root == CONFIG2 and are written in docs
         # without a "PARENT > " prefix. Everything else is nested.
-        leaf_tags[name] = "" if parent_tag == "CONFIG2" else parent_tag
+        parent_for_docs = "" if parent_tag == "CONFIG2" else parent_tag
+        leaves.add((parent_for_docs, name))
 
-    return parents, leaf_tags
+    return leaves
 
 
 # Some doc sections introduce a parent container in the heading
@@ -165,17 +157,17 @@ def main() -> int:
         print(f"✗ config-parameters.md not found at {DOCS_MD}", file=sys.stderr)
         return 2
 
-    _, leaf_tags = extract_tags_from_emit(emit_source)
+    leaves = extract_leaves_from_emit(emit_source)
 
     missing: list[tuple[str, str]] = []
-    for tag, parent in sorted(leaf_tags.items()):
+    for parent, tag in sorted(leaves):
         if not documented_in_md(docs_source, tag, parent):
-            missing.append((tag, parent))
+            missing.append((parent, tag))
 
     if missing:
         print(f"✗ {len(missing)} XML tag(s) written by ConfigXmlEmit are "
               f"missing from {DOCS_MD.relative_to(REPO_ROOT)}:")
-        for tag, parent in missing:
+        for parent, tag in missing:
             name = f"`{parent} > {tag}`" if parent else f"`{tag}`"
             print(f"  {name}")
         print()
@@ -185,7 +177,7 @@ def main() -> int:
               "ConfigXmlEmit.cpp.")
         return 1
 
-    print(f"✓ all {len(leaf_tags)} XML tag(s) from ConfigXmlEmit are "
+    print(f"✓ all {len(leaves)} XML tag(s) from ConfigXmlEmit are "
           f"documented in {DOCS_MD.relative_to(REPO_ROOT)}")
     return 0
 
