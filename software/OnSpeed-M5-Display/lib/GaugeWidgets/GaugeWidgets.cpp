@@ -1463,13 +1463,14 @@ void Gauges::MarkArrowLeft(int16_t x0, int16_t y0, int16_t barWidth, int16_t poi
   fillTriangle (x0 + barWidth / 2, y0 - pointer, x0 - barWidth / 2, y0 - pointer - barWidth / 3, x0 - barWidth / 2, 
                 y0 - pointer + barWidth / 3, color, TFT_BLACK, 2, SHARP);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 - barWidth - 1, y0 - pointer - 1);
-  gdraw.drawString ((String)tag, x0 - barWidth + 1, y0 - pointer + 1);
+  gdraw.drawString (buf, x0 - barWidth - 1, y0 - pointer - 1);
+  gdraw.drawString (buf, x0 - barWidth + 1, y0 - pointer + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 - barWidth, y0 - pointer);
+  gdraw.drawString (buf, x0 - barWidth, y0 - pointer);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1478,13 +1479,14 @@ void Gauges::MarkArrowRight(int16_t x0, int16_t y0, int16_t barWidth, int16_t po
   fillTriangle (x0 + barWidth / 2, y0 - pointer, x0 + 3 * barWidth / 2, y0 - pointer - barWidth / 3, x0 + 3 * barWidth / 2, 
                 y0 - pointer + barWidth / 3, color, TFT_BLACK, 2, SHARP);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + 2 * barWidth - 1, y0 - pointer - 1);
-  gdraw.drawString ((String)tag, x0 + 2 * barWidth + 1, y0 - pointer + 1);
+  gdraw.drawString (buf, x0 + 2 * barWidth - 1, y0 - pointer - 1);
+  gdraw.drawString (buf, x0 + 2 * barWidth + 1, y0 - pointer + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 + 2 * barWidth, y0 - pointer);
+  gdraw.drawString (buf, x0 + 2 * barWidth, y0 - pointer);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1530,13 +1532,14 @@ void Gauges::MarkBugLeft(int16_t x0, int16_t y0, int16_t barWidth, int16_t point
   gdraw.fillTriangle (x8, y8, x9, y9, x7, y7, TFT_BLACK);
   drawLine (x1, y1, x2, y2, TFT_BLACK, 1, NONE);
   
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 - barWidth - 1, y0 - pointer - 1);
-  gdraw.drawString ((String)tag, x0 - barWidth + 1, y0 - pointer + 1);
+  gdraw.drawString (buf, x0 - barWidth - 1, y0 - pointer - 1);
+  gdraw.drawString (buf, x0 - barWidth + 1, y0 - pointer + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 - barWidth, y0 - pointer);
+  gdraw.drawString (buf, x0 - barWidth, y0 - pointer);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1581,13 +1584,14 @@ void Gauges::MarkBugRight(int16_t x0, int16_t y0, int16_t barWidth, int16_t poin
   gdraw.fillTriangle (x8, y8, x9, y9, x7, y7, TFT_BLACK);
   drawLine (x1, y1, x2, y2, TFT_BLACK, 1, NONE);
 	
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + 2 * barWidth - 1, y0 - pointer - 1);
-  gdraw.drawString ((String)tag, x0 + 2 * barWidth + 1, y0 - pointer + 1);
+  gdraw.drawString (buf, x0 + 2 * barWidth - 1, y0 - pointer - 1);
+  gdraw.drawString (buf, x0 + 2 * barWidth + 1, y0 - pointer + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 + 2 * barWidth, y0 - pointer);
+  gdraw.drawString (buf, x0 + 2 * barWidth, y0 - pointer);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1605,13 +1609,14 @@ void Gauges::MarkHbar(int16_t x0, int16_t y0, int16_t barWidth, int16_t pointer,
   gdraw.fillRect (x0 - barWidth / 4, y0 - pointer - barWidth / 8, 3 * barWidth / 2, barWidth / 4, color);
   gdraw.drawRect (x0 - barWidth / 4, y0 - pointer - barWidth / 8, 3 * barWidth / 2, barWidth / 4, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_WHITE);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + barWidth / 2 - 1, y0 - pointer - 1);
-  gdraw.drawString ((String)tag, x0 + barWidth / 2 + 1, y0 - pointer + 1);
+  gdraw.drawString (buf, x0 + barWidth / 2 - 1, y0 - pointer - 1);
+  gdraw.drawString (buf, x0 + barWidth / 2 + 1, y0 - pointer + 1);
   gdraw.setTextColor (TFT_BLACK);
-  gdraw.drawString ((String)tag, x0 + barWidth / 2 , y0 - pointer);
+  gdraw.drawString (buf, x0 + barWidth / 2 , y0 - pointer);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1629,13 +1634,14 @@ void Gauges::MarkHbarShort(int16_t x0, int16_t y0, int16_t barWidth, int16_t poi
   gdraw.fillRect (x0 + barWidth / 8, y0 - pointer - barWidth / 8, 3 * barWidth / 4, barWidth / 4, color);
   gdraw.drawRect (x0 + barWidth / 8, y0 - pointer - barWidth / 8, 3 * barWidth / 4, barWidth / 4, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_WHITE);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + barWidth / 2 - 1, y0 - pointer - 1);
-  gdraw.drawString ((String)tag, x0 + barWidth / 2 + 1, y0 - pointer + 1);
+  gdraw.drawString (buf, x0 + barWidth / 2 - 1, y0 - pointer - 1);
+  gdraw.drawString (buf, x0 + barWidth / 2 + 1, y0 - pointer + 1);
   gdraw.setTextColor (TFT_BLACK);
-  gdraw.drawString ((String)tag, x0 + barWidth / 2 , y0 - pointer);
+  gdraw.drawString (buf, x0 + barWidth / 2 , y0 - pointer);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1647,10 +1653,11 @@ void Gauges::MarkHdot(int16_t x0, int16_t y0, int16_t barWidth, int16_t pointer,
   gdraw.fillCircle (x0 + barWidth / 2, y0 - pointer, barWidth / 5, color);
   gdraw.drawCircle (x0 + barWidth / 2, y0 - pointer, barWidth / 5, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + barWidth / 2, y0 - pointer);
+  gdraw.drawString (buf, x0 + barWidth / 2, y0 - pointer);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1669,13 +1676,14 @@ void Gauges::MarkArrowTop(int16_t x0, int16_t y0, int16_t barWidth, int16_t poin
   fillTriangle (x0 + pointer, y0 + barWidth / 2, x0 + pointer - barWidth / 3, y0 - barWidth / 2,
                 x0 + pointer + barWidth / 3, y0 - barWidth / 2, color,  TFT_BLACK, 2, SHARP);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + pointer - 1, y0 - barWidth - 1);
-  gdraw.drawString ((String)tag, x0 + pointer + 1 , y0 - barWidth + 1);
+  gdraw.drawString (buf, x0 + pointer - 1, y0 - barWidth - 1);
+  gdraw.drawString (buf, x0 + pointer + 1 , y0 - barWidth + 1);
   gdraw.setTextColor(color);
-  gdraw.drawString ((String)tag, x0 + pointer, y0 - barWidth);
+  gdraw.drawString (buf, x0 + pointer, y0 - barWidth);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1695,13 +1703,14 @@ void Gauges::MarkArrowBottom(int16_t x0, int16_t y0, int16_t barWidth, int16_t p
   fillTriangle (x0 + pointer, y0 + barWidth / 2, x0 + pointer - barWidth / 3, y0 + 3 * barWidth / 2,
                 x0 + pointer + barWidth / 3, y0 + 3 * barWidth / 2, color, TFT_BLACK, 2, SHARP);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + pointer - 1, y0 + 2 * barWidth - 1);
-  gdraw.drawString ((String)tag, x0 + pointer + 1 , y0 + 2 * barWidth + 1);
+  gdraw.drawString (buf, x0 + pointer - 1, y0 + 2 * barWidth - 1);
+  gdraw.drawString (buf, x0 + pointer + 1 , y0 + 2 * barWidth + 1);
   gdraw.setTextColor(color);
-  gdraw.drawString ((String)tag, x0 + pointer, y0 + 2 * barWidth);
+  gdraw.drawString (buf, x0 + pointer, y0 + 2 * barWidth);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1745,13 +1754,14 @@ void Gauges::MarkBugTop(int16_t x0, int16_t y0, int16_t barWidth, int16_t pointe
   gdraw.fillTriangle (x8, y8, x9, y9, x7, y7, TFT_BLACK);
   drawLine (x1, y1, x2, y2, TFT_BLACK, 1, NONE);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + pointer - 1, y0 - barWidth - 1);
-  gdraw.drawString ((String)tag, x0 + pointer + 1 , y0 - barWidth + 1);
+  gdraw.drawString (buf, x0 + pointer - 1, y0 - barWidth - 1);
+  gdraw.drawString (buf, x0 + pointer + 1 , y0 - barWidth + 1);
   gdraw.setTextColor(color);
-  gdraw.drawString ((String)tag, x0 + pointer, y0 - barWidth);
+  gdraw.drawString (buf, x0 + pointer, y0 - barWidth);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1794,13 +1804,14 @@ void Gauges::MarkBugBot(int16_t x0, int16_t y0, int16_t barWidth, int16_t pointe
   gdraw.fillTriangle (x8, y8, x9, y9, x7, y7, TFT_BLACK);
   drawLine (x1, y1, x2, y2, TFT_BLACK, 1, NONE);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + pointer - 1, y0 + 2 * barWidth - 1);
-  gdraw.drawString ((String)tag, x0 + pointer + 1 , y0 + 2 * barWidth + 1);
+  gdraw.drawString (buf, x0 + pointer - 1, y0 + 2 * barWidth - 1);
+  gdraw.drawString (buf, x0 + pointer + 1 , y0 + 2 * barWidth + 1);
   gdraw.setTextColor(color);
-  gdraw.drawString ((String)tag, x0 + pointer, y0 + 2 * barWidth);
+  gdraw.drawString (buf, x0 + pointer, y0 + 2 * barWidth);
 
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
@@ -1822,13 +1833,14 @@ void Gauges::MarkVbar(int16_t x0, int16_t y0, int16_t barWidth, int16_t pointer,
   gdraw.fillRect(x0 + pointer - barWidth / 8, y0 - barWidth / 4, barWidth / 4, 3 * barWidth / 2, color);
   gdraw.drawRect (x0 + pointer - barWidth / 8, y0 - barWidth / 4, barWidth / 4, 3 * barWidth / 2, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_WHITE);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + pointer - 1, y0 + barWidth / 2 - 1);
-  gdraw.drawString ((String)tag, x0 + pointer + 1, y0 + barWidth / 2 + 1);
+  gdraw.drawString (buf, x0 + pointer - 1, y0 + barWidth / 2 - 1);
+  gdraw.drawString (buf, x0 + pointer + 1, y0 + barWidth / 2 + 1);
   gdraw.setTextColor (TFT_BLACK);
-  gdraw.drawString ((String)tag, x0 + pointer, y0 + barWidth / 2);
+  gdraw.drawString (buf, x0 + pointer, y0 + barWidth / 2);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1850,13 +1862,14 @@ void Gauges::MarkVbarShort(int16_t x0, int16_t y0, int16_t barWidth, int16_t poi
   gdraw.fillRect(x0 + pointer - barWidth / 8, y0 + barWidth / 8, barWidth / 4, 3 * barWidth / 4, color);
   gdraw.drawRect (x0 + pointer - barWidth / 8, y0 + barWidth / 8, barWidth / 4, 3 * barWidth / 4, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_WHITE);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + pointer - 1, y0 + barWidth / 2 - 1);
-  gdraw.drawString ((String)tag, x0 + pointer + 1, y0 + barWidth / 2 + 1);
+  gdraw.drawString (buf, x0 + pointer - 1, y0 + barWidth / 2 - 1);
+  gdraw.drawString (buf, x0 + pointer + 1, y0 + barWidth / 2 + 1);
   gdraw.setTextColor (TFT_BLACK);
-  gdraw.drawString ((String)tag, x0 + pointer, y0 + barWidth / 2);
+  gdraw.drawString (buf, x0 + pointer, y0 + barWidth / 2);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1867,10 +1880,11 @@ void Gauges::MarkVdot(int16_t x0, int16_t y0, int16_t barWidth, int16_t pointer,
   gdraw.fillCircle (x0 + pointer, y0 + barWidth / 2 , barWidth / 5, color);
   gdraw.drawCircle (x0 + pointer, y0 + barWidth / 2 , barWidth / 5, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + pointer, y0 + barWidth / 2);
+  gdraw.drawString (buf, x0 + pointer, y0 + barWidth / 2);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -1907,15 +1921,16 @@ void Gauges::MarkArrowOut(float x0, float y0, float barSize, float barWidth, flo
   gdraw.fillTriangle (x4, y4, x3, y3, x2, y2, color);
   gdraw.drawTriangle (x4, y4, x3, y3, x2, y2, TFT_BLACK);
   
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) - 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) - 1,
                     y0 + (int16_t)((barSize + barWidth)*sin(_Pointer)) - 1);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) + 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) + 1,
                     y0 + (int16_t)((barSize + barWidth)*sin(_Pointer)) + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)),
+  gdraw.drawString (buf, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)),
                     y0 + (int16_t)((barSize + barWidth)*sin(_Pointer)));
  
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
@@ -1954,15 +1969,16 @@ void Gauges::MarkArrowIn(float x0, float y0, float barSize, float barWidth, floa
   gdraw.fillTriangle (x4, y4, x3, y3, x2, y2, color);
   gdraw.drawTriangle (x4, y4, x3, y3, x2, y2, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) - 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) - 1,
                     y0 + (int16_t)((barSize - 2.0f * barWidth)*sin(_Pointer)) - 1);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) + 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) + 1,
                     y0 + (int16_t)((barSize - 2.0f * barWidth)*sin(_Pointer)) + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)),
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)),
                     y0 + (int16_t)((barSize - 2.0f * barWidth)*sin(_Pointer)));
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
@@ -1996,15 +2012,16 @@ void Gauges::MarkRbar(float x0, float y0, float barSize, float barWidth, float p
 
   fillLine (x5, y5, x2, y2, color, bw3, NONE, alphaBlend565 (96, TFT_BLACK, color), 1);
   
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_WHITE);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) - 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) - 1,
                     y0 + (int16_t)((barSize - 0.50f * barWidth) * sin(_Pointer)) - 1 );
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) + 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) + 1,
                     y0 + (int16_t)((barSize - 0.50f * barWidth)*sin(_Pointer)) + 1);
   gdraw.setTextColor (TFT_BLACK);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 0.50f * barWidth)*cos(_Pointer)),
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 0.50f * barWidth)*cos(_Pointer)),
                     y0 + (int16_t)((barSize - 0.50f * barWidth)*sin(_Pointer)));
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
@@ -2038,15 +2055,16 @@ void Gauges::MarkRbarShort(float x0, float y0, float barSize, float barWidth, fl
   
   fillLine (x5, y5, x2, y2, color, bw3, NONE, alphaBlend565 (96, TFT_BLACK, color), 1);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_WHITE);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) - 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) - 1,
                     y0 + (int16_t)((barSize - 0.50f * barWidth) * sin(_Pointer)) - 1 );
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) + 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 0.50f * barWidth) * cos(_Pointer)) + 1,
                     y0 + (int16_t)((barSize - 0.50f * barWidth)*sin(_Pointer)) + 1);
   gdraw.setTextColor (TFT_BLACK);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 0.50f * barWidth)*cos(_Pointer)),
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 0.50f * barWidth)*cos(_Pointer)),
                     y0 + (int16_t)((barSize - 0.50f * barWidth)*sin(_Pointer)));
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
@@ -2061,10 +2079,11 @@ void Gauges::MarkRdot(float x0, float y0, float barSize, float barWidth, float p
   gdraw.fillCircle (x1, y1, 0.25f * barWidth, color);
   gdraw.drawCircle (x1, y1, 0.25f * barWidth, TFT_BLACK);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x1, y1);
+  gdraw.drawString (buf, x1, y1);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -2103,13 +2122,14 @@ void Gauges::MarkNeedle (float x0, float y0, float barSize, float barWidth, floa
   drawLine (x2, y2, x3, y3, TFT_BLACK, 1, NONE);
   drawLine (x3, y3, x1, y1, TFT_BLACK, 1, NONE);
   
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 - 1, y0 - 1);
-  gdraw.drawString ((String)tag, x0 + 1, y0 - 1);
+  gdraw.drawString (buf, x0 - 1, y0 - 1);
+  gdraw.drawString (buf, x0 + 1, y0 - 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0, y0);
+  gdraw.drawString (buf, x0, y0);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -2131,13 +2151,14 @@ void Gauges::MarkIndex(float x0, float y0, float barSize, float barWidth, float 
 
   drawLine (x1, y1, x2, y2, color, 6, SHARP, TFT_BLACK, 1, SHARP);
   
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x1 - 1, y1 - 1);
-  gdraw.drawString ((String)tag, x1 + 1, y1 - 1);
+  gdraw.drawString (buf, x1 - 1, y1 - 1);
+  gdraw.drawString (buf, x1 + 1, y1 - 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x1, y1);
+  gdraw.drawString (buf, x1, y1);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
 
@@ -2207,15 +2228,16 @@ void Gauges::MarkBugOut(float x0, float y0, float barSize, float barWidth, float
   drawLine (x8, y8, x3, y3, TFT_BLACK, 1, NONE);
   drawLine (x3, y3, x1, y1, TFT_BLACK, 1, NONE);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) - 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) - 1,
                     y0 + (int16_t)((barSize + barWidth)*sin(_Pointer)) - 1);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) + 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)) + 1,
                     y0 + (int16_t)((barSize + barWidth)*sin(_Pointer)) + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)),
+  gdraw.drawString (buf, x0 + (int16_t)((barSize + barWidth) * cos(_Pointer)),
                     y0 + (int16_t)((barSize + barWidth)*sin(_Pointer)));
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
@@ -2288,15 +2310,16 @@ void Gauges::MarkBugIn(float x0, float y0, float barSize, float barWidth, float 
   drawLine (x8, y8, x3, y3, TFT_BLACK, 1, NONE);
   drawLine (x3, y3, x1, y1, TFT_BLACK, 1, NONE);
 
+  char buf[2] = { tag, '\0' };
   gdraw.setFont (TEXTSIZE);
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) - 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) - 1,
                     y0 + (int16_t)((barSize - 2.0f * barWidth)*sin(_Pointer)) - 1);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) + 1,
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)) + 1,
                     y0 + (int16_t)((barSize - 2.0f * barWidth)*sin(_Pointer)) + 1);
   gdraw.setTextColor (color);
-  gdraw.drawString ((String)tag, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)),
+  gdraw.drawString (buf, x0 + (int16_t)((barSize - 2.0f * barWidth) * cos (_Pointer)),
                     y0 + (int16_t)((barSize - 2.0f * barWidth)*sin(_Pointer)));
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
 }
