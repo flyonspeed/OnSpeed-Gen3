@@ -213,7 +213,7 @@ const char* V1ParseStatusToString(V1ParseStatus status)
         case V1ParseStatus::Empty:        return "Empty";
         case V1ParseStatus::MissingRoot:  return "MissingRoot";
     }
-    return "Unknown";
+    __builtin_unreachable();
 }
 
 bool IsV1Format(std::string_view configText)

@@ -115,7 +115,7 @@ const char* XmlParseStatusToString(XmlParseStatus status)
         case XmlParseStatus::Malformed:     return "Malformed";
         case XmlParseStatus::TooManyFlaps:  return "TooManyFlaps";
     }
-    return "Unknown";
+    __builtin_unreachable();
 }
 
 XmlParseStatus ParseXml(std::string_view xml, OnSpeedConfig& cfg)
