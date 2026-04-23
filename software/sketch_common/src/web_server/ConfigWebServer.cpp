@@ -29,13 +29,6 @@
 
 #include <ArduinoJson.h>
 
-// PR 4.1: include the new schema-driven renderer so the V4P/V4B firmware
-// builds keep onspeed_core/web/* honest at compile time.  The renderer is
-// not yet wired into the route table — that swap is PR 4.1b after bench
-// verification.
-#include <web/ConfigPage.h>
-#include <web/WebSchema.h>
-
 #include "src/Globals.h"
 
 using onspeed::accelPitch;
