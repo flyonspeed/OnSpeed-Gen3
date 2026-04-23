@@ -404,8 +404,11 @@ void loop()
         if (displayType > 4) displayType = 0; // type of display
     }
 
-    // update G history buffer
-    if (millis()-gHistoryTime>200)
+    // update G history buffer (finding 037: only when data is fresh —
+    // otherwise the 60 s Mode 4 trace backfills with the frozen last-known
+    // VerticalG during an outage, misleading the pilot into thinking no G
+    // excursions occurred in that window).
+    if (serialDataFresh() && millis()-gHistoryTime>200)
     {
         gHistory[gHistoryIndex]=VerticalG;
         if (gHistoryIndex<299)  gHistoryIndex++;
@@ -587,9 +590,10 @@ void loop()
             default: break;
         } // end switch on display type
 
-        // Look for serial link failure
+        // Look for serial link failure (finding 037: use the shared
+        // serialDataFresh() predicate rather than duplicating the threshold).
         // Draw red lines across display
-        if (millis()-serialMillis>300)
+        if (!serialDataFresh())
         {
             gdraw.fillSprite (TFT_BLACK);
             gdraw.drawLine (0, 0, 319, 239, TFT_RED); // center
