@@ -243,36 +243,73 @@ void test_noteon_while_releasing_replaces_spec(void)
     TEST_ASSERT_FALSE(env.HasPending());
 }
 
-void test_noteon_during_attack_queues_after_release(void)
+void test_noteon_during_attack_queues_for_pulse_boundary(void)
 {
+    // Gen3 behaviour: NoteOn during a pulse (Attack/Hold/Decay) queues
+    // the new spec so the current pulse finishes naturally.  The Decay
+    // phase picks up the pending spec at the pulse boundary.
     Envelope env;
     env.NoteOn(MakePulse(0.0f, 100.0f, 100.0f, 100.0f, 100.0f));
     for (int i = 0; i < 10; ++i) env.Tick();
     TEST_ASSERT_EQUAL(EnvPhase::Attack, env.Phase());
-    // Trigger a fresh note while attack is in progress
+    // Trigger a fresh note while attack is in progress.  Current pulse
+    // should continue — phase stays Attack, spec is queued.
     env.NoteOn(MakePulse(0.0f, 50.0f, 50.0f, 50.0f, 50.0f));
-    TEST_ASSERT_EQUAL(EnvPhase::Release, env.Phase());
+    TEST_ASSERT_EQUAL(EnvPhase::Attack, env.Phase());
     TEST_ASSERT_TRUE(env.HasPending());
-    // Pump until release completes — pending should fire
-    for (int i = 0; i < 200; ++i)
+    // Pump until the current pulse finishes.  At the end of Decay, the
+    // pending spec fires and we transition to the new pulse's Attack.
+    for (int i = 0; i < 500; ++i)
     {
         env.Tick();
-        if (!env.HasPending() && env.Phase() != EnvPhase::Idle)
-            break;
+        if (!env.HasPending()) break;
     }
-    // After pending fires, we should be in Attack with the new spec armed
     TEST_ASSERT_FALSE(env.HasPending());
+    // After pending fires, we should be in Attack with the new spec armed.
+    // (Delay is zero in the MakePulse default for this test.)
     TEST_ASSERT_TRUE(env.Phase() == EnvPhase::Attack ||
                      env.Phase() == EnvPhase::Delay);
 }
 
-void test_noteon_during_sustain_queues(void)
+void test_noteon_during_pulse_latest_pending_wins(void)
 {
+    // Rapid re-triggering during a pulse: only the most-recent pending
+    // spec survives (replacement, not chaining).  Simulates the 208 Hz
+    // UpdateTones() rate chattering the stall threshold.
+    Envelope env;
+    env.NoteOn(MakePulse(0.0f, 100.0f, 100.0f, 100.0f, 100.0f));
+    for (int i = 0; i < 10; ++i) env.Tick();
+    env.NoteOn(MakePulse(0.0f, 50.0f, 50.0f, 50.0f, 50.0f));
+    env.NoteOn(MakePulse(0.0f, 25.0f, 25.0f, 25.0f, 25.0f));
+    env.NoteOn(MakePulse(0.0f, 200.0f, 200.0f, 200.0f, 200.0f));
+    TEST_ASSERT_EQUAL(EnvPhase::Attack, env.Phase());
+    TEST_ASSERT_TRUE(env.HasPending());
+    // Pump until pending fires
+    for (int i = 0; i < 1000; ++i)
+    {
+        env.Tick();
+        if (!env.HasPending()) break;
+    }
+    // The active spec should now be the last-queued one (attack=200).
+    // Verify by measuring attack ramp slope (should be 1/200 = 0.005/sample).
+    float prev = env.Level();
+    for (int i = 0; i < 50; ++i) env.Tick();
+    float delta = env.Level() - prev;
+    // 50 samples at 0.005/sample ≈ 0.25 level rise (bounded by remaining
+    // attack progress — we don't know exact start offset, so just check
+    // it's small relative to the 25-sample-attack spec).
+    TEST_ASSERT_TRUE(delta < 0.30f);  // not the 25-sample-attack rate
+}
+
+void test_noteon_during_sustain_releases(void)
+{
+    // Solid tone must release to transition — Sustain doesn't auto-exit.
+    // The release tail hides behind the new spec's silent Delay.
     Envelope env;
     env.NoteOn(MakeSolid(0.0f, 10.0f, 10.0f));
     for (int i = 0; i < 10; ++i) env.Tick();
     TEST_ASSERT_EQUAL(EnvPhase::Sustain, env.Phase());
-    // NoteOn another solid: should release first, then queue
+    // NoteOn another solid: should release first, then fire pending
     env.NoteOn(MakeSolid(0.0f, 5.0f, 5.0f));
     TEST_ASSERT_EQUAL(EnvPhase::Release, env.Phase());
     TEST_ASSERT_TRUE(env.HasPending());
@@ -397,8 +434,9 @@ int main()
     RUN_TEST(test_solid_noteoff_releases_to_zero);
 
     RUN_TEST(test_noteon_while_releasing_replaces_spec);
-    RUN_TEST(test_noteon_during_attack_queues_after_release);
-    RUN_TEST(test_noteon_during_sustain_queues);
+    RUN_TEST(test_noteon_during_attack_queues_for_pulse_boundary);
+    RUN_TEST(test_noteon_during_pulse_latest_pending_wins);
+    RUN_TEST(test_noteon_during_sustain_releases);
 
     RUN_TEST(test_no_step_exceeds_ramp_slope);
     RUN_TEST(test_release_from_partial_attack);
