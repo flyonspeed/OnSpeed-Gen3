@@ -144,15 +144,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fWifiVSI;
     float fWifiIAS;
     float fWifiOAT;
-    float fAccelSumSq;
-    float fVerticalGload;
-
-    fAccelSumSq    = g_pIMU->Ax*g_pIMU->Ax + g_pIMU->Ay*g_pIMU->Ay + g_pIMU->Az*g_pIMU->Az;
-    fVerticalGload = sqrtf(fabsf(fAccelSumSq));
-    fVerticalGload = roundf(fVerticalGload * 10.0f) / 10.0f; // round to 1 decimal place
-
-    if (g_pIMU->Az < 0)
-        fVerticalGload *= -1;
+    // Installation-corrected body-vertical acceleration (G). 1G level, 2G in a
+    // 60-deg bank. Matches the value GLimitDecision uses for over-G warnings.
+    float fVerticalGload = g_AHRS.AccelVertCorr;
 
     if (isnan(g_Sensors.AOA) || g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
     {
