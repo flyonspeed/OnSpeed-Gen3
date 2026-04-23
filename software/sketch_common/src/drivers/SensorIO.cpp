@@ -4,9 +4,6 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
-#include "RunningAverage.h"
-#include "RunningMedian.h"
-
 #include "src/Globals.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"

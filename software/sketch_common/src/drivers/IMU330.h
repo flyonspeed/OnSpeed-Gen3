@@ -3,7 +3,7 @@
 #define _IMU330_H_
 
 #include <Arduino.h>
-#include "RunningAverage.h"
+#include <filters/RunningMean.h>
 
 #include "src/drivers/SPI_IO.h"
 #include <types/ImuSample.h>
@@ -57,9 +57,7 @@ public:
     float       Gy;     // Pitch rate
     float       Gz;     // Yaw rate
 
-    RunningAverage  * pTempAvg;
-//    RunningAverage TempAvg(20);
-//    RunningAverage TempAvg(ImuTempSmoothing);
+    onspeed::RunningMean * pTempAvg;
 
   // Methods
 protected:

@@ -20,7 +20,6 @@ using onspeed::AhrsOutputs;
 using onspeed::ahrs::Ahrs;
 using onspeed::ahrs::AhrsConfig;
 using onspeed::ahrs::Algorithm;
-using onspeed::ahrs::RunningMean;
 
 namespace {
 
@@ -68,35 +67,6 @@ AhrsInputs levelSeed()
 
 void setUp(void) {}
 void tearDown(void) {}
-
-// ---------------------------------------------------------------------
-// RunningMean helper
-// ---------------------------------------------------------------------
-
-void test_running_mean_basic(void)
-{
-    RunningMean rm(4);
-    rm.addValue(1.0f);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, rm.getFastAverage());
-    rm.addValue(3.0f);
-    TEST_ASSERT_EQUAL_FLOAT(2.0f, rm.getFastAverage());
-    rm.addValue(5.0f);
-    rm.addValue(7.0f);
-    // Full buffer: (1+3+5+7)/4 = 4
-    TEST_ASSERT_EQUAL_FLOAT(4.0f, rm.getFastAverage());
-    // One more wraps, displacing the oldest (1): (7+3+5+7)... wait, the
-    // circular buffer replaces index 0 first.  After 4 adds, next goes
-    // to index 0 again.  Sum becomes 9+3+5+7 = 24; avg = 6.
-    rm.addValue(9.0f);
-    TEST_ASSERT_EQUAL_FLOAT(6.0f, rm.getFastAverage());
-}
-
-void test_running_mean_empty_before_any_add(void)
-{
-    RunningMean rm(4);
-    // Before any add, return 0 (Ahrs always pushes before reading).
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, rm.getFastAverage());
-}
 
 // ---------------------------------------------------------------------
 // Construction + Init
@@ -531,8 +501,6 @@ int main(void)
 {
     UNITY_BEGIN();
 
-    RUN_TEST(test_running_mean_basic);
-    RUN_TEST(test_running_mean_empty_before_any_add);
 
     RUN_TEST(test_construction_defaults_outputs_to_zero);
     RUN_TEST(test_init_seeds_pitch_and_roll_from_accel);

@@ -40,6 +40,7 @@
 #include <ahrs/KalmanFilter.h>
 #include <ahrs/MadgwickFusion.h>
 #include <filters/EMAFilter.h>
+#include <filters/RunningMean.h>
 #include <types/AhrsInputs.h>
 #include <types/AhrsOutputs.h>
 
@@ -57,67 +58,9 @@ struct AhrsConfig {
     float pitchBiasDeg     = 0.0f;
     float rollBiasDeg      = 0.0f;
     Algorithm algorithm    = Algorithm::Madgwick;
-    int   gyroSmoothingWindow = 30;     // RunningAverage window
+    int   gyroSmoothingWindow = 30;     // RunningMean window
     float imuSampleRateHz  = 208.0f;
     float pressureSampleRateHz = 50.0f; // fallback dt for IAS derivative
-};
-
-// Bounded-size moving-average circular buffer.  Header-only so it stays
-// inlineable; replaces the Arduino RunningAverage library inside core
-// (which depends on Arduino.h and is therefore platform-bound).
-//
-// Behavior matches the legacy RunningAverage::{addValue,getFastAverage}
-// pair used for gyro display smoothing in the sketch's AHRS:
-//
-//   * Buffer pre-zeroed at construction
-//   * addValue overwrites the oldest cell, maintains a running sum
-//   * getFastAverage returns sum / count (the only call site we need)
-//   * count saturates at capacity
-//
-// The Arduino class returns NAN when count==0; the gyro smoother always
-// has at least one value pushed before any reader, so we omit that
-// branch — the legacy AHRS init never reads before pushing either.
-class RunningMean {
-public:
-    explicit RunningMean(int capacity)
-        : capacity_(capacity > 1 ? capacity : 1)
-        , count_(0)
-        , index_(0)
-        , sum_(0.0f)
-        , buf_(new float[capacity_]())
-    { }
-
-    ~RunningMean() { delete[] buf_; }
-
-    RunningMean(const RunningMean&) = delete;
-    RunningMean& operator=(const RunningMean&) = delete;
-
-    void addValue(float v) {
-        sum_ -= buf_[index_];
-        buf_[index_] = v;
-        sum_ += v;
-        index_++;
-        if (index_ >= capacity_) index_ = 0;
-        if (count_ < capacity_) count_++;
-    }
-
-    float getFastAverage() const {
-        return (count_ == 0) ? 0.0f : sum_ / static_cast<float>(count_);
-    }
-
-    void clear() {
-        for (int i = 0; i < capacity_; ++i) buf_[i] = 0.0f;
-        count_ = 0;
-        index_ = 0;
-        sum_   = 0.0f;
-    }
-
-private:
-    int    capacity_;
-    int    count_;
-    int    index_;
-    float  sum_;
-    float* buf_;
 };
 
 class Ahrs {

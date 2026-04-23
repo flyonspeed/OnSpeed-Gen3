@@ -165,8 +165,6 @@ Libraries are provided via git submodules in `software/Libraries/`:
 - ghostl (required by EspSoftwareSerial 8.2.0)
 - OneButton
 - OneWire
-- RunningAverage
-- RunningMedian
 - SdFat
 - arduinoWebSockets
 - csv-parser (vendored)

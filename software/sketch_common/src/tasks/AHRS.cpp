@@ -8,7 +8,6 @@
 // public fields legacy consumers still read.
 
 #include <math.h>
-#include "RunningAverage.h"
 
 #include "src/Globals.h"
 #include "src/drivers/IMU330.h"

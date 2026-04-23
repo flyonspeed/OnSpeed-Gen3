@@ -282,7 +282,7 @@ them. Everything else uses quotes — including most third-party libraries.
 | C++ standard library | `<>` | `<optional>`, `<string>`, `<cstdint>` |
 | Arduino / ESP32 framework | `<>` | `<Arduino.h>`, `<HardwareSerial.h>`, `<WiFi.h>`, `<LittleFS.h>` |
 | `onspeed_core` library headers | `<>` | `<ToneCalc.h>`, `<types/ImuSample.h>` |
-| Vendored third-party libraries under `software/Libraries/` | `""` | `"SdFat.h"`, `"FreeRTOS.h"`, `"tinyxml2.h"`, `"RunningAverage.h"`, `"RunningMedian.h"` |
+| Vendored third-party libraries under `software/Libraries/` | `""` | `"SdFat.h"`, `"FreeRTOS.h"`, `"tinyxml2.h"` |
 | Project files (sketch-side) | `""` with sketch-root-relative path | `"Globals.h"`, `"src/drivers/SPI_IO.h"` |
 
 Google's rule: *"Headers should only be included using an angle-bracketed

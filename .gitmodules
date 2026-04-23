@@ -10,12 +10,6 @@
 [submodule "software/Libraries/BasicLinearAlgebra"]
 	path = software/Libraries/BasicLinearAlgebra
 	url = git@github.com:tomstewart89/BasicLinearAlgebra.git
-[submodule "software/Libraries/RunningAverage"]
-	path = software/Libraries/RunningAverage
-	url = git@github.com:RobTillaart/RunningAverage.git
-[submodule "software/Libraries/RunningMedian"]
-	path = software/Libraries/RunningMedian
-	url = git@github.com:RobTillaart/RunningMedian.git
 [submodule "software/Libraries/OneWire"]
 	path = software/Libraries/OneWire
 	url = git@github.com:PaulStoffregen/OneWire.git
