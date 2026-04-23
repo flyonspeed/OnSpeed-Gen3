@@ -106,7 +106,7 @@
 
 #define FSI9 &fonts::FreeSerifItalic9pt7b
 #define FSI12 &fonts::FreeSerifItalic12pt7b
-#define FSI19 &fonts::FreeSerifItalic18pt7b
+#define FSI18 &fonts::FreeSerifItalic18pt7b
 #define FSI24 &fonts::FreeSerifItalic24pt7b
 
 #define FSB9 &fonts::FreeSerifBold9pt7b
@@ -361,7 +361,7 @@
 
 #define FSI9  1
 #define FSI12 1
-#define FSI19 1
+#define FSI18 1
 #define FSI24 1
 
 #define FSB9  1

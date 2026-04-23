@@ -378,17 +378,12 @@ void loop()
     //
     // Change display brightness and display format using panel buttons.
     //
-    if (M5.BtnC.wasPressed() && (displayBrightness > 0))
-    {
-        displayBrightness *= 2; // brightness up
-    }
+    // BtnC doubles brightness, BtnA halves it. constrain() below clamps to
+    // the [1, 255] range so no guards are needed on the actions themselves.
+    if (M5.BtnC.wasPressed()) displayBrightness *= 2;  // brightness up
+    if (M5.BtnA.wasPressed()) displayBrightness /= 2;  // brightness down
 
-    if (M5.BtnA.wasPressed() && (displayBrightness <= 255))
-    {
-        displayBrightness /= 2; // brightness down
-    }
-
-    displayBrightness=constrain(displayBrightness,1,255);
+    displayBrightness = constrain(displayBrightness, 1, 255);
 
     M5.Display.setBrightness(displayBrightness);
 

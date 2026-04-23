@@ -2127,7 +2127,7 @@ void Gauges::MarkNeedle (float x0, float y0, float barSize, float barWidth, floa
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
   gdraw.drawString (buf, x0 - 1, y0 - 1);
-  gdraw.drawString (buf, x0 + 1, y0 - 1);
+  gdraw.drawString (buf, x0 + 1, y0 + 1);
   gdraw.setTextColor (color);
   gdraw.drawString (buf, x0, y0);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
@@ -2156,7 +2156,7 @@ void Gauges::MarkIndex(float x0, float y0, float barSize, float barWidth, float 
   gdraw.setTextColor (TFT_BLACK);
   gdraw.setTextDatum (MC_DATUM);
   gdraw.drawString (buf, x1 - 1, y1 - 1);
-  gdraw.drawString (buf, x1 + 1, y1 - 1);
+  gdraw.drawString (buf, x1 + 1, y1 + 1);
   gdraw.setTextColor (color);
   gdraw.drawString (buf, x1, y1);
   gdraw.setTextDatum (textdatum_t::baseline_left); // restore project datum convention
