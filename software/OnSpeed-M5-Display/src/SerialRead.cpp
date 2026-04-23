@@ -49,6 +49,20 @@ static constexpr int SIMDEMO_RX  = 22;
 
 // -----------------------------------------------
 
+// Freshness predicate (finding 037). Matches the 300 ms threshold that the
+// existing NO DATA overlay in main.cpp has used since the Gen2 port. Exposed
+// so any consumer — render path, G-history recorder, future X-Plane bridge —
+// can gate itself on fresh data without duplicating the bare
+// millis() - serialMillis > 300 check.
+const uint32_t kSerialDataFreshThresholdMs = 300;
+
+bool serialDataFresh()
+{
+    return (millis() - serialMillis) <= kSerialDataFreshThresholdMs;
+}
+
+// -----------------------------------------------
+
 void SerialRead()
 {
 #ifndef DUMMY_SERIAL_DATA
@@ -131,6 +145,22 @@ void SerialRead()
                     float frameDtSec = (lastFrameMicros == 0)
                                            ? 0.05f
                                            : (nowMicros - lastFrameMicros) * 1e-6f;
+
+                    // Finding 036: on a long serial gap (OnSpeed box reboot,
+                    // cable reconnect), the SavGol window still holds 15 stale
+                    // pre-gap IAS samples. Against a single fresh sample those
+                    // produce a huge bogus derivative for the first ~15 post-gap
+                    // frames. Reset the filter (and drain the EMAs) whenever we
+                    // see > 500 ms between frames. This must run BEFORE the dt
+                    // clamp below, since a genuine outage produces dt >> 0.2 s
+                    // and the clamp would otherwise hide it.
+                    if (lastFrameMicros != 0 && frameDtSec > 0.5f)
+                    {
+                        iasDerivative.reset();
+                        DecelRate         = 0.0f;
+                        SmoothedDecelRate = 0.0f;
+                    }
+
                     lastFrameMicros = nowMicros;
 
                     // Soft warning if frame cadence drifts outside expected
@@ -138,6 +168,14 @@ void SerialRead()
                     // may be slightly off.
                     if (frameDtSec < 0.020f || frameDtSec > 0.200f)
                         Serial.printf("WARN: unexpected frame dt=%.3fs\n", frameDtSec);
+
+                    // Finding 035: clamp to a sane band before dividing the
+                    // SavGol derivative by it. Lower bound is half the nominal
+                    // 20 ms frame period — well below the protocol rate but far
+                    // enough from zero to avoid div-by-tiny-number explosion
+                    // when two frames arrive back-to-back (replay bursts, post-
+                    // stall buffer drain). Upper bound matches the warn band.
+                    frameDtSec = constrain(frameDtSec, 0.010f, 0.200f);
 
                     SerialProcess(frameDtSec);
 
