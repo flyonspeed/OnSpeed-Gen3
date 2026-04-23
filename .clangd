@@ -1,0 +1,36 @@
+# Shared clangd config for OnSpeed-Gen3.
+#
+# To get inline diagnostics that match the real build, generate
+# compile_commands.json:
+#
+#   pio run -t compiledb -e esp32s3-v4p     # from repo root — Gen3 + onspeed_core
+#   cd software/OnSpeed-M5-Display
+#   pio run -t compiledb -e m5stack-core-esp32   # M5 project
+#
+# Both files are machine-local (absolute paths) and gitignored.
+#
+# Caveat: Apple's bundled clangd only targets host architectures (arm64/x86_64).
+# It parses the Gen3 and onspeed_core source fine, but gets confused on M5
+# firmware files that rely on M5GFX's target-conditional templates. If you
+# see spurious errors in software/OnSpeed-M5-Display/src/ files, that's why.
+# Gen3 + onspeed_core diagnostics are reliable; M5 firmware diagnostics are not.
+
+CompileFlags:
+  Add:
+    - -std=gnu++17
+    - -Wno-unknown-warning-option
+    - -Wno-unused-command-line-argument
+  Remove:
+    # Xtensa-specific flags that Apple clangd doesn't recognize.
+    # These are valid for the real build; we strip them so clangd
+    # doesn't produce spurious "unknown argument" errors on every file.
+    - -mlongcalls
+    - -mdisable-hardware-atomics
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion
+    - -fno-shrink-wrap
+
+Diagnostics:
+  # Suppress unused-includes suggestions — PlatformIO libraries have many
+  # transitively-included headers and the noise is overwhelming.
+  UnusedIncludes: None

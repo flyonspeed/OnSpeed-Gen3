@@ -16,6 +16,10 @@ lib/version/buildinfo.cpp
 # git worktrees for parallel subagent work
 .worktrees/
 
+# clangd compile database — machine-local absolute paths, regenerate with
+# `pio run -t compiledb -e <env>`. See .clangd for usage notes.
+compile_commands.json
+
 # Coverage artifacts (produced by scripts/coverage.sh and CI)
 coverage.info
 coverage-report/
