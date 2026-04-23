@@ -64,6 +64,8 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <Free_Fonts.h>
 #include "GaugeWidgets.h"
+#include <gauges/ArcGeometry.h>
+#include <gauges/BarRangeScale.h>
 #define GFXFF 1
 //#define ARCSTEP 0.00872664626f     // Smaller steps for more arc accuracy, larger steps for faster execution for arc gauges.
 //#define ARCSTEP 0.01745329252f   
@@ -482,61 +484,62 @@ void Gauges::fillArc (int16_t x0, int16_t y0, int16_t radius,                   
                       uint16_t edgeColor, uint16_t edgeWidth, 
                       uint8_t edgeEnd) {
 
-  float cosA;  
-  float sinA;  
-  float cosB;          
-  float sinB;  
-  
-  int16_t x1 = 0, y1 = 0; 
-  int16_t x2 = 0, y2 = 0; 
-  int16_t x3 = 0, y3 = 0; 
-  int16_t x4 = 0, y4 = 0; 
+  // Use onspeed_core/gauges for arc quad + end-cap geometry.
+  // CCW traversal is now a direction reversal (theta = startAngle - j)
+  // instead of the previous cos-negation-only branch, which produced a
+  // Y-axis reflection for non-vertical-axis arcs. See findings 029, 033, 047.
+  using onspeed::gauges::ArcDirection;
+  using onspeed::gauges::ArcQuad;
+  using onspeed::gauges::ArcEdge;
+  using onspeed::gauges::ComputeArcQuad;
+  using onspeed::gauges::ComputeEndCapAngle;
+
+  const ArcDirection direction = (arcAngle >= 0) ? ArcDirection::CW : ArcDirection::CCW;
+
+  int16_t x1 = 0, y1 = 0;
+  int16_t x2 = 0, y2 = 0;
+  int16_t x3 = 0, y3 = 0;
+  int16_t x4 = 0, y4 = 0;
   int16_t nx1 = 0, ny1 = 0, nx2 = 0, ny2 = 0;
-  
+
   for (float j = 0; j < abs(arcAngle); j += ARCSTEP) {
-          
-    float theta = startAngle + j;
-    
-    if (arcAngle >= 0) {
-      cosA = cos(theta);
-      sinA = sin(theta);
-      cosB = cos(theta + ARCSTEP);
-      sinB = sin(theta + ARCSTEP);
-    }
-    
-    else { // counterClockwise
-      cosA = -cos(theta);
-      sinA =  sin(theta);
-      cosB = -cos(theta - ARCSTEP);
-      sinB =  sin(theta - ARCSTEP);
-    }
-     
+    const ArcQuad quad = ComputeArcQuad(startAngle, j, ARCSTEP, direction);
+
     int16_t LW2 = lineWidth/2;
-    x1 = x0 + (radius + LW2) * cosA;
-    y1 = y0 + (radius + LW2) * sinA;
-    x2 = x0 + (radius - LW2) * cosA;
-    y2 = y0 + (radius - LW2) * sinA;
-    x3 = x0 + (radius + LW2) * cosB;
-    y3 = y0 + (radius + LW2) * sinB;
-    x4 = x0 + (radius - LW2) * cosB;
-    y4 = y0 + (radius - LW2) * sinB;
-   
+    x1 = x0 + (radius + LW2) * quad.edgeA.cosV;
+    y1 = y0 + (radius + LW2) * quad.edgeA.sinV;
+    x2 = x0 + (radius - LW2) * quad.edgeA.cosV;
+    y2 = y0 + (radius - LW2) * quad.edgeA.sinV;
+    x3 = x0 + (radius + LW2) * quad.edgeB.cosV;
+    y3 = y0 + (radius + LW2) * quad.edgeB.sinV;
+    x4 = x0 + (radius - LW2) * quad.edgeB.cosV;
+    y4 = y0 + (radius - LW2) * quad.edgeB.sinV;
+
     if (lineColor != NOFILL){
       gdraw.fillTriangle(x1, y1, x2, y2, x3, y3, lineColor);
       gdraw.fillTriangle(x3, y3, x2, y2, x4, y4, lineColor);
-    } 
-    
+    }
+
     if (edgeWidth != 0) {
       drawEdge (x1, y1, x3, y3, edgeColor, edgeWidth, edgeEnd);
       drawEdge (x2, y2, x4, y4, edgeColor, edgeWidth, edgeEnd);
     }
-    
+
     if (j == 0) {nx1 = x1; ny1 = y1; nx2 = x2; ny2 = y2;}
   }
 
+  // End-cap geometry: compute the exact final angle instead of relying on
+  // stale loop-iteration x3/y3/x4/y4 (which overshoot by up to ARCSTEP or
+  // are zero when the loop never executed). See finding 033.
   if (abs(arcAngle) < TWO_PI && edgeWidth != 0){
+    const ArcEdge endCap = ComputeEndCapAngle(startAngle, arcAngle, direction);
+    int16_t LW2 = lineWidth/2;
+    int16_t ex1 = x0 + (radius + LW2) * endCap.cosV;
+    int16_t ey1 = y0 + (radius + LW2) * endCap.sinV;
+    int16_t ex2 = x0 + (radius - LW2) * endCap.cosV;
+    int16_t ey2 = y0 + (radius - LW2) * endCap.sinV;
     drawEdge (nx1, ny1, nx2, ny2, edgeColor, edgeWidth, edgeEnd);
-    drawEdge (x3, y3, x4, y4, edgeColor, edgeWidth, edgeEnd);
+    drawEdge (ex1, ey1, ex2, ey2, edgeColor, edgeWidth, edgeEnd);
   }
 }
 
@@ -692,18 +695,28 @@ void Gauges::vBarGraph (int16_t x0, int16_t y0, int16_t barSize, int16_t barWidt
   
   /*
      Draw all of the enabled display bars.  Setting non-overlaping ranges allows for black bars between ranges.
-   */  
-  for (int16_t i = 1; i <= NUM_RANGES; i++){
-    rangeTop[i] = rangeTop[i] * _normAxis / SCALEUP;
-    rangeBot[i] = rangeBot[i] * _normAxis / SCALEUP;
-    
-    if (rangeTop[i] > _MaxDisplay) rangeTop[i] = _MaxDisplay;
-    if (rangeBot[i] < _MinDisplay) rangeBot[i] = _MinDisplay;
-    
-    if (rangeValid[i]) {
-	  gdraw.fillRect (_X0, _Y0 - rangeTop[i], _Width, rangeTop[i] - rangeBot[i], rangeColor[i]);
-	  gdraw.drawRect (_X0, _Y0 - rangeTop[i], _Width, rangeTop[i] - rangeBot[i], TFT_BLACK);
-      rangeisValid = true;
+     Scale via onspeed_core/gauges/BarRangeScale into local arrays so the
+     member rangeTop[]/rangeBot[] are not mutated (see finding 024).
+   */
+  {
+    using onspeed::gauges::RangeBand;
+    using onspeed::gauges::ScaledRangeBand;
+    using onspeed::gauges::ScaleBarRanges;
+    RangeBand       _src[NUM_RANGES + 1];
+    ScaledRangeBand _dst[NUM_RANGES + 1];
+    for (int16_t i = 1; i <= NUM_RANGES; i++) {
+      _src[i].valid = rangeValid[i];
+      _src[i].top   = rangeTop[i];
+      _src[i].bot   = rangeBot[i];
+      _src[i].color = rangeColor[i];
+    }
+    ScaleBarRanges(&_src[1], &_dst[1], NUM_RANGES, _normAxis, SCALEUP, _MaxDisplay, _MinDisplay);
+    for (int16_t i = 1; i <= NUM_RANGES; i++){
+      if (rangeValid[i]) {
+        gdraw.fillRect (_X0, _Y0 - _dst[i].top, _Width, _dst[i].top - _dst[i].bot, rangeColor[i]);
+        gdraw.drawRect (_X0, _Y0 - _dst[i].top, _Width, _dst[i].top - _dst[i].bot, TFT_BLACK);
+        rangeisValid = true;
+      }
     }
   }
 	
@@ -816,18 +829,27 @@ void Gauges::hBarGraph (int16_t x0, int16_t y0, int16_t barSize, int16_t barWidt
   bool rangeisValid = false;
   
   // Draw all of the enabled display bars.  Setting non-overlaping ranges allows for black bars between ranges.
-
-  for (int16_t i = 1; i <= NUM_RANGES; i++){
-    rangeTop[i] = rangeTop[i] * _normAxis / SCALEUP;
-    rangeBot[i] = rangeBot[i] * _normAxis / SCALEUP;
-    
-    if (rangeTop[i] > _MaxDisplay) rangeTop[i] = _MaxDisplay;
-    if (rangeBot[i] < _MinDisplay) rangeBot[i] = _MinDisplay;
-    
-    if (rangeValid[i]) {
-      gdraw.fillRect (_X0 + rangeBot[i], _Y0, rangeTop[i] - rangeBot[i], _Width, rangeColor[i]);
-      gdraw.drawRect (_X0 + rangeBot[i], _Y0, rangeTop[i] - rangeBot[i], _Width, TFT_BLACK);
-      rangeisValid = true;
+  // Scale via onspeed_core/gauges/BarRangeScale into local arrays so the
+  // member rangeTop[]/rangeBot[] are not mutated (see finding 024).
+  {
+    using onspeed::gauges::RangeBand;
+    using onspeed::gauges::ScaledRangeBand;
+    using onspeed::gauges::ScaleBarRanges;
+    RangeBand       _src[NUM_RANGES + 1];
+    ScaledRangeBand _dst[NUM_RANGES + 1];
+    for (int16_t i = 1; i <= NUM_RANGES; i++) {
+      _src[i].valid = rangeValid[i];
+      _src[i].top   = rangeTop[i];
+      _src[i].bot   = rangeBot[i];
+      _src[i].color = rangeColor[i];
+    }
+    ScaleBarRanges(&_src[1], &_dst[1], NUM_RANGES, _normAxis, SCALEUP, _MaxDisplay, _MinDisplay);
+    for (int16_t i = 1; i <= NUM_RANGES; i++){
+      if (rangeValid[i]) {
+        gdraw.fillRect (_X0 + _dst[i].bot, _Y0, _dst[i].top - _dst[i].bot, _Width, rangeColor[i]);
+        gdraw.drawRect (_X0 + _dst[i].bot, _Y0, _dst[i].top - _dst[i].bot, _Width, TFT_BLACK);
+        rangeisValid = true;
+      }
     }
   }
 
@@ -966,7 +988,7 @@ void Gauges::arcGraph (int16_t x0, int16_t y0, int16_t barSize, int16_t barWidth
       float delta = _arcAngle / gradMarks;
 	  
 	for (float i = 0; i <= _arcAngle; i += delta) { // major marks
-      float _angle = i + _startAngle;
+      float _angle = i + _theta;  // use rotated theta so ticks align with range bars (finding 041)
 	  float _cosA = cos (_angle);
 	  float _sinA = sin (_angle);
 	  float _cosB = -sin (_angle);
@@ -986,7 +1008,7 @@ void Gauges::arcGraph (int16_t x0, int16_t y0, int16_t barSize, int16_t barWidth
 	}
 
 	for (float i = _arcAngle / (gradMarks * 2); i < _arcAngle; i += delta) { // minor marks
-      float _angle = i + _startAngle;
+      float _angle = i + _theta;  // use rotated theta so ticks align with range bars (finding 041)
 	  float _cosA = cos (_angle);
 	  float _sinA = sin (_angle);
 	  float _cosB = -sin (_angle);
@@ -1014,7 +1036,7 @@ void Gauges::arcGraph (int16_t x0, int16_t y0, int16_t barSize, int16_t barWidth
     if (gradMajorLength != 0){
     
       for (float i = 0; i <= _arcAngle; i += delta) { // major marks
-        float _angle = i + _startAngle;
+        float _angle = i + _theta;  // use rotated theta so ticks align with range bars (finding 041)
         float _cosA = cos (_angle);
         float _sinA = sin (_angle);
         float _cosB = -sin (_angle);
@@ -1037,7 +1059,7 @@ void Gauges::arcGraph (int16_t x0, int16_t y0, int16_t barSize, int16_t barWidth
     if (gradMinorLength != 0){
     
       for (float i = _arcAngle / (-gradMarks * 2); i < _arcAngle; i += delta) { // minor marks
-        float _angle = i + _startAngle;
+        float _angle = i + _theta;  // use rotated theta so ticks align with range bars (finding 041)
         float _cosA = cos (_angle);
         float _sinA = sin (_angle);
         float _cosB = -sin (_angle);
@@ -1087,8 +1109,8 @@ void Gauges::arcGraph (int16_t x0, int16_t y0, int16_t barSize, int16_t barWidth
       if (_pointerAdj[i] > _maxDisplay) _pointerAdj[i] = _maxDisplay;
 
       if (!clockWise) {
-        _pointerAdj[i]  = PI - _pointerAdj[i];
-        _Angle = -_theta;  
+        _pointerAdj[i]  = -_pointerAdj[i];  // negate, don't reflect across Y (finding 030)
+        _Angle = -_theta;
       }
 
     switch (pointerType[i]){
