@@ -119,7 +119,6 @@ const uint16_t  flashRate           = 250;  //milliseconds
 // Serial data variables (definitions, declared extern in SerialRead.h)
 String          serialBufferString;
 float           AOA                 = 0.0;
-float           SmoothedAOA         = 0.0;
 int             PercentLift;
 float           Pitch               = 0.0;
 float           Roll                = 0.0;
@@ -128,7 +127,6 @@ float           Palt                = 0.0;
 float           iVSI                = 0.0;
 float           VerticalG           = 1.0;
 float           LateralG            = 0.0;
-float           SmoothedLateralG;
 float           FlightPath          = 0.0;
 int             FlapPos             = 0;
 int             OAT                 = 0;
@@ -657,7 +655,7 @@ void displayAOA()
     AOAThresholds[6] = OnSpeedStallWarnAOA - 0.1;
     AOAThresholds[7] = OnSpeedStallWarnAOA;
 
-    drawAOA(wgtX0, wgtY0, wgtWidth, wgtHeight, SmoothedAOA, flashFlag, AOAThresholds);
+    drawAOA(wgtX0, wgtY0, wgtWidth, wgtHeight, AOA, flashFlag, AOAThresholds);
 
     // Draw the percent lift display
     // -----------------------------

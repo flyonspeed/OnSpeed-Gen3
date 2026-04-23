@@ -13,9 +13,10 @@ using onspeed::proto::ParseDisplayFrame;
 using onspeed::proto::kDisplayFrameSizeBytes;
 using onspeed::proto::DisplayFrame;
 
-// Smoothing constants
-static const float aoaSmoothingAlpha   = 0.7f;  //1 = max smoothing, 0.01 no smoothing.
-static const float slipSmoothingAlpha  = 0.5f;  //1 = max smoothing, 0.01 no smoothing.
+// Decel-rate EMA on the locally-computed IAS derivative. AOA and LateralG
+// are used as-received — the main firmware already smooths them at the
+// sensor layer (iAoaSmoothing, AccelLatFilter), so the display matches
+// what the audio tones react to.
 static const float decelSmoothingAlpha = 0.04f;  //1 = max smoothing, 0.01 no smoothing.
 
 // IAS derivative filter (Savitzky-Golay first derivative, window=15)
@@ -141,7 +142,7 @@ void SerialRead()
                     SerialProcess(frameDtSec);
 
                     #ifdef SERIALDATADEBUG
-                    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, AOA: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI,SmoothedAOA);
+                    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, AOA: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, AOA);
                     Serial.println();
                     #endif
 
@@ -205,11 +206,10 @@ void SerialProcess(float frameDtSec)
     if (AOA == -100)
         AOA = 0.0;
 
-    // smooth the noisier inputs
-    SmoothedLateralG   = SmoothedLateralG * slipSmoothingAlpha+(1-slipSmoothingAlpha)*LateralG;
-    Slip               = int(SmoothedLateralG * 34 / 0.04);
+    // Slip gauge: LateralG is already EMA-smoothed by the main firmware
+    // (AccelLatFilter in onspeed_core/ahrs). Use as-received.
+    Slip               = int(LateralG * 34 / 0.04);
     Slip               = constrain(Slip,-99,99);
-    SmoothedAOA        = SmoothedAOA * aoaSmoothingAlpha + (1-aoaSmoothingAlpha) * AOA;
 
     // Compute IAS derivative (deceleration) in knots/sec.
     // SavGolDerivative returns d(IAS)/d(sample); dividing by the measured
