@@ -74,6 +74,12 @@ void Madgwick::begin(float sampleFrequency, float Pitch, float Roll)
 
 //-----------------------------------------------------------------------------
 
+// LCOV_EXCL_START
+// Madgwick::Update is the 9-axis magnetometer-fusion path. OnSpeed has no
+// magnetometer; AHRS::Process only ever calls UpdateIMU (6-axis). Marking
+// as excluded from coverage rather than writing tests for code that
+// doesn't run on our hardware — if a future Gen2v4 port adds a mag
+// sensor, remove this LCOV_EXCL block and add tests then.
 void Madgwick::Update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz) {
     float recipNorm;
     float s0, s1, s2, s3;
@@ -178,6 +184,7 @@ void Madgwick::Update(float gx, float gy, float gz, float ax, float ay, float az
     q3 *= recipNorm;
     anglesComputed = 0;
 }
+// LCOV_EXCL_STOP
 
 //-------------------------------------------------------------------------------------------
 // IMU algorithm update

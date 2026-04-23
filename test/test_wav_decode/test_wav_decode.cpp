@@ -174,6 +174,129 @@ void test_decode_wav_stereo_ok(void)
 }
 
 // ============================================================================
+// DecodeWav() — error paths (fault injection against malformed WAV bytes).
+// Each test mutates a valid-baseline WAV into one specific failure mode
+// and confirms the decoder returns an empty asset rather than crashing or
+// producing garbage.
+// ============================================================================
+
+void test_decode_wav_chunk_header_extends_past_end(void)
+{
+    // Target: WavDecode.cpp:72-73 "if (payload > byteLen) return out;"
+    // Drop the last 2 bytes so the payload of the last chunk runs past
+    // the end of the buffer declared length.
+    auto wav = MakeMinimalWav();
+    wav.resize(wav.size() - 2);   // cut data payload midway
+
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_fmt_chunk_too_small(void)
+{
+    // Target: WavDecode.cpp:76-77 "if (chunkSize < 16 ...) return out;"
+    // Set the fmt chunkSize field to 8 (below the 16-byte PCM minimum).
+    auto wav = MakeMinimalWav();
+    // RIFF(4) + size(4) + WAVE(4) = 12; "fmt "(4) = 12-15; size32 = 16-19.
+    wav[16] = 8; wav[17] = 0; wav[18] = 0; wav[19] = 0;
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_fmt_chunk_payload_past_end(void)
+{
+    // Target: WavDecode.cpp:76 "payload + 16 > byteLen"
+    // Truncate the buffer right after the fmt size declares 16 more bytes
+    // but the buffer ends before they can be read.
+    auto wav = MakeMinimalWav();
+    // After "fmt "(12-15) + size(16-19) the fmt payload starts at 20.
+    wav.resize(25);   // well short of 20 + 16 = 36
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_rejects_zero_channels(void)
+{
+    // Target: WavDecode.cpp:91-92 "channels < 1"
+    auto wav = MakeMinimalWav(1, 0, 16000, 16);
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_rejects_three_channels(void)
+{
+    // Target: WavDecode.cpp:91-92 "channels > 2"
+    auto wav = MakeMinimalWav(1, 3, 16000, 16);
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_rejects_zero_sample_rate(void)
+{
+    // Target: WavDecode.cpp:93-94 "sampleRateHz <= 0"
+    auto wav = MakeMinimalWav(1, 1, 0, 16);
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_rejects_tiny_data_chunk(void)
+{
+    // Target: WavDecode.cpp:95-96 "chunkSize < sizeof(int16_t)"
+    // Set the data chunkSize to 1 byte (below one sample).
+    auto wav = MakeMinimalWav();
+    // Data chunk header starts right after fmt payload ends: 12+8+16 = 36.
+    // "data"(36-39), size32(40-43).
+    wav[40] = 1; wav[41] = 0; wav[42] = 0; wav[43] = 0;
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_data_chunk_claims_more_than_available(void)
+{
+    // Target: WavDecode.cpp:97-98 "payload + chunkSize > byteLen"
+    // Declare a data chunk larger than the buffer actually contains.
+    auto wav = MakeMinimalWav();
+    // Data size at [40..43]; set to 0x10000 (64 KB) — way past end.
+    wav[40] = 0; wav[41] = 0; wav[42] = 1; wav[43] = 0;
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_no_data_chunk(void)
+{
+    // Target: WavDecode.cpp:115 "return out; // no data chunk found"
+    // Replace the "data" tag with something else; the loop will walk all
+    // chunks without finding 'data' and fall through to the end.
+    auto wav = MakeMinimalWav();
+    // Data tag at [36..39].
+    wav[36] = 'j'; wav[37] = 'u'; wav[38] = 'n'; wav[39] = 'k';
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+void test_decode_wav_data_chunk_before_fmt_chunk(void)
+{
+    // Target: WavDecode.cpp:85-86 "if (!haveFmt) return out;"
+    // Build a WAV with the data chunk appearing before fmt. We'll flip
+    // the tags on a valid file: first chunk becomes "data", second "fmt ".
+    auto wav = MakeMinimalWav();
+    // The fmt chunk tag is at bytes [12..15], data tag at [36..39].
+    // Swap them, being careful about how chunkSizes would mismatch with
+    // the actual content — since we just need to hit the "!haveFmt"
+    // branch, the data parse will error out first.
+    unsigned char saved[4] = { wav[12], wav[13], wav[14], wav[15] };
+    wav[12] = 'd'; wav[13] = 'a'; wav[14] = 't'; wav[15] = 'a';
+    // The 'fmt ' chunk size (at [16..19]) is 16, which means the walker
+    // would treat the next 16 bytes as data payload; then look at the
+    // next chunk. That may or may not land on 'fmt '; that's ok — the
+    // important thing is that a 'data' appears before 'fmt ' and the
+    // decoder should refuse it.
+    (void)saved;   // suppress unused warning under -Wunused-variable
+    PcmAsset a = DecodeWav(wav.data(), wav.size());
+    TEST_ASSERT_TRUE(a.empty());
+}
+
+// ============================================================================
 // Compiled-in PCM asset checks: each xxd-converted .pcm header should
 // produce a non-empty PcmAsset of the expected length at 16 kHz mono.
 // ============================================================================
@@ -308,6 +431,17 @@ int main(int, char**)
     RUN_TEST(test_decode_wav_rejects_non_pcm);
     RUN_TEST(test_decode_wav_rejects_24bit);
     RUN_TEST(test_decode_wav_stereo_ok);
+
+    RUN_TEST(test_decode_wav_chunk_header_extends_past_end);
+    RUN_TEST(test_decode_wav_fmt_chunk_too_small);
+    RUN_TEST(test_decode_wav_fmt_chunk_payload_past_end);
+    RUN_TEST(test_decode_wav_rejects_zero_channels);
+    RUN_TEST(test_decode_wav_rejects_three_channels);
+    RUN_TEST(test_decode_wav_rejects_zero_sample_rate);
+    RUN_TEST(test_decode_wav_rejects_tiny_data_chunk);
+    RUN_TEST(test_decode_wav_data_chunk_claims_more_than_available);
+    RUN_TEST(test_decode_wav_no_data_chunk);
+    RUN_TEST(test_decode_wav_data_chunk_before_fmt_chunk);
 
     RUN_TEST(test_assets_all_decode_nonempty);
     RUN_TEST(test_assets_lengths_are_even);

@@ -404,6 +404,82 @@ void test_adahrs_sentinel_ias_leaves_field_absent(void)
 }
 
 // ---------------------------------------------------------------------------
+// EMS frame (!3, 225 bytes) — engine/monitoring data.
+// The OnSpeed firmware doesn't consume the EMS numeric fields (EfisFrame
+// has no engine members), but the parser still validates the CRC and
+// marks the source. Covers DynonSkyview.cpp:118-124, 170-186.
+// ---------------------------------------------------------------------------
+
+// Build a minimal valid !3 EMS frame. All body bytes zero-padded; only
+// the magic '!3' prefix and checksum matter for parser branches we want
+// to exercise.
+static void buildEmsFrame(char buf[225])
+{
+    for (int i = 0; i < 223; i++) buf[i] = ' ';
+    buf[0] = '!'; buf[1] = '3';
+    // Optional: fill a realistic-shaped timestamp so the bytes aren't
+    // all-spaces (no parser branch depends on it, but closer to real).
+    char tmp[8];
+    snprintf(tmp, sizeof(tmp), "%02d", 12); buf[3] = tmp[0]; buf[4] = tmp[1];
+    snprintf(tmp, sizeof(tmp), "%02d", 34); buf[5] = tmp[0]; buf[6] = tmp[1];
+    snprintf(tmp, sizeof(tmp), "%02d", 56); buf[7] = tmp[0]; buf[8] = tmp[1];
+    snprintf(tmp, sizeof(tmp), "%02d", 78); buf[9] = tmp[0]; buf[10] = tmp[1];
+
+    int crc = 0;
+    for (int i = 0; i <= 220; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[221] = tmp[0]; buf[222] = tmp[1];
+    buf[223] = '\r'; buf[224] = '\n';
+}
+
+void test_ems_valid_frame_produces_frame(void)
+{
+    char buf[225];
+    buildEmsFrame(buf);
+
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 225);
+    TEST_ASSERT_TRUE(frame.has_value());
+    // Source should be tagged as Dynon.
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(EfisSource::Dynon),
+                          static_cast<int>(frame->source));
+    // EMS has no attitude/airspeed content — all numeric fields must be NaN
+    // so the AHRS consumer holds prior values.
+    TEST_ASSERT_FALSE(std::isfinite(frame->iasKt));
+    TEST_ASSERT_FALSE(std::isfinite(frame->pitchDeg));
+    TEST_ASSERT_FALSE(std::isfinite(frame->rollDeg));
+    TEST_ASSERT_FALSE(std::isfinite(frame->paltFt));
+    TEST_ASSERT_FALSE(std::isfinite(frame->oatCelsius));
+}
+
+void test_ems_bad_crc_discards_frame(void)
+{
+    char buf[225];
+    buildEmsFrame(buf);
+    // Corrupt the 2-char CRC at [221..222].
+    buf[221] = '0'; buf[222] = '0';
+
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 225);
+    TEST_ASSERT_FALSE(frame.has_value());
+}
+
+void test_ems_wrong_magic_ignored(void)
+{
+    // 225-byte buffer that isn't '!3' at the start — should be silently
+    // discarded by the length+magic check in FlushLine().
+    char buf[225];
+    buildEmsFrame(buf);
+    buf[1] = '9';   // now '!9' — neither '!1' nor '!3'
+    // The line-length guard rejects this before CRC is even checked; no
+    // frame should pop out.
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 225);
+    TEST_ASSERT_FALSE(frame.has_value());
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -429,5 +505,8 @@ int main(int, char**)
     RUN_TEST(test_oat_field);
     RUN_TEST(test_tas_field);
     RUN_TEST(test_adahrs_sentinel_ias_leaves_field_absent);
+    RUN_TEST(test_ems_valid_frame_produces_frame);
+    RUN_TEST(test_ems_bad_crc_discards_frame);
+    RUN_TEST(test_ems_wrong_magic_ignored);
     return UNITY_END();
 }
