@@ -91,7 +91,7 @@ The **only** authoritative source is the function called at boot. For OnSpeed th
 
 ```bash
 # Find the function
-grep -n "LoadDefaultConfiguration" software/OnSpeed-Gen3-ESP32/Config.cpp
+grep -n "LoadDefaultConfiguration" software/sketch_common/src/config/Config.cpp
 ```
 
 **Known gotcha — `ConfigDefaults.h` is not the source.** It contains string-literal defaults (e.g. `szDefaultConfig_RV4[]`) that are defined but never referenced at runtime. They are dead code left over from an earlier approach. Docs sourced from this file will be wrong. Always trace through `LoadDefaultConfiguration()` or equivalent setter calls in `Config.cpp`.
@@ -103,7 +103,7 @@ When you find a drift, fix the specific row. Do not rewrite the whole table if o
 #### Console commands (`troubleshooting/console-commands.md`)
 
 ```bash
-grep -n "Command\|sCommand\|handleCommand\|HELP" software/OnSpeed-Gen3-ESP32/ConsoleSerial.cpp | head -60
+grep -n "Command\|sCommand\|handleCommand\|HELP" software/sketch_common/src/io/ConsoleSerial.cpp | head -60
 ```
 
 Every command in the dispatcher must have an H3 heading on the page. Missing commands are a documentation gap; removed commands are stale docs. Order on the page should match the order in HELP where reasonable. For each command section: the name, a one-line summary, an example fenced block, and usage notes. Match the style of neighboring commands — don't add TLDR paragraphs or long backstories.
@@ -134,7 +134,7 @@ The simulator in `tone-simulator.js` mirrors `ToneCalc::calculateTone()` in Java
 #### Wizard fields (`calibration/wizard.md`, `configuration/first-time-setup.md`)
 
 ```bash
-grep -n "HandleCalWizard\|name=\"acGrossWeight\"\|name=\"acVldmax\"" software/OnSpeed-Gen3-ESP32/ConfigWebServer.cpp
+grep -n "HandleCalWizard\|name=\"acGrossWeight\"\|name=\"acVldmax\"" software/sketch_common/src/web_server/ConfigWebServer.cpp
 ```
 
 Read `HandleCalWizard()` in `ConfigWebServer.cpp` and list every form field exactly as rendered, including:

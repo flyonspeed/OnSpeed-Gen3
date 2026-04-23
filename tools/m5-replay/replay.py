@@ -12,7 +12,7 @@ Reads an OnSpeed SD-card CSV log (or generates synthetic data), formats the
 writes it at 20 Hz to a serial port (typically a USB-to-TTL dongle).
 
 Reference implementation on the firmware side:
-    OnSpeed-Gen3/software/OnSpeed-Gen3-ESP32/DisplaySerial.cpp
+    OnSpeed-Gen3/software/sketch_common/src/io/DisplaySerial.cpp
 
 Usage:
     uv run replay.py --port /dev/cu.usbserial-XXXX --input LOG.csv
@@ -39,7 +39,7 @@ from typing import Iterator, Optional
 
 import serial
 
-FRAME_PERIOD_S = 0.050  # 20 Hz, matches DISPLAY_SERIAL_PERIOD_MS
+FRAME_PERIOD_S = 0.050  # 20 Hz, matches kDisplaySerialPeriodMs in HardwareMap.h
 BAUD = 115200
 
 

@@ -58,13 +58,13 @@ void SensorReadTask(void *pvParams)
 //    static unsigned uLoops = 0;
 //    static bool     bSendOK;
 
-    xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
+    xLastWakeTime = xLAST_TICK_TIME(kPressureIntervalMs);
 
     while (true)
     {
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(PRESSURE_INTERVAL_MS));
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
 
         // If this task wasn't delayed before it ran again it means it
         // it ran long for some reason (like the CPU is overloaded) or
@@ -74,7 +74,7 @@ void SensorReadTask(void *pvParams)
         // the data.
         if (xWasDelayed == pdFALSE)
         {
-            xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
+            xLastWakeTime = xLAST_TICK_TIME(kPressureIntervalMs);
             unsigned long uNow = millis();
             if ((uNow - uLastLateLogMs) > 1000)
             {
@@ -176,7 +176,7 @@ SensorIO::SensorIO()
       P45Median(g_Config.iPressureSmoothing),
       P45Avg(10),
       IasDerivative(&fIasDerInput, 15),
-      OneWireBus(OAT_PIN),
+      OneWireBus(kPinOat),
       OatSensor(&OneWireBus)
 {
     Palt       = 0.00;
@@ -191,7 +191,7 @@ void SensorIO::Init()
 {
     if (g_Config.bOatSensor)
         {
-        pinMode(OAT_PIN,INPUT_PULLUP);
+        pinMode(kPinOat,INPUT_PULLUP);
         OatSensor.begin();                      // initialize the DS18B20 sensor
         OatSensor.setResolution(12);             // 12-bit: ~750 ms conversion time
         ReadOatC();                              // blocking read OK before scheduler starts
@@ -327,7 +327,7 @@ void SensorIO::Read()
 	    static unsigned long uLastDecelUpdateMs = millis();
     const unsigned long uNowMs = millis();
     const unsigned long uDecelDeltaMs = uNowMs - uLastDecelUpdateMs;
-    if (uDecelDeltaMs >= DISPLAY_SERIAL_PERIOD_MS)
+    if (uDecelDeltaMs >= kDisplaySerialPeriodMs)
     {
         uLastDecelUpdateMs = uNowMs;
 

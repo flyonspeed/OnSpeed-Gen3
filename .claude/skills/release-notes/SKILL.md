@@ -105,18 +105,16 @@ Treat the commit message as the source of truth.
 
 If the PR touches **any** of these files or directories, you MUST run `gh pr diff <NNN>` (or `git show <sha>`) and read the diff yourself before writing any bullet about it:
 
-- `software/OnSpeed-Gen3-ESP32/Audio.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/AHRS.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/IMU330.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/HscPressureSensor.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/SensorIO.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/EfisSerial.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/Config.cpp` / `.h` / `ConfigDefaults.h`
-- `software/OnSpeed-Gen3-ESP32/Flaps.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/gLimit.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/LogSensor.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/3DAudio.cpp` / `.h`
-- `software/OnSpeed-Gen3-ESP32/VnoChime.cpp` / `.h`
+- `software/sketch_common/src/audio_io/Audio.cpp` / `.h`
+- `software/sketch_common/src/tasks/AHRS.cpp` / `.h`
+- `software/sketch_common/src/drivers/IMU330.cpp` / `.h`
+- `software/sketch_common/src/drivers/HscPressureSensor.cpp` / `.h`
+- `software/sketch_common/src/drivers/SensorIO.cpp` / `.h`
+- `software/sketch_common/src/io/EfisSerialPort.cpp` / `.h` (plus `software/Libraries/onspeed_core/src/efis/`)
+- `software/sketch_common/src/config/Config.cpp` / `.h` / `ConfigDefaults.h`
+- `software/sketch_common/src/tasks/Flaps.cpp` / `.h`
+- `software/sketch_common/src/tasks/Housekeeping.cpp` / `.h` (G-limit, 3D audio, Vno chime logic)
+- `software/sketch_common/src/tasks/LogSensor.cpp` / `.h`
 - Anything in `software/Libraries/onspeed_core/` (EKF6, Madgwick, Kalman, AOACalculator, ToneCalc, OnSpeedTypes, CurveCalc, EMAFilter, SavGolDerivative)
 - Anything matching `Calibration*`, `EKF6*`, `Madgwick*`, `Kalman*`
 

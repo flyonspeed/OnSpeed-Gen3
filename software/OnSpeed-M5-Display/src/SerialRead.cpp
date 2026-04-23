@@ -120,7 +120,7 @@ void SerialRead()
 
                     // Measure actual frame period rather than assuming a fixed rate.
                     // The main firmware's display serial task runs at
-                    // DISPLAY_SERIAL_PERIOD_MS (currently 20 Hz), but hardcoding
+                    // kDisplaySerialPeriodMs (currently 20 Hz), but hardcoding
                     // that here is a fragility we don't want — a prior version
                     // assumed 10 Hz and the Savitzky-Golay IAS derivative was
                     // divided by the wrong denominator, so DecelRate read half

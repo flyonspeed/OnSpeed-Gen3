@@ -59,7 +59,7 @@ void DataServerPoll()
             if (uLen > 0)
                 DataServer.broadcastTXT(szLiveDataJson, uLen);
             }
-        lNextMillis = millis() + DISPLAY_SERIAL_PERIOD_MS;
+        lNextMillis = millis() + kDisplaySerialPeriodMs;
         }
     }
 

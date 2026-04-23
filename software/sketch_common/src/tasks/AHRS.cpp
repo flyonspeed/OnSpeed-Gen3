@@ -46,7 +46,7 @@ onspeed::ahrs::AhrsConfig AHRS::MakeCfg_() const
     cfg.algorithm        = AlgorithmFromConfig(g_Config.iAhrsAlgorithm);
     cfg.gyroSmoothingWindow = iGyroSmoothing_;
     cfg.imuSampleRateHz  = fImuSampleRate;
-    cfg.pressureSampleRateHz = static_cast<float>(PRESSURE_SAMPLE_RATE);
+    cfg.pressureSampleRateHz = static_cast<float>(kPressureSampleRateHz);
     return cfg;
 }
 
@@ -137,8 +137,8 @@ AHRS::AHRS(int gyroSmoothing)
           /* rollBiasDeg  */          0.0f,
           /* algorithm    */          onspeed::ahrs::Algorithm::Madgwick,
           /* gyroSmoothingWindow */   gyroSmoothing,
-          /* imuSampleRateHz     */   IMU_SAMPLE_RATE,
-          /* pressureSampleRateHz */  static_cast<float>(PRESSURE_SAMPLE_RATE),
+          /* imuSampleRateHz     */   kImuSampleRateHz,
+          /* pressureSampleRateHz */  static_cast<float>(kPressureSampleRateHz),
       })
     , iGyroSmoothing_(gyroSmoothing)
 {
@@ -159,7 +159,7 @@ AHRS::AHRS(int gyroSmoothing)
     gRoll          = 0.0f;
     gPitch         = 0.0f;
     gYaw           = 0.0f;
-    fImuSampleRate = IMU_SAMPLE_RATE;
+    fImuSampleRate = kImuSampleRateHz;
     fImuDeltaTime  = 1.0f / fImuSampleRate;
     fSinPitch      = 0.0f;
     fCosPitch      = 1.0f;

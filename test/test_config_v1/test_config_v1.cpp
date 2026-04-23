@@ -13,7 +13,7 @@
 // Fixture note: the sample V1 config (kSampleV1 below) is HAND-CRAFTED to
 // match the Gen2-era format the sketch's original parser consumed.  It
 // mirrors the tag vocabulary observed in the sketch's pre-extraction
-// LoadConfigFromString (software/OnSpeed-Gen3-ESP32/src/config/Config.cpp,
+// LoadConfigFromString (software/sketch_common/src/config/Config.cpp,
 // branch `extraction/phase-3-1-config`, pre-Task-3) — see git log
 // commit b0acca3 for the V1 PStaticBias sign-convention write-up.  No real
 // Gen2 V1 config is checked into the repo; if one surfaces (e.g. from the

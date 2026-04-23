@@ -12,12 +12,15 @@ coverage:
   status:
     project:
       default:
-        # Allow coverage to drop by 1% without failing
-        threshold: 1%
         target: auto
+        threshold: 1%    # tolerate 1% drop without failing
     patch:
       default:
-        target: 50%
+        target: 50%      # extraction PRs often add small testable files at
+                         # partial coverage; 50% is forgiving enough that
+                         # moving code without tests doesn't block CI, while
+                         # still flagging untested fresh adds.
+        threshold: 5%
 
   # Ignore test files, vendor code, and system headers in coverage reports
   ignore:
@@ -29,4 +32,4 @@ coverage:
 comment:
   layout: "reach,diff,flags,files"
   behavior: default
-  require_changes: true
+  require_changes: true   # only post if something changed

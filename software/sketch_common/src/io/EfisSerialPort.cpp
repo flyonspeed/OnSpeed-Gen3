@@ -96,7 +96,7 @@ void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
 
     if (enType != EnNone)
     {
-        pSerial->begin(115200, hwSerialConfig, EFIS_SER_RX, EFIS_SER_TX, false);
+        pSerial->begin(115200, hwSerialConfig, kEfisRx, kEfisTx, false);
     }
 }
 

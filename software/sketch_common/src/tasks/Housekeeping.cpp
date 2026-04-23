@@ -21,8 +21,8 @@ static const float fVolumeSmoothingFactor = 0.5f;
 void HousekeepingTask(void * pvParams)
 {
     // One-time heartbeat LED init
-    pinMode(PIN_LED_KNOB, OUTPUT);
-    ledcAttachChannel(PIN_LED_KNOB, LEDC_BASE_FREQ, LEDC_TIMER_8_BIT, LEDC_CHANNEL);
+    pinMode(kPinLedKnob, OUTPUT);
+    ledcAttachChannel(kPinLedKnob, LEDC_BASE_FREQ, LEDC_TIMER_8_BIT, LEDC_CHANNEL);
 
     // Local state
     uint32_t uTick           = 0;

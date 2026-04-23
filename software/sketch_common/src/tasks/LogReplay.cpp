@@ -59,13 +59,13 @@ void LogReplayTask(void *pvParams)
     if (!bReadStatus)
         g_Log.println(MsgLog::EnReplay, MsgLog::EnError, "Unable to read and replay file.");
 
-    xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
+    xLastWakeTime = xLAST_TICK_TIME(kPressureIntervalMs);
 
     while (bReadStatus == true)
     {
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(PRESSURE_INTERVAL_MS));
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
 
         // If this task wasn't delayed before it ran again it means it
         // it ran long for some reason (like the CPU is overloaded) or
@@ -75,7 +75,7 @@ void LogReplayTask(void *pvParams)
         // the data.
         if (xWasDelayed == pdFALSE)
         {
-            xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
+            xLastWakeTime = xLAST_TICK_TIME(kPressureIntervalMs);
             g_Log.println(MsgLog::EnReplay, MsgLog::EnWarning, "LogReplayTask Late");
         }
 
@@ -305,17 +305,17 @@ void TestPotTask(void *pvParams)
     // Get the passed parameters
 //    SuParamsReplay    * psuParamsReplay = (SuParamsReplay *)pvParams;
 
-    xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
+    xLastWakeTime = xLAST_TICK_TIME(kPressureIntervalMs);
 
     while (true)
     {
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(PRESSURE_INTERVAL_MS));
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
 
         if (xWasDelayed == pdFALSE)
         {
-            xLastWakeTime = xLAST_TICK_TIME(PRESSURE_INTERVAL_MS);
+            xLastWakeTime = xLAST_TICK_TIME(kPressureIntervalMs);
             g_Log.println(MsgLog::EnReplay, MsgLog::EnWarning, "TestPotTask Late");
         }
 
@@ -340,7 +340,7 @@ void ReadTestPot()
     if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100)))
     {
         for (int i=0; i<5;i++)
-            fFlapRawValue += g_Flaps.Read(); // analogRead(FLAP_PIN);
+            fFlapRawValue += g_Flaps.Read(); // analogRead(kPinFlap);
         xSemaphoreGive(xSensorMutex);
     }
     fFlapRawValue = fFlapRawValue / 5.0;

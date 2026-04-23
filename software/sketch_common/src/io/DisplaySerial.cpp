@@ -14,7 +14,7 @@ using onspeed::proto::DisplayBuildInputs;
 using onspeed::proto::BuildDisplayFrame;
 using onspeed::proto::kDisplayFrameSizeBytes;
 
-//SoftwareSerial      DispSerial(DISPLAY_SER_RX, DISPLAY_SER_TX);
+//SoftwareSerial      DispSerial(kDisplayRx, kDisplayTx);
 
 
 static inline bool IsFiniteFloat(float v)
@@ -73,13 +73,13 @@ void WriteDisplayDataTask(void * pvParams)
     while (true)
         {
         // No delay happening is a design error so flag it if it happens
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DISPLAY_SERIAL_PERIOD_MS));
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kDisplaySerialPeriodMs));
         if (xWasDelayed == pdFALSE)
             {
             // If this task runs late, don't "catch up" by running back-to-back and
             // bursting serial data at the display. Re-align to the current tick
             // period instead.
-            xLastWakeTime = xLAST_TICK_TIME(DISPLAY_SERIAL_PERIOD_MS);
+            xLastWakeTime = xLAST_TICK_TIME(kDisplaySerialPeriodMs);
             unsigned long uNow = millis();
             if ((uNow - uLastLateLogMs) > 1000)
                 {

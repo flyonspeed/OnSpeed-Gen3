@@ -24,7 +24,7 @@ SdFileSys::SdFileSys() :
         // spiStop() and tries to give paramLock from a task that doesn't own
         // it, tripping the FreeRTOS `xTaskPriorityDisinherit` assert and
         // crashing the board.
-        SpiConfig(SD_CS, USER_SPI_BEGIN, SD_SCK_MHZ(10), &uSD_SPI)
+        SpiConfig(kSdCs, USER_SPI_BEGIN, SD_SCK_MHZ(10), &uSD_SPI)
     {
     }
 
@@ -35,7 +35,7 @@ SdFileSys::SdFileSys() :
 bool SdFileSys::Init()
     {
     // Init SD SPI interface
-    if (!uSD_SPI.begin(SD_SCLK, SD_MISO, SD_MOSI, SD_CS))
+    if (!uSD_SPI.begin(kSdSclk, kSdMiso, kSdMosi, kSdCs))
         return false;
 
     // Init FAT file system object
