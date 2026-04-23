@@ -4,8 +4,29 @@
 #include "Envelope.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace onspeed::audio {
+
+namespace {
+
+// True if two specs describe the same envelope shape.  Used by NoteOn()
+// to debounce identical re-trigger requests so a 208 Hz UpdateTones()
+// loop doesn't stomp on the natural pulse cycle.  Tolerance of one
+// audio sample on the time fields swallows fp noise from the
+// SAMPLE_RATE / pps conversions performed by the spec builder.
+inline bool SameSpec(const EnvelopeSpec& a, const EnvelopeSpec& b)
+{
+    constexpr float kTol = 1.0f;  // 1 sample @ 16 kHz ≈ 62 µs
+    return a.isSolid == b.isSolid
+        && std::fabs(a.delaySamples   - b.delaySamples)   <= kTol
+        && std::fabs(a.attackSamples  - b.attackSamples)  <= kTol
+        && std::fabs(a.holdSamples    - b.holdSamples)    <= kTol
+        && std::fabs(a.decaySamples   - b.decaySamples)   <= kTol
+        && std::fabs(a.releaseSamples - b.releaseSamples) <= kTol;
+}
+
+}  // namespace
 
 void Envelope::Reset()
 {
@@ -25,14 +46,20 @@ void Envelope::EnterPhase(EnvPhase next)
 
 void Envelope::NoteOn(const EnvelopeSpec& spec)
 {
+    // Debounce: identical re-trigger while the envelope is actively
+    // playing is a no-op.  Critical for tolerating UpdateTones()'s
+    // 208 Hz call rate without disturbing the running pulse cycle.
+    if (IsActive() && SameSpec(spec, spec_))
+        return;
+
     if (phase_ == EnvPhase::Idle || phase_ == EnvPhase::Release)
     {
-        // Idle: arm immediately.
-        // Release: also arm immediately and let the new spec take over from
-        // the current (decaying) level.  This matches Gen2's
-        // `noteOff(); noteOn();` pattern when the previous note had already
-        // been released — the new attack starts cleanly from wherever the
-        // level currently sits.
+        // Idle:    arm immediately from level 0.
+        // Release: arm immediately and let the new spec take over from
+        //          the current (still-decaying) level.  Matches Gen2's
+        //          `noteOff(); noteOn();` pattern when the previous note
+        //          had already started releasing — the new attack starts
+        //          cleanly from wherever the level currently sits.
         spec_ = spec;
         if (phase_ == EnvPhase::Idle)
             level_ = 0.0f;
@@ -44,37 +71,30 @@ void Envelope::NoteOn(const EnvelopeSpec& spec)
 
     if (phase_ == EnvPhase::Sustain)
     {
-        // Solid tone → new spec (pulsed or different solid): Sustain never
-        // auto-exits, so we must release from the sustained level.  The
-        // release tail (15 ms) hides behind the new spec's ~61 ms silent
-        // Delay phase — Gen2's solid→pulsed transition trick
-        // (Tones.ino:11, :63).
+        // Solid tone → new spec: Sustain never auto-exits, so we must
+        // release from the sustained level.  The release tail (15 ms)
+        // hides behind the new spec's ~61 ms silent Delay phase —
+        // Gen2's solid→pulsed transition trick (Tones.ino:11, :63).
         pendingSpec_ = spec;
         notePending_ = true;
-        NoteOff();
+        EnterPhase(EnvPhase::Release);
         return;
     }
 
     // Mid-pulse (Delay / Attack / Hold / Decay): queue the new spec and
     // let the current pulse finish naturally.  Decay picks up
-    // pendingSpec_ at the pulse boundary (see Tick() below).
-    //
-    // This debounces rapid parameter churn without silencing the audio:
-    // Gen3's UpdateTones() runs at 208 Hz (vs Gen2's ~20 Hz), so when
-    // AOA chatters near the stall-warn threshold the PPS jumps
-    // discontinuously between 6.2 and 20 PPS on many sensor ticks.
-    // If every such call triggered a Release, the envelope would spend
-    // its life in Release/Attack transitions and produce rattly,
-    // indistinct audio.  With pulse-boundary queueing the currently
-    // playing pulse always finishes cleanly; only the *next* pulse
-    // reflects the latest spec, and only the most-recent pending
-    // spec wins (replacement, not chaining).
+    // pendingSpec_ at the pulse boundary.  Only the most-recent
+    // pending spec survives (replacement, not chaining), so rapid
+    // churn settles on the latest request once the current pulse ends.
     pendingSpec_ = spec;
     notePending_ = true;
 }
 
 void Envelope::NoteOff()
 {
+    // An explicit stop request always wins over any pending re-trigger.
+    notePending_ = false;
+
     if (phase_ == EnvPhase::Idle || phase_ == EnvPhase::Release)
         return;
 
