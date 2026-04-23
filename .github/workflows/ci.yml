@@ -220,41 +220,10 @@ jobs:
           pip install platformio
           sudo apt-get update && sudo apt-get install -y lcov
 
-      - name: Run unit tests with coverage
-        run: |
-          # Run tests with coverage instrumentation
-          pio test -e native-coverage -v
-
-          echo "## Unit Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "✅ All tests passed" >> $GITHUB_STEP_SUMMARY
-
-      - name: Generate coverage report
-        run: |
-          # Capture coverage data
-          lcov --capture \
-               --directory .pio/build/native-coverage \
-               --output-file coverage.info \
-               --rc branch_coverage=1
-
-          # Remove test files and system headers from coverage
-          lcov --remove coverage.info \
-               '*/test/*' \
-               '*/.pio/*' \
-               '/usr/*' \
-               --output-file coverage.info \
-               --rc branch_coverage=1 \
-               --ignore-errors unused
-
-          # Generate HTML report
-          genhtml coverage.info \
-                  --output-directory coverage-report \
-                  --rc branch_coverage=1
-
-          # Summary
-          echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          lcov --summary coverage.info 2>&1 | tee -a $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+      - name: Run tests with coverage and generate report
+        # Shared with local Docker runs (scripts/coverage.sh) so local and CI
+        # produce bit-identical coverage numbers. See issue #191.
+        run: ./scripts/coverage-inner.sh
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

@@ -1,0 +1,59 @@
+# Dockerfile.coverage — image that mirrors the GitHub Actions `ubuntu-latest`
+# environment used by the `test` job in .github/workflows/ci.yml.
+#
+# Purpose: run `scripts/coverage-inner.sh` locally and get a coverage report
+# that matches CI's output numerically (same GCC, same lcov, same filters).
+#
+# Usage is through scripts/coverage.sh — don't invoke docker directly.
+#
+# Pin rationale:
+#   - ubuntu:24.04 matches what `ubuntu-latest` currently resolves to on
+#     GitHub Actions (as of April 2026). When Actions bumps to a new LTS,
+#     bump this tag too so local + CI stay aligned.
+#   - python3-pip + the default `python3` give us Python 3.12 on 24.04,
+#     close enough to CI's explicit 3.11 for PlatformIO purposes.
+#   - PlatformIO is pip-installed unpinned because the `platformio.ini`
+#     platform URL is version-pinned already, so PIO itself is just the
+#     driver.
+
+FROM ubuntu:24.04
+
+# Non-interactive apt (no tzdata prompt, etc.)
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_ROOT_USER_ACTION=ignore \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLATFORMIO_CORE_DIR=/root/.platformio
+
+# Tools, in a single apt layer:
+#   build-essential  → g++/gcc/make for native-coverage build
+#   lcov             → coverage capture + HTML generator
+#   python3 + venv   → PlatformIO host
+#   git              → PIO pulls some packages via git
+#   ca-certificates  → HTTPS for pip + PIO package downloads
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      git \
+      lcov \
+      python3 \
+      python3-pip \
+      python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# PlatformIO in a venv (PEP 668: Ubuntu's system python is externally-managed,
+# so pip into /usr/lib refuses by default). Venv sidesteps that cleanly.
+RUN python3 -m venv /opt/pio-venv \
+    && /opt/pio-venv/bin/pip install --upgrade pip \
+    && /opt/pio-venv/bin/pip install platformio
+ENV PATH="/opt/pio-venv/bin:${PATH}"
+
+# Warm the PIO core + native platform caches so the first coverage run
+# doesn't download them inside the mounted workspace. Downstream runs
+# reuse this layer via Docker build cache.
+RUN pio platform install native
+
+WORKDIR /workspace
+
+# Default command runs the shared coverage script. scripts/coverage.sh
+# overrides this if needed, but the default matches what CI does.
+CMD ["bash", "scripts/coverage-inner.sh"]

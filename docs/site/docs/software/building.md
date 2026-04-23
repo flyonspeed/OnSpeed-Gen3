@@ -56,6 +56,27 @@ pio test -e native
 pio test -e native -v  # verbose output
 ```
 
+### Code Coverage
+
+Coverage uses GCC's `--coverage` instrumentation + `lcov`, both of which work natively only with GNU toolchains. On macOS the system `gcov` is LLVM and incompatible with `lcov`, so coverage runs inside a Docker image that mirrors the CI environment.
+
+Requirements: Docker Desktop (macOS/Windows) or Docker Engine (Linux).
+
+```bash
+./scripts/coverage.sh              # run coverage, produce report
+./scripts/coverage.sh --rebuild    # rebuild image from scratch (no cache)
+./scripts/coverage.sh --shell      # drop into a shell in the image for debug
+```
+
+Outputs:
+
+- `coverage-report/index.html` — browsable HTML report (open with `open` on macOS, `xdg-open` on Linux)
+- `coverage.info` — lcov tracefile (same file CI uploads to Codecov)
+
+The Docker image (`Dockerfile.coverage`) pins `ubuntu:24.04` to match GitHub Actions' `ubuntu-latest`, so coverage numbers match CI bit-for-bit. CI's `test` job calls the same `scripts/coverage-inner.sh` that runs inside the container, guaranteeing parity.
+
+First run: ~3-4 minutes (Docker pulls base image, installs PlatformIO, warms the native platform cache). Subsequent runs: ~40 seconds on warm cache.
+
 ## Arduino IDE
 
 The Arduino IDE does not use the PlatformIO variant environments. Instead, the hardware variant defaults to V4P via the guard block at the top of `HardwareMap.h`. To build for V4B, edit the guard block and change the default `HW_V4P` to `HW_V4B`.

@@ -16,6 +16,12 @@ lib/version/buildinfo.cpp
 # git worktrees for parallel subagent work
 .worktrees/
 
+# Coverage artifacts (produced by scripts/coverage.sh and CI)
+coverage.info
+coverage-report/
+*.gcda
+*.gcno
+
 # Editor / merge backup files — never want these in git
 *.orig
 *.bak
