@@ -2,7 +2,6 @@
 
 // Serial data variables (shared with main display code)
 extern float           AOA;
-extern float           SmoothedAOA;
 extern int             PercentLift;
 extern float           Pitch;
 extern float           Roll;
@@ -11,7 +10,6 @@ extern float           Palt;
 extern float           iVSI;
 extern float           VerticalG;
 extern float           LateralG;
-extern float           SmoothedLateralG;
 extern float           FlightPath;
 extern int             FlapPos;
 extern int             OAT;
