@@ -137,9 +137,11 @@ PLATFORMIO_BUILD_FLAGS='-DDUMMY_SERIAL_DATA' pio run -e m5stack-core-esp32 -t up
 
 Strict-warning build flags match the main firmware (`-Wall -Wextra
 -Werror -Wshadow -Wformat=2 -Wunreachable-code -Wnull-dereference`).
-`-Wno-error=format-nonliteral` is downgraded because M5Unified's
-`WebServer` printf wrappers trip it. **Do not add new `-Wno-error=`
-flags without fixing the underlying issue first.**
+`-Wno-error=format-nonliteral` is downgraded because the Arduino
+framework's `WebServer` and `WiFi` headers trip it (included by
+`main.cpp` directly — M5Unified doesn't bundle a WebServer).
+**Do not add new `-Wno-error=` flags without fixing the underlying
+issue first.**
 
 ## Bench testing
 

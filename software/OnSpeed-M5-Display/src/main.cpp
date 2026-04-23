@@ -10,8 +10,8 @@
 // - Split into main.cpp + SerialRead.cpp/h
 // - Moved serialSetup() into SerialRead module
 
-// compiles with ESP32 board library v2.0, does not boot if compiled with previous versions.
-// set board type to M5Stack-Core-ESP32
+// Build: see CLAUDE.md in this directory (`pio run -e m5stack-core-esp32`
+// for Basic, `pio run -e m5stack-core2` for Core2). No Arduino-IDE path.
 
 /*
 Copyright 2020 V.R. Little
