@@ -1705,6 +1705,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Code Coverage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#branch-coverage-caveat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch coverage caveat
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -3280,6 +3308,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Code Coverage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#branch-coverage-caveat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch coverage caveat
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -3547,6 +3603,10 @@
 </ul>
 <p>The Docker image (<code>Dockerfile.coverage</code>) pins <code>ubuntu:24.04</code> to match GitHub Actions' <code>ubuntu-latest</code>, so coverage numbers match CI bit-for-bit. CI's <code>test</code> job calls the same <code>scripts/coverage-inner.sh</code> that runs inside the container, guaranteeing parity.</p>
 <p>First run: ~3-4 minutes (Docker pulls base image, installs PlatformIO, warms the native platform cache). Subsequent runs: ~40 seconds on warm cache.</p>
+<h4 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h4>
+<p>The report covers <code>software/Libraries/onspeed_core/</code> only. Vendored dependencies (<code>software/Libraries/tinyxml2/</code>) are filtered out via <code>lcov --remove</code> in <code>scripts/coverage-inner.sh</code> — testing upstream libraries is not our job, and including tinyxml2 dragged the headline coverage number down by ~20 points with zero actionable signal.</p>
+<h4 id="branch-coverage-caveat">Branch coverage caveat<a class="headerlink" href="#branch-coverage-caveat" title="Permanent link">&para;</a></h4>
+<p>gcov records a C++ exception-unwind edge on every heap-allocating call (<code>std::string</code>, <code>std::vector</code>, <code>new</code>, etc.). Those edges can only be covered by a test that induces <code>std::bad_alloc</code> — not a meaningful target for a 32-MB-flash embedded system. The <code>--rc no_exception_branch=1</code> flag that would suppress them over-filters on our build (strips 98% of branches, not just exception edges), so we leave it off. Read the branch coverage number accordingly — the gap between line coverage (~93%) and branch coverage (~61%) is dominated by allocator-throw edges, not missing control-flow tests.</p>
 <h2 id="arduino-ide">Arduino IDE<a class="headerlink" href="#arduino-ide" title="Permanent link">&para;</a></h2>
 <p>The Arduino IDE does not use the PlatformIO variant environments. Instead, the hardware variant defaults to V4P via the guard block at the top of <code>HardwareMap.h</code>. To build for V4B, edit the guard block and change the default <code>HW_V4P</code> to <code>HW_V4B</code>.</p>
 <ol>
