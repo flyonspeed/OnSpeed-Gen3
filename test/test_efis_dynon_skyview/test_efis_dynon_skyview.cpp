@@ -480,6 +480,61 @@ void test_ems_wrong_magic_ignored(void)
 }
 
 // ---------------------------------------------------------------------------
+// Buffer-overflow reset: noise on the serial line without a line terminator
+// should not hang the parser. After overflow (bufLen_ > 230), a subsequent
+// valid frame must still parse.
+// ---------------------------------------------------------------------------
+
+void test_buffer_overflow_resets_and_recovers(void)
+{
+    DynonSkyviewParser parser;
+    // Start with '!' to enter collection mode, then feed 250 junk bytes with
+    // no '\n' terminator.  The overflow guard at bufLen_ > 230 resets.
+    parser.FeedByte(static_cast<uint8_t>('!'));
+    for (int i = 0; i < 250; i++)
+        parser.FeedByte(static_cast<uint8_t>('x'));
+    TEST_ASSERT_FALSE(parser.TakeFrame().has_value());
+
+    // A valid frame must still parse.
+    char buf[74];
+    buildAdahrsFrame(buf, 1.0f, 2.0f, 180, 100.0f, 3000, 0.0f, 1.0f, 40, 0, 10.0f, 105.0f);
+    auto frame = feedAll(parser, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(0.15f, 100.0f, frame->iasKt);
+}
+
+// ---------------------------------------------------------------------------
+// Sentinel-int parsing: the heading field is an int-typed field. When Dynon
+// emits 'XXX' for an unavailable heading, the parser must leave the field
+// at kEfisFieldAbsent (NaN). Covers parseFieldInt's sentinel-match branch
+// (DynonSkyview.cpp:42, which parseFieldFloat's existing sentinel test does
+// NOT cover).
+// ---------------------------------------------------------------------------
+
+void test_adahrs_sentinel_heading_leaves_field_absent(void)
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 2.3f, 5.0f, 270, 110.0f, 5500, 0.10f, 1.0f, 62, 5000, 8.0f, 118.0f);
+    // Overwrite heading (bytes 20..22) with the sentinel.
+    buf[20] = 'X'; buf[21] = 'X'; buf[22] = 'X';
+    // Recompute CRC so the rest of the frame is valid.
+    int crc = 0;
+    for (int i = 0; i <= 69; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[70] = tmp[0]; buf[71] = tmp[1];
+
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FALSE(std::isfinite(frame->headingDeg));
+    // Other fields (parsed via parseFieldFloat) remain finite.
+    TEST_ASSERT_FLOAT_WITHIN(0.15f, 2.3f, frame->pitchDeg);
+    TEST_ASSERT_FLOAT_WITHIN(0.15f, 110.0f, frame->iasKt);
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -508,5 +563,7 @@ int main(int, char**)
     RUN_TEST(test_ems_valid_frame_produces_frame);
     RUN_TEST(test_ems_bad_crc_discards_frame);
     RUN_TEST(test_ems_wrong_magic_ignored);
+    RUN_TEST(test_buffer_overflow_resets_and_recovers);
+    RUN_TEST(test_adahrs_sentinel_heading_leaves_field_absent);
     return UNITY_END();
 }
