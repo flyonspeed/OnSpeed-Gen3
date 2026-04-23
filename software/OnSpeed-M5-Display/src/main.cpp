@@ -1247,6 +1247,7 @@ void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t s
         py4 -= yRotate*0.75f;
         myGauges.printNum (String (i)+"o", px4, py4, 8, 12, roll, TFT_BLACK, ML_DATUM);
     }
+    gdraw.setTextDatum(textdatum_t::baseline_left); // restore project datum convention
 } // end pitchGraph
 
 
