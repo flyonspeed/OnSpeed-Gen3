@@ -69,8 +69,13 @@ PcmAsset DecodeWav(const unsigned char* bytes, std::size_t byteLen) {
     while (pos + 8 <= byteLen) {
         const std::uint32_t chunkSize = ReadU32LE(bytes, pos + 4);
         const std::size_t   payload   = pos + 8;
+        // Defense-in-depth against future refactor: the loop precondition
+        // (pos + 8 <= byteLen) already guarantees payload <= byteLen, so
+        // this branch is unreachable today. Kept because WAV input is an
+        // untrusted byte stream — if the loop condition is ever loosened,
+        // this check prevents an out-of-bounds read. LCOV_EXCL_LINE
         if (payload > byteLen)
-            return out;
+            return out;   // LCOV_EXCL_LINE
 
         if (MatchTag(bytes, pos, "fmt ")) {
             if (chunkSize < 16 || payload + 16 > byteLen)
@@ -107,8 +112,13 @@ PcmAsset DecodeWav(const unsigned char* bytes, std::size_t byteLen) {
         // Advance to next chunk.  Chunks are padded to even byte size.
         std::size_t step = static_cast<std::size_t>(chunkSize) + 8;
         if (step & 1u) ++step;
-        if (step < 8 || pos + step < pos)   // overflow / underflow
-            return out;
+        // Defense-in-depth: chunkSize is uint32, and step = chunkSize + 8
+        // so step < 8 would require a uint32 underflow. pos + step wrap
+        // would require pos > SIZE_MAX - step. Neither is reachable with
+        // normal byteLen values (<= a few MB). Kept as a size_t-arithmetic
+        // safety net; unreachable lines LCOV_EXCL'd.
+        if (step < 8 || pos + step < pos)   // LCOV_EXCL_LINE
+            return out;                      // LCOV_EXCL_LINE
         pos += step;
     }
 

@@ -37,7 +37,7 @@ std::optional<EfisFrame> EfisParser::TakeFrame()
         case EfisType::Vn300:        return vn300_.TakeFrame();
         case EfisType::None:         return std::nullopt;
     }
-    return std::nullopt;
+    __builtin_unreachable();
 }
 
 std::optional<Vn300Data> EfisParser::TakeVn300Data()
