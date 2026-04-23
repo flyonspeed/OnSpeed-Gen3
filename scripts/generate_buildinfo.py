@@ -156,17 +156,17 @@ def main():
 
 
 # PlatformIO pre-build hook
-def before_build(source, target, env):
-    """Called by PlatformIO before build.
-
-    Writes to software/Libraries/version/buildinfo.cpp relative to the repo
-    root (identified by the presence of the Libraries directory), so both
-    the main firmware and subprojects like OnSpeed-M5-Display share the
-    same regenerated version file.
-    """
-    project_dir = Path(env.get("PROJECT_DIR", ".")).resolve()
+#
+# This runs at script-evaluation time (before SCons scans sources), not via
+# AddPreAction("buildprog", ...). "buildprog" fires after compile+link, so
+# hooking it meant the first clean build compiled buildinfo_default.cpp with
+# the weak "4.15.0" fallback — and only the second build would see the
+# strong-symbol buildinfo.cpp generated on the previous run. CI always does a
+# fresh checkout, so its artifacts always shipped 4.15.0.
+def platformio_generate():
+    """Regenerate buildinfo.cpp before SCons enumerates sources."""
+    project_dir = Path(env.get("PROJECT_DIR", ".")).resolve()  # type: ignore[name-defined]
     repo_root = project_dir
-    # Walk up until we find software/Libraries
     while repo_root != repo_root.parent:
         if (repo_root / "software" / "Libraries").is_dir():
             break
@@ -175,10 +175,9 @@ def before_build(source, target, env):
     generate_buildinfo(output_path)
 
 
-# Import for PlatformIO hook
 try:
     Import("env")  # type: ignore
-    env.AddPreAction("buildprog", before_build)  # type: ignore
+    platformio_generate()
 except NameError:
     # Not running under PlatformIO
     if __name__ == "__main__":
