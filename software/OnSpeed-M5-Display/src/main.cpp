@@ -209,8 +209,13 @@ void setup()
     M5.begin(cfg);
     M5.Display.fillScreen(BLACK);
     M5.Display.setBrightness(50);
-    // mute the speaker (annoying hiss)
+    // Mute the speaker (annoying hiss) on M5Stack Basic, where GPIO 25 is
+    // the internal DAC-to-speaker path. Skip on Core2, where GPIO 25 is an
+    // exposed Port-B pin and the speaker is driven via I2S amplifier (not
+    // this DAC). See audit finding 039.
+#ifndef ARDUINO_M5STACK_Core2
     dacWrite(25, 0);
+#endif
 
     gdraw.setColorDepth(8);
     gdraw.createSprite(WIDTH, HEIGHT);
