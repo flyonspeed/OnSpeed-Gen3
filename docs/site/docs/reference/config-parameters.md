@@ -119,6 +119,7 @@ Each `FLAP_POSITION` element contains:
 | `MANAOA` | float | Maneuvering speed AOA (degrees) |
 | `ALPHA0` | float | Zero-lift angle from physics fit (degrees) |
 | `ALPHASTALL` | float | Stall angle from physics fit (degrees) |
+| `KFIT` | float | Lift sensitivity from IAS-to-AOA fit (deg·kt²) |
 
 ### Per-Flap AOA Curve
 
