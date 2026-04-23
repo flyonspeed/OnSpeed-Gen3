@@ -84,17 +84,18 @@ for the current flap configuration:
     - Center dot green — centered (your target on approach).
     - Top arc green — upper half.
 - **Bottom chevrons** (down-arrow near the bottom of the widget) —
-  *getting fast* warning. **Light blue** when AOA is between LDmax
+  *fast but safe* indicator. **Green** when AOA is between LDmax
   and OnSpeedFast (you're a touch fast for an OnSpeed approach —
-  pull).
+  ease off if you want to nail on-speed).
 - **White index bar** — a thin horizontal bar that slides up/down
   the widget showing your current AOA on the scale. Small white
   dots on the left and right edges of the widget mark the **LDmax**
   (best-climb / best-glide) reference.
 
-Visual language: *opposite-colored chevrons mean "push toward them."*
-Bottom blue → lower the nose. Top yellow/red → raise the nose /
-pull. Center green donut → hold what you've got.
+Visual language follows the standard FAA green/yellow/red
+progression. Green covers the whole safe band — bottom chevron
+(fast but safe) and the central donut (on-speed). Yellow and red
+escalate on the top chevrons as AOA rises toward stall.
 
 **Above the widget — percent lift** (0–99, or "99" when saturated).
 A large white number with a black outline — readable against any

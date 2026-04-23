@@ -290,8 +290,8 @@ updateAttitude(0,0);
         <circle cx="98.171" cy="787.76" r="133.84" fill="#07a33f" stroke-width="1.8089"/>
         <rect transform="rotate(-15.029)" x="50.364" y="33.747" width="15.615" height="89.228" fill="#cc3837"/>
         <rect transform="matrix(-.9658 -.2593 -.2593 .9658 0 0)" x="-148.06" y="-19.129" width="15.615" height="89.228" fill="#cc3837"/>
-        <rect transform="matrix(.9658 .2593 .2593 -.9658 0 0)" x="127.53" y="-255.15" width="15.615" height="89.228" fill="#f49421"/>
-        <rect transform="rotate(164.97)" x="-70.153" y="-307.83" width="15.615" height="89.228" fill="#f49421"/>
+        <rect transform="matrix(.9658 .2593 .2593 -.9658 0 0)" x="127.53" y="-255.15" width="15.615" height="89.228" fill="#07a33f"/>
+        <rect transform="rotate(164.97)" x="-70.153" y="-307.83" width="15.615" height="89.228" fill="#07a33f"/>
         <path d="m101.8 113.26c-17.123 0-31.526 12.231-34.92 28.385 5.203-2.6e-4 10.398 1.6e-4 15.598 0 2.9178-7.8426 10.401-13.371 19.323-13.371 8.922 0 16.413 5.5289 19.336 13.371 5.198 1.6e-4 10.403-2.8e-4 15.602 0-3.397-16.154-17.815-28.385-34.938-28.385zm-35.121 41.774c2.9176 16.746 17.577 29.609 35.121 29.609 17.544 0 32.218-12.863 35.138-29.609-5.1216-2.8e-4 -10.25 1.6e-4 -15.371 0-2.5708 8.4824-10.391 14.574-19.767 14.574-9.3764 0-17.183-6.0913-19.75-14.574-5.1246 1.4e-4 -10.244-2.8e-4 -15.371 0z" color="#000000" color-rendering="auto" dominant-baseline="auto" fill="#07a33f" image-rendering="auto" shape-rendering="auto" solid-color="#000000" style="font-feature-settings:normal;font-variant-alternates:normal;font-variant-caps:normal;font-variant-ligatures:normal;font-variant-numeric:normal;font-variant-position:normal;isolation:auto;mix-blend-mode:normal;paint-order:markers fill stroke;shape-padding:0;text-decoration-color:#000000;text-decoration-line:none;text-decoration-style:solid;text-indent:0;text-orientation:mixed;text-transform:none;white-space:normal"/>
         <circle id="onspeeddot" cx="101.8" cy="148.91" r="18" fill="#07a33f" stroke-width=".81089" visibility="hidden"/>
       </g>
