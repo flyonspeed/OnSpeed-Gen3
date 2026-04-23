@@ -475,8 +475,13 @@ void loop()
                 constexpr int RIGHT_X = 307;
 
                 // ----- Labels (sit close under/over their numbers) -----
-                constexpr int TOP_LABEL_Y = 55;   // just below number baseline=30
-                constexpr int BOT_LABEL_Y = 223;  // just below number baseline=198
+                // Tuned against the baseline_left datum convention. The
+                // previous layout placed labels ~7 px higher because
+                // pitchGraph() left MC_DATUM active (centered text).
+                // After the datum-restore fix, +7 keeps the visual
+                // position stable.
+                constexpr int TOP_LABEL_Y = 62;   // just below number baseline=30
+                constexpr int BOT_LABEL_Y = 230;  // just below number baseline=198
                 gdraw.setFont(FSS12);
 
                 gdraw.setCursor(5, TOP_LABEL_Y);
