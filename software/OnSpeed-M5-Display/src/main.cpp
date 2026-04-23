@@ -499,8 +499,12 @@ void loop()
                 // ----- Pitch readout (center, over horizon line) -----
                 gdraw.fillRoundRect(55,129,56,21,3,TFT_DARKGREY);
                 gdraw.setTextColor (TFT_WHITE);
-                char PitchStr[4];
-                sprintf(PitchStr,"%1.1f", displayPitch);
+                char PitchStr[8];
+                // Worst-case "-99.9\0" is 6 bytes; "%1.1f" has no max width
+                // so any 2+-digit or negative pitch overflowed the old [4].
+                static_assert(sizeof(PitchStr) >= 6,
+                              "PitchStr must hold at least \"-99.9\\0\" (6 bytes)");
+                snprintf(PitchStr, sizeof(PitchStr), "%1.1f", displayPitch);
                 gdraw.setTextDatum(textdatum_t::middle_right);
                 gdraw.drawString(PitchStr,100,138);
                 gdraw.setTextDatum(textdatum_t::baseline_left); // restore
@@ -734,8 +738,14 @@ void displayAOA()
         gdraw.setFont(FSS12);
         gdraw.setTextColor (TFT_WHITE);
         gdraw.setTextDatum(textdatum_t::middle_center);
-        char FlapsChar[2];
-        sprintf(FlapsChar,"%i", FlapPos);
+        char FlapsChar[8];
+        // Wire-format flapsDeg is signed %+03d (range -99..+99, worst
+        // case "-99\0" = 4 bytes); defensive headroom covers a future
+        // 3-digit value like "-999\0" (5 bytes). The old [2] buffer
+        // overflowed every frame for any two-digit flap setting.
+        static_assert(sizeof(FlapsChar) >= 5,
+                      "FlapsChar must hold at least \"-999\\0\" (5 bytes)");
+        snprintf(FlapsChar, sizeof(FlapsChar), "%i", FlapPos);
         gdraw.drawString(FlapsChar,cX,cY);
         gdraw.setTextDatum(textdatum_t::baseline_left); // restore
     } // end if numeric display
