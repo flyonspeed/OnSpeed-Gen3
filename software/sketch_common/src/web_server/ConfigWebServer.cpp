@@ -14,6 +14,7 @@
 #include <WiFi.h>               // https://github.com/espressif/arduino-esp32/tree/master/libraries/WiFi
 #include <WiFiClient.h>
 #include <WiFiAP.h>
+#include <esp_wifi.h>
 
 #include <HTTP_Method.h>
 #include <WebServer.h>          // https://github.com/espressif/arduino-esp32/tree/master/libraries/WebServer
@@ -197,6 +198,15 @@ void CfgWebServerInit()
     // Wait after init softAP
     delay(100);
 
+    // Disable WiFi modem-sleep. Arduino-esp32 defaults to WIFI_PS_MIN_MODEM,
+    // which lets the radio doze between beacons. In SoftAP mode that adds
+    // tens of ms to every TCP ACK round-trip, pinning bulk-transfer
+    // throughput (e.g. /download) at send_buf/RTT ≈ a few hundred KB/s.
+    // WiFi.setSleep() is a no-op in AP-only mode (it only takes effect
+    // once STA is started), so call esp_wifi_set_ps() directly. This does
+    // not change TX power or any emission characteristic — only whether
+    // the RX path stays awake between beacons.
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     IPAddress    Ip(192, 168,   0, 1);
     IPAddress NMask(255, 255, 255, 0);
