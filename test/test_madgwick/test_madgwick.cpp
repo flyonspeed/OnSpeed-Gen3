@@ -1,4 +1,4 @@
-// Tests for MadgwickFusion - AHRS attitude estimation
+// Tests for MadgwickFusion — AHRS attitude estimation
 //
 // The Madgwick filter fuses gyroscope and accelerometer data to estimate
 // aircraft pitch and roll. This is used for:
@@ -6,11 +6,16 @@
 // - Earth-referenced vertical acceleration (for Kalman VSI)
 // - Derived AOA calculation
 //
-// Production usage from AHRS.cpp:
-//   MadgFilter.begin(208.0f, -SmoothedPitch, SmoothedRoll)
-//   MadgFilter.UpdateIMU(RollRate, PitchRate, YawRate, AccelFwd, AccelLat, AccelVert)
-//   pitch = -MadgFilter.getPitch()
-//   roll = -MadgFilter.getRoll()
+// Production usage (post PR 3.2 extraction): the filter lives as a private
+// `madgwick_` member inside onspeed::ahrs::Ahrs (Libraries/onspeed_core/
+// src/ahrs/Ahrs.cpp).  One instance is constructed per Ahrs object,
+// seeded in Ahrs::Init(), and stepped once per frame inside Ahrs::Step()
+// with the installation-corrected gyro + compensated accel.  Callers read
+// the smoothed attitude via `Ahrs::latest().pitchDeg / .rollDeg`.
+//
+// These tests exercise the Madgwick class directly rather than through
+// Ahrs, so they pin the algorithm's contract independently of the larger
+// AHRS pipeline.
 
 #include <unity.h>
 #include <ahrs/MadgwickFusion.h>

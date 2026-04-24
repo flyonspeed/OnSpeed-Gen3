@@ -26,15 +26,10 @@
 #include "src/Globals.h"
 
 #include <ahrs/Ahrs.h>
-#include <ahrs/EKF6.h>
-#include <ahrs/KalmanFilter.h>
-#include <ahrs/MadgwickFusion.h>
 #include <filters/EMAFilter.h>
 #include <types/AhrsInputs.h>
 
 using onspeed::EMAFilter;
-using onspeed::KalmanFilter;
-using onspeed::Madgwick;
 
 class AHRS
 {
@@ -77,24 +72,9 @@ public:
     float           fImuSampleRate;
     float           fImuDeltaTime;
 
-    // Precomputed trig of installation bias angles.  Kept only as
-    // legacy read-only state; the core class owns the "live" trig.
-    float           fSinPitch, fCosPitch;
-    float           fSinRoll,  fCosRoll;
-
-    // Legacy filter objects.  Read-only after PR 3.2 — DerivedAOA logic
-    // and accel smoothing both run in core.  These remain for any
-    // consumer that grabs internal state by reference (none today, but
-    // kept to avoid a bigger refactor in this PR).
-    Madgwick        MadgFilter;
-    KalmanFilter    KalFilter;
-    onspeed::EKF6   Ekf6Filter;
-
     bool            bIasWasBelowThreshold;
 
     float           fTAS;
-    float           fPrevTAS;
-    uint32_t        uLastIasUpdateUs;
 
     // Methods
     void    Init(float fSampleRate);
