@@ -92,15 +92,22 @@ function onClose(evt)
 function map(x, in_min, in_max, out_min, out_max)
   {
   // Degenerate-range guard: if the input span collapses, linear
-  // interpolation divides by zero.  Matches the guard in
-  // onspeed_core::mapfloat (threshold 0.0001).  The previous
-  // guard `(in_max - in_min) + out_min == 0` only fired when
-  // out_min happened to be zero — every real call site here passes
-  // a non-zero out_min (278/228/178/113), so the old guard was
+  // interpolation divides by zero.  The previous guard
+  // `(in_max - in_min) + out_min == 0` only fired when out_min
+  // happened to be zero — every real call site here passes a
+  // non-zero out_min (278/228/178/113), so the old guard was
   // effectively dead and let divide-by-zero through whenever two
   // adjacent setpoints were configured equal.
+  //
+  // Fallback returns out_min (the lower-edge Y of the segment)
+  // rather than 0.  This keeps the bar at the bottom of the
+  // collapsed band on a misconfigured unit.  Returning 0 (as
+  // onspeed_core::mapfloat does in its percent-lift context)
+  // would snap the bar to the top of the SVG viewBox — the same
+  // position as a stall warning — which is exactly the wrong
+  // visual cue for a misconfig.
   if (Math.abs(in_max - in_min) < 0.0001)
-    return 0;
+    return out_min;
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
   }
 
@@ -321,7 +328,8 @@ function toggleAOA(state)
 
 updateAttitude(0,0);
 
-//window.addEventListener("load", function() {init();}, false);
+// init() is called by the end-of-body <script>init()</script> below,
+// after the DOM is fully parsed.  No event listener needed.
 
 </script>
 
