@@ -3019,21 +3019,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#why-simulator-practice-matters" class="md-nav__link">
+  <a href="#scope" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why simulator practice matters
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-the-simulator-gives-you-and-what-it-doesnt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What the simulator gives you (and what it doesn't)
+        Scope
       
     </span>
   </a>
@@ -3077,71 +3066,28 @@
 
 
 <h1 id="simulator">Simulator<a class="headerlink" href="#simulator" title="Permanent link">&para;</a></h1>
-<p>Train with OnSpeed at home before you ever fly with it. The simulator
-plugin produces the same audio cues your panel box would, driven by
-your sim's flight model — so the muscle memory you build at the desk
-translates directly to the cockpit.</p>
+<p>Drive OnSpeed tones from a desktop flight simulator. The plugin runs the
+same <code>onspeed_core</code> tone decision the panel box runs — same thresholds,
+same pulse rates, same stall warning.</p>
 <ul>
-<li><strong><a href="xplane-plugin/">X-Plane Plugin</a></strong> — install the plugin into
-  X-Plane 12, get OnSpeed tones in any aircraft.</li>
+<li><strong><a href="xplane-plugin/">X-Plane Plugin</a></strong> — install the plugin into X-Plane 12, get OnSpeed tones in any aircraft.</li>
 </ul>
-<h2 id="why-simulator-practice-matters">Why simulator practice matters<a class="headerlink" href="#why-simulator-practice-matters" title="Permanent link">&para;</a></h2>
-<p>OnSpeed is a <em>learned</em> skill. The audio cues — pulse rate climbing as
-you slow, the transition from low pulse to solid tone at OnSpeed, the
-high-pulse warning above OnSpeed — only become useful when your hands
-respond to them automatically. That takes repetition.</p>
-<p>Sim training builds that loop without burning fuel, without weather
-constraints, and without the consequences of a real stall. Fly slow
-flight at altitude, fly approaches to minimums, fly accelerated stalls
-in the pattern — over and over, until the pulse-to-stick relationship
-is reflex.</p>
-<h2 id="what-the-simulator-gives-you-and-what-it-doesnt">What the simulator gives you (and what it doesn't)<a class="headerlink" href="#what-the-simulator-gives-you-and-what-it-doesnt" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>✅ The simulator is great for</th>
-<th>⚠️ The simulator can't replicate</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Building muscle memory for tone-driven slow flight</td>
-<td>Real airframe-specific stall behavior</td>
-</tr>
-<tr>
-<td>Practicing precision approaches at OnSpeed</td>
-<td>Real noise environment of your cockpit</td>
-</tr>
-<tr>
-<td>Testing your audio panel routing before installation</td>
-<td>Ground effect during landing flare</td>
-</tr>
-<tr>
-<td>Showing the system to friends without firing up the plane</td>
-<td>Calibration accuracy (sim uses generic AOA)</td>
-</tr>
-</tbody>
-</table>
-<p>The plugin uses X-Plane's published AOA (<code>sim/flightmodel/position/alpha</code>)
-directly. That value is X-Plane's flight model output — it is <em>not</em>
-your aircraft's calibrated AOA. So the <em>tones</em> will sound right relative
-to where the sim thinks the airframe is in the AOA range, but the
-specific <em>thresholds</em> (LDmax, OnSpeed, stall) are plugin defaults, not
-your aircraft's calibrated setpoints. For most training use cases this
-is fine; if you need aircraft-accurate setpoints in the sim, edit the
-plugin's threshold UI to match your tuned values.</p>
+<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
+<p>The plugin reads X-Plane's AOA dataref (<code>sim/flightmodel/position/alpha</code>)
+and pipes it through <code>onspeed_core</code> to the same <code>calculateTone()</code> call
+the firmware uses. Output is OpenAL audio on the sim PC.</p>
+<p>Because the dataref is the sim's flight-model AOA, tones sound right
+relative to where the sim thinks the airframe is, but the thresholds
+(L/D<sub>MAX</sub>, ONSPEED, stall warning) are plugin defaults, not your
+airplane's calibrated setpoints. The plugin's UI exposes all four
+thresholds as editable fields — override them with your tuned values
+for aircraft-specific behavior.</p>
 <h2 id="roadmap">Roadmap<a class="headerlink" href="#roadmap" title="Permanent link">&para;</a></h2>
-<p>The plugin currently plays tones only. Planned follow-ups:</p>
+<p>Audio-only today. Planned:</p>
 <ul>
-<li><strong>Visual indexer overlay</strong> — same chevron + donut + index bar visuals
-  as the M5 display, rendered inside X-Plane. Tracked in
-  <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/221">issue #221</a>.</li>
-<li><strong>Drive a real M5 display from the sim</strong> — plug your hardware M5 into
-  the sim PC over USB, plugin streams <code>#1</code> frames at 20 Hz so the M5
-  shows sim data exactly the way it'd show flight data. Tracked in
-  <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/228">issue #228</a>.</li>
-<li><strong>Microsoft Flight Simulator</strong> — equivalent gauge for MSFS 2024.
-  Tracked in <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/225">issue #225</a>.</li>
+<li><strong>Visual indexer overlay inside X-Plane</strong> — same chevron/donut/bar widget as the M5 display. <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/221">Issue #221</a>.</li>
+<li><strong>Drive a physical M5 display from the sim</strong> — plugin streams <code>#1</code> frames at 20 Hz over USB. <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/228">Issue #228</a>.</li>
+<li><strong>MSFS 2024 gauge</strong> — equivalent for Microsoft Flight Simulator. <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/225">Issue #225</a>.</li>
 </ul>
 
 

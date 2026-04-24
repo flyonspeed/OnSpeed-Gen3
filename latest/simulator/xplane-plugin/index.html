@@ -2561,10 +2561,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#muting-disabling" class="md-nav__link">
+  <a href="#muting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Muting / disabling
+        Muting
       
     </span>
   </a>
@@ -2572,10 +2572,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#reload-after-editing" class="md-nav__link">
+  <a href="#reloading" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Reload after editing
+        Reloading
       
     </span>
   </a>
@@ -2660,10 +2660,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verifying-a-release-locally-release-checklist" class="md-nav__link">
+  <a href="#release-smoke-test" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verifying a release locally (release checklist)
+        Release smoke test
       
     </span>
   </a>
@@ -3377,10 +3377,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#muting-disabling" class="md-nav__link">
+  <a href="#muting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Muting / disabling
+        Muting
       
     </span>
   </a>
@@ -3388,10 +3388,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#reload-after-editing" class="md-nav__link">
+  <a href="#reloading" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Reload after editing
+        Reloading
       
     </span>
   </a>
@@ -3476,10 +3476,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verifying-a-release-locally-release-checklist" class="md-nav__link">
+  <a href="#release-smoke-test" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verifying a release locally (release checklist)
+        Release smoke test
       
     </span>
   </a>
@@ -3523,24 +3523,23 @@
 
 
 <h1 id="x-plane-plugin">X-Plane Plugin<a class="headerlink" href="#x-plane-plugin" title="Permanent link">&para;</a></h1>
-<p>OnSpeed for X-Plane 12 — same audio cues as the panel-mounted Gen3, driven
-by X-Plane's flight model. Audio-only for now; visuals are coming
-(<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/221">#221</a>).</p>
+<p>OnSpeed plugin for X-Plane 12. Plays the same audio cues as the panel
+box by routing X-Plane's AOA dataref through <code>onspeed_core</code>.
+Audio-only; a visual overlay is tracked in <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/221">#221</a>.</p>
 <h2 id="what-it-does">What it does<a class="headerlink" href="#what-it-does" title="Permanent link">&para;</a></h2>
-<p>While X-Plane is running and the aircraft is above 25 kt IAS, the plugin
-plays the OnSpeed tone family in real time:</p>
+<p>With the aircraft above 25 kt IAS, the plugin plays the same tone
+regions the panel box plays — see <a href="../../flying/tone-map/">What the Tones Mean</a>
+for the full reference. Summary:</p>
 <ul>
-<li><strong>No tone</strong> below LDmax AOA — you have plenty of margin.</li>
-<li><strong>Low pulse tone</strong> between LDmax and OnSpeed-fast — pulse rate climbs
-  as you slow toward OnSpeed.</li>
-<li><strong>Solid low tone</strong> in the OnSpeed band — the audio "lock" you fly
-  approaches against.</li>
-<li><strong>High pulse tone</strong> above OnSpeed-slow — pulse rate climbs as AOA grows.</li>
-<li><strong>Fast high pulse (20 pps)</strong> above stall warning AOA — back off now.</li>
+<li><strong>Silence</strong> below L/D<sub>MAX</sub>.</li>
+<li><strong>Low-pitch pulsing (400 Hz)</strong> between L/D<sub>MAX</sub> and ONSPEED. Pulse rate 1.5 → 8.2 pps as AOA increases.</li>
+<li><strong>ONSPEED solid tone (400 Hz)</strong> inside the ONSPEED band.</li>
+<li><strong>High-pitch pulsing (1600 Hz)</strong> above ONSPEED. Pulse rate 1.5 → 6.2 pps.</li>
+<li><strong>Stall warning buzz (1600 Hz, 20 pps)</strong> above the stall-warn threshold.</li>
 </ul>
-<p>The tones come from X-Plane's published AOA dataref, not from any
-calibrated airframe model. That's enough for training; it isn't enough
-to substitute for an in-aircraft calibration of your real airplane.</p>
+<p>AOA comes from X-Plane's <code>sim/flightmodel/position/alpha</code>, not from a
+calibrated airframe model. It does not substitute for a real in-aircraft
+calibration.</p>
 <h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>X-Plane 12.4.0 or newer</strong> (SDK 4.3.0 — the version required by the SDK we ship; older sims need to bump their X-Plane install).</li>
@@ -3572,7 +3571,7 @@ Look for files named:</p>
 </tr>
 <tr>
 <td>Windows</td>
-<td>(manual release — ask in Discord, or build from source)</td>
+<td>(manual release — build from source, see below)</td>
 </tr>
 </tbody>
 </table>
@@ -3597,35 +3596,34 @@ and confirm <strong>AOA Tone Fly On Speed</strong> is in the list and enabled.</
 <p>Open <strong>Plugins → AOA Tone Fly On Speed</strong> — a control window appears
 with the four AOA threshold values and a status display.</p>
 <p>Pick any aircraft, take off, slow down to a stall in level flight. You
-should hear the low pulse tone start as you cross LDmax, transition to
-solid low at OnSpeed, then high pulse, then fast high pulse (the stall
-warning) as you approach the break.</p>
+should hear low-pitch pulsing as you cross L/D<sub>MAX</sub>, the ONSPEED solid
+tone in the ONSPEED band, high-pitch pulsing above it, and the stall
+warning buzz as you approach the break.</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
 <h3 id="the-control-window">The control window<a class="headerlink" href="#the-control-window" title="Permanent link">&para;</a></h3>
 <p>The plugin's control window has three sections:</p>
 <ul>
 <li><strong>AOA thresholds</strong> — four editable fields. From low to high:</li>
-<li><strong>Below LDmax</strong> — below this AOA, no tone plays.</li>
-<li><strong>Below OnSpeed</strong> — between this and the next, low pulse tone.</li>
-<li><strong>OnSpeed Max</strong> — between this and the next, solid low tone (you're "On Speed").</li>
-<li><strong>Above OnSpeed Max</strong> — above this, high tone (warning region).</li>
+<li><strong>Below LDmax</strong> — below this AOA, silence.</li>
+<li><strong>Below OnSpeed</strong> — between this and the next, low-pitch pulsing.</li>
+<li><strong>OnSpeed Max</strong> — between this and the next, ONSPEED solid tone.</li>
+<li><strong>Above OnSpeed Max</strong> — above this, high-pitch pulsing.</li>
 <li><strong>Live AOA readout</strong> — current X-Plane AOA, updated each frame.</li>
-<li><strong>Status / version</strong> — plugin enabled state, plus the OnSpeed version
-  string.</li>
+<li><strong>Status / version</strong> — plugin enabled state and the OnSpeed version
+  string (same string the panel box reports on its web UI — both come
+  from the release tag).</li>
 </ul>
-<p>Edit any threshold and the plugin uses the new value immediately. The
-defaults are tuned for a generic GA single — for an aircraft-specific
-profile, replace them with your own calibrated values.</p>
-<h3 id="muting-disabling">Muting / disabling<a class="headerlink" href="#muting-disabling" title="Permanent link">&para;</a></h3>
-<p><strong>Plugins → AOA Tone Fly On Speed → Audio On/Off</strong> toggles the tones
-without unloading the plugin. Useful for quick A/B comparison while
-flying or for screen recordings.</p>
-<h3 id="reload-after-editing">Reload after editing<a class="headerlink" href="#reload-after-editing" title="Permanent link">&para;</a></h3>
-<p>X-Plane has no hot-reload for plugins. If you replace the <code>.xpl</code> (e.g.
-to install a newer build), restart X-Plane.</p>
+<p>Edits take effect on the next frame. Defaults are generic; for
+aircraft-specific behavior, replace them with your own calibrated
+setpoints.</p>
+<h3 id="muting">Muting<a class="headerlink" href="#muting" title="Permanent link">&para;</a></h3>
+<p><strong>Plugins → AOA Tone Fly On Speed → Audio On/Off</strong> toggles tones on and
+off without unloading the plugin.</p>
+<h3 id="reloading">Reloading<a class="headerlink" href="#reloading" title="Permanent link">&para;</a></h3>
+<p>X-Plane has no plugin hot-reload. Restart X-Plane after replacing the
+<code>.xpl</code>.</p>
 <h2 id="building-from-source">Building from source<a class="headerlink" href="#building-from-source" title="Permanent link">&para;</a></h2>
-<p>Required if you want a Windows build, or if you want to track the
-latest <code>master</code> ahead of a release.</p>
+<p>Required for a Windows build or to track <code>master</code> ahead of a release.</p>
 <p>Prerequisites:</p>
 <ul>
 <li>CMake 3.15+</li>
@@ -3685,8 +3683,8 @@ Open it and search for <code>AOA-Tone-FlyOnSpeed</code>. Common causes:</p>
   output is unmuted and routed where you expect.</li>
 <li>Confirm IAS is above the 25-kt gate (the plugin doesn't play tones at
   rest on the runway).</li>
-<li>Confirm AOA is above LDmax — at low AOAs the plugin is correctly
-  silent.</li>
+<li>Confirm AOA is above L/D<sub>MAX</sub> — below that threshold the plugin is
+  correctly silent.</li>
 <li>On Linux, install <code>libopenal1</code> if it isn't already present:
   <code>sudo apt-get install libopenal1</code>.</li>
 </ul>
@@ -3697,38 +3695,28 @@ aircraft has been calibrated on a real OnSpeed installation, copy the
 threshold values from the calibration wizard's
 <strong><a href="../../calibration/verification/">Verifying Calibration</a></strong> output.</p>
 <h3 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h3>
-<p>Windows binaries aren't built by CI yet. If you need one, either:</p>
-<ol>
-<li>Build from source (see <a href="#building-from-source">Building from source</a>),
-   or</li>
-<li>Ask in the project Discord — community members have shared Windows
-   builds informally.</li>
-</ol>
-<p>Adding Windows to the CI matrix needs an OpenAL SDK install step plus
-SDK-lib path handling. Tracked as a follow-up to
-<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/220">issue #220</a>;
-PRs welcome.</p>
-<h2 id="verifying-a-release-locally-release-checklist">Verifying a release locally (release checklist)<a class="headerlink" href="#verifying-a-release-locally-release-checklist" title="Permanent link">&para;</a></h2>
-<p>Before tagging an OnSpeed release, anyone with X-Plane installed can
-spend ~15 minutes confirming the plugin still plays the right cues.
-Keep this list short and current — it lives at the bottom of this page
-on purpose, so a release manager finds it without hunting.</p>
+<p>Windows binaries aren't built by CI yet — build from source per
+<a href="#building-from-source">Building from source</a>.</p>
+<p>Adding Windows to CI needs an OpenAL SDK install step and per-OS lib
+path handling. Tracked as a follow-up to
+<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/220">issue #220</a>.</p>
+<h2 id="release-smoke-test">Release smoke test<a class="headerlink" href="#release-smoke-test" title="Permanent link">&para;</a></h2>
+<p>Run before tagging a release. ~15 minutes with X-Plane installed.</p>
 <ol>
 <li>Build from <code>master</code>: <code>cmake --build build</code>.</li>
 <li>Install via <code>./scripts/install_dev.sh ~/X-Plane\ 12</code>.</li>
 <li>Launch X-Plane, load the Cessna 172 on a runway.</li>
 <li><strong>Plugins → Plugin Admin</strong> confirms the plugin is enabled.</li>
-<li><strong>Plugins → AOA Tone Fly On Speed</strong> opens the control window; the
-   version string matches the release tag.</li>
+<li><strong>Plugins → AOA Tone Fly On Speed</strong> opens the control window; version string matches the release tag.</li>
 <li>Take off, climb to 4,000 ft, reduce to 60% power.</li>
-<li><strong>Below LDmax</strong>: no tone audible at cruise AOA.</li>
-<li><strong>LDmax to OnSpeed</strong>: pulse rate climbs as you slow.</li>
-<li><strong>OnSpeed band</strong>: solid low tone at ~65 kt clean.</li>
-<li><strong>Above OnSpeed</strong>: high pulse as you slow further.</li>
-<li><strong>Stall warning</strong>: rapid high pulse just before the stall break.</li>
-<li>Toggle <strong>Audio On/Off</strong> — tones cut, then return.</li>
+<li><strong>Below L/D<sub>MAX</sub></strong>: silence at cruise AOA.</li>
+<li><strong>L/D<sub>MAX</sub> to ONSPEED</strong>: low-pitch pulsing, rate climbs as you slow.</li>
+<li><strong>ONSPEED band</strong>: ONSPEED solid tone at ~65 kt clean.</li>
+<li><strong>Above ONSPEED</strong>: high-pitch pulsing, rate climbs as you slow further.</li>
+<li><strong>Stall warning</strong>: stall warning buzz just before the break.</li>
+<li><strong>Audio On/Off</strong> toggle cuts tones, then restores them.</li>
 </ol>
-<p>If any step is wrong, the release isn't ready.</p>
+<p>Any step that doesn't match blocks the release.</p>
 <h2 id="source">Source<a class="headerlink" href="#source" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Plugin source: <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-XPlane-Plugin"><code>software/OnSpeed-XPlane-Plugin/</code></a></li>
