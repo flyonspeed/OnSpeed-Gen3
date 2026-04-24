@@ -2,6 +2,13 @@
 
 Understanding the measurement helps you produce better calibrations and troubleshoot problems.
 
+!!! note "OnSpeed measures body angle, not wing AOA"
+    Throughout the firmware, configuration, and these docs, the quantity called "AOA" is **body angle** — the fuselage-to-wind angle, in degrees. It is not wing angle of attack.
+
+    Most aircraft mount the wing at a positive incidence relative to the fuselage longitudinal axis, so the fuselage points slightly nose-down when the wing is at zero AOA. The body angle at zero wing lift is $\alpha_0$, and on most aircraft it is **negative** (typically −3° to −6°, varying with flap setting).
+
+    This is why fractional lift is computed as $(\alpha - \alpha_0) / (\alpha_\text{stall} - \alpha_0)$ — the floor is $\alpha_0$, not zero. A body angle of −3° is genuinely producing positive lift if $\alpha_0$ is −4°, and the math has to reflect that.
+
 ## Angle of Attack and Fractional Lift
 
 Every wing has an angle of attack at which it produces no lift (the **zero-lift angle**, $\alpha_0$). As AOA increases from this point, lift increases until the wing reaches its maximum at the **critical angle of attack** ($\alpha_\text{stall}$), just prior to stall.

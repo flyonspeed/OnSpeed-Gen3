@@ -3,10 +3,10 @@
 | Term | Definition |
 |------|-----------|
 | **AHRS** | Attitude and Heading Reference System — fuses accelerometer and gyroscope data to estimate pitch, roll, and heading |
-| **AOA** | Angle of Attack — the angle between the wing chord line and the relative wind. Also referred to by the Greek letter alpha (α). Determines lift and proximity to stall. |
-| **alpha_0** ($\alpha_0$) | Zero-lift angle of attack — the DerivedAOA value at which the aircraft produces zero lift. Typically negative for cambered airfoils. |
-| **alpha_stall** ($\alpha_\text{stall}$) | Critical angle of attack — the AOA at which the wing stalls (maximum lift coefficient exceeded). Essentially constant for a given configuration, regardless of weight or load factor. |
-| **Body Angle** | The difference between pitch attitude and flight-path angle. From a pilot's perspective, body angle corresponds to angle of attack. Equivalent to DerivedAOA. |
+| **AOA** | Angle of Attack — the angle between the wing chord line and the relative wind. Also referred to by the Greek letter alpha (α). Determines lift and proximity to stall. **In OnSpeed firmware and config, the variable named `AOA` is body angle (fuselage-to-wind), not wing AOA — see Body Angle below.** |
+| **alpha_0** ($\alpha_0$) | Zero-lift body angle — the body angle (DerivedAOA) at which the wing produces zero lift. Typically **negative** because most aircraft have wing incidence: the fuselage points nose-down when the wing is at zero AOA. Varies with flap setting. |
+| **alpha_stall** ($\alpha_\text{stall}$) | Critical body angle — the body angle at which the wing stalls (maximum lift coefficient exceeded). Essentially constant for a given configuration, regardless of weight or load factor. |
+| **Body Angle** | The difference between pitch attitude and flight-path angle ($\text{Pitch} - \text{FlightPath}$). The angle the fuselage makes with the relative wind. **What OnSpeed actually measures and calibrates against** — wing AOA is a different quantity that OnSpeed never computes directly. The two are linearly related (body angle = wing AOA + wing incidence + small terms), so body angle is a faithful proxy for the pilot. Equivalent to DerivedAOA. |
 | **CAS** | Calibrated Airspeed — IAS corrected for position error in the pitot/static system |
 | **C~L~** | Coefficient of Lift — a dimensionless parameter describing how much lift an airfoil produces relative to the surrounding airflow. Directly proportional to AOA over the normal operating range. |
 | **Cp** | Coefficient of Pressure — the ratio of AOA probe differential pressure to pitot (dynamic) pressure. Varies with angle of attack. |
