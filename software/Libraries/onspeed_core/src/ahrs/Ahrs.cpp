@@ -17,7 +17,6 @@ namespace {
 constexpr float kAccSmoothing      = 0.060899f;            // EMA alpha for accels
 constexpr float kIasSmoothing      = 0.0179f;              // EMA alpha for IAS-derived TAS
 constexpr float kIasTauFactor      = (1.0f / kIasSmoothing) - 1.0f;
-constexpr float kMinIasForFlightPath = 25.0f;              // kt
 constexpr float kEkfGravityMps2    = 9.80665f;
 constexpr float kKalZVariance      = 0.79078f;
 // Lower bound for KalmanFilter's per-update accel-variance clamp. Higher
@@ -265,23 +264,44 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     // 4. Linear acceleration compensation: forward, centripetal lateral,
     //    centripetal vertical.  When EKF6 is active, use its bias-corrected
     //    rates from the previous timestep for more consistent compensation.
-    const float AccelFwdCompFactor = onspeed::mps2g(tasDotSmoothed_);
+    //
+    // Gated on in.sensors.iasAlive.  Below the pitot noise floor, fTAS and
+    // tasDotSmoothed_ are dominated by sensor noise (±1-2 LSB on the
+    // Honeywell HSC, amplified by the sqrt() in the pitot equation to
+    // 4-8 kt phantom IAS at rest).  Leaving the compensation factors active
+    // under those conditions injects ±0.04-0.07 g of noise directly into
+    // the smoothed accel that feeds Madgwick/EKF6, producing a slow pitch
+    // oscillation visible at rest in the hangar.  This matches ADC best
+    // practice (Dynon SkyView, Garmin G3X, ARINC 429 SSM/NCD): consumers
+    // gate their behavior on air-data validity, not on raw measurement.
+    if (in.sensors.iasAlive) {
+        const float AccelFwdCompFactor = onspeed::mps2g(tasDotSmoothed_);
 
-    float fYawRateForComp   = YawRateCorr;
-    float fPitchRateForComp = PitchRateCorr;
-    if (cfg_.algorithm == Algorithm::Ekf6) {
-        const onspeed::EKF6::State prevState = ekf6_.getState();
-        fYawRateForComp   = YawRateCorr   - onspeed::rad2deg(prevState.br);
-        fPitchRateForComp = PitchRateCorr - onspeed::rad2deg(prevState.bq);
+        float fYawRateForComp   = YawRateCorr;
+        float fPitchRateForComp = PitchRateCorr;
+        if (cfg_.algorithm == Algorithm::Ekf6) {
+            const onspeed::EKF6::State prevState = ekf6_.getState();
+            fYawRateForComp   = YawRateCorr   - onspeed::rad2deg(prevState.br);
+            fPitchRateForComp = PitchRateCorr - onspeed::rad2deg(prevState.bq);
+        }
+        const float AccelLatCompFactor  =
+            onspeed::mps2g(onspeed::deg2rad(tas_ * fYawRateForComp));
+        const float AccelVertCompFactor =
+            onspeed::mps2g(onspeed::deg2rad(tas_ * fPitchRateForComp));
+
+        accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_)   - AccelFwdCompFactor;
+        accelLatComp_  = accelLatFilter_.update(accelLatCorr_)   - AccelLatCompFactor;
+        accelVertComp_ = accelVertFilter_.update(accelVertCorr_) + AccelVertCompFactor;
+    } else {
+        // IAS not alive — still tick the accel EMAs so they track the raw
+        // installation-corrected readings, but do not apply any TAS/TASdot-
+        // derived compensation to them.  tas_ and tasDotSmoothed_ retain
+        // their last values; they'll resume contributing once iasAlive
+        // flips back to true.
+        accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_);
+        accelLatComp_  = accelLatFilter_.update(accelLatCorr_);
+        accelVertComp_ = accelVertFilter_.update(accelVertCorr_);
     }
-    const float AccelLatCompFactor  =
-        onspeed::mps2g(onspeed::deg2rad(tas_ * fYawRateForComp));
-    const float AccelVertCompFactor =
-        onspeed::mps2g(onspeed::deg2rad(tas_ * fPitchRateForComp));
-
-    accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_)   - AccelFwdCompFactor;
-    accelLatComp_  = accelLatFilter_.update(accelLatCorr_)   - AccelLatCompFactor;
-    accelVertComp_ = accelVertFilter_.update(accelVertCorr_) + AccelVertCompFactor;
 
     // 5. Run the chosen attitude filter.
     float SmoothedPitch = outputs_.pitchDeg;
@@ -350,8 +370,12 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     //    Side effect: in EKF6 mode, reset the alpha covariance on the
     //    transition from below-threshold to above-threshold so the filter
     //    re-learns alpha from real gamma measurements.
+    //
+    //    Keyed off in.sensors.iasAlive rather than a raw 25 kt threshold so
+    //    VSI/FlightPath/alpha-observability all share the same hysteretic
+    //    air-data validity state as the compensation gate above.
     float kalVsiMpsForFlightPath = static_cast<float>(kalmanVsiMps);
-    if (in.sensors.iasKt < kMinIasForFlightPath) {
+    if (!in.sensors.iasAlive) {
         kalVsiMpsForFlightPath = 0.0f;
         iasWasBelowThreshold_ = true;
     } else if (iasWasBelowThreshold_ && cfg_.algorithm == Algorithm::Ekf6) {
@@ -364,7 +388,7 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     // 8. Flight-path and (Madgwick-only) DerivedAOA.  The EKF6 path set
     //    DerivedAOA from its alpha state above.
     float FlightPath;
-    if (in.sensors.iasKt >= kMinIasForFlightPath) {
+    if (in.sensors.iasAlive) {
         FlightPath = onspeed::rad2deg(onspeed::safeAsin(kalVsiMpsForFlightPath / tas_));
     } else {
         FlightPath = 0.0f;

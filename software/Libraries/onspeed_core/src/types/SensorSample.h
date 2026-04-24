@@ -37,6 +37,19 @@ struct SensorSample {
     // Density altitude (feet). Set to 0 if OAT is invalid.
     float densityAltitudeFt = 0.0f;
 
+    // Air-data validity flag (ARINC-429 SSM / "IAS alive" equivalent).
+    //
+    // True when IAS is above the pitot noise floor with hysteresis; false
+    // when iasKt is still in the sensor-noise band at rest. Consumers that
+    // care about low-airspeed sensor noise (AHRS compensation, audio mute,
+    // display gates) should key off this flag rather than comparing iasKt
+    // against a raw threshold.
+    //
+    // Default is `true` so samples constructed by tests or the regression
+    // harness behave like in-flight samples unless explicitly marked
+    // otherwise — the sketch-side SensorIO overwrites this per-frame.
+    bool iasAlive = true;
+
     // Microsecond-resolution timestamp of the read.
     // Wraps ~71 minutes; consumers must diff with uint32_t arithmetic.
     uint32_t timestampUs = 0;

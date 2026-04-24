@@ -89,6 +89,7 @@ static onspeed::audio::MixerState s_ToneMixerState;
 // ----------------------------------------------------------------------------
 
 static bool         s_bI2sOk = false;
+static bool         s_bAudioUnmuted = false;    // Hysteretic mute state; see UpdateTones().
 static volatile TaskHandle_t s_xAudioTestTask = nullptr;
 static std::atomic<bool>     s_bAudioTestStopRequested{false};
 static std::atomic<bool>     s_bAudioTestStarting{false};
@@ -497,6 +498,18 @@ void AudioPlay::UpdateTones()
 
     onspeed::ToneResult result;
 
+    // Audio mute hysteresis: unmute at iMuteAudioUnderIAS + 5 kt, mute back
+    // at iMuteAudioUnderIAS.  Fixes audio chatter on touchdown (AUD-01) when
+    // IAS oscillates a few knots around the configured mute threshold —
+    // without hysteresis, the filter flips state several times per second
+    // and the pilot hears a fraction of a tone burst on each bounce.
+    static constexpr int kAudioHysteresisKt = 5;
+    const int iUnmuteThreshold = g_Config.iMuteAudioUnderIAS + kAudioHysteresisKt;
+    if (!s_bAudioUnmuted && g_Sensors.IAS >= iUnmuteThreshold)
+        s_bAudioUnmuted = true;
+    else if (s_bAudioUnmuted && g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
+        s_bAudioUnmuted = false;
+
     if (!g_bAudioEnable)
         {
         // Audio disabled by button — only allow stall warning through
@@ -505,7 +518,7 @@ void AudioPlay::UpdateTones()
             g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
             g_Config.iMuteAudioUnderIAS);
         }
-    else if (g_Sensors.IAS <= g_Config.iMuteAudioUnderIAS)
+    else if (!s_bAudioUnmuted)
         {
         // Airspeed too low (taxiing) — mute, but set pulse rate high for quick pickup
 #ifdef TONEDEBUG

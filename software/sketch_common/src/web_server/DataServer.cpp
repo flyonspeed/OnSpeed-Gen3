@@ -146,7 +146,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // 60-deg bank. Matches the value GLimitDecision uses for over-G warnings.
     float fVerticalGload = g_AHRS.AccelVertCorr;
 
-    if (isnan(g_Sensors.AOA) || g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
+    if (isnan(g_Sensors.AOA) || !g_Sensors.bIasAlive)
     {
         fWifiAOA = -100;
     }
