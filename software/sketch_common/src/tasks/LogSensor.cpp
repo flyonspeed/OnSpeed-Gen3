@@ -5,6 +5,9 @@
 #include "SdFat.h"
 
 #include "src/Globals.h"
+#include <buildinfo.h>
+#include <log/LogMetaBuilder.h>
+#include <log/LogMetaFile.h>
 #include <proto/LogCsv.h>
 #include <types/LogRow.h>
 
@@ -247,17 +250,30 @@ void LogSensor::Open()
             {
             for (int iIdx=0; iIdx<suFileList.size(); iIdx++)
                 {
-                if (strncasecmp("log_", suFileList[iIdx].szFileName, 4) == 0)
+                const char* name = suFileList[iIdx].szFileName;
+                // Match both the pre-rename "log_NNN.csv" form and the
+                // post-rename "YYYY-MM-DD_NNN.csv" form so that after
+                // rename-at-close we still find the highest NNN on
+                // subsequent boots.
+                int iFileNum = -1;
+                if (strncasecmp("log_", name, 4) == 0)
                     {
-                    int iFileNum = atoi(&suFileList[iIdx].szFileName[4]);
-                    iMaxFileNum = iFileNum > iMaxFileNum ? iFileNum : iMaxFileNum;
-                    } // end if is a log file
+                    iFileNum = atoi(&name[4]);
+                    }
+                else if (strlen(name) >= 15 &&
+                         name[4] == '-' && name[7] == '-' && name[10] == '_')
+                    {
+                    // Renamed form: "YYYY-MM-DD_NNN.csv" — NNN starts at 11.
+                    iFileNum = atoi(&name[11]);
+                    }
+                if (iFileNum > iMaxFileNum) iMaxFileNum = iFileNum;
                 } // end for all files
             }
         else
             g_Log.print(MsgLog::EnDisk, MsgLog::EnError, "LOGSENSOR FileList() fail");
 
         snprintf(szSensorLogFilename, sizeof(szSensorLogFilename), "log_%03d.csv", iMaxFileNum + 1);
+        snprintf(m_szBaseName, sizeof(m_szBaseName), "log_%03d", iMaxFileNum + 1);
 
         g_Log.print("Sensor log file:"); g_Log.println(szSensorLogFilename);
 
@@ -280,12 +296,35 @@ void LogSensor::Open()
             m_hLogFile.write("\n", 1);
 
             m_hLogFile.sync();
+
+            // Initialise sidecar accumulator for this session.
+            onspeed::log::EfisType etype = onspeed::log::EfisType::None;
+            if (g_Config.bReadEfisData) {
+                switch (g_EfisSerial.enType) {
+                    case EfisSerialPort::EnVN300:        etype = onspeed::log::EfisType::Vn300;  break;
+                    case EfisSerialPort::EnDynonSkyview:
+                    case EfisSerialPort::EnDynonD10:     etype = onspeed::log::EfisType::Dynon;  break;
+                    case EfisSerialPort::EnGarminG5:
+                    case EfisSerialPort::EnGarminG3X:    etype = onspeed::log::EfisType::Garmin; break;
+                    case EfisSerialPort::EnMglBinary:    etype = onspeed::log::EfisType::Mgl;    break;
+                    case EfisSerialPort::EnNone:
+                    default:                             etype = onspeed::log::EfisType::None;   break;
+                }
+            }
+            m_metaBuilder.Begin(BuildInfo::version,
+                                BuildInfo::gitShortSha,
+                                onspeed::proto::log_csv::kFormatVersion,
+                                etype);
         } // end if file open OK
 
         else
         {
             g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "SensorFile opening error. Logging disabled.");
             g_Config.bSdLogging = false;
+            // Clear base name so ActiveBaseName() doesn't advertise a
+            // session that never really started. Otherwise the web UI
+            // would block deletion of a nonexistent "log_NNN.csv".
+            m_szBaseName[0] = '\0';
         }
     } // end if sensor data and SD disk available
 
@@ -306,6 +345,92 @@ void LogSensor::Close()
 {
     FlushStagingBufferLocked();
     m_hLogFile.close();
+
+    // Nothing to serialise if we never opened a file in this session.
+    if (m_szBaseName[0] == '\0') return;
+
+    onspeed::log::LogMeta meta = m_metaBuilder.Finalize();
+
+    // Serialise sidecar.
+    char buf[512];
+    size_t n = onspeed::log::WriteMetaFile(meta, buf, sizeof(buf));
+    if (n > 0) {
+        char metaPath[32];
+        snprintf(metaPath, sizeof(metaPath), "%s.meta", m_szBaseName);
+        FsFile f = g_SdFileSys.open(metaPath, O_RDWR | O_CREAT | O_TRUNC);
+        if (f.isOpen()) {
+            f.write(buf, n);
+            f.sync();
+            f.close();
+        } else {
+            g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                          "Sidecar meta open failed");
+        }
+    } else {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                      "Sidecar meta serialize failed");
+    }
+
+    // Optional rename: only when we captured an actual ISO-8601 UTC date
+    // (format "YYYY-MM-DDTHH:MM:SSZ", at least 11 chars — we only use the
+    // first 10 for the filename prefix). The VN-300 serial parser currently
+    // emits only "H:M:S" without date, so this condition is false in that
+    // case and we skip the rename — leaving behind a well-named
+    // log_NNN.{csv,meta} pair. If the parser is extended later to include
+    // date (or some other source produces full UTC), this path activates
+    // automatically. We explicitly reject ':'-containing prefixes here
+    // because they would produce filenames illegal on FAT / Windows hosts.
+    auto isIsoDatePrefix = [](const char* s) -> bool {
+        if (strlen(s) < 11) return false;
+        if (s[4] != '-' || s[7] != '-' || s[10] != 'T') return false;
+        for (int i = 0; i < 10; i++) {
+            if (i == 4 || i == 7) continue;
+            if (s[i] < '0' || s[i] > '9') return false;
+        }
+        return true;
+    };
+
+    if (isIsoDatePrefix(meta.utcStart)) {
+        char datePrefix[11];
+        memcpy(datePrefix, meta.utcStart, 10);
+        datePrefix[10] = '\0';
+
+        // Extract "NNN" from m_szBaseName which is "log_NNN".
+        const char* nnn = m_szBaseName + 4;   // skip "log_"
+
+        char newCsvName[32];
+        char newMetaName[32];
+        snprintf(newCsvName,  sizeof(newCsvName),  "%s_%s.csv",  datePrefix, nnn);
+        snprintf(newMetaName, sizeof(newMetaName), "%s_%s.meta", datePrefix, nnn);
+
+        char oldCsvName[32];
+        char oldMetaName[32];
+        snprintf(oldCsvName,  sizeof(oldCsvName),  "%s.csv",  m_szBaseName);
+        snprintf(oldMetaName, sizeof(oldMetaName), "%s.meta", m_szBaseName);
+
+        // Rename the .meta first — it's smaller and fails earlier on
+        // disk-full or name collisions, so the .csv stays at its old name
+        // if the meta rename can't succeed (rather than leaving an
+        // orphaned pair). Collision check still covers both up front.
+        if (!g_SdFileSys.exists(newCsvName) && !g_SdFileSys.exists(newMetaName)) {
+            bool okMeta = g_SdFileSys.rename(oldMetaName, newMetaName);
+            if (okMeta) {
+                bool okCsv = g_SdFileSys.rename(oldCsvName, newCsvName);
+                if (!okCsv) {
+                    // Csv rename failed; try to roll back the meta rename
+                    // so we don't leave an orphaned pair.
+                    g_SdFileSys.rename(newMetaName, oldMetaName);
+                    g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                                  "Log csv rename failed; meta rolled back");
+                }
+            } else {
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                              "Log meta rename failed; skipping csv rename");
+            }
+        }
+    }
+
+    m_szBaseName[0] = '\0';
 }
 
 // ----------------------------------------------------------------------------
@@ -433,6 +558,21 @@ void LogSensor::Write()
     row.altitudeFt     = m2ft(g_AHRS.KalmanAlt);
     row.derivedAoaDeg  = g_AHRS.DerivedAOA;
     row.coeffP         = g_fCoeffP;
+
+    // Sidecar accumulator: feed time-of-day + UTC if available.
+    {
+        const char* hmsOrNull = nullptr;
+        const char* utcOrNull = nullptr;
+        if (g_Config.bReadEfisData) {
+            if (g_EfisSerial.suEfis.szTime[0] != '\0')
+                hmsOrNull = g_EfisSerial.suEfis.szTime;
+            if (g_EfisSerial.enType == EfisSerialPort::EnVN300 &&
+                g_EfisSerial.suVN300.szTimeUTC[0] != '\0' &&
+                g_EfisSerial.suVN300.GPSFix > 0)
+                utcOrNull = g_EfisSerial.suVN300.szTimeUTC;
+        }
+        m_metaBuilder.OnRow(row, hmsOrNull, utcOrNull);
+    }
 
     // --- Format the row into the log line buffer ---
     size_t lineLen = onspeed::proto::log_csv::FormatRow(row, szLogLine, sizeof(szLogLine));

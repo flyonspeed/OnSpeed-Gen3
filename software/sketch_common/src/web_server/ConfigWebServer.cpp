@@ -6,7 +6,13 @@
 
 // OnSpeed Wifi - Wifi file server, config manager and debug display for ONSPEED Gen 2 v2,v3 boxes.
 
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <vector>
+
+#include <log/LogMeta.h>
+#include <log/LogMetaFile.h>
 
 #include <Arduino.h>
 #include <buildinfo.h>
@@ -108,6 +114,7 @@ void HandleCalWizard();
 void HandleFormat();
 void HandleLogs();
 void HandleDelete();
+void HandleDeleteBulk();
 void HandleDownload();
 void HandleWifiReflash();
 void HandleUpgrade();
@@ -133,7 +140,12 @@ void HandleWifiSettings();
 String sFormatBytes(size_t bytes);
 
 // Reject filenames that contain path-traversal sequences, slashes, or
-// characters outside the expected set for SD-card log files.
+// characters outside the expected set for SD-card files. Used by
+// /download, /delete, /delete-bulk. Does NOT restrict by extension —
+// the /logs page shows all SD-card files (logs + config backups +
+// boot_log.txt + whatever the user puts there), so all of them need
+// to be downloadable and deletable. Security boundary is the character
+// allow-list and the .. check, which together prevent path traversal.
 static bool IsSafeLogFilename(const String& s)
     {
     if (s.length() == 0 || s.length() > 32) return false;
@@ -145,12 +157,88 @@ static bool IsSafeLogFilename(const String& s)
         char c = s.charAt(i);
         if (!(isalnum((unsigned char)c) || c == '_' || c == '.' || c == '-')) return false;
         }
-    // Only allow log file extensions, not config files (.cfg) or other
-    // sensitive data. Config backup/restore has its own dedicated endpoints.
-    if (!s.endsWith(".csv") && !s.endsWith(".CSV") &&
-        !s.endsWith(".log") && !s.endsWith(".LOG"))
-        return false;
     return true;
+    }
+
+// Returns true if `sFilename` is the currently-active log file (the CSV
+// that LogSensor has open for writing). Deleting it would orphan the
+// write handle and silently lose data, so delete handlers skip it.
+static bool IsActiveLogFile(const String& sFilename)
+    {
+    const char* szActiveBase = g_LogSensor.ActiveBaseName();
+    if (!szActiveBase || szActiveBase[0] == '\0') return false;
+    String sActive = String(szActiveBase) + ".csv";
+    return sFilename.equalsIgnoreCase(sActive);
+    }
+
+// Read the sidecar for a given CSV filename and parse into meta.
+// Returns true on success (file existed and parsed). `sCsvName` should
+// be the full ".csv" filename; the sidecar is derived by swapping the
+// extension to ".meta". Caller should hold xWriteMutex.
+static bool TryReadLogMeta(const char* sCsvName, onspeed::log::LogMeta* out)
+    {
+    // Derive .meta filename by replacing the final extension.
+    char sMeta[32];
+    size_t len = strlen(sCsvName);
+    if (len < 5 || len > 27) return false;   // need room for rewriting tail to ".meta"
+    memcpy(sMeta, sCsvName, len);
+    sMeta[len] = '\0';
+    const char* dot = strrchr(sMeta, '.');
+    if (!dot) return false;
+    size_t dotIdx = (size_t)(dot - sMeta);
+    snprintf(sMeta + dotIdx, sizeof(sMeta) - dotIdx, ".meta");
+
+    FsFile f = g_SdFileSys.open(sMeta, O_RDONLY);
+    if (!f.isOpen()) return false;
+
+    char buf[512];
+    int n = f.read(buf, sizeof(buf) - 1);
+    f.close();
+    if (n <= 0) return false;
+    buf[n] = '\0';
+    return onspeed::log::ParseMetaFile(std::string_view(buf, (size_t)n), out);
+    }
+
+// Format a duration in ms as "1h 30m 42s" / "42s" / "12m 3s". Writes
+// into out[16].
+static void FormatDurationMs(uint32_t ms, char out[16])
+    {
+    uint32_t total_s = ms / 1000u;
+    uint32_t h = total_s / 3600u;
+    uint32_t m = (total_s % 3600u) / 60u;
+    uint32_t s = total_s % 60u;
+    if (h > 0)
+        snprintf(out, 16, "%luh %lum %lus",
+                 (unsigned long)h, (unsigned long)m, (unsigned long)s);
+    else if (m > 0)
+        snprintf(out, 16, "%lum %lus",
+                 (unsigned long)m, (unsigned long)s);
+    else
+        snprintf(out, 16, "%lus", (unsigned long)s);
+    }
+
+// Format the "Start" column. Prefers UTC date+time, falls back to
+// time-of-day, falls back to an em-dash. Writes into out[32].
+static void FormatStart(const onspeed::log::LogMeta& meta, char out[32])
+    {
+    if (meta.utcStart[0] != '\0')
+        {
+        // "YYYY-MM-DDTHH:MM:SSZ" -> "YYYY-MM-DD HH:MM".
+        char y[5], mo[3], d[3], hh[3], mm[3];
+        if (sscanf(meta.utcStart, "%4s-%2s-%2sT%2s:%2s",
+                   y, mo, d, hh, mm) == 5)
+            {
+            snprintf(out, 32, "%s-%s-%s %s:%s", y, mo, d, hh, mm);
+            return;
+            }
+        }
+    if (meta.timeOfDayStart[0] != '\0')
+        {
+        // "HH:MM:SS" -> "HH:MM" (drop seconds for list view).
+        snprintf(out, 32, "%.5s", meta.timeOfDayStart);
+        return;
+        }
+    snprintf(out, 32, "&mdash;");
     }
 
 // Maximum number of flap positions accepted from a config-save POST.
@@ -224,6 +312,7 @@ void CfgWebServerInit()
     CfgServer.on("/format",          HTTP_GET,  HandleFormat);
     CfgServer.on("/logs",            HTTP_GET,  HandleLogs);
     CfgServer.on("/delete",          HTTP_GET,  HandleDelete);
+    CfgServer.on("/delete-bulk",     HTTP_POST, HandleDeleteBulk);
     CfgServer.on("/download",        HTTP_GET,  HandleDownload);
 
 //    CfgServer.on("/wifireflash",     HTTP_GET,  HandleWifiReflash);
@@ -3021,68 +3110,273 @@ void HandleLogs()
     {
     SdFileSys::SuFileInfoList   suFileList;
     bool        bListStatus = false;
-    String      sFileLine = "";
     String      sPage;
 
     UpdateHeader();
-    sPage.reserve(pageHeader.length() + 8192);
+    sPage.reserve(pageHeader.length() + 16384);
     sPage += pageHeader;
-//    sPage += "<p>Available log files:</p>\n";
     sPage += "<br>\n";
 
-    // Iterate over log file names here
-    {
-        // Pause logging while listing files to reduce SD contention.
-        struct PauseGuard
-            {
-            bool bPrevPause;
-            PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
-            ~PauseGuard() { g_bPause = bPrevPause; }
-            } pauseGuard;
+    // Pause logging while listing files + reading sidecars to reduce SD contention.
+    struct PauseGuard
+        {
+        bool bPrevPause;
+        PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
+        ~PauseGuard() { g_bPause = bPrevPause; }
+        } pauseGuard;
 
-        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+    struct Entry
+        {
+        String   sName;
+        uint64_t uSize = 0;
+        bool     bHaveMeta = false;
+        onspeed::log::LogMeta meta;
+        };
+    std::vector<Entry> entries;
+    entries.reserve(32);
+
+    uint64_t uTotalSize = 0;
+
+    // "Other files" that aren't logs: config backups, boot_log.txt, anything
+    // the user dropped on the card. Rendered in a second, simpler table.
+    struct OtherFile
+        {
+        String   sName;
+        uint64_t uSize = 0;
+        };
+    std::vector<OtherFile> others;
+    others.reserve(8);
+    uint64_t uOtherTotal = 0;
+
+    // Capture the active log's base name up front so the sActiveCsvName
+    // string below is computed while we hold xWriteMutex — LogSensor's
+    // m_szBaseName is mutated in Open()/Close() under that same mutex,
+    // so reading it outside the lock would be a data race.
+    String sActiveCsvName;
+
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+        {
+        const char* szActiveBase = g_LogSensor.ActiveBaseName();
+        if (szActiveBase && szActiveBase[0] != '\0')
             {
-            bListStatus = g_SdFileSys.FileList(&suFileList);
-            xSemaphoreGive(xWriteMutex);
+            sActiveCsvName  = szActiveBase;
+            sActiveCsvName += ".csv";
             }
-        else
+
+        bListStatus = g_SdFileSys.FileList(&suFileList);
+        if (bListStatus)
             {
-            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "LOGS - SD busy (xWriteMutex)");
+            // First pass: collect the set of .meta filenames present. This
+            // avoids N fruitless open() attempts on logs without sidecars
+            // (old logs, logs from before this feature, power-cut sessions).
+            // A failed open() on FAT triggers a full directory walk, which
+            // with many logs easily blocks the mutex long enough for the
+            // HTTP client to time out.
+            std::vector<String> metaNames;
+            metaNames.reserve(suFileList.size());
+            for (size_t i = 0; i < suFileList.size(); i++)
+                {
+                const char* name = suFileList[i].szFileName;
+                size_t nlen = strlen(name);
+                if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
+                    metaNames.emplace_back(name);
+                }
+
+            // Second pass: split into logs vs other files.
+            for (size_t i = 0; i < suFileList.size(); i++)
+                {
+                const char* name = suFileList[i].szFileName;
+                size_t nlen = strlen(name);
+
+                // .meta sidecars are an implementation detail of the logs
+                // table — never shown in either section.
+                if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
+                    continue;
+
+                bool bIsLog = (nlen >= 4 &&
+                               (strcasecmp(name + nlen - 4, ".csv") == 0 ||
+                                strcasecmp(name + nlen - 4, ".log") == 0));
+
+                if (bIsLog)
+                    {
+                    Entry e;
+                    e.sName = name;
+                    e.uSize = suFileList[i].uFileSize;
+
+                    // Derive the expected .meta name. Only attempt the read
+                    // if that filename is in metaNames (no failed-open hit).
+                    String sExpectedMeta = e.sName.substring(0, e.sName.length() - 4) + ".meta";
+                    bool bMetaExists = false;
+                    for (const String& mn : metaNames)
+                        if (mn.equalsIgnoreCase(sExpectedMeta)) { bMetaExists = true; break; }
+                    if (bMetaExists)
+                        e.bHaveMeta = TryReadLogMeta(name, &e.meta);
+
+                    uTotalSize += e.uSize;
+                    entries.push_back(std::move(e));
+                    }
+                else
+                    {
+                    OtherFile of;
+                    of.sName = name;
+                    of.uSize = suFileList[i].uFileSize;
+                    uOtherTotal += of.uSize;
+                    others.push_back(std::move(of));
+                    }
+                }
             }
-    }
-
-    sPage += "<table>\n";
-    if (bListStatus == true)
-        for (int iIdx=0; iIdx<suFileList.size(); iIdx++)
-            {
-            sFileLine  = "<tr><td><a href=\"/download?file=";
-            sFileLine += suFileList[iIdx].szFileName;
-            sFileLine += "\">";
-            sFileLine += suFileList[iIdx].szFileName;
-            sFileLine += "</a>";
-            sFileLine += "</td>";
-
-            sFileLine += "<td style=\"padding-left: 20px;text-align: right;\">";
-            sFileLine += sFormatBytes(suFileList[iIdx].uFileSize);
-            sFileLine += "</td>";
-
-            sFileLine += "<td>&nbsp;&nbsp;&nbsp;<a href=\"/delete?file=";
-            sFileLine += suFileList[iIdx].szFileName;
-            sFileLine += "\">";
-            sFileLine += szHtmlTrashcan;
-            sFileLine += "</a>";
-            sFileLine += "</td>";
-
-            sFileLine += "</tr>\n";
-
-            sPage     += sFileLine;
-//            fileCount++;
-            } // end for all files in the list
+        xSemaphoreGive(xWriteMutex);
+        }
     else
         {
-        sPage += "<tr><td><br><br><span style=\"color:red\">SD card busy or not available.</span></td></tr>\n";
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning,
+                      "LOGS - SD busy (xWriteMutex)");
+        }
+
+    // --- Logs section ---
+
+    sPage += "<h2 style=\"margin-left:10px\">Logs</h2>\n";
+        {
+        char summary[64];
+        snprintf(summary, sizeof(summary),
+                 "<p style=\"margin-left:10px\">%u logs, %s total</p>\n",
+                 (unsigned)entries.size(),
+                 sFormatBytes(uTotalSize).c_str());
+        sPage += summary;
+        }
+
+    sPage += "<form id=\"logs-form\" method=\"POST\" action=\"/delete-bulk\">\n";
+    sPage += "<table>\n";
+    // The header-row checkbox and per-row checkboxes stay in sync.
+    //   - Click the header  -> all rows take the header's state.
+    //   - Change any row    -> header.checked == (every row checked).
+    //                          header.indeterminate == some but not all.
+    // Pure server-rendered otherwise; this small amount of inline script is
+    // worth it so "select all" behaves the way people expect.
+    sPage += "<tr>"
+             "<th><input type=\"checkbox\" id=\"cb-all\" title=\"Select all\" "
+             "onclick=\"var cbs=this.form.querySelectorAll('input[name=&quot;f&quot;]');"
+             "for(var i=0;i&lt;cbs.length;i++)cbs[i].checked=this.checked;"
+             "this.indeterminate=false;\"></th>"
+             "<th style=\"text-align:left\">Name</th>"
+             "<th style=\"text-align:left\">Start</th>"
+             "<th style=\"text-align:left\">Duration</th>"
+             "<th style=\"text-align:right\">Max IAS</th>"
+             "<th style=\"text-align:right\">Max Alt</th>"
+             "<th style=\"text-align:right\">Size</th>"
+             "<th></th>"
+             "</tr>\n";
+
+    // sActiveCsvName was captured above while holding xWriteMutex — if
+    // LogSensor has a file open it holds the form "log_NNN.csv" (the
+    // in-progress log). Rows whose name matches are flagged active: no
+    // checkbox, no trash icon, an "(active)" label. Deleting the file
+    // while it's open would orphan the write handle, silently lose data,
+    // and leave zombie sidecars behind.
+
+    if (bListStatus)
+        {
+        for (const Entry& e : entries)
+            {
+            char durStr[16];
+            char startStr[32];
+            char iasStr[16], altStr[16];
+            if (e.bHaveMeta)
+                {
+                FormatDurationMs(e.meta.durationMs, durStr);
+                FormatStart(e.meta, startStr);
+                snprintf(iasStr, sizeof(iasStr), "%.0f kt", (double)e.meta.maxIasKt);
+                snprintf(altStr, sizeof(altStr), "%.0f ft", (double)e.meta.maxPaltFt);
+                }
+            else
+                {
+                snprintf(durStr,   sizeof(durStr),   "&mdash;");
+                snprintf(startStr, sizeof(startStr), "&mdash;");
+                snprintf(iasStr,   sizeof(iasStr),   "&mdash;");
+                snprintf(altStr,   sizeof(altStr),   "&mdash;");
+                }
+
+            bool bIsActive = (sActiveCsvName.length() > 0) &&
+                             e.sName.equalsIgnoreCase(sActiveCsvName);
+
+            String sLine;
+            sLine.reserve(512);
+            sLine = "<tr>";
+            if (bIsActive)
+                sLine += "<td></td>";
+            else
+                {
+                // onchange syncs the header checkbox: checked if every row
+                // is checked, indeterminate if some rows are, else empty.
+                sLine += "<td><input type=\"checkbox\" name=\"f\" value=\"";
+                sLine += e.sName;
+                sLine += "\" onchange=\"var cbs=this.form.querySelectorAll('input[name=&quot;f&quot;]'),"
+                         "t=cbs.length,c=0;"
+                         "for(var i=0;i&lt;t;i++)if(cbs[i].checked)c++;"
+                         "var h=document.getElementById('cb-all');"
+                         "h.checked=(c==t);h.indeterminate=(c&gt;0&amp;&amp;c&lt;t);\"></td>";
+                }
+            sLine += "<td><a href=\"/download?file="; sLine += e.sName; sLine += "\">";
+            sLine += e.sName; sLine += "</a>";
+            if (bIsActive)
+                sLine += " <span style=\"color:#888\">(active)</span>";
+            sLine += "</td>";
+            sLine += "<td>"; sLine += startStr; sLine += "</td>";
+            sLine += "<td>"; sLine += durStr;   sLine += "</td>";
+            sLine += "<td style=\"text-align:right\">"; sLine += iasStr; sLine += "</td>";
+            sLine += "<td style=\"text-align:right\">"; sLine += altStr; sLine += "</td>";
+            sLine += "<td style=\"text-align:right\">"; sLine += sFormatBytes(e.uSize); sLine += "</td>";
+            if (bIsActive)
+                sLine += "<td></td>";
+            else
+                {
+                sLine += "<td>&nbsp;&nbsp;<a href=\"/delete?file="; sLine += e.sName; sLine += "\">";
+                sLine += szHtmlTrashcan; sLine += "</a></td>";
+                }
+            sLine += "</tr>\n";
+            sPage += sLine;
+            }
+        }
+    else
+        {
+        sPage += "<tr><td colspan=\"8\"><br><br>"
+                 "<span style=\"color:red\">SD card busy or not available.</span>"
+                 "</td></tr>\n";
         }
     sPage += "</table>\n";
+    sPage += "<p style=\"margin-left:10px\"><button type=\"submit\">Delete selected</button></p>\n";
+    sPage += "</form>\n";
+
+    // --- Other files section ---
+
+    if (!others.empty())
+        {
+        sPage += "<br><h2 style=\"margin-left:10px\">Other files</h2>\n";
+            {
+            char summary[64];
+            snprintf(summary, sizeof(summary),
+                     "<p style=\"margin-left:10px\">%u files, %s total</p>\n",
+                     (unsigned)others.size(),
+                     sFormatBytes(uOtherTotal).c_str());
+            sPage += summary;
+            }
+        sPage += "<table>\n";
+        for (const OtherFile& of : others)
+            {
+            String sLine;
+            sLine.reserve(256);
+            sLine  = "<tr>";
+            sLine += "<td><a href=\"/download?file="; sLine += of.sName; sLine += "\">";
+            sLine += of.sName; sLine += "</a></td>";
+            sLine += "<td style=\"padding-left:20px;text-align:right\">";
+            sLine += sFormatBytes(of.uSize); sLine += "</td>";
+            sLine += "<td>&nbsp;&nbsp;<a href=\"/delete?file="; sLine += of.sName; sLine += "\">";
+            sLine += szHtmlTrashcan; sLine += "</a></td>";
+            sLine += "</tr>\n";
+            sPage += sLine;
+            }
+        sPage += "</table>\n";
+        }
 
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
@@ -3111,7 +3405,10 @@ void HandleDelete()
         return;
         }
 
-    // File delete not yet confirmed
+    // File delete not yet confirmed. We show the confirmation page even
+    // if this file is currently active — the pilot might navigate away.
+    // The active-file guard fires at the confirmed-delete step below,
+    // under the same mutex as the remove, so the check+remove is atomic.
     if (CfgServer.arg("confirm").indexOf("yes") < 0)
         {
         String sPage;
@@ -3134,17 +3431,165 @@ void HandleDelete()
     // File delete has been confirmed
     else
         {
+        bool bWasActive = false;
         if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
             {
-//g_Log.printf("Delete %s\n", sFilename.c_str());
-            g_SdFileSys.remove(sFilename.c_str());
+            // Check active-file guard under the same mutex as the remove,
+            // so check+skip is atomic relative to LogSensor::Open/Close.
+            if (IsActiveLogFile(sFilename))
+                {
+                bWasActive = true;
+                }
+            else
+                {
+                g_SdFileSys.remove(sFilename.c_str());
+                // Also remove matching sidecar if it exists. Best-effort:
+                // absent sidecar is fine.
+                int iDot = sFilename.lastIndexOf('.');
+                if (iDot > 0)
+                    {
+                    String sMeta = sFilename.substring(0, iDot) + ".meta";
+                    if (g_SdFileSys.exists(sMeta.c_str()))
+                        g_SdFileSys.remove(sMeta.c_str());
+                    }
+                }
             xSemaphoreGive(xWriteMutex);
+            }
+
+        if (bWasActive)
+            {
+            CfgServer.send(409, "text/plain",
+                           "Cannot delete the log currently being written.");
+            return;
             }
 
         CfgServer.sendHeader("Location", "/logs");
         CfgServer.send(301, "text/html", "");
         }
 
+    }
+
+// ----------------------------------------------------------------------------
+
+void HandleDeleteBulk()
+    {
+    // Gather selected filenames. The form produced by HandleLogs submits
+    // every checked box as a separate "f" argument. We only do the safe-
+    // filename filter here; the active-file check is deferred to the delete
+    // loop where it can be performed under xWriteMutex atomically with
+    // the remove.
+    std::vector<String> selected;
+    for (int i = 0; i < CfgServer.args(); i++)
+        {
+        if (CfgServer.argName(i) == "f")
+            {
+            String v = CfgServer.arg(i);
+            if (IsSafeLogFilename(v))
+                selected.push_back(v);
+            }
+        }
+
+    if (selected.empty())
+        {
+        CfgServer.sendHeader("Location", "/logs");
+        CfgServer.send(301, "text/html", "");
+        return;
+        }
+
+    // Not yet confirmed: show a confirmation page listing selected files.
+    // Use a <table> for the filename list — the site's global CSS collapses
+    // <ul> items into a single horizontal bar which smashes the filenames
+    // together and is unreadable.
+    if (CfgServer.arg("confirm").indexOf("yes") < 0)
+        {
+        String sPage;
+        UpdateHeader();
+        sPage.reserve(pageHeader.length() + 2048);
+        sPage += pageHeader;
+        sPage += "<br><br><p style=\"color:red;margin-left:10px\">Delete these ";
+        sPage += String((unsigned)selected.size());
+        sPage += " file(s)?</p>\n";
+        sPage += "<form method=\"POST\" action=\"/delete-bulk\">\n";
+        sPage += "<input type=\"hidden\" name=\"confirm\" value=\"yes\">\n";
+        sPage += "<table style=\"margin-left:10px\">\n";
+        for (const String& f : selected)
+            {
+            sPage += "<tr><td>";
+            sPage += f;
+            sPage += "</td></tr>\n";
+            sPage += "<input type=\"hidden\" name=\"f\" value=\"";
+            sPage += f;
+            sPage += "\">\n";
+            }
+        sPage += "</table>\n";
+        sPage += "<br><p style=\"margin-left:10px\">";
+        sPage += "<button type=\"submit\" class=\"button\">Delete</button>\n";
+        sPage += "&nbsp;&nbsp;<a href=\"/logs\" class=\"button\">Cancel</a>\n";
+        sPage += "</p></form>\n";
+        sPage += pageFooter;
+        CfgServer.send(200, "text/html", sPage);
+        return;
+        }
+
+    // Confirmed: delete each file + its matching sidecar.
+    //
+    // Large batches (user reported 164 files) used to:
+    //   - hold xWriteMutex for 30-60+ seconds, blocking the logger writer,
+    //   - starve the task watchdog on core 1,
+    //   - cause a soft-reset, which opened a fresh log on restart.
+    //
+    // Mitigations:
+    //   1. Pause the logger so it stops queueing rows during the batch —
+    //      same pattern HandleLogs uses.
+    //   2. Enumerate the existing .meta files ONCE, up front, while holding
+    //      the mutex. This avoids N fruitless exists() calls in the loop;
+    //      each exists() is itself a directory walk on FAT.
+    //   3. Release and re-take xWriteMutex between files and yield via
+    //      vTaskDelay(1) so the logger drain task can run, the web server
+    //      can service other clients, and the watchdog stays happy.
+    struct PauseGuard
+        {
+        bool bPrevPause;
+        PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
+        ~PauseGuard() { g_bPause = bPrevPause; }
+        } pauseGuard;
+
+    // Delete each file one at a time, yielding between iterations. For
+    // each csv we attempt to remove the matching .meta unconditionally —
+    // SdFat's remove() on a missing file is a near no-op (single directory
+    // probe) and we avoid any snapshot-staleness concerns if a new sidecar
+    // lands between enumeration and delete.
+    //
+    // The active-file guard is inside the mutex so the check and remove
+    // are atomic w.r.t. LogSensor::Open/Close. If a log that was inactive
+    // at form-submit time has become active (pilot rotated logs between
+    // confirmation and execution — very narrow window), skip that file
+    // silently rather than deleting a live log.
+    for (const String& f : selected)
+        {
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+            {
+            if (!IsActiveLogFile(f))
+                {
+                g_SdFileSys.remove(f.c_str());
+
+                int iDot = f.lastIndexOf('.');
+                if (iDot > 0)
+                    {
+                    String sMeta = f.substring(0, iDot) + ".meta";
+                    // Ignore return value — absent sidecar is fine.
+                    g_SdFileSys.remove(sMeta.c_str());
+                    }
+                }
+            xSemaphoreGive(xWriteMutex);
+            }
+        // Yield so the logger drain task, web server, and watchdog all
+        // get CPU between deletes. One tick is enough.
+        vTaskDelay(1);
+        }
+
+    CfgServer.sendHeader("Location", "/logs");
+    CfgServer.send(301, "text/html", "");
     }
 
 // ----------------------------------------------------------------------------

@@ -219,6 +219,13 @@ bool SdFileSys::remove(const char * szFilename)
     return uSD_FAT.remove(szFilename);
     }
 
+// ----------------------------------------------------------------------------
+
+bool SdFileSys::rename(const char* srcName, const char* dstName)
+    {
+    return uSD_FAT.rename(srcName, dstName);
+    }
+
 // ============================================================================
 
 // Comparison function sorting directory file lists

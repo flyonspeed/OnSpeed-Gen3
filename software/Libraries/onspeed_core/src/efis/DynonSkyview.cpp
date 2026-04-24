@@ -8,6 +8,7 @@
 
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -48,6 +49,33 @@ static int parseHexCRC(const char* buf, int pos)
 {
     char szCRC[3] = { buf[pos], buf[pos + 1], '\0' };
     return static_cast<int>(strtol(szCRC, nullptr, 16));
+}
+
+// Parse Dynon !1 System Time bytes buf[3..8] ("HHMMSS" — the FF fraction
+// at buf[9..10] is ignored). Writes an 8-char "HH:MM:SS" NUL-terminated
+// string into `out[9]`. Writes an empty string if any dash is present in
+// the 6 HHMMSS bytes or if H/M/S are out of range.
+static void parseSystemTime(const char* buf, char out[9])
+{
+    out[0] = '\0';
+
+    // Any dash in the HHMMSS portion = GPS has never locked. Treat as absent.
+    for (int i = 3; i <= 8; i++)
+        if (buf[i] == '-')
+            return;
+
+    // Parse two-digit fields. Returns -1 if either char isn't 0-9.
+    auto twoDigit = [](const char* p) -> int {
+        if (p[0] < '0' || p[0] > '9' || p[1] < '0' || p[1] > '9') return -1;
+        return (p[0] - '0') * 10 + (p[1] - '0');
+    };
+    int hh = twoDigit(buf + 3);
+    int mm = twoDigit(buf + 5);
+    int ss = twoDigit(buf + 7);
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59)
+        return;
+
+    snprintf(out, 9, "%02d:%02d:%02d", hh, mm, ss);
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +192,7 @@ bool DynonSkyviewParser::DecodeAdahrs(EfisFrame& out)
     out.tasKt      = parseFieldFloat(buf_, 52, 4, "XXXX",   kNaN, 10.0f);
     out.oatCelsius = parseFieldFloat(buf_, 49, 3, "XXX",    kNaN, 1.0f);
     out.source     = EfisSource::Dynon;
+    parseSystemTime(buf_, out.timeOfDayHms);
     return true;
 }
 

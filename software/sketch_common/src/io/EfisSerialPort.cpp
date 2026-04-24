@@ -157,6 +157,17 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
     if (std::isfinite(frame.tasKt))      suEfis.TAS         = frame.tasKt;
     if (std::isfinite(frame.oatCelsius)) suEfis.OAT         = frame.oatCelsius;
 
+    // Copy time-of-day string ONLY when this frame actually carries one —
+    // matches the "hold last value" pattern used for every numeric field
+    // above. The SkyView alternates ADAHRS (has time) and EMS (no time)
+    // frames, so unconditional copy would clobber the value on every
+    // other frame.
+    if (frame.timeOfDayHms[0] != '\0')
+        {
+        strncpy(suEfis.szTime, frame.timeOfDayHms, sizeof(suEfis.szTime) - 1);
+        suEfis.szTime[sizeof(suEfis.szTime) - 1] = '\0';
+        }
+
     // VN-300: also mirror valid attitude into suVN300 so other consumers
     // (display, log, HUD) can read a consistent attitude regardless of
     // which path populated it.
