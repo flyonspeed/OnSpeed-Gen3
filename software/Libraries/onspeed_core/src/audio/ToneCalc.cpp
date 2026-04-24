@@ -6,13 +6,26 @@ namespace onspeed {
 
 ToneResult calculateTone(float fAOA, const ToneThresholds& th)
 {
-    // Uncalibrated gate: if the stall-warning threshold is at or
-    // below zero, treat the config as unconfigured and stay silent.
-    // Without this, a factory/reset config with all-zero setpoints
-    // would trigger `AOA >= 0` → a constant stall warning as soon as
-    // the aircraft crossed the mute-under-IAS threshold. Silence is
-    // the safer default when the stall AOA isn't known.
-    if (th.fSTALLWARNAOA <= 0.0f)
+    // Uncalibrated / partially-calibrated gate: every threshold must
+    // be positive before this function produces any tone.  Each
+    // threshold is a "calibration unit" — any zero means that piece
+    // of the calibration isn't configured yet.
+    //
+    // Without this gate:
+    //   * All-zero config: `AOA >= 0` trivially true → constant
+    //     stall warning as soon as IAS crosses the mute threshold.
+    //   * Partial config (only StallWarn set, others 0):
+    //     `AOA > fONSPEEDSLOWAOA (0)` → spurious pulsed high tone
+    //     for any positive AOA across the entire flight envelope.
+    //
+    // Defense-in-depth against the UI's SetpointOrderError() check:
+    // the web save page already warns on misordered setpoints, but
+    // we don't trust that a config reaching the audio path has been
+    // validated.  Silence is safer than wrong tones in the air.
+    if (th.fLDMAXAOA       <= 0.0f ||
+        th.fONSPEEDFASTAOA <= 0.0f ||
+        th.fONSPEEDSLOWAOA <= 0.0f ||
+        th.fSTALLWARNAOA   <= 0.0f)
     {
         return { EnToneType::None, 0.0f };
     }

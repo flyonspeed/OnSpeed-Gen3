@@ -210,16 +210,59 @@ void test_muted_uncalibrated_stays_silent_above_ias_threshold()
     TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
 }
 
-void test_nonzero_stallwarn_with_other_zeros_still_gates_high_tone_path()
+void test_partial_calibration_silent_at_intermediate_aoa()
 {
-    // Partial calibration: only StallWarn is set, the rest are zero.
-    // The UI should flag the order-violation, but for the audio-safety
-    // angle, a nonzero StallWarn is enough for calculateTone to
-    // produce a real stall tone when exceeded.  (No regression from
-    // the previous behavior for partially-configured states.)
+    // Partial calibration: only StallWarn is set, the rest at zero.
+    // Without a stricter gate, the fAOA > fONSPEEDSLOWAOA (0) branch
+    // would fire a pulsed high tone for any positive AOA — spurious
+    // "approaching stall" cues for a plane flying in cruise.  The
+    // gate treats any zeroed threshold as "uncalibrated" and stays
+    // silent.
+    ToneThresholds partial = kUncalibrated;
+    partial.fSTALLWARNAOA = 16.0f;
+    ToneResult r = calculateTone(5.0f, partial);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+}
+
+void test_partial_calibration_silent_above_stallwarn()
+{
+    // Above the configured stall-warning threshold but with other
+    // setpoints still at zero: silent, because we don't trust a
+    // half-configured calibration enough to fire a stall tone.  The
+    // user sees the SetpointOrderError warning on the config page
+    // instead.
     ToneThresholds partial = kUncalibrated;
     partial.fSTALLWARNAOA = 16.0f;
     ToneResult r = calculateTone(18.0f, partial);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+}
+
+void test_partial_calibration_missing_ldmax_only()
+{
+    // The subtle case: three of four setpoints are sensibly
+    // configured, only LDmax is still at zero.  Without the stricter
+    // gate, AOA > fONSPEEDSLOWAOA still fires correctly and
+    // AOA < fONSPEEDFASTAOA falls into the `fAOA >= fLDMAXAOA (0)`
+    // branch, producing a pulsed-low tone for any positive AOA.
+    // The gate silences this until the user fills in LDmax too.
+    ToneThresholds partial = {
+        .fLDMAXAOA       =  0.0f,   // missing
+        .fONSPEEDFASTAOA = 11.0f,
+        .fONSPEEDSLOWAOA = 14.0f,
+        .fSTALLWARNAOA   = 16.0f,
+    };
+    ToneResult r = calculateTone(5.0f, partial);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+}
+
+void test_muted_mode_fires_with_only_stallwarn_configured()
+{
+    // Muted mode is a narrower gate: it only needs a stall-warning
+    // threshold to cut through user-muted audio.  The other
+    // setpoints aren't used in this path, so a partial config with
+    // just StallWarn is enough for muted-mode stall warning to fire
+    // above the IAS threshold.
+    ToneResult r = calculateToneMuted(18.0f, 80.0f, 16.0f, 25);
     TEST_ASSERT_EQUAL(EnToneType::High, r.enTone);
 }
 
@@ -258,7 +301,10 @@ int main()
     RUN_TEST(test_uncalibrated_stall_warn_produces_no_tone_even_at_high_aoa);
     RUN_TEST(test_uncalibrated_stall_warn_produces_no_tone_at_negative_aoa);
     RUN_TEST(test_muted_uncalibrated_stays_silent_above_ias_threshold);
-    RUN_TEST(test_nonzero_stallwarn_with_other_zeros_still_gates_high_tone_path);
+    RUN_TEST(test_partial_calibration_silent_at_intermediate_aoa);
+    RUN_TEST(test_partial_calibration_silent_above_stallwarn);
+    RUN_TEST(test_partial_calibration_missing_ldmax_only);
+    RUN_TEST(test_muted_mode_fires_with_only_stallwarn_configured);
 
     return UNITY_END();
 }
