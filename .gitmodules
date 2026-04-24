@@ -13,9 +13,6 @@
 [submodule "software/Libraries/OneWire"]
 	path = software/Libraries/OneWire
 	url = git@github.com:PaulStoffregen/OneWire.git
-[submodule "software/Libraries/Arduino-Temperature-Control-Library"]
-	path = software/Libraries/Arduino-Temperature-Control-Library
-	url = git@github.com:milesburton/Arduino-Temperature-Control-Library.git
 [submodule "software/Libraries/OneButton"]
 	path = software/Libraries/OneButton
 	url = git@github.com:mathertel/OneButton.git

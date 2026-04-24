@@ -158,7 +158,6 @@ pio device monitor --port /dev/cu.usbserial-110 --baud 921600
 Libraries are provided via git submodules in `software/Libraries/`:
 
 - Adafruit_NeoPixel
-- Arduino-Temperature-Control-Library (DallasTemperature)
 - ArduinoJson
 - BasicLinearAlgebra
 - EspSoftwareSerial
