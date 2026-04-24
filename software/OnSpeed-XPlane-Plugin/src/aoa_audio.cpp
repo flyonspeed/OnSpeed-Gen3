@@ -286,14 +286,21 @@ static int AudioControlHandler(
             XPLMReloadPlugins();
             return 1;
         }
-        // Add handler for update values button
+        // Add handler for update values button. Note: each field is
+        // accepted as long as it parses to a positive float — the
+        // handler does not check that LDmax < BelowOnSpeed < OnSpeedMax
+        // < AboveOnSpeedMax. If a pilot enters values that violate
+        // that ordering, onspeed::calculateTone falls back to silence
+        // for the misordered region (deliberate fail-safe — silence is
+        // safer than wrong tones in flight). Add a UI-side ordering
+        // check here if we ever see field reports of confused pilots.
         else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonUpdateValues)) {
             XPLMDebugString("FlyOnSpeed: Updating AOA values\n");
-            
+
             // Directly read from text fields when updating
             char buffer[32];
             float value;
-            
+
             // Get Below LDMax value
             XPGetWidgetDescriptor(widgetAOABelowLDMax, buffer, sizeof(buffer));
             value = atof(buffer);
@@ -703,17 +710,25 @@ void PlayAOATone(float aoa, float /* elapsedTime */) {
                                ? TONE_HIGH_FREQ : TONE_NORMAL_FREQ;
 
     if (result.fPulseFreq == 0.0f) {
-        // Solid tone (only happens in the OnSpeed band, between
-        // fONSPEEDFASTAOA and fONSPEEDSLOWAOA — Low tone, looped).
+        // Solid tone. Today calculateTone() only returns this in the
+        // OnSpeed band (Low/400Hz looped), but we pick the buffer from
+        // result.enTone rather than hardcoding audioBufferNormal so a
+        // future core change adding a solid High variant can't silently
+        // play through the wrong carrier.
         shouldPlay = false;
-        alSourcei(audioSource, AL_BUFFER, audioBufferNormal);
+        alSourcei(audioSource, AL_BUFFER,
+                  result.enTone == onspeed::EnToneType::High
+                      ? audioBufferHigh : audioBufferNormal);
         alSourcei(audioSource, AL_LOOPING, AL_TRUE);
         ALint state;
         alGetSourcei(audioSource, AL_SOURCE_STATE, &state);
         if (state != AL_PLAYING) {
             alSourcePlay(audioSource);
         }
-        XPSetWidgetDescriptor(widgetAudioStatus, "Audio: Steady - OnSpeed");
+        XPSetWidgetDescriptor(widgetAudioStatus,
+                              result.enTone == onspeed::EnToneType::High
+                                  ? "Audio: Steady - High"
+                                  : "Audio: Steady - OnSpeed");
         return;
     }
 

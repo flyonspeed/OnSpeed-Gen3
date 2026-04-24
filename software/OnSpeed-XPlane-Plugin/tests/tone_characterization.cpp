@@ -102,8 +102,8 @@ const char* toneName(onspeed::EnToneType t) {
     return "?";
 }
 
-bool runFixture(const Fixture& f) {
-    const onspeed::ToneResult got = onspeed::calculateTone(f.aoa, kDefaultThresholds);
+bool runFixture(const Fixture& f, const onspeed::ToneThresholds& th) {
+    const onspeed::ToneResult got = onspeed::calculateTone(f.aoa, th);
     const bool toneOk = got.enTone == f.expectedTone;
     const bool ppsOk  = std::fabs(got.fPulseFreq - f.expectedPps) <= kPpsTolerance;
     if (!toneOk || !ppsOk) {
@@ -117,15 +117,50 @@ bool runFixture(const Fixture& f) {
     return true;
 }
 
+// Uncalibrated-gate fixtures: every threshold must be positive before
+// calculateTone produces any tone. With even one threshold zero, the
+// function returns {None, 0} regardless of the AOA. This pins the
+// fail-safe behavior so a future "improvement" can't accidentally
+// loosen the gate and produce phantom tones from a half-configured
+// plugin.
+const Fixture kUncalibratedFixtures[] = {
+    {"uncal: AOA in stall region", 13.0f, onspeed::EnToneType::None, 0.0f},
+    {"uncal: AOA in OnSpeed band",  8.5f, onspeed::EnToneType::None, 0.0f},
+    {"uncal: AOA below LDmax",      4.0f, onspeed::EnToneType::None, 0.0f},
+};
+
 } // namespace
 
 int main() {
     int failures = 0;
     int total = 0;
+
+    // Default-thresholds path (the calibrated case).
     for (const Fixture& f : kFixtures) {
         ++total;
-        if (!runFixture(f)) ++failures;
+        if (!runFixture(f, kDefaultThresholds)) ++failures;
     }
+
+    // Uncalibrated-gate path: zero out one threshold at a time, verify
+    // calculateTone returns None for any AOA. We test each of the four
+    // threshold positions because the gate's defense-in-depth check
+    // (ToneCalc.cpp:25-31) trips on any non-positive value.
+    const onspeed::ToneThresholds zeroLDMax{
+        0.0f, kDefaultBelowOnSpeed, kDefaultOnSpeedMax, kDefaultStallWarn};
+    const onspeed::ToneThresholds zeroBelowOnSpeed{
+        kDefaultLDmax, 0.0f, kDefaultOnSpeedMax, kDefaultStallWarn};
+    const onspeed::ToneThresholds zeroOnSpeedMax{
+        kDefaultLDmax, kDefaultBelowOnSpeed, 0.0f, kDefaultStallWarn};
+    const onspeed::ToneThresholds zeroStallWarn{
+        kDefaultLDmax, kDefaultBelowOnSpeed, kDefaultOnSpeedMax, 0.0f};
+
+    for (const auto& th : {zeroLDMax, zeroBelowOnSpeed, zeroOnSpeedMax, zeroStallWarn}) {
+        for (const Fixture& f : kUncalibratedFixtures) {
+            ++total;
+            if (!runFixture(f, th)) ++failures;
+        }
+    }
+
     std::printf("%d/%d fixtures passed\n", total - failures, total);
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
