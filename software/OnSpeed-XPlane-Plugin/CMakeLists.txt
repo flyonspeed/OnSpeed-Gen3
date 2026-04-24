@@ -67,21 +67,31 @@ endif()
 
 target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE onspeed_core onspeed_version)
 
-# Match the firmware's strict warning posture so plugin-side drift
-# can't silently land. SDK headers are vendored upstream and trip a
-# few format/format-nonliteral diagnostics; downgrade those rather
-# than scattering pragmas.
+# Strict warning posture matching the M5 display firmware's. Plugin
+# code is clean under all of these now that the move-into-onspeed_core
+# refactor has touched the function signatures that previously tripped
+# unused-parameter / unused-variable. -Wno-error=format-nonliteral is
+# the only downgrade — vendored SDK headers and standard library
+# headers occasionally use computed format strings that we can't fix
+# upstream.
 target_compile_options(AOA-Tone-FlyOnSpeed PRIVATE
-    -Wall -Wextra -Werror
-    # Upstream aoa_audio.cpp wasn't written under -Werror. Downgrade
-    # the diagnostics it currently trips so this PR keeps to its
-    # "preserve behavior" promise; PR 5 (the math swap) is the right
-    # place to re-tighten as the function signatures get touched.
+    -Wall
+    -Wextra
+    -Werror
+    -Wshadow
+    -Wformat=2
+    -Wunreachable-code
+    -Wnull-dereference
+    -Wold-style-cast       # plugin's only consumer of C, prefer C++ casts
     -Wno-error=format-nonliteral
-    -Wno-error=unused-parameter
-    -Wno-error=unused-variable
-    -Wno-error=missing-field-initializers
 )
+
+# Plugin-side characterization tests (host-side, no X-Plane needed).
+# Pin the boundary outcomes of onspeed::calculateTone() with the
+# plugin's default thresholds. Built with `cmake --build build`,
+# run with `ctest --test-dir build`.
+enable_testing()
+add_subdirectory(tests)
 
 # Per-OS output directory and .xpl naming. X-Plane expects the plugin
 # bundle/shared-lib to live in <Plugin>/<arch>/<plugin>.xpl.

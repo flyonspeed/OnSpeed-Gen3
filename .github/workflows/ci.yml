@@ -186,6 +186,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # generate_buildinfo.py needs git tags
 
       - name: Install OpenAL (Linux only)
         if: runner.os == 'Linux'
@@ -198,6 +200,9 @@ jobs:
 
       - name: Build
         run: cmake --build software/OnSpeed-XPlane-Plugin/build
+
+      - name: Run characterization tests
+        run: ctest --test-dir software/OnSpeed-XPlane-Plugin/build --output-on-failure
 
       - name: Verify .xpl was produced
         run: |
