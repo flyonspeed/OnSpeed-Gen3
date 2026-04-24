@@ -9,6 +9,7 @@
 #include <unity.h>
 
 #include <cmath>
+#include <cstdio>
 
 #include <ahrs/Ahrs.h>
 #include <types/AhrsInputs.h>
@@ -551,19 +552,25 @@ void test_ias_alive_false_zeros_comp_factors(void)
 void test_ias_alive_true_applies_centripetal(void)
 {
     // Mirror: iasAlive=true with a yaw rate should move accelLatCompG
-    // away from the smoothed accel by the centripetal amount.
+    // away from the smoothed accel by the centripetal amount.  Runs long
+    // enough (1.5 s, ~3τ) for the issue-#114 fade-in to saturate near 1
+    // so the expected centripetal magnitude is observable.
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     in.sensors.iasKt    = 100.0f;
     in.sensors.iasAlive = true;
-    in.iasUpdateTimestampUs = 1'000'000u;
+    uint32_t iasTs = 1'000'000u;
+    in.iasUpdateTimestampUs = iasTs;
     a.Init(in, 0.0f);
     a.Step(in, kDt);
 
     in.imu.gyroYawDps = 10.0f;
-    in.iasUpdateTimestampUs = 1'020'000u;
-    a.Step(in, kDt);
+    for (int i = 0; i < 500; i++) {    // ~2.4 s so compFadeIn saturates
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+    }
+    TEST_ASSERT_TRUE(a.compFadeIn() > 0.95f);
 
     // Comp should differ from smoothed by a measurable centripetal amount.
     const float delta = std::fabs(a.accelLatCompG() - a.accelLatSmoothedG());
@@ -573,18 +580,18 @@ void test_ias_alive_true_applies_centripetal(void)
 
 void test_rising_edge_transient_bounded_on_takeoff(void)
 {
-    // Regression guard for the takeoff-through-20-kt transient.
-    // Issue #114 will eventually add a fade-in ramp to eliminate this;
-    // until then we pin the current behavior so any future change that
-    // makes it dramatically worse gets caught.
-    //
-    // The transient is inherent to the filter pipeline — tas_ steps
-    // from 0 (deadband) to ~10 m/s (20 kt) in one pressure frame, so
-    // fTASdot = (10 - 0) / 0.02 s = ~500 m/s^2 on that frame, EMA'd
-    // into tasDotSmoothed_ at alpha ≈ 0.07 -> ~36 m/s^2 of forward
-    // comp spike on the first frame after the gate rises.  The accel
-    // EMA swallows most of it within ~0.5 s; Madgwick's cumulative
-    // pitch displacement stays within ~2° for the first second.
+    // Regression guard for the takeoff-through-20-kt transient.  The
+    // issue-#114 fade-in ramp reduces the AccelFwdComp accel spike by
+    // ~100× on the first frame, but Madgwick's gradient-descent step is
+    // magnitude-normalized (MadgwickFusion.cpp:160) so the pitch drift
+    // in this sterile scenario is driven by error direction not
+    // magnitude — the pitch excursion over ~1 s stays near ~1.3°
+    // regardless of fade.  See
+    // test_comp_fade_in_suppresses_rising_edge_accel_spike for the
+    // dedicated assertion that the fade does its job on the accel
+    // signal.  This test keeps a loose 3° upper bound to catch a
+    // regression that would dramatically worsen behaviour (either by
+    // removing the gate or by shortening the IAS smoothing).
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
@@ -610,11 +617,120 @@ void test_rising_edge_transient_bounded_on_takeoff(void)
         if (absPitch > maxPitchDeviation) maxPitchDeviation = absPitch;
     }
 
-    // Pin the transient magnitude.  Upper bound > expected (~1.4°) so
-    // the test doesn't flap on float drift, but tight enough to catch
-    // a regression that doubles the transient.  See issue #114.
     TEST_ASSERT_TRUE_MESSAGE(maxPitchDeviation < 3.0f,
         "Rising-edge pitch transient exceeded 3.0° — did a change worsen #114?");
+}
+
+// ---------------------------------------------------------------------
+// Issue #114: fade-in of compensation factors at iasAlive rising edge.
+//
+// The fade-in coefficient EMA-ramps from 0 to 1 with τ ≈ 0.5 s after
+// iasAlive goes true, scaling the forward/lateral/vertical accel
+// compensation factors so the one-frame TAS step at takeoff doesn't
+// dump ~3.75 g of spurious forward comp into the smoothed accel on the
+// first post-gate frame.
+// ---------------------------------------------------------------------
+
+void test_comp_fade_in_starts_at_zero_and_ramps_to_one(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    a.Init(in, 0.0f);
+
+    // At construction + after a few rest frames, fade is zero.
+    a.Step(in, kDt);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, a.compFadeIn());
+
+    // Rising edge.
+    in.sensors.iasAlive = true;
+    in.sensors.iasKt    = 25.0f;
+    uint32_t iasTs = 1'000'000u;
+    in.iasUpdateTimestampUs = iasTs;
+
+    // First frame after rising edge: fade is a single EMA step from 0,
+    // so ≈ dt / (τ + dt) ≈ 0.0096 at 208 Hz.  Assert it's << 0.05.
+    a.Step(in, kDt);
+    TEST_ASSERT_TRUE(a.compFadeIn() > 0.0f);
+    TEST_ASSERT_TRUE(a.compFadeIn() < 0.05f);
+
+    // After ~1.5 s (three time constants), fade is > 0.95.
+    for (int i = 0; i < 313; i++) {
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+    }
+    TEST_ASSERT_TRUE_MESSAGE(a.compFadeIn() > 0.95f,
+        "Fade-in should reach > 0.95 after ~1.5 s (3τ)");
+    TEST_ASSERT_TRUE(a.compFadeIn() < 1.0f + 1e-6f);
+}
+
+void test_comp_fade_in_resets_when_ias_alive_drops(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    a.Init(in, 0.0f);
+
+    // Ramp fade toward 1 with iasAlive=true.
+    in.sensors.iasAlive = true;
+    in.sensors.iasKt    = 25.0f;
+    uint32_t iasTs = 1'000'000u;
+    in.iasUpdateTimestampUs = iasTs;
+    for (int i = 0; i < 500; i++) {    // ~2.4 s so compFadeIn saturates
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+    }
+    TEST_ASSERT_TRUE(a.compFadeIn() > 0.95f);
+
+    // Drop iasAlive.  One step later, fade must be exactly zero.
+    in.sensors.iasAlive = false;
+    a.Step(in, kDt);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.compFadeIn());
+}
+
+void test_comp_fade_in_suppresses_rising_edge_accel_spike(void)
+{
+    // Mirror of test_rising_edge_transient_bounded_on_takeoff's scenario,
+    // asserting directly on the AccelFwdComp spike that the fade is
+    // designed to suppress.  Before issue #114, |accelFwdCompG| spiked to
+    // ~3.75 g on the first frame after iasAlive flipped (tas steps from 0
+    // to ~10 m/s in one pressure frame, producing ~36 m/s² of
+    // tasDotSmoothed_, ~3.75 g of comp).  With the fade multiplier
+    // EMA-ramping from 0 with τ ≈ 0.5 s, the peak over the first pressure
+    // frame is reduced by ~100× (the fade alpha on frame 0 is ~0.0096).
+    //
+    // The pitch-excursion reduction is more subtle because Madgwick's
+    // gradient-descent step is magnitude-normalized (see MadgwickFusion
+    // line 160) — a tiny DC accel error produces the same correction
+    // direction as a large one.  Asserting on the accel spike directly
+    // measures what the fade actually fixes.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    a.Init(in, 0.0f);
+
+    uint32_t iasTs = 0;
+    for (int i = 0; i < 500; i++) {
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+    }
+
+    in.sensors.iasAlive = true;
+    in.sensors.iasKt    = 20.3f;
+
+    float maxFwdCompSpike = 0.0f;
+    for (int i = 0; i < 10; i++) {  // first ~50 ms
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+        const float absComp = std::fabs(a.accelFwdCompG());
+        if (absComp > maxFwdCompSpike) maxFwdCompSpike = absComp;
+    }
+
+    char msg[160];
+    std::snprintf(msg, sizeof(msg),
+        "AccelFwdComp spike in first 10 frames: %.4f g "
+        "(pre-fix ≈ 3.75 g, bound 0.5 g)", maxFwdCompSpike);
+    TEST_ASSERT_TRUE_MESSAGE(maxFwdCompSpike < 0.5f, msg);
 }
 
 // ---------------------------------------------------------------------
@@ -651,6 +767,10 @@ int main(void)
     RUN_TEST(test_ias_alive_false_zeros_comp_factors);
     RUN_TEST(test_ias_alive_true_applies_centripetal);
     RUN_TEST(test_rising_edge_transient_bounded_on_takeoff);
+
+    RUN_TEST(test_comp_fade_in_starts_at_zero_and_ramps_to_one);
+    RUN_TEST(test_comp_fade_in_resets_when_ias_alive_drops);
+    RUN_TEST(test_comp_fade_in_suppresses_rising_edge_accel_spike);
 
     return UNITY_END();
 }
