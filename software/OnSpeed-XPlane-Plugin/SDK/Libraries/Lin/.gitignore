@@ -1,0 +1,3 @@
+# X-Plane SDK link libraries. These are vendored binaries — must be
+# tracked even though *.so is in many users' global gitignore.
+!*.so
