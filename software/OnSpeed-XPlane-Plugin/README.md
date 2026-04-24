@@ -30,7 +30,12 @@ To install into a local X-Plane for dev testing (macOS/Linux):
 
 Restart X-Plane to pick up the new build (no plugin hot-reload).
 
-## License
+## License and credits
 
 MIT for the plugin code. The vendored X-Plane SDK at `SDK/` is under
 its own license — see `SDK/license.txt`.
+
+The plugin was originally written by [Topher Timemachine](https://github.com/TopherTimeMachine)
+and [Mrcoole7890](https://github.com/Mrcoole7890), and imported into this repo
+from [`flyonspeed/OnSpeed-XPlane`](https://github.com/flyonspeed/OnSpeed-XPlane).
+See [CREDITS.md](CREDITS.md) for the full import history and post-import changes.
