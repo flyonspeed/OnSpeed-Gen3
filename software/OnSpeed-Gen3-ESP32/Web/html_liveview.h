@@ -53,14 +53,23 @@ function init()
   {
   // console.log("Init()");
 
-  toggleAOA(true)
-
-  // Paint the numeric AOA fields as N/A immediately.  onMessage() only
-  // runs when the WebSocket delivers data, so without this the spans
-  // are blank for the ~300 ms–1 s before the first message arrives.
+  // First-load view setup: default to the AOA indexer and paint the
+  // numeric AOA fields as N/A immediately, since onMessage() only runs
+  // once the WebSocket delivers data.  View setup lives here (NOT in
+  // reconnect()) so transient WiFi drops don't yank the pilot back to
+  // the indexer while they're looking at the attitude page.
+  toggleAOA(true);
   document.getElementById("aoa_aoa").innerHTML = 'N/A';
   document.getElementById("aoa_att").innerHTML = 'N/A';
 
+  reconnect();
+  }
+
+// Start (or re-start) the WebSocket connection attempt without touching
+// the current page view state.  Called both on first load (via init())
+// and from the 3-second staleness fallback in updateAge().
+function reconnect()
+  {
   writeToStatus("CONNECTING...");
   liveConnecting = true;
   setTimeout(connectWebSocket, 300);
@@ -280,8 +289,11 @@ function onMessage(evt)
 
 function onError(evt)
   {
-  console.log(evt.data);
-  writeToStatus(evt.data);
+  // WebSocket error events carry no payload by spec (evt.data is
+  // `undefined`).  Log the event for diagnostics and leave the
+  // user-visible status to the onclose handler that fires right after
+  // — it writes "Reconnecting..." which is the accurate next state.
+  console.log("WebSocket error:", evt);
   }
 
 
@@ -306,13 +318,13 @@ function updateAge()
       }
     }
 
-  // If no WebSocket message has arrived in 3 seconds, re-run init()
-  // to reconnect.  Previously this was gated by the dead #age check
-  // above, so the 10 ms inner retry loop in onClose() was the only
-  // reconnect path — and if those retries failed the page hung in
-  // "Reconnecting..." indefinitely.
+  // If no WebSocket message has arrived in 3 seconds, re-attempt the
+  // connection.  Calls reconnect() (not init()) so we don't reset the
+  // view to the AOA indexer on every WiFi hiccup — a pilot watching
+  // the attitude page would otherwise get bounced back to the
+  // indexer every 3 s until the link comes back.
   if (age >= 3 && !liveConnecting)
-    init();
+    reconnect();
   }
 
 
@@ -397,9 +409,10 @@ updateAttitude(0,0);
 
   <div id="attitude" style="visibility:hidden;">
     <svg id="onspeed-attitude" xmlns="http://www.w3.org/2000/svg" width="100%" height="300px" viewBox="0 0 100 100">
-      <g id="onspeed-attitude-pos" stroke-width="0.5" stroke="#fff" fill="#fff\
-       transform="translate(50,50) rotate(0)\
-       text-anchor='middle' font-family="sans-serif" font-size="6">
+      <g id="onspeed-attitude-pos"
+         stroke-width="0.5" stroke="#fff" fill="#fff"
+         transform="translate(50,50) rotate(0)"
+         text-anchor="middle" font-family="sans-serif" font-size="6">
         <rect fill="#29B6F6" stroke-width="0" x="-100" y="-200" width="200" height="200"></rect>
         <rect fill="#8B4513" stroke-width="0" x="-100" y="0"  width="200" height="200"></rect>
 
