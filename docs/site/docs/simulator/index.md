@@ -12,12 +12,12 @@ The plugin reads X-Plane's AOA dataref (`sim/flightmodel/position/alpha`)
 and pipes it through `onspeed_core` to the same `calculateTone()` call
 the firmware uses. Output is OpenAL audio on the sim PC.
 
-Because the dataref is the sim's flight-model AOA, the *tones* sound
-right relative to where the sim thinks the airframe is, but the
-*thresholds* (LDmax, OnSpeed, stall) are plugin defaults, not your
+Because the dataref is the sim's flight-model AOA, tones sound right
+relative to where the sim thinks the airframe is, but the thresholds
+(L/D~MAX~, ONSPEED, stall warning) are plugin defaults, not your
 airplane's calibrated setpoints. The plugin's UI exposes all four
 thresholds as editable fields — override them with your tuned values
-if you want aircraft-specific behavior.
+for aircraft-specific behavior.
 
 ## Roadmap
 
