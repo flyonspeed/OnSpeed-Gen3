@@ -88,7 +88,6 @@ The controller needs the following connections:
 ### Optional
 
 - **OAT sensor** (DS18B20) — if you don't have an EFIS providing outside air temperature
-- **AOA indexer** — NeoPixel LED strip for visual AOA indication
 - **External display** — M5Stack or similar for cockpit display
 - **Boom probe** — reference AOA probe for testing/calibration
 

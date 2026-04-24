@@ -32,7 +32,7 @@
 | **Load Factor** | The ratio of lift to weight, commonly expressed in G units. Denoted by engineers as *n*. In level flight, load factor is 1G. In a 60° bank turn, approximately 2G. |
 | **Madgwick** | A complementary filter algorithm for AHRS using quaternion mathematics. The default OnSpeed AHRS. |
 | **NAOA** | Normalized AOA — AOA expressed as a fraction of the usable range: (AOA - alpha_0) / (alpha_stall - alpha_0). 0.0 = zero lift, 1.0 = stall. Mathematically identical to fractional lift. |
-| **NeoPixel** | WS2812B addressable RGB LED — used for the optional visual AOA indexer |
+| **NeoPixel** | WS2812B addressable RGB LED — the planned technology for a future visual AOA indexer (not yet supported) |
 | **OAT** | Outside Air Temperature — measured by EFIS or DS18B20 sensor. Used for TAS and density altitude corrections. |
 | **ONSPEED** | A specific angle-of-attack condition, not an airspeed. Corresponds to ~60% fractional lift, balanced effective power, maximum sustained turn rate, V~REF~, best angle of climb, and maximum endurance. The airspeed associated with ONSPEED varies with weight, configuration, and load factor. |
 | **OneWire** | A serial protocol used by the DS18B20 temperature sensor |

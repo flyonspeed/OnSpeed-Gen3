@@ -1,41 +1,19 @@
-# Optional: AOA Indexer LEDs
+# AOA Indexer LEDs (Planned)
 
-The AOA indexer is a **NeoPixel LED strip** that provides a visual AOA indication — colored lights that change based on your angle of attack. It supplements the audio tones with a visual reference.
+A visual AOA indexer — a strip of colored LEDs that changes color based on AOA region — has been discussed as a future feature. **The current firmware does not support it.**
 
-## When You'd Want One
+Tracking work on this is captured in [issue #247](https://github.com/flyonspeed/OnSpeed-Gen3/issues/247). If you're interested in helping implement it, that's the place to start.
 
-- **Training**: Helps new OnSpeed users correlate tones with AOA during initial flights
-- **Passengers**: Gives non-pilots a visual indication of flight state
-- **Backup**: Visual indication if audio is muted or you're wearing noise-canceling headphones
-- **Glare shield mount**: A row of colored LEDs at the top of the panel is easy to see in peripheral vision
+## Why a Visual Indexer
 
-## Hardware
+- **Training**: Helps new OnSpeed users correlate tones with AOA during initial flights.
+- **Passengers**: Gives non-pilots a visual indication of flight state.
+- **Backup**: Visual indication if audio is muted or you're wearing noise-canceling headphones.
+- **Peripheral vision**: A row of colored LEDs at the top of the glare shield is easy to see without looking away from the outside view.
 
-- **NeoPixel LED strip or bar** — WS2812B or compatible addressable RGB LEDs
-- **Data pin**: Connected to the NeoPixel data input on the controller
-- **Power**: 5V from the controller (for small strips; larger strips may need separate 5V supply)
-- **Ground**: Shared ground with the controller
+## Planned Color Scheme
 
-## Wiring
-
-1. Connect the NeoPixel **data in** to the controller's NeoPixel output pin
-2. Connect **5V** and **GND** from the controller to the LED strip
-3. For strips longer than a few LEDs, add a 300–500 ohm resistor on the data line near the first LED
-4. Keep the data wire short — long data lines can cause signal issues with NeoPixels
-
-## Mounting
-
-Common mounting locations:
-
-- **Glare shield top edge** — visible in peripheral vision during approach
-- **Panel edge** — near the top of the instrument panel
-- **Glareshield underside** — less visible but less distracting
-
-Use the LED strip's adhesive backing or small screws/brackets to secure it.
-
-## Color Scheme
-
-The indexer LEDs follow the standard FAA green/yellow/red progression, matching the M5 secondary display and the web liveview indexer:
+When the feature ships, the indexer LEDs will follow the standard FAA green/yellow/red progression, matching the M5 secondary display and the web liveview indexer:
 
 | AOA Region | Color | Meaning |
 |-----------|-------|---------|
@@ -46,3 +24,12 @@ The indexer LEDs follow the standard FAA green/yellow/red progression, matching 
 | Stall | Flashing Red | Beyond stall warning — stall imminent |
 
 Green covers the whole safe band (fast but safe, and on-speed); yellow and red escalate as AOA rises toward stall.
+
+## Status
+
+Not implemented in firmware. No pin is wired up for LED output today, and the `Adafruit_NeoPixel` library is not vendored. Adding the feature requires:
+
+1. Re-adding the `Adafruit_NeoPixel` submodule under `software/Libraries/`.
+2. Picking a free GPIO on the V4P hardware and wiring it in `Globals.h`.
+3. A new `Indexer.cpp/h` module that maps AOA region to LED color and drives the strip.
+4. Config UI for LED count, brightness, and color scheme.

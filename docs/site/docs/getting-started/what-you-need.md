@@ -20,7 +20,6 @@ Before starting your OnSpeed installation, make sure you have the following.
 ## Optional
 
 - **DS18B20 OAT sensor** — if you don't have an EFIS providing outside air temperature. Needed for density altitude corrections in standalone mode.
-- **NeoPixel LED strip** — for a visual AOA indexer (colored LED bar on the glare shield)
 - **M5Stack display** — for an external cockpit display
 - **Boom probe** — a reference AOA probe for testing or calibration validation
 

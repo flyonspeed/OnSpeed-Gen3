@@ -27,8 +27,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-#include <ArduinoJson.h>
-
 #include "src/Globals.h"
 
 using onspeed::accelPitch;

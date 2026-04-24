@@ -42,7 +42,7 @@ Built a complete MkDocs Material documentation site covering all Phase 1 ("Oshko
 | Pneumatic Plumbing | `installation/pneumatics.md` | Sensor part numbers from `Globals.h`, pressure system design |
 | Electrical Wiring | `installation/wiring.md` | All pin assignments from `Globals.h` (V4P and V4B), MCP3202 ADC channels, serial pins |
 | **Audio Wiring** | `installation/audio.md` | **Written from scratch** — 4 options (alert, aux, music, direct splice) with comparison table, Garmin GMA 345/GTR 200 specifics |
-| AOA Indexer LEDs | `installation/indexer.md` | NeoPixel pin from `Globals.h`, general NeoPixel wiring |
+| AOA Indexer LEDs | `installation/indexer.md` | Planned-feature stub — firmware support not yet implemented; tracked in issue #247 |
 | OAT Sensor | `installation/oat-sensor.md` | `OAT_PIN=14`, DS18B20 OneWire, runtime config toggle from `Config.cpp` |
 | External Display | `installation/external-display.md` | `DISPLAY_SER_TX=10`, serial output formats from `Config.cpp` |
 | Boom Probe | `installation/boom-probe.md` | `BOOM_SER_RX=3`, boom data fields from `LogSensor.cpp` |
