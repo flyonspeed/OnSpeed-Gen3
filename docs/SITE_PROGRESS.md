@@ -79,7 +79,7 @@ Built a complete MkDocs Material documentation site covering all Phase 1 ("Oshko
 | **First-Time Setup** | `configuration/first-time-setup.md` | **Written from scratch** — 12-step guided checklist covering EFIS type, orientation, flaps, aircraft limits, audio, optional features, sensor cal, audio test, EFIS verification |
 | Sensor Calibration | `configuration/sensor-calibration.md` | `BIAS` console command from `ConsoleSerial.cpp`, bias parameters from `Config.cpp`, AHRS re-init behavior (v4.15) |
 | **Flap Position Setup** | `configuration/flap-setup.md` | **Written from scratch** — `Flaps.cpp` midpoint algorithm, MCP3202 ADC (V4P) vs discrete jumpers (V4B), example with RV-4 pot values (129/158/206) |
-| Audio Settings | `configuration/audio.md` | Volume config from `ConfigDefaults.h`, 3D audio from `3DAudio.cpp`, Vno chime from `VnoChime.cpp`, G-limit from `gLimit.cpp`, AUDIOTEST from `ConsoleSerial.cpp` |
+| Audio Settings | `configuration/audio.md` | Volume config from `OnSpeedConfig::LoadDefaults()`, 3D audio from `3DAudio.cpp`, Vno chime from `VnoChime.cpp`, G-limit from `gLimit.cpp`, AUDIOTEST from `ConsoleSerial.cpp` |
 | Advanced Settings | `configuration/advanced.md` | AHRS algorithm selection, smoothing, CAS curve, serial output format, data source |
 | Backup & Restore | `configuration/backup-restore.md` | Config XML format from `Config.cpp`, load order (defaults → flash → SD) |
 
@@ -126,7 +126,7 @@ Built a complete MkDocs Material documentation site covering all Phase 1 ("Oshko
 | Page | File | Content Source |
 |------|------|---------------|
 | Section index | `reference/index.md` | — |
-| **Configuration Parameters** | `reference/config-parameters.md` | `Config.cpp` + `ConfigDefaults.h` — complete table of every XML tag, type, default, and description. Organized by section (general, EFIS, orientation, volume, Vno, biases, CAS, per-flap). |
+| **Configuration Parameters** | `reference/config-parameters.md` | `Config.cpp` + `OnSpeedConfig::LoadDefaults()` — complete table of every XML tag, type, default, and description. Organized by section (general, EFIS, orientation, volume, Vno, biases, CAS, per-flap). |
 | **CSV Log Columns** | `reference/log-columns.md` | `LogSensor.cpp` — complete column reference for core (28), boom (6), EFIS (18), VN-300 (27) columns with units and descriptions |
 | Hardware Specifications | `reference/hardware-specs.md` | `Globals.h` — full pin tables for V4P and V4B, sensor specs, MCU specs, I2S audio params, V4P vs V4B differences table |
 | Glossary | `reference/glossary.md` | 30+ terms: AOA, AHRS, alpha_0, CAS, Cp, DerivedAOA, EKF6, EMA, IAS, K parameter, L/Dmax, Madgwick, NAOA, etc. |
@@ -141,7 +141,7 @@ All content was sourced from the actual firmware codebase and existing documenta
 |------------|-------------------|
 | `Globals.h` | Pin definitions (V4P/V4B), version (4.15), hardware defines, FreeRTOS task handles |
 | `ToneCalc.h` | Tone types (None/Low/High), PPS constants (20/1.5–6.2/1.5–8.2), AOA regions |
-| `Config.cpp` + `ConfigDefaults.h` | All XML tags, types, defaults, flap structure, bias structure |
+| `Config.cpp` + `OnSpeedConfig::LoadDefaults()` | All XML tags, types, defaults, flap structure, bias structure |
 | `ConsoleSerial.cpp` | All 16 console commands with syntax |
 | `EfisSerial.cpp` | 6 EFIS types, protocol details, data fields per type, serial settings |
 | `LogSensor.cpp` | CSV column headers and logging rate (50 Hz) |

@@ -46,7 +46,7 @@ Before any scope work on release notes, run the `docs-update` skill against the 
 Invoke the `docs-update` skill with the same version window you intend to release. It will:
 
 1. Walk the firmware-to-docs mapping for every file that changed since the previous tag.
-2. Verify each concrete claim on the docs site against the live code (not `ConfigDefaults.h` — always the `LoadDefaultConfiguration()` function in `Config.cpp`).
+2. Verify each concrete claim on the docs site against the live code — the defaults path is `FOSConfig::LoadDefaultConfiguration()` in `Config.cpp`, which delegates to `OnSpeedConfig::LoadDefaults()` in `onspeed_core`.
 3. Open a separate `docs/drift-fixes-v<version>` PR with a strict mkdocs build.
 
 Do not proceed to Phase 1 of the release workflow until the docs audit PR is open (or the user explicitly says "no drift, continue"). A release with stale docs is a release that generates support tickets the day it ships.
@@ -111,7 +111,7 @@ If the PR touches **any** of these files or directories, you MUST run `gh pr dif
 - `software/sketch_common/src/drivers/HscPressureSensor.cpp` / `.h`
 - `software/sketch_common/src/drivers/SensorIO.cpp` / `.h`
 - `software/sketch_common/src/io/EfisSerialPort.cpp` / `.h` (plus `software/Libraries/onspeed_core/src/efis/`)
-- `software/sketch_common/src/config/Config.cpp` / `.h` / `ConfigDefaults.h`
+- `software/sketch_common/src/config/Config.cpp` / `.h`
 - `software/sketch_common/src/tasks/Flaps.cpp` / `.h`
 - `software/sketch_common/src/tasks/Housekeeping.cpp` / `.h` (G-limit, 3D audio, Vno chime logic)
 - `software/sketch_common/src/tasks/LogSensor.cpp` / `.h`

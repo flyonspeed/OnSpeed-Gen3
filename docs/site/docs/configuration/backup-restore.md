@@ -22,7 +22,7 @@ Your OnSpeed configuration is stored as an XML file (`config.cfg`) on the SD car
 
 ## Config File Format
 
-The configuration is stored as XML with the root element `CONFIG2`. Example structure:
+The configuration is stored as XML with the root element `CONFIG2`. Example structure (the per-flap values below are **illustrative**, showing what a calibrated aircraft's config looks like — they are **not** the firmware defaults, which ship with all per-aircraft setpoints zeroed until you run the calibration wizard):
 
 ```xml
 <CONFIG2>
@@ -37,7 +37,7 @@ The configuration is stored as XML with the root element `CONFIG2`. Example stru
   <FLAP_POSITION>
     <DEGREES>0</DEGREES>
     <POT_VALUE>129</POT_VALUE>
-    <LDMAXAOA>8.03</LDMAXAOA>
+    <LDMAXAOA>8.03</LDMAXAOA>        <!-- per-aircraft; 0.0 on a fresh config -->
     <!-- ... more setpoints and curves ... -->
   </FLAP_POSITION>
   <!-- ... more flap positions ... -->
@@ -69,7 +69,7 @@ You can edit the config file with any text editor. This is useful for:
 
 On startup, the firmware loads configuration in this order:
 
-1. **Compiled defaults** (from `ConfigDefaults.h`)
+1. **Compiled defaults** (from `OnSpeedConfig::LoadDefaults()` in `onspeed_core`)
 2. **Flash memory** (LittleFS) — overwrites defaults
 3. **SD card** (`config.cfg`) — overwrites flash
 

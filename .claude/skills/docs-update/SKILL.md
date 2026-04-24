@@ -26,8 +26,8 @@ This skill captures the repeatable process for auditing the site against current
 
 ## The Iron Rules
 
-1. **Every factual claim must have a code source.** Defaults come from `Config.cpp::LoadDefaultConfiguration()`, not `ConfigDefaults.h`. Console commands come from `ConsoleSerial.cpp`. Log columns come from `LogSensor.cpp`. Tone thresholds come from `ToneCalc.cpp` / `ToneCalc.h`. Wizard fields come from `ConfigWebServer.cpp::HandleCalWizard()`. Pin numbers come from `Globals.h`. Do not guess, do not invent, do not copy from the previous version of the page.
-2. **Read the actual function, not a header that looks authoritative.** `ConfigDefaults.h` contains dead string-literal defaults that are not used at boot. The live path is `Config.cpp::LoadDefaultConfiguration()`. Always verify the entry point.
+1. **Every factual claim must have a code source.** Defaults come from `onspeed_core/config/OnSpeedConfig.cpp::LoadDefaults()` (reached via the sketch-side `FOSConfig::LoadDefaultConfiguration()`). Console commands come from `ConsoleSerial.cpp`. Log columns come from `LogSensor.cpp`. Tone thresholds come from `ToneCalc.cpp` / `ToneCalc.h`. Wizard fields come from `ConfigWebServer.cpp::HandleCalWizard()`. Pin numbers come from `Globals.h`. Do not guess, do not invent, do not copy from the previous version of the page.
+2. **Read the actual function, not a header that looks authoritative.** Config defaults live in `OnSpeedConfig::LoadDefaults()` in the core library — the old dead `ConfigDefaults.h` string-literal blob has been removed.
 3. **Match the existing page's voice.** Dense, minimal prose. Tables over paragraphs. One sentence of context, then the data. No marketing voice, no "this ensures optimal performance", no "simply configure". If a neighboring page says "Configure your aircraft's flap positions. For each flap setting you use:" followed by a numbered list, match that register — don't write a three-paragraph essay.
 4. **Never omit a safety-relevant caveat.** If a feature has a known bug, a flight-envelope restriction, or a "don't touch this yet" status, the docs say so explicitly. Tone matters: use `!!! warning` or `!!! danger` admonitions to match the severity.
 5. **Strict build before PR.** `mkdocs build --strict` must pass. Broken links, missing anchors, and malformed admonitions fail the build and block the PR.
@@ -62,8 +62,7 @@ This is the authoritative mapping from "firmware file changed" to "docs pages to
 
 | Firmware source | Docs page(s) it drives | What to verify |
 |---|---|---|
-| `Config.cpp` (esp. `LoadDefaultConfiguration()`) | `reference/config-parameters.md`, `configuration/first-time-setup.md`, `configuration/advanced.md` | Every default value, parameter name, unit, valid range, and the radio-button or dropdown choices shown on the web UI |
-| `ConfigDefaults.h` | — (reference only, **dead code** — see gotcha below) | Do NOT source docs from this file |
+| `Config.cpp` (esp. `LoadDefaultConfiguration()`) / `onspeed_core/config/OnSpeedConfig.cpp` (`LoadDefaults()`) | `reference/config-parameters.md`, `configuration/first-time-setup.md`, `configuration/advanced.md` | Every default value, parameter name, unit, valid range, and the radio-button or dropdown choices shown on the web UI |
 | `ConfigWebServer.cpp` (`HandleCalWizard`, `HandleAoaConfig`, etc.) | `configuration/first-time-setup.md`, `calibration/wizard.md`, `configuration/web-interface.md` | Exact field labels, order of fields, form sections, radio button groups, which fields persist to config vs. wizard-only |
 | `ConsoleSerial.cpp` | `troubleshooting/console-commands.md` | Command names (case-insensitive but printed in uppercase), arguments, example output, order in HELP |
 | `LogSensor.cpp` | `reference/log-columns.md`, `data-and-logs/log-format.md` | Column names, units, write order (base / optional Boom / optional EFIS / derived), enable conditions |
@@ -87,14 +86,15 @@ For each docs page in scope, verify each concrete claim against the code source.
 
 #### Config defaults (`reference/config-parameters.md`)
 
-The **only** authoritative source is the function called at boot. For OnSpeed that is `FOSConfig::LoadDefaultConfiguration()` in `Config.cpp`. Open that function and compare every row of the docs tables against the actual initializers.
+The **only** authoritative source is the function called at boot. For OnSpeed the sketch-side wrapper is `FOSConfig::LoadDefaultConfiguration()` in `Config.cpp`, which delegates to the core `OnSpeedConfig::LoadDefaults()` in `software/Libraries/onspeed_core/src/config/OnSpeedConfig.cpp`. Open both and compare every row of the docs tables against the actual initializers — most of the defaults live in the core function.
 
 ```bash
-# Find the function
+# Find the entry points
 grep -n "LoadDefaultConfiguration" software/sketch_common/src/config/Config.cpp
+grep -n "LoadDefaults" software/Libraries/onspeed_core/src/config/OnSpeedConfig.cpp
 ```
 
-**Known gotcha — `ConfigDefaults.h` is not the source.** It contains string-literal defaults (e.g. `szDefaultConfig_RV4[]`) that are defined but never referenced at runtime. They are dead code left over from an earlier approach. Docs sourced from this file will be wrong. Always trace through `LoadDefaultConfiguration()` or equivalent setter calls in `Config.cpp`.
+**Note on per-flap calibration defaults:** `aFlaps[0]` ships with all setpoints and AOA-curve coefficients at 0.0, which is the explicit "uncalibrated" signal. The audio tone path stays silent at that state. Do not document RV-4-specific setpoints (8/11/14/16) or curve coefficients as the defaults — those were removed because shipping one airplane's calibration as the firmware default is a flight-safety hazard.
 
 When you find a drift, fix the specific row. Do not rewrite the whole table if only three rows are wrong — a minimal diff is easier to review. Include the **Default** column note near the top of the page:
 
@@ -251,7 +251,7 @@ EOF
 
 | Mistake | Why it's wrong | Fix |
 |---|---|---|
-| Sourcing defaults from `ConfigDefaults.h` | That file contains dead string-literal defaults no longer used at boot | Always read `Config.cpp::LoadDefaultConfiguration()` |
+| Documenting per-flap calibration setpoints as firmware defaults | `aFlaps[0]` ships zeroed — documenting 8/11/14/16 as defaults would bake one RV-4's calibration into the docs | The defaults section for per-flap values should say "all zero until the calibration wizard runs" |
 | Updating docs from the previous docs revision instead of code | Drift compounds — if yesterday's docs were wrong, today's will be too | Always go back to the code |
 | Mixing docs drift PR with feature work | Hard to review, hard to revert if something's wrong | One clean `docs/drift-fixes-*` PR |
 | Rewriting a whole page to fix one row | Makes the diff unreadable and imports new voice issues | Minimal diff — one row, one sentence |
@@ -271,7 +271,7 @@ EOF
 - "I'll write one big docs PR that also restructures navigation" → no, one PR per concern
 - "The simulator is close enough to the firmware" → diff the `if` cascade line by line
 - "I don't need to run strict build, these are small edits" → run it anyway
-- "The `ConfigDefaults.h` file is named that way, it must be the source" → verify it's actually referenced at boot, because it isn't
+- "These per-flap defaults (8/11/14/16) look like the firmware defaults" → those were removed; the compiled-in default is all zeros
 - "The docs say X, the code says Y, the docs were probably right" → no, the code is authoritative
 
 All of these mean: stop, go back to the source file, fix from the code outward.
