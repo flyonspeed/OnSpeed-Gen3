@@ -6,8 +6,10 @@ Log data is downloaded from the OnSpeed controller via WiFi.
 
 1. Connect to OnSpeed WiFi (`OnSpeed` / `angleofattack`)
 2. Navigate to **`http://192.168.0.1/logs`**
-3. The page lists all log files on the SD card with sizes
+3. The page lists each log with start time, duration, max IAS, max altitude, and size
 4. Click a filename to download it
+
+The metadata columns come from a small `.meta` sidecar file written next to each `log_NNN.csv` when the log closes. Older logs without a sidecar render with em-dashes for the metadata columns but still download and delete normally.
 
 !!! note "Logging pauses during download"
     SD card logging is temporarily paused while a file is being downloaded to prevent conflicts. It resumes automatically after the download completes.
@@ -23,7 +25,8 @@ WiFi transfers are not fast — the ESP32's WiFi bandwidth is limited. A large l
 Via the web interface:
 
 - Navigate to `/logs`
-- Click the delete button next to a log file
+- Click the trash icon next to a single log to delete it, or check several rows and click **Delete selected** to remove them in one pass. Either action shows a confirmation page before files are removed. The log currently being written is protected from deletion.
+- Deleting a log also removes its `.meta` sidecar.
 
 Via console:
 

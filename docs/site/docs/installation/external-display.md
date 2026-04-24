@@ -80,12 +80,14 @@ order: **Primary → Attitude → Indexer-only → Energy → G history →**
 back to Primary. The M5 remembers the last-used mode across power
 cycles.
 
+To preview each mode, scroll back up to the in-browser simulator and
+press <kbd>↓</kbd> to step through them. The C++ source that runs the
+sim is the same source that runs on the real M5Stack hardware, so the
+layout you see in the browser is the layout you get on the panel.
+
 ### Primary — AOA indexer + full readouts
 
 *(Mode 0 — the boot default.)*
-
-!!! info "Screenshot pending"
-    <!-- TODO: add assets/images/m5-mode-0-indexer.png -->
 
 The main flight display. A vertical AOA indexer widget occupies the
 center of the screen, with supporting readouts around the edges.
@@ -146,9 +148,6 @@ spotting sudden pull-ups / push-overs during maneuvering.
 
 *(Mode 1.)*
 
-!!! info "Screenshot pending"
-    <!-- TODO: add assets/images/m5-mode-1-attitude.png -->
-
 Full-width backup artificial horizon driven by OnSpeed's AHRS.
 Sky/ground horizon with a pitch ladder (10° increments), roll
 indication via a fixed aircraft reference symbol against a rolling
@@ -171,9 +170,6 @@ attitude source.
 
 *(Mode 2.)*
 
-!!! info "Screenshot pending"
-    <!-- TODO: add assets/images/m5-mode-2-narrow.png -->
-
 The Primary mode's indexer widget (chevrons + donut + index bar),
 with all the numeric fields around it **stripped away**. Same stall
 warnings, same on-speed cues, same colors.
@@ -186,9 +182,6 @@ beside the primary ASI.
 ### Energy — deceleration gauge
 
 *(Mode 3.)*
-
-!!! info "Screenshot pending"
-    <!-- TODO: add assets/images/m5-mode-3-decel.png -->
 
 A vertical "energy tape" gauge in the center showing instantaneous
 airspeed deceleration in **knots per second**. A green band marks the
@@ -208,9 +201,6 @@ Also useful for gauging flare authority right at touchdown.
 ### G history — scrolling G trace
 
 *(Mode 4.)*
-
-!!! info "Screenshot pending"
-    <!-- TODO: add assets/images/m5-mode-4-g-history.png -->
 
 A scrolling graph of vertical G over approximately the last 60
 seconds. Horizontal reference lines mark each integer G (grey for
