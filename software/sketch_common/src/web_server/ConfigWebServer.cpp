@@ -3132,13 +3132,30 @@ void HandleLogs()
         bListStatus = g_SdFileSys.FileList(&suFileList);
         if (bListStatus)
             {
+            // First pass: collect the set of .meta filenames present. This
+            // avoids N fruitless open() attempts on logs without sidecars
+            // (old logs, logs from before this feature, power-cut sessions).
+            // A failed open() on FAT triggers a full directory walk, which
+            // with many logs easily blocks the mutex long enough for the
+            // HTTP client to time out.
+            std::vector<String> metaNames;
+            metaNames.reserve(suFileList.size());
+            for (size_t i = 0; i < suFileList.size(); i++)
+                {
+                const char* name = suFileList[i].szFileName;
+                size_t nlen = strlen(name);
+                if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
+                    metaNames.emplace_back(name);
+                }
+
+            // Second pass: build the entry list; only read sidecars we
+            // already know exist.
             for (size_t i = 0; i < suFileList.size(); i++)
                 {
                 const char* name = suFileList[i].szFileName;
                 size_t nlen = strlen(name);
                 // Skip .meta sidecars — they get rendered alongside their .csv.
-                if (nlen >= 5 &&
-                    (strcasecmp(name + nlen - 5, ".meta") == 0))
+                if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
                     continue;
                 // Only list .csv / .log files.
                 if (nlen < 4 ||
@@ -3149,7 +3166,16 @@ void HandleLogs()
                 Entry e;
                 e.sName = name;
                 e.uSize = suFileList[i].uFileSize;
-                e.bHaveMeta = TryReadLogMeta(name, &e.meta);
+
+                // Derive the expected .meta name. Only attempt the read if
+                // that filename is in metaNames (no failed-open penalty).
+                String sExpectedMeta = e.sName.substring(0, e.sName.length() - 4) + ".meta";
+                bool bMetaExists = false;
+                for (const String& mn : metaNames)
+                    if (mn.equalsIgnoreCase(sExpectedMeta)) { bMetaExists = true; break; }
+                if (bMetaExists)
+                    e.bHaveMeta = TryReadLogMeta(name, &e.meta);
+
                 uTotalSize += e.uSize;
                 entries.push_back(std::move(e));
                 }
