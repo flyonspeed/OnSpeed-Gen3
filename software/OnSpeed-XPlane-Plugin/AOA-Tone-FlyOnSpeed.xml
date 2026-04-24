@@ -1,0 +1,29 @@
+<instrument>
+    <name>AOA Tone Fly On Speed</name>
+    <description>Angle of Attack Audio Tone Indicator</description>
+    <image>aoa_instrument.png</image>
+    <animations>
+        <animation>
+            <key>sim/cockpit2/gauges/indicators/aoa_angle_degrees</key>
+            <image_rotation>
+                <center_x>0.5</center_x>
+                <center_y>0.5</center_y>
+                <texture>aoa_needle.png</texture>
+                <keyframes>
+                    <keyframe>
+                        <value>-15</value>
+                        <angle>-90</angle>
+                    </keyframe>
+                    <keyframe>
+                        <value>0</value>
+                        <angle>0</angle>
+                    </keyframe>
+                    <keyframe>
+                        <value>15</value>
+                        <angle>90</angle>
+                    </keyframe>
+                </keyframes>
+            </image_rotation>
+        </animation>
+    </animations>
+</instrument>
