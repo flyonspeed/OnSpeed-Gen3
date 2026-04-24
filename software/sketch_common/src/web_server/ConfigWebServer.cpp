@@ -298,8 +298,8 @@ void CfgWebServerInit()
         );
 #endif
     // Register request headers we need to inspect (ESP32 WebServer discards them by default)
-    const char* headersToCollect[] = { "If-None-Match" };
-    CfgServer.collectHeaders(headersToCollect, 1);
+    const char* headersToCollect[] = { "If-None-Match", "Range" };
+    CfgServer.collectHeaders(headersToCollect, 2);
 
     // Start server
     CfgServer.begin();
@@ -3147,6 +3147,12 @@ void HandleBench()
     else
         sPage += "<option>SD busy or unavailable</option>";
     sPage += "</select></label> "
+             "<label>Parallel: <select id='parallel'>"
+             "<option value='1'>1</option>"
+             "<option value='2'>2</option>"
+             "<option value='4' selected>4</option>"
+             "<option value='8'>8</option>"
+             "</select></label> "
              "<label><input type='checkbox' id='discard' checked> Discard bytes "
              "(don't save)</label> "
              "<button id='go'>Run bench</button></p>\n";
@@ -3178,100 +3184,192 @@ void HandleBench()
     return s[Math.min(s.length - 1, Math.floor(s.length * p))];
   }
 
-  async function run() {
-    const file = document.getElementById('file').value;
-    const discard = document.getElementById('discard').checked;
-    if (!file) { log('No file selected.'); return; }
-    copyBtn.disabled = true;
-    statusEl.textContent = 'Starting: /download?file=' + file + ' (discard=' + discard + ')';
+  // Stream one connection (either the whole file with parallel=1, or one
+  // byte-range with parallel>=2). Returns per-connection timings plus the
+  // chunks for aggregation.
+  async function runOne(file, start, endInclusive, isRange) {
+    const headers = isRange ? { 'Range': 'bytes=' + start + '-' + endInclusive } : {};
     const t0 = performance.now();
-    let resp;
-    try {
-      resp = await fetch('/download?file=' + encodeURIComponent(file), {cache: 'no-store'});
-    } catch (e) { log('fetch failed: ' + e); return; }
+    const resp = await fetch('/download?file=' + encodeURIComponent(file),
+                             {cache: 'no-store', headers});
     const tFirstResponse = performance.now();
-    if (!resp.ok) { log('HTTP ' + resp.status); return; }
-    const totalSize = parseInt(resp.headers.get('content-length') || '0', 10);
-    log('HTTP ' + resp.status + ', content-length=' + totalSize);
-    log('Response headers: ' + fmt(tFirstResponse - t0) + ' ms');
+    if (!resp.ok && resp.status !== 206) throw new Error('HTTP ' + resp.status);
+    const expected = isRange ? (endInclusive - start + 1)
+                             : parseInt(resp.headers.get('content-length') || '0', 10);
     const reader = resp.body.getReader();
-    let tPrev = tFirstResponse;
-    let tFirstByte = 0;
-    let bytes = 0;
-    const gaps = [];
-    const chunkSizes = [];
-    // Per-second throughput buckets for a sparkline.
-    const secondBuckets = [];
-    let curSecond = 0, curSecondBytes = 0;
-    const savedChunks = discard ? null : [];
+    let tPrev = tFirstResponse, tFirstByte = 0, bytes = 0;
+    const gaps = [], chunkSizes = [];
     while (true) {
       const { done, value } = await reader.read();
       const t = performance.now();
       if (done) break;
       if (tFirstByte === 0) tFirstByte = t;
-      const gap = t - tPrev;
+      gaps.push(t - tPrev);
       tPrev = t;
       bytes += value.length;
-      gaps.push(gap);
       chunkSizes.push(value.length);
-      if (!discard) savedChunks.push(value);
-      const nowSec = Math.floor((t - tFirstResponse) / 1000);
-      if (nowSec !== curSecond) {
-        while (secondBuckets.length <= curSecond) secondBuckets.push(curSecondBytes);
-        curSecond = nowSec;
-        curSecondBytes = value.length;
-      } else {
-        curSecondBytes += value.length;
-      }
-      if (bytes % (1024 * 1024) < 65536) {
-        const elapsed = t - tFirstResponse;
-        statusEl.textContent = 'Streaming: ' + fmt(bytes / 1048576, 2) + ' MB / '
-          + fmt(totalSize / 1048576, 2) + ' MB at ' + fmt(kbps(bytes, elapsed), 1)
-          + ' KB/s, elapsed ' + fmt(elapsed / 1000, 1) + ' s';
-      }
     }
-    while (secondBuckets.length <= curSecond) secondBuckets.push(curSecondBytes);
     const tEnd = performance.now();
-    const totalMs = tEnd - tFirstResponse;
-    const steadyStart = Math.floor(gaps.length * 0.1);
-    const steadyEnd   = Math.floor(gaps.length * 0.9);
-    const steadyBytes = chunkSizes.slice(steadyStart, steadyEnd).reduce((a, b) => a + b, 0);
-    const steadyMs    = gaps.slice(steadyStart, steadyEnd).reduce((a, b) => a + b, 0);
+    return {
+      start, endInclusive, expected, bytes,
+      connectMs: +(tFirstResponse - t0).toFixed(1),
+      firstByteMs: tFirstByte ? +(tFirstByte - t0).toFixed(1) : null,
+      totalMs: +(tEnd - tFirstResponse).toFixed(1),
+      status: resp.status,
+      gaps, chunkSizes,
+    };
+  }
+
+  async function run() {
+    const file = document.getElementById('file').value;
+    const discard = document.getElementById('discard').checked;
+    const parallel = parseInt(document.getElementById('parallel').value, 10);
+    if (!file) { log('No file selected.'); return; }
+    copyBtn.disabled = true;
+    statusEl.textContent = 'Fetching file size...';
+
+    // A HEAD request to discover the file size. The existing /download route
+    // accepts GET but not HEAD; issue a Range: bytes=0-0 probe instead, which
+    // returns Content-Range: bytes 0-0/<total> in one byte.
+    let totalSize = 0;
+    try {
+      const probe = await fetch('/download?file=' + encodeURIComponent(file),
+                                {cache: 'no-store', headers: { 'Range': 'bytes=0-0' }});
+      const cr = probe.headers.get('content-range') || '';
+      const m = cr.match(/\/(\d+)$/);
+      if (m) totalSize = parseInt(m[1], 10);
+      await probe.body.cancel();   // we only wanted the header
+    } catch (e) { log('size probe failed: ' + e); return; }
+    if (!totalSize) { log('Could not determine file size. Does firmware support Range?'); return; }
+    log('File: ' + file + ' — ' + fmt(totalSize / 1048576, 2) + ' MB');
+    log('Parallel: ' + parallel + ', discard: ' + discard);
+
+    // Split the file into N contiguous ranges. Last range picks up the remainder.
+    const ranges = [];
+    const chunkSize = Math.floor(totalSize / parallel);
+    for (let i = 0; i < parallel; i++) {
+      const s = i * chunkSize;
+      const e = (i === parallel - 1) ? totalSize - 1 : (s + chunkSize - 1);
+      ranges.push({ start: s, end: e });
+    }
+
+    const tStart = performance.now();
+    // Periodic status update while streams are running.
+    let done = false;
+    const streamBytes = new Array(parallel).fill(0);
+    const tick = setInterval(() => {
+      if (done) return;
+      const b = streamBytes.reduce((a, v) => a + v, 0);
+      const ms = performance.now() - tStart;
+      statusEl.textContent = 'Streaming: ' + fmt(b / 1048576, 2) + ' MB / '
+        + fmt(totalSize / 1048576, 2) + ' MB at ' + fmt(kbps(b, ms), 1)
+        + ' KB/s, elapsed ' + fmt(ms / 1000, 1) + ' s';
+    }, 250);
+
+    // Wrap runOne so we can update streamBytes as it goes.
+    async function runOneTracked(idx, r) {
+      const isRange = parallel > 1;
+      const headers = isRange ? { 'Range': 'bytes=' + r.start + '-' + r.end } : {};
+      const t0 = performance.now();
+      const resp = await fetch('/download?file=' + encodeURIComponent(file),
+                               {cache: 'no-store', headers});
+      const tFirstResponse = performance.now();
+      if (!resp.ok && resp.status !== 206) throw new Error('HTTP ' + resp.status);
+      const reader = resp.body.getReader();
+      let tPrev = tFirstResponse, tFirstByte = 0, bytes = 0;
+      const gaps = [], chunkSizes = [];
+      while (true) {
+        const { done: d, value } = await reader.read();
+        const t = performance.now();
+        if (d) break;
+        if (tFirstByte === 0) tFirstByte = t;
+        gaps.push(t - tPrev);
+        tPrev = t;
+        bytes += value.length;
+        chunkSizes.push(value.length);
+        streamBytes[idx] = bytes;
+      }
+      const tEnd = performance.now();
+      return {
+        idx, start: r.start, end: r.end, status: resp.status,
+        expected: r.end - r.start + 1, bytes,
+        connectMs: +(tFirstResponse - t0).toFixed(1),
+        firstByteMs: tFirstByte ? +(tFirstByte - t0).toFixed(1) : null,
+        totalMs: +(tEnd - tFirstResponse).toFixed(1),
+        gaps, chunkSizes,
+      };
+    }
+
+    let results;
+    try {
+      results = await Promise.all(ranges.map((r, i) => runOneTracked(i, r)));
+    } catch (e) {
+      done = true; clearInterval(tick);
+      log('stream failed: ' + e);
+      return;
+    }
+    done = true; clearInterval(tick);
+
+    const tEnd = performance.now();
+    const totalMs = tEnd - tStart;
+    const totalBytes = results.reduce((a, r) => a + r.bytes, 0);
+    // Aggregate gaps and chunk sizes across streams for one combined picture.
+    const allGaps   = results.flatMap(r => r.gaps);
+    const allChunks = results.flatMap(r => r.chunkSizes);
+
     const result = {
-      file, discard, totalSize, bytes,
+      file, discard, parallel, totalSize, bytes: totalBytes,
       totalMs: +totalMs.toFixed(1),
-      avgKBps: +kbps(bytes, totalMs).toFixed(1),
-      steadyKBps: steadyMs > 0 ? +kbps(steadyBytes, steadyMs).toFixed(1) : 0,
-      firstByteMs: +(tFirstByte - t0).toFixed(1),
-      chunkCount: gaps.length,
-      chunkSize:  { min: Math.min(...chunkSizes), med: pct(chunkSizes, 0.5),
-                    p95: pct(chunkSizes, 0.95),   max: Math.max(...chunkSizes) },
-      gapMs:      { min: +pct(gaps, 0.0).toFixed(2),  med: +pct(gaps, 0.5).toFixed(2),
-                    p95: +pct(gaps, 0.95).toFixed(2), max: +Math.max(...gaps).toFixed(2) },
-      kBpsPerSecond: secondBuckets.map(b => +((b / 1024).toFixed(1))),
+      avgKBps: +kbps(totalBytes, totalMs).toFixed(1),
+      perStream: results.map(r => ({
+        idx: r.idx, start: r.start, end: r.end, status: r.status,
+        expected: r.expected, bytes: r.bytes,
+        connectMs: r.connectMs, firstByteMs: r.firstByteMs,
+        totalMs: r.totalMs,
+        kBps: +kbps(r.bytes, r.totalMs).toFixed(1),
+      })),
+      chunkSize: { min: Math.min(...allChunks), med: pct(allChunks, 0.5),
+                   p95: pct(allChunks, 0.95),   max: Math.max(...allChunks) },
+      gapMs: { min: +pct(allGaps, 0.0).toFixed(2),  med: +pct(allGaps, 0.5).toFixed(2),
+               p95: +pct(allGaps, 0.95).toFixed(2), max: +Math.max(...allGaps).toFixed(2) },
       userAgent: navigator.userAgent,
     };
     lastResult = result;
+
     log('---');
-    log('Total: ' + fmt(bytes / 1048576, 2) + ' MB in ' + fmt(totalMs / 1000, 2) + ' s '
-        + '= ' + fmt(result.avgKBps, 1) + ' KB/s');
-    log('Steady-state (middle 80%): ' + fmt(result.steadyKBps, 1) + ' KB/s');
-    log('First-byte latency: ' + fmt(result.firstByteMs, 1) + ' ms');
-    log('Chunks: ' + result.chunkCount
-        + '  size min/med/p95/max = ' + result.chunkSize.min + '/' + result.chunkSize.med
-        + '/' + result.chunkSize.p95 + '/' + result.chunkSize.max + ' B');
-    log('Chunk gap ms: min/med/p95/max = ' + result.gapMs.min + '/' + result.gapMs.med
-        + '/' + result.gapMs.p95 + '/' + result.gapMs.max);
-    log('Per-second throughput (KB/s): '
-        + result.kBpsPerSecond.slice(0, 40).join(', ')
-        + (result.kBpsPerSecond.length > 40 ? ' ...' : ''));
+    log('Total: ' + fmt(totalBytes / 1048576, 2) + ' MB in ' + fmt(totalMs / 1000, 2) + ' s '
+        + '= ' + fmt(result.avgKBps, 1) + ' KB/s  (parallel=' + parallel + ')');
+    for (const s of result.perStream) {
+      log('  stream ' + s.idx + ': ' + fmt(s.bytes / 1048576, 2) + ' MB in '
+          + fmt(s.totalMs / 1000, 2) + ' s = ' + fmt(s.kBps, 1) + ' KB/s'
+          + ' (status ' + s.status + ', firstByte ' + s.firstByteMs + ' ms)');
+    }
+    log('Combined chunk size min/med/p95/max = ' + result.chunkSize.min
+        + '/' + result.chunkSize.med + '/' + result.chunkSize.p95 + '/' + result.chunkSize.max + ' B');
+    log('Combined gap ms min/med/p95/max = ' + result.gapMs.min
+        + '/' + result.gapMs.med + '/' + result.gapMs.p95 + '/' + result.gapMs.max);
     copyBtn.disabled = false;
   }
 
   document.getElementById('go').addEventListener('click', run);
+  function copyToClipboard(text) {
+    // navigator.clipboard is only defined in secure contexts (https/localhost),
+    // and the OnSpeed SoftAP serves plain HTTP. Fall back to the textarea
+    // + execCommand('copy') trick that works everywhere.
+    if (navigator.clipboard && window.isSecureContext)
+      return navigator.clipboard.writeText(text);
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.top = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    return Promise.resolve();
+  }
   copyBtn.addEventListener('click', () => {
     if (!lastResult) return;
-    navigator.clipboard.writeText(JSON.stringify(lastResult, null, 2))
+    copyToClipboard(JSON.stringify(lastResult, null, 2))
       .then(() => { copyBtn.textContent = 'Copied!';
                     setTimeout(() => copyBtn.textContent = 'Copy results JSON', 1500); });
   });
@@ -3343,6 +3441,34 @@ void HandleDelete()
 
 // ----------------------------------------------------------------------------
 
+// Parse a single-range HTTP Range header of the form "bytes=<start>-<end>" or
+// "bytes=<start>-". Returns true and fills *pStart/*pEndInclusive if parseable
+// and within [0, fileSize). Only supports a single range (no multi-range).
+// end inclusive, per RFC 7233.
+static bool ParseRangeHeader(const String & sHeader, size_t fileSize,
+                             size_t * pStart, size_t * pEndInclusive)
+    {
+    if (!sHeader.startsWith("bytes="))
+        return false;
+    int iDash = sHeader.indexOf('-', 6);
+    if (iDash < 0)
+        return false;
+    String sStart = sHeader.substring(6, iDash);
+    String sEnd   = sHeader.substring(iDash + 1);
+    if (sStart.length() == 0)
+        return false;        // suffix ranges ("bytes=-500") not needed here
+    long long iStart = atoll(sStart.c_str());
+    long long iEnd   = sEnd.length() ? atoll(sEnd.c_str())
+                                     : (long long)fileSize - 1;
+    if (iStart < 0 || iEnd < iStart || (size_t)iStart >= fileSize)
+        return false;
+    if ((size_t)iEnd >= fileSize)
+        iEnd = fileSize - 1;
+    *pStart        = (size_t)iStart;
+    *pEndInclusive = (size_t)iEnd;
+    return true;
+    }
+
 void HandleDownload()
     {
     FsFile file;
@@ -3390,27 +3516,78 @@ void HandleDownload()
         return;
         }
 
-    // Send headers to trigger download
-    CfgServer.setContentLength(fileSize);
+    // Parse Range header if present. Only single-range supported.
+    size_t rangeStart = 0;
+    size_t rangeEnd   = fileSize > 0 ? fileSize - 1 : 0;
+    bool   bRange     = false;
+    String sRange     = CfgServer.header("Range");
+    if (sRange.length() > 0)
+        {
+        if (!ParseRangeHeader(sRange, fileSize, &rangeStart, &rangeEnd))
+            {
+            // Invalid / unsatisfiable range; close the file and bail.
+            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
+                {
+                file.close();
+                xSemaphoreGive(xWriteMutex);
+                }
+            char szContentRange[64];
+            snprintf(szContentRange, sizeof(szContentRange),
+                     "bytes */%u", (unsigned)fileSize);
+            CfgServer.sendHeader("Content-Range", szContentRange);
+            CfgServer.send(416, "text/plain", "Range Not Satisfiable");
+            return;
+            }
+        bRange = true;
+        }
+
+    size_t bytesToSend = rangeEnd - rangeStart + 1;
+
+    // Advertise range support so the browser knows parallel downloads work.
+    CfgServer.sendHeader("Accept-Ranges", "bytes");
     CfgServer.sendHeader("Content-Type", "application/octet-stream");
-    // Use the validated local, not a second CfgServer.arg() call, so the
-    // Content-Disposition header is guaranteed to reflect the validated name.
     CfgServer.sendHeader("Content-Disposition", "attachment; filename=" + sRawName);
     CfgServer.sendHeader("Connection", "close");
-    CfgServer.send(200);
-//      CfgServer.send(200, "application/octet-stream", "");
+    if (bRange)
+        {
+        char szContentRange[80];
+        snprintf(szContentRange, sizeof(szContentRange),
+                 "bytes %u-%u/%u",
+                 (unsigned)rangeStart, (unsigned)rangeEnd, (unsigned)fileSize);
+        CfgServer.sendHeader("Content-Range", szContentRange);
+        CfgServer.setContentLength(bytesToSend);
+        CfgServer.send(206);
+        }
+    else
+        {
+        CfgServer.setContentLength(fileSize);
+        CfgServer.send(200);
+        }
+
+    // Seek to the range start under the mutex (SD operation).
+    if (bRange && rangeStart > 0)
+        {
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+            {
+            file.seekSet(rangeStart);
+            xSemaphoreGive(xWriteMutex);
+            }
+        }
 
     WiFiClient client = CfgServer.client();
     uint8_t achBuffer[1460];
-    while (true)
+    size_t  bytesRemaining = bytesToSend;
+    while (bytesRemaining > 0)
         {
-        size_t iLen = 0;
+        size_t iLen     = 0;
+        size_t iWantLen = bytesRemaining < sizeof(achBuffer)
+                          ? bytesRemaining : sizeof(achBuffer);
         // Getting and giving the semaphore is a bit slow
         // but wrapping this in one take / give doesn't speed
         // things that much and not having the sepaphore messes up logging.
         if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
             {
-            iLen = file.read(achBuffer, sizeof(achBuffer));
+            iLen = file.read(achBuffer, iWantLen);
             xSemaphoreGive(xWriteMutex);
             }
         else
@@ -3447,6 +3624,7 @@ void HandleDownload()
 
         if (iWritten != iLen)
             break;
+        bytesRemaining -= iWritten;
         }
 
     if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
