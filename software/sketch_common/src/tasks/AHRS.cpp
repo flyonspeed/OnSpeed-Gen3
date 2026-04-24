@@ -15,7 +15,6 @@
 
 using onspeed::accelPitch;
 using onspeed::accelRoll;
-using onspeed::deg2rad;
 
 // Smoothing alpha for the legacy EMA accel filters.  Kept here only so
 // the filter objects on the AHRS class can be constructed with the same
@@ -155,10 +154,6 @@ AHRS::AHRS(int gyroSmoothing)
     gYaw           = 0.0f;
     fImuSampleRate = kImuSampleRateHz;
     fImuDeltaTime  = 1.0f / fImuSampleRate;
-    fSinPitch      = 0.0f;
-    fCosPitch      = 1.0f;
-    fSinRoll       = 0.0f;
-    fCosRoll       = 1.0f;
     fTAS           = 0.0f;
     bIasWasBelowThreshold = true;
 
@@ -182,15 +177,6 @@ void AHRS::Init(float fSampleRate)
     // AHRS::Init body, which read g_pIMU->PitchAC()/RollAC() directly.
     const onspeed::AhrsInputs seed = SnapshotInputs_();
     core_.Init(seed, g_Sensors.Palt);
-
-    // Mirror the precomputed bias trig from core for any consumer that
-    // happens to read these (none today, but keep the contract).
-    const float fPitchBiasRad = deg2rad(g_Config.fPitchBias);
-    const float fRollBiasRad  = deg2rad(g_Config.fRollBias);
-    fSinPitch = sinf(fPitchBiasRad);
-    fCosPitch = cosf(fPitchBiasRad);
-    fSinRoll  = sinf(fRollBiasRad);
-    fCosRoll  = cosf(fRollBiasRad);
 
     // Publish initial outputs (pitch/roll seeded by core::Init).
     SmoothedPitch = core_.latest().pitchDeg;
