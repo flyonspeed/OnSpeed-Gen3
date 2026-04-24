@@ -17,6 +17,14 @@
 // Single-sensor assumption: every command uses skip-ROM (0xCC). A bus
 // with two DS18B20s would garble — add ROM addressing if you ever
 // need that (OnSpeed Gen3 has exactly one).
+//
+// External-power assumption: the OAT sensor is wired with an external
+// VDD supply, not parasite power. The Convert-T kick in
+// RequestConversion() does NOT assert a strong pullup during the
+// 750 ms conversion window, which a parasite-powered sensor would
+// require. If a future hardware variant ever switches to parasite
+// power, RequestConversion must pass `power=1` on the Convert-T
+// write and drive the bus high for the conversion window.
 
 #pragma once
 

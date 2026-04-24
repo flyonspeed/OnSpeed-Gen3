@@ -17,6 +17,7 @@
 #include <sensors/Ds18b20Decode.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <cmath>
 
 using onspeed::sensors::DecodeDs18b20Celsius;
@@ -52,50 +53,122 @@ static void buildValidPad(uint8_t out[9], uint8_t lsb, uint8_t msb)
 }
 
 // ---------------------------------------------------------------------------
-// Independent CRC-8 reference (MAXIM/Dallas reflected polynomial 0x8C,
-// init 0). This is the bit-reflected form of x^8 + x^5 + x^4 + 1; it's
-// what the DS18B20 scratchpad CRC uses and what OneWire::crc8 computes.
-// Kept here as a test-local reference so we're comparing two
-// independent implementations, not the decoder against itself.
+// Table-driven CRC-8 reference (MAXIM/Dallas polynomial, reflected 0x8C).
+//
+// This reference uses a different algorithm from the production
+// shift-register variant in Ds18b20Decode.h, so a bug in either path
+// shows up as a disagreement on at least some input.  The table is
+// built at static-init time from the polynomial, matching the one
+// the AVR build of OneWire::crc8 baked into PROGMEM.
 // ---------------------------------------------------------------------------
-static uint8_t referenceCrc8(const uint8_t* data, int len)
+namespace {
+
+struct Crc8Table {
+    uint8_t t[256];
+    constexpr Crc8Table() : t{} {
+        for (int i = 0; i < 256; ++i) {
+            uint8_t c = static_cast<uint8_t>(i);
+            for (int b = 0; b < 8; ++b) {
+                c = (c & 1) ? static_cast<uint8_t>((c >> 1) ^ 0x8C)
+                            : static_cast<uint8_t>(c >> 1);
+            }
+            t[i] = c;
+        }
+    }
+};
+
+static const Crc8Table kCrc8Table;
+
+uint8_t tableDrivenCrc8(const uint8_t* data, int len)
 {
     uint8_t crc = 0;
     for (int i = 0; i < len; ++i) {
-        uint8_t b = data[i];
-        for (int bit = 0; bit < 8; ++bit) {
-            uint8_t mix = static_cast<uint8_t>(crc ^ b) & 0x01;
-            crc >>= 1;
-            if (mix) crc ^= 0x8C;
-            b >>= 1;
-        }
+        crc = kCrc8Table.t[crc ^ data[i]];
     }
     return crc;
 }
 
+} // namespace
+
 // ---------------------------------------------------------------------------
-// CRC correctness: our Ds18b20Crc8 must match an independent reference
-// for the 8-byte scratchpad prefix, on a set of known vectors.
+// CRC correctness — Part A: compare production Ds18b20Crc8 against
+// hardcoded vectors computed outside the C++ toolchain.
+//
+// These constants were produced by two independent Python
+// implementations (shift-register and table-driven, both agreeing).
+// Hardcoding them means this test catches any bug in either of the
+// C++ implementations without either implementation acting as its
+// own reference.
 // ---------------------------------------------------------------------------
 
-void test_crc8_matches_reference_on_known_vectors()
+void test_crc8_matches_hardcoded_vectors()
 {
-    // Vector 1: +25.0625C @ 12-bit, default alarms
-    const uint8_t v1[8] = {0x91, 0x01, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10};
-    TEST_ASSERT_EQUAL_UINT8(referenceCrc8(v1, 8), Ds18b20Crc8(v1, 8));
+    struct V {
+        const char* name;
+        uint8_t data[8];
+        int len;
+        uint8_t expected;
+    };
 
-    // Vector 2: all zero (CRC should also be 0)
-    const uint8_t v2[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-    TEST_ASSERT_EQUAL_UINT8(0, Ds18b20Crc8(v2, 8));
-    TEST_ASSERT_EQUAL_UINT8(referenceCrc8(v2, 8), Ds18b20Crc8(v2, 8));
+    const V vectors[] = {
+        // 8-byte scratchpad prefixes (real DS18B20 readings)
+        {"+25.0625C 12-bit",  {0x91, 0x01, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10}, 8, 0x70},
+        {"all zeros",         {0,    0,    0,    0,    0,    0,    0,    0},    8, 0x00},
+        {"-55C 12-bit",       {0x90, 0xFC, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10}, 8, 0x4F},
+        {"all 0xFF",          {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, 8, 0xC9},
+        {"+85C POR",          {0x50, 0x05, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10}, 8, 0x1C},
+        {"+0.5C 12-bit",      {0x08, 0x00, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10}, 8, 0xE2},
+        {"-0.5C 12-bit",      {0xF8, 0xFF, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10}, 8, 0xC3},
+        {"0x01..0x08",        {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}, 8, 0x83},
+    };
 
-    // Vector 3: -55C @ 12-bit
-    const uint8_t v3[8] = {0x90, 0xFC, 0x4B, 0x46, 0x7F, 0xFF, 0x0C, 0x10};
-    TEST_ASSERT_EQUAL_UINT8(referenceCrc8(v3, 8), Ds18b20Crc8(v3, 8));
+    for (const auto& v : vectors) {
+        uint8_t got = Ds18b20Crc8(v.data, v.len);
+        if (got != v.expected) {
+            char msg[128];
+            snprintf(msg, sizeof(msg),
+                     "CRC mismatch on vector '%s': expected 0x%02X, got 0x%02X",
+                     v.name, v.expected, got);
+            TEST_FAIL_MESSAGE(msg);
+        }
+    }
+}
 
-    // Vector 4: all-ones noise
-    const uint8_t v4[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-    TEST_ASSERT_EQUAL_UINT8(referenceCrc8(v4, 8), Ds18b20Crc8(v4, 8));
+// ---------------------------------------------------------------------------
+// CRC correctness — Part B: cross-check production shift-register
+// implementation against an algorithmically different table-driven
+// reference across many inputs.
+// ---------------------------------------------------------------------------
+
+void test_crc8_matches_table_driven_reference_exhaustive_singles()
+{
+    // All 256 single-byte inputs.
+    for (int i = 0; i < 256; ++i) {
+        uint8_t b = static_cast<uint8_t>(i);
+        TEST_ASSERT_EQUAL_UINT8(tableDrivenCrc8(&b, 1), Ds18b20Crc8(&b, 1));
+    }
+}
+
+void test_crc8_matches_table_driven_reference_random_streams()
+{
+    // Deterministic PRNG so the test is reproducible.
+    uint32_t rng = 0xDEADBEEF;
+    auto next = [&rng]() -> uint8_t {
+        // xorshift32 — cheap and completely independent from the CRC.
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return static_cast<uint8_t>(rng & 0xFF);
+    };
+
+    // 500 random messages of lengths 1..64 bytes.
+    for (int iter = 0; iter < 500; ++iter) {
+        uint8_t buf[64];
+        int len = 1 + (next() & 0x3F);  // 1..64
+        for (int i = 0; i < len; ++i) buf[i] = next();
+        TEST_ASSERT_EQUAL_UINT8(tableDrivenCrc8(buf, len),
+                                Ds18b20Crc8(buf, len));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +319,9 @@ void test_decode_every_lsb_step_in_normal_range()
 int main(int, char**)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_crc8_matches_reference_on_known_vectors);
+    RUN_TEST(test_crc8_matches_hardcoded_vectors);
+    RUN_TEST(test_crc8_matches_table_driven_reference_exhaustive_singles);
+    RUN_TEST(test_crc8_matches_table_driven_reference_random_streams);
 
     RUN_TEST(test_decode_positive_25_0625);
     RUN_TEST(test_decode_positive_125);

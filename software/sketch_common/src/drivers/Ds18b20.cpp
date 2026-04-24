@@ -50,6 +50,13 @@ bool Ds18b20::Begin(int bits)
     bus_.write(ConfigByteFor(bits));
     // Per the datasheet the scratchpad write does not need a
     // trailing reset — the next bus transaction will issue one.
+    //
+    // We intentionally do NOT send COPYSCRATCH (0x48) to persist the
+    // config byte to the DS18B20's internal EEPROM. Begin() runs at
+    // every boot, so the in-RAM scratchpad config is always refreshed
+    // before the first Convert-T — persisting it would just add a
+    // 20 ms EEPROM write with no benefit, and would wear the EEPROM
+    // every boot (the DS18B20 EEPROM is rated for ~50k writes).
     return true;
 }
 
