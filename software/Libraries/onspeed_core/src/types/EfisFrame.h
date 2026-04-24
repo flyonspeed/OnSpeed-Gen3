@@ -69,6 +69,13 @@ struct EfisFrame {
     // Microsecond-resolution timestamp of the most recent parse.
     // Wraps ~71 minutes; consumers must diff with uint32_t arithmetic.
     uint32_t timestampUs = 0;
+
+    // Wall-clock time-of-day from the EFIS, as "HH:MM:SS" NUL-terminated.
+    // Empty string ("") means this frame did not carry a valid time.
+    // Parsers populate this only when the underlying protocol provides
+    // a real time and the frame's validity sentinel (Dynon's all-dashes,
+    // VN-300's GPSFix==0, etc.) doesn't mark it as absent.
+    char timeOfDayHms[9] = {};
 };
 
 }   // namespace onspeed
