@@ -37,6 +37,14 @@ void HousekeepingTask(void * pvParams)
         vTaskDelay(pdMS_TO_TICKS(100));
         uTick++;
 
+        // Boot diagnostics heartbeat — poll every 20 ticks (2 s); Heartbeat
+        // itself is threshold-gated internally and only actually writes NVS
+        // on the first poll after crossing 5 s, 60 s, 5 min, 30 min, 1 hr
+        // (five writes per boot total). See src/util/BootDiagnostics.h for
+        // why we don't write every tick.
+        if (uTick % 20 == 0)
+            BootDiag::Heartbeat();
+
         // Monotonic millisecond clock passed into all core decision functions.
         // xTaskGetTickCount() * portTICK_PERIOD_MS gives the elapsed ms since boot.
         uint32_t nowMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
