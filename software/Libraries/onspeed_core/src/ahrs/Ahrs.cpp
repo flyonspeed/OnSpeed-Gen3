@@ -19,6 +19,11 @@ constexpr float kIasSmoothing      = 0.0179f;              // EMA alpha for IAS-
 constexpr float kIasTauFactor      = (1.0f / kIasSmoothing) - 1.0f;
 constexpr float kEkfGravityMps2    = 9.80665f;
 constexpr float kKalZVariance      = 0.79078f;
+// Time constant (seconds) for the iasAlive rising-edge fade-in applied to
+// the forward/lateral/vertical accel compensation factors.  ~0.5 s hides
+// the one-frame TAS step without significantly delaying the useful comp
+// signal.  See issue #114 and the compFadeIn_ comment in Ahrs.h.
+constexpr float kCompFadeTauSec    = 0.5f;
 // Lower bound for KalmanFilter's per-update accel-variance clamp. Higher
 // values make the filter distrust the accel input and lean on baro
 // altitude — smoother but laggier VSI.
@@ -290,9 +295,19 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         const float AccelVertCompFactor =
             onspeed::mps2g(onspeed::deg2rad(tas_ * fPitchRateForComp));
 
-        accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_)   - AccelFwdCompFactor;
-        accelLatComp_  = accelLatFilter_.update(accelLatCorr_)   - AccelLatCompFactor;
-        accelVertComp_ = accelVertFilter_.update(accelVertCorr_) + AccelVertCompFactor;
+        // Ramp the comp factors in smoothly after the iasAlive rising
+        // edge.  The variable-dt EMA form (α = dt / (τ + dt)) matches the
+        // updateTas_() pattern above and keeps the time constant
+        // independent of IMU rate.  See issue #114.
+        const float fadeAlpha = dtSec / (kCompFadeTauSec + dtSec);
+        compFadeIn_ += fadeAlpha * (1.0f - compFadeIn_);
+
+        accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_)
+                         - compFadeIn_ * AccelFwdCompFactor;
+        accelLatComp_  = accelLatFilter_.update(accelLatCorr_)
+                         - compFadeIn_ * AccelLatCompFactor;
+        accelVertComp_ = accelVertFilter_.update(accelVertCorr_)
+                         + compFadeIn_ * AccelVertCompFactor;
     } else {
         // IAS not alive — tick the accel EMAs so they track the raw
         // installation-corrected readings (otherwise the smoothed accel
@@ -310,14 +325,12 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         // charge keeps prevTas_ in sync with tas_, which is what its
         // derivative math needs.
         //
-        // The rising-edge transient (~3g accelFwdComp spike for ~1
-        // pressure frame, ~0.1-1.8° of pitch drift over 1-2s before the
-        // accel EMA swallows it) is present in master today without
-        // this gate — the gate does not make it worse.  Issue #114
-        // tracks a fade-in ramp that would eliminate it properly.
+        // Reset the comp fade-in coefficient so the next rising edge
+        // ramps in again from zero.  See issue #114.
         accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_);
         accelLatComp_  = accelLatFilter_.update(accelLatCorr_);
         accelVertComp_ = accelVertFilter_.update(accelVertCorr_);
+        compFadeIn_    = 0.0f;
     }
 
     // 5. Run the chosen attitude filter.

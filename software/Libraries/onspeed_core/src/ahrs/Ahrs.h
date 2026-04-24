@@ -107,6 +107,12 @@ public:
     // care about this even when no fresh frame was just processed.
     float tasMps() const { return tas_; }
 
+    // Current fade-in coefficient applied to the forward / lateral /
+    // vertical accel compensation factors.  Ramps 0 -> 1 on a τ ≈ 0.5 s
+    // EMA after iasAlive rises; snaps back to 0 when iasAlive falls.
+    // Exposed for unit-test observability — see issue #114.
+    float compFadeIn() const { return compFadeIn_; }
+
     // The ImuTask currently uses fImuDeltaTime as a fallback when the
     // measured dt is invalid.  Expose for the sketch shim.
     float imuDeltaTimeSec() const { return imuDeltaTime_; }
@@ -174,6 +180,25 @@ private:
     float tasDotSmoothed_ = 0.0f;
     uint32_t lastIasUpdateUs_ = 0;
     bool     iasWasBelowThreshold_ = true;
+
+    // Fade-in coefficient (0..1) for the forward/lateral/vertical accel
+    // compensation factors.  EMA-ramps from 0 to 1 on τ ≈ 0.5 s while
+    // iasAlive is true; snaps back to 0 the frame iasAlive falls.
+    //
+    // Rationale: on the iasAlive rising edge (takeoff roll crossing ~20
+    // kt), tas_ steps from 0 to ~10 m/s in one pressure frame, causing
+    // tasDotSmoothed_ to spike and the three comp factors to jump from 0
+    // to full magnitude in one frame.  The forward-comp path peaks at
+    // ~3.75 g in one frame before the IAS EMA swallows it.  Fading the
+    // coefficient in over ~0.5 s removes the discontinuity at the gate
+    // boundary without changing steady-state behaviour.  See issue #114.
+    //
+    // NOT reset in Init() for the same reason tas_ state isn't reset
+    // there: Init() is called on every web UI config save, and zeroing
+    // the fade mid-flight would momentarily re-disable comp factors and
+    // inject a new transient.  Constructor init-to-0 at boot is the
+    // only zeroing needed.
+    float compFadeIn_ = 0.0f;
 
     // Latest Kalman outputs in legacy units (mirrors the published
     // outputs_.kalmanAltFt/Vsi but in meters and m/s).  Saved so the
