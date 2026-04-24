@@ -309,6 +309,10 @@ void LogSensor::Open()
         {
             g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "SensorFile opening error. Logging disabled.");
             g_Config.bSdLogging = false;
+            // Clear base name so ActiveBaseName() doesn't advertise a
+            // session that never really started. Otherwise the web UI
+            // would block deletion of a nonexistent "log_NNN.csv".
+            m_szBaseName[0] = '\0';
         }
     } // end if sensor data and SD disk available
 
