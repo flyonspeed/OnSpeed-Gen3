@@ -1,10 +1,14 @@
-// Ported from OnSpeed Gen2 OnSpeed_M5_display/SerialRead.ino
 // Parses the OnSpeed #1 serial protocol and preprocesses data for display.
 
+#if defined(ESP_PLATFORM)
 #include <Arduino.h>
+#include <Preferences.h>
+#else
+#include "../sim/ArduinoShim.h"
+#endif
+
 #include <M5Unified.h>
 #include <Free_Fonts.h>
-#include <Preferences.h>
 #include <filters/SavGolDerivative.h>
 #include <proto/DisplaySerial.h>
 #include "SerialRead.h"
@@ -24,6 +28,8 @@ static double iasDerivativeInput;
 static onspeed::SavGolDerivative iasDerivative(&iasDerivativeInput, 15);
 
 extern M5Canvas gdraw;
+
+#if defined(ESP_PLATFORM)
 static const uint16_t WIDTH  = 320;
 static const uint16_t HEIGHT = 240;
 
@@ -46,6 +52,7 @@ static constexpr int PORTC_RX    = 16;
 static constexpr int PORTC_TX    = 17;
 static constexpr int SIMDEMO_RX  = 22;
 #endif
+#endif // ESP_PLATFORM
 
 // -----------------------------------------------
 
@@ -62,136 +69,143 @@ bool serialDataFresh()
 }
 
 // -----------------------------------------------
+// Byte-stream state machine. Exposed as a public entry point so the
+// same parser can be fed from the hardware UART today and from a
+// non-UART byte source (e.g. a future CSV replay harness on the
+// desktop/WASM sim) without branching the render path. Matches one
+// 80-byte #1 frame: '#' '1' ... LF, checksum-verified downstream.
+// -----------------------------------------------
+
+void InjectSerialByte(char inChar)
+{
+    if (inChar == '#')
+    {
+        // reset RX buffer
+        serialBufferString = inChar;
+        return;
+    }
+
+    if (serialBufferString.length() > 80)
+    {
+        // prevent buffer overflow;
+        serialBufferString = "";
+        Serial.println("Serial data buffer overflow");
+        Serial.println(serialBufferString);
+        return;
+    }
+
+    if (serialBufferString.length() == 0)
+        return;
+
+    serialBufferString += inChar;
+
+    if (!(serialBufferString.length() == 80 &&
+          serialBufferString[0]       == '#' &&
+          serialBufferString[1]       == '1' &&
+          inChar                      == char(0x0A))) // ONSPEED protocol
+        return;
+
+    #ifdef SERIALDATADEBUG
+    Serial.println(serialBufferString);
+    #endif
+
+    // Parse the frame via the shared core module.
+    // ParseDisplayFrame verifies the checksum and extracts all fields.
+    auto result = ParseDisplayFrame(
+        reinterpret_cast<const uint8_t*>(serialBufferString.c_str()),
+        kDisplayFrameSizeBytes);
+
+    if (!result.has_value())
+    {
+        Serial.println("ONSPEED CRC Failed");
+        return;
+    }
+
+    const DisplayFrame& f = result.value();
+
+    Pitch               = f.pitchDeg;
+    Roll                = f.rollDeg;
+    IAS                 = f.iasKt;
+    Palt                = f.paltFt;
+    LateralG            = f.lateralG;
+    VerticalG           = f.verticalG;
+    PercentLift         = f.percentLift;
+    AOA                 = f.aoaDeg;
+    iVSI                = f.vsiFpm;
+    OAT                 = f.oatC;
+    FlightPath          = f.flightPathDeg;
+    FlapPos             = f.flapsDeg;
+    OnSpeedStallWarnAOA = f.stallWarnAoaDeg;
+    OnSpeedSlowAOA      = f.onSpeedSlowAoaDeg;
+    OnSpeedFastAOA      = f.onSpeedFastAoaDeg;
+    OnSpeedTonesOnAOA   = f.tonesOnAoaDeg;
+    gOnsetRate          = f.gOnsetRate;
+    SpinRecoveryCue     = f.spinRecoveryCue;
+    DataMark            = f.dataMark;
+
+    serialBufferString = "";
+
+    // Measure actual frame period rather than assuming a fixed rate.
+    // The main firmware's display serial task runs at
+    // kDisplaySerialPeriodMs (currently 20 Hz), but hardcoding that here is
+    // a fragility we don't want — this mirrors how the main firmware's AHRS
+    // (Madgwick, EKF6) also uses measured dt each tick.
+    static uint32_t lastFrameMicros = 0;
+    uint32_t nowMicros = micros();
+    float frameDtSec = (lastFrameMicros == 0)
+                           ? 0.05f
+                           : (nowMicros - lastFrameMicros) * 1e-6f;
+
+    // Finding 036: on a long serial gap (OnSpeed box reboot, cable reconnect),
+    // the SavGol window still holds 15 stale pre-gap IAS samples. Against a
+    // single fresh sample those produce a huge bogus derivative for the first
+    // ~15 post-gap frames. Reset the filter (and drain the EMAs) whenever we
+    // see > 500 ms between frames. This must run BEFORE the dt clamp below,
+    // since a genuine outage produces dt >> 0.2 s and the clamp would
+    // otherwise hide it.
+    if (lastFrameMicros != 0 && frameDtSec > 0.5f)
+    {
+        iasDerivative.reset();
+        DecelRate         = 0.0f;
+        SmoothedDecelRate = 0.0f;
+    }
+
+    lastFrameMicros = nowMicros;
+
+    // Soft warning if frame cadence drifts outside expected band — real
+    // firmware targets 50 ms; bench replay tools may be slightly off.
+    if (frameDtSec < 0.020f || frameDtSec > 0.200f)
+        Serial.printf("WARN: unexpected frame dt=%.3fs\n", frameDtSec);
+
+    // Finding 035: clamp to a sane band before dividing the SavGol derivative
+    // by it. Lower bound is half the nominal 20 ms frame period — well below
+    // the protocol rate but far enough from zero to avoid div-by-tiny-number
+    // explosion when two frames arrive back-to-back (replay bursts, post-stall
+    // buffer drain). Upper bound matches the warn band.
+    frameDtSec = constrain(frameDtSec, 0.010f, 0.200f);
+
+    SerialProcess(frameDtSec);
+
+    #ifdef SERIALDATADEBUG
+    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, AOA: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, AOA);
+    Serial.println();
+    #endif
+
+    serialMillis = millis();
+}
+
+// -----------------------------------------------
 
 void SerialRead()
 {
 #ifndef DUMMY_SERIAL_DATA
-    char inChar;
-
+#ifdef ESP_PLATFORM
     if (Serial2.available())
-    {
-        inChar=Serial2.read();
-        if (inChar == '#')
-        {
-            // reset RX buffer
-            serialBufferString = inChar;
-            return;
-        }
-
-        if  (serialBufferString.length() > 80)
-        {
-            // prevent buffer overflow;
-            serialBufferString = "";
-            Serial.println("Serial data buffer overflow");
-            Serial.println(serialBufferString);
-            return;
-        }
-
-        if (serialBufferString.length() > 0)
-        {
-            serialBufferString += inChar;
-
-            if (serialBufferString.length() == 80 &&
-                serialBufferString[0]       =='#' &&
-                serialBufferString[1]       =='1' &&
-                inChar                      == char(0x0A)) // ONSPEED protocol
-            {
-                #ifdef SERIALDATADEBUG
-                Serial.println(serialBufferString);
-                #endif
-
-                // Parse the frame via the shared core module.
-                // ParseDisplayFrame verifies the checksum and extracts all fields.
-                auto result = ParseDisplayFrame(
-                    reinterpret_cast<const uint8_t*>(serialBufferString.c_str()),
-                    kDisplayFrameSizeBytes);
-
-                if (result.has_value())
-                {
-                    const DisplayFrame& f = result.value();
-
-                    Pitch               = f.pitchDeg;
-                    Roll                = f.rollDeg;
-                    IAS                 = f.iasKt;
-                    Palt                = f.paltFt;
-                    LateralG            = f.lateralG;
-                    VerticalG           = f.verticalG;
-                    PercentLift         = f.percentLift;
-                    AOA                 = f.aoaDeg;
-                    iVSI                = f.vsiFpm;
-                    OAT                 = f.oatC;
-                    FlightPath          = f.flightPathDeg;
-                    FlapPos             = f.flapsDeg;
-                    OnSpeedStallWarnAOA = f.stallWarnAoaDeg;
-                    OnSpeedSlowAOA      = f.onSpeedSlowAoaDeg;
-                    OnSpeedFastAOA      = f.onSpeedFastAoaDeg;
-                    OnSpeedTonesOnAOA   = f.tonesOnAoaDeg;
-                    gOnsetRate          = f.gOnsetRate;
-                    SpinRecoveryCue     = f.spinRecoveryCue;
-                    DataMark            = f.dataMark;
-
-                    serialBufferString="";
-
-                    // Measure actual frame period rather than assuming a fixed rate.
-                    // The main firmware's display serial task runs at
-                    // kDisplaySerialPeriodMs (currently 20 Hz), but hardcoding
-                    // that here is a fragility we don't want — a prior version
-                    // assumed 10 Hz and the Savitzky-Golay IAS derivative was
-                    // divided by the wrong denominator, so DecelRate read half
-                    // its true value. This mirrors how the main firmware's
-                    // AHRS (Madgwick, EKF6) also uses measured dt each tick.
-                    static uint32_t lastFrameMicros = 0;
-                    uint32_t nowMicros = micros();
-                    float frameDtSec = (lastFrameMicros == 0)
-                                           ? 0.05f
-                                           : (nowMicros - lastFrameMicros) * 1e-6f;
-
-                    // Finding 036: on a long serial gap (OnSpeed box reboot,
-                    // cable reconnect), the SavGol window still holds 15 stale
-                    // pre-gap IAS samples. Against a single fresh sample those
-                    // produce a huge bogus derivative for the first ~15 post-gap
-                    // frames. Reset the filter (and drain the EMAs) whenever we
-                    // see > 500 ms between frames. This must run BEFORE the dt
-                    // clamp below, since a genuine outage produces dt >> 0.2 s
-                    // and the clamp would otherwise hide it.
-                    if (lastFrameMicros != 0 && frameDtSec > 0.5f)
-                    {
-                        iasDerivative.reset();
-                        DecelRate         = 0.0f;
-                        SmoothedDecelRate = 0.0f;
-                    }
-
-                    lastFrameMicros = nowMicros;
-
-                    // Soft warning if frame cadence drifts outside expected
-                    // band — real firmware targets 50 ms; bench replay tools
-                    // may be slightly off.
-                    if (frameDtSec < 0.020f || frameDtSec > 0.200f)
-                        Serial.printf("WARN: unexpected frame dt=%.3fs\n", frameDtSec);
-
-                    // Finding 035: clamp to a sane band before dividing the
-                    // SavGol derivative by it. Lower bound is half the nominal
-                    // 20 ms frame period — well below the protocol rate but far
-                    // enough from zero to avoid div-by-tiny-number explosion
-                    // when two frames arrive back-to-back (replay bursts, post-
-                    // stall buffer drain). Upper bound matches the warn band.
-                    frameDtSec = constrain(frameDtSec, 0.010f, 0.200f);
-
-                    SerialProcess(frameDtSec);
-
-                    #ifdef SERIALDATADEBUG
-                    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, AOA: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, AOA);
-                    Serial.println();
-                    #endif
-
-                    serialMillis=millis();
-                } // end if parse succeeded
-                else
-                    Serial.println("ONSPEED CRC Failed");
-
-            } // end if complete serial message is in the buffer
-        } // end if not null string
-    } // end if serial port chars are available
+        InjectSerialByte(Serial2.read());
+#endif
+    // Desktop / WASM without DUMMY_SERIAL_DATA: no-op. A future CSV
+    // replay harness drives the parser by calling InjectSerialByte()
+    // directly from its own tick.
 #else
     // Provide dummy display data
     uint64_t  currMillis;
@@ -258,6 +272,8 @@ void SerialProcess(float frameDtSec)
     SmoothedDecelRate  =  DecelRate * decelSmoothingAlpha + SmoothedDecelRate * (1-decelSmoothingAlpha);
 } // end SerialProcess()
 
+
+#if defined(ESP_PLATFORM)
 
 // -----------------------------------------------
 
@@ -379,3 +395,5 @@ void serialSetup()
             }
     } // end switch on selected port
 } // end serialSetup()
+
+#endif // ESP_PLATFORM

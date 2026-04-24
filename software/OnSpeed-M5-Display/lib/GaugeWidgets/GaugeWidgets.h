@@ -50,7 +50,14 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
   #define _GAUGEWIDGETS_H_
   
   #include "DeviceDefines.h"
-  
+
+    // On desktop / WASM builds of the M5 display, Arduino's `String` is
+    // missing — the ArduinoShim provides one. Include it before the
+    // header below references `String` in the printNum() signature.
+    #if !defined(ESP_PLATFORM) && !defined(ARDUINO)
+     #include "../../sim/ArduinoShim.h"
+    #endif
+
     #ifdef DEVICE_M5
      #include <M5Unified.h>
     #else

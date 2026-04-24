@@ -62,24 +62,32 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <M5Unified.h>
 #include <Free_Fonts.h>
 
-// includes for web firmware update
+// On the desktop (SDL) and WASM (Emscripten) builds, the ESP32-only headers
+// below don't exist; the ArduinoShim provides String/Serial/Preferences and
+// the firmware-upgrade path guarded by `ESP_PLATFORM` compiles out entirely.
+#if defined(ESP_PLATFORM)
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <WiFiAP.h>
 #include <WebServer.h>
 #include <Update.h>
 #include <Preferences.h>
+#else
+#include "../sim/ArduinoShim.h"
+#endif
 
 #include "SerialRead.h"
 
+#if defined(ESP_PLATFORM)
 Preferences preferences;
 
 WebServer server(80);
 
 const char* ssid         = "OnSpeedDisplay";
 const char* password     = "angleofattack";
-bool        fwUpdateMode = false;
 uint8_t     aiIP[4]      = {192, 168, 0, 2};
+#endif
+bool        fwUpdateMode = false;
 
 #define TFT_GREY        0x7BEF
 #define TFT_LIGHT_GREY  0xAD55
@@ -188,10 +196,12 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
 void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale);
 int mapAOA2Display(float aoa, const float Array[]);
 int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh);
+#if defined(ESP_PLATFORM)
 void handleUpgrade();
 void handleUpgradeSuccess();
 void handleUpgradeFailure();
 void handleIndex();
+#endif
 
 
 // -----------------------------------------------
@@ -232,6 +242,7 @@ void setup()
     {
         M5.update();
 
+#if defined(ESP_PLATFORM)
         //Button B held down at bootup
         if (M5.BtnB.isPressed())
         {
@@ -340,13 +351,14 @@ void setup()
             ); // end server.onNotFound()
             break; // break while loop
         } // end if Button B is pressed
+#endif // ESP_PLATFORM
 
     } // end while splash screen
 
     if (fwUpdateMode)
         return; // do not continue if firmware upgrade mode was selected.
 
-#if !defined(DUMMY_SERIAL_DATA)
+#if defined(ESP_PLATFORM) && !defined(DUMMY_SERIAL_DATA)
     //select serial port from preferences or detect it
     serialSetup();
     Serial.begin(115200); // console serial
@@ -364,6 +376,7 @@ void loop()
 {
     M5.update();
 
+#if defined(ESP_PLATFORM)
     if (fwUpdateMode)
     {
         server.handleClient();
@@ -377,6 +390,7 @@ void loop()
         }
         return;
     } // end if fwUpdateMode
+#endif // ESP_PLATFORM
 
     SerialRead(); // get serial data
 
@@ -1439,6 +1453,7 @@ int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh)
 // Upgrade web server routines
 // -----------------------------------------------
 
+#if defined(ESP_PLATFORM)
 String HtmlStyle =
     "<style  type='text/css' media='screen'>\n"
     "body {\n"
@@ -1579,6 +1594,7 @@ void handleIndex()
 
     server.send(200, "text/html", page);
 }
+#endif // ESP_PLATFORM
 
 
 // -----------------------------------------------
@@ -1592,7 +1608,11 @@ void displaySplashScreen()
     gdraw.drawString("Fly OnSpeed",160,60);
 
     gdraw.setFont(FSS9);
-    gdraw.drawString(String("Version: ") + VARIANT_PREFIX + BuildInfo::version, 160, 120);
+    // Explicit .c_str(): the native-build drawString overload accepts a
+    // bare C-string only. The ESP path had an implicit String->const char*
+    // conversion through M5GFX's Arduino-flavored overloads.
+    const String versionLine = String("Version: ") + VARIANT_PREFIX + BuildInfo::version;
+    gdraw.drawString(versionLine.c_str(), 160, 120);
     gdraw.drawString("To upgrade press Center button",160,220);
     gdraw.pushSprite (0, 0);
     gdraw.deleteSprite();
