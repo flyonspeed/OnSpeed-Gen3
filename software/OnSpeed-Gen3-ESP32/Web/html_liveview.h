@@ -27,7 +27,12 @@ var wsUri = "ws://192.168.0.1:81";
 var lastUpdate  = Date.now();
 var lastDisplay = Date.now();
 
-var AOA            = 0;
+// Initialize AOA to the N/A sentinel (-100) rather than 0, so the page
+// renders in the "no data yet" state before the WebSocket delivers its
+// first message.  The onMessage block gates the SVG bar and the numeric
+// AOA readout on `AOA > -20` — starting below that keeps both hidden
+// until real data arrives.
+var AOA            = -100;
 var IAS            = 0;
 var PAlt           = 0;
 var GLoad          = 1;
@@ -49,6 +54,12 @@ function init()
   // console.log("Init()");
 
   toggleAOA(true)
+
+  // Paint the numeric AOA fields as N/A immediately.  onMessage() only
+  // runs when the WebSocket delivers data, so without this the spans
+  // are blank for the ~300 ms–1 s before the first message arrives.
+  document.getElementById("aoa_aoa").innerHTML = 'N/A';
+  document.getElementById("aoa_att").innerHTML = 'N/A';
 
   writeToStatus("CONNECTING...");
   liveConnecting = true;
@@ -80,8 +91,23 @@ function onClose(evt)
 
 function map(x, in_min, in_max, out_min, out_max)
   {
-  if ((in_max - in_min) + out_min ==0)
-    return 0;
+  // Degenerate-range guard: if the input span collapses, linear
+  // interpolation divides by zero.  The previous guard
+  // `(in_max - in_min) + out_min == 0` only fired when out_min
+  // happened to be zero — every real call site here passes a
+  // non-zero out_min (278/228/178/113), so the old guard was
+  // effectively dead and let divide-by-zero through whenever two
+  // adjacent setpoints were configured equal.
+  //
+  // Fallback returns out_min (the lower-edge Y of the segment)
+  // rather than 0.  This keeps the bar at the bottom of the
+  // collapsed band on a misconfigured unit.  Returning 0 (as
+  // onspeed_core::mapfloat does in its percent-lift context)
+  // would snap the bar to the top of the SVG viewBox — the same
+  // position as a stall warning — which is exactly the wrong
+  // visual cue for a misconfig.
+  if (Math.abs(in_max - in_min) < 0.0001)
+    return out_min;
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
   }
 
@@ -117,27 +143,50 @@ function onMessage(evt)
 
 //      console.log('log:',AOA,IAS,PAlt,GLoad,GLoadLat,PitchAngle,OnSpeed.LDmax,OnSpeed.OnspeedFast,OnSpeed.OnspeedSlow,OnSpeed.OnspeedWarn);
 
-    // move AOA line on display
-    if (AOA<=LDmax)
+    // Move the AOA line on the indexer.  Gate on AOA > -20 so the
+    // N/A sentinel (-100) leaves the bar hidden instead of mapping it
+    // to a nonsense coordinate.  Before this gate the bar rendered at
+    // its static y=144.91 (dead-center, visually "on speed") on
+    // initial page load — a glanceable false positive for a pilot who
+    // hasn't connected yet.
+    if (AOA > -20)
       {
-      var aoaline_y=map(AOA, Alpha0, LDmax, 278, 228);
-      }
-    else if (AOA>LDmax && AOA<=OnspeedFast)
-      {
-      aoaline_y=map(AOA, LDmax, OnspeedFast, 228, 178);
-      }
-    else
-      if (AOA>OnspeedFast && AOA<=OnspeedSlow)
+      var aoaline_y;
+      if (AOA <= LDmax)
         {
-        aoaline_y=map(AOA, OnspeedFast, OnspeedSlow, 178, 113);
+        aoaline_y = map(AOA, Alpha0, LDmax, 278, 228);
         }
-      else if (AOA>OnspeedSlow)
+      else if (AOA <= OnspeedFast)
         {
-        aoaline_y=map(AOA, OnspeedSlow,OnspeedWarn, 113, 15);
-        //console.log('aoaline',aoaline_y,AOA,OnspeedSlow,OnspeedWarn);
+        aoaline_y = map(AOA, LDmax, OnspeedFast, 228, 178);
+        }
+      else if (AOA <= OnspeedSlow)
+        {
+        aoaline_y = map(AOA, OnspeedFast, OnspeedSlow, 178, 113);
+        }
+      else if (AOA <= OnspeedWarn)
+        {
+        aoaline_y = map(AOA, OnspeedSlow, OnspeedWarn, 113, 15);
+        }
+      else
+        {
+        // Above stall warning: clamp to the top of the indicator.
+        // Without this clamp, the previous branch's linear map()
+        // extrapolates past y=15 into negative y, sliding the bar
+        // off the top of the SVG and hiding it — exactly the
+        // wrong visual cue at exactly the wrong moment. The
+        // audible stall tone is already firing; the bar should
+        // be pinned visibly at the top to match.
+        aoaline_y = 15;
         }
 
-    document.getElementById("aoaline").setAttribute("y", aoaline_y);
+      document.getElementById("aoaline").setAttribute("y", aoaline_y);
+      document.getElementById("aoaline").style.visibility = "visible";
+      }
+    else
+      {
+      document.getElementById("aoaline").style.visibility="hidden";
+      }
 
     // calc ldmax dot locations
     ldmax_y=228+3;
@@ -279,7 +328,8 @@ function toggleAOA(state)
 
 updateAttitude(0,0);
 
-//window.addEventListener("load", function() {init();}, false);
+// init() is called by the end-of-body <script>init()</script> below,
+// after the DOM is fully parsed.  No event listener needed.
 
 </script>
 
@@ -296,7 +346,7 @@ updateAttitude(0,0);
         <circle id="onspeeddot" cx="101.8" cy="148.91" r="18" fill="#07a33f" stroke-width=".81089" visibility="hidden"/>
       </g>
       <g fill="#241f1c">
-        <rect id="aoaline" x="52.187" y="144.91" width="100" height="6.6921" style="paint-order:markers fill stroke"/>
+        <rect id="aoaline" x="52.187" y="144.91" width="100" height="6.6921" style="paint-order:markers fill stroke;visibility:hidden"/>
         <circle id="ldmaxleft" cx="46.801" cy="228" r="3.346" stroke-width="1.0419"/>
         <circle id="ldmaxright" cx="157.53" cy="228" r="3.346" stroke-width="1.0419"/>
       </g>
