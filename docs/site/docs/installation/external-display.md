@@ -14,6 +14,28 @@ firmware from a single codebase.
     post-flight analysis (G-load history), initial familiarization with
     the tones, and as a backup attitude indicator.
 
+## Try it in your browser
+
+Here's the live display firmware running in your browser — same C++
+source that runs on the real M5Stack hardware, rendered at its
+native 320×240 resolution.
+
+<iframe src="../../assets/sim/index.html"
+        width="340" height="320"
+        style="display: block; margin: 1.5em auto; border: 0;"
+        title="OnSpeed M5 display simulator"
+        loading="lazy"></iframe>
+
+Click the display, then press <kbd>↓</kbd> to cycle through the five
+modes (the one you're looking at is the primary AOA indexer; there
+are four more). The data feed is a synthetic AOA ramp that sweeps
+from 0° up to 25° and back, so you can watch the chevrons and percent
+lift move through the whole tone-map range. It's not a recorded
+flight — but everything the firmware draws is drawn the same way on
+the real device.
+
+See [Display modes](#display-modes) below for what each mode means.
+
 ## Supported M5Stack units
 
 Both supported units have the same 320×240 ILI9342C color TFT at 40 MHz
@@ -51,33 +73,14 @@ If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.
 
-### Try it in your browser
-
-The real display firmware, compiled to WebAssembly:
-
-<iframe src="../../assets/sim/index.html"
-        width="420" height="620"
-        style="border: 1px solid #555; border-radius: 4px;"
-        title="OnSpeed M5 display simulator"
-        loading="lazy"></iframe>
-
-Click the canvas to focus it, then use the arrow keys. **→** and **←**
-adjust brightness; **↓** cycles through the five display modes. The
-data feed is a synthetic AOA ramp (0 → 25° and back) so you can watch
-the tone-map regions light up in order — not a recorded flight.
-
-The browser build uses the same C++ source as the firmware that runs
-on real M5Stack hardware, with M5GFX's SDL panel backend rendering to
-an HTML5 canvas. Source: [`software/OnSpeed-M5-Display/sim/`](https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display/sim).
-
-### Display modes
+## Display modes
 
 The five modes are selected by pressing **Button B**, which cycles in
 order: **Primary → Attitude → Indexer-only → Energy → G history →**
 back to Primary. The M5 remembers the last-used mode across power
 cycles.
 
-#### Primary — AOA indexer + full readouts
+### Primary — AOA indexer + full readouts
 
 *(Mode 0 — the boot default.)*
 
@@ -139,7 +142,7 @@ below a "zero line" ladder at the right side of the screen, showing
 instantaneous onset (rate of G change per second). Useful for
 spotting sudden pull-ups / push-overs during maneuvering.
 
-#### Attitude — backup AI with AOA
+### Attitude — backup AI with AOA
 
 *(Mode 1.)*
 
@@ -164,7 +167,7 @@ replacement), or during instrument transitions where you want the
 OnSpeed-derived flight path marker overlaid on an independent
 attitude source.
 
-#### Indexer-only — panel-minimal
+### Indexer-only — panel-minimal
 
 *(Mode 2.)*
 
@@ -180,7 +183,7 @@ display, the numeric readouts on Primary mode are redundant. This
 mode keeps only the visual indexer — ideal for a narrow panel cutout
 beside the primary ASI.
 
-#### Energy — deceleration gauge
+### Energy — deceleration gauge
 
 *(Mode 3.)*
 
@@ -202,7 +205,7 @@ approach shows small steady decel (tape near the green band); rapid
 swings indicate you're pumping the stick or fighting turbulence.
 Also useful for gauging flare authority right at touchdown.
 
-#### G history — scrolling G trace
+### G history — scrolling G trace
 
 *(Mode 4.)*
 
