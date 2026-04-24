@@ -71,17 +71,18 @@ static void buildAdahrsFrame(char buf[74],
                               float iasKt, int paltFt,
                               float lateralG, float verticalG,
                               int percentLift,
-                              int vsiFpm, float oatC, float tasKt)
+                              int vsiFpm, float oatC, float tasKt,
+                              int hh = 12, int mm = 34, int ss = 56, int cs = 78)
 {
     char tmp[16];
 
     for (int i = 0; i < 72; i++) buf[i] = ' ';
     buf[0] = '!'; buf[1] = '1'; buf[2] = ' ';
 
-    snprintf(tmp, sizeof(tmp), "%02d", 12);   putField(buf,  3, tmp, 2);  // HH
-    snprintf(tmp, sizeof(tmp), "%02d", 34);   putField(buf,  5, tmp, 2);  // MM
-    snprintf(tmp, sizeof(tmp), "%02d", 56);   putField(buf,  7, tmp, 2);  // SS
-    snprintf(tmp, sizeof(tmp), "%02d", 78);   putField(buf,  9, tmp, 2);  // CS
+    snprintf(tmp, sizeof(tmp), "%02d", hh);   putField(buf,  3, tmp, 2);  // HH
+    snprintf(tmp, sizeof(tmp), "%02d", mm);   putField(buf,  5, tmp, 2);  // MM
+    snprintf(tmp, sizeof(tmp), "%02d", ss);   putField(buf,  7, tmp, 2);  // SS
+    snprintf(tmp, sizeof(tmp), "%02d", cs);   putField(buf,  9, tmp, 2);  // CS
 
     int pitch10 = static_cast<int>(pitchDeg * 10.0f);
     snprintf(tmp, sizeof(tmp), "%+04d", pitch10);   putField(buf, 11, tmp, 4);
@@ -123,6 +124,21 @@ static void buildAdahrsFrame(char buf[74],
 
     buf[72] = '\r';
     buf[73] = '\n';
+}
+
+// Overwrite the 8 time-field bytes at buf[3..10] with the given 8-char string.
+// Lets tests exercise the all-dashes ('--------') sentinel without rebuilding
+// the whole frame. Recomputes the CRC so the frame still parses.
+static void patchTimeField(char buf[74], const char* eightChars)
+{
+    for (int i = 0; i < 8; i++) buf[3 + i] = eightChars[i];
+    int crc = 0;
+    for (int i = 0; i <= 69; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[3];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[70] = tmp[0];
+    buf[71] = tmp[1];
 }
 
 // Feed a buffer into the parser byte by byte.
@@ -534,6 +550,52 @@ void test_adahrs_sentinel_heading_leaves_field_absent(void)
     TEST_ASSERT_FLOAT_WITHIN(0.15f, 110.0f, frame->iasKt);
 }
 
+static void test_adahrs_system_time_valid()
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f,
+                     14, 32, 47, 12);
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("14:32:47", frame->timeOfDayHms);
+}
+
+static void test_adahrs_system_time_all_dashes()
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f);
+    patchTimeField(buf, "--------");
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
+static void test_adahrs_system_time_partial_dashes()
+{
+    // Any dash in the HHMMSS portion = treat as absent.
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f);
+    patchTimeField(buf, "14----99");
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
+static void test_adahrs_system_time_out_of_range()
+{
+    // HH=25 is out of range (0..23). Treat as absent.
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f,
+                     25, 30, 30, 0);
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -565,5 +627,9 @@ int main(int, char**)
     RUN_TEST(test_ems_wrong_magic_ignored);
     RUN_TEST(test_buffer_overflow_resets_and_recovers);
     RUN_TEST(test_adahrs_sentinel_heading_leaves_field_absent);
+    RUN_TEST(test_adahrs_system_time_valid);
+    RUN_TEST(test_adahrs_system_time_all_dashes);
+    RUN_TEST(test_adahrs_system_time_partial_dashes);
+    RUN_TEST(test_adahrs_system_time_out_of_range);
     return UNITY_END();
 }
