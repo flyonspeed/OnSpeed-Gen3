@@ -6,11 +6,15 @@ on:
     paths:
       - 'docs/site/**'
       - '.github/workflows/docs.yml'
+      - 'software/OnSpeed-M5-Display/**'
+      - 'scripts/build_m5_sim_for_docs.sh'
   pull_request:
     branches: [master]
     paths:
       - 'docs/site/**'
       - '.github/workflows/docs.yml'
+      - 'software/OnSpeed-M5-Display/**'
+      - 'scripts/build_m5_sim_for_docs.sh'
   release:
     types: [published]
   workflow_dispatch:
@@ -26,10 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install "mkdocs>=1.6,<2" mkdocs-material
+      - run: pip install "mkdocs>=1.6,<2" mkdocs-material platformio
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.68
+          actions-cache-folder: 'emsdk-cache'
+      - name: Build M5 sim and copy to docs assets
+        run: ./scripts/build_m5_sim_for_docs.sh
       - name: Build site (strict)
         working-directory: docs/site
         run: mkdocs build --strict
@@ -43,10 +55,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike
+      - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike platformio
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.68
+          actions-cache-folder: 'emsdk-cache'
+      - name: Build M5 sim and copy to docs assets
+        run: ./scripts/build_m5_sim_for_docs.sh
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"
@@ -78,10 +97,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike
+      - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike platformio
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.68
+          actions-cache-folder: 'emsdk-cache'
+      - name: Build M5 sim and copy to docs assets
+        run: ./scripts/build_m5_sim_for_docs.sh
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"

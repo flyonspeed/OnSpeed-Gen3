@@ -51,6 +51,25 @@ If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.
 
+### Try it in your browser
+
+The real display firmware, compiled to WebAssembly:
+
+<iframe src="../../assets/sim/index.html"
+        width="420" height="620"
+        style="border: 1px solid #555; border-radius: 4px;"
+        title="OnSpeed M5 display simulator"
+        loading="lazy"></iframe>
+
+Click the canvas to focus it, then use the arrow keys. **→** and **←**
+adjust brightness; **↓** cycles through the five display modes. The
+data feed is a synthetic AOA ramp (0 → 25° and back) so you can watch
+the tone-map regions light up in order — not a recorded flight.
+
+The browser build uses the same C++ source as the firmware that runs
+on real M5Stack hardware, with M5GFX's SDL panel backend rendering to
+an HTML5 canvas. Source: [`software/OnSpeed-M5-Display/sim/`](https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display/sim).
+
 ### Display modes
 
 The five modes are selected by pressing **Button B**, which cycles in
