@@ -55,6 +55,10 @@ public:
     bool exists(const String  sFilename) { return uSD_FAT.exists( sFilename); }
     FsFile open(const char * szFilename, oflag_t iFlags) { return uSD_FAT.open(szFilename, iFlags); }
     bool remove(const char * szFilename);
+
+    // Atomic-ish rename via SdFat. Returns true on success. Caller must
+    // hold xWriteMutex — same convention as remove().
+    bool rename(const char* srcName, const char* dstName);
 };
 
 #endif
