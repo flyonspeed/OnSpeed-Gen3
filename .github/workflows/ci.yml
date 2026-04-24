@@ -170,6 +170,47 @@ jobs:
           path: software/OnSpeed-M5-Display/.pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
+  build-xplane-plugin:
+    name: Build X-Plane Plugin (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch_dir: lin_x64
+          - os: macos-latest
+            arch_dir: mac_x64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install OpenAL (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenal-dev
+
+      - name: Configure
+        run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build
+
+      - name: Build
+        run: cmake --build software/OnSpeed-XPlane-Plugin/build
+
+      - name: Verify .xpl was produced
+        run: |
+          test -f software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/AOA-Tone-FlyOnSpeed.xpl
+          ls -la software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/
+
+      - name: Upload .xpl artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AOA-Tone-FlyOnSpeed-${{ matrix.arch_dir }}.xpl
+          path: software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/AOA-Tone-FlyOnSpeed.xpl
+          retention-days: 30
+
   test-m5-replay:
     name: Test M5 Replay Tool
     runs-on: ubuntu-latest
