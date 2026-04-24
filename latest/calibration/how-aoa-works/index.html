@@ -3280,6 +3280,12 @@
 
 <h1 id="how-onspeed-measures-aoa">How OnSpeed Measures AOA<a class="headerlink" href="#how-onspeed-measures-aoa" title="Permanent link">&para;</a></h1>
 <p>Understanding the measurement helps you produce better calibrations and troubleshoot problems.</p>
+<div class="admonition note">
+<p class="admonition-title">OnSpeed measures body angle, not wing AOA</p>
+<p>Throughout the firmware, configuration, and these docs, the quantity called "AOA" is <strong>body angle</strong> — the fuselage-to-wind angle, in degrees. It is not wing angle of attack.</p>
+<p>Most aircraft mount the wing at a positive incidence relative to the fuselage longitudinal axis, so the fuselage points slightly nose-down when the wing is at zero AOA. The body angle at zero wing lift is <span class="arithmatex">\(\alpha_0\)</span>, and on most aircraft it is <strong>negative</strong> (typically −3° to −6°, varying with flap setting).</p>
+<p>This is why fractional lift is computed as <span class="arithmatex">\((\alpha - \alpha_0) / (\alpha_\text{stall} - \alpha_0)\)</span> — the floor is <span class="arithmatex">\(\alpha_0\)</span>, not zero. A body angle of −3° is genuinely producing positive lift if <span class="arithmatex">\(\alpha_0\)</span> is −4°, and the math has to reflect that.</p>
+</div>
 <h2 id="angle-of-attack-and-fractional-lift">Angle of Attack and Fractional Lift<a class="headerlink" href="#angle-of-attack-and-fractional-lift" title="Permanent link">&para;</a></h2>
 <p>Every wing has an angle of attack at which it produces no lift (the <strong>zero-lift angle</strong>, <span class="arithmatex">\(\alpha_0\)</span>). As AOA increases from this point, lift increases until the wing reaches its maximum at the <strong>critical angle of attack</strong> (<span class="arithmatex">\(\alpha_\text{stall}\)</span>), just prior to stall.</p>
 <p>Angle of attack can be thought of as a scale from zero to one. Zero represents no lift. One represents maximum lift. <strong>Fractional lift</strong> (sometimes called "percent lift") is where the wing is operating on that scale at any given moment:</p>
