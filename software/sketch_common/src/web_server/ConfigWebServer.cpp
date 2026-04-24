@@ -140,7 +140,12 @@ void HandleWifiSettings();
 String sFormatBytes(size_t bytes);
 
 // Reject filenames that contain path-traversal sequences, slashes, or
-// characters outside the expected set for SD-card log files.
+// characters outside the expected set for SD-card files. Used by
+// /download, /delete, /delete-bulk. Does NOT restrict by extension —
+// the /logs page shows all SD-card files (logs + config backups +
+// boot_log.txt + whatever the user puts there), so all of them need
+// to be downloadable and deletable. Security boundary is the character
+// allow-list and the .. check, which together prevent path traversal.
 static bool IsSafeLogFilename(const String& s)
     {
     if (s.length() == 0 || s.length() > 32) return false;
@@ -152,12 +157,6 @@ static bool IsSafeLogFilename(const String& s)
         char c = s.charAt(i);
         if (!(isalnum((unsigned char)c) || c == '_' || c == '.' || c == '-')) return false;
         }
-    // Only allow log file extensions, not config files (.cfg) or other
-    // sensitive data. Config backup/restore has its own dedicated endpoints.
-    if (!s.endsWith(".csv")  && !s.endsWith(".CSV") &&
-        !s.endsWith(".log")  && !s.endsWith(".LOG") &&
-        !s.endsWith(".meta") && !s.endsWith(".META"))
-        return false;
     return true;
     }
 
@@ -3127,6 +3126,17 @@ void HandleLogs()
 
     uint64_t uTotalSize = 0;
 
+    // "Other files" that aren't logs: config backups, boot_log.txt, anything
+    // the user dropped on the card. Rendered in a second, simpler table.
+    struct OtherFile
+        {
+        String   sName;
+        uint64_t uSize = 0;
+        };
+    std::vector<OtherFile> others;
+    others.reserve(8);
+    uint64_t uOtherTotal = 0;
+
     if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
         {
         bListStatus = g_SdFileSys.FileList(&suFileList);
@@ -3148,36 +3158,47 @@ void HandleLogs()
                     metaNames.emplace_back(name);
                 }
 
-            // Second pass: build the entry list; only read sidecars we
-            // already know exist.
+            // Second pass: split into logs vs other files.
             for (size_t i = 0; i < suFileList.size(); i++)
                 {
                 const char* name = suFileList[i].szFileName;
                 size_t nlen = strlen(name);
-                // Skip .meta sidecars — they get rendered alongside their .csv.
+
+                // .meta sidecars are an implementation detail of the logs
+                // table — never shown in either section.
                 if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
                     continue;
-                // Only list .csv / .log files.
-                if (nlen < 4 ||
-                    (strcasecmp(name + nlen - 4, ".csv") != 0 &&
-                     strcasecmp(name + nlen - 4, ".log") != 0))
-                    continue;
 
-                Entry e;
-                e.sName = name;
-                e.uSize = suFileList[i].uFileSize;
+                bool bIsLog = (nlen >= 4 &&
+                               (strcasecmp(name + nlen - 4, ".csv") == 0 ||
+                                strcasecmp(name + nlen - 4, ".log") == 0));
 
-                // Derive the expected .meta name. Only attempt the read if
-                // that filename is in metaNames (no failed-open penalty).
-                String sExpectedMeta = e.sName.substring(0, e.sName.length() - 4) + ".meta";
-                bool bMetaExists = false;
-                for (const String& mn : metaNames)
-                    if (mn.equalsIgnoreCase(sExpectedMeta)) { bMetaExists = true; break; }
-                if (bMetaExists)
-                    e.bHaveMeta = TryReadLogMeta(name, &e.meta);
+                if (bIsLog)
+                    {
+                    Entry e;
+                    e.sName = name;
+                    e.uSize = suFileList[i].uFileSize;
 
-                uTotalSize += e.uSize;
-                entries.push_back(std::move(e));
+                    // Derive the expected .meta name. Only attempt the read
+                    // if that filename is in metaNames (no failed-open hit).
+                    String sExpectedMeta = e.sName.substring(0, e.sName.length() - 4) + ".meta";
+                    bool bMetaExists = false;
+                    for (const String& mn : metaNames)
+                        if (mn.equalsIgnoreCase(sExpectedMeta)) { bMetaExists = true; break; }
+                    if (bMetaExists)
+                        e.bHaveMeta = TryReadLogMeta(name, &e.meta);
+
+                    uTotalSize += e.uSize;
+                    entries.push_back(std::move(e));
+                    }
+                else
+                    {
+                    OtherFile of;
+                    of.sName = name;
+                    of.uSize = suFileList[i].uFileSize;
+                    uOtherTotal += of.uSize;
+                    others.push_back(std::move(of));
+                    }
                 }
             }
         xSemaphoreGive(xWriteMutex);
@@ -3188,10 +3209,13 @@ void HandleLogs()
                       "LOGS - SD busy (xWriteMutex)");
         }
 
-    // Summary line above the table.
+    // --- Logs section ---
+
+    sPage += "<h2 style=\"margin-left:10px\">Logs</h2>\n";
         {
         char summary[64];
-        snprintf(summary, sizeof(summary), "<p>%u logs, %s total</p>\n",
+        snprintf(summary, sizeof(summary),
+                 "<p style=\"margin-left:10px\">%u logs, %s total</p>\n",
                  (unsigned)entries.size(),
                  sFormatBytes(uTotalSize).c_str());
         sPage += summary;
@@ -3257,8 +3281,39 @@ void HandleLogs()
                  "</td></tr>\n";
         }
     sPage += "</table>\n";
-    sPage += "<p><button type=\"submit\">Delete selected</button></p>\n";
+    sPage += "<p style=\"margin-left:10px\"><button type=\"submit\">Delete selected</button></p>\n";
     sPage += "</form>\n";
+
+    // --- Other files section ---
+
+    if (!others.empty())
+        {
+        sPage += "<br><h2 style=\"margin-left:10px\">Other files</h2>\n";
+            {
+            char summary[64];
+            snprintf(summary, sizeof(summary),
+                     "<p style=\"margin-left:10px\">%u files, %s total</p>\n",
+                     (unsigned)others.size(),
+                     sFormatBytes(uOtherTotal).c_str());
+            sPage += summary;
+            }
+        sPage += "<table>\n";
+        for (const OtherFile& of : others)
+            {
+            String sLine;
+            sLine.reserve(256);
+            sLine  = "<tr>";
+            sLine += "<td><a href=\"/download?file="; sLine += of.sName; sLine += "\">";
+            sLine += of.sName; sLine += "</a></td>";
+            sLine += "<td style=\"padding-left:20px;text-align:right\">";
+            sLine += sFormatBytes(of.uSize); sLine += "</td>";
+            sLine += "<td>&nbsp;&nbsp;<a href=\"/delete?file="; sLine += of.sName; sLine += "\">";
+            sLine += szHtmlTrashcan; sLine += "</a></td>";
+            sLine += "</tr>\n";
+            sPage += sLine;
+            }
+        sPage += "</table>\n";
+        }
 
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
@@ -3360,30 +3415,35 @@ void HandleDeleteBulk()
         }
 
     // Not yet confirmed: show a confirmation page listing selected files.
+    // Use a <table> for the filename list — the site's global CSS collapses
+    // <ul> items into a single horizontal bar which smashes the filenames
+    // together and is unreadable.
     if (CfgServer.arg("confirm").indexOf("yes") < 0)
         {
         String sPage;
         UpdateHeader();
         sPage.reserve(pageHeader.length() + 2048);
         sPage += pageHeader;
-        sPage += "<br><br><p style=\"color:red\">Delete these ";
+        sPage += "<br><br><p style=\"color:red;margin-left:10px\">Delete these ";
         sPage += String((unsigned)selected.size());
         sPage += " file(s)?</p>\n";
         sPage += "<form method=\"POST\" action=\"/delete-bulk\">\n";
         sPage += "<input type=\"hidden\" name=\"confirm\" value=\"yes\">\n";
-        sPage += "<ul>\n";
+        sPage += "<table style=\"margin-left:10px\">\n";
         for (const String& f : selected)
             {
-            sPage += "<li>";
+            sPage += "<tr><td>";
             sPage += f;
+            sPage += "</td></tr>\n";
             sPage += "<input type=\"hidden\" name=\"f\" value=\"";
             sPage += f;
-            sPage += "\"></li>\n";
+            sPage += "\">\n";
             }
-        sPage += "</ul>\n";
+        sPage += "</table>\n";
+        sPage += "<br><p style=\"margin-left:10px\">";
         sPage += "<button type=\"submit\" class=\"button\">Delete</button>\n";
-        sPage += "&nbsp;&nbsp;<a href=\"/logs\">Cancel</a>\n";
-        sPage += "</form>\n";
+        sPage += "&nbsp;&nbsp;<a href=\"/logs\" class=\"button\">Cancel</a>\n";
+        sPage += "</p></form>\n";
         sPage += pageFooter;
         CfgServer.send(200, "text/html", sPage);
         return;
