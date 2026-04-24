@@ -3519,21 +3519,73 @@ void HandleDeleteBulk()
         }
 
     // Confirmed: delete each file + its matching sidecar.
+    //
+    // Large batches (user reported 164 files) used to:
+    //   - hold xWriteMutex for 30-60+ seconds, blocking the logger writer,
+    //   - starve the task watchdog on core 1,
+    //   - cause a soft-reset, which opened a fresh log on restart.
+    //
+    // Mitigations:
+    //   1. Pause the logger so it stops queueing rows during the batch —
+    //      same pattern HandleLogs uses.
+    //   2. Enumerate the existing .meta files ONCE, up front, while holding
+    //      the mutex. This avoids N fruitless exists() calls in the loop;
+    //      each exists() is itself a directory walk on FAT.
+    //   3. Release and re-take xWriteMutex between files and yield via
+    //      vTaskDelay(1) so the logger drain task can run, the web server
+    //      can service other clients, and the watchdog stays happy.
+    struct PauseGuard
+        {
+        bool bPrevPause;
+        PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
+        ~PauseGuard() { g_bPause = bPrevPause; }
+        } pauseGuard;
+
+    // Snapshot the set of existing .meta files so we skip sidecar removals
+    // for logs that never had one (old logs, power-cut sessions).
+    std::vector<String> existingMetas;
     if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
         {
-        for (const String& f : selected)
+        SdFileSys::SuFileInfoList fileList;
+        if (g_SdFileSys.FileList(&fileList))
+            {
+            existingMetas.reserve(fileList.size());
+            for (size_t i = 0; i < fileList.size(); i++)
+                {
+                const char* name = fileList[i].szFileName;
+                size_t nlen = strlen(name);
+                if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
+                    existingMetas.emplace_back(name);
+                }
+            }
+        xSemaphoreGive(xWriteMutex);
+        }
+
+    // Delete each file one at a time, yielding between iterations.
+    for (const String& f : selected)
+        {
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
             {
             g_SdFileSys.remove(f.c_str());
-            // Derive sidecar name by swapping extension to .meta.
+
+            // Derive sidecar name by swapping extension to .meta; only
+            // remove it if we saw it in the initial enumeration.
             int iDot = f.lastIndexOf('.');
             if (iDot > 0)
                 {
                 String sMeta = f.substring(0, iDot) + ".meta";
-                if (g_SdFileSys.exists(sMeta.c_str()))
-                    g_SdFileSys.remove(sMeta.c_str());
+                for (const String& em : existingMetas)
+                    if (em.equalsIgnoreCase(sMeta))
+                        {
+                        g_SdFileSys.remove(sMeta.c_str());
+                        break;
+                        }
                 }
+            xSemaphoreGive(xWriteMutex);
             }
-        xSemaphoreGive(xWriteMutex);
+        // Yield so the logger drain task, web server, and watchdog all
+        // get CPU between deletes. One tick is enough.
+        vTaskDelay(1);
         }
 
     CfgServer.sendHeader("Location", "/logs");
