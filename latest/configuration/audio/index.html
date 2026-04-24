@@ -3352,12 +3352,13 @@
 <li><strong>Default Volume</strong>: Set to your preferred level (0–100%)</li>
 </ul>
 <h2 id="mute-under-ias">Mute Under IAS<a class="headerlink" href="#mute-under-ias" title="Permanent link">&para;</a></h2>
-<p>The <strong>Mute Under IAS</strong> setting (default: <strong>25 knots</strong>) silences all tones when indicated airspeed is below this threshold. This prevents nuisance tones during:</p>
+<p>The <strong>Mute Under IAS</strong> setting (default: <strong>30 knots</strong>) silences all tones when indicated airspeed is below this threshold. This prevents nuisance tones during:</p>
 <ul>
 <li>Taxi</li>
 <li>Engine run-up</li>
 <li>Sitting on the ground in wind</li>
 </ul>
+<p>OnSpeed unmutes 5 kt above the configured threshold and re-mutes at the threshold itself — a small hysteresis band that keeps audio from chattering on touchdown when IAS oscillates a few knots around the cutoff.</p>
 <div class="admonition note">
 <p class="admonition-title">Stall warning still overrides in some conditions</p>
 <p>When the audio is muted by the pilot (button press), the stall warning can still sound if AOA exceeds the stall threshold AND IAS is above the mute-under-IAS value. The IAS threshold prevents false stall warnings during ground operations.</p>

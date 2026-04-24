@@ -3230,9 +3230,10 @@
 <ol>
 <li>Connect to OnSpeed WiFi (<code>OnSpeed</code> / <code>angleofattack</code>)</li>
 <li>Navigate to <strong><code>http://192.168.0.1/logs</code></strong></li>
-<li>The page lists all log files on the SD card with sizes</li>
+<li>The page lists each log with start time, duration, max IAS, max altitude, and size</li>
 <li>Click a filename to download it</li>
 </ol>
+<p>The metadata columns come from a small <code>.meta</code> sidecar file written next to each <code>log_NNN.csv</code> when the log closes. Older logs without a sidecar render with em-dashes for the metadata columns but still download and delete normally.</p>
 <div class="admonition note">
 <p class="admonition-title">Logging pauses during download</p>
 <p>SD card logging is temporarily paused while a file is being downloaded to prevent conflicts. It resumes automatically after the download completes.</p>
@@ -3244,7 +3245,8 @@
 <p>Via the web interface:</p>
 <ul>
 <li>Navigate to <code>/logs</code></li>
-<li>Click the delete button next to a log file</li>
+<li>Click the trash icon next to a single log to delete it, or check several rows and click <strong>Delete selected</strong> to remove them in one pass. Either action shows a confirmation page before files are removed. The log currently being written is protected from deletion.</li>
+<li>Deleting a log also removes its <code>.meta</code> sidecar.</li>
 </ul>
 <p>Via console:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>LIST            # See all files

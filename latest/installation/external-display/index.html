@@ -3717,12 +3717,12 @@ needing a USB cable.</p>
 order: <strong>Primary → Attitude → Indexer-only → Energy → G history →</strong>
 back to Primary. The M5 remembers the last-used mode across power
 cycles.</p>
+<p>To preview each mode, scroll back up to the in-browser simulator and
+press <kbd>↓</kbd> to step through them. The C++ source that runs the
+sim is the same source that runs on the real M5Stack hardware, so the
+layout you see in the browser is the layout you get on the panel.</p>
 <h3 id="primary-aoa-indexer-full-readouts">Primary — AOA indexer + full readouts<a class="headerlink" href="#primary-aoa-indexer-full-readouts" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 0 — the boot default.)</em></p>
-<div class="admonition info">
-<p class="admonition-title">Screenshot pending</p>
-<!-- TODO: add assets/images/m5-mode-0-indexer.png -->
-</div>
 <p>The main flight display. A vertical AOA indexer widget occupies the
 center of the screen, with supporting readouts around the edges.</p>
 <p><strong>Center — the indexer widget.</strong> Reads from top to bottom and tells
@@ -3780,10 +3780,6 @@ instantaneous onset (rate of G change per second). Useful for
 spotting sudden pull-ups / push-overs during maneuvering.</p>
 <h3 id="attitude-backup-ai-with-aoa">Attitude — backup AI with AOA<a class="headerlink" href="#attitude-backup-ai-with-aoa" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 1.)</em></p>
-<div class="admonition info">
-<p class="admonition-title">Screenshot pending</p>
-<!-- TODO: add assets/images/m5-mode-1-attitude.png -->
-</div>
 <p>Full-width backup artificial horizon driven by OnSpeed's AHRS.
 Sky/ground horizon with a pitch ladder (10° increments), roll
 indication via a fixed aircraft reference symbol against a rolling
@@ -3801,10 +3797,6 @@ OnSpeed-derived flight path marker overlaid on an independent
 attitude source.</p>
 <h3 id="indexer-only-panel-minimal">Indexer-only — panel-minimal<a class="headerlink" href="#indexer-only-panel-minimal" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 2.)</em></p>
-<div class="admonition info">
-<p class="admonition-title">Screenshot pending</p>
-<!-- TODO: add assets/images/m5-mode-2-narrow.png -->
-</div>
 <p>The Primary mode's indexer widget (chevrons + donut + index bar),
 with all the numeric fields around it <strong>stripped away</strong>. Same stall
 warnings, same on-speed cues, same colors.</p>
@@ -3814,10 +3806,6 @@ mode keeps only the visual indexer — ideal for a narrow panel cutout
 beside the primary ASI.</p>
 <h3 id="energy-deceleration-gauge">Energy — deceleration gauge<a class="headerlink" href="#energy-deceleration-gauge" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 3.)</em></p>
-<div class="admonition info">
-<p class="admonition-title">Screenshot pending</p>
-<!-- TODO: add assets/images/m5-mode-3-decel.png -->
-</div>
 <p>A vertical "energy tape" gauge in the center showing instantaneous
 airspeed deceleration in <strong>knots per second</strong>. A green band marks the
 stable-energy zone (around 0 kt/s); red bands above and below flag
@@ -3832,10 +3820,6 @@ swings indicate you're pumping the stick or fighting turbulence.
 Also useful for gauging flare authority right at touchdown.</p>
 <h3 id="g-history-scrolling-g-trace">G history — scrolling G trace<a class="headerlink" href="#g-history-scrolling-g-trace" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 4.)</em></p>
-<div class="admonition info">
-<p class="admonition-title">Screenshot pending</p>
-<!-- TODO: add assets/images/m5-mode-4-g-history.png -->
-</div>
 <p>A scrolling graph of vertical G over approximately the last 60
 seconds. Horizontal reference lines mark each integer G (grey for
 ±5, ±4, ±3, ±2, −1, −2; bright white for 1G). The trace is color-

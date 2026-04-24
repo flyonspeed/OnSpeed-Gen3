@@ -2582,6 +2582,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="File Format">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metadata-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3201,6 +3218,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="File Format">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metadata-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata sidecar
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3350,9 +3384,21 @@
 <ul>
 <li><strong>Format</strong>: CSV with headers (comma-separated values)</li>
 <li><strong>Rate</strong>: 50 Hz default (one row every 20 ms); optionally 208 Hz (IMU rate)</li>
-<li><strong>Naming</strong>: <code>log_NNN.csv</code> (sequential numbering)</li>
+<li><strong>Naming</strong>: <code>log_NNN.csv</code> (sequential numbering). When a VN-300 EFIS provides a UTC timestamp, the file is renamed to <code>YYYY-MM-DD_NNN.csv</code> at close so the date travels with the file. Dynon, Garmin, and no-EFIS logs keep <code>log_NNN.csv</code>.</li>
 <li><strong>Size</strong>: A 1-hour flight produces approximately 50–100 MB of data</li>
 </ul>
+<h3 id="metadata-sidecar">Metadata sidecar<a class="headerlink" href="#metadata-sidecar" title="Permanent link">&para;</a></h3>
+<p>Each <code>log_NNN.csv</code> is written alongside a <code>log_NNN.meta</code> plain-text sidecar produced when the log closes. One <code>key=value</code> per line:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>duration_ms=1842113
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>row_count=92106
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>max_ias_kt=148
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>max_alt_ft=8420
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>firmware=4.20+1825dff
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>efis_type=dynon_skyview
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>time_of_day_start=14:32:08
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>gps_fix_seen=1
+</code></pre></div>
+<p><code>time_of_day_start</code> is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). <code>utc_start</code> is VN-300-only. The <code>/logs</code> page reads the sidecar to populate the start-time, duration, max IAS, and max altitude columns.</p>
 <h2 id="key-columns">Key Columns<a class="headerlink" href="#key-columns" title="Permanent link">&para;</a></h2>
 <h3 id="core-flight-data">Core Flight Data<a class="headerlink" href="#core-flight-data" title="Permanent link">&para;</a></h3>
 <table>
@@ -3686,16 +3732,16 @@
 </tbody>
 </table>
 <h2 id="loading-logs-in-python">Loading Logs in Python<a class="headerlink" href="#loading-logs-in-python" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;log_001.csv&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># Plot IAS vs DerivedAOA</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;IAS&quot;</span><span class="p">],</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;DerivedAOA&quot;</span><span class="p">],</span> <span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;IAS (knots)&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;DerivedAOA (degrees)&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;log_001.csv&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Plot IAS vs DerivedAOA</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;IAS&quot;</span><span class="p">],</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;DerivedAOA&quot;</span><span class="p">],</span> <span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;IAS (knots)&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;DerivedAOA (degrees)&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
 </code></pre></div>
 <h2 id="sd-card-management">SD Card Management<a class="headerlink" href="#sd-card-management" title="Permanent link">&para;</a></h2>
 <ul>
