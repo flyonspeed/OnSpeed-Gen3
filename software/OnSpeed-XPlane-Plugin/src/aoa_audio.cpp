@@ -60,11 +60,13 @@
 #include <mutex>
 #include <atomic>
 
-// Linkage smoke check: the plugin links against onspeed_core via the
-// CMake shim. The header is included unused on purpose — it forces the
-// public include path resolution at compile time. PR 5 replaces the
-// hand-rolled region/pulse math below with calculateTone() calls.
+// Plugin shares its tone semantics, smoothing pipeline, and PCM
+// generation with the firmware via onspeed_core — single source of
+// truth across panel-mounted Gen3, M5 display, and this sim plugin.
 #include <audio/ToneCalc.h>
+#include <audio/ToneSynth.h>
+#include <filters/RunningMean.h>
+#include <filters/RunningMedian.h>
 
 // Function declarations
 void cleanupAudio();
@@ -78,20 +80,16 @@ float AOA_ABOVE_ONSPEED_MAX     = 12.5f;    // Above this is "Above OnSpeed"
 
 float AOA_IAS_TONE_ENABLE       = 25.0f;    // IAS (knots) above this value will enable the tone
 
-// Tone configuration
-#define TONE_NORMAL_FREQ       400.0f   // Normal frequency in Hz
-#define TONE_HIGH_FREQ         1600.0f  // High frequency in Hz
-#define PULSE_RATE_NORMAL      6.2f     // Standard pulse rate
-#define PULSE_RATE_STALL       20.0f    // Stall warning pulse rate
-#define DEFAULT_VOLUME          1.0f    // Default volume level (0.0 to 1.0)
-
-// Add these new constants
-#define PULSE_RATE_MIN         1.5f    // Minimum pulses per second at AOA_BELOW_LDMAX
-#define PULSE_RATE_MAX         8.2f    // Maximum pulses per second at AOA_BELOW_ONSPEED
-
-// Add these new constants near the other constants
-#define ABOVE_ONSPEED_PULSE_MIN  1.5f    // Minimum pulses per second at AOA_ONSPEED_MAX
-#define ABOVE_ONSPEED_PULSE_MAX  6.2f    // Maximum pulses per second at AOA_ABOVE_ONSPEED_MAX
+// Tone configuration. The two carrier frequencies stay here because
+// they're plugin-side OpenAL buffer identities; the firmware uses the
+// same values via Audio.cpp's aTone_400Hz / aTone_1600Hz.
+//
+// Pulse rates and stall PPS live in onspeed_core/audio/ToneCalc.h and
+// reach the audio path via calculateTone() — no per-region constants
+// duplicated in this file.
+#define TONE_NORMAL_FREQ       400.0f   // Low tone in Hz (LDmax band, OnSpeed band)
+#define TONE_HIGH_FREQ         1600.0f  // High tone in Hz (above OnSpeed, stall warn)
+#define DEFAULT_VOLUME          1.0f    // OpenAL gain (0..1)
 
 // OpenAL device and context
 ALCdevice* device = nullptr;
@@ -114,21 +112,28 @@ static XPWidgetID widgetAudioStatus = nullptr;
 static bool audioEnabled = false;
 static XPLMMenuID menuId;
 
-// Add these globals at the top of the file with other globals
-const int AOA_HISTORY_SIZE = 20;
-std::vector<float> aoaHistory;
-float lastValidAoa = 0.0f;
-const float MAX_AOA_CHANGE = 6.0f;  // Maximum allowed change in degrees
+// AOA smoothing pipeline matches the firmware's SensorIO pressure path:
+//   raw → RunningMedian (kill spikes) → RunningMean (smooth)
+// Window sizes are picked to match the firmware spirit: median=5 (enough
+// to reject 1-2 sample spikes without noticeable lag), mean=10 (firmware's
+// PfwdAvg fixed size). At X-Plane's typical ~30-60 Hz flight loop rate
+// this is ~80-160 ms of effective smoothing.
+constexpr int kMedianWindow = 5;
+constexpr int kMeanWindow   = 10;
+onspeed::RunningMedian aoaMedian(kMedianWindow);
+onspeed::RunningMean   aoaMean(kMeanWindow);
 
-// Add these globals with other globals
+// Pulse-thread plumbing. The flight-loop callback fills these from the
+// onspeed_core decision; the pulse thread reads them and plays one
+// pulse cycle at the requested rate. atomic<float> is fine here — the
+// reads happen at pulse cadence (a few times per second), the writes
+// at flight-loop cadence (~30-60 Hz), and inconsistency for one frame
+// is inaudible.
 std::thread* pulseThread = nullptr;
-std::mutex aoaMutex;
-std::atomic<bool> threadRunning{false};
-std::atomic<float> currentAOA{0.0f};
-std::atomic<bool> shouldPlay{false};
-
-float audioFrequency = TONE_NORMAL_FREQ;
-float audioPulseRate = PULSE_RATE_NORMAL;
+std::atomic<bool>  threadRunning{false};
+std::atomic<bool>  shouldPlay{false};
+std::atomic<float> currentToneFreqHz{0.0f};   // 0 = no tone
+std::atomic<float> currentPulseFreqHz{0.0f};  // 0 = solid (not pulsed)
 
 // Add these globals with other globals
 static int lastWidgetBottom = 0;
@@ -140,7 +145,6 @@ static XPWidgetID widgetAOABelowLDMax = nullptr;
 static XPWidgetID widgetAOABelowOnSpeed = nullptr;
 static XPWidgetID widgetAOAOnSpeedMax = nullptr;
 static XPWidgetID widgetAOAAboveOnSpeedMax = nullptr;
-static XPWidgetID widgetAOAStallWarning = nullptr;
 static XPWidgetID widgetAOAIASToneEnable = nullptr;
 static XPWidgetID widgetButtonUpdateValues = nullptr;
 
@@ -153,25 +157,30 @@ static float temp_AOA_IAS_TONE_ENABLE = 0.0f;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Function to generate a sine wave tone
-std::vector<ALshort> generateTone(float frequency, float duration, int sampleRate = 44100) {
-    std::vector<ALshort> buffer;
-    int samples = static_cast<int>(duration * sampleRate);
-    buffer.reserve(samples);
-    
-    for (int i = 0; i < samples; i++) {
-        float t = static_cast<float>(i) / sampleRate;
-        float value = 32767.0f * std::sin(2.0f * M_PI * frequency * t);
-        buffer.push_back(static_cast<ALshort>(value));
-    }
-    
+// Sample rate for the precomputed OpenAL tone buffers. 44.1 kHz matches
+// what the plugin used pre-onspeed_core; the firmware nominally runs
+// at 16 kHz but ToneSynth::Synthesize accepts any rate.
+constexpr int kBufferSampleRateHz = 44100;
+constexpr int kBufferSamples      = kBufferSampleRateHz / 10;   // 0.1s
+constexpr int16_t kBufferAmp      = 32767;                      // peak
+
+// Fill a vector with one period-length cosine buffer at the requested
+// frequency, ready to be uploaded to an OpenAL buffer and looped. Phase
+// is reset each call (these are one-shot precomputes).
+static std::vector<int16_t> precomputeTone(float frequencyHz) {
+    std::vector<int16_t> buffer(kBufferSamples);
+    onspeed::audio::Synthesize(frequencyHz, kBufferAmp, kBufferSampleRateHz,
+                               buffer.data(), buffer.size(), 0.0f);
     return buffer;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Function to initialize OpenAL and create tone
-static float init_sound(float elapsed, float elapsed_sim, int counter, void * ref)
+static float init_sound([[maybe_unused]] float elapsed,
+                        [[maybe_unused]] float elapsed_sim,
+                        [[maybe_unused]] int counter,
+                        [[maybe_unused]] void * ref)
 {
     device = alcOpenDevice(nullptr);
     XPLMDebugString("FlyOnSpeed: Initializing audio device\n");
@@ -198,15 +207,16 @@ static float init_sound(float elapsed, float elapsed_sim, int counter, void * re
     // Set the initial volume (gain)
     alSourcef(audioSource, AL_GAIN, DEFAULT_VOLUME);
     
-    // Create normal frequency tone
-    auto toneNormal = generateTone(TONE_NORMAL_FREQ, 0.1f);
-    alBufferData(audioBufferNormal, AL_FORMAT_MONO16, toneNormal.data(), 
-                 toneNormal.size() * sizeof(ALshort), 44100);
-                 
-    // Create high frequency tone
-    auto toneHigh = generateTone(TONE_HIGH_FREQ, 0.1f);
-    alBufferData(audioBufferHigh, AL_FORMAT_MONO16, toneHigh.data(), 
-                 toneHigh.size() * sizeof(ALshort), 44100);
+    // Precompute the two tone carriers (low = 400 Hz, high = 1600 Hz)
+    // via onspeed_core's PCM synth. The buffers are uploaded once and
+    // looped by OpenAL for steady tones / cycled manually for pulses.
+    auto toneNormal = precomputeTone(TONE_NORMAL_FREQ);
+    alBufferData(audioBufferNormal, AL_FORMAT_MONO16, toneNormal.data(),
+                 toneNormal.size() * sizeof(int16_t), kBufferSampleRateHz);
+
+    auto toneHigh = precomputeTone(TONE_HIGH_FREQ);
+    alBufferData(audioBufferHigh, AL_FORMAT_MONO16, toneHigh.data(),
+                 toneHigh.size() * sizeof(int16_t), kBufferSampleRateHz);
     
     // Set initial buffer
     alSourcei(audioSource, AL_BUFFER, audioBufferNormal);
@@ -247,9 +257,9 @@ static void printMessageDescription(XPWidgetMessage msg) {
 // Widget handler function
 static int AudioControlHandler(
     XPWidgetMessage inMessage,
-    XPWidgetID inWidget,
+    [[maybe_unused]] XPWidgetID inWidget,
     intptr_t inParam1,
-    intptr_t inParam2)
+    [[maybe_unused]] intptr_t inParam2)
 {
     printMessageDescription(inMessage);
     //XPLMDebugString(("FlyOnSpeed: AudioControlHandler. Message: " + std::to_string(inMessage) + "\n").c_str());
@@ -260,7 +270,7 @@ static int AudioControlHandler(
 
     if (inMessage == xpMsg_PushButtonPressed) {
         XPLMDebugString(("FlyOnSpeed: AudioControlHandler. Button state changed " + std::to_string(inParam1) + "\n").c_str());
-        if (inParam1 == (intptr_t)audioToggleCheckbox) {
+        if (inParam1 == reinterpret_cast<intptr_t>(audioToggleCheckbox)) {
             audioEnabled = !audioEnabled;
             //audioEnabled = XPGetWidgetProperty(audioToggleCheckbox, xpProperty_ButtonState, nullptr);
             //XPSetWidgetProperty(audioToggleCheckbox, xpProperty_ButtonState, audioEnabled);
@@ -271,13 +281,13 @@ static int AudioControlHandler(
             return 1;
         }
         // Add handler for reload button
-        else if (inParam1 == (intptr_t)widgetButtonReload) {
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonReload)) {
             XPLMDebugString("FlyOnSpeed: Reloading plugins\n");
             XPLMReloadPlugins();
             return 1;
         }
         // Add handler for update values button
-        else if (inParam1 == (intptr_t)widgetButtonUpdateValues) {
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonUpdateValues)) {
             XPLMDebugString("FlyOnSpeed: Updating AOA values\n");
             
             // Directly read from text fields when updating
@@ -334,7 +344,7 @@ static int AudioControlHandler(
         char buffer[32];
         float value;
         
-        if (inParam1 == (intptr_t)widgetAOABelowLDMax) {
+        if (inParam1 == reinterpret_cast<intptr_t>(widgetAOABelowLDMax)) {
             XPGetWidgetDescriptor(widgetAOABelowLDMax, buffer, sizeof(buffer));
             value = atof(buffer);
             if (value > 0) {
@@ -342,7 +352,7 @@ static int AudioControlHandler(
                 XPLMDebugString(("FlyOnSpeed: Text field changed - Below LDMax: " + std::to_string(value) + "\n").c_str());
             }
         }
-        else if (inParam1 == (intptr_t)widgetAOABelowOnSpeed) {
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOABelowOnSpeed)) {
             XPGetWidgetDescriptor(widgetAOABelowOnSpeed, buffer, sizeof(buffer));
             value = atof(buffer);
             if (value > 0) {
@@ -350,7 +360,7 @@ static int AudioControlHandler(
                 XPLMDebugString(("FlyOnSpeed: Text field changed - Below OnSpeed: " + std::to_string(value) + "\n").c_str());
             }
         }
-        else if (inParam1 == (intptr_t)widgetAOAOnSpeedMax) {
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOAOnSpeedMax)) {
             XPGetWidgetDescriptor(widgetAOAOnSpeedMax, buffer, sizeof(buffer));
             value = atof(buffer);
             if (value > 0) {
@@ -358,7 +368,7 @@ static int AudioControlHandler(
                 XPLMDebugString(("FlyOnSpeed: Text field changed - OnSpeed Max: " + std::to_string(value) + "\n").c_str());
             }
         }
-        else if (inParam1 == (intptr_t)widgetAOAAboveOnSpeedMax) {
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOAAboveOnSpeedMax)) {
             XPGetWidgetDescriptor(widgetAOAAboveOnSpeedMax, buffer, sizeof(buffer));
             value = atof(buffer);
             if (value > 0) {
@@ -366,7 +376,7 @@ static int AudioControlHandler(
                 XPLMDebugString(("FlyOnSpeed: Text field changed - Above OnSpeed: " + std::to_string(value) + "\n").c_str());
             }
         }
-        else if (inParam1 == (intptr_t)widgetAOAIASToneEnable) {
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOAIASToneEnable)) {
             XPGetWidgetDescriptor(widgetAOAIASToneEnable, buffer, sizeof(buffer));
             value = atof(buffer);
             if (value > 0) {
@@ -430,8 +440,10 @@ static XPWidgetID createLabeledTextField(const char* label, float value, int lef
     // Adjust lastWidgetBottom for the new widget
     lastWidgetBottom -= (WIDGET_HEIGHT + WIDGET_MARGIN);
     
-    // Create label
-    XPWidgetID labelWidget = XPCreateWidget(
+    // Create label widget. The handle is intentionally not stored — the
+    // label is a passive caption that the parent window owns and tears
+    // down on close.
+    XPCreateWidget(
         left + leftOffset,                    // left
         lastWidgetBottom,                     // top
         left + leftOffset + 90,               // right
@@ -571,9 +583,9 @@ static void UpdateAOATextFields() {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Add menu handler
-static void AudioMenuHandler(void * mRef, void * iRef)
+static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
 {
-    if (!strcmp((char *)iRef, "Show")) {
+    if (!strcmp(static_cast<const char *>(iRef), "Show")) {
         if (!audioControlWidget) {
             CreateAudioControlWindow(300, 600, 250, 350);
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
@@ -585,52 +597,37 @@ static void AudioMenuHandler(void * mRef, void * iRef)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Modify the PulseThreadFunction to handle variable pulse rates
+// Pulse thread plays one short buffer per pulse cycle. Region decision
+// happened upstream in PlayAOATone (via onspeed_core::calculateTone);
+// this thread just consumes (toneFreqHz, pulseFreqHz) atomics and
+// switches OpenAL buffers when the frequency changes.
 void PulseThreadFunction() {
     float lastFrequency = 0.0f;
 
     while (threadRunning) {
-
         if (!audioEnabled || !shouldPlay) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
 
-        // localAOA is the current AOA, using a mutex to access it because it is updated in the flight loop
-        float localAOA;
-        {
-            std::lock_guard<std::mutex> lock(aoaMutex);
-            localAOA = currentAOA;
+        const float toneFreq  = currentToneFreqHz.load();
+        const float pulseFreq = currentPulseFreqHz.load();
+
+        // Defensive: if PlayAOATone hasn't picked a tone yet (or is in
+        // a non-pulsing region that forgot to clear shouldPlay), skip.
+        if (toneFreq <= 0.0f || pulseFreq <= 0.0f) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
         }
 
-        // Determine pulse rate and frequency based on AOA
-        if (localAOA > AOA_ABOVE_ONSPEED_MAX) {
-            audioPulseRate = PULSE_RATE_STALL;
-            audioFrequency = TONE_HIGH_FREQ;
-        } else if (localAOA > AOA_ONSPEED_MAX) {
-            // Calculate variable pulse rate for Above OnSpeed condition
-            float t = (localAOA - AOA_ONSPEED_MAX) / (AOA_ABOVE_ONSPEED_MAX - AOA_ONSPEED_MAX);
-            audioPulseRate = ABOVE_ONSPEED_PULSE_MIN + t * (ABOVE_ONSPEED_PULSE_MAX - ABOVE_ONSPEED_PULSE_MIN);
-            audioFrequency = TONE_HIGH_FREQ;
-        } else if (localAOA >= AOA_BELOW_LDMAX && localAOA <= AOA_BELOW_ONSPEED) {
-            float t = (localAOA - AOA_BELOW_LDMAX) / (AOA_BELOW_ONSPEED - AOA_BELOW_LDMAX);
-            audioPulseRate = PULSE_RATE_MIN + t * (PULSE_RATE_MAX - PULSE_RATE_MIN);
-            audioFrequency = TONE_NORMAL_FREQ;
-        }
-
-        // If frequency changed, switch buffers
-        if (lastFrequency != audioFrequency) {
-            lastFrequency = audioFrequency;
+        if (lastFrequency != toneFreq) {
+            lastFrequency = toneFreq;
             alSourceStop(audioSource);
-            if (audioFrequency == TONE_HIGH_FREQ) {
-                alSourcei(audioSource, AL_BUFFER, audioBufferHigh);
-            } else {
-                alSourcei(audioSource, AL_BUFFER, audioBufferNormal);
-            }
+            alSourcei(audioSource, AL_BUFFER,
+                      toneFreq == TONE_HIGH_FREQ ? audioBufferHigh : audioBufferNormal);
         }
 
-        // Calculate sleep duration based on pulse rate
-        int sleepMs = static_cast<int>(1000.0f / audioPulseRate);
+        const int sleepMs = static_cast<int>(1000.0f / pulseFreq);
 
         alSourcei(audioSource, AL_LOOPING, AL_FALSE);
         alSourcePlay(audioSource);
@@ -641,35 +638,37 @@ void PulseThreadFunction() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Modify PlayAOATone to handle the Below OnSpeed condition
-void PlayAOATone(float aoa, float elapsedTime) {
-    // Spike filter - if change is too large, use last valid value
-    if (std::abs(aoa - lastValidAoa) > MAX_AOA_CHANGE) {
-        aoa = lastValidAoa;
-    } else {
-        lastValidAoa = aoa;
-    }
+// Map the four UI-editable plugin thresholds onto onspeed_core's
+// ToneThresholds struct. Mapping is direct:
+//    plugin              -> core
+//    AOA_BELOW_LDMAX     -> fLDMAXAOA       (silence threshold)
+//    AOA_BELOW_ONSPEED   -> fONSPEEDFASTAOA (bottom of OnSpeed band)
+//    AOA_ONSPEED_MAX     -> fONSPEEDSLOWAOA (top of OnSpeed band)
+//    AOA_ABOVE_ONSPEED_MAX -> fSTALLWARNAOA (stall warning trigger)
+static onspeed::ToneThresholds buildThresholds() {
+    return {
+        AOA_BELOW_LDMAX,
+        AOA_BELOW_ONSPEED,
+        AOA_ONSPEED_MAX,
+        AOA_ABOVE_ONSPEED_MAX,
+    };
+}
 
-    // Update moving average
-    if (aoaHistory.size() >= AOA_HISTORY_SIZE) {
-        aoaHistory.erase(aoaHistory.begin());
-    }
-    aoaHistory.push_back(aoa);
+// Run one frame of the audio decision: smooth the raw AOA, decide what
+// to play, push the result to the pulse thread (or play it directly).
+void PlayAOATone(float aoa, float /* elapsedTime */) {
+    // Sensor-style smoothing: median-despike then mean-smooth, same
+    // pipeline the firmware uses for pressure samples in SensorIO.
+    aoaMedian.add(aoa);
+    aoaMean.addValue(aoaMedian.getMedian());
+    const float smoothedAoa = aoaMean.getFastAverage();
 
-    // Calculate moving average
-    float avgAoa = 0.0f;
-    for (float value : aoaHistory) {
-        avgAoa += value;
-    }
-    avgAoa /= aoaHistory.size();
+    const float ias = XPLMGetDataf(iasDataRef);
 
-    float ias = XPLMGetDataf(iasDataRef);
-
-    // Update widgetAOAValue with both current and averaged AOA values
-    char aoaText[50];
-    snprintf(aoaText, sizeof(aoaText), "AOA: %.1f (avg: %.1f) IAS: %.1f", aoa, avgAoa, ias);
+    char aoaText[64];
+    snprintf(aoaText, sizeof(aoaText),
+             "AOA: %.1f (smooth: %.1f) IAS: %.1f", aoa, smoothedAoa, ias);
     XPSetWidgetDescriptor(widgetAOAValue, aoaText);
-
 
     if (!audioEnabled) {
         shouldPlay = false;
@@ -678,31 +677,36 @@ void PlayAOATone(float aoa, float elapsedTime) {
         return;
     }
 
-    // Check if IAS is above the threshold
+    // IAS gate: silent on the ground / in initial roll. Plugin-specific;
+    // the firmware uses a different mute scheme so this stays in the plugin.
     if (ias < AOA_IAS_TONE_ENABLE) {
         shouldPlay = false;
         alSourceStop(audioSource);
-        XPSetWidgetDescriptor(widgetAudioStatus, ("Audio: None - Below IAS " + std::to_string(AOA_IAS_TONE_ENABLE)).c_str());
+        XPSetWidgetDescriptor(widgetAudioStatus,
+            ("Audio: None - Below IAS " + std::to_string(AOA_IAS_TONE_ENABLE)).c_str());
         return;
     }
 
-    // Update the current AOA for the pulse thread
-    {
-        std::lock_guard<std::mutex> lock(aoaMutex);
-        currentAOA = avgAoa;
-    }
+    // The single source of truth for region decisions. Returns
+    // EnToneType (None/Low/High) and a pulse frequency (0 = solid).
+    const onspeed::ToneResult result =
+        onspeed::calculateTone(smoothedAoa, buildThresholds());
 
-    if (avgAoa < AOA_BELOW_LDMAX) {
+    if (result.enTone == onspeed::EnToneType::None) {
         shouldPlay = false;
         alSourceStop(audioSource);
-        XPSetWidgetDescriptor(widgetAudioStatus, ("Audio: None - Below L/DMax " + std::to_string(AOA_BELOW_LDMAX)).c_str());
+        XPSetWidgetDescriptor(widgetAudioStatus, "Audio: None");
         return;
     }
-    
-    // Handle steady tone for OnSpeed condition
-    if (avgAoa >= AOA_BELOW_ONSPEED && avgAoa <= AOA_ONSPEED_MAX) {
-        shouldPlay = false;  // Disable pulsing
-        alSourcef(audioSource, AL_FREQUENCY, TONE_NORMAL_FREQ);
+
+    const float toneFreq = (result.enTone == onspeed::EnToneType::High)
+                               ? TONE_HIGH_FREQ : TONE_NORMAL_FREQ;
+
+    if (result.fPulseFreq == 0.0f) {
+        // Solid tone (only happens in the OnSpeed band, between
+        // fONSPEEDFASTAOA and fONSPEEDSLOWAOA — Low tone, looped).
+        shouldPlay = false;
+        alSourcei(audioSource, AL_BUFFER, audioBufferNormal);
         alSourcei(audioSource, AL_LOOPING, AL_TRUE);
         ALint state;
         alGetSourcei(audioSource, AL_SOURCE_STATE, &state);
@@ -710,22 +714,27 @@ void PlayAOATone(float aoa, float elapsedTime) {
             alSourcePlay(audioSource);
         }
         XPSetWidgetDescriptor(widgetAudioStatus, "Audio: Steady - OnSpeed");
-    } else {
-        shouldPlay = true;  // Enable pulsing for all other conditions
-
-        char audioStatusText[50];
-        snprintf(audioStatusText, sizeof(audioStatusText), "Audio Hz: %.1f pps: %.1f", audioFrequency, audioPulseRate);
-        XPSetWidgetDescriptor(widgetAudioStatus, audioStatusText);
+        return;
     }
+
+    // Pulsing tone — hand off to the pulse thread via the atomics.
+    currentToneFreqHz  = toneFreq;
+    currentPulseFreqHz = result.fPulseFreq;
+    shouldPlay = true;
+
+    char audioStatusText[64];
+    snprintf(audioStatusText, sizeof(audioStatusText),
+             "Audio Hz: %.0f pps: %.1f", toneFreq, result.fPulseFreq);
+    XPSetWidgetDescriptor(widgetAudioStatus, audioStatusText);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Updated flight loop callback
-float CheckAOAAndPlayTone(float inElapsedSinceLastCall, 
-                         float inElapsedTimeSinceLastFlightLoop, 
-                         int inCounter, 
-                         void *inRefcon) {
+float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
+                          [[maybe_unused]] float inElapsedTimeSinceLastFlightLoop,
+                          [[maybe_unused]] int inCounter,
+                          [[maybe_unused]] void *inRefcon) {
 
     // use XPLMGetDataf to get the AOA value.  https://developer.x-plane.com/sdk/XPLMDataAccess/#XPLMDataRef
 
@@ -792,7 +801,11 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // Add menu item
     int item = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "Fly On Speed", nullptr, 1);
     menuId = XPLMCreateMenu("Fly On Speed", XPLMFindPluginsMenu(), item, AudioMenuHandler, nullptr);
-    XPLMAppendMenuItem(menuId, "Show", (void*)"Show", 1);
+    // The SDK takes a non-const void* for menu item refcons; the matching
+    // handler casts it back to const char* before strcmp. Discriminator
+    // string is a literal — never written through the void*.
+    XPLMAppendMenuItem(menuId, "Show",
+                       static_cast<void*>(const_cast<char*>("Show")), 1);
 
     // Start the pulse thread
     threadRunning = true;
@@ -845,7 +858,9 @@ PLUGIN_API void XPluginDisable(void) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Plugin receive message
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID inFromWho, int inMessage, void *inParam) {
+PLUGIN_API void XPluginReceiveMessage([[maybe_unused]] XPLMPluginID inFromWho,
+                                      [[maybe_unused]] int inMessage,
+                                      [[maybe_unused]] void *inParam) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
