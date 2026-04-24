@@ -261,19 +261,20 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     gyroYawAvg_.addValue(YawRateCorr);
     const float gYaw   = gyroYawAvg_.getFastAverage();
 
-    // 4. Linear acceleration compensation: forward, centripetal lateral,
-    //    centripetal vertical.  When EKF6 is active, use its bias-corrected
-    //    rates from the previous timestep for more consistent compensation.
+    // 4. Linear acceleration compensation: forward (TASdot), centripetal
+    //    lateral (tas · yawRate), centripetal vertical (tas · pitchRate).
+    //    When EKF6 is active, use its bias-corrected rates from the
+    //    previous timestep for more consistent compensation.
     //
-    // Gated on in.sensors.iasAlive.  Below the pitot noise floor, fTAS and
-    // tasDotSmoothed_ are dominated by sensor noise (±1-2 LSB on the
-    // Honeywell HSC, amplified by the sqrt() in the pitot equation to
-    // 4-8 kt phantom IAS at rest).  Leaving the compensation factors active
-    // under those conditions injects ±0.04-0.07 g of noise directly into
-    // the smoothed accel that feeds Madgwick/EKF6, producing a slow pitch
-    // oscillation visible at rest in the hangar.  This matches ADC best
-    // practice (Dynon SkyView, Garmin G3X, ARINC 429 SSM/NCD): consumers
-    // gate their behavior on air-data validity, not on raw measurement.
+    // Gated on in.sensors.iasAlive.  Below the pitot noise floor, tas_
+    // and tasDotSmoothed_ are dominated by sensor noise; leaving the
+    // comp factors active injects that noise directly into the smoothed
+    // accel that feeds Madgwick/EKF6.  The forward-comp path (TASdot)
+    // is the heaviest hitter because small IAS jitter produces a large
+    // derivative; lateral and vertical centripetal are smaller in
+    // magnitude but share the same pathology.  Gating all three at the
+    // same validity boundary gives the attitude filter a clean accel
+    // signal on the ground.  See issue #109.
     if (in.sensors.iasAlive) {
         const float AccelFwdCompFactor = onspeed::mps2g(tasDotSmoothed_);
 
@@ -293,11 +294,20 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         accelLatComp_  = accelLatFilter_.update(accelLatCorr_)   - AccelLatCompFactor;
         accelVertComp_ = accelVertFilter_.update(accelVertCorr_) + AccelVertCompFactor;
     } else {
-        // IAS not alive — still tick the accel EMAs so they track the raw
-        // installation-corrected readings, but do not apply any TAS/TASdot-
-        // derived compensation to them.  tas_ and tasDotSmoothed_ retain
-        // their last values; they'll resume contributing once iasAlive
-        // flips back to true.
+        // IAS not alive — tick the accel EMAs so they track the raw
+        // installation-corrected readings (otherwise the filter state
+        // would grow stale across a long ground pause), but skip the
+        // TAS- and TASdot-derived compensation.
+        //
+        // tas_ and tasDotSmoothed_ continue to be updated by updateTas_()
+        // on every IAS-advance frame; with the pressure deadband clamping
+        // raw IAS to zero at rest, both naturally settle to zero.  We do
+        // NOT zero them here because updateTas_() uses prevTas_ for the
+        // derivative — a hard zero would desynchronize that state and
+        // produce a large spurious TASdot spike on the rising edge when
+        // real IAS returns.  The rising-edge transient is the subject
+        // of issue #114 (fade-in ramp), which the pressure deadband
+        // mitigates but does not fully eliminate.
         accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_);
         accelLatComp_  = accelLatFilter_.update(accelLatCorr_);
         accelVertComp_ = accelVertFilter_.update(accelVertCorr_);

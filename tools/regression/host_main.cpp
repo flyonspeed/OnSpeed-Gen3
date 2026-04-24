@@ -32,6 +32,7 @@
 
 #include <ahrs/Ahrs.h>
 #include <audio/ToneCalc.h>
+#include <sensors/IasAlive.h>
 #include <types/AhrsInputs.h>
 #include <types/AhrsOutputs.h>
 
@@ -184,17 +185,10 @@ onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
     return in;
 }
 
-// IAS-alive hysteresis: matches SensorIO (20 kt rising / 15 kt falling).
-// Kept in sync with the production firmware so the harness sees the
-// same validity flag the AHRS would see in flight.
-bool UpdateIasAlive(bool current, float iasKt)
-{
-    constexpr float kRisingKt  = 20.0f;
-    constexpr float kFallingKt = 15.0f;
-    if (!current && iasKt >= kRisingKt)  return true;
-    if (current  && iasKt <  kFallingKt) return false;
-    return current;
-}
+// IAS-alive hysteresis is shared with the sketch driver (SensorIO.cpp)
+// via onspeed::sensors::UpdateIasAlive — see sensors/IasAlive.h.  Using
+// one implementation in both places removes the drift risk this file
+// used to warn about ("kept in sync" by hope, not by mechanism).
 
 }   // namespace
 
@@ -251,13 +245,13 @@ int main()
     // iasAlive starts false (matches SensorIO boot state) and rises once
     // the recorded IAS crosses the 20 kt hysteresis threshold.
     bool iasAlive = false;
-    iasAlive = UpdateIasAlive(iasAlive, rows.front().ias_kt);
+    iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, rows.front().ias_kt);
     onspeed::AhrsInputs seed = BuildInputs(rows, 0, oatPresentInLog, iasAlive);
     ahrs.Init(seed, rows.front().palt_ft);
 
     for (size_t i = 0; i < rows.size(); ++i) {
         const InputRow& r = rows[i];
-        iasAlive = UpdateIasAlive(iasAlive, r.ias_kt);
+        iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, r.ias_kt);
         const onspeed::AhrsInputs in = BuildInputs(rows, i, oatPresentInLog, iasAlive);
         const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
 

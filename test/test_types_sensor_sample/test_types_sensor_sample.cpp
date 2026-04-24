@@ -19,6 +19,12 @@ void test_default_initializes_fields_to_expected_values(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.ptMbar);
     TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.p45Mbar);
     TEST_ASSERT_EQUAL_FLOAT(0.0f,       s.densityAltitudeFt);
+    // iasAlive defaults to TRUE so test fixtures and the regression
+    // harness that don't explicitly set validity behave like in-flight
+    // samples rather than silently disabling AHRS compensation.
+    // Consumers that care about validity (SensorIO) overwrite this
+    // per-frame from the hysteretic state machine.
+    TEST_ASSERT_TRUE(s.iasAlive);
     TEST_ASSERT_EQUAL_UINT32(0u,        s.timestampUs);
 }
 
@@ -42,7 +48,8 @@ void test_fields_are_writable(void)
 
 void test_size_is_reasonable(void)
 {
-    // 7 floats (28 bytes) + 1 uint32 (4 bytes) = 32 bytes. Allow padding to 48.
+    // 7 floats (28 bytes) + 1 uint32 (4 bytes) + 1 bool (1 + up to 3
+    // padding) = 32-36 bytes.  Allow padding to 48.
     TEST_ASSERT_LESS_OR_EQUAL(48u, sizeof(SensorSample));
 }
 

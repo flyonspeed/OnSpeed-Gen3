@@ -146,7 +146,15 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // 60-deg bank. Matches the value GLimitDecision uses for over-G warnings.
     float fVerticalGload = g_AHRS.AccelVertCorr;
 
-    if (isnan(g_Sensors.AOA) || !g_Sensors.bIasAlive)
+    // AOA is gated by the user-tunable `iMuteAudioUnderIAS` threshold,
+    // not `bIasAlive`.  Rationale: `iMuteAudioUnderIAS` is a UX knob
+    // (pilot sets where they want AOA callouts to appear) — it is
+    // configured independently of sensor validity.  `bIasAlive` is the
+    // sensor-level validity flag (20/15 kt fixed).  Audio mute uses
+    // `iMuteAudioUnderIAS` with its own +5 kt hysteresis; keep the web
+    // UI's "show AOA?" decision aligned with that UX choice rather than
+    // surfacing AOA 10 kt earlier than the pilot configured.
+    if (isnan(g_Sensors.AOA) || g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
     {
         fWifiAOA = -100;
     }
