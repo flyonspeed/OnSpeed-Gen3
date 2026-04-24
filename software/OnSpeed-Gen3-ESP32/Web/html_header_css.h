@@ -153,7 +153,7 @@ li.dropdown {
     animation-duration:0.2s;
     animation-delay:0.3s
     }
-.icon__signal-strength.bar-4{
+.icon__signal-strength .bar-4{
     height:100%;
     animation-duration:0.15s;
     animation-delay:0.4s
@@ -161,7 +161,7 @@ li.dropdown {
 .signal-0 .bar-1,.signal-0 .bar-2,.signal-0 .bar-3,.signal-0 .bar-4{
     opacity:.2
     }
-.signal-1 .bar-2,.signal-1 .bar-3,.signal-1.bar-4{
+.signal-1 .bar-2,.signal-1 .bar-3,.signal-1 .bar-4{
     opacity:.2
     }
 .signal-2 .bar-3,.signal-2 .bar-4{
@@ -394,7 +394,7 @@ li.dropdown {
     color: red;
     }
 
-@media screen and (max-width: 768) {
+@media screen and (max-width: 768px) {
     .flex-col-1 {
         width: 100%;
         }
