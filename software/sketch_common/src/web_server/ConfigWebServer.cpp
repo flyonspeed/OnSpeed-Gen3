@@ -114,6 +114,7 @@ void HandleCalWizard();
 void HandleFormat();
 void HandleLogs();
 void HandleDelete();
+void HandleDeleteBulk();
 void HandleDownload();
 void HandleWifiReflash();
 void HandleUpgrade();
@@ -301,6 +302,7 @@ void CfgWebServerInit()
     CfgServer.on("/format",          HTTP_GET,  HandleFormat);
     CfgServer.on("/logs",            HTTP_GET,  HandleLogs);
     CfgServer.on("/delete",          HTTP_GET,  HandleDelete);
+    CfgServer.on("/delete-bulk",     HTTP_POST, HandleDeleteBulk);
     CfgServer.on("/download",        HTTP_GET,  HandleDownload);
 
 //    CfgServer.on("/wifireflash",     HTTP_GET,  HandleWifiReflash);
@@ -3304,6 +3306,83 @@ void HandleDelete()
         CfgServer.send(301, "text/html", "");
         }
 
+    }
+
+// ----------------------------------------------------------------------------
+
+void HandleDeleteBulk()
+    {
+    // Gather selected filenames. The form produced by HandleLogs submits
+    // every checked box as a separate "f" argument.
+    std::vector<String> selected;
+    for (int i = 0; i < CfgServer.args(); i++)
+        {
+        if (CfgServer.argName(i) == "f")
+            {
+            String v = CfgServer.arg(i);
+            if (IsSafeLogFilename(v))
+                selected.push_back(v);
+            // Silently drop unsafe filenames — don't expose parse errors.
+            }
+        }
+
+    if (selected.empty())
+        {
+        CfgServer.sendHeader("Location", "/logs");
+        CfgServer.send(301, "text/html", "");
+        return;
+        }
+
+    // Not yet confirmed: show a confirmation page listing selected files.
+    if (CfgServer.arg("confirm").indexOf("yes") < 0)
+        {
+        String sPage;
+        UpdateHeader();
+        sPage.reserve(pageHeader.length() + 2048);
+        sPage += pageHeader;
+        sPage += "<br><br><p style=\"color:red\">Delete these ";
+        sPage += String((unsigned)selected.size());
+        sPage += " file(s)?</p>\n";
+        sPage += "<form method=\"POST\" action=\"/delete-bulk\">\n";
+        sPage += "<input type=\"hidden\" name=\"confirm\" value=\"yes\">\n";
+        sPage += "<ul>\n";
+        for (const String& f : selected)
+            {
+            sPage += "<li>";
+            sPage += f;
+            sPage += "<input type=\"hidden\" name=\"f\" value=\"";
+            sPage += f;
+            sPage += "\"></li>\n";
+            }
+        sPage += "</ul>\n";
+        sPage += "<button type=\"submit\" class=\"button\">Delete</button>\n";
+        sPage += "&nbsp;&nbsp;<a href=\"/logs\">Cancel</a>\n";
+        sPage += "</form>\n";
+        sPage += pageFooter;
+        CfgServer.send(200, "text/html", sPage);
+        return;
+        }
+
+    // Confirmed: delete each file + its matching sidecar.
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+        {
+        for (const String& f : selected)
+            {
+            g_SdFileSys.remove(f.c_str());
+            // Derive sidecar name by swapping extension to .meta.
+            int iDot = f.lastIndexOf('.');
+            if (iDot > 0)
+                {
+                String sMeta = f.substring(0, iDot) + ".meta";
+                if (g_SdFileSys.exists(sMeta.c_str()))
+                    g_SdFileSys.remove(sMeta.c_str());
+                }
+            }
+        xSemaphoreGive(xWriteMutex);
+        }
+
+    CfgServer.sendHeader("Location", "/logs");
+    CfgServer.send(301, "text/html", "");
     }
 
 // ----------------------------------------------------------------------------
