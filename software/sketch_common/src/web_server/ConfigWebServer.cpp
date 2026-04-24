@@ -6,7 +6,13 @@
 
 // OnSpeed Wifi - Wifi file server, config manager and debug display for ONSPEED Gen 2 v2,v3 boxes.
 
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <vector>
+
+#include <log/LogMeta.h>
+#include <log/LogMetaFile.h>
 
 #include <Arduino.h>
 #include <buildinfo.h>
@@ -152,6 +158,76 @@ static bool IsSafeLogFilename(const String& s)
         !s.endsWith(".meta") && !s.endsWith(".META"))
         return false;
     return true;
+    }
+
+// Read the sidecar for a given CSV filename and parse into meta.
+// Returns true on success (file existed and parsed). `sCsvName` should
+// be the full ".csv" filename; the sidecar is derived by swapping the
+// extension to ".meta". Caller should hold xWriteMutex.
+static bool TryReadLogMeta(const char* sCsvName, onspeed::log::LogMeta* out)
+    {
+    // Derive .meta filename by replacing the final extension.
+    char sMeta[32];
+    size_t len = strlen(sCsvName);
+    if (len < 5 || len > 27) return false;   // need room for rewriting tail to ".meta"
+    memcpy(sMeta, sCsvName, len);
+    sMeta[len] = '\0';
+    const char* dot = strrchr(sMeta, '.');
+    if (!dot) return false;
+    size_t dotIdx = (size_t)(dot - sMeta);
+    snprintf(sMeta + dotIdx, sizeof(sMeta) - dotIdx, ".meta");
+
+    FsFile f = g_SdFileSys.open(sMeta, O_RDONLY);
+    if (!f.isOpen()) return false;
+
+    char buf[512];
+    int n = f.read(buf, sizeof(buf) - 1);
+    f.close();
+    if (n <= 0) return false;
+    buf[n] = '\0';
+    return onspeed::log::ParseMetaFile(std::string_view(buf, (size_t)n), out);
+    }
+
+// Format a duration in ms as "1h 30m 42s" / "42s" / "12m 3s". Writes
+// into out[16].
+static void FormatDurationMs(uint32_t ms, char out[16])
+    {
+    uint32_t total_s = ms / 1000u;
+    uint32_t h = total_s / 3600u;
+    uint32_t m = (total_s % 3600u) / 60u;
+    uint32_t s = total_s % 60u;
+    if (h > 0)
+        snprintf(out, 16, "%luh %lum %lus",
+                 (unsigned long)h, (unsigned long)m, (unsigned long)s);
+    else if (m > 0)
+        snprintf(out, 16, "%lum %lus",
+                 (unsigned long)m, (unsigned long)s);
+    else
+        snprintf(out, 16, "%lus", (unsigned long)s);
+    }
+
+// Format the "Start" column. Prefers UTC date+time, falls back to
+// time-of-day, falls back to an em-dash. Writes into out[32].
+static void FormatStart(const onspeed::log::LogMeta& meta, char out[32])
+    {
+    if (meta.utcStart[0] != '\0')
+        {
+        // "YYYY-MM-DDTHH:MM:SSZ" -> "YYYY-MM-DD HH:MM".
+        char y[5], mo[3], d[3], hh[3], mm[3];
+        if (sscanf(meta.utcStart, "%4s-%2s-%2sT%2s:%2s",
+                   y, mo, d, hh, mm) == 5)
+            {
+            snprintf(out, 32, "%s-%s-%s %s:%s", y, mo, d, hh, mm);
+            return;
+            }
+        }
+    if (meta.timeOfDayStart[0] != '\0')
+        {
+        // "HH:MM:SS" -> "HH:MM" (drop seconds for list view).
+        snprintf(out, 32, "%.5s", meta.timeOfDayStart);
+        return;
+        }
+    snprintf(out, 32, "&mdash;");
     }
 
 // Maximum number of flap positions accepted from a config-save POST.
@@ -3022,68 +3098,139 @@ void HandleLogs()
     {
     SdFileSys::SuFileInfoList   suFileList;
     bool        bListStatus = false;
-    String      sFileLine = "";
     String      sPage;
 
     UpdateHeader();
-    sPage.reserve(pageHeader.length() + 8192);
+    sPage.reserve(pageHeader.length() + 16384);
     sPage += pageHeader;
-//    sPage += "<p>Available log files:</p>\n";
     sPage += "<br>\n";
 
-    // Iterate over log file names here
-    {
-        // Pause logging while listing files to reduce SD contention.
-        struct PauseGuard
-            {
-            bool bPrevPause;
-            PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
-            ~PauseGuard() { g_bPause = bPrevPause; }
-            } pauseGuard;
+    // Pause logging while listing files + reading sidecars to reduce SD contention.
+    struct PauseGuard
+        {
+        bool bPrevPause;
+        PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
+        ~PauseGuard() { g_bPause = bPrevPause; }
+        } pauseGuard;
 
-        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+    struct Entry
+        {
+        String   sName;
+        uint64_t uSize = 0;
+        bool     bHaveMeta = false;
+        onspeed::log::LogMeta meta;
+        };
+    std::vector<Entry> entries;
+    entries.reserve(32);
+
+    uint64_t uTotalSize = 0;
+
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+        {
+        bListStatus = g_SdFileSys.FileList(&suFileList);
+        if (bListStatus)
             {
-            bListStatus = g_SdFileSys.FileList(&suFileList);
-            xSemaphoreGive(xWriteMutex);
+            for (size_t i = 0; i < suFileList.size(); i++)
+                {
+                const char* name = suFileList[i].szFileName;
+                size_t nlen = strlen(name);
+                // Skip .meta sidecars — they get rendered alongside their .csv.
+                if (nlen >= 5 &&
+                    (strcasecmp(name + nlen - 5, ".meta") == 0))
+                    continue;
+                // Only list .csv / .log files.
+                if (nlen < 4 ||
+                    (strcasecmp(name + nlen - 4, ".csv") != 0 &&
+                     strcasecmp(name + nlen - 4, ".log") != 0))
+                    continue;
+
+                Entry e;
+                e.sName = name;
+                e.uSize = suFileList[i].uFileSize;
+                e.bHaveMeta = TryReadLogMeta(name, &e.meta);
+                uTotalSize += e.uSize;
+                entries.push_back(std::move(e));
+                }
             }
-        else
-            {
-            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "LOGS - SD busy (xWriteMutex)");
-            }
-    }
-
-    sPage += "<table>\n";
-    if (bListStatus == true)
-        for (int iIdx=0; iIdx<suFileList.size(); iIdx++)
-            {
-            sFileLine  = "<tr><td><a href=\"/download?file=";
-            sFileLine += suFileList[iIdx].szFileName;
-            sFileLine += "\">";
-            sFileLine += suFileList[iIdx].szFileName;
-            sFileLine += "</a>";
-            sFileLine += "</td>";
-
-            sFileLine += "<td style=\"padding-left: 20px;text-align: right;\">";
-            sFileLine += sFormatBytes(suFileList[iIdx].uFileSize);
-            sFileLine += "</td>";
-
-            sFileLine += "<td>&nbsp;&nbsp;&nbsp;<a href=\"/delete?file=";
-            sFileLine += suFileList[iIdx].szFileName;
-            sFileLine += "\">";
-            sFileLine += szHtmlTrashcan;
-            sFileLine += "</a>";
-            sFileLine += "</td>";
-
-            sFileLine += "</tr>\n";
-
-            sPage     += sFileLine;
-//            fileCount++;
-            } // end for all files in the list
+        xSemaphoreGive(xWriteMutex);
+        }
     else
         {
-        sPage += "<tr><td><br><br><span style=\"color:red\">SD card busy or not available.</span></td></tr>\n";
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning,
+                      "LOGS - SD busy (xWriteMutex)");
+        }
+
+    // Summary line above the table.
+        {
+        char summary[64];
+        snprintf(summary, sizeof(summary), "<p>%u logs, %s total</p>\n",
+                 (unsigned)entries.size(),
+                 sFormatBytes(uTotalSize).c_str());
+        sPage += summary;
+        }
+
+    sPage += "<form method=\"POST\" action=\"/delete-bulk\">\n";
+    sPage += "<table>\n";
+    sPage += "<tr>"
+             "<th></th>"
+             "<th style=\"text-align:left\">Name</th>"
+             "<th style=\"text-align:left\">Start</th>"
+             "<th style=\"text-align:left\">Duration</th>"
+             "<th style=\"text-align:right\">Max IAS</th>"
+             "<th style=\"text-align:right\">Max Alt</th>"
+             "<th style=\"text-align:right\">Size</th>"
+             "<th></th>"
+             "</tr>\n";
+
+    if (bListStatus)
+        {
+        for (const Entry& e : entries)
+            {
+            char durStr[16];
+            char startStr[32];
+            char iasStr[16], altStr[16];
+            if (e.bHaveMeta)
+                {
+                FormatDurationMs(e.meta.durationMs, durStr);
+                FormatStart(e.meta, startStr);
+                snprintf(iasStr, sizeof(iasStr), "%.0f kt", (double)e.meta.maxIasKt);
+                snprintf(altStr, sizeof(altStr), "%.0f ft", (double)e.meta.maxPaltFt);
+                }
+            else
+                {
+                snprintf(durStr,   sizeof(durStr),   "&mdash;");
+                snprintf(startStr, sizeof(startStr), "&mdash;");
+                snprintf(iasStr,   sizeof(iasStr),   "&mdash;");
+                snprintf(altStr,   sizeof(altStr),   "&mdash;");
+                }
+
+            String sLine;
+            sLine.reserve(512);
+            sLine  = "<tr>";
+            sLine += "<td><input type=\"checkbox\" name=\"f\" value=\"";
+            sLine += e.sName; sLine += "\"></td>";
+            sLine += "<td><a href=\"/download?file="; sLine += e.sName; sLine += "\">";
+            sLine += e.sName; sLine += "</a></td>";
+            sLine += "<td>"; sLine += startStr; sLine += "</td>";
+            sLine += "<td>"; sLine += durStr;   sLine += "</td>";
+            sLine += "<td style=\"text-align:right\">"; sLine += iasStr; sLine += "</td>";
+            sLine += "<td style=\"text-align:right\">"; sLine += altStr; sLine += "</td>";
+            sLine += "<td style=\"text-align:right\">"; sLine += sFormatBytes(e.uSize); sLine += "</td>";
+            sLine += "<td>&nbsp;&nbsp;<a href=\"/delete?file="; sLine += e.sName; sLine += "\">";
+            sLine += szHtmlTrashcan; sLine += "</a></td>";
+            sLine += "</tr>\n";
+            sPage += sLine;
+            }
+        }
+    else
+        {
+        sPage += "<tr><td colspan=\"8\"><br><br>"
+                 "<span style=\"color:red\">SD card busy or not available.</span>"
+                 "</td></tr>\n";
         }
     sPage += "</table>\n";
+    sPage += "<p><button type=\"submit\">Delete selected</button></p>\n";
+    sPage += "</form>\n";
 
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
