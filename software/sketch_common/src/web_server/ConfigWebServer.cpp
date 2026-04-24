@@ -107,6 +107,7 @@ void HandleLogs();
 void HandleDelete();
 void HandleDeleteBulk();
 void HandleDownload();
+void HandleBench();
 void HandleWifiReflash();
 void HandleUpgrade();
 void HandleUpgradeSuccess();
@@ -236,6 +237,7 @@ void CfgWebServerInit()
     CfgServer.on("/delete",          HTTP_GET,  HandleDelete);
     CfgServer.on("/delete-bulk",     HTTP_POST, HandleDeleteBulk);
     CfgServer.on("/download",        HTTP_GET,  HandleDownload);
+    CfgServer.on("/bench",           HTTP_GET,  HandleBench);
 
 //    CfgServer.on("/wifireflash",     HTTP_GET,  HandleWifiReflash);
     CfgServer.on("/upgrade",         HTTP_GET,  HandleUpgrade);
@@ -1736,6 +1738,198 @@ void HandleLogs()
     ServePageStub(htmlStub_logs);
     }
  // end HandleLogs()
+
+
+// ----------------------------------------------------------------------------
+
+// /bench — download-throughput measurement page. Pure browser-side timing
+// via fetch() + ReadableStream, so no firmware-side timing code is needed.
+// Lists log files (reusing the existing /download endpoint), then reports
+// per-chunk arrival timing to attribute the slowness to a specific layer.
+
+void HandleBench()
+    {
+    SdFileSys::SuFileInfoList   suFileList;
+    bool    bListStatus = false;
+    String  sPage;
+
+    UpdateHeader();
+    sPage.reserve(pageHeader.length() + 8192);
+    sPage += pageHeader;
+
+    // Reuse the same pause-then-list-then-unpause pattern as /logs.
+    {
+        struct PauseGuard
+            {
+            bool bPrevPause;
+            PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
+            ~PauseGuard() { g_bPause = bPrevPause; }
+            } pauseGuard;
+
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+            {
+            bListStatus = g_SdFileSys.FileList(&suFileList);
+            xSemaphoreGive(xWriteMutex);
+            }
+    }
+
+    sPage += "<h2>Download throughput bench</h2>\n";
+    sPage += "<p>Streams a log file, times each chunk in the browser, and "
+             "reports where the wall-clock time went. Discard-mode throws the "
+             "bytes away so laptop disk/antivirus cost is excluded.</p>\n";
+
+    sPage += "<p><label>Log file: "
+             "<select id='file'>";
+    if (bListStatus)
+        {
+        for (int iIdx = 0; iIdx < suFileList.size(); iIdx++)
+            {
+            sPage += "<option value='";
+            sPage += suFileList[iIdx].szFileName;
+            sPage += "'>";
+            sPage += suFileList[iIdx].szFileName;
+            sPage += " (";
+            sPage += sFormatBytes(suFileList[iIdx].uFileSize);
+            sPage += ")</option>";
+            }
+        }
+    else
+        sPage += "<option>SD busy or unavailable</option>";
+    sPage += "</select></label> "
+             "<label><input type='checkbox' id='discard' checked> Discard bytes "
+             "(don't save)</label> "
+             "<button id='go'>Run bench</button></p>\n";
+
+    sPage += "<div id='status' style='font-family:monospace;white-space:pre-wrap;"
+             "background:#111;color:#0f0;padding:8px;min-height:10em;'>"
+             "Ready.</div>\n"
+             "<p><button id='copy' disabled>Copy results JSON</button></p>\n";
+
+    // The measurement script. Uses fetch() + getReader() so each network
+    // chunk is timestamped as soon as the browser hands it to us.
+    // Bucketed timeline keeps the JSON compact regardless of file size.
+    sPage += R"RAW(<script>
+(function(){
+  const statusEl = document.getElementById('status');
+  const copyBtn  = document.getElementById('copy');
+  let lastResult = null;
+
+  function log(line) {
+    statusEl.textContent += '\n' + line;
+    statusEl.scrollTop = statusEl.scrollHeight;
+  }
+  function fmt(n, d=2) { return (+n).toFixed(d); }
+  function kbps(bytes, ms) { return (bytes / 1024) / (ms / 1000); }
+
+  function pct(arr, p) {
+    if (!arr.length) return 0;
+    const s = [...arr].sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor(s.length * p))];
+  }
+
+  async function run() {
+    const file = document.getElementById('file').value;
+    const discard = document.getElementById('discard').checked;
+    if (!file) { log('No file selected.'); return; }
+    copyBtn.disabled = true;
+    statusEl.textContent = 'Starting: /download?file=' + file + ' (discard=' + discard + ')';
+    const t0 = performance.now();
+    let resp;
+    try {
+      resp = await fetch('/download?file=' + encodeURIComponent(file), {cache: 'no-store'});
+    } catch (e) { log('fetch failed: ' + e); return; }
+    const tFirstResponse = performance.now();
+    if (!resp.ok) { log('HTTP ' + resp.status); return; }
+    const totalSize = parseInt(resp.headers.get('content-length') || '0', 10);
+    log('HTTP ' + resp.status + ', content-length=' + totalSize);
+    log('Response headers: ' + fmt(tFirstResponse - t0) + ' ms');
+    const reader = resp.body.getReader();
+    let tPrev = tFirstResponse;
+    let tFirstByte = 0;
+    let bytes = 0;
+    const gaps = [];
+    const chunkSizes = [];
+    // Per-second throughput buckets for a sparkline.
+    const secondBuckets = [];
+    let curSecond = 0, curSecondBytes = 0;
+    const savedChunks = discard ? null : [];
+    while (true) {
+      const { done, value } = await reader.read();
+      const t = performance.now();
+      if (done) break;
+      if (tFirstByte === 0) tFirstByte = t;
+      const gap = t - tPrev;
+      tPrev = t;
+      bytes += value.length;
+      gaps.push(gap);
+      chunkSizes.push(value.length);
+      if (!discard) savedChunks.push(value);
+      const nowSec = Math.floor((t - tFirstResponse) / 1000);
+      if (nowSec !== curSecond) {
+        while (secondBuckets.length <= curSecond) secondBuckets.push(curSecondBytes);
+        curSecond = nowSec;
+        curSecondBytes = value.length;
+      } else {
+        curSecondBytes += value.length;
+      }
+      if (bytes % (1024 * 1024) < 65536) {
+        const elapsed = t - tFirstResponse;
+        statusEl.textContent = 'Streaming: ' + fmt(bytes / 1048576, 2) + ' MB / '
+          + fmt(totalSize / 1048576, 2) + ' MB at ' + fmt(kbps(bytes, elapsed), 1)
+          + ' KB/s, elapsed ' + fmt(elapsed / 1000, 1) + ' s';
+      }
+    }
+    while (secondBuckets.length <= curSecond) secondBuckets.push(curSecondBytes);
+    const tEnd = performance.now();
+    const totalMs = tEnd - tFirstResponse;
+    const steadyStart = Math.floor(gaps.length * 0.1);
+    const steadyEnd   = Math.floor(gaps.length * 0.9);
+    const steadyBytes = chunkSizes.slice(steadyStart, steadyEnd).reduce((a, b) => a + b, 0);
+    const steadyMs    = gaps.slice(steadyStart, steadyEnd).reduce((a, b) => a + b, 0);
+    const result = {
+      file, discard, totalSize, bytes,
+      totalMs: +totalMs.toFixed(1),
+      avgKBps: +kbps(bytes, totalMs).toFixed(1),
+      steadyKBps: steadyMs > 0 ? +kbps(steadyBytes, steadyMs).toFixed(1) : 0,
+      firstByteMs: +(tFirstByte - t0).toFixed(1),
+      chunkCount: gaps.length,
+      chunkSize:  { min: Math.min(...chunkSizes), med: pct(chunkSizes, 0.5),
+                    p95: pct(chunkSizes, 0.95),   max: Math.max(...chunkSizes) },
+      gapMs:      { min: +pct(gaps, 0.0).toFixed(2),  med: +pct(gaps, 0.5).toFixed(2),
+                    p95: +pct(gaps, 0.95).toFixed(2), max: +Math.max(...gaps).toFixed(2) },
+      kBpsPerSecond: secondBuckets.map(b => +((b / 1024).toFixed(1))),
+      userAgent: navigator.userAgent,
+    };
+    lastResult = result;
+    log('---');
+    log('Total: ' + fmt(bytes / 1048576, 2) + ' MB in ' + fmt(totalMs / 1000, 2) + ' s '
+        + '= ' + fmt(result.avgKBps, 1) + ' KB/s');
+    log('Steady-state (middle 80%): ' + fmt(result.steadyKBps, 1) + ' KB/s');
+    log('First-byte latency: ' + fmt(result.firstByteMs, 1) + ' ms');
+    log('Chunks: ' + result.chunkCount
+        + '  size min/med/p95/max = ' + result.chunkSize.min + '/' + result.chunkSize.med
+        + '/' + result.chunkSize.p95 + '/' + result.chunkSize.max + ' B');
+    log('Chunk gap ms: min/med/p95/max = ' + result.gapMs.min + '/' + result.gapMs.med
+        + '/' + result.gapMs.p95 + '/' + result.gapMs.max);
+    log('Per-second throughput (KB/s): '
+        + result.kBpsPerSecond.slice(0, 40).join(', ')
+        + (result.kBpsPerSecond.length > 40 ? ' ...' : ''));
+    copyBtn.disabled = false;
+  }
+
+  document.getElementById('go').addEventListener('click', run);
+  copyBtn.addEventListener('click', () => {
+    if (!lastResult) return;
+    navigator.clipboard.writeText(JSON.stringify(lastResult, null, 2))
+      .then(() => { copyBtn.textContent = 'Copied!';
+                    setTimeout(() => copyBtn.textContent = 'Copy results JSON', 1500); });
+  });
+})();
+</script>)RAW";
+
+    sPage += pageFooter;
+    CfgServer.send(200, "text/html", sPage);
+    } // end HandleBench()
 
 
 // ----------------------------------------------------------------------------
