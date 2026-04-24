@@ -21,6 +21,11 @@ public:
     void Close();
     void Write();
 
+    // Base filename (without extension) of the log currently being written,
+    // e.g. "log_042". Returns "" when logging is disabled or no file is open.
+    // Used by the /logs web handler to flag the active row as non-deletable.
+    const char* ActiveBaseName() const { return m_szBaseName; }
+
     // Data
 private:
     // Base filename WITHOUT extension, e.g. "log_042". Used at Close()

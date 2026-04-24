@@ -160,6 +160,17 @@ static bool IsSafeLogFilename(const String& s)
     return true;
     }
 
+// Returns true if `sFilename` is the currently-active log file (the CSV
+// that LogSensor has open for writing). Deleting it would orphan the
+// write handle and silently lose data, so delete handlers skip it.
+static bool IsActiveLogFile(const String& sFilename)
+    {
+    const char* szActiveBase = g_LogSensor.ActiveBaseName();
+    if (!szActiveBase || szActiveBase[0] == '\0') return false;
+    String sActive = String(szActiveBase) + ".csv";
+    return sFilename.equalsIgnoreCase(sActive);
+    }
+
 // Read the sidecar for a given CSV filename and parse into meta.
 // Returns true on success (file existed and parsed). `sCsvName` should
 // be the full ".csv" filename; the sidecar is derived by swapping the
@@ -3239,6 +3250,19 @@ void HandleLogs()
              "<th></th>"
              "</tr>\n";
 
+    // Build the on-disk filename of the log currently being written, if any.
+    // "log_042" -> "log_042.csv". Rows whose name matches this string are
+    // flagged active: no checkbox, no trash icon, an "(active)" label.
+    // Deleting the file while it's open would orphan the write handle,
+    // silently lose data, and leave zombie sidecars behind.
+    String sActiveCsvName;
+    const char* szActiveBase = g_LogSensor.ActiveBaseName();
+    if (szActiveBase && szActiveBase[0] != '\0')
+        {
+        sActiveCsvName  = szActiveBase;
+        sActiveCsvName += ".csv";
+        }
+
     if (bListStatus)
         {
         for (const Entry& e : entries)
@@ -3261,20 +3285,36 @@ void HandleLogs()
                 snprintf(altStr,   sizeof(altStr),   "&mdash;");
                 }
 
+            bool bIsActive = (sActiveCsvName.length() > 0) &&
+                             e.sName.equalsIgnoreCase(sActiveCsvName);
+
             String sLine;
             sLine.reserve(512);
-            sLine  = "<tr>";
-            sLine += "<td><input type=\"checkbox\" name=\"f\" value=\"";
-            sLine += e.sName; sLine += "\"></td>";
+            sLine = "<tr>";
+            if (bIsActive)
+                sLine += "<td></td>";
+            else
+                {
+                sLine += "<td><input type=\"checkbox\" name=\"f\" value=\"";
+                sLine += e.sName; sLine += "\"></td>";
+                }
             sLine += "<td><a href=\"/download?file="; sLine += e.sName; sLine += "\">";
-            sLine += e.sName; sLine += "</a></td>";
+            sLine += e.sName; sLine += "</a>";
+            if (bIsActive)
+                sLine += " <span style=\"color:#888\">(active)</span>";
+            sLine += "</td>";
             sLine += "<td>"; sLine += startStr; sLine += "</td>";
             sLine += "<td>"; sLine += durStr;   sLine += "</td>";
             sLine += "<td style=\"text-align:right\">"; sLine += iasStr; sLine += "</td>";
             sLine += "<td style=\"text-align:right\">"; sLine += altStr; sLine += "</td>";
             sLine += "<td style=\"text-align:right\">"; sLine += sFormatBytes(e.uSize); sLine += "</td>";
-            sLine += "<td>&nbsp;&nbsp;<a href=\"/delete?file="; sLine += e.sName; sLine += "\">";
-            sLine += szHtmlTrashcan; sLine += "</a></td>";
+            if (bIsActive)
+                sLine += "<td></td>";
+            else
+                {
+                sLine += "<td>&nbsp;&nbsp;<a href=\"/delete?file="; sLine += e.sName; sLine += "\">";
+                sLine += szHtmlTrashcan; sLine += "</a></td>";
+                }
             sLine += "</tr>\n";
             sPage += sLine;
             }
@@ -3347,6 +3387,16 @@ void HandleDelete()
         return;
         }
 
+    // Guard: refuse to delete the log currently being written. The UI
+    // already hides the checkbox + trash icon for this row, but a stale
+    // browser tab or hand-crafted request could still land here.
+    if (IsActiveLogFile(sFilename))
+        {
+        CfgServer.send(409, "text/plain",
+                       "Cannot delete the log currently being written.");
+        return;
+        }
+
     // File delete not yet confirmed
     if (CfgServer.arg("confirm").indexOf("yes") < 0)
         {
@@ -3406,9 +3456,12 @@ void HandleDeleteBulk()
         if (CfgServer.argName(i) == "f")
             {
             String v = CfgServer.arg(i);
-            if (IsSafeLogFilename(v))
+            // Silently drop unsafe filenames and the currently-active log.
+            // A stale tab (or a request crafted before the current session
+            // started) could include the active filename; we'd rather
+            // silently skip it than fail the whole batch.
+            if (IsSafeLogFilename(v) && !IsActiveLogFile(v))
                 selected.push_back(v);
-            // Silently drop unsafe filenames — don't expose parse errors.
             }
         }
 
