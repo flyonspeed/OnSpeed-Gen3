@@ -35,6 +35,87 @@ This skill captures the repeatable process for auditing the site against current
 
 Violating the letter of these rules is violating the spirit.
 
+## Canonical terminology
+
+The docs site has a standardized vocabulary. Use it verbatim; do not invent synonyms; do not mix conventions within or across pages.
+
+### Aerodynamic states (the Fast / On-Speed / Slow framework)
+
+These terms name aerodynamic conditions of the wing — not tone behaviors, not cockpit sounds, not product features.
+
+| Site term | What it names |
+|---|---|
+| **Fast** | Wing operating at lower AOA than the reference condition. Aerodynamic margin is large; excess energy available. |
+| **ONSPEED** | The reference AOA condition. A narrow AOA band (≈ ±1° in GA aircraft), not a single value. Corresponds to ~60% of maximum lift (≈ 1/(1.3)²). Typically coincides with V~REF~ at 1g. |
+| **Slow** | Wing operating at higher AOA than the reference. Lift demand high; induced drag rises sharply; margin from stall reduced. |
+| **Stall Warning** | The AOA range just below the critical angle where stall is imminent. Red end of the indexer. |
+| **L/D~MAX~** | Maximum lift-to-drag AOA. Configuration-dependent; **not interchangeable with ONSPEED**. In clean configurations L/D~MAX~ is typically at a lower lift fraction; with flaps deployed it may approach ONSPEED. Always render in KaTeX (`L/D~MAX~`). |
+| **Critical AOA** / α~crit~ | The AOA at which the wing stalls. Essentially constant for a given flap configuration regardless of weight or load factor. |
+
+**Spelling notes:**
+
+- The current site spelling of the reference condition is **`ONSPEED`** (all-caps). This is a site convention that predates the Fast–On-Speed–Slow canonical paper (Vaccaro et al., unpublished). When that paper is published, a site-wide rename from `ONSPEED` to `On-Speed` (hyphenated, capitalized) becomes a queued docs-drift follow-up. Until then, **keep writing `ONSPEED`** — internal consistency matters more than alignment with an unpublished external standard. Do not introduce mixed spellings.
+- **`OnSpeed`** (camelCase) is the product/brand name. Always "OnSpeed Gen3", "OnSpeed system", "OnSpeed firmware". Never render the product name in all-caps.
+- **`On-Speed`** (hyphenated) does not currently appear in the site. Reserve it for the future framework-alignment pass.
+
+### Tone regions (OnSpeed product-specific audio cues)
+
+These names describe the audio behavior — distinct from the aerodynamic states above, though they correlate. Standardized by PR #240 and consistent across the M5 display, web liveview, V-n diagram, tone simulator, and audio settings docs.
+
+| Site term | What it names |
+|---|---|
+| **Silent** / **Silence** | No tone below L/D~MAX~ AOA. |
+| **Fast Tone** | Low-pitch pulsing (400 Hz), 1.5 → 8.2 pps. Between L/D~MAX~ and ONSPEED-Fast. "Fast" here refers to the aerodynamic state (fast side of ONSPEED), not the pulse rate. |
+| **ONSPEED solid tone** | Low-pitch (400 Hz) continuous tone inside the ONSPEED band. Pulse rate 0 (solid). |
+| **Slow Tone** | High-pitch pulsing (1600 Hz), 1.5 → 6.2 pps. Between ONSPEED-Slow and Stall Warning. |
+| **Stall warning buzz** | High-pitch (1600 Hz) at 20 pps above the stall-warn threshold. |
+
+Within the pulsing bands, the docs further use **"low-pitch slow tone"** and **"low-pitch fast tone"** (and the high-pitch analogues) to describe the two ends of the pulse-rate interpolation. Do not invent alternatives — these are the canonical phrasings.
+
+### Indexer colors (FAA green / yellow / red progression)
+
+The M5 display, web liveview, V-n diagram fill regions, and future LED indexer all use the same color palette:
+
+| Color | Region |
+|---|---|
+| Green | Fast Tone band + ONSPEED band (the whole safe side) |
+| Yellow | Slow Tone band |
+| Red / flashing red | Stall Warning |
+
+Older pages sometimes describe the Fast-side chevron as "blue" or "orange" — both were standardized to green in PR #240. If you find residual blue/orange references on a fast-side docs surface, that's drift to fix.
+
+### Operational framing
+
+- **Push / Hold / Pull / Unload** are the four pilot actions the tone family cues. Match these verbs verbatim on pages that prescribe pilot response to tones.
+- **Unload for control** is the italicized operational principle for restoring aerodynamic margin when margins shrink. Glossary entry `Unload for Control`. Use italicized `*unload for control*` in running prose.
+- **Directive Information / Descriptive Information** — OnSpeed-specific distinction for why audio cueing is different from visual instruments. Glossary-level; use sparingly.
+- **Lift demand** (the aerodynamic quantity AOA measures) and **aerodynamic margin** / **margin from stall** are the preferred framings for *why* AOA matters; prefer these to "how close to stall you are".
+
+### Physical quantities and units
+
+- **AOA** (initialism, uppercase). Spell out as "angle of attack" on first use per page, then AOA.
+- **α** (Greek alpha) in math contexts; KaTeX-styled in running prose: `$\alpha_0$`, `$\alpha_\text{stall}$`, `$\alpha_\text{crit}$`.
+- **V~X~ / V~Y~ / V~S~ / V~NO~ / V~NE~ / V~REF~ / V~FE~ / V~A~** — always KaTeX-styled with subscript tildes. Lowercase `v` is wrong.
+- **IAS, CAS, TAS** — initialisms, all uppercase.
+- **Fractional Lift** and **NAOA** — mathematically identical. NAOA in code/engineering contexts; Fractional Lift in pilot-facing prose. Glossary links them.
+- **Knots**, **feet**, **degrees**, **°C**, **mbar**, **PSI** — lowercase `knots`, lowercase `feet`, always `°C` (not `degrees C`), `mbar` not `millibars` in tables.
+- **Lift fraction** and **NAOA** are interchangeable; pick one per page and stick with it. The glossary's `Fractional Lift` entry says as much.
+
+### Glossary is authoritative
+
+`reference/glossary.md` is the authoritative list. When a page introduces a term that appears in the glossary, either link to it or match its wording. Do not re-define a glossary term with different wording elsewhere on the site.
+
+### Forward-looking: Fast–On-Speed–Slow framework
+
+There is an in-progress standardization paper ("Standardizing Angle of Attack in General Aviation: The Fast–On-Speed–Slow Framework for Aircraft Control", Vaccaro et al.) that would align the site's vocabulary with broader GA conventions:
+
+- The framework name **Fast–On-Speed–Slow** (em-dash).
+- Rename `ONSPEED` → **On-Speed** (hyphenated).
+- Rename `ONSPEED-Fast` / `ONSPEED-Slow` setpoints → **On-Speed-Fast** / **On-Speed-Slow**.
+- Introductory page explicitly naming the framework OnSpeed implements.
+
+**Do not start this migration until the paper is published.** The site is currently internally consistent on `ONSPEED`; introducing mixed spellings mid-stream would be worse than either option alone. When the paper publishes, the migration is a single focused docs-drift PR.
+
 ## Workflow
 
 Create a TodoWrite todo for each phase. Mark complete as you go.
@@ -176,7 +257,9 @@ Sort by severity (safety first). Present the full list to the user before editin
 
 ### Phase 5 — Edit, matching the existing voice
 
-When writing fixes, mimic the register of the neighboring pages on the site. The OnSpeed docs voice is:
+When writing fixes, mimic the register of the neighboring pages on the site. **Use the exact vocabulary from the [Canonical terminology](#canonical-terminology) section above** — ONSPEED (not On-Speed, not "the on-speed band"), Fast Tone / Slow Tone / ONSPEED solid tone, L/D~MAX~ (KaTeX-styled), Push / Hold / Pull / Unload for pilot actions. Do not synonymize.
+
+The OnSpeed docs voice is:
 
 - **Dense and minimal.** Short sentences. Tables over paragraphs where possible. Pilots scan, they do not read top-to-bottom.
 - **No marketing voice.** Avoid "revolutionary", "seamlessly", "ensures optimal", "simply". These words get deleted on review.
@@ -261,6 +344,12 @@ EOF
 | Forgetting the parse-by-name caveat on `log-columns.md` | Tooling that assumes fixed positions will silently break | Always include the three-group ordering note |
 | Describing wizard fields that don't exist (e.g., "Stall Speed Vs") | Pilots search for these strings and get confused | Open `HandleCalWizard()` and list fields literally |
 | Claiming an algorithm is "better" when it has a known bug | Safety issue — pilots may enable it | Link issue number and leave default unchanged |
+| Using "On-Speed" (hyphenated) in new prose | Site convention is `ONSPEED` all-caps. Mixed spellings across pages is worse than either alone. | Use `ONSPEED`. See Canonical terminology. |
+| Inventing tone names — "fast pulse", "slow pulse", "approach tone" | Confuses pilots who learned the standardized names. | `Fast Tone`, `Slow Tone`, `ONSPEED solid tone`, `stall warning buzz`. |
+| Describing the fast-side chevron or band as "blue" or "orange" | Standardized to green in PR #240. Residual references are drift. | Green. Match the FAA green/yellow/red progression. |
+| Treating L/D~MAX~ and ONSPEED as interchangeable | They are configuration-dependent and usually differ (L/D~MAX~ at lower lift fraction in clean, approaching ONSPEED with flaps). | Keep distinct. Link to the glossary entries. |
+| Rendering `L/Dmax`, `L/D max`, `L/D-MAX` in prose | KaTeX subscript is the site convention | Always `L/D~MAX~`. |
+| Lowercase `vref`, `vs`, etc. | Site convention is `V~REF~`, `V~S~` (KaTeX subscript) | Use the KaTeX form. |
 
 ## Red Flags — STOP and reconsider
 
@@ -273,6 +362,8 @@ EOF
 - "I don't need to run strict build, these are small edits" → run it anyway
 - "These per-flap defaults (8/11/14/16) look like the firmware defaults" → those were removed; the compiled-in default is all zeros
 - "The docs say X, the code says Y, the docs were probably right" → no, the code is authoritative
+- "I'll start the ONSPEED → On-Speed rename now, it's the better spelling" → no, not until the canonical paper is published. Mixed spellings across the site is worse than either alone. See Canonical terminology.
+- "I'll invent a more descriptive tone name for this context" → no. Fast Tone, Slow Tone, ONSPEED solid tone, stall warning buzz. The names are load-bearing.
 
 All of these mean: stop, go back to the source file, fix from the code outward.
 

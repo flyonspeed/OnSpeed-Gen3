@@ -1,25 +1,24 @@
 # X-Plane Plugin
 
-OnSpeed for X-Plane 12 — same audio cues as the panel-mounted Gen3, driven
-by X-Plane's flight model. Audio-only for now; visuals are coming
-([#221](https://github.com/flyonspeed/OnSpeed-Gen3/issues/221)).
+OnSpeed plugin for X-Plane 12. Plays the same audio cues as the panel
+box by routing X-Plane's AOA dataref through `onspeed_core`.
+Audio-only; a visual overlay is tracked in [#221](https://github.com/flyonspeed/OnSpeed-Gen3/issues/221).
 
 ## What it does
 
-While X-Plane is running and the aircraft is above 25 kt IAS, the plugin
-plays the OnSpeed tone family in real time:
+With the aircraft above 25 kt IAS, the plugin plays the same tone
+regions the panel box plays — see [What the Tones Mean](../flying/tone-map.md)
+for the full reference. Summary:
 
-- **No tone** below LDmax AOA — you have plenty of margin.
-- **Low pulse tone** between LDmax and OnSpeed-fast — pulse rate climbs
-  as you slow toward OnSpeed.
-- **Solid low tone** in the OnSpeed band — the audio "lock" you fly
-  approaches against.
-- **High pulse tone** above OnSpeed-slow — pulse rate climbs as AOA grows.
-- **Fast high pulse (20 pps)** above stall warning AOA — back off now.
+- **Silence** below L/D~MAX~.
+- **Low-pitch pulsing (400 Hz)** between L/D~MAX~ and ONSPEED. Pulse rate 1.5 → 8.2 pps as AOA increases.
+- **ONSPEED solid tone (400 Hz)** inside the ONSPEED band.
+- **High-pitch pulsing (1600 Hz)** above ONSPEED. Pulse rate 1.5 → 6.2 pps.
+- **Stall warning buzz (1600 Hz, 20 pps)** above the stall-warn threshold.
 
-The tones come from X-Plane's published AOA dataref, not from any
-calibrated airframe model. That's enough for training; it isn't enough
-to substitute for an in-aircraft calibration of your real airplane.
+AOA comes from X-Plane's `sim/flightmodel/position/alpha`, not from a
+calibrated airframe model. It does not substitute for a real in-aircraft
+calibration.
 
 ## Requirements
 
@@ -41,7 +40,7 @@ Look for files named:
 |---|---|
 | macOS | `onspeed-<version>-xplane-macos.xpl` |
 | Linux | `onspeed-<version>-xplane-linux.xpl` |
-| Windows | (manual release — ask in Discord, or build from source) |
+| Windows | (manual release — build from source, see below) |
 
 The plugin version matches your firmware version — both come from the
 same git tag.
@@ -74,9 +73,9 @@ Open **Plugins → AOA Tone Fly On Speed** — a control window appears
 with the four AOA threshold values and a status display.
 
 Pick any aircraft, take off, slow down to a stall in level flight. You
-should hear the low pulse tone start as you cross LDmax, transition to
-solid low at OnSpeed, then high pulse, then fast high pulse (the stall
-warning) as you approach the break.
+should hear low-pitch pulsing as you cross L/D~MAX~, the ONSPEED solid
+tone in the ONSPEED band, high-pitch pulsing above it, and the stall
+warning buzz as you approach the break.
 
 ## Usage
 
@@ -85,33 +84,32 @@ warning) as you approach the break.
 The plugin's control window has three sections:
 
 - **AOA thresholds** — four editable fields. From low to high:
-  - **Below LDmax** — below this AOA, no tone plays.
-  - **Below OnSpeed** — between this and the next, low pulse tone.
-  - **OnSpeed Max** — between this and the next, solid low tone (you're "On Speed").
-  - **Above OnSpeed Max** — above this, high tone (warning region).
+  - **Below LDmax** — below this AOA, silence.
+  - **Below OnSpeed** — between this and the next, low-pitch pulsing.
+  - **OnSpeed Max** — between this and the next, ONSPEED solid tone.
+  - **Above OnSpeed Max** — above this, high-pitch pulsing.
 - **Live AOA readout** — current X-Plane AOA, updated each frame.
-- **Status / version** — plugin enabled state, plus the OnSpeed version
-  string.
+- **Status / version** — plugin enabled state and the OnSpeed version
+  string (same string the panel box reports on its web UI — both come
+  from the release tag).
 
-Edit any threshold and the plugin uses the new value immediately. The
-defaults are tuned for a generic GA single — for an aircraft-specific
-profile, replace them with your own calibrated values.
+Edits take effect on the next frame. Defaults are generic; for
+aircraft-specific behavior, replace them with your own calibrated
+setpoints.
 
-### Muting / disabling
+### Muting
 
-**Plugins → AOA Tone Fly On Speed → Audio On/Off** toggles the tones
-without unloading the plugin. Useful for quick A/B comparison while
-flying or for screen recordings.
+**Plugins → AOA Tone Fly On Speed → Audio On/Off** toggles tones on and
+off without unloading the plugin.
 
-### Reload after editing
+### Reloading
 
-X-Plane has no hot-reload for plugins. If you replace the `.xpl` (e.g.
-to install a newer build), restart X-Plane.
+X-Plane has no plugin hot-reload. Restart X-Plane after replacing the
+`.xpl`.
 
 ## Building from source
 
-Required if you want a Windows build, or if you want to track the
-latest `master` ahead of a release.
+Required for a Windows build or to track `master` ahead of a release.
 
 Prerequisites:
 
@@ -165,8 +163,8 @@ Open it and search for `AOA-Tone-FlyOnSpeed`. Common causes:
   output is unmuted and routed where you expect.
 - Confirm IAS is above the 25-kt gate (the plugin doesn't play tones at
   rest on the runway).
-- Confirm AOA is above LDmax — at low AOAs the plugin is correctly
-  silent.
+- Confirm AOA is above L/D~MAX~ — below that threshold the plugin is
+  correctly silent.
 - On Linux, install `libopenal1` if it isn't already present:
   `sudo apt-get install libopenal1`.
 
@@ -180,40 +178,31 @@ threshold values from the calibration wizard's
 
 ### Windows {#windows}
 
-Windows binaries aren't built by CI yet. If you need one, either:
+Windows binaries aren't built by CI yet — build from source per
+[Building from source](#building-from-source).
 
-1. Build from source (see [Building from source](#building-from-source)),
-   or
-2. Ask in the project Discord — community members have shared Windows
-   builds informally.
+Adding Windows to CI needs an OpenAL SDK install step and per-OS lib
+path handling. Tracked as a follow-up to
+[issue #220](https://github.com/flyonspeed/OnSpeed-Gen3/issues/220).
 
-Adding Windows to the CI matrix needs an OpenAL SDK install step plus
-SDK-lib path handling. Tracked as a follow-up to
-[issue #220](https://github.com/flyonspeed/OnSpeed-Gen3/issues/220);
-PRs welcome.
+## Release smoke test
 
-## Verifying a release locally (release checklist)
-
-Before tagging an OnSpeed release, anyone with X-Plane installed can
-spend ~15 minutes confirming the plugin still plays the right cues.
-Keep this list short and current — it lives at the bottom of this page
-on purpose, so a release manager finds it without hunting.
+Run before tagging a release. ~15 minutes with X-Plane installed.
 
 1. Build from `master`: `cmake --build build`.
 2. Install via `./scripts/install_dev.sh ~/X-Plane\ 12`.
 3. Launch X-Plane, load the Cessna 172 on a runway.
 4. **Plugins → Plugin Admin** confirms the plugin is enabled.
-5. **Plugins → AOA Tone Fly On Speed** opens the control window; the
-   version string matches the release tag.
+5. **Plugins → AOA Tone Fly On Speed** opens the control window; version string matches the release tag.
 6. Take off, climb to 4,000 ft, reduce to 60% power.
-7. **Below LDmax**: no tone audible at cruise AOA.
-8. **LDmax to OnSpeed**: pulse rate climbs as you slow.
-9. **OnSpeed band**: solid low tone at ~65 kt clean.
-10. **Above OnSpeed**: high pulse as you slow further.
-11. **Stall warning**: rapid high pulse just before the stall break.
-12. Toggle **Audio On/Off** — tones cut, then return.
+7. **Below L/D~MAX~**: silence at cruise AOA.
+8. **L/D~MAX~ to ONSPEED**: low-pitch pulsing, rate climbs as you slow.
+9. **ONSPEED band**: ONSPEED solid tone at ~65 kt clean.
+10. **Above ONSPEED**: high-pitch pulsing, rate climbs as you slow further.
+11. **Stall warning**: stall warning buzz just before the break.
+12. **Audio On/Off** toggle cuts tones, then restores them.
 
-If any step is wrong, the release isn't ready.
+Any step that doesn't match blocks the release.
 
 ## Source
 

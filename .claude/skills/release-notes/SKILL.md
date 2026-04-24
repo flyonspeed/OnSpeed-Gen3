@@ -7,7 +7,23 @@ description: Use when the user asks to release a new OnSpeed firmware version, d
 
 ## Overview
 
-OnSpeed firmware ships to pilots flying real aircraft. Release notes are not changelogs — they are a safety document, a marketing document, and a learning aid all at once. A returning pilot needs to know in 10 seconds whether their calibration is still valid; a new pilot needs to know what changed and why; a developer needs to know what's been refactored.
+OnSpeed release notes are **an internal team update**. The audience is:
+
+- The pilots flying OnSpeed.
+- The test pilots.
+- The project developer.
+
+They already know what OnSpeed is. They already fly with it. **Nobody reading the release notes is evaluating the product for the first time, and nobody needs to be sold on it again.** The goal is not to make them slap their leg going "wow, what an update" — it is to tell them, plainly, what changed.
+
+The pilots on this team do not want marketing voice from their own project. They want the state of things.
+
+What the notes need to communicate, in order:
+
+1. **Context and theme.** What was the thrust of this release? One paragraph.
+2. **Recalibration status.** Does the pilot need to recalibrate after flashing? Mandatory callout every time, even when the answer is no.
+3. **What pilots will notice.** New features they can use, visual or audio behavior changes, bugs that fell out. Plain.
+4. **What changed in the code.** Organizing theme, subsystem-level. Exactly one person cares about the detail; summarize, don't geek out. PR numbers are the backreference for anyone who does care.
+5. **One-liners at the bottom** grouping the rest of the technical updates and fixes by subsystem.
 
 This skill captures the OnSpeed-specific process for getting from "release v4.X" to a high-quality draft GitHub release. It does **not** publish — publishing is always a manual step the user takes after reviewing the draft.
 
@@ -245,14 +261,46 @@ For a fresh-install or recovery flash via USB, the assets also include `onspeed-
 - **Link multiple PRs when they're one logical change.** "(PRs #46, #54)" is fine.
 - **Get the test count right.** Run `pio test -e native --list` or check `test/` directories — don't make it up.
 
-#### Tone checks before saving
+#### Voice — internal team update, not marketing
 
-- No marketing fluff. ("Revolutionary new..." → no.)
-- No emoji unless the previous release used them.
-- No bullet starts with "We" — use third person or imperative ("Replaced the...", "The fix...").
-- No "various improvements" — every bullet names something specific.
-- Pilot-relevant detail goes first; developer-relevant detail goes second.
-- The recalibration callout is present and unambiguous.
+**Every reader can detect AI marketing speak.** If the prose sounds like it's *selling* OnSpeed, rewrite it. OnSpeed has already been bought, installed, and flown by everyone reading the release notes. They want the state of things.
+
+The voice is **the team telling the rest of the team what landed this release.** Not the dev lecturing pilots, not the pilots reporting to the dev — just the people who build and fly this thing comparing notes. Statements of fact, not claims of improvement. "The M5 display now responds at the same rate the audio fires." Not "The M5 display finally responds quickly!" and not "Experience the improved M5 display responsiveness."
+
+**Rewrite any sentence that matches these patterns:**
+
+| Marketing tone | Engineering-update tone |
+|---|---|
+| "no longer lies on first load" | "initialized hidden; first render shows N/A until first WebSocket message" |
+| "finally stays in sync with the audio" | "double EMA pass removed; M5 AOA now arrives at audio cadence" |
+| "brand-new X-Plane simulator support" | "X-Plane 12 plugin. Reads the sim's AOA dataref, plays the same tones." |
+| "safer defaults across the board" | "Fresh install boots silent instead of with one specific RV-4's calibration baked in." |
+| "train at home with the same audio cues" | (cut — pilots know what a sim is for) |
+| "the shared-codebase release" | "onspeed_core extraction. Logic shared across Gen3, M5, X-Plane plugin." |
+| "exciting new feature" | (cut — the feature's description is the excitement) |
+
+**Specific words to avoid**, because the LLM produces them by default and they set off marketing-detection:
+
+- finally, now at last, at long last
+- no longer, no more, never again
+- brand-new, all-new, truly new
+- exciting, amazing, revolutionary, seamless
+- train at home, get started, take advantage of, leverage
+- "what pilots will love" / "pilots can now experience"
+- "empowers the pilot to…"
+- "under the hood"
+- "ensures that…", "in order to…"
+- "whether you're a […] or a […]"
+
+**Structural rules:**
+
+- **No bullet starts with "We" or "You".** Third person or imperative. "Replaced the…", "The fix…", "Flash the new firmware and…".
+- **No "various improvements" or "minor fixes"** — every bullet names something specific.
+- **No emoji** unless the previous release used them.
+- **Pilot-relevant detail first, developer-relevant detail second**, within any bullet or section.
+- **Recalibration callout is present and unambiguous.** Every release.
+
+**Leave sales to the website.** The release notes are a log of what changed. If the state of the system is genuinely better, that speaks for itself in the plain description. "The AOA bar is hidden until the first WebSocket message arrives" is enough — reading that, anyone can work out that the previous behavior was worse.
 
 ### Phase 6 — Create the draft (HARD STOP)
 
@@ -290,6 +338,9 @@ Confirm `isDraft: true` and `targetCommitish` matches the SHA you intended. Repo
 |---------|----------------|-----|
 | Using `--target master` | Branch HEAD can move while you're drafting. The release you tested could differ from what's tagged. | Always pass an explicit commit SHA. |
 | Skipping the previous-release voice read | You will drift toward generic AI release-note voice. The OnSpeed voice is specific. | `gh release view v<prev>` every time. |
+| Writing in "selling OnSpeed to pilots" voice | The audience is pilots who already own and fly OnSpeed. They are the team, not the customer. Marketing voice reads as condescending. | Plain statements of what changed. See "Voice — internal team update, not marketing". |
+| "No longer…", "finally…", "brand-new…" in bullets | These phrases imply a customer-journey frame ("you were suffering, now you're saved"). Team members do not need to be reminded the old version was worse. | State the current behavior. The previous state is implicit. |
+| Pitching the pilot-facing features at the top as "what you can do now" | Pilots already know what OnSpeed does. Adding a feature is not a pitch event. | Describe the feature in the same plain voice as the rest of the release. |
 | Trusting a PR body for a safety-critical file | The PR author may not have realized the implication of their change. | Read the diff yourself for any file in the safety-critical list. |
 | Omitting the recalibration callout because "nothing changed" | Pilots need to see it explicitly stated, every release. | Always include it. The "no recalibration needed" version is one paragraph. |
 | Using "various bug fixes" or "minor improvements" | Every bullet must name something specific. | Re-read the PR; find the specific thing. |
@@ -311,6 +362,8 @@ These thoughts mean you're rationalizing:
 - "I can paraphrase the PR description without reading it" → no
 - "The target should obviously be `master`" → confirm with the user, especially if checked out on another branch
 - "I'll batch-publish two releases at once" → no, draft only, one at a time, manual publish
+- "This bullet sounds a little promotional but it's fine" → it isn't. Rewrite in plain-statement voice. Readers detect marketing tone immediately in their own project's release notes, and it reads as condescending from their own team.
+- "Pilots will be excited about X" → cut the excitement framing. Describe X. Let X speak for itself.
 
 All of these mean: stop, follow the workflow, do not cut corners.
 
