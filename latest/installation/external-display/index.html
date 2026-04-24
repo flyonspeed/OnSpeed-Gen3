@@ -1144,6 +1144,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#try-it-in-your-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it in your browser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#supported-m5stack-units" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1166,18 +1177,12 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#try-it-in-your-browser" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Try it in your browser
-      
-    </span>
-  </a>
+      </ul>
+    </nav>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#display-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1241,11 +1246,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
         
@@ -3321,6 +3321,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#try-it-in-your-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it in your browser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#supported-m5stack-units" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3343,18 +3354,12 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#try-it-in-your-browser" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Try it in your browser
-      
-    </span>
-  </a>
+      </ul>
+    </nav>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#display-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3418,11 +3423,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
         
@@ -3615,6 +3615,24 @@ stay outside during approach. The display is most useful for
 post-flight analysis (G-load history), initial familiarization with
 the tones, and as a backup attitude indicator.</p>
 </div>
+<h2 id="try-it-in-your-browser">Try it in your browser<a class="headerlink" href="#try-it-in-your-browser" title="Permanent link">&para;</a></h2>
+<p>Here's the live display firmware running in your browser — same C++
+source that runs on the real M5Stack hardware, rendered at its
+native 320×240 resolution.</p>
+<iframe src="../../assets/sim/index.html"
+        width="340" height="320"
+        style="display: block; margin: 1.5em auto; border: 0;"
+        title="OnSpeed M5 display simulator"
+        loading="lazy"></iframe>
+
+<p>Click the display, then press <kbd>↓</kbd> to cycle through the five
+modes (the one you're looking at is the primary AOA indexer; there
+are four more). The data feed is a synthetic AOA ramp that sweeps
+from 0° up to 25° and back, so you can watch the chevrons and percent
+lift move through the whole tone-map range. It's not a recorded
+flight — but everything the firmware draws is drawn the same way on
+the real device.</p>
+<p>See <a href="#display-modes">Display modes</a> below for what each mode means.</p>
 <h2 id="supported-m5stack-units">Supported M5Stack units<a class="headerlink" href="#supported-m5stack-units" title="Permanent link">&para;</a></h2>
 <p>Both supported units have the same 320×240 ILI9342C color TFT at 40 MHz
 and receive OnSpeed's 20 Hz serial stream over Port C. You can pick
@@ -3694,27 +3712,12 @@ identical on both units.</p>
 <p>If you hold <strong>Button B during boot</strong>, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.</p>
-<h3 id="try-it-in-your-browser">Try it in your browser<a class="headerlink" href="#try-it-in-your-browser" title="Permanent link">&para;</a></h3>
-<p>The real display firmware, compiled to WebAssembly:</p>
-<iframe src="../../assets/sim/index.html"
-        width="420" height="620"
-        style="border: 1px solid #555; border-radius: 4px;"
-        title="OnSpeed M5 display simulator"
-        loading="lazy"></iframe>
-
-<p>Click the canvas to focus it, then use the arrow keys. <strong>→</strong> and <strong>←</strong>
-adjust brightness; <strong>↓</strong> cycles through the five display modes. The
-data feed is a synthetic AOA ramp (0 → 25° and back) so you can watch
-the tone-map regions light up in order — not a recorded flight.</p>
-<p>The browser build uses the same C++ source as the firmware that runs
-on real M5Stack hardware, with M5GFX's SDL panel backend rendering to
-an HTML5 canvas. Source: <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display/sim"><code>software/OnSpeed-M5-Display/sim/</code></a>.</p>
-<h3 id="display-modes">Display modes<a class="headerlink" href="#display-modes" title="Permanent link">&para;</a></h3>
+<h2 id="display-modes">Display modes<a class="headerlink" href="#display-modes" title="Permanent link">&para;</a></h2>
 <p>The five modes are selected by pressing <strong>Button B</strong>, which cycles in
 order: <strong>Primary → Attitude → Indexer-only → Energy → G history →</strong>
 back to Primary. The M5 remembers the last-used mode across power
 cycles.</p>
-<h4 id="primary-aoa-indexer-full-readouts">Primary — AOA indexer + full readouts<a class="headerlink" href="#primary-aoa-indexer-full-readouts" title="Permanent link">&para;</a></h4>
+<h3 id="primary-aoa-indexer-full-readouts">Primary — AOA indexer + full readouts<a class="headerlink" href="#primary-aoa-indexer-full-readouts" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 0 — the boot default.)</em></p>
 <div class="admonition info">
 <p class="admonition-title">Screenshot pending</p>
@@ -3775,7 +3778,7 @@ warn.</p>
 below a "zero line" ladder at the right side of the screen, showing
 instantaneous onset (rate of G change per second). Useful for
 spotting sudden pull-ups / push-overs during maneuvering.</p>
-<h4 id="attitude-backup-ai-with-aoa">Attitude — backup AI with AOA<a class="headerlink" href="#attitude-backup-ai-with-aoa" title="Permanent link">&para;</a></h4>
+<h3 id="attitude-backup-ai-with-aoa">Attitude — backup AI with AOA<a class="headerlink" href="#attitude-backup-ai-with-aoa" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 1.)</em></p>
 <div class="admonition info">
 <p class="admonition-title">Screenshot pending</p>
@@ -3796,7 +3799,7 @@ symbol at the center.</p>
 replacement), or during instrument transitions where you want the
 OnSpeed-derived flight path marker overlaid on an independent
 attitude source.</p>
-<h4 id="indexer-only-panel-minimal">Indexer-only — panel-minimal<a class="headerlink" href="#indexer-only-panel-minimal" title="Permanent link">&para;</a></h4>
+<h3 id="indexer-only-panel-minimal">Indexer-only — panel-minimal<a class="headerlink" href="#indexer-only-panel-minimal" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 2.)</em></p>
 <div class="admonition info">
 <p class="admonition-title">Screenshot pending</p>
@@ -3809,7 +3812,7 @@ warnings, same on-speed cues, same colors.</p>
 display, the numeric readouts on Primary mode are redundant. This
 mode keeps only the visual indexer — ideal for a narrow panel cutout
 beside the primary ASI.</p>
-<h4 id="energy-deceleration-gauge">Energy — deceleration gauge<a class="headerlink" href="#energy-deceleration-gauge" title="Permanent link">&para;</a></h4>
+<h3 id="energy-deceleration-gauge">Energy — deceleration gauge<a class="headerlink" href="#energy-deceleration-gauge" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 3.)</em></p>
 <div class="admonition info">
 <p class="admonition-title">Screenshot pending</p>
@@ -3827,7 +3830,7 @@ at the bottom.</p>
 approach shows small steady decel (tape near the green band); rapid
 swings indicate you're pumping the stick or fighting turbulence.
 Also useful for gauging flare authority right at touchdown.</p>
-<h4 id="g-history-scrolling-g-trace">G history — scrolling G trace<a class="headerlink" href="#g-history-scrolling-g-trace" title="Permanent link">&para;</a></h4>
+<h3 id="g-history-scrolling-g-trace">G history — scrolling G trace<a class="headerlink" href="#g-history-scrolling-g-trace" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 4.)</em></p>
 <div class="admonition info">
 <p class="admonition-title">Screenshot pending</p>
