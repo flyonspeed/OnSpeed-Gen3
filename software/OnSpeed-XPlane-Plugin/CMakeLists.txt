@@ -22,12 +22,29 @@ else()
     add_compile_definitions(XPLM_64=1 LIN=1)
 endif()
 
-# OpenAL discovery: macOS provides it as a system framework, others as a
-# package.
+# OpenAL discovery: macOS uses the system framework via find_library();
+# Linux/Windows use find_package().
+#
+# On Linux, CMake's bundled FindOpenAL.cmake (MODULE mode) sets
+# OPENAL_INCLUDE_DIR / OPENAL_LIBRARY from the system package. On
+# Windows, vcpkg ships an OpenALConfig.cmake that exports a proper
+# OpenAL::OpenAL target with include dirs wired in — CONFIG mode
+# picks that up. We try CONFIG first, then fall back to MODULE, and
+# synthesize OpenAL::OpenAL when only the module's loose variables
+# are present (CMake < 3.25 doesn't create the target itself).
 if(APPLE)
     find_library(OPENAL_LIBRARY OpenAL REQUIRED)
 else()
-    find_package(OpenAL REQUIRED)
+    find_package(OpenAL CONFIG QUIET)
+    if(NOT OpenAL_FOUND)
+        find_package(OpenAL MODULE REQUIRED)
+    endif()
+    if(NOT TARGET OpenAL::OpenAL)
+        add_library(OpenAL::OpenAL UNKNOWN IMPORTED)
+        set_target_properties(OpenAL::OpenAL PROPERTIES
+            IMPORTED_LOCATION "${OPENAL_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${OPENAL_INCLUDE_DIR}")
+    endif()
 endif()
 
 # Link against onspeed_core via its CMake shim. PIO consumers continue
@@ -62,7 +79,7 @@ target_include_directories(AOA-Tone-FlyOnSpeed PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/SDK/CHeaders/Widgets
 )
 if(NOT APPLE)
-    target_include_directories(AOA-Tone-FlyOnSpeed PRIVATE ${OPENAL_INCLUDE_DIR})
+    target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE OpenAL::OpenAL)
 endif()
 
 target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE onspeed_core onspeed_version)
@@ -96,8 +113,14 @@ add_subdirectory(tests)
 # Per-OS output directory and .xpl naming. X-Plane expects the plugin
 # bundle/shared-lib to live in <Plugin>/<arch>/<plugin>.xpl.
 if(WIN32)
+    # On Windows a SHARED library is a DLL — CMake routes it to
+    # RUNTIME_OUTPUT_DIRECTORY (not LIBRARY_OUTPUT_DIRECTORY, which
+    # only covers the import .dll.a on MinGW). Set both so the .xpl
+    # lands in win_x64/ regardless of which property wins.
     set_target_properties(AOA-Tone-FlyOnSpeed PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/win_x64"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/win_x64"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/win_x64"
         PREFIX ""
         SUFFIX ".xpl")
 elseif(APPLE)
@@ -122,15 +145,42 @@ if(APPLE)
         ${OPENAL_LIBRARY}
     )
 elseif(WIN32)
+    # Windows uses MinGW-w64 + vcpkg's x64-mingw-static triplet so the
+    # resulting .xpl has zero non-OS DLL dependencies. That means: tell
+    # OpenAL's headers we're linking statically, pull in the Win32 audio
+    # backends OpenAL Soft calls into (winmm / ole32 / dsound / uuid),
+    # and ask the linker to bake libgcc + libstdc++ into the plugin so
+    # users don't need the MinGW runtime DLLs on PATH either. OpenAL
+    # itself is already linked via the OpenAL::OpenAL imported target
+    # above; here we just add the Win32 backends it depends on.
+    target_compile_definitions(AOA-Tone-FlyOnSpeed PRIVATE AL_LIBTYPE_STATIC)
     target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE
         "${XPLANE_SDK_LIBS}/XPLM_64.lib"
         "${XPLANE_SDK_LIBS}/XPWidgets_64.lib"
-        ${OPENAL_LIBRARY}
+        winmm
+        ole32
+        dsound
+        uuid
+    )
+    # `-static` promotes every remaining -l<name> to static-linkage, which
+    # also grabs winpthread (std::thread/std::mutex's runtime) into the
+    # binary. Without it the plugin would still depend on
+    # libwinpthread-1.dll at load time — breaking the single-file install
+    # promise. Keep this AFTER the other link options.
+    #
+    # License note: libgcc + libstdc++ are covered by the GCC Runtime
+    # Library Exception, which explicitly permits static linking into
+    # non-GPL binaries. OpenAL Soft is LGPL — static linking follows
+    # long-established X-Plane plugin convention; relinking against a
+    # user-supplied OpenAL Soft is possible by swapping the .xpl.
+    target_link_options(AOA-Tone-FlyOnSpeed PRIVATE
+        -static-libgcc
+        -static-libstdc++
+        -static
     )
 else()
     target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE
         "${XPLANE_SDK_LIBS}/XPLM_64.so"
         "${XPLANE_SDK_LIBS}/XPWidgets_64.so"
-        openal
     )
 endif()

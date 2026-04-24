@@ -23,8 +23,7 @@ calibration.
 ## Requirements
 
 - **X-Plane 12.4.0 or newer** (SDK 4.3.0 — the version required by the SDK we ship; older sims need to bump their X-Plane install).
-- **macOS** (Apple Silicon or Intel) **or Linux**. Windows builds are
-  released manually — see [Windows install](#windows) below.
+- **macOS** (Apple Silicon or Intel), **Linux**, or **Windows** (x86_64).
 - A working X-Plane audio output (the plugin uses OpenAL).
 - Plugin file: `AOA-Tone-FlyOnSpeed.xpl` (per-platform, downloaded below).
 
@@ -40,7 +39,7 @@ Look for files named:
 |---|---|
 | macOS | `onspeed-<version>-xplane-macos.xpl` |
 | Linux | `onspeed-<version>-xplane-linux.xpl` |
-| Windows | (manual release — build from source, see below) |
+| Windows | `onspeed-<version>-xplane-windows.xpl` |
 
 The plugin version matches your firmware version — both come from the
 same git tag.
@@ -63,6 +62,8 @@ Create this directory structure inside it:
 
 Drop the downloaded `.xpl` in (rename it from
 `onspeed-<version>-xplane-<platform>.xpl` to `AOA-Tone-FlyOnSpeed.xpl`).
+The `.xpl` is self-contained — no other downloads, installers, or
+runtime libraries needed on any of the three platforms.
 
 ### Step 3 — Verify
 
@@ -109,17 +110,21 @@ X-Plane has no plugin hot-reload. Restart X-Plane after replacing the
 
 ## Building from source
 
-Required for a Windows build or to track `master` ahead of a release.
+Usually unnecessary — tagged releases ship macOS, Linux, and Windows `.xpl` files, and every PR and `master` push uploads the same three as GitHub Actions artifacts (30-day retention; GitHub login required to download).
 
 Prerequisites:
 
 - CMake 3.15+
-- A C++17 compiler (Apple Clang, GCC, MSVC).
+- A C++17 compiler (Apple Clang, GCC, MinGW-w64).
 - **macOS**: nothing else — OpenAL is a system framework.
 - **Linux**: `sudo apt-get install libopenal-dev`.
-- **Windows**: install OpenAL SDK from
-  [openal-soft.org](https://www.openal-soft.org/), point CMake at it
-  via `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY`.
+- **Windows**: MinGW-w64 (e.g. via MSYS2) plus OpenAL Soft. The CI
+  workflow uses vcpkg's `x64-mingw-static` triplet so the resulting
+  `.xpl` has no runtime DLL dependency; see
+  [`.github/workflows/ci.yml`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/.github/workflows/ci.yml)
+  for the exact recipe. MSVC isn't supported — the X-Plane SDK's
+  vendored Windows import libraries are GNU `ar` archives that
+  `link.exe` can't consume.
 
 ```bash
 git clone --recursive https://github.com/flyonspeed/OnSpeed-Gen3.git
@@ -175,15 +180,6 @@ edit the four AOA thresholds in the plugin's control window. If your
 aircraft has been calibrated on a real OnSpeed installation, copy the
 threshold values from the calibration wizard's
 **[Verifying Calibration](../calibration/verification.md)** output.
-
-### Windows {#windows}
-
-Windows binaries aren't built by CI yet — build from source per
-[Building from source](#building-from-source).
-
-Adding Windows to CI needs an OpenAL SDK install step and per-OS lib
-path handling. Tracked as a follow-up to
-[issue #220](https://github.com/flyonspeed/OnSpeed-Gen3/issues/220).
 
 ## Release smoke test
 

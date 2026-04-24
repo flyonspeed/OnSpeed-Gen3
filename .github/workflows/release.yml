@@ -163,6 +163,19 @@ jobs:
     name: Build X-Plane Plugin (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
+    defaults:
+      run:
+        shell: bash
+
+    # Windows leg pushes compiled ports to GitHub Packages (vcpkg's
+    # NuGet binary cache) — see the matching block in ci.yml.
+    permissions:
+      contents: write
+      packages: write
+
+    env:
+      VCPKG_BINARY_SOURCES: "clear;nuget,GitHubPackages,readwrite"
+
     strategy:
       fail-fast: false
       matrix:
@@ -173,6 +186,9 @@ jobs:
           - os: macos-latest
             arch_dir: mac_x64
             tag: macos
+          - os: windows-latest
+            arch_dir: win_x64
+            tag: windows
 
     steps:
       - name: Checkout code
@@ -186,11 +202,68 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libopenal-dev
 
+      - name: Configure vcpkg NuGet cache (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # See ci.yml for rationale — GitHub Packages NuGet source so
+          # compiled ports round-trip across runs instead of rebuilding.
+          $nuget = & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" fetch nuget | Select-Object -Last 1
+          & $nuget sources add -Name GitHubPackages `
+            -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+            -Username "${{ github.actor }}" `
+            -Password "${{ secrets.GITHUB_TOKEN }}" `
+            -StorePasswordInClearText
+          & $nuget setapikey "${{ secrets.GITHUB_TOKEN }}" `
+            -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+
+      - name: Install OpenAL (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          # See ci.yml for the full rationale — static triplet + port
+          # overlay disabling C++20 modules so the Windows `.xpl` has no
+          # runtime DLL dependency and the OpenAL Soft port compiles
+          # under the runner's current MinGW GCC.
+          mkdir -p vcpkg-overlays/openal-soft
+          cp -R "$VCPKG_INSTALLATION_ROOT/ports/openal-soft/." vcpkg-overlays/openal-soft/
+          sed -i 's|vcpkg_cmake_configure(|vcpkg_cmake_configure(\n    OPTIONS -DALSOFT_ENABLE_MODULES=OFF|' \
+            vcpkg-overlays/openal-soft/portfile.cmake
+          grep -q 'ALSOFT_ENABLE_MODULES=OFF' vcpkg-overlays/openal-soft/portfile.cmake \
+            || { echo "Overlay sed did not apply — check portfile.cmake format"; exit 1; }
+          vcpkg install openal-soft \
+            --triplet x64-mingw-static \
+            --host-triplet x64-mingw-static \
+            --overlay-ports=vcpkg-overlays
+
+      - name: Select MinGW generator (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          echo "CMAKE_GENERATOR=MinGW Makefiles" >> "$GITHUB_ENV"
+          echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static" >> "$GITHUB_ENV"
+
       - name: Configure
-        run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build
+        run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build ${CMAKE_EXTRA_ARGS}
 
       - name: Build
         run: cmake --build software/OnSpeed-XPlane-Plugin/build
+
+      - name: Run characterization tests
+        run: ctest --test-dir software/OnSpeed-XPlane-Plugin/build --output-on-failure
+
+      - name: Audit Windows .xpl has only OS DLL deps
+        if: runner.os == 'Windows'
+        run: |
+          # See ci.yml for rationale — enforce the "no non-OS DLL" user
+          # promise before we publish the release artifact.
+          XPL=software/OnSpeed-XPlane-Plugin/build/win_x64/AOA-Tone-FlyOnSpeed.xpl
+          DEPS=$(objdump -p "$XPL" | awk '/DLL Name:/ {print tolower($3)}')
+          echo "--- Imported DLLs ---"; echo "$DEPS"
+          ALLOWED='^(kernel32|user32|gdi32|advapi32|msvcrt|ole32|dsound|winmm|mmdevapi|avrt|shell32|shlwapi|ws2_32|api-ms-win-.*|xplm_64|xpwidgets_64)\.dll$'
+          UNEXPECTED=$(echo "$DEPS" | grep -Ev "$ALLOWED" || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "ERROR: unexpected DLL dependencies:"; echo "$UNEXPECTED"
+            exit 1
+          fi
 
       - name: Prepare release asset
         run: |
