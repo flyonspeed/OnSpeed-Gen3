@@ -1,5 +1,8 @@
-#define FLYONSPEED_VERSION  "0.1.12"
-#define FLYONSPEED_DATE     "4/23/2025"
+// Version is sourced from <buildinfo.h> (BuildInfo::version, ::buildDate)
+// so the plugin reports the same string as firmware/M5 builds. Wired at
+// CMake configure time via scripts/generate_buildinfo.py — see
+// CMakeLists.txt and software/Libraries/version/.
+#include <buildinfo.h>
 
 #define XPLM_64 1  // Define XPLM_64 as 1 for 64-bit compatibility
 #ifndef XPLM_API   
@@ -481,7 +484,8 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
 
     // Create version label
     char versionText[50];
-    snprintf(versionText, sizeof(versionText), "Version: %s %s", FLYONSPEED_VERSION, FLYONSPEED_DATE);
+    snprintf(versionText, sizeof(versionText), "OnSpeed %s (%s)",
+             BuildInfo::version, BuildInfo::gitShortSha);
     createWidget(
         xpWidgetClass_Caption,
         versionText

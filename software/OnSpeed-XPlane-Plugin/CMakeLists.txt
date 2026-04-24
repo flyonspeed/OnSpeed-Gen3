@@ -35,6 +35,26 @@ endif()
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/onspeed_core
                  ${CMAKE_BINARY_DIR}/onspeed_core)
 
+# Regenerate buildinfo.cpp from current git state so the plugin reports
+# the same version string as the firmware/M5 builds. Same script, same
+# tag-derived version. Run at configure time so the generated .cpp
+# exists when add_subdirectory(version) decides which sources to compile.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/generate_buildinfo.py
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
+    RESULT_VARIABLE BUILDINFO_RC
+)
+if(NOT BUILDINFO_RC EQUAL 0)
+    message(WARNING
+        "generate_buildinfo.py failed (rc=${BUILDINFO_RC}); "
+        "plugin will report fallback version from buildinfo_default.cpp")
+endif()
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/version
+                 ${CMAKE_BINARY_DIR}/version)
+
 add_library(AOA-Tone-FlyOnSpeed SHARED src/aoa_audio.cpp)
 
 target_include_directories(AOA-Tone-FlyOnSpeed PRIVATE
@@ -45,7 +65,7 @@ if(NOT APPLE)
     target_include_directories(AOA-Tone-FlyOnSpeed PRIVATE ${OPENAL_INCLUDE_DIR})
 endif()
 
-target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE onspeed_core)
+target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE onspeed_core onspeed_version)
 
 # Match the firmware's strict warning posture so plugin-side drift
 # can't silently land. SDK headers are vendored upstream and trip a

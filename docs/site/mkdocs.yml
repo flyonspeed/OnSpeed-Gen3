@@ -151,6 +151,9 @@ nav:
     - Normal Operations: flying/normal-ops.md
     - Approach and Landing: flying/approach-landing.md
     - Summary of Warnings and Alerts: flying/warnings.md
+  - Simulator:
+    - simulator/index.md
+    - X-Plane Plugin: simulator/xplane-plugin.md
   - Logs:
     - data-and-logs/index.md
     - Understanding Logs: data-and-logs/log-format.md
