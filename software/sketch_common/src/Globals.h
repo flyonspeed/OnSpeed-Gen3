@@ -77,6 +77,7 @@
 
 // OnSpeed modules
 #include "src/util/ErrorLogger.h"
+#include "src/util/BootDiagnostics.h"
 #include "src/config/Config.h"
 #include "src/drivers/SPI_IO.h"
 #include "src/drivers/IMU330.h"

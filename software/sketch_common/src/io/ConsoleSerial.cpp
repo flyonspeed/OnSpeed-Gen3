@@ -84,6 +84,7 @@ void ConsoleSerialIO::DisplayConsoleHelp()
         pSerial->println("AUDIOTEST            - Left & right audio test");
         pSerial->println("VNOCHIMETEST         - Play Vno chime");
         pSerial->println("TASKS                - Show info about running tasks");
+        pSerial->println("BOOTLOG              - Show last 20 lines of /boot_log.txt");
         pSerial->println("COOKIE");
         pSerial->println("");
 
@@ -534,6 +535,16 @@ void ConsoleSerialIO::Read()
                 PrintTaskInfo(xTaskTestPot);
                 PrintTaskInfo(xTaskRangeSweep);
                 } // end TASKS
+
+            // BOOTLOG
+            // -------
+            else if (strncasecmp(szCmdToken, "BOOTLOG", 7) == 0)
+                {
+                g_Log.println("");
+                g_Log.println("Last 20 boots:");
+                BootDiag::PrintBootLog(*pSerial, 20);
+                g_Log.println("DONE.");
+                } // end BOOTLOG
 
             // HELP
             // ----

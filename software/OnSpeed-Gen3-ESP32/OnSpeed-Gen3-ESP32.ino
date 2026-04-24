@@ -80,11 +80,22 @@ void setup()
     xAhrsMutex      = xSemaphoreCreateMutex();
     xSerialLogMutex = xSemaphoreCreateMutex();
 
+    // Boot diagnostics: read reset reason and boot count from NVS and print
+    // a summary. Runs after semaphore creation (uses g_Log, which takes
+    // xSerialLogMutex), but before any code that could hang or crash, so
+    // that even a failed boot leaves ground-truth state in NVS for the
+    // NEXT boot to report.
+    BootDiag::Init();
+
     // Initialize SD card
     g_SdFileSys.Init();
 
     if (g_SdFileSys.bSdAvailable == false)
         g_Log.println(MsgLog::EnMain, MsgLog::EnError, "Mount SD card failed");
+
+    // Append this boot's summary line to /boot_log.txt. No-op if SD is
+    // unavailable; NVS state was already captured by BootDiag::Init().
+    BootDiag::AppendToSd();
 
 #ifdef SUPPORT_LITTLEFS
     // Try mounting the LittleFS file system in flash
