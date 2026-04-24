@@ -3094,7 +3094,7 @@
 <li>Reboot for all settings to take effect</li>
 </ol>
 <h2 id="config-file-format">Config File Format<a class="headerlink" href="#config-file-format" title="Permanent link">&para;</a></h2>
-<p>The configuration is stored as XML with the root element <code>CONFIG2</code>. Example structure:</p>
+<p>The configuration is stored as XML with the root element <code>CONFIG2</code>. Example structure (the per-flap values below are <strong>illustrative</strong>, showing what a calibrated aircraft's config looks like — they are <strong>not</strong> the firmware defaults, which ship with all per-aircraft setpoints zeroed until you run the calibration wizard):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">&lt;CONFIG2&gt;</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&lt;AOA_SMOOTHING&gt;</span>20<span class="nt">&lt;/AOA_SMOOTHING&gt;</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&lt;PRESSURE_SMOOTHING&gt;</span>15<span class="nt">&lt;/PRESSURE_SMOOTHING&gt;</span>
@@ -3107,7 +3107,7 @@
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">&lt;FLAP_POSITION&gt;</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">&lt;DEGREES&gt;</span>0<span class="nt">&lt;/DEGREES&gt;</span>
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">&lt;POT_VALUE&gt;</span>129<span class="nt">&lt;/POT_VALUE&gt;</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">&lt;LDMAXAOA&gt;</span>8.03<span class="nt">&lt;/LDMAXAOA&gt;</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">&lt;LDMAXAOA&gt;</span>8.03<span class="nt">&lt;/LDMAXAOA&gt;</span><span class="w">        </span><span class="cm">&lt;!-- per-aircraft; 0.0 on a fresh config --&gt;</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="cm">&lt;!-- ... more setpoints and curves ... --&gt;</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="nt">&lt;/FLAP_POSITION&gt;</span>
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="cm">&lt;!-- ... more flap positions ... --&gt;</span>
@@ -3137,7 +3137,7 @@
 <h2 id="config-load-order">Config Load Order<a class="headerlink" href="#config-load-order" title="Permanent link">&para;</a></h2>
 <p>On startup, the firmware loads configuration in this order:</p>
 <ol>
-<li><strong>Compiled defaults</strong> (from <code>ConfigDefaults.h</code>)</li>
+<li><strong>Compiled defaults</strong> (from <code>OnSpeedConfig::LoadDefaults()</code> in <code>onspeed_core</code>)</li>
 <li><strong>Flash memory</strong> (LittleFS) — overwrites defaults</li>
 <li><strong>SD card</strong> (<code>config.cfg</code>) — overwrites flash</li>
 </ol>
