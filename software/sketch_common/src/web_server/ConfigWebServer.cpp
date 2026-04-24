@@ -3221,10 +3221,15 @@ void HandleLogs()
         sPage += summary;
         }
 
-    sPage += "<form method=\"POST\" action=\"/delete-bulk\">\n";
+    sPage += "<form id=\"logs-form\" method=\"POST\" action=\"/delete-bulk\">\n";
     sPage += "<table>\n";
+    // The header-row checkbox toggles all the per-row checkboxes via a tiny
+    // onclick handler. Pure server-rendered page otherwise; this one script
+    // is worth the convenience vs. a form-roundtrip "select all" button.
     sPage += "<tr>"
-             "<th></th>"
+             "<th><input type=\"checkbox\" title=\"Select all\" "
+             "onclick=\"var cbs=this.form.querySelectorAll('input[name=&quot;f&quot;]');"
+             "for(var i=0;i&lt;cbs.length;i++)cbs[i].checked=this.checked;\"></th>"
              "<th style=\"text-align:left\">Name</th>"
              "<th style=\"text-align:left\">Start</th>"
              "<th style=\"text-align:left\">Duration</th>"
