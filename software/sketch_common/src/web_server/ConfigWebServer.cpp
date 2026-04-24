@@ -3139,6 +3139,17 @@ void HandleDelete()
             {
 //g_Log.printf("Delete %s\n", sFilename.c_str());
             g_SdFileSys.remove(sFilename.c_str());
+
+            // Also remove matching sidecar if it exists. Best-effort: absent
+            // sidecar (old logs, power-cut, or non-CSV deletion) is fine.
+            int iDot = sFilename.lastIndexOf('.');
+            if (iDot > 0)
+                {
+                String sMeta = sFilename.substring(0, iDot) + ".meta";
+                if (g_SdFileSys.exists(sMeta.c_str()))
+                    g_SdFileSys.remove(sMeta.c_str());
+                }
+
             xSemaphoreGive(xWriteMutex);
             }
 
