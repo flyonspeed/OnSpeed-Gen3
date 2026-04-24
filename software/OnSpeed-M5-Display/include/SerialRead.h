@@ -32,9 +32,17 @@ extern unsigned int    selectedPort;
 
 void SerialRead();
 void SerialProcess(float frameDtSec);
+
+// Per-byte injection into the #1 frame state machine. Primary consumer is
+// the ESP-side Serial2 drain in SerialRead(); the desktop/WASM simulator
+// uses it to replay CSV-sourced frames without a physical UART.
+void InjectSerialByte(char c);
+
+#if defined(ESP_PLATFORM)
 unsigned int checkSerial();
 String readSerialbytes();
 void serialSetup();
+#endif
 
 // Freshness contract for the #1 display serial stream.
 // serialMillis is updated on each successfully-parsed frame in SerialRead().
