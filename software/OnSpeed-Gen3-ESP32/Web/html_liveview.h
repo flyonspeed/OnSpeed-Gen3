@@ -68,6 +68,33 @@ function init()
 
 function connectWebSocket()
   {
+  // The init()→setTimeout(connectWebSocket, 300) debounce has now
+  // fired, so the "connection attempt is pending" flag should
+  // clear. Without this, if the first attempt hangs in CONNECTING
+  // (handshake never completes, onOpen/onClose never fire),
+  // liveConnecting stays true forever and the 3-second reconnect
+  // path in updateAge — gated by !liveConnecting — can't fire.
+  // Result: page hangs in "Reconnecting..." indefinitely.  Observed
+  // in the wild on flaky WiFi as "sometimes fails to connect."
+  liveConnecting = false;
+
+  // Close any existing socket before opening a new one.  Without
+  // this, each 3-second reconnect cycle leaks a WebSocket whose
+  // onclose handler can still fire later and call
+  // writeToStatus("Reconnecting...") or spawn additional reconnect
+  // attempts — producing cascading reconnect storms.
+  //
+  // Also clear the old socket's onclose first so its upcoming
+  // close event does not trigger another retry from within the
+  // old handler.
+  if (websocket &&
+      websocket.readyState !== WebSocket.CLOSED &&
+      websocket.readyState !== WebSocket.CLOSING)
+    {
+    websocket.onclose = null;
+    websocket.close();
+    }
+
   websocket = new WebSocket(wsUri);
   websocket.onopen    = function(evt) { onOpen(evt)    };
   websocket.onclose   = function(evt) { onClose(evt)   };
@@ -260,17 +287,32 @@ function onError(evt)
 
 function updateAge()
   {
-  var age=((Date.now()-lastUpdate)/1000).toFixed(1);
+  var age = ((Date.now() - lastUpdate) / 1000).toFixed(1);
+  var color = (age >= 1) ? "red" : "black";
 
-  if (document.getElementById("age"))
+  // The data tables have two Age spans — one in the AOA-mode panel
+  // and one in the attitude-mode panel — switched by toggleAOA().
+  // The previous code read `document.getElementById("age")`, which
+  // does not exist; the guard silently skipped the update AND the
+  // 3-second reconnect fallback below.
+  var ids = ["age_aoa", "age_att"];
+  for (var i = 0; i < ids.length; i++)
     {
-    document.getElementById("age").innerHTML=age +' sec';
-    if (age>=1)  document.getElementById("age").style="color:red";
-    else         document.getElementById("age").style="color:black";
-
-    if ((age>=3) && !liveConnecting)
-      init();
+    var el = document.getElementById(ids[i]);
+    if (el)
+      {
+      el.innerHTML = age + ' sec';
+      el.style.color = color;
+      }
     }
+
+  // If no WebSocket message has arrived in 3 seconds, re-run init()
+  // to reconnect.  Previously this was gated by the dead #age check
+  // above, so the 10 ms inner retry loop in onClose() was the only
+  // reconnect path — and if those retries failed the page hung in
+  // "Reconnecting..." indefinitely.
+  if (age >= 3 && !liveConnecting)
+    init();
   }
 
 
