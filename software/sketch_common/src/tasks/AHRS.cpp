@@ -8,7 +8,6 @@
 // public fields legacy consumers still read.
 
 #include <math.h>
-#include "RunningAverage.h"
 
 #include "src/Globals.h"
 #include "src/drivers/IMU330.h"
@@ -129,9 +128,6 @@ AHRS::AHRS(int gyroSmoothing)
     : AccelFwdFilter(kAccSmoothing)
     , AccelLatFilter(kAccSmoothing)
     , AccelVertFilter(kAccSmoothing)
-    , GxAvg(gyroSmoothing)
-    , GyAvg(gyroSmoothing)
-    , GzAvg(gyroSmoothing)
     , core_(onspeed::ahrs::AhrsConfig{
           /* pitchBiasDeg */          0.0f,
           /* rollBiasDeg  */          0.0f,

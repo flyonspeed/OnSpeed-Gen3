@@ -16,15 +16,12 @@
 //     `Published<AhrsOutputs>` snapshot holder; this PR only moves the
 //     math into core.
 //
-// The sketch-side EMA accel filters and gyro RunningAverages are kept
-// purely for legacy read access — `update()` / `addValue()` are never
-// called on them.  Each Process() call seeds them with the core's
-// freshly-computed values so consumers reading `.get()` /
-// `.getFastAverage()` see the same numbers the core just produced.
+// The sketch-side EMA accel filters are kept purely for legacy read
+// access — `update()` is never called on them.  Each Process() call
+// seeds them with the core's freshly-computed values so consumers
+// reading `.get()` see the same numbers the core just produced.
 
 #pragma once
-
-#include "RunningAverage.h"
 
 #include "src/Globals.h"
 
@@ -74,11 +71,6 @@ public:
     float           FlightPath;         // degrees
     float           EarthVertG;
     float           DerivedAOA;
-
-    // Display-rate gyro running averages (mirror of core RunningMean).
-    RunningAverage  GxAvg;
-    RunningAverage  GyAvg;
-    RunningAverage  GzAvg;
 
     float           gRoll, gPitch, gYaw;
 

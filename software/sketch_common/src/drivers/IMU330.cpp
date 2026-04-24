@@ -51,7 +51,7 @@ IMU330::IMU330(SpiIO * pSensorSPI, int CsPort)
     sPitchGyroAxis     = "";
     sYawGyroAxis       = "";
 
-    pTempAvg = new RunningAverage(20);
+    pTempAvg = new onspeed::RunningMean(20);
 
     Ax = 0.0;     // Forward G
     Ay = 0.0;     // Lateral G

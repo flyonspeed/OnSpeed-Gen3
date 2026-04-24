@@ -7,14 +7,16 @@
 
 #include "src/Globals.h"
 
-#include "RunningAverage.h"
-#include "RunningMedian.h"
+#include <filters/RunningMean.h>
+#include <filters/RunningMedian.h>
 #include <filters/SavGolDerivative.h>
 #include <aoa/AOACalculator.h>
 #include <types/SensorSample.h>
 
 using onspeed::SavGolDerivative;
 using onspeed::AOACalculator;
+using onspeed::RunningMean;
+using onspeed::RunningMedian;
 
 // FreeRTOS task for reading sensors
 void SensorReadTask(void *pvParams);
@@ -34,12 +36,12 @@ public:
     int                 iPfwd;          // Pressure in counts
     float               PfwdSmoothed;
     RunningMedian       PfwdMedian;
-    RunningAverage      PfwdAvg;
+    RunningMean         PfwdAvg;
 
     int                 iP45;           // Pressure in counts
     float               P45Smoothed;
     RunningMedian       P45Median;
-    RunningAverage      P45Avg;
+    RunningMean         P45Avg;
 
     SavGolDerivative    IasDerivative;  // Computes the first derivative
     float               fDecelRate;     // Deceleration rate derived from IAS
