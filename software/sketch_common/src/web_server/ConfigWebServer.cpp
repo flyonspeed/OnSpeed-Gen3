@@ -3234,13 +3234,17 @@ void HandleLogs()
 
     sPage += "<form id=\"logs-form\" method=\"POST\" action=\"/delete-bulk\">\n";
     sPage += "<table>\n";
-    // The header-row checkbox toggles all the per-row checkboxes via a tiny
-    // onclick handler. Pure server-rendered page otherwise; this one script
-    // is worth the convenience vs. a form-roundtrip "select all" button.
+    // The header-row checkbox and per-row checkboxes stay in sync.
+    //   - Click the header  -> all rows take the header's state.
+    //   - Change any row    -> header.checked == (every row checked).
+    //                          header.indeterminate == some but not all.
+    // Pure server-rendered otherwise; this small amount of inline script is
+    // worth it so "select all" behaves the way people expect.
     sPage += "<tr>"
-             "<th><input type=\"checkbox\" title=\"Select all\" "
+             "<th><input type=\"checkbox\" id=\"cb-all\" title=\"Select all\" "
              "onclick=\"var cbs=this.form.querySelectorAll('input[name=&quot;f&quot;]');"
-             "for(var i=0;i&lt;cbs.length;i++)cbs[i].checked=this.checked;\"></th>"
+             "for(var i=0;i&lt;cbs.length;i++)cbs[i].checked=this.checked;"
+             "this.indeterminate=false;\"></th>"
              "<th style=\"text-align:left\">Name</th>"
              "<th style=\"text-align:left\">Start</th>"
              "<th style=\"text-align:left\">Duration</th>"
@@ -3295,8 +3299,15 @@ void HandleLogs()
                 sLine += "<td></td>";
             else
                 {
+                // onchange syncs the header checkbox: checked if every row
+                // is checked, indeterminate if some rows are, else empty.
                 sLine += "<td><input type=\"checkbox\" name=\"f\" value=\"";
-                sLine += e.sName; sLine += "\"></td>";
+                sLine += e.sName;
+                sLine += "\" onchange=\"var cbs=this.form.querySelectorAll('input[name=&quot;f&quot;]'),"
+                         "t=cbs.length,c=0;"
+                         "for(var i=0;i&lt;t;i++)if(cbs[i].checked)c++;"
+                         "var h=document.getElementById('cb-all');"
+                         "h.checked=(c==t);h.indeterminate=(c&gt;0&amp;&amp;c&lt;t);\"></td>";
                 }
             sLine += "<td><a href=\"/download?file="; sLine += e.sName; sLine += "\">";
             sLine += e.sName; sLine += "</a>";
