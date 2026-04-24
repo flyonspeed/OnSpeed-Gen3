@@ -32,6 +32,7 @@
 
 #include <ahrs/Ahrs.h>
 #include <audio/ToneCalc.h>
+#include <sensors/IasAlive.h>
 #include <types/AhrsInputs.h>
 #include <types/AhrsOutputs.h>
 
@@ -153,7 +154,8 @@ bool ParseRow(const std::string& line, InputRow& out)
 // correctly even though we provide one input row per IMU frame.
 onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
                                 size_t frameIdx,
-                                bool oatPresentInLog)
+                                bool oatPresentInLog,
+                                bool iasAlive)
 {
     onspeed::AhrsInputs in;
     const InputRow& row = rows[frameIdx];
@@ -170,6 +172,7 @@ onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
     in.sensors.iasKt      = row.ias_kt;
     in.sensors.paltFt     = row.palt_ft;
     in.sensors.oatCelsius = row.oat_c;
+    in.sensors.iasAlive   = iasAlive;
 
     // IAS update timestamp advances every 4 frames (~50 Hz).  This
     // gates the TAS density correction inside Ahrs::Step.
@@ -181,6 +184,11 @@ onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
     in.efisOatCelsius = 0.0f;
     return in;
 }
+
+// IAS-alive hysteresis is shared with the sketch driver (SensorIO.cpp)
+// via onspeed::sensors::UpdateIasAlive — see sensors/IasAlive.h.  Using
+// one implementation in both places removes the drift risk this file
+// used to warn about ("kept in sync" by hope, not by mechanism).
 
 }   // namespace
 
@@ -234,12 +242,17 @@ int main()
     }
 
     // Init from the very first row's IMU sample (and that row's Palt).
-    onspeed::AhrsInputs seed = BuildInputs(rows, 0, oatPresentInLog);
+    // iasAlive starts false (matches SensorIO boot state) and rises once
+    // the recorded IAS crosses the 20 kt hysteresis threshold.
+    bool iasAlive = false;
+    iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, rows.front().ias_kt);
+    onspeed::AhrsInputs seed = BuildInputs(rows, 0, oatPresentInLog, iasAlive);
     ahrs.Init(seed, rows.front().palt_ft);
 
     for (size_t i = 0; i < rows.size(); ++i) {
         const InputRow& r = rows[i];
-        const onspeed::AhrsInputs in = BuildInputs(rows, i, oatPresentInLog);
+        iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, r.ias_kt);
+        const onspeed::AhrsInputs in = BuildInputs(rows, i, oatPresentInLog, iasAlive);
         const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
 
         // Tone decision driven by the AHRS-derived AOA (real signal,

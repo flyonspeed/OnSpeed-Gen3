@@ -72,8 +72,6 @@ public:
     float           fImuSampleRate;
     float           fImuDeltaTime;
 
-    bool            bIasWasBelowThreshold;
-
     float           fTAS;
 
     // Methods

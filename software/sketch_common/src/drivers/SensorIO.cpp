@@ -7,6 +7,7 @@
 #include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
+#include <sensors/IasAlive.h>
 #include <sensors/PressureConvert.h>
 #include <sensors/OatConvert.h>
 
@@ -180,6 +181,7 @@ SensorIO::SensorIO()
     OatC       = kOatDefaultC;
     fDecelRate = 0.0;
     uIasUpdateUs = 0;
+    bIasAlive  = false;
 }
 
 // ----------------------------------------------------------------------------
@@ -277,6 +279,14 @@ void SensorIO::Read()
     PfwdAvg.addValue(PfwdMedian.getMedian());
     PfwdSmoothed = PfwdAvg.getFastAverage();
 
+    // Clamp residual sensor noise (~1-2 LSB after median+average) to zero.
+    // The sqrt() in the pitot equation amplifies the noise floor into
+    // 4-8 kt of phantom IAS at rest; clamping in the pressure domain kills
+    // it before IAS is computed — PitotPsiToIasKt(0) = 0, so the zero
+    // cascades cleanly through AOA and IAS with no step discontinuity.
+    // Magic constant + reasoning live in sensors/IasAlive.h.
+    PfwdSmoothed = onspeed::sensors::ApplyPfwdDeadband(PfwdSmoothed);
+
     P45Median.add(iP45);
     P45Avg.addValue(P45Median.getMedian());
     P45Smoothed = P45Avg.getFastAverage();
@@ -311,6 +321,13 @@ void SensorIO::Read()
         // TAS at 50 Hz using stale data.
         uIasUpdateUs = micros();
     } // end if not in test pot or range sweep mode
+
+    // IAS-alive hysteresis: downstream consumers (AHRS compensation,
+    // audio mute, display gates) check this flag rather than comparing
+    // IAS against a raw threshold, so the entire signal path shares one
+    // coherent "air data valid" concept.  Thresholds + citations live
+    // in sensors/IasAlive.h.
+    bIasAlive = onspeed::sensors::UpdateIasAlive(bIasAlive, IAS);
 
 	    // Take derivative of airspeed for deceleration calc.
 	    // Update once per display serial period to match tone buffer update rate.
@@ -402,6 +419,7 @@ onspeed::SensorSample SensorIO::Snapshot() const
     out.paltFt      = Palt;
     out.psMbar      = PStatic;
     out.oatCelsius  = g_Config.bOatSensor ? OatC : onspeed::kOatInvalid;
+    out.iasAlive    = bIasAlive;
 
     // Density altitude: only meaningful with a valid OAT reading.
     // When OAT is absent (kOatInvalid), use ISA temperature at Palt so the

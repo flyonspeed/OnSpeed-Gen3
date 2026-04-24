@@ -57,6 +57,10 @@ public:
     float               IAS;
     float               AOA;            // Averaged AOA
     uint32_t            uIasUpdateUs;   // Timestamp (micros) of last IAS update
+    bool                bIasAlive;      // Air-data validity: true when IAS is above the
+                                        // pitot noise floor with hysteresis.  Matches the
+                                        // ARINC-429 SSM "No Computed Data" concept and is
+                                        // the sketch-side source for SensorSample::iasAlive.
 
     double              fIasDerInput;   // Source for IAS for deceleration calc
 

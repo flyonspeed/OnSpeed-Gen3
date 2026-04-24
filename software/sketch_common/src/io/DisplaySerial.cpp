@@ -131,6 +131,11 @@ void DisplaySerial::Write()
 #else
     fDisplayIAS = g_Sensors.IAS;
 #endif
+    // Display-serial gate uses the user-tunable `iMuteAudioUnderIAS`
+    // rather than the sensor-level `bIasAlive` flag (see DataServer.cpp
+    // for the full rationale): the pilot's configured "below which
+    // nothing should show up" choice is the right UX threshold for
+    // external displays too.
     const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
     const float fPAltFt = m2ft(g_AHRS.KalmanAlt);

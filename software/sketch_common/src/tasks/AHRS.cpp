@@ -115,8 +115,6 @@ void AHRS::PublishCoreState_()
     gRoll  = out.gyroRollFiltDps;
     gPitch = out.gyroPitchFiltDps;
     gYaw   = out.gyroYawFiltDps;
-
-    bIasWasBelowThreshold = (g_Sensors.IAS < 25.0f);
 }
 
 // ----------------------------------------------------------------------------
@@ -155,7 +153,6 @@ AHRS::AHRS(int gyroSmoothing)
     fImuSampleRate = kImuSampleRateHz;
     fImuDeltaTime  = 1.0f / fImuSampleRate;
     fTAS           = 0.0f;
-    bIasWasBelowThreshold = true;
 
     AccelFwdFilter .seed(0.0f);
     AccelLatFilter .seed(0.0f);

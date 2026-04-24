@@ -39,8 +39,10 @@ AhrsConfig makeCfg(Algorithm alg)
 }
 
 // Produce a level, stationary seed: Z = -1 g (gravity down on body),
-// zero gyro, 5 kt IAS (below the 25 kt flight-path threshold), sea-level
-// Palt, no OAT.  Useful both for Init() and as the first Step input.
+// zero gyro, 5 kt IAS below the pitot noise floor (iasAlive=false),
+// sea-level Palt, no OAT.  Useful both for Init() and as the first Step
+// input.  Tests that need in-flight conditions override iasKt AND
+// iasAlive to avoid the compensation gate masking their intent.
 AhrsInputs levelSeed()
 {
     AhrsInputs in;
@@ -55,6 +57,7 @@ AhrsInputs levelSeed()
     in.sensors.iasKt    = 5.0f;
     in.sensors.paltFt   = 0.0f;
     in.sensors.oatCelsius = 20.0f;
+    in.sensors.iasAlive = false;                     // rest-on-ground
     in.sensors.timestampUs = 0;
     in.iasUpdateTimestampUs = 0;
     in.useEfisOat     = false;
@@ -225,7 +228,8 @@ void test_tas_updates_only_when_ias_timestamp_advances(void)
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
-    in.sensors.iasKt = 100.0f;
+    in.sensors.iasKt    = 100.0f;
+    in.sensors.iasAlive = true;
     in.sensors.paltFt = 5000.0f;
     in.iasUpdateTimestampUs = 1'000'000u;
     a.Init(in, 5000.0f);
@@ -330,7 +334,8 @@ void test_init_does_not_reset_tas_state(void)
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
-    in.sensors.iasKt = 100.0f;
+    in.sensors.iasKt    = 100.0f;
+    in.sensors.iasAlive = true;
     in.iasUpdateTimestampUs = 1'000'000u;
     a.Init(in, 0.0f);
     a.Step(in, kDt);
@@ -354,7 +359,8 @@ void test_tas_uses_efis_oat_when_enabled(void)
     Ahrs aFallback{cfg};
 
     AhrsInputs in = levelSeed();
-    in.sensors.iasKt = 100.0f;
+    in.sensors.iasKt    = 100.0f;
+    in.sensors.iasAlive = true;
     in.sensors.paltFt = 5000.0f;
     in.iasUpdateTimestampUs = 1'000'000u;
     in.useEfisOat     = true;
@@ -430,6 +436,7 @@ void test_tas_fallback_when_oat_out_of_band(void)
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     in.sensors.iasKt         = 100.0f;
+    in.sensors.iasAlive      = true;
     in.sensors.paltFt        = 5000.0f;
     in.iasUpdateTimestampUs  = 1'000'000u;
     in.useInternalOat        = true;
@@ -449,6 +456,7 @@ void test_tas_fallback_when_divisor_overflows_at_extreme_altitude(void)
     // Density-altitude formula: fDivisor = 1 - 6.8755856e-6 * fDA.
     // Push paltFt huge so fDA pushes fDivisor to 0 or negative.
     in.sensors.iasKt         = 100.0f;
+    in.sensors.iasAlive      = true;
     in.sensors.paltFt        = 200000.0f;   // 200 kft — unphysical but tests the guard
     in.iasUpdateTimestampUs  = 1'000'000u;
     in.useInternalOat        = true;
@@ -474,12 +482,14 @@ void test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing(void)
     a.Init(in, 0.0f);
 
     // Below threshold: stay here a while so iasWasBelowThreshold_ is true.
-    in.sensors.iasKt = 10.0f;
+    in.sensors.iasKt    = 10.0f;
+    in.sensors.iasAlive = false;
     for (int i = 0; i < 50; ++i) a.Step(in, kDt);
     TEST_ASSERT_TRUE(std::isfinite(a.latest().pitchDeg));
 
-    // Cross up through 25 kt — this triggers the reset branch.
-    in.sensors.iasKt = 30.0f;
+    // Cross the iasAlive gate — this triggers the alpha reset branch.
+    in.sensors.iasKt    = 30.0f;
+    in.sensors.iasAlive = true;
     in.iasUpdateTimestampUs = 1'000'000u;
     a.Step(in, kDt);
     // Continue a few more steps; filter must stay finite post-reset.
@@ -491,6 +501,120 @@ void test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing(void)
     TEST_ASSERT_TRUE(std::isfinite(a.latest().pitchDeg));
     TEST_ASSERT_TRUE(std::isfinite(a.latest().rollDeg));
     TEST_ASSERT_TRUE(std::isfinite(a.latest().derivedAoaDeg));
+}
+
+// ---------------------------------------------------------------------
+// IAS-alive gate on accel compensation.
+//
+// When iasAlive=false, AccelFwdCompFactor/AccelLatCompFactor/
+// AccelVertCompFactor must be suppressed.  Phantom IAS (from pitot
+// sensor noise at rest) would otherwise propagate through tas_ and
+// tasDotSmoothed_ into the comp factors and corrupt the smoothed
+// accels fed to Madgwick/EKF6, producing a slow pitch oscillation
+// in the hangar.  Pairs with the deadband in SensorIO (the first
+// line of defense); this is the second.
+// ---------------------------------------------------------------------
+
+void test_ias_alive_false_zeros_comp_factors(void)
+{
+    // Stationary seed: iasAlive=false, measurable yaw rate and a
+    // non-zero TAS (as if the filter had flown earlier and retained
+    // state).  With the gate enforced, accelLatCompG should equal the
+    // raw installation-corrected accel — no centripetal subtraction.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs seed = levelSeed();
+    seed.sensors.iasKt    = 100.0f;      // prime TAS state
+    seed.sensors.iasAlive = true;
+    seed.iasUpdateTimestampUs = 1'000'000u;
+    a.Init(seed, 0.0f);
+    a.Step(seed, kDt);
+    TEST_ASSERT_TRUE(a.tasMps() > 0.0f);
+
+    // Now go to rest-on-ground with a yaw rate that WOULD produce
+    // centripetal compensation if the gate were not there.
+    AhrsInputs rest = levelSeed();       // iasAlive=false
+    rest.imu.gyroYawDps = 10.0f;         // 10 deg/s yaw, taxi-turn scale
+    rest.iasUpdateTimestampUs = 1'020'000u;
+
+    a.Step(rest, kDt);
+
+    // Lateral comp factor = mps2g(deg2rad(tas_ * yawRate)).  With
+    // tas_ ≈ 51 m/s carried over and 10 deg/s, the raw factor would
+    // be ~0.9 g — clearly present in accelLatCompG if applied.
+    // Gated path: accelLatCompG == accelLatSmoothedG (no subtraction).
+    const float latComp     = a.accelLatCompG();
+    const float latSmoothed = a.accelLatSmoothedG();
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, latSmoothed, latComp);
+}
+
+void test_ias_alive_true_applies_centripetal(void)
+{
+    // Mirror: iasAlive=true with a yaw rate should move accelLatCompG
+    // away from the smoothed accel by the centripetal amount.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt    = 100.0f;
+    in.sensors.iasAlive = true;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    a.Init(in, 0.0f);
+    a.Step(in, kDt);
+
+    in.imu.gyroYawDps = 10.0f;
+    in.iasUpdateTimestampUs = 1'020'000u;
+    a.Step(in, kDt);
+
+    // Comp should differ from smoothed by a measurable centripetal amount.
+    const float delta = std::fabs(a.accelLatCompG() - a.accelLatSmoothedG());
+    TEST_ASSERT_TRUE_MESSAGE(delta > 0.05f,
+        "iasAlive=true with 10 deg/s yaw at 100 kt must produce non-trivial lateral comp");
+}
+
+void test_rising_edge_transient_bounded_on_takeoff(void)
+{
+    // Regression guard for the takeoff-through-20-kt transient.
+    // Issue #114 will eventually add a fade-in ramp to eliminate this;
+    // until then we pin the current behavior so any future change that
+    // makes it dramatically worse gets caught.
+    //
+    // The transient is inherent to the filter pipeline — tas_ steps
+    // from 0 (deadband) to ~10 m/s (20 kt) in one pressure frame, so
+    // fTASdot = (10 - 0) / 0.02 s = ~500 m/s^2 on that frame, EMA'd
+    // into tasDotSmoothed_ at alpha ≈ 0.07 -> ~36 m/s^2 of forward
+    // comp spike on the first frame after the gate rises.  The accel
+    // EMA swallows most of it within ~0.5 s; Madgwick's cumulative
+    // pitch displacement stays within ~2° for the first second.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    a.Init(in, 0.0f);
+
+    // Phase 1: ~2.4 s of rest with iasAlive=false, IAS=0 (deadbanded).
+    uint32_t iasTs = 0;
+    for (int i = 0; i < 500; i++) {
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, a.latest().pitchDeg);
+
+    // Phase 2: rising-edge step — gate flips, IAS = 20.3 kt.
+    in.sensors.iasAlive = true;
+    in.sensors.iasKt    = 20.3f;
+
+    float maxPitchDeviation = 0.0f;
+    for (int i = 0; i < 210; i++) {  // ~1 second at 208 Hz
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+        const float absPitch = std::fabs(a.latest().pitchDeg);
+        if (absPitch > maxPitchDeviation) maxPitchDeviation = absPitch;
+    }
+
+    // Pin the transient magnitude.  Upper bound > expected (~1.4°) so
+    // the test doesn't flap on float drift, but tight enough to catch
+    // a regression that doubles the transient.  See issue #114.
+    TEST_ASSERT_TRUE_MESSAGE(maxPitchDeviation < 3.0f,
+        "Rising-edge pitch transient exceeded 3.0° — did a change worsen #114?");
 }
 
 // ---------------------------------------------------------------------
@@ -523,6 +647,10 @@ int main(void)
     RUN_TEST(test_tas_fallback_when_oat_out_of_band);
     RUN_TEST(test_tas_fallback_when_divisor_overflows_at_extreme_altitude);
     RUN_TEST(test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing);
+
+    RUN_TEST(test_ias_alive_false_zeros_comp_factors);
+    RUN_TEST(test_ias_alive_true_applies_centripetal);
+    RUN_TEST(test_rising_edge_transient_bounded_on_takeoff);
 
     return UNITY_END();
 }
