@@ -4,41 +4,20 @@
 // CMakeLists.txt and software/Libraries/version/.
 #include <buildinfo.h>
 
-#define XPLM_64 1  // Define XPLM_64 as 1 for 64-bit compatibility
-#ifndef XPLM_API   
-#define XPLM_API   // XPLM_API 
-#endif
+// Platform flags (APL / IBM / LIN) and XPLM_64 are defined by the CMake
+// build. XPLM_API / PLUGIN_API are defined by the SDK's XPLMDefs.h based
+// on those flags — don't pre-define them here or -Werror catches the
+// redefinition on Windows.
 
-#ifdef _WIN32
-    #define PLUGIN_API __declspec(dllexport)
+// OpenAL's header layout differs per platform: macOS ships it as a
+// system framework under <OpenAL/>, Linux + Windows (OpenAL Soft) use
+// <AL/>.
+#if defined(__APPLE__)
+    #include <OpenAL/al.h>
+    #include <OpenAL/alc.h>
+#else
     #include <AL/al.h>
     #include <AL/alc.h>
-    #include <sstream>
-    #include <cmath>
-    #define _USE_MATH_DEFINES
-    #define IBM 1
-    #define XPWIDGETS 1
-    #define XPMENUS 1
-    #define XPLM_64 1
-
-#else
-    #if defined(__APPLE__)
-        #define APL 1
-        #define IBM 0
-        #define LIN 0
-        #define XPMENUS 1
-        #define XPLM_64 1
-        // macOS ships OpenAL as a system framework; headers live under
-        // <OpenAL/al.h>.
-        #include <OpenAL/al.h>
-        #include <OpenAL/alc.h>
-    #else
-        // Linux (and other ELF systems): OpenAL Soft via libopenal-dev,
-        // headers under <AL/al.h>. Upstream never built on Linux so the
-        // case wasn't covered.
-        #include <AL/al.h>
-        #include <AL/alc.h>
-    #endif
 #endif
 
 #include "XPLMDisplay.h"
@@ -53,6 +32,7 @@
 #include "XPLMMenus.h"
 
 #include <iostream>
+#include <sstream>
 #include <cmath>
 #include <vector>
 #include <cstring>

@@ -174,6 +174,31 @@ jobs:
     name: Build X-Plane Plugin (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
+    defaults:
+      run:
+        shell: bash
+
+    # Only the Windows leg talks to GitHub Packages (via vcpkg's NuGet
+    # binary cache). Scoping the write here keeps every other job at
+    # workflow-level read-only permissions.
+    #
+    # Fork-PR note: GitHub hands fork-originated workflows a read-only
+    # GITHUB_TOKEN regardless of this permissions block — vcpkg gets a
+    # cache-miss on read and its push silently fails, so fork PRs
+    # always pay the full ~9 min OpenAL Soft compile cost. Expected,
+    # not a bug.
+    permissions:
+      contents: read
+      packages: write
+
+    # vcpkg's NuGet binary cache writes a zip of each compiled port to
+    # GitHub Packages keyed on port ABI + triplet + vcpkg baseline.
+    # Warm runs pull the compiled OpenAL Soft zip instead of rebuilding
+    # it (~9 min → seconds). Harmless on non-Windows legs because they
+    # don't invoke vcpkg.
+    env:
+      VCPKG_BINARY_SOURCES: "clear;nuget,GitHubPackages,readwrite"
+
     strategy:
       fail-fast: false
       matrix:
@@ -182,6 +207,8 @@ jobs:
             arch_dir: lin_x64
           - os: macos-latest
             arch_dir: mac_x64
+          - os: windows-latest
+            arch_dir: win_x64
 
     steps:
       - name: Checkout code
@@ -195,8 +222,65 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libopenal-dev
 
+      - name: Configure vcpkg NuGet cache (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # vcpkg's NuGet binary cache needs GitHub Packages registered as
+          # a source that the bundled nuget.exe can push to. Use the
+          # nuget.exe vcpkg itself would invoke so config lands in the
+          # right place. First-time pushes auto-create the owner-scoped
+          # feed; subsequent runs hit it.
+          $nuget = & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" fetch nuget | Select-Object -Last 1
+          & $nuget sources add -Name GitHubPackages `
+            -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+            -Username "${{ github.actor }}" `
+            -Password "${{ secrets.GITHUB_TOKEN }}" `
+            -StorePasswordInClearText
+          & $nuget setapikey "${{ secrets.GITHUB_TOKEN }}" `
+            -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+
+      - name: Install OpenAL (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          # x64-mingw-static so OpenAL Soft links into the .xpl with no
+          # runtime DLL dependency — users drop one file into X-Plane and
+          # the plugin just loads.
+          #
+          # Overlay the openal-soft port to pass -DALSOFT_ENABLE_MODULES=OFF:
+          # upstream OpenAL Soft 1.25+ builds C++20 module units that
+          # don't compile under the MinGW-w64 GCC 15.2 shipped on
+          # windows-latest (winpthreads TU-local linkage bug, fixed
+          # upstream but not yet in the runner image). Disabling modules
+          # skips only the .cppm files; the resulting library is ABI-
+          # identical for consumers that don't `import openal;`.
+          mkdir -p vcpkg-overlays/openal-soft
+          cp -R "$VCPKG_INSTALLATION_ROOT/ports/openal-soft/." vcpkg-overlays/openal-soft/
+          sed -i 's|vcpkg_cmake_configure(|vcpkg_cmake_configure(\n    OPTIONS -DALSOFT_ENABLE_MODULES=OFF|' \
+            vcpkg-overlays/openal-soft/portfile.cmake
+          # If a future vcpkg baseline changes how the port calls CMake
+          # (e.g. renames `vcpkg_cmake_configure` or splits it across
+          # lines) the sed silently no-ops and the build falls back to
+          # the broken C++20-modules compile. Fail loudly instead.
+          grep -q 'ALSOFT_ENABLE_MODULES=OFF' vcpkg-overlays/openal-soft/portfile.cmake \
+            || { echo "Overlay sed did not apply — check portfile.cmake format"; exit 1; }
+          vcpkg install openal-soft \
+            --triplet x64-mingw-static \
+            --host-triplet x64-mingw-static \
+            --overlay-ports=vcpkg-overlays
+
+      - name: Select MinGW generator (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          # SDK import libs under SDK/Libraries/Win are GNU ar archives, so
+          # MSVC's link.exe can't consume them. MinGW-w64 (preinstalled on
+          # windows-latest) links them directly. Pass vcpkg's toolchain
+          # file so FindOpenAL resolves the static build.
+          echo "CMAKE_GENERATOR=MinGW Makefiles" >> "$GITHUB_ENV"
+          echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static" >> "$GITHUB_ENV"
+
       - name: Configure
-        run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build
+        run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build ${CMAKE_EXTRA_ARGS}
 
       - name: Build
         run: cmake --build software/OnSpeed-XPlane-Plugin/build
@@ -206,8 +290,32 @@ jobs:
 
       - name: Verify .xpl was produced
         run: |
+          ls -la software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/ || true
           test -f software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/AOA-Tone-FlyOnSpeed.xpl
-          ls -la software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/
+
+      - name: Audit Windows .xpl has only OS DLL deps
+        if: runner.os == 'Windows'
+        run: |
+          # End-user promise: drop the .xpl in and it loads. Enforce the
+          # "no non-OS DLL dependency" invariant so an accidental drop of
+          # `-static-libgcc` or the static triplet fails loud in CI
+          # instead of silently producing a .xpl that needs extra DLLs
+          # on the user's machine. Allowlist is Win32 OS libs + the
+          # audio backends OpenAL Soft calls into.
+          XPL=software/OnSpeed-XPlane-Plugin/build/win_x64/AOA-Tone-FlyOnSpeed.xpl
+          DEPS=$(objdump -p "$XPL" | awk '/DLL Name:/ {print tolower($3)}')
+          echo "--- Imported DLLs ---"; echo "$DEPS"
+          # Allowlist: Win32 OS libs, UCRT forwarders (api-ms-win-crt-*),
+          # audio backends OpenAL Soft calls into, and the X-Plane-
+          # provided XPLM / XPWidgets DLLs (resolved by X-Plane at load
+          # time, not shipped alongside the plugin).
+          ALLOWED='^(kernel32|user32|gdi32|advapi32|msvcrt|ole32|dsound|winmm|mmdevapi|avrt|shell32|shlwapi|ws2_32|api-ms-win-.*|xplm_64|xpwidgets_64)\.dll$'
+          UNEXPECTED=$(echo "$DEPS" | grep -Ev "$ALLOWED" || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "ERROR: unexpected DLL dependencies:"; echo "$UNEXPECTED"
+            echo "If a new system DLL is legitimately needed, extend the allowlist."
+            exit 1
+          fi
 
       - name: Upload .xpl artifact
         uses: actions/upload-artifact@v4
@@ -478,6 +586,7 @@ jobs:
           M5C=$(gh api "$API" --jq '.artifacts[] | select(.name | test("m5-display-core2")) | {name, id}')
           XPM=$(gh api "$API" --jq '.artifacts[] | select(.name | test("mac_x64.xpl")) | {name, id}')
           XPL=$(gh api "$API" --jq '.artifacts[] | select(.name | test("lin_x64.xpl")) | {name, id}')
+          XPW=$(gh api "$API" --jq '.artifacts[] | select(.name | test("win_x64.xpl")) | {name, id}')
 
           echo "v4p_name=$(echo "$V4P" | jq -r '.name')" >> "$GITHUB_OUTPUT"
           echo "v4p_url=${BASE}/$(echo "$V4P" | jq -r '.id')" >> "$GITHUB_OUTPUT"
@@ -491,6 +600,8 @@ jobs:
           echo "xpm_url=${BASE}/$(echo "$XPM" | jq -r '.id')" >> "$GITHUB_OUTPUT"
           echo "xpl_name=$(echo "$XPL" | jq -r '.name')" >> "$GITHUB_OUTPUT"
           echo "xpl_url=${BASE}/$(echo "$XPL" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+          echo "xpw_name=$(echo "$XPW" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "xpw_url=${BASE}/$(echo "$XPW" | jq -r '.id')" >> "$GITHUB_OUTPUT"
 
       - name: Post sticky comment with artifact links
         uses: marocchino/sticky-pull-request-comment@v2
@@ -524,9 +635,10 @@ jobs:
             | Platform | Download |
             |----------|----------|
             | **macOS** | [${{ steps.artifacts.outputs.xpm_name }}](${{ steps.artifacts.outputs.xpm_url }}) |
+            | **Windows** | [${{ steps.artifacts.outputs.xpw_name }}](${{ steps.artifacts.outputs.xpw_url }}) |
             | **Linux** | [${{ steps.artifacts.outputs.xpl_name }}](${{ steps.artifacts.outputs.xpl_url }}) |
 
-            Drop the `.xpl` into `X-Plane 12/Resources/plugins/AOA-Tone-FlyOnSpeed/<arch>/`. Restart X-Plane to load. See the [X-Plane plugin docs](https://dev.flyonspeed.org/OnSpeed-Gen3/simulator/xplane-plugin/) for install details and usage. Windows builds are released manually until CI is set up for them.
+            Drop the `.xpl` into `X-Plane 12/Resources/plugins/AOA-Tone-FlyOnSpeed/<arch>/`. Restart X-Plane to load. See the [X-Plane plugin docs](https://dev.flyonspeed.org/OnSpeed-Gen3/simulator/xplane-plugin/) for install details and usage.
 
             ---
 
