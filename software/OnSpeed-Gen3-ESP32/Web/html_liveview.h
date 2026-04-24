@@ -91,7 +91,15 @@ function onClose(evt)
 
 function map(x, in_min, in_max, out_min, out_max)
   {
-  if ((in_max - in_min) + out_min ==0)
+  // Degenerate-range guard: if the input span collapses, linear
+  // interpolation divides by zero.  Matches the guard in
+  // onspeed_core::mapfloat (threshold 0.0001).  The previous
+  // guard `(in_max - in_min) + out_min == 0` only fired when
+  // out_min happened to be zero — every real call site here passes
+  // a non-zero out_min (278/228/178/113), so the old guard was
+  // effectively dead and let divide-by-zero through whenever two
+  // adjacent setpoints were configured equal.
+  if (Math.abs(in_max - in_min) < 0.0001)
     return 0;
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
   }
@@ -136,27 +144,37 @@ function onMessage(evt)
     // hasn't connected yet.
     if (AOA > -20)
       {
-      if (AOA<=LDmax)
+      var aoaline_y;
+      if (AOA <= LDmax)
         {
-        var aoaline_y=map(AOA, Alpha0, LDmax, 278, 228);
+        aoaline_y = map(AOA, Alpha0, LDmax, 278, 228);
         }
-      else if (AOA>LDmax && AOA<=OnspeedFast)
+      else if (AOA <= OnspeedFast)
         {
-        aoaline_y=map(AOA, LDmax, OnspeedFast, 228, 178);
+        aoaline_y = map(AOA, LDmax, OnspeedFast, 228, 178);
+        }
+      else if (AOA <= OnspeedSlow)
+        {
+        aoaline_y = map(AOA, OnspeedFast, OnspeedSlow, 178, 113);
+        }
+      else if (AOA <= OnspeedWarn)
+        {
+        aoaline_y = map(AOA, OnspeedSlow, OnspeedWarn, 113, 15);
         }
       else
-        if (AOA>OnspeedFast && AOA<=OnspeedSlow)
-          {
-          aoaline_y=map(AOA, OnspeedFast, OnspeedSlow, 178, 113);
-          }
-        else if (AOA>OnspeedSlow)
-          {
-          aoaline_y=map(AOA, OnspeedSlow,OnspeedWarn, 113, 15);
-          //console.log('aoaline',aoaline_y,AOA,OnspeedSlow,OnspeedWarn);
-          }
+        {
+        // Above stall warning: clamp to the top of the indicator.
+        // Without this clamp, the previous branch's linear map()
+        // extrapolates past y=15 into negative y, sliding the bar
+        // off the top of the SVG and hiding it — exactly the
+        // wrong visual cue at exactly the wrong moment. The
+        // audible stall tone is already firing; the bar should
+        // be pinned visibly at the top to match.
+        aoaline_y = 15;
+        }
 
       document.getElementById("aoaline").setAttribute("y", aoaline_y);
-      document.getElementById("aoaline").style.visibility="visible";
+      document.getElementById("aoaline").style.visibility = "visible";
       }
     else
       {
