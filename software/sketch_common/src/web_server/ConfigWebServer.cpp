@@ -147,8 +147,9 @@ static bool IsSafeLogFilename(const String& s)
         }
     // Only allow log file extensions, not config files (.cfg) or other
     // sensitive data. Config backup/restore has its own dedicated endpoints.
-    if (!s.endsWith(".csv") && !s.endsWith(".CSV") &&
-        !s.endsWith(".log") && !s.endsWith(".LOG"))
+    if (!s.endsWith(".csv")  && !s.endsWith(".CSV") &&
+        !s.endsWith(".log")  && !s.endsWith(".LOG") &&
+        !s.endsWith(".meta") && !s.endsWith(".META"))
         return false;
     return true;
     }
