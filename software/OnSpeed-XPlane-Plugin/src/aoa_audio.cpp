@@ -49,6 +49,12 @@
 #include <mutex>
 #include <atomic>
 
+// Linkage smoke check: the plugin links against onspeed_core via the
+// CMake shim. The header is included unused on purpose — it forces the
+// public include path resolution at compile time. PR 5 replaces the
+// hand-rolled region/pulse math below with calculateTone() calls.
+#include <audio/ToneCalc.h>
+
 // Function declarations
 void cleanupAudio();
 static void UpdateAOATextFields();

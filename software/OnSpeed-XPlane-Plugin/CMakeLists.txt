@@ -30,6 +30,11 @@ else()
     find_package(OpenAL REQUIRED)
 endif()
 
+# Link against onspeed_core via its CMake shim. PIO consumers continue
+# to use library.json untouched; this is purely the CMake-side entry.
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/onspeed_core
+                 ${CMAKE_BINARY_DIR}/onspeed_core)
+
 add_library(AOA-Tone-FlyOnSpeed SHARED src/aoa_audio.cpp)
 
 target_include_directories(AOA-Tone-FlyOnSpeed PRIVATE
@@ -39,6 +44,24 @@ target_include_directories(AOA-Tone-FlyOnSpeed PRIVATE
 if(NOT APPLE)
     target_include_directories(AOA-Tone-FlyOnSpeed PRIVATE ${OPENAL_INCLUDE_DIR})
 endif()
+
+target_link_libraries(AOA-Tone-FlyOnSpeed PRIVATE onspeed_core)
+
+# Match the firmware's strict warning posture so plugin-side drift
+# can't silently land. SDK headers are vendored upstream and trip a
+# few format/format-nonliteral diagnostics; downgrade those rather
+# than scattering pragmas.
+target_compile_options(AOA-Tone-FlyOnSpeed PRIVATE
+    -Wall -Wextra -Werror
+    # Upstream aoa_audio.cpp wasn't written under -Werror. Downgrade
+    # the diagnostics it currently trips so this PR keeps to its
+    # "preserve behavior" promise; PR 5 (the math swap) is the right
+    # place to re-tighten as the function signatures get touched.
+    -Wno-error=format-nonliteral
+    -Wno-error=unused-parameter
+    -Wno-error=unused-variable
+    -Wno-error=missing-field-initializers
+)
 
 # Per-OS output directory and .xpl naming. X-Plane expects the plugin
 # bundle/shared-lib to live in <Plugin>/<arch>/<plugin>.xpl.
