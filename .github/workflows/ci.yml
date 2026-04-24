@@ -170,6 +170,47 @@ jobs:
           path: software/OnSpeed-M5-Display/.pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
+  build-xplane-plugin:
+    name: Build X-Plane Plugin (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch_dir: lin_x64
+          - os: macos-latest
+            arch_dir: mac_x64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install OpenAL (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenal-dev
+
+      - name: Configure
+        run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build
+
+      - name: Build
+        run: cmake --build software/OnSpeed-XPlane-Plugin/build
+
+      - name: Verify .xpl was produced
+        run: |
+          test -f software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/AOA-Tone-FlyOnSpeed.xpl
+          ls -la software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/
+
+      - name: Upload .xpl artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AOA-Tone-FlyOnSpeed-${{ matrix.arch_dir }}.xpl
+          path: software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/AOA-Tone-FlyOnSpeed.xpl
+          retention-days: 30
+
   test-m5-replay:
     name: Test M5 Replay Tool
     runs-on: ubuntu-latest
@@ -413,7 +454,7 @@ jobs:
 
   pr-comment:
     name: PR Firmware Comment
-    needs: [build, build-m5-display]
+    needs: [build, build-m5-display, build-xplane-plugin]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -430,6 +471,8 @@ jobs:
           V4B=$(gh api "$API" --jq '.artifacts[] | select(.name | test("V4B")) | {name, id}')
           M5B=$(gh api "$API" --jq '.artifacts[] | select(.name | test("m5-display-basic")) | {name, id}')
           M5C=$(gh api "$API" --jq '.artifacts[] | select(.name | test("m5-display-core2")) | {name, id}')
+          XPM=$(gh api "$API" --jq '.artifacts[] | select(.name | test("mac_x64.xpl")) | {name, id}')
+          XPL=$(gh api "$API" --jq '.artifacts[] | select(.name | test("lin_x64.xpl")) | {name, id}')
 
           echo "v4p_name=$(echo "$V4P" | jq -r '.name')" >> "$GITHUB_OUTPUT"
           echo "v4p_url=${BASE}/$(echo "$V4P" | jq -r '.id')" >> "$GITHUB_OUTPUT"
@@ -439,6 +482,10 @@ jobs:
           echo "m5b_url=${BASE}/$(echo "$M5B" | jq -r '.id')" >> "$GITHUB_OUTPUT"
           echo "m5c_name=$(echo "$M5C" | jq -r '.name')" >> "$GITHUB_OUTPUT"
           echo "m5c_url=${BASE}/$(echo "$M5C" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+          echo "xpm_name=$(echo "$XPM" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "xpm_url=${BASE}/$(echo "$XPM" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+          echo "xpl_name=$(echo "$XPL" | jq -r '.name')" >> "$GITHUB_OUTPUT"
+          echo "xpl_url=${BASE}/$(echo "$XPL" | jq -r '.id')" >> "$GITHUB_OUTPUT"
 
       - name: Post sticky comment with artifact links
         uses: marocchino/sticky-pull-request-comment@v2
@@ -466,6 +513,15 @@ jobs:
             | **M5Stack Core2** | [${{ steps.artifacts.outputs.m5c_name }}](${{ steps.artifacts.outputs.m5c_url }}) |
 
             Each `.zip` contains `firmware.bin`, `bootloader.bin`, and `partitions.bin` for the M5. For an **OTA update**, hold Button B during boot to enter WiFi update mode and upload `firmware.bin`. For a **USB flash**, see the [external display docs](https://dev.flyonspeed.org/OnSpeed-Gen3/installation/external-display/).
+
+            ### X-Plane plugin
+
+            | Platform | Download |
+            |----------|----------|
+            | **macOS** | [${{ steps.artifacts.outputs.xpm_name }}](${{ steps.artifacts.outputs.xpm_url }}) |
+            | **Linux** | [${{ steps.artifacts.outputs.xpl_name }}](${{ steps.artifacts.outputs.xpl_url }}) |
+
+            Drop the `.xpl` into `X-Plane 12/Resources/plugins/AOA-Tone-FlyOnSpeed/<arch>/`. Restart X-Plane to load. See the [X-Plane plugin docs](https://dev.flyonspeed.org/OnSpeed-Gen3/simulator/xplane-plugin/) for install details and usage. Windows builds are released manually until CI is set up for them.
 
             ---
 
