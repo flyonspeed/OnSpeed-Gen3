@@ -5,6 +5,9 @@
 #include "SdFat.h"
 
 #include "src/Globals.h"
+#include <buildinfo.h>
+#include <log/LogMetaBuilder.h>
+#include <log/LogMetaFile.h>
 #include <proto/LogCsv.h>
 #include <types/LogRow.h>
 
@@ -258,6 +261,7 @@ void LogSensor::Open()
             g_Log.print(MsgLog::EnDisk, MsgLog::EnError, "LOGSENSOR FileList() fail");
 
         snprintf(szSensorLogFilename, sizeof(szSensorLogFilename), "log_%03d.csv", iMaxFileNum + 1);
+        snprintf(m_szBaseName, sizeof(m_szBaseName), "log_%03d", iMaxFileNum + 1);
 
         g_Log.print("Sensor log file:"); g_Log.println(szSensorLogFilename);
 
@@ -280,6 +284,25 @@ void LogSensor::Open()
             m_hLogFile.write("\n", 1);
 
             m_hLogFile.sync();
+
+            // Initialise sidecar accumulator for this session.
+            onspeed::log::EfisType etype = onspeed::log::EfisType::None;
+            if (g_Config.bReadEfisData) {
+                switch (g_EfisSerial.enType) {
+                    case EfisSerialPort::EnVN300:        etype = onspeed::log::EfisType::Vn300;  break;
+                    case EfisSerialPort::EnDynonSkyview:
+                    case EfisSerialPort::EnDynonD10:     etype = onspeed::log::EfisType::Dynon;  break;
+                    case EfisSerialPort::EnGarminG5:
+                    case EfisSerialPort::EnGarminG3X:    etype = onspeed::log::EfisType::Garmin; break;
+                    case EfisSerialPort::EnMglBinary:    etype = onspeed::log::EfisType::Mgl;    break;
+                    case EfisSerialPort::EnNone:
+                    default:                             etype = onspeed::log::EfisType::None;   break;
+                }
+            }
+            m_metaBuilder.Begin(BuildInfo::version,
+                                BuildInfo::gitShortSha,
+                                onspeed::proto::log_csv::kFormatVersion,
+                                etype);
         } // end if file open OK
 
         else
@@ -306,6 +329,59 @@ void LogSensor::Close()
 {
     FlushStagingBufferLocked();
     m_hLogFile.close();
+
+    // Nothing to serialise if we never opened a file in this session.
+    if (m_szBaseName[0] == '\0') return;
+
+    onspeed::log::LogMeta meta = m_metaBuilder.Finalize();
+
+    // Serialise sidecar.
+    char buf[512];
+    size_t n = onspeed::log::WriteMetaFile(meta, buf, sizeof(buf));
+    if (n > 0) {
+        char metaPath[32];
+        snprintf(metaPath, sizeof(metaPath), "%s.meta", m_szBaseName);
+        FsFile f = g_SdFileSys.open(metaPath, O_RDWR | O_CREAT | O_TRUNC);
+        if (f.isOpen()) {
+            f.write(buf, n);
+            f.sync();
+            f.close();
+        } else {
+            g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                          "Sidecar meta open failed");
+        }
+    } else {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                      "Sidecar meta serialize failed");
+    }
+
+    // Optional rename: only when we captured a full UTC date+time.
+    if (meta.utcStart[0] != '\0') {
+        // utcStart is "YYYY-MM-DDTHH:MM:SSZ" — take the first 10 chars as date.
+        char datePrefix[11];
+        memcpy(datePrefix, meta.utcStart, 10);
+        datePrefix[10] = '\0';
+
+        // Extract "NNN" from m_szBaseName which is "log_NNN".
+        const char* nnn = m_szBaseName + 4;   // skip "log_"
+
+        char newCsvName[32];
+        char newMetaName[32];
+        snprintf(newCsvName,  sizeof(newCsvName),  "%s_%s.csv",  datePrefix, nnn);
+        snprintf(newMetaName, sizeof(newMetaName), "%s_%s.meta", datePrefix, nnn);
+
+        char oldCsvName[32];
+        char oldMetaName[32];
+        snprintf(oldCsvName,  sizeof(oldCsvName),  "%s.csv",  m_szBaseName);
+        snprintf(oldMetaName, sizeof(oldMetaName), "%s.meta", m_szBaseName);
+
+        if (!g_SdFileSys.exists(newCsvName) && !g_SdFileSys.exists(newMetaName)) {
+            g_SdFileSys.rename(oldCsvName,  newCsvName);
+            g_SdFileSys.rename(oldMetaName, newMetaName);
+        }
+    }
+
+    m_szBaseName[0] = '\0';
 }
 
 // ----------------------------------------------------------------------------
@@ -433,6 +509,21 @@ void LogSensor::Write()
     row.altitudeFt     = m2ft(g_AHRS.KalmanAlt);
     row.derivedAoaDeg  = g_AHRS.DerivedAOA;
     row.coeffP         = g_fCoeffP;
+
+    // Sidecar accumulator: feed time-of-day + UTC if available.
+    {
+        const char* hmsOrNull = nullptr;
+        const char* utcOrNull = nullptr;
+        if (g_Config.bReadEfisData) {
+            if (g_EfisSerial.suEfis.szTime[0] != '\0')
+                hmsOrNull = g_EfisSerial.suEfis.szTime;
+            if (g_EfisSerial.enType == EfisSerialPort::EnVN300 &&
+                g_EfisSerial.suVN300.szTimeUTC[0] != '\0' &&
+                g_EfisSerial.suVN300.GPSFix > 0)
+                utcOrNull = g_EfisSerial.suVN300.szTimeUTC;
+        }
+        m_metaBuilder.OnRow(row, hmsOrNull, utcOrNull);
+    }
 
     // --- Format the row into the log line buffer ---
     size_t lineLen = onspeed::proto::log_csv::FormatRow(row, szLogLine, sizeof(szLogLine));
