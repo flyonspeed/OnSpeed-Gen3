@@ -382,8 +382,11 @@ function toggleAOA(state)
 
 updateAttitude(0,0);
 
-// init() is called by the end-of-body <script>init()</script> below,
-// after the DOM is fully parsed.  No event listener needed.
+// init() is called by the end-of-body script tag below, after the DOM
+// is fully parsed.  (Deliberately not writing the literal close-script
+// sequence here: the HTML tokenizer terminates <script> content when
+// it sees that substring even inside a JS // comment, which would
+// orphan the rest of the comment as rendered page text.)
 
 </script>
 
