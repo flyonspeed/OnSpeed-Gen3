@@ -23,7 +23,7 @@ to substitute for an in-aircraft calibration of your real airplane.
 
 ## Requirements
 
-- **X-Plane 12.1.0 or newer** (SDK 4.1.1).
+- **X-Plane 12.4.0 or newer** (SDK 4.3.0 — the version required by the SDK we ship; older sims need to bump their X-Plane install).
 - **macOS** (Apple Silicon or Intel) **or Linux**. Windows builds are
   released manually — see [Windows install](#windows) below.
 - A working X-Plane audio output (the plugin uses OpenAL).
