@@ -147,6 +147,16 @@ function map(x, in_min, in_max, out_min, out_max)
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
   }
 
+// toFixed() preserves the sign on values that round to zero, so a
+// pitch of -0.04 renders as "-0.0". Collapse any such result to its
+// unsigned form before display.
+function fmtFixed(value, digits)
+  {
+  var s = value.toFixed(digits);
+  if (parseFloat(s) === 0) s = Math.abs(value).toFixed(digits);
+  return s;
+  }
+
 function onMessage(evt)
   {
   //console.log("onMessage()");
@@ -250,8 +260,8 @@ function onMessage(evt)
     {
     if (AOA > -20)
         {
-        document.getElementById("aoa_aoa").innerHTML=AOA.toFixed(2);
-        document.getElementById("aoa_att").innerHTML=AOA.toFixed(2);
+        document.getElementById("aoa_aoa").innerHTML=fmtFixed(AOA,2);
+        document.getElementById("aoa_att").innerHTML=fmtFixed(AOA,2);
         }
     else
         {
@@ -259,28 +269,28 @@ function onMessage(evt)
         document.getElementById("aoa_att").innerHTML='N/A';
         }
 
-    document.getElementById("ias_aoa").innerHTML        = IAS.toFixed(0) +' kts';
-    document.getElementById("ias_att").innerHTML        = IAS.toFixed(0) +' kts';
-    document.getElementById("palt_aoa").innerHTML       = PAlt.toFixed(0)+' ft';
-    document.getElementById("palt_att").innerHTML       = PAlt.toFixed(0)+' ft';
-    document.getElementById("ivsi_aoa").innerHTML       = iVSI.toFixed(0)+' fpm';
-    document.getElementById("ivsi_att").innerHTML       = iVSI.toFixed(0)+' fpm';
-    document.getElementById("gload_aoa").innerHTML      = GLoad.toFixed(2)+' G';
-    document.getElementById("gload_att").innerHTML      = GLoad.toFixed(2)+' G';
-    document.getElementById("gloadLat_aoa").innerHTML   = GLoadLat.toFixed(2)+' G';
-    document.getElementById("gloadLat_att").innerHTML   = GLoadLat.toFixed(2)+' G';
-    document.getElementById("pitch_aoa").innerHTML      = PitchAngle.toFixed(1)+'&#176;';
-    document.getElementById("pitch_att").innerHTML      = PitchAngle.toFixed(1)+'&#176;';
-    document.getElementById("roll_aoa").innerHTML       = RollAngle.toFixed(1)+'&#176;';
-    document.getElementById("roll_att").innerHTML       = RollAngle.toFixed(1)+'&#176;';
-    document.getElementById("flightpath_aoa").innerHTML = flightPath.toFixed(1)+'&#176;';
-    document.getElementById("flightpath_att").innerHTML = flightPath.toFixed(1)+'&#176;';
-    document.getElementById("derivedaoa_aoa").innerHTML = derivedAOA.toFixed(2)+'&#176;';
-    document.getElementById("derivedaoa_att").innerHTML = derivedAOA.toFixed(2)+'&#176;';
-    document.getElementById("datamark_aoa").innerHTML   = OnSpeed.dataMark.toFixed(0);
-    document.getElementById("datamark_att").innerHTML   = OnSpeed.dataMark.toFixed(0);
-    document.getElementById("flapspos_aoa").innerHTML   = OnSpeed.flapsPos.toFixed(0)+'&#176;';
-    document.getElementById("flapspos_att").innerHTML   = OnSpeed.flapsPos.toFixed(0)+'&#176;';
+    document.getElementById("ias_aoa").innerHTML        = fmtFixed(IAS,0) +' kts';
+    document.getElementById("ias_att").innerHTML        = fmtFixed(IAS,0) +' kts';
+    document.getElementById("palt_aoa").innerHTML       = fmtFixed(PAlt,0)+' ft';
+    document.getElementById("palt_att").innerHTML       = fmtFixed(PAlt,0)+' ft';
+    document.getElementById("ivsi_aoa").innerHTML       = fmtFixed(iVSI,0)+' fpm';
+    document.getElementById("ivsi_att").innerHTML       = fmtFixed(iVSI,0)+' fpm';
+    document.getElementById("gload_aoa").innerHTML      = fmtFixed(GLoad,2)+' G';
+    document.getElementById("gload_att").innerHTML      = fmtFixed(GLoad,2)+' G';
+    document.getElementById("gloadLat_aoa").innerHTML   = fmtFixed(GLoadLat,2)+' G';
+    document.getElementById("gloadLat_att").innerHTML   = fmtFixed(GLoadLat,2)+' G';
+    document.getElementById("pitch_aoa").innerHTML      = fmtFixed(PitchAngle,1)+'&#176;';
+    document.getElementById("pitch_att").innerHTML      = fmtFixed(PitchAngle,1)+'&#176;';
+    document.getElementById("roll_aoa").innerHTML       = fmtFixed(RollAngle,1)+'&#176;';
+    document.getElementById("roll_att").innerHTML       = fmtFixed(RollAngle,1)+'&#176;';
+    document.getElementById("flightpath_aoa").innerHTML = fmtFixed(flightPath,1)+'&#176;';
+    document.getElementById("flightpath_att").innerHTML = fmtFixed(flightPath,1)+'&#176;';
+    document.getElementById("derivedaoa_aoa").innerHTML = fmtFixed(derivedAOA,2)+'&#176;';
+    document.getElementById("derivedaoa_att").innerHTML = fmtFixed(derivedAOA,2)+'&#176;';
+    document.getElementById("datamark_aoa").innerHTML   = fmtFixed(OnSpeed.dataMark,0);
+    document.getElementById("datamark_att").innerHTML   = fmtFixed(OnSpeed.dataMark,0);
+    document.getElementById("flapspos_aoa").innerHTML   = fmtFixed(OnSpeed.flapsPos,0)+'&#176;';
+    document.getElementById("flapspos_att").innerHTML   = fmtFixed(OnSpeed.flapsPos,0)+'&#176;';
 
     lastDisplay = Date.now();
     } // end if time to display
