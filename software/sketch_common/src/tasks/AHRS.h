@@ -93,8 +93,6 @@ public:
     bool            bIasWasBelowThreshold;
 
     float           fTAS;
-    float           fPrevTAS;
-    uint32_t        uLastIasUpdateUs;
 
     // Methods
     void    Init(float fSampleRate);

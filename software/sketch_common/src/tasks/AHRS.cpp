@@ -118,8 +118,6 @@ void AHRS::PublishCoreState_()
     gYaw   = out.gyroYawFiltDps;
 
     bIasWasBelowThreshold = (g_Sensors.IAS < 25.0f);
-    uLastIasUpdateUs = g_Sensors.uIasUpdateUs;
-    fPrevTAS = fTAS;
 }
 
 // ----------------------------------------------------------------------------
@@ -162,8 +160,6 @@ AHRS::AHRS(int gyroSmoothing)
     fSinRoll       = 0.0f;
     fCosRoll       = 1.0f;
     fTAS           = 0.0f;
-    fPrevTAS       = 0.0f;
-    uLastIasUpdateUs = 0;
     bIasWasBelowThreshold = true;
 
     AccelFwdFilter .seed(0.0f);
