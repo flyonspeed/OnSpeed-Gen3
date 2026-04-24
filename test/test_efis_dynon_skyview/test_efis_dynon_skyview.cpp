@@ -596,6 +596,50 @@ static void test_adahrs_system_time_out_of_range()
     TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
 }
 
+static void test_adahrs_system_time_mm_out_of_range()
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f,
+                     14, 60, 30, 0);
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
+static void test_adahrs_system_time_ss_out_of_range()
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f,
+                     14, 30, 60, 0);
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
+static void test_adahrs_system_time_midnight()
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f,
+                     0, 0, 0, 0);
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("00:00:00", frame->timeOfDayHms);
+}
+
+static void test_adahrs_system_time_one_second_before_midnight()
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 0.0f, 0.0f, 0, 0.0f, 0, 0.0f, 1.0f, 0, 0, 0.0f, 0.0f,
+                     23, 59, 59, 0);
+    DynonSkyviewParser p;
+    auto frame = feedAll(p, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("23:59:59", frame->timeOfDayHms);
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -631,5 +675,9 @@ int main(int, char**)
     RUN_TEST(test_adahrs_system_time_all_dashes);
     RUN_TEST(test_adahrs_system_time_partial_dashes);
     RUN_TEST(test_adahrs_system_time_out_of_range);
+    RUN_TEST(test_adahrs_system_time_mm_out_of_range);
+    RUN_TEST(test_adahrs_system_time_ss_out_of_range);
+    RUN_TEST(test_adahrs_system_time_midnight);
+    RUN_TEST(test_adahrs_system_time_one_second_before_midnight);
     return UNITY_END();
 }

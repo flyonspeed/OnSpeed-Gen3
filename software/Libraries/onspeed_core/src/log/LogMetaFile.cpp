@@ -107,6 +107,10 @@ static bool parseUint32(std::string_view v, uint32_t* out)
     if (v.size() >= sizeof(tmp)) return false;
     std::memcpy(tmp, v.data(), v.size());
     tmp[v.size()] = '\0';
+    // strtoul accepts leading sign and wraps negatives into huge positives.
+    // Reject negatives outright so a hand-edited or corrupt sidecar can't
+    // turn "-1" into 2^32-1.
+    if (tmp[0] == '-' || tmp[0] == '+') return false;
     char* end = nullptr;
     unsigned long n = std::strtoul(tmp, &end, 10);
     if (end == tmp) return false;

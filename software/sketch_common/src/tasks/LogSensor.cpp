@@ -250,11 +250,23 @@ void LogSensor::Open()
             {
             for (int iIdx=0; iIdx<suFileList.size(); iIdx++)
                 {
-                if (strncasecmp("log_", suFileList[iIdx].szFileName, 4) == 0)
+                const char* name = suFileList[iIdx].szFileName;
+                // Match both the pre-rename "log_NNN.csv" form and the
+                // post-rename "YYYY-MM-DD_NNN.csv" form so that after
+                // rename-at-close we still find the highest NNN on
+                // subsequent boots.
+                int iFileNum = -1;
+                if (strncasecmp("log_", name, 4) == 0)
                     {
-                    int iFileNum = atoi(&suFileList[iIdx].szFileName[4]);
-                    iMaxFileNum = iFileNum > iMaxFileNum ? iFileNum : iMaxFileNum;
-                    } // end if is a log file
+                    iFileNum = atoi(&name[4]);
+                    }
+                else if (strlen(name) >= 15 &&
+                         name[4] == '-' && name[7] == '-' && name[10] == '_')
+                    {
+                    // Renamed form: "YYYY-MM-DD_NNN.csv" — NNN starts at 11.
+                    iFileNum = atoi(&name[11]);
+                    }
+                if (iFileNum > iMaxFileNum) iMaxFileNum = iFileNum;
                 } // end for all files
             }
         else
@@ -359,9 +371,26 @@ void LogSensor::Close()
                       "Sidecar meta serialize failed");
     }
 
-    // Optional rename: only when we captured a full UTC date+time.
-    if (meta.utcStart[0] != '\0') {
-        // utcStart is "YYYY-MM-DDTHH:MM:SSZ" — take the first 10 chars as date.
+    // Optional rename: only when we captured an actual ISO-8601 UTC date
+    // (format "YYYY-MM-DDTHH:MM:SSZ", at least 11 chars — we only use the
+    // first 10 for the filename prefix). The VN-300 serial parser currently
+    // emits only "H:M:S" without date, so this condition is false in that
+    // case and we skip the rename — leaving behind a well-named
+    // log_NNN.{csv,meta} pair. If the parser is extended later to include
+    // date (or some other source produces full UTC), this path activates
+    // automatically. We explicitly reject ':'-containing prefixes here
+    // because they would produce filenames illegal on FAT / Windows hosts.
+    auto isIsoDatePrefix = [](const char* s) -> bool {
+        if (strlen(s) < 11) return false;
+        if (s[4] != '-' || s[7] != '-' || s[10] != 'T') return false;
+        for (int i = 0; i < 10; i++) {
+            if (i == 4 || i == 7) continue;
+            if (s[i] < '0' || s[i] > '9') return false;
+        }
+        return true;
+    };
+
+    if (isIsoDatePrefix(meta.utcStart)) {
         char datePrefix[11];
         memcpy(datePrefix, meta.utcStart, 10);
         datePrefix[10] = '\0';
@@ -379,9 +408,25 @@ void LogSensor::Close()
         snprintf(oldCsvName,  sizeof(oldCsvName),  "%s.csv",  m_szBaseName);
         snprintf(oldMetaName, sizeof(oldMetaName), "%s.meta", m_szBaseName);
 
+        // Rename the .meta first — it's smaller and fails earlier on
+        // disk-full or name collisions, so the .csv stays at its old name
+        // if the meta rename can't succeed (rather than leaving an
+        // orphaned pair). Collision check still covers both up front.
         if (!g_SdFileSys.exists(newCsvName) && !g_SdFileSys.exists(newMetaName)) {
-            g_SdFileSys.rename(oldCsvName,  newCsvName);
-            g_SdFileSys.rename(oldMetaName, newMetaName);
+            bool okMeta = g_SdFileSys.rename(oldMetaName, newMetaName);
+            if (okMeta) {
+                bool okCsv = g_SdFileSys.rename(oldCsvName, newCsvName);
+                if (!okCsv) {
+                    // Csv rename failed; try to roll back the meta rename
+                    // so we don't leave an orphaned pair.
+                    g_SdFileSys.rename(newMetaName, oldMetaName);
+                    g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                                  "Log csv rename failed; meta rolled back");
+                }
+            } else {
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                              "Log meta rename failed; skipping csv rename");
+            }
         }
     }
 

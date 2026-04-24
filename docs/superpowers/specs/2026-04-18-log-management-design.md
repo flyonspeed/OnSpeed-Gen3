@@ -331,20 +331,48 @@ monotonic within a session — skip both renames. The sidecar's
 
 ---
 
-## `IsSafeLogFilename` extension
+## `IsSafeLogFilename` — extension whitelist dropped
 
 Current allow-list (`ConfigWebServer.cpp:137`): length ≤ 32,
-alphanumeric + `_.-`, no slashes / `..`, extension in `.csv` / `.CSV`
-/ `.log` / `.LOG`.
+alphanumeric + `_.-`, no slashes / `..`.
 
-Add `.meta` and `.META`. That's it — no other relaxations.
+**Deviation from the original spec**: during review the user noted
+that the pre-PR `/logs` page listed every file on the SD card
+(config backups, any user-uploaded file, future `boot_log.txt`), and
+restricting to `.csv`/`.log`/`.meta` would hide `onspeed2.cfg`. The
+extension whitelist was removed entirely. Path traversal is still
+blocked by the `/`, `\`, and `..` checks plus the alphanumeric+`_.-`
+character class, which is the real security boundary.
+
+The `/logs` page renders two tables: a "Logs" section (csv/log with
+metadata columns + checkboxes + bulk delete) and an "Other files"
+section (everything else, simple name/size/download/delete).
 
 Maximum real filenames:
 
-- `YYYY-MM-DD_NNN.csv` = 19 chars, or 18 + 5-char extension = still
-  comfortably ≤ 32.
+- `YYYY-MM-DD_NNN.csv` = 19 chars.
 - `YYYY-MM-DD_NNN.meta` = 20 chars.
-- `log_999999.csv` = 14 chars (we're nowhere near the 6-digit limit).
+- `log_999999.csv` = 14 chars.
+- `onspeed2.cfg` = 12 chars.
+
+## VN-300 date caveat
+
+The spec earlier described `utc_start` as ISO-8601
+`"YYYY-MM-DDTHH:MM:SSZ"` and the rename path as activating "for
+VN-300 users." **Implementation reality**: the current
+`Vn300Parser::Decode` only reads the VN-300 packet's hour/minute/
+second bytes (not year/month/day), so `szTimeUTC` is populated with
+`"H:M:S"` alone. As a result, the rename path activates only when
+some future code (extended VN-300 parser, GPS module, etc.) writes
+a real ISO-8601 string into `utc_start`. The rename block in
+`LogSensor::Close()` explicitly validates that `utc_start` begins
+with `YYYY-MM-DDT` before using it — a malformed prefix containing
+`:` would otherwise produce an illegal FAT filename.
+
+Until that parser extension lands, every session keeps its
+`log_NNN.{csv,meta}` filename. The sidecar still records
+`time_of_day_start` from whichever EFIS supplies it (Dynon does
+as of this PR, via System Time capture).
 
 ---
 

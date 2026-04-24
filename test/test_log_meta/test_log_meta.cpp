@@ -173,6 +173,21 @@ static void test_write_buffer_too_small_returns_zero()
     TEST_ASSERT_EQUAL_size_t(0u, n);
 }
 
+static void test_parse_rejects_negative_uint32()
+{
+    // strtoul will wrap "-1" into 2^32-1; parser must reject.
+    const char* text =
+        "meta_version=1\n"
+        "duration_ms=-1\n"
+        "row_count=5\n";
+    LogMeta out;
+    bool ok = lm::ParseMetaFile(text, &out);
+    TEST_ASSERT_TRUE(ok);
+    // duration_ms rejected, stays at default 0.
+    TEST_ASSERT_EQUAL_UINT32(0u, out.durationMs);
+    TEST_ASSERT_EQUAL_UINT32(5u, out.rowCount);
+}
+
 // ---------------------------------------------------------------------------
 // LogMetaBuilder
 // ---------------------------------------------------------------------------
@@ -266,6 +281,7 @@ int main()
     RUN_TEST(test_parse_empty_input_returns_false);
     RUN_TEST(test_parse_tolerates_trailing_garbage);
     RUN_TEST(test_write_buffer_too_small_returns_zero);
+    RUN_TEST(test_parse_rejects_negative_uint32);
     RUN_TEST(test_builder_zero_rows);
     RUN_TEST(test_builder_duration_and_running_max);
     RUN_TEST(test_builder_captures_first_time_only);

@@ -3148,8 +3148,21 @@ void HandleLogs()
     others.reserve(8);
     uint64_t uOtherTotal = 0;
 
+    // Capture the active log's base name up front so the sActiveCsvName
+    // string below is computed while we hold xWriteMutex — LogSensor's
+    // m_szBaseName is mutated in Open()/Close() under that same mutex,
+    // so reading it outside the lock would be a data race.
+    String sActiveCsvName;
+
     if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
         {
+        const char* szActiveBase = g_LogSensor.ActiveBaseName();
+        if (szActiveBase && szActiveBase[0] != '\0')
+            {
+            sActiveCsvName  = szActiveBase;
+            sActiveCsvName += ".csv";
+            }
+
         bListStatus = g_SdFileSys.FileList(&suFileList);
         if (bListStatus)
             {
@@ -3254,18 +3267,12 @@ void HandleLogs()
              "<th></th>"
              "</tr>\n";
 
-    // Build the on-disk filename of the log currently being written, if any.
-    // "log_042" -> "log_042.csv". Rows whose name matches this string are
-    // flagged active: no checkbox, no trash icon, an "(active)" label.
-    // Deleting the file while it's open would orphan the write handle,
-    // silently lose data, and leave zombie sidecars behind.
-    String sActiveCsvName;
-    const char* szActiveBase = g_LogSensor.ActiveBaseName();
-    if (szActiveBase && szActiveBase[0] != '\0')
-        {
-        sActiveCsvName  = szActiveBase;
-        sActiveCsvName += ".csv";
-        }
+    // sActiveCsvName was captured above while holding xWriteMutex — if
+    // LogSensor has a file open it holds the form "log_NNN.csv" (the
+    // in-progress log). Rows whose name matches are flagged active: no
+    // checkbox, no trash icon, an "(active)" label. Deleting the file
+    // while it's open would orphan the write handle, silently lose data,
+    // and leave zombie sidecars behind.
 
     if (bListStatus)
         {
@@ -3398,17 +3405,10 @@ void HandleDelete()
         return;
         }
 
-    // Guard: refuse to delete the log currently being written. The UI
-    // already hides the checkbox + trash icon for this row, but a stale
-    // browser tab or hand-crafted request could still land here.
-    if (IsActiveLogFile(sFilename))
-        {
-        CfgServer.send(409, "text/plain",
-                       "Cannot delete the log currently being written.");
-        return;
-        }
-
-    // File delete not yet confirmed
+    // File delete not yet confirmed. We show the confirmation page even
+    // if this file is currently active — the pilot might navigate away.
+    // The active-file guard fires at the confirmed-delete step below,
+    // under the same mutex as the remove, so the check+remove is atomic.
     if (CfgServer.arg("confirm").indexOf("yes") < 0)
         {
         String sPage;
@@ -3431,22 +3431,36 @@ void HandleDelete()
     // File delete has been confirmed
     else
         {
+        bool bWasActive = false;
         if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
             {
-//g_Log.printf("Delete %s\n", sFilename.c_str());
-            g_SdFileSys.remove(sFilename.c_str());
-
-            // Also remove matching sidecar if it exists. Best-effort: absent
-            // sidecar (old logs, power-cut, or non-CSV deletion) is fine.
-            int iDot = sFilename.lastIndexOf('.');
-            if (iDot > 0)
+            // Check active-file guard under the same mutex as the remove,
+            // so check+skip is atomic relative to LogSensor::Open/Close.
+            if (IsActiveLogFile(sFilename))
                 {
-                String sMeta = sFilename.substring(0, iDot) + ".meta";
-                if (g_SdFileSys.exists(sMeta.c_str()))
-                    g_SdFileSys.remove(sMeta.c_str());
+                bWasActive = true;
                 }
-
+            else
+                {
+                g_SdFileSys.remove(sFilename.c_str());
+                // Also remove matching sidecar if it exists. Best-effort:
+                // absent sidecar is fine.
+                int iDot = sFilename.lastIndexOf('.');
+                if (iDot > 0)
+                    {
+                    String sMeta = sFilename.substring(0, iDot) + ".meta";
+                    if (g_SdFileSys.exists(sMeta.c_str()))
+                        g_SdFileSys.remove(sMeta.c_str());
+                    }
+                }
             xSemaphoreGive(xWriteMutex);
+            }
+
+        if (bWasActive)
+            {
+            CfgServer.send(409, "text/plain",
+                           "Cannot delete the log currently being written.");
+            return;
             }
 
         CfgServer.sendHeader("Location", "/logs");
@@ -3460,18 +3474,17 @@ void HandleDelete()
 void HandleDeleteBulk()
     {
     // Gather selected filenames. The form produced by HandleLogs submits
-    // every checked box as a separate "f" argument.
+    // every checked box as a separate "f" argument. We only do the safe-
+    // filename filter here; the active-file check is deferred to the delete
+    // loop where it can be performed under xWriteMutex atomically with
+    // the remove.
     std::vector<String> selected;
     for (int i = 0; i < CfgServer.args(); i++)
         {
         if (CfgServer.argName(i) == "f")
             {
             String v = CfgServer.arg(i);
-            // Silently drop unsafe filenames and the currently-active log.
-            // A stale tab (or a request crafted before the current session
-            // started) could include the active filename; we'd rather
-            // silently skip it than fail the whole batch.
-            if (IsSafeLogFilename(v) && !IsActiveLogFile(v))
+            if (IsSafeLogFilename(v))
                 selected.push_back(v);
             }
         }
@@ -3541,45 +3554,32 @@ void HandleDeleteBulk()
         ~PauseGuard() { g_bPause = bPrevPause; }
         } pauseGuard;
 
-    // Snapshot the set of existing .meta files so we skip sidecar removals
-    // for logs that never had one (old logs, power-cut sessions).
-    std::vector<String> existingMetas;
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
-        {
-        SdFileSys::SuFileInfoList fileList;
-        if (g_SdFileSys.FileList(&fileList))
-            {
-            existingMetas.reserve(fileList.size());
-            for (size_t i = 0; i < fileList.size(); i++)
-                {
-                const char* name = fileList[i].szFileName;
-                size_t nlen = strlen(name);
-                if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
-                    existingMetas.emplace_back(name);
-                }
-            }
-        xSemaphoreGive(xWriteMutex);
-        }
-
-    // Delete each file one at a time, yielding between iterations.
+    // Delete each file one at a time, yielding between iterations. For
+    // each csv we attempt to remove the matching .meta unconditionally —
+    // SdFat's remove() on a missing file is a near no-op (single directory
+    // probe) and we avoid any snapshot-staleness concerns if a new sidecar
+    // lands between enumeration and delete.
+    //
+    // The active-file guard is inside the mutex so the check and remove
+    // are atomic w.r.t. LogSensor::Open/Close. If a log that was inactive
+    // at form-submit time has become active (pilot rotated logs between
+    // confirmation and execution — very narrow window), skip that file
+    // silently rather than deleting a live log.
     for (const String& f : selected)
         {
         if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
             {
-            g_SdFileSys.remove(f.c_str());
-
-            // Derive sidecar name by swapping extension to .meta; only
-            // remove it if we saw it in the initial enumeration.
-            int iDot = f.lastIndexOf('.');
-            if (iDot > 0)
+            if (!IsActiveLogFile(f))
                 {
-                String sMeta = f.substring(0, iDot) + ".meta";
-                for (const String& em : existingMetas)
-                    if (em.equalsIgnoreCase(sMeta))
-                        {
-                        g_SdFileSys.remove(sMeta.c_str());
-                        break;
-                        }
+                g_SdFileSys.remove(f.c_str());
+
+                int iDot = f.lastIndexOf('.');
+                if (iDot > 0)
+                    {
+                    String sMeta = f.substring(0, iDot) + ".meta";
+                    // Ignore return value — absent sidecar is fine.
+                    g_SdFileSys.remove(sMeta.c_str());
+                    }
                 }
             xSemaphoreGive(xWriteMutex);
             }
