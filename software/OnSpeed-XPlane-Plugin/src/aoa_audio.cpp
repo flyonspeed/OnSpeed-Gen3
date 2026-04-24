@@ -30,16 +30,16 @@
     #include <OpenAL/alc.h>
 #endif
 
-#include "SDK/CHeaders/XPLM/XPLMDisplay.h"
-#include "SDK/CHeaders/XPLM/XPLMGraphics.h"
-#include "SDK/CHeaders/XPLM/XPLMProcessing.h"
-#include "SDK/CHeaders/XPLM/XPLMDataAccess.h"
-#include "SDK/CHeaders/XPLM/XPLMPlugin.h"
-#include "SDK/CHeaders/XPLM/XPLMUtilities.h"
-#include "SDK/CHeaders/Widgets/XPWidgets.h"
-#include "SDK/CHeaders/Widgets/XPStandardWidgets.h"
-#include "SDK/CHeaders/Widgets/XPWidgetUtils.h"
-#include "SDK/CHeaders/XPLM/XPLMMenus.h"
+#include "XPLMDisplay.h"
+#include "XPLMGraphics.h"
+#include "XPLMProcessing.h"
+#include "XPLMDataAccess.h"
+#include "XPLMPlugin.h"
+#include "XPLMUtilities.h"
+#include "XPWidgets.h"
+#include "XPStandardWidgets.h"
+#include "XPWidgetUtils.h"
+#include "XPLMMenus.h"
 
 #include <iostream>
 #include <cmath>
