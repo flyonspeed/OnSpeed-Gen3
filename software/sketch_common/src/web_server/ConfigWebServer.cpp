@@ -1862,6 +1862,19 @@ void HandleConfigSave()
 
     std::sort(g_Config.aFlaps.begin(), g_Config.aFlaps.end(),
             [](FOSConfig::SuFlaps a, FOSConfig::SuFlaps b) { return a.iDegrees < b.iDegrees; } );
+
+    // If the user deleted every flap row, aFlaps is now empty.
+    // Every downstream reader (Audio.cpp, SensorIO.cpp, etc.)
+    // dereferences aFlaps[g_Flaps.iIndex] without a bounds check, so
+    // the vector must always have at least one entry. Push a zeroed
+    // default — the uncalibrated audio gate in ToneCalc keeps it
+    // silent.
+    if (onspeed::config::EnsureAtLeastOneFlap(g_Config.aFlaps))
+        {
+        g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+            "All flap positions were deleted; restoring a zeroed default. "
+            "Calibrate before flying.");
+        }
 #endif
 
     // Read boom enabled/disabled

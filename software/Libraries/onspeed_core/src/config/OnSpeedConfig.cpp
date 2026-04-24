@@ -54,21 +54,28 @@ bool OnSpeedConfig::LoadDefaults()
 
     sReplayLogFileName.clear();
 
-    // Flap positions
-    // Note: default per-flap values are set in SuFlaps's default constructor.
+    // Flap positions.
+    //
+    // Push a single zeroed entry so sketch-side consumers (Audio.cpp,
+    // SensorIO.cpp, DisplaySerial.cpp, DataServer.cpp, LogReplay.cpp)
+    // can safely dereference aFlaps[g_Flaps.iIndex] on a fresh
+    // device. Per-aircraft calibration values stay zero here — the
+    // compiled-in defaults must not ship with one airplane's
+    // calibration baked in.
+    //
+    // Zero is the explicit "uncalibrated" signal the audio-tone gate
+    // in ToneCalc looks for (fSTALLWARNAOA <= 0 → silent), and the
+    // web UI's SetpointOrderError() surfaces the same state as an
+    // ordering violation so the user knows calibration is needed.
+    //
+    // The polynomial curve type (iCurveType = 1) is a structural
+    // default, not calibration data: the curve evaluator branches on
+    // it. With zero coefficients the polynomial evaluates to 0 AOA
+    // for every pressure ratio — which, combined with the audio
+    // gate, means "nothing happens until the user calibrates."
     aFlaps.clear();
     SuFlaps suFlaps;
-
-    suFlaps.AoaCurve.iCurveType = 1;    // Default to polynomial curve
-    // These approximate values give reasonable results in Vac's plane
-    suFlaps.AoaCurve.afCoeff[0] =  0.0f;  // x^3
-    suFlaps.AoaCurve.afCoeff[1] =  8.0f;  // x^2
-    suFlaps.AoaCurve.afCoeff[2] = 24.0f;  // x^1
-    suFlaps.AoaCurve.afCoeff[3] =  4.5f;  // x^0
-    suFlaps.fLDMAXAOA       =  8.0f;
-    suFlaps.fONSPEEDFASTAOA = 11.0f;
-    suFlaps.fONSPEEDSLOWAOA = 14.0f;
-    suFlaps.fSTALLWARNAOA   = 16.0f;
+    suFlaps.AoaCurve.iCurveType = 1;
     aFlaps.push_back(suFlaps);
 
     // Volume
@@ -146,6 +153,20 @@ bool OnSpeedConfig::LoadDefaults()
     fAcVfe              = 0.0f;
     fAcGlimit           = 0.0f;
 
+    return true;
+}
+
+// ----------------------------------------------------------------------------
+// EnsureAtLeastOneFlap
+// ----------------------------------------------------------------------------
+
+bool EnsureAtLeastOneFlap(std::vector<OnSpeedConfig::SuFlaps>& aFlaps)
+{
+    if (!aFlaps.empty()) return false;
+
+    OnSpeedConfig::SuFlaps suFlaps;     // default ctor zeros everything
+    suFlaps.AoaCurve.iCurveType = 1;    // polynomial — match LoadDefaults
+    aFlaps.push_back(suFlaps);
     return true;
 }
 

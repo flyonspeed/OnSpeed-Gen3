@@ -156,6 +156,74 @@ void test_muted_low_ias_silent()
 }
 
 // ============================================================================
+// Uncalibrated gate — fSTALLWARNAOA <= 0 means "factory/unconfigured",
+// and the tone logic must stay silent.  Without this gate, the default
+// all-zero config would produce a constant stall warning above the
+// mute-under-IAS threshold: AOA (any non-negative) >= fSTALLWARNAOA (0)
+// is trivially true.  Silence is the right answer when the user hasn't
+// told us what the stall is.
+// ============================================================================
+
+static const ToneThresholds kUncalibrated = {
+    .fLDMAXAOA       = 0.0f,
+    .fONSPEEDFASTAOA = 0.0f,
+    .fONSPEEDSLOWAOA = 0.0f,
+    .fSTALLWARNAOA   = 0.0f,
+};
+
+void test_uncalibrated_stall_warn_produces_no_tone_at_zero_aoa()
+{
+    ToneResult r = calculateTone(0.0f, kUncalibrated);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, r.fPulseFreq);
+}
+
+void test_uncalibrated_stall_warn_produces_no_tone_at_positive_aoa()
+{
+    // Would otherwise fire the `AOA >= fSTALLWARNAOA` branch with 5.0 >= 0.
+    ToneResult r = calculateTone(5.0f, kUncalibrated);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+}
+
+void test_uncalibrated_stall_warn_produces_no_tone_even_at_high_aoa()
+{
+    // Anywhere in the flight envelope — uncalibrated stays silent.
+    ToneResult r = calculateTone(25.0f, kUncalibrated);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+}
+
+void test_uncalibrated_stall_warn_produces_no_tone_at_negative_aoa()
+{
+    // Defensive: a negative AOA (e.g. during a push-over) must not
+    // accidentally trip the gate because we used > 0 and the AOA
+    // slipped past a subtle sign test.
+    ToneResult r = calculateTone(-3.0f, kUncalibrated);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+}
+
+void test_muted_uncalibrated_stays_silent_above_ias_threshold()
+{
+    // Muted mode only lets the stall warning through — but with
+    // fSTALLWARNAOA == 0, there's no meaningful stall threshold to
+    // pass, so it must stay silent at any AOA.
+    ToneResult r = calculateToneMuted(17.0f, 80.0f, 0.0f, 25);
+    TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
+}
+
+void test_nonzero_stallwarn_with_other_zeros_still_gates_high_tone_path()
+{
+    // Partial calibration: only StallWarn is set, the rest are zero.
+    // The UI should flag the order-violation, but for the audio-safety
+    // angle, a nonzero StallWarn is enough for calculateTone to
+    // produce a real stall tone when exceeded.  (No regression from
+    // the previous behavior for partially-configured states.)
+    ToneThresholds partial = kUncalibrated;
+    partial.fSTALLWARNAOA = 16.0f;
+    ToneResult r = calculateTone(18.0f, partial);
+    TEST_ASSERT_EQUAL(EnToneType::High, r.enTone);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -183,6 +251,14 @@ int main()
     RUN_TEST(test_muted_stall_warning_fires);
     RUN_TEST(test_muted_below_stallwarn_silent);
     RUN_TEST(test_muted_low_ias_silent);
+
+    // Uncalibrated gate
+    RUN_TEST(test_uncalibrated_stall_warn_produces_no_tone_at_zero_aoa);
+    RUN_TEST(test_uncalibrated_stall_warn_produces_no_tone_at_positive_aoa);
+    RUN_TEST(test_uncalibrated_stall_warn_produces_no_tone_even_at_high_aoa);
+    RUN_TEST(test_uncalibrated_stall_warn_produces_no_tone_at_negative_aoa);
+    RUN_TEST(test_muted_uncalibrated_stays_silent_above_ias_threshold);
+    RUN_TEST(test_nonzero_stallwarn_with_other_zeros_still_gates_high_tone_path);
 
     return UNITY_END();
 }

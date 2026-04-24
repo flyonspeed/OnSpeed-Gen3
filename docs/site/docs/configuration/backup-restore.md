@@ -69,7 +69,7 @@ You can edit the config file with any text editor. This is useful for:
 
 On startup, the firmware loads configuration in this order:
 
-1. **Compiled defaults** (from `ConfigDefaults.h`)
+1. **Compiled defaults** (from `OnSpeedConfig::LoadDefaults()` in `onspeed_core`)
 2. **Flash memory** (LittleFS) — overwrites defaults
 3. **SD card** (`config.cfg`) — overwrites flash
 

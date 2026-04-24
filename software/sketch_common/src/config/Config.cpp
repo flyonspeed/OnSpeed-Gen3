@@ -35,6 +35,15 @@
 // the same helper after updating the member fields.
 static void ApplyPostParseSideEffects(FOSConfig& cfg)
 {
+    // Defend against a parsed config that left aFlaps empty (corrupt
+    // XML, hand-edited file with all FLAP_POSITION entries deleted,
+    // etc.). Every downstream reader dereferences aFlaps[iIndex]
+    // without bounds checks, so we guarantee one zeroed entry here.
+    if (onspeed::config::EnsureAtLeastOneFlap(cfg.aFlaps))
+        g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+            "Parsed config had no flap positions; "
+            "inserted a zeroed default. Calibrate before flying.");
+
     if (!cfg.bVolumeControl)
         g_AudioPlay.SetVolume(cfg.iDefaultVolume);
 

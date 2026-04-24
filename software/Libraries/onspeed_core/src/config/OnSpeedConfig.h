@@ -246,6 +246,26 @@ public:
     bool LoadDefaults();
 };
 
+// ============================================================================
+// Free helpers
+// ============================================================================
+
+/// Invariant: aFlaps.size() >= 1.  Every reader (Audio, SensorIO,
+/// DisplaySerial, DataServer, LogReplay) dereferences
+/// aFlaps[g_Flaps.iIndex] without bounds-checking, so the vector must
+/// always have at least one entry.  Call this after any path that can
+/// leave it empty — notably the web UI save handler, which clears and
+/// rebuilds the vector based on user-marked deletions.
+///
+/// If the vector is empty, pushes one zeroed SuFlaps with the same
+/// shape LoadDefaults produces (all setpoints 0, polynomial curve
+/// type with zero coefficients).  The zero setpoints are the explicit
+/// "uncalibrated" signal the audio tone gate in ToneCalc looks for.
+///
+/// Returns true when a default was pushed, false when aFlaps already
+/// had entries.
+bool EnsureAtLeastOneFlap(std::vector<OnSpeedConfig::SuFlaps>& aFlaps);
+
 }  // namespace onspeed::config
 
 #endif  // ONSPEED_CORE_CONFIG_ONSPEED_CONFIG_H
