@@ -2643,17 +2643,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#windows" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Windows
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -3459,17 +3448,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#windows" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Windows
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -3543,8 +3521,7 @@ calibration.</p>
 <h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>X-Plane 12.4.0 or newer</strong> (SDK 4.3.0 — the version required by the SDK we ship; older sims need to bump their X-Plane install).</li>
-<li><strong>macOS</strong> (Apple Silicon or Intel) <strong>or Linux</strong>. Windows builds are
-  released manually — see <a href="#windows">Windows install</a> below.</li>
+<li><strong>macOS</strong> (Apple Silicon or Intel), <strong>Linux</strong>, or <strong>Windows</strong> (x86_64).</li>
 <li>A working X-Plane audio output (the plugin uses OpenAL).</li>
 <li>Plugin file: <code>AOA-Tone-FlyOnSpeed.xpl</code> (per-platform, downloaded below).</li>
 </ul>
@@ -3571,7 +3548,7 @@ Look for files named:</p>
 </tr>
 <tr>
 <td>Windows</td>
-<td>(manual release — build from source, see below)</td>
+<td><code>onspeed-&lt;version&gt;-xplane-windows.xpl</code></td>
 </tr>
 </tbody>
 </table>
@@ -3589,7 +3566,9 @@ binary, named <code>X-Plane 12</code> or similar).</p>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                └── AOA-Tone-FlyOnSpeed.xpl
 </code></pre></div>
 <p>Drop the downloaded <code>.xpl</code> in (rename it from
-<code>onspeed-&lt;version&gt;-xplane-&lt;platform&gt;.xpl</code> to <code>AOA-Tone-FlyOnSpeed.xpl</code>).</p>
+<code>onspeed-&lt;version&gt;-xplane-&lt;platform&gt;.xpl</code> to <code>AOA-Tone-FlyOnSpeed.xpl</code>).
+The <code>.xpl</code> is self-contained — no other downloads, installers, or
+runtime libraries needed on any of the three platforms.</p>
 <h3 id="step-3-verify">Step 3 — Verify<a class="headerlink" href="#step-3-verify" title="Permanent link">&para;</a></h3>
 <p>Launch X-Plane. From the menu bar: <strong>Plugins → Plugin Admin → Enabled</strong>
 and confirm <strong>AOA Tone Fly On Speed</strong> is in the list and enabled.</p>
@@ -3623,16 +3602,20 @@ off without unloading the plugin.</p>
 <p>X-Plane has no plugin hot-reload. Restart X-Plane after replacing the
 <code>.xpl</code>.</p>
 <h2 id="building-from-source">Building from source<a class="headerlink" href="#building-from-source" title="Permanent link">&para;</a></h2>
-<p>Required for a Windows build or to track <code>master</code> ahead of a release.</p>
+<p>Usually unnecessary — tagged releases ship macOS, Linux, and Windows <code>.xpl</code> files, and every PR and <code>master</code> push uploads the same three as GitHub Actions artifacts (30-day retention; GitHub login required to download).</p>
 <p>Prerequisites:</p>
 <ul>
 <li>CMake 3.15+</li>
-<li>A C++17 compiler (Apple Clang, GCC, MSVC).</li>
+<li>A C++17 compiler (Apple Clang, GCC, MinGW-w64).</li>
 <li><strong>macOS</strong>: nothing else — OpenAL is a system framework.</li>
 <li><strong>Linux</strong>: <code>sudo apt-get install libopenal-dev</code>.</li>
-<li><strong>Windows</strong>: install OpenAL SDK from
-  <a href="https://www.openal-soft.org/">openal-soft.org</a>, point CMake at it
-  via <code>OPENAL_INCLUDE_DIR</code> and <code>OPENAL_LIBRARY</code>.</li>
+<li><strong>Windows</strong>: MinGW-w64 (e.g. via MSYS2) plus OpenAL Soft. The CI
+  workflow uses vcpkg's <code>x64-mingw-static</code> triplet so the resulting
+  <code>.xpl</code> has no runtime DLL dependency; see
+  <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/.github/workflows/ci.yml"><code>.github/workflows/ci.yml</code></a>
+  for the exact recipe. MSVC isn't supported — the X-Plane SDK's
+  vendored Windows import libraries are GNU <code>ar</code> archives that
+  <code>link.exe</code> can't consume.</li>
 </ul>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git<span class="w"> </span>clone<span class="w"> </span>--recursive<span class="w"> </span>https://github.com/flyonspeed/OnSpeed-Gen3.git
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>OnSpeed-Gen3/software/OnSpeed-XPlane-Plugin
@@ -3694,12 +3677,6 @@ edit the four AOA thresholds in the plugin's control window. If your
 aircraft has been calibrated on a real OnSpeed installation, copy the
 threshold values from the calibration wizard's
 <strong><a href="../../calibration/verification/">Verifying Calibration</a></strong> output.</p>
-<h3 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">&para;</a></h3>
-<p>Windows binaries aren't built by CI yet — build from source per
-<a href="#building-from-source">Building from source</a>.</p>
-<p>Adding Windows to CI needs an OpenAL SDK install step and per-OS lib
-path handling. Tracked as a follow-up to
-<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/220">issue #220</a>.</p>
 <h2 id="release-smoke-test">Release smoke test<a class="headerlink" href="#release-smoke-test" title="Permanent link">&para;</a></h2>
 <p>Run before tagging a release. ~15 minutes with X-Plane installed.</p>
 <ol>
