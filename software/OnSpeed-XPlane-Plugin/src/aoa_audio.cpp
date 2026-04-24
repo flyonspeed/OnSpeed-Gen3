@@ -28,9 +28,17 @@
         #define LIN 0
         #define XPMENUS 1
         #define XPLM_64 1
+        // macOS ships OpenAL as a system framework; headers live under
+        // <OpenAL/al.h>.
+        #include <OpenAL/al.h>
+        #include <OpenAL/alc.h>
+    #else
+        // Linux (and other ELF systems): OpenAL Soft via libopenal-dev,
+        // headers under <AL/al.h>. Upstream never built on Linux so the
+        // case wasn't covered.
+        #include <AL/al.h>
+        #include <AL/alc.h>
     #endif
-    #include <OpenAL/al.h>
-    #include <OpenAL/alc.h>
 #endif
 
 #include "XPLMDisplay.h"

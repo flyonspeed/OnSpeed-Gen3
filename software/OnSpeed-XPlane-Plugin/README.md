@@ -1,71 +1,36 @@
-# AOA Tone Fly On Speed
+# OnSpeed X-Plane Plugin
 
-This plugin plays audio tones based on the Angle of Attack (AOA) and Fly On Speed 
+OnSpeed AOA tones for X-Plane 12. Plays the same audio cues as the
+panel-mounted Gen3 box, driven by X-Plane's flight model.
 
-## Releases
+**End-user docs**: [Simulator → X-Plane Plugin](https://dev.flyonspeed.org/OnSpeed-Gen3/simulator/xplane-plugin/) — install, usage, troubleshooting.
 
-You can install a prebuilt mac or windows version of this plugin.
+## Building from source
 
-[Mac Release](https://github.com/flyonspeed/OnSpeed-XPlane/releases/tag/0.1) 
+Requires CMake 3.15+, a C++17 compiler, and OpenAL.
 
-[Windows Release](https://github.com/flyonspeed/OnSpeed-XPlane/releases/tag/v0.1-Windows-debug-Compile)
-
-
-## Building this plugin
-
-To build this plugin you will need the XPlane SDK to be installed. You can download it from the [XPlane SDK](https://developer.x-plane.com/sdk/).
-
-Currently using: X-Plane SDK 4.1.1 for Windows, Linux and Mac ZIP (X-Plane 12.1.0 & newer)
-
-## Build on Mac
+| OS | OpenAL |
+|---|---|
+| macOS | system framework, no install needed |
+| Linux | `sudo apt-get install libopenal-dev` |
+| Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` |
 
 ```bash
-mkdir build
-cd build
-cmake ..
+cmake -S . -B build
+cmake --build build
 ```
 
-on unix/macos:
+Output: `build/{mac_x64,lin_x64,win_x64}/AOA-Tone-FlyOnSpeed.xpl`.
 
-inside the 'build' folder run the following.
+To install into a local X-Plane for dev testing (macOS/Linux):
 
 ```bash
-make
+./scripts/install_dev.sh "/path/to/X-Plane 12"
 ```
 
-output  ```build/mac_x64/AOA-Tone-FlyOnSpeed.dylib```
+Restart X-Plane to pick up the new build (no plugin hot-reload).
 
-The .dylib file needs to be copied to the ```Resources/plugins``` folder in your XPlane installation.
-and renamed to .xpl
+## License
 
-## Build on Windows (Visual Code 2022)
-
-clone the repository
-
-![Screenshot 2025-04-21 011649](https://github.com/user-attachments/assets/104a3b06-e479-42b8-bd2e-e94c481fc768)
-
-install [OpenAl for windows](https://www.openal-soft.org/openal-binaries/openal-soft-1.24.3-bin.zip)
-
-extract the zip to the root of the project
-
-![Screenshot 2025-04-21 012550](https://github.com/user-attachments/assets/cf52fbe5-6876-4276-b1a9-fbe50dcb4811)
-
-Go to the CMakeSettings.json in the CMake Settings Editor and update the CMake variables for OPENAL_INCLUDE_DIR and OPENAL_LIBRARY
-
-![Screenshot 2025-04-21 012812](https://github.com/user-attachments/assets/ac0b2c81-308b-426f-8994-fa58768c9567)
-![Screenshot 2025-04-21 015310](https://github.com/user-attachments/assets/f006b9ba-3fb3-4451-bdd2-0e6ef7ddcadf)
-
-output ```out\build\x64-Debug\AOA-Tone-FlyOnSpeed.xpl```
-The file needs to be copied to the ```Resources/plugins``` folder in your XPlane installation.
-
-## Code notes
-
-You can adjust the frequencies and durations by modifying the values in the initializeAudio() function. The tones will play continuously as long as the AOA is in their respective ranges, and will switch immediately when the AOA changes ranges.
-
-Remember to install OpenAL development libraries on your system:
-On Windows: Install OpenAL SDK
-On Linux: sudo apt-get install libopenal-dev
-On macOS: OpenAL is included in the system
-
-## Install
-
+MIT for the plugin code. The vendored X-Plane SDK at `SDK/` is under
+its own license — see `SDK/license.txt`.
