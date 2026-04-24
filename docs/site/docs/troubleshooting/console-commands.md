@@ -180,6 +180,16 @@ TASKS
 
 Shows each running task's name and minimum stack watermark (bytes remaining). Useful for diagnosing stack overflow risks.
 
+### BOOTLOG
+
+Print the last 20 lines of `/boot_log.txt`.
+
+```
+BOOTLOG
+```
+
+Each line records one boot: monotonic boot counter, firmware version + git short SHA, ESP32 reset reason, how long the previous boot lived, and free heap at append time. Useful when chasing intermittent power-on failures — `BROWNOUT` and `PWRGLITCH` reset reasons point at supply-side problems, `PANIC` / `WDT` at firmware bugs. The same file is also accessible at `/logs` over WiFi or by pulling the SD card.
+
 ### REBOOT
 
 Restart the controller.

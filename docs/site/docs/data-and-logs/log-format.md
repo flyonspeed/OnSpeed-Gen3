@@ -6,8 +6,25 @@ OnSpeed records flight data to CSV files on the microSD card at **50 Hz** by def
 
 - **Format**: CSV with headers (comma-separated values)
 - **Rate**: 50 Hz default (one row every 20 ms); optionally 208 Hz (IMU rate)
-- **Naming**: `log_NNN.csv` (sequential numbering)
+- **Naming**: `log_NNN.csv` (sequential numbering). When a VN-300 EFIS provides a UTC timestamp, the file is renamed to `YYYY-MM-DD_NNN.csv` at close so the date travels with the file. Dynon, Garmin, and no-EFIS logs keep `log_NNN.csv`.
 - **Size**: A 1-hour flight produces approximately 50–100 MB of data
+
+### Metadata sidecar
+
+Each `log_NNN.csv` is written alongside a `log_NNN.meta` plain-text sidecar produced when the log closes. One `key=value` per line:
+
+```
+duration_ms=1842113
+row_count=92106
+max_ias_kt=148
+max_alt_ft=8420
+firmware=4.20+1825dff
+efis_type=dynon_skyview
+time_of_day_start=14:32:08
+gps_fix_seen=1
+```
+
+`time_of_day_start` is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). `utc_start` is VN-300-only. The `/logs` page reads the sidecar to populate the start-time, duration, max IAS, and max altitude columns.
 
 ## Key Columns
 
