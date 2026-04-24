@@ -571,6 +571,52 @@ void test_ias_alive_true_applies_centripetal(void)
         "iasAlive=true with 10 deg/s yaw at 100 kt must produce non-trivial lateral comp");
 }
 
+void test_rising_edge_transient_bounded_on_takeoff(void)
+{
+    // Regression guard for the takeoff-through-20-kt transient.
+    // Issue #114 will eventually add a fade-in ramp to eliminate this;
+    // until then we pin the current behavior so any future change that
+    // makes it dramatically worse gets caught.
+    //
+    // The transient is inherent to the filter pipeline — tas_ steps
+    // from 0 (deadband) to ~10 m/s (20 kt) in one pressure frame, so
+    // fTASdot = (10 - 0) / 0.02 s = ~500 m/s^2 on that frame, EMA'd
+    // into tasDotSmoothed_ at alpha ≈ 0.07 -> ~36 m/s^2 of forward
+    // comp spike on the first frame after the gate rises.  The accel
+    // EMA swallows most of it within ~0.5 s; Madgwick's cumulative
+    // pitch displacement stays within ~2° for the first second.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    a.Init(in, 0.0f);
+
+    // Phase 1: ~2.4 s of rest with iasAlive=false, IAS=0 (deadbanded).
+    uint32_t iasTs = 0;
+    for (int i = 0; i < 500; i++) {
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, a.latest().pitchDeg);
+
+    // Phase 2: rising-edge step — gate flips, IAS = 20.3 kt.
+    in.sensors.iasAlive = true;
+    in.sensors.iasKt    = 20.3f;
+
+    float maxPitchDeviation = 0.0f;
+    for (int i = 0; i < 210; i++) {  // ~1 second at 208 Hz
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+        const float absPitch = std::fabs(a.latest().pitchDeg);
+        if (absPitch > maxPitchDeviation) maxPitchDeviation = absPitch;
+    }
+
+    // Pin the transient magnitude.  Upper bound > expected (~1.4°) so
+    // the test doesn't flap on float drift, but tight enough to catch
+    // a regression that doubles the transient.  See issue #114.
+    TEST_ASSERT_TRUE_MESSAGE(maxPitchDeviation < 3.0f,
+        "Rising-edge pitch transient exceeded 3.0° — did a change worsen #114?");
+}
+
 // ---------------------------------------------------------------------
 // test main
 // ---------------------------------------------------------------------
@@ -604,6 +650,7 @@ int main(void)
 
     RUN_TEST(test_ias_alive_false_zeros_comp_factors);
     RUN_TEST(test_ias_alive_true_applies_centripetal);
+    RUN_TEST(test_rising_edge_transient_bounded_on_takeoff);
 
     return UNITY_END();
 }

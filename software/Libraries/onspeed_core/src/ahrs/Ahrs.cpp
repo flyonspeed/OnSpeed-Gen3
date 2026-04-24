@@ -295,19 +295,26 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         accelVertComp_ = accelVertFilter_.update(accelVertCorr_) + AccelVertCompFactor;
     } else {
         // IAS not alive — tick the accel EMAs so they track the raw
-        // installation-corrected readings (otherwise the filter state
+        // installation-corrected readings (otherwise the smoothed accel
         // would grow stale across a long ground pause), but skip the
-        // TAS- and TASdot-derived compensation.
+        // TAS- and TASdot-derived compensation factors.
         //
         // tas_ and tasDotSmoothed_ continue to be updated by updateTas_()
         // on every IAS-advance frame; with the pressure deadband clamping
-        // raw IAS to zero at rest, both naturally settle to zero.  We do
-        // NOT zero them here because updateTas_() uses prevTas_ for the
-        // derivative — a hard zero would desynchronize that state and
-        // produce a large spurious TASdot spike on the rising edge when
-        // real IAS returns.  The rising-edge transient is the subject
-        // of issue #114 (fade-in ramp), which the pressure deadband
-        // mitigates but does not fully eliminate.
+        // raw IAS to zero at rest, both naturally settle to zero.  We
+        // deliberately do NOT zero them here — zeroing would not reduce
+        // the rising-edge TASdot transient when real IAS returns (the
+        // dominant source of that transient is the TAS step from ~0 to
+        // ~10 m/s in one pressure frame, which happens regardless of
+        // whether we zeroed in the mean time).  Leaving updateTas_() in
+        // charge keeps prevTas_ in sync with tas_, which is what its
+        // derivative math needs.
+        //
+        // The rising-edge transient (~3g accelFwdComp spike for ~1
+        // pressure frame, ~0.1-1.8° of pitch drift over 1-2s before the
+        // accel EMA swallows it) is present in master today without
+        // this gate — the gate does not make it worse.  Issue #114
+        // tracks a fade-in ramp that would eliminate it properly.
         accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_);
         accelLatComp_  = accelLatFilter_.update(accelLatCorr_);
         accelVertComp_ = accelVertFilter_.update(accelVertCorr_);
