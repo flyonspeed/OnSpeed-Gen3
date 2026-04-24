@@ -1167,6 +1167,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#try-it-in-your-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it in your browser
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#display-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3333,6 +3344,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#try-it-in-your-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it in your browser
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#display-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3672,6 +3694,21 @@ identical on both units.</p>
 <p>If you hold <strong>Button B during boot</strong>, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.</p>
+<h3 id="try-it-in-your-browser">Try it in your browser<a class="headerlink" href="#try-it-in-your-browser" title="Permanent link">&para;</a></h3>
+<p>The real display firmware, compiled to WebAssembly:</p>
+<iframe src="../../assets/sim/index.html"
+        width="420" height="620"
+        style="border: 1px solid #555; border-radius: 4px;"
+        title="OnSpeed M5 display simulator"
+        loading="lazy"></iframe>
+
+<p>Click the canvas to focus it, then use the arrow keys. <strong>→</strong> and <strong>←</strong>
+adjust brightness; <strong>↓</strong> cycles through the five display modes. The
+data feed is a synthetic AOA ramp (0 → 25° and back) so you can watch
+the tone-map regions light up in order — not a recorded flight.</p>
+<p>The browser build uses the same C++ source as the firmware that runs
+on real M5Stack hardware, with M5GFX's SDL panel backend rendering to
+an HTML5 canvas. Source: <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display/sim"><code>software/OnSpeed-M5-Display/sim/</code></a>.</p>
 <h3 id="display-modes">Display modes<a class="headerlink" href="#display-modes" title="Permanent link">&para;</a></h3>
 <p>The five modes are selected by pressing <strong>Button B</strong>, which cycles in
 order: <strong>Primary → Attitude → Indexer-only → Energy → G history →</strong>
