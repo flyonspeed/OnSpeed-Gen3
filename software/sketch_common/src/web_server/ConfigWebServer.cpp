@@ -2256,7 +2256,6 @@ sPage += R"#(
         <br>
         <br>
         <form action="sensorconfig" method="GET">
-<table>
         <table>
         <tr><td><label>True Aircraft Pitch (degrees)</label></td>
         <td><input class="inputField" type="text" name="trueAircraftPitch" value=")#" + String(fDefPitch) + R"#("></td></tr>
@@ -2454,7 +2453,7 @@ void HandleUpgradeSuccess()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 2048);
     sPage += pageHeader;
-    sPage += "<br><br><br><br><span style=\"color:black\">Firmware upgrade complete. Wait a few seconds until OnSpeed reboots.</span></p><br><br><br><br>";
+    sPage += "<br><br><br><br><span style=\"color:black\">Firmware upgrade complete. Wait a few seconds until OnSpeed reboots.</span><br><br><br><br>";
     sPage += "<script>setInterval(function () { document.getElementById('rebootprogress').value+=0.1; document.getElementById('rebootprogress').innerHTML=document.getElementById('rebootprogress').value+'%'}, 10);setTimeout(function () { window.location.href = \"/\";}, 10000);</script>";
     sPage += "<div align=\"center\"><progress id=\"rebootprogress\" max=\"100\" value=\"0\"> 0% </progress></div>";
 
@@ -2470,7 +2469,7 @@ void HandleUpgradeFailure()
     UpdateHeader();
     sPage.reserve(pageHeader.length() + 1024);
     sPage += pageHeader;
-    sPage += "<br><br><br><br><span style=\"color:red\">Firmware upgrade failed. Power cycle OnSpeed box and try again.</span></p><br><br><br><br>";
+    sPage += "<br><br><br><br><span style=\"color:red\">Firmware upgrade failed. Power cycle OnSpeed box and try again.</span><br><br><br><br>";
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
     }
