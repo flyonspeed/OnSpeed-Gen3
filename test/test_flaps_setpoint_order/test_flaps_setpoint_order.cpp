@@ -143,6 +143,61 @@ void test_no_trailing_semicolon_space()
 }
 
 // ---------------------------------------------------------------------------
+// Alpha0 validation — alpha_0 must sit on the no-lift side of LDMAX.
+// ---------------------------------------------------------------------------
+
+void test_alpha0_zero_is_allowed_uncalibrated()
+{
+    // Alpha0 == 0 is the default ("uncalibrated") state and must not
+    // be flagged, by analogy with fSTALLAOA.
+    SuFlaps f = MakeValidFlap();
+    f.fAlpha0 = 0.0f;
+    TEST_ASSERT_TRUE(f.SetpointOrderError().empty());
+}
+
+void test_alpha0_negative_is_normal()
+{
+    // Typical airframe — alpha_0 negative because positive wing
+    // incidence puts the fuselage nose-down at zero lift.
+    SuFlaps f = MakeValidFlap();
+    f.fAlpha0 = -3.5f;
+    TEST_ASSERT_TRUE(f.SetpointOrderError().empty());
+}
+
+void test_alpha0_positive_below_ldmax_is_allowed()
+{
+    // Some low-incidence airframes have a positive alpha_0; it's still
+    // valid as long as it's below LDMAX so the percent-lift slope is
+    // positive across the lifting range.
+    SuFlaps f = MakeValidFlap();
+    f.fAlpha0 = 1.0f;   // LDMAX is 4.0 in MakeValidFlap
+    TEST_ASSERT_TRUE(f.SetpointOrderError().empty());
+}
+
+void test_alpha0_above_ldmax_errors()
+{
+    // The user-typo bug: alpha_0 typed with the wrong sign or wrong
+    // magnitude ends up >= LDMAX, which inverts the percent-lift slope.
+    SuFlaps f = MakeValidFlap();
+    f.fAlpha0 = 5.0f;   // LDMAX is 4.0 in MakeValidFlap
+    const std::string err = f.SetpointOrderError();
+    TEST_ASSERT_FALSE(err.empty());
+    TEST_ASSERT_TRUE(err.find("Alpha0") != std::string::npos);
+    TEST_ASSERT_TRUE(err.find("LDMAX")  != std::string::npos);
+    TEST_ASSERT_TRUE(err.find("5.0")    != std::string::npos);
+    TEST_ASSERT_TRUE(err.find("4.0")    != std::string::npos);
+}
+
+void test_alpha0_equal_to_ldmax_errors()
+{
+    // Strict `>=` — equality is also an error (denominator could
+    // collapse the percent-lift formula).
+    SuFlaps f = MakeValidFlap();
+    f.fAlpha0 = f.fLDMAXAOA;
+    TEST_ASSERT_FALSE(f.SetpointOrderError().empty());
+}
+
+// ---------------------------------------------------------------------------
 // Test runner
 // ---------------------------------------------------------------------------
 
@@ -158,5 +213,10 @@ int main(int, char**)
     RUN_TEST(test_equality_is_an_error);
     RUN_TEST(test_multiple_violations_all_reported);
     RUN_TEST(test_no_trailing_semicolon_space);
+    RUN_TEST(test_alpha0_zero_is_allowed_uncalibrated);
+    RUN_TEST(test_alpha0_negative_is_normal);
+    RUN_TEST(test_alpha0_positive_below_ldmax_is_allowed);
+    RUN_TEST(test_alpha0_above_ldmax_errors);
+    RUN_TEST(test_alpha0_equal_to_ldmax_errors);
     return UNITY_END();
 }
