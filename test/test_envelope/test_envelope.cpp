@@ -31,13 +31,14 @@ namespace {
 
 EnvelopeSpec MakePulse(float delay = 100.0f, float attack = 80.0f,
                        float hold = 200.0f, float decay = 80.0f,
-                       float release = 80.0f)
+                       float release = 80.0f, float gap = 0.0f)
 {
     EnvelopeSpec s;
     s.delaySamples   = delay;
     s.attackSamples  = attack;
     s.holdSamples    = hold;
     s.decaySamples   = decay;
+    s.gapSamples     = gap;
     s.releaseSamples = release;
     s.isSolid        = false;
     return s;
@@ -655,6 +656,151 @@ void test_reset_clears_state(void)
 }
 
 // ----------------------------------------------------------------------------
+// Inter-pulse Gap (Gen2 cadence parity)
+//
+// Gen2's IntervalTimer fires every `1000/pps` ms regardless of how long
+// the envelope phases consume.  The envelope-active window is
+// `tone_length = pulse_delay - 3 ms`, so the silent gap between Decay
+// and the next Delay is the leftover 3 ms.  Without the Gap phase,
+// Gen3's auto-loop fires immediately after Decay, producing a cycle
+// period of `tone_length` and an audibly-fast PPS — measured at +6.4%
+// at stall (21.3 PPS configured 20).
+
+void test_gap_holds_silent_between_decay_and_next_delay(void)
+{
+    // delay=10, attack=10, hold=10, decay=10, gap=20.  Total = 60.
+    // Gap is the silent stretch between cycles.
+    Envelope env;
+    env.NoteOn(MakePulse(10.0f, 10.0f, 10.0f, 10.0f, 10.0f, 20.0f));
+
+    // Run through one cycle and look for the Gap phase.
+    int gapSamples = 0;
+    bool sawGap = false;
+    for (int i = 0; i < 200; ++i)
+    {
+        env.Tick();
+        if (env.Phase() == EnvPhase::Gap)
+        {
+            sawGap = true;
+            gapSamples++;
+            // Gate is silent during gap.
+            TEST_ASSERT_EQUAL_FLOAT(0.0f, env.Level());
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(sawGap, "Envelope never entered the Gap phase");
+    TEST_ASSERT_TRUE_MESSAGE(gapSamples >= 20,
+        "Gap phase was shorter than configured");
+}
+
+void test_pulse_with_gap_period_matches_full_cycle(void)
+{
+    // Cadence regression: with delay=10+attack=10+hold=10+decay=10+gap=20
+    // = 60 samples per cycle, peaks should appear every 60 samples.
+    // (Pre-fix: peaks would be every 40 samples — Gen2's IntervalTimer
+    // would have fired every 60 ms.)
+    Envelope env;
+    env.NoteOn(MakePulse(10.0f, 10.0f, 10.0f, 10.0f, 10.0f, 20.0f));
+
+    std::vector<int> peakSamples;
+    bool inPeak = false;
+    for (int i = 0; i < 300; ++i)
+    {
+        const float v = env.Tick();
+        if (v > 0.99f && !inPeak) { peakSamples.push_back(i); inPeak = true; }
+        if (v < 0.01f) inPeak = false;
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_INT_MESSAGE(3, (int)peakSamples.size(),
+        "Need at least 3 peaks to measure period");
+    const int p1 = peakSamples[1] - peakSamples[0];
+    const int p2 = peakSamples[2] - peakSamples[1];
+    // Period should be 60 samples ±2 (one-sample slack each side).
+    TEST_ASSERT_INT_WITHIN_MESSAGE(2, 60, p1, "First period not ~60 samples");
+    TEST_ASSERT_INT_WITHIN_MESSAGE(2, 60, p2, "Second period not ~60 samples");
+}
+
+void test_gap_zero_preserves_legacy_immediate_reloop(void)
+{
+    // Backward-compat: a spec with gap=0 (the original MakePulse default)
+    // should behave exactly like before — decay-end auto-loops directly
+    // back to Delay/Attack with no silent gap.
+    Envelope env;
+    env.NoteOn(MakePulse(5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 0.0f));
+    bool sawGap = false;
+    for (int i = 0; i < 200; ++i)
+    {
+        env.Tick();
+        if (env.Phase() == EnvPhase::Gap) { sawGap = true; break; }
+    }
+    TEST_ASSERT_FALSE_MESSAGE(sawGap, "Envelope entered Gap with gap=0");
+    TEST_ASSERT_FALSE(env.IsIdle());
+}
+
+void test_noteoff_during_gap_terminates(void)
+{
+    // NoteOff while in the Gap phase should release cleanly to Idle.
+    // (Level is already 0 in Gap, so the release reaches Idle in ~1 sample.)
+    Envelope env;
+    env.NoteOn(MakePulse(2.0f, 2.0f, 2.0f, 2.0f, 5.0f, 50.0f));
+    for (int i = 0; i < 200; ++i)
+    {
+        env.Tick();
+        if (env.Phase() == EnvPhase::Gap) break;
+    }
+    TEST_ASSERT_EQUAL((int)EnvPhase::Gap, (int)env.Phase());
+    env.NoteOff();
+    for (int i = 0; i < 50; ++i)
+    {
+        env.Tick();
+        if (env.IsIdle()) break;
+    }
+    TEST_ASSERT_TRUE(env.IsIdle());
+}
+
+void test_pending_spec_fires_immediately_during_gap(void)
+{
+    // A NoteOn with a different spec while in Gap should queue, then
+    // fire when the gap completes — same policy as during Delay/
+    // Attack/Hold/Decay.  Only the most recent pending spec survives.
+    Envelope env;
+    env.NoteOn(MakePulse(2.0f, 2.0f, 2.0f, 2.0f, 5.0f, 50.0f));
+    for (int i = 0; i < 200; ++i)
+    {
+        env.Tick();
+        if (env.Phase() == EnvPhase::Gap) break;
+    }
+    TEST_ASSERT_EQUAL((int)EnvPhase::Gap, (int)env.Phase());
+
+    // Queue a different spec.
+    env.NoteOn(MakePulse(0.0f, 5.0f, 10.0f, 5.0f, 5.0f, 0.0f));
+    TEST_ASSERT_TRUE(env.HasPending());
+
+    // Run out the gap; pending should fire and replace spec_.
+    for (int i = 0; i < 100; ++i)
+    {
+        env.Tick();
+        if (!env.HasPending() && env.Phase() != EnvPhase::Gap) break;
+    }
+    TEST_ASSERT_FALSE(env.HasPending());
+    TEST_ASSERT_FALSE(env.IsIdle());
+}
+
+void test_isactive_during_gap_returns_true(void)
+{
+    // Gap is silent but it's still part of the running pulse cycle.
+    // Same-spec NoteOn during Gap must debounce, which requires
+    // IsActive() to report true.
+    Envelope env;
+    env.NoteOn(MakePulse(2.0f, 2.0f, 2.0f, 2.0f, 5.0f, 50.0f));
+    for (int i = 0; i < 200; ++i)
+    {
+        env.Tick();
+        if (env.Phase() == EnvPhase::Gap) break;
+    }
+    TEST_ASSERT_EQUAL((int)EnvPhase::Gap, (int)env.Phase());
+    TEST_ASSERT_TRUE(env.IsActive());
+}
+
+// ----------------------------------------------------------------------------
 // Main
 
 int main()
@@ -703,6 +849,13 @@ int main()
     RUN_TEST(test_iscurrentsolid_releasing_false);
 
     RUN_TEST(test_noteoff_clears_pending);
+
+    RUN_TEST(test_gap_holds_silent_between_decay_and_next_delay);
+    RUN_TEST(test_pulse_with_gap_period_matches_full_cycle);
+    RUN_TEST(test_gap_zero_preserves_legacy_immediate_reloop);
+    RUN_TEST(test_noteoff_during_gap_terminates);
+    RUN_TEST(test_pending_spec_fires_immediately_during_gap);
+    RUN_TEST(test_isactive_during_gap_returns_true);
 
     RUN_TEST(test_reset_clears_state);
     return UNITY_END();
