@@ -286,10 +286,12 @@
     this.solidArmed    = false   // true after a solid spec is scheduled
     this.schedTimerId  = null
 
-    // Schedule horizon: keep the audio timeline filled this far ahead
-    // so the JS scheduler can run at a relaxed cadence (rAF or
-    // setInterval) without producing gaps.
-    this.scheduleAheadSec = 0.2
+    // Scheduler tick interval (ms).  At this cadence the scheduler
+    // wakes up, checks whether the next pulse is due, and writes its
+    // events to the timeline.  Must be well below the smallest
+    // pulse_period (50 ms at STALL) so we always have a tick or two
+    // of headroom to schedule the next pulse before its start time.
+    this.schedTickMs = 10
 
     this._buildDOM()
     this._bindControls()
@@ -429,8 +431,11 @@
   }
 
   // ── Scheduler tick ───────────────────────────────────────────
-  // Runs every ~30 ms.  Fills the audio timeline up to
-  // `scheduleAheadSec` into the future with pulse envelopes.
+  // Runs every `schedTickMs`.  At each tick, ensures at most one
+  // pulse is scheduled ahead of the playback head — the next pulse
+  // is committed only when its start time is imminent.  Matches the
+  // C++ Envelope's behaviour of consulting the live spec on every
+  // sample, never locking in future pulses with stale spec.
   ToneSimulator.prototype._kickScheduler = function () {
     if (this.schedTimerId !== null) return
     var self = this
@@ -440,17 +445,27 @@
         return
       }
       self._scheduleAhead()
-      self.schedTimerId = setTimeout(tick, 25)
+      self.schedTimerId = setTimeout(tick, self.schedTickMs)
     }
     this.schedTimerId = setTimeout(tick, 0)
   }
 
+  // Scheduling policy: we keep at most ONE pulse-cycle in flight on
+  // the timeline at a time.  When the playback head reaches (or is
+  // about to reach) the end of the in-flight pulse, the next pulse is
+  // committed using the *current* spec — which reflects the latest
+  // AOA-region change because `_maybeAdoptTarget` has had a chance to
+  // promote any pending spec into `currentSpec` in the meantime.
+  //
+  // This mirrors the C++ Envelope's behaviour: the running pulse
+  // finishes naturally; the next pulse uses whatever spec is current
+  // at the boundary.  No further pulses are pre-committed.
   ToneSimulator.prototype._scheduleAhead = function () {
     if (!this.audioCtx) return
     if (this.currentTone === "none") return
     if (!this.currentSpec) return
 
-    var horizon = this.audioCtx.currentTime + this.scheduleAheadSec
+    var now = this.audioCtx.currentTime
 
     // Solid: scheduled exactly once when armed.  Sustain holds level
     // 1.0 in the timeline until something else cancels it.
@@ -463,41 +478,40 @@
       return
     }
 
-    // Pulse: emit cycles until we're ahead of the horizon.
-    while (this.nextEventTime < horizon) {
-      var spec   = this.currentSpec
-      var tone   = this.currentTone
-      var vol    = this.currentVolume
-      var period = spec.delay + spec.attack + spec.hold + spec.decay + spec.gap
+    // Lookahead: schedule the next pulse only when its start is within
+    // one tick + a small safety margin away.  Until then, the
+    // currently-running pulse is the only one on the timeline, and
+    // `_maybeAdoptTarget` has free rein to mutate `currentSpec`
+    // before the next pulse is committed.
+    var lookaheadSec = (this.schedTickMs * 2) / 1000.0
+    if (this.nextEventTime > now + lookaheadSec) return
 
-      this._schedulePulse(this.nextEventTime, spec, vol, tone)
-      this.nextEventTime += period
-
-      // Adopt pending spec at the cycle boundary so the next cycle uses
-      // the new shape.  This is the C++ Envelope's pendingSpec hand-off.
-      if (this.pendingTone !== null) {
-        this.currentTone   = this.pendingTone
-        this.currentSpec   = this.pendingSpec
-        this.currentVolume = this.pendingVolume
-        this.pendingTone   = null
-        this.pendingSpec   = null
-        if (this.currentTone === "none") {
-          // Pending wanted silence — stop scheduling.
-          return
-        }
-        if (this.currentSpec && this.currentSpec.isSolid) {
-          // Pulse → solid: arm the solid envelope at the boundary and
-          // return; sustain holds the level until the next change.
-          this._scheduleSolid(this.nextEventTime, this.currentSpec,
-                              this.currentVolume, this.currentTone)
-          this.solidArmed = true
-          return
-        }
-        // Pulse → pulse (different shape) — loop continues with new spec.
-        // Carrier switch (low ↔ high) is clean because every pulse's
-        // setValueAtTime(0, startTime) silences both gains.
+    // Promote any pending spec into current before committing — the
+    // pending hand-off normally happens at pulse-end here, but if
+    // _maybeAdoptTarget queued one between ticks (with no pulse
+    // boundary having been reached), this is the boundary.
+    if (this.pendingTone !== null) {
+      this.currentTone   = this.pendingTone
+      this.currentSpec   = this.pendingSpec
+      this.currentVolume = this.pendingVolume
+      this.pendingTone   = null
+      this.pendingSpec   = null
+      if (this.currentTone === "none") return
+      if (this.currentSpec && this.currentSpec.isSolid) {
+        this._scheduleSolid(this.nextEventTime, this.currentSpec,
+                            this.currentVolume, this.currentTone)
+        this.solidArmed = true
+        return
       }
     }
+
+    var spec   = this.currentSpec
+    var tone   = this.currentTone
+    var vol    = this.currentVolume
+    var period = spec.delay + spec.attack + spec.hold + spec.decay + spec.gap
+
+    this._schedulePulse(this.nextEventTime, spec, vol, tone)
+    this.nextEventTime += period
   }
 
   // Schedule a single pulse at startTime on the given tone's gain.
