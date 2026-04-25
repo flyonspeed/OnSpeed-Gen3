@@ -104,10 +104,17 @@ struct CsvTokenizer {
 };
 
 // Parse helpers — return true on success.
+//
+// Numeric helpers reject empty tokens: every column written by FormatRow
+// emits a non-empty string (`%lu`, `%i`, `%.Nf`), so an empty token on the
+// parse side means a corrupt row (e.g. a truncated SD write that left two
+// adjacent commas). Returning false propagates through ParseRow and skips
+// the row entirely, which is what replay tools want — silently substituting
+// zero would feed a phantom IAS=0 / AOA=0 sample to AHRS and audio.
 
 static bool ParseFloat(std::string_view tok, float& out)
 {
-    if (tok.empty()) { out = 0.0f; return true; }
+    if (tok.empty()) return false;
     char buf[64];
     size_t n = tok.size() < sizeof(buf) - 1 ? tok.size() : sizeof(buf) - 1;
     memcpy(buf, tok.data(), n);
@@ -121,7 +128,7 @@ static bool ParseFloat(std::string_view tok, float& out)
 
 static bool ParseDouble(std::string_view tok, double& out)
 {
-    if (tok.empty()) { out = 0.0; return true; }
+    if (tok.empty()) return false;
     char buf[64];
     size_t n = tok.size() < sizeof(buf) - 1 ? tok.size() : sizeof(buf) - 1;
     memcpy(buf, tok.data(), n);
@@ -135,7 +142,7 @@ static bool ParseDouble(std::string_view tok, double& out)
 
 static bool ParseInt(std::string_view tok, int& out)
 {
-    if (tok.empty()) { out = 0; return true; }
+    if (tok.empty()) return false;
     char buf[32];
     size_t n = tok.size() < sizeof(buf) - 1 ? tok.size() : sizeof(buf) - 1;
     memcpy(buf, tok.data(), n);
@@ -149,7 +156,7 @@ static bool ParseInt(std::string_view tok, int& out)
 
 static bool ParseUint32(std::string_view tok, uint32_t& out)
 {
-    if (tok.empty()) { out = 0u; return true; }
+    if (tok.empty()) return false;
     char buf[32];
     size_t n = tok.size() < sizeof(buf) - 1 ? tok.size() : sizeof(buf) - 1;
     memcpy(buf, tok.data(), n);
