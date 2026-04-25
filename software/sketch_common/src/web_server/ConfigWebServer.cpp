@@ -2626,8 +2626,24 @@ void HandleGetValue()
 
         else if (CfgServer.arg("name") == "VOLUME")
             {
-            sResponseValue = String(ReadVolume());
-            CfgServer.send(200, "text/plain", sResponseValue);
+            // ReadVolume() drives the MCP3202 ADC's chip-select line and
+            // shares the sensor SPI bus with the IMU and three pressure
+            // sensors. The flight-loop reader (Housekeeping.cpp's volume
+            // tick) holds xSensorMutex for the same call; the web path
+            // must too, or two CS lines can be asserted simultaneously
+            // and corrupt one frame of pressure data on the other core.
+            uint16_t uVol = 0;
+            if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(50)))
+                {
+                uVol = ReadVolume();
+                xSemaphoreGive(xSensorMutex);
+                sResponseValue = String(uVol);
+                CfgServer.send(200, "text/plain", sResponseValue);
+                }
+            else
+                {
+                CfgServer.send(503, "text/plain", "busy");
+                }
             g_Log.println(MsgLog::EnWebServer, MsgLog::EnDebug, "Reqeust VOLUME");
             }
 
