@@ -79,6 +79,14 @@ extern RenderShimState g_state;
 
 void resetState();
 
+// Populate the file-scope `AOAThresholds` array used by drawAOA / drawSlip
+// from the four OnSpeed* setpoint fields on g_state. In production, this
+// array is initialized as a side-effect of displayAOA() running first
+// each frame; tests that exercise displayDecelGauge / displayGloadHistory
+// in isolation must call this explicitly so drawSlip's color-gating
+// (`AOA >= AOAThresholds[7]`) sees realistic values rather than zeros.
+void seedAOAThresholdsFromState();
+
 // Renderer entry points mirrored from main.cpp. These are the functions
 // under test.
 void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,

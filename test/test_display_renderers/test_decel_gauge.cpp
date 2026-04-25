@@ -11,6 +11,11 @@ void test_displayDecelGauge_zero_decel_centers_indicator(void)
     g_state.displayIAS        = 80;
     g_state.displayDecelRate  = 0.0f;
     g_state.iVSI              = 0.0f;
+    // displayDecelGauge() calls drawSlip() with the file-scope
+    // AOAThresholds array, which displayAOA() would normally have
+    // populated. Seed it explicitly so drawSlip's color-gating sees
+    // realistic setpoints rather than the all-zero initialiser.
+    seedAOAThresholdsFromState();
 
     displayDecelGauge();
 
@@ -39,6 +44,7 @@ void test_displayDecelGauge_negative_decel_moves_indicator_up(void)
     g_state.SmoothedDecelRate = -2.0f;
     g_state.displayIAS        = 65;
     g_state.displayDecelRate  = -2.0f;
+    seedAOAThresholdsFromState();
 
     displayDecelGauge();
 

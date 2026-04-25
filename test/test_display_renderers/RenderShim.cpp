@@ -28,6 +28,11 @@ void resetState()
     drawEvents().reset();
 }
 
+// Forward decl — definition lives below the displayAOA renderer body so
+// the AOAThresholds[] static is in scope. Implementation just mirrors
+// the array initialization from displayAOA() lines 241-248.
+void seedAOAThresholdsFromState();
+
 // ------- globals used by the copied renderer bodies -------
 
 // The real main.cpp creates `M5Canvas gdraw(&M5.Display);` — our stub
@@ -85,6 +90,23 @@ static float AOAThresholds[8];
 #define numericDisplay       g_state.numericDisplay
 #define flashFlag            g_state.flashFlag
 #define g_arcSize            g_state.g_arcSize
+
+// Helper used by tests that exercise drawSlip indirectly (via
+// displayDecelGauge / displayAOA's flow) without calling displayAOA()
+// first. Mirrors the array setup at the top of displayAOA() so
+// drawSlip's `AOA >= AOAThresholds[7]` color-gating sees realistic
+// values rather than the all-zero result of zero-initialization.
+void seedAOAThresholdsFromState()
+{
+    AOAThresholds[0] = 0.0001f;
+    AOAThresholds[1] = OnSpeedTonesOnAOA - 0.1f;
+    AOAThresholds[2] = OnSpeedTonesOnAOA;
+    AOAThresholds[3] = OnSpeedFastAOA;
+    AOAThresholds[4] = OnSpeedSlowAOA;
+    AOAThresholds[5] = OnSpeedSlowAOA + 0.1f;
+    AOAThresholds[6] = OnSpeedStallWarnAOA - 0.1f;
+    AOAThresholds[7] = OnSpeedStallWarnAOA;
+}
 
 // ============================================================================
 // RENDERERS — copied verbatim from main.cpp
@@ -684,3 +706,46 @@ void displaySplashScreen()
     gdraw.pushSprite(0, 0);
     gdraw.deleteSprite();
 }
+
+// Bound the macro-aliasing block to this TU. Without these #undefs, any
+// later include in this translation unit that references a member named
+// AOA / Pitch / etc. would silently get rewritten to g_state.<that
+// member> — a class of bug -Wshadow cannot catch. Today no such include
+// reaches here, but the renderer-body block above is the only intended
+// scope for these aliases.
+#undef AOA
+#undef PercentLift
+#undef Pitch
+#undef Roll
+#undef IAS
+#undef Palt
+#undef iVSI
+#undef VerticalG
+#undef LateralG
+#undef FlightPath
+#undef FlapPos
+#undef Slip
+#undef OnSpeedStallWarnAOA
+#undef OnSpeedSlowAOA
+#undef OnSpeedFastAOA
+#undef OnSpeedTonesOnAOA
+#undef gOnsetRate
+#undef SpinRecoveryCue
+#undef DataMark
+#undef DecelRate
+#undef SmoothedDecelRate
+#undef gHistory
+#undef gHistoryIndex
+#undef displayIAS
+#undef displayPalt
+#undef displayPitch
+#undef displayVerticalG
+#undef displayPercentLift
+#undef displayDecelRate
+#undef wgtWidth
+#undef wgtHeight
+#undef wgtX0
+#undef wgtY0
+#undef numericDisplay
+#undef flashFlag
+#undef g_arcSize

@@ -27,14 +27,17 @@ inline bool updateGoldenMode()
 }
 
 // Assert that the current draw-event trace hashes to `expected`, or
-// (in update mode) print its observed value for pasting into goldens.h.
-// `fixtureName` appears in the update-mode printout so the operator can
-// match a hash to the correct #define.
+// (in update mode) print its observed value as a paste-ready
+// `#define <fixtureName> "<hash>"` line for goldens.h. Emitting the
+// full #define line (rather than `name = value`) eliminates a class
+// of paste-order errors where an operator could accidentally swap two
+// hashes between #defines and have all tests still pass.
 inline void assertOrPrintGolden(const char* fixtureName, const char* expected)
 {
     std::string observed = drawEvents().coordHash();
     if (updateGoldenMode()) {
-        std::printf("\n[UPDATE_GOLDEN] %s = %s\n", fixtureName, observed.c_str());
+        std::printf("\n[UPDATE_GOLDEN] #define %s \"%s\"\n",
+                    fixtureName, observed.c_str());
         return;
     }
     if (observed != expected) {
