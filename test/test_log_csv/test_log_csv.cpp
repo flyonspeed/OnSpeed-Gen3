@@ -470,6 +470,21 @@ void test_empty_vn300_utc_string(void)
     TEST_ASSERT_EQUAL_STRING("", parsed.vnTimeUtc);
 }
 
+// Issue #194: vnTimeUtc is the last column of a VN-300 row and is emitted
+// as `%s` with no quoting. An embedded comma would split into the next
+// column and corrupt every downstream parser. FormatRow refuses to emit
+// such a row rather than silently corrupting the log.
+void test_vn300_utc_with_comma_refuses_to_format(void)
+{
+    LogRow r = MakeTestRow(false, true, true);   // EFIS + VN-300
+    // Inject a comma into vnTimeUtc. A future format change that produced
+    // "2026-04-24 14:30:00,42" would trigger this.
+    snprintf(r.vnTimeUtc, sizeof(r.vnTimeUtc), "12:34:56,78");
+
+    size_t fmtLen = csv::FormatRow(r, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_EQUAL_size_t(0u, fmtLen);
+}
+
 // ============================================================================
 // Test: malformed input
 // ============================================================================
@@ -705,6 +720,7 @@ int main(int, char**)
     RUN_TEST(test_zero_row_formats_and_parses);
     RUN_TEST(test_large_timestamp);
     RUN_TEST(test_empty_vn300_utc_string);
+    RUN_TEST(test_vn300_utc_with_comma_refuses_to_format);
 
     // Malformed input
     RUN_TEST(test_empty_line_returns_false);

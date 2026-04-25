@@ -134,6 +134,10 @@ struct LogRow {
     double vnGnssLon         = 0.0;
     int   vnGpsFix           = 0;
     int   vnDataAgeMs        = 0;
+    // Last column of a VN-300 row, written by FormatRow as `%s`.  CSV row
+    // integrity depends on this string containing no commas — a comma here
+    // would split into the next column on parse and corrupt every downstream
+    // field.  FormatRow asserts this on emission.  See issue #194.
     char  vnTimeUtc[kLogRowUtcTimeLen] = {};
 
     // --- Post-EFIS derived columns (always present) ---
