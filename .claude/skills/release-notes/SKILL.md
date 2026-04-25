@@ -302,6 +302,29 @@ The voice is **the team telling the rest of the team what landed this release.**
 
 **Leave sales to the website.** The release notes are a log of what changed. If the state of the system is genuinely better, that speaks for itself in the plain description. "The AOA bar is hidden until the first WebSocket message arrives" is enough — reading that, anyone can work out that the previous behavior was worse.
 
+#### Voice — no dunking on the past
+
+Marketing fluff is one failure mode. **Dunking on the past is the other**, and it's the one this team is most likely to slip into when describing a fix. The team reading the notes wrote the prior code. They don't need to be told their old code was bad — they wrote the fix; that's what changed. Describe the new behavior, name the prior behavior only when the contrast is needed for clarity, and skip the editorializing.
+
+**Banned phrasings — these read as the author dunking on the past:**
+
+- "for as long as anyone's been watching", "for years", "long-standing", "always lied"
+- "silently skipped", "silently broken", "silent failure" *(when describing past behavior — fine when describing actual silent-fault modes the new code guards against)*
+- "smoking gun", "forensic trail", "dead end"
+- "we used to…", "the old code…" *(if the contrast is genuinely needed for the reader to understand the fix, fine; otherwise just say what the code does now)*
+- "finally", "at last", "no longer" *(also banned in the marketing-tone list above — listed here too because it's the most common dunking phrase)*
+
+**Replace with present-tense statements of current behavior:**
+
+| Don't | Do |
+|---|---|
+| "Pitch has drifted ±0.5–1° for years; finally fixed." | "Pitch holds steady at rest. Cause: pitot noise feeding the comp factors. Fix: gate comp on `iasAlive`." |
+| "The parser silently skipped this field." | "The parser now reads bytes 3–10 as `HHMMSSFF`." |
+| "Long-standing bug where the AOA bar lied on first load." | "AOA bar initializes hidden; first render is `N/A` until the WebSocket delivers a value." |
+| "The first field failure used to be a dead end." | "Records reset reason and prior-boot uptime to NVS + SD on every power-up." |
+
+The reader can infer "this used to be wrong" from "the new code does X." That inference doesn't need help. State the current behavior; let the diff speak for the rest.
+
 ### Phase 6 — Create the draft (HARD STOP)
 
 ```bash
