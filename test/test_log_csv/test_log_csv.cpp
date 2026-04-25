@@ -502,6 +502,143 @@ void test_too_few_columns_returns_false(void)
     TEST_ASSERT_FALSE(csv::ParseRow("12345,1,1.00", r));
 }
 
+// Issue #195: tests for truncated boom / VN-300 / EFIS sections.
+//
+// These exercise the optional-group boundaries.  ParseRow's contract:
+// when the receiver's `boomEnabled`/`efisEnabled` flags say a section
+// must be present, but the row's columns for that section are missing
+// or short, the row is rejected (returns false) — never partially
+// populated.
+
+// Helper: drop the last `n` characters off a row to simulate a
+// section truncated mid-field.
+static std::string TruncateBy(const char* row, size_t fmtLen, size_t n)
+{
+    return std::string(row, fmtLen > n ? fmtLen - n : 0);
+}
+
+// Helper: drop the last `n` complete fields off a row by walking back
+// from the end and removing characters up to and including `n` commas.
+static std::string DropLastFields(const char* row, size_t fmtLen, int nFields)
+{
+    std::string s(row, fmtLen);
+    while (nFields-- > 0) {
+        size_t comma = s.rfind(',');
+        if (comma == std::string::npos) {
+            s.clear();
+            return s;
+        }
+        s.resize(comma);
+    }
+    return s;
+}
+
+void test_truncated_boom_section_returns_false(void)
+{
+    // Boom section has 6 columns: static, dynamic, alpha, beta, ias, age.
+    // Format a complete boom row, drop the last 3 boom fields, and
+    // verify ParseRow rejects.
+    LogRow original = MakeTestRow(true, false, false);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Boom is the LAST optional group when EFIS is disabled, and
+    // the post-EFIS derived columns (4) plus DerivedAOA/CoeffP (2)
+    // come AFTER it.  So the layout is:
+    //   <core (33)> , <boom (6)> , <derived (4)> , <aoa+coeffP (2)>
+    // Drop the last 6 fields = derived + aoa/coeffP, then drop 3 more
+    // to truncate inside the boom section.
+    std::string truncated = DropLastFields(s_rowBuf, fmtLen, 6 + 3);
+
+    LogRow parsed;
+    parsed.boomEnabled = true;
+    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+}
+
+void test_truncated_efis_section_returns_false(void)
+{
+    // EFIS (non-VN300) section has 18 columns. Truncate near the end.
+    LogRow original = MakeTestRow(false, true, false);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Drop derived (4) + aoa/coeffP (2) = 6, then 5 more to truncate
+    // mid-EFIS-section.
+    std::string truncated = DropLastFields(s_rowBuf, fmtLen, 6 + 5);
+
+    LogRow parsed;
+    parsed.efisEnabled = true;
+    parsed.efisIsVn300 = false;
+    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+}
+
+void test_truncated_vn300_section_returns_false(void)
+{
+    // VN-300 section has 26 columns. Truncate inside it.
+    LogRow original = MakeTestRow(false, true, true);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Drop derived (4) + aoa/coeffP (2) = 6, then 10 more to truncate
+    // deep inside the VN-300 section.
+    std::string truncated = DropLastFields(s_rowBuf, fmtLen, 6 + 10);
+
+    LogRow parsed;
+    parsed.efisEnabled = true;
+    parsed.efisIsVn300 = true;
+    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+}
+
+void test_efis_flag_set_but_no_efis_columns_returns_false(void)
+{
+    // Producer wrote a no-EFIS row (33 core + 4 derived + 2 aoa = 39
+    // columns).  Receiver expects EFIS columns but they're absent.
+    LogRow producer;
+    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    LogRow consumer;
+    consumer.efisEnabled = true;
+    consumer.efisIsVn300 = false;
+    TEST_ASSERT_FALSE(csv::ParseRow(std::string_view(s_rowBuf, fmtLen),
+                                    consumer));
+}
+
+void test_vn300_flag_set_but_only_efis_columns_returns_false(void)
+{
+    // Producer wrote a non-VN300 EFIS row.  Receiver expects VN-300
+    // columns (26 of them) but only finds 18 EFIS columns.
+    LogRow producer = MakeTestRow(false, true, false);
+    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    LogRow consumer;
+    consumer.efisEnabled = true;
+    consumer.efisIsVn300 = true;
+    TEST_ASSERT_FALSE(csv::ParseRow(std::string_view(s_rowBuf, fmtLen),
+                                    consumer));
+}
+
+void test_row_truncated_mid_field_returns_false(void)
+{
+    // Simulate fgets truncating mid-row at the read buffer boundary
+    // (LogReplay::OpenReplayLog uses kRowMaxBytes; if a row exceeds
+    // that, fgets returns a partial line with no \n).  The resulting
+    // partial token must fail to parse.
+    LogRow original = MakeTestRow(true, true, true);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Hard-truncate at half the row length — likely lands mid-field.
+    std::string truncated = TruncateBy(s_rowBuf, fmtLen, fmtLen / 2);
+
+    LogRow parsed;
+    parsed.boomEnabled = true;
+    parsed.efisEnabled = true;
+    parsed.efisIsVn300 = true;
+    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+}
+
 // Issue #193: a truncated SD write that produces two adjacent commas in
 // any numeric column must fail the row, not silently substitute zero.
 // Verify each numeric Parse* helper (float, int, uint32) rejects empty.
@@ -729,6 +866,12 @@ int main(int, char**)
     RUN_TEST(test_empty_int_field_returns_false);
     RUN_TEST(test_empty_float_field_returns_false);
     RUN_TEST(test_empty_ias_field_returns_false);
+    RUN_TEST(test_truncated_boom_section_returns_false);
+    RUN_TEST(test_truncated_efis_section_returns_false);
+    RUN_TEST(test_truncated_vn300_section_returns_false);
+    RUN_TEST(test_efis_flag_set_but_no_efis_columns_returns_false);
+    RUN_TEST(test_vn300_flag_set_but_only_efis_columns_returns_false);
+    RUN_TEST(test_row_truncated_mid_field_returns_false);
     RUN_TEST(test_trailing_newline_tolerated);
     RUN_TEST(test_trailing_crlf_tolerated);
 
