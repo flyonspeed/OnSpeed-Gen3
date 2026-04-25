@@ -58,7 +58,20 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
      #include "../../sim/ArduinoShim.h"
     #endif
 
-    #ifdef DEVICE_M5
+    #if defined(HUVVER)
+     // huVVer-AVI build: pulls in our LovyanGFX-based shim instead of
+     // M5Unified, so M5Canvas / M5GFX colors / fonts are still
+     // available but the `M5` global resolves to our hardware.
+     //
+     // Path is relative to this header's location at
+     // software/OnSpeed-M5-Display/lib/GaugeWidgets/. If PR 5 promotes
+     // huVVer to a separate sub-project at software/OnSpeed-huVVer-Display/
+     // and consumes GaugeWidgets via lib_extra_dirs, this relative path
+     // still resolves correctly because the .h itself remains where it
+     // is. If GaugeWidgets ever moves out of this sub-project, this
+     // path needs updating.
+     #include "../../sim/HuvverShim.h"
+    #elif defined(DEVICE_M5)
      #include <M5Unified.h>
     #else
      #include "VVLink.h"

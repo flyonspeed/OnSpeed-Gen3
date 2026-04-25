@@ -7,7 +7,11 @@
 #include "../sim/ArduinoShim.h"
 #endif
 
+#if defined(HUVVER)
+#include "../sim/HuvverShim.h"
+#else
 #include <M5Unified.h>
+#endif
 #include <Free_Fonts.h>
 #include <filters/SavGolDerivative.h>
 #include <proto/DisplaySerial.h>

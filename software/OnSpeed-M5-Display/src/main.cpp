@@ -59,7 +59,11 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 #include <GaugeWidgets.h>
+#if defined(HUVVER)
+#include "../sim/HuvverShim.h"
+#else
 #include <M5Unified.h>
+#endif
 #include <Free_Fonts.h>
 
 // On the desktop (SDL) and WASM (Emscripten) builds, the ESP32-only headers
@@ -221,8 +225,12 @@ void setup()
     // Mute the speaker (annoying hiss) on M5Stack Basic, where GPIO 25 is
     // the internal DAC-to-speaker path. Skip on Core2, where GPIO 25 is an
     // exposed Port-B pin and the speaker is driven via I2S amplifier (not
-    // this DAC). See audit finding 039.
-#ifndef ARDUINO_M5STACK_Core2
+    // this DAC). See audit finding 039. Skip on huVVer too — HuvverShim's
+    // M5_Class::begin() already drove GPIO 25 (and 26) LOW as a regular
+    // digital output; calling dacWrite here would reconfigure the pin
+    // through the DAC peripheral, leaving it in a mode where future
+    // digitalWrite() calls would silently no-op.
+#if !defined(ARDUINO_M5STACK_Core2) && !defined(HUVVER)
     dacWrite(25, 0);
 #endif
 
