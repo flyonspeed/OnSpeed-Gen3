@@ -35,6 +35,27 @@ bool OpenReplayLog(String sLogFile);
 bool ReadLogLine();
 void RemoveSpaces(char * szLine);
 
+// Comma-boundary token match against a CSV header line.  Returns true
+// if `name` appears as a complete column token (delimited by commas
+// or string start/end), false on substring-only matches.  Plain
+// `strstr` would let `"Pitch"` match the unrelated `"PitchRate"`
+// column, silently misaligning ParseRow's column-by-column reads
+// once `proto::log_csv::WriteHeader` adds or renames a column.
+static bool HasColumn(const char* hdr, const char* name)
+    {
+    const size_t n = strlen(name);
+    const char* p = hdr;
+    while ((p = strstr(p, name)) != nullptr)
+        {
+        const bool leftOk  = (p == hdr) || (p[-1] == ',');
+        const bool rightOk = (p[n] == '\0') || (p[n] == ',');
+        if (leftOk && rightOk)
+            return true;
+        p += 1;   // advance past this candidate to seek the next
+        }
+    return false;
+    }
+
 //-----------------------------------------------------------------------------
 // REPLAYLOGFILE data source routines
 //-----------------------------------------------------------------------------
@@ -145,30 +166,27 @@ bool OpenReplayLog(String sLogFile)
     // Detect optional column groups from the header so ParseRow knows the
     // column layout.  Presence of "boomStatic" indicates boom columns;
     // "efisIAS" indicates standard EFIS; "vnAngularRateRoll" indicates VN-300.
-    {
-    s_bReplayBoom  = strstr(szInLine, "boomStatic")         != nullptr;
-    s_bReplayVn300 = strstr(szInLine, "vnAngularRateRoll")  != nullptr;
-    s_bReplayEfis  = s_bReplayVn300 ||
-                     strstr(szInLine, "efisIAS")            != nullptr;
-    }
+    s_bReplayBoom  = HasColumn(szInLine, "boomStatic");
+    s_bReplayVn300 = HasColumn(szInLine, "vnAngularRateRoll");
+    s_bReplayEfis  = s_bReplayVn300 || HasColumn(szInLine, "efisIAS");
 
     // Validate that the required core columns are present.
-    if (strstr(szInLine, "PfwdSmoothed") == nullptr) goto fail;
-    if (strstr(szInLine, "P45Smoothed")  == nullptr) goto fail;
-    if (strstr(szInLine, "flapsPos")     == nullptr) goto fail;
-    if (strstr(szInLine, "Palt")         == nullptr) goto fail;
-    if (strstr(szInLine, "IAS")          == nullptr) goto fail;
-    if (strstr(szInLine, "DataMark")     == nullptr) goto fail;
-    if (strstr(szInLine, "VSI")          == nullptr) goto fail;
-    if (strstr(szInLine, "VerticalG")    == nullptr) goto fail;
-    if (strstr(szInLine, "LateralG")     == nullptr) goto fail;
-    if (strstr(szInLine, "ForwardG")     == nullptr) goto fail;
-    if (strstr(szInLine, "RollRate")     == nullptr) goto fail;
-    if (strstr(szInLine, "PitchRate")    == nullptr) goto fail;
-    if (strstr(szInLine, "YawRate")      == nullptr) goto fail;
-    if (strstr(szInLine, "Pitch")        == nullptr) goto fail;
-    if (strstr(szInLine, "Roll")         == nullptr) goto fail;
-    if (strstr(szInLine, "FlightPath")   == nullptr) goto fail;
+    if (!HasColumn(szInLine, "PfwdSmoothed")) goto fail;
+    if (!HasColumn(szInLine, "P45Smoothed"))  goto fail;
+    if (!HasColumn(szInLine, "flapsPos"))     goto fail;
+    if (!HasColumn(szInLine, "Palt"))         goto fail;
+    if (!HasColumn(szInLine, "IAS"))          goto fail;
+    if (!HasColumn(szInLine, "DataMark"))     goto fail;
+    if (!HasColumn(szInLine, "VSI"))          goto fail;
+    if (!HasColumn(szInLine, "VerticalG"))    goto fail;
+    if (!HasColumn(szInLine, "LateralG"))     goto fail;
+    if (!HasColumn(szInLine, "ForwardG"))     goto fail;
+    if (!HasColumn(szInLine, "RollRate"))     goto fail;
+    if (!HasColumn(szInLine, "PitchRate"))    goto fail;
+    if (!HasColumn(szInLine, "YawRate"))      goto fail;
+    if (!HasColumn(szInLine, "Pitch"))        goto fail;
+    if (!HasColumn(szInLine, "Roll"))         goto fail;
+    if (!HasColumn(szInLine, "FlightPath"))   goto fail;
 
     g_Log.printf("Replaying data from log file: %s\n", sLogFile.c_str());
     return true;
