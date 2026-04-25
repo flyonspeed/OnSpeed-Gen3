@@ -6,10 +6,20 @@ namespace onspeed {
 
 ToneResult calculateTone(float fAOA, const ToneThresholds& th)
 {
-    // Uncalibrated / partially-calibrated gate: every threshold must
-    // be positive before this function produces any tone.  Each
-    // threshold is a "calibration unit" — any zero means that piece
-    // of the calibration isn't configured yet.
+    // Uncalibrated / partially-calibrated gate: OnSpeedFast,
+    // OnSpeedSlow, and StallWarn must all be positive before this
+    // function produces any tone.  These three thresholds sit
+    // between zero-lift and stall in body-angle terms and are
+    // always positive on a real calibration; any zero is the
+    // factory/unconfigured signal.
+    //
+    // LDmax is intentionally excluded.  The stored thresholds are
+    // body angles, and at high flap settings LDmax can be at or
+    // below the fuselage-zero reference (the wing produces L/D-max
+    // lift at low body angle once flaps are deployed).  Reference
+    // calibration N720AK flaps 33° has fLDMAXAOA = -1.12; gating on
+    // LDmax > 0 would silence both the OnSpeed cues and the stall
+    // warning across the entire approach envelope.
     //
     // Without this gate:
     //   * All-zero config: `AOA >= 0` trivially true → constant
@@ -22,8 +32,7 @@ ToneResult calculateTone(float fAOA, const ToneThresholds& th)
     // the web save page already warns on misordered setpoints, but
     // we don't trust that a config reaching the audio path has been
     // validated.  Silence is safer than wrong tones in the air.
-    if (th.fLDMAXAOA       <= 0.0f ||
-        th.fONSPEEDFASTAOA <= 0.0f ||
+    if (th.fONSPEEDFASTAOA <= 0.0f ||
         th.fONSPEEDSLOWAOA <= 0.0f ||
         th.fSTALLWARNAOA   <= 0.0f)
     {
