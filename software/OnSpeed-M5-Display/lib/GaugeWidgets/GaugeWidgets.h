@@ -58,7 +58,12 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
      #include "../../sim/ArduinoShim.h"
     #endif
 
-    #ifdef DEVICE_M5
+    #if defined(HUVVER)
+     // huVVer-AVI build: pulls in our LovyanGFX-based shim instead of
+     // M5Unified, so M5Canvas / M5GFX colors / fonts are still
+     // available but the `M5` global resolves to our hardware.
+     #include "../../sim/HuvverShim.h"
+    #elif defined(DEVICE_M5)
      #include <M5Unified.h>
     #else
      #include "VVLink.h"

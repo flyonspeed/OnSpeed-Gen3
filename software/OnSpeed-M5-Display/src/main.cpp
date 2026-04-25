@@ -59,7 +59,11 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 #include <GaugeWidgets.h>
+#if defined(HUVVER)
+#include "../sim/HuvverShim.h"
+#else
 #include <M5Unified.h>
+#endif
 #include <Free_Fonts.h>
 
 // On the desktop (SDL) and WASM (Emscripten) builds, the ESP32-only headers
