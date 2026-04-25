@@ -1723,6 +1723,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="1. Tone-decision regions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mute-region-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MUTE-region details
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1887,10 +1904,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#gen2-reference" class="md-nav__link">
+  <a href="#gen2-reference-what-the-source-actually-does" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Gen2 (reference)
+        Gen2 (reference) — what the source actually does
       
     </span>
   </a>
@@ -1898,10 +1915,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#gen3-on-master-current-shipping-behavior" class="md-nav__link">
+  <a href="#gen3-on-master-current-shipping-behaviour" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Gen3 on master (current shipping behavior)
+        Gen3 on master (current shipping behaviour)
       
     </span>
   </a>
@@ -3391,6 +3408,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="1. Tone-decision regions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mute-region-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MUTE-region details
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3555,10 +3589,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#gen2-reference" class="md-nav__link">
+  <a href="#gen2-reference-what-the-source-actually-does" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Gen2 (reference)
+        Gen2 (reference) — what the source actually does
       
     </span>
   </a>
@@ -3566,10 +3600,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#gen3-on-master-current-shipping-behavior" class="md-nav__link">
+  <a href="#gen3-on-master-current-shipping-behaviour" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Gen3 on master (current shipping behavior)
+        Gen3 on master (current shipping behaviour)
       
     </span>
   </a>
@@ -3630,10 +3664,10 @@
 
 <h1 id="audio-tone-spec">Audio Tone Spec<a class="headerlink" href="#audio-tone-spec" title="Permanent link">&para;</a></h1>
 <div class="admonition warning">
-<p class="admonition-title">Work in progress — aspirational spec, not yet verified</p>
-<p>This document captures what the OnSpeed aural tones <strong>should sound like</strong>, derived from the Gen2 (Teensy) reference implementation that Lenny tuned.</p>
-<p>The current Gen3 firmware on <code>master</code> <strong>does not implement this spec</strong>. PR <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/102">#102</a> is the in-flight attempt to close the gap. Even with that PR, on-aircraft scope traces and side-by-side listening tests against Gen2 hardware are still pending — Lenny is recording waveforms.</p>
-<p>Treat this as a target, not a contract. If you find Gen2 source code or hardware behavior that contradicts something here, the source code wins; please file an issue and update this page.</p>
+<p class="admonition-title">Work in progress — aspirational spec, not yet bench-verified</p>
+<p>This document captures what the OnSpeed aural tones <strong>should sound like</strong>, derived from the Gen2 (Teensy) reference implementation that Lenny tuned, with deliberate adjustments where Gen2's behaviour was inferior on safety grounds (stall warning silenced by the audio switch, no IAS-mute hysteresis, etc. — flagged inline).</p>
+<p>The current Gen3 firmware on <code>master</code> <strong>does not implement most of this spec</strong>. PR <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/102">#102</a> is the in-flight attempt to close the gap; once merged, Gen3 should match the spec to the degree the spec itself does. Either way, on-aircraft scope traces and side-by-side listening tests against Gen2 hardware are still pending — Lenny is recording waveforms.</p>
+<p>Treat this as a target, not a contract. If you find Gen2 source code that contradicts something here, the source code wins UNLESS the spec explicitly flags the difference as a deliberate Gen3 improvement; please file an issue and we'll update the page.</p>
 </div>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">&para;</a></h2>
 <p>This is a developer-facing reference for anyone porting, auditing, or modifying the OnSpeed audio tone subsystem. It defines the audible output precisely enough that two independent implementations should produce indistinguishable audio at the speaker.</p>
@@ -3685,8 +3719,8 @@
 </tr>
 <tr>
 <td><code>left_pan_gain</code>, <code>right_pan_gain</code></td>
-<td>[0, 1+]</td>
-<td>3D-audio centripetal pan (Gen2 <code>3DAudio.ino:11-13</code>)</td>
+<td>[0, 2]</td>
+<td>3D-audio centripetal pan (Gen2 <code>3DAudio.ino:11-13</code>); can exceed 1.0 in a hard turn (see §8 for clipping behaviour)</td>
 </tr>
 </tbody>
 </table>
@@ -3762,6 +3796,12 @@
 <p class="admonition-title">Uncalibrated configs (Gen3 only)</p>
 <p>Gen3 adds a defensive guard: if any of <code>fONSPEEDFASTAOA</code>, <code>fONSPEEDSLOWAOA</code>, <code>fSTALLWARNAOA</code> is <code>≤ 0</code>, return <code>None</code>. Gen2 doesn't have this check, but the situation can't arise on Gen2 because Gen2 ships with hardcoded sample setpoints. Adding the guard doesn't change behavior on a properly-calibrated unit.</p>
 </div>
+<h3 id="mute-region-details">MUTE-region details<a class="headerlink" href="#mute-region-details" title="Permanent link">&para;</a></h3>
+<p>The MUTE row above describes the AOA-decision-side gate. Two implementation refinements live alongside it on Gen3 (and are part of the spec's desired behavior because they fix real Gen2 limitations):</p>
+<ul>
+<li><strong>Hysteresis (Gen3 PR #113)</strong>. Gen2 uses a bare <code>IAS ≤ muteAudioUnderIAS</code> check, which produces audible chatter at touchdown when IAS oscillates a few knots around the threshold. Gen3 unmutes at <code>iMuteAudioUnderIAS + 5 kt</code> and re-mutes at <code>iMuteAudioUnderIAS</code>. The +5 kt unmute band is normative — without it, every Gen3 landing rollout would chatter as IAS bounced through the threshold during the deceleration. Gen2 does not have this; pilots familiar with Gen2 hear the chatter and know to ignore it.</li>
+<li><strong><code>iMuteAudioUnderIAS == 0</code> always-on sentinel (Gen3)</strong>. A configured value of 0 means "never mute — audio is live from boot regardless of IAS." Useful for bench testing or non-airspeed-equipped installations. Gen2 has no equivalent (a 0 value would mute below 0 kt, which is always-on by accident; Gen3 makes the intent explicit).</li>
+</ul>
 <h2 id="2-per-pulse-envelope-dahdr-shape">2. Per-pulse envelope (DAHDR shape)<a class="headerlink" href="#2-per-pulse-envelope-dahdr-shape" title="Permanent link">&para;</a></h2>
 <p>For <code>PULSE_TONE</code> modes, every pulse is shaped by Delay → Attack → Hold → Decay, then a silent inter-pulse Gap, then auto-loop to the next pulse. All times in milliseconds.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pulse_period = 1000 / pps                        # full cycle, Gen2 IntervalTimer rate
@@ -3778,6 +3818,10 @@
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
 <a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>release      = ramp_time                         # only on NoteOff (mode change)
 </code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Release time on Gen2 is implicit</p>
+<p>Gen2's pulsed-tone setup block (<code>Tones.ino:95-126</code>) doesn't call <code>envelope1.release(...)</code> per pulse — the release time is whatever the previous solid-tone setup left in the Teensy <code>AudioEffectEnvelope</code> (typically <code>TONE_RAMP_TIME</code> from <code>Tones.ino:68</code>, or the boot default before the first solid tone). The spec specifies <code>release = ramp_time</code> per pulse as the desired deterministic behaviour; Gen3 PR #102 sets it explicitly. Practical impact on Gen2 is small because release only matters at mode-change boundaries, where it overlaps with the next mode's silent delay.</p>
+</div>
 <h3 id="worked-numeric-values">Worked numeric values<a class="headerlink" href="#worked-numeric-values" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3940,6 +3984,10 @@
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>            = mapfloat(pps, 1.5, 6.2, 0.25, 1.0)
 </code></pre></div>
 <p>The ramp is on the <strong>amplitude</strong>, not the gate, so each pulse keeps the same shape but gets louder as the aircraft approaches stall.</p>
+<div class="admonition note">
+<p class="admonition-title">Input variable: PPS vs AOA</p>
+<p>Gen2's mapfloat takes <code>pps</code> as input (<code>Tones.ino:88</code>), so the ramp is mathematically a function of PPS. Since PPS itself is a linear function of AOA in the APPROACH-STALL region (same start/end points), <code>mapfloat(AOA, onSpeedSlow, stallWarn, MIN, MAX)</code> produces identical numeric results. Gen3 PR #102 maps from AOA directly. Either is correct on the linear segment; the spec doesn't differentiate.</p>
+</div>
 <h2 id="6-master-volume">6. Master volume<a class="headerlink" href="#6-master-volume" title="Permanent link">&para;</a></h2>
 <p>A single multiplier <span class="arithmatex">\(\text{master\_volume} \in [0, 1]\)</span> is applied to all tone output downstream of the envelope. Gen2 reads it from a volume pot at <code>analogRead(VOLUME_PIN)</code>, smoothed with α = 0.5 EMA, mapped from <code>[volumeLowAnalog, volumeHighAnalog] → [0, 100]%</code>, then divided by 100 and applied to the tone-mixer channel gain. (<code>Volume.ino:1-32</code>)</p>
 <p><code>master_volume</code> updates can occur at any time; they should take effect within ≈40 ms (one Gen2 main-loop iteration ≈ pot smoothing window).</p>
@@ -3985,66 +4033,134 @@
 </table>
 <p>3D-pan updates happen at a slower rate (~10 Hz from the Gen2 main loop). The α=0.1 EMA limits the per-update step to 10% of the swing, which is generally inaudible but not strictly click-free if the multiplier changes during attack/hold/decay/sustain. <strong>This is a known imperfection in Gen2 that the spec inherits.</strong></p>
 <h2 id="8-click-free-invariant">8. Click-free invariant<a class="headerlink" href="#8-click-free-invariant" title="Permanent link">&para;</a></h2>
-<p>The audible signal must not contain step discontinuities. All amplitude changes ≥ 1 LSB on the 16-bit DAC must occur while <span class="arithmatex">\(\text{gate}(t) = 0\)</span> OR during a smooth ramp. This is the load-bearing reason the envelope exists.</p>
+<p>The audible signal must not contain large step discontinuities. The envelope's silent_delay and release phases provide a window during which other multipliers (<code>carrier_amp</code>, <code>master_volume</code>, pan gains) can change without producing audible clicks, because the gate is at or near zero.</p>
 <p>In particular:</p>
 <ul>
-<li><code>carrier_amp</code> step changes at AOA-region transitions are masked by either Release (mode change) or by the silent_delay of the new mode.</li>
-<li><code>master_volume</code> step changes are masked by the EMA pot smoothing AND by the silent_delay between pulses (≥ 30 ms at all PPS).</li>
-<li>Pan multiplier updates are masked by the EMA on <code>channelGain</code> AND by silent_delay/release periods.</li>
+<li><code>carrier_amp</code> step changes at AOA-region transitions land during the next pulse's silent_delay or during the previous mode's release tail.</li>
+<li><code>master_volume</code> step changes are damped by the EMA pot smoothing AND fall during silent_delay/release windows for most pulses (silent_delay ≥ 23.5 ms at all PPS).</li>
+<li>Pan multiplier updates are damped by the α=0.1 EMA on <code>channelGain</code>.</li>
 </ul>
+<div class="admonition warning">
+<p class="admonition-title">Not strictly click-free at the tail</p>
+<p>Both Gen2 and Gen3 can produce a small audible step when <code>carrier_amp</code> or <code>master_volume</code> changes during the release ramp of an outgoing pulse — the gate is at a small but nonzero level, so the step bleeds through. In Gen2 this occurs because every pulse's <code>setFrequencytone</code> call writes <code>sinewave1.amplitude(volume)</code> (<code>Tones.ino:96</code>) before the new noteOn fires, and the previous pulse's release may still be ramping down. The step is small in absolute terms (release-tail is at low gate level) and rarely audible, but the spec doesn't claim absolute click-freedom — only that the envelope structure minimises perceptual discontinuity. A future revision might require deferring <code>carrier_amp</code> writes until the gate has fully reached zero.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Output clipping (Gen3 V4P hardware-protection)</p>
+<p>Gen3 PR #102 hard-clamps the per-sample composition <code>fL = fVolume × fStallVolumeMult × fLeftGain</code> to ≤ 1.0 (<code>Audio.cpp:663-664</code>) to prevent 16-bit PCM clipping when the 3D pan gain (which can reach 2.0 in a hard turn) combines with master volume above ~50%. Gen2's Teensy mixer clamps differently (or saturates downstream in the analog amp); the audible behaviour may diverge in steep banks at high master volume. Both implementations hit the limit of the 16-bit signed PCM range; neither is strictly correct vs. the multiplicative chain in §0.</p>
+</div>
 <h2 id="9-voice-pcm-playback">9. Voice (PCM) playback<a class="headerlink" href="#9-voice-pcm-playback" title="Permanent link">&para;</a></h2>
-<p>Distinct from the tone path. PCM audio (e.g. stall warning voice clip) plays through <code>AudioPlayMemory voice1</code> into mixer channel 2 with a separate gain (10× the tone master). Voice and tones can mix simultaneously. Voice playback does NOT involve the envelope. (<code>OnSpeedTeensy_AHRS.ino:581-588</code>, <code>Volume.ino:27</code>)</p>
+<p>Distinct from the tone path. PCM audio (e.g. stall-warning voice clip) plays through a separate audio source into the mixer with a per-implementation boost above the tone gain. Voice and tones can mix simultaneously. Voice playback does NOT involve the DAHDR envelope.</p>
+<table>
+<thead>
+<tr>
+<th>Implementation</th>
+<th>Voice gain</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Gen2</td>
+<td><strong>10×</strong> the tone master</td>
+<td><code>Volume.ino:27</code> (<code>mixer1.gain(2, 10*volumePercent/100.0)</code> vs ch.0 at <code>volumePercent/100.0</code>)</td>
+</tr>
+<tr>
+<td>Gen3 PR #102</td>
+<td><strong>3×</strong> the tone master</td>
+<td><code>Audio.cpp:589</code> (<code>VOICE_BOOST = 3.0f</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>The 3× value on Gen3 was tuned for the I2S DAC + amp circuit on the V4P board, where 10× would clip given the higher native amplitude of the source PCM and the upstream <code>fStallVolumeMult × fVolume × fGain</code> chain. Both numbers are correct for their respective hardware; the spec doesn't pick a winner because the right value depends on the downstream audio path.</p>
 <h2 id="10-audio-switch">10. Audio switch<a class="headerlink" href="#10-audio-switch" title="Permanent link">&para;</a></h2>
-<p>A physical switch (<code>switchState</code> in Gen2) can mute all audio. When the switch is off:</p>
+<p>A physical switch (<code>switchState</code> in Gen2, <code>g_bAudioEnable</code> in Gen3) can mute all audio. When the switch is off:</p>
 <ul>
 <li><code>setFrequencytone()</code> sets <code>carrier_amp = 0</code> immediately, sets <code>toneMode = TONE_OFF</code>, returns. (<code>Tones.ino:34-40</code>)</li>
 <li><code>tonePlayHandler()</code> returns immediately on the next <code>IntervalTimer</code> fire. (<code>Tones.ino:131-134</code>)</li>
 </ul>
-<p>When the switch flips back on, the next <code>updateTones()</code> call re-arms the appropriate mode for the current AOA. <strong>Stall warning is the one exception</strong> — even when audio is muted by the user, the stall warning still fires.</p>
+<p>When the switch flips back on, the next <code>updateTones()</code> call re-arms the appropriate mode for the current AOA.</p>
+<div class="admonition note">
+<p class="admonition-title">Stall warning when user-muted — Gen3 deviation</p>
+<p>Gen2's switch-off path silences everything, including the stall warning. Gen3 routes the user-muted path through <code>calculateToneMuted</code> so a stall-warning-grade AOA still fires the high-tone pulse train even when the pilot has muted the audio. This is a deliberate Gen3 safety improvement; pre-existing OnSpeed Gen2 hardware does not have this behaviour. Spec leans Gen3-side: silencing the stall warning is unsafe regardless of source-of-truth precedent.</p>
+</div>
 <h2 id="11-latency-targets">11. Latency targets<a class="headerlink" href="#11-latency-targets" title="Permanent link">&para;</a></h2>
+<p>Two sources of delay between the AOA decision in <code>updateTones()</code> and the first audible attack of the new tone:</p>
+<ol>
+<li><strong>Scheduling latency</strong>: time until the implementation's "next tone update" hook fires.</li>
+<li>Gen2: bounded by the <code>IntervalTimer</code> period at the <em>outgoing</em> mode's PPS (e.g., MUTE holds PPS=20 → ≤ 50 ms; ON-SPEED holds PPS=8.2 → ≤ 122 ms; with the line-11 timer-restart trick on solid → high, the first stall pulse is scheduled <code>pulse_delay/2 + 60.97 ms</code> ahead).</li>
+<li>
+<p>Gen3: SetTone runs synchronously from <code>updateTones()</code> — scheduling latency is 0; the next concern is the envelope phase that follows.</p>
+</li>
+<li>
+<p><strong>Envelope latency</strong>: time from the new spec arming to the first non-zero gate sample = <code>silent_delay + attack</code>.</p>
+</li>
+</ol>
 <table>
 <thead>
 <tr>
 <th>Stimulus</th>
-<th>Time to audible response</th>
+<th>Envelope latency</th>
+<th>Worst-case total (Gen2)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>MUTE → STALL transition</td>
-<td>≤ <code>silent_delay(20 PPS) + attack(5 ms) = 28.5 ms</code> from the AOA decision</td>
+<td><code>silent_delay(20 PPS) + attack(5 ms) = 28.5 ms</code></td>
+<td>up to <code>1000/20 + 28.5 ≈ 78.5 ms</code> (timer wait + envelope)</td>
 </tr>
 <tr>
 <td>ON-SPEED → STALL transition</td>
-<td>≤ <code>60.97 ms (shortened delay) + 5 ms (attack) ≈ 66 ms</code></td>
+<td><code>60.97 ms (shortened delay) + 5 ms (attack) ≈ 66 ms</code></td>
+<td>up to <code>pulse_delay/2 + 60.97 + 66 ≈ 188 ms</code> (timer-restart wait + envelope)</td>
 </tr>
 <tr>
 <td>AOA chatter at any threshold</td>
 <td>Must NOT produce audible artifacts. The current pulse finishes; transitions only happen at pulse boundaries.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>master_volume</code> change via pot</td>
 <td>≤ 40 ms perceived response</td>
+<td>—</td>
 </tr>
 <tr>
 <td>3D-pan change</td>
 <td>≤ 100 ms perceived response (slow, intentional)</td>
+<td>—</td>
 </tr>
 </tbody>
 </table>
+<div class="admonition note">
+<p class="admonition-title">Why the worst-case totals matter</p>
+<p>Gen2's hardware <code>IntervalTimer</code> runs the pulse cadence; mode changes have to wait for the next timer fire to take effect. Gen3 has no separate timer — it calls SetTone synchronously, so the envelope latency <em>is</em> the total latency. This means <strong>Gen3 produces the first stall pulse sooner than Gen2 would</strong>, which is desirable (faster stall warning at the AOA crossing). The spec leans toward the Gen3 envelope-only column as the target; the Gen2 worst-case is documented for reference.</p>
+</div>
 <h2 id="where-the-implementations-stand">Where the implementations stand<a class="headerlink" href="#where-the-implementations-stand" title="Permanent link">&para;</a></h2>
 <p>This section is a snapshot — expect it to drift as Gen3 evolves. Last updated for <code>master</code> at the time of writing.</p>
-<h3 id="gen2-reference">Gen2 (reference)<a class="headerlink" href="#gen2-reference" title="Permanent link">&para;</a></h3>
-<p>Meets the spec by construction, since the spec is derived from Gen2's source. Two caveats worth stating explicitly:</p>
+<h3 id="gen2-reference-what-the-source-actually-does">Gen2 (reference) — what the source actually does<a class="headerlink" href="#gen2-reference-what-the-source-actually-does" title="Permanent link">&para;</a></h3>
+<p>Mostly meets the spec, since the spec was derived from Gen2's source. A line-by-line audit found a handful of places where Gen2 doesn't strictly meet what the spec describes:</p>
 <ul>
-<li><strong>§3 Cadence</strong>: Gen2's hardware <code>IntervalTimer</code> fires at exactly <code>1000/pps</code> µs (line 992). Jitter is well below one audio sample.</li>
-<li><strong>§7 3D audio</strong>: Gen2's <code>channelGain</code> step <em>can</em> land during attack/hold/decay/sustain because <code>Check3DAudio</code> runs from the main loop without coordination with the envelope. The α=0.1 EMA holds the per-update step to a small fraction of the swing. The spec inherits this behavior.</li>
+<li><strong>§1 MUTE — no hysteresis</strong>. Gen2 uses a bare <code>IAS ≤ muteAudioUnderIAS</code> comparison (<code>Tones.ino:165</code>). At touchdown, IAS oscillating around the threshold causes audible chatter. The spec's MUTE row describes Gen3's hysteretic behaviour as the desired behaviour because chatter at landing is a real defect; Gen2 inherits the defect.</li>
+<li><strong>§2 Release time — implicit</strong>. Gen2's pulsed setup block doesn't call <code>envelope1.release(...)</code> per pulse; release is whatever the previous solid setup or boot default left. Practical impact is small (release only matters at mode-change boundaries, where it overlaps with the next mode's silent delay), but the spec describes the deterministic per-pulse release that Gen3 PR #102 implements.</li>
+<li><strong>§3 Cadence</strong>: Gen2's hardware <code>IntervalTimer</code> fires at exactly <code>1000/pps</code> µs (line 992). Jitter is well below one audio sample. ✅</li>
+<li><strong>§7 3D audio</strong>: Gen2's <code>channelGain</code> step can land during attack/hold/decay/sustain because <code>Check3DAudio</code> runs from the main loop without coordination with the envelope. The α=0.1 EMA limits the per-update step to a small fraction of the swing.</li>
+<li><strong>§8 Click-free</strong>: see qualifier in §8 above. Gen2 writes <code>sinewave1.amplitude(volume)</code> mid-release; small audible bleed-through is possible.</li>
+<li><strong>§10 Audio switch</strong>: Gen2's switch-off path silences everything, including the stall warning (<code>Tones.ino:34-40</code>). The spec leans Gen3-side: silencing the stall warning is unsafe.</li>
+<li><strong>§11 Latency</strong>: Gen2's worst-case MUTE→STALL latency is <code>pulse_delay(MUTE PPS=20) + envelope ≈ 78.5 ms</code> because the IntervalTimer schedules pulse fires. Gen3, calling SetTone synchronously, does the envelope-only <code>28.5 ms</code>. The spec leans toward the Gen3 envelope-only target as the desired behaviour.</li>
 </ul>
-<h3 id="gen3-on-master-current-shipping-behavior">Gen3 on <code>master</code> (current shipping behavior)<a class="headerlink" href="#gen3-on-master-current-shipping-behavior" title="Permanent link">&para;</a></h3>
+<p>These are catalogued (not pejoratively — Gen2 is the reference for sound character, not for being a bug-free spec implementation) so a reader can tell when "Gen3 differs from Gen2" is a regression versus a deliberate improvement.</p>
+<h3 id="gen3-on-master-current-shipping-behaviour">Gen3 on <code>master</code> (current shipping behaviour)<a class="headerlink" href="#gen3-on-master-current-shipping-behaviour" title="Permanent link">&para;</a></h3>
 <p>Gen3 master ships a different audio path — there is no DAHDR envelope, no per-PPS volume ramp, no inter-pulse Gap, no 60.97 ms solid entry delay. Tones are gated by hard amplitude switches at pulse edges, which produces audible clicks and a pulse cadence that runs faster than Gen2 (especially at stall warning, where measured PPS would land ~6% above the configured 20 PPS if the same envelope construction were used).</p>
 <p>In practical terms: a pilot listening to Gen3 on <code>master</code> and Gen2 in the same airframe will hear that they are different. The spec above documents what Gen3 <em>should</em> do; PR <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/102">#102</a> is the in-flight attempt to make that true.</p>
 <h3 id="gen3-with-pr-102">Gen3 with PR #102<a class="headerlink" href="#gen3-with-pr-102" title="Permanent link">&para;</a></h3>
-<p>Closes the structural gap. Sections 0, 1, 2, 3, 4, 5, 8, 9, 10, 11 are intended to match the spec. Sections 6 and 7 inherit Gen3's existing behavior (volume pot read path, 3D pan computation) — neither path is touched by #102, so any divergence there is pre-existing and out of scope.</p>
+<p>Closes the structural gap on the audio path. Section-by-section status:</p>
+<ul>
+<li>§0 (signal chain), §1 (regions), §2 (envelope shape), §3 (cadence within 0.05% of spec), §4 (transition policies), §5 (per-PPS volume), §11 (envelope latency) — implemented and unit-tested.</li>
+<li>§1 MUTE hysteresis + always-on sentinel, §10 stall-on-during-user-mute — implemented; spec has been updated to describe these as desired behaviour rather than Gen3-only deviations.</li>
+<li>§8 click-free invariant — partially achieved (envelope-driven masking works; release-tail amplitude bleed-through and Gen3 hardware-protection clamps are documented as known limitations shared with Gen2).</li>
+<li>§6 master volume + §7 3D audio — Gen3's existing pot-read and 3D-pan paths are unchanged by #102. Behaviour matches the spec to the same extent Gen2 does.</li>
+<li>§9 voice gain — Gen3 uses 3× (vs Gen2's 10×) tuned for the V4P amp circuit; both are spec-compliant for their respective hardware.</li>
+</ul>
 <p>The PR carries 41 envelope unit tests (covering every phase transition, NoteOff termination, output continuity, and 6 cadence/Gap-specific tests added in the latest commit). A host-side cadence probe driving the production <code>MakePulseSpec</code> formulas confirms the measured PPS lands within 0.05% of the spec across the operating range.</p>
 <p><strong>On-aircraft verification is still pending.</strong> Lenny is recording scope traces from both Gen2 and Gen3 hardware to compare side-by-side. When that work completes, this section should be updated with the diff between observed waveform and the spec, not just the construction of the math.</p>
 <h2 id="reporting-discrepancies">Reporting discrepancies<a class="headerlink" href="#reporting-discrepancies" title="Permanent link">&para;</a></h2>
