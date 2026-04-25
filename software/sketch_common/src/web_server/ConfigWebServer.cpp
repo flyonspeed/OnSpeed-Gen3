@@ -1911,16 +1911,13 @@ void HandleConfigSave()
         g_Config.sReplayLogFileName = CfgServer.arg("logFileName").c_str();
 
 #if 1
-    // Build the new flap vector locally first.  The previous pattern
-    // (`g_Config.aFlaps.clear()` followed by `push_back()` in a loop)
-    // reallocated the vector's storage on Core 0 while the audio task
-    // on Core 1 was indexing `aFlaps[g_Flaps.iIndex]` at 10 Hz; that
-    // gave the reader a window in which the data pointer pointed at
-    // freed memory, plus a longer window of half-old / half-new field
-    // values.  Building locally and swapping under `xAhrsMutex` means
-    // readers either see the entirely-old or the entirely-new vector,
-    // and the old buffer's destruction is deferred past the mutex
-    // release so any in-flight reader has finished by then.
+    // Build the new flap vector locally first.  Building locally and
+    // swapping under `xAhrsMutex` means concurrent flight-path readers on
+    // Core 1 (SensorIO::Read AOA snapshot, Audio.cpp::UpdateTones,
+    // DisplaySerial::Write, DataServer::UpdateLiveDataJson, Flaps::Update)
+    // either see the entirely-old or the entirely-new vector, and the old
+    // buffer's destruction is deferred past the mutex release so any
+    // in-flight reader has finished by then.
     std::vector<FOSConfig::SuFlaps> aNewFlaps;
     aNewFlaps.reserve(kMaxFlapPositions);
     int iFlapIdx = 0;
@@ -1966,19 +1963,33 @@ void HandleConfigSave()
     // silent.
     bool bRestoredEmptyDefault = onspeed::config::EnsureAtLeastOneFlap(aNewFlaps);
 
-    // Atomic swap under xAhrsMutex.  The old vector's storage is held
-    // by `aOldFlaps` and destroyed only after the mutex is released
-    // and re-acquired by the AHRS reseed below — by then any 10 Hz
-    // audio reader on Core 1 has long since finished its index.
+    // Atomic swap under xAhrsMutex, and clamp g_Flaps.iIndex to the new
+    // size in the same critical section.  Without the iIndex clamp, a
+    // 4->2 flap shrink would leave iIndex pointing past end-of-vector
+    // for up to a second (until the next Flaps::Update() tick), and any
+    // reader that took xAhrsMutex during that window would see a stale
+    // out-of-bounds index against a fresh new vector and have to
+    // fail-silent on every snapshot until the index caught up.  Doing
+    // the clamp here means by the time we release xAhrsMutex, both the
+    // vector and the active index are mutually consistent.
+    //
+    // The old vector's storage is held by `aOldFlaps` and destroyed
+    // only after the mutex is released and re-acquired by the AHRS
+    // reseed below -- by then any reader on Core 1 that grabbed a
+    // pointer into the old buffer has long since dropped it.
     std::vector<FOSConfig::SuFlaps> aOldFlaps;
     xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
     g_Config.aFlaps.swap(aOldFlaps);          // park old data
     g_Config.aFlaps.swap(aNewFlaps);          // install new data
+    if (g_Config.aFlaps.empty())
+        g_Flaps.iIndex = 0;
+    else
+        g_Flaps.iIndex = constrain(g_Flaps.iIndex, 0, (int)g_Config.aFlaps.size() - 1);
     xSemaphoreGive(xAhrsMutex);
-    // aOldFlaps and aNewFlaps go out of scope at function end — by
+    // aOldFlaps and aNewFlaps go out of scope at function end -- by
     // then the AHRS reseed below has held xAhrsMutex again, providing
     // a second synchronization point with any reader that takes the
-    // mutex.  Audio's UpdateTones() does so as of this PR.
+    // mutex.
 
     if (bRestoredEmptyDefault)
         {
