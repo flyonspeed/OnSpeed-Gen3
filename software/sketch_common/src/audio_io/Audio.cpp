@@ -503,12 +503,23 @@ void AudioPlay::UpdateTones()
     // IAS oscillates a few knots around the configured mute threshold —
     // without hysteresis, the filter flips state several times per second
     // and the pilot hears a fraction of a tone burst on each bounce.
-    static constexpr int kAudioHysteresisKt = 5;
-    const int iUnmuteThreshold = g_Config.iMuteAudioUnderIAS + kAudioHysteresisKt;
-    if (!s_bAudioUnmuted && g_Sensors.IAS >= iUnmuteThreshold)
+    //
+    // iMuteAudioUnderIAS == 0 is a sentinel for "always on, never mute" —
+    // bypass the hysteresis state machine so audio is live from boot
+    // regardless of the +5 kt unmute band.
+    if (g_Config.iMuteAudioUnderIAS == 0)
+        {
         s_bAudioUnmuted = true;
-    else if (s_bAudioUnmuted && g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
-        s_bAudioUnmuted = false;
+        }
+    else
+        {
+        static constexpr int kAudioHysteresisKt = 5;
+        const int iUnmuteThreshold = g_Config.iMuteAudioUnderIAS + kAudioHysteresisKt;
+        if (!s_bAudioUnmuted && g_Sensors.IAS >= iUnmuteThreshold)
+            s_bAudioUnmuted = true;
+        else if (s_bAudioUnmuted && g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
+            s_bAudioUnmuted = false;
+        }
 
     if (!g_bAudioEnable)
         {

@@ -31,6 +31,8 @@ The **Mute Under IAS** setting (default: **30 knots**) silences all tones when i
 
 OnSpeed unmutes 5 kt above the configured threshold and re-mutes at the threshold itself — a small hysteresis band that keeps audio from chattering on touchdown when IAS oscillates a few knots around the cutoff.
 
+Set **Mute Under IAS** to `0` to disable the cutoff entirely: audio is always on, useful for taxi-time tone checks or ground testing.
+
 !!! note "Stall warning still overrides in some conditions"
     When the audio is muted by the pilot (button press), the stall warning can still sound if AOA exceeds the stall threshold AND IAS is above the mute-under-IAS value. The IAS threshold prevents false stall warnings during ground operations.
 
