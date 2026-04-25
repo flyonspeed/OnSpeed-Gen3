@@ -21,6 +21,15 @@ public:
     void Close();
     void Write();
 
+    // Snapshot the in-progress metadata accumulator and write it to
+    // <basename>.meta atomically (write tmp + rename). Used from Open()
+    // for the initial empty sidecar and from LogSensorCommitTask every
+    // 30 s for in-flight refreshes, so the /logs page has Max IAS / Max
+    // Alt / Duration even after a power-yank shutdown that never reaches
+    // Close(). No-op when there's no active session. Caller must hold
+    // xWriteMutex.
+    void WriteSidecarLocked();
+
     // Base filename (without extension) of the log currently being written,
     // e.g. "log_042". Returns "" when logging is disabled or no file is open.
     // Used by the /logs web handler to flag the active row as non-deletable.
