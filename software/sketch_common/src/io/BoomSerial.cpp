@@ -65,10 +65,18 @@ void BoomSerialIO::Read()
 
                         if (g_Config.bBoomChecksum)
                             {
-                            // CRC checking
+                            // CRC checking — sum bytes as unsigned to match
+                            // the Boom protocol spec ("sum of unsigned bytes
+                            // mod 256") and the same convention used by every
+                            // other parser in efis/ (Dynon, Garmin, MGL).
+                            // `Buffer` is `char[]`, which is signed by default
+                            // on xtensa-gcc; without the cast, any byte ≥ 0x80
+                            // sign-extends through `int`, producing a sum that
+                            // differs from the spec by 0x100 per high-bit byte
+                            // and yields false CRC mismatches.
                             int calcCRC = 0;
                             for (int i = 0; i < BufferIndex - 4; i++)
-                                calcCRC += Buffer[i];
+                                calcCRC += static_cast<unsigned char>(Buffer[i]);
                             calcCRC = calcCRC & 0xFF;
 
                             char hexCRC[3];
