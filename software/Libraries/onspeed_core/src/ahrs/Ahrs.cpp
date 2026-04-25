@@ -47,14 +47,20 @@ Ahrs::Ahrs(const AhrsConfig& cfg)
     , gyroPitchAvg_(cfg.gyroSmoothingWindow > 0 ? cfg.gyroSmoothingWindow : 1)
     , gyroYawAvg_(cfg.gyroSmoothingWindow > 0 ? cfg.gyroSmoothingWindow : 1)
 {
-    // Seed accel filters with the legacy "level on the ground" rest state
-    // (Z=-1g, X=Y=0) so the first frames before the IMU has produced a
-    // sample yield a sane attitude rather than a degenerate (0,0,0).
+    // Seed accel filters with the production "level on the ground" rest
+    // state (Z = +1 g, X = Y = 0) so the first frames before the IMU has
+    // produced a sample yield a sane attitude rather than a degenerate
+    // (0,0,0). +1g for level matches OnSpeed's accelerometer reaction-
+    // force convention: gravity pulls "up" on the proof mass, so the
+    // sensor reads +1g along body-Z (down) at rest. This is what
+    // pilots see in the CSV "VerticalG" column and on the web liveview;
+    // it's also what the production IMU emits via g_pIMU->Az after the
+    // axis sign-mapping in IMU330::Read.
     accelFwdFilter_.seed(0.0f);
     accelLatFilter_.seed(0.0f);
-    accelVertFilter_.seed(-1.0f);
+    accelVertFilter_.seed(+1.0f);
 
-    accelVertCorr_ = -1.0f;
+    accelVertCorr_ = +1.0f;
 
     recomputeBiasTrig_();
 }
@@ -345,27 +351,34 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
 
     if (cfg_.algorithm == Algorithm::Ekf6) {
         // Sign convention plumbing from OnSpeed's IMU pipeline to EKF6.
-        // The two systems use opposite sign conventions for pitch and
-        // roll integration; matching them is what the negations below
-        // do.
+        // OnSpeed and EKF6 use opposite-sign conventions on three of
+        // the seven measurement components; the negations below
+        // bridge them. See EKF6.h's "OnSpeed convention mapping"
+        // section for the full derivation.
         //
-        // az: OnSpeed's accelVertComp_ is -g in level flight (IMU
-        //   accelZG = -1g for level + the rotation preserves it for
-        //   cr*cp = 1 + the constructor seeds accelVertFilter_ to
-        //   -1.0f). EKF6 documents its expected convention as az = -g
-        //   in level flight too. Same convention; no negation.
+        // az: OnSpeed's accelVertComp_ is +1g for level flight — the
+        //   "reaction force" convention pilots see in the CSV
+        //   VerticalG column and on the web liveview. EKF6's
+        //   measurement model uses the standard inertial-frame view
+        //   where az = -g for level (the body is accelerating "up"
+        //   relative to free-fall). Negate accelVertComp_ on input.
         //
-        // p, q (roll, pitch rate): OnSpeed's IMU convention is
-        //   "+gyroRollDps means right-wing-up" / "+gyroPitchDps means
-        //   nose-down" — opposite to EKF6's `phi_dot = p + ...` and
-        //   `theta_dot = q*cph - r*sph` which expect "+p increases
-        //   phi" and "+q increases theta" with phi/theta in the
-        //   standard +nose-up/+right-wing-down direction. Madgwick
-        //   handles the same mismatch via its output negation
-        //   (-madgwick_.getPitch() / -madgwick_.getRoll()); EKF6
-        //   doesn't negate output, so we negate the input rates
-        //   instead. Mirrors the Gen2 Octave reference's
-        //   `-RollRateDegic` / `-PitchRateDegic` lines.
+        // p, q (roll, pitch rate): OnSpeed's internal IMU rates after
+        //   axis sign-mapping are "+gyroPitchDps means nose-DOWN" /
+        //   "+gyroRollDps means right-wing-UP" — opposite to EKF6's
+        //   `phi_dot = p + ...` and `theta_dot = q*cph - r*sph` which
+        //   expect "+p increases phi (right-wing-down)" / "+q
+        //   increases theta (nose-up)" in the standard aerospace
+        //   sense. Madgwick handles the same mismatch via its OUTPUT
+        //   negation (-madgwick_.getPitch() / -madgwick_.getRoll()) +
+        //   un-negated input; EKF6 doesn't negate output, so we
+        //   negate the INPUT rates instead. Mirrors the Gen2 Octave
+        //   reference's `-RollRateDegic` / `-PitchRateDegic` lines.
+        //
+        //   The CSV layer (LogCsv.cpp) emits PitchRate as
+        //   -imuPitchRateDps so pilots reading the log see "+ = nose
+        //   up" — same sign discipline as EKF6's, opposite of the
+        //   internal raw value.
         //
         // r (yaw rate): no negation. Yaw rate doesn't appear in the
         //   accel measurement equations in OnSpeed's pre-compensated
@@ -378,9 +391,9 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         float gamma_rad = onspeed::deg2rad(outputs_.flightPathDeg);
 
         onspeed::EKF6::Measurements meas = {
-            /* ax */    accelFwdComp_  * kEkfGravityMps2,
-            /* ay */    accelLatComp_  * kEkfGravityMps2,
-            /* az */    accelVertComp_ * kEkfGravityMps2,
+            /* ax */    accelFwdComp_   * kEkfGravityMps2,
+            /* ay */    accelLatComp_   * kEkfGravityMps2,
+            /* az */   -accelVertComp_  * kEkfGravityMps2,
             /* p  */   -onspeed::deg2rad(RollRateCorr),
             /* q  */   -onspeed::deg2rad(PitchRateCorr),
             /* r  */    onspeed::deg2rad(YawRateCorr),
@@ -398,6 +411,12 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         const float cph = std::cos(state.phi);
         const float sth = std::sin(state.theta);
         const float cth = std::cos(state.theta);
+        // EarthVertG: rotate body-frame accel back to earth frame and
+        // subtract the level-state +1g, leaving the deviation from
+        // level (in g). The `- 1.0f` is what pins this whole pipeline
+        // to the +1g-for-level (production reaction-force) convention:
+        // for level flight (theta=phi=0, accelVertCorr_=+1g), the
+        // formula gives 0g of deviation.
         EarthVertG = -sth * accelFwdCorr_
                    + sph * cth * accelLatCorr_
                    + cph * cth * accelVertCorr_ - 1.0f;
@@ -412,6 +431,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         float q[4];
         madgwick_.getQuaternion(&q[0], &q[1], &q[2], &q[3]);
 
+        // Same level-state subtraction as the EKF6 branch above —
+        // pinned to +1g-for-level production convention.
         EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * accelFwdCorr_  +
                      2.0f * (q[0]*q[1] + q[2]*q[3])                         * accelLatCorr_  +
                             (q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3]) * accelVertCorr_ - 1.0f;
