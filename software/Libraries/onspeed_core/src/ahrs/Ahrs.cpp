@@ -417,9 +417,18 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
 
     // 8. Flight-path and (Madgwick-only) DerivedAOA.  The EKF6 path set
     //    DerivedAOA from its alpha state above.
+    //
+    //    The Kalman's VSI estimate may have built up while the gate was
+    //    closed (baro keeps integrating during taxi), so unclamping in
+    //    one frame produces an instant FlightPath step. Mirror PR #275:
+    //    scale the VSI by the same compFadeIn_ coefficient that fades
+    //    the accel comp factors, so FlightPath ramps in over τ ≈ 0.5 s
+    //    instead of stepping. Same shape of fix, same time constant —
+    //    it's the same gate-release transient on a different output.
     float FlightPath;
     if (in.sensors.iasAlive) {
-        FlightPath = onspeed::rad2deg(onspeed::safeAsin(kalVsiMpsForFlightPath / tas_));
+        const float vsiFaded = kalVsiMpsForFlightPath * compFadeIn_;
+        FlightPath = onspeed::rad2deg(onspeed::safeAsin(vsiFaded / tas_));
     } else {
         FlightPath = 0.0f;
     }
