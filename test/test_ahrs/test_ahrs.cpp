@@ -39,17 +39,28 @@ AhrsConfig makeCfg(Algorithm alg)
     return cfg;
 }
 
-// Produce a level, stationary seed: Z = -1 g (gravity down on body),
-// zero gyro, 5 kt IAS below the pitot noise floor (iasAlive=false),
-// sea-level Palt, no OAT.  Useful both for Init() and as the first Step
-// input.  Tests that need in-flight conditions override iasKt AND
-// iasAlive to avoid the compensation gate masking their intent.
+// Produce a level, stationary seed: Z = +1g (gravity reaction force
+// on the proof mass, pointing up along body -Z), zero gyro, 5 kt IAS
+// below the pitot noise floor (iasAlive=false), sea-level Palt, no
+// OAT. Useful both for Init() and as the first Step input. Tests
+// that need in-flight conditions override iasKt AND iasAlive to
+// avoid the compensation gate masking their intent.
+//
+// The +1g convention here matches OnSpeed's production output. A
+// real flight log (log_196.csv) shows VerticalG = +1.0g sitting on
+// the ramp — this is the "pilot-facing reaction force" view (what
+// pilots read on a panel G-meter), NOT the standard inertial-frame
+// view (which would be -1g). The AHRS pipeline is built around the
+// +1g convention: the EarthVertG formula's `- 1.0f` removes the
+// level-state +1g to leave only deviations. EKF6 internally uses
+// the opposite convention; the Ahrs adapter negates accelVertComp_
+// on the way in. See EKF6.h's "OnSpeed convention mapping" section.
 AhrsInputs levelSeed()
 {
     AhrsInputs in;
     in.imu.accelXG      = 0.0f;
     in.imu.accelYG      = 0.0f;
-    in.imu.accelZG      = -1.0f;
+    in.imu.accelZG      = +1.0f;
     in.imu.gyroRollDps  = 0.0f;
     in.imu.gyroPitchDps = 0.0f;
     in.imu.gyroYawDps   = 0.0f;
@@ -84,17 +95,20 @@ void test_construction_defaults_outputs_to_zero(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, out.rollDeg);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, out.flightPathDeg);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, out.derivedAoaDeg);
-    // Accel vert seeded to -1 g (level-on-the-ground).
-    TEST_ASSERT_EQUAL_FLOAT(-1.0f, a.accelVertCorrG());
-    TEST_ASSERT_EQUAL_FLOAT(-1.0f, a.accelVertSmoothedG());
+    // Accel vert seeded to +1 g (production reaction-force convention,
+    // level-on-the-ground; see Ahrs.cpp constructor).
+    TEST_ASSERT_EQUAL_FLOAT(+1.0f, a.accelVertCorrG());
+    TEST_ASSERT_EQUAL_FLOAT(+1.0f, a.accelVertSmoothedG());
 }
 
 void test_init_seeds_pitch_and_roll_from_accel(void)
 {
-    // 10-deg nose-up static attitude: ax = sin(10°)·g, az = -cos(10°)·g
+    // 10-deg nose-up static attitude in production +1g convention:
+    //   ax = sin(10°)·g (forward, gravity pulls back along nose)
+    //   az = +cos(10°)·g (down, gravity along body-Z)
     AhrsInputs seed = levelSeed();
     seed.imu.accelXG = std::sin(onspeed::deg2rad(10.0f));
-    seed.imu.accelZG = -std::cos(onspeed::deg2rad(10.0f));
+    seed.imu.accelZG = +std::cos(onspeed::deg2rad(10.0f));
 
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
@@ -150,7 +164,7 @@ void test_step_static_nose_up_settles_to_stable_pitch_madgwick(void)
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     in.imu.accelXG = std::sin(onspeed::deg2rad(10.0f));
-    in.imu.accelZG = -std::cos(onspeed::deg2rad(10.0f));
+    in.imu.accelZG = +std::cos(onspeed::deg2rad(10.0f));
     a.Init(in, 0.0f);
 
     for (int i = 0; i < 2000; ++i) {
@@ -175,7 +189,7 @@ void test_step_static_nose_up_settles_to_stable_pitch_madgwick(void)
 void test_accel_smoothed_tracks_toward_input(void)
 {
     // The accel smoother has alpha = 0.060899.  Starting from seeded
-    // (0, 0, -1), pushing a positive forward acceleration should make
+    // (0, 0, +1), pushing a positive forward acceleration should make
     // the smoothed value trend toward the input but not reach it in one
     // frame.
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
@@ -208,7 +222,7 @@ void test_derived_aoa_equals_pitch_when_ias_below_threshold(void)
     in.sensors.iasKt = 15.0f;                  // below threshold
     // Nose up 8 deg
     in.imu.accelXG = std::sin(onspeed::deg2rad(8.0f));
-    in.imu.accelZG = -std::cos(onspeed::deg2rad(8.0f));
+    in.imu.accelZG = +std::cos(onspeed::deg2rad(8.0f));
     a.Init(in, 0.0f);
 
     for (int i = 0; i < 2000; ++i) {
@@ -315,7 +329,7 @@ void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
     AhrsInputs in = levelSeed();
     in.imu.gyroPitchDps = 5.0f;
     in.imu.accelXG = 0.0f;
-    in.imu.accelZG = -1.0f;
+    in.imu.accelZG = +1.0f;
 
     AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
     Ahrs aMad{cfgMad};
@@ -350,7 +364,7 @@ void test_step_ekf6_roll_rate_sign_matches_madgwick(void)
     AhrsInputs in = levelSeed();
     in.imu.gyroRollDps = 5.0f;
     in.imu.accelYG = 0.0f;
-    in.imu.accelZG = -1.0f;
+    in.imu.accelZG = +1.0f;
 
     AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
     Ahrs aMad{cfgMad};
@@ -376,17 +390,19 @@ void test_step_ekf6_roll_rate_sign_matches_madgwick(void)
 
 void test_step_ekf6_static_tilt_converges_to_input_attitude(void)
 {
-    // EKF6 fed a static 10° nose-up accelerometer reading (with zero
-    // gyro and zero IAS) must converge to ~10° pitch. The previous
-    // implementation negated accelVertComp_ before handing it to
-    // EKF6, which inverted the sign of the predicted gravity vector
-    // — the filter then drove theta hard toward 180° gimbal lock,
-    // saturating around ~170°. With the negation removed, az is
-    // -g in level flight (matching EKF6's documented convention), and
-    // a 10° static tilt converges cleanly.
+    // EKF6 fed a static 10° nose-up accelerometer reading in
+    // production convention (ax = +sin(10°), az = +cos(10°), so
+    // accelVertComp_ ≈ +cos(10°) for a nose-up tilt — gravity reaction
+    // along body-Z down). The Ahrs adapter negates accelVertComp_
+    // before handing it to EKF6 so the filter sees az = -cos(10°) in
+    // its standard inertial-frame convention. Predicted az with
+    // theta=10° is also -cos(10°), so innovation is ~zero and EKF6
+    // converges to 10° pitch. A regression that drops the negation
+    // pins ~2g of innovation per frame and runs the filter into
+    // gimbal lock — this test would saturate around 170°.
     AhrsInputs seed = levelSeed();
     seed.imu.accelXG = std::sin(onspeed::deg2rad(10.0f));
-    seed.imu.accelZG = -std::cos(onspeed::deg2rad(10.0f));
+    seed.imu.accelZG = +std::cos(onspeed::deg2rad(10.0f));
 
     AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
     Ahrs a{cfg};

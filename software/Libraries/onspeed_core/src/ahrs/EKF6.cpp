@@ -28,15 +28,16 @@
  *    consider quaternion-based EKF.
  *
  * 2. Accelerometer Convention: The measurement model expects body-frame
- *    accelerometer values where az = -g in level flight (sensor reaction
- *    to gravity, NED body frame, Z down). OnSpeed's accelVertComp_
- *    output of the AHRS pipeline is already in this convention — pass
- *    through unchanged. (Pre-PR-#310 the adapter incorrectly negated
- *    accelVertComp_; that inverted the predicted gravity vector and
- *    drove the filter into gimbal-lock.) Non-gravitational
- *    accelerations (TASdot, centripetal) are removed upstream in
- *    Ahrs.cpp before the EKF sees the data, so the gravity-only model
- *    is correct for the compensated inputs it receives.
+ *    accelerometer values where az = -g in level flight (standard
+ *    inertial-frame convention; NED body frame, Z down). OnSpeed's
+ *    AHRS pipeline emits accelVertComp_ in the OPPOSITE convention
+ *    (+g in level flight — the reaction-force-on-the-proof-mass view
+ *    that pilots see in the CSV's VerticalG column). The Ahrs.cpp
+ *    EKF6 adapter negates accelVertComp_ on input to bridge the two
+ *    conventions. Non-gravitational accelerations (TASdot, centripetal)
+ *    are removed upstream in Ahrs.cpp before the EKF sees the data,
+ *    so the gravity-only model is correct for the compensated inputs
+ *    it receives.
  *
  * 2a. Gyro Convention: The state-propagation kinematics expect +p,+q
  *    to drive +phi,+theta in standard aerospace convention (nose-up

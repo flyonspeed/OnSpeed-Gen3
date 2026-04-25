@@ -154,7 +154,7 @@ private:
     // Latest unsmoothed installation-corrected acceleration (in g).
     float accelFwdCorr_  = 0.0f;
     float accelLatCorr_  = 0.0f;
-    float accelVertCorr_ = -1.0f;
+    float accelVertCorr_ = +1.0f;   // +1g for level (production reaction-force convention)
 
     // Latest fully-compensated acceleration (in g) — Madgwick/EKF6 input.
     float accelFwdComp_  = 0.0f;
