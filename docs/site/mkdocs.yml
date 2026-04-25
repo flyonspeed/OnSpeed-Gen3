@@ -129,6 +129,7 @@ nav:
     - Flashing Firmware: software/flashing.md
     - OTA Updates via WiFi: software/ota-update.md
     - Building from Source: software/building.md
+    - Audio Tone Spec (WIP): software/audio-tone-spec.md
   - Configuration:
     - configuration/index.md
     - Web Interface: configuration/web-interface.md
