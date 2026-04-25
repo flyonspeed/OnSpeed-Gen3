@@ -490,7 +490,7 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 
 // ----------------------------------------------------------------------------
 
-void AudioPlay::UpdateTones()
+void AudioPlay::UpdateTones(const ActiveFlapSnapshot& snap)
     {
     // If audio test is in progress then don't do anything
     if (bAudioTest)
@@ -521,27 +521,15 @@ void AudioPlay::UpdateTones()
             s_bAudioUnmuted = false;
         }
 
-    // Snapshot the four AOA setpoints from the active flap entry under
-    // xAhrsMutex.  HandleConfigSave on Core 0 swaps `g_Config.aFlaps`
-    // under the same mutex; without taking it here, the audio task
-    // could read half-old / half-new fields, or even a freed buffer
-    // mid-swap.  The snapshot pays at most a one-tick wait at the
-    // 10 Hz tone-update cadence, well within audio's headroom.
-    onspeed::ToneThresholds th = { 0.0f, 0.0f, 0.0f, 0.0f };
-    int iMuteThreshold = g_Config.iMuteAudioUnderIAS;
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(5)))
-        {
-        const auto& flap = g_Config.aFlaps[g_Flaps.iIndex];
-        th.fLDMAXAOA       = flap.fLDMAXAOA;
-        th.fONSPEEDFASTAOA = flap.fONSPEEDFASTAOA;
-        th.fONSPEEDSLOWAOA = flap.fONSPEEDSLOWAOA;
-        th.fSTALLWARNAOA   = flap.fSTALLWARNAOA;
-        xSemaphoreGive(xAhrsMutex);
-        }
-    // On mutex timeout the snapshot stays at zeros, which the
-    // uncalibrated gate in calculateTone treats as silent — the
-    // audible failure mode of "no tones for one 100 ms tick" is
-    // strictly safer than reading torn or freed setpoint memory.
+    // The setpoints come in via `snap`, built by SensorIO::Read under the
+    // same xAhrsMutex that HandleConfigSave's flap-vector swap takes; this
+    // function therefore never touches g_Config.aFlaps directly.  When
+    // `snap.bValid` is false (mutex timeout or out-of-bounds index in the
+    // producer) the thresholds are zero and the uncalibrated gate in
+    // calculateTone keeps the output silent -- strictly safer than acting
+    // on torn or freed setpoint memory.
+    const onspeed::ToneThresholds& th = snap.th;
+    const int iMuteThreshold = g_Config.iMuteAudioUnderIAS;
 
     if (!g_bAudioEnable)
         {

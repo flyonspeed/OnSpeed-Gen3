@@ -6,6 +6,8 @@
 
 #include <ESP_I2S.h>
 
+#include "src/drivers/SensorIO.h"
+
 
 enum EnVoice
     {
@@ -62,7 +64,7 @@ public:
     void SetTone(EnAudioTone enAudioTone);
     void SetToneFreq(unsigned uToneFreqIn);
     void SetPulseFreq(float fPulseFreq);
-    void UpdateTones();
+    void UpdateTones(const ActiveFlapSnapshot& snap);
     bool StartAudioTest();
     void StopAudioTest();
     bool IsAudioTestRunning() const;
