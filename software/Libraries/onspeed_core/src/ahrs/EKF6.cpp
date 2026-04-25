@@ -27,14 +27,30 @@
  *    the fundamental Euler angle limitation. For aerobatic flight,
  *    consider quaternion-based EKF.
  *
- * 2. Accelerometer Convention: The measurement model expects the
- *    aerospace sign convention where az = -g in level flight (sensor
- *    measures reaction to gravity). The caller (AHRS.cpp) must negate
- *    the vertical axis if the IMU pipeline uses NED convention where
- *    az = +g in level flight. Non-gravitational accelerations (TASdot,
- *    centripetal) are removed upstream in AHRS.cpp before the EKF sees
- *    the data, so the gravity-only model is correct for the compensated
- *    inputs it receives.
+ * 2. Accelerometer Convention: The measurement model expects body-frame
+ *    accelerometer values where az = -g in level flight (sensor reaction
+ *    to gravity, NED body frame, Z down). OnSpeed's accelVertComp_
+ *    output of the AHRS pipeline is already in this convention — pass
+ *    through unchanged. (Pre-PR-#310 the adapter incorrectly negated
+ *    accelVertComp_; that inverted the predicted gravity vector and
+ *    drove the filter into gimbal-lock.) Non-gravitational
+ *    accelerations (TASdot, centripetal) are removed upstream in
+ *    Ahrs.cpp before the EKF sees the data, so the gravity-only model
+ *    is correct for the compensated inputs it receives.
+ *
+ * 2a. Gyro Convention: The state-propagation kinematics expect +p,+q
+ *    to drive +phi,+theta in standard aerospace convention (nose-up
+ *    pitch / right-wing-down roll positive). OnSpeed's IMU pipeline
+ *    uses opposite-sign conventions for raw imuRollRateDps and
+ *    imuPitchRateDps; Madgwick handles this by negating its output,
+ *    EKF6 handles it by negating its input. The Ahrs.cpp adapter
+ *    applies the negation at the EKF6 call site (mirrors the Gen2
+ *    Octave reference's `-RollRateDegic` / `-PitchRateDegic`). Yaw
+ *    rate r is fed un-negated. Bias states bp, bq evolve in EKF6's
+ *    convention, so pulling them back out for a firmware-frame
+ *    computation requires the matching sign flip on bq (same for bp
+ *    if it's ever consumed firmware-side). See EKF6.h section
+ *    onspeed_convention_mismatch for the full mapping.
  *
  * 3. Alpha Observability: AOA is only observable when gamma is known.
  *    If gamma=0 always, alpha will track theta exactly (which may

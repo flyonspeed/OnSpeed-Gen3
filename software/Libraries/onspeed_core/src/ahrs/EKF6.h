@@ -111,8 +111,79 @@
  * - Y: Right wing (positive to starboard)
  * - Z: Down (positive toward ground)
  *
- * Accelerometer sign convention:
- * - In level flight: ax=0, ay=0, az=-g (gravity pulls "up" on sensor)
+ * Sign conventions THIS FILTER expects on its inputs:
+ * - Accelerometer: in level flight ax=0, ay=0, az=-g.
+ *   (Gravity reaction force on the sensor; az is negative because the
+ *   sensor's reaction-to-gravity vector points "up" along body -Z.)
+ * - Gyro: +p means roll rate increases phi (right wing dropping further
+ *   in OnSpeed convention, where right-wing-down is NEGATIVE phi after
+ *   the accelRoll seed convention — see the conversion note below).
+ *   +q means pitch rate increases theta (nose-up in standard aerospace
+ *   convention, +theta = nose up). +r means yaw rate increases heading
+ *   in the standard right-hand-rule sense.
+ *
+ * @section onspeed_convention_mismatch OnSpeed firmware-to-EKF6 sign mapping
+ *
+ * The OnSpeed firmware's published attitude/rate convention does NOT
+ * match what this filter expects on its inputs. The mapping is:
+ *
+ * | Firmware-published | EKF6 input | Sign relationship |
+ * |--------------------|------------|-------------------|
+ * | accelVertComp_     | az         | Same (both -g for level)         |
+ * | accelFwdComp_      | ax         | Same                             |
+ * | accelLatComp_      | ay         | Same                             |
+ * | imuRollRateDps     | p          | NEGATE on input                  |
+ * | imuPitchRateDps    | q          | NEGATE on input                  |
+ * | imuYawRateDps      | r          | Same                             |
+ * | flightPathDeg      | gamma      | Same                             |
+ *
+ * Why p,q need negation but az and r do not:
+ *
+ * 1. OnSpeed's IMU pipeline uses internal sign conventions where
+ *    +imuPitchRateDps means "nose-down" rotation rate and
+ *    +imuRollRateDps means "right-wing-up" rotation rate (these are
+ *    the IMU330 axis-mapped raw values). The firmware compensates by
+ *    negating the CSV PitchRate column for display and by negating
+ *    Madgwick's getPitch/getRoll output. Without input negation, EKF6
+ *    would publish theta and phi in the OPPOSITE direction from the
+ *    rest of the firmware — flying sensibly under static accel but
+ *    inverting on any gyro-driven motion.
+ *
+ * 2. accel signs are correct as-is: OnSpeed's accelVertComp_ is
+ *    already -g for level flight (the IMU returns accelZG = -1g for
+ *    level after fAzSign adjustment, the rotation passes that through
+ *    for cr*cp = 1, and the constructor seeds accelVertFilter_ to
+ *    -1.0f). Same convention as EKF6 expects.
+ *
+ * 3. Yaw rate doesn't appear in the gravity-only accelerometer
+ *    measurement equations the EKF6 sees (centripetal terms are
+ *    pre-removed upstream). The Gen2 Octave reference also leaves
+ *    YawRateDegic un-negated.
+ *
+ * The Ahrs adapter at sketch_common's call site applies the negations.
+ * The EKF6 itself receives values in EKF6's own convention and runs
+ * the standard Euler-angle kinematics on them. Bias states (bp, bq,
+ * br) evolve in EKF6's convention too — so any code that reads
+ * prevState.bq and feeds it back into a firmware-frame computation
+ * needs the matching sign flip (Ahrs.cpp does this for bq in the
+ * iasAlive-gated centripetal pre-comp).
+ *
+ * @section history Changelog
+ *
+ * - v1.0 (initial port): both az and p,q signs wrong (porting error
+ *   from Gen2 Octave reference, which negated VerticalGic on input
+ *   in Gen2's IMU convention but the same negation inverts in Gen3's
+ *   convention). Filter ran into gimbal-lock for any non-level static
+ *   input.
+ * - PR #310: az sign corrected (Bug 1) + p,q signs corrected with
+ *   coupled bias-correction sign flip (Bugs 2 + 3). Verified against
+ *   Octave reference; static and dynamic sign tests added.
+ *
+ * Tuning is unchanged from the initial port and is heavily
+ * accel-dominated (low r_accel relative to high q_attitude). Under
+ * fast gyro-driven motion, EKF6 publishes attitude smaller in
+ * magnitude than Madgwick. That's a separate tuning concern; out of
+ * scope for the sign-bug PR.
  *
  * @author FlyOnSpeed / OnSpeed Project
  * @date 2025

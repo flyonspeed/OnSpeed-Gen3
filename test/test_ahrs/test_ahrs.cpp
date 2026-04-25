@@ -296,6 +296,114 @@ void test_step_ekf6_level_stable(void)
     TEST_ASSERT_FLOAT_WITHIN(2.0f, 0.0f, a.latest().rollDeg);
 }
 
+void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
+{
+    // Pitch rate convention: in OnSpeed firmware, +imuPitchRateDps
+    // means "nose down" (the CSV emits -imuPitchRateDps so the
+    // displayed PitchRate column reads "+ = nose up"). Madgwick is
+    // fed un-negated rate and applies an output negation
+    // (-madgwick_.getPitch()), so its published pitch correctly
+    // decreases when imuPitchDps > 0.
+    //
+    // EKF6 doesn't negate output, so the input rate must be negated
+    // to publish in the same convention. Without the negation, EKF6
+    // and Madgwick disagree on the SIGN of pitch motion under a
+    // gyro-driven pitch rate — Madgwick says pitch falls, EKF6 says
+    // it rises. Pin the post-fix invariant: under +imuPitchDps,
+    // EKF6 published pitch must move in the SAME direction as
+    // Madgwick's (both negative).
+    AhrsInputs in = levelSeed();
+    in.imu.gyroPitchDps = 5.0f;
+    in.imu.accelXG = 0.0f;
+    in.imu.accelZG = -1.0f;
+
+    AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
+    Ahrs aMad{cfgMad};
+    aMad.Init(in, 0.0f);
+    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekf6);
+    Ahrs aEkf{cfgEkf};
+    aEkf.Init(in, 0.0f);
+
+    for (int n = 0; n < 416; n++) {  // 2 s
+        aMad.Step(in, kDt);
+        aEkf.Step(in, kDt);
+    }
+    const float pitchMad = aMad.latest().pitchDeg;
+    const float pitchEkf = aEkf.latest().pitchDeg;
+
+    // Both must be finite, both must be negative, and EKF6 must not
+    // be on the opposite side of zero from Madgwick. EKF6's tuning
+    // makes accel dominate, so its magnitude is much smaller than
+    // Madgwick's — but the SIGN must match.
+    TEST_ASSERT_TRUE(std::isfinite(pitchMad));
+    TEST_ASSERT_TRUE(std::isfinite(pitchEkf));
+    TEST_ASSERT_TRUE_MESSAGE(pitchMad < 0.0f,
+        "Madgwick pitch should be negative under +imuPitchDps");
+    TEST_ASSERT_TRUE_MESSAGE(pitchEkf <= 0.0f,
+        "EKF6 pitch must move in same direction as Madgwick (negative)");
+}
+
+void test_step_ekf6_roll_rate_sign_matches_madgwick(void)
+{
+    // Same invariant for roll — Madgwick negates output, EKF6
+    // requires input negation to publish in matching convention.
+    AhrsInputs in = levelSeed();
+    in.imu.gyroRollDps = 5.0f;
+    in.imu.accelYG = 0.0f;
+    in.imu.accelZG = -1.0f;
+
+    AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
+    Ahrs aMad{cfgMad};
+    aMad.Init(in, 0.0f);
+    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekf6);
+    Ahrs aEkf{cfgEkf};
+    aEkf.Init(in, 0.0f);
+
+    for (int n = 0; n < 416; n++) {
+        aMad.Step(in, kDt);
+        aEkf.Step(in, kDt);
+    }
+    const float rollMad = aMad.latest().rollDeg;
+    const float rollEkf = aEkf.latest().rollDeg;
+
+    TEST_ASSERT_TRUE(std::isfinite(rollMad));
+    TEST_ASSERT_TRUE(std::isfinite(rollEkf));
+    TEST_ASSERT_TRUE_MESSAGE(rollMad < 0.0f,
+        "Madgwick roll should be negative under +imuRollDps");
+    TEST_ASSERT_TRUE_MESSAGE(rollEkf <= 0.0f,
+        "EKF6 roll must move in same direction as Madgwick (negative)");
+}
+
+void test_step_ekf6_static_tilt_converges_to_input_attitude(void)
+{
+    // EKF6 fed a static 10° nose-up accelerometer reading (with zero
+    // gyro and zero IAS) must converge to ~10° pitch. The previous
+    // implementation negated accelVertComp_ before handing it to
+    // EKF6, which inverted the sign of the predicted gravity vector
+    // — the filter then drove theta hard toward 180° gimbal lock,
+    // saturating around ~170°. With the negation removed, az is
+    // -g in level flight (matching EKF6's documented convention), and
+    // a 10° static tilt converges cleanly.
+    AhrsInputs seed = levelSeed();
+    seed.imu.accelXG = std::sin(onspeed::deg2rad(10.0f));
+    seed.imu.accelZG = -std::cos(onspeed::deg2rad(10.0f));
+
+    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    Ahrs a{cfg};
+    a.Init(seed, 0.0f);
+
+    for (int i = 0; i < 1000; i++) {
+        a.Step(seed, kDt);
+    }
+
+    // Tight bounds — with the correct sign, the filter converges to
+    // within 0.1° of the accel-derived pitch in <500 frames. The 1.0°
+    // budget here is headroom for future tuning changes; pre-fix this
+    // would assert pitch ≈ 170° and fail by ~160°.
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 10.0f, a.latest().pitchDeg);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f,  0.0f, a.latest().rollDeg);
+}
+
 // ---------------------------------------------------------------------
 // Step: running-mean gyro outputs track the input values after N frames
 // ---------------------------------------------------------------------
@@ -806,6 +914,9 @@ int main(void)
     RUN_TEST(test_tas_updates_only_when_ias_timestamp_advances);
     RUN_TEST(test_step_guards_nan_dt);
     RUN_TEST(test_step_ekf6_level_stable);
+    RUN_TEST(test_step_ekf6_static_tilt_converges_to_input_attitude);
+    RUN_TEST(test_step_ekf6_pitch_rate_sign_matches_madgwick);
+    RUN_TEST(test_step_ekf6_roll_rate_sign_matches_madgwick);
     RUN_TEST(test_step_gyro_averages_follow_input);
     RUN_TEST(test_init_does_not_reset_tas_state);
 
