@@ -287,8 +287,12 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         float fPitchRateForComp = PitchRateCorr;
         if (cfg_.algorithm == Algorithm::Ekf6) {
             const onspeed::EKF6::State prevState = ekf6_.getState();
+            // EKF6's bq tracks the bias on its NEGATED q input (see the
+            // p/q negation in the EKF6 measurement adapter below), so
+            // bq in the firmware frame is -prevState.bq. r is fed
+            // un-negated so br is already in the firmware frame.
             fYawRateForComp   = YawRateCorr   - onspeed::rad2deg(prevState.br);
-            fPitchRateForComp = PitchRateCorr - onspeed::rad2deg(prevState.bq);
+            fPitchRateForComp = PitchRateCorr + onspeed::rad2deg(prevState.bq);
         }
         const float AccelLatCompFactor  =
             onspeed::mps2g(onspeed::deg2rad(tas_ * fYawRateForComp));
@@ -340,22 +344,45 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     float EarthVertG    = outputs_.earthVertG;
 
     if (cfg_.algorithm == Algorithm::Ekf6) {
-        // EKF6 expects aerospace sign convention: az = -g in level flight
-        // (sensor reaction to gravity, NED body frame, Z down). OnSpeed's
-        // accelVertComp_ is also -g in level flight — IMU returns
-        // accelZG = -1 g for level (verified in levelSeed test fixture
-        // and via Ahrs constructor seeding accelVertFilter_ to -1.0f),
-        // and the installation rotation passes that through unchanged
-        // for cr*cp = 1. Pass through with no negation. Accel: g →
-        // m/s^2. Gyro: deg/s → rad/s. gamma: deg → rad.
+        // Sign convention plumbing from OnSpeed's IMU pipeline to EKF6.
+        // The two systems use opposite sign conventions for pitch and
+        // roll integration; matching them is what the negations below
+        // do.
+        //
+        // az: OnSpeed's accelVertComp_ is -g in level flight (IMU
+        //   accelZG = -1g for level + the rotation preserves it for
+        //   cr*cp = 1 + the constructor seeds accelVertFilter_ to
+        //   -1.0f). EKF6 documents its expected convention as az = -g
+        //   in level flight too. Same convention; no negation.
+        //
+        // p, q (roll, pitch rate): OnSpeed's IMU convention is
+        //   "+gyroRollDps means right-wing-up" / "+gyroPitchDps means
+        //   nose-down" — opposite to EKF6's `phi_dot = p + ...` and
+        //   `theta_dot = q*cph - r*sph` which expect "+p increases
+        //   phi" and "+q increases theta" with phi/theta in the
+        //   standard +nose-up/+right-wing-down direction. Madgwick
+        //   handles the same mismatch via its output negation
+        //   (-madgwick_.getPitch() / -madgwick_.getRoll()); EKF6
+        //   doesn't negate output, so we negate the input rates
+        //   instead. Mirrors the Gen2 Octave reference's
+        //   `-RollRateDegic` / `-PitchRateDegic` lines.
+        //
+        // r (yaw rate): no negation. Yaw rate doesn't appear in the
+        //   accel measurement equations in OnSpeed's pre-compensated
+        //   gravity-only model, so the sign-vs-firmware-convention
+        //   only affects coupling of yaw rate into theta and phi via
+        //   the Euler kinematic terms. The Gen2 Octave reference also
+        //   leaves YawRateDegic un-negated.
+        //
+        // Accel: g → m/s². Gyro: deg/s → rad/s. gamma: deg → rad.
         float gamma_rad = onspeed::deg2rad(outputs_.flightPathDeg);
 
         onspeed::EKF6::Measurements meas = {
             /* ax */    accelFwdComp_  * kEkfGravityMps2,
             /* ay */    accelLatComp_  * kEkfGravityMps2,
             /* az */    accelVertComp_ * kEkfGravityMps2,
-            /* p  */    onspeed::deg2rad(RollRateCorr),
-            /* q  */    onspeed::deg2rad(PitchRateCorr),
+            /* p  */   -onspeed::deg2rad(RollRateCorr),
+            /* q  */   -onspeed::deg2rad(PitchRateCorr),
             /* r  */    onspeed::deg2rad(YawRateCorr),
             /* gamma */ gamma_rad
         };
