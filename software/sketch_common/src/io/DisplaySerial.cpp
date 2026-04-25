@@ -126,11 +126,7 @@ void DisplaySerial::Write()
     float   fDisplayIAS;
     int     iDisplayVerticalG;
 
-#ifdef SPHERICAL_PROBE
-    fDisplayIAS = g_EfisSerial.suEfis.IAS;
-#else
     fDisplayIAS = g_Sensors.IAS;
-#endif
     // Display-serial gate uses the user-tunable `iMuteAudioUnderIAS`
     // rather than the sensor-level `bIasAlive` flag (see DataServer.cpp
     // for the full rationale): the pilot's configured "below which

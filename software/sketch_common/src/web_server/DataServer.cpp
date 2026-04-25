@@ -224,18 +224,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiFlightpath = g_AHRS.FlightPath;         // degrees
         fWifiVSI        = mps2fpm(g_AHRS.KalmanVSI); // fpm
 
-        // Send efisIAS if spherical probe is in use otherwise use OnspeedIAS.
- #ifdef SPHERICAL_PROBE
-//// This logic can't be fully right. What if there is a sperical probe and
-//// a VN300? The VN300 doesn't do IAS but there isn't an EFIS to provide IAS
-//// because the VN300 is using that serial port.
-        if (g_EfisSerial.enType == EfisSerialPort::EnVN300)
-            fWifiIAS = g_Sensors.IAS;
-        else
-            fWifiIAS = g_EfisSerial.suEfis.IAS;
- #else
         fWifiIAS = g_Sensors.IAS;
- #endif
     } // end internal cal source
 
     // OAT: prefer EFIS data, fall back to internal sensor
