@@ -25,6 +25,13 @@
 #error "HuvverShim.h must only be included in HUVVER builds"
 #endif
 
+// Inline variables (`inline onspeed::huvver::M5_Class M5;` below) need
+// C++17 to avoid ODR violations across the multiple TUs that include
+// this header transitively. Fail the build loudly if a future change
+// drops -std=gnu++17 from the env.
+static_assert(__cplusplus >= 201703L,
+              "HuvverShim.h requires C++17 for inline variables (M5 global)");
+
 // LovyanGFX is the underlying engine M5GFX builds on. <M5GFX.h> brings
 // in the LGFX_Device / LGFX_Sprite / LGFXBase classes plus the
 // `M5Canvas` and `M5GFX` typedefs the M5 source uses. We do NOT
@@ -122,6 +129,12 @@ public:
             cfg.invert           = false;  // huVVer panel: TFT_INVERSION_OFF
             cfg.rgb_order        = false;  // BGR per V.R. Little's setup
             cfg.dlen_16bit       = false;
+            // The AVI board has no SD card slot or other SPI peripherals,
+            // so LovyanGFX can hold the bus exclusively for the panel.
+            // If a future hardware revision adds any SPI peripheral,
+            // this MUST be changed to `true` and the panel transactions
+            // must be wrapped in startWrite()/endWrite() — otherwise
+            // the bus contends and the SPI traffic deadlocks.
             cfg.bus_shared       = false;
             panel_.config(cfg);
         }
@@ -130,6 +143,12 @@ public:
             cfg.pin_bl      = PinMap::kPanelBL;
             cfg.invert      = false;  // HIGH=on
             cfg.freq        = 44100;
+            // LEDC channel 7. The ESP32 Arduino framework reserves
+            // channels 0-3 for analogWrite(); channels 4-6 are likely
+            // needed for audio tone generation in PR 5+ (the upstream
+            // huVVer sketch's mute path uses ledcSetup with channel 4
+            // for backlight, but our LovyanGFX-managed light reuses 7
+            // to leave 4-6 free).
             cfg.pwm_channel = 7;
             light_.config(cfg);
             panel_.setLight(&light_);
@@ -143,6 +162,14 @@ public:
 // Button polling reads the GPIO directly — buttons are wired
 // active-low through the front-panel switches per V.R. Little's
 // schematic.
+//
+// Caveat: polling is not interrupt-driven. `M5.update()` is called
+// once per render cycle (~50 ms), so a press shorter than that is
+// invisible — the GPIO transitions LOW and back to HIGH between two
+// poll() calls and `wasPressed()` never fires. The upstream huVVer
+// sketch uses Jack Christensen's interrupt-driven `Button.cpp` at
+// 10 ms debounce; if PR 5 finds 50 ms latency unacceptable for
+// menu navigation, swap this for an interrupt-driven debouncer.
 class HuvverButton {
 private:
     int     pin_;
@@ -216,8 +243,13 @@ public:
 
         // Initialize the LGFX panel via LovyanGFX's standard init path.
         Display.init();
-        Display.setRotation(1);  // 240x320 portrait → 320x240 landscape,
-                                 // matching the M5 source's WIDTH/HEIGHT.
+        // LovyanGFX rotation 1 = 90° clockwise from native portrait,
+        // producing 320x240 landscape from a 240x320 panel — matching
+        // the M5 source's WIDTH=320 HEIGHT=240 assumption. This is the
+        // same rotation V.R. Little's upstream sketch uses on the same
+        // panel hardware (OnSpeed_huVVer_display.ino:236 calls
+        // tft.setRotation(1)).
+        Display.setRotation(1);
     }
 
     // Polls all buttons. Renderer's main loop calls this every frame.

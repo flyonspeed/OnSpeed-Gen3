@@ -113,6 +113,8 @@ jobs:
             env: m5stack-core-esp32
           - board: core2
             env: m5stack-core2
+          - board: huvver-avi
+            env: huvver-avi
 
     steps:
       - name: Checkout code
