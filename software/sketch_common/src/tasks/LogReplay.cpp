@@ -15,6 +15,7 @@
 #include "src/config/Config.h"
 #include "src/drivers/SensorIO.h"
 #include <filters/EMAFilter.h>
+#include <proto/CsvHeaderMatch.h>
 #include <proto/LogCsv.h>
 #include <types/LogRow.h>
 
@@ -22,6 +23,7 @@ using onspeed::pressureCoeff;
 using onspeed::fpm2mps;
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
+using onspeed::proto::HasColumn;
 
 FsFile                      hReplayFile;
 static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
@@ -34,27 +36,6 @@ static bool                 s_bReplayVn300 = false;
 bool OpenReplayLog(String sLogFile);
 bool ReadLogLine();
 void RemoveSpaces(char * szLine);
-
-// Comma-boundary token match against a CSV header line.  Returns true
-// if `name` appears as a complete column token (delimited by commas
-// or string start/end), false on substring-only matches.  Plain
-// `strstr` would let `"Pitch"` match the unrelated `"PitchRate"`
-// column, silently misaligning ParseRow's column-by-column reads
-// once `proto::log_csv::WriteHeader` adds or renames a column.
-static bool HasColumn(const char* hdr, const char* name)
-    {
-    const size_t n = strlen(name);
-    const char* p = hdr;
-    while ((p = strstr(p, name)) != nullptr)
-        {
-        const bool leftOk  = (p == hdr) || (p[-1] == ',');
-        const bool rightOk = (p[n] == '\0') || (p[n] == ',');
-        if (leftOk && rightOk)
-            return true;
-        p += 1;   // advance past this candidate to seek the next
-        }
-    return false;
-    }
 
 //-----------------------------------------------------------------------------
 // REPLAYLOGFILE data source routines
