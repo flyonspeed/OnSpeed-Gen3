@@ -117,12 +117,13 @@ bool runFixture(const Fixture& f, const onspeed::ToneThresholds& th) {
     return true;
 }
 
-// Uncalibrated-gate fixtures: every threshold must be positive before
-// calculateTone produces any tone. With even one threshold zero, the
-// function returns {None, 0} regardless of the AOA. This pins the
-// fail-safe behavior so a future "improvement" can't accidentally
-// loosen the gate and produce phantom tones from a half-configured
-// plugin.
+// Uncalibrated-gate fixtures: fONSPEEDFASTAOA, fONSPEEDSLOWAOA, and
+// fSTALLWARNAOA must all be positive before calculateTone produces
+// any tone. With any of those three zero, the function returns
+// {None, 0} regardless of the AOA. fLDMAXAOA is intentionally
+// excluded from the gate — it is a body angle and can be at or
+// below the fuselage-zero reference at high flap settings (the wing
+// produces L/D-max lift below body-zero with flaps deployed).
 const Fixture kUncalibratedFixtures[] = {
     {"uncal: AOA in stall region", 13.0f, onspeed::EnToneType::None, 0.0f},
     {"uncal: AOA in OnSpeed band",  8.5f, onspeed::EnToneType::None, 0.0f},
@@ -141,12 +142,10 @@ int main() {
         if (!runFixture(f, kDefaultThresholds)) ++failures;
     }
 
-    // Uncalibrated-gate path: zero out one threshold at a time, verify
-    // calculateTone returns None for any AOA. We test each of the four
-    // threshold positions because the gate's defense-in-depth check
-    // (ToneCalc.cpp:25-31) trips on any non-positive value.
-    const onspeed::ToneThresholds zeroLDMax{
-        0.0f, kDefaultBelowOnSpeed, kDefaultOnSpeedMax, kDefaultStallWarn};
+    // Uncalibrated-gate path: zero out one threshold at a time and
+    // verify calculateTone returns None for any AOA. fLDMAXAOA is
+    // omitted because LDmax can be at or below body-zero on a real
+    // calibration (see ToneCalc.cpp gate comment).
     const onspeed::ToneThresholds zeroBelowOnSpeed{
         kDefaultLDmax, 0.0f, kDefaultOnSpeedMax, kDefaultStallWarn};
     const onspeed::ToneThresholds zeroOnSpeedMax{
@@ -154,7 +153,7 @@ int main() {
     const onspeed::ToneThresholds zeroStallWarn{
         kDefaultLDmax, kDefaultBelowOnSpeed, kDefaultOnSpeedMax, 0.0f};
 
-    for (const auto& th : {zeroLDMax, zeroBelowOnSpeed, zeroOnSpeedMax, zeroStallWarn}) {
+    for (const auto& th : {zeroBelowOnSpeed, zeroOnSpeedMax, zeroStallWarn}) {
         for (const Fixture& f : kUncalibratedFixtures) {
             ++total;
             if (!runFixture(f, th)) ++failures;
