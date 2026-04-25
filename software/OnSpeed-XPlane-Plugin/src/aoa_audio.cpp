@@ -1,3 +1,21 @@
+/*
+ * Originally: OnSpeed X-Plane plugin
+ *   https://github.com/flyonspeed/OnSpeed-XPlane
+ *   Commit fff96202fc82a9e8e0e2fda7d62ee92237c18a05, imported 2026-04-23.
+ *
+ *   Authored by:
+ *     Topher Timemachine <https://github.com/TopherTimeMachine>
+ *     Mrcoole7890       <https://github.com/Mrcoole7890>
+ *
+ * Ported into the OnSpeed-Gen3 tree (PR #256) and adapted to:
+ *   - route audio decisions through onspeed_core::audio::ToneCalc
+ *     (PR #261)
+ *   - link against the vendored X-Plane SDK 4.3.0 (PR #259)
+ *   - build on Linux and Windows via GitHub Actions matrix (PR #263)
+ *
+ * Licensed MIT — see LICENSE at repo root.
+ */
+
 // Version is sourced from <buildinfo.h> (BuildInfo::version, ::buildDate)
 // so the plugin reports the same string as firmware/M5 builds. Wired at
 // CMake configure time via scripts/generate_buildinfo.py — see
