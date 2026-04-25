@@ -1,7 +1,21 @@
-# OnSpeed M5Stack Display
+# OnSpeed Display (M5Stack + huVVer-AVI + native sim)
 
-Secondary display firmware for an M5Stack device receiving OnSpeed's `#1`
-display-serial frames. Renders five modes (internally numbered 0–4):
+Secondary display firmware that consumes OnSpeed's `#1` display-serial
+frames. The directory name `OnSpeed-M5-Display/` is historical — this
+codebase now builds for **three production targets and one sim**:
+
+| Target | Build | Hardware |
+|---|---|---|
+| M5Stack Basic | `pio run -e m5stack-core-esp32` | ESP32 + 320×240 ILI9342C |
+| M5Stack Core2 | `pio run -e m5stack-core2` | ESP32 + 320×240 ILI9342C + capacitive touch |
+| huVVer-AVI | `pio run -e huvver-avi` | ESP32 + 240×320 ST7789, panel-mount avionics instrument |
+| Native sim (SDL2) | `pio run -e native` | macOS / Linux desktop, 320×240 SDL window |
+
+All four share the same renderer source. Per-target wiring is in
+`sim/ArduinoShim.h` (native) and `sim/HuvverShim.h` (huVVer);
+`#ifdef ESP_PLATFORM` gates Arduino-only code.
+
+Renders five modes (internally numbered 0–4):
 
 - **Primary** (0, default) — AOA indexer + surrounding IAS/G/flap/slip readouts.
 - **Attitude** (1) — Backup AI with flight-path marker.
@@ -10,10 +24,16 @@ display-serial frames. Renders five modes (internally numbered 0–4):
 - **G history** (4) — 60-second scrolling G trace.
 
 End-user docs: `docs/site/docs/installation/external-display.md`.
+Attribution / licensing: `CREDITS.md` in this directory.
 
 - `src/main.cpp` — entry point, mode dispatch, per-mode render functions
 - `src/SerialRead.cpp` — `#1` protocol parser, 20 Hz frame dt measurement
-- `lib/GaugeWidgets/` — vendored gauge-drawing primitives (V.R. Little, MIT-ish)
+- `lib/GaugeWidgets/` — V.R. Little's gauge-drawing primitives, vendored.
+  Licensed under V.R. Little's non-commercial license (NOT MIT — see CREDITS.md).
+- `sim/ArduinoShim.h` — host-side stubs for the SDL2 native sim env.
+- `sim/HuvverShim.h` — huVVer-AVI compat layer: custom LGFX_Device
+  for the ST7789 panel + GPIO buttons + DAC mute, mimicking the
+  M5Unified `M5_t` surface so renderer code is target-agnostic.
 - `lib/onspeed_core/` — vendored copy of `SavGolDerivative.h` for IAS decel
 
 ## Library stack
