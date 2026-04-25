@@ -893,6 +893,63 @@ void test_comp_fade_in_suppresses_rising_edge_accel_spike(void)
     TEST_ASSERT_TRUE_MESSAGE(maxFwdCompSpike < 0.5f, msg);
 }
 
+void test_comp_fade_in_suppresses_rising_edge_flightpath_spike(void)
+{
+    // Symmetric companion to the AccelFwdComp test above. The Kalman
+    // filter integrates altitude continuously regardless of iasAlive
+    // (Step 6, line 394 of Ahrs.cpp), so during a taxi where the baro
+    // is climbing — common after engine warm-up moves the aircraft
+    // onto a sloping runway, or with thermal-drifting baro — the
+    // filter accumulates a real VSI estimate while the publish path
+    // is gated to 0. When iasAlive flips true, the gate releases that
+    // accumulated estimate, and FlightPath = asin(VSI/TAS) jumps from
+    // 0 to its full value in a single frame.
+    //
+    // Pre-fade scenario in this synthetic harness: 5 s of taxi with
+    // baro climbing at 825 fpm produces a pre-edge VSI estimate near
+    // 829 fpm; FlightPath snaps to 23.75° (and saturates the safeAsin
+    // for higher VSI/TAS ratios) on the rising-edge frame. Multiplying
+    // the published VSI by compFadeIn_ before the asin reduces the
+    // first-frame value to ~0.22° (a ~100× cut), and FlightPath ramps
+    // smoothly toward the true climb angle over ~1.5 s.
+    //
+    // Assert on the first-frame step, not on a 10-frame window: after
+    // frame 0 the fade legitimately ramps and FlightPath legitimately
+    // climbs toward the true 4° gamma over ~1.5 s — that's the desired
+    // behavior. The pathology being fixed is the *one-frame* jump from
+    // 0° to ~24° at the rising edge. Bound: first-frame |FlightPath| <
+    // 1° (post-fade ≈ 0.22°; pre-fade ≈ 23.75°). A regression that
+    // removed the fade from this path would fail immediately.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    a.Init(in, 0.0f);
+
+    // 5 s of taxi: iasAlive=false but baro climbing at 825 fpm so the
+    // Kalman builds up a real VSI estimate.
+    constexpr float kClimbFps = 13.75f;          // 825 fpm
+    uint32_t iasTs = 0;
+    for (int i = 0; i < 5 * 208; i++) {
+        in.sensors.paltFt += kClimbFps * kDt;
+        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
+        a.Step(in, kDt);
+    }
+
+    // Rising edge — gate opens.
+    in.sensors.iasAlive = true;
+    in.sensors.iasKt    = 20.3f;
+
+    in.sensors.paltFt += kClimbFps * kDt;
+    iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs;
+    a.Step(in, kDt);
+    const float frame0Spike = std::fabs(a.latest().flightPathDeg);
+
+    char msg[160];
+    std::snprintf(msg, sizeof(msg),
+        "FlightPath frame-0 jump: %.3f° (bound 1.0°)", frame0Spike);
+    TEST_ASSERT_TRUE_MESSAGE(frame0Spike < 1.0f, msg);
+}
+
 // ---------------------------------------------------------------------
 // test main
 // ---------------------------------------------------------------------
@@ -935,6 +992,7 @@ int main(void)
     RUN_TEST(test_comp_fade_in_survives_init);
     RUN_TEST(test_comp_fade_in_resets_when_ias_alive_drops);
     RUN_TEST(test_comp_fade_in_suppresses_rising_edge_accel_spike);
+    RUN_TEST(test_comp_fade_in_suppresses_rising_edge_flightpath_spike);
 
     return UNITY_END();
 }
