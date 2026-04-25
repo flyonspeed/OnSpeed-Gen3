@@ -39,7 +39,7 @@ Complete reference of all OnSpeed configuration parameters. Configuration is sto
 | `VOLUME > LOW_ANALOG` | int | 0 | ADC value at min volume |
 | `VOLUME > DEFAULT` | int | 100 | Default volume (0–100%) when pot disabled |
 | `VOLUME > ENABLE_3DAUDIO` | bool | false | Enable stereo lateral-G panning |
-| `VOLUME > MUTE_UNDER_IAS` | int | 30 | Mute audio below this IAS (knots) |
+| `VOLUME > MUTE_UNDER_IAS` | int | 30 | Mute audio below this IAS (knots); 0 = always on |
 | `OVERGWARNING` | bool | false | Enable G-limit warning tone |
 
 ## Vno Chime
