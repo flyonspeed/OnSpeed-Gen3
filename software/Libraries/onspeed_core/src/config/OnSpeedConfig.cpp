@@ -32,6 +32,19 @@ std::string OnSpeedConfig::SuFlaps::SetpointOrderError() const
         sErr += "OnSpeedSlow (" + fmt1(fONSPEEDSLOWAOA) + ") must be less than StallWarn (" + fmt1(fSTALLWARNAOA) + "); ";
     if (fSTALLAOA != 0.0f && fSTALLWARNAOA >= fSTALLAOA)
         sErr += "StallWarn (" + fmt1(fSTALLWARNAOA) + ") must be less than Stall (" + fmt1(fSTALLAOA) + "); ";
+    // Alpha0 is the body angle at zero wing lift — typically negative
+    // (most airframes have positive wing incidence). The percent-lift
+    // formula `(BodyAngle − alpha_0) / (alpha_stall − alpha_0)` requires
+    // alpha_0 to sit on the no-lift side of every setpoint; in practice
+    // the binding constraint is `alpha_0 < LDMAX` (the slowest setpoint
+    // on the lifting side). A user typo that flips the sign of alpha_0
+    // or types the wrong magnitude would otherwise invert or distort
+    // the percent-lift bar without any visible warning.
+    //
+    // Skip when alpha_0 is exactly zero — that's the uncalibrated
+    // default value, same convention as fSTALLAOA above.
+    if (fAlpha0 != 0.0f && fAlpha0 >= fLDMAXAOA)
+        sErr += "Alpha0 (" + fmt1(fAlpha0) + ") must be less than LDMAX (" + fmt1(fLDMAXAOA) + "); ";
     // Trim trailing "; "
     if (sErr.length() > 2)
         sErr.erase(sErr.length() - 2);
