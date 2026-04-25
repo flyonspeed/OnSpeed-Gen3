@@ -329,12 +329,11 @@ void LogSensor::Open()
                                 onspeed::proto::log_csv::kFormatVersion,
                                 etype);
 
-            // Write an initial sidecar so a power-yank in the first 30 s
-            // of the flight (before LogSensorCommitTask's first refresh
-            // tick) still leaves a valid .meta on disk. Values are zero
-            // until rows accumulate, but the /logs page renders that as
-            // "0 kt / 0 ft / 0s" — strictly more useful than em-dashes.
-            WriteSidecarLocked();
+            // No initial sidecar write — the first refresh fires 30 s into
+            // the session from LogSensorCommitTask. A power-yank inside
+            // that 30 s window leaves no .meta (em-dashes on /logs), which
+            // is more honest than a sidecar reporting "0 kt / 0 ft / 0s"
+            // for what was actually a partial flight.
         } // end if file open OK
 
         else
