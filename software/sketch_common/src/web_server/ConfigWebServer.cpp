@@ -1987,11 +1987,31 @@ void HandleConfigSave()
         g_Config.CasCurve.afCoeff[curveIndex]=g_Config.ToFloat(CfgServer.arg("casCurveCoeff"+String(curveIndex)));
         }
 
+    // Track whether any AHRS-relevant input changed so we only reseed
+    // the attitude filter when the new value differs from the old.  An
+    // unconditional reseed in flight (e.g. saving an unrelated setting
+    // like sdLogging or grossWeight) would re-snapshot Madgwick / EKF6
+    // state from instantaneous, G-loaded accelerometer reads and snap
+    // SmoothedPitch/Roll to wildly wrong values for several seconds.
+    bool bAhrsInputChanged = false;
+
     // read portsOrientation
-    if (CfgServer.hasArg("portsOrientation")) g_Config.sPortsOrientation=CfgServer.arg("portsOrientation").c_str();
+    if (CfgServer.hasArg("portsOrientation"))
+        {
+        const std::string sNew = CfgServer.arg("portsOrientation").c_str();
+        if (sNew != g_Config.sPortsOrientation)
+            bAhrsInputChanged = true;
+        g_Config.sPortsOrientation = sNew;
+        }
 
     // read boxtopOrientation
-    if (CfgServer.hasArg("boxtopOrientation")) g_Config.sBoxtopOrientation=CfgServer.arg("boxtopOrientation").c_str();
+    if (CfgServer.hasArg("boxtopOrientation"))
+        {
+        const std::string sNew = CfgServer.arg("boxtopOrientation").c_str();
+        if (sNew != g_Config.sBoxtopOrientation)
+            bAhrsInputChanged = true;
+        g_Config.sBoxtopOrientation = sNew;
+        }
 
     // read efis enabled/disabled
     if (CfgServer.hasArg("readEfisData") && CfgServer.arg("readEfisData")=="1") g_Config.bReadEfisData=true;
@@ -2008,7 +2028,13 @@ void HandleConfigSave()
     if (CfgServer.hasArg("calSource")) { g_Config.sCalSource=CfgServer.arg("calSource").c_str(); g_Config.bCalSourceEfis = (g_Config.sCalSource == "EFIS"); }
 
     // read AHRS algorithm
-    if (CfgServer.hasArg("ahrsAlgorithm")) g_Config.iAhrsAlgorithm=CfgServer.arg("ahrsAlgorithm").toInt();
+    if (CfgServer.hasArg("ahrsAlgorithm"))
+        {
+        const int iNew = CfgServer.arg("ahrsAlgorithm").toInt();
+        if (iNew != g_Config.iAhrsAlgorithm)
+            bAhrsInputChanged = true;
+        g_Config.iAhrsAlgorithm = iNew;
+        }
 
     // read volume control
     if (CfgServer.hasArg("volumeControl") && CfgServer.arg("volumeControl")=="1") g_Config.bVolumeControl=true;
@@ -2142,14 +2168,16 @@ void HandleConfigSave()
         CfgServer.send(200, "text/html", sPage);
         }
 
-    // Configure anything that needs to be configured based on new config settings.
-    // Take xAhrsMutex to prevent ImuReadTask (Core 1) from calling
-    // g_AHRS.Process() while we re-initialize AHRS state.
-
-    // Configure accelerometer axes
+    // Reseed the AHRS only if an AHRS-relevant input actually changed.
+    // The reseed re-snapshots attitude from current accelerometer reads,
+    // which is exactly the wrong response in flight when the user just
+    // toggled an unrelated checkbox like SD logging.  Take xAhrsMutex
+    // either way for ConfigAxes() — IMU axis pointers are read by
+    // ImuReadTask on Core 1 and must not tear during the reassignment.
     xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
     g_pIMU->ConfigAxes();
-    g_AHRS.Init(kImuSampleRateHz);
+    if (bAhrsInputChanged)
+        g_AHRS.Init(kImuSampleRateHz);
     xSemaphoreGive(xAhrsMutex);
 
     } // end HandleConfigSave()
