@@ -462,14 +462,11 @@ void ConsoleSerialIO::Read()
             // -----
             else if (strncasecmp(szCmdToken, "FLAPS", 5) == 0)
                 {
-                if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100)))
-                    {
-                    g_Flaps.Update();
-                    xSemaphoreGive(xSensorMutex);
-                    g_Log.printf("Current flap : %5u Raw  %d Position\n", g_Flaps.uValue, g_Flaps.iPosition);
-                    }
-                else
-                    g_Log.printf(MsgLog::EnMain, MsgLog::EnWarning, "FLAPS - Could not obtain the sensor mutex\n");
+                // Flaps::Read() takes xSensorMutex internally for its SPI
+                // transaction; Flaps::Update() takes xAhrsMutex for the
+                // size+index snapshot.  No outer mutex is needed here.
+                g_Flaps.Update();
+                g_Log.printf("Current flap : %5u Raw  %d Position\n", g_Flaps.uValue, g_Flaps.iPosition);
                 }
 
             // VOLUME

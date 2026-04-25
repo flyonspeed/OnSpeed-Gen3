@@ -1911,10 +1911,15 @@ void HandleConfigSave()
         g_Config.sReplayLogFileName = CfgServer.arg("logFileName").c_str();
 
 #if 1
-    // Save flap setting info to a new set of array elements.
-    // I should probably let the config class handle all this. That's
-    // what classes are for, right?
-    g_Config.aFlaps.clear();
+    // Build the new flap vector locally first.  Building locally and
+    // swapping under `xAhrsMutex` means concurrent flight-path readers on
+    // Core 1 (SensorIO::Read AOA snapshot, Audio.cpp::UpdateTones,
+    // DisplaySerial::Write, DataServer::UpdateLiveDataJson, Flaps::Update)
+    // either see the entirely-old or the entirely-new vector, and the old
+    // buffer's destruction is deferred past the mutex release so any
+    // in-flight reader has finished by then.
+    std::vector<FOSConfig::SuFlaps> aNewFlaps;
+    aNewFlaps.reserve(kMaxFlapPositions);
     int iFlapIdx = 0;
     while (iFlapIdx < kMaxFlapPositions &&
            CfgServer.hasArg("flapDegrees"+String(iFlapIdx)))
@@ -1939,7 +1944,7 @@ void HandleConfigSave()
             for (int iCoeffIdx=0; iCoeffIdx< MAX_CURVE_COEFF; iCoeffIdx++)
                 suFlaps.AoaCurve.afCoeff[iCoeffIdx] = g_Config.ToFloat(CfgServer.arg("aoaCurve"+String(iFlapIdx)+"Coeff"+String(iCoeffIdx)));
 
-            g_Config.aFlaps.push_back(suFlaps);
+            aNewFlaps.push_back(suFlaps);
             }
         else
             bDeleteFlap = true;
@@ -1947,16 +1952,46 @@ void HandleConfigSave()
         iFlapIdx++;
         }
 
-    std::sort(g_Config.aFlaps.begin(), g_Config.aFlaps.end(),
+    std::sort(aNewFlaps.begin(), aNewFlaps.end(),
             [](FOSConfig::SuFlaps a, FOSConfig::SuFlaps b) { return a.iDegrees < b.iDegrees; } );
 
-    // If the user deleted every flap row, aFlaps is now empty.
+    // If the user deleted every flap row, the new vector is empty.
     // Every downstream reader (Audio.cpp, SensorIO.cpp, etc.)
     // dereferences aFlaps[g_Flaps.iIndex] without a bounds check, so
-    // the vector must always have at least one entry. Push a zeroed
+    // the vector must always have at least one entry.  Push a zeroed
     // default — the uncalibrated audio gate in ToneCalc keeps it
     // silent.
-    if (onspeed::config::EnsureAtLeastOneFlap(g_Config.aFlaps))
+    bool bRestoredEmptyDefault = onspeed::config::EnsureAtLeastOneFlap(aNewFlaps);
+
+    // Atomic swap under xAhrsMutex, and clamp g_Flaps.iIndex to the new
+    // size in the same critical section.  Without the iIndex clamp, a
+    // 4->2 flap shrink would leave iIndex pointing past end-of-vector
+    // for up to a second (until the next Flaps::Update() tick), and any
+    // reader that took xAhrsMutex during that window would see a stale
+    // out-of-bounds index against a fresh new vector and have to
+    // fail-silent on every snapshot until the index caught up.  Doing
+    // the clamp here means by the time we release xAhrsMutex, both the
+    // vector and the active index are mutually consistent.
+    //
+    // The old vector's storage is held by `aOldFlaps` and destroyed
+    // only after the mutex is released and re-acquired by the AHRS
+    // reseed below -- by then any reader on Core 1 that grabbed a
+    // pointer into the old buffer has long since dropped it.
+    std::vector<FOSConfig::SuFlaps> aOldFlaps;
+    xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+    g_Config.aFlaps.swap(aOldFlaps);          // park old data
+    g_Config.aFlaps.swap(aNewFlaps);          // install new data
+    if (g_Config.aFlaps.empty())
+        g_Flaps.iIndex = 0;
+    else
+        g_Flaps.iIndex = constrain(g_Flaps.iIndex, 0, (int)g_Config.aFlaps.size() - 1);
+    xSemaphoreGive(xAhrsMutex);
+    // aOldFlaps and aNewFlaps go out of scope at function end -- by
+    // then the AHRS reseed below has held xAhrsMutex again, providing
+    // a second synchronization point with any reader that takes the
+    // mutex.
+
+    if (bRestoredEmptyDefault)
         {
         g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
             "All flap positions were deleted; restoring a zeroed default. "

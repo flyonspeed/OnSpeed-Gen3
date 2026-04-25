@@ -284,6 +284,32 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
     const float fDerivedAOA = SafeJsonFloat(g_AHRS.DerivedAOA, 0.0f);
 
+    // Snapshot the active flap entry once under xAhrsMutex with a bounds
+    // check on g_Flaps.iIndex.  Five fields off this entry (LDMAX, two
+    // OnSpeed setpoints, StallWarn, alpha_0) are serialized into the JSON
+    // payload below.  HandleConfigSave on Core 0 swaps g_Config.aFlaps
+    // under the same mutex; without this snapshot the WebSocket frame
+    // could mix old and new setpoints from a swap mid-serialization, or
+    // index past the new vector's end after a 4->2 shrink.  20 Hz cadence
+    // has plenty of headroom for a 10 ms timeout; on timeout / OOB the
+    // payload reports zeros and the iIndex value is forced to 0 too,
+    // which the JS liveview renders as "uncalibrated".
+    FOSConfig::SuFlaps flapSnapshot{};
+    int iSnapFlapIdx = 0;
+    int iSnapFlapPos = -1;
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        {
+        const size_t nFlaps = g_Config.aFlaps.size();
+        const int    iIdx   = g_Flaps.iIndex;
+        if (iIdx >= 0 && (size_t)iIdx < nFlaps)
+            {
+            flapSnapshot = g_Config.aFlaps[iIdx];
+            iSnapFlapIdx = iIdx;
+            iSnapFlapPos = g_Flaps.iPosition;
+            }
+        xSemaphoreGive(xAhrsMutex);
+        }
+
     // szFormat is a compile-time constant split across lines for readability.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -298,12 +324,12 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fPAltFt,
         fVerticalGload,
         fLatG,
-        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA, 0.0f),
-        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA, 0.0f),
-        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA, 0.0f),
-        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA, 0.0f),
-        g_Flaps.iPosition,
-        g_Flaps.iIndex,
+        SafeJsonFloat(flapSnapshot.fLDMAXAOA, 0.0f),
+        SafeJsonFloat(flapSnapshot.fONSPEEDFASTAOA, 0.0f),
+        SafeJsonFloat(flapSnapshot.fONSPEEDSLOWAOA, 0.0f),
+        SafeJsonFloat(flapSnapshot.fSTALLWARNAOA, 0.0f),
+        iSnapFlapPos,
+        iSnapFlapIdx,
         fCoeffP,
         g_iDataMark,
         fWifiVSI,
@@ -311,7 +337,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fPitchRate,
         fDecelRate,
         fWifiOAT,
-        SafeJsonFloat(g_Config.aFlaps[g_Flaps.iIndex].fAlpha0, 0.0f),
+        SafeJsonFloat(flapSnapshot.fAlpha0, 0.0f),
         fDerivedAOA);
 #pragma GCC diagnostic pop
 

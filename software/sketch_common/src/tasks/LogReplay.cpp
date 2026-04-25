@@ -88,7 +88,7 @@ void LogReplayTask(void *pvParams)
 
     g_Log.println("Finished replaying file.");
 
-    g_AudioPlay.UpdateTones(); // to turn off tone at the end;
+    g_AudioPlay.UpdateTones(SnapshotActiveFlap()); // to turn off tone at the end;
 
     if (hReplayFile.isOpen())
         {
@@ -266,7 +266,7 @@ bool ReadLogLine()
         g_AHRS.AccelLatCorr  = g_pIMU->Ay;
         g_AHRS.AccelVertCorr = g_pIMU->Az;
 
-        g_AudioPlay.UpdateTones();
+        g_AudioPlay.UpdateTones(SnapshotActiveFlap());
 
         return true;
         } // end reading lines looking for a good one
@@ -335,13 +335,10 @@ void ReadTestPot()
     float   fFlapRawValue = 0;
     float   fReadAOA;
 
-    // Average some flap pot readings
-    if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(100)))
-    {
-        for (int i=0; i<5;i++)
-            fFlapRawValue += g_Flaps.Read(); // analogRead(kPinFlap);
-        xSemaphoreGive(xSensorMutex);
-    }
+    // Average some flap pot readings.  Flaps::Read() takes xSensorMutex
+    // internally for each SPI transaction.
+    for (int i=0; i<5;i++)
+        fFlapRawValue += g_Flaps.Read();
     fFlapRawValue = fFlapRawValue / 5.0;
 
     // Map the flap pot raw value onto the flap pot raw value limits
@@ -364,7 +361,7 @@ void ReadTestPot()
 
     g_Sensors.IAS = 50; // to turn on the tones
 
-    g_AudioPlay.UpdateTones(); // to turn off tone at the end;
+    g_AudioPlay.UpdateTones(SnapshotActiveFlap()); // TestPot tick: feed live snapshot.
     g_Log.printf(MsgLog::EnReplay, MsgLog::EnDebug, "fReadAOA: %0.2f, AOA: %0.2f\n",fReadAOA, g_Sensors.AOA);
 
 #if 0
@@ -440,7 +437,7 @@ void RangeSweepTask(void *pvParams)
         g_Sensors.AOA = fCurrentRangeSweepValue;
     //    setAOApoints(0); // flaps down (up?)
         g_Sensors.IAS = 50; // to turn on the tones
-        g_AudioPlay.UpdateTones();
+        g_AudioPlay.UpdateTones(SnapshotActiveFlap());
 
     } // end while true is true
 

@@ -14,62 +14,99 @@ Flaps::Flaps()
 
 // ----------------------------------------------------------------------------
 
-// Read and return the flap analog position
+// Read the analog flap position from the MCP3202 (or built-in ADC on legacy
+// boards).  Takes xSensorMutex around the SPI transaction to share the bus
+// with the IMU and pressure sensors; held only for the few microseconds the
+// SPI transfer takes.
+//
+// Putting the take here (rather than at the call site) keeps the lock graph
+// simple: every caller -- SensorIO, ConsoleSerial, LogReplay -- gets bus
+// safety without nesting xSensorMutex around any code that subsequently
+// takes xAhrsMutex.
 
 uint16_t Flaps::Read()
 {
     if constexpr (kHasExternalMcp3202)
-        return Mcp3202Read(kAdcChFlap);
+    {
+        uint16_t uVal = 0;
+        xSemaphoreTake(xSensorMutex, portMAX_DELAY);
+        uVal = Mcp3202Read(kAdcChFlap);
+        xSemaphoreGive(xSensorMutex);
+        return uVal;
+    }
     else
         return analogRead(kPinFlap);
 }
 
 // ----------------------------------------------------------------------------
 
-// Read the flap position and update some values
+// Read the flap position and update iIndex / iPosition.
+//
+// The xAhrsMutex window covers the entire detect-and-write sequence so
+// HandleConfigSave's flap-vector swap on Core 0 cannot retire `aFlaps`
+// between the size snapshot and the index write.  Without this window the
+// detector could index a flap entry from the old vector against a size
+// from the new one (TOCTOU on `aFlaps.size()`).
 
 void Flaps::Update()
 {
-    // Read the analog value
+    // Read the analog value first; the SPI take is independent of xAhrsMutex.
     uValue = Read();
 
-    // Build a temporary array of pot positions for the core detector.
-    // The config stores iPotPosition as int; cast to uint16_t (ADC range
-    // is 0–4095, so fits).
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+    {
+        // Skip this 1 Hz tick; iIndex / iPosition stay at their last
+        // known values rather than getting written from a torn snapshot.
+        return;
+    }
+
     const size_t nFlaps = g_Config.aFlaps.size();
     if (nFlaps == 0u)
     {
         iPosition = -1;
+        xSemaphoreGive(xAhrsMutex);
         return;
     }
 
     uint16_t potPositions[MAX_AOA_CURVES];
-    for (size_t i = 0u; i < nFlaps && i < MAX_AOA_CURVES; ++i)
+    const size_t nUsed = (nFlaps < (size_t)MAX_AOA_CURVES) ? nFlaps : (size_t)MAX_AOA_CURVES;
+    for (size_t i = 0u; i < nUsed; ++i)
         potPositions[i] = static_cast<uint16_t>(g_Config.aFlaps[i].iPotPosition);
 
     // Delegate the midpoint-threshold detection to the platform-independent
     // core function. It handles both ascending and descending wiring.
-    onspeed::FlapState state = onspeed::sensors::DetectFlaps(uValue, potPositions, nFlaps);
+    onspeed::FlapState state = onspeed::sensors::DetectFlaps(uValue, potPositions, nUsed);
 
-    // Transfer the detected index back to our member fields, then resolve
-    // the degree value from config. Update(int) handles clamping.
-    Update(state.detectedIndex);
+    // Resolve directly from the same snapshot the detector saw -- never
+    // re-read aFlaps.size() after the detection call.
+    const int iSafeIdx = constrain(state.detectedIndex, 0, (int)nUsed - 1);
+    iIndex    = iSafeIdx;
+    iPosition = g_Config.aFlaps[iSafeIdx].iDegrees;
+
+    xSemaphoreGive(xAhrsMutex);
 }
 
 // ----------------------------------------------------------------------------
 
-// Sometimes (like Test Pot mode) you just want to set an index
+// Sometimes (like Test Pot mode) you just want to set an index.  Same
+// xAhrsMutex window as the auto-detect overload, for the same reason.
 
 void Flaps::Update(int iFlapsIndex)
 {
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+        return;
+
     if (g_Config.aFlaps.empty())
     {
         iIndex    = 0;
         iPosition = -1;
-        return;
+    }
+    else
+    {
+        iIndex    = constrain(iFlapsIndex, 0, (int)g_Config.aFlaps.size() - 1);
+        iPosition = g_Config.aFlaps[iIndex].iDegrees;
     }
 
-    iIndex    = constrain(iFlapsIndex, 0, (int)g_Config.aFlaps.size() - 1);
-    iPosition = g_Config.aFlaps[iIndex].iDegrees;
+    xSemaphoreGive(xAhrsMutex);
 }
 

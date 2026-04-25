@@ -11,12 +11,34 @@
 #include <filters/RunningMedian.h>
 #include <filters/SavGolDerivative.h>
 #include <aoa/AOACalculator.h>
+#include <audio/ToneCalc.h>
 #include <types/SensorSample.h>
+#include <util/OnSpeedTypes.h>
 
 using onspeed::SavGolDerivative;
 using onspeed::AOACalculator;
 using onspeed::RunningMean;
 using onspeed::RunningMedian;
+
+// One-shot snapshot of the active flap entry's setpoints + AOA polynomial.
+// Built under xAhrsMutex with a bounds check on g_Flaps.iIndex; passed by
+// value to consumers (AOA calc, tone calc) so they never index aFlaps[]
+// directly during a HandleConfigSave swap.
+//
+// bValid is false when the snapshot could not be built (mutex timeout or
+// out-of-bounds iIndex).  Consumers treat invalid as fail-silent: zero
+// AOA, no tone -- strictly safer than acting on torn or freed memory.
+struct ActiveFlapSnapshot {
+    onspeed::SuCalibrationCurve curve;
+    onspeed::ToneThresholds     th;
+    bool                        bValid;
+};
+
+// Snapshot the AOA polynomial curve and the four tone setpoints from
+// g_Config.aFlaps[g_Flaps.iIndex] under xAhrsMutex.  Returns bValid=false
+// on mutex timeout or if g_Flaps.iIndex is out of bounds for the current
+// vector size.
+ActiveFlapSnapshot SnapshotActiveFlap();
 
 // FreeRTOS task for reading sensors
 void SensorReadTask(void *pvParams);

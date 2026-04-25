@@ -1,6 +1,7 @@
 
 
 #include <math.h>
+#include <type_traits>
 #include <OneWire.h>
 
 #include "src/Globals.h"
@@ -11,9 +12,69 @@
 #include <sensors/PressureConvert.h>
 #include <sensors/OatConvert.h>
 
+// ============================================================================
+// Mutex graph for SensorIO and downstream readers:
+//   xSensorMutex - guards the shared SPI bus (IMU + 3 pressure sensors +
+//                  MCP3202 ADC).  Held for microseconds at a time, only
+//                  for the duration of an SPI transaction.
+//   xAhrsMutex   - guards AHRS state (Madgwick / EKF6) AND the swap of
+//                  g_Config.aFlaps + the matching write to g_Flaps.iIndex
+//                  in HandleConfigSave.  Per-flap setpoints and the AOA
+//                  polynomial must therefore be snapshotted under
+//                  xAhrsMutex by every reader on the flight-data path
+//                  (SensorIO::Read -> Audio.cpp::UpdateTones, the AOA
+//                  curve evaluation, DisplaySerial::Write,
+//                  DataServer::UpdateLiveDataJson, Flaps::Update).
+//
+// Rule: never nest these two.  If a code path needs both, take
+// xSensorMutex first, release, then take xAhrsMutex.  Nested takes
+// would risk deadlock the moment a future caller takes them in the
+// other order; staying un-nested makes that class of bug structurally
+// impossible.
+// ============================================================================
+
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
 using onspeed::CurveCalc;
+
+// Snapshotting the active flap entry assumes a trivial copy is sound.
+// SuCalibrationCurve is a POD; SuFlaps is a small aggregate of scalars and
+// one SuCalibrationCurve.  These static_asserts catch the day someone adds
+// a non-trivially-copyable member (a std::string for a setpoint label,
+// say) which would silently break the snapshot pattern.
+static_assert(std::is_trivially_copyable_v<SuCalibrationCurve>,
+              "SuCalibrationCurve must remain trivially copyable so the "
+              "ActiveFlapSnapshot copy is safe under a brief mutex window.");
+static_assert(std::is_trivially_copyable_v<FOSConfig::SuFlaps>,
+              "FOSConfig::SuFlaps must remain trivially copyable so the "
+              "DisplaySerial / DataServer per-flap snapshots are safe.");
+
+// ----------------------------------------------------------------------------
+
+ActiveFlapSnapshot SnapshotActiveFlap()
+{
+    ActiveFlapSnapshot snap{};
+    snap.bValid = false;
+
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+        return snap;
+
+    const size_t nFlaps = g_Config.aFlaps.size();
+    const int    iIdx   = g_Flaps.iIndex;
+    if (iIdx >= 0 && (size_t)iIdx < nFlaps)
+    {
+        const auto& flap   = g_Config.aFlaps[iIdx];
+        snap.curve         = flap.AoaCurve;
+        snap.th.fLDMAXAOA       = flap.fLDMAXAOA;
+        snap.th.fONSPEEDFASTAOA = flap.fONSPEEDFASTAOA;
+        snap.th.fONSPEEDSLOWAOA = flap.fONSPEEDSLOWAOA;
+        snap.th.fSTALLWARNAOA   = flap.fSTALLWARNAOA;
+        snap.bValid             = true;
+    }
+
+    xSemaphoreGive(xAhrsMutex);
+    return snap;
+}
 
 
 static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
@@ -214,20 +275,18 @@ void SensorIO::Read()
     iP45     = g_pAOA->ReadPressureCounts()   - g_Config.iP45Bias;
     xSemaphoreGive(xSensorMutex);
 
-    // Update flaps position about once per second.
-    // Guard with xSensorMutex because g_Flaps.Update() reads the MCP3202
-    // ADC over the same SPI bus used by the pressure sensors and IMU.
-    // Use a short timeout — the flap read is best-effort at 1 Hz.
+    // Update flaps position about once per second.  Flaps::Read() takes
+    // xSensorMutex itself for its SPI transaction, and Flaps::Update()
+    // takes xAhrsMutex for the size+index snapshot.  Calling them here
+    // without an outer mutex keeps xSensorMutex and xAhrsMutex strictly
+    // un-nested on this task -- a precondition for the AOA snapshot
+    // below, which takes xAhrsMutex from outside any xSensorMutex hold.
     if (millis() - uLastFlapsReadMs > 1000)
     {
-        if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
-        {
-            if (g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot)
-                g_Flaps.Update();
-            else
-                g_Flaps.Update(0);
-            xSemaphoreGive(xSensorMutex);
-        }
+        if (g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot)
+            g_Flaps.Update();
+        else
+            g_Flaps.Update(0);
         uLastFlapsReadMs = millis();
     }
 
@@ -291,14 +350,35 @@ void SensorIO::Read()
     P45Avg.addValue(P45Median.getMedian());
     P45Smoothed = P45Avg.getFastAverage();
 
+    // Snapshot the AOA polynomial AND the four tone setpoints from the
+    // active flap entry in a single xAhrsMutex window.  Doing both reads
+    // under one take guarantees the AOA computed from the polynomial and
+    // the tone decision made from the setpoints come from the same
+    // aFlaps[iIndex] revision -- no half-old / half-new combination
+    // across a HandleConfigSave swap on Core 0.  The snapshot is then
+    // passed by const reference into both AoaCalc and UpdateTones so
+    // neither function indexes g_Config.aFlaps directly.
+    const ActiveFlapSnapshot snap = SnapshotActiveFlap();
+
     // Calculate AOA based on Pfwd/P45;
     if ((g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot) &&
         (g_Config.suDataSrc.enSrc != SuDataSource::EnRangeSweep))
     {
-        const SuCalibrationCurve& curve = g_Config.aFlaps[g_Flaps.iIndex].AoaCurve;
-        AOACalculatorResult result = AoaCalc.calculate(PfwdSmoothed, P45Smoothed, curve);
-        AOA = result.aoa;
-        g_fCoeffP = result.coeffP;
+        if (snap.bValid)
+        {
+            AOACalculatorResult result = AoaCalc.calculate(PfwdSmoothed, P45Smoothed, snap.curve);
+            AOA = result.aoa;
+            g_fCoeffP = result.coeffP;
+        }
+        else
+        {
+            // Mutex timeout or out-of-bounds iIndex.  Hold AOA at zero so
+            // downstream tone calc treats the input as uncalibrated and
+            // stays silent; do not run the polynomial against a torn or
+            // freed curve.
+            AOA = 0.0f;
+            g_fCoeffP = 0.0f;
+        }
 
         // Calculate airspeed from smoothed dynamic pressure.
         // The smoothed value is without bias, so we add it back for the PSI conversion.
@@ -346,7 +426,7 @@ void SensorIO::Read()
 
     if (g_Config.iLogRate != 208)
         g_LogSensor.Write();
-    g_AudioPlay.UpdateTones();
+    g_AudioPlay.UpdateTones(snap);
 
     if (g_Log.Test(MsgLog::EnSensors, MsgLog::EnDebug) == true)
     {

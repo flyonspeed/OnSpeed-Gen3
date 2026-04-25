@@ -142,13 +142,40 @@ void DisplaySerial::Write()
         iDisplayVerticalG = 0;
 
 
+    // Snapshot the active flap entry once under xAhrsMutex with a bounds
+    // check on g_Flaps.iIndex.  ComputePercentLift below and the EFIS
+    // frame builder both read several fields off this entry; without the
+    // snapshot they could see the vector swapped out from under them by
+    // HandleConfigSave on Core 0, or a stale iIndex pointing past the
+    // new vector's end after a 4->2 shrink.  20 Hz cadence has plenty of
+    // headroom for a 10 ms timeout; on timeout or out-of-bounds index we
+    // emit zero setpoints (display reads "no calibration" rather than a
+    // garbage tone bar).
+    FOSConfig::SuFlaps flapSnapshot{};
+    bool bFlapSnapshotValid = false;
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        {
+        const size_t nFlaps = g_Config.aFlaps.size();
+        const int    iIdx   = g_Flaps.iIndex;
+        if (iIdx >= 0 && (size_t)iIdx < nFlaps)
+            {
+            flapSnapshot       = g_Config.aFlaps[iIdx];
+            bFlapSnapshotValid = true;
+            }
+        xSemaphoreGive(xAhrsMutex);
+        }
+
     // PercentLift is computed by the shared core helper so the M5 display
     // and any future native consumer get the identical 0..99 scalar.  See
     // onspeed_core/aoa/PercentLift.h for the range table and the alpha_0
     // floor caveat (issue #199 tracks the JS liveview duplicate).
-    iPercentLift = ComputePercentLift(g_Sensors.AOA,
-                                      g_Config.aFlaps[g_Flaps.iIndex],
-                                      bIasValidForOutput);
+    if (bFlapSnapshotValid)
+        iPercentLift = ComputePercentLift(g_Sensors.AOA,
+                                          flapSnapshot,
+                                          bIasValidForOutput);
+    else
+        iPercentLift = 0;
+
     if (bIasValidForOutput)
         fDisplayAOA = g_Sensors.AOA;
     else
@@ -222,10 +249,13 @@ void DisplaySerial::Write()
         inputs.oatC              = iOATc;
         inputs.flightPathDeg     = g_AHRS.FlightPath;
         inputs.flapsDeg          = (int)g_Flaps.iPosition;
-        inputs.stallWarnAoaDeg   = g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA;
-        inputs.onSpeedSlowAoaDeg = g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA;
-        inputs.onSpeedFastAoaDeg = g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA;
-        inputs.tonesOnAoaDeg     = g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA;
+        // Setpoints come from the snapshot taken at the top of Write();
+        // emit zeros if the snapshot was invalid so the display sees an
+        // uncalibrated bar rather than torn / stale memory.
+        inputs.stallWarnAoaDeg   = bFlapSnapshotValid ? flapSnapshot.fSTALLWARNAOA   : 0.0f;
+        inputs.onSpeedSlowAoaDeg = bFlapSnapshotValid ? flapSnapshot.fONSPEEDSLOWAOA : 0.0f;
+        inputs.onSpeedFastAoaDeg = bFlapSnapshotValid ? flapSnapshot.fONSPEEDFASTAOA : 0.0f;
+        inputs.tonesOnAoaDeg     = bFlapSnapshotValid ? flapSnapshot.fLDMAXAOA       : 0.0f;
         inputs.gOnsetRate        = 0.0f;
         inputs.spinRecoveryCue   = 0;
         inputs.dataMark          = (int)((unsigned)g_iDataMark % 100u);
