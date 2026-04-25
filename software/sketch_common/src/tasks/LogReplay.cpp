@@ -15,6 +15,7 @@
 #include "src/config/Config.h"
 #include "src/drivers/SensorIO.h"
 #include <filters/EMAFilter.h>
+#include <proto/CsvHeaderMatch.h>
 #include <proto/LogCsv.h>
 #include <types/LogRow.h>
 
@@ -22,6 +23,7 @@ using onspeed::pressureCoeff;
 using onspeed::fpm2mps;
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
+using onspeed::proto::HasColumn;
 
 FsFile                      hReplayFile;
 static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
@@ -145,30 +147,27 @@ bool OpenReplayLog(String sLogFile)
     // Detect optional column groups from the header so ParseRow knows the
     // column layout.  Presence of "boomStatic" indicates boom columns;
     // "efisIAS" indicates standard EFIS; "vnAngularRateRoll" indicates VN-300.
-    {
-    s_bReplayBoom  = strstr(szInLine, "boomStatic")         != nullptr;
-    s_bReplayVn300 = strstr(szInLine, "vnAngularRateRoll")  != nullptr;
-    s_bReplayEfis  = s_bReplayVn300 ||
-                     strstr(szInLine, "efisIAS")            != nullptr;
-    }
+    s_bReplayBoom  = HasColumn(szInLine, "boomStatic");
+    s_bReplayVn300 = HasColumn(szInLine, "vnAngularRateRoll");
+    s_bReplayEfis  = s_bReplayVn300 || HasColumn(szInLine, "efisIAS");
 
     // Validate that the required core columns are present.
-    if (strstr(szInLine, "PfwdSmoothed") == nullptr) goto fail;
-    if (strstr(szInLine, "P45Smoothed")  == nullptr) goto fail;
-    if (strstr(szInLine, "flapsPos")     == nullptr) goto fail;
-    if (strstr(szInLine, "Palt")         == nullptr) goto fail;
-    if (strstr(szInLine, "IAS")          == nullptr) goto fail;
-    if (strstr(szInLine, "DataMark")     == nullptr) goto fail;
-    if (strstr(szInLine, "VSI")          == nullptr) goto fail;
-    if (strstr(szInLine, "VerticalG")    == nullptr) goto fail;
-    if (strstr(szInLine, "LateralG")     == nullptr) goto fail;
-    if (strstr(szInLine, "ForwardG")     == nullptr) goto fail;
-    if (strstr(szInLine, "RollRate")     == nullptr) goto fail;
-    if (strstr(szInLine, "PitchRate")    == nullptr) goto fail;
-    if (strstr(szInLine, "YawRate")      == nullptr) goto fail;
-    if (strstr(szInLine, "Pitch")        == nullptr) goto fail;
-    if (strstr(szInLine, "Roll")         == nullptr) goto fail;
-    if (strstr(szInLine, "FlightPath")   == nullptr) goto fail;
+    if (!HasColumn(szInLine, "PfwdSmoothed")) goto fail;
+    if (!HasColumn(szInLine, "P45Smoothed"))  goto fail;
+    if (!HasColumn(szInLine, "flapsPos"))     goto fail;
+    if (!HasColumn(szInLine, "Palt"))         goto fail;
+    if (!HasColumn(szInLine, "IAS"))          goto fail;
+    if (!HasColumn(szInLine, "DataMark"))     goto fail;
+    if (!HasColumn(szInLine, "VSI"))          goto fail;
+    if (!HasColumn(szInLine, "VerticalG"))    goto fail;
+    if (!HasColumn(szInLine, "LateralG"))     goto fail;
+    if (!HasColumn(szInLine, "ForwardG"))     goto fail;
+    if (!HasColumn(szInLine, "RollRate"))     goto fail;
+    if (!HasColumn(szInLine, "PitchRate"))    goto fail;
+    if (!HasColumn(szInLine, "YawRate"))      goto fail;
+    if (!HasColumn(szInLine, "Pitch"))        goto fail;
+    if (!HasColumn(szInLine, "Roll"))         goto fail;
+    if (!HasColumn(szInLine, "FlightPath"))   goto fail;
 
     g_Log.printf("Replaying data from log file: %s\n", sLogFile.c_str());
     return true;
