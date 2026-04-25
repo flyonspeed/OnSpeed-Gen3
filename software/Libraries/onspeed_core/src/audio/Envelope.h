@@ -47,15 +47,30 @@ struct EnvelopeSpec {
     float decaySamples   = 0.0f;
     float releaseSamples = 0.0f;
 
+    // Silent gap held at level 0 between the end of one pulse cycle's
+    // Decay and the start of the next cycle's Delay.  Set to
+    // (cyclePeriod - delay - attack - hold - decay) so the full pulse
+    // cycle takes exactly `cyclePeriod` samples — matching Gen2's
+    // IntervalTimer-driven cadence where the timer fires every
+    // `1000/pps` ms regardless of how long the envelope phases take.
+    // Without this gap, Gen3 would auto-loop pulses immediately after
+    // Decay, producing a cycle period of `delay+attack+hold+decay`
+    // (Gen2's `tone_length` = `pulse_delay - 3` ms), so the perceived
+    // PPS would be ~6% high at stall and ~2.5% high at the low-tone
+    // max.  Solid tones leave this 0 (irrelevant: they enter Sustain
+    // and never reach Decay's auto-loop).
+    float gapSamples     = 0.0f;
+
     // true: after attack/hold, latch at level 1.0 indefinitely (Gen2
     //       SOLID_TONE behaviour with sustain=1).  Caller invokes
     //       NoteOff() to start the release ramp.
-    // false: after attack/hold, run the decay ramp to 0 then *automatically
-    //        re-trigger* — Delay → Attack → Hold → Decay → Delay → ...
+    // false: after attack/hold, run the decay ramp to 0, hold silently
+    //        for gapSamples, then *automatically re-trigger* —
+    //        Delay → Attack → Hold → Decay → Gap → Delay → ...
     //        This produces continuous pulses at the rate implied by the
-    //        DAHD timing, mirroring Gen2's IntervalTimer-driven re-trigger
-    //        of `envelope1.noteOn()` once per pulse period.  NoteOff()
-    //        still terminates immediately via the Release ramp.
+    //        DAHD+Gap timing, mirroring Gen2's IntervalTimer-driven
+    //        re-trigger of `envelope1.noteOn()` once per pulse period.
+    //        NoteOff() still terminates immediately via the Release ramp.
     bool isSolid = false;
 };
 
@@ -65,6 +80,7 @@ enum class EnvPhase : std::uint8_t {
     Attack,
     Hold,
     Decay,
+    Gap,
     Sustain,
     Release,
 };
@@ -115,8 +131,10 @@ public:
     bool     HasPending() const { return notePending_; }
 
     // True iff the envelope is in an actively-playing phase (Delay,
-    // Attack, Hold, Decay, Sustain).  Returns false during Release
-    // (winding down) and Idle (stopped).
+    // Attack, Hold, Decay, Gap, Sustain).  Returns false during Release
+    // (winding down) and Idle (stopped).  Gap counts as active even
+    // though it's silent — it's still part of the running pulse cycle,
+    // and a same-spec NoteOn during Gap should still debounce.
     bool IsActive() const
     {
         return phase_ != EnvPhase::Idle && phase_ != EnvPhase::Release;

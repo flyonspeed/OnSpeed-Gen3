@@ -23,6 +23,7 @@ inline bool SameSpec(const EnvelopeSpec& a, const EnvelopeSpec& b)
         && std::fabs(a.attackSamples  - b.attackSamples)  <= kTol
         && std::fabs(a.holdSamples    - b.holdSamples)    <= kTol
         && std::fabs(a.decaySamples   - b.decaySamples)   <= kTol
+        && std::fabs(a.gapSamples     - b.gapSamples)     <= kTol
         && std::fabs(a.releaseSamples - b.releaseSamples) <= kTol;
 }
 
@@ -154,23 +155,49 @@ float Envelope::Tick()
                 level_ = 0.0f;
                 if (notePending_)
                 {
-                    // A new spec is queued — fire it instead of looping.
+                    // A new spec is queued — fire it instead of cycling.
                     notePending_ = false;
                     EnvelopeSpec next = pendingSpec_;
                     EnterPhase(EnvPhase::Idle);   // mark done before re-arm
                     NoteOn(next);
                 }
+                else if (spec_.gapSamples > 0.0f)
+                {
+                    // Hold silently for the inter-pulse gap, then auto-
+                    // loop back to Delay/Attack.  Matches Gen2's
+                    // IntervalTimer cadence: the timer fires every
+                    // `1000/pps` ms regardless of how long the envelope
+                    // phases consumed, so the silent gap is whatever
+                    // time is left over.
+                    EnterPhase(EnvPhase::Gap);
+                }
                 else
                 {
-                    // Auto-loop: pulsed notes re-trigger from Delay so the
-                    // gate continues producing pulses at the rate implied
-                    // by the DAHD timing.  This mirrors Gen2's
-                    // IntervalTimer-driven `noteOn()` per pulse.
+                    // No gap configured — re-trigger immediately.
                     EnterPhase(spec_.delaySamples > 0.0f ? EnvPhase::Delay
                                                          : EnvPhase::Attack);
                 }
             }
             return level_;
+
+        case EnvPhase::Gap:
+            samplesInPhase_ += 1.0f;
+            if (samplesInPhase_ >= spec_.gapSamples)
+            {
+                if (notePending_)
+                {
+                    notePending_ = false;
+                    EnvelopeSpec next = pendingSpec_;
+                    EnterPhase(EnvPhase::Idle);
+                    NoteOn(next);
+                }
+                else
+                {
+                    EnterPhase(spec_.delaySamples > 0.0f ? EnvPhase::Delay
+                                                         : EnvPhase::Attack);
+                }
+            }
+            return 0.0f;
 
         case EnvPhase::Sustain:
             return 1.0f;
