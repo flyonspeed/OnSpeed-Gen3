@@ -232,11 +232,21 @@ void SerialRead()
         SpinRecoveryCue     = 0;
         DataMark            = 0;
 
-        if (AOA < 25.0) AOA += 0.2;
-        else            AOA  = 0.0;
+        // Body-angle sweep covering alpha_0..past-stall for a typical
+        // RV-class aircraft. PercentLift uses alpha_0 as the zero-lift
+        // floor (not 0°) so the bar matches what the firmware draws on
+        // the real device.
+        static constexpr float kSimAlpha0     = -4.0f;
+        static constexpr float kSimAlphaStall = 18.0f;
 
-        if (AOA < 20.0) PercentLift = AOA * 5.0;
-        else            PercentLift = 100.0;
+        if (AOA < 20.0f) AOA += 0.2f;
+        else             AOA  = kSimAlpha0;
+
+        const float fraction =
+            (AOA - kSimAlpha0) / (kSimAlphaStall - kSimAlpha0);
+        PercentLift = (int)(fraction * 100.0f);
+        if (PercentLift < 0)  PercentLift = 0;
+        if (PercentLift > 99) PercentLift = 99;
 
         // Dummy data ticks every 100 ms.
         SerialProcess(0.1f);

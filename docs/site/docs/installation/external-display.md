@@ -29,7 +29,8 @@ native 320×240 resolution.
 Click the display, then press <kbd>↓</kbd> to cycle through the five
 modes (the one you're looking at is the primary AOA indexer; there
 are four more). The data feed is a synthetic AOA ramp that sweeps
-from 0° up to 25° and back, so you can watch the chevrons and percent
+from −4° up to 20° and back, covering the alpha_0 floor through past
+stall so you can watch the chevrons and percent
 lift move through the whole tone-map range. It's not a recorded
 flight — but everything the firmware draws is drawn the same way on
 the real device.
