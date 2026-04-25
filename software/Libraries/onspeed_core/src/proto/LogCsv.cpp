@@ -277,6 +277,14 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     // EFIS columns (optional)
     if (row.efisEnabled) {
         if (row.efisIsVn300) {
+            // The VN-300 row's last column is `vnTimeUtc`, written as `%s`.
+            // A comma in that string would split into the next CSV column
+            // and corrupt every parser downstream (the tokenizer is not
+            // RFC-4180 quote-aware).  Today the producer in onspeed_core
+            // emits `%u:%u:%u`, but a future format change is the latent
+            // risk.  Refuse to emit the row rather than silently corrupt.
+            if (memchr(row.vnTimeUtc, ',', strnlen(row.vnTimeUtc, sizeof(row.vnTimeUtc))) != nullptr)
+                return 0;
             // VN-300 format
             ok &= Appendf(out, outCapacity, &len,
                 ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f"
