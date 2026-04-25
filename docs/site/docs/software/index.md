@@ -5,3 +5,4 @@ The OnSpeed firmware runs on the ESP32-S3 microcontroller. Pre-built firmware fo
 - **[Flashing Firmware](flashing.md)** — Download and flash pre-built firmware via USB
 - **[OTA Updates via WiFi](ota-update.md)** — Update firmware wirelessly through the web interface
 - **[Building from Source](building.md)** — For developers: compile the firmware yourself
+- **[Audio Tone Spec (WIP)](audio-tone-spec.md)** — Developer reference for the aural-tone subsystem; aspirational, not yet matched by current firmware
