@@ -267,6 +267,39 @@ static void test_builder_empty_time_strings_treated_as_null()
     TEST_ASSERT_EQUAL_STRING("13:00:00", m.timeOfDayStart);
 }
 
+// Mid-stream Finalize() is non-destructive — the periodic sidecar write
+// snapshots a still-running builder, then keeps feeding it. Pin the
+// invariant the periodic write depends on: a second Finalize() reflects ALL
+// rows fed, not just rows after the first snapshot. If a future "optimize
+// Finalize()" change makes it mutate the builder, the periodic write would
+// silently lose history between snapshots — this test catches that.
+static void test_builder_finalize_is_non_destructive()
+{
+    LogMetaBuilder b;
+    b.Begin("4.19.0", "abc1234", 1, EfisType::Dynon);
+    b.OnRow(MakeRow(1000, 30.0f, 500.0f),  "13:00:00", nullptr);
+    b.OnRow(MakeRow(2000, 60.0f, 1500.0f), nullptr,    nullptr);
+
+    // Mid-stream snapshot — the periodic sidecar write does this.
+    LogMeta mid = b.Finalize();
+    TEST_ASSERT_EQUAL_UINT32(2u,     mid.rowCount);
+    TEST_ASSERT_EQUAL_UINT32(1000u,  mid.durationMs);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 60.0f,   mid.maxIasKt);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f,  1500.0f, mid.maxPaltFt);
+    TEST_ASSERT_EQUAL_STRING("13:00:00", mid.timeOfDayStart);
+
+    // Continue feeding — running max should keep climbing, time stays first.
+    b.OnRow(MakeRow(3000, 99.5f, 2200.0f), "13:00:02", nullptr);
+    b.OnRow(MakeRow(4500, 80.0f, 2100.0f), nullptr,    nullptr);
+
+    LogMeta fin = b.Finalize();
+    TEST_ASSERT_EQUAL_UINT32(4u,     fin.rowCount);
+    TEST_ASSERT_EQUAL_UINT32(3500u,  fin.durationMs);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 99.5f,   fin.maxIasKt);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f,  2200.0f, fin.maxPaltFt);
+    TEST_ASSERT_EQUAL_STRING("13:00:00", fin.timeOfDayStart);   // first, unchanged
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -287,5 +320,6 @@ int main()
     RUN_TEST(test_builder_captures_first_time_only);
     RUN_TEST(test_builder_captures_first_utc_only);
     RUN_TEST(test_builder_empty_time_strings_treated_as_null);
+    RUN_TEST(test_builder_finalize_is_non_destructive);
     return UNITY_END();
 }

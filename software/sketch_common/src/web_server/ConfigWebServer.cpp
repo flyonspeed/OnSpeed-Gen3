@@ -3189,8 +3189,13 @@ void HandleLogs()
                 size_t nlen = strlen(name);
 
                 // .meta sidecars are an implementation detail of the logs
-                // table — never shown in either section.
+                // table — never shown in either section. .meta.tmp is the
+                // staging file the periodic refresh uses; it normally only
+                // exists for milliseconds between write and rename, but
+                // hide it too in case /logs is loaded during that window.
                 if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
+                    continue;
+                if (nlen >= 9 && strcasecmp(name + nlen - 9, ".meta.tmp") == 0)
                     continue;
 
                 bool bIsLog = (nlen >= 4 &&

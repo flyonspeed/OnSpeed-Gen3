@@ -16,6 +16,7 @@ using onspeed::mps2fpm;
 using onspeed::mps2kts;
 
 #define SYNC_INTERVAL_MS            5000                // How often to sync the log file to disk
+#define SIDECAR_REFRESH_MS          30000               // How often to refresh the .meta sidecar mid-flight
 
 // Peformance variables for debugging
 volatile uint64_t   uWriteMax;
@@ -66,6 +67,7 @@ void LogSensorCommitTask(void *pvParams)
     static size_t         iPrintLen;
     static char         * pchIn;
     static TickType_t     xLastSyncTime = xTaskGetTickCount();
+    static TickType_t     xLastSidecarTime = xTaskGetTickCount();
     static uint64_t       uWriteStart, uWriteEnd, uWriteDur;
     static uint64_t       uSyncStart,  uSyncEnd,  uSyncDur;
     static uint32_t       uPendingDrops = 0;
@@ -211,6 +213,17 @@ void LogSensorCommitTask(void *pvParams)
             }
         } // end if data to write
 
+        // Refresh the .meta sidecar every SIDECAR_REFRESH_MS regardless
+        // of whether we just synced — pilots shut down by killing power
+        // at the key, so Close() never runs and the sidecar from Open()
+        // would otherwise stay frozen at zero. Done while still holding
+        // xWriteMutex so we don't contend with Close()/web-handler SD ops.
+        if ((xTaskGetTickCount() - xLastSidecarTime) > pdMS_TO_TICKS(SIDECAR_REFRESH_MS))
+        {
+            g_LogSensor.WriteSidecarLocked();
+            xLastSidecarTime = xTaskGetTickCount();
+        }
+
         xSemaphoreGive(xWriteMutex);
 
         // Never block SD access while waiting on serial output.
@@ -315,6 +328,13 @@ void LogSensor::Open()
                                 BuildInfo::gitShortSha,
                                 onspeed::proto::log_csv::kFormatVersion,
                                 etype);
+
+            // Write an initial sidecar so a power-yank in the first 30 s
+            // of the flight (before LogSensorCommitTask's first refresh
+            // tick) still leaves a valid .meta on disk. Values are zero
+            // until rows accumulate, but the /logs page renders that as
+            // "0 kt / 0 ft / 0s" — strictly more useful than em-dashes.
+            WriteSidecarLocked();
         } // end if file open OK
 
         else
@@ -335,6 +355,65 @@ void LogSensor::Open()
 
 // ----------------------------------------------------------------------------
 
+// Atomic sidecar refresh. Writes the current LogMetaBuilder snapshot to
+// "<basename>.meta.tmp", syncs, then renames over "<basename>.meta". A
+// power-yank during the tmp write leaves the previous .meta intact; a
+// power-yank during rename leaves either the old or new name pointing
+// at intact data — never a half-merged file.
+//
+// Pilots typically shut down by killing power at the key, so Close()
+// never runs and the original "write sidecar at Close() only" design
+// produced no metadata for those flights. Calling this once at Open()
+// and every 30 s during the flight bounds the loss to at most one
+// SIDECAR_REFRESH_MS window.
+//
+// Caller must hold xWriteMutex (m_szBaseName, m_metaBuilder, and SD
+// access are all serialized through it).
+void LogSensor::WriteSidecarLocked()
+{
+    if (m_szBaseName[0] == '\0') return;
+
+    onspeed::log::LogMeta meta = m_metaBuilder.Finalize();
+
+    char buf[512];
+    size_t n = onspeed::log::WriteMetaFile(meta, buf, sizeof(buf));
+    if (n == 0) {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                      "Sidecar meta serialize failed");
+        return;
+    }
+
+    char tmpPath[32];
+    char metaPath[32];
+    snprintf(tmpPath,  sizeof(tmpPath),  "%s.meta.tmp", m_szBaseName);
+    snprintf(metaPath, sizeof(metaPath), "%s.meta",     m_szBaseName);
+
+    FsFile f = g_SdFileSys.open(tmpPath, O_RDWR | O_CREAT | O_TRUNC);
+    if (!f.isOpen()) {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                      "Sidecar meta tmp open failed");
+        return;
+    }
+    f.write(buf, n);
+    f.sync();
+    f.close();
+
+    // Rename atomically over the prior .meta. Remove any stale .meta
+    // first because some FAT implementations refuse rename-onto-existing.
+    if (g_SdFileSys.exists(metaPath))
+        g_SdFileSys.remove(metaPath);
+
+    if (!g_SdFileSys.rename(tmpPath, metaPath)) {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                      "Sidecar meta rename failed");
+        // Best effort: try to clean up the orphan tmp so it doesn't
+        // accumulate across many failed refreshes.
+        g_SdFileSys.remove(tmpPath);
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 // Close the log file. Caller must hold xWriteMutex.
 // Flushes any remaining bytes from the staging buffer before closing, so
 // the last ~1-2 log lines are not lost on graceful shutdown (LOG DISABLE,
@@ -349,27 +428,12 @@ void LogSensor::Close()
     // Nothing to serialise if we never opened a file in this session.
     if (m_szBaseName[0] == '\0') return;
 
-    onspeed::log::LogMeta meta = m_metaBuilder.Finalize();
+    WriteSidecarLocked();
 
-    // Serialise sidecar.
-    char buf[512];
-    size_t n = onspeed::log::WriteMetaFile(meta, buf, sizeof(buf));
-    if (n > 0) {
-        char metaPath[32];
-        snprintf(metaPath, sizeof(metaPath), "%s.meta", m_szBaseName);
-        FsFile f = g_SdFileSys.open(metaPath, O_RDWR | O_CREAT | O_TRUNC);
-        if (f.isOpen()) {
-            f.write(buf, n);
-            f.sync();
-            f.close();
-        } else {
-            g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
-                          "Sidecar meta open failed");
-        }
-    } else {
-        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
-                      "Sidecar meta serialize failed");
-    }
+    // Re-snapshot for the rename decision; WriteSidecarLocked() doesn't
+    // expose its snapshot, but Finalize() is non-destructive so calling
+    // it again is cheap and yields the same data.
+    onspeed::log::LogMeta meta = m_metaBuilder.Finalize();
 
     // Optional rename: only when we captured an actual ISO-8601 UTC date
     // (format "YYYY-MM-DDTHH:MM:SSZ", at least 11 chars — we only use the
