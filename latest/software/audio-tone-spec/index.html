@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://dev.flyonspeed.org/latest/calibration/how-aoa-works/">
+        <link rel="canonical" href="https://dev.flyonspeed.org/latest/software/audio-tone-spec/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../building/">
       
       
-        <link rel="next" href="../wizard/">
+        <link rel="next" href="../../configuration/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>How OnSpeed Measures AOA - OnSpeed Gen3 Documentation</title>
+        <title>Audio Tone Spec (WIP) - OnSpeed Gen3 Documentation</title>
       
     
     
@@ -115,7 +115,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#how-onspeed-measures-aoa" class="md-skip">
+        <a href="#audio-tone-spec" class="md-skip">
           Skip to content
         </a>
       
@@ -152,7 +152,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              How OnSpeed Measures AOA
+              Audio Tone Spec (WIP)
             
           </span>
         </div>
@@ -348,11 +348,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../software/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -392,13 +394,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../calibration/" class="md-tabs__link">
           
   
   
@@ -1455,6 +1455,8 @@
       
   
   
+    
+  
   
   
     
@@ -1476,22 +1478,23 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../software/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -1509,13 +1512,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1535,7 +1538,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../software/flashing/" class="md-nav__link">
+      <a href="../flashing/" class="md-nav__link">
         
   
   
@@ -1563,7 +1566,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../software/ota-update/" class="md-nav__link">
+      <a href="../ota-update/" class="md-nav__link">
         
   
   
@@ -1591,7 +1594,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../software/building/" class="md-nav__link">
+      <a href="../building/" class="md-nav__link">
         
   
   
@@ -1616,10 +1619,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../software/audio-tone-spec/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1635,6 +1665,280 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#purpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Purpose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#source-of-truth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source of truth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0-signal-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Signal chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-tone-decision-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Tone-decision regions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-per-pulse-envelope-dahdr-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Per-pulse envelope (DAHDR shape)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Per-pulse envelope (DAHDR shape)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#worked-numeric-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked numeric values
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gate-trace-per-pulse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gate trace per pulse
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#solid-tone-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solid tone shape
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-cadence-requirement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Cadence requirement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-transition-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Transition policies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-per-pps-volume-ramp-carrier-amplitude" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Per-PPS volume ramp (carrier amplitude)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-master-volume" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Master volume
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-3d-audio-centripetal-lateral-pan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. 3D audio (centripetal lateral pan)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-click-free-invariant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Click-free invariant
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-voice-pcm-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Voice (PCM) playback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-audio-switch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Audio switch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-latency-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Latency targets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-implementations-stand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the implementations stand
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where the implementations stand">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gen2-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gen2 (reference)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gen3-on-master-current-shipping-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gen3 on master (current shipping behavior)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gen3-with-pr-102" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gen3 with PR #102
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-discrepancies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting discrepancies
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1937,8 +2241,6 @@
       
   
   
-    
-  
   
   
     
@@ -1958,23 +2260,22 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../calibration/" class="md-nav__link ">
               
   
   
@@ -1992,13 +2293,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="">
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2015,37 +2316,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    How OnSpeed Measures AOA
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../calibration/how-aoa-works/" class="md-nav__link">
         
   
   
@@ -2061,120 +2335,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#angle-of-attack-and-fractional-lift" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Angle of Attack and Fractional Lift
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#two-aoa-measurements" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Two AOA Measurements
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Two AOA Measurements">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-pressure-based-aoa" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Pressure-Based AOA
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-derived-aoa-from-ahrs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Derived AOA (from AHRS)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-lift-equation-fit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The Lift Equation Fit
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-alpha_0-matters" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why alpha_0 Matters
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#per-flap-calibration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Per-Flap Calibration
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-the-calibration-wizard-fits" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What the Calibration Wizard Fits
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2187,7 +2347,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../wizard/" class="md-nav__link">
+      <a href="../../calibration/wizard/" class="md-nav__link">
         
   
   
@@ -2215,7 +2375,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../verification/" class="md-nav__link">
+      <a href="../../calibration/verification/" class="md-nav__link">
         
   
   
@@ -3190,10 +3350,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#angle-of-attack-and-fractional-lift" class="md-nav__link">
+  <a href="#purpose" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Angle of Attack and Fractional Lift
+        Purpose
       
     </span>
   </a>
@@ -3201,22 +3361,55 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#two-aoa-measurements" class="md-nav__link">
+  <a href="#source-of-truth" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Two AOA Measurements
+        Source of truth
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Two AOA Measurements">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0-signal-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Signal chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-tone-decision-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Tone-decision regions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-per-pulse-envelope-dahdr-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Per-pulse envelope (DAHDR shape)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Per-pulse envelope (DAHDR shape)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-pressure-based-aoa" class="md-nav__link">
+  <a href="#worked-numeric-values" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Pressure-Based AOA
+        Worked numeric values
       
     </span>
   </a>
@@ -3224,10 +3417,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#2-derived-aoa-from-ahrs" class="md-nav__link">
+  <a href="#gate-trace-per-pulse" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Derived AOA (from AHRS)
+        Gate trace per pulse
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#solid-tone-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solid tone shape
       
     </span>
   </a>
@@ -3240,10 +3444,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-lift-equation-fit" class="md-nav__link">
+  <a href="#3-cadence-requirement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The Lift Equation Fit
+        3. Cadence requirement
       
     </span>
   </a>
@@ -3251,10 +3455,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-alpha_0-matters" class="md-nav__link">
+  <a href="#4-transition-policies" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why alpha_0 Matters
+        4. Transition policies
       
     </span>
   </a>
@@ -3262,10 +3466,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#per-flap-calibration" class="md-nav__link">
+  <a href="#5-per-pps-volume-ramp-carrier-amplitude" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Per-Flap Calibration
+        5. Per-PPS volume ramp (carrier amplitude)
       
     </span>
   </a>
@@ -3273,10 +3477,126 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-the-calibration-wizard-fits" class="md-nav__link">
+  <a href="#6-master-volume" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What the Calibration Wizard Fits
+        6. Master volume
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-3d-audio-centripetal-lateral-pan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. 3D audio (centripetal lateral pan)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-click-free-invariant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Click-free invariant
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-voice-pcm-playback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Voice (PCM) playback
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-audio-switch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Audio switch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-latency-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Latency targets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-implementations-stand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the implementations stand
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where the implementations stand">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gen2-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gen2 (reference)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gen3-on-master-current-shipping-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gen3 on master (current shipping behavior)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gen3-with-pr-102" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gen3 with PR #102
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-discrepancies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting discrepancies
       
     </span>
   </a>
@@ -3300,7 +3620,7 @@
 
 
   
-    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/calibration/how-aoa-works.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/software/audio-tone-spec.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3308,111 +3628,432 @@
   
 
 
-<h1 id="how-onspeed-measures-aoa">How OnSpeed Measures AOA<a class="headerlink" href="#how-onspeed-measures-aoa" title="Permanent link">&para;</a></h1>
-<p>Understanding the measurement helps you produce better calibrations and troubleshoot problems.</p>
-<div class="admonition note">
-<p class="admonition-title">OnSpeed measures body angle, not wing AOA</p>
-<p>Throughout the firmware, configuration, and these docs, the quantity called "AOA" is <strong>body angle</strong> — the fuselage-to-wind angle, in degrees. It is not wing angle of attack.</p>
-<p>Most aircraft mount the wing at a positive incidence relative to the fuselage longitudinal axis, so the fuselage points slightly nose-down when the wing is at zero AOA. The body angle at zero wing lift is <span class="arithmatex">\(\alpha_0\)</span>, and on most aircraft it is <strong>negative</strong> (typically −3° to −6°, varying with flap setting).</p>
-<p>This is why fractional lift is computed as <span class="arithmatex">\((\alpha - \alpha_0) / (\alpha_\text{stall} - \alpha_0)\)</span> — the floor is <span class="arithmatex">\(\alpha_0\)</span>, not zero. A body angle of −3° is genuinely producing positive lift if <span class="arithmatex">\(\alpha_0\)</span> is −4°, and the math has to reflect that.</p>
+<h1 id="audio-tone-spec">Audio Tone Spec<a class="headerlink" href="#audio-tone-spec" title="Permanent link">&para;</a></h1>
+<div class="admonition warning">
+<p class="admonition-title">Work in progress — aspirational spec, not yet verified</p>
+<p>This document captures what the OnSpeed aural tones <strong>should sound like</strong>, derived from the Gen2 (Teensy) reference implementation that Lenny tuned.</p>
+<p>The current Gen3 firmware on <code>master</code> <strong>does not implement this spec</strong>. PR <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/102">#102</a> is the in-flight attempt to close the gap. Even with that PR, on-aircraft scope traces and side-by-side listening tests against Gen2 hardware are still pending — Lenny is recording waveforms.</p>
+<p>Treat this as a target, not a contract. If you find Gen2 source code or hardware behavior that contradicts something here, the source code wins; please file an issue and update this page.</p>
 </div>
-<h2 id="angle-of-attack-and-fractional-lift">Angle of Attack and Fractional Lift<a class="headerlink" href="#angle-of-attack-and-fractional-lift" title="Permanent link">&para;</a></h2>
-<p>Every wing has an angle of attack at which it produces no lift (the <strong>zero-lift angle</strong>, <span class="arithmatex">\(\alpha_0\)</span>). As AOA increases from this point, lift increases until the wing reaches its maximum at the <strong>critical angle of attack</strong> (<span class="arithmatex">\(\alpha_\text{stall}\)</span>), just prior to stall.</p>
-<p>Angle of attack can be thought of as a scale from zero to one. Zero represents no lift. One represents maximum lift. <strong>Fractional lift</strong> (sometimes called "percent lift") is where the wing is operating on that scale at any given moment:</p>
-<div class="arithmatex">\[\text{Fractional Lift} = \frac{\alpha - \alpha_0}{\alpha_\text{stall} - \alpha_0}\]</div>
-<p>This is the same quantity that OnSpeed calls <strong>Normalized AOA (NAOA)</strong>. Key reference points:</p>
+<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">&para;</a></h2>
+<p>This is a developer-facing reference for anyone porting, auditing, or modifying the OnSpeed audio tone subsystem. It defines the audible output precisely enough that two independent implementations should produce indistinguishable audio at the speaker.</p>
+<p>It is <strong>not</strong> a pilot-facing document. For "what do the tones mean in flight", see <a href="../../flying/tone-map/">What the Tones Mean</a>.</p>
+<h2 id="source-of-truth">Source of truth<a class="headerlink" href="#source-of-truth" title="Permanent link">&para;</a></h2>
+<p>The spec is derived from <a href="https://github.com/flyonspeed/OnSpeed-Gen2/blob/master/Software/OnSpeedTeensy_AHRS/Tones.ino"><code>OnSpeed-Gen2/Software/OnSpeedTeensy_AHRS/Tones.ino</code></a> and supporting files in the Gen2 repository. Every numeric constant in this document cites a Gen2 source line.</p>
+<p>Gen2 is the reference because it sounds the way Lenny tuned the system on the original F-4-inspired Teensy prototype. Gen3's job is to reproduce that audible behavior on different hardware (ESP32-S3 + I2S DAC vs. Teensy + onboard DAC).</p>
+<h2 id="0-signal-chain">0. Signal chain<a class="headerlink" href="#0-signal-chain" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sinewave(carrier_hz, carrier_amp) → envelope(gate ∈ [0,1])
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>   → mixer(channel_0_gain = master_volume)
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>   → ampLeft(left_pan_gain), ampRight(right_pan_gain)
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>   → DAC L/R
+</code></pre></div>
+<p>For each output sample, the audible level is:</p>
+<div class="arithmatex">\[
+\text{sample}_L = \sin(2\pi \cdot \text{carrier\_hz} \cdot t) \cdot \text{carrier\_amp} \cdot \text{gate}(t) \cdot \text{master\_volume} \cdot \text{left\_pan\_gain}
+\]</div>
+<div class="arithmatex">\[
+\text{sample}_R = \sin(2\pi \cdot \text{carrier\_hz} \cdot t) \cdot \text{carrier\_amp} \cdot \text{gate}(t) \cdot \text{master\_volume} \cdot \text{right\_pan\_gain}
+\]</div>
 <table>
 <thead>
 <tr>
-<th>Condition</th>
-<th>Fractional Lift</th>
-<th>What It Means</th>
+<th>Term</th>
+<th>Domain</th>
+<th>Meaning</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Zero lift</td>
-<td>0%</td>
-<td>No lift being generated</td>
+<td><code>carrier_hz</code></td>
+<td>{400, 1600} Hz</td>
+<td>Low / high tone (Gen2 lines 401, 404)</td>
 </tr>
 <tr>
-<td>Maneuvering speed (V<sub>A</sub>, 3.8G limit)</td>
-<td>~26%</td>
-<td>Below this, full deflection causes stall before exceeding G-limit</td>
+<td><code>carrier_amp</code></td>
+<td>{0, 0.25, 1.0}</td>
+<td>Silenced / cruise / stall (Gen2 lines 857-860)</td>
 </tr>
 <tr>
-<td>L/D<sub>MAX</sub></td>
-<td>~50%</td>
-<td>Best glide, maximum range</td>
+<td><code>gate(t)</code></td>
+<td>[0, 1]</td>
+<td>DAHDR envelope output</td>
 </tr>
 <tr>
-<td><strong>ONSPEED</strong></td>
-<td><strong>~60%</strong></td>
-<td>Balanced effective power, V<sub>REF</sub>, max sustained turn</td>
+<td><code>master_volume</code></td>
+<td>[0, 1]</td>
+<td>Pot-derived (Gen2 <code>Volume.ino:21-28</code>)</td>
 </tr>
 <tr>
-<td>Stall warning</td>
-<td>~90%</td>
-<td>Near aerodynamic limit</td>
-</tr>
-<tr>
-<td>Stall</td>
-<td>100%</td>
-<td>Maximum lift — critical AOA</td>
+<td><code>left_pan_gain</code>, <code>right_pan_gain</code></td>
+<td>[0, 1+]</td>
+<td>3D-audio centripetal pan (Gen2 <code>3DAudio.ino:11-13</code>)</td>
 </tr>
 </tbody>
 </table>
-<p>For most straight-wing GA airplanes, critical AOA is approximately 15–20°. Typical ONSPEED approach conditions correspond to roughly 60% of the wing's maximum lift capability. This relationship is remarkably consistent across different airplane types because it's tied to basic aerodynamic behavior, not to a specific airspeed.</p>
-<h2 id="two-aoa-measurements">Two AOA Measurements<a class="headerlink" href="#two-aoa-measurements" title="Permanent link">&para;</a></h2>
-<p>OnSpeed computes AOA two different ways:</p>
-<h3 id="1-pressure-based-aoa">1. Pressure-Based AOA<a class="headerlink" href="#1-pressure-based-aoa" title="Permanent link">&para;</a></h3>
-<p>A differential pressure probe senses the <strong>coefficient of pressure</strong> (<span class="arithmatex">\(C_p\)</span>), which varies with air angle. This raw <span class="arithmatex">\(C_p\)</span> is converted to an AOA value using a polynomial curve (the one the calibration wizard fits):</p>
-<div class="arithmatex">\[\text{AOA} = f(C_p) = a_3 C_p^3 + a_2 C_p^2 + a_1 C_p + a_0\]</div>
-<p>This is the primary AOA measurement used for tone generation.</p>
-<h3 id="2-derived-aoa-from-ahrs">2. Derived AOA (from AHRS)<a class="headerlink" href="#2-derived-aoa-from-ahrs" title="Permanent link">&para;</a></h3>
-<p>The AHRS (Attitude and Heading Reference System) provides pitch angle. Combined with flight path angle, this gives:</p>
-<div class="arithmatex">\[\text{DerivedAOA} = \text{SmoothedPitch} - \text{FlightPath}\]</div>
-<p>where:</p>
-<div class="arithmatex">\[\text{FlightPath} = \arcsin\left(\frac{\text{VSI}}{\text{TAS}}\right)\]</div>
-<p>This DerivedAOA measures the <strong>fuselage-to-wind angle</strong> — the angle between where the airplane is pointed and where it's actually going. From a pilot's perspective, body angle corresponds directly to angle of attack. However, it is affected by flap configuration, which is why each flap setting requires separate calibration.</p>
-<p>In straight-and-level, trimmed, unaccelerated flight, pitch attitude and AOA coincide (because flight path angle is zero). This is the specific condition used during calibration — slow, wings-level decelerations where pitch attitude is a reliable proxy for AOA.</p>
-<h2 id="the-lift-equation-fit">The Lift Equation Fit<a class="headerlink" href="#the-lift-equation-fit" title="Permanent link">&para;</a></h2>
-<p>The key physics insight: in steady, wings-level flight, the lift equation gives us:</p>
-<div class="arithmatex">\[\text{DerivedAOA} = \frac{K}{\text{IAS}^2} + \alpha_0\]</div>
-<p>where:</p>
+<h2 id="1-tone-decision-regions">1. Tone-decision regions<a class="headerlink" href="#1-tone-decision-regions" title="Permanent link">&para;</a></h2>
+<p><code>updateTones()</code> runs continuously and maps the current <span class="arithmatex">\((\text{IAS}, \text{AOA}, \text{flap-position-derived setpoints})\)</span> to a tone mode. Decision precedence is top-down — first match wins.</p>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Condition</th>
+<th>Mode</th>
+<th>Tone</th>
+<th>PPS</th>
+<th>Carrier amp</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>MUTE</strong></td>
+<td><code>IAS ≤ muteAudioUnderIAS</code></td>
+<td><code>TONE_OFF</code></td>
+<td>none</td>
+<td>20 (held for fast pickup)</td>
+<td>0</td>
+</tr>
+<tr>
+<td><strong>STALL</strong></td>
+<td><code>AOA ≥ stallWarningAOA</code></td>
+<td><code>PULSE_TONE</code></td>
+<td>high (1600 Hz)</td>
+<td><strong>20.0</strong> (<code>HIGH_TONE_STALL_PPS</code>)</td>
+<td><strong>1.0</strong></td>
+</tr>
+<tr>
+<td><strong>APPROACH-STALL</strong></td>
+<td><code>onSpeedAOAslow &lt; AOA &lt; stallWarningAOA</code></td>
+<td><code>PULSE_TONE</code></td>
+<td>high (1600 Hz)</td>
+<td>linear <strong>1.5 → 6.2</strong> as AOA goes onSpeedSlow → stallWarn</td>
+<td>linear <strong>0.25 → 1.0</strong> as AOA goes onSpeedSlow → stallWarn</td>
+</tr>
+<tr>
+<td><strong>ON-SPEED</strong></td>
+<td><code>onSpeedAOAfast ≤ AOA ≤ onSpeedAOAslow</code></td>
+<td><code>SOLID_TONE</code></td>
+<td>low (400 Hz)</td>
+<td>n/a (held PPS=8.2 for next-state pickup)</td>
+<td><strong>0.25</strong></td>
+</tr>
+<tr>
+<td><strong>PULSED-LOW</strong></td>
+<td><code>LDmaxAOA ≤ AOA &lt; onSpeedAOAfast</code> AND <code>LDmaxAOA &lt; onSpeedAOAfast</code></td>
+<td><code>PULSE_TONE</code></td>
+<td>low (400 Hz)</td>
+<td>linear <strong>1.5 → 8.2</strong> as AOA goes LDmax → onSpeedFast</td>
+<td><strong>0.25</strong></td>
+</tr>
+<tr>
+<td><strong>BELOW-LDMAX</strong></td>
+<td><code>AOA &lt; LDmaxAOA</code> (or <code>LDmaxAOA ≥ onSpeedAOAfast</code>)</td>
+<td><code>TONE_OFF</code></td>
+<td>none</td>
+<td>20 (held for next-state pickup)</td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Full-flaps PULSED-LOW skip</p>
+<p>When <code>LDmaxAOA ≥ onSpeedAOAfast</code> (typical full-flaps case), the PULSED-LOW region is skipped entirely. AOA below onSpeedFast goes straight to <code>TONE_OFF</code>. (<code>Tones.ino:194-195</code>)</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Uncalibrated configs (Gen3 only)</p>
+<p>Gen3 adds a defensive guard: if any of <code>fONSPEEDFASTAOA</code>, <code>fONSPEEDSLOWAOA</code>, <code>fSTALLWARNAOA</code> is <code>≤ 0</code>, return <code>None</code>. Gen2 doesn't have this check, but the situation can't arise on Gen2 because Gen2 ships with hardcoded sample setpoints. Adding the guard doesn't change behavior on a properly-calibrated unit.</p>
+</div>
+<h2 id="2-per-pulse-envelope-dahdr-shape">2. Per-pulse envelope (DAHDR shape)<a class="headerlink" href="#2-per-pulse-envelope-dahdr-shape" title="Permanent link">&para;</a></h2>
+<p>For <code>PULSE_TONE</code> modes, every pulse is shaped by Delay → Attack → Hold → Decay, then a silent inter-pulse Gap, then auto-loop to the next pulse. All times in milliseconds.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pulse_period = 1000 / pps                        # full cycle, Gen2 IntervalTimer rate
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>tone_length  = pulse_period - 3                  # envelope-active window  (Tones.ino:5)
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>ramp_time    = 5  if pps == 20.0 (stall)         # STALL_RAMP_TIME (Tones.ino:108-113)
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>             = 15 otherwise                      # TONE_RAMP_TIME
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>silent_delay = tone_length / 2                   # silent first half  (Tones.ino:105)
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>attack       = ramp_time
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>hold         = tone_length / 2 - 2 * ramp_time   # clamped ≥ 0  (Tones.ino:118)
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>decay        = ramp_time                         # (Tones.ino:119)
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>gap          = pulse_period - (silent_delay + attack + hold + decay)
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>             = 3 ms                              # inter-pulse silence
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>release      = ramp_time                         # only on NoteOff (mode change)
+</code></pre></div>
+<h3 id="worked-numeric-values">Worked numeric values<a class="headerlink" href="#worked-numeric-values" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>PPS</th>
+<th><code>pulse_period</code></th>
+<th><code>silent_delay</code></th>
+<th><code>attack</code></th>
+<th><code>hold</code></th>
+<th><code>decay</code></th>
+<th><code>gap</code></th>
+<th><code>release</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.5 (min)</td>
+<td>666.67 ms</td>
+<td>331.83</td>
+<td>15</td>
+<td>301.83</td>
+<td>15</td>
+<td>3</td>
+<td>15</td>
+</tr>
+<tr>
+<td>6.2 (high max)</td>
+<td>161.29 ms</td>
+<td>79.15</td>
+<td>15</td>
+<td>49.15</td>
+<td>15</td>
+<td>3</td>
+<td>15</td>
+</tr>
+<tr>
+<td>8.2 (low max)</td>
+<td>121.95 ms</td>
+<td>59.48</td>
+<td>15</td>
+<td>29.48</td>
+<td>15</td>
+<td>3</td>
+<td>15</td>
+</tr>
+<tr>
+<td>20.0 (stall)</td>
+<td>50.00 ms</td>
+<td>23.50</td>
+<td><strong>5</strong></td>
+<td>13.50</td>
+<td><strong>5</strong></td>
+<td>3</td>
+<td><strong>5</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 id="gate-trace-per-pulse">Gate trace per pulse<a class="headerlink" href="#gate-trace-per-pulse" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1.0 ─                    ┌──────────┐
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>                         │  hold    │
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>                        ╱│          │╲
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>gate                   ╱ │          │ ╲
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>                      ╱  │          │  ╲
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>0.0 ─────────────────╱   │          │   ╲────────────
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>     │← silent_delay→│attack│       │decay│←  gap   →│
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>     0              SD   SD+A    SD+A+H  SD+A+H+D   period
+</code></pre></div>
+<h3 id="solid-tone-shape">Solid tone shape<a class="headerlink" href="#solid-tone-shape" title="Permanent link">&para;</a></h3>
+<p>For <code>SOLID_TONE</code> (on-speed region):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>silent_delay = 60.97 ms       # = 1000 / LOW_TONE_PPS_MAX / 2  (Tones.ino:63)
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>attack       = 15 ms          # TONE_RAMP_TIME
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>sustain      = ∞              # until tone changes
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>release      = 15 ms          # on NoteOff
+</code></pre></div>
+<p>The 60.97 ms entry delay is <strong>unconditional</strong> — applied every time <code>SOLID_TONE</code> is entered, regardless of what was playing before. (<code>Tones.ino:51-74</code>; the <code>if (tonePlaying!=SOLID_TONE)</code> guard at line 54 means "don't re-arm if already in solid", not "skip the delay sometimes".)</p>
+<h2 id="3-cadence-requirement">3. Cadence requirement<a class="headerlink" href="#3-cadence-requirement" title="Permanent link">&para;</a></h2>
+<p>The <strong>measured pulse-to-pulse period at the speaker</strong> must equal <code>1000 / pps</code> ms within ± 1 audio-sample of jitter, for any pps in the supported range <span class="arithmatex">\([1.5, 20.0]\)</span>.</p>
+<p>If you record the audio and detect attack-onsets, the time from one attack-onset to the next must equal <code>1000/pps</code> ms within one audio-sample tolerance. <strong>Not</strong> <code>tone_length</code> ms (which would be 3 ms early per cycle).</p>
+<p>On Gen2, the <code>IntervalTimer</code> (Teensy hardware timer) provides the cadence by construction — it fires every <code>1000/pps</code> ms regardless of how long the envelope phases consume. Gen3 has no separate timer; the envelope's auto-loop must produce the same cadence.</p>
+<h2 id="4-transition-policies">4. Transition policies<a class="headerlink" href="#4-transition-policies" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>From → To</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>any → MUTE</td>
+<td>Release current tone (15 ms, or 5 ms if stall). After release, gate stays at 0.</td>
+</tr>
+<tr>
+<td>MUTE → STALL / APPROACH-STALL / ON-SPEED / PULSED-LOW</td>
+<td>Apply the new mode's entry envelope. For <code>PULSE_TONE</code>, the first pulse uses the standard <code>silent_delay = tone_length/2</code>. For <code>SOLID_TONE</code>, apply the 60.97 ms entry delay.</td>
+</tr>
+<tr>
+<td>ON-SPEED → STALL / APPROACH-STALL</td>
+<td>The first high-tone pulse uses a shortened silent delay of <code>60.97 ms</code> instead of <code>tone_length/2</code>. (<code>Tones.ino:101</code>) Gen2 also restarts its <code>IntervalTimer</code> at <code>pulse_period/2 + 60.97 ms</code> so the first pulse arrives within ~half a perceptual period. (<code>Tones.ino:11</code>)</td>
+</tr>
+<tr>
+<td>ON-SPEED → PULSED-LOW</td>
+<td>Same shortened-first-pulse treatment.</td>
+</tr>
+<tr>
+<td>STALL / APPROACH-STALL / PULSED-LOW → ON-SPEED</td>
+<td>Release the current pulsed envelope. Begin <code>SOLID_TONE</code> with its 60.97 ms entry delay. The release tail (15 or 5 ms) overlaps with the silent delay, so the perceived gap before the solid tone is roughly the 60.97 ms delay minus the release overlap.</td>
+</tr>
+<tr>
+<td>STALL ↔ APPROACH-STALL (PPS change, same carrier)</td>
+<td>The currently-running pulse finishes naturally. The next pulse uses the new PPS's envelope shape. No release between same-tone PPS changes.</td>
+</tr>
+<tr>
+<td>PULSED-LOW PPS change</td>
+<td>Same as stall ↔ approach-stall.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-per-pps-volume-ramp-carrier-amplitude">5. Per-PPS volume ramp (carrier amplitude)<a class="headerlink" href="#5-per-pps-volume-ramp-carrier-amplitude" title="Permanent link">&para;</a></h2>
+<p>The carrier amplitude is determined by the AOA region (Gen2 sets it via <code>sinewave1.amplitude(volume)</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Region</th>
+<th><code>carrier_amp</code></th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MUTE</td>
+<td>0 (no audio)</td>
+<td><code>Tones.ino:46</code></td>
+</tr>
+<tr>
+<td>STALL</td>
+<td>1.0 (<code>HIGH_TONE_VOLUME_MAX</code>)</td>
+<td><code>Tones.ino:88</code></td>
+</tr>
+<tr>
+<td>APPROACH-STALL</td>
+<td>linear from 0.25 → 1.0 as PPS goes 1.5 → 6.2</td>
+<td><code>Tones.ino:88</code></td>
+</tr>
+<tr>
+<td>ON-SPEED</td>
+<td>0.25 (<code>SOLID_TONE_VOLUME</code>)</td>
+<td><code>Tones.ino:53</code></td>
+</tr>
+<tr>
+<td>PULSED-LOW</td>
+<td>0.25 (<code>LOW_TONE_VOLUME</code>)</td>
+<td><code>Tones.ino:83</code></td>
+</tr>
+</tbody>
+</table>
+<p>The interpolation formula for APPROACH-STALL is:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>carrier_amp = mapfloat(pps, HIGH_TONE_PPS_MIN, HIGH_TONE_PPS_MAX,
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>                            HIGH_TONE_VOLUME_MIN, HIGH_TONE_VOLUME_MAX)
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>            = mapfloat(pps, 1.5, 6.2, 0.25, 1.0)
+</code></pre></div>
+<p>The ramp is on the <strong>amplitude</strong>, not the gate, so each pulse keeps the same shape but gets louder as the aircraft approaches stall.</p>
+<h2 id="6-master-volume">6. Master volume<a class="headerlink" href="#6-master-volume" title="Permanent link">&para;</a></h2>
+<p>A single multiplier <span class="arithmatex">\(\text{master\_volume} \in [0, 1]\)</span> is applied to all tone output downstream of the envelope. Gen2 reads it from a volume pot at <code>analogRead(VOLUME_PIN)</code>, smoothed with α = 0.5 EMA, mapped from <code>[volumeLowAnalog, volumeHighAnalog] → [0, 100]%</code>, then divided by 100 and applied to the tone-mixer channel gain. (<code>Volume.ino:1-32</code>)</p>
+<p><code>master_volume</code> updates can occur at any time; they should take effect within ≈40 ms (one Gen2 main-loop iteration ≈ pot smoothing window).</p>
+<h2 id="7-3d-audio-centripetal-lateral-pan">7. 3D audio (centripetal lateral pan)<a class="headerlink" href="#7-3d-audio-centripetal-lateral-pan" title="Permanent link">&para;</a></h2>
+<p>A per-channel multiplier is applied at the amp stage:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>left_pan_gain  = abs(-1 + channelGain)
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>right_pan_gain = abs( 1 + channelGain)
+</code></pre></div>
+<p>Where <code>channelGain = α · curve(|aLatCorr|) · sign(aLatCorr) + (1-α) · prevChannelGain</code>, with <code>α = 0.1</code>, <code>aLatCorr</code> the smoothed installation-corrected lateral G, and <code>curve</code> an <code>AUDIO_3D_CURVE</code> polynomial clamped to <code>[0, 1]</code>. (<code>3DAudio.ino:1-17</code>)</p>
+<table>
+<thead>
+<tr>
+<th>Aircraft state</th>
+<th><code>aLatCorr</code></th>
+<th><code>channelGain</code></th>
+<th>left</th>
+<th>right</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trim</td>
+<td>0</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Right turn (coordinated)</td>
+<td>&gt; 0</td>
+<td>&gt; 0</td>
+<td>&lt; 1</td>
+<td>&gt; 1</td>
+</tr>
+<tr>
+<td>Left turn (coordinated)</td>
+<td>&lt; 0</td>
+<td>&lt; 0</td>
+<td>&gt; 1</td>
+<td>&lt; 1</td>
+</tr>
+</tbody>
+</table>
+<p>3D-pan updates happen at a slower rate (~10 Hz from the Gen2 main loop). The α=0.1 EMA limits the per-update step to 10% of the swing, which is generally inaudible but not strictly click-free if the multiplier changes during attack/hold/decay/sustain. <strong>This is a known imperfection in Gen2 that the spec inherits.</strong></p>
+<h2 id="8-click-free-invariant">8. Click-free invariant<a class="headerlink" href="#8-click-free-invariant" title="Permanent link">&para;</a></h2>
+<p>The audible signal must not contain step discontinuities. All amplitude changes ≥ 1 LSB on the 16-bit DAC must occur while <span class="arithmatex">\(\text{gate}(t) = 0\)</span> OR during a smooth ramp. This is the load-bearing reason the envelope exists.</p>
+<p>In particular:</p>
 <ul>
-<li><span class="arithmatex">\(K\)</span> is a constant related to aircraft weight, wing area, and the lift curve slope</li>
-<li><span class="arithmatex">\(\alpha_0\)</span> is the zero-lift fuselage angle — a negative number that represents the AOA at which the wing produces no lift</li>
-<li><span class="arithmatex">\(\text{IAS}\)</span> is indicated airspeed</li>
+<li><code>carrier_amp</code> step changes at AOA-region transitions are masked by either Release (mode change) or by the silent_delay of the new mode.</li>
+<li><code>master_volume</code> step changes are masked by the EMA pot smoothing AND by the silent_delay between pulses (≥ 30 ms at all PPS).</li>
+<li>Pan multiplier updates are masked by the EMA on <code>channelGain</code> AND by silent_delay/release periods.</li>
 </ul>
-<p>This is a hyperbolic curve: as you slow down (IAS decreases), DerivedAOA increases. The relationship between speed and AOA is not linear — <strong>AOA increases more rapidly as the airplane decelerates</strong>. Approximately half of the wing's lift-producing capability is used in the lower third of the airplane's speed range. This is why maneuvering near approach speeds is unforgiving: angle of attack rises rapidly with even small increases in G.</p>
-<p>At the stall, the curve departs from this shape (lift stops increasing linearly with AOA). The calibration wizard fits this curve to your deceleration data and extracts both <span class="arithmatex">\(\alpha_0\)</span> and <span class="arithmatex">\(\alpha_\text{stall}\)</span>.</p>
-<h2 id="why-alpha_0-matters">Why alpha_0 Matters<a class="headerlink" href="#why-alpha_0-matters" title="Permanent link">&para;</a></h2>
-<p>The DerivedAOA has a <strong>non-zero origin</strong>. At infinite speed (if that were possible), the DerivedAOA would be <span class="arithmatex">\(\alpha_0\)</span> — typically a negative number around -4° to -6°, depending on the aircraft and flap setting.</p>
-<p>This means you <strong>cannot</strong> express AOA setpoints as simple fractions of the stall AOA. A naive calculation like "ONSPEED = 75% of stall AOA" gives dangerously wrong answers because it ignores the <span class="arithmatex">\(\alpha_0\)</span> offset.</p>
-<p>Instead, OnSpeed uses <strong>normalized AOA</strong> (NAOA), which is identical to fractional lift:</p>
-<div class="arithmatex">\[\text{NAOA} = \frac{\text{AOA} - \alpha_0}{\alpha_\text{stall} - \alpha_0}\]</div>
-<p>And setpoints are computed as:</p>
-<div class="arithmatex">\[\text{AOA}_\text{setpoint} = \text{NAOA}_\text{target} \times (\alpha_\text{stall} - \alpha_0) + \alpha_0\]</div>
-<p>The NAOA targets come directly from the lift equation. For example, an ONSPEED tone at <span class="arithmatex">\(1.3 \times V_s\)</span> corresponds to:</p>
-<div class="arithmatex">\[\text{NAOA}_\text{ONSPEED} = \frac{1}{1.3^2} \approx 0.592 \quad (\text{~60\% fractional lift})\]</div>
-<p>This is not coincidental — it reflects the physics of lift. At 1.3 × stall speed, the wing is using approximately 60% of its maximum lift capability.</p>
-<h2 id="per-flap-calibration">Per-Flap Calibration<a class="headerlink" href="#per-flap-calibration" title="Permanent link">&para;</a></h2>
-<p>Each flap setting has different:</p>
+<h2 id="9-voice-pcm-playback">9. Voice (PCM) playback<a class="headerlink" href="#9-voice-pcm-playback" title="Permanent link">&para;</a></h2>
+<p>Distinct from the tone path. PCM audio (e.g. stall warning voice clip) plays through <code>AudioPlayMemory voice1</code> into mixer channel 2 with a separate gain (10× the tone master). Voice and tones can mix simultaneously. Voice playback does NOT involve the envelope. (<code>OnSpeedTeensy_AHRS.ino:581-588</code>, <code>Volume.ino:27</code>)</p>
+<h2 id="10-audio-switch">10. Audio switch<a class="headerlink" href="#10-audio-switch" title="Permanent link">&para;</a></h2>
+<p>A physical switch (<code>switchState</code> in Gen2) can mute all audio. When the switch is off:</p>
 <ul>
-<li><strong><span class="arithmatex">\(\alpha_0\)</span></strong> — zero-lift angle shifts with flap deflection</li>
-<li><strong><span class="arithmatex">\(\alpha_\text{stall}\)</span></strong> — stall angle changes with flaps</li>
-<li><strong><span class="arithmatex">\(K\)</span></strong> — the lift sensitivity constant changes</li>
-<li><strong>AOA polynomial</strong> — the <span class="arithmatex">\(C_p\)</span>-to-AOA mapping changes</li>
+<li><code>setFrequencytone()</code> sets <code>carrier_amp = 0</code> immediately, sets <code>toneMode = TONE_OFF</code>, returns. (<code>Tones.ino:34-40</code>)</li>
+<li><code>tonePlayHandler()</code> returns immediately on the next <code>IntervalTimer</code> fire. (<code>Tones.ino:131-134</code>)</li>
 </ul>
-<p>This is why you must calibrate each flap position separately. Different flap settings produce different aerodynamic behavior, and the tone setpoints must reflect the characteristics of each configuration.</p>
-<h2 id="what-the-calibration-wizard-fits">What the Calibration Wizard Fits<a class="headerlink" href="#what-the-calibration-wizard-fits" title="Permanent link">&para;</a></h2>
-<p>The wizard performs two fits:</p>
-<ol>
-<li><strong><span class="arithmatex">\(C_p\)</span> to AOA polynomial</strong> — maps the raw pressure coefficient to an AOA angle (3<sup>rd</sup>-order polynomial)</li>
-<li><strong>IAS to DerivedAOA hyperbola</strong> — the <span class="arithmatex">\(K/\text{IAS}^2 + \alpha_0\)</span> fit that extracts <span class="arithmatex">\(\alpha_0\)</span>, <span class="arithmatex">\(\alpha_\text{stall}\)</span>, and the <span class="arithmatex">\(K\)</span> parameter</li>
-</ol>
-<p>From these, it computes the six AOA setpoints (L/D<sub>MAX</sub>, ONSPEED-Fast, ONSPEED-Slow, Stall Warning, Stall, Maneuvering) using the normalized AOA fractions.</p>
+<p>When the switch flips back on, the next <code>updateTones()</code> call re-arms the appropriate mode for the current AOA. <strong>Stall warning is the one exception</strong> — even when audio is muted by the user, the stall warning still fires.</p>
+<h2 id="11-latency-targets">11. Latency targets<a class="headerlink" href="#11-latency-targets" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Stimulus</th>
+<th>Time to audible response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MUTE → STALL transition</td>
+<td>≤ <code>silent_delay(20 PPS) + attack(5 ms) = 28.5 ms</code> from the AOA decision</td>
+</tr>
+<tr>
+<td>ON-SPEED → STALL transition</td>
+<td>≤ <code>60.97 ms (shortened delay) + 5 ms (attack) ≈ 66 ms</code></td>
+</tr>
+<tr>
+<td>AOA chatter at any threshold</td>
+<td>Must NOT produce audible artifacts. The current pulse finishes; transitions only happen at pulse boundaries.</td>
+</tr>
+<tr>
+<td><code>master_volume</code> change via pot</td>
+<td>≤ 40 ms perceived response</td>
+</tr>
+<tr>
+<td>3D-pan change</td>
+<td>≤ 100 ms perceived response (slow, intentional)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="where-the-implementations-stand">Where the implementations stand<a class="headerlink" href="#where-the-implementations-stand" title="Permanent link">&para;</a></h2>
+<p>This section is a snapshot — expect it to drift as Gen3 evolves. Last updated for <code>master</code> at the time of writing.</p>
+<h3 id="gen2-reference">Gen2 (reference)<a class="headerlink" href="#gen2-reference" title="Permanent link">&para;</a></h3>
+<p>Meets the spec by construction, since the spec is derived from Gen2's source. Two caveats worth stating explicitly:</p>
+<ul>
+<li><strong>§3 Cadence</strong>: Gen2's hardware <code>IntervalTimer</code> fires at exactly <code>1000/pps</code> µs (line 992). Jitter is well below one audio sample.</li>
+<li><strong>§7 3D audio</strong>: Gen2's <code>channelGain</code> step <em>can</em> land during attack/hold/decay/sustain because <code>Check3DAudio</code> runs from the main loop without coordination with the envelope. The α=0.1 EMA holds the per-update step to a small fraction of the swing. The spec inherits this behavior.</li>
+</ul>
+<h3 id="gen3-on-master-current-shipping-behavior">Gen3 on <code>master</code> (current shipping behavior)<a class="headerlink" href="#gen3-on-master-current-shipping-behavior" title="Permanent link">&para;</a></h3>
+<p>Gen3 master ships a different audio path — there is no DAHDR envelope, no per-PPS volume ramp, no inter-pulse Gap, no 60.97 ms solid entry delay. Tones are gated by hard amplitude switches at pulse edges, which produces audible clicks and a pulse cadence that runs faster than Gen2 (especially at stall warning, where measured PPS would land ~6% above the configured 20 PPS if the same envelope construction were used).</p>
+<p>In practical terms: a pilot listening to Gen3 on <code>master</code> and Gen2 in the same airframe will hear that they are different. The spec above documents what Gen3 <em>should</em> do; PR <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/102">#102</a> is the in-flight attempt to make that true.</p>
+<h3 id="gen3-with-pr-102">Gen3 with PR #102<a class="headerlink" href="#gen3-with-pr-102" title="Permanent link">&para;</a></h3>
+<p>Closes the structural gap. Sections 0, 1, 2, 3, 4, 5, 8, 9, 10, 11 are intended to match the spec. Sections 6 and 7 inherit Gen3's existing behavior (volume pot read path, 3D pan computation) — neither path is touched by #102, so any divergence there is pre-existing and out of scope.</p>
+<p>The PR carries 41 envelope unit tests (covering every phase transition, NoteOff termination, output continuity, and 6 cadence/Gap-specific tests added in the latest commit). A host-side cadence probe driving the production <code>MakePulseSpec</code> formulas confirms the measured PPS lands within 0.05% of the spec across the operating range.</p>
+<p><strong>On-aircraft verification is still pending.</strong> Lenny is recording scope traces from both Gen2 and Gen3 hardware to compare side-by-side. When that work completes, this section should be updated with the diff between observed waveform and the spec, not just the construction of the math.</p>
+<h2 id="reporting-discrepancies">Reporting discrepancies<a class="headerlink" href="#reporting-discrepancies" title="Permanent link">&para;</a></h2>
+<p>If you find:</p>
+<ul>
+<li><strong>Gen2 source code that contradicts this spec</strong>: the source code wins. File an issue with the line reference and we'll correct the doc.</li>
+<li><strong>Gen3 hardware that doesn't match the spec</strong>: file an issue with the listening-test or scope-trace evidence; that's a real bug.</li>
+<li><strong>Spec ambiguity</strong>: file an issue. The goal is "two independent implementations produce indistinguishable audio at the speaker"; if it's not precise enough to support that, it's not done yet.</li>
+</ul>
 
 
 
