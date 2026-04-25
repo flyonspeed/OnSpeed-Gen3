@@ -307,12 +307,8 @@ void SensorIO::Read()
         IAS = onspeed::sensors::PitotPsiToIasKt(PfwdPSI);
         if (IAS > 0.0f)
         {
-#ifdef SPHERICAL_PROBE
-            IAS = IASCURVE(IAS); // for now use a hardcoded IAS curve for a spherical probe. CAS curve parameters can only take 4 decimals. Not accurate enough.
-#else
             if (g_Config.bCasCurveEnabled)
                 IAS = CurveCalc(g_Sensors.IAS,g_Config.CasCurve);  // use CAS correction curve if enabled
-#endif
         }
 
         // Only update the IAS timestamp when IAS was actually computed from
@@ -340,11 +336,7 @@ void SensorIO::Read()
     {
         uLastDecelUpdateMs = uNowMs;
 
-#ifdef SPHERICAL_PROBE
-        fIasDerInput = g_EfisSerial.suEfis.IAS;
-#else
         fIasDerInput = IAS;
-#endif
 
         // SavGolDerivative returns derivative per sample; scale by actual update frequency (kts/sec).
         const float fDecelSampleHz = (uDecelDeltaMs > 0) ? (1000.0f / float(uDecelDeltaMs)) : 10.0f;

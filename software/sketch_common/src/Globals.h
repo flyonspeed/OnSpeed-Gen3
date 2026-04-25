@@ -30,17 +30,6 @@
 // PlatformIO: auto-generated from git tags by scripts/generate_buildinfo.py.
 // Arduino IDE: uses weak-symbol defaults in software/Libraries/version/buildinfo_default.cpp.
 
-// ---------------------------------------------------------------------------
-// Compile-time feature flags (not board selectors)
-// ---------------------------------------------------------------------------
-// SPHERICAL_PROBE: enable Zlin IAS curve for spherical probe installations.
-// This is a probe geometry flag, not a board flag. Never defined by any
-// build environment — all `#ifdef SPHERICAL_PROBE` blocks in the codebase
-// are effectively dead. Removal tracked in issue #180.
-#ifdef SPHERICAL_PROBE
-  #define IASCURVE(x)           x
-#endif
-
 #define SUPPORT_LITTLEFS
 
 // Includes
