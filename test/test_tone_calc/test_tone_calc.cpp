@@ -237,21 +237,108 @@ void test_partial_calibration_silent_above_stallwarn()
     TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
 }
 
-void test_partial_calibration_missing_ldmax_only()
+void test_ldmax_zero_is_a_valid_floor_not_an_uncalibrated_signal()
 {
-    // The subtle case: three of four setpoints are sensibly
-    // configured, only LDmax is still at zero.  Without the stricter
-    // gate, AOA > fONSPEEDSLOWAOA still fires correctly and
-    // AOA < fONSPEEDFASTAOA falls into the `fAOA >= fLDMAXAOA (0)`
-    // branch, producing a pulsed-low tone for any positive AOA.
-    // The gate silences this until the user fills in LDmax too.
-    ToneThresholds partial = {
-        .fLDMAXAOA       =  0.0f,   // missing
+    // LDmax is the only setpoint that lives near or below the
+    // body-angle reference (the wing produces L/D-max lift at low
+    // fuselage angles, especially with flaps).  fLDMAXAOA == 0 is a
+    // valid floor — it means "L/D-max body angle is at the wind line"
+    // — not an "uncalibrated" signal.  The other three setpoints
+    // (FAST/SLOW/StallWarn) sit between zero-lift and stall and are
+    // always positive on a real calibration; the gate keys off them.
+    //
+    // With LDmax=0, FAST=11, AOA=5 falls in the pulsed-low region,
+    // so a tone must fire.
+    ToneThresholds cfg = {
+        .fLDMAXAOA       =  0.0f,
         .fONSPEEDFASTAOA = 11.0f,
         .fONSPEEDSLOWAOA = 14.0f,
         .fSTALLWARNAOA   = 16.0f,
     };
-    ToneResult r = calculateTone(5.0f, partial);
+    ToneResult r = calculateTone(5.0f, cfg);
+    TEST_ASSERT_EQUAL(EnToneType::Low, r.enTone);
+}
+
+// ============================================================================
+// Body-angle convention: LDmax can be negative at high flap settings.
+// Reference data: N720AK (RV-10) `2_20_26_config.cfg`, the calibration
+// that surfaced this bug.  AHRS=EKF6, body-angle convention throughout.
+// ============================================================================
+
+// Flaps 0° (clean): all positive, narrow LDmax-to-OnSpeedFast band.
+static const ToneThresholds kN720AK_Flaps0 = {
+    .fLDMAXAOA       = 4.10f,
+    .fONSPEEDFASTAOA = 4.08f,   // narrow band; pulsed-low collapses
+    .fONSPEEDSLOWAOA = 4.95f,
+    .fSTALLWARNAOA   = 7.98f,
+};
+
+// Flaps 16°: all positive, normal ordering.
+static const ToneThresholds kN720AK_Flaps16 = {
+    .fLDMAXAOA       = 2.30f,
+    .fONSPEEDFASTAOA = 2.69f,
+    .fONSPEEDSLOWAOA = 4.10f,
+    .fSTALLWARNAOA   = 7.60f,
+};
+
+// Flaps 33° (full): LDmax NEGATIVE under body-angle convention.
+// This is the configuration that was silenced by the all-four > 0 gate.
+static const ToneThresholds kN720AK_Flaps33 = {
+    .fLDMAXAOA       = -1.12f,
+    .fONSPEEDFASTAOA =  1.80f,
+    .fONSPEEDSLOWAOA =  4.00f,
+    .fSTALLWARNAOA   =  9.24f,
+};
+
+void test_n720ak_flaps0_stall_warning_fires()
+{
+    ToneResult r = calculateTone(8.5f, kN720AK_Flaps0);
+    TEST_ASSERT_EQUAL(EnToneType::High, r.enTone);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, HIGH_TONE_STALL_PPS, r.fPulseFreq);
+}
+
+void test_n720ak_flaps16_onspeed_region_solid_low()
+{
+    // AOA between OnSpeedFast (2.69) and OnSpeedSlow (4.10).
+    ToneResult r = calculateTone(3.5f, kN720AK_Flaps16);
+    TEST_ASSERT_EQUAL(EnToneType::Low, r.enTone);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, r.fPulseFreq);
+}
+
+void test_n720ak_flaps33_negative_ldmax_does_not_silence_pulsed_low()
+{
+    // The bug: with the all-four > 0 gate, this returned None for
+    // every AOA.  AOA = 0.5° sits in the pulsed-low region between
+    // LDmax (-1.12) and OnSpeedFast (1.80) and must produce a Low
+    // tone.  Negative LDmax is correct under the body-angle
+    // convention at full flaps.
+    ToneResult r = calculateTone(0.5f, kN720AK_Flaps33);
+    TEST_ASSERT_EQUAL(EnToneType::Low, r.enTone);
+    TEST_ASSERT_TRUE(r.fPulseFreq >= LOW_TONE_PPS_MIN);
+    TEST_ASSERT_TRUE(r.fPulseFreq <= LOW_TONE_PPS_MAX);
+}
+
+void test_n720ak_flaps33_negative_ldmax_onspeed_region_solid_low()
+{
+    // Approach AOA between OnSpeedFast (1.80) and OnSpeedSlow (4.00).
+    ToneResult r = calculateTone(3.0f, kN720AK_Flaps33);
+    TEST_ASSERT_EQUAL(EnToneType::Low, r.enTone);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, r.fPulseFreq);
+}
+
+void test_n720ak_flaps33_negative_ldmax_stall_warning_fires()
+{
+    // The most safety-critical case: at full flaps with negative
+    // LDmax, the stall warning at AOA >= 9.24° must still fire.
+    ToneResult r = calculateTone(10.0f, kN720AK_Flaps33);
+    TEST_ASSERT_EQUAL(EnToneType::High, r.enTone);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, HIGH_TONE_STALL_PPS, r.fPulseFreq);
+}
+
+void test_n720ak_flaps33_below_ldmax_silent()
+{
+    // Below LDmax (-1.12) is the genuinely-too-fast region; no tone.
+    ToneResult r = calculateTone(-2.0f, kN720AK_Flaps33);
     TEST_ASSERT_EQUAL(EnToneType::None, r.enTone);
 }
 
@@ -303,8 +390,17 @@ int main()
     RUN_TEST(test_muted_uncalibrated_stays_silent_above_ias_threshold);
     RUN_TEST(test_partial_calibration_silent_at_intermediate_aoa);
     RUN_TEST(test_partial_calibration_silent_above_stallwarn);
-    RUN_TEST(test_partial_calibration_missing_ldmax_only);
+    RUN_TEST(test_ldmax_zero_is_a_valid_floor_not_an_uncalibrated_signal);
     RUN_TEST(test_muted_mode_fires_with_only_stallwarn_configured);
+
+    // Body-angle convention: LDmax can be negative at full flaps
+    // (N720AK reference calibration)
+    RUN_TEST(test_n720ak_flaps0_stall_warning_fires);
+    RUN_TEST(test_n720ak_flaps16_onspeed_region_solid_low);
+    RUN_TEST(test_n720ak_flaps33_negative_ldmax_does_not_silence_pulsed_low);
+    RUN_TEST(test_n720ak_flaps33_negative_ldmax_onspeed_region_solid_low);
+    RUN_TEST(test_n720ak_flaps33_negative_ldmax_stall_warning_fires);
+    RUN_TEST(test_n720ak_flaps33_below_ldmax_silent);
 
     return UNITY_END();
 }
