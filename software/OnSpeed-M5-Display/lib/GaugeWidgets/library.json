@@ -1,0 +1,12 @@
+{
+  "name": "GaugeWidgets",
+  "version": "3.2.0",
+  "description": "V.R. Little's gauge-drawing primitives for OnSpeed M5/huVVer displays.",
+  "frameworks": "arduino",
+  "platforms": "espressif32,native",
+  "dependencies": {
+    "SPI": "*",
+    "TFT_eSPI": "*",
+    "M5Unified": "*"
+  }
+}
