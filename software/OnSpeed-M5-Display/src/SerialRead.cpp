@@ -232,15 +232,20 @@ void SerialRead()
         SpinRecoveryCue     = 0;
         DataMark            = 0;
 
-        // Body-angle sweep covering alpha_0..past-stall for a typical
-        // RV-class aircraft. PercentLift uses alpha_0 as the zero-lift
-        // floor (not 0°) so the bar matches what the firmware draws on
-        // the real device.
+        // Body-angle sweep covering alpha_0 through past stall-warn for
+        // a typical RV-class aircraft. The sweep top sits above the
+        // dummy frame's StallWarnAOA (20°, set above) so the indexer's
+        // top-chevron flash engages — same visual a pilot would see in
+        // the airplane when AOA crosses StallWarn. PercentLift uses
+        // alpha_0 as the zero-lift floor and clamps at 99 to match the
+        // %02u wire protocol field in the #1 frame; a real stall reads
+        // 99 on the device, never 100.
         static constexpr float kSimAlpha0     = -4.0f;
         static constexpr float kSimAlphaStall = 18.0f;
+        static constexpr float kSimAoaMax     = 24.0f;
 
-        if (AOA < 20.0f) AOA += 0.2f;
-        else             AOA  = kSimAlpha0;
+        if (AOA < kSimAoaMax) AOA += 0.2f;
+        else                  AOA  = kSimAlpha0;
 
         const float fraction =
             (AOA - kSimAlpha0) / (kSimAlphaStall - kSimAlpha0);
