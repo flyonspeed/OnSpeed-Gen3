@@ -340,18 +340,20 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     float EarthVertG    = outputs_.earthVertG;
 
     if (cfg_.algorithm == Algorithm::Ekf6) {
-        // EKF6 expects aerospace sign convention:
-        //   - az = -g in level flight (sensor measures reaction to gravity)
-        //   - OnSpeed pipeline uses NED where az=+g, so negate vertical
-        //   - Accel in m/s^2 (AccelComp in g, multiply by 9.80665)
-        //   - Gyro in rad/s (RateCorr in deg/s, convert)
-        //   - gamma in radians
+        // EKF6 expects aerospace sign convention: az = -g in level flight
+        // (sensor reaction to gravity, NED body frame, Z down). OnSpeed's
+        // accelVertComp_ is also -g in level flight — IMU returns
+        // accelZG = -1 g for level (verified in levelSeed test fixture
+        // and via Ahrs constructor seeding accelVertFilter_ to -1.0f),
+        // and the installation rotation passes that through unchanged
+        // for cr*cp = 1. Pass through with no negation. Accel: g →
+        // m/s^2. Gyro: deg/s → rad/s. gamma: deg → rad.
         float gamma_rad = onspeed::deg2rad(outputs_.flightPathDeg);
 
         onspeed::EKF6::Measurements meas = {
             /* ax */    accelFwdComp_  * kEkfGravityMps2,
             /* ay */    accelLatComp_  * kEkfGravityMps2,
-            /* az */   -accelVertComp_ * kEkfGravityMps2,
+            /* az */    accelVertComp_ * kEkfGravityMps2,
             /* p  */    onspeed::deg2rad(RollRateCorr),
             /* q  */    onspeed::deg2rad(PitchRateCorr),
             /* r  */    onspeed::deg2rad(YawRateCorr),

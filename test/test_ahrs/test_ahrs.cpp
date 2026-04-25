@@ -296,6 +296,36 @@ void test_step_ekf6_level_stable(void)
     TEST_ASSERT_FLOAT_WITHIN(2.0f, 0.0f, a.latest().rollDeg);
 }
 
+void test_step_ekf6_static_tilt_converges_to_input_attitude(void)
+{
+    // EKF6 fed a static 10° nose-up accelerometer reading (with zero
+    // gyro and zero IAS) must converge to ~10° pitch. The previous
+    // implementation negated accelVertComp_ before handing it to
+    // EKF6, which inverted the sign of the predicted gravity vector
+    // — the filter then drove theta hard toward 180° gimbal lock,
+    // saturating around ~170°. With the negation removed, az is
+    // -g in level flight (matching EKF6's documented convention), and
+    // a 10° static tilt converges cleanly.
+    AhrsInputs seed = levelSeed();
+    seed.imu.accelXG = std::sin(onspeed::deg2rad(10.0f));
+    seed.imu.accelZG = -std::cos(onspeed::deg2rad(10.0f));
+
+    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    Ahrs a{cfg};
+    a.Init(seed, 0.0f);
+
+    for (int i = 0; i < 1000; i++) {
+        a.Step(seed, kDt);
+    }
+
+    // Tight bounds — with the correct sign, the filter converges to
+    // within 0.1° of the accel-derived pitch in <500 frames. The 1.0°
+    // budget here is headroom for future tuning changes; pre-fix this
+    // would assert pitch ≈ 170° and fail by ~160°.
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 10.0f, a.latest().pitchDeg);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f,  0.0f, a.latest().rollDeg);
+}
+
 // ---------------------------------------------------------------------
 // Step: running-mean gyro outputs track the input values after N frames
 // ---------------------------------------------------------------------
@@ -806,6 +836,7 @@ int main(void)
     RUN_TEST(test_tas_updates_only_when_ias_timestamp_advances);
     RUN_TEST(test_step_guards_nan_dt);
     RUN_TEST(test_step_ekf6_level_stable);
+    RUN_TEST(test_step_ekf6_static_tilt_converges_to_input_attitude);
     RUN_TEST(test_step_gyro_averages_follow_input);
     RUN_TEST(test_init_does_not_reset_tas_state);
 
