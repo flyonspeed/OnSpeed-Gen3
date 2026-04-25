@@ -487,6 +487,88 @@ void test_too_few_columns_returns_false(void)
     TEST_ASSERT_FALSE(csv::ParseRow("12345,1,1.00", r));
 }
 
+// Issue #193: a truncated SD write that produces two adjacent commas in
+// any numeric column must fail the row, not silently substitute zero.
+// Verify each numeric Parse* helper (float, int, uint32) rejects empty.
+
+void test_empty_timestamp_returns_false(void)
+{
+    // First column (timeStampMs / ParseUint32) blanked: ",pfwdCounts,..."
+    // Build a row that's well-formed except for an empty timestamp.
+    LogRow original = MakeTestRow(false, false, false);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Replace "12345," prefix with "," (drop digits, keep the comma).
+    std::string mutated(s_rowBuf, fmtLen);
+    size_t firstComma = mutated.find(',');
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, firstComma);
+    mutated = "," + mutated.substr(firstComma + 1);
+
+    LogRow r;
+    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+}
+
+void test_empty_int_field_returns_false(void)
+{
+    // Second column is pfwdCounts (ParseInt). Blank it.
+    LogRow original = MakeTestRow(false, false, false);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    std::string mutated(s_rowBuf, fmtLen);
+    size_t c1 = mutated.find(',');
+    size_t c2 = mutated.find(',', c1 + 1);
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, c2);
+    mutated = mutated.substr(0, c1 + 1) + mutated.substr(c2);
+
+    LogRow r;
+    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+}
+
+void test_empty_float_field_returns_false(void)
+{
+    // Third column is pfwdSmoothed (ParseFloat). Blank it.
+    LogRow original = MakeTestRow(false, false, false);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    std::string mutated(s_rowBuf, fmtLen);
+    size_t c1 = mutated.find(',');
+    size_t c2 = mutated.find(',', c1 + 1);
+    size_t c3 = mutated.find(',', c2 + 1);
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, c3);
+    mutated = mutated.substr(0, c2 + 1) + mutated.substr(c3);
+
+    LogRow r;
+    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+}
+
+void test_empty_ias_field_returns_false(void)
+{
+    // The IAS column is the most flight-safety-relevant; an empty value
+    // here used to silently parse as IAS=0, which would feed AHRS comp
+    // and audio mute as if the aircraft were stopped.
+    LogRow original = MakeTestRow(false, false, false);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // iasKt is the 8th column (index 7): timeStamp, pfwdCounts,
+    // pfwdSmoothed, p45Counts, p45Smoothed, pStaticMbar, paltFt, iasKt.
+    std::string mutated(s_rowBuf, fmtLen);
+    size_t pos = 0;
+    for (int i = 0; i < 7; ++i) {
+        pos = mutated.find(',', pos) + 1;
+        TEST_ASSERT_GREATER_THAN(0u, pos);   // find returned npos+1 == 0 on miss
+    }
+    size_t next = mutated.find(',', pos);
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, next);
+    mutated = mutated.substr(0, pos) + mutated.substr(next);
+
+    LogRow r;
+    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+}
+
 void test_trailing_newline_tolerated(void)
 {
     // A correctly-formatted core row with a trailing \n should parse OK.
@@ -627,6 +709,10 @@ int main(int, char**)
     // Malformed input
     RUN_TEST(test_empty_line_returns_false);
     RUN_TEST(test_too_few_columns_returns_false);
+    RUN_TEST(test_empty_timestamp_returns_false);
+    RUN_TEST(test_empty_int_field_returns_false);
+    RUN_TEST(test_empty_float_field_returns_false);
+    RUN_TEST(test_empty_ias_field_returns_false);
     RUN_TEST(test_trailing_newline_tolerated);
     RUN_TEST(test_trailing_crlf_tolerated);
 
