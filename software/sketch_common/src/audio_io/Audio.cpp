@@ -521,31 +521,47 @@ void AudioPlay::UpdateTones()
             s_bAudioUnmuted = false;
         }
 
+    // Snapshot the four AOA setpoints from the active flap entry under
+    // xAhrsMutex.  HandleConfigSave on Core 0 swaps `g_Config.aFlaps`
+    // under the same mutex; without taking it here, the audio task
+    // could read half-old / half-new fields, or even a freed buffer
+    // mid-swap.  The snapshot pays at most a one-tick wait at the
+    // 10 Hz tone-update cadence, well within audio's headroom.
+    onspeed::ToneThresholds th = { 0.0f, 0.0f, 0.0f, 0.0f };
+    int iMuteThreshold = g_Config.iMuteAudioUnderIAS;
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(5)))
+        {
+        const auto& flap = g_Config.aFlaps[g_Flaps.iIndex];
+        th.fLDMAXAOA       = flap.fLDMAXAOA;
+        th.fONSPEEDFASTAOA = flap.fONSPEEDFASTAOA;
+        th.fONSPEEDSLOWAOA = flap.fONSPEEDSLOWAOA;
+        th.fSTALLWARNAOA   = flap.fSTALLWARNAOA;
+        xSemaphoreGive(xAhrsMutex);
+        }
+    // On mutex timeout the snapshot stays at zeros, which the
+    // uncalibrated gate in calculateTone treats as silent — the
+    // audible failure mode of "no tones for one 100 ms tick" is
+    // strictly safer than reading torn or freed setpoint memory.
+
     if (!g_bAudioEnable)
         {
         // Audio disabled by button — only allow stall warning through
         result = onspeed::calculateToneMuted(
             g_Sensors.AOA, g_Sensors.IAS,
-            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
-            g_Config.iMuteAudioUnderIAS);
+            th.fSTALLWARNAOA,
+            iMuteThreshold);
         }
     else if (!s_bAudioUnmuted)
         {
         // Airspeed too low (taxiing) — mute, but set pulse rate high for quick pickup
 #ifdef TONEDEBUG
         AudioLogDebugNoBlock("AUDIO MUTED: Airspeed too low. Min:%i IAS:%.2f\n",
-            g_Config.iMuteAudioUnderIAS, g_Sensors.IAS);
+            iMuteThreshold, g_Sensors.IAS);
 #endif
         result = { onspeed::EnToneType::None, 20.0f };
         }
     else
         {
-        const onspeed::ToneThresholds th = {
-            g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDFASTAOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fONSPEEDSLOWAOA,
-            g_Config.aFlaps[g_Flaps.iIndex].fSTALLWARNAOA,
-            };
         result = onspeed::calculateTone(g_Sensors.AOA, th);
         }
 
