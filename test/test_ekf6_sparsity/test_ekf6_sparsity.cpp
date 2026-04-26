@@ -161,7 +161,9 @@ static void predict(float x[N], float P[N][N], const float Q[N],
         }
     }
 
-    // P_new = FP * F' + Q (dense)
+    // P_new = FP * F' + Q*dt (dense). Q is treated as a continuous-time
+    // spectral density; the per-step injection is Q*dt — same as the
+    // production sparse path.
     float P_new[N][N];
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
@@ -169,7 +171,7 @@ static void predict(float x[N], float P[N][N], const float Q[N],
             for (int k = 0; k < N; k++) {
                 P_new[i][j] += FP[i][k] * F[j][k];
             }
-            if (i == j) P_new[i][j] += Q[i];
+            if (i == j) P_new[i][j] += Q[i] * dt;
         }
     }
 

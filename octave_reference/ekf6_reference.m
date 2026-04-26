@@ -51,10 +51,17 @@ function [x, P] = ekf_init()
 end
 
 function [Q, R] = ekf_get_noise_matrices()
-    % Process noise - how much state can change between updates
-    q_attitude = 0.001;      % Attitude process noise (rad^2)
-    q_alpha = 0.0001;        % Alpha process noise
-    q_bias = 1e-8;           % Gyro bias drift (very slow)
+    % Process noise spectral density - state can change at this rate
+    % per second. The predict step injects Q*dt of variance into P
+    % per step.
+    %
+    % These values preserve the per-step process noise contribution
+    % the previous (un-dt-scaled) implementation produced when running
+    % at 208 Hz IMU rate, so historical tunings remain unchanged at the
+    % current cadence.
+    q_attitude = 0.208;      % Attitude process noise (rad^2/s)
+    q_alpha = 0.0208;        % Alpha process noise (rad^2/s)
+    q_bias = 2.08e-6;        % Gyro bias drift ((rad/s)^2/s, very slow)
 
     Q = diag([q_attitude, q_attitude, q_alpha, q_bias, q_bias, q_bias]);
 
@@ -136,8 +143,12 @@ function [x_new, P_new] = ekf_predict(x, P, Q, dt, p, q, r)
     % d(theta_dot)/d(br)
     F(2,6) = dt * sph;
 
-    % Predict covariance
-    P_new = F * P * F' + Q;
+    % Predict covariance. Q is treated as a continuous-time spectral
+    % density; the per-step injection of process noise variance is
+    % Q*dt. Matches the Gen2 design source
+    % (Software/Matlab/Extended_Kalman_Filter_with-alpha.m line 299:
+    %  `P + dt * (A*P + P*A' + Q)`) and the C++ predict step.
+    P_new = F * P * F' + Q * dt;
 end
 
 function [x_new, P_new] = ekf_update(x, P, R, g, Va, gamma, ax, ay, az)

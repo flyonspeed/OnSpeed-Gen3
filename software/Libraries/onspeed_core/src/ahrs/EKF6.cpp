@@ -308,9 +308,16 @@ void EKF6::predict(float p, float q, float r, float dt) {
         P_new[i][5] = FP[i][5];
     }
 
-    // Add process noise (diagonal only)
+    // Add process noise (diagonal only), scaled by dt for proper
+    // continuous-to-discrete conversion. The Q matrix entries are
+    // continuous-time spectral densities (rad²/s, (rad/s)²/s); the
+    // integral over one timestep is Q*dt. Without the dt factor the
+    // filter would inject a constant variance per step regardless of
+    // step rate, so doubling the IMU rate would double the per-second
+    // process noise. Matches the Gen2 Octave reference's
+    // `P + dt * (A*P + P*A' + Q)` continuous-time Lyapunov update.
     for (int i = 0; i < N_STATES; i++) {
-        P_new[i][i] += Q_[i];
+        P_new[i][i] += Q_[i] * dt;
     }
 
     // Copy result back to P_
