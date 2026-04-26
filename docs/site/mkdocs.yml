@@ -170,5 +170,6 @@ nav:
     - reference/index.md
     - Configuration Parameters: reference/config-parameters.md
     - CSV Log Columns: reference/log-columns.md
+    - Display Serial Protocol: reference/serial-protocol.md
     - Hardware Specifications: reference/hardware-specs.md
     - Glossary: reference/glossary.md

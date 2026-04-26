@@ -248,8 +248,12 @@ Once detected, the port mapping is saved to the M5's NVS flash so
 subsequent boots come up faster.
 
 - **Baud rate:** 115200 8N1
-- **Frame rate:** 20 Hz (every 50 ms). Each frame is 80 ASCII bytes
+- **Frame rate:** 20 Hz (every 50 ms). Each frame is 94 ASCII bytes
   including `#1` header, fields, CRC, and CRLF.
+
+See [Display Serial Protocol](../reference/serial-protocol.md) for the
+complete wire-format reference (byte offsets, field semantics, parsing
+recommendations).
 
 ### Powering the M5
 
@@ -381,11 +385,16 @@ for the hardware shopping list, wiring diagram, and protocol details.
 The OnSpeed firmware's serial output format is configurable via the
 `SERIALOUTFORMAT` field in the configuration:
 
-- **ONSPEED** — native format (76-byte payload with AOA, setpoints,
-  attitude, flap position, setpoints, G-loading, etc.). Use this with
-  `OnSpeed-M5-Display`.
+- **ONSPEED** — native `#1` format (90-byte payload + CRC + CRLF = 94
+  bytes total) carrying AOA, setpoints, attitude, flap position, the
+  active flap's aerodynamic anchors (`alpha_0`, `alpha_stall`),
+  configured flap travel range, G-loading, and more. Use this with
+  `OnSpeed-M5-Display` or any third-party display reading the full
+  data set. Full byte-level wire-format reference:
+  [Display Serial Protocol](../reference/serial-protocol.md).
 - **G3X** — Garmin G3X-compatible subset for use with Garmin panel
-  displays.
+  displays. Drops AOA setpoints and aerodynamic anchors; carries only
+  what a stock G3X-compatible PFD knows how to render.
 
 ## Mounting
 
