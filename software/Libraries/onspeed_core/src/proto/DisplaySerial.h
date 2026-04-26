@@ -1,10 +1,10 @@
 // proto/DisplaySerial.h — OnSpeed `#1` display-serial protocol.
 //
-// This is the single source of truth for the wire format of the 80-byte ASCII
+// This is the single source of truth for the wire format of the 94-byte ASCII
 // frame exchanged between the Gen3 main firmware (producer) and the M5Stack
 // secondary display firmware (consumer).
 //
-// Frame format (80 bytes total):
+// Frame format (94 bytes total):
 //
 //   Offset  Width  Field              Format   Scale   Notes
 //   ------  -----  -----------------  -------  ------  ----------------------
@@ -26,11 +26,15 @@
 //   56       4     onSpeedSlowAoaDeg  %+04d    ×10     signed, –999 to +999
 //   60       4     onSpeedFastAoaDeg  %+04d    ×10     signed, –999 to +999
 //   64       4     tonesOnAoaDeg      %+04d    ×10     signed, –999 to +999
-//   68       4     gOnsetRate         %+04d    ×100    signed, –999 to +999
-//   72       2     spinRecoveryCue    %+02d    ×1      signed, –9 to +9
-//   74       2     dataMark           %02u     ×1      unsigned, 0–99
-//   76       2     checksum           ASCII hex        sum of bytes 0–75 & 0xFF
-//   78       2     terminator         CR LF    —       0x0D 0x0A
+//   68       4     alpha0Deg          %+04d    ×10     signed, –999 to +999  (zero-lift body angle, active-snapshot)
+//   72       4     alphaStallDeg      %+04d    ×10     signed, –999 to +999  (stall body angle, active-snapshot)
+//   76       3     flapsMinDeg        %+03d    ×1      signed, –99 to +99    (min configured flap deg)
+//   79       3     flapsMaxDeg        %+03d    ×1      signed, –99 to +99    (max configured flap deg)
+//   82       4     gOnsetRate         %+04d    ×100    signed, –999 to +999
+//   86       2     spinRecoveryCue    %+02d    ×1      signed, –9 to +9
+//   88       2     dataMark           %02u     ×1      unsigned, 0–99
+//   90       2     checksum           ASCII hex        sum of bytes 0–89 & 0xFF
+//   92       2     terminator         CR LF    —       0x0D 0x0A
 //
 // Wire-format invariant: the exact ASCII bytes emitted by BuildFrame must
 // be byte-for-byte identical to those emitted by the Gen3 firmware's
@@ -52,10 +56,10 @@
 namespace onspeed::proto {
 
 /// Total length of a complete #1 frame in bytes (including CRLF terminator).
-inline constexpr size_t kDisplayFrameSizeBytes = 80;
+inline constexpr size_t kDisplayFrameSizeBytes = 94;
 
-/// Length of the ASCII payload that the checksum covers (bytes 0–75 inclusive).
-inline constexpr size_t kDisplayFrameChecksumLen = 76;
+/// Length of the ASCII payload that the checksum covers (bytes 0–89 inclusive).
+inline constexpr size_t kDisplayFrameChecksumLen = 90;
 
 /// Nominal period between frames (milliseconds). Matches
 /// kDisplaySerialPeriodMs in the Gen3 firmware's HardwareMap.h.
@@ -92,6 +96,10 @@ struct DisplayBuildInputs {
     float onSpeedSlowAoaDeg = 0.0f;  // on-speed slow AOA setpoint (deg)
     float onSpeedFastAoaDeg = 0.0f;  // on-speed fast AOA setpoint (deg)
     float tonesOnAoaDeg     = 0.0f;  // tones-on AOA setpoint (deg); sourced from per-flap fLDMAXAOA config
+    float alpha0Deg         = 0.0f;  // zero-lift body angle (deg) for the active flap snapshot — needed by display geometry
+    float alphaStallDeg     = 0.0f;  // stall body angle (deg) for the active flap snapshot — used for percent-lift ceiling
+    int   flapsMinDeg       = 0;     // minimum configured flap deg (lever full retract)
+    int   flapsMaxDeg       = 0;     // maximum configured flap deg (lever full extend)
     float gOnsetRate        = 0.0f;  // G onset rate (G/s), currently always 0.0
     int   spinRecoveryCue   = 0;     // –1 / 0 / +1, currently always 0
     int   dataMark          = 0;     // data mark 0–99 (wraps mod 100)
@@ -122,6 +130,10 @@ struct DisplayFrame {
     float onSpeedSlowAoaDeg = 0.0f;
     float onSpeedFastAoaDeg = 0.0f;
     float tonesOnAoaDeg     = 0.0f;
+    float alpha0Deg         = 0.0f;
+    float alphaStallDeg     = 0.0f;
+    int   flapsMinDeg       = 0;
+    int   flapsMaxDeg       = 0;
     float gOnsetRate        = 0.0f;
     int   spinRecoveryCue   = 0;
     int   dataMark          = 0;

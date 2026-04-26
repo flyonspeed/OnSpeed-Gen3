@@ -77,19 +77,19 @@ void test_frame_starts_with_magic(void)
 void test_frame_ends_with_crlf(void)
 {
     buildOk(zeroInputs());
-    TEST_ASSERT_EQUAL(0x0D, frameBuf[78]);
-    TEST_ASSERT_EQUAL(0x0A, frameBuf[79]);
+    TEST_ASSERT_EQUAL(0x0D, frameBuf[kDisplayFrameSizeBytes - 2]);
+    TEST_ASSERT_EQUAL(0x0A, frameBuf[kDisplayFrameSizeBytes - 1]);
 }
 
 void test_checksum_bytes_are_hex_digits(void)
 {
     buildOk(zeroInputs());
-    // Bytes 76–77 must be ASCII hex (0-9, A-F)
+    // Two ASCII hex digits (0-9, A-F) immediately before the CRLF.
     auto isHex = [](uint8_t c) {
         return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
     };
-    TEST_ASSERT_TRUE(isHex(frameBuf[76]));
-    TEST_ASSERT_TRUE(isHex(frameBuf[77]));
+    TEST_ASSERT_TRUE(isHex(frameBuf[kDisplayFrameChecksumLen]));
+    TEST_ASSERT_TRUE(isHex(frameBuf[kDisplayFrameChecksumLen + 1]));
 }
 
 // ----------------------------------------------------------------------------
@@ -117,6 +117,10 @@ void test_roundtrip_all_zeros(void)
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.onSpeedSlowAoaDeg);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.onSpeedFastAoaDeg);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.tonesOnAoaDeg);
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.alpha0Deg);
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.alphaStallDeg);
+    TEST_ASSERT_EQUAL(0, f.flapsMinDeg);
+    TEST_ASSERT_EQUAL(0, f.flapsMaxDeg);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_100, 0.0f, f.gOnsetRate);
     TEST_ASSERT_EQUAL(0, f.spinRecoveryCue);
     TEST_ASSERT_EQUAL(0, f.dataMark);
@@ -441,8 +445,8 @@ void test_parse_corrupted_checksum_field(void)
 {
     buildOk(zeroInputs());
     // Replace the CRC bytes with non-hex characters.
-    frameBuf[76] = 'G';
-    frameBuf[77] = 'Z';
+    frameBuf[kDisplayFrameChecksumLen]     = 'G';
+    frameBuf[kDisplayFrameChecksumLen + 1] = 'Z';
     auto opt = ParseDisplayFrame(frameBuf, kDisplayFrameSizeBytes);
     TEST_ASSERT_FALSE(opt.has_value());
 }
@@ -476,27 +480,80 @@ void test_build_small_output(void)
 void test_known_frame_content(void)
 {
     // Compute expected payload directly (mirrors Gen3 DisplaySerial::Write).
-    // Use a generous buffer to avoid -Wformat-truncation; only 76 bytes will
-    // actually be written by the all-zero case.
     char expected_payload[200];
     int n = snprintf(
         expected_payload, sizeof(expected_payload),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+02i%02u",
-        0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0u);
-    TEST_ASSERT_EQUAL(76, n);
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+04i%+03i%+03i%+04i%+02i%02u",
+        0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,                                            // alpha0, alphaStall, flapsMin, flapsMax
+        0, 0, 0u);
+    TEST_ASSERT_EQUAL(static_cast<int>(kDisplayFrameChecksumLen), n);
 
     buildOk(zeroInputs());
 
-    // Compare the 76 payload bytes.
-    TEST_ASSERT_EQUAL_MEMORY(expected_payload, frameBuf, 76);
+    // Compare the payload bytes.
+    TEST_ASSERT_EQUAL_MEMORY(expected_payload, frameBuf, kDisplayFrameChecksumLen);
 
-    // The last two bytes before CRLF must be ASCII hex of the checksum.
-    TEST_ASSERT_EQUAL(0x0D, frameBuf[78]);
-    TEST_ASSERT_EQUAL(0x0A, frameBuf[79]);
+    // The last two bytes must be CRLF.
+    TEST_ASSERT_EQUAL(0x0D, frameBuf[kDisplayFrameSizeBytes - 2]);
+    TEST_ASSERT_EQUAL(0x0A, frameBuf[kDisplayFrameSizeBytes - 1]);
 
     // Verify the frame is parseable.
     auto opt = ParseDisplayFrame(frameBuf, kDisplayFrameSizeBytes);
     TEST_ASSERT_TRUE(opt.has_value());
+}
+
+// ----------------------------------------------------------------------------
+// Round-trip: new fields added in PR (alpha_0, alpha_stall, flap range)
+// ----------------------------------------------------------------------------
+
+void test_roundtrip_alpha0_negative(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.alpha0Deg = -3.7f;   // typical clean-config zero-lift
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -3.7f, f.alpha0Deg);
+}
+
+void test_roundtrip_alpha0_full_flaps(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.alpha0Deg = -9.2f;   // full-flap, more negative
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -9.2f, f.alpha0Deg);
+}
+
+void test_roundtrip_alpha_stall(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.alphaStallDeg = 11.6f;
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 11.6f, f.alphaStallDeg);
+}
+
+void test_roundtrip_flap_range(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.flapsMinDeg = 0;
+    in.flapsMaxDeg = 33;
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(0,  f.flapsMinDeg);
+    TEST_ASSERT_EQUAL(33, f.flapsMaxDeg);
+}
+
+void test_roundtrip_flap_range_negative_min(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.flapsMinDeg = -10;   // a glider with reflex flaps
+    in.flapsMaxDeg =  40;
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(-10, f.flapsMinDeg);
+    TEST_ASSERT_EQUAL( 40, f.flapsMaxDeg);
 }
 
 // ----------------------------------------------------------------------------
@@ -553,6 +610,12 @@ int main(int, char**)
     RUN_TEST(test_build_small_output);
 
     RUN_TEST(test_known_frame_content);
+
+    RUN_TEST(test_roundtrip_alpha0_negative);
+    RUN_TEST(test_roundtrip_alpha0_full_flaps);
+    RUN_TEST(test_roundtrip_alpha_stall);
+    RUN_TEST(test_roundtrip_flap_range);
+    RUN_TEST(test_roundtrip_flap_range_negative_min);
 
     return UNITY_END();
 }

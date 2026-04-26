@@ -94,20 +94,24 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int      iSlow10     = SafeScaledInt(in.onSpeedSlowAoaDeg, 10.0f, -999, 999);
     const int      iFast10     = SafeScaledInt(in.onSpeedFastAoaDeg, 10.0f, -999, 999);
     const int      iTonesOn10  = SafeScaledInt(in.tonesOnAoaDeg,     10.0f, -999, 999);
+    const int      iAlpha010   = SafeScaledInt(in.alpha0Deg,         10.0f, -999, 999);
+    const int      iAlphaStall10 = SafeScaledInt(in.alphaStallDeg,   10.0f, -999, 999);
+    const int      iFlapsMin   = ClampInt(in.flapsMinDeg,        -99,    99);
+    const int      iFlapsMax   = ClampInt(in.flapsMaxDeg,        -99,    99);
     const int      iOnset100   = SafeScaledInt(in.gOnsetRate, 100.0f, -999, 999);
     const int      iSpinCue    = ClampInt(in.spinRecoveryCue, -9, 9);
     const unsigned uDataMark2  = static_cast<unsigned>(in.dataMark) % 100u;
 
-    // Build the 76-byte ASCII payload into a local staging buffer.
+    // Build the 90-byte ASCII payload into a local staging buffer.
     // The staging buffer is generously sized so the compiler cannot complain
     // about theoretical truncation with max-value arguments; the length check
-    // below enforces the exact 76-byte invariant at runtime.
+    // below enforces the exact 90-byte invariant at runtime.
     char staging[200];
 
     const int iChars = std::snprintf(
         staging,
         sizeof(staging),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+02i%02u",
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+04i%+03i%+03i%+04i%+02i%02u",
         iPitch10,
         iRoll10,
         uIas10,
@@ -125,6 +129,10 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
         iSlow10,
         iFast10,
         iTonesOn10,
+        iAlpha010,
+        iAlphaStall10,
+        iFlapsMin,
+        iFlapsMax,
         iOnset100,
         iSpinCue,
         uDataMark2);
@@ -140,9 +148,11 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     std::snprintf(reinterpret_cast<char*>(out + kDisplayFrameChecksumLen), 3,
                   "%02X", crc);
 
-    // Append CRLF terminator.
-    out[78] = 0x0D;
-    out[79] = 0x0A;
+    // Append CRLF terminator. Offsets derived from kDisplayFrameSizeBytes
+    // so any future field additions only require updating the size
+    // constants and the snprintf format string.
+    out[kDisplayFrameSizeBytes - 2] = 0x0D;
+    out[kDisplayFrameSizeBytes - 1] = 0x0A;
 
     return kDisplayFrameSizeBytes;
 }
@@ -160,13 +170,14 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     if (buf[0] != '#' || buf[1] != '1')
         return std::nullopt;
 
-    // Checksum check. Bytes 76–77 hold the checksum as two uppercase hex digits.
+    // Checksum check. Two uppercase hex digits live at the end of the
+    // payload, immediately before the CRLF terminator.
     const uint8_t expected = util::Checksum8(buf, kDisplayFrameChecksumLen);
 
     // Parse the two hex characters.
     char hexStr[3] = {
-        static_cast<char>(buf[76]),
-        static_cast<char>(buf[77]),
+        static_cast<char>(buf[kDisplayFrameChecksumLen]),
+        static_cast<char>(buf[kDisplayFrameChecksumLen + 1]),
         '\0'
     };
     char* endPtr = nullptr;
@@ -208,47 +219,55 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
         return true;
     };
 
-    int      iPitch10    = 0;
-    int      iRoll10     = 0;
-    unsigned uIas10      = 0;
-    int      iPaltFt     = 0;
-    int      iYaw10      = 0;
-    int      iLatG100    = 0;
-    int      iVertG10    = 0;
-    unsigned uPctLift    = 0;
-    int      iAoa10      = 0;
-    int      iVsi10      = 0;
-    int      iOatC       = 0;
-    int      iFpa10      = 0;
-    int      iFlapsDeg   = 0;
-    int      iStall10    = 0;
-    int      iSlow10     = 0;
-    int      iFast10     = 0;
-    int      iTonesOn10  = 0;
-    int      iOnset100   = 0;
-    int      iSpinCue    = 0;
-    unsigned uDataMark   = 0;
+    int      iPitch10      = 0;
+    int      iRoll10       = 0;
+    unsigned uIas10        = 0;
+    int      iPaltFt       = 0;
+    int      iYaw10        = 0;
+    int      iLatG100      = 0;
+    int      iVertG10      = 0;
+    unsigned uPctLift      = 0;
+    int      iAoa10        = 0;
+    int      iVsi10        = 0;
+    int      iOatC         = 0;
+    int      iFpa10        = 0;
+    int      iFlapsDeg     = 0;
+    int      iStall10      = 0;
+    int      iSlow10       = 0;
+    int      iFast10       = 0;
+    int      iTonesOn10    = 0;
+    int      iAlpha010     = 0;
+    int      iAlphaStall10 = 0;
+    int      iFlapsMin     = 0;
+    int      iFlapsMax     = 0;
+    int      iOnset100     = 0;
+    int      iSpinCue      = 0;
+    unsigned uDataMark     = 0;
 
-    if (!extractInt(2, 4, &iPitch10))    return std::nullopt;
-    if (!extractInt(6, 5, &iRoll10))     return std::nullopt;
-    if (!extractUInt(11, 4, &uIas10))    return std::nullopt;
-    if (!extractInt(15, 6, &iPaltFt))    return std::nullopt;
-    if (!extractInt(21, 5, &iYaw10))     return std::nullopt;
-    if (!extractInt(26, 3, &iLatG100))   return std::nullopt;
-    if (!extractInt(29, 3, &iVertG10))   return std::nullopt;
-    if (!extractUInt(32, 2, &uPctLift))  return std::nullopt;
-    if (!extractInt(34, 4, &iAoa10))     return std::nullopt;
-    if (!extractInt(38, 4, &iVsi10))     return std::nullopt;
-    if (!extractInt(42, 3, &iOatC))      return std::nullopt;
-    if (!extractInt(45, 4, &iFpa10))     return std::nullopt;
-    if (!extractInt(49, 3, &iFlapsDeg))  return std::nullopt;
-    if (!extractInt(52, 4, &iStall10))   return std::nullopt;
-    if (!extractInt(56, 4, &iSlow10))    return std::nullopt;
-    if (!extractInt(60, 4, &iFast10))    return std::nullopt;
-    if (!extractInt(64, 4, &iTonesOn10)) return std::nullopt;
-    if (!extractInt(68, 4, &iOnset100))  return std::nullopt;
-    if (!extractInt(72, 2, &iSpinCue))   return std::nullopt;
-    if (!extractUInt(74, 2, &uDataMark)) return std::nullopt;
+    if (!extractInt( 2, 4, &iPitch10))      return std::nullopt;
+    if (!extractInt( 6, 5, &iRoll10))       return std::nullopt;
+    if (!extractUInt(11, 4, &uIas10))       return std::nullopt;
+    if (!extractInt(15, 6, &iPaltFt))       return std::nullopt;
+    if (!extractInt(21, 5, &iYaw10))        return std::nullopt;
+    if (!extractInt(26, 3, &iLatG100))      return std::nullopt;
+    if (!extractInt(29, 3, &iVertG10))      return std::nullopt;
+    if (!extractUInt(32, 2, &uPctLift))     return std::nullopt;
+    if (!extractInt(34, 4, &iAoa10))        return std::nullopt;
+    if (!extractInt(38, 4, &iVsi10))        return std::nullopt;
+    if (!extractInt(42, 3, &iOatC))         return std::nullopt;
+    if (!extractInt(45, 4, &iFpa10))        return std::nullopt;
+    if (!extractInt(49, 3, &iFlapsDeg))     return std::nullopt;
+    if (!extractInt(52, 4, &iStall10))      return std::nullopt;
+    if (!extractInt(56, 4, &iSlow10))       return std::nullopt;
+    if (!extractInt(60, 4, &iFast10))       return std::nullopt;
+    if (!extractInt(64, 4, &iTonesOn10))    return std::nullopt;
+    if (!extractInt(68, 4, &iAlpha010))     return std::nullopt;
+    if (!extractInt(72, 4, &iAlphaStall10)) return std::nullopt;
+    if (!extractInt(76, 3, &iFlapsMin))     return std::nullopt;
+    if (!extractInt(79, 3, &iFlapsMax))     return std::nullopt;
+    if (!extractInt(82, 4, &iOnset100))     return std::nullopt;
+    if (!extractInt(86, 2, &iSpinCue))      return std::nullopt;
+    if (!extractUInt(88, 2, &uDataMark))    return std::nullopt;
 
     DisplayFrame f;
     f.pitchDeg          = static_cast<float>(iPitch10)  / 10.0f;
@@ -267,8 +286,12 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     f.stallWarnAoaDeg   = static_cast<float>(iStall10)  / 10.0f;
     f.onSpeedSlowAoaDeg = static_cast<float>(iSlow10)   / 10.0f;
     f.onSpeedFastAoaDeg = static_cast<float>(iFast10)   / 10.0f;
-    f.tonesOnAoaDeg     = static_cast<float>(iTonesOn10) / 10.0f;
-    f.gOnsetRate        = static_cast<float>(iOnset100) / 100.0f;
+    f.tonesOnAoaDeg     = static_cast<float>(iTonesOn10)    / 10.0f;
+    f.alpha0Deg         = static_cast<float>(iAlpha010)     / 10.0f;
+    f.alphaStallDeg     = static_cast<float>(iAlphaStall10) / 10.0f;
+    f.flapsMinDeg       = iFlapsMin;
+    f.flapsMaxDeg       = iFlapsMax;
+    f.gOnsetRate        = static_cast<float>(iOnset100)     / 100.0f;
     f.spinRecoveryCue   = iSpinCue;
     f.dataMark          = static_cast<int>(uDataMark);
 
