@@ -222,46 +222,105 @@ void SerialRead()
     // Update if 100 msec (10 Hz) has passed
     if (serialMillis + 100 < currMillis)
     {
+        // Demo: simulate the firmware-side interpolation that PR 2 will
+        // do. Smoothly cycle the lever 0° → 16° → 33° → 16° → 0°
+        // every ~12 s and emit interpolated values that mirror what
+        // SnapshotForDisplay() would produce. The audio path (which we
+        // don't render here) would still see snapped per-detent values.
+        struct FlapCfg {
+            int   degrees;
+            float alpha0;
+            float alphaStall;
+            float ldmax;
+            float fast;
+            float slow;
+            float warn;
+        };
+        static const FlapCfg kFlaps[] = {
+            { 0,  -3.7211f, 10.309f,  3.24f, 3.98f, 5.26f, 8.24f },  // Clean
+            { 16, -6.2231f,  9.5681f, 1.11f, 2.44f, 3.88f, 7.17f },  // Half
+            { 33, -9.2107f, 11.5701f,-2.24f, 2.19f, 4.09f, 7.94f },  // Full
+        };
+
+        // 10 s sweep period: 5 s deploy (0→33), 5 s retract (33→0).
+        // Matches realistic flap deployment time.
+        const float t = (currMillis % 10000) / 5000.0f;          // 0..2
+        const float sweep = (t <= 1.0f) ? t : (2.0f - t);        // 0→1→0
+        const float leverDeg = sweep * 33.0f;                    // 0..33..0
+
+        // Pick neighbor pair and lambda based on lever position.
+        int aIdx, bIdx;
+        float lambda;
+        if (leverDeg <= (float)kFlaps[1].degrees) {
+            aIdx = 0; bIdx = 1;
+            lambda = leverDeg / (float)kFlaps[1].degrees;
+        } else {
+            aIdx = 1; bIdx = 2;
+            lambda = (leverDeg - kFlaps[1].degrees) /
+                     (float)(kFlaps[2].degrees - kFlaps[1].degrees);
+        }
+        if (lambda < 0.0f) lambda = 0.0f;
+        if (lambda > 1.0f) lambda = 1.0f;
+
+        const FlapCfg& a = kFlaps[aIdx];
+        const FlapCfg& b = kFlaps[bIdx];
+
+        // Operational/audio thresholds: snap to nearest detent.
+        const FlapCfg& snap = (lambda < 0.5f) ? a : b;
+
+        // Visual L/Dmax: interpolate band fraction (LDmax - alpha_0) /
+        // (Fast - alpha_0) between detents, then express it as a body
+        // angle within the active (snapped) detent's anchor frame.
+        const float f_a   = (a.ldmax - a.alpha0) / (a.fast - a.alpha0);
+        const float f_b   = (b.ldmax - b.alpha0) / (b.fast - b.alpha0);
+        const float f_now = (1.0f - lambda) * f_a + lambda * f_b;
+        const float emittedLDmax =
+            snap.alpha0 + f_now * (snap.fast - snap.alpha0);
+
+        // Set the new wire fields (alpha_0 / alpha_stall / flap range)
+        // that the M5 needs for correct band geometry.  In the real PR
+        // these come from the #1 frame; here we set them directly on
+        // the M5-side globals.
+        Alpha0      = snap.alpha0;
+        AlphaStall  = snap.alphaStall;
+        FlapsMinDeg = kFlaps[0].degrees;
+        FlapsMaxDeg = kFlaps[2].degrees;
+
         Pitch               = 5.0;
         Roll                = 0.0;
         IAS                 = 100.0;
         Palt                = 2500.0;
         LateralG            = 0.0;
-        VerticalG           = 1.0;  // 1g straight-and-level (bench realism)
+        VerticalG           = 1.0;
         iVSI                = 0.0;
         OAT                 = 70;
         FlightPath          = 0.0;
-        FlapPos             = 0;
-        OnSpeedStallWarnAOA = 20.0;
-        OnSpeedSlowAOA      = 15.0;
-        OnSpeedFastAOA      = 10.0;
-        OnSpeedTonesOnAOA   =  5.0;
+        FlapPos             = (int)(leverDeg + 0.5f);    // interpolated lever degrees
+        OnSpeedStallWarnAOA = snap.warn;
+        OnSpeedSlowAOA      = snap.slow;
+        OnSpeedFastAOA      = snap.fast;
+        OnSpeedTonesOnAOA   = emittedLDmax;              // interpolated
         gOnsetRate          = 0.0;
         SpinRecoveryCue     = 0;
         DataMark            = 0;
 
-        // Body-angle sweep covering alpha_0 through past stall-warn for
-        // a typical RV-class aircraft. The sweep top sits above the
-        // dummy frame's StallWarnAOA (20°, set above) so the indexer's
-        // top-chevron flash engages — same visual a pilot would see in
-        // the airplane when AOA crosses StallWarn. PercentLift uses
-        // alpha_0 as the zero-lift floor and clamps at 99 to match the
-        // %02u wire protocol field in the #1 frame; a real stall reads
-        // 99 on the device, never 100.
-        static constexpr float kSimAlpha0     = -4.0f;
-        static constexpr float kSimAlphaStall = 18.0f;
-        static constexpr float kSimAoaMax     = 24.0f;
-
-        if (AOA < kSimAoaMax) AOA += 0.2f;
-        else                  AOA  = kSimAlpha0;
-
+        // Park AOA at a fixed body angle so the pointer is genuinely
+        // pinned across the whole sweep.  In real flight AOA is what
+        // the airplane is doing — it's independent of which flap
+        // detent the firmware thinks it's in.  As the active detent's
+        // alpha_0 / OnSpeedFast anchors snap at detent boundaries,
+        // the pointer's screen y will shift by however much the
+        // band's body-angle range shifted around the fixed AOA, but
+        // there's no AOA discontinuity from the demo itself.
+        AOA = 1.0f;
+        // PercentLift uses the active snapshot's alpha_0..stall span.
         const float fraction =
-            (AOA - kSimAlpha0) / (kSimAlphaStall - kSimAlpha0);
-        PercentLift = (int)(fraction * 100.0f);
-        if (PercentLift < 0)  PercentLift = 0;
-        if (PercentLift > 99) PercentLift = 99;
+            (AOA - snap.alpha0) / (snap.warn - snap.alpha0);
+        int pct = (int)(fraction * 100.0f);
+        if (pct < 0)  pct = 0;
+        if (pct > 99) pct = 99;
+        PercentLift = pct;
 
-        // Dummy data ticks every 100 ms.
         SerialProcess(0.1f);
 
         serialMillis = currMillis;
