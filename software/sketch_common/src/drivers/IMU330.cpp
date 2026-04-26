@@ -26,7 +26,7 @@ using onspeed::accelRoll;
 #define IMU_READ_ADDR(addr)   (uint8_t)(0x80 | addr)
 
 #define ACCEL_RES      (8.0f / 32768.0f)    // full scale /resolution (8G)
-#define GYRO_RES     (245.0f / 32768.0f)    // full scale / resolution (245 dps)
+#define GYRO_RES     (250.0f / 32768.0f)    // full scale / resolution (250 dps, matches CTRL2_G FS_G=00)
 
 #define ISM330_TEMP_SCALE   256.0f
 #define ISM330_TEMP_BIAS     25.0f
