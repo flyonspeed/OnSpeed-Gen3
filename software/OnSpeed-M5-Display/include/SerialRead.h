@@ -29,7 +29,6 @@ extern float           DecelRate;
 extern float           SmoothedDecelRate;
 
 extern uint64_t        serialMillis;
-extern String          serialBufferString;
 
 // Serial port management
 extern unsigned int    selectedPort;

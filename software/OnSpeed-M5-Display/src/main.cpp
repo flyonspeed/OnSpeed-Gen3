@@ -128,7 +128,6 @@ const uint16_t  updateRateNumbers   = 500;  //milliseconds
 const uint16_t  flashRate           = 250;  //milliseconds
 
 // Serial data variables (definitions, declared extern in SerialRead.h)
-String          serialBufferString;
 float           AOA                 = 0.0;
 int             PercentLift;
 float           Pitch               = 0.0;

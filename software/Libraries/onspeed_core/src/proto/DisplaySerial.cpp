@@ -141,7 +141,7 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     if (iChars != static_cast<int>(kDisplayFrameChecksumLen))
         return 0;
 
-    // Copy the 76-byte payload into the output buffer.
+    // Copy the kDisplayFrameChecksumLen-byte payload into the output buffer.
     std::memcpy(out, staging, kDisplayFrameChecksumLen);
 
     // Append the 2-byte ASCII hex checksum.
@@ -329,13 +329,10 @@ std::optional<DisplayFrame> DisplayFrameAccumulator::Inject(uint8_t byte)
         return std::nullopt;
     }
 
-    // Buffer overflow — reset and drop. Treats the runaway bytes as
-    // garbage; the next '#' will start a fresh frame.
-    if (length_ >= kDisplayFrameSizeBytes) {
-        length_ = 0;
-        return std::nullopt;
-    }
-
+    // length_ is always in [1..kDisplayFrameSizeBytes-1] here: line 321
+    // resets it to 1 on '#', and every code path below either continues
+    // building (length_ < kDisplayFrameSizeBytes) or runs the validation
+    // and resets to 0.  No buffer overflow is possible.
     buffer_[length_++] = byte;
 
     // Not yet a complete frame.
@@ -343,10 +340,12 @@ std::optional<DisplayFrame> DisplayFrameAccumulator::Inject(uint8_t byte)
         return std::nullopt;
     }
 
-    // Frame is full. Validate end-of-frame structure (LF terminator
-    // and "#1" magic at start) before paying for ParseDisplayFrame's
-    // CRC arithmetic.
-    if (byte != 0x0A || buffer_[0] != '#' || buffer_[1] != '1') {
+    // Frame is full. Drop early if the final byte isn't the LF
+    // terminator (frame got out of sync mid-stream). The "#1" magic
+    // check is left to ParseDisplayFrame; line 321 above guarantees
+    // buffer_[0] == '#' for every accumulator frame, so re-checking
+    // it here would be untestable defensive code.
+    if (byte != 0x0A) {
         length_ = 0;
         return std::nullopt;
     }

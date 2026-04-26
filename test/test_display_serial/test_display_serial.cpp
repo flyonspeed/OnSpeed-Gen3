@@ -634,21 +634,18 @@ void test_accumulator_resets_on_mid_frame_hash(void)
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 12.3f, rEnd->pitchDeg);
 }
 
-void test_accumulator_drops_overrun_garbage(void)
+void test_accumulator_drops_frame_without_lf_terminator(void)
 {
     DisplayFrameAccumulator accum;
-    // Send '#' followed by enough bytes that we overrun without
-    // ever emitting a valid LF terminator.  The accumulator should
-    // bail at the size limit and return to idle.
+    // Send '#' followed by kDisplayFrameSizeBytes-1 garbage bytes.
+    // Buffer fills to capacity but the final byte is 'X', not LF, so
+    // the validation check at the full-frame point drops the frame
+    // and resets the accumulator to idle.
     accum.Inject('#');
     for (size_t i = 1; i < kDisplayFrameSizeBytes; ++i) {
-        // Use 'X' as filler — never the LF that would end the frame.
         auto r = accum.Inject('X');
         TEST_ASSERT_FALSE(r.has_value());
     }
-    // The buffer is now full (length == kDisplayFrameSizeBytes) but
-    // the final byte was 'X', not LF, so the accumulator drops the
-    // frame and resets.
     TEST_ASSERT_FALSE(accum.InProgress());
 }
 
@@ -769,7 +766,7 @@ int main(int, char**)
     RUN_TEST(test_accumulator_parses_complete_frame);
     RUN_TEST(test_accumulator_ignores_bytes_before_magic);
     RUN_TEST(test_accumulator_resets_on_mid_frame_hash);
-    RUN_TEST(test_accumulator_drops_overrun_garbage);
+    RUN_TEST(test_accumulator_drops_frame_without_lf_terminator);
     RUN_TEST(test_accumulator_rejects_bad_crc);
     RUN_TEST(test_accumulator_back_to_back_frames);
 

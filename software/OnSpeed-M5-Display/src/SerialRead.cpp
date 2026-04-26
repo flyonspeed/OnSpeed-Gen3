@@ -279,9 +279,12 @@ void SerialRead()
         // band's body-angle range shifted around the fixed AOA, but
         // there's no AOA discontinuity from the demo itself.
         AOA = 1.0f;
-        // PercentLift uses the active snapshot's alpha_0..stall span.
+        // Canonical PercentLift uses (AOA - alpha_0) / (alpha_stall -
+        // alpha_0). The full ComputePercentLift function is piecewise;
+        // for this single-AOA demo a linear approximation over the
+        // alpha_0..alpha_stall span is close enough.
         const float fraction =
-            (AOA - snap.alpha0) / (snap.warn - snap.alpha0);
+            (AOA - snap.alpha0) / (snap.alphaStall - snap.alpha0);
         int pct = (int)(fraction * 100.0f);
         if (pct < 0)  pct = 0;
         if (pct > 99) pct = 99;
