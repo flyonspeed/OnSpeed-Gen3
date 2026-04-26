@@ -333,17 +333,43 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+          key: ${{ runner.os }}-pio-m5-replay-v1
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Run m5-replay frame-builder tests
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build firmware-parser harness
+        working-directory: tools/m5-replay
+        run: pio run -e native
+
+      - name: Run m5-replay tests (Python builder + firmware-parser interop)
         working-directory: tools/m5-replay
         run: |
           uv run test_replay.py
 
           echo "## M5 Replay Tool Tests" >> $GITHUB_STEP_SUMMARY
-          echo "Frame builder unit tests passed — verifies the 80-byte wire format, CRC, field offsets, and clamping match the M5 firmware parser." >> $GITHUB_STEP_SUMMARY
+          echo "All tests passed — including the firmware-parser interop layer that pipes Python-built frames through onspeed_core's \`ParseDisplayFrame\` (the same code that runs on the M5). This catches wire-format drift between the bench tool and the firmware that the previous self-referential tests could not." >> $GITHUB_STEP_SUMMARY
 
   test:
     name: Unit Tests + Coverage

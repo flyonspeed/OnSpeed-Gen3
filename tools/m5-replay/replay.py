@@ -8,11 +8,16 @@
 """Stream OnSpeed #1 display-serial frames to an M5Stack secondary display.
 
 Reads an OnSpeed SD-card CSV log (or generates synthetic data), formats the
-76-byte ASCII payload + CRC + CRLF exactly as the Gen3 firmware does, and
-writes it at 20 Hz to a serial port (typically a USB-to-TTL dongle).
+90-byte ASCII payload + 2-byte CRC + CRLF (94 bytes total) exactly as the
+Gen3 firmware does, and writes it at 20 Hz to a serial port (typically a
+USB-to-TTL dongle).
 
-Reference implementation on the firmware side:
-    OnSpeed-Gen3/software/sketch_common/src/io/DisplaySerial.cpp
+Wire format reference:
+    docs/site/docs/reference/serial-protocol.md
+Canonical builder/parser:
+    software/Libraries/onspeed_core/src/proto/DisplaySerial.{h,cpp}
+Producer in firmware:
+    software/sketch_common/src/io/DisplaySerial.cpp
 
 Usage:
     uv run replay.py --port /dev/cu.usbserial-XXXX --input LOG.csv
@@ -48,6 +53,11 @@ BAUD = 115200
 # ---------------------------------------------------------------------------
 
 
+# Wire-format constants. Mirror onspeed_core/proto/DisplaySerial.h.
+PAYLOAD_LEN = 90    # bytes 0..89 — ASCII fields up to and including dataMark
+FRAME_LEN   = 94    # PAYLOAD_LEN + 2 hex CRC + CRLF
+
+
 @dataclass
 class Frame:
     """All fields transmitted in one #1 payload. Units are "display units"
@@ -71,16 +81,23 @@ class Frame:
     onspeed_slow_aoa: float = 15.0
     onspeed_fast_aoa: float = 10.0
     tones_on_aoa: float = 5.0
+    alpha_0: float = 0.0
+    alpha_stall: float = 0.0
+    flaps_min_deg: int = 0
+    flaps_max_deg: int = 0
     g_onset_rate: float = 0.0
     spin_cue: int = 0
     data_mark: int = 0
 
     def to_bytes(self) -> bytes:
-        """Serialize to the 80-byte wire frame (payload + CRC + CRLF).
+        """Serialize to the 94-byte wire frame (payload + CRC + CRLF).
 
-        Matches the printf format in DisplaySerial.cpp:
-            "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i"
-            "%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+02i%02u"
+        Matches the printf format in onspeed_core/proto/DisplaySerial.cpp:
+            "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u"
+            "%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i"
+            "%+04i%+04i%+04i%+03i%+03i%+04i%+02i%02u"
+        Field order (post-tonesOnAoa) is: alpha0, alphaStall, flapsMin,
+        flapsMax, gOnsetRate, spinCue, dataMark.  Don't shuffle.
         """
         payload = (
             f"#1"
@@ -101,12 +118,18 @@ class Frame:
             f"{_clamp_int(self.onspeed_slow_aoa * 10, -999, 999):+04d}"
             f"{_clamp_int(self.onspeed_fast_aoa * 10, -999, 999):+04d}"
             f"{_clamp_int(self.tones_on_aoa * 10, -999, 999):+04d}"
+            f"{_clamp_int(self.alpha_0 * 10, -999, 999):+04d}"
+            f"{_clamp_int(self.alpha_stall * 10, -999, 999):+04d}"
+            f"{_clamp_int(self.flaps_min_deg, -99, 99):+03d}"
+            f"{_clamp_int(self.flaps_max_deg, -99, 99):+03d}"
             f"{_clamp_int(self.g_onset_rate * 100, -999, 999):+04d}"
             f"{_clamp_int(self.spin_cue, -9, 9):+02d}"
             f"{_clamp_uint(self.data_mark, 0, 99):02d}"
         )
-        if len(payload) != 76:
-            raise AssertionError(f"payload length {len(payload)} != 76: {payload!r}")
+        if len(payload) != PAYLOAD_LEN:
+            raise AssertionError(
+                f"payload length {len(payload)} != {PAYLOAD_LEN}: {payload!r}"
+            )
         crc = sum(payload.encode("ascii")) & 0xFF
         return f"{payload}{crc:02X}\r\n".encode("ascii")
 
@@ -249,6 +272,9 @@ def csv_frame_stream(
         skip_until_ms = t0_ms + int(skip_seconds * 1000)
         target_ms = max(t0_ms, skip_until_ms)
 
+        flaps_min = min(setpoints.keys())
+        flaps_max = max(setpoints.keys())
+
         def row_to_frame(r: dict[str, str]) -> Frame:
             flap = _int_or(r.get("flapsPos"), 0)
             fs = setpoints_for_flap(flap, setpoints)
@@ -271,6 +297,10 @@ def csv_frame_stream(
                 onspeed_slow_aoa=fs.onspeed_slow_aoa,
                 onspeed_fast_aoa=fs.onspeed_fast_aoa,
                 tones_on_aoa=fs.ldmax_aoa,  # "tones on" = LDmax per firmware
+                alpha_0=fs.alpha_0,
+                alpha_stall=fs.alpha_stall,
+                flaps_min_deg=flaps_min,
+                flaps_max_deg=flaps_max,
                 g_onset_rate=0.0,  # not in log; leave at 0
                 spin_cue=0,
                 data_mark=_int_or(r.get("DataMark"), 0) % 100,
@@ -433,6 +463,10 @@ def synthetic_stream(
             onspeed_slow_aoa=fs.onspeed_slow_aoa,
             onspeed_fast_aoa=fs.onspeed_fast_aoa,
             tones_on_aoa=fs.ldmax_aoa,
+            alpha_0=fs.alpha_0,
+            alpha_stall=fs.alpha_stall,
+            flaps_min_deg=min(setpoints.keys()),
+            flaps_max_deg=max(setpoints.keys()),
             g_onset_rate=0.0,
             spin_cue=0,
             data_mark=int(t) % 100,
