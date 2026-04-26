@@ -222,34 +222,49 @@ public:
      * - Initial covariance (P0): Starting uncertainty
      */
     struct Config {
-        // Process noise variances (Q matrix diagonal)
-        float q_attitude;   ///< Attitude process noise (rad^2), default 0.001
-        float q_alpha;      ///< Alpha process noise (rad^2), default 0.0001
-        float q_bias;       ///< Gyro bias drift ((rad/s)^2), default 1e-8
+        // Process noise spectral densities (Q matrix diagonal). Units
+        // are continuous-time: variance per second (rad²/s for
+        // attitude/alpha, (rad/s)²/s for bias). The predict step
+        // injects Q*dt of variance into P, so the per-second injection
+        // rate is exactly Q regardless of the IMU step rate.
+        float q_attitude;   ///< Attitude process noise (rad²/s)
+        float q_alpha;      ///< Alpha process noise (rad²/s)
+        float q_bias;       ///< Gyro bias drift ((rad/s)²/s)
 
-        // Measurement noise variances (R matrix diagonal)
-        float r_accel;      ///< Accelerometer noise ((m/s^2)^2), default 0.5
-        float r_alpha;      ///< Alpha measurement noise (rad^2), default 0.01
+        // Measurement noise variances (R matrix diagonal). Units are
+        // discrete-time variance — these are the actual variance of a
+        // single accel/alpha sample.
+        float r_accel;      ///< Accelerometer noise ((m/s²)²)
+        float r_alpha;      ///< Alpha measurement noise (rad²)
 
-        // Initial state covariance (P0 matrix diagonal)
-        float p_attitude;   ///< Initial attitude uncertainty (rad^2), default 0.1
-        float p_alpha;      ///< Initial alpha uncertainty (rad^2), default 0.1
-        float p_bias;       ///< Initial bias uncertainty ((rad/s)^2), default 0.01
+        // Initial state covariance (P0 matrix diagonal). Units are
+        // discrete-time variance — initial state-estimate uncertainty.
+        float p_attitude;   ///< Initial attitude uncertainty (rad²)
+        float p_alpha;      ///< Initial alpha uncertainty (rad²)
+        float p_bias;       ///< Initial bias uncertainty ((rad/s)²)
 
         /**
          * @brief Get default configuration values
          * @return Config struct with production-ready defaults
+         *
+         * Q values are continuous-time spectral densities. The
+         * predict step injects Q*dt per call, so the per-second
+         * variance injection is exactly Q regardless of IMU
+         * cadence. **Do NOT scale Q by IMU rate when changing
+         * cadence** — the dt factor in predict() handles it.
+         * Change Q only to deliberately retune the filter's
+         * aggressiveness.
          */
         static Config defaults() {
             return {
-                0.001f,   // q_attitude - allows ~1.8 deg/s attitude change
-                0.0001f,  // q_alpha - AOA changes slowly
-                1e-8f,    // q_bias - biases very stable
-                0.5f,     // r_accel - typical MEMS accelerometer noise
-                0.01f,    // r_alpha - derived alpha has some uncertainty
-                0.1f,     // p_attitude - moderate initial uncertainty (~18 deg)
-                0.1f,     // p_alpha
-                0.01f     // p_bias - start assuming small bias (~0.6 deg/s)
+                0.208f,    // q_attitude (rad²/s)
+                0.0208f,   // q_alpha (rad²/s)
+                2.08e-6f,  // q_bias ((rad/s)²/s)
+                0.5f,      // r_accel ((m/s²)²) — typical MEMS accel noise
+                0.01f,     // r_alpha (rad²) — derived alpha uncertainty
+                0.1f,      // p_attitude (rad²) — moderate initial (~18°)
+                0.1f,      // p_alpha (rad²)
+                0.01f      // p_bias ((rad/s)²) — small bias init (~0.6 deg/s)
             };
         }
     };

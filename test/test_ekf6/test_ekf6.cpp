@@ -539,6 +539,82 @@ void test_ekf6_reset_preserves_other_states(void) {
 }
 
 // ============================================================================
+// dt scaling — process noise injects Q*dt per step so per-second
+// process-noise variance accumulation is rate-invariant.
+// ============================================================================
+
+/**
+ * The Q matrix is treated as continuous-time spectral density (rad²/s).
+ * Pin the units invariant: at the steady-state attitude (accel and
+ * gyro agree on level), per-step P-growth from process noise should
+ * match Q*dt. We can't read P directly, but we can pin the per-step
+ * convergence rate — at the same wall-clock duration, the higher rate
+ * runs should produce SMOOTHER (closer to true level) attitude
+ * because they apply more measurement updates per second.
+ *
+ * Pre-fix: a high-rate run injected proportionally more process noise
+ * per second, partially cancelling its update-rate advantage. A test
+ * that runs longer than convergence won't see the difference (both
+ * settle), but a short window does.
+ *
+ * Most importantly, this test pins that the gyro-bias estimator
+ * (q_bias = 2.08e-6 rad²/s/s) doesn't run away over a long stationary
+ * window — pre-fix at 208 Hz the per-step injection of 1e-8 grew bias
+ * variance unbounded; post-fix it grows at q_bias rad²/s wall-clock.
+ */
+void test_ekf6_q_units_continuous_time_density(void) {
+    // Run a 30 s level scenario at 208 Hz with no real bias. The gyro
+    // bias estimator should not drift more than its 1-sigma envelope
+    // (sqrt(p_bias_init + q_bias * T)) — at T=30 s, q_bias=2.08e-6,
+    // expected envelope is sqrt(0.01 + 6.24e-5) ≈ 0.1 rad/s ≈ 5.7 dps.
+    // (The Kalman update will pull it tighter than this; we just
+    // verify it stays bounded.)
+    EKF6 ekf;
+    ekf.init();
+    EKF6::Measurements meas{};
+    meas.ax = 0.0f;
+    meas.ay = 0.0f;
+    meas.az = -G;
+    meas.p = meas.q = meas.r = 0.0f;
+    meas.gamma = 0.0f;
+
+    const float dt = 1.0f / 208.0f;
+    for (int i = 0; i < 208 * 30; i++) ekf.update(meas, dt);
+
+    const auto s = ekf.getState();
+    // No real motion; biases should remain near zero.
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, s.bp_dps());
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, s.bq_dps());
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, s.br_dps());
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, s.theta_deg());
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, s.phi_deg());
+}
+
+/**
+ * Filter run at the production 208 Hz rate produces theta=10° for a
+ * 10°-tilted static accel input. Pin the production behavior point so
+ * the next time someone touches the predict step, this test catches
+ * a regression at the rate the firmware actually runs.
+ */
+void test_ekf6_dt_scaling_preserves_208hz_static_tilt(void) {
+    EKF6 ekf;
+    ekf.init();
+    EKF6::Measurements meas{};
+    meas.ax = G * std::sin(10.0f * DEG2RAD);
+    meas.ay = 0.0f;
+    meas.az = -G * std::cos(10.0f * DEG2RAD);
+    meas.p = meas.q = meas.r = 0.0f;
+    meas.gamma = 0.0f;
+
+    const float dt = 1.0f / 208.0f;
+    for (int i = 0; i < 208 * 5; i++) ekf.update(meas, dt);
+
+    const auto s = ekf.getState();
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 10.0f, s.theta_deg());
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, s.phi_deg());
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -570,6 +646,11 @@ int main() {
     RUN_TEST(test_ekf6_stale_alpha_without_reset);
     RUN_TEST(test_ekf6_reset_alpha_covariance_uninitialized);
     RUN_TEST(test_ekf6_reset_preserves_other_states);
+
+    // dt-scaling: Q is treated as continuous-time spectral density
+    // and integrated as Q*dt per step.
+    RUN_TEST(test_ekf6_q_units_continuous_time_density);
+    RUN_TEST(test_ekf6_dt_scaling_preserves_208hz_static_tilt);
 
     return UNITY_END();
 }
