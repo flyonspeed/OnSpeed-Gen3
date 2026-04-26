@@ -242,7 +242,7 @@ void DisplaySerial::Write()
 
     else if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtOnSpeed)
         {
-        // Build the 80-byte #1 frame via the shared core module so the layout
+        // Build the #1 frame via the shared core module so the layout
         // is defined in exactly one place (onspeed_core/proto/DisplaySerial.h).
         //
         // The per-field scale factors, clamps, and sign conventions are
@@ -295,7 +295,7 @@ void DisplaySerial::Write()
         if (nBytes != kDisplayFrameSizeBytes)
             return;
 
-        // Write the complete frame (80 bytes, already includes CRC + CRLF).
+        // Write the complete frame (already includes CRC + CRLF).
         pSerial->write(frameBuf, kDisplayFrameSizeBytes);
         } // end if ONSPEED
 

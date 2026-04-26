@@ -18,10 +18,10 @@ extern float           OnSpeedStallWarnAOA;
 extern float           OnSpeedSlowAOA;
 extern float           OnSpeedFastAOA;
 extern float           OnSpeedTonesOnAOA;
-extern float           Alpha0;            // DEMO-ONLY: in PR this comes from #1 wire
-extern float           AlphaStall;        // DEMO-ONLY: ditto
-extern int             FlapsMinDeg;       // DEMO-ONLY: ditto
-extern int             FlapsMaxDeg;       // DEMO-ONLY: ditto
+extern float           Alpha0;            // active flap snapshot's alpha_0; from #1 wire
+extern float           AlphaStall;        // active flap snapshot's alpha_stall; from #1 wire
+extern int             FlapsMinDeg;       // configured flap travel minimum; from #1 wire
+extern int             FlapsMaxDeg;       // configured flap travel maximum; from #1 wire
 extern float           gOnsetRate;
 extern int             SpinRecoveryCue;
 extern int             DataMark;
