@@ -61,7 +61,7 @@ function [Q, R] = ekf_get_noise_matrices()
     % current cadence.
     q_attitude = 0.208;      % Attitude process noise (rad^2/s)
     q_alpha = 0.0208;        % Alpha process noise (rad^2/s)
-    q_bias = 2.08e-6;        % Gyro bias drift ((rad/s)^2/s, very slow)
+    q_bias = 2.08e-3;        % Gyro bias drift ((rad/s)^2/s, ~30 s convergence)
 
     Q = diag([q_attitude, q_attitude, q_alpha, q_bias, q_bias, q_bias]);
 

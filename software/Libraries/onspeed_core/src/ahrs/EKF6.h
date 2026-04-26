@@ -259,7 +259,7 @@ public:
             return {
                 0.208f,    // q_attitude (rad²/s)
                 0.0208f,   // q_alpha (rad²/s)
-                2.08e-6f,  // q_bias ((rad/s)²/s)
+                2.08e-3f,  // q_bias ((rad/s)²/s) — gyro bias learns in ~30 s
                 0.5f,      // r_accel ((m/s²)²) — typical MEMS accel noise
                 0.01f,     // r_alpha (rad²) — derived alpha uncertainty
                 0.1f,      // p_attitude (rad²) — moderate initial (~18°)
