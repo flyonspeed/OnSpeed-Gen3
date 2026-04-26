@@ -247,22 +247,19 @@ public:
          * @brief Get default configuration values
          * @return Config struct with production-ready defaults
          *
-         * The Q values below preserve the per-step process-noise
-         * contribution that the previous (un-dt-scaled) implementation
-         * produced when running at 208 Hz IMU rate, so existing
-         * production tuning is unchanged at the current IMU rate.
-         * Multiply each Q by an IMU rate ratio if the EKF6 is ever
-         * driven at a different cadence.
-         *
-         * Old per-step Q at 208 Hz: q_attitude = 0.001 (rad²/step).
-         * New per-step Q at 208 Hz: q_attitude * dt = 0.208 / 208 =
-         * 0.001 (rad²/step). Same per-step injection; correct units.
+         * Q values are continuous-time spectral densities. The
+         * predict step injects Q*dt per call, so the per-second
+         * variance injection is exactly Q regardless of IMU
+         * cadence. **Do NOT scale Q by IMU rate when changing
+         * cadence** — the dt factor in predict() handles it.
+         * Change Q only to deliberately retune the filter's
+         * aggressiveness.
          */
         static Config defaults() {
             return {
-                0.208f,    // q_attitude (rad²/s) — was 0.001 (rad²/step) × 208
-                0.0208f,   // q_alpha (rad²/s) — was 0.0001 × 208
-                2.08e-6f,  // q_bias ((rad/s)²/s) — was 1e-8 × 208
+                0.208f,    // q_attitude (rad²/s)
+                0.0208f,   // q_alpha (rad²/s)
+                2.08e-6f,  // q_bias ((rad/s)²/s)
                 0.5f,      // r_accel ((m/s²)²) — typical MEMS accel noise
                 0.01f,     // r_alpha (rad²) — derived alpha uncertainty
                 0.1f,      // p_attitude (rad²) — moderate initial (~18°)
