@@ -25,7 +25,12 @@ struct ToneThresholds {
 
 struct ToneResult {
     EnToneType enTone;
-    float      fPulseFreq;   ///< 0 = solid tone, >0 = pulses per second
+    float      fPulseFreq;     ///< 0 = solid tone, >0 = pulses per second
+    float      fVolumeMult;    ///< Per-PPS amplitude multiplier (Gen2 ramp).
+                               ///< Cruise/on-speed = STALL_VOL_MIN, stall =
+                               ///< STALL_VOL_MAX, pulsed-high interpolates
+                               ///< linearly between OnSpeedSlow and StallWarn.
+                               ///< Default 1.0 if uninitialised.
 };
 
 // ============================================================================
@@ -37,6 +42,15 @@ constexpr float HIGH_TONE_PPS_MIN   =  1.5f;
 constexpr float HIGH_TONE_PPS_MAX   =  6.2f;
 constexpr float LOW_TONE_PPS_MIN    =  1.5f;
 constexpr float LOW_TONE_PPS_MAX    =  8.2f;
+
+// Per-PPS volume ramp ported verbatim from Gen2 Tones.ino:
+//   sinewave1.amplitude = mapfloat(pps, HIGH_TONE_PPS_MIN, HIGH_TONE_PPS_MAX,
+//                                  HIGH_TONE_VOLUME_MIN, HIGH_TONE_VOLUME_MAX)
+// Cruise/on-speed/pulsed-low all use STALL_VOL_MIN; stall warning hits
+// STALL_VOL_MAX.  The ramp gives the pilot a comfortable cruise volume
+// while preserving full headroom for the stall cue.
+constexpr float STALL_VOL_MIN = 0.25f;
+constexpr float STALL_VOL_MAX = 1.00f;
 
 // ============================================================================
 // FUNCTIONS
