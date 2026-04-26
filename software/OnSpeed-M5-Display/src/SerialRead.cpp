@@ -73,57 +73,25 @@ bool serialDataFresh()
 }
 
 // -----------------------------------------------
-// Byte-stream state machine. Exposed as a public entry point so the
-// same parser can be fed from the hardware UART today and from a
-// non-UART byte source (e.g. a future CSV replay harness on the
-// desktop/WASM sim) without branching the render path. Matches one
-// 80-byte #1 frame: '#' '1' ... LF, checksum-verified downstream.
+// Byte-stream framing — delegates to the natively-testable
+// DisplayFrameAccumulator in onspeed_core. Exposed as a public entry
+// point so the same parser can be fed from the hardware UART today and
+// from a non-UART byte source (e.g. a future CSV replay harness on the
+// desktop/WASM sim) without branching the render path.
+//
+// All state is in the accumulator. The wire-format size is the only
+// thing this function depends on, and that's pinned by
+// kDisplayFrameSizeBytes — adding fields to the wire only requires
+// updating proto/DisplaySerial.{h,cpp}; this function is unchanged.
 // -----------------------------------------------
+
+static onspeed::proto::DisplayFrameAccumulator g_frameAccum;
 
 void InjectSerialByte(char inChar)
 {
-    if (inChar == '#')
-    {
-        // reset RX buffer
-        serialBufferString = inChar;
-        return;
-    }
-
-    if (serialBufferString.length() > 80)
-    {
-        // prevent buffer overflow;
-        serialBufferString = "";
-        Serial.println("Serial data buffer overflow");
-        Serial.println(serialBufferString);
-        return;
-    }
-
-    if (serialBufferString.length() == 0)
-        return;
-
-    serialBufferString += inChar;
-
-    if (!(serialBufferString.length() == 80 &&
-          serialBufferString[0]       == '#' &&
-          serialBufferString[1]       == '1' &&
-          inChar                      == char(0x0A))) // ONSPEED protocol
-        return;
-
-    #ifdef SERIALDATADEBUG
-    Serial.println(serialBufferString);
-    #endif
-
-    // Parse the frame via the shared core module.
-    // ParseDisplayFrame verifies the checksum and extracts all fields.
-    auto result = ParseDisplayFrame(
-        reinterpret_cast<const uint8_t*>(serialBufferString.c_str()),
-        kDisplayFrameSizeBytes);
-
+    auto result = g_frameAccum.Inject(static_cast<uint8_t>(inChar));
     if (!result.has_value())
-    {
-        Serial.println("ONSPEED CRC Failed");
         return;
-    }
 
     const DisplayFrame& f = result.value();
 
@@ -150,8 +118,6 @@ void InjectSerialByte(char inChar)
     gOnsetRate          = f.gOnsetRate;
     SpinRecoveryCue     = f.spinRecoveryCue;
     DataMark            = f.dataMark;
-
-    serialBufferString = "";
 
     // Measure actual frame period rather than assuming a fixed rate.
     // The main firmware's display serial task runs at

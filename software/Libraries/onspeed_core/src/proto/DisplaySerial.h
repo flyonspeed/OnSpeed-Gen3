@@ -142,9 +142,9 @@ struct DisplayFrame {
 // ============================================================================
 // BuildFrame
 //
-// Encodes `in` into a complete 80-byte #1 frame and writes it into `out`.
-// `out` must point to at least kDisplayFrameSizeBytes bytes of writable
-// storage.
+// Encodes `in` into a complete kDisplayFrameSizeBytes-byte #1 frame and
+// writes it into `out`.  `out` must point to at least
+// kDisplayFrameSizeBytes bytes of writable storage.
 //
 // Returns kDisplayFrameSizeBytes on success.
 // Returns 0 if the snprintf payload is not exactly kDisplayFrameChecksumLen
@@ -159,7 +159,7 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
 // ============================================================================
 // ParseFrame
 //
-// Parses a 80-byte #1 frame from `buf`.
+// Parses a kDisplayFrameSizeBytes-byte #1 frame from `buf`.
 // Returns std::nullopt if:
 //   - len < kDisplayFrameSizeBytes
 //   - magic bytes are not "#1"
@@ -168,6 +168,51 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
 // ============================================================================
 
 std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len);
+
+// ============================================================================
+// DisplayFrameAccumulator — byte-stream framing
+//
+// State machine that consumes the byte stream emitted by Gen3's
+// DisplaySerial::Write() one byte at a time, returning a parsed
+// DisplayFrame on the byte that completes a valid frame.
+//
+// Logic:
+//   - Any '#' byte resets the accumulator to start-of-frame.
+//   - After start-of-frame, bytes are accumulated until the buffer
+//     reaches kDisplayFrameSizeBytes.
+//   - On the final byte (LF), if the buffer starts with "#1" and ends
+//     with CRLF, ParseDisplayFrame is invoked; success returns the
+//     frame, failure returns nullopt and resets.
+//   - Any byte that would overflow the buffer resets the accumulator.
+//
+// Lives in onspeed_core (not in the M5 firmware) so the byte-stream
+// framing is exercised by the same native test suite that pins the
+// wire format. Without this lifting, a future field addition can
+// quietly break the M5's hardcoded frame-length checks while
+// BuildDisplayFrame / ParseDisplayFrame round-trips keep passing.
+// ============================================================================
+
+class DisplayFrameAccumulator {
+public:
+    DisplayFrameAccumulator();
+
+    /// Reset the accumulator to start-of-frame state.
+    void Reset();
+
+    /// Feed one byte. Returns a parsed frame on the byte that
+    /// completes a valid #1 frame; otherwise nullopt.
+    std::optional<DisplayFrame> Inject(uint8_t byte);
+
+    /// True if a partial frame is currently being accumulated.
+    bool InProgress() const { return length_ > 0; }
+
+    /// Number of bytes currently in the buffer.
+    size_t Length() const { return length_; }
+
+private:
+    uint8_t buffer_[kDisplayFrameSizeBytes];
+    size_t  length_;
+};
 
 }   // namespace onspeed::proto
 

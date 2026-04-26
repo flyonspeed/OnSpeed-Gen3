@@ -102,10 +102,11 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int      iSpinCue    = ClampInt(in.spinRecoveryCue, -9, 9);
     const unsigned uDataMark2  = static_cast<unsigned>(in.dataMark) % 100u;
 
-    // Build the 90-byte ASCII payload into a local staging buffer.
-    // The staging buffer is generously sized so the compiler cannot complain
-    // about theoretical truncation with max-value arguments; the length check
-    // below enforces the exact 90-byte invariant at runtime.
+    // Build the kDisplayFrameChecksumLen-byte ASCII payload into a local
+    // staging buffer.  The staging buffer is generously sized so the
+    // compiler cannot complain about theoretical truncation with
+    // max-value arguments; the length check below enforces the exact
+    // kDisplayFrameChecksumLen-byte invariant at runtime.
     char staging[200];
 
     const int iChars = std::snprintf(
@@ -296,6 +297,63 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     f.dataMark          = static_cast<int>(uDataMark);
 
     return f;
+}
+
+// ============================================================================
+// DisplayFrameAccumulator
+// ============================================================================
+
+DisplayFrameAccumulator::DisplayFrameAccumulator()
+    : length_(0)
+{
+}
+
+void DisplayFrameAccumulator::Reset()
+{
+    length_ = 0;
+}
+
+std::optional<DisplayFrame> DisplayFrameAccumulator::Inject(uint8_t byte)
+{
+    // Any '#' byte resets to start-of-frame. This catches the case
+    // where a partial frame was abandoned mid-stream and the next
+    // good frame starts arriving.
+    if (byte == '#') {
+        buffer_[0] = byte;
+        length_    = 1;
+        return std::nullopt;
+    }
+
+    // Idle until a '#' has been seen.
+    if (length_ == 0) {
+        return std::nullopt;
+    }
+
+    // Buffer overflow — reset and drop. Treats the runaway bytes as
+    // garbage; the next '#' will start a fresh frame.
+    if (length_ >= kDisplayFrameSizeBytes) {
+        length_ = 0;
+        return std::nullopt;
+    }
+
+    buffer_[length_++] = byte;
+
+    // Not yet a complete frame.
+    if (length_ < kDisplayFrameSizeBytes) {
+        return std::nullopt;
+    }
+
+    // Frame is full. Validate end-of-frame structure (LF terminator
+    // and "#1" magic at start) before paying for ParseDisplayFrame's
+    // CRC arithmetic.
+    if (byte != 0x0A || buffer_[0] != '#' || buffer_[1] != '1') {
+        length_ = 0;
+        return std::nullopt;
+    }
+
+    auto result = ParseDisplayFrame(buffer_, kDisplayFrameSizeBytes);
+    length_ = 0;
+    return result;
 }
 
 }   // namespace onspeed::proto

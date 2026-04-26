@@ -557,6 +557,155 @@ void test_roundtrip_flap_range_negative_min(void)
 }
 
 // ----------------------------------------------------------------------------
+// DisplayFrameAccumulator — byte-stream framing
+//
+// These tests would have caught the wire-format-change regression where
+// the M5 firmware's hand-rolled state machine hardcoded the old 80-byte
+// frame size. Pump a built frame through the accumulator byte-by-byte
+// and verify a parsed frame comes out at the last byte.
+// ----------------------------------------------------------------------------
+
+void test_accumulator_parses_complete_frame(void)
+{
+    // Build a frame with non-trivial values so we'd notice if the
+    // wrong frame got returned.
+    DisplayBuildInputs in = zeroInputs();
+    in.pitchDeg     = 7.5f;
+    in.aoaDeg       = 4.2f;
+    in.alpha0Deg    = -3.7f;
+    in.tonesOnAoaDeg = 3.2f;
+    buildOk(in);
+
+    DisplayFrameAccumulator accum;
+
+    // Inject all bytes except the last; nothing should parse.
+    for (size_t i = 0; i + 1 < kDisplayFrameSizeBytes; ++i) {
+        auto r = accum.Inject(frameBuf[i]);
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    // The last byte (LF) completes the frame and should return it.
+    auto r = accum.Inject(frameBuf[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(r.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  7.5f, r->pitchDeg);
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  4.2f, r->aoaDeg);
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -3.7f, r->alpha0Deg);
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  3.2f, r->tonesOnAoaDeg);
+}
+
+void test_accumulator_ignores_bytes_before_magic(void)
+{
+    DisplayFrameAccumulator accum;
+    // Garbage before any '#' is silently dropped.
+    static const uint8_t kGarbage[] = {0x00, 0xFF, 'a', 'Z', '?', '!'};
+    for (uint8_t b : kGarbage) {
+        auto r = accum.Inject(b);
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    TEST_ASSERT_FALSE(accum.InProgress());
+    TEST_ASSERT_EQUAL(0u, accum.Length());
+}
+
+void test_accumulator_resets_on_mid_frame_hash(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.pitchDeg = 12.3f;
+    buildOk(in);
+
+    DisplayFrameAccumulator accum;
+    // Start a frame, then partway through, send a stray '#' which
+    // should reset to start-of-frame and start over.
+    for (size_t i = 0; i < 20; ++i) {
+        accum.Inject(frameBuf[i]);
+    }
+    TEST_ASSERT_EQUAL(20u, accum.Length());
+
+    // Send a stray '#' — should reset.
+    auto r = accum.Inject('#');
+    TEST_ASSERT_FALSE(r.has_value());
+    TEST_ASSERT_EQUAL(1u, accum.Length());
+
+    // Now send the rest of a real frame starting from byte 1.
+    for (size_t i = 1; i < kDisplayFrameSizeBytes - 1; ++i) {
+        auto r2 = accum.Inject(frameBuf[i]);
+        TEST_ASSERT_FALSE(r2.has_value());
+    }
+    auto rEnd = accum.Inject(frameBuf[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(rEnd.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 12.3f, rEnd->pitchDeg);
+}
+
+void test_accumulator_drops_overrun_garbage(void)
+{
+    DisplayFrameAccumulator accum;
+    // Send '#' followed by enough bytes that we overrun without
+    // ever emitting a valid LF terminator.  The accumulator should
+    // bail at the size limit and return to idle.
+    accum.Inject('#');
+    for (size_t i = 1; i < kDisplayFrameSizeBytes; ++i) {
+        // Use 'X' as filler — never the LF that would end the frame.
+        auto r = accum.Inject('X');
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    // The buffer is now full (length == kDisplayFrameSizeBytes) but
+    // the final byte was 'X', not LF, so the accumulator drops the
+    // frame and resets.
+    TEST_ASSERT_FALSE(accum.InProgress());
+}
+
+void test_accumulator_rejects_bad_crc(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.pitchDeg = 5.0f;
+    buildOk(in);
+
+    // Corrupt one byte in the payload to break the CRC.
+    frameBuf[10] ^= 0x01;
+
+    DisplayFrameAccumulator accum;
+    for (size_t i = 0; i < kDisplayFrameSizeBytes; ++i) {
+        auto r = accum.Inject(frameBuf[i]);
+        // No frame should ever be emitted (CRC fails on the final byte).
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    // Accumulator should have reset itself after the failed parse.
+    TEST_ASSERT_FALSE(accum.InProgress());
+}
+
+void test_accumulator_back_to_back_frames(void)
+{
+    // After a valid frame parses, a second frame should also parse.
+    // This catches a class of bug where the accumulator doesn't fully
+    // reset its internal state between frames.
+    DisplayBuildInputs in1 = zeroInputs();
+    in1.pitchDeg = 1.5f;
+
+    DisplayBuildInputs in2 = zeroInputs();
+    in2.pitchDeg = -2.5f;
+
+    DisplayFrameAccumulator accum;
+
+    uint8_t buf1[kDisplayFrameSizeBytes];
+    TEST_ASSERT_EQUAL(kDisplayFrameSizeBytes,
+                      BuildDisplayFrame(in1, buf1, sizeof(buf1)));
+    for (size_t i = 0; i + 1 < kDisplayFrameSizeBytes; ++i) {
+        accum.Inject(buf1[i]);
+    }
+    auto r1 = accum.Inject(buf1[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(r1.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 1.5f, r1->pitchDeg);
+
+    uint8_t buf2[kDisplayFrameSizeBytes];
+    TEST_ASSERT_EQUAL(kDisplayFrameSizeBytes,
+                      BuildDisplayFrame(in2, buf2, sizeof(buf2)));
+    for (size_t i = 0; i + 1 < kDisplayFrameSizeBytes; ++i) {
+        accum.Inject(buf2[i]);
+    }
+    auto r2 = accum.Inject(buf2[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(r2.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -2.5f, r2->pitchDeg);
+}
+
+// ----------------------------------------------------------------------------
 
 int main(int, char**)
 {
@@ -616,6 +765,13 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_alpha_stall);
     RUN_TEST(test_roundtrip_flap_range);
     RUN_TEST(test_roundtrip_flap_range_negative_min);
+
+    RUN_TEST(test_accumulator_parses_complete_frame);
+    RUN_TEST(test_accumulator_ignores_bytes_before_magic);
+    RUN_TEST(test_accumulator_resets_on_mid_frame_hash);
+    RUN_TEST(test_accumulator_drops_overrun_garbage);
+    RUN_TEST(test_accumulator_rejects_bad_crc);
+    RUN_TEST(test_accumulator_back_to_back_frames);
 
     return UNITY_END();
 }
