@@ -198,13 +198,16 @@ function onMessage(evt)
     if (AOA > -20)
       {
       var aoaline_y;
-      if (AOA <= LDmax)
+      if (AOA <= OnspeedFast)
         {
-        aoaline_y = map(AOA, Alpha0, LDmax, 278, 228);
-        }
-      else if (AOA <= OnspeedFast)
-        {
-        aoaline_y = map(AOA, LDmax, OnspeedFast, 228, 178);
+        // Lower band: alpha_0 → OnSpeedFast as one linear segment.
+        // L/Dmax is no longer a scale anchor; it floats within this
+        // band at its calibrated position (rendered as the pip dots
+        // below).  Pre-fix this band was warped at the L/Dmax
+        // breakpoint, which made the pip's hardcoded y=228 wrong
+        // for any flap setting whose L/Dmax landed elsewhere on
+        // the scale.
+        aoaline_y = map(AOA, Alpha0, OnspeedFast, 278, 178);
         }
       else if (AOA <= OnspeedSlow)
         {
@@ -234,8 +237,12 @@ function onMessage(evt)
       document.getElementById("aoaline").style.visibility="hidden";
       }
 
-    // calc ldmax dot locations
-    ldmax_y=228+3;
+    // L/Dmax pip dots — float within the lower band at the active
+    // flap's calibrated L/Dmax body angle, mirroring the M5 indexer.
+    // The +3 offset positions the dot's vertical center against the
+    // 6.69-px-high aoaline rect so the dot reads as "this is where
+    // the moving bar will sit when AOA == L/Dmax."
+    var ldmax_y = map(LDmax, Alpha0, OnspeedFast, 278, 178) + 3;
 
     document.getElementById("ldmaxleft").setAttribute("cy", ldmax_y);
     document.getElementById("ldmaxright").setAttribute("cy", ldmax_y);
