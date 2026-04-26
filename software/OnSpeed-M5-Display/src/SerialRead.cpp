@@ -143,6 +143,10 @@ void InjectSerialByte(char inChar)
     OnSpeedSlowAOA      = f.onSpeedSlowAoaDeg;
     OnSpeedFastAOA      = f.onSpeedFastAoaDeg;
     OnSpeedTonesOnAOA   = f.tonesOnAoaDeg;
+    Alpha0              = f.alpha0Deg;
+    AlphaStall          = f.alphaStallDeg;
+    FlapsMinDeg         = f.flapsMinDeg;
+    FlapsMaxDeg         = f.flapsMaxDeg;
     gOnsetRate          = f.gOnsetRate;
     SpinRecoveryCue     = f.spinRecoveryCue;
     DataMark            = f.dataMark;

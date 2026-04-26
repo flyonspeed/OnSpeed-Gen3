@@ -147,6 +147,10 @@ float           OnSpeedStallWarnAOA = 20;
 float           OnSpeedSlowAOA      = 15;
 float           OnSpeedFastAOA      = 10;
 float           OnSpeedTonesOnAOA   = 5;
+float           Alpha0              = -4.0;   // populated from #1 wire field alpha0Deg
+float           AlphaStall          = 18.0;   // populated from #1 wire field alphaStallDeg
+int             FlapsMinDeg         = 0;      // populated from #1 wire field flapsMinDeg
+int             FlapsMaxDeg         = 33;     // populated from #1 wire field flapsMaxDeg
 
 float           gOnsetRate          = 0.0;
 int             SpinRecoveryCue     = 0;
@@ -676,7 +680,16 @@ void displayAOA()
 {
     // Build Setpoint array
     // --------------------
-    AOAThresholds[0] = 0.0001;
+    // Array[0] = alpha_0, the zero-lift body angle for the active flap
+    // configuration.  Required for the bottom band of mapAOA2Display
+    // (which renders alpha_0 → OnSpeedFast as a single linear segment
+    // after the L/Dmax breakpoint was removed) and for the L/Dmax pip
+    // position drawn at mapAOA2Display(Array[2], Array).
+    //
+    // Pre-fix: this was hardcoded to 0.0001 because alpha_0 wasn't
+    // carried on the #1 wire; that meant any negative L/Dmax body angle
+    // (normal at high-flap settings) clamped to display bottom.
+    AOAThresholds[0] = Alpha0;
     AOAThresholds[1] = OnSpeedTonesOnAOA - 0.1;
     AOAThresholds[2] = OnSpeedTonesOnAOA;
     AOAThresholds[3] = OnSpeedFastAOA;
@@ -969,12 +982,14 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolea
     gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
 
     /*
-     Draw marker dots for maximum climb rate
+     Draw marker dots at L/Dmax (Array[2]) — slides per active flap
+     calibration within the alpha_0 → OnSpeedFast band.
     */
-    gdraw.fillCircle (X0 - W / 2,     (HEIGHT - 39 * HEIGHT / 100), H / 24, TFT_BLACK);
-    gdraw.fillCircle (X0 + W / 2 - 1, (HEIGHT - 39 * HEIGHT / 100), H / 24, TFT_BLACK);
-    gdraw.fillCircle (X0 - W / 2,     (HEIGHT - 39 * HEIGHT / 100), H / 32, TFT_WHITE);
-    gdraw.fillCircle (X0 + W / 2 - 1, (HEIGHT - 39 * HEIGHT / 100), H / 32, TFT_WHITE);
+    int ldmaxY = mapAOA2Display(Array[2], Array);
+    gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 24, TFT_BLACK);
+    gdraw.fillCircle (X0 + W / 2 - 1, ldmaxY, H / 24, TFT_BLACK);
+    gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 32, TFT_WHITE);
+    gdraw.fillCircle (X0 + W / 2 - 1, ldmaxY, H / 32, TFT_WHITE);
 } // end drawAOA()
 
 
@@ -1437,8 +1452,7 @@ void displayGloadHistory()
 int mapAOA2Display(float aoa, const float Array[])
 {
     if      (aoa <= Array[0])                    return 192;                                    // display bottom
-    else if (aoa >  Array[0] && aoa <= Array[2]) return map2int(aoa,Array[0],Array[2],192,148); // display bottom to L/Dmax
-    else if (aoa >  Array[2] && aoa <= Array[3]) return map2int(aoa,Array[2],Array[3],148,115); // L/Dmax to onspeed fast
+    else if (aoa >  Array[0] && aoa <= Array[3]) return map2int(aoa,Array[0],Array[3],192,115); // alpha_0 to onspeed fast (L/Dmax floats within)
     else if (aoa >  Array[3] && aoa <= Array[4]) return map2int(aoa,Array[3],Array[4],115, 78); // onspeed fast to onspeed slow
     else if (aoa >  Array[4] && aoa <= Array[7]) return map2int(aoa,Array[4],Array[7], 78,  1); // onspeed slow to stall warning
     else                                         return 1;                                      // display top

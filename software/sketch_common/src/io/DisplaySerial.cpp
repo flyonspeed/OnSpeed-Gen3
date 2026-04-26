@@ -153,6 +153,8 @@ void DisplaySerial::Write()
     // garbage tone bar).
     FOSConfig::SuFlaps flapSnapshot{};
     bool bFlapSnapshotValid = false;
+    int  iFlapsMinDeg       = 0;
+    int  iFlapsMaxDeg       = 0;
     if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
         const size_t nFlaps = g_Config.aFlaps.size();
@@ -161,6 +163,23 @@ void DisplaySerial::Write()
             {
             flapSnapshot       = g_Config.aFlaps[iIdx];
             bFlapSnapshotValid = true;
+            }
+
+        // Capture the configured flap travel range for the display widget
+        // endpoints.  aFlaps is sorted by degree at config-load time, so
+        // first/last entries are min/max; do not assume otherwise here.
+        if (nFlaps > 0)
+            {
+            int iMin = g_Config.aFlaps[0].iDegrees;
+            int iMax = iMin;
+            for (size_t i = 1; i < nFlaps; ++i)
+                {
+                const int d = g_Config.aFlaps[i].iDegrees;
+                if (d < iMin) iMin = d;
+                if (d > iMax) iMax = d;
+                }
+            iFlapsMinDeg = iMin;
+            iFlapsMaxDeg = iMax;
             }
         xSemaphoreGive(xAhrsMutex);
         }
@@ -256,6 +275,16 @@ void DisplaySerial::Write()
         inputs.onSpeedSlowAoaDeg = bFlapSnapshotValid ? flapSnapshot.fONSPEEDSLOWAOA : 0.0f;
         inputs.onSpeedFastAoaDeg = bFlapSnapshotValid ? flapSnapshot.fONSPEEDFASTAOA : 0.0f;
         inputs.tonesOnAoaDeg     = bFlapSnapshotValid ? flapSnapshot.fLDMAXAOA       : 0.0f;
+        // Aerodynamic anchors of the active flap snapshot.  The M5
+        // display needs alpha_0 to render the bottom of its AOA band
+        // correctly (Array[0] in mapAOA2Display), and alpha_stall is
+        // the percent-lift ceiling beyond StallWarn.  Without these,
+        // any negative L/Dmax body angle (normal for high-flap
+        // settings) would clamp the L/Dmax pip to display bottom.
+        inputs.alpha0Deg         = bFlapSnapshotValid ? flapSnapshot.fAlpha0     : 0.0f;
+        inputs.alphaStallDeg     = bFlapSnapshotValid ? flapSnapshot.fAlphaStall : 0.0f;
+        inputs.flapsMinDeg       = iFlapsMinDeg;
+        inputs.flapsMaxDeg       = iFlapsMaxDeg;
         inputs.gOnsetRate        = 0.0f;
         inputs.spinRecoveryCue   = 0;
         inputs.dataMark          = (int)((unsigned)g_iDataMark % 100u);
