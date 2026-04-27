@@ -11,6 +11,8 @@ This page is the canonical wire-format reference. The source of truth in code is
 
 The OnSpeed `#1` wire is a **percent-lift contract**, not a body-angle contract. Every AOA-related quantity on the wire is expressed as a percentage of the wing's lift envelope (the honest single-linear normalization `(AOA − α₀) / (α_stall − α₀) × 100`, clamped 0..99). The four band-edge percents (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`) are the per-flap setpoints put through the same formula. They vary per flap because the underlying body-angle calibration varies per flap.
 
+Within that contract, **L/D~MAX~ interpolates and the rest snap.** While a flap is mid-deployment between two configured detents, `tonesOnPctLift` (the L/D~MAX~ pip) slides smoothly across the bracket. The OnSpeed band edges and stall-warn anchor (`onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`) snap to the active detent, in lockstep with the audio cues that fire at those same thresholds. Vac's design rule: visual aerodynamic references interpolate; operational thresholds snap.
+
 The consumer renders entirely in percent space — one mapping function from percent to screen y, with the four anchors as inputs. Body-angle setpoints stay inside the firmware. See [`onspeed_core/aoa/PercentLift.h`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h) for the formula and [`how-aoa-works.md`](../calibration/how-aoa-works.md) for the aerodynamic background.
 
 ## Physical layer
@@ -75,7 +77,9 @@ Most fields are self-describing. The ones with non-obvious conventions:
 - **`vsiFpm10` is already divided by 10.** The wire field carries `floor(VSI_fpm / 10)`. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.
 - **`percentLift` and the band-edge percents are computed via the canonical [`ComputePercentLift`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h)**, the honest single-linear `(AOA − α₀) / (α_stall − α₀) × 100`. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).
 - **`percentLift` goes to 0 below the audio mute threshold** (`iMuteAudioUnderIAS`). The wire stays silent for the AOA region while the aircraft is parked.
-- **`tonesOnPctLift` is the L/D~MAX~ body angle put through `ComputePercentLift`** — the percent at which the audio L/D~MAX~ chevrons turn on. Varies per flap. Used by the consumer to position the L/D~MAX~ pip on the indexer.
+- **`tonesOnPctLift` is the L/D~MAX~ body angle put through `ComputePercentLift`** — the percent at which the audio L/D~MAX~ chevrons turn on. Used by the consumer to position the L/D~MAX~ pip on the indexer. **Interpolates** linearly in percent space between adjacent detents while the lever is mid-deployment so the pip slides smoothly. Continuous through detent snaps by construction.
+- **`onSpeedFastPctLift` / `onSpeedSlowPctLift` / `stallWarnPctLift` are SNAPPED to the active detent** (the same one the audio path compares against). They define the donut and chevron screen-percent positions on the indexer; snapping keeps those overlays in lockstep with the audio cues that fire at the same calibrated thresholds. Per Vac's design rule: visual aerodynamic references interpolate, operational thresholds snap.
+- **`flapsDeg` interpolates** linearly between adjacent detents based on lever position so the numeric flap-angle readout slides smoothly during deployment rather than stepping at the detection midpoint.
 - **`flapsMinDeg` / `flapsMaxDeg` are the configured travel range,** scanned across all entries in `aFlaps`. Useful for a flap-position widget that draws its arc against actual aircraft endpoints rather than hardcoded values.
 - **`dataMark` wraps mod 100.** The pilot's data-mark counter increments without bound in the firmware; the wire field carries `counter % 100`.
 
