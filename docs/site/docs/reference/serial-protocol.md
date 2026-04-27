@@ -79,13 +79,16 @@ Most fields are self-describing. The ones with non-obvious conventions:
 - **`flapsMinDeg` / `flapsMaxDeg` are the configured travel range,** scanned across all entries in `aFlaps`. Useful for a flap-position widget that draws its arc against actual aircraft endpoints rather than hardcoded values.
 - **`dataMark` wraps mod 100.** The pilot's data-mark counter increments without bound in the firmware; the wire field carries `counter % 100`.
 
+### G-onset rate
+
+`gOnsetRate` (offset 62) carries a low-pass-filtered `d(verticalG)/dt` in g/s, with a 250 ms time constant applied at the 20 Hz wire rate. Sign convention follows `verticalG` (production reaction-force convention: +1 g level), so positive output means "G load increasing". The M5's Primary-mode renderer draws a vertical orange tape on the right edge whose height saturates at 2 g/s. Implementation: [`onspeed_core/filters/GOnsetFilter.h`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/filters/GOnsetFilter.h).
+
 ### Aspirational / not-yet-wired fields
 
-Two fields are part of the wire layout today but populated with placeholder values by the producer. They occupy their byte offsets so future producers/consumers don't have to bump the protocol again. Treat them as reserved — but don't be surprised if you see real values flowing through them later.
+One field is part of the wire layout today but populated with a placeholder value by the producer. It occupies its byte offset so future producers/consumers don't have to bump the protocol again. Treat it as reserved — but don't be surprised if you see real values flowing through it later.
 
 | Field | Status | What's the gap |
 | --- | --- | --- |
-| `gOnsetRate` (offset 62) | Always `0.0` from the producer today. The M5 already has render code (`if (gOnsetRate != 0.0)` draws a vertical orange tape on the right edge of Primary mode) — the moment the firmware computes a real onset rate and emits it, the existing M5 build picks it up with no display-side work. See [issue #324](https://github.com/flyonspeed/OnSpeed-Gen3/issues/324). | Producer-side computation: a low-pass-filtered `d(verticalG)/dt` from the AHRS accel filter. Not a field-set change. |
 | `spinRecoveryCue` (offset 66) | Always `0` from the producer today. Intended as a `−1 / 0 / +1` direction cue (left / none / right) for an upcoming spin-recovery indicator. No consumer renders it yet. | Both ends: producer needs the cue logic; M5 needs a render glyph. |
 
 ### Checksum
