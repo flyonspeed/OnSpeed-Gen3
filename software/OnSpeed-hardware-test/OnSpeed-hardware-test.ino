@@ -442,7 +442,56 @@ static void ledTest() {
     for (int duty = 255; duty >= 0;   duty--) { ledcWrite(kPinLedKnob, duty); delay(4); }
     Serial.println("  LED: ramp complete.");
 }
-static void       m5DisplayWireTest()   { Serial.println("\n[M5] (stub)"); }
+static void m5DisplayWireTest() {
+    Serial.println("\n[M5 Display Wire]");
+    Serial.println("  Streaming 200 #1 frames over Display TX at 20 Hz...");
+    Serial.println("  M5 should show pitch sweep -10..+10 deg and AOA chevron rising.");
+
+    // Open Serial1 with TX=kDisplayTx, RX=kBoomRx. RX is unused here but
+    // SerialN::begin requires both pins; if a loopback jumper happens to
+    // be installed from the prior loopback test, we just receive our own
+    // frames into the void — harmless.
+    Serial1.begin(115200, SERIAL_8N1, kBoomRx, kDisplayTx);
+    delay(50);
+
+    constexpr int kFrames   = 200;
+    constexpr int kPeriodMs = onspeed::proto::kDisplayFramePeriodMs;   // 50 ms
+
+    for (int i = 0; i < kFrames; i++) {
+        // Sweep pitch -10..+10 over the 200 frames (full sweep in 10 s).
+        float t  = float(i) / float(kFrames - 1);     // 0..1
+        float pitch = -10.0f + 20.0f * t;             // -10..+10 deg
+
+        // Ramp percentLift 30..90 so the chevron rises across the band
+        // anchors (OnSpeedFast~50, OnSpeedSlow~70, StallWarn~85).
+        int pct = int(30.0f + 60.0f * t);
+
+        onspeed::proto::DisplayBuildInputs in;
+        in.pitchDeg            = pitch;
+        in.rollDeg             = 0.0f;
+        in.iasKt               = 80.0f;
+        in.paltFt              = 1000.0f;
+        in.percentLift         = pct;
+        in.tonesOnPctLift      = 35;
+        in.onSpeedFastPctLift  = 50;
+        in.onSpeedSlowPctLift  = 70;
+        in.stallWarnPctLift    = 85;
+        in.flapsDeg            = 0;
+        in.flapsMinDeg         = 0;
+        in.flapsMaxDeg         = 30;
+
+        uint8_t buf[onspeed::proto::kDisplayFrameSizeBytes];
+        size_t n = onspeed::proto::BuildDisplayFrame(in, buf, sizeof(buf));
+        if (n == onspeed::proto::kDisplayFrameSizeBytes) {
+            Serial1.write(buf, n);
+        }
+        Serial1.flush();
+        delay(kPeriodMs);
+    }
+
+    Serial1.end();
+    Serial.println("  M5 wire test: done — verify M5 attitude moved and chevron rose.");
+}
 
 // -----------------------------------------------------------------------------
 // setup() — runs once. Prints banner, initializes shared peripherals.
