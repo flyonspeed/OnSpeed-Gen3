@@ -4,9 +4,7 @@
 #include "src/audio_io/Volume.h"
 #include "src/drivers/Mcp3202Adc.h"
 
-// 3D Audio: move audio with the ball, scaling is 0.08 LateralG/ball width
-#define AUDIO_3D_CURVE(x)             (-92.822f*(x)*(x) + 20.025f*(x))
-static const float fSmoothingFactor = 0.1f;
+#include <audio/Panning.h>
 
 // Volume smoothing
 static const float fVolumeSmoothingFactor = 0.5f;
@@ -30,7 +28,9 @@ void HousekeepingTask(void * pvParams)
     bool     bVolInit        = false;
     bool     bLedOn          = false;
     int      iSlowBlinkCounter = 0;
-    float    fChannelGain    = 0.0f;
+
+    onspeed::audio::PanState  panState;
+    onspeed::audio::PanConfig panCfg;   // defaults: smoothingFactor = 0.1f
 
     while (true)
     {
@@ -121,23 +121,16 @@ void HousekeepingTask(void * pvParams)
         // --- 3D Audio (every tick, 100ms) ---
         if (g_Config.bAudio3D)
         {
-            float fLateralG     = fSnapAccelLat;
-            int   iSignLateralG = fLateralG >= 0 ? 1 : -1;
+            const float fLateralG = fSnapAccelLat;
 
-            float fCurveGain = AUDIO_3D_CURVE(fabsf(fLateralG));
-            if (fCurveGain > 1.0f) fCurveGain = 1.0f;
-            if (fCurveGain < 0.0f) fCurveGain = 0.0f;
+            const onspeed::audio::PanResult pan =
+                onspeed::audio::Apply3DPan(fLateralG, panState, panCfg);
 
-            fCurveGain   = fCurveGain * iSignLateralG;
-            fChannelGain = fSmoothingFactor * fCurveGain + (1.0f - fSmoothingFactor) * fChannelGain;
-            if (fChannelGain >  1.0f) fChannelGain =  1.0f;
-            if (fChannelGain < -1.0f) fChannelGain = -1.0f;
+            g_AudioPlay.SetGain(pan.leftGain, pan.rightGain);
 
-            float fLeftGain  = fabsf(-1.0f + fChannelGain);
-            float fRightGain = fabsf( 1.0f + fChannelGain);
-            g_AudioPlay.SetGain(fLeftGain, fRightGain);
-
-            g_Log.printf(MsgLog::EnAudio, MsgLog::EnDebug, "%0.3fG, Left: %0.3f, Right: %0.3f\n", fLateralG, fLeftGain, fRightGain);
+            g_Log.printf(MsgLog::EnAudio, MsgLog::EnDebug,
+                         "%0.3fG, Left: %0.3f, Right: %0.3f\n",
+                         fLateralG, pan.leftGain, pan.rightGain);
         }
 
         // --- Volume (every 2nd tick, 200ms) ---
