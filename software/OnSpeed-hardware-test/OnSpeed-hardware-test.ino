@@ -256,7 +256,55 @@ static TestResult imuTest() {
     Serial.printf("          Gyro:  X=%+6.2f  Y=%+6.2f  Z=%+6.2f dps\n", g[0], g[1], g[2]);
     return TestResult::PASS;
 }
-static TestResult adcTest()             { return TestResult::SKIP; }
+#ifdef HW_V4P
+// MCP3202 protocol — mirrors src/drivers/Mcp3202Adc.cpp::Mcp3202Read.
+// 3-byte SPI transaction:
+//   byte 0: 0x01 (start bit)
+//   byte 1: 0xA0 | (channel << 6) — SGL=1, ODD/SIGN=channel, MSBF=1
+//   byte 2: 0x00 — clock out remaining 8 data bits
+// Returns 12-bit unsigned value 0..4095.
+static uint16_t mcp3202Read(uint8_t channel) {
+    channel &= 0x01;
+    const uint8_t configByte = uint8_t(0xA0 | (channel << 6));
+
+    sensorSPI.beginTransaction(SPISettings(kHwtestSpiClkHz, MSBFIRST, SPI_MODE0));
+    digitalWrite(kCsAdc, LOW);
+    (void)sensorSPI.transfer(0x01);
+    uint8_t hi = sensorSPI.transfer(configByte);
+    uint8_t lo = sensorSPI.transfer(0x00);
+    digitalWrite(kCsAdc, HIGH);
+    sensorSPI.endTransaction();
+
+    return uint16_t(((hi & 0x0F) << 8) | lo);
+}
+#endif
+
+static TestResult adcTest() {
+    Serial.println("\n[ADC / Pots]");
+#ifdef HW_V4P
+    // Channel constants from HardwareMap.h: kAdcChFlap=0, kAdcChVolume=1.
+    uint16_t flap = mcp3202Read(kAdcChFlap);
+    uint16_t vol  = mcp3202Read(kAdcChVolume);
+    Serial.printf("  MCP3202 Flap   (ch%d): %u / 4095\n", kAdcChFlap,   flap);
+    Serial.printf("  MCP3202 Volume (ch%d): %u / 4095\n", kAdcChVolume, vol);
+
+    // Sanity: 0 or 4095 means stuck rail (open input or shorted). Either pot
+    // mid-travel during test would land somewhere in (0, 4095).
+    bool flapOk = (flap > 0u && flap < 4095u);
+    bool volOk  = (vol  > 0u && vol  < 4095u);
+    if (!flapOk) Serial.println("  WARNING: Flap reads at rail — check pot wiring");
+    if (!volOk)  Serial.println("  WARNING: Volume reads at rail — check pot wiring");
+    return (flapOk && volOk) ? TestResult::PASS : TestResult::FAIL;
+#else
+    // V4B uses the ESP32's internal ADC. analogRead always returns
+    // *something*, so this is informational only.
+    uint16_t flap = analogRead(kPinFlap);
+    uint16_t vol  = analogRead(kPinVolume);
+    Serial.printf("  ESP32 ADC Flap   (pin %d): %u\n", kPinFlap,   flap);
+    Serial.printf("  ESP32 ADC Volume (pin %d): %u\n", kPinVolume, vol);
+    return TestResult::PASS;
+#endif
+}
 static TestResult serialLoopbackTest()  { return TestResult::SKIP; }
 static TestResult sdCardTest()          { return TestResult::SKIP; }
 static void       audioTest()           { Serial.println("\n[Audio] (stub)"); }
