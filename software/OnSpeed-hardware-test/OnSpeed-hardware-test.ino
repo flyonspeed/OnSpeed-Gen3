@@ -88,6 +88,9 @@ static SPIClass sensorSPI(FSPI);
 // board where wire lengths and CS routing haven't been validated.
 static constexpr uint32_t kHwtestSpiClkHz = 1'000'000;
 
+static constexpr int kAudioSampleRate = 16000;
+static constexpr int kToneBufLen      = kAudioSampleRate / 10;   // 100 ms of audio
+
 // Read N bytes from a device that does not use a register address byte
 // (this is the HSC pressure sensor's protocol — chip select low, clock
 // in N bytes, chip select high).
@@ -395,8 +398,50 @@ static TestResult sdCardTest() {
     sdSPI.end();
     return TestResult::PASS;
 }
-static void       audioTest()           { Serial.println("\n[Audio] (stub)"); }
-static void       ledTest()             { Serial.println("\n[LED] (stub)"); }
+static void audioTest() {
+    Serial.println("\n[Audio - listen for L/R tones]");
+
+    I2SClass i2s;
+    i2s.setPins(kI2sBck, kI2sLrck, kI2sDout);
+    if (!i2s.begin(I2S_MODE_STD, kAudioSampleRate, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
+        Serial.println("  Audio: FAIL (I2S init failed)");
+        return;
+    }
+
+    int16_t tone400 [kToneBufLen];
+    int16_t tone1600[kToneBufLen];
+    for (int i = 0; i < kToneBufLen; i++) {
+        tone400 [i] = int16_t(25000.0f * cosf(2.0f * float(M_PI) * i *  400.0f / kAudioSampleRate));
+        tone1600[i] = int16_t(25000.0f * cosf(2.0f * float(M_PI) * i * 1600.0f / kAudioSampleRate));
+    }
+
+    auto writeTone = [&](const int16_t* tone, float lGain, float rGain) {
+        for (int i = 0; i < kToneBufLen; i++) {
+            int16_t left  = int16_t(tone[i] * lGain);
+            int16_t right = int16_t(tone[i] * rGain);
+            uint32_t frame = uint16_t(left) | (uint32_t(uint16_t(right)) << 16);
+            i2s.write((const uint8_t*)&frame, sizeof(frame));
+        }
+    };
+
+    Serial.println("  400 Hz LEFT only (1.5 s)...");
+    for (int rep = 0; rep < 15; rep++) writeTone(tone400, 1.0f, 0.0f);
+
+    delay(200);
+
+    Serial.println("  1600 Hz RIGHT only (1.5 s)...");
+    for (int rep = 0; rep < 15; rep++) writeTone(tone1600, 0.0f, 1.0f);
+
+    i2s.end();
+    Serial.println("  Audio: done — verify L=400 Hz, R=1600 Hz by ear.");
+}
+
+static void ledTest() {
+    Serial.println("\n[LED - watch the knob LED]");
+    for (int duty = 0;   duty <= 255; duty++) { ledcWrite(kPinLedKnob, duty); delay(4); }
+    for (int duty = 255; duty >= 0;   duty--) { ledcWrite(kPinLedKnob, duty); delay(4); }
+    Serial.println("  LED: ramp complete.");
+}
 static void       m5DisplayWireTest()   { Serial.println("\n[M5] (stub)"); }
 
 // -----------------------------------------------------------------------------
