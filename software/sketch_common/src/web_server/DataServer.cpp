@@ -325,11 +325,21 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         xSemaphoreGive(xAhrsMutex);
         }
 
+    // Snapshot the live AOA / IAS once.  Without this snapshot we'd
+    // read g_Sensors.AOA twice (once for fWifiAOA earlier, once for
+    // ComputePercentLift below) and g_Sensors.IAS twice (mute gate
+    // earlier, percent-lift IAS gate below) across an unguarded
+    // multi-tick window, so the displayed numeric AOA and the
+    // percent-lift bar could disagree by one sample tick.  Cheap
+    // local snapshot keeps them coherent.
+    const float fAoaSnap         = g_Sensors.AOA;
+    const float fIasSnap         = g_Sensors.IAS;
+    const bool bIasValidForOutput = (fIasSnap >= g_Config.iMuteAudioUnderIAS);
+
     // Per-flap band-edge percents — same shape the M5 wire ships, so
     // a future shared indexer renderer can run identically off either
     // transport.  Computed via the canonical onspeed_core helper so
     // there's exactly one definition of percent-lift in the codebase.
-    const bool bIasValidForOutput = (g_Sensors.IAS >= g_Config.iMuteAudioUnderIAS);
     int iJsonPercentLift   = 0;
     int iJsonTonesOnPct    = 0;
     int iJsonFastPct       = 0;
@@ -337,7 +347,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     int iJsonStallWarnPct  = 0;
     if (bSnapValid)
         {
-        iJsonPercentLift  = ComputePercentLift(g_Sensors.AOA,            flapSnapshot, bIasValidForOutput);
+        iJsonPercentLift  = ComputePercentLift(fAoaSnap,                     flapSnapshot, bIasValidForOutput);
         iJsonTonesOnPct   = ComputePercentLift(flapSnapshot.fLDMAXAOA,        flapSnapshot, true);
         iJsonFastPct      = ComputePercentLift(flapSnapshot.fONSPEEDFASTAOA,  flapSnapshot, true);
         iJsonSlowPct      = ComputePercentLift(flapSnapshot.fONSPEEDSLOWAOA,  flapSnapshot, true);

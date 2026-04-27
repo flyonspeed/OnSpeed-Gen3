@@ -223,19 +223,20 @@ Expected: `11/11 passed`.
 The tests run in two layers:
 
 **Layer 1 — Self-referential (Python only).** Fast checks of the Python
-builder: total length is 94 bytes, `#1` header, CRC matches the
+builder: total length is 74 bytes, `#1` header, CRC matches the
 sum-of-payload-bytes convention, every field round-trips through the
-documented byte offsets, signed fields keep their signs, PercentLift
-buckets match `ComputePercentLift`, out-of-range values clamp, NaN/Inf
-don't corrupt the frame length.
+documented byte offsets, signed fields keep their signs, the honest
+percent-lift formula tracks `ComputePercentLift`, out-of-range values
+clamp, NaN/Inf don't corrupt the frame length.
 
 **Layer 2 — Firmware-parser interop.** The decisive test: build a frame
 in Python, pipe it into the native `parse_frame` binary (which links
 the same `onspeed_core::ParseDisplayFrame` that runs on the M5), and
 assert every parsed field matches the original input within wire
-resolution. Also covers a corrupt-CRC reject test and a negative-α₀
-round-trip (the regression PR #320 fixed). If the harness binary
-isn't built, these tests skip with a clear message; CI always builds it.
+resolution. Also covers a corrupt-CRC reject test and a wrong-size
+test that catches stale builders against new firmware. If the
+harness binary isn't built, these tests skip with a clear message;
+CI always builds it.
 
 Without the Layer 2 tests, a wire-format change between Python and the
 firmware would slip through silently — Layer 1 only knows about the
@@ -245,7 +246,7 @@ Python builder.
 
 ## The wire protocol
 
-Frames are **94 bytes** total: 90-byte payload + 2-byte CRC + CRLF, at
+Frames are **74 bytes** total: 70-byte payload + 2-byte CRC + CRLF, at
 115200 8N1. Full byte-level reference (offsets, scale factors, sign
 conventions, parser recommendations) lives in
 [`docs/site/docs/reference/serial-protocol.md`](../../docs/site/docs/reference/serial-protocol.md).
@@ -322,7 +323,7 @@ automatically in an ephemeral environment.
  OnSpeed .cfg ───►│  • parses flap setpoints    │
  SD-card CSV  ───►│  • reads rows at 20 Hz      │
                   │  • computes PercentLift     │
-                  │  • builds 94-byte frame     │
+                  │  • builds 74-byte frame     │
                   │  • writes to serial port    │
                   └──────────────┬──────────────┘
                                  │ /dev/cu.usbserial-XXXX

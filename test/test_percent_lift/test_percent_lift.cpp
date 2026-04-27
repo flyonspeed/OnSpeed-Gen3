@@ -11,6 +11,8 @@
 
 #include <unity.h>
 
+#include <cmath>
+
 #include <aoa/PercentLift.h>
 #include <config/OnSpeedConfig.h>
 
@@ -245,6 +247,60 @@ void test_uncalibrated_zero_floor(void)
     TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(0.0f, f, true));
 }
 
+// ============================================================================
+// Anchor stability across iasValid transitions
+//
+// Band-edge anchors (LDmax, OnSpeed*, StallWarn) are computed by the
+// firmware producer with iasValid=true regardless of live IAS so the
+// indexer geometry stays stable when the pilot is on the ground or
+// the audio mute kicks in.  Pin that contract — the function does
+// not gate setpoint values on iasValid, only the live-AOA reading
+// does.
+// ============================================================================
+
+void test_anchors_stable_across_ias_validity(void)
+{
+    SuFlaps f = makeRv10ZeroFlaps();
+    int aliveLdmax    = ComputePercentLift(f.fLDMAXAOA,       f, true);
+    int aliveFast     = ComputePercentLift(f.fONSPEEDFASTAOA, f, true);
+    int aliveSlow     = ComputePercentLift(f.fONSPEEDSLOWAOA, f, true);
+    int aliveWarn     = ComputePercentLift(f.fSTALLWARNAOA,   f, true);
+
+    // Producer always passes iasValid=true for setpoint percents — but
+    // even if a future caller passed false, the only effect should be
+    // returning 0, never producing a different non-zero value.  This
+    // pins the contract that the function cannot silently drift on
+    // the iasValid axis.
+    int deadLdmax = ComputePercentLift(f.fLDMAXAOA,       f, false);
+    int deadFast  = ComputePercentLift(f.fONSPEEDFASTAOA, f, false);
+    int deadSlow  = ComputePercentLift(f.fONSPEEDSLOWAOA, f, false);
+    int deadWarn  = ComputePercentLift(f.fSTALLWARNAOA,   f, false);
+
+    TEST_ASSERT_EQUAL_INT(0, deadLdmax);
+    TEST_ASSERT_EQUAL_INT(0, deadFast);
+    TEST_ASSERT_EQUAL_INT(0, deadSlow);
+    TEST_ASSERT_EQUAL_INT(0, deadWarn);
+
+    // Sanity: alive values are nonzero (the test is meaningful only
+    // because the alive case actually computes per the formula).
+    TEST_ASSERT_NOT_EQUAL(0, aliveLdmax);
+    TEST_ASSERT_NOT_EQUAL(0, aliveFast);
+    TEST_ASSERT_NOT_EQUAL(0, aliveSlow);
+    TEST_ASSERT_NOT_EQUAL(0, aliveWarn);
+}
+
+// ============================================================================
+// NaN / Inf handling
+// ============================================================================
+
+void test_nan_input_returns_zero(void)
+{
+    SuFlaps f = makeRv10ZeroFlaps();
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(NAN, f, true));
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(INFINITY, f, true));
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(-INFINITY, f, true));
+}
+
 void test_degenerate_calibration_returns_zero(void)
 {
     // alpha_0 >= alpha_stall (impossible aerodynamically but possible
@@ -281,6 +337,9 @@ int main(void)
     RUN_TEST(test_uncalibrated_alpha_stall_uses_fallback);
     RUN_TEST(test_uncalibrated_zero_floor);
     RUN_TEST(test_degenerate_calibration_returns_zero);
+
+    RUN_TEST(test_anchors_stable_across_ias_validity);
+    RUN_TEST(test_nan_input_returns_zero);
 
     return UNITY_END();
 }

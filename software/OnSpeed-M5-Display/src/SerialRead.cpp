@@ -185,51 +185,38 @@ void SerialRead()
     // Update if 100 msec (10 Hz) has passed
     if (serialMillis + 100 < currMillis)
     {
-        // Demo: cycle the active flap detent through clean / half /
-        // full and emit per-flap percent anchors that show the L/Dmax
-        // pip and band edges sliding per calibration.  All percent
-        // values are computed with the honest single-linear formula
-        // (AOA - alpha_0) / (alpha_stall - alpha_0) — exactly what
-        // ComputePercentLift produces firmware-side.
-        struct FlapCfg {
-            int   degrees;
-            float alpha0;
-            float alphaStall;
-            float ldmax;
-            float fast;
-            float slow;
-            float warn;
-        };
-        static const FlapCfg kFlaps[] = {
-            { 0,  -3.7211f, 10.309f,  3.24f, 3.98f, 5.26f, 8.24f },  // Clean
-            { 16, -6.2231f,  9.5681f, 1.11f, 2.44f, 3.88f, 7.17f },  // Half
-            { 33, -9.2107f, 11.5701f,-2.24f, 2.19f, 4.09f, 7.94f },  // Full
-        };
+        // Demo: sweep PercentLift cleanly from 0 → 99 → 0 against a
+        // fixed flap calibration (RV-10 full flaps) so every visual
+        // state of the indexer can be inspected at known percents.
+        // The band-edge percents are exactly what the firmware would
+        // emit on the wire for this calibration; only PercentLift
+        // (the index bar's position) animates.  Full flaps is chosen
+        // to make the per-flap variation visible — L/Dmax lands at
+        // ~33% (vs ~51% clean) and the bottom chevron's "fast but
+        // safe" green band spans ~33–53% (vs only ~51–55% clean).
+        constexpr float kAlpha0     = -9.2107f;
+        constexpr float kAlphaStall = 11.5701f;
+        constexpr float kLdmax      = -2.24f;
+        constexpr float kFast       =  2.19f;
+        constexpr float kSlow       =  4.09f;
+        constexpr float kWarn       =  7.94f;
 
-        // 12 s cycle: dwell on each detent for 4 s.  Step through
-        // clean → half → full → clean.
-        const int detentIdx = (int)((currMillis / 4000) % 3);
-        const FlapCfg& snap = kFlaps[detentIdx];
-
-        // Honest percent for any body angle within the active flap's
-        // calibrated lift envelope.  Clamped 0..99 to match the
-        // firmware-side wire convention.
         auto pctOf = [&](float bodyAngleDeg) -> int {
-            const float span = snap.alphaStall - snap.alpha0;
-            if (span <= 0.0f) return 0;
-            int p = (int)((bodyAngleDeg - snap.alpha0) / span * 100.0f);
+            const float span = kAlphaStall - kAlpha0;
+            int p = (int)((bodyAngleDeg - kAlpha0) / span * 100.0f);
             if (p < 0)  p = 0;
             if (p > 99) p = 99;
             return p;
         };
 
-        // Sweep AOA up and down through the full envelope on a 6-s
-        // cycle so the index bar visibly slides through the indexer.
-        const float aoaPhase = (float)((currMillis % 6000) / 6000.0f); // 0..1
-        const float aoaSweep = (aoaPhase <= 0.5f)
-                                   ? (aoaPhase * 2.0f)             // 0→1
-                                   : (2.0f - aoaPhase * 2.0f);     // 1→0
-        const float demoAOA = snap.alpha0 + aoaSweep * (snap.alphaStall - snap.alpha0);
+        // 30 s sweep: 15 s up (0 → 99), 15 s down (99 → 0).  About 7%
+        // per second — slow enough to read each transition (chevron
+        // colors, donut arcs, L/Dmax pip alignment) on the way through.
+        const float phase = (float)((currMillis % 30000) / 15000.0f); // 0..2
+        const float frac  = (phase <= 1.0f) ? phase : (2.0f - phase); // 0→1→0
+        int demoPct = (int)(frac * 99.0f + 0.5f);
+        if (demoPct < 0)  demoPct = 0;
+        if (demoPct > 99) demoPct = 99;
 
         Pitch                = 5.0;
         Roll                 = 0.0;
@@ -240,28 +227,23 @@ void SerialRead()
         iVSI                 = 0.0;
         OAT                  = 70;
         FlightPath           = 0.0;
-        FlapPos              = snap.degrees;
-        FlapsMinDeg          = kFlaps[0].degrees;
-        FlapsMaxDeg          = kFlaps[2].degrees;
+        FlapPos              = 33;
+        FlapsMinDeg          = 0;
+        FlapsMaxDeg          = 33;
 
-        // Per-flap band-edge percents — exactly what the firmware
-        // emits over the wire.  Each varies per flap because the
-        // body-angle setpoints vary per flap.
-        TonesOnPctLift       = pctOf(snap.ldmax);
-        OnSpeedFastPctLift   = pctOf(snap.fast);
-        OnSpeedSlowPctLift   = pctOf(snap.slow);
-        StallWarnPctLift     = pctOf(snap.warn);
+        // Per-flap band-edge percents — what the firmware emits over
+        // the wire for this fixed calibration.  Constant across the
+        // sweep so the visual state at any given PercentLift is
+        // readable.
+        TonesOnPctLift       = pctOf(kLdmax);
+        OnSpeedFastPctLift   = pctOf(kFast);
+        OnSpeedSlowPctLift   = pctOf(kSlow);
+        StallWarnPctLift     = pctOf(kWarn);
 
-        // Current AOA's percent — drives the index-bar position.
-        PercentLift          = pctOf(demoAOA);
+        // Drive only the index-bar position.
+        PercentLift          = demoPct;
 
-        // Drive the right-edge G-onset tape with a 4 s sinusoid, ±1.5
-        // G/s, so we can eyeball the widget: positive onset → orange
-        // tape grows upward from the zero line; negative onset → grows
-        // downward.  Issue #324 tracks wiring the firmware-side
-        // computation that would replace this demo signal in flight.
-        const float onsetPhase = (currMillis % 4000) / 4000.0f;   // 0..1
-        gOnsetRate           = 1.5f * sinf(onsetPhase * 2.0f * 3.14159265f);
+        gOnsetRate           = 0.0f;
         SpinRecoveryCue      = 0;
         DataMark             = 0;
 

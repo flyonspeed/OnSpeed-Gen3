@@ -907,10 +907,13 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
     gdraw.fillTriangle(XA1, YA1, XA2, YA2, XA3, YA3, Colour);
 
     /*
-     Bottom chevron — FAA green/yellow/red progression: green covers the
-     "fast but safe" band (L/Dmax → OnSpeedFast), matching the donut green
-     for OnSpeed. Yellow/red escalate on the top chevrons as AOA rises
-     toward stall.
+     Bottom chevron — green covers the entire safe band, from L/Dmax up
+     through the on-speed donut.  Both fast-but-safe and on-speed are
+     safe states; the donut overlay differentiates "you're in the
+     on-speed window" while the bottom chevron continues to show "still
+     in the safe band."  The bottom chevron only goes dark above
+     OnSpeedSlow, where the top chevrons take over with the
+     yellow/red escalation toward stall.
     */
     if (aoaPct >= Array [2] && aoaPct < Array [4]) Colour = TFT_GREEN;
     else                                           Colour = TFT_DARKGREY;

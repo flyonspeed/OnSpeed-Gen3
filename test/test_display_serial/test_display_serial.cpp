@@ -521,10 +521,10 @@ void test_roundtrip_flap_range_negative_min(void)
 // ----------------------------------------------------------------------------
 // DisplayFrameAccumulator — byte-stream framing
 //
-// These tests would have caught the wire-format-change regression where
-// the M5 firmware's hand-rolled state machine hardcoded the old 80-byte
-// frame size. Pump a built frame through the accumulator byte-by-byte
-// and verify a parsed frame comes out at the last byte.
+// These tests would have caught the class of wire-format-change
+// regression where a consumer's hand-rolled state machine hardcodes a
+// stale frame size.  Pump a built frame through the accumulator
+// byte-by-byte and verify a parsed frame comes out at the last byte.
 // ----------------------------------------------------------------------------
 
 void test_accumulator_parses_complete_frame(void)

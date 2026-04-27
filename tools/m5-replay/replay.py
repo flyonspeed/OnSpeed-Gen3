@@ -8,7 +8,7 @@
 """Stream OnSpeed #1 display-serial frames to an M5Stack secondary display.
 
 Reads an OnSpeed SD-card CSV log (or generates synthetic data), formats the
-90-byte ASCII payload + 2-byte CRC + CRLF (94 bytes total) exactly as the
+70-byte ASCII payload + 2-byte CRC + CRLF (74 bytes total) exactly as the
 Gen3 firmware does, and writes it at 20 Hz to a serial port (typically a
 USB-to-TTL dongle).
 

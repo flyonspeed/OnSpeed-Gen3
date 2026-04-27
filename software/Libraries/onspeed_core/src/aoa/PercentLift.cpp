@@ -5,6 +5,8 @@
 
 #include <aoa/PercentLift.h>
 
+#include <cmath>
+
 namespace onspeed {
 namespace aoa {
 
@@ -13,6 +15,14 @@ int ComputePercentLift(float aoaDeg,
                        bool iasValid)
 {
     if (!iasValid) {
+        return 0;
+    }
+
+    // Defend against NaN/Inf AOA explicitly.  The downstream cast
+    // `static_cast<int>(NaN)` is UB; without this guard we rely on the
+    // platform's float-to-int behaviour landing somewhere the [0,99]
+    // clamp catches.  Cheap to make the contract explicit.
+    if (!std::isfinite(aoaDeg)) {
         return 0;
     }
 
