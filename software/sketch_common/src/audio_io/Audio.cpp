@@ -885,11 +885,14 @@ void AudioPlay::AudioTest()
     // state.
     {
     const ActiveFlapSnapshot snap = SnapshotActiveFlap();
-    // Skip the sweep on uncalibrated configs.  calculateTone's own
-    // gate already returns silent when fONSPEEDFAST/SLOW/STALLWARN <= 0,
-    // but starting a 20 s sweep that produces no tones is a worse user
-    // experience than skipping outright.
-    if (snap.bValid && snap.th.fSTALLWARNAOA > 0.0f)
+    // Skip the sweep on uncalibrated configs.  Mirrors calculateTone's
+    // own three-threshold gate exactly — partially-calibrated configs
+    // (e.g. only StallWarn set) would otherwise run a 20 s sweep that
+    // sits silent until the very top, the opposite of the test's intent.
+    if (snap.bValid &&
+        snap.th.fONSPEEDFASTAOA > 0.0f &&
+        snap.th.fONSPEEDSLOWAOA > 0.0f &&
+        snap.th.fSTALLWARNAOA   > 0.0f)
         {
         constexpr float kBottomMargin = 0.2f;   // start just below LDmax
         constexpr float kTopMargin    = 1.5f;   // end firmly into solid-stall
