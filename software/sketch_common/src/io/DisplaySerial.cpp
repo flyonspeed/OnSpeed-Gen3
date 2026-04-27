@@ -3,8 +3,10 @@
 
 #include "src/Globals.h"
 #include <aoa/PercentLift.h>
+#include <filters/GOnsetFilter.h>
 #include <proto/DisplaySerial.h>
 
+using onspeed::GOnsetFilter;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
 using onspeed::aoa::ComputePercentLift;
@@ -136,10 +138,26 @@ void DisplaySerial::Write()
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
     const float fPAltFt = m2ft(g_AHRS.KalmanAlt);
 
-    if (IsFiniteFloat(g_AHRS.AccelVertFilter.get()))
-        iDisplayVerticalG = (int)ceilf(g_AHRS.AccelVertFilter.get() * 10.0f);
+    const float fAccelVert = g_AHRS.AccelVertFilter.get();
+    if (IsFiniteFloat(fAccelVert))
+        iDisplayVerticalG = (int)ceilf(fAccelVert * 10.0f);
     else
         iDisplayVerticalG = 0;
+
+    // G-onset rate: low-pass-filtered d(verticalG)/dt for the M5's right-edge
+    // rate-tape widget. Tau = 250 ms; ticked at the wire rate (20 Hz) means
+    // alpha ≈ 0.167 per sample — heavy enough to reject single-sample noise,
+    // responsive enough to catch a half-second pull. Sign convention follows
+    // AccelVertFilter (production reaction-force convention: +1 g level,
+    // +2 g pull-up), so positive output means "G load increasing".
+    static GOnsetFilter sGOnsetFilter(0.25f);
+    static uint32_t     sLastOnsetMicros = 0;
+    const uint32_t      uNowMicros = micros();
+    const float fGOnsetRate = (sLastOnsetMicros == 0)
+        ? sGOnsetFilter.Update(fAccelVert, 1.0f)  // seed; dt ignored on first call
+        : sGOnsetFilter.Update(fAccelVert,
+                               (uNowMicros - sLastOnsetMicros) * 1.0e-6f);
+    sLastOnsetMicros = uNowMicros;
 
 
     // Snapshot the active flap entry once under xAhrsMutex with a bounds
@@ -295,7 +313,7 @@ void DisplaySerial::Write()
         inputs.stallWarnPctLift   = iStallWarnPctLift;
         inputs.flapsMinDeg        = iFlapsMinDeg;
         inputs.flapsMaxDeg        = iFlapsMaxDeg;
-        inputs.gOnsetRate         = 0.0f;
+        inputs.gOnsetRate         = fGOnsetRate;
         inputs.spinRecoveryCue    = 0;
         inputs.dataMark           = (int)((unsigned)g_iDataMark % 100u);
 
