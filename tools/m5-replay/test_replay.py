@@ -300,17 +300,18 @@ def test_firmware_parser_rejects_bad_crc() -> None:
 
 
 def test_firmware_parser_rejects_old_94_byte_frame() -> None:
-    """A frame at the previous wire size (94 bytes) must NOT decode
-    against the current 74-byte parser.  Catches the regression where
-    a stale builder is paired with new firmware.
+    """A frame at a non-current wire size must NOT decode against the
+    current parser.  Catches the regression where a stale builder is
+    paired with new firmware.  (Test name still says "94"; the actual
+    test produces FRAME_LEN+20 = 96 bytes against the v4.22 76-byte
+    parser, which is still a non-current size.)
     """
     if not PARSE_BIN.exists():
         print("    SKIP  parse_frame binary not built; run `pio run -e native` first")
         return
 
-    # Pad an otherwise-valid 74-byte frame out to 94 bytes by repeating
-    # data — the parser's size check should reject it before it even
-    # starts parsing fields.
+    # Pad an otherwise-valid frame out by 20 bytes — the parser's size
+    # check should reject it before it even starts parsing fields.
     wire = Frame().to_bytes()
     pad = wire[2:22]      # 20 bytes of payload-shaped filler
     extended = wire[:-2] + pad + wire[-2:]   # insert before CRLF

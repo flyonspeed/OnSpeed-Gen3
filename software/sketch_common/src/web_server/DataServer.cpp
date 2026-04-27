@@ -381,17 +381,22 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         iJsonPercentLift = ComputePercentLift(fAoaSnap, flapSnapshot, bIasValidForOutput);
         }
 
-    // Display percent anchors:
-    //   * tonesOnPctLift (the L/Dmax pip) is INTERPOLATED across the
-    //     bracket containing the lever, so the LiveView pip slides
-    //     smoothly during flap deployment.
+    // Display percent anchors (Vac, ld_max.pdf §8 — aerodynamic
+    // references and operational cues must remain independent):
+    //   * tonesOnPctLift SNAPS to the active detent's L/Dmax pct.
+    //     LiveView's bottom chevron + the audio low-tone gate fire
+    //     from this same threshold, in lockstep.  Operational cue.
     //   * onSpeedFast/Slow/StallWarn SNAP to the active detent so the
     //     donut/chevron screen positions stay in lockstep with the
-    //     audio cues that fire at those same calibrated thresholds.
-    //   * flapsDeg is INTERPOLATED so the numeric flap-angle readout
-    //     in LiveView's corner slides smoothly with the lever.
-    // Same contract the M5 wire ships, so a future shared indexer
-    // renderer can run identically off either transport.  iasValid=true
+    //     audio cues at those same calibrated thresholds.
+    //   * pipPctLift INTERPOLATES linearly clean→fullflap (ignores
+    //     intermediate detents).  LiveView reads this for the L/Dmax
+    //     pip dot position so the pip slides smoothly with the lever.
+    //     Visual aerodynamic reference.
+    //   * flapsDeg interpolates per-bracket so the numeric flap-angle
+    //     readout in LiveView's corner slides smoothly.
+    // Same contract the M5 wire ships, so the M5 indexer and the web
+    // LiveView render identically off either transport.  iasValid=true
     // keeps the indexer geometry stable across the audio mute threshold.
     DisplayPctAnchors anchors = ComputeDisplayPctAnchors(uFlapsRawAdc,
                                                          aFlapsSnapshot,

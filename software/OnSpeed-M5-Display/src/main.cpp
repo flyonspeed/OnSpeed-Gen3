@@ -100,23 +100,27 @@ bool        fwUpdateMode = false;
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
 
-// Percent-lift anchors, populated from the wire fields each frame.
-// Slot layout matches mapPct2Display + drawAOA chevron-color logic:
+// Percent-lift anchors, populated from the wire fields each frame and
+// passed to drawAOA / drawSlip / mapPct2Display by index.  Two cues
+// are visually distinct (Vac, ld_max.pdf §8 — aerodynamic references
+// and operational cues must remain independent):
 //   [0] floor               (always 0 — alpha_0 in percent space)
-//   [2] L/Dmax pip          (TonesOnPctLift)
-//   [3] OnSpeedFast band    (OnSpeedFastPctLift)
-//   [4] OnSpeedSlow band    (OnSpeedSlowPctLift)
-//   [7] StallWarn           (StallWarnPctLift)
-// Slots 1, 5, 6 are unused after the rework.
-// PctAnchors[] slot map — passed to drawAOA / drawSlip, indexed by these
-// constants.  Two cues are visually distinct (per Vac, ld_max.pdf §8):
-//   * kIdxTonesOn (2)  — operational, snapped per detent.  Drives the
-//                        bottom-chevron lower gate at drawAOA line ~930.
-//                        Same threshold as the audio low tone.
-//   * kIdxPipPct  (6)  — aerodynamic, lerped clean→fullflap.  Drives the
-//                        L/Dmax pip dot positions at drawAOA line ~1010.
-// Slots 0/1/5 are reserved for legacy / future use; assigning 0 makes
-// the renderer treat them as "uncalibrated".
+//   [2] kIdxTonesOn         active-detent L/Dmax pct (TonesOnPctLift) —
+//                           operational, snapped per detent. Drives
+//                           the bottom-chevron lower gate at drawAOA
+//                           line ~930.  Same threshold as the audio
+//                           low tone.
+//   [3] kIdxOnSpeedFast     donut bottom edge (OnSpeedFastPctLift)
+//   [4] kIdxOnSpeedSlow     donut top edge / top-chevron lower gate
+//                           (OnSpeedSlowPctLift)
+//   [6] kIdxPipPctLift      visual L/Dmax pip (PipPctLift) —
+//                           aerodynamic reference, lerped clean→
+//                           fullflap. Drives the pip dots at
+//                           drawAOA line ~1010.
+//   [7] kIdxStallWarn       top-chevron flash threshold
+//                           (StallWarnPctLift)
+// Slots 1 and 5 are reserved for future use; assigning 0 makes the
+// renderer treat them as "uncalibrated".
 namespace pct_anchors {
     constexpr int kIdxTonesOn      = 2;   // active-detent L/Dmax (chevron + audio gate)
     constexpr int kIdxOnSpeedFast  = 3;

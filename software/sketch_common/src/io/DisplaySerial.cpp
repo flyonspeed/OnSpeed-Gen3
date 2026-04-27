@@ -256,15 +256,22 @@ void DisplaySerial::Write()
     else
         iPercentLift = 0;
 
-    // Display percent anchors for the M5 indexer:
-    //   * tonesOnPctLift (the L/Dmax pip) — INTERPOLATED across the
-    //     bracket containing the lever, so the pip slides smoothly
-    //     during flap deployment.
-    //   * onSpeedFast/Slow/StallWarn — SNAPPED to the active detent so
-    //     the donut/chevron screen positions stay in lockstep with the
-    //     audio cues that fire at those same calibrated thresholds.
-    //   * flapsDeg — INTERPOLATED across the bracket so the numeric
-    //     flap-angle readout slides smoothly with the lever.
+    // Display percent anchors for the M5 indexer (Vac, ld_max.pdf §8 —
+    // aerodynamic references and operational cues must remain
+    // independent):
+    //   * tonesOnPctLift — SNAPPED to active detent's L/Dmax pct.  The
+    //     M5 bottom chevron gates on this; matches the audio low-tone
+    //     gate exactly.  Operational cue.
+    //   * onSpeedFast/Slow/StallWarn — SNAPPED to active detent so the
+    //     donut/chevron screen positions stay in lockstep with the
+    //     audio cues.  Operational cues.
+    //   * pipPctLift — INTERPOLATED linearly across the entire pot range
+    //     from cleanest detent's L/Dmax pct to most-deployed detent's
+    //     OnSpeed-band center.  Slides smoothly with the lever; ignores
+    //     intermediate detents.  Visual aerodynamic reference.
+    //   * flapsDeg — INTERPOLATED per-bracket between adjacent detents'
+    //     iDegrees so the numeric flap-angle readout slides smoothly.
+    //     Mechanical cue, distinct from pipPctLift.
     //
     // iasValid=true is forwarded so the anchor geometry stays stable
     // across the audio mute threshold; only the live `percentLift`

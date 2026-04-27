@@ -20,6 +20,9 @@ The canonical implementations are:
 >
 > — Vac, *L/Dmax Cue and Fast-Tone Logic*, §8
 
+!!! note "Vac's 'fast tone' = OnSpeed's 'low tone'"
+    Vac's term **fast tone** is the cue that fires when you're flying *fast for this configuration* — i.e., AOA is below the OnSpeed band. In OnSpeed firmware terminology this is the **low tone** (the 400 Hz pulse, gated by `fLDMAXAOA`). The OnSpeed *high tone* (1600 Hz, gated by `fONSPEEDSLOWAOA`) is the slow-side warning, not the fast-side cue. So Vac's "fast tone is an operational limit cue" applies to the L/Dmax / low-tone gate documented throughout this spec.
+
 This rule is load-bearing. The indexer carries two cues that are *visually* near each other but *semantically* unrelated:
 
 - **Operational cue**: the bottom green chevron, gated on the audio low-tone threshold. Snaps per detent. If a tone is on, the chevron is green.
@@ -213,25 +216,39 @@ Three detents from `~/Downloads/onspeed2_latest.cfg`:
 | 16° | 897 | 1.11 | 2.44 | 3.88 | −6.22 | 9.57 |
 | 33° (full) | 2 | −2.24 | 2.19 | 4.09 | −9.21 | 11.57 |
 
-Computed percent-lift values:
+Computed percent-lift values (from the actual `ComputePercentLift` /
+`ComputeDisplayPctAnchors` implementation, which truncates fractions
+toward zero per the saturation convention):
 
-| Flap | L/Dmax pct | OnSpeed center pct |
-|---|---|---|
-| 0° (clean) | **50** | (55 + 64) / 2 = 60 |
-| 16° | **46** | (55 + 64) / 2 = 60 |
-| 33° (full) | **34** | (55 + 64) / 2 = **59** |
-
-Lever positions and what the indexer shows:
-
-| Lever pot | Active detent | `tonesOnPctLift` | `pipPctLift` | Coincide? |
+| Flap | L/Dmax pct | Fast pct | Slow pct | StallWarn pct |
 |---|---|---|---|---|
-| 1462 (clean) | 0° | 50 | 50 | yes (pip and chevron edge line up) |
-| 1100 (mid clean→16°) | 0° (still) | 50 | lerp(50, 59, 0.25) = 52 | no |
-| 897 (16° detent) | 16° | 46 | lerp(50, 59, 0.39) = 54 | no (chevron at 46, pip at 54) |
-| 450 (mid 16°→33°) | 33° | 34 | lerp(50, 59, 0.69) = 56 | no |
-| 2 (33° full) | 33° | 34 | 59 | no (chevron at 34, pip at center of donut) |
+| 0° (clean) | **49** | 54 | 64 | 85 |
+| 16° | **46** | 54 | 63 | 84 |
+| 33° (full) | **33** | 54 | 64 | 82 |
 
-Notice that at the 16° detent, the chevron edge sits at the calibrated 46% (from the 16° detent's `fLDMAXAOA`), but the pip is at 54% (from the global lerp). The pip ignores the 16° detent's calibration.
+The pip's full-flap target is the round-half-away mean of 33°'s
+Fast and Slow: `lround((54 + 64) / 2.0) = 59`.
+
+Lever positions and what the indexer shows. Active-detent index
+follows the standard midpoint rule (`Flaps::Update`):
+
+| Lever pot | Active detent | `tonesOnPctLift` | `pipPctLift` | flapsDeg | Coincide? |
+|---|---|---|---|---|---|
+| 1462 (clean) | 0° | 49 | 49 | 0 | yes (pip and chevron edge line up) |
+| 1100 (mid clean→16°) | 16° | 46 | 51 | 10 | no |
+| 897 (16° detent) | 16° | 46 | 53 | 16 | no (chevron at 46, pip at 53) |
+| 450 (mid 16°→33°) | 16° | 46 | 56 | 24 | no |
+| 2 (33° full) | 33° | 33 | 59 | 33 | no (chevron at 33, pip at center of donut) |
+
+Notice that at the 16° detent, the chevron edge sits at the
+calibrated 46% (from the 16° detent's `fLDMAXAOA`), but the pip is at
+53% (from the two-endpoint lerp). The pip ignores the 16° detent's
+calibration.
+
+The lerp's denominator is the full pot span (1462 − 2 = 1460); at the
+1100 row, `t = (1462 − 1100) / 1460 = 0.248`, so
+`pip = lround(49 + 0.248 × (59 − 49)) = lround(51.48) = 51`. Same
+formula for every row.
 
 ## 9. Bench verification
 
@@ -240,7 +257,7 @@ Reflash bench device with v4.22 firmware on both Gen3 main and M5. Confirm:
 - **Clean, AOA below L/Dmax:** silent, chevron grey, pip and chevron edge coincide on screen.
 - **Clean, AOA between L/Dmax and OnSpeedFast:** low tone pulsing, chevron green, pip and chevron edge still coincide.
 - **Mid-deployment (lever between 0° and 16° detents):** chevron snaps from the clean L/Dmax to the 16° detent's L/Dmax at the midpoint pot value (in lockstep with `iIndex` advancing in `Flaps::Update`); pip slides smoothly with no jump.
-- **Full flaps (33°), AOA between active L/Dmax and OnSpeedFast:** low tone pulsing, chevron green; pip sits up at ~59% (inside the donut band on screen), well above the chevron-lit band.
+- **Full flaps (33°), AOA between active L/Dmax and OnSpeedFast:** low tone pulsing, chevron green; pip sits up at 59% (inside the donut band on screen), well above the chevron-lit band.
 
 ## 10. Wire-format change history
 

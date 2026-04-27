@@ -1,8 +1,8 @@
 // proto/DisplaySerial.h — OnSpeed `#1` display-serial protocol.
 //
-// This is the single source of truth for the wire format of the 74-byte ASCII
+// This is the single source of truth for the wire format of the 76-byte ASCII
 // frame exchanged between the Gen3 main firmware (producer) and the M5Stack
-// secondary display firmware (consumer).
+// secondary display firmware (consumer). (v4.22 size; was 74 bytes in v4.21.)
 //
 // Frame format (76 bytes total, v4.22):
 //

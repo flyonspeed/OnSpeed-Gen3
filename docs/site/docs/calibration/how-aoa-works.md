@@ -129,8 +129,10 @@ For the full layered specification — every gate, every color rule, every wire 
 
 | Flap | L/D~MAX~ pct (audio threshold, chevron edge) | Pip pct (visual) |
 |---|---|---|
-| 0° (clean) | 50 | 50 (pip and chevron edge coincide) |
-| 16° | 46 | 54 (lerp position; ignores 16° detent's calibrated 46) |
-| 33° (full) | 34 | 59 (geometric center of OnSpeed band) |
+| 0° (clean) | 49 | 49 (pip and chevron edge coincide) |
+| 16° | 46 | 53 (lerp position; ignores 16° detent's calibrated 46) |
+| 33° (full) | 33 | 59 (geometric center of OnSpeed band) |
 
-At full flaps, the pip sits inside the donut band on screen — the visual "you'd better be near the donut on approach" cue. The audio low tone fires at 34% (a much lower AOA), giving the pilot the same operational "you're fast" cue the audio path always provided.
+(Percents come from the actual firmware computation, which truncates fractions toward zero per the saturation convention.)
+
+At full flaps, the pip sits inside the donut band on screen — the visual "you'd better be near the donut on approach" cue. The audio low tone fires at 33% (a much lower AOA), giving the pilot the same operational "you're fast" cue the audio path always provided.

@@ -223,11 +223,11 @@ Expected: `11/11 passed`.
 The tests run in two layers:
 
 **Layer 1 — Self-referential (Python only).** Fast checks of the Python
-builder: total length is 74 bytes, `#1` header, CRC matches the
-sum-of-payload-bytes convention, every field round-trips through the
-documented byte offsets, signed fields keep their signs, the honest
-percent-lift formula tracks `ComputePercentLift`, out-of-range values
-clamp, NaN/Inf don't corrupt the frame length.
+builder: total length is 76 bytes (v4.22 wire), `#1` header, CRC
+matches the sum-of-payload-bytes convention, every field round-trips
+through the documented byte offsets, signed fields keep their signs,
+the honest percent-lift formula tracks `ComputePercentLift`,
+out-of-range values clamp, NaN/Inf don't corrupt the frame length.
 
 **Layer 2 — Firmware-parser interop.** The decisive test: build a frame
 in Python, pipe it into the native `parse_frame` binary (which links
@@ -246,9 +246,9 @@ Python builder.
 
 ## The wire protocol
 
-Frames are **74 bytes** total: 70-byte payload + 2-byte CRC + CRLF, at
-115200 8N1. Full byte-level reference (offsets, scale factors, sign
-conventions, parser recommendations) lives in
+Frames are **76 bytes** total (v4.22 wire): 72-byte payload + 2-byte
+CRC + CRLF, at 115200 8N1. Full byte-level reference (offsets, scale
+factors, sign conventions, parser recommendations) lives in
 [`docs/site/docs/reference/serial-protocol.md`](../../docs/site/docs/reference/serial-protocol.md).
 The canonical builder/parser is
 [`software/Libraries/onspeed_core/src/proto/DisplaySerial.{h,cpp}`](../../software/Libraries/onspeed_core/src/proto/DisplaySerial.h)
@@ -323,7 +323,7 @@ automatically in an ephemeral environment.
  OnSpeed .cfg ───►│  • parses flap setpoints    │
  SD-card CSV  ───►│  • reads rows at 20 Hz      │
                   │  • computes PercentLift     │
-                  │  • builds 74-byte frame     │
+                  │  • builds 76-byte frame     │
                   │  • writes to serial port    │
                   └──────────────┬──────────────┘
                                  │ /dev/cu.usbserial-XXXX
