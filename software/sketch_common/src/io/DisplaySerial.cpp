@@ -178,6 +178,7 @@ void DisplaySerial::Write()
     // detector and config parser already enforce the same bound.
     FOSConfig::SuFlaps aFlapsSnapshot[onspeed::MAX_AOA_CURVES]{};
     size_t  nFlapsSnapshot = 0;
+    size_t  iActiveFlapIdx = 0;
     uint16_t uFlapsRawAdc  = 0;
     if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
@@ -187,6 +188,7 @@ void DisplaySerial::Write()
             {
             flapSnapshot       = g_Config.aFlaps[iIdx];
             bFlapSnapshotValid = true;
+            iActiveFlapIdx     = static_cast<size_t>(iIdx);
             }
 
         // Capture the configured flap travel range for the display widget
@@ -236,13 +238,15 @@ void DisplaySerial::Write()
     else
         iPercentLift = 0;
 
-    // Band-edge percents for the M5 indexer.  Each per-flap setpoint
-    // (LDmax, OnSpeedFast/Slow, StallWarn) is run through
-    // ComputePercentLift, then linearly interpolated between adjacent
-    // detents in percent space using the raw lever ADC.  The
-    // interpolated `flapsDeg` overrides the snapped detent-position
-    // value so the displayed flap angle slides smoothly with the lever
-    // rather than stepping at the detection midpoint.
+    // Display percent anchors for the M5 indexer:
+    //   * tonesOnPctLift (the L/Dmax pip) — INTERPOLATED across the
+    //     bracket containing the lever, so the pip slides smoothly
+    //     during flap deployment.
+    //   * onSpeedFast/Slow/StallWarn — SNAPPED to the active detent so
+    //     the donut/chevron screen positions stay in lockstep with the
+    //     audio cues that fire at those same calibrated thresholds.
+    //   * flapsDeg — INTERPOLATED across the bracket so the numeric
+    //     flap-angle readout slides smoothly with the lever.
     //
     // iasValid=true is forwarded so the anchor geometry stays stable
     // across the audio mute threshold; only the live `percentLift`
@@ -250,6 +254,7 @@ void DisplaySerial::Write()
     DisplayPctAnchors anchors = ComputeDisplayPctAnchors(uFlapsRawAdc,
                                                          aFlapsSnapshot,
                                                          nFlapsSnapshot,
+                                                         iActiveFlapIdx,
                                                          true);
 
     if (bIasValidForOutput)
