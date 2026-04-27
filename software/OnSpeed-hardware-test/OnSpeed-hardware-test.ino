@@ -305,7 +305,61 @@ static TestResult adcTest() {
     return TestResult::PASS;
 #endif
 }
-static TestResult serialLoopbackTest()  { return TestResult::SKIP; }
+// Read a single character from USB serial with a millisecond timeout.
+// Returns -1 on timeout. Echoes received chars so the operator can see
+// what they typed.
+static int readCharWithTimeout(uint32_t timeoutMs) {
+    uint32_t deadline = millis() + timeoutMs;
+    while (millis() < deadline) {
+        if (Serial.available()) {
+            int c = Serial.read();
+            if (c >= 0x20 && c <= 0x7E) Serial.write((uint8_t)c);   // echo printable
+            return c;
+        }
+        delay(10);
+    }
+    return -1;
+}
+
+static TestResult serialLoopbackTest() {
+    Serial.println("\n[Serial Loopback]");
+    Serial.print("  Is the GPIO 10 -> GPIO 3 jumper installed? [y/n, 5s default=skip]: ");
+    int ch = readCharWithTimeout(5000);
+    Serial.println();
+
+    if (ch != 'y' && ch != 'Y') {
+        Serial.println("  Serial1 loopback: SKIP");
+        return TestResult::SKIP;
+    }
+
+    // Serial1 with TX=kDisplayTx (10), RX=kBoomRx (3).
+    Serial1.begin(115200, SERIAL_8N1, kBoomRx, kDisplayTx);
+    delay(50);
+    while (Serial1.available()) Serial1.read();   // flush stale bytes
+
+    const char* probe = "HWTEST\n";
+    Serial1.print(probe);
+    Serial1.flush();
+    delay(100);
+
+    String received;
+    uint32_t deadline = millis() + 200;
+    while (millis() < deadline) {
+        while (Serial1.available()) received += char(Serial1.read());
+        if (received.indexOf("HWTEST") >= 0) break;
+        delay(10);
+    }
+    Serial1.end();
+
+    bool pass = (received.indexOf("HWTEST") >= 0);
+    Serial.printf("  Serial1 loopback (TX=%d -> RX=%d): %s\n",
+                  kDisplayTx, kBoomRx, pass ? "PASS" : "FAIL");
+    if (!pass) {
+        Serial.printf("  (Received: \"%s\")\n", received.c_str());
+        Serial.println("  Check jumper wire between GPIO 10 and GPIO 3.");
+    }
+    return pass ? TestResult::PASS : TestResult::FAIL;
+}
 static TestResult sdCardTest()          { return TestResult::SKIP; }
 static void       audioTest()           { Serial.println("\n[Audio] (stub)"); }
 static void       ledTest()             { Serial.println("\n[LED] (stub)"); }
