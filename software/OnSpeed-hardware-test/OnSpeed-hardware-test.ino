@@ -360,7 +360,41 @@ static TestResult serialLoopbackTest() {
     }
     return pass ? TestResult::PASS : TestResult::FAIL;
 }
-static TestResult sdCardTest()          { return TestResult::SKIP; }
+static TestResult sdCardTest() {
+    Serial.println("\n[SD Card]");
+
+    SPIClass sdSPI(HSPI);
+    sdSPI.begin(kSdSclk, kSdMiso, kSdMosi, kSdCs);
+
+    SdFat sd;
+    SdSpiConfig spiConfig(kSdCs, DEDICATED_SPI, SD_SCK_MHZ(10), &sdSPI);
+
+    if (!sd.begin(spiConfig)) {
+        Serial.println("  SD Card: FAIL (cannot initialize — no card or wrong CS)");
+        sdSPI.end();
+        return TestResult::FAIL;
+    }
+
+    uint32_t sizeMB = uint32_t(sd.card()->sectorCount() / 2048);
+    Serial.printf("  SD Card: PASS  size=%lu MB\n", (unsigned long)sizeMB);
+
+    // Write + delete a small temp file. Filename starts with "_" so it
+    // sorts to the top in directory listings; it doesn't collide with
+    // any firmware-written log or config name.
+    FsFile f = sd.open("_hwtest.tmp", O_WRONLY | O_CREAT | O_TRUNC);
+    if (!f) {
+        Serial.println("  SD Card: write FAIL (could not create file)");
+        sdSPI.end();
+        return TestResult::FAIL;
+    }
+    f.println("OnSpeed hardware test — safe to delete");
+    f.close();
+    sd.remove("_hwtest.tmp");
+    Serial.println("  SD Card: write/delete PASS");
+
+    sdSPI.end();
+    return TestResult::PASS;
+}
 static void       audioTest()           { Serial.println("\n[Audio] (stub)"); }
 static void       ledTest()             { Serial.println("\n[LED] (stub)"); }
 static void       m5DisplayWireTest()   { Serial.println("\n[M5] (stub)"); }
