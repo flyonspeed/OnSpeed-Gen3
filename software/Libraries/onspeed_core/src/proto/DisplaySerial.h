@@ -1,10 +1,10 @@
 // proto/DisplaySerial.h — OnSpeed `#1` display-serial protocol.
 //
-// This is the single source of truth for the wire format of the 74-byte ASCII
+// This is the single source of truth for the wire format of the 76-byte ASCII
 // frame exchanged between the Gen3 main firmware (producer) and the M5Stack
-// secondary display firmware (consumer).
+// secondary display firmware (consumer). (v4.22 size; was 74 bytes in v4.21.)
 //
-// Frame format (74 bytes total):
+// Frame format (76 bytes total, v4.22):
 //
 //   Offset  Width  Field               Format   Scale   Notes
 //   ------  -----  ------------------  -------  ------  ----------------------
@@ -21,7 +21,7 @@
 //   38       3     oatC                %+03d    ×1      signed, –99 to +99
 //   41       4     flightPathDeg       %+04d    ×10     signed, –999 to +999
 //   45       3     flapsDeg            %+03d    ×1      signed, –99 to +99
-//   48       2     tonesOnPctLift      %02u     ×1      unsigned, 0–99 (LDmax body angle through the percent-lift formula)
+//   48       2     tonesOnPctLift      %02u     ×1      unsigned, 0–99 (active-detent L/Dmax — operational audio gate, snapped per detent)
 //   50       2     onSpeedFastPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedFast body angle through the percent-lift formula)
 //   52       2     onSpeedSlowPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedSlow body angle through the percent-lift formula)
 //   54       2     stallWarnPctLift    %02u     ×1      unsigned, 0–99 (StallWarn body angle through the percent-lift formula)
@@ -30,8 +30,9 @@
 //   62       4     gOnsetRate          %+04d    ×100    signed, –999 to +999
 //   66       2     spinRecoveryCue     %+02d    ×1      signed, –9 to +9
 //   68       2     dataMark            %02u     ×1      unsigned, 0–99
-//   70       2     checksum            ASCII hex        sum of bytes 0–69 & 0xFF
-//   72       2     terminator          CR LF    —       0x0D 0x0A
+//   70       2     pipPctLift          %02u     ×1      unsigned, 0–99 (visual L/Dmax pip — aerodynamic reference, lerp clean→fullflap)
+//   72       2     checksum            ASCII hex        sum of bytes 0–71 & 0xFF
+//   74       2     terminator          CR LF    —       0x0D 0x0A
 //
 // Design intent — the percent-lift contract:
 //   Percent-lift is the honest single-linear envelope fraction:
@@ -42,6 +43,20 @@
 //   underlying body angles vary per flap.  Consumers should use these
 //   percents as the band anchors when rendering an indexer or pip — the
 //   wire never carries body angles for AOA.
+//
+// Design intent — operational vs aerodynamic cues (Vac, ld_max.pdf §8):
+//   "L/Dmax pips are aerodynamic references. Fast tone is an
+//    operational limit cue. They must remain independent."
+//   The wire reflects this with two separate fields:
+//     * tonesOnPctLift — operational. Snapped to the active detent's
+//       L/Dmax percent. Drives the M5 bottom-chevron gate and matches
+//       the audio low-tone threshold exactly. Snaps at iIndex
+//       transitions in lockstep with the audio path.
+//     * pipPctLift     — aerodynamic. Linearly interpolated in lever-pot
+//       space between the cleanest detent's L/Dmax percent and the
+//       most-deployed detent's OnSpeed-band center. Slides smoothly as
+//       the lever moves; does not depend on the active detent index.
+//   The two coincide visually only at the cleanest-detent endpoint.
 //
 //   See onspeed_core/aoa/PercentLift.h for the formula and
 //   docs/site/docs/reference/serial-protocol.md for the wire reference.
@@ -66,10 +81,11 @@
 namespace onspeed::proto {
 
 /// Total length of a complete #1 frame in bytes (including CRLF terminator).
-inline constexpr size_t kDisplayFrameSizeBytes = 74;
+/// v4.21 was 74 bytes; v4.22 is 76 (adds pipPctLift at offset 70).
+inline constexpr size_t kDisplayFrameSizeBytes = 76;
 
-/// Length of the ASCII payload that the checksum covers (bytes 0–69 inclusive).
-inline constexpr size_t kDisplayFrameChecksumLen = 70;
+/// Length of the ASCII payload that the checksum covers (bytes 0–71 inclusive).
+inline constexpr size_t kDisplayFrameChecksumLen = 72;
 
 /// Nominal period between frames (milliseconds). Matches
 /// kDisplaySerialPeriodMs in the Gen3 firmware's HardwareMap.h.
@@ -101,7 +117,7 @@ struct DisplayBuildInputs {
     int   oatC               = 0;     // OAT (°C); only valid when OAT sensor enabled
     float flightPathDeg      = 0.0f;  // flight-path angle (deg)
     int   flapsDeg           = 0;     // flap position (deg) with sign
-    int   tonesOnPctLift     = 0;     // LDmax body angle through ComputePercentLift, 0–99
+    int   tonesOnPctLift     = 0;     // active-detent L/Dmax pct; snapped per detent (operational, audio gate)
     int   onSpeedFastPctLift = 0;     // OnSpeedFast body angle through ComputePercentLift, 0–99
     int   onSpeedSlowPctLift = 0;     // OnSpeedSlow body angle through ComputePercentLift, 0–99
     int   stallWarnPctLift   = 0;     // StallWarn body angle through ComputePercentLift, 0–99
@@ -110,6 +126,7 @@ struct DisplayBuildInputs {
     float gOnsetRate         = 0.0f;  // G onset rate (g/s); positive = G load increasing
     int   spinRecoveryCue    = 0;     // –1 / 0 / +1, currently always 0 (reserved for future spin-recovery cue logic)
     int   dataMark           = 0;     // data mark 0–99 (wraps mod 100)
+    int   pipPctLift         = 0;     // visual L/Dmax pip; lerp clean→fullflap (aerodynamic reference)
 };
 
 // ============================================================================
@@ -141,6 +158,7 @@ struct DisplayFrame {
     float gOnsetRate         = 0.0f;
     int   spinRecoveryCue    = 0;
     int   dataMark           = 0;
+    int   pipPctLift         = 0;     // v4.22+, see field comment in DisplayBuildInputs
 };
 
 // ============================================================================

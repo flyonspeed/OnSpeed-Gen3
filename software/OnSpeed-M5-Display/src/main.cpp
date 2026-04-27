@@ -100,14 +100,34 @@ bool        fwUpdateMode = false;
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
 
-// Percent-lift anchors, populated from the wire fields each frame.
-// Slot layout matches mapPct2Display + drawAOA chevron-color logic:
+// Percent-lift anchors, populated from the wire fields each frame and
+// passed to drawAOA / drawSlip / mapPct2Display by index.  Two cues
+// are visually distinct (Vac, ld_max.pdf §8 — aerodynamic references
+// and operational cues must remain independent):
 //   [0] floor               (always 0 — alpha_0 in percent space)
-//   [2] L/Dmax pip          (TonesOnPctLift)
-//   [3] OnSpeedFast band    (OnSpeedFastPctLift)
-//   [4] OnSpeedSlow band    (OnSpeedSlowPctLift)
-//   [7] StallWarn           (StallWarnPctLift)
-// Slots 1, 5, 6 are unused after the rework.
+//   [2] kIdxTonesOn         active-detent L/Dmax pct (TonesOnPctLift) —
+//                           operational, snapped per detent. Drives
+//                           the bottom-chevron lower gate at drawAOA
+//                           line ~930.  Same threshold as the audio
+//                           low tone.
+//   [3] kIdxOnSpeedFast     donut bottom edge (OnSpeedFastPctLift)
+//   [4] kIdxOnSpeedSlow     donut top edge / top-chevron lower gate
+//                           (OnSpeedSlowPctLift)
+//   [6] kIdxPipPctLift      visual L/Dmax pip (PipPctLift) —
+//                           aerodynamic reference, lerped clean→
+//                           fullflap. Drives the pip dots at
+//                           drawAOA line ~1010.
+//   [7] kIdxStallWarn       top-chevron flash threshold
+//                           (StallWarnPctLift)
+// Slots 1 and 5 are reserved for future use; assigning 0 makes the
+// renderer treat them as "uncalibrated".
+namespace pct_anchors {
+    constexpr int kIdxTonesOn      = 2;   // active-detent L/Dmax (chevron + audio gate)
+    constexpr int kIdxOnSpeedFast  = 3;
+    constexpr int kIdxOnSpeedSlow  = 4;
+    constexpr int kIdxPipPctLift   = 6;   // visual L/Dmax pip (lerp clean→fullflap)
+    constexpr int kIdxStallWarn    = 7;
+}
 int PctAnchors[8];
 
 // screen size variables
@@ -159,6 +179,7 @@ int             TonesOnPctLift      = 0;
 int             OnSpeedFastPctLift  = 0;
 int             OnSpeedSlowPctLift  = 0;
 int             StallWarnPctLift    = 0;
+int             PipPctLift          = 0;
 int             FlapsMinDeg         = 0;
 int             FlapsMaxDeg         = 33;
 
@@ -696,13 +717,13 @@ void displayAOA()
     // varies per flap.  Slots 3, 4, 7 are the band edges used by
     // mapPct2Display and the chevron-color logic in drawAOA.
     PctAnchors[0] = 0;
-    PctAnchors[1] = 0;                       // unused after rework
-    PctAnchors[2] = TonesOnPctLift;          // L/Dmax pip
-    PctAnchors[3] = OnSpeedFastPctLift;
-    PctAnchors[4] = OnSpeedSlowPctLift;
-    PctAnchors[5] = 0;                       // unused after rework
-    PctAnchors[6] = 0;                       // unused after rework
-    PctAnchors[7] = StallWarnPctLift;
+    PctAnchors[1] = 0;                                       // unused
+    PctAnchors[pct_anchors::kIdxTonesOn]     = TonesOnPctLift;     // operational — chevron + audio gate
+    PctAnchors[pct_anchors::kIdxOnSpeedFast] = OnSpeedFastPctLift;
+    PctAnchors[pct_anchors::kIdxOnSpeedSlow] = OnSpeedSlowPctLift;
+    PctAnchors[5] = 0;                                       // unused
+    PctAnchors[pct_anchors::kIdxPipPctLift]  = PipPctLift;        // visual aerodynamic pip
+    PctAnchors[pct_anchors::kIdxStallWarn]   = StallWarnPctLift;
 
     drawAOA(wgtX0, wgtY0, wgtWidth, wgtHeight, PercentLift, flashFlag, PctAnchors);
 
@@ -919,16 +940,17 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
     gdraw.fillTriangle(XA1, YA1, XA2, YA2, XA3, YA3, Colour);
 
     /*
-     Bottom chevron — green covers the entire safe band, from L/Dmax up
-     through the on-speed donut.  Both fast-but-safe and on-speed are
-     safe states; the donut overlay differentiates "you're in the
-     on-speed window" while the bottom chevron continues to show "still
-     in the safe band."  The bottom chevron only goes dark above
-     OnSpeedSlow, where the top chevrons take over with the
-     yellow/red escalation toward stall.
+     Bottom chevron — green when the audio low tone is playing, dark
+     otherwise.  Gates on Array[kIdxTonesOn] (the active-detent
+     L/Dmax percent, snapped) and Array[kIdxOnSpeedSlow] (the donut's
+     upper edge).  Same threshold the audio path uses — chevron and
+     low tone fire together on every flap setting.  This is the
+     "operational cue" half of Vac's pip-vs-tone independence rule
+     (see onspeed_core/aoa/DisplayPctAnchors.h).
     */
-    if (aoaPct >= Array [2] && aoaPct < Array [4]) Colour = TFT_GREEN;
-    else                                           Colour = TFT_DARKGREY;
+    if (aoaPct >= Array[pct_anchors::kIdxTonesOn] &&
+        aoaPct <  Array[pct_anchors::kIdxOnSpeedSlow]) Colour = TFT_GREEN;
+    else                                                Colour = TFT_DARKGREY;
 
     Theta    = PI / 8;
     cosTheta = cos(Theta);
@@ -1004,10 +1026,14 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
     gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
 
     /*
-     Draw marker dots at L/Dmax (Array[2] = TonesOnPctLift) — slides per
-     active flap calibration within the 0%..OnSpeedFastPctLift band.
+     Draw marker dots at the visual L/Dmax pip (Array[kIdxPipPctLift]).
+     The pip is a smooth aerodynamic reference: it lerps from the
+     cleanest detent's L/Dmax percent up to the most-deployed detent's
+     OnSpeed-band center as the lever sweeps.  This is intentionally
+     decoupled from the chevron's audio gate (Array[kIdxTonesOn]) — see
+     onspeed_core/aoa/DisplayPctAnchors.h for the design rule.
     */
-    int ldmaxY = mapPct2Display(Array[2], Array);
+    int ldmaxY = mapPct2Display(Array[pct_anchors::kIdxPipPctLift], Array);
     gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 24, TFT_BLACK);
     gdraw.fillCircle (X0 + W / 2 - 1, ldmaxY, H / 24, TFT_BLACK);
     gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 32, TFT_WHITE);
@@ -1483,8 +1509,11 @@ void displayGloadHistory()
 //   OnSpeedSlowPctLift < aoaPct ≤ StallWarnPctLift   → linear, y = 78 → 1
 //   aoaPct > StallWarnPctLift             → y = 1 (top)
 //
-// L/Dmax pip is drawn at mapPct2Display(Array[2], Array) so it floats
-// per flap within the lower ramp.
+// L/Dmax pip is drawn at mapPct2Display(Array[kIdxPipPctLift], Array).
+// The pip percent slides smoothly clean→fullflap; at clean it sits in
+// the lower ramp at L/Dmax, at full flap it slides up into the donut
+// band.  The piecewise-linear mapping handles both regions
+// transparently — no special case needed.
 int mapPct2Display(int aoaPct, const int Array[])
 {
     if      (aoaPct <= Array[0])                       return 192;                                                  // display bottom
