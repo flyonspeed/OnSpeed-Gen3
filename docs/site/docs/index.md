@@ -91,7 +91,7 @@ New to OnSpeed? Start here:
 
 ## Open Source
 
-OnSpeed Gen3 firmware is open source under the MIT License. Hardware designs are available for builders.
+OnSpeed Gen3 firmware is open source under the MIT License. Hardware design files aren't open yet — that's the direction we're heading. For now the kit is how we make Gen3 available to builders.
 
 - **Firmware**: [github.com/flyonspeed/OnSpeed-Gen3](https://github.com/flyonspeed/OnSpeed-Gen3)
 - **Website**: [flyonspeed.org](https://www.flyonspeed.org/)
