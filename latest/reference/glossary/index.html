@@ -2844,6 +2844,8 @@
       
         
       
+        
+      
     
     
     
@@ -2944,6 +2946,34 @@
     
   
     CSV Log Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../serial-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display Serial Protocol
   
 
     
@@ -3156,7 +3186,7 @@
 </tr>
 <tr>
 <td><strong>Fractional Lift</strong></td>
-<td>How hard the wing is working relative to its maximum capability, expressed as a fraction from 0 (zero lift) to 1 (stall). Mathematically identical to NAOA. ~60% = ONSPEED, ~50% = L/D<sub>MAX</sub>, ~90% = stall warning.</td>
+<td>How hard the wing is working relative to its maximum capability, expressed as a fraction from 0 (zero lift) to 1 (stall). Mathematically identical to NAOA. The percent at which each tone region transitions varies per flap by calibration — there are no fixed-percent band edges.</td>
 </tr>
 <tr>
 <td><strong>FreeRTOS</strong></td>
@@ -3184,7 +3214,7 @@
 </tr>
 <tr>
 <td><strong>L/D<sub>MAX</sub></strong></td>
-<td>Maximum Lift-to-Drag ratio — the AOA at which the aircraft achieves the best glide ratio (~50% fractional lift). Corresponds to best-glide speed and maximum range.</td>
+<td>Maximum Lift-to-Drag ratio — the AOA at which the aircraft achieves the best glide ratio. Where this lands on the fractional-lift scale varies per flap by calibration; the audio cue (start of fast tone) is what the pilot follows, not a fixed percent. Corresponds to best-glide speed and maximum range.</td>
 </tr>
 <tr>
 <td><strong>LittleFS</strong></td>

@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://dev.flyonspeed.org/latest/configuration/">
+        <link rel="canonical" href="https://dev.flyonspeed.org/latest/reference/serial-protocol/">
       
       
-        <link rel="prev" href="../software/audio-tone-spec/">
+        <link rel="prev" href="../log-columns/">
       
       
-        <link rel="next" href="web-interface/">
+        <link rel="next" href="../hardware-specs/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Configuration - OnSpeed Gen3 Documentation</title>
+        <title>Display Serial Protocol - OnSpeed Gen3 Documentation</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -55,7 +55,7 @@
     
       <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
   
@@ -115,7 +115,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#configuration" class="md-skip">
+        <a href="#display-serial-protocol" class="md-skip">
           Skip to content
         </a>
       
@@ -133,9 +133,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="OnSpeed Gen3 Documentation" class="md-header__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
+    <a href="../.." title="OnSpeed Gen3 Documentation" class="md-header__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
       
-  <img src="../assets/images/logo.png" alt="logo">
+  <img src="../../assets/images/logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -152,7 +152,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Configuration
+              Display Serial Protocol
             
           </span>
         </div>
@@ -265,7 +265,7 @@
   
   
     <li class="md-tabs__item">
-      <a href=".." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -286,7 +286,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../getting-started/" class="md-tabs__link">
+        <a href="../../getting-started/" class="md-tabs__link">
           
   
   
@@ -308,7 +308,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../installation/" class="md-tabs__link">
+        <a href="../../installation/" class="md-tabs__link">
           
   
   
@@ -330,7 +330,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../efis-integration/" class="md-tabs__link">
+        <a href="../../efis-integration/" class="md-tabs__link">
           
   
   
@@ -352,7 +352,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../software/" class="md-tabs__link">
+        <a href="../../software/" class="md-tabs__link">
           
   
   
@@ -370,13 +370,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="./" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../configuration/" class="md-tabs__link">
           
   
   
@@ -398,7 +396,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../calibration/" class="md-tabs__link">
+        <a href="../../calibration/" class="md-tabs__link">
           
   
   
@@ -420,7 +418,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../flying/" class="md-tabs__link">
+        <a href="../../flying/" class="md-tabs__link">
           
   
   
@@ -442,7 +440,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../simulator/" class="md-tabs__link">
+        <a href="../../simulator/" class="md-tabs__link">
           
   
   
@@ -464,7 +462,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../data-and-logs/" class="md-tabs__link">
+        <a href="../../data-and-logs/" class="md-tabs__link">
           
   
   
@@ -486,7 +484,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../troubleshooting/" class="md-tabs__link">
+        <a href="../../troubleshooting/" class="md-tabs__link">
           
   
   
@@ -504,11 +502,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../reference/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -544,9 +544,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="OnSpeed Gen3 Documentation" class="md-nav__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
+    <a href="../.." title="OnSpeed Gen3 Documentation" class="md-nav__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
       
-  <img src="../assets/images/logo.png" alt="logo">
+  <img src="../../assets/images/logo.png" alt="logo">
 
     </a>
     OnSpeed Gen3 Documentation
@@ -573,7 +573,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -635,7 +635,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../getting-started/" class="md-nav__link ">
+            <a href="../../getting-started/" class="md-nav__link ">
               
   
   
@@ -679,7 +679,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/what-is-onspeed/" class="md-nav__link">
+      <a href="../../getting-started/what-is-onspeed/" class="md-nav__link">
         
   
   
@@ -707,7 +707,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/how-aoa-tones-work/" class="md-nav__link">
+      <a href="../../getting-started/how-aoa-tones-work/" class="md-nav__link">
         
   
   
@@ -735,7 +735,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/system-overview/" class="md-nav__link">
+      <a href="../../getting-started/system-overview/" class="md-nav__link">
         
   
   
@@ -763,7 +763,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/what-you-need/" class="md-nav__link">
+      <a href="../../getting-started/what-you-need/" class="md-nav__link">
         
   
   
@@ -791,7 +791,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../getting-started/safety/" class="md-nav__link">
+      <a href="../../getting-started/safety/" class="md-nav__link">
         
   
   
@@ -869,7 +869,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../installation/" class="md-nav__link ">
+            <a href="../../installation/" class="md-nav__link ">
               
   
   
@@ -913,7 +913,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/mounting/" class="md-nav__link">
+      <a href="../../installation/mounting/" class="md-nav__link">
         
   
   
@@ -941,7 +941,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/pneumatics/" class="md-nav__link">
+      <a href="../../installation/pneumatics/" class="md-nav__link">
         
   
   
@@ -969,7 +969,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/wiring/" class="md-nav__link">
+      <a href="../../installation/wiring/" class="md-nav__link">
         
   
   
@@ -997,7 +997,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/audio/" class="md-nav__link">
+      <a href="../../installation/audio/" class="md-nav__link">
         
   
   
@@ -1025,7 +1025,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/indexer/" class="md-nav__link">
+      <a href="../../installation/indexer/" class="md-nav__link">
         
   
   
@@ -1053,7 +1053,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/oat-sensor/" class="md-nav__link">
+      <a href="../../installation/oat-sensor/" class="md-nav__link">
         
   
   
@@ -1081,7 +1081,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/external-display/" class="md-nav__link">
+      <a href="../../installation/external-display/" class="md-nav__link">
         
   
   
@@ -1109,7 +1109,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/boom-probe/" class="md-nav__link">
+      <a href="../../installation/boom-probe/" class="md-nav__link">
         
   
   
@@ -1137,7 +1137,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/checklist/" class="md-nav__link">
+      <a href="../../installation/checklist/" class="md-nav__link">
         
   
   
@@ -1211,7 +1211,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../efis-integration/" class="md-nav__link ">
+            <a href="../../efis-integration/" class="md-nav__link ">
               
   
   
@@ -1255,7 +1255,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../efis-integration/dynon-skyview/" class="md-nav__link">
+      <a href="../../efis-integration/dynon-skyview/" class="md-nav__link">
         
   
   
@@ -1283,7 +1283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../efis-integration/dynon-d10/" class="md-nav__link">
+      <a href="../../efis-integration/dynon-d10/" class="md-nav__link">
         
   
   
@@ -1311,7 +1311,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../efis-integration/garmin-g5/" class="md-nav__link">
+      <a href="../../efis-integration/garmin-g5/" class="md-nav__link">
         
   
   
@@ -1339,7 +1339,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../efis-integration/garmin-g3x/" class="md-nav__link">
+      <a href="../../efis-integration/garmin-g3x/" class="md-nav__link">
         
   
   
@@ -1367,7 +1367,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../efis-integration/mgl/" class="md-nav__link">
+      <a href="../../efis-integration/mgl/" class="md-nav__link">
         
   
   
@@ -1395,7 +1395,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../efis-integration/vectornav/" class="md-nav__link">
+      <a href="../../efis-integration/vectornav/" class="md-nav__link">
         
   
   
@@ -1423,7 +1423,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../efis-integration/standalone/" class="md-nav__link">
+      <a href="../../efis-integration/standalone/" class="md-nav__link">
         
   
   
@@ -1491,7 +1491,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../software/" class="md-nav__link ">
+            <a href="../../software/" class="md-nav__link ">
               
   
   
@@ -1535,7 +1535,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../software/flashing/" class="md-nav__link">
+      <a href="../../software/flashing/" class="md-nav__link">
         
   
   
@@ -1563,7 +1563,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../software/ota-update/" class="md-nav__link">
+      <a href="../../software/ota-update/" class="md-nav__link">
         
   
   
@@ -1591,7 +1591,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../software/building/" class="md-nav__link">
+      <a href="../../software/building/" class="md-nav__link">
         
   
   
@@ -1619,7 +1619,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../software/audio-tone-spec/" class="md-nav__link">
+      <a href="../../software/audio-tone-spec/" class="md-nav__link">
         
   
   
@@ -1651,8 +1651,6 @@
       
   
   
-    
-  
   
   
     
@@ -1680,23 +1678,22 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../../configuration/" class="md-nav__link ">
               
   
   
@@ -1714,13 +1711,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_6" id="__nav_6_label" tabindex="">
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1740,7 +1737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="web-interface/" class="md-nav__link">
+      <a href="../../configuration/web-interface/" class="md-nav__link">
         
   
   
@@ -1768,7 +1765,7 @@
   
   
     <li class="md-nav__item">
-      <a href="first-time-setup/" class="md-nav__link">
+      <a href="../../configuration/first-time-setup/" class="md-nav__link">
         
   
   
@@ -1796,7 +1793,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sensor-calibration/" class="md-nav__link">
+      <a href="../../configuration/sensor-calibration/" class="md-nav__link">
         
   
   
@@ -1824,7 +1821,7 @@
   
   
     <li class="md-nav__item">
-      <a href="flap-setup/" class="md-nav__link">
+      <a href="../../configuration/flap-setup/" class="md-nav__link">
         
   
   
@@ -1852,7 +1849,7 @@
   
   
     <li class="md-nav__item">
-      <a href="audio/" class="md-nav__link">
+      <a href="../../configuration/audio/" class="md-nav__link">
         
   
   
@@ -1880,7 +1877,7 @@
   
   
     <li class="md-nav__item">
-      <a href="advanced/" class="md-nav__link">
+      <a href="../../configuration/advanced/" class="md-nav__link">
         
   
   
@@ -1908,7 +1905,7 @@
   
   
     <li class="md-nav__item">
-      <a href="backup-restore/" class="md-nav__link">
+      <a href="../../configuration/backup-restore/" class="md-nav__link">
         
   
   
@@ -1974,7 +1971,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../calibration/" class="md-nav__link ">
+            <a href="../../calibration/" class="md-nav__link ">
               
   
   
@@ -2018,7 +2015,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../calibration/how-aoa-works/" class="md-nav__link">
+      <a href="../../calibration/how-aoa-works/" class="md-nav__link">
         
   
   
@@ -2046,7 +2043,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../calibration/wizard/" class="md-nav__link">
+      <a href="../../calibration/wizard/" class="md-nav__link">
         
   
   
@@ -2074,7 +2071,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../calibration/verification/" class="md-nav__link">
+      <a href="../../calibration/verification/" class="md-nav__link">
         
   
   
@@ -2146,7 +2143,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../flying/" class="md-nav__link ">
+            <a href="../../flying/" class="md-nav__link ">
               
   
   
@@ -2190,7 +2187,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../flying/tone-map/" class="md-nav__link">
+      <a href="../../flying/tone-map/" class="md-nav__link">
         
   
   
@@ -2218,7 +2215,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../flying/tone-simulator/" class="md-nav__link">
+      <a href="../../flying/tone-simulator/" class="md-nav__link">
         
   
   
@@ -2246,7 +2243,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../flying/vn-diagram/" class="md-nav__link">
+      <a href="../../flying/vn-diagram/" class="md-nav__link">
         
   
   
@@ -2274,7 +2271,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../flying/normal-ops/" class="md-nav__link">
+      <a href="../../flying/normal-ops/" class="md-nav__link">
         
   
   
@@ -2302,7 +2299,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../flying/approach-landing/" class="md-nav__link">
+      <a href="../../flying/approach-landing/" class="md-nav__link">
         
   
   
@@ -2330,7 +2327,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../flying/warnings/" class="md-nav__link">
+      <a href="../../flying/warnings/" class="md-nav__link">
         
   
   
@@ -2392,7 +2389,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../simulator/" class="md-nav__link ">
+            <a href="../../simulator/" class="md-nav__link ">
               
   
   
@@ -2436,7 +2433,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../simulator/xplane-plugin/" class="md-nav__link">
+      <a href="../../simulator/xplane-plugin/" class="md-nav__link">
         
   
   
@@ -2500,7 +2497,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../data-and-logs/" class="md-nav__link ">
+            <a href="../../data-and-logs/" class="md-nav__link ">
               
   
   
@@ -2544,7 +2541,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-and-logs/log-format/" class="md-nav__link">
+      <a href="../../data-and-logs/log-format/" class="md-nav__link">
         
   
   
@@ -2572,7 +2569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data-and-logs/downloading/" class="md-nav__link">
+      <a href="../../data-and-logs/downloading/" class="md-nav__link">
         
   
   
@@ -2642,7 +2639,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../troubleshooting/" class="md-nav__link ">
+            <a href="../../troubleshooting/" class="md-nav__link ">
               
   
   
@@ -2686,7 +2683,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/no-audio/" class="md-nav__link">
+      <a href="../../troubleshooting/no-audio/" class="md-nav__link">
         
   
   
@@ -2714,7 +2711,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/no-efis/" class="md-nav__link">
+      <a href="../../troubleshooting/no-efis/" class="md-nav__link">
         
   
   
@@ -2742,7 +2739,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/erratic-tones/" class="md-nav__link">
+      <a href="../../troubleshooting/erratic-tones/" class="md-nav__link">
         
   
   
@@ -2770,7 +2767,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/wifi/" class="md-nav__link">
+      <a href="../../troubleshooting/wifi/" class="md-nav__link">
         
   
   
@@ -2798,7 +2795,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/console-commands/" class="md-nav__link">
+      <a href="../../troubleshooting/console-commands/" class="md-nav__link">
         
   
   
@@ -2830,6 +2827,8 @@
       
   
   
+    
+  
   
   
     
@@ -2853,22 +2852,23 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../reference/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -2886,13 +2886,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_12">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2912,7 +2912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/config-parameters/" class="md-nav__link">
+      <a href="../config-parameters/" class="md-nav__link">
         
   
   
@@ -2940,7 +2940,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/log-columns/" class="md-nav__link">
+      <a href="../log-columns/" class="md-nav__link">
         
   
   
@@ -2965,10 +2965,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../reference/serial-protocol/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display Serial Protocol
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2984,6 +3011,164 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#design-intent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design intent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#physical-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#onspeed-format-1-framing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OnSpeed format (#1 framing)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OnSpeed format (#1 framing)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#frame-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frame structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#field-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aspirational-not-yet-wired-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Aspirational / not-yet-wired fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checksum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checksum
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsing-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsing recommendations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#producerconsumer-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Producer/consumer alignment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#change-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Change log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#g3x-format-11-framing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G3X format (=11 framing)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#display-serial-vs-liveview-the-two-data-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display serial vs LiveView — the two data paths
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2996,7 +3181,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/hardware-specs/" class="md-nav__link">
+      <a href="../hardware-specs/" class="md-nav__link">
         
   
   
@@ -3024,7 +3209,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/glossary/" class="md-nav__link">
+      <a href="../glossary/" class="md-nav__link">
         
   
   
@@ -3079,10 +3264,137 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#configuration-pages" class="md-nav__link">
+  <a href="#design-intent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Configuration Pages
+        Design intent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#physical-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Physical layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#onspeed-format-1-framing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OnSpeed format (#1 framing)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OnSpeed format (#1 framing)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#frame-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frame structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#field-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#aspirational-not-yet-wired-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Aspirational / not-yet-wired fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checksum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checksum
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsing-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsing recommendations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#producerconsumer-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Producer/consumer alignment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#change-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Change log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#g3x-format-11-framing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G3X format (=11 framing)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#display-serial-vs-liveview-the-two-data-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display serial vs LiveView — the two data paths
       
     </span>
   </a>
@@ -3106,7 +3418,7 @@
 
 
   
-    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/configuration/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/reference/serial-protocol.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3114,20 +3426,559 @@
   
 
 
-<h1 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h1>
-<p>After installing the hardware, you need to configure the OnSpeed system for your specific aircraft. All configuration is done through a <strong>web browser</strong> — connect to the OnSpeed WiFi network and open the configuration pages.</p>
-<h2 id="configuration-pages">Configuration Pages<a class="headerlink" href="#configuration-pages" title="Permanent link">&para;</a></h2>
+<h1 id="display-serial-protocol">Display Serial Protocol<a class="headerlink" href="#display-serial-protocol" title="Permanent link">&para;</a></h1>
+<p>The OnSpeed firmware emits a serial data stream from its display UART intended for an external panel display (the M5Stack secondary display, the LiveView web page's underlying data source uses the WebSocket — not this stream — see <a href="#display-serial-vs-liveview-the-two-data-paths">Display serial vs LiveView</a> below). Two formats are selectable via the <code>SERIALOUTFORMAT</code> configuration field:</p>
 <ul>
-<li><strong><a href="web-interface/">Web Interface</a></strong> — How to connect and navigate the web UI</li>
-<li><strong><a href="first-time-setup/">First-Time Setup</a></strong> — Step-by-step checklist for initial configuration</li>
-<li><strong><a href="sensor-calibration/">Sensor Calibration</a></strong> — Zero the pressure sensors and IMU</li>
-<li><strong><a href="flap-setup/">Flap Position Setup</a></strong> — Configure flap detection</li>
-<li><strong><a href="audio/">Audio Settings</a></strong> — Volume, mute threshold, 3D audio, Vno chime</li>
-<li><strong><a href="advanced/">Advanced Settings</a></strong> — AHRS algorithm, smoothing, CAS curve</li>
-<li><strong><a href="backup-restore/">Backup &amp; Restore</a></strong> — Save and load configuration files</li>
+<li><strong><code>ONSPEED</code></strong> — the native <code>#1</code> framing covered in detail below. Used by the <a href="../../installation/external-display/">M5Stack secondary display</a>, the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/tools/m5-replay">m5-replay bench tool</a>, and any third-party panel display reading OnSpeed's full data set.</li>
+<li><strong><code>G3X</code></strong> — a Garmin-G3X-compatible subset (<code>=11</code> framing) for feeding an EFIS that wants to display OnSpeed AOA without parsing the native format.</li>
 </ul>
-<p>A complete example of the XML configuration format (for reference or SD card deployment) is available at
-<a href="example-default-config.xml">example-default-config.xml</a>.</p>
+<p>This page is the canonical wire-format reference. The source of truth in code is <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h"><code>software/Libraries/onspeed_core/src/proto/DisplaySerial.h</code></a>; when the two disagree the header wins and this page is stale — file an issue.</p>
+<h2 id="design-intent">Design intent<a class="headerlink" href="#design-intent" title="Permanent link">&para;</a></h2>
+<p>The OnSpeed <code>#1</code> wire is a <strong>percent-lift contract</strong>, not a body-angle contract. Every AOA-related quantity on the wire is expressed as a percentage of the wing's lift envelope (the honest single-linear normalization <code>(AOA − α₀) / (α_stall − α₀) × 100</code>, clamped 0..99). The four band-edge percents (<code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>) are the per-flap setpoints put through the same formula. They vary per flap because the underlying body-angle calibration varies per flap.</p>
+<p>The consumer renders entirely in percent space — one mapping function from percent to screen y, with the four anchors as inputs. Body-angle setpoints stay inside the firmware. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h"><code>onspeed_core/aoa/PercentLift.h</code></a> for the formula and <a href="../../calibration/how-aoa-works/"><code>how-aoa-works.md</code></a> for the aerodynamic background.</p>
+<h2 id="physical-layer">Physical layer<a class="headerlink" href="#physical-layer" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Baud rate</td>
+<td>115200</td>
+</tr>
+<tr>
+<td>Frame format</td>
+<td>8N1</td>
+</tr>
+<tr>
+<td>Levels</td>
+<td>TTL or RS-232 (auto-detected by the M5; pin invert depends on which power-board variant feeds the line)</td>
+</tr>
+<tr>
+<td>Pinout (Gen3)</td>
+<td>TX on GPIO 10 (<code>kDisplayTx</code> in <code>HardwareMap.h</code>); shares R1_OUT with EFIS RX</td>
+</tr>
+<tr>
+<td>Frame cadence</td>
+<td>20 Hz nominal (50 ms period); driven by <code>kDisplaySerialPeriodMs</code> in <code>HardwareMap.h</code></td>
+</tr>
+<tr>
+<td>Direction</td>
+<td>One-way, OnSpeed → display. The display does not transmit.</td>
+</tr>
+</tbody>
+</table>
+<p>The OnSpeed firmware's <code>WriteDisplayDataTask</code> runs at the cadence above and re-aligns to the current tick if it ever runs late — it does not catch up with back-to-back frames. Consumers should measure their own per-frame <code>dt</code> rather than assuming exactly 50 ms; bench-replay tools and a slightly-late tick can drift the actual interval into the 40–60 ms band.</p>
+<h2 id="onspeed-format-1-framing">OnSpeed format (<code>#1</code> framing)<a class="headerlink" href="#onspeed-format-1-framing" title="Permanent link">&para;</a></h2>
+<h3 id="frame-structure">Frame structure<a class="headerlink" href="#frame-structure" title="Permanent link">&para;</a></h3>
+<p>Each frame is exactly <strong>74 bytes</strong> of ASCII, terminated by CRLF. Field offsets, widths, and scale factors are fixed — there are no length prefixes, no variable-width fields, and no escapes inside the payload.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Offset</th>
+<th style="text-align: right;">Width</th>
+<th>Field</th>
+<th>printf format</th>
+<th style="text-align: right;">Wire scale</th>
+<th>Engineering range</th>
+<th>Wire range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2</td>
+<td><code>magic</code></td>
+<td>literal</td>
+<td style="text-align: right;">—</td>
+<td><code>"#1"</code></td>
+<td><code>"#1"</code></td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">4</td>
+<td><code>pitchDeg</code></td>
+<td><code>%+04d</code></td>
+<td style="text-align: right;">×10</td>
+<td>±99.9°</td>
+<td>±999</td>
+</tr>
+<tr>
+<td style="text-align: right;">6</td>
+<td style="text-align: right;">5</td>
+<td><code>rollDeg</code></td>
+<td><code>%+05d</code></td>
+<td style="text-align: right;">×10</td>
+<td>±999.9°</td>
+<td>±9999</td>
+</tr>
+<tr>
+<td style="text-align: right;">11</td>
+<td style="text-align: right;">4</td>
+<td><code>iasKt</code></td>
+<td><code>%04u</code></td>
+<td style="text-align: right;">×10</td>
+<td>0 – 999.9 kt</td>
+<td>0 – 9999</td>
+</tr>
+<tr>
+<td style="text-align: right;">15</td>
+<td style="text-align: right;">6</td>
+<td><code>paltFt</code></td>
+<td><code>%+06d</code></td>
+<td style="text-align: right;">×1</td>
+<td>±99 999 ft</td>
+<td>±99999</td>
+</tr>
+<tr>
+<td style="text-align: right;">21</td>
+<td style="text-align: right;">5</td>
+<td><code>turnRateDps</code></td>
+<td><code>%+05d</code></td>
+<td style="text-align: right;">×10</td>
+<td>±999.9°/s</td>
+<td>±9999</td>
+</tr>
+<tr>
+<td style="text-align: right;">26</td>
+<td style="text-align: right;">3</td>
+<td><code>lateralG</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×100</td>
+<td>±0.99 g (negated, see below)</td>
+<td>±99</td>
+</tr>
+<tr>
+<td style="text-align: right;">29</td>
+<td style="text-align: right;">3</td>
+<td><code>verticalG</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×10</td>
+<td>±9.9 g (ceiling-rounded)</td>
+<td>±99</td>
+</tr>
+<tr>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">2</td>
+<td><code>percentLift</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+<td>0 – 99 (current AOA, envelope fraction)</td>
+<td>0 – 99</td>
+</tr>
+<tr>
+<td style="text-align: right;">34</td>
+<td style="text-align: right;">4</td>
+<td><code>vsiFpm10</code></td>
+<td><code>%+04d</code></td>
+<td style="text-align: right;">×1</td>
+<td>±9 990 fpm</td>
+<td>±999 (already divided by 10)</td>
+</tr>
+<tr>
+<td style="text-align: right;">38</td>
+<td style="text-align: right;">3</td>
+<td><code>oatC</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×1</td>
+<td>±99 °C</td>
+<td>±99</td>
+</tr>
+<tr>
+<td style="text-align: right;">41</td>
+<td style="text-align: right;">4</td>
+<td><code>flightPathDeg</code></td>
+<td><code>%+04d</code></td>
+<td style="text-align: right;">×10</td>
+<td>±99.9°</td>
+<td>±999</td>
+</tr>
+<tr>
+<td style="text-align: right;">45</td>
+<td style="text-align: right;">3</td>
+<td><code>flapsDeg</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×1</td>
+<td>±99°</td>
+<td>±99</td>
+</tr>
+<tr>
+<td style="text-align: right;">48</td>
+<td style="text-align: right;">2</td>
+<td><code>tonesOnPctLift</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+<td>0 – 99 (L/D<sub>MAX</sub> percent for active flap)</td>
+<td>0 – 99</td>
+</tr>
+<tr>
+<td style="text-align: right;">50</td>
+<td style="text-align: right;">2</td>
+<td><code>onSpeedFastPctLift</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+<td>0 – 99 (OnSpeedFast percent for active flap)</td>
+<td>0 – 99</td>
+</tr>
+<tr>
+<td style="text-align: right;">52</td>
+<td style="text-align: right;">2</td>
+<td><code>onSpeedSlowPctLift</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+<td>0 – 99 (OnSpeedSlow percent for active flap)</td>
+<td>0 – 99</td>
+</tr>
+<tr>
+<td style="text-align: right;">54</td>
+<td style="text-align: right;">2</td>
+<td><code>stallWarnPctLift</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+<td>0 – 99 (StallWarn percent for active flap)</td>
+<td>0 – 99</td>
+</tr>
+<tr>
+<td style="text-align: right;">56</td>
+<td style="text-align: right;">3</td>
+<td><code>flapsMinDeg</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×1</td>
+<td>±99° (full retract)</td>
+<td>±99</td>
+</tr>
+<tr>
+<td style="text-align: right;">59</td>
+<td style="text-align: right;">3</td>
+<td><code>flapsMaxDeg</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×1</td>
+<td>±99° (full extend)</td>
+<td>±99</td>
+</tr>
+<tr>
+<td style="text-align: right;">62</td>
+<td style="text-align: right;">4</td>
+<td><code>gOnsetRate</code></td>
+<td><code>%+04d</code></td>
+<td style="text-align: right;">×100</td>
+<td>±9.99 g/s</td>
+<td>±999</td>
+</tr>
+<tr>
+<td style="text-align: right;">66</td>
+<td style="text-align: right;">2</td>
+<td><code>spinRecoveryCue</code></td>
+<td><code>%+02d</code></td>
+<td style="text-align: right;">×1</td>
+<td>−9 to +9</td>
+<td>−9 to +9</td>
+</tr>
+<tr>
+<td style="text-align: right;">68</td>
+<td style="text-align: right;">2</td>
+<td><code>dataMark</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+<td>0 – 99</td>
+<td>0 – 99</td>
+</tr>
+<tr>
+<td style="text-align: right;">70</td>
+<td style="text-align: right;">2</td>
+<td><code>checksum</code></td>
+<td><code>%02X</code></td>
+<td style="text-align: right;">hex</td>
+<td>sum of bytes 0–69, low byte</td>
+<td><code>00</code> – <code>FF</code></td>
+</tr>
+<tr>
+<td style="text-align: right;">72</td>
+<td style="text-align: right;">1</td>
+<td>terminator</td>
+<td>literal</td>
+<td style="text-align: right;">—</td>
+<td>CR (<code>0x0D</code>)</td>
+<td></td>
+</tr>
+<tr>
+<td style="text-align: right;">73</td>
+<td style="text-align: right;">1</td>
+<td>terminator</td>
+<td>literal</td>
+<td style="text-align: right;">—</td>
+<td>LF (<code>0x0A</code>)</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Sign and width invariants:</p>
+<ul>
+<li><strong>Signed fields use a leading <code>+</code> or <code>-</code> sign character</strong> counted in the field width (e.g. <code>pitchDeg</code> width 4 = sign + 3 digits).</li>
+<li><strong>Out-of-range values are clamped, not wrapped.</strong> The producer uses C-style truncation toward zero before clamping, so 99.94° pitch becomes <code>+999</code>, −0.05° becomes <code>-000</code>.</li>
+<li><strong>NaN/Inf inputs emit zero</strong> (the producer's <code>SafeScaledInt</code> helper).</li>
+</ul>
+<h3 id="field-semantics">Field semantics<a class="headerlink" href="#field-semantics" title="Permanent link">&para;</a></h3>
+<p>Most fields are self-describing. The ones with non-obvious conventions:</p>
+<ul>
+<li><strong><code>lateralG</code> is negated.</strong> The producer transmits <code>−AccelLatFilter</code> (positive wire value = leftward acceleration, matching slip-skid ball direction). The parser stores the wire value as-is — a consumer that wants right-positive must un-negate.</li>
+<li><strong><code>verticalG</code> is <code>ceilf(g × 10)</code></strong> before the cast to int, not a normal round-to-nearest. This preserves the legacy "always round up to the next 0.1 g" behaviour that the OnSpeed g-limit chime was tuned against.</li>
+<li><strong><code>vsiFpm10</code> is already divided by 10.</strong> The wire field carries <code>floor(VSI_fpm / 10)</code>. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.</li>
+<li><strong><code>percentLift</code> and the band-edge percents are computed via the canonical <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h"><code>ComputePercentLift</code></a></strong>, the honest single-linear <code>(AOA − α₀) / (α_stall − α₀) × 100</code>. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).</li>
+<li><strong><code>percentLift</code> goes to 0 below the audio mute threshold</strong> (<code>iMuteAudioUnderIAS</code>). The wire stays silent for the AOA region while the aircraft is parked.</li>
+<li><strong><code>tonesOnPctLift</code> is the L/D<sub>MAX</sub> body angle put through <code>ComputePercentLift</code></strong> — the percent at which the audio L/D<sub>MAX</sub> chevrons turn on. Varies per flap. Used by the consumer to position the L/D<sub>MAX</sub> pip on the indexer.</li>
+<li><strong><code>flapsMinDeg</code> / <code>flapsMaxDeg</code> are the configured travel range,</strong> scanned across all entries in <code>aFlaps</code>. Useful for a flap-position widget that draws its arc against actual aircraft endpoints rather than hardcoded values.</li>
+<li><strong><code>dataMark</code> wraps mod 100.</strong> The pilot's data-mark counter increments without bound in the firmware; the wire field carries <code>counter % 100</code>.</li>
+</ul>
+<h3 id="aspirational-not-yet-wired-fields">Aspirational / not-yet-wired fields<a class="headerlink" href="#aspirational-not-yet-wired-fields" title="Permanent link">&para;</a></h3>
+<p>Two fields are part of the wire layout today but populated with placeholder values by the producer. They occupy their byte offsets so future producers/consumers don't have to bump the protocol again. Treat them as reserved — but don't be surprised if you see real values flowing through them later.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Status</th>
+<th>What's the gap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gOnsetRate</code> (offset 62)</td>
+<td>Always <code>0.0</code> from the producer today. The M5 already has render code (<code>if (gOnsetRate != 0.0)</code> draws a vertical orange tape on the right edge of Primary mode) — the moment the firmware computes a real onset rate and emits it, the existing M5 build picks it up with no display-side work. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/324">issue #324</a>.</td>
+<td>Producer-side computation: a low-pass-filtered <code>d(verticalG)/dt</code> from the AHRS accel filter. Not a field-set change.</td>
+</tr>
+<tr>
+<td><code>spinRecoveryCue</code> (offset 66)</td>
+<td>Always <code>0</code> from the producer today. Intended as a <code>−1 / 0 / +1</code> direction cue (left / none / right) for an upcoming spin-recovery indicator. No consumer renders it yet.</td>
+<td>Both ends: producer needs the cue logic; M5 needs a render glyph.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="checksum">Checksum<a class="headerlink" href="#checksum" title="Permanent link">&para;</a></h3>
+<p>Two uppercase ASCII hex digits at offset 70, computed over bytes 0–69 inclusive:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>checksum = sum(payload[0..69]) &amp; 0xFF
+</code></pre></div>
+<p>The reference implementation lives in <code>onspeed_core/util/Crc.h</code> (<code>util::Checksum8</code>). Lowercase hex is rejected by the parser.</p>
+<h2 id="parsing-recommendations">Parsing recommendations<a class="headerlink" href="#parsing-recommendations" title="Permanent link">&para;</a></h2>
+<p>The <code>onspeed_core</code> library ships a reference parser at <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h"><code>proto/DisplaySerial.h</code></a> that runs natively (no Arduino dependency). Two entry points:</p>
+<ul>
+<li><code>ParseDisplayFrame(const uint8_t* buf, size_t len)</code> — one-shot. Hand it a 74-byte buffer; receive an <code>optional&lt;DisplayFrame&gt;</code>. Fails closed on bad magic, bad CRC, or any field that fails to parse.</li>
+<li><code>DisplayFrameAccumulator::Inject(uint8_t byte)</code> — byte-stream. Feed it whatever the UART hands you; it returns a parsed frame on the byte that completes a valid frame, or <code>nullopt</code> otherwise. Internally it resets to start-of-frame on any <code>#</code>, drops frames that don't end with LF, and clears its buffer between frames. The same struct is used by the M5 firmware and is exercised by the native test suite.</li>
+</ul>
+<p>If you implement your own parser, the failure modes worth handling are the ones the reference parser handles:</p>
+<ul>
+<li><strong>Garbage before the next <code>#1</code>.</strong> Real wire output is clean, but bench-replay tools, hot reconnect, and partial-frame recovery all produce situations where your parser starts mid-stream. Treat any byte before the first <code>#</code> as ignorable.</li>
+<li><strong>Mid-frame <code>#</code>.</strong> A stray <code>#</code> at any offset must restart the frame from byte 0. Without this, a transient line glitch can desynchronise the parser indefinitely.</li>
+<li><strong>Bad CRC.</strong> Drop and resync; do not let bad data through "because it's only one frame."</li>
+<li><strong>Frame doesn't end with LF.</strong> Treat as out-of-sync and reset the accumulator.</li>
+</ul>
+<p>At 20 Hz, a robust parser should re-sync within one frame (50 ms) of any disturbance.</p>
+<h2 id="producerconsumer-alignment">Producer/consumer alignment<a class="headerlink" href="#producerconsumer-alignment" title="Permanent link">&para;</a></h2>
+<p>The <code>#1</code> format is a <strong>hard versioned protocol</strong>: there is no length prefix, no field-presence bitmap, and no fallback path. A producer and a consumer must agree on the frame size byte-for-byte or no frames will parse.</p>
+<p><strong>When updating the protocol, flash both ends in lockstep.</strong> The OnSpeed firmware and the M5 (or third-party display) firmware released for a given version are paired — do not mix major versions across a wire-format bump.</p>
+<h2 id="change-log">Change log<a class="headerlink" href="#change-log" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>OnSpeed version</th>
+<th style="text-align: right;">Frame size</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>≤ 4.18</td>
+<td style="text-align: right;">80 bytes</td>
+<td>Original layout — pitch through dataMark, no per-flap aerodynamic anchors.</td>
+</tr>
+<tr>
+<td>4.19</td>
+<td style="text-align: right;">94 bytes</td>
+<td>Briefly carried per-flap body-angle anchors (<code>alpha0Deg</code>, <code>alphaStallDeg</code>, four AOA setpoints, <code>aoaDeg</code>) so consumers could reproduce the percent-lift formula. Superseded by 4.20 before any production release.</td>
+</tr>
+<tr>
+<td>4.20+</td>
+<td style="text-align: right;">74 bytes</td>
+<td><strong>Wire becomes a percent-lift contract.</strong> The body-angle anchors come off the wire; in their place the producer emits <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> — each per-flap setpoint put through the canonical <code>ComputePercentLift</code>. Consumers render entirely in percent space. The <code>ComputePercentLift</code> function itself was simplified to the honest single-linear formula at the same time. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/320">PR #320</a> for the rationale.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="g3x-format-11-framing">G3X format (<code>=11</code> framing)<a class="headerlink" href="#g3x-format-11-framing" title="Permanent link">&para;</a></h2>
+<p>Selected by setting <code>SERIALOUTFORMAT=G3X</code>. This format exists for Garmin-EFIS users who want OnSpeed AOA on their PFD without writing a parser. It carries a strict subset of the data — pitch, roll, IAS, P<sub>alt</sub>, lateralG, verticalG, and percentLift — formatted to match the Garmin G3X attitude-and-AHRS sentence the EFIS already understands.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Offset</th>
+<th style="text-align: right;">Width</th>
+<th>Field</th>
+<th>printf format</th>
+<th style="text-align: right;">Wire scale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">0</td>
+<td style="text-align: right;">2</td>
+<td>magic</td>
+<td>literal <code>"=1"</code></td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td style="text-align: right;">8</td>
+<td>reserved (zeros)</td>
+<td>literal <code>"00000000"</code></td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">4</td>
+<td><code>pitchDeg</code></td>
+<td><code>%+04d</code></td>
+<td style="text-align: right;">×10</td>
+</tr>
+<tr>
+<td style="text-align: right;">14</td>
+<td style="text-align: right;">5</td>
+<td><code>rollDeg</code></td>
+<td><code>%+05d</code></td>
+<td style="text-align: right;">×10</td>
+</tr>
+<tr>
+<td style="text-align: right;">19</td>
+<td style="text-align: right;">3</td>
+<td>reserved</td>
+<td>literal <code>"___"</code></td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td style="text-align: right;">22</td>
+<td style="text-align: right;">4</td>
+<td><code>iasKt</code></td>
+<td><code>%04u</code></td>
+<td style="text-align: right;">×10</td>
+</tr>
+<tr>
+<td style="text-align: right;">26</td>
+<td style="text-align: right;">6</td>
+<td><code>paltFt</code></td>
+<td><code>%+06d</code></td>
+<td style="text-align: right;">×1</td>
+</tr>
+<tr>
+<td style="text-align: right;">32</td>
+<td style="text-align: right;">4</td>
+<td>reserved</td>
+<td>literal <code>"____"</code></td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td style="text-align: right;">36</td>
+<td style="text-align: right;">3</td>
+<td><code>lateralG</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×100</td>
+</tr>
+<tr>
+<td style="text-align: right;">39</td>
+<td style="text-align: right;">3</td>
+<td><code>verticalG</code></td>
+<td><code>%+03d</code></td>
+<td style="text-align: right;">×10</td>
+</tr>
+<tr>
+<td style="text-align: right;">42</td>
+<td style="text-align: right;">2</td>
+<td><code>percentLift</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+</tr>
+<tr>
+<td style="text-align: right;">44</td>
+<td style="text-align: right;">10</td>
+<td>reserved</td>
+<td>literal <code>"__________"</code></td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td style="text-align: right;">54</td>
+<td style="text-align: right;">2</td>
+<td>checksum</td>
+<td><code>%02X</code></td>
+<td style="text-align: right;">sum of bytes 0–53</td>
+</tr>
+<tr>
+<td style="text-align: right;">56</td>
+<td style="text-align: right;">2</td>
+<td>terminator</td>
+<td>CR LF</td>
+<td style="text-align: right;">—</td>
+</tr>
+</tbody>
+</table>
+<p>Total: 58 bytes per frame. Same 20 Hz cadence, same 115200 8N1 wire. AOA setpoints, derived data, and aerodynamic anchors are not transmitted — Garmin EFISes don't have a place to render them.</p>
+<h2 id="display-serial-vs-liveview-the-two-data-paths">Display serial vs LiveView — the two data paths<a class="headerlink" href="#display-serial-vs-liveview-the-two-data-paths" title="Permanent link">&para;</a></h2>
+<p>The OnSpeed web LiveView page does <strong>not</strong> consume the display serial stream documented above. It receives a JSON payload over a WebSocket on port 81, broadcast by <code>DataServer.cpp</code>. The two paths share the same percent-lift contract — <code>percentLift</code>, <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.</p>
+<p>The encodings differ:</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Display serial (<code>#1</code>)</th>
+<th>LiveView WebSocket</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transport</td>
+<td>UART 115200 8N1, one-way</td>
+<td>WebSocket port 81, bidirectional</td>
+</tr>
+<tr>
+<td>Encoding</td>
+<td>Fixed-offset ASCII, byte-summed CRC, CRLF-terminated</td>
+<td>JSON over WebSocket text frames</td>
+</tr>
+<tr>
+<td>Cadence</td>
+<td>20 Hz (every 50 ms)</td>
+<td>20 Hz — gated on ≥ 1 connected client; both paths driven by <code>kDisplaySerialPeriodMs</code></td>
+</tr>
+<tr>
+<td>Audience</td>
+<td>Panel display, third-party EFIS</td>
+<td>Browser running LiveView</td>
+</tr>
+<tr>
+<td>Adding a field</td>
+<td>Hard protocol change — both ends must flash together</td>
+<td>Soft change — old browsers ignore unknown JSON keys</td>
+</tr>
+<tr>
+<td>Body-angle <code>AOA</code> (degrees)</td>
+<td>not on wire</td>
+<td>yes (<code>AOA</code>) — used for the numeric corner readout</td>
+</tr>
+<tr>
+<td>Body-angle <code>DerivedAOA</code> (degrees)</td>
+<td>not on wire</td>
+<td>yes (<code>DerivedAOA</code>) — for advanced overlays / debug</td>
+</tr>
+<tr>
+<td><code>kalmanVSI</code>, <code>coeffP</code>, <code>pitchRate</code>, <code>decelRate</code></td>
+<td>not on wire</td>
+<td>yes — LiveView-specific instrumentation</td>
+</tr>
+<tr>
+<td><code>flapIndex</code> (which detent is active)</td>
+<td>not on wire</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p>The asymmetry is by design: the panel displays render <em>the indexer</em>, so the wire ships percent anchors. The LiveView additionally shows numeric body-angle AOA so a pilot can compare it to DerivedAOA — those degrees-units fields stay on the WebSocket but never on the panel-serial wire.</p>
 
 
 
@@ -3216,20 +4067,20 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": ["latest"], "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": ["latest"], "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
-        <script src="../javascripts/katex.js"></script>
+        <script src="../../javascripts/katex.js"></script>
       
         <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
       
         <script src="https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"></script>
       
-        <script src="../javascripts/vn-diagram.js"></script>
+        <script src="../../javascripts/vn-diagram.js"></script>
       
-        <script src="../javascripts/tone-simulator.js"></script>
+        <script src="../../javascripts/tone-simulator.js"></script>
       
     
   </body>

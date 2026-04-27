@@ -3149,6 +3149,8 @@
       
         
       
+        
+      
     
     
     
@@ -3248,6 +3250,34 @@
     
   
     CSV Log Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/serial-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display Serial Protocol
   
 
     
@@ -3789,10 +3819,15 @@ for the current flap configuration:</p>
 progression. Green covers the whole safe band — bottom chevron
 (fast but safe) and the central donut (on-speed). Yellow and red
 escalate on the top chevrons as AOA rises toward stall.</p>
-<p><strong>Above the widget — percent lift</strong> (0–99, or "99" when saturated).
-A large white number with a black outline — readable against any
-background. 50% = LDmax. 66% ≈ middle of the OnSpeed band. 90% = stall
-warn.</p>
+<p><strong>Above the widget — percent lift</strong> (0–99, saturating at 99 in the
+stall region). A large white number with a black outline — readable
+against any background. The number is the honest envelope fraction:
+0% at zero-lift body angle, 99% at stall. Where each band edge falls
+on the scale (L/Dmax, OnSpeed, stall warning) varies per flap because
+the underlying calibration varies per flap — typically L/Dmax lands
+in the low 30s on clean flaps and the mid-50s on full flaps.
+Compare values by AOA region (silent / pulsing / on-speed / stall),
+not by exact percent.</p>
 <p><strong>Corners:</strong></p>
 <ul>
 <li>Top-left: current <strong>IAS</strong> in knots (big white number) with a green
@@ -3927,9 +3962,12 @@ Once detected, the port mapping is saved to the M5's NVS flash so
 subsequent boots come up faster.</p>
 <ul>
 <li><strong>Baud rate:</strong> 115200 8N1</li>
-<li><strong>Frame rate:</strong> 20 Hz (every 50 ms). Each frame is 80 ASCII bytes
+<li><strong>Frame rate:</strong> 20 Hz (every 50 ms). Each frame is 74 ASCII bytes
   including <code>#1</code> header, fields, CRC, and CRLF.</li>
 </ul>
+<p>See <a href="../../reference/serial-protocol/">Display Serial Protocol</a> for the
+complete wire-format reference (byte offsets, field semantics, parsing
+recommendations).</p>
 <h3 id="powering-the-m5">Powering the M5<a class="headerlink" href="#powering-the-m5" title="Permanent link">&para;</a></h3>
 <p>The M5 can be powered from:</p>
 <ul>
@@ -4037,11 +4075,16 @@ for the hardware shopping list, wiring diagram, and protocol details.</p>
 <p>The OnSpeed firmware's serial output format is configurable via the
 <code>SERIALOUTFORMAT</code> field in the configuration:</p>
 <ul>
-<li><strong>ONSPEED</strong> — native format (76-byte payload with AOA, setpoints,
-  attitude, flap position, setpoints, G-loading, etc.). Use this with
-  <code>OnSpeed-M5-Display</code>.</li>
+<li><strong>ONSPEED</strong> — native <code>#1</code> format (70-byte payload + CRC + CRLF = 74
+  bytes total) carrying attitude, IAS, altitude, percent-lift and the
+  per-flap percent anchors that drive an indexer (L/D<sub>MAX</sub>,
+  OnSpeedFast, OnSpeedSlow, stall-warn), G-loading, and flap travel
+  range. Use this with <code>OnSpeed-M5-Display</code> or any third-party
+  display reading the full data set. Full byte-level wire-format
+  reference: <a href="../../reference/serial-protocol/">Display Serial Protocol</a>.</li>
 <li><strong>G3X</strong> — Garmin G3X-compatible subset for use with Garmin panel
-  displays.</li>
+  displays. Drops AOA setpoints and aerodynamic anchors; carries only
+  what a stock G3X-compatible PFD knows how to render.</li>
 </ul>
 <h2 id="mounting">Mounting<a class="headerlink" href="#mounting" title="Permanent link">&para;</a></h2>
 <p>Mount the display where it's visible during approach without blocking

@@ -2988,6 +2988,8 @@
       
         
       
+        
+      
     
     
     
@@ -3087,6 +3089,34 @@
     
   
     CSV Log Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/serial-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display Serial Protocol
   
 
     
@@ -3320,12 +3350,12 @@
 <p>Every wing has an angle of attack at which it produces no lift (the <strong>zero-lift angle</strong>, <span class="arithmatex">\(\alpha_0\)</span>). As AOA increases from this point, lift increases until the wing reaches its maximum at the <strong>critical angle of attack</strong> (<span class="arithmatex">\(\alpha_\text{stall}\)</span>), just prior to stall.</p>
 <p>Angle of attack can be thought of as a scale from zero to one. Zero represents no lift. One represents maximum lift. <strong>Fractional lift</strong> (sometimes called "percent lift") is where the wing is operating on that scale at any given moment:</p>
 <div class="arithmatex">\[\text{Fractional Lift} = \frac{\alpha - \alpha_0}{\alpha_\text{stall} - \alpha_0}\]</div>
-<p>This is the same quantity that OnSpeed calls <strong>Normalized AOA (NAOA)</strong>. Key reference points:</p>
+<p>This is the same quantity that OnSpeed calls <strong>Normalized AOA (NAOA)</strong>. Approximate reference points across most straight-wing GA airplanes:</p>
 <table>
 <thead>
 <tr>
 <th>Condition</th>
-<th>Fractional Lift</th>
+<th>Fractional Lift (typical)</th>
 <th>What It Means</th>
 </tr>
 </thead>
@@ -3362,7 +3392,7 @@
 </tr>
 </tbody>
 </table>
-<p>For most straight-wing GA airplanes, critical AOA is approximately 15–20°. Typical ONSPEED approach conditions correspond to roughly 60% of the wing's maximum lift capability. This relationship is remarkably consistent across different airplane types because it's tied to basic aerodynamic behavior, not to a specific airspeed.</p>
+<p>For most straight-wing GA airplanes, critical AOA is approximately 15–20°. Typical ONSPEED approach conditions correspond to roughly 60% of the wing's maximum lift capability. <strong>The exact percent at which each band falls is set by your aircraft's calibration and may differ between flap settings</strong> — it's the audio cue (or the indicator's chevrons) the pilot follows, not a specific number. The audio L/D<sub>MAX</sub> for a clean RV-class airplane might land at 33% on the indicator's number, and at 56% with full flaps, depending on how the lift envelope shifts with flap deflection.</p>
 <h2 id="two-aoa-measurements">Two AOA Measurements<a class="headerlink" href="#two-aoa-measurements" title="Permanent link">&para;</a></h2>
 <p>OnSpeed computes AOA two different ways:</p>
 <h3 id="1-pressure-based-aoa">1. Pressure-Based AOA<a class="headerlink" href="#1-pressure-based-aoa" title="Permanent link">&para;</a></h3>
