@@ -3448,7 +3448,7 @@
 <li><strong>Size</strong>: A 1-hour flight produces approximately 50–100 MB of data</li>
 </ul>
 <h3 id="metadata-sidecar">Metadata sidecar<a class="headerlink" href="#metadata-sidecar" title="Permanent link">&para;</a></h3>
-<p>Each <code>log_NNN.csv</code> is written alongside a <code>log_NNN.meta</code> plain-text sidecar produced when the log closes. One <code>key=value</code> per line:</p>
+<p>Each <code>log_NNN.csv</code> is written alongside a <code>log_NNN.meta</code> plain-text sidecar. The firmware refreshes the sidecar every 30 seconds while the log is open and rewrites it once at close, so a flight that ends with a power yank still leaves a usable sidecar (worst case: the last 30 s of metadata is missing). The first 30 seconds of any flight are an exception — a power yank in that window leaves no sidecar at all, and the <code>/logs</code> page renders em-dashes for that flight rather than a misleading zero-valued line. One <code>key=value</code> per line:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>duration_ms=1842113
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>row_count=92106
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>max_ias_kt=148

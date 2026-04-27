@@ -3907,7 +3907,7 @@
 <tr>
 <td><code>ALPHA0</code></td>
 <td>float</td>
-<td>Zero-lift angle from physics fit (degrees)</td>
+<td>Zero-lift angle from physics fit (degrees). Typically negative — wing incidence puts the fuselage nose-down at zero wing lift.</td>
 </tr>
 <tr>
 <td><code>ALPHASTALL</code></td>
@@ -3921,6 +3921,7 @@
 </tr>
 </tbody>
 </table>
+<p>The firmware validates setpoint ordering on save and on load. The required ordering for each flap position is <code>ALPHA0 &lt; LDMAXAOA &lt; ONSPEEDFASTAOA &lt; ONSPEEDSLOWAOA &lt; STALLWARNAOA &lt; STALLAOA</code>. A violation surfaces on the config page as a per-flap <code>SetpointOrderError</code> (e.g., <code>Alpha0 (3.5) must be less than LDMAX (1.5)</code> when α₀ has been entered with the wrong sign). <code>STALLAOA</code> and <code>ALPHA0</code> skip the check at exactly 0.0, which is the uncalibrated sentinel.</p>
 <h3 id="per-flap-aoa-curve">Per-Flap AOA Curve<a class="headerlink" href="#per-flap-aoa-curve" title="Permanent link">&para;</a></h3>
 <table>
 <thead>

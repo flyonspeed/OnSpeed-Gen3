@@ -3811,19 +3811,14 @@
 </thead>
 <tbody>
 <tr>
-<td>≤ 4.18</td>
+<td>≤ 4.20</td>
 <td style="text-align: right;">80 bytes</td>
-<td>Original layout — pitch through dataMark, no per-flap aerodynamic anchors.</td>
+<td>Original layout — pitch through dataMark plus per-flap body-angle setpoints (<code>tonesOnAoaDeg</code>, <code>onSpeedFastAoaDeg</code>, <code>onSpeedSlowAoaDeg</code>, <code>stallWarnAoaDeg</code>) and <code>aoaDeg</code>. Consumers reproduced the percent-lift segments locally from the body-angle anchors.</td>
 </tr>
 <tr>
-<td>4.19</td>
-<td style="text-align: right;">94 bytes</td>
-<td>Briefly carried per-flap body-angle anchors (<code>alpha0Deg</code>, <code>alphaStallDeg</code>, four AOA setpoints, <code>aoaDeg</code>) so consumers could reproduce the percent-lift formula. Superseded by 4.20 before any production release.</td>
-</tr>
-<tr>
-<td>4.20+</td>
+<td>4.21</td>
 <td style="text-align: right;">74 bytes</td>
-<td><strong>Wire becomes a percent-lift contract.</strong> The body-angle anchors come off the wire; in their place the producer emits <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> — each per-flap setpoint put through the canonical <code>ComputePercentLift</code>. Consumers render entirely in percent space. The <code>ComputePercentLift</code> function itself was simplified to the honest single-linear formula at the same time. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/320">PR #320</a> for the rationale.</td>
+<td><strong>Wire becomes a percent-lift contract.</strong> The body-angle setpoints and <code>aoaDeg</code> come off the wire; in their place the producer emits <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> — each per-flap setpoint put through the canonical <code>ComputePercentLift</code>. Consumers render entirely in percent space. <code>ComputePercentLift</code> itself moves to the honest single-linear formula at the same time. <code>gOnsetRate</code> (offset 62) populates from <code>GOnsetFilter</code> instead of always-zero. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/320">PR #320</a> and <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/328">PR #328</a>.</td>
 </tr>
 </tbody>
 </table>

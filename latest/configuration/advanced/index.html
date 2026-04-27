@@ -3330,8 +3330,8 @@
 </tbody>
 </table>
 <div class="admonition warning">
-<p class="admonition-title">EKF6 has a known divergence issue</p>
-<p>EKF6 has a gyro-bias convergence bug (tracked in issue #128 and fix PR #131): with a realistic pitch-rate bias, the filter can drift to attitude values well outside the flight envelope within a couple of minutes on the ground. Leave <code>AHRS_ALGORITHM</code> at <code>0</code> (Madgwick) until the fix lands and is flight-verified.</p>
+<p class="admonition-title">EKF6 still flight-unverified</p>
+<p>Issue <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/128">#128</a> tracks the EKF6 divergence root-cause analysis. v4.21 lands the gyro-bias convergence fix (<a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/319">PR #319</a>, <code>q_bias</code> raised so a real 0.3 dps bias converges in ~30 s instead of ~290 s), the dt-scaled process-noise injection (<a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/318">PR #318</a>), the <code>+1g</code> reaction-force convention realignment (<a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/312">PR #312</a>), and the EKF6-adapter sign fixes that previously sent a static 10° tilt to ~170° (<a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/310">PR #310</a>). The remaining concerns flagged by issue #128 — the alpha-measurement tautology and Euler-angle singularity — are not addressed in v4.21. Leave <code>AHRS_ALGORITHM</code> at <code>0</code> (Madgwick) for routine flight; pilots experimenting with EKF6 should fly a verification approach against existing calibration before relying on the tones.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">No recalibration when switching</p>
