@@ -1472,6 +1472,8 @@
       
         
       
+        
+      
     
     
     
@@ -1627,6 +1629,34 @@
     
   
     Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/indexer-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
   
 
     
@@ -3457,7 +3487,7 @@
 <p>This page is the canonical wire-format reference. The source of truth in code is <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h"><code>software/Libraries/onspeed_core/src/proto/DisplaySerial.h</code></a>; when the two disagree the header wins and this page is stale — file an issue.</p>
 <h2 id="design-intent">Design intent<a class="headerlink" href="#design-intent" title="Permanent link">&para;</a></h2>
 <p>The OnSpeed <code>#1</code> wire is a <strong>percent-lift contract</strong>, not a body-angle contract. Every AOA-related quantity on the wire is expressed as a percentage of the wing's lift envelope (the honest single-linear normalization <code>(AOA − α₀) / (α_stall − α₀) × 100</code>, clamped 0..99). The four band-edge percents (<code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>) are the per-flap setpoints put through the same formula. They vary per flap because the underlying body-angle calibration varies per flap.</p>
-<p>Within that contract, <strong>L/D<sub>MAX</sub> interpolates and the rest snap.</strong> While a flap is mid-deployment between two configured detents, <code>tonesOnPctLift</code> (the L/D<sub>MAX</sub> pip) slides smoothly across the bracket. The OnSpeed band edges and stall-warn anchor (<code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>) snap to the active detent, in lockstep with the audio cues that fire at those same thresholds. Vac's design rule: visual aerodynamic references interpolate; operational thresholds snap.</p>
+<p>Within that contract, <strong>the visual L/D<sub>MAX</sub> pip slides smoothly and the operational anchors snap.</strong> The pip's wire field, <code>pipPctLift</code> (added in v4.22), interpolates linearly in lever-pot space across the entire pot range from the cleanest detent's L/D<sub>MAX</sub> percent to the most-deployed detent's OnSpeed-band center. The operational anchors — <code>tonesOnPctLift</code> (L/D<sub>MAX</sub> for the active detent, drives the chevron + audio gate), <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> — all snap to the active detent, in lockstep with the audio cues. Vac's design rule (<code>ld_max.pdf</code> §8): "L/Dmax pips are aerodynamic references. Fast tone is an operational limit cue. They must remain independent."</p>
 <p>The consumer renders entirely in percent space — one mapping function from percent to screen y, with the four anchors as inputs. Body-angle setpoints stay inside the firmware. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h"><code>onspeed_core/aoa/PercentLift.h</code></a> for the formula and <a href="../../calibration/how-aoa-works/"><code>how-aoa-works.md</code></a> for the aerodynamic background.</p>
 <h2 id="physical-layer">Physical layer<a class="headerlink" href="#physical-layer" title="Permanent link">&para;</a></h2>
 <table>
@@ -3497,7 +3527,7 @@
 <p>The OnSpeed firmware's <code>WriteDisplayDataTask</code> runs at the cadence above and re-aligns to the current tick if it ever runs late — it does not catch up with back-to-back frames. Consumers should measure their own per-frame <code>dt</code> rather than assuming exactly 50 ms; bench-replay tools and a slightly-late tick can drift the actual interval into the 40–60 ms band.</p>
 <h2 id="onspeed-format-1-framing">OnSpeed format (<code>#1</code> framing)<a class="headerlink" href="#onspeed-format-1-framing" title="Permanent link">&para;</a></h2>
 <h3 id="frame-structure">Frame structure<a class="headerlink" href="#frame-structure" title="Permanent link">&para;</a></h3>
-<p>Each frame is exactly <strong>74 bytes</strong> of ASCII, terminated by CRLF. Field offsets, widths, and scale factors are fixed — there are no length prefixes, no variable-width fields, and no escapes inside the payload.</p>
+<p>Each frame is exactly <strong>76 bytes</strong> of ASCII (v4.22), terminated by CRLF. Field offsets, widths, and scale factors are fixed — there are no length prefixes, no variable-width fields, and no escapes inside the payload.</p>
 <table>
 <thead>
 <tr>
@@ -3634,7 +3664,7 @@
 <td><code>tonesOnPctLift</code></td>
 <td><code>%02u</code></td>
 <td style="text-align: right;">×1</td>
-<td>0 – 99 (L/D<sub>MAX</sub> percent for active flap)</td>
+<td>0 – 99 (active-detent L/D<sub>MAX</sub>; operational, audio gate)</td>
 <td>0 – 99</td>
 </tr>
 <tr>
@@ -3712,14 +3742,23 @@
 <tr>
 <td style="text-align: right;">70</td>
 <td style="text-align: right;">2</td>
-<td><code>checksum</code></td>
-<td><code>%02X</code></td>
-<td style="text-align: right;">hex</td>
-<td>sum of bytes 0–69, low byte</td>
-<td><code>00</code> – <code>FF</code></td>
+<td><code>pipPctLift</code></td>
+<td><code>%02u</code></td>
+<td style="text-align: right;">×1</td>
+<td>0 – 99 (visual L/D<sub>MAX</sub> pip; aerodynamic, lerp clean→fullflap)</td>
+<td>0 – 99</td>
 </tr>
 <tr>
 <td style="text-align: right;">72</td>
+<td style="text-align: right;">2</td>
+<td><code>checksum</code></td>
+<td><code>%02X</code></td>
+<td style="text-align: right;">hex</td>
+<td>sum of bytes 0–71, low byte</td>
+<td><code>00</code> – <code>FF</code></td>
+</tr>
+<tr>
+<td style="text-align: right;">74</td>
 <td style="text-align: right;">1</td>
 <td>terminator</td>
 <td>literal</td>
@@ -3728,7 +3767,7 @@
 <td></td>
 </tr>
 <tr>
-<td style="text-align: right;">73</td>
+<td style="text-align: right;">75</td>
 <td style="text-align: right;">1</td>
 <td>terminator</td>
 <td>literal</td>
@@ -3752,9 +3791,10 @@
 <li><strong><code>vsiFpm10</code> is already divided by 10.</strong> The wire field carries <code>floor(VSI_fpm / 10)</code>. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.</li>
 <li><strong><code>percentLift</code> and the band-edge percents are computed via the canonical <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h"><code>ComputePercentLift</code></a></strong>, the honest single-linear <code>(AOA − α₀) / (α_stall − α₀) × 100</code>. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).</li>
 <li><strong><code>percentLift</code> goes to 0 below the audio mute threshold</strong> (<code>iMuteAudioUnderIAS</code>). The wire stays silent for the AOA region while the aircraft is parked.</li>
-<li><strong><code>tonesOnPctLift</code> is the L/D<sub>MAX</sub> body angle put through <code>ComputePercentLift</code></strong> — the percent at which the audio L/D<sub>MAX</sub> chevrons turn on. Used by the consumer to position the L/D<sub>MAX</sub> pip on the indexer. <strong>Interpolates</strong> linearly in percent space between adjacent detents while the lever is mid-deployment so the pip slides smoothly. Continuous through detent snaps by construction.</li>
-<li><strong><code>onSpeedFastPctLift</code> / <code>onSpeedSlowPctLift</code> / <code>stallWarnPctLift</code> are SNAPPED to the active detent</strong> (the same one the audio path compares against). They define the donut and chevron screen-percent positions on the indexer; snapping keeps those overlays in lockstep with the audio cues that fire at the same calibrated thresholds. Per Vac's design rule: visual aerodynamic references interpolate, operational thresholds snap.</li>
-<li><strong><code>flapsDeg</code> interpolates</strong> linearly between adjacent detents based on lever position so the numeric flap-angle readout slides smoothly during deployment rather than stepping at the detection midpoint.</li>
+<li><strong><code>tonesOnPctLift</code> is the active detent's L/D<sub>MAX</sub> body angle put through <code>ComputePercentLift</code></strong> — the percent at which the audio low tone turns on. The M5 indexer's bottom green chevron gates on this value; the audio path compares <code>g_Sensors.AOA</code> directly to <code>g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA</code>. Both fire from the same source; they snap together at every detent transition. Operational cue (Vac §8).</li>
+<li><strong><code>pipPctLift</code> is the visual L/D<sub>MAX</sub> pip</strong> — interpolated linearly across the entire pot range from <code>flapEntries[0].fLDMAXAOA</code> percent (cleanest) to the geometric center of <code>flapEntries[entryCount-1]</code>'s OnSpeed band (most-deployed). Slides smoothly with the lever; intermediate detents are intentionally ignored. Aerodynamic cue (Vac §8). At the cleanest detent's pot position with <code>iIndex == 0</code>, <code>pipPctLift == tonesOnPctLift</code> exactly. Elsewhere they differ.</li>
+<li><strong><code>onSpeedFastPctLift</code> / <code>onSpeedSlowPctLift</code> / <code>stallWarnPctLift</code> are SNAPPED to the active detent</strong> (the same one the audio path compares against). They define the donut and chevron screen-percent positions on the indexer; snapping keeps those overlays in lockstep with the audio cues that fire at the same calibrated thresholds. Operational cues.</li>
+<li><strong><code>flapsDeg</code> interpolates</strong> per-bracket between adjacent detents' <code>iDegrees</code> based on lever position so the numeric flap-angle readout slides smoothly during deployment rather than stepping at the detection midpoint. Mechanical cue, distinct from <code>pipPctLift</code> — <code>flapsDeg</code> visits every detent's <code>iDegrees</code> exactly when the lever pot equals that detent's <code>iPotPosition</code>; the pip skips intermediate detents.</li>
 <li><strong><code>flapsMinDeg</code> / <code>flapsMaxDeg</code> are the configured travel range,</strong> scanned across all entries in <code>aFlaps</code>. Useful for a flap-position widget that draws its arc against actual aircraft endpoints rather than hardcoded values.</li>
 <li><strong><code>dataMark</code> wraps mod 100.</strong> The pilot's data-mark counter increments without bound in the firmware; the wire field carries <code>counter % 100</code>.</li>
 </ul>
@@ -3779,14 +3819,14 @@
 </tbody>
 </table>
 <h3 id="checksum">Checksum<a class="headerlink" href="#checksum" title="Permanent link">&para;</a></h3>
-<p>Two uppercase ASCII hex digits at offset 70, computed over bytes 0–69 inclusive:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>checksum = sum(payload[0..69]) &amp; 0xFF
+<p>Two uppercase ASCII hex digits at offset 72, computed over bytes 0–71 inclusive:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>checksum = sum(payload[0..71]) &amp; 0xFF
 </code></pre></div>
 <p>The reference implementation lives in <code>onspeed_core/util/Crc.h</code> (<code>util::Checksum8</code>). Lowercase hex is rejected by the parser.</p>
 <h2 id="parsing-recommendations">Parsing recommendations<a class="headerlink" href="#parsing-recommendations" title="Permanent link">&para;</a></h2>
 <p>The <code>onspeed_core</code> library ships a reference parser at <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h"><code>proto/DisplaySerial.h</code></a> that runs natively (no Arduino dependency). Two entry points:</p>
 <ul>
-<li><code>ParseDisplayFrame(const uint8_t* buf, size_t len)</code> — one-shot. Hand it a 74-byte buffer; receive an <code>optional&lt;DisplayFrame&gt;</code>. Fails closed on bad magic, bad CRC, or any field that fails to parse.</li>
+<li><code>ParseDisplayFrame(const uint8_t* buf, size_t len)</code> — one-shot. Hand it a 76-byte buffer; receive an <code>optional&lt;DisplayFrame&gt;</code>. Fails closed on bad magic, bad CRC, or any field that fails to parse.</li>
 <li><code>DisplayFrameAccumulator::Inject(uint8_t byte)</code> — byte-stream. Feed it whatever the UART hands you; it returns a parsed frame on the byte that completes a valid frame, or <code>nullopt</code> otherwise. Internally it resets to start-of-frame on any <code>#</code>, drops frames that don't end with LF, and clears its buffer between frames. The same struct is used by the M5 firmware and is exercised by the native test suite.</li>
 </ul>
 <p>If you implement your own parser, the failure modes worth handling are the ones the reference parser handles:</p>
@@ -3819,6 +3859,11 @@
 <td>4.21</td>
 <td style="text-align: right;">74 bytes</td>
 <td><strong>Wire becomes a percent-lift contract.</strong> The body-angle setpoints and <code>aoaDeg</code> come off the wire; in their place the producer emits <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> — each per-flap setpoint put through the canonical <code>ComputePercentLift</code>. Consumers render entirely in percent space. <code>ComputePercentLift</code> itself moves to the honest single-linear formula at the same time. <code>gOnsetRate</code> (offset 62) populates from <code>GOnsetFilter</code> instead of always-zero. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/320">PR #320</a> and <a href="https://github.com/flyonspeed/OnSpeed-Gen3/pull/328">PR #328</a>.</td>
+</tr>
+<tr>
+<td>4.22</td>
+<td style="text-align: right;">76 bytes</td>
+<td><strong>Pip and audio threshold separated.</strong> New field <code>pipPctLift</code> at offset 70 carries the visual L/D<sub>MAX</sub> pip; it interpolates linearly across the entire pot range from cleanest to most-deployed detent (intermediate detents intentionally ignored). <code>tonesOnPctLift</code> reverts to PR #320's snap-per-active-detent behavior so the M5 bottom chevron and the audio low-tone gate fire from the same threshold, in lockstep. All existing field offsets unchanged; new field appended before checksum. Per Vac's design rule (<code>ld_max.pdf</code> §8): aerodynamic references and operational cues must remain independent. See <a href="../../software/indexer-spec/">Indexer Spec</a>. <strong>Coordinated reflash:</strong> Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.21 receiver will fail the 76-byte parse and render NO DATA, and a v4.22 receiver will fail to assemble a 74-byte sender's frames. Same operational drill as the v4.20 → v4.21 transition.</td>
 </tr>
 </tbody>
 </table>
@@ -3937,7 +3982,7 @@
 </table>
 <p>Total: 58 bytes per frame. Same 20 Hz cadence, same 115200 8N1 wire. AOA setpoints, derived data, and aerodynamic anchors are not transmitted — Garmin EFISes don't have a place to render them.</p>
 <h2 id="display-serial-vs-liveview-the-two-data-paths">Display serial vs LiveView — the two data paths<a class="headerlink" href="#display-serial-vs-liveview-the-two-data-paths" title="Permanent link">&para;</a></h2>
-<p>The OnSpeed web LiveView page does <strong>not</strong> consume the display serial stream documented above. It receives a JSON payload over a WebSocket on port 81, broadcast by <code>DataServer.cpp</code>. The two paths share the same percent-lift contract — <code>percentLift</code>, <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.</p>
+<p>The OnSpeed web LiveView page does <strong>not</strong> consume the display serial stream documented above. It receives a JSON payload over a WebSocket on port 81, broadcast by <code>DataServer.cpp</code>. The two paths share the same percent-lift contract — <code>percentLift</code>, <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, and <code>pipPctLift</code> are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.</p>
 <p>The encodings differ:</p>
 <table>
 <thead>

@@ -1777,6 +1777,8 @@
       
         
       
+        
+      
     
     
     
@@ -1932,6 +1934,34 @@
     
   
     Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/indexer-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
   
 
     
@@ -3962,8 +3992,8 @@ Once detected, the port mapping is saved to the M5's NVS flash so
 subsequent boots come up faster.</p>
 <ul>
 <li><strong>Baud rate:</strong> 115200 8N1</li>
-<li><strong>Frame rate:</strong> 20 Hz (every 50 ms). Each frame is 74 ASCII bytes
-  including <code>#1</code> header, fields, CRC, and CRLF.</li>
+<li><strong>Frame rate:</strong> 20 Hz (every 50 ms). Each frame is 76 ASCII bytes
+  (v4.22 wire) including <code>#1</code> header, fields, CRC, and CRLF.</li>
 </ul>
 <p>See <a href="../../reference/serial-protocol/">Display Serial Protocol</a> for the
 complete wire-format reference (byte offsets, field semantics, parsing
@@ -4075,11 +4105,12 @@ for the hardware shopping list, wiring diagram, and protocol details.</p>
 <p>The OnSpeed firmware's serial output format is configurable via the
 <code>SERIALOUTFORMAT</code> field in the configuration:</p>
 <ul>
-<li><strong>ONSPEED</strong> — native <code>#1</code> format (70-byte payload + CRC + CRLF = 74
-  bytes total) carrying attitude, IAS, altitude, percent-lift and the
-  per-flap percent anchors that drive an indexer (L/D<sub>MAX</sub>,
-  OnSpeedFast, OnSpeedSlow, stall-warn), G-loading, and flap travel
-  range. Use this with <code>OnSpeed-M5-Display</code> or any third-party
+<li><strong>ONSPEED</strong> — native <code>#1</code> format (72-byte payload + CRC + CRLF = 76
+  bytes total, v4.22 wire) carrying attitude, IAS, altitude,
+  percent-lift, the per-flap percent anchors that drive an indexer
+  (L/D<sub>MAX</sub> audio gate, OnSpeedFast, OnSpeedSlow, stall-warn, plus the
+  separate visual L/D<sub>MAX</sub> pip), G-loading, and flap travel range.
+  Use this with <code>OnSpeed-M5-Display</code> or any third-party
   display reading the full data set. Full byte-level wire-format
   reference: <a href="../../reference/serial-protocol/">Display Serial Protocol</a>.</li>
 <li><strong>G3X</strong> — Garmin G3X-compatible subset for use with Garmin panel

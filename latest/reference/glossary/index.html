@@ -1470,6 +1470,8 @@
       
         
       
+        
+      
     
     
     
@@ -1625,6 +1627,34 @@
     
   
     Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/indexer-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
   
 
     
@@ -3217,8 +3247,16 @@
 <td>Maximum Lift-to-Drag ratio — the AOA at which the aircraft achieves the best glide ratio. Where this lands on the fractional-lift scale varies per flap by calibration; the audio cue (start of fast tone) is what the pilot follows, not a fixed percent. Corresponds to best-glide speed and maximum range.</td>
 </tr>
 <tr>
+<td><strong>L/D<sub>MAX</sub> pip</strong></td>
+<td>The two small white dots on the indexer's index-bar edges. <em>Aerodynamic reference cue.</em> Slides smoothly from the cleanest detent's L/D<sub>MAX</sub> percent to the most-deployed detent's OnSpeed-band center as the lever moves; intermediate detents are intentionally ignored. The pip lines up with the bottom chevron's edge only at the cleanest detent — at deployed flap settings the pip sits inside the donut while the audio threshold (chevron edge) stays at the active detent's calibrated L/D<sub>MAX</sub> percent. Per Vac's design rule (<code>ld_max.pdf</code> §8): "L/Dmax pips are aerodynamic references." See <a href="../../software/indexer-spec/">Indexer Spec</a>.</td>
+</tr>
+<tr>
 <td><strong>LittleFS</strong></td>
 <td>Little File System — flash-based filesystem used by the ESP32 for configuration storage</td>
+</tr>
+<tr>
+<td><strong>Low-tone threshold</strong></td>
+<td>The body angle (or its percent-lift representation) at which the audio low tone begins playing — also the lower edge of the bottom green chevron on the indexer. <em>Operational cue.</em> Snaps to the active detent's calibrated L/D<sub>MAX</sub> body angle at every detent transition, in lockstep with the audio path. The chevron and the audio fire from the same source of truth; if a tone is on, the chevron is green. Per Vac's design rule (<code>ld_max.pdf</code> §8): "Fast tone is an operational limit cue." See <a href="../../software/indexer-spec/">Indexer Spec</a>.</td>
 </tr>
 <tr>
 <td><strong>Load Factor</strong></td>

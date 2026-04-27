@@ -1472,6 +1472,8 @@
       
         
       
+        
+      
     
     
     
@@ -1627,6 +1629,34 @@
     
   
     Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/indexer-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
   
 
     
@@ -2168,6 +2198,34 @@
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ldmax-pip-vs-low-tone-threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L/DMAX pip vs. low-tone threshold
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="L/DMAX pip vs. low-tone threshold">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#worked-example-rv-10-0-16-33-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked example (RV-10, 0° / 16° / 33° calibration)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -3313,6 +3371,34 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#ldmax-pip-vs-low-tone-threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        L/DMAX pip vs. low-tone threshold
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="L/DMAX pip vs. low-tone threshold">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#worked-example-rv-10-0-16-33-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worked example (RV-10, 0° / 16° / 33° calibration)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3443,6 +3529,44 @@
 <li><strong>IAS to DerivedAOA hyperbola</strong> — the <span class="arithmatex">\(K/\text{IAS}^2 + \alpha_0\)</span> fit that extracts <span class="arithmatex">\(\alpha_0\)</span>, <span class="arithmatex">\(\alpha_\text{stall}\)</span>, and the <span class="arithmatex">\(K\)</span> parameter</li>
 </ol>
 <p>From these, it computes the six AOA setpoints (L/D<sub>MAX</sub>, ONSPEED-Fast, ONSPEED-Slow, Stall Warning, Stall, Maneuvering) using the normalized AOA fractions.</p>
+<h2 id="ldmax-pip-vs-low-tone-threshold">L/D<sub>MAX</sub> pip vs. low-tone threshold<a class="headerlink" href="#ldmax-pip-vs-low-tone-threshold" title="Permanent link">&para;</a></h2>
+<p>The indexer carries two cues that look related but are independent:</p>
+<ul>
+<li><strong>L/D<sub>MAX</sub> pip</strong> — the small white dots on the index bar's edges. <em>Aerodynamic reference.</em> Slides smoothly as the lever moves, from the cleanest detent's L/D<sub>MAX</sub> percent up to the most-deployed detent's OnSpeed-band center.</li>
+<li><strong>Low-tone threshold</strong> — the audio "you're flying too fast for this configuration" cue, and the bottom green chevron that mirrors it. <em>Operational cue.</em> Snaps to the active detent's calibrated L/D<sub>MAX</sub> body angle.</li>
+</ul>
+<p>Per Vac's design rule, "L/Dmax pips are aerodynamic references; fast tone is an operational limit cue; they must remain independent." The pip slides because aerodynamically L/D<sub>MAX</sub> slides toward the OnSpeed band as flaps deploy. The audio threshold snaps because it must match a specific calibrated body angle for each flap setting.</p>
+<p>The two coincide visually only at the cleanest detent, where L/D<sub>MAX</sub> <em>is</em> both the audio threshold and the aerodynamic reference. As flaps deploy, the pip slides up through the donut band while the chevron edge stays at the active detent's calibrated L/D<sub>MAX</sub> percent.</p>
+<p>For the full layered specification — every gate, every color rule, every wire field — see <a href="../../software/indexer-spec/">Indexer Spec</a>.</p>
+<h3 id="worked-example-rv-10-0-16-33-calibration">Worked example (RV-10, 0° / 16° / 33° calibration)<a class="headerlink" href="#worked-example-rv-10-0-16-33-calibration" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flap</th>
+<th>L/D<sub>MAX</sub> pct (audio threshold, chevron edge)</th>
+<th>Pip pct (visual)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0° (clean)</td>
+<td>49</td>
+<td>49 (pip and chevron edge coincide)</td>
+</tr>
+<tr>
+<td>16°</td>
+<td>46</td>
+<td>53 (lerp position; ignores 16° detent's calibrated 46)</td>
+</tr>
+<tr>
+<td>33° (full)</td>
+<td>33</td>
+<td>59 (geometric center of OnSpeed band)</td>
+</tr>
+</tbody>
+</table>
+<p>(Percents come from the actual firmware computation, which truncates fractions toward zero per the saturation convention.)</p>
+<p>At full flaps, the pip sits inside the donut band on screen — the visual "you'd better be near the donut on approach" cue. The audio low tone fires at 33% (a much lower AOA), giving the pilot the same operational "you're fast" cue the audio path always provided.</p>
 
 
 
