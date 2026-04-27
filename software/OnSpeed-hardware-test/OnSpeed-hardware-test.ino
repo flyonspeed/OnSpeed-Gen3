@@ -99,6 +99,61 @@ static void spiReadBytes(int cs, uint8_t* buf, int len) {
     sensorSPI.endTransaction();
 }
 
+// IMU330 (ISM330DHCX / LSM6DSO-family) register definitions.
+// Mirror src/drivers/IMU330.cpp — keep in sync with that file.
+namespace imu {
+    constexpr uint8_t kWhoAmI     = 0x0F;  // expected 0x6B (ISM330) or 0x6C (LSM6DSO)
+    constexpr uint8_t kCtrl1Xl    = 0x10;
+    constexpr uint8_t kCtrl2G     = 0x11;
+    constexpr uint8_t kCtrl3C     = 0x12;
+    constexpr uint8_t kCtrl4C     = 0x13;
+    constexpr uint8_t kCtrl7G     = 0x16;
+    constexpr uint8_t kCtrl9Xl    = 0x18;
+    constexpr uint8_t kFifoCtrl4  = 0x0A;
+    constexpr uint8_t kOutXLG     = 0x22;
+    constexpr uint8_t kOutXLA     = 0x28;
+
+    constexpr uint8_t Read (uint8_t r) { return uint8_t(0x80 | r); }
+    constexpr uint8_t Write(uint8_t r) { return uint8_t(0x7F & r); }
+
+    // Full-scale constants — match firmware GYRO_RES / ACCEL_RES exactly.
+    // Gyro is 250 dps at FS_G=00 (per ISM330DHCX datasheet); do not use
+    // 245 — PR #316 fixed that drift, this sketch must agree.
+    constexpr float kAccelRes = 8.0f / 32768.0f;     // ±8 g full-scale
+    constexpr float kGyroRes  = 250.0f / 32768.0f;   // 250 dps full-scale
+}
+
+// Read a single register byte from a register-addressed SPI device.
+static uint8_t spiReadReg(int cs, uint8_t reg) {
+    sensorSPI.beginTransaction(SPISettings(kHwtestSpiClkHz, MSBFIRST, SPI_MODE0));
+    digitalWrite(cs, LOW);
+    sensorSPI.transfer(reg);
+    uint8_t v = sensorSPI.transfer(0x00);
+    digitalWrite(cs, HIGH);
+    sensorSPI.endTransaction();
+    return v;
+}
+
+// Write one register byte.
+static void spiWriteReg(int cs, uint8_t reg, uint8_t v) {
+    sensorSPI.beginTransaction(SPISettings(kHwtestSpiClkHz, MSBFIRST, SPI_MODE0));
+    digitalWrite(cs, LOW);
+    sensorSPI.transfer(reg);
+    sensorSPI.transfer(v);
+    digitalWrite(cs, HIGH);
+    sensorSPI.endTransaction();
+}
+
+// Burst-read N register bytes starting at `reg`.
+static void spiReadRegs(int cs, uint8_t reg, uint8_t* buf, int len) {
+    sensorSPI.beginTransaction(SPISettings(kHwtestSpiClkHz, MSBFIRST, SPI_MODE0));
+    digitalWrite(cs, LOW);
+    sensorSPI.transfer(reg);
+    for (int i = 0; i < len; i++) buf[i] = sensorSPI.transfer(0x00);
+    digitalWrite(cs, HIGH);
+    sensorSPI.endTransaction();
+}
+
 // HSC pressure-sensor read. Returns {status (top 2 bits), counts (bottom
 // 14 bits)} — matches the bitfield in firmware HscPressureSensor.h.
 static HscReading readHsc(int cs) {
@@ -154,7 +209,53 @@ static TestResult pressureTest() {
     ok &= reportOnePressure("Static:", kCsStatic, kHscAbs,  true);
     return ok ? TestResult::PASS : TestResult::FAIL;
 }
-static TestResult imuTest()             { return TestResult::SKIP; }
+
+// IMU init sequence — bytes mirror src/drivers/IMU330.cpp::Init().
+// Soft-reset, set ODR/full-scale, disable filters we don't need, bypass FIFO.
+static void imuInit() {
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl3C),    0b00000101); delay(100);
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl3C),    0b00000100); delay(100);
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl9Xl),   0b11100010); delay(50);
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl1Xl),   0b01011100); delay(50); // 208 Hz, ±8 g
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl2G),    0b01010000); delay(50); // 208 Hz, 250 dps
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl7G),    0b00000000); delay(50);
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl4C),    0b00000100); delay(50);
+    spiWriteReg(kCsImu, imu::Write(imu::kFifoCtrl4), 0b00010000); delay(50);
+    spiWriteReg(kCsImu, imu::Write(imu::kCtrl9Xl),   0b11100000); delay(50);
+}
+
+static void imuReadAccelGyro(float a[3], float g[3]) {
+    uint8_t b[6];
+    spiReadRegs(kCsImu, imu::Read(imu::kOutXLA), b, 6);
+    a[0] = int16_t((b[1] << 8) | b[0]) * imu::kAccelRes;
+    a[1] = int16_t((b[3] << 8) | b[2]) * imu::kAccelRes;
+    a[2] = int16_t((b[5] << 8) | b[4]) * imu::kAccelRes;
+    spiReadRegs(kCsImu, imu::Read(imu::kOutXLG), b, 6);
+    g[0] = int16_t((b[1] << 8) | b[0]) * imu::kGyroRes;
+    g[1] = int16_t((b[3] << 8) | b[2]) * imu::kGyroRes;
+    g[2] = int16_t((b[5] << 8) | b[4]) * imu::kGyroRes;
+}
+
+static TestResult imuTest() {
+    Serial.println("\n[IMU]");
+    uint8_t whoami = spiReadReg(kCsImu, imu::Read(imu::kWhoAmI));
+    bool known = (whoami == 0x6B) || (whoami == 0x6C);
+    if (!known) {
+        Serial.printf("  IMU:    FAIL  WHO_AM_I=0x%02X (expected 0x6B or 0x6C)\n", whoami);
+        return TestResult::FAIL;
+    }
+
+    imuInit();
+    delay(100);
+
+    float a[3], g[3];
+    imuReadAccelGyro(a, g);
+
+    Serial.printf("  IMU:    PASS  WHO_AM_I=0x%02X\n", whoami);
+    Serial.printf("          Accel: X=%+6.3f  Y=%+6.3f  Z=%+6.3f g\n",   a[0], a[1], a[2]);
+    Serial.printf("          Gyro:  X=%+6.2f  Y=%+6.2f  Z=%+6.2f dps\n", g[0], g[1], g[2]);
+    return TestResult::PASS;
+}
 static TestResult adcTest()             { return TestResult::SKIP; }
 static TestResult serialLoopbackTest()  { return TestResult::SKIP; }
 static TestResult sdCardTest()          { return TestResult::SKIP; }
