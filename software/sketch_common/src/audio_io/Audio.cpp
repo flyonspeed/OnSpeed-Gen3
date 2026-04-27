@@ -42,6 +42,7 @@
 #include "src/Globals.h"
 #include "src/util/Helpers.h"
 #include <audio/AudioMixer.h>
+#include <audio/AudioTestSweep.h>
 #include <audio/Envelope.h>
 #include <audio/ToneCalc.h>
 #include <audio/ToneSynth.h>
@@ -860,11 +861,14 @@ void AudioPlay::AudioTest()
     if (s_bAudioTestStopRequested.load())
         goto done;
 
+    // Voice waits are tight to each clip's WAV duration plus a small
+    // tail (the WAVs end on a sharp cutoff; ~200 ms of silence between
+    // segments lets the ear resolve the boundary without dragging on).
     g_AudioPlay.SetVoice(enVoiceLeft);
-    if (!DelayOrStop(2000)) goto done;
+    if (!DelayOrStop(1600)) goto done;        // left_speaker: 1.31 s
 
     g_AudioPlay.SetVoice(enVoiceRight);
-    if (!DelayOrStop(2000)) goto done;
+    if (!DelayOrStop(1500)) goto done;        // right_speaker: 1.20 s
 
     // Solid low (cruise / on-speed) → attenuated to STALL_VOL_MIN
     g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
@@ -872,41 +876,39 @@ void AudioPlay::AudioTest()
     if (!DelayOrStop(2000)) goto done;
 
     g_AudioPlay.SetVoice(enVoiceGLimit);
-    if (!DelayOrStop(3000)) goto done;
+    if (!DelayOrStop(800)) goto done;          // glimit: 0.49 s
 
-    // Solid high (would only occur as a transient; played here for testing)
-    // → full STALL_VOL_MAX volume
-    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MAX;
-    g_AudioPlay.SetTone(enToneHigh);
-    if (!DelayOrStop(2000)) goto done;
+    // Range sweep (replaces the prior fixed-PPS demonstration segments
+    // and the standalone solid-high reference; the sweep ends in
+    // saturated solid-high stall, so the standalone segment was
+    // redundant).  Walks AOA linearly from just below LDmax to a
+    // comfortable distance past stall-warn, hitting every region of
+    // the tone map: silent → pulsed-low ramp → solid-low (on-speed
+    // band) → pulsed-high ramp → solid-high (saturated stall warning).
+    // Bypasses UpdateTones' bAudioTest early-return by calling the
+    // pure ToneCalc directly so we don't have to fake IAS or unmute
+    // state.
+    {
+    const ActiveFlapSnapshot snap = SnapshotActiveFlap();
+    if (snap.bValid && onspeed::audio::ShouldRunAudioTestSweep(snap.th))
+        {
+        constexpr onspeed::audio::AudioTestSweepConfig kSweepCfg{};
+        const std::uint32_t nSteps =
+            onspeed::audio::AudioTestSweepStepCount(kSweepCfg);
 
-    // Pulsed low sweep (LDmax → OnSpeedFast region) — attenuated
-    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
-    g_AudioPlay.SetTone(enToneLow);
-    if (!DelayOrStop(1500)) goto done;
+        for (std::uint32_t i = 0; i < nSteps; ++i)
+            {
+            const onspeed::audio::AudioTestSweepStep step =
+                onspeed::audio::GetAudioTestSweepStep(snap.th, kSweepCfg, i);
 
-    g_AudioPlay.SetPulseFreq(3.0);
-    if (!DelayOrStop(2000)) goto done;
+            g_AudioPlay.fStallVolumeMult = step.tone.fVolumeMult;
+            g_AudioPlay.SetPulseFreq(step.tone.fPulseFreq);
+            g_AudioPlay.SetTone(static_cast<EnAudioTone>(step.tone.enTone));
 
-    g_AudioPlay.SetPulseFreq(3.0);
-    if (!DelayOrStop(2000)) goto done;
-
-    g_AudioPlay.SetPulseFreq(5.0);
-    if (!DelayOrStop(2000)) goto done;
-
-    // Pulsed high (approaching stall).  Step the per-PPS volume ramp
-    // through floor → midpoint → ceiling so the pilot can audibly verify
-    // the Gen2 amplitude ramp without flying.
-    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
-    g_AudioPlay.SetTone(enToneHigh);
-    g_AudioPlay.SetPulseFreq(4.0);
-    if (!DelayOrStop(1500)) goto done;
-
-    g_AudioPlay.fStallVolumeMult = (onspeed::STALL_VOL_MIN + onspeed::STALL_VOL_MAX) * 0.5f;
-    if (!DelayOrStop(1500)) goto done;
-
-    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MAX;
-    if (!DelayOrStop(1500)) goto done;
+            if (!DelayOrStop(kSweepCfg.stepMs)) goto done;
+            }
+        }
+    }
 
 done:
     g_AudioPlay.SetPulseFreq(0);
