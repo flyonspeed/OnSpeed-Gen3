@@ -32,7 +32,11 @@ We are happy to collaborate and answer any questions.  We will work with any exp
 or manufacturer that is interested in adapting the logic and always welcome qualified 
 volunteers that want to join the project. Email us at team@flyonspeed.org to get in touch.
 
-More details and videos of the OnSpeed system at http://flyOnspeed.org
+## Where to Find Things
+
+- **[v2.flyonspeed.org](https://v2.flyonspeed.org)** — project background, team, waitlist for the first production run
+- **[dev.flyonspeed.org](https://dev.flyonspeed.org)** — installation, configuration, calibration, EFIS integration, the rest of the technical manual
+- **This repo** — source for the Gen3 firmware, the X-Plane plugin, and the documentation site itself
 
 ## Software Development
 

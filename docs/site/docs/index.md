@@ -1,4 +1,7 @@
-# OnSpeed Gen3 — Open-Source AOA for GA
+# OnSpeed Gen3 — Technical Manual
+
+!!! info "This is the technical manual."
+    For project background, the team, the waitlist, and how OnSpeed works at the "what is this" level, visit **[v2.flyonspeed.org](https://v2.flyonspeed.org)**. This site covers installation, configuration, calibration, and the rest of the technical detail.
 
 **OnSpeed** is an open-source Angle of Attack (AOA) system that gives pilots **directive audio cues** to maintain positive aircraft control — avoiding stalls, managing energy, and extracting maximum performance. No gauge to watch. Just listen and respond.
 
