@@ -1,36 +1,39 @@
 // PercentLift.h - Map raw AOA + flap calibration -> integer 0..99
 //
-// Pure function ported verbatim from the original DisplaySerial.cpp logic
-// (see PR 3.1 Task 5). Used by:
+// Used by:
 //   - DisplaySerial.cpp  (#1 protocol PercentLift field, sent to the M5
 //     display at ~20 Hz)
 //   - any future native consumer that needs the same scalar
 //
-// Mapping (per-flap setpoints):
-//   AOA <  fLDMAXAOA                            -> 0..50
-//   fLDMAXAOA      <= AOA <= fONSPEEDFASTAOA    -> 50..55
-//   fONSPEEDFASTAOA < AOA <= fONSPEEDSLOWAOA    -> 55..66
-//   fONSPEEDSLOWAOA < AOA <= fSTALLWARNAOA      -> 66..90
-//   AOA >  fSTALLWARNAOA                        -> 90..100, ceiling is
-//                                                  fAlphaStall when
-//                                                  calibrated, otherwise
-//                                                  fSTALLWARNAOA*100/90
-// Result is then clamped to [0, 99].
+// Mapping (single linear normalization between calibrated aerodynamic
+// anchors):
 //
-// When iasValid is false (pilot on the ground / IAS below the audio mute
-// floor) the function returns 0 — there is no meaningful percent-of-stall
-// without airflow.
+//   percentLift = (aoaDeg - fAlpha0) / (fAlphaStall - fAlpha0) * 100
 //
-// KNOWN BUG (do NOT fix here — needs flight-test verification):
-//   The 0..fLDMAXAOA range uses fAlpha0 as the zero-lift floor. The
-//   pre-extraction code historically used a hardcoded 0 here, which
-//   under-reports percent-lift at low AOAs because the actual zero-lift
-//   fuselage AOA (alpha_0) is negative (typically ~-2.5 deg). The
-//   in-progress fix already lives in DisplaySerial.cpp:151 (g_Config has
-//   the per-flap fAlpha0 plumbed through), so this extraction preserves
-//   that behavior verbatim. A residual hardcoded `0` floor still exists in
-//   the JS liveview (Web/html_liveview.h:121-124, browser-side, not
-//   shareable with C++); see issue #199 for the full fix plan.
+// fAlpha0 is the per-flap zero-lift body angle (typically negative).
+// fAlphaStall is the per-flap stall body angle.  Both come from the
+// calibration wizard's lift-equation fit.
+//
+// Where each per-flap setpoint lands on this scale (the body-angle ->
+// percent mapping for L/Dmax, OnSpeedFast/Slow, StallWarn) is *whatever
+// the calibration says* — the percent values vary per flap because the
+// aerodynamics vary per flap.  This is the design intent: the displayed
+// percent is the honest envelope-fraction reading, comparable across
+// flaps as an aerodynamic property of the wing.
+//
+// Result is clamped to [0, 99].  Below fAlpha0 reads 0; above
+// fAlphaStall reads 99 (never 100, by convention — saturation, not
+// completion).
+//
+// When iasValid is false (pilot on the ground / IAS below the audio
+// mute floor) the function returns 0 — there is no meaningful
+// percent-of-stall without airflow.
+//
+// Defensive ceiling: when fAlphaStall is uncalibrated (<= fSTALLWARNAOA),
+// the function uses fSTALLWARNAOA * 100/90 as a synthetic ceiling so an
+// uncalibrated configuration still produces approximately the same
+// reading at the upper end as it did under the historical segmented
+// implementation.
 
 #ifndef ONSPEED_CORE_AOA_PERCENT_LIFT_H
 #define ONSPEED_CORE_AOA_PERCENT_LIFT_H
@@ -40,15 +43,12 @@
 namespace onspeed {
 namespace aoa {
 
-// Map raw AOA (degrees) and the active flap's calibration setpoints into a
-// 0..99 percent-of-stall scalar.  Returns 0 when iasValid is false.
+// Map raw AOA (degrees) and the active flap's calibration into a 0..99
+// percent-of-stall scalar via the honest single-linear normalization.
+// Returns 0 when iasValid is false.
 //
-// flapCfg is one entry of FOSConfig::aFlaps (the SuFlaps for the currently
-// detected flap position).
-//
-// TODO(#199): the JS liveview equivalent in Web/html_liveview.h still uses
-// a hardcoded 0 floor below fLDMAXAOA — track-and-fix in a follow-up PR
-// so all UIs report the same percent-lift.
+// flapCfg is one entry of FOSConfig::aFlaps (the SuFlaps for the
+// currently detected flap position).
 int ComputePercentLift(float aoaDeg,
                        const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
                        bool iasValid);

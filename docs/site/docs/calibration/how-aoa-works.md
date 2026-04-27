@@ -17,10 +17,10 @@ Angle of attack can be thought of as a scale from zero to one. Zero represents n
 
 $$\text{Fractional Lift} = \frac{\alpha - \alpha_0}{\alpha_\text{stall} - \alpha_0}$$
 
-This is the same quantity that OnSpeed calls **Normalized AOA (NAOA)**. Key reference points:
+This is the same quantity that OnSpeed calls **Normalized AOA (NAOA)**. Approximate reference points across most straight-wing GA airplanes:
 
-| Condition | Fractional Lift | What It Means |
-|-----------|----------------|---------------|
+| Condition | Fractional Lift (typical) | What It Means |
+|-----------|---------------------------|---------------|
 | Zero lift | 0% | No lift being generated |
 | Maneuvering speed (V~A~, 3.8G limit) | ~26% | Below this, full deflection causes stall before exceeding G-limit |
 | L/D~MAX~ | ~50% | Best glide, maximum range |
@@ -28,7 +28,7 @@ This is the same quantity that OnSpeed calls **Normalized AOA (NAOA)**. Key refe
 | Stall warning | ~90% | Near aerodynamic limit |
 | Stall | 100% | Maximum lift — critical AOA |
 
-For most straight-wing GA airplanes, critical AOA is approximately 15–20°. Typical ONSPEED approach conditions correspond to roughly 60% of the wing's maximum lift capability. This relationship is remarkably consistent across different airplane types because it's tied to basic aerodynamic behavior, not to a specific airspeed.
+For most straight-wing GA airplanes, critical AOA is approximately 15–20°. Typical ONSPEED approach conditions correspond to roughly 60% of the wing's maximum lift capability. **The exact percent at which each band falls is set by your aircraft's calibration and may differ between flap settings** — it's the audio cue (or the indicator's chevrons) the pilot follows, not a specific number. The audio L/D~MAX~ for a clean RV-class airplane might land at 33% on the indicator's number, and at 56% with full flaps, depending on how the lift envelope shifts with flap deflection.
 
 ## Two AOA Measurements
 

@@ -48,7 +48,6 @@ CRC_HEX_END   = PAYLOAD_LEN + 2
 
 def test_frame_length() -> None:
     wire = Frame().to_bytes()
-    # PAYLOAD_LEN payload + 2 CRC hex + 2 CRLF = FRAME_LEN
     assert len(wire) == FRAME_LEN, f"expected {FRAME_LEN} bytes, got {len(wire)}: {wire!r}"
     assert wire.endswith(b"\r\n"), f"missing CRLF: {wire!r}"
 
@@ -64,7 +63,7 @@ def test_frame_crc_matches_firmware_convention() -> None:
         roll_deg=-2.0,
         ias_kts=100.0,
         palt_ft=2500,
-        aoa_deg=4.5,
+        percent_lift=42,
     ).to_bytes()
     payload = wire[:PAYLOAD_LEN]
     crc_str = wire[CRC_HEX_START:CRC_HEX_END].decode("ascii")
@@ -73,7 +72,7 @@ def test_frame_crc_matches_firmware_convention() -> None:
     assert crc_sent == crc_actual, f"CRC mismatch: sent {crc_sent:02X} actual {crc_actual:02X}"
 
 
-def test_m5_parser_offsets_round_trip() -> None:
+def test_offsets_round_trip() -> None:
     """Re-implement the firmware's parser in Python against our output and
     check the values round-trip. Catches offset/scale mistakes without
     needing the firmware binary.
@@ -88,18 +87,15 @@ def test_m5_parser_offsets_round_trip() -> None:
         turnrate_dps=3.0,
         lateral_g=0.05,
         vertical_g=1.2,
-        percent_lift=55,
-        aoa_deg=4.9,
+        percent_lift=42,
         vsi_fpm=-600,
         oat_c=15,
         flightpath_deg=-2.0,
         flap_deg=16,
-        stallwarn_aoa=7.6,
-        onspeed_slow_aoa=4.1,
-        onspeed_fast_aoa=2.7,
-        tones_on_aoa=2.3,
-        alpha_0=-3.7,
-        alpha_stall=10.3,
+        tones_on_pct_lift=33,
+        onspeed_fast_pct_lift=55,
+        onspeed_slow_pct_lift=74,
+        stall_warn_pct_lift=88,
         flaps_min_deg=0,
         flaps_max_deg=33,
         g_onset_rate=0.5,
@@ -117,83 +113,78 @@ def test_m5_parser_offsets_round_trip() -> None:
     assert abs(int(s[26:29]) / 100 - f.lateral_g) < 0.01
     assert abs(int(s[29:32]) / 10 - f.vertical_g) < 0.1
     assert int(s[32:34]) == f.percent_lift
-    assert abs(int(s[34:38]) / 10 - f.aoa_deg) < 0.1
-    # VSI: payload stores fpm/10. M5 multiplies by 10 on receive.
-    assert int(s[38:42]) * 10 == round(f.vsi_fpm / 10) * 10
-    assert int(s[42:45]) == f.oat_c
-    assert abs(int(s[45:49]) / 10 - f.flightpath_deg) < 0.1
-    assert int(s[49:52]) == f.flap_deg
-    assert abs(int(s[52:56]) / 10 - f.stallwarn_aoa) < 0.1
-    assert abs(int(s[56:60]) / 10 - f.onspeed_slow_aoa) < 0.1
-    assert abs(int(s[60:64]) / 10 - f.onspeed_fast_aoa) < 0.1
-    assert abs(int(s[64:68]) / 10 - f.tones_on_aoa) < 0.1
-    assert abs(int(s[68:72]) / 10 - f.alpha_0) < 0.1
-    assert abs(int(s[72:76]) / 10 - f.alpha_stall) < 0.1
-    assert int(s[76:79]) == f.flaps_min_deg
-    assert int(s[79:82]) == f.flaps_max_deg
-    assert abs(int(s[82:86]) / 100 - f.g_onset_rate) < 0.01
-    assert int(s[86:88]) == f.spin_cue
-    assert int(s[88:90]) == f.data_mark
+    assert int(s[34:38]) * 10 == round(f.vsi_fpm / 10) * 10
+    assert int(s[38:41]) == f.oat_c
+    assert abs(int(s[41:45]) / 10 - f.flightpath_deg) < 0.1
+    assert int(s[45:48]) == f.flap_deg
+    assert int(s[48:50]) == f.tones_on_pct_lift
+    assert int(s[50:52]) == f.onspeed_fast_pct_lift
+    assert int(s[52:54]) == f.onspeed_slow_pct_lift
+    assert int(s[54:56]) == f.stall_warn_pct_lift
+    assert int(s[56:59]) == f.flaps_min_deg
+    assert int(s[59:62]) == f.flaps_max_deg
+    assert abs(int(s[62:66]) / 100 - f.g_onset_rate) < 0.01
+    assert int(s[66:68]) == f.spin_cue
+    assert int(s[68:70]) == f.data_mark
 
 
 def test_negative_values_sign_preserved() -> None:
     """The %+04i format in C writes a '+' or '-' sign. Python's :+04d
-    matches. Test that negative AOA, negative pitch, and negative
-    alpha_0 (typical at flapped settings) all come through."""
-    wire = Frame(pitch_deg=-5.0, aoa_deg=-1.5, alpha_0=-9.2).to_bytes()
+    matches.  Test that negative pitch and negative flight-path angle
+    come through.  All AOA-related fields are unsigned percents so
+    they don't have signs to preserve."""
+    wire = Frame(pitch_deg=-5.0, flightpath_deg=-3.5).to_bytes()
     s = wire[:PAYLOAD_LEN].decode("ascii")
     assert s[2]  == "-", f"pitch sign missing: {s[2:6]!r}"
-    assert s[34] == "-", f"aoa sign missing: {s[34:38]!r}"
-    assert s[68] == "-", f"alpha_0 sign missing: {s[68:72]!r}"
+    assert s[41] == "-", f"flightPath sign missing: {s[41:45]!r}"
 
 
-def test_percent_lift_buckets_match_firmware() -> None:
+def test_compute_percent_lift_honest_formula() -> None:
+    """Pin the Python compute_percent_lift to the honest single-linear
+    formula.  L/Dmax, OnSpeed band edges, and StallWarn land at
+    *whatever* percent the calibration says — the function does not
+    pin them to fixed segment break-points.
+    """
+    # RV-10 clean: span = 11.0 - (-2.5) = 13.5 deg.
     fs = FlapSetpoints(
         degrees=0,
         alpha_0=-2.5,
-        ldmax_aoa=4.0,
-        onspeed_fast_aoa=4.1,
-        onspeed_slow_aoa=5.0,
-        stallwarn_aoa=8.0,
-        alpha_stall=10.5,
+        ldmax_aoa=2.0,
+        onspeed_fast_aoa=5.0,
+        onspeed_slow_aoa=7.5,
+        stallwarn_aoa=9.5,
+        alpha_stall=11.0,
     )
+    # Endpoints
     assert compute_percent_lift(fs.alpha_0, fs) == 0
-    assert compute_percent_lift(fs.ldmax_aoa, fs) == 50
-    assert compute_percent_lift(fs.onspeed_slow_aoa, fs) == 66
-    assert compute_percent_lift(fs.stallwarn_aoa, fs) == 90
-    assert compute_percent_lift(fs.alpha_stall + 5, fs) == 99
+    assert compute_percent_lift(fs.alpha_stall, fs) == 99   # clamped
+    # L/Dmax body angle 2.0 -> (4.5/13.5)*100 = 33.33 -> 33.  Not 50.
+    ldmax_pct = compute_percent_lift(fs.ldmax_aoa, fs)
+    assert ldmax_pct in (32, 33, 34), f"unexpected ldmax pct {ldmax_pct}"
+    # OnSpeedSlow 7.5 -> (10/13.5)*100 = 74.07 -> 74.  Not 66.
+    slow_pct = compute_percent_lift(fs.onspeed_slow_aoa, fs)
+    assert slow_pct in (73, 74, 75), f"unexpected slow pct {slow_pct}"
 
 
 def test_clamp_protects_against_out_of_range() -> None:
-    # AOA field is %+04i, valid range -99.9 to +99.9 degrees (scaled ×10)
-    wire = Frame(aoa_deg=999.0).to_bytes()
-    assert len(wire) == FRAME_LEN  # no buffer overflow
+    # pitch field is %+04i, valid range -99.9 to +99.9 degrees (scaled ×10)
+    wire = Frame(pitch_deg=999.0).to_bytes()
+    assert len(wire) == FRAME_LEN
     s = wire[:PAYLOAD_LEN].decode("ascii")
-    # Should clamp to +999 (9.99°), not break the frame length
-    assert int(s[34:38]) == 999
+    assert int(s[2:6]) == 999
 
 
 def test_nan_and_inf_dont_break() -> None:
     wire = Frame(
         pitch_deg=float("nan"),
-        aoa_deg=float("inf"),
-        ias_kts=float("-inf"),
-        alpha_0=float("nan"),
+        ias_kts=float("inf"),
+        flightpath_deg=float("-inf"),
     ).to_bytes()
     assert len(wire) == FRAME_LEN
 
 
 # ---------------------------------------------------------------------------
 # Layer 2 — Firmware-parser interop test
-#
-# Builds a frame in Python, pipes it into the native parse_frame binary
-# (which links onspeed_core::ParseDisplayFrame — the actual code that
-# runs on the M5), parses the binary's `key=value` stdout, and asserts
-# every field round-trips within wire resolution.
-#
-# This is the test that catches the class of regression where the bench
-# tool emits frames the firmware would silently drop. Self-referential
-# Python round-trips can't.
 # ---------------------------------------------------------------------------
 
 
@@ -241,18 +232,15 @@ def test_firmware_parser_round_trip() -> None:
         turnrate_dps=3.5,
         lateral_g=0.05,
         vertical_g=1.2,
-        percent_lift=55,
-        aoa_deg=4.9,
+        percent_lift=42,
         vsi_fpm=-630,
         oat_c=15,
         flightpath_deg=-2.3,
         flap_deg=16,
-        stallwarn_aoa=7.17,
-        onspeed_slow_aoa=3.88,
-        onspeed_fast_aoa=2.44,
-        tones_on_aoa=1.11,
-        alpha_0=-6.22,
-        alpha_stall=9.57,
+        tones_on_pct_lift=33,
+        onspeed_fast_pct_lift=55,
+        onspeed_slow_pct_lift=74,
+        stall_warn_pct_lift=88,
         flaps_min_deg=0,
         flaps_max_deg=33,
         g_onset_rate=0.5,
@@ -262,7 +250,6 @@ def test_firmware_parser_round_trip() -> None:
     wire = f.to_bytes()
     parsed = _parse_via_firmware(wire)
 
-    # Wire resolution: ×10 fields = 0.1, ×100 fields = 0.01, integers exact.
     def close(field: str, expected: float, tol: float) -> None:
         got = float(parsed[field])
         assert math.isclose(got, expected, abs_tol=tol), \
@@ -276,18 +263,14 @@ def test_firmware_parser_round_trip() -> None:
     close("lateralG",          f.lateral_g,          0.011)
     close("verticalG",         f.vertical_g,         0.11)
     assert int(parsed["percentLift"]) == f.percent_lift
-    close("aoaDeg",             f.aoa_deg,            0.11)
-    # VSI loses bottom digit (transmitted as fpm/10 truncated to int)
     close("vsiFpm",             round(f.vsi_fpm / 10) * 10, 11.0)
     assert int(parsed["oatC"]) == f.oat_c
     close("flightPathDeg",      f.flightpath_deg,     0.11)
     assert int(parsed["flapsDeg"]) == f.flap_deg
-    close("stallWarnAoaDeg",    f.stallwarn_aoa,      0.11)
-    close("onSpeedSlowAoaDeg",  f.onspeed_slow_aoa,   0.11)
-    close("onSpeedFastAoaDeg",  f.onspeed_fast_aoa,   0.11)
-    close("tonesOnAoaDeg",      f.tones_on_aoa,       0.11)
-    close("alpha0Deg",          f.alpha_0,            0.11)
-    close("alphaStallDeg",      f.alpha_stall,        0.11)
+    assert int(parsed["tonesOnPctLift"])     == f.tones_on_pct_lift
+    assert int(parsed["onSpeedFastPctLift"]) == f.onspeed_fast_pct_lift
+    assert int(parsed["onSpeedSlowPctLift"]) == f.onspeed_slow_pct_lift
+    assert int(parsed["stallWarnPctLift"])   == f.stall_warn_pct_lift
     assert int(parsed["flapsMinDeg"]) == f.flaps_min_deg
     assert int(parsed["flapsMaxDeg"]) == f.flaps_max_deg
     close("gOnsetRate",         f.g_onset_rate,       0.011)
@@ -314,29 +297,31 @@ def test_firmware_parser_rejects_bad_crc() -> None:
     assert b"parse_failed" in result.stdout, f"expected 'parse_failed', got: {result.stdout!r}"
 
 
-def test_firmware_parser_round_trips_negative_alpha0() -> None:
-    """Regression coverage for the bug PR #320 fixed: negative alpha_0
-    (normal at flapped settings) must round-trip without losing its
-    sign or magnitude.  Reference values from N720AK full-flap config."""
+def test_firmware_parser_rejects_old_94_byte_frame() -> None:
+    """A frame at the previous wire size (94 bytes) must NOT decode
+    against the current 74-byte parser.  Catches the regression where
+    a stale builder is paired with new firmware.
+    """
     if not PARSE_BIN.exists():
         print("    SKIP  parse_frame binary not built; run `pio run -e native` first")
         return
 
-    wire = Frame(
-        flap_deg=33,
-        alpha_0=-9.2,           # negative — RV-10 full flaps
-        alpha_stall=11.6,
-        tones_on_aoa=-2.2,      # also negative — L/Dmax body angle
-        flaps_min_deg=0,
-        flaps_max_deg=33,
-    ).to_bytes()
-    parsed = _parse_via_firmware(wire)
+    # Pad an otherwise-valid 74-byte frame out to 94 bytes by repeating
+    # data — the parser's size check should reject it before it even
+    # starts parsing fields.
+    wire = Frame().to_bytes()
+    pad = wire[2:22]      # 20 bytes of payload-shaped filler
+    extended = wire[:-2] + pad + wire[-2:]   # insert before CRLF
+    assert len(extended) == FRAME_LEN + 20
 
-    assert math.isclose(float(parsed["alpha0Deg"]),     -9.2, abs_tol=0.11)
-    assert math.isclose(float(parsed["alphaStallDeg"]), 11.6, abs_tol=0.11)
-    assert math.isclose(float(parsed["tonesOnAoaDeg"]), -2.2, abs_tol=0.11)
-    assert int(parsed["flapsMinDeg"]) == 0
-    assert int(parsed["flapsMaxDeg"]) == 33
+    result = subprocess.run(
+        [str(PARSE_BIN)],
+        input=extended,
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 1, f"expected exit 1 on wrong size, got {result.returncode}"
+    assert b"wrong_size" in result.stdout, f"expected 'wrong_size', got: {result.stdout!r}"
 
 
 def main() -> int:
@@ -345,15 +330,15 @@ def main() -> int:
         test_frame_length,
         test_frame_header,
         test_frame_crc_matches_firmware_convention,
-        test_m5_parser_offsets_round_trip,
+        test_offsets_round_trip,
         test_negative_values_sign_preserved,
-        test_percent_lift_buckets_match_firmware,
+        test_compute_percent_lift_honest_formula,
         test_clamp_protects_against_out_of_range,
         test_nan_and_inf_dont_break,
         # Layer 2: firmware-parser interop
         test_firmware_parser_round_trip,
         test_firmware_parser_rejects_bad_crc,
-        test_firmware_parser_round_trips_negative_alpha0,
+        test_firmware_parser_rejects_old_94_byte_frame,
     ]
     failed = 0
     skipped = 0

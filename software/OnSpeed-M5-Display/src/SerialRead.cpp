@@ -95,29 +95,26 @@ void InjectSerialByte(char inChar)
 
     const DisplayFrame& f = result.value();
 
-    Pitch               = f.pitchDeg;
-    Roll                = f.rollDeg;
-    IAS                 = f.iasKt;
-    Palt                = f.paltFt;
-    LateralG            = f.lateralG;
-    VerticalG           = f.verticalG;
-    PercentLift         = f.percentLift;
-    AOA                 = f.aoaDeg;
-    iVSI                = f.vsiFpm;
-    OAT                 = f.oatC;
-    FlightPath          = f.flightPathDeg;
-    FlapPos             = f.flapsDeg;
-    OnSpeedStallWarnAOA = f.stallWarnAoaDeg;
-    OnSpeedSlowAOA      = f.onSpeedSlowAoaDeg;
-    OnSpeedFastAOA      = f.onSpeedFastAoaDeg;
-    OnSpeedTonesOnAOA   = f.tonesOnAoaDeg;
-    Alpha0              = f.alpha0Deg;
-    AlphaStall          = f.alphaStallDeg;
-    FlapsMinDeg         = f.flapsMinDeg;
-    FlapsMaxDeg         = f.flapsMaxDeg;
-    gOnsetRate          = f.gOnsetRate;
-    SpinRecoveryCue     = f.spinRecoveryCue;
-    DataMark            = f.dataMark;
+    Pitch                = f.pitchDeg;
+    Roll                 = f.rollDeg;
+    IAS                  = f.iasKt;
+    Palt                 = f.paltFt;
+    LateralG             = f.lateralG;
+    VerticalG            = f.verticalG;
+    PercentLift          = f.percentLift;
+    iVSI                 = f.vsiFpm;
+    OAT                  = f.oatC;
+    FlightPath           = f.flightPathDeg;
+    FlapPos              = f.flapsDeg;
+    TonesOnPctLift       = f.tonesOnPctLift;
+    OnSpeedFastPctLift   = f.onSpeedFastPctLift;
+    OnSpeedSlowPctLift   = f.onSpeedSlowPctLift;
+    StallWarnPctLift     = f.stallWarnPctLift;
+    FlapsMinDeg          = f.flapsMinDeg;
+    FlapsMaxDeg          = f.flapsMaxDeg;
+    gOnsetRate           = f.gOnsetRate;
+    SpinRecoveryCue      = f.spinRecoveryCue;
+    DataMark             = f.dataMark;
 
     // Measure actual frame period rather than assuming a fixed rate.
     // The main firmware's display serial task runs at
@@ -161,7 +158,7 @@ void InjectSerialByte(char inChar)
     SerialProcess(frameDtSec);
 
     #ifdef SERIALDATADEBUG
-    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, AOA: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, AOA);
+    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, PctLift: %d", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, PercentLift);
     Serial.println();
     #endif
 
@@ -188,11 +185,12 @@ void SerialRead()
     // Update if 100 msec (10 Hz) has passed
     if (serialMillis + 100 < currMillis)
     {
-        // Demo: simulate the firmware-side interpolation that PR 2 will
-        // do. Smoothly cycle the lever 0° → 16° → 33° → 16° → 0°
-        // every ~12 s and emit interpolated values that mirror what
-        // SnapshotForDisplay() would produce. The audio path (which we
-        // don't render here) would still see snapped per-detent values.
+        // Demo: cycle the active flap detent through clean / half /
+        // full and emit per-flap percent anchors that show the L/Dmax
+        // pip and band edges sliding per calibration.  All percent
+        // values are computed with the honest single-linear formula
+        // (AOA - alpha_0) / (alpha_stall - alpha_0) — exactly what
+        // ComputePercentLift produces firmware-side.
         struct FlapCfg {
             int   degrees;
             float alpha0;
@@ -208,87 +206,64 @@ void SerialRead()
             { 33, -9.2107f, 11.5701f,-2.24f, 2.19f, 4.09f, 7.94f },  // Full
         };
 
-        // 10 s sweep period: 5 s deploy (0→33), 5 s retract (33→0).
-        // Matches realistic flap deployment time.
-        const float t = (currMillis % 10000) / 5000.0f;          // 0..2
-        const float sweep = (t <= 1.0f) ? t : (2.0f - t);        // 0→1→0
-        const float leverDeg = sweep * 33.0f;                    // 0..33..0
+        // 12 s cycle: dwell on each detent for 4 s.  Step through
+        // clean → half → full → clean.
+        const int detentIdx = (int)((currMillis / 4000) % 3);
+        const FlapCfg& snap = kFlaps[detentIdx];
 
-        // Pick neighbor pair and lambda based on lever position.
-        int aIdx, bIdx;
-        float lambda;
-        if (leverDeg <= (float)kFlaps[1].degrees) {
-            aIdx = 0; bIdx = 1;
-            lambda = leverDeg / (float)kFlaps[1].degrees;
-        } else {
-            aIdx = 1; bIdx = 2;
-            lambda = (leverDeg - kFlaps[1].degrees) /
-                     (float)(kFlaps[2].degrees - kFlaps[1].degrees);
-        }
-        if (lambda < 0.0f) lambda = 0.0f;
-        if (lambda > 1.0f) lambda = 1.0f;
+        // Honest percent for any body angle within the active flap's
+        // calibrated lift envelope.  Clamped 0..99 to match the
+        // firmware-side wire convention.
+        auto pctOf = [&](float bodyAngleDeg) -> int {
+            const float span = snap.alphaStall - snap.alpha0;
+            if (span <= 0.0f) return 0;
+            int p = (int)((bodyAngleDeg - snap.alpha0) / span * 100.0f);
+            if (p < 0)  p = 0;
+            if (p > 99) p = 99;
+            return p;
+        };
 
-        const FlapCfg& a = kFlaps[aIdx];
-        const FlapCfg& b = kFlaps[bIdx];
+        // Sweep AOA up and down through the full envelope on a 6-s
+        // cycle so the index bar visibly slides through the indexer.
+        const float aoaPhase = (float)((currMillis % 6000) / 6000.0f); // 0..1
+        const float aoaSweep = (aoaPhase <= 0.5f)
+                                   ? (aoaPhase * 2.0f)             // 0→1
+                                   : (2.0f - aoaPhase * 2.0f);     // 1→0
+        const float demoAOA = snap.alpha0 + aoaSweep * (snap.alphaStall - snap.alpha0);
 
-        // Operational/audio thresholds: snap to nearest detent.
-        const FlapCfg& snap = (lambda < 0.5f) ? a : b;
+        Pitch                = 5.0;
+        Roll                 = 0.0;
+        IAS                  = 100.0;
+        Palt                 = 2500.0;
+        LateralG             = 0.0;
+        VerticalG            = 1.0;
+        iVSI                 = 0.0;
+        OAT                  = 70;
+        FlightPath           = 0.0;
+        FlapPos              = snap.degrees;
+        FlapsMinDeg          = kFlaps[0].degrees;
+        FlapsMaxDeg          = kFlaps[2].degrees;
 
-        // Visual L/Dmax: interpolate band fraction (LDmax - alpha_0) /
-        // (Fast - alpha_0) between detents, then express it as a body
-        // angle within the active (snapped) detent's anchor frame.
-        const float f_a   = (a.ldmax - a.alpha0) / (a.fast - a.alpha0);
-        const float f_b   = (b.ldmax - b.alpha0) / (b.fast - b.alpha0);
-        const float f_now = (1.0f - lambda) * f_a + lambda * f_b;
-        const float emittedLDmax =
-            snap.alpha0 + f_now * (snap.fast - snap.alpha0);
+        // Per-flap band-edge percents — exactly what the firmware
+        // emits over the wire.  Each varies per flap because the
+        // body-angle setpoints vary per flap.
+        TonesOnPctLift       = pctOf(snap.ldmax);
+        OnSpeedFastPctLift   = pctOf(snap.fast);
+        OnSpeedSlowPctLift   = pctOf(snap.slow);
+        StallWarnPctLift     = pctOf(snap.warn);
 
-        // Set the new wire fields (alpha_0 / alpha_stall / flap range)
-        // that the M5 needs for correct band geometry.  In the real PR
-        // these come from the #1 frame; here we set them directly on
-        // the M5-side globals.
-        Alpha0      = snap.alpha0;
-        AlphaStall  = snap.alphaStall;
-        FlapsMinDeg = kFlaps[0].degrees;
-        FlapsMaxDeg = kFlaps[2].degrees;
+        // Current AOA's percent — drives the index-bar position.
+        PercentLift          = pctOf(demoAOA);
 
-        Pitch               = 5.0;
-        Roll                = 0.0;
-        IAS                 = 100.0;
-        Palt                = 2500.0;
-        LateralG            = 0.0;
-        VerticalG           = 1.0;
-        iVSI                = 0.0;
-        OAT                 = 70;
-        FlightPath          = 0.0;
-        FlapPos             = (int)(leverDeg + 0.5f);    // interpolated lever degrees
-        OnSpeedStallWarnAOA = snap.warn;
-        OnSpeedSlowAOA      = snap.slow;
-        OnSpeedFastAOA      = snap.fast;
-        OnSpeedTonesOnAOA   = emittedLDmax;              // interpolated
-        gOnsetRate          = 0.0;
-        SpinRecoveryCue     = 0;
-        DataMark            = 0;
-
-        // Park AOA at a fixed body angle so the pointer is genuinely
-        // pinned across the whole sweep.  In real flight AOA is what
-        // the airplane is doing — it's independent of which flap
-        // detent the firmware thinks it's in.  As the active detent's
-        // alpha_0 / OnSpeedFast anchors snap at detent boundaries,
-        // the pointer's screen y will shift by however much the
-        // band's body-angle range shifted around the fixed AOA, but
-        // there's no AOA discontinuity from the demo itself.
-        AOA = 1.0f;
-        // Canonical PercentLift uses (AOA - alpha_0) / (alpha_stall -
-        // alpha_0). The full ComputePercentLift function is piecewise;
-        // for this single-AOA demo a linear approximation over the
-        // alpha_0..alpha_stall span is close enough.
-        const float fraction =
-            (AOA - snap.alpha0) / (snap.alphaStall - snap.alpha0);
-        int pct = (int)(fraction * 100.0f);
-        if (pct < 0)  pct = 0;
-        if (pct > 99) pct = 99;
-        PercentLift = pct;
+        // Drive the right-edge G-onset tape with a 4 s sinusoid, ±1.5
+        // G/s, so we can eyeball the widget: positive onset → orange
+        // tape grows upward from the zero line; negative onset → grows
+        // downward.  Issue #324 tracks wiring the firmware-side
+        // computation that would replace this demo signal in flight.
+        const float onsetPhase = (currMillis % 4000) / 4000.0f;   // 0..1
+        gOnsetRate           = 1.5f * sinf(onsetPhase * 2.0f * 3.14159265f);
+        SpinRecoveryCue      = 0;
+        DataMark             = 0;
 
         SerialProcess(0.1f);
 
@@ -305,10 +280,6 @@ void SerialRead()
 
 void SerialProcess(float frameDtSec)
 {
-    // don't display invalid values;
-    if (AOA == -100)
-        AOA = 0.0;
-
     // Slip gauge: LateralG is already EMA-smoothed by the main firmware
     // (AccelLatFilter in onspeed_core/ahrs). Use as-received.
     Slip               = int(LateralG * 34 / 0.04);

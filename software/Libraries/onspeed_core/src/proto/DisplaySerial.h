@@ -1,40 +1,50 @@
 // proto/DisplaySerial.h — OnSpeed `#1` display-serial protocol.
 //
-// This is the single source of truth for the wire format of the 94-byte ASCII
+// This is the single source of truth for the wire format of the 74-byte ASCII
 // frame exchanged between the Gen3 main firmware (producer) and the M5Stack
 // secondary display firmware (consumer).
 //
-// Frame format (94 bytes total):
+// Frame format (74 bytes total):
 //
-//   Offset  Width  Field              Format   Scale   Notes
-//   ------  -----  -----------------  -------  ------  ----------------------
-//    0       2     magic              literal  —       "#1"
-//    2       4     pitchDeg           %+04d    ×10     signed, –999 to +999
-//    6       5     rollDeg            %+05d    ×10     signed, –9999 to +9999
-//   11       4     iasKt              %04u     ×10     unsigned, 0–9999
-//   15       6     paltFt             %+06d    ×1      signed, –99999 to +99999
-//   21       5     turnRateDps        %+05d    ×10     signed, –9999 to +9999
-//   26       3     lateralG           %+03d    ×100    signed, –99 to +99
-//   29       3     verticalG          %+03d    ×10     signed, –99 to +99
-//   32       2     percentLift        %02u     ×1      unsigned, 0–99
-//   34       4     aoaDeg             %+04d    ×10     signed, –999 to +999
-//   38       4     vsiFpm10           %+04d    ×1      vsi_fpm/10, –999 to +999
-//   42       3     oatC               %+03d    ×1      signed, –99 to +99
-//   45       4     flightPathDeg      %+04d    ×10     signed, –999 to +999
-//   49       3     flapsDeg           %+03d    ×1      signed, –99 to +99
-//   52       4     stallWarnAoaDeg    %+04d    ×10     signed, –999 to +999
-//   56       4     onSpeedSlowAoaDeg  %+04d    ×10     signed, –999 to +999
-//   60       4     onSpeedFastAoaDeg  %+04d    ×10     signed, –999 to +999
-//   64       4     tonesOnAoaDeg      %+04d    ×10     signed, –999 to +999
-//   68       4     alpha0Deg          %+04d    ×10     signed, –999 to +999  (zero-lift body angle, active-snapshot)
-//   72       4     alphaStallDeg      %+04d    ×10     signed, –999 to +999  (stall body angle, active-snapshot)
-//   76       3     flapsMinDeg        %+03d    ×1      signed, –99 to +99    (min configured flap deg)
-//   79       3     flapsMaxDeg        %+03d    ×1      signed, –99 to +99    (max configured flap deg)
-//   82       4     gOnsetRate         %+04d    ×100    signed, –999 to +999
-//   86       2     spinRecoveryCue    %+02d    ×1      signed, –9 to +9
-//   88       2     dataMark           %02u     ×1      unsigned, 0–99
-//   90       2     checksum           ASCII hex        sum of bytes 0–89 & 0xFF
-//   92       2     terminator         CR LF    —       0x0D 0x0A
+//   Offset  Width  Field               Format   Scale   Notes
+//   ------  -----  ------------------  -------  ------  ----------------------
+//    0       2     magic               literal  —       "#1"
+//    2       4     pitchDeg            %+04d    ×10     signed, –999 to +999
+//    6       5     rollDeg             %+05d    ×10     signed, –9999 to +9999
+//   11       4     iasKt               %04u     ×10     unsigned, 0–9999
+//   15       6     paltFt              %+06d    ×1      signed, –99999 to +99999
+//   21       5     turnRateDps         %+05d    ×10     signed, –9999 to +9999
+//   26       3     lateralG            %+03d    ×100    signed, –99 to +99
+//   29       3     verticalG           %+03d    ×10     signed, –99 to +99
+//   32       2     percentLift         %02u     ×1      unsigned, 0–99
+//   34       4     vsiFpm10            %+04d    ×1      vsi_fpm/10, –999 to +999
+//   38       3     oatC                %+03d    ×1      signed, –99 to +99
+//   41       4     flightPathDeg       %+04d    ×10     signed, –999 to +999
+//   45       3     flapsDeg            %+03d    ×1      signed, –99 to +99
+//   48       2     tonesOnPctLift      %02u     ×1      unsigned, 0–99 (LDmax body angle through the percent-lift formula)
+//   50       2     onSpeedFastPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedFast body angle through the percent-lift formula)
+//   52       2     onSpeedSlowPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedSlow body angle through the percent-lift formula)
+//   54       2     stallWarnPctLift    %02u     ×1      unsigned, 0–99 (StallWarn body angle through the percent-lift formula)
+//   56       3     flapsMinDeg         %+03d    ×1      signed, –99 to +99 (min configured flap deg)
+//   59       3     flapsMaxDeg         %+03d    ×1      signed, –99 to +99 (max configured flap deg)
+//   62       4     gOnsetRate          %+04d    ×100    signed, –999 to +999
+//   66       2     spinRecoveryCue     %+02d    ×1      signed, –9 to +9
+//   68       2     dataMark            %02u     ×1      unsigned, 0–99
+//   70       2     checksum            ASCII hex        sum of bytes 0–69 & 0xFF
+//   72       2     terminator          CR LF    —       0x0D 0x0A
+//
+// Design intent — the percent-lift contract:
+//   Percent-lift is the honest single-linear envelope fraction:
+//     percentLift = (AOA − α₀) / (α_stall − α₀) × 100, clamped to [0, 99]
+//   The four band-edge percents (`tonesOnPctLift`, `onSpeedFastPctLift`,
+//   `onSpeedSlowPctLift`, `stallWarnPctLift`) are the per-flap setpoints
+//   put through the same formula.  Each one varies per flap because the
+//   underlying body angles vary per flap.  Consumers should use these
+//   percents as the band anchors when rendering an indexer or pip — the
+//   wire never carries body angles for AOA.
+//
+//   See onspeed_core/aoa/PercentLift.h for the formula and
+//   docs/site/docs/reference/serial-protocol.md for the wire reference.
 //
 // Wire-format invariant: the exact ASCII bytes emitted by BuildFrame must
 // be byte-for-byte identical to those emitted by the Gen3 firmware's
@@ -56,10 +66,10 @@
 namespace onspeed::proto {
 
 /// Total length of a complete #1 frame in bytes (including CRLF terminator).
-inline constexpr size_t kDisplayFrameSizeBytes = 94;
+inline constexpr size_t kDisplayFrameSizeBytes = 74;
 
-/// Length of the ASCII payload that the checksum covers (bytes 0–89 inclusive).
-inline constexpr size_t kDisplayFrameChecksumLen = 90;
+/// Length of the ASCII payload that the checksum covers (bytes 0–69 inclusive).
+inline constexpr size_t kDisplayFrameChecksumLen = 70;
 
 /// Nominal period between frames (milliseconds). Matches
 /// kDisplaySerialPeriodMs in the Gen3 firmware's HardwareMap.h.
@@ -79,30 +89,27 @@ inline constexpr int kDisplayFramePeriodMs = 50;
 // ============================================================================
 
 struct DisplayBuildInputs {
-    float pitchDeg          = 0.0f;  // smoothed pitch (deg)
-    float rollDeg           = 0.0f;  // smoothed roll (deg)
-    float iasKt             = 0.0f;  // indicated airspeed (kt); 0 when below mute threshold
-    float paltFt            = 0.0f;  // pressure altitude (ft)
-    float turnRateDps       = 0.0f;  // yaw rate (deg/s)
-    float lateralG          = 0.0f;  // lateral acceleration, negated (g); positive = leftward
-    float verticalGScaled10 = 0.0f;  // vertical G × 10, already ceil'd (raw int, stored as float)
-    int   percentLift       = 0;     // 0–99
-    float aoaDeg            = 0.0f;  // AOA (deg); 0 when below mute threshold
-    int   vsiFpm10          = 0;     // vsi / 10 (fpm), floored — range –999..+999
-    int   oatC              = 0;     // OAT (°C); only valid when OAT sensor enabled
-    float flightPathDeg     = 0.0f;  // flight-path angle (deg)
-    int   flapsDeg          = 0;     // flap position (deg) with sign
-    float stallWarnAoaDeg   = 0.0f;  // stall-warning AOA setpoint (deg)
-    float onSpeedSlowAoaDeg = 0.0f;  // on-speed slow AOA setpoint (deg)
-    float onSpeedFastAoaDeg = 0.0f;  // on-speed fast AOA setpoint (deg)
-    float tonesOnAoaDeg     = 0.0f;  // tones-on AOA setpoint (deg); sourced from per-flap fLDMAXAOA config
-    float alpha0Deg         = 0.0f;  // zero-lift body angle (deg) for the active flap snapshot — needed by display geometry
-    float alphaStallDeg     = 0.0f;  // stall body angle (deg) for the active flap snapshot — used for percent-lift ceiling
-    int   flapsMinDeg       = 0;     // minimum configured flap deg (lever full retract)
-    int   flapsMaxDeg       = 0;     // maximum configured flap deg (lever full extend)
-    float gOnsetRate        = 0.0f;  // G onset rate (G/s), currently always 0.0
-    int   spinRecoveryCue   = 0;     // –1 / 0 / +1, currently always 0
-    int   dataMark          = 0;     // data mark 0–99 (wraps mod 100)
+    float pitchDeg           = 0.0f;  // smoothed pitch (deg)
+    float rollDeg            = 0.0f;  // smoothed roll (deg)
+    float iasKt              = 0.0f;  // indicated airspeed (kt); 0 when below mute threshold
+    float paltFt             = 0.0f;  // pressure altitude (ft)
+    float turnRateDps        = 0.0f;  // yaw rate (deg/s)
+    float lateralG           = 0.0f;  // lateral acceleration, negated (g); positive = leftward
+    float verticalGScaled10  = 0.0f;  // vertical G × 10, already ceil'd (raw int, stored as float)
+    int   percentLift        = 0;     // current AOA expressed as honest envelope fraction, 0–99
+    int   vsiFpm10           = 0;     // vsi / 10 (fpm), floored — range –999..+999
+    int   oatC               = 0;     // OAT (°C); only valid when OAT sensor enabled
+    float flightPathDeg      = 0.0f;  // flight-path angle (deg)
+    int   flapsDeg           = 0;     // flap position (deg) with sign
+    int   tonesOnPctLift     = 0;     // LDmax body angle through ComputePercentLift, 0–99
+    int   onSpeedFastPctLift = 0;     // OnSpeedFast body angle through ComputePercentLift, 0–99
+    int   onSpeedSlowPctLift = 0;     // OnSpeedSlow body angle through ComputePercentLift, 0–99
+    int   stallWarnPctLift   = 0;     // StallWarn body angle through ComputePercentLift, 0–99
+    int   flapsMinDeg        = 0;     // minimum configured flap deg (lever full retract)
+    int   flapsMaxDeg        = 0;     // maximum configured flap deg (lever full extend)
+    float gOnsetRate         = 0.0f;  // G onset rate (G/s), currently always 0.0 — see issue #324
+    int   spinRecoveryCue    = 0;     // –1 / 0 / +1, currently always 0 — see PLAN_SPIN_RECOVERY_CUE.md
+    int   dataMark           = 0;     // data mark 0–99 (wraps mod 100)
 };
 
 // ============================================================================
@@ -113,30 +120,27 @@ struct DisplayBuildInputs {
 // ============================================================================
 
 struct DisplayFrame {
-    float pitchDeg          = 0.0f;
-    float rollDeg           = 0.0f;
-    float iasKt             = 0.0f;
-    float paltFt            = 0.0f;
-    float turnRateDps       = 0.0f;
-    float lateralG          = 0.0f;  // negated (see BuildInputs convention)
-    float verticalG         = 0.0f;  // in g (wire value / 10)
-    int   percentLift       = 0;
-    float aoaDeg            = 0.0f;
-    float vsiFpm            = 0.0f;  // in fpm (wire value × 10)
-    int   oatC              = 0;
-    float flightPathDeg     = 0.0f;
-    int   flapsDeg          = 0;
-    float stallWarnAoaDeg   = 0.0f;
-    float onSpeedSlowAoaDeg = 0.0f;
-    float onSpeedFastAoaDeg = 0.0f;
-    float tonesOnAoaDeg     = 0.0f;
-    float alpha0Deg         = 0.0f;
-    float alphaStallDeg     = 0.0f;
-    int   flapsMinDeg       = 0;
-    int   flapsMaxDeg       = 0;
-    float gOnsetRate        = 0.0f;
-    int   spinRecoveryCue   = 0;
-    int   dataMark          = 0;
+    float pitchDeg           = 0.0f;
+    float rollDeg            = 0.0f;
+    float iasKt              = 0.0f;
+    float paltFt             = 0.0f;
+    float turnRateDps        = 0.0f;
+    float lateralG           = 0.0f;  // negated (see BuildInputs convention)
+    float verticalG          = 0.0f;  // in g (wire value / 10)
+    int   percentLift        = 0;
+    float vsiFpm             = 0.0f;  // in fpm (wire value × 10)
+    int   oatC               = 0;
+    float flightPathDeg      = 0.0f;
+    int   flapsDeg           = 0;
+    int   tonesOnPctLift     = 0;
+    int   onSpeedFastPctLift = 0;
+    int   onSpeedSlowPctLift = 0;
+    int   stallWarnPctLift   = 0;
+    int   flapsMinDeg        = 0;
+    int   flapsMaxDeg        = 0;
+    float gOnsetRate         = 0.0f;
+    int   spinRecoveryCue    = 0;
+    int   dataMark           = 0;
 };
 
 // ============================================================================

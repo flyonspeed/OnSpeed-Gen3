@@ -54,15 +54,21 @@ BAUD = 115200
 
 
 # Wire-format constants. Mirror onspeed_core/proto/DisplaySerial.h.
-PAYLOAD_LEN = 90    # bytes 0..89 — ASCII fields up to and including dataMark
-FRAME_LEN   = 94    # PAYLOAD_LEN + 2 hex CRC + CRLF
+PAYLOAD_LEN = 70    # bytes 0..69 — ASCII fields up to and including dataMark
+FRAME_LEN   = 74    # PAYLOAD_LEN + 2 hex CRC + CRLF
 
 
 @dataclass
 class Frame:
-    """All fields transmitted in one #1 payload. Units are "display units"
-    (degrees, knots, feet, Gs, etc.) — scaling to the wire format happens
-    in `to_bytes`."""
+    """All fields transmitted in one #1 payload.
+
+    Units / convention:
+      - `*_aoa` body angles are NOT on the wire; the percent-lift fields
+        (`tones_on_pct_lift`, `onspeed_fast_pct_lift`, etc.) are what go
+        out.  Computed via the honest single-linear formula
+        `(body_angle - alpha_0) / (alpha_stall - alpha_0) * 100` clamped
+        to [0, 99].  See onspeed_core/aoa/PercentLift.h.
+    """
 
     pitch_deg: float = 0.0
     roll_deg: float = 0.0
@@ -72,17 +78,14 @@ class Frame:
     lateral_g: float = 0.0
     vertical_g: float = 1.0
     percent_lift: int = 0
-    aoa_deg: float = 0.0
     vsi_fpm: float = 0.0
     oat_c: int = 15
     flightpath_deg: float = 0.0
     flap_deg: int = 0
-    stallwarn_aoa: float = 20.0
-    onspeed_slow_aoa: float = 15.0
-    onspeed_fast_aoa: float = 10.0
-    tones_on_aoa: float = 5.0
-    alpha_0: float = 0.0
-    alpha_stall: float = 0.0
+    tones_on_pct_lift: int = 0
+    onspeed_fast_pct_lift: int = 0
+    onspeed_slow_pct_lift: int = 0
+    stall_warn_pct_lift: int = 0
     flaps_min_deg: int = 0
     flaps_max_deg: int = 0
     g_onset_rate: float = 0.0
@@ -90,14 +93,9 @@ class Frame:
     data_mark: int = 0
 
     def to_bytes(self) -> bytes:
-        """Serialize to the 94-byte wire frame (payload + CRC + CRLF).
+        """Serialize to the 74-byte wire frame (payload + CRC + CRLF).
 
-        Matches the printf format in onspeed_core/proto/DisplaySerial.cpp:
-            "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u"
-            "%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i"
-            "%+04i%+04i%+04i%+03i%+03i%+04i%+02i%02u"
-        Field order (post-tonesOnAoa) is: alpha0, alphaStall, flapsMin,
-        flapsMax, gOnsetRate, spinCue, dataMark.  Don't shuffle.
+        Matches the printf format in onspeed_core/proto/DisplaySerial.cpp.
         """
         payload = (
             f"#1"
@@ -109,17 +107,14 @@ class Frame:
             f"{_clamp_int(self.lateral_g * 100, -99, 99):+03d}"
             f"{_clamp_int(self.vertical_g * 10, -99, 99):+03d}"
             f"{_clamp_uint(self.percent_lift, 0, 99):02d}"
-            f"{_clamp_int(self.aoa_deg * 10, -999, 999):+04d}"
             f"{_clamp_int(self.vsi_fpm / 10, -999, 999):+04d}"
             f"{_clamp_int(self.oat_c, -99, 99):+03d}"
             f"{_clamp_int(self.flightpath_deg * 10, -999, 999):+04d}"
             f"{_clamp_int(self.flap_deg, -99, 99):+03d}"
-            f"{_clamp_int(self.stallwarn_aoa * 10, -999, 999):+04d}"
-            f"{_clamp_int(self.onspeed_slow_aoa * 10, -999, 999):+04d}"
-            f"{_clamp_int(self.onspeed_fast_aoa * 10, -999, 999):+04d}"
-            f"{_clamp_int(self.tones_on_aoa * 10, -999, 999):+04d}"
-            f"{_clamp_int(self.alpha_0 * 10, -999, 999):+04d}"
-            f"{_clamp_int(self.alpha_stall * 10, -999, 999):+04d}"
+            f"{_clamp_uint(self.tones_on_pct_lift, 0, 99):02d}"
+            f"{_clamp_uint(self.onspeed_fast_pct_lift, 0, 99):02d}"
+            f"{_clamp_uint(self.onspeed_slow_pct_lift, 0, 99):02d}"
+            f"{_clamp_uint(self.stall_warn_pct_lift, 0, 99):02d}"
             f"{_clamp_int(self.flaps_min_deg, -99, 99):+03d}"
             f"{_clamp_int(self.flaps_max_deg, -99, 99):+03d}"
             f"{_clamp_int(self.g_onset_rate * 100, -999, 999):+04d}"
@@ -211,35 +206,21 @@ def setpoints_for_flap(
 
 
 def compute_percent_lift(aoa: float, fs: FlapSetpoints) -> int:
-    """Map AOA to 0-99% using the firmware's bucketed curve."""
-    alpha_0 = fs.alpha_0
-    ldmax = fs.ldmax_aoa
-    fast = fs.onspeed_fast_aoa
-    slow = fs.onspeed_slow_aoa
-    stallwarn = fs.stallwarn_aoa
+    """Honest single-linear envelope fraction, mirroring
+    onspeed_core/aoa/PercentLift.cpp::ComputePercentLift.
+
+    percentLift = (aoa - alpha_0) / (alpha_stall - alpha_0) * 100,
+    clamped to [0, 99].  When alpha_stall is uncalibrated (<= stallwarn)
+    a synthetic ceiling of stallwarn * 100/90 is used instead.
+    """
     alpha_stall = fs.alpha_stall
-
-    if aoa < ldmax:
-        pct = _mapfloat(aoa, alpha_0, ldmax, 0.0, 50.0)
-    elif aoa <= fast:
-        pct = _mapfloat(aoa, ldmax, fast, 50.0, 55.0)
-    elif aoa <= slow:
-        pct = _mapfloat(aoa, fast, slow, 55.0, 66.0)
-    elif aoa <= stallwarn:
-        pct = _mapfloat(aoa, slow, stallwarn, 66.0, 90.0)
-    else:
-        ceiling = alpha_stall
-        if ceiling <= stallwarn:
-            ceiling = stallwarn * 100.0 / 90.0
-        pct = _mapfloat(aoa, stallwarn, ceiling, 90.0, 100.0)
-
-    return max(0, min(99, int(pct)))
-
-
-def _mapfloat(x: float, in_lo: float, in_hi: float, out_lo: float, out_hi: float) -> float:
-    if in_hi == in_lo:
-        return out_lo
-    return (x - in_lo) * (out_hi - out_lo) / (in_hi - in_lo) + out_lo
+    if alpha_stall <= fs.stallwarn_aoa:
+        alpha_stall = fs.stallwarn_aoa * 100.0 / 90.0
+    span = alpha_stall - fs.alpha_0
+    if span <= 0:
+        return 0
+    pct = int((aoa - fs.alpha_0) / span * 100.0)
+    return max(0, min(99, pct))
 
 
 # ---------------------------------------------------------------------------
@@ -288,17 +269,16 @@ def csv_frame_stream(
                 lateral_g=_float_or(r.get("LateralG"), 0.0),
                 vertical_g=_float_or(r.get("VerticalG"), 1.0),
                 percent_lift=compute_percent_lift(aoa, fs),
-                aoa_deg=aoa,
                 vsi_fpm=_float_or(r.get("VSI"), 0.0),
                 oat_c=int(_float_or(r.get("OAT"), 15.0)),
                 flightpath_deg=_float_or(r.get("FlightPath"), 0.0),
                 flap_deg=flap,
-                stallwarn_aoa=fs.stallwarn_aoa,
-                onspeed_slow_aoa=fs.onspeed_slow_aoa,
-                onspeed_fast_aoa=fs.onspeed_fast_aoa,
-                tones_on_aoa=fs.ldmax_aoa,  # "tones on" = LDmax per firmware
-                alpha_0=fs.alpha_0,
-                alpha_stall=fs.alpha_stall,
+                # Per-flap band-edge percents — each is the per-flap
+                # setpoint's body angle put through compute_percent_lift.
+                tones_on_pct_lift=compute_percent_lift(fs.ldmax_aoa, fs),
+                onspeed_fast_pct_lift=compute_percent_lift(fs.onspeed_fast_aoa, fs),
+                onspeed_slow_pct_lift=compute_percent_lift(fs.onspeed_slow_aoa, fs),
+                stall_warn_pct_lift=compute_percent_lift(fs.stallwarn_aoa, fs),
                 flaps_min_deg=flaps_min,
                 flaps_max_deg=flaps_max,
                 g_onset_rate=0.0,  # not in log; leave at 0
@@ -454,17 +434,14 @@ def synthetic_stream(
             lateral_g=lat,
             vertical_g=vg,
             percent_lift=pct,
-            aoa_deg=aoa_target,
             vsi_fpm=vsi,
             oat_c=15,
             flightpath_deg=pitch - 2.0,
             flap_deg=flap,
-            stallwarn_aoa=fs.stallwarn_aoa,
-            onspeed_slow_aoa=fs.onspeed_slow_aoa,
-            onspeed_fast_aoa=fs.onspeed_fast_aoa,
-            tones_on_aoa=fs.ldmax_aoa,
-            alpha_0=fs.alpha_0,
-            alpha_stall=fs.alpha_stall,
+            tones_on_pct_lift=compute_percent_lift(fs.ldmax_aoa, fs),
+            onspeed_fast_pct_lift=compute_percent_lift(fs.onspeed_fast_aoa, fs),
+            onspeed_slow_pct_lift=compute_percent_lift(fs.onspeed_slow_aoa, fs),
+            stall_warn_pct_lift=compute_percent_lift(fs.stallwarn_aoa, fs),
             flaps_min_deg=min(setpoints.keys()),
             flaps_max_deg=max(setpoints.keys()),
             g_onset_rate=0.0,

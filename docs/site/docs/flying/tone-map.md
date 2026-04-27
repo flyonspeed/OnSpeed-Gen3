@@ -13,6 +13,8 @@ As you slow down (AOA increases), you progress through five regions:
   <50% lift   ~50% lift      ~60% lift    65-90% lift    >90% lift
 ```
 
+The percentages above are typical values; the exact percent at which each band falls is set by your aircraft's calibration and varies per flap setting. **Fly the audio cues** — the tones tell you where you are, and the percent number on the indexer is descriptive (after-the-fact information), not directive.
+
 ### Complete Reference
 
 | # | Region | Tone | Pulse Rate | Fractional Lift | What It Means | Pilot Action |

@@ -1,7 +1,6 @@
 #pragma once
 
 // Serial data variables (shared with main display code)
-extern float           AOA;
 extern int             PercentLift;
 extern float           Pitch;
 extern float           Roll;
@@ -14,14 +13,16 @@ extern float           FlightPath;
 extern int             FlapPos;
 extern int             OAT;
 extern int16_t         Slip;
-extern float           OnSpeedStallWarnAOA;
-extern float           OnSpeedSlowAOA;
-extern float           OnSpeedFastAOA;
-extern float           OnSpeedTonesOnAOA;
-extern float           Alpha0;            // active flap snapshot's alpha_0; from #1 wire
-extern float           AlphaStall;        // active flap snapshot's alpha_stall; from #1 wire
-extern int             FlapsMinDeg;       // configured flap travel minimum; from #1 wire
-extern int             FlapsMaxDeg;       // configured flap travel maximum; from #1 wire
+// Per-flap band-edge percents — populated from #1 wire.  All four
+// vary per active flap because the underlying body-angle setpoints
+// vary per flap.  See onspeed_core/aoa/PercentLift.h for the
+// honest single-linear formula that produces these values.
+extern int             TonesOnPctLift;     // L/Dmax body angle → percent
+extern int             OnSpeedFastPctLift; // OnSpeedFast body angle → percent
+extern int             OnSpeedSlowPctLift; // OnSpeedSlow body angle → percent
+extern int             StallWarnPctLift;   // StallWarn body angle → percent
+extern int             FlapsMinDeg;        // configured flap travel minimum; from #1 wire
+extern int             FlapsMaxDeg;        // configured flap travel maximum; from #1 wire
 extern float           gOnsetRate;
 extern int             SpinRecoveryCue;
 extern int             DataMark;

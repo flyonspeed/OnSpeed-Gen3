@@ -108,17 +108,14 @@ void test_roundtrip_all_zeros(void)
     TEST_ASSERT_FLOAT_WITHIN(DELTA_100, 0.0f, f.lateralG);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.verticalG);
     TEST_ASSERT_EQUAL(0, f.percentLift);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.aoaDeg);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_1,   0.0f, f.vsiFpm);
     TEST_ASSERT_EQUAL(0, f.oatC);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.flightPathDeg);
     TEST_ASSERT_EQUAL(0, f.flapsDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.stallWarnAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.onSpeedSlowAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.onSpeedFastAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.tonesOnAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.alpha0Deg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.alphaStallDeg);
+    TEST_ASSERT_EQUAL(0, f.tonesOnPctLift);
+    TEST_ASSERT_EQUAL(0, f.onSpeedFastPctLift);
+    TEST_ASSERT_EQUAL(0, f.onSpeedSlowPctLift);
+    TEST_ASSERT_EQUAL(0, f.stallWarnPctLift);
     TEST_ASSERT_EQUAL(0, f.flapsMinDeg);
     TEST_ASSERT_EQUAL(0, f.flapsMaxDeg);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_100, 0.0f, f.gOnsetRate);
@@ -204,15 +201,6 @@ void test_roundtrip_percent_lift(void)
     TEST_ASSERT_EQUAL(55, f.percentLift);
 }
 
-void test_roundtrip_aoa(void)
-{
-    DisplayBuildInputs in = zeroInputs();
-    in.aoaDeg = 14.7f;
-    buildOk(in);
-    DisplayFrame f = parseOk();
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 14.7f, f.aoaDeg);
-}
-
 void test_roundtrip_vsi(void)
 {
     // vsiFpm10 is already vsi/10; ParseFrame gives vsiFpm = wire × 10
@@ -250,19 +238,19 @@ void test_roundtrip_flaps(void)
     TEST_ASSERT_EQUAL(25, f.flapsDeg);
 }
 
-void test_roundtrip_setpoints(void)
+void test_roundtrip_band_edge_percents(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.stallWarnAoaDeg   = 18.0f;
-    in.onSpeedSlowAoaDeg = 14.5f;
-    in.onSpeedFastAoaDeg = 11.0f;
-    in.tonesOnAoaDeg     =  6.5f;
+    in.tonesOnPctLift     = 33;   // L/Dmax body angle through the percent-lift formula
+    in.onSpeedFastPctLift = 55;
+    in.onSpeedSlowPctLift = 74;
+    in.stallWarnPctLift   = 88;
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 18.0f, f.stallWarnAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 14.5f, f.onSpeedSlowAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 11.0f, f.onSpeedFastAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  6.5f, f.tonesOnAoaDeg);
+    TEST_ASSERT_EQUAL(33, f.tonesOnPctLift);
+    TEST_ASSERT_EQUAL(55, f.onSpeedFastPctLift);
+    TEST_ASSERT_EQUAL(74, f.onSpeedSlowPctLift);
+    TEST_ASSERT_EQUAL(88, f.stallWarnPctLift);
 }
 
 void test_roundtrip_data_mark(void)
@@ -483,9 +471,10 @@ void test_known_frame_content(void)
     char expected_payload[200];
     int n = snprintf(
         expected_payload, sizeof(expected_payload),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+04i%+03i%+03i%+04i%+02i%02u",
-        0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0,                                            // alpha0, alphaStall, flapsMin, flapsMax
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u",
+        0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0,
+        0u, 0u, 0u, 0u,                          // tonesOn/Fast/Slow/StallWarn pct
+        0, 0,                                    // flapsMin, flapsMax
         0, 0, 0u);
     TEST_ASSERT_EQUAL(static_cast<int>(kDisplayFrameChecksumLen), n);
 
@@ -504,35 +493,8 @@ void test_known_frame_content(void)
 }
 
 // ----------------------------------------------------------------------------
-// Round-trip: new fields added in PR (alpha_0, alpha_stall, flap range)
+// Round-trip: per-flap percent anchors and flap range
 // ----------------------------------------------------------------------------
-
-void test_roundtrip_alpha0_negative(void)
-{
-    DisplayBuildInputs in = zeroInputs();
-    in.alpha0Deg = -3.7f;   // typical clean-config zero-lift
-    buildOk(in);
-    DisplayFrame f = parseOk();
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -3.7f, f.alpha0Deg);
-}
-
-void test_roundtrip_alpha0_full_flaps(void)
-{
-    DisplayBuildInputs in = zeroInputs();
-    in.alpha0Deg = -9.2f;   // full-flap, more negative
-    buildOk(in);
-    DisplayFrame f = parseOk();
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -9.2f, f.alpha0Deg);
-}
-
-void test_roundtrip_alpha_stall(void)
-{
-    DisplayBuildInputs in = zeroInputs();
-    in.alphaStallDeg = 11.6f;
-    buildOk(in);
-    DisplayFrame f = parseOk();
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 11.6f, f.alphaStallDeg);
-}
 
 void test_roundtrip_flap_range(void)
 {
@@ -570,10 +532,10 @@ void test_accumulator_parses_complete_frame(void)
     // Build a frame with non-trivial values so we'd notice if the
     // wrong frame got returned.
     DisplayBuildInputs in = zeroInputs();
-    in.pitchDeg     = 7.5f;
-    in.aoaDeg       = 4.2f;
-    in.alpha0Deg    = -3.7f;
-    in.tonesOnAoaDeg = 3.2f;
+    in.pitchDeg          = 7.5f;
+    in.percentLift       = 42;
+    in.tonesOnPctLift    = 33;
+    in.onSpeedFastPctLift = 55;
     buildOk(in);
 
     DisplayFrameAccumulator accum;
@@ -587,9 +549,9 @@ void test_accumulator_parses_complete_frame(void)
     auto r = accum.Inject(frameBuf[kDisplayFrameSizeBytes - 1]);
     TEST_ASSERT_TRUE(r.has_value());
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  7.5f, r->pitchDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  4.2f, r->aoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -3.7f, r->alpha0Deg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  3.2f, r->tonesOnAoaDeg);
+    TEST_ASSERT_EQUAL(42, r->percentLift);
+    TEST_ASSERT_EQUAL(33, r->tonesOnPctLift);
+    TEST_ASSERT_EQUAL(55, r->onSpeedFastPctLift);
 }
 
 void test_accumulator_ignores_bytes_before_magic(void)
@@ -722,12 +684,11 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_lateral_g);
     RUN_TEST(test_roundtrip_vertical_g);
     RUN_TEST(test_roundtrip_percent_lift);
-    RUN_TEST(test_roundtrip_aoa);
     RUN_TEST(test_roundtrip_vsi);
     RUN_TEST(test_roundtrip_oat);
     RUN_TEST(test_roundtrip_flight_path);
     RUN_TEST(test_roundtrip_flaps);
-    RUN_TEST(test_roundtrip_setpoints);
+    RUN_TEST(test_roundtrip_band_edge_percents);
     RUN_TEST(test_roundtrip_data_mark);
     RUN_TEST(test_roundtrip_spin_cue_positive);
     RUN_TEST(test_roundtrip_spin_cue_negative);
@@ -757,9 +718,6 @@ int main(int, char**)
 
     RUN_TEST(test_known_frame_content);
 
-    RUN_TEST(test_roundtrip_alpha0_negative);
-    RUN_TEST(test_roundtrip_alpha0_full_flaps);
-    RUN_TEST(test_roundtrip_alpha_stall);
     RUN_TEST(test_roundtrip_flap_range);
     RUN_TEST(test_roundtrip_flap_range_negative_min);
 

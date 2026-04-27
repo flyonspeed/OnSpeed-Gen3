@@ -9,10 +9,13 @@
 
 #include "src/Globals.h"
 
+#include <aoa/PercentLift.h>
+
 using onspeed::rad2deg;
 using onspeed::kts2mps;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::aoa::ComputePercentLift;
 using onspeed::fpm2mps;
 using onspeed::safeAsin;
 
@@ -260,12 +263,22 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
 
     // Build a compact JSON payload into a fixed-size buffer to avoid heap churn
     // and prevent buffer overruns on unexpected values.
+    // WebSocket schema mirrors the display-serial wire's percent-anchor
+    // contract, so a future shared indexer renderer can run identically
+    // off either transport.  Body-angle AOA / DerivedAOA stay because
+    // the LiveView shows them numerically (and a debugging consumer
+    // wanting to compare body angle to percent gets both); the per-flap
+    // body-angle setpoints (LDmax, OnSpeedFast/Slow/Warn, alpha_0,
+    // alpha_stall) are gone — every consumer renders against the
+    // percent anchors instead.
     const char * szFormat =
         "{\"AOA\":%.2f,\"Pitch\":%.2f,\"Roll\":%.2f,\"IAS\":%.2f,\"PAlt\":%.2f,"
-        "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,\"LDmax\":%.2f,\"OnspeedFast\":%.2f,"
-        "\"OnspeedSlow\":%.2f,\"OnspeedWarn\":%.2f,\"flapsPos\":%i,\"flapIndex\":%i,"
+        "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,"
+        "\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
-        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"Alpha0\":%.2f,\"DerivedAOA\":%.2f}";
+        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
+        "\"percentLift\":%i,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
+        "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
@@ -297,6 +310,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     FOSConfig::SuFlaps flapSnapshot{};
     int iSnapFlapIdx = 0;
     int iSnapFlapPos = -1;
+    bool bSnapValid  = false;
     if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
         const size_t nFlaps = g_Config.aFlaps.size();
@@ -306,8 +320,28 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             flapSnapshot = g_Config.aFlaps[iIdx];
             iSnapFlapIdx = iIdx;
             iSnapFlapPos = g_Flaps.iPosition;
+            bSnapValid   = true;
             }
         xSemaphoreGive(xAhrsMutex);
+        }
+
+    // Per-flap band-edge percents — same shape the M5 wire ships, so
+    // a future shared indexer renderer can run identically off either
+    // transport.  Computed via the canonical onspeed_core helper so
+    // there's exactly one definition of percent-lift in the codebase.
+    const bool bIasValidForOutput = (g_Sensors.IAS >= g_Config.iMuteAudioUnderIAS);
+    int iJsonPercentLift   = 0;
+    int iJsonTonesOnPct    = 0;
+    int iJsonFastPct       = 0;
+    int iJsonSlowPct       = 0;
+    int iJsonStallWarnPct  = 0;
+    if (bSnapValid)
+        {
+        iJsonPercentLift  = ComputePercentLift(g_Sensors.AOA,            flapSnapshot, bIasValidForOutput);
+        iJsonTonesOnPct   = ComputePercentLift(flapSnapshot.fLDMAXAOA,        flapSnapshot, true);
+        iJsonFastPct      = ComputePercentLift(flapSnapshot.fONSPEEDFASTAOA,  flapSnapshot, true);
+        iJsonSlowPct      = ComputePercentLift(flapSnapshot.fONSPEEDSLOWAOA,  flapSnapshot, true);
+        iJsonStallWarnPct = ComputePercentLift(flapSnapshot.fSTALLWARNAOA,    flapSnapshot, true);
         }
 
     // szFormat is a compile-time constant split across lines for readability.
@@ -324,10 +358,6 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fPAltFt,
         fVerticalGload,
         fLatG,
-        SafeJsonFloat(flapSnapshot.fLDMAXAOA, 0.0f),
-        SafeJsonFloat(flapSnapshot.fONSPEEDFASTAOA, 0.0f),
-        SafeJsonFloat(flapSnapshot.fONSPEEDSLOWAOA, 0.0f),
-        SafeJsonFloat(flapSnapshot.fSTALLWARNAOA, 0.0f),
         iSnapFlapPos,
         iSnapFlapIdx,
         fCoeffP,
@@ -337,8 +367,12 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fPitchRate,
         fDecelRate,
         fWifiOAT,
-        SafeJsonFloat(flapSnapshot.fAlpha0, 0.0f),
-        fDerivedAOA);
+        fDerivedAOA,
+        iJsonPercentLift,
+        iJsonTonesOnPct,
+        iJsonFastPct,
+        iJsonSlowPct,
+        iJsonStallWarnPct);
 #pragma GCC diagnostic pop
 
     if (iChars < 0)
