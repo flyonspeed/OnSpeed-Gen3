@@ -1,13 +1,18 @@
 
 #include <Arduino.h>
 
+#include <algorithm>
+
 #include "src/Globals.h"
+#include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 #include <proto/DisplaySerial.h>
 
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::aoa::ComputeDisplayPctAnchors;
 using onspeed::aoa::ComputePercentLift;
+using onspeed::aoa::DisplayPctAnchors;
 using onspeed::proto::DisplayBuildInputs;
 using onspeed::proto::BuildDisplayFrame;
 using onspeed::proto::kDisplayFrameSizeBytes;
@@ -142,19 +147,38 @@ void DisplaySerial::Write()
         iDisplayVerticalG = 0;
 
 
-    // Snapshot the active flap entry once under xAhrsMutex with a bounds
-    // check on g_Flaps.iIndex.  ComputePercentLift below and the EFIS
-    // frame builder both read several fields off this entry; without the
-    // snapshot they could see the vector swapped out from under them by
-    // HandleConfigSave on Core 0, or a stale iIndex pointing past the
-    // new vector's end after a 4->2 shrink.  20 Hz cadence has plenty of
-    // headroom for a 10 ms timeout; on timeout or out-of-bounds index we
-    // emit zero setpoints (display reads "no calibration" rather than a
-    // garbage tone bar).
+    // Snapshot the active flap entry plus the full flap vector once
+    // under xAhrsMutex.  Two consumers below read this snapshot:
+    //
+    //   - ComputePercentLift on the snapped active detent — drives the
+    //     live `percentLift` reading from the current AOA.  Audio
+    //     compares against this same active-detent calibration, so the
+    //     live percent stays consistent with the audio path.
+    //
+    //   - ComputeDisplayPctAnchors on the entire vector + the raw
+    //     lever ADC — drives the four interpolated percent anchors
+    //     (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`,
+    //     `stallWarnPctLift`) and the interpolated `flapsDeg`.  These
+    //     slide smoothly between adjacent detents during flap
+    //     deployment so the indexer pip and band edges track the
+    //     aerodynamic transition rather than jumping at the midpoint.
+    //
+    // HandleConfigSave on Core 0 swaps g_Config.aFlaps under the same
+    // mutex; without this snapshot the producer could see the vector
+    // shrink mid-frame (4->2 detents) and index past the new vector's
+    // end, or mix old-and-new setpoints in a single frame.  20 Hz
+    // cadence has plenty of headroom for a 10 ms timeout; on timeout
+    // we emit zero setpoints (display reads "uncalibrated").
     FOSConfig::SuFlaps flapSnapshot{};
     bool bFlapSnapshotValid = false;
     int  iFlapsMinDeg       = 0;
     int  iFlapsMaxDeg       = 0;
+
+    // MAX_AOA_CURVES is the canonical cap for flap entries; the flap
+    // detector and config parser already enforce the same bound.
+    FOSConfig::SuFlaps aFlapsSnapshot[onspeed::MAX_AOA_CURVES]{};
+    size_t  nFlapsSnapshot = 0;
+    uint16_t uFlapsRawAdc  = 0;
     if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
         const size_t nFlaps = g_Config.aFlaps.size();
@@ -181,6 +205,23 @@ void DisplaySerial::Write()
             iFlapsMinDeg = iMin;
             iFlapsMaxDeg = iMax;
             }
+
+        // Copy the full flap vector for the interpolated-anchor pass.
+        // Capped at MAX_AOA_CURVES; configurations larger than this (none
+        // in practice) get truncated to the first N — interpolation still
+        // produces a continuous curve over those entries.
+        const size_t nCopy = std::min<size_t>(nFlaps,
+                                              static_cast<size_t>(onspeed::MAX_AOA_CURVES));
+        for (size_t i = 0; i < nCopy; ++i)
+            aFlapsSnapshot[i] = g_Config.aFlaps[i];
+        nFlapsSnapshot = nCopy;
+
+        // Raw flap-lever ADC reading for the interpolation.  g_Flaps.uValue
+        // is updated by Flaps::Update() on its own cadence and is plain
+        // 16-bit data; reading it inside the same mutex window keeps the
+        // interpolation aligned with whichever flap-vector snapshot we
+        // captured above.
+        uFlapsRawAdc = g_Flaps.uValue;
         xSemaphoreGive(xAhrsMutex);
         }
 
@@ -195,22 +236,20 @@ void DisplaySerial::Write()
         iPercentLift = 0;
 
     // Band-edge percents for the M5 indexer.  Each per-flap setpoint
-    // (LDmax, OnSpeedFast/Slow, StallWarn) is run through the same
-    // ComputePercentLift function so the consumer gets four percent
-    // anchors that vary per flap.  The wire never carries body angles
-    // for AOA — the indexer renders entirely in percent space.
-    int iTonesOnPctLift     = 0;
-    int iOnSpeedFastPctLift = 0;
-    int iOnSpeedSlowPctLift = 0;
-    int iStallWarnPctLift   = 0;
-    if (bFlapSnapshotValid)
-        {
-        // iasValid=true: these are calibration anchors, always finite.
-        iTonesOnPctLift     = ComputePercentLift(flapSnapshot.fLDMAXAOA,       flapSnapshot, true);
-        iOnSpeedFastPctLift = ComputePercentLift(flapSnapshot.fONSPEEDFASTAOA, flapSnapshot, true);
-        iOnSpeedSlowPctLift = ComputePercentLift(flapSnapshot.fONSPEEDSLOWAOA, flapSnapshot, true);
-        iStallWarnPctLift   = ComputePercentLift(flapSnapshot.fSTALLWARNAOA,   flapSnapshot, true);
-        }
+    // (LDmax, OnSpeedFast/Slow, StallWarn) is run through
+    // ComputePercentLift, then linearly interpolated between adjacent
+    // detents in percent space using the raw lever ADC.  The
+    // interpolated `flapsDeg` overrides the snapped detent-position
+    // value so the displayed flap angle slides smoothly with the lever
+    // rather than stepping at the detection midpoint.
+    //
+    // iasValid=true is forwarded so the anchor geometry stays stable
+    // across the audio mute threshold; only the live `percentLift`
+    // reading above gates on bIasValidForOutput.
+    DisplayPctAnchors anchors = ComputeDisplayPctAnchors(uFlapsRawAdc,
+                                                         aFlapsSnapshot,
+                                                         nFlapsSnapshot,
+                                                         true);
 
     if (bIasValidForOutput)
         fDisplayAOA = g_Sensors.AOA;
@@ -284,15 +323,26 @@ void DisplaySerial::Write()
                                         -999, 999);
         inputs.oatC               = iOATc;
         inputs.flightPathDeg      = g_AHRS.FlightPath;
-        inputs.flapsDeg           = (int)g_Flaps.iPosition;
+        // flapsDeg is the lever-interpolated value from
+        // ComputeDisplayPctAnchors, so the displayed flap angle slides
+        // smoothly with the lever rather than stepping at the snap
+        // midpoint.  When the flap snapshot is empty (uncalibrated),
+        // anchors.flapsDeg is 0; fall through to the snapped
+        // g_Flaps.iPosition for that case to preserve the prior
+        // "uncalibrated" display shape.
+        inputs.flapsDeg           = (nFlapsSnapshot > 0)
+                                        ? anchors.flapsDeg
+                                        : (int)g_Flaps.iPosition;
         // Per-flap band-edge percents — the consumer's calibrated
         // indexer anchors.  Each is the per-flap setpoint's body
-        // angle put through the honest percent-lift normalization;
-        // values vary per flap by design.
-        inputs.tonesOnPctLift     = iTonesOnPctLift;
-        inputs.onSpeedFastPctLift = iOnSpeedFastPctLift;
-        inputs.onSpeedSlowPctLift = iOnSpeedSlowPctLift;
-        inputs.stallWarnPctLift   = iStallWarnPctLift;
+        // angle put through the honest percent-lift normalization,
+        // then linearly interpolated between the two adjacent detents
+        // bracketing the lever.  Values vary per flap and slide
+        // continuously as the lever sweeps.
+        inputs.tonesOnPctLift     = anchors.tonesOnPctLift;
+        inputs.onSpeedFastPctLift = anchors.onSpeedFastPctLift;
+        inputs.onSpeedSlowPctLift = anchors.onSpeedSlowPctLift;
+        inputs.stallWarnPctLift   = anchors.stallWarnPctLift;
         inputs.flapsMinDeg        = iFlapsMinDeg;
         inputs.flapsMaxDeg        = iFlapsMaxDeg;
         inputs.gOnsetRate         = 0.0f;

@@ -7,15 +7,20 @@
 
 #include <WebSocketsServer.h>   // https://github.com/Links2004/arduinoWebSockets version 2.1.3
 
+#include <algorithm>
+
 #include "src/Globals.h"
 
+#include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 
 using onspeed::rad2deg;
 using onspeed::kts2mps;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
+using onspeed::aoa::ComputeDisplayPctAnchors;
 using onspeed::aoa::ComputePercentLift;
+using onspeed::aoa::DisplayPctAnchors;
 using onspeed::fpm2mps;
 using onspeed::safeAsin;
 
@@ -297,20 +302,36 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
     const float fDerivedAOA = SafeJsonFloat(g_AHRS.DerivedAOA, 0.0f);
 
-    // Snapshot the active flap entry once under xAhrsMutex with a bounds
-    // check on g_Flaps.iIndex.  Five fields off this entry (LDMAX, two
-    // OnSpeed setpoints, StallWarn, alpha_0) are serialized into the JSON
-    // payload below.  HandleConfigSave on Core 0 swaps g_Config.aFlaps
-    // under the same mutex; without this snapshot the WebSocket frame
-    // could mix old and new setpoints from a swap mid-serialization, or
-    // index past the new vector's end after a 4->2 shrink.  20 Hz cadence
-    // has plenty of headroom for a 10 ms timeout; on timeout / OOB the
-    // payload reports zeros and the iIndex value is forced to 0 too,
+    // Snapshot the active flap entry plus the full flap vector once
+    // under xAhrsMutex.  Two consumers below read this snapshot:
+    //
+    //   - ComputePercentLift on the snapped active detent — drives the
+    //     live `percentLift` JSON field from current AOA, matching
+    //     what the audio path uses.
+    //
+    //   - ComputeDisplayPctAnchors on the entire vector + the raw
+    //     lever ADC — drives the four interpolated anchor percents
+    //     (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`,
+    //     `stallWarnPctLift`) that the LiveView's indexer uses to
+    //     position the L/Dmax pip and OnSpeed band edges.  These slide
+    //     smoothly between adjacent detents during flap deployment so
+    //     the pip tracks the aerodynamic transition.
+    //
+    // HandleConfigSave on Core 0 swaps g_Config.aFlaps under the same
+    // mutex; without this snapshot the WebSocket frame could mix
+    // old-and-new setpoints from a mid-serialization swap, or index
+    // past the new vector's end after a 4->2 shrink.  20 Hz cadence
+    // has plenty of headroom for a 10 ms timeout; on timeout / OOB
+    // the payload reports zeros and `flapIndex` is forced to 0 too,
     // which the JS liveview renders as "uncalibrated".
     FOSConfig::SuFlaps flapSnapshot{};
     int iSnapFlapIdx = 0;
     int iSnapFlapPos = -1;
     bool bSnapValid  = false;
+
+    FOSConfig::SuFlaps aFlapsSnapshot[onspeed::MAX_AOA_CURVES]{};
+    size_t   nFlapsSnapshot = 0;
+    uint16_t uFlapsRawAdc   = 0;
     if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
         const size_t nFlaps = g_Config.aFlaps.size();
@@ -322,6 +343,17 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             iSnapFlapPos = g_Flaps.iPosition;
             bSnapValid   = true;
             }
+
+        // Copy the full flap vector + raw lever ADC for the
+        // interpolated-anchor pass.  Capped at MAX_AOA_CURVES; same
+        // bound the config parser and flap detector enforce.
+        const size_t nCopy = std::min<size_t>(nFlaps,
+                                              static_cast<size_t>(onspeed::MAX_AOA_CURVES));
+        for (size_t i = 0; i < nCopy; ++i)
+            aFlapsSnapshot[i] = g_Config.aFlaps[i];
+        nFlapsSnapshot = nCopy;
+        uFlapsRawAdc   = g_Flaps.uValue;
+
         xSemaphoreGive(xAhrsMutex);
         }
 
@@ -336,23 +368,27 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fIasSnap         = g_Sensors.IAS;
     const bool bIasValidForOutput = (fIasSnap >= g_Config.iMuteAudioUnderIAS);
 
-    // Per-flap band-edge percents — same shape the M5 wire ships, so
-    // a future shared indexer renderer can run identically off either
-    // transport.  Computed via the canonical onspeed_core helper so
-    // there's exactly one definition of percent-lift in the codebase.
+    // Live percent-lift reading — the active-detent calibration is
+    // what the audio path uses, so this matches what the pilot hears.
     int iJsonPercentLift   = 0;
-    int iJsonTonesOnPct    = 0;
-    int iJsonFastPct       = 0;
-    int iJsonSlowPct       = 0;
-    int iJsonStallWarnPct  = 0;
     if (bSnapValid)
         {
-        iJsonPercentLift  = ComputePercentLift(fAoaSnap,                     flapSnapshot, bIasValidForOutput);
-        iJsonTonesOnPct   = ComputePercentLift(flapSnapshot.fLDMAXAOA,        flapSnapshot, true);
-        iJsonFastPct      = ComputePercentLift(flapSnapshot.fONSPEEDFASTAOA,  flapSnapshot, true);
-        iJsonSlowPct      = ComputePercentLift(flapSnapshot.fONSPEEDSLOWAOA,  flapSnapshot, true);
-        iJsonStallWarnPct = ComputePercentLift(flapSnapshot.fSTALLWARNAOA,    flapSnapshot, true);
+        iJsonPercentLift = ComputePercentLift(fAoaSnap, flapSnapshot, bIasValidForOutput);
         }
+
+    // Per-flap band-edge percents — interpolated between adjacent
+    // detents via ComputeDisplayPctAnchors.  Same shape the M5 wire
+    // ships, so a future shared indexer renderer can run identically
+    // off either transport.  iasValid=true keeps the indexer geometry
+    // stable across the audio mute threshold.
+    DisplayPctAnchors anchors = ComputeDisplayPctAnchors(uFlapsRawAdc,
+                                                         aFlapsSnapshot,
+                                                         nFlapsSnapshot,
+                                                         true);
+    const int iJsonTonesOnPct    = anchors.tonesOnPctLift;
+    const int iJsonFastPct       = anchors.onSpeedFastPctLift;
+    const int iJsonSlowPct       = anchors.onSpeedSlowPctLift;
+    const int iJsonStallWarnPct  = anchors.stallWarnPctLift;
 
     // szFormat is a compile-time constant split across lines for readability.
 #pragma GCC diagnostic push
