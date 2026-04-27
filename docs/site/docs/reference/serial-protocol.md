@@ -87,13 +87,15 @@ Most fields are self-describing. The ones with non-obvious conventions:
 
 `gOnsetRate` (offset 62) carries a low-pass-filtered `d(verticalG)/dt` in g/s, with a 250 ms time constant applied at the 20 Hz wire rate. Sign convention follows `verticalG` (production reaction-force convention: +1 g level), so positive output means "G load increasing". The M5's Primary-mode renderer draws a vertical orange tape on the right edge whose height saturates at 2 g/s. Implementation: [`onspeed_core/filters/GOnsetFilter.h`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/filters/GOnsetFilter.h).
 
-### Aspirational / not-yet-wired fields
+### Spin-recovery cue
 
-One field is part of the wire layout today but populated with a placeholder value by the producer. It occupies its byte offset so future producers/consumers don't have to bump the protocol again. Treat it as reserved — but don't be surprised if you see real values flowing through it later.
+`spinRecoveryCue` (offset 66) carries a directional rudder cue, `−1` / `0` / `+1`. The sign tells the pilot which rudder pedal to press to arrest autorotation: `−1` = left rudder, `+1` = right rudder, `0` = no cue. Anti-spin rudder is opposite the yaw direction in both upright and inverted spins, so the cue is attitude-invariant.
 
-| Field | Status | What's the gap |
-| --- | --- | --- |
-| `spinRecoveryCue` (offset 66) | Always `0` from the producer today. Intended as a `−1 / 0 / +1` direction cue (left / none / right) for an upcoming spin-recovery indicator. No consumer renders it yet. | Both ends: producer needs the cue logic; M5 needs a render glyph. |
+The cue latches when the wing is stalled (AOA past `fSTALLAOA` for the active flap) and yaw rate exceeds 20 °/s on both an instantaneous and 1-second-filtered basis. Once latched, direction holds until either the wing un-stalls or the filtered yaw rate drops below 15 °/s — and a fresh latch direction can only be picked up after a clean (un-stall) exit, to prevent "chasing arrows" during over-rudder transit.
+
+The M5 renders this as a flashing red overlay across the top of the screen: a directional arrow plus a lit rudder-pedal glyph plus the literal text `RUDDER`. Triple encoding is deliberate so a stressed pilot can read direction from any one channel. LiveView in the browser draws the same combination as a position-fixed banner.
+
+Implementation: [`onspeed_core/sensors/SpinDetector.h`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/sensors/SpinDetector.h). Algorithm provenance: F/A-18 Spin Recovery Mode (OFP v10.7) with three GA-tuned deltas — rudder semantics in place of lateral-stick, AOA gate in place of airspeed gate, lower threshold and shorter time constant for GA-scale incipient spins.
 
 ### Checksum
 

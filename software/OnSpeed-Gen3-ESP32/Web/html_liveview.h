@@ -10,6 +10,36 @@ const char htmlLiveView[] PROGMEM = R"=====(
   #status {display:flex;justify-content: space-between;padding-bottom:10px;}
   #switch {margin-right: 20px;}
   #status-label {align-self: flex-end;}
+
+  /* Spin-recovery cue overlay: triple-encoded (arrow + rudder-pedal
+     glyph + "RUDDER" caption) so a stressed pilot can read direction
+     from any one channel.  Hidden by default; shown via JS when the
+     wire field spinRecoveryCue is non-zero. */
+  #spin-cue-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 220px;
+    z-index: 100;
+    background: rgba(0,0,0,0.65);
+    text-align: center;
+    pointer-events: none;
+    animation: spin-cue-flash 0.5s steps(2, jump-none) infinite;
+    font-family: "Arial, Helvetica, sans-serif";
+    color: #ff2222;
+  }
+  #spin-cue-svg { display: block; margin: 12px auto 0; position: static; }
+  #spin-cue-caption {
+    margin-top: 4px;
+    font-size: 56px;
+    font-weight: 900;
+    letter-spacing: 6px;
+  }
+  @keyframes spin-cue-flash {
+    0%   { opacity: 1.0; }
+    100% { opacity: 0.35; }
+  }
+
   /*! XS */
   @media (orientation: portrait)
     {
@@ -62,6 +92,42 @@ function init()
   document.getElementById("aoa_att").innerHTML = 'N/A';
 
   reconnect();
+  }
+
+
+// Apply the spin-recovery cue to the overlay.  The overlay is a
+// position:fixed banner across the top of the page; we toggle it via
+// `display` so it disappears entirely when the cue is 0.  Three layered
+// channels (arrow, lit pedal, RUDDER caption) all key off the same sign
+// so a stressed pilot can read the direction from any one of them.
+function updateSpinCue(cue)
+  {
+  var overlay   = document.getElementById("spin-cue-overlay");
+  var arrowL    = document.getElementById("spin-arrow-left");
+  var arrowR    = document.getElementById("spin-arrow-right");
+  var pedalL    = document.getElementById("pedal-left");
+  var pedalR    = document.getElementById("pedal-right");
+
+  if (cue < 0)
+    {
+    arrowL.setAttribute("visibility", "visible");
+    arrowR.setAttribute("visibility", "hidden");
+    pedalL.setAttribute("fill", "#ff2222");
+    pedalR.setAttribute("fill", "#444");
+    overlay.style.display = "block";
+    }
+  else if (cue > 0)
+    {
+    arrowL.setAttribute("visibility", "hidden");
+    arrowR.setAttribute("visibility", "visible");
+    pedalL.setAttribute("fill", "#444");
+    pedalR.setAttribute("fill", "#ff2222");
+    overlay.style.display = "block";
+    }
+  else
+    {
+    overlay.style.display = "none";
+    }
   }
 
 // Start (or re-start) the WebSocket connection attempt without touching
@@ -236,6 +302,12 @@ function onMessage(evt)
     else
         document.getElementById("onspeeddot").style.visibility="hidden";
 
+    // Spin-recovery cue.  -1 = press LEFT rudder, +1 = press RIGHT
+    // rudder, 0 = no cue.  See onspeed_core/sensors/SpinDetector.h.
+    // Wire field is signed; parseInt handles the leading sign.
+    var spinCue = parseInt(OnSpeed.spinRecoveryCue, 10) || 0;
+    updateSpinCue(spinCue);
+
     } // end try
 
   catch (e)
@@ -388,6 +460,47 @@ updateAttitude(0,0);
 </script>
 
 <div id="container">
+  <!--
+    Spin-recovery cue overlay.  Triple encoding (arrow + rudder pedal
+    pair + "RUDDER" caption) prevents misreading under cockpit stress;
+    the cue intentionally appears only in a genuine emergency, so
+    screen real estate is not competing with normal-ops information.
+    The arrow and the lit pedal point at the rudder pedal the pilot
+    should press: anti-spin rudder is opposite the direction of yaw,
+    in both upright and inverted attitudes.
+    See onspeed_core/sensors/SpinDetector.h for the algorithm.
+  -->
+  <div id="spin-cue-overlay">
+    <svg id="spin-cue-svg" width="280" height="120" viewBox="0 0 280 120"
+         xmlns="http://www.w3.org/2000/svg">
+      <!-- Arrow chevron, 80x60.  Two filled paths sharing a centerline;
+           we toggle visibility on the appropriate one based on cue sign. -->
+      <g id="spin-arrow-left" visibility="hidden" fill="#ff2222">
+        <polygon points="80,30 30,30 30,10 0,40 30,70 30,50 80,50"/>
+      </g>
+      <g id="spin-arrow-right" visibility="hidden" fill="#ff2222">
+        <polygon points="0,30 50,30 50,10 80,40 50,70 50,50 0,50"/>
+      </g>
+      <!-- Rudder-pedal glyph: a pair of side-by-side trapezoidal pedals
+           at the right of the SVG.  The cued pedal is solid red, the
+           uncued pedal dim grey. -->
+      <g id="spin-pedals" transform="translate(120,10)">
+        <!-- left pedal -->
+        <polygon id="pedal-left"
+                 points="0,40 30,40 35,80 -5,80"
+                 fill="#444"/>
+        <!-- right pedal -->
+        <polygon id="pedal-right"
+                 points="60,40 90,40 95,80 55,80"
+                 fill="#444"/>
+        <!-- floor line -->
+        <line x1="-15" y1="82" x2="105" y2="82"
+              stroke="#888" stroke-width="2"/>
+      </g>
+    </svg>
+    <div id="spin-cue-caption">RUDDER</div>
+  </div>
+
   <div id="aoaindexer">
     <svg version="1.1" viewBox="0 0 210 297" width="100%" style="height: 70vh">
       <g>

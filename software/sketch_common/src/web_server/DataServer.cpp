@@ -283,7 +283,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
         "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
         "\"percentLift\":%i,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
-        "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i}";
+        "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,"
+        "\"spinRecoveryCue\":%i}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
@@ -440,7 +441,11 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         iJsonTonesOnPct,
         iJsonFastPct,
         iJsonSlowPct,
-        iJsonStallWarnPct);
+        iJsonStallWarnPct,
+        // Spin-recovery cue.  Read of a volatile int is atomic on Xtensa
+        // (32-bit aligned), so no mutex is needed.  Producer is the
+        // SpinDetector instance in DisplaySerial.cpp::Write().
+        (int)g_iSpinRecoveryCue);
 #pragma GCC diagnostic pop
 
     if (iChars < 0)

@@ -204,6 +204,7 @@ uint16_t        wgtY0;
 // Forward declarations
 void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boolean flashing, const int Array[]);
 void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t slipValue, boolean flashing, const int Array[]);
+void drawSpinCue(int cue, boolean flashing);
 void displayAOA();
 void displayDecelGauge();
 void displayGloadHistory();
@@ -628,6 +629,16 @@ void loop()
             default: break;
         } // end switch on display type
 
+        // Spin-recovery cue overlay.  Drawn after the per-mode switch so
+        // it sits on top of whichever indexer / attitude / gauge view is
+        // active, matching the LiveView's z-index 100 banner.  Runs
+        // only when the wire field is non-zero; the producer (firmware
+        // SpinDetector via the #1 protocol) handles all latching and
+        // hysteresis, so we just translate the sign into pixels.
+        // See onspeed_core/sensors/SpinDetector.h for the algorithm.
+        if (SpinRecoveryCue != 0)
+            drawSpinCue(SpinRecoveryCue, flashFlag);
+
         // Look for serial link failure (finding 037: use the shared
         // serialDataFresh() predicate rather than duplicating the threshold).
         // Draw red lines across display
@@ -1013,6 +1024,130 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
     gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 32, TFT_WHITE);
     gdraw.fillCircle (X0 + W / 2 - 1, ldmaxY, H / 32, TFT_WHITE);
 } // end drawAOA()
+
+
+// -----------------------------------------------
+/*
+   Draw spin-recovery cue overlay.
+
+   Triple-encoded directional cue: arrow + lit rudder pedal + "RUDDER"
+   caption.  All three channels key off the same sign so a stressed
+   pilot can read the direction from any one of them.
+
+   Geometry (320 x 240 panel):
+     - Black panel from y=0..110 (top third) overlays the indexer/AI/etc.
+     - Arrow (~80 x 50) anchored on the left, points toward the cued
+       rudder pedal.
+     - Rudder-pedal glyph (~80 x 50) on the right.  Cued pedal solid
+       red, uncued pedal dim grey.
+     - "RUDDER" caption in FSSB18 below the icons.
+
+   `cue`: -1 = press LEFT rudder, +1 = press RIGHT rudder, 0 = no draw.
+   `flashing`: alternates red/dark every flashRate ms (250 ms in main).
+
+   Algorithm and provenance live in onspeed_core/sensors/SpinDetector.h.
+*/
+void drawSpinCue(int cue, boolean flashing)
+{
+    if (cue == 0) return;
+
+    constexpr int PANEL_X      = 0;
+    constexpr int PANEL_Y      = 0;
+    constexpr int PANEL_W      = 320;
+    constexpr int PANEL_H      = 110;
+
+    constexpr int ARROW_CY     = 40;     // arrow vertical center
+    constexpr int ARROW_LEFT_X = 30;     // left edge of left-pointing arrow
+    constexpr int ARROW_W      = 80;     // arrow length
+    constexpr int ARROW_H      = 36;     // arrow tip-to-tip height
+    constexpr int ARROW_TAIL_H = 12;     // tail (rectangle) height
+
+    constexpr int PEDALS_X     = 200;    // left edge of pedal glyph
+    constexpr int PEDAL_W      = 30;
+    constexpr int PEDAL_H      = 36;
+    constexpr int PEDAL_GAP    = 14;
+    constexpr int PEDAL_TOP_Y  = 22;
+
+    constexpr int CAPTION_Y    = 95;     // baseline for RUDDER text
+
+    // Flashing: alternate between full red and dim red.  Background
+    // panel stays solid black so the underlying indexer doesn't bleed
+    // through.  Quarter-second cadence is the existing flashRate.
+    const uint16_t fg = flashing ? TFT_RED : 0x6800;  // 0x6800 = dim red
+    const uint16_t bg = TFT_BLACK;
+
+    // Background panel — solid black so the overlay reads cleanly over
+    // any per-mode render.
+    gdraw.fillRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, bg);
+
+    // Arrow — filled chevron pointing toward the cued pedal.  Built
+    // from a triangle (head) + rectangle (tail) so it reads as a
+    // direction symbol from across the cockpit.
+    if (cue < 0)
+    {
+        // Left arrow: head at ARROW_LEFT_X, tail extends right.
+        const int head_x  = ARROW_LEFT_X;
+        const int tail_x0 = ARROW_LEFT_X + ARROW_H;
+        const int tail_x1 = ARROW_LEFT_X + ARROW_W;
+        gdraw.fillTriangle(head_x,  ARROW_CY,
+                           tail_x0, ARROW_CY - ARROW_H / 2,
+                           tail_x0, ARROW_CY + ARROW_H / 2,
+                           fg);
+        gdraw.fillRect(tail_x0,
+                       ARROW_CY - ARROW_TAIL_H / 2,
+                       tail_x1 - tail_x0,
+                       ARROW_TAIL_H,
+                       fg);
+    }
+    else
+    {
+        // Right arrow: tail at left edge, head at right.
+        const int tail_x0 = ARROW_LEFT_X;
+        const int tail_x1 = ARROW_LEFT_X + ARROW_W - ARROW_H;
+        const int head_x  = ARROW_LEFT_X + ARROW_W;
+        gdraw.fillRect(tail_x0,
+                       ARROW_CY - ARROW_TAIL_H / 2,
+                       tail_x1 - tail_x0,
+                       ARROW_TAIL_H,
+                       fg);
+        gdraw.fillTriangle(head_x,  ARROW_CY,
+                           tail_x1, ARROW_CY - ARROW_H / 2,
+                           tail_x1, ARROW_CY + ARROW_H / 2,
+                           fg);
+    }
+
+    // Pedal glyph — pair of trapezoids representing the pilot's view
+    // of the rudder pedals.  Cued pedal in fg (red, flashing), uncued
+    // pedal in dim grey so the lit one stands out unambiguously.
+    const uint16_t left_pedal_color  = (cue < 0) ? fg : TFT_DARKGREY;
+    const uint16_t right_pedal_color = (cue > 0) ? fg : TFT_DARKGREY;
+
+    const int lp_x = PEDALS_X;
+    const int rp_x = PEDALS_X + PEDAL_W + PEDAL_GAP;
+
+    gdraw.fillRect(lp_x, PEDAL_TOP_Y, PEDAL_W, PEDAL_H, left_pedal_color);
+    gdraw.fillRect(rp_x, PEDAL_TOP_Y, PEDAL_W, PEDAL_H, right_pedal_color);
+
+    // Subtle pedal "floor" line under both, so the pair reads as
+    // pedals (not as bars).
+    gdraw.drawLine(lp_x - 4,
+                   PEDAL_TOP_Y + PEDAL_H + 2,
+                   rp_x + PEDAL_W + 4,
+                   PEDAL_TOP_Y + PEDAL_H + 2,
+                   TFT_LIGHT_GREY);
+
+    // "RUDDER" caption.  Centered horizontally in the panel.
+    gdraw.setFont(FSSB18);
+    gdraw.setTextColor(fg);
+    const char * caption = "RUDDER";
+    // Use textWidth + setCursor to keep the same baseline_left datum
+    // path as the rest of the M5 render (per the M5 CLAUDE.md text
+    // layout rules — never mix drawString and setCursor+print for
+    // aligned text).
+    const int cap_x = (PANEL_W - (int)gdraw.textWidth(caption)) / 2;
+    gdraw.setCursor(cap_x, CAPTION_Y);
+    gdraw.print(caption);
+}
 
 
 // -----------------------------------------------
