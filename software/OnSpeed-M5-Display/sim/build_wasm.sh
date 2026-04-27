@@ -1,25 +1,57 @@
 #!/usr/bin/env bash
 # build_wasm.sh — build the M5 display simulator for the browser.
 #
+# Two targets:
+#
+#   ./build_wasm.sh                  (or --target docs)
+#       The docs-site embed. Drives the display from a synthetic AOA
+#       ramp baked in via -DDUMMY_SERIAL_DATA. Output: sim/build/wasm/.
+#
+#   ./build_wasm.sh --target live
+#       The on-device embed. No DUMMY_SERIAL_DATA; instead exports
+#       _InjectSerialByte so JS can pipe live #1-protocol frames in
+#       from the firmware's WebSocket. Output: sim/build/wasm-live/.
+#
 # Emscripten's `-sUSE_SDL=2` port reuses the SDL2 code path M5GFX's
 # Panel_sdl backend already relies on — the same firmware binary that
 # runs on the macOS/Linux native target also compiles straight to
-# WebAssembly. The DUMMY_SERIAL_DATA flag in COMMON_FLAGS drives the
-# display from a synthetic data source (a ramping AOA that sweeps the
-# whole tone map) so the sim produces visible output with no external
-# data feed.
-#
-# Output lands under sim/build/wasm/: an index.html loader, a .js
-# driver, and a .wasm module. `python3 -m http.server 8080` from that
-# directory serves the sim to a browser.
+# WebAssembly.
 
 set -euo pipefail
+
+TARGET="docs"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
+        --target=*)
+            TARGET="${1#--target=}"
+            shift
+            ;;
+        *)
+            echo "Unknown arg: $1" >&2
+            echo "Usage: $0 [--target docs|live]" >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "${TARGET}" in
+    docs|live) ;;
+    *) echo "Invalid target: ${TARGET} (expected docs or live)" >&2; exit 2 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${PROJECT_DIR}/../.." && pwd)"
 
-OUT_DIR="${SCRIPT_DIR}/build/wasm"
+if [[ "${TARGET}" == "live" ]]; then
+    OUT_DIR="${SCRIPT_DIR}/build/wasm-live"
+else
+    OUT_DIR="${SCRIPT_DIR}/build/wasm"
+fi
 mkdir -p "${OUT_DIR}"
 
 # M5Unified and M5GFX are installed by pio into .pio/libdeps/<env>/. We
@@ -122,10 +154,13 @@ INCLUDES=(
 
 COMMON_FLAGS=(
     -O2
-    -DDUMMY_SERIAL_DATA
     -DM5GFX_BACK_COLOR=0x000000u
     -DM5GFX_SCALE=1
 )
+if [[ "${TARGET}" == "docs" ]]; then
+    # Docs sim: synthetic AOA ramp baked into SerialRead.cpp.
+    COMMON_FLAGS+=(-DDUMMY_SERIAL_DATA)
+fi
 
 CXXFLAGS=(
     "${COMMON_FLAGS[@]}"
@@ -147,6 +182,18 @@ EM_FLAGS=(
     -o "${OUT_DIR}/index.html"
     --shell-file "${SCRIPT_DIR}/wasm_shell.html"
 )
+if [[ "${TARGET}" == "live" ]]; then
+    # Live target: expose the byte-injection entry point so the JS
+    # bridge can pipe #1-protocol bytes received over the firmware's
+    # WebSocket into the parser. The wrapper lives in SimMain.cpp
+    # under #ifdef SIM_LIVE.
+    CXXFLAGS+=(-DSIM_LIVE)
+    CFLAGS+=(-DSIM_LIVE)
+    EM_FLAGS+=(
+        -sEXPORTED_FUNCTIONS=_main,_inject_serial_byte,_malloc,_free
+        -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8
+    )
+fi
 
 # Some onspeed_core sources reference <Arduino.h> transitively (via
 # includes from the sketch). The shim is already active on non-ESP
@@ -154,6 +201,7 @@ EM_FLAGS=(
 # sim dir to the include path so `#include "../sim/ArduinoShim.h"`
 # from GaugeWidgets.h resolves.
 
+echo "[wasm] Target: ${TARGET}"
 echo "[wasm] Compiling ${#FW_SOURCES[@]} firmware + $((${#M5G_CXX_SOURCES[@]}+${#M5G_C_SOURCES[@]})) M5GFX + ${#M5U_SOURCES[@]} M5Unified + ${#ONSPEED_SOURCES[@]} onspeed_core sources..."
 
 # tinyxml2 dependency (onspeed_core links it in via proto/LogCsv.cpp ->
