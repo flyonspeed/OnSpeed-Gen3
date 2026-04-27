@@ -108,7 +108,7 @@ struct DisplayBuildInputs {
     int   flapsMinDeg        = 0;     // minimum configured flap deg (lever full retract)
     int   flapsMaxDeg        = 0;     // maximum configured flap deg (lever full extend)
     float gOnsetRate         = 0.0f;  // G onset rate (G/s), currently always 0.0 — see issue #324
-    int   spinRecoveryCue    = 0;     // –1 / 0 / +1, currently always 0 — see PLAN_SPIN_RECOVERY_CUE.md
+    int   spinRecoveryCue    = 0;     // –1 / 0 / +1, currently always 0 (reserved for future spin-recovery cue logic)
     int   dataMark           = 0;     // data mark 0–99 (wraps mod 100)
 };
 
