@@ -585,16 +585,18 @@ void AudioPlay::PlayVoice()
 // ----------------------------------------------------------------------------
 
 // Play the commanded voice
-
-#define VOICE_BOOST     3.0f  // float to avoid double promotion on ESP32 soft-FPU
+//
+// Voice PCM is mastered at peak amplitude by scripts/normalize_voice_pcm.py,
+// so the runtime gain chain matches tones: (master volume × 3D-pan gain),
+// both ≤ 1.  Apply3DPan() in onspeed_core caps each channel at 1.0; the
+// post-multiply clamp below is defense-in-depth so a future regression in
+// the panning math can't drive ScaleAndClampI16 into hard clipping.
 
 void AudioPlay::PlayVoice(EnVoice enVoiceIn)
 {
     AudioLogDebugNoBlock("PlayVoice %d\n", enVoiceIn);
-    // These WAV based audio clips need a volume boost.
-    // Cap at 1.0 to prevent clipping when 3D panning gain (up to 2.0) combines with VOICE_BOOST.
-    float   fLeftVoiceVolume  = fVolume * VOICE_BOOST * fLeftGain;
-    float   fRightVoiceVolume = fVolume * VOICE_BOOST * fRightGain;
+    float   fLeftVoiceVolume  = fVolume * fLeftGain;
+    float   fRightVoiceVolume = fVolume * fRightGain;
     if (fLeftVoiceVolume  > 1.0f) fLeftVoiceVolume  = 1.0f;
     if (fRightVoiceVolume > 1.0f) fRightVoiceVolume = 1.0f;
 
@@ -656,8 +658,10 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
     if (effectiveTone == enToneNone)
         return;   // nothing to play, nothing to release
 
-    // Compose the four amplitude layers, capping to 1.0 to prevent
-    // waveform clipping when 3D pan ≥ 1.0 combines with master volume.
+    // Compose the four amplitude layers.  Apply3DPan caps fLeftGain /
+    // fRightGain at 1.0 and fStallVolumeMult ∈ [0.25, 1.0], so the
+    // product cannot exceed fVolume ≤ 1.0.  The clamp below is
+    // defense-in-depth against a future regression in the panning math.
     float fL = fVolume * fStallVolumeMult * fLeftGain;
     float fR = fVolume * fStallVolumeMult * fRightGain;
     if (fL > 1.0f) fL = 1.0f;
