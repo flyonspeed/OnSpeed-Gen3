@@ -117,9 +117,11 @@ Each `FLAP_POSITION` element contains:
 | `STALLWARNAOA` | float | Stall warning threshold AOA (degrees) |
 | `STALLAOA` | float | Actual stall AOA from calibration (degrees) |
 | `MANAOA` | float | Maneuvering speed AOA (degrees) |
-| `ALPHA0` | float | Zero-lift angle from physics fit (degrees) |
+| `ALPHA0` | float | Zero-lift angle from physics fit (degrees). Typically negative — wing incidence puts the fuselage nose-down at zero wing lift. |
 | `ALPHASTALL` | float | Stall angle from physics fit (degrees) |
 | `KFIT` | float | Lift sensitivity from IAS-to-AOA fit (deg·kt²) |
+
+The firmware validates setpoint ordering on save and on load. The required ordering for each flap position is `ALPHA0 < LDMAXAOA < ONSPEEDFASTAOA < ONSPEEDSLOWAOA < STALLWARNAOA < STALLAOA`. A violation surfaces on the config page as a per-flap `SetpointOrderError` (e.g., `Alpha0 (3.5) must be less than LDMAX (1.5)` when α₀ has been entered with the wrong sign). `STALLAOA` and `ALPHA0` skip the check at exactly 0.0, which is the uncalibrated sentinel.
 
 ### Per-Flap AOA Curve
 

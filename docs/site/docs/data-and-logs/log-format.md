@@ -11,7 +11,7 @@ OnSpeed records flight data to CSV files on the microSD card at **50 Hz** by def
 
 ### Metadata sidecar
 
-Each `log_NNN.csv` is written alongside a `log_NNN.meta` plain-text sidecar produced when the log closes. One `key=value` per line:
+Each `log_NNN.csv` is written alongside a `log_NNN.meta` plain-text sidecar. The firmware refreshes the sidecar every 30 seconds while the log is open and rewrites it once at close, so a flight that ends with a power yank still leaves a usable sidecar (worst case: the last 30 s of metadata is missing). The first 30 seconds of any flight are an exception — a power yank in that window leaves no sidecar at all, and the `/logs` page renders em-dashes for that flight rather than a misleading zero-valued line. One `key=value` per line:
 
 ```
 duration_ms=1842113
