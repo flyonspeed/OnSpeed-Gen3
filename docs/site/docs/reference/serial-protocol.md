@@ -131,9 +131,8 @@ The `#1` format is a **hard versioned protocol**: there is no length prefix, no 
 
 | OnSpeed version | Frame size | Change |
 | --- | ---: | --- |
-| ≤ 4.18 | 80 bytes | Original layout — pitch through dataMark, no per-flap aerodynamic anchors. |
-| 4.19 | 94 bytes | Briefly carried per-flap body-angle anchors (`alpha0Deg`, `alphaStallDeg`, four AOA setpoints, `aoaDeg`) so consumers could reproduce the percent-lift formula. Superseded by 4.20 before any production release. |
-| 4.20+ | 74 bytes | **Wire becomes a percent-lift contract.** The body-angle anchors come off the wire; in their place the producer emits `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift` — each per-flap setpoint put through the canonical `ComputePercentLift`. Consumers render entirely in percent space. The `ComputePercentLift` function itself was simplified to the honest single-linear formula at the same time. See [PR #320](https://github.com/flyonspeed/OnSpeed-Gen3/pull/320) for the rationale. |
+| ≤ 4.20 | 80 bytes | Original layout — pitch through dataMark plus per-flap body-angle setpoints (`tonesOnAoaDeg`, `onSpeedFastAoaDeg`, `onSpeedSlowAoaDeg`, `stallWarnAoaDeg`) and `aoaDeg`. Consumers reproduced the percent-lift segments locally from the body-angle anchors. |
+| 4.21 | 74 bytes | **Wire becomes a percent-lift contract.** The body-angle setpoints and `aoaDeg` come off the wire; in their place the producer emits `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift` — each per-flap setpoint put through the canonical `ComputePercentLift`. Consumers render entirely in percent space. `ComputePercentLift` itself moves to the honest single-linear formula at the same time. `gOnsetRate` (offset 62) populates from `GOnsetFilter` instead of always-zero. See [PR #320](https://github.com/flyonspeed/OnSpeed-Gen3/pull/320) and [PR #328](https://github.com/flyonspeed/OnSpeed-Gen3/pull/328). |
 
 ## G3X format (`=11` framing)
 

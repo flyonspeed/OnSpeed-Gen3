@@ -11,8 +11,8 @@ OnSpeed supports two attitude estimation algorithms:
 | **Madgwick** | `0` (default) | Complementary filter, quaternion-based. Well-proven, low CPU cost. |
 | **EKF6** | `1` | 6-state Extended Kalman Filter that estimates pitch, roll, AOA, and three gyro biases. See the note below before selecting. |
 
-!!! warning "EKF6 has a known divergence issue"
-    EKF6 has a gyro-bias convergence bug (tracked in issue #128 and fix PR #131): with a realistic pitch-rate bias, the filter can drift to attitude values well outside the flight envelope within a couple of minutes on the ground. Leave `AHRS_ALGORITHM` at `0` (Madgwick) until the fix lands and is flight-verified.
+!!! warning "EKF6 still flight-unverified"
+    Issue [#128](https://github.com/flyonspeed/OnSpeed-Gen3/issues/128) tracks the EKF6 divergence root-cause analysis. v4.21 lands the gyro-bias convergence fix ([PR #319](https://github.com/flyonspeed/OnSpeed-Gen3/pull/319), `q_bias` raised so a real 0.3 dps bias converges in ~30 s instead of ~290 s), the dt-scaled process-noise injection ([PR #318](https://github.com/flyonspeed/OnSpeed-Gen3/pull/318)), the `+1g` reaction-force convention realignment ([PR #312](https://github.com/flyonspeed/OnSpeed-Gen3/pull/312)), and the EKF6-adapter sign fixes that previously sent a static 10° tilt to ~170° ([PR #310](https://github.com/flyonspeed/OnSpeed-Gen3/pull/310)). The remaining concerns flagged by issue #128 — the alpha-measurement tautology and Euler-angle singularity — are not addressed in v4.21. Leave `AHRS_ALGORITHM` at `0` (Madgwick) for routine flight; pilots experimenting with EKF6 should fly a verification approach against existing calibration before relying on the tones.
 
 !!! note "No recalibration when switching"
     Both algorithms compute Derived AOA slightly differently, but switching between them does not require recalibration. Your existing calibration curves work with either algorithm.
