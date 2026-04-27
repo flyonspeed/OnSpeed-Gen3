@@ -81,6 +81,7 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 #include "SerialRead.h"
+#include <gauges/FlapWidgetMath.h>
 
 #if defined(ESP_PLATFORM)
 Preferences preferences;
@@ -763,21 +764,32 @@ void displayAOA()
         int cX              =  23;
         int cY              = 204;
         int Radius          =  16;
-        int triangleTopX    = int(cX+sin(FlapPos*PI/180)*Radius);
-        int triangleTopY    = int(cY-cos(FlapPos*PI/180)*Radius);
-        int triangleBottomX = int(cX-sin(FlapPos*PI/180)*Radius);
-        int triangleBottomY = int(cY+cos(FlapPos*PI/180)*Radius);
-        int triangleRightX  = int(cX+cos(FlapPos*PI/180)*(Radius+33));
-        int triangleRightY  = int(cY+sin(FlapPos*PI/180)*(Radius+33));
+        // Map FlapPos into a fraction of configured travel
+        // [FlapsMinDeg..FlapsMaxDeg] -> [0..1] via the pure helper, then
+        // sweep the triangle through a fixed visual arc (0..kFlapArcDeg).
+        // Endpoint-locked regardless of the absolute degree values, so
+        // reflex flaps (negative min) and >30 deg deployments render
+        // correctly.  See test/test_flap_widget_math/ for the contract.
+        constexpr float kFlapArcDeg = 40.0f;                      // visual arc the triangle sweeps
+        constexpr float kFlapArcRad = kFlapArcDeg * float(PI) / 180.0f;
+        const float frac     = onspeed::gauges::FlapWidgetFrac(FlapPos, FlapsMinDeg, FlapsMaxDeg);
+        const float angleRad = frac * kFlapArcRad;
+        int triangleTopX    = int(cX+sin(angleRad)*Radius);
+        int triangleTopY    = int(cY-cos(angleRad)*Radius);
+        int triangleBottomX = int(cX-sin(angleRad)*Radius);
+        int triangleBottomY = int(cY+cos(angleRad)*Radius);
+        int triangleRightX  = int(cX+cos(angleRad)*(Radius+33));
+        int triangleRightY  = int(cY+sin(angleRad)*(Radius+33));
         gdraw.fillTriangle(triangleTopX, triangleTopY, triangleBottomX, triangleBottomY, triangleRightX, triangleRightY, TFT_GREY);
         gdraw.drawPixel(triangleRightX, triangleRightY, TFT_BLACK); // blunt the flap tip 1 pixel
 
-        // show flap stops
-        gdraw.drawPixel(72, 204, TFT_WHITE);
-        gdraw.drawPixel(71, 212, TFT_WHITE);
-        gdraw.drawPixel(69, 220, TFT_WHITE);
-        gdraw.drawPixel(65, 228, TFT_WHITE);
-        gdraw.drawPixel(60, 235, TFT_WHITE);
+        // Stop marks at the arc endpoints (FlapsMinDeg, FlapsMaxDeg).
+        // Per-detent stops would need a wire-format change; out of scope.
+        const int stopRadius = Radius + 33;
+        gdraw.drawPixel(int(cX + cos(0.0f)       * stopRadius),
+                        int(cY + sin(0.0f)       * stopRadius), TFT_WHITE);
+        gdraw.drawPixel(int(cX + cos(kFlapArcRad) * stopRadius),
+                        int(cY + sin(kFlapArcRad) * stopRadius), TFT_WHITE);
 
         // show numeric flap angle
         gdraw.setFont(FSS12);
