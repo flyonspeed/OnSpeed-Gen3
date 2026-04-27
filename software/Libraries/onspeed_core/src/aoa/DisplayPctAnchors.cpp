@@ -1,9 +1,14 @@
 // DisplayPctAnchors.cpp — implementation
 //
-// Bracket-search interpolation between adjacent flap detents for the
-// L/Dmax pip, with the OnSpeed band edges and stall-warn anchor
-// snapped to the active detent.  See DisplayPctAnchors.h for the
-// design rule.
+// Two cues, two rules (Vac, ld_max.pdf §8):
+//   * tonesOnPctLift snaps to the active detent's calibrated L/Dmax
+//     percent — the operational audio gate.
+//   * pipPctLift interpolates linearly across the entire pot range,
+//     from the cleanest detent's L/Dmax percent to the most-deployed
+//     detent's OnSpeed-band center — the visual aerodynamic reference.
+//   * Band edges + flapsDeg behave per the table in DisplayPctAnchors.h.
+//
+// See DisplayPctAnchors.h for the design rule.
 
 #include <aoa/DisplayPctAnchors.h>
 
@@ -45,28 +50,32 @@ int LerpDegInt(int degA, int degB, float lambda)
     return d;
 }
 
-// Populate snapped band-edge anchors (Fast / Slow / StallWarn) from
-// the active detent.  L/Dmax and flapsDeg are filled in separately by
-// the bracket-interpolation path.
-void FillSnappedBandEdges(DisplayPctAnchors& out,
-                          const SuFlaps& active,
-                          bool iasValid)
+// Populate snapped band-edge anchors (TonesOn / Fast / Slow / StallWarn)
+// from the active detent.  These are the operational audio cues — they
+// must match the audio path's gate, which reads
+// `g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA` etc. directly.
+void FillSnappedOperational(DisplayPctAnchors& out,
+                            const SuFlaps& active,
+                            bool iasValid)
 {
-    out.onSpeedFastPctLift = ComputePercentLift(active.fONSPEEDFASTAOA, active, iasValid);
-    out.onSpeedSlowPctLift = ComputePercentLift(active.fONSPEEDSLOWAOA, active, iasValid);
-    out.stallWarnPctLift   = ComputePercentLift(active.fSTALLWARNAOA,   active, iasValid);
+    out.tonesOnPctLift     = ComputePercentLift(active.fLDMAXAOA,        active, iasValid);
+    out.onSpeedFastPctLift = ComputePercentLift(active.fONSPEEDFASTAOA,  active, iasValid);
+    out.onSpeedSlowPctLift = ComputePercentLift(active.fONSPEEDSLOWAOA,  active, iasValid);
+    out.stallWarnPctLift   = ComputePercentLift(active.fSTALLWARNAOA,    active, iasValid);
 }
 
-// Build a DisplayPctAnchors snapshot for a single detent (no
-// interpolation anywhere).  Used at the endpoints (lever clamped) and
-// when only one detent is configured.
-DisplayPctAnchors AnchorsForOneDetent(const SuFlaps& f, bool iasValid)
+// Compute the visual pip's "full-flap target" percent: the geometric
+// center of the most-deployed detent's OnSpeed band, in the same
+// percent space the rest of the wire uses.  Per Vac §8 + spec §6.
+int FullFlapPipTarget(const SuFlaps& mostDeployed, bool iasValid)
 {
-    DisplayPctAnchors a;
-    a.tonesOnPctLift = ComputePercentLift(f.fLDMAXAOA, f, iasValid);
-    FillSnappedBandEdges(a, f, iasValid);
-    a.flapsDeg = f.iDegrees;
-    return a;
+    const int fastPct = ComputePercentLift(mostDeployed.fONSPEEDFASTAOA, mostDeployed, iasValid);
+    const int slowPct = ComputePercentLift(mostDeployed.fONSPEEDSLOWAOA, mostDeployed, iasValid);
+    int center = static_cast<int>(std::lround(
+        (static_cast<float>(fastPct) + static_cast<float>(slowPct)) / 2.0f));
+    if (center < 0)  center = 0;
+    if (center > 99) center = 99;
+    return center;
 }
 
 }   // namespace
@@ -81,7 +90,8 @@ DisplayPctAnchors ComputeDisplayPctAnchors(
     DisplayPctAnchors out;
 
     if (flapEntries == nullptr || entryCount == 0u) {
-        // No calibration; consumer renders "uncalibrated".
+        // No calibration; consumer renders "uncalibrated".  Both pip
+        // and operational anchors stay at zero.
         return out;
     }
 
@@ -92,24 +102,56 @@ DisplayPctAnchors ComputeDisplayPctAnchors(
     }
     const SuFlaps& active = flapEntries[activeIndex];
 
+    // OPERATIONAL anchors — always snap to the active detent.
+    // tonesOnPctLift is the audio gate the M5 chevron mirrors;
+    // band edges set the donut and stall-warn screen positions.
+    FillSnappedOperational(out, active, iasValid);
+
     if (entryCount == 1u) {
-        return AnchorsForOneDetent(active, iasValid);
+        // Only one detent configured: pip cannot slide, lock at the
+        // single detent's L/Dmax percent (already in tonesOnPctLift).
+        out.pipPctLift = out.tonesOnPctLift;
+        out.flapsDeg   = active.iDegrees;
+        return out;
     }
 
-    // Band edges and stall-warn snap to the active detent (matches the
-    // audio path).  Filled here once; the bracket loop below only
-    // touches the L/Dmax pip and flapsDeg.
-    FillSnappedBandEdges(out, active, iasValid);
+    // PIP — linearly interpolate across the ENTIRE configured pot range
+    // from the cleanest detent (`flapEntries[0]`) to the most-deployed
+    // detent (`flapEntries[entryCount-1]`).  Intermediate detents
+    // (e.g., a 16° flap setting in a 0/16/33 config) are intentionally
+    // ignored: the pip is a smooth visual aerodynamic reference, not a
+    // per-detent calibration anchor.  See spec §"Behavior contract" /
+    // pipPctLift, and Vac's ld_max.pdf §8.
+    {
+        const SuFlaps& cleanest     = flapEntries[0];
+        const SuFlaps& mostDeployed = flapEntries[entryCount - 1u];
 
-    // Walk adjacent pairs (i, i+1) and find the one whose pot positions
-    // bracket `rawAdc`.  The detector supports both ascending and
-    // descending wiring; bracket search is order-agnostic since it
-    // tests min/max of each pair.
-    //
-    // Endpoint clamping: if `rawAdc` is outside the entire range of
-    // configured pot positions (below the smallest or above the
-    // largest), the loop falls through and we hand back the closest
-    // endpoint detent's anchors via the post-loop endpoint check.
+        const int rawAdcInt = static_cast<int>(rawAdc);
+        const int potA      = cleanest.iPotPosition;
+        const int potB      = mostDeployed.iPotPosition;
+        const int span      = potB - potA;
+
+        const int pipClean    = ComputePercentLift(cleanest.fLDMAXAOA, cleanest, iasValid);
+        const int pipFullFlap = FullFlapPipTarget(mostDeployed, iasValid);
+
+        float lambda;
+        if (span == 0) {
+            // Degenerate wiring: cleanest and most-deployed share the
+            // same pot.  Lock pip at the clean endpoint.
+            lambda = 0.0f;
+        } else {
+            lambda = static_cast<float>(rawAdcInt - potA)
+                   / static_cast<float>(span);
+            if (lambda < 0.0f) lambda = 0.0f;
+            if (lambda > 1.0f) lambda = 1.0f;
+        }
+        out.pipPctLift = LerpPctInt(pipClean, pipFullFlap, lambda);
+    }
+
+    // flapsDeg — per-bracket interpolation using each adjacent-detent
+    // pair's iDegrees and pot positions.  Different math from the pip:
+    // the lever angle must visit every detent's iDegrees exactly when
+    // the lever pot equals that detent's iPotPosition.
     const int rawAdcInt = static_cast<int>(rawAdc);
 
     for (size_t i = 0u; i + 1u < entryCount; ++i) {
@@ -120,15 +162,9 @@ DisplayPctAnchors ComputeDisplayPctAnchors(
         const int hi = std::max(potA, potB);
 
         if (rawAdcInt >= lo && rawAdcInt <= hi) {
-            // Lever is within this bracket.  Compute lambda along the
-            // (potA -> potB) direction so detent a's values appear at
-            // lambda=0 and detent b's at lambda=1.
-            const int span = potB - potA;       // signed; can be negative for descending wiring
+            const int span = potB - potA;
             float lambda;
             if (span == 0) {
-                // Two adjacent detents share the same pot position
-                // (degenerate config).  Lambda doesn't matter; default
-                // to 0 so detent a's values are returned.
                 lambda = 0.0f;
             } else {
                 lambda = static_cast<float>(rawAdcInt - potA)
@@ -136,27 +172,16 @@ DisplayPctAnchors ComputeDisplayPctAnchors(
                 if (lambda < 0.0f) lambda = 0.0f;
                 if (lambda > 1.0f) lambda = 1.0f;
             }
-
-            // Interpolate L/Dmax pip + flapsDeg between the bracket
-            // endpoints.  Band edges (Fast/Slow/StallWarn) keep the
-            // already-filled snapped values from `active`.
             const SuFlaps& a = flapEntries[i];
             const SuFlaps& b = flapEntries[i + 1u];
-
-            const int tonesA = ComputePercentLift(a.fLDMAXAOA, a, iasValid);
-            const int tonesB = ComputePercentLift(b.fLDMAXAOA, b, iasValid);
-
-            out.tonesOnPctLift = LerpPctInt(tonesA, tonesB, lambda);
-            out.flapsDeg       = LerpDegInt(a.iDegrees, b.iDegrees, lambda);
+            out.flapsDeg = LerpDegInt(a.iDegrees, b.iDegrees, lambda);
             return out;
         }
     }
 
-    // Lever is outside the entire range.  Find the endpoint detent
-    // (the one whose pot position is on the side `rawAdc` exceeds) and
-    // return its anchors unmodified — both L/Dmax and band edges snap
-    // to that endpoint.  Wiring may be ascending or descending; pick
-    // the entry whose pot position is closest to the reading.
+    // Lever is outside the entire configured range — flapsDeg snaps to
+    // the closest endpoint detent.  (Pip is already lambda-clamped to
+    // its endpoint above; operational anchors come from active.)
     size_t closestIdx = 0u;
     int    closestDist = std::abs(static_cast<int>(flapEntries[0].iPotPosition) - rawAdcInt);
     for (size_t i = 1u; i < entryCount; ++i) {
@@ -166,7 +191,8 @@ DisplayPctAnchors ComputeDisplayPctAnchors(
             closestIdx  = i;
         }
     }
-    return AnchorsForOneDetent(flapEntries[closestIdx], iasValid);
+    out.flapsDeg = flapEntries[closestIdx].iDegrees;
+    return out;
 }
 
 }   // namespace onspeed::aoa

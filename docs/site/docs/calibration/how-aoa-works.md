@@ -111,3 +111,28 @@ The wizard performs two fits:
 2. **IAS to DerivedAOA hyperbola** — the $K/\text{IAS}^2 + \alpha_0$ fit that extracts $\alpha_0$, $\alpha_\text{stall}$, and the $K$ parameter
 
 From these, it computes the six AOA setpoints (L/D~MAX~, ONSPEED-Fast, ONSPEED-Slow, Stall Warning, Stall, Maneuvering) using the normalized AOA fractions.
+
+## L/D~MAX~ pip vs. low-tone threshold
+
+The indexer carries two cues that look related but are independent:
+
+- **L/D~MAX~ pip** — the small white dots on the index bar's edges. *Aerodynamic reference.* Slides smoothly as the lever moves, from the cleanest detent's L/D~MAX~ percent up to the most-deployed detent's OnSpeed-band center.
+- **Low-tone threshold** — the audio "you're flying too fast for this configuration" cue, and the bottom green chevron that mirrors it. *Operational cue.* Snaps to the active detent's calibrated L/D~MAX~ body angle.
+
+Per Vac's design rule, "L/Dmax pips are aerodynamic references; fast tone is an operational limit cue; they must remain independent." The pip slides because aerodynamically L/D~MAX~ slides toward the OnSpeed band as flaps deploy. The audio threshold snaps because it must match a specific calibrated body angle for each flap setting.
+
+The two coincide visually only at the cleanest detent, where L/D~MAX~ *is* both the audio threshold and the aerodynamic reference. As flaps deploy, the pip slides up through the donut band while the chevron edge stays at the active detent's calibrated L/D~MAX~ percent.
+
+For the full layered specification — every gate, every color rule, every wire field — see [Indexer Spec](../software/indexer-spec.md).
+
+### Worked example (RV-10, 0° / 16° / 33° calibration)
+
+| Flap | L/D~MAX~ pct (audio threshold, chevron edge) | Pip pct (visual) |
+|---|---|---|
+| 0° (clean) | 49 | 49 (pip and chevron edge coincide) |
+| 16° | 46 | 53 (lerp position; ignores 16° detent's calibrated 46) |
+| 33° (full) | 33 | 59 (geometric center of OnSpeed band) |
+
+(Percents come from the actual firmware computation, which truncates fractions toward zero per the saturation convention.)
+
+At full flaps, the pip sits inside the donut band on screen — the visual "you'd better be near the donut on approach" cue. The audio low tone fires at 33% (a much lower AOA), giving the pilot the same operational "you're fast" cue the audio path always provided.

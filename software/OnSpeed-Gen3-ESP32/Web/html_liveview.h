@@ -273,9 +273,12 @@ function onMessage(evt)
     // by the canonical onspeed_core/aoa/PercentLift helper.  This
     // mirrors the M5 #1 wire format byte-for-byte in semantic content
     // — a future shared indexer renderer can run identically off
-    // either transport.
+    // either transport.  Two cues per Vac's ld_max.pdf §8:
+    //   tonesOnPctLift snaps per active detent (operational, audio gate).
+    //   pipPctLift slides smoothly clean→fullflap (visual, aerodynamic
+    //   reference) — read this for the L/Dmax pip dots below.
     var aoaPct       = parseInt(OnSpeed.percentLift,        10);
-    var ldmaxPct     = parseInt(OnSpeed.tonesOnPctLift,     10);
+    var ldmaxPct     = parseInt(OnSpeed.pipPctLift,         10);
     var fastPct      = parseInt(OnSpeed.onSpeedFastPctLift, 10);
     var slowPct      = parseInt(OnSpeed.onSpeedSlowPctLift, 10);
     var stallWarnPct = parseInt(OnSpeed.stallWarnPctLift,   10);
@@ -305,10 +308,12 @@ function onMessage(evt)
       document.getElementById("aoaline").style.visibility="hidden";
       }
 
-    // L/Dmax pip dots — sit at the screen-y for ldmaxPct.  Slides
-    // per flap because L/Dmax body angle puts a different percent
-    // through the calibration on each flap config.  +3 offset keeps
-    // the dot centered against the 6.69-px-high aoaline rect.
+    // L/Dmax pip dots — sit at the screen-y for the visual pip percent
+    // (pipPctLift), which lerps smoothly across the entire pot range
+    // from cleanest detent's L/Dmax to most-deployed detent's OnSpeed
+    // center.  Aerodynamic reference cue, not the audio threshold.
+    // +3 offset keeps the dot centered against the 6.69-px-high
+    // aoaline rect.
     var ldmax_y = pct2y(ldmaxPct) + 3;
 
     document.getElementById("ldmaxleft").setAttribute("cy", ldmax_y);

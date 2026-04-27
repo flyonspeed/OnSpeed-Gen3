@@ -69,5 +69,6 @@ int main()
     std::printf("gOnsetRate=%.4f\n",          f.gOnsetRate);
     std::printf("spinRecoveryCue=%d\n",       f.spinRecoveryCue);
     std::printf("dataMark=%d\n",              f.dataMark);
+    std::printf("pipPctLift=%d\n",            f.pipPctLift);
     return 0;
 }

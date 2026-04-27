@@ -110,6 +110,7 @@ void InjectSerialByte(char inChar)
     OnSpeedFastPctLift   = f.onSpeedFastPctLift;
     OnSpeedSlowPctLift   = f.onSpeedSlowPctLift;
     StallWarnPctLift     = f.stallWarnPctLift;
+    PipPctLift           = f.pipPctLift;
     FlapsMinDeg          = f.flapsMinDeg;
     FlapsMaxDeg          = f.flapsMaxDeg;
     gOnsetRate           = f.gOnsetRate;
@@ -234,11 +235,14 @@ void SerialRead()
         // Per-flap band-edge percents — what the firmware emits over
         // the wire for this fixed calibration.  Constant across the
         // sweep so the visual state at any given PercentLift is
-        // readable.
+        // readable.  PipPctLift collapses to TonesOnPctLift in the
+        // dummy-data path because the synthetic feed has no lever-pot
+        // motion to interpolate over.
         TonesOnPctLift       = pctOf(kLdmax);
         OnSpeedFastPctLift   = pctOf(kFast);
         OnSpeedSlowPctLift   = pctOf(kSlow);
         StallWarnPctLift     = pctOf(kWarn);
+        PipPctLift           = TonesOnPctLift;
 
         // Drive only the index-bar position.
         PercentLift          = demoPct;
