@@ -258,8 +258,17 @@ void test_LDmax_pip_continuous_through_three_detent_snaps(void)
         DisplayPctAnchors before = ComputeDisplayPctAnchors(mid - 1, flaps, 3, 0, true);
         DisplayPctAnchors at     = ComputeDisplayPctAnchors(mid,     flaps, 3, 1, true);
         DisplayPctAnchors after  = ComputeDisplayPctAnchors(mid + 1, flaps, 3, 1, true);
+        // L/Dmax pip continuous through the snap.
         TEST_ASSERT_INT_WITHIN(1, at.tonesOnPctLift, before.tonesOnPctLift);
         TEST_ASSERT_INT_WITHIN(1, at.tonesOnPctLift, after.tonesOnPctLift);
+        // Band edges step from clean (detent 0) to takeoff (detent 1)
+        // at the snap — intentional, matches the audio cue threshold.
+        TEST_ASSERT_EQUAL_INT(Pct(flaps[0].fONSPEEDFASTAOA, flaps[0]),
+                              before.onSpeedFastPctLift);
+        TEST_ASSERT_EQUAL_INT(Pct(flaps[1].fONSPEEDFASTAOA, flaps[1]),
+                              at.onSpeedFastPctLift);
+        TEST_ASSERT_EQUAL_INT(Pct(flaps[1].fONSPEEDFASTAOA, flaps[1]),
+                              after.onSpeedFastPctLift);
     }
 
     // Second boundary: midpoint of takeoff (2000) and full (3000) = 2500.
@@ -268,8 +277,17 @@ void test_LDmax_pip_continuous_through_three_detent_snaps(void)
         DisplayPctAnchors before = ComputeDisplayPctAnchors(mid - 1, flaps, 3, 1, true);
         DisplayPctAnchors at     = ComputeDisplayPctAnchors(mid,     flaps, 3, 2, true);
         DisplayPctAnchors after  = ComputeDisplayPctAnchors(mid + 1, flaps, 3, 2, true);
+        // L/Dmax pip continuous through the snap.
         TEST_ASSERT_INT_WITHIN(1, at.tonesOnPctLift, before.tonesOnPctLift);
         TEST_ASSERT_INT_WITHIN(1, at.tonesOnPctLift, after.tonesOnPctLift);
+        // Band edges step from takeoff (detent 1) to full (detent 2)
+        // at the snap.
+        TEST_ASSERT_EQUAL_INT(Pct(flaps[1].fONSPEEDFASTAOA, flaps[1]),
+                              before.onSpeedFastPctLift);
+        TEST_ASSERT_EQUAL_INT(Pct(flaps[2].fONSPEEDFASTAOA, flaps[2]),
+                              at.onSpeedFastPctLift);
+        TEST_ASSERT_EQUAL_INT(Pct(flaps[2].fONSPEEDFASTAOA, flaps[2]),
+                              after.onSpeedFastPctLift);
     }
 }
 
