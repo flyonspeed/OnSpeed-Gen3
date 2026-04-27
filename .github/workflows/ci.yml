@@ -68,6 +68,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio
 
+      # The Indexer tab embeds the M5 sim WASM as gzipped PROGMEM
+      # blobs.  The PIO pre-build hook (scripts/embed_sim_prebuild.py)
+      # needs emscripten on PATH to regenerate the headers when M5 sim
+      # sources change.  Same emsdk version as the docs site uses.
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.21
+          actions-cache-folder: 'emsdk-cache'
+
+      # Populate the M5 native env's libdeps cache (M5Unified, M5GFX).
+      # The WASM build reuses these — without them the embed script
+      # fails on a fresh checkout.
+      - name: Install M5 native libdeps for sim build
+        run: |
+          pio pkg install -e native --project-dir software/OnSpeed-M5-Display
+
       - name: Build firmware
         id: build
         run: |
