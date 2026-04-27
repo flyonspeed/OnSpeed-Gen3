@@ -3084,6 +3084,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#g-onset-rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G-onset rate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#aspirational-not-yet-wired-fields" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3313,6 +3324,17 @@
     <span class="md-ellipsis">
       
         Field semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#g-onset-rate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G-onset rate
       
     </span>
   </a>
@@ -3733,8 +3755,10 @@
 <li><strong><code>flapsMinDeg</code> / <code>flapsMaxDeg</code> are the configured travel range,</strong> scanned across all entries in <code>aFlaps</code>. Useful for a flap-position widget that draws its arc against actual aircraft endpoints rather than hardcoded values.</li>
 <li><strong><code>dataMark</code> wraps mod 100.</strong> The pilot's data-mark counter increments without bound in the firmware; the wire field carries <code>counter % 100</code>.</li>
 </ul>
+<h3 id="g-onset-rate">G-onset rate<a class="headerlink" href="#g-onset-rate" title="Permanent link">&para;</a></h3>
+<p><code>gOnsetRate</code> (offset 62) carries a low-pass-filtered <code>d(verticalG)/dt</code> in g/s, with a 250 ms time constant applied at the 20 Hz wire rate. Sign convention follows <code>verticalG</code> (production reaction-force convention: +1 g level), so positive output means "G load increasing". The M5's Primary-mode renderer draws a vertical orange tape on the right edge whose height saturates at 2 g/s. Implementation: <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/filters/GOnsetFilter.h"><code>onspeed_core/filters/GOnsetFilter.h</code></a>.</p>
 <h3 id="aspirational-not-yet-wired-fields">Aspirational / not-yet-wired fields<a class="headerlink" href="#aspirational-not-yet-wired-fields" title="Permanent link">&para;</a></h3>
-<p>Two fields are part of the wire layout today but populated with placeholder values by the producer. They occupy their byte offsets so future producers/consumers don't have to bump the protocol again. Treat them as reserved — but don't be surprised if you see real values flowing through them later.</p>
+<p>One field is part of the wire layout today but populated with a placeholder value by the producer. It occupies its byte offset so future producers/consumers don't have to bump the protocol again. Treat it as reserved — but don't be surprised if you see real values flowing through it later.</p>
 <table>
 <thead>
 <tr>
@@ -3744,11 +3768,6 @@
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><code>gOnsetRate</code> (offset 62)</td>
-<td>Always <code>0.0</code> from the producer today. The M5 already has render code (<code>if (gOnsetRate != 0.0)</code> draws a vertical orange tape on the right edge of Primary mode) — the moment the firmware computes a real onset rate and emits it, the existing M5 build picks it up with no display-side work. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/324">issue #324</a>.</td>
-<td>Producer-side computation: a low-pass-filtered <code>d(verticalG)/dt</code> from the AHRS accel filter. Not a field-set change.</td>
-</tr>
 <tr>
 <td><code>spinRecoveryCue</code> (offset 66)</td>
 <td>Always <code>0</code> from the producer today. Intended as a <code>−1 / 0 / +1</code> direction cue (left / none / right) for an upcoming spin-recovery indicator. No consumer renders it yet.</td>
