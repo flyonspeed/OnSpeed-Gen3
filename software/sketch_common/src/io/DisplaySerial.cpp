@@ -8,8 +8,10 @@
 #include <aoa/PercentLift.h>
 #include <filters/GOnsetFilter.h>
 #include <proto/DisplaySerial.h>
+#include <sensors/SpinDetector.h>
 
 using onspeed::GOnsetFilter;
+using onspeed::SpinDetector;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
 using onspeed::aoa::ComputeDisplayPctAnchors;
@@ -256,6 +258,34 @@ void DisplaySerial::Write()
     else
         iPercentLift = 0;
 
+    // Spin-recovery cue: latched directional rudder cue derived from
+    // body-frame yaw rate and stalled AOA.  Algorithm and provenance
+    // (F/A-18 SRM with three GA deltas) live in
+    // onspeed_core/sensors/SpinDetector.h.  The detector is a static
+    // local since it is owned by this task and ticked once per wire
+    // frame; the resulting cue is published to g_iSpinRecoveryCue for
+    // the LiveView consumer in DataServer.cpp.
+    //
+    // Without a valid flap snapshot we cannot evaluate the AOA gate;
+    // emit 0 (no cue) and skip the detector update so its filter
+    // doesn't drift from no-input ticks.
+    static SpinDetector sSpinDetector;
+    static uint32_t     sLastSpinMicros = 0;
+    int                 iSpinCue        = 0;
+    if (bFlapSnapshotValid) {
+        const uint32_t uSpinNowMicros = micros();
+        const float fSpinDt = (sLastSpinMicros == 0)
+            ? (kDisplaySerialPeriodMs * 1.0e-3f)
+            : ((uSpinNowMicros - sLastSpinMicros) * 1.0e-6f);
+        sLastSpinMicros = uSpinNowMicros;
+
+        iSpinCue = sSpinDetector.Update(fSpinDt,
+                                        g_AHRS.gYaw,
+                                        g_Sensors.AOA,
+                                        flapSnapshot.fSTALLAOA);
+    }
+    g_iSpinRecoveryCue = iSpinCue;
+
     // Display percent anchors for the M5 indexer:
     //   * tonesOnPctLift (the L/Dmax pip) — INTERPOLATED across the
     //     bracket containing the lever, so the pip slides smoothly
@@ -370,7 +400,7 @@ void DisplaySerial::Write()
         inputs.flapsMinDeg        = iFlapsMinDeg;
         inputs.flapsMaxDeg        = iFlapsMaxDeg;
         inputs.gOnsetRate         = fGOnsetRate;
-        inputs.spinRecoveryCue    = 0;
+        inputs.spinRecoveryCue    = iSpinCue;
         inputs.dataMark           = (int)((unsigned)g_iDataMark % 100u);
 
         uint8_t frameBuf[kDisplayFrameSizeBytes];

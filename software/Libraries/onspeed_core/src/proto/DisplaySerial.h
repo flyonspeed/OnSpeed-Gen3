@@ -108,7 +108,7 @@ struct DisplayBuildInputs {
     int   flapsMinDeg        = 0;     // minimum configured flap deg (lever full retract)
     int   flapsMaxDeg        = 0;     // maximum configured flap deg (lever full extend)
     float gOnsetRate         = 0.0f;  // G onset rate (g/s); positive = G load increasing
-    int   spinRecoveryCue    = 0;     // –1 / 0 / +1, currently always 0 (reserved for future spin-recovery cue logic)
+    int   spinRecoveryCue    = 0;     // –1 / 0 / +1: directional rudder cue. -1 = press left rudder, +1 = press right rudder, 0 = no cue. See onspeed_core/sensors/SpinDetector.h for the algorithm.
     int   dataMark           = 0;     // data mark 0–99 (wraps mod 100)
 };
 

@@ -163,6 +163,14 @@ EXTERN_INIT(volatile int g_iDataMark, 0)
 EXTERN volatile float g_fCoeffP;                  // coefficient of pressure
 EXTERN_INIT(volatile bool g_bAudioEnable, true);    //// Move to audio
 
+// Spin-recovery cue (-1 / 0 / +1).  Written by WriteDisplayDataTask once
+// per wire frame (20 Hz) from a SpinDetector instance; read by the
+// LiveView WebSocket payload (DataServer.cpp) for the browser overlay.
+// Aligned 32-bit int loads/stores are atomic on Xtensa, so the
+// cross-task read needs only `volatile` — no mutex.  See
+// onspeed_core/sensors/SpinDetector.h for the algorithm.
+EXTERN_INIT(volatile int g_iSpinRecoveryCue, 0)
+
 // Debug data
 // ----------
 
