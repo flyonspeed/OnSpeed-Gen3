@@ -8,9 +8,9 @@
 """Stream OnSpeed #1 display-serial frames to an M5Stack secondary display.
 
 Reads an OnSpeed SD-card CSV log (or generates synthetic data), formats the
-70-byte ASCII payload + 2-byte CRC + CRLF (74 bytes total) exactly as the
-Gen3 firmware does, and writes it at 20 Hz to a serial port (typically a
-USB-to-TTL dongle).
+72-byte ASCII payload + 2-byte CRC + CRLF (76 bytes total, v4.22) exactly
+as the Gen3 firmware does, and writes it at 20 Hz to a serial port
+(typically a USB-to-TTL dongle).
 
 Wire format reference:
     docs/site/docs/reference/serial-protocol.md
@@ -54,8 +54,8 @@ BAUD = 115200
 
 
 # Wire-format constants. Mirror onspeed_core/proto/DisplaySerial.h.
-PAYLOAD_LEN = 70    # bytes 0..69 — ASCII fields up to and including dataMark
-FRAME_LEN   = 74    # PAYLOAD_LEN + 2 hex CRC + CRLF
+PAYLOAD_LEN = 72    # bytes 0..71 — ASCII fields up to and including pipPctLift (v4.22)
+FRAME_LEN   = 76    # PAYLOAD_LEN + 2 hex CRC + CRLF
 
 
 @dataclass
@@ -91,9 +91,10 @@ class Frame:
     g_onset_rate: float = 0.0
     spin_cue: int = 0
     data_mark: int = 0
+    pip_pct_lift: int = 0
 
     def to_bytes(self) -> bytes:
-        """Serialize to the 74-byte wire frame (payload + CRC + CRLF).
+        """Serialize to the 76-byte wire frame (payload + CRC + CRLF, v4.22).
 
         Matches the printf format in onspeed_core/proto/DisplaySerial.cpp.
         """
@@ -120,6 +121,7 @@ class Frame:
             f"{_clamp_int(self.g_onset_rate * 100, -999, 999):+04d}"
             f"{_clamp_int(self.spin_cue, -9, 9):+02d}"
             f"{_clamp_uint(self.data_mark, 0, 99):02d}"
+            f"{_clamp_uint(self.pip_pct_lift, 0, 99):02d}"
         )
         if len(payload) != PAYLOAD_LEN:
             raise AssertionError(

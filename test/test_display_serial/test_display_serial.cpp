@@ -121,6 +121,7 @@ void test_roundtrip_all_zeros(void)
     TEST_ASSERT_FLOAT_WITHIN(DELTA_100, 0.0f, f.gOnsetRate);
     TEST_ASSERT_EQUAL(0, f.spinRecoveryCue);
     TEST_ASSERT_EQUAL(0, f.dataMark);
+    TEST_ASSERT_EQUAL(0, f.pipPctLift);
 }
 
 // ----------------------------------------------------------------------------
@@ -278,6 +279,35 @@ void test_roundtrip_spin_cue_negative(void)
     buildOk(in);
     DisplayFrame f = parseOk();
     TEST_ASSERT_EQUAL(-1, f.spinRecoveryCue);
+}
+
+void test_roundtrip_pip_pct_lift(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.pipPctLift = 53;     // typical mid-deployment value for an RV-10 cal
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(53, f.pipPctLift);
+}
+
+void test_pip_pct_lift_at_offset_70(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.pipPctLift = 47;
+    buildOk(in);
+    // Pin the wire-format invariant: pipPctLift occupies bytes 70-71
+    // of the frame (just before the 2-byte checksum and CRLF).
+    TEST_ASSERT_EQUAL('4', frameBuf[70]);
+    TEST_ASSERT_EQUAL('7', frameBuf[71]);
+}
+
+void test_pip_pct_lift_clamps_high(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.pipPctLift = 250;   // way above the [0,99] saturation range
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(99, f.pipPctLift);
 }
 
 // ----------------------------------------------------------------------------
@@ -471,11 +501,12 @@ void test_known_frame_content(void)
     char expected_payload[200];
     int n = snprintf(
         expected_payload, sizeof(expected_payload),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u",
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
         0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0,
         0u, 0u, 0u, 0u,                          // tonesOn/Fast/Slow/StallWarn pct
         0, 0,                                    // flapsMin, flapsMax
-        0, 0, 0u);
+        0, 0, 0u,
+        0u);                                     // pipPctLift (v4.22)
     TEST_ASSERT_EQUAL(static_cast<int>(kDisplayFrameChecksumLen), n);
 
     buildOk(zeroInputs());
@@ -692,6 +723,9 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_data_mark);
     RUN_TEST(test_roundtrip_spin_cue_positive);
     RUN_TEST(test_roundtrip_spin_cue_negative);
+    RUN_TEST(test_roundtrip_pip_pct_lift);
+    RUN_TEST(test_pip_pct_lift_at_offset_70);
+    RUN_TEST(test_pip_pct_lift_clamps_high);
 
     RUN_TEST(test_clamp_pitch_high);
     RUN_TEST(test_clamp_pitch_low);

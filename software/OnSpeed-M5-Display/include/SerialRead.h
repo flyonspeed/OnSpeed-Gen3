@@ -13,14 +13,17 @@ extern float           FlightPath;
 extern int             FlapPos;
 extern int             OAT;
 extern int16_t         Slip;
-// Per-flap band-edge percents — populated from #1 wire.  All four
-// vary per active flap because the underlying body-angle setpoints
-// vary per flap.  See onspeed_core/aoa/PercentLift.h for the
-// honest single-linear formula that produces these values.
-extern int             TonesOnPctLift;     // L/Dmax body angle → percent
+// Indexer percent anchors — populated from #1 wire.  TonesOn / Fast /
+// Slow / StallWarn snap to the active detent (operational cues, in
+// lockstep with the audio path).  PipPctLift slides smoothly across
+// the entire pot range from cleanest to most-deployed detent (visual
+// aerodynamic reference).  See onspeed_core/aoa/DisplayPctAnchors.h
+// for the design rule (Vac, ld_max.pdf §8).
+extern int             TonesOnPctLift;     // active-detent L/Dmax pct (operational, audio gate)
 extern int             OnSpeedFastPctLift; // OnSpeedFast body angle → percent
 extern int             OnSpeedSlowPctLift; // OnSpeedSlow body angle → percent
 extern int             StallWarnPctLift;   // StallWarn body angle → percent
+extern int             PipPctLift;         // visual L/Dmax pip pct (aerodynamic, lerp clean→fullflap)
 extern int             FlapsMinDeg;        // configured flap travel minimum; from #1 wire
 extern int             FlapsMaxDeg;        // configured flap travel maximum; from #1 wire
 extern float           gOnsetRate;

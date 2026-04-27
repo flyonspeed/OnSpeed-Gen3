@@ -101,6 +101,7 @@ def test_offsets_round_trip() -> None:
         g_onset_rate=0.5,
         spin_cue=0,
         data_mark=7,
+        pip_pct_lift=53,
     )
     wire = f.to_bytes()
     s = wire[:PAYLOAD_LEN].decode("ascii")
@@ -126,6 +127,7 @@ def test_offsets_round_trip() -> None:
     assert abs(int(s[62:66]) / 100 - f.g_onset_rate) < 0.01
     assert int(s[66:68]) == f.spin_cue
     assert int(s[68:70]) == f.data_mark
+    assert int(s[70:72]) == f.pip_pct_lift
 
 
 def test_negative_values_sign_preserved() -> None:

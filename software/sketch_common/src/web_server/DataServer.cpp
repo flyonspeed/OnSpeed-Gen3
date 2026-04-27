@@ -283,7 +283,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
         "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
         "\"percentLift\":%i,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
-        "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i}";
+        "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
@@ -402,6 +402,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const int iJsonFastPct       = anchors.onSpeedFastPctLift;
     const int iJsonSlowPct       = anchors.onSpeedSlowPctLift;
     const int iJsonStallWarnPct  = anchors.stallWarnPctLift;
+    const int iJsonPipPct        = anchors.pipPctLift;
 
     // Use the interpolated flap angle so the WebSocket's numeric
     // "flapsPos" readout slides smoothly during deployment (matching
@@ -440,7 +441,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         iJsonTonesOnPct,
         iJsonFastPct,
         iJsonSlowPct,
-        iJsonStallWarnPct);
+        iJsonStallWarnPct,
+        iJsonPipPct);
 #pragma GCC diagnostic pop
 
     if (iChars < 0)

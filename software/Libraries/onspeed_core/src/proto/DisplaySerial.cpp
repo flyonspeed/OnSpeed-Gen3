@@ -102,6 +102,8 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int      iOnset100   = SafeScaledInt(in.gOnsetRate, 100.0f, -999, 999);
     const int      iSpinCue    = ClampInt(in.spinRecoveryCue, -9, 9);
     const unsigned uDataMark2  = static_cast<unsigned>(in.dataMark) % 100u;
+    const unsigned uPipPct     = ClampUInt(static_cast<unsigned>(
+                                     ClampInt(in.pipPctLift, 0, 99)), 0, 99);
 
     // Build the kDisplayFrameChecksumLen-byte ASCII payload into a local
     // staging buffer.  The staging buffer is generously sized so the
@@ -113,7 +115,7 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int iChars = std::snprintf(
         staging,
         sizeof(staging),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u",
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
         iPitch10,
         iRoll10,
         uIas10,
@@ -134,7 +136,8 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
         iFlapsMax,
         iOnset100,
         iSpinCue,
-        uDataMark2);
+        uDataMark2,
+        uPipPct);
 
     if (iChars != static_cast<int>(kDisplayFrameChecksumLen))
         return 0;
@@ -237,6 +240,7 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     int      iOnset100     = 0;
     int      iSpinCue      = 0;
     unsigned uDataMark     = 0;
+    unsigned uPipPct       = 0;
 
     if (!extractInt( 2, 4, &iPitch10))      return std::nullopt;
     if (!extractInt( 6, 5, &iRoll10))       return std::nullopt;
@@ -259,6 +263,7 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     if (!extractInt(62, 4, &iOnset100))     return std::nullopt;
     if (!extractInt(66, 2, &iSpinCue))      return std::nullopt;
     if (!extractUInt(68, 2, &uDataMark))    return std::nullopt;
+    if (!extractUInt(70, 2, &uPipPct))      return std::nullopt;
 
     DisplayFrame f;
     f.pitchDeg           = static_cast<float>(iPitch10)  / 10.0f;
@@ -282,6 +287,7 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     f.gOnsetRate         = static_cast<float>(iOnset100)     / 100.0f;
     f.spinRecoveryCue    = iSpinCue;
     f.dataMark           = static_cast<int>(uDataMark);
+    f.pipPctLift         = static_cast<int>(uPipPct);
 
     return f;
 }

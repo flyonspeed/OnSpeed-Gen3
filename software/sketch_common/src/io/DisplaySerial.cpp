@@ -358,15 +358,16 @@ void DisplaySerial::Write()
                                         ? anchors.flapsDeg
                                         : (int)g_Flaps.iPosition;
         // Per-flap band-edge percents — the consumer's calibrated
-        // indexer anchors.  Each is the per-flap setpoint's body
-        // angle put through the honest percent-lift normalization,
-        // then linearly interpolated between the two adjacent detents
-        // bracketing the lever.  Values vary per flap and slide
-        // continuously as the lever sweeps.
+        // indexer anchors.  tonesOnPctLift and the band edges all snap
+        // to the active detent (they drive audio cues and the donut /
+        // chevron snap with iIndex transitions, in lockstep with the
+        // audio path).  pipPctLift slides smoothly clean→fullflap.
+        // See onspeed_core/aoa/DisplayPctAnchors.h for the design rule.
         inputs.tonesOnPctLift     = anchors.tonesOnPctLift;
         inputs.onSpeedFastPctLift = anchors.onSpeedFastPctLift;
         inputs.onSpeedSlowPctLift = anchors.onSpeedSlowPctLift;
         inputs.stallWarnPctLift   = anchors.stallWarnPctLift;
+        inputs.pipPctLift         = anchors.pipPctLift;
         inputs.flapsMinDeg        = iFlapsMinDeg;
         inputs.flapsMaxDeg        = iFlapsMaxDeg;
         inputs.gOnsetRate         = fGOnsetRate;
