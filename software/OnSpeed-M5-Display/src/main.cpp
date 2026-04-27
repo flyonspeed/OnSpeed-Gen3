@@ -81,6 +81,7 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 #include "SerialRead.h"
+#include <gauges/FlapWidgetMath.h>
 
 #if defined(ESP_PLATFORM)
 Preferences preferences;
@@ -764,17 +765,15 @@ void displayAOA()
         int cY              = 204;
         int Radius          =  16;
         // Map FlapPos into a fraction of configured travel
-        // [FlapsMinDeg..FlapsMaxDeg] -> [0..1], then sweep the triangle
-        // through a fixed visual arc (0..kFlapArcDeg).  Endpoint-locked
-        // regardless of the absolute degree values, so reflex flaps
-        // (negative min) and >30 deg deployments render correctly.
-        const int   span        = FlapsMaxDeg - FlapsMinDeg;
-        const float fracRaw     = (span > 0)
-                                  ? float(FlapPos - FlapsMinDeg) / float(span)
-                                  : 0.5f; // single-position aircraft: park mid-arc
-        const float frac        = constrain(fracRaw, 0.0f, 1.0f);
-        constexpr float kFlapArcDeg = 40.0f; // visual arc the triangle sweeps
-        const float angleRad    = frac * kFlapArcDeg * float(PI) / 180.0f;
+        // [FlapsMinDeg..FlapsMaxDeg] -> [0..1] via the pure helper, then
+        // sweep the triangle through a fixed visual arc (0..kFlapArcDeg).
+        // Endpoint-locked regardless of the absolute degree values, so
+        // reflex flaps (negative min) and >30 deg deployments render
+        // correctly.  See test/test_flap_widget_math/ for the contract.
+        constexpr float kFlapArcDeg = 40.0f;                      // visual arc the triangle sweeps
+        constexpr float kFlapArcRad = kFlapArcDeg * float(PI) / 180.0f;
+        const float frac     = onspeed::gauges::FlapWidgetFrac(FlapPos, FlapsMinDeg, FlapsMaxDeg);
+        const float angleRad = frac * kFlapArcRad;
         int triangleTopX    = int(cX+sin(angleRad)*Radius);
         int triangleTopY    = int(cY-cos(angleRad)*Radius);
         int triangleBottomX = int(cX-sin(angleRad)*Radius);
@@ -787,11 +786,10 @@ void displayAOA()
         // Stop marks at the arc endpoints (FlapsMinDeg, FlapsMaxDeg).
         // Per-detent stops would need a wire-format change; out of scope.
         const int stopRadius = Radius + 33;
-        const float endRad   = kFlapArcDeg * float(PI) / 180.0f;
-        gdraw.drawPixel(int(cX + cos(0.0f)  * stopRadius),
-                        int(cY + sin(0.0f)  * stopRadius), TFT_WHITE);
-        gdraw.drawPixel(int(cX + cos(endRad) * stopRadius),
-                        int(cY + sin(endRad) * stopRadius), TFT_WHITE);
+        gdraw.drawPixel(int(cX + cos(0.0f)       * stopRadius),
+                        int(cY + sin(0.0f)       * stopRadius), TFT_WHITE);
+        gdraw.drawPixel(int(cX + cos(kFlapArcRad) * stopRadius),
+                        int(cY + sin(kFlapArcRad) * stopRadius), TFT_WHITE);
 
         // show numeric flap angle
         gdraw.setFont(FSS12);
