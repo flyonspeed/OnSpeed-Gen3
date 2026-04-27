@@ -64,17 +64,96 @@ struct CycleResults {
     TestResult m5       = TestResult::MANUAL;
 };
 
+// HSC pressure-sensor reading. Defined here (above any function that
+// returns it) so Arduino's auto-prototype generator doesn't synthesize
+// a prototype for `readHsc(int) -> HscReading` before the type is
+// known. Field semantics: status is the 2-bit HSC status field (0 =
+// normal); counts is the 14-bit raw output from the sensor packet.
+// Mirrors the bitfield in firmware src/drivers/HscPressureSensor.h.
+struct HscReading {
+    uint8_t  status;
+    uint16_t counts;
+};
+
 // -----------------------------------------------------------------------------
 // Shared SPI bus for sensors (pressure, IMU, MCP3202)
 // -----------------------------------------------------------------------------
 
 static SPIClass sensorSPI(FSPI);
 
+// SPI bus speed for sensor reads. Conservative 1 MHz works for all parts
+// (firmware uses 4 MHz for HSC/IMU and 1 MHz for MCP3202). For a hwtest
+// where speed doesn't matter, 1 MHz everywhere keeps the code simple
+// and avoids any signal-integrity surprises on a freshly assembled
+// board where wire lengths and CS routing haven't been validated.
+static constexpr uint32_t kHwtestSpiClkHz = 1'000'000;
+
+// Read N bytes from a device that does not use a register address byte
+// (this is the HSC pressure sensor's protocol — chip select low, clock
+// in N bytes, chip select high).
+static void spiReadBytes(int cs, uint8_t* buf, int len) {
+    sensorSPI.beginTransaction(SPISettings(kHwtestSpiClkHz, MSBFIRST, SPI_MODE0));
+    digitalWrite(cs, LOW);
+    for (int i = 0; i < len; i++) buf[i] = sensorSPI.transfer(0x00);
+    digitalWrite(cs, HIGH);
+    sensorSPI.endTransaction();
+}
+
+// HSC pressure-sensor read. Returns {status (top 2 bits), counts (bottom
+// 14 bits)} — matches the bitfield in firmware HscPressureSensor.h.
+static HscReading readHsc(int cs) {
+    uint8_t b[2];
+    spiReadBytes(cs, b, 2);
+    uint16_t raw = (uint16_t(b[0]) << 8) | b[1];
+    return { uint8_t((raw >> 14) & 0x03), uint16_t(raw & 0x3FFF) };
+}
+
+// HSC sensor configurations — match firmware drivers/HscPressureSensor.cpp.
+// Differential parts (Pitot, AOA) are HSCMRRN001PDSA3 (±1 PSI).
+// Absolute part (Static) is HSCMRNN1.6BASA3 (0–23.2 PSI).
+static constexpr onspeed::sensors::HscRange kHscDiff{
+    /*countsMin=*/1638u, /*countsMax=*/14745u,
+    /*psiMin=*/-1.0f,    /*psiMax=*/+1.0f
+};
+static constexpr onspeed::sensors::HscRange kHscAbs{
+    /*countsMin=*/1638u, /*countsMax=*/14745u,
+    /*psiMin=*/0.0f,     /*psiMax=*/23.2f
+};
+
+static bool reportOnePressure(const char* label, int cs,
+                              const onspeed::sensors::HscRange& range,
+                              bool showMillibars) {
+    HscReading r = readHsc(cs);
+    auto psiOpt  = onspeed::sensors::CountsToPsi(r.counts, range);
+    bool pass    = (r.status == 0) && psiOpt.has_value();
+
+    if (psiOpt.has_value() && showMillibars) {
+        float psi = *psiOpt;
+        float mb  = psi * 68.947572932f;
+        Serial.printf("  %-7s %s  status=%u  counts=%-5u  %+6.3f PSI  %.1f mb\n",
+                      label, pass ? "PASS" : "FAIL", r.status, r.counts, psi, mb);
+    } else if (psiOpt.has_value()) {
+        Serial.printf("  %-7s %s  status=%u  counts=%-5u  %+6.3f PSI\n",
+                      label, pass ? "PASS" : "FAIL", r.status, r.counts, *psiOpt);
+    } else {
+        Serial.printf("  %-7s FAIL  status=%u  counts=%-5u  (saturated/disconnected)\n",
+                      label, r.status, r.counts);
+    }
+    return pass;
+}
+
 // -----------------------------------------------------------------------------
 // Test stubs — filled in by subsequent commits
 // -----------------------------------------------------------------------------
 
-static TestResult pressureTest()        { return TestResult::SKIP; }
+static TestResult pressureTest() {
+    Serial.println("\n[Pressure Sensors]");
+    bool ok = true;
+    ok &= reportOnePressure("Pitot:",  kCsPitot,  kHscDiff, false);
+    ok &= reportOnePressure("AOA:",    kCsAoa,    kHscDiff, false);
+    ok &= reportOnePressure("Static:", kCsStatic, kHscAbs,  true);
+    return ok ? TestResult::PASS : TestResult::FAIL;
+}
 static TestResult imuTest()             { return TestResult::SKIP; }
 static TestResult adcTest()             { return TestResult::SKIP; }
 static TestResult serialLoopbackTest()  { return TestResult::SKIP; }
