@@ -117,11 +117,22 @@ void test_inf_input_does_not_propagate()
     GOnsetFilter f(0.25f);
     const float dt = 0.05f;
 
+    // Build up a non-zero state with a real ramp so the "state held"
+    // assertion has a meaningful value to compare against.
     f.Update(1.0f, dt);
+    f.Update(1.05f, dt);
+    const float settled = f.Get();
+    TEST_ASSERT_TRUE(settled != 0.0f);
 
+    // Inf input is ignored: state and output unchanged.  Mirrors the
+    // NaN test — Inf -> arithmetic -> NaN is the more dangerous failure
+    // mode since Inf can propagate through multiplication without
+    // tripping isnan() guards downstream.
     float out = f.Update(std::numeric_limits<float>::infinity(), dt);
     TEST_ASSERT_FALSE(std::isinf(out));
     TEST_ASSERT_FALSE(std::isnan(out));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, settled, out);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, settled, f.Get());
 }
 
 void test_nonpositive_dt_does_not_advance_state()
