@@ -856,11 +856,14 @@ void AudioPlay::AudioTest()
     if (s_bAudioTestStopRequested.load())
         goto done;
 
+    // Voice waits are tight to each clip's WAV duration plus a small
+    // tail (the WAVs end on a sharp cutoff; ~200 ms of silence between
+    // segments lets the ear resolve the boundary without dragging on).
     g_AudioPlay.SetVoice(enVoiceLeft);
-    if (!DelayOrStop(2000)) goto done;
+    if (!DelayOrStop(1600)) goto done;        // left_speaker: 1.31 s
 
     g_AudioPlay.SetVoice(enVoiceRight);
-    if (!DelayOrStop(2000)) goto done;
+    if (!DelayOrStop(1500)) goto done;        // right_speaker: 1.20 s
 
     // Solid low (cruise / on-speed) → attenuated to STALL_VOL_MIN
     g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MIN;
@@ -868,33 +871,30 @@ void AudioPlay::AudioTest()
     if (!DelayOrStop(2000)) goto done;
 
     g_AudioPlay.SetVoice(enVoiceGLimit);
-    if (!DelayOrStop(3000)) goto done;
+    if (!DelayOrStop(800)) goto done;          // glimit: 0.49 s
 
-    // Solid high (would only occur as a transient; played here for testing)
-    // → full STALL_VOL_MAX volume
-    g_AudioPlay.fStallVolumeMult = onspeed::STALL_VOL_MAX;
-    g_AudioPlay.SetTone(enToneHigh);
-    if (!DelayOrStop(2000)) goto done;
-
-    // Range sweep (replaces the prior fixed-PPS demonstration segments).
-    // Walks AOA linearly from just below LDmax to a comfortable distance
-    // past stall-warn, hitting every region of the tone map: silent →
-    // pulsed-low ramp → solid-low (on-speed band) → pulsed-high ramp
-    // → solid-high (saturated stall warning).  Bypasses UpdateTones'
-    // bAudioTest early-return by calling the pure ToneCalc directly so
-    // we don't have to fake IAS or unmute state.
+    // Range sweep (replaces the prior fixed-PPS demonstration segments
+    // and the standalone solid-high reference; the sweep ends in
+    // saturated solid-high stall, so the standalone segment was
+    // redundant).  Walks AOA linearly from just below LDmax to a
+    // comfortable distance past stall-warn, hitting every region of
+    // the tone map: silent → pulsed-low ramp → solid-low (on-speed
+    // band) → pulsed-high ramp → solid-high (saturated stall warning).
+    // Bypasses UpdateTones' bAudioTest early-return by calling the
+    // pure ToneCalc directly so we don't have to fake IAS or unmute
+    // state.
     {
     const ActiveFlapSnapshot snap = SnapshotActiveFlap();
     // Skip the sweep on uncalibrated configs.  calculateTone's own
     // gate already returns silent when fONSPEEDFAST/SLOW/STALLWARN <= 0,
-    // but starting a 10 s sweep that produces no tones is a worse user
+    // but starting a 20 s sweep that produces no tones is a worse user
     // experience than skipping outright.
     if (snap.bValid && snap.th.fSTALLWARNAOA > 0.0f)
         {
         constexpr float kBottomMargin = 0.2f;   // start just below LDmax
         constexpr float kTopMargin    = 1.5f;   // end firmly into solid-stall
-        constexpr uint32_t kSweepMs   = 10000;
-        constexpr uint32_t kStepMs    = 50;     // 200 steps total
+        constexpr uint32_t kSweepMs   = 20000;
+        constexpr uint32_t kStepMs    = 50;     // 400 steps total
 
         const float fStartAoa = snap.th.fLDMAXAOA    - kBottomMargin;
         const float fEndAoa   = snap.th.fSTALLWARNAOA + kTopMargin;
