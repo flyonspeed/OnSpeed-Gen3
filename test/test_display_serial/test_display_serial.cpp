@@ -77,19 +77,19 @@ void test_frame_starts_with_magic(void)
 void test_frame_ends_with_crlf(void)
 {
     buildOk(zeroInputs());
-    TEST_ASSERT_EQUAL(0x0D, frameBuf[78]);
-    TEST_ASSERT_EQUAL(0x0A, frameBuf[79]);
+    TEST_ASSERT_EQUAL(0x0D, frameBuf[kDisplayFrameSizeBytes - 2]);
+    TEST_ASSERT_EQUAL(0x0A, frameBuf[kDisplayFrameSizeBytes - 1]);
 }
 
 void test_checksum_bytes_are_hex_digits(void)
 {
     buildOk(zeroInputs());
-    // Bytes 76–77 must be ASCII hex (0-9, A-F)
+    // Two ASCII hex digits (0-9, A-F) immediately before the CRLF.
     auto isHex = [](uint8_t c) {
         return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
     };
-    TEST_ASSERT_TRUE(isHex(frameBuf[76]));
-    TEST_ASSERT_TRUE(isHex(frameBuf[77]));
+    TEST_ASSERT_TRUE(isHex(frameBuf[kDisplayFrameChecksumLen]));
+    TEST_ASSERT_TRUE(isHex(frameBuf[kDisplayFrameChecksumLen + 1]));
 }
 
 // ----------------------------------------------------------------------------
@@ -108,15 +108,16 @@ void test_roundtrip_all_zeros(void)
     TEST_ASSERT_FLOAT_WITHIN(DELTA_100, 0.0f, f.lateralG);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.verticalG);
     TEST_ASSERT_EQUAL(0, f.percentLift);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.aoaDeg);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_1,   0.0f, f.vsiFpm);
     TEST_ASSERT_EQUAL(0, f.oatC);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.flightPathDeg);
     TEST_ASSERT_EQUAL(0, f.flapsDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.stallWarnAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.onSpeedSlowAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.onSpeedFastAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.tonesOnAoaDeg);
+    TEST_ASSERT_EQUAL(0, f.tonesOnPctLift);
+    TEST_ASSERT_EQUAL(0, f.onSpeedFastPctLift);
+    TEST_ASSERT_EQUAL(0, f.onSpeedSlowPctLift);
+    TEST_ASSERT_EQUAL(0, f.stallWarnPctLift);
+    TEST_ASSERT_EQUAL(0, f.flapsMinDeg);
+    TEST_ASSERT_EQUAL(0, f.flapsMaxDeg);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_100, 0.0f, f.gOnsetRate);
     TEST_ASSERT_EQUAL(0, f.spinRecoveryCue);
     TEST_ASSERT_EQUAL(0, f.dataMark);
@@ -200,15 +201,6 @@ void test_roundtrip_percent_lift(void)
     TEST_ASSERT_EQUAL(55, f.percentLift);
 }
 
-void test_roundtrip_aoa(void)
-{
-    DisplayBuildInputs in = zeroInputs();
-    in.aoaDeg = 14.7f;
-    buildOk(in);
-    DisplayFrame f = parseOk();
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 14.7f, f.aoaDeg);
-}
-
 void test_roundtrip_vsi(void)
 {
     // vsiFpm10 is already vsi/10; ParseFrame gives vsiFpm = wire × 10
@@ -246,19 +238,19 @@ void test_roundtrip_flaps(void)
     TEST_ASSERT_EQUAL(25, f.flapsDeg);
 }
 
-void test_roundtrip_setpoints(void)
+void test_roundtrip_band_edge_percents(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.stallWarnAoaDeg   = 18.0f;
-    in.onSpeedSlowAoaDeg = 14.5f;
-    in.onSpeedFastAoaDeg = 11.0f;
-    in.tonesOnAoaDeg     =  6.5f;
+    in.tonesOnPctLift     = 33;   // L/Dmax body angle through the percent-lift formula
+    in.onSpeedFastPctLift = 55;
+    in.onSpeedSlowPctLift = 74;
+    in.stallWarnPctLift   = 88;
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 18.0f, f.stallWarnAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 14.5f, f.onSpeedSlowAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 11.0f, f.onSpeedFastAoaDeg);
-    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  6.5f, f.tonesOnAoaDeg);
+    TEST_ASSERT_EQUAL(33, f.tonesOnPctLift);
+    TEST_ASSERT_EQUAL(55, f.onSpeedFastPctLift);
+    TEST_ASSERT_EQUAL(74, f.onSpeedSlowPctLift);
+    TEST_ASSERT_EQUAL(88, f.stallWarnPctLift);
 }
 
 void test_roundtrip_data_mark(void)
@@ -441,8 +433,8 @@ void test_parse_corrupted_checksum_field(void)
 {
     buildOk(zeroInputs());
     // Replace the CRC bytes with non-hex characters.
-    frameBuf[76] = 'G';
-    frameBuf[77] = 'Z';
+    frameBuf[kDisplayFrameChecksumLen]     = 'G';
+    frameBuf[kDisplayFrameChecksumLen + 1] = 'Z';
     auto opt = ParseDisplayFrame(frameBuf, kDisplayFrameSizeBytes);
     TEST_ASSERT_FALSE(opt.has_value());
 }
@@ -476,27 +468,200 @@ void test_build_small_output(void)
 void test_known_frame_content(void)
 {
     // Compute expected payload directly (mirrors Gen3 DisplaySerial::Write).
-    // Use a generous buffer to avoid -Wformat-truncation; only 76 bytes will
-    // actually be written by the all-zero case.
     char expected_payload[200];
     int n = snprintf(
         expected_payload, sizeof(expected_payload),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+04i%+03i%+04i%+03i%+04i%+04i%+04i%+04i%+04i%+02i%02u",
-        0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0u);
-    TEST_ASSERT_EQUAL(76, n);
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u",
+        0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0,
+        0u, 0u, 0u, 0u,                          // tonesOn/Fast/Slow/StallWarn pct
+        0, 0,                                    // flapsMin, flapsMax
+        0, 0, 0u);
+    TEST_ASSERT_EQUAL(static_cast<int>(kDisplayFrameChecksumLen), n);
 
     buildOk(zeroInputs());
 
-    // Compare the 76 payload bytes.
-    TEST_ASSERT_EQUAL_MEMORY(expected_payload, frameBuf, 76);
+    // Compare the payload bytes.
+    TEST_ASSERT_EQUAL_MEMORY(expected_payload, frameBuf, kDisplayFrameChecksumLen);
 
-    // The last two bytes before CRLF must be ASCII hex of the checksum.
-    TEST_ASSERT_EQUAL(0x0D, frameBuf[78]);
-    TEST_ASSERT_EQUAL(0x0A, frameBuf[79]);
+    // The last two bytes must be CRLF.
+    TEST_ASSERT_EQUAL(0x0D, frameBuf[kDisplayFrameSizeBytes - 2]);
+    TEST_ASSERT_EQUAL(0x0A, frameBuf[kDisplayFrameSizeBytes - 1]);
 
     // Verify the frame is parseable.
     auto opt = ParseDisplayFrame(frameBuf, kDisplayFrameSizeBytes);
     TEST_ASSERT_TRUE(opt.has_value());
+}
+
+// ----------------------------------------------------------------------------
+// Round-trip: per-flap percent anchors and flap range
+// ----------------------------------------------------------------------------
+
+void test_roundtrip_flap_range(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.flapsMinDeg = 0;
+    in.flapsMaxDeg = 33;
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(0,  f.flapsMinDeg);
+    TEST_ASSERT_EQUAL(33, f.flapsMaxDeg);
+}
+
+void test_roundtrip_flap_range_negative_min(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.flapsMinDeg = -10;   // a glider with reflex flaps
+    in.flapsMaxDeg =  40;
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(-10, f.flapsMinDeg);
+    TEST_ASSERT_EQUAL( 40, f.flapsMaxDeg);
+}
+
+// ----------------------------------------------------------------------------
+// DisplayFrameAccumulator — byte-stream framing
+//
+// These tests would have caught the class of wire-format-change
+// regression where a consumer's hand-rolled state machine hardcodes a
+// stale frame size.  Pump a built frame through the accumulator
+// byte-by-byte and verify a parsed frame comes out at the last byte.
+// ----------------------------------------------------------------------------
+
+void test_accumulator_parses_complete_frame(void)
+{
+    // Build a frame with non-trivial values so we'd notice if the
+    // wrong frame got returned.
+    DisplayBuildInputs in = zeroInputs();
+    in.pitchDeg          = 7.5f;
+    in.percentLift       = 42;
+    in.tonesOnPctLift    = 33;
+    in.onSpeedFastPctLift = 55;
+    buildOk(in);
+
+    DisplayFrameAccumulator accum;
+
+    // Inject all bytes except the last; nothing should parse.
+    for (size_t i = 0; i + 1 < kDisplayFrameSizeBytes; ++i) {
+        auto r = accum.Inject(frameBuf[i]);
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    // The last byte (LF) completes the frame and should return it.
+    auto r = accum.Inject(frameBuf[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(r.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  7.5f, r->pitchDeg);
+    TEST_ASSERT_EQUAL(42, r->percentLift);
+    TEST_ASSERT_EQUAL(33, r->tonesOnPctLift);
+    TEST_ASSERT_EQUAL(55, r->onSpeedFastPctLift);
+}
+
+void test_accumulator_ignores_bytes_before_magic(void)
+{
+    DisplayFrameAccumulator accum;
+    // Garbage before any '#' is silently dropped.
+    static const uint8_t kGarbage[] = {0x00, 0xFF, 'a', 'Z', '?', '!'};
+    for (uint8_t b : kGarbage) {
+        auto r = accum.Inject(b);
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    TEST_ASSERT_FALSE(accum.InProgress());
+    TEST_ASSERT_EQUAL(0u, accum.Length());
+}
+
+void test_accumulator_resets_on_mid_frame_hash(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.pitchDeg = 12.3f;
+    buildOk(in);
+
+    DisplayFrameAccumulator accum;
+    // Start a frame, then partway through, send a stray '#' which
+    // should reset to start-of-frame and start over.
+    for (size_t i = 0; i < 20; ++i) {
+        accum.Inject(frameBuf[i]);
+    }
+    TEST_ASSERT_EQUAL(20u, accum.Length());
+
+    // Send a stray '#' — should reset.
+    auto r = accum.Inject('#');
+    TEST_ASSERT_FALSE(r.has_value());
+    TEST_ASSERT_EQUAL(1u, accum.Length());
+
+    // Now send the rest of a real frame starting from byte 1.
+    for (size_t i = 1; i < kDisplayFrameSizeBytes - 1; ++i) {
+        auto r2 = accum.Inject(frameBuf[i]);
+        TEST_ASSERT_FALSE(r2.has_value());
+    }
+    auto rEnd = accum.Inject(frameBuf[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(rEnd.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 12.3f, rEnd->pitchDeg);
+}
+
+void test_accumulator_drops_frame_without_lf_terminator(void)
+{
+    DisplayFrameAccumulator accum;
+    // Send '#' followed by kDisplayFrameSizeBytes-1 garbage bytes.
+    // Buffer fills to capacity but the final byte is 'X', not LF, so
+    // the validation check at the full-frame point drops the frame
+    // and resets the accumulator to idle.
+    accum.Inject('#');
+    for (size_t i = 1; i < kDisplayFrameSizeBytes; ++i) {
+        auto r = accum.Inject('X');
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    TEST_ASSERT_FALSE(accum.InProgress());
+}
+
+void test_accumulator_rejects_bad_crc(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.pitchDeg = 5.0f;
+    buildOk(in);
+
+    // Corrupt one byte in the payload to break the CRC.
+    frameBuf[10] ^= 0x01;
+
+    DisplayFrameAccumulator accum;
+    for (size_t i = 0; i < kDisplayFrameSizeBytes; ++i) {
+        auto r = accum.Inject(frameBuf[i]);
+        // No frame should ever be emitted (CRC fails on the final byte).
+        TEST_ASSERT_FALSE(r.has_value());
+    }
+    // Accumulator should have reset itself after the failed parse.
+    TEST_ASSERT_FALSE(accum.InProgress());
+}
+
+void test_accumulator_back_to_back_frames(void)
+{
+    // After a valid frame parses, a second frame should also parse.
+    // This catches a class of bug where the accumulator doesn't fully
+    // reset its internal state between frames.
+    DisplayBuildInputs in1 = zeroInputs();
+    in1.pitchDeg = 1.5f;
+
+    DisplayBuildInputs in2 = zeroInputs();
+    in2.pitchDeg = -2.5f;
+
+    DisplayFrameAccumulator accum;
+
+    uint8_t buf1[kDisplayFrameSizeBytes];
+    TEST_ASSERT_EQUAL(kDisplayFrameSizeBytes,
+                      BuildDisplayFrame(in1, buf1, sizeof(buf1)));
+    for (size_t i = 0; i + 1 < kDisplayFrameSizeBytes; ++i) {
+        accum.Inject(buf1[i]);
+    }
+    auto r1 = accum.Inject(buf1[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(r1.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 1.5f, r1->pitchDeg);
+
+    uint8_t buf2[kDisplayFrameSizeBytes];
+    TEST_ASSERT_EQUAL(kDisplayFrameSizeBytes,
+                      BuildDisplayFrame(in2, buf2, sizeof(buf2)));
+    for (size_t i = 0; i + 1 < kDisplayFrameSizeBytes; ++i) {
+        accum.Inject(buf2[i]);
+    }
+    auto r2 = accum.Inject(buf2[kDisplayFrameSizeBytes - 1]);
+    TEST_ASSERT_TRUE(r2.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, -2.5f, r2->pitchDeg);
 }
 
 // ----------------------------------------------------------------------------
@@ -519,12 +684,11 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_lateral_g);
     RUN_TEST(test_roundtrip_vertical_g);
     RUN_TEST(test_roundtrip_percent_lift);
-    RUN_TEST(test_roundtrip_aoa);
     RUN_TEST(test_roundtrip_vsi);
     RUN_TEST(test_roundtrip_oat);
     RUN_TEST(test_roundtrip_flight_path);
     RUN_TEST(test_roundtrip_flaps);
-    RUN_TEST(test_roundtrip_setpoints);
+    RUN_TEST(test_roundtrip_band_edge_percents);
     RUN_TEST(test_roundtrip_data_mark);
     RUN_TEST(test_roundtrip_spin_cue_positive);
     RUN_TEST(test_roundtrip_spin_cue_negative);
@@ -553,6 +717,16 @@ int main(int, char**)
     RUN_TEST(test_build_small_output);
 
     RUN_TEST(test_known_frame_content);
+
+    RUN_TEST(test_roundtrip_flap_range);
+    RUN_TEST(test_roundtrip_flap_range_negative_min);
+
+    RUN_TEST(test_accumulator_parses_complete_frame);
+    RUN_TEST(test_accumulator_ignores_bytes_before_magic);
+    RUN_TEST(test_accumulator_resets_on_mid_frame_hash);
+    RUN_TEST(test_accumulator_drops_frame_without_lf_terminator);
+    RUN_TEST(test_accumulator_rejects_bad_crc);
+    RUN_TEST(test_accumulator_back_to_back_frames);
 
     return UNITY_END();
 }

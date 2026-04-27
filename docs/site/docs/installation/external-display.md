@@ -123,10 +123,15 @@ progression. Green covers the whole safe band — bottom chevron
 (fast but safe) and the central donut (on-speed). Yellow and red
 escalate on the top chevrons as AOA rises toward stall.
 
-**Above the widget — percent lift** (0–99, or "99" when saturated).
-A large white number with a black outline — readable against any
-background. 50% = LDmax. 66% ≈ middle of the OnSpeed band. 90% = stall
-warn.
+**Above the widget — percent lift** (0–99, saturating at 99 in the
+stall region). A large white number with a black outline — readable
+against any background. The number is the honest envelope fraction:
+0% at zero-lift body angle, 99% at stall. Where each band edge falls
+on the scale (L/Dmax, OnSpeed, stall warning) varies per flap because
+the underlying calibration varies per flap — typically L/Dmax lands
+in the low 30s on clean flaps and the mid-50s on full flaps.
+Compare values by AOA region (silent / pulsing / on-speed / stall),
+not by exact percent.
 
 **Corners:**
 
@@ -248,8 +253,12 @@ Once detected, the port mapping is saved to the M5's NVS flash so
 subsequent boots come up faster.
 
 - **Baud rate:** 115200 8N1
-- **Frame rate:** 20 Hz (every 50 ms). Each frame is 80 ASCII bytes
+- **Frame rate:** 20 Hz (every 50 ms). Each frame is 74 ASCII bytes
   including `#1` header, fields, CRC, and CRLF.
+
+See [Display Serial Protocol](../reference/serial-protocol.md) for the
+complete wire-format reference (byte offsets, field semantics, parsing
+recommendations).
 
 ### Powering the M5
 
@@ -381,11 +390,16 @@ for the hardware shopping list, wiring diagram, and protocol details.
 The OnSpeed firmware's serial output format is configurable via the
 `SERIALOUTFORMAT` field in the configuration:
 
-- **ONSPEED** — native format (76-byte payload with AOA, setpoints,
-  attitude, flap position, setpoints, G-loading, etc.). Use this with
-  `OnSpeed-M5-Display`.
+- **ONSPEED** — native `#1` format (70-byte payload + CRC + CRLF = 74
+  bytes total) carrying attitude, IAS, altitude, percent-lift and the
+  per-flap percent anchors that drive an indexer (L/D~MAX~,
+  OnSpeedFast, OnSpeedSlow, stall-warn), G-loading, and flap travel
+  range. Use this with `OnSpeed-M5-Display` or any third-party
+  display reading the full data set. Full byte-level wire-format
+  reference: [Display Serial Protocol](../reference/serial-protocol.md).
 - **G3X** — Garmin G3X-compatible subset for use with Garmin panel
-  displays.
+  displays. Drops AOA setpoints and aerodynamic anchors; carries only
+  what a stock G3X-compatible PFD knows how to render.
 
 ## Mounting
 

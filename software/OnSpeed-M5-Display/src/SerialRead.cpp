@@ -73,81 +73,48 @@ bool serialDataFresh()
 }
 
 // -----------------------------------------------
-// Byte-stream state machine. Exposed as a public entry point so the
-// same parser can be fed from the hardware UART today and from a
-// non-UART byte source (e.g. a future CSV replay harness on the
-// desktop/WASM sim) without branching the render path. Matches one
-// 80-byte #1 frame: '#' '1' ... LF, checksum-verified downstream.
+// Byte-stream framing — delegates to the natively-testable
+// DisplayFrameAccumulator in onspeed_core. Exposed as a public entry
+// point so the same parser can be fed from the hardware UART today and
+// from a non-UART byte source (e.g. a future CSV replay harness on the
+// desktop/WASM sim) without branching the render path.
+//
+// All state is in the accumulator. The wire-format size is the only
+// thing this function depends on, and that's pinned by
+// kDisplayFrameSizeBytes — adding fields to the wire only requires
+// updating proto/DisplaySerial.{h,cpp}; this function is unchanged.
 // -----------------------------------------------
+
+static onspeed::proto::DisplayFrameAccumulator g_frameAccum;
 
 void InjectSerialByte(char inChar)
 {
-    if (inChar == '#')
-    {
-        // reset RX buffer
-        serialBufferString = inChar;
-        return;
-    }
-
-    if (serialBufferString.length() > 80)
-    {
-        // prevent buffer overflow;
-        serialBufferString = "";
-        Serial.println("Serial data buffer overflow");
-        Serial.println(serialBufferString);
-        return;
-    }
-
-    if (serialBufferString.length() == 0)
-        return;
-
-    serialBufferString += inChar;
-
-    if (!(serialBufferString.length() == 80 &&
-          serialBufferString[0]       == '#' &&
-          serialBufferString[1]       == '1' &&
-          inChar                      == char(0x0A))) // ONSPEED protocol
-        return;
-
-    #ifdef SERIALDATADEBUG
-    Serial.println(serialBufferString);
-    #endif
-
-    // Parse the frame via the shared core module.
-    // ParseDisplayFrame verifies the checksum and extracts all fields.
-    auto result = ParseDisplayFrame(
-        reinterpret_cast<const uint8_t*>(serialBufferString.c_str()),
-        kDisplayFrameSizeBytes);
-
+    auto result = g_frameAccum.Inject(static_cast<uint8_t>(inChar));
     if (!result.has_value())
-    {
-        Serial.println("ONSPEED CRC Failed");
         return;
-    }
 
     const DisplayFrame& f = result.value();
 
-    Pitch               = f.pitchDeg;
-    Roll                = f.rollDeg;
-    IAS                 = f.iasKt;
-    Palt                = f.paltFt;
-    LateralG            = f.lateralG;
-    VerticalG           = f.verticalG;
-    PercentLift         = f.percentLift;
-    AOA                 = f.aoaDeg;
-    iVSI                = f.vsiFpm;
-    OAT                 = f.oatC;
-    FlightPath          = f.flightPathDeg;
-    FlapPos             = f.flapsDeg;
-    OnSpeedStallWarnAOA = f.stallWarnAoaDeg;
-    OnSpeedSlowAOA      = f.onSpeedSlowAoaDeg;
-    OnSpeedFastAOA      = f.onSpeedFastAoaDeg;
-    OnSpeedTonesOnAOA   = f.tonesOnAoaDeg;
-    gOnsetRate          = f.gOnsetRate;
-    SpinRecoveryCue     = f.spinRecoveryCue;
-    DataMark            = f.dataMark;
-
-    serialBufferString = "";
+    Pitch                = f.pitchDeg;
+    Roll                 = f.rollDeg;
+    IAS                  = f.iasKt;
+    Palt                 = f.paltFt;
+    LateralG             = f.lateralG;
+    VerticalG            = f.verticalG;
+    PercentLift          = f.percentLift;
+    iVSI                 = f.vsiFpm;
+    OAT                  = f.oatC;
+    FlightPath           = f.flightPathDeg;
+    FlapPos              = f.flapsDeg;
+    TonesOnPctLift       = f.tonesOnPctLift;
+    OnSpeedFastPctLift   = f.onSpeedFastPctLift;
+    OnSpeedSlowPctLift   = f.onSpeedSlowPctLift;
+    StallWarnPctLift     = f.stallWarnPctLift;
+    FlapsMinDeg          = f.flapsMinDeg;
+    FlapsMaxDeg          = f.flapsMaxDeg;
+    gOnsetRate           = f.gOnsetRate;
+    SpinRecoveryCue      = f.spinRecoveryCue;
+    DataMark             = f.dataMark;
 
     // Measure actual frame period rather than assuming a fixed rate.
     // The main firmware's display serial task runs at
@@ -191,7 +158,7 @@ void InjectSerialByte(char inChar)
     SerialProcess(frameDtSec);
 
     #ifdef SERIALDATADEBUG
-    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, AOA: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, AOA);
+    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, PctLift: %d", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, PercentLift);
     Serial.println();
     #endif
 
@@ -218,46 +185,68 @@ void SerialRead()
     // Update if 100 msec (10 Hz) has passed
     if (serialMillis + 100 < currMillis)
     {
-        Pitch               = 5.0;
-        Roll                = 0.0;
-        IAS                 = 100.0;
-        Palt                = 2500.0;
-        LateralG            = 0.0;
-        VerticalG           = 1.0;  // 1g straight-and-level (bench realism)
-        iVSI                = 0.0;
-        OAT                 = 70;
-        FlightPath          = 0.0;
-        FlapPos             = 0;
-        OnSpeedStallWarnAOA = 20.0;
-        OnSpeedSlowAOA      = 15.0;
-        OnSpeedFastAOA      = 10.0;
-        OnSpeedTonesOnAOA   =  5.0;
-        gOnsetRate          = 0.0;
-        SpinRecoveryCue     = 0;
-        DataMark            = 0;
+        // Demo: sweep PercentLift cleanly from 0 → 99 → 0 against a
+        // fixed flap calibration (RV-10 full flaps) so every visual
+        // state of the indexer can be inspected at known percents.
+        // The band-edge percents are exactly what the firmware would
+        // emit on the wire for this calibration; only PercentLift
+        // (the index bar's position) animates.  Full flaps is chosen
+        // to make the per-flap variation visible — L/Dmax lands at
+        // ~33% (vs ~51% clean) and the bottom chevron's "fast but
+        // safe" green band spans ~33–53% (vs only ~51–55% clean).
+        constexpr float kAlpha0     = -9.2107f;
+        constexpr float kAlphaStall = 11.5701f;
+        constexpr float kLdmax      = -2.24f;
+        constexpr float kFast       =  2.19f;
+        constexpr float kSlow       =  4.09f;
+        constexpr float kWarn       =  7.94f;
 
-        // Body-angle sweep covering alpha_0 through past stall-warn for
-        // a typical RV-class aircraft. The sweep top sits above the
-        // dummy frame's StallWarnAOA (20°, set above) so the indexer's
-        // top-chevron flash engages — same visual a pilot would see in
-        // the airplane when AOA crosses StallWarn. PercentLift uses
-        // alpha_0 as the zero-lift floor and clamps at 99 to match the
-        // %02u wire protocol field in the #1 frame; a real stall reads
-        // 99 on the device, never 100.
-        static constexpr float kSimAlpha0     = -4.0f;
-        static constexpr float kSimAlphaStall = 18.0f;
-        static constexpr float kSimAoaMax     = 24.0f;
+        auto pctOf = [&](float bodyAngleDeg) -> int {
+            const float span = kAlphaStall - kAlpha0;
+            int p = (int)((bodyAngleDeg - kAlpha0) / span * 100.0f);
+            if (p < 0)  p = 0;
+            if (p > 99) p = 99;
+            return p;
+        };
 
-        if (AOA < kSimAoaMax) AOA += 0.2f;
-        else                  AOA  = kSimAlpha0;
+        // 30 s sweep: 15 s up (0 → 99), 15 s down (99 → 0).  About 7%
+        // per second — slow enough to read each transition (chevron
+        // colors, donut arcs, L/Dmax pip alignment) on the way through.
+        const float phase = (float)((currMillis % 30000) / 15000.0f); // 0..2
+        const float frac  = (phase <= 1.0f) ? phase : (2.0f - phase); // 0→1→0
+        int demoPct = (int)(frac * 99.0f + 0.5f);
+        if (demoPct < 0)  demoPct = 0;
+        if (demoPct > 99) demoPct = 99;
 
-        const float fraction =
-            (AOA - kSimAlpha0) / (kSimAlphaStall - kSimAlpha0);
-        PercentLift = (int)(fraction * 100.0f);
-        if (PercentLift < 0)  PercentLift = 0;
-        if (PercentLift > 99) PercentLift = 99;
+        Pitch                = 5.0;
+        Roll                 = 0.0;
+        IAS                  = 100.0;
+        Palt                 = 2500.0;
+        LateralG             = 0.0;
+        VerticalG            = 1.0;
+        iVSI                 = 0.0;
+        OAT                  = 70;
+        FlightPath           = 0.0;
+        FlapPos              = 33;
+        FlapsMinDeg          = 0;
+        FlapsMaxDeg          = 33;
 
-        // Dummy data ticks every 100 ms.
+        // Per-flap band-edge percents — what the firmware emits over
+        // the wire for this fixed calibration.  Constant across the
+        // sweep so the visual state at any given PercentLift is
+        // readable.
+        TonesOnPctLift       = pctOf(kLdmax);
+        OnSpeedFastPctLift   = pctOf(kFast);
+        OnSpeedSlowPctLift   = pctOf(kSlow);
+        StallWarnPctLift     = pctOf(kWarn);
+
+        // Drive only the index-bar position.
+        PercentLift          = demoPct;
+
+        gOnsetRate           = 0.0f;
+        SpinRecoveryCue      = 0;
+        DataMark             = 0;
+
         SerialProcess(0.1f);
 
         serialMillis = currMillis;
@@ -273,10 +262,6 @@ void SerialRead()
 
 void SerialProcess(float frameDtSec)
 {
-    // don't display invalid values;
-    if (AOA == -100)
-        AOA = 0.0;
-
     // Slip gauge: LateralG is already EMA-smoothed by the main firmware
     // (AccelLatFilter in onspeed_core/ahrs). Use as-received.
     Slip               = int(LateralG * 34 / 0.04);

@@ -20,14 +20,14 @@
 | **EKF6** | 6-state Extended Kalman Filter — an AHRS algorithm that estimates pitch, roll, AOA, and 3 gyro biases |
 | **EMA** | Exponential Moving Average — a smoothing filter that weights recent samples more heavily |
 | **FlightPath** | The angle between the aircraft's velocity vector and the horizontal. Computed as arcsin(VSI/TAS). |
-| **Fractional Lift** | How hard the wing is working relative to its maximum capability, expressed as a fraction from 0 (zero lift) to 1 (stall). Mathematically identical to NAOA. ~60% = ONSPEED, ~50% = L/D~MAX~, ~90% = stall warning. |
+| **Fractional Lift** | How hard the wing is working relative to its maximum capability, expressed as a fraction from 0 (zero lift) to 1 (stall). Mathematically identical to NAOA. The percent at which each tone region transitions varies per flap by calibration — there are no fixed-percent band edges. |
 | **FreeRTOS** | Real-Time Operating System used by the ESP32 firmware for multitasking |
 | **I2S** | Inter-IC Sound — digital audio interface protocol used for the stereo audio output |
 | **IAS** | Indicated Airspeed — airspeed as measured by the pitot system, uncorrected for position error or density |
 | **IMU** | Inertial Measurement Unit — a sensor package containing accelerometers and gyroscopes |
 | **Instantaneous Turn** | A turn where the pilot pulls beyond ONSPEED, borrowing energy. Turn rate increases briefly but the condition is unsustainable — airspeed decays and AOA continues to increase. |
 | **K parameter** | The lift sensitivity constant in the equation DerivedAOA = K/IAS² + alpha_0. Related to weight, wing area, and lift curve slope. |
-| **L/D~MAX~** | Maximum Lift-to-Drag ratio — the AOA at which the aircraft achieves the best glide ratio (~50% fractional lift). Corresponds to best-glide speed and maximum range. |
+| **L/D~MAX~** | Maximum Lift-to-Drag ratio — the AOA at which the aircraft achieves the best glide ratio. Where this lands on the fractional-lift scale varies per flap by calibration; the audio cue (start of fast tone) is what the pilot follows, not a fixed percent. Corresponds to best-glide speed and maximum range. |
 | **LittleFS** | Little File System — flash-based filesystem used by the ESP32 for configuration storage |
 | **Load Factor** | The ratio of lift to weight, commonly expressed in G units. Denoted by engineers as *n*. In level flight, load factor is 1G. In a 60° bank turn, approximately 2G. |
 | **Madgwick** | A complementary filter algorithm for AHRS using quaternion mathematics. The default OnSpeed AHRS. |

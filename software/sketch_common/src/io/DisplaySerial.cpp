@@ -153,6 +153,8 @@ void DisplaySerial::Write()
     // garbage tone bar).
     FOSConfig::SuFlaps flapSnapshot{};
     bool bFlapSnapshotValid = false;
+    int  iFlapsMinDeg       = 0;
+    int  iFlapsMaxDeg       = 0;
     if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
         const size_t nFlaps = g_Config.aFlaps.size();
@@ -162,13 +164,29 @@ void DisplaySerial::Write()
             flapSnapshot       = g_Config.aFlaps[iIdx];
             bFlapSnapshotValid = true;
             }
+
+        // Capture the configured flap travel range for the display widget
+        // endpoints.  aFlaps is sorted by degree at config-load time, so
+        // first/last entries are min/max; do not assume otherwise here.
+        if (nFlaps > 0)
+            {
+            int iMin = g_Config.aFlaps[0].iDegrees;
+            int iMax = iMin;
+            for (size_t i = 1; i < nFlaps; ++i)
+                {
+                const int d = g_Config.aFlaps[i].iDegrees;
+                if (d < iMin) iMin = d;
+                if (d > iMax) iMax = d;
+                }
+            iFlapsMinDeg = iMin;
+            iFlapsMaxDeg = iMax;
+            }
         xSemaphoreGive(xAhrsMutex);
         }
 
     // PercentLift is computed by the shared core helper so the M5 display
     // and any future native consumer get the identical 0..99 scalar.  See
-    // onspeed_core/aoa/PercentLift.h for the range table and the alpha_0
-    // floor caveat (issue #199 tracks the JS liveview duplicate).
+    // onspeed_core/aoa/PercentLift.h for the honest single-linear formula.
     if (bFlapSnapshotValid)
         iPercentLift = ComputePercentLift(g_Sensors.AOA,
                                           flapSnapshot,
@@ -176,10 +194,29 @@ void DisplaySerial::Write()
     else
         iPercentLift = 0;
 
+    // Band-edge percents for the M5 indexer.  Each per-flap setpoint
+    // (LDmax, OnSpeedFast/Slow, StallWarn) is run through the same
+    // ComputePercentLift function so the consumer gets four percent
+    // anchors that vary per flap.  The wire never carries body angles
+    // for AOA — the indexer renders entirely in percent space.
+    int iTonesOnPctLift     = 0;
+    int iOnSpeedFastPctLift = 0;
+    int iOnSpeedSlowPctLift = 0;
+    int iStallWarnPctLift   = 0;
+    if (bFlapSnapshotValid)
+        {
+        // iasValid=true: these are calibration anchors, always finite.
+        iTonesOnPctLift     = ComputePercentLift(flapSnapshot.fLDMAXAOA,       flapSnapshot, true);
+        iOnSpeedFastPctLift = ComputePercentLift(flapSnapshot.fONSPEEDFASTAOA, flapSnapshot, true);
+        iOnSpeedSlowPctLift = ComputePercentLift(flapSnapshot.fONSPEEDSLOWAOA, flapSnapshot, true);
+        iStallWarnPctLift   = ComputePercentLift(flapSnapshot.fSTALLWARNAOA,   flapSnapshot, true);
+        }
+
     if (bIasValidForOutput)
         fDisplayAOA = g_Sensors.AOA;
     else
         fDisplayAOA = 0;
+    (void)fDisplayAOA;   // body-angle AOA is no longer on the wire
 
     // Output the data in the appropriate format
 
@@ -223,7 +260,7 @@ void DisplaySerial::Write()
 
     else if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtOnSpeed)
         {
-        // Build the 80-byte #1 frame via the shared core module so the layout
+        // Build the #1 frame via the shared core module so the layout
         // is defined in exactly one place (onspeed_core/proto/DisplaySerial.h).
         //
         // The per-field scale factors, clamps, and sign conventions are
@@ -234,31 +271,33 @@ void DisplaySerial::Write()
         const int iOATc = g_Config.bOatSensor ? int(g_Sensors.OatC) : 0;
 
         DisplayBuildInputs inputs;
-        inputs.pitchDeg          = g_AHRS.SmoothedPitch;
-        inputs.rollDeg           = g_AHRS.SmoothedRoll;
-        inputs.iasKt             = fIasForOutput;
-        inputs.paltFt            = fPAltFt;
-        inputs.turnRateDps       = g_AHRS.gYaw;
-        inputs.lateralG          = -g_AHRS.AccelLatFilter.get();  // negated: positive = leftward
-        inputs.verticalGScaled10 = static_cast<float>(iDisplayVerticalG);
-        inputs.percentLift       = iPercentLift;
-        inputs.aoaDeg            = fDisplayAOA;
-        inputs.vsiFpm10          = ClampInt(
-                                       (int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f),
-                                       -999, 999);
-        inputs.oatC              = iOATc;
-        inputs.flightPathDeg     = g_AHRS.FlightPath;
-        inputs.flapsDeg          = (int)g_Flaps.iPosition;
-        // Setpoints come from the snapshot taken at the top of Write();
-        // emit zeros if the snapshot was invalid so the display sees an
-        // uncalibrated bar rather than torn / stale memory.
-        inputs.stallWarnAoaDeg   = bFlapSnapshotValid ? flapSnapshot.fSTALLWARNAOA   : 0.0f;
-        inputs.onSpeedSlowAoaDeg = bFlapSnapshotValid ? flapSnapshot.fONSPEEDSLOWAOA : 0.0f;
-        inputs.onSpeedFastAoaDeg = bFlapSnapshotValid ? flapSnapshot.fONSPEEDFASTAOA : 0.0f;
-        inputs.tonesOnAoaDeg     = bFlapSnapshotValid ? flapSnapshot.fLDMAXAOA       : 0.0f;
-        inputs.gOnsetRate        = 0.0f;
-        inputs.spinRecoveryCue   = 0;
-        inputs.dataMark          = (int)((unsigned)g_iDataMark % 100u);
+        inputs.pitchDeg           = g_AHRS.SmoothedPitch;
+        inputs.rollDeg            = g_AHRS.SmoothedRoll;
+        inputs.iasKt              = fIasForOutput;
+        inputs.paltFt             = fPAltFt;
+        inputs.turnRateDps        = g_AHRS.gYaw;
+        inputs.lateralG           = -g_AHRS.AccelLatFilter.get();  // negated: positive = leftward
+        inputs.verticalGScaled10  = static_cast<float>(iDisplayVerticalG);
+        inputs.percentLift        = iPercentLift;
+        inputs.vsiFpm10           = ClampInt(
+                                        (int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f),
+                                        -999, 999);
+        inputs.oatC               = iOATc;
+        inputs.flightPathDeg      = g_AHRS.FlightPath;
+        inputs.flapsDeg           = (int)g_Flaps.iPosition;
+        // Per-flap band-edge percents — the consumer's calibrated
+        // indexer anchors.  Each is the per-flap setpoint's body
+        // angle put through the honest percent-lift normalization;
+        // values vary per flap by design.
+        inputs.tonesOnPctLift     = iTonesOnPctLift;
+        inputs.onSpeedFastPctLift = iOnSpeedFastPctLift;
+        inputs.onSpeedSlowPctLift = iOnSpeedSlowPctLift;
+        inputs.stallWarnPctLift   = iStallWarnPctLift;
+        inputs.flapsMinDeg        = iFlapsMinDeg;
+        inputs.flapsMaxDeg        = iFlapsMaxDeg;
+        inputs.gOnsetRate         = 0.0f;
+        inputs.spinRecoveryCue    = 0;
+        inputs.dataMark           = (int)((unsigned)g_iDataMark % 100u);
 
         uint8_t frameBuf[kDisplayFrameSizeBytes];
         const size_t nBytes = BuildDisplayFrame(inputs, frameBuf, sizeof(frameBuf));
@@ -266,7 +305,7 @@ void DisplaySerial::Write()
         if (nBytes != kDisplayFrameSizeBytes)
             return;
 
-        // Write the complete frame (80 bytes, already includes CRC + CRLF).
+        // Write the complete frame (already includes CRC + CRLF).
         pSerial->write(frameBuf, kDisplayFrameSizeBytes);
         } // end if ONSPEED
 

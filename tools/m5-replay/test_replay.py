@@ -5,24 +5,50 @@
 # ///
 """Unit tests for the replay tool's frame builder.
 
-Verifies the 80-byte wire format matches the firmware's snprintf output
-exactly, including CRC computation and field offsets that the M5 parser
-reads at SerialRead.cpp:76-134.
+Two layers:
+
+1. **Self-referential tests** — fast Python-only checks that the builder
+   emits the right length, header, CRC convention, and field offsets.
+   These catch typos and offset drift inside the Python builder itself
+   but cannot catch wire-format drift between Python and the firmware.
+
+2. **Firmware-parser interop test** — builds a frame in Python, pipes it
+   into the native `parse_frame` binary (which links onspeed_core's
+   ParseDisplayFrame, the same code that runs on the M5), and asserts
+   every parsed field matches the original input within wire resolution.
+   Skipped with a clear message if the binary hasn't been built —
+   build with `pio run -e native` from this directory.
 
 Run with:
-    uv run test_replay.py
+    pio run -e native      # build the firmware-parser harness
+    uv run test_replay.py  # run the tests
 """
 from __future__ import annotations
 
+import math
+import subprocess
 import sys
+from pathlib import Path
 
-from replay import Frame, FlapSetpoints, compute_percent_lift
+from replay import Frame, FlapSetpoints, FRAME_LEN, PAYLOAD_LEN, compute_percent_lift
+
+HERE = Path(__file__).resolve().parent
+PARSE_BIN = HERE / ".pio" / "build" / "native" / "program"
+
+# CRC byte position is parameterised on PAYLOAD_LEN so the tests catch
+# any drift if the wire layout changes again.
+CRC_HEX_START = PAYLOAD_LEN
+CRC_HEX_END   = PAYLOAD_LEN + 2
+
+
+# ---------------------------------------------------------------------------
+# Layer 1 — Self-referential tests
+# ---------------------------------------------------------------------------
 
 
 def test_frame_length() -> None:
     wire = Frame().to_bytes()
-    # 76 payload + 2 CRC hex + 2 CRLF = 80
-    assert len(wire) == 80, f"expected 80 bytes, got {len(wire)}: {wire!r}"
+    assert len(wire) == FRAME_LEN, f"expected {FRAME_LEN} bytes, got {len(wire)}: {wire!r}"
     assert wire.endswith(b"\r\n"), f"missing CRLF: {wire!r}"
 
 
@@ -37,18 +63,22 @@ def test_frame_crc_matches_firmware_convention() -> None:
         roll_deg=-2.0,
         ias_kts=100.0,
         palt_ft=2500,
-        aoa_deg=4.5,
+        percent_lift=42,
     ).to_bytes()
-    payload = wire[:76]
-    crc_str = wire[76:78].decode("ascii")
+    payload = wire[:PAYLOAD_LEN]
+    crc_str = wire[CRC_HEX_START:CRC_HEX_END].decode("ascii")
     crc_sent = int(crc_str, 16)
     crc_actual = sum(payload) & 0xFF
     assert crc_sent == crc_actual, f"CRC mismatch: sent {crc_sent:02X} actual {crc_actual:02X}"
 
 
-def test_m5_parser_offsets_round_trip() -> None:
-    """Re-implements the M5's SerialRead.cpp parsing against our output and
-    checks the values round-trip. Catches offset/scale mistakes."""
+def test_offsets_round_trip() -> None:
+    """Re-implement the firmware's parser in Python against our output and
+    check the values round-trip. Catches offset/scale mistakes without
+    needing the firmware binary.
+
+    Field offsets must match onspeed_core/proto/DisplaySerial.h byte-for-byte.
+    """
     f = Frame(
         pitch_deg=5.0,
         roll_deg=-12.0,
@@ -57,25 +87,25 @@ def test_m5_parser_offsets_round_trip() -> None:
         turnrate_dps=3.0,
         lateral_g=0.05,
         vertical_g=1.2,
-        percent_lift=55,
-        aoa_deg=4.9,
+        percent_lift=42,
         vsi_fpm=-600,
         oat_c=15,
         flightpath_deg=-2.0,
         flap_deg=16,
-        stallwarn_aoa=7.6,
-        onspeed_slow_aoa=4.1,
-        onspeed_fast_aoa=2.7,
-        tones_on_aoa=2.3,
+        tones_on_pct_lift=33,
+        onspeed_fast_pct_lift=55,
+        onspeed_slow_pct_lift=74,
+        stall_warn_pct_lift=88,
+        flaps_min_deg=0,
+        flaps_max_deg=33,
         g_onset_rate=0.5,
         spin_cue=0,
         data_mark=7,
     )
     wire = f.to_bytes()
-    s = wire[:76].decode("ascii")
+    s = wire[:PAYLOAD_LEN].decode("ascii")
 
-    # Offsets exactly match M5 SerialRead.cpp:76-134
-    assert abs(int(s[2:6]) / 10 - f.pitch_deg) < 0.1
+    assert abs(int(s[2:6])  / 10 - f.pitch_deg) < 0.1
     assert abs(int(s[6:11]) / 10 - f.roll_deg) < 0.1
     assert abs(int(s[11:15]) / 10 - f.ias_kts) < 0.1
     assert int(s[15:21]) == round(f.palt_ft)
@@ -83,92 +113,252 @@ def test_m5_parser_offsets_round_trip() -> None:
     assert abs(int(s[26:29]) / 100 - f.lateral_g) < 0.01
     assert abs(int(s[29:32]) / 10 - f.vertical_g) < 0.1
     assert int(s[32:34]) == f.percent_lift
-    assert abs(int(s[34:38]) / 10 - f.aoa_deg) < 0.1
-    # VSI: M5 parses s[38:42] and multiplies by 10 (so field stores /10 fpm)
-    assert int(s[38:42]) * 10 == round(f.vsi_fpm / 10) * 10
-    assert int(s[42:45]) == f.oat_c
-    assert abs(int(s[45:49]) / 10 - f.flightpath_deg) < 0.1
-    assert int(s[49:52]) == f.flap_deg
-    assert abs(int(s[52:56]) / 10 - f.stallwarn_aoa) < 0.1
-    assert abs(int(s[56:60]) / 10 - f.onspeed_slow_aoa) < 0.1
-    assert abs(int(s[60:64]) / 10 - f.onspeed_fast_aoa) < 0.1
-    assert abs(int(s[64:68]) / 10 - f.tones_on_aoa) < 0.1
-    assert abs(int(s[68:72]) / 100 - f.g_onset_rate) < 0.01
-    assert int(s[72:74]) == f.spin_cue
-    assert int(s[74:76]) == f.data_mark
+    assert int(s[34:38]) * 10 == round(f.vsi_fpm / 10) * 10
+    assert int(s[38:41]) == f.oat_c
+    assert abs(int(s[41:45]) / 10 - f.flightpath_deg) < 0.1
+    assert int(s[45:48]) == f.flap_deg
+    assert int(s[48:50]) == f.tones_on_pct_lift
+    assert int(s[50:52]) == f.onspeed_fast_pct_lift
+    assert int(s[52:54]) == f.onspeed_slow_pct_lift
+    assert int(s[54:56]) == f.stall_warn_pct_lift
+    assert int(s[56:59]) == f.flaps_min_deg
+    assert int(s[59:62]) == f.flaps_max_deg
+    assert abs(int(s[62:66]) / 100 - f.g_onset_rate) < 0.01
+    assert int(s[66:68]) == f.spin_cue
+    assert int(s[68:70]) == f.data_mark
 
 
 def test_negative_values_sign_preserved() -> None:
     """The %+04i format in C writes a '+' or '-' sign. Python's :+04d
-    matches. Test that negative AOA and negative pitch come through."""
-    wire = Frame(pitch_deg=-5.0, aoa_deg=-1.5).to_bytes()
-    s = wire[:76].decode("ascii")
-    # Pitch at s[2:6]
-    assert s[2] == "-", f"pitch sign missing: {s[2:6]!r}"
-    # AOA at s[34:38]
-    assert s[34] == "-", f"aoa sign missing: {s[34:38]!r}"
+    matches.  Test that negative pitch and negative flight-path angle
+    come through.  All AOA-related fields are unsigned percents so
+    they don't have signs to preserve."""
+    wire = Frame(pitch_deg=-5.0, flightpath_deg=-3.5).to_bytes()
+    s = wire[:PAYLOAD_LEN].decode("ascii")
+    assert s[2]  == "-", f"pitch sign missing: {s[2:6]!r}"
+    assert s[41] == "-", f"flightPath sign missing: {s[41:45]!r}"
 
 
-def test_percent_lift_buckets_match_firmware() -> None:
+def test_compute_percent_lift_honest_formula() -> None:
+    """Pin the Python compute_percent_lift to the honest single-linear
+    formula.  L/Dmax, OnSpeed band edges, and StallWarn land at
+    *whatever* percent the calibration says — the function does not
+    pin them to fixed segment break-points.
+    """
+    # RV-10 clean: span = 11.0 - (-2.5) = 13.5 deg.
     fs = FlapSetpoints(
         degrees=0,
         alpha_0=-2.5,
-        ldmax_aoa=4.0,
-        onspeed_fast_aoa=4.1,
-        onspeed_slow_aoa=5.0,
-        stallwarn_aoa=8.0,
-        alpha_stall=10.5,
+        ldmax_aoa=2.0,
+        onspeed_fast_aoa=5.0,
+        onspeed_slow_aoa=7.5,
+        stallwarn_aoa=9.5,
+        alpha_stall=11.0,
     )
-    # At alpha_0 -> 0%
+    # Endpoints
     assert compute_percent_lift(fs.alpha_0, fs) == 0
-    # At LDmax -> 50%
-    assert compute_percent_lift(fs.ldmax_aoa, fs) == 50
-    # At OnSpeedSlow -> 66%
-    assert compute_percent_lift(fs.onspeed_slow_aoa, fs) == 66
-    # At StallWarn -> 90%
-    assert compute_percent_lift(fs.stallwarn_aoa, fs) == 90
-    # Above stall_alpha -> clamped at 99
-    assert compute_percent_lift(fs.alpha_stall + 5, fs) == 99
+    assert compute_percent_lift(fs.alpha_stall, fs) == 99   # clamped
+    # L/Dmax body angle 2.0 -> (4.5/13.5)*100 = 33.33 -> 33.  Not 50.
+    ldmax_pct = compute_percent_lift(fs.ldmax_aoa, fs)
+    assert ldmax_pct in (32, 33, 34), f"unexpected ldmax pct {ldmax_pct}"
+    # OnSpeedSlow 7.5 -> (10/13.5)*100 = 74.07 -> 74.  Not 66.
+    slow_pct = compute_percent_lift(fs.onspeed_slow_aoa, fs)
+    assert slow_pct in (73, 74, 75), f"unexpected slow pct {slow_pct}"
 
 
 def test_clamp_protects_against_out_of_range() -> None:
-    # AOA field is %+04i, valid range -99.9 to +99.9 degrees (scaled ×10)
-    wire = Frame(aoa_deg=999.0).to_bytes()
-    assert len(wire) == 80  # no buffer overflow
-    s = wire[:76].decode("ascii")
-    # Should clamp to +999 (9.99°), not break the frame length
-    assert int(s[34:38]) == 999
+    # pitch field is %+04i, valid range -99.9 to +99.9 degrees (scaled ×10)
+    wire = Frame(pitch_deg=999.0).to_bytes()
+    assert len(wire) == FRAME_LEN
+    s = wire[:PAYLOAD_LEN].decode("ascii")
+    assert int(s[2:6]) == 999
 
 
 def test_nan_and_inf_dont_break() -> None:
     wire = Frame(
         pitch_deg=float("nan"),
-        aoa_deg=float("inf"),
-        ias_kts=float("-inf"),
+        ias_kts=float("inf"),
+        flightpath_deg=float("-inf"),
     ).to_bytes()
-    assert len(wire) == 80
+    assert len(wire) == FRAME_LEN
+
+
+# ---------------------------------------------------------------------------
+# Layer 2 — Firmware-parser interop test
+# ---------------------------------------------------------------------------
+
+
+def _parse_via_firmware(wire: bytes) -> dict[str, str]:
+    """Pipe `wire` into parse_frame and return its parsed key=value map."""
+    if not PARSE_BIN.exists():
+        raise FileNotFoundError(
+            f"parse_frame binary missing at {PARSE_BIN}.\n"
+            f"Build it with:  cd {HERE} && pio run -e native"
+        )
+    result = subprocess.run(
+        [str(PARSE_BIN)],
+        input=wire,
+        capture_output=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"parse_frame exited {result.returncode}: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+    out: dict[str, str] = {}
+    for line in result.stdout.decode("ascii").splitlines():
+        if not line or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        out[k] = v
+    return out
+
+
+def test_firmware_parser_round_trip() -> None:
+    """End-to-end: replay.py's builder → onspeed_core::ParseDisplayFrame.
+
+    This is the contract the bench tool actually has to satisfy.
+    """
+    if not PARSE_BIN.exists():
+        print("    SKIP  parse_frame binary not built; run `pio run -e native` first")
+        return
+
+    f = Frame(
+        pitch_deg=5.2,
+        roll_deg=-12.7,
+        ias_kts=87.4,
+        palt_ft=3120,
+        turnrate_dps=3.5,
+        lateral_g=0.05,
+        vertical_g=1.2,
+        percent_lift=42,
+        vsi_fpm=-630,
+        oat_c=15,
+        flightpath_deg=-2.3,
+        flap_deg=16,
+        tones_on_pct_lift=33,
+        onspeed_fast_pct_lift=55,
+        onspeed_slow_pct_lift=74,
+        stall_warn_pct_lift=88,
+        flaps_min_deg=0,
+        flaps_max_deg=33,
+        g_onset_rate=0.5,
+        spin_cue=0,
+        data_mark=7,
+    )
+    wire = f.to_bytes()
+    parsed = _parse_via_firmware(wire)
+
+    def close(field: str, expected: float, tol: float) -> None:
+        got = float(parsed[field])
+        assert math.isclose(got, expected, abs_tol=tol), \
+            f"{field}: parsed={got} expected={expected} tol={tol}"
+
+    close("pitchDeg",          f.pitch_deg,          0.11)
+    close("rollDeg",           f.roll_deg,           0.11)
+    close("iasKt",             f.ias_kts,            0.11)
+    close("paltFt",            f.palt_ft,            1.01)
+    close("turnRateDps",       f.turnrate_dps,       0.11)
+    close("lateralG",          f.lateral_g,          0.011)
+    close("verticalG",         f.vertical_g,         0.11)
+    assert int(parsed["percentLift"]) == f.percent_lift
+    close("vsiFpm",             round(f.vsi_fpm / 10) * 10, 11.0)
+    assert int(parsed["oatC"]) == f.oat_c
+    close("flightPathDeg",      f.flightpath_deg,     0.11)
+    assert int(parsed["flapsDeg"]) == f.flap_deg
+    assert int(parsed["tonesOnPctLift"])     == f.tones_on_pct_lift
+    assert int(parsed["onSpeedFastPctLift"]) == f.onspeed_fast_pct_lift
+    assert int(parsed["onSpeedSlowPctLift"]) == f.onspeed_slow_pct_lift
+    assert int(parsed["stallWarnPctLift"])   == f.stall_warn_pct_lift
+    assert int(parsed["flapsMinDeg"]) == f.flaps_min_deg
+    assert int(parsed["flapsMaxDeg"]) == f.flaps_max_deg
+    close("gOnsetRate",         f.g_onset_rate,       0.011)
+    assert int(parsed["spinRecoveryCue"]) == f.spin_cue
+    assert int(parsed["dataMark"]) == f.data_mark
+
+
+def test_firmware_parser_rejects_bad_crc() -> None:
+    """Corrupt one byte of the payload; firmware parser must refuse."""
+    if not PARSE_BIN.exists():
+        print("    SKIP  parse_frame binary not built; run `pio run -e native` first")
+        return
+
+    wire = bytearray(Frame(pitch_deg=5.0).to_bytes())
+    wire[10] ^= 0x01  # flip a bit in the payload — CRC will mismatch
+
+    result = subprocess.run(
+        [str(PARSE_BIN)],
+        input=bytes(wire),
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 1, f"expected exit 1 on bad CRC, got {result.returncode}"
+    assert b"parse_failed" in result.stdout, f"expected 'parse_failed', got: {result.stdout!r}"
+
+
+def test_firmware_parser_rejects_old_94_byte_frame() -> None:
+    """A frame at the previous wire size (94 bytes) must NOT decode
+    against the current 74-byte parser.  Catches the regression where
+    a stale builder is paired with new firmware.
+    """
+    if not PARSE_BIN.exists():
+        print("    SKIP  parse_frame binary not built; run `pio run -e native` first")
+        return
+
+    # Pad an otherwise-valid 74-byte frame out to 94 bytes by repeating
+    # data — the parser's size check should reject it before it even
+    # starts parsing fields.
+    wire = Frame().to_bytes()
+    pad = wire[2:22]      # 20 bytes of payload-shaped filler
+    extended = wire[:-2] + pad + wire[-2:]   # insert before CRLF
+    assert len(extended) == FRAME_LEN + 20
+
+    result = subprocess.run(
+        [str(PARSE_BIN)],
+        input=extended,
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 1, f"expected exit 1 on wrong size, got {result.returncode}"
+    assert b"wrong_size" in result.stdout, f"expected 'wrong_size', got: {result.stdout!r}"
 
 
 def main() -> int:
     tests = [
+        # Layer 1: self-referential
         test_frame_length,
         test_frame_header,
         test_frame_crc_matches_firmware_convention,
-        test_m5_parser_offsets_round_trip,
+        test_offsets_round_trip,
         test_negative_values_sign_preserved,
-        test_percent_lift_buckets_match_firmware,
+        test_compute_percent_lift_honest_formula,
         test_clamp_protects_against_out_of_range,
         test_nan_and_inf_dont_break,
+        # Layer 2: firmware-parser interop
+        test_firmware_parser_round_trip,
+        test_firmware_parser_rejects_bad_crc,
+        test_firmware_parser_rejects_old_94_byte_frame,
     ]
     failed = 0
+    skipped = 0
     for t in tests:
         try:
             t()
             print(f"  PASS  {t.__name__}")
+        except FileNotFoundError as e:
+            print(f"  SKIP  {t.__name__}: {e}")
+            skipped += 1
         except AssertionError as e:
             print(f"  FAIL  {t.__name__}: {e}")
             failed += 1
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+
+    total = len(tests)
+    passed = total - failed - skipped
+    print(f"\n{passed}/{total} passed, {skipped} skipped, {failed} failed")
+    if not PARSE_BIN.exists():
+        print(f"\nNote: build the firmware-parser harness for full coverage:")
+        print(f"      cd {HERE} && pio run -e native")
     return 0 if failed == 0 else 1
 
 

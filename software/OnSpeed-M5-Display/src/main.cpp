@@ -99,7 +99,15 @@ bool        fwUpdateMode = false;
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
 
-float AOAThresholds[8];
+// Percent-lift anchors, populated from the wire fields each frame.
+// Slot layout matches mapPct2Display + drawAOA chevron-color logic:
+//   [0] floor               (always 0 — alpha_0 in percent space)
+//   [2] L/Dmax pip          (TonesOnPctLift)
+//   [3] OnSpeedFast band    (OnSpeedFastPctLift)
+//   [4] OnSpeedSlow band    (OnSpeedSlowPctLift)
+//   [7] StallWarn           (StallWarnPctLift)
+// Slots 1, 5, 6 are unused after the rework.
+int PctAnchors[8];
 
 // screen size variables
 const uint16_t  WIDTH               = 320; //X
@@ -128,8 +136,6 @@ const uint16_t  updateRateNumbers   = 500;  //milliseconds
 const uint16_t  flashRate           = 250;  //milliseconds
 
 // Serial data variables (definitions, declared extern in SerialRead.h)
-String          serialBufferString;
-float           AOA                 = 0.0;
 int             PercentLift;
 float           Pitch               = 0.0;
 float           Roll                = 0.0;
@@ -143,10 +149,17 @@ int             FlapPos             = 0;
 int             OAT                 = 0;
 int16_t         Slip                = 0;
 
-float           OnSpeedStallWarnAOA = 20;
-float           OnSpeedSlowAOA      = 15;
-float           OnSpeedFastAOA      = 10;
-float           OnSpeedTonesOnAOA   = 5;
+// Per-flap band-edge percents — populated from #1 wire fields.  The
+// indexer's chevrons / donut / L/Dmax pip / index bar are all
+// rendered against these percent anchors via mapPct2Display.  Default
+// values are an uncalibrated "zero everywhere" so the indexer renders
+// pinned to the bottom until the first real frame arrives.
+int             TonesOnPctLift      = 0;
+int             OnSpeedFastPctLift  = 0;
+int             OnSpeedSlowPctLift  = 0;
+int             StallWarnPctLift    = 0;
+int             FlapsMinDeg         = 0;
+int             FlapsMaxDeg         = 33;
 
 float           gOnsetRate          = 0.0;
 int             SpinRecoveryCue     = 0;
@@ -188,8 +201,8 @@ uint16_t        wgtX0;
 uint16_t        wgtY0;
 
 // Forward declarations
-void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolean flashing, float Array[]);
-void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t slipValue, boolean flashing, const float Array[]);
+void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boolean flashing, const int Array[]);
+void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t slipValue, boolean flashing, const int Array[]);
 void displayAOA();
 void displayDecelGauge();
 void displayGloadHistory();
@@ -198,7 +211,7 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
               int16_t startAngle, int16_t arcAngle, bool clockWise, uint8_t gradMarks,
               int16_t pitch, int16_t roll, int16_t yaw, float flightPathAngle);
 void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale);
-int mapAOA2Display(float aoa, const float Array[]);
+int mapPct2Display(int aoaPct, const int Array[]);
 int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh);
 #if defined(ESP_PLATFORM)
 void handleUpgrade();
@@ -560,7 +573,7 @@ void loop()
 
                 // Update ball display on attitude page
                 // Increase sensitivity of slip indicator
-                drawSlip(80, 204, 160, 20, Slip, false, AOAThresholds);
+                drawSlip(80, 204, 160, 20, Slip, false, PctAnchors);
 
                 // iVSI
                 // draw iVSI line
@@ -674,18 +687,23 @@ void loop()
 
 void displayAOA()
 {
-    // Build Setpoint array
-    // --------------------
-    AOAThresholds[0] = 0.0001;
-    AOAThresholds[1] = OnSpeedTonesOnAOA - 0.1;
-    AOAThresholds[2] = OnSpeedTonesOnAOA;
-    AOAThresholds[3] = OnSpeedFastAOA;
-    AOAThresholds[4] = OnSpeedSlowAOA;
-    AOAThresholds[5] = OnSpeedSlowAOA + 0.1;
-    AOAThresholds[6] = OnSpeedStallWarnAOA - 0.1;
-    AOAThresholds[7] = OnSpeedStallWarnAOA;
+    // Build percent-lift anchor array.  All values come from the wire
+    // and represent the per-flap setpoints expressed as percent-lift
+    // (the honest single-linear formula in onspeed_core/aoa/PercentLift).
+    // Slot 0 is the floor (always 0 in percent space).  Slot 2 is the
+    // L/Dmax pip position — slides per flap because TonesOnPctLift
+    // varies per flap.  Slots 3, 4, 7 are the band edges used by
+    // mapPct2Display and the chevron-color logic in drawAOA.
+    PctAnchors[0] = 0;
+    PctAnchors[1] = 0;                       // unused after rework
+    PctAnchors[2] = TonesOnPctLift;          // L/Dmax pip
+    PctAnchors[3] = OnSpeedFastPctLift;
+    PctAnchors[4] = OnSpeedSlowPctLift;
+    PctAnchors[5] = 0;                       // unused after rework
+    PctAnchors[6] = 0;                       // unused after rework
+    PctAnchors[7] = StallWarnPctLift;
 
-    drawAOA(wgtX0, wgtY0, wgtWidth, wgtHeight, AOA, flashFlag, AOAThresholds);
+    drawAOA(wgtX0, wgtY0, wgtWidth, wgtHeight, PercentLift, flashFlag, PctAnchors);
 
     // Draw the percent lift display
     // -----------------------------
@@ -779,7 +797,7 @@ void displayAOA()
 
     // Update ball display
     // -------------------
-    drawSlip(80, 204, 160, 34, Slip, flashFlag, AOAThresholds);
+    drawSlip(80, 204, 160, 34, Slip, flashFlag, PctAnchors);
 
     // Update gOnset rates
     // -------------------
@@ -819,9 +837,11 @@ void displayAOA()
 // -----------------------------------------------
 
 //
-// Draw AOA indicator
+// Draw AOA indicator.  All thresholds are in percent-lift units: aoaPct is
+// the current AOA's percent (0..99) and Array[] holds the per-flap percent
+// anchors populated by displayAOA().
 //
-void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolean flashing, float Array[])
+void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boolean flashing, const int Array[])
 {
     float       Theta;
     float       cosTheta;
@@ -842,11 +862,11 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolea
     */
 
     // Chevron changes color midway between "slow" (4) and "stall warning" (7)
-    float   chevMid = Array[4] + (Array[7] - Array[4]) / 2.0;
-    if      (aoa > Array[4] && aoa <= chevMid ) Colour = TFT_YELLOW;
-    else if (aoa > chevMid  && aoa <= Array[7]) Colour = TFT_RED;
-    else if (aoa > Array[7] && !flashing      ) Colour = TFT_RED;
-    else                                        Colour = TFT_DARKGREY;
+    int chevMid = Array[4] + (Array[7] - Array[4]) / 2;
+    if      (aoaPct > Array[4] && aoaPct <= chevMid ) Colour = TFT_YELLOW;
+    else if (aoaPct > chevMid  && aoaPct <= Array[7]) Colour = TFT_RED;
+    else if (aoaPct > Array[7] && !flashing         ) Colour = TFT_RED;
+    else                                              Colour = TFT_DARKGREY;
 
     Theta    = PI / 8;
     cosTheta = cos(Theta);
@@ -887,13 +907,16 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolea
     gdraw.fillTriangle(XA1, YA1, XA2, YA2, XA3, YA3, Colour);
 
     /*
-     Bottom chevron — FAA green/yellow/red progression: green covers the
-     "fast but safe" band (LDmax → OnSpeedFast), matching the donut green
-     for OnSpeed. Yellow/red escalate on the top chevrons as AOA rises
-     toward stall.
+     Bottom chevron — green covers the entire safe band, from L/Dmax up
+     through the on-speed donut.  Both fast-but-safe and on-speed are
+     safe states; the donut overlay differentiates "you're in the
+     on-speed window" while the bottom chevron continues to show "still
+     in the safe band."  The bottom chevron only goes dark above
+     OnSpeedSlow, where the top chevrons take over with the
+     yellow/red escalation toward stall.
     */
-    if (aoa >= Array [1] && aoa < Array [4]) Colour = TFT_GREEN;
-    else                                     Colour = TFT_DARKGREY;
+    if (aoaPct >= Array [2] && aoaPct < Array [4]) Colour = TFT_GREEN;
+    else                                           Colour = TFT_DARKGREY;
 
     Theta    = PI / 8;
     cosTheta = cos(Theta);
@@ -939,42 +962,44 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolea
     uint16_t bullsEye = H * (65 - 55 - 2) / 200;
     gdraw.fillCircle (X0, Y0, bullsEye + H / 12, TFT_BLACK);
 
-    float       OnspeedRange = Array [4] - Array [3];
+    float       OnspeedRange = (float)(Array [4] - Array [3]);
     int16_t     ArcRadius    = bullsEye + H / 16;
     uint16_t    LineWidth    = 8;
 
     // Bottom arc
-    if (aoa >= Array [3] && aoa <= (Array [4] - OnspeedRange * 0.25)) Colour = TFT_GREEN;
-    else                                                              Colour = TFT_DARKGREY;
+    if ((float)aoaPct >= (float)Array [3] && (float)aoaPct <= ((float)Array [4] - OnspeedRange * 0.25f)) Colour = TFT_GREEN;
+    else                                                                                                 Colour = TFT_DARKGREY;
     myGauges.drawArc(X0, Y0, ArcRadius, 0.0, PI, Colour, LineWidth);
 
     // Top arc
-    if (aoa >= (Array [3] + OnspeedRange * 0.25) && aoa <= Array [4]) Colour = TFT_GREEN;
-    else                                                              Colour = TFT_DARKGREY;
+    if ((float)aoaPct >= ((float)Array [3] + OnspeedRange * 0.25f) && (float)aoaPct <= (float)Array [4]) Colour = TFT_GREEN;
+    else                                                                                                 Colour = TFT_DARKGREY;
     myGauges.drawArc(X0, Y0, ArcRadius,  PI, PI, Colour, LineWidth);
 
     // Black segments between arcs
     gdraw.fillRect (X0 - W / 3, Y0 - H / 48, 2 * W / 3, H / 24, TFT_BLACK);
 
     // Center dot
-    if (aoa >= (Array [3] + OnspeedRange * 0.25) && aoa <= (Array [4] - OnspeedRange * 0.25)) Colour = TFT_GREEN;
-    else                                                                                      Colour = TFT_DARKGREY;
+    if ((float)aoaPct >= ((float)Array [3] + OnspeedRange * 0.25f) && (float)aoaPct <= ((float)Array [4] - OnspeedRange * 0.25f)) Colour = TFT_GREEN;
+    else                                                                                                                          Colour = TFT_DARKGREY;
     gdraw.fillCircle (X0, Y0, bullsEye + 2, Colour);
 
     /*
     Index pointer
     */
-    int indexY = mapAOA2Display(aoa, Array);
+    int indexY = mapPct2Display(aoaPct, Array);
     gdraw.fillRect (X0 - W / 2, indexY, W, H / 24, TFT_WHITE);
     gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
 
     /*
-     Draw marker dots for maximum climb rate
+     Draw marker dots at L/Dmax (Array[2] = TonesOnPctLift) — slides per
+     active flap calibration within the 0%..OnSpeedFastPctLift band.
     */
-    gdraw.fillCircle (X0 - W / 2,     (HEIGHT - 39 * HEIGHT / 100), H / 24, TFT_BLACK);
-    gdraw.fillCircle (X0 + W / 2 - 1, (HEIGHT - 39 * HEIGHT / 100), H / 24, TFT_BLACK);
-    gdraw.fillCircle (X0 - W / 2,     (HEIGHT - 39 * HEIGHT / 100), H / 32, TFT_WHITE);
-    gdraw.fillCircle (X0 + W / 2 - 1, (HEIGHT - 39 * HEIGHT / 100), H / 32, TFT_WHITE);
+    int ldmaxY = mapPct2Display(Array[2], Array);
+    gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 24, TFT_BLACK);
+    gdraw.fillCircle (X0 + W / 2 - 1, ldmaxY, H / 24, TFT_BLACK);
+    gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 32, TFT_WHITE);
+    gdraw.fillCircle (X0 + W / 2 - 1, ldmaxY, H / 32, TFT_WHITE);
 } // end drawAOA()
 
 
@@ -982,7 +1007,7 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoa, boolea
 /*
    Draw slip indicator
 */
-void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipValue, boolean flashing,  const float Array[])
+void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipValue, boolean flashing,  const int Array[])
 {
     uint16_t CenterX = X0 + W / 2;
     uint16_t CenterY = Y0 + H / 2;
@@ -992,8 +1017,8 @@ void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipVa
     */
 
     uint16_t Colour = TFT_GREEN;
-    if ( flashing && (abs(slipValue) >= 30) && AOA >= Array[7]) Colour = TFT_BLACK;
-    if (!flashing && (abs(slipValue) >= 30) && AOA >= Array[7]) Colour = TFT_RED;
+    if ( flashing && (abs(slipValue) >= 30) && PercentLift >= Array[7]) Colour = TFT_BLACK;
+    if (!flashing && (abs(slipValue) >= 30) && PercentLift >= Array[7]) Colour = TFT_RED;
 
     gdraw.fillCircle (CenterX + slipValue * (W - H - 1) / 99 / 2, CenterY, H / 2 - 1, Colour);
 
@@ -1340,7 +1365,7 @@ void displayDecelGauge()
     gdraw.drawLine (306, 120, 312, 120, TFT_LIGHT_GREY);
 
     // Update ball display
-    drawSlip(80, 215, 160, 20, Slip, false, AOAThresholds);
+    drawSlip(80, 215, 160, 20, Slip, false, PctAnchors);
 
     // Shared layout constants for this page.
     constexpr int DEC_RIGHT_X     = 303;   // right-edge anchor, clears VSI ticks
@@ -1432,16 +1457,29 @@ void displayGloadHistory()
 
 // -----------------------------------------------
 
-// Convert AOA value to M5 display vertical coordinate
-
-int mapAOA2Display(float aoa, const float Array[])
+// Convert AOA percent-lift to M5 display vertical coordinate.
+//
+// Two ramps with the OnSpeed donut anchored at fixed screen-y in the
+// middle.  Both ramp slopes change per flap because the band-edge
+// percents (Array[3] = OnSpeedFastPctLift, Array[4] = OnSpeedSlowPctLift,
+// Array[7] = StallWarnPctLift) change per flap.  Array[0] is always 0
+// (the alpha_0 floor in percent space).
+//
+//   aoaPct ≤ 0                            → y = 192 (bottom)
+//   0 < aoaPct ≤ OnSpeedFastPctLift       → linear, y = 192 → 115
+//   OnSpeedFastPctLift < aoaPct ≤ OnSpeedSlowPctLift → linear, y = 115 → 78  (donut band, fixed screen-y)
+//   OnSpeedSlowPctLift < aoaPct ≤ StallWarnPctLift   → linear, y = 78 → 1
+//   aoaPct > StallWarnPctLift             → y = 1 (top)
+//
+// L/Dmax pip is drawn at mapPct2Display(Array[2], Array) so it floats
+// per flap within the lower ramp.
+int mapPct2Display(int aoaPct, const int Array[])
 {
-    if      (aoa <= Array[0])                    return 192;                                    // display bottom
-    else if (aoa >  Array[0] && aoa <= Array[2]) return map2int(aoa,Array[0],Array[2],192,148); // display bottom to L/Dmax
-    else if (aoa >  Array[2] && aoa <= Array[3]) return map2int(aoa,Array[2],Array[3],148,115); // L/Dmax to onspeed fast
-    else if (aoa >  Array[3] && aoa <= Array[4]) return map2int(aoa,Array[3],Array[4],115, 78); // onspeed fast to onspeed slow
-    else if (aoa >  Array[4] && aoa <= Array[7]) return map2int(aoa,Array[4],Array[7], 78,  1); // onspeed slow to stall warning
-    else                                         return 1;                                      // display top
+    if      (aoaPct <= Array[0])                       return 192;                                                  // display bottom
+    else if (aoaPct >  Array[0] && aoaPct <= Array[3]) return map2int((float)aoaPct,(float)Array[0],(float)Array[3],192,115); // floor → OnSpeedFast
+    else if (aoaPct >  Array[3] && aoaPct <= Array[4]) return map2int((float)aoaPct,(float)Array[3],(float)Array[4],115, 78); // donut band
+    else if (aoaPct >  Array[4] && aoaPct <= Array[7]) return map2int((float)aoaPct,(float)Array[4],(float)Array[7], 78,  1); // OnSpeedSlow → StallWarn
+    else                                               return 1;                                                    // display top
 }
 
 

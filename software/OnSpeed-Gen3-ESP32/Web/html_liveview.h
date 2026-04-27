@@ -43,7 +43,6 @@ var flightPath     = 0;
 var iVSI           = 0;
 var derivedAOA     = 0;
 var pitchRate      = 0;
-var Alpha0         = 0;
 
 var liveConnecting = false;
 setInterval(updateAge,500);
@@ -180,53 +179,37 @@ function onMessage(evt)
     flightPath    = OnSpeed.flightPath;
     derivedAOA    = parseFloat(OnSpeed.DerivedAOA);
     pitchRate     = parseFloat(OnSpeed.PitchRate);
-    LDmax         = parseFloat(OnSpeed.LDmax);
-    OnspeedFast   = parseFloat(OnSpeed.OnspeedFast);
-    OnspeedSlow   = parseFloat(OnSpeed.OnspeedSlow);
-    OnspeedWarn   = parseFloat(OnSpeed.OnspeedWarn);
-    Alpha0        = parseFloat(OnSpeed.Alpha0) || 0;
     lastUpdate    = Date.now();
 
-//      console.log('log:',AOA,IAS,PAlt,GLoad,GLoadLat,PitchAngle,OnSpeed.LDmax,OnSpeed.OnspeedFast,OnSpeed.OnspeedSlow,OnSpeed.OnspeedWarn);
+    // Per-flap percent anchors come over the wire, computed firmware-side
+    // by the canonical onspeed_core/aoa/PercentLift helper.  This
+    // mirrors the M5 #1 wire format byte-for-byte in semantic content
+    // — a future shared indexer renderer can run identically off
+    // either transport.
+    var aoaPct       = parseInt(OnSpeed.percentLift,        10);
+    var ldmaxPct     = parseInt(OnSpeed.tonesOnPctLift,     10);
+    var fastPct      = parseInt(OnSpeed.onSpeedFastPctLift, 10);
+    var slowPct      = parseInt(OnSpeed.onSpeedSlowPctLift, 10);
+    var stallWarnPct = parseInt(OnSpeed.stallWarnPctLift,   10);
+
+    // Map percent-lift to the SVG y-coordinate.  Two ramps with the
+    // OnSpeed donut anchored in the middle (115..78 in screen-y on
+    // the SVG, just like the M5).  Each ramp slope changes per flap
+    // because the band-edge percents change per flap.
+    function pct2y(p) {
+      if      (p <= 0)            return 278;                                  // bottom (alpha_0 floor)
+      else if (p <= fastPct)      return map(p, 0, fastPct, 278, 178);         // floor → OnSpeedFast
+      else if (p <= slowPct)      return map(p, fastPct, slowPct, 178, 113);   // donut band
+      else if (p <= stallWarnPct) return map(p, slowPct, stallWarnPct, 113, 15); // OnSpeedSlow → StallWarn
+      else                        return 15;                                   // top
+    }
 
     // Move the AOA line on the indexer.  Gate on AOA > -20 so the
     // N/A sentinel (-100) leaves the bar hidden instead of mapping it
-    // to a nonsense coordinate.  Before this gate the bar rendered at
-    // its static y=144.91 (dead-center, visually "on speed") on
-    // initial page load — a glanceable false positive for a pilot who
-    // hasn't connected yet.
+    // to a nonsense coordinate.
     if (AOA > -20)
       {
-      var aoaline_y;
-      if (AOA <= LDmax)
-        {
-        aoaline_y = map(AOA, Alpha0, LDmax, 278, 228);
-        }
-      else if (AOA <= OnspeedFast)
-        {
-        aoaline_y = map(AOA, LDmax, OnspeedFast, 228, 178);
-        }
-      else if (AOA <= OnspeedSlow)
-        {
-        aoaline_y = map(AOA, OnspeedFast, OnspeedSlow, 178, 113);
-        }
-      else if (AOA <= OnspeedWarn)
-        {
-        aoaline_y = map(AOA, OnspeedSlow, OnspeedWarn, 113, 15);
-        }
-      else
-        {
-        // Above stall warning: clamp to the top of the indicator.
-        // Without this clamp, the previous branch's linear map()
-        // extrapolates past y=15 into negative y, sliding the bar
-        // off the top of the SVG and hiding it — exactly the
-        // wrong visual cue at exactly the wrong moment. The
-        // audible stall tone is already firing; the bar should
-        // be pinned visibly at the top to match.
-        aoaline_y = 15;
-        }
-
-      document.getElementById("aoaline").setAttribute("y", aoaline_y);
+      document.getElementById("aoaline").setAttribute("y", pct2y(aoaPct));
       document.getElementById("aoaline").style.visibility = "visible";
       }
     else
@@ -234,8 +217,11 @@ function onMessage(evt)
       document.getElementById("aoaline").style.visibility="hidden";
       }
 
-    // calc ldmax dot locations
-    ldmax_y=228+3;
+    // L/Dmax pip dots — sit at the screen-y for ldmaxPct.  Slides
+    // per flap because L/Dmax body angle puts a different percent
+    // through the calibration on each flap config.  +3 offset keeps
+    // the dot centered against the 6.69-px-high aoaline rect.
+    var ldmax_y = pct2y(ldmaxPct) + 3;
 
     document.getElementById("ldmaxleft").setAttribute("cy", ldmax_y);
     document.getElementById("ldmaxright").setAttribute("cy", ldmax_y);
@@ -243,8 +229,9 @@ function onMessage(evt)
     // update attitude
     updateAttitude(OnSpeed.Pitch,OnSpeed.Roll);
 
-    // show onspeed dot
-    if (AOA > OnspeedFast && AOA <= OnspeedSlow && document.getElementById("aoaindexer").style.visibility === "visible")
+    // show onspeed dot — bar is in the donut band when aoaPct is
+    // between OnSpeedFast and OnSpeedSlow percent.
+    if (aoaPct > fastPct && aoaPct <= slowPct && document.getElementById("aoaindexer").style.visibility === "visible")
         document.getElementById("onspeeddot").style.visibility="visible";
     else
         document.getElementById("onspeeddot").style.visibility="hidden";

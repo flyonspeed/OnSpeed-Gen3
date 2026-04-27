@@ -214,55 +214,46 @@ real firmware would produce for your aircraft.
 Run the unit tests (validates frame format, field offsets, CRC, clamping):
 
 ```bash
-uv run test_replay.py
+pio run -e native      # build the firmware-parser harness
+uv run test_replay.py  # run the test suite
 ```
 
-Expected: `8/8 passed`.
+Expected: `11/11 passed`.
 
-The tests verify:
-- 80-byte total wire length (76 payload + 2 CRC + CRLF)
-- `#1` header
-- CRC matches the sum-of-payload-bytes convention
-- Field offsets round-trip with the M5 parser logic in
-  [`SerialRead.cpp:76–134`](../../software/OnSpeed-M5-Display/src/SerialRead.cpp)
-- Signed fields serialize signs correctly
-- PercentLift buckets match `DisplaySerial.cpp:155–174`
-- Out-of-range values clamp instead of overflowing
-- NaN / inf don't corrupt the frame length
+The tests run in two layers:
+
+**Layer 1 — Self-referential (Python only).** Fast checks of the Python
+builder: total length is 74 bytes, `#1` header, CRC matches the
+sum-of-payload-bytes convention, every field round-trips through the
+documented byte offsets, signed fields keep their signs, the honest
+percent-lift formula tracks `ComputePercentLift`, out-of-range values
+clamp, NaN/Inf don't corrupt the frame length.
+
+**Layer 2 — Firmware-parser interop.** The decisive test: build a frame
+in Python, pipe it into the native `parse_frame` binary (which links
+the same `onspeed_core::ParseDisplayFrame` that runs on the M5), and
+assert every parsed field matches the original input within wire
+resolution. Also covers a corrupt-CRC reject test and a wrong-size
+test that catches stale builders against new firmware. If the
+harness binary isn't built, these tests skip with a clear message;
+CI always builds it.
+
+Without the Layer 2 tests, a wire-format change between Python and the
+firmware would slip through silently — Layer 1 only knows about the
+Python builder.
 
 ---
 
 ## The wire protocol
 
-Each frame is exactly **80 bytes**, transmitted at 115200 8N1. The M5
-firmware parses at byte offsets fixed by the `snprintf` format in
-[`DisplaySerial.cpp:275`](../../software/sketch_common/src/io/DisplaySerial.cpp):
-
-| Offset | Width | Format | Field              | Scale        |
-|--------|-------|--------|--------------------|--------------|
-| 0–1    | 2     | `#1`   | Header (literal)   | —            |
-| 2–5    | 4     | `%+04i`| Pitch              | deg × 10     |
-| 6–10   | 5     | `%+05i`| Roll               | deg × 10     |
-| 11–14  | 4     | `%04u` | IAS                | kts × 10     |
-| 15–20  | 6     | `%+06i`| Pressure altitude  | ft           |
-| 21–25  | 5     | `%+05i`| Turn rate / yaw    | deg/s × 10   |
-| 26–28  | 3     | `%+03i`| Lateral G          | g × 100      |
-| 29–31  | 3     | `%+03i`| Vertical G         | g × 10       |
-| 32–33  | 2     | `%02u` | Percent lift       | 0–99         |
-| 34–37  | 4     | `%+04i`| AOA                | deg × 10     |
-| 38–41  | 4     | `%+04i`| iVSI               | fpm ÷ 10     |
-| 42–44  | 3     | `%+03i`| OAT                | °C           |
-| 45–48  | 4     | `%+04i`| Flight path angle  | deg × 10     |
-| 49–51  | 3     | `%+03i`| Flap position      | deg          |
-| 52–55  | 4     | `%+04i`| StallWarn AOA      | deg × 10     |
-| 56–59  | 4     | `%+04i`| OnSpeed Slow AOA   | deg × 10     |
-| 60–63  | 4     | `%+04i`| OnSpeed Fast AOA   | deg × 10     |
-| 64–67  | 4     | `%+04i`| Tones-On AOA       | deg × 10     |
-| 68–71  | 4     | `%+04i`| G onset rate       | g/s × 100    |
-| 72–73  | 2     | `%+02i`| Spin recovery cue  | -1/0/+1      |
-| 74–75  | 2     | `%02u` | Data mark          | 0–99         |
-| 76–77  | 2     | hex    | CRC (sum of 0–75, low byte, uppercase hex) | — |
-| 78–79  | 2     | bytes  | `\r\n`             | —            |
+Frames are **74 bytes** total: 70-byte payload + 2-byte CRC + CRLF, at
+115200 8N1. Full byte-level reference (offsets, scale factors, sign
+conventions, parser recommendations) lives in
+[`docs/site/docs/reference/serial-protocol.md`](../../docs/site/docs/reference/serial-protocol.md).
+The canonical builder/parser is
+[`software/Libraries/onspeed_core/src/proto/DisplaySerial.{h,cpp}`](../../software/Libraries/onspeed_core/src/proto/DisplaySerial.h)
+— `replay.py`'s output must round-trip through that parser
+byte-for-byte, which is what the Layer 2 tests verify.
 
 Frame rate on the real firmware is **20 Hz** (50 ms), controlled by
 `kDisplaySerialPeriodMs` in
@@ -332,7 +323,7 @@ automatically in an ephemeral environment.
  OnSpeed .cfg ───►│  • parses flap setpoints    │
  SD-card CSV  ───►│  • reads rows at 20 Hz      │
                   │  • computes PercentLift     │
-                  │  • builds 80-byte frame     │
+                  │  • builds 74-byte frame     │
                   │  • writes to serial port    │
                   └──────────────┬──────────────┘
                                  │ /dev/cu.usbserial-XXXX
