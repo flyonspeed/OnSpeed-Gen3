@@ -42,6 +42,7 @@
 #include "src/Globals.h"
 #include "src/util/Helpers.h"
 #include <audio/AudioMixer.h>
+#include <audio/AudioTestSweep.h>
 #include <audio/Envelope.h>
 #include <audio/ToneCalc.h>
 #include <audio/ToneSynth.h>
@@ -885,35 +886,22 @@ void AudioPlay::AudioTest()
     // state.
     {
     const ActiveFlapSnapshot snap = SnapshotActiveFlap();
-    // Skip the sweep on uncalibrated configs.  Mirrors calculateTone's
-    // own three-threshold gate exactly — partially-calibrated configs
-    // (e.g. only StallWarn set) would otherwise run a 20 s sweep that
-    // sits silent until the very top, the opposite of the test's intent.
-    if (snap.bValid &&
-        snap.th.fONSPEEDFASTAOA > 0.0f &&
-        snap.th.fONSPEEDSLOWAOA > 0.0f &&
-        snap.th.fSTALLWARNAOA   > 0.0f)
+    if (snap.bValid && onspeed::audio::ShouldRunAudioTestSweep(snap.th))
         {
-        constexpr float kBottomMargin = 0.2f;   // start just below LDmax
-        constexpr float kTopMargin    = 1.5f;   // end firmly into solid-stall
-        constexpr uint32_t kSweepMs   = 20000;
-        constexpr uint32_t kStepMs    = 50;     // 400 steps total
+        constexpr onspeed::audio::AudioTestSweepConfig kSweepCfg{};
+        const std::uint32_t nSteps =
+            onspeed::audio::AudioTestSweepStepCount(kSweepCfg);
 
-        const float fStartAoa = snap.th.fLDMAXAOA    - kBottomMargin;
-        const float fEndAoa   = snap.th.fSTALLWARNAOA + kTopMargin;
-        const uint32_t kSteps = kSweepMs / kStepMs;
-        const float fAoaStep  = (fEndAoa - fStartAoa) / static_cast<float>(kSteps);
-
-        for (uint32_t i = 0; i < kSteps; ++i)
+        for (std::uint32_t i = 0; i < nSteps; ++i)
             {
-            const float fAoa = fStartAoa + fAoaStep * static_cast<float>(i);
-            const onspeed::ToneResult result = onspeed::calculateTone(fAoa, snap.th);
+            const onspeed::audio::AudioTestSweepStep step =
+                onspeed::audio::GetAudioTestSweepStep(snap.th, kSweepCfg, i);
 
-            g_AudioPlay.fStallVolumeMult = result.fVolumeMult;
-            g_AudioPlay.SetPulseFreq(result.fPulseFreq);
-            g_AudioPlay.SetTone(static_cast<EnAudioTone>(result.enTone));
+            g_AudioPlay.fStallVolumeMult = step.tone.fVolumeMult;
+            g_AudioPlay.SetPulseFreq(step.tone.fPulseFreq);
+            g_AudioPlay.SetTone(static_cast<EnAudioTone>(step.tone.enTone));
 
-            if (!DelayOrStop(kStepMs)) goto done;
+            if (!DelayOrStop(kSweepCfg.stepMs)) goto done;
             }
         }
     }
