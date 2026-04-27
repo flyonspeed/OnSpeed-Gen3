@@ -448,6 +448,86 @@ void test_monotonic_sweep(void)
 }
 
 // ============================================================================
+// Edge cases flagged by code review
+// ============================================================================
+
+// Two adjacent detents with identical iPotPosition (degenerate config, no
+// possible aerodynamic meaning but reachable via misconfigured XML).  The
+// bracket math has a zero span; verify the function returns finite
+// percents without dividing by zero.
+void test_zero_span_bracket_no_divide_by_zero(void)
+{
+    SuFlaps fixture[2];
+    fixture[0]              = makeCleanDetent();
+    fixture[1]              = makeFullDetent();
+    fixture[1].iPotPosition = fixture[0].iPotPosition;   // collide ADCs
+
+    DisplayPctAnchors a =
+        ComputeDisplayPctAnchors(fixture[0].iPotPosition, fixture, 2, true);
+
+    // Bracket-walk first-match-wins: detent 0's percents survive.
+    int expected = ComputePercentLift(fixture[0].fLDMAXAOA, fixture[0], true);
+    TEST_ASSERT_INT_WITHIN(1, expected, a.tonesOnPctLift);
+    TEST_ASSERT_TRUE(a.tonesOnPctLift     >= 0 && a.tonesOnPctLift     <= 99);
+    TEST_ASSERT_TRUE(a.onSpeedFastPctLift >= 0 && a.onSpeedFastPctLift <= 99);
+    TEST_ASSERT_TRUE(a.onSpeedSlowPctLift >= 0 && a.onSpeedSlowPctLift <= 99);
+    TEST_ASSERT_TRUE(a.stallWarnPctLift   >= 0 && a.stallWarnPctLift   <= 99);
+}
+
+// Slope continuity: across the full ADC range between two detents, the
+// per-ADC-tick change in tonesOnPctLift should be at most 1.  Catches
+// any off-by-one in bracket selection that would produce a discontinuity
+// at a boundary larger than the rounding tolerance.
+void test_slope_continuity_full_sweep(void)
+{
+    SuFlaps fixture[2] = { makeCleanDetent(), makeFullDetent() };
+    const uint16_t lo  = (fixture[0].iPotPosition < fixture[1].iPotPosition)
+                             ? fixture[0].iPotPosition
+                             : fixture[1].iPotPosition;
+    const uint16_t hi  = (fixture[0].iPotPosition > fixture[1].iPotPosition)
+                             ? fixture[0].iPotPosition
+                             : fixture[1].iPotPosition;
+
+    int prev = ComputeDisplayPctAnchors(lo, fixture, 2, true).tonesOnPctLift;
+    int maxJump = 0;
+    for (uint16_t adc = lo + 1; adc <= hi; ++adc) {
+        int now = ComputeDisplayPctAnchors(adc, fixture, 2, true)
+                      .tonesOnPctLift;
+        int jump = (now > prev) ? (now - prev) : (prev - now);
+        if (jump > maxJump) maxJump = jump;
+        prev = now;
+    }
+    TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(
+        1, maxJump,
+        "tonesOnPctLift jumped by more than 1 between adjacent ADC samples");
+}
+
+// Three-detent ascending continuity at the *first* snap boundary
+// (clean -> takeoff).  Existing test_continuity_through_snap_three_detent
+// covers the second boundary (takeoff -> full); this one pins the first.
+void test_continuity_at_first_three_detent_boundary(void)
+{
+    SuFlaps fixture[3] = { makeCleanDetent(), makeTakeoffDetent(),
+                           makeFullDetent() };
+    const uint16_t midAB = static_cast<uint16_t>(
+        (fixture[0].iPotPosition + fixture[1].iPotPosition) / 2);
+
+    DisplayPctAnchors before =
+        ComputeDisplayPctAnchors(midAB - 1, fixture, 3, true);
+    DisplayPctAnchors at =
+        ComputeDisplayPctAnchors(midAB,     fixture, 3, true);
+    DisplayPctAnchors after =
+        ComputeDisplayPctAnchors(midAB + 1, fixture, 3, true);
+
+    TEST_ASSERT_INT_WITHIN(1, at.tonesOnPctLift,     before.tonesOnPctLift);
+    TEST_ASSERT_INT_WITHIN(1, at.tonesOnPctLift,     after.tonesOnPctLift);
+    TEST_ASSERT_INT_WITHIN(1, at.onSpeedFastPctLift, before.onSpeedFastPctLift);
+    TEST_ASSERT_INT_WITHIN(1, at.onSpeedFastPctLift, after.onSpeedFastPctLift);
+    TEST_ASSERT_INT_WITHIN(1, at.stallWarnPctLift,   before.stallWarnPctLift);
+    TEST_ASSERT_INT_WITHIN(1, at.stallWarnPctLift,   after.stallWarnPctLift);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -461,6 +541,7 @@ int main(void)
 
     RUN_TEST(test_continuity_through_snap_two_detent);
     RUN_TEST(test_continuity_through_snap_three_detent);
+    RUN_TEST(test_continuity_at_first_three_detent_boundary);
 
     RUN_TEST(test_below_lowest_pot_clamps_to_lowest);
     RUN_TEST(test_above_highest_pot_clamps_to_highest);
@@ -473,6 +554,9 @@ int main(void)
 
     RUN_TEST(test_audio_path_setpoints_unchanged);
     RUN_TEST(test_monotonic_sweep);
+
+    RUN_TEST(test_zero_span_bracket_no_divide_by_zero);
+    RUN_TEST(test_slope_continuity_full_sweep);
 
     return UNITY_END();
 }

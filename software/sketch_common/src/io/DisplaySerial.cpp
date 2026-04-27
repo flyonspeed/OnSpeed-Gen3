@@ -217,10 +217,11 @@ void DisplaySerial::Write()
         nFlapsSnapshot = nCopy;
 
         // Raw flap-lever ADC reading for the interpolation.  g_Flaps.uValue
-        // is updated by Flaps::Update() on its own cadence and is plain
-        // 16-bit data; reading it inside the same mutex window keeps the
-        // interpolation aligned with whichever flap-vector snapshot we
-        // captured above.
+        // is a uint16_t written outside this mutex by Flaps::Update() at
+        // 1 Hz from SensorIO; aligned 16-bit stores are atomic on the
+        // ESP32-S3 so a torn read is impossible regardless of mutex state.
+        // Reading inside this window is for consistency with the rest of
+        // the snapshot rather than for synchronization.
         uFlapsRawAdc = g_Flaps.uValue;
         xSemaphoreGive(xAhrsMutex);
         }

@@ -352,6 +352,11 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         for (size_t i = 0; i < nCopy; ++i)
             aFlapsSnapshot[i] = g_Config.aFlaps[i];
         nFlapsSnapshot = nCopy;
+        // g_Flaps.uValue is a uint16_t written outside this mutex by
+        // Flaps::Update() at 1 Hz from SensorIO; aligned 16-bit stores
+        // are atomic on the ESP32-S3 so a torn read is impossible
+        // regardless of mutex state.  Reading inside this window is for
+        // snapshot consistency, not synchronization.
         uFlapsRawAdc   = g_Flaps.uValue;
 
         xSemaphoreGive(xAhrsMutex);
@@ -390,6 +395,15 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const int iJsonSlowPct       = anchors.onSpeedSlowPctLift;
     const int iJsonStallWarnPct  = anchors.stallWarnPctLift;
 
+    // Use the interpolated flap angle so the WebSocket's numeric
+    // "flapsPos" readout slides smoothly during deployment (matching
+    // the M5 wire's behavior).  Falls back to the snapped detent
+    // position when the calibration is empty (anchors.flapsDeg = 0)
+    // or the snapshot was invalid — same convention as DisplaySerial.
+    const int iJsonFlapsPos      = (nFlapsSnapshot > 0)
+                                       ? anchors.flapsDeg
+                                       : iSnapFlapPos;
+
     // szFormat is a compile-time constant split across lines for readability.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -404,7 +418,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fPAltFt,
         fVerticalGload,
         fLatG,
-        iSnapFlapPos,
+        iJsonFlapsPos,
         iSnapFlapIdx,
         fCoeffP,
         g_iDataMark,
