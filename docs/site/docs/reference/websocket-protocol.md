@@ -21,7 +21,7 @@ The WebSocket carries a few fields the display serial does not: body-angle `AOA`
 | Path | `/` (no sub-path) |
 | URL | `ws://192.168.0.1:81` (when connected to the OnSpeed AP) |
 | Encoding | UTF-8 JSON, single object per frame |
-| Cadence | 20 Hz nominal, gated on ≥ 1 connected client; tied to `kDisplaySerialPeriodMs` so display serial and WebSocket update in lockstep |
+| Cadence | 20 Hz (one frame every 50 ms), gated on ≥ 1 connected client; the display-serial wire and the WebSocket share the same 50 ms tick (`kDisplaySerialPeriodMs` in `HardwareMap.h`) so they update in lockstep |
 | Direction | Server → client only; client text frames are accepted but currently no-op |
 | Authentication | None — same WiFi-AP-only access model as the rest of the LiveView UI |
 | Concurrent clients | Multiple clients are broadcast the same payload (no per-client state) |
@@ -62,30 +62,38 @@ Example payload (formatted; on the wire it's compact, no whitespace):
 }
 ```
 
-Typical compacted frame size: **300–340 bytes** depending on numeric width.
+Typical compacted frame size: **~390 bytes** in cruise; up to **~460 bytes** in the worst case (large negative floats and 5-digit integers in every field). The firmware allocates a fixed 512-byte buffer; if `snprintf` would overflow, the producer emits the literal `{}` instead of partial-and-invalid JSON. Consumers that see `{}` should treat it as a one-frame skip — every other frame is well-formed.
 
 ## Field reference
 
 Every field appears in every frame. Floats are formatted with 2 decimal places (`%.2f`); integers are bare. Numeric values are guarded against `NaN` / `Inf` — any non-finite source value is replaced with a documented fallback (typically 0 or a sentinel) so the JSON is always parseable.
 
+A note on source selection: several attitude/air-data fields read from different sources depending on the calibration-source config:
+
+- **EFIS mode + VN-300** (`CALWIZ_SOURCE = EFIS` and the configured EFIS is VectorNav VN-300): Pitch/Roll come from the VN-300 directly; VSI from VN-300 NED-down velocity; IAS still from OnSpeed pitot.
+- **EFIS mode + non-VN-300** (any other supported EFIS): Pitch/Roll/IAS/OAT from the EFIS; VSI is still OnSpeed `KalmanVSI`; flight path derived from EFIS VSI ÷ EFIS TAS.
+- **Internal mode** (`CALWIZ_SOURCE` set to anything other than `EFIS`, typically `INTERNAL`): all attitude and air data from OnSpeed sensors and the AHRS algorithm (Madgwick or EKF6 per the `AHRS_ALGORITHM` setting).
+
+The per-field tables below note source variations where they apply.
+
 ### Attitude
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
-| `Pitch` | float | degrees | Smoothed pitch. Source depends on calibration mode: in EFIS mode (`bCalSourceEfis=true`), reads from the EFIS; otherwise reads `g_AHRS.SmoothedPitch` (Madgwick or EKF6 output). |
+| `Pitch` | float | degrees | Smoothed pitch. Source: VN-300 (`g_EfisSerial.suVN300.Pitch`) in VN-300 mode, EFIS (`g_EfisSerial.suEfis.Pitch`) in non-VN-300 EFIS mode, `g_AHRS.SmoothedPitch` in internal mode. |
 | `Roll` | float | degrees | Smoothed roll, same source rules as `Pitch`. |
-| `flightPath` | float | degrees | Flight-path angle. Derived from VSI and TAS via `arcsin(VSI / TAS)`; positive = climbing. Falls back to `0` if TAS ≤ 0. |
-| `PitchRate` | float | deg/s | Body-frame pitch rate, `g_AHRS.gPitch` (filtered gyro). |
+| `flightPath` | float | degrees | Flight-path angle (positive = climbing). In internal mode, taken directly from `g_AHRS.FlightPath`. In EFIS modes, computed at this call site via `arcsin(VSI / TAS)` — the VSI/TAS sources vary: VN-300 uses VN-300's NED-down velocity over `g_AHRS.fTAS`; non-VN-300 uses the EFIS's VSI and TAS when both are present, falling back to `KalmanVSI / g_AHRS.fTAS`. Falls back to `0` if no usable TAS is available. |
+| `PitchRate` | float | deg/s | Body-frame pitch rate, `g_AHRS.gPitch` (filtered gyro). Always sourced from the AHRS regardless of calibration-source mode. |
 
 ### Air data
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
-| `IAS` | float | knots | Indicated airspeed. EFIS in EFIS mode, otherwise the OnSpeed pitot-derived IAS from `g_Sensors.IAS`. |
-| `PAlt` | float | feet | Pressure altitude. From `g_AHRS.KalmanAlt` (Kalman-filtered, in metres) converted to feet. |
-| `kalmanVSI` | float | feet/min | Kalman-filtered vertical speed. In EFIS mode with EFIS TAS available, this becomes the EFIS's VSI to keep one-source-per-frame integrity. |
-| `OAT` | float | °C | Outside air temperature. EFIS in EFIS mode; otherwise `g_Sensors.OatC` if `bOatSensor=true`; otherwise `0.0`. |
-| `DecelRate` | float | knots/s | Smoothed IAS-decel rate, `g_Sensors.fDecelRate` (Savitzky-Golay derivative). Negative = decelerating. |
+| `IAS` | float | knots | Indicated airspeed. From the EFIS (`g_EfisSerial.suEfis.IAS`) **only** in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived `g_Sensors.IAS` — VN-300 itself does not provide IAS. |
+| `PAlt` | float | feet | Pressure altitude. From `g_AHRS.KalmanAlt` (Kalman-filtered, in metres) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode. |
+| `kalmanVSI` | float | feet/min | Vertical speed. **Despite the name**, this is `g_AHRS.KalmanVSI` in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's `-VelNedDown` (NED-down velocity, sign-inverted to make positive = climb). The non-VN-300 EFIS mode does not use the EFIS's own VSI here. |
+| `OAT` | float | °C | Outside air temperature. From the EFIS in any EFIS mode (including VN-300) via `g_EfisSerial.suEfis.OAT`; from `g_Sensors.OatC` if `OATSENSOR = true` in config; otherwise `0.0`. |
+| `DecelRate` | float | knots/s | Smoothed IAS-decel rate, `g_Sensors.fDecelRate` (Savitzky-Golay derivative of IAS). Negative = decelerating. Always from OnSpeed sensors. |
 
 ### G-loads
 
@@ -98,22 +106,22 @@ Every field appears in every frame. Floats are formatted with 2 decimal places (
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
-| `AOA` | float | degrees | **Body angle**, not wing AOA. The fuselage-to-wind angle. See [How OnSpeed Measures AOA](../calibration/how-aoa-works.md) for the convention. Sentinel value `-100` is emitted when AOA is `NaN` or IAS is below the audio mute threshold (`iMuteAudioUnderIAS`); the LiveView gates on `AOA > -20` to render N/A in that state. |
+| `AOA` | float | degrees | **Body angle**, not wing AOA. The fuselage-to-wind angle. See [How OnSpeed Measures AOA](../calibration/how-aoa-works.md) for the convention. Sentinel value `-100` is emitted when AOA is `NaN` or IAS is below the audio mute threshold (`MUTE_UNDER_IAS` in config); the LiveView gates on `AOA > -20` to render N/A in that state. |
 | `DerivedAOA` | float | degrees | Body angle derived from the AHRS (pitch and flight path), `g_AHRS.DerivedAOA`. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning. |
 | `percentLift` | int | 0–99 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0, 99]`. Uses the **active-detent** flap calibration (matches what the audio path uses). |
-| `coeffP` | float | dimensionless | Coefficient of pressure: `(P_aoa − P_static) / (P_pitot − P_static)`. Useful for boom-vs-fuselage comparison during calibration. |
+| `coeffP` | float | dimensionless | Ratiometric pressure coefficient (the "CP3" form in the firmware): `P45 / Pfwd`, where `Pfwd` is the differential pitot pressure and `P45` is the differential AOA pressure from the angled-port probe. Returns `0.0` when `Pfwd ≤ 0` to avoid division-by-zero on the ground. The textbook-form Cp `(P_aoa − P_static) / q` is **not** what's emitted here — the firmware uses the ratiometric form because it stays well-behaved through the AOA-port pressure zero-crossing on Dynon-style probes. Implementation: `onspeed_core/util/OnSpeedTypes.h::pressureCoeff()`. |
 
-### Indexer band-edge anchors
+### Indexer percent-lift anchors
 
-These four fields are the per-flap setpoints expressed as percent-lift, snapped to the active detent. They drive the indexer band edges (donut, chevrons, stall-warn flash threshold) and stay in lockstep with the audio cues that fire at the same calibrated body angles.
+Five fields driving the LiveView indexer's band edges and L/Dmax pip. The first four are the per-flap setpoints expressed as percent-lift, **snapped to the active detent's** calibrated values; they stay in lockstep with the audio cues that fire at the same calibrated body angles. The fifth (`pipPctLift`) is the L/Dmax pip's screen position, which **interpolates** smoothly with the flap lever instead of snapping. All come from `onspeed_core/aoa/DisplayPctAnchors`.
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
-| `tonesOnPctLift` | int | 0–99 | L/Dmax body angle through the percent-lift formula. Below this, audio is silent. |
-| `onSpeedFastPctLift` | int | 0–99 | OnSpeedFast threshold — the lower edge of the donut band. |
-| `onSpeedSlowPctLift` | int | 0–99 | OnSpeedSlow threshold — the upper edge of the donut band. |
-| `stallWarnPctLift` | int | 0–99 | StallWarn threshold — the chevron's flash-on point. |
-| `pipPctLift` | int | 0–99 | L/Dmax pip dot position. **Interpolates linearly clean→full-flap** across the configured flap range, ignoring intermediate detents. The visual aerodynamic reference; deliberately separated from `tonesOnPctLift` (which snaps to detents) so the pip can slide smoothly with the lever. See the [indexer spec](../software/indexer-spec.md) for the rationale. |
+| `tonesOnPctLift` | int | 0–99 | **Snapped** to the active detent. L/Dmax body angle through the percent-lift formula. Below this percent, audio is silent. |
+| `onSpeedFastPctLift` | int | 0–99 | **Snapped**. OnSpeedFast threshold — the lower edge of the donut band. |
+| `onSpeedSlowPctLift` | int | 0–99 | **Snapped**. OnSpeedSlow threshold — the upper edge of the donut band. |
+| `stallWarnPctLift` | int | 0–99 | **Snapped**. StallWarn threshold — the chevron's flash-on point. |
+| `pipPctLift` | int | 0–99 | **Interpolated** linearly clean → full-flap across the configured flap range, ignoring intermediate detents. The L/Dmax pip dot's visual position; deliberately separated from `tonesOnPctLift` (which snaps to detents) so the pip can slide smoothly with the lever. See the [indexer spec](../software/indexer-spec.md) for the rationale. |
 
 ### Flap state
 
@@ -173,7 +181,7 @@ This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift
 | --- | --- | --- |
 | Transport | UART 115200 8N1, one-way | WebSocket port 81, bidirectional (server-broadcast only in practice) |
 | Encoding | Fixed-offset ASCII, byte-summed CRC, CRLF-terminated | JSON over WebSocket text frames |
-| Cadence | 20 Hz (every 50 ms) | 20 Hz — gated on ≥ 1 connected client; both paths driven by `kDisplaySerialPeriodMs` |
+| Cadence | 20 Hz (every 50 ms) | 20 Hz (every 50 ms), gated on ≥ 1 connected client; both paths share the same 50 ms tick |
 | Audience | Panel display, third-party EFIS | Browser running LiveView, third-party software consumers |
 | Adding a field | Hard protocol change — both ends must flash together | Soft change — old consumers ignore unknown JSON keys |
 | Body-angle `AOA` (degrees) | not on wire | yes (`AOA`) — used for the numeric corner readout |
