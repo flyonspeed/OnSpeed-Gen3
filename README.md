@@ -73,7 +73,7 @@ esptool.py --chip esp32s3 --port /dev/cu.usbmodem1101 --baud 921600 \
 
 See the [documentation site](https://dev.flyonspeed.org/OnSpeed-Gen3/) for full flashing and OTA instructions.
 
-**Development builds** from the latest `master` or any PR are available as CI artifacts. Go to the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml), click a successful run, and download `onspeed-<version>-V4P.zip` or `onspeed-<version>-V4B.zip`. Each zip contains `firmware.bin`, `bootloader.bin`, and `partitions.bin` — for OTA you only need `firmware.bin`. PRs also get a comment with direct download links.
+**Development builds** from the latest `master` are one click away at [nightly.link](https://nightly.link/flyonspeed/OnSpeed-Gen3/workflows/ci/master) (no GitHub login required) — same shortcut as the **master artifacts** badge above. Pick `onspeed-<version>-v4p.zip` or `onspeed-<version>-v4b.zip` for your hardware. Each zip contains `firmware.bin`, `bootloader.bin`, and `partitions.bin` — for OTA you only need `firmware.bin`. For a specific run (not just the latest), or for non-master branches, use the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml). PRs get a sticky `Firmware Artifacts` comment with the same direct download links.
 
 **Versioning:** The firmware version is derived from git tags at build time (e.g., `git tag v4.16.0`). Between tags, the version includes the commit count and short SHA (e.g., `4.16.1-dev.3+abc1234`).
 
