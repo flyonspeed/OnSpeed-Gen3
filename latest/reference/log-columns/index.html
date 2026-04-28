@@ -3366,7 +3366,7 @@
 <tr>
 <td><code>Palt</code></td>
 <td>ft</td>
-<td>Pressure altitude</td>
+<td>Pressure altitude (ISA 1013.25 hPa reference; no Kollsman/QNH correction). Computed each row from <code>PStatic</code>.</td>
 </tr>
 <tr>
 <td><code>IAS</code></td>
@@ -3474,7 +3474,7 @@
 <tr>
 <td><code>Altitude</code></td>
 <td>ft</td>
-<td>Altitude (Kalman filtered, MSL)</td>
+<td>Pressure altitude, Kalman-filtered. Same quantity as <code>Palt</code>, smoothed with vertical accel. Not MSL — ISA reference, no Kollsman/QNH correction.</td>
 </tr>
 <tr>
 <td><code>DerivedAOA</code></td>

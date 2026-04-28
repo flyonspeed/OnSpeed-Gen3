@@ -3518,7 +3518,7 @@
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>time_of_day_start=14:32:08
 <a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>gps_fix_seen=1
 </code></pre></div>
-<p><code>time_of_day_start</code> is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). <code>utc_start</code> is VN-300-only. The <code>/logs</code> page reads the sidecar to populate the start-time, duration, max IAS, and max altitude columns.</p>
+<p><code>time_of_day_start</code> is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). <code>utc_start</code> is VN-300-only. The <code>/logs</code> page reads the sidecar to populate the start-time, duration, max IAS, and max pressure altitude columns. The <code>max_alt_ft</code> value comes from the <code>Palt</code> column — every altitude OnSpeed records is pressure altitude (ISA 1013.25 hPa reference); there is no Kollsman/QNH correction.</p>
 <h2 id="key-columns">Key Columns<a class="headerlink" href="#key-columns" title="Permanent link">&para;</a></h2>
 <h3 id="core-flight-data">Core Flight Data<a class="headerlink" href="#core-flight-data" title="Permanent link">&para;</a></h3>
 <table>
@@ -3699,7 +3699,7 @@
 <tr>
 <td><code>Altitude</code></td>
 <td>ft</td>
-<td>Altitude (Kalman filtered)</td>
+<td>Pressure altitude, Kalman-filtered. Same quantity as <code>Palt</code> (column 7), smoothed with vertical accel.</td>
 </tr>
 </tbody>
 </table>

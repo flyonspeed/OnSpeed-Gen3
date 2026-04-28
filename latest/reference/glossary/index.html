@@ -3325,6 +3325,10 @@
 <td>Pulses Per Second — the rate at which the audio tone pulses on and off</td>
 </tr>
 <tr>
+<td><strong>Pressure Altitude (PALT, <code>Palt</code>, <code>PAlt</code>)</strong></td>
+<td>Altitude derived from the static pressure sensor against the <strong>ISA standard atmosphere</strong> (1013.25 hPa / 29.92 inHg sea-level reference). <strong>Every altitude OnSpeed reports — on the M5 display, the live view, the SD log columns (<code>Palt</code>, <code>Altitude</code>), and the display-serial wire — is pressure altitude.</strong> No Kollsman / QNH / baro-set correction is applied, so the value matches the panel altimeter only when the altimeter is set to 29.92. The CSV's <code>Palt</code> column is the raw 50 Hz reading; the <code>Altitude</code> column is the same quantity smoothed by a 3-state Kalman filter.</td>
+</tr>
+<tr>
 <td><strong>PSRAM</strong></td>
 <td>Pseudo Static RAM — 8MB of additional RAM on the ESP32-S3 module</td>
 </tr>

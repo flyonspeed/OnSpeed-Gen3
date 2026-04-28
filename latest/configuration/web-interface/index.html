@@ -3396,10 +3396,11 @@
 </tbody>
 </table>
 <h2 id="live-view">Live View<a class="headerlink" href="#live-view" title="Permanent link">&para;</a></h2>
-<p>The live view page (<code>/live</code>) shows real-time sensor data updated at 20 Hz via WebSocket. Numeric readouts (AOA, IAS, altitude) are throttled to 2 Hz in the browser for readability; the SVG attitude indicator and AOA bar render on every frame.</p>
+<p>The live view page (<code>/live</code>) shows real-time sensor data updated at 20 Hz via WebSocket. Numeric readouts (AOA, IAS, pressure altitude) are throttled to 2 Hz in the browser for readability; the SVG attitude indicator and AOA bar render on every frame.</p>
+<p>The altitude readout is labeled <code>PAlt</code> — every altitude OnSpeed computes is pressure altitude (ISA 1013.25 hPa reference; no Kollsman/QNH correction). Don't expect it to match the panel altimeter unless your altimeter is set to 29.92.</p>
 <ul>
 <li>AOA needle position on a visual scale</li>
-<li>IAS, altitude, G-loads</li>
+<li>IAS, pressure altitude, G-loads</li>
 <li>Pitch and roll (attitude indicator)</li>
 <li>Derived AOA and pitch rate</li>
 <li>Current tone region indicators (L/Dmax, OnSpeed, Stall Warning zones)</li>
