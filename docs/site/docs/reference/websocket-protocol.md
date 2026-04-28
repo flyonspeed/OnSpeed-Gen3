@@ -93,7 +93,7 @@ The per-field tables below note source variations where they apply.
 | --- | --- | --- | --- |
 | `IAS` | float | knots | Indicated airspeed. From the EFIS (`g_EfisSerial.suEfis.IAS`) **only** in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived `g_Sensors.IAS` — VN-300 itself does not provide IAS. |
 | `PAlt` | float | feet | Pressure altitude. From `g_AHRS.KalmanAlt` (Kalman-filtered, in metres) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode. |
-| `kalmanVSI` | float | feet/min | Vertical speed. **Despite the name**, this is `g_AHRS.KalmanVSI` in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's `-VelNedDown` (NED-down velocity, sign-inverted to make positive = climb). The non-VN-300 EFIS mode does not use the EFIS's own VSI here. |
+| `kalmanVSI` | float | feet/min | Vertical speed. **Despite the name**, this is `g_AHRS.KalmanVSI` in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's `-VelNedDown` (NED-down velocity, sign-inverted to make positive = climb). In non-VN-300 EFIS mode, the `flightPath` field uses EFIS-VSI while `kalmanVSI` uses OnSpeed Kalman VSI — these can disagree by hundreds of fpm transiently, tracked as [issue #347](https://github.com/flyonspeed/OnSpeed-Gen3/issues/347). |
 | `OAT` | float | °C | Outside air temperature. From the EFIS in any EFIS mode (including VN-300) via `g_EfisSerial.suEfis.OAT`; from `g_Sensors.OatC` if `OATSENSOR = true` in config; otherwise `0.0`. |
 | `DecelRate` | float | knots/s | Smoothed IAS-decel rate, `g_Sensors.fDecelRate` (Savitzky-Golay derivative of IAS). Negative = decelerating. Always from OnSpeed sensors. |
 
@@ -102,7 +102,7 @@ The per-field tables below note source variations where they apply.
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
 | `verticalGLoad` | float | g | Installation-corrected body-vertical acceleration. 1.0 g level, 2.0 g in a 60° bank. Same value `GLimitDecision` uses for over-G warnings. |
-| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, `g_AHRS.AccelLatCorr` (the raw IMU body-Y component after the installation-bias rotation, unsmoothed). **Sign**: the WebSocket emits the raw signed value; the display-serial wire's `lateralG` field is the same source negated to make positive = leftward. The JSON itself does not commit to a `+ = right` or `+ = left` convention — consumers wanting to render slip indicators should determine the sign empirically by skidding the aircraft, or read the IMU-installation docs. |
+| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, `g_AHRS.AccelLatCorr` (the raw IMU body-Y component after the installation-bias rotation, unsmoothed). **Sign**: the WebSocket emits the raw signed value; the display-serial wire's `lateralG` field is the same source negated to make positive = leftward. The JSON itself does not commit to a `+ = right` or `+ = left` convention — consumers wanting to render slip indicators should determine the sign empirically by skidding the aircraft, or read the IMU-installation docs. Tracked as [issue #349](https://github.com/flyonspeed/OnSpeed-Gen3/issues/349). |
 
 ### AOA & lift
 
@@ -209,7 +209,7 @@ The asymmetry is by design: the panel displays render *the indexer*, so the wire
 
 The single source of truth for the wire format is `software/sketch_common/src/web_server/DataServer.cpp::UpdateLiveDataJson()`. Field semantics, units, and computation match the display serial wire wherever the same field exists in both, because the producer reads the same firmware globals and uses the same `onspeed_core` helpers (`ComputePercentLift`, `ComputeDisplayPctAnchors`).
 
-Unlike the display-serial wire, **the WebSocket schema is not currently pinned by a unit test**. The display-serial spec has byte-precise round-trip tests in `test/test_display_serial/`; the JSON has no equivalent. Schema drift is therefore possible across firmware versions if a contributor changes `UpdateLiveDataJson` without updating this page. Filing a "pin the JSON schema" test is on the project roadmap.
+Unlike the display-serial wire, **the WebSocket schema is not currently pinned by a unit test**. The display-serial spec has byte-precise round-trip tests in `test/test_display_serial/`; the JSON has no equivalent. Schema drift is therefore possible across firmware versions if a contributor changes `UpdateLiveDataJson` without updating this page. Pinning the JSON schema is tracked as [issue #346](https://github.com/flyonspeed/OnSpeed-Gen3/issues/346).
 
 ## Change log
 
