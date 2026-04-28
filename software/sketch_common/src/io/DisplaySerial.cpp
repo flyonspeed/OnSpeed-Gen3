@@ -146,7 +146,11 @@ void DisplaySerial::Write()
 
     const float fAccelVert = g_AHRS.AccelVertFilter.get();
     if (IsFiniteFloat(fAccelVert))
-        iDisplayVerticalG = (int)ceilf(fAccelVert * 10.0f);
+        // Round-to-nearest tenth so the M5 / indexer display matches the
+        // LiveView's `verticalGLoad`.  Over-G alerting reads the unrounded
+        // float in GLimitDecision (Housekeeping path), so the encoding
+        // choice here is purely a presentation concern.
+        iDisplayVerticalG = (int)lroundf(fAccelVert * 10.0f);
     else
         iDisplayVerticalG = 0;
 

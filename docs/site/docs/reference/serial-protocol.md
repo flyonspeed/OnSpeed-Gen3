@@ -43,7 +43,7 @@ Each frame is exactly **76 bytes** of ASCII (v4.22), terminated by CRLF. Field o
 | 15 | 6 | `paltFt` | `%+06d` | ×1 | ±99 999 ft | ±99999 |
 | 21 | 5 | `turnRateDps` | `%+05d` | ×10 | ±999.9°/s | ±9999 |
 | 26 | 3 | `lateralG` | `%+03d` | ×100 | ±0.99 g (negated, see below) | ±99 |
-| 29 | 3 | `verticalG` | `%+03d` | ×10 | ±9.9 g (ceiling-rounded) | ±99 |
+| 29 | 3 | `verticalG` | `%+03d` | ×10 | ±9.9 g (rounded to nearest 0.1 g) | ±99 |
 | 32 | 2 | `percentLift` | `%02u` | ×1 | 0 – 99 (current AOA, envelope fraction) | 0 – 99 |
 | 34 | 4 | `vsiFpm10` | `%+04d` | ×1 | ±9 990 fpm | ±999 (already divided by 10) |
 | 38 | 3 | `oatC` | `%+03d` | ×1 | ±99 °C | ±99 |
@@ -74,7 +74,7 @@ Sign and width invariants:
 Most fields are self-describing. The ones with non-obvious conventions:
 
 - **`lateralG` is negated.** The producer transmits `−AccelLatFilter` (positive wire value = leftward acceleration, matching slip-skid ball direction). The parser stores the wire value as-is — a consumer that wants right-positive must un-negate.
-- **`verticalG` is `ceilf(g × 10)`** before the cast to int, not a normal round-to-nearest. This preserves the legacy "always round up to the next 0.1 g" behaviour that the OnSpeed g-limit chime was tuned against.
+- **`verticalG` is `lroundf(g × 10)`** — round-to-nearest-tenth, matching the LiveView's `verticalGLoad` rendering and the way pilots intuitively read a single-decimal display. Over-G alerting reads the unrounded float in `GLimitDecision` (Housekeeping path), so this encoding choice does not affect chime / limit behaviour.
 - **`vsiFpm10` is already divided by 10.** The wire field carries `floor(VSI_fpm / 10)`. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.
 - **`percentLift` and the band-edge percents are computed via the canonical [`ComputePercentLift`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h)**, the honest single-linear `(AOA − α₀) / (α_stall − α₀) × 100`. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).
 - **`percentLift` goes to 0 below the audio mute threshold** (`iMuteAudioUnderIAS`). The wire stays silent for the AOA region while the aircraft is parked.

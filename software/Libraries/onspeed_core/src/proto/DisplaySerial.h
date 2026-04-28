@@ -111,7 +111,7 @@ struct DisplayBuildInputs {
     float paltFt             = 0.0f;  // pressure altitude (ft)
     float turnRateDps        = 0.0f;  // yaw rate (deg/s)
     float lateralG           = 0.0f;  // lateral acceleration, negated (g); positive = leftward
-    float verticalGScaled10  = 0.0f;  // vertical G × 10, already ceil'd (raw int, stored as float)
+    float verticalGScaled10  = 0.0f;  // vertical G × 10, already rounded to nearest tenth (raw int, stored as float)
     int   percentLift        = 0;     // current AOA expressed as honest envelope fraction, 0–99
     int   vsiFpm10           = 0;     // vsi / 10 (fpm), floored — range –999..+999
     int   oatC               = 0;     // OAT (°C); only valid when OAT sensor enabled
