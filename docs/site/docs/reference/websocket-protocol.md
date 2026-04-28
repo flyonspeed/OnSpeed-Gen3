@@ -32,7 +32,7 @@ The OnSpeed acts as a WiFi access point named `OnSpeed` with password `angleofat
 
 Each frame is a single JSON object containing all live data fields, sent at 20 Hz. There is no framing layer above WebSocket text — one frame per WebSocket text message, and every frame is independent (no incremental / delta encoding).
 
-Example payload (formatted; on the wire it's compact, no whitespace):
+Example payload (formatted; on the wire it's compact, no whitespace). Values are illustrative — actual ranges and per-flap calibration vary by aircraft:
 
 ```json
 {
@@ -53,7 +53,7 @@ Example payload (formatted; on the wire it's compact, no whitespace):
   "DecelRate": -0.15,
   "OAT": 22.50,
   "DerivedAOA": 4.18,
-  "percentLift": 24,
+  "percentLift": 34,
   "tonesOnPctLift": 18,
   "onSpeedFastPctLift": 32,
   "onSpeedSlowPctLift": 48,
@@ -61,6 +61,8 @@ Example payload (formatted; on the wire it's compact, no whitespace):
   "pipPctLift": 18
 }
 ```
+
+Field ordering is stable — the firmware emits keys in the order shown above (the source-of-truth `snprintf` template fixes the order at compile time). Consumers should not rely on this ordering for JSON parsing (real JSON parsers don't care), but tools that snapshot the raw text for diffing can.
 
 Typical compacted frame size: **~390 bytes** in cruise; up to **~460 bytes** in the worst case (large negative floats and 5-digit integers in every field). The firmware allocates a fixed 512-byte buffer; if `snprintf` would overflow, the producer emits the literal `{}` instead of partial-and-invalid JSON. Consumers that see `{}` should treat it as a one-frame skip — every other frame is well-formed.
 
@@ -100,7 +102,7 @@ The per-field tables below note source variations where they apply.
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
 | `verticalGLoad` | float | g | Installation-corrected body-vertical acceleration. 1.0 g level, 2.0 g in a 60° bank. Same value `GLimitDecision` uses for over-G warnings. |
-| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, `g_AHRS.AccelLatCorr`. **Sign**: this is the raw installation-corrected value, *not* negated. The display-serial wire's `lateralG` field is the same source negated to make positive = leftward; consumers reading both transports must account for the sign difference. |
+| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, `g_AHRS.AccelLatCorr` (the raw IMU body-Y component after the installation-bias rotation, unsmoothed). **Sign**: the WebSocket emits the raw signed value; the display-serial wire's `lateralG` field is the same source negated to make positive = leftward. The JSON itself does not commit to a `+ = right` or `+ = left` convention — consumers wanting to render slip indicators should determine the sign empirically by skidding the aircraft, or read the IMU-installation docs. |
 
 ### AOA & lift
 
@@ -151,13 +153,17 @@ There is no top-level "validity" flag; the protocol is best-effort 20 Hz. Consum
 
 ## Consumer recommendations
 
-A minimal browser consumer is six lines:
+A minimal browser consumer:
 
 ```js
 const ws = new WebSocket("ws://192.168.0.1:81");
 ws.onmessage = (evt) => {
   const data = JSON.parse(evt.data);
-  console.log(`AOA=${data.AOA}° pct=${data.percentLift}%`);
+  // Skip the {} truncation marker.
+  if (data.AOA === undefined) return;
+  // -100 is the "AOA unavailable" sentinel — gate on > -20.
+  const aoa = (data.AOA > -20) ? data.AOA.toFixed(1) + "°" : "N/A";
+  console.log(`AOA=${aoa} pct=${data.percentLift}%`);
 };
 ```
 
@@ -169,11 +175,19 @@ websocat ws://192.168.0.1:81
 
 This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift, IAS}'` to reduce.
 
-**Reconnection.** The OnSpeed firmware does not actively notify clients of going-away; if the OnSpeed reboots or the WiFi link drops, the client sees a normal WebSocket close and should retry. The bundled LiveView re-attempts every 3 seconds whenever no message has arrived in the last 3 s; this is a reasonable default for any consumer.
+**Reconnection.** The OnSpeed firmware does not actively notify clients of going-away; if the OnSpeed reboots or the WiFi link drops, the client sees a normal WebSocket close and should retry. The bundled LiveView re-attempts every 3 seconds whenever no message has arrived in the last 3 s; **3 seconds is the recommended staleness threshold** for any consumer.
 
-**Forward compatibility.** The schema is *additive*. New fields will appear in future firmware versions; consumers must ignore unknown keys. Field types and units for existing keys will not change without a corresponding firmware version bump documented in the change log below.
+**Discovery and topology.** The OnSpeed runs as a WiFi access point only — there is no station-mode WebSocket today. The IP `192.168.0.1` is hard-coded by the AP DHCP config and there is no mDNS / zeroconf advertisement. A consumer must connect to the OnSpeed AP first, then dial the literal IP. If the AP IP is ever reconfigured, consumers will need to update their URL.
 
-**Coordinate consistency with display serial.** Where a field exists in both transports (e.g. `verticalGLoad` here vs `verticalG` on the wire), the values are derived from the same source and will agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. Where they differ in name, see the [comparison table](#display-serial-vs-liveview-the-two-data-paths) below.
+**Schema versioning.** The JSON has no top-level version field. The intended forward-compat strategy is "ignore unknown keys" — new fields will appear in future firmware versions; consumers must tolerate that. **The project does not currently have a test pinning the JSON schema**, so consumers cannot rely on a guarantee that field types and units never change for existing keys; treat the schema as documentation of current behavior, not a stability contract. The change log at the bottom of this page records breaking changes when they happen, but is dependent on someone remembering to update it.
+
+**Truncation handling.** If `snprintf` would overflow the 512-byte buffer, the producer emits the literal `{}`. A defensive consumer should check that an expected key exists (or do `if (data.AOA === undefined) skipFrame()`) rather than blindly indexing.
+
+**`AOA = -100` sentinel.** The `AOA` field reports `-100` when the OnSpeed pitot AOA is unavailable (NaN) or IAS is below the audio mute threshold. A consumer plotting AOA in real time will get a `-100` spike at low IAS unless it gates on `AOA > -20` (or any threshold above `-100`).
+
+**Per-field native rates.** A frame is a near-simultaneous snapshot of fields each filtered at their own native rate (gyro at AHRS rate, decel at the Savitzky-Golay window, flap index at 1 Hz, etc.). Two consecutive frames will not show identical values for slow-moving fields like `flapIndex` even when nothing changed — the snapshot is consistent, the underlying filters are not.
+
+**Coordinate consistency with display serial.** Where a field exists in both transports (e.g. `verticalGLoad` here vs `verticalG` on the wire), the values are derived from the same source and will agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. Where they differ in name or sign convention, see the [comparison table](#display-serial-vs-liveview-the-two-data-paths) below.
 
 ## Display serial vs LiveView — the two data paths
 
@@ -195,8 +209,10 @@ The asymmetry is by design: the panel displays render *the indexer*, so the wire
 
 The single source of truth for the wire format is `software/sketch_common/src/web_server/DataServer.cpp::UpdateLiveDataJson()`. Field semantics, units, and computation match the display serial wire wherever the same field exists in both, because the producer reads the same firmware globals and uses the same `onspeed_core` helpers (`ComputePercentLift`, `ComputeDisplayPctAnchors`).
 
+Unlike the display-serial wire, **the WebSocket schema is not currently pinned by a unit test**. The display-serial spec has byte-precise round-trip tests in `test/test_display_serial/`; the JSON has no equivalent. Schema drift is therefore possible across firmware versions if a contributor changes `UpdateLiveDataJson` without updating this page. Filing a "pin the JSON schema" test is on the project roadmap.
+
 ## Change log
 
-| Date | Firmware | Change |
-| --- | --- | --- |
-| 2026-04-28 | (this page) | Initial WebSocket protocol reference page. The schema documented here matches firmware as of master ~v4.22. |
+| Date | Change |
+| --- | --- |
+| 2026-04-28 | Initial WebSocket protocol reference page covering the schema in master at the time of writing. |
