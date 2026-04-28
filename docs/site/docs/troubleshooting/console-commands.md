@@ -34,7 +34,7 @@ Shows:
 - Accelerometer readings (Forward/Lateral/Vertical G)
 - Pitch and roll angles
 - Pressure readings (Pfwd, P45, PStatic — raw counts and PSI)
-- IAS, altitude
+- IAS, pressure altitude (`Palt`)
 - EFIS data (if connected)
 - OAT
 

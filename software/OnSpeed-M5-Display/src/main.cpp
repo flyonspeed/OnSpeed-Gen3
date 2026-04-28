@@ -549,9 +549,9 @@ void loop()
                 gdraw.setTextColor (TFT_LIGHT_GREY);
                 gdraw.print("G");
 
-                gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("ALT"), TOP_LABEL_Y);
+                gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("PALT"), TOP_LABEL_Y);
                 gdraw.setTextColor (TFT_GREY);
-                gdraw.print("ALT");
+                gdraw.print("PALT");
 
                 gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("AOA"), BOT_LABEL_Y);
                 gdraw.setTextColor (TFT_LIGHT_GREY);

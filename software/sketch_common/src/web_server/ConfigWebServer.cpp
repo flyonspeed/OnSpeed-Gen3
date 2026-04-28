@@ -3410,7 +3410,7 @@ void HandleLogs()
              "<th style=\"text-align:left\">Start</th>"
              "<th style=\"text-align:left\">Duration</th>"
              "<th style=\"text-align:right\">Max IAS</th>"
-             "<th style=\"text-align:right\">Max Alt</th>"
+             "<th style=\"text-align:right\">Max PAlt</th>"
              "<th style=\"text-align:right\">Size</th>"
              "<th></th>"
              "</tr>\n";

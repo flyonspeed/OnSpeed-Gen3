@@ -14,7 +14,7 @@ Columns are written in three groups: (1) base core columns (`timeStamp` through 
 | `P45` | counts | AOA pressure, bias subtracted (14-bit ADC) |
 | `P45Smoothed` | counts | AOA pressure after median + running-average smoothing |
 | `PStatic` | mbar | Static (barometric) pressure |
-| `Palt` | ft | Pressure altitude |
+| `Palt` | ft | Pressure altitude (ISA 1013.25 hPa reference; no Kollsman/QNH correction). Computed each row from `PStatic`. |
 | `IAS` | knots | Indicated airspeed |
 | `AngleofAttack` | degrees | Computed AOA from pressure polynomial |
 | `flapsPos` | degrees | Detected flap position |
@@ -40,7 +40,7 @@ Appended after any optional Boom/EFIS columns.
 | `EarthVerticalG` | G | Vertical acceleration in Earth frame |
 | `FlightPath` | degrees | Flight path angle = arcsin(VSI/TAS) |
 | `VSI` | fpm | Vertical speed (Kalman filtered) |
-| `Altitude` | ft | Altitude (Kalman filtered, MSL) |
+| `Altitude` | ft | Pressure altitude, Kalman-filtered. Same quantity as `Palt`, smoothed with vertical accel. Not MSL — ISA reference, no Kollsman/QNH correction. |
 | `DerivedAOA` | degrees | SmoothedPitch − FlightPath |
 | `CoeffP` | — | Pressure coefficient (P45/Pfwd) |
 

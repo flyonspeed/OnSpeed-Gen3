@@ -140,11 +140,14 @@ not by exact percent.
 - Top-right: current **vertical G** (big white number) with a green
   "G" label.
 - Bottom-left: a **flap position** icon (circle with a rotating
-  triangular needle representing the flap angle, plus tick marks
-  for standard detents) with the numeric flap angle inside the
-  circle.
+  triangular needle representing the flap angle, with stop marks at
+  the configured travel endpoints) and the numeric flap angle inside
+  the circle.
 - Bottom-center: the **slip/skid ball** (green when coordinated, red
   and flashing at high AOA with large slip).
+
+Primary mode does not show altitude — flip to Attitude mode (next) for
+a numeric pressure-altitude readout.
 
 **Right edge — G-onset rate tape.** A thin orange bar above or
 below a "zero line" ladder at the right side of the screen, showing
@@ -163,10 +166,19 @@ perpendicular wing bars) showing the aircraft's actual vector through
 the air, slip/skid ball at the bottom, and an orange VSI tape on the
 right edge with a tick ladder for climb/descent rate.
 
-**Corners** follow the same layout as the Primary mode: IAS /
-altitude on top row, G / AOA-percent-lift on bottom row. Numeric
-pitch readout sits in a dark rounded rectangle behind the aircraft
-symbol at the center.
+**Corners:**
+
+- Top-left: current **IAS** in knots with an "IAS" label.
+- Top-right: current **pressure altitude** with a "PALT" label. ISA
+  1013.25 hPa reference; this is not panel-altimeter altitude — no
+  Kollsman/QNH correction is applied, so it matches the panel altimeter
+  only when the altimeter is set to 29.92.
+- Bottom-left: current **vertical G** with a "G" label.
+- Bottom-right: current **percent lift** (the same 0–99 envelope
+  fraction shown above the Primary indexer) with an "AOA" label.
+
+Numeric pitch readout sits in a dark rounded rectangle behind the
+aircraft symbol at the center.
 
 **When to use:** cross-check against the primary AI (not as a
 replacement), or during instrument transitions where you want the
@@ -399,7 +411,7 @@ The OnSpeed firmware's serial output format is configurable via the
 `SERIALOUTFORMAT` field in the configuration:
 
 - **ONSPEED** — native `#1` format (72-byte payload + CRC + CRLF = 76
-  bytes total, v4.22 wire) carrying attitude, IAS, altitude,
+  bytes total, v4.22 wire) carrying attitude, IAS, pressure altitude,
   percent-lift, the per-flap percent anchors that drive an indexer
   (L/D~MAX~ audio gate, OnSpeedFast, OnSpeedSlow, stall-warn, plus the
   separate visual L/D~MAX~ pip), G-loading, and flap travel range.

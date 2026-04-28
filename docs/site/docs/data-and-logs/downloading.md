@@ -6,7 +6,7 @@ Log data is downloaded from the OnSpeed controller via WiFi.
 
 1. Connect to OnSpeed WiFi (`OnSpeed` / `angleofattack`)
 2. Navigate to **`http://192.168.0.1/logs`**
-3. The page lists each log with start time, duration, max IAS, max altitude, and size
+3. The page lists each log with start time, duration, max IAS, max pressure altitude, and size
 4. Click a filename to download it
 
 The metadata columns come from a small `.meta` sidecar file written next to each `log_NNN.csv` when the log closes. Older logs without a sidecar render with em-dashes for the metadata columns but still download and delete normally.

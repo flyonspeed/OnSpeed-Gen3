@@ -40,6 +40,7 @@
 | **OneWire** | A serial protocol used by the DS18B20 temperature sensor |
 | **OTA** | Over-The-Air — firmware updates delivered wirelessly via WiFi |
 | **PPS** | Pulses Per Second — the rate at which the audio tone pulses on and off |
+| **Pressure Altitude (PALT, `Palt`, `PAlt`)** | Altitude derived from the static pressure sensor against the **ISA standard atmosphere** (1013.25 hPa / 29.92 inHg sea-level reference). **Every altitude OnSpeed reports — on the M5 display, the live view, the SD log columns (`Palt`, `Altitude`), and the display-serial wire — is pressure altitude.** No Kollsman / QNH / baro-set correction is applied, so the value matches the panel altimeter only when the altimeter is set to 29.92. The CSV's `Palt` column is the raw 50 Hz reading; the `Altitude` column is the same quantity smoothed by a 3-state Kalman filter. |
 | **PSRAM** | Pseudo Static RAM — 8MB of additional RAM on the ESP32-S3 module |
 | **SPI** | Serial Peripheral Interface — the bus protocol used for sensors and SD card |
 | **Sustained Turn** | A turn flown at ONSPEED where available power balances drag. AOA and airspeed are stable, and the turn can be maintained without energy loss. Maximum sustained turn rate occurs at ONSPEED. |

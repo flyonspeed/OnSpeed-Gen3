@@ -529,7 +529,7 @@ updateAttitude(0,0);
         <tr><td>Der AOA </td><td><span id="derivedaoa_aoa"></span> </td></tr>
         <tr><td>FltPath </td><td><span id="flightpath_aoa"></span> </td></tr>
         <tr><td>IAS     </td><td><span id="ias_aoa"></span>        </td></tr>
-        <tr><td>P Alt   </td><td><span id="palt_aoa"></span>       </td></tr>
+        <tr><td>PAlt    </td><td><span id="palt_aoa"></span>       </td></tr>
         <tr><td>iVSI    </td><td><span id="ivsi_aoa"></span>       </td></tr>
         <tr><td>Vert G  </td><td><span id="gload_aoa"></span>      </td></tr>
         <tr><td>Lat G   </td><td><span id="gloadLat_aoa"></span>   </td></tr>
@@ -558,7 +558,7 @@ updateAttitude(0,0);
         <tr>
             <td>Der AOA </td><td><span id="derivedaoa_att"></span> </td>
             <td>&nbsp;</td>
-            <td>P Alt   </td><td><span id="palt_att"></span>       </td>
+            <td>PAlt    </td><td><span id="palt_att"></span>       </td>
         </tr>
         <tr>
             <td>FltPath </td><td><span id="flightpath_att"></span> </td>
