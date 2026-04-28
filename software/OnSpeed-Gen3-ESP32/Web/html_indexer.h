@@ -13,8 +13,9 @@
 // disconnect, the firmware's NO DATA overlay (300 ms freshness gate)
 // fires automatically — no separate fallback needed here.
 //
-// Wake lock keeps the tablet's screen on; landscape lock prompts the
-// pilot to rotate the device for proper aspect ratio.
+// Wake lock keeps the tablet's screen on.  Layout works in either
+// orientation — the canvas centers in the available space above the
+// button row.
 
 const char htmlIndexer[] PROGMEM = R"=====(
 <!DOCTYPE html>
@@ -89,26 +90,9 @@ const char htmlIndexer[] PROGMEM = R"=====(
     cursor: pointer;
   }
   .controls button:active { background: #4a9eff; color: #000; }
-  /* Portrait warning — only shown when the viewport is portrait. */
-  #rotate {
-    position: fixed; inset: 0;
-    display: none;
-    align-items: center; justify-content: center;
-    background: #000;
-    color: #fc6;
-    font-size: 18px;
-    text-align: center;
-    z-index: 200;
-    padding: 20px;
-  }
-  @media (orientation: portrait) {
-    #rotate { display: flex; }
-  }
 </style>
 </head>
 <body>
-
-<div id="rotate">Rotate to landscape for the indexer.</div>
 
 <div id="status">connecting&hellip;</div>
 
@@ -128,15 +112,19 @@ const char htmlIndexer[] PROGMEM = R"=====(
   var canvas   = document.getElementById('canvas');
 
   // ----- Canvas sizing — fit viewport, integer multiples preferred ----
+  // Capped at 4× (1280×960) so the indexer doesn't swallow a desktop
+  // monitor; tablets and phones almost always land below the cap.
+  var MAX_SCALE = 4;
   function resizeCanvas() {
     var stage = document.getElementById('stage');
     var avail = stage.getBoundingClientRect();
     // 320:240 = 4:3.  Pick an integer scale that fits both dimensions.
-    var maxScale = Math.min(avail.width / 320, avail.height / 240);
-    var scale = Math.max(1, Math.floor(maxScale));
+    var fit = Math.min(avail.width / 320, avail.height / 240);
+    var scale = Math.max(1, Math.floor(fit));
     // If integer scale leaves a lot of slack, allow a non-integer scale
     // so the canvas fills more of the viewport.  Slight blur is OK.
-    if (maxScale - scale > 0.4) scale = maxScale;
+    if (fit - scale > 0.4) scale = fit;
+    if (scale > MAX_SCALE) scale = MAX_SCALE;
     canvas.style.width  = (320 * scale) + 'px';
     canvas.style.height = (240 * scale) + 'px';
   }
