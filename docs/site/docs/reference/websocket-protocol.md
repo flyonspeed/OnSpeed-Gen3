@@ -16,11 +16,11 @@ The WebSocket carries a few fields the display serial does not: body-angle `AOA`
 
 | Aspect | Value |
 | --- | --- |
-| Transport | WebSocket text frames over TCP |
+| Transport | WebSocket text frames over TCP (with a binary side-channel — see below) |
 | Port | **81** |
 | Path | `/` (no sub-path) |
 | URL | `ws://192.168.0.1:81` (when connected to the OnSpeed AP) |
-| Encoding | UTF-8 JSON, single object per frame |
+| Encoding | UTF-8 JSON in text frames; raw bytes in binary frames (the mirrored display-serial `#1` frame). Consumers must inspect the message type — see [Two message types](#two-message-types). |
 | Cadence | 20 Hz (one frame every 50 ms), gated on ≥ 1 connected client; the display-serial wire and the WebSocket share the same 50 ms tick (`kDisplaySerialPeriodMs` in `HardwareMap.h`) so they update in lockstep |
 | Direction | Server → client only; client text frames are accepted but currently no-op |
 | Authentication | None — same WiFi-AP-only access model as the rest of the LiveView UI |
@@ -28,9 +28,45 @@ The WebSocket carries a few fields the display serial does not: body-angle `AOA`
 
 The OnSpeed acts as a WiFi access point named `OnSpeed` with password `angleofattack` and assigns itself `192.168.0.1` by default. The LiveView UI lives at `http://192.168.0.1/`; the WebSocket is on the same host, port 81. A client running on the same WiFi can connect with any standard WebSocket library — no handshake extensions, no subprotocol, no compression negotiation.
 
+## Two message types
+
+The socket carries two distinct message types, both broadcast at 20 Hz:
+
+| Type | WebSocket frame | Cadence | Producer | Consumer |
+| --- | --- | --- | --- | --- |
+| LiveView JSON | text | 20 Hz, gated on ≥ 1 connected client | `DataServer.cpp::UpdateLiveDataJson()` (port-81 broadcast loop) | LiveView, third-party software consumers |
+| Display-serial mirror | binary | 20 Hz, gated on ≥ 1 connected client | `DisplaySerial::Write()` calls `BroadcastDisplayFrame()` immediately after the UART send | `/indexer` tablet view (drives the WASM M5 sim) |
+
+**Consumers must inspect message type before parsing.** A consumer that only wants the JSON should skip non-string messages:
+
+```js
+ws.onmessage = (evt) => {
+  if (typeof evt.data !== 'string') return;   // skip the binary mirror
+  const data = JSON.parse(evt.data);
+  // ...
+};
+```
+
+A consumer that only wants the binary mirror should set `binaryType = 'arraybuffer'` and skip strings:
+
+```js
+ws.binaryType = 'arraybuffer';
+ws.onmessage = (evt) => {
+  if (typeof evt.data === 'string') return;   // skip the LiveView JSON
+  const bytes = new Uint8Array(evt.data);
+  // bytes is one complete 76-byte #1 frame as defined in serial-protocol.md
+};
+```
+
+The two streams are independent — JSON frames and binary frames each run their own 50 ms broadcast loop on the same socket. They are not interleaved or paired; a consumer can drop one type without affecting the other.
+
+The binary payload is byte-for-byte identical to what the M5 hardware reads off the UART, so any consumer that already parses the [display serial protocol](serial-protocol.md) can reuse that parser directly. The frame is `kDisplayFrameSizeBytes` = 76 bytes (one `#1` frame, including CRC and CRLF). When no clients are connected, neither broadcast fires.
+
 ## Frame structure
 
-Each frame is a single JSON object containing all live data fields, sent at 20 Hz. There is no framing layer above WebSocket text — one frame per WebSocket text message, and every frame is independent (no incremental / delta encoding).
+This section describes the **JSON text frame** payload. The binary mirror is described in [the display serial protocol page](serial-protocol.md).
+
+Each JSON frame is a single object containing all live data fields, sent at 20 Hz. There is no framing layer above WebSocket text — one JSON object per WebSocket text message, and every frame is independent (no incremental / delta encoding).
 
 Example payload (formatted; on the wire it's compact, no whitespace). Values are illustrative — actual ranges and per-flap calibration vary by aircraft:
 
@@ -158,6 +194,9 @@ A minimal browser consumer:
 ```js
 const ws = new WebSocket("ws://192.168.0.1:81");
 ws.onmessage = (evt) => {
+  // The socket also broadcasts binary display-serial mirror frames;
+  // a JSON consumer skips them.  See "Two message types" above.
+  if (typeof evt.data !== 'string') return;
   const data = JSON.parse(evt.data);
   // Skip the {} truncation marker.
   if (data.AOA === undefined) return;
@@ -194,16 +233,16 @@ This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift
 | Aspect | Display serial (`#1`) | LiveView WebSocket |
 | --- | --- | --- |
 | Transport | UART 115200 8N1, one-way | WebSocket port 81, bidirectional (server-broadcast only in practice) |
-| Encoding | Fixed-offset ASCII, byte-summed CRC, CRLF-terminated | JSON over WebSocket text frames |
+| Encoding | Fixed-offset ASCII, byte-summed CRC, CRLF-terminated | JSON in text frames + the same `#1` ASCII frame mirrored in binary frames (see [Two message types](#two-message-types)) |
 | Cadence | 20 Hz (every 50 ms) | 20 Hz (every 50 ms), gated on ≥ 1 connected client; both paths share the same 50 ms tick |
-| Audience | Panel display, third-party EFIS | Browser running LiveView, third-party software consumers |
-| Adding a field | Hard protocol change — both ends must flash together | Soft change — old consumers ignore unknown JSON keys |
-| Body-angle `AOA` (degrees) | not on wire | yes (`AOA`) — used for the numeric corner readout |
-| Body-angle `DerivedAOA` (degrees) | not on wire | yes (`DerivedAOA`) — for advanced overlays / debug |
-| `kalmanVSI`, `coeffP`, `PitchRate`, `DecelRate` | not on wire | yes — LiveView-specific instrumentation |
-| `flapIndex` (which detent is active) | not on wire | yes |
+| Audience | Panel display, third-party EFIS | Browser running LiveView, third-party software consumers; `/indexer` tablet view consumes the binary mirror |
+| Adding a field | Hard protocol change — both ends must flash together | Soft change for the JSON path — old consumers ignore unknown keys; the binary mirror inherits the display-serial wire's hard-protocol constraint |
+| Body-angle `AOA` (degrees) | not on wire | yes in JSON (`AOA`) — used for the numeric corner readout; not in the binary mirror |
+| Body-angle `DerivedAOA` (degrees) | not on wire | yes in JSON (`DerivedAOA`) — for advanced overlays / debug; not in the binary mirror |
+| `kalmanVSI`, `coeffP`, `PitchRate`, `DecelRate` | not on wire | yes in JSON — LiveView-specific instrumentation; not in the binary mirror |
+| `flapIndex` (which detent is active) | not on wire | yes in JSON; not in the binary mirror |
 
-The asymmetry is by design: the panel displays render *the indexer*, so the wire ships percent anchors. The LiveView additionally shows numeric body-angle AOA so a pilot can compare it to DerivedAOA — those degrees-units fields stay on the WebSocket but never on the panel-serial wire.
+The asymmetry is by design: the panel displays render *the indexer*, so the wire ships percent anchors. The LiveView additionally shows numeric body-angle AOA so a pilot can compare it to DerivedAOA — those degrees-units fields stay on the JSON path but never on the `#1` wire (or its binary mirror).
 
 ## Producer alignment
 
@@ -215,4 +254,5 @@ Unlike the display-serial wire, **the WebSocket schema is not currently pinned b
 
 | Date | Change |
 | --- | --- |
+| 2026-04-28 | Added binary `#1` display-serial mirror frames alongside the existing JSON text frames. Consumers must inspect the WebSocket message type before parsing — see [Two message types](#two-message-types). |
 | 2026-04-28 | Initial WebSocket protocol reference page covering the schema in master at the time of writing. |

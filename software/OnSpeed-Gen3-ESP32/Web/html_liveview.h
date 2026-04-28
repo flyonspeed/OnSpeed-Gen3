@@ -163,6 +163,12 @@ function onMessage(evt)
   // reply to prevent timeouts
   liveConnecting = false;
 
+  // The DataServer broadcasts JSON text frames AND binary #1 display
+  // frames on the same socket; LiveView only consumes JSON.  Default
+  // binaryType is "blob", so JSON.parse(blob) would throw 20×/s into
+  // the catch below — wasted work plus DevTools noise.
+  if (typeof evt.data !== 'string') return;
+
   // connected, got data
   try
     {
