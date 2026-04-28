@@ -15,18 +15,21 @@ const char htmlLiveView[] PROGMEM = R"=====(
      glyph + "RUDDER" caption) so a stressed pilot can read direction
      from any one channel.  Hidden by default; shown via JS when the
      wire field spinRecoveryCue is non-zero. */
+  /* Match M5 firmware's drawSpinCue(): solid black panel across the
+     top of the page, with the arrow + cued pedal + RUDDER caption all
+     flashing between bright red and dim red.  Background stays solid
+     black so the underlying indexer never bleeds through.  The
+     uncued pedal stays dim grey through the flash. */
   #spin-cue-overlay {
     display: none;
     position: fixed;
     top: 0; left: 0; right: 0;
     height: 220px;
     z-index: 100;
-    background: rgba(0,0,0,0.65);
+    background: #000;
     text-align: center;
     pointer-events: none;
-    animation: spin-cue-flash 0.5s steps(2, jump-none) infinite;
     font-family: "Arial, Helvetica, sans-serif";
-    color: #ff2222;
   }
   #spin-cue-svg { display: block; margin: 12px auto 0; position: static; }
   #spin-cue-caption {
@@ -34,10 +37,22 @@ const char htmlLiveView[] PROGMEM = R"=====(
     font-size: 56px;
     font-weight: 900;
     letter-spacing: 6px;
+    animation: spin-cue-flash-fg 0.5s steps(2, jump-none) infinite;
   }
-  @keyframes spin-cue-flash {
-    0%   { opacity: 1.0; }
-    100% { opacity: 0.35; }
+  /* Foreground (arrow + cued pedal + caption) flashes between bright
+     and dim red, matching the M5's TFT_RED ↔ 0x6800 alternation. */
+  @keyframes spin-cue-flash-fg {
+    0%   { color: #ff2222; }
+    100% { color: #6a0000; }
+  }
+  #spin-arrow-left  > polygon,
+  #spin-arrow-right > polygon,
+  .spin-cued {
+    animation: spin-cue-flash-fill 0.5s steps(2, jump-none) infinite;
+  }
+  @keyframes spin-cue-flash-fill {
+    0%   { fill: #ff2222; }
+    100% { fill: #6a0000; }
   }
 
   /*! XS */
@@ -108,11 +123,16 @@ function updateSpinCue(cue)
   var pedalL    = document.getElementById("pedal-left");
   var pedalR    = document.getElementById("pedal-right");
 
+  // Lit pedal gets the .spin-cued class (fill-flash keyframe drives
+  // it between bright and dim red); uncued pedal carries an inline
+  // dim-grey fill that overrides the rest-state animation.
   if (cue < 0)
     {
     arrowL.setAttribute("visibility", "visible");
     arrowR.setAttribute("visibility", "hidden");
-    pedalL.setAttribute("fill", "#ff2222");
+    pedalL.setAttribute("class", "spin-cued");
+    pedalL.removeAttribute("fill");
+    pedalR.removeAttribute("class");
     pedalR.setAttribute("fill", "#444");
     overlay.style.display = "block";
     }
@@ -120,8 +140,10 @@ function updateSpinCue(cue)
     {
     arrowL.setAttribute("visibility", "hidden");
     arrowR.setAttribute("visibility", "visible");
+    pedalL.removeAttribute("class");
     pedalL.setAttribute("fill", "#444");
-    pedalR.setAttribute("fill", "#ff2222");
+    pedalR.setAttribute("class", "spin-cued");
+    pedalR.removeAttribute("fill");
     overlay.style.display = "block";
     }
   else
