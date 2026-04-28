@@ -172,5 +172,6 @@ nav:
     - Configuration Parameters: reference/config-parameters.md
     - CSV Log Columns: reference/log-columns.md
     - Display Serial Protocol: reference/serial-protocol.md
+    - LiveView WebSocket Protocol: reference/websocket-protocol.md
     - Hardware Specifications: reference/hardware-specs.md
     - Glossary: reference/glossary.md

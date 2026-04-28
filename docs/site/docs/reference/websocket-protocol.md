@@ -1,0 +1,194 @@
+# LiveView WebSocket Protocol
+
+The OnSpeed firmware broadcasts real-time flight data over a WebSocket on port 81. The built-in LiveView web page consumes this stream, but the protocol is not LiveView-specific — any third-party client (browser, native app, recording tool) can connect, parse the JSON, and ingest the same data the LiveView renders.
+
+This page is the canonical specification for that wire format.
+
+## Design intent
+
+The WebSocket is the LiveView's data path, paralleling the [display serial protocol](serial-protocol.md) that feeds the M5 secondary display. The two paths share the same `percent-lift` contract — `percentLift`, `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, `pipPctLift` are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.
+
+The encodings differ deliberately. The display serial path is a fixed-offset ASCII frame designed for a low-bandwidth UART to a hardware panel display; bandwidth and parsing simplicity matter, and adding a field is a hard protocol change that requires re-flashing both ends. The WebSocket path is JSON over TCP/WebSocket text frames, designed for browser and software consumers; bandwidth is plentiful, parsing is `JSON.parse()`, and adding a field is a soft change because old consumers ignore unknown keys.
+
+The WebSocket carries a few fields the display serial does not: body-angle `AOA` (degrees) and `DerivedAOA` for the LiveView's numeric corner readouts, plus LiveView-specific instrumentation (`kalmanVSI`, `coeffP`, `PitchRate`, `DecelRate`, `flapIndex`). These have no place on a hardware panel render but are useful for browser overlays, debugging consumers, and any future tool that wants to compare body angle to its derived counterparts.
+
+## Physical layer
+
+| Aspect | Value |
+| --- | --- |
+| Transport | WebSocket text frames over TCP |
+| Port | **81** |
+| Path | `/` (no sub-path) |
+| URL | `ws://192.168.0.1:81` (when connected to the OnSpeed AP) |
+| Encoding | UTF-8 JSON, single object per frame |
+| Cadence | 20 Hz nominal, gated on ≥ 1 connected client; tied to `kDisplaySerialPeriodMs` so display serial and WebSocket update in lockstep |
+| Direction | Server → client only; client text frames are accepted but currently no-op |
+| Authentication | None — same WiFi-AP-only access model as the rest of the LiveView UI |
+| Concurrent clients | Multiple clients are broadcast the same payload (no per-client state) |
+
+The OnSpeed acts as a WiFi access point named `OnSpeed` with password `angleofattack` and assigns itself `192.168.0.1` by default. The LiveView UI lives at `http://192.168.0.1/`; the WebSocket is on the same host, port 81. A client running on the same WiFi can connect with any standard WebSocket library — no handshake extensions, no subprotocol, no compression negotiation.
+
+## Frame structure
+
+Each frame is a single JSON object containing all live data fields, sent at 20 Hz. There is no framing layer above WebSocket text — one frame per WebSocket text message, and every frame is independent (no incremental / delta encoding).
+
+Example payload (formatted; on the wire it's compact, no whitespace):
+
+```json
+{
+  "AOA": 4.20,
+  "Pitch": -2.10,
+  "Roll": 3.50,
+  "IAS": 87.45,
+  "PAlt": 1234.00,
+  "verticalGLoad": 1.02,
+  "lateralGLoad": -0.04,
+  "flapsPos": 0,
+  "flapIndex": 0,
+  "coeffP": 0.85,
+  "dataMark": 12,
+  "kalmanVSI": -50.30,
+  "flightPath": -0.40,
+  "PitchRate": 0.10,
+  "DecelRate": -0.15,
+  "OAT": 22.50,
+  "DerivedAOA": 4.18,
+  "percentLift": 24,
+  "tonesOnPctLift": 18,
+  "onSpeedFastPctLift": 32,
+  "onSpeedSlowPctLift": 48,
+  "stallWarnPctLift": 72,
+  "pipPctLift": 18
+}
+```
+
+Typical compacted frame size: **300–340 bytes** depending on numeric width.
+
+## Field reference
+
+Every field appears in every frame. Floats are formatted with 2 decimal places (`%.2f`); integers are bare. Numeric values are guarded against `NaN` / `Inf` — any non-finite source value is replaced with a documented fallback (typically 0 or a sentinel) so the JSON is always parseable.
+
+### Attitude
+
+| Field | Type | Units | Notes |
+| --- | --- | --- | --- |
+| `Pitch` | float | degrees | Smoothed pitch. Source depends on calibration mode: in EFIS mode (`bCalSourceEfis=true`), reads from the EFIS; otherwise reads `g_AHRS.SmoothedPitch` (Madgwick or EKF6 output). |
+| `Roll` | float | degrees | Smoothed roll, same source rules as `Pitch`. |
+| `flightPath` | float | degrees | Flight-path angle. Derived from VSI and TAS via `arcsin(VSI / TAS)`; positive = climbing. Falls back to `0` if TAS ≤ 0. |
+| `PitchRate` | float | deg/s | Body-frame pitch rate, `g_AHRS.gPitch` (filtered gyro). |
+
+### Air data
+
+| Field | Type | Units | Notes |
+| --- | --- | --- | --- |
+| `IAS` | float | knots | Indicated airspeed. EFIS in EFIS mode, otherwise the OnSpeed pitot-derived IAS from `g_Sensors.IAS`. |
+| `PAlt` | float | feet | Pressure altitude. From `g_AHRS.KalmanAlt` (Kalman-filtered, in metres) converted to feet. |
+| `kalmanVSI` | float | feet/min | Kalman-filtered vertical speed. In EFIS mode with EFIS TAS available, this becomes the EFIS's VSI to keep one-source-per-frame integrity. |
+| `OAT` | float | °C | Outside air temperature. EFIS in EFIS mode; otherwise `g_Sensors.OatC` if `bOatSensor=true`; otherwise `0.0`. |
+| `DecelRate` | float | knots/s | Smoothed IAS-decel rate, `g_Sensors.fDecelRate` (Savitzky-Golay derivative). Negative = decelerating. |
+
+### G-loads
+
+| Field | Type | Units | Notes |
+| --- | --- | --- | --- |
+| `verticalGLoad` | float | g | Installation-corrected body-vertical acceleration. 1.0 g level, 2.0 g in a 60° bank. Same value `GLimitDecision` uses for over-G warnings. |
+| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, `g_AHRS.AccelLatCorr`. **Sign**: this is the raw installation-corrected value, *not* negated. The display-serial wire's `lateralG` field is the same source negated to make positive = leftward; consumers reading both transports must account for the sign difference. |
+
+### AOA & lift
+
+| Field | Type | Units | Notes |
+| --- | --- | --- | --- |
+| `AOA` | float | degrees | **Body angle**, not wing AOA. The fuselage-to-wind angle. See [How OnSpeed Measures AOA](../calibration/how-aoa-works.md) for the convention. Sentinel value `-100` is emitted when AOA is `NaN` or IAS is below the audio mute threshold (`iMuteAudioUnderIAS`); the LiveView gates on `AOA > -20` to render N/A in that state. |
+| `DerivedAOA` | float | degrees | Body angle derived from the AHRS (pitch and flight path), `g_AHRS.DerivedAOA`. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning. |
+| `percentLift` | int | 0–99 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0, 99]`. Uses the **active-detent** flap calibration (matches what the audio path uses). |
+| `coeffP` | float | dimensionless | Coefficient of pressure: `(P_aoa − P_static) / (P_pitot − P_static)`. Useful for boom-vs-fuselage comparison during calibration. |
+
+### Indexer band-edge anchors
+
+These four fields are the per-flap setpoints expressed as percent-lift, snapped to the active detent. They drive the indexer band edges (donut, chevrons, stall-warn flash threshold) and stay in lockstep with the audio cues that fire at the same calibrated body angles.
+
+| Field | Type | Units | Notes |
+| --- | --- | --- | --- |
+| `tonesOnPctLift` | int | 0–99 | L/Dmax body angle through the percent-lift formula. Below this, audio is silent. |
+| `onSpeedFastPctLift` | int | 0–99 | OnSpeedFast threshold — the lower edge of the donut band. |
+| `onSpeedSlowPctLift` | int | 0–99 | OnSpeedSlow threshold — the upper edge of the donut band. |
+| `stallWarnPctLift` | int | 0–99 | StallWarn threshold — the chevron's flash-on point. |
+| `pipPctLift` | int | 0–99 | L/Dmax pip dot position. **Interpolates linearly clean→full-flap** across the configured flap range, ignoring intermediate detents. The visual aerodynamic reference; deliberately separated from `tonesOnPctLift` (which snaps to detents) so the pip can slide smoothly with the lever. See the [indexer spec](../software/indexer-spec.md) for the rationale. |
+
+### Flap state
+
+| Field | Type | Units | Notes |
+| --- | --- | --- | --- |
+| `flapsPos` | int | degrees | Current flap angle. **Interpolates** across the bracket containing the lever, so the numeric readout slides smoothly during deployment. Falls back to the snapped detent position when the flap calibration is empty. |
+| `flapIndex` | int | — | Index of the active flap detent (`g_Flaps.iIndex`). 0-based. The audio path and the four band-edge anchors above all reference this same detent. |
+
+### Other
+
+| Field | Type | Units | Notes |
+| --- | --- | --- | --- |
+| `dataMark` | int | unsigned | User-pressable button counter, increments on each press. Used to mark interesting moments in flight logs. The display serial wire applies a `mod 100` wrap to fit its 2-digit field; the WebSocket emits the raw counter without wrapping, so it can grow arbitrarily large during a long session. |
+
+## Sentinels and fallbacks
+
+The producer never emits `nan`, `inf`, or other invalid JSON tokens. Every float passes through `SafeJsonFloat()` which substitutes a documented fallback when the source value is non-finite:
+
+| Field | Fallback when source is `NaN`/`Inf` | Why |
+| --- | --- | --- |
+| `AOA` | `-100` | LiveView gates on `AOA > -20` to render `N/A`; sentinel below that range keeps the bar hidden until real data arrives. |
+| `Pitch`, `Roll`, `IAS`, `kalmanVSI`, `flightPath`, `verticalGLoad`, `OAT` | `0.0` | Nothing-special fallback; consumers that care about validity should use the indirect signals (e.g. `IAS == 0` plus elapsed time without changes). |
+| `DerivedAOA`, `coeffP`, `PitchRate`, `DecelRate` | `0.0` | Same. |
+| `lateralGLoad`, `PAlt` | `0.0` | Same. |
+
+There is no top-level "validity" flag; the protocol is best-effort 20 Hz. Consumers should detect staleness by tracking the elapsed time since the last frame.
+
+## Consumer recommendations
+
+A minimal browser consumer is six lines:
+
+```js
+const ws = new WebSocket("ws://192.168.0.1:81");
+ws.onmessage = (evt) => {
+  const data = JSON.parse(evt.data);
+  console.log(`AOA=${data.AOA}° pct=${data.percentLift}%`);
+};
+```
+
+A minimal command-line consumer using [`websocat`](https://github.com/vi/websocat):
+
+```bash
+websocat ws://192.168.0.1:81
+```
+
+This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift, IAS}'` to reduce.
+
+**Reconnection.** The OnSpeed firmware does not actively notify clients of going-away; if the OnSpeed reboots or the WiFi link drops, the client sees a normal WebSocket close and should retry. The bundled LiveView re-attempts every 3 seconds whenever no message has arrived in the last 3 s; this is a reasonable default for any consumer.
+
+**Forward compatibility.** The schema is *additive*. New fields will appear in future firmware versions; consumers must ignore unknown keys. Field types and units for existing keys will not change without a corresponding firmware version bump documented in the change log below.
+
+**Coordinate consistency with display serial.** Where a field exists in both transports (e.g. `verticalGLoad` here vs `verticalG` on the wire), the values are derived from the same source and will agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. Where they differ in name, see the [comparison table](#display-serial-vs-liveview-the-two-data-paths) below.
+
+## Display serial vs LiveView — the two data paths
+
+| Aspect | Display serial (`#1`) | LiveView WebSocket |
+| --- | --- | --- |
+| Transport | UART 115200 8N1, one-way | WebSocket port 81, bidirectional (server-broadcast only in practice) |
+| Encoding | Fixed-offset ASCII, byte-summed CRC, CRLF-terminated | JSON over WebSocket text frames |
+| Cadence | 20 Hz (every 50 ms) | 20 Hz — gated on ≥ 1 connected client; both paths driven by `kDisplaySerialPeriodMs` |
+| Audience | Panel display, third-party EFIS | Browser running LiveView, third-party software consumers |
+| Adding a field | Hard protocol change — both ends must flash together | Soft change — old consumers ignore unknown JSON keys |
+| Body-angle `AOA` (degrees) | not on wire | yes (`AOA`) — used for the numeric corner readout |
+| Body-angle `DerivedAOA` (degrees) | not on wire | yes (`DerivedAOA`) — for advanced overlays / debug |
+| `kalmanVSI`, `coeffP`, `PitchRate`, `DecelRate` | not on wire | yes — LiveView-specific instrumentation |
+| `flapIndex` (which detent is active) | not on wire | yes |
+
+The asymmetry is by design: the panel displays render *the indexer*, so the wire ships percent anchors. The LiveView additionally shows numeric body-angle AOA so a pilot can compare it to DerivedAOA — those degrees-units fields stay on the WebSocket but never on the panel-serial wire.
+
+## Producer alignment
+
+The single source of truth for the wire format is `software/sketch_common/src/web_server/DataServer.cpp::UpdateLiveDataJson()`. Field semantics, units, and computation match the display serial wire wherever the same field exists in both, because the producer reads the same firmware globals and uses the same `onspeed_core` helpers (`ComputePercentLift`, `ComputeDisplayPctAnchors`).
+
+## Change log
+
+| Date | Firmware | Change |
+| --- | --- | --- |
+| 2026-04-28 | (this page) | Initial WebSocket protocol reference page. The schema documented here matches firmware as of master ~v4.22. |
