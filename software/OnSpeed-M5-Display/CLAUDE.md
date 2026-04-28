@@ -84,8 +84,8 @@ datum:
 constexpr int RIGHT_X = 303;   // pulled 10px inside right edge
 
 // Right-anchored label using the same print() path as left-side text
-gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("ALT"), 60);
-gdraw.print("ALT");
+gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth("PALT"), 60);
+gdraw.print("PALT");
 ```
 
 ### Rule 3: Right-side text pulls in from the panel edge

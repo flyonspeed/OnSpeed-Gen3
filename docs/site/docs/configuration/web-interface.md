@@ -32,10 +32,12 @@ You can also use the mDNS name: **`http://onspeed.local`** (may not work on all 
 
 ## Live View
 
-The live view page (`/live`) shows real-time sensor data updated at 20 Hz via WebSocket. Numeric readouts (AOA, IAS, altitude) are throttled to 2 Hz in the browser for readability; the SVG attitude indicator and AOA bar render on every frame.
+The live view page (`/live`) shows real-time sensor data updated at 20 Hz via WebSocket. Numeric readouts (AOA, IAS, pressure altitude) are throttled to 2 Hz in the browser for readability; the SVG attitude indicator and AOA bar render on every frame.
+
+The altitude readout is labeled `PAlt` — every altitude OnSpeed computes is pressure altitude (ISA 1013.25 hPa reference; no Kollsman/QNH correction). Don't expect it to match the panel altimeter unless your altimeter is set to 29.92.
 
 - AOA needle position on a visual scale
-- IAS, altitude, G-loads
+- IAS, pressure altitude, G-loads
 - Pitch and roll (attitude indicator)
 - Derived AOA and pitch rate
 - Current tone region indicators (L/Dmax, OnSpeed, Stall Warning zones)

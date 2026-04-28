@@ -24,7 +24,7 @@ time_of_day_start=14:32:08
 gps_fix_seen=1
 ```
 
-`time_of_day_start` is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). `utc_start` is VN-300-only. The `/logs` page reads the sidecar to populate the start-time, duration, max IAS, and max altitude columns.
+`time_of_day_start` is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). `utc_start` is VN-300-only. The `/logs` page reads the sidecar to populate the start-time, duration, max IAS, and max pressure altitude columns. The `max_alt_ft` value comes from the `Palt` column — every altitude OnSpeed records is pressure altitude (ISA 1013.25 hPa reference); there is no Kollsman/QNH correction.
 
 ## Key Columns
 
@@ -73,7 +73,7 @@ gps_fix_seen=1
 | `EarthVerticalG` | G | Vertical G in earth frame |
 | `FlightPath` | degrees | Flight path angle = arcsin(VSI/TAS) |
 | `VSI` | fpm | Vertical speed (Kalman filtered) |
-| `Altitude` | ft | Altitude (Kalman filtered) |
+| `Altitude` | ft | Pressure altitude, Kalman-filtered. Same quantity as `Palt` (column 7), smoothed with vertical accel. |
 
 ### EFIS Data (when connected)
 

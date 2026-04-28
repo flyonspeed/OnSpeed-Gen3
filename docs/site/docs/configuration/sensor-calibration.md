@@ -7,7 +7,7 @@ Sensor calibration establishes the **zero-point** (bias) for each pressure senso
 - **Initial installation** — always calibrate during first-time setup
 - **After moving the controller** — if you change the mounting location or orientation
 - **After a firmware update** — if the update changed sensor processing
-- **If readings seem off** — drifting altitude on the ground, non-zero pitch/roll when level
+- **If readings seem off** — drifting `Palt` on the ground, non-zero pitch/roll when level
 
 ## Prerequisites
 

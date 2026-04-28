@@ -149,7 +149,10 @@ struct LogRow {
     float flightPathDeg = 0.0f;
     float vsiFpm        = 0.0f;
 
-    // Kalman-filtered altitude (feet).
+    // Kalman-filtered pressure altitude (feet).  Same quantity as paltFt
+    // (raw 50 Hz reading), smoothed with vertical accel by KalmanFilter.
+    // ISA 1013.25 hPa reference; no Kollsman/QNH correction.  Emitted as
+    // the CSV `Altitude` column (see LogCsv.cpp).
     float altitudeFt = 0.0f;
 
     // Derived angle of attack (degrees) and pressure coefficient.

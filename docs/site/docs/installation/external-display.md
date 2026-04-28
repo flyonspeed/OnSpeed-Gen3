@@ -135,14 +135,16 @@ not by exact percent.
 
 **Corners:**
 
-- Top-left: current **IAS** in knots (big white number) with a green
-  "IAS" label.
-- Top-right: current **vertical G** (big white number) with a green
-  "G" label.
-- Bottom-left: a **flap position** icon (circle with a rotating
-  triangular needle representing the flap angle, plus tick marks
-  for standard detents) with the numeric flap angle inside the
-  circle.
+- Top-left: current **IAS** in knots (big white number) with an "IAS"
+  label.
+- Top-right: current **pressure altitude** (big white number) with a
+  "PALT" label. ISA 1013.25 hPa reference; this is not panel-altimeter
+  altitude — no Kollsman/QNH correction is applied.
+- Bottom-left: current **vertical G** (big white number) with a "G"
+  label, with a **flap position** icon (small circle with a rotating
+  triangular needle representing the flap angle) overlaid below it.
+- Bottom-right: current **percent lift** (the same 0–99 envelope
+  fraction shown above the indexer) with an "AOA" label.
 - Bottom-center: the **slip/skid ball** (green when coordinated, red
   and flashing at high AOA with large slip).
 
@@ -164,7 +166,8 @@ the air, slip/skid ball at the bottom, and an orange VSI tape on the
 right edge with a tick ladder for climb/descent rate.
 
 **Corners** follow the same layout as the Primary mode: IAS /
-altitude on top row, G / AOA-percent-lift on bottom row. Numeric
+pressure altitude (`PALT`) on top row, G / AOA-percent-lift on bottom
+row. Numeric
 pitch readout sits in a dark rounded rectangle behind the aircraft
 symbol at the center.
 
@@ -399,7 +402,7 @@ The OnSpeed firmware's serial output format is configurable via the
 `SERIALOUTFORMAT` field in the configuration:
 
 - **ONSPEED** — native `#1` format (72-byte payload + CRC + CRLF = 76
-  bytes total, v4.22 wire) carrying attitude, IAS, altitude,
+  bytes total, v4.22 wire) carrying attitude, IAS, pressure altitude,
   percent-lift, the per-flap percent anchors that drive an indexer
   (L/D~MAX~ audio gate, OnSpeedFast, OnSpeedSlow, stall-warn, plus the
   separate visual L/D~MAX~ pip), G-loading, and flap travel range.

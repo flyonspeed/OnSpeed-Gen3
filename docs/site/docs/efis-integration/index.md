@@ -9,7 +9,7 @@ Connecting OnSpeed to your EFIS (Electronic Flight Instrument System) significan
 | Calibrated IAS from pitot system | IAS from OnSpeed's own pitot sensor (still works, but less precise) |
 | OAT from EFIS probe | Requires DS18B20 sensor, or no temperature correction |
 | Attitude from EFIS AHRS | Uses OnSpeed's internal IMU only |
-| Altitude from EFIS | Computed from static pressure sensor |
+| Pressure altitude from EFIS (logged as `efisPalt`) | Pressure altitude from OnSpeed's own static sensor (`Palt`) |
 | Fuel, RPM, MAP data logged | Not available |
 
 OnSpeed works without an EFIS — but the calibration and accuracy are better with one.
