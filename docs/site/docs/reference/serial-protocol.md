@@ -162,7 +162,7 @@ Total: 58 bytes per frame. Same 20 Hz cadence, same 115200 8N1 wire. AOA setpoin
 
 ## Display serial vs LiveView — the two data paths
 
-The OnSpeed web LiveView page does **not** consume the display serial stream documented above. It receives a JSON payload over a WebSocket on port 81, broadcast by `DataServer.cpp`. The two paths share the same percent-lift contract — `percentLift`, `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, and `pipPctLift` are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.
+The OnSpeed web LiveView page does **not** consume the display serial stream documented above. It receives a JSON payload over a WebSocket on port 81 — see the [LiveView WebSocket protocol](websocket-protocol.md) for the full schema. The two paths share the same percent-lift contract — `percentLift`, `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, and `pipPctLift` are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.
 
 The encodings differ:
 
@@ -175,7 +175,7 @@ The encodings differ:
 | Adding a field | Hard protocol change — both ends must flash together | Soft change — old browsers ignore unknown JSON keys |
 | Body-angle `AOA` (degrees) | not on wire | yes (`AOA`) — used for the numeric corner readout |
 | Body-angle `DerivedAOA` (degrees) | not on wire | yes (`DerivedAOA`) — for advanced overlays / debug |
-| `kalmanVSI`, `coeffP`, `pitchRate`, `decelRate` | not on wire | yes — LiveView-specific instrumentation |
+| `kalmanVSI`, `coeffP`, `PitchRate`, `DecelRate` | not on wire | yes — LiveView-specific instrumentation |
 | `flapIndex` (which detent is active) | not on wire | yes |
 
 The asymmetry is by design: the panel displays render *the indexer*, so the wire ships percent anchors. The LiveView additionally shows numeric body-angle AOA so a pilot can compare it to DerivedAOA — those degrees-units fields stay on the WebSocket but never on the panel-serial wire.
