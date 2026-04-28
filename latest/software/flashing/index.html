@@ -3558,13 +3558,15 @@
 </tbody>
 </table>
 <h3 id="development-builds">Development Builds<a class="headerlink" href="#development-builds" title="Permanent link">&para;</a></h3>
-<p>Every push to the <code>master</code> branch and every pull request builds firmware automatically. To download a development build:</p>
+<p>Every push to the <code>master</code> branch builds firmware automatically.</p>
+<p><strong>Easiest path — latest master, no GitHub login:</strong> open <a href="https://nightly.link/flyonspeed/OnSpeed-Gen3/workflows/ci/master">nightly.link for OnSpeed-Gen3 CI on master</a>. The page lists every artifact from the most recent successful CI run on master with direct download links. Pick <code>onspeed-&lt;version&gt;-v4p.zip</code> or <code>onspeed-&lt;version&gt;-v4b.zip</code> for your hardware. The same shortcut is also linked from the <strong>master artifacts</strong> badge on the <a href="https://github.com/flyonspeed/OnSpeed-Gen3#readme">README</a>.</p>
+<p><strong>Alternative — GitHub Actions UI:</strong> if you want a specific run (not just the latest), or you want artifacts from a non-master branch:</p>
 <ol>
 <li>Go to the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml">Actions tab</a></li>
 <li>Click on a successful workflow run</li>
 <li>Scroll to <strong>Artifacts</strong> and download <code>onspeed-&lt;version&gt;-V4P.zip</code> or <code>onspeed-&lt;version&gt;-V4B.zip</code></li>
-<li>
-<p><strong>Unzip</strong> the downloaded file — inside you'll find three <code>.bin</code> files:</p>
+</ol>
+<p>Either way, <strong>unzip</strong> the downloaded file — inside you'll find three <code>.bin</code> files:</p>
 <table>
 <thead>
 <tr>
@@ -3592,14 +3594,12 @@
 </tbody>
 </table>
 <p>For a routine <strong>OTA update</strong>, you only need <code>firmware.bin</code> — you can ignore the other two files.</p>
-</li>
-</ol>
 <div class="admonition note">
-<p class="admonition-title">GitHub account required</p>
-<p>Downloading CI artifacts requires a GitHub account. Artifacts are retained for 30 days.</p>
+<p class="admonition-title">Artifact retention</p>
+<p>CI artifacts are retained for 30 days. nightly.link works without a GitHub login; downloading directly from the GitHub Actions UI requires one.</p>
 </div>
 <h3 id="pr-test-builds">PR Test Builds<a class="headerlink" href="#pr-test-builds" title="Permanent link">&para;</a></h3>
-<p>Pull requests that touch firmware code automatically build both variants. A comment on the PR links directly to the downloadable <code>.zip</code> artifacts. Download and unzip just like a development build above.</p>
+<p>Pull requests that touch firmware code automatically build both variants. A sticky comment on the PR links directly to the downloadable <code>.zip</code> artifacts. Download and unzip just like a development build above.</p>
 <h2 id="which-update-method">Which Update Method?<a class="headerlink" href="#which-update-method" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>OTA (WiFi)</strong>: Use for routine updates when the box is already running and the <code>OnSpeed</code> WiFi network appears. You only need the <code>firmware.bin</code> for your variant. See <a href="../ota-update/">OTA Updates</a>.</li>
