@@ -3640,7 +3640,7 @@
 <td><code>verticalG</code></td>
 <td><code>%+03d</code></td>
 <td style="text-align: right;">×10</td>
-<td>±9.9 g (ceiling-rounded)</td>
+<td>±9.9 g (rounded to nearest 0.1 g)</td>
 <td>±99</td>
 </tr>
 <tr>
@@ -3817,7 +3817,7 @@
 <p>Most fields are self-describing. The ones with non-obvious conventions:</p>
 <ul>
 <li><strong><code>lateralG</code> is negated.</strong> The producer transmits <code>−AccelLatFilter</code> (positive wire value = leftward acceleration, matching slip-skid ball direction). The parser stores the wire value as-is — a consumer that wants right-positive must un-negate.</li>
-<li><strong><code>verticalG</code> is <code>ceilf(g × 10)</code></strong> before the cast to int, not a normal round-to-nearest. This preserves the legacy "always round up to the next 0.1 g" behaviour that the OnSpeed g-limit chime was tuned against.</li>
+<li><strong><code>verticalG</code> is <code>lroundf(g × 10)</code></strong> — round-to-nearest-tenth, matching the LiveView's <code>verticalGLoad</code> rendering and the way pilots intuitively read a single-decimal display. Over-G alerting reads the unrounded float in <code>GLimitDecision</code> (Housekeeping path), so this encoding choice does not affect chime / limit behaviour.</li>
 <li><strong><code>vsiFpm10</code> is already divided by 10.</strong> The wire field carries <code>floor(VSI_fpm / 10)</code>. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.</li>
 <li><strong><code>percentLift</code> and the band-edge percents are computed via the canonical <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h"><code>ComputePercentLift</code></a></strong>, the honest single-linear <code>(AOA − α₀) / (α_stall − α₀) × 100</code>. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).</li>
 <li><strong><code>percentLift</code> goes to 0 below the audio mute threshold</strong> (<code>iMuteAudioUnderIAS</code>). The wire stays silent for the AOA region while the aircraft is parked.</li>
