@@ -110,7 +110,7 @@ X-Plane has no plugin hot-reload. Restart X-Plane after replacing the
 
 ## Building from source
 
-Usually unnecessary — tagged releases ship macOS, Linux, and Windows `.xpl` files, and every PR and `master` push uploads the same three as GitHub Actions artifacts (30-day retention; GitHub login required to download).
+Usually unnecessary — tagged releases ship macOS, Linux, and Windows `.xpl` files, and every PR and `master` push uploads the same three as GitHub Actions artifacts. The latest master `.xpl`s for all three platforms are one click away at [nightly.link for OnSpeed-Gen3 CI on master](https://nightly.link/flyonspeed/OnSpeed-Gen3/workflows/ci/master) (no GitHub login required); for a specific run, use the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml). PRs get a sticky "Firmware Artifacts" comment with the same links. Artifacts are retained for 30 days.
 
 Prerequisites:
 

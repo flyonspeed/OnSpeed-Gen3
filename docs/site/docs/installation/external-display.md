@@ -358,11 +358,19 @@ pio device monitor
 
 ### Getting firmware for an unreleased change (reviewers and testers)
 
-Every pull request that touches M5 display code builds both board
-variants in CI and posts a comment with direct download links to the
-`.zip` artifacts. Look for the "Firmware Artifacts" comment on the PR;
-it includes a table with Basic and Core2 rows. Downloading requires a
-GitHub login; artifacts expire 30 days after the CI run.
+**From a PR:** every pull request that touches M5 display code builds
+both board variants in CI and posts a sticky comment with direct
+download links to the `.zip` artifacts. Look for the "Firmware
+Artifacts" comment on the PR; it includes a table with Basic and
+Core2 rows.
+
+**From master:** the latest successful master CI run's artifacts are
+listed at [nightly.link for OnSpeed-Gen3 CI on master](https://nightly.link/flyonspeed/OnSpeed-Gen3/workflows/ci/master)
+(no GitHub login required). Look for `m5-display-basic-…zip` or
+`m5-display-core2-…zip`. The same shortcut is on the **master
+artifacts** badge in the [README](https://github.com/flyonspeed/OnSpeed-Gen3#readme).
+
+CI artifacts expire 30 days after the run.
 
 ## Bench testing without the OnSpeed box
 

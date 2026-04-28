@@ -32,27 +32,32 @@ Pre-built firmware binaries for each release are on GitHub:
 
 ### Development Builds
 
-Every push to the `master` branch and every pull request builds firmware automatically. To download a development build:
+Every push to the `master` branch builds firmware automatically.
+
+**Easiest path — latest master, no GitHub login:** open [nightly.link for OnSpeed-Gen3 CI on master](https://nightly.link/flyonspeed/OnSpeed-Gen3/workflows/ci/master). The page lists every artifact from the most recent successful CI run on master with direct download links. Pick `onspeed-<version>-v4p.zip` or `onspeed-<version>-v4b.zip` for your hardware. The same shortcut is also linked from the **master artifacts** badge on the [README](https://github.com/flyonspeed/OnSpeed-Gen3#readme).
+
+**Alternative — GitHub Actions UI:** if you want a specific run (not just the latest), or you want artifacts from a non-master branch:
 
 1. Go to the [Actions tab](https://github.com/flyonspeed/OnSpeed-Gen3/actions/workflows/ci.yml)
 2. Click on a successful workflow run
 3. Scroll to **Artifacts** and download `onspeed-<version>-V4P.zip` or `onspeed-<version>-V4B.zip`
-4. **Unzip** the downloaded file — inside you'll find three `.bin` files:
 
-    | File | What it is | When you need it |
-    |------|-----------|-----------------|
-    | `firmware.bin` | Application firmware | **Always** — this is what you flash for OTA or USB |
-    | `bootloader.bin` | ESP32 bootloader | USB flash only (initial setup or recovery) |
-    | `partitions.bin` | Flash partition table | USB flash only (initial setup or recovery) |
+Either way, **unzip** the downloaded file — inside you'll find three `.bin` files:
 
-    For a routine **OTA update**, you only need `firmware.bin` — you can ignore the other two files.
+| File | What it is | When you need it |
+|------|-----------|-----------------|
+| `firmware.bin` | Application firmware | **Always** — this is what you flash for OTA or USB |
+| `bootloader.bin` | ESP32 bootloader | USB flash only (initial setup or recovery) |
+| `partitions.bin` | Flash partition table | USB flash only (initial setup or recovery) |
 
-!!! note "GitHub account required"
-    Downloading CI artifacts requires a GitHub account. Artifacts are retained for 30 days.
+For a routine **OTA update**, you only need `firmware.bin` — you can ignore the other two files.
+
+!!! note "Artifact retention"
+    CI artifacts are retained for 30 days. nightly.link works without a GitHub login; downloading directly from the GitHub Actions UI requires one.
 
 ### PR Test Builds
 
-Pull requests that touch firmware code automatically build both variants. A comment on the PR links directly to the downloadable `.zip` artifacts. Download and unzip just like a development build above.
+Pull requests that touch firmware code automatically build both variants. A sticky comment on the PR links directly to the downloadable `.zip` artifacts. Download and unzip just like a development build above.
 
 ## Which Update Method?
 
