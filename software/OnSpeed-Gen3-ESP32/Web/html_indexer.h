@@ -16,6 +16,12 @@
 // Wake lock keeps the tablet's screen on.  Layout works in either
 // orientation — the canvas centers in the available space above the
 // button row.
+//
+// The nav row at the top mirrors the rest of the web UI's menu so the
+// pilot can navigate back to LiveView, config, etc. from a phone or
+// tablet.  We pull the nav <ul> inline and link /css/main.css for its
+// styling; we skip the logo block (~94 px tall) to keep the indexer
+// canvas as large as possible on portrait phones.
 
 const char htmlIndexer[] PROGMEM = R"=====(
 <!DOCTYPE html>
@@ -24,6 +30,7 @@ const char htmlIndexer[] PROGMEM = R"=====(
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta charset="utf-8"/>
 <title>OnSpeed Indexer</title>
+<link rel="stylesheet" href="/css/main.css">
 <style>
   html, body {
     margin: 0;
@@ -36,9 +43,16 @@ const char htmlIndexer[] PROGMEM = R"=====(
     overscroll-behavior: none;
     touch-action: manipulation;
   }
-  /* Status pill — top-right corner */
+  /* Nav row — pinned to top, height matches the .nav-row height below. */
+  .nav-row {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 46px;
+    z-index: 50;
+  }
+  /* Status pill — top-right corner, below the nav row. */
   #status {
-    position: fixed; top: 8px; right: 12px;
+    position: fixed; top: 54px; right: 12px;
     font-family: monospace; font-size: 12px;
     color: #ddd;
     background: rgba(0,0,0,0.6);
@@ -50,12 +64,13 @@ const char htmlIndexer[] PROGMEM = R"=====(
   #status.ok    { border-color: #1d6; color: #afc; }
   #status.stale { border-color: #d92; color: #fc6; }
   #status.bad   { border-color: #d33; color: #fcc; }
-  /* Canvas — fills viewport above the button row, integer-multiple
-     scaling preserves crisp pixel edges. JS sets width/height in
-     pixels to match 320:240 aspect on whatever's available. */
+  /* Canvas — fills viewport between the nav row and the button row,
+     integer-multiple scaling preserves crisp pixel edges. JS sets
+     width/height in pixels to match 320:240 aspect on whatever's
+     available. */
   #stage {
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 84px;
+    top: 46px; left: 0; right: 0; bottom: 84px;
     display: flex; align-items: center; justify-content: center;
   }
   #canvas {
@@ -93,6 +108,35 @@ const char htmlIndexer[] PROGMEM = R"=====(
 </style>
 </head>
 <body>
+
+<!-- Nav row — same items and styling as szHtmlHeader's menu so the
+     pilot can return to LiveView, config pages, etc.  Logo and version
+     readout are intentionally omitted; this view is meant to maximize
+     the indexer canvas on a phone in portrait. -->
+<div class="nav-row">
+<ul>
+    <li><a href="/">Home</a></li>
+    <li class="dropdown">
+        <a href="javascript:void(0)" class="dropbtn">Tools</a>
+        <div class="dropdown-content">
+            <a href="logs">Log Files</a>
+            <a href="format">Format SD Card</a>
+            <a href="upgrade">Firmware Upgrade</a>
+            <a href="reboot">Reboot System</a>
+        </div>
+    </li>
+    <li class="dropdown">
+        <a href="javascript:void(0)" class="dropbtn">Settings</a>
+        <div class="dropdown-content">
+            <a href="aoaconfig">System Configuration</a>
+            <a href="sensorconfig">Sensor Calibration</a>
+            <a href="calwiz">AOA Calibration Wizard</a>
+        </div>
+    </li>
+    <li><a href="live">LiveView</a></li>
+    <li><a href="indexer">Indexer</a></li>
+</ul>
+</div>
 
 <div id="status">connecting&hellip;</div>
 
