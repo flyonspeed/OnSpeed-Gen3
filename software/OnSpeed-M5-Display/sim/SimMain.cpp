@@ -32,6 +32,21 @@
 void setup(void);
 void loop(void);
 
+#if defined(SIM_LIVE)
+// Live-data WASM target: JS bridge calls this once per byte received
+// over the firmware's WebSocket binary channel. The C++ symbol is
+// SerialRead.cpp's InjectSerialByte; this wrapper gives JS a stable
+// C ABI name (_inject_serial_byte) and matches what we list in
+// -sEXPORTED_FUNCTIONS in build_wasm.sh.
+extern void InjectSerialByte(char c);
+extern "C" {
+EMSCRIPTEN_KEEPALIVE void inject_serial_byte(char c)
+{
+    InjectSerialByte(c);
+}
+}
+#endif
+
 #if defined(__EMSCRIPTEN__)
 
 // Browser main loop: single-threaded. Panel_sdl's native `main()` entry
