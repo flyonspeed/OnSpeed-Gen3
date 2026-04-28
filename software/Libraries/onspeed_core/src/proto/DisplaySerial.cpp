@@ -78,7 +78,7 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int      iYaw10      = SafeScaledInt(in.turnRateDps,    10.0f, -9999,  9999);
     const int      iLatG100    = SafeScaledInt(in.lateralG,      100.0f,   -99,    99);
 
-    // verticalGScaled10 is already (ceilf(accel * 10)), stored as float to
+    // verticalGScaled10 is already (lroundf(accel * 10)), stored as float to
     // carry the int value. Route through SafeScaledInt so NaN/Inf inputs
     // cannot hit undefined float-to-int conversion.
     const int iVertG10 = SafeScaledInt(in.verticalGScaled10, 1.0f, -99, 99);

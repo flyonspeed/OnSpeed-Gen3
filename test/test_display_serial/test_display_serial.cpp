@@ -185,7 +185,10 @@ void test_roundtrip_lateral_g(void)
 void test_roundtrip_vertical_g(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    // verticalGScaled10 = ceilf(1.02 * 10) = 11
+    // verticalGScaled10 is the encoded int (×10).  The encoder side
+    // (sketch_common/src/io/DisplaySerial.cpp) uses lroundf(accel * 10);
+    // here we just feed the protocol layer a representative integer.
+    // 11 corresponds to 1.05–1.149 g rounded to the nearest 0.1.
     in.verticalGScaled10 = 11.0f;
     buildOk(in);
     DisplayFrame f = parseOk();
