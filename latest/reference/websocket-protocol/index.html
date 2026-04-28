@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://dev.flyonspeed.org/latest/reference/hardware-specs/">
+        <link rel="canonical" href="https://dev.flyonspeed.org/latest/reference/websocket-protocol/">
       
       
-        <link rel="prev" href="../websocket-protocol/">
+        <link rel="prev" href="../serial-protocol/">
       
       
-        <link rel="next" href="../glossary/">
+        <link rel="next" href="../hardware-specs/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Hardware Specifications - OnSpeed Gen3 Documentation</title>
+        <title>LiveView WebSocket Protocol - OnSpeed Gen3 Documentation</title>
       
     
     
@@ -115,7 +115,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#hardware-specifications" class="md-skip">
+        <a href="#liveview-websocket-protocol" class="md-skip">
           Skip to content
         </a>
       
@@ -152,7 +152,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Hardware Specifications
+              LiveView WebSocket Protocol
             
           </span>
         </div>
@@ -3025,34 +3025,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../websocket-protocol/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    LiveView WebSocket Protocol
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -3072,7 +3044,7 @@
   <span class="md-ellipsis">
     
   
-    Hardware Specifications
+    LiveView WebSocket Protocol
   
 
     
@@ -3090,7 +3062,7 @@
   <span class="md-ellipsis">
     
   
-    Hardware Specifications
+    LiveView WebSocket Protocol
   
 
     
@@ -3116,10 +3088,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#microcontroller" class="md-nav__link">
+  <a href="#design-intent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Microcontroller
+        Design intent
       
     </span>
   </a>
@@ -3127,10 +3099,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sensors" class="md-nav__link">
+  <a href="#physical-layer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sensors
+        Physical layer
       
     </span>
   </a>
@@ -3138,10 +3110,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#power" class="md-nav__link">
+  <a href="#frame-structure" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Power
+        Frame structure
       
     </span>
   </a>
@@ -3149,44 +3121,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#audio" class="md-nav__link">
+  <a href="#field-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Audio
+        Field reference
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#storage" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Storage
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pin-assignments-v4p-hardware" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pin Assignments (V4P Hardware)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Pin Assignments (V4P Hardware)">
+    <nav class="md-nav" aria-label="Field reference">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#sensor-spi-bus" class="md-nav__link">
+  <a href="#attitude" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sensor SPI Bus
+        Attitude
       
     </span>
   </a>
@@ -3194,10 +3144,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sd-card-spi-bus-v4p" class="md-nav__link">
+  <a href="#air-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SD Card SPI Bus (V4P)
+        Air data
       
     </span>
   </a>
@@ -3205,10 +3155,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#audio-i2s-v4p" class="md-nav__link">
+  <a href="#g-loads" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Audio I2S (V4P)
+        G-loads
       
     </span>
   </a>
@@ -3216,10 +3166,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#serial-interfaces" class="md-nav__link">
+  <a href="#aoa-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Serial Interfaces
+        AOA &amp; lift
       
     </span>
   </a>
@@ -3227,10 +3177,32 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#control-pins" class="md-nav__link">
+  <a href="#indexer-percent-lift-anchors" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Control Pins
+        Indexer percent-lift anchors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flap-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flap state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other
       
     </span>
   </a>
@@ -3243,10 +3215,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v4b-hardware-differences" class="md-nav__link">
+  <a href="#sentinels-and-fallbacks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        V4B Hardware Differences
+        Sentinels and fallbacks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consumer-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consumer recommendations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#display-serial-vs-liveview-the-two-data-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display serial vs LiveView — the two data paths
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#producer-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Producer alignment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#change-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Change log
       
     </span>
   </a>
@@ -3257,6 +3273,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3324,10 +3368,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#microcontroller" class="md-nav__link">
+  <a href="#design-intent" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Microcontroller
+        Design intent
       
     </span>
   </a>
@@ -3335,10 +3379,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sensors" class="md-nav__link">
+  <a href="#physical-layer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sensors
+        Physical layer
       
     </span>
   </a>
@@ -3346,10 +3390,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#power" class="md-nav__link">
+  <a href="#frame-structure" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Power
+        Frame structure
       
     </span>
   </a>
@@ -3357,44 +3401,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#audio" class="md-nav__link">
+  <a href="#field-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Audio
+        Field reference
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#storage" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Storage
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pin-assignments-v4p-hardware" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pin Assignments (V4P Hardware)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Pin Assignments (V4P Hardware)">
+    <nav class="md-nav" aria-label="Field reference">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#sensor-spi-bus" class="md-nav__link">
+  <a href="#attitude" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sensor SPI Bus
+        Attitude
       
     </span>
   </a>
@@ -3402,10 +3424,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sd-card-spi-bus-v4p" class="md-nav__link">
+  <a href="#air-data" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SD Card SPI Bus (V4P)
+        Air data
       
     </span>
   </a>
@@ -3413,10 +3435,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#audio-i2s-v4p" class="md-nav__link">
+  <a href="#g-loads" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Audio I2S (V4P)
+        G-loads
       
     </span>
   </a>
@@ -3424,10 +3446,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#serial-interfaces" class="md-nav__link">
+  <a href="#aoa-lift" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Serial Interfaces
+        AOA &amp; lift
       
     </span>
   </a>
@@ -3435,10 +3457,32 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#control-pins" class="md-nav__link">
+  <a href="#indexer-percent-lift-anchors" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Control Pins
+        Indexer percent-lift anchors
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flap-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flap state
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#other" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Other
       
     </span>
   </a>
@@ -3451,10 +3495,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v4b-hardware-differences" class="md-nav__link">
+  <a href="#sentinels-and-fallbacks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        V4B Hardware Differences
+        Sentinels and fallbacks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consumer-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consumer recommendations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#display-serial-vs-liveview-the-two-data-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display serial vs LiveView — the two data paths
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#producer-alignment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Producer alignment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#change-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Change log
       
     </span>
   </a>
@@ -3478,7 +3566,7 @@
 
 
   
-    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/reference/hardware-specs.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/reference/websocket-protocol.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3486,396 +3574,461 @@
   
 
 
-<h1 id="hardware-specifications">Hardware Specifications<a class="headerlink" href="#hardware-specifications" title="Permanent link">&para;</a></h1>
-<h2 id="microcontroller">Microcontroller<a class="headerlink" href="#microcontroller" title="Permanent link">&para;</a></h2>
+<h1 id="liveview-websocket-protocol">LiveView WebSocket Protocol<a class="headerlink" href="#liveview-websocket-protocol" title="Permanent link">&para;</a></h1>
+<p>The OnSpeed firmware broadcasts real-time flight data over a WebSocket on port 81. The built-in LiveView web page consumes this stream, but the protocol is not LiveView-specific — any third-party client (browser, native app, recording tool) can connect, parse the JSON, and ingest the same data the LiveView renders.</p>
+<p>This page is the canonical specification for that wire format.</p>
+<h2 id="design-intent">Design intent<a class="headerlink" href="#design-intent" title="Permanent link">&para;</a></h2>
+<p>The WebSocket is the LiveView's data path, paralleling the <a href="../serial-protocol/">display serial protocol</a> that feeds the M5 secondary display. The two paths share the same <code>percent-lift</code> contract — <code>percentLift</code>, <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, <code>pipPctLift</code> are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.</p>
+<p>The encodings differ deliberately. The display serial path is a fixed-offset ASCII frame designed for a low-bandwidth UART to a hardware panel display; bandwidth and parsing simplicity matter, and adding a field is a hard protocol change that requires re-flashing both ends. The WebSocket path is JSON over TCP/WebSocket text frames, designed for browser and software consumers; bandwidth is plentiful, parsing is <code>JSON.parse()</code>, and adding a field is a soft change because old consumers ignore unknown keys.</p>
+<p>The WebSocket carries a few fields the display serial does not: body-angle <code>AOA</code> (degrees) and <code>DerivedAOA</code> for the LiveView's numeric corner readouts, plus LiveView-specific instrumentation (<code>kalmanVSI</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code>, <code>flapIndex</code>). These have no place on a hardware panel render but are useful for browser overlays, debugging consumers, and any future tool that wants to compare body angle to its derived counterparts.</p>
+<h2 id="physical-layer">Physical layer<a class="headerlink" href="#physical-layer" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Parameter</th>
+<th>Aspect</th>
 <th>Value</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>MCU</strong></td>
-<td>ESP32-S3-WROOM-2</td>
+<td>Transport</td>
+<td>WebSocket text frames over TCP</td>
 </tr>
 <tr>
-<td><strong>CPU</strong></td>
-<td>Dual-core Xtensa LX7, 240 MHz</td>
+<td>Port</td>
+<td><strong>81</strong></td>
 </tr>
 <tr>
-<td><strong>Flash</strong></td>
-<td>32 MB (OPI 80 MHz)</td>
+<td>Path</td>
+<td><code>/</code> (no sub-path)</td>
 </tr>
 <tr>
-<td><strong>PSRAM</strong></td>
-<td>8 MB (OPI)</td>
+<td>URL</td>
+<td><code>ws://192.168.0.1:81</code> (when connected to the OnSpeed AP)</td>
 </tr>
 <tr>
-<td><strong>WiFi</strong></td>
-<td>802.11 b/g/n, 2.4 GHz</td>
+<td>Encoding</td>
+<td>UTF-8 JSON, single object per frame</td>
 </tr>
 <tr>
-<td><strong>USB</strong></td>
-<td>Native USB (CDC)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="sensors">Sensors<a class="headerlink" href="#sensors" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Sensor</th>
-<th>Part Number</th>
-<th>Interface</th>
-<th>Key Specs</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>IMU</strong></td>
-<td>IMU330</td>
-<td>SPI (CS: GPIO 4)</td>
-<td>6-axis accel/gyro, 208 Hz sample rate</td>
+<td>Cadence</td>
+<td>20 Hz (one frame every 50 ms), gated on ≥ 1 connected client; the display-serial wire and the WebSocket share the same 50 ms tick (<code>kDisplaySerialPeriodMs</code> in <code>HardwareMap.h</code>) so they update in lockstep</td>
 </tr>
 <tr>
-<td><strong>Pitot Pressure</strong></td>
-<td>HSCMRRN001PDSA3</td>
-<td>SPI (CS: GPIO 15 V4P)</td>
-<td>Differential, 14-bit, ±1 PSI</td>
+<td>Direction</td>
+<td>Server → client only; client text frames are accepted but currently no-op</td>
 </tr>
 <tr>
-<td><strong>AOA Pressure</strong></td>
-<td>HSCMRRN001PDSA3</td>
-<td>SPI (CS: GPIO 6 V4P)</td>
-<td>Differential, 14-bit, ±1 PSI</td>
+<td>Authentication</td>
+<td>None — same WiFi-AP-only access model as the rest of the LiveView UI</td>
 </tr>
 <tr>
-<td><strong>Static Pressure</strong></td>
-<td>HSCMRNN1.6BASA3</td>
-<td>SPI (CS: GPIO 7)</td>
-<td>Absolute, 14-bit, 0–23.2 PSI (1.6 bar)</td>
-</tr>
-<tr>
-<td><strong>External ADC</strong></td>
-<td>MCP3202</td>
-<td>SPI (CS: GPIO 5, V4P only)</td>
-<td>12-bit, 2-channel (flap + volume)</td>
+<td>Concurrent clients</td>
+<td>Multiple clients are broadcast the same payload (no per-client state)</td>
 </tr>
 </tbody>
 </table>
-<h2 id="power">Power<a class="headerlink" href="#power" title="Permanent link">&para;</a></h2>
+<p>The OnSpeed acts as a WiFi access point named <code>OnSpeed</code> with password <code>angleofattack</code> and assigns itself <code>192.168.0.1</code> by default. The LiveView UI lives at <code>http://192.168.0.1/</code>; the WebSocket is on the same host, port 81. A client running on the same WiFi can connect with any standard WebSocket library — no handshake extensions, no subprotocol, no compression negotiation.</p>
+<h2 id="frame-structure">Frame structure<a class="headerlink" href="#frame-structure" title="Permanent link">&para;</a></h2>
+<p>Each frame is a single JSON object containing all live data fields, sent at 20 Hz. There is no framing layer above WebSocket text — one frame per WebSocket text message, and every frame is independent (no incremental / delta encoding).</p>
+<p>Example payload (formatted; on the wire it's compact, no whitespace). Values are illustrative — actual ranges and per-flap calibration vary by aircraft:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;AOA&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4.20</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;Pitch&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-2.10</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;Roll&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">3.50</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;IAS&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">87.45</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;PAlt&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1234.00</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">&quot;verticalGLoad&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1.02</span><span class="p">,</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">&quot;lateralGLoad&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-0.04</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">&quot;flapsPos&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">&quot;flapIndex&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">&quot;coeffP&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.85</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">&quot;dataMark&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">&quot;kalmanVSI&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-50.30</span><span class="p">,</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="nt">&quot;flightPath&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-0.40</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="nt">&quot;PitchRate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.10</span><span class="p">,</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">  </span><span class="nt">&quot;DecelRate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-0.15</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">  </span><span class="nt">&quot;OAT&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">22.50</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">  </span><span class="nt">&quot;DerivedAOA&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">4.18</span><span class="p">,</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">  </span><span class="nt">&quot;percentLift&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">34</span><span class="p">,</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">  </span><span class="nt">&quot;tonesOnPctLift&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">18</span><span class="p">,</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span><span class="nt">&quot;onSpeedFastPctLift&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">  </span><span class="nt">&quot;onSpeedSlowPctLift&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">48</span><span class="p">,</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">  </span><span class="nt">&quot;stallWarnPctLift&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">72</span><span class="p">,</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">  </span><span class="nt">&quot;pipPctLift&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">18</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="p">}</span>
+</code></pre></div>
+<p>Field ordering is stable — the firmware emits keys in the order shown above (the source-of-truth <code>snprintf</code> template fixes the order at compile time). Consumers should not rely on this ordering for JSON parsing (real JSON parsers don't care), but tools that snapshot the raw text for diffing can.</p>
+<p>Typical compacted frame size: <strong>~390 bytes</strong> in cruise; up to <strong>~460 bytes</strong> in the worst case (large negative floats and 5-digit integers in every field). The firmware allocates a fixed 512-byte buffer; if <code>snprintf</code> would overflow, the producer emits the literal <code>{}</code> instead of partial-and-invalid JSON. Consumers that see <code>{}</code> should treat it as a one-frame skip — every other frame is well-formed.</p>
+<h2 id="field-reference">Field reference<a class="headerlink" href="#field-reference" title="Permanent link">&para;</a></h2>
+<p>Every field appears in every frame. Floats are formatted with 2 decimal places (<code>%.2f</code>); integers are bare. Numeric values are guarded against <code>NaN</code> / <code>Inf</code> — any non-finite source value is replaced with a documented fallback (typically 0 or a sentinel) so the JSON is always parseable.</p>
+<p>A note on source selection: several attitude/air-data fields read from different sources depending on the calibration-source config:</p>
+<ul>
+<li><strong>EFIS mode + VN-300</strong> (<code>CALWIZ_SOURCE = EFIS</code> and the configured EFIS is VectorNav VN-300): Pitch/Roll come from the VN-300 directly; VSI from VN-300 NED-down velocity; IAS still from OnSpeed pitot.</li>
+<li><strong>EFIS mode + non-VN-300</strong> (any other supported EFIS): Pitch/Roll/IAS/OAT from the EFIS; VSI is still OnSpeed <code>KalmanVSI</code>; flight path derived from EFIS VSI ÷ EFIS TAS.</li>
+<li><strong>Internal mode</strong> (<code>CALWIZ_SOURCE</code> set to anything other than <code>EFIS</code>, typically <code>INTERNAL</code>): all attitude and air data from OnSpeed sensors and the AHRS algorithm (Madgwick or EKF6 per the <code>AHRS_ALGORITHM</code> setting).</li>
+</ul>
+<p>The per-field tables below note source variations where they apply.</p>
+<h3 id="attitude">Attitude<a class="headerlink" href="#attitude" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Parameter</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Input Voltage</strong></td>
-<td>12–28V DC</td>
-</tr>
-<tr>
-<td><strong>Regulator</strong></td>
-<td>L7805ABD2T-TR (5V output)</td>
-</tr>
-<tr>
-<td><strong>Current Draw</strong></td>
-<td>TBD (low — ESP32 + sensors)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="audio">Audio<a class="headerlink" href="#audio" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Interface</strong></td>
-<td>I2S DAC</td>
-</tr>
-<tr>
-<td><strong>Sample Rate</strong></td>
-<td>16 kHz</td>
-</tr>
-<tr>
-<td><strong>Bit Depth</strong></td>
-<td>16-bit signed</td>
-</tr>
-<tr>
-<td><strong>Channels</strong></td>
-<td>Stereo (left + right)</td>
-</tr>
-<tr>
-<td><strong>Output Level</strong></td>
-<td>Line level</td>
-</tr>
-</tbody>
-</table>
-<h2 id="storage">Storage<a class="headerlink" href="#storage" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Media</strong></td>
-<td>microSD card (FAT32)</td>
-</tr>
-<tr>
-<td><strong>Interface</strong></td>
-<td>SPI</td>
-</tr>
-<tr>
-<td><strong>Logging Rate</strong></td>
-<td>50 Hz default (configurable: 50 or 208 Hz)</td>
-</tr>
-<tr>
-<td><strong>Typical File Size</strong></td>
-<td>~50–100 MB per hour</td>
-</tr>
-</tbody>
-</table>
-<h2 id="pin-assignments-v4p-hardware">Pin Assignments (V4P Hardware)<a class="headerlink" href="#pin-assignments-v4p-hardware" title="Permanent link">&para;</a></h2>
-<h3 id="sensor-spi-bus">Sensor SPI Bus<a class="headerlink" href="#sensor-spi-bus" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Pin</th>
-<th>GPIO</th>
-<th>Function</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>MOSI</td>
-<td>17</td>
-<td>SPI Master Out</td>
-</tr>
-<tr>
-<td>MISO</td>
-<td>18</td>
-<td>SPI Master In</td>
-</tr>
-<tr>
-<td>SCLK</td>
-<td>16</td>
-<td>SPI Clock</td>
-</tr>
-<tr>
-<td>CS_IMU</td>
-<td>4</td>
-<td>IMU330 chip select</td>
-</tr>
-<tr>
-<td>CS_STATIC</td>
-<td>7</td>
-<td>Static pressure CS</td>
-</tr>
-<tr>
-<td>CS_AOA</td>
-<td>6</td>
-<td>AOA pressure CS</td>
-</tr>
-<tr>
-<td>CS_PITOT</td>
-<td>15</td>
-<td>Pitot pressure CS</td>
-</tr>
-<tr>
-<td>CS_ADC</td>
-<td>5</td>
-<td>MCP3202 ADC CS</td>
-</tr>
-</tbody>
-</table>
-<h3 id="sd-card-spi-bus-v4p">SD Card SPI Bus (V4P)<a class="headerlink" href="#sd-card-spi-bus-v4p" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Pin</th>
-<th>GPIO</th>
-<th>Function</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>SCLK</td>
-<td>41</td>
-<td>SPI Clock</td>
-</tr>
-<tr>
-<td>MISO</td>
-<td>42</td>
-<td>SPI Master In</td>
-</tr>
-<tr>
-<td>MOSI</td>
-<td>40</td>
-<td>SPI Master Out</td>
-</tr>
-<tr>
-<td>CS</td>
-<td>39</td>
-<td>Chip Select</td>
-</tr>
-</tbody>
-</table>
-<h3 id="audio-i2s-v4p">Audio I2S (V4P)<a class="headerlink" href="#audio-i2s-v4p" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Pin</th>
-<th>GPIO</th>
-<th>Function</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>BCK</td>
-<td>20</td>
-<td>Bit Clock</td>
-</tr>
-<tr>
-<td>DOUT</td>
-<td>19</td>
-<td>Data Out</td>
-</tr>
-<tr>
-<td>LRCK</td>
-<td>8</td>
-<td>Left/Right Clock</td>
-</tr>
-</tbody>
-</table>
-<h3 id="serial-interfaces">Serial Interfaces<a class="headerlink" href="#serial-interfaces" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Interface</th>
-<th>TX GPIO</th>
-<th>RX GPIO</th>
-<th>Baud</th>
+<th>Field</th>
+<th>Type</th>
+<th>Units</th>
 <th>Notes</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>USB Console</td>
-<td>—</td>
-<td>—</td>
-<td>921600</td>
-<td>Native USB CDC</td>
+<td><code>Pitch</code></td>
+<td>float</td>
+<td>degrees</td>
+<td>Smoothed pitch. Source: VN-300 (<code>g_EfisSerial.suVN300.Pitch</code>) in VN-300 mode, EFIS (<code>g_EfisSerial.suEfis.Pitch</code>) in non-VN-300 EFIS mode, <code>g_AHRS.SmoothedPitch</code> in internal mode.</td>
 </tr>
 <tr>
-<td>EFIS</td>
-<td>46 (NC)</td>
-<td>11</td>
-<td>115200</td>
-<td>RS-232 via ADM3202</td>
+<td><code>Roll</code></td>
+<td>float</td>
+<td>degrees</td>
+<td>Smoothed roll, same source rules as <code>Pitch</code>.</td>
 </tr>
 <tr>
-<td>Boom</td>
-<td>8 (NC)</td>
-<td>3</td>
-<td>115200</td>
-<td>TTL level</td>
+<td><code>flightPath</code></td>
+<td>float</td>
+<td>degrees</td>
+<td>Flight-path angle (positive = climbing). In internal mode, taken directly from <code>g_AHRS.FlightPath</code>. In EFIS modes, computed at this call site via <code>arcsin(VSI / TAS)</code> — the VSI/TAS sources vary: VN-300 uses VN-300's NED-down velocity over <code>g_AHRS.fTAS</code>; non-VN-300 uses the EFIS's VSI and TAS when both are present, falling back to <code>KalmanVSI / g_AHRS.fTAS</code>. Falls back to <code>0</code> if no usable TAS is available.</td>
 </tr>
 <tr>
-<td>Display</td>
-<td>10</td>
-<td>11 (shared)</td>
-<td>varies</td>
-<td>RS-232</td>
+<td><code>PitchRate</code></td>
+<td>float</td>
+<td>deg/s</td>
+<td>Body-frame pitch rate, <code>g_AHRS.gPitch</code> (filtered gyro). Always sourced from the AHRS regardless of calibration-source mode.</td>
 </tr>
 </tbody>
 </table>
-<h3 id="control-pins">Control Pins<a class="headerlink" href="#control-pins" title="Permanent link">&para;</a></h3>
+<h3 id="air-data">Air data<a class="headerlink" href="#air-data" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Function</th>
-<th>GPIO</th>
+<th>Field</th>
+<th>Type</th>
+<th>Units</th>
 <th>Notes</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Switch/Button</td>
-<td>12</td>
-<td>Internal pull-up, active low</td>
+<td><code>IAS</code></td>
+<td>float</td>
+<td>knots</td>
+<td>Indicated airspeed. From the EFIS (<code>g_EfisSerial.suEfis.IAS</code>) <strong>only</strong> in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived <code>g_Sensors.IAS</code> — VN-300 itself does not provide IAS.</td>
 </tr>
 <tr>
-<td>Status LED</td>
-<td>13</td>
-<td>Heartbeat indicator</td>
+<td><code>PAlt</code></td>
+<td>float</td>
+<td>feet</td>
+<td>Pressure altitude. From <code>g_AHRS.KalmanAlt</code> (Kalman-filtered, in metres) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode.</td>
 </tr>
 <tr>
-<td>OAT Sensor</td>
-<td>14</td>
-<td>DS18B20 OneWire</td>
+<td><code>kalmanVSI</code></td>
+<td>float</td>
+<td>feet/min</td>
+<td>Vertical speed. <strong>Despite the name</strong>, this is <code>g_AHRS.KalmanVSI</code> in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's <code>-VelNedDown</code> (NED-down velocity, sign-inverted to make positive = climb). The non-VN-300 EFIS mode does not use the EFIS's own VSI here.</td>
+</tr>
+<tr>
+<td><code>OAT</code></td>
+<td>float</td>
+<td>°C</td>
+<td>Outside air temperature. From the EFIS in any EFIS mode (including VN-300) via <code>g_EfisSerial.suEfis.OAT</code>; from <code>g_Sensors.OatC</code> if <code>OATSENSOR = true</code> in config; otherwise <code>0.0</code>.</td>
+</tr>
+<tr>
+<td><code>DecelRate</code></td>
+<td>float</td>
+<td>knots/s</td>
+<td>Smoothed IAS-decel rate, <code>g_Sensors.fDecelRate</code> (Savitzky-Golay derivative of IAS). Negative = decelerating. Always from OnSpeed sensors.</td>
 </tr>
 </tbody>
 </table>
-<h2 id="v4b-hardware-differences">V4B Hardware Differences<a class="headerlink" href="#v4b-hardware-differences" title="Permanent link">&para;</a></h2>
+<h3 id="g-loads">G-loads<a class="headerlink" href="#g-loads" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>Parameter</th>
-<th>V4P</th>
-<th>V4B</th>
+<th>Field</th>
+<th>Type</th>
+<th>Units</th>
+<th>Notes</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>CS_AOA</td>
-<td>GPIO 6</td>
-<td>GPIO 15</td>
+<td><code>verticalGLoad</code></td>
+<td>float</td>
+<td>g</td>
+<td>Installation-corrected body-vertical acceleration. 1.0 g level, 2.0 g in a 60° bank. Same value <code>GLimitDecision</code> uses for over-G warnings.</td>
 </tr>
 <tr>
-<td>CS_PITOT</td>
-<td>GPIO 15</td>
-<td>GPIO 6</td>
+<td><code>lateralGLoad</code></td>
+<td>float</td>
+<td>g</td>
+<td>Installation-corrected body-lateral acceleration, <code>g_AHRS.AccelLatCorr</code> (the raw IMU body-Y component after the installation-bias rotation, unsmoothed). <strong>Sign</strong>: the WebSocket emits the raw signed value; the display-serial wire's <code>lateralG</code> field is the same source negated to make positive = leftward. The JSON itself does not commit to a <code>+ = right</code> or <code>+ = left</code> convention — consumers wanting to render slip indicators should determine the sign empirically by skidding the aircraft, or read the IMU-installation docs.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="aoa-lift">AOA &amp; lift<a class="headerlink" href="#aoa-lift" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Units</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AOA</code></td>
+<td>float</td>
+<td>degrees</td>
+<td><strong>Body angle</strong>, not wing AOA. The fuselage-to-wind angle. See <a href="../../calibration/how-aoa-works/">How OnSpeed Measures AOA</a> for the convention. Sentinel value <code>-100</code> is emitted when AOA is <code>NaN</code> or IAS is below the audio mute threshold (<code>MUTE_UNDER_IAS</code> in config); the LiveView gates on <code>AOA &gt; -20</code> to render N/A in that state.</td>
 </tr>
 <tr>
-<td>SD_SCLK</td>
-<td>GPIO 41</td>
-<td>GPIO 42</td>
+<td><code>DerivedAOA</code></td>
+<td>float</td>
+<td>degrees</td>
+<td>Body angle derived from the AHRS (pitch and flight path), <code>g_AHRS.DerivedAOA</code>. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning.</td>
 </tr>
 <tr>
-<td>SD_MISO</td>
-<td>GPIO 42</td>
-<td>GPIO 41</td>
+<td><code>percentLift</code></td>
+<td>int</td>
+<td>0–99</td>
+<td>Honest single-linear envelope fraction of the current body angle, computed by <code>onspeed_core/aoa/PercentLift</code>: <code>(AOA − α₀) / (α_stall − α₀) × 100</code>, clamped to <code>[0, 99]</code>. Uses the <strong>active-detent</strong> flap calibration (matches what the audio path uses).</td>
 </tr>
 <tr>
-<td>I2S_BCK</td>
-<td>GPIO 20</td>
-<td>GPIO 45</td>
+<td><code>coeffP</code></td>
+<td>float</td>
+<td>dimensionless</td>
+<td>Ratiometric pressure coefficient (the "CP3" form in the firmware): <code>P45 / Pfwd</code>, where <code>Pfwd</code> is the differential pitot pressure and <code>P45</code> is the differential AOA pressure from the angled-port probe. Returns <code>0.0</code> when <code>Pfwd ≤ 0</code> to avoid division-by-zero on the ground. The textbook-form Cp <code>(P_aoa − P_static) / q</code> is <strong>not</strong> what's emitted here — the firmware uses the ratiometric form because it stays well-behaved through the AOA-port pressure zero-crossing on Dynon-style probes. Implementation: <code>onspeed_core/util/OnSpeedTypes.h::pressureCoeff()</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="indexer-percent-lift-anchors">Indexer percent-lift anchors<a class="headerlink" href="#indexer-percent-lift-anchors" title="Permanent link">&para;</a></h3>
+<p>Five fields driving the LiveView indexer's band edges and L/Dmax pip. The first four are the per-flap setpoints expressed as percent-lift, <strong>snapped to the active detent's</strong> calibrated values; they stay in lockstep with the audio cues that fire at the same calibrated body angles. The fifth (<code>pipPctLift</code>) is the L/Dmax pip's screen position, which <strong>interpolates</strong> smoothly with the flap lever instead of snapping. All come from <code>onspeed_core/aoa/DisplayPctAnchors</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Units</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tonesOnPctLift</code></td>
+<td>int</td>
+<td>0–99</td>
+<td><strong>Snapped</strong> to the active detent. L/Dmax body angle through the percent-lift formula. Below this percent, audio is silent.</td>
 </tr>
 <tr>
-<td>I2S_DOUT</td>
-<td>GPIO 19</td>
-<td>GPIO 48</td>
+<td><code>onSpeedFastPctLift</code></td>
+<td>int</td>
+<td>0–99</td>
+<td><strong>Snapped</strong>. OnSpeedFast threshold — the lower edge of the donut band.</td>
 </tr>
 <tr>
-<td>I2S_LRCK</td>
-<td>GPIO 8</td>
-<td>GPIO 47</td>
+<td><code>onSpeedSlowPctLift</code></td>
+<td>int</td>
+<td>0–99</td>
+<td><strong>Snapped</strong>. OnSpeedSlow threshold — the upper edge of the donut band.</td>
 </tr>
 <tr>
-<td>External ADC</td>
-<td>MCP3202 on SPI</td>
-<td>Direct analog (GPIO 1, 2)</td>
+<td><code>stallWarnPctLift</code></td>
+<td>int</td>
+<td>0–99</td>
+<td><strong>Snapped</strong>. StallWarn threshold — the chevron's flash-on point.</td>
+</tr>
+<tr>
+<td><code>pipPctLift</code></td>
+<td>int</td>
+<td>0–99</td>
+<td><strong>Interpolated</strong> linearly clean → full-flap across the configured flap range, ignoring intermediate detents. The L/Dmax pip dot's visual position; deliberately separated from <code>tonesOnPctLift</code> (which snaps to detents) so the pip can slide smoothly with the lever. See the <a href="../../software/indexer-spec/">indexer spec</a> for the rationale.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="flap-state">Flap state<a class="headerlink" href="#flap-state" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Units</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flapsPos</code></td>
+<td>int</td>
+<td>degrees</td>
+<td>Current flap angle. <strong>Interpolates</strong> across the bracket containing the lever, so the numeric readout slides smoothly during deployment. Falls back to the snapped detent position when the flap calibration is empty.</td>
+</tr>
+<tr>
+<td><code>flapIndex</code></td>
+<td>int</td>
+<td>—</td>
+<td>Index of the active flap detent (<code>g_Flaps.iIndex</code>). 0-based. The audio path and the four band-edge anchors above all reference this same detent.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="other">Other<a class="headerlink" href="#other" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Units</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dataMark</code></td>
+<td>int</td>
+<td>unsigned</td>
+<td>User-pressable button counter, increments on each press. Used to mark interesting moments in flight logs. The display serial wire applies a <code>mod 100</code> wrap to fit its 2-digit field; the WebSocket emits the raw counter without wrapping, so it can grow arbitrarily large during a long session.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="sentinels-and-fallbacks">Sentinels and fallbacks<a class="headerlink" href="#sentinels-and-fallbacks" title="Permanent link">&para;</a></h2>
+<p>The producer never emits <code>nan</code>, <code>inf</code>, or other invalid JSON tokens. Every float passes through <code>SafeJsonFloat()</code> which substitutes a documented fallback when the source value is non-finite:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Fallback when source is <code>NaN</code>/<code>Inf</code></th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AOA</code></td>
+<td><code>-100</code></td>
+<td>LiveView gates on <code>AOA &gt; -20</code> to render <code>N/A</code>; sentinel below that range keeps the bar hidden until real data arrives.</td>
+</tr>
+<tr>
+<td><code>Pitch</code>, <code>Roll</code>, <code>IAS</code>, <code>kalmanVSI</code>, <code>flightPath</code>, <code>verticalGLoad</code>, <code>OAT</code></td>
+<td><code>0.0</code></td>
+<td>Nothing-special fallback; consumers that care about validity should use the indirect signals (e.g. <code>IAS == 0</code> plus elapsed time without changes).</td>
+</tr>
+<tr>
+<td><code>DerivedAOA</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code></td>
+<td><code>0.0</code></td>
+<td>Same.</td>
+</tr>
+<tr>
+<td><code>lateralGLoad</code>, <code>PAlt</code></td>
+<td><code>0.0</code></td>
+<td>Same.</td>
+</tr>
+</tbody>
+</table>
+<p>There is no top-level "validity" flag; the protocol is best-effort 20 Hz. Consumers should detect staleness by tracking the elapsed time since the last frame.</p>
+<h2 id="consumer-recommendations">Consumer recommendations<a class="headerlink" href="#consumer-recommendations" title="Permanent link">&para;</a></h2>
+<p>A minimal browser consumer:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">const</span><span class="w"> </span><span class="nx">ws</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">WebSocket</span><span class="p">(</span><span class="s2">&quot;ws://192.168.0.1:81&quot;</span><span class="p">);</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nx">ws</span><span class="p">.</span><span class="nx">onmessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">evt</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">evt</span><span class="p">.</span><span class="nx">data</span><span class="p">);</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="c1">// Skip the {} truncation marker.</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="kc">undefined</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="c1">// -100 is the &quot;AOA unavailable&quot; sentinel — gate on &gt; -20.</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">aoa</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="o">-</span><span class="mf">20</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="p">.</span><span class="nx">toFixed</span><span class="p">(</span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s2">&quot;°&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;N/A&quot;</span><span class="p">;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`AOA=</span><span class="si">${</span><span class="nx">aoa</span><span class="si">}</span><span class="sb"> pct=</span><span class="si">${</span><span class="nx">data</span><span class="p">.</span><span class="nx">percentLift</span><span class="si">}</span><span class="sb">%`</span><span class="p">);</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">};</span>
+</code></pre></div>
+<p>A minimal command-line consumer using <a href="https://github.com/vi/websocat"><code>websocat</code></a>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>websocat<span class="w"> </span>ws://192.168.0.1:81
+</code></pre></div>
+<p>This streams compact JSON lines at 20 Hz; pipe through <code>jq -c '{AOA, percentLift, IAS}'</code> to reduce.</p>
+<p><strong>Reconnection.</strong> The OnSpeed firmware does not actively notify clients of going-away; if the OnSpeed reboots or the WiFi link drops, the client sees a normal WebSocket close and should retry. The bundled LiveView re-attempts every 3 seconds whenever no message has arrived in the last 3 s; <strong>3 seconds is the recommended staleness threshold</strong> for any consumer.</p>
+<p><strong>Discovery and topology.</strong> The OnSpeed runs as a WiFi access point only — there is no station-mode WebSocket today. The IP <code>192.168.0.1</code> is hard-coded by the AP DHCP config and there is no mDNS / zeroconf advertisement. A consumer must connect to the OnSpeed AP first, then dial the literal IP. If the AP IP is ever reconfigured, consumers will need to update their URL.</p>
+<p><strong>Schema versioning.</strong> The JSON has no top-level version field. The intended forward-compat strategy is "ignore unknown keys" — new fields will appear in future firmware versions; consumers must tolerate that. <strong>The project does not currently have a test pinning the JSON schema</strong>, so consumers cannot rely on a guarantee that field types and units never change for existing keys; treat the schema as documentation of current behavior, not a stability contract. The change log at the bottom of this page records breaking changes when they happen, but is dependent on someone remembering to update it.</p>
+<p><strong>Truncation handling.</strong> If <code>snprintf</code> would overflow the 512-byte buffer, the producer emits the literal <code>{}</code>. A defensive consumer should check that an expected key exists (or do <code>if (data.AOA === undefined) skipFrame()</code>) rather than blindly indexing.</p>
+<p><strong><code>AOA = -100</code> sentinel.</strong> The <code>AOA</code> field reports <code>-100</code> when the OnSpeed pitot AOA is unavailable (NaN) or IAS is below the audio mute threshold. A consumer plotting AOA in real time will get a <code>-100</code> spike at low IAS unless it gates on <code>AOA &gt; -20</code> (or any threshold above <code>-100</code>).</p>
+<p><strong>Per-field native rates.</strong> A frame is a near-simultaneous snapshot of fields each filtered at their own native rate (gyro at AHRS rate, decel at the Savitzky-Golay window, flap index at 1 Hz, etc.). Two consecutive frames will not show identical values for slow-moving fields like <code>flapIndex</code> even when nothing changed — the snapshot is consistent, the underlying filters are not.</p>
+<p><strong>Coordinate consistency with display serial.</strong> Where a field exists in both transports (e.g. <code>verticalGLoad</code> here vs <code>verticalG</code> on the wire), the values are derived from the same source and will agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. Where they differ in name or sign convention, see the <a href="#display-serial-vs-liveview-the-two-data-paths">comparison table</a> below.</p>
+<h2 id="display-serial-vs-liveview-the-two-data-paths">Display serial vs LiveView — the two data paths<a class="headerlink" href="#display-serial-vs-liveview-the-two-data-paths" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Display serial (<code>#1</code>)</th>
+<th>LiveView WebSocket</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transport</td>
+<td>UART 115200 8N1, one-way</td>
+<td>WebSocket port 81, bidirectional (server-broadcast only in practice)</td>
+</tr>
+<tr>
+<td>Encoding</td>
+<td>Fixed-offset ASCII, byte-summed CRC, CRLF-terminated</td>
+<td>JSON over WebSocket text frames</td>
+</tr>
+<tr>
+<td>Cadence</td>
+<td>20 Hz (every 50 ms)</td>
+<td>20 Hz (every 50 ms), gated on ≥ 1 connected client; both paths share the same 50 ms tick</td>
+</tr>
+<tr>
+<td>Audience</td>
+<td>Panel display, third-party EFIS</td>
+<td>Browser running LiveView, third-party software consumers</td>
+</tr>
+<tr>
+<td>Adding a field</td>
+<td>Hard protocol change — both ends must flash together</td>
+<td>Soft change — old consumers ignore unknown JSON keys</td>
+</tr>
+<tr>
+<td>Body-angle <code>AOA</code> (degrees)</td>
+<td>not on wire</td>
+<td>yes (<code>AOA</code>) — used for the numeric corner readout</td>
+</tr>
+<tr>
+<td>Body-angle <code>DerivedAOA</code> (degrees)</td>
+<td>not on wire</td>
+<td>yes (<code>DerivedAOA</code>) — for advanced overlays / debug</td>
+</tr>
+<tr>
+<td><code>kalmanVSI</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code></td>
+<td>not on wire</td>
+<td>yes — LiveView-specific instrumentation</td>
+</tr>
+<tr>
+<td><code>flapIndex</code> (which detent is active)</td>
+<td>not on wire</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+<p>The asymmetry is by design: the panel displays render <em>the indexer</em>, so the wire ships percent anchors. The LiveView additionally shows numeric body-angle AOA so a pilot can compare it to DerivedAOA — those degrees-units fields stay on the WebSocket but never on the panel-serial wire.</p>
+<h2 id="producer-alignment">Producer alignment<a class="headerlink" href="#producer-alignment" title="Permanent link">&para;</a></h2>
+<p>The single source of truth for the wire format is <code>software/sketch_common/src/web_server/DataServer.cpp::UpdateLiveDataJson()</code>. Field semantics, units, and computation match the display serial wire wherever the same field exists in both, because the producer reads the same firmware globals and uses the same <code>onspeed_core</code> helpers (<code>ComputePercentLift</code>, <code>ComputeDisplayPctAnchors</code>).</p>
+<p>Unlike the display-serial wire, <strong>the WebSocket schema is not currently pinned by a unit test</strong>. The display-serial spec has byte-precise round-trip tests in <code>test/test_display_serial/</code>; the JSON has no equivalent. Schema drift is therefore possible across firmware versions if a contributor changes <code>UpdateLiveDataJson</code> without updating this page. Filing a "pin the JSON schema" test is on the project roadmap.</p>
+<h2 id="change-log">Change log<a class="headerlink" href="#change-log" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Date</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-04-28</td>
+<td>Initial WebSocket protocol reference page covering the schema in master at the time of writing.</td>
 </tr>
 </tbody>
 </table>

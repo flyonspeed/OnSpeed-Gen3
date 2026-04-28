@@ -16,7 +16,7 @@
         <link rel="prev" href="../log-columns/">
       
       
-        <link rel="next" href="../hardware-specs/">
+        <link rel="next" href="../websocket-protocol/">
       
       
         
@@ -2878,6 +2878,8 @@
       
         
       
+        
+      
     
     
     
@@ -3210,6 +3212,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../websocket-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiveView WebSocket Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3982,7 +4012,7 @@
 </table>
 <p>Total: 58 bytes per frame. Same 20 Hz cadence, same 115200 8N1 wire. AOA setpoints, derived data, and aerodynamic anchors are not transmitted — Garmin EFISes don't have a place to render them.</p>
 <h2 id="display-serial-vs-liveview-the-two-data-paths">Display serial vs LiveView — the two data paths<a class="headerlink" href="#display-serial-vs-liveview-the-two-data-paths" title="Permanent link">&para;</a></h2>
-<p>The OnSpeed web LiveView page does <strong>not</strong> consume the display serial stream documented above. It receives a JSON payload over a WebSocket on port 81, broadcast by <code>DataServer.cpp</code>. The two paths share the same percent-lift contract — <code>percentLift</code>, <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, and <code>pipPctLift</code> are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.</p>
+<p>The OnSpeed web LiveView page does <strong>not</strong> consume the display serial stream documented above. It receives a JSON payload over a WebSocket on port 81 — see the <a href="../websocket-protocol/">LiveView WebSocket protocol</a> for the full schema. The two paths share the same percent-lift contract — <code>percentLift</code>, <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, and <code>pipPctLift</code> are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.</p>
 <p>The encodings differ:</p>
 <table>
 <thead>
@@ -4029,7 +4059,7 @@
 <td>yes (<code>DerivedAOA</code>) — for advanced overlays / debug</td>
 </tr>
 <tr>
-<td><code>kalmanVSI</code>, <code>coeffP</code>, <code>pitchRate</code>, <code>decelRate</code></td>
+<td><code>kalmanVSI</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code></td>
 <td>not on wire</td>
 <td>yes — LiveView-specific instrumentation</td>
 </tr>
