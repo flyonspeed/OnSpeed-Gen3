@@ -62,6 +62,10 @@ export function mountAttitude(rootEl) {
     tickStep:   G.MODE1_VSI_TICK_STEP,
     pipX1: G.MODE1_VSI_PIP_X1, pipX2: G.MODE1_VSI_PIP_X2,
     pipYs: [G.MODE1_VSI_PIP_Y_TOP, G.MODE1_VSI_PIP_Y_MIDDLE, G.MODE1_VSI_PIP_Y_BOT],
+    // Mode 1's VSI ladder ticks and zero pip are TFT_BLACK
+    // (main.cpp:615, 619-621). Mode 0's gOnset uses grey by default.
+    tickColor: colors.TFT_BLACK,
+    pipColor:  colors.TFT_BLACK,
   });
 
   // Four corner readouts. main.cpp:540-595.

@@ -19,6 +19,11 @@ export function mountEdgeTape(parent, {
   heightScale, heightMax,
   tickX1, tickX2, tickFirstY, tickLastY, tickStep,
   pipX1, pipX2, pipYs,
+  // Mode 0's gOnset ladder draws ticks in TFT_GREY (main.cpp:851).
+  // Mode 1's VSI ladder draws ticks in TFT_BLACK (main.cpp:615, 619-621).
+  // Caller passes colors.TFT_BLACK for Mode 1; default keeps Mode 0's grey.
+  tickColor = colors.TFT_GREY,
+  pipColor  = colors.TFT_GREY,
 }) {
   const group = mk(parent, 'g', { 'data-widget': 'edge-tape' });
 
@@ -39,13 +44,13 @@ export function mountEdgeTape(parent, {
   for (let y = tickFirstY; y <= tickLastY; y += tickStep) {
     mk(group, 'line', {
       x1: tickX1, y1: y, x2: tickX2, y2: y,
-      stroke: colors.TFT_GREY, 'stroke-width': 1,
+      stroke: tickColor, 'stroke-width': 1,
     });
   }
   for (const y of pipYs) {
     mk(group, 'line', {
       x1: pipX1, y1: y, x2: pipX2, y2: y,
-      stroke: colors.TFT_GREY, 'stroke-width': 1,
+      stroke: pipColor, 'stroke-width': 1,
     });
   }
 
