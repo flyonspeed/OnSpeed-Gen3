@@ -57,6 +57,10 @@ export function mountPitchLadder(parent, {
       x1: 0, y1: 0, x2: 0, y2: 0,
       stroke: colors.TFT_BLACK, 'stroke-width': 1,
     });
+    // ML_DATUM (middle-left) per main.cpp:1342: text-anchor=start,
+    // dominant-baseline=central. Append a degree symbol — the C++
+    // appends 'o' which the FreeSans bitmap renders as a degree
+    // glyph; SVG can use the proper Unicode U+00B0 directly.
     const text = mk(group, 'text', {
       x: 0, y: 0,
       'font-family': 'Helvetica, Arial, sans-serif',
@@ -65,7 +69,7 @@ export function mountPitchLadder(parent, {
       'text-anchor': 'start',
       'dominant-baseline': 'central',
     });
-    text.textContent = String(i);
+    text.textContent = `${i}°`;
     longTicks.push({ i, line, text });
   }
 

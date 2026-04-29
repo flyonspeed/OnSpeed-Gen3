@@ -16,10 +16,11 @@ export function run(assert) {
   assert.equal(lines.length, 18 + 18, '18 short + 18 long ticks');
   assert.equal(texts.length, 18, '18 long-tick labels');
 
-  // First label should be "-90" and the labels list should include "10", "10°"... we used String(i) so check "10".
+  // Label text format is `${i}°` (Unicode degree symbol after the
+  // integer) per main.cpp:1342's `String(i)+"o"`.
   const labelTexts = Array.from(texts).map(t => t.textContent);
-  assert.truthy(labelTexts.includes('10'),  'label "10" present');
-  assert.truthy(labelTexts.includes('-10'), 'label "-10" present');
+  assert.truthy(labelTexts.includes('10°'),  'label "10°" present');
+  assert.truthy(labelTexts.includes('-10°'), 'label "-10°" present');
 
   // Level + roll=0: tick at i=10 sits at (CX, CY + 10*3 = CY + 30). The
   // tick row is horizontal (cosR=1, sinR=0), so x1/x2 are CX ± longHalfW.

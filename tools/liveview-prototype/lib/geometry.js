@@ -194,8 +194,12 @@ export const MODE1_LADDER_SHORT_HALF_W = 0.10 * 115;  // ~11.5
 export const MODE1_LADDER_LONG_HALF_W  = 0.20 * 115;  // ~23
 export const MODE1_LADDER_SHORT_RANGE  = 85;          // -85..+85
 export const MODE1_LADDER_LONG_RANGE   = 90;          // -90..+90
-// Label x offset past the long tick end (xRotate*0.75 in C++ at :1340).
-export const MODE1_LADDER_LABEL_OFFSET = 0.75 * 0.20 * 115;  // ~17.25
+// Label x offset past the long tick end. C++ at :1340 uses
+// `xRotate*0.75` where xRotate = 0.10 × g_arcSize. So the offset is
+// 0.075 × g_arcSize ≈ 8.625 px along the rolled axis — NOT
+// 0.75 × longHalfW (which would be ~17 px and place the digits much
+// further from the tick).
+export const MODE1_LADDER_LABEL_OFFSET = 0.075 * 115;        // ~8.625
 // Label font size. C++ uses FSS12 (~14 px tall). LESSONS rule: ~1.25× scale.
 export const MODE1_LADDER_FONT_SIZE = 16;
 
