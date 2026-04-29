@@ -40,14 +40,49 @@ const tests = [
 ];
 // Cache-bust ES module imports — Python's http.server sends no
 // cache-control headers but browsers still hold module imports across
-// page reloads (LESSONS.md: "Browser caching gotcha"). A query string
-// guarantees a fresh fetch on each runner load.
-const cb = '?cb=' + Date.now();
+// page reloads (LESSONS.md: "Browser caching gotcha"). To force fresh
+// fetches of EVERY module (test files AND their lib dependencies), we
+// fetch each module as text, recursively rewrite relative `import`s
+// to absolute URLs with a cache-buster, and execute via Blob URL so
+// the browser's module map is bypassed entirely.
+const cb = String(Date.now());
+const moduleCache = new Map();
+async function loadFreshModule(url) {
+  if (moduleCache.has(url)) return moduleCache.get(url);
+  const promise = (async () => {
+    const sep = url.includes('?') ? '&' : '?';
+    const response = await fetch(url + sep + 'cb=' + cb);
+    if (!response.ok) throw new Error(`${url} → ${response.status}`);
+    let src = await response.text();
+    // Find every relative import / dynamic import, resolve to an absolute
+    // URL, recursively load its rewritten blob, then substitute the blob
+    // URL into this module's source. Static and dynamic forms are both
+    // handled.
+    const importRe = /(from\s*['"]|import\s*\(\s*['"]|import\s*['"])(\.{1,2}\/[^'"]+)(['"])/g;
+    const matches = [...src.matchAll(importRe)];
+    const subs = new Map();
+    for (const m of matches) {
+      const rel = m[2];
+      const abs = new URL(rel, url).href;
+      if (!subs.has(rel)) {
+        const dep = await loadFreshModule(abs);
+        subs.set(rel, dep.blobUrl);
+      }
+    }
+    src = src.replace(importRe, (_, prefix, rel, suffix) => prefix + subs.get(rel) + suffix);
+    const blobUrl = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+    const mod = await import(blobUrl);
+    return { mod, blobUrl };
+  })();
+  moduleCache.set(url, promise);
+  return promise;
+}
 for (const t of tests) {
   try {
-    const m = await import(t + cb);
+    const abs = new URL(t, location.href).href;
+    const { mod } = await loadFreshModule(abs);
     log(`-- ${t} --`, true);
-    m.run(assert);
+    mod.run(assert);
   } catch (e) {
     log(`${t} — threw ${e}`, false);
   }

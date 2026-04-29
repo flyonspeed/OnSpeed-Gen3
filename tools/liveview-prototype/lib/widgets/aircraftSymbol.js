@@ -1,21 +1,29 @@
 // Fixed yellow aircraft reference symbol drawn over the horizon.
-// Mirrors the section of AiGraph() at main.cpp:1174-1248 that draws
-// the airplane glyph (NOT the bank-angle arc markers from :1136-1171,
-// which are deferred — see Stage 2 report).
+// Mirrors the section of AiGraph() at main.cpp:1192-1231 that draws the
+// airplane glyph, NOT the bank-angle arc markers from :1136-1171
+// (those are deferred — see Stage 2 report).
 //
-// Components (top-down):
-//   - Top yellow triangle pointer (the static "you-are-here" marker
-//     at the top of the bank arc), main.cpp:1237-1248.
-//   - 7 px-thick yellow horizontal wings extending from x±25 to x±100,
-//     with x±100 capped by black 6 px-tall vertical bars at the wing
-//     tips (main.cpp:1230-1231) and a 1 px black outline above and
-//     below (main.cpp:1210-1213, 1225-1228).
-//   - 7 px-thick yellow droop "V": diagonals from (x-25, y) down to
-//     (x, y+25) and from (x, y+25) up to (x+25, y).
-//   - 6 px yellow center circle with black outline (main.cpp:1192-1193).
+// The C++ renders the body as 7 PARALLEL stamps at y-offsets {-3..+3},
+// not as a single thick stroke. Each stamp is a 4-segment polyline:
+//   - Left horizontal (px1, y) → (px1+75, y) at width 3*arcSize/4=75
+//   - Diagonal down-right    (px2, y) → (px5, py5+y) — apex is (px5, py5)
+//   - Diagonal up-right      (px5, py5+y) → (px3, y)
+//   - Right horizontal (px3, y) → (px3+75, y)
 //
-// The whole symbol is static — it does NOT rotate or translate. The
-// horizon underneath rotates around it. update() is a noop.
+// Color per offset: y=-3 black, y=-2..+2 yellow, y=+3 black. This produces
+// a 5-px-thick yellow stripe with 1-px black outline above + below.
+//
+// Wingtip end-caps: 6-px-tall black vertical lines at the LEFT wingtip
+// (px1) and RIGHT wingtip (px4), spanning y-3..y+2 (main.cpp:1230-1231).
+//
+// Center pivot: 6-px-radius yellow filled circle with a 1-px black outline
+// (main.cpp:1192-1193, bullsEye = 2 × HEIGHT/80 = 6).
+//
+// Top yellow triangle pointer at the top of the bank-angle arc
+// (main.cpp:1237-1248).
+//
+// The symbol is static — it does not rotate or translate. The horizon
+// underneath rotates around it. update() is a noop.
 
 import { colors } from '../colors.js';
 import * as G from '../geometry.js';
@@ -34,9 +42,9 @@ export function mountAircraftSymbol(parent, {
   cy = G.MODE1_HORIZON_CY,
   innerHalfW = G.MODE1_AIRCRAFT_INNER_HALF_W,
   outerHalfW = G.MODE1_AIRCRAFT_OUTER_HALF_W,
+  wingHalfLen = G.MODE1_AIRCRAFT_WING_HALF_LEN,
   droopDy    = G.MODE1_AIRCRAFT_DROOP_DY,
   centerR    = G.MODE1_AIRCRAFT_CENTER_R,
-  barT       = G.MODE1_AIRCRAFT_BAR_THICKNESS,
 } = {}) {
   const group = mk(parent, 'g', { 'data-widget': 'aircraft-symbol' });
 
@@ -53,58 +61,78 @@ export function mountAircraftSymbol(parent, {
     'stroke-width': 1,
   });
 
-  // Wings — yellow body, black 1-px outline above + below, black tips.
-  // Use stroked horizontal lines so the 7 px thickness is just stroke-width.
-  // Left wing: from (cx - outerHalfW, cy) to (cx - innerHalfW, cy).
-  mk(group, 'line', {
-    x1: cx - outerHalfW, y1: cy, x2: cx - innerHalfW, y2: cy,
-    stroke: colors.TFT_YELLOW, 'stroke-width': barT,
-  });
-  // Right wing.
-  mk(group, 'line', {
-    x1: cx + innerHalfW, y1: cy, x2: cx + outerHalfW, y2: cy,
-    stroke: colors.TFT_YELLOW, 'stroke-width': barT,
-  });
-  // 1-px black outline ON top + bottom edges of each wing.
-  // Each wing is barT (7) tall; top edge is at y = cy - barT/2 ≈ cy-3,
-  // bottom at cy + 3.
-  const outlineYTop = cy - (barT - 1) / 2;
-  const outlineYBot = cy + (barT - 1) / 2;
-  for (const wingX of [
-    [cx - outerHalfW, cx - innerHalfW],
-    [cx + innerHalfW, cx + outerHalfW],
-  ]) {
-    mk(group, 'line', {
-      x1: wingX[0], y1: outlineYTop, x2: wingX[1], y2: outlineYTop,
-      stroke: colors.TFT_BLACK, 'stroke-width': 1,
-    });
-    mk(group, 'line', {
-      x1: wingX[0], y1: outlineYBot, x2: wingX[1], y2: outlineYBot,
-      stroke: colors.TFT_BLACK, 'stroke-width': 1,
-    });
-  }
-  // Wing tips (main.cpp:1230-1231): 6 px-tall black vertical caps.
-  for (const tipXcap of [cx - outerHalfW, cx + outerHalfW]) {
-    mk(group, 'line', {
-      x1: tipXcap, y1: outlineYTop, x2: tipXcap, y2: outlineYBot,
-      stroke: colors.TFT_BLACK, 'stroke-width': 1,
-    });
-  }
+  // Body anchor coordinates (main.cpp:1181-1190). With arcSize=100,
+  // arcSize/4=25, 3*arcSize/4=75:
+  //   px1 = cx - 100 (left wingtip)
+  //   px2 = cx -  25 (left inner — start of left diagonal)
+  //   px3 = cx +  25 (right inner — end of right diagonal)
+  //   px4 = cx + 100 (right wingtip)
+  //   px5 = cx       (apex)
+  //   py5 = cy + 25  (apex y, droopDy below cy)
+  const px1 = cx - outerHalfW;
+  const px2 = cx - innerHalfW;
+  const px3 = cx + innerHalfW;
+  const px4 = cx + outerHalfW;
+  const px5 = cx;
+  const py5 = cy + droopDy;
 
-  // Droop diagonals: V-shape from (cx - innerHalfW, cy) down to (cx, cy + droopDy)
-  // and back up to (cx + innerHalfW, cy). main.cpp:1196-1197.
-  mk(group, 'line', {
-    x1: cx - innerHalfW, y1: cy, x2: cx, y2: cy + droopDy,
-    stroke: colors.TFT_YELLOW, 'stroke-width': barT,
-  });
-  mk(group, 'line', {
-    x1: cx, y1: cy + droopDy, x2: cx + innerHalfW, y2: cy,
-    stroke: colors.TFT_YELLOW, 'stroke-width': barT,
-  });
+  // Stamp the 7 parallel polyline copies in C++ paint order
+  // (main.cpp:1195-1228). Yellow rows at offsets 0, -1, -2 paint first,
+  // then black at -3, then yellow at +1, +2, then black at +3. The
+  // black rows last in each half land on top of the yellow they bound,
+  // giving a 5-px-thick yellow stripe with a clean 1-px black outline
+  // top + bottom. shape-rendering: crispEdges keeps the diagonals
+  // from anti-aliasing into the outlines.
+  const orderedRows = [
+    { dy:  0, color: colors.TFT_YELLOW },
+    { dy: -1, color: colors.TFT_YELLOW },
+    { dy: -2, color: colors.TFT_YELLOW },
+    { dy: -3, color: colors.TFT_BLACK  },
+    { dy: +1, color: colors.TFT_YELLOW },
+    { dy: +2, color: colors.TFT_YELLOW },
+    { dy: +3, color: colors.TFT_BLACK  },
+  ];
+  for (const { dy, color } of orderedRows) {
+    // Single polyline traces left-wingtip → left-inner → apex → right-inner
+    // → right-wingtip. Using polyline (not <path>) keeps the 4-segment
+    // structure explicit and lets shape-rendering sharpen the corners.
+    const points = [
+      `${px1},${cy + dy}`,
+      `${px2},${cy + dy}`,
+      `${px5},${py5 + dy}`,
+      `${px3},${cy + dy}`,
+      `${px4},${cy + dy}`,
+    ].join(' ');
+    mk(group, 'polyline', {
+      points,
+      fill: 'none',
+      stroke: color,
+      'stroke-width': 1,
+      'shape-rendering': 'crispEdges',
+    });
+  }
+  // wingHalfLen is implicit in (px3 + 75 = px4); kept as a config name
+  // for callers that want to override.
+  void wingHalfLen;
+
+  // Wing-tip end-caps (main.cpp:1230-1231):
+  // drawFastVLine(px1, py1-3, 6, TFT_BLACK) → 6-px-tall vertical line
+  // at x=px1 covering y=cy-3..cy+2.
+  for (const tipXcap of [px1, px4]) {
+    mk(group, 'line', {
+      x1: tipXcap, y1: cy - 3, x2: tipXcap, y2: cy + 2,
+      stroke: colors.TFT_BLACK, 'stroke-width': 1,
+      'shape-rendering': 'crispEdges',
+    });
+  }
 
   // Center yellow circle with black outline (main.cpp:1192-1193).
+  // 6-px-radius filled yellow + 1-px black ring on top.
   mk(group, 'circle', {
     cx, cy, r: centerR, fill: colors.TFT_YELLOW,
+  });
+  mk(group, 'circle', {
+    cx, cy, r: centerR, fill: 'none',
     stroke: colors.TFT_BLACK, 'stroke-width': 1,
   });
 
