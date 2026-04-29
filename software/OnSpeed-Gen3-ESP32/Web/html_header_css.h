@@ -23,6 +23,15 @@ li a, .dropbtn {
     padding: 14px 16px;
     text-decoration: none;
     }
+/* Narrow phone viewports: tighten the nav so all five items fit on a
+   single row.  Without this, "Home / Tools / Settings / LiveView /
+   Indexer" wraps to two rows on iPhone widths (~390 px). */
+@media screen and (max-width: 480px) {
+    li a, .dropbtn {
+        padding: 12px 8px;
+        font-size: 14px;
+        }
+    }
 li a:hover, .dropdown:hover .dropbtn {
     background-color: red;
     }

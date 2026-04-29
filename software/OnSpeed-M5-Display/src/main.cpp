@@ -845,13 +845,18 @@ void displayAOA()
         gdraw.fillRect(313,gOnsetTop,7,gOnsetHeight,TFT_YELLOW);
     }
 
-    // vsi ladder, every 20 pixels
-    for (int i=15;i<226;i=i+15)
+    // gOnset ladder, every 15 pixels.  Start offset chosen so the
+    // center tick lands on y=119, the visual center of the 3-px zero
+    // pip below.  Without this offset (start=15), the ladder's center
+    // tick was at y=120 and the pip read as one pixel high relative to
+    // the ladder.  Modes 1/3 use a 20-px spacing whose center tick is
+    // already at y=119, so they don't need this adjustment.
+    for (int i=14;i<226;i=i+15)
     {
         gdraw.drawLine (313, i, 319, i, TFT_GREY);
     }
 
-    //zero line
+    //zero pip
     gdraw.drawLine (306, 118, 312, 118, TFT_GREY);
     gdraw.drawLine (306, 119, 312, 119, TFT_GREY);
     gdraw.drawLine (306, 120, 312, 120, TFT_GREY);
