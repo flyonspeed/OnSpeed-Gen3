@@ -50,6 +50,7 @@ export function mountAoa(rootEl) {
     triangleTipR: G.FLAP_TRIANGLE_TIP_R,
     arcRad: G.FLAP_ARC_RAD,
     stopR:  G.FLAP_STOP_R,
+    labelFontSize: G.FLAP_LABEL_FONT_SIZE,
   });
 
   // Slip ball — Mode 0's wide layout (W=160, H=34).
@@ -82,6 +83,17 @@ export function mountAoa(rootEl) {
 
   rootEl.appendChild(svg);
 
+  // Numeric text fields (IAS, G, percent-lift, flap angle) update at the
+  // M5's gated rate of 500 ms (updateRateNumbers in main.cpp:156). Bar
+  // positions, chevron colors, donut colors, slip ball position, and
+  // G-onset bar all update every frame. Cache the last "displayed"
+  // values; only refresh text when the gate has elapsed.
+  const NUM_UPDATE_MS = 500;
+  let numLastUpdateMs = 0;
+  let displayed = {
+    iasKt: null, verticalG: null, percentLift: null, flapsDeg: null,
+  };
+
   function update(rec) {
     // Build anchors array in the slot convention pct2y/chevron/donut expect.
     // Mirrors PctAnchors[] populated by displayAOA() in main.cpp:719-726.
@@ -98,10 +110,8 @@ export function mountAoa(rootEl) {
     // 250 ms flash flag — same cadence as flashFlag in main.cpp's loop().
     const flashFlag = (Math.floor(performance.now() / 250) % 2) === 1;
 
+    // Per-frame updates (bar positions, chevron colors, animations).
     indexer.update({ percentLift: rec.percentLift, anchors, flashFlag });
-    ias.update({ value: rec.iasKt, formatter: v => String(Math.round(v)) });
-    gReadout.update({ value: rec.verticalG, formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) });
-    flap.update({ flapPos: rec.flapsDeg, flapsMin: rec.flapsMinDeg, flapsMax: rec.flapsMaxDeg });
     slip.update({
       slip: slipFromLateralG(rec.lateralG),
       percentLift: rec.percentLift,
@@ -109,7 +119,28 @@ export function mountAoa(rootEl) {
       flashFlag,
     });
     gOnset.update({ value: rec.gOnsetRate });
-    pctLift.update({ percent: rec.percentLift });
+    flap.update({ flapPos: rec.flapsDeg, flapsMin: rec.flapsMinDeg, flapsMax: rec.flapsMaxDeg });
+
+    // Numeric-readout 500 ms gate (M5 main.cpp:491-503).
+    const now = performance.now();
+    if (now - numLastUpdateMs >= NUM_UPDATE_MS) {
+      ias.update({ value: rec.iasKt, formatter: v => String(Math.round(v)) });
+      gReadout.update({ value: rec.verticalG, formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) });
+      pctLift.update({ percent: rec.percentLift });
+      // Flap-angle TEXT also gated; the rotating triangle still moves
+      // every frame because it's part of the flap.update above.
+      // (The text is part of the flap widget — it'll be ~stale by 500 ms
+      // which matches the M5 cadence.)
+      displayed.iasKt = rec.iasKt;
+      displayed.verticalG = rec.verticalG;
+      displayed.percentLift = rec.percentLift;
+      displayed.flapsDeg = rec.flapsDeg;
+      numLastUpdateMs = now;
+    }
+
+    // Force the percent number to the end of the SVG every frame so it
+    // stays painted on top of the index bar at high AOA.
+    if (pctLift.bringToFront) pctLift.bringToFront();
   }
 
   return { el: svg, update };

@@ -22,9 +22,9 @@ export function mountFlapCircle(parent, {
 }) {
   const group = mk(parent, 'g', { 'data-widget': 'flap-circle' });
 
-  mk(group, 'circle', { cx, cy, r, fill: colors.TFT_GREY });
+  mk(group, 'circle', { cx, cy, r, fill: colors.TFT_DARKGREY });
   const triangle = mk(group, 'path', {
-    fill: colors.TFT_GREY, 'shape-rendering': 'crispEdges',
+    fill: colors.TFT_DARKGREY, 'shape-rendering': 'crispEdges',
   });
 
   // Stop dots at the arc endpoints (main.cpp:807-813).
@@ -39,11 +39,16 @@ export function mountFlapCircle(parent, {
     r: 1, fill: colors.TFT_WHITE,
   });
 
+  // C++ draws the flap angle with FSS12 + middle_center datum at (cx, cy)
+  // (main.cpp:826). dominant-baseline: central centers the text vertically
+  // on its anchor y. text-anchor: middle centers horizontally.
   const label = mk(group, 'text', {
-    x: cx, y: cy + 4,
+    x: cx, y: cy,
     'font-family': 'Helvetica, Arial, sans-serif',
     'font-size': labelFontSize,
-    fill: colors.TFT_WHITE, 'text-anchor': 'middle',
+    fill: colors.TFT_WHITE,
+    'text-anchor': 'middle',
+    'dominant-baseline': 'central',
   });
   label.textContent = '0';
 

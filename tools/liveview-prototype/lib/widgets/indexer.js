@@ -82,9 +82,16 @@ export function mountIndexer(parent) {
   });
 
   // Index bar (the moving white horizontal that shows current AOA).
+  // C++ at main.cpp:1024-1026: fillRect TFT_WHITE then drawRect TFT_BLACK
+  // — i.e. white interior with a 1-px black border on all 4 sides.
+  // shape-rendering: crispEdges so SVG renders the border at exactly 1 px
+  // without antialiased blur.
   const indexBar = mk(group, 'rect', {
     x: G.INDEX_BAR_X, y: 192, width: G.INDEX_BAR_W, height: G.INDEX_BAR_H,
-    fill: colors.TFT_WHITE, stroke: colors.TFT_BLACK, 'stroke-width': 0.5,
+    fill: colors.TFT_WHITE,
+    stroke: colors.TFT_BLACK,
+    'stroke-width': 1,
+    'shape-rendering': 'crispEdges',
   });
 
   // L/Dmax pip dots — black halo + white inner, both sides.

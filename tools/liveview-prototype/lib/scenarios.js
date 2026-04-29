@@ -34,9 +34,23 @@ function record(overrides) {
   };
 }
 
+// gOnsetRate (g/s) is the M5's right-edge orange tape input. Values
+// produce visible bar height per main.cpp:840 (height = |gOnsetRate * 60|
+// clamped 0..120). To exercise the bar, scenarios drive it with a
+// natural-looking shape: a sub-Hertz sine for cruise (gentle), a
+// pull-up + recovery shape for approach (mid amplitude), and a sharp
+// pull for stall (peaks near the limits).
+function gOnsetSine(tMs, periodMs, amplitude) {
+  return amplitude * Math.sin(2 * Math.PI * tMs / periodMs);
+}
+
 export const scenarios = {
-  idle: (_t) => record({ iasKt: 0, percentLift: 0 }),
-  cruise: (_t) => record({ iasKt: 130, paltFt: 4500, percentLift: 30, pitchDeg: 1.5 }),
+  idle: (_t) => record({ iasKt: 0, percentLift: 0, gOnsetRate: 0 }),
+  cruise: (t) => record({
+    iasKt: 130, paltFt: 4500, percentLift: 30, pitchDeg: 1.5,
+    // Light turbulence: ±0.3 g/s, 6-second period.
+    gOnsetRate: gOnsetSine(t, 6000, 0.3),
+  }),
   approach: (t) => {
     // 30 s sweep: percent-lift goes from 30 to 90 over 15 s, back to 30 over 15 s.
     const phase = (t / 15000) % 2;  // 0..1..2..0
@@ -48,6 +62,9 @@ export const scenarios = {
       pitchDeg: 4 + 4 * frac,
       flightPathDeg: -3,
       vsiFpm: -500,
+      // Pull-up cycle as the AOA climbs: positive gOnset on climb,
+      // negative on recovery. Up to ±0.8 g/s, 4-second period.
+      gOnsetRate: gOnsetSine(t, 4000, 0.8),
     });
   },
   stall: (t) => {
@@ -55,12 +72,20 @@ export const scenarios = {
     const phase = (t / 10000) % 1;  // 0..1
     const pct = phase < 0.7 ? Math.round(50 + 50 * (phase / 0.7))   // climb 50→100
                             : Math.round(100 - 80 * ((phase - 0.7) / 0.3));  // recover 100→20
+    // Sharp pull-up then recovery: ~+1.5 g/s during climb, ~-1.5 g/s on
+    // recovery. Bar will saturate (height clamped at 120) for part of
+    // the climb, exercising the full visual range.
+    let g;
+    if (phase < 0.55) g =  2.0 * (phase / 0.55);          // ramp up to +2 g/s
+    else if (phase < 0.7) g = 2.0 - 4.0 * ((phase - 0.55) / 0.15);  // through zero to -2 g/s
+    else g = -2.0 + 2.0 * ((phase - 0.7) / 0.3);          // recovery back to 0
     return record({
       iasKt: 65,
       paltFt: 3000,
       percentLift: Math.min(99, pct),
       pitchDeg: 8,
       verticalG: 1.0,
+      gOnsetRate: g,
     });
   },
 };

@@ -22,6 +22,20 @@ export function mountEdgeTape(parent, {
 }) {
   const group = mk(parent, 'g', { 'data-widget': 'edge-tape' });
 
+  // Paint order matches the M5 (main.cpp:845-857): bar FIRST, ticks +
+  // zero pip on top. SVG renders later siblings in front, so we append
+  // the bar before the ticks. That way the ticks remain visible across
+  // the bar instead of being hidden by it.
+  // CSS transition on the bar's y/height makes 20 Hz data updates appear
+  // as a smooth rise/fall instead of stepped jumps. The data is already
+  // EMA-smoothed at 250 ms tau on the M5 producer side, so the values
+  // arriving here are gentle; a 100 ms transition tracks them without
+  // adding visible lag, while killing the per-frame stair-step look.
+  const bar = mk(group, 'rect', {
+    x: barX, y: zeroY, width: barW, height: 0, fill: barColor,
+    style: 'transition: y 100ms linear, height 100ms linear;',
+  });
+
   for (let y = tickFirstY; y <= tickLastY; y += tickStep) {
     mk(group, 'line', {
       x1: tickX1, y1: y, x2: tickX2, y2: y,
@@ -34,10 +48,6 @@ export function mountEdgeTape(parent, {
       stroke: colors.TFT_GREY, 'stroke-width': 1,
     });
   }
-
-  const bar = mk(group, 'rect', {
-    x: barX, y: zeroY, width: barW, height: 0, fill: barColor,
-  });
 
   function update({ value }) {
     const h   = Math.min(heightMax, Math.abs(value * heightScale));

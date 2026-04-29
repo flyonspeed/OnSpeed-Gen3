@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnSpeed Indexer — Pixel Measure</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Both panels at the EXACT same 320×240 box with a pixel-grid overlay so
+     we can read off offsets directly. Scale via CSS transform (sharper than
+     SVG zoom for measurement). */
+  body { padding: 16px 0; }
+  main {
+    display: flex;
+    flex-direction: row;
+    gap: 32px;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 24px 16px;
+  }
+  .panel {
+    flex: none;
+    background: var(--panel-bg);
+    border: 1px solid var(--dark-grey);
+    border-radius: 0;
+    padding: 0;
+    min-width: 0;
+    width: 320px;
+  }
+  .panel h2 {
+    margin: 0;
+    padding: 6px 8px;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .frame {
+    position: relative;
+    width: 320px;
+    height: 240px;
+    background: #000;
+  }
+  /* Pixel-grid overlay — every 10 px a faint cyan line, every 50 px
+     brighter. Drawn AFTER the frame's contents (z-index above the SVG
+     and iframe) so it sits on top of both panels. Brightness bumped
+     so it's clearly visible against the M5's bright canvas content.
+     Toggle off with the "Hide grid" button (sets data-grid="off" on
+     the body). */
+  body[data-grid="off"] .frame::after { display: none; }
+  .frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+    background:
+      repeating-linear-gradient(
+        to right,
+        rgba(0, 255, 255, 0.22) 0,
+        rgba(0, 255, 255, 0.22) 1px,
+        transparent 1px,
+        transparent 10px
+      ),
+      repeating-linear-gradient(
+        to bottom,
+        rgba(0, 255, 255, 0.22) 0,
+        rgba(0, 255, 255, 0.22) 1px,
+        transparent 1px,
+        transparent 10px
+      ),
+      repeating-linear-gradient(
+        to right,
+        rgba(255, 80, 80, 0.55) 0,
+        rgba(255, 80, 80, 0.55) 1px,
+        transparent 1px,
+        transparent 50px
+      ),
+      repeating-linear-gradient(
+        to bottom,
+        rgba(255, 80, 80, 0.55) 0,
+        rgba(255, 80, 80, 0.55) 1px,
+        transparent 1px,
+        transparent 50px
+      );
+  }
+  .frame { position: relative; }
+  /* Optional 2x scale toggle for closer measurement. */
+  .scale-2x .frame {
+    transform: scale(2);
+    transform-origin: top left;
+    margin-bottom: 240px;
+    margin-right: 320px;
+  }
+  #svg-root {
+    width: 320px;
+    height: 240px;
+    display: block;
+    border: 0;
+    background: #000;
+  }
+  /* The wasm shell wraps its 320×240 canvas in a flex column with 8 px
+     top body padding plus a 12 px bottom + a help line under the canvas.
+     The canvas is rendered at iframe-y=8..248 — the bottom 8 px get
+     clipped by an iframe sized to 240 px AND the slip ball at
+     canvas-y=204..238 ends up off-screen.  To match the C++ source
+     coordinates (slip ball bottom at canvas-y=238, near bottom of the
+     320×240 panel), we make the iframe 320 px tall and pull it up 8 px
+     so the canvas occupies wrapper-y=0..240 — i.e., the wrapper crops
+     the help-line below the canvas, and the canvas top aligns with the
+     wrapper top.  More-specific `#wasm-iframe` selector below over-
+     rides the global style.css rule. */
+  .wasm-clip {
+    width: 320px;
+    height: 240px;
+    overflow: hidden;
+    position: relative;
+  }
+  .wasm-clip #wasm-iframe {
+    width: 320px;
+    height: 320px;
+    margin-top: -8px;
+    border: 0;
+    background: #000;
+  }
+  .controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 16px;
+  }
+  .controls label { font-size: 13px; color: var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1 style="font-size:16px;margin:0;padding:8px 16px;">Pixel Measure</h1>
+</header>
+<nav id="scenario-nav" class="controls">
+  <button data-scenario="idle" type="button">Idle</button>
+  <button data-scenario="cruise" type="button">Cruise</button>
+  <button data-scenario="approach" type="button">Approach</button>
+  <button data-scenario="stall" type="button">Stall warn</button>
+  <button id="grid-toggle" type="button" style="margin-left:24px;">Toggle grid</button>
+  <span style="margin-left:12px;font-size:13px;color:var(--ink);">Grid: 10 px (faint) · 50 px (bright)</span>
+</nav>
+<script>
+  // Default off so colors can be compared cleanly. Click to toggle on.
+  document.body && (document.body.dataset.grid = 'off');
+  window.addEventListener('DOMContentLoaded', () => {
+    document.body.dataset.grid = 'off';
+    document.getElementById('grid-toggle').addEventListener('click', () => {
+      document.body.dataset.grid = document.body.dataset.grid === 'off' ? 'on' : 'off';
+    });
+  });
+</script>
+<main>
+  <section class="panel">
+    <h2>New SVG</h2>
+    <div class="frame">
+      <div data-mode-panel="aoa" id="svg-root"></div>
+    </div>
+  </section>
+  <section class="panel">
+    <h2>Wasm-live (M5 sim)</h2>
+    <div class="frame">
+      <div class="wasm-clip">
+        <iframe src="wasm-live/index.html" id="wasm-iframe" scrolling="no"></iframe>
+      </div>
+    </div>
+  </section>
+</main>
+<script type="module" src="lib/main.js"></script>
+</body>
+</html>

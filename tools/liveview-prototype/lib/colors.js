@@ -1,11 +1,11 @@
 // M5GFX color tokens, indexed by their TFT_* names.
 // Values are CSS variable names so the active theme controls the actual color.
-// The hex values in colors.dark / colors.light are tuned to match the M5GFX
-// constants closely enough that the rendered output at panel-mount distance
-// is indistinguishable from the hardware.
+// The hex values defined in style.css under :root and [data-theme="light"]
+// are tuned to match the M5GFX constants closely enough that the rendered
+// output at panel-mount distance is indistinguishable from the hardware.
 export const colors = Object.freeze({
-  TFT_BLACK:      'var(--bg-panel)',
-  TFT_WHITE:      'var(--ink)',
+  TFT_BLACK:      'var(--panel-bg)',
+  TFT_WHITE:      'var(--white)',
   TFT_GREEN:      'var(--green)',
   TFT_YELLOW:     'var(--yellow)',
   TFT_RED:        'var(--red)',

@@ -2,11 +2,17 @@
   --bg: #111;
   --ink: #eee;
   --panel-bg: #000;
+  /* M5GFX TFT_WHITE — pure white for SVG fills (index bar, percent
+     digits) regardless of theme. The body --ink is muted (#eee) to be
+     gentle on dark mode reading; the indicator surfaces want full white.*/
+  --white: #ffffff;
   --green: #00ff3a;
   --yellow: #fffd40;
   --red: #ff0018;
   --grey: #888;
-  --dark-grey: #444;
+  /* User-measured against the M5 hardware: TFT_DARKGREY (the indexer
+     bar background, flap circle background, etc.) is rgb(107, 109, 84). */
+  --dark-grey: #6b6d54;
   --light-grey: #aaa;
 }
 
@@ -14,6 +20,7 @@
   --bg: #fafafa;
   --ink: #111;
   --panel-bg: #fff;
+  --white: #ffffff;
   --green: #0c9a40;
   --yellow: #d8b800;
   --red: #c63030;

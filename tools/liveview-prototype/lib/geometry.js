@@ -97,10 +97,16 @@ export const PIP_INNER_R  = INDEXER_HEIGHT / 32;                // 6
 // with text-anchor: middle as the right approximation.
 export const PCT_LIFT_X = 160;
 export const PCT_LIFT_Y = 27;   // PERCENT_Y_POS at :740
-// Font: FSSB18 (FreeSans Bold 18pt). Browser sans-serif at 26 px reads
-// closer to the M5 display's apparent size at the prototype's render scale.
-export const PCT_LIFT_FONT_SIZE = 26;
-// Outline: 9 black copies at ±3 offset.
+// Font: FSSB18 (FreeSans Bold 18pt). User-measured at the prototype's
+// 1:1 render scale: M5 FSSB18 digits are ~28 px tall; CSS font-size 36
+// matches the visual height at the same baseline-y.
+export const PCT_LIFT_FONT_SIZE = 36;
+// Outline: C++ stamps 9 black copies at ±3 offset (a 6 px-wide black
+// halo around the white digits).  In SVG this is a single text element
+// rendered with stroke-width = OUTLINE_PX * 2; the doubling makes the
+// halo visibly wider than the 8 px-tall index bar so the white digits
+// don't blend in.  3 reads as a tight black outline (~6 px stroke); 5
+// reads heavy.
 export const PCT_LIFT_OUTLINE_PX = 3;
 
 // ----------------------------------------------------------------------------
@@ -113,10 +119,12 @@ export const CORNER_LABEL_Y  = 90;
 export const CORNER_NUM_Y    = 130;
 export const CORNER_LEFT_X   = 5;
 // Label font: FSS18 (FreeSans 18pt). Number font: FSSB18 (FreeSans Bold 18pt).
-// M5 FSS18 ascent ~21 px; CSS font-size 24 lands close. Label baseline y=90,
-// number baseline y=130 — gap is from C++, do not adjust.
-export const CORNER_LABEL_FONT_SIZE = 24;
-export const CORNER_NUM_FONT_SIZE   = 26;
+// User-measured at 1:1 prototype render scale: CSS font-size 33 with
+// browser Helvetica matches the M5 wasm-live FSS18/FSSB18 visual size
+// closely. Label baseline y=90, number baseline y=130 — gap is from
+// C++, do not adjust.
+export const CORNER_LABEL_FONT_SIZE = 33;
+export const CORNER_NUM_FONT_SIZE   = 33;
 
 // ----------------------------------------------------------------------------
 // Flap circle widget.
@@ -131,6 +139,11 @@ export const FLAP_TRIANGLE_TIP_R = FLAP_R + 33;
 // Stop-mark dots at the arc endpoints sit at the same radius as the apex
 // (main.cpp:809 stopRadius = Radius + 33).
 export const FLAP_STOP_R = FLAP_R + 33;
+// Numeric flap angle inside the circle. C++ uses FSS12 + middle_center
+// at (cx, cy). User-measured: at font-size 18 the digits read 1.2 units
+// tall; bumped to 23 to land at the target 1.5 units (matching the
+// M5 wasm-live visual size).
+export const FLAP_LABEL_FONT_SIZE = 23;
 // Visual arc the triangle sweeps (kFlapArcDeg).
 export const FLAP_ARC_DEG = 40;
 export const FLAP_ARC_RAD = FLAP_ARC_DEG * Math.PI / 180;
