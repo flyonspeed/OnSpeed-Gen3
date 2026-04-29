@@ -615,6 +615,46 @@ void test_build_index_permissive_garbage_header_fails(void)
     TEST_ASSERT_NOT_NULL(missing);
 }
 
+void test_parserowbyindex_empty_vntimeutc_preserved(void)
+{
+    // Round-trip a VN-300 row where vnTimeUtc is the empty string. The
+    // canonical writer emits "" for an unset UTC time; the index reader
+    // must preserve the row rather than reject it for an empty token.
+    onspeed::LogRow src{};
+    src.timeStampMs        = 70000;
+    src.iasKt              = 75.0f;
+    src.flapsPos           = 0;
+    src.imuPitchRateDps    = 1.0f;
+    src.coeffP             = 0.5f;
+    src.efisEnabled        = true;
+    src.efisIsVn300        = true;
+    src.vnAngularRateRoll  = 0.1f;
+    src.vnGnssLat          = 37.0;
+    src.vnGnssLon          = -122.0;
+    src.vnGpsFix           = 3;
+    src.vnDataAgeMs        = 10;
+    src.vnTimeUtc[0]       = '\0';   // empty UTC time
+
+    char hdrBuf[onspeed::proto::log_csv::kHeaderMaxBytes];
+    char rowBuf[onspeed::proto::log_csv::kRowMaxBytes];
+    size_t hdrLen = onspeed::proto::log_csv::WriteHeader(src, hdrBuf, sizeof(hdrBuf));
+    size_t rowLen = onspeed::proto::log_csv::FormatRow(src, rowBuf, sizeof(rowBuf));
+    TEST_ASSERT_GREATER_THAN(0, hdrLen);
+    TEST_ASSERT_GREATER_THAN(0, rowLen);
+
+    HeaderIndex idx;
+    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx,
+                                      HeaderStrictness::Strict, nullptr));
+
+    onspeed::LogRow dst{};
+    dst.boomEnabled = idx.boomEnabled;
+    dst.efisEnabled = idx.efisEnabled;
+    dst.efisIsVn300 = idx.efisIsVn300;
+    bool ok = ParseRowByIndex(std::string_view(rowBuf, rowLen), idx, dst);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_STRING("", dst.vnTimeUtc);
+}
+
 void test_build_index_over_wide_header_fails(void)
 {
     // Synthesize a valid canonical header padded with enough unknown
@@ -665,6 +705,7 @@ int main(int, char**)
     RUN_TEST(test_fixture_v413_no_boom);
     RUN_TEST(test_fixture_v410_pre_vn300);
     RUN_TEST(test_build_index_permissive_garbage_header_fails);
+    RUN_TEST(test_parserowbyindex_empty_vntimeutc_preserved);
     RUN_TEST(test_build_index_over_wide_header_fails);
     return UNITY_END();
 }

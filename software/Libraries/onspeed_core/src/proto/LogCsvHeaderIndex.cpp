@@ -459,15 +459,17 @@ bool TakeUint32(const std::string_view* tokens, int tokenCount, int idx, uint32_
     return ParseUint32Tok(tokens[idx], out);
 }
 // Copy an indexed token into a fixed-size char buffer, NUL-terminated.
-// Empty token is rejected (matches LogCsv::ParseRow's ParseString).
+// An empty token writes a 0-length string with NUL terminator and returns
+// true (matches LogCsv::ParseRow's ParseString). The vnTimeUtc field is
+// emitted as the empty string before the VN-300 first delivers a UTC
+// fix; rejecting empty would drop those early rows.
 bool TakeString(const std::string_view* tokens, int tokenCount, int idx,
                 char* dst, size_t dstCapacity)
 {
     if (idx < 0) return true;
     if (idx >= tokenCount) return false;
-    std::string_view tok = tokens[idx];
-    if (tok.empty()) return false;
     if (dstCapacity == 0) return false;
+    std::string_view tok = tokens[idx];
     size_t n = tok.size();
     if (n > dstCapacity - 1) n = dstCapacity - 1;
     std::memcpy(dst, tok.data(), n);

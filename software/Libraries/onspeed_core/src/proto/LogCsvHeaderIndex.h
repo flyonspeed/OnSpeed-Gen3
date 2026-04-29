@@ -185,8 +185,9 @@ bool BuildHeaderIndex(std::string_view headerLine,
 // Parse one data row using the index.
 //
 // Returns true on success. Returns false if the row has fewer tokens than
-// idx.totalColumns, or if any indexed token fails numeric parsing, or if
-// any indexed token is empty (matches LogCsv::ParseRow behavior).
+// idx.totalColumns, or if any indexed numeric token is empty or fails
+// parsing (matches LogCsv::ParseRow behavior). Empty string-typed tokens
+// (today: vnTimeUtc) parse to a 0-length string, also matching LogCsv.
 //
 // Applies the issue #182 sign-flip recovery: the CSV PitchRate column
 // stores -imuPitchRateDps, so on parse we negate to recover the raw value.
