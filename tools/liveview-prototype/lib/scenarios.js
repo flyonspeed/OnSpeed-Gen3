@@ -29,6 +29,11 @@ function record(overrides) {
     tonesOnPctLift: 0, onSpeedFastPctLift: 0, onSpeedSlowPctLift: 0,
     stallWarnPctLift: 0, flapsMinDeg: 0, flapsMaxDeg: 33,
     gOnsetRate: 0, spinCue: 0, dataMark: 0, pipPctLift: 0,
+    // decelRate (kt/s) is computed locally on the M5 from the IAS time
+    // series via Savitzky-Golay derivative; for the prototype we drive
+    // it directly from scenarios. Wasm-live computes its own from our
+    // IAS values, so the side-by-side will agree by construction.
+    decelRate: 0,
     ...ANCHORS_FULL_FLAPS,
     ...overrides,
   };
@@ -54,6 +59,11 @@ export const scenarios = {
     vsiFpm: 100 * Math.sin(2 * Math.PI * t / 12000),
     // Light turbulence: ±0.3 g/s, 6-second period.
     gOnsetRate: gOnsetSine(t, 6000, 0.3),
+    // Cruise: small +/- knot/sec wobble around 0.
+    decelRate: 0.2 * Math.sin(2 * Math.PI * t / 8000),
+    // Cruise G: gentle ±0.15 G turbulence around 1 G so the g-history
+    // strip chart shows a live trace instead of a flat line.
+    verticalG: 1.0 + 0.15 * Math.sin(2 * Math.PI * t / 6000),
   }),
   approach: (t) => {
     // 30 s sweep: percent-lift goes from 30 to 90 over 15 s, back to 30 over 15 s.
@@ -72,6 +82,9 @@ export const scenarios = {
       // Pull-up cycle as the AOA climbs: positive gOnset on climb,
       // negative on recovery. Up to ±0.8 g/s, 4-second period.
       gOnsetRate: gOnsetSine(t, 4000, 0.8),
+      // Approach: bleeding airspeed → mostly negative decel rate,
+      // sweeping ±1 kt/s as the aircraft works the descent profile.
+      decelRate: -0.5 + 1.0 * Math.sin(2 * Math.PI * t / 6000),
     });
   },
   stall: (t) => {
@@ -95,8 +108,15 @@ export const scenarios = {
       pitchDeg: 8 + 2 * Math.sin(2 * Math.PI * t / 5000),
       flightPathDeg: 2,
       vsiFpm: -300,
-      verticalG: 1.0,
+      // Vertical G follows the same shape as gOnsetRate: pull-up
+      // peaks at ~3.5 G during the climb, recovery dips to ~-0.5 G
+      // briefly, then returns to 1 G. Exercises all three g-history
+      // colors (green ≥1, yellow 0..1, red <0).
+      verticalG: 1.0 + g,
       gOnsetRate: g,
+      // Stall sequence: heavy decel during the climb, recovery shows
+      // strong positive accel. Sweeps the gauge across both halves.
+      decelRate: -2.0 * (phase < 0.7 ? phase / 0.7 : 1 - 2 * (phase - 0.7) / 0.3),
     });
   },
 };
