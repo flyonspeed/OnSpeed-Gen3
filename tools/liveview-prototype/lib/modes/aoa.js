@@ -31,7 +31,8 @@ export function mountAoa(rootEl) {
 
   // ---- Indexer bounding rounded rect ----
   // drawAOA() main.cpp:887-888 draws two concentric rounded rects in
-  // TFT_DARKGREY (1 px outline). One stroked rect approximates that here.
+  // TFT_DARKGREY for a 2 px effective border. A single stroke-width: 2
+  // rect produces the same visual weight in SVG.
   mk('rect', {
     x: G.INDEXER_X,
     y: G.INDEXER_Y,
@@ -40,7 +41,7 @@ export function mountAoa(rootEl) {
     rx: G.INDEXER_BOX_RADIUS,
     fill: 'none',
     stroke: colors.TFT_DARKGREY,
-    'stroke-width': 1,
+    'stroke-width': 2,
   });
 
   // ---- Chevrons (4 halves, each is a rotated rectangle drawn as <rect> with transform) ----
@@ -116,24 +117,6 @@ export function mountAoa(rootEl) {
   const pipRightHalo  = mk('circle', { cx: G.PIP_RIGHT_CX, cy: 192, r: G.PIP_HALO_R,  fill: colors.TFT_BLACK });
   const pipRightInner = mk('circle', { cx: G.PIP_RIGHT_CX, cy: 192, r: G.PIP_INNER_R, fill: colors.TFT_WHITE });
 
-  // ---- Percent-lift number above indexer ----
-  // displayAOA() :735-753: bold FreeSans 18pt with a 9-copy black outline at
-  // ±3 px. SVG `paint-order: stroke` on a single text node approximates the
-  // outline with one element instead of nine.
-  const pctLiftText = mk('text', {
-    x: G.PCT_LIFT_X, y: G.PCT_LIFT_Y,
-    'font-family': 'Helvetica, Arial, sans-serif',
-    'font-weight': 'bold',
-    'font-size': G.PCT_LIFT_FONT_SIZE,
-    fill: colors.TFT_WHITE,
-    stroke: colors.TFT_BLACK,
-    'stroke-width': G.PCT_LIFT_OUTLINE_PX,
-    'paint-order': 'stroke',
-    'dominant-baseline': 'alphabetic',
-    'text-anchor': 'start',
-  });
-  pctLiftText.textContent = '00';
-
   // ---- Corner readouts ----
   // displayAOA() :762-779: IAS top-left, G top-right.
   const iasLabel = mk('text', {
@@ -168,9 +151,21 @@ export function mountAoa(rootEl) {
     fill: colors.TFT_GREY,
     'shape-rendering': 'crispEdges',
   });
+  // Stop-mark dots at the arc endpoints (main.cpp:807-813). Static, drawn
+  // once at mount time. The arc sweeps from 0 to kFlapArcRad.
+  mk('circle', {
+    cx: G.FLAP_CX + Math.cos(0) * G.FLAP_STOP_R,
+    cy: G.FLAP_CY + Math.sin(0) * G.FLAP_STOP_R,
+    r: 1, fill: colors.TFT_WHITE,
+  });
+  mk('circle', {
+    cx: G.FLAP_CX + Math.cos(G.FLAP_ARC_RAD) * G.FLAP_STOP_R,
+    cy: G.FLAP_CY + Math.sin(G.FLAP_ARC_RAD) * G.FLAP_STOP_R,
+    r: 1, fill: colors.TFT_WHITE,
+  });
   const flapAngleText = mk('text', {
     x: G.FLAP_CX, y: G.FLAP_CY + 4,
-    'font-family': 'Helvetica, Arial, sans-serif', 'font-size': 12,
+    'font-family': 'Helvetica, Arial, sans-serif', 'font-size': 14,
     fill: colors.TFT_WHITE, 'text-anchor': 'middle',
   });
   flapAngleText.textContent = '0';
@@ -206,6 +201,28 @@ export function mountAoa(rootEl) {
     x: G.GONSET_BAR_X, y: G.GONSET_ZERO_Y, width: G.GONSET_BAR_W, height: 0,
     fill: colors.TFT_YELLOW,
   });
+
+  // ---- Percent-lift number (drawn LAST so it stays on top of the index bar) ----
+  // displayAOA() :735-753: bold FreeSans 18pt with a 9-copy black outline at
+  // ±3 px. SVG `paint-order: stroke` on a single text node approximates the
+  // outline with one element instead of nine. Centered over the indexer
+  // (text-anchor: middle at INDEXER_CX) — the C++ uses a hardcoded
+  // PERCENT_X_POS=140 with the bitmap font's intrinsic kerning to land
+  // visually centered over the chevron; for SVG with a different font,
+  // anchor: middle over INDEXER_CX is the correct approximation.
+  const pctLiftText = mk('text', {
+    x: G.PCT_LIFT_X, y: G.PCT_LIFT_Y,
+    'font-family': 'Helvetica, Arial, sans-serif',
+    'font-weight': 'bold',
+    'font-size': G.PCT_LIFT_FONT_SIZE,
+    fill: colors.TFT_WHITE,
+    stroke: colors.TFT_BLACK,
+    'stroke-width': G.PCT_LIFT_OUTLINE_PX,
+    'paint-order': 'stroke',
+    'dominant-baseline': 'alphabetic',
+    'text-anchor': 'middle',
+  });
+  pctLiftText.textContent = '00';
 
   rootEl.appendChild(svg);
 

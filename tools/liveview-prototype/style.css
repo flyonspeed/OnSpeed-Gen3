@@ -2,9 +2,9 @@
   --bg: #111;
   --ink: #eee;
   --panel-bg: #000;
-  --green: #07a33f;
-  --yellow: #ffe000;
-  --red: #cc3837;
+  --green: #10c050;
+  --yellow: #ffff00;
+  --red: #ff2222;
   --grey: #888;
   --dark-grey: #444;
   --light-grey: #aaa;
@@ -14,9 +14,9 @@
   --bg: #fafafa;
   --ink: #111;
   --panel-bg: #fff;
-  --green: #0a8a35;
-  --yellow: #c8a800;
-  --red: #b22a2a;
+  --green: #0c9a40;
+  --yellow: #d8b800;
+  --red: #c63030;
   --grey: #555;
   --dark-grey: #aaa;
   --light-grey: #888;
@@ -48,11 +48,21 @@ main {
   min-width: 320px;
 }
 
-#svg-root, #wasm-iframe {
+#svg-root {
   width: 320px;
   height: 240px;
   display: block;
   margin: 0 auto;
 }
 
-#wasm-iframe { border: 0; background: #000; }
+/* The wasm-live shell wraps its 320×240 canvas in flex column with its own
+   padding + a help line below — give the iframe enough room to show all of
+   it without clipping. */
+#wasm-iframe {
+  width: 320px;
+  height: 320px;
+  display: block;
+  margin: 0 auto;
+  border: 0;
+  background: #000;
+}

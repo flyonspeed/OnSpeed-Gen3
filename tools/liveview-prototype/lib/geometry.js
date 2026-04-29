@@ -91,10 +91,15 @@ export const PIP_INNER_R  = INDEXER_HEIGHT / 32;                // 6
 // displayAOA() :739-:760.
 // ----------------------------------------------------------------------------
 
-export const PCT_LIFT_X = 140;  // PERCENT_X_POS at :739
+// Centered above the indexer (matches INDEXER_CX). The C++ uses a hardcoded
+// PERCENT_X_POS=140 with the FSSB18 bitmap font's intrinsic kerning to land
+// over the chevron. For SVG with a different font we use INDEXER_CX (160)
+// with text-anchor: middle as the right approximation.
+export const PCT_LIFT_X = 160;
 export const PCT_LIFT_Y = 27;   // PERCENT_Y_POS at :740
-// Font: FSSB18 (FreeSans Bold 18pt). Closest CSS: 22 px bold.
-export const PCT_LIFT_FONT_SIZE = 22;
+// Font: FSSB18 (FreeSans Bold 18pt). Browser sans-serif at 26 px reads
+// closer to the M5 display's apparent size at the prototype's render scale.
+export const PCT_LIFT_FONT_SIZE = 26;
 // Outline: 9 black copies at ±3 offset.
 export const PCT_LIFT_OUTLINE_PX = 3;
 
@@ -108,8 +113,8 @@ export const CORNER_LABEL_Y  = 90;
 export const CORNER_NUM_Y    = 130;
 export const CORNER_LEFT_X   = 5;
 // Label font: FSS18 (FreeSans 18pt). Number font: FSSB18 (FreeSans Bold 18pt).
-export const CORNER_LABEL_FONT_SIZE = 18;
-export const CORNER_NUM_FONT_SIZE   = 22;
+export const CORNER_LABEL_FONT_SIZE = 22;
+export const CORNER_NUM_FONT_SIZE   = 26;
 
 // ----------------------------------------------------------------------------
 // Flap circle widget.
@@ -121,8 +126,12 @@ export const FLAP_CY = 204;
 export const FLAP_R  = 16;
 // Triangle apex sits at radius FLAP_R + 33.
 export const FLAP_TRIANGLE_TIP_R = FLAP_R + 33;
+// Stop-mark dots at the arc endpoints sit at the same radius as the apex
+// (main.cpp:809 stopRadius = Radius + 33).
+export const FLAP_STOP_R = FLAP_R + 33;
 // Visual arc the triangle sweeps (kFlapArcDeg).
 export const FLAP_ARC_DEG = 40;
+export const FLAP_ARC_RAD = FLAP_ARC_DEG * Math.PI / 180;
 
 // ----------------------------------------------------------------------------
 // Slip ball.
