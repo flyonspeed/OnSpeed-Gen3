@@ -165,6 +165,125 @@ export const SLIP_BALL_R   = SLIP_H / 2 - 1;       // 16
 export const SLIP_BALL_X_RANGE = (SLIP_W - SLIP_H - 1) / 2;  // 62.5
 
 // ----------------------------------------------------------------------------
+// Mode 1: Attitude / Backup AI
+// ----------------------------------------------------------------------------
+// Source: software/OnSpeed-M5-Display/src/main.cpp
+//   - case 1 block at lines 521-624 (corner readouts, slip ball, pitch
+//     readout, VSI tape).
+//   - AiGraph() at lines 1075-1279 (horizon polygon, aircraft symbol,
+//     flight path marker).
+//   - pitchGraph() at lines 1284-1345 (pitch ladder ticks + labels).
+//   - Globals at lines 134-135, 208-210 (WIDTH=320, HEIGHT=240,
+//     g_px0=159, g_py0=119, g_arcSize=115).
+// ----------------------------------------------------------------------------
+
+// Horizon / aircraft symbol center. main.cpp:208-209 (g_px0, g_py0).
+export const MODE1_HORIZON_CX = 159;
+export const MODE1_HORIZON_CY = 119;
+
+// Pixels per degree of pitch. main.cpp:1096 uses `HEIGHT/80` (240/80 = 3),
+// and the FPV at :1255 uses `120/40 = 3`. Both produce the same scale.
+export const MODE1_PITCH_HEIGHT_SCALE = 3;
+
+// Pitch ladder. main.cpp:1310 (short ticks every 10° from -85..+85),
+// :1328 (long ticks + numeric labels every 10° from -90..+90). The
+// short half-width is 10% of g_arcSize (:1301-1302); the long
+// half-width is 20%. g_arcSize=115 (:210), so short=11.5, long=23.
+export const MODE1_LADDER_STEP_DEG     = 10;
+export const MODE1_LADDER_SHORT_HALF_W = 0.10 * 115;  // ~11.5
+export const MODE1_LADDER_LONG_HALF_W  = 0.20 * 115;  // ~23
+export const MODE1_LADDER_SHORT_RANGE  = 85;          // -85..+85
+export const MODE1_LADDER_LONG_RANGE   = 90;          // -90..+90
+// Label x offset past the long tick end (xRotate*0.75 in C++ at :1340).
+export const MODE1_LADDER_LABEL_OFFSET = 0.75 * 0.20 * 115;  // ~17.25
+// Label font size. C++ uses FSS12 (~14 px tall). LESSONS rule: ~1.25× scale.
+export const MODE1_LADDER_FONT_SIZE = 16;
+
+// Aircraft reference symbol. main.cpp:1178-1231.
+// arcSize=100 inside AiGraph (:1178); the symbol uses arcSize, not
+// g_arcSize. Wing inner edge = arcSize/4 = 25; outer = arcSize = 100.
+export const MODE1_AIRCRAFT_ARC_SIZE       = 100;
+export const MODE1_AIRCRAFT_INNER_HALF_W   = 25;   // arcSize/4 (:1183-1186)
+export const MODE1_AIRCRAFT_OUTER_HALF_W   = 100;  // arcSize    (:1181, :1187)
+export const MODE1_AIRCRAFT_WING_HALF_LEN  = 75;   // 3*arcSize/4 (:1195)
+export const MODE1_AIRCRAFT_DROOP_DY       = 25;   // arcSize/4 (:1190)
+// Center circle: 2 degree radius in pitch units = 2 × HEIGHT/80 = 6 px (:1192).
+export const MODE1_AIRCRAFT_CENTER_R       = 6;
+// Wing/droop bar thickness — C++ stamps 7 parallel 1-px lines (-3..+3),
+// SVG renders that as a stroked path. 7 px tall total.
+export const MODE1_AIRCRAFT_BAR_THICKNESS  = 7;
+
+// Flight path marker. main.cpp:1255-1277.
+// Concentric magenta rings at radii 12, 13, 14. Wing bars are 3 px tall
+// (drawLine y-1, y, y+1) extending from x±14 to x±33. Top tick from
+// y-14 to y-33, 3 px wide.
+export const MODE1_FPV_CX            = 159;        // :1257
+export const MODE1_FPV_RING_RADII    = [12, 13, 14];
+export const MODE1_FPV_WING_INNER    = 14;
+export const MODE1_FPV_WING_OUTER    = 33;
+export const MODE1_FPV_BAR_THICKNESS = 3;
+
+// Pitch readout — small dark rounded rectangle over horizon line.
+// main.cpp:561-573.
+export const MODE1_PITCH_READOUT_X      = 55;
+export const MODE1_PITCH_READOUT_Y      = 129;
+export const MODE1_PITCH_READOUT_W      = 56;
+export const MODE1_PITCH_READOUT_H      = 21;
+export const MODE1_PITCH_READOUT_RADIUS = 3;
+// Text drawn middle_right at (100, 138) — :570.
+export const MODE1_PITCH_READOUT_TEXT_X = 100;
+export const MODE1_PITCH_READOUT_TEXT_Y = 138;
+// Degree symbol — drawCircle(106, 132, 2.5) at :573.
+export const MODE1_PITCH_READOUT_DEG_CX = 106;
+export const MODE1_PITCH_READOUT_DEG_CY = 132;
+export const MODE1_PITCH_READOUT_DEG_R  = 2.5;
+// Pitch number font. C++ uses FSSB18 (:576). LESSONS rule: ~1.25× scale,
+// but the 21-px-tall readout box constrains us — this number must fit
+// inside. CSS font-size 16 lands ~12 px cap height which fits the 21
+// px box with comfortable margin.
+export const MODE1_PITCH_READOUT_FONT_SIZE = 16;
+
+// Mode 1 corner readouts. main.cpp:527-595.
+export const MODE1_CORNER_LEFT_X       = 5;
+export const MODE1_CORNER_RIGHT_X      = 307;   // :532
+export const MODE1_CORNER_TOP_LABEL_Y  = 62;    // :540
+export const MODE1_CORNER_BOT_LABEL_Y  = 230;   // :541
+export const MODE1_CORNER_TOP_NUM_Y    = 30;    // :579, :584
+export const MODE1_CORNER_BOT_NUM_Y    = 198;   // :588, :593
+// Mode 1 uses FSS12 for labels (:542) and FSSB18 for numbers (:576).
+// FSS12 → 18 px CSS, FSSB18 → 33 px CSS (per LESSONS table).
+export const MODE1_CORNER_LABEL_FONT_SIZE = 18;
+export const MODE1_CORNER_NUM_FONT_SIZE   = 33;
+
+// Mode 1 slip ball. main.cpp:598 — drawSlip(80, 204, 160, 20).
+// SHORTER than Mode 0's 34-px height. Reuse mountSlipBall with these.
+export const MODE1_SLIP_X = 80;
+export const MODE1_SLIP_Y = 204;
+export const MODE1_SLIP_W = 160;
+export const MODE1_SLIP_H = 20;
+
+// Mode 1 VSI tape. main.cpp:600-621.
+// Same edgeTape widget as Mode 0's gOnset, but with VSI scaling and
+// orange bar color. height = |iVSI × 120 / 600|, clamped 0..120.
+export const MODE1_VSI_BAR_X        = 313;       // :609
+export const MODE1_VSI_BAR_W        = 7;
+export const MODE1_VSI_HEIGHT_SCALE = 120 / 600; // 0.2 px/fpm
+export const MODE1_VSI_HEIGHT_MAX   = 120;
+export const MODE1_VSI_ZERO_Y       = 119;       // :607-608
+// Tick ladder: every 20 px from y=19 to y=219 (:613).
+export const MODE1_VSI_TICK_X1      = 313;
+export const MODE1_VSI_TICK_X2      = 319;
+export const MODE1_VSI_TICK_FIRST_Y = 19;
+export const MODE1_VSI_TICK_LAST_Y  = 219;
+export const MODE1_VSI_TICK_STEP    = 20;
+// Zero pip — 3 horizontal lines at y=118,119,120 (:619-621).
+export const MODE1_VSI_PIP_X1       = 306;
+export const MODE1_VSI_PIP_X2       = 312;
+export const MODE1_VSI_PIP_Y_TOP    = 118;
+export const MODE1_VSI_PIP_Y_MIDDLE = 119;
+export const MODE1_VSI_PIP_Y_BOT    = 120;
+
+// ----------------------------------------------------------------------------
 // G-onset right-edge tape.
 // displayAOA() :845-:868.
 // ----------------------------------------------------------------------------
