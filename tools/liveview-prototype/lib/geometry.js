@@ -251,9 +251,13 @@ export const MODE1_CORNER_BOT_LABEL_Y  = 230;   // :541
 export const MODE1_CORNER_TOP_NUM_Y    = 30;    // :579, :584
 export const MODE1_CORNER_BOT_NUM_Y    = 198;   // :588, :593
 // Mode 1 uses FSS12 for labels (:542) and FSSB18 for numbers (:576).
-// FSS12 → 18 px CSS, FSSB18 → 33 px CSS (per LESSONS table).
+// FSS12 → 18 px CSS. FSSB18 nominally maps to 33 in browser Helvetica,
+// but Mode 1's numbers measured 1.2 grid-units against the M5 wasm-
+// live's 1.6-1.7. CSS font-size 37 brings them up to ~1.6 units —
+// Mode 0's corners use the same range (CORNER_NUM_FONT_SIZE=33) and
+// have headroom, so a bump there is safe too.
 export const MODE1_CORNER_LABEL_FONT_SIZE = 18;
-export const MODE1_CORNER_NUM_FONT_SIZE   = 33;
+export const MODE1_CORNER_NUM_FONT_SIZE   = 37;
 
 // Mode 1 slip ball. main.cpp:598 — drawSlip(80, 204, 160, 20).
 // SHORTER than Mode 0's 34-px height. Reuse mountSlipBall with these.
