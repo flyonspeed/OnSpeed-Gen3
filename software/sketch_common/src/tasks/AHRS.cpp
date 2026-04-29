@@ -132,6 +132,7 @@ AHRS::AHRS(int gyroSmoothing)
           /* pressureSampleRateHz */  static_cast<float>(kPressureSampleRateHz),
       })
     , iGyroSmoothing_(gyroSmoothing)
+    , gOnsetFilter_(0.25f)  // 250 ms tau — same as legacy DisplaySerial
 {
     AccelFwdCorr   = 0.0f;
     AccelLatCorr   = 0.0f;
@@ -153,6 +154,7 @@ AHRS::AHRS(int gyroSmoothing)
     fImuSampleRate = kImuSampleRateHz;
     fImuDeltaTime  = 1.0f / fImuSampleRate;
     fTAS           = 0.0f;
+    gOnsetRate     = 0.0f;
 
     AccelFwdFilter .seed(0.0f);
     AccelLatFilter .seed(0.0f);
@@ -199,6 +201,16 @@ void AHRS::Process(float fDeltaTimeSeconds)
     const onspeed::AhrsInputs in = SnapshotInputs_();
     core_.Step(in, fDeltaTimeSeconds);
     PublishCoreState_();
+
+    // Tick the G-onset rate filter against the freshly-published
+    // AccelVertFilter value.  Mirrors the legacy DisplaySerial path
+    // (which fed `g_AHRS.AccelVertFilter.get()` to a function-static
+    // GOnsetFilter ticked at 20 Hz); now the filter lives here so
+    // both M5 wire format and LiveView JSON read the same smoothed
+    // value, ticked at the AHRS rate (≈208 Hz on hardware).  Tau is
+    // 250 ms, so the higher tick rate just gives a slightly smoother
+    // output without changing the time constant.
+    gOnsetRate = gOnsetFilter_.Update(AccelVertFilter.get(), fDeltaTimeSeconds);
 }
 
 // ----------------------------------------------------------------------------

@@ -27,9 +27,11 @@
 
 #include <ahrs/Ahrs.h>
 #include <filters/EMAFilter.h>
+#include <filters/GOnsetFilter.h>
 #include <types/AhrsInputs.h>
 
 using onspeed::EMAFilter;
+using onspeed::GOnsetFilter;
 
 class AHRS
 {
@@ -58,6 +60,13 @@ public:
     // Latest attitude estimate (degrees).
     float           SmoothedPitch;
     float           SmoothedRoll;
+
+    // Low-pass-filtered first derivative of vertical G (g/s).  Single
+    // source of truth for the G-onset rate-tape signal — DisplaySerial
+    // (M5 wire format) and DataServer (LiveView JSON) both read this
+    // field, so the M5 hardware indicator and the web indicator agree
+    // bar-for-bar.  Updated each Process() tick from AccelVertCorr.
+    float           gOnsetRate;
 
     // Derived signals.
     float           TASdotSmoothed;
@@ -89,6 +98,11 @@ public:
 private:
     onspeed::ahrs::Ahrs core_;
     int                 iGyroSmoothing_;
+
+    // G-onset rate filter — Tau = 250 ms, ticked at the AHRS rate.
+    // Lives here (not in DisplaySerial) so DataServer can read the
+    // same filtered value through `gOnsetRate` above.
+    GOnsetFilter        gOnsetFilter_;
 
     // Build a fresh AhrsConfig from g_Config and the cached
     // gyroSmoothing window.  Called on every Init() so config edits

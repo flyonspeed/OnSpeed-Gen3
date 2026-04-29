@@ -7,10 +7,8 @@
 #include "../web_server/DataServer.h"
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
-#include <filters/GOnsetFilter.h>
 #include <proto/DisplaySerial.h>
 
-using onspeed::GOnsetFilter;
 using onspeed::m2ft;
 using onspeed::mps2fpm;
 using onspeed::aoa::ComputeDisplayPctAnchors;
@@ -154,20 +152,10 @@ void DisplaySerial::Write()
     else
         iDisplayVerticalG = 0;
 
-    // G-onset rate: low-pass-filtered d(verticalG)/dt for the M5's right-edge
-    // rate-tape widget. Tau = 250 ms; ticked at the wire rate (20 Hz) means
-    // alpha ≈ 0.167 per sample — heavy enough to reject single-sample noise,
-    // responsive enough to catch a half-second pull. Sign convention follows
-    // AccelVertFilter (production reaction-force convention: +1 g level,
-    // +2 g pull-up), so positive output means "G load increasing".
-    static GOnsetFilter sGOnsetFilter(0.25f);
-    static uint32_t     sLastOnsetMicros = 0;
-    const uint32_t      uNowMicros = micros();
-    const float fGOnsetRate = (sLastOnsetMicros == 0)
-        ? sGOnsetFilter.Update(fAccelVert, 1.0f)  // seed; dt ignored on first call
-        : sGOnsetFilter.Update(fAccelVert,
-                               (uNowMicros - sLastOnsetMicros) * 1.0e-6f);
-    sLastOnsetMicros = uNowMicros;
+    // G-onset rate: read the smoothed signal from AHRS, where the
+    // GOnsetFilter lives now so DataServer (LiveView JSON) and this
+    // wire-format consumer share one source.  See AHRS::Process().
+    const float fGOnsetRate = g_AHRS.gOnsetRate;
 
 
     // Snapshot the active flap entry plus the full flap vector once
