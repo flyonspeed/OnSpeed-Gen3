@@ -15,23 +15,31 @@
 #include "src/config/Config.h"
 #include "src/drivers/SensorIO.h"
 #include <filters/EMAFilter.h>
-#include <proto/CsvHeaderMatch.h>
 #include <proto/LogCsv.h>
+#include <proto/LogCsvHeaderIndex.h>
 #include <types/LogRow.h>
 
 using onspeed::pressureCoeff;
 using onspeed::fpm2mps;
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
-using onspeed::proto::HasColumn;
 
 FsFile                      hReplayFile;
 static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
 
-// Feature flags detected from the log file header line.
-static bool                 s_bReplayBoom  = false;
-static bool                 s_bReplayEfis  = false;
-static bool                 s_bReplayVn300 = false;
+// Header index built from the log file's own header line. Carries the
+// column-name -> ordinal mapping plus the boom/EFIS/VN-300 feature flags.
+static onspeed::proto::log_csv::HeaderIndex s_HeaderIndex{};
+
+// Permissive-mode warning sink for BuildHeaderIndex. Reports each missing
+// column on the replay channel; LogRow fields for absent columns stay at
+// their default and replay continues.
+static void ReplayHeaderWarn(const char* col, void* /*ud*/)
+    {
+    g_Log.printf(MsgLog::EnReplay, MsgLog::EnWarning,
+        "Replay log missing column: %s (best-effort, field stays at default)\n",
+        col);
+    }
 
 bool OpenReplayLog(String sLogFile);
 bool ReadLogLine();
@@ -144,30 +152,19 @@ bool OpenReplayLog(String sLogFile)
 
     RemoveSpaces(szInLine);
 
-    // Detect optional column groups from the header so ParseRow knows the
-    // column layout.  Presence of "boomStatic" indicates boom columns;
-    // "efisIAS" indicates standard EFIS; "vnAngularRateRoll" indicates VN-300.
-    s_bReplayBoom  = HasColumn(szInLine, "boomStatic");
-    s_bReplayVn300 = HasColumn(szInLine, "vnAngularRateRoll");
-    s_bReplayEfis  = s_bReplayVn300 || HasColumn(szInLine, "efisIAS");
-
-    // Validate that the required core columns are present.
-    if (!HasColumn(szInLine, "PfwdSmoothed")) goto fail;
-    if (!HasColumn(szInLine, "P45Smoothed"))  goto fail;
-    if (!HasColumn(szInLine, "flapsPos"))     goto fail;
-    if (!HasColumn(szInLine, "Palt"))         goto fail;
-    if (!HasColumn(szInLine, "IAS"))          goto fail;
-    if (!HasColumn(szInLine, "DataMark"))     goto fail;
-    if (!HasColumn(szInLine, "VSI"))          goto fail;
-    if (!HasColumn(szInLine, "VerticalG"))    goto fail;
-    if (!HasColumn(szInLine, "LateralG"))     goto fail;
-    if (!HasColumn(szInLine, "ForwardG"))     goto fail;
-    if (!HasColumn(szInLine, "RollRate"))     goto fail;
-    if (!HasColumn(szInLine, "PitchRate"))    goto fail;
-    if (!HasColumn(szInLine, "YawRate"))      goto fail;
-    if (!HasColumn(szInLine, "Pitch"))        goto fail;
-    if (!HasColumn(szInLine, "Roll"))         goto fail;
-    if (!HasColumn(szInLine, "FlightPath"))   goto fail;
+    // Name-keyed header parse. Permissive mode tolerates older logs from
+    // customer kits — missing columns log a warning and the corresponding
+    // LogRow fields stay at default; the rest of the log replays.
+    if (!onspeed::proto::log_csv::BuildHeaderIndex(
+            std::string_view(szInLine),
+            s_HeaderIndex,
+            onspeed::proto::log_csv::HeaderStrictness::Permissive,
+            nullptr, ReplayHeaderWarn, nullptr))
+        {
+        g_Log.printf(MsgLog::EnReplay, MsgLog::EnError,
+            "Replay header parse failed catastrophically (zero tokens?)\n");
+        goto fail;
+        }
 
     g_Log.printf("Replaying data from log file: %s\n", sLogFile.c_str());
     return true;
@@ -207,16 +204,17 @@ bool ReadLogLine()
         if (iCharsRead <= 0)
             return false;
 
-        // Parse the CSV line using the core formatter (position-based, not
-        // header-name-based).  Feature flags were detected from the header in
-        // OpenReplayLog.
+        // Parse the CSV line via the name-keyed HeaderIndex built in
+        // OpenReplayLog. The index carries the boom/EFIS/VN-300 feature
+        // flags discovered at header parse time.
         onspeed::LogRow row;
-        row.boomEnabled = s_bReplayBoom;
-        row.efisEnabled = s_bReplayEfis;
-        row.efisIsVn300 = s_bReplayVn300;
+        row.boomEnabled = s_HeaderIndex.boomEnabled;
+        row.efisEnabled = s_HeaderIndex.efisEnabled;
+        row.efisIsVn300 = s_HeaderIndex.efisIsVn300;
 
-        bool bOk = onspeed::proto::log_csv::ParseRow(
-                std::string_view(szInLine, (size_t)iCharsRead), row);
+        bool bOk = onspeed::proto::log_csv::ParseRowByIndex(
+                std::string_view(szInLine, (size_t)iCharsRead),
+                s_HeaderIndex, row);
         if (!bOk)
             continue;
 
