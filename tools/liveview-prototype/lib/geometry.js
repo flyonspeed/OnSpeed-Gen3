@@ -250,6 +250,14 @@ export const MODE1_PITCH_READOUT_FONT_SIZE = 16;
 // Mode 1 corner readouts. main.cpp:527-595.
 export const MODE1_CORNER_LEFT_X       = 5;
 export const MODE1_CORNER_RIGHT_X      = 307;   // :532
+// Right-side numbers shift left a few pixels relative to the label so
+// the right edge of the number's last glyph (the right vertical of
+// e.g. "0" in "00", or "5" in "5500") lines up with the right edge of
+// the label's "T" / "A". With B612 the digits have slightly different
+// right-side bearing than the FreeSans bitmaps M5 uses, and equal
+// `text-anchor=end` on both ends up offset by ~3 px. Pull the number
+// X in by 3 to land the visual right-edge alignment.
+export const MODE1_CORNER_RIGHT_NUM_X  = 304;
 export const MODE1_CORNER_TOP_LABEL_Y  = 62;    // :540
 export const MODE1_CORNER_BOT_LABEL_Y  = 230;   // :541
 // C++ baselines: top numbers at y=30 (:579, :584). User-measured the
