@@ -36,14 +36,17 @@ export function mountPitchReadout(parent, {
     fill: colors.TFT_DARKGREY,
   });
 
-  // Numeric pitch — middle-right datum at (textX, textY).
+  // Numeric pitch — center datum at (textX, textY). textX is the
+  // horizontal center of the dark rect; the digits are centered both
+  // horizontally (text-anchor: middle) and vertically (central
+  // baseline) inside the contrast region.
   const num = mk(group, 'text', {
     x: textX, y: textY,
-    'font-family': "'B612', 'Helvetica Neue', Arial, sans-serif",
+    'font-family': 'Helvetica, Arial, sans-serif',
     'font-weight': 'bold',
     'font-size': fontSize,
     fill: colors.TFT_WHITE,
-    'text-anchor': 'end',
+    'text-anchor': 'middle',
     'dominant-baseline': 'central',
   });
   num.textContent = '0.0';

@@ -62,7 +62,12 @@ function mk(parent, tag, attrs) {
 function drawRadialBar(parent, cx, cy, innerR, outerR, thickness, angleRad, fillColor, edgeColor) {
   const cosA = Math.cos(angleRad), sinA = Math.sin(angleRad);
   // Radial axis unit vector: (cosA, sinA). Perpendicular: (sinA, -cosA).
-  const half = thickness / 2;
+  // C++ MarkRbar uses thickness = 0.25 * barWidth = 3.75 px, with an
+  // alpha-blended dark edge from fillLine. After polish-pass-3 the
+  // user still reads our bars as thicker than wasm-live; pulling the
+  // polygon thickness down further so the total visual width
+  // (polygon + 1 px stroke) lands at ~2.5 px.
+  const half = (thickness - 1.75) / 2;
   const ix = cx + innerR * cosA, iy = cy + innerR * sinA;  // inner-center
   const ox = cx + outerR * cosA, oy = cy + outerR * sinA;  // outer-center
   // Four corners going CCW: inner-left, outer-left, outer-right, inner-right.
@@ -76,6 +81,7 @@ function drawRadialBar(parent, cx, cy, innerR, outerR, thickness, angleRad, fill
     stroke: edgeColor,
     'stroke-width': 1,
     'stroke-linejoin': 'miter',
+    'shape-rendering': 'crispEdges',
   });
 }
 

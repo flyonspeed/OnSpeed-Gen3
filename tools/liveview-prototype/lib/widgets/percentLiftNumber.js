@@ -22,7 +22,7 @@ export function mountPercentLiftNumber(parent, { cx, baselineY, fontSize, outlin
 
   const baseAttrs = {
     x: cx, y: baselineY,
-    'font-family': "'B612', 'Helvetica Neue', Arial, sans-serif",
+    'font-family': 'Helvetica, Arial, sans-serif',
     'font-weight': 'bold',
     'font-size': fontSize,
     'dominant-baseline': 'alphabetic',

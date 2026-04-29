@@ -234,49 +234,61 @@ export const MODE1_PITCH_READOUT_Y      = 129;
 export const MODE1_PITCH_READOUT_W      = 56;
 export const MODE1_PITCH_READOUT_H      = 21;
 export const MODE1_PITCH_READOUT_RADIUS = 3;
-// Text drawn middle_right at (100, 138) — :570.
-export const MODE1_PITCH_READOUT_TEXT_X = 100;
-export const MODE1_PITCH_READOUT_TEXT_Y = 138;
+// Text horizontally centered inside the box (x = 55 + 56/2 = 83) and
+// vertically centered (y = 129 + 21/2 ~= 139). C++ uses middle_right
+// at (100, 138) but the user wants the digit centered within the dark
+// rect rather than right-aligned at the degree symbol — the box
+// itself is the visual contrast region, and "0.0" off-center reads as
+// asymmetric.
+export const MODE1_PITCH_READOUT_TEXT_X = 83;
+// y=140: the dark rect spans y=129..150 (true vertical center 139.5).
+// User polish-pass-5: y=141 read too low next to the degree symbol
+// (whose center is at y=132 — higher than the M5's FSS12 baseline)
+// because the digit baseline is what the eye reads as "the row" and
+// at y=141 the digit cap-tops sit ~5 px below the degree symbol top.
+// y=140 reduces that to ~4 px and looks more like the M5's bitmap
+// rendering where the digit and degree symbol read as the same row.
+export const MODE1_PITCH_READOUT_TEXT_Y = 140;
 // Degree symbol — drawCircle(106, 132, 2.5) at :573.
 export const MODE1_PITCH_READOUT_DEG_CX = 106;
 export const MODE1_PITCH_READOUT_DEG_CY = 132;
 export const MODE1_PITCH_READOUT_DEG_R  = 2.5;
-// Pitch number font. C++ uses FSSB18 (:576). LESSONS rule: ~1.25× scale,
-// but the 21-px-tall readout box constrains us — this number must fit
-// inside. CSS font-size 16 lands ~12 px cap height which fits the 21
-// px box with comfortable margin.
-export const MODE1_PITCH_READOUT_FONT_SIZE = 16;
+// Pitch number font. User target: 1.5 grid units (~15 px) cap height.
+// Browser Helvetica at font-size 20 lands ~14.5 px cap height — close
+// enough to the target. Font-size 16 read as too short (~12 px cap).
+export const MODE1_PITCH_READOUT_FONT_SIZE = 20;
 
 // Mode 1 corner readouts. main.cpp:527-595.
+// Left-side label baseline x. Per polish-pass-5: digits should
+// left-align flush with the label's left edge — the +2 offset from
+// polish-pass-3 read as drifted right relative to "IAS" / "G".
 export const MODE1_CORNER_LEFT_X       = 5;
+export const MODE1_CORNER_LEFT_NUM_X   = 5;
 export const MODE1_CORNER_RIGHT_X      = 307;   // :532
-// Right-side numbers shift left a few pixels relative to the label so
-// the right edge of the number's last glyph (the right vertical of
-// e.g. "0" in "00", or "5" in "5500") lines up with the right edge of
-// the label's "T" / "A". With B612 the digits have slightly different
-// right-side bearing than the FreeSans bitmaps M5 uses, and equal
-// `text-anchor=end` on both ends up offset by ~3 px. Pull the number
-// X in by 3 to land the visual right-edge alignment.
-export const MODE1_CORNER_RIGHT_NUM_X  = 304;
+// Right-side numbers should align flush with the label's right edge.
+// Polish-pass-5: both PALT (top) and AOA (bottom) numbers go to x=307
+// to match the label's anchor x exactly — earlier offsets to 301/306
+// over-corrected for digit metrics and read as drifted left.
+export const MODE1_CORNER_TOP_RIGHT_NUM_X = 307;
+export const MODE1_CORNER_BOT_RIGHT_NUM_X = 307;
 export const MODE1_CORNER_TOP_LABEL_Y  = 62;    // :540
 export const MODE1_CORNER_BOT_LABEL_Y  = 230;   // :541
-// Top numbers (IAS, PALT) center vertically at y=29 — the pitch
-// ladder's topmost visible tick (i=-30 long tick) sits at
-// pyc - 30 × HEIGHT/80 = 119 - 90 = 29. With dominant-baseline
-// "central" the digit center sits at this y, so the top of the digit
-// caps is just above and the bottom is just below the topmost tick.
-// (The C++ uses setCursor(*, 30) with the FSSB18 bitmap font's
-// baseline-y semantics; with B612 in SVG, "central" baseline at 29
-// reads visually identical.)
-export const MODE1_CORNER_TOP_NUM_Y    = 29;
+// Top numbers (IAS, PALT) center vertically on the topmost VSI tick
+// at y=19 (MODE1_VSI_TICK_FIRST_Y). User polish-pass-4: the digits
+// were sitting ~10 px low (centered at y=29 instead of 19) — the tick
+// is a stronger visual anchor than the pitch ladder's i=-30 line, and
+// the user reads "centered on the first horizontal tick" as the
+// correct alignment. With dominant-baseline "central" the digit center
+// lands exactly on the tick line.
+export const MODE1_CORNER_TOP_NUM_Y    = 19;
 export const MODE1_CORNER_BOT_NUM_Y    = 198;   // :588, :593
 // Mode 1 uses FSS12 for labels (:542) and FSSB18 for numbers (:576).
-// User target after polish-pass-2 review: corner numbers at ~1.8 grid
-// units (was 1.2 with size 37). Bumping to 45 lands the cap height at
-// the requested target. Labels (FSS12) bump in proportion to keep the
-// visual relationship between label and number consistent.
+// User target after polish-pass-3 review: corner numbers at 2.5 grid
+// units (~25 px cap height). At browser Helvetica's ~73% cap-to-em
+// ratio, font-size 35 lands ~25.5 px cap. The size-45 from polish-2
+// over-shot at 3.3 units.
 export const MODE1_CORNER_LABEL_FONT_SIZE = 22;
-export const MODE1_CORNER_NUM_FONT_SIZE   = 45;
+export const MODE1_CORNER_NUM_FONT_SIZE   = 35;
 
 // Mode 1 slip ball. main.cpp:598 — drawSlip(80, 204, 160, 20).
 // SHORTER than Mode 0's 34-px height. Reuse mountSlipBall with these.
@@ -294,8 +306,10 @@ export const MODE1_VSI_HEIGHT_SCALE = 120 / 600; // 0.2 px/fpm
 export const MODE1_VSI_HEIGHT_MAX   = 120;
 export const MODE1_VSI_ZERO_Y       = 119;       // :607-608
 // Tick ladder: every 20 px from y=19 to y=219 (:613).
+// Tick endpoints. Per user polish-pass-3: ticks must touch the right
+// edge of the panel (x=320), not stop one pixel short.
 export const MODE1_VSI_TICK_X1      = 313;
-export const MODE1_VSI_TICK_X2      = 319;
+export const MODE1_VSI_TICK_X2      = 320;
 export const MODE1_VSI_TICK_FIRST_Y = 19;
 export const MODE1_VSI_TICK_LAST_Y  = 219;
 export const MODE1_VSI_TICK_STEP    = 20;
@@ -305,6 +319,136 @@ export const MODE1_VSI_PIP_X2       = 312;
 export const MODE1_VSI_PIP_Y_TOP    = 118;
 export const MODE1_VSI_PIP_Y_MIDDLE = 119;
 export const MODE1_VSI_PIP_Y_BOT    = 120;
+
+// ----------------------------------------------------------------------------
+// Mode 3: Energy / decel gauge
+// ----------------------------------------------------------------------------
+// Source: software/OnSpeed-M5-Display/src/main.cpp::displayDecelGauge()
+// at lines 1350-1432.
+// ----------------------------------------------------------------------------
+
+// Vertical band gauge: 102×210 rounded rect spanning the central column.
+// main.cpp:1353-1355.
+export const MODE3_GAUGE_X      = 109;
+export const MODE3_GAUGE_Y      = 1;
+export const MODE3_GAUGE_W      = 102;
+export const MODE3_GAUGE_H      = 210;
+export const MODE3_GAUGE_RADIUS = 5;
+// Green band inside the red gauge (the "OnSpeed" target zone).
+// main.cpp:1354.
+export const MODE3_GAUGE_GREEN_X = 109;
+export const MODE3_GAUGE_GREEN_Y = 87;
+export const MODE3_GAUGE_GREEN_W = 102;
+export const MODE3_GAUGE_GREEN_H = 36;
+
+// Pointer is 7 px tall, full gauge width.
+// main.cpp:1357-1362. Position formula:
+//   decelIndex = 35.143 * SmoothedDecelRate + 141.48 - 3.5
+//   clamped to [2, 205] so the pointer never escapes the gauge.
+// 3.5 is half the pointer height (7/2). At decelRate=0 the pointer
+// CENTER lands at y=141 (decelIndex=138 + 3.5).
+export const MODE3_POINTER_W           = 102;
+export const MODE3_POINTER_H           = 7;
+export const MODE3_POINTER_X           = 109;
+export const MODE3_DECEL_SCALE         = 35.143;     // px per kt/s
+export const MODE3_DECEL_OFFSET        = 141.48;     // y at decelRate=0 (center)
+export const MODE3_POINTER_HALF_H      = 3.5;
+export const MODE3_POINTER_Y_MIN       = 2;
+export const MODE3_POINTER_Y_MAX       = 205;
+
+// Gauge labels at left of gauge — drawn middle_right at (95, *).
+// main.cpp:1368-1372.
+export const MODE3_GAUGE_LABEL_X = 95;
+export const MODE3_GAUGE_LABELS  = [
+  { text: '-3', y:  36 },
+  { text: '-2', y:  72 },
+  { text: '-1', y: 106 },
+  { text:  '0', y: 141 },
+  { text:  '1', y: 177 },
+];
+// Pip ticks aligned with each label. main.cpp:1376-1380.
+export const MODE3_PIP_X1 = 99;
+export const MODE3_PIP_X2 = 107;
+// Gauge label font: FSS9 in C++ (small). User polish: target ~1.1
+// grid units cap height (~11 px). Browser Helvetica at font-size 15
+// lands ~11 px cap, matching the M5 wasm-live FSS9 visual size.
+export const MODE3_GAUGE_LABEL_FONT_SIZE = 15;
+
+// VSI tape — same geometry as Mode 1's VSI tape, but tick color is
+// TFT_LIGHT_GREY (main.cpp:1397) instead of TFT_BLACK.
+// All other constants (bar x/w, height scale, tick step, zero pip)
+// match MODE1_VSI_*.
+
+// Slip ball — y=215 (vs y=204 for Mode 0/1). main.cpp:1406.
+export const MODE3_SLIP_X = 80;
+export const MODE3_SLIP_Y = 215;
+export const MODE3_SLIP_W = 160;
+export const MODE3_SLIP_H = 20;
+
+// Corner readouts — IAS top-left, Kt/s top-right. Same y values as
+// Mode 0's IAS/G corners. main.cpp:1409-1431.
+export const MODE3_CORNER_LEFT_X    = 5;
+export const MODE3_CORNER_LEFT_NUM_X = 7;       // matches C++ :1425
+export const MODE3_CORNER_RIGHT_X   = 303;
+export const MODE3_CORNER_LABEL_Y   = 90;
+export const MODE3_CORNER_NUM_Y     = 130;
+
+// ----------------------------------------------------------------------------
+// Mode 4: G-load history (60 s strip chart)
+// ----------------------------------------------------------------------------
+// Source: software/OnSpeed-M5-Display/src/main.cpp::displayGloadHistory()
+// at lines 1437-1493. Sample loop at lines 465-471 (5 Hz gate).
+// ----------------------------------------------------------------------------
+
+// 300 samples × 5 Hz = 60 s, drawn at x=20..319 (one column per sample).
+export const MODE4_BUFFER_LEN  = 300;
+export const MODE4_SAMPLE_MS   = 200;     // 5 Hz gate, main.cpp:465
+export const MODE4_TRACE_X_MIN = 20;
+export const MODE4_TRACE_X_MAX = 319;
+
+// Frame: vertical axis at x=19, 1 G horizontal line at y=133 (white).
+// main.cpp:1441-1444.
+export const MODE4_AXIS_X       = 19;
+export const MODE4_ONE_G_Y      = 133;
+export const MODE4_AXIS_Y_TOP   = 0;
+export const MODE4_AXIS_Y_BOT   = 239;
+
+// 7 grey gridlines (above + below 1G), main.cpp:1446-1453.
+export const MODE4_GRIDLINE_YS = [27, 53, 80, 106, 160, 186, 213];
+
+// Pip labels at left of axis (middle_right at x=18). main.cpp:1461-1468.
+// Each entry is { text, y }.
+export const MODE4_PIP_LABEL_X = 18;
+export const MODE4_PIP_LABELS  = [
+  { text:  '5', y:  27 },
+  { text:  '4', y:  53 },
+  { text:  '3', y:  80 },
+  { text:  '2', y: 106 },
+  { text:  '1', y: 133 },
+  { text:  '0', y: 160 },
+  { text: '-1', y: 186 },
+  { text: '-2', y: 213 },
+];
+// FSS12 in C++. User polish: 24 read crowded against the gridlines
+// (the gridlines are ~26 px apart so 1.8-unit caps eat the whole
+// row), 16 read too small. 20 splits the difference: ~14.5 px cap,
+// ~1.45 units, leaves visible breathing room above/below each pip.
+export const MODE4_PIP_FONT_SIZE = 20;
+
+// Header "G-LOAD [1 min]" — top_center at (160, 2). main.cpp:1471-1473.
+// Header uses the same FSS12 as pips. Matched to pip size for
+// visual consistency.
+export const MODE4_HEADER_TEXT = 'G-LOAD [1 min]';
+export const MODE4_HEADER_X = 160;
+export const MODE4_HEADER_Y = 2;
+export const MODE4_HEADER_FONT_SIZE = 20;
+
+// G to y conversion: y = 160 - g*26.67, clamped 0..239. main.cpp:1481.
+export const MODE4_DOT_Y_OFFSET = 160;
+export const MODE4_DOT_Y_SCALE  = 26.67;
+export const MODE4_DOT_Y_MIN    = 0;
+export const MODE4_DOT_Y_MAX    = 239;
+export const MODE4_DOT_R        = 2;
 
 // ----------------------------------------------------------------------------
 // G-onset right-edge tape.

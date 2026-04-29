@@ -80,8 +80,8 @@ export function mountAttitude(rootEl) {
   //   - G (bottom-left) and AOA% (bottom-right): TFT_WHITE on the ground
   const ias = mountCornerReadout(svg, {
     labelText: 'IAS',
-    labelX: G.MODE1_CORNER_LEFT_X, labelY: G.MODE1_CORNER_TOP_LABEL_Y,
-    numX:    G.MODE1_CORNER_LEFT_X, numY: G.MODE1_CORNER_TOP_NUM_Y,
+    labelX: G.MODE1_CORNER_LEFT_X,     labelY: G.MODE1_CORNER_TOP_LABEL_Y,
+    numX:    G.MODE1_CORNER_LEFT_NUM_X, numY: G.MODE1_CORNER_TOP_NUM_Y,
     labelAnchor: 'start',
     labelColor: colors.TFT_GREY,
     numColor:   colors.TFT_BLACK,
@@ -93,9 +93,9 @@ export function mountAttitude(rootEl) {
   const palt = mountCornerReadout(svg, {
     labelText: 'PALT',
     labelX: G.MODE1_CORNER_RIGHT_X, labelY: G.MODE1_CORNER_TOP_LABEL_Y,
-    // Number x shifted -3 from label x so the digit's right edge lines
-    // up with the right edge of the "T" in "PALT".
-    numX:    G.MODE1_CORNER_RIGHT_NUM_X, numY: G.MODE1_CORNER_TOP_NUM_Y,
+    // Number x tuned to align the digit's right edge with the right
+    // edge of the "T" in "PALT".
+    numX:    G.MODE1_CORNER_TOP_RIGHT_NUM_X, numY: G.MODE1_CORNER_TOP_NUM_Y,
     labelAnchor: 'end',
     labelColor: colors.TFT_GREY,
     numColor:   colors.TFT_BLACK,
@@ -106,8 +106,8 @@ export function mountAttitude(rootEl) {
   });
   const gReadout = mountCornerReadout(svg, {
     labelText: 'G',
-    labelX: G.MODE1_CORNER_LEFT_X, labelY: G.MODE1_CORNER_BOT_LABEL_Y,
-    numX:    G.MODE1_CORNER_LEFT_X, numY: G.MODE1_CORNER_BOT_NUM_Y,
+    labelX: G.MODE1_CORNER_LEFT_X,     labelY: G.MODE1_CORNER_BOT_LABEL_Y,
+    numX:    G.MODE1_CORNER_LEFT_NUM_X, numY: G.MODE1_CORNER_BOT_NUM_Y,
     labelAnchor: 'start',
     labelColor: colors.TFT_LIGHTGREY,
     numColor:   colors.TFT_WHITE,
@@ -117,9 +117,9 @@ export function mountAttitude(rootEl) {
   const aoa = mountCornerReadout(svg, {
     labelText: 'AOA',
     labelX: G.MODE1_CORNER_RIGHT_X, labelY: G.MODE1_CORNER_BOT_LABEL_Y,
-    // Number x shifted -3 from label x so the digit's right edge lines
-    // up with the right edge of the "A" in "AOA".
-    numX:    G.MODE1_CORNER_RIGHT_NUM_X, numY: G.MODE1_CORNER_BOT_NUM_Y,
+    // Number x tuned to align the digit's right edge with the right
+    // edge of the "A" in "AOA".
+    numX:    G.MODE1_CORNER_BOT_RIGHT_NUM_X, numY: G.MODE1_CORNER_BOT_NUM_Y,
     labelAnchor: 'end',
     labelColor: colors.TFT_LIGHTGREY,
     numColor:   colors.TFT_WHITE,
