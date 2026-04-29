@@ -406,6 +406,60 @@ void test_parserowbyindex_efis_roundtrip(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, src.imuPitchRateDps, dst.imuPitchRateDps);
 }
 
+// Permissive-mode counters used by the warn-sink callbacks below. File-scope
+// statics so the C-style sink signature can reach them without userdata
+// gymnastics; reset at the top of each test.
+namespace {
+int g_warnCount = 0;
+const char* g_lastWarn = nullptr;
+void CountingWarnSink(const char* missing, void* /*userdata*/)
+{
+    g_warnCount++;
+    g_lastWarn = missing;
+}
+}  // namespace
+
+void test_build_index_permissive_missing_required_warns_continues(void)
+{
+    // Drop "flapsPos" from the canonical header. Strict would hard-fail;
+    // Permissive emits a warning and keeps going.
+    static const char kHeader[] =
+        "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
+        "AngleofAttack,DataMark,OAT,TAS,"
+        "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
+        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
+
+    g_warnCount = 0; g_lastWarn = nullptr;
+    HeaderIndex idx;
+    bool ok = BuildHeaderIndex(kHeader, idx, HeaderStrictness::Permissive,
+                               nullptr, CountingWarnSink, nullptr);
+
+    TEST_ASSERT_TRUE(ok);                              // permissive succeeds
+    TEST_ASSERT_GREATER_THAN_INT(0, g_warnCount);      // warned about flapsPos
+    TEST_ASSERT_EQUAL_INT(-1, idx.idxFlapsPos);        // field absent
+    TEST_ASSERT_EQUAL_STRING("flapsPos", g_lastWarn);
+}
+
+void test_build_index_permissive_partial_boom_warns_no_enable(void)
+{
+    // Five-of-six boom columns: a partial group. Strict hard-fails; in
+    // Permissive the group stays disabled and one warning fires for boomAge.
+    std::string hdr;
+    hdr.append(kCoreHead).append(",")
+       .append("boomStatic,boomDynamic,boomAlpha,boomBeta,boomIAS")
+       .append(",").append(kDerivedTail);
+
+    g_warnCount = 0; g_lastWarn = nullptr;
+    HeaderIndex idx;
+    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Permissive,
+                               nullptr, CountingWarnSink, nullptr);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(idx.boomEnabled);   // partial group not turned on
+    TEST_ASSERT_EQUAL_INT(1, g_warnCount); // exactly one missing column
+    TEST_ASSERT_EQUAL_STRING("boomAge", g_lastWarn);
+}
+
 void test_parserowbyindex_vn300_roundtrip(void)
 {
     onspeed::LogRow src{};
@@ -492,6 +546,8 @@ int main(int, char**)
     RUN_TEST(test_parserowbyindex_empty_field_fails);
     RUN_TEST(test_parserowbyindex_reordered_roundtrip);
     RUN_TEST(test_parserowbyindex_efis_roundtrip);
+    RUN_TEST(test_build_index_permissive_missing_required_warns_continues);
+    RUN_TEST(test_build_index_permissive_partial_boom_warns_no_enable);
     RUN_TEST(test_parserowbyindex_vn300_roundtrip);
     return UNITY_END();
 }
