@@ -1,9 +1,11 @@
 # LiveView Prototype
 
-A standalone browser harness for iterating the OnSpeed five-mode SVG indexer
-without flashing firmware. Renders the same SVG that will eventually live in
-`software/OnSpeed-Gen3-ESP32/Web/html_liveview.h`, driven by a synthetic
-data generator and validated side-by-side against the M5's wasm-live sim.
+Browser-iterable Preact source for the firmware's `/indexer` web page.
+
+The actual firmware artifact —
+`software/OnSpeed-Gen3-ESP32/Web/html_indexer.h` — is **generated**
+from this directory by `scripts/build_liveview_html.py`. The
+prototype is the source of truth; the header is the build product.
 
 ## Quick start
 
@@ -21,38 +23,70 @@ python3 -m http.server 8080
 # 4. Open http://localhost:8080/ in a browser
 ```
 
-The prototype shows two panels side-by-side: the new SVG indexer (left)
-and the wasm-live sim (right). Both consume the same synthetic data feed
-(JS objects to the SVG, `#1` ASCII binary frames to the WASM via
-`_inject_serial_byte`).
+The prototype shows the SVG indexer (left) and the wasm-live M5 sim
+(right). Both consume the same synthetic data feed; visual A/B
+ensures the SVG and the M5 hardware agree at the pixel level.
 
 Use the scenario buttons at the top to drive the data through canned
-manoeuvres (ground idle, cruise, approach, stall warning, recovery).
+maneuvers (idle, cruise, approach, stall warning).
 
-## Tests
+## Architecture
 
-Open `http://localhost:8080/test/runner.html` to run the unit tests in
-the browser. The pure JS modules in `lib/` (color decisions, percent-to-y
-mapping, slip ball math, etc.) are all covered.
+The prototype is a Preact app. Each of the five modes (AOA primary,
+Backup AI, Indexer-only, Energy, G-history) is a Preact component
+that takes a record `r` (the WebSocket payload shape) and returns an
+SVG tree. Components are pure functions of props — no imperative DOM
+management, no `update()` closures.
+
+```
+lib/
+├── colors.js, geometry.js, pct2y.js,    ← framework-free math + tokens
+│   chevronColors.js, donutColors.js,
+│   slipBall.js, flapWidget.js
+├── components.js                         ← 16 reusable Preact components
+├── modes.js                              ← Mode0..Mode4 compositions
+├── main.js                               ← Synthetic-scenario harness entry
+├── scenarios.js, frameBuilder.js         ← Synthetic data generator + wasm bridge
+├── firmware/
+│   ├── App.js                            ← Top-level <App/> — firmware UI
+│   ├── wsClient.js                       ← WebSocket reconnect + age timer
+│   └── style.css                         ← Page chrome (header/nav/footer)
+└── vendor/
+    ├── preact-standalone.js              ← Preact + htm, MIT licensed
+    └── VENDOR.md                         ← License + refresh procedure
+```
+
+Component-level conventions:
+
+- Components live in `lib/components.js`. They take props, return
+  an htm template literal, and are imported by `lib/modes.js`.
+- Modes (in `lib/modes.js`) compose components against a record
+  `r`. Each mode is a 10-30 line Preact component.
+- The firmware entry point (`lib/firmware/App.js`) owns one
+  `<App/>` component, manages mode/datafields state via `useState`,
+  subscribes to the WebSocket via `useEffect`, and re-renders at
+  20 Hz.
 
 ## Firmware bundle
 
-This prototype is the source of truth for the firmware's `/live`
-page. The actual firmware artifact —
-`software/OnSpeed-Gen3-ESP32/Web/html_liveview.h` — is **generated**
-by `scripts/build_liveview_html.py` from the JS modules and CSS in
-this directory plus the firmware-side shell at `lib/firmware/`.
+`scripts/build_liveview_html.py` walks `lib/`, concatenates all JS
+in topological order with `import`/`export` keywords stripped, and
+emits the result as a single PROGMEM string at
+`software/OnSpeed-Gen3-ESP32/Web/html_indexer.h`.
+
+The Preact bundle is special-cased: wrapped in an IIFE that returns
+its named exports as an object so Preact's single-letter internals
+(e, n, _, t, h, ...) don't collide with our top-level scope.
 
 ### Editing prototype source
 
-When you change anything under `tools/liveview-prototype/lib/`,
-`tools/liveview-prototype/style.css`, or
-`tools/liveview-prototype/lib/firmware/`, regenerate
-`html_liveview.h` and commit BOTH:
+When you change anything under `tools/liveview-prototype/lib/` or
+`tools/liveview-prototype/style.css`, regenerate `html_indexer.h`
+and commit BOTH:
 
 ```bash
 python3 scripts/build_liveview_html.py
-git add tools/liveview-prototype/... software/OnSpeed-Gen3-ESP32/Web/html_liveview.h
+git add tools/liveview-prototype/... software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
 git commit
 ```
 
@@ -62,33 +96,14 @@ hook) compile against the latest version automatically. CI verifies
 the header matches what the script would produce — a forgotten
 regeneration fails PR checks.
 
-PlatformIO users: a `pio run` regenerates the header on demand
-(skip-if-fresh) so contributors who DON'T touch prototype source pay
-no overhead.
-
-### The firmware-side shell (`lib/firmware/`)
-
-Three files only the firmware bundle uses:
-
-- `wsClient.js` — WebSocket connection to `ws://192.168.0.1:81`
-  with the legacy /live's reconnect logic. Maps the firmware's JSON
-  schema to the record shape the modes consume.
-- `dataFields.js` — Collapsible 13-row data-fields table preserved
-  from the legacy /live for diagnostic continuity.
-- `main.js` — Entry point. Mounts panels, subscribes them to the
-  WebSocket, wires the mode-toggle buttons.
-- `style.css` — Page chrome (status header, mode-button row,
-  datafields toggle, footer warning).
-
-The browser harness's `index.html` doesn't load these — it uses
-`lib/main.js` and synthetic scenarios.
+PlatformIO users: `pio run` regenerates the header on demand
+(skip-if-fresh).
 
 ### Local firmware preview without flashing
 
-`firmware-preview.html` mounts the same firmware-side modules with
-real ES module imports against an actual OnSpeed device's
-WebSocket. Useful for iterating on the WebSocket client + datafields
-table without flashing:
+`firmware-preview.html` mounts `<App/>` directly (no bundling) so
+you can iterate on the firmware UI against an OnSpeed device's
+WebSocket:
 
 ```bash
 # 1. Make sure your laptop is on the OnSpeed AP (SSID "OnSpeed",
@@ -100,6 +115,6 @@ cd tools/liveview-prototype && python3 -m http.server 8765
 
 ### Don't edit the generated header
 
-`html_liveview.h` starts with a `// AUTO-GENERATED` comment. If you
+`html_indexer.h` starts with a `// AUTO-GENERATED` comment. If you
 find yourself editing it, stop — your changes will be erased on the
 next build. Edit the prototype source instead and regenerate.

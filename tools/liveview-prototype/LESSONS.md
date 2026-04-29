@@ -1,31 +1,36 @@
-# LiveView Prototype — Lessons Learned (Stage 1 → Stage 2+)
+# LiveView Prototype — Lessons Learned
 
-This memo captures what we figured out building Mode 0 (Primary AOA + corner
-readouts) so Stages 2–5 don't re-litigate the same questions.  Anyone
-implementing the next mode should read this **before** writing code.
+This memo captures the design decisions and pixel-level details we
+landed during the 5-mode SVG renderer build. Anyone editing or
+extending the prototype should read this **before** writing code.
 
-## The widget pattern is non-negotiable
+## Components are pure functions of props
 
-Every visible element on screen lives in `lib/widgets/X.js` as a
-`mountX(parent, config) → { el, update(record) }` function.  Widgets are
-self-contained: they own the SVG elements they create, and `update()`
-sets attributes on those elements per frame.  Modes (`lib/modes/Y.js`)
-compose widgets — they never inline `<rect>` or `<text>` directly.
+Every visible element lives as a Preact component in
+`lib/components.js`. Each component takes props and returns an htm
+template literal — no imperative DOM management, no `update()`
+closures, no mounting or lifecycle juggling. The five modes
+(`lib/modes.js`) are themselves Preact components that compose the
+shared components against a record `r`.
 
-Existing widgets ready to reuse for Stages 2–5:
+Existing components, ready to reuse:
 
-| Widget | What it draws | Used by |
+| Component | What it draws | Used by |
 | --- | --- | --- |
-| `widgets/indexer.js` | Bounding rect + 4 chevron halves + 3-segment donut + index bar + L/Dmax pips | Mode 0, Mode 2 |
-| `widgets/percentLiftNumber.js` | Big two-digit number with black halo | Mode 0, Mode 2 |
-| `widgets/cornerReadout.js` | Label + bold number pair (configurable color, anchor) | Mode 0, Mode 1, Mode 3 |
-| `widgets/flapCircle.js` | Gray circle + rotating triangle + stop-mark dots + numeric flap angle | Mode 0 |
-| `widgets/slipBall.js` | Tick frame + ball with stall-flash logic | Mode 0, Mode 1, Mode 3 |
-| `widgets/edgeTape.js` | Right-edge bar + tick ladder + zero pip | Mode 0 (G-onset), Mode 1 (VSI), Mode 3 (VSI) |
+| `Indexer` | Bounding rect + 4 chevron halves + 3-segment donut + index bar + L/Dmax pips | Mode 0, Mode 2 |
+| `PercentLiftNumber` | Big two-digit number with black halo | Mode 0, Mode 2 |
+| `CornerReadout` | Label + bold number pair (configurable color, anchor) | Mode 0, Mode 1, Mode 3 |
+| `FlapCircle` | Gray circle + rotating triangle + stop-mark dots + numeric flap angle | Mode 0 |
+| `SlipBall` | Tick frame + ball with stall-flash logic | Mode 0, Mode 1, Mode 3 |
+| `EdgeTape` | Right-edge bar + tick ladder + zero pip | Mode 0 (G-onset), Mode 1 + Mode 3 (VSI) |
+| `Horizon`, `PitchLadder`, `BankArc`, `AircraftSymbol`, `TopPointer`, `FlightPathMarker`, `PitchReadout` | Mode 1 attitude indicator pieces | Mode 1 |
+| `DecelGauge` | Vertical band gauge with sliding pointer | Mode 3 |
+| `GHistory` | 60-second strip chart with color-banded dots | Mode 4 |
+| `StaleOverlay` | M5-style red X + "NO DATA" pill when WS is stale | All modes |
 
-If a new mode needs a kind of widget that doesn't exist, add it to
-`lib/widgets/`.  Don't draw shapes inline in a mode file; that's how the
-codebase becomes hostile to refactor.
+If a new mode needs new visual primitive, add a component to
+`lib/components.js`. Don't inline `<rect>`/`<text>` in a mode file —
+the abstraction boundary keeps modes readable as composition.
 
 ## Read C++ source AND GaugeWidgets first, every time
 
@@ -234,31 +239,35 @@ files that copy widget-mount blocks.
 Mode 2 (`indexer-only.js`) is implemented as a thin wrapper:
 
 ```js
-export function mountIndexerOnly(rootEl) {
-  return mountAoa(rootEl, { numericDisplay: false });
-}
+// modes.js
+export const Mode2 = ({ r, stale }) => html`
+  <${Mode0} r=${r} stale=${stale} numericDisplay=${false} />`;
 ```
 
 Why this matters:
 1. Future polish to Mode 0 (e.g., chevron color tweaks, percent-lift
    font changes) automatically flows to Mode 2 — they cannot drift.
-2. The diff between modes is a single `if (numericDisplay) { ... }`
-   block, not a side-by-side file diff.
+2. The diff between modes is a single conditional in JSX, not a
+   side-by-side file diff.
 3. The wrapper documents the C++ relationship inline — the next reader
    sees that Mode 2 is "Mode 0 with corners off" without reading both
    files.
 
-Apply the same pattern any time two modes share >70% of their widgets.
+Apply the same pattern any time two modes share >70% of their visuals.
 For modes with structurally different layouts (Mode 1 Attitude, Mode 3
-Energy, Mode 4 G-history), separate files are correct.
+Energy, Mode 4 G-history), separate compositions are correct.
 
 ## Files to know about
 
-- `tools/liveview-prototype/lib/colors.js` — CSS variable mapping
-- `tools/liveview-prototype/lib/geometry.js` — every layout constant
-- `tools/liveview-prototype/lib/scenarios.js` — synthetic data drivers
-- `tools/liveview-prototype/lib/main.js` — pump + mode dispatch
-- `tools/liveview-prototype/lib/widgets/*.js` — reusable building blocks
-- `tools/liveview-prototype/lib/modes/aoa.js` — Mode 0 composition (reference)
-- `tools/liveview-prototype/measure.html` — A/B harness
-- `tools/liveview-prototype/test/runner.html` — unit-test runner
+- `lib/colors.js` — CSS variable mapping for TFT_* tokens
+- `lib/geometry.js` — every layout constant for all 5 modes
+- `lib/components.js` — 16 reusable Preact components
+- `lib/modes.js` — Mode0..Mode4 compositions
+- `lib/main.js` — synthetic-scenario harness entry
+- `lib/scenarios.js` — synthetic data drivers
+- `lib/firmware/App.js` — top-level Preact <App/> for the firmware page
+- `lib/firmware/wsClient.js` — WebSocket connect + reconnect
+- `lib/firmware/style.css` — page chrome (header, mode-nav, footer)
+- `lib/vendor/preact-standalone.js` — vendored Preact + htm (MIT)
+- `measure.html` — A/B harness against the wasm-live M5 sim
+- `firmware-preview.html` — local preview of the firmware page
