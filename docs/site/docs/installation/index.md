@@ -16,7 +16,6 @@ Follow these in order:
 - **[OAT Sensor](oat-sensor.md)** — DS18B20 temperature sensor for standalone installations
 - **[External Display](external-display.md)** — M5Stack cockpit display
 - **[Boom Probe](boom-probe.md)** — Reference AOA probe for testing
-- **[AOA Indexer LEDs](indexer.md)** — planned visual AOA indicator (not yet supported in firmware)
 
 ## Before You Start
 
