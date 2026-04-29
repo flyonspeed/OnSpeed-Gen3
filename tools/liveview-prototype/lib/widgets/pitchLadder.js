@@ -41,9 +41,15 @@ export function mountPitchLadder(parent, {
 
   // Build per-tick records. Each record has a `<line>` and (for long ticks)
   // a `<text>` whose position is updated each frame.
+  //
+  // The C++ at main.cpp:1310,1328 includes i=0 in both loops — the 0°
+  // tick coincides with the horizon line on the bar, and the "0°"
+  // label sits at the right end of the long tick. We mirror that here
+  // (no `if i===0 continue`); when pitch=0 and roll=0 the 0° tick
+  // overlays the horizon edge and reads as a slightly thicker line at
+  // the horizon.
   const shortTicks = [];
   for (let i = -shortRange; i <= shortRange; i += step) {
-    if (i === 0) continue;  // 0° tick is the horizon itself
     const line = mk(group, 'line', {
       x1: 0, y1: 0, x2: 0, y2: 0,
       stroke: colors.TFT_BLACK, 'stroke-width': 1,
@@ -52,7 +58,6 @@ export function mountPitchLadder(parent, {
   }
   const longTicks = [];
   for (let i = -longRange; i <= longRange; i += step) {
-    if (i === 0) continue;
     const line = mk(group, 'line', {
       x1: 0, y1: 0, x2: 0, y2: 0,
       stroke: colors.TFT_BLACK, 'stroke-width': 1,
