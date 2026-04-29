@@ -7,8 +7,9 @@ export function run(assert) {
   const svg = document.createElementNS(SVG_NS, 'svg');
   const w = mountAircraftSymbol(svg);
 
-  // Aircraft symbol now mirrors the C++ 7-stamp pattern:
-  //   - 1 top pointer <polygon>
+  // Aircraft symbol mirrors the C++ 7-stamp body pattern only —
+  // the static top-pointer triangle was extracted to topPointer.js
+  // so this widget no longer draws it.
   //   - 7 body <polyline> stamps (yellow at offsets 0,-1,-2,+1,+2 and
   //     black outline at -3,+3) — matches main.cpp:1195-1228
   //   - 2 wingtip end-cap <line>s (main.cpp:1230-1231)
@@ -20,7 +21,7 @@ export function run(assert) {
   const circles   = svg.querySelectorAll('circle');
   assert.equal(polylines.length, 7,  '7 polyline stamps (5 yellow + 2 black outline rows)');
   assert.equal(lines.length,     2,  '2 wingtip end-cap lines');
-  assert.equal(polys.length,     1,  'one top pointer triangle');
+  assert.equal(polys.length,     0,  'no polygons (top pointer moved to topPointer.js)');
   assert.equal(circles.length,   2,  'two center circles (yellow + black ring)');
 
   // Center circles at (cx, cy) with the configured radius.
