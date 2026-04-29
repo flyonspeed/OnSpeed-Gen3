@@ -47,7 +47,9 @@ export function mountCornerReadout(parent, {
     'text-anchor': labelAnchor,
     'dominant-baseline': numBaseline,
   });
-  num.textContent = '0';
+  // Placeholder until the first WebSocket update arrives. Caller's
+  // first update() call replaces this with the real formatted value.
+  num.textContent = '—';
 
   function update({ value, formatter }) {
     num.textContent = formatter ? formatter(value) : String(value);

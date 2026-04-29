@@ -50,7 +50,7 @@ export function mountFlapCircle(parent, {
     'text-anchor': 'middle',
     'dominant-baseline': 'central',
   });
-  label.textContent = '0';
+  label.textContent = '—';
 
   function update({ flapPos, flapsMin, flapsMax }) {
     const frac = flapWidgetFrac(flapPos, flapsMin, flapsMax);

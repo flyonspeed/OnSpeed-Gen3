@@ -119,7 +119,12 @@ export function mountAoa(rootEl, { numericDisplay = true } = {}) {
     const flashFlag = (Math.floor(performance.now() / 250) % 2) === 1;
 
     // Per-frame updates (bar positions, chevron colors, animations).
-    indexer.update({ percentLift: rec.percentLift, anchors, flashFlag });
+    // aoaIsValid defaults to true for synthetic-scenario records (which
+    // don't carry the field). The firmware-side wsClient sets it
+    // explicitly: false until the first WebSocket message lands, true
+    // for any frame whose AOA > -20 (legacy /live's gate).
+    const aoaIsValid = rec.aoaIsValid !== false;
+    indexer.update({ percentLift: rec.percentLift, anchors, flashFlag, aoaIsValid });
     slip.update({
       slip: slipFromLateralG(rec.lateralG),
       percentLift: rec.percentLift,
@@ -134,7 +139,7 @@ export function mountAoa(rootEl, { numericDisplay = true } = {}) {
     if (now - numLastUpdateMs >= NUM_UPDATE_MS) {
       if (ias)      ias.update({ value: rec.iasKt, formatter: v => String(Math.round(v)) });
       if (gReadout) gReadout.update({ value: rec.verticalG, formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) });
-      pctLift.update({ percent: rec.percentLift });
+      pctLift.update({ percent: rec.percentLift, aoaIsValid });
       // Flap-angle TEXT is updated as part of flap.update above; the
       // rotating triangle moves every frame regardless. Text refreshes
       // at ~500 ms cadence which matches the M5.

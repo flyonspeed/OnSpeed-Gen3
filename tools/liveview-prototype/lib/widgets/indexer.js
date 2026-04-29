@@ -86,12 +86,19 @@ export function mountIndexer(parent) {
   // — i.e. white interior with a 1-px black border on all 4 sides.
   // shape-rendering: crispEdges so SVG renders the border at exactly 1 px
   // without antialiased blur.
+  //
+  // Mounted hidden — the legacy /live did the same with `visibility:
+  // hidden` on its `aoaline` rect, gating visibility on `AOA > -20`
+  // (the N/A sentinel boundary). Without the gate, percentLift=0 on
+  // first load would map to the bottom of the indexer — a misleading
+  // "0% lift, you're stalled" indication. First update() unhides.
   const indexBar = mk(group, 'rect', {
     x: G.INDEX_BAR_X, y: 192, width: G.INDEX_BAR_W, height: G.INDEX_BAR_H,
     fill: colors.TFT_WHITE,
     stroke: colors.TFT_BLACK,
     'stroke-width': 1,
     'shape-rendering': 'crispEdges',
+    visibility: 'hidden',
   });
 
   // L/Dmax pip dots — black halo + white inner, both sides.
@@ -100,7 +107,11 @@ export function mountIndexer(parent) {
   const pipRightHalo  = mk(group, 'circle', { cx: G.PIP_RIGHT_CX, cy: 192, r: G.PIP_HALO_R,  fill: colors.TFT_BLACK });
   const pipRightInner = mk(group, 'circle', { cx: G.PIP_RIGHT_CX, cy: 192, r: G.PIP_INNER_R, fill: colors.TFT_WHITE });
 
-  function update({ percentLift, anchors, flashFlag }) {
+  function update({ percentLift, anchors, flashFlag, aoaIsValid = true }) {
+    // Hide the index bar when AOA is invalid (N/A sentinel). Same gate
+    // the legacy /live used (visibility: hidden when AOA <= -20).
+    indexBar.setAttribute('visibility', aoaIsValid ? 'visible' : 'hidden');
+
     const indexY = mapPct2Display(percentLift, anchors);
     indexBar.setAttribute('y', indexY);
 

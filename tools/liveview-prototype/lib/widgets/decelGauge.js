@@ -54,11 +54,13 @@ export function mountDecelGauge(parent, {
 
   // Pointer — 7 px white bar with a 1 px black outline. Updates by
   // resetting `y` per frame. CSS transition smooths 20 Hz steps.
+  // Mounted hidden; first valid update unhides.
   const pointer = mk(group, 'rect', {
     x: pointerX, y: 138, width: pointerW, height: pointerH,
     fill: colors.TFT_WHITE,
     stroke: colors.TFT_BLACK, 'stroke-width': 1,
     style: 'transition: y 100ms linear;',
+    visibility: 'hidden',
   });
 
   // Numeric labels + matching pip ticks.
@@ -78,7 +80,12 @@ export function mountDecelGauge(parent, {
     });
   }
 
-  function update({ decelRate }) {
+  function update({ decelRate, dataValid = true }) {
+    if (!dataValid) {
+      pointer.setAttribute('visibility', 'hidden');
+      return;
+    }
+    pointer.setAttribute('visibility', 'visible');
     // Pointer y is the TOP of the rect; decelOffset is where the
     // CENTER lands at decelRate=0. Subtract pointerHalfH to get top.
     let y = decelScale * decelRate + decelOffset - pointerHalfH;

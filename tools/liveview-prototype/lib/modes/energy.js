@@ -89,7 +89,11 @@ export function mountEnergy(rootEl) {
   function update(rec) {
     const flashFlag = (Math.floor(performance.now() / 250) % 2) === 1;
 
-    decel.update({ decelRate: rec.decelRate || 0 });
+    // dataValid defaults true for synthetic scenarios; the firmware-
+    // side wsClient sets aoaIsValid=false until the first WS frame.
+    // Reuse that same flag here so the pointer hides on first load.
+    const dataValid = rec.aoaIsValid !== false;
+    decel.update({ decelRate: rec.decelRate || 0, dataValid });
     slip.update({
       slip: slipFromLateralG(rec.lateralG),
       percentLift: rec.percentLift,

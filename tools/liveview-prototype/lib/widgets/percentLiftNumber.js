@@ -34,6 +34,12 @@ export function mountPercentLiftNumber(parent, { cx, baselineY, fontSize, outlin
   // around the white digits — main.cpp:735-753). SVG stroke-width is
   // doubled because half of stroke spreads outside the glyph and half
   // inside; outlinePx*2 gives ≈outlinePx of visible halo on each side.
+  //
+  // Group starts hidden until first valid AOA arrives — paired with
+  // the indexer bar's hidden-until-data behavior to avoid showing a
+  // misleading "00% lift" before the WebSocket connects.
+  group.style.visibility = 'hidden';
+
   const outline = document.createElementNS(SVG_NS, 'text');
   for (const k in baseAttrs) outline.setAttribute(k, baseAttrs[k]);
   outline.setAttribute('fill', 'none');
@@ -53,7 +59,12 @@ export function mountPercentLiftNumber(parent, { cx, baselineY, fontSize, outlin
 
   parent.appendChild(group);
 
-  function update({ percent }) {
+  function update({ percent, aoaIsValid = true }) {
+    if (!aoaIsValid) {
+      group.style.visibility = 'hidden';
+      return;
+    }
+    group.style.visibility = 'visible';
     const s = String(percent).padStart(2, '0');
     outline.textContent = s;
     fill.textContent = s;

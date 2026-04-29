@@ -49,7 +49,7 @@ export function mountPitchReadout(parent, {
     'text-anchor': 'middle',
     'dominant-baseline': 'central',
   });
-  num.textContent = '0.0';
+  num.textContent = '—';
 
   // Degree-symbol circle (drawn as ring via stroke).
   mk(group, 'circle', {

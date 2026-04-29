@@ -11,26 +11,32 @@ import { mountEnergy } from '../modes/energy.js';
 import { mountGHistory } from '../modes/ghistory.js';
 import { connect } from './wsClient.js';
 import { mountDataFields } from './dataFields.js';
+import { mountStaleOverlay } from './staleOverlay.js';
 
 export function start() {
   // Mount each mode panel into its slot. The HTML scaffold in
   // build_liveview_html.py creates `<div data-mode-panel="...">`
   // containers ready to receive these.
   const panels = {};
-  const aoaRoot = document.querySelector('[data-mode-panel="aoa"]');
-  if (aoaRoot) panels.aoa = mountAoa(aoaRoot);
+  const staleOverlays = [];
 
-  const attRoot = document.querySelector('[data-mode-panel="attitude"]');
-  if (attRoot) panels.attitude = mountAttitude(attRoot);
+  // Mount each mode panel + a stale-data overlay last so the overlay
+  // paints on top when serial data goes stale (matches the M5's
+  // red-X-of-death behavior at main.cpp:655-686).
+  function mountWithOverlay(name, root, mountFn) {
+    if (!root) return;
+    const panel = mountFn(root);
+    panels[name] = panel;
+    if (panel.el && panel.el.tagName === 'svg') {
+      staleOverlays.push(mountStaleOverlay(panel.el));
+    }
+  }
 
-  const idxRoot = document.querySelector('[data-mode-panel="indexer-only"]');
-  if (idxRoot) panels['indexer-only'] = mountIndexerOnly(idxRoot);
-
-  const energyRoot = document.querySelector('[data-mode-panel="energy"]');
-  if (energyRoot) panels.energy = mountEnergy(energyRoot);
-
-  const ghistRoot = document.querySelector('[data-mode-panel="ghistory"]');
-  if (ghistRoot) panels.ghistory = mountGHistory(ghistRoot);
+  mountWithOverlay('aoa',           document.querySelector('[data-mode-panel="aoa"]'),           mountAoa);
+  mountWithOverlay('attitude',      document.querySelector('[data-mode-panel="attitude"]'),      mountAttitude);
+  mountWithOverlay('indexer-only',  document.querySelector('[data-mode-panel="indexer-only"]'),  mountIndexerOnly);
+  mountWithOverlay('energy',        document.querySelector('[data-mode-panel="energy"]'),        mountEnergy);
+  mountWithOverlay('ghistory',      document.querySelector('[data-mode-panel="ghistory"]'),      mountGHistory);
 
   // Datafields table.
   const toggleBtn = document.getElementById('datafields-toggle');
@@ -87,6 +93,12 @@ export function start() {
         ageEl.style.color = (sec >= 1) ? 'var(--red, #ff0018)' : '';
       }
       if (dataFields) dataFields.setAge(sec);
+
+      // Stale-data overlay threshold matches the M5's serialDataFresh()
+      // semantic (main.cpp:655) — once data hasn't arrived for 3 s,
+      // paint the red X + "NO DATA" pill across each mode panel.
+      const stale = sec >= 3;
+      for (const o of staleOverlays) o.setStale(stale);
     },
   });
 }

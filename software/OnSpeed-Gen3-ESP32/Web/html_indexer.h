@@ -1335,12 +1335,19 @@ function mountIndexer(parent) {
   // — i.e. white interior with a 1-px black border on all 4 sides.
   // shape-rendering: crispEdges so SVG renders the border at exactly 1 px
   // without antialiased blur.
+  //
+  // Mounted hidden — the legacy /live did the same with `visibility:
+  // hidden` on its `aoaline` rect, gating visibility on `AOA > -20`
+  // (the N/A sentinel boundary). Without the gate, percentLift=0 on
+  // first load would map to the bottom of the indexer — a misleading
+  // "0% lift, you're stalled" indication. First update() unhides.
   const indexBar = mk(group, 'rect', {
     x: G.INDEX_BAR_X, y: 192, width: G.INDEX_BAR_W, height: G.INDEX_BAR_H,
     fill: colors.TFT_WHITE,
     stroke: colors.TFT_BLACK,
     'stroke-width': 1,
     'shape-rendering': 'crispEdges',
+    visibility: 'hidden',
   });
 
   // L/Dmax pip dots — black halo + white inner, both sides.
@@ -1349,7 +1356,11 @@ function mountIndexer(parent) {
   const pipRightHalo  = mk(group, 'circle', { cx: G.PIP_RIGHT_CX, cy: 192, r: G.PIP_HALO_R,  fill: colors.TFT_BLACK });
   const pipRightInner = mk(group, 'circle', { cx: G.PIP_RIGHT_CX, cy: 192, r: G.PIP_INNER_R, fill: colors.TFT_WHITE });
 
-  function update({ percentLift, anchors, flashFlag }) {
+  function update({ percentLift, anchors, flashFlag, aoaIsValid = true }) {
+    // Hide the index bar when AOA is invalid (N/A sentinel). Same gate
+    // the legacy /live used (visibility: hidden when AOA <= -20).
+    indexBar.setAttribute('visibility', aoaIsValid ? 'visible' : 'hidden');
+
     const indexY = mapPct2Display(percentLift, anchors);
     indexBar.setAttribute('y', indexY);
 
@@ -1417,6 +1428,12 @@ function mountPercentLiftNumber(parent, { cx, baselineY, fontSize, outlinePx }) 
   // around the white digits — main.cpp:735-753). SVG stroke-width is
   // doubled because half of stroke spreads outside the glyph and half
   // inside; outlinePx*2 gives ≈outlinePx of visible halo on each side.
+  //
+  // Group starts hidden until first valid AOA arrives — paired with
+  // the indexer bar's hidden-until-data behavior to avoid showing a
+  // misleading "00% lift" before the WebSocket connects.
+  group.style.visibility = 'hidden';
+
   const outline = document.createElementNS(SVG_NS, 'text');
   for (const k in baseAttrs) outline.setAttribute(k, baseAttrs[k]);
   outline.setAttribute('fill', 'none');
@@ -1436,7 +1453,12 @@ function mountPercentLiftNumber(parent, { cx, baselineY, fontSize, outlinePx }) 
 
   parent.appendChild(group);
 
-  function update({ percent }) {
+  function update({ percent, aoaIsValid = true }) {
+    if (!aoaIsValid) {
+      group.style.visibility = 'hidden';
+      return;
+    }
+    group.style.visibility = 'visible';
     const s = String(percent).padStart(2, '0');
     outline.textContent = s;
     fill.textContent = s;
@@ -1507,7 +1529,9 @@ function mountCornerReadout(parent, {
     'text-anchor': labelAnchor,
     'dominant-baseline': numBaseline,
   });
-  num.textContent = '0';
+  // Placeholder until the first WebSocket update arrives. Caller's
+  // first update() call replaces this with the real formatted value.
+  num.textContent = '—';
 
   function update({ value, formatter }) {
     num.textContent = formatter ? formatter(value) : String(value);
@@ -1609,7 +1633,7 @@ function mountFlapCircle(parent, {
     'text-anchor': 'middle',
     'dominant-baseline': 'central',
   });
-  label.textContent = '0';
+  label.textContent = '—';
 
   function update({ flapPos, flapsMin, flapsMax }) {
     const frac = flapWidgetFrac(flapPos, flapsMin, flapsMax);
@@ -1886,7 +1910,12 @@ function mountAoa(rootEl, { numericDisplay = true } = {}) {
     const flashFlag = (Math.floor(performance.now() / 250) % 2) === 1;
 
     // Per-frame updates (bar positions, chevron colors, animations).
-    indexer.update({ percentLift: rec.percentLift, anchors, flashFlag });
+    // aoaIsValid defaults to true for synthetic-scenario records (which
+    // don't carry the field). The firmware-side wsClient sets it
+    // explicitly: false until the first WebSocket message lands, true
+    // for any frame whose AOA > -20 (legacy /live's gate).
+    const aoaIsValid = rec.aoaIsValid !== false;
+    indexer.update({ percentLift: rec.percentLift, anchors, flashFlag, aoaIsValid });
     slip.update({
       slip: slipFromLateralG(rec.lateralG),
       percentLift: rec.percentLift,
@@ -1901,7 +1930,7 @@ function mountAoa(rootEl, { numericDisplay = true } = {}) {
     if (now - numLastUpdateMs >= NUM_UPDATE_MS) {
       if (ias)      ias.update({ value: rec.iasKt, formatter: v => String(Math.round(v)) });
       if (gReadout) gReadout.update({ value: rec.verticalG, formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) });
-      pctLift.update({ percent: rec.percentLift });
+      pctLift.update({ percent: rec.percentLift, aoaIsValid });
       // Flap-angle TEXT is updated as part of flap.update above; the
       // rotating triangle moves every frame regardless. Text refreshes
       // at ~500 ms cadence which matches the M5.
@@ -2691,7 +2720,7 @@ function mountPitchReadout(parent, {
     'text-anchor': 'middle',
     'dominant-baseline': 'central',
   });
-  num.textContent = '0.0';
+  num.textContent = '—';
 
   // Degree-symbol circle (drawn as ring via stroke).
   mk(group, 'circle', {
@@ -2969,11 +2998,13 @@ function mountDecelGauge(parent, {
 
   // Pointer — 7 px white bar with a 1 px black outline. Updates by
   // resetting `y` per frame. CSS transition smooths 20 Hz steps.
+  // Mounted hidden; first valid update unhides.
   const pointer = mk(group, 'rect', {
     x: pointerX, y: 138, width: pointerW, height: pointerH,
     fill: colors.TFT_WHITE,
     stroke: colors.TFT_BLACK, 'stroke-width': 1,
     style: 'transition: y 100ms linear;',
+    visibility: 'hidden',
   });
 
   // Numeric labels + matching pip ticks.
@@ -2993,7 +3024,12 @@ function mountDecelGauge(parent, {
     });
   }
 
-  function update({ decelRate }) {
+  function update({ decelRate, dataValid = true }) {
+    if (!dataValid) {
+      pointer.setAttribute('visibility', 'hidden');
+      return;
+    }
+    pointer.setAttribute('visibility', 'visible');
     // Pointer y is the TOP of the rect; decelOffset is where the
     // CENTER lands at decelRate=0. Subtract pointerHalfH to get top.
     let y = decelScale * decelRate + decelOffset - pointerHalfH;
@@ -3103,7 +3139,11 @@ function mountEnergy(rootEl) {
   function update(rec) {
     const flashFlag = (Math.floor(performance.now() / 250) % 2) === 1;
 
-    decel.update({ decelRate: rec.decelRate || 0 });
+    // dataValid defaults true for synthetic scenarios; the firmware-
+    // side wsClient sets aoaIsValid=false until the first WS frame.
+    // Reuse that same flag here so the pointer hides on first load.
+    const dataValid = rec.aoaIsValid !== false;
+    decel.update({ decelRate: rec.decelRate || 0, dataValid });
     slip.update({
       slip: slipFromLateralG(rec.lateralG),
       percentLift: rec.percentLift,
@@ -3438,6 +3478,101 @@ function connect({ onRecord, onStatus, onAge }) {
   return exports;
 })();
 
+// === tools/liveview-prototype/lib/firmware/staleOverlay.js ===
+const __mod_firmware_staleOverlay = (function() {
+  const exports = {};
+    const { colors } = __mod_colors;
+// M5-style stale-data overlay.
+//
+// When the OnSpeed serial link is stale, the M5 paints a red X across
+// the whole panel + a black "NO DATA" pill in the center. main.cpp:655-686.
+// Mirror that behavior on the LiveView so the pilot gets the same
+// unmistakable signal that they're looking at frozen data.
+//
+// One overlay per mode panel. Mounted last (paints on top of everything)
+// and hidden by default. The firmware main.js toggles `setStale(bool)`
+// based on the WebSocket age timer.
+
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function mk(parent, tag, attrs) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent.appendChild(e);
+  return e;
+}
+
+// Mount the stale overlay into `svg`. Returns { setStale }.
+//
+// Composition (matches main.cpp:657-686):
+//   1. Black panel fill (covers whatever was underneath).
+//   2. Red X — eight lines, two diagonals each thickened to 5 px by
+//      drawing a short fan (mimics the C++ which draws lines at
+//      ±0..4 px offsets).
+//   3. Black 120×40 pill at panel center.
+//   4. White "NO DATA" text centered in the pill.
+function mountStaleOverlay(svg) {
+  const group = mk(svg, 'g', { 'data-widget': 'stale-overlay' });
+  group.style.visibility = 'hidden';
+
+  // Black background fill.
+  mk(group, 'rect', {
+    x: 0, y: 0, width: 320, height: 240, fill: colors.TFT_BLACK,
+  });
+
+  // Red X — stack of diagonals at ±0..4 px offsets so the lines render
+  // as ~5 px wide visually, matching main.cpp:658-680's 4 + 4 + 1 stamps.
+  // Two diagonals: top-left to bottom-right, top-right to bottom-left.
+  for (let off = -4; off <= 4; ++off) {
+    // \ diagonal (TL → BR), shifted along x by off
+    mk(group, 'line', {
+      x1: 0 + Math.max(0, off),  y1: 0 - Math.min(0, off),
+      x2: 319 + Math.min(0, off), y2: 239 - Math.max(0, off),
+      stroke: colors.TFT_RED, 'stroke-width': 1,
+    });
+    // / diagonal (TR → BL)
+    mk(group, 'line', {
+      x1: 319 + Math.min(0, off), y1: 0 - Math.min(0, off),
+      x2: 0 + Math.max(0, off),   y2: 239 - Math.max(0, off),
+      stroke: colors.TFT_RED, 'stroke-width': 1,
+    });
+  }
+
+  // Center pill — main.cpp:685's fillRect(100,100,120,40,TFT_BLACK).
+  mk(group, 'rect', {
+    x: 100, y: 100, width: 120, height: 40, fill: colors.TFT_BLACK,
+  });
+
+  // "NO DATA" — main.cpp:686 drawString at (160,120) with FSSB18 +
+  // middle_center datum.
+  mk(group, 'text', {
+    x: 160, y: 120,
+    'font-family': 'Helvetica, Arial, sans-serif',
+    'font-weight': 'bold',
+    'font-size': 24,
+    fill: colors.TFT_WHITE,
+    'text-anchor': 'middle',
+    'dominant-baseline': 'central',
+  }).textContent = 'NO DATA';
+
+  function setStale(stale) {
+    group.style.visibility = stale ? 'visible' : 'hidden';
+    if (stale && group.parentNode) {
+      // Re-append to keep on top — defensive against later widgets
+      // (e.g. percentLiftNumber's bringToFront) that move siblings
+      // around per frame.
+      group.parentNode.appendChild(group);
+    }
+  }
+
+  return { el: group, setStale };
+}
+
+  exports.mountStaleOverlay = mountStaleOverlay;
+  return exports;
+})();
+
 // === tools/liveview-prototype/lib/firmware/main.js ===
 const __mod_firmware_main = (function() {
   const exports = {};
@@ -3448,6 +3583,7 @@ const __mod_firmware_main = (function() {
   const { mountGHistory } = __mod_modes_ghistory;
   const { connect } = __mod_firmware_wsClient;
   const { mountDataFields } = __mod_firmware_dataFields;
+  const { mountStaleOverlay } = __mod_firmware_staleOverlay;
 // Firmware-side entry point. Equivalent to lib/main.js (the prototype
 // harness's entry point) but driven by a real WebSocket instead of
 // synthetic scenarios.
@@ -3461,25 +3597,31 @@ const __mod_firmware_main = (function() {
 
 
 
+
 function start() {
   // Mount each mode panel into its slot. The HTML scaffold in
   // build_liveview_html.py creates `<div data-mode-panel="...">`
   // containers ready to receive these.
   const panels = {};
-  const aoaRoot = document.querySelector('[data-mode-panel="aoa"]');
-  if (aoaRoot) panels.aoa = mountAoa(aoaRoot);
+  const staleOverlays = [];
 
-  const attRoot = document.querySelector('[data-mode-panel="attitude"]');
-  if (attRoot) panels.attitude = mountAttitude(attRoot);
+  // Mount each mode panel + a stale-data overlay last so the overlay
+  // paints on top when serial data goes stale (matches the M5's
+  // red-X-of-death behavior at main.cpp:655-686).
+  function mountWithOverlay(name, root, mountFn) {
+    if (!root) return;
+    const panel = mountFn(root);
+    panels[name] = panel;
+    if (panel.el && panel.el.tagName === 'svg') {
+      staleOverlays.push(mountStaleOverlay(panel.el));
+    }
+  }
 
-  const idxRoot = document.querySelector('[data-mode-panel="indexer-only"]');
-  if (idxRoot) panels['indexer-only'] = mountIndexerOnly(idxRoot);
-
-  const energyRoot = document.querySelector('[data-mode-panel="energy"]');
-  if (energyRoot) panels.energy = mountEnergy(energyRoot);
-
-  const ghistRoot = document.querySelector('[data-mode-panel="ghistory"]');
-  if (ghistRoot) panels.ghistory = mountGHistory(ghistRoot);
+  mountWithOverlay('aoa',           document.querySelector('[data-mode-panel="aoa"]'),           mountAoa);
+  mountWithOverlay('attitude',      document.querySelector('[data-mode-panel="attitude"]'),      mountAttitude);
+  mountWithOverlay('indexer-only',  document.querySelector('[data-mode-panel="indexer-only"]'),  mountIndexerOnly);
+  mountWithOverlay('energy',        document.querySelector('[data-mode-panel="energy"]'),        mountEnergy);
+  mountWithOverlay('ghistory',      document.querySelector('[data-mode-panel="ghistory"]'),      mountGHistory);
 
   // Datafields table.
   const toggleBtn = document.getElementById('datafields-toggle');
@@ -3536,6 +3678,12 @@ function start() {
         ageEl.style.color = (sec >= 1) ? 'var(--red, #ff0018)' : '';
       }
       if (dataFields) dataFields.setAge(sec);
+
+      // Stale-data overlay threshold matches the M5's serialDataFresh()
+      // semantic (main.cpp:655) — once data hasn't arrived for 3 s,
+      // paint the red X + "NO DATA" pill across each mode panel.
+      const stale = sec >= 3;
+      for (const o of staleOverlays) o.setStale(stale);
     },
   });
 }
