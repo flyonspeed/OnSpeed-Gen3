@@ -59,6 +59,10 @@ public:
     // Atomic-ish rename via SdFat. Returns true on success. Caller must
     // hold xWriteMutex — same convention as remove().
     bool rename(const char* srcName, const char* dstName);
+
+    // Create directory (with parents). Returns true on success or if the
+    // directory already exists. Caller must hold xWriteMutex.
+    bool mkdir(const char* szPath) { return uSD_FAT.mkdir(szPath, /*pFlag=*/true); }
 };
 
 #endif

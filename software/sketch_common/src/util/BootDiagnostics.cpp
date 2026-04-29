@@ -7,6 +7,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <esp_system.h>      // esp_reset_reason_t, esp_reset_reason()
+#include <esp_core_dump.h>   // esp_core_dump_image_check / get / erase / get_panic_reason
+#include <esp_partition.h>   // esp_partition_find_first / esp_partition_read
 #include <buildinfo.h>       // BuildInfo::version
 
 #include "src/Globals.h"     // g_SdFileSys, g_Log, xWriteMutex, xSerialLogMutex
@@ -14,11 +16,27 @@
 namespace {
 
 // NVS namespace and keys. Namespace must be <= 15 chars (ESP-IDF limit).
+// Key names must be <= 15 chars too — abbreviate cd_busy/cd_retry rather than
+// "coredump_busy" so the NVS write doesn't truncate silently.
 constexpr const char * kNvsNamespace  = "onspeed_boot";
 constexpr const char * kKeyBootCount  = "boot_count";
 constexpr const char * kKeyAliveMs    = "last_alive_ms";
+constexpr const char * kKeyCdBusy     = "cd_busy";    // bool, set during archival
+constexpr const char * kKeyCdRetry    = "cd_retry";   // uint, archival retry counter
 
 constexpr const char * kBootLogPath   = "/boot_log.txt";
+constexpr const char * kCoredumpDir   = "/coredumps";
+
+// Cap retries so a chronically-bad coredump (parser bug, partition corruption)
+// can't burn boot time forever. After this many failed archival attempts we
+// erase the partition unread and move on. Three is enough to clear transient
+// SD glitches without wedging the box.
+constexpr uint32_t  kCoredumpRetryLimit = 3;
+
+// Buffer for the panic reason string extracted from the coredump.
+// ESP-IDF documents reasons up to ~200 chars (assert message + filename
+// + condition); 256 leaves margin without burning stack at boot.
+constexpr size_t    kPanicReasonMaxLen  = 256;
 
 // Sentinel distinguishing "NVS has never been written" (first-ever boot on a
 // fresh chip, or wiped partition) from "Init() ran but Heartbeat hasn't
@@ -138,6 +156,20 @@ void Init()
     s_uBootCount   = s_Nvs.getUInt(kKeyBootCount, 0) + 1;
     s_uPrevAliveMs = s_Nvs.getUInt(kKeyAliveMs,   kAliveNeverWritten);
 
+    // Safe-mode check: if cd_busy is still set from the prior boot it means
+    // archival itself crashed (parser bug, SD-driver fault, mid-archival
+    // power-pull, etc). Sacrifice the data this once and erase the coredump
+    // partition so this boot can complete normally. Without this guard a
+    // single bad coredump could brick every box it ever touches.
+    if (s_Nvs.getBool(kKeyCdBusy, false))
+        {
+        g_Log.println("BootDiag: prior boot crashed during coredump archival; "
+                      "erasing coredump partition to recover");
+        esp_core_dump_image_erase();
+        s_Nvs.putBool(kKeyCdBusy, false);
+        s_Nvs.putUInt(kKeyCdRetry, 0);
+        }
+
     // Persist the new boot counter and reset the alive marker to 0, meaning
     // "this boot has started but Heartbeat hasn't crossed its first threshold
     // yet." A next-boot read of 0 is unambiguous evidence that the prior
@@ -200,6 +232,276 @@ void Heartbeat()
 
 // ----------------------------------------------------------------------------
 
+namespace {
+
+// Replace characters that don't survive FAT32 cleanly (notably '+' from
+// our build version semver-meta) with '_'. Edits in-place, returns sz.
+char * SanitizeForFatFilename(char * sz)
+    {
+    for (char * p = sz; *p; ++p)
+        if (*p == '+' || *p == ' ' || *p == ':' || *p == '/' || *p == '\\')
+            *p = '_';
+    return sz;
+    }
+
+// Best-effort archival of any panic coredump left in flash by a prior boot.
+// Called from AppendToSd while holding xWriteMutex with the boot_log file
+// already open. Appends indented panic-summary lines under the current
+// boot's row when there's something to report; silent when there isn't.
+//
+// The whole flow is wrapped in a NVS "cd_busy" sentinel so that if this
+// function itself crashes (parser bug, partition read fault), the next
+// boot's Init() detects the unfinished archival and erases the partition
+// to recover. Without that guard a chronically-bad coredump would brick
+// the box on every reboot.
+void ArchivePriorPanicCoredump(FsFile & hBootLogFile)
+    {
+    if (!s_bNvsAvailable)
+        return;  // Can't safely arm the safe-mode sentinel without NVS.
+
+    // Cheap check first — most boots have nothing to archive. ESP_OK means
+    // "valid, decodable dump present"; any other code (NOT_FOUND, INVALID_CRC,
+    // etc.) means we have nothing to do.
+    if (esp_core_dump_image_check() != ESP_OK)
+        return;
+
+    // Bound retries so a coredump we can't process doesn't burn boot time
+    // forever. After kCoredumpRetryLimit failed attempts we erase the
+    // partition and accept the data loss — better than a permanently
+    // degraded boot path.
+    const uint32_t uRetryCount = s_Nvs.getUInt(kKeyCdRetry, 0);
+    if (uRetryCount >= kCoredumpRetryLimit)
+        {
+        g_Log.printf(MsgLog::EnMain, MsgLog::EnWarning,
+                     "BootDiag: coredump archival has failed %u times, erasing\n",
+                     static_cast<unsigned>(uRetryCount));
+        esp_core_dump_image_erase();
+        s_Nvs.putUInt(kKeyCdRetry, 0);
+        return;
+        }
+
+    // Arm the safe-mode sentinel BEFORE touching the partition. If anything
+    // below crashes the chip, Init() on the next boot sees this flag still
+    // set and clears it + erases the partition.
+    s_Nvs.putBool(kKeyCdBusy, true);
+
+    // Get the partition contents location and size in flash.
+    size_t uDumpAddr = 0;
+    size_t uDumpSize = 0;
+    if (esp_core_dump_image_get(&uDumpAddr, &uDumpSize) != ESP_OK || uDumpSize == 0)
+        {
+        g_Log.println(MsgLog::EnMain, MsgLog::EnWarning,
+                      "BootDiag: image_check OK but image_get failed; erasing");
+        esp_core_dump_image_erase();
+        s_Nvs.putBool(kKeyCdBusy, false);
+        s_Nvs.putUInt(kKeyCdRetry, 0);
+        return;
+        }
+
+    // Find the coredump partition object so we can read raw bytes.
+    const esp_partition_t * pPart = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, nullptr);
+    if (pPart == nullptr)
+        {
+        g_Log.println(MsgLog::EnMain, MsgLog::EnError,
+                      "BootDiag: coredump partition not found in partition table");
+        s_Nvs.putBool(kKeyCdBusy, false);
+        s_Nvs.putUInt(kKeyCdRetry, uRetryCount + 1);
+        return;
+        }
+
+    // Pull the panic reason string and a summary if the IDF can parse them.
+    // Either may fail independently of the raw read; we still archive the
+    // .bin even if these come back empty (offline tools can do more than
+    // these on-device parsers).
+    char szPanicReason[kPanicReasonMaxLen] = {0};
+    bool bHavePanicReason =
+        esp_core_dump_get_panic_reason(szPanicReason, sizeof(szPanicReason)) == ESP_OK;
+
+    esp_core_dump_summary_t * pSummary = static_cast<esp_core_dump_summary_t *>(
+        heap_caps_malloc(sizeof(esp_core_dump_summary_t),
+                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    bool bHaveSummary = false;
+    if (pSummary != nullptr)
+        {
+        memset(pSummary, 0, sizeof(*pSummary));
+        bHaveSummary = (esp_core_dump_get_summary(pSummary) == ESP_OK);
+        }
+
+    // Build a filename. Format: coredump_<NNNN>_<version>_<task>.bin
+    // <NNNN> is THIS boot's count (the recovery boot, since the dying boot
+    // didn't get to write its own log line); pilot pairs the file with the
+    // matching boot row by reading boot_log.txt. Version is the recovery
+    // boot's firmware string, which equals the dying boot's firmware in
+    // every case where the user didn't reflash between panic and recovery
+    // (the common case). Task name is the crashing-task name when the
+    // summary parser succeeded, omitted otherwise.
+    char szVersion[64];
+    snprintf(szVersion, sizeof(szVersion), "%s", BuildInfo::version);
+    SanitizeForFatFilename(szVersion);
+
+    char szTaskSuffix[24] = {0};
+    if (bHaveSummary && pSummary->exc_task[0] != '\0')
+        {
+        char szTaskName[20];
+        snprintf(szTaskName, sizeof(szTaskName), "%.15s", pSummary->exc_task);
+        SanitizeForFatFilename(szTaskName);
+        snprintf(szTaskSuffix, sizeof(szTaskSuffix), "_%s", szTaskName);
+        }
+
+    // Sized to fit the worst case the compiler can prove: kCoredumpDir(10)
+    // + "/coredump_NNNN_" + szVersion (up to 63) + szTaskSuffix (up to 23)
+    // + ".bin\0" — call it 128 with margin. -Werror=format-truncation forces
+    // this to be tight; if either component grows, bump this and re-verify.
+    char szDumpPath[128];
+    snprintf(szDumpPath, sizeof(szDumpPath),
+             "%s/coredump_%04u_%s%s.bin",
+             kCoredumpDir,
+             static_cast<unsigned>(s_uBootCount),
+             szVersion,
+             szTaskSuffix);
+
+    // Make /coredumps/ if it doesn't exist. SdFat's mkdir is harmless if
+    // the directory already exists.
+    if (!g_SdFileSys.exists(kCoredumpDir))
+        {
+        if (!g_SdFileSys.mkdir(kCoredumpDir))
+            {
+            g_Log.printf(MsgLog::EnMain, MsgLog::EnWarning,
+                         "BootDiag: failed to mkdir %s, archival aborted\n",
+                         kCoredumpDir);
+            if (pSummary) heap_caps_free(pSummary);
+            s_Nvs.putBool(kKeyCdBusy, false);
+            s_Nvs.putUInt(kKeyCdRetry, uRetryCount + 1);
+            return;
+            }
+        }
+
+    // Allocate a single buffer for the full dump. Coredumps top out at the
+    // partition size (64 KB on this build) and we have ~290 KB free heap
+    // here at boot time, well before WiFi softAP. Internal DRAM only —
+    // PSRAM access at this stage of boot is fragile.
+    uint8_t * pBuffer = static_cast<uint8_t *>(
+        heap_caps_malloc(uDumpSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (pBuffer == nullptr)
+        {
+        g_Log.printf(MsgLog::EnMain, MsgLog::EnError,
+                     "BootDiag: heap_caps_malloc(%u) failed for coredump archival\n",
+                     static_cast<unsigned>(uDumpSize));
+        if (pSummary) heap_caps_free(pSummary);
+        s_Nvs.putBool(kKeyCdBusy, false);
+        s_Nvs.putUInt(kKeyCdRetry, uRetryCount + 1);
+        return;
+        }
+
+    // esp_partition_read takes an offset within the partition (0-based),
+    // not the absolute flash address esp_core_dump_image_get returned.
+    // The image always starts at offset 0 within the coredump partition.
+    esp_err_t enReadErr = esp_partition_read(pPart, 0, pBuffer, uDumpSize);
+    if (enReadErr != ESP_OK)
+        {
+        g_Log.printf(MsgLog::EnMain, MsgLog::EnError,
+                     "BootDiag: esp_partition_read failed: %d\n",
+                     static_cast<int>(enReadErr));
+        heap_caps_free(pBuffer);
+        if (pSummary) heap_caps_free(pSummary);
+        s_Nvs.putBool(kKeyCdBusy, false);
+        s_Nvs.putUInt(kKeyCdRetry, uRetryCount + 1);
+        return;
+        }
+
+    // Write to SD. O_WRONLY | O_CREAT | O_TRUNC so a duplicate filename
+    // (same boot count, which can happen if a prior archival made it to
+    // the file but didn't survive long enough to erase) gets overwritten
+    // cleanly rather than appended.
+    FsFile hDumpFile = g_SdFileSys.open(szDumpPath,
+                                        O_WRONLY | O_CREAT | O_TRUNC);
+    if (!hDumpFile.isOpen())
+        {
+        g_Log.printf(MsgLog::EnMain, MsgLog::EnError,
+                     "BootDiag: failed to open %s for write\n", szDumpPath);
+        heap_caps_free(pBuffer);
+        if (pSummary) heap_caps_free(pSummary);
+        s_Nvs.putBool(kKeyCdBusy, false);
+        s_Nvs.putUInt(kKeyCdRetry, uRetryCount + 1);
+        return;
+        }
+
+    const size_t cbWritten = hDumpFile.write(pBuffer, uDumpSize);
+    hDumpFile.sync();
+    hDumpFile.close();
+    heap_caps_free(pBuffer);
+
+    if (cbWritten != uDumpSize)
+        {
+        g_Log.printf(MsgLog::EnMain, MsgLog::EnError,
+                     "BootDiag: short write to %s (%u of %u)\n",
+                     szDumpPath, static_cast<unsigned>(cbWritten),
+                     static_cast<unsigned>(uDumpSize));
+        // Don't erase the partition — leave it for next boot's retry.
+        if (pSummary) heap_caps_free(pSummary);
+        s_Nvs.putBool(kKeyCdBusy, false);
+        s_Nvs.putUInt(kKeyCdRetry, uRetryCount + 1);
+        return;
+        }
+
+    // Append indented panic-summary lines under the current boot's row in
+    // boot_log.txt. The panic-reason line is the high-value piece even
+    // without the rest — most assert messages are self-explanatory to a
+    // developer who has seen the failure mode before.
+    char szSummaryLine[320];
+    int iLen = snprintf(szSummaryLine, sizeof(szSummaryLine),
+                        "  archived prior-boot coredump to %s\n",
+                        szDumpPath);
+    if (iLen > 0)
+        {
+        size_t cb = static_cast<size_t>(iLen);
+        if (cb >= sizeof(szSummaryLine)) cb = sizeof(szSummaryLine) - 1;
+        hBootLogFile.write(reinterpret_cast<const uint8_t *>(szSummaryLine), cb);
+        }
+
+    if (bHavePanicReason && szPanicReason[0] != '\0')
+        {
+        iLen = snprintf(szSummaryLine, sizeof(szSummaryLine),
+                        "  panic: %s\n", szPanicReason);
+        if (iLen > 0)
+            {
+            size_t cb = static_cast<size_t>(iLen);
+            if (cb >= sizeof(szSummaryLine)) cb = sizeof(szSummaryLine) - 1;
+            hBootLogFile.write(reinterpret_cast<const uint8_t *>(szSummaryLine), cb);
+            }
+        }
+
+    if (bHaveSummary)
+        {
+        iLen = snprintf(szSummaryLine, sizeof(szSummaryLine),
+                        "  task: %.15s  pc: 0x%08x  tcb: 0x%08x\n",
+                        pSummary->exc_task,
+                        static_cast<unsigned>(pSummary->exc_pc),
+                        static_cast<unsigned>(pSummary->exc_tcb));
+        if (iLen > 0)
+            {
+            size_t cb = static_cast<size_t>(iLen);
+            if (cb >= sizeof(szSummaryLine)) cb = sizeof(szSummaryLine) - 1;
+            hBootLogFile.write(reinterpret_cast<const uint8_t *>(szSummaryLine), cb);
+            }
+        }
+
+    if (pSummary) heap_caps_free(pSummary);
+
+    // Success: erase the partition and clear retry/sentinel state.
+    esp_core_dump_image_erase();
+    s_Nvs.putUInt(kKeyCdRetry, 0);
+    s_Nvs.putBool(kKeyCdBusy, false);
+
+    g_Log.printf("BootDiag: archived coredump (%u bytes) to %s\n",
+                 static_cast<unsigned>(uDumpSize), szDumpPath);
+    }
+
+}  // anonymous namespace
+
+// ----------------------------------------------------------------------------
+
 void AppendToSd()
     {
     if (!s_bInitialized)
@@ -259,6 +561,12 @@ void AppendToSd()
             cbWrite = sizeof(szLine) - 1;
         hFile.write(reinterpret_cast<const uint8_t *>(szLine), cbWrite);
         }
+
+    // Archive any panic coredump from the prior boot under the same mutex
+    // and the same open file (so the indented summary lines land directly
+    // under the boot row they describe). Silent no-op when there's nothing
+    // to archive — most boots.
+    ArchivePriorPanicCoredump(hFile);
 
     hFile.sync();
     hFile.close();
