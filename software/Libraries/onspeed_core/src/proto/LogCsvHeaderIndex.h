@@ -162,12 +162,16 @@ using WarnSink = void (*)(const char* missingColumn, void* userdata);
 // or any optional group is partially present, with `*missingOut` (when
 // non-null) naming the first offender.
 //
-// In Permissive mode: always returns true. Missing always-present
-// columns and partial optional groups are reported via `warnSink`
-// (one call per warning, with a static-string column name) so the
-// caller can log them; the index's `idxXxx` fields for absent columns
-// stay -1 and `boomEnabled`/`efisEnabled`/`efisIsVn300` reflect only
-// fully-complete groups.
+// In Permissive mode: missing always-present columns and partial optional
+// groups are reported via `warnSink` (one call per warning, with a
+// static-string column name); absent column ordinals stay -1 and
+// `boomEnabled`/`efisEnabled`/`efisIsVn300` reflect only fully-complete
+// groups. Permissive mode still returns false on two unrecoverable
+// shapes: a header with > kHeaderIndexMaxColumns tokens (the row-side
+// tokenizer would truncate, dropping every row), and a header with zero
+// recognized OnSpeed columns (no signal to replay against). In both
+// cases `*missingOut` (when non-null) carries a parenthesized sentinel
+// instead of a column name.
 //
 // Tolerates trailing CR/LF on the last token. Unknown column names are
 // counted toward totalColumns but not stored.

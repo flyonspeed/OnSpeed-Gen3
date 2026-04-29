@@ -154,6 +154,7 @@ bool BuildHeaderIndex(std::string_view headerLine,
     if (missingOut) *missingOut = nullptr;
 
     int ordinal = 0;
+    int matchedKnown = 0;
     size_t pos = 0;
     while (pos <= headerLine.size())
     {
@@ -164,13 +165,38 @@ bool BuildHeaderIndex(std::string_view headerLine,
                 : headerLine.substr(pos, comma - pos);
         tok = RstripCrLf(tok);
 
-        BindKnownColumn(tok, ordinal, out);
+        if (BindKnownColumn(tok, ordinal, out)) matchedKnown++;
         ordinal++;
 
         if (comma == std::string_view::npos) break;
         pos = comma + 1;
     }
     out.totalColumns = ordinal;
+
+    // Refuse a header that overshoots the row-side tokenizer cap
+    // (TokenizeRow truncates at kHeaderIndexMaxColumns). Without this
+    // ParseRowByIndex's `tokenCount < idx.totalColumns` check returns
+    // false for every row and replay drops the entire log silently.
+    if (ordinal > kHeaderIndexMaxColumns) {
+        static const char* kMsg = "(header exceeds kHeaderIndexMaxColumns)";
+        if (missingOut) *missingOut = kMsg;
+        if (strictness == HeaderStrictness::Permissive)
+            EmitWarn(warnSink, warnUserdata, kMsg);
+        return false;
+    }
+
+    // Refuse a header that contains zero recognized OnSpeed columns.
+    // Without this, Permissive mode would warn for every required column
+    // and return true, leaving every idxXxx == -1; ParseRowByIndex then
+    // produces all-zero LogRows and replay runs the audio engine with
+    // bogus inputs to EOF.
+    if (matchedKnown == 0) {
+        static const char* kMsg = "(no recognized OnSpeed columns in header)";
+        if (missingOut) *missingOut = kMsg;
+        if (strictness == HeaderStrictness::Permissive)
+            EmitWarn(warnSink, warnUserdata, kMsg);
+        return false;
+    }
 
     // Validate always-present core columns. Order of checks matches
     // canonical column order so the failure message points at the

@@ -598,6 +598,49 @@ FIXTURE_TEST(v410_pre_vn300,  "test/test_log_csv_header_index/fixtures/v4.10-pre
 
 #undef FIXTURE_TEST
 
+void test_build_index_permissive_garbage_header_fails(void)
+{
+    // A header that produces tokens but no recognized OnSpeed columns.
+    // Permissive mode must reject this — otherwise OpenReplayLog reads every
+    // row as all-zero defaults and runs the audio engine with IAS=0/AOA=0.
+    static const char kHeader[] = "garbage,here,now";
+    HeaderIndex idx;
+    const char* missing = nullptr;
+    int warnCount = 0;
+    auto sink = [](const char*, void* ud) { (*(int*)ud)++; };
+    bool ok = BuildHeaderIndex(kHeader, idx,
+                               HeaderStrictness::Permissive,
+                               &missing, sink, &warnCount);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_NOT_NULL(missing);
+}
+
+void test_build_index_over_wide_header_fails(void)
+{
+    // Synthesize a valid canonical header padded with enough unknown
+    // columns to push past kHeaderIndexMaxColumns. The tokenizer's
+    // row-side buffer caps at the same limit, so anything beyond it is
+    // truncated; reject the header up front rather than dropping every
+    // data row downstream.
+    std::string hdr(kCoreHead);
+    // Pad with unknown columns past kHeaderIndexMaxColumns (96). Core has
+    // 22 + 6 derived = 28 always-present, so we add 70 unknown columns to
+    // reach 98 total.
+    for (int i = 0; i < 70; ++i) {
+        hdr.push_back(',');
+        hdr += "extra";
+        hdr += std::to_string(i);
+    }
+    hdr.push_back(',');
+    hdr.append(kDerivedTail);
+
+    HeaderIndex idx;
+    const char* missing = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_NOT_NULL(missing);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -621,5 +664,7 @@ int main(int, char**)
     RUN_TEST(test_fixture_v415_vn300);
     RUN_TEST(test_fixture_v413_no_boom);
     RUN_TEST(test_fixture_v410_pre_vn300);
+    RUN_TEST(test_build_index_permissive_garbage_header_fails);
+    RUN_TEST(test_build_index_over_wide_header_fails);
     return UNITY_END();
 }
