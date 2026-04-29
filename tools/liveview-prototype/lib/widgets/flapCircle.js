@@ -18,7 +18,7 @@ export function mountFlapCircle(parent, {
   triangleTipR,
   arcRad,
   stopR,
-  labelFontSize = 14,
+  labelFontSize = 16,
 }) {
   const group = mk(parent, 'g', { 'data-widget': 'flap-circle' });
 

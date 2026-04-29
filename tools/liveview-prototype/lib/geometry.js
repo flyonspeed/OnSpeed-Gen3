@@ -113,7 +113,9 @@ export const CORNER_LABEL_Y  = 90;
 export const CORNER_NUM_Y    = 130;
 export const CORNER_LEFT_X   = 5;
 // Label font: FSS18 (FreeSans 18pt). Number font: FSSB18 (FreeSans Bold 18pt).
-export const CORNER_LABEL_FONT_SIZE = 22;
+// M5 FSS18 ascent ~21 px; CSS font-size 24 lands close. Label baseline y=90,
+// number baseline y=130 — gap is from C++, do not adjust.
+export const CORNER_LABEL_FONT_SIZE = 24;
 export const CORNER_NUM_FONT_SIZE   = 26;
 
 // ----------------------------------------------------------------------------
