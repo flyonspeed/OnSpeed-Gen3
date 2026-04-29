@@ -48,6 +48,10 @@ export const scenarios = {
   idle: (_t) => record({ iasKt: 0, percentLift: 0, gOnsetRate: 0 }),
   cruise: (t) => record({
     iasKt: 130, paltFt: 4500, percentLift: 30, pitchDeg: 1.5,
+    // Cruise wings-level with a slow roll oscillation and gentle VSI.
+    rollDeg: 1.5 * Math.sin(2 * Math.PI * t / 8000),
+    flightPathDeg: 1.5,
+    vsiFpm: 100 * Math.sin(2 * Math.PI * t / 12000),
     // Light turbulence: ±0.3 g/s, 6-second period.
     gOnsetRate: gOnsetSine(t, 6000, 0.3),
   }),
@@ -60,7 +64,10 @@ export const scenarios = {
       paltFt: 800,
       percentLift: Math.round(30 + 60 * frac),
       pitchDeg: 4 + 4 * frac,
+      // Roll ±5° over the cycle to exercise the horizon + ladder.
+      rollDeg: 5 * Math.sin(2 * Math.PI * t / 10000),
       flightPathDeg: -3,
+      // Sink rate during approach.
       vsiFpm: -500,
       // Pull-up cycle as the AOA climbs: positive gOnset on climb,
       // negative on recovery. Up to ±0.8 g/s, 4-second period.
@@ -83,7 +90,11 @@ export const scenarios = {
       iasKt: 65,
       paltFt: 3000,
       percentLift: Math.min(99, pct),
-      pitchDeg: 8,
+      // High pitch hold at the top of the climb; FP marker drops
+      // below the aircraft as airspeed bleeds.
+      pitchDeg: 8 + 2 * Math.sin(2 * Math.PI * t / 5000),
+      flightPathDeg: 2,
+      vsiFpm: -300,
       verticalG: 1.0,
       gOnsetRate: g,
     });

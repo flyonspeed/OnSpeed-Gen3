@@ -1,6 +1,7 @@
 import { scenarios } from './scenarios.js';
 import { buildFrame } from './frameBuilder.js';
 import { mountAoa } from './modes/aoa.js';
+import { mountAttitude } from './modes/attitude.js';
 
 // State.
 let currentScenario = 'idle';
@@ -18,6 +19,15 @@ export function subscribe(fn) { subscribers.push(fn); return () => {
 const svgRoot = document.getElementById('svg-root');
 const aoaPanel = mountAoa(svgRoot);
 subscribe(rec => aoaPanel.update(rec));
+
+// Mount the Attitude (Mode 1) panel into its own div. The mode-button
+// handler below toggles `style.display` on the data-mode-panel divs;
+// this widget runs every tick regardless so it's ready when shown.
+const attitudeRoot = document.querySelector('[data-mode-panel="attitude"]');
+if (attitudeRoot) {
+  const attitudePanel = mountAttitude(attitudeRoot);
+  subscribe(rec => attitudePanel.update(rec));
+}
 
 // 20 Hz tick — emit current scenario's record to all subscribers.
 function tick() {
@@ -79,12 +89,16 @@ document.querySelectorAll('#mode-nav button[data-mode]').forEach(btn => {
   });
 });
 
-document.getElementById('theme-toggle').addEventListener('click', () => {
-  const cur = document.documentElement.dataset.theme || 'dark';
-  const next = cur === 'dark' ? 'light' : 'dark';
-  document.documentElement.dataset.theme = next;
-  localStorage.setItem('liveview-theme', next);
-});
+// Theme toggle is only present on the main index.html — measure.html omits it.
+const themeToggle = document.getElementById('theme-toggle');
+if (themeToggle) {
+  themeToggle.addEventListener('click', () => {
+    const cur = document.documentElement.dataset.theme || 'dark';
+    const next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('liveview-theme', next);
+  });
+}
 
 const savedTheme = localStorage.getItem('liveview-theme');
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
