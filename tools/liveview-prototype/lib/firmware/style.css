@@ -1,0 +1,139 @@
+/* Firmware-served /live page chrome. The prototype's style.css
+   provides the SVG-mode foundation (colors, panel sizing); this
+   file adds the page chrome unique to the firmware-served page:
+   header status line, mode-button row styling, datafields toggle,
+   footer warning. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg, #111);
+  color: var(--ink, #eee);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  /* Avoid horizontal scrolling on mobile viewports. */
+  overflow-x: hidden;
+}
+
+#liveview-header {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dark-grey, #6b6d54);
+}
+
+#status-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+#connectionstatus {
+  font-weight: bold;
+}
+
+#age-indicator {
+  font-variant-numeric: tabular-nums;
+}
+
+#mode-nav {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dark-grey, #6b6d54);
+  overflow-x: auto;
+  /* On narrow phone viewports the 5 buttons need horizontal scroll
+     rather than wrapping — wrapping eats vertical space the SVG
+     wants. */
+}
+
+#mode-nav button {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--ink, #eee);
+  border: 1px solid var(--dark-grey, #6b6d54);
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#mode-nav button.active {
+  background: var(--green, #00ff3a);
+  color: var(--panel-bg, #000);
+  border-color: var(--green, #00ff3a);
+}
+
+#liveview-main {
+  padding: 8px;
+}
+
+#mode-container {
+  position: relative;
+  width: 320px;
+  height: 240px;
+  margin: 0 auto;
+}
+
+[data-mode-panel] {
+  width: 320px;
+  height: 240px;
+  display: block;
+  overflow: hidden;
+}
+
+#datafields-wrap {
+  margin-top: 12px;
+  text-align: center;
+}
+
+#datafields-toggle {
+  background: transparent;
+  color: var(--ink, #eee);
+  border: 1px solid var(--dark-grey, #6b6d54);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#datafields {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+}
+
+#datafields table {
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+#datafields td {
+  padding: 2px 8px;
+}
+
+#datafields td:first-child {
+  color: var(--light-grey, #aaa);
+  text-align: right;
+}
+
+#datafields td:last-child {
+  text-align: left;
+}
+
+#liveview-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px 0;
+  text-align: center;
+  background: var(--panel-bg, #000);
+  border-top: 1px solid var(--dark-grey, #6b6d54);
+}
+
+#footer-warning {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--yellow, #fffd40);
+}

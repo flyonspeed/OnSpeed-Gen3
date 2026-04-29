@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>OnSpeed LiveView (firmware preview)</title>
+<!--
+  Local-only preview of the firmware-served /live page. Loads the
+  same JS modules + CSS the firmware bundle uses, but as ES modules
+  directly so we can iterate without running the build script.
+
+  Two ways to drive it:
+    1. Real WebSocket: edit lib/firmware/wsClient.js's WS_URI to your
+       OnSpeed device's IP, save, reload here.
+    2. Replay file: not implemented yet; for synthetic scenario data
+       use the main index.html harness instead.
+-->
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="lib/firmware/style.css">
+</head>
+<body>
+<header id="liveview-header">
+  <div id="status-line">
+    <span id="connectionstatus">CONNECTING...</span>
+    <span id="age-indicator"></span>
+  </div>
+</header>
+<nav id="mode-nav">
+  <button data-mode="aoa" type="button">AOA</button>
+  <button data-mode="attitude" type="button">Attitude</button>
+  <button data-mode="indexer-only" type="button">Indexer</button>
+  <button data-mode="energy" type="button">Energy</button>
+  <button data-mode="ghistory" type="button">G-Hist</button>
+</nav>
+<main id="liveview-main">
+  <div id="mode-container">
+    <div data-mode-panel="aoa"></div>
+    <div data-mode-panel="attitude" style="display:none;"></div>
+    <div data-mode-panel="indexer-only" style="display:none;"></div>
+    <div data-mode-panel="energy" style="display:none;"></div>
+    <div data-mode-panel="ghistory" style="display:none;"></div>
+  </div>
+  <div id="datafields-wrap">
+    <button id="datafields-toggle" type="button">Show data fields</button>
+    <div id="datafields" style="display:none;"></div>
+  </div>
+</main>
+<footer id="liveview-footer">
+  <div id="footer-warning">For diagnostic purposes only. NOT SAFE FOR FLIGHT</div>
+</footer>
+<script type="module">
+  import { start } from './lib/firmware/main.js';
+  start();
+</script>
+</body>
+</html>
