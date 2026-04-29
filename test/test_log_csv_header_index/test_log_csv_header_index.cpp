@@ -17,7 +17,6 @@
 
 using onspeed::proto::log_csv::BuildHeaderIndex;
 using onspeed::proto::log_csv::HeaderIndex;
-using onspeed::proto::log_csv::HeaderStrictness;
 using onspeed::proto::log_csv::ParseRowByIndex;
 
 namespace {
@@ -51,6 +50,17 @@ constexpr const char* kVn300Group =
 constexpr const char* kDerivedTail =
     "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
 
+// Warn-sink counters used by the warn-sink callback below. File-scope
+// statics so the C-style sink signature can reach them; reset at the top
+// of each test that uses the sink.
+int g_warnCount = 0;
+const char* g_lastWarn = nullptr;
+void CountingWarnSink(const char* missing)
+{
+    g_warnCount++;
+    g_lastWarn = missing;
+}
+
 }  // namespace
 
 void setUp() {}
@@ -66,13 +76,11 @@ void test_build_index_canonical_minimum_required(void)
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(kHeader, idx,
-                               onspeed::proto::log_csv::HeaderStrictness::Strict,
-                               &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(kHeader, idx, CountingWarnSink);
 
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
     TEST_ASSERT_EQUAL_INT(0,  idx.idxTimeStampMs);
     TEST_ASSERT_EQUAL_INT(7,  idx.idxIasKt);
     TEST_ASSERT_EQUAL_INT(9,  idx.idxFlapsPos);
@@ -94,13 +102,11 @@ void test_build_index_reordered_columns(void)
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(kHeader, idx,
-                               onspeed::proto::log_csv::HeaderStrictness::Strict,
-                               &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(kHeader, idx, CountingWarnSink);
 
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
     TEST_ASSERT_EQUAL_INT(0,  idx.idxImuTemp);   // first column now
     TEST_ASSERT_EQUAL_INT(9,  idx.idxTimeStampMs);
     TEST_ASSERT_EQUAL_INT(16, idx.idxIasKt);
@@ -116,11 +122,9 @@ void test_build_index_extra_unknown_columns(void)
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,myCustomDebug2,CoeffP";
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx,
-                                      onspeed::proto::log_csv::HeaderStrictness::Strict,
-                                      &missing));
-    TEST_ASSERT_NULL(missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx, CountingWarnSink));
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
     // CoeffP is the 30th token (index 29) because of the two unknowns.
     TEST_ASSERT_EQUAL_INT(29, idx.idxCoeffP);
     TEST_ASSERT_EQUAL_INT(30, idx.totalColumns);
@@ -128,7 +132,8 @@ void test_build_index_extra_unknown_columns(void)
 
 void test_build_index_missing_required_flapspos(void)
 {
-    // Drop "flapsPos" from the canonical header.
+    // Drop "flapsPos" from the canonical header. BuildHeaderIndex warns
+    // and continues; idxFlapsPos stays -1.
     static const char kHeader[] =
         "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
         "AngleofAttack,DataMark,OAT,TAS,"
@@ -136,14 +141,13 @@ void test_build_index_missing_required_flapspos(void)
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(kHeader, idx,
-                               onspeed::proto::log_csv::HeaderStrictness::Strict,
-                               &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(kHeader, idx, CountingWarnSink);
 
-    TEST_ASSERT_FALSE(ok);
-    TEST_ASSERT_NOT_NULL(missing);
-    TEST_ASSERT_EQUAL_STRING("flapsPos", missing);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_GREATER_THAN_INT(0, g_warnCount);
+    TEST_ASSERT_EQUAL_INT(-1, idx.idxFlapsPos);
+    TEST_ASSERT_EQUAL_STRING("flapsPos", g_lastWarn);
 }
 
 void test_build_index_tolerates_trailing_crlf(void)
@@ -156,9 +160,7 @@ void test_build_index_tolerates_trailing_crlf(void)
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP\r\n";
 
     HeaderIndex idx;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx,
-                                      onspeed::proto::log_csv::HeaderStrictness::Strict,
-                                      nullptr));
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx));
     TEST_ASSERT_EQUAL_INT(27, idx.idxCoeffP);  // last token, CR/LF stripped
 }
 
@@ -168,11 +170,11 @@ void test_build_index_boom_enabled(void)
     hdr.append(kCoreHead).append(",").append(kBoomGroup).append(",").append(kDerivedTail);
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
 
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
     TEST_ASSERT_TRUE(idx.boomEnabled);
     TEST_ASSERT_FALSE(idx.efisEnabled);
     TEST_ASSERT_FALSE(idx.efisIsVn300);
@@ -186,11 +188,11 @@ void test_build_index_efis_standard_enabled(void)
     hdr.append(kCoreHead).append(",").append(kEfisStandardGroup).append(",").append(kDerivedTail);
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
 
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
     TEST_ASSERT_FALSE(idx.boomEnabled);
     TEST_ASSERT_TRUE(idx.efisEnabled);
     TEST_ASSERT_FALSE(idx.efisIsVn300);
@@ -202,32 +204,35 @@ void test_build_index_vn300_enabled(void)
     hdr.append(kCoreHead).append(",").append(kVn300Group).append(",").append(kDerivedTail);
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
 
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
     TEST_ASSERT_FALSE(idx.boomEnabled);
     TEST_ASSERT_TRUE(idx.efisEnabled);
     TEST_ASSERT_TRUE(idx.efisIsVn300);
 }
 
-void test_build_index_boom_partial_fails(void)
+void test_build_index_boom_partial_warns_no_enable(void)
 {
-    // Boom group with one column dropped — partial presence is a hard
-    // fail in Strict mode, naming the first missing column.
+    // Boom group with one column dropped. BuildHeaderIndex emits one
+    // warning naming the first missing column and leaves boomEnabled
+    // false; present columns within the partial group keep their
+    // ordinals (debug visibility).
     static const char* kPartialBoom =
         "boomStatic,boomDynamic,boomAlpha,boomBeta,boomIAS";  // missing boomAge
     std::string hdr;
     hdr.append(kCoreHead).append(",").append(kPartialBoom).append(",").append(kDerivedTail);
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
 
-    TEST_ASSERT_FALSE(ok);
-    TEST_ASSERT_NOT_NULL(missing);
-    TEST_ASSERT_EQUAL_STRING("boomAge", missing);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(idx.boomEnabled);
+    TEST_ASSERT_EQUAL_INT(1, g_warnCount);
+    TEST_ASSERT_EQUAL_STRING("boomAge", g_lastWarn);
 }
 
 void test_parserowbyindex_canonical_roundtrip(void)
@@ -275,8 +280,7 @@ void test_parserowbyindex_canonical_roundtrip(void)
     TEST_ASSERT_GREATER_THAN(0, rowLen);
 
     HeaderIndex idx;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx,
-                                      HeaderStrictness::Strict, nullptr));
+    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx));
 
     onspeed::LogRow dst{};
     dst.boomEnabled = idx.boomEnabled;
@@ -300,7 +304,7 @@ void test_parserowbyindex_empty_field_fails(void)
         "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
     HeaderIndex idx;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx, HeaderStrictness::Strict, nullptr));
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx));
 
     // Same shape as the canonical row but with the IAS field empty.
     static const char kRow[] =
@@ -322,7 +326,7 @@ void test_parserowbyindex_reordered_roundtrip(void)
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
 
     HeaderIndex idx;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx, HeaderStrictness::Strict, nullptr));
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx));
     TEST_ASSERT_EQUAL_INT(0, idx.idxFlapsPos);  // first column
     TEST_ASSERT_EQUAL_INT(9, idx.idxIasKt);     // after the unknown
 
@@ -387,8 +391,7 @@ void test_parserowbyindex_efis_roundtrip(void)
     TEST_ASSERT_GREATER_THAN(0, rowLen);
 
     HeaderIndex idx;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx,
-                                      HeaderStrictness::Strict, nullptr));
+    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx));
     TEST_ASSERT_TRUE(idx.efisEnabled);
     TEST_ASSERT_FALSE(idx.efisIsVn300);
 
@@ -406,60 +409,6 @@ void test_parserowbyindex_efis_roundtrip(void)
     TEST_ASSERT_EQUAL_UINT32(src.efisTimestampMs, dst.efisTimestampMs);
     // Sign-flip recovery still works alongside EFIS columns.
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, src.imuPitchRateDps, dst.imuPitchRateDps);
-}
-
-// Permissive-mode counters used by the warn-sink callbacks below. File-scope
-// statics so the C-style sink signature can reach them without userdata
-// gymnastics; reset at the top of each test.
-namespace {
-int g_warnCount = 0;
-const char* g_lastWarn = nullptr;
-void CountingWarnSink(const char* missing, void* /*userdata*/)
-{
-    g_warnCount++;
-    g_lastWarn = missing;
-}
-}  // namespace
-
-void test_build_index_permissive_missing_required_warns_continues(void)
-{
-    // Drop "flapsPos" from the canonical header. Strict would hard-fail;
-    // Permissive emits a warning and keeps going.
-    static const char kHeader[] =
-        "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
-        "AngleofAttack,DataMark,OAT,TAS,"
-        "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
-        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
-
-    g_warnCount = 0; g_lastWarn = nullptr;
-    HeaderIndex idx;
-    bool ok = BuildHeaderIndex(kHeader, idx, HeaderStrictness::Permissive,
-                               nullptr, CountingWarnSink, nullptr);
-
-    TEST_ASSERT_TRUE(ok);                              // permissive succeeds
-    TEST_ASSERT_GREATER_THAN_INT(0, g_warnCount);      // warned about flapsPos
-    TEST_ASSERT_EQUAL_INT(-1, idx.idxFlapsPos);        // field absent
-    TEST_ASSERT_EQUAL_STRING("flapsPos", g_lastWarn);
-}
-
-void test_build_index_permissive_partial_boom_warns_no_enable(void)
-{
-    // Five-of-six boom columns: a partial group. Strict hard-fails; in
-    // Permissive the group stays disabled and one warning fires for boomAge.
-    std::string hdr;
-    hdr.append(kCoreHead).append(",")
-       .append("boomStatic,boomDynamic,boomAlpha,boomBeta,boomIAS")
-       .append(",").append(kDerivedTail);
-
-    g_warnCount = 0; g_lastWarn = nullptr;
-    HeaderIndex idx;
-    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Permissive,
-                               nullptr, CountingWarnSink, nullptr);
-
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_FALSE(idx.boomEnabled);   // partial group not turned on
-    TEST_ASSERT_EQUAL_INT(1, g_warnCount); // exactly one missing column
-    TEST_ASSERT_EQUAL_STRING("boomAge", g_lastWarn);
 }
 
 void test_parserowbyindex_vn300_roundtrip(void)
@@ -508,8 +457,7 @@ void test_parserowbyindex_vn300_roundtrip(void)
     TEST_ASSERT_GREATER_THAN(0, rowLen);
 
     HeaderIndex idx;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx,
-                                      HeaderStrictness::Strict, nullptr));
+    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx));
     TEST_ASSERT_TRUE(idx.efisEnabled);
     TEST_ASSERT_TRUE(idx.efisIsVn300);
 
@@ -573,10 +521,11 @@ void test_fixture_##name(void) {                                              \
     std::string hdr, row;                                                     \
     TEST_ASSERT_TRUE(SplitHeaderAndFirstRow(text, hdr, row));                 \
     HeaderIndex idx;                                                          \
-    const char* missing = nullptr;                                            \
-    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing); \
+    g_warnCount = 0; g_lastWarn = nullptr;                                    \
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);                   \
     TEST_ASSERT_TRUE_MESSAGE(                                                 \
-        ok, missing ? missing : "BuildHeaderIndex failed");                   \
+        ok, g_lastWarn ? g_lastWarn : "BuildHeaderIndex failed");             \
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);                                    \
     TEST_ASSERT_EQUAL((expectVn300), idx.efisIsVn300);                        \
     TEST_ASSERT_EQUAL((expectBoom),  idx.boomEnabled);                        \
     TEST_ASSERT_EQUAL((expectEfis),  idx.efisEnabled);                        \
@@ -602,21 +551,19 @@ FIXTURE_TEST(canonical_core_only,          "test/test_log_csv_header_index/fixtu
 
 #undef FIXTURE_TEST
 
-void test_build_index_permissive_garbage_header_fails(void)
+void test_build_index_garbage_header_fails(void)
 {
     // A header that produces tokens but no recognized OnSpeed columns.
-    // Permissive mode must reject this — otherwise OpenReplayLog reads every
-    // row as all-zero defaults and runs the audio engine with IAS=0/AOA=0.
+    // BuildHeaderIndex must reject this — otherwise OpenReplayLog reads
+    // every row as all-zero defaults and runs the audio engine with
+    // IAS=0/AOA=0.
     static const char kHeader[] = "garbage,here,now";
     HeaderIndex idx;
-    const char* missing = nullptr;
-    int warnCount = 0;
-    auto sink = [](const char*, void* ud) { (*(int*)ud)++; };
-    bool ok = BuildHeaderIndex(kHeader, idx,
-                               HeaderStrictness::Permissive,
-                               &missing, sink, &warnCount);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(kHeader, idx, CountingWarnSink);
     TEST_ASSERT_FALSE(ok);
-    TEST_ASSERT_NOT_NULL(missing);
+    TEST_ASSERT_GREATER_THAN_INT(0, g_warnCount);
+    TEST_ASSERT_NOT_NULL(g_lastWarn);
 }
 
 void test_parserowbyindex_empty_vntimeutc_preserved(void)
@@ -647,8 +594,7 @@ void test_parserowbyindex_empty_vntimeutc_preserved(void)
     TEST_ASSERT_GREATER_THAN(0, rowLen);
 
     HeaderIndex idx;
-    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx,
-                                      HeaderStrictness::Strict, nullptr));
+    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx));
 
     onspeed::LogRow dst{};
     dst.boomEnabled = idx.boomEnabled;
@@ -679,10 +625,11 @@ void test_build_index_over_wide_header_fails(void)
     hdr.append(kDerivedTail);
 
     HeaderIndex idx;
-    const char* missing = nullptr;
-    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
     TEST_ASSERT_FALSE(ok);
-    TEST_ASSERT_NOT_NULL(missing);
+    TEST_ASSERT_GREATER_THAN_INT(0, g_warnCount);
+    TEST_ASSERT_NOT_NULL(g_lastWarn);
 }
 
 int main(int, char**)
@@ -696,19 +643,17 @@ int main(int, char**)
     RUN_TEST(test_build_index_boom_enabled);
     RUN_TEST(test_build_index_efis_standard_enabled);
     RUN_TEST(test_build_index_vn300_enabled);
-    RUN_TEST(test_build_index_boom_partial_fails);
+    RUN_TEST(test_build_index_boom_partial_warns_no_enable);
     RUN_TEST(test_parserowbyindex_canonical_roundtrip);
     RUN_TEST(test_parserowbyindex_empty_field_fails);
     RUN_TEST(test_parserowbyindex_reordered_roundtrip);
     RUN_TEST(test_parserowbyindex_efis_roundtrip);
-    RUN_TEST(test_build_index_permissive_missing_required_warns_continues);
-    RUN_TEST(test_build_index_permissive_partial_boom_warns_no_enable);
     RUN_TEST(test_parserowbyindex_vn300_roundtrip);
     RUN_TEST(test_fixture_canonical_with_boom_and_efis);
     RUN_TEST(test_fixture_canonical_with_vn300);
     RUN_TEST(test_fixture_canonical_with_efis_only);
     RUN_TEST(test_fixture_canonical_core_only);
-    RUN_TEST(test_build_index_permissive_garbage_header_fails);
+    RUN_TEST(test_build_index_garbage_header_fails);
     RUN_TEST(test_parserowbyindex_empty_vntimeutc_preserved);
     RUN_TEST(test_build_index_over_wide_header_fails);
     return UNITY_END();

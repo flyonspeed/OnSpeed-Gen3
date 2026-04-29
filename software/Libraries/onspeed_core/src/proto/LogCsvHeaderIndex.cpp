@@ -119,39 +119,26 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     return false;
 }
 
-void EmitWarn(WarnSink warnSink, void* userdata, const char* missing)
+void EmitWarn(WarnSink warnSink, const char* missing)
 {
-    if (warnSink) warnSink(missing, userdata);
+    if (warnSink) warnSink(missing);
 }
 
-// Validate a known column is present.
-//   Strict     — return false on absence and set *missingOut.
-//   Permissive — emit a warning, leave the field at -1, return true.
-bool RequireColumn(int idx, const char* name,
-                   HeaderStrictness strictness,
-                   const char** missingOut,
-                   WarnSink warnSink, void* warnUserdata)
+// Validate a known column is present. Emits a warning when absent and
+// leaves the field at -1.
+void RequireColumn(int idx, const char* name, WarnSink warnSink)
 {
-    if (idx >= 0) return true;
-    if (strictness == HeaderStrictness::Strict) {
-        if (missingOut) *missingOut = name;
-        return false;
-    }
-    EmitWarn(warnSink, warnUserdata, name);
-    return true;
+    if (idx >= 0) return;
+    EmitWarn(warnSink, name);
 }
 
 }  // namespace
 
 bool BuildHeaderIndex(std::string_view headerLine,
                       HeaderIndex& out,
-                      HeaderStrictness strictness,
-                      const char** missingOut,
-                      WarnSink warnSink,
-                      void* warnUserdata)
+                      WarnSink warnSink)
 {
     out = HeaderIndex{};   // reset to defaults
-    if (missingOut) *missingOut = nullptr;
 
     int ordinal = 0;
     int matchedKnown = 0;
@@ -178,32 +165,23 @@ bool BuildHeaderIndex(std::string_view headerLine,
     // ParseRowByIndex's `tokenCount < idx.totalColumns` check returns
     // false for every row and replay drops the entire log silently.
     if (ordinal > kHeaderIndexMaxColumns) {
-        static const char* kMsg = "(header exceeds kHeaderIndexMaxColumns)";
-        if (missingOut) *missingOut = kMsg;
-        if (strictness == HeaderStrictness::Permissive)
-            EmitWarn(warnSink, warnUserdata, kMsg);
+        EmitWarn(warnSink, "(header exceeds kHeaderIndexMaxColumns)");
         return false;
     }
 
     // Refuse a header that contains zero recognized OnSpeed columns.
-    // Without this, Permissive mode would warn for every required column
-    // and return true, leaving every idxXxx == -1; ParseRowByIndex then
-    // produces all-zero LogRows and replay runs the audio engine with
-    // bogus inputs to EOF.
+    // Without this we'd warn for every required column and return true,
+    // leaving every idxXxx == -1; ParseRowByIndex then produces all-zero
+    // LogRows and replay runs the audio engine with bogus inputs to EOF.
     if (matchedKnown == 0) {
-        static const char* kMsg = "(no recognized OnSpeed columns in header)";
-        if (missingOut) *missingOut = kMsg;
-        if (strictness == HeaderStrictness::Permissive)
-            EmitWarn(warnSink, warnUserdata, kMsg);
+        EmitWarn(warnSink, "(no recognized OnSpeed columns in header)");
         return false;
     }
 
     // Validate always-present core columns. Order of checks matches
-    // canonical column order so the failure message points at the
-    // earliest missing column.
+    // canonical column order so warnings fire in canonical order.
     #define REQUIRE(field, name) \
-        if (!RequireColumn(out.field, name, strictness, missingOut, \
-                           warnSink, warnUserdata)) return false
+        RequireColumn(out.field, name, warnSink)
 
     REQUIRE(idxTimeStampMs,   "timeStamp");
     REQUIRE(idxPfwd,          "Pfwd");
@@ -239,13 +217,11 @@ bool BuildHeaderIndex(std::string_view headerLine,
 
     // Optional-group resolution. A group is "present" only when every
     // column in it appears in the header. Any column from a group present
-    // without the rest is treated as schema drift:
-    //   Strict     — hard fail naming the first missing column.
-    //   Permissive — emit a warning per missing column, leave the
-    //                Enabled flag false. Present columns within the
-    //                partial group keep their ordinals (debug visibility),
-    //                but ParseRowByIndex won't unpack the group because
-    //                the Enabled flag stays false.
+    // without the rest is treated as schema drift: emit one warning naming
+    // the first missing column, leave the Enabled flag false. Present
+    // columns within a partial group keep their ordinals (debug
+    // visibility), but ParseRowByIndex won't unpack the group because the
+    // Enabled flag stays false.
 
     auto allOf = [](const int* idxs, int count) -> bool {
         for (int i = 0; i < count; ++i) if (idxs[i] < 0) return false;
@@ -266,12 +242,7 @@ bool BuildHeaderIndex(std::string_view headerLine,
         for (int i = 0; i < 6; ++i) if (idxs[i] >= 0) { any = true; break; }
         if (any) {
             if (!allOf(idxs, 6)) {
-                if (strictness == HeaderStrictness::Strict) {
-                    if (missingOut) *missingOut = firstMissing(idxs, names, 6);
-                    return false;
-                }
-                for (int i = 0; i < 6; ++i)
-                    if (idxs[i] < 0) EmitWarn(warnSink, warnUserdata, names[i]);
+                EmitWarn(warnSink, firstMissing(idxs, names, 6));
             } else {
                 out.boomEnabled = true;
             }
@@ -305,12 +276,7 @@ bool BuildHeaderIndex(std::string_view headerLine,
         for (int i = 0; i < 26; ++i) if (idxs[i] >= 0) { any = true; break; }
         if (any) {
             if (!allOf(idxs, 26)) {
-                if (strictness == HeaderStrictness::Strict) {
-                    if (missingOut) *missingOut = firstMissing(idxs, names, 26);
-                    return false;
-                }
-                for (int i = 0; i < 26; ++i)
-                    if (idxs[i] < 0) EmitWarn(warnSink, warnUserdata, names[i]);
+                EmitWarn(warnSink, firstMissing(idxs, names, 26));
             } else {
                 out.efisIsVn300 = true;
                 out.efisEnabled = true;
@@ -336,12 +302,7 @@ bool BuildHeaderIndex(std::string_view headerLine,
         for (int i = 0; i < 18; ++i) if (idxs[i] >= 0) { any = true; break; }
         if (any) {
             if (!allOf(idxs, 18)) {
-                if (strictness == HeaderStrictness::Strict) {
-                    if (missingOut) *missingOut = firstMissing(idxs, names, 18);
-                    return false;
-                }
-                for (int i = 0; i < 18; ++i)
-                    if (idxs[i] < 0) EmitWarn(warnSink, warnUserdata, names[i]);
+                EmitWarn(warnSink, firstMissing(idxs, names, 18));
             } else {
                 out.efisEnabled = true;
             }

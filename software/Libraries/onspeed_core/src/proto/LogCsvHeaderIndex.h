@@ -16,7 +16,6 @@
 #ifndef ONSPEED_CORE_PROTO_LOG_CSV_HEADER_INDEX_H
 #define ONSPEED_CORE_PROTO_LOG_CSV_HEADER_INDEX_H
 
-#include <cstdint>
 #include <string_view>
 
 #include <types/LogRow.h>
@@ -127,53 +126,27 @@ struct HeaderIndex {
     bool efisIsVn300           = false;
 };
 
-// Strictness mode for header validation. Picked at call time by the caller.
-//
-// Strict — any missing always-present column or partial optional group is
-//   a hard fail with the missing column named. Used by unit tests, dev
-//   fixtures, and the regression harness; we want our own schema drift
-//   to be loud.
-//
-// Permissive — missing always-present columns log a warning naming the
-//   column and leave the corresponding LogRow fields at default. Partial
-//   optional groups log a warning and skip the group entirely (the
-//   present columns within it stay -1). Used by LogReplay for SD-card
-//   replay, including customer-submitted logs from older firmware where
-//   we want best-effort consumption rather than refusal.
-enum class HeaderStrictness : uint8_t {
-    Strict     = 0,
-    Permissive = 1,
-};
-
-// Sink for permissive-mode warnings. Called once per missing column with
-// the static-string column name, plus the caller-supplied userdata.
-using WarnSink = void (*)(const char* missingColumn, void* userdata);
+// Sink for missing-column warnings. Called once per missing always-present
+// column or per partial optional group, with the static-string column name.
+using WarnSink = void (*)(const char* missingColumn);
 
 // Parse a CSV header line into a HeaderIndex.
 //
-// In Strict mode: returns false if any always-present column is missing
-// or any optional group is partially present, with `*missingOut` (when
-// non-null) naming the first offender.
-//
-// In Permissive mode: missing always-present columns and partial optional
-// groups are reported via `warnSink` (one call per warning, with a
-// static-string column name); absent column ordinals stay -1 and
-// `boomEnabled`/`efisEnabled`/`efisIsVn300` reflect only fully-complete
-// groups. Permissive mode still returns false on two unrecoverable
-// shapes: a header with > kHeaderIndexMaxColumns tokens (the row-side
-// tokenizer would truncate, dropping every row), and a header with zero
-// recognized OnSpeed columns (no signal to replay against). In both
-// cases `*missingOut` (when non-null) carries a parenthesized sentinel
-// instead of a column name.
+// Missing always-present columns and partial optional groups are reported
+// via `warnSink` (one call per warning, with a static-string column name);
+// absent column ordinals stay -1 and `boomEnabled`/`efisEnabled`/
+// `efisIsVn300` reflect only fully-complete groups. The function returns
+// false on two unrecoverable shapes: a header with > kHeaderIndexMaxColumns
+// tokens (the row-side tokenizer would truncate, dropping every row), and
+// a header with zero recognized OnSpeed columns (no signal to replay
+// against). In both cases `warnSink` is called with a parenthesized
+// sentinel string before returning false.
 //
 // Tolerates trailing CR/LF on the last token. Unknown column names are
 // counted toward totalColumns but not stored.
 bool BuildHeaderIndex(std::string_view headerLine,
                       HeaderIndex& out,
-                      HeaderStrictness strictness = HeaderStrictness::Strict,
-                      const char** missingOut = nullptr,
-                      WarnSink warnSink = nullptr,
-                      void* warnUserdata = nullptr);
+                      WarnSink warnSink = nullptr);
 
 // Parse one data row using the index.
 //

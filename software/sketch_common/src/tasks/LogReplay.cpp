@@ -31,10 +31,10 @@ static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
 // column-name -> ordinal mapping plus the boom/EFIS/VN-300 feature flags.
 static onspeed::proto::log_csv::HeaderIndex s_HeaderIndex{};
 
-// Permissive-mode warning sink for BuildHeaderIndex. Reports each missing
-// column on the replay channel; LogRow fields for absent columns stay at
-// their default and replay continues.
-static void ReplayHeaderWarn(const char* col, void* /*ud*/)
+// Warning sink for BuildHeaderIndex. Reports each missing column on the
+// replay channel; LogRow fields for absent columns stay at their default
+// and replay continues.
+static void ReplayHeaderWarn(const char* col)
     {
     g_Log.printf(MsgLog::EnReplay, MsgLog::EnWarning,
         "Replay log missing column: %s (best-effort, field stays at default)\n",
@@ -152,17 +152,16 @@ bool OpenReplayLog(String sLogFile)
 
     RemoveSpaces(szInLine);
 
-    // Name-keyed header parse. Permissive mode tolerates older logs from
-    // customer kits — missing columns log a warning and the corresponding
-    // LogRow fields stay at default; the rest of the log replays.
+    // Name-keyed header parse. Tolerates older logs from customer kits —
+    // missing columns log a warning and the corresponding LogRow fields
+    // stay at default; the rest of the log replays.
     if (!onspeed::proto::log_csv::BuildHeaderIndex(
             std::string_view(szInLine),
             s_HeaderIndex,
-            onspeed::proto::log_csv::HeaderStrictness::Permissive,
-            nullptr, ReplayHeaderWarn, nullptr))
+            ReplayHeaderWarn))
         {
         g_Log.printf(MsgLog::EnReplay, MsgLog::EnError,
-            "Replay header parse failed catastrophically (zero tokens?)\n");
+            "Replay header parse failed; see preceding warning for details\n");
         goto fail;
         }
 
