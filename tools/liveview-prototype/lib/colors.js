@@ -14,4 +14,7 @@ export const colors = Object.freeze({
   TFT_LIGHTGREY:  'var(--light-grey)',
   TFT_CYAN:       'var(--sky)',
   TFT_BROWN:      'var(--ground)',
+  TFT_MAGENTA:    'var(--magenta)',
+  TFT_ORANGE:     'var(--orange)',
+  TFT_BLUE:       'var(--blue)',
 });

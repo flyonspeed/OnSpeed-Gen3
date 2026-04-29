@@ -14,6 +14,16 @@
      bar background, flap circle background, etc.) is rgb(107, 109, 84). */
   --dark-grey: #6b6d54;
   --light-grey: #aaa;
+  /* Mode 1 (Attitude) palette. Sky and ground colors approximate
+     M5GFX's TFT_CYAN (0x07FF) and the inline 0x8281 ground color
+     (~rgb(132,82,8) → leans olive-brown). Magenta and orange match
+     TFT_MAGENTA (0xF81F) and TFT_ORANGE (0xFD20). Blue is TFT_BLUE
+     (0x001F), used for the horizon back-edge stripe. */
+  --sky: #29b6f6;
+  --ground: #8b4513;
+  --magenta: #ff00ff;
+  --orange: #ff8800;
+  --blue: #0000ff;
 }
 
 [data-theme="light"] {
@@ -27,6 +37,13 @@
   --grey: #555;
   --dark-grey: #aaa;
   --light-grey: #888;
+  /* Light-theme Mode 1 palette: tone the saturated values down so they
+     read against a white panel without glaring. */
+  --sky: #5fb9ea;
+  --ground: #a36632;
+  --magenta: #d030c0;
+  --orange: #d97500;
+  --blue: #4060c0;
 }
 
 body {
