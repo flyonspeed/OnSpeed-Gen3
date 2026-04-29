@@ -209,9 +209,89 @@ export function mountAoa(rootEl) {
 
   rootEl.appendChild(svg);
 
-  // ---- Update function (called per data tick in Task 1.2) ----
+  // ---- Update function (called per data tick) ----
   function update(rec) {
-    // Stub for now — Task 1.2 fills this in.
+    // Build anchors array in the slot convention pct2y / chevron / donut expect.
+    // Mirrors PctAnchors[] populated by displayAOA() in main.cpp:719-726.
+    const anchors = [
+      0,                          // [0] alpha_0 floor (always 0 in percent space)
+      0,                          // [1] unused
+      rec.tonesOnPctLift,         // [2] kIdxTonesOn — operational chevron + audio gate
+      rec.onSpeedFastPctLift,     // [3] kIdxOnSpeedFast — donut bottom edge
+      rec.onSpeedSlowPctLift,     // [4] kIdxOnSpeedSlow — donut top / chevron lower gate
+      0,                          // [5] unused
+      rec.pipPctLift,             // [6] kIdxPipPctLift — visual L/Dmax pip
+      rec.stallWarnPctLift,       // [7] kIdxStallWarn — top-chevron flash threshold
+    ];
+    // 250 ms flash flag — same cadence as flashFlag in main.cpp's loop().
+    const flashFlag = (Math.floor(performance.now() / 250) % 2) === 1;
+
+    // ----- Index bar -----
+    const indexY = mapPct2Display(rec.percentLift, anchors);
+    indexBar.setAttribute('y', indexY);
+
+    // ----- L/Dmax pips -----
+    const ldmaxY = mapPct2Display(rec.pipPctLift, anchors);
+    pipLeftHalo.setAttribute('cy', ldmaxY);
+    pipLeftInner.setAttribute('cy', ldmaxY);
+    pipRightHalo.setAttribute('cy', ldmaxY);
+    pipRightInner.setAttribute('cy', ldmaxY);
+
+    // ----- Chevron colors -----
+    const chev = chevronColors({ percentLift: rec.percentLift, anchors, flashFlag });
+    chevronEls.topLeft.setAttribute('fill',     chev.top);
+    chevronEls.topRight.setAttribute('fill',    chev.top);
+    chevronEls.bottomLeft.setAttribute('fill',  chev.bottom);
+    chevronEls.bottomRight.setAttribute('fill', chev.bottom);
+
+    // ----- Donut colors -----
+    const donut = donutColors({ percentLift: rec.percentLift, anchors });
+    donutBottomArc.setAttribute('stroke', donut.bottomArc);
+    donutTopArc.setAttribute('stroke', donut.topArc);
+    donutDot.setAttribute('fill', donut.dot);
+
+    // ----- Percent-lift number -----
+    pctLiftText.textContent = String(rec.percentLift).padStart(2, '0');
+
+    // ----- Corner readouts -----
+    iasNum.textContent = String(Math.round(rec.iasKt));
+    gNum.textContent = (rec.verticalG >= 0 ? '+' : '') + rec.verticalG.toFixed(1);
+
+    // ----- Flap widget -----
+    // Mirrors displayAOA() :796-805. The triangle apex sits at radius
+    // (FLAP_R + 33) along (cos, sin); its base ends at ±radius along
+    // (sin, -cos) / (-sin, cos), giving an isoceles triangle that
+    // rotates with frac.
+    const frac = flapWidgetFrac(rec.flapsDeg, rec.flapsMinDeg, rec.flapsMaxDeg);
+    const flapAngleDeg = flapTriangleTransform(frac);
+    const angleRad = flapAngleDeg * Math.PI / 180;
+    const apexX = G.FLAP_CX + Math.cos(angleRad) * G.FLAP_TRIANGLE_TIP_R;
+    const apexY = G.FLAP_CY + Math.sin(angleRad) * G.FLAP_TRIANGLE_TIP_R;
+    const topX  = G.FLAP_CX + Math.sin(angleRad) * G.FLAP_R;
+    const topY  = G.FLAP_CY - Math.cos(angleRad) * G.FLAP_R;
+    const botX  = G.FLAP_CX - Math.sin(angleRad) * G.FLAP_R;
+    const botY  = G.FLAP_CY + Math.cos(angleRad) * G.FLAP_R;
+    flapTriangle.setAttribute('d', `M ${topX} ${topY} L ${apexX} ${apexY} L ${botX} ${botY} Z`);
+    flapAngleText.textContent = String(rec.flapsDeg);
+
+    // ----- Slip ball -----
+    const slip = slipFromLateralG(rec.lateralG);
+    const slipPos = slipBall({
+      slip,
+      percentLift: rec.percentLift,
+      stallWarn: rec.stallWarnPctLift,
+      flashFlag,
+    });
+    slipBallEl.setAttribute('cx', slipPos.cx);
+    slipBallEl.setAttribute('fill', slipPos.fill);
+
+    // ----- G-onset bar -----
+    // displayAOA() :838-845. Height grows up from y=119 when positive,
+    // down from y=119 when negative; clamped to [0, 120] px.
+    const gOnsetHeight = Math.min(G.GONSET_HEIGHT_MAX, Math.abs(rec.gOnsetRate * G.GONSET_HEIGHT_SCALE));
+    const gOnsetTop    = rec.gOnsetRate > 0 ? G.GONSET_ZERO_Y - gOnsetHeight : G.GONSET_ZERO_Y;
+    onsetBar.setAttribute('y', gOnsetTop);
+    onsetBar.setAttribute('height', gOnsetHeight);
   }
 
   return { el: svg, update };
