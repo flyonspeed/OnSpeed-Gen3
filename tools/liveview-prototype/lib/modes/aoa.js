@@ -8,13 +8,19 @@ import { mountFlapCircle } from '../widgets/flapCircle.js';
 import { mountSlipBall } from '../widgets/slipBall.js';
 import { mountEdgeTape } from '../widgets/edgeTape.js';
 
-// Build the mode-0 SVG once. Returns { el, update(record) }.
+// Build the AOA-page SVG once. Returns { el, update(record) }.
 //
-// This file is composition only — every visual element is a `mountX` widget
-// from `lib/widgets/`. Mode 1 (Attitude), Mode 2 (Indexer-only), Mode 3
-// (Energy), and Mode 4 (G-history) reuse the same widgets with mode-specific
-// geometry.
-export function mountAoa(rootEl) {
+// Drives both Mode 0 (Primary, default) and Mode 2 (Indexer-only),
+// matching the C++ structure where main.cpp:511-635 dispatches both
+// cases through the same displayAOA() body and gates the IAS/G corner
+// readouts + flap circle behind `if (numericDisplay)` (main.cpp:755).
+// `numericDisplay=false` is what makes Mode 2 narrow — the indexer,
+// percent-lift number, slip ball, and gOnset tape always render.
+//
+// This file is composition only — every visual element is a `mountX`
+// widget from `lib/widgets/`. Mode 1 (Attitude), Mode 3 (Energy), and
+// Mode 4 (G-history) reuse the same widgets with mode-specific geometry.
+export function mountAoa(rootEl, { numericDisplay = true } = {}) {
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', `0 0 ${G.M5_PANEL_W} ${G.M5_PANEL_H}`);
@@ -26,32 +32,34 @@ export function mountAoa(rootEl) {
   // Indexer (chevrons + donut + index bar + L/Dmax pips + bounding rect).
   const indexer = mountIndexer(svg);
 
-  // Corner readouts — IAS top-left, G top-right.
-  const ias = mountCornerReadout(svg, {
-    labelText: 'IAS',
-    labelX: G.CORNER_LEFT_X, labelY: G.CORNER_LABEL_Y,
-    numX:    G.CORNER_LEFT_X + 2, numY: G.CORNER_NUM_Y,
-    labelAnchor: 'start',
-    labelFontSize: G.CORNER_LABEL_FONT_SIZE,
-    numFontSize:   G.CORNER_NUM_FONT_SIZE,
-  });
-  const gReadout = mountCornerReadout(svg, {
-    labelText: 'G',
-    labelX: G.CORNER_RIGHT_X, labelY: G.CORNER_LABEL_Y,
-    numX:    G.CORNER_RIGHT_X, numY: G.CORNER_NUM_Y,
-    labelAnchor: 'end',
-    labelFontSize: G.CORNER_LABEL_FONT_SIZE,
-    numFontSize:   G.CORNER_NUM_FONT_SIZE,
-  });
-
-  // Flap circle + numeric label + stop dots.
-  const flap = mountFlapCircle(svg, {
-    cx: G.FLAP_CX, cy: G.FLAP_CY, r: G.FLAP_R,
-    triangleTipR: G.FLAP_TRIANGLE_TIP_R,
-    arcRad: G.FLAP_ARC_RAD,
-    stopR:  G.FLAP_STOP_R,
-    labelFontSize: G.FLAP_LABEL_FONT_SIZE,
-  });
+  // Corner readouts (IAS top-left, G top-right) and the flap circle
+  // are gated by numericDisplay — Mode 2 omits them. main.cpp:755.
+  let ias = null, gReadout = null, flap = null;
+  if (numericDisplay) {
+    ias = mountCornerReadout(svg, {
+      labelText: 'IAS',
+      labelX: G.CORNER_LEFT_X, labelY: G.CORNER_LABEL_Y,
+      numX:    G.CORNER_LEFT_X + 2, numY: G.CORNER_NUM_Y,
+      labelAnchor: 'start',
+      labelFontSize: G.CORNER_LABEL_FONT_SIZE,
+      numFontSize:   G.CORNER_NUM_FONT_SIZE,
+    });
+    gReadout = mountCornerReadout(svg, {
+      labelText: 'G',
+      labelX: G.CORNER_RIGHT_X, labelY: G.CORNER_LABEL_Y,
+      numX:    G.CORNER_RIGHT_X, numY: G.CORNER_NUM_Y,
+      labelAnchor: 'end',
+      labelFontSize: G.CORNER_LABEL_FONT_SIZE,
+      numFontSize:   G.CORNER_NUM_FONT_SIZE,
+    });
+    flap = mountFlapCircle(svg, {
+      cx: G.FLAP_CX, cy: G.FLAP_CY, r: G.FLAP_R,
+      triangleTipR: G.FLAP_TRIANGLE_TIP_R,
+      arcRad: G.FLAP_ARC_RAD,
+      stopR:  G.FLAP_STOP_R,
+      labelFontSize: G.FLAP_LABEL_FONT_SIZE,
+    });
+  }
 
   // Slip ball — Mode 0's wide layout (W=160, H=34).
   const slip = mountSlipBall(svg, {
@@ -119,18 +127,17 @@ export function mountAoa(rootEl) {
       flashFlag,
     });
     gOnset.update({ value: rec.gOnsetRate });
-    flap.update({ flapPos: rec.flapsDeg, flapsMin: rec.flapsMinDeg, flapsMax: rec.flapsMaxDeg });
+    if (flap) flap.update({ flapPos: rec.flapsDeg, flapsMin: rec.flapsMinDeg, flapsMax: rec.flapsMaxDeg });
 
     // Numeric-readout 500 ms gate (M5 main.cpp:491-503).
     const now = performance.now();
     if (now - numLastUpdateMs >= NUM_UPDATE_MS) {
-      ias.update({ value: rec.iasKt, formatter: v => String(Math.round(v)) });
-      gReadout.update({ value: rec.verticalG, formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) });
+      if (ias)      ias.update({ value: rec.iasKt, formatter: v => String(Math.round(v)) });
+      if (gReadout) gReadout.update({ value: rec.verticalG, formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) });
       pctLift.update({ percent: rec.percentLift });
-      // Flap-angle TEXT also gated; the rotating triangle still moves
-      // every frame because it's part of the flap.update above.
-      // (The text is part of the flap widget — it'll be ~stale by 500 ms
-      // which matches the M5 cadence.)
+      // Flap-angle TEXT is updated as part of flap.update above; the
+      // rotating triangle moves every frame regardless. Text refreshes
+      // at ~500 ms cadence which matches the M5.
       displayed.iasKt = rec.iasKt;
       displayed.verticalG = rec.verticalG;
       displayed.percentLift = rec.percentLift;
