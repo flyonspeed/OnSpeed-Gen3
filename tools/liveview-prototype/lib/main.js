@@ -1,77 +1,76 @@
+// Synthetic-scenario harness entry point. Mounts each Preact mode
+// panel into its data-mode-panel slot and ticks them at 20 Hz from
+// canned scenarios (idle / cruise / approach / stall warn).
+//
+// The firmware-served version (lib/firmware/App.js) consumes a real
+// WebSocket feed and uses the same Mode components, so anything we
+// see here is what pilots will see at /indexer.
+
+import { html, render } from './vendor/preact-standalone.js';
+import { Mode0, Mode1, Mode2, Mode3, Mode4 } from './modes.js';
+import * as G from './geometry.js';
 import { scenarios } from './scenarios.js';
 import { buildFrame } from './frameBuilder.js';
-import { mountAoa } from './modes/aoa.js';
-import { mountAttitude } from './modes/attitude.js';
-import { mountIndexerOnly } from './modes/indexer-only.js';
-import { mountEnergy } from './modes/energy.js';
-import { mountGHistory } from './modes/ghistory.js';
 
-// State.
 let currentScenario = 'idle';
 let scenarioStart = performance.now();
 let currentMode = 'aoa';
 
-// Subscribers — Stage 1+ register these to receive { record } messages.
-const subscribers = [];
-export function subscribe(fn) { subscribers.push(fn); return () => {
-  const i = subscribers.indexOf(fn);
-  if (i >= 0) subscribers.splice(i, 1);
-}; }
+// Mode 4's ring buffer is owned here (not inside the component) so it
+// survives across renders. The firmware-side App uses a useRef inside
+// a useGHistory hook for the same reason.
+const gBuf = new Float32Array(G.MODE4_BUFFER_LEN);
+gBuf.fill(1.0);
+let gWriteIdx = 0;
+let lastSampleMs = 0;
 
-// Mount the AOA mode panel and wire it to the data pump.
-const svgRoot = document.getElementById('svg-root');
-const aoaPanel = mountAoa(svgRoot);
-subscribe(rec => aoaPanel.update(rec));
+const PANELS = [
+  { id: 'aoa',          C: Mode0 },
+  { id: 'attitude',     C: Mode1 },
+  { id: 'indexer-only', C: Mode2 },
+  { id: 'energy',       C: Mode3 },
+  { id: 'ghistory',     C: Mode4 },
+];
 
-// Mount the Attitude (Mode 1) panel into its own div. The mode-button
-// handler below toggles `style.display` on the data-mode-panel divs;
-// this widget runs every tick regardless so it's ready when shown.
-const attitudeRoot = document.querySelector('[data-mode-panel="attitude"]');
-if (attitudeRoot) {
-  const attitudePanel = mountAttitude(attitudeRoot);
-  subscribe(rec => attitudePanel.update(rec));
+function paintAll(rec) {
+  for (const p of PANELS) {
+    const root = document.querySelector(`[data-mode-panel="${p.id}"]`);
+    if (!root) continue;
+    render(html`<${p.C} r=${rec} stale=${false}
+                       gBuf=${gBuf} gWriteIdx=${gWriteIdx} />`, root);
+  }
 }
 
-const indexerOnlyRoot = document.querySelector('[data-mode-panel="indexer-only"]');
-if (indexerOnlyRoot) {
-  const indexerOnlyPanel = mountIndexerOnly(indexerOnlyRoot);
-  subscribe(rec => indexerOnlyPanel.update(rec));
-}
-
-const energyRoot = document.querySelector('[data-mode-panel="energy"]');
-if (energyRoot) {
-  const energyPanel = mountEnergy(energyRoot);
-  subscribe(rec => energyPanel.update(rec));
-}
-
-const ghistoryRoot = document.querySelector('[data-mode-panel="ghistory"]');
-if (ghistoryRoot) {
-  const ghistoryPanel = mountGHistory(ghistoryRoot);
-  subscribe(rec => ghistoryPanel.update(rec));
-}
-
-// 20 Hz tick — emit current scenario's record to all subscribers.
 function tick() {
   const t = performance.now() - scenarioStart;
   const fn = scenarios[currentScenario];
   if (!fn) return;
   const r = fn(t);
-  for (const s of subscribers) s(r);
 
-  // Also push the record into the wasm-live iframe via inject_serial_byte.
+  // Tick the G-history ring buffer at 5 Hz.
+  const now = performance.now();
+  if (now - lastSampleMs >= G.MODE4_SAMPLE_MS) {
+    gBuf[gWriteIdx] = r.verticalG ?? 1.0;
+    gWriteIdx = (gWriteIdx + 1) % G.MODE4_BUFFER_LEN;
+    lastSampleMs = now;
+  }
+
+  paintAll(r);
   pushToWasm(r);
 }
 
 setInterval(tick, 50);  // 20 Hz
 
-// Wasm-live driver. Wait for the iframe's Module to be ready, then call
-// inject_serial_byte for every byte of every frame.
+// ----- WASM-live A/B bridge -----
+//
+// Same iframe-driven pattern as before: pipe each scenario record
+// through the M5 sim's _inject_serial_byte so the wasm-live panel
+// renders the exact same data we feed our Preact panels.
 let injectFn = null;
 const wasmIframe = document.getElementById('wasm-iframe');
 if (wasmIframe) {
   wasmIframe.addEventListener('load', () => {
     const iwin = wasmIframe.contentWindow;
-    // Module.cwrap may not be ready yet; poll briefly.
     const tryBind = () => {
       try {
         if (iwin.Module && iwin.Module.cwrap) {
@@ -79,7 +78,7 @@ if (wasmIframe) {
           console.log('[prototype] WASM bridge bound');
           return;
         }
-      } catch (e) { /* cross-origin? same-origin since both served by us */ }
+      } catch (e) { /* same-origin guard, ignore */ }
       setTimeout(tryBind, 200);
     };
     setTimeout(tryBind, 200);
@@ -102,23 +101,16 @@ document.querySelectorAll('#scenario-nav button[data-scenario]').forEach(btn => 
 });
 
 // Track the wasm-live's currently-displayed mode so we can synthesize
-// the right number of BtnB keypresses to cycle it to match. The wasm
-// sim starts on mode 0 (AOA) per its setup() default and advances 0→4→0
-// on each BtnB.wasPressed.
-const MODE_ORDER = ['aoa', 'attitude', 'indexer-only', 'energy', 'ghistory'];
+// the right number of BtnB (ArrowDown) keypresses to cycle it to match.
+const MODE_ORDER = PANELS.map(p => p.id);
 let wasmModeIdx = 0;
 
 function syncWasmMode(targetMode) {
   if (!wasmIframe || !wasmIframe.contentDocument) return;
   const targetIdx = MODE_ORDER.indexOf(targetMode);
   if (targetIdx < 0 || targetIdx === wasmModeIdx) return;
-
-  const idoc = wasmIframe.contentDocument;
-  const canvas = idoc.getElementById('canvas');
+  const canvas = wasmIframe.contentDocument.getElementById('canvas');
   if (!canvas) return;
-  // emscripten SDL2 listens for keydown on document/canvas. lgfx's panel
-  // setup binds Down=GPIO38=BtnB. Synthesize one keydown+keyup per step
-  // and advance our shadow counter.
   const steps = (targetIdx - wasmModeIdx + MODE_ORDER.length) % MODE_ORDER.length;
   let i = 0;
   const fireOne = () => {
@@ -128,7 +120,7 @@ function syncWasmMode(targetMode) {
     canvas.dispatchEvent(new KeyboardEvent('keydown', opts));
     setTimeout(() => canvas.dispatchEvent(new KeyboardEvent('keyup', opts)), 30);
     i++;
-    setTimeout(fireOne, 200);  // give the wasm sim time to consume each press
+    setTimeout(fireOne, 200);
   };
   fireOne();
   wasmModeIdx = targetIdx;
@@ -143,5 +135,3 @@ document.querySelectorAll('#mode-nav button[data-mode]').forEach(btn => {
     syncWasmMode(currentMode);
   });
 });
-
-// (No theme toggle — avionics palette is dark-only by design.)

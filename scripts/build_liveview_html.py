@@ -1,10 +1,7 @@
 """build_liveview_html.py — PIO pre-build hook.
 
 Generates `software/OnSpeed-Gen3-ESP32/Web/html_indexer.h` from the
-ES module sources at `tools/liveview-prototype/lib/`. The prototype
-is the source of truth for the SVG renderer; this script bundles its
-many JS files plus a firmware-side shell (WebSocket client, datafields
-table) into one PROGMEM string the firmware serves at GET /indexer.
+ES module sources at `tools/liveview-prototype/lib/`.
 
 The legacy /live page lives untouched at
 software/OnSpeed-Gen3-ESP32/Web/html_liveview.h — pilots familiar
@@ -12,43 +9,31 @@ with that interface keep it. The new 5-mode SVG view replaces the
 old WASM-on-device /indexer (different page, same URL slot).
 
 Skip-if-fresh: regenerates only when any prototype source file is
-newer than the output header, OR when the header is missing. On a
-typical edit-and-build cycle that doesn't touch prototype sources,
-this hook does nothing.
+newer than the output header, OR when the header is missing.
 
-Standalone usage (outside PlatformIO):
+Standalone usage:
     python3 scripts/build_liveview_html.py
 
 PlatformIO usage (auto): registered as `pre:` extra_script in
 platformio.ini's shared [env] block.
 
-Module transformation strategy
-==============================
+Module bundling strategy
+========================
 
-ES modules can't run cross-imported as a single concatenated <script>.
-Browsers need either separate file URLs or import maps. We can't ship
-either from a single PROGMEM blob, so we transform the modules into
-IIFE-wrapped factories that build a `__mod_<name>` registry, then
-synthesize destructuring binders for each `import` statement.
+The prototype's modules are bundled into a single ES module. Each
+module file is concatenated in topological order; `import` statements
+are stripped (the imported names already exist in the shared module
+scope from earlier files); `export` keywords are stripped from
+declarations (`export const X` → `const X`).
 
-For each module file:
-    export const X = ...  →  exports.X = ...
-    export function X(...) { ... }  →  exports.X = function X(...) { ... }
-    export default X  →  ERROR (we don't use default exports anywhere)
+The vendored Preact bundle (lib/vendor/preact-standalone.js) is the
+ONE exception. It contains its own ES module exports; we treat its
+bytes as opaque and rewrite its terminal `export { ... }` block into
+plain `var` aliases so all subsequent files see `html`, `render`,
+`useState`, etc. as in-scope names.
 
-Each module body is wrapped:
-    const __mod_<name> = (function() {
-      const exports = {};
-      <transformed body>
-      return exports;
-    })();
-
-Each import is rewritten:
-    import { a, b } from './x.js'  →  const { a, b } = __mod_x;
-    import * as G from './x.js'    →  const G = __mod_x;
-
-Module ordering is topological by import graph. Cycles abort with a
-clear error.
+The whole concatenated bundle is wrapped in a `<script type="module">`
+inside the HTML scaffold, then the HTML is emitted as a C++ R-string.
 """
 import os
 import re
@@ -64,303 +49,245 @@ except NameError:
 try:
     Import("env")  # noqa: F821 — provided by SCons in PIO context
     REPO_ROOT = env["PROJECT_DIR"]  # noqa: F821
-    _IN_PIO = True
 except (NameError, Exception):
     REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_PATH))
-    _IN_PIO = False
 
 PROTOTYPE_DIR = os.path.join(REPO_ROOT, "tools", "liveview-prototype")
 LIB_DIR       = os.path.join(PROTOTYPE_DIR, "lib")
-FIRMWARE_DIR  = os.path.join(LIB_DIR, "firmware")
 WEB_DIR       = os.path.join(REPO_ROOT, "software", "OnSpeed-Gen3-ESP32", "Web")
 OUTPUT_HEADER = os.path.join(WEB_DIR, "html_indexer.h")
 
+# Files we DON'T bundle:
+#   - lib/main.js         — entry point for the synthetic-scenario harness
+#   - lib/scenarios.js    — synthetic scenarios (irrelevant in firmware)
+#   - lib/frameBuilder.js — wasm-live A/B harness only
+EXCLUDE_TOPLEVEL = {"main.js", "scenarios.js", "frameBuilder.js"}
 
-def _module_name(path):
-    """Path → module key.  lib/widgets/indexer.js → widgets_indexer."""
-    rel = os.path.relpath(path, LIB_DIR)
-    rel = rel[:-3] if rel.endswith(".js") else rel  # drop .js
-    return rel.replace(os.sep, "_").replace("-", "_")
+# The vendored Preact bundle: must be emitted FIRST and treated specially.
+PREACT_BUNDLE = os.path.join(LIB_DIR, "vendor", "preact-standalone.js")
 
-
-def _resolve_import(importing_path, spec):
-    """Resolve a relative import like '../widgets/foo.js' to absolute path."""
-    base_dir = os.path.dirname(importing_path)
-    return os.path.normpath(os.path.join(base_dir, spec))
+# The firmware entry point: emitted LAST, calls start() on DOMContentLoaded.
+FIRMWARE_ENTRY = os.path.join(LIB_DIR, "firmware", "App.js")
 
 
 # ---------------------------------------------------------------------
-# Source enumeration (JS modules to bundle).
+# Source enumeration + topological sort.
 # ---------------------------------------------------------------------
 
 def _all_js_files():
-    """Return all *.js files we want to bundle, as absolute paths.
+    """Every prototype JS file we want to bundle, in walk order.
 
-    Excludes:
-      - lib/main.js (browser harness — the firmware bundle has its
-        own entry point at lib/firmware/main.js)
-      - lib/scenarios.js (synthetic scenario generator — irrelevant
-        in firmware where data comes from a real WebSocket)
-      - lib/frameBuilder.js (used only by the wasm-live A/B harness)
+    Excludes the harness-only files at the top level. The bundler
+    decides emit order based on imports (topo sort below).
     """
-    EXCLUDE = {"main.js", "scenarios.js", "frameBuilder.js"}
-
     out = []
     for root, _dirs, files in os.walk(LIB_DIR):
         for name in files:
             if not name.endswith(".js"):
                 continue
             rel = os.path.relpath(os.path.join(root, name), LIB_DIR)
-            # Top-level skips. Firmware-dir files are kept.
-            if os.sep not in rel and name in EXCLUDE:
+            if os.sep not in rel and name in EXCLUDE_TOPLEVEL:
                 continue
             out.append(os.path.join(root, name))
     return sorted(out)
 
 
-# ---------------------------------------------------------------------
-# Import / export transformations.
-# ---------------------------------------------------------------------
-
-# Regex helpers.  These are intentionally conservative: each matches a
-# *line-start* form so a string literal containing the keyword inside
-# code won't be touched.  All prototype files use the line-start
-# convention because the LESSONS doc enforces it.
-_RE_IMPORT_NAMED   = re.compile(r"^import\s*\{\s*([^}]+)\s*\}\s*from\s*['\"]([^'\"]+)['\"]\s*;?\s*$", re.MULTILINE)
-_RE_IMPORT_NAMESPACE = re.compile(r"^import\s*\*\s*as\s*(\w+)\s*from\s*['\"]([^'\"]+)['\"]\s*;?\s*$", re.MULTILINE)
-_RE_IMPORT_MULTILINE = re.compile(
-    r"^import\s*\{\s*\n([^}]+?)\n\s*\}\s*from\s*['\"]([^'\"]+)['\"]\s*;?\s*$",
-    re.MULTILINE,
+# Match an `import` declaration. Anchored to line-start with re.MULTILINE
+# so we don't accidentally match the substring "import" inside a string
+# literal — but conservative: a line starting with `import` followed by
+# anything up to a `from '...'` clause and an optional semicolon.
+_RE_IMPORT = re.compile(
+    r"^import\b[^;]*?from\s*['\"]([^'\"]+)['\"]\s*;?\s*$",
+    re.MULTILINE | re.DOTALL,
 )
-_RE_EXPORT_DEFAULT = re.compile(r"^export\s+default\b", re.MULTILINE)
-_RE_EXPORT_DECL    = re.compile(r"^export\s+(const|let|function|class)\s+", re.MULTILINE)
 
 
-def _parse_imports(text, importing_path):
-    """Extract all imports from a module's source.
+def _imports_in(text):
+    """Return the list of resolved import-spec paths in `text`.
 
-    Returns a list of (kind, spec_path, names) where:
-      kind = 'named'      → names is a list of identifiers
-      kind = 'namespace'  → names is a single identifier (the alias)
-
-    Multi-line imports are matched and then stripped from `text` before
-    single-line matching runs, so a single `import { ... } from` block
-    isn't double-counted by both regexes.
+    Only `import { ... } from './x.js'` and `import * as G from ...`
+    forms are recognized (which is all we use). Side-effect-only
+    imports (`import './x.js'`) and dynamic imports are ignored.
     """
-    imports = []
-    work = text
+    return [m.group(1) for m in _RE_IMPORT.finditer(text) if m.group(1)]
 
-    for m in _RE_IMPORT_MULTILINE.finditer(work):
-        names = [n.strip() for n in m.group(1).split(",") if n.strip()]
-        spec = _resolve_import(importing_path, m.group(2))
-        imports.append(("named", spec, names))
-    work = _RE_IMPORT_MULTILINE.sub("", work)
 
-    for m in _RE_IMPORT_NAMED.finditer(work):
-        names = [n.strip() for n in m.group(1).split(",") if n.strip()]
-        spec = _resolve_import(importing_path, m.group(2))
-        imports.append(("named", spec, names))
+def _topo_sort(files):
+    """Sort files so each one's imports appear earlier in the result."""
+    # Map abs-path → file metadata.
+    by_path = {}
+    for path in files:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        deps = []
+        for spec in _imports_in(text):
+            base = os.path.dirname(path)
+            resolved = os.path.normpath(os.path.join(base, spec))
+            if resolved in (set(files)):
+                deps.append(resolved)
+        by_path[path] = {"text": text, "deps": deps}
 
-    for m in _RE_IMPORT_NAMESPACE.finditer(work):
-        spec = _resolve_import(importing_path, m.group(2))
-        imports.append(("namespace", spec, m.group(1)))
+    visited, visiting, ordered = set(), set(), []
 
-    return imports
+    def visit(p):
+        if p in visited:
+            return
+        if p in visiting:
+            raise SystemExit(f"build_liveview_html: import cycle through {p}")
+        visiting.add(p)
+        for dep in by_path[p]["deps"]:
+            if dep in by_path:
+                visit(dep)
+        visiting.discard(p)
+        visited.add(p)
+        ordered.append(p)
 
+    # Start with files that nothing else imports — leaves of the DAG.
+    for p in sorted(files):
+        visit(p)
+
+    return ordered, by_path
+
+
+# ---------------------------------------------------------------------
+# Per-file transformations.
+# ---------------------------------------------------------------------
 
 def _strip_imports(text):
-    """Remove all import lines (multi-line first to avoid partial matches)."""
-    text = _RE_IMPORT_MULTILINE.sub("", text)
-    text = _RE_IMPORT_NAMED.sub("", text)
-    text = _RE_IMPORT_NAMESPACE.sub("", text)
+    """Remove every `import` line from text."""
+    return _RE_IMPORT.sub("", text)
+
+
+def _strip_exports(text):
+    """Drop the `export ` keyword from declarations.
+
+    `export const X = ...`    → `const X = ...`
+    `export function X(...)`  → `function X(...)`
+    `export class X`          → `class X`
+
+    `export { a, b as c }`   → emit `var c = b;` aliases for renamed
+    exports; drop bare `export { x }` lines (x is already in scope).
+    `export default X`        → ERROR (we don't use it).
+    """
+    if re.search(r"^export\s+default\b", text, re.MULTILINE):
+        raise SystemExit("build_liveview_html: `export default` not supported")
+
+    # `export const|let|var|function|class X`
+    text = re.sub(r"^export\s+(const|let|var|function|class)\s+",
+                  r"\1 ", text, flags=re.MULTILINE)
+
+    # `export { a, b as c, ... };` — rewrite renamed bindings to aliases,
+    # drop the rest. The minified Preact bundle has its export block on
+    # the same line as the rest of the source (no leading newline), so
+    # we don't anchor to ^ — match anywhere.
+    def _rewrite_export_block(m):
+        body = m.group(1)
+        out_lines = []
+        for piece in body.split(","):
+            piece = piece.strip()
+            if not piece:
+                continue
+            mm = re.match(r"^(\w+)\s+as\s+(\w+)$", piece)
+            if mm:
+                out_lines.append(f"var {mm.group(2)} = {mm.group(1)};")
+            # Bare `export { x }` — x is already a top-level binding
+            # in this module, no rewrite needed.
+        return "\n" + "\n".join(out_lines)
+
+    text = re.sub(r"export\s*\{([^}]+)\}\s*;?",
+                  _rewrite_export_block, text)
     return text
 
 
-def _transform_exports(text, src_path):
-    """Rewrite `export <decl>` into `exports.<name> = ...` form.
+def _transform_module(text):
+    """Strip imports + exports, leaving plain JS in shared scope."""
+    return _strip_exports(_strip_imports(text))
 
-    `export default` is forbidden (we don't use it; bail with an error).
+
+_RE_NAMESPACE_IMPORT = re.compile(
+    r"^import\s*\*\s*as\s*(\w+)\s*from\s*['\"]([^'\"]+)['\"]\s*;?\s*$",
+    re.MULTILINE,
+)
+
+
+def _namespace_aliases(by_path):
+    """Generate `const G = { CONSTANT_A, CONSTANT_B, ... };` declarations.
+
+    For every `import * as X from './foo.js'` we find across all bundled
+    files, emit a single namespace alias at the END of the bundle so the
+    namespace is available everywhere it's referenced.
+
+    The constants/functions exported by `./foo.js` get gathered from the
+    file's source via a regex over its `export const/function/class`
+    declarations. Inline references like `G.MODE1_HORIZON_CX` then resolve
+    to the alias's properties.
     """
-    if _RE_EXPORT_DEFAULT.search(text):
-        raise SystemExit(
-            f"build_liveview_html: `export default` not supported in {src_path}. "
-            f"Use named exports."
-        )
+    aliases = []  # list of (alias-name, exporter-path)
+    seen = set()
+    for path, info in by_path.items():
+        for m in _RE_NAMESPACE_IMPORT.finditer(info["text"]):
+            alias_name = m.group(1)
+            spec_path = os.path.normpath(os.path.join(os.path.dirname(path), m.group(2)))
+            if (alias_name, spec_path) in seen:
+                continue
+            seen.add((alias_name, spec_path))
+            aliases.append((alias_name, spec_path))
 
     out = []
-    pos = 0
-    for m in _RE_EXPORT_DECL.finditer(text):
-        out.append(text[pos:m.start()])
-        kind = m.group(1)
-        # Find the identifier that immediately follows.
-        rest_start = m.end()
-        ident_match = re.match(r"(\w+)", text[rest_start:])
-        if not ident_match:
-            raise SystemExit(
-                f"build_liveview_html: malformed export at offset {m.start()} in {src_path}"
-            )
-        ident = ident_match.group(1)
-
-        # Drop the `export` keyword (and one whitespace separator); leave
-        # the kind and identifier in place. The identifier is already in
-        # `text` starting at `rest_start`, so we resume reading from there.
-        if kind in ("const", "let", "function", "class"):
-            out.append(f"{kind} ")
-            pos = rest_start  # resume at the identifier; original text takes over
-        else:
-            raise SystemExit(
-                f"build_liveview_html: unexpected export kind '{kind}' at {src_path}"
-            )
-
-    out.append(text[pos:])
-    return "".join(out)
-
-
-def _collect_exported_names(original_text):
-    """Find every identifier the original module exports, before stripping."""
-    names = []
-    for m in _RE_EXPORT_DECL.finditer(original_text):
-        rest_start = m.end()
-        ident_match = re.match(r"(\w+)", original_text[rest_start:])
-        if ident_match:
-            names.append(ident_match.group(1))
-    return names
-
-
-# ---------------------------------------------------------------------
-# Topological sort.
-# ---------------------------------------------------------------------
-
-def _topo_sort(modules):
-    """modules is dict { path: { 'imports': [path, ...], ... } }.
-
-    Returns ordered list of paths so dependencies come first.
-    Raises on cycles.
-    """
-    visited = set()
-    visiting = set()
-    order = []
-
-    def visit(path):
-        if path in visited:
-            return
-        if path in visiting:
-            raise SystemExit(
-                f"build_liveview_html: import cycle detected involving {path}"
-            )
-        visiting.add(path)
-        for dep in modules[path]["imports"]:
-            if dep in modules:
-                visit(dep)
-            else:
-                # Imported file is outside the bundle (shouldn't happen
-                # given _all_js_files semantics).
-                raise SystemExit(
-                    f"build_liveview_html: {path} imports {dep} which is "
-                    f"not in the module set."
-                )
-        visiting.discard(path)
-        visited.add(path)
-        order.append(path)
-
-    for p in sorted(modules.keys()):
-        visit(p)
-    return order
-
-
-# ---------------------------------------------------------------------
-# Bundle generation.
-# ---------------------------------------------------------------------
-
-def _build_import_binders(path, original_text):
-    """Synthesize destructuring binders for each of `path`'s imports.
-
-    `import { X }` becomes `const { X } = ...`; `import { X as Y }`
-    becomes `const { X: Y } = ...` (ES module rename → JS destructure
-    rename).
-    """
-    imports = _parse_imports(original_text, path)
-    out = []
-    for kind, spec, names in imports:
-        spec_name = _module_name(spec)
-        if kind == "named":
-            translated = []
-            for nm in names:
-                # "X as Y" → "X: Y" for destructuring rename.
-                m = re.match(r"^(\w+)\s+as\s+(\w+)$", nm)
-                if m:
-                    translated.append(f"{m.group(1)}: {m.group(2)}")
-                else:
-                    translated.append(nm)
-            joined = ", ".join(translated)
-            out.append(f"const {{ {joined} }} = __mod_{spec_name};")
-        else:  # namespace
-            out.append(f"const {names} = __mod_{spec_name};")
+    for alias_name, exporter_path in aliases:
+        if exporter_path not in by_path:
+            continue
+        names = _exported_names(by_path[exporter_path]["text"])
+        if not names:
+            continue
+        out.append(f"const {alias_name} = {{ {', '.join(names)} }};")
     return "\n".join(out)
 
 
-def _bundle_javascript():
-    """Emit the entire JS bundle as a single string.
-
-    Strategy: each module gets an IIFE, but the IIFE itself sees the
-    namespace bindings of its imports BEFORE its own body runs. We
-    achieve this by emitting the import binders inside the IIFE, just
-    before the module body — so each module's local scope has access
-    to its imports' exports.
-    """
-    paths = _all_js_files()
-
-    # Read every file, parse imports.
-    modules = {}
-    for path in paths:
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
-        imports = _parse_imports(text, path)
-        modules[path] = {
-            "text": text,
-            "imports": [spec for (_kind, spec, _names) in imports],
-        }
-
-    ordered = _topo_sort(modules)
-
-    chunks = ["// ===== Liveview JS bundle ====="]
-    for path in ordered:
-        info = modules[path]
-        name = _module_name(path)
-        binders = _build_import_binders(path, info["text"])
-        # Strip imports + transform exports.
-        body = _strip_imports(info["text"])
-        body = _transform_exports(body, path)
-        exported = _collect_exported_names(info["text"])
-        bindings = "\n".join(f"  exports.{n} = {n};" for n in exported)
-
-        chunks.append(f"""\
-// === {os.path.relpath(path, REPO_ROOT)} ===
-const __mod_{name} = (function() {{
-  const exports = {{}};
-  {indent(binders, 2)}
-{body}
-{bindings}
-  return exports;
-}})();
-""")
-
-    # Finally, run the firmware entry point. By convention the file at
-    # lib/firmware/main.js exports a top-level `start()` function we
-    # call here.
-    if any(p.endswith(os.path.join("firmware", "main.js")) for p in ordered):
-        chunks.append("// === firmware entry point ===")
-        chunks.append("if (__mod_firmware_main && __mod_firmware_main.start) {")
-        chunks.append("  document.addEventListener('DOMContentLoaded', __mod_firmware_main.start);")
-        chunks.append("}")
-
-    return "\n".join(chunks)
+_RE_EXPORTED_NAME = re.compile(
+    r"^export\s+(?:const|let|var|function|class)\s+(\w+)",
+    re.MULTILINE,
+)
 
 
-def indent(text, n):
-    """Indent each line of `text` by `n` spaces (skipping empty lines)."""
-    pad = " " * n
-    return "\n".join((pad + line if line else line) for line in text.splitlines())
+def _exported_names(text):
+    """Extract every identifier exported by a module via `export const/...`."""
+    return [m.group(1) for m in _RE_EXPORTED_NAME.finditer(text)]
+
+
+# The vendored Preact bundle uses dozens of single-letter top-level
+# variable names (e, n, t, o, h, d, v, ...). If we emit it into the
+# shared module scope, our `var h = a;` alias from its terminal
+# `export { a as h, ... }` would redefine `h` and break Preact's
+# internal `function h(e){return e.children}` reference. So we wrap
+# the Preact bundle in an IIFE that returns the named exports as an
+# object, and destructure that at the call site.
+def _transform_preact_bundle(text):
+    text = _strip_imports(text)
+    # Capture the export block, parse the rename pairs, build a return
+    # statement: `return { html: fe, h: a, ... };`
+    m = re.search(r"export\s*\{([^}]+)\}\s*;?", text)
+    if not m:
+        raise SystemExit(
+            "build_liveview_html: could not find Preact bundle's export "
+            "block — has the format changed since vendor?"
+        )
+    pairs = []  # list of (export-name, internal-name)
+    for piece in m.group(1).split(","):
+        piece = piece.strip()
+        mm = re.match(r"^(\w+)\s+as\s+(\w+)$", piece)
+        if mm:
+            pairs.append((mm.group(2), mm.group(1)))
+        else:
+            # `export { x }` — same name in and out
+            mm = re.match(r"^(\w+)$", piece)
+            if mm:
+                pairs.append((mm.group(1), mm.group(1)))
+    return_obj = ", ".join(f"{ext}: {internal}" for ext, internal in pairs)
+    body = text[:m.start()] + f"return {{ {return_obj} }};"
+    iife = f"const __preact = (function () {{\n{body}\n}})();\n"
+    iife += f"const {{ {', '.join(ext for ext, _ in pairs)} }} = __preact;\n"
+    return iife
 
 
 # ---------------------------------------------------------------------
@@ -368,16 +295,71 @@ def indent(text, n):
 # ---------------------------------------------------------------------
 
 def _bundle_css():
-    """Concatenate prototype CSS + firmware-specific CSS."""
-    parts = ["/* ===== Liveview CSS bundle ===== */"]
+    parts = []
     main_css = os.path.join(PROTOTYPE_DIR, "style.css")
-    fw_css   = os.path.join(FIRMWARE_DIR, "style.css")
+    fw_css   = os.path.join(LIB_DIR, "firmware", "style.css")
     for path in (main_css, fw_css):
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 parts.append(f"/* --- {os.path.relpath(path, REPO_ROOT)} --- */")
                 parts.append(f.read())
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------
+# JS bundling.
+# ---------------------------------------------------------------------
+
+def _bundle_js():
+    files = _all_js_files()
+    ordered, by_path = _topo_sort(files)
+
+    # Verify Preact bundle is first (sanity check — it has no imports
+    # and many other files import from it, so topo sort should put it
+    # first naturally).
+    if PREACT_BUNDLE not in ordered:
+        raise SystemExit(f"build_liveview_html: missing {PREACT_BUNDLE}")
+
+    # Find every namespace-import target across the bundle. After each
+    # exporter module's body, we emit `const X = { ... };` aliases so
+    # `import * as X from './<exporter>'` references resolve.
+    namespace_targets = {}  # exporter_path → set of alias names
+    for path, info in by_path.items():
+        for m in _RE_NAMESPACE_IMPORT.finditer(info["text"]):
+            alias_name = m.group(1)
+            spec = os.path.normpath(os.path.join(os.path.dirname(path), m.group(2)))
+            namespace_targets.setdefault(spec, set()).add(alias_name)
+
+    chunks = ["// ===== OnSpeed LiveView bundle ====="]
+    for path in ordered:
+        rel = os.path.relpath(path, REPO_ROOT)
+        chunks.append(f"// === {rel} ===")
+        if path == PREACT_BUNDLE:
+            chunks.append(_transform_preact_bundle(by_path[path]["text"]))
+        else:
+            chunks.append(_transform_module(by_path[path]["text"]))
+        # Emit namespace aliases immediately after this module so any
+        # subsequent file that imports `* as X` from it has X in scope.
+        if path in namespace_targets:
+            names = _exported_names(by_path[path]["text"])
+            if names:
+                obj_body = ", ".join(names)
+                for alias in sorted(namespace_targets[path]):
+                    chunks.append(f"const {alias} = {{ {obj_body} }};")
+
+    # Boot: call start() on DOMContentLoaded. The firmware/App.js
+    # module exports a `start` function that mounts <App /> into
+    # #app. After concat, `start` is just an in-scope binding.
+    chunks.append("// === firmware entry point ===")
+    chunks.append("if (typeof start === 'function') {")
+    chunks.append("  if (document.readyState === 'loading') {")
+    chunks.append("    document.addEventListener('DOMContentLoaded', start);")
+    chunks.append("  } else {")
+    chunks.append("    start();")
+    chunks.append("  }")
+    chunks.append("}")
+
+    return "\n".join(chunks)
 
 
 # ---------------------------------------------------------------------
@@ -396,35 +378,7 @@ HTML_TEMPLATE = """\
 </style>
 </head>
 <body>
-<header id="liveview-header">
-  <div id="status-line">
-    <span id="connectionstatus">CONNECTING...</span>
-    <span id="age-indicator"></span>
-  </div>
-</header>
-<nav id="mode-nav">
-  <button data-mode="aoa" type="button">AOA</button>
-  <button data-mode="attitude" type="button">Attitude</button>
-  <button data-mode="indexer-only" type="button">Indexer</button>
-  <button data-mode="energy" type="button">Energy</button>
-  <button data-mode="ghistory" type="button">G-Hist</button>
-</nav>
-<main id="liveview-main">
-  <div id="mode-container">
-    <div data-mode-panel="aoa"></div>
-    <div data-mode-panel="attitude" style="display:none;"></div>
-    <div data-mode-panel="indexer-only" style="display:none;"></div>
-    <div data-mode-panel="energy" style="display:none;"></div>
-    <div data-mode-panel="ghistory" style="display:none;"></div>
-  </div>
-  <div id="datafields-wrap">
-    <button id="datafields-toggle" type="button">Show data fields</button>
-    <div id="datafields" style="display:none;"></div>
-  </div>
-</main>
-<footer id="liveview-footer">
-  <div id="footer-warning">For diagnostic purposes only. NOT SAFE FOR FLIGHT</div>
-</footer>
+<div id="app"></div>
 <script>
 {js}
 </script>
@@ -434,11 +388,9 @@ HTML_TEMPLATE = """\
 
 
 # ---------------------------------------------------------------------
-# Output: PROGMEM C header.
+# C-header emitter.
 # ---------------------------------------------------------------------
 
-# C++ raw-string delimiters we'll try in order. The first one whose
-# closing sequence isn't present in the content wins.
 _RAW_DELIMS = ["=====", "lvw=", "lvw==", "lvw===", "deadbeef"]
 
 
@@ -447,25 +399,25 @@ def _pick_raw_delim(content):
         if f"){d}\"" not in content and f"){d})" not in content:
             return d
     raise SystemExit(
-        "build_liveview_html: every preset R-string delimiter appears in "
-        "the bundled content. Add a more exotic delimiter to _RAW_DELIMS."
+        "build_liveview_html: every preset R-string delimiter appears "
+        "in the bundled content. Add a more exotic delimiter to "
+        "_RAW_DELIMS."
     )
 
 
 def _emit_header(html, out_path):
     delim = _pick_raw_delim(html)
-    header = f"""\
+    body = f"""\
 // AUTO-GENERATED by scripts/build_liveview_html.py — DO NOT EDIT BY HAND.
 //
-// Source of truth: tools/liveview-prototype/ (CSS, JS modules, firmware
-// shell). Run `python3 scripts/build_liveview_html.py` to regenerate
-// after editing prototype source. PlatformIO auto-runs the regenerator
-// as a pre-build hook.
+// Source of truth: tools/liveview-prototype/ (Preact components, CSS,
+// firmware shell). Run `python3 scripts/build_liveview_html.py` to
+// regenerate. PlatformIO auto-runs the regenerator as a pre-build hook.
 
 const char htmlIndexer[] PROGMEM = R"{delim}({html}){delim}";
 """
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(header)
+        f.write(body)
 
 
 # ---------------------------------------------------------------------
@@ -473,7 +425,6 @@ const char htmlIndexer[] PROGMEM = R"{delim}({html}){delim}";
 # ---------------------------------------------------------------------
 
 def _walk_inputs():
-    """Every file whose mtime should trigger a regen."""
     yield SCRIPT_PATH
     for root, _dirs, files in os.walk(LIB_DIR):
         for name in files:
@@ -502,9 +453,9 @@ def _needs_rebuild():
 
 def main():
     if not _needs_rebuild():
-        return  # Nothing to do.
+        return
 
-    js  = _bundle_javascript()
+    js  = _bundle_js()
     css = _bundle_css()
     html = HTML_TEMPLATE.format(css=css, js=js)
 
@@ -516,7 +467,7 @@ def main():
     if size > 256 * 1024:
         raise SystemExit(
             f"build_liveview_html: output is {size} bytes (>256 KB). "
-            f"Verify PROGMEM headroom before committing."
+            "Verify PROGMEM headroom before committing."
         )
 
 
