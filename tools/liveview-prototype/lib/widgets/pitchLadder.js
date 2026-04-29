@@ -63,7 +63,7 @@ export function mountPitchLadder(parent, {
     // glyph; SVG can use the proper Unicode U+00B0 directly.
     const text = mk(group, 'text', {
       x: 0, y: 0,
-      'font-family': 'Helvetica, Arial, sans-serif',
+      'font-family': "'B612', 'Helvetica Neue', Arial, sans-serif",
       'font-size': fontSize,
       fill: colors.TFT_BLACK,
       'text-anchor': 'start',

@@ -27,7 +27,7 @@ export function mountCornerReadout(parent, {
 
   mk(group, 'text', {
     x: labelX, y: labelY,
-    'font-family': 'Helvetica, Arial, sans-serif',
+    'font-family': "'B612', 'Helvetica Neue', Arial, sans-serif",
     'font-size': labelFontSize,
     fill: labelColor,
     'text-anchor': labelAnchor,
@@ -35,7 +35,7 @@ export function mountCornerReadout(parent, {
 
   const num = mk(group, 'text', {
     x: numX, y: numY,
-    'font-family': 'Helvetica, Arial, sans-serif',
+    'font-family': "'B612', 'Helvetica Neue', Arial, sans-serif",
     'font-weight': 'bold',
     'font-size': numFontSize,
     fill: numColor,

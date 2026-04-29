@@ -39,7 +39,7 @@ export function mountPitchReadout(parent, {
   // Numeric pitch — middle-right datum at (textX, textY).
   const num = mk(group, 'text', {
     x: textX, y: textY,
-    'font-family': 'Helvetica, Arial, sans-serif',
+    'font-family': "'B612', 'Helvetica Neue', Arial, sans-serif",
     'font-weight': 'bold',
     'font-size': fontSize,
     fill: colors.TFT_WHITE,

@@ -25,6 +25,12 @@
   --magenta: #ff00ff;
   --orange: #ff8800;
   --blue: #0000ff;
+  /* Numeric font stack: B612 (cockpit display font) with Helvetica
+     fallback while the webfont loads. Widgets that paint digits
+     (corner readouts, percent-lift, pitch readout, flap angle,
+     ladder labels) reference this variable instead of hardcoding a
+     family. */
+  --font-numeric: 'B612', 'Helvetica Neue', Arial, sans-serif;
 }
 
 [data-theme="light"] {

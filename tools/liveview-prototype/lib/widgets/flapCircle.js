@@ -44,7 +44,7 @@ export function mountFlapCircle(parent, {
   // on its anchor y. text-anchor: middle centers horizontally.
   const label = mk(group, 'text', {
     x: cx, y: cy,
-    'font-family': 'Helvetica, Arial, sans-serif',
+    'font-family': "'B612', 'Helvetica Neue', Arial, sans-serif",
     'font-size': labelFontSize,
     fill: colors.TFT_WHITE,
     'text-anchor': 'middle',
