@@ -42,5 +42,7 @@ const char szHtmlHeader[] PROGMEM = R"=====(
         </li>
     <li>
         <a href="live">LiveView</a></li>
+    <li>
+        <a href="indexer">Indexer</a></li>
 </ul>
 )=====";

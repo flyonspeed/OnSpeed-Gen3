@@ -1,10 +1,15 @@
 """build_liveview_html.py — PIO pre-build hook.
 
-Generates `software/OnSpeed-Gen3-ESP32/Web/html_liveview.h` from the
+Generates `software/OnSpeed-Gen3-ESP32/Web/html_indexer.h` from the
 ES module sources at `tools/liveview-prototype/lib/`. The prototype
 is the source of truth for the SVG renderer; this script bundles its
 many JS files plus a firmware-side shell (WebSocket client, datafields
-table) into one PROGMEM string the firmware serves at GET /live.
+table) into one PROGMEM string the firmware serves at GET /indexer.
+
+The legacy /live page lives untouched at
+software/OnSpeed-Gen3-ESP32/Web/html_liveview.h — pilots familiar
+with that interface keep it. The new 5-mode SVG view replaces the
+old WASM-on-device /indexer (different page, same URL slot).
 
 Skip-if-fresh: regenerates only when any prototype source file is
 newer than the output header, OR when the header is missing. On a
@@ -68,7 +73,7 @@ PROTOTYPE_DIR = os.path.join(REPO_ROOT, "tools", "liveview-prototype")
 LIB_DIR       = os.path.join(PROTOTYPE_DIR, "lib")
 FIRMWARE_DIR  = os.path.join(LIB_DIR, "firmware")
 WEB_DIR       = os.path.join(REPO_ROOT, "software", "OnSpeed-Gen3-ESP32", "Web")
-OUTPUT_HEADER = os.path.join(WEB_DIR, "html_liveview.h")
+OUTPUT_HEADER = os.path.join(WEB_DIR, "html_indexer.h")
 
 
 def _module_name(path):
@@ -457,7 +462,7 @@ def _emit_header(html, out_path):
 // after editing prototype source. PlatformIO auto-runs the regenerator
 // as a pre-build hook.
 
-const char htmlLiveView[] PROGMEM = R"{delim}({html}){delim}";
+const char htmlIndexer[] PROGMEM = R"{delim}({html}){delim}";
 """
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(header)

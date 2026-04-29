@@ -44,6 +44,7 @@ using onspeed::inhg2mb;
 #include "Web/html_header.h"
 #include "Web/html_header_css.h"
 #include "Web/html_liveview.h"
+#include "Web/html_indexer.h"
 #include "Web/html_calibration.h"
 #include "Web/javascript_calibration.h"
 #include "Web/javascript_chartist1.h"
@@ -105,6 +106,7 @@ void HandleIndex();
 void HandleFavicon();
 void HandleReboot();
 void HandleLive();
+void HandleIndexer();
 void HandleConfig();
 void HandleConfigSave();
 void HandleDefaultConfig();
@@ -306,6 +308,7 @@ void CfgWebServerInit()
     CfgServer.on("/favicon.ico",     HTTP_GET,  HandleFavicon);
     CfgServer.on("/reboot",          HTTP_GET,  HandleReboot);
     CfgServer.on("/live",            HTTP_GET,  HandleLive);
+    CfgServer.on("/indexer",         HTTP_GET,  HandleIndexer);
     CfgServer.on("/aoaconfig",       HTTP_GET,  HandleConfig);
     CfgServer.on("/aoaconfigsave",   HTTP_POST, HandleConfigSave);
     CfgServer.on("/defaultconfig",   HTTP_GET,  HandleDefaultConfig);
@@ -583,6 +586,20 @@ void HandleLive()
     sPage += htmlLiveView;
     sPage += pageFooter;
     CfgServer.send(200, "text/html", sPage);
+    }
+
+// ----------------------------------------------------------------------------
+// /indexer — new 5-mode SVG view, generated from
+// tools/liveview-prototype/ by scripts/build_liveview_html.py.
+// Self-contained (no header/footer wrapper) so the page can render
+// fullscreen on a phone or tablet during flight without the OnSpeed
+// chrome eating viewport.
+
+void HandleIndexer()
+    {
+    if (SendWithETag("text/html"))
+        return;
+    CfgServer.send_P(200, "text/html", htmlIndexer);
     }
 
 // ----------------------------------------------------------------------------

@@ -101,13 +101,13 @@ jobs:
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
-  liveview-bundle-fresh:
-    # Verifies the committed software/OnSpeed-Gen3-ESP32/Web/html_liveview.h
+  indexer-bundle-fresh:
+    # Verifies the committed software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
     # matches what scripts/build_liveview_html.py would produce. Catches
     # contributors who edit prototype source without regenerating the
     # bundle — Arduino IDE users compile the committed header directly,
     # so a stale header would silently break their flash.
-    name: Verify html_liveview.h is up to date
+    name: Verify html_indexer.h is up to date
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -120,13 +120,13 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Regenerate liveview bundle
+      - name: Regenerate indexer bundle
         run: python3 scripts/build_liveview_html.py
 
       - name: Verify committed header is current
         run: |
-          if ! git diff --exit-code -- software/OnSpeed-Gen3-ESP32/Web/html_liveview.h; then
-            echo "::error::html_liveview.h is stale. Run 'python3 scripts/build_liveview_html.py' and commit the result."
+          if ! git diff --exit-code -- software/OnSpeed-Gen3-ESP32/Web/html_indexer.h; then
+            echo "::error::html_indexer.h is stale. Run 'python3 scripts/build_liveview_html.py' and commit the result."
             exit 1
           fi
 
