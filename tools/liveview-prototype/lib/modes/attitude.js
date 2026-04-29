@@ -3,6 +3,7 @@ import { colors } from '../colors.js';
 import { slipFromLateralG } from '../slipBall.js';
 import { mountHorizon } from '../widgets/horizon.js';
 import { mountPitchLadder } from '../widgets/pitchLadder.js';
+import { mountBankArc } from '../widgets/bankArc.js';
 import { mountAircraftSymbol } from '../widgets/aircraftSymbol.js';
 import { mountFlightPathMarker } from '../widgets/flightPathMarker.js';
 import { mountPitchReadout } from '../widgets/pitchReadout.js';
@@ -32,6 +33,9 @@ export function mountAttitude(rootEl) {
 
   const horizon       = mountHorizon(svg);
   const pitchLadder   = mountPitchLadder(svg);
+  // Bank-angle arc markers paint AFTER horizon/ladder, BEFORE the
+  // aircraft symbol — matches the C++ paint order at main.cpp:1136-1248.
+  const bankArc       = mountBankArc(svg);
   /* eslint-disable-next-line no-unused-vars */
   const aircraft      = mountAircraftSymbol(svg);  // static, no per-frame update
   const fpv           = mountFlightPathMarker(svg);
@@ -121,6 +125,7 @@ export function mountAttitude(rootEl) {
     // Per-frame updates.
     horizon.update({ pitchDeg: rec.pitchDeg, rollDeg: rec.rollDeg });
     pitchLadder.update({ pitchDeg: rec.pitchDeg, rollDeg: rec.rollDeg });
+    bankArc.update({ rollDeg: rec.rollDeg });
     fpv.update({ pitchDeg: rec.pitchDeg, flightPathDeg: rec.flightPathDeg });
     slip.update({
       slip: slipFromLateralG(rec.lateralG),
