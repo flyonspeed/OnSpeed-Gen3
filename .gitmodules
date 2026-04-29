@@ -9,4 +9,4 @@
 	url = git@github.com:mathertel/OneButton.git
 [submodule "software/Libraries/arduinoWebSockets"]
 	path = software/Libraries/arduinoWebSockets
-	url = git@github.com:Links2004/arduinoWebSockets.git
+	url = git@github.com:flyonspeed/arduinoWebSockets.git
