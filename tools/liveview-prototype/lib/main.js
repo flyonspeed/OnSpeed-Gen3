@@ -1,5 +1,6 @@
 import { scenarios } from './scenarios.js';
 import { buildFrame } from './frameBuilder.js';
+import { mountAoa } from './modes/aoa.js';
 
 // State.
 let currentScenario = 'idle';
@@ -13,9 +14,10 @@ export function subscribe(fn) { subscribers.push(fn); return () => {
   if (i >= 0) subscribers.splice(i, 1);
 }; }
 
-// Stage 0: keep the pump alive with a no-op subscriber. Stage 1+ replaces this
-// with the AOA mode's update callback.
-subscribe(_rec => {});
+// Mount the AOA mode panel and wire it to the data pump.
+const svgRoot = document.getElementById('svg-root');
+const aoaPanel = mountAoa(svgRoot);
+subscribe(rec => aoaPanel.update(rec));
 
 // 20 Hz tick — emit current scenario's record to all subscribers.
 function tick() {
