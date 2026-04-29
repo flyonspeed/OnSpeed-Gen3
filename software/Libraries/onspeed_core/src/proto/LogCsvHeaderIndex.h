@@ -125,13 +125,6 @@ struct HeaderIndex {
     bool boomEnabled           = false;
     bool efisEnabled           = false;
     bool efisIsVn300           = false;
-
-    // Provenance — populated at log-open time from the existing .meta
-    // sidecar (or, in a future format revision, from a header comment).
-    // Pre-format-version logs leave these at defaults.
-    int  formatVersion         = 0;        // 0 == "not declared in log"
-    char fwVersion[16]         = {0};      // e.g. "4.18", "" if unknown
-    char gitSha[12]            = {0};      // 7-char abbrev or "" if unknown
 };
 
 // Strictness mode for header validation. Picked at call time by the caller.
