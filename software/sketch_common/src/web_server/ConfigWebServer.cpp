@@ -1920,9 +1920,23 @@ void HandleBench()
   document.getElementById('go').addEventListener('click', run);
   copyBtn.addEventListener('click', () => {
     if (!lastResult) return;
-    navigator.clipboard.writeText(JSON.stringify(lastResult, null, 2))
-      .then(() => { copyBtn.textContent = 'Copied!';
-                    setTimeout(() => copyBtn.textContent = 'Copy results JSON', 1500); });
+    const text = JSON.stringify(lastResult, null, 2);
+    const flash = () => { copyBtn.textContent = 'Copied!';
+                          setTimeout(() => copyBtn.textContent = 'Copy results JSON', 1500); };
+    // navigator.clipboard is only defined on secure contexts (HTTPS/localhost).
+    // The OnSpeed SoftAP is plain HTTP, so fall back to a textarea + execCommand.
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(flash);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); flash(); }
+      finally { document.body.removeChild(ta); }
+    }
   });
 })();
 </script>)RAW";
