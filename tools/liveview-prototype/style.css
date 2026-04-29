@@ -33,25 +33,15 @@
   --font-numeric: 'B612', 'Helvetica Neue', Arial, sans-serif;
 }
 
-[data-theme="light"] {
-  --bg: #fafafa;
-  --ink: #111;
-  --panel-bg: #fff;
-  --white: #ffffff;
-  --green: #0c9a40;
-  --yellow: #d8b800;
-  --red: #c63030;
-  --grey: #555;
-  --dark-grey: #aaa;
-  --light-grey: #888;
-  /* Light-theme Mode 1 palette: tone the saturated values down so they
-     read against a white panel without glaring. */
-  --sky: #5fb9ea;
-  --ground: #a36632;
-  --magenta: #d030c0;
-  --orange: #d97500;
-  --blue: #4060c0;
-}
+/* No light theme. Avionics displays are bright glyphs on dark panel by
+   convention — that's what cuts through cockpit glare and what gives the
+   five status colors (red/yellow/green/cyan/orange) their calibrated
+   contrast envelope. The original spec asked for a light theme on the
+   assumption "sunglasses pilots want light"; in practice avionics apps
+   (ForeFlight, Garmin Pilot, etc.) all stay dark for the same reason
+   instrument panels do. Inverting ink/panel desaturates the warning
+   colors and breaks Mode 1's sky/ground horizon metaphor. If a future
+   need surfaces, revisit then — don't re-add a half-thought theme. */
 
 body {
   margin: 0;
