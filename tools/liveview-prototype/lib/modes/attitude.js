@@ -61,12 +61,16 @@ export function mountAttitude(rootEl) {
   });
 
   // Four corner readouts. main.cpp:540-595.
+  // Number colors per main.cpp:577-594:
+  //   - IAS (top-left) and PALT (top-right): TFT_BLACK on the sky
+  //   - G (bottom-left) and AOA% (bottom-right): TFT_WHITE on the ground
   const ias = mountCornerReadout(svg, {
     labelText: 'IAS',
     labelX: G.MODE1_CORNER_LEFT_X, labelY: G.MODE1_CORNER_TOP_LABEL_Y,
     numX:    G.MODE1_CORNER_LEFT_X, numY: G.MODE1_CORNER_TOP_NUM_Y,
     labelAnchor: 'start',
     labelColor: colors.TFT_GREY,
+    numColor:   colors.TFT_BLACK,
     labelFontSize: G.MODE1_CORNER_LABEL_FONT_SIZE,
     numFontSize:   G.MODE1_CORNER_NUM_FONT_SIZE,
   });
@@ -76,6 +80,7 @@ export function mountAttitude(rootEl) {
     numX:    G.MODE1_CORNER_RIGHT_X, numY: G.MODE1_CORNER_TOP_NUM_Y,
     labelAnchor: 'end',
     labelColor: colors.TFT_GREY,
+    numColor:   colors.TFT_BLACK,
     labelFontSize: G.MODE1_CORNER_LABEL_FONT_SIZE,
     numFontSize:   G.MODE1_CORNER_NUM_FONT_SIZE,
   });
@@ -85,6 +90,7 @@ export function mountAttitude(rootEl) {
     numX:    G.MODE1_CORNER_LEFT_X, numY: G.MODE1_CORNER_BOT_NUM_Y,
     labelAnchor: 'start',
     labelColor: colors.TFT_LIGHTGREY,
+    numColor:   colors.TFT_WHITE,
     labelFontSize: G.MODE1_CORNER_LABEL_FONT_SIZE,
     numFontSize:   G.MODE1_CORNER_NUM_FONT_SIZE,
   });
@@ -94,6 +100,7 @@ export function mountAttitude(rootEl) {
     numX:    G.MODE1_CORNER_RIGHT_X, numY: G.MODE1_CORNER_BOT_NUM_Y,
     labelAnchor: 'end',
     labelColor: colors.TFT_LIGHTGREY,
+    numColor:   colors.TFT_WHITE,
     labelFontSize: G.MODE1_CORNER_LABEL_FONT_SIZE,
     numFontSize:   G.MODE1_CORNER_NUM_FONT_SIZE,
   });
