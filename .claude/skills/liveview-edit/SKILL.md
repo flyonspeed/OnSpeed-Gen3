@@ -169,6 +169,3 @@ If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mo
 - `scripts/build_liveview_html.py` — bundler. Read its top docstring for transformation rules.
 - `software/OnSpeed-Gen3-ESP32/Web/html_liveview.h` — generated PROGMEM bundle. Never edit by hand.
 - `software/OnSpeed-M5-Display/src/main.cpp` — M5 hardware renderer (the source of truth for layout)
-- `docs/superpowers/specs/2026-04-28-liveview-five-modes.md` — the design spec
-- `docs/superpowers/plans/2026-04-28-liveview-five-modes.md` — the implementation plan with task breakdown
-- `docs/superpowers/plans/2026-04-28-liveview-stage7-firmware-port.md` — the firmware-port plan
