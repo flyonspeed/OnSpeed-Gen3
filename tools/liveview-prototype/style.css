@@ -1,0 +1,58 @@
+:root {
+  --bg: #111;
+  --ink: #eee;
+  --panel-bg: #000;
+  --green: #07a33f;
+  --yellow: #ffe000;
+  --red: #cc3837;
+  --grey: #888;
+  --dark-grey: #444;
+  --light-grey: #aaa;
+}
+
+[data-theme="light"] {
+  --bg: #fafafa;
+  --ink: #111;
+  --panel-bg: #fafafa;
+  --green: #0a8a35;
+  --yellow: #c8a800;
+  --red: #b22a2a;
+  --grey: #555;
+  --dark-grey: #aaa;
+  --light-grey: #888;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+header, nav {
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px;
+}
+
+main {
+  display: flex; flex-direction: row; gap: 16px;
+  padding: 16px;
+}
+
+.panel {
+  flex: 1;
+  background: var(--panel-bg);
+  border: 1px solid var(--dark-grey);
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 320px;
+}
+
+#svg-root, #wasm-iframe {
+  width: 320px;
+  height: 240px;
+  display: block;
+  margin: 0 auto;
+}
+
+#wasm-iframe { border: 0; background: #000; }

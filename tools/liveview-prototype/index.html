@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnSpeed LiveView Prototype</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>OnSpeed LiveView Prototype</h1>
+  <button id="theme-toggle" type="button">Toggle theme</button>
+</header>
+<nav id="mode-nav">
+  <button data-mode="aoa" type="button">AOA</button>
+  <button data-mode="attitude" type="button">AI</button>
+  <button data-mode="indexer-only" type="button">Idx</button>
+  <button data-mode="energy" type="button">Energy</button>
+  <button data-mode="ghistory" type="button">G-Hist</button>
+</nav>
+<nav id="scenario-nav">
+  <button data-scenario="idle" type="button">Idle</button>
+  <button data-scenario="cruise" type="button">Cruise</button>
+  <button data-scenario="approach" type="button">Approach</button>
+  <button data-scenario="stall" type="button">Stall warn</button>
+</nav>
+<main>
+  <section class="panel" id="svg-panel">
+    <h2>New SVG</h2>
+    <!-- Stage 1+ will fill this with the actual SVG. -->
+    <div id="svg-root"></div>
+  </section>
+  <section class="panel" id="wasm-panel">
+    <h2>Wasm-live (M5 sim)</h2>
+    <iframe src="wasm-live/index.html" id="wasm-iframe" frameborder="0"></iframe>
+  </section>
+</main>
+<script type="module" src="lib/main.js"></script>
+</body>
+</html>
