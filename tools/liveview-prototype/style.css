@@ -72,11 +72,17 @@ main {
   min-width: 320px;
 }
 
-#svg-root {
+/* Mode panel divs all sit at the M5's native 320×240 with overflow
+   hidden so SVG content past the viewBox edge gets clipped (the pitch
+   ladder draws ticks at y > 240 which would otherwise leak below the
+   panel). #svg-root is the AOA mount and shares the same rules. */
+#svg-root,
+[data-mode-panel] {
   width: 320px;
   height: 240px;
   display: block;
   margin: 0 auto;
+  overflow: hidden;
 }
 
 /* The wasm-live shell wraps its 320×240 canvas in flex column with its own

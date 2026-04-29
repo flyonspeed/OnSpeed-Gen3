@@ -38,9 +38,14 @@ const tests = [
   '../test/widgets/flightPathMarker.test.js',
   '../test/widgets/pitchReadout.test.js',
 ];
+// Cache-bust ES module imports — Python's http.server sends no
+// cache-control headers but browsers still hold module imports across
+// page reloads (LESSONS.md: "Browser caching gotcha"). A query string
+// guarantees a fresh fetch on each runner load.
+const cb = '?cb=' + Date.now();
 for (const t of tests) {
   try {
-    const m = await import(t);
+    const m = await import(t + cb);
     log(`-- ${t} --`, true);
     m.run(assert);
   } catch (e) {
