@@ -67,8 +67,17 @@ const DataFields = ({ rec, ageSec, expanded, onToggle }) => html`
       </div>`}
   </div>`;
 
+// The /indexer page renders without the standard OnSpeed `pageHeader`
+// nav (HandleIndexer in ConfigWebServer.cpp sends only the bundle, no
+// chrome) so the SVG can fill the viewport on a phone. Embed a small
+// nav row here so pilots can still hop back to the home page or the
+// legacy LiveView without typing the URL.
 const Header = ({ status, ageSec }) => html`
   <header id="liveview-header">
+    <nav id="liveview-nav">
+      <a href="/">Home</a>
+      <a href="/live">LiveView</a>
+    </nav>
     <div id="status-line">
       <span id="connectionstatus">${status}</span>
       <span id="age-indicator" style=${{ color: ageSec >= 1 ? 'var(--red, #ff0018)' : '' }}>

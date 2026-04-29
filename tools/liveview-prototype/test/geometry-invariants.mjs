@@ -163,10 +163,20 @@ near(flapTriangleTransform(1), G.FLAP_ARC_DEG, 0.01,
 
 // ----- slip ball ---------------------------------------------------------
 //
-// SerialRead.cpp:269 says Slip = LateralG × 850.
+// SerialRead.cpp:269 says Slip = LateralG × 850.  By convention, the
+// producer (Gen3 firmware) negates raw lateral G before shipping the
+// `lateralG` wire field — see DisplaySerial.cpp:294,342 and the
+// DisplayBuildInputs::lateralG comment in proto/DisplaySerial.h
+// ("positive = leftward").  The DataServer JSON broadcast follows the
+// same convention (DataServer.cpp::fLatG), so positive `lateralG` in
+// the WebSocket record means leftward acceleration regardless of which
+// transport the LiveView consumes.
 
 eq(slipFromLateralG(0), 0, 'zero G → zero slip');
-eq(slipFromLateralG(0.05), 43, '0.05 G → 43 (within 99 cap)');
+// Math.round half-to-even on JavaScript's Number gives 42.5 → 42 here,
+// which matches the int truncation in the M5's `int(LateralG * 850)`.
+eq(slipFromLateralG(0.05), 43, '0.05 G left → +43 (within 99 cap)');
+eq(slipFromLateralG(-0.05), -42, '0.05 G right → -42 (sign mirrors wire convention)');
 eq(slipFromLateralG(0.5), 99, '0.5 G clamped to +99');
 eq(slipFromLateralG(-0.5), -99, '-0.5 G clamped to -99');
 

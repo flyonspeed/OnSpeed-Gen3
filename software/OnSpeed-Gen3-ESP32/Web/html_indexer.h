@@ -119,6 +119,25 @@ html, body {
   border-bottom: 1px solid var(--dark-grey, #6b6d54);
 }
 
+#liveview-nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 4px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+}
+
+#liveview-nav a {
+  color: var(--ink, #eee);
+  text-decoration: none;
+  padding: 2px 0;
+}
+
+#liveview-nav a:hover,
+#liveview-nav a:focus {
+  text-decoration: underline;
+}
+
 #status-line {
   display: flex;
   justify-content: space-between;
@@ -1453,6 +1472,21 @@ const StaleOverlay = ({ stale }) => {
 
 
 
+// Format a numeric corner readout. The M5 hardware (main.cpp:773-779)
+// shows IAS / G / PALT unconditionally — they're independent signals
+// and don't share AOA's mute-below-threshold gate. We mirror that here:
+// only `undefined` / `null` / `NaN` (i.e. before the first WebSocket
+// frame arrives) collapses to '—'. Once data is on the wire, every
+// number renders, even when the IAS-mute gate has set AOA to its
+// `-100` sentinel.
+const fmtNum = (v, digits = 0, signed = false) => {
+  if (v === undefined || v === null || Number.isNaN(v)) return '—';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  const fixed = n.toFixed(digits);
+  return signed && n >= 0 ? '+' + fixed : fixed;
+};
+
 // Build the per-frame anchors array from a record.
 const anchorsFromRec = (r) => [
   0, 0,
@@ -1490,11 +1524,11 @@ const Mode0 = ({ r, stale, numericDisplay = true }) => {
                   flashFlag=${flashFlag} aoaIsValid=${aoaIsValid} />
       ${numericDisplay && html`
         <${CornerReadout} label="IAS"
-            value=${aoaIsValid ? Math.round(r.iasKt) : '—'}
+            value=${fmtNum(r.iasKt, 0)}
             labelX=${G.CORNER_LEFT_X} labelY=${G.CORNER_LABEL_Y}
             numX=${G.CORNER_LEFT_X + 2} numY=${G.CORNER_NUM_Y} />
         <${CornerReadout} label="G"
-            value=${aoaIsValid ? (r.verticalG >= 0 ? '+' : '') + r.verticalG.toFixed(1) : '—'}
+            value=${fmtNum(r.verticalG, 1, true)}
             labelX=${G.CORNER_RIGHT_X} labelY=${G.CORNER_LABEL_Y}
             numX=${G.CORNER_RIGHT_X} numY=${G.CORNER_NUM_Y} anchor="end" />
         <${FlapCircle} flapPos=${r.flapsDeg}
@@ -1518,7 +1552,7 @@ const Mode1 = ({ r, stale }) => {
       <${TopPointer} />
       <${AircraftSymbol} />
       <${FlightPathMarker} pitchDeg=${r.pitchDeg} flightPathDeg=${r.flightPathDeg} />
-      <${PitchReadout} pitchDeg=${r.pitchDeg} dataValid=${aoaIsValid} />
+      <${PitchReadout} pitchDeg=${r.pitchDeg} />
       <${SlipBall} lateralG=${r.lateralG} percentLift=${r.percentLift}
                    stallWarn=${r.stallWarnPctLift} flashFlag=${flashFlag}
                    x=${G.MODE1_SLIP_X} y=${G.MODE1_SLIP_Y}
@@ -1537,7 +1571,7 @@ const Mode1 = ({ r, stale }) => {
                    pipYs=${[G.MODE1_VSI_PIP_Y_TOP, G.MODE1_VSI_PIP_Y_MIDDLE, G.MODE1_VSI_PIP_Y_BOT]}
                    tickColor=${colors.TFT_BLACK} pipColor=${colors.TFT_BLACK} />
       <${CornerReadout} label="IAS"
-          value=${aoaIsValid ? Math.round(r.iasKt) : '—'}
+          value=${fmtNum(r.iasKt, 0)}
           labelX=${G.MODE1_CORNER_LEFT_X} labelY=${G.MODE1_CORNER_TOP_LABEL_Y}
           numX=${G.MODE1_CORNER_LEFT_NUM_X} numY=${G.MODE1_CORNER_TOP_NUM_Y}
           labelColor=${colors.TFT_GREY} numColor=${colors.TFT_BLACK}
@@ -1545,7 +1579,9 @@ const Mode1 = ({ r, stale }) => {
           numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE}
           numBaseline="central" />
       <${CornerReadout} label="PALT"
-          value=${aoaIsValid ? String(Math.round(r.paltFt)).padStart(5, ' ') : '—'}
+          value=${(r.paltFt === undefined || r.paltFt === null || Number.isNaN(r.paltFt))
+                    ? '—'
+                    : String(Math.round(r.paltFt)).padStart(5, ' ')}
           labelX=${G.MODE1_CORNER_RIGHT_X} labelY=${G.MODE1_CORNER_TOP_LABEL_Y}
           numX=${G.MODE1_CORNER_TOP_RIGHT_NUM_X} numY=${G.MODE1_CORNER_TOP_NUM_Y}
           anchor="end" labelColor=${colors.TFT_GREY} numColor=${colors.TFT_BLACK}
@@ -1553,7 +1589,7 @@ const Mode1 = ({ r, stale }) => {
           numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE}
           numBaseline="central" />
       <${CornerReadout} label="G"
-          value=${aoaIsValid ? r.verticalG.toFixed(1) : '—'}
+          value=${fmtNum(r.verticalG, 1)}
           labelX=${G.MODE1_CORNER_LEFT_X} labelY=${G.MODE1_CORNER_BOT_LABEL_Y}
           numX=${G.MODE1_CORNER_LEFT_NUM_X} numY=${G.MODE1_CORNER_BOT_NUM_Y}
           labelColor=${colors.TFT_LIGHTGREY} numColor=${colors.TFT_WHITE}
@@ -1575,12 +1611,14 @@ const Mode2 = ({ r, stale }) => html`
   <${Mode0} r=${r} stale=${stale} numericDisplay=${false} />`;
 
 // --- Mode 3: Energy / decel gauge -----------------------------------------
+//
+// The decel pointer reflects IAS-derivative state, not AOA validity, so
+// it draws unconditionally — same as the M5 hardware page.
 const Mode3 = ({ r, stale }) => {
   const flashFlag = flashFlagNow();
-  const aoaIsValid = r.aoaIsValid !== false;
   return html`
     <${Panel} stale=${stale}>
-      <${DecelGauge} decelRate=${r.decelRate || 0} dataValid=${aoaIsValid} />
+      <${DecelGauge} decelRate=${r.decelRate || 0} />
       <${SlipBall} lateralG=${r.lateralG} percentLift=${r.percentLift}
                    stallWarn=${r.stallWarnPctLift} flashFlag=${flashFlag}
                    x=${G.MODE3_SLIP_X} y=${G.MODE3_SLIP_Y}
@@ -1599,11 +1637,11 @@ const Mode3 = ({ r, stale }) => {
                    pipYs=${[G.MODE1_VSI_PIP_Y_TOP, G.MODE1_VSI_PIP_Y_MIDDLE, G.MODE1_VSI_PIP_Y_BOT]}
                    tickColor=${colors.TFT_LIGHTGREY} pipColor=${colors.TFT_LIGHTGREY} />
       <${CornerReadout} label="IAS"
-          value=${aoaIsValid ? Math.round(r.iasKt) : '—'}
+          value=${fmtNum(r.iasKt, 0)}
           labelX=${G.MODE3_CORNER_LEFT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
           numX=${G.MODE3_CORNER_LEFT_NUM_X} numY=${G.MODE3_CORNER_NUM_Y} />
       <${CornerReadout} label="Kt/s"
-          value=${aoaIsValid ? ((r.decelRate || 0) >= 0 ? '+' : '') + (r.decelRate || 0).toFixed(1) : '—'}
+          value=${fmtNum(r.decelRate, 1, true)}
           labelX=${G.MODE3_CORNER_RIGHT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
           numX=${G.MODE3_CORNER_RIGHT_X} numY=${G.MODE3_CORNER_NUM_Y} anchor="end" />
     <//>`;
@@ -1792,8 +1830,17 @@ const DataFields = ({ rec, ageSec, expanded, onToggle }) => html`
       </div>`}
   </div>`;
 
+// The /indexer page renders without the standard OnSpeed `pageHeader`
+// nav (HandleIndexer in ConfigWebServer.cpp sends only the bundle, no
+// chrome) so the SVG can fill the viewport on a phone. Embed a small
+// nav row here so pilots can still hop back to the home page or the
+// legacy LiveView without typing the URL.
 const Header = ({ status, ageSec }) => html`
   <header id="liveview-header">
+    <nav id="liveview-nav">
+      <a href="/">Home</a>
+      <a href="/live">LiveView</a>
+    </nav>
     <div id="status-line">
       <span id="connectionstatus">${status}</span>
       <span id="age-indicator" style=${{ color: ageSec >= 1 ? 'var(--red, #ff0018)' : '' }}>

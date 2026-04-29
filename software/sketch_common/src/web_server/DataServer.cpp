@@ -167,9 +167,13 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fWifiVSI;
     float fWifiIAS;
     float fWifiOAT;
-    // Installation-corrected body-vertical acceleration (G). 1G level, 2G in a
-    // 60-deg bank. Matches the value GLimitDecision uses for over-G warnings.
-    float fVerticalGload = g_AHRS.AccelVertCorr;
+    // Installation-corrected body-vertical acceleration (G), EMA-smoothed
+    // by AHRS::Process to suppress per-tick IMU jitter.  The M5 wire path
+    // ships AccelVertFilter.get() at DisplaySerial.cpp:145 — same source
+    // here so the LiveView G readout doesn't twitch where the M5's holds
+    // steady.  GLimitDecision still reads the unsmoothed AccelVertCorr
+    // for over-G warnings; the smoothing is purely a presentation choice.
+    float fVerticalGload = g_AHRS.AccelVertFilter.get();
 
     // AOA is gated by the user-tunable `iMuteAudioUnderIAS` threshold,
     // not `bIasAlive`.  Rationale: `iMuteAudioUnderIAS` is a UX knob
@@ -315,7 +319,14 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fWifiOAT        = SafeJsonFloat(fWifiOAT, 0.0f);
 
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
-    const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatCorr, 0.0f);
+    // Lateral G: smoothed by AccelLatFilter and negated so positive
+    // values mean leftward — matches the wire-format convention the M5
+    // consumer expects (DisplaySerial.cpp:294,342, BuildInputs::lateralG
+    // doc in proto/DisplaySerial.h).  The previous expression read the
+    // raw AccelLatCorr without negation, which made the LiveView slip
+    // ball both over-twitchy and pointed the wrong way relative to the
+    // M5 hardware indicator.
+    const float fLatG   = SafeJsonFloat(-g_AHRS.AccelLatFilter.get(), 0.0f);
     const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
     const float fPitchRate  = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);

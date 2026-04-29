@@ -19,6 +19,25 @@ html, body {
   border-bottom: 1px solid var(--dark-grey, #6b6d54);
 }
 
+#liveview-nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 4px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+}
+
+#liveview-nav a {
+  color: var(--ink, #eee);
+  text-decoration: none;
+  padding: 2px 0;
+}
+
+#liveview-nav a:hover,
+#liveview-nav a:focus {
+  text-decoration: underline;
+}
+
 #status-line {
   display: flex;
   justify-content: space-between;
