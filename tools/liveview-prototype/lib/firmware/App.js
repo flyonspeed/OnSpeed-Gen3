@@ -67,17 +67,13 @@ const DataFields = ({ rec, ageSec, expanded, onToggle }) => html`
       </div>`}
   </div>`;
 
-// The /indexer page renders without the standard OnSpeed `pageHeader`
-// nav (HandleIndexer in ConfigWebServer.cpp sends only the bundle, no
-// chrome) so the SVG can fill the viewport on a phone. Embed a small
-// nav row here so pilots can still hop back to the home page or the
-// legacy LiveView without typing the URL.
+// The /indexer page now renders inside the standard OnSpeed
+// pageHeader / pageFooter (HandleIndexer in ConfigWebServer.cpp wraps
+// the bundle in the global chrome — logo, Tools / Settings dropdowns,
+// Home / LiveView / Indexer links).  This <Header> is just the
+// indexer-local status row sitting underneath the global nav.
 const Header = ({ status, ageSec }) => html`
   <header id="liveview-header">
-    <nav id="liveview-nav">
-      <a href="/">Home</a>
-      <a href="/live">LiveView</a>
-    </nav>
     <div id="status-line">
       <span id="connectionstatus">${status}</span>
       <span id="age-indicator" style=${{ color: ageSec >= 1 ? 'var(--red, #ff0018)' : '' }}>
@@ -156,21 +152,21 @@ export function App() {
 
   const ActiveMode = MODES.find(m => m.id === mode)?.C ?? Mode0;
   return html`
-    <${Header} status=${status} ageSec=${ageSec} />
-    <${ModeNav} current=${mode} onChange=${setModeAndPersist} />
-    <main id="liveview-main">
-      <div id="mode-container">
-        <${ActiveMode} r=${rec || EMPTY_REC} stale=${stale}
-                       gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx} />
-      </div>
-      <${DataFields} rec=${rec} ageSec=${ageSec}
-                     expanded=${dfExpanded} onToggle=${toggleDf} />
-    </main>
-    <footer id="liveview-footer">
+    <div id="indexer-app">
+      <${Header} status=${status} ageSec=${ageSec} />
+      <${ModeNav} current=${mode} onChange=${setModeAndPersist} />
+      <main id="liveview-main">
+        <div id="mode-container">
+          <${ActiveMode} r=${rec || EMPTY_REC} stale=${stale}
+                         gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx} />
+        </div>
+        <${DataFields} rec=${rec} ageSec=${ageSec}
+                       expanded=${dfExpanded} onToggle=${toggleDf} />
+      </main>
       <div id="footer-warning">
         For diagnostic purposes only. NOT SAFE FOR FLIGHT
       </div>
-    </footer>`;
+    </div>`;
 }
 
 // Empty record used before the first WebSocket frame arrives. aoaIsValid

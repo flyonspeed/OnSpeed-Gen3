@@ -1,47 +1,31 @@
-/* Firmware-served /live page chrome. The prototype's style.css
-   provides the SVG-mode foundation (colors, panel sizing); this
-   file adds the page chrome unique to the firmware-served page:
-   header status line, mode-button row styling, datafields toggle,
-   footer warning. */
+/* Firmware-served /indexer page chrome.  This bundle is wrapped in the
+   standard OnSpeed pageHeader / pageFooter (HandleIndexer in
+   ConfigWebServer.cpp), so the global nav (logo + Tools / Settings
+   dropdowns + Home / LiveView / Indexer links) sits above this region.
+   Below the standard nav, this file styles the indexer-specific area:
+   status line, mode-button row, SVG container, data-fields panel,
+   diagnostic footer. */
 
-html, body {
-  margin: 0;
-  padding: 0;
+#indexer-app {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   background: var(--bg, #111);
   color: var(--ink, #eee);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  /* Avoid horizontal scrolling on mobile viewports. */
-  overflow-x: hidden;
+  /* Cover the page-header light background so the avionics palette
+     reads cleanly down the rest of the viewport. */
+  min-height: calc(100vh - 80px);
+  padding-bottom: 32px;
 }
 
 #liveview-header {
-  padding: 6px 8px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--dark-grey, #6b6d54);
-}
-
-#liveview-nav {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 4px;
-  font-family: "Helvetica Neue", Arial, sans-serif;
-  font-size: 13px;
-}
-
-#liveview-nav a {
-  color: var(--ink, #eee);
-  text-decoration: none;
-  padding: 2px 0;
-}
-
-#liveview-nav a:hover,
-#liveview-nav a:focus {
-  text-decoration: underline;
 }
 
 #status-line {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 12px;
   font-size: 12px;
   font-family: "Helvetica Neue", Arial, sans-serif;
 }
@@ -57,7 +41,7 @@ html, body {
 #mode-nav {
   display: flex;
   gap: 4px;
-  padding: 6px 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--dark-grey, #6b6d54);
   overflow-x: auto;
   /* On narrow phone viewports the 5 buttons need horizontal scroll
@@ -83,25 +67,34 @@ html, body {
 }
 
 #liveview-main {
-  padding: 8px;
+  /* Block-flow container: SVG on top, data-fields below.  No flex / no
+     grid here — children stack naturally. */
+  padding: 8px 12px 12px;
 }
 
 #mode-container {
-  position: relative;
-  width: 320px;
-  height: 240px;
+  /* Mobile: fill the available width up to the natural M5 panel aspect.
+     Desktop: cap at 480 px (1.5× the M5's native 320 CSS px) so the
+     panel doesn't dominate a wide monitor.  Kept centered with auto
+     side-margins.  4 / 3 mirrors the M5's 320 × 240 native panel. */
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 4 / 3;
   margin: 0 auto;
+  background: var(--panel-bg, #000);
 }
 
-[data-mode-panel] {
-  width: 320px;
-  height: 240px;
+#mode-container svg {
+  width: 100%;
+  height: 100%;
   display: block;
-  overflow: hidden;
 }
 
 #datafields-wrap {
-  margin-top: 12px;
+  /* Explicit block under the SVG.  Center the toggle and the table so
+     wide desktop viewports don't flush them to one edge. */
+  margin: 12px auto 0;
+  max-width: 480px;
   text-align: center;
 }
 
@@ -110,13 +103,13 @@ html, body {
   color: var(--ink, #eee);
   border: 1px solid var(--dark-grey, #6b6d54);
   border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 6px 14px;
+  font-size: 13px;
   cursor: pointer;
 }
 
 #datafields {
-  margin-top: 8px;
+  margin-top: 10px;
   display: flex;
   justify-content: center;
 }
@@ -128,7 +121,7 @@ html, body {
 }
 
 #datafields td {
-  padding: 2px 8px;
+  padding: 3px 12px;
 }
 
 #datafields td:first-child {
@@ -140,19 +133,12 @@ html, body {
   text-align: left;
 }
 
-#liveview-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 4px 0;
-  text-align: center;
-  background: var(--panel-bg, #000);
-  border-top: 1px solid var(--dark-grey, #6b6d54);
-}
-
 #footer-warning {
+  margin: 18px 12px 0;
+  padding: 6px 8px;
+  text-align: center;
   font-size: 11px;
   font-weight: bold;
   color: var(--yellow, #fffd40);
+  border-top: 1px solid var(--dark-grey, #6b6d54);
 }

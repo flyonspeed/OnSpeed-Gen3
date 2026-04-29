@@ -441,23 +441,19 @@ def _bundle_js():
 # ---------------------------------------------------------------------
 
 HTML_TEMPLATE = """\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>OnSpeed LiveView</title>
+<!-- AUTO-GENERATED indexer fragment.  Concatenated by
+     ConfigWebServer.cpp::HandleIndexer between the standard pageHeader
+     and pageFooter, so the global OnSpeed nav (logo + Tools / Settings
+     dropdowns + Home / LiveView / Indexer links) wraps the page.
+     This fragment owns only the indexer-app DOM, the avionics CSS, and
+     the Preact bundle script. -->
 <style>
 {css}
 </style>
-</head>
-<body>
 <div id="app"></div>
 <script>
 {js}
 </script>
-</body>
-</html>
 """
 
 

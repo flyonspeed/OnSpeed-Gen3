@@ -589,17 +589,24 @@ void HandleLive()
     }
 
 // ----------------------------------------------------------------------------
-// /indexer — new 5-mode SVG view, generated from
-// tools/liveview-prototype/ by scripts/build_liveview_html.py.
-// Self-contained (no header/footer wrapper) so the page can render
-// fullscreen on a phone or tablet during flight without the OnSpeed
-// chrome eating viewport.
+// /indexer — 5-mode Preact SVG view, generated from
+// tools/liveview-prototype/ by scripts/build_liveview_html.py.  Wraps in
+// pageHeader / pageFooter so the page shares the standard OnSpeed nav
+// (logo, Tools / Settings dropdowns, Home / LiveView / Indexer links)
+// with the rest of the firmware web UI — same pattern as HandleLive.
 
 void HandleIndexer()
     {
     if (SendWithETag("text/html"))
         return;
-    CfgServer.send_P(200, "text/html", htmlIndexer);
+
+    String sPage;
+    UpdateHeader();
+    sPage.reserve(pageHeader.length() + sizeof(htmlIndexer) + pageFooter.length());
+    sPage += pageHeader;
+    sPage += htmlIndexer;
+    sPage += pageFooter;
+    CfgServer.send(200, "text/html", sPage);
     }
 
 // ----------------------------------------------------------------------------
