@@ -587,14 +587,18 @@ void test_fixture_##name(void) {                                              \
     TEST_ASSERT_TRUE(ParseRowByIndex(row, idx, r));                           \
 }
 
-// Canonical: core + boom + standard EFIS.
-FIXTURE_TEST(v418_current,    "test/test_log_csv_header_index/fixtures/v4.18-current.csv",    false, true,  true)
+// Each fixture is a current-schema CSV with a different feature-flag
+// combination. They cover the optional-group permutations BuildHeaderIndex
+// must distinguish, not historical firmware revisions.
+
+// Core + boom + standard EFIS.
+FIXTURE_TEST(canonical_with_boom_and_efis, "test/test_log_csv_header_index/fixtures/canonical-with-boom-and-efis.csv", false, true,  true)
 // Core + VN-300 (no boom).
-FIXTURE_TEST(v415_vn300,      "test/test_log_csv_header_index/fixtures/v4.15-vn300.csv",      true,  false, true)
+FIXTURE_TEST(canonical_with_vn300,         "test/test_log_csv_header_index/fixtures/canonical-with-vn300.csv",         true,  false, true)
 // Core + standard EFIS only (no boom, no VN-300).
-FIXTURE_TEST(v413_no_boom,    "test/test_log_csv_header_index/fixtures/v4.13-no-boom.csv",    false, false, true)
+FIXTURE_TEST(canonical_with_efis_only,     "test/test_log_csv_header_index/fixtures/canonical-with-efis-only.csv",     false, false, true)
 // Core columns only (no optional groups at all).
-FIXTURE_TEST(v410_pre_vn300,  "test/test_log_csv_header_index/fixtures/v4.10-pre-vn300.csv",  false, false, false)
+FIXTURE_TEST(canonical_core_only,          "test/test_log_csv_header_index/fixtures/canonical-core-only.csv",          false, false, false)
 
 #undef FIXTURE_TEST
 
@@ -700,10 +704,10 @@ int main(int, char**)
     RUN_TEST(test_build_index_permissive_missing_required_warns_continues);
     RUN_TEST(test_build_index_permissive_partial_boom_warns_no_enable);
     RUN_TEST(test_parserowbyindex_vn300_roundtrip);
-    RUN_TEST(test_fixture_v418_current);
-    RUN_TEST(test_fixture_v415_vn300);
-    RUN_TEST(test_fixture_v413_no_boom);
-    RUN_TEST(test_fixture_v410_pre_vn300);
+    RUN_TEST(test_fixture_canonical_with_boom_and_efis);
+    RUN_TEST(test_fixture_canonical_with_vn300);
+    RUN_TEST(test_fixture_canonical_with_efis_only);
+    RUN_TEST(test_fixture_canonical_core_only);
     RUN_TEST(test_build_index_permissive_garbage_header_fails);
     RUN_TEST(test_parserowbyindex_empty_vntimeutc_preserved);
     RUN_TEST(test_build_index_over_wide_header_fails);
