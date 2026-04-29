@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Tests</title></head>
+<body>
+<pre id="output"></pre>
+<script type="module">
+const out = document.getElementById('output');
+const log = (msg, ok) => {
+  const line = document.createElement('div');
+  line.textContent = (ok ? '✓ ' : '✗ ') + msg;
+  line.style.color = ok ? '#070' : '#a00';
+  out.appendChild(line);
+};
+const assert = {
+  equal(a, b, msg)  { if (a === b) log(msg, true); else log(`${msg} — expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`, false); },
+  near(a, b, eps, msg) { if (Math.abs(a - b) <= eps) log(msg, true); else log(`${msg} — expected ${b}±${eps}, got ${a}`, false); },
+  truthy(a, msg)    { if (a) log(msg, true); else log(`${msg} — expected truthy`, false); },
+};
+const tests = [
+  '../test/colors.test.js',
+];
+for (const t of tests) {
+  try {
+    const m = await import(t);
+    log(`-- ${t} --`, true);
+    m.run(assert);
+  } catch (e) {
+    log(`${t} — threw ${e}`, false);
+  }
+}
+</script>
+</body>
+</html>
