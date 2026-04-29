@@ -22,9 +22,9 @@ std::string_view RstripCrLf(std::string_view s)
 }
 
 // Try to bind one token to a known column name. Returns true if matched
-// (and the corresponding HeaderIndex field was set). Optional-group columns
-// (boom, EFIS, VN-300) are intentionally not handled here — they land in a
-// follow-up commit alongside the group-validation logic.
+// (and the corresponding HeaderIndex field was set). Group membership
+// (boom, standard EFIS, VN-300) is decided later in BuildHeaderIndex; this
+// helper only records ordinals for any column it recognizes.
 bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
 {
     // Always-present core columns.
@@ -59,9 +59,62 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     if (name == "DerivedAOA")       { out.idxDerivedAoa = ordinal; return true; }
     if (name == "CoeffP")           { out.idxCoeffP = ordinal; return true; }
 
-    // Optional groups (boom, standard EFIS, VN-300) are handled in a
-    // follow-up commit. Tokens that match those names fall through here
-    // and are counted as unknown for now.
+    // Boom (optional).
+    if (name == "boomStatic")       { out.idxBoomStatic = ordinal; return true; }
+    if (name == "boomDynamic")      { out.idxBoomDynamic = ordinal; return true; }
+    if (name == "boomAlpha")        { out.idxBoomAlpha = ordinal; return true; }
+    if (name == "boomBeta")         { out.idxBoomBeta = ordinal; return true; }
+    if (name == "boomIAS")          { out.idxBoomIas = ordinal; return true; }
+    if (name == "boomAge")          { out.idxBoomAge = ordinal; return true; }
+
+    // EFIS — standard set (optional).
+    if (name == "efisIAS")          { out.idxEfisIas = ordinal; return true; }
+    if (name == "efisPitch")        { out.idxEfisPitch = ordinal; return true; }
+    if (name == "efisRoll")         { out.idxEfisRoll = ordinal; return true; }
+    if (name == "efisLateralG")     { out.idxEfisLateralG = ordinal; return true; }
+    if (name == "efisVerticalG")    { out.idxEfisVerticalG = ordinal; return true; }
+    if (name == "efisPercentLift")  { out.idxEfisPercentLift = ordinal; return true; }
+    if (name == "efisPalt")         { out.idxEfisPalt = ordinal; return true; }
+    if (name == "efisVSI")          { out.idxEfisVsi = ordinal; return true; }
+    if (name == "efisTAS")          { out.idxEfisTas = ordinal; return true; }
+    if (name == "efisOAT")          { out.idxEfisOat = ordinal; return true; }
+    if (name == "efisFuelRemaining"){ out.idxEfisFuelRemaining = ordinal; return true; }
+    if (name == "efisFuelFlow")     { out.idxEfisFuelFlow = ordinal; return true; }
+    if (name == "efisMAP")          { out.idxEfisMap = ordinal; return true; }
+    if (name == "efisRPM")          { out.idxEfisRpm = ordinal; return true; }
+    if (name == "efisPercentPower") { out.idxEfisPercentPower = ordinal; return true; }
+    if (name == "efisMagHeading")   { out.idxEfisMagHeading = ordinal; return true; }
+    if (name == "efisAge")          { out.idxEfisAge = ordinal; return true; }
+    if (name == "efisTime")         { out.idxEfisTime = ordinal; return true; }
+
+    // EFIS — VN-300 set (optional).
+    if (name == "vnAngularRateRoll")  { out.idxVnAngularRateRoll = ordinal; return true; }
+    if (name == "vnAngularRatePitch") { out.idxVnAngularRatePitch = ordinal; return true; }
+    if (name == "vnAngularRateYaw")   { out.idxVnAngularRateYaw = ordinal; return true; }
+    if (name == "vnVelNedNorth")      { out.idxVnVelNedNorth = ordinal; return true; }
+    if (name == "vnVelNedEast")       { out.idxVnVelNedEast = ordinal; return true; }
+    if (name == "vnVelNedDown")       { out.idxVnVelNedDown = ordinal; return true; }
+    if (name == "vnAccelFwd")         { out.idxVnAccelFwd = ordinal; return true; }
+    if (name == "vnAccelLat")         { out.idxVnAccelLat = ordinal; return true; }
+    if (name == "vnAccelVert")        { out.idxVnAccelVert = ordinal; return true; }
+    if (name == "vnYaw")              { out.idxVnYaw = ordinal; return true; }
+    if (name == "vnPitch")            { out.idxVnPitch = ordinal; return true; }
+    if (name == "vnRoll")             { out.idxVnRoll = ordinal; return true; }
+    if (name == "vnLinAccFwd")        { out.idxVnLinAccFwd = ordinal; return true; }
+    if (name == "vnLinAccLat")        { out.idxVnLinAccLat = ordinal; return true; }
+    if (name == "vnLinAccVert")       { out.idxVnLinAccVert = ordinal; return true; }
+    if (name == "vnYawSigma")         { out.idxVnYawSigma = ordinal; return true; }
+    if (name == "vnRollSigma")        { out.idxVnRollSigma = ordinal; return true; }
+    if (name == "vnPitchSigma")       { out.idxVnPitchSigma = ordinal; return true; }
+    if (name == "vnGnssVelNedNorth")  { out.idxVnGnssVelNedNorth = ordinal; return true; }
+    if (name == "vnGnssVelNedEast")   { out.idxVnGnssVelNedEast = ordinal; return true; }
+    if (name == "vnGnssVelNedDown")   { out.idxVnGnssVelNedDown = ordinal; return true; }
+    if (name == "vnGnssLat")          { out.idxVnGnssLat = ordinal; return true; }
+    if (name == "vnGnssLon")          { out.idxVnGnssLon = ordinal; return true; }
+    if (name == "vnGPSFix")           { out.idxVnGpsFix = ordinal; return true; }
+    if (name == "vnDataAge")          { out.idxVnDataAge = ordinal; return true; }
+    if (name == "vnTimeUTC")          { out.idxVnTimeUtc = ordinal; return true; }
+
     return false;
 }
 
@@ -157,8 +210,117 @@ bool BuildHeaderIndex(std::string_view headerLine,
 
     #undef REQUIRE
 
-    // Optional groups (boom, standard EFIS, VN-300) stay false in this
-    // skeleton. Group validation lands in a follow-up commit.
+    // Optional-group resolution. A group is "present" only when every
+    // column in it appears in the header. Any column from a group present
+    // without the rest is treated as schema drift:
+    //   Strict     — hard fail naming the first missing column.
+    //   Permissive — emit a warning per missing column, leave the
+    //                Enabled flag false. Present columns within the
+    //                partial group keep their ordinals (debug visibility),
+    //                but ParseRowByIndex won't unpack the group because
+    //                the Enabled flag stays false.
+
+    auto allOf = [](const int* idxs, int count) -> bool {
+        for (int i = 0; i < count; ++i) if (idxs[i] < 0) return false;
+        return true;
+    };
+    auto firstMissing = [](const int* idxs, const char* const* names, int count) -> const char* {
+        for (int i = 0; i < count; ++i) if (idxs[i] < 0) return names[i];
+        return nullptr;
+    };
+
+    // Boom: any boom column present means all six must be.
+    {
+        const int idxs[]  = { out.idxBoomStatic, out.idxBoomDynamic, out.idxBoomAlpha,
+                              out.idxBoomBeta,   out.idxBoomIas,     out.idxBoomAge };
+        const char* names[] = { "boomStatic", "boomDynamic", "boomAlpha",
+                                "boomBeta",   "boomIAS",     "boomAge" };
+        bool any = false;
+        for (int i = 0; i < 6; ++i) if (idxs[i] >= 0) { any = true; break; }
+        if (any) {
+            if (!allOf(idxs, 6)) {
+                if (strictness == HeaderStrictness::Strict) {
+                    if (missingOut) *missingOut = firstMissing(idxs, names, 6);
+                    return false;
+                }
+                for (int i = 0; i < 6; ++i)
+                    if (idxs[i] < 0) EmitWarn(warnSink, warnUserdata, names[i]);
+            } else {
+                out.boomEnabled = true;
+            }
+        }
+    }
+
+    // VN-300: any VN-300 column present means all 26 must be. Resolved
+    // before standard EFIS so the !efisIsVn300 guard below works.
+    {
+        const int idxs[]  = {
+            out.idxVnAngularRateRoll, out.idxVnAngularRatePitch, out.idxVnAngularRateYaw,
+            out.idxVnVelNedNorth, out.idxVnVelNedEast, out.idxVnVelNedDown,
+            out.idxVnAccelFwd, out.idxVnAccelLat, out.idxVnAccelVert,
+            out.idxVnYaw, out.idxVnPitch, out.idxVnRoll,
+            out.idxVnLinAccFwd, out.idxVnLinAccLat, out.idxVnLinAccVert,
+            out.idxVnYawSigma, out.idxVnRollSigma, out.idxVnPitchSigma,
+            out.idxVnGnssVelNedNorth, out.idxVnGnssVelNedEast, out.idxVnGnssVelNedDown,
+            out.idxVnGnssLat, out.idxVnGnssLon, out.idxVnGpsFix,
+            out.idxVnDataAge, out.idxVnTimeUtc };
+        const char* names[] = {
+            "vnAngularRateRoll", "vnAngularRatePitch", "vnAngularRateYaw",
+            "vnVelNedNorth", "vnVelNedEast", "vnVelNedDown",
+            "vnAccelFwd", "vnAccelLat", "vnAccelVert",
+            "vnYaw", "vnPitch", "vnRoll",
+            "vnLinAccFwd", "vnLinAccLat", "vnLinAccVert",
+            "vnYawSigma", "vnRollSigma", "vnPitchSigma",
+            "vnGnssVelNedNorth", "vnGnssVelNedEast", "vnGnssVelNedDown",
+            "vnGnssLat", "vnGnssLon", "vnGPSFix",
+            "vnDataAge", "vnTimeUTC" };
+        bool any = false;
+        for (int i = 0; i < 26; ++i) if (idxs[i] >= 0) { any = true; break; }
+        if (any) {
+            if (!allOf(idxs, 26)) {
+                if (strictness == HeaderStrictness::Strict) {
+                    if (missingOut) *missingOut = firstMissing(idxs, names, 26);
+                    return false;
+                }
+                for (int i = 0; i < 26; ++i)
+                    if (idxs[i] < 0) EmitWarn(warnSink, warnUserdata, names[i]);
+            } else {
+                out.efisIsVn300 = true;
+                out.efisEnabled = true;
+            }
+        }
+    }
+
+    // Standard EFIS (only when not VN-300).
+    if (!out.efisIsVn300) {
+        const int idxs[]  = {
+            out.idxEfisIas, out.idxEfisPitch, out.idxEfisRoll, out.idxEfisLateralG,
+            out.idxEfisVerticalG, out.idxEfisPercentLift, out.idxEfisPalt, out.idxEfisVsi,
+            out.idxEfisTas, out.idxEfisOat, out.idxEfisFuelRemaining, out.idxEfisFuelFlow,
+            out.idxEfisMap, out.idxEfisRpm, out.idxEfisPercentPower, out.idxEfisMagHeading,
+            out.idxEfisAge, out.idxEfisTime };
+        const char* names[] = {
+            "efisIAS", "efisPitch", "efisRoll", "efisLateralG",
+            "efisVerticalG", "efisPercentLift", "efisPalt", "efisVSI",
+            "efisTAS", "efisOAT", "efisFuelRemaining", "efisFuelFlow",
+            "efisMAP", "efisRPM", "efisPercentPower", "efisMagHeading",
+            "efisAge", "efisTime" };
+        bool any = false;
+        for (int i = 0; i < 18; ++i) if (idxs[i] >= 0) { any = true; break; }
+        if (any) {
+            if (!allOf(idxs, 18)) {
+                if (strictness == HeaderStrictness::Strict) {
+                    if (missingOut) *missingOut = firstMissing(idxs, names, 18);
+                    return false;
+                }
+                for (int i = 0; i < 18; ++i)
+                    if (idxs[i] < 0) EmitWarn(warnSink, warnUserdata, names[i]);
+            } else {
+                out.efisEnabled = true;
+            }
+        }
+    }
+
     return true;
 }
 

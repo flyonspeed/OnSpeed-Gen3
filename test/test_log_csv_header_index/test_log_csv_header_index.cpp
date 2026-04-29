@@ -6,11 +6,47 @@
 // These tests cover the canonical-minimum-required header — the subset that
 // every OnSpeed log carries regardless of optional boom/EFIS groups.
 
+#include <string>
+
 #include <unity.h>
 #include <proto/LogCsvHeaderIndex.h>
 
 using onspeed::proto::log_csv::BuildHeaderIndex;
 using onspeed::proto::log_csv::HeaderIndex;
+using onspeed::proto::log_csv::HeaderStrictness;
+
+namespace {
+
+// Helpers for assembling synthetic headers. Concatenation only — no
+// allocation overhead in the tests, just compile-time literal pieces.
+
+constexpr const char* kCoreHead =
+    "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
+    "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
+    "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll";
+
+constexpr const char* kBoomGroup =
+    "boomStatic,boomDynamic,boomAlpha,boomBeta,boomIAS,boomAge";
+
+constexpr const char* kEfisStandardGroup =
+    "efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG,efisPercentLift,"
+    "efisPalt,efisVSI,efisTAS,efisOAT,efisFuelRemaining,efisFuelFlow,"
+    "efisMAP,efisRPM,efisPercentPower,efisMagHeading,efisAge,efisTime";
+
+constexpr const char* kVn300Group =
+    "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
+    "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
+    "vnAccelFwd,vnAccelLat,vnAccelVert,"
+    "vnYaw,vnPitch,vnRoll,"
+    "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
+    "vnYawSigma,vnRollSigma,vnPitchSigma,"
+    "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
+    "vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,vnTimeUTC";
+
+constexpr const char* kDerivedTail =
+    "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
+
+}  // namespace
 
 void setUp() {}
 void tearDown() {}
@@ -121,6 +157,74 @@ void test_build_index_tolerates_trailing_crlf(void)
     TEST_ASSERT_EQUAL_INT(27, idx.idxCoeffP);  // last token, CR/LF stripped
 }
 
+void test_build_index_boom_enabled(void)
+{
+    std::string hdr;
+    hdr.append(kCoreHead).append(",").append(kBoomGroup).append(",").append(kDerivedTail);
+
+    HeaderIndex idx;
+    const char* missing = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_TRUE(idx.boomEnabled);
+    TEST_ASSERT_FALSE(idx.efisEnabled);
+    TEST_ASSERT_FALSE(idx.efisIsVn300);
+    TEST_ASSERT_EQUAL_INT(22, idx.idxBoomStatic);
+    TEST_ASSERT_EQUAL_INT(27, idx.idxBoomAge);
+}
+
+void test_build_index_efis_standard_enabled(void)
+{
+    std::string hdr;
+    hdr.append(kCoreHead).append(",").append(kEfisStandardGroup).append(",").append(kDerivedTail);
+
+    HeaderIndex idx;
+    const char* missing = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_FALSE(idx.boomEnabled);
+    TEST_ASSERT_TRUE(idx.efisEnabled);
+    TEST_ASSERT_FALSE(idx.efisIsVn300);
+}
+
+void test_build_index_vn300_enabled(void)
+{
+    std::string hdr;
+    hdr.append(kCoreHead).append(",").append(kVn300Group).append(",").append(kDerivedTail);
+
+    HeaderIndex idx;
+    const char* missing = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_NULL(missing);
+    TEST_ASSERT_FALSE(idx.boomEnabled);
+    TEST_ASSERT_TRUE(idx.efisEnabled);
+    TEST_ASSERT_TRUE(idx.efisIsVn300);
+}
+
+void test_build_index_boom_partial_fails(void)
+{
+    // Boom group with one column dropped — partial presence is a hard
+    // fail in Strict mode, naming the first missing column.
+    static const char* kPartialBoom =
+        "boomStatic,boomDynamic,boomAlpha,boomBeta,boomIAS";  // missing boomAge
+    std::string hdr;
+    hdr.append(kCoreHead).append(",").append(kPartialBoom).append(",").append(kDerivedTail);
+
+    HeaderIndex idx;
+    const char* missing = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing);
+
+    TEST_ASSERT_FALSE(ok);
+    TEST_ASSERT_NOT_NULL(missing);
+    TEST_ASSERT_EQUAL_STRING("boomAge", missing);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -129,5 +233,9 @@ int main(int, char**)
     RUN_TEST(test_build_index_extra_unknown_columns);
     RUN_TEST(test_build_index_missing_required_flapspos);
     RUN_TEST(test_build_index_tolerates_trailing_crlf);
+    RUN_TEST(test_build_index_boom_enabled);
+    RUN_TEST(test_build_index_efis_standard_enabled);
+    RUN_TEST(test_build_index_vn300_enabled);
+    RUN_TEST(test_build_index_boom_partial_fails);
     return UNITY_END();
 }
