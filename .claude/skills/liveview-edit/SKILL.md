@@ -42,7 +42,7 @@ Toggle the grid (button in the toolbar) for color comparisons; leave it on for p
 When changing layout — pixel positions, font sizes, colors — first read:
 1. The relevant `case N:` block in `software/OnSpeed-M5-Display/src/main.cpp` (the truth on real hardware).
 2. The corresponding helper (`AiGraph()`, `displayDecelGauge()`, `pitchGraph()`, etc.).
-3. The widget's existing JS at `tools/liveview-prototype/lib/widgets/<name>.js` — usually has inline citations like `// main.cpp:1437-1493` for the line range it mirrors.
+3. The component's existing JS at `tools/liveview-prototype/lib/components.js` (one file with all reusable components) — most have inline citations like `// main.cpp:1437-1493` for the line range they mirror.
 
 If the user reports a delta ("the bars are too thick"), check both:
 - Does the M5 wasm-live agree with the user's reading? → real bug; fix it.
@@ -148,7 +148,7 @@ M5GFX uses `setCursor(x, y)` (alphabetic baseline) and datums like `middle_cente
 
 ### When two modes share rendering
 
-If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mode 2 both call `displayAOA()` with `numericDisplay = true/false`), mirror the structure — one mode file with the option, plus a thin wrapper for the alternate. Don't copy-paste widget mounts. Mode 2's `lib/modes/indexer-only.js` is a 3-line wrapper around `mountAoa(rootEl, { numericDisplay: false })`.
+If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mode 2 both call `displayAOA()` with `numericDisplay = true/false`), mirror the structure — one mode component with the option, plus a thin wrapper for the alternate. Don't copy-paste component compositions. Mode 2 in `lib/modes.js` is `<Mode0 r=${r} stale=${stale} numericDisplay=${false} />`.
 
 ## When NOT to touch the LiveView
 
@@ -163,8 +163,10 @@ If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mo
 - `tools/liveview-prototype/LESSONS.md` — pixel-iteration patterns from Stages 1-5
 - `tools/liveview-prototype/lib/colors.js` — TFT_* color tokens → CSS variables
 - `tools/liveview-prototype/lib/geometry.js` — every layout constant for all 5 modes
-- `tools/liveview-prototype/lib/widgets/*.js` — reusable building blocks (12 widgets)
-- `tools/liveview-prototype/lib/modes/*.js` — five mode compositions
+- `tools/liveview-prototype/lib/components.js` — 16 reusable Preact components
+- `tools/liveview-prototype/lib/modes.js` — five mode compositions
+- `tools/liveview-prototype/lib/firmware/App.js` — top-level <App/> for /indexer
+- `tools/liveview-prototype/lib/vendor/preact-standalone.js` — vendored Preact + htm
 - `tools/liveview-prototype/lib/firmware/*` — firmware-only shell (WS client, datafields, entry point)
 - `scripts/build_liveview_html.py` — bundler. Read its top docstring for transformation rules.
 - `software/OnSpeed-Gen3-ESP32/Web/html_liveview.h` — generated PROGMEM bundle. Never edit by hand.
