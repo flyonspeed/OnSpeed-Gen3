@@ -248,7 +248,12 @@ export const MODE1_CORNER_LEFT_X       = 5;
 export const MODE1_CORNER_RIGHT_X      = 307;   // :532
 export const MODE1_CORNER_TOP_LABEL_Y  = 62;    // :540
 export const MODE1_CORNER_BOT_LABEL_Y  = 230;   // :541
-export const MODE1_CORNER_TOP_NUM_Y    = 30;    // :579, :584
+// C++ baselines: top numbers at y=30 (:579, :584). User-measured the
+// SVG render against M5: our text sits ~5 px lower because browser
+// Helvetica's baseline metrics differ from FSSB18 at the same nominal
+// font size. Raise the top-row baseline to 25 so cap-height lands at
+// the same row as M5. Bottom row stays at 198 (no observed offset).
+export const MODE1_CORNER_TOP_NUM_Y    = 25;
 export const MODE1_CORNER_BOT_NUM_Y    = 198;   // :588, :593
 // Mode 1 uses FSS12 for labels (:542) and FSSB18 for numbers (:576).
 // FSS12 → 18 px CSS. FSSB18 nominally maps to 33 in browser Helvetica,
