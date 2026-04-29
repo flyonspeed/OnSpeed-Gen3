@@ -3705,30 +3705,12 @@ void HandleDownload()
         ~PauseGuard() { g_bPause = bPrevPause; }
         } pauseGuard;
 
-    // Read the .meta sidecar (if present) and format a provenance comment
-    // line that gets prepended to the CSV body. Pre-format-2 logs without
-    // a .meta sidecar stream as bare CSVs.
-    char     szProvenance[160] = {0};
-    size_t   provLen           = 0;
-
     size_t fileSize = 0;
     if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
         {
         file = g_SdFileSys.open(sFilename.c_str(), O_READ);
         if (file)
             fileSize = file.size();
-
-        onspeed::log::LogMeta meta;
-        if (TryReadLogMeta(sRawName.c_str(), &meta))
-            {
-            int n = snprintf(szProvenance, sizeof(szProvenance),
-                "# OnSpeed log version=%s, gitSha=%s, format=%d\n",
-                meta.firmware, meta.firmwareSha, meta.logFormatVersion);
-            if (n > 0 && (size_t)n < sizeof(szProvenance))
-                provLen = (size_t)n;
-            else
-                szProvenance[0] = '\0';   // formatted output overflowed; skip prepend
-            }
         xSemaphoreGive(xWriteMutex);
         }
     else
@@ -3744,7 +3726,7 @@ void HandleDownload()
         }
 
     // Send headers to trigger download
-    CfgServer.setContentLength(fileSize + provLen);
+    CfgServer.setContentLength(fileSize);
     CfgServer.sendHeader("Content-Type", "application/octet-stream");
     // Use the validated local, not a second CfgServer.arg() call, so the
     // Content-Disposition header is guaranteed to reflect the validated name.
@@ -3754,25 +3736,6 @@ void HandleDownload()
 //      CfgServer.send(200, "application/octet-stream", "");
 
     WiFiClient client = CfgServer.client();
-
-    // Prepend the provenance comment so the downloaded file is
-    // self-identifying.
-    if (provLen > 0)
-        {
-        size_t iWritten = 0;
-        while (iWritten < provLen)
-            {
-            size_t iThisWrite = client.write((const uint8_t*)szProvenance + iWritten,
-                                             provLen - iWritten);
-            if (iThisWrite == 0)
-                {
-                if (!client.connected()) break;
-                vTaskDelay(pdMS_TO_TICKS(1));
-                continue;
-                }
-            iWritten += iThisWrite;
-            }
-        }
     uint8_t achBuffer[1460];
     while (true)
         {
