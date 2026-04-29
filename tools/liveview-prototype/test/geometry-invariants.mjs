@@ -163,22 +163,24 @@ near(flapTriangleTransform(1), G.FLAP_ARC_DEG, 0.01,
 
 // ----- slip ball ---------------------------------------------------------
 //
-// SerialRead.cpp:269 says Slip = LateralG × 850.  By convention, the
-// producer (Gen3 firmware) negates raw lateral G before shipping the
-// `lateralG` wire field — see DisplaySerial.cpp:294,342 and the
-// DisplayBuildInputs::lateralG comment in proto/DisplaySerial.h
-// ("positive = leftward").  The DataServer JSON broadcast follows the
-// same convention (DataServer.cpp::fLatG), so positive `lateralG` in
-// the WebSocket record means leftward acceleration regardless of which
-// transport the LiveView consumes.
+// Conventions in play:
+//   * JSON `lateralGLoad` is engineering convention (positive = right)
+//     because the legacy /live and the /indexer data-table render it
+//     directly as "Lat G".
+//   * The M5 wire format negates before transmit (DisplaySerial.cpp:294)
+//     so positive on the wire = leftward, and the M5 consumer applies
+//     `Slip = LateralG × 850` directly off the wire.
+//   * slipFromLateralG bridges the two: it accepts engineering-convention
+//     lateral G (the JSON field), negates internally, and produces a
+//     slip integer matching the M5's wire-convention output.  Net effect
+//     on screen: rightward G (positive input) deflects the ball LEFT of
+//     center, the standard slip-skid direction ("step on the ball").
 
 eq(slipFromLateralG(0), 0, 'zero G → zero slip');
-// Math.round half-to-even on JavaScript's Number gives 42.5 → 42 here,
-// which matches the int truncation in the M5's `int(LateralG * 850)`.
-eq(slipFromLateralG(0.05), 43, '0.05 G left → +43 (within 99 cap)');
-eq(slipFromLateralG(-0.05), -42, '0.05 G right → -42 (sign mirrors wire convention)');
-eq(slipFromLateralG(0.5), 99, '0.5 G clamped to +99');
-eq(slipFromLateralG(-0.5), -99, '-0.5 G clamped to -99');
+eq(slipFromLateralG(0.05), -42, 'rightward G → ball deflects left (negative slip)');
+eq(slipFromLateralG(-0.05), 43, 'leftward G → ball deflects right (positive slip)');
+eq(slipFromLateralG(0.5), -99, 'rightward G clamped to -99');
+eq(slipFromLateralG(-0.5), 99, 'leftward G clamped to +99');
 
 const slipResult = slipBall({
   slip: 0,

@@ -5,10 +5,24 @@ import {
   SLIP_BALL_X_RANGE,
 } from './geometry.js';
 
-// Slip from lateral G (SerialRead.cpp:269): Slip = LateralG × 34 / 0.04 = ×850.
-// Clamped to ±99 to match the wire-format range.
+// Slip from lateral G.  Two conventions meet here:
+//
+//   * The JSON broadcast (DataServer.cpp::fLatG) ships raw smoothed
+//     AccelLatFilter — engineering convention, positive = right.  Same
+//     sign the legacy /live page and the /indexer data-table render.
+//   * The M5 wire format negates before transmit (DisplaySerial.cpp:294,
+//     342, BuildInputs::lateralG) so positive on the wire = leftward.
+//
+// SerialRead.cpp:269 (the M5 consumer) computes Slip = LateralG × 850
+// straight off the wire, which means M5 expects the wire-convention
+// sign.  Mirror that here: negate the engineering-convention input so
+// the ball deflects in the standard slip-skid direction (rightward G
+// → ball moves left of center, "step on the ball" cue).
+//
+// Scale 850 = 34 / 0.04, the M5's exact ratio.  Clamped to ±99 to
+// match the wire-format integer field range.
 export function slipFromLateralG(lateralG) {
-  const v = Math.round(lateralG * 850);
+  const v = Math.round(-lateralG * 850);
   return Math.max(-99, Math.min(99, v));
 }
 

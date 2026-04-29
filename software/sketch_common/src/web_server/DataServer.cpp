@@ -319,14 +319,17 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fWifiOAT        = SafeJsonFloat(fWifiOAT, 0.0f);
 
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
-    // Lateral G: smoothed by AccelLatFilter and negated so positive
-    // values mean leftward — matches the wire-format convention the M5
-    // consumer expects (DisplaySerial.cpp:294,342, BuildInputs::lateralG
-    // doc in proto/DisplaySerial.h).  The previous expression read the
-    // raw AccelLatCorr without negation, which made the LiveView slip
-    // ball both over-twitchy and pointed the wrong way relative to the
-    // M5 hardware indicator.
-    const float fLatG   = SafeJsonFloat(-g_AHRS.AccelLatFilter.get(), 0.0f);
+    // Lateral G: smoothed by AccelLatFilter, raw sign (positive = right
+    // per the EKF6 body-axis convention).  The legacy /live AOA tab and
+    // the new /indexer data-table both display this number as "Lat G"
+    // unmodified, so the JSON layer carries the engineering convention.
+    // The M5 wire-format builder applies its own negation (DisplaySerial.cpp:
+    // 294,342) so the binary mirror still ships positive=leftward — that
+    // is a wire-format-only flip and must not leak into the JSON channel.
+    // The JS slip-ball consumer applies the same wire-format negation
+    // locally so the ball deflects in the conventional direction
+    // (rightward G → ball moves left, "step on the ball").
+    const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatFilter.get(), 0.0f);
     const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
     const float fPitchRate  = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
