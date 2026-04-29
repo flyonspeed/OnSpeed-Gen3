@@ -1,7 +1,8 @@
 // Fixed yellow aircraft reference symbol drawn over the horizon.
 // Mirrors the section of AiGraph() at main.cpp:1192-1231 that draws the
 // airplane glyph, NOT the bank-angle arc markers from :1136-1171
-// (those are deferred — see Stage 2 report).
+// (those live in bankArc.js) and NOT the top-pointer triangle at
+// :1237-1248 (that lives in topPointer.js).
 //
 // The C++ renders the body as 7 PARALLEL stamps at y-offsets {-3..+3},
 // not as a single thick stroke. Each stamp is a 4-segment polyline:
@@ -18,9 +19,6 @@
 //
 // Center pivot: 6-px-radius yellow filled circle with a 1-px black outline
 // (main.cpp:1192-1193, bullsEye = 2 × HEIGHT/80 = 6).
-//
-// Top yellow triangle pointer at the top of the bank-angle arc
-// (main.cpp:1237-1248).
 //
 // The symbol is static — it does not rotate or translate. The horizon
 // underneath rotates around it. update() is a noop.
@@ -47,19 +45,6 @@ export function mountAircraftSymbol(parent, {
   centerR    = G.MODE1_AIRCRAFT_CENTER_R,
 } = {}) {
   const group = mk(parent, 'g', { 'data-widget': 'aircraft-symbol' });
-
-  // Top yellow triangle pointer at top of bank arc (main.cpp:1237-1248).
-  // arcSize=100, arcWidth=15 in the C++ — tip y = cy - 100 + 15/2 = 26,
-  // base at cy - 100 + 30 = 49, base half-width = 15/2 = 7.5.
-  const tipX = cx, tipY = cy - 100 + 15 / 2;
-  const baseY = cy - 100 + 2 * 15;
-  const baseHalfW = 15 / 2;
-  mk(group, 'polygon', {
-    points: `${tipX},${tipY} ${cx - baseHalfW},${baseY} ${cx + baseHalfW},${baseY}`,
-    fill: colors.TFT_YELLOW,
-    stroke: colors.TFT_BLACK,
-    'stroke-width': 1,
-  });
 
   // Body anchor coordinates (main.cpp:1181-1190). With arcSize=100,
   // arcSize/4=25, 3*arcSize/4=75:

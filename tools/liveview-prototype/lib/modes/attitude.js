@@ -4,6 +4,7 @@ import { slipFromLateralG } from '../slipBall.js';
 import { mountHorizon } from '../widgets/horizon.js';
 import { mountPitchLadder } from '../widgets/pitchLadder.js';
 import { mountBankArc } from '../widgets/bankArc.js';
+import { mountTopPointer } from '../widgets/topPointer.js';
 import { mountAircraftSymbol } from '../widgets/aircraftSymbol.js';
 import { mountFlightPathMarker } from '../widgets/flightPathMarker.js';
 import { mountPitchReadout } from '../widgets/pitchReadout.js';
@@ -36,6 +37,11 @@ export function mountAttitude(rootEl) {
   // Bank-angle arc markers paint AFTER horizon/ladder, BEFORE the
   // aircraft symbol — matches the C++ paint order at main.cpp:1136-1248.
   const bankArc       = mountBankArc(svg);
+  // Static "this is up" yellow triangle at the top of the dial. Paints
+  // BEFORE the aircraft symbol so the aircraft circle/wings are on
+  // top if anything ever overlaps. Static — no per-frame update.
+  /* eslint-disable-next-line no-unused-vars */
+  const topPointer    = mountTopPointer(svg);
   /* eslint-disable-next-line no-unused-vars */
   const aircraft      = mountAircraftSymbol(svg);  // static, no per-frame update
   const fpv           = mountFlightPathMarker(svg);
