@@ -297,8 +297,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "{\"AOA\":%.2f,\"Pitch\":%.2f,\"Roll\":%.2f,\"IAS\":%.2f,\"PAlt\":%.2f,"
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,"
         "\"flapsPos\":%i,\"flapIndex\":%i,"
+        "\"flapsMinDeg\":%i,\"flapsMaxDeg\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
         "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
+        "\"gOnsetRate\":%.2f,"
         "\"percentLift\":%i,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
         "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
 
@@ -435,6 +437,30 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
                                        ? anchors.flapsDeg
                                        : iSnapFlapPos;
 
+    // Min/max flap angle across configured detents — Mode 0's flap
+    // circle widget normalizes the triangle sweep over [min, max]
+    // (flapWidget.js::flapWidgetFrac).  When no detents are configured,
+    // emit 0/33 to match the prototype's defaults so the widget still
+    // renders sensibly on an uncalibrated unit.
+    int iJsonFlapsMinDeg = 0;
+    int iJsonFlapsMaxDeg = 33;
+    if (nFlapsSnapshot > 0)
+        {
+        iJsonFlapsMinDeg = aFlapsSnapshot[0].iDegrees;
+        iJsonFlapsMaxDeg = aFlapsSnapshot[0].iDegrees;
+        for (size_t i = 1; i < nFlapsSnapshot; ++i)
+            {
+            const int d = aFlapsSnapshot[i].iDegrees;
+            if (d < iJsonFlapsMinDeg) iJsonFlapsMinDeg = d;
+            if (d > iJsonFlapsMaxDeg) iJsonFlapsMaxDeg = d;
+            }
+        }
+
+    // G-onset rate filtered in AHRS (250 ms tau).  Same value the
+    // M5 wire format reads, so the M5 hardware indicator and the
+    // LiveView's right-edge tape stay in lockstep.
+    const float fGOnsetRate = SafeJsonFloat(g_AHRS.gOnsetRate, 0.0f);
+
     // szFormat is a compile-time constant split across lines for readability.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -451,6 +477,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fLatG,
         iJsonFlapsPos,
         iSnapFlapIdx,
+        iJsonFlapsMinDeg,
+        iJsonFlapsMaxDeg,
         fCoeffP,
         g_iDataMark,
         fWifiVSI,
@@ -459,6 +487,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fDecelRate,
         fWifiOAT,
         fDerivedAOA,
+        fGOnsetRate,
         iJsonPercentLift,
         iJsonTonesOnPct,
         iJsonFastPct,
