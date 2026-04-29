@@ -7,28 +7,23 @@ The actual firmware artifact —
 from this directory by `scripts/build_liveview_html.py`. The
 prototype is the source of truth; the header is the build product.
 
-## Quick start
+## Local iteration
 
 ```bash
-# 1. Build the wasm-live sim (once; outputs to sim/build/wasm-live/)
-cd software/OnSpeed-M5-Display && ./sim/build_wasm.sh --target live
-
-# 2. Symlink the sim build into the prototype dir
 cd tools/liveview-prototype
-ln -sfn ../../software/OnSpeed-M5-Display/sim/build/wasm-live wasm-live
-
-# 3. Serve
 python3 -m http.server 8080
-
-# 4. Open http://localhost:8080/ in a browser
+# open http://localhost:8080/   for synthetic-scenario testing
 ```
 
-The prototype shows the SVG indexer (left) and the wasm-live M5 sim
-(right). Both consume the same synthetic data feed; visual A/B
-ensures the SVG and the M5 hardware agree at the pixel level.
+The synthetic-scenario harness (`index.html`) mounts the same Preact
+components the firmware uses, driven by canned scenarios (idle,
+cruise, approach, stall warn). Useful for visual changes without
+needing a real OnSpeed device.
 
-Use the scenario buttons at the top to drive the data through canned
-maneuvers (idle, cruise, approach, stall warning).
+To preview the firmware UI against real WebSocket data, connect your
+laptop to the OnSpeed AP (SSID `OnSpeed`, password `angleofattack`)
+and open `http://localhost:8080/firmware-preview.html` — the
+WebSocket client targets `ws://192.168.0.1:81`.
 
 ## Architecture
 
@@ -46,7 +41,7 @@ lib/
 ├── components.js                         ← 16 reusable Preact components
 ├── modes.js                              ← Mode0..Mode4 compositions
 ├── main.js                               ← Synthetic-scenario harness entry
-├── scenarios.js, frameBuilder.js         ← Synthetic data generator + wasm bridge
+├── scenarios.js                          ← Synthetic data generator
 ├── firmware/
 │   ├── App.js                            ← Top-level <App/> — firmware UI
 │   ├── wsClient.js                       ← WebSocket reconnect + age timer
@@ -98,20 +93,6 @@ regeneration fails PR checks.
 
 PlatformIO users: `pio run` regenerates the header on demand
 (skip-if-fresh).
-
-### Local firmware preview without flashing
-
-`firmware-preview.html` mounts `<App/>` directly (no bundling) so
-you can iterate on the firmware UI against an OnSpeed device's
-WebSocket:
-
-```bash
-# 1. Make sure your laptop is on the OnSpeed AP (SSID "OnSpeed",
-#    password "angleofattack").
-# 2. Serve from the prototype dir.
-cd tools/liveview-prototype && python3 -m http.server 8765
-# 3. Open http://localhost:8765/firmware-preview.html
-```
 
 ### Don't edit the generated header
 

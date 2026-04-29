@@ -82,14 +82,3 @@ main {
   overflow: hidden;
 }
 
-/* The wasm-live shell wraps its 320×240 canvas in flex column with its own
-   padding + a help line below — give the iframe enough room to show all of
-   it without clipping. */
-#wasm-iframe {
-  width: 320px;
-  height: 320px;
-  display: block;
-  margin: 0 auto;
-  border: 0;
-  background: #000;
-}
