@@ -130,6 +130,28 @@ jobs:
             exit 1
           fi
 
+  liveview-geometry-tests:
+    # Pure-JS unit tests for the LiveView's geometry constants and the
+    # framework-free helpers (mapPct2Display, chevronColors, donutColors,
+    # flapWidgetFrac, slipFromLateralG, slipBall). These guard against
+    # silent regressions like a sign-flip on MODE1_PITCH_HEIGHT_SCALE
+    # that visual A/B against the M5 wouldn't catch on a level bench.
+    name: LiveView geometry invariants
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run geometry-invariants test
+        run: node tools/liveview-prototype/test/geometry-invariants.mjs
+
   build-m5-display:
     name: Build M5 Display Firmware (${{ matrix.board }})
     runs-on: ubuntu-latest

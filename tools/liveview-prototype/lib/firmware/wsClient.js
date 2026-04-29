@@ -9,6 +9,14 @@ const STALE_RECONNECT_MS = 3000;
 const AGE_TICK_MS = 500;
 const AOA_NA_SENTINEL = -20;
 
+// parseInt(undefined, 10) → NaN, which silently corrupts color/threshold
+// math downstream. Default to 0 so a partial JSON frame degrades to
+// "low AOA" rather than a frozen indexer.
+function parseIntOr0(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function connect({ onRecord, onStatus, onAge }) {
   let socket = null;
   let connecting = false;
@@ -59,12 +67,12 @@ export function connect({ onRecord, onStatus, onAge }) {
         vsiFpm:        o.kalmanVSI,
         flightPathDeg: o.flightPath,
         decelRate:     parseFloat(o.DecelRate) || 0,
-        percentLift:        parseInt(o.percentLift, 10),
-        tonesOnPctLift:     parseInt(o.tonesOnPctLift, 10),
-        onSpeedFastPctLift: parseInt(o.onSpeedFastPctLift, 10),
-        onSpeedSlowPctLift: parseInt(o.onSpeedSlowPctLift, 10),
-        stallWarnPctLift:   parseInt(o.stallWarnPctLift, 10),
-        pipPctLift:         parseInt(o.pipPctLift, 10),
+        percentLift:        parseIntOr0(o.percentLift),
+        tonesOnPctLift:     parseIntOr0(o.tonesOnPctLift),
+        onSpeedFastPctLift: parseIntOr0(o.onSpeedFastPctLift),
+        onSpeedSlowPctLift: parseIntOr0(o.onSpeedSlowPctLift),
+        stallWarnPctLift:   parseIntOr0(o.stallWarnPctLift),
+        pipPctLift:         parseIntOr0(o.pipPctLift),
         flapsDeg:    o.flapsPos,
         flapsMinDeg: (o.flapsMinDeg !== undefined) ? o.flapsMinDeg : 0,
         flapsMaxDeg: (o.flapsMaxDeg !== undefined) ? o.flapsMaxDeg : 33,
@@ -82,7 +90,12 @@ export function connect({ onRecord, onStatus, onAge }) {
     if (ageSec >= STALE_RECONNECT_MS / 1000 && !connecting) reconnect();
   }
 
-  setInterval(tickAge, AGE_TICK_MS);
+  const ageIntervalId = setInterval(tickAge, AGE_TICK_MS);
   reconnect();
-  return { disconnect() { if (socket) { socket.onclose = null; socket.close(); } } };
+  return {
+    disconnect() {
+      clearInterval(ageIntervalId);
+      if (socket) { socket.onclose = null; socket.close(); }
+    },
+  };
 }

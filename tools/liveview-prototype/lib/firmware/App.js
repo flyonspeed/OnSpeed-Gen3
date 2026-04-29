@@ -10,6 +10,16 @@ import * as G from '../geometry.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from '../modes.js';
 import { connect } from './wsClient.js';
 
+// localStorage throws in private-browsing Safari and when storage is
+// full. Wrap reads + writes so the UI never crashes from storage
+// state — the page just won't persist mode/datafields choices.
+function safeLsGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function safeLsSet(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* ignore */ }
+}
+
 const MODES = [
   { id: 'aoa',           label: 'AOA',      C: Mode0 },
   { id: 'attitude',      label: 'Attitude', C: Mode1 },
@@ -105,34 +115,34 @@ export function App() {
   const [rec, setRec] = useState(null);
   const [status, setStatus] = useState('CONNECTING...');
   const [ageSec, setAgeSec] = useState(0);
-  const [mode, setMode] = useState(localStorage.getItem('liveview-mode') || 'aoa');
-  const [dfExpanded, setDfExpanded] = useState(localStorage.getItem('liveview-datafields-expanded') === '1');
+  // localStorage throws in private-browsing iOS Safari. Wrap in
+  // try/catch so the page still works without persistence.
+  const [mode, setMode] = useState(safeLsGet('liveview-mode') || 'aoa');
+  const [dfExpanded, setDfExpanded] = useState(safeLsGet('liveview-datafields-expanded') === '1');
 
   useEffect(() => {
     return connect({ onRecord: setRec, onStatus: setStatus, onAge: setAgeSec }).disconnect;
   }, []);
 
-  // Re-render at 20 Hz so the slip ball flash, gOnset bar transitions,
-  // and animated FPV marker tick smoothly even when the WebSocket
-  // record arrives slower. (Preact diffs are cheap; the SVG tree is
-  // small.)
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => tick(t => t + 1), 50);
-    return () => clearInterval(id);
-  }, []);
+  // The WebSocket arrives at 20 Hz and `setRec` triggers a render on
+  // every frame; that IS the animation tick. Don't add a separate
+  // setInterval — it would double-render at 40 Hz (the WS render plus
+  // the interval render) and rebuild Mode 4's 300 SVG circles 12k
+  // times/sec on iPhone Safari, which is exactly the workload the
+  // legacy WASM /indexer failed at. When WS goes silent, the
+  // StaleOverlay covers the panel and there's nothing to animate.
 
   const stale = ageSec >= 3;
   const gHist = useGHistory(rec);
 
   const setModeAndPersist = (m) => {
     setMode(m);
-    localStorage.setItem('liveview-mode', m);
+    safeLsSet('liveview-mode', m);
   };
   const toggleDf = () => {
     const next = !dfExpanded;
     setDfExpanded(next);
-    localStorage.setItem('liveview-datafields-expanded', next ? '1' : '0');
+    safeLsSet('liveview-datafields-expanded', next ? '1' : '0');
   };
 
   const ActiveMode = MODES.find(m => m.id === mode)?.C ?? Mode0;

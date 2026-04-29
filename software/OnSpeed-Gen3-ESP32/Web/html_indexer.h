@@ -1030,12 +1030,33 @@ const FlapCircle = ({ flapPos, flapsMin, flapsMax }) => {
     </g>`;
 };
 
+// Slip ball — left/right frame brackets + ball.
+// drawSlip() at main.cpp:1048-1077 draws each bracket as a 10-px-wide
+// black bar + a 6-px-wide white inner bar, both spanning the full
+// slip-ball height. The brackets sit ±h/2 from the slip-ball
+// centerline, with the inner WHITE bar offset 2 px inward of the
+// outer BLACK bar. Mode 0 calls drawSlip(80, 204, 160, 34) — wide
+// frame; Mode 1/3 call drawSlip(80, 204|215, 160, 20) — same widths,
+// shorter height.
+//
+// Frame geometry (from main.cpp:1048-1057):
+//   black left bracket : x = cx - h/2 - 9, width 10
+//   white left bracket : x = cx - h/2 - 7, width 6
+//   black right bracket: x = cx + h/2,     width 10
+//   white right bracket: x = cx + h/2 + 2, width 6
+const SLIP_FRAME_OUTER_W = 10;
+const SLIP_FRAME_INNER_W = 6;
+const SLIP_FRAME_OUTER_OFFSET = 9;  // outer-edge offset from h/2
+const SLIP_FRAME_INNER_OFFSET = 7;  // inner-edge offset from h/2
+const SLIP_FRAME_RIGHT_GAP = 2;     // right-side white-bar gap from h/2
+
 const SlipBall = ({ lateralG, percentLift, stallWarn, flashFlag,
                             x = G.SLIP_X, y = G.SLIP_Y,
                             width = G.SLIP_W, height = G.SLIP_H }) => {
   const slip = slipFromLateralG(lateralG);
-  // The shared computeSlipBall uses Mode-0 geometry; for Mode 1/3 we
-  // compute the local layout here (height differs).
+  // Per drawSlip() main.cpp:1064-1071: ball.cx = centerX +
+  // slip * (W - H - 1) / 99 / 2. Range gates and color follow the
+  // chevron's flashFlag for high-AOA + high-slip stall warning.
   const cx = x + width / 2 + slip * (width - height - 1) / 99 / 2;
   const cy = y + height / 2;
   const r = height / 2 - 1;
@@ -1043,12 +1064,17 @@ const SlipBall = ({ lateralG, percentLift, stallWarn, flashFlag,
   if (Math.abs(slip) >= 30 && percentLift >= stallWarn) {
     fill = flashFlag ? colors.TFT_BLACK : colors.TFT_RED;
   }
+  const cxMid = x + width / 2;
   return html`
     <g data-widget="slip">
-      <rect x=${x + width/2 - height/2 - 9} y=${y} width="10" height=${height} fill=${colors.TFT_BLACK} />
-      <rect x=${x + width/2 - height/2 - 7} y=${y} width="6"  height=${height} fill=${colors.TFT_WHITE} />
-      <rect x=${x + width/2 + height/2}     y=${y} width="10" height=${height} fill=${colors.TFT_BLACK} />
-      <rect x=${x + width/2 + height/2 + 2} y=${y} width="6"  height=${height} fill=${colors.TFT_WHITE} />
+      <rect x=${cxMid - height/2 - SLIP_FRAME_OUTER_OFFSET} y=${y}
+            width=${SLIP_FRAME_OUTER_W} height=${height} fill=${colors.TFT_BLACK} />
+      <rect x=${cxMid - height/2 - SLIP_FRAME_INNER_OFFSET} y=${y}
+            width=${SLIP_FRAME_INNER_W} height=${height} fill=${colors.TFT_WHITE} />
+      <rect x=${cxMid + height/2} y=${y}
+            width=${SLIP_FRAME_OUTER_W} height=${height} fill=${colors.TFT_BLACK} />
+      <rect x=${cxMid + height/2 + SLIP_FRAME_RIGHT_GAP} y=${y}
+            width=${SLIP_FRAME_INNER_W} height=${height} fill=${colors.TFT_WHITE} />
       <circle cx=${cx} cy=${cy} r=${r} fill=${fill} />
     </g>`;
 };
@@ -1079,8 +1105,7 @@ const EdgeTape = ({
   }
   return html`
     <g data-widget="edge-tape">
-      <rect x=${barX} y=${top} width=${barW} height=${h} fill=${barColor}
-            style="transition: y 100ms linear, height 100ms linear;" />
+      <rect x=${barX} y=${top} width=${barW} height=${h} fill=${barColor} />
       ${ticks}
       ${pipYs.map(y => html`
         <line x1=${pipX1} y1=${y} x2=${pipX2} y2=${y}
@@ -1330,8 +1355,7 @@ const DecelGauge = ({ decelRate, dataValid = true }) => {
       ${dataValid && html`
         <rect x=${G.MODE3_POINTER_X} y=${pointerY}
               width=${G.MODE3_POINTER_W} height=${G.MODE3_POINTER_H}
-              fill=${colors.TFT_WHITE} stroke=${colors.TFT_BLACK} stroke-width="1"
-              style="transition: y 100ms linear;" />`}
+              fill=${colors.TFT_WHITE} stroke=${colors.TFT_BLACK} stroke-width="1" />`}
       ${labels.map(l => html`
         <text x=${G.MODE3_GAUGE_LABEL_X} y=${l.y}
               font-family="Helvetica, Arial, sans-serif"
@@ -1345,17 +1369,27 @@ const DecelGauge = ({ decelRate, dataValid = true }) => {
 // Mode 4 G-load history — frame + 300-dot strip chart.
 // Color per dot: green ≥ 1G, yellow 0..1, red < 0. Buffer fill is
 // 1.0G initially so the chart starts visually flat.
+// cx values for the 300 strip-chart dots are static (one column per
+// pixel from x=319 down to x=20). Compute once, reuse every render.
+const _GHISTORY_CXS = (() => {
+  const out = new Array(G.MODE4_BUFFER_LEN);
+  for (let i = 0; i < G.MODE4_BUFFER_LEN; i++) {
+    out[i] = G.MODE4_TRACE_X_MAX - i;
+  }
+  return out;
+})();
+
 const GHistory = ({ buf, writeIdx }) => {
   const dots = [];
   const N = G.MODE4_BUFFER_LEN;
   let sampleIdx = writeIdx;
   for (let i = 0; i < N; i++) {
-    const cx = G.MODE4_TRACE_X_MAX - i;
     const g = buf[sampleIdx];
     let cy = G.MODE4_DOT_Y_OFFSET - g * G.MODE4_DOT_Y_SCALE;
-    cy = Math.max(G.MODE4_DOT_Y_MIN, Math.min(G.MODE4_DOT_Y_MAX, cy));
+    if (cy < G.MODE4_DOT_Y_MIN) cy = G.MODE4_DOT_Y_MIN;
+    else if (cy > G.MODE4_DOT_Y_MAX) cy = G.MODE4_DOT_Y_MAX;
     const fill = g >= 1 ? colors.TFT_GREEN : g >= 0 ? colors.TFT_YELLOW : colors.TFT_RED;
-    dots.push(html`<circle cx=${cx} cy=${cy} r=${G.MODE4_DOT_R} fill=${fill} />`);
+    dots.push(html`<circle cx=${_GHISTORY_CXS[i]} cy=${cy} r=${G.MODE4_DOT_R} fill=${fill} />`);
     sampleIdx = (sampleIdx + 1) % N;
   }
   return html`
@@ -1598,6 +1632,14 @@ const STALE_RECONNECT_MS = 3000;
 const AGE_TICK_MS = 500;
 const AOA_NA_SENTINEL = -20;
 
+// parseInt(undefined, 10) → NaN, which silently corrupts color/threshold
+// math downstream. Default to 0 so a partial JSON frame degrades to
+// "low AOA" rather than a frozen indexer.
+function parseIntOr0(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function connect({ onRecord, onStatus, onAge }) {
   let socket = null;
   let connecting = false;
@@ -1648,12 +1690,12 @@ function connect({ onRecord, onStatus, onAge }) {
         vsiFpm:        o.kalmanVSI,
         flightPathDeg: o.flightPath,
         decelRate:     parseFloat(o.DecelRate) || 0,
-        percentLift:        parseInt(o.percentLift, 10),
-        tonesOnPctLift:     parseInt(o.tonesOnPctLift, 10),
-        onSpeedFastPctLift: parseInt(o.onSpeedFastPctLift, 10),
-        onSpeedSlowPctLift: parseInt(o.onSpeedSlowPctLift, 10),
-        stallWarnPctLift:   parseInt(o.stallWarnPctLift, 10),
-        pipPctLift:         parseInt(o.pipPctLift, 10),
+        percentLift:        parseIntOr0(o.percentLift),
+        tonesOnPctLift:     parseIntOr0(o.tonesOnPctLift),
+        onSpeedFastPctLift: parseIntOr0(o.onSpeedFastPctLift),
+        onSpeedSlowPctLift: parseIntOr0(o.onSpeedSlowPctLift),
+        stallWarnPctLift:   parseIntOr0(o.stallWarnPctLift),
+        pipPctLift:         parseIntOr0(o.pipPctLift),
         flapsDeg:    o.flapsPos,
         flapsMinDeg: (o.flapsMinDeg !== undefined) ? o.flapsMinDeg : 0,
         flapsMaxDeg: (o.flapsMaxDeg !== undefined) ? o.flapsMaxDeg : 33,
@@ -1671,9 +1713,14 @@ function connect({ onRecord, onStatus, onAge }) {
     if (ageSec >= STALE_RECONNECT_MS / 1000 && !connecting) reconnect();
   }
 
-  setInterval(tickAge, AGE_TICK_MS);
+  const ageIntervalId = setInterval(tickAge, AGE_TICK_MS);
   reconnect();
-  return { disconnect() { if (socket) { socket.onclose = null; socket.close(); } } };
+  return {
+    disconnect() {
+      clearInterval(ageIntervalId);
+      if (socket) { socket.onclose = null; socket.close(); }
+    },
+  };
 }
 
 // === tools/liveview-prototype/lib/firmware/App.js ===
@@ -1687,6 +1734,16 @@ function connect({ onRecord, onStatus, onAge }) {
 
 
 
+
+// localStorage throws in private-browsing Safari and when storage is
+// full. Wrap reads + writes so the UI never crashes from storage
+// state — the page just won't persist mode/datafields choices.
+function safeLsGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function safeLsSet(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* ignore */ }
+}
 
 const MODES = [
   { id: 'aoa',           label: 'AOA',      C: Mode0 },
@@ -1783,34 +1840,34 @@ function App() {
   const [rec, setRec] = useState(null);
   const [status, setStatus] = useState('CONNECTING...');
   const [ageSec, setAgeSec] = useState(0);
-  const [mode, setMode] = useState(localStorage.getItem('liveview-mode') || 'aoa');
-  const [dfExpanded, setDfExpanded] = useState(localStorage.getItem('liveview-datafields-expanded') === '1');
+  // localStorage throws in private-browsing iOS Safari. Wrap in
+  // try/catch so the page still works without persistence.
+  const [mode, setMode] = useState(safeLsGet('liveview-mode') || 'aoa');
+  const [dfExpanded, setDfExpanded] = useState(safeLsGet('liveview-datafields-expanded') === '1');
 
   useEffect(() => {
     return connect({ onRecord: setRec, onStatus: setStatus, onAge: setAgeSec }).disconnect;
   }, []);
 
-  // Re-render at 20 Hz so the slip ball flash, gOnset bar transitions,
-  // and animated FPV marker tick smoothly even when the WebSocket
-  // record arrives slower. (Preact diffs are cheap; the SVG tree is
-  // small.)
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => tick(t => t + 1), 50);
-    return () => clearInterval(id);
-  }, []);
+  // The WebSocket arrives at 20 Hz and `setRec` triggers a render on
+  // every frame; that IS the animation tick. Don't add a separate
+  // setInterval — it would double-render at 40 Hz (the WS render plus
+  // the interval render) and rebuild Mode 4's 300 SVG circles 12k
+  // times/sec on iPhone Safari, which is exactly the workload the
+  // legacy WASM /indexer failed at. When WS goes silent, the
+  // StaleOverlay covers the panel and there's nothing to animate.
 
   const stale = ageSec >= 3;
   const gHist = useGHistory(rec);
 
   const setModeAndPersist = (m) => {
     setMode(m);
-    localStorage.setItem('liveview-mode', m);
+    safeLsSet('liveview-mode', m);
   };
   const toggleDf = () => {
     const next = !dfExpanded;
     setDfExpanded(next);
-    localStorage.setItem('liveview-datafields-expanded', next ? '1' : '0');
+    safeLsSet('liveview-datafields-expanded', next ? '1' : '0');
   };
 
   const ActiveMode = MODES.find(m => m.id === mode)?.C ?? Mode0;

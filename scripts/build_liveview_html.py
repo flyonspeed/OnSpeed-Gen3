@@ -158,6 +158,70 @@ def _strip_imports(text):
     return _RE_IMPORT.sub("", text)
 
 
+def _assert_supported_forms(text, src_path):
+    """Fail loud on JS forms the bundler can't handle.
+
+    The bundler does regex-based concat. ES module forms it doesn't
+    understand should error rather than silently corrupt the bundle.
+    """
+    if re.search(r"^export\s+default\b", text, re.MULTILINE):
+        raise SystemExit(
+            f"build_liveview_html: {src_path}: `export default` not "
+            f"supported. Use named exports."
+        )
+    # `import './x.js'` (no `from`) — side-effect import. Bundler
+    # can't tell what it does; if anything matters, it'd be silently
+    # dropped. We don't use this form anywhere; if you need it,
+    # extend the bundler.
+    if re.search(r"^import\s+['\"]", text, re.MULTILINE):
+        raise SystemExit(
+            f"build_liveview_html: {src_path}: side-effect import "
+            f"(`import './x.js'`) not supported."
+        )
+    # `export async function`, `export async class`, etc. The
+    # `^export\s+(const|let|var|function|class)\s+` regex below
+    # wouldn't match these and the literal `export ` would survive
+    # into the bundle, producing a SyntaxError at boot. We don't
+    # use async functions in the renderer.
+    if re.search(r"^export\s+async\b", text, re.MULTILINE):
+        raise SystemExit(
+            f"build_liveview_html: {src_path}: `export async function` "
+            f"not supported. Declare async then export separately."
+        )
+    # Multi-binding `export const A = 1, B = 2;` — the bundler's
+    # `_exported_names` only captures the first identifier, so `B`
+    # would be missing from any `import * as G` namespace alias and
+    # references like `G.B` would silently resolve to undefined.
+    # Forbid the form and require one declaration per export.
+    for m in re.finditer(r"^export\s+(?:const|let|var)\s+(.+?);", text,
+                         re.MULTILINE | re.DOTALL):
+        decl = m.group(1)
+        # Strip string literals before counting — a comma inside a
+        # string is fine.
+        stripped = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "''", decl)
+        # An array or object literal can contain commas legitimately;
+        # a multi-binding has commas at the TOP level. Detect by
+        # tracking bracket depth.
+        depth = 0
+        for ch in stripped:
+            if ch in "([{": depth += 1
+            elif ch in ")]}": depth -= 1
+            elif ch == "," and depth == 0:
+                raise SystemExit(
+                    f"build_liveview_html: {src_path}: multi-binding "
+                    f"`export const A, B;` not supported. Split into "
+                    f"separate declarations: `export const A = ...; "
+                    f"export const B = ...;`"
+                )
+    # Destructuring exports: `export const { A, B } = obj;`. Same
+    # problem — `_exported_names` doesn't see A or B.
+    if re.search(r"^export\s+(?:const|let|var)\s*[\[\{]", text, re.MULTILINE):
+        raise SystemExit(
+            f"build_liveview_html: {src_path}: destructuring export "
+            f"`export const {{ A, B }} = ...;` not supported."
+        )
+
+
 def _strip_exports(text):
     """Drop the `export ` keyword from declarations.
 
@@ -167,11 +231,7 @@ def _strip_exports(text):
 
     `export { a, b as c }`   → emit `var c = b;` aliases for renamed
     exports; drop bare `export { x }` lines (x is already in scope).
-    `export default X`        → ERROR (we don't use it).
     """
-    if re.search(r"^export\s+default\b", text, re.MULTILINE):
-        raise SystemExit("build_liveview_html: `export default` not supported")
-
     # `export const|let|var|function|class X`
     text = re.sub(r"^export\s+(const|let|var|function|class)\s+",
                   r"\1 ", text, flags=re.MULTILINE)
@@ -199,8 +259,9 @@ def _strip_exports(text):
     return text
 
 
-def _transform_module(text):
+def _transform_module(text, src_path):
     """Strip imports + exports, leaving plain JS in shared scope."""
+    _assert_supported_forms(text, src_path)
     return _strip_exports(_strip_imports(text))
 
 
@@ -272,6 +333,18 @@ def _transform_preact_bundle(text):
             "build_liveview_html: could not find Preact bundle's export "
             "block — has the format changed since vendor?"
         )
+    # The IIFE strategy assumes the export block is the LAST statement.
+    # If a future Preact bundle has trailing content (a polyfill check,
+    # a side-effect call), it would land AFTER our injected `return`
+    # and become dead code. Fail loud if that happens.
+    trailing = text[m.end():].strip()
+    if trailing:
+        raise SystemExit(
+            f"build_liveview_html: Preact bundle has unexpected trailing "
+            f"content after export block (first 80 chars: "
+            f"{trailing[:80]!r}). The IIFE-wrap strategy needs revisit "
+            f"— update _transform_preact_bundle()."
+        )
     pairs = []  # list of (export-name, internal-name)
     for piece in m.group(1).split(","):
         piece = piece.strip()
@@ -337,7 +410,8 @@ def _bundle_js():
         if path == PREACT_BUNDLE:
             chunks.append(_transform_preact_bundle(by_path[path]["text"]))
         else:
-            chunks.append(_transform_module(by_path[path]["text"]))
+            chunks.append(_transform_module(by_path[path]["text"],
+                                            os.path.relpath(path, REPO_ROOT)))
         # Emit namespace aliases immediately after this module so any
         # subsequent file that imports `* as X` from it has X in scope.
         if path in namespace_targets:
