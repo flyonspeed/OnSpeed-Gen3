@@ -163,6 +163,95 @@ the C++ doesn't do).  In each case the right answer was different:
 
 Don't chase pixel feedback without confirming the source delta.
 
+## Polish-pass measurement convention
+
+The user describes pixel-level positioning in **10-px grid units** (one
+unit = 10 px on the 320×240 panel).  When they say "2.5 units tall" or
+"the digits are 3.2 units," convert to pixels: 2.5 × 10 = 25 px cap
+height, 3.2 × 10 = 32 px.  This conversion is essential because their
+visual judgments are framed in grid units, not raw pixels.
+
+Empirical font-size → cap-height conversions for browser Helvetica /
+Arial sans-serif:
+
+| `font-size` | Cap height | Grid units |
+| ---: | ---: | ---: |
+| 16 | ~12 px | 1.2 |
+| 20 | ~14.5 px | 1.45 |
+| 23 | ~17 px | 1.7 |
+| 33 | ~24 px | 2.4 |
+| 35 | ~25 px | 2.5 |
+| 36 | ~26 px | 2.6 |
+| 40 | ~29 px | 2.9 |
+| 45 | ~33 px | 3.3 |
+
+Use this table to plan font-size adjustments without round-tripping
+through the browser.  Target user spec → look up font-size.
+
+## Dominant-baseline mapping rules
+
+M5GFX text drawing uses `setCursor(x, y)` (alphabetic baseline) or
+datums like `middle_center` and `middle_right`.  Map to SVG as:
+
+| M5 call | SVG `text-anchor` | SVG `dominant-baseline` |
+| --- | --- | --- |
+| `setCursor(x, y); print(...)` | `start` | `alphabetic` |
+| `middle_center` datum | `middle` | `central` |
+| `middle_right` datum | `end` | `central` |
+| `top_left` datum | `start` | `hanging` |
+
+For M5 calls that the user wants centered horizontally inside a
+container box (not anchored), use `text-anchor: middle` at the box's
+center x.  E.g., the pitch readout's box spans x=55..111; center x=83.
+
+## Verify against BOTH C++ and wasm-live
+
+When the user reports a delta, before changing geometry constants
+verify against:
+
+1. The M5 C++ source (the truth on real hardware behavior).
+2. The wasm-live sim in `measure.html` (a reasonable proxy that may
+   diverge from real hardware in edge cases like padding, scaling).
+
+If C++ and wasm-live agree, our SVG matches both.  If they disagree, the
+user has the real hardware in front of them — trust real hardware.  If
+in doubt, ask which they're comparing against.
+
+When the user describes a pixel delta ("the radial bars are still a bit
+too thick") that you've already addressed once, it usually means the
+prior fix was insufficient (not wrong).  Make a measurable next step
+(e.g., reduce thickness by another 0.5-1 px) rather than assume you
+misread the request.
+
+## Mirror the C++ structure when modes share rendering
+
+When the M5 source dispatches multiple modes through one `displayX()`
+function and gates differences with a flag (e.g., Mode 0 and Mode 2 both
+call `displayAOA()` with `numericDisplay = true/false`), the prototype
+should mirror that exactly: one mode file with an option flag, not two
+files that copy widget-mount blocks.
+
+Mode 2 (`indexer-only.js`) is implemented as a thin wrapper:
+
+```js
+export function mountIndexerOnly(rootEl) {
+  return mountAoa(rootEl, { numericDisplay: false });
+}
+```
+
+Why this matters:
+1. Future polish to Mode 0 (e.g., chevron color tweaks, percent-lift
+   font changes) automatically flows to Mode 2 — they cannot drift.
+2. The diff between modes is a single `if (numericDisplay) { ... }`
+   block, not a side-by-side file diff.
+3. The wrapper documents the C++ relationship inline — the next reader
+   sees that Mode 2 is "Mode 0 with corners off" without reading both
+   files.
+
+Apply the same pattern any time two modes share >70% of their widgets.
+For modes with structurally different layouts (Mode 1 Attitude, Mode 3
+Energy, Mode 4 G-history), separate files are correct.
+
 ## Files to know about
 
 - `tools/liveview-prototype/lib/colors.js` — CSS variable mapping
