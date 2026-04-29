@@ -14,13 +14,14 @@
      bar background, flap circle background, etc.) is rgb(107, 109, 84). */
   --dark-grey: #6b6d54;
   --light-grey: #aaa;
-  /* Mode 1 (Attitude) palette. Sky and ground colors approximate
-     M5GFX's TFT_CYAN (0x07FF) and the inline 0x8281 ground color
-     (~rgb(132,82,8) → leans olive-brown). Magenta and orange match
-     TFT_MAGENTA (0xF81F) and TFT_ORANGE (0xFD20). Blue is TFT_BLUE
-     (0x001F), used for the horizon back-edge stripe. */
-  --sky: #29b6f6;
-  --ground: #8b4513;
+  /* Mode 1 (Attitude) palette. Sky and ground match user-measured M5
+     hardware values: sky rgb(0,255,254) ≈ TFT_CYAN (0x07FF = full-
+     brightness cyan), ground rgb(149,69,17) close to TFT_BROWN.
+     Magenta and orange match TFT_MAGENTA (0xF81F) and TFT_ORANGE
+     (0xFD20). Blue is TFT_BLUE (0x001F), used for the horizon
+     back-edge stripe. */
+  --sky: #00fffe;
+  --ground: #954511;
   --magenta: #ff00ff;
   --orange: #ff8800;
   --blue: #0000ff;
