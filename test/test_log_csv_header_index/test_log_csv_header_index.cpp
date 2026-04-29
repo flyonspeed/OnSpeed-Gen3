@@ -7,6 +7,8 @@
 // every OnSpeed log carries regardless of optional boom/EFIS groups.
 
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 #include <unity.h>
@@ -530,6 +532,72 @@ void test_parserowbyindex_vn300_roundtrip(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, src.imuPitchRateDps, dst.imuPitchRateDps);
 }
 
+// ----- Fixture-corpus tests --------------------------------------------------
+//
+// Each fixture is a CSV file with one header line plus several plausible
+// data rows. The fixtures use current-firmware column names — they exercise
+// "this canonical-schema-with-different-feature-flag-combination parses
+// correctly," locking in the regression contract across reorder / extras /
+// missing-required edits to LogCsvHeaderIndex.
+
+namespace {
+
+std::string LoadFixture(const char* path)
+{
+    std::ifstream f(path);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+bool SplitHeaderAndFirstRow(const std::string& text,
+                            std::string& hdr,
+                            std::string& row)
+{
+    auto nl = text.find('\n');
+    if (nl == std::string::npos) return false;
+    hdr = text.substr(0, nl);
+    auto nl2 = text.find('\n', nl + 1);
+    row = (nl2 == std::string::npos)
+        ? text.substr(nl + 1)
+        : text.substr(nl + 1, nl2 - nl - 1);
+    return !row.empty();
+}
+
+}  // namespace
+
+#define FIXTURE_TEST(name, path, expectVn300, expectBoom, expectEfis)        \
+void test_fixture_##name(void) {                                              \
+    std::string text = LoadFixture(path);                                     \
+    TEST_ASSERT_FALSE_MESSAGE(text.empty(), "fixture missing: " path);        \
+    std::string hdr, row;                                                     \
+    TEST_ASSERT_TRUE(SplitHeaderAndFirstRow(text, hdr, row));                 \
+    HeaderIndex idx;                                                          \
+    const char* missing = nullptr;                                            \
+    bool ok = BuildHeaderIndex(hdr, idx, HeaderStrictness::Strict, &missing); \
+    TEST_ASSERT_TRUE_MESSAGE(                                                 \
+        ok, missing ? missing : "BuildHeaderIndex failed");                   \
+    TEST_ASSERT_EQUAL((expectVn300), idx.efisIsVn300);                        \
+    TEST_ASSERT_EQUAL((expectBoom),  idx.boomEnabled);                        \
+    TEST_ASSERT_EQUAL((expectEfis),  idx.efisEnabled);                        \
+    onspeed::LogRow r{};                                                      \
+    r.boomEnabled = idx.boomEnabled;                                          \
+    r.efisEnabled = idx.efisEnabled;                                          \
+    r.efisIsVn300 = idx.efisIsVn300;                                          \
+    TEST_ASSERT_TRUE(ParseRowByIndex(row, idx, r));                           \
+}
+
+// Canonical: core + boom + standard EFIS.
+FIXTURE_TEST(v418_current,    "test/test_log_csv_header_index/fixtures/v4.18-current.csv",    false, true,  true)
+// Core + VN-300 (no boom).
+FIXTURE_TEST(v415_vn300,      "test/test_log_csv_header_index/fixtures/v4.15-vn300.csv",      true,  false, true)
+// Core + standard EFIS only (no boom, no VN-300).
+FIXTURE_TEST(v413_no_boom,    "test/test_log_csv_header_index/fixtures/v4.13-no-boom.csv",    false, false, true)
+// Core columns only (no optional groups at all).
+FIXTURE_TEST(v410_pre_vn300,  "test/test_log_csv_header_index/fixtures/v4.10-pre-vn300.csv",  false, false, false)
+
+#undef FIXTURE_TEST
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -549,5 +617,9 @@ int main(int, char**)
     RUN_TEST(test_build_index_permissive_missing_required_warns_continues);
     RUN_TEST(test_build_index_permissive_partial_boom_warns_no_enable);
     RUN_TEST(test_parserowbyindex_vn300_roundtrip);
+    RUN_TEST(test_fixture_v418_current);
+    RUN_TEST(test_fixture_v415_vn300);
+    RUN_TEST(test_fixture_v413_no_boom);
+    RUN_TEST(test_fixture_v410_pre_vn300);
     return UNITY_END();
 }
