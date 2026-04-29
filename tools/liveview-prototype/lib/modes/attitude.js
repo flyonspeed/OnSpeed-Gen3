@@ -77,6 +77,8 @@ export function mountAttitude(rootEl) {
     numColor:   colors.TFT_BLACK,
     labelFontSize: G.MODE1_CORNER_LABEL_FONT_SIZE,
     numFontSize:   G.MODE1_CORNER_NUM_FONT_SIZE,
+    // Center the digit vertically on the topmost ladder tick (y=29).
+    numBaseline: 'central',
   });
   const palt = mountCornerReadout(svg, {
     labelText: 'PALT',
@@ -89,6 +91,8 @@ export function mountAttitude(rootEl) {
     numColor:   colors.TFT_BLACK,
     labelFontSize: G.MODE1_CORNER_LABEL_FONT_SIZE,
     numFontSize:   G.MODE1_CORNER_NUM_FONT_SIZE,
+    // Center the digit vertically on the topmost ladder tick (y=29).
+    numBaseline: 'central',
   });
   const gReadout = mountCornerReadout(svg, {
     labelText: 'G',

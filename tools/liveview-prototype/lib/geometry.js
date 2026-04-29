@@ -260,12 +260,15 @@ export const MODE1_CORNER_RIGHT_X      = 307;   // :532
 export const MODE1_CORNER_RIGHT_NUM_X  = 304;
 export const MODE1_CORNER_TOP_LABEL_Y  = 62;    // :540
 export const MODE1_CORNER_BOT_LABEL_Y  = 230;   // :541
-// C++ baselines: top numbers at y=30 (:579, :584). User-measured the
-// SVG render against M5: our text sits ~5 px lower because browser
-// Helvetica's baseline metrics differ from FSSB18 at the same nominal
-// font size. Raise the top-row baseline to 25 so cap-height lands at
-// the same row as M5. Bottom row stays at 198 (no observed offset).
-export const MODE1_CORNER_TOP_NUM_Y    = 25;
+// Top numbers (IAS, PALT) center vertically at y=29 — the pitch
+// ladder's topmost visible tick (i=-30 long tick) sits at
+// pyc - 30 × HEIGHT/80 = 119 - 90 = 29. With dominant-baseline
+// "central" the digit center sits at this y, so the top of the digit
+// caps is just above and the bottom is just below the topmost tick.
+// (The C++ uses setCursor(*, 30) with the FSSB18 bitmap font's
+// baseline-y semantics; with B612 in SVG, "central" baseline at 29
+// reads visually identical.)
+export const MODE1_CORNER_TOP_NUM_Y    = 29;
 export const MODE1_CORNER_BOT_NUM_Y    = 198;   // :588, :593
 // Mode 1 uses FSS12 for labels (:542) and FSSB18 for numbers (:576).
 // User target after polish-pass-2 review: corner numbers at ~1.8 grid

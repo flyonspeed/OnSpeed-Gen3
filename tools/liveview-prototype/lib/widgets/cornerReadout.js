@@ -22,6 +22,11 @@ export function mountCornerReadout(parent, {
   numColor   = colors.TFT_WHITE,
   labelFontSize,
   numFontSize,
+  // 'alphabetic' (default) means numY is the text baseline — matches
+  // M5 setCursor convention. 'central' means numY is the vertical
+  // CENTER of the glyph — useful for aligning to a feature on the
+  // background (e.g. the top tick of the pitch ladder).
+  numBaseline = 'alphabetic',
 }) {
   const group = mk(parent, 'g', { 'data-widget': 'corner' });
 
@@ -40,6 +45,7 @@ export function mountCornerReadout(parent, {
     'font-size': numFontSize,
     fill: numColor,
     'text-anchor': labelAnchor,
+    'dominant-baseline': numBaseline,
   });
   num.textContent = '0';
 
