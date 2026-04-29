@@ -6,6 +6,7 @@
 
 #include <proto/LogCsvHeaderIndex.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <string_view>
 
@@ -324,12 +325,242 @@ bool BuildHeaderIndex(std::string_view headerLine,
     return true;
 }
 
-// ParseRowByIndex stub: filled in a follow-up commit. Returns false so any
-// caller that wires it up before the implementation lands gets a clear
-// failure rather than silently zeroed rows.
-bool ParseRowByIndex(std::string_view, const HeaderIndex&, onspeed::LogRow&)
+namespace {
+
+// Tokenize a row by comma. Returns the number of tokens written into out;
+// caller passes the capacity. Trailing CR/LF is stripped from the last token.
+int TokenizeRow(std::string_view line, std::string_view* out, int capacity)
 {
-    return false;
+    int count = 0;
+    size_t pos = 0;
+    while (pos <= line.size() && count < capacity) {
+        size_t comma = line.find(',', pos);
+        std::string_view tok =
+            (comma == std::string_view::npos)
+                ? line.substr(pos)
+                : line.substr(pos, comma - pos);
+        if (count + 1 == capacity || comma == std::string_view::npos)
+            tok = RstripCrLf(tok);
+        out[count++] = tok;
+        if (comma == std::string_view::npos) break;
+        pos = comma + 1;
+    }
+    return count;
+}
+
+bool ParseFloatTok(std::string_view tok, float& out)
+{
+    if (tok.empty()) return false;
+    char buf[64];
+    if (tok.size() >= sizeof(buf)) return false;
+    std::memcpy(buf, tok.data(), tok.size());
+    buf[tok.size()] = '\0';
+    char* end = nullptr;
+    float v = std::strtof(buf, &end);
+    if (end == buf) return false;
+    out = v;
+    return true;
+}
+
+bool ParseDoubleTok(std::string_view tok, double& out)
+{
+    if (tok.empty()) return false;
+    char buf[64];
+    if (tok.size() >= sizeof(buf)) return false;
+    std::memcpy(buf, tok.data(), tok.size());
+    buf[tok.size()] = '\0';
+    char* end = nullptr;
+    double v = std::strtod(buf, &end);
+    if (end == buf) return false;
+    out = v;
+    return true;
+}
+
+bool ParseIntTok(std::string_view tok, int& out)
+{
+    if (tok.empty()) return false;
+    char buf[32];
+    if (tok.size() >= sizeof(buf)) return false;
+    std::memcpy(buf, tok.data(), tok.size());
+    buf[tok.size()] = '\0';
+    char* end = nullptr;
+    long v = std::strtol(buf, &end, 10);
+    if (end == buf) return false;
+    out = (int)v;
+    return true;
+}
+
+bool ParseUint32Tok(std::string_view tok, uint32_t& out)
+{
+    if (tok.empty()) return false;
+    char buf[32];
+    if (tok.size() >= sizeof(buf)) return false;
+    std::memcpy(buf, tok.data(), tok.size());
+    buf[tok.size()] = '\0';
+    char* end = nullptr;
+    unsigned long v = std::strtoul(buf, &end, 10);
+    if (end == buf) return false;
+    out = (uint32_t)v;
+    return true;
+}
+
+// Convenience: pull a field by index. Returns false on missing token,
+// empty token, or numeric parse failure (consistent with LogCsv::ParseRow).
+// If the column is absent in the log (idx == -1), leaves the destination
+// unchanged and returns true.
+bool TakeFloat(const std::string_view* tokens, int tokenCount, int idx, float& out)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    return ParseFloatTok(tokens[idx], out);
+}
+bool TakeDouble(const std::string_view* tokens, int tokenCount, int idx, double& out)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    return ParseDoubleTok(tokens[idx], out);
+}
+bool TakeInt(const std::string_view* tokens, int tokenCount, int idx, int& out)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    return ParseIntTok(tokens[idx], out);
+}
+bool TakeUint32(const std::string_view* tokens, int tokenCount, int idx, uint32_t& out)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    return ParseUint32Tok(tokens[idx], out);
+}
+// Copy an indexed token into a fixed-size char buffer, NUL-terminated.
+// Empty token is rejected (matches LogCsv::ParseRow's ParseString).
+bool TakeString(const std::string_view* tokens, int tokenCount, int idx,
+                char* dst, size_t dstCapacity)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    std::string_view tok = tokens[idx];
+    if (tok.empty()) return false;
+    if (dstCapacity == 0) return false;
+    size_t n = tok.size();
+    if (n > dstCapacity - 1) n = dstCapacity - 1;
+    std::memcpy(dst, tok.data(), n);
+    dst[n] = '\0';
+    return true;
+}
+
+}  // namespace
+
+bool ParseRowByIndex(std::string_view line,
+                     const HeaderIndex& idx,
+                     onspeed::LogRow& row)
+{
+    std::string_view tokens[kHeaderIndexMaxColumns];
+    int tokenCount = TokenizeRow(line, tokens, kHeaderIndexMaxColumns);
+    if (tokenCount < idx.totalColumns) return false;
+
+    // Always-present core columns.
+    if (!TakeUint32(tokens, tokenCount, idx.idxTimeStampMs,  row.timeStampMs))     return false;
+    if (!TakeInt   (tokens, tokenCount, idx.idxPfwd,         row.pfwdCounts))      return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxPfwdSmoothed, row.pfwdSmoothed))    return false;
+    if (!TakeInt   (tokens, tokenCount, idx.idxP45,          row.p45Counts))       return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxP45Smoothed,  row.p45Smoothed))     return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxPStatic,      row.pStaticMbar))     return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxPaltFt,       row.paltFt))          return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxIasKt,        row.iasKt))           return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxAoaDeg,       row.angleOfAttackDeg))return false;
+    if (!TakeInt   (tokens, tokenCount, idx.idxFlapsPos,     row.flapsPos))        return false;
+    if (!TakeInt   (tokens, tokenCount, idx.idxDataMark,     row.dataMark))        return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxOatCelsius,   row.oatCelsius))      return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxTasKt,        row.tasKt))           return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxImuTemp,      row.imuTempCelsius))  return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxVerticalG,    row.imuVerticalG))    return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxLateralG,     row.imuLateralG))     return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxForwardG,     row.imuForwardG))     return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxRollRate,     row.imuRollRateDps))  return false;
+
+    // PitchRate sign-flip recovery (issue #182). The CSV PitchRate column
+    // stores -imuPitchRateDps; negate on parse to restore the raw value.
+    if (idx.idxPitchRate >= 0) {
+        float pitchRateCsv = 0.0f;
+        if (!TakeFloat(tokens, tokenCount, idx.idxPitchRate, pitchRateCsv)) return false;
+        row.imuPitchRateDps = -pitchRateCsv;
+    }
+
+    if (!TakeFloat (tokens, tokenCount, idx.idxYawRate,      row.imuYawRateDps))   return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxPitchDeg,     row.pitchDeg))        return false;
+    if (!TakeFloat (tokens, tokenCount, idx.idxRollDeg,      row.rollDeg))         return false;
+
+    // Boom (skipped via idx == -1 if not enabled).
+    if (idx.boomEnabled) {
+        if (!TakeFloat(tokens, tokenCount, idx.idxBoomStatic,  row.boomStatic))  return false;
+        if (!TakeFloat(tokens, tokenCount, idx.idxBoomDynamic, row.boomDynamic)) return false;
+        if (!TakeFloat(tokens, tokenCount, idx.idxBoomAlpha,   row.boomAlpha))   return false;
+        if (!TakeFloat(tokens, tokenCount, idx.idxBoomBeta,    row.boomBeta))    return false;
+        if (!TakeFloat(tokens, tokenCount, idx.idxBoomIas,     row.boomIasKt))   return false;
+        if (!TakeInt  (tokens, tokenCount, idx.idxBoomAge,     row.boomAgeMs))   return false;
+    }
+
+    // EFIS — VN-300 set takes precedence over standard set (mutually exclusive
+    // by HeaderIndex construction; both flags can't be true at once).
+    if (idx.efisEnabled && idx.efisIsVn300) {
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnAngularRateRoll,  row.vnAngularRateRoll))  return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnAngularRatePitch, row.vnAngularRatePitch)) return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnAngularRateYaw,   row.vnAngularRateYaw))   return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnVelNedNorth,      row.vnVelNedNorth))      return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnVelNedEast,       row.vnVelNedEast))       return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnVelNedDown,       row.vnVelNedDown))       return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnAccelFwd,         row.vnAccelFwd))         return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnAccelLat,         row.vnAccelLat))         return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnAccelVert,        row.vnAccelVert))        return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnYaw,              row.vnYawDeg))           return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnPitch,            row.vnPitchDeg))         return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnRoll,             row.vnRollDeg))          return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnLinAccFwd,        row.vnLinAccFwd))        return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnLinAccLat,        row.vnLinAccLat))        return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnLinAccVert,       row.vnLinAccVert))       return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnYawSigma,         row.vnYawSigma))         return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnRollSigma,        row.vnRollSigma))        return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnPitchSigma,       row.vnPitchSigma))       return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnGnssVelNedNorth,  row.vnGnssVelNedNorth))  return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnGnssVelNedEast,   row.vnGnssVelNedEast))   return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnGnssVelNedDown,   row.vnGnssVelNedDown))   return false;
+        if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLat,          row.vnGnssLat))          return false;
+        if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLon,          row.vnGnssLon))          return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxVnGpsFix,           row.vnGpsFix))           return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxVnDataAge,          row.vnDataAgeMs))        return false;
+        if (!TakeString(tokens, tokenCount, idx.idxVnTimeUtc,
+                        row.vnTimeUtc, onspeed::kLogRowUtcTimeLen))                             return false;
+    } else if (idx.efisEnabled) {
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisIas,           row.efisIasKt))           return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisPitch,         row.efisPitchDeg))        return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisRoll,          row.efisRollDeg))         return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisLateralG,      row.efisLateralG))        return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisVerticalG,     row.efisVerticalG))       return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxEfisPercentLift,   row.efisPercentLift))     return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxEfisPalt,          row.efisPaltFt))          return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxEfisVsi,           row.efisVsiFpm))          return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisTas,           row.efisTasKt))           return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisOat,           row.efisOatCelsius))      return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisFuelRemaining, row.efisFuelRemaining))   return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisFuelFlow,      row.efisFuelFlow))        return false;
+        if (!TakeFloat (tokens, tokenCount, idx.idxEfisMap,           row.efisMap))             return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxEfisRpm,           row.efisRpm))             return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxEfisPercentPower,  row.efisPercentPower))    return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxEfisMagHeading,    row.efisMagHeading))      return false;
+        if (!TakeInt   (tokens, tokenCount, idx.idxEfisAge,           row.efisAgeMs))           return false;
+        if (!TakeUint32(tokens, tokenCount, idx.idxEfisTime,          row.efisTimestampMs))     return false;
+    }
+
+    // Always-present derived tail.
+    if (!TakeFloat(tokens, tokenCount, idx.idxEarthVerticalG, row.earthVerticalG))  return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxFlightPathDeg,  row.flightPathDeg))   return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxVsiFpm,         row.vsiFpm))          return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxAltitude,       row.altitudeFt))      return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxDerivedAoa,     row.derivedAoaDeg))   return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxCoeffP,         row.coeffP))          return false;
+
+    return true;
 }
 
 }  // namespace onspeed::proto::log_csv
