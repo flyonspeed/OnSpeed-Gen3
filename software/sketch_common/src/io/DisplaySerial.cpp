@@ -294,7 +294,7 @@ void DisplaySerial::Write()
         inputs.iasKt              = fIasForOutput;
         inputs.paltFt             = fPAltFt;
         inputs.turnRateDps        = g_AHRS.gYaw;
-        inputs.lateralG           = -g_AHRS.AccelLatFilter.get();  // negated: positive = leftward
+        inputs.lateralG           = g_AHRS.AccelLatFilter.get();  // body-frame: positive = airframe accel rightward (see LATERAL_G_CONVENTION.md)
         inputs.verticalGScaled10  = static_cast<float>(iDisplayVerticalG);
         inputs.percentLift        = iPercentLift;
         inputs.vsiFpm10           = ClampInt(

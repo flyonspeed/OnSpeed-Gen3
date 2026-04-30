@@ -14,7 +14,7 @@
 //   11       4     iasKt               %04u     ×10     unsigned, 0–9999
 //   15       6     paltFt              %+06d    ×1      signed, –99999 to +99999
 //   21       5     turnRateDps         %+05d    ×10     signed, –9999 to +9999
-//   26       3     lateralG            %+03d    ×100    signed, –99 to +99
+//   26       3     lateralG            %+03d    ×100    signed, –99 to +99 (body-frame, +rightward)
 //   29       3     verticalG           %+03d    ×10     signed, –99 to +99
 //   32       2     percentLift         %02u     ×1      unsigned, 0–99
 //   34       4     vsiFpm10            %+04d    ×1      vsi_fpm/10, –999 to +999
@@ -81,11 +81,12 @@ inline constexpr int kDisplayFramePeriodMs = 50;
 // All values are in engineering units. BuildFrame applies the wire-format
 // scale factors, sign conventions, and clamp ranges.
 //
-// Convention: lateralG is the negated lateral acceleration.
-//   The Gen3 builder passes `–AccelLatFilter.get()` so that positive wire
-//   values mean leftward. The M5 parser stores it as-is. BuildInputs holds
-//   the already-negated value, matching the Gen3 builder's local variable
-//   `iLatG100 = SafeScaledInt(-g_AHRS.AccelLatFilter.get(), 100.0f, ...)`.
+// Convention: lateralG is body-frame (positive = airframe accelerating
+//   rightward), matching the IMU, SD log, and WebSocket JSON.  The Gen3
+//   builder passes `AccelLatFilter.get()` directly.  Consumers that draw
+//   a slip-skid ball negate locally at the rendering site (the M5's
+//   SerialRead.cpp::SerialProcess does this; the LiveView's slipBall.js
+//   does the same).  See LATERAL_G_CONVENTION.md for the full chain.
 // ============================================================================
 
 struct DisplayBuildInputs {
@@ -94,7 +95,7 @@ struct DisplayBuildInputs {
     float iasKt              = 0.0f;  // indicated airspeed (kt); 0 when below mute threshold
     float paltFt             = 0.0f;  // pressure altitude (ft)
     float turnRateDps        = 0.0f;  // yaw rate (deg/s)
-    float lateralG           = 0.0f;  // lateral acceleration, negated (g); positive = leftward
+    float lateralG           = 0.0f;  // lateral acceleration (g), body-frame; positive = airframe accel rightward
     float verticalGScaled10  = 0.0f;  // vertical G × 10, already ceil'd (raw int, stored as float)
     int   percentLift        = 0;     // current AOA expressed as honest envelope fraction, 0–99
     int   vsiFpm10           = 0;     // vsi / 10 (fpm), floored — range –999..+999
@@ -125,7 +126,7 @@ struct DisplayFrame {
     float iasKt              = 0.0f;
     float paltFt             = 0.0f;
     float turnRateDps        = 0.0f;
-    float lateralG           = 0.0f;  // negated (see BuildInputs convention)
+    float lateralG           = 0.0f;  // body-frame (see BuildInputs convention)
     float verticalG          = 0.0f;  // in g (wire value / 10)
     int   percentLift        = 0;
     float vsiFpm             = 0.0f;  // in fpm (wire value × 10)

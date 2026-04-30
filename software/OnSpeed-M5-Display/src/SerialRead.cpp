@@ -262,9 +262,12 @@ void SerialRead()
 
 void SerialProcess(float frameDtSec)
 {
-    // Slip gauge: LateralG is already EMA-smoothed by the main firmware
-    // (AccelLatFilter in onspeed_core/ahrs). Use as-received.
-    Slip               = int(LateralG * 34 / 0.04);
+    // Slip gauge: wire ships body-frame lateralG (positive = airframe accel
+    // rightward, EMA-smoothed by the main firmware via AccelLatFilter in
+    // onspeed_core/ahrs). Negate locally for the ball-frame rendering
+    // convention (positive Slip = ball drawn right of center).  Same pattern
+    // the LiveView's slipBall.js uses. See LATERAL_G_CONVENTION.md.
+    Slip               = int(-LateralG * 34 / 0.04);
     Slip               = constrain(Slip,-99,99);
 
     // Compute IAS derivative (deceleration) in knots/sec.

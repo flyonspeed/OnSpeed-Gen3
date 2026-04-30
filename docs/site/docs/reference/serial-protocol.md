@@ -40,7 +40,7 @@ Each frame is exactly **74 bytes** of ASCII, terminated by CRLF. Field offsets, 
 | 11 | 4 | `iasKt` | `%04u` | ×10 | 0 – 999.9 kt | 0 – 9999 |
 | 15 | 6 | `paltFt` | `%+06d` | ×1 | ±99 999 ft | ±99999 |
 | 21 | 5 | `turnRateDps` | `%+05d` | ×10 | ±999.9°/s | ±9999 |
-| 26 | 3 | `lateralG` | `%+03d` | ×100 | ±0.99 g (negated, see below) | ±99 |
+| 26 | 3 | `lateralG` | `%+03d` | ×100 | ±0.99 g (body-frame, +rightward; see below) | ±99 |
 | 29 | 3 | `verticalG` | `%+03d` | ×10 | ±9.9 g (ceiling-rounded) | ±99 |
 | 32 | 2 | `percentLift` | `%02u` | ×1 | 0 – 99 (current AOA, envelope fraction) | 0 – 99 |
 | 34 | 4 | `vsiFpm10` | `%+04d` | ×1 | ±9 990 fpm | ±999 (already divided by 10) |
@@ -70,7 +70,7 @@ Sign and width invariants:
 
 Most fields are self-describing. The ones with non-obvious conventions:
 
-- **`lateralG` is negated.** The producer transmits `−AccelLatFilter` (positive wire value = leftward acceleration, matching slip-skid ball direction). The parser stores the wire value as-is — a consumer that wants right-positive must un-negate.
+- **`lateralG` is body-frame.** The producer transmits `AccelLatFilter` directly (positive = airframe accelerating rightward), matching the IMU, SD log, and WebSocket JSON conventions. A consumer that draws a slip-skid ball negates locally at the rendering site — the ball lags opposite the airframe's centripetal acceleration, so right-yaw → ball drawn left of center. The M5 firmware (`SerialRead.cpp`) and the LiveView (`tools/liveview-prototype/lib/slipBall.js`) both follow this pattern.
 - **`verticalG` is `ceilf(g × 10)`** before the cast to int, not a normal round-to-nearest. This preserves the legacy "always round up to the next 0.1 g" behaviour that the OnSpeed g-limit chime was tuned against.
 - **`vsiFpm10` is already divided by 10.** The wire field carries `floor(VSI_fpm / 10)`. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.
 - **`percentLift` and the band-edge percents are computed via the canonical [`ComputePercentLift`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h)**, the honest single-linear `(AOA − α₀) / (α_stall − α₀) × 100`. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).
