@@ -104,31 +104,36 @@ function onMessage(evt)
   // on top of firmware smoothing and added visible lag to the G readout
   // without improving the recorded sample arrays (which use raw OnSpeed.coeffP,
   // OnSpeed.IAS, OnSpeed.DerivedAOA in recordData()).
+  //
+  // Each field is `?? 0`-guarded against an empty/truncated JSON payload —
+  // DataServer emits `{}` when its 512-byte buffer can't hold the full
+  // packet (DataServer.cpp:517), so a missing key must not throw on
+  // `.toFixed`.
   try {
     // console.log(evt.data);
     var OnSpeed = JSON.parse(evt.data);
 
     if (Number.isNaN(smoothDecelRate)) { smoothDecelRate = 0.0; }
 
-    AOA                  = OnSpeed.AOA.toFixed(2);
-    IAS                  = OnSpeed.IAS;
-    PAlt                 = OnSpeed.PAlt.toFixed(2);
-    GLoad                = OnSpeed.verticalGLoad.toFixed(2);
-    GLoadLat             = OnSpeed.lateralGLoad.toFixed(2);
-    PitchAngle           = OnSpeed.Pitch;
-    RollAngle            = OnSpeed.Roll;
+    AOA                  = (OnSpeed.AOA          ?? 0).toFixed(2);
+    IAS                  = OnSpeed.IAS           ?? 0;
+    PAlt                 = (OnSpeed.PAlt         ?? 0).toFixed(2);
+    GLoad                = (OnSpeed.verticalGLoad ?? 0).toFixed(2);
+    GLoadLat             = (OnSpeed.lateralGLoad ?? 0).toFixed(2);
+    PitchAngle           = OnSpeed.Pitch         ?? 0;
+    RollAngle            = OnSpeed.Roll          ?? 0;
     smoothingAlphaFwdAcc = parseFloat(document.getElementById("smoothingValue").value);
     document.getElementById("currentSmoothing").innerHTML = smoothingAlphaFwdAcc.toFixed(2);
 
-    iVSI                 = OnSpeed.kalmanVSI;
-    flightPath           = OnSpeed.flightPath;
+    iVSI                 = OnSpeed.kalmanVSI     ?? 0;
+    flightPath           = OnSpeed.flightPath    ?? 0;
     derivedAOA           = PitchAngle - flightPath;
-    cP                   = OnSpeed.coeffP;
-    pitchRate            = OnSpeed.PitchRate;
-    decelRate            = OnSpeed.DecelRate;
+    cP                   = OnSpeed.coeffP        ?? 0;
+    pitchRate            = OnSpeed.PitchRate     ?? 0;
+    decelRate            = OnSpeed.DecelRate     ?? 0;
 
-    flapsPos             = OnSpeed.flapsPos;
-    flapIndex            = OnSpeed.flapIndex;
+    flapsPos             = OnSpeed.flapsPos      ?? 0;
+    flapIndex            = OnSpeed.flapIndex     ?? 0;
 
     if (flapIndex == 0)
       {
