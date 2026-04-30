@@ -152,7 +152,13 @@ jobs:
     #   - render-smoke: each page module imports cleanly and renders
     #     via Preact into a mock DOM, with key landmarks present
     #     (<svg>, mode buttons, data table).
-    name: Web tests (geometry + render-smoke)
+    #   - api-schema: every dev-server mock under
+    #     tools/web/dev-server/mocks/ matches the JSON shape the live
+    #     firmware emits.
+    #   - aoaconfig-markers: the {{marker}} set in aoaconfig.html, the
+    #     C++ HandleConfig substitutions, and the JS dev-server
+    #     substituteAoaConfig substitutions stay in lockstep.
+    name: Web tests (geometry + render-smoke + api-schema + aoaconfig-markers)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -170,6 +176,12 @@ jobs:
 
       - name: Run render-smoke test
         run: node tools/web/test/render-smoke.mjs
+
+      - name: Run api-schema test
+        run: node tools/web/test/api-schema.mjs
+
+      - name: Run aoaconfig-markers test
+        run: node tools/web/test/aoaconfig-markers.mjs
 
   build-m5-display:
     name: Build M5 Display Firmware (${{ matrix.board }})
