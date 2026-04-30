@@ -213,6 +213,20 @@ A closer cousin to OnSpeed: an on-aircraft device broadcasts AHRS + GPS + ADS-B 
 
 The cottage-industry existence proof for "sim telemetry drives a hardware indexer." DCS-BIOS bridges DCS sim state to Arduino over serial; hobbyists build F/A-18 AOA indexers (four LEDs: too-fast / on-speed / on-speed / too-slow) that consume the stream. MSP OSD is the equivalent in the FPV racing-drone world. Same architecture as ours, smaller scale, longer history.
 
+### Transport: WiFi vs. Bluetooth
+
+The wire-format choice (JSON, MAVLink, GDL90) is independent of the transport (WebSocket, UDP, BLE GATT). Worth making the separation explicit because Bluetooth keeps coming up as a "what if the pilot's phone connected over BT instead of WiFi" question, and the answer has real constraints worth knowing up front.
+
+**Hardware floor.** The ESP32-S3-WROOM-2 supports **BLE 5.0 only — no Bluetooth Classic (BR/EDR)**. Classic Bluetooth Serial Port Profile (SPP) and RFCOMM are not available on this silicon, regardless of software effort. Anything that wants to be a "drop a BT dongle on your laptop and run Mission Planner" link is off the table on this hardware. (The original ESP32 had Classic; the S3 dropped it.)
+
+**iOS reality.** iPhone and iPad **do not support generic Bluetooth SPP without MFi certification**. ForeFlight, Garmin Pilot, FlyQ, and the rest of the GDL90-consuming EFB ecosystem connect over **WiFi UDP exclusively**. There's no realistic path to "OnSpeed feeds AOA to ForeFlight over Bluetooth" without becoming an MFi licensee, which is a different scale of project. WiFi is the answer for tablet-EFB integration.
+
+**Where BLE actually fits.** Custom Android or iOS apps written by us (or by anyone willing to build a BLE client) can pair with OnSpeed and consume telemetry over GATT — characteristics for `attitude`, `aoa`, `airspeed`, etc. BLE is not a serial pipe; it's a request-and-notify model with bounded throughput (~100 kbps practical) and a custom chunking layer on top. This is a real engineering exercise — not a free transport swap — but it's the path if we want a phone-paired indexer that doesn't require the pilot to join a WiFi network.
+
+**Implication for the architecture.** Bluetooth doesn't change the schema work. A `LiveDataFrame` snapshot in DataServer (planning step #1) is the same struct whether the next sink encodes it as WebSocket JSON, UDP MAVLink, or a set of BLE GATT characteristics. **Transport is a sink-adapter concern, not a wire-format concern.** When BLE happens, it lands as a new module in `sketch_common/` that subscribes to the snapshot frame and emits notifications, paralleling DataServer.
+
+For the foreseeable near term, **WiFi is the right answer**: it works with iOS EFBs, it works with QGroundControl on a tablet, and the pilot only joins one network anyway. BLE is interesting later, particularly for a phone-paired wearable display (HUD glasses) or a dedicated OnSpeed companion app where a custom GATT contract is acceptable.
+
 ### What this implies
 
 Three takeaways that should inform every wire-format decision we make from here:
@@ -333,6 +347,10 @@ Once steps #4 and #6 land, the "simulator data source" is just MAVLink consume p
 ### 9. (Maybe) GDL90 emit for tablet-EFB compatibility
 
 Lower priority unless we specifically target ForeFlight / Garmin Pilot users. GDL90 doesn't carry AOA natively, so the value is mostly attitude and groundspeed bridging. Defer until there's a concrete user ask.
+
+### 10. (Later) BLE GATT sink for phone-paired display
+
+Independent of all wire-format work. When we want a phone-paired indexer that doesn't require the pilot to join a WiFi network, add a BLE module that subscribes to the same `LiveDataFrame` snapshot and exposes attitude / AOA / airspeed as GATT characteristics. Constrained by ESP32-S3-WROOM-2's BLE-only radio (no Classic SPP) and iOS's MFi gate (no SPP without certification), so this is a custom Android-or-companion-app path, not a "ForeFlight over Bluetooth" path. See the Transport section in Prior Art for the constraints.
 
 ---
 
