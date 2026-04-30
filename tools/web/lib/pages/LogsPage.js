@@ -47,6 +47,10 @@ function isLogFile(name) {
 export function LogsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  // Per-file delete failures from /api/logs/delete-bulk's `errors` array.
+  // Surfaced separately from the load-error banner so a single-file failure
+  // (active log, SD busy) is visible even though the surviving files reload.
+  const [deleteErrors, setDeleteErrors] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [busyDeleting, setBusyDeleting] = useState(false);
 
@@ -62,6 +66,24 @@ export function LogsPage() {
   };
 
   useEffect(() => { reload(); }, []);
+
+  // Run a delete-bulk POST and refresh the listing.  Per-file failures
+  // arrive in the response body's `errors` array (each
+  // `{name, reason}`); store them so the page renders the banner.
+  const runDelete = async (names) => {
+    setBusyDeleting(true);
+    setDeleteErrors([]);
+    try {
+      const r = await postJson('/api/logs/delete-bulk', { names });
+      const errs = Array.isArray(r && r.errors) ? r.errors : [];
+      setDeleteErrors(errs);
+      await reload();
+    } catch (e) {
+      setError((e instanceof ApiError) ? e.message : String(e));
+    } finally {
+      setBusyDeleting(false);
+    }
+  };
 
   const toggle = (name) => () => {
     setSelected(prev => {
@@ -91,28 +113,23 @@ export function LogsPage() {
   const deleteSelected = async () => {
     if (selected.size === 0) return;
     if (!window.confirm(`Delete ${selected.size} file(s)?`)) return;
-    setBusyDeleting(true);
-    try {
-      await postJson('/api/logs/delete-bulk', { names: [...selected] });
-      await reload();
-    } catch (e) {
-      setError((e instanceof ApiError) ? e.message : String(e));
-    } finally {
-      setBusyDeleting(false);
-    }
+    await runDelete([...selected]);
   };
 
   const deleteOne = (name) => async () => {
     if (!window.confirm(`Delete ${name}?`)) return;
-    setBusyDeleting(true);
-    try {
-      await postJson('/api/logs/delete-bulk', { names: [name] });
-      await reload();
-    } catch (e) {
-      setError((e instanceof ApiError) ? e.message : String(e));
-    } finally {
-      setBusyDeleting(false);
-    }
+    await runDelete([name]);
+  };
+
+  // Compact summary like "Could not delete 2 file(s): activelog.csv
+  // (active log), other.csv (SD busy)".  The reasons come straight
+  // from the server.
+  const deleteErrorSummary = () => {
+    if (deleteErrors.length === 0) return '';
+    const items = deleteErrors
+      .map(e => `${e.name} (${e.reason || 'failed'})`)
+      .join(', ');
+    return `Could not delete ${deleteErrors.length} file(s): ${items}`;
   };
 
   // Split into logs + other files (config backups, boot_log.txt, etc.).
@@ -125,6 +142,8 @@ export function LogsPage() {
     <${PageShell} active="logs">
       <div style=${{ padding: '12px' }}>
         ${error && html`<p style=${{ color: 'red' }}>SD card busy or unreachable: ${error}</p>`}
+        ${deleteErrors.length > 0 && html`
+          <p style=${{ color: 'red' }}>${deleteErrorSummary()}</p>`}
         ${!data && !error && html`<p>Loading…</p>`}
         ${data && html`
           <h2>Logs</h2>
