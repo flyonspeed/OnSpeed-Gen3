@@ -11,7 +11,8 @@ Bundles the Preact app under tools/web/lib/ into three PROGMEM headers:
 
     software/OnSpeed-Gen3-ESP32/Web/html_stubs.h
         Per-page HTML stubs as `R"..."` raw string literals.  One stub
-        per route (currently /indexer and /live).  Each stub references
+        per route (currently /indexer; /live is a server-side redirect
+        to /indexer).  Each stub references
         /static/app-<etag>.{js,css} where etag is the JS bundle's
         content hash.
 
@@ -93,7 +94,6 @@ ENTRY_MODULE  = os.path.join(LIB_DIR, "entry.js")
 # `data-page="<page-id>"` attribute the bundle's entry.js reads.
 PAGES = [
     ("indexer", "Indexer",   "indexer"),
-    ("live",    "LiveView",  "live"),
 ]
 
 
@@ -449,7 +449,6 @@ _STATIC_FALLBACK_NAV = (
     'Use one of the links below to navigate.</noscript>'
     '<nav class="onspeed-fallback-nav" aria-label="fallback">'
     '<a href="/">Home</a> | '
-    '<a href="/live">Live</a> | '
     '<a href="/indexer">Indexer</a> | '
     '<a href="/aoaconfig">Config</a> | '
     '<a href="/calwiz">Calibration</a> | '

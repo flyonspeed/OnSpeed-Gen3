@@ -2,7 +2,7 @@
 //
 // Runs Preact's real render() into a minimal mock DOM, then asserts
 // that key DOM landmarks (`<svg>` for IndexerPage, `.live-page` div
-// for LivePage, `<ul>` nav for PageShell) appear in the rendered tree.
+// `<ul>` nav for PageShell) appear in the rendered tree.
 //
 // The mock DOM implements just enough of the Node / Element API for
 // Preact to run: createElement / createTextNode / appendChild /
@@ -163,7 +163,6 @@ const preact = await import(new URL('../lib/vendor/preact-standalone.js', import
 const { html, render } = preact;
 
 const indexerMod = await import(new URL('../lib/pages/IndexerPage.js', import.meta.url));
-const liveMod    = await import(new URL('../lib/pages/LivePage.js',    import.meta.url));
 const shellMod   = await import(new URL('../lib/shell/PageShell.js',  import.meta.url));
 
 let passed = 0, failed = 0;
@@ -205,34 +204,8 @@ test('IndexerPage renders the mode-nav with five buttons', () => {
     throw new Error(`expected 5 mode buttons, got ${buttons.length}`);
 });
 
-test('LivePage exports a function', () => {
-  if (typeof liveMod.LivePage !== 'function')
-    throw new Error('LivePage not exported');
-});
-
-test('LivePage renders an <svg> AOA panel', () => {
-  const root = renderInto(html`<${liveMod.LivePage} />`);
-  const svg = findFirst(root, 'svg');
-  if (!svg) throw new Error('expected an <svg> element in LivePage');
-});
-
-test('LivePage renders both AOA / AHRS tab buttons', () => {
-  const root = renderInto(html`<${liveMod.LivePage} />`);
-  const tabs = [...walk(root)].filter(n => n.localName === 'button'
-                                         && n.getAttribute('role') === 'tab');
-  if (tabs.length !== 2)
-    throw new Error(`expected 2 tab buttons, got ${tabs.length}`);
-});
-
-test('LivePage data table has 13 rows (12 fields + Age)', () => {
-  const root = renderInto(html`<${liveMod.LivePage} />`);
-  const rows = [...walk(root)].filter(n => n.localName === 'tr');
-  if (rows.length !== 13)
-    throw new Error(`expected 13 data rows, got ${rows.length}`);
-});
-
 test('PageShell renders nav <ul> and header-container', () => {
-  const root = renderInto(html`<${shellMod.PageShell} active="live"
+  const root = renderInto(html`<${shellMod.PageShell} active="indexer"
                                                       children=${[]} />`);
   if (!findFirst(root, 'ul')) throw new Error('no <ul> nav');
   // Match the legacy chrome: a `.header-container` div hosting the
@@ -242,17 +215,17 @@ test('PageShell renders nav <ul> and header-container', () => {
 });
 
 test('PageShell highlights the active page', () => {
-  const root = renderInto(html`<${shellMod.PageShell} active="live"
+  const root = renderInto(html`<${shellMod.PageShell} active="indexer"
                                                       children=${[]} />`);
-  // Find an <a> with both href="/live" and class containing "active".
+  // Find an <a> with both href="/indexer" and class containing "active".
   const links = [...walk(root)].filter(n => n.localName === 'a'
-                                          && n.getAttribute('href') === '/live');
+                                          && n.getAttribute('href') === '/indexer');
   const active = links.find(l => (l.getAttribute('class') || '').split(/\s+/).includes('active'));
-  if (!active) throw new Error('expected the /live link to be marked active');
+  if (!active) throw new Error('expected the /indexer link to be marked active');
 });
 
 test('PageShell Tools dropdown lists the legacy items', () => {
-  const root = renderInto(html`<${shellMod.PageShell} active="live"
+  const root = renderInto(html`<${shellMod.PageShell} active="indexer"
                                                       children=${[]} />`);
   const want = [
     ['/logs',    'Log Files'],
@@ -268,7 +241,7 @@ test('PageShell Tools dropdown lists the legacy items', () => {
 });
 
 test('PageShell Settings dropdown lists the legacy items', () => {
-  const root = renderInto(html`<${shellMod.PageShell} active="live"
+  const root = renderInto(html`<${shellMod.PageShell} active="indexer"
                                                       children=${[]} />`);
   const want = ['/aoaconfig', '/sensorconfig', '/calwiz'];
   for (const href of want) {

@@ -126,7 +126,13 @@ function mimeFor(filePath) {
 // ---------------------------------------------------------------------
 const PAGES = [
   { id: 'indexer', path: '/indexer', title: 'Indexer' },
-  { id: 'live',    path: '/live',    title: 'LiveView' },
+];
+
+// Routes that 30x to a page rather than rendering one.  `/live` is
+// preserved here for backwards-compat with old pilot bookmarks; the
+// firmware does the same redirect.
+const REDIRECTS = [
+  { from: '/live', to: '/indexer' },
 ];
 
 function pageStubHtml(page, args, host) {
@@ -471,6 +477,15 @@ async function route(req, res, args) {
   // /api/*
   if (pathname.startsWith('/api/')) {
     return handleApi(req, res, args);
+  }
+
+  // Stale-bookmark redirects (e.g. /live → /indexer).
+  for (const r of REDIRECTS) {
+    if (pathname === r.from) {
+      res.writeHead(302, { Location: r.to });
+      res.end();
+      return;
+    }
   }
 
   // Page stubs.  Pass the request Host so the WS meta tag uses the

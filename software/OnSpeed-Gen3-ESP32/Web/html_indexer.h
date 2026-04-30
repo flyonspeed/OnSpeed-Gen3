@@ -15,10 +15,10 @@ static const char htmlIndexer[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OnSpeed — Indexer</title>
-<link rel="stylesheet" href="/static/app-777adbe08b55.css">
+<link rel="stylesheet" href="/static/app-35ac22af6c3e.css">
 </head>
 <body>
-<div id="app" data-page="indexer"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/live">Live</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
-<script src="/static/app-3bdc230424d1.js" defer></script>
+<div id="app" data-page="indexer"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
+<script src="/static/app-9a3cce7bcbad.js" defer></script>
 </body>
 </html>)=====";

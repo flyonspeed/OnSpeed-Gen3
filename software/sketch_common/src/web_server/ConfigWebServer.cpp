@@ -607,9 +607,14 @@ static void ServePageStub(const char* stub)
     CfgServer.send_P(200, "text/html", stub);
     }
 
+// /live is gone — the new /indexer covers everything that page used
+// to render (Mode 0 indexer + the data-fields panel for the legacy
+// 13-row stat table).  Keep the route registered as a 302 redirect so
+// pilot bookmarks from the legacy era still land on a working page.
 void HandleLive()
     {
-    ServePageStub(htmlStub_live);
+    CfgServer.sendHeader("Location", "/indexer", true);
+    CfgServer.send(302, "text/plain", "");
     }
 
 void HandleIndexer()

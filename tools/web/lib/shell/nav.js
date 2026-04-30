@@ -9,10 +9,12 @@
 // `href` is the URL the firmware serves.  `label` is what the user sees.
 
 export const NAV = {
-  // Top-level links.
+  // Top-level links.  The legacy `/live` route is gone — its entire
+  // information density is in `/indexer` Mode 0 plus the data-fields
+  // panel.  The firmware redirects `/live` → `/indexer` so stale
+  // bookmarks still land somewhere useful.
   primary: [
     { id: 'home',    href: '/',        label: 'Home' },
-    { id: 'live',    href: '/live',    label: 'LiveView' },
     { id: 'indexer', href: '/indexer', label: 'Indexer' },
   ],
 
