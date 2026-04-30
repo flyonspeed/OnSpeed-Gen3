@@ -42,6 +42,7 @@ const REPO_ROOT  = path.resolve(__dirname, '..', '..', '..');
 const WEB_DIR    = path.resolve(__dirname, '..');
 const LIB_DIR    = path.join(WEB_DIR, 'lib');
 const PUBLIC_DIR = path.join(WEB_DIR, 'public');
+const LEGACY_DIR = path.join(WEB_DIR, 'legacy-pages');
 const MOCKS_DIR  = path.join(__dirname, 'mocks');
 const REPLAY_DIR = path.join(__dirname, 'replay');
 
@@ -477,6 +478,233 @@ function main() {
   });
 }
 
+// Render the /aoaconfig legacy page from the template + JS files in
+// tools/web/legacy-pages/, substituting {{name}} markers from
+// dev-server/mocks/aoaconfig.json.  Mirrors HandleConfig() in
+// software/sketch_common/src/web_server/ConfigWebServer.cpp.
+async function renderAoaConfigPage() {
+  const tplPath  = path.join(LEGACY_DIR, 'aoaconfig.html');
+  const jsPath   = path.join(LEGACY_DIR, 'aoaconfig.js');
+  const postPath = path.join(LEGACY_DIR, 'aoaconfig-post.js');
+  const cfgPath  = path.join(MOCKS_DIR, 'aoaconfig.json');
+  const [tpl, js, postJs, cfgRaw] = await Promise.all([
+    fsp.readFile(tplPath, 'utf-8'),
+    fsp.readFile(jsPath, 'utf-8'),
+    fsp.readFile(postPath, 'utf-8'),
+    fsp.readFile(cfgPath, 'utf-8'),
+  ]);
+  const cfg = JSON.parse(cfgRaw);
+  return substituteAoaConfig(tpl, cfg, js, postJs);
+}
+
+function selAttr(b) { return b ? ' selected' : ''; }
+function checkedAttr(b) { return b ? ' checked' : ''; }
+function displayBlock(b) {
+  return b ? 'style="display:block"' : 'style="display:none"';
+}
+
+function curveParamStrings(curveType, casVariant) {
+  // Match HandleConfig's per-flap initial-render labels.  CAS curve uses
+  // a slightly different set; legacy bytes preserved verbatim.
+  if (casVariant) {
+    if (curveType === 1) return [' *X<sup>3</sup>+ ', ' *X<sup>2</sup>+ ', ' *X<sup></sup>+ ', ''];
+    if (curveType === 2) return [' * 0 + ', ' * 0 + ', '*ln(x)+', ''];
+    if (curveType === 3) return [' * 0 + ', ' * 0 + ', '* e^ (', ' * x)'];
+    return ['', '', '', ''];
+  }
+  if (curveType === 1) return [' *X<sup>3</sup>+', ' *X<sup>2</sup>+', '*X+', ''];
+  if (curveType === 2) return [' * 0 + ', ' * 0 + ', '*ln(x)+ ', ''];
+  if (curveType === 3) return [' * 0 + ', ' * 0 + ', '* e^ (', ') * x'];
+  return ['', '', '', ''];
+}
+
+function substituteAoaConfig(tpl, cfg, js, postJs) {
+  // 1. Per-flap block.
+  const startMarker = '<!-- FLAP_BLOCK_START -->';
+  const endMarker   = '<!-- FLAP_BLOCK_END -->';
+  const startIdx = tpl.indexOf(startMarker);
+  const endIdx   = tpl.indexOf(endMarker);
+  if (startIdx < 0 || endIdx < 0) {
+    throw new Error('aoaconfig.html missing FLAP_BLOCK markers');
+  }
+  const flapTpl = tpl.slice(startIdx + startMarker.length, endIdx);
+  const flapsRendered = (cfg.flaps || []).map((f, idx) => {
+    const [p0, p1, p2, p3] = curveParamStrings(f.curveType || 1, false);
+    let s = flapTpl;
+    s = s.replaceAll('{{flap.idx}}',          String(idx));
+    s = s.replaceAll('{{flap.label}}',        String(idx + 1));
+    s = s.replaceAll('{{flap.degrees}}',      String(f.degrees));
+    s = s.replaceAll('{{flap.potPosition}}',  String(f.potPosition));
+    s = s.replaceAll('{{flap.LDMAXAOA}}',     String(f.LDMAXAOA));
+    s = s.replaceAll('{{flap.OnSpeedFastAOA}}', String(f.OnSpeedFastAOA));
+    s = s.replaceAll('{{flap.OnSpeedSlowAOA}}', String(f.OnSpeedSlowAOA));
+    s = s.replaceAll('{{flap.StallWarnAOA}}', String(f.StallWarnAOA));
+    s = s.replaceAll('{{flap.StallAOA}}',     String(f.StallAOA));
+    s = s.replaceAll('{{flap.ManAOA}}',       String(f.ManAOA));
+    s = s.replaceAll('{{flap.KFit}}',         String(f.KFit));
+    s = s.replaceAll('{{flap.Alpha0}}',       String(f.Alpha0));
+    s = s.replaceAll('{{flap.AlphaStall}}',   String(f.AlphaStall));
+    s = s.replaceAll('{{flap.curvePolySel}}', selAttr(f.curveType === 1));
+    s = s.replaceAll('{{flap.curveLogSel}}',  selAttr(f.curveType === 2));
+    s = s.replaceAll('{{flap.curveExpSel}}',  selAttr(f.curveType === 3));
+    const [c0, c1, c2, c3] = f.coeffs || [0, 0, 0, 0];
+    s = s.replaceAll('{{flap.coeff0}}', String(c0));
+    s = s.replaceAll('{{flap.coeff1}}', String(c1));
+    s = s.replaceAll('{{flap.coeff2}}', String(c2));
+    s = s.replaceAll('{{flap.coeff3}}', String(c3));
+    s = s.replaceAll('{{flap.param0}}', p0);
+    s = s.replaceAll('{{flap.param1}}', p1);
+    s = s.replaceAll('{{flap.param2}}', p2);
+    s = s.replaceAll('{{flap.param3}}', p3);
+    return s;
+  }).join('');
+
+  let body = tpl.slice(0, startIdx) + flapsRendered + tpl.slice(endIdx + endMarker.length);
+
+  // 2. Replay log file picker datalist.
+  const replayOptions = (cfg.replayLogFiles || [])
+    .map(name => `                    <option value="${name}">\n`)
+    .join('');
+  body = body.replaceAll('{{replayLogFileOptions}}', replayOptions);
+  body = body.replaceAll('{{replayLogFileName}}', cfg.replayLogFileName || '');
+  body = body.replaceAll('{{replayLogFileStyle}}',
+                         displayBlock(cfg.dataSource === 'REPLAYLOGFILE'));
+
+  // 3. Visibility toggles.
+  body = body.replaceAll('{{casCurveVisibility}}',  displayBlock(!!cfg.casCurveEnabled));
+  body = body.replaceAll('{{loadLimitVisibility}}', displayBlock(!!cfg.overgWarning));
+  body = body.replaceAll('{{vnoVisibility}}',       displayBlock(!!cfg.vnoChimeEnabled));
+  body = body.replaceAll('{{volumeControlWidth}}',  cfg.volumeControl ? '9' : '6');
+  body = body.replaceAll('{{defaultVolumeVisibility}}', displayBlock(!cfg.volumeControl));
+  body = body.replaceAll('{{volumeLevelsVisibility}}',  displayBlock(!!cfg.volumeControl));
+
+  // 4. Scalars + select markers.
+  body = body.replaceAll('{{aoaSmoothing}}',      String(cfg.aoaSmoothing));
+  body = body.replaceAll('{{pressureSmoothing}}', String(cfg.pressureSmoothing));
+  body = body.replaceAll('{{dataSrcSensorsSel}}',    selAttr(cfg.dataSource === 'SENSORS'));
+  body = body.replaceAll('{{dataSrcTestPotSel}}',    selAttr(cfg.dataSource === 'TESTPOT'));
+  body = body.replaceAll('{{dataSrcRangeSweepSel}}', selAttr(cfg.dataSource === 'RANGESWEEP'));
+  body = body.replaceAll('{{dataSrcReplaySel}}',     selAttr(cfg.dataSource === 'REPLAYLOGFILE'));
+
+  body = body.replaceAll('{{boomEnabledSel}}',          selAttr(!!cfg.boomEnabled));
+  body = body.replaceAll('{{boomDisabledSel}}',         selAttr(!cfg.boomEnabled));
+  body = body.replaceAll('{{boomChecksumEnabledSel}}',  selAttr(!!cfg.boomChecksum));
+  body = body.replaceAll('{{boomChecksumDisabledSel}}', selAttr(!cfg.boomChecksum));
+  body = body.replaceAll('{{boomConvertRawSel}}',  selAttr(!cfg.boomConvertData));
+  body = body.replaceAll('{{boomConvertConvSel}}', selAttr(!!cfg.boomConvertData));
+
+  body = body.replaceAll('{{casCurveEnabledSel}}',  selAttr(!!cfg.casCurveEnabled));
+  body = body.replaceAll('{{casCurveDisabledSel}}', selAttr(!cfg.casCurveEnabled));
+  body = body.replaceAll('{{casCurveTypePolySel}}', selAttr(cfg.casCurveType === 1));
+  body = body.replaceAll('{{casCurveTypeLogSel}}',  selAttr(cfg.casCurveType === 2));
+  body = body.replaceAll('{{casCurveTypeExpSel}}',  selAttr(cfg.casCurveType === 3));
+  const casCoeffs = cfg.casCoeffs || [0, 0, 0, 0];
+  body = body.replaceAll('{{casCurveCoeff0}}', String(casCoeffs[0]));
+  body = body.replaceAll('{{casCurveCoeff1}}', String(casCoeffs[1]));
+  body = body.replaceAll('{{casCurveCoeff2}}', String(casCoeffs[2]));
+  body = body.replaceAll('{{casCurveCoeff3}}', String(casCoeffs[3]));
+  const [casP0, casP1, casP2, casP3] = curveParamStrings(cfg.casCurveType || 1, true);
+  body = body.replaceAll('{{casCurveParam0}}', casP0);
+  body = body.replaceAll('{{casCurveParam1}}', casP1);
+  body = body.replaceAll('{{casCurveParam2}}', casP2);
+  body = body.replaceAll('{{casCurveParam3}}', casP3);
+
+  for (const o of ['Up', 'Down', 'Left', 'Right', 'Forward', 'Aft']) {
+    body = body.replaceAll(`{{portsOr${o}Sel}}`,
+                           selAttr(cfg.portsOrientation === o.toUpperCase()));
+    body = body.replaceAll(`{{boxOr${o}Sel}}`,
+                           selAttr(cfg.boxtopOrientation === o.toUpperCase()));
+  }
+
+  body = body.replaceAll('{{readEfisEnabledSel}}',  selAttr(!!cfg.readEfisData));
+  body = body.replaceAll('{{readEfisDisabledSel}}', selAttr(!cfg.readEfisData));
+  body = body.replaceAll('{{efisDynonD10Sel}}', selAttr(cfg.efisType === 'DYNOND10'));
+  body = body.replaceAll('{{efisAdvancedSel}}', selAttr(cfg.efisType === 'ADVANCED'));
+  body = body.replaceAll('{{efisG5Sel}}',       selAttr(cfg.efisType === 'GARMING5'));
+  body = body.replaceAll('{{efisG3xSel}}',      selAttr(cfg.efisType === 'GARMING3X'));
+  body = body.replaceAll('{{efisVn300Sel}}',    selAttr(cfg.efisType === 'VN-300'));
+  body = body.replaceAll('{{efisVn100Sel}}',    selAttr(cfg.efisType === 'VN-100'));
+  body = body.replaceAll('{{efisMglSel}}',      selAttr(cfg.efisType === 'MGL'));
+
+  body = body.replaceAll('{{oatEnabledSel}}',  selAttr(!!cfg.oatSensor));
+  body = body.replaceAll('{{oatDisabledSel}}', selAttr(!cfg.oatSensor));
+
+  body = body.replaceAll('{{calSrcOnspeedSel}}',
+                         selAttr(!cfg.calSource || cfg.calSource === 'ONSPEED'));
+  body = body.replaceAll('{{calSrcEfisSel}}', selAttr(cfg.calSource === 'EFIS'));
+
+  body = body.replaceAll('{{ahrsMadgwickSel}}', selAttr(cfg.ahrsAlgorithm === 0));
+  body = body.replaceAll('{{ahrsEkf6Sel}}',     selAttr(cfg.ahrsAlgorithm === 1));
+
+  body = body.replaceAll('{{volumeEnabledSel}}',  selAttr(!!cfg.volumeControl));
+  body = body.replaceAll('{{volumeDisabledSel}}', selAttr(!cfg.volumeControl));
+  body = body.replaceAll('{{defaultVolume}}',     String(cfg.defaultVolume));
+  body = body.replaceAll('{{volumeLowAnalog}}',   String(cfg.volumeLowAnalog));
+  body = body.replaceAll('{{volumeHighAnalog}}',  String(cfg.volumeHighAnalog));
+  body = body.replaceAll('{{muteAudioUnderIAS}}', String(cfg.muteAudioUnderIAS));
+  body = body.replaceAll('{{audio3dEnabledSel}}',  selAttr(!!cfg.audio3D));
+  body = body.replaceAll('{{audio3dDisabledSel}}', selAttr(!cfg.audio3D));
+
+  body = body.replaceAll('{{overgEnabledSel}}',   selAttr(!!cfg.overgWarning));
+  body = body.replaceAll('{{overgDisabledSel}}',  selAttr(!cfg.overgWarning));
+  body = body.replaceAll('{{loadLimitPositive}}',   Number(cfg.loadLimitPositive).toFixed(2));
+  body = body.replaceAll('{{loadLimitNegative}}',   Number(cfg.loadLimitNegative).toFixed(2));
+  body = body.replaceAll('{{asymmetricGyroLimit}}', Number(cfg.asymmetricGyroLimit).toFixed(1));
+  body = body.replaceAll('{{asymmetricReduction}}', Number(cfg.asymmetricReduction).toFixed(3));
+
+  body = body.replaceAll('{{vnoChimeEnabledSel}}',  selAttr(!!cfg.vnoChimeEnabled));
+  body = body.replaceAll('{{vnoChimeDisabledSel}}', selAttr(!cfg.vnoChimeEnabled));
+  body = body.replaceAll('{{vno}}',                 String(cfg.vno));
+  body = body.replaceAll('{{vnoChimeInterval}}',    String(cfg.vnoChimeInterval));
+
+  body = body.replaceAll('{{sdLoggingEnabledSel}}',  selAttr(!!cfg.sdLogging));
+  body = body.replaceAll('{{sdLoggingDisabledSel}}', selAttr(!cfg.sdLogging));
+  body = body.replaceAll('{{logRate50Sel}}',  selAttr(cfg.logRate !== 208));
+  body = body.replaceAll('{{logRate208Sel}}', selAttr(cfg.logRate === 208));
+
+  body = body.replaceAll('{{serialOutG3xSel}}',
+                         selAttr(cfg.serialOutFormat === 'G3X'));
+  body = body.replaceAll('{{serialOutOnspeedSel}}',
+                         selAttr(!cfg.serialOutFormat ||
+                                 cfg.serialOutFormat === 'ONSPEED'));
+
+  body = body.replaceAll('{{acGrossWeight}}',  String(cfg.acGrossWeight));
+  body = body.replaceAll('{{acBestGlideIAS}}', String(cfg.acBestGlideIAS));
+  body = body.replaceAll('{{acVfe}}',          String(cfg.acVfe));
+  body = body.replaceAll('{{acGlimit}}',       String(cfg.acGlimit));
+  const fVal = Number(cfg.acGlimit);
+  const isNormal    = fVal >= 3.795 && fVal <= 3.805;
+  const isUtility   = fVal >= 4.395 && fVal <= 4.405;
+  const isAerobatic = fVal >= 5.995 && fVal <= 6.005;
+  const isPreset    = isNormal || isUtility || isAerobatic;
+  body = body.replaceAll('{{glimitNormalChecked}}',    checkedAttr(isNormal));
+  body = body.replaceAll('{{glimitUtilityChecked}}',   checkedAttr(isUtility));
+  body = body.replaceAll('{{glimitAerobaticChecked}}', checkedAttr(isAerobatic));
+  body = body.replaceAll('{{glimitCustomChecked}}',    checkedAttr(!isPreset));
+  body = body.replaceAll('{{glimitCustomDisplay}}',    isPreset ? 'display:none' : '');
+
+  // 5. Inline scripts last (so { } in their bodies don't trip earlier
+  // passes).  Wrap with the dev shell so the page still has a basic
+  // header/footer.
+  body = body.replaceAll('{{aoaconfigJs}}',     js);
+  body = body.replaceAll('{{aoaconfigPostJs}}', postJs);
+
+  return [
+    '<!DOCTYPE html>',
+    '<html lang="en">',
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<title>OnSpeed — /aoaconfig (dev)</title>',
+    '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
+    '</head>',
+    '<body>',
+    body,
+    '</body>',
+    '</html>',
+  ].join('\n');
+}
+
 async function route(req, res, args) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
@@ -484,6 +712,19 @@ async function route(req, res, args) {
   // /api/*
   if (pathname.startsWith('/api/')) {
     return handleApi(req, res, args);
+  }
+
+  // /aoaconfig — legacy form-driven page rendered from the template.
+  if (pathname === '/aoaconfig') {
+    try {
+      const html = await renderAoaConfigPage();
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(`/aoaconfig render error: ${e.message}`);
+    }
+    return;
   }
 
   // Stale-bookmark redirects (e.g. /live → /indexer).

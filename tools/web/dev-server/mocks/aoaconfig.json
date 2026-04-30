@@ -1,0 +1,84 @@
+{
+  "_comment": "Mock g_Config for /aoaconfig dev-server preview. Drives the {{name}} substitutions in tools/web/legacy-pages/aoaconfig.html. Mirrors the firmware's config shape closely enough to render every visibility branch.",
+
+  "aoaSmoothing": 60,
+  "pressureSmoothing": 50,
+  "dataSource": "SENSORS",
+  "replayLogFileName": "",
+  "replayLogFiles": [],
+  "flaps": [
+    {
+      "degrees": 0,
+      "potPosition": 1024,
+      "LDMAXAOA": 4.5,
+      "OnSpeedFastAOA": 7.0,
+      "OnSpeedSlowAOA": 9.5,
+      "StallWarnAOA": 11.5,
+      "StallAOA": 12.8,
+      "ManAOA": 6.2,
+      "Alpha0": -2.1,
+      "AlphaStall": 14.3,
+      "KFit": 25400.0,
+      "curveType": 1,
+      "coeffs": [0.0, 0.0123, -0.456, 7.89]
+    },
+    {
+      "degrees": 30,
+      "potPosition": 2048,
+      "LDMAXAOA": 3.5,
+      "OnSpeedFastAOA": 6.0,
+      "OnSpeedSlowAOA": 8.5,
+      "StallWarnAOA": 10.5,
+      "StallAOA": 11.8,
+      "ManAOA": 5.5,
+      "Alpha0": -4.0,
+      "AlphaStall": 13.6,
+      "KFit": 15800.0,
+      "curveType": 1,
+      "coeffs": [0.0, 0.018, -0.5, 7.2]
+    }
+  ],
+  "boomEnabled": true,
+  "boomChecksum": true,
+  "boomConvertData": true,
+
+  "casCurveEnabled": false,
+  "casCurveType": 1,
+  "casCoeffs": [0.0, 0.0, 0.0, 1.0],
+
+  "portsOrientation": "FORWARD",
+  "boxtopOrientation": "UP",
+
+  "readEfisData": true,
+  "efisType": "ADVANCED",
+
+  "oatSensor": false,
+  "calSource": "ONSPEED",
+  "ahrsAlgorithm": 0,
+
+  "volumeControl": true,
+  "defaultVolume": 75,
+  "volumeLowAnalog": 200,
+  "volumeHighAnalog": 3800,
+  "muteAudioUnderIAS": 30,
+  "audio3D": true,
+
+  "overgWarning": true,
+  "loadLimitPositive": 4.4,
+  "loadLimitNegative": -1.76,
+  "asymmetricGyroLimit": 30.0,
+  "asymmetricReduction": 0.85,
+
+  "vnoChimeEnabled": true,
+  "vno": 165,
+  "vnoChimeInterval": 60,
+
+  "sdLogging": true,
+  "logRate": 50,
+  "serialOutFormat": "ONSPEED",
+
+  "acGrossWeight": 2700,
+  "acBestGlideIAS": 87.5,
+  "acVfe": 96.0,
+  "acGlimit": 4.4
+}
