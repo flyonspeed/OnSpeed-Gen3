@@ -165,9 +165,18 @@ def _fake_lever_sweep(states: list[LiveSnapshot],
 
             start = max(0, i - half)
             end   = min(len(states) - 1, i + half)
-            n     = end - start
-            for j, k in enumerate(range(start, end + 1)):
-                u = j / max(1, n)
+            for k in range(start, end + 1):
+                # Drive smoothstep from a SIGNED offset around the snap
+                # tick so u=0.5 lands at k=i regardless of whether the
+                # window is clamped at either edge of the log. Without
+                # this, a snap tick within `half` ticks of the start /
+                # end would sit off-center (e.g. smoothstep(0.333) ≈
+                # 0.26 instead of 0.5 at the snap).
+                u = 0.5 + 0.5 * (k - i) / half
+                if u < 0.0:
+                    u = 0.0
+                elif u > 1.0:
+                    u = 1.0
                 # Smoothstep for a cleaner visual ease.
                 u_smooth = u * u * (3.0 - 2.0 * u)
                 states[k].lever_raw = int(round(

@@ -6,7 +6,13 @@ import math
 import tempfile
 from pathlib import Path
 
-from onspeed_py.log_replay import KACC_TAU_S, scenario_from_log
+from onspeed_py.config import FlapSetpoints
+from onspeed_py.live_snapshot import LiveSnapshot
+from onspeed_py.log_replay import (
+    KACC_TAU_S,
+    _fake_lever_sweep,
+    scenario_from_log,
+)
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 
@@ -298,4 +304,103 @@ def test_kacc_tau_matches_firmware_alpha_at_208hz() -> None:
     alpha = dt / (KACC_TAU_S + dt)
     assert math.isclose(alpha, 0.060899, abs_tol=5e-4), (
         f"alpha at 208 Hz = {alpha}, expected ~0.060899"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lever-sweep window-edge clamping fix (PR #380 review feedback)
+# ---------------------------------------------------------------------------
+
+
+def _two_detents() -> dict[int, FlapSetpoints]:
+    """Minimal config with two detents so _fake_lever_sweep has somewhere
+    to interpolate between. pot=100 at flap=0, pot=300 at flap=16.
+    Midpoint pot value at the snap is (100 + 300) / 2 = 200.
+    """
+    return {
+        0:  FlapSetpoints(degrees=0,  pot_value=100, alpha_0=-2.0,
+                          alpha_stall=11.0),
+        16: FlapSetpoints(degrees=16, pot_value=300, alpha_0=-3.0,
+                          alpha_stall=10.5),
+    }
+
+
+def _states_with_snap_at(idx: int, total: int) -> list[LiveSnapshot]:
+    """Build `total` LiveSnapshots; flap=0 before `idx`, flap=16 from
+    `idx` onward. _fake_lever_sweep snaps at the first row where the
+    detected detent flips, i.e. index `idx`.
+    """
+    out: list[LiveSnapshot] = []
+    for i in range(total):
+        s = LiveSnapshot()
+        s.flap_deg = 0 if i < idx else 16
+        out.append(s)
+    return out
+
+
+def test_lever_sweep_midpoint_at_snap_when_window_fully_inside() -> None:
+    """Sanity: when the snap is centered with `half` ticks on either
+    side, the lever sits at the midpoint pot value at the snap tick.
+    """
+    cfg = _two_detents()
+    states = _states_with_snap_at(idx=50, total=200)
+    _fake_lever_sweep(states, cfg, sweep_window_s=4.0)  # half = 100
+    # Snap at index 50, half=100, but log_replay will clamp start=0;
+    # this is actually a window-edge case for snap=50 < half=100.
+    # Verify the midpoint is at the snap.
+    assert states[50].lever_raw == 200, (
+        f"midpoint lever_raw at snap should be 200; got {states[50].lever_raw}"
+    )
+
+
+def test_lever_sweep_midpoint_at_snap_near_log_start() -> None:
+    """Snap at index 5, half=20. start clamps to 0. Without the signed-
+    offset fix, smoothstep(5/25) = 0.296, lever_raw lands at ~159
+    instead of 200. With the fix, u(k=5) = 0.5 + 0 = 0.5, smoothstep
+    yields 0.5, midpoint = 200.
+    """
+    cfg = _two_detents()
+    sweep_ticks = 40                      # so half=20
+    sweep_window_s = sweep_ticks / 50.0   # 0.8 s @ 50 Hz
+    states = _states_with_snap_at(idx=5, total=60)
+    _fake_lever_sweep(states, cfg, sweep_window_s=sweep_window_s)
+    assert states[5].lever_raw == 200, (
+        f"snap-near-start: lever_raw at snap should be 200; "
+        f"got {states[5].lever_raw}"
+    )
+
+
+def test_lever_sweep_midpoint_at_snap_near_log_end() -> None:
+    """Mirror of the start case: snap at index N-6 with half=20.
+    end clamps to N-1. With the fix, u(k=snap) = 0.5 → lever = 200.
+    """
+    cfg = _two_detents()
+    sweep_ticks = 40
+    sweep_window_s = sweep_ticks / 50.0
+    total = 60
+    snap_idx = total - 6   # 54
+    states = _states_with_snap_at(idx=snap_idx, total=total)
+    _fake_lever_sweep(states, cfg, sweep_window_s=sweep_window_s)
+    assert states[snap_idx].lever_raw == 200, (
+        f"snap-near-end: lever_raw at snap should be 200; "
+        f"got {states[snap_idx].lever_raw}"
+    )
+
+
+def test_lever_sweep_endpoints_reach_detent_values() -> None:
+    """Far from the snap (outside ±half), the lever stays at the original
+    detent. Inside the window the smoothstep ramps from prev to new.
+    """
+    cfg = _two_detents()
+    sweep_ticks = 40
+    sweep_window_s = sweep_ticks / 50.0
+    states = _states_with_snap_at(idx=100, total=200)
+    _fake_lever_sweep(states, cfg, sweep_window_s=sweep_window_s)
+    # Inside the window the start edge clamps to prev_pot (100).
+    assert states[80].lever_raw == 100, (
+        f"start of window should clamp to prev pot 100; got {states[80].lever_raw}"
+    )
+    # End edge clamps to new_pot (300).
+    assert states[120].lever_raw == 300, (
+        f"end of window should clamp to new pot 300; got {states[120].lever_raw}"
     )
