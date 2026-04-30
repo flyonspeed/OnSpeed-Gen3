@@ -19,6 +19,6 @@ static const char htmlIndexer[] PROGMEM = R"=====(<!DOCTYPE html>
 </head>
 <body>
 <div id="app" data-page="indexer"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
-<script src="/static/app-87f37c5e4547.js" defer></script>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
 </body>
 </html>)=====";
