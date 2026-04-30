@@ -177,6 +177,65 @@ These gaps say: **the SD log is good enough for AHRS/AOA regression testing toda
 
 Two of five are fully schema-controlled (DisplaySerial, SD log). The WebSocket is the obvious next target.
 
+## Prior art: what adjacent industries already settled on
+
+The "AHRS plus air-data plus calibration produces a stream that drives indicators and audio" pattern is not novel. Several adjacent communities have converged on named, versioned wire protocols with codegen and ground-station tooling that already does the things we are reaching for. Naming them is useful because it tells us **what to import rather than reinvent**, and it gives us a measuring stick — *if our wire format can't render in QGroundControl, why not, and what do we lose?*
+
+### MAVLink (UAV autopilots)
+
+The closest match. MAVLink is the lingua franca for ArduPilot, PX4, Mission Planner, QGroundControl, MAVSDK, and the entire small-UAV ecosystem.
+
+- **`ATTITUDE` (msg 30)**: pitch, roll, yaw, gyro rates. Streamed at configurable rate over UDP/TCP/serial.
+- **`AOA_SSA` (msg 11020, ArduPilotMega dialect)**: angle of attack and sideslip in degrees, with microsecond timestamp. 16 bytes. Already supports vane-type sensors and pitot-derived estimates.
+- **`AIRSPEED`, `VFR_HUD`, `RAW_IMU`, `SCALED_PRESSURE`, `GPS_RAW_INT`**: every signal we ship is already a named MAVLink message.
+- **Schema discipline**: messages are versioned, dialected (`common.xml` plus per-vendor extensions), with codegen for C, C++, Python, Rust. Adding a field means a deliberate schema edit, and old clients keep parsing the messages they understand.
+- **Rate control**: `SET_MESSAGE_INTERVAL` per message, or `SRx_*` parameter groups.
+- **Ground stations**: Mission Planner and QGroundControl already render the pitch ladder, airspeed indicator, and attitude gauge we're building piecemeal in `/indexer`.
+- **Sim integration**: PX4 SITL and ArduPilot SITL run autopilot code against JSBSim or Gazebo physics over MAVLink. The autopilot can't tell whether the IMU bytes came from real silicon or simulated. This is the data-source abstraction we're sketching, fully realized.
+
+### X-Plane RREF and FlightGear Generic Protocol (sim → external client)
+
+Both major flight sims publish telemetry over UDP specifically so external hardware and software can subscribe. OnSpeed's X-Plane plugin already lives in the X-Plane half of this world; FlightGear's protocol is interesting as a model.
+
+- **X-Plane RREF**: subscribe to a dataref by name, receive a stream of `(int index, float value)` pairs at your chosen rate.
+- **FlightGear Generic Protocol**: write an XML file declaring exactly which `/orientation/pitch-deg`, `/velocities/airspeed-kt`, `/orientation/alpha-deg` properties you want; the sim emits them as UDP at your rate. **The consumer authors the schema, the producer conforms** — the cleanest schema-as-contract example among these protocols.
+
+### GDL90 (avionics → EFB tablets)
+
+A closer cousin to OnSpeed: an on-aircraft device broadcasts AHRS + GPS + ADS-B over WiFi UDP to consumer EFB apps on a tablet. Standard: FAA GDL90 ICD plus ForeFlight's published extensions.
+
+- AHRS message at 5 Hz, framed binary, UDP unicast to port 4000.
+- Implementations: Stratux (open source ADS-B + AHRS receiver), SoftRF, Garmin GDL series, uAvionix Sentry.
+- Consumers: ForeFlight, Garmin Pilot, FlyQ, AvNav, Naviator, FltPlan Go.
+- **Limitation for our purposes**: GDL90 does not carry AOA natively; would require a vendor extension. Lower priority than MAVLink unless we specifically target the tablet-EFB market.
+
+### DCS-BIOS / MSP OSD (sim → DIY cockpit hardware)
+
+The cottage-industry existence proof for "sim telemetry drives a hardware indexer." DCS-BIOS bridges DCS sim state to Arduino over serial; hobbyists build F/A-18 AOA indexers (four LEDs: too-fast / on-speed / on-speed / too-slow) that consume the stream. MSP OSD is the equivalent in the FPV racing-drone world. Same architecture as ours, smaller scale, longer history.
+
+### What this implies
+
+Three takeaways that should inform every wire-format decision we make from here:
+
+1. **The contract we're sketching is not novel.** Every system that does AHRS-plus-air-data-plus-displays has converged on "named, versioned messages over UDP, codegen'd into multiple language bindings, with ground-station tooling per use case." OnSpeed reinventing this from scratch is what gave us issue #363 and the PR #353 retrofit.
+
+2. **MAVLink in particular is a credible "import this protocol" candidate.** Not as the only wire format — DisplaySerial and the audio path stay where they are — but as a *second* output that opens a large door:
+   - **Emit MAVLink:** OnSpeed firmware producing `AOA_SSA` + `ATTITUDE` + `VFR_HUD` over UDP becomes visible to Mission Planner, QGroundControl, MAVLink Inspector, MAVSDK clients, OpenHD, and any of the dozen tablet ground stations in the UAV ecosystem. The pilot's cockpit tablet running QGC sees OnSpeed's AOA in the HUD with zero custom client code.
+   - **Consume MAVLink:** OnSpeed running from a Pixhawk's IMU bytes — or PX4 SITL output, or ArduPilot SITL — validates our AHRS against off-the-shelf flight-stack ground truth. Cross-vendor regression testing for free.
+   - **Bridge LogReplay → MAVLink → another OnSpeed:** replay a flight as a MAVLink stream, point a second OnSpeed instance at it, verify identical tone decisions. Same regression idea PR #353 enabled, larger surface.
+
+3. **If the indexer consumed MAVLink, it would work against any MAVLink source.** Today `/indexer` reads OnSpeed's bespoke WebSocket JSON. If the indexer code consumed an `ATTITUDE` + `AOA_SSA` + `VFR_HUD` stream instead — same Preact frontend, different transport — the same indexer would render against:
+   - Real OnSpeed firmware (after MAVLink emit lands)
+   - A real Pixhawk-based UAV
+   - X-Plane via mavlink-router
+   - ArduPilot SITL output during regression tests
+   - A recorded MAVLink log file replayed via `mavproxy --master=tlog:flight.tlog`
+   - Anyone else's MAVLink-speaking system
+
+   The indexer becomes **a generic AOA HUD client**, not an OnSpeed-specific one. That is the kind of leverage that justifies adopting the standard.
+
+**Honest limits.** Adopting MAVLink doesn't solve everything. The audio path — tone selection, pulse rates, the `iMuteAudioUnderIAS` logic — is OnSpeed-specific and has no standard message. We'd either define a vendor-dialect message (`ONSPEED_TONE_STATE`?) or accept that the audio decision stays firmware-internal and only the displayable signals cross the wire. Configuration (per-flap setpoints, calibration curves) is similarly bespoke; MAVLink has parameter messages but the OnSpeed config schema is richer than a flat key-value store. Neither limit kills the value: the displayable signals are most of what an external consumer wants.
+
 ## What changes when we add a new ___
 
 These are the discipline questions to ask. If the answer to any of them is "edit a global address book" or "duplicate the unpacker", the model is being violated and the right fix is a small refactor before, not a workaround during.
@@ -210,12 +269,73 @@ These are the discipline questions to ask. If the answer to any of them is "edit
 
 ## Relationship to other planning
 
-This document defines the *shape*. The *sequence* of getting there belongs in a separate plan. Likely next steps, in rough order of leverage:
+This document defines the *shape*. Detailed sequencing belongs in its own plan. The list below is the rough order of leverage, with explicit notes on **where we should adopt an existing standard rather than invent our own**.
 
-1. WebSocket JSON schema (small, prevents the next #363).
-2. `LiveDataFrame` snapshot in DataServer (medium, fixes the global-address-book reader).
-3. OAT in the log + boom-via-parser in LogReplay (small, makes log replay a true flight reproduction).
-4. `AoaEstimates` struct + parallel estimators (largest, unlocks live calibration monitoring and auto-calibration).
-5. Simulator network bridge (medium, follows naturally from a clean data-source adapter contract).
+### 1. `LiveDataFrame` snapshot in DataServer (medium)
 
-Each is independently reviewable and shippable. None of them require a top-down rewrite. The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it.
+Define a `LiveDataFrame` struct, snapshot all 25 globals into it once per 50 ms tick under the relevant mutexes, and have the JSON builder format from the frame. Fixes the global-address-book reader and gives every other sink the same input.
+
+Standard to hew to: **none yet** — this is internal scaffolding. But the frame becomes the source of truth that downstream wire formats (JSON, MAVLink, future HUD) all encode from.
+
+### 2. WebSocket JSON schema (small)
+
+Generate `UpdateLiveDataJson()` from the `LiveDataFrame` declaration via a codec module in `onspeed_core/src/proto/` with a round-trip test. Pin the field set so the next #363 fails at the test, not in a pilot's browser.
+
+Standard to hew to: **JSON Schema** for the field-set declaration, so downstream clients (cal wizard, M5 sim, future tools) can validate inputs against the same schema artifact rather than each shipping its own list of expected keys.
+
+### 3. OAT and boom re-injection in LogReplay (small)
+
+Wire `LogRow.oatCelsius` into `g_Sensors.OatC` and `LogRow.boom*` through the boom serial parser during replay. Closes the two named gaps that prevent SD logs from being a true flight-reproduction data source.
+
+Standard to hew to: **none externally** — this is fixing the contract with our own log format.
+
+### 4. **MAVLink emit (medium-large, unlocks the most external compatibility)**
+
+Add a MAVLink emitter that produces `ATTITUDE`, `AOA_SSA`, `VFR_HUD`, `AIRSPEED`, `RAW_IMU`, `SCALED_PRESSURE` over UDP from the `LiveDataFrame`. Use the official C library (`c_library_v2`) rather than rolling our own framing — the codegen is the schema discipline we're trying to import.
+
+What this unlocks:
+
+- **Mission Planner / QGroundControl as ground stations.** Pilot's tablet running QGC connects to OnSpeed over WiFi UDP and sees the full HUD: pitch ladder, airspeed indicator, AOA gauge, attitude. Zero custom client code, written by a community much larger than ours.
+- **MAVLink Inspector for debugging.** Drop `mavlink-inspector` or QGC's MAVLink console on the network and watch every message in real time, with names, units, and field documentation.
+- **MAVSDK / pymavlink clients.** Anyone who wants to build analysis tooling, recording, or custom visualization can do it against the same protocol that powers tens of thousands of UAVs.
+- **OpenHD compatibility.** OpenHD's digital-FPV system is MAVLink-based; an OnSpeed unit could theoretically feed an OpenHD ground station with no glue code.
+
+### 5. **Indexer as generic MAVLink HUD client (medium, follows from #4)**
+
+Rewrite `/indexer`'s data acquisition to subscribe to MAVLink messages instead of (or alongside) the bespoke WebSocket JSON. The Preact components that draw the indexer don't change; only the input adapter does.
+
+What this unlocks:
+
+- **The indexer becomes a generic AOA HUD.** Same code renders against real OnSpeed firmware, a Pixhawk drone, X-Plane via `mavlink-router`, ArduPilot SITL, or a recorded MAVLink telemetry log replayed with `mavproxy --master=tlog:flight.tlog`.
+- **Cross-vendor validation.** Run the indexer against ArduPilot SITL output and visually verify our pitch/roll/AOA rendering matches the reference flight stack.
+- **No-firmware demo.** Show OnSpeed's indexer at a fly-in with just a laptop running PX4 SITL — no aircraft, no ESP32, no setup. Recruiting and education tool.
+
+### 6. MAVLink consume (medium-large, unlocks SITL-style validation)
+
+A data-source adapter that reads MAVLink `RAW_IMU` + `SCALED_PRESSURE` over UDP and feeds the AHRS. The autopilot world's SITL pattern, applied to OnSpeed.
+
+What this unlocks:
+
+- **OnSpeed firmware running against ArduPilot SITL or PX4 SITL.** Validates AHRS, AOA calc, and tone decisions against an off-the-shelf flight stack's ground truth, on every commit.
+- **Bench testing without an aircraft.** A laptop running JSBSim / PX4 SITL → MAVLink → OnSpeed firmware on a dev board → real audio out the speakers. Stalls, AOA pulls, calibration runs — all reproducible at a desk.
+- **Real Pixhawk passthrough.** An OnSpeed box could in principle take its IMU bytes from a Pixhawk's MAVLink stream rather than its own ICM-42688, blurring the line between "OnSpeed unit" and "OnSpeed software riding on someone else's hardware."
+
+### 7. `AoaEstimates` struct + parallel estimators (largest)
+
+Multiple AOA estimators running in parallel: pressure-polynomial (today's operational signal), EKF6 alpha state, Madgwick θ−γ, boom probe alpha, live IAS-to-AOA fit residual. Consumers take `const AoaEstimates&` instead of the scalar from `g_Sensors.AOA`. Foundation for live calibration monitoring and eventual auto-calibration.
+
+Standard to hew to: **none externally** — this is novel territory. But step #4 makes it observable: each estimator can be its own MAVLink message (or extended fields in `AOA_SSA`-derived dialect messages), so the agreement-or-divergence between estimators is visible to any ground station.
+
+### 8. Simulator network bridge (medium)
+
+Once steps #4 and #6 land, the "simulator data source" is just MAVLink consume pointed at PX4 SITL or X-Plane. No bespoke protocol needed. Falls out of the standard, doesn't need its own design.
+
+### 9. (Maybe) GDL90 emit for tablet-EFB compatibility
+
+Lower priority unless we specifically target ForeFlight / Garmin Pilot users. GDL90 doesn't carry AOA natively, so the value is mostly attitude and groundspeed bridging. Defer until there's a concrete user ask.
+
+---
+
+Each step is independently reviewable and shippable. None require a top-down rewrite. The pattern they share is **import the schema discipline that adjacent communities have already worked out**, and reserve our own design effort for the parts that actually are OnSpeed-specific (audio decisions, percent-lift math, calibration logic).
+
+The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it, and reaches for an existing protocol before inventing one.
