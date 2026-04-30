@@ -202,21 +202,16 @@ def _load_flap_setpoints_v1(root) -> dict[int, FlapSetpoints]:
 
     out: dict[int, FlapSetpoints] = {}
     for i, deg in enumerate(degrees):
-        # Derive alpha_0 from the per-flap AOA_CURVE polynomial.
-        # Format: "x3,x2,x1,x0,curve_type" — the x0 term is the
-        # body-angle intercept at zero pressure ratio (the V1 wizard
-        # writes this as the zero-lift body angle proxy).
-        curve_text = root.findtext(f"AOA_CURVE_FLAPS{i}", "0,0,0,0,0")
-        curve_parts = [float(x) for x in curve_text.split(",")]
-        # curve_parts = [x3, x2, x1, x0, type]  (4 polynomial coeffs + type)
-        # x0 is the constant term — body angle at zero pressure ratio.
-        # In V1's parameterization that's effectively alpha_0.
-        alpha_0_v1 = curve_parts[3] if len(curve_parts) >= 4 else 0.0
-        # Heuristic: alpha_stall sits ~1.5° past stall_warn (V1 didn't
-        # carry a separate alpha_stall; 1.5° is the typical margin in
-        # calibration data).
+        # V1 configs don't store alpha_0 / alpha_stall / k_fit — those
+        # were added by the modern calibration wizard.  Defaults:
+        #   alpha_0 = 0      (matches Gen2's piecewise+0-floor display)
+        #   alpha_stall = stallwarn + 1.5  (typical calibration margin)
+        # The honest values can only be recovered by re-fitting against
+        # the original log data with the modern wizard; we don't try
+        # that automatically since most users won't have the source log.
+        # Replays of V1 configs land L/Dmax at a percent close to what
+        # Gen2 displayed, which is good enough for visual demos.
         sw = stallwarn[i] if i < len(stallwarn) else 0.0
-        alpha_stall_v1 = sw + 1.5
 
         out[deg] = FlapSetpoints(
             degrees=deg,
@@ -225,9 +220,9 @@ def _load_flap_setpoints_v1(root) -> dict[int, FlapSetpoints]:
             onspeed_fast_aoa=onspeed_fast[i] if i < len(onspeed_fast) else 0.0,
             onspeed_slow_aoa=onspeed_slow[i] if i < len(onspeed_slow) else 0.0,
             stallwarn_aoa=sw,
-            alpha_0=alpha_0_v1,
-            alpha_stall=alpha_stall_v1,
-            k_fit=0.0,   # V1 didn't store K_fit; tools that need it must derive
+            alpha_0=0.0,
+            alpha_stall=sw + 1.5,
+            k_fit=0.0,
         )
     return out
 

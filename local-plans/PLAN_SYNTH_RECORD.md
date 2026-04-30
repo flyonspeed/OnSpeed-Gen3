@@ -31,6 +31,27 @@ Each scenario yields a stream of `LiveSnapshot` ticks at 50 Hz (matching the fir
 
 **Key architectural success:** the tool consumes `onspeed_core` directly. The audio rendered is byte-identical to what the box would emit for the same scenario — same `ToneCalc::calculateTone`, same `Envelope` DAHDR shape, same `AudioMixer::Mix` per-sample composition. The visuals come from running the actual M5 firmware code through SDL2 in headless mode (`SimRecord.cpp`), driven by real `#1` wire frames the firmware would assemble. Display anchors come from `ComputeDisplayPctAnchors`. SpinDetector lives in `onspeed_core::sensors` and we call it.
 
+## Lessons learned during the spike (real logs were the test)
+
+The spike's `from_log.py` adapter exposed five gaps between the design and the data we'll actually be replaying. All are worth folding into the longer-term tool, not just "spike duct tape":
+
+1. **Gen2 logs are pre-smoothing.** Gen3 logs the post-EMA-filtered accel values; Gen2 logs raw IMU. Without α=0.0609 EMA smoothing in the adapter, the ball / AI / G-readout jitter unrealistically when replaying Gen2 data. The Gen3 firmware's `kAccSmoothing` constant becomes the source-of-truth value. Done.
+
+2. **The lever-ADC is not in the log.** PR #336's `pipPctLift` interpolates lever-end-to-end across the pot range, but logs only carry the *detected* detent (integer `flapsPos`). Without a workaround the pip jumps at every detent crossing. Issue [#372](https://github.com/flyonspeed/OnSpeed-Gen3/issues/372) filed for the proper fix (capture `flapsRawADC`); meanwhile `_fake_lever_sweep` synthesizes a 4-second smooth ramp **centered on the detent-detection tick** (the firmware flips detents at the midpoint between adjacent pot values, so the lever was already at midpoint when the log first showed the new detent — sweeping centered, not just-before, models that timing correctly).
+
+3. **V1 configs are missing alpha_0 / alpha_stall / k_fit.** Those fields weren't extracted by the V1 calibration wizard. Default to `α_0 = 0` (matches what Gen2's piecewise display showed) and `α_stall = stallwarn + 1.5°`. Honest values can be recovered for any log via a one-shot fit utility (demonstrated on Vac's data; R²=0.976) but we don't run it automatically since most users won't have the source log.
+
+4. **Old logs use different column names.** `AngleofAttack` instead of `DerivedAOA`, no `efisPercentLift`, no per-flap percent-lift columns. PR #353's name-keyed parsing pattern is the right shape — the adapter accepts either name and falls back to defaults for fields the old format didn't carry.
+
+5. **V1 XML uses tag names that aren't valid XML** (`<3DAUDIO>` etc.). tinyxml2 accepts these; Python's stdlib doesn't. The Python parser preprocesses the raw text to rename `<3...>` → `<_3...>` before parsing. Worth noting because the same trick would be needed in any other Python-side V1 consumer.
+
+These lessons are checked-in:
+- `tools/synth-record/scenarios/from_log.py` — the adapter with smoothing, fake lever sweep, name-aliasing, and graceful degradation
+- `tools/synth-record/wire_frame_builder.py::_load_flap_setpoints_v1` — V1 config parser
+- `test/fixtures/v1-config-and-log/` — Vac's cfg + a 30s log slice as a regression fixture so this never bit-rots
+
+The bigger architectural lesson: **the gap between "log → replay" and "synthetic → render" is much smaller than it looked.** Both produce LiveSnapshot ticks; both go through the same orchestrator → harnesses → ffmpeg pipeline. The forking happens *only* at the front (parsing the source) and the convergence is at the LiveSnapshot itself. That's the architecture-decoupling doc working as intended: the processing core doesn't know its source.
+
 ## Where we cheated, and why it has to retire
 
 The spike intentionally cut three corners. Each one is a duplication of firmware-or-spec logic that should live in `onspeed_core` and doesn't yet:
@@ -204,13 +225,30 @@ The first real-log test (Vac's `vac_log.csv` + `vac_config.cfg` from late 2025) 
 <SETPOINT_ONSPEEDSLOWAOA>13.84,12.64,12.44</SETPOINT_ONSPEEDSLOWAOA>
 <SETPOINT_STALLWARNAOA>16.48,16.29,14.51</SETPOINT_STALLWARNAOA>
 <AOA_CURVE_FLAPS0>0.0,8.4845,24.0804,4.6157,1</AOA_CURVE_FLAPS0>
+<3DAUDIO>1</3DAUDIO>
 ```
 
-vs current per-flap-block format. **Python parser must accept both.** The new format has `<FLAP_POSITION>` blocks; old format has top-level `<SETPOINT_*>` lists. No `ALPHA0`, `ALPHASTALL`, `KFIT` in V1 — those are derivable but only with current calibration tooling. For the demo path:
-- If V1: parse the lists, derive `alpha_0` from `AOA_CURVE_FLAPS{i}` polynomial intercept, derive `alpha_stall` from `STALLWARNAOA + small offset` (since V1 didn't have a separate alpha_stall, ~95th-percentile heuristic) — or compute from the polynomial's max-AOA point. Document the heuristic clearly.
-- If new: per-flap-block, no heuristics needed.
+vs current per-flap-block format. **Python parser must accept both.** The new format has `<FLAP_POSITION>` blocks; old format has top-level `<SETPOINT_*>` lists.
 
-Onspeed_core already handles both via `ConfigV1Parse.cpp` + `ConfigXmlParse.cpp`. **The shared `tools/onspeed_py/` module needs the same dual-path** (or a tiny C++ harness that runs the firmware's V1 parser and emits a normalized JSON).
+**Three V1-specific quirks the parser must handle:**
+
+1. **Digit-prefix XML tags.** V1 has `<3DAUDIO>` (and possibly other digit-prefix tags), which is not valid XML. Python's stdlib `xml.etree.ElementTree` rejects this; tinyxml2 accepts it. The Python parser preprocesses the raw text to rename `<3...>` → `<_3...>` before calling `ET.fromstring`.
+
+2. **No `ALPHA0` / `ALPHASTALL` / `KFIT`.** These fields didn't exist in V1; the modern calibration wizard derives them by fitting `AOA = K/IAS² + α_0` against the original calibration log. **Default behavior in the parser:** `α_0 = 0` (matches Gen2's piecewise+0-floor display), `α_stall = stallwarn + 1.5°` (typical calibration margin), `k_fit = 0` (the `ias_from_aoa` helper returns 0 when k_fit is unset, gracefully degrading any IAS-from-AOA calculations downstream).
+
+3. **The polynomial intercept (`x0` term of `AOA_CURVE_FLAPS{i}`) is NOT alpha_0.** Vac's intercept of +4.62° looks like it could be the zero-lift body angle but isn't — it's the body angle reading at zero pressure ratio (i.e. when the boom is co-aligned with the relative wind), which is sensitive to installation alignment. Vac's was high because his box was mounted nose-down without programmed bias correction. **Don't use it as an alpha_0 substitute** — gives wildly wrong percent-lift values. (Verified: Vac's flap-0 L/Dmax with the polynomial-intercept heuristic landed at 26% on the indexer; honest fit-derived alpha_0 puts it at 46%.) The proper recovery path is a per-log fit; we don't try that automatically.
+
+Onspeed_core already handles both formats via `ConfigV1Parse.cpp` + `ConfigXmlParse.cpp`. **The shared `tools/onspeed_py/` module needs the same dual-path** (or a tiny C++ harness that runs the firmware's V1 parser and emits a normalized JSON). See `test/fixtures/v1-config-and-log/` for the fixture-based regression tests covering all three quirks.
+
+### Optional: post-fit correction utility
+
+For users replaying old logs who care about visually-correct percent-lift positioning (not just "what Gen2 displayed"), a separate utility:
+
+```bash
+python3 tools/onspeed_py/fit_alpha0.py --log vac_log.csv --cfg vac_config.cfg --flap 0
+```
+
+Reads clean unaccelerated 1G points from the log, fits `AOA = K/IAS² + α_0`, prints values the user can manually paste into a per-scenario override. Demonstrated working on Vac's data (R²=0.976 across 22,610 points). Not part of the default V1 path because most users won't have the source log; useful as an opt-in for analysis tasks.
 
 ### Old log columns (pre-PR #353)
 

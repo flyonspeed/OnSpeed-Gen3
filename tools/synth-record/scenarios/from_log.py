@@ -100,13 +100,75 @@ def _resolve_lever_raw(flap_deg: int,
     return fs.pot_value
 
 
+def _fake_lever_sweep(states: list[LiveSnapshot],
+                      cfg: dict[int, wfb.FlapSetpoints],
+                      sweep_window_s: float = 4.0) -> list[LiveSnapshot]:
+    """Replace the snapped lever_raw with a smooth sweep across detent
+    transitions, **centered** on the detection-flip tick.
+
+    Workaround for issue #372: SD logs only carry the integer detected
+    detent (`flapsPos`), not the raw flap-pot ADC.  Without this fake
+    sweep, the L/Dmax pip jumps at every flap-deg change in the log
+    instead of sliding through the physical lever travel.
+
+    Why centered, not just-before:  the firmware's `FlapsDetector`
+    flips the detected detent when the lever crosses the **midpoint**
+    between adjacent detents' pot positions.  By the time the log
+    records "flap=16" for the first time, the lever is already at
+    midpoint between 0 and 16 and still moving.  If we ramp the fake
+    lever_raw to *end* at the snap tick, the firmware-side detection
+    of detent transition fires too late on replay (the snap line
+    crosses after the lever has already arrived).  Centering the
+    sweep on the snap tick puts the lever AT the midpoint at exactly
+    the moment the log first reads the new detent — matching the
+    physics.
+
+    Concretely, for a transition at row i:
+      * sweep starts at row (i - sweep_ticks/2): lever_raw = old detent
+      * sweep midpoint at row i:                  lever_raw = midpoint
+      * sweep ends at row (i + sweep_ticks/2):    lever_raw = new detent
+    """
+    if len(states) < 2:
+        return states
+
+    # Walk forward, find detent transitions, paint the sweep centered
+    # on the snap tick.
+    sweep_ticks = max(2, int(round(sweep_window_s * 50)))   # 50 Hz
+    half = sweep_ticks // 2
+    last_flap = states[0].flap_deg
+
+    for i, s in enumerate(states):
+        if s.flap_deg != last_flap and i > 0:
+            prev_flap = last_flap
+            new_flap = s.flap_deg
+            prev_fs = wfb.setpoints_for_flap(prev_flap, cfg)
+            new_fs  = wfb.setpoints_for_flap(new_flap,  cfg)
+
+            start = max(0, i - half)
+            end   = min(len(states) - 1, i + half)
+            n     = end - start
+            for j, k in enumerate(range(start, end + 1)):
+                u = j / max(1, n)
+                # Smoothstep for a cleaner visual ease.
+                u_smooth = u * u * (3.0 - 2.0 * u)
+                states[k].lever_raw = int(round(
+                    (1.0 - u_smooth) * prev_fs.pot_value
+                    + u_smooth        * new_fs.pot_value
+                ))
+        last_flap = s.flap_deg
+
+    return states
+
+
 def scenario_from_log(log_path: Path,
                       cfg_path: Path,
                       t_start_s: float,
                       t_end_s: float,
                       *,
                       target_rate_hz: float = 50.0,
-                      smooth_accels: bool = True) -> Iterator[LiveSnapshot]:
+                      smooth_accels: bool = True,
+                      fake_lever_sweep: bool = True,
+                      flap_overrides: dict | None = None) -> Iterator[LiveSnapshot]:
     """Yield LiveSnapshots from a window of an OnSpeed CSV log.
 
     `t_start_s` / `t_end_s` are seconds since log epoch — i.e., the
@@ -129,6 +191,17 @@ def scenario_from_log(log_path: Path,
     that here: gyros pass through unsmoothed.
     """
     cfg = wfb.load_flap_setpoints(cfg_path)
+
+    # Optional per-flap overrides — used when the V1 config doesn't carry
+    # alpha_0 / alpha_stall / k_fit and the caller has fit them from the
+    # log itself.  See scenarios/vac_decel_run.py for the worked example.
+    if flap_overrides:
+        for flap_deg, overrides in flap_overrides.items():
+            if flap_deg in cfg:
+                fs = cfg[flap_deg]
+                for k, v in overrides.items():
+                    setattr(fs, k, v)
+
     target_dt_s = 1.0 / target_rate_hz
 
     # Gen3 firmware EMA constant for accels (AHRS.cpp:22 kAccSmoothing).
@@ -146,6 +219,8 @@ def scenario_from_log(log_path: Path,
         nxt = (1.0 - alpha) * prev + alpha * value
         ema[key] = nxt
         return nxt
+
+    states: list[LiveSnapshot] = []
 
     with log_path.open() as f:
         reader = csv.DictReader(f)
@@ -197,7 +272,7 @@ def scenario_from_log(log_path: Path,
             else:
                 lever_raw = _resolve_lever_raw(flap_deg, cfg)
 
-            yield LiveSnapshot(
+            states.append(LiveSnapshot(
                 t=ts - t_start_s,
                 aoa=_ffloat(row, _AOA_NAMES),
                 ias=_ffloat(row, _IAS_NAMES),
@@ -212,4 +287,12 @@ def scenario_from_log(log_path: Path,
                 vsi=_ffloat(row, _VSI_NAMES),
                 oat=_fint(row, _OAT_NAMES, default=15),
                 flight_path=_ffloat(row, _FLIGHT_PATH_NAMES),
-            )
+            ))
+
+    if fake_lever_sweep:
+        # Workaround for issue #372: synthesize a smooth lever sweep
+        # across detent transitions since logs only carry integer
+        # flapsPos.  Drop this once flapsRawADC is captured in the log.
+        states = _fake_lever_sweep(states, cfg)
+
+    yield from states
