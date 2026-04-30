@@ -124,9 +124,9 @@ static const Fixture kFixtures[] = {
 
     // ----- order-error fixture: OnSpeedFast LESS than LDMAX -----
     // Triggers the first branch of SetpointOrderError() ("LDMAX must
-    // be less than OnSpeedFast").  Both paths must emit identical
-    // text — the test confirms the new path doesn't silently swallow
-    // the warning.
+    // be less than OnSpeedFast").  Both paths emit identical text;
+    // the test pins that the new path raises the warning the legacy
+    // path raises.
     {
         "ldmax_above_osfast",
         /* flapDegrees */ 0,
@@ -323,13 +323,13 @@ void test_curve_coefficient_mapping_explicit(void) {
 // ============================================================================
 // End-to-end JSON-body tests (R1).
 //
-// PR 3's differential test (above) only exercised ApplyCalwizSave,
-// the post-parse mutation helper.  PR 4 adds tests against the
-// firmware's actual JSON parser (FindJsonValueStart + ParseJsonNumber
-// + ExtractCalwizSave) so the lexer is a CI-pinned contract.  Once
-// PR 5 deletes the legacy form path, ParseJsonNumber is the only
-// remaining write path into g_Config.aFlaps; getting it wrong here
-// silently corrupts calibration.
+// The differential test above exercises ApplyCalwizSave, the
+// post-parse mutation helper.  These tests cover the firmware's JSON
+// parser (FindJsonValueStart + ParseJsonNumber + ExtractCalwizSave)
+// so the lexer is a CI-pinned contract.  ParseJsonNumber is the only
+// write path into g_Config.aFlaps once /api/calwiz/save is the sole
+// calibration writer; CI pins the parser shape so a regression here
+// surfaces as a test failure rather than corrupted calibration.
 // ============================================================================
 
 namespace {
@@ -472,6 +472,50 @@ void test_parse_json_number_rejects_e_without_exponent_digits(void) {
     TEST_ASSERT_FALSE(ParseJsonNumber(body, p, &v));
 }
 
+// Pin three lexer behaviors that don't match strict RFC-8259 JSON but
+// are accepted by ParseJsonNumber today.  JSON.stringify never emits
+// these forms, so the wizard never feeds them through this lexer; the
+// test exists to lock in current behavior.  If a future change tightens
+// the lexer (e.g. requires `,`, `}`, `]`, whitespace, or end-of-buffer
+// after a number; rejects a leading `+`; rejects a missing integer part
+// before `.`), these assertions flip and this test demands updating
+// rather than failing silently.
+void test_parse_json_number_lexer_known_limitations(void) {
+    // (1) Trailing alphabetic garbage: `1.5xyz` parses to 1.5.  The
+    // post-number guard rejects only `.`, `e`, `E`, and digits, so a
+    // letter falls through and the lex stops at the digit boundary.
+    {
+        std::string body = "{\"x\":1.5xyz}";
+        int p = FindJsonValueStart(body, "x");
+        TEST_ASSERT_TRUE(p >= 0);
+        float v = 0.0f;
+        TEST_ASSERT_TRUE(ParseJsonNumber(body, p, &v));
+        TEST_ASSERT_EQUAL_FLOAT(1.5f, v);
+    }
+    // (2) Leading `+`: `+1.5` parses to 1.5.  RFC-8259 only permits a
+    // leading `-`, but the optional-sign branch in the lexer accepts
+    // either sign.
+    {
+        std::string body = "{\"x\":+1.5}";
+        int p = FindJsonValueStart(body, "x");
+        TEST_ASSERT_TRUE(p >= 0);
+        float v = 0.0f;
+        TEST_ASSERT_TRUE(ParseJsonNumber(body, p, &v));
+        TEST_ASSERT_EQUAL_FLOAT(1.5f, v);
+    }
+    // (3) Missing integer part before `.`: `.5` parses to 0.5.  RFC-8259
+    // requires at least one digit before the decimal point; the lexer
+    // accepts a fractional-only mantissa.
+    {
+        std::string body = "{\"x\":.5}";
+        int p = FindJsonValueStart(body, "x");
+        TEST_ASSERT_TRUE(p >= 0);
+        float v = 0.0f;
+        TEST_ASSERT_TRUE(ParseJsonNumber(body, p, &v));
+        TEST_ASSERT_EQUAL_FLOAT(0.5f, v);
+    }
+}
+
 // ---- ExtractCalwizSave end-to-end happy path ----------------------
 
 void test_endtoend_json_body_clean_path(void) {
@@ -498,9 +542,9 @@ void test_endtoend_json_body_clean_path(void) {
 void test_endtoend_json_body_missing_field_400s(void) {
     // R2: the wizard never strips a field, but a buggy client could.
     // Confirm the parser rejects an absent LDmaxSetpoint with the
-    // path-keyed error the HTTP handler turns into 400.  Legacy
-    // form path zeros missing fields silently — this divergence is
-    // intentional.
+    // path-keyed error the HTTP handler turns into 400.  An absent
+    // field is a parse failure — the parser surfaces an error rather
+    // than substituting zero.
     const Fixture& fx = kFixtures[0];
     std::string body = MakeJsonBody(fx.flapDegrees, fx.input);
     // Replace the LDmax key with a different key so it's effectively
@@ -516,8 +560,8 @@ void test_endtoend_json_body_missing_field_400s(void) {
 
 void test_endtoend_json_body_nan_string_rejected(void) {
     // R2: a body with the literal token `NaN` (or `Infinity`) is
-    // rejected.  Legacy atof would silently store NaN/Inf into the
-    // SuFlaps; the new path 400s.
+    // rejected — the parser returns a 400 with the offending field
+    // name rather than storing NaN/Inf into the SuFlaps.
     std::string body =
         "{\"flapsPos\":0,"
         "\"LDmaxSetpoint\":NaN,"
@@ -610,6 +654,7 @@ int main(void) {
     RUN_TEST(test_parse_json_number_rejects_nan_token);
     RUN_TEST(test_parse_json_number_rejects_infinity_token);
     RUN_TEST(test_parse_json_number_rejects_e_without_exponent_digits);
+    RUN_TEST(test_parse_json_number_lexer_known_limitations);
     RUN_TEST(test_endtoend_json_body_clean_path);
     RUN_TEST(test_endtoend_json_body_missing_field_400s);
     RUN_TEST(test_endtoend_json_body_nan_string_rejected);

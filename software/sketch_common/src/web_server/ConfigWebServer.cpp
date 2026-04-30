@@ -482,11 +482,9 @@ void HandleIndexer()
     ServePageStub(htmlStub_indexer);
     }
 
-// /calwiz GET serves the Preact wizard's page stub.  POST /calwiz
-// kept on HandleCalWizard for one release as a safety net for
-// external tools / bookmarks; the new client targets
-// /api/calwiz/save and /api/calwiz/state.  Slated for deletion
-// after PR 4.
+// /calwiz GET serves the Preact wizard's page stub.  The wizard's
+// write side targets POST /api/calwiz/save and read side targets
+// GET /api/calwiz/state — both implemented in ApiHandlers.cpp.
 void HandleCalWizardPage()
     {
     ServePageStub(htmlStub_calwiz);
@@ -2559,33 +2557,12 @@ void HandleUpgradeFailure()
 
 // ----------------------------------------------------------------------------
 
-/*
-/getvalue?name=NAME
-
-Currently supported NAMEs and JSON responses are:
-FLAPS
-VOLUME
-AOA
-*/
-
-
-
-
-// ----------------------------------------------------------------------------
-
 void HandleFormat()
     {
     ServePageStub(htmlStub_format);
     }
 
 
-
-// ----------------------------------------------------------------------------
-
-#if 1
- // end HandleCalWizard()
-
-#endif
 
 // ----------------------------------------------------------------------------
 
