@@ -7,6 +7,47 @@ firmware embeds —
 directory by `scripts/build_web_bundle.py`.  The directory under
 `tools/web/` is the source of truth; the headers are the build product.
 
+## What this directory is, conceptually
+
+It's two things at once.  Useful to keep both in mind while editing:
+
+1. **The firmware's web UI.** Pages served from PROGMEM at flight time
+   over the OnSpeed AP, driven by live WebSocket frames at 20 Hz.
+2. **A JS implementation of OnSpeed's flight-data pipeline that runs
+   in any browser.** Same components, same algorithms.  Run via the
+   dev-server below, fed by mock JSON, recorded WebSocket replay
+   (NDJSON), or eventually parsed SD logs.
+
+That second hat matters as the rewrite progresses.  Future pages
+anticipated:
+
+- **Log analysis** — pilot uploads an SD log, marks calibration runs,
+  the page replays them through the same JS algorithms that would
+  have run live.  Confirms a calibration without re-flying.
+- **Offline cal-wizard replay** — feed a captured decel run through
+  the cal wizard's JS as if it were live; iterate on stall-detection
+  parameters and re-run.
+- **Bench-test pages** — drive firmware-side algorithms from canned
+  inputs, surface drift against expected outputs.
+
+What this means for working in `tools/web/`:
+
+- Components in `lib/components/svg/` and `lib/components/form/` are
+  pure functions of props.  No module-level state.  No direct
+  WebSocket subscriptions.  Pages own data sources; components own
+  rendering.  Lets the same `<DecelGauge>` render live in `/indexer`
+  Mode 3 AND offline against parsed SD-log rows.
+- Pure-JS flight algorithms live in `lib/core/`.  Where there's a C++
+  equivalent in `software/Libraries/onspeed_core/`, both ends should
+  be unit-tested against the same fixtures.
+- The dev-server is meant to grow.  Today: static + mock HTTP +
+  WebSocket replay.  Adding a "drag in an SD log" workflow is a
+  natural extension.
+
+The bundler is a small Python+regex script with no npm/Vite/Rollup
+dependency.  `git clone && node tools/web/dev-server/server.mjs` is
+the entire local-dev install.
+
 ## Quick start
 
 Run the dev server with mock data (default port `8080`):
