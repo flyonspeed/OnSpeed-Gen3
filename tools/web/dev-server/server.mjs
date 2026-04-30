@@ -140,6 +140,10 @@ function pageStubHtml(page, args) {
     : args.mode === 'mock'
       ? `<meta name="onspeed-ws" content="ws://${process.env.HOST || 'localhost'}:${args.port}/ws">`
       : '';
+  // Tell PageShell where the logo lives.  The bundler emits an
+  // `ONSPEED_LOGO_DATA_URL` global; the dev server serves the PNG
+  // directly from public/ and points at it via this meta tag.
+  const logoMeta = '<meta name="onspeed-logo" content="/onspeed-logo.png">';
   // The dev server serves the JS modules straight out of lib/.  No
   // bundling — the browser pulls each file via ES module imports.
   // Edits are visible on reload without a build step.
@@ -152,6 +156,7 @@ function pageStubHtml(page, args) {
     `<title>OnSpeed — ${page.title} (dev)</title>`,
     modeMeta,
     wsMeta,
+    logoMeta,
     '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
     '</head>',
     '<body>',

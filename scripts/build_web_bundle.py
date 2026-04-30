@@ -30,6 +30,7 @@ Standalone usage:
 PlatformIO usage (auto): registered as `pre:` extra_script in
 platformio.ini's shared [env] block.
 """
+import base64
 import gzip
 import hashlib
 import os
@@ -58,7 +59,9 @@ except (NameError, Exception):
 
 WEB_DIR        = os.path.join(REPO_ROOT, "tools", "web")
 LIB_DIR        = os.path.join(WEB_DIR, "lib")
+PUBLIC_DIR     = os.path.join(WEB_DIR, "public")
 SHELL_CSS      = os.path.join(LIB_DIR, "shell", "PageShell.css")
+LOGO_PNG       = os.path.join(PUBLIC_DIR, "onspeed-logo.png")
 OUTPUT_DIR     = os.path.join(REPO_ROOT, "software", "OnSpeed-Gen3-ESP32", "Web")
 OUTPUT_JS_H    = os.path.join(OUTPUT_DIR, "static_app_js.h")
 OUTPUT_CSS_H   = os.path.join(OUTPUT_DIR, "static_app_css.h")
@@ -280,6 +283,20 @@ def _transform_preact_bundle(text):
 # JS bundling.
 # ---------------------------------------------------------------------
 
+def _logo_data_url():
+    """Read the OnSpeed PNG logo from public/ and return a data: URL.
+    Embedded once in the JS bundle as `globalThis.ONSPEED_LOGO_DATA_URL`
+    so PageShell can reference it without per-stub duplication."""
+    if not os.path.exists(LOGO_PNG):
+        raise SystemExit(
+            f"build_web_bundle: missing logo source {LOGO_PNG} — "
+            f"extract it from Web/html_header.h before running the bundler."
+        )
+    with open(LOGO_PNG, "rb") as f:
+        png = f.read()
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
 def _bundle_js():
     files = _all_js_files()
     if PREACT_BUNDLE not in files:
@@ -300,6 +317,13 @@ def _bundle_js():
             namespace_targets.setdefault(spec, set()).add(alias_name)
 
     chunks = ["// ===== OnSpeed web app bundle ====="]
+    # Inline the OnSpeed PNG logo as a data URL the chrome can read at
+    # render time.  Embedded once here, referenced by PageShell, rather
+    # than duplicated per page stub.
+    logo_url = _logo_data_url()
+    chunks.append("// === OnSpeed logo (from tools/web/public/onspeed-logo.png) ===")
+    # Data URLs are pure base64 + ASCII, so `'<url>'` is always safe.
+    chunks.append(f"globalThis.ONSPEED_LOGO_DATA_URL = '{logo_url}';")
     for path in ordered:
         rel = os.path.relpath(path, REPO_ROOT)
         chunks.append(f"// === {rel} ===")
@@ -499,6 +523,8 @@ def _walk_inputs():
             yield os.path.join(root, name)
     if os.path.exists(SHELL_CSS):
         yield SHELL_CSS
+    if os.path.exists(LOGO_PNG):
+        yield LOGO_PNG
 
 
 def _needs_rebuild():

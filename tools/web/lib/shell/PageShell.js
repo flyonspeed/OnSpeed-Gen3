@@ -1,52 +1,76 @@
-// PageShell: global chrome (logo, Tools/Settings dropdowns, primary
-// links, footer) wrapping every Preact-rendered page.  The server emits
-// a stub with `<div id="app" data-page="...">`; entry.js looks up the
-// matching page component, renders it inside `<PageShell>`, and the
-// shell paints the nav.
+// PageShell: global chrome (logo, Tools / Settings dropdowns, primary
+// links) wrapping every Preact-rendered page.  The DOM and visual
+// design match the legacy `pageHeader` (`Web/html_header.h` +
+// `html_header_css.h`) so navigating between Preact-served pages
+// (`/live`, `/indexer`) and the still-server-rendered pages
+// (`/aoaconfig`, `/calwiz`, etc.) feels like one site.
 //
-// Dropdowns use `:focus-within` + `tabindex=0` so they work on iOS
-// Safari (where `:hover` alone is unreliable on tap).  No useState
-// open-state — the CSS toggles visibility from the focus state of the
-// dropdown trigger or any descendant.
+// Dropdowns rely on `:hover` + `:focus-within` selectors only; no JS
+// open-state.  iOS Safari taps focus the trigger, which is what reveals
+// the menu via `:focus-within`.
+//
+// Logo source: `tools/web/public/onspeed-logo.png`.  The bundler reads
+// the PNG at build time and prepends a `globalThis.ONSPEED_LOGO_DATA_URL`
+// constant to the JS bundle.  The dev server emits a
+// `<meta name="onspeed-logo" content="/onspeed-logo.png">` tag and
+// serves the PNG file directly from `public/`.  PageShell reads either
+// source.
 
 import { html } from '../vendor/preact-standalone.js';
 import { NAV, navIdForPath } from './nav.js';
 
-const Dropdown = ({ group, activeId }) => {
-  const isActive = group.items.some(i => i.id === activeId);
-  return html`
-    <li class="dropdown">
-      <a href="javascript:void(0)" class="dropbtn ${isActive ? 'active' : ''}"
-         tabindex="0" aria-haspopup="true">${group.label}</a>
-      <div class="dropdown-content">
-        ${group.items.map(it => html`
-          <a href=${it.href} class=${it.id === activeId ? 'active' : ''}>${it.label}</a>`)}
-      </div>
-    </li>`;
-};
+function resolveLogoSrc() {
+  // Prefer the meta tag (dev server sets a real URL; bundler stub does
+  // not).  Fall back to the global the bundler injects ahead of the
+  // app code.
+  if (typeof document !== 'undefined') {
+    const m = document.querySelector('meta[name="onspeed-logo"]');
+    if (m && m.content) return m.content;
+  }
+  if (typeof globalThis !== 'undefined' && globalThis.ONSPEED_LOGO_DATA_URL) {
+    return globalThis.ONSPEED_LOGO_DATA_URL;
+  }
+  return null;
+}
+
+function resolveVersion(prop) {
+  if (prop) return prop;
+  if (typeof document !== 'undefined') {
+    const m = document.querySelector('meta[name="onspeed-version"]');
+    if (m && m.content) return m.content;
+  }
+  // TODO: fetch from /api/version once that endpoint lands (PR 2).
+  return 'dev';
+}
+
+const Dropdown = ({ group, activeId }) => html`
+  <li class="dropdown">
+    <a href="javascript:void(0)" class="dropbtn"
+       tabindex="0" aria-haspopup="true">${group.label}</a>
+    <div class="dropdown-content">
+      ${group.items.map(it => html`
+        <a href=${it.href} class=${it.id === activeId ? 'active' : ''}>${it.label}</a>`)}
+    </div>
+  </li>`;
 
 const Nav = ({ activeId }) => html`
-  <ul class="onspeed-nav">
+  <ul>
     <li><a href="/" class=${activeId === 'home' ? 'active' : ''}>Home</a></li>
     ${NAV.dropdowns.map(d => html`<${Dropdown} group=${d} activeId=${activeId} />`)}
     ${NAV.primary.filter(p => p.id !== 'home').map(p => html`
       <li><a href=${p.href} class=${p.id === activeId ? 'active' : ''}>${p.label}</a></li>`)}
   </ul>`;
 
-const Header = ({ activeId, version }) => html`
-  <div class="header-container">
-    <a href="/" class="logo-link" aria-label="OnSpeed home">
-      <span class="logo-text">OnSpeed</span>
-    </a>
-    <div class="firmware">${version ? `OnSpeed Version: ${version}` : ''}</div>
-    <${Nav} activeId=${activeId} />
-  </div>`;
-
-const Footer = () => html`
-  <footer class="onspeed-footer">
-    <span>OnSpeed Gen3</span>
-    <span><a href="https://flyonspeed.org" target="_blank" rel="noopener">flyonspeed.org</a></span>
-  </footer>`;
+const Header = ({ version }) => {
+  const logoSrc = resolveLogoSrc();
+  return html`
+    <div class="header-container">
+      ${logoSrc
+        ? html`<img src=${logoSrc} alt="OnSpeed" />`
+        : html`<span class="logo">OnSpeed</span>`}
+      <div class="firmware">OnSpeed Version: ${version}</div>
+    </div>`;
+};
 
 // `active` lets a page name itself when its url-derived id doesn't
 // match (e.g. an alias).  Otherwise we look up the active id from
@@ -54,17 +78,9 @@ const Footer = () => html`
 export function PageShell({ active, version, children }) {
   const path = (typeof location !== 'undefined') ? location.pathname : '/';
   const activeId = active ?? navIdForPath(path);
-  // Prefer the version baked into a `<meta name="onspeed-version">`
-  // tag if present; falls back to the prop.
-  let resolvedVersion = version;
-  if (!resolvedVersion && typeof document !== 'undefined') {
-    const m = document.querySelector('meta[name="onspeed-version"]');
-    if (m && m.content) resolvedVersion = m.content;
-  }
+  const resolvedVersion = resolveVersion(version);
   return html`
-    <div class="onspeed-shell">
-      <${Header} activeId=${activeId} version=${resolvedVersion} />
-      <main class="onspeed-main">${children}</main>
-      <${Footer} />
-    </div>`;
+    <${Header} version=${resolvedVersion} />
+    <${Nav} activeId=${activeId} />
+    ${children}`;
 }

@@ -231,11 +231,14 @@ test('LivePage data table has 13 rows (12 fields + Age)', () => {
     throw new Error(`expected 13 data rows, got ${rows.length}`);
 });
 
-test('PageShell renders nav <ul> and <main>', () => {
+test('PageShell renders nav <ul> and header-container', () => {
   const root = renderInto(html`<${shellMod.PageShell} active="live"
                                                       children=${[]} />`);
-  if (!findFirst(root, 'ul'))   throw new Error('no <ul> nav');
-  if (!findFirst(root, 'main')) throw new Error('no <main>');
+  if (!findFirst(root, 'ul')) throw new Error('no <ul> nav');
+  // Match the legacy chrome: a `.header-container` div hosting the
+  // logo + version, separate from the nav <ul>.
+  const header = findFirstWithAttr(root, 'class', 'header-container');
+  if (!header) throw new Error('no .header-container');
 });
 
 test('PageShell highlights the active page', () => {
@@ -246,6 +249,33 @@ test('PageShell highlights the active page', () => {
                                           && n.getAttribute('href') === '/live');
   const active = links.find(l => (l.getAttribute('class') || '').split(/\s+/).includes('active'));
   if (!active) throw new Error('expected the /live link to be marked active');
+});
+
+test('PageShell Tools dropdown lists the legacy items', () => {
+  const root = renderInto(html`<${shellMod.PageShell} active="live"
+                                                      children=${[]} />`);
+  const want = [
+    ['/logs',    'Log Files'],
+    ['/format',  'Format SD Card'],
+    ['/upgrade', 'Firmware Upgrade'],
+    ['/reboot',  'Reboot System'],
+  ];
+  for (const [href, _label] of want) {
+    const a = [...walk(root)].find(n => n.localName === 'a'
+                                       && n.getAttribute('href') === href);
+    if (!a) throw new Error(`Tools dropdown missing link to ${href}`);
+  }
+});
+
+test('PageShell Settings dropdown lists the legacy items', () => {
+  const root = renderInto(html`<${shellMod.PageShell} active="live"
+                                                      children=${[]} />`);
+  const want = ['/aoaconfig', '/sensorconfig', '/calwiz'];
+  for (const href of want) {
+    const a = [...walk(root)].find(n => n.localName === 'a'
+                                       && n.getAttribute('href') === href);
+    if (!a) throw new Error(`Settings dropdown missing link to ${href}`);
+  }
 });
 
 for (const [tag, msg] of results) console.log(tag, msg);

@@ -15,10 +15,10 @@ static const char htmlIndexer[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OnSpeed — Indexer</title>
-<link rel="stylesheet" href="/static/app-60b3805c049e.css">
+<link rel="stylesheet" href="/static/app-2c73490076de.css">
 </head>
 <body>
 <div id="app" data-page="indexer"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/live">Live</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
-<script src="/static/app-07958bc31f9b.js" defer></script>
+<script src="/static/app-c8bf495d50c1.js" defer></script>
 </body>
 </html>)=====";
