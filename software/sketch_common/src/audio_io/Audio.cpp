@@ -42,6 +42,7 @@
 #include "src/Globals.h"
 #include "src/util/Helpers.h"
 #include <audio/AudioMixer.h>
+#include <audio/AudioOrchestrator.h>
 #include <audio/AudioTestSweep.h>
 #include <audio/Envelope.h>
 #include <audio/ToneCalc.h>
@@ -104,20 +105,13 @@ static EnAudioTone s_LastEnvTone = enToneNone;
 
 #define FREERTOS
 
-// Tone frequency and ramp constants (PPS constants moved to onspeed_core/ToneCalc.h).
-// Ramp times ported verbatim from Gen2 Tones.ino.
+// Carrier frequencies for the precomputed cosine tables.  Defaults match
+// Gen2 Tones.ino exactly (400 Hz / 1600 Hz).  All envelope timing —
+// per-pulse DAHD shape, ramp times, solid entry delay, stall PPS
+// threshold — lives in `onspeed::audio::OrchestratorConfig` (defaults
+// match Gen2 too) and is consumed via DecideAndArm() below.
 #define HIGH_TONE_HZ         1600                 // freq of high tone
 #define LOW_TONE_HZ           400                 // freq of low tone
-#define TONE_RAMP_TIME         15                 // millisec, normal ramp
-#define STALL_RAMP_TIME         5                 // millisec, stall (20 PPS)
-
-// Verbatim port of Gen2's solid↔high transition delay constant:
-//   1000 / LOW_TONE_PPS_MAX / 2 = 1000 / 8.2 / 2 ≈ 60.97 ms
-// Used as the first-pulse silent delay when transitioning solid → pulsed
-// or as the silent delay before a solid tone begins (high → solid).
-// See Tones.ino:11 + Tones.ino:63.
-static constexpr float SOLID_TRANSITION_DELAY_MS =
-    1000.0f / onspeed::LOW_TONE_PPS_MAX / 2.0f;
 
 // ----------------------------------------------------------------------------
 
@@ -127,87 +121,14 @@ static volatile TaskHandle_t s_xAudioTestTask = nullptr;
 static std::atomic<bool>     s_bAudioTestStopRequested{false};
 static std::atomic<bool>     s_bAudioTestStarting{false};
 
-// ----------------------------------------------------------------------------
-// Envelope spec builders — port Gen2's per-pulse DAHD shape and per-mode
-// transitions.  See Envelope.h for the lineage.
-
-static inline float MsToSamples(float ms)
-{
-    return ms * (SAMPLE_RATE / 1000.0f);
-}
-
-// Build an envelope spec for a pulsed tone at `pps`.
-//   isStall    — true at stall warning PPS; uses the snappier 5 ms ramp.
-//   fromSolid  — true if the previous note was solid; uses Gen2's
-//                shortened ~61 ms first-pulse delay so the new pulsed
-//                tone arrives within one perceptual half-period.
-//
-// Gen2's per-pulse shape (Tones.ino:104-120) plus the IntervalTimer
-// cadence (Tones.ino:14):
-//   pulse_delay = 1000 / pps                  (full cycle period)
-//   tone_length = pulse_delay - 3 ms          (envelope-active window)
-//   delay       = tone_length / 2             (silent first half)
-//   attack      = ramp_time
-//   hold        = tone_length/2 - 2*ramp_time
-//   decay       = ramp_time
-//   gap         = pulse_delay - tone_length    (= 3 ms inter-pulse silence,
-//                                                Gen2's IntervalTimer wait)
-//   release     = ramp_time                    (only used on NoteOff)
-//
-// Without `gap`, the auto-loop after Decay would give a cycle period of
-// `tone_length` (Gen2 had IntervalTimer firing on `pulse_delay`), so
-// pulses would be ~3 ms early per cycle — measurably wrong at stall PPS
-// (~21 PPS observed vs configured 20) and audibly different from Gen2.
-static onspeed::audio::EnvelopeSpec MakePulseSpec(float pps,
-                                                  bool isStall,
-                                                  bool fromSolid)
-{
-    const float pulseDelayMs = 1000.0f / pps;          // full period
-    const float toneLengthMs = pulseDelayMs - 3.0f;    // envelope-active window
-    const float gapMs        = pulseDelayMs - toneLengthMs;   // = 3.0f
-    const float rampMs       = isStall ? STALL_RAMP_TIME : TONE_RAMP_TIME;
-    const float delayMs      = fromSolid
-                                 ? SOLID_TRANSITION_DELAY_MS
-                                 : (toneLengthMs * 0.5f);
-    float       holdMs       = (toneLengthMs * 0.5f) - 2.0f * rampMs;
-    if (holdMs < 0.0f) holdMs = 0.0f;
-
-    onspeed::audio::EnvelopeSpec s;
-    s.delaySamples   = MsToSamples(delayMs);
-    s.attackSamples  = MsToSamples(rampMs);
-    s.holdSamples    = MsToSamples(holdMs);
-    s.decaySamples   = MsToSamples(rampMs);
-    s.gapSamples     = MsToSamples(gapMs);
-    s.releaseSamples = MsToSamples(rampMs);
-    s.isSolid        = false;
-    return s;
-}
-
-// Build an envelope spec for a solid tone.  Gen2 (Tones.ino:51-74)
-// always plays a 60.97 ms silent delay before the solid tone's attack,
-// regardless of what was playing before.  The comment in Gen2:
-//
-//   "this timing provides a smooth transition from low tones into solid
-//    and a quick transition from high tones back into to solid"
-//
-// — the "quick from high" part comes from the Teensy envelope's
-// `releaseNoteOn(0)` mode, which lets the new note's silent delay run
-// concurrently with the previous tone's release tail.  The delay
-// itself is constant.  Unconditional delay also keeps the spec stable
-// across UpdateTones cycles, so the `SameSpec` debounce in
-// `Envelope::NoteOn` correctly leaves the running Sustain alone.
-static onspeed::audio::EnvelopeSpec MakeSolidSpec()
-{
-    onspeed::audio::EnvelopeSpec s;
-    s.delaySamples   = MsToSamples(SOLID_TRANSITION_DELAY_MS);
-    s.attackSamples  = MsToSamples(TONE_RAMP_TIME);
-    s.holdSamples    = 0.0f;
-    s.decaySamples   = 0.0f;
-    s.gapSamples     = 0.0f;     // solid tones latch in Sustain, never auto-loop
-    s.releaseSamples = MsToSamples(TONE_RAMP_TIME);
-    s.isSolid        = true;
-    return s;
-}
+// Orchestrator config supplied to MakePulseSpec / MakeSolidSpec /
+// DecideAndArm.  Sample rate is sketch-side; the rest are Gen2-derived
+// defaults (TONE_RAMP_TIME=15ms, STALL_RAMP_TIME=5ms, ~60.97ms solid
+// entry delay, 3ms inter-pulse gap, 19.5 PPS stall threshold).
+static const onspeed::audio::OrchestratorConfig kOrchestratorCfg{
+    /*sampleRateHz=*/SAMPLE_RATE,
+    // remaining fields take their defaults
+};
 
 // ----------------------------------------------------------------------------
 
@@ -391,54 +312,42 @@ void AudioPlay::SetVoice(EnVoice enVoiceIn)
 
 // ----------------------------------------------------------------------------
 
-// Select a precomputed tone to play. Tone will continue to play until
-// turned off.  This is the single funnel for tone-state changes — it
-// builds a fresh envelope spec from the current (enTone, PPS) pair and
-// hands it to the envelope's NoteOn().  If the envelope is mid-flight
-// it will release cleanly first, then arm the new spec — Gen2's
-// `noteOff(); noteOn();` pattern.
+// Select a precomputed tone to play.  Tone will continue to play until
+// turned off.  Single funnel for tone-state changes: assembles a
+// ToneResult from the current (enAudioTone, fTonePulseMaxSamples) pair
+// and hands it to onspeed::audio::DecideAndArm, which builds the
+// envelope spec and invokes NoteOn / NoteOff on s_ToneEnvelope.
+//
+// DecideAndArm is platform-free; the same code path is used by the
+// synth-record harness and the X-Plane plugin so all three audio
+// consumers stay byte-identical for any (AOA, prior state) pair.
 
 void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
-    if (enAudioTone == enToneNone)
+    onspeed::ToneResult tr;
+    tr.enTone     = static_cast<onspeed::EnToneType>(enAudioTone);
+    tr.fPulseFreq = (fTonePulseMaxSamples > 0.0f)
+                      ? (SAMPLE_RATE / (fTonePulseMaxSamples * 2.0f))
+                      : 0.0f;     // 0 → solid
+    tr.fVolumeMult = fStallVolumeMult;   // unused by orchestrator; kept for parity
+
+    // Mutates s_ToneEnvelope: NoteOff if enTone == None, otherwise
+    // NoteOn(spec) with spec built from the ToneResult, observing
+    // IsCurrentSolid() for Gen2's shortened-first-pulse trick on a
+    // solid → pulsed transition.
+    onspeed::audio::DecideAndArm(tr, s_ToneEnvelope, kOrchestratorCfg);
+
+    this->enTone = enAudioTone;
+
+    if (enAudioTone != enToneNone)
     {
-        // Stop request: release the envelope.  AudioPlayTask keeps
-        // pumping (using s_LastEnvTone to source the right carrier)
-        // until the release reaches zero, so the tail fades cleanly.
-        s_ToneEnvelope.NoteOff();
-        this->enTone = enAudioTone;
-        return;
+        // Keep s_LastEnvTone pinned to the carrier the running envelope
+        // is releasing.  PlayTone() reads it during release to source
+        // the correct cosine table; clobbering it on stop would cut off
+        // the release tail mid-decay.
+        s_LastEnvTone = enAudioTone;
+        NotifyAudioTask();
     }
-
-    // Build the envelope spec for the requested tone.  Solid tones
-    // always carry the 60.97 ms entry delay (matches Gen2's
-    // unconditional `envelope1.delay(...)` in the SOLID_TONE branch).
-    // Pulsed tones consult the envelope to detect a solid-to-pulsed
-    // transition so the first new pulse uses Gen2's shortened
-    // first-pulse delay.
-    onspeed::audio::EnvelopeSpec spec;
-    if (fTonePulseMaxSamples == 0.0f)
-    {
-        // Solid tone (currently used only for low cruise).
-        spec = MakeSolidSpec();
-    }
-    else
-    {
-        const float fPps     = SAMPLE_RATE / (fTonePulseMaxSamples * 2.0f);
-        const bool isStall   = (fPps >= onspeed::HIGH_TONE_STALL_PPS - 0.5f);
-        const bool fromSolid = s_ToneEnvelope.IsCurrentSolid();
-        spec = MakePulseSpec(fPps, isStall, fromSolid);
-    }
-
-    // The Envelope owns all state-transition policy: this is a no-op
-    // if active and the spec matches, queues if mid-pulse, releases
-    // if Sustain.  Safe to call from UpdateTones() at 208 Hz.
-    s_ToneEnvelope.NoteOn(spec);
-
-    s_LastEnvTone = enAudioTone;
-    this->enTone  = enAudioTone;
-
-    NotifyAudioTask();
 }
 
 // ----------------------------------------------------------------------------
