@@ -5,15 +5,13 @@
    The chrome rules mirror the legacy header (`Web/html_header_css.h`)
    so the Preact-served pages (`/live`, `/indexer`) match the still-
    server-rendered pages (`/aoaconfig`, `/calwiz`, `/logs`, etc.).
-   Light grey body, dark grey nav, red hover.  Dropdowns reveal on
-   `:hover` (pointer) or `aria-expanded="true"` (set by PageShell.js
-   on click and on keyboard focus).  We deliberately avoid
-   `:focus-within` because it conflicts with click-to-close — a real
-   mouse click leaves focus on the trigger, which would keep the
-   dropdown open via focus-within even after the click handler set
-   `aria-expanded="false"`.  Routing keyboard accessibility through
-   the same JS state (focus/blur handlers in PageShell.js) keeps a
-   single source of truth for "is this menu open." */
+   Light grey body, dark grey nav, red hover.  Dropdowns reveal only
+   when `aria-expanded="true"` on the trigger; PageShell.js sets that
+   based on pointer hover, click toggle, or keyboard activation —
+   single source of truth.  CSS doesn't open the menu directly via
+   `:hover` or `:focus-within` because those race the JS state and
+   produce the "two menus open at once" bug when moving between
+   sibling tabs. */
 
 /* ---------- Body chrome ---------- */
 body {
@@ -71,7 +69,7 @@ li a, .dropbtn {
 
 li a.active, .dropbtn.active { background-color: #b00000; }
 
-li a:hover, .dropdown:hover .dropbtn,
+li a:hover,
 .dropdown .dropbtn[aria-expanded="true"] {
   background-color: red;
 }
@@ -97,7 +95,6 @@ li.dropdown { display: inline-block; }
 
 .dropdown-content a:hover { background-color: #f1f1f1; }
 
-.dropdown:hover .dropdown-content,
 .dropdown .dropbtn[aria-expanded="true"] + .dropdown-content { display: block; }
 
 /* Narrow phone viewports: tighten the nav so all five items fit on a

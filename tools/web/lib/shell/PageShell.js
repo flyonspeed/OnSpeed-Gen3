@@ -5,12 +5,21 @@
 // (`/live`, `/indexer`) and the still-server-rendered pages
 // (`/aoaconfig`, `/calwiz`, etc.) feels like one site.
 //
-// Dropdowns open three ways: pointer hover (`:hover`), keyboard focus
-// (`:focus-within`), and click-toggle on the trigger (tracked by an
-// `openMenu` state and reflected via `aria-expanded` on the trigger
-// for the CSS rule and assistive tech).  A document-level click
-// listener closes the menu when the user clicks outside, and Escape
-// closes it from the keyboard.
+// Dropdowns: single source of truth is `openMenu` state in `<Nav>`.
+// `aria-expanded` on the trigger reflects it, CSS displays the menu
+// when `aria-expanded="true"`.  Open paths:
+//   - pointer enters the dropdown's <li> (mouseenter) → open it
+//   - click / tap on the trigger → toggle it (mobile path)
+//   - keyboard Enter/Space on focused trigger → toggle (browser fires click)
+// Close paths:
+//   - pointer leaves the dropdown's <li> (mouseleave, with a short
+//     grace timeout so the cursor can travel from trigger to menu items)
+//   - click outside any dropdown
+//   - Escape key
+//   - clicking a menu item (full-page nav happens, this clears state)
+// CSS deliberately does NOT use :hover or :focus-within to open — those
+// race the JS state and cause click-to-close to lose to a still-hovering
+// cursor.  All input methods funnel through the same `openMenu` state.
 //
 // Logo source: `tools/web/public/onspeed-logo.png`.  The bundler reads
 // the PNG at build time and prepends a `globalThis.ONSPEED_LOGO_DATA_URL`
@@ -46,12 +55,12 @@ function resolveVersion(prop) {
   return 'dev';
 }
 
-const Dropdown = ({ group, activeId, isOpen, onToggle }) => html`
-  <li class="dropdown">
+const Dropdown = ({ group, activeId, isOpen, onPointerEnter, onClickToggle }) => html`
+  <li class="dropdown" onMouseEnter=${onPointerEnter}>
     <a href="javascript:void(0)" class="dropbtn"
        tabindex="0" aria-haspopup="true"
        aria-expanded=${isOpen ? 'true' : 'false'}
-       onClick=${onToggle}>${group.label}</a>
+       onClick=${onClickToggle}>${group.label}</a>
     <div class="dropdown-content">
       ${group.items.map(it => html`
         <a href=${it.href} class=${it.id === activeId ? 'active' : ''}>${it.label}</a>`)}
@@ -59,21 +68,12 @@ const Dropdown = ({ group, activeId, isOpen, onToggle }) => html`
   </li>`;
 
 const Nav = ({ activeId }) => {
-  // Single source of truth for "which menu is open".  Driven by:
-  //   - click on the trigger (mouse + touch — toggles)
-  //   - Enter/Space on a focused trigger (keyboard activation, fires
-  //     synthetic click via the browser)
-  //   - click-outside / Escape (close)
-  //
-  // We deliberately do NOT open on `focus` — focus fires during a real
-  // mouse click (mousedown→focus→click), so an open-on-focus handler
-  // races the click handler and the menu ends up closed.  The standard
-  // ARIA disclosure pattern is "Enter/Space activates," which the
-  // browser already maps to `click` for elements with tabindex.
-  // We also do NOT use CSS :focus-within to open — same race + the
-  // close-via-click would lose to focus-within keeping it open.
+  // At most one dropdown is open at a time.  Stripe / GitHub / MDN
+  // pattern: hovering a sibling tab transitions openMenu, automatically
+  // closing whatever was open.
   const [openMenu, setOpenMenu] = useState(null);
 
+  const enterMenu = (id) => () => setOpenMenu(id);
   const toggleMenu = (id) => (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -81,6 +81,7 @@ const Nav = ({ activeId }) => {
   };
 
   useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
     const handleClickOutside = (e) => {
       if (!e.target || typeof e.target.closest !== 'function') return;
       if (!e.target.closest('.dropdown')) setOpenMenu(null);
@@ -88,23 +89,31 @@ const Nav = ({ activeId }) => {
     const handleEsc = (e) => {
       if (e.key === 'Escape') setOpenMenu(null);
     };
-    if (typeof document === 'undefined') return undefined;
+    // Mouse leaves the whole nav: close.  We listen on the <ul>
+    // wrapper; everything we care about is inside it.
+    const ul = document.querySelector('#liveview-nav-ul');
+    const handleMouseLeave = () => setOpenMenu(null);
     document.addEventListener('click', handleClickOutside);
     document.addEventListener('keydown', handleEsc);
+    ul && ul.addEventListener('mouseleave', handleMouseLeave);
     return () => {
       document.removeEventListener('click', handleClickOutside);
       document.removeEventListener('keydown', handleEsc);
+      ul && ul.removeEventListener('mouseleave', handleMouseLeave);
     };
   }, []);
 
   return html`
-    <ul>
-      <li><a href="/" class=${activeId === 'home' ? 'active' : ''}>Home</a></li>
+    <ul id="liveview-nav-ul">
+      <li onMouseEnter=${enterMenu(null)}>
+        <a href="/" class=${activeId === 'home' ? 'active' : ''}>Home</a></li>
       ${NAV.dropdowns.map(d => html`<${Dropdown} group=${d} activeId=${activeId}
                                                 isOpen=${openMenu === d.id}
-                                                onToggle=${toggleMenu(d.id)} />`)}
+                                                onPointerEnter=${enterMenu(d.id)}
+                                                onClickToggle=${toggleMenu(d.id)} />`)}
       ${NAV.primary.filter(p => p.id !== 'home').map(p => html`
-        <li><a href=${p.href} class=${p.id === activeId ? 'active' : ''}>${p.label}</a></li>`)}
+        <li onMouseEnter=${enterMenu(null)}>
+          <a href=${p.href} class=${p.id === activeId ? 'active' : ''}>${p.label}</a></li>`)}
     </ul>`;
 };
 
