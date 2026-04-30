@@ -257,6 +257,7 @@ void setup()
     for (int i = 0; i < 300; i++)
         gHistory[i] = 1.00;
 
+#if !defined(SIM_RECORD)
     displaySplashScreen();
 
     // duration of splash screen display, check for center button for fw upgrade
@@ -380,6 +381,7 @@ void setup()
 
     if (fwUpdateMode)
         return; // do not continue if firmware upgrade mode was selected.
+#endif // !SIM_RECORD
 
 #if defined(ESP_PLATFORM) && !defined(DUMMY_SERIAL_DATA)
     //select serial port from preferences or detect it
