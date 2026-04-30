@@ -118,6 +118,7 @@ void HandleFinalUpload();
 void HandleGetValue();
 void HandleSensorConfig();
 void HandleCalWizard();
+void HandleCalWizardPage();
 void HandleFormat();
 void HandleLogs();
 void HandleDelete();
@@ -324,7 +325,10 @@ void CfgWebServerInit()
     CfgServer.on("/aoaconfigupload", HTTP_POST, HandleFinalUpload, HandleConfigUpload);
     CfgServer.on("/getvalue",        HTTP_GET,  HandleGetValue);
     CfgServer.on("/sensorconfig",    HTTP_GET,  HandleSensorConfig);
-    CfgServer.on("/calwiz",          HTTP_GET,  HandleCalWizard);
+    CfgServer.on("/calwiz",          HTTP_GET,  HandleCalWizardPage);
+    // POST /calwiz handler kept for one release as a safety net for
+    // external tools that still target the legacy form path.  The
+    // Preact wizard hits /api/calwiz/save; this route deletes after PR 4.
     CfgServer.on("/calwiz",          HTTP_POST, HandleCalWizard);
     CfgServer.on("/format",          HTTP_GET,  HandleFormat);
     CfgServer.on("/logs",            HTTP_GET,  HandleLogs);
@@ -371,6 +375,7 @@ void CfgWebServerInit()
     CfgServer.on("/api/reboot",            HTTP_POST, onspeed::api::HandleApiReboot);
 
     CfgServer.on("/api/calwiz/state",      HTTP_GET,  onspeed::api::HandleApiCalwizState);
+    CfgServer.on("/api/calwiz/save",       HTTP_POST, onspeed::api::HandleApiCalwizSave);
 
     CfgServer.on("/api/version",           HTTP_GET,  onspeed::api::HandleApiVersion);
 
@@ -649,6 +654,16 @@ void HandleLive()
 void HandleIndexer()
     {
     ServePageStub(htmlStub_indexer);
+    }
+
+// /calwiz GET serves the Preact wizard's page stub.  POST /calwiz
+// kept on HandleCalWizard for one release as a safety net for
+// external tools / bookmarks; the new client targets
+// /api/calwiz/save and /api/calwiz/state.  Slated for deletion
+// after PR 4.
+void HandleCalWizardPage()
+    {
+    ServePageStub(htmlStub_calwiz);
     }
 
 // ----------------------------------------------------------------------------

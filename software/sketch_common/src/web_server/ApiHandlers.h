@@ -44,9 +44,15 @@ void HandleApiFormat();
 void HandleApiFormatStatus();
 void HandleApiReboot();
 
-// Read-only state for the cal wizard rewrite (PR 3 will add
-// /api/calwiz/save; this PR ships the read side only).
+// Cal wizard state.  Read side: the GET endpoint snapshots the
+// per-flap setpoints + aircraft scalars that seed the wizard.  Write
+// side: POST accepts the wizard's computed setpoints + curve fit and
+// mutates the matching SuFlaps via the pure helper
+// `onspeed::api::ApplyCalwizSave`.  The pure helper lets the
+// differential test (test_calwiz_save_diff) prove byte-identity vs the
+// legacy ConfigWebServer.cpp HandleCalWizard step=save sequence.
 void HandleApiCalwizState();
+void HandleApiCalwizSave();
 
 // Build / version metadata.  Stable JSON shape so external tools
 // can detect the firmware version they're talking to without
