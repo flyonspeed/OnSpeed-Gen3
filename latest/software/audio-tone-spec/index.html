@@ -3916,7 +3916,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>left_pan_gain  = abs(-1 + channelGain)
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>right_pan_gain = abs( 1 + channelGain)
 </code></pre></div>
-<p>Where <code>channelGain = α · curve(|aLatCorr|) · sign(aLatCorr) + (1-α) · prevChannelGain</code>, with <code>α = 0.1</code>, <code>aLatCorr</code> the smoothed installation-corrected lateral G, and <code>curve</code> the <code>AUDIO_3D_CURVE</code> polynomial <span class="arithmatex">\(-92.822 \cdot x^2 + 20.025 \cdot x\)</span> clamped to <span class="arithmatex">\([0, 1]\)</span>.</p>
+<p>Where <code>channelGain = α · curve(|aLatCorr|) · sign(aLatCorr) + (1-α) · prevChannelGain</code>, with <code>α = 0.1</code>, <code>aLatCorr</code> the smoothed installation-corrected lateral G, and <code>curve</code> the saturating linear ramp <span class="arithmatex">\(\min(1, \, 8 \cdot x)\)</span> — unity at <span class="arithmatex">\(x = 0.125\,\text{g}\)</span> (about 1.5 slip-skid ball widths) and held at unity for every larger lateral load.</p>
 <table>
 <thead>
 <tr>
@@ -3949,8 +3949,16 @@
 <td>&gt; 1</td>
 <td>&lt; 1</td>
 </tr>
+<tr>
+<td>Developed spin / snap roll</td>
+<td><span class="arithmatex">\(\geq 0.25\)</span> g</td>
+<td><span class="arithmatex">\(\pm 1\)</span></td>
+<td>0 / 1</td>
+<td>1 / 0</td>
+</tr>
 </tbody>
 </table>
+<p>The curve is monotonic in <span class="arithmatex">\(\lvert x \rvert\)</span> and has no descending tail, so spin and snap-roll lateral loads (sustained 0.3–0.8 g) render as full pan rather than centered audio. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/371">#371</a> for the analysis that motivated the saturating-linear shape over the prior <span class="arithmatex">\(-92.822 \cdot x^2 + 20.025 \cdot x\)</span> parabola, whose descending root at <span class="arithmatex">\(x \approx 0.216\)</span> g caused the gain to clamp to zero — and the audio to render centered — in exactly the regime where the directional cue is most useful.</p>
 <p>3D-pan updates fire from the housekeeping task at ~10 Hz. The α=0.1 EMA limits the per-update step to a small fraction of the swing — generally inaudible, but not strictly click-free if the multiplier changes during attack/hold/decay/sustain. See §8.</p>
 <h2 id="8-click-free-invariant">8. Click-free invariant<a class="headerlink" href="#8-click-free-invariant" title="Permanent link">&para;</a></h2>
 <p>The audible signal must not contain large step discontinuities. The envelope's silent_delay and release phases provide a window during which other multipliers (<code>carrier_amp</code>, <code>master_volume</code>, pan gains) can change without producing audible clicks, because the gate is at or near zero.</p>
