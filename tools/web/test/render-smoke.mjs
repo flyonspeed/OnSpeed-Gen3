@@ -130,6 +130,12 @@ globalThis.WebSocket.CONNECTING = 0;
 globalThis.WebSocket.OPEN       = 1;
 globalThis.WebSocket.CLOSING    = 2;
 globalThis.WebSocket.CLOSED     = 3;
+// CalWizardPage's onMount calls getJson('/api/calwiz/state'); stub
+// fetch with a no-op promise so render-smoke can mount the page
+// without hitting a real backend.
+globalThis.fetch = () => new Promise(() => {});
+globalThis.history = { replaceState: () => {} };
+globalThis.window = globalThis;
 // The Preact bundle reads `document.body` via M(_,t,o); ensure t has
 // nothing special.  Keep a fresh container per render to avoid Preact's
 // reuse logic seeing stale state.
@@ -164,6 +170,7 @@ const { html, render } = preact;
 
 const indexerMod = await import(new URL('../lib/pages/IndexerPage.js', import.meta.url));
 const shellMod   = await import(new URL('../lib/shell/PageShell.js',  import.meta.url));
+const calwizMod  = await import(new URL('../lib/pages/CalWizardPage.js', import.meta.url));
 
 let passed = 0, failed = 0;
 const results = [];
@@ -238,6 +245,24 @@ test('PageShell Tools dropdown lists the legacy items', () => {
                                        && n.getAttribute('href') === href);
     if (!a) throw new Error(`Tools dropdown missing link to ${href}`);
   }
+});
+
+test('CalWizardPage exports a function', () => {
+  if (typeof calwizMod.CalWizardPage !== 'function')
+    throw new Error('CalWizardPage not exported');
+});
+
+test('CalWizardPage renders the intro step', () => {
+  const root = renderInto(html`<${calwizMod.CalWizardPage} />`);
+  // Intro step has a `<form>` for aircraft params.
+  if (!findFirst(root, 'form'))
+    throw new Error('expected a <form> on the intro step');
+});
+
+test('analyzeDecel returns ok=false on too-few samples', () => {
+  const out = calwizMod.analyzeDecel([], { gLimit: '4' });
+  if (out.ok) throw new Error('expected ok=false on empty samples');
+  if (!out.error) throw new Error('expected error message');
 });
 
 test('PageShell Settings dropdown lists the legacy items', () => {

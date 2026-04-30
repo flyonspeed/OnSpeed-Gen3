@@ -126,6 +126,7 @@ function mimeFor(filePath) {
 // ---------------------------------------------------------------------
 const PAGES = [
   { id: 'indexer', path: '/indexer', title: 'Indexer' },
+  { id: 'calwiz',  path: '/calwiz',  title: 'Calibration' },
 ];
 
 // Routes that 30x to a page rather than rendering one.  `/live` is
