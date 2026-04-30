@@ -1,0 +1,446 @@
+<!--
+    /aoaconfig page template.  HandleConfig() in
+    software/sketch_common/src/web_server/ConfigWebServer.cpp loads this
+    template, substitutes {{name}} markers from g_Config, and sends
+    the result inside the standard pageHeader / pageFooter wrap.
+
+    The form posts to /aoaconfigsave -> HandleConfigSave; that path is
+    untouched by this template.  Field names and types match the
+    legacy form-encoded contract HandleConfigSave parses.
+
+    Per-flap content lives between FLAP_BLOCK_START and FLAP_BLOCK_END.
+    The server repeats that block once per g_Config.aFlaps[] entry,
+    substituting per-flap markers (flap.idx, flap.LDMAXAOA, ...).
+-->
+<script>{{aoaconfigJs}}</script>
+
+<div class="content-container">
+    <form  id="id_configForm" action="aoaconfigsave" method="POST">
+        <div class="form round-box">
+        <div class="form-divs flex-col-12">
+            <label for="id_aoaSmoothing">AOA Smoothing</label>
+            <input id="id_aoaSmoothing" name="aoaSmoothing" type="text" value="{{aoaSmoothing}}"/>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_pressureSmoothing">Pressure Smoothing</label>
+            <input id="id_pressureSmoothing" name="pressureSmoothing" type="text" value="{{pressureSmoothing}}" />
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_dataSource">Data Source - Operation mode</label>
+            <select id="id_dataSource" name="dataSource">
+            <option value="SENSORS"{{dataSrcSensorsSel}}>Sensors (default)</option>
+            <option value="TESTPOT"{{dataSrcTestPotSel}}>Test Potentiometer</option>
+            <option value="RANGESWEEP"{{dataSrcRangeSweepSel}}>Range Sweep</option>
+            <option value="REPLAYLOGFILE"{{dataSrcReplaySel}}>Replay Log File</option>
+            </select>
+        </div>
+
+        <div class="form-divs flex-col-12 replaylogfilesetting" {{replayLogFileStyle}}>
+            <label for="id_replayLogFile">Log file to replay</label>
+            <input id="id_replayLogFile" name="logFileName" list="logFiles" value="{{replayLogFileName}}" onfocus="this.value=''" autocomplete="off" />
+                <datalist id="logFiles">
+{{replayLogFileOptions}}
+                </datalist>
+        </div>
+<!-- FLAP_BLOCK_START -->
+        <section id="curvesection">
+            <h2> Flap Curve {{flap.label}} </h2>
+            <div class="form-divs flex-col-12"></div>
+            <div class="form-divs flex-col-4">
+                <label for="id_flapDegrees{{flap.idx}}">Flap Degrees</label>
+                <input id="id_flapDegrees{{flap.idx}}" name="flapDegrees{{flap.idx}}" type="text" value="{{flap.degrees}}"/>
+            </div>
+            <div class="form-divs flex-col-4">
+                <label for="id_flapPotPositions{{flap.idx}}">Sensor Value</label>
+                <input id="id_flapPotPositions{{flap.idx}}" class="curve" name="flapPotPositions{{flap.idx}}" type="text" value="{{flap.potPosition}}"/>
+            </div>
+            <div class="form-divs flex-col-4">
+                <label for="id_flapPotPositions{{flap.idx}}Read">&nbsp;</label>
+                <input id="id_flapPotPositions{{flap.idx}}Read" name="flapPotPositions{{flap.idx}}Read" type="button" value="Read" class="greybutton" onclick="FillInValue(this.id,'FLAPS','id_flapPotPositions{{flap.idx}}')"/>
+            </div>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>L/Dmax</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint({{flap.idx}},'LDMAXAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_LDMAXAOA{{flap.idx}}"></span>
+                    <span class="sp-ias" id="id_ias_LDMAXAOA{{flap.idx}}"></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint({{flap.idx}},'LDMAXAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapLDMAXAOA{{flap.idx}}" class="sp-aoa-input" name="flapLDMAXAOA{{flap.idx}}" type="text" value="{{flap.LDMAXAOA}}" onchange="updateSetpointDisplay({{flap.idx}},'LDMAXAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapLDMAXAOA{{flap.idx}}')"/>
+                </div>
+            </div>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>OnSpeed Fast</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint({{flap.idx}},'ONSPEEDFASTAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_ONSPEEDFASTAOA{{flap.idx}}"></span>
+                    <span class="sp-ias" id="id_ias_ONSPEEDFASTAOA{{flap.idx}}"></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint({{flap.idx}},'ONSPEEDFASTAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapONSPEEDFASTAOA{{flap.idx}}" class="sp-aoa-input" name="flapONSPEEDFASTAOA{{flap.idx}}" type="text" value="{{flap.OnSpeedFastAOA}}" onchange="updateSetpointDisplay({{flap.idx}},'ONSPEEDFASTAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapONSPEEDFASTAOA{{flap.idx}}')"/>
+                </div>
+            </div>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>OnSpeed Slow</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint({{flap.idx}},'ONSPEEDSLOWAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_ONSPEEDSLOWAOA{{flap.idx}}"></span>
+                    <span class="sp-ias" id="id_ias_ONSPEEDSLOWAOA{{flap.idx}}"></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint({{flap.idx}},'ONSPEEDSLOWAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapONSPEEDSLOWAOA{{flap.idx}}" class="sp-aoa-input" name="flapONSPEEDSLOWAOA{{flap.idx}}" type="text" value="{{flap.OnSpeedSlowAOA}}" onchange="updateSetpointDisplay({{flap.idx}},'ONSPEEDSLOWAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapONSPEEDSLOWAOA{{flap.idx}}')"/>
+                </div>
+            </div>
+            <div class="form-divs flex-col-12 sp-row">
+                <label>Stall Warning</label>
+                <div class="sp-controls">
+                    <input type="button" class="sp-btn" value="&#x2212;" onclick="tapSetpoint({{flap.idx}},'STALLWARNAOA',-1)"/>
+                    <span class="sp-mult" id="id_mult_STALLWARNAOA{{flap.idx}}"></span>
+                    <span class="sp-ias" id="id_ias_STALLWARNAOA{{flap.idx}}"></span>
+                    <input type="button" class="sp-btn" value="+" onclick="tapSetpoint({{flap.idx}},'STALLWARNAOA',1)"/>
+                </div>
+                <div class="sp-secondary">
+                    <span>AOA:</span>
+                    <input id="id_flapSTALLWARNAOA{{flap.idx}}" class="sp-aoa-input" name="flapSTALLWARNAOA{{flap.idx}}" type="text" value="{{flap.StallWarnAOA}}" onchange="updateSetpointDisplay({{flap.idx}},'STALLWARNAOA')"/>
+                    <span>&deg;</span>
+                    <input type="button" class="greybutton sp-live-btn" value="Use Live AOA" onclick="FillInValue(this.id,'AOA','id_flapSTALLWARNAOA{{flap.idx}}')"/>
+                </div>
+            </div>
+            <input type="hidden" id="id_flapSTALLAOA{{flap.idx}}" name="flapSTALLAOA{{flap.idx}}" value="{{flap.StallAOA}}"/>
+            <input type="hidden" id="id_flapMANAOA{{flap.idx}}" name="flapMANAOA{{flap.idx}}" value="{{flap.ManAOA}}"/>
+            <div class="form-divs flex-col-12 sp-info-row">
+                <span class="sp-info" id="id_stallInfo{{flap.idx}}"></span>
+                <span class="sp-info" id="id_manInfo{{flap.idx}}"></span>
+            </div>
+            <div class="form-divs flex-col-4">
+                <label>K (lift sensitivity)</label>
+                <input id="id_flapKFit{{flap.idx}}" name="flapKFit{{flap.idx}}" type="text" value="{{flap.KFit}}" readonly style="background:#eee"/>
+            </div>
+            <div class="form-divs flex-col-4">
+                <label>Alpha-0 (zero-lift)</label>
+                <input id="id_flapAlpha0{{flap.idx}}" name="flapAlpha0{{flap.idx}}" type="text" value="{{flap.Alpha0}}"/>
+            </div>
+            <div class="form-divs flex-col-4">
+                <label>Alpha-Stall (from fit)</label>
+                <input id="id_flapAlphaStall{{flap.idx}}" name="flapAlphaStall{{flap.idx}}" type="text" value="{{flap.AlphaStall}}"/>
+            </div>
+            <div class="form-divs flex-col-12">
+                <span class="sp-vs-info" id="id_vsInfo{{flap.idx}}"></span>
+            </div>
+            <div class="form-divs flex-col-12">
+                <label for="id_aoaCurve{{flap.idx}}Type">AOA Curve Type</label>
+                <select id="id_aoaCurve{{flap.idx}}Type" name="aoaCurve{{flap.idx}}Type" onchange="curveTypeChange('id_aoaCurve{{flap.idx}}Type',{{flap.idx}})">
+                    <option value="1"{{flap.curvePolySel}}>Polynomial</option>
+                    <option value="2"{{flap.curveLogSel}}>Logarithmic</option>
+                    <option value="3"{{flap.curveExpSel}}>Exponential</option>
+                </select>
+            </div>
+
+            <div class="form-divs flex-col-12 curvelabel"><label>AOA Curve</label></div>
+            <div class="form-divs flex-col-2"><input id="id_aoaCurve{{flap.idx}}Coeff0" class="curve" name="aoaCurve{{flap.idx}}Coeff0" type="text" value="{{flap.coeff0}}"/></div>
+            <div class="form-divs flex-col-1" id="id_aoaCurve{{flap.idx}}Param0">{{flap.param0}}</div>
+            <div class="form-divs flex-col-2"><input id="id_aoaCurve{{flap.idx}}Coeff1" class="curve" name="aoaCurve{{flap.idx}}Coeff1" type="text" value="{{flap.coeff1}}"/></div>
+            <div class="form-divs flex-col-1" id="id_aoaCurve{{flap.idx}}Param1">{{flap.param1}}</div>
+            <div class="form-divs flex-col-2"><input id="id_aoaCurve{{flap.idx}}Coeff2" class="curve" name="aoaCurve{{flap.idx}}Coeff2" type="text" value="{{flap.coeff2}}"/></div>
+            <div class="form-divs flex-col-1" id="id_aoaCurve{{flap.idx}}Param2">{{flap.param2}}</div>
+            <div class="form-divs flex-col-2"><input id="id_aoaCurve{{flap.idx}}Coeff3" class="curve" name="aoaCurve{{flap.idx}}Coeff3" type="text" value="{{flap.coeff3}}"/></div>
+            <div class="form-divs flex-col-1" id="id_aoaCurve{{flap.idx}}Param3">{{flap.param3}}</div>
+            <div class="form-divs flex-col-6"></div>
+            <div class="form-divs flex-col-6"><input id="id_flapDegrees{{flap.idx}}Delete" name="deleteFlapPos{{flap.idx}}" type="submit" value="Delete Flap Position" class="redbutton" onClick="return confirm('Are you sure you want to delete this flap position?') "/></div>
+        </section>
+<!-- FLAP_BLOCK_END -->
+        <div class="form-divs flex-col-6"><input id="id_addFlapPos" name="addFlapPos" type="submit" value="Add New Flap Position" class="greybutton"/></div>
+        <div class="form-divs flex-col-12">
+            <label for="id_readBoom">Flight Test Boom</label>
+            <select id="id_readBoom" name="readBoom">
+                <option value="1"{{boomEnabledSel}}>Enabled</option>
+                <option value="0"{{boomDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_boomChecksum">Boom Checksum</label>
+            <select id="id_boomChecksum" name="boomChecksum">
+                <option value="1"{{boomChecksumEnabledSel}}>Enabled</option>
+                <option value="0"{{boomChecksumDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_boomConvertData">Boom Data Conversion</label>
+            <select id="id_boomConvertData" name="boomConvertData">
+                <option value="0"{{boomConvertRawSel}}>Raw Counts</option>
+                <option value="1"{{boomConvertConvSel}}>Converted (polynomial)</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_casCurveEnabled">Airspeed Calibration</label>
+            <select id="id_casCurveEnabled" name="casCurveEnabled">
+                <option value="1"{{casCurveEnabledSel}}>Enabled</option>
+                <option value="0"{{casCurveDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12 cascurvesetting" {{casCurveVisibility}}>
+            <label for="id_casCurveType">Airspeed Calibration Curve Type</label>
+            <select id="id_casCurveType" name="casCurveType" onchange="cascurveTypeChange('id_casCurveType')">
+                <option value="1"{{casCurveTypePolySel}}>Polynomial</option>
+                <option value="2"{{casCurveTypeLogSel}}>Logarithmic</option>
+                <option value="3"{{casCurveTypeExpSel}}>Exponential</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12 curvelabel cascurvesetting" {{casCurveVisibility}}>
+            <label>Airspeed Calibration Curve</label>
+        </div>
+        <div class="form-divs flex-col-2 cascurvesetting" {{casCurveVisibility}}>
+            <input id="id_casCurveCoeff0" class="curve" name="casCurveCoeff0" type="text" value="{{casCurveCoeff0}}"/>
+        </div>
+        <div id="id_casCurveParam0" class="form-divs flex-col-1 cascurvesetting" {{casCurveVisibility}}>{{casCurveParam0}}</div>
+        <div class="form-divs flex-col-2 cascurvesetting" {{casCurveVisibility}}>
+            <input id="id_casCurveCoeff1" class="curve" name="casCurveCoeff1" type="text" value="{{casCurveCoeff1}}"/>
+        </div>
+        <div id="id_casCurveParam1" class="form-divs flex-col-1 cascurvesetting" {{casCurveVisibility}}>{{casCurveParam1}}</div>
+        <div class="form-divs flex-col-2 cascurvesetting" {{casCurveVisibility}}>
+            <input id="id_casCurveCoeff2" class="curve" name="casCurveCoeff2" type="text" value="{{casCurveCoeff2}}"/>
+        </div>
+        <div id="id_casCurveParam2" class="form-divs flex-col-1 cascurvesetting" {{casCurveVisibility}}>{{casCurveParam2}}</div>
+        <div class="form-divs flex-col-2 cascurvesetting" {{casCurveVisibility}}>
+            <input id="id_casCurveCoeff3" class="curve" name="casCurveCoeff3" type="text" value="{{casCurveCoeff3}}"/>
+        </div>
+        <div id="id_casCurveParam3" class="form-divs flex-col-1 cascurvesetting" {{casCurveVisibility}}>
+{{casCurveParam3}}
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_portsOrientation">Pressure ports orientation</label>
+            <select id="id_portsOrientation" name="portsOrientation">
+                <option value="UP"{{portsOrUpSel}}>Up</option>
+                <option value="DOWN"{{portsOrDownSel}}>Down</option>
+                <option value="LEFT"{{portsOrLeftSel}}>Left</option>
+                <option value="RIGHT"{{portsOrRightSel}}>Right</option>
+                <option value="FORWARD"{{portsOrForwardSel}}>Forward</option>
+                <option value="AFT"{{portsOrAftSel}}>Aft</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_boxtopOrientation">Box top Orientation</label>
+            <select id="id_boxtopOrientation" name="boxtopOrientation">
+                <option value="UP"{{boxOrUpSel}}>Up</option>
+                <option value="DOWN"{{boxOrDownSel}}>Down</option>
+                <option value="LEFT"{{boxOrLeftSel}}>Left</option>
+                <option value="RIGHT"{{boxOrRightSel}}>Right</option>
+                <option value="FORWARD"{{boxOrForwardSel}}>Forward</option>
+                <option value="AFT"{{boxOrAftSel}}>Aft</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_readEfisData">Serial EFIS data</label>
+            <select id="id_readEfisData" name="readEfisData">
+                <option value="1"{{readEfisEnabledSel}}>Enabled</option>
+                <option value="0"{{readEfisDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-6 efistypesetting">
+            <label for="id_efisType">EFIS Type</label>
+            <select id="id_efisType" name="efisType">
+                <option value="DYNOND10"{{efisDynonD10Sel}}>Dynon D10/D100</option>
+                <option value="ADVANCED"{{efisAdvancedSel}}>SkyView/Advanced</option>
+                <option value="GARMING5"{{efisG5Sel}}>Garmin G5</option>
+                <option value="GARMING3X"{{efisG3xSel}}>Garmin G3X</option>
+                <option value="VN-300"{{efisVn300Sel}}>VectorNav VN-300 GNSS/INS</option>
+                <option value="VN-100"{{efisVn100Sel}}>VectorNav VN-100 IMU/AHRS</option>
+                <option value="MGL"{{efisMglSel}}>MGL iEFIS</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_oatSensor">Internal OAT Sensor (DS18B20)</label>
+            <select id="id_oatSensor" name="oatSensor">
+                <option value="1"{{oatEnabledSel}}>Enabled</option>
+                <option value="0"{{oatDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_calSource">Calibration Data Source</label>
+            <select id="id_calSource" name="calSource">
+                <option value="ONSPEED"{{calSrcOnspeedSel}}>ONSPEED (internal IMU)</option>
+                <option value="EFIS"{{calSrcEfisSel}}>EFIS (via serial input)</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_ahrsAlgorithm">AHRS Algorithm</label>
+            <select id="id_ahrsAlgorithm" name="ahrsAlgorithm">
+                <option value="0"{{ahrsMadgwickSel}}>Madgwick (default)</option>
+                <option value="1"{{ahrsEkf6Sel}}>EKF6</option>
+            </select>
+        </div>
+        <div id="volumeControlDiv" class="form-divs flex-col-{{volumeControlWidth}}">
+            <label for="id_volumeControl">Volume Potentiometer</label>
+            <select id="id_volumeControl" name="volumeControl">
+                <option value="1"{{volumeEnabledSel}}>Enabled</option>
+                <option value="0"{{volumeDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-3 defaultvolumesetting" {{defaultVolumeVisibility}}>
+            <label for="id_defaultVolume">Volume %</label>
+            <input id="id_defaultVolume" name="defaultVolume" type="text" value="{{defaultVolume}}"/>
+        </div>
+        <div class="form-divs flex-col-3">
+            <label for="id_volumeTestButton">&nbsp;</label>
+            <input id="id_volumeTestButton" name="volumeTestButton" type="button" value="Test Audio" class="greybutton" onclick="ToggleAudioTest(this.id)"/>
+        </div>
+        <div class="form-divs flex-col-4 volumepossetting" {{volumeLevelsVisibility}}>
+            <label for="id_volumeLowAnalog">Low Vol. value</label>
+            <input id="id_volumeLowAnalog" name="volumeLowAnalog" type="text" value="{{volumeLowAnalog}}"/>
+        </div>
+        <div class="form-divs flex-col-2 volumepossetting" {{volumeLevelsVisibility}}>
+            <label for="id_volumeLowRead">&nbsp;</label>
+            <input id="id_volumeLowRead" name="volumeLowRead" type="button" value="Read" class="greybutton" onclick="FillInValue(this.id,'VOLUME','id_volumeLowAnalog')"/>
+        </div>
+        <div class="form-divs flex-col-4 volumepossetting" {{volumeLevelsVisibility}}>
+            <label for="id_volumeHighAnalog">High Vol. value</label>
+            <input id="id_volumeHighAnalog" name="volumeHighAnalog" type="text" value="{{volumeHighAnalog}}"/>
+        </div>
+        <div class="form-divs flex-col-2 volumepossetting" {{volumeLevelsVisibility}}>
+            <label for="id_volumeHighRead">&nbsp;</label>
+            <input id="id_volumeHighRead" name="volumeHighRead" type="button" value="Read" class="greybutton" onclick="FillInValue(this.id,'VOLUME','id_volumeHighAnalog')"/>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_muteAudioUnderIAS">Mute below IAS (kts)</label>
+            <input id="id_muteAudioUnderIAS" name="muteAudioUnderIAS" type="text" value="{{muteAudioUnderIAS}}"/>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_slipShiftAudio">3D Audio</label>
+            <select id="id_slipShiftAudio" name="audio3D">
+                <option value="1"{{audio3dEnabledSel}}>Enabled</option>
+                <option value="0"{{audio3dDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_overgWarning">OverG audio warning</label>
+            <select id="id_overgWarning" name="overgWarning">
+                <option value="1"{{overgEnabledSel}}>Enabled</option>
+                <option value="0"{{overgDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-6 loadlimitsetting" {{loadLimitVisibility}}>
+            <label for="id_loadLimitPositive">Positive G limit</label>
+            <input id="id_loadLimitPositive" name="loadLimitPositive" type="text" value="{{loadLimitPositive}}"/>
+        </div>
+        <div class="form-divs flex-col-6 loadlimitsetting" {{loadLimitVisibility}}>
+            <label for="id_loadLimitNegative">Negative G limit</label>
+            <input id="id_loadLimitNegative" name="loadLimitNegative" type="text" value="{{loadLimitNegative}}"/>
+        </div>
+        <div class="form-divs flex-col-6 loadlimitsetting" {{loadLimitVisibility}}>
+            <label for="id_asymmetricGyroLimit">Asymmetric gyro threshold (deg/s)</label>
+            <input id="id_asymmetricGyroLimit" name="asymmetricGyroLimit" type="text" value="{{asymmetricGyroLimit}}"/>
+        </div>
+        <div class="form-divs flex-col-6 loadlimitsetting" {{loadLimitVisibility}}>
+            <label for="id_asymmetricReduction">Asymmetric G reduction factor</label>
+            <input id="id_asymmetricReduction" name="asymmetricReduction" type="text" value="{{asymmetricReduction}}"/>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_vnoChimeEnabled">Vno warning chime</label>
+            <select id="id_vnoChimeEnabled" name="vnoChimeEnabled">
+                <option value="1"{{vnoChimeEnabledSel}}>Enabled</option>
+                <option value="0"{{vnoChimeDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-5 vnochimesetting" {{vnoVisibility}}>
+            <label for="id_Vno">Aircraft Vno (kts)</label>
+            <input id="id_Vno" name="Vno" type="text" value="{{vno}}"/>
+        </div>
+        <div class="form-divs flex-col-5 vnochimesetting" {{vnoVisibility}}>
+            <label for="id_vnoChimeInterval">Chime interval (seconds)</label>
+            <input id="id_vnoChimeInterval" name="vnoChimeInterval" type="text" value="{{vnoChimeInterval}}"/>
+        </div>
+        <div class="form-divs flex-col-2 vnochimesetting" {{vnoVisibility}}>
+            <label for="id_chimeTestButton">&nbsp;</label>
+            <input id="id_chimeTestButton" name="chimeTestButton" type="button" value="Test" class="greybutton" onclick="FillInValue(this.id,'VNOCHIMETEST','')"/>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_sdLogging">SD Card Logging</label>
+            <select id="id_sdLogging" name="sdLogging">
+                <option value="1"{{sdLoggingEnabledSel}}>Enabled</option>
+                <option value="0"{{sdLoggingDisabledSel}}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-12">
+            <label for="id_logRate">Logging Rate</label>
+            <select id="id_logRate" name="logRate">
+                <option value="50"{{logRate50Sel}}>50 Hz (pressure rate)</option>
+                <option value="208"{{logRate208Sel}}>208 Hz (IMU rate)</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-6">
+            <label for="id_serialOutFormat">Serial out format</label>
+            <select id="id_serialOutFormat" name="serialOutFormat">
+                <option value="G3X"{{serialOutG3xSel}}>Garmin G3X</option>
+                <option value="ONSPEED"{{serialOutOnspeedSel}}>OnSpeed</option>
+            </select>
+        </div>
+        <div class="form-divs flex-col-6">
+        </div>
+        <section id="aircraftsection">
+            <h2>Aircraft</h2>
+            <div class="form-divs flex-col-6">
+                <label for="id_acGrossWeight">Max gross weight (lbs)</label>
+                <input id="id_acGrossWeight" name="acGrossWeight" type="text" value="{{acGrossWeight}}"/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_acBestGlideIAS">Best glide at max gross wt (KIAS)</label>
+                <input id="id_acBestGlideIAS" name="acBestGlideIAS" type="text" value="{{acBestGlideIAS}}"/>
+            </div>
+            <div class="form-divs flex-col-6">
+                <label for="id_acVfe">Vfe - max flap speed (KIAS)</label>
+                <input id="id_acVfe" name="acVfe" type="text" value="{{acVfe}}"/>
+            </div>
+            <div class="form-divs flex-col-12">
+                <label>Aircraft category / load factor limit (G)</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="acGlimitPreset" value="3.80" onchange="setGlimit(this)"{{glimitNormalChecked}}> Normal (+3.8G / -1.52G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="4.40" onchange="setGlimit(this)"{{glimitUtilityChecked}}> Utility (+4.4G / -1.76G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="6.00" onchange="setGlimit(this)"{{glimitAerobaticChecked}}> Aerobatic (+6.0G / -3.0G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="custom" onchange="setGlimit(this)"{{glimitCustomChecked}}> Custom</label>
+                </div>
+            </div>
+            <div class="form-divs flex-col-6" id="id_acGlimitCustomDiv" style="{{glimitCustomDisplay}}">
+                <label for="id_acGlimit">Custom G limit</label>
+                <input id="id_acGlimit" name="acGlimit" type="text" value="{{acGlimit}}"/>
+            </div>
+            <script>
+            function setGlimit(el){
+                var v=el.value,d=document.getElementById('id_acGlimitCustomDiv'),i=document.getElementById('id_acGlimit');
+                if(v==='custom'){d.style.display='';i.focus();}
+                else{d.style.display='none';i.value=v;}
+            }
+            </script>
+        </section>
+        <div class="form-divs flex-col-4">
+            <div class="upload-btn-wrapper">
+                <button class="upload-btn">Upload File</button>
+                <input id="id_fileUploadInput" type="file" name="configFileName"/>
+            </div>
+        </div>
+        <div class="form-divs flex-col-5">
+            <a href="/defaultconfig" onclick="return confirm('Load default configuration? Any unsaved changes will be lost.');">
+                <input id="id_loadDefaultConfig" name="loadDefaultConfig" type="button" value="Load Defaults" class="greybutton"/>
+            </a>
+        </div>
+        <div class="form-divs flex-col-3">
+            <input class="blackbutton" type="submit" name="saveSettingsButton" value="Save" />
+        </div>
+        </div>
+    </form>
+
+    <form id="id_realUploadForm">
+    </form>
+</div>
+<script>{{aoaconfigPostJs}}</script>
