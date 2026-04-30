@@ -14,6 +14,7 @@ and rerun its Layer 2 tests, or vice versa.
 from __future__ import annotations
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,9 +125,38 @@ class FlapSetpoints:
 
 
 def load_flap_setpoints(cfg_path: Path) -> dict[int, FlapSetpoints]:
-    """Parse OnSpeed .cfg XML for per-flap setpoints."""
-    tree = ET.parse(cfg_path)
-    root = tree.getroot()
+    """Parse OnSpeed .cfg XML for per-flap setpoints.
+
+    Supports both formats:
+      - **New per-flap-block format** (`<FLAP_POSITION>` blocks with
+        nested `<DEGREES>`, `<POT_VALUE>`, `<LDMAXAOA>`, ...).  Used by
+        the current firmware (post-PR #320).
+      - **V1 list format** (top-level `<FLAPDEGREES>0,20,40</FLAPDEGREES>`,
+        `<SETPOINT_LDMAXAOA>8.03,5.73,4.78</SETPOINT_LDMAXAOA>`, etc.).
+        Used by older firmware including Vac's calibration runs from
+        late 2025.
+
+    For V1 configs, alpha_0 and alpha_stall are derived from the
+    AOA_CURVE polynomial intercept and the published stall_warn:
+      - alpha_0 ≈ poly(0)  (the constant term — body angle at zero
+        pressure ratio)
+      - alpha_stall ≈ stallwarn + 1.5°  (heuristic — V1 didn't carry
+        a separate alpha_stall; modern wizards extract it from where
+        the K/IAS² + alpha_0 fit begins to lose linearity)
+    These are best-effort approximations sufficient for replay; if a
+    V1 config needs precise values, regenerate with the modern wizard.
+    """
+    # V1 OnSpeed configs use tag names like `<3DAUDIO>` that aren't valid
+    # XML (tag names must start with a letter or underscore).  The C++
+    # tinyxml2 parser the firmware uses is lenient about this; Python's
+    # stdlib parser isn't.  Preprocess: rename digit-prefixed tags before
+    # parsing.  This rewrite is one-way (`<3DAUDIO>` → `<_3DAUDIO>` in
+    # both open and close tags); we never write back to the cfg.
+    raw = Path(cfg_path).read_text()
+    raw = re.sub(r"<(/?)(\d)", r"<\1_\2", raw)
+    root = ET.fromstring(raw)
+
+    # Try new per-flap-block format first.
     out: dict[int, FlapSetpoints] = {}
     for fp in root.findall("FLAP_POSITION"):
         deg = int(fp.findtext("DEGREES", "0"))
@@ -141,8 +171,64 @@ def load_flap_setpoints(cfg_path: Path) -> dict[int, FlapSetpoints]:
             alpha_stall=float(fp.findtext("ALPHASTALL", "0")),
             k_fit=float(fp.findtext("KFIT", "0")),
         )
-    if not out:
-        raise ValueError(f"No FLAP_POSITION entries found in {cfg_path}")
+    if out:
+        return out
+
+    # V1 fallback.
+    return _load_flap_setpoints_v1(root)
+
+
+def _load_flap_setpoints_v1(root) -> dict[int, FlapSetpoints]:
+    """Parse the V1 list-style config (Vac's old calibration format)."""
+    def csv_floats(tag: str) -> list[float]:
+        text = root.findtext(tag, "").strip()
+        return [float(x) for x in text.split(",")] if text else []
+
+    def csv_ints(tag: str) -> list[int]:
+        text = root.findtext(tag, "").strip()
+        return [int(x) for x in text.split(",")] if text else []
+
+    degrees       = csv_ints("FLAPDEGREES")
+    pot_positions = csv_ints("FLAPPOTPOSITIONS")
+    ldmax         = csv_floats("SETPOINT_LDMAXAOA")
+    onspeed_fast  = csv_floats("SETPOINT_ONSPEEDFASTAOA")
+    onspeed_slow  = csv_floats("SETPOINT_ONSPEEDSLOWAOA")
+    stallwarn     = csv_floats("SETPOINT_STALLWARNAOA")
+
+    if not degrees:
+        raise ValueError(
+            f"No FLAP_POSITION blocks AND no V1 FLAPDEGREES list found"
+        )
+
+    out: dict[int, FlapSetpoints] = {}
+    for i, deg in enumerate(degrees):
+        # Derive alpha_0 from the per-flap AOA_CURVE polynomial.
+        # Format: "x3,x2,x1,x0,curve_type" — the x0 term is the
+        # body-angle intercept at zero pressure ratio (the V1 wizard
+        # writes this as the zero-lift body angle proxy).
+        curve_text = root.findtext(f"AOA_CURVE_FLAPS{i}", "0,0,0,0,0")
+        curve_parts = [float(x) for x in curve_text.split(",")]
+        # curve_parts = [x3, x2, x1, x0, type]  (4 polynomial coeffs + type)
+        # x0 is the constant term — body angle at zero pressure ratio.
+        # In V1's parameterization that's effectively alpha_0.
+        alpha_0_v1 = curve_parts[3] if len(curve_parts) >= 4 else 0.0
+        # Heuristic: alpha_stall sits ~1.5° past stall_warn (V1 didn't
+        # carry a separate alpha_stall; 1.5° is the typical margin in
+        # calibration data).
+        sw = stallwarn[i] if i < len(stallwarn) else 0.0
+        alpha_stall_v1 = sw + 1.5
+
+        out[deg] = FlapSetpoints(
+            degrees=deg,
+            pot_value=pot_positions[i] if i < len(pot_positions) else 0,
+            ldmax_aoa=ldmax[i] if i < len(ldmax) else 0.0,
+            onspeed_fast_aoa=onspeed_fast[i] if i < len(onspeed_fast) else 0.0,
+            onspeed_slow_aoa=onspeed_slow[i] if i < len(onspeed_slow) else 0.0,
+            stallwarn_aoa=sw,
+            alpha_0=alpha_0_v1,
+            alpha_stall=alpha_stall_v1,
+            k_fit=0.0,   # V1 didn't store K_fit; tools that need it must derive
+        )
     return out
 
 
