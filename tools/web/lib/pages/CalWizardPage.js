@@ -405,6 +405,26 @@ export function analyzeDecel(samples, params) {
   const alpha0     = iasAoaFit.equation[1];
   const alphaStall = kFit / (stallIas * stallIas) + alpha0;
 
+  // Degenerate-fit guard.  When the linear regression denominator is
+  // zero (single distinct sample, or all 1/IAS² values equal because
+  // IAS was constant), regression.js returns slope=0 and the fit
+  // collapses: every setpoint computed from `kFit / IAS² + alpha_0`
+  // equals alpha_0 verbatim.  Saving that would map every body angle
+  // from LDmax through Stall onto the same value — silent calibration
+  // failure.  Reject before reaching Save.
+  //
+  // 5 samples is the threshold the legacy wizard used implicitly
+  // (regression.js fits 1 distinct point with slope 0 and N-fold
+  // collinear points the same way).  A 1 kt/s decel from cruise
+  // produces hundreds of pre-stall samples; < 5 means the recording
+  // never built up a useful range.
+  if (Math.abs(kFit) < 1e-6 || iasAoaData.length < 5) {
+    return {
+      ok: false,
+      error: 'Decel data is too thin to fit (slope ≈ 0). Record more samples and try again.',
+    };
+  }
+
   // Setpoint math.  acVfe overrides LDmaxIAS for flapped runs.
   const flapIndex = samples[stallIdx].flapIndex || 0;
   const acVfe         = parseFloat(params.vfeKt) || 0;

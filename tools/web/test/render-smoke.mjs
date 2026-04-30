@@ -265,6 +265,50 @@ test('analyzeDecel returns ok=false on too-few samples', () => {
   if (!out.error) throw new Error('expected error message');
 });
 
+test('analyzeDecel rejects degenerate fits (slope ≈ 0)', () => {
+  // Stub window.regression to return a degenerate fit (slope=0,
+  // intercept=mean — exactly what the real regression.js returns
+  // when the denominator collapses).  This pins the wizard's
+  // ≈0-slope guard without needing the UMD vendor bundle in Node.
+  const prev = globalThis.window.regression;
+  // First polynomial call (IAS-vs-index) — slope -1 so the
+  // "airspeed increasing" guard does NOT fire; we want this fixture
+  // to reach the kFit check.
+  // Subsequent calls return slope 0.
+  let callCount = 0;
+  globalThis.window.regression = {
+    polynomial: () => {
+      callCount++;
+      if (callCount === 1) {
+        return { equation: [-1.0, 100.0], r2: 0.99 };
+      }
+      return { equation: [0.0, 5.0], r2: 0.0 };
+    },
+  };
+  try {
+    // Build a fixture with a real stall (CP rising) so analyzeDecel
+    // gets past the "stall not detected" guard.  Sample count > 50.
+    const samples = [];
+    for (let i = 0; i < 200; i++) {
+      samples.push({
+        iasKt: 80 - i * 0.1,
+        coeffP: 0.3 + i * 0.001,
+        derivedAoaDeg: 5 + i * 0.05,
+        flapsPosDeg: 0,
+        flapIndex: 0,
+      });
+    }
+    const out = calwizMod.analyzeDecel(samples, {
+      gLimit: '4', grossWeightLb: '2400', currentWeightLb: '2200',
+      bestGlideKt: '85', vfeKt: '100',
+    });
+    if (out.ok) throw new Error('expected ok=false on a degenerate-fit sample set');
+    if (!out.error) throw new Error('expected error message');
+  } finally {
+    globalThis.window.regression = prev;
+  }
+});
+
 test('PageShell Settings dropdown lists the legacy items', () => {
   const root = renderInto(html`<${shellMod.PageShell} active="indexer"
                                                       children=${[]} />`);
