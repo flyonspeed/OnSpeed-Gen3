@@ -1436,17 +1436,31 @@ const GHistory = ({ buf, writeIdx }) => {
 
 // M5-style stale-data overlay: red X across panel + black "NO DATA" pill.
 // Mounted last on each mode SVG so it paints on top when visible.
+//
+// Each diagonal is built from a band of 9 parallel 1px lines (offset
+// -4..+4) so the X reads as a thick stroke without relying on
+// stroke-width which would foreshorten near the corners.  The previous
+// implementation moved only one endpoint of the bottom-left → top-right
+// diagonal per offset, fanning the band out from the corners and
+// rendering visibly thinner than its mirror; both diagonals now offset
+// both endpoints symmetrically for a uniform-thickness X.
 const StaleOverlay = ({ stale }) => {
   if (!stale) return null;
   const lines = [];
   for (let off = -4; off <= 4; ++off) {
+    // Top-left → bottom-right diagonal.  Positive off shifts the band
+    // down-right, negative shifts up-left.
+    const tlbr_pos = Math.max(0, off);
+    const tlbr_neg = -Math.min(0, off);
     lines.push(html`
-      <line x1=${0 + Math.max(0, off)}   y1=${0 - Math.min(0, off)}
-            x2=${319 + Math.min(0, off)} y2=${239 - Math.max(0, off)}
+      <line x1=${tlbr_pos}       y1=${tlbr_neg}
+            x2=${319 - tlbr_neg} y2=${239 - tlbr_pos}
             stroke=${colors.TFT_RED} stroke-width="1" />`);
+    // Top-right → bottom-left diagonal.  Mirror of the above so the
+    // band has matching thickness.
     lines.push(html`
-      <line x1=${319 + Math.min(0, off)} y1=${0 - Math.min(0, off)}
-            x2=${0 + Math.max(0, off)}   y2=${239 - Math.max(0, off)}
+      <line x1=${319 - tlbr_pos} y1=${tlbr_neg}
+            x2=${tlbr_neg}       y2=${239 - tlbr_pos}
             stroke=${colors.TFT_RED} stroke-width="1" />`);
   }
   return html`
