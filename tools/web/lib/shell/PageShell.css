@@ -6,8 +6,14 @@
    so the Preact-served pages (`/live`, `/indexer`) match the still-
    server-rendered pages (`/aoaconfig`, `/calwiz`, `/logs`, etc.).
    Light grey body, dark grey nav, red hover.  Dropdowns reveal on
-   `:hover` (pointer), `:focus-within` (keyboard), or click-toggle on
-   the trigger (`aria-expanded="true"`, set by PageShell.js). */
+   `:hover` (pointer) or `aria-expanded="true"` (set by PageShell.js
+   on click and on keyboard focus).  We deliberately avoid
+   `:focus-within` because it conflicts with click-to-close — a real
+   mouse click leaves focus on the trigger, which would keep the
+   dropdown open via focus-within even after the click handler set
+   `aria-expanded="false"`.  Routing keyboard accessibility through
+   the same JS state (focus/blur handlers in PageShell.js) keeps a
+   single source of truth for "is this menu open." */
 
 /* ---------- Body chrome ---------- */
 body {
@@ -66,7 +72,6 @@ li a, .dropbtn {
 li a.active, .dropbtn.active { background-color: #b00000; }
 
 li a:hover, .dropdown:hover .dropbtn,
-.dropdown:focus-within .dropbtn,
 .dropdown .dropbtn[aria-expanded="true"] {
   background-color: red;
 }
@@ -93,7 +98,6 @@ li.dropdown { display: inline-block; }
 .dropdown-content a:hover { background-color: #f1f1f1; }
 
 .dropdown:hover .dropdown-content,
-.dropdown:focus-within .dropdown-content,
 .dropdown .dropbtn[aria-expanded="true"] + .dropdown-content { display: block; }
 
 /* Narrow phone viewports: tighten the nav so all five items fit on a

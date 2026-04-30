@@ -59,7 +59,20 @@ const Dropdown = ({ group, activeId, isOpen, onToggle }) => html`
   </li>`;
 
 const Nav = ({ activeId }) => {
-  const [openMenu, setOpenMenu] = useState(null); // dropdown id or null
+  // Single source of truth for "which menu is open".  Driven by:
+  //   - click on the trigger (mouse + touch — toggles)
+  //   - Enter/Space on a focused trigger (keyboard activation, fires
+  //     synthetic click via the browser)
+  //   - click-outside / Escape (close)
+  //
+  // We deliberately do NOT open on `focus` — focus fires during a real
+  // mouse click (mousedown→focus→click), so an open-on-focus handler
+  // races the click handler and the menu ends up closed.  The standard
+  // ARIA disclosure pattern is "Enter/Space activates," which the
+  // browser already maps to `click` for elements with tabindex.
+  // We also do NOT use CSS :focus-within to open — same race + the
+  // close-via-click would lose to focus-within keeping it open.
+  const [openMenu, setOpenMenu] = useState(null);
 
   const toggleMenu = (id) => (e) => {
     e.preventDefault();
@@ -69,7 +82,6 @@ const Nav = ({ activeId }) => {
 
   useEffect(() => {
     const handleClickOutside = (e) => {
-      // `closest` is undefined on text nodes; guard for it.
       if (!e.target || typeof e.target.closest !== 'function') return;
       if (!e.target.closest('.dropdown')) setOpenMenu(null);
     };
