@@ -42,7 +42,6 @@ using onspeed::accelRoll;
 using onspeed::ft2m;
 using onspeed::inhg2mb;
 
-#include "Web/html_logo.h"
 #include "Web/html_header.h"
 #include "Web/html_header_css.h"
 #include "Web/html_stubs.h"
