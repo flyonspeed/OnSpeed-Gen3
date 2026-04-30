@@ -5,9 +5,12 @@
 // (`/live`, `/indexer`) and the still-server-rendered pages
 // (`/aoaconfig`, `/calwiz`, etc.) feels like one site.
 //
-// Dropdowns rely on `:hover` + `:focus-within` selectors only; no JS
-// open-state.  iOS Safari taps focus the trigger, which is what reveals
-// the menu via `:focus-within`.
+// Dropdowns open three ways: pointer hover (`:hover`), keyboard focus
+// (`:focus-within`), and click-toggle on the trigger (tracked by an
+// `openMenu` state and reflected via `aria-expanded` on the trigger
+// for the CSS rule and assistive tech).  A document-level click
+// listener closes the menu when the user clicks outside, and Escape
+// closes it from the keyboard.
 //
 // Logo source: `tools/web/public/onspeed-logo.png`.  The bundler reads
 // the PNG at build time and prepends a `globalThis.ONSPEED_LOGO_DATA_URL`
@@ -16,7 +19,7 @@
 // serves the PNG file directly from `public/`.  PageShell reads either
 // source.
 
-import { html } from '../vendor/preact-standalone.js';
+import { html, useState, useEffect } from '../vendor/preact-standalone.js';
 import { NAV, navIdForPath } from './nav.js';
 
 function resolveLogoSrc() {
@@ -43,23 +46,55 @@ function resolveVersion(prop) {
   return 'dev';
 }
 
-const Dropdown = ({ group, activeId }) => html`
+const Dropdown = ({ group, activeId, isOpen, onToggle }) => html`
   <li class="dropdown">
     <a href="javascript:void(0)" class="dropbtn"
-       tabindex="0" aria-haspopup="true">${group.label}</a>
+       tabindex="0" aria-haspopup="true"
+       aria-expanded=${isOpen ? 'true' : 'false'}
+       onClick=${onToggle}>${group.label}</a>
     <div class="dropdown-content">
       ${group.items.map(it => html`
         <a href=${it.href} class=${it.id === activeId ? 'active' : ''}>${it.label}</a>`)}
     </div>
   </li>`;
 
-const Nav = ({ activeId }) => html`
-  <ul>
-    <li><a href="/" class=${activeId === 'home' ? 'active' : ''}>Home</a></li>
-    ${NAV.dropdowns.map(d => html`<${Dropdown} group=${d} activeId=${activeId} />`)}
-    ${NAV.primary.filter(p => p.id !== 'home').map(p => html`
-      <li><a href=${p.href} class=${p.id === activeId ? 'active' : ''}>${p.label}</a></li>`)}
-  </ul>`;
+const Nav = ({ activeId }) => {
+  const [openMenu, setOpenMenu] = useState(null); // dropdown id or null
+
+  const toggleMenu = (id) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpenMenu(prev => prev === id ? null : id);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      // `closest` is undefined on text nodes; guard for it.
+      if (!e.target || typeof e.target.closest !== 'function') return;
+      if (!e.target.closest('.dropdown')) setOpenMenu(null);
+    };
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') setOpenMenu(null);
+    };
+    if (typeof document === 'undefined') return undefined;
+    document.addEventListener('click', handleClickOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, []);
+
+  return html`
+    <ul>
+      <li><a href="/" class=${activeId === 'home' ? 'active' : ''}>Home</a></li>
+      ${NAV.dropdowns.map(d => html`<${Dropdown} group=${d} activeId=${activeId}
+                                                isOpen=${openMenu === d.id}
+                                                onToggle=${toggleMenu(d.id)} />`)}
+      ${NAV.primary.filter(p => p.id !== 'home').map(p => html`
+        <li><a href=${p.href} class=${p.id === activeId ? 'active' : ''}>${p.label}</a></li>`)}
+    </ul>`;
+};
 
 const Header = ({ version }) => {
   const logoSrc = resolveLogoSrc();
