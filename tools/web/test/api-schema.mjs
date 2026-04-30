@@ -95,12 +95,40 @@ for (const name of ['api-sample-volume', 'api-sample-pfwd', 'api-sample-p45']) {
 }
 
 // ----- /api/audiotest/* -------------------------------------------------
+//
+// /api/audiotest accepts either:
+//   200 {"ok": true}                                       — happy path
+//   409 {"ok": false, "errors": [{path, message}]}         — already running
+// The mock represents the happy path; the 409 shape is asserted
+// synthetically below so the wizard's response handler covers both.
 
 for (const trigger of ['api-audiotest', 'api-audiotest-stop', 'api-vnochime-test']) {
   const m = loadMock(trigger);
   if (!m) continue;
-  exactKeys(m, ['ok'], trigger);
-  eq(m.ok, true, `${trigger}: ok=true`);
+  if (trigger === 'api-audiotest' && m.ok === false) {
+    // 409-shaped fixture — schema check on the error body.
+    exactKeys(m, ['ok', 'errors'], trigger);
+    ok(Array.isArray(m.errors), `${trigger}: errors is array`);
+    for (const [i, e] of m.errors.entries()) {
+      exactKeys(e, ['path', 'message'], `${trigger}.errors[${i}]`);
+      ok(isString(e.path),    `${trigger}.errors[${i}].path is string`);
+      ok(isString(e.message), `${trigger}.errors[${i}].message is string`);
+    }
+  } else {
+    exactKeys(m, ['ok'], trigger);
+    eq(m.ok, true, `${trigger}: ok=true`);
+  }
+}
+
+// Synthetic 409 shape pin for /api/audiotest "already running".
+const audiotestBusy = {
+  ok: false,
+  errors: [{ path: 'audiotest', message: 'already running' }],
+};
+ok(audiotestBusy.ok === false, 'synthetic audiotest-busy: ok=false');
+ok(Array.isArray(audiotestBusy.errors), 'synthetic audiotest-busy: errors is array');
+for (const [i, e] of audiotestBusy.errors.entries()) {
+  exactKeys(e, ['path', 'message'], `synthetic audiotest-busy.errors[${i}]`);
 }
 
 const audiotestStatus = loadMock('api-audiotest-status');
