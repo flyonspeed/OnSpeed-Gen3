@@ -2,7 +2,7 @@
 
 Provides:
 
-- `frame`        — `Frame` builder for the `#1` 74-byte display-serial wire
+- `frame`        — `Frame` builder for the `#1` 76-byte display-serial wire
                    format; mirrors `onspeed_core/proto/DisplaySerial.{h,cpp}`.
 - `config`       — `FlapSetpoints` dataclass + `load_flap_setpoints()` that
                    handles both the V1 list-style and the new per-flap-block

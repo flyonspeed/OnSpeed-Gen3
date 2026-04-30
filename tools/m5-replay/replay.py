@@ -56,6 +56,7 @@ from onspeed_py.config import (
     setpoints_for_flap,
 )
 from onspeed_py.frame import FRAME_LEN, PAYLOAD_LEN, Frame
+from onspeed_py.log_replay import _log_to_wire_lateral_g
 from onspeed_py.percent_lift import compute_percent_lift
 
 # Re-export for backwards compatibility with `tools/m5-replay/test_replay.py`,
@@ -114,7 +115,14 @@ def csv_frame_stream(
                 ias_kts=_float_or(r.get("IAS"), 0.0),
                 palt_ft=_float_or(r.get("Palt"), 0.0),
                 turnrate_dps=_float_or(r.get("YawRate"), 0.0),
-                lateral_g=_float_or(r.get("LateralG"), 0.0),
+                # Log's `LateralG` column is body-frame (positive =
+                # airframe accel right); the wire's lateral_g is
+                # ball-frame (positive = ball deflects right, i.e.
+                # airframe accel left).  Negate to keep the M5 ball on
+                # the correct side.  Workaround for current ball-frame
+                # wire convention; remove once #374 lands and the wire
+                # flips to body-frame.
+                lateral_g=_log_to_wire_lateral_g(_float_or(r.get("LateralG"), 0.0)),
                 vertical_g=_float_or(r.get("VerticalG"), 1.0),
                 percent_lift=compute_percent_lift(aoa, fs),
                 vsi_fpm=_float_or(r.get("VSI"), 0.0),
