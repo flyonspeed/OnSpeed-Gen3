@@ -101,13 +101,13 @@ jobs:
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
-  indexer-bundle-fresh:
-    # Verifies the committed software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
-    # matches what scripts/build_liveview_html.py would produce. Catches
-    # contributors who edit prototype source without regenerating the
-    # bundle — Arduino IDE users compile the committed header directly,
-    # so a stale header would silently break their flash.
-    name: Verify html_indexer.h is up to date
+  web-bundle-fresh:
+    # Verifies the committed Web/static_app_js.h, static_app_css.h, and
+    # html_stubs.h match what scripts/build_web_bundle.py produces.
+    # Catches contributors who edit tools/web/ source without regenerating
+    # the bundle — Arduino IDE users compile the committed headers
+    # directly, so stale outputs would silently break their flash.
+    name: Verify shared web bundle is up to date
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -120,23 +120,39 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Regenerate indexer bundle
-        run: python3 scripts/build_liveview_html.py
+      - name: Regenerate web bundle
+        run: python3 scripts/build_web_bundle.py
 
-      - name: Verify committed header is current
+      - name: Verify committed headers are current
         run: |
-          if ! git diff --exit-code -- software/OnSpeed-Gen3-ESP32/Web/html_indexer.h; then
-            echo "::error::html_indexer.h is stale. Run 'python3 scripts/build_liveview_html.py' and commit the result."
+          set -e
+          STALE=0
+          for f in \
+              software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
+              software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
+              software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
+              software/OnSpeed-Gen3-ESP32/Web/html_indexer.h; do
+            if ! git diff --exit-code -- "$f"; then
+              echo "::error::$f is stale."
+              STALE=1
+            fi
+          done
+          if [ "$STALE" -ne 0 ]; then
+            echo "::error::Run 'python3 scripts/build_web_bundle.py' and commit the result."
             exit 1
           fi
 
-  liveview-geometry-tests:
-    # Pure-JS unit tests for the LiveView's geometry constants and the
-    # framework-free helpers (mapPct2Display, chevronColors, donutColors,
-    # flapWidgetFrac, slipFromLateralG, slipBall). These guard against
-    # silent regressions like a sign-flip on MODE1_PITCH_HEIGHT_SCALE
-    # that visual A/B against the M5 wouldn't catch on a level bench.
-    name: LiveView geometry invariants
+  web-tests:
+    # Pure-JS tests for the firmware web UI:
+    #   - geometry-invariants: SVG layout constants and framework-free
+    #     helpers (mapPct2Display, chevronColors, donutColors,
+    #     flapWidgetFrac, slipFromLateralG, slipBall).  Catches silent
+    #     regressions like a sign-flip on MODE1_PITCH_HEIGHT_SCALE that
+    #     visual A/B against the M5 wouldn't catch on a level bench.
+    #   - render-smoke: each page module imports cleanly and renders
+    #     via Preact into a mock DOM, with key landmarks present
+    #     (<svg>, mode buttons, data table).
+    name: Web tests (geometry + render-smoke)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -150,7 +166,10 @@ jobs:
           node-version: '20'
 
       - name: Run geometry-invariants test
-        run: node tools/liveview-prototype/test/geometry-invariants.mjs
+        run: node tools/web/test/geometry-invariants.mjs
+
+      - name: Run render-smoke test
+        run: node tools/web/test/render-smoke.mjs
 
   build-m5-display:
     name: Build M5 Display Firmware (${{ matrix.board }})

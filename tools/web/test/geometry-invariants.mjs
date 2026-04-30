@@ -3,16 +3,16 @@
 // e.g., flipping MODE1_PITCH_HEIGHT_SCALE from +3 to -3 inverts the
 // horizon at flight time. Run with:
 //
-//   node tools/liveview-prototype/test/geometry-invariants.mjs
+//   node tools/web/test/geometry-invariants.mjs
 //
 // Exit code 0 = all pass, non-zero = some failed.
 
-import * as G from '../lib/geometry.js';
-import { chevronColors } from '../lib/chevronColors.js';
-import { donutColors } from '../lib/donutColors.js';
-import { mapPct2Display } from '../lib/pct2y.js';
-import { flapWidgetFrac, flapTriangleTransform } from '../lib/flapWidget.js';
-import { slipFromLateralG, slipBall } from '../lib/slipBall.js';
+import * as G from '../lib/core/geometry.js';
+import { chevronColors } from '../lib/core/chevronColors.js';
+import { donutColors } from '../lib/core/donutColors.js';
+import { mapPct2Display } from '../lib/core/pct2y.js';
+import { flapWidgetFrac, flapTriangleTransform } from '../lib/core/flapWidget.js';
+import { slipFromLateralG, slipBall } from '../lib/core/slipBall.js';
 
 let failed = 0;
 let passed = 0;

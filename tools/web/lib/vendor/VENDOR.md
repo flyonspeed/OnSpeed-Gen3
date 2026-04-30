@@ -23,7 +23,7 @@ None of the React DOM, Suspense, hooks beyond the basics, etc.
 
 ## Why vendor instead of CDN
 
-The firmware bundle (`html_indexer.h`) is served from PROGMEM by the
+The firmware bundle (`static_app_js.h`) is served from PROGMEM by the
 ESP32 over the captive-portal AP. Pilots' tablets are connected to the
 OnSpeed AP, NOT the public Internet. A CDN-loaded Preact would 404.
 
@@ -31,11 +31,11 @@ OnSpeed AP, NOT the public Internet. A CDN-loaded Preact would 404.
 
 ```bash
 curl -sL https://unpkg.com/htm/preact/standalone.module.js \
-  -o tools/liveview-prototype/lib-preact/vendor/preact-standalone.js
+  -o tools/web/lib/vendor/preact-standalone.js
 
 # Re-add the leading vendor comment block (preserves dep + license note).
 # Then verify:
-python3 scripts/build_liveview_html.py
+python3 scripts/build_web_bundle.py
 pio run -e esp32s3-v4p
 ```
 
@@ -83,7 +83,8 @@ Other lightweight reactive frameworks were considered:
   five-mode UI.
 
 If a future maintainer wants to swap the framework, the components in
-`lib-preact/modes/` and `lib-preact/components/` are the only files
-that depend on `html` and `render`. Replace those imports + adjust
-the JSX-equivalent template syntax; everything else (geometry, colors,
-math helpers, scenarios, WebSocket client) is framework-free.
+`lib/modes.js`, `lib/components/svg/`, `lib/pages/`, and `lib/shell/`
+are the files that depend on `html` and `render`. Replace those
+imports + adjust the JSX-equivalent template syntax; everything else
+(geometry, colors, math helpers, scenarios, WebSocket client) is
+framework-free.

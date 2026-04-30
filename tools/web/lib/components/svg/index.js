@@ -1,18 +1,18 @@
 // Shared Preact components for OnSpeed LiveView.
 //
 // Each component is a pure function of props. The five mode files
-// (modes/*.js) compose these components against a single record `r`
+// (lib/modes.js) compose these components against a single record `r`
 // drawn from the WebSocket. Layout constants come from the framework-
-// free helpers in ../lib/.
+// free helpers in ../../core/.
 
-import { html } from './vendor/preact-standalone.js';
-import * as G from './geometry.js';
-import { colors } from './colors.js';
-import { mapPct2Display } from './pct2y.js';
-import { chevronColors } from './chevronColors.js';
-import { donutColors } from './donutColors.js';
-import { slipFromLateralG } from './slipBall.js';
-import { flapWidgetFrac, flapTriangleTransform } from './flapWidget.js';
+import { html } from '../../vendor/preact-standalone.js';
+import * as G from '../../core/geometry.js';
+import { colors } from '../../core/colors.js';
+import { mapPct2Display } from '../../core/pct2y.js';
+import { chevronColors } from '../../core/chevronColors.js';
+import { donutColors } from '../../core/donutColors.js';
+import { slipFromLateralG } from '../../core/slipBall.js';
+import { flapWidgetFrac, flapTriangleTransform } from '../../core/flapWidget.js';
 
 // SVG arc path helper — circle arc from start to end angle (radians).
 const arcPath = (cx, cy, r, startRad, endRad) => {

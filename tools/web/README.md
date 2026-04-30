@@ -1,0 +1,192 @@
+# OnSpeed firmware web UI
+
+Source for the firmware-served web pages.  The actual artifacts the
+firmware embeds —
+`software/OnSpeed-Gen3-ESP32/Web/static_app_js.h`,
+`static_app_css.h`, `html_stubs.h` — are **generated** from this
+directory by `scripts/build_web_bundle.py`.  The directory under
+`tools/web/` is the source of truth; the headers are the build product.
+
+## Quick start
+
+Run the dev server with mock data (default port `8080`):
+
+```bash
+node tools/web/dev-server/server.mjs --mock
+```
+
+Open `http://localhost:8080/indexer` for the 5-mode indexer page or
+`http://localhost:8080/live` for the legacy two-tab AOA / AHRS view.
+Both pages connect to the dev server's WebSocket at `/ws`, which loops
+through `dev-server/replay/cruise.ndjson` (one JSON frame per line).
+
+Other modes:
+
+```bash
+# Static-only with a "no backend configured" fallback:
+node tools/web/dev-server/server.mjs
+
+# Mock + a synthetic scenario from lib/scenarios.js:
+node tools/web/dev-server/server.mjs --mock --scenario approach
+
+# Mock + a custom NDJSON replay:
+node tools/web/dev-server/server.mjs --mock --replay path/to/log.ndjson
+
+# Proxy /api/* to a real OnSpeed device (WS goes browser->device direct):
+node tools/web/dev-server/server.mjs --proxy http://192.168.0.1
+```
+
+Or via npm: `npm run dev` is a thin wrapper around the `--mock` form.
+
+The dev server has zero dependencies — `git clone && node ...` is
+sufficient.  Node 20+ is required.
+
+## Source layout
+
+```
+tools/web/
+├── README.md                          this file
+├── package.json                       npm scripts (no dependencies)
+├── public/
+│   ├── style.css                      synthetic-scenario harness page styles
+│   └── scenarios.html                 the offline harness (separate from firmware)
+├── lib/
+│   ├── entry.js                       bundle entry; selects page from data-page attr
+│   ├── modes.js                       the 5 indexer SVG modes (Mode0..Mode4)
+│   ├── scenarios.js                   synthetic data generators for the offline harness
+│   ├── scenarios-main.js              entry for public/scenarios.html
+│   ├── components/svg/index.js        Preact SVG components (Indexer, Horizon, etc.)
+│   ├── core/                          framework-free math + tokens
+│   │   ├── colors.js, geometry.js, pct2y.js,
+│   │   ├── donutColors.js, chevronColors.js,
+│   │   ├── slipBall.js, flapWidget.js
+│   ├── pages/
+│   │   ├── IndexerPage.js             /indexer
+│   │   └── LivePage.js                /live
+│   ├── shell/
+│   │   ├── PageShell.js               global nav, dropdowns, footer
+│   │   ├── PageShell.css              chrome + page-specific styles
+│   │   ├── nav.js                     single-source-of-truth nav manifest
+│   │   └── apiClient.js               fetch wrapper with proxy/mock/firmware base
+│   ├── ws/wsClient.js                 useWebSocket hook + frameToRecord
+│   └── vendor/preact-standalone.js    Preact + htm bundle (vendored)
+├── dev-server/
+│   ├── server.mjs                     the dev server (mock / proxy / static)
+│   ├── capture.mjs                    record device WS frames -> NDJSON
+│   ├── mocks/                         JSON fixtures for /api/* in mock mode
+│   │   └── livedata.json
+│   └── replay/
+│       └── cruise.ndjson              NDJSON frames to drive the WS replay loop
+└── test/
+    ├── geometry-invariants.mjs        SVG geometry + helpers
+    └── render-smoke.mjs               page-import + render-into-mock-DOM smoke
+```
+
+## Page → component map
+
+| Route       | Component        | What it does                                                                  |
+|-------------|------------------|-------------------------------------------------------------------------------|
+| `/indexer`  | `IndexerPage`    | 5-mode SVG view (AOA / Attitude / Indexer / Energy / G-history)               |
+| `/live`     | `LivePage`       | Two-tab AOA / AHRS read-only page; preserves the legacy `/live` info density  |
+
+The page list is the source of truth in three places that must stay
+in sync:
+
+- `tools/web/lib/entry.js` — the `PAGES` map.
+- `scripts/build_web_bundle.py` — the `PAGES` table the bundler iterates over.
+- `tools/web/dev-server/server.mjs` — the `PAGES` array the dev server matches against.
+
+## Adding a new page
+
+1. Write `lib/pages/MyPage.js`, exporting a Preact component whose
+   render output is wrapped in `<PageShell active="my">`.
+2. Register it in `lib/entry.js`'s `PAGES` map.
+3. Add an entry to `PAGES` in `scripts/build_web_bundle.py` so a stub
+   gets emitted in `html_stubs.h`.
+4. Add a `CfgServer.on("/my", HTTP_GET, HandleMy)` route in
+   `ConfigWebServer.cpp`, with `HandleMy()` calling
+   `ServePageStub(htmlStub_my)`.
+5. Add the route to `dev-server/server.mjs`'s `PAGES` array.
+6. Optionally extend `lib/shell/nav.js` so the nav surfaces it.
+
+## Capturing real WebSocket data
+
+```bash
+node tools/web/dev-server/capture.mjs ws://192.168.0.1:81 \
+  > tools/web/dev-server/replay/my-flight.ndjson
+```
+
+Connect for ~30 seconds, Ctrl-C to flush.  Each frame becomes one
+NDJSON line:
+`{"tDelay": <ms-since-previous-frame>, "frame": <parsed-JSON>}`.  Use
+`--replay tools/web/dev-server/replay/my-flight.ndjson` to play it
+back through the dev server.
+
+## Firmware bundle
+
+`scripts/build_web_bundle.py` walks `lib/`, concatenates all JS files
+in topological order with `import`/`export` keywords stripped, and
+emits three PROGMEM headers:
+
+- `static_app_js.h` — gzipped JS bundle, content-hashed `etag` (12 hex chars).
+- `static_app_css.h` — gzipped CSS bundle, separate etag.
+- `html_stubs.h` — one `htmlStub_<page>` per page, each a complete
+  HTML document referencing `/static/app-<etag>.{js,css}`.
+
+ConfigWebServer routes:
+
+- `GET /indexer`, `GET /live` → `ServePageStub(htmlStub_…)`
+- `GET /static/app-*.js`  → `HandleStaticAppJs`  (immutable cache)
+- `GET /static/app-*.css` → `HandleStaticAppCss` (immutable cache)
+
+The Preact bundle is special-cased in the bundler: wrapped in an IIFE
+that returns its named exports as an object, so Preact's single-letter
+internals (e, n, _, t, h, ...) don't collide with our top-level
+scope.
+
+### Editing source
+
+After changing anything under `tools/web/lib/`,
+`tools/web/lib/shell/PageShell.css`, or
+`scripts/build_web_bundle.py`, regenerate and commit BOTH the source
+and the headers:
+
+```bash
+python3 scripts/build_web_bundle.py
+git add tools/web/... \
+        software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
+        software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
+        software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
+        software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
+git commit
+```
+
+CI's `web-bundle-fresh` job verifies the committed headers match what
+the script would produce — a forgotten regeneration fails the PR check.
+
+PlatformIO users: `pio run` regenerates the headers on demand (the
+script is registered as a pre-build extra_script with skip-if-fresh).
+
+### Don't edit the generated headers
+
+`static_app_js.h`, `static_app_css.h`, and `html_stubs.h` start with
+an `// AUTO-GENERATED` comment.  If you find yourself editing them,
+stop — your changes will be erased on the next build.  Edit the
+source under `lib/` and regenerate.
+
+## Tests
+
+```bash
+node tools/web/test/geometry-invariants.mjs
+node tools/web/test/render-smoke.mjs
+```
+
+Both run on Node 20 with no dependencies.  CI runs them on every PR.
+
+## Source plan
+
+The full multi-PR plan that this directory is implementing is at
+`local-plans/PLAN_WEB_PREACT_REWRITE.md` (outside the repo).  Phase 1
+covers the infrastructure + a `/live` port; later phases extend the
+JSON API, port `/aoaconfig` and `/calwiz`, and clean up the legacy
+inline-HTML pages.

@@ -7,23 +7,23 @@ description: Use when editing OnSpeed's LiveView (the firmware-served `/indexer`
 
 The OnSpeed firmware serves a tablet-friendly web page at `/indexer` that mirrors the M5 hardware display's five modes (Mode 0 AOA primary, Mode 1 Backup AI, Mode 2 Indexer-only, Mode 3 Energy / decel gauge, Mode 4 G-load history). Both the M5 hardware renderer (C++ on the M5Stack) and the LiveView (SVG/Preact in the browser) are derived from the same M5 source — `software/OnSpeed-M5-Display/src/main.cpp`. **Edit them in lockstep; the two surfaces are deliberately bit-faithful copies of the same UI.**
 
-Note: the legacy `/live` page (the 2-tab AOA/AHRS view at `software/OnSpeed-Gen3-ESP32/Web/html_liveview.h`) is preserved untouched. The new 5-mode view lives at `/indexer` so pilots can A/B between the two during the soak window.
+The legacy `/live` page (the 2-tab AOA/AHRS view) is now served from a Preact rewrite at `tools/web/lib/pages/LivePage.js`; the bundler emits its stub into `software/OnSpeed-Gen3-ESP32/Web/html_stubs.h` alongside the indexer stub.
 
 ## The two surfaces
 
 | Surface | Source | Renderer | Where pilots see it |
 |---|---|---|---|
 | **M5 hardware** | `software/OnSpeed-M5-Display/src/main.cpp` (+ helpers) | M5GFX bitmap blits | The actual M5Stack panel mounted in the airplane |
-| **LiveView** | `tools/liveview-prototype/lib/` (Preact components + CSS + vendored Preact bundle) | SVG via Preact | `http://192.168.0.1/indexer` from a tablet/phone on the OnSpeed AP |
+| **LiveView** | `tools/web/lib/` (Preact components + CSS + vendored Preact bundle) | SVG via Preact | `http://192.168.0.1/indexer` from a tablet/phone on the OnSpeed AP |
 
-The M5 source is the source of truth for layout/coordinates/colors. The LiveView is the SVG/Preact port. The firmware bundle (`software/OnSpeed-Gen3-ESP32/Web/html_indexer.h`) is the prototype concatenated into a single PROGMEM string by `scripts/build_liveview_html.py`.
+The M5 source is the source of truth for layout/coordinates/colors. The LiveView is the SVG/Preact port. The firmware bundle (`software/OnSpeed-Gen3-ESP32/Web/static_app_js.h`, `static_app_css.h`, `html_stubs.h`) is the JS+CSS+stubs concatenated into PROGMEM by `scripts/build_web_bundle.py`.
 
 ## Verify against C++ source before editing
 
 When changing layout — pixel positions, font sizes, colors — first read:
 1. The relevant `case N:` block in `software/OnSpeed-M5-Display/src/main.cpp` (the truth on real hardware).
 2. The corresponding helper (`AiGraph()`, `displayDecelGauge()`, `pitchGraph()`, etc.).
-3. The component's existing JS at `tools/liveview-prototype/lib/components.js` (one file with all reusable components) — most have inline citations like `// main.cpp:1437-1493` for the line range they mirror.
+3. The component's existing JS at `tools/web/lib/components/svg/index.js` (one file with all reusable components) — most have inline citations like `// main.cpp:1437-1493` for the line range they mirror.
 
 ## Edit one surface, then propagate
 
@@ -33,54 +33,64 @@ The two surfaces (M5 C++ and LiveView Preact) should stay bit-faithful. Concrete
 - **Edit the LiveView second, citing the M5 line numbers in code comments.** Every component already has `// main.cpp:NNNN-MMMM` references — keep this convention.
 - **For pure JS-side polish (font scaling, browser sans-serif kerning quirks)** that only matters in the SVG, document the divergence in the file's header comment so it's not mistaken for a missed M5 update.
 
-## Test the firmware preview before committing
+## Iterate in the dev server
 
-`firmware-preview.html` mounts the same Preact `<App/>` against an actual OnSpeed device's WebSocket without flashing:
+`tools/web/dev-server/server.mjs` runs the page out of source files (no rebundling needed for dev), so edits are reflected on reload. Three modes:
 
 ```bash
-# 1. Make sure your laptop is on the OnSpeed AP (SSID "OnSpeed",
-#    password "angleofattack").
-# 2. Serve from the prototype dir.
-cd tools/liveview-prototype && python3 -m http.server 8080
-# 3. Open http://localhost:8080/firmware-preview.html
+# Mock data — replays an NDJSON file at 20 Hz over WS:
+node tools/web/dev-server/server.mjs --mock
+# Open http://localhost:8080/indexer or /live
+
+# Mock + a synthetic scenario from lib/scenarios.js:
+node tools/web/dev-server/server.mjs --mock --scenario approach
+
+# Proxy /api/* to a real OnSpeed AP (WS goes browser→device direct):
+node tools/web/dev-server/server.mjs --proxy http://192.168.0.1
 ```
 
-Useful for iterating on the WebSocket client + datafields table + status header without a full firmware build cycle.
+Capture WS frames from a real device for replay:
+
+```bash
+node tools/web/dev-server/capture.mjs ws://192.168.0.1:81 \
+  > tools/web/dev-server/replay/my-flight.ndjson
+```
 
 ## The regenerate-and-commit contract
 
-The firmware-served `/indexer` page lives at `software/OnSpeed-Gen3-ESP32/Web/html_indexer.h` as a PROGMEM string. **It is generated** from the prototype by `scripts/build_liveview_html.py`. The generated header is **committed to the repo** so Arduino IDE contributors (who don't run PlatformIO and never fire the pre-build hook) compile against an up-to-date version.
+The firmware-served pages reference `/static/app-<sha>.js` + `/static/app-<sha>.css`, where `<sha>` is the bundle's content hash.  Both blobs (and the per-page HTML stubs) live in `software/OnSpeed-Gen3-ESP32/Web/static_app_js.h`, `static_app_css.h`, and `html_stubs.h`.  **They are generated** from `tools/web/lib/` by `scripts/build_web_bundle.py`. The generated headers are **committed to the repo** so Arduino IDE contributors (who don't run PlatformIO and never fire the pre-build hook) compile against an up-to-date version.
 
-### When you edit prototype source
+### When you edit web source
 
-ALWAYS regenerate and commit the bundle alongside your prototype change:
+ALWAYS regenerate and commit the bundle alongside your source change:
 
 ```bash
-# After editing tools/liveview-prototype/lib/**/*.js, style.css, or lib/firmware/**
-python3 scripts/build_liveview_html.py
+# After editing anything under tools/web/lib/ or tools/web/lib/shell/PageShell.css
+python3 scripts/build_web_bundle.py
 
-# Verify size hasn't ballooned (typical: ~95 KB)
-wc -c software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
-
-# Commit prototype edit + regenerated bundle in the same commit
-git add tools/liveview-prototype/ software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
+# Commit source edit + regenerated headers in the same commit
+git add tools/web/ \
+        software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
+        software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
+        software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
+        software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
 git commit
 ```
 
-The CI workflow `.github/workflows/ci.yml` has an `indexer-bundle-fresh` job that runs the generator and `git diff --exit-code`s the result. **A forgotten regeneration fails PR checks.** This is intentional — Arduino IDE flashing the stale committed header would silently break the page for that contributor.
+The CI workflow `.github/workflows/ci.yml` has a `web-bundle-fresh` job that runs the generator and `git diff --exit-code`s the result. **A forgotten regeneration fails PR checks.** This is intentional — Arduino IDE flashing stale committed headers would silently break the pages for that contributor.
 
 ### When you edit only firmware-side code (DataServer.cpp, AHRS, etc.)
 
 If you change the JSON wire shape:
-1. Update `tools/liveview-prototype/lib/firmware/wsClient.js`'s field map.
+1. Update `tools/web/lib/ws/wsClient.js`'s `frameToRecord` field map.
 2. Regenerate (per above) so the firmware bundle picks up the new field.
 
 ### PlatformIO contributors get auto-regen
 
-PlatformIO build environments register `scripts/build_liveview_html.py` as a `pre:` extra_script. `pio run` regenerates on demand (skip-if-fresh — only if a prototype source mtime is newer than the output).
+PlatformIO build environments register `scripts/build_web_bundle.py` as a `pre:` extra_script. `pio run` regenerates on demand (skip-if-fresh — only if a source mtime is newer than the output).
 
 ```bash
-pio run -e esp32s3-v4p   # regenerates html_indexer.h if needed, then builds firmware
+pio run -e esp32s3-v4p   # regenerates the bundle if needed, then builds firmware
 ```
 
 ## Layout / pixel polish patterns
@@ -119,20 +129,24 @@ If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mo
 
 ## When NOT to touch the LiveView
 
-- **Don't edit `html_indexer.h` directly.** It says `AUTO-GENERATED` at the top. Your changes will be overwritten on the next build. Edit prototype source, regenerate.
+- **Don't edit the generated headers directly.** They say `AUTO-GENERATED` at the top. Your changes will be overwritten on the next build. Edit source under `tools/web/lib/`, regenerate.
 - **Don't add a light theme.** The avionics palette is dark-only by design — saturated colors lose semantic contrast on light. Mode 1's sky/ground horizon especially breaks.
-- **Don't add module-level `import` from outside the prototype source tree.** The build script bundles `tools/liveview-prototype/lib/**/*.js` only. Outside-tree imports would break the bundler.
+- **Don't add module-level `import` from outside the source tree.** The build script bundles `tools/web/lib/**/*.js` only. Outside-tree imports break the bundler.
 - **Don't add `export default`.** The bundler doesn't support default exports. Use named exports.
 
 ## Files to know
 
-- `tools/liveview-prototype/README.md` — full prototype docs (how to iterate, how to test, file layout)
-- `tools/liveview-prototype/lib/colors.js` — TFT_* color tokens → CSS variables
-- `tools/liveview-prototype/lib/geometry.js` — every layout constant for all 5 modes
-- `tools/liveview-prototype/lib/components.js` — 16 reusable Preact components
-- `tools/liveview-prototype/lib/modes.js` — five mode compositions
-- `tools/liveview-prototype/lib/firmware/App.js` — top-level `<App/>` for /indexer
-- `tools/liveview-prototype/lib/vendor/preact-standalone.js` — vendored Preact + htm (MIT)
-- `scripts/build_liveview_html.py` — bundler. Read its top docstring for transformation rules.
-- `software/OnSpeed-Gen3-ESP32/Web/html_indexer.h` — generated PROGMEM bundle. Never edit by hand.
-- `software/OnSpeed-M5-Display/src/main.cpp` — M5 hardware renderer (the source of truth for layout)
+- `tools/web/README.md` — full source docs (how to iterate, how to test, file layout)
+- `tools/web/lib/core/colors.js` — TFT_* color tokens → CSS variables
+- `tools/web/lib/core/geometry.js` — every layout constant for all 5 modes
+- `tools/web/lib/components/svg/index.js` — reusable Preact SVG components
+- `tools/web/lib/modes.js` — five mode compositions
+- `tools/web/lib/pages/IndexerPage.js` — top-level component for `/indexer`
+- `tools/web/lib/pages/LivePage.js` — top-level component for `/live`
+- `tools/web/lib/shell/PageShell.js` — global nav + footer chrome
+- `tools/web/lib/vendor/preact-standalone.js` — vendored Preact + htm (MIT)
+- `scripts/build_web_bundle.py` — bundler. Read its top docstring for transformation rules.
+- `software/OnSpeed-Gen3-ESP32/Web/static_app_js.h` — generated PROGMEM JS bundle. Never edit by hand.
+- `software/OnSpeed-Gen3-ESP32/Web/static_app_css.h` — generated PROGMEM CSS bundle. Same.
+- `software/OnSpeed-Gen3-ESP32/Web/html_stubs.h` — generated per-page HTML stubs. Same.
+- `software/OnSpeed-M5-Display/src/main.cpp` — M5 hardware renderer (source of truth for layout)

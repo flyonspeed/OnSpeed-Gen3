@@ -1,17 +1,19 @@
-// Top-level App component for the firmware-served /indexer page.
+// Indexer page (/indexer): five OnSpeed display modes (AOA primary,
+// Backup AI, Indexer-only, Energy, G-history) backed by the live
+// WebSocket feed.
 //
-// One render function. One state shape. Modes are pure functions of
-// the WebSocket record. Compare against the legacy approach of
-// imperative `mountX(parent) → {update}` widgets juggling DOM
-// references manually.
+// Modes are pure functions of the WebSocket record from
+// `useWebSocket()`.  Mode selection persists to localStorage so a
+// reload comes back to the last view.
 
-import { html, render, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
-import * as G from '../geometry.js';
+import { html, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
+import * as G from '../core/geometry.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from '../modes.js';
-import { connect } from './wsClient.js';
+import { useWebSocket } from '../ws/wsClient.js';
+import { PageShell } from '../shell/PageShell.js';
 
 // localStorage throws in private-browsing Safari and when storage is
-// full. Wrap reads + writes so the UI never crashes from storage
+// full.  Wrap reads + writes so the UI never crashes from storage
 // state — the page just won't persist mode/datafields choices.
 function safeLsGet(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -67,12 +69,9 @@ const DataFields = ({ rec, ageSec, expanded, onToggle }) => html`
       </div>`}
   </div>`;
 
-// The /indexer page now renders inside the standard OnSpeed
-// pageHeader / pageFooter (HandleIndexer in ConfigWebServer.cpp wraps
-// the bundle in the global chrome — logo, Tools / Settings dropdowns,
-// Home / LiveView / Indexer links).  This <Header> is just the
-// indexer-local status row sitting underneath the global nav.
-const Header = ({ status, ageSec }) => html`
+// Indexer-local status row — connection state plus age timer, sitting
+// under the global PageShell nav.
+const StatusRow = ({ status, ageSec }) => html`
   <header id="liveview-header">
     <div id="status-line">
       <span id="connectionstatus">${status}</span>
@@ -89,7 +88,8 @@ const ModeNav = ({ current, onChange }) => html`
               onClick=${() => onChange(m.id)}>${m.label}</button>`)}
   </nav>`;
 
-// G-history ring buffer — kept in a useRef so it persists across renders.
+// G-history ring buffer — kept in a useRef so it persists across
+// renders.
 function useGHistory(rec) {
   const buf = useRef(new Float32Array(G.MODE4_BUFFER_LEN));
   const writeIdx = useRef(0);
@@ -116,27 +116,30 @@ function useGHistory(rec) {
   return { buf: buf.current, writeIdx: writeIdx.current };
 }
 
-export function App() {
-  const [rec, setRec] = useState(null);
-  const [status, setStatus] = useState('CONNECTING...');
-  const [ageSec, setAgeSec] = useState(0);
-  // localStorage throws in private-browsing iOS Safari. Wrap in
-  // try/catch so the page still works without persistence.
+// Empty record used before the first WebSocket frame arrives.
+// aoaIsValid false makes the modes hide their variable elements.
+const EMPTY_REC = {
+  aoaIsValid: false,
+  pitchDeg: 0, rollDeg: 0, iasKt: 0, paltFt: 0, vsiFpm: 0,
+  verticalG: 1, lateralG: 0, percentLift: 0, flightPathDeg: 0,
+  flapsDeg: 0, flapsMinDeg: 0, flapsMaxDeg: 33,
+  decelRate: 0, gOnsetRate: 0, dataMark: 0,
+  tonesOnPctLift: 0, onSpeedFastPctLift: 0, onSpeedSlowPctLift: 0,
+  stallWarnPctLift: 0, pipPctLift: 0,
+};
+
+export function IndexerPage() {
+  const { rec, status, ageSec } = useWebSocket();
   const [mode, setMode] = useState(safeLsGet('liveview-mode') || 'aoa');
   const [dfExpanded, setDfExpanded] = useState(safeLsGet('liveview-datafields-expanded') === '1');
 
-  useEffect(() => {
-    return connect({ onRecord: setRec, onStatus: setStatus, onAge: setAgeSec }).disconnect;
-  }, []);
-
-  // The WebSocket arrives at 20 Hz and `setRec` triggers a render on
-  // every frame; that IS the animation tick. Don't add a separate
+  // The WebSocket arrives at 20 Hz and the hook triggers a render on
+  // every frame; that IS the animation tick.  Don't add a separate
   // setInterval — it would double-render at 40 Hz (the WS render plus
   // the interval render) and rebuild Mode 4's 300 SVG circles 12k
   // times/sec on iPhone Safari, which is exactly the workload the
-  // legacy WASM /indexer failed at. When WS goes silent, the
+  // legacy WASM /indexer failed at.  When WS goes silent, the
   // StaleOverlay covers the panel and there's nothing to animate.
-
   const stale = ageSec >= 3;
   const gHist = useGHistory(rec);
 
@@ -152,35 +155,21 @@ export function App() {
 
   const ActiveMode = MODES.find(m => m.id === mode)?.C ?? Mode0;
   return html`
-    <div id="indexer-app">
-      <${Header} status=${status} ageSec=${ageSec} />
-      <${ModeNav} current=${mode} onChange=${setModeAndPersist} />
-      <main id="liveview-main">
-        <div id="mode-container">
-          <${ActiveMode} r=${rec || EMPTY_REC} stale=${stale}
-                         gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx} />
+    <${PageShell} active="indexer">
+      <div id="indexer-app">
+        <${StatusRow} status=${status} ageSec=${ageSec} />
+        <${ModeNav} current=${mode} onChange=${setModeAndPersist} />
+        <main id="liveview-main">
+          <div id="mode-container">
+            <${ActiveMode} r=${rec || EMPTY_REC} stale=${stale}
+                           gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx} />
+          </div>
+          <${DataFields} rec=${rec} ageSec=${ageSec}
+                         expanded=${dfExpanded} onToggle=${toggleDf} />
+        </main>
+        <div id="footer-warning">
+          For diagnostic purposes only. NOT SAFE FOR FLIGHT
         </div>
-        <${DataFields} rec=${rec} ageSec=${ageSec}
-                       expanded=${dfExpanded} onToggle=${toggleDf} />
-      </main>
-      <div id="footer-warning">
-        For diagnostic purposes only. NOT SAFE FOR FLIGHT
       </div>
-    </div>`;
-}
-
-// Empty record used before the first WebSocket frame arrives. aoaIsValid
-// false makes the modes hide their variable elements.
-const EMPTY_REC = {
-  aoaIsValid: false,
-  pitchDeg: 0, rollDeg: 0, iasKt: 0, paltFt: 0, vsiFpm: 0,
-  verticalG: 1, lateralG: 0, percentLift: 0, flightPathDeg: 0,
-  flapsDeg: 0, flapsMinDeg: 0, flapsMaxDeg: 33,
-  decelRate: 0, gOnsetRate: 0, dataMark: 0,
-  tonesOnPctLift: 0, onSpeedFastPctLift: 0, onSpeedSlowPctLift: 0,
-  stallWarnPctLift: 0, pipPctLift: 0,
-};
-
-export function start() {
-  render(html`<${App} />`, document.getElementById('app'));
+    <//>`;
 }
