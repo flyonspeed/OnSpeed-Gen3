@@ -163,18 +163,9 @@ near(flapTriangleTransform(1), G.FLAP_ARC_DEG, 0.01,
 
 // ----- slip ball ---------------------------------------------------------
 //
-// Conventions in play:
-//   * JSON `lateralGLoad` is engineering convention (positive = right)
-//     because the legacy /live and the /indexer data-table render it
-//     directly as "Lat G".
-//   * The M5 wire format negates before transmit (DisplaySerial.cpp:294)
-//     so positive on the wire = leftward, and the M5 consumer applies
-//     `Slip = LateralG × 850` directly off the wire.
-//   * slipFromLateralG bridges the two: it accepts engineering-convention
-//     lateral G (the JSON field), negates internally, and produces a
-//     slip integer matching the M5's wire-convention output.  Net effect
-//     on screen: rightward G (positive input) deflects the ball LEFT of
-//     center, the standard slip-skid direction ("step on the ball").
+// slipFromLateralG accepts JSON-frame body lateral G (positive = right)
+// and produces the cockpit-frame ball deflection (positive Slip = ball
+// right of center).  Sign rationale at proto/DisplaySerial.h::lateralG.
 
 eq(slipFromLateralG(0), 0, 'zero G → zero slip');
 eq(slipFromLateralG(0.05), -42, 'rightward G → ball deflects left (negative slip)');

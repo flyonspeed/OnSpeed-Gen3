@@ -137,8 +137,8 @@ The per-field tables below note source variations where they apply.
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
-| `verticalGLoad` | float | g | Installation-corrected body-vertical acceleration. 1.0 g level, 2.0 g in a 60° bank. Same value `GLimitDecision` uses for over-G warnings. |
-| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, `g_AHRS.AccelLatCorr` (the raw IMU body-Y component after the installation-bias rotation, unsmoothed). **Sign**: the WebSocket emits the raw signed value; the display-serial wire's `lateralG` field is the same source negated to make positive = leftward. The JSON itself does not commit to a `+ = right` or `+ = left` convention — consumers wanting to render slip indicators should determine the sign empirically by skidding the aircraft, or read the IMU-installation docs. |
+| `verticalGLoad` | float | g | Installation-corrected body-vertical acceleration, EMA-smoothed by AHRS::Process (α ≈ 0.06). `g_AHRS.AccelVertFilter.get()`. 1.0 g level, 2.0 g in a 60° bank. Same source the display-serial wire's `verticalG` field uses, so M5 hardware and LiveView agree to within rounding. Note: `GLimitDecision` reads the unsmoothed `AccelVertCorr` for over-G warnings; the smoothing here is purely a presentation choice. |
+| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, EMA-smoothed (α ≈ 0.06). `g_AHRS.AccelLatFilter.get()`. **Sign**: positive = right — body-frame, the IMU's view. The display-serial wire ships the same source **negated** (positive = leftward, the ball's view) so its consumers can plot the slip ball directly. Slip-renderers reading this JSON field must flip the sign locally; numeric "Lat G" readouts read it as-is. Full physics + dual-frame rationale: [`proto/DisplaySerial.h::DisplayBuildInputs::lateralG`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h). |
 
 ### AOA & lift
 
@@ -167,11 +167,14 @@ Five fields driving the LiveView indexer's band edges and L/Dmax pip. The first 
 | --- | --- | --- | --- |
 | `flapsPos` | int | degrees | Current flap angle. **Interpolates** across the bracket containing the lever, so the numeric readout slides smoothly during deployment. Falls back to the snapped detent position when the flap calibration is empty. |
 | `flapIndex` | int | — | Index of the active flap detent (`g_Flaps.iIndex`). 0-based. The audio path and the four band-edge anchors above all reference this same detent. |
+| `flapsMinDeg` | int | degrees | Minimum configured flap travel — the smallest `iDegrees` across `g_Config.aFlaps`. Drives the LiveView flap-circle widget's lower endpoint. Defaults to `0` when the calibration is empty. |
+| `flapsMaxDeg` | int | degrees | Maximum configured flap travel. Defaults to `33` when the calibration is empty. |
 
 ### Other
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
+| `gOnsetRate` | float | g/s | Low-pass-filtered `d(verticalG)/dt`, 250 ms time constant. Same source the display-serial wire's `gOnsetRate` field uses (`g_AHRS.gOnsetRate`, ticked in `AHRS::Process`). Sign follows `verticalGLoad` — positive = G load increasing. |
 | `dataMark` | int | unsigned | User-pressable button counter, increments on each press. Used to mark interesting moments in flight logs. The display serial wire applies a `mod 100` wrap to fit its 2-digit field; the WebSocket emits the raw counter without wrapping, so it can grow arbitrarily large during a long session. |
 
 ## Sentinels and fallbacks
@@ -226,7 +229,7 @@ This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift
 
 **Per-field native rates.** A frame is a near-simultaneous snapshot of fields each filtered at their own native rate (gyro at AHRS rate, decel at the Savitzky-Golay window, flap index at 1 Hz, etc.). Two consecutive frames will not show identical values for slow-moving fields like `flapIndex` even when nothing changed — the snapshot is consistent, the underlying filters are not.
 
-**Coordinate consistency with display serial.** Where a field exists in both transports (e.g. `verticalGLoad` here vs `verticalG` on the wire), the values are derived from the same source and will agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. Where they differ in name or sign convention, see the [comparison table](#display-serial-vs-liveview-the-two-data-paths) below.
+**Coordinate consistency with display serial.** Where a field exists in both transports the values are derived from the same source and agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. **One sign-convention mismatch**: `lateralG` on the wire is negated relative to `lateralGLoad` in JSON — body-frame in JSON, ball-frame on the wire. See the field row above for the rationale.
 
 ## Display serial vs LiveView — the two data paths
 
@@ -254,5 +257,7 @@ Unlike the display-serial wire, **the WebSocket schema is not currently pinned b
 
 | Date | Change |
 | --- | --- |
+| 2026-04-30 | `verticalGLoad` and `lateralGLoad` are now EMA-smoothed (α ≈ 0.06) on the producer side, matching the source the display-serial wire uses. Previously both fields shipped the raw `AccelVertCorr` / `AccelLatCorr` values, which made the LiveView slip ball and G readouts visibly twitchier than the M5 hardware. `lateralGLoad` sign convention is now explicitly engineering (positive = right); slip-ball renderers must apply the negation locally to match wire-format / hardware-display behavior. |
+| 2026-04-30 | Added `flapsMinDeg`, `flapsMaxDeg`, `gOnsetRate` to the schema (PR #354's broadcast additions for the indexer's flap-circle widget and gOnset edge tape). |
 | 2026-04-28 | Added binary `#1` display-serial mirror frames alongside the existing JSON text frames. Consumers must inspect the WebSocket message type before parsing — see [Two message types](#two-message-types). |
 | 2026-04-28 | Initial WebSocket protocol reference page covering the schema in master at the time of writing. |

@@ -856,22 +856,11 @@ function donutColors({ percentLift, anchors }) {
 // === tools/liveview-prototype/lib/slipBall.js ===
 
 
-// Slip from lateral G.  Two conventions meet here:
-//
-//   * The JSON broadcast (DataServer.cpp::fLatG) ships raw smoothed
-//     AccelLatFilter — engineering convention, positive = right.  Same
-//     sign the legacy /live page and the /indexer data-table render.
-//   * The M5 wire format negates before transmit (DisplaySerial.cpp:294,
-//     342, BuildInputs::lateralG) so positive on the wire = leftward.
-//
-// SerialRead.cpp:269 (the M5 consumer) computes Slip = LateralG × 850
-// straight off the wire, which means M5 expects the wire-convention
-// sign.  Mirror that here: negate the engineering-convention input so
-// the ball deflects in the standard slip-skid direction (rightward G
-// → ball moves left of center, "step on the ball" cue).
-//
-// Scale 850 = 34 / 0.04, the M5's exact ratio.  Clamped to ±99 to
-// match the wire-format integer field range.
+// JSON ships body-frame lateral G (positive = right); the slip ball
+// wants ball-frame (positive = left), so negate.  Full physics +
+// the parallel wire-format negation are documented at
+// proto/DisplaySerial.h::DisplayBuildInputs::lateralG.
+// Scale 850 = 34/0.04 (M5 SerialRead.cpp).  Clamped to ±99.
 function slipFromLateralG(lateralG) {
   const v = Math.round(-lateralG * 850);
   return Math.max(-99, Math.min(99, v));

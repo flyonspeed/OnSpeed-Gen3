@@ -73,7 +73,7 @@ Sign and width invariants:
 
 Most fields are self-describing. The ones with non-obvious conventions:
 
-- **`lateralG` is negated.** The producer transmits `−AccelLatFilter` (positive wire value = leftward acceleration, matching slip-skid ball direction). The parser stores the wire value as-is — a consumer that wants right-positive must un-negate.
+- **`lateralG` is in ball-frame** (positive = leftward, what the slip-skid ball "feels"), so `Slip = LateralG × 850` plots directly. The WebSocket JSON's `lateralGLoad` ships the same source in body-frame (positive = right) — see [WebSocket protocol — lateralGLoad](./websocket-protocol.md#g-loads) for the full physics + dual-frame discussion.
 - **`verticalG` is `lroundf(g × 10)`** — round-to-nearest-tenth, matching the LiveView's `verticalGLoad` rendering and the way pilots intuitively read a single-decimal display. Over-G alerting reads the unrounded float in `GLimitDecision` (Housekeeping path), so this encoding choice does not affect chime / limit behaviour.
 - **`vsiFpm10` is already divided by 10.** The wire field carries `floor(VSI_fpm / 10)`. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.
 - **`percentLift` and the band-edge percents are computed via the canonical [`ComputePercentLift`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h)**, the honest single-linear `(AOA − α₀) / (α_stall − α₀) × 100`. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).
