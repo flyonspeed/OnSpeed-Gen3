@@ -93,7 +93,8 @@ ENTRY_MODULE  = os.path.join(LIB_DIR, "entry.js")
 # in html_stubs.h as `htmlStub_<suffix>`.  The stub references the
 # `data-page="<page-id>"` attribute the bundle's entry.js reads.
 PAGES = [
-    ("indexer", "Indexer",   "indexer"),
+    ("indexer", "Indexer",     "indexer"),
+    ("calwiz",  "Calibration", "calwiz"),
 ]
 
 
@@ -361,6 +362,18 @@ def _bundle_css():
         with open(SHELL_CSS, "r", encoding="utf-8") as f:
             parts.append(f"/* --- {os.path.relpath(SHELL_CSS, REPO_ROOT)} --- */")
             parts.append(f.read())
+    # Vendor CSS (chartist, etc.) — every .css file under lib/vendor/
+    # is concatenated into the shared bundle.  Chartist is the only
+    # current consumer (used by the cal wizard's review chart).
+    vendor_css_dir = os.path.join(LIB_DIR, "vendor")
+    if os.path.isdir(vendor_css_dir):
+        for name in sorted(os.listdir(vendor_css_dir)):
+            if not name.endswith(".css"):
+                continue
+            path = os.path.join(vendor_css_dir, name)
+            with open(path, "r", encoding="utf-8") as f:
+                parts.append(f"/* --- {os.path.relpath(path, REPO_ROOT)} --- */")
+                parts.append(f.read())
     return "\n".join(parts)
 
 
