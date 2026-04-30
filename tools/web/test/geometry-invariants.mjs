@@ -101,15 +101,24 @@ eq(G.MODE4_ONE_G_Y, 133, '1G horizontal at y=133');
 // Five anchors in the index array (slot 0 = floor, 3 = OnSpeedFast,
 // 4 = OnSpeedSlow, 6 = pip, 7 = stallWarn). The C++ piecewise mapping
 // returns specific y values at the band edges.
+//
+// Post PR #376: the upper ramp tops out at percent_lift = 99 (the
+// lift-envelope ceiling), not at stallWarn. stallWarn now drives the
+// chevron flash-red color logic only, not the y-coordinate. So
+// pct=stallWarn lands somewhere on the upper ramp between 78 and 1
+// (proportional to where stallWarn falls in [slowEdge..99]), and only
+// pct=99 reaches the top.
 
-// Y values come from main.cpp:1517-1524: bottom=192, OnSpeedFast band
-// edge=115, OnSpeedSlow band edge=78, top=1.
+// Y values come from main.cpp:1515-1519: bottom=192, OnSpeedFast band
+// edge=115, OnSpeedSlow band edge=78, top=1 (at pct=99).
 const anchors = [0, 0, 30, 50, 70, 0, 40, 90];  // floor=0, fast=50, slow=70, warn=90
 eq(mapPct2Display(0, anchors), 192, 'pct=0 → bottom of indexer (y=192)');
 eq(mapPct2Display(50, anchors), 115, 'pct=fastEdge → 115 (donut bottom edge)');
 eq(mapPct2Display(70, anchors), 78, 'pct=slowEdge → 78 (donut top edge)');
-eq(mapPct2Display(90, anchors), 1, 'pct=stallWarn → 1 (top)');
-eq(mapPct2Display(99, anchors), 1, 'pct above stallWarn clamps to top');
+eq(mapPct2Display(99, anchors), 1, 'pct=99 → 1 (top, lift-envelope ceiling)');
+eq(mapPct2Display(100, anchors), 1, 'pct above 99 clamps to top');
+ok(mapPct2Display(90, anchors) > 1 && mapPct2Display(90, anchors) < 78,
+   'pct=stallWarn lands on upper ramp between 78 and 1, not pinned at top');
 ok(mapPct2Display(60, anchors) < mapPct2Display(50, anchors),
    'pct ramps monotonically up (lower y is HIGHER on screen)');
 
