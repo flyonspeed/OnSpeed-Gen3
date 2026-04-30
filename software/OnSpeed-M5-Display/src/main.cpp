@@ -1058,9 +1058,10 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
      Draw marker dots at the visual L/Dmax pip (Array[kIdxPipPctLift]).
      The pip is a smooth aerodynamic reference: it lerps from the
      cleanest detent's L/Dmax percent up to the most-deployed detent's
-     OnSpeed-band center as the lever sweeps.  This is intentionally
-     decoupled from the chevron's audio gate (Array[kIdxTonesOn]) — see
-     onspeed_core/aoa/DisplayPctAnchors.h for the design rule.
+     bottom-half-of-donut target ((3*fast + slow) / 4) as the lever
+     sweeps.  This is intentionally decoupled from the chevron's audio
+     gate (Array[kIdxTonesOn]) — see onspeed_core/aoa/DisplayPctAnchors.h
+     for the design rule.
     */
     int ldmaxY = mapPct2Display(Array[pct_anchors::kIdxPipPctLift], Array);
     gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 24, TFT_BLACK);

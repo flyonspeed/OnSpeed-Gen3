@@ -7,9 +7,10 @@
 //                      gates on this value.
 //   pipPctLift         INTERPOLATED across the entire pot range from the
 //                      cleanest detent's L/Dmax percent to the most-
-//                      deployed detent's OnSpeed-band center.  Visual
-//                      aerodynamic reference; intermediate detents are
-//                      ignored for the pip.
+//                      deployed detent's bottom-half-of-donut target
+//                      ((3*fast + slow) / 4).  Visual aerodynamic
+//                      reference; intermediate detents are ignored for
+//                      the pip.
 //   onSpeedFastPctLift SNAPPED to active detent
 //   onSpeedSlowPctLift SNAPPED to active detent
 //   stallWarnPctLift   SNAPPED to active detent
@@ -107,14 +108,17 @@ static int Pct(float aoaDeg, const SuFlaps& f, bool iasValid = true)
     return ComputePercentLift(aoaDeg, f, iasValid);
 }
 
-// Geometric center of a detent's OnSpeed band, in percent space.  This
-// is the pip's full-flap target (Vac §6 + spec §"Behavior contract").
-static int OnSpeedCenterPct(const SuFlaps& f, bool iasValid = true)
+// Bottom-half-of-donut target for the pip at full flaps: one quarter of
+// the way from the fast edge to the slow edge of the most-deployed
+// detent's OnSpeed band, in percent space.  Mirrors the production
+// `FullFlapPipTarget` formula in DisplayPctAnchors.cpp (Vac §6 + spec
+// §"Behavior contract").
+static int FullFlapPipTargetPct(const SuFlaps& f, bool iasValid = true)
 {
     const int fast = Pct(f.fONSPEEDFASTAOA, f, iasValid);
     const int slow = Pct(f.fONSPEEDSLOWAOA, f, iasValid);
     return static_cast<int>(std::lround(
-        (static_cast<float>(fast) + static_cast<float>(slow)) / 2.0f));
+        (3.0f * static_cast<float>(fast) + static_cast<float>(slow)) / 4.0f));
 }
 
 // ============================================================================
@@ -145,7 +149,7 @@ void test_at_clean_detent_all_anchors_at_clean_calibration(void)
     TEST_ASSERT_EQUAL_INT(flaps[0].iDegrees, a.flapsDeg);
 }
 
-void test_at_full_detent_pip_at_OnSpeed_center_tones_at_full_LDmax(void)
+void test_at_full_detent_pip_at_bottom_half_donut_tones_at_full_LDmax(void)
 {
     SuFlaps flaps[2] = { makeCleanDetent(), makeFullDetent() };
 
@@ -159,9 +163,9 @@ void test_at_full_detent_pip_at_OnSpeed_center_tones_at_full_LDmax(void)
     TEST_ASSERT_EQUAL_INT(Pct(flaps[1].fONSPEEDSLOWAOA, flaps[1]), b.onSpeedSlowPctLift);
     TEST_ASSERT_EQUAL_INT(Pct(flaps[1].fSTALLWARNAOA,   flaps[1]), b.stallWarnPctLift);
 
-    // Pip: at the full-flap endpoint -> OnSpeed center of the most-deployed
-    // detent (spec §"Behavior contract", invariant 2).
-    TEST_ASSERT_EQUAL_INT(OnSpeedCenterPct(flaps[1]), b.pipPctLift);
+    // Pip: at the full-flap endpoint -> bottom-half-of-donut target of
+    // the most-deployed detent (spec §"Behavior contract", invariant 2).
+    TEST_ASSERT_EQUAL_INT(FullFlapPipTargetPct(flaps[1]), b.pipPctLift);
 
     // Spec invariant 7: pip > tonesOn at full flaps for any sane calibration.
     TEST_ASSERT_GREATER_THAN_INT(b.tonesOnPctLift, b.pipPctLift);
@@ -196,7 +200,7 @@ void test_pip_ignores_intermediate_detent(void)
     // (midway between clean=1000 and full=3000), lambda=0.5, pip is
     // halfway between pipClean and pipFullFlap.
     const int pipClean    = Pct(flaps[0].fLDMAXAOA, flaps[0]);
-    const int pipFullFlap = OnSpeedCenterPct(flaps[2]);
+    const int pipFullFlap = FullFlapPipTargetPct(flaps[2]);
     const int pipExpected = static_cast<int>(std::lround(
         (static_cast<float>(pipClean) + static_cast<float>(pipFullFlap)) / 2.0f));
     TEST_ASSERT_INT_WITHIN_MESSAGE(1, pipExpected, at16.pipPctLift,
@@ -334,8 +338,8 @@ void test_above_highest_pot_clamps_pip_to_full_endpoint(void)
     DisplayPctAnchors clamped = ComputeDisplayPctAnchors(
         static_cast<uint16_t>(flaps[1].iPotPosition + 500), flaps, 2, 1, true);
 
-    // Pip at the full-flap endpoint = OnSpeed center.
-    TEST_ASSERT_EQUAL_INT(OnSpeedCenterPct(flaps[1]), clamped.pipPctLift);
+    // Pip at the full-flap endpoint = bottom-half-of-donut target.
+    TEST_ASSERT_EQUAL_INT(FullFlapPipTargetPct(flaps[1]), clamped.pipPctLift);
     // Operational anchors snap to active (full).
     TEST_ASSERT_EQUAL_INT(Pct(flaps[1].fLDMAXAOA, flaps[1]), clamped.tonesOnPctLift);
     TEST_ASSERT_EQUAL_INT(flaps[1].iDegrees, clamped.flapsDeg);
@@ -359,10 +363,10 @@ void test_descending_wiring_pip_endpoints(void)
         static_cast<uint16_t>(clean.iPotPosition), flaps, 2, 0, true);
     TEST_ASSERT_EQUAL_INT(Pct(clean.fLDMAXAOA, clean), atClean.pipPctLift);
 
-    // At the full detent's pot — pip at OnSpeed center of full.
+    // At the full detent's pot — pip at bottom-half-of-donut target of full.
     DisplayPctAnchors atFull = ComputeDisplayPctAnchors(
         static_cast<uint16_t>(full.iPotPosition), flaps, 2, 1, true);
-    TEST_ASSERT_EQUAL_INT(OnSpeedCenterPct(full), atFull.pipPctLift);
+    TEST_ASSERT_EQUAL_INT(FullFlapPipTargetPct(full), atFull.pipPctLift);
 }
 
 void test_descending_wiring_pip_midpoint(void)
@@ -375,7 +379,7 @@ void test_descending_wiring_pip_midpoint(void)
     DisplayPctAnchors mid = ComputeDisplayPctAnchors(2000u, flaps, 2, 0, true);
 
     const int pipClean    = Pct(clean.fLDMAXAOA, clean);
-    const int pipFullFlap = OnSpeedCenterPct(full);
+    const int pipFullFlap = FullFlapPipTargetPct(full);
     const int pipExpected = static_cast<int>(std::lround(
         (static_cast<float>(pipClean) + static_cast<float>(pipFullFlap)) / 2.0f));
     TEST_ASSERT_INT_WITHIN(1, pipExpected, mid.pipPctLift);
@@ -395,9 +399,9 @@ void test_descending_wiring_endpoint_clamp(void)
     TEST_ASSERT_EQUAL_INT(Pct(clean.fLDMAXAOA, clean), hi.pipPctLift);
 
     // Below the full detent's pot (out of range) -> pip clamps to full's
-    // OnSpeed center (lambda=1).
+    // bottom-half-of-donut target (lambda=1).
     DisplayPctAnchors lo = ComputeDisplayPctAnchors(500u, flaps, 2, 1, true);
-    TEST_ASSERT_EQUAL_INT(OnSpeedCenterPct(full), lo.pipPctLift);
+    TEST_ASSERT_EQUAL_INT(FullFlapPipTargetPct(full), lo.pipPctLift);
 }
 
 // ============================================================================
@@ -505,7 +509,7 @@ void test_pip_monotone_ascending_wiring(void)
     SuFlaps flaps[2] = { makeCleanDetent(), makeFullDetent() };
 
     const int pipClean    = Pct(flaps[0].fLDMAXAOA, flaps[0]);
-    const int pipFullFlap = OnSpeedCenterPct(flaps[1]);
+    const int pipFullFlap = FullFlapPipTargetPct(flaps[1]);
     const bool ascending  = (pipFullFlap >= pipClean);
 
     int prev = pipClean;
@@ -558,7 +562,7 @@ int main(void)
     UNITY_BEGIN();
 
     RUN_TEST(test_at_clean_detent_all_anchors_at_clean_calibration);
-    RUN_TEST(test_at_full_detent_pip_at_OnSpeed_center_tones_at_full_LDmax);
+    RUN_TEST(test_at_full_detent_pip_at_bottom_half_donut_tones_at_full_LDmax);
 
     RUN_TEST(test_pip_ignores_intermediate_detent);
     RUN_TEST(test_pip_continuous_in_rawAdc_full_sweep);
