@@ -1,0 +1,47 @@
+{
+  "aircraft": {
+    "grossWeightLb": 2700,
+    "bestGlideKt": 87.5,
+    "vfeKt": 96,
+    "gLimit": 4.4
+  },
+  "currentFlapIndex": 0,
+  "flaps": [
+    {
+      "index": 0,
+      "degrees": 0,
+      "alpha0Deg": -2.1,
+      "alphaStallDeg": 14.3,
+      "ldMaxAoaDeg": 6.0,
+      "onSpeedFastAoaDeg": 8.0,
+      "onSpeedSlowAoaDeg": 9.5,
+      "stallWarnAoaDeg": 11.0,
+      "stallAoaDeg": 12.5,
+      "maneuveringAoaDeg": 7.0
+    },
+    {
+      "index": 1,
+      "degrees": 15,
+      "alpha0Deg": -2.8,
+      "alphaStallDeg": 14.9,
+      "ldMaxAoaDeg": 5.7,
+      "onSpeedFastAoaDeg": 7.5,
+      "onSpeedSlowAoaDeg": 9.2,
+      "stallWarnAoaDeg": 11.4,
+      "stallAoaDeg": 12.9,
+      "maneuveringAoaDeg": 6.6
+    },
+    {
+      "index": 2,
+      "degrees": 30,
+      "alpha0Deg": -3.8,
+      "alphaStallDeg": 15.7,
+      "ldMaxAoaDeg": 5.5,
+      "onSpeedFastAoaDeg": 7.0,
+      "onSpeedSlowAoaDeg": 8.8,
+      "stallWarnAoaDeg": 11.7,
+      "stallAoaDeg": 13.2,
+      "maneuveringAoaDeg": 6.2
+    }
+  ]
+}

@@ -115,13 +115,40 @@ tools/web/
 │   ├── server.mjs                     the dev server (mock / proxy / static)
 │   ├── capture.mjs                    record device WS frames -> NDJSON
 │   ├── mocks/                         JSON fixtures for /api/* in mock mode
-│   │   └── livedata.json
+│   │   ├── livedata.json
+│   │   ├── api-sample-aoa.json        ... one fixture per /api/* endpoint;
+│   │   ├── api-logs.json                  see "API mock layout" below.
+│   │   └── api-...
 │   └── replay/
 │       └── cruise.ndjson              NDJSON frames to drive the WS replay loop
 └── test/
     ├── geometry-invariants.mjs        SVG geometry + helpers
-    └── render-smoke.mjs               page-import + render-into-mock-DOM smoke
+    ├── render-smoke.mjs               page-import + render-into-mock-DOM smoke
+    └── api-schema.mjs                 validates /api/* mock fixtures
 ```
+
+### API mock layout
+
+The dev server's `--mock` mode resolves `/api/<segments>` to
+`mocks/api-<segments-with-dashes>.json`.  Examples:
+
+| HTTP path                | Mock file                               |
+|--------------------------|-----------------------------------------|
+| `/api/sample/aoa`        | `mocks/api-sample-aoa.json`             |
+| `/api/sample/flaps-raw`  | `mocks/api-sample-flaps-raw.json`       |
+| `/api/audiotest/status`  | `mocks/api-audiotest-status.json`       |
+| `/api/logs`              | `mocks/api-logs.json`                   |
+| `/api/logs/delete-bulk`  | `mocks/api-logs-delete-bulk.json`       |
+| `/api/format/status`     | `mocks/api-format-status.json`          |
+| `/api/calwiz/state`      | `mocks/api-calwiz-state.json`           |
+| `/api/version`           | `mocks/api-version.json`                |
+
+The dev server returns the same JSON for both GET and POST against
+the same path; for trigger-style POSTs (audiotest, vnochime, reboot)
+the fixture is `{ok: true}`.
+
+The mock files are validated by `node tools/web/test/api-schema.mjs`,
+which pins the documented JSON shape for every endpoint.
 
 ## Page → component map
 

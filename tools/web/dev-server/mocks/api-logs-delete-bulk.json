@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "deleted": ["log_038.csv", "log_039.csv"],
+  "errors": [
+    {"name": "log_042.csv", "reason": "active log"}
+  ]
+}
