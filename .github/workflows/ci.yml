@@ -68,22 +68,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio
 
-      # The Indexer tab embeds the M5 sim WASM as gzipped PROGMEM
-      # blobs.  The PIO pre-build hook (scripts/embed_sim_prebuild.py)
-      # needs emscripten on PATH to regenerate the headers when M5 sim
-      # sources change.  Same emsdk version as the docs site uses.
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: 4.0.21
-          actions-cache-folder: 'emsdk-cache'
-
-      # Populate the M5 native env's libdeps cache (M5Unified, M5GFX).
-      # The WASM build reuses these — without them the embed script
-      # fails on a fresh checkout.
-      - name: Install M5 native libdeps for sim build
-        run: |
-          pio pkg install -e native --project-dir software/OnSpeed-M5-Display
-
       - name: Build firmware
         id: build
         run: |
@@ -116,6 +100,57 @@ jobs:
           name: onspeed-${{ matrix.variant }}-${{ steps.build.outputs.version }}.zip
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
+
+  indexer-bundle-fresh:
+    # Verifies the committed software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
+    # matches what scripts/build_liveview_html.py would produce. Catches
+    # contributors who edit prototype source without regenerating the
+    # bundle — Arduino IDE users compile the committed header directly,
+    # so a stale header would silently break their flash.
+    name: Verify html_indexer.h is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Regenerate indexer bundle
+        run: python3 scripts/build_liveview_html.py
+
+      - name: Verify committed header is current
+        run: |
+          if ! git diff --exit-code -- software/OnSpeed-Gen3-ESP32/Web/html_indexer.h; then
+            echo "::error::html_indexer.h is stale. Run 'python3 scripts/build_liveview_html.py' and commit the result."
+            exit 1
+          fi
+
+  liveview-geometry-tests:
+    # Pure-JS unit tests for the LiveView's geometry constants and the
+    # framework-free helpers (mapPct2Display, chevronColors, donutColors,
+    # flapWidgetFrac, slipFromLateralG, slipBall). These guard against
+    # silent regressions like a sign-flip on MODE1_PITCH_HEIGHT_SCALE
+    # that visual A/B against the M5 wouldn't catch on a level bench.
+    name: LiveView geometry invariants
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run geometry-invariants test
+        run: node tools/liveview-prototype/test/geometry-invariants.mjs
 
   build-m5-display:
     name: Build M5 Display Firmware (${{ matrix.board }})

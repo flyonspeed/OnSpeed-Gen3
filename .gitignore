@@ -15,13 +15,6 @@ software/OnSpeed-M5-Display/sim/build/
 # ./scripts/build_m5_sim_for_docs.sh); committed copies would drift.
 docs/site/docs/assets/sim/
 
-# M5 sim live-data WASM, gzipped + xxd'd into PROGMEM by
-# scripts/embed_sim_for_firmware.sh.  Regenerated on demand by the
-# pre-build hook (skip-if-fresh) so contributors who never touch M5
-# sim sources don't need emscripten installed locally.
-software/OnSpeed-Gen3-ESP32/Web/sim_index_js.h
-software/OnSpeed-Gen3-ESP32/Web/sim_index_wasm.h
-
 # auto-generated on each build by PlatformIO / Arduino IDE
 software/Libraries/version/buildinfo.cpp
 lib/version/buildinfo.cpp

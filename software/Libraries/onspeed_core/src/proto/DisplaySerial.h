@@ -97,11 +97,23 @@ inline constexpr int kDisplayFramePeriodMs = 50;
 // All values are in engineering units. BuildFrame applies the wire-format
 // scale factors, sign conventions, and clamp ranges.
 //
-// Convention: lateralG is the negated lateral acceleration.
-//   The Gen3 builder passes `–AccelLatFilter.get()` so that positive wire
-//   values mean leftward. The M5 parser stores it as-is. BuildInputs holds
-//   the already-negated value, matching the Gen3 builder's local variable
-//   `iLatG100 = SafeScaledInt(-g_AHRS.AccelLatFilter.get(), 100.0f, ...)`.
+// Convention: lateralG is in BALL-FRAME (positive = leftward), not
+//   body-frame.  This is the canonical reference for the dual-frame
+//   sign decision; every other code site (M5 SerialRead, JS slipBall,
+//   web-socket-protocol.md) refers back here.
+//
+//   Physics: when the body yaws right, the free-floating ball in the
+//   slip-skid tube has its own inertia and is "left behind" by the
+//   moving tube — so the ball deflects LEFT.  The wire encodes that
+//   ball-frame view directly, and `Slip = LateralG × 850` in the M5
+//   consumer plots ball position with no further sign work.
+//
+//   Mechanically this is just `−AccelLatFilter` from the producer's
+//   IMU body-Y axis; the Gen3 builder applies the negation here at
+//   the wire-format boundary.  The WebSocket JSON's `lateralGLoad`
+//   field ships the same source un-negated (body-frame, positive =
+//   right) for numeric "Lat G" readouts — JS slip-ball renderers
+//   reading JSON must flip the sign locally to recover ball-frame.
 // ============================================================================
 
 struct DisplayBuildInputs {

@@ -167,9 +167,13 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fWifiVSI;
     float fWifiIAS;
     float fWifiOAT;
-    // Installation-corrected body-vertical acceleration (G). 1G level, 2G in a
-    // 60-deg bank. Matches the value GLimitDecision uses for over-G warnings.
-    float fVerticalGload = g_AHRS.AccelVertCorr;
+    // Installation-corrected body-vertical acceleration (G), EMA-smoothed
+    // by AHRS::Process to suppress per-tick IMU jitter.  The M5 wire path
+    // ships AccelVertFilter.get() at DisplaySerial.cpp:145 — same source
+    // here so the LiveView G readout doesn't twitch where the M5's holds
+    // steady.  GLimitDecision still reads the unsmoothed AccelVertCorr
+    // for over-G warnings; the smoothing is purely a presentation choice.
+    float fVerticalGload = g_AHRS.AccelVertFilter.get();
 
     // AOA is gated by the user-tunable `iMuteAudioUnderIAS` threshold,
     // not `bIasAlive`.  Rationale: `iMuteAudioUnderIAS` is a UX knob
@@ -297,8 +301,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "{\"AOA\":%.2f,\"Pitch\":%.2f,\"Roll\":%.2f,\"IAS\":%.2f,\"PAlt\":%.2f,"
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,"
         "\"flapsPos\":%i,\"flapIndex\":%i,"
+        "\"flapsMinDeg\":%i,\"flapsMaxDeg\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
         "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
+        "\"gOnsetRate\":%.2f,"
         "\"percentLift\":%i,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
         "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
 
@@ -313,7 +319,17 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fWifiOAT        = SafeJsonFloat(fWifiOAT, 0.0f);
 
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
-    const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatCorr, 0.0f);
+    // Lateral G: smoothed by AccelLatFilter, raw sign (positive = right
+    // per the EKF6 body-axis convention).  The legacy /live AOA tab and
+    // the new /indexer data-table both display this number as "Lat G"
+    // unmodified, so the JSON layer carries the engineering convention.
+    // The M5 wire-format builder applies its own negation (DisplaySerial.cpp:
+    // 294,342) so the binary mirror still ships positive=leftward — that
+    // is a wire-format-only flip and must not leak into the JSON channel.
+    // The JS slip-ball consumer applies the same wire-format negation
+    // locally so the ball deflects in the conventional direction
+    // (rightward G → ball moves left, "step on the ball").
+    const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatFilter.get(), 0.0f);
     const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
     const float fPitchRate  = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
@@ -435,6 +451,30 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
                                        ? anchors.flapsDeg
                                        : iSnapFlapPos;
 
+    // Min/max flap angle across configured detents — Mode 0's flap
+    // circle widget normalizes the triangle sweep over [min, max]
+    // (flapWidget.js::flapWidgetFrac).  When no detents are configured,
+    // emit 0/33 to match the prototype's defaults so the widget still
+    // renders sensibly on an uncalibrated unit.
+    int iJsonFlapsMinDeg = 0;
+    int iJsonFlapsMaxDeg = 33;
+    if (nFlapsSnapshot > 0)
+        {
+        iJsonFlapsMinDeg = aFlapsSnapshot[0].iDegrees;
+        iJsonFlapsMaxDeg = aFlapsSnapshot[0].iDegrees;
+        for (size_t i = 1; i < nFlapsSnapshot; ++i)
+            {
+            const int d = aFlapsSnapshot[i].iDegrees;
+            if (d < iJsonFlapsMinDeg) iJsonFlapsMinDeg = d;
+            if (d > iJsonFlapsMaxDeg) iJsonFlapsMaxDeg = d;
+            }
+        }
+
+    // G-onset rate filtered in AHRS (250 ms tau).  Same value the
+    // M5 wire format reads, so the M5 hardware indicator and the
+    // LiveView's right-edge tape stay in lockstep.
+    const float fGOnsetRate = SafeJsonFloat(g_AHRS.gOnsetRate, 0.0f);
+
     // szFormat is a compile-time constant split across lines for readability.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -451,6 +491,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fLatG,
         iJsonFlapsPos,
         iSnapFlapIdx,
+        iJsonFlapsMinDeg,
+        iJsonFlapsMaxDeg,
         fCoeffP,
         g_iDataMark,
         fWifiVSI,
@@ -459,6 +501,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fDecelRate,
         fWifiOAT,
         fDerivedAOA,
+        fGOnsetRate,
         iJsonPercentLift,
         iJsonTonesOnPct,
         iJsonFastPct,

@@ -1,0 +1,84 @@
+:root {
+  --bg: #111;
+  --ink: #eee;
+  --panel-bg: #000;
+  /* M5GFX TFT_WHITE — pure white for SVG fills (index bar, percent
+     digits) regardless of theme. The body --ink is muted (#eee) to be
+     gentle on dark mode reading; the indicator surfaces want full white.*/
+  --white: #ffffff;
+  --green: #00ff3a;
+  --yellow: #fffd40;
+  --red: #ff0018;
+  --grey: #888;
+  /* User-measured against the M5 hardware: TFT_DARKGREY (the indexer
+     bar background, flap circle background, etc.) is rgb(107, 109, 84). */
+  --dark-grey: #6b6d54;
+  --light-grey: #aaa;
+  /* Mode 1 (Attitude) palette. Sky and ground match user-measured M5
+     hardware values: sky rgb(0,255,254) ≈ TFT_CYAN (0x07FF = full-
+     brightness cyan), ground rgb(149,69,17) close to TFT_BROWN.
+     Magenta and orange match TFT_MAGENTA (0xF81F) and TFT_ORANGE
+     (0xFD20). Blue is TFT_BLUE (0x001F), used for the horizon
+     back-edge stripe. */
+  --sky: #00fffe;
+  --ground: #954511;
+  --magenta: #ff00ff;
+  --orange: #ff8800;
+  --blue: #0000ff;
+  /* Numeric font stack: B612 (cockpit display font) with Helvetica
+     fallback while the webfont loads. Widgets that paint digits
+     (corner readouts, percent-lift, pitch readout, flap angle,
+     ladder labels) reference this variable instead of hardcoding a
+     family. */
+  --font-numeric: 'B612', 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* No light theme. Avionics displays are bright glyphs on dark panel by
+   convention — that's what cuts through cockpit glare and what gives the
+   five status colors (red/yellow/green/cyan/orange) their calibrated
+   contrast envelope. The original spec asked for a light theme on the
+   assumption "sunglasses pilots want light"; in practice avionics apps
+   (ForeFlight, Garmin Pilot, etc.) all stay dark for the same reason
+   instrument panels do. Inverting ink/panel desaturates the warning
+   colors and breaks Mode 1's sky/ground horizon metaphor. If a future
+   need surfaces, revisit then — don't re-add a half-thought theme. */
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+header, nav {
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px;
+}
+
+main {
+  display: flex; flex-direction: row; gap: 16px;
+  padding: 16px;
+}
+
+.panel {
+  flex: 1;
+  background: var(--panel-bg);
+  border: 1px solid var(--dark-grey);
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 320px;
+}
+
+/* Mode panel divs all sit at the M5's native 320×240 with overflow
+   hidden so SVG content past the viewBox edge gets clipped (the pitch
+   ladder draws ticks at y > 240 which would otherwise leak below the
+   panel). #svg-root is the AOA mount and shares the same rules. */
+#svg-root,
+[data-mode-panel] {
+  width: 320px;
+  height: 240px;
+  display: block;
+  margin: 0 auto;
+  overflow: hidden;
+}
+

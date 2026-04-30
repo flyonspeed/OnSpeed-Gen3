@@ -266,8 +266,9 @@ void SerialRead()
 
 void SerialProcess(float frameDtSec)
 {
-    // Slip gauge: LateralG is already EMA-smoothed by the main firmware
-    // (AccelLatFilter in onspeed_core/ahrs). Use as-received.
+    // Wire's LateralG is already smoothed and in ball-frame sign
+    // (positive = leftward); ×850 plots directly to slip pixels.
+    // Convention rationale: proto/DisplaySerial.h::DisplayBuildInputs::lateralG.
     Slip               = int(LateralG * 34 / 0.04);
     Slip               = constrain(Slip,-99,99);
 
