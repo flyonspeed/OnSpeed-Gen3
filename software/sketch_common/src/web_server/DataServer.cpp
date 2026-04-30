@@ -79,6 +79,28 @@ void DataServerInit()
     // Start websockets (live data display)
     DataServer.begin();
     DataServer.onEvent(DataServerEvent);
+
+    // Enable WS-level heartbeat so the server detects dead peers in
+    // ~30 s instead of waiting for lwIP TCP keepalive (default ~2 h
+    // when unconfigured).  Without this, an iOS Safari tab that
+    // backgrounds without closing its socket — common when the phone
+    // sleeps or the user swipes to another app — leaves a "zombie"
+    // client occupying one of the WEBSOCKETS_SERVER_CLIENT_MAX (5)
+    // server slots.  The broadcast loop then competes with the dead
+    // socket's filling lwIP send buffer, throttling JSON frames to
+    // healthy clients (laptop, M5).
+    //
+    // Picked values:
+    //   pingInterval   = 15 s — well below the 5 s stale-reconnect
+    //                    threshold the JS client uses, so a transient
+    //                    network hiccup gets two missed pings before
+    //                    we cut the cord.
+    //   pongTimeout    = 3 s — healthy clients at 20 Hz traffic
+    //                    round-trip a pong well under this on AP WiFi.
+    //   disconnectAfter= 2  — kill after 2 consecutive missed pongs
+    //                    (~33-36 s total).  Tolerates one transient
+    //                    miss without churning a healthy reconnect.
+    DataServer.enableHeartbeat(15000, 3000, 2);
     }
 
 // ----------------------------------------------------------------------------
