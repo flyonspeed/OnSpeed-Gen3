@@ -113,24 +113,28 @@ int main(int /*argc*/, char** /*argv*/)
     onspeed::EnToneType  enTone               = onspeed::EnToneType::None;
     onspeed::EnToneType  enLastEnvTone        = onspeed::EnToneType::None;
 
-    // 3D-audio pan state.  Verbatim from Housekeeping.cpp:
+    // 3D-audio pan state.  Pipeline matches Housekeeping.cpp:
     //   fChannelGain ← α·curve(|aLatCorr|)·sign(aLatCorr) + (1-α)·prevChannelGain
     //   left_pan_gain  = |-1 + channelGain|
     //   right_pan_gain = | 1 + channelGain|
-    // Update cadence: every 100 ms (every 5th tick at 50 Hz).  α = 0.1.
+    // Update cadence: every 100 ms (every 5th tick at 50 Hz).
+    //
+    // Demo-tool tuning (deliberately diverges from firmware default):
+    //   α = 0.5     (firmware uses 0.1, τ ≈ 1s — too sluggish to feel
+    //               like a "ball deflected" cue.  α=0.5 gives τ ≈ 200ms,
+    //               so the pan responds within a couple of ball-widths.)
+    //   curve(x) = min(1.0, 12.0 * |x|)   — saturates at 0.083 g (~one
+    //               ball-width).  Firmware bug-fix proposal #371 used 8x
+    //               (saturates at 0.125 g) but for a coordination cue the
+    //               first ball-width of deflection should already be at
+    //               half-pan, so we use 12x here.
     float fChannelGain = 0.0f;
     float fLeftPanGain  = 1.0f;
     float fRightPanGain = 1.0f;
     int   tick_index    = 0;
-    constexpr float kPanAlpha = 0.1f;
-    // AUDIO_3D_CURVE — proposed fix from issue #371.  The current
-    // firmware curve `-92.822·x² + 20.025·x` collapses to zero above
-    // 0.2157 g lateral, so spins (0.3–0.5 g) get NO pan.  Local
-    // saturating-linear curve here so the demo videos audibly show
-    // what the pan SHOULD do at realistic spin lateral G.
-    //   curve(x) = min(1.0, 8.0 * |x|)  — saturates at 0.125 g, holds.
+    constexpr float kPanAlpha = 0.5f;
     auto pan_curve = [](float x) {
-        const float v = 8.0f * x;
+        const float v = 12.0f * x;
         return v > 1.0f ? 1.0f : v;
     };
 
