@@ -13,24 +13,18 @@ has no Internet dependency.
 | `chartist.js` | https://github.com/gionkunz/chartist-js v0.11.4 | ~40 KB | WTFPL or MIT |
 | `chartist.css` | https://github.com/gionkunz/chartist-js v0.11.4 | ~11 KB | WTFPL or MIT |
 | `regression.js` | https://github.com/Tom-Alexander/regression-js v2.0.1 | ~4 KB | MIT |
-| `sgfilter.js` | https://github.com/mljs/savitzky-golay-generalized | ~4 KB | MIT |
 
-The chartist, regression, and sgfilter sources are the same minified
-bundles the firmware previously served at `/js/chartist.js`,
-`/js/regression.js`, `/js/sgfilter.js` (PROGMEM blobs in
-`software/OnSpeed-Gen3-ESP32/Web/javascript_chartist*.h`,
-`javascript_regression.h`, `sg_filter.h`).  Pulled out of the C++
-header strings into real `.js` files so the cal-wizard rewrite can
-import them by path; the bundler concatenates them into the shared
-`/static/app-<sha>.js` blob.
+The chartist and regression sources are the same minified bundles
+the legacy firmware served at `/js/chartist.js` and `/js/regression.js`
+(PROGMEM blobs `javascript_chartist*.h`, `javascript_regression.h`).
+Pulled out of the C++ header strings into real `.js` files so the
+cal-wizard rewrite can import them by path; the bundler concatenates
+them into the shared `/static/app-<sha>.js` blob.
 
 Chartist usage: only the `Chartist.Line` / `Chartist.AutoScaleAxis`
 / `Chartist.Interpolation.simple` API surface for the cal-wizard
 review chart.  Regression usage: `regression.polynomial(data,
 {order, precision})` for the IAS-to-AOA fit and CP-to-AOA fit.
-Sgfilter usage: not yet — the cal-wizard rewrite drops the legacy
-client-side smoothingAlpha; sgfilter.js stays vendored as a future
-hook for the planned offline log-replay analyses.
 
 ## What it provides
 
