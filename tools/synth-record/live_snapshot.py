@@ -20,7 +20,21 @@ class LiveSnapshot:
     roll:        float = 0.0   # deg
     yaw_rate:    float = 0.0   # deg/s, +nose-right
     vertical_g:  float = 1.0   # g
-    lateral_g:   float = 0.0   # g (already negated; positive = leftward — see DisplaySerial.h)
+    # Lateral G — BALL-FRAME convention (positive = leftward acceleration).
+    # This is the same convention as the `#1` wire's `lateralG` field
+    # (see proto/DisplaySerial.h::DisplayBuildInputs::lateralG), which
+    # the firmware produces by negating `g_AHRS.AccelLatCorr`.
+    #
+    # WARNING — this differs from the SD log's `LateralG` column AND from
+    # the WebSocket's `lateralGLoad` field, both of which use the
+    # body-frame convention (positive = airframe accelerating right).
+    # When importing from a log row, negate the body-frame value.
+    # `scenarios/from_log.py::_log_to_wire_lateral_g` does this.
+    #
+    # On screen: positive lateral_g (leftward airframe accel) → ball
+    # drawn RIGHT of center (the ball lags rightward by inertia).
+    # Anti-yaw rudder is on the side the ball moved → press right.
+    lateral_g:   float = 0.0
     # Flap state — scenarios drive `lever_raw` (the raw pot ADC reading).
     # The orchestrator's display-anchors harness derives the active
     # detent index and the interpolated `flap_deg` for the wire.  When

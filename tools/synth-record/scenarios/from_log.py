@@ -48,6 +48,19 @@ _PITCH_NAMES       = ("Pitch", "pitch")
 _ROLL_NAMES        = ("Roll", "roll")
 _YAW_RATE_NAMES    = ("YawRate", "yawRate", "yaw_rate")
 _VERT_G_NAMES      = ("VerticalG", "verticalG", "vertical_g")
+# IMPORTANT — sign convention: the SD log column `LateralG` carries the
+# raw IMU Y-axis accel (body frame, positive = airframe accelerating
+# right).  Same convention as the WebSocket `lateralGLoad` field.
+#
+# The `#1` serial wire's `lateralG` field uses the OPPOSITE convention
+# (ball frame, positive = leftward) — the firmware negates the body
+# value before encoding it for M5 transmission.  See
+# proto/DisplaySerial.h::DisplayBuildInputs.
+#
+# We're driving the M5 sim, so we must negate the log value when we
+# fill LiveSnapshot.lateral_g — see the `_log_to_wire_lateral_g`
+# converter below.  Without this negation the ball renders mirrored
+# left↔right relative to the airframe's actual motion.
 _LAT_G_NAMES       = ("LateralG", "lateralG", "lateral_g")
 _OAT_NAMES         = ("OAT", "oat")
 _VSI_NAMES         = ("VSI", "vsi")
@@ -55,6 +68,14 @@ _FLAP_DEG_NAMES    = ("flapsPos", "flap_deg", "FlapsPos")
 _FLAP_RAW_NAMES    = ("flapsRawADC", "flapsRaw", "flapPotRaw")
 _FLIGHT_PATH_NAMES = ("FlightPath", "flight_path")
 _TIMESTAMP_NAMES   = ("timeStamp", "Timestamp", "time_ms")
+
+
+def _log_to_wire_lateral_g(body_frame_g: float) -> float:
+    """Convert log's body-frame lateralG (positive = right) to the wire's
+    ball-frame convention (positive = leftward), which is what
+    LiveSnapshot.lateral_g and the wire `lateralG` field both expect.
+    """
+    return -body_frame_g
 
 
 def _first_present(row: dict[str, str], names: tuple[str, ...]):
@@ -238,7 +259,7 @@ def scenario_from_log(log_path: Path,
                 # by the time we reach t_start_s rather than starting
                 # from the first emitted tick.
                 if smooth_accels:
-                    step_ema("latG",  _ffloat(row, _LAT_G_NAMES),    KACC)
+                    step_ema("latG",  _log_to_wire_lateral_g(_ffloat(row, _LAT_G_NAMES)), KACC)
                     step_ema("vertG", _ffloat(row, _VERT_G_NAMES, 1.0), KACC)
                     step_ema("pitch", _ffloat(row, _PITCH_NAMES),    KACC)
                     step_ema("roll",  _ffloat(row, _ROLL_NAMES),     KACC)
@@ -247,8 +268,10 @@ def scenario_from_log(log_path: Path,
                 break
 
             # Always feed EMA so it tracks the actual log rate, even on
-            # rows we don't emit.
-            raw_lat   = _ffloat(row, _LAT_G_NAMES)
+            # rows we don't emit.  Convert log's body-frame lateralG to
+            # the wire's ball-frame convention immediately so the EMA
+            # state is consistent with downstream consumers.
+            raw_lat   = _log_to_wire_lateral_g(_ffloat(row, _LAT_G_NAMES))
             raw_vert  = _ffloat(row, _VERT_G_NAMES, default=1.0)
             raw_pitch = _ffloat(row, _PITCH_NAMES)
             raw_roll  = _ffloat(row, _ROLL_NAMES)

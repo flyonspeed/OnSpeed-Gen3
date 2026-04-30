@@ -100,6 +100,18 @@ def scenario():
 
     # Phase 2a: spin onset — yaw builds, roll deepens, vG drops.
     # 1.0s — fast enough to feel the autorotation start.
+    #
+    # Sign convention (CRITICAL — easy to get wrong):
+    #   yaw_rate < 0 = nose-left = LEFT spin
+    #   wire lateralG: positive = leftward body accel (proto/DisplaySerial.h
+    #     convention; the producer negates AccelLatCorr).  In a left spin
+    #     the airframe is being pulled LEFTWARD by centripetal force →
+    #     wire lateralG should be POSITIVE.
+    #   M5 ball: drawn at (CenterX + slipValue × ...) where slipValue is
+    #     proportional to wire lateralG.  Positive lateralG → ball drawn
+    #     RIGHT of center, which is the correct ball-lag-behind-airframe
+    #     physics for a left spin.
+    #   Cue: -sign(yaw) = +1 (press right rudder = anti-yaw).
     spin_onset = smooth_to({
         "aoa":         (last.aoa,        aoa_in_spin),
         "ias":         (last.ias,        wfb.ias_from_aoa(aoa_in_spin, fs0, n=0.5)),
@@ -107,12 +119,10 @@ def scenario():
         "roll":        (last.roll,       -25.0),
         "yaw_rate":    (last.yaw_rate,   -50.0),
         "vertical_g":  (last.vertical_g, 0.6),
-        "lateral_g":   (last.lateral_g,  -0.30),
+        "lateral_g":   (last.lateral_g,  +0.30),   # +ve = leftward accel = ball right
     }, duration=1.0)
 
     # Phase 2b: yaw climbs to plateau, roll deepens further, vG settles low.
-    # 1.5s.  By the end of this, the τ=1s SpinDetector filter is saturated
-    # well above the 20°/s gate, AOA is past alpha_stall, cue latches.
     spin_developing = smooth_to({
         "aoa":         (aoa_in_spin,    aoa_in_spin),
         "ias":         (wfb.ias_from_aoa(aoa_in_spin, fs0, n=0.5),
@@ -121,11 +131,10 @@ def scenario():
         "roll":        (-25.0,          -50.0),
         "yaw_rate":    (-50.0,          yaw_plateau),
         "vertical_g":  (0.6,            0.4),
-        "lateral_g":   (-0.30,          -0.40),
+        "lateral_g":   (+0.30,          +0.40),
     }, duration=1.5)
 
     # Phase 2c: developed spin, cue actively displayed.
-    # 2.0s.  Long enough for the viewer to read the cue and absorb it.
     spin_hold = smooth_to({
         "aoa":         (aoa_in_spin,   aoa_in_spin - 0.1),
         "ias":         (wfb.ias_from_aoa(aoa_in_spin, fs0, n=0.4),
@@ -134,12 +143,13 @@ def scenario():
         "roll":        (-50.0,         -55.0),
         "yaw_rate":    (yaw_plateau,   yaw_plateau),
         "vertical_g":  (0.4,           0.4),
-        "lateral_g":   (-0.40,         -0.40),
+        "lateral_g":   (+0.40,         +0.40),
     }, duration=2.0)
 
     # --- Phase 3: synthetic recovery ---
-    # Anti-yaw rudder (right), forward stick.  Yaw drops, AOA un-stalls
-    # (clean SpinDetector exit re-arms), dive pull-out, IAS rebuilds.
+    # Anti-yaw rudder (right), forward stick.  Yaw drops, AOA un-stalls,
+    # dive pull-out, IAS rebuilds.  Lateral accel decays to zero as the
+    # spin stops.
     recover = smooth_to({
         "aoa":         (aoa_in_spin - 0.1, aoa_recovered),
         "ias":         (wfb.ias_from_aoa(aoa_in_spin, fs0, n=0.4),
@@ -148,7 +158,7 @@ def scenario():
         "roll":        (-55.0,             -15.0),
         "yaw_rate":    (yaw_plateau,       -3.0),
         "vertical_g":  (0.4,               1.0),
-        "lateral_g":   (-0.40,             -0.05),
+        "lateral_g":   (+0.40,             +0.05),
     }, duration=1.0)
 
     pullout = smooth_to({
@@ -158,7 +168,7 @@ def scenario():
         "roll":        (-15.0,                        0.0),
         "yaw_rate":    (-3.0,                         0.0),
         "vertical_g":  (1.0,                          1.5),
-        "lateral_g":   (-0.05,                        0.0),
+        "lateral_g":   (+0.05,                        0.0),
     }, duration=1.5)
 
     synthetic = env.chain(spin_onset, spin_developing, spin_hold,
