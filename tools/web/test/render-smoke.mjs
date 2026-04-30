@@ -136,6 +136,11 @@ globalThis.WebSocket.CLOSED     = 3;
 globalThis.fetch = () => new Promise(() => {});
 globalThis.history = { replaceState: () => {} };
 globalThis.window = globalThis;
+// Pages that subscribe to window-level events (CalWizardPage's
+// keyboard handlers, IndexerPage's resize observer, etc.) need
+// these as no-ops in the mock environment.
+globalThis.addEventListener    = () => {};
+globalThis.removeEventListener = () => {};
 // The Preact bundle reads `document.body` via M(_,t,o); ensure t has
 // nothing special.  Keep a fresh container per render to avoid Preact's
 // reuse logic seeing stale state.
@@ -171,18 +176,29 @@ const { html, render } = preact;
 const indexerMod = await import(new URL('../lib/pages/IndexerPage.js', import.meta.url));
 const shellMod   = await import(new URL('../lib/shell/PageShell.js',  import.meta.url));
 const calwizMod  = await import(new URL('../lib/pages/CalWizardPage.js', import.meta.url));
+const logsMod    = await import(new URL('../lib/pages/LogsPage.js', import.meta.url));
 
 let passed = 0, failed = 0;
 const results = [];
 
+// Tests can return a Promise; we await each one in order so async
+// fetches + state updates can flush before we move on.
+const _pending = [];
 function test(name, fn) {
-  try {
-    fn();
-    passed++;
-    results.push(['  PASS', name]);
-  } catch (e) {
-    failed++;
-    results.push(['  FAIL', `${name}: ${e.message}`]);
+  _pending.push({ name, fn });
+}
+
+async function runTests() {
+  for (const { name, fn } of _pending) {
+    try {
+      const r = fn();
+      if (r && typeof r.then === 'function') await r;
+      passed++;
+      results.push(['  PASS', name]);
+    } catch (e) {
+      failed++;
+      results.push(['  FAIL', `${name}: ${e.message}`]);
+    }
   }
 }
 
@@ -320,6 +336,97 @@ test('PageShell Settings dropdown lists the legacy items', () => {
   }
 });
 
+// Render LogsPage, drive it through a real /api/logs response that
+// includes a delete error from the most recent bulk request, and
+// confirm the red error banner appears with the file name + reason.
+//
+// LogsPage doesn't expose deleteErrors state directly; we install a
+// stub fetch + click the per-row trash button + await macro tasks
+// until the second render flushes.  If LogsPage stops surfacing the
+// per-file errors array, this test fails.
+test('LogsPage renders the delete-error banner', async () => {
+  const initialBody = {
+    activeLog: 'active.csv',
+    files: [
+      { name: 'a.csv', size: 100 },
+      { name: 'active.csv', size: 200 },
+    ],
+  };
+  const deleteResponseBody = {
+    deleted: [],
+    errors: [{ name: 'a.csv', reason: 'SD busy' }],
+  };
+
+  let postCalled = false;
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = (url, opts = {}) => {
+    if ((opts.method || 'GET') === 'POST') {
+      postCalled = true;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () => Promise.resolve(deleteResponseBody),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: () => Promise.resolve(initialBody),
+    });
+  };
+  const prevConfirm = globalThis.window.confirm;
+  globalThis.window.confirm = () => true;
+
+  try {
+    const root = renderInto(html`<${logsMod.LogsPage} />`);
+
+    // Preact schedules `useEffect` callbacks via requestAnimationFrame
+    // or, in environments without rAF, a 100ms setTimeout.  Walk the
+    // event loop in 20ms slices, capped at 60 (~1.2s) so a regression
+    // doesn't hang the test.
+    const waitFor = async (predicate, label) => {
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 20));
+        if (predicate()) return;
+      }
+      throw new Error('timed out waiting for: ' + label);
+    };
+
+    await waitFor(() => findFirst(root, 'tbody'),
+                  'initial /api/logs fetch + render');
+
+    // Find the trash button on the non-active row and fire its onClick.
+    const buttons = [...walk(root)].filter(n => n.localName === 'button');
+    const trash = buttons.find(b => {
+      const text = b.childNodes[0] && b.childNodes[0].data;
+      return text && text.trim() === '×';
+    });
+    if (!trash) throw new Error('no trash (×) button rendered');
+    // Preact stores listeners on `l` keyed by `<event-type><capture>`,
+    // where capture is the literal string "false" / "true".  So
+    // `onClick` lives at `l['clickfalse']`.
+    // Preact stores listeners on `l` keyed by `<event-type><capture>`.
+    // The mock DOM doesn't expose `click` as a property, so Preact
+    // keeps the original "Click" casing rather than lowercasing it.
+    const click = trash.l && (trash.l['Clickfalse'] || trash.l['clickfalse']);
+    if (typeof click !== 'function')
+      throw new Error('trash button has no click handler (l keys: ' +
+        Object.keys(trash.l || {}).join(',') + ')');
+    click({ type: 'click' });
+
+    await waitFor(() => postCalled, 'delete-bulk POST');
+    await waitFor(() => [...walk(root)].some(n =>
+      n.localName === '#text' && n.data && n.data.includes('a.csv (SD busy)')),
+                  'delete-error banner text');
+  } finally {
+    globalThis.fetch = prevFetch;
+    globalThis.window.confirm = prevConfirm;
+  }
+});
+
+await runTests();
 for (const [tag, msg] of results) console.log(tag, msg);
 console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
