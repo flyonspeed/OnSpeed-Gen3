@@ -37,7 +37,7 @@ gps_fix_seen=1
 | `Palt` | ft | Pressure altitude |
 | `AngleofAttack` | degrees | Computed AOA (from pressure polynomial) |
 | `DerivedAOA` | degrees | SmoothedPitch - FlightPath (AHRS-derived) |
-| `flapsPos` | degrees | Detected flap position |
+| `flapsPos` | degrees | Detected flap position (snapped to the nearest configured detent) |
 | `OAT` | °C | Outside air temperature |
 | `TAS` | knots | True airspeed |
 
@@ -115,6 +115,15 @@ For VectorNav VN-300, the columns use `vn` prefix instead (e.g., `vnPitch`, `vnR
 | Column | Units | Description |
 |--------|-------|-------------|
 | `DataMark` | 0–99 | Pilot annotation mark (wraps at 100) |
+
+### Tail-Optional (Format Version 2)
+
+Appended at the very end of every row, after `CoeffP`. Older firmware
+(format version 1) omits these columns entirely.
+
+| Column | Units | Description |
+|--------|-------|-------------|
+| `flapsRawADC` | counts | Raw flap-lever pot ADC reading. Replay tools interpolate the L/Dmax pip across detent transitions using this value and the configured `<FLAPPOTPOSITIONS>` boundaries. |
 
 ## Loading Logs in Python
 

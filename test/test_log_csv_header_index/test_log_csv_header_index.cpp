@@ -605,6 +605,69 @@ void test_parserowbyindex_empty_vntimeutc_preserved(void)
     TEST_ASSERT_EQUAL_STRING("", dst.vnTimeUtc);
 }
 
+void test_parserowbyindex_flaps_raw_adc_present(void)
+{
+    // Format version 2: header carries the tail-optional flapsRawADC column.
+    // BuildHeaderIndex must record its ordinal; ParseRowByIndex must populate
+    // row.flapsRawAdc and set row.flapsRawAdcPresent so downstream code knows
+    // the value is real (not a default zero from an old log).
+    onspeed::LogRow src{};
+    src.timeStampMs        = 12345;
+    src.iasKt              = 87.5f;
+    src.flapsPos           = 10;
+    src.imuPitchRateDps    = 7.5f;     // raw value; FormatRow will negate
+    src.coeffP             = 0.123f;
+    src.flapsRawAdcPresent = true;
+    src.flapsRawAdc        = 1462;
+
+    char hdrBuf[onspeed::proto::log_csv::kHeaderMaxBytes];
+    char rowBuf[onspeed::proto::log_csv::kRowMaxBytes];
+    size_t hdrLen = onspeed::proto::log_csv::WriteHeader(src, hdrBuf, sizeof(hdrBuf));
+    size_t rowLen = onspeed::proto::log_csv::FormatRow(src, rowBuf, sizeof(rowBuf));
+    TEST_ASSERT_GREATER_THAN(0, hdrLen);
+    TEST_ASSERT_GREATER_THAN(0, rowLen);
+
+    HeaderIndex idx;
+    TEST_ASSERT_TRUE(BuildHeaderIndex(std::string_view(hdrBuf, hdrLen), idx));
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, idx.idxFlapsRawAdc);
+
+    onspeed::LogRow dst{};
+    dst.boomEnabled = idx.boomEnabled;
+    dst.efisEnabled = idx.efisEnabled;
+    dst.efisIsVn300 = idx.efisIsVn300;
+    bool ok = ParseRowByIndex(std::string_view(rowBuf, rowLen), idx, dst);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(dst.flapsRawAdcPresent);
+    TEST_ASSERT_EQUAL_UINT16(1462u, dst.flapsRawAdc);
+}
+
+void test_parserowbyindex_flaps_raw_adc_absent_clears_flag(void)
+{
+    // Old-format log: header lacks flapsRawADC. BuildHeaderIndex must leave
+    // idxFlapsRawAdc at -1; ParseRowByIndex must clear flapsRawAdcPresent so
+    // the consumer can distinguish "absent" from "present and zero".
+    static const char kHeader[] =
+        "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
+        "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
+        "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
+        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
+    static const char kRow[] =
+        "12345,100,1.5,200,2.5,1013.25,1234.0,87.5,4.2,10,3,15.0,90.1,"
+        "25.0,1.02,0.01,-0.03,5.0,-7.5,-2.0,3.5,-1.2,"
+        "1.00,2.0,250.0,1300.0,4.3,0.123";
+
+    HeaderIndex idx;
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx));
+    TEST_ASSERT_EQUAL_INT(-1, idx.idxFlapsRawAdc);
+
+    onspeed::LogRow dst{};
+    // Pre-set the flag to verify ParseRowByIndex clears it on an absent column.
+    dst.flapsRawAdcPresent = true;
+    dst.flapsRawAdc        = 9999;
+    TEST_ASSERT_TRUE(ParseRowByIndex(kRow, idx, dst));
+    TEST_ASSERT_FALSE(dst.flapsRawAdcPresent);
+}
+
 void test_build_index_over_wide_header_fails(void)
 {
     // Synthesize a valid canonical header padded with enough unknown
@@ -655,6 +718,8 @@ int main(int, char**)
     RUN_TEST(test_fixture_canonical_core_only);
     RUN_TEST(test_build_index_garbage_header_fails);
     RUN_TEST(test_parserowbyindex_empty_vntimeutc_preserved);
+    RUN_TEST(test_parserowbyindex_flaps_raw_adc_present);
+    RUN_TEST(test_parserowbyindex_flaps_raw_adc_absent_clears_flag);
     RUN_TEST(test_build_index_over_wide_header_fails);
     return UNITY_END();
 }

@@ -37,7 +37,10 @@
 //   efisPercentPower, efisMagHeading, efisAge, efisTime,
 //
 //   EarthVerticalG, FlightPath, VSI, Altitude,
-//   DerivedAOA, CoeffP
+//   DerivedAOA, CoeffP,
+//
+//   [if flapsRawAdcPresent]
+//   flapsRawADC      (raw flap-pot ADC counts; uint16)
 //
 // Reader asymmetry: the on-firmware LogReplay task reads logs through
 // proto::log_csv::BuildHeaderIndex + ParseRowByIndex (see
@@ -59,7 +62,10 @@ namespace onspeed::proto::log_csv {
 
 // Log format version.  Increment whenever column names, order, units, or
 // precision change.  Consumer tools can use this to detect incompatible logs.
-inline constexpr int kFormatVersion = 1;
+// Version 2: added tail-optional `flapsRawADC` column.  Older logs without
+// the column still parse cleanly — consumers detect the column by name in
+// the header line (HasColumn) and gate ParseRow on the presence flag.
+inline constexpr int kFormatVersion = 2;
 
 // Conservative upper bounds for the two output buffers.
 // Both are sized to accommodate the VN-300 variant, which is the widest row.

@@ -222,6 +222,13 @@ bool ReadLogLine()
         g_Sensors.PfwdSmoothed = row.pfwdSmoothed;
         g_Sensors.P45Smoothed  = row.p45Smoothed;
         g_Flaps.iPosition      = row.flapsPos;
+        // Older logs without flapsRawADC leave g_Flaps.uValue at whatever it
+        // was last sampled by the live ADC; only overwrite when the column
+        // was actually carried in the file. ParseRowByIndex sets
+        // row.flapsRawAdcPresent based on the HeaderIndex, mirroring the
+        // tail-optional gate in WriteHeader/FormatRow.
+        if (row.flapsRawAdcPresent)
+            g_Flaps.uValue     = row.flapsRawAdc;
 
         g_fCoeffP = pressureCoeff(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed);
 

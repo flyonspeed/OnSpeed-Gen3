@@ -60,6 +60,9 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     if (name == "DerivedAOA")       { out.idxDerivedAoa = ordinal; return true; }
     if (name == "CoeffP")           { out.idxCoeffP = ordinal; return true; }
 
+    // Tail-optional (format version 2). Older logs lack this column.
+    if (name == "flapsRawADC")      { out.idxFlapsRawAdc = ordinal; return true; }
+
     // Boom (optional).
     if (name == "boomStatic")       { out.idxBoomStatic = ordinal; return true; }
     if (name == "boomDynamic")      { out.idxBoomDynamic = ordinal; return true; }
@@ -391,6 +394,15 @@ bool ParseUint32Tok(std::string_view tok, uint32_t& out)
     return true;
 }
 
+bool ParseUint16Tok(std::string_view tok, uint16_t& out)
+{
+    uint32_t v32 = 0;
+    if (!ParseUint32Tok(tok, v32)) return false;
+    if (v32 > 0xFFFFu) return false;
+    out = (uint16_t)v32;
+    return true;
+}
+
 // Convenience: pull a field by index. Returns false on missing token,
 // empty token, or numeric parse failure (consistent with LogCsv::ParseRow).
 // If the column is absent in the log (idx == -1), leaves the destination
@@ -418,6 +430,12 @@ bool TakeUint32(const std::string_view* tokens, int tokenCount, int idx, uint32_
     if (idx < 0) return true;
     if (idx >= tokenCount) return false;
     return ParseUint32Tok(tokens[idx], out);
+}
+bool TakeUint16(const std::string_view* tokens, int tokenCount, int idx, uint16_t& out)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    return ParseUint16Tok(tokens[idx], out);
 }
 // Copy an indexed token into a fixed-size char buffer, NUL-terminated.
 // An empty token writes a 0-length string with NUL terminator and returns
@@ -548,6 +566,15 @@ bool ParseRowByIndex(std::string_view line,
     if (!TakeFloat(tokens, tokenCount, idx.idxAltitude,       row.altitudeFt))      return false;
     if (!TakeFloat(tokens, tokenCount, idx.idxDerivedAoa,     row.derivedAoaDeg))   return false;
     if (!TakeFloat(tokens, tokenCount, idx.idxCoeffP,         row.coeffP))          return false;
+
+    // Tail-optional flapsRawADC (format version 2). Reflect presence into the
+    // LogRow so downstream consumers can tell "absent / unknown" from "0".
+    if (idx.idxFlapsRawAdc >= 0) {
+        if (!TakeUint16(tokens, tokenCount, idx.idxFlapsRawAdc, row.flapsRawAdc))  return false;
+        row.flapsRawAdcPresent = true;
+    } else {
+        row.flapsRawAdcPresent = false;
+    }
 
     return true;
 }

@@ -12,7 +12,8 @@
 //   [boom columns if boom enabled],
 //   [EFIS columns if EFIS enabled],
 //   EarthVerticalG, FlightPath, VSI, Altitude,
-//   DerivedAOA, CoeffP
+//   DerivedAOA, CoeffP,
+//   [flapsRawADC if flapsRawAdcPresent]
 
 #ifndef ONSPEED_CORE_TYPES_LOG_ROW_H
 #define ONSPEED_CORE_TYPES_LOG_ROW_H
@@ -48,6 +49,15 @@ struct LogRow {
 
     // Detected flap position index.
     int flapsPos = 0;
+
+    // Raw flap-pot ADC reading (unfiltered counts, 0..4095 typical for the
+    // 12-bit ADC — MCP3202 on V4P or ESP32-S3 internal on V4B).  Logged so
+    // replay tools can reproduce the L/Dmax pip interpolation across detent
+    // transitions (see DisplayPctAnchors in onspeed_core, fed by
+    // g_Flaps.uValue at flight time).  Optional on read: older logs don't
+    // carry the column, in which case ParseRow leaves the field at zero and
+    // clears flapsRawAdcPresent.
+    uint16_t flapsRawAdc = 0;
 
     // User-set data mark value (from console or button).
     int dataMark = 0;
@@ -165,6 +175,13 @@ struct LogRow {
     bool boomEnabled = false;
     bool efisEnabled = false;
     bool efisIsVn300 = false;
+
+    // Whether the row carries a flapsRawADC column.  Producers (LogSensor)
+    // set this true so WriteHeader/FormatRow emit the column.  Consumers
+    // (LogReplay) set this true when the header line advertises the column,
+    // so ParseRow consumes the field.  Default false preserves byte-identical
+    // emission for fixture-based tests that pre-date the column.
+    bool flapsRawAdcPresent = false;
 };
 
 }   // namespace onspeed
