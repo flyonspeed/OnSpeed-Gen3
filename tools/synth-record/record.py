@@ -137,12 +137,17 @@ def run_display_anchors(states: list[LiveSnapshot],
         )
 
     for s, line in zip(states, out_lines):
-        a, b, c, d, deg = line.split()
-        s.tones_on_pct       = int(a)
-        s.onspeed_fast_pct   = int(b)
-        s.onspeed_slow_pct   = int(c)
-        s.stall_warn_pct     = int(d)
-        s.flap_deg           = int(deg)
+        parts = line.split()
+        s.tones_on_pct     = int(parts[0])
+        s.onspeed_fast_pct = int(parts[1])
+        s.onspeed_slow_pct = int(parts[2])
+        s.stall_warn_pct   = int(parts[3])
+        s.flap_deg         = int(parts[4])
+        # v4.22+: pipPctLift is the smooth aerodynamic L/Dmax pip,
+        # interpolated lever-end-to-end across all detents.  Older
+        # harness builds emitted 5 columns; fall back to tones_on_pct
+        # so the chevron-and-pip stay aligned in clean cruise.
+        s.pip_pct          = int(parts[5]) if len(parts) >= 6 else s.tones_on_pct
 
 
 def run_spin_detector(states: list[LiveSnapshot],
@@ -198,13 +203,15 @@ def build_frames_and_audio_input(states: list[LiveSnapshot],
             oat_c=s.oat,
             flightpath_deg=s.flight_path,
             flap_deg=s.flap_deg,            # already lever-interpolated
-            # Display anchors come from ComputeDisplayPctAnchors; the
-            # L/Dmax pip slides between detents while the band edges
-            # snap to the active detent.  Set by run_display_anchors().
+            # Display anchors come from ComputeDisplayPctAnchors:
+            #   tones_on_pct = snapped operational L/Dmax (chevron + audio)
+            #   pip_pct      = smooth aerodynamic pip (visual reference)
+            # Set by run_display_anchors().
             tones_on_pct_lift=getattr(s, "tones_on_pct", 0),
             onspeed_fast_pct_lift=getattr(s, "onspeed_fast_pct", 0),
             onspeed_slow_pct_lift=getattr(s, "onspeed_slow_pct", 0),
             stall_warn_pct_lift=getattr(s, "stall_warn_pct", 0),
+            pip_pct_lift=getattr(s, "pip_pct", 0),
             flaps_min_deg=min(flap_setpoints),
             flaps_max_deg=max(flap_setpoints),
             g_onset_rate=s.g_onset,

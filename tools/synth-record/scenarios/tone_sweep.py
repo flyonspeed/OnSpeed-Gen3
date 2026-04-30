@@ -43,34 +43,52 @@ def scenario():
             u = i / max(1, n - 1)
             if ease == "smooth":
                 u = env.smoothstep(u)
+            elif ease == "out_pow":
+                # Fast at the start, slows toward the end — for the
+                # high-AOA "can't stop pulling" feeling.
+                u = env.ease_out_pow(u, power=2.5)
             s = base.copy()
             s.aoa = env.lerp(a0, a1, u)
             s.ias = wfb.ias_from_aoa(s.aoa, fs0)
             yield s
 
-    onspeed_mid = 0.5 * (fs0.onspeed_fast_aoa + fs0.onspeed_slow_aoa)
-    cruise_aoa  = fs0.ldmax_aoa - 2.0      # well below ldmax — silent
-    above_stall = fs0.stallwarn_aoa + 1.5
+    cruise_aoa = fs0.ldmax_aoa - 2.0      # well below ldmax — silent
+    # 99% lift on this aircraft: alpha_0 + 0.99 * (alpha_stall - alpha_0)
+    # = -3.72 + 0.99 * 14.03 = ~10.17° (just under alpha_stall = 10.31).
+    # Pushing AOA above alpha_stall would saturate at 99 and stop moving;
+    # ramping to alpha_stall + 1.5° gives a margin past 99 to demonstrate
+    # the saturation cleanly.
+    deep_stall = fs0.alpha_stall + 1.5    # 11.81°, 99% saturated
 
-    # Total: 0.5s settle + 4.5s low-pulse + 2.0s solid + 4.5s high-pulse
-    #        + 0.5s buzz = 12.0s. That's longer than 10s — accept it for
-    #        ear-check legibility; the spin/pip demos are the 10s ones.
+    # Total: 0.5s settle + 1.0s rise + 6.0s low-pulse + 2.0s solid +
+    #        4.5s high-pulse + 1.5s ramp into deep stall + 1.0s hold.
+    #        15.5s total.
+    # Pacing intent: fast off cruise, then progressively slower as AOA
+    # climbs into the high-pulse and stall regions — the "I shouldn't be
+    # doing this but I can't stop pulling" feel.  Lenny needs time to
+    # parse what's happening in the slow-tone and stall-warn regions,
+    # so those segments use ease_out_pow which holds the high end longer.
     stream = env.chain(
         # Settle at cruise.
         aoa_at(cruise_aoa, 0.5),                                       # 0.0–0.5
         # Quick rise from cruise to L/Dmax (silent → first low-pulse tick).
         aoa_ramp(cruise_aoa, fs0.ldmax_aoa, 1.0),                      # 0.5–1.5
-        # Low-tone pulsing region (L/Dmax → onspeed_fast).  Long dwell
-        # so the PPS sweep from 1.5 → 8.2 is unmistakable.
-        aoa_ramp(fs0.ldmax_aoa, fs0.onspeed_fast_aoa, 6.0),            # 1.5–7.5
-        # ONSPEED solid tone — drift slowly across the on-speed window
-        # so the bar keeps moving without leaving the solid-tone region.
-        aoa_ramp(fs0.onspeed_fast_aoa, fs0.onspeed_slow_aoa, 2.0),     # 7.5–9.5
-        # High-tone pulsing region (onspeed_slow → stall_warn).  Dwell
-        # to hear PPS rise from 1.5 to 6.2 + carrier amp ramp 0.25→1.0.
-        aoa_ramp(fs0.onspeed_slow_aoa, fs0.stallwarn_aoa, 4.5),        # 9.5–14.0
-        # Slow ramp into stall buzz (20 PPS, full amp), then hold.
-        aoa_ramp(fs0.stallwarn_aoa, above_stall, 1.0),                 # 14.0–15.0
-        aoa_at(above_stall, 0.7),                                      # 15.0–15.7
+        # Low-tone pulsing region (L/Dmax → onspeed_fast).  Smooth ramp,
+        # PPS sweep 1.5 → 8.2 is unmistakable over 5 s.
+        aoa_ramp(fs0.ldmax_aoa, fs0.onspeed_fast_aoa, 5.0),            # 1.5–6.5
+        # ONSPEED solid tone — drift slowly across the on-speed window.
+        aoa_ramp(fs0.onspeed_fast_aoa, fs0.onspeed_slow_aoa, 2.0),     # 6.5–8.5
+        # High-tone pulsing region (onspeed_slow → stall_warn).  Use
+        # ease_out_pow so the early part of the band sweeps quickly
+        # (PPS already rising) and the LATE part — closer to stall_warn,
+        # where amp also ramps 0.25 → 1.0 — slows down for emphasis.
+        aoa_ramp(fs0.onspeed_slow_aoa, fs0.stallwarn_aoa, 6.0,
+                 ease="out_pow"),                                      # 8.5–14.5
+        # Stall buzz.  ease_out_pow again so the entry into the buzz
+        # has dramatic hesitation right at the threshold and then we
+        # creep past alpha_stall into 99% saturation.
+        aoa_ramp(fs0.stallwarn_aoa, deep_stall, 3.0,
+                 ease="out_pow"),                                      # 14.5–17.5
+        aoa_at(deep_stall, 1.0),                                       # 17.5–18.5
     )
     yield from env.add_t_offsets(stream)

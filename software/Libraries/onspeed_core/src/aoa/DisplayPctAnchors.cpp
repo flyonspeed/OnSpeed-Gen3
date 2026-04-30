@@ -64,18 +64,30 @@ void FillSnappedOperational(DisplayPctAnchors& out,
     out.stallWarnPctLift   = ComputePercentLift(active.fSTALLWARNAOA,    active, iasValid);
 }
 
-// Compute the visual pip's "full-flap target" percent: the geometric
-// center of the most-deployed detent's OnSpeed band, in the same
-// percent space the rest of the wire uses.  Per Vac §8 + spec §6.
+// Compute the visual pip's "full-flap target" percent.
+//
+// HOTFIX (synth-record demo): land at the BOTTOM HALF of the donut at
+// full flaps, not at the geometric center.  Vac feedback for the demo
+// videos: with the pip in the band center the chevron has to rise into
+// upper donut half to "meet" it, which feels visually too aggressive
+// for the on-speed cue.  Bottom-half-of-donut keeps the chevron in the
+// lower donut half when at L/Dmax, which reads cleaner on the indexer.
+//
+// Computed as the midpoint between the fast edge and the band center:
+//
+//   pipFullFlap = fast + 0.25 × (slow − fast)
+//               = (3·fast + slow) / 4
+//
+// (The original spec used (fast+slow)/2 = the geometric center.)
 int FullFlapPipTarget(const SuFlaps& mostDeployed, bool iasValid)
 {
     const int fastPct = ComputePercentLift(mostDeployed.fONSPEEDFASTAOA, mostDeployed, iasValid);
     const int slowPct = ComputePercentLift(mostDeployed.fONSPEEDSLOWAOA, mostDeployed, iasValid);
-    int center = static_cast<int>(std::lround(
-        (static_cast<float>(fastPct) + static_cast<float>(slowPct)) / 2.0f));
-    if (center < 0)  center = 0;
-    if (center > 99) center = 99;
-    return center;
+    int target = static_cast<int>(std::lround(
+        (3.0f * static_cast<float>(fastPct) + static_cast<float>(slowPct)) / 4.0f));
+    if (target < 0)  target = 0;
+    if (target > 99) target = 99;
+    return target;
 }
 
 }   // namespace

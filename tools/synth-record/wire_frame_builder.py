@@ -18,8 +18,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-PAYLOAD_LEN = 70   # bytes covered by the checksum (frame[0..69])
-FRAME_LEN   = 74   # PAYLOAD_LEN + 2 ascii-hex CRC + CRLF
+PAYLOAD_LEN = 72   # v4.22: bytes 0..71 — adds pipPctLift at offset 70
+FRAME_LEN   = 76   # PAYLOAD_LEN + 2 ascii-hex CRC + CRLF
 
 
 def _clamp_int(v: float, lo: int, hi: int) -> int:
@@ -73,9 +73,10 @@ class Frame:
     g_onset_rate:          float = 0.0
     spin_cue:              int   = 0
     data_mark:             int   = 0
+    pip_pct_lift:          int   = 0   # v4.22+, visual L/Dmax pip
 
     def to_bytes(self) -> bytes:
-        """Serialize to the 74-byte wire frame (payload + CRC + CRLF)."""
+        """Serialize to the 76-byte wire frame (payload + CRC + CRLF, v4.22)."""
         payload = (
             "#1"
             f"{_clamp_int(self.pitch_deg * 10, -999, 999):+04d}"
@@ -99,6 +100,7 @@ class Frame:
             f"{_clamp_int(self.g_onset_rate * 100, -999, 999):+04d}"
             f"{_clamp_int(self.spin_cue, -9, 9):+02d}"
             f"{_clamp_uint(self.data_mark, 0, 99):02d}"
+            f"{_clamp_uint(self.pip_pct_lift, 0, 99):02d}"
         )
         if len(payload) != PAYLOAD_LEN:
             raise AssertionError(

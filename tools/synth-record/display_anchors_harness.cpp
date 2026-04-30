@@ -10,7 +10,8 @@
 //     "<rawAdc> <activeIndex>\n"
 //
 // Output on stdout (per tick):
-//   "<tonesOnPct> <onSpeedFastPct> <onSpeedSlowPct> <stallWarnPct> <flapsDeg>\n"
+//   "<tonesOnPct> <onSpeedFastPct> <onSpeedSlowPct> <stallWarnPct>"
+//   " <flapsDeg> <pipPct>\n"
 //
 // Ends on stdin EOF.  Uses the firmware's exact interpolation logic
 // (DisplayPctAnchors.cpp) — no Python re-implementation, no
@@ -55,12 +56,13 @@ int main(int /*argc*/, char** /*argv*/)
             flaps.size(),
             static_cast<size_t>(activeIdx),
             /*iasValid=*/true);
-        std::printf("%d %d %d %d %d\n",
+        std::printf("%d %d %d %d %d %d\n",
                     a.tonesOnPctLift,
                     a.onSpeedFastPctLift,
                     a.onSpeedSlowPctLift,
                     a.stallWarnPctLift,
-                    a.flapsDeg);
+                    a.flapsDeg,
+                    a.pipPctLift);
         std::fflush(stdout);
     }
     return 0;

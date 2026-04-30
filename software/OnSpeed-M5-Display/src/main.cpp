@@ -1653,10 +1653,20 @@ void displayGloadHistory()
 // transparently — no special case needed.
 int mapPct2Display(int aoaPct, const int Array[])
 {
+    // HOTFIX (synth-record demo): top segment now spans
+    // OnSpeedSlowPctLift → 99%, not OnSpeedSlowPctLift → StallWarnPctLift.
+    // Old behavior pinned y=1 for any percent ≥ stall_warn (≈80–85% on
+    // calibrated configs), so the chevron saturated at the top of the
+    // indexer well before reaching the actual lift envelope ceiling.
+    // The new mapping reaches y=1 only at percent_lift = 99, giving the
+    // chevron room to climb proportionally as the wing approaches the
+    // alpha_stall ceiling.  StallWarn-and-above still flashes red via
+    // the existing color logic in drawAOA() — the geometry change is
+    // independent of the warning trigger.
     if      (aoaPct <= Array[0])                       return 192;                                                  // display bottom
     else if (aoaPct >  Array[0] && aoaPct <= Array[3]) return map2int((float)aoaPct,(float)Array[0],(float)Array[3],192,115); // floor → OnSpeedFast
     else if (aoaPct >  Array[3] && aoaPct <= Array[4]) return map2int((float)aoaPct,(float)Array[3],(float)Array[4],115, 78); // donut band
-    else if (aoaPct >  Array[4] && aoaPct <= Array[7]) return map2int((float)aoaPct,(float)Array[4],(float)Array[7], 78,  1); // OnSpeedSlow → StallWarn
+    else if (aoaPct >  Array[4] && aoaPct <= 99)       return map2int((float)aoaPct,(float)Array[4],99.0f,           78,  1); // OnSpeedSlow → 99
     else                                               return 1;                                                    // display top
 }
 

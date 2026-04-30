@@ -47,7 +47,7 @@ extern void InjectSerialByte(char inChar);
 // Display dimensions are fixed for M5Stack Basic / native sim.
 static constexpr int kPanelW = 320;
 static constexpr int kPanelH = 240;
-static constexpr int kFrameSize = 74;       // OnSpeed #1 wire frame size
+static constexpr int kFrameSize = 76;       // OnSpeed #1 wire frame size (v4.22+)
 
 static const char* g_out_path = "frames.rgb";
 

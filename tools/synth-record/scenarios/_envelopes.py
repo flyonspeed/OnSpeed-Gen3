@@ -39,6 +39,19 @@ def smoothstep(u: float) -> float:
     return u * u * (3.0 - 2.0 * u)
 
 
+def ease_out_pow(u: float, power: float = 2.5) -> float:
+    """Ease-out — fast at the start, slows toward the end.  Suitable for
+    "I shouldn't be doing this but I can't stop pulling" approach to
+    stall: the bar climbs quickly off cruise, then slows as AOA gets
+    high so the viewer has time to read each tone region.
+
+    power = 1 → linear, 2 → mild ease, 2.5–3 → noticeable hesitation
+    near the top.
+    """
+    u = max(0.0, min(1.0, u))
+    return 1.0 - (1.0 - u) ** power
+
+
 def chain(*segments: Iterable) -> Iterator:
     """Concatenate iterables into one stream."""
     for seg in segments:
