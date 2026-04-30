@@ -20,11 +20,17 @@ Workarounds carried here:
     `LiveSnapshot.lateral_g` is ball-frame (positive = airframe
     accelerating left). `_log_to_wire_lateral_g` negates the value so
     the M5 ball renders on the correct side.
-  - **EMA smoothing for accels and attitude** — Gen2 logs captured raw
-    pre-filter values; Gen3 firmware applies an EMA with α = 0.0609
-    (`kAccSmoothing` in `AHRS.cpp`, τ ≈ 0.32 s). When `smooth_accels`
-    is True (default) the adapter applies the same EMA so the replayed
-    ball / G readout doesn't jitter.
+  - **EMA smoothing for accels** — Gen2 logs captured raw pre-filter
+    accelerometer values; Gen3 firmware EMA-smooths accels at the IMU
+    rate (208 Hz) with `kAccSmoothing = 0.060899` (`Ahrs.cpp`),
+    corresponding to τ ≈ 0.0741 s. When `smooth_accels` is True
+    (default) the adapter applies the equivalent variable-dt EMA at
+    the log's actual sample rate so the replayed ball / G readout
+    matches the firmware's bandwidth regardless of `iLogRate` (50 or
+    208 Hz). Pitch/Roll columns in the log are post-AHRS-fusion
+    (`g_AHRS.SmoothedPitch / SmoothedRoll`, see
+    `tasks/LogSensor.cpp:541-548`) and pass through verbatim — adding
+    a second EMA on top would be double-smoothing.
   - **Synthetic lever sweep** — old logs only carry the integer
     detected detent (`flapsPos`), not the raw flap-pot ADC. Without
     a fake sweep the L/Dmax pip would jump at every detent change.
@@ -40,6 +46,17 @@ from typing import Iterator
 
 from .config import FlapSetpoints, load_flap_setpoints, setpoints_for_flap
 from .live_snapshot import LiveSnapshot
+
+# Firmware-equivalent accelerometer EMA time constant.  Firmware uses
+# α = 0.060899 at the IMU rate (208 Hz, dt = 1/208 s) in a fixed-α
+# form `y[n] = (1-α)·y[n-1] + α·x[n]`.  Recovering τ from the
+# variable-dt form `α = dt / (τ + dt)` gives
+# τ = dt·(1/α − 1) = (1/208)·(1/0.060899 − 1) ≈ 0.0741 s.
+# This matches the firmware's own variable-dt usage in Ahrs.cpp:
+#   const float fIasTauSeconds = imuDeltaTime_ * kIasTauFactor;
+#   const float fAlpha   = fIasDtSeconds / (fIasTauSeconds + fIasDtSeconds);
+# (Ahrs.cpp:218-219, with kIasTauFactor = 1/kIasSmoothing − 1.)
+KACC_TAU_S = 0.0741
 
 
 # Column-name aliases. First name in each tuple is what we standardize
@@ -177,9 +194,12 @@ def scenario_from_log(log_path: Path,
     `t_start_s` / `t_end_s` are seconds since the log epoch — i.e.,
     `timeStamp` / 1000. Resamples to `target_rate_hz` (default 50 Hz).
 
-    `smooth_accels` (default True) applies the firmware's α = 0.0609
-    EMA to lateral G, vertical G, pitch, roll. Required when replaying
-    Gen2 logs, which captured raw IMU values.
+    `smooth_accels` (default True) applies the firmware's accelerometer
+    EMA (τ ≈ 0.0741 s) to lateral G and vertical G, with α computed
+    per-row from the actual log dt so a 50 Hz log and a 208 Hz log of
+    the same physical event produce matching post-filter bandwidth.
+    Pitch and Roll come through unchanged — log columns are already
+    AHRS-fused (`g_AHRS.SmoothedPitch / SmoothedRoll`).
 
     `flap_overrides`: optional `{flap_deg: {alpha_0, alpha_stall, k_fit}}`
     map for substituting fit-derived values when the on-disk config is
@@ -196,17 +216,22 @@ def scenario_from_log(log_path: Path,
 
     target_dt_s = 1.0 / target_rate_hz
 
-    # Gen3 firmware EMA constant for accels (AHRS.cpp::kAccSmoothing).
-    KACC = 0.0609
+    # Variable-dt EMA state for accels. Pitch/roll are AHRS-fused in
+    # the log already; do not re-smooth.
+    ema = {"latG": None, "vertG": None, "fwdG": None}
 
-    ema = {"latG": None, "vertG": None, "fwdG": None,
-           "pitch": None, "roll": None}
-
-    def step_ema(key: str, value: float, alpha: float) -> float:
+    def step_ema(key: str, value: float, dt: float) -> float:
         prev = ema[key]
-        if prev is None:
+        if prev is None or dt <= 0.0:
             ema[key] = value
             return value
+        # Variable-dt EMA matched to firmware's own form:
+        #   alpha = dt / (tau + dt)
+        #   y[n]  = (1 - alpha) * y[n-1] + alpha * x[n]
+        # At dt = 1/208 s, alpha collapses to the firmware's
+        # kAccSmoothing = 0.060899.  At the slower 50 Hz log rate,
+        # alpha ≈ 0.213 — the same effective bandwidth.
+        alpha = dt / (KACC_TAU_S + dt)
         nxt = (1.0 - alpha) * prev + alpha * value
         ema[key] = nxt
         return nxt
@@ -219,19 +244,26 @@ def scenario_from_log(log_path: Path,
             reader.fieldnames = [name.strip() for name in reader.fieldnames]
 
         last_emit_t = None
+        prev_ts = None
 
         for row in reader:
             ts_ms = _ffloat(row, _TIMESTAMP_NAMES)
             ts = ts_ms / 1000.0
 
+            # Per-row dt from log timestamps. First row seeds the EMA
+            # via the prev-is-None branch so dt isn't consulted there.
+            if prev_ts is None:
+                dt = 0.0
+            else:
+                dt = max(0.0, ts - prev_ts)
+            prev_ts = ts
+
             if ts < t_start_s:
                 # Still feed the smoothing EMA so it's converged by
                 # the time we reach t_start_s.
                 if smooth_accels:
-                    step_ema("latG",  _log_to_wire_lateral_g(_ffloat(row, _LAT_G_NAMES)), KACC)
-                    step_ema("vertG", _ffloat(row, _VERT_G_NAMES, 1.0), KACC)
-                    step_ema("pitch", _ffloat(row, _PITCH_NAMES),    KACC)
-                    step_ema("roll",  _ffloat(row, _ROLL_NAMES),     KACC)
+                    step_ema("latG",  _log_to_wire_lateral_g(_ffloat(row, _LAT_G_NAMES)), dt)
+                    step_ema("vertG", _ffloat(row, _VERT_G_NAMES, 1.0), dt)
                 continue
             if ts > t_end_s:
                 break
@@ -242,15 +274,13 @@ def scenario_from_log(log_path: Path,
             # downstream consumers.
             raw_lat   = _log_to_wire_lateral_g(_ffloat(row, _LAT_G_NAMES))
             raw_vert  = _ffloat(row, _VERT_G_NAMES, default=1.0)
-            raw_pitch = _ffloat(row, _PITCH_NAMES)
-            raw_roll  = _ffloat(row, _ROLL_NAMES)
+            pitch     = _ffloat(row, _PITCH_NAMES)
+            roll      = _ffloat(row, _ROLL_NAMES)
             if smooth_accels:
-                lat_g  = step_ema("latG",  raw_lat,   KACC)
-                vert_g = step_ema("vertG", raw_vert,  KACC)
-                pitch  = step_ema("pitch", raw_pitch, KACC)
-                roll   = step_ema("roll",  raw_roll,  KACC)
+                lat_g  = step_ema("latG",  raw_lat,  dt)
+                vert_g = step_ema("vertG", raw_vert, dt)
             else:
-                lat_g, vert_g, pitch, roll = raw_lat, raw_vert, raw_pitch, raw_roll
+                lat_g, vert_g = raw_lat, raw_vert
 
             # Decimate to target rate.
             if last_emit_t is not None and (ts - last_emit_t) < target_dt_s - 1e-4:
