@@ -68,16 +68,30 @@ const Dropdown = ({ group, activeId, isOpen, onPointerEnter, onClickToggle }) =>
   </li>`;
 
 const Nav = ({ activeId }) => {
-  // At most one dropdown is open at a time.  Stripe / GitHub / MDN
-  // pattern: hovering a sibling tab transitions openMenu, automatically
-  // closing whatever was open.
+  // At most one dropdown is open at a time.  Two open modes:
+  //   - "hover": opened by mouseenter; auto-closes when the cursor
+  //     moves to a sibling tab or leaves the nav.
+  //   - "click": opened by click/tap; sticky.  Stays open until the
+  //     user clicks the trigger again (toggles), clicks outside,
+  //     presses Escape, or clicks a menu item.  Hover events do NOT
+  //     transition state while click-locked.  This mirrors Stripe /
+  //     GitHub: hover gets you a quick peek, click pins.
+  // openMenu = null | { id, mode: 'hover'|'click' }
   const [openMenu, setOpenMenu] = useState(null);
 
-  const enterMenu = (id) => () => setOpenMenu(id);
+  const enterMenu = (id) => () => {
+    // Hovering a different tab always switches (drops any click-lock).
+    // Hovering the SAME tab as the current openMenu is a no-op (don't
+    // demote a click-lock to hover).
+    setOpenMenu(prev => {
+      if (prev && prev.id === id) return prev;
+      return id ? { id, mode: 'hover' } : null;
+    });
+  };
   const toggleMenu = (id) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setOpenMenu(prev => prev === id ? null : id);
+    setOpenMenu(prev => (prev && prev.id === id && prev.mode === 'click') ? null : { id, mode: 'click' });
   };
 
   useEffect(() => {
@@ -89,10 +103,12 @@ const Nav = ({ activeId }) => {
     const handleEsc = (e) => {
       if (e.key === 'Escape') setOpenMenu(null);
     };
-    // Mouse leaves the whole nav: close.  We listen on the <ul>
-    // wrapper; everything we care about is inside it.
+    // Mouse leaves the whole nav: close hover-opens, but leave a
+    // click-locked menu alone.
     const ul = document.querySelector('#liveview-nav-ul');
-    const handleMouseLeave = () => setOpenMenu(null);
+    const handleMouseLeave = () => {
+      setOpenMenu(prev => prev && prev.mode === 'click' ? prev : null);
+    };
     document.addEventListener('click', handleClickOutside);
     document.addEventListener('keydown', handleEsc);
     ul && ul.addEventListener('mouseleave', handleMouseLeave);
@@ -103,12 +119,14 @@ const Nav = ({ activeId }) => {
     };
   }, []);
 
+  const isOpen = (id) => openMenu && openMenu.id === id;
+
   return html`
     <ul id="liveview-nav-ul">
       <li onMouseEnter=${enterMenu(null)}>
         <a href="/" class=${activeId === 'home' ? 'active' : ''}>Home</a></li>
       ${NAV.dropdowns.map(d => html`<${Dropdown} group=${d} activeId=${activeId}
-                                                isOpen=${openMenu === d.id}
+                                                isOpen=${isOpen(d.id)}
                                                 onPointerEnter=${enterMenu(d.id)}
                                                 onClickToggle=${toggleMenu(d.id)} />`)}
       ${NAV.primary.filter(p => p.id !== 'home').map(p => html`
