@@ -56,7 +56,7 @@ function resolveVersion(prop) {
 }
 
 const Dropdown = ({ group, activeId, isOpen, onPointerEnter, onClickToggle }) => html`
-  <li class="dropdown" onMouseEnter=${onPointerEnter}>
+  <li class="dropdown" onPointerEnter=${onPointerEnter}>
     <a href="javascript:void(0)" class="dropbtn"
        tabindex="0" aria-haspopup="true"
        aria-expanded=${isOpen ? 'true' : 'false'}
@@ -79,7 +79,14 @@ const Nav = ({ activeId }) => {
   // openMenu = null | { id, mode: 'hover'|'click' }
   const [openMenu, setOpenMenu] = useState(null);
 
-  const enterMenu = (id) => () => {
+  const enterMenu = (id) => (e) => {
+    // Pointer Events: only react to real mouse hover.  Touch and pen
+    // get pointerType !== 'mouse' and we ignore them — they should
+    // only act through `click`.  iOS synthesizes a hover event on
+    // first tap of any element with hover-dependent behavior, which
+    // races the click handler; ignoring touch pointers here keeps the
+    // tap-to-toggle path clean.
+    if (e && e.pointerType && e.pointerType !== 'mouse') return;
     // Hovering a different tab always switches (drops any click-lock).
     // Hovering the SAME tab as the current openMenu is a no-op (don't
     // demote a click-lock to hover).
@@ -123,14 +130,14 @@ const Nav = ({ activeId }) => {
 
   return html`
     <ul id="liveview-nav-ul">
-      <li onMouseEnter=${enterMenu(null)}>
+      <li onPointerEnter=${enterMenu(null)}>
         <a href="/" class=${activeId === 'home' ? 'active' : ''}>Home</a></li>
       ${NAV.dropdowns.map(d => html`<${Dropdown} group=${d} activeId=${activeId}
                                                 isOpen=${isOpen(d.id)}
                                                 onPointerEnter=${enterMenu(d.id)}
                                                 onClickToggle=${toggleMenu(d.id)} />`)}
       ${NAV.primary.filter(p => p.id !== 'home').map(p => html`
-        <li onMouseEnter=${enterMenu(null)}>
+        <li onPointerEnter=${enterMenu(null)}>
           <a href=${p.href} class=${p.id === activeId ? 'active' : ''}>${p.label}</a></li>`)}
     </ul>`;
 };

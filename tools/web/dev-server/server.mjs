@@ -129,16 +129,20 @@ const PAGES = [
   { id: 'live',    path: '/live',    title: 'LiveView' },
 ];
 
-function pageStubHtml(page, args) {
+function pageStubHtml(page, args, host) {
   const modeMeta = args.mode === 'mock'
     ? '<meta name="onspeed-mode" content="mock">'
     : args.mode === 'proxy'
       ? `<meta name="onspeed-mode" content="proxy ${args.proxy}">`
       : '';
+  // For mock mode, use the same hostname the browser used to reach us
+  // (Host header).  Lets a phone on the same WiFi connect via the
+  // Mac's LAN IP and still resolve the WebSocket without hard-coding
+  // localhost.
   const wsMeta = args.mode === 'proxy' && args.proxy
     ? `<meta name="onspeed-ws" content="${proxyToWs(args.proxy)}">`
     : args.mode === 'mock'
-      ? `<meta name="onspeed-ws" content="ws://${process.env.HOST || 'localhost'}:${args.port}/ws">`
+      ? `<meta name="onspeed-ws" content="ws://${host}/ws">`
       : '';
   // Tell PageShell where the logo lives.  The bundler emits an
   // `ONSPEED_LOGO_DATA_URL` global; the dev server serves the PNG
@@ -469,10 +473,12 @@ async function route(req, res, args) {
     return handleApi(req, res, args);
   }
 
-  // Page stubs.
+  // Page stubs.  Pass the request Host so the WS meta tag uses the
+  // same hostname the browser used to reach us (works for LAN IPs).
   for (const page of PAGES) {
     if (pathname === page.path) {
-      const html = pageStubHtml(page, args);
+      const host = req.headers.host || `localhost:${args.port}`;
+      const html = pageStubHtml(page, args, host);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
       return;
