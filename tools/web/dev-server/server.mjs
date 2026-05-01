@@ -690,6 +690,14 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
   body = body.replaceAll('{{aoaconfigJs}}',     js);
   body = body.replaceAll('{{aoaconfigPostJs}}', postJs);
 
+  // Wrap with the same chrome the firmware's HandleConfig wraps it
+  // with: a logo + nav `<ul id="liveview-nav-ul">` so the dev page
+  // matches what pilots see at flight time.  Loads PageShell.css +
+  // legacy-forms.css — together they cover every class the legacy
+  // template references (.content-container, .round-box, .form-divs,
+  // .flex-col-N, .button, .greybutton, .inputField, .switch-field,
+  // .sp-row family, etc.).  This is the same pair the bundler ships
+  // to firmware as /static/app-<sha>.css.
   return [
     '<!DOCTYPE html>',
     '<html lang="en">',
@@ -698,11 +706,46 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<title>OnSpeed — /aoaconfig (dev)</title>',
     '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
+    '<link rel="stylesheet" href="/lib/shell/legacy-forms.css">',
     '</head>',
     '<body>',
+    aoaConfigChromeHtml(),
     body,
     '</body>',
     '</html>',
+  ].join('\n');
+}
+
+// Mirror `pageHeader`'s logo + nav so /aoaconfig on the dev server
+// looks like the firmware-served page.  The version string is "dev"
+// to make it obvious the user is on the dev-server.
+function aoaConfigChromeHtml() {
+  return [
+    '<div class="header-container">',
+    '  <img src="/onspeed-logo.png" alt="OnSpeed" />',
+    '  <div class="firmware">OnSpeed Version: dev</div>',
+    '</div>',
+    '<ul id="liveview-nav-ul">',
+    '  <li><a href="/">Home</a></li>',
+    '  <li class="dropdown">',
+    '    <a href="javascript:void(0)" class="dropbtn">Tools</a>',
+    '    <div class="dropdown-content">',
+    '      <a href="/logs">Log Files</a>',
+    '      <a href="/format">Format SD Card</a>',
+    '      <a href="/upgrade">Firmware Upgrade</a>',
+    '      <a href="/reboot">Reboot System</a>',
+    '    </div>',
+    '  </li>',
+    '  <li class="dropdown">',
+    '    <a href="javascript:void(0)" class="dropbtn active">Settings</a>',
+    '    <div class="dropdown-content">',
+    '      <a href="/aoaconfig" class="active">System Configuration</a>',
+    '      <a href="/sensorconfig">Sensor Calibration</a>',
+    '      <a href="/calwiz">AOA Calibration Wizard</a>',
+    '    </div>',
+    '  </li>',
+    '  <li><a href="/indexer">Indexer</a></li>',
+    '</ul>',
   ].join('\n');
 }
 
