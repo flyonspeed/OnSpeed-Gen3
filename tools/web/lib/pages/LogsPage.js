@@ -188,7 +188,8 @@ export function LogsPage() {
                     <td style=${{ textAlign: 'right' }}>${formatBytes(f.size)}</td>
                     <td>${active
                           ? ''
-                          : html`<button type="button"
+                          : html`<button type="button" class="greybutton"
+                                         style=${{ padding: '4px 10px', fontWeight: 'bold' }}
                                          disabled=${busyDeleting}
                                          onClick=${deleteOne(f.name)}>×</button>`}
                     </td>
@@ -197,12 +198,16 @@ export function LogsPage() {
             </tbody>
           </table>
           <p>
-            <button type="button" disabled=${selected.size === 0 || busyDeleting}
+            <button type="button" class="redbutton"
+                    style=${{ padding: '8px 16px' }}
+                    disabled=${selected.size === 0 || busyDeleting}
                     onClick=${deleteSelected}>
               Delete selected (${selected.size})
             </button>
             ${' '}
-            <button type="button" onClick=${reload}>Refresh</button>
+            <button type="button" class="greybutton"
+                    style=${{ padding: '8px 16px' }}
+                    onClick=${reload}>Refresh</button>
           </p>
 
           ${others.length > 0 && html`
@@ -217,7 +222,8 @@ export function LogsPage() {
                     <td style=${{ textAlign: 'right', paddingLeft: '20px' }}>
                       ${formatBytes(f.size)}
                     </td>
-                    <td><button type="button"
+                    <td><button type="button" class="greybutton"
+                                style=${{ padding: '4px 10px', fontWeight: 'bold' }}
                                 disabled=${busyDeleting}
                                 onClick=${deleteOne(f.name)}>×</button></td>
                   </tr>`)}
