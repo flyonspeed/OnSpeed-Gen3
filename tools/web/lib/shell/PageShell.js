@@ -30,6 +30,7 @@
 
 import { html, useState, useEffect } from '../vendor/preact-standalone.js';
 import { NAV, navIdForPath } from './nav.js';
+import { getJson } from './apiClient.js';
 
 function resolveLogoSrc() {
   // Prefer the meta tag (dev server sets a real URL; bundler stub does
@@ -45,14 +46,14 @@ function resolveLogoSrc() {
   return null;
 }
 
-function resolveVersion(prop) {
+function initialVersion(prop) {
   if (prop) return prop;
   if (typeof document !== 'undefined') {
     const m = document.querySelector('meta[name="onspeed-version"]');
     if (m && m.content) return m.content;
   }
-  // TODO: fetch from /api/version once that endpoint lands (PR 2).
-  return 'dev';
+  // Placeholder shown until the /api/version fetch resolves on mount.
+  return '…';
 }
 
 const Dropdown = ({ group, activeId, isOpen, onPointerEnter, onClickToggle }) => html`
@@ -159,7 +160,18 @@ const Header = ({ version }) => {
 export function PageShell({ active, version, children }) {
   const path = (typeof location !== 'undefined') ? location.pathname : '/';
   const activeId = active ?? navIdForPath(path);
-  const resolvedVersion = resolveVersion(version);
+  // Seed from prop / meta tag, then overwrite with the live
+  // /api/version response on mount.  If the fetch fails (offline,
+  // dev-server without a mock), the seeded value stands.
+  const [resolvedVersion, setResolvedVersion] = useState(() => initialVersion(version));
+  useEffect(() => {
+    if (version) return undefined;
+    let cancelled = false;
+    getJson('/api/version')
+      .then(data => { if (!cancelled && data && data.version) setResolvedVersion(data.version); })
+      .catch(() => { /* keep the seeded placeholder */ });
+    return () => { cancelled = true; };
+  }, [version]);
   return html`
     <${Header} version=${resolvedVersion} />
     <${Nav} activeId=${activeId} />
