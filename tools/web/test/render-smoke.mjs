@@ -177,6 +177,10 @@ const indexerMod = await import(new URL('../lib/pages/IndexerPage.js', import.me
 const shellMod   = await import(new URL('../lib/shell/PageShell.js',  import.meta.url));
 const calwizMod  = await import(new URL('../lib/pages/CalWizardPage.js', import.meta.url));
 const logsMod    = await import(new URL('../lib/pages/LogsPage.js', import.meta.url));
+const indexMod   = await import(new URL('../lib/pages/IndexPage.js', import.meta.url));
+const rebootMod  = await import(new URL('../lib/pages/RebootPage.js', import.meta.url));
+const formatMod  = await import(new URL('../lib/pages/FormatPage.js', import.meta.url));
+const upgradeMod = await import(new URL('../lib/pages/UpgradePage.js', import.meta.url));
 
 let passed = 0, failed = 0;
 const results = [];
@@ -424,6 +428,63 @@ test('LogsPage renders the delete-error banner', async () => {
     globalThis.fetch = prevFetch;
     globalThis.window.confirm = prevConfirm;
   }
+});
+
+// ---------------------------------------------------------------------
+// PR7 styling-regression guards.  These tests fail if a future PR
+// drops a legacy form/button class from a Preact page or attaches an
+// inline dark background to a content `<ul>` (which would mean the
+// global chrome rule leaked into content).
+// ---------------------------------------------------------------------
+test('IndexPage content <ul> has no inline background (chrome leak guard)', () => {
+  const root = renderInto(html`<${indexMod.IndexPage} />`);
+  const uls = [...walk(root)].filter(n => n.localName === 'ul');
+  // Filter out the nav ul (id="liveview-nav-ul") — chrome owns its
+  // styling.  Content `<ul>`s must not carry an inline background.
+  const contentUls = uls.filter(u => u.getAttribute('id') !== 'liveview-nav-ul');
+  if (contentUls.length === 0)
+    throw new Error('IndexPage no longer renders a content <ul>; update guard');
+  for (const ul of contentUls) {
+    const bg = ul.style && ul.style.backgroundColor;
+    if (bg && bg !== '' && bg !== 'transparent')
+      throw new Error(`content <ul> has inline background "${bg}"`);
+    // Also no inline `style="background:..."` attribute.
+    const styleAttr = ul.getAttribute('style') || '';
+    if (/background/i.test(styleAttr))
+      throw new Error(`content <ul> has inline style "${styleAttr}"`);
+  }
+});
+
+test('RebootPage renders class="button"', () => {
+  const root = renderInto(html`<${rebootMod.RebootPage} />`);
+  const buttons = [...walk(root)].filter(n => n.localName === 'button'
+                  && (n.getAttribute('class') || '').split(/\s+/).includes('button'));
+  if (buttons.length === 0)
+    throw new Error('RebootPage has no class="button" element — styling regression');
+});
+
+test('FormatPage renders class="button"', () => {
+  const root = renderInto(html`<${formatMod.FormatPage} />`);
+  const buttons = [...walk(root)].filter(n => n.localName === 'button'
+                  && (n.getAttribute('class') || '').split(/\s+/).includes('button'));
+  if (buttons.length === 0)
+    throw new Error('FormatPage has no class="button" element — styling regression');
+});
+
+test('UpgradePage renders class="button"', () => {
+  const root = renderInto(html`<${upgradeMod.UpgradePage} />`);
+  const buttons = [...walk(root)].filter(n => n.localName === 'button'
+                  && (n.getAttribute('class') || '').split(/\s+/).includes('button'));
+  if (buttons.length === 0)
+    throw new Error('UpgradePage has no class="button" element — styling regression');
+});
+
+test('CalWizardPage renders form-divs and flex-col layout classes', () => {
+  const root = renderInto(html`<${calwizMod.CalWizardPage} />`);
+  const formDivs = [...walk(root)].filter(n =>
+    (n.getAttribute && n.getAttribute('class') || '').split(/\s+/).includes('form-divs'));
+  if (formDivs.length === 0)
+    throw new Error('CalWizardPage has no class="form-divs" element — styling regression');
 });
 
 await runTests();
