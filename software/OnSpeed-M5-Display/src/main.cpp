@@ -380,11 +380,17 @@ void setup()
     if (fwUpdateMode)
         return; // do not continue if firmware upgrade mode was selected.
 
-#if defined(ESP_PLATFORM) && !defined(DUMMY_SERIAL_DATA)
-    //select serial port from preferences or detect it
-    serialSetup();
-    Serial.begin(115200); // console serial
+#if defined(ESP_PLATFORM)
+    // Console UART for diagnostic prints. Opened in both real-data
+    // and DUMMY_SERIAL_DATA builds so debug log lines reach the host
+    // regardless of which mode is active.
+    Serial.begin(115200);
     delay (100);
+#if !defined(DUMMY_SERIAL_DATA)
+    // select serial port from preferences or detect it (Serial2 — the
+    // OnSpeed `#1` wire input).
+    serialSetup();
+#endif
 #endif
 
 } // end setup()
