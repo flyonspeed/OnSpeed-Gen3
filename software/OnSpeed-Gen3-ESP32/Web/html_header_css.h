@@ -6,17 +6,22 @@ body {
     background-color: #cccccc;
     font-family: Arial, Helvetica, Sans-Serif; Color: #000088;
     }
-ul {
+/* Nav rules are scoped to `ul#liveview-nav-ul` so a content `<ul>` on
+   any page (e.g. a guidelines list) doesn't pick up the dark-bar
+   background or the `li { float: left }` collapse. */
+ul#liveview-nav-ul {
     list-style-type: none;
     margin: 0;
     padding: 0;
     overflow: hidden;
     background-color: #333;
     }
-li {
+ul#liveview-nav-ul > li,
+ul#liveview-nav-ul li.dropdown {
     float: left;
     }
-li a, .dropbtn {
+ul#liveview-nav-ul > li > a,
+ul#liveview-nav-ul .dropbtn {
     display: inline-block;
     color: white;
     text-align: center;
@@ -27,15 +32,17 @@ li a, .dropbtn {
    single row.  Without this, "Home / Tools / Settings / LiveView /
    Indexer" wraps to two rows on iPhone widths (~390 px). */
 @media screen and (max-width: 480px) {
-    li a, .dropbtn {
+    ul#liveview-nav-ul > li > a,
+    ul#liveview-nav-ul .dropbtn {
         padding: 12px 8px;
         font-size: 14px;
         }
     }
-li a:hover, .dropdown:hover .dropbtn {
+ul#liveview-nav-ul > li > a:hover,
+ul#liveview-nav-ul .dropdown:hover .dropbtn {
     background-color: red;
     }
-li.dropdown {
+ul#liveview-nav-ul li.dropdown {
     display: inline-block;
     }
 .dropdown-content {
