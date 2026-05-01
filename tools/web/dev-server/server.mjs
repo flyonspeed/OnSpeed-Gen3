@@ -175,6 +175,7 @@ function pageStubHtml(page, args, host) {
     wsMeta,
     logoMeta,
     '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
+    '<link rel="stylesheet" href="/lib/shell/legacy-forms.css">',
     '</head>',
     '<body>',
     `<div id="app" data-page="${page.id}"></div>`,
