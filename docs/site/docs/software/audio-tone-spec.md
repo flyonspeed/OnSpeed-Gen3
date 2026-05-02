@@ -180,13 +180,16 @@ left_pan_gain  = abs(-1 + channelGain)
 right_pan_gain = abs( 1 + channelGain)
 ```
 
-Where `channelGain = α · curve(|aLatCorr|) · sign(aLatCorr) + (1-α) · prevChannelGain`, with `α = 0.1`, `aLatCorr` the smoothed installation-corrected lateral G, and `curve` the `AUDIO_3D_CURVE` polynomial $-92.822 \cdot x^2 + 20.025 \cdot x$ clamped to $[0, 1]$.
+Where `channelGain = α · curve(|aLatCorr|) · sign(aLatCorr) + (1-α) · prevChannelGain`, with `α = 0.1`, `aLatCorr` the smoothed installation-corrected lateral G, and `curve` the saturating linear ramp $\min(1, \, 8 \cdot x)$ — unity at $x = 0.125\,\text{g}$ (about 1.5 slip-skid ball widths) and held at unity for every larger lateral load.
 
 | Aircraft state | `aLatCorr` | `channelGain` | left | right |
 |---|---|---|---|---|
 | Trim | 0 | 0 | 1 | 1 |
 | Right turn (coordinated) | > 0 | > 0 | < 1 | > 1 |
 | Left turn (coordinated) | < 0 | < 0 | > 1 | < 1 |
+| Developed spin / snap roll | $\geq 0.25$ g | $\pm 1$ | 0 / 1 | 1 / 0 |
+
+The curve is monotonic in $\lvert x \rvert$ and has no descending tail, so spin and snap-roll lateral loads (sustained 0.3–0.8 g) render as full pan rather than centered audio. See [#371](https://github.com/flyonspeed/OnSpeed-Gen3/issues/371) for the analysis that motivated the saturating-linear shape over the prior $-92.822 \cdot x^2 + 20.025 \cdot x$ parabola, whose descending root at $x \approx 0.216$ g caused the gain to clamp to zero — and the audio to render centered — in exactly the regime where the directional cue is most useful.
 
 3D-pan updates fire from the housekeeping task at ~10 Hz. The α=0.1 EMA limits the per-update step to a small fraction of the swing — generally inaudible, but not strictly click-free if the multiplier changes during attack/hold/decay/sustain. See §8.
 

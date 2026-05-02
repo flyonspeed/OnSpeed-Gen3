@@ -157,6 +157,71 @@ pio run -e m5stack-core-esp32 -t upload
 PLATFORMIO_BUILD_FLAGS='-DDUMMY_SERIAL_DATA' pio run -e m5stack-core-esp32 -t upload
 ```
 
+## Flashing the huVVer-AVI
+
+The huVVer-AVI talks to the host through a CH340 USB-serial bridge (no
+native USB on the ESP32-classic it uses). On macOS the device shows up
+as `/dev/cu.usbserial-<10-char-serial>`; Linux gives it
+`/dev/ttyUSB0` (or higher if other CH340 devices are present).
+
+**First-light recipe** — bench test with no wire input attached:
+
+```bash
+PLATFORMIO_BUILD_FLAGS='-DDUMMY_SERIAL_DATA' \
+  pio run -e huvver-avi -t upload \
+  --upload-port /dev/cu.usbserial-<your-serial> \
+  --project-dir software/OnSpeed-M5-Display
+```
+
+After the auto-reset the panel shows the "Fly OnSpeed" splash, then a
+synthetic AOA ramp sweeping 0→99→0 every 30 seconds with all five
+display modes accessible via the round button.
+
+**Real-data recipe** — once wired to an OnSpeed-Gen3 producing `#1`
+display-serial frames on Connector A pin 2 (RX1, IO21):
+
+```bash
+pio run -e huvver-avi -t upload \
+  --upload-port /dev/cu.usbserial-<your-serial> \
+  --project-dir software/OnSpeed-M5-Display
+```
+
+### Upload speed
+
+PlatformIO's default of 460800 baud is reliable through the CH340
+bridge. Bumping `upload_speed` to 921600 fails with `Invalid head of
+packet (0xA6): Possible serial noise or corruption.` after the chip
+ID handshake — the CH340 datasheet supports the higher rate but the
+combination with a long USB cable / unpowered hub does not.
+
+### NVS reset after replacing other huVVer firmware
+
+If the huVVer was previously running V.R. Little's stock firmware (or
+the TBX transponder-controller App), residual NVS state from that
+firmware can produce odd behavior on first boot of the OnSpeed
+display. Clear it once: power-cycle while holding the **Menu (square)
++ Select (round) buttons together**. The boot menu reads this combo
+as "restore system settings to factory defaults" — fine because the
+OnSpeed display firmware doesn't persist any settings to NVS today.
+
+### Buttons
+
+Pin map (per HuvverShim.h, matching V.R. Little's `my_custom_setup.h`):
+
+| Role | Physical | GPIO | M5 alias |
+|---|---|---|---|
+| Menu (dim) | square, top-left | IO39 | `BtnA` |
+| Select (mode cycle) | round, top-right | IO36 | `BtnB` |
+| Forward (bright) | right triangle | IO34 | `BtnC` |
+| Back (unused) | left triangle | IO35 | `BtnD` |
+
+The huVVer schematic mounts SW1–SW4 with internal-pull-up GPIOs, but
+3 of the 4 (39, 36, 34, 35) are ESP32 input-only pins where
+`INPUT_PULLUP` silently does nothing. The pins idle clean HIGH only
+because the board carries external pull-up provisioning; rely on
+that, not on `pinMode()`. Software debounce in `HuvverShim::poll()`
+handles bounce; do not need to add debounce inside the call sites.
+
 Strict-warning build flags: `-Wall -Wextra -Werror -Wshadow -Wformat=2
 -Wunreachable-code -Wnull-dereference`. M5 project code and its includes
 (M5Unified, M5GFX, WebServer, WiFi) are clean under strict `-Werror=shadow`
