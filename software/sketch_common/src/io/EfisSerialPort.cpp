@@ -157,6 +157,19 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
     if (std::isfinite(frame.tasKt))      suEfis.TAS         = frame.tasKt;
     if (std::isfinite(frame.oatCelsius)) suEfis.OAT         = frame.oatCelsius;
 
+    // Engine fields (Dynon SkyView EMS and Garmin G3X EMS; absent on
+    // non-EMS frames and on protocols that don't carry engine data).
+    // Same hold-last semantics as the airdata fields: non-finite ->
+    // skip, finite -> overwrite. The SD log writer in
+    // tasks/LogSensor.cpp reads these members directly into
+    // row.efisRpm / efisMap / efisFuelFlow / efisFuelRemaining /
+    // efisPercentPower.
+    if (std::isfinite(frame.rpm))              suEfis.RPM           = static_cast<int>(frame.rpm);
+    if (std::isfinite(frame.mapInchHg))        suEfis.MAP           = frame.mapInchHg;
+    if (std::isfinite(frame.fuelFlowGph))      suEfis.FuelFlow      = frame.fuelFlowGph;
+    if (std::isfinite(frame.fuelRemainingGal)) suEfis.FuelRemaining = frame.fuelRemainingGal;
+    if (std::isfinite(frame.percentPower))     suEfis.PercentPower  = static_cast<int>(frame.percentPower);
+
     // Copy time-of-day string ONLY when this frame actually carries one —
     // matches the "hold last value" pattern used for every numeric field
     // above. The SkyView alternates ADAHRS (has time) and EMS (no time)

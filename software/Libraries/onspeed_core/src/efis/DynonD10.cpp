@@ -5,6 +5,7 @@
 
 #include <efis/DynonD10.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -138,6 +139,18 @@ void DynonD10Parser::Decode()
         out.paltFt = parseFieldFloat(buf_, 24, 5, nullptr, 0.0f, 1.0f) * 3.28084f;
         out.vsiFpm = parseFieldFloat(buf_, 29, 4, nullptr, 0.0f, 10.0f) * 60.0f;
     }
+
+    // Time-of-day: bytes 0..7 carry "HHMMSSFF" (FF = centiseconds). Leave
+    // timeOfDayHms empty if any of those 8 bytes isn't an ASCII digit so
+    // an out-of-spec frame doesn't poison the sidecar metadata stamp.
+    bool timeDigitsOk = true;
+    for (int i = 0; i < 8; ++i)
+        if (buf_[i] < '0' || buf_[i] > '9') { timeDigitsOk = false; break; }
+    if (timeDigitsOk)
+        snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
+                 "%c%c:%c%c:%c%c.%c%c",
+                 buf_[0], buf_[1], buf_[2], buf_[3],
+                 buf_[4], buf_[5], buf_[6], buf_[7]);
 
     out.source = EfisSource::Dynon;
     pending_ = out;

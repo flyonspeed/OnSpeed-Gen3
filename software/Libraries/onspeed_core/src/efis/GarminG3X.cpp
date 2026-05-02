@@ -9,6 +9,7 @@
 
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -150,6 +151,18 @@ void GarminG3XParser::DecodeAttitude()
     }
     out.source     = EfisSource::Garmin;
 
+    // Time-of-day: bytes 3..10 carry "HHMMSSFF" (FF = centiseconds).
+    // Leave timeOfDayHms empty if any of those 8 bytes isn't an ASCII
+    // digit so an out-of-spec frame doesn't poison the sidecar metadata.
+    bool timeDigitsOk = true;
+    for (int i = 3; i <= 10; ++i)
+        if (buf_[i] < '0' || buf_[i] > '9') { timeDigitsOk = false; break; }
+    if (timeDigitsOk)
+        snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
+                 "%c%c:%c%c:%c%c.%c%c",
+                 buf_[3], buf_[4], buf_[5], buf_[6],
+                 buf_[7], buf_[8], buf_[9], buf_[10]);
+
     pending_ = out;
 }
 
@@ -164,11 +177,18 @@ void GarminG3XParser::DecodeEms()
     if (calcCRC != parseHexCRC(buf_, 217))
         return;
 
-    // EMS carries engine data only (RPM, MAP, fuel flow). EfisFrame has no
-    // engine fields, so emit an all-absent frame: every numeric field stays
-    // at kEfisFieldAbsent and applyFrame() holds all prior suEfis values.
-    // The source is still set so consumers can log that EMS arrived.
+    // Field offsets and scales: Garmin G3X serial spec, EMS frame.
+    // Sentinel "___"/"____" decodes to kEfisFieldAbsent so applyFrame()
+    // holds the prior value rather than overwriting with junk. G3X EMS
+    // carries no PercentPower (Dynon SkyView's wire does); leave it
+    // absent here.
     EfisFrame out;
+    const float kNaN = kEfisFieldAbsent;
+    out.rpm              = parseFieldFloat(buf_, 18, 4, "____", kNaN, 1.0f);
+    out.mapInchHg        = parseFieldFloat(buf_, 26, 3, "___",  kNaN, 10.0f);
+    out.fuelFlowGph      = parseFieldFloat(buf_, 29, 3, "___",  kNaN, 10.0f);
+    out.fuelRemainingGal = parseFieldFloat(buf_, 44, 3, "___",  kNaN, 10.0f);
+
     out.source = EfisSource::Garmin;
     pending_   = out;
 }

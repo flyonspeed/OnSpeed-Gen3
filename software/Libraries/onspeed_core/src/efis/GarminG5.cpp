@@ -14,6 +14,7 @@
 
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -142,6 +143,18 @@ void GarminG5Parser::Decode()
     }
     // G5 does not output AOA%; aoaPercent stays at kEfisFieldAbsent.
     out.source     = EfisSource::Garmin;
+
+    // Time-of-day: bytes 3..10 carry "HHMMSSFF" (FF = centiseconds).
+    // Leave timeOfDayHms empty if any of those 8 bytes isn't an ASCII
+    // digit so an out-of-spec frame doesn't poison the sidecar metadata.
+    bool timeDigitsOk = true;
+    for (int i = 3; i <= 10; ++i)
+        if (buf_[i] < '0' || buf_[i] > '9') { timeDigitsOk = false; break; }
+    if (timeDigitsOk)
+        snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
+                 "%c%c:%c%c:%c%c.%c%c",
+                 buf_[3], buf_[4], buf_[5], buf_[6],
+                 buf_[7], buf_[8], buf_[9], buf_[10]);
 
     pending_ = out;
 }

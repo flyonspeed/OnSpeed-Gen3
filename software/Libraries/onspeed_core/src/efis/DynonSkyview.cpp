@@ -207,10 +207,16 @@ bool DynonSkyviewParser::DecodeEms(EfisFrame& out)
     if (calcCRC != parseHexCRC(buf_, 221))
         return false;
 
-    // EMS carries engine data only (RPM, MAP, fuel flow, PercentPower).
-    // EfisFrame has no engine fields, so leave every numeric field at
-    // kEfisFieldAbsent — applyFrame() will hold all prior suEfis values.
-    // Source is still set so consumers can log that EMS arrived this frame.
+    // Field offsets and scales: Dynon SkyView serial spec, EMS frame.
+    // Sentinel "XXX"/"XXXX" decodes to kEfisFieldAbsent so applyFrame()
+    // holds the prior value rather than overwriting with junk.
+    const float kNaN = kEfisFieldAbsent;
+    out.rpm              = parseFieldFloat(buf_, 18, 4, "XXXX", kNaN, 1.0f);
+    out.mapInchHg        = parseFieldFloat(buf_, 26, 3, "XXX",  kNaN, 10.0f);
+    out.fuelFlowGph      = parseFieldFloat(buf_, 29, 3, "XXX",  kNaN, 10.0f);
+    out.fuelRemainingGal = parseFieldFloat(buf_, 44, 3, "XXX",  kNaN, 10.0f);
+    out.percentPower     = parseFieldFloat(buf_, 217, 3, "XXX", kNaN, 1.0f);
+
     out.source = EfisSource::Dynon;
     return true;
 }

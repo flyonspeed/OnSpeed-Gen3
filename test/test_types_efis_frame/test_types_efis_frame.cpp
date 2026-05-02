@@ -29,6 +29,12 @@ void test_default_initializes_fields_to_absent(void)
     TEST_ASSERT_FALSE(std::isfinite(e.aoaPercent));
     TEST_ASSERT_FALSE(std::isfinite(e.lateralG));
     TEST_ASSERT_FALSE(std::isfinite(e.verticalG));
+    // Engine fields (Dynon SkyView EMS / Garmin G3X EMS).
+    TEST_ASSERT_FALSE(std::isfinite(e.rpm));
+    TEST_ASSERT_FALSE(std::isfinite(e.mapInchHg));
+    TEST_ASSERT_FALSE(std::isfinite(e.fuelFlowGph));
+    TEST_ASSERT_FALSE(std::isfinite(e.fuelRemainingGal));
+    TEST_ASSERT_FALSE(std::isfinite(e.percentPower));
     TEST_ASSERT_EQUAL_INT(static_cast<int>(EfisSource::None),
                           static_cast<int>(e.source));
     TEST_ASSERT_EQUAL_UINT32(0u, e.timestampUs);
@@ -60,9 +66,9 @@ void test_fields_are_writable(void)
 
 void test_size_is_reasonable(void)
 {
-    // 11 floats (44 bytes) + enum (4 bytes) + uint32 (4 bytes) = 52 bytes.
-    // Allow padding to 64.
-    TEST_ASSERT_LESS_OR_EQUAL(64u, sizeof(EfisFrame));
+    // 16 floats (64 B) + enum (4 B) + uint32 timestamp (4 B) +
+    // char[12] time-of-day (12 B) = 84 B nominal. Allow padding to 96.
+    TEST_ASSERT_LESS_OR_EQUAL(96u, sizeof(EfisFrame));
 }
 
 int main(int, char**)

@@ -202,6 +202,40 @@ void test_mgl_msg1_source_is_mgl(void)
                           static_cast<int>(frame->source));
 }
 
+void test_mgl_msg1_time_of_day_round_trip(void)
+{
+    // buildMglMsg1 writes Hour=12, Minute=34, Second=56 into the
+    // packed body. The parser must populate timeOfDayHms with the
+    // canonical zero-padded "HH:MM:SS" form. MGL is binary so there
+    // are no sentinel bytes; values out of range (Hour > 23, etc.)
+    // are guarded by an explicit clamp in MglBinary.cpp.
+    uint8_t buf[44];
+    buildMglMsg1(buf, 5500, 500, 520, 0, 0, 20);
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 44);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("12:34:56", frame->timeOfDayHms);
+}
+
+void test_mgl_msg1_time_of_day_out_of_range_leaves_empty(void)
+{
+    // Hour=42 is invalid (>23). Parser leaves timeOfDayHms empty so
+    // a corrupt or never-set RTC doesn't poison the sidecar stamp.
+    uint8_t buf[44];
+    buildMglMsg1(buf, 5500, 500, 520, 0, 0, 20);
+    // Body starts at offset 8; Hour is the 25th byte of MglMsg1Body
+    // (per the struct layout in MglBinary.cpp). Locate via memcpy of
+    // a fresh body with the bad value rather than computing the offset.
+    // The cleanest way is to directly poke the field — Hour is the
+    // first uint8 after the 24-byte airdata block within the body, so
+    // its absolute offset in `buf` is 8 + 24 = 32.
+    buf[32] = 42;   // bogus hour
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 44);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
 void test_mgl_msg3_pitch(void)
 {
     uint8_t buf[40];
@@ -393,6 +427,8 @@ int main(int, char**)
     RUN_TEST(test_mgl_msg1_palt);
     RUN_TEST(test_mgl_msg1_oat);
     RUN_TEST(test_mgl_msg1_source_is_mgl);
+    RUN_TEST(test_mgl_msg1_time_of_day_round_trip);
+    RUN_TEST(test_mgl_msg1_time_of_day_out_of_range_leaves_empty);
     RUN_TEST(test_mgl_msg3_pitch);
     RUN_TEST(test_mgl_msg3_roll);
     RUN_TEST(test_mgl_msg3_heading);

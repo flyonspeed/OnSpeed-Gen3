@@ -421,9 +421,10 @@ void test_adahrs_sentinel_ias_leaves_field_absent(void)
 
 // ---------------------------------------------------------------------------
 // EMS frame (!3, 225 bytes) — engine/monitoring data.
-// The OnSpeed firmware doesn't consume the EMS numeric fields (EfisFrame
-// has no engine members), but the parser still validates the CRC and
-// marks the source. Covers DynonSkyview.cpp:118-124, 170-186.
+// The parser validates the CRC, marks the source, and decodes the
+// per-flight engine values (RPM, MAP, fuel flow, fuel remaining,
+// percent power) into the EfisFrame engine fields. Covers
+// DynonSkyview.cpp DecodeEms().
 // ---------------------------------------------------------------------------
 
 // Build a minimal valid !3 EMS frame. All body bytes zero-padded; only
@@ -493,6 +494,90 @@ void test_ems_wrong_magic_ignored(void)
     DynonSkyviewParser parser;
     auto frame = feedAll(parser, buf, 225);
     TEST_ASSERT_FALSE(frame.has_value());
+}
+
+// Build an EMS frame with realistic engine values. Field offsets and
+// scales come from the Dynon SkyView serial spec:
+//   bytes 18..21 (4): RPM, ÷1
+//   bytes 26..28 (3): MAP × 10 (inHg)
+//   bytes 29..31 (3): FuelFlow × 10 (gph)
+//   bytes 44..46 (3): FuelRemaining × 10 (gallons)
+//   bytes 217..219 (3): PercentPower, ÷1
+static void buildEmsFrameWithEngine(char buf[225],
+                                    int rpm, float mapInHg, float ffGph,
+                                    float frGal, int pctPower)
+{
+    for (int i = 0; i < 223; i++) buf[i] = ' ';
+    buf[0] = '!'; buf[1] = '3';
+    char tmp[8];
+    snprintf(tmp, sizeof(tmp), "%04d", rpm);
+    for (int i = 0; i < 4; i++) buf[18 + i] = tmp[i];
+    snprintf(tmp, sizeof(tmp), "%03d", static_cast<int>(mapInHg * 10.0f + 0.5f));
+    for (int i = 0; i < 3; i++) buf[26 + i] = tmp[i];
+    snprintf(tmp, sizeof(tmp), "%03d", static_cast<int>(ffGph * 10.0f + 0.5f));
+    for (int i = 0; i < 3; i++) buf[29 + i] = tmp[i];
+    snprintf(tmp, sizeof(tmp), "%03d", static_cast<int>(frGal * 10.0f + 0.5f));
+    for (int i = 0; i < 3; i++) buf[44 + i] = tmp[i];
+    snprintf(tmp, sizeof(tmp), "%03d", pctPower);
+    for (int i = 0; i < 3; i++) buf[217 + i] = tmp[i];
+    int crc = 0;
+    for (int i = 0; i <= 220; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[221] = tmp[0]; buf[222] = tmp[1];
+    buf[223] = '\r'; buf[224] = '\n';
+}
+
+void test_ems_engine_fields_round_trip(void)
+{
+    char buf[225];
+    buildEmsFrameWithEngine(buf,
+                            /*rpm*/ 2400,
+                            /*mapInHg*/ 24.6f,
+                            /*ffGph*/ 9.8f,
+                            /*frGal*/ 35.4f,
+                            /*pctPower*/ 78);
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 225);
+    TEST_ASSERT_TRUE(frame.has_value());
+
+    TEST_ASSERT_EQUAL_FLOAT(2400.0f, frame->rpm);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 24.6f, frame->mapInchHg);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 9.8f, frame->fuelFlowGph);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 35.4f, frame->fuelRemainingGal);
+    TEST_ASSERT_EQUAL_FLOAT(78.0f, frame->percentPower);
+}
+
+void test_ems_engine_sentinels_become_nan(void)
+{
+    // SkyView emits "XXX"/"XXXX" placeholders when a sensor isn't
+    // present or hasn't reported. Those must decode to NaN so the
+    // applyFrame() consumer holds the previous suEfis value.
+    char buf[225];
+    for (int i = 0; i < 223; i++) buf[i] = ' ';
+    buf[0] = '!'; buf[1] = '3';
+    // Place sentinels at each engine field's offsets.
+    buf[18] = 'X'; buf[19] = 'X'; buf[20] = 'X'; buf[21] = 'X';   // RPM
+    buf[26] = 'X'; buf[27] = 'X'; buf[28] = 'X';                  // MAP
+    buf[29] = 'X'; buf[30] = 'X'; buf[31] = 'X';                  // FF
+    buf[44] = 'X'; buf[45] = 'X'; buf[46] = 'X';                  // FR
+    buf[217] = 'X'; buf[218] = 'X'; buf[219] = 'X';               // %Power
+    int crc = 0;
+    for (int i = 0; i <= 220; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[221] = tmp[0]; buf[222] = tmp[1];
+    buf[223] = '\r'; buf[224] = '\n';
+
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 225);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_FALSE(std::isfinite(frame->rpm));
+    TEST_ASSERT_FALSE(std::isfinite(frame->mapInchHg));
+    TEST_ASSERT_FALSE(std::isfinite(frame->fuelFlowGph));
+    TEST_ASSERT_FALSE(std::isfinite(frame->fuelRemainingGal));
+    TEST_ASSERT_FALSE(std::isfinite(frame->percentPower));
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +754,8 @@ int main(int, char**)
     RUN_TEST(test_ems_valid_frame_produces_frame);
     RUN_TEST(test_ems_bad_crc_discards_frame);
     RUN_TEST(test_ems_wrong_magic_ignored);
+    RUN_TEST(test_ems_engine_fields_round_trip);
+    RUN_TEST(test_ems_engine_sentinels_become_nan);
     RUN_TEST(test_buffer_overflow_resets_and_recovers);
     RUN_TEST(test_adahrs_sentinel_heading_leaves_field_absent);
     RUN_TEST(test_adahrs_system_time_valid);
