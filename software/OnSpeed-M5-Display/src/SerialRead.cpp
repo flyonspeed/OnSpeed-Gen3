@@ -185,27 +185,41 @@ void SerialRead()
     // We also do NOT persist the USB-CDC choice to NVS — it's a sim-
     // only mode and must not survive a power cycle into a flight
     // context.  Each boot re-detects.
-    if (selectedPort != 4 && Serial.available()) {
+    if (selectedPort != 4) {
+        // Drain up to 256 bytes per tick scanning for "#1".  Same
+        // motivation as the main read loop below — one-byte-per-tick
+        // can't keep up with a 1520 B/s host stream and the buffer
+        // overflows.  Once we match "#1" we switch and break;
+        // remaining queued bytes are picked up by the selectedPort==4
+        // branch below on this same tick.
         static char s_lastSerialByte = 0;
-        const int b = Serial.read();
-        if (s_lastSerialByte == '#' && b == '1') {
-            selectedPort = 4;
-            // Re-inject both bytes of the matched frame start so the
-            // accumulator picks up from the real beginning.
-            InjectSerialByte('#');
-            InjectSerialByte('1');
+        for (int i = 0; i < 256 && Serial.available(); ++i) {
+            const int b = Serial.read();
+            if (s_lastSerialByte == '#' && b == '1') {
+                selectedPort = 4;
+                // Re-inject both bytes of the matched frame start so
+                // the accumulator picks up from the real beginning.
+                InjectSerialByte('#');
+                InjectSerialByte('1');
+                break;
+            }
+            s_lastSerialByte = static_cast<char>(b);
         }
-        s_lastSerialByte = static_cast<char>(b);
-        // Bytes that don't form "#1" are either stray noise or mid-
-        // frame bytes from a host that started before us — both safe
-        // to drop, the next "#" resets the two-byte match window.
     }
 
+    // Drain the entire RX buffer per call instead of reading just one
+    // byte.  At 115200 8N1 the line rate is 11520 bytes/sec, and
+    // OnSpeed sends 76 bytes × 20 Hz = 1520 bytes/sec.  loop() runs
+    // somewhere in the 30-100 Hz range depending on render workload —
+    // not fast enough to keep up at one byte per loop, so the kernel
+    // / CDC RX buffer would fill and drop frames.  Caps drain at 256
+    // bytes per tick (~3 frames) to avoid starving display updates if
+    // a host floods us.
     if (selectedPort == 4) {
-        if (Serial.available())
+        for (int i = 0; i < 256 && Serial.available(); ++i)
             InjectSerialByte(Serial.read());
     } else {
-        if (Serial2.available())
+        for (int i = 0; i < 256 && Serial2.available(); ++i)
             InjectSerialByte(Serial2.read());
     }
 #endif
