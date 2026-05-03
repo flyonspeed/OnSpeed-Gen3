@@ -73,6 +73,11 @@
 #include <audio/ToneSynth.h>
 #include <config/OnSpeedConfig.h>
 #include <filters/RunningMean.h>
+
+#ifdef ENABLE_M5_INDEXER
+#include "m5_indexer/IndexerWindow.h"
+#include "m5_indexer/DataRefAdapter.h"
+#endif
 #include <filters/RunningMedian.h>
 #include <util/OnSpeedTypes.h>
 
@@ -674,6 +679,14 @@ static float init_sound([[maybe_unused]] float elapsed,
     // flight-loop tick is the earliest moment we can trust it.
     OnAircraftLoaded();
 
+#ifdef ENABLE_M5_INDEXER
+    // M5 indexer is also deferred so the dataref lookups in the
+    // adapter find their refs.  Init creates the X-Plane window but
+    // leaves it hidden until the user toggles it via the menu.
+    onspeed_xplane::indexer::InitDataRefs();
+    onspeed_xplane::indexer::Init();
+#endif
+
     return 0.0f;
 }
 
@@ -1012,14 +1025,35 @@ static void UpdateAOATextFields() {
 // Add menu handler
 static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
 {
-    if (!strcmp(static_cast<const char *>(iRef), "Show")) {
+    const char* tag = static_cast<const char *>(iRef);
+    if (!strcmp(tag, "Show")) {
         if (!audioControlWidget) {
             CreateAudioControlWindow(300, 690, 280, 470);
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
         }
+        return;
     }
+#ifdef ENABLE_M5_INDEXER
+    if (!strcmp(tag, "IndexerToggle")) {
+        if (onspeed_xplane::indexer::IsVisible())
+            onspeed_xplane::indexer::Hide();
+        else
+            onspeed_xplane::indexer::Show();
+        return;
+    }
+    // IndexerMode<N> entries: parse the trailing digit.
+    if (!strncmp(tag, "IndexerMode", 11)) {
+        const int mode = tag[11] - '0';
+        onspeed_xplane::indexer::SetMode(mode);
+        // Show the window if it isn't already; the user picking a
+        // mode is a clear signal they want to see it.
+        if (!onspeed_xplane::indexer::IsVisible())
+            onspeed_xplane::indexer::Show();
+        return;
+    }
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1285,6 +1319,16 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
 
     float aoa = XPLMGetDataf(aoaDataRef);
     PlayAOATone(aoa, inElapsedSinceLastCall);
+
+#ifdef ENABLE_M5_INDEXER
+    // Run the M5 renderer one tick.  Cheap when the indexer window is
+    // hidden — the M5 still draws into our offscreen panel, but the
+    // X-Plane window draw callback is never invoked so the GL upload
+    // path is skipped.  Could short-circuit if hidden, but the M5
+    // renderer is microseconds per frame on a desktop CPU.
+    onspeed_xplane::indexer::Tick();
+#endif
+
     return -1.0f;  // Negative value means "call me next frame"
 }
 
@@ -1366,6 +1410,25 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     XPLMAppendMenuItem(menuId, "Show",
                        static_cast<void*>(const_cast<char*>("Show")), 1);
 
+#ifdef ENABLE_M5_INDEXER
+    // Indexer menu items.  Discriminator strings are literals, never
+    // written through the void* refcon.  AudioMenuHandler dispatches
+    // on strcmp.
+    XPLMAppendMenuSeparator(menuId);
+    XPLMAppendMenuItem(menuId, "Indexer: Show/Hide",
+                       static_cast<void*>(const_cast<char*>("IndexerToggle")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 0: AOA + Numbers",
+                       static_cast<void*>(const_cast<char*>("IndexerMode0")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 1: Attitude",
+                       static_cast<void*>(const_cast<char*>("IndexerMode1")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 2: Narrow AOA",
+                       static_cast<void*>(const_cast<char*>("IndexerMode2")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 3: Decel",
+                       static_cast<void*>(const_cast<char*>("IndexerMode3")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 4: G History",
+                       static_cast<void*>(const_cast<char*>("IndexerMode4")), 1);
+#endif
+
     // The audio render thread is started by init_sound, after the
     // OpenAL source and streaming buffers exist.  init_sound also
     // calls OnAircraftLoaded(), since XPLMGetNthAircraftModel returns
@@ -1400,6 +1463,11 @@ PLUGIN_API void XPluginStop(void) {
     }
     XPLMDestroyMenu(menuId);
     XPLMUnregisterFlightLoopCallback(CheckAOAAndPlayTone, nullptr);
+
+#ifdef ENABLE_M5_INDEXER
+    onspeed_xplane::indexer::Shutdown();
+#endif
+
     cleanupAudio();
 }
 
