@@ -1046,11 +1046,12 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
     // IndexerMode<N> entries: parse the trailing digit.
     if (!strncmp(tag, "IndexerMode", 11)) {
         const int mode = tag[11] - '0';
-        onspeed_xplane::indexer::SetMode(mode);
-        // Show the window if it isn't already; the user picking a
-        // mode is a clear signal they want to see it.
+        // Show first — on first-time Show, the indexer's lazy-init
+        // resets displayType to 0 as part of InstallPanelAndRunSetup.
+        // SetMode AFTER so our requested mode wins.
         if (!onspeed_xplane::indexer::IsVisible())
             onspeed_xplane::indexer::Show();
+        onspeed_xplane::indexer::SetMode(mode);
         return;
     }
 #endif

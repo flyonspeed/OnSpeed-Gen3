@@ -43,6 +43,11 @@ public:
     // sees a half-frame; visually rare and not a correctness issue.
     void CopyToRGBA8888(std::uint32_t* dst);
 
+    // DIAGNOSTIC: direct framebuffer access, bypasses all of M5GFX.
+    // Used by the test-pattern path to determine whether the gray-
+    // screen problem is on the M5GFX-write side or the GL-read side.
+    std::uint8_t* RawFramebuffer() { return m_framebuffer; }
+
     // True if anything has been drawn since the last CopyToRGBA8888.
     // The X-Plane draw callback skips the GL upload when nothing
     // changed.  Cleared by CopyToRGBA8888.

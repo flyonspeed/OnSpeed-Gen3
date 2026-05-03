@@ -251,6 +251,10 @@ if(ENABLE_M5_INDEXER)
         ENABLE_M5_INDEXER=1
         M5GFX_BACK_COLOR=0x000000u
         M5GFX_SCALE=1
+        # 16bpp = RGB565, matching our Panel_PluginCanvas's framebuffer.
+        # Without this, main.cpp's setColorDepth(8) would invalidate the
+        # panel's row-pointer table on every loop().
+        XPLANE_PLUGIN_DEPTH=16
     )
     # The M5 firmware sources have casts and shadows that don't pass
     # our strict warning posture.  Downgrade -Werror for those TUs and
