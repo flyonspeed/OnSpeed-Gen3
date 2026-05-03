@@ -213,14 +213,6 @@
          <lastmod>2026-05-03</lastmod>
     </url>
     <url>
-         <loc>https://dev.flyonspeed.org/latest/simulator/</loc>
-         <lastmod>2026-05-03</lastmod>
-    </url>
-    <url>
-         <loc>https://dev.flyonspeed.org/latest/simulator/xplane-plugin/</loc>
-         <lastmod>2026-05-03</lastmod>
-    </url>
-    <url>
          <loc>https://dev.flyonspeed.org/latest/software/</loc>
          <lastmod>2026-05-03</lastmod>
     </url>
@@ -266,6 +258,30 @@
     </url>
     <url>
          <loc>https://dev.flyonspeed.org/latest/troubleshooting/wifi/</loc>
+         <lastmod>2026-05-03</lastmod>
+    </url>
+    <url>
+         <loc>https://dev.flyonspeed.org/latest/xplane/</loc>
+         <lastmod>2026-05-03</lastmod>
+    </url>
+    <url>
+         <loc>https://dev.flyonspeed.org/latest/xplane/indexer/</loc>
+         <lastmod>2026-05-03</lastmod>
+    </url>
+    <url>
+         <loc>https://dev.flyonspeed.org/latest/xplane/install/</loc>
+         <lastmod>2026-05-03</lastmod>
+    </url>
+    <url>
+         <loc>https://dev.flyonspeed.org/latest/xplane/m5-tethered/</loc>
+         <lastmod>2026-05-03</lastmod>
+    </url>
+    <url>
+         <loc>https://dev.flyonspeed.org/latest/xplane/settings/</loc>
+         <lastmod>2026-05-03</lastmod>
+    </url>
+    <url>
+         <loc>https://dev.flyonspeed.org/latest/xplane/troubleshooting/</loc>
          <lastmod>2026-05-03</lastmod>
     </url>
 </urlset>

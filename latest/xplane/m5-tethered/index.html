@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://dev.flyonspeed.org/latest/data-and-logs/log-format/">
+        <link rel="canonical" href="https://dev.flyonspeed.org/latest/xplane/m5-tethered/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../indexer/">
       
       
-        <link rel="next" href="../downloading/">
+        <link rel="next" href="../settings/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Understanding Logs - OnSpeed Gen3 Documentation</title>
+        <title>Tethering a Physical M5 - OnSpeed Gen3 Documentation</title>
       
     
     
@@ -115,7 +115,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#understanding-onspeed-logs" class="md-skip">
+        <a href="#tethering-a-physical-m5" class="md-skip">
           Skip to content
         </a>
       
@@ -152,7 +152,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Understanding Logs
+              Tethering a Physical M5
             
           </span>
         </div>
@@ -436,11 +436,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../xplane/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -458,13 +460,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../data-and-logs/" class="md-tabs__link">
           
   
   
@@ -2359,6 +2359,8 @@
       
   
   
+    
+  
   
   
     
@@ -2382,22 +2384,23 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../xplane/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -2415,13 +2418,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_9">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2441,7 +2444,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/install/" class="md-nav__link">
+      <a href="../install/" class="md-nav__link">
         
   
   
@@ -2469,7 +2472,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/indexer/" class="md-nav__link">
+      <a href="../indexer/" class="md-nav__link">
         
   
   
@@ -2494,10 +2497,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../xplane/m5-tethered/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tethering a Physical M5
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2513,6 +2543,175 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-you-need" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What you need
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-flash-m5-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1 — Flash M5 firmware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-what-the-m5-shows-during-boot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2 — What the M5 shows during boot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-3-pick-the-port-in-x-plane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3 — Pick the port in X-Plane
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-4-use-the-indexer-in-the-sim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4 — Use the indexer in the sim
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconnecting-after-a-disconnect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconnecting after a disconnect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistence-across-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistence across sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#port-doesnt-appear-in-the-menu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port doesn't appear in the menu
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#port-appears-but-the-m5-stays-blank" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port appears but the M5 stays blank
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#port-opens-m5-lights-up-briefly-then-disconnects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port opens, M5 lights up briefly, then disconnects
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selecting-a-port-silently-does-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selecting a port silently does nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#developer-appendix-flashing-m5-firmware-from-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Developer appendix — flashing M5 firmware from source
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2525,7 +2724,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/settings/" class="md-nav__link">
+      <a href="../settings/" class="md-nav__link">
         
   
   
@@ -2553,7 +2752,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   
@@ -2585,8 +2784,6 @@
       
   
   
-    
-  
   
   
     
@@ -2604,23 +2801,22 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../data-and-logs/" class="md-nav__link ">
               
   
   
@@ -2638,13 +2834,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="">
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_10">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2661,37 +2857,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Understanding Logs
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../data-and-logs/log-format/" class="md-nav__link">
         
   
   
@@ -2707,170 +2876,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#file-format" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        File Format
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="File Format">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#metadata-sidecar" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Metadata sidecar
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#key-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Columns
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Key Columns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#core-flight-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Flight Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pressure-sensors" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pressure Sensors
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#imu-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        IMU Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#computed-values" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Computed Values
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#efis-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        EFIS Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#boom-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Boom Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#other" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Other
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#loading-logs-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Loading Logs in Python
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sd-card-management" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        SD Card Management
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2883,7 +2888,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../downloading/" class="md-nav__link">
+      <a href="../../data-and-logs/downloading/" class="md-nav__link">
         
   
   
@@ -3420,22 +3425,132 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#file-format" class="md-nav__link">
+  <a href="#what-you-need" class="md-nav__link">
     <span class="md-ellipsis">
       
-        File Format
+        What you need
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="File Format">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-flash-m5-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1 — Flash M5 firmware
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-what-the-m5-shows-during-boot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2 — What the M5 shows during boot
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-3-pick-the-port-in-x-plane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3 — Pick the port in X-Plane
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-4-use-the-indexer-in-the-sim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 4 — Use the indexer in the sim
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconnecting-after-a-disconnect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconnecting after a disconnect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistence-across-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistence across sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#metadata-sidecar" class="md-nav__link">
+  <a href="#port-doesnt-appear-in-the-menu" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Metadata sidecar
+        Port doesn't appear in the menu
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#port-appears-but-the-m5-stays-blank" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port appears but the M5 stays blank
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#port-opens-m5-lights-up-briefly-then-disconnects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Port opens, M5 lights up briefly, then disconnects
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selecting-a-port-silently-does-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selecting a port silently does nothing
       
     </span>
   </a>
@@ -3448,115 +3563,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#key-columns" class="md-nav__link">
+  <a href="#developer-appendix-flashing-m5-firmware-from-source" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Key Columns
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Key Columns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#core-flight-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Flight Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pressure-sensors" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pressure Sensors
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#imu-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        IMU Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#computed-values" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Computed Values
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#efis-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        EFIS Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#boom-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Boom Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#other" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Other
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#loading-logs-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Loading Logs in Python
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sd-card-management" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        SD Card Management
+        Developer appendix — flashing M5 firmware from source
       
     </span>
   </a>
@@ -3580,7 +3590,7 @@
 
 
   
-    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/data-and-logs/log-format.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/xplane/m5-tethered.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3588,377 +3598,161 @@
   
 
 
-<h1 id="understanding-onspeed-logs">Understanding OnSpeed Logs<a class="headerlink" href="#understanding-onspeed-logs" title="Permanent link">&para;</a></h1>
-<p>OnSpeed records flight data to CSV files on the microSD card at <strong>50 Hz</strong> by default (configurable to 208 Hz via the web interface).</p>
-<h2 id="file-format">File Format<a class="headerlink" href="#file-format" title="Permanent link">&para;</a></h2>
+<h1 id="tethering-a-physical-m5">Tethering a Physical M5<a class="headerlink" href="#tethering-a-physical-m5" title="Permanent link">&para;</a></h1>
+<p>The plugin can drive a USB-tethered M5Stack with the same wire frames
+that drive the embedded indexer. A Core2 plugged into the sim PC
+behaves the same way it behaves plugged into the panel-mounted Gen3.</p>
+<p>This is the right setup for pilots who want to fly the sim with the
+real M5 indexer in their hand instead of (or alongside) the embedded
+indexer window.</p>
+<h2 id="what-you-need">What you need<a class="headerlink" href="#what-you-need" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Format</strong>: CSV with headers (comma-separated values)</li>
-<li><strong>Rate</strong>: 50 Hz default (one row every 20 ms); optionally 208 Hz (IMU rate)</li>
-<li><strong>Naming</strong>: <code>log_NNN.csv</code> (sequential numbering). When a VN-300 EFIS provides a UTC timestamp, the file is renamed to <code>YYYY-MM-DD_NNN.csv</code> at close so the date travels with the file. Dynon, Garmin, and no-EFIS logs keep <code>log_NNN.csv</code>.</li>
-<li><strong>Size</strong>: A 1-hour flight produces approximately 50–100 MB of data</li>
+<li>An M5Stack Basic or Core2 with the OnSpeed-M5-Display firmware
+  flashed (the same firmware you'd use in the airplane).</li>
+<li>A USB-C cable to the sim PC.</li>
+<li>The X-Plane plugin installed (see <a href="../install/">Install</a>).</li>
 </ul>
-<h3 id="metadata-sidecar">Metadata sidecar<a class="headerlink" href="#metadata-sidecar" title="Permanent link">&para;</a></h3>
-<p>Each <code>log_NNN.csv</code> is written alongside a <code>log_NNN.meta</code> plain-text sidecar. The firmware refreshes the sidecar every 30 seconds while the log is open and rewrites it once at close, so a flight that ends with a power yank still leaves a usable sidecar (worst case: the last 30 s of metadata is missing). The first 30 seconds of any flight are an exception — a power yank in that window leaves no sidecar at all, and the <code>/logs</code> page renders em-dashes for that flight rather than a misleading zero-valued line. One <code>key=value</code> per line:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>duration_ms=1842113
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>row_count=92106
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>max_ias_kt=148
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>max_alt_ft=8420
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>firmware=4.20+1825dff
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>efis_type=dynon_skyview
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>time_of_day_start=14:32:08
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>gps_fix_seen=1
-</code></pre></div>
-<p><code>time_of_day_start</code> is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). <code>utc_start</code> is VN-300-only. The <code>/logs</code> page reads the sidecar to populate the start-time, duration, max IAS, and max pressure altitude columns. The <code>max_alt_ft</code> value comes from the <code>Palt</code> column — every altitude OnSpeed records is pressure altitude (ISA 1013.25 hPa reference); there is no Kollsman/QNH correction.</p>
-<h2 id="key-columns">Key Columns<a class="headerlink" href="#key-columns" title="Permanent link">&para;</a></h2>
-<h3 id="core-flight-data">Core Flight Data<a class="headerlink" href="#core-flight-data" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>timeStamp</code></td>
-<td>ms</td>
-<td>Milliseconds since power-on</td>
-</tr>
-<tr>
-<td><code>IAS</code></td>
-<td>knots</td>
-<td>Indicated airspeed</td>
-</tr>
-<tr>
-<td><code>Palt</code></td>
-<td>ft</td>
-<td>Pressure altitude</td>
-</tr>
-<tr>
-<td><code>AngleofAttack</code></td>
-<td>degrees</td>
-<td>Computed AOA (from pressure polynomial)</td>
-</tr>
-<tr>
-<td><code>DerivedAOA</code></td>
-<td>degrees</td>
-<td>SmoothedPitch - FlightPath (AHRS-derived)</td>
-</tr>
-<tr>
-<td><code>flapsPos</code></td>
-<td>degrees</td>
-<td>Detected flap position</td>
-</tr>
-<tr>
-<td><code>OAT</code></td>
-<td>°C</td>
-<td>Outside air temperature</td>
-</tr>
-<tr>
-<td><code>TAS</code></td>
-<td>knots</td>
-<td>True airspeed</td>
-</tr>
-</tbody>
-</table>
-<h3 id="pressure-sensors">Pressure Sensors<a class="headerlink" href="#pressure-sensors" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Pfwd</code></td>
-<td>counts</td>
-<td>Raw pitot pressure (14-bit ADC: 0–16383)</td>
-</tr>
-<tr>
-<td><code>PfwdSmoothed</code></td>
-<td>PSI</td>
-<td>Pitot pressure (EMA smoothed)</td>
-</tr>
-<tr>
-<td><code>P45</code></td>
-<td>counts</td>
-<td>Raw AOA pressure (14-bit ADC)</td>
-</tr>
-<tr>
-<td><code>P45Smoothed</code></td>
-<td>PSI</td>
-<td>AOA pressure (EMA smoothed)</td>
-</tr>
-<tr>
-<td><code>PStatic</code></td>
-<td>PSI</td>
-<td>Static pressure</td>
-</tr>
-<tr>
-<td><code>CoeffP</code></td>
-<td>—</td>
-<td>Pressure coefficient (P45 / Pfwd)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="imu-data">IMU Data<a class="headerlink" href="#imu-data" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>VerticalG</code></td>
-<td>G</td>
-<td>Vertical acceleration (body frame)</td>
-</tr>
-<tr>
-<td><code>LateralG</code></td>
-<td>G</td>
-<td>Lateral acceleration (body frame)</td>
-</tr>
-<tr>
-<td><code>ForwardG</code></td>
-<td>G</td>
-<td>Forward acceleration (body frame)</td>
-</tr>
-<tr>
-<td><code>RollRate</code></td>
-<td>deg/s</td>
-<td>Roll angular rate</td>
-</tr>
-<tr>
-<td><code>PitchRate</code></td>
-<td>deg/s</td>
-<td>Pitch angular rate</td>
-</tr>
-<tr>
-<td><code>YawRate</code></td>
-<td>deg/s</td>
-<td>Yaw angular rate</td>
-</tr>
-<tr>
-<td><code>Pitch</code></td>
-<td>degrees</td>
-<td>Pitch angle (AHRS output)</td>
-</tr>
-<tr>
-<td><code>Roll</code></td>
-<td>degrees</td>
-<td>Roll angle (AHRS output)</td>
-</tr>
-<tr>
-<td><code>imuTemp</code></td>
-<td>°C</td>
-<td>IMU sensor temperature</td>
-</tr>
-</tbody>
-</table>
-<h3 id="computed-values">Computed Values<a class="headerlink" href="#computed-values" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>EarthVerticalG</code></td>
-<td>G</td>
-<td>Vertical G in earth frame</td>
-</tr>
-<tr>
-<td><code>FlightPath</code></td>
-<td>degrees</td>
-<td>Flight path angle = arcsin(VSI/TAS)</td>
-</tr>
-<tr>
-<td><code>VSI</code></td>
-<td>fpm</td>
-<td>Vertical speed (Kalman filtered)</td>
-</tr>
-<tr>
-<td><code>Altitude</code></td>
-<td>ft</td>
-<td>Pressure altitude, Kalman-filtered. Same quantity as <code>Palt</code> (column 7), smoothed with vertical accel.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="efis-data-when-connected">EFIS Data (when connected)<a class="headerlink" href="#efis-data-when-connected" title="Permanent link">&para;</a></h3>
-<p>For Dynon, Garmin, or MGL EFIS:</p>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>efisIAS</code></td>
-<td>knots</td>
-<td>IAS from EFIS</td>
-</tr>
-<tr>
-<td><code>efisPitch</code></td>
-<td>degrees</td>
-<td>Pitch from EFIS</td>
-</tr>
-<tr>
-<td><code>efisRoll</code></td>
-<td>degrees</td>
-<td>Roll from EFIS</td>
-</tr>
-<tr>
-<td><code>efisLateralG</code></td>
-<td>G</td>
-<td>Lateral G from EFIS</td>
-</tr>
-<tr>
-<td><code>efisVerticalG</code></td>
-<td>G</td>
-<td>Vertical G from EFIS</td>
-</tr>
-<tr>
-<td><code>efisPercentLift</code></td>
-<td>%</td>
-<td>Percent lift / AOA from EFIS (0–99%)</td>
-</tr>
-<tr>
-<td><code>efisPalt</code></td>
-<td>ft</td>
-<td>Pressure altitude from EFIS</td>
-</tr>
-<tr>
-<td><code>efisVSI</code></td>
-<td>fpm</td>
-<td>Vertical speed from EFIS</td>
-</tr>
-<tr>
-<td><code>efisTAS</code></td>
-<td>knots</td>
-<td>True airspeed from EFIS</td>
-</tr>
-<tr>
-<td><code>efisOAT</code></td>
-<td>°C</td>
-<td>OAT from EFIS</td>
-</tr>
-<tr>
-<td><code>efisFuelRemaining</code></td>
-<td>gal</td>
-<td>Fuel remaining</td>
-</tr>
-<tr>
-<td><code>efisFuelFlow</code></td>
-<td>gph</td>
-<td>Fuel flow</td>
-</tr>
-<tr>
-<td><code>efisMAP</code></td>
-<td>inHg</td>
-<td>Manifold pressure</td>
-</tr>
-<tr>
-<td><code>efisRPM</code></td>
-<td>rpm</td>
-<td>Engine RPM</td>
-</tr>
-<tr>
-<td><code>efisPercentPower</code></td>
-<td>%</td>
-<td>Percent power</td>
-</tr>
-<tr>
-<td><code>efisMagHeading</code></td>
-<td>degrees</td>
-<td>Magnetic heading</td>
-</tr>
-<tr>
-<td><code>efisAge</code></td>
-<td>ms</td>
-<td>Time since last EFIS packet</td>
-</tr>
-</tbody>
-</table>
-<p>For VectorNav VN-300, the columns use <code>vn</code> prefix instead (e.g., <code>vnPitch</code>, <code>vnRoll</code>, <code>vnGnssLat</code>, etc.) — see <a href="../../reference/log-columns/">CSV Log Columns Reference</a> for the complete list.</p>
-<h3 id="boom-data-when-connected">Boom Data (when connected)<a class="headerlink" href="#boom-data-when-connected" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>boomAlpha</code></td>
-<td>degrees</td>
-<td>Reference AOA from boom</td>
-</tr>
-<tr>
-<td><code>boomBeta</code></td>
-<td>degrees</td>
-<td>Sideslip from boom</td>
-</tr>
-<tr>
-<td><code>boomIAS</code></td>
-<td>knots</td>
-<td>IAS from boom</td>
-</tr>
-<tr>
-<td><code>boomAge</code></td>
-<td>ms</td>
-<td>Time since last boom packet</td>
-</tr>
-</tbody>
-</table>
-<h3 id="other">Other<a class="headerlink" href="#other" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>DataMark</code></td>
-<td>0–99</td>
-<td>Pilot annotation mark (wraps at 100)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="loading-logs-in-python">Loading Logs in Python<a class="headerlink" href="#loading-logs-in-python" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;log_001.csv&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Plot IAS vs DerivedAOA</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;IAS&quot;</span><span class="p">],</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;DerivedAOA&quot;</span><span class="p">],</span> <span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;IAS (knots)&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;DerivedAOA (degrees)&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
-</code></pre></div>
-<h2 id="sd-card-management">SD Card Management<a class="headerlink" href="#sd-card-management" title="Permanent link">&para;</a></h2>
+<h2 id="step-1-flash-m5-firmware">Step 1 — Flash M5 firmware<a class="headerlink" href="#step-1-flash-m5-firmware" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Coming soon</p>
+<p>The M5 firmware support for USB-CDC tethering is in source on
+<code>master</code> but is not yet shipped as a published release binary.
+Released M5 firmware will gain USB-CDC autodetect once issue
+<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/399">#399</a>
+lands — track that issue for the rollout.</p>
+<p>Until #399 ships, only developers who can build from source
+(PlatformIO + the <code>m5stack-core2</code> / <code>m5stack-core-esp32</code> env)
+can flash a USB-CDC-capable M5.  See the appendix below.</p>
+</div>
+<p>When release builds become available, the workflow will be:</p>
+<ol>
+<li>Download the latest M5 firmware <code>.bin</code> from the
+   <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">OnSpeed-Gen3 releases page</a>
+   matching your hardware (<code>m5stack-core2</code> or <code>m5stack-core-esp32</code>).</li>
+<li>Flash via M5Burner or <code>esptool.py</code> per the release notes.</li>
+<li>The M5 reboots into the OnSpeed splash, then enters serial-detect
+   mode.</li>
+</ol>
+<p>A pilot who already flies with an OnSpeed M5 in the panel reuses the
+same firmware they already have, just on a release build that
+includes USB-CDC support.</p>
+<h2 id="step-2-what-the-m5-shows-during-boot">Step 2 — What the M5 shows during boot<a class="headerlink" href="#step-2-what-the-m5-shows-during-boot" title="Permanent link">&para;</a></h2>
+<p>After flash + reboot, the M5 cycles through three states:</p>
+<ol>
+<li><strong>OnSpeed splash</strong> — color logo, ~3 seconds.</li>
+<li><strong>"Looking for Serial data / Please wait..."</strong> — white text on
+   black. The firmware probes USB-CDC first (2 seconds, only if the
+   USB host is sending traffic), then the three Port C UART
+   variants (5 seconds each). Total ~17 seconds of probing.</li>
+<li><strong>"No Serial Stream Detected / Is OnSpeed running?"</strong> — red text.
+   Reached if the firmware found nothing in the 30-second probe
+   window.</li>
+</ol>
+<p>If you launch X-Plane and start streaming before the probe ends, the
+firmware switches into USB-CDC mode immediately. If you're slow and
+hit the "No Serial" splash, that's fine too — the firmware also
+late-binds at runtime: any time bytes start arriving on USB-CDC with
+the <code>#1</code> frame-start signature, the M5 switches into USB-CDC mode and
+starts displaying without needing a reboot.</p>
+<h2 id="step-3-pick-the-port-in-x-plane">Step 3 — Pick the port in X-Plane<a class="headerlink" href="#step-3-pick-the-port-in-x-plane" title="Permanent link">&para;</a></h2>
+<p>In X-Plane: <strong>Plugins → Fly On Speed → Serial output → \&lt;port path&gt;</strong>.
+Pick the port that corresponds to your M5.</p>
+<p>The plugin opens the port at 115200 8N1 — the same baud rate the
+firmware's display-serial output uses. From there, every display-
+serial frame the embedded indexer consumes is also pushed out the
+wire.  Within ~1 second the M5 should switch from its splash /
+no-data state to displaying live X-Plane state.</p>
+<p>The serial submenu lists every USB-CDC port the OS exposes:</p>
 <ul>
-<li><strong>Capacity</strong>: depends on your card size. A 32GB card holds hundreds of hours of flight data.</li>
-<li><strong>Format</strong>: FAT32. Use the <code>FORMAT</code> console command or format on a computer.</li>
-<li><strong>When full</strong>: the system stops logging. Download and delete old logs periodically.</li>
+<li><strong>macOS</strong> — <code>/dev/cu.usbmodem*</code>, <code>/dev/cu.usbserial*</code>,
+  <code>/dev/cu.SLAB_USBtoUART*</code> (SiLabs CP2104), <code>/dev/cu.wchusbserial*</code>
+  (WCH CH9102F)</li>
+<li><strong>Linux</strong> — <code>/dev/ttyACM*</code>, <code>/dev/ttyUSB*</code></li>
+<li><strong>Windows</strong> — <code>COM1</code> through <code>COM32</code> (probed via <code>CreateFile</code>)</li>
 </ul>
+<p>The M5 typically shows up as the only newly-appeared entry after you
+plug it in. If the list is empty when you open the menu, the OS
+hadn't enumerated the device yet — close the menu, click
+<strong>Refresh ports</strong>, and reopen.</p>
+<h2 id="step-4-use-the-indexer-in-the-sim">Step 4 — Use the indexer in the sim<a class="headerlink" href="#step-4-use-the-indexer-in-the-sim" title="Permanent link">&para;</a></h2>
+<p>With data flowing, the M5 behaves identically to its in-airplane
+configuration:</p>
+<ul>
+<li><strong>BtnA (left)</strong> — display brightness down.</li>
+<li><strong>BtnB (middle)</strong> — cycle display modes (AOA + numbers, attitude,
+  narrow AOA, decel gauge, G history).</li>
+<li><strong>BtnC (right)</strong> — display brightness up.</li>
+</ul>
+<p>See <a href="../indexer/">Using the indexer</a> for the per-mode descriptions.
+Every mode is the same as the in-airplane M5; the data behind it is
+just X-Plane's flight model instead of your AOA sensor.</p>
+<p>The plugin emits frames at 20 Hz — same rate the firmware emits in
+the airplane.  The display behaves accordingly: smooth chevron
+sweeps during AOA changes, ball-and-pitch reactivity matching what
+you'd see in real flight.</p>
+<h2 id="reconnecting-after-a-disconnect">Reconnecting after a disconnect<a class="headerlink" href="#reconnecting-after-a-disconnect" title="Permanent link">&para;</a></h2>
+<p>If the M5 freezes or the USB cable bumps loose: unplug and replug.
+The plugin retries the open every two seconds while the saved port
+is still configured, so the M5 picks back up automatically once it
+re-enumerates — no menu action required.</p>
+<p>To stop streaming entirely, pick <strong>Off (no serial output)</strong> from the
+menu.</p>
+<h2 id="persistence-across-sessions">Persistence across sessions<a class="headerlink" href="#persistence-across-sessions" title="Permanent link">&para;</a></h2>
+<p>The selected port path is persisted in the per-aircraft <code>.prf</code> file
+(see <a href="../settings/">Per-Aircraft Settings</a>). Loading the same
+aircraft later reopens the same port automatically. You don't need
+to re-pick the port on every X-Plane launch — only when the port
+path changes (M5 unplugged into a different USB port, fresh OS USB
+enumeration after a reboot, etc.).</p>
+<p>The plugin's auto-retry handles routine plug-out / plug-in; the
+saved path stays.  Only an explicit <strong>Off</strong> clears it.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="port-doesnt-appear-in-the-menu">Port doesn't appear in the menu<a class="headerlink" href="#port-doesnt-appear-in-the-menu" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Confirm the M5 is enumerating at the OS level. On macOS:
+  <code>ls /dev/cu.usbmodem*</code>. On Linux: <code>dmesg | tail</code> after plugging
+  in. On Windows: Device Manager → Ports.</li>
+<li>M5Stack Basic and Core2 use external USB-to-UART bridge chips
+  (CP2104 on Basic, CH9102F on some Core2 batches). These enumerate
+  on macOS as <code>cu.usbserial-*</code>, <code>cu.SLAB_USBtoUART*</code>, or
+  <code>cu.wchusbserial*</code> — NOT as <code>cu.usbmodem*</code> (that prefix is
+  reserved for native USB-CDC peripherals like the ESP32-S3).
+  The plugin scans all four prefixes on macOS, so the device gets
+  picked up regardless of chipset.</li>
+<li>Click <strong>Refresh ports</strong> after replugging.</li>
+</ul>
+<h3 id="port-appears-but-the-m5-stays-blank">Port appears but the M5 stays blank<a class="headerlink" href="#port-appears-but-the-m5-stays-blank" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Confirm the M5 is running OnSpeed-M5-Display firmware, not stock
+  M5Stack demo software. Boot the M5 — the OnSpeed splash screen
+  should appear before the wire data starts.</li>
+<li>Confirm baud rate. The firmware expects 115200 8N1; the plugin
+  opens at the same. There is no negotiation, so a mismatched baud
+  rate produces a dead link with no error.</li>
+</ul>
+<h3 id="port-opens-m5-lights-up-briefly-then-disconnects">Port opens, M5 lights up briefly, then disconnects<a class="headerlink" href="#port-opens-m5-lights-up-briefly-then-disconnects" title="Permanent link">&para;</a></h3>
+<p>Common on Linux when ModemManager grabs the port. Disable it for
+the M5's vendor:product ID, or uninstall ModemManager if you don't
+need it.</p>
+<h3 id="selecting-a-port-silently-does-nothing">Selecting a port silently does nothing<a class="headerlink" href="#selecting-a-port-silently-does-nothing" title="Permanent link">&para;</a></h3>
+<p>Open the X-Plane <code>Log.txt</code> (sim root) and search for
+<code>FlyOnSpeed:</code>. The plugin logs open / close transitions and any
+<code>open()</code> / <code>CreateFile()</code> errors. The most common cause is a stale
+saved port path — the previously connected M5 is on a different
+node now. Pick <strong>Off</strong>, then re-pick the current port from the
+freshly enumerated list.</p>
+<h2 id="developer-appendix-flashing-m5-firmware-from-source">Developer appendix — flashing M5 firmware from source<a class="headerlink" href="#developer-appendix-flashing-m5-firmware-from-source" title="Permanent link">&para;</a></h2>
+<p>For developers who want to test the USB-CDC tethering before the
+release artifact lands (issue
+<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/399">#399</a>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>software/OnSpeed-M5-Display
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core2<span class="w"> </span>-t<span class="w"> </span>upload<span class="w">         </span><span class="c1"># M5Stack Core2</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># or</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core-esp32<span class="w"> </span>-t<span class="w"> </span>upload<span class="w">    </span><span class="c1"># M5Stack Basic</span>
+</code></pre></div>
+<p>PlatformIO auto-detects the connected device.  Requires
+<a href="https://docs.platformio.org/en/latest/core/installation/index.html">PlatformIO Core</a>
+installed locally.  Pilots should not need this path once #399 ships.</p>
 
 
 

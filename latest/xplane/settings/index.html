@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://dev.flyonspeed.org/latest/data-and-logs/log-format/">
+        <link rel="canonical" href="https://dev.flyonspeed.org/latest/xplane/settings/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../m5-tethered/">
       
       
-        <link rel="next" href="../downloading/">
+        <link rel="next" href="../troubleshooting/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Understanding Logs - OnSpeed Gen3 Documentation</title>
+        <title>Per-Aircraft Settings - OnSpeed Gen3 Documentation</title>
       
     
     
@@ -115,7 +115,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#understanding-onspeed-logs" class="md-skip">
+        <a href="#per-aircraft-settings" class="md-skip">
           Skip to content
         </a>
       
@@ -152,7 +152,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Understanding Logs
+              Per-Aircraft Settings
             
           </span>
         </div>
@@ -436,11 +436,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../xplane/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -458,13 +460,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../data-and-logs/" class="md-tabs__link">
           
   
   
@@ -2359,6 +2359,8 @@
       
   
   
+    
+  
   
   
     
@@ -2382,22 +2384,23 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../xplane/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -2415,13 +2418,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_9">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2441,7 +2444,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/install/" class="md-nav__link">
+      <a href="../install/" class="md-nav__link">
         
   
   
@@ -2469,7 +2472,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/indexer/" class="md-nav__link">
+      <a href="../indexer/" class="md-nav__link">
         
   
   
@@ -2497,7 +2500,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/m5-tethered/" class="md-nav__link">
+      <a href="../m5-tethered/" class="md-nav__link">
         
   
   
@@ -2522,10 +2525,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../xplane/settings/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Aircraft Settings
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -2541,6 +2571,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#file-location" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File location
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editing-from-the-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editing from the UI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2553,7 +2658,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../xplane/troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   
@@ -2585,8 +2690,6 @@
       
   
   
-    
-  
   
   
     
@@ -2604,23 +2707,22 @@
     
     
       
-        
-        
-      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../data-and-logs/" class="md-nav__link ">
               
   
   
@@ -2638,13 +2740,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="">
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_10">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2661,37 +2763,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Understanding Logs
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../data-and-logs/log-format/" class="md-nav__link">
         
   
   
@@ -2707,170 +2782,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#file-format" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        File Format
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="File Format">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#metadata-sidecar" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Metadata sidecar
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#key-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Columns
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Key Columns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#core-flight-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Flight Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pressure-sensors" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pressure Sensors
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#imu-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        IMU Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#computed-values" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Computed Values
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#efis-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        EFIS Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#boom-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Boom Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#other" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Other
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#loading-logs-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Loading Logs in Python
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sd-card-management" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        SD Card Management
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2883,7 +2794,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../downloading/" class="md-nav__link">
+      <a href="../../data-and-logs/downloading/" class="md-nav__link">
         
   
   
@@ -3420,132 +3331,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#file-format" class="md-nav__link">
+  <a href="#file-location" class="md-nav__link">
     <span class="md-ellipsis">
       
-        File Format
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="File Format">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#metadata-sidecar" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Metadata sidecar
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#key-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Key Columns
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Key Columns">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#core-flight-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Core Flight Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pressure-sensors" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pressure Sensors
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#imu-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        IMU Data
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#computed-values" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Computed Values
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#efis-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        EFIS Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#boom-data-when-connected" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Boom Data (when connected)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#other" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Other
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#loading-logs-in-python" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Loading Logs in Python
+        File location
       
     </span>
   </a>
@@ -3553,10 +3342,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sd-card-management" class="md-nav__link">
+  <a href="#format" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SD Card Management
+        Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editing-from-the-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editing from the UI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations
       
     </span>
   </a>
@@ -3580,7 +3402,7 @@
 
 
   
-    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/data-and-logs/log-format.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/xplane/settings.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3588,377 +3410,161 @@
   
 
 
-<h1 id="understanding-onspeed-logs">Understanding OnSpeed Logs<a class="headerlink" href="#understanding-onspeed-logs" title="Permanent link">&para;</a></h1>
-<p>OnSpeed records flight data to CSV files on the microSD card at <strong>50 Hz</strong> by default (configurable to 208 Hz via the web interface).</p>
-<h2 id="file-format">File Format<a class="headerlink" href="#file-format" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Format</strong>: CSV with headers (comma-separated values)</li>
-<li><strong>Rate</strong>: 50 Hz default (one row every 20 ms); optionally 208 Hz (IMU rate)</li>
-<li><strong>Naming</strong>: <code>log_NNN.csv</code> (sequential numbering). When a VN-300 EFIS provides a UTC timestamp, the file is renamed to <code>YYYY-MM-DD_NNN.csv</code> at close so the date travels with the file. Dynon, Garmin, and no-EFIS logs keep <code>log_NNN.csv</code>.</li>
-<li><strong>Size</strong>: A 1-hour flight produces approximately 50–100 MB of data</li>
-</ul>
-<h3 id="metadata-sidecar">Metadata sidecar<a class="headerlink" href="#metadata-sidecar" title="Permanent link">&para;</a></h3>
-<p>Each <code>log_NNN.csv</code> is written alongside a <code>log_NNN.meta</code> plain-text sidecar. The firmware refreshes the sidecar every 30 seconds while the log is open and rewrites it once at close, so a flight that ends with a power yank still leaves a usable sidecar (worst case: the last 30 s of metadata is missing). The first 30 seconds of any flight are an exception — a power yank in that window leaves no sidecar at all, and the <code>/logs</code> page renders em-dashes for that flight rather than a misleading zero-valued line. One <code>key=value</code> per line:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>duration_ms=1842113
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>row_count=92106
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>max_ias_kt=148
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>max_alt_ft=8420
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>firmware=4.20+1825dff
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>efis_type=dynon_skyview
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>time_of_day_start=14:32:08
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>gps_fix_seen=1
+<h1 id="per-aircraft-settings">Per-Aircraft Settings<a class="headerlink" href="#per-aircraft-settings" title="Permanent link">&para;</a></h1>
+<p>The plugin stores its tunable state per X-Plane aircraft, so the
+RV-10's setpoints don't bleed into the Cessna 172. Settings live in a
+plain text <code>.prf</code> file and load automatically each time you switch
+aircraft.</p>
+<h2 id="file-location">File location<a class="headerlink" href="#file-location" title="Permanent link">&para;</a></h2>
+<p>Settings file path:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>&lt;X-Plane root&gt;/Output/preferences/AOA-Tone-FlyOnSpeed-&lt;acf&gt;.prf
 </code></pre></div>
-<p><code>time_of_day_start</code> is captured from any EFIS that publishes a clock (Dynon SkyView, VN-300, Garmin G3X, MGL). <code>utc_start</code> is VN-300-only. The <code>/logs</code> page reads the sidecar to populate the start-time, duration, max IAS, and max pressure altitude columns. The <code>max_alt_ft</code> value comes from the <code>Palt</code> column — every altitude OnSpeed records is pressure altitude (ISA 1013.25 hPa reference); there is no Kollsman/QNH correction.</p>
-<h2 id="key-columns">Key Columns<a class="headerlink" href="#key-columns" title="Permanent link">&para;</a></h2>
-<h3 id="core-flight-data">Core Flight Data<a class="headerlink" href="#core-flight-data" title="Permanent link">&para;</a></h3>
+<p><code>&lt;acf&gt;</code> is the aircraft <code>.acf</code> filename with the extension stripped
+and any path separators (<code>/</code>, <code>\</code>, <code>:</code>) replaced with underscores.
+For example, <code>Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf</code>
+becomes <code>AOA-Tone-FlyOnSpeed-Cessna_172SP.prf</code>.</p>
+<p>Switching aircraft mid-session reloads from the new aircraft's file
+on the next <code>XPLM_MSG_PLANE_LOADED</code> callback.</p>
+<h2 id="format">Format<a class="headerlink" href="#format" title="Permanent link">&para;</a></h2>
+<p>Plain <code>key = value\n</code> lines. Unknown keys, malformed lines, and
+missing files are silently ignored — defaults stand in. A partial
+file is fine; the plugin only writes keys it knows.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>fLDMAXAOA = 6.000
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>fONSPEEDFASTAOA = 7.300
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>fONSPEEDSLOWAOA = 9.600
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>fSTALLWARNAOA = 12.500
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>iMuteAudioUnderIAS = 25
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>iMasterVolumePct = 100
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>iAoaMedianWindow = 5
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>iAoaMeanWindow = 10
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>audioEnabled = 1
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>serialPortPath = /dev/cu.usbmodem11201
+</code></pre></div>
+<h2 id="fields">Fields<a class="headerlink" href="#fields" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
+<th>Field</th>
+<th>Type</th>
+<th>Range</th>
+<th>Purpose</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>timeStamp</code></td>
-<td>ms</td>
-<td>Milliseconds since power-on</td>
+<td><code>fLDMAXAOA</code></td>
+<td>float (degrees)</td>
+<td>0 – AOA_MAX</td>
+<td>Below this AOA, audio is silent. Best-glide / best-climb reference.</td>
 </tr>
 <tr>
-<td><code>IAS</code></td>
-<td>knots</td>
-<td>Indicated airspeed</td>
+<td><code>fONSPEEDFASTAOA</code></td>
+<td>float (degrees)</td>
+<td>0 – AOA_MAX</td>
+<td>Lower edge of the OnSpeed band. Below it: low-pitch pulsing.</td>
 </tr>
 <tr>
-<td><code>Palt</code></td>
-<td>ft</td>
-<td>Pressure altitude</td>
+<td><code>fONSPEEDSLOWAOA</code></td>
+<td>float (degrees)</td>
+<td>0 – AOA_MAX</td>
+<td>Upper edge of the OnSpeed band. Above it: high-pitch pulsing.</td>
 </tr>
 <tr>
-<td><code>AngleofAttack</code></td>
-<td>degrees</td>
-<td>Computed AOA (from pressure polynomial)</td>
+<td><code>fSTALLWARNAOA</code></td>
+<td>float (degrees)</td>
+<td>0 – AOA_MAX</td>
+<td>Stall-warning threshold. Above it: stall buzz at 20 PPS.</td>
 </tr>
 <tr>
-<td><code>DerivedAOA</code></td>
-<td>degrees</td>
-<td>SmoothedPitch - FlightPath (AHRS-derived)</td>
+<td><code>iMuteAudioUnderIAS</code></td>
+<td>int (knots)</td>
+<td>0 – 250</td>
+<td>Audio is silenced below this IAS. <code>0</code> disables the gate. Hysteresis: unmute at <code>iMuteAudioUnderIAS + 5</code>, re-mute at <code>iMuteAudioUnderIAS</code>.</td>
 </tr>
 <tr>
-<td><code>flapsPos</code></td>
-<td>degrees</td>
-<td>Detected flap position</td>
+<td><code>iMasterVolumePct</code></td>
+<td>int (percent)</td>
+<td>0 – 100</td>
+<td>Master volume scaling, applied before pan splits.</td>
 </tr>
 <tr>
-<td><code>OAT</code></td>
-<td>°C</td>
-<td>Outside air temperature</td>
+<td><code>iAoaMedianWindow</code></td>
+<td>int (samples)</td>
+<td>1 – 100</td>
+<td>Median-despike window size on the AOA dataref. <code>1</code> disables.</td>
 </tr>
 <tr>
-<td><code>TAS</code></td>
-<td>knots</td>
-<td>True airspeed</td>
-</tr>
-</tbody>
-</table>
-<h3 id="pressure-sensors">Pressure Sensors<a class="headerlink" href="#pressure-sensors" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Pfwd</code></td>
-<td>counts</td>
-<td>Raw pitot pressure (14-bit ADC: 0–16383)</td>
+<td><code>iAoaMeanWindow</code></td>
+<td>int (samples)</td>
+<td>1 – 100</td>
+<td>Running-mean window size after the median. <code>1</code> disables.</td>
 </tr>
 <tr>
-<td><code>PfwdSmoothed</code></td>
-<td>PSI</td>
-<td>Pitot pressure (EMA smoothed)</td>
-</tr>
-<tr>
-<td><code>P45</code></td>
-<td>counts</td>
-<td>Raw AOA pressure (14-bit ADC)</td>
-</tr>
-<tr>
-<td><code>P45Smoothed</code></td>
-<td>PSI</td>
-<td>AOA pressure (EMA smoothed)</td>
-</tr>
-<tr>
-<td><code>PStatic</code></td>
-<td>PSI</td>
-<td>Static pressure</td>
-</tr>
-<tr>
-<td><code>CoeffP</code></td>
+<td><code>audioEnabled</code></td>
+<td>int 0/1</td>
 <td>—</td>
-<td>Pressure coefficient (P45 / Pfwd)</td>
+<td>Sound on/off toggle. Persists across sim restart.</td>
+</tr>
+<tr>
+<td><code>serialPortPath</code></td>
+<td>string</td>
+<td>OS-dependent</td>
+<td>USB-serial port to drive a tethered M5. Empty = no output.</td>
 </tr>
 </tbody>
 </table>
-<h3 id="imu-data">IMU Data<a class="headerlink" href="#imu-data" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>VerticalG</code></td>
-<td>G</td>
-<td>Vertical acceleration (body frame)</td>
-</tr>
-<tr>
-<td><code>LateralG</code></td>
-<td>G</td>
-<td>Lateral acceleration (body frame)</td>
-</tr>
-<tr>
-<td><code>ForwardG</code></td>
-<td>G</td>
-<td>Forward acceleration (body frame)</td>
-</tr>
-<tr>
-<td><code>RollRate</code></td>
-<td>deg/s</td>
-<td>Roll angular rate</td>
-</tr>
-<tr>
-<td><code>PitchRate</code></td>
-<td>deg/s</td>
-<td>Pitch angular rate</td>
-</tr>
-<tr>
-<td><code>YawRate</code></td>
-<td>deg/s</td>
-<td>Yaw angular rate</td>
-</tr>
-<tr>
-<td><code>Pitch</code></td>
-<td>degrees</td>
-<td>Pitch angle (AHRS output)</td>
-</tr>
-<tr>
-<td><code>Roll</code></td>
-<td>degrees</td>
-<td>Roll angle (AHRS output)</td>
-</tr>
-<tr>
-<td><code>imuTemp</code></td>
-<td>°C</td>
-<td>IMU sensor temperature</td>
-</tr>
-</tbody>
-</table>
-<h3 id="computed-values">Computed Values<a class="headerlink" href="#computed-values" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>EarthVerticalG</code></td>
-<td>G</td>
-<td>Vertical G in earth frame</td>
-</tr>
-<tr>
-<td><code>FlightPath</code></td>
-<td>degrees</td>
-<td>Flight path angle = arcsin(VSI/TAS)</td>
-</tr>
-<tr>
-<td><code>VSI</code></td>
-<td>fpm</td>
-<td>Vertical speed (Kalman filtered)</td>
-</tr>
-<tr>
-<td><code>Altitude</code></td>
-<td>ft</td>
-<td>Pressure altitude, Kalman-filtered. Same quantity as <code>Palt</code> (column 7), smoothed with vertical accel.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="efis-data-when-connected">EFIS Data (when connected)<a class="headerlink" href="#efis-data-when-connected" title="Permanent link">&para;</a></h3>
-<p>For Dynon, Garmin, or MGL EFIS:</p>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>efisIAS</code></td>
-<td>knots</td>
-<td>IAS from EFIS</td>
-</tr>
-<tr>
-<td><code>efisPitch</code></td>
-<td>degrees</td>
-<td>Pitch from EFIS</td>
-</tr>
-<tr>
-<td><code>efisRoll</code></td>
-<td>degrees</td>
-<td>Roll from EFIS</td>
-</tr>
-<tr>
-<td><code>efisLateralG</code></td>
-<td>G</td>
-<td>Lateral G from EFIS</td>
-</tr>
-<tr>
-<td><code>efisVerticalG</code></td>
-<td>G</td>
-<td>Vertical G from EFIS</td>
-</tr>
-<tr>
-<td><code>efisPercentLift</code></td>
-<td>%</td>
-<td>Percent lift / AOA from EFIS (0–99%)</td>
-</tr>
-<tr>
-<td><code>efisPalt</code></td>
-<td>ft</td>
-<td>Pressure altitude from EFIS</td>
-</tr>
-<tr>
-<td><code>efisVSI</code></td>
-<td>fpm</td>
-<td>Vertical speed from EFIS</td>
-</tr>
-<tr>
-<td><code>efisTAS</code></td>
-<td>knots</td>
-<td>True airspeed from EFIS</td>
-</tr>
-<tr>
-<td><code>efisOAT</code></td>
-<td>°C</td>
-<td>OAT from EFIS</td>
-</tr>
-<tr>
-<td><code>efisFuelRemaining</code></td>
-<td>gal</td>
-<td>Fuel remaining</td>
-</tr>
-<tr>
-<td><code>efisFuelFlow</code></td>
-<td>gph</td>
-<td>Fuel flow</td>
-</tr>
-<tr>
-<td><code>efisMAP</code></td>
-<td>inHg</td>
-<td>Manifold pressure</td>
-</tr>
-<tr>
-<td><code>efisRPM</code></td>
-<td>rpm</td>
-<td>Engine RPM</td>
-</tr>
-<tr>
-<td><code>efisPercentPower</code></td>
-<td>%</td>
-<td>Percent power</td>
-</tr>
-<tr>
-<td><code>efisMagHeading</code></td>
-<td>degrees</td>
-<td>Magnetic heading</td>
-</tr>
-<tr>
-<td><code>efisAge</code></td>
-<td>ms</td>
-<td>Time since last EFIS packet</td>
-</tr>
-</tbody>
-</table>
-<p>For VectorNav VN-300, the columns use <code>vn</code> prefix instead (e.g., <code>vnPitch</code>, <code>vnRoll</code>, <code>vnGnssLat</code>, etc.) — see <a href="../../reference/log-columns/">CSV Log Columns Reference</a> for the complete list.</p>
-<h3 id="boom-data-when-connected">Boom Data (when connected)<a class="headerlink" href="#boom-data-when-connected" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>boomAlpha</code></td>
-<td>degrees</td>
-<td>Reference AOA from boom</td>
-</tr>
-<tr>
-<td><code>boomBeta</code></td>
-<td>degrees</td>
-<td>Sideslip from boom</td>
-</tr>
-<tr>
-<td><code>boomIAS</code></td>
-<td>knots</td>
-<td>IAS from boom</td>
-</tr>
-<tr>
-<td><code>boomAge</code></td>
-<td>ms</td>
-<td>Time since last boom packet</td>
-</tr>
-</tbody>
-</table>
-<h3 id="other">Other<a class="headerlink" href="#other" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Units</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>DataMark</code></td>
-<td>0–99</td>
-<td>Pilot annotation mark (wraps at 100)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="loading-logs-in-python">Loading Logs in Python<a class="headerlink" href="#loading-logs-in-python" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;log_001.csv&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Plot IAS vs DerivedAOA</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">plt</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">&quot;IAS&quot;</span><span class="p">],</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;DerivedAOA&quot;</span><span class="p">],</span> <span class="n">s</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;IAS (knots)&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;DerivedAOA (degrees)&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
-</code></pre></div>
-<h2 id="sd-card-management">SD Card Management<a class="headerlink" href="#sd-card-management" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Capacity</strong>: depends on your card size. A 32GB card holds hundreds of hours of flight data.</li>
-<li><strong>Format</strong>: FAT32. Use the <code>FORMAT</code> console command or format on a computer.</li>
-<li><strong>When full</strong>: the system stops logging. Download and delete old logs periodically.</li>
-</ul>
+<p>The four AOA setpoints share the same ordering invariant as the
+firmware: <code>fLDMAXAOA &lt; fONSPEEDFASTAOA &lt; fONSPEEDSLOWAOA &lt; fSTALLWARNAOA</code>.
+Save fails with the same error wording the firmware uses
+(<code>OnSpeedConfig::SuFlaps::SetpointOrderError</code>) if the order is
+violated.</p>
+<p><code>AOA_MAX</code> is the universal <code>onspeed::AOA_MAX_VALUE</code> from
+<code>onspeed_core/util/OnSpeedTypes.h</code> — plugin and firmware agree on
+what counts as a sane AOA value.</p>
+<h2 id="editing-from-the-ui">Editing from the UI<a class="headerlink" href="#editing-from-the-ui" title="Permanent link">&para;</a></h2>
+<p>Open <strong>Plugins → Fly On Speed → Show</strong>. The audio control window
+exposes the AOA setpoints, IAS mute threshold, master volume, and
+smoothing windows as editable text rows; <code>audioEnabled</code> is the
+<strong>Sound: On / Sound: Off</strong> button. <code>serialPortPath</code> is set
+separately via <strong>Plugins → Fly On Speed → Serial output → \&lt;port&gt;</strong>
+(see <a href="../m5-tethered/">Tethering a Physical M5</a>).</p>
+<p>Click <strong>Save</strong> to validate, apply, and write to the per-aircraft
+<code>.prf</code>. Validation runs in two passes:</p>
+<ol>
+<li>Per-field range and parse check. Fields that fail get an
+   in-place <code>!!</code> prefix in the row's text. Invalid fields show
+   their failing reason in the status line.</li>
+<li>Cross-field ordering check on the four AOA setpoints. If the
+   ordering is violated, all four setpoint rows are flagged
+   together — the validator can't tell which value the user
+   mis-typed.</li>
+</ol>
+<p>A successful Save clears every <code>!!</code> marker, applies the values
+to the live audio engine, rebuilds the AOA smoothers if the
+window sizes changed, and writes the <code>.prf</code>. Any single
+validation failure means none of the live state changes — fix
+the marked rows and Save again.</p>
+<p><strong>Restore Defaults</strong> reverts every editable field to the compiled-in
+defaults (LDmax 6.0°, OnSpeedFast 7.3°, OnSpeedSlow 9.6°, StallWarn
+12.5°, IAS gate 25 kt, volume 100%, median 5, mean 10) without
+saving. Click <strong>Save</strong> to commit them; otherwise they're gone on the
+next aircraft load.</p>
+<p><strong>Reload Plugins</strong> is an escape hatch in the same window. If OpenAL
+gets wedged (no audio with the toggle on, no error in <code>Log.txt</code>), or
+the indexer texture doesn't update after an aircraft change, this
+button reloads the plugin without restarting X-Plane. Equivalent to
+<strong>Plugins → Reload All Plugins</strong> but routed through this plugin's
+own teardown so settings are saved first.</p>
+<h2 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h2>
+<p>The four AOA setpoints are a single set, not per-flap. The firmware
+stores six setpoints per flap detent and switches sets when the lever
+moves. The plugin currently has no flap awareness — the same
+<code>fLDMAXAOA</code> is used at every flap setting. Per-flap support is
+tracked in <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/393">#393</a>.</p>
+<p>Default setpoints are RV-class. Auto-derivation from X-Plane's
+per-aircraft stall-AOA datarefs is tracked in
+<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/392">#392</a>. Until
+then, edit the four fields by hand for any non-RV airframe.</p>
 
 
 

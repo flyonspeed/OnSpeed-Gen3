@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://dev.flyonspeed.org/latest/simulator/">
+        <link rel="canonical" href="https://dev.flyonspeed.org/latest/xplane/">
       
       
         <link rel="prev" href="../flying/warnings/">
       
       
-        <link rel="next" href="xplane-plugin/">
+        <link rel="next" href="install/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Simulator - OnSpeed Gen3 Documentation</title>
+        <title>X-Plane Simulator - OnSpeed Gen3 Documentation</title>
       
     
     
@@ -115,7 +115,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#simulator" class="md-skip">
+        <a href="#x-plane-simulator" class="md-skip">
           Skip to content
         </a>
       
@@ -152,7 +152,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Simulator
+              X-Plane Simulator
             
           </span>
         </div>
@@ -448,7 +448,7 @@
   
     
   
-  Simulator
+  X-Plane Simulator
 
         </a>
       </li>
@@ -2372,6 +2372,14 @@
       
         
       
+        
+      
+        
+      
+        
+      
+        
+      
     
     
     
@@ -2399,7 +2407,7 @@
   <span class="md-ellipsis">
     
   
-    Simulator
+    X-Plane Simulator
   
 
     
@@ -2421,7 +2429,7 @@
             <span class="md-nav__icon md-icon"></span>
             
   
-    Simulator
+    X-Plane Simulator
   
 
           </label>
@@ -2436,14 +2444,126 @@
   
   
     <li class="md-nav__item">
-      <a href="xplane-plugin/" class="md-nav__link">
+      <a href="install/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    X-Plane Plugin
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="indexer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the Indexer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="m5-tethered/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tethering a Physical M5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Aircraft Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
   
 
     
@@ -3109,10 +3229,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#scope" class="md-nav__link">
+  <a href="#what-it-does" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Scope
+        What it does
       
     </span>
   </a>
@@ -3120,10 +3240,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#roadmap" class="md-nav__link">
+  <a href="#why-use-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Roadmap
+        Why use it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-not-supported" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's not supported
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pages
       
     </span>
   </a>
@@ -3147,7 +3289,7 @@
 
 
   
-    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/simulator/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/xplane/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3155,29 +3297,82 @@
   
 
 
-<h1 id="simulator">Simulator<a class="headerlink" href="#simulator" title="Permanent link">&para;</a></h1>
-<p>Drive OnSpeed tones from a desktop flight simulator. The plugin runs the
-same <code>onspeed_core</code> tone decision the panel box runs — same thresholds,
-same pulse rates, same stall warning.</p>
+<h1 id="x-plane-simulator">X-Plane Simulator<a class="headerlink" href="#x-plane-simulator" title="Permanent link">&para;</a></h1>
+<p>The OnSpeed X-Plane plugin runs the same audio engine and indexer
+renderer as the panel-mounted Gen3 inside X-Plane 12. Aircraft-state
+inputs come from X-Plane datarefs (<code>sim/flightmodel/position/alpha</code>
+for AOA, <code>sim/flightmodel/position/indicated_airspeed</code> for IAS,
+<code>sim/flightmodel/forces/g_side</code> for lateral G); output is OpenAL
+audio on the sim PC, an embedded floating window with the M5 indexer
+graphics, and an optional USB-serial stream that drives a physically
+connected M5Stack.</p>
+<h2 id="what-it-does">What it does<a class="headerlink" href="#what-it-does" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><a href="xplane-plugin/">X-Plane Plugin</a></strong> — install the plugin into X-Plane 12, get OnSpeed tones in any aircraft.</li>
+<li><strong>Tone generation</strong> — same <code>Envelope</code>, <code>AudioMixer</code>, <code>AudioOrchestrator</code>,
+  and <code>Panning</code> code path as the firmware, via <code>onspeed_core::audio</code>.
+  Tones, pulse rates, transition timing, and 3D pan from lateral G
+  match the panel box sample-for-sample.</li>
+<li><strong>Embedded indexer</strong> — a floating X-Plane window hosts the OnSpeed M5
+  indexer renderer. Five display modes (the same five the M5 firmware
+  ships with): AOA + numbers, attitude, narrow AOA, decel gauge, and
+  G-history. Click the indexer body to cycle modes, or use the menu.</li>
+<li><strong>Physical M5 passthrough</strong> — when configured, every display-serial
+  frame the plugin builds is also pushed to a USB-serial port at
+  115200 8N1. A Core2 plugged into the sim PC behaves the same way it
+  does plugged into a real Gen3.</li>
+<li><strong>Per-aircraft persistence</strong> — settings live at
+  <code>Output/preferences/AOA-Tone-FlyOnSpeed-&lt;acf&gt;.prf</code>, so the RV-10's
+  AOA setpoints don't bleed into the Cessna 172.</li>
 </ul>
-<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
-<p>The plugin reads X-Plane's AOA dataref (<code>sim/flightmodel/position/alpha</code>)
-and pipes it through <code>onspeed_core</code> to the same <code>calculateTone()</code> call
-the firmware uses. Output is OpenAL audio on the sim PC.</p>
-<p>Because the dataref is the sim's flight-model AOA, tones sound right
-relative to where the sim thinks the airframe is, but the thresholds
-(L/D<sub>MAX</sub>, ONSPEED, stall warning) are plugin defaults, not your
-airplane's calibrated setpoints. The plugin's UI exposes all four
-thresholds as editable fields — override them with your tuned values
-for aircraft-specific behavior.</p>
-<h2 id="roadmap">Roadmap<a class="headerlink" href="#roadmap" title="Permanent link">&para;</a></h2>
-<p>Audio-only today. Planned:</p>
+<h2 id="why-use-it">Why use it<a class="headerlink" href="#why-use-it" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Visual indexer overlay inside X-Plane</strong> — same chevron/donut/bar widget as the M5 display. <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/221">Issue #221</a>.</li>
-<li><strong>Drive a physical M5 display from the sim</strong> — plugin streams <code>#1</code> frames at 20 Hz over USB. <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/228">Issue #228</a>.</li>
-<li><strong>MSFS 2024 gauge</strong> — equivalent for Microsoft Flight Simulator. <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/225">Issue #225</a>.</li>
+<li>Practice OnSpeed-driven approaches at home before flying them.</li>
+<li>Audition setpoint changes against a sim model before re-flying a
+  calibration sortie.</li>
+<li>Drive a physical M5 from the sim — useful for development of the
+  M5 firmware itself, and for pilots who want to rehearse with the
+  same display they have in the panel.</li>
+<li>Fly the same audio cues from the same <code>onspeed_core</code> code that
+  ships in the firmware. If a tone behavior is wrong in the sim it's
+  wrong in the airplane, and vice versa.</li>
+</ul>
+<h2 id="whats-not-supported">What's not supported<a class="headerlink" href="#whats-not-supported" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>AOA convention.</strong> The plugin reads X-Plane's <code>alpha</code> dataref, which
+  is <strong>wing AOA</strong> in degrees. The OnSpeed firmware works in <strong>body
+  angle</strong> (see <a href="../calibration/how-aoa-works/">How OnSpeed Measures AOA</a>).
+  The two are linearly related per airframe but not equal. Plugin
+  setpoints sit in wing-AOA units; firmware setpoints sit in
+  body-angle units. Don't paste numbers between them without
+  applying the wing-incidence offset.</li>
+<li><strong>Hardcoded setpoint defaults.</strong> The plugin ships with generic
+  RV-class defaults (LDmax 6.0°, OnSpeedFast 7.3°, OnSpeedSlow 9.6°,
+  StallWarn 12.5°). Auto-derivation from per-aircraft datarefs is
+  tracked in <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/392">#392</a>.
+  Edit the four AOA fields in the audio control window to match your
+  airframe.</li>
+<li><strong>No per-flap calibration.</strong> The firmware stores six setpoints per
+  flap detent and switches sets when the lever moves. The plugin has
+  one set of four setpoints, period. Per-flap support is tracked in
+  <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/393">#393</a>.</li>
+<li><strong>Boom probe / Madgwick / EKF6</strong> — none of the firmware's sensor
+  fusion runs. The plugin reads X-Plane's already-fused alpha and
+  pipes it through a small median+mean smoother before handing it
+  to <code>ToneCalc</code>.</li>
+</ul>
+<h2 id="pages">Pages<a class="headerlink" href="#pages" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><a href="install/">Install</a></strong> — download the <code>.xpl</code>, drop it in the
+  right per-arch directory under <code>Resources/plugins/</code>.</li>
+<li><strong><a href="indexer/">Using the indexer</a></strong> — show/hide, mode cycling, what
+  each of the five modes draws.</li>
+<li><strong><a href="m5-tethered/">Tethering a physical M5</a></strong> — flash the M5
+  firmware, USB-C cable to the sim PC, pick the port, fly the sim
+  with the same M5 you'd hold in the airplane.</li>
+<li><strong><a href="settings/">Per-aircraft settings</a></strong> — <code>.prf</code> location, fields,
+  what each one does.</li>
+<li><strong><a href="troubleshooting/">Troubleshooting</a></strong> — no sound, gray indexer,
+  M5 not detected, settings not persisting.</li>
 </ul>
 
 
