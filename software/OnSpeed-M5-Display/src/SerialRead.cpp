@@ -175,22 +175,30 @@ void SerialRead()
     // Late-binding USB-CDC detection.  If the user has the M5 tethered
     // to the X-Plane plugin and the host wasn't sending bytes during
     // checkSerial()'s probe window, switch to USB-CDC (selectedPort=4)
-    // the moment we see any '#' byte arrive.  The display-serial
-    // accumulator silently drops any leading non-'#' bytes anyway, so
-    // streaming to it during detection is safe.
+    // when we see the full "#1" frame-start signature.  ONE '#' byte
+    // is not enough to switch — the byte 0x23 appears in plenty of
+    // legitimate non-OnSpeed USB traffic (kernel debug output, package
+    // version strings, dmesg dumps).  A docked laptop on a real
+    // airplane could sneak any single byte into Serial; requiring the
+    // full "#1" raises the false-positive threshold to OnSpeed-only.
+    //
+    // We also do NOT persist the USB-CDC choice to NVS — it's a sim-
+    // only mode and must not survive a power cycle into a flight
+    // context.  Each boot re-detects.
     if (selectedPort != 4 && Serial.available()) {
+        static char s_lastSerialByte = 0;
         const int b = Serial.read();
-        if (b == '#') {
-            Preferences prefs;
-            prefs.begin("OnSpeed", false);
-            prefs.putUInt("SerialPort", 4);
-            prefs.end();
+        if (s_lastSerialByte == '#' && b == '1') {
             selectedPort = 4;
-            InjectSerialByte((char)b);
+            // Re-inject both bytes of the matched frame start so the
+            // accumulator picks up from the real beginning.
+            InjectSerialByte('#');
+            InjectSerialByte('1');
         }
-        // If b != '#', it was either stray noise or a mid-frame byte
-        // from a host that started before us.  Drop it; next loop
-        // iteration we either keep dropping or land on a '#'.
+        s_lastSerialByte = static_cast<char>(b);
+        // Bytes that don't form "#1" are either stray noise or mid-
+        // frame bytes from a host that started before us — both safe
+        // to drop, the next "#" resets the two-byte match window.
     }
 
     if (selectedPort == 4) {
@@ -330,15 +338,20 @@ unsigned int checkSerial()
     // USB host enumerates the M5; no Serial.begin needed for CDC.  We
     // probe it briefly before the hardware-UART variants so a sim-
     // tethered pilot doesn't sit through 15 s of UART probing.
-    serialString = "";
-    {
+    //
+    // IMPORTANT: only do the 2s wait if there's already inbound USB
+    // traffic.  A real airplane M5 has nothing on Serial (no laptop
+    // plugged in), and we'd otherwise add 2 s of dead boot time
+    // every flight.
+    if (Serial.available()) {
+        serialString = "";
         unsigned long t0 = millis();
         while (millis() - t0 < 2000 && serialString.length() < 200) {
             if (Serial.available()) serialString += (char)Serial.read();
         }
+        if (serialString.indexOf("#1") >= 0)
+            return 4;
     }
-    if (serialString.indexOf("#1") >= 0)
-        return 4;
 
     // TTL input (including v2 Onspeed with vern's power board)
     Serial2.begin(115200, SERIAL_8N1, PORTC_RX, PORTC_TX, false);
@@ -399,8 +412,14 @@ void serialSetup()
     {
         // check serial port
         selectedPort=checkSerial();
-        // save serial port preference
-        if (selectedPort!=0)
+        // save serial port preference — but ONLY for hardware-UART
+        // selections (1, 2, 3).  selectedPort=4 (USB-CDC) is sim-only:
+        // a real OnSpeed installation MUST re-detect on each boot
+        // because the USB-CDC connection is transient (laptop plugged
+        // in for log retrieval can leave a stale port=4 in NVS,
+        // which would brick the in-airplane M5 on the next flight
+        // by skipping Serial2 detection entirely).
+        if (selectedPort!=0 && selectedPort!=4)
             preferences.putUInt("SerialPort", selectedPort);
     }
 
@@ -431,9 +450,17 @@ void serialSetup()
             // USB-CDC: M5 is plugged into a host (typically the X-Plane
             // plugin) which writes display-serial bytes to the USB
             // device.  No Serial2.begin — SerialRead() reads from
-            // Serial directly when selectedPort==4.  We don't disable
-            // Serial.printf debug output; the host plugin ignores any
-            // inbound bytes from the M5.
+            // Serial directly when selectedPort==4.
+            //
+            // Disable Serial TX timeout: the host plugin opens the
+            // port write-only (O_WRONLY in serial_port.cpp), so the
+            // CDC RX buffer (M5 → host direction) is never drained.
+            // Once it fills, any Serial.printf would block up to the
+            // default 100 ms timeout — long enough to stall the M5
+            // render loop.  Setting the timeout to 0 makes Serial
+            // output non-blocking (drop-on-full), which is the right
+            // contract when no host is reading.
+            Serial.setTxTimeoutMs(0);
             Serial.println("USB-CDC: reading display-serial frames from Serial");
             break;
             }
