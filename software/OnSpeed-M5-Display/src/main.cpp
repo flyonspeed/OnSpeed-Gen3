@@ -97,6 +97,14 @@ bool        fwUpdateMode = false;
 #define TFT_GREY        0x7BEF
 #define TFT_LIGHT_GREY  0xAD55
 
+// Color depth for the off-screen sprite.  Defaults to 8bpp (palette
+// indexed) for the firmware builds where flash + RAM matter.  The
+// X-Plane plugin overrides to 16bpp via the build flag so its custom
+// Panel_FrameBufferBase subclass can read out RGB565 directly.
+#ifndef XPLANE_PLUGIN_DEPTH
+#define XPLANE_PLUGIN_DEPTH 8
+#endif
+
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
 
@@ -269,7 +277,7 @@ void setup()
     dacWrite(25, 0);
 #endif
 
-    gdraw.setColorDepth(8);
+    gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
     gdraw.createSprite(WIDTH, HEIGHT);
     gdraw.fillSprite (TFT_BLACK);
 
@@ -290,7 +298,7 @@ void setup()
         if (M5.BtnB.isPressed())
         {
             fwUpdateMode=true;
-            gdraw.setColorDepth(8);
+            gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
             gdraw.createSprite(WIDTH, HEIGHT);
             gdraw.fillSprite (TFT_BLACK);
             gdraw.setFont(FSSB12);
@@ -353,7 +361,7 @@ void setup()
                         if (!Update.begin(UPDATE_SIZE_UNKNOWN))
                         { //start with max available size
                         }
-                        gdraw.setColorDepth(8);
+                        gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
                         gdraw.createSprite(WIDTH, HEIGHT);
                         gdraw.fillSprite (TFT_BLACK);
                         gdraw.setFont(FSSB12);
@@ -457,7 +465,7 @@ void loop()
 
     if (M5.BtnB.wasPressed())
     {
-        gdraw.setColorDepth(8);
+        gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
         gdraw.createSprite(WIDTH, HEIGHT);
         gdraw.fillSprite (TFT_BLACK);
         displayType ++;
@@ -481,7 +489,7 @@ void loop()
     {
         loopTime = millis();
 
-        gdraw.setColorDepth(8);
+        gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
         gdraw.createSprite(WIDTH, HEIGHT);
         gdraw.fillSprite (TFT_BLACK);
         // Reset text anchoring for this frame. M5GFX's print()/setCursor()

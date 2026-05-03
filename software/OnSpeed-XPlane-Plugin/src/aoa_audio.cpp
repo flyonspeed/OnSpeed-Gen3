@@ -73,6 +73,12 @@
 #include <audio/ToneSynth.h>
 #include <config/OnSpeedConfig.h>
 #include <filters/RunningMean.h>
+
+#ifdef ENABLE_M5_INDEXER
+#include "m5_indexer/IndexerWindow.h"
+#include "serial_port.h"
+#include "m5_indexer/DataRefAdapter.h"
+#endif
 #include <filters/RunningMedian.h>
 #include <util/OnSpeedTypes.h>
 
@@ -97,6 +103,12 @@ float fLDMAXAOA       = 6.0f;
 float fONSPEEDFASTAOA = 7.3f;
 float fONSPEEDSLOWAOA = 9.6f;
 float fSTALLWARNAOA   = 12.5f;
+
+// USB-serial output to a physical M5Stack.  Empty string = disabled.
+// On macOS path looks like "/dev/cu.usbmodem11201", on Linux
+// "/dev/ttyACM0", on Windows "COM5".  Persisted per-aircraft in the
+// .prf file alongside the AOA setpoints.
+std::string sSerialPortPath;
 
 // IAS gate: tone path is silenced below this airspeed.  Matches the
 // firmware's `iMuteAudioUnderIAS` config field with hysteresis —
@@ -264,6 +276,7 @@ static void SaveSettings() {
     std::fprintf(fp, "iAoaMedianWindow = %d\n",   iAoaMedianWindow);
     std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
     std::fprintf(fp, "audioEnabled = %d\n",       audioEnabled ? 1 : 0);
+    std::fprintf(fp, "serialPortPath = %s\n",     sSerialPortPath.c_str());
     std::fclose(fp);
 }
 
@@ -291,6 +304,7 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
         else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "serialPortPath"))     sSerialPortPath    = val;
     }
     std::fclose(fp);
 }
@@ -548,6 +562,17 @@ static void OnAircraftLoaded() {
         XPSetWidgetDescriptor(audioToggleCheckbox,
                               audioEnabled ? "Sound: On" : "Sound: Off");
     }
+#ifdef ENABLE_M5_INDEXER
+    // Open the configured USB-serial port if one is set.  Failures
+    // are logged inside OpenSerialOut and just leave the port closed
+    // (e.g. user changed aircraft and the saved port path no longer
+    // exists, or the M5 isn't currently plugged in).
+    if (!sSerialPortPath.empty()) {
+        onspeed_xplane::indexer::OpenSerialOut(sSerialPortPath);
+    } else {
+        onspeed_xplane::indexer::CloseSerialOut();
+    }
+#endif
 }
 
 // Audio render thread.  Owns the OpenAL queue pump; reads g_Engine
@@ -673,6 +698,14 @@ static float init_sound([[maybe_unused]] float elapsed,
     // X-Plane has finished bringing the user aircraft up.  The first
     // flight-loop tick is the earliest moment we can trust it.
     OnAircraftLoaded();
+
+#ifdef ENABLE_M5_INDEXER
+    // M5 indexer is also deferred so the dataref lookups in the
+    // adapter find their refs.  Init creates the X-Plane window but
+    // leaves it hidden until the user toggles it via the menu.
+    onspeed_xplane::indexer::InitDataRefs();
+    onspeed_xplane::indexer::Init();
+#endif
 
     return 0.0f;
 }
@@ -1009,17 +1042,111 @@ static void UpdateAOATextFields() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#ifdef ENABLE_M5_INDEXER
+// Storage that backs the serial-submenu refcons.  Menu items pass a
+// raw pointer back to the handler; that pointer must outlive the
+// menu, so we own the strings here.  Index 0 is always the literal
+// "SerialOff" sentinel; subsequent entries hold detected port paths.
+static std::vector<std::string> g_SerialMenuRefcons;
+static XPLMMenuID g_SerialMenuId = nullptr;
+
+// Rebuild the serial submenu from the OS's current port enumeration.
+// Called from XPluginStart and from the "Refresh ports" menu item.
+static void RebuildSerialMenu()
+{
+    if (!g_SerialMenuId) return;
+    XPLMClearAllMenuItems(g_SerialMenuId);
+    g_SerialMenuRefcons.clear();
+    g_SerialMenuRefcons.reserve(8);
+
+    g_SerialMenuRefcons.emplace_back("SerialOff");
+    XPLMAppendMenuItem(g_SerialMenuId, "Off (no serial output)",
+        static_cast<void*>(g_SerialMenuRefcons.back().data()), 1);
+    XPLMAppendMenuItem(g_SerialMenuId, "Refresh ports",
+        static_cast<void*>(const_cast<char*>("SerialRefresh")), 1);
+    XPLMAppendMenuSeparator(g_SerialMenuId);
+
+    auto ports = onspeed_xplane::serial::ListPorts();
+    if (ports.empty()) {
+        XPLMAppendMenuItem(g_SerialMenuId, "(no USB serial devices found)",
+            static_cast<void*>(const_cast<char*>("SerialNone")), 1);
+    } else {
+        for (const auto& p : ports) {
+            g_SerialMenuRefcons.push_back(p);
+            XPLMAppendMenuItem(g_SerialMenuId, p.c_str(),
+                static_cast<void*>(g_SerialMenuRefcons.back().data()), 1);
+        }
+    }
+}
+
+// Set the serial output to a specific port path (or close if empty),
+// persisting the choice to the per-aircraft .prf.
+static void SetSerialPort(const std::string& path)
+{
+    sSerialPortPath = path;
+    if (path.empty()) {
+        onspeed_xplane::indexer::CloseSerialOut();
+    } else {
+        onspeed_xplane::indexer::OpenSerialOut(path);
+    }
+    SaveSettings();
+}
+#endif
+
 // Add menu handler
 static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
 {
-    if (!strcmp(static_cast<const char *>(iRef), "Show")) {
+    const char* tag = static_cast<const char *>(iRef);
+    if (!strcmp(tag, "Show")) {
         if (!audioControlWidget) {
             CreateAudioControlWindow(300, 690, 280, 470);
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
         }
+        return;
     }
+#ifdef ENABLE_M5_INDEXER
+    if (!strcmp(tag, "IndexerToggle")) {
+        if (onspeed_xplane::indexer::IsVisible())
+            onspeed_xplane::indexer::Hide();
+        else
+            onspeed_xplane::indexer::Show();
+        return;
+    }
+    if (!strcmp(tag, "SerialOff")) {
+        SetSerialPort("");
+        return;
+    }
+    if (!strcmp(tag, "SerialRefresh")) {
+        RebuildSerialMenu();
+        return;
+    }
+    if (!strcmp(tag, "SerialNone")) {
+        return;   // placeholder, no-op
+    }
+    // Anything else passing through here on the indexer side is a
+    // serial-port path stored as one of the entries in
+    // g_SerialMenuRefcons.  Match by string-equality against any of
+    // those — that proves the click came from a port-row we built.
+    for (const auto& p : g_SerialMenuRefcons) {
+        if (p == tag && p != "SerialOff") {
+            SetSerialPort(p);
+            return;
+        }
+    }
+    // IndexerMode<N> entries: parse the trailing digit.
+    if (!strncmp(tag, "IndexerMode", 11)) {
+        const int mode = tag[11] - '0';
+        // Show first — on first-time Show, the indexer's lazy-init
+        // resets displayType to 0 as part of InstallPanelAndRunSetup.
+        // SetMode AFTER so our requested mode wins.
+        if (!onspeed_xplane::indexer::IsVisible())
+            onspeed_xplane::indexer::Show();
+        onspeed_xplane::indexer::SetMode(mode);
+        return;
+    }
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1285,6 +1412,16 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
 
     float aoa = XPLMGetDataf(aoaDataRef);
     PlayAOATone(aoa, inElapsedSinceLastCall);
+
+#ifdef ENABLE_M5_INDEXER
+    // Run the M5 renderer one tick.  Cheap when the indexer window is
+    // hidden — the M5 still draws into our offscreen panel, but the
+    // X-Plane window draw callback is never invoked so the GL upload
+    // path is skipped.  Could short-circuit if hidden, but the M5
+    // renderer is microseconds per frame on a desktop CPU.
+    onspeed_xplane::indexer::Tick();
+#endif
+
     return -1.0f;  // Negative value means "call me next frame"
 }
 
@@ -1366,6 +1503,34 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     XPLMAppendMenuItem(menuId, "Show",
                        static_cast<void*>(const_cast<char*>("Show")), 1);
 
+#ifdef ENABLE_M5_INDEXER
+    // Indexer menu items.  Discriminator strings are literals, never
+    // written through the void* refcon.  AudioMenuHandler dispatches
+    // on strcmp.
+    XPLMAppendMenuSeparator(menuId);
+    XPLMAppendMenuItem(menuId, "Indexer: Show/Hide",
+                       static_cast<void*>(const_cast<char*>("IndexerToggle")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 0: AOA + Numbers",
+                       static_cast<void*>(const_cast<char*>("IndexerMode0")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 1: Attitude",
+                       static_cast<void*>(const_cast<char*>("IndexerMode1")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 2: Narrow AOA",
+                       static_cast<void*>(const_cast<char*>("IndexerMode2")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 3: Decel",
+                       static_cast<void*>(const_cast<char*>("IndexerMode3")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer Mode 4: G History",
+                       static_cast<void*>(const_cast<char*>("IndexerMode4")), 1);
+
+    // USB-serial submenu — routes the same wire frames to a physical
+    // M5Stack so a Core2 plugged into a USB-C port behaves like a
+    // real OnSpeed display.
+    XPLMAppendMenuSeparator(menuId);
+    int serialItem = XPLMAppendMenuItem(menuId, "Serial output", nullptr, 1);
+    g_SerialMenuId = XPLMCreateMenu("Serial output", menuId, serialItem,
+                                    AudioMenuHandler, nullptr);
+    RebuildSerialMenu();
+#endif
+
     // The audio render thread is started by init_sound, after the
     // OpenAL source and streaming buffers exist.  init_sound also
     // calls OnAircraftLoaded(), since XPLMGetNthAircraftModel returns
@@ -1400,6 +1565,11 @@ PLUGIN_API void XPluginStop(void) {
     }
     XPLMDestroyMenu(menuId);
     XPLMUnregisterFlightLoopCallback(CheckAOAAndPlayTone, nullptr);
+
+#ifdef ENABLE_M5_INDEXER
+    onspeed_xplane::indexer::Shutdown();
+#endif
+
     cleanupAudio();
 }
 
