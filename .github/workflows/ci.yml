@@ -723,7 +723,7 @@ jobs:
             | **Windows** | [${{ steps.artifacts.outputs.xpw_name }}](${{ steps.artifacts.outputs.xpw_url }}) |
             | **Linux** | [${{ steps.artifacts.outputs.xpl_name }}](${{ steps.artifacts.outputs.xpl_url }}) |
 
-            Drop the `.xpl` into `X-Plane 12/Resources/plugins/AOA-Tone-FlyOnSpeed/<arch>/`. Restart X-Plane to load. See the [X-Plane plugin docs](https://dev.flyonspeed.org/OnSpeed-Gen3/simulator/xplane-plugin/) for install details and usage.
+            Drop the `.xpl` into `X-Plane 12/Resources/plugins/AOA-Tone-FlyOnSpeed/<arch>/`. Restart X-Plane to load. See the [X-Plane plugin docs](https://dev.flyonspeed.org/OnSpeed-Gen3/xplane/) for install details and usage.
 
             ---
 

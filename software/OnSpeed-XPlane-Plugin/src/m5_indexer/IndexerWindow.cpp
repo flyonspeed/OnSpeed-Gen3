@@ -43,6 +43,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <cstring>
 #include <vector>
 
@@ -105,21 +106,6 @@ serial::SerialPort            s_serialOut;
 std::string                   s_serialOutPath;
 std::uint64_t                 s_serialErrCount = 0;
 
-// Modern-GL pipeline for the textured quad blit.  Allocated lazily on
-// first draw alongside the texture.  Apple Silicon's Metal-bridge
-// silently drops immediate-mode GL (glBegin/glEnd/glVertex), so we
-// render via a VBO + shader.
-GLuint                        s_shaderProgram = 0;
-GLuint                        s_vbo           = 0;
-GLint                         s_attrPos       = -1;   // location of a_pos
-GLint                         s_attrUV        = -1;   // location of a_uv
-GLint                         s_uniformVPSize = -1;   // location of u_viewport
-GLint                         s_uniformTex    = -1;   // location of u_tex
-
-// glext.h declares these as function-pointer typedefs but doesn't
-// instantiate them.  On macOS the OpenGL framework provides them
-// directly (extern "C" symbols), so plain function calls work.
-// Declared inline in the lgfx common.cpp pattern.
 
 // X-Plane window dimensions.  Native M5 panel is 320×240 — render
 // 1:1 by default; could pixel-double in a follow-up.
@@ -135,100 +121,6 @@ constexpr int kWindowHeight = 240;
 // handler runs.  All glGenTextures / glTexImage2D etc. happen here
 // on first draw, gated by s_glReady.
 
-// Compile a single shader stage; returns 0 on failure.
-GLuint CompileShader(GLenum type, const char* src)
-{
-    GLuint sh = glCreateShader(type);
-    glShaderSource(sh, 1, &src, nullptr);
-    glCompileShader(sh);
-    GLint ok = 0;
-    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[512] = {0};
-        glGetShaderInfoLog(sh, sizeof(log), nullptr, log);
-        char buf[640];
-        std::snprintf(buf, sizeof(buf),
-                      "FlyOnSpeed: shader compile FAILED (%s): %s\n",
-                      type == GL_VERTEX_SHADER ? "VS" : "FS", log);
-        XPLMDebugString(buf);
-        glDeleteShader(sh);
-        return 0;
-    }
-    return sh;
-}
-
-bool BuildShaderProgram()
-{
-    // GLSL 1.20 — matches X-Plane's compatibility-profile GL 2.1 context.
-    static const char* kVS =
-        "#version 120\n"
-        "attribute vec2 a_pos;\n"
-        "attribute vec2 a_uv;\n"
-        "uniform vec2 u_viewport;\n"   // (width, height) in pixels
-        "varying vec2 v_uv;\n"
-        "void main() {\n"
-        "    // pixel coords → clip coords [-1, +1].  X-Plane's y axis\n"
-        "    // is bottom-up in screen space and our quad uses bottom-\n"
-        "    // up too, so no flip needed beyond the rescale.\n"
-        "    vec2 ndc = (a_pos / u_viewport) * 2.0 - 1.0;\n"
-        "    gl_Position = vec4(ndc, 0.0, 1.0);\n"
-        "    v_uv = a_uv;\n"
-        "}\n";
-    // DIAGNOSTIC fragment shader: emit solid magenta with no texture
-    // sampling.  If this renders a magenta quad, the VBO + shader
-    // pipeline is working and the gray problem is purely texture
-    // sampling / binding.  If this also produces nothing, the shader
-    // pipeline itself is broken on Metal (modern-GL path also dropped).
-    // Real shader is below in #else, swap by toggling kDebugSolidShader.
-    static const bool kDebugSolidShader =
-        std::getenv("FLYONSPEED_INDEXER_SOLID_SHADER") != nullptr;
-    static const char* kFSSolid =
-        "#version 120\n"
-        "void main() {\n"
-        "    gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0);\n"   // magenta
-        "}\n";
-    static const char* kFSReal =
-        "#version 120\n"
-        "uniform sampler2D u_tex;\n"
-        "varying vec2 v_uv;\n"
-        "void main() {\n"
-        "    gl_FragColor = texture2D(u_tex, v_uv);\n"
-        "}\n";
-    const char* kFS = kDebugSolidShader ? kFSSolid : kFSReal;
-
-    GLuint vs = CompileShader(GL_VERTEX_SHADER, kVS);
-    if (!vs) return false;
-    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, kFS);
-    if (!fs) { glDeleteShader(vs); return false; }
-
-    s_shaderProgram = glCreateProgram();
-    glAttachShader(s_shaderProgram, vs);
-    glAttachShader(s_shaderProgram, fs);
-    glLinkProgram(s_shaderProgram);
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-
-    GLint linked = 0;
-    glGetProgramiv(s_shaderProgram, GL_LINK_STATUS, &linked);
-    if (!linked) {
-        char log[512] = {0};
-        glGetProgramInfoLog(s_shaderProgram, sizeof(log), nullptr, log);
-        char buf[640];
-        std::snprintf(buf, sizeof(buf),
-                      "FlyOnSpeed: shader link FAILED: %s\n", log);
-        XPLMDebugString(buf);
-        glDeleteProgram(s_shaderProgram);
-        s_shaderProgram = 0;
-        return false;
-    }
-
-    s_attrPos       = glGetAttribLocation (s_shaderProgram, "a_pos");
-    s_attrUV        = glGetAttribLocation (s_shaderProgram, "a_uv");
-    s_uniformVPSize = glGetUniformLocation(s_shaderProgram, "u_viewport");
-    s_uniformTex    = glGetUniformLocation(s_shaderProgram, "u_tex");
-    return true;
-}
-
 void EnsureGLReady()
 {
     if (s_textureId != 0) return;
@@ -242,78 +134,7 @@ void EnsureGLReady()
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
                  Panel_PluginCanvas::kWidth, Panel_PluginCanvas::kHeight,
                  0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-    if (!BuildShaderProgram()) {
-        XPLMDebugString("FlyOnSpeed: shader build failed; quad will not render\n");
-        return;
-    }
-    glGenBuffers(1, &s_vbo);
     XPLMDebugString("FlyOnSpeed: indexer GL setup complete\n");
-}
-
-// Render the texture onto the given screen rect using a VBO + shader.
-// Coordinates are X-Plane window coords (y-up, top > bottom).
-void BlitTexturedQuad(int left, int top, int right, int bottom)
-{
-    if (s_shaderProgram == 0 || s_vbo == 0) return;
-
-    // Bottom-left and top-right of the quad, plus matching UVs.  The
-    // texture's row 0 is the top of the framebuffer, so flip v.
-    const GLfloat verts[] = {
-        // x,    y,         u,    v
-        (GLfloat)left,  (GLfloat)bottom, 0.0f, 1.0f,
-        (GLfloat)right, (GLfloat)bottom, 1.0f, 1.0f,
-        (GLfloat)right, (GLfloat)top,    1.0f, 0.0f,
-        (GLfloat)left,  (GLfloat)bottom, 0.0f, 1.0f,
-        (GLfloat)right, (GLfloat)top,    1.0f, 0.0f,
-        (GLfloat)left,  (GLfloat)top,    0.0f, 0.0f,
-    };
-
-    int viewport[4] = {0, 0, 0, 0};
-    glGetIntegerv(GL_VIEWPORT, viewport);
-
-    glUseProgram(s_shaderProgram);
-    glUniform2f(s_uniformVPSize,
-                static_cast<GLfloat>(viewport[2]),
-                static_cast<GLfloat>(viewport[3]));
-    glUniform1i(s_uniformTex, 0);    // texture unit 0
-
-    glBindBuffer(GL_ARRAY_BUFFER, s_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
-
-    glEnableVertexAttribArray(s_attrPos);
-    glVertexAttribPointer(s_attrPos, 2, GL_FLOAT, GL_FALSE,
-                          4 * sizeof(GLfloat),
-                          reinterpret_cast<void*>(0));
-    glEnableVertexAttribArray(s_attrUV);
-    glVertexAttribPointer(s_attrUV, 2, GL_FLOAT, GL_FALSE,
-                          4 * sizeof(GLfloat),
-                          reinterpret_cast<void*>(2 * sizeof(GLfloat)));
-
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-
-    {
-        // Once-only: log any GL error from the modern-GL path so we
-        // can tell whether the draw is actually accepted by the driver.
-        static bool s_loggedBlitErr = false;
-        if (!s_loggedBlitErr) {
-            s_loggedBlitErr = true;
-            GLenum err = glGetError();
-            char eb[160];
-            std::snprintf(eb, sizeof(eb),
-                          "FlyOnSpeed: DIAG blit glGetError=0x%04x prog=%u vbo=%u "
-                          "attrPos=%d attrUV=%d uVP=%d uTex=%d\n",
-                          (unsigned)err, (unsigned)s_shaderProgram,
-                          (unsigned)s_vbo, s_attrPos, s_attrUV,
-                          s_uniformVPSize, s_uniformTex);
-            XPLMDebugString(eb);
-        }
-    }
-
-    glDisableVertexAttribArray(s_attrPos);
-    glDisableVertexAttribArray(s_attrUV);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glUseProgram(0);
 }
 
 // Per-window draw callback.  Upload current panel framebuffer to the
@@ -334,7 +155,10 @@ void DrawWindow(XPLMWindowID, void*)
 
     s_panel->CopyToRGBA8888(s_rgbaScratch.data());
 
-    if (EnvFlag("FLYONSPEED_INDEXER_FORCE_RED")) {
+    // Cached: avoids a getenv() call on every draw (60+ Hz).  Same
+    // pattern as kSkipInject / kSkipLoop in Tick.
+    static const bool kForceRed = EnvFlag("FLYONSPEED_INDEXER_FORCE_RED");
+    if (kForceRed) {
         const std::uint32_t red = 0xFF0000FFu;
         std::fill(s_rgbaScratch.begin(), s_rgbaScratch.end(), red);
     }
@@ -382,12 +206,6 @@ XPLMCursorStatus HandleCursor(XPLMWindowID, int, int, void*) { return xplm_Curso
 int  HandleWheel(XPLMWindowID, int, int, int, int, void*) { return 1; }
 
 // Render a textured quad using GL 1.x client-side vertex arrays.
-// Setup mirrors Dear ImGui's GL2 backend (`imgui_impl_opengl2.cpp`,
-// `ImGui_ImplOpenGL2_SetupRenderState`) line-for-line — the same
-// path PilotEdge uses to render textured UI on Apple Silicon's
-// Metal-backed GL bridge.  Don't deviate without testing — the
-// state setup matters more than it looks.
-// Render a textured quad using GL 1.x client-side vertex arrays.
 // Modeled directly on imgui4xp's RenderImGui (open-source X-Plane plugin
 // that runs Dear ImGui on Apple Silicon successfully):
 //
@@ -397,8 +215,10 @@ int  HandleWheel(XPLMWindowID, int, int, int, int, void*) { return 1; }
 // set up to map "boxels" (X-Plane window coordinates) directly to clip
 // space when our per-window draw callback runs.  We DO NOT call glOrtho
 // or glLoadIdentity.  We just push/pop PROJECTION (untouched) and feed
-// our vertices in window coords directly.  That's why imgui4xp works
-// where our prior glOrtho approach silently produced nothing.
+// our vertices in window coords directly.  Don't deviate without
+// testing — immediate-mode glBegin/glEnd and modern shader VBO paths
+// both silently no-op on the Metal-backed GL bridge from a plugin's
+// per-window draw callback.
 void RenderTexturedQuadVA(int left, int top, int right, int bottom, int texId)
 {
     // 1TU + alpha + alpha-test, no depth, no fog.  ImGui's exact mask.
@@ -450,9 +270,6 @@ void RenderTexturedQuadVA(int left, int top, int right, int bottom, int texId)
     glPopClientAttrib();
 }
 
-// Global phase draw callback registered at xplm_Phase_Window (after).
-// All actual texture upload + render happens here; the per-window draw
-// callback is a no-op.  See the comment on RenderTexturedQuadVA for why
 // ------------------------------------------------------------------
 // One-time setup helpers
 // ------------------------------------------------------------------
@@ -585,11 +402,14 @@ static bool s_loopEverReturned = false;
 
 void Tick()
 {
-    // Run if EITHER the embedded window is visible OR the USB-serial
-    // output is open.  Lets pilots stream to a physical M5 without
-    // also opening the in-sim window.
+    // Run if any of:
+    //   - the embedded indexer window is visible (renderer needs to tick)
+    //   - the USB-serial port is open (write next frame)
+    //   - a USB-serial port is configured but currently closed (the
+    //     auto-retry block below must run to re-establish the connection
+    //     after a transient unplug)
     if (!s_initOk) return;
-    if (!s_visible && !s_serialOut.IsOpen()) return;
+    if (!s_visible && !s_serialOut.IsOpen() && s_serialOutPath.empty()) return;
 
     // Throttle to 20 Hz to match the OnSpeed display-serial cadence.
     // X-Plane's flight loop fires at frame rate (60–80 Hz typical),
@@ -679,17 +499,53 @@ void Tick()
 
     // Mirror the same wire frame to the USB-serial port if open, so a
     // physically-connected M5 sees the same data the embedded indexer
-    // sees.  Errors close the port and bump a counter — no spammy log.
+    // sees.  Errors close the port — but s_serialOutPath stays set so
+    // we can auto-reopen below (handles transient unplug-replug).
+    //
+    // A non-blocking Write() can return false for two distinct reasons:
+    // (a) transient kernel-buffer full (EAGAIN/EWOULDBLOCK) — the right
+    //     response is to drop this frame and try the next one.
+    // (b) hard error (device unplugged, EIO) — the right response is to
+    //     close the port and let the retry loop re-establish.
+    // Without distinguishing these, every transient hiccup throws the
+    // M5 into a 2-second blackout.  Use consecutive-failure counting:
+    // single failure drops the frame, three in a row (150 ms) closes
+    // the port.  A truly disconnected device fails every frame so this
+    // converges to "close" within 150 ms; transient buffer pressure
+    // recovers on the next frame without loss of connection.
+    constexpr std::uint64_t kCloseAfterFails = 3;
     if (s_serialOut.IsOpen()) {
         if (!s_serialOut.Write(frameBytes, emitted)) {
             ++s_serialErrCount;
-            if (s_serialErrCount == 1) {
-                XPLMDebugString(("FlyOnSpeed: serial write failed on "
-                                + s_serialOutPath
-                                + ", closing port\n").c_str());
+            if (s_serialErrCount >= kCloseAfterFails) {
+                XPLMDebugString(("FlyOnSpeed: serial write failed "
+                                + std::to_string(kCloseAfterFails)
+                                + " frames on " + s_serialOutPath
+                                + ", will retry\n").c_str());
+                s_serialOut.Close();
+                // Don't clear s_serialOutPath — the periodic retry
+                // below uses it to auto-reopen when the device comes
+                // back.
             }
-            s_serialOut.Close();
-            s_serialOutPath.clear();
+        } else {
+            s_serialErrCount = 0;
+        }
+    } else if (!s_serialOutPath.empty()) {
+        // Port wanted but closed (either initial setup hit a transient
+        // failure, or a write error closed it).  Retry every 2 seconds
+        // — fast enough that a USB replug recovers within a couple
+        // frames, slow enough not to spam the OS open() call when the
+        // device is genuinely gone.
+        static std::uint32_t s_lastReopenAttempt = 0;
+        const std::uint32_t now = static_cast<std::uint32_t>(SDL_GetTicks());
+        if (now - s_lastReopenAttempt > 2000) {
+            s_lastReopenAttempt = now;
+            if (s_serialOut.Open(s_serialOutPath)) {
+                XPLMDebugString(("FlyOnSpeed: serial reopen OK on "
+                                + s_serialOutPath + "\n").c_str());
+                s_serialErrCount = 0;
+            }
+            // Open failure: silent, will retry in 2s.
         }
     }
 
@@ -788,14 +644,19 @@ bool OpenSerialOut(const std::string& portPath)
         }
     }
 
-    if (!s_serialOut.Open(portPath)) {
-        XPLMDebugString(("FlyOnSpeed: serial open FAILED on " + portPath
-                        + "\n").c_str());
-        s_serialOutPath.clear();
-        return false;
-    }
+    // Set s_serialOutPath BEFORE attempting Open, and leave it set
+    // even on initial failure.  This way the Tick auto-retry loop
+    // picks the port up the moment it appears (e.g., user told us
+    // about an M5 they hadn't plugged in yet).  Caller still gets
+    // false so it knows the device isn't responding right now.
     s_serialOutPath  = portPath;
     s_serialErrCount = 0;
+
+    if (!s_serialOut.Open(portPath)) {
+        XPLMDebugString(("FlyOnSpeed: serial open FAILED on " + portPath
+                        + " — will retry until device appears\n").c_str());
+        return false;
+    }
     XPLMDebugString(("FlyOnSpeed: serial open OK on " + portPath
                     + "\n").c_str());
     return true;

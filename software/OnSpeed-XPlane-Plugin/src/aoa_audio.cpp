@@ -304,7 +304,16 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
         else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
-        else if (!std::strcmp(key, "serialPortPath"))     sSerialPortPath    = val;
+        else if (!std::strcmp(key, "serialPortPath")) {
+            // Defensive trim: sscanf %127[^\n\r] captures any trailing
+            // spaces on the line, and the auto-retry loop would silently
+            // spin on /dev/cu.foo<space> if the file was hand-edited
+            // with extra whitespace.
+            std::string v = val;
+            while (!v.empty() && (v.back() == ' ' || v.back() == '\t'))
+                v.pop_back();
+            sSerialPortPath = v;
+        }
     }
     std::fclose(fp);
 }
@@ -1052,12 +1061,26 @@ static XPLMMenuID g_SerialMenuId = nullptr;
 
 // Rebuild the serial submenu from the OS's current port enumeration.
 // Called from XPluginStart and from the "Refresh ports" menu item.
+//
+// Refcon ownership: each menu entry passes a void* refcon that's
+// captured by X-Plane and handed back to the menu callback unchanged.
+// We pack each entry's discriminator string into g_SerialMenuRefcons
+// and pass `g_SerialMenuRefcons[i].data()` as the refcon.  CRITICAL:
+// that pointer must outlive the menu, so the vector must NOT
+// reallocate after the .data() pointer is captured.  Reserve up-front
+// for the exact number of entries we'll push so no growth happens
+// mid-build.
 static void RebuildSerialMenu()
 {
     if (!g_SerialMenuId) return;
     XPLMClearAllMenuItems(g_SerialMenuId);
     g_SerialMenuRefcons.clear();
-    g_SerialMenuRefcons.reserve(8);
+
+    auto ports = onspeed_xplane::serial::ListPorts();
+    // Reserve for: 1 "SerialOff" sentinel + N port paths.  Anything
+    // less guarantees a reallocation if ports.size() >= 7, which
+    // dangles the .data() pointer for "SerialOff".
+    g_SerialMenuRefcons.reserve(ports.size() + 1);
 
     g_SerialMenuRefcons.emplace_back("SerialOff");
     XPLMAppendMenuItem(g_SerialMenuId, "Off (no serial output)",
@@ -1066,7 +1089,6 @@ static void RebuildSerialMenu()
         static_cast<void*>(const_cast<char*>("SerialRefresh")), 1);
     XPLMAppendMenuSeparator(g_SerialMenuId);
 
-    auto ports = onspeed_xplane::serial::ListPorts();
     if (ports.empty()) {
         XPLMAppendMenuItem(g_SerialMenuId, "(no USB serial devices found)",
             static_cast<void*>(const_cast<char*>("SerialNone")), 1);

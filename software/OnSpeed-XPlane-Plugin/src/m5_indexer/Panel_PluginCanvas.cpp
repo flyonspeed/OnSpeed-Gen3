@@ -115,12 +115,12 @@ void Panel_PluginCanvas::CopyToRGBA8888(std::uint32_t* dst)
     // the low (`x = (x << 3) | (x >> 2)` for 5-bit, `(x << 2) | (x >> 4)`
     // for 6-bit) — standard RGB565 → RGB888 expansion.
     //
-    // DIAGNOSTIC: mutex disabled.  The M5 renderer (loop()) is currently
-    // SKIPPED at IndexerWindow.cpp:Tick — nothing else writes to the
-    // framebuffer.  If removing the lock makes the crash go away, the
-    // mutex object itself was being clobbered by something during
-    // M5.Display.init / setup.  Bare framebuffer access also rules out
-    // the lock_guard being a victim of an exception thrown elsewhere.
+    // The lock guards against concurrent writeBlock on the M5 firmware's
+    // loop() (X-Plane flight-loop thread) overlapping with our read.
+    // Worst case the read sees a half-frame visual glitch; without the
+    // lock, multi-byte writeBlock strides + our concurrent reads are UB
+    // under the C++ memory model.
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_framebuffer) return;
     const std::uint16_t* src =
         reinterpret_cast<const std::uint16_t*>(m_framebuffer);
