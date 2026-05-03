@@ -304,7 +304,16 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
         else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
-        else if (!std::strcmp(key, "serialPortPath"))     sSerialPortPath    = val;
+        else if (!std::strcmp(key, "serialPortPath")) {
+            // Defensive trim: sscanf %127[^\n\r] captures any trailing
+            // spaces on the line, and the auto-retry loop would silently
+            // spin on /dev/cu.foo<space> if the file was hand-edited
+            // with extra whitespace.
+            std::string v = val;
+            while (!v.empty() && (v.back() == ' ' || v.back() == '\t'))
+                v.pop_back();
+            sSerialPortPath = v;
+        }
     }
     std::fclose(fp);
 }
