@@ -105,13 +105,11 @@ static EnAudioTone s_LastEnvTone = enToneNone;
 
 #define FREERTOS
 
-// Carrier frequencies for the precomputed cosine tables.  Defaults match
-// Gen2 Tones.ino exactly (400 Hz / 1600 Hz).  All envelope timing —
-// per-pulse DAHD shape, ramp times, solid entry delay, stall PPS
-// threshold — lives in `onspeed::audio::OrchestratorConfig` (defaults
-// match Gen2 too) and is consumed via DecideAndArm() below.
-#define HIGH_TONE_HZ         1600                 // freq of high tone
-#define LOW_TONE_HZ           400                 // freq of low tone
+// Carrier frequencies live in onspeed::LOW_TONE_HZ / HIGH_TONE_HZ
+// (audio/ToneCalc.h).  All envelope timing — per-pulse DAHD shape,
+// ramp times, solid entry delay, stall PPS threshold — lives in
+// onspeed::audio::OrchestratorConfig and is consumed via DecideAndArm()
+// below.
 
 // ----------------------------------------------------------------------------
 
@@ -259,15 +257,14 @@ void AudioPlay::Init()
         g_Log.println(MsgLog::EnAudio, MsgLog::EnError, "Failed to initialize I2S after 3 attempts!");
     }
 
-    // Precompute the 400 Hz and 1600 Hz tone buffers using the shared
-    // onspeed_core synth routine.  Byte-for-byte matches the legacy
-    // Audio.cpp init loop that seeded aTone_400Hz / aTone_1600Hz with
-    // 25000 * cos(2*pi*i*freq/SR).
+    // Precompute the low- and high-tone cosine carrier tables.  PlayTone()
+    // pumps these through the envelope-driven mixer; phase continuity
+    // across pump calls comes from s_ToneSrcIdx, not from the synth.
     onspeed::audio::SynthesizeLegacyCosine(
-        static_cast<float>(LOW_TONE_HZ), SAMPLE_RATE,
+        onspeed::LOW_TONE_HZ, SAMPLE_RATE,
         aTone_400Hz, TONE_BUFFER_LEN);
     onspeed::audio::SynthesizeLegacyCosine(
-        static_cast<float>(HIGH_TONE_HZ), SAMPLE_RATE,
+        onspeed::HIGH_TONE_HZ, SAMPLE_RATE,
         aTone_1600Hz, TONE_BUFFER_LEN);
 
     // Length of the data in the buffer. This may be different for tones that

@@ -34,21 +34,27 @@ struct ToneResult {
 };
 
 // ============================================================================
-// CONSTANTS  (match Audio.cpp #defines)
+// CONSTANTS
 // ============================================================================
 
+// Carrier frequencies for the two tones the system plays.  Low tone
+// (400 Hz) carries the LDmax band and the OnSpeed solid tone; high
+// tone (1600 Hz) carries the above-OnSpeed pulsed band and the stall
+// warning.  Pinned by the audio-tone spec.
+constexpr float LOW_TONE_HZ         =  400.0f;
+constexpr float HIGH_TONE_HZ        = 1600.0f;
+
+// Pulse rates per region (PPS).
 constexpr float HIGH_TONE_STALL_PPS = 20.0f;
 constexpr float HIGH_TONE_PPS_MIN   =  1.5f;
 constexpr float HIGH_TONE_PPS_MAX   =  6.2f;
 constexpr float LOW_TONE_PPS_MIN    =  1.5f;
 constexpr float LOW_TONE_PPS_MAX    =  8.2f;
 
-// Per-PPS volume ramp ported verbatim from Gen2 Tones.ino:
-//   sinewave1.amplitude = mapfloat(pps, HIGH_TONE_PPS_MIN, HIGH_TONE_PPS_MAX,
-//                                  HIGH_TONE_VOLUME_MIN, HIGH_TONE_VOLUME_MAX)
-// Cruise/on-speed/pulsed-low all use STALL_VOL_MIN; stall warning hits
-// STALL_VOL_MAX.  The ramp gives the pilot a comfortable cruise volume
-// while preserving full headroom for the stall cue.
+// Per-PPS volume ramp.  Cruise / OnSpeed / pulsed-low all use
+// STALL_VOL_MIN; stall warning hits STALL_VOL_MAX.  The ramp gives a
+// comfortable cruise volume while preserving full headroom for the
+// stall cue.
 constexpr float STALL_VOL_MIN = 0.25f;
 constexpr float STALL_VOL_MAX = 1.00f;
 

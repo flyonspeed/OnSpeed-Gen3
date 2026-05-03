@@ -8,6 +8,14 @@ project(AOA-Tone-FlyOnSpeed CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# SDK version + platform defines.  XPLM200..XPLM400 unlock the
+# corresponding-version SDK API surface (each adds new entry points
+# behind #if defined(XPLMxxx)).  We target XPLM400 so we get the full
+# SDK 4.x API including XPLMEnableFeature ("XPLM_USE_NATIVE_PATHS"),
+# which is required for fopen() to accept paths from XPLMGetSystemPath
+# on macOS.
+add_compile_definitions(XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1 XPLM400=1)
+
 # Per-OS SDK library directory and platform define expected by the X-Plane SDK.
 if(APPLE)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
