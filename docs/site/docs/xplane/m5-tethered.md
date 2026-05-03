@@ -17,21 +17,30 @@ indexer window.
 
 ## Step 1 — Flash M5 firmware
 
-The M5 firmware needs the USB-CDC support that landed in the same PR
-as this feature. If you've flashed your M5 from a build older than
-that, reflash from current `master`.
+!!! warning "Coming soon"
 
-From a terminal on the sim PC, with the M5 plugged in via USB:
+    The M5 firmware support for USB-CDC tethering is in source on
+    `master` but is not yet shipped as a published release binary.
+    Released M5 firmware will gain USB-CDC autodetect once issue
+    [#399](https://github.com/flyonspeed/OnSpeed-Gen3/issues/399)
+    lands — track that issue for the rollout.
 
-```bash
-cd software/OnSpeed-M5-Display
-pio run -e m5stack-core2 -t upload    # M5Stack Core2
-# or
-pio run -e m5stack-core-esp32 -t upload   # M5Stack Basic
-```
+    Until #399 ships, only developers who can build from source
+    (PlatformIO + the `m5stack-core2` / `m5stack-core-esp32` env)
+    can flash a USB-CDC-capable M5.  See the appendix below.
 
-PlatformIO auto-detects the connected device. After flashing, the M5
-reboots into the OnSpeed splash, then enters serial-detect mode.
+When release builds become available, the workflow will be:
+
+1. Download the latest M5 firmware `.bin` from the
+   [OnSpeed-Gen3 releases page](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest)
+   matching your hardware (`m5stack-core2` or `m5stack-core-esp32`).
+2. Flash via M5Burner or `esptool.py` per the release notes.
+3. The M5 reboots into the OnSpeed splash, then enters serial-detect
+   mode.
+
+A pilot who already flies with an OnSpeed M5 in the panel reuses the
+same firmware they already have, just on a release build that
+includes USB-CDC support.
 
 ## Step 2 — What the M5 shows during boot
 
@@ -61,12 +70,8 @@ Pick the port that corresponds to your M5.
 The plugin opens the port at 115200 8N1 — the same baud rate the
 firmware's display-serial output uses. From there, every display-
 serial frame the embedded indexer consumes is also pushed out the
-wire.
-
-Within ~1 second the M5 should switch from its splash / no-data
-state to displaying live X-Plane state.
-
-## Picking the port
+wire.  Within ~1 second the M5 should switch from its splash /
+no-data state to displaying live X-Plane state.
 
 The serial submenu lists every USB-CDC port the OS exposes:
 
@@ -80,11 +85,6 @@ The M5 typically shows up as the only newly-appeared entry after you
 plug it in. If the list is empty when you open the menu, the OS
 hadn't enumerated the device yet — close the menu, click
 **Refresh ports**, and reopen.
-
-The selected port path is persisted in the per-aircraft `.prf` file
-(see [Per-Aircraft Settings](settings.md)). Loading the same aircraft
-later reopens the same port automatically. Pick **Off (no serial
-output)** to stop streaming and clear the saved path.
 
 ## Step 4 — Use the indexer in the sim
 
@@ -166,3 +166,21 @@ Open the X-Plane `Log.txt` (sim root) and search for
 saved port path — the previously connected M5 is on a different
 node now. Pick **Off**, then re-pick the current port from the
 freshly enumerated list.
+
+
+## Developer appendix — flashing M5 firmware from source
+
+For developers who want to test the USB-CDC tethering before the
+release artifact lands (issue
+[#399](https://github.com/flyonspeed/OnSpeed-Gen3/issues/399)):
+
+```bash
+cd software/OnSpeed-M5-Display
+pio run -e m5stack-core2 -t upload         # M5Stack Core2
+# or
+pio run -e m5stack-core-esp32 -t upload    # M5Stack Basic
+```
+
+PlatformIO auto-detects the connected device.  Requires
+[PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html)
+installed locally.  Pilots should not need this path once #399 ships.
