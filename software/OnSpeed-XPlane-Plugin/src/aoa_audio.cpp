@@ -42,6 +42,7 @@
 #include "XPLMGraphics.h"
 #include "XPLMProcessing.h"
 #include "XPLMDataAccess.h"
+#include "XPLMPlanes.h"
 #include "XPLMPlugin.h"
 #include "XPLMUtilities.h"
 #include "XPWidgets.h"
@@ -49,132 +50,578 @@
 #include "XPWidgetUtils.h"
 #include "XPLMMenus.h"
 
-#include <iostream>
-#include <sstream>
+#include <climits>
 #include <cmath>
-#include <vector>
 #include <cstring>
+#include <cstdio>
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <optional>
+#include <memory>
+#include <string>
 
-// Plugin shares its tone semantics, smoothing pipeline, and PCM
-// generation with the firmware via onspeed_core — single source of
-// truth across panel-mounted Gen3, M5 display, and this sim plugin.
+// Plugin shares its audio engine with the firmware via onspeed_core —
+// envelope shape, orchestration decision, mixing, and synthesis are
+// all the same code that drives the panel-mounted Gen3.  This file
+// owns the OpenAL streaming I/O and the X-Plane SDK glue.
+#include <audio/AudioMixer.h>
+#include <audio/AudioOrchestrator.h>
+#include <audio/Envelope.h>
+#include <audio/Panning.h>
 #include <audio/ToneCalc.h>
 #include <audio/ToneSynth.h>
+#include <config/OnSpeedConfig.h>
 #include <filters/RunningMean.h>
 #include <filters/RunningMedian.h>
+#include <util/OnSpeedTypes.h>
 
 // Function declarations
 void cleanupAudio();
+void AudioRenderThread();
 static void UpdateAOATextFields();
 
-// AOA ranges for different states (default values)
-float AOA_BELOW_LDMAX           = 6.0f;     // Below this is "Below LDMax" - no tone
-float AOA_BELOW_ONSPEED         = 7.3f;     // Between LDMax and this is "Below OnSpeed"
-float AOA_ONSPEED_MAX           = 9.6f;     // Between Below OnSpeed and this is "OnSpeed"
-float AOA_ABOVE_ONSPEED_MAX     = 12.5f;    // Above this is "Above OnSpeed"
-
-float AOA_IAS_TONE_ENABLE       = 25.0f;    // IAS (knots) above this value will enable the tone
-
-// Tone configuration. The two carrier frequencies stay here because
-// they're plugin-side OpenAL buffer identities; the firmware uses the
-// same values via Audio.cpp's aTone_400Hz / aTone_1600Hz.
+// Per-aircraft AOA setpoints, named to match the firmware's
+// per-flap config fields (Config.h::SuFlaps).  The four boundary
+// AOAs partition the tone map:
 //
-// Pulse rates and stall PPS live in onspeed_core/audio/ToneCalc.h and
-// reach the audio path via calculateTone() — no per-region constants
-// duplicated in this file.
-#define TONE_NORMAL_FREQ       400.0f   // Low tone in Hz (LDmax band, OnSpeed band)
-#define TONE_HIGH_FREQ         1600.0f  // High tone in Hz (above OnSpeed, stall warn)
+//   below LDmax              → silence
+//   LDmax  .. OnSpeedFast    → low pulsed (1.5..8.2 PPS)
+//   OnSpeedFast .. OnSpeedSlow → low solid (the "OnSpeed" band)
+//   OnSpeedSlow .. StallWarn → high pulsed (1.5..6.2 PPS)
+//   above StallWarn          → high pulsed at stall PPS (20)
+//
+// Defaults are generic; pilots tune these to match their airframe
+// (or copy from a calibrated OnSpeed installation).
+float fLDMAXAOA       = 6.0f;
+float fONSPEEDFASTAOA = 7.3f;
+float fONSPEEDSLOWAOA = 9.6f;
+float fSTALLWARNAOA   = 12.5f;
+
+// IAS gate: tone path is silenced below this airspeed.  Matches the
+// firmware's `iMuteAudioUnderIAS` config field with hysteresis —
+// audio unmutes at iMuteAudioUnderIAS + kIasMuteHysteresisKt and
+// re-mutes back at iMuteAudioUnderIAS, so a touchdown bouncing the
+// airspeed across the threshold doesn't chatter the tone on/off.
+// Sentinel: 0 means "never mute on IAS" (matches firmware).
+int   iMuteAudioUnderIAS         = 25;
+constexpr int kIasMuteHysteresisKt = 5;
+
+// Plugin-only smoothing.  X-Plane's sim/flightmodel/position/alpha
+// can be jaggy at low frame rates, so we run the dataref through a
+// median-despike + running-mean filter before handing it to ToneCalc.
+// The firmware doesn't smooth AOA in the audio path — its AOA is
+// already derived from heavily-smoothed pressure samples upstream
+// in SensorIO — so these knobs have no firmware analog.
+//
+// Total latency ≈ (medianWindow + meanWindow) / 2 frames at the
+// X-Plane flight-loop rate (typ. 30-60 Hz).
+int iAoaMedianWindow = 5;     // 1 disables median (passthrough)
+int iAoaMeanWindow   = 10;    // 1 disables mean (passthrough)
+
+// Master volume (0-100 %).  Mirrors the firmware's pot-driven
+// fVolume scaling — the per-PPS fVolumeMult ramp from STALL_VOL_MIN
+// (cruise/OnSpeed) to STALL_VOL_MAX (stall warning) is multiplied by
+// this before the per-channel pan splits.  100 = full output, 0 =
+// silent (the IAS gate / Sound:Off toggle stays the safer mute path).
+int iMasterVolumePct = 100;
+
 #define DEFAULT_VOLUME          1.0f    // OpenAL gain (0..1)
 
-// OpenAL device and context
+// OpenAL device, context, source.  Rendering uses streaming queued
+// buffers (alSourceQueueBuffers) rather than a fixed precomputed
+// loop; carrier + envelope + mixer run sample-accurate per-chunk
+// and feed PCM into a rotating bank of buffers.
 ALCdevice* device = nullptr;
 ALCcontext* context = nullptr;
-ALuint audioSource;
-ALuint audioBufferNormal;  // Rename existing audioBuffer
-ALuint audioBufferHigh;    // New buffer for high frequency
+ALuint audioSource = 0;
 
-// DataRef for AOA and IAS (indicated airspeed)
-XPLMDataRef aoaDataRef = nullptr;
-XPLMDataRef iasDataRef = nullptr;
-XPLMDataRef aircraftNameDataRef = nullptr;
+// Streaming buffer pool.  Four 10ms chunks @ 16kHz ≈ 40ms of
+// in-flight audio — keeps OpenAL fed without starving while staying
+// short enough that an envelope state change takes effect within
+// one chunk window.  More buffers => more latency on transitions.
+constexpr int   kAudioSampleRateHz = onspeed::audio::kSampleRateHz;  // 16000
+constexpr int   kFramesPerChunk    = kAudioSampleRateHz / 100;       // 160 frames = 10ms
+constexpr int   kStreamBufferCount = 4;
+ALuint streamBuffers[kStreamBufferCount] = {0, 0, 0, 0};
 
-// Add these globals for the UI
-static XPWidgetID audioControlWidget = nullptr;
+// X-Plane datarefs read each flight loop.
+XPLMDataRef aoaDataRef       = nullptr;     // sim/flightmodel/position/alpha
+XPLMDataRef iasDataRef       = nullptr;     // sim/flightmodel/position/indicated_airspeed
+XPLMDataRef lateralGDataRef  = nullptr;     // sim/flightmodel/forces/g_side
+XPLMDataRef pausedDataRef    = nullptr;     // sim/time/paused (int, 1 when paused)
+XPLMDataRef crashedDataRef   = nullptr;     // sim/flightmodel2/misc/has_crashed (int, 1 after crash)
+
+// Control-window widget handles.
+static XPWidgetID audioControlWidget  = nullptr;
 static XPWidgetID audioToggleCheckbox = nullptr;
-static XPWidgetID widgetAOAValue = nullptr;
-static XPWidgetID widgetButtonReload = nullptr;
-static XPWidgetID widgetAudioStatus = nullptr;
+static XPWidgetID widgetAOAValue      = nullptr;
+static XPWidgetID widgetAudioStatus   = nullptr;
+static XPWidgetID widgetButtonReload  = nullptr;
+
+// Editable-field handles.  Declared here (rather than next to the
+// CreateAudioControlWindow that builds them) because the validator
+// below has to address them by name.
+static XPWidgetID widgetLDMaxAOA              = nullptr;
+static XPWidgetID widgetOnSpeedFastAOA        = nullptr;
+static XPWidgetID widgetOnSpeedSlowAOA        = nullptr;
+static XPWidgetID widgetStallWarnAOA          = nullptr;
+static XPWidgetID widgetMuteAudioUnderIAS     = nullptr;
+static XPWidgetID widgetMasterVolumePct       = nullptr;
+static XPWidgetID widgetAoaMedianWindow       = nullptr;
+static XPWidgetID widgetAoaMeanWindow         = nullptr;
+static XPWidgetID widgetButtonSave            = nullptr;
+static XPWidgetID widgetButtonRestoreDefaults = nullptr;
 static bool audioEnabled = false;
 static XPLMMenuID menuId;
 
-// AOA smoothing pipeline matches the firmware's SensorIO pressure path:
-//   raw → RunningMedian (kill spikes) → RunningMean (smooth)
-// Window sizes are picked to match the firmware spirit: median=5 (enough
-// to reject 1-2 sample spikes without noticeable lag), mean=10 (firmware's
-// PfwdAvg fixed size). At X-Plane's typical ~30-60 Hz flight loop rate
-// this is ~80-160 ms of effective smoothing.
-constexpr int kMedianWindow = 5;
-constexpr int kMeanWindow   = 10;
-onspeed::RunningMedian aoaMedian(kMedianWindow);
-onspeed::RunningMean   aoaMean(kMeanWindow);
+// AOA smoothing pipeline.  Window sizes are runtime-configurable via
+// iAoaMedianWindow / iAoaMeanWindow; rebuildAoaSmoothers() swaps in
+// fresh filter instances when the user updates them.
+std::unique_ptr<onspeed::RunningMedian> aoaMedian;
+std::unique_ptr<onspeed::RunningMean>   aoaMean;
 
-// Pulse-thread plumbing. The flight-loop callback fills these from the
-// onspeed_core decision; the pulse thread reads them and plays one
-// pulse cycle at the requested rate. atomic<float> is fine here — the
-// reads happen at pulse cadence (a few times per second), the writes
-// at flight-loop cadence (~30-60 Hz), and inconsistency for one frame
-// is inaudible.
-std::thread* pulseThread = nullptr;
-std::atomic<bool>  threadRunning{false};
-std::atomic<bool>  shouldPlay{false};
-std::atomic<float> currentToneFreqHz{0.0f};   // 0 = no tone
-std::atomic<float> currentPulseFreqHz{0.0f};  // 0 = solid (not pulsed)
-
-// Add these globals with other globals
-static int lastWidgetBottom = 0;
-static const int WIDGET_HEIGHT = 20;
-static const int WIDGET_MARGIN = 5;
-
-// Add these globals with other globals
-static XPWidgetID widgetAOABelowLDMax = nullptr;
-static XPWidgetID widgetAOABelowOnSpeed = nullptr;
-static XPWidgetID widgetAOAOnSpeedMax = nullptr;
-static XPWidgetID widgetAOAAboveOnSpeedMax = nullptr;
-static XPWidgetID widgetAOAIASToneEnable = nullptr;
-static XPWidgetID widgetButtonUpdateValues = nullptr;
-
-// Temporary variables to store text field values
-static float temp_AOA_BELOW_LDMAX = 0.0f;
-static float temp_AOA_BELOW_ONSPEED = 0.0f;
-static float temp_AOA_ONSPEED_MAX = 0.0f;
-static float temp_AOA_ABOVE_ONSPEED_MAX = 0.0f;
-static float temp_AOA_IAS_TONE_ENABLE = 0.0f;
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Sample rate for the precomputed OpenAL tone buffers. 44.1 kHz matches
-// what the plugin used pre-onspeed_core; the firmware nominally runs
-// at 16 kHz but ToneSynth::Synthesize accepts any rate.
-constexpr int kBufferSampleRateHz = 44100;
-constexpr int kBufferSamples      = kBufferSampleRateHz / 10;   // 0.1s
-constexpr int16_t kBufferAmp      = 32767;                      // peak
-
-// Fill a vector with one period-length cosine buffer at the requested
-// frequency, ready to be uploaded to an OpenAL buffer and looped. Phase
-// is reset each call (these are one-shot precomputes).
-static std::vector<int16_t> precomputeTone(float frequencyHz) {
-    std::vector<int16_t> buffer(kBufferSamples);
-    onspeed::audio::Synthesize(frequencyHz, kBufferAmp, kBufferSampleRateHz,
-                               buffer.data(), buffer.size(), 0.0f);
-    return buffer;
+static void rebuildAoaSmoothers() {
+    if (iAoaMedianWindow < 1) iAoaMedianWindow = 1;
+    if (iAoaMeanWindow   < 1) iAoaMeanWindow   = 1;
+    aoaMedian = std::make_unique<onspeed::RunningMedian>(iAoaMedianWindow);
+    aoaMean   = std::make_unique<onspeed::RunningMean>(iAoaMeanWindow);
 }
 
+// --------------------------------------------------------------------------
+// Per-aircraft settings persistence.
+//
+// Settings live at <X-Plane>/Output/preferences/AOA-Tone-FlyOnSpeed-<acf>.prf
+// where <acf> is the aircraft .acf basename (no extension, slashes
+// flattened).  Format is plain `key = value\n` lines; missing keys keep
+// their compiled-in defaults so a partial file is fine.
+//
+// Calibration is per-airframe (RV-10 ≠ Cessna 172) so every editable
+// field gets persisted in the same per-aircraft file — no global vs.
+// per-aircraft split.  audioEnabled (Sound:On/Off) is persisted too:
+// the pilot's choice for one airframe survives a sim restart.
+
+constexpr const char* kSettingsDirRel = "Output/preferences/";
+constexpr const char* kSettingsPrefix = "AOA-Tone-FlyOnSpeed-";
+constexpr const char* kSettingsSuffix = ".prf";
+
+// Path the most recently loaded/saved settings file lives at.  Tracked
+// so Save can write back to the right file even after an aircraft
+// change races with a button press.
+static std::string s_SettingsPath;
+
+static std::string sanitizeAcfBasename(const char* acfFileName) {
+    std::string out;
+    out.reserve(strlen(acfFileName));
+    for (const char* p = acfFileName; *p != '\0'; ++p) {
+        char c = *p;
+        if (c == '/' || c == '\\' || c == ':') c = '_';
+        out += c;
+    }
+    // Strip the .acf extension if present.
+    const std::string acfExt = ".acf";
+    if (out.size() >= acfExt.size() &&
+        out.compare(out.size() - acfExt.size(), acfExt.size(), acfExt) == 0) {
+        out.resize(out.size() - acfExt.size());
+    }
+    return out;
+}
+
+// Build the absolute path to the per-aircraft settings file for the
+// currently-loaded user aircraft.  Returns empty string if X-Plane
+// reports no user aircraft (e.g., during early startup).
+static std::string buildSettingsPath() {
+    char xpRoot[1024] = {0};
+    XPLMGetSystemPath(xpRoot);
+
+    char acfFile[256] = {0};
+    char acfPath[1024] = {0};
+    XPLMGetNthAircraftModel(0, acfFile, acfPath);
+    if (acfFile[0] == '\0') return {};
+
+    std::string path = xpRoot;
+    path += kSettingsDirRel;
+    path += kSettingsPrefix;
+    path += sanitizeAcfBasename(acfFile);
+    path += kSettingsSuffix;
+    return path;
+}
+
+static void SaveSettings() {
+    if (s_SettingsPath.empty()) return;
+    FILE* fp = std::fopen(s_SettingsPath.c_str(), "w");
+    if (!fp) {
+        XPLMDebugString(("FlyOnSpeed: SaveSettings: could not open "
+                         + s_SettingsPath + " for writing\n").c_str());
+        return;
+    }
+    std::fprintf(fp, "fLDMAXAOA = %.3f\n",       fLDMAXAOA);
+    std::fprintf(fp, "fONSPEEDFASTAOA = %.3f\n", fONSPEEDFASTAOA);
+    std::fprintf(fp, "fONSPEEDSLOWAOA = %.3f\n", fONSPEEDSLOWAOA);
+    std::fprintf(fp, "fSTALLWARNAOA = %.3f\n",   fSTALLWARNAOA);
+    std::fprintf(fp, "iMuteAudioUnderIAS = %d\n", iMuteAudioUnderIAS);
+    std::fprintf(fp, "iMasterVolumePct = %d\n",   iMasterVolumePct);
+    std::fprintf(fp, "iAoaMedianWindow = %d\n",   iAoaMedianWindow);
+    std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
+    std::fprintf(fp, "audioEnabled = %d\n",       audioEnabled ? 1 : 0);
+    std::fclose(fp);
+}
+
+// Best-effort key=value parser.  Unknown keys, malformed lines, and
+// missing files are all silently ignored — defaults stand in.
+static void LoadSettings() {
+    if (s_SettingsPath.empty()) return;
+    FILE* fp = std::fopen(s_SettingsPath.c_str(), "r");
+    if (!fp) return;   // first run for this aircraft; defaults are fine
+
+    char line[256];
+    while (std::fgets(line, sizeof(line), fp)) {
+        char key[64];
+        char val[128];
+        // " key = value " — tolerant of surrounding whitespace.
+        if (std::sscanf(line, " %63[^= \t] = %127[^\n\r]", key, val) != 2)
+            continue;
+
+        if      (!std::strcmp(key, "fLDMAXAOA"))          fLDMAXAOA          = std::atof(val);
+        else if (!std::strcmp(key, "fONSPEEDFASTAOA"))    fONSPEEDFASTAOA    = std::atof(val);
+        else if (!std::strcmp(key, "fONSPEEDSLOWAOA"))    fONSPEEDSLOWAOA    = std::atof(val);
+        else if (!std::strcmp(key, "fSTALLWARNAOA"))      fSTALLWARNAOA      = std::atof(val);
+        else if (!std::strcmp(key, "iMuteAudioUnderIAS")) iMuteAudioUnderIAS = std::atoi(val);
+        else if (!std::strcmp(key, "iMasterVolumePct"))   iMasterVolumePct   = std::atoi(val);
+        else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
+        else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
+        else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
+    }
+    std::fclose(fp);
+}
+
+// --------------------------------------------------------------------------
+// Validation.
+//
+// Two layers:
+//   1. Per-field range + parse check.  AOA setpoints share the universal
+//      [AOA_MIN_VALUE, AOA_MAX_VALUE] from onspeed_core/util/OnSpeedTypes
+//      so the plugin and firmware agree on what counts as a sane AOA
+//      value at all.  Plugin-only fields (IAS gate, master volume,
+//      smoothing) get their own ranges.
+//   2. Cross-field ordering: LDmax < OnSpeedFast < OnSpeedSlow <
+//      StallWarn.  Delegated to OnSpeedConfig::SuFlaps::SetpointOrderError
+//      so the plugin reports the same error wording the firmware uses.
+
+struct ValidatedSettings {
+    float fLDMAXAOA;
+    float fONSPEEDFASTAOA;
+    float fONSPEEDSLOWAOA;
+    float fSTALLWARNAOA;
+    int   iMuteAudioUnderIAS;
+    int   iMasterVolumePct;
+    int   iAoaMedianWindow;
+    int   iAoaMeanWindow;
+};
+
+// Compiled-in defaults — what "Restore Defaults" reverts to.  These
+// are generic GA values; real airframes need to override them via Save.
+constexpr ValidatedSettings kDefaultSettings{
+    /*fLDMAXAOA=*/        6.0f,
+    /*fONSPEEDFASTAOA=*/  7.3f,
+    /*fONSPEEDSLOWAOA=*/  9.6f,
+    /*fSTALLWARNAOA=*/   12.5f,
+    /*iMuteAudioUnderIAS=*/25,
+    /*iMasterVolumePct=*/ 100,
+    /*iAoaMedianWindow=*/   5,
+    /*iAoaMeanWindow=*/    10,
+};
+
+// Strict float parse: returns false on anything other than "all of the
+// string was consumed by strtof and produced a finite number."  Empty
+// strings, garbage, +inf, NaN all fail.
+static bool parseFloatStrict(const char* s, float& out) {
+    if (s == nullptr || s[0] == '\0') return false;
+    char* end = nullptr;
+    const float v = std::strtof(s, &end);
+    if (end == s || *end != '\0') return false;   // no digits or trailing junk
+    if (!std::isfinite(v))       return false;
+    out = v;
+    return true;
+}
+
+static bool parseIntStrict(const char* s, int& out) {
+    if (s == nullptr || s[0] == '\0') return false;
+    char* end = nullptr;
+    const long v = std::strtol(s, &end, 10);
+    if (end == s || *end != '\0') return false;
+    if (v < INT_MIN || v > INT_MAX) return false;
+    out = static_cast<int>(v);
+    return true;
+}
+
+// In-place visual marker for invalid fields.  Prefix the field's
+// descriptor with this so the row stands out without adding extra
+// widgets.  Stripped automatically when the user edits the field
+// (xpMsg_TextFieldChanged) or on a successful Save.
+constexpr const char* kInvalidMarker = "!! ";
+
+static void markFieldInvalid(XPWidgetID w) {
+    char buf[64];
+    XPGetWidgetDescriptor(w, buf, sizeof(buf));
+    if (std::strncmp(buf, kInvalidMarker, std::strlen(kInvalidMarker)) == 0) {
+        return;   // already marked
+    }
+    std::string marked = kInvalidMarker;
+    marked += buf;
+    XPSetWidgetDescriptor(w, marked.c_str());
+}
+
+static void unmarkField(XPWidgetID w) {
+    char buf[64];
+    XPGetWidgetDescriptor(w, buf, sizeof(buf));
+    const size_t prefixLen = std::strlen(kInvalidMarker);
+    if (std::strncmp(buf, kInvalidMarker, prefixLen) == 0) {
+        XPSetWidgetDescriptor(w, buf + prefixLen);
+    }
+}
+
+// Read every text field, validate, mark every failing field in-place,
+// and return the validated bundle if and only if every field passed.
+// On failure, outErr holds the first error (most useful for the
+// status line) and outBadCount holds how many fields failed.
+//
+// All-or-nothing commit: any single failure means none of the live
+// variables change.  The user fixes the marked rows and clicks Save
+// again.
+static std::optional<ValidatedSettings> readAndValidateFields(
+    std::string& outErr, int& outBadCount)
+{
+    ValidatedSettings v{};
+    outBadCount = 0;
+    char buf[32];
+
+    auto setError = [&](const std::string& msg) {
+        if (outErr.empty()) outErr = msg;   // remember first error
+        ++outBadCount;
+    };
+
+    auto readFloat = [&](XPWidgetID w, const char* label,
+                         float lo, float hi, float& out) -> bool {
+        XPGetWidgetDescriptor(w, buf, sizeof(buf));
+        // Tolerate (but ignore) an existing marker — the user may
+        // re-Save without first clearing it.
+        const char* effective = buf;
+        if (std::strncmp(buf, kInvalidMarker,
+                         std::strlen(kInvalidMarker)) == 0) {
+            effective = buf + std::strlen(kInvalidMarker);
+        }
+        if (!parseFloatStrict(effective, out)) {
+            setError(std::string(label) + " is not a number");
+            markFieldInvalid(w);
+            return false;
+        }
+        if (out < lo || out > hi) {
+            char msg[128];
+            std::snprintf(msg, sizeof(msg),
+                          "%s out of range [%.1f, %.1f]", label, lo, hi);
+            setError(msg);
+            markFieldInvalid(w);
+            return false;
+        }
+        unmarkField(w);
+        return true;
+    };
+    auto readInt = [&](XPWidgetID w, const char* label,
+                       int lo, int hi, int& out) -> bool {
+        XPGetWidgetDescriptor(w, buf, sizeof(buf));
+        const char* effective = buf;
+        if (std::strncmp(buf, kInvalidMarker,
+                         std::strlen(kInvalidMarker)) == 0) {
+            effective = buf + std::strlen(kInvalidMarker);
+        }
+        if (!parseIntStrict(effective, out)) {
+            setError(std::string(label) + " is not an integer");
+            markFieldInvalid(w);
+            return false;
+        }
+        if (out < lo || out > hi) {
+            char msg[128];
+            std::snprintf(msg, sizeof(msg),
+                          "%s out of range [%d, %d]", label, lo, hi);
+            setError(msg);
+            markFieldInvalid(w);
+            return false;
+        }
+        unmarkField(w);
+        return true;
+    };
+
+    // AOA setpoints are bounded by the universal AOA range.  Setpoints
+    // above zero only — LDmax can't be 0 in any normal airframe.  AOA
+    // *measurements* can be negative (the plugin's AOA dataref reads
+    // wing AOA, which goes negative in pushovers / inverted flight),
+    // but the four setpoint thresholds all sit on the lifting side
+    // and must be positive.  Upper bound matches onspeed_core's
+    // universal AOA_MAX_VALUE so plugin + firmware agree on the
+    // notion of "valid AOA value at all."
+    bool ok = true;
+    ok &= readFloat(widgetLDMaxAOA,       "LDmax AOA",        0.0f,
+                    onspeed::AOA_MAX_VALUE, v.fLDMAXAOA);
+    ok &= readFloat(widgetOnSpeedFastAOA, "OnSpeed Fast AOA", 0.0f,
+                    onspeed::AOA_MAX_VALUE, v.fONSPEEDFASTAOA);
+    ok &= readFloat(widgetOnSpeedSlowAOA, "OnSpeed Slow AOA", 0.0f,
+                    onspeed::AOA_MAX_VALUE, v.fONSPEEDSLOWAOA);
+    ok &= readFloat(widgetStallWarnAOA,   "Stall Warn AOA",   0.0f,
+                    onspeed::AOA_MAX_VALUE, v.fSTALLWARNAOA);
+    ok &= readInt(widgetMuteAudioUnderIAS, "Mute Under IAS",
+                  0, 250, v.iMuteAudioUnderIAS);
+    ok &= readInt(widgetMasterVolumePct,   "Master Volume",
+                  0, 100, v.iMasterVolumePct);
+    ok &= readInt(widgetAoaMedianWindow,   "AOA Median Window",
+                  1, 100, v.iAoaMedianWindow);
+    ok &= readInt(widgetAoaMeanWindow,     "AOA Mean Window",
+                  1, 100, v.iAoaMeanWindow);
+
+    if (!ok) return std::nullopt;
+
+    // Cross-field: ordering check via the firmware's own validator so
+    // the plugin and firmware report the same error for the same
+    // mistake (e.g., "OnSpeedFast must be less than OnSpeedSlow").
+    // Mark every field that participates in an ordering violation —
+    // we don't know which value the user mis-typed, but at least all
+    // four are visually flagged.
+    onspeed::config::OnSpeedConfig::SuFlaps flap;
+    flap.fLDMAXAOA       = v.fLDMAXAOA;
+    flap.fONSPEEDFASTAOA = v.fONSPEEDFASTAOA;
+    flap.fONSPEEDSLOWAOA = v.fONSPEEDSLOWAOA;
+    flap.fSTALLWARNAOA   = v.fSTALLWARNAOA;
+    const std::string orderErr = flap.SetpointOrderError();
+    if (!orderErr.empty()) {
+        setError(orderErr);
+        markFieldInvalid(widgetLDMaxAOA);
+        markFieldInvalid(widgetOnSpeedFastAOA);
+        markFieldInvalid(widgetOnSpeedSlowAOA);
+        markFieldInvalid(widgetStallWarnAOA);
+        return std::nullopt;
+    }
+
+    return v;
+}
+
+// Apply a validated settings bundle to the live state, rebuilding
+// dependent state (smoothers).  Refreshes widget text so the user
+// sees the canonical formatting.  Doesn't save — caller decides.
+static void ApplyValidatedSettings(const ValidatedSettings& v) {
+    fLDMAXAOA          = v.fLDMAXAOA;
+    fONSPEEDFASTAOA    = v.fONSPEEDFASTAOA;
+    fONSPEEDSLOWAOA    = v.fONSPEEDSLOWAOA;
+    fSTALLWARNAOA      = v.fSTALLWARNAOA;
+    iMuteAudioUnderIAS = v.iMuteAudioUnderIAS;
+    iMasterVolumePct   = v.iMasterVolumePct;
+    if (v.iAoaMedianWindow != iAoaMedianWindow ||
+        v.iAoaMeanWindow   != iAoaMeanWindow) {
+        iAoaMedianWindow = v.iAoaMedianWindow;
+        iAoaMeanWindow   = v.iAoaMeanWindow;
+        rebuildAoaSmoothers();
+    }
+    UpdateAOATextFields();
+}
+
+// Refresh the settings path for the currently-loaded aircraft, load
+// any saved file, rebuild dependent state (smoothers, widget text).
+// Called from init_sound (the deferred flight-loop callback that also
+// brings up OpenAL) so XPLMGetNthAircraftModel is guaranteed to return
+// a real aircraft name, and from XPLM_MSG_PLANE_LOADED so a mid-sim
+// aircraft change re-points at the new aircraft's .prf file.
+static void OnAircraftLoaded() {
+    const std::string previous = s_SettingsPath;
+    s_SettingsPath = buildSettingsPath();
+
+    if (s_SettingsPath.empty()) {
+        XPLMDebugString("FlyOnSpeed: OnAircraftLoaded: no aircraft yet "
+                        "(XPLMGetNthAircraftModel returned empty)\n");
+    } else if (s_SettingsPath != previous) {
+        XPLMDebugString(("FlyOnSpeed: settings path = "
+                         + s_SettingsPath + "\n").c_str());
+        LoadSettings();
+    }
+    rebuildAoaSmoothers();
+    UpdateAOATextFields();
+    // Reflect the loaded audioEnabled state on the toggle button.
+    if (audioToggleCheckbox) {
+        XPSetWidgetDescriptor(audioToggleCheckbox,
+                              audioEnabled ? "Sound: On" : "Sound: Off");
+    }
+}
+
+// Audio render thread.  Owns the OpenAL queue pump; reads g_Engine
+// state under g_EngineMutex once per chunk, then renders sample-
+// accurate PCM via Synthesize + Envelope + Mix.
+std::optional<std::thread> audioThread;
+std::atomic<bool>          threadRunning{false};
+
+// Engine state shared between the X-Plane flight loop (writer) and
+// the audio render thread (reader).  Guarded by g_EngineMutex; the
+// crit-sec is microseconds — just an Envelope spec swap and a couple
+// of float assignments — so contention is irrelevant.
+struct AudioEngine
+{
+    onspeed::audio::Envelope    envelope;
+    onspeed::audio::MixerState  mixerState;
+    float                       carrierPhase = 0.0f;       // [-pi, pi]
+
+    // Two carrier identities so a Low → High switch (or vice versa)
+    // doesn't bleed audio onto the wrong frequency during the prior
+    // tone's release ramp:
+    //   - activeCarrier  = the cosine table the render thread is
+    //                      currently synthesizing.  Held stable while
+    //                      the envelope is non-idle so the release
+    //                      tail decays on the same carrier it started.
+    //   - pendingCarrier = the most recent caller request from
+    //                      PlayAOATone.  Promoted to activeCarrier
+    //                      only when the envelope reaches Idle (release
+    //                      has fully drained), at which point we also
+    //                      reset carrierPhase to start the new carrier
+    //                      from a known sample so any frequency
+    //                      mismatch between the two stays inaudible.
+    // Mirrors the firmware's s_LastEnvTone / enTone split.
+    onspeed::EnToneType         activeCarrier  = onspeed::EnToneType::None;
+    onspeed::EnToneType         pendingCarrier = onspeed::EnToneType::None;
+    float                       volumeMult = onspeed::STALL_VOL_MIN;
+    bool                        muted = true;              // IAS/audio-toggle gate
+
+    // Stereo pan from lateral G (slip-skid centripetal cue).  Computed
+    // each flight loop from sim/flightmodel/forces/g_side via
+    // onspeed::audio::Apply3DPan; consumed in the render thread as the
+    // L/R scale into AudioMixer.  Headphone-stereo only, never OpenAL
+    // 3D positioning — the firmware uses the same approach.
+    float                       leftPanGain  = 1.0f;
+    float                       rightPanGain = 1.0f;
+};
+AudioEngine g_Engine;
+std::mutex  g_EngineMutex;
+
+// Persistent state for the panning IIR.  Lives outside g_Engine because
+// it's only touched from the X-Plane flight-loop thread (writer) and
+// never read from the audio thread — the smoothed result is pushed
+// into g_Engine.{leftPanGain,rightPanGain} under the mutex.
+onspeed::audio::PanState  g_PanState;
+const onspeed::audio::PanConfig g_PanCfg;   // defaults match firmware
+
+// Orchestrator config: same defaults as the firmware (Gen2 timings),
+// resampled into the plugin's audio rate.
+const onspeed::audio::OrchestratorConfig g_OrchCfg = []() {
+    onspeed::audio::OrchestratorConfig cfg;
+    cfg.sampleRateHz = kAudioSampleRateHz;
+    return cfg;
+}();
+
+// Widget layout constants for the control window.
+static int       g_NextWidgetTop = 0;     // running cursor for stacking
+static const int kWidgetHeight   = 20;
+static const int kWidgetMargin   = 5;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Function to initialize OpenAL and create tone
+// Initialize OpenAL device/context and the streaming buffer pool.
+// Called via XPLMRegisterFlightLoopCallback so OpenAL init happens
+// after X-Plane's audio subsystem is up.
 static float init_sound([[maybe_unused]] float elapsed,
                         [[maybe_unused]] float elapsed_sim,
                         [[maybe_unused]] int counter,
@@ -184,213 +631,155 @@ static float init_sound([[maybe_unused]] float elapsed,
     XPLMDebugString("FlyOnSpeed: Initializing audio device\n");
     if (!device) {
         XPLMDebugString("FlyOnSpeed: Failed to open device\n");
-        return false;
+        return 0.0f;
     }
-    
+
     context = alcCreateContext(device, nullptr);
     XPLMDebugString("FlyOnSpeed: Creating audio context\n");
     if (!context) {
         XPLMDebugString("FlyOnSpeed: Failed to create context\n");
         alcCloseDevice(device);
-        return false;
+        device = nullptr;
+        return 0.0f;
     }
-    
+
     alcMakeContextCurrent(context);
 
-    // Generate source and buffers
     alGenSources(1, &audioSource);
-    alGenBuffers(1, &audioBufferNormal);
-    alGenBuffers(1, &audioBufferHigh);
-    
-    // Set the initial volume (gain)
+    alGenBuffers(kStreamBufferCount, streamBuffers);
     alSourcef(audioSource, AL_GAIN, DEFAULT_VOLUME);
-    
-    // Precompute the two tone carriers (low = 400 Hz, high = 1600 Hz)
-    // via onspeed_core's PCM synth. The buffers are uploaded once and
-    // looped by OpenAL for steady tones / cycled manually for pulses.
-    auto toneNormal = precomputeTone(TONE_NORMAL_FREQ);
-    alBufferData(audioBufferNormal, AL_FORMAT_MONO16, toneNormal.data(),
-                 toneNormal.size() * sizeof(int16_t), kBufferSampleRateHz);
 
-    auto toneHigh = precomputeTone(TONE_HIGH_FREQ);
-    alBufferData(audioBufferHigh, AL_FORMAT_MONO16, toneHigh.data(),
-                 toneHigh.size() * sizeof(int16_t), kBufferSampleRateHz);
-    
-    // Set initial buffer
-    alSourcei(audioSource, AL_BUFFER, audioBufferNormal);
-    
-    // Configure source to loop
-    alSourcei(audioSource, AL_LOOPING, AL_FALSE);
-    
+    // Pre-fill all buffers with silence and queue them so the source
+    // has something to play from first AL_PLAYING.  The render thread
+    // unqueues + refills as the source consumes them.
+    int16_t silence[kFramesPerChunk * 2] = {0};   // stereo
+    for (int i = 0; i < kStreamBufferCount; ++i) {
+        alBufferData(streamBuffers[i], AL_FORMAT_STEREO16, silence,
+                     sizeof(silence), kAudioSampleRateHz);
+    }
+    alSourceQueueBuffers(audioSource, kStreamBufferCount, streamBuffers);
+    alSourcePlay(audioSource);
+
+    // Spawn the audio render thread *after* the OpenAL source and
+    // buffers exist — the thread immediately calls alGetSourcei /
+    // alSourceUnqueueBuffers and would error against an invalid source
+    // ID if started in XPluginStart (which runs before X-Plane fires
+    // this flight-loop callback).
+    threadRunning = true;
+    audioThread.emplace(AudioRenderThread);
+
+    // Settings load is also deferred to here: XPLMGetNthAircraftModel
+    // returns an empty filename if called from XPluginStart before
+    // X-Plane has finished bringing the user aircraft up.  The first
+    // flight-loop tick is the earliest moment we can trust it.
+    OnAircraftLoaded();
+
     return 0.0f;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-static void printMessageDescription(XPWidgetMessage msg) {
-    switch(msg) {
-        case xpMessage_CloseButtonPushed:
-            XPLMDebugString("FlyOnSpeed: xpMessage_CloseButtonPushed\n");
-            break;
-        case xpMsg_PushButtonPressed:
-            XPLMDebugString("FlyOnSpeed: xpMsg_PushButtonPressed\n");
-            break;
-        case xpMsg_ButtonStateChanged:
-            XPLMDebugString("FlyOnSpeed: xpMsg_ButtonStateChanged\n");
-            break;
-        case xpMsg_TextFieldChanged:
-            XPLMDebugString("FlyOnSpeed: xpMsg_TextFieldChanged\n");
-            break;
-        case xpMsg_ScrollBarSliderPositionChanged:
-            XPLMDebugString("FlyOnSpeed: xpMsg_ScrollBarSliderPositionChanged\n");
-            break;
-        default:
-            XPLMDebugString(("FlyOnSpeed: Unknown message type: " + std::to_string(msg) + "\n").c_str());
-            break;
-    }
+// Status line write priority.
+//
+// PlayAOATone writes the status line every flight loop (~30-60 Hz),
+// describing the current audio state.  Save / Restore / validation
+// errors also want to write the status line, but if PlayAOATone runs
+// in the next millisecond it overwrites them — the message vanishes
+// before the pilot sees it.
+//
+// Resolution: setStatusSticky() stamps a deadline; any plain status
+// write from PlayAOATone before that deadline is dropped.  Three
+// seconds is long enough to read but short enough to not strand the
+// pilot looking at a stale "Saved." after they've changed something.
+constexpr float kStickyStatusSeconds = 3.0f;
+static float s_StickyStatusDeadline = 0.0f;
+
+static void setStatusSticky(const char* text) {
+    XPSetWidgetDescriptor(widgetAudioStatus, text);
+    s_StickyStatusDeadline = XPLMGetElapsedTime() + kStickyStatusSeconds;
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Widget handler function
+static void setStatusOrIfSticky(const char* text) {
+    if (XPLMGetElapsedTime() < s_StickyStatusDeadline) return;
+    XPSetWidgetDescriptor(widgetAudioStatus, text);
+}
+
+// Strip an in-place "!! " invalid marker from a field as soon as the
+// user starts editing it, so the visual flag clears the moment the
+// pilot reacts to it.  Called from xpMsg_TextFieldChanged.
+static void clearMarkerOnEdit(XPWidgetID w) {
+    char buf[64];
+    XPGetWidgetDescriptor(w, buf, sizeof(buf));
+    const size_t prefixLen = std::strlen(kInvalidMarker);
+    if (std::strncmp(buf, kInvalidMarker, prefixLen) != 0) return;
+    // The user just typed a character.  Don't strip the marker if the
+    // remaining text is still the marker itself or empty — wait until
+    // there's something past it (means they actually edited the value).
+    if (buf[prefixLen] == '\0') return;
+    XPSetWidgetDescriptor(w, buf + prefixLen);
+}
+
+// Control-window widget message handler.
 static int AudioControlHandler(
     XPWidgetMessage inMessage,
     [[maybe_unused]] XPWidgetID inWidget,
     intptr_t inParam1,
     [[maybe_unused]] intptr_t inParam2)
 {
-    printMessageDescription(inMessage);
-    //XPLMDebugString(("FlyOnSpeed: AudioControlHandler. Message: " + std::to_string(inMessage) + "\n").c_str());
     if (inMessage == xpMessage_CloseButtonPushed) {
         XPHideWidget(audioControlWidget);
         return 1;
     }
 
+    // Clear an invalid marker as soon as the user edits the field.
+    if (inMessage == xpMsg_TextFieldChanged) {
+        clearMarkerOnEdit(reinterpret_cast<XPWidgetID>(inParam1));
+        return 0;   // let widget continue normal processing
+    }
+
     if (inMessage == xpMsg_PushButtonPressed) {
-        XPLMDebugString(("FlyOnSpeed: AudioControlHandler. Button state changed " + std::to_string(inParam1) + "\n").c_str());
         if (inParam1 == reinterpret_cast<intptr_t>(audioToggleCheckbox)) {
             audioEnabled = !audioEnabled;
-            //audioEnabled = XPGetWidgetProperty(audioToggleCheckbox, xpProperty_ButtonState, nullptr);
-            //XPSetWidgetProperty(audioToggleCheckbox, xpProperty_ButtonState, audioEnabled);
-            if(audioEnabled) XPSetWidgetDescriptor(audioToggleCheckbox, "Sound: On");
-            else XPSetWidgetDescriptor(audioToggleCheckbox, "Sound: Off");
-
-            XPLMDebugString(("FlyOnSpeed: AudioControlHandler. Button state: " + std::to_string(audioEnabled) + "\n").c_str());
+            XPSetWidgetDescriptor(audioToggleCheckbox,
+                                  audioEnabled ? "Sound: On" : "Sound: Off");
+            SaveSettings();
             return 1;
         }
-        // Add handler for reload button
+        // Reload Plugins: dev-loop convenience (pick up a new .xpl
+        // without restarting X-Plane) and a user-facing recovery path
+        // if OpenAL ever wedges.
         else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonReload)) {
-            XPLMDebugString("FlyOnSpeed: Reloading plugins\n");
             XPLMReloadPlugins();
             return 1;
         }
-        // Add handler for update values button. Note: each field is
-        // accepted as long as it parses to a positive float — the
-        // handler does not check that LDmax < BelowOnSpeed < OnSpeedMax
-        // < AboveOnSpeedMax. If a pilot enters values that violate
-        // that ordering, onspeed::calculateTone falls back to silence
-        // for the misordered region (deliberate fail-safe — silence is
-        // safer than wrong tones in flight). Add a UI-side ordering
-        // check here if we ever see field reports of confused pilots.
-        else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonUpdateValues)) {
-            XPLMDebugString("FlyOnSpeed: Updating AOA values\n");
-
-            // Directly read from text fields when updating
-            char buffer[32];
-            float value;
-
-            // Get Below LDMax value
-            XPGetWidgetDescriptor(widgetAOABelowLDMax, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) AOA_BELOW_LDMAX = value;
-            
-            // Get Below OnSpeed value
-            XPGetWidgetDescriptor(widgetAOABelowOnSpeed, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) AOA_BELOW_ONSPEED = value;
-            
-            // Get OnSpeed Max value
-            XPGetWidgetDescriptor(widgetAOAOnSpeedMax, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) AOA_ONSPEED_MAX = value;
-            
-            // Get Above OnSpeed Max value
-            XPGetWidgetDescriptor(widgetAOAAboveOnSpeedMax, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) AOA_ABOVE_ONSPEED_MAX = value;
-                        
-            // Get IAS Tone Enable value
-            XPGetWidgetDescriptor(widgetAOAIASToneEnable, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) AOA_IAS_TONE_ENABLE = value;
-            
-            // Debug output to check values
-            char debugMsg[256];
-            snprintf(debugMsg, sizeof(debugMsg), 
-                     "FlyOnSpeed: Updated values - IAS Enable: %.1f, Below LDMax: %.1f, Below OnSpeed: %.1f, OnSpeed Max: %.1f, Above OnSpeed: %.1f\n",
-                     AOA_IAS_TONE_ENABLE, AOA_BELOW_LDMAX, AOA_BELOW_ONSPEED, AOA_ONSPEED_MAX, AOA_ABOVE_ONSPEED_MAX);
-            XPLMDebugString(debugMsg);
-            
-            // Update the temporary variables to match the new values
-            temp_AOA_BELOW_LDMAX = AOA_BELOW_LDMAX;
-            temp_AOA_BELOW_ONSPEED = AOA_BELOW_ONSPEED;
-            temp_AOA_ONSPEED_MAX = AOA_ONSPEED_MAX;
-            temp_AOA_ABOVE_ONSPEED_MAX = AOA_ABOVE_ONSPEED_MAX;
-            temp_AOA_IAS_TONE_ENABLE = AOA_IAS_TONE_ENABLE;
-            
-            // Update the display with the new values
-            UpdateAOATextFields();
-            
+        // Save: validate every field, commit to live state, persist.
+        // Failures mark the offending fields in-place and leave the
+        // live state untouched (all-or-nothing commit).
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonSave)) {
+            std::string err;
+            int badCount = 0;
+            auto v = readAndValidateFields(err, badCount);
+            if (!v) {
+                char status[160];
+                std::snprintf(status, sizeof(status),
+                              "Invalid (%d): %s", badCount, err.c_str());
+                setStatusSticky(status);
+                return 1;
+            }
+            ApplyValidatedSettings(*v);
+            SaveSettings();
+            setStatusSticky("Saved.");
             return 1;
         }
-    }
-    
-    if (inMessage == xpMsg_TextFieldChanged) {
-        char buffer[32];
-        float value;
-        
-        if (inParam1 == reinterpret_cast<intptr_t>(widgetAOABelowLDMax)) {
-            XPGetWidgetDescriptor(widgetAOABelowLDMax, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) {
-                temp_AOA_BELOW_LDMAX = value;
-                XPLMDebugString(("FlyOnSpeed: Text field changed - Below LDMax: " + std::to_string(value) + "\n").c_str());
-            }
+        // Restore Defaults: revert the form to compiled-in defaults
+        // for this aircraft.  Doesn't auto-save — pilot can preview,
+        // tweak, then click Save.
+        else if (inParam1 ==
+                 reinterpret_cast<intptr_t>(widgetButtonRestoreDefaults)) {
+            ApplyValidatedSettings(kDefaultSettings);
+            setStatusSticky("Defaults restored — click Save to persist.");
+            return 1;
         }
-        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOABelowOnSpeed)) {
-            XPGetWidgetDescriptor(widgetAOABelowOnSpeed, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) {
-                temp_AOA_BELOW_ONSPEED = value;
-                XPLMDebugString(("FlyOnSpeed: Text field changed - Below OnSpeed: " + std::to_string(value) + "\n").c_str());
-            }
-        }
-        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOAOnSpeedMax)) {
-            XPGetWidgetDescriptor(widgetAOAOnSpeedMax, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) {
-                temp_AOA_ONSPEED_MAX = value;
-                XPLMDebugString(("FlyOnSpeed: Text field changed - OnSpeed Max: " + std::to_string(value) + "\n").c_str());
-            }
-        }
-        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOAAboveOnSpeedMax)) {
-            XPGetWidgetDescriptor(widgetAOAAboveOnSpeedMax, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) {
-                temp_AOA_ABOVE_ONSPEED_MAX = value;
-                XPLMDebugString(("FlyOnSpeed: Text field changed - Above OnSpeed: " + std::to_string(value) + "\n").c_str());
-            }
-        }
-        else if (inParam1 == reinterpret_cast<intptr_t>(widgetAOAIASToneEnable)) {
-            XPGetWidgetDescriptor(widgetAOAIASToneEnable, buffer, sizeof(buffer));
-            value = atof(buffer);
-            if (value > 0) {
-                temp_AOA_IAS_TONE_ENABLE = value;
-                XPLMDebugString(("FlyOnSpeed: Text field changed - IAS Tone Enable: " + std::to_string(value) + "\n").c_str());
-            }
-        }
-        
-        return 1;
     }
 
     return 0;
@@ -398,7 +787,7 @@ static int AudioControlHandler(
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Add this helper function before CreateAudioControlWindow
+// Stack a single-row widget below the previously-added one.
 static XPWidgetID createWidget(int widgetClass, const char* description, int leftOffset = 20, int width = 140) {
     if (audioControlWidget == nullptr) {
         return nullptr;
@@ -409,17 +798,17 @@ static XPWidgetID createWidget(int widgetClass, const char* description, int lef
     XPGetWidgetGeometry(audioControlWidget, &left, &top, &right, &bottom);
     
     // If this is the first widget, start from the top
-    if (lastWidgetBottom == 0) {
-        lastWidgetBottom = top - 15;  // Initial offset from top
+    if (g_NextWidgetTop == 0) {
+        g_NextWidgetTop = top - 15;  // Initial offset from top
     } else {
-        lastWidgetBottom -= (WIDGET_HEIGHT + WIDGET_MARGIN);  // Space between widgets
+        g_NextWidgetTop -= (kWidgetHeight + kWidgetMargin);  // Space between widgets
     }
     
     XPWidgetID newWidget = XPCreateWidget(
         left + leftOffset,                    // left
-        lastWidgetBottom,                     // top
+        g_NextWidgetTop,                     // top
         left + leftOffset + width,            // right
-        lastWidgetBottom - WIDGET_HEIGHT,     // bottom
+        g_NextWidgetTop - kWidgetHeight,     // bottom
         1,                                    // visible
         description,                          // descriptor
         0,                                    // not root
@@ -432,70 +821,77 @@ static XPWidgetID createWidget(int widgetClass, const char* description, int lef
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Add this helper function to create a labeled text field
-static XPWidgetID createLabeledTextField(const char* label, float value, int leftOffset = 20) {
+// Layout constants for labeled-field rows.  Label gets enough room
+// for the longest caption ("OnSpeed Slow AOA:", "Mute Under IAS (kt):");
+// field is sized for ~5-char numeric values.
+constexpr int kLabelWidth      = 150;
+constexpr int kLabelFieldGap   = 8;
+constexpr int kFieldWidth      = 60;
+
+// Add a label + text-field pair as one stacked row.  initialText is
+// caller-formatted (use snprintf "%.1f" for floats, "%d" for ints)
+// so each field controls its own display format.
+static XPWidgetID createLabeledTextField(const char* label,
+                                         const char* initialText,
+                                         int leftOffset = 20) {
     if (audioControlWidget == nullptr) {
         return nullptr;
     }
-    
-    // Get the main window dimensions
+
     int left, top, right, bottom;
     XPGetWidgetGeometry(audioControlWidget, &left, &top, &right, &bottom);
-    
-    // Adjust lastWidgetBottom for the new widget
-    lastWidgetBottom -= (WIDGET_HEIGHT + WIDGET_MARGIN);
-    
-    // Create label widget. The handle is intentionally not stored — the
-    // label is a passive caption that the parent window owns and tears
-    // down on close.
+
+    g_NextWidgetTop -= (kWidgetHeight + kWidgetMargin);
+
+    // Caption: passive label to the left of the field.  Handle is
+    // intentionally not stored — the parent window owns and tears
+    // it down on close.
     XPCreateWidget(
-        left + leftOffset,                    // left
-        lastWidgetBottom,                     // top
-        left + leftOffset + 90,               // right
-        lastWidgetBottom - WIDGET_HEIGHT,     // bottom
-        1,                                    // visible
-        label,                                // descriptor
-        0,                                    // not root
-        audioControlWidget,                   // container
-        xpWidgetClass_Caption                 // class
-    );
-    
-    // Create text field
+        left + leftOffset,                              // left
+        g_NextWidgetTop,                                // top
+        left + leftOffset + kLabelWidth,                // right
+        g_NextWidgetTop - kWidgetHeight,                // bottom
+        1, label, 0, audioControlWidget,
+        xpWidgetClass_Caption);
+
     XPWidgetID textField = XPCreateWidget(
-        left + leftOffset + 100,              // left
-        lastWidgetBottom,                     // top
-        left + leftOffset + 160,              // right
-        lastWidgetBottom - WIDGET_HEIGHT,     // bottom
-        1,                                    // visible
-        "",                                   // descriptor (will be set below)
-        0,                                    // not root
-        audioControlWidget,                   // container
-        xpWidgetClass_TextField               // class
-    );
-    
-    // Set additional text field properties
+        left + leftOffset + kLabelWidth + kLabelFieldGap,                // left
+        g_NextWidgetTop,                                                  // top
+        left + leftOffset + kLabelWidth + kLabelFieldGap + kFieldWidth,   // right
+        g_NextWidgetTop - kWidgetHeight,                                  // bottom
+        1, "", 0, audioControlWidget,
+        xpWidgetClass_TextField);
+
     XPSetWidgetProperty(textField, xpProperty_TextFieldType, xpTextEntryField);
     XPSetWidgetProperty(textField, xpProperty_Enabled, 1);
-    
-    // Set the initial value
-    char valueText[16];
-    snprintf(valueText, sizeof(valueText), "%.1f", value);
-    XPSetWidgetDescriptor(textField, valueText);
-    
-    XPLMDebugString(("FlyOnSpeed: Created text field for " + std::string(label) + " with initial value " + valueText + "\n").c_str());
-    
+    XPSetWidgetDescriptor(textField, initialText);
+
     return textField;
+}
+
+// Convenience wrappers around createLabeledTextField.  Floats render
+// to one decimal; ints render with no decimal.
+static XPWidgetID createLabeledFloatField(const char* label, float value) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.1f", value);
+    return createLabeledTextField(label, buf);
+}
+
+static XPWidgetID createLabeledIntField(const char* label, int value) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", value);
+    return createLabeledTextField(label, buf);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Modify CreateAudioControlWindow to use the helper function
+// Build the control window and lay out every widget.
 static void CreateAudioControlWindow(int x, int y, int w, int h) {
     int x2 = x + w;
     int y2 = y - h;
     
-    // Reset the lastWidgetBottom for new window
-    lastWidgetBottom = 0;
+    // Reset the g_NextWidgetTop for new window
+    g_NextWidgetTop = 0;
     
     // Create main window
     audioControlWidget = XPCreateWidget(x, y, x2, y2,
@@ -526,24 +922,46 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
         "" 
     );
     
-    // Add text fields for editing AOA threshold values
-    widgetAOABelowLDMax = createLabeledTextField("Below LDMax:", AOA_BELOW_LDMAX);
-    widgetAOABelowOnSpeed = createLabeledTextField("Below OnSpeed:", AOA_BELOW_ONSPEED);
-    widgetAOAOnSpeedMax = createLabeledTextField("OnSpeed Max:", AOA_ONSPEED_MAX);
-    widgetAOAAboveOnSpeedMax = createLabeledTextField("Above OnSpeed:", AOA_ABOVE_ONSPEED_MAX);
-    widgetAOAIASToneEnable = createLabeledTextField("IAS Tone Enable:", AOA_IAS_TONE_ENABLE);
+    // AOA setpoints (firmware terminology: see Config.h::SuFlaps).
+    widgetLDMaxAOA          = createLabeledFloatField("LDmax AOA:",        fLDMAXAOA);
+    widgetOnSpeedFastAOA    = createLabeledFloatField("OnSpeed Fast AOA:", fONSPEEDFASTAOA);
+    widgetOnSpeedSlowAOA    = createLabeledFloatField("OnSpeed Slow AOA:", fONSPEEDSLOWAOA);
+    widgetStallWarnAOA      = createLabeledFloatField("Stall Warn AOA:",   fSTALLWARNAOA);
+
+    // IAS gate (firmware: iMuteAudioUnderIAS; 0 = never mute).
+    widgetMuteAudioUnderIAS = createLabeledIntField(
+        "Mute Under IAS (kt):", iMuteAudioUnderIAS);
+
+    // Master volume (0-100 %).  Mirrors the firmware's pot.
+    widgetMasterVolumePct   = createLabeledIntField(
+        "Master Volume (%):", iMasterVolumePct);
+
+    // Plugin-only AOA smoothing (no firmware analog — the firmware
+    // smooths upstream in pressure-space).  1 disables.
+    widgetAoaMedianWindow   = createLabeledIntField(
+        "AOA Median Window:", iAoaMedianWindow);
+    widgetAoaMeanWindow     = createLabeledIntField(
+        "AOA Mean Window:",   iAoaMeanWindow);
     
-    // Add the Update Values button
-    widgetButtonUpdateValues = createWidget(
-        xpWidgetClass_Button,
-        "Update Values"
-    );
+    // Save: validate every field, commit to live state, persist to
+    // disk for the current aircraft.  Invalid fields get a "!! "
+    // prefix marker; the status line shows the first error.
+    widgetButtonSave = createWidget(xpWidgetClass_Button, "Save");
+
+    // Restore Defaults: revert every field to the compiled-in defaults
+    // (does not save automatically — the user can preview, tweak, then
+    // Save).  Useful escape after experimentation goes wrong.
+    widgetButtonRestoreDefaults = createWidget(
+        xpWidgetClass_Button, "Restore Defaults");
     
     audioToggleCheckbox = createWidget(
         xpWidgetClass_Button,
         "Sound: Off"
     );
-    
+
+    // Reload Plugins: pick up a freshly-built .xpl without restarting
+    // X-Plane (dev loop), and serves as a user-facing recovery escape
+    // hatch if OpenAL gets into a bad state.
     widgetButtonReload = createWidget(
         xpWidgetClass_Button,
         "Reload Plugins"
@@ -554,35 +972,39 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Add a function to update text fields with current values
+// Refresh every editable field's text to its current variable value.
+// Called after the Update Values button commits, and any time the
+// window becomes visible.
 static void UpdateAOATextFields() {
     if (!audioControlWidget || !XPIsWidgetVisible(audioControlWidget)) {
         return;
     }
-    
+
     char buffer[16];
-    
-    // Initialize temporary variables with current values
-    temp_AOA_BELOW_LDMAX = AOA_BELOW_LDMAX;
-    temp_AOA_BELOW_ONSPEED = AOA_BELOW_ONSPEED;
-    temp_AOA_ONSPEED_MAX = AOA_ONSPEED_MAX;
-    temp_AOA_ABOVE_ONSPEED_MAX = AOA_ABOVE_ONSPEED_MAX;
-    temp_AOA_IAS_TONE_ENABLE = AOA_IAS_TONE_ENABLE;
-    
-    snprintf(buffer, sizeof(buffer), "%.1f", AOA_BELOW_LDMAX);
-    XPSetWidgetDescriptor(widgetAOABelowLDMax, buffer);
-    
-    snprintf(buffer, sizeof(buffer), "%.1f", AOA_BELOW_ONSPEED);
-    XPSetWidgetDescriptor(widgetAOABelowOnSpeed, buffer);
-    
-    snprintf(buffer, sizeof(buffer), "%.1f", AOA_ONSPEED_MAX);
-    XPSetWidgetDescriptor(widgetAOAOnSpeedMax, buffer);
-    
-    snprintf(buffer, sizeof(buffer), "%.1f", AOA_ABOVE_ONSPEED_MAX);
-    XPSetWidgetDescriptor(widgetAOAAboveOnSpeedMax, buffer);
-        
-    snprintf(buffer, sizeof(buffer), "%.1f", AOA_IAS_TONE_ENABLE);
-    XPSetWidgetDescriptor(widgetAOAIASToneEnable, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f", fLDMAXAOA);
+    XPSetWidgetDescriptor(widgetLDMaxAOA, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f", fONSPEEDFASTAOA);
+    XPSetWidgetDescriptor(widgetOnSpeedFastAOA, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f", fONSPEEDSLOWAOA);
+    XPSetWidgetDescriptor(widgetOnSpeedSlowAOA, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f", fSTALLWARNAOA);
+    XPSetWidgetDescriptor(widgetStallWarnAOA, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", iMuteAudioUnderIAS);
+    XPSetWidgetDescriptor(widgetMuteAudioUnderIAS, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", iMasterVolumePct);
+    XPSetWidgetDescriptor(widgetMasterVolumePct, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", iAoaMedianWindow);
+    XPSetWidgetDescriptor(widgetAoaMedianWindow, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", iAoaMeanWindow);
+    XPSetWidgetDescriptor(widgetAoaMeanWindow, buffer);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -592,7 +1014,7 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
 {
     if (!strcmp(static_cast<const char *>(iRef), "Show")) {
         if (!audioControlWidget) {
-            CreateAudioControlWindow(300, 600, 250, 350);
+            CreateAudioControlWindow(300, 690, 280, 470);
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
@@ -602,148 +1024,258 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Pulse thread plays one short buffer per pulse cycle. Region decision
-// happened upstream in PlayAOATone (via onspeed_core::calculateTone);
-// this thread just consumes (toneFreqHz, pulseFreqHz) atomics and
-// switches OpenAL buffers when the frequency changes.
-void PulseThreadFunction() {
-    float lastFrequency = 0.0f;
+static onspeed::ToneThresholds buildThresholds() {
+    return { fLDMAXAOA, fONSPEEDFASTAOA, fONSPEEDSLOWAOA, fSTALLWARNAOA };
+}
+
+// Audio render thread: pumps OpenAL's queued-buffer pipeline.  Each
+// iteration unqueues any consumed buffer, fills it with the next
+// chunk of synth+envelope+mix output, and re-queues it.  The
+// envelope owns all per-pulse timing; this thread just produces
+// sample-accurate PCM at kAudioSampleRateHz and lets OpenAL/CoreAudio
+// resample to the device rate.
+void AudioRenderThread() {
+    int16_t mono[kFramesPerChunk];
+    int16_t stereo[kFramesPerChunk * 2];
 
     while (threadRunning) {
-        if (!audioEnabled || !shouldPlay) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        ALint processed = 0;
+        alGetSourcei(audioSource, AL_BUFFERS_PROCESSED, &processed);
+
+        // No buffer consumed yet — sleep a fraction of one chunk so we
+        // wake before the source starves but don't busy-loop.
+        if (processed == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
             continue;
         }
 
-        const float toneFreq  = currentToneFreqHz.load();
-        const float pulseFreq = currentPulseFreqHz.load();
+        while (processed-- > 0 && threadRunning) {
+            ALuint buf = 0;
+            alSourceUnqueueBuffers(audioSource, 1, &buf);
 
-        // Defensive: if PlayAOATone hasn't picked a tone yet (or is in
-        // a non-pulsing region that forgot to clear shouldPlay), skip.
-        if (toneFreq <= 0.0f || pulseFreq <= 0.0f) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
+            // Synthesize the carrier (phase-continuous across chunks
+            // so the cosine never has a discontinuity) and mix through
+            // the envelope under the mutex.  Pan + master volume
+            // compose into the per-channel scales: gain × pan, capped
+            // at 1.0 by Apply3DPan's max-gain normalization so the
+            // mixer never has to hard-clip.
+            {
+                std::lock_guard<std::mutex> lock(g_EngineMutex);
+
+                // Promote a pending carrier change only when the
+                // envelope is currently silent (level == 0).  That
+                // covers every transition window the spec relies on:
+                //
+                //   Idle    — no tone playing
+                //   Delay   — silent first half of every fresh pulse,
+                //             AND the silent first delay after a
+                //             solid->pulsed re-arm (the moment the
+                //             prior Release tail finishes and the
+                //             queued spec fires)
+                //   Release — only the very last sample
+                //
+                // Switching carriers under any of these is inaudible —
+                // the cosine times zero is zero either way.  Resetting
+                // carrierPhase here means the new frequency starts from
+                // a known sample, so the discontinuity (different freq
+                // at the same time t) sits inside silence and never
+                // leaks into the audible attack ramp.
+                //
+                // IsIdle() alone is too strict for the solid->pulsed
+                // case: Envelope::Tick fires the queued NoteOn the
+                // same sample it reaches Idle, so the render thread
+                // never observes the Idle phase between Release and
+                // the new spec's Delay.  Checking Level == 0 catches
+                // both the Idle moment AND the Delay phase that
+                // immediately follows.
+                if (g_Engine.envelope.Level() == 0.0f &&
+                    g_Engine.activeCarrier != g_Engine.pendingCarrier) {
+                    g_Engine.activeCarrier = g_Engine.pendingCarrier;
+                    g_Engine.carrierPhase  = 0.0f;
+                }
+
+                const float carrierHz =
+                    (g_Engine.activeCarrier == onspeed::EnToneType::High)
+                      ? static_cast<float>(onspeed::HIGH_TONE_HZ)
+                      : static_cast<float>(onspeed::LOW_TONE_HZ);
+
+                g_Engine.carrierPhase = onspeed::audio::Synthesize(
+                    carrierHz,
+                    onspeed::audio::kLegacyToneAmplitude,
+                    kAudioSampleRateHz,
+                    mono, kFramesPerChunk,
+                    g_Engine.carrierPhase);
+
+                const float gain = g_Engine.muted ? 0.0f : g_Engine.volumeMult;
+                onspeed::audio::MixerInputs in;
+                in.in         = mono;
+                in.leftScale  = gain * g_Engine.leftPanGain;
+                in.rightScale = gain * g_Engine.rightPanGain;
+                in.envelope   = &g_Engine.envelope;
+                onspeed::audio::Mix(in, stereo, kFramesPerChunk,
+                                    g_Engine.mixerState);
+            }
+
+            alBufferData(buf, AL_FORMAT_STEREO16, stereo, sizeof(stereo),
+                         kAudioSampleRateHz);
+            alSourceQueueBuffers(audioSource, 1, &buf);
         }
 
-        if (lastFrequency != toneFreq) {
-            lastFrequency = toneFreq;
-            alSourceStop(audioSource);
-            alSourcei(audioSource, AL_BUFFER,
-                      toneFreq == TONE_HIGH_FREQ ? audioBufferHigh : audioBufferNormal);
-        }
-
-        const int sleepMs = static_cast<int>(1000.0f / pulseFreq);
-
-        alSourcei(audioSource, AL_LOOPING, AL_FALSE);
-        alSourcePlay(audioSource);
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-    }
-}
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Map the four UI-editable plugin thresholds onto onspeed_core's
-// ToneThresholds struct. Mapping is direct:
-//    plugin              -> core
-//    AOA_BELOW_LDMAX     -> fLDMAXAOA       (silence threshold)
-//    AOA_BELOW_ONSPEED   -> fONSPEEDFASTAOA (bottom of OnSpeed band)
-//    AOA_ONSPEED_MAX     -> fONSPEEDSLOWAOA (top of OnSpeed band)
-//    AOA_ABOVE_ONSPEED_MAX -> fSTALLWARNAOA (stall warning trigger)
-static onspeed::ToneThresholds buildThresholds() {
-    return {
-        AOA_BELOW_LDMAX,
-        AOA_BELOW_ONSPEED,
-        AOA_ONSPEED_MAX,
-        AOA_ABOVE_ONSPEED_MAX,
-    };
-}
-
-// Run one frame of the audio decision: smooth the raw AOA, decide what
-// to play, push the result to the pulse thread (or play it directly).
-void PlayAOATone(float aoa, float /* elapsedTime */) {
-    // Sensor-style smoothing: median-despike then mean-smooth, same
-    // pipeline the firmware uses for pressure samples in SensorIO.
-    aoaMedian.add(aoa);
-    aoaMean.addValue(aoaMedian.getMedian());
-    const float smoothedAoa = aoaMean.getFastAverage();
-
-    const float ias = XPLMGetDataf(iasDataRef);
-
-    char aoaText[64];
-    snprintf(aoaText, sizeof(aoaText),
-             "AOA: %.1f (smooth: %.1f) IAS: %.1f", aoa, smoothedAoa, ias);
-    XPSetWidgetDescriptor(widgetAOAValue, aoaText);
-
-    if (!audioEnabled) {
-        shouldPlay = false;
-        alSourceStop(audioSource);
-        XPSetWidgetDescriptor(widgetAudioStatus, "");
-        return;
-    }
-
-    // IAS gate: silent on the ground / in initial roll. Plugin-specific;
-    // the firmware uses a different mute scheme so this stays in the plugin.
-    if (ias < AOA_IAS_TONE_ENABLE) {
-        shouldPlay = false;
-        alSourceStop(audioSource);
-        XPSetWidgetDescriptor(widgetAudioStatus,
-            ("Audio: None - Below IAS " + std::to_string(AOA_IAS_TONE_ENABLE)).c_str());
-        return;
-    }
-
-    // The single source of truth for region decisions. Returns
-    // EnToneType (None/Low/High) and a pulse frequency (0 = solid).
-    const onspeed::ToneResult result =
-        onspeed::calculateTone(smoothedAoa, buildThresholds());
-
-    if (result.enTone == onspeed::EnToneType::None) {
-        shouldPlay = false;
-        alSourceStop(audioSource);
-        XPSetWidgetDescriptor(widgetAudioStatus, "Audio: None");
-        return;
-    }
-
-    const float toneFreq = (result.enTone == onspeed::EnToneType::High)
-                               ? TONE_HIGH_FREQ : TONE_NORMAL_FREQ;
-
-    if (result.fPulseFreq == 0.0f) {
-        // Solid tone. Today calculateTone() only returns this in the
-        // OnSpeed band (Low/400Hz looped), but we pick the buffer from
-        // result.enTone rather than hardcoding audioBufferNormal so a
-        // future core change adding a solid High variant can't silently
-        // play through the wrong carrier.
-        shouldPlay = false;
-        alSourcei(audioSource, AL_BUFFER,
-                  result.enTone == onspeed::EnToneType::High
-                      ? audioBufferHigh : audioBufferNormal);
-        alSourcei(audioSource, AL_LOOPING, AL_TRUE);
-        ALint state;
+        // If the source under-ran (processed == queued), kick it back
+        // into AL_PLAYING — OpenAL stops a source that runs out of
+        // queued data and won't auto-resume.
+        ALint state = 0;
         alGetSourcei(audioSource, AL_SOURCE_STATE, &state);
         if (state != AL_PLAYING) {
             alSourcePlay(audioSource);
         }
-        XPSetWidgetDescriptor(widgetAudioStatus,
-                              result.enTone == onspeed::EnToneType::High
-                                  ? "Audio: Steady - High"
-                                  : "Audio: Steady - OnSpeed");
+    }
+}
+
+// Hysteretic IAS gate state.  Mirrors the firmware:
+// unmute at iMuteAudioUnderIAS + kIasMuteHysteresisKt, re-mute
+// back at iMuteAudioUnderIAS.  iMuteAudioUnderIAS == 0 disables
+// the gate entirely.
+static bool s_iasGateOpen = false;
+
+// Per-flight-loop AOA decision: smooth the raw AOA, run it through
+// onspeed_core's ToneCalc, and update the engine's envelope and
+// volume to match.  All audio shaping (per-pulse DAHD, click-free
+// transitions, solid->pulsed shortened-delay) lives in the envelope
+// — this function just hands it the next spec.
+void PlayAOATone(float fAoa, float /* fElapsedTime */) {
+    // Plugin-only AOA smoothing; see iAoaMedianWindow / iAoaMeanWindow.
+    aoaMedian->add(fAoa);
+    aoaMean->addValue(aoaMedian->getMedian());
+    const float fSmoothedAoa = aoaMean->getFastAverage();
+
+    const float fIas = XPLMGetDataf(iasDataRef);
+
+    char aoaText[64];
+    snprintf(aoaText, sizeof(aoaText),
+             "AOA: %.1f (smooth: %.1f) IAS: %.1f",
+             fAoa, fSmoothedAoa, fIas);
+    XPSetWidgetDescriptor(widgetAOAValue, aoaText);
+
+    // Pause + crash gate: silence audio when X-Plane is paused or the
+    // user aircraft has crashed.  Both states keep the flight loop
+    // ticking but make AOA-based audio meaningless or actively
+    // misleading.  Drains the envelope cleanly via NoteOff so a resume
+    // (or aircraft reset) doesn't replay a stale tone tail.  Checked
+    // first so they override the Sound:On toggle — a paused or
+    // crashed sim should never bleed audio.
+    const bool simPaused = pausedDataRef
+                             && XPLMGetDatai(pausedDataRef) != 0;
+    const bool simCrashed = crashedDataRef
+                             && XPLMGetDatai(crashedDataRef) != 0;
+    if (simPaused || simCrashed) {
+        std::lock_guard<std::mutex> lock(g_EngineMutex);
+        g_Engine.envelope.NoteOff();
+        g_Engine.muted = true;
+        s_iasGateOpen  = false;
+        setStatusOrIfSticky(simCrashed ? "Audio: Crashed"
+                                       : "Audio: Paused (sim)");
         return;
     }
 
-    // Pulsing tone — hand off to the pulse thread via the atomics.
-    currentToneFreqHz  = toneFreq;
-    currentPulseFreqHz = result.fPulseFreq;
-    shouldPlay = true;
+    // Master toggle: drains the envelope's release ramp cleanly via
+    // NoteOff (never a hard stop on a running waveform).
+    if (!audioEnabled) {
+        std::lock_guard<std::mutex> lock(g_EngineMutex);
+        g_Engine.envelope.NoteOff();
+        g_Engine.muted = true;
+        s_iasGateOpen  = false;
+        setStatusOrIfSticky("");
+        return;
+    }
 
-    char audioStatusText[64];
-    snprintf(audioStatusText, sizeof(audioStatusText),
-             "Audio Hz: %.0f pps: %.1f", toneFreq, result.fPulseFreq);
-    XPSetWidgetDescriptor(widgetAudioStatus, audioStatusText);
+    // IAS gate with hysteresis.  iMuteAudioUnderIAS == 0 means
+    // "always on" (firmware sentinel preserved for parity).
+    if (iMuteAudioUnderIAS == 0) {
+        s_iasGateOpen = true;
+    } else if (s_iasGateOpen) {
+        if (fIas < iMuteAudioUnderIAS) s_iasGateOpen = false;
+    } else {
+        if (fIas >= iMuteAudioUnderIAS + kIasMuteHysteresisKt) {
+            s_iasGateOpen = true;
+        }
+    }
+    if (!s_iasGateOpen) {
+        {
+            std::lock_guard<std::mutex> lock(g_EngineMutex);
+            g_Engine.envelope.NoteOff();
+            g_Engine.muted = true;
+        }
+        char gateMsg[64];
+        snprintf(gateMsg, sizeof(gateMsg),
+                 "Audio: None - below %d kt", iMuteAudioUnderIAS);
+        setStatusOrIfSticky(gateMsg);
+        return;
+    }
+
+    // Region decision (single source of truth shared with firmware).
+    const onspeed::ToneResult result =
+        onspeed::calculateTone(fSmoothedAoa, buildThresholds());
+
+    // Stereo pan from lateral G — same Apply3DPan pipeline the firmware
+    // uses, so a coordinated turn sounds the same in sim as in the
+    // airplane.  Headphone-stereo only; OpenAL spatialization is
+    // bypassed (Mix() emits stereo and stereo sources are un-spatialized
+    // by spec).  When the dataref isn't found, lateralG falls back to 0
+    // and the pan stays centered.
+    const float fLateralG = lateralGDataRef
+                              ? XPLMGetDataf(lateralGDataRef) : 0.0f;
+    const onspeed::audio::PanResult pan =
+        onspeed::audio::Apply3DPan(fLateralG, g_PanState, g_PanCfg);
+
+    // Master volume folds in here.  The per-PPS fVolumeMult ramp
+    // (cruise = 0.25 → stall = 1.0) is the spec-defined audibility
+    // curve; multiplying by the user's master percent scales the
+    // whole curve uniformly, so cruise-vs-stall ratio is preserved.
+    const float fMasterScale  = iMasterVolumePct / 100.0f;
+    const float fScaledVolMult = result.fVolumeMult * fMasterScale;
+
+    {
+        std::lock_guard<std::mutex> lock(g_EngineMutex);
+        g_Engine.muted        = false;
+        g_Engine.volumeMult   = fScaledVolMult;
+        g_Engine.leftPanGain  = pan.leftGain;
+        g_Engine.rightPanGain = pan.rightGain;
+        // Queue the new carrier without disturbing what's currently
+        // synthesizing.  The render thread promotes pendingCarrier
+        // → activeCarrier when the envelope reaches Idle, so a
+        // Low → High switch can never bleed onto the prior tone's
+        // release ramp.
+        if (result.enTone != onspeed::EnToneType::None) {
+            g_Engine.pendingCarrier = result.enTone;
+        }
+        // DecideAndArm dispatches NoteOn/NoteOff and applies the
+        // shortened first-pulse delay on solid->pulsed transitions.
+        onspeed::audio::DecideAndArm(result, g_Engine.envelope, g_OrchCfg);
+    }
+
+    char audioStatusText[80];
+    if (result.enTone == onspeed::EnToneType::None) {
+        snprintf(audioStatusText, sizeof(audioStatusText), "Audio: None");
+    } else if (result.fPulseFreq == 0.0f) {
+        snprintf(audioStatusText, sizeof(audioStatusText),
+                 "Audio: Steady - %s",
+                 result.enTone == onspeed::EnToneType::High ? "High" : "OnSpeed");
+    } else {
+        const float fCarrierHz = (result.enTone == onspeed::EnToneType::High)
+                                   ? static_cast<float>(onspeed::HIGH_TONE_HZ)
+                                   : static_cast<float>(onspeed::LOW_TONE_HZ);
+        snprintf(audioStatusText, sizeof(audioStatusText),
+                 "Audio Hz: %.0f pps: %.1f vol: %.2f (x %d%%)",
+                 fCarrierHz, result.fPulseFreq,
+                 result.fVolumeMult, iMasterVolumePct);
+    }
+    setStatusOrIfSticky(audioStatusText);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Updated flight loop callback
+// X-Plane flight-loop entry: pulls AOA dataref, hands it to PlayAOATone.
 float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
                           [[maybe_unused]] float inElapsedTimeSinceLastFlightLoop,
                           [[maybe_unused]] int inCounter,
@@ -758,7 +1290,7 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Modified XPluginStart to register a flight loop for updating text fields
+// XPluginStart: validate sizes, find datarefs, register flight loops, build menu.
 PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     strcpy(outName, "AOA-Tone-FlyOnSpeed");
     strcpy(outSig, "xplane.plugin.aoa-tone-flyon-speed");
@@ -771,25 +1303,26 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
 		return 0;
 	}
 
-    // if (!initializeAudio()) {
-    //     XPLMDebugString("Failed to initialize audio");
-    //     return 0;
-    // }
+    // Opt into POSIX-style paths everywhere.  Without this,
+    // XPLMGetSystemPath returns legacy HFS-style paths on macOS
+    // ("Macintosh HD:Users:..." with colon separators) that the
+    // C file API can't open.  Linux/Windows are unaffected by the
+    // setting but enabling it unconditionally keeps the same fopen
+    // path working on every platform.  Must be called before any
+    // path-reading SDK call.
+    XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
 
-	XPLMRegisterFlightLoopCallback(init_sound,-1.0,NULL);	
+    // OpenAL init runs in init_sound on the next flight-loop tick
+    // (the audio render thread is also spawned there, after the
+    // OpenAL source exists).  See https://developer.x-plane.com/sdk/.
+    XPLMRegisterFlightLoopCallback(init_sound, -1.0, nullptr);
 
-
-    // find the AOA DataRef 
-    // https://developer.x-plane.com/sdk/XPLMDataAccess/#XPLMDataRef
-
-    // here is a site that shows a list of DataRefs:
-    // https://siminnovations.com/xplane/dataref/index.php
-
-    // find the AOA DataRef.
-    // use sim/cockpit2/gauges/indicators/AoA_pilot ??
-    // or sim/cockpit2/gauges/indicators/aoa_angle_degrees ??
-    // sim/flightmodel/position/alpha
-
+    // sim/flightmodel/position/alpha is the airframe's true AOA in
+    // degrees, derived from X-Plane's flight model.  Other candidates
+    // (sim/cockpit2/gauges/indicators/AoA_pilot,
+    // sim/cockpit2/gauges/indicators/aoa_angle_degrees) read from
+    // panel instruments which lag and round.  We want the model-truth
+    // value.  DataRef catalog: https://siminnovations.com/xplane/dataref/
     aoaDataRef = XPLMFindDataRef("sim/flightmodel/position/alpha");
     if (aoaDataRef == nullptr) {
         XPLMDebugString("FlyOnSpeed: Failed to find AOA DataRef");
@@ -803,15 +1336,28 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
         return 0;
     }
 
-    // aircraftNameDataRef = XPLMFindDataRef("sim/aircraft/view/acf_name");
-    // if (aircraftNameDataRef == nullptr) {
-    //     XPLMDebugString("FlyOnSpeed: Failed to find aircraft name DataRef");
-    //     return 0;
-    // }
+    // Lateral G in body frame.  Drives the slip-skid centripetal pan
+    // (right channel emphasized when slipping right, etc.).  Optional —
+    // if the dataref isn't available the pan stays centered.
+    lateralGDataRef = XPLMFindDataRef("sim/flightmodel/forces/g_side");
+
+    // Pause state.  When the user pauses X-Plane (Esc menu, "p" key)
+    // the flight loop continues firing but we want audio silent —
+    // a stuck stall warning during a paused sim is jarring and
+    // disconnected from any actual flight state.  Optional: if the
+    // dataref is missing the pause gate is skipped.
+    pausedDataRef = XPLMFindDataRef("sim/time/paused");
+
+    // Crash state.  After a crash X-Plane keeps the flight loop
+    // ticking (so wreckage and post-crash physics still update), but
+    // any AOA-based audio cue is meaningless and stale at that point.
+    // We mute on crash for the same reason we mute on pause.  Optional:
+    // if the dataref is missing the crash gate is skipped.
+    crashedDataRef = XPLMFindDataRef("sim/flightmodel2/misc/has_crashed");
 
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
 
-    // Add menu item
+    // Plugins menu entry that opens the control window.
     int item = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "Fly On Speed", nullptr, 1);
     menuId = XPLMCreateMenu("Fly On Speed", XPLMFindPluginsMenu(), item, AudioMenuHandler, nullptr);
     // The SDK takes a non-const void* for menu item refcons; the matching
@@ -820,30 +1366,32 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     XPLMAppendMenuItem(menuId, "Show",
                        static_cast<void*>(const_cast<char*>("Show")), 1);
 
-    // Start the pulse thread
-    threadRunning = true;
-    pulseThread = new std::thread(PulseThreadFunction);
-
-    // Initialize temporary variables
-    temp_AOA_BELOW_LDMAX = AOA_BELOW_LDMAX;
-    temp_AOA_BELOW_ONSPEED = AOA_BELOW_ONSPEED;
-    temp_AOA_ONSPEED_MAX = AOA_ONSPEED_MAX;
-    temp_AOA_ABOVE_ONSPEED_MAX = AOA_ABOVE_ONSPEED_MAX;
-    temp_AOA_IAS_TONE_ENABLE = AOA_IAS_TONE_ENABLE;
+    // The audio render thread is started by init_sound, after the
+    // OpenAL source and streaming buffers exist.  init_sound also
+    // calls OnAircraftLoaded(), since XPLMGetNthAircraftModel returns
+    // an empty filename if called from XPluginStart before X-Plane has
+    // finished bringing the user aircraft up — deferring the call to
+    // the first flight-loop tick guarantees the aircraft is loaded.
 
     return 1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Modify XPluginStop to cleanup the thread
+// XPluginStop: stop the audio thread (must precede cleanupAudio), tear down widgets/menu, release OpenAL.
 PLUGIN_API void XPluginStop(void) {
-    // Stop the pulse thread
+    // Persist any unsaved tuning so an X-Plane shutdown still preserves
+    // in-flight tweaks the pilot didn't explicitly Update.
+    SaveSettings();
+
+    // Stop the audio render thread before tearing down OpenAL.
+    // Guarded by has_value() because init_sound may not have fired
+    // (XPluginStart succeeded but X-Plane unloaded before the first
+    // flight-loop tick).
     threadRunning = false;
-    if (pulseThread) {
-        pulseThread->join();
-        delete pulseThread;
-        pulseThread = nullptr;
+    if (audioThread.has_value()) {
+        audioThread->join();
+        audioThread.reset();
     }
 
     if (audioControlWidget) {
@@ -857,40 +1405,48 @@ PLUGIN_API void XPluginStop(void) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Plugin enable
+// X-Plane SDK lifecycle: enable.  Currently a no-op.
 PLUGIN_API int XPluginEnable(void) {
     return 1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Plugin disable
+// X-Plane SDK lifecycle: disable.  Currently a no-op.
 PLUGIN_API void XPluginDisable(void) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Plugin receive message
+// X-Plane SDK message dispatch.  We listen for plane-load events so
+// each aircraft picks up its own saved settings (calibration is
+// per-airframe).  inParam carries the aircraft index; we only care
+// about index 0 (the user aircraft).
 PLUGIN_API void XPluginReceiveMessage([[maybe_unused]] XPLMPluginID inFromWho,
-                                      [[maybe_unused]] int inMessage,
-                                      [[maybe_unused]] void *inParam) {
+                                      int inMessage,
+                                      void* inParam) {
+    if (inMessage == XPLM_MSG_PLANE_LOADED &&
+        reinterpret_cast<intptr_t>(inParam) == 0)
+    {
+        OnAircraftLoaded();
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Update cleanup function
+// Tear down OpenAL.  Must run AFTER the audio render thread has
+// joined; otherwise the thread could touch a destroyed source.
 void cleanupAudio() {
     if (context) {
         alSourceStop(audioSource);
         alDeleteSources(1, &audioSource);
-        alDeleteBuffers(1, &audioBufferNormal);
-        alDeleteBuffers(1, &audioBufferHigh);
-        
+        alDeleteBuffers(kStreamBufferCount, streamBuffers);
+
         alcMakeContextCurrent(nullptr);
         alcDestroyContext(context);
         context = nullptr;
     }
-    
+
     if (device) {
         alcCloseDevice(device);
         device = nullptr;
