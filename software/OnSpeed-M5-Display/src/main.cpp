@@ -431,7 +431,17 @@ void setup()
 
 void loop()
 {
+#ifndef XPLANE_PLUGIN_BUILD
+    // M5.update() polls buttons / IMU / RTC / PMIC via the M5Unified
+    // singleton.  In the X-Plane plugin context M5.begin() was never
+    // called (we drive M5.Display.setPanel() directly without bringing
+    // up the full board), so the singleton sits on Panel_NULL and
+    // calling update() pokes uninitialized hardware peripheral state.
+    // Today this is harmless (M5Unified no-ops on Panel_NULL); guarded
+    // for defense-in-depth against a future M5GFX version where the
+    // default device gets a less benign auto-init.
     M5.update();
+#endif
 
 #if defined(ESP_PLATFORM)
     if (fwUpdateMode)
