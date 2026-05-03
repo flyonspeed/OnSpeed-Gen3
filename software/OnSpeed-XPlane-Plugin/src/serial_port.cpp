@@ -182,12 +182,12 @@ bool SerialPort::Open(const std::string& portPath)
     int fd = ::open(portPath.c_str(), O_WRONLY | O_NOCTTY | O_NONBLOCK);
     if (fd < 0) return false;
 
-    // Drop O_NONBLOCK so writes block normally (with the timeout we
-    // set via VTIME if it ever applied — but VTIME is read-side; for
-    // writes the kernel TX buffer plus the 115200 line rate cap is
-    // enough that ~100 bytes per frame at 20 Hz never queues much).
-    int flags = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+    // Keep O_NONBLOCK.  A blocking write() on a stalled USB-CDC device
+    // (M5 unplugged mid-session, USB driver retrying) can hang for
+    // several seconds — and Write() runs on X-Plane's flight-loop
+    // thread.  X-Plane will kill the plugin if a flight-loop callback
+    // doesn't return promptly.  Non-blocking IO + drop-the-frame-on-
+    // EAGAIN is the right contract for a 20 Hz display stream.
 
     struct termios tio = {};
     if (tcgetattr(fd, &tio) != 0) {
@@ -224,15 +224,16 @@ bool SerialPort::Open(const std::string& portPath)
 bool SerialPort::Write(const void* data, std::size_t len)
 {
     if (m_fd < 0) return false;
-    const char* p = static_cast<const char*>(data);
-    std::size_t left = len;
-    while (left > 0) {
-        ssize_t n = ::write(m_fd, p, left);
-        if (n < 0) return false;
-        p    += n;
-        left -= static_cast<std::size_t>(n);
-    }
-    return true;
+    // O_NONBLOCK is set on the fd.  A single non-blocking write either
+    // accepts the whole frame (typical case — kernel TX buffer is
+    // ~4 KB, our frames are 76 bytes at 20 Hz = 1520 B/s) or fails
+    // with EAGAIN/EWOULDBLOCK because the device is stalled.  Treat
+    // partial-write or EAGAIN as "drop this frame and report error" —
+    // the caller (Tick) closes the port and surfaces it to the user
+    // rather than freezing the sim by retrying inside the flight
+    // loop.
+    ssize_t n = ::write(m_fd, data, len);
+    return n == static_cast<ssize_t>(len);
 }
 
 #endif

@@ -679,17 +679,36 @@ void Tick()
 
     // Mirror the same wire frame to the USB-serial port if open, so a
     // physically-connected M5 sees the same data the embedded indexer
-    // sees.  Errors close the port and bump a counter — no spammy log.
+    // sees.  Errors close the port — but s_serialOutPath stays set so
+    // we can auto-reopen below (handles transient unplug-replug).
     if (s_serialOut.IsOpen()) {
         if (!s_serialOut.Write(frameBytes, emitted)) {
             ++s_serialErrCount;
             if (s_serialErrCount == 1) {
                 XPLMDebugString(("FlyOnSpeed: serial write failed on "
                                 + s_serialOutPath
-                                + ", closing port\n").c_str());
+                                + ", will retry\n").c_str());
             }
             s_serialOut.Close();
-            s_serialOutPath.clear();
+            // Don't clear s_serialOutPath — the periodic retry below
+            // uses it to auto-reopen when the device comes back.
+        }
+    } else if (!s_serialOutPath.empty()) {
+        // Port wanted but closed (either initial setup hit a transient
+        // failure, or a write error closed it).  Retry every 2 seconds
+        // — fast enough that a USB replug recovers within a couple
+        // frames, slow enough not to spam the OS open() call when the
+        // device is genuinely gone.
+        static std::uint32_t s_lastReopenAttempt = 0;
+        const std::uint32_t now = static_cast<std::uint32_t>(SDL_GetTicks());
+        if (now - s_lastReopenAttempt > 2000) {
+            s_lastReopenAttempt = now;
+            if (s_serialOut.Open(s_serialOutPath)) {
+                XPLMDebugString(("FlyOnSpeed: serial reopen OK on "
+                                + s_serialOutPath + "\n").c_str());
+                s_serialErrCount = 0;
+            }
+            // Open failure: silent, will retry in 2s.
         }
     }
 
