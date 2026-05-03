@@ -14,9 +14,9 @@ search for `AOA-Tone-FlyOnSpeed`. Common causes:
   `AOA-Tone-FlyOnSpeed/`. See [Install](install.md) for the layout.
 - **Architecture mismatch.** A `mac_x64` `.xpl` won't load on Linux.
   Pull the matching per-platform asset from the release page.
-- **X-Plane version too old.** The plugin requires X-Plane 12.4.0 or
-  newer (XPLM 4.3.0 SDK). Older sims fail to resolve the plugin's
-  imported symbols.
+- **X-Plane version too old.** The plugin compiles against `XPLM400`
+  (X-Plane 12.0+).  X-Plane 11 fails to resolve the plugin's imported
+  symbols.
 
 ## No sound
 
@@ -37,9 +37,10 @@ In rough order of likelihood:
 5. **X-Plane sound output muted.** Check **X-Plane → Settings → Sound**
    to confirm master sound is unmuted and routed where you expect.
 6. **OpenAL init failed.** `Log.txt` records OpenAL device-open
-   failures with `FlyOnSpeed: alcOpenDevice failed`. On Linux, install
-   `libopenal1`: `sudo apt-get install libopenal1`. On macOS the
-   system framework is always present.
+   failures with `FlyOnSpeed: Failed to open device` and context
+   failures with `FlyOnSpeed: Failed to create context`. On Linux,
+   install `libopenal1`: `sudo apt-get install libopenal1`. On macOS
+   the system framework is always present.
 7. **Sim is paused or aircraft has crashed.** The plugin gates audio
    on `sim/time/paused` and `sim/flightmodel2/misc/has_crashed` —
    both produce silence intentionally.
@@ -50,16 +51,18 @@ The indexer renders X-Plane datarefs through the M5 firmware. A
 gray window usually means no fresh data:
 
 - **AOA dataref unbound.** `Log.txt` reports
-  `FlyOnSpeed: alpha dataref not found` if `sim/flightmodel/position/alpha`
-  isn't resolvable. This shouldn't happen on stock X-Plane 12 — if
-  it does, an aircraft model is overriding core datarefs in a way
-  that breaks them.
+  `FlyOnSpeed: Failed to find AOA DataRef` if
+  `sim/flightmodel/position/alpha` isn't resolvable. This shouldn't
+  happen on stock X-Plane 12 — if it does, an aircraft model is
+  overriding core datarefs in a way that breaks them.
 - **Sim paused.** The indexer doesn't refresh while paused; that's
   intentional, matching the firmware's "no fresh frames"
   behavior.
 - **Indexer init failed.** `Log.txt` reports
-  `FlyOnSpeed: Indexer Init failed`. Most common cause: SDL2 not
-  found at runtime on a build that wasn't statically linked.
+  `FlyOnSpeed: M5 indexer InstallPanelAndRunSetup failed` or
+  `FlyOnSpeed: M5 indexer CreateXPlaneWindow failed`. Most common
+  cause: SDL2 not found at runtime on a build that wasn't statically
+  linked.
 
 ## M5 not detected
 

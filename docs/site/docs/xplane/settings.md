@@ -68,8 +68,11 @@ what counts as a sane AOA value.
 ## Editing from the UI
 
 Open **Plugins → Fly On Speed → Show**. The audio control window
-exposes every persisted field as an editable text row (or, for
-`audioEnabled`, the **Sound: On / Sound: Off** button).
+exposes the AOA setpoints, IAS mute threshold, master volume, and
+smoothing windows as editable text rows; `audioEnabled` is the
+**Sound: On / Sound: Off** button. `serialPortPath` is set
+separately via **Plugins → Fly On Speed → Serial output → \<port\>**
+(see [Tethering a Physical M5](m5-tethered.md)).
 
 Click **Save** to validate, apply, and write to the per-aircraft
 `.prf`. Validation runs in two passes:

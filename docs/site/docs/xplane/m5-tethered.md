@@ -42,7 +42,7 @@ output)** to stop streaming and clear the saved path.
 
 After selecting the port, the M5 should start drawing the same
 indexer the embedded window draws. If the M5 was running its
-"waiting for serial" splash, that goes away within ~1 second of the
+"Looking for Serial data / Please wait..." splash, that goes away within ~1 second of the
 first frame arriving.
 
 The plugin emits frames at 20 Hz — same rate as the firmware. There
@@ -60,12 +60,13 @@ serial output)** from the menu.
 - Confirm the M5 is enumerating at the OS level. On macOS:
   `ls /dev/cu.usbmodem*`. On Linux: `dmesg | tail` after plugging
   in. On Windows: Device Manager → Ports.
-- Some M5 firmware builds present as a different USB chipset
-  (CP2104 on Basic, CH9102F on Core2). Both register as USB-CDC and
-  show up as `cu.usbmodem*` (or `ttyACM*` / `COMn`); if the OS
-  exposes them under chipset-specific names, the plugin still picks
-  them up — it enumerates `cu.usbmodem*`, `cu.usbserial*`,
-  `cu.SLAB_USBtoUART*`, and `cu.wchusbserial*` on macOS.
+- M5Stack Basic and Core2 use external USB-to-UART bridge chips
+  (CP2104 on Basic, CH9102F on some Core2 batches). These enumerate
+  on macOS as `cu.usbserial-*`, `cu.SLAB_USBtoUART*`, or
+  `cu.wchusbserial*` — NOT as `cu.usbmodem*` (that prefix is
+  reserved for native USB-CDC peripherals like the ESP32-S3).
+  The plugin scans all four prefixes on macOS, so the device gets
+  picked up regardless of chipset.
 - Click **Refresh ports** after replugging.
 
 ### Port appears but the M5 stays blank

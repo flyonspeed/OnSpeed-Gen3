@@ -6,8 +6,9 @@ X-Plane.
 
 ## Requirements
 
-- **X-Plane 12.4.0 or newer.** The plugin links the X-Plane SDK 4.3.0
-  XPLM400 API surface, which is gated on this X-Plane version.
+- **X-Plane 12.** The plugin compiles against the SDK's `XPLM400`
+  API surface (X-Plane 12.0+).  Tested on the 12.x line; not built
+  for X-Plane 11 or older.
 - A working X-Plane audio output (the plugin uses OpenAL).
 
 ## Platform support
@@ -80,7 +81,7 @@ On Linux, install `libopenal1` if it isn't already present:
 
 Launch X-Plane. From the menu bar:
 **Plugins → Plugin Admin → Enabled** and confirm
-**AOA Tone Fly On Speed** appears in the list and is enabled.
+**AOA-Tone-FlyOnSpeed** appears in the list and is enabled.
 
 Open **Plugins → Fly On Speed → Show** — the audio control window
 appears with the four AOA threshold fields, the IAS-mute and
