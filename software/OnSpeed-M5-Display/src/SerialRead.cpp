@@ -403,6 +403,20 @@ String readSerialbytes()
 
 void serialSetup()
 {
+    // On boards where Serial is the native USB-CDC peripheral (HWCDC
+    // — ESP32-S3 / ESP32-C3), make TX non-blocking so debug prints
+    // never stall the loop when no host is draining the RX side.
+    // On boards where Serial is a hardware UART going through an
+    // external USB-bridge chip (CP2104 on M5Stack Core2, CH9102F on
+    // some Core2 batches), this method doesn't exist on
+    // HardwareSerial — and the hardware-UART path doesn't suffer the
+    // same indefinite-block hazard since the bridge chip drains at
+    // line rate.  Compile-gate on the same target macros HWCDC.h
+    // uses internally.
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
+    Serial.setTxTimeoutMs(0);
+#endif
+
     Preferences preferences;
     preferences.begin("OnSpeed", false);
     selectedPort=preferences.getUInt("SerialPort", 0);
@@ -450,17 +464,8 @@ void serialSetup()
             // USB-CDC: M5 is plugged into a host (typically the X-Plane
             // plugin) which writes display-serial bytes to the USB
             // device.  No Serial2.begin — SerialRead() reads from
-            // Serial directly when selectedPort==4.
-            //
-            // Disable Serial TX timeout: the host plugin opens the
-            // port write-only (O_WRONLY in serial_port.cpp), so the
-            // CDC RX buffer (M5 → host direction) is never drained.
-            // Once it fills, any Serial.printf would block up to the
-            // default 100 ms timeout — long enough to stall the M5
-            // render loop.  Setting the timeout to 0 makes Serial
-            // output non-blocking (drop-on-full), which is the right
-            // contract when no host is reading.
-            Serial.setTxTimeoutMs(0);
+            // Serial directly when selectedPort==4.  Serial TX timeout
+            // is already 0 from the top of serialSetup().
             Serial.println("USB-CDC: reading display-serial frames from Serial");
             break;
             }
