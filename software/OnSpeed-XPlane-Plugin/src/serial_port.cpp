@@ -59,11 +59,14 @@ std::vector<std::string> ScanDevByPrefix(
 std::vector<std::string> ListPorts()
 {
 #ifdef _WIN32
-    // Windows has no clean enumeration API short of SetupDi; for the
-    // common case of "user wants to pick their M5", probe COM3..COM32
-    // with CreateFile + close.
+    // Windows has no clean enumeration API short of SetupDi; we probe
+    // COM1..COM256 with CreateFile + close.  256 is the practical
+    // upper bound for virtual COM ports; on machines with many USB
+    // peripherals or accumulated legacy assignments the M5 can be on
+    // a high-numbered port, and the probe is cheap (CreateFile on a
+    // non-existent COM port returns immediately).
     std::vector<std::string> out;
-    for (int i = 1; i <= 32; ++i) {
+    for (int i = 1; i <= 256; ++i) {
         char name[16];
         std::snprintf(name, sizeof(name), "\\\\.\\COM%d", i);
         HANDLE h = CreateFileA(name, GENERIC_READ | GENERIC_WRITE,

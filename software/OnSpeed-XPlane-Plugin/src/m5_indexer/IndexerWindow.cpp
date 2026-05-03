@@ -792,6 +792,14 @@ void Shutdown()
         // bounded to one int per indexer-show across the session.
         s_textureId = 0;
     }
+    if (s_shaderProgram) {
+        glDeleteProgram(s_shaderProgram);
+        s_shaderProgram = 0;
+    }
+    if (s_vbo) {
+        glDeleteBuffers(1, &s_vbo);
+        s_vbo = 0;
+    }
     s_rgbaScratch.clear();
     s_rgbaScratch.shrink_to_fit();
 

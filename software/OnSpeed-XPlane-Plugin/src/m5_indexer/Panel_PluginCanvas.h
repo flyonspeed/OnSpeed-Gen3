@@ -36,11 +36,14 @@ public:
                  uint_fast16_t w, uint_fast16_t h) override;
 
     // Snapshot the framebuffer as packed RGBA8888.  `dst` must point
-    // to at least kWidth * kHeight * 4 bytes.  Mutex-guarded so the
-    // X-Plane draw callback can safely call this while the renderer
-    // thread (i.e. the X-Plane flight-loop callback running M5
-    // firmware loop()) is still mid-write.  Worst case the readback
-    // sees a half-frame; visually rare and not a correctness issue.
+    // to at least kWidth * kHeight * 4 bytes.
+    //
+    // The mutex is uncontested in normal X-Plane operation: both
+    // M5GFX writes (from Tick → loop()) and this read (from DrawWindow)
+    // run on X-Plane's main thread per the SDK's threading model.
+    // It's still acquired to (a) make the data-race intent explicit
+    // under the C++ memory model and (b) protect against any future
+    // code path that adds a background thread reading the framebuffer.
     void CopyToRGBA8888(std::uint32_t* dst);
 
     // DIAGNOSTIC: direct framebuffer access, bypasses all of M5GFX.
