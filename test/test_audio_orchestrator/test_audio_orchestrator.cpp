@@ -22,6 +22,7 @@
 #include <audio/ToneCalc.h>
 
 #include <cmath>
+#include <cstdio>
 
 using onspeed::EnToneType;
 using onspeed::ToneResult;

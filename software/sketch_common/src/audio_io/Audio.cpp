@@ -312,39 +312,50 @@ void AudioPlay::SetVoice(EnVoice enVoiceIn)
 
 // ----------------------------------------------------------------------------
 
-// Select a precomputed tone to play.  Tone will continue to play until
-// turned off.  Single funnel for tone-state changes: assembles a
-// ToneResult from the current (enAudioTone, fTonePulseMaxSamples) pair
-// and hands it to onspeed::audio::DecideAndArm, which builds the
-// envelope spec and invokes NoteOn / NoteOff on s_ToneEnvelope.
-//
-// DecideAndArm is platform-free; the same code path is used by the
-// synth-record harness and the X-Plane plugin so all three audio
-// consumers stay byte-identical for any (AOA, prior state) pair.
+// Select a tone to play.  Single funnel for tone-state changes:
+// assembles a ToneResult and delegates to DecideAndArm, which builds
+// the envelope spec and invokes NoteOn/NoteOff on s_ToneEnvelope.
 
 void AudioPlay::SetTone(EnAudioTone enAudioTone)
 {
+    // EnAudioTone is cast to EnToneType; static_assert keeps the
+    // numeric values locked together so adding a value to either enum
+    // fails to compile here instead of silently shifting the tone map.
+    static_assert(static_cast<int>(enToneNone) ==
+                  static_cast<int>(onspeed::EnToneType::None),
+                  "EnAudioTone::enToneNone must match EnToneType::None");
+    static_assert(static_cast<int>(enToneLow) ==
+                  static_cast<int>(onspeed::EnToneType::Low),
+                  "EnAudioTone::enToneLow must match EnToneType::Low");
+    static_assert(static_cast<int>(enToneHigh) ==
+                  static_cast<int>(onspeed::EnToneType::High),
+                  "EnAudioTone::enToneHigh must match EnToneType::High");
+
     onspeed::ToneResult tr;
     tr.enTone     = static_cast<onspeed::EnToneType>(enAudioTone);
     tr.fPulseFreq = (fTonePulseMaxSamples > 0.0f)
                       ? (SAMPLE_RATE / (fTonePulseMaxSamples * 2.0f))
                       : 0.0f;     // 0 → solid
-    tr.fVolumeMult = fStallVolumeMult;   // unused by orchestrator; kept for parity
+    tr.fVolumeMult = 0.0f;        // DecideAndArm ignores this; per-channel
+                                  // amplitude is composed from
+                                  // fStallVolumeMult in PlayTone().
 
-    // Mutates s_ToneEnvelope: NoteOff if enTone == None, otherwise
-    // NoteOn(spec) with spec built from the ToneResult, observing
-    // IsCurrentSolid() for Gen2's shortened-first-pulse trick on a
-    // solid → pulsed transition.
     onspeed::audio::DecideAndArm(tr, s_ToneEnvelope, kOrchestratorCfg);
 
     this->enTone = enAudioTone;
 
     if (enAudioTone != enToneNone)
     {
-        // Keep s_LastEnvTone pinned to the carrier the running envelope
-        // is releasing.  PlayTone() reads it during release to source
-        // the correct cosine table; clobbering it on stop would cut off
-        // the release tail mid-decay.
+        // s_LastEnvTone tracks the active carrier so PlayTone() can
+        // keep sourcing the right cosine table while the envelope's
+        // release ramp is still draining after a future NoteOff.
+        // Don't touch it on stop — the release tail still needs it.
+        //
+        // NotifyAudioTask wakes a sleeping AudioPlayTask.  Skipped on
+        // stop because the just-issued NoteOff leaves the envelope
+        // non-idle, so AudioPlayTask's sleep guard
+        // (enTone==None && enVoice==None && IsIdle()) is false and
+        // the task is already running to pump the release tail.
         s_LastEnvTone = enAudioTone;
         NotifyAudioTask();
     }

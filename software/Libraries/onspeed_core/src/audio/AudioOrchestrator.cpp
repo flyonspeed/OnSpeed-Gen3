@@ -1,8 +1,4 @@
 // AudioOrchestrator.cpp — see AudioOrchestrator.h for the rationale.
-//
-// The bodies here are the platform-free portions of Audio.cpp's
-// MakePulseSpec / MakeSolidSpec / SetTone decision tree, reparameterised
-// over OrchestratorConfig instead of Audio.cpp's #defines.
 
 #include "AudioOrchestrator.h"
 
