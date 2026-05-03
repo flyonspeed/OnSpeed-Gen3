@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <string>
+
 namespace onspeed_xplane::indexer {
 
 // Idempotent: safe to call multiple times.  Returns false if SDL or
@@ -42,5 +44,20 @@ int  GetMode();
 
 // Tear down the X-Plane window and GL texture.  Called from XPluginStop.
 void Shutdown();
+
+// USB-serial output to a physical M5Stack.  When configured, every
+// display-serial frame the indexer builds in Tick() is also pushed
+// out the named port at 115200 8N1 — same wire format as a real
+// OnSpeed display, so the same M5 firmware that runs embedded in
+// the X-Plane plugin will run on a USB-tethered Core2 against the
+// sim.
+//
+// Pass an empty path to close any currently-open port.  Returns true
+// on successful open (or successful close); false if the path could
+// not be opened.
+bool OpenSerialOut(const std::string& portPath);
+void CloseSerialOut();
+bool IsSerialOutOpen();
+const std::string& SerialOutPath();
 
 }  // namespace onspeed_xplane::indexer

@@ -3,6 +3,7 @@
 #include "IndexerWindow.h"
 #include "Panel_PluginCanvas.h"
 #include "DataRefAdapter.h"
+#include "../serial_port.h"
 
 // X-Plane SDK
 #include "XPLMDisplay.h"
@@ -95,6 +96,14 @@ XPLMWindowID                  s_window     = nullptr;
 // "Use this routine instead of glBindTexture(GL_TEXTURE_2D, ...)".
 int                           s_textureId  = 0;
 std::vector<std::uint32_t>    s_rgbaScratch;   // kWidth*kHeight pixels
+
+// Optional USB-serial output to a physical M5Stack.  Empty path =
+// closed.  Tick writes the same display-serial bytes it sends to the
+// embedded indexer to this port too — pilot connects an M5 Core2 via
+// USB-C and gets the same render on real hardware.
+serial::SerialPort            s_serialOut;
+std::string                   s_serialOutPath;
+std::uint64_t                 s_serialErrCount = 0;
 
 // Modern-GL pipeline for the textured quad blit.  Allocated lazily on
 // first draw alongside the texture.  Apple Silicon's Metal-bridge
@@ -576,8 +585,11 @@ static bool s_loopEverReturned = false;
 
 void Tick()
 {
-    // Skip the M5 renderer when the window isn't visible.
-    if (!s_initOk || !s_visible) return;
+    // Run if EITHER the embedded window is visible OR the USB-serial
+    // output is open.  Lets pilots stream to a physical M5 without
+    // also opening the in-sim window.
+    if (!s_initOk) return;
+    if (!s_visible && !s_serialOut.IsOpen()) return;
 
     // Throttle to 20 Hz to match the OnSpeed display-serial cadence.
     // X-Plane's flight loop fires at frame rate (60–80 Hz typical),
@@ -665,14 +677,29 @@ void Tick()
         if (verbose) XPLMDebugString("FlyOnSpeed: Tick D: bytes injected\n");
     }
 
-    // Optional override: skip the M5 renderer.  Used during bring-up
-    // bisection to isolate whether a crash lives in the M5 path or the
-    // X-Plane plumbing.  Default off — the renderer must run for the
-    // indexer to show pixels.
+    // Mirror the same wire frame to the USB-serial port if open, so a
+    // physically-connected M5 sees the same data the embedded indexer
+    // sees.  Errors close the port and bump a counter — no spammy log.
+    if (s_serialOut.IsOpen()) {
+        if (!s_serialOut.Write(frameBytes, emitted)) {
+            ++s_serialErrCount;
+            if (s_serialErrCount == 1) {
+                XPLMDebugString(("FlyOnSpeed: serial write failed on "
+                                + s_serialOutPath
+                                + ", closing port\n").c_str());
+            }
+            s_serialOut.Close();
+            s_serialOutPath.clear();
+        }
+    }
+
+    // Run the M5 renderer only when the embedded window is visible —
+    // serial-only mode skips the framebuffer paint to save CPU.  The
+    // bring-up SKIP_LOOP env var still applies for diagnostics.
     static const bool kSkipLoop = EnvFlag("FLYONSPEED_INDEXER_SKIP_LOOP");
     if (kSkipLoop) {
         if (verbose) XPLMDebugString("FlyOnSpeed: Tick E: loop() SKIPPED (env)\n");
-    } else {
+    } else if (s_visible) {
         if (verbose) XPLMDebugString("FlyOnSpeed: Tick E: loop()\n");
         loop();
         if (verbose) XPLMDebugString("FlyOnSpeed: Tick F: loop() returned\n");
@@ -736,8 +763,58 @@ void Shutdown()
         s_panel = nullptr;
     }
 
+    s_serialOut.Close();
+    s_serialOutPath.clear();
+
     SDL_Quit();
     s_initOk = false;
+}
+
+bool OpenSerialOut(const std::string& portPath)
+{
+    if (portPath.empty()) {
+        s_serialOut.Close();
+        s_serialOutPath.clear();
+        return true;
+    }
+
+    // Lazy-init the indexer pipeline so Tick will run even if the
+    // embedded window is hidden.  This pulls up SDL + the panel +
+    // sets up gdraw, but doesn't show the X-Plane window.
+    if (!s_initOk) {
+        if (!LazyInitOnFirstShow()) {
+            XPLMDebugString("FlyOnSpeed: OpenSerialOut: indexer init failed\n");
+            return false;
+        }
+    }
+
+    if (!s_serialOut.Open(portPath)) {
+        XPLMDebugString(("FlyOnSpeed: serial open FAILED on " + portPath
+                        + "\n").c_str());
+        s_serialOutPath.clear();
+        return false;
+    }
+    s_serialOutPath  = portPath;
+    s_serialErrCount = 0;
+    XPLMDebugString(("FlyOnSpeed: serial open OK on " + portPath
+                    + "\n").c_str());
+    return true;
+}
+
+void CloseSerialOut()
+{
+    s_serialOut.Close();
+    s_serialOutPath.clear();
+}
+
+bool IsSerialOutOpen()
+{
+    return s_serialOut.IsOpen();
+}
+
+const std::string& SerialOutPath()
+{
+    return s_serialOutPath;
 }
 
 }  // namespace onspeed_xplane::indexer

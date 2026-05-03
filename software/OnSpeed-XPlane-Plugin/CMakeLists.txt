@@ -99,7 +99,10 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/version
 # --------------------------------------------------------------------
 option(ENABLE_M5_INDEXER "Build the embedded M5 indexer renderer" OFF)
 
-set(PLUGIN_SOURCES src/aoa_audio.cpp)
+set(PLUGIN_SOURCES
+    src/aoa_audio.cpp
+    src/serial_port.cpp
+)
 set(PLUGIN_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/SDK/CHeaders/XPLM
     ${CMAKE_CURRENT_SOURCE_DIR}/SDK/CHeaders/Widgets

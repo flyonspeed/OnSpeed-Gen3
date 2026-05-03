@@ -76,6 +76,7 @@
 
 #ifdef ENABLE_M5_INDEXER
 #include "m5_indexer/IndexerWindow.h"
+#include "serial_port.h"
 #include "m5_indexer/DataRefAdapter.h"
 #endif
 #include <filters/RunningMedian.h>
@@ -102,6 +103,12 @@ float fLDMAXAOA       = 6.0f;
 float fONSPEEDFASTAOA = 7.3f;
 float fONSPEEDSLOWAOA = 9.6f;
 float fSTALLWARNAOA   = 12.5f;
+
+// USB-serial output to a physical M5Stack.  Empty string = disabled.
+// On macOS path looks like "/dev/cu.usbmodem11201", on Linux
+// "/dev/ttyACM0", on Windows "COM5".  Persisted per-aircraft in the
+// .prf file alongside the AOA setpoints.
+std::string sSerialPortPath;
 
 // IAS gate: tone path is silenced below this airspeed.  Matches the
 // firmware's `iMuteAudioUnderIAS` config field with hysteresis —
@@ -269,6 +276,7 @@ static void SaveSettings() {
     std::fprintf(fp, "iAoaMedianWindow = %d\n",   iAoaMedianWindow);
     std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
     std::fprintf(fp, "audioEnabled = %d\n",       audioEnabled ? 1 : 0);
+    std::fprintf(fp, "serialPortPath = %s\n",     sSerialPortPath.c_str());
     std::fclose(fp);
 }
 
@@ -296,6 +304,7 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
         else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "serialPortPath"))     sSerialPortPath    = val;
     }
     std::fclose(fp);
 }
@@ -553,6 +562,17 @@ static void OnAircraftLoaded() {
         XPSetWidgetDescriptor(audioToggleCheckbox,
                               audioEnabled ? "Sound: On" : "Sound: Off");
     }
+#ifdef ENABLE_M5_INDEXER
+    // Open the configured USB-serial port if one is set.  Failures
+    // are logged inside OpenSerialOut and just leave the port closed
+    // (e.g. user changed aircraft and the saved port path no longer
+    // exists, or the M5 isn't currently plugged in).
+    if (!sSerialPortPath.empty()) {
+        onspeed_xplane::indexer::OpenSerialOut(sSerialPortPath);
+    } else {
+        onspeed_xplane::indexer::CloseSerialOut();
+    }
+#endif
 }
 
 // Audio render thread.  Owns the OpenAL queue pump; reads g_Engine
@@ -1022,6 +1042,57 @@ static void UpdateAOATextFields() {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#ifdef ENABLE_M5_INDEXER
+// Storage that backs the serial-submenu refcons.  Menu items pass a
+// raw pointer back to the handler; that pointer must outlive the
+// menu, so we own the strings here.  Index 0 is always the literal
+// "SerialOff" sentinel; subsequent entries hold detected port paths.
+static std::vector<std::string> g_SerialMenuRefcons;
+static XPLMMenuID g_SerialMenuId = nullptr;
+
+// Rebuild the serial submenu from the OS's current port enumeration.
+// Called from XPluginStart and from the "Refresh ports" menu item.
+static void RebuildSerialMenu()
+{
+    if (!g_SerialMenuId) return;
+    XPLMClearAllMenuItems(g_SerialMenuId);
+    g_SerialMenuRefcons.clear();
+    g_SerialMenuRefcons.reserve(8);
+
+    g_SerialMenuRefcons.emplace_back("SerialOff");
+    XPLMAppendMenuItem(g_SerialMenuId, "Off (no serial output)",
+        static_cast<void*>(g_SerialMenuRefcons.back().data()), 1);
+    XPLMAppendMenuItem(g_SerialMenuId, "Refresh ports",
+        static_cast<void*>(const_cast<char*>("SerialRefresh")), 1);
+    XPLMAppendMenuSeparator(g_SerialMenuId);
+
+    auto ports = onspeed_xplane::serial::ListPorts();
+    if (ports.empty()) {
+        XPLMAppendMenuItem(g_SerialMenuId, "(no USB serial devices found)",
+            static_cast<void*>(const_cast<char*>("SerialNone")), 1);
+    } else {
+        for (const auto& p : ports) {
+            g_SerialMenuRefcons.push_back(p);
+            XPLMAppendMenuItem(g_SerialMenuId, p.c_str(),
+                static_cast<void*>(g_SerialMenuRefcons.back().data()), 1);
+        }
+    }
+}
+
+// Set the serial output to a specific port path (or close if empty),
+// persisting the choice to the per-aircraft .prf.
+static void SetSerialPort(const std::string& path)
+{
+    sSerialPortPath = path;
+    if (path.empty()) {
+        onspeed_xplane::indexer::CloseSerialOut();
+    } else {
+        onspeed_xplane::indexer::OpenSerialOut(path);
+    }
+    SaveSettings();
+}
+#endif
+
 // Add menu handler
 static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
 {
@@ -1042,6 +1113,27 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
         else
             onspeed_xplane::indexer::Show();
         return;
+    }
+    if (!strcmp(tag, "SerialOff")) {
+        SetSerialPort("");
+        return;
+    }
+    if (!strcmp(tag, "SerialRefresh")) {
+        RebuildSerialMenu();
+        return;
+    }
+    if (!strcmp(tag, "SerialNone")) {
+        return;   // placeholder, no-op
+    }
+    // Anything else passing through here on the indexer side is a
+    // serial-port path stored as one of the entries in
+    // g_SerialMenuRefcons.  Match by string-equality against any of
+    // those — that proves the click came from a port-row we built.
+    for (const auto& p : g_SerialMenuRefcons) {
+        if (p == tag && p != "SerialOff") {
+            SetSerialPort(p);
+            return;
+        }
     }
     // IndexerMode<N> entries: parse the trailing digit.
     if (!strncmp(tag, "IndexerMode", 11)) {
@@ -1428,6 +1520,15 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
                        static_cast<void*>(const_cast<char*>("IndexerMode3")), 1);
     XPLMAppendMenuItem(menuId, "Indexer Mode 4: G History",
                        static_cast<void*>(const_cast<char*>("IndexerMode4")), 1);
+
+    // USB-serial submenu — routes the same wire frames to a physical
+    // M5Stack so a Core2 plugged into a USB-C port behaves like a
+    // real OnSpeed display.
+    XPLMAppendMenuSeparator(menuId);
+    int serialItem = XPLMAppendMenuItem(menuId, "Serial output", nullptr, 1);
+    g_SerialMenuId = XPLMCreateMenu("Serial output", menuId, serialItem,
+                                    AudioMenuHandler, nullptr);
+    RebuildSerialMenu();
 #endif
 
     // The audio render thread is started by init_sound, after the
