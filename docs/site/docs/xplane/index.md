@@ -69,8 +69,9 @@ connected M5Stack.
   right per-arch directory under `Resources/plugins/`.
 - **[Using the indexer](indexer.md)** — show/hide, mode cycling, what
   each of the five modes draws.
-- **[Tethering a physical M5](m5-tethered.md)** — USB-C cable, port
-  selection from the menu, refresh, troubleshooting.
+- **[Tethering a physical M5](m5-tethered.md)** — flash the M5
+  firmware, USB-C cable to the sim PC, pick the port, fly the sim
+  with the same M5 you'd hold in the airplane.
 - **[Per-aircraft settings](settings.md)** — `.prf` location, fields,
   what each one does.
 - **[Troubleshooting](troubleshooting.md)** — no sound, gray indexer,
