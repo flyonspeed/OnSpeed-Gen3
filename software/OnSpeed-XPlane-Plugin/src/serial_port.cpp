@@ -216,6 +216,13 @@ bool SerialPort::Open(const std::string& portPath)
         return false;
     }
 
+    // Flush stale bytes that may linger in the kernel TX buffer from a
+    // prior open of this device (or from another process that briefly
+    // probed it, like ModemManager).  Starting clean lets the first
+    // Write succeed instead of getting EAGAIN against a buffer that's
+    // still draining old data.
+    tcflush(fd, TCOFLUSH);
+
     m_fd   = fd;
     m_path = portPath;
     return true;

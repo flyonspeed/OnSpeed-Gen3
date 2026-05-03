@@ -43,6 +43,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <cstring>
 #include <vector>
 
@@ -585,11 +586,14 @@ static bool s_loopEverReturned = false;
 
 void Tick()
 {
-    // Run if EITHER the embedded window is visible OR the USB-serial
-    // output is open.  Lets pilots stream to a physical M5 without
-    // also opening the in-sim window.
+    // Run if any of:
+    //   - the embedded indexer window is visible (renderer needs to tick)
+    //   - the USB-serial port is open (write next frame)
+    //   - a USB-serial port is configured but currently closed (the
+    //     auto-retry block below must run to re-establish the connection
+    //     after a transient unplug)
     if (!s_initOk) return;
-    if (!s_visible && !s_serialOut.IsOpen()) return;
+    if (!s_visible && !s_serialOut.IsOpen() && s_serialOutPath.empty()) return;
 
     // Throttle to 20 Hz to match the OnSpeed display-serial cadence.
     // X-Plane's flight loop fires at frame rate (60–80 Hz typical),
@@ -681,17 +685,34 @@ void Tick()
     // physically-connected M5 sees the same data the embedded indexer
     // sees.  Errors close the port — but s_serialOutPath stays set so
     // we can auto-reopen below (handles transient unplug-replug).
+    //
+    // A non-blocking Write() can return false for two distinct reasons:
+    // (a) transient kernel-buffer full (EAGAIN/EWOULDBLOCK) — the right
+    //     response is to drop this frame and try the next one.
+    // (b) hard error (device unplugged, EIO) — the right response is to
+    //     close the port and let the retry loop re-establish.
+    // Without distinguishing these, every transient hiccup throws the
+    // M5 into a 2-second blackout.  Use consecutive-failure counting:
+    // single failure drops the frame, three in a row (150 ms) closes
+    // the port.  A truly disconnected device fails every frame so this
+    // converges to "close" within 150 ms; transient buffer pressure
+    // recovers on the next frame without loss of connection.
+    constexpr std::uint64_t kCloseAfterFails = 3;
     if (s_serialOut.IsOpen()) {
         if (!s_serialOut.Write(frameBytes, emitted)) {
             ++s_serialErrCount;
-            if (s_serialErrCount == 1) {
-                XPLMDebugString(("FlyOnSpeed: serial write failed on "
-                                + s_serialOutPath
+            if (s_serialErrCount >= kCloseAfterFails) {
+                XPLMDebugString(("FlyOnSpeed: serial write failed "
+                                + std::to_string(kCloseAfterFails)
+                                + " frames on " + s_serialOutPath
                                 + ", will retry\n").c_str());
+                s_serialOut.Close();
+                // Don't clear s_serialOutPath — the periodic retry
+                // below uses it to auto-reopen when the device comes
+                // back.
             }
-            s_serialOut.Close();
-            // Don't clear s_serialOutPath — the periodic retry below
-            // uses it to auto-reopen when the device comes back.
+        } else {
+            s_serialErrCount = 0;
         }
     } else if (!s_serialOutPath.empty()) {
         // Port wanted but closed (either initial setup hit a transient
@@ -807,14 +828,19 @@ bool OpenSerialOut(const std::string& portPath)
         }
     }
 
-    if (!s_serialOut.Open(portPath)) {
-        XPLMDebugString(("FlyOnSpeed: serial open FAILED on " + portPath
-                        + "\n").c_str());
-        s_serialOutPath.clear();
-        return false;
-    }
+    // Set s_serialOutPath BEFORE attempting Open, and leave it set
+    // even on initial failure.  This way the Tick auto-retry loop
+    // picks the port up the moment it appears (e.g., user told us
+    // about an M5 they hadn't plugged in yet).  Caller still gets
+    // false so it knows the device isn't responding right now.
     s_serialOutPath  = portPath;
     s_serialErrCount = 0;
+
+    if (!s_serialOut.Open(portPath)) {
+        XPLMDebugString(("FlyOnSpeed: serial open FAILED on " + portPath
+                        + " — will retry until device appears\n").c_str());
+        return false;
+    }
     XPLMDebugString(("FlyOnSpeed: serial open OK on " + portPath
                     + "\n").c_str());
     return true;
