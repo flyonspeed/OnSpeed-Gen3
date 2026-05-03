@@ -22,9 +22,11 @@ the wire.
 
 The serial submenu lists every USB-CDC port the OS exposes:
 
-- **macOS** — `/dev/cu.usbmodem*`, `/dev/cu.usbserial*`
+- **macOS** — `/dev/cu.usbmodem*`, `/dev/cu.usbserial*`,
+  `/dev/cu.SLAB_USBtoUART*` (SiLabs CP2104), `/dev/cu.wchusbserial*`
+  (WCH CH9102F)
 - **Linux** — `/dev/ttyACM*`, `/dev/ttyUSB*`
-- **Windows** — `COM3` through `COM256`
+- **Windows** — `COM1` through `COM32` (probed via `CreateFile`)
 
 The M5 typically shows up as the only newly-appeared entry after you
 plug it in. If the list is empty when you open the menu, the OS
@@ -61,8 +63,9 @@ serial output)** from the menu.
 - Some M5 firmware builds present as a different USB chipset
   (CP2104 on Basic, CH9102F on Core2). Both register as USB-CDC and
   show up as `cu.usbmodem*` (or `ttyACM*` / `COMn`); if the OS
-  exposes them as `cu.usbserial*` instead, they still appear in the
-  refresh list — the plugin enumerates both prefixes on macOS.
+  exposes them under chipset-specific names, the plugin still picks
+  them up — it enumerates `cu.usbmodem*`, `cu.usbserial*`,
+  `cu.SLAB_USBtoUART*`, and `cu.wchusbserial*` on macOS.
 - Click **Refresh ports** after replugging.
 
 ### Port appears but the M5 stays blank

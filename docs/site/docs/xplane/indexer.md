@@ -77,8 +77,9 @@ deceleration. Useful for tuning approach energy.
 
 ### Mode 4 — G History
 
-Rolling 60-second strip-chart of vertical G. Useful for spotting how
-hard you pulled in a maneuver after the fact.
+Rolling 1-minute strip-chart of vertical G (the on-screen header
+reads `G-LOAD [1 min]`). Useful for spotting how hard you pulled in
+a maneuver after the fact.
 
 ## What feeds the indexer
 

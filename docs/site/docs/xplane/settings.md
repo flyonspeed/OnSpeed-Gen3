@@ -94,6 +94,13 @@ defaults (LDmax 6.0°, OnSpeedFast 7.3°, OnSpeedSlow 9.6°, StallWarn
 saving. Click **Save** to commit them; otherwise they're gone on the
 next aircraft load.
 
+**Reload Plugins** is an escape hatch in the same window. If OpenAL
+gets wedged (no audio with the toggle on, no error in `Log.txt`), or
+the indexer texture doesn't update after an aircraft change, this
+button reloads the plugin without restarting X-Plane. Equivalent to
+**Plugins → Reload All Plugins** but routed through this plugin's
+own teardown so settings are saved first.
+
 ## Limitations
 
 The four AOA setpoints are a single set, not per-flap. The firmware
