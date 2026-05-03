@@ -172,8 +172,34 @@ void SerialRead()
 {
 #ifndef DUMMY_SERIAL_DATA
 #ifdef ESP_PLATFORM
-    if (Serial2.available())
-        InjectSerialByte(Serial2.read());
+    // Late-binding USB-CDC detection.  If the user has the M5 tethered
+    // to the X-Plane plugin and the host wasn't sending bytes during
+    // checkSerial()'s probe window, switch to USB-CDC (selectedPort=4)
+    // the moment we see any '#' byte arrive.  The display-serial
+    // accumulator silently drops any leading non-'#' bytes anyway, so
+    // streaming to it during detection is safe.
+    if (selectedPort != 4 && Serial.available()) {
+        const int b = Serial.read();
+        if (b == '#') {
+            Preferences prefs;
+            prefs.begin("OnSpeed", false);
+            prefs.putUInt("SerialPort", 4);
+            prefs.end();
+            selectedPort = 4;
+            InjectSerialByte((char)b);
+        }
+        // If b != '#', it was either stray noise or a mid-frame byte
+        // from a host that started before us.  Drop it; next loop
+        // iteration we either keep dropping or land on a '#'.
+    }
+
+    if (selectedPort == 4) {
+        if (Serial.available())
+            InjectSerialByte(Serial.read());
+    } else {
+        if (Serial2.available())
+            InjectSerialByte(Serial2.read());
+    }
 #endif
     // Desktop / WASM without DUMMY_SERIAL_DATA: no-op. A future CSV
     // replay harness drives the parser by calling InjectSerialByte()
@@ -300,6 +326,20 @@ unsigned int checkSerial()
     gdraw.deleteSprite();
     String serialString;
 
+    // USB-CDC (X-Plane plugin host).  Serial is always-on once the
+    // USB host enumerates the M5; no Serial.begin needed for CDC.  We
+    // probe it briefly before the hardware-UART variants so a sim-
+    // tethered pilot doesn't sit through 15 s of UART probing.
+    serialString = "";
+    {
+        unsigned long t0 = millis();
+        while (millis() - t0 < 2000 && serialString.length() < 200) {
+            if (Serial.available()) serialString += (char)Serial.read();
+        }
+    }
+    if (serialString.indexOf("#1") >= 0)
+        return 4;
+
     // TTL input (including v2 Onspeed with vern's power board)
     Serial2.begin(115200, SERIAL_8N1, PORTC_RX, PORTC_TX, false);
     serialString=readSerialbytes();
@@ -385,6 +425,16 @@ void serialSetup()
             // simulator demo M5 with onspeed v3 on pin 9 TTL
             Serial2.begin(115200, SERIAL_8N1, SIMDEMO_RX, PORTC_TX, false);
             Serial.printf("Sim demo: GPIO%d RX / GPIO%d TX, TTL\n", SIMDEMO_RX, PORTC_TX);
+            break;
+            }
+        case 4: {
+            // USB-CDC: M5 is plugged into a host (typically the X-Plane
+            // plugin) which writes display-serial bytes to the USB
+            // device.  No Serial2.begin — SerialRead() reads from
+            // Serial directly when selectedPort==4.  We don't disable
+            // Serial.printf debug output; the host plugin ignores any
+            // inbound bytes from the M5.
+            Serial.println("USB-CDC: reading display-serial frames from Serial");
             break;
             }
         case 0: {
