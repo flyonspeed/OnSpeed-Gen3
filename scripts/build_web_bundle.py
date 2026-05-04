@@ -361,7 +361,46 @@ def _bundle_js():
     chunks.append("  }")
     chunks.append("}")
 
-    return "\n".join(chunks)
+    bundled = "\n".join(chunks)
+    _assert_no_duplicate_top_level_identifiers(bundled)
+    return bundled
+
+
+_RE_TOP_LEVEL_DECL = re.compile(
+    r"^(?:const|let|var|function|class|async\s+function)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+    re.MULTILINE,
+)
+
+
+def _assert_no_duplicate_top_level_identifiers(bundled_js):
+    """Fail loudly if two pages declare the same top-level identifier.
+
+    The bundler concatenates every `lib/**/*.js` module into a single
+    global script tag.  Module-scope `const X = …` declarations from
+    two different files end up in the same lexical scope and the
+    browser raises `Uncaught SyntaxError: Identifier 'X' has already
+    been declared`.  The page never mounts.
+
+    Catch it here, at build time, with a clear message naming the
+    duplicates.  The fix is to rename one (or factor the constant into
+    a shared helper module).
+    """
+    counts = {}
+    for match in _RE_TOP_LEVEL_DECL.finditer(bundled_js):
+        name = match.group(1)
+        counts[name] = counts.get(name, 0) + 1
+    duplicates = sorted((n, c) for n, c in counts.items() if c > 1)
+    if duplicates:
+        msg_lines = [
+            "build_web_bundle: duplicate top-level identifier(s) in JS bundle:",
+        ]
+        for name, count in duplicates:
+            msg_lines.append(f"  {count}x  {name}")
+        msg_lines.append(
+            "Rename one of the colliding declarations or move it into a"
+            " shared helper module under lib/core/."
+        )
+        raise SystemExit("\n".join(msg_lines))
 
 
 # ---------------------------------------------------------------------

@@ -11,7 +11,12 @@ import { html, useState, useEffect } from '../vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { postJson } from '../shell/apiClient.js';
 
-const POLL_INTERVAL_MS = 2000;
+// Page-prefixed to avoid colliding with FormatPage's POLL_INTERVAL_MS.
+// The bundler concatenates every page into a single global script
+// scope, so module-scope const names must be unique across pages.  The
+// bundler's duplicate-identifier guard fails the build if two pages
+// declare the same top-level name.
+const REBOOT_POLL_INTERVAL_MS = 2000;
 
 export function RebootPage() {
   const [phase, setPhase] = useState('confirm');
@@ -38,9 +43,9 @@ export function RebootPage() {
       } catch {
         // Connection refused / DNS / aborted — device still rebooting.
       }
-      if (!cancelled) setTimeout(tick, POLL_INTERVAL_MS);
+      if (!cancelled) setTimeout(tick, REBOOT_POLL_INTERVAL_MS);
     };
-    setTimeout(tick, POLL_INTERVAL_MS);
+    setTimeout(tick, REBOOT_POLL_INTERVAL_MS);
     return () => { cancelled = true; };
   }, [phase]);
 
