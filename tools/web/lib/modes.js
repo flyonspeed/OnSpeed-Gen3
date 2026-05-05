@@ -7,7 +7,7 @@ import * as G from './core/geometry.js';
 import { colors } from './core/colors.js';
 import { fmt, fmtSigned } from './core/format.js';
 import {
-  Indexer, PercentLiftNumber, CornerReadout, FlapCircle, SlipBall, EdgeTape,
+  Indexer, PercentLiftNumber, CornerReadout, DataMark, FlapCircle, SlipBall, EdgeTape,
   Horizon, PitchLadder, BankArc, AircraftSymbol, TopPointer, FlightPathMarker,
   PitchReadout, DecelGauge, GHistory, StaleOverlay,
 } from './components/svg/index.js';
@@ -75,6 +75,7 @@ export const Mode0 = ({ r, stale, numericDisplay = true }) => {
                    stallWarn=${r.stallWarnPctLift} flashFlag=${flashFlag} />
       <${EdgeTape} value=${r.gOnsetRate} />
       <${PercentLiftNumber} percent=${r.percentLift} aoaIsValid=${aoaIsValid} />
+      <${DataMark} value=${r.dataMark} />
     <//>`;
 };
 
