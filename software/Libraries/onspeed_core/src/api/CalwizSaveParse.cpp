@@ -2,14 +2,17 @@
 //
 // Lexer rules:
 //   - A JSON number is `[-+]? digits ('.' digits)? ([eE][-+]? digits)?`.
-//     `digits` is one or more 0-9.  No leading-zero check (the firmware
-//     used to call atof which also doesn't enforce JSON's leading-zero
-//     rule; the wizard never emits leading zeros so this is moot).
+//     `digits` is one or more 0-9.  No leading-zero check; the wizard
+//     never emits leading zeros, so the looser grammar is fine here.
 //   - Reject `NaN`, `Infinity`, `-Infinity`: surface as parse failures.
 //   - Reject `1.2.3` and other multi-decimal-point tokens.
 //   - Reject `1e` with no exponent digits, `+e3`, etc.
 //   - std::strtof returns ±HUGE_VALF on overflow; non-finite results
 //     are rejected so the SuFlaps never sees Inf or NaN.
+//   - See test_parse_json_number_lexer_known_limitations in
+//     test_calwiz_save_diff.cpp for behaviors that diverge from strict
+//     RFC-8259 JSON (trailing garbage, leading `+`, fractional-only
+//     mantissa).  JSON.stringify never emits those forms.
 //
 // Whitespace tolerance: only spaces and tabs adjacent to the colon are
 // skipped before parsing the value.  The wizard emits compact
