@@ -402,12 +402,14 @@ test('LogsPage renders the delete-error banner', async () => {
                   'initial /api/logs fetch + render');
 
     // Find the trash button on the non-active row and fire its onClick.
+    // The button renders an inline <svg> trash icon; identify it by the
+    // child <svg> element rather than text content.
     const buttons = [...walk(root)].filter(n => n.localName === 'button');
     const trash = buttons.find(b => {
-      const text = b.childNodes[0] && b.childNodes[0].data;
-      return text && text.trim() === '×';
+      const kids = b.childNodes || [];
+      return kids.some(k => k && k.localName === 'svg');
     });
-    if (!trash) throw new Error('no trash (×) button rendered');
+    if (!trash) throw new Error('no trash (svg) button rendered');
     // Preact stores listeners on `l` keyed by `<event-type><capture>`,
     // where capture is the literal string "false" / "true".  So
     // `onClick` lives at `l['clickfalse']`.
