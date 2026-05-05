@@ -221,6 +221,58 @@ if (calwiz) {
   }
 }
 
+// ----- /api/calwiz/save -------------------------------------------------
+//
+// Two valid shapes — happy path and warning path.  The mock fixture
+// covers the happy path; the test asserts the documented schema for
+// both so the wizard's response handler doesn't drift.
+//
+// Happy path:   {"ok": true}
+// Warning path: {"ok": true, "warnings": [{"path": "...", "message": "..."}]}
+// Error path:   {"ok": false, "errors":   [{"path": "...", "message": "..."}]}
+
+const calwizSave = loadMock('api-calwiz-save');
+if (calwizSave) {
+  ok(isBoolean(calwizSave.ok), '/api/calwiz/save: ok is bool');
+  // The mock represents the happy path.  Pin that no unknown keys
+  // sneak in — drift here would mean the wizard's response handler
+  // misses a new field added on the firmware side.
+  for (const k of Object.keys(calwizSave)) {
+    ok(['ok', 'warnings', 'errors'].includes(k),
+       `/api/calwiz/save: only documented keys (saw ${k})`);
+  }
+  if (Array.isArray(calwizSave.warnings)) {
+    for (const [i, w] of calwizSave.warnings.entries()) {
+      exactKeys(w, ['path', 'message'], `/api/calwiz/save.warnings[${i}]`);
+      ok(isString(w.path),    `warnings[${i}].path is string`);
+      ok(isString(w.message), `warnings[${i}].message is string`);
+    }
+  }
+  if (Array.isArray(calwizSave.errors)) {
+    for (const [i, e] of calwizSave.errors.entries()) {
+      exactKeys(e, ['path', 'message'], `/api/calwiz/save.errors[${i}]`);
+      ok(isString(e.path),    `errors[${i}].path is string`);
+      ok(isString(e.message), `errors[${i}].message is string`);
+    }
+  }
+}
+
+// Synthetic-fixture shape pin — exercises the warning path the
+// firmware emits when SetpointOrderError() is non-empty.  No fixture
+// file ships for it (the wizard's UI handles both cases from a single
+// mock); construct one here and run the same assertions.
+const calwizSaveWarn = {
+  ok: true,
+  warnings: [
+    { path: 'setpoints', message: 'LDMAX (8.0) must be less than OnSpeedFast (7.0)' },
+  ],
+};
+ok(isBoolean(calwizSaveWarn.ok), 'synthetic warning: ok is bool');
+ok(Array.isArray(calwizSaveWarn.warnings), 'synthetic warning: warnings is array');
+for (const [i, w] of calwizSaveWarn.warnings.entries()) {
+  exactKeys(w, ['path', 'message'], `synthetic warning warnings[${i}]`);
+}
+
 // ----- /api/version ----------------------------------------------------
 
 const version = loadMock('api-version');
