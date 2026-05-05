@@ -515,11 +515,15 @@ def _emit_stubs_header(out_path, etag_js, etag_css):
         f.write("\n".join(body) + "\n")
 
 
-# A small set of static fallback nav links for users with JS disabled.
-# `<noscript>`-friendly; replaced by PageShell once the bundle mounts.
+# Static fallback nav for users with JS disabled.  Wrapped in
+# `<noscript>` so the entire block is invisible to browsers with JS on
+# (per HTML spec, `<noscript>` content is not rendered when scripting is
+# enabled), and lives as a sibling of `<div id="app">` rather than a
+# child so PageShell's mount can never inherit it.
 _STATIC_FALLBACK_NAV = (
-    '<noscript>OnSpeed configuration requires JavaScript. '
-    'Use one of the links below to navigate.</noscript>'
+    '<noscript>'
+    '<p>OnSpeed configuration requires JavaScript. '
+    'Use one of the links below to navigate.</p>'
     '<nav class="onspeed-fallback-nav" aria-label="fallback">'
     '<a href="/">Home</a> | '
     '<a href="/indexer">Indexer</a> | '
@@ -529,6 +533,7 @@ _STATIC_FALLBACK_NAV = (
     '<a href="/upgrade">Upgrade</a> | '
     '<a href="/reboot">Reboot</a>'
     '</nav>'
+    '</noscript>'
 )
 
 
@@ -543,9 +548,8 @@ def _build_stub_html(page_id, title, etag_js, etag_css):
         f'<link rel="stylesheet" href="/static/app-{etag_css}.css">\n'
         '</head>\n'
         '<body>\n'
-        f'<div id="app" data-page="{page_id}">'
         f'{_STATIC_FALLBACK_NAV}'
-        '</div>\n'
+        f'<div id="app" data-page="{page_id}"></div>\n'
         f'<script src="/static/app-{etag_js}.js" defer></script>\n'
         '</body>\n'
         '</html>'
