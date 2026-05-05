@@ -206,126 +206,52 @@ void DrawWindow(XPLMWindowID, void*)
     int left, top, right, bottom;
     XPLMGetWindowGeometry(s_window, &left, &top, &right, &bottom);
 
-    // Aspect-ratio lock + drag-corner detection.
-    //
-    // X-Plane doesn't expose which corner the user grabbed during a
-    // resize — it just hands us new geometry per frame.  Compare to
-    // the previous frame to figure out which edges moved, then anchor
-    // the opposite edge while snapping width:height back to 4:3.
-    // Standard pattern: macOS / Photoshop / OBS preview do the same
-    // thing; the dragged corner stays under the cursor and the
-    // opposite corner pins.
-    //
-    // Tolerance handles float-roundtrip noise from XPLMSetWindowGeometry
-    // (the SDK occasionally returns ±1 boxel from what we wrote).
+    // Letterbox the M5 framebuffer at the panel's native 4:3 inside
+    // the X-Plane window.  The user can resize the window to any
+    // shape — we draw the textured quad centered, with the rest of
+    // the window filled by xplm_WindowDecorationRoundRectangle's
+    // chrome bg.  Same approach OBS preview / VLC / RetroArch use:
+    // the rendered image stays unstretched, the user gets free
+    // layout.
+    const int winW   = right - left;
+    const int winH   = top   - bottom;
+    int       quadW  = winW;
+    int       quadH  = static_cast<int>(static_cast<float>(quadW) / kAspect);
+    if (quadH > winH) {
+        quadH = winH;
+        quadW = static_cast<int>(static_cast<float>(quadH) * kAspect);
+    }
+    const int offX     = (winW - quadW) / 2;
+    const int offY     = (winH - quadH) / 2;
+    const int quadL    = left + offX;
+    const int quadR    = quadL + quadW;
+    const int quadT    = top  - offY;
+    const int quadB    = quadT - quadH;
+
+    // Persist any drag/resize that changed the box.  Compared
+    // against s_persistedGeom rather than the previous frame so the
+    // save fires once per user action, not every frame.
+    if (left   != s_persistedGeom.left  ||
+        top    != s_persistedGeom.top   ||
+        winW   != s_persistedGeom.width ||
+        winH   != s_persistedGeom.height)
     {
-        static int s_prevL = -1, s_prevT = -1, s_prevR = -1, s_prevB = -1;
-        constexpr int kEpsilon = 2;
-
-        const int width  = right - left;
-        const int height = top   - bottom;
-        const float aspect = (height > 0)
-                             ? (static_cast<float>(width) / height) : kAspect;
-
-        const bool leftMoved   = std::abs(left   - s_prevL) > kEpsilon;
-        const bool rightMoved  = std::abs(right  - s_prevR) > kEpsilon;
-        const bool topMoved    = std::abs(top    - s_prevT) > kEpsilon;
-        const bool bottomMoved = std::abs(bottom - s_prevB) > kEpsilon;
-
-        const bool firstSeen   = (s_prevL == -1);
-        const bool aspectOff   = std::abs(aspect - kAspect) > 0.01f;
-
-        if (!firstSeen && aspectOff &&
-            (leftMoved || rightMoved || topMoved || bottomMoved))
-        {
-            // Pin the corner whose two edges did NOT move, anchor the
-            // dragged corner under the cursor, and recompute the
-            // un-pinned extents to satisfy 4:3.
-            //
-            // Choose which extent (width or height) drives the snap
-            // based on which edge(s) moved more — keeps the dragged
-            // axis as the "ground truth" so the cursor stays under
-            // the corner the user is pulling.
-            const int dW = std::abs((right  - left)  -
-                                    (s_prevR - s_prevL));
-            const int dH = std::abs((top    - bottom) -
-                                    (s_prevT - s_prevB));
-            const bool widthDrives = dW >= dH;
-
-            int newW = std::max(width,  kMinWidth);
-            int newH = std::max(height, kMinHeight);
-            if (widthDrives) {
-                newH = static_cast<int>(std::round(
-                    static_cast<float>(newW) / kAspect));
-                if (newH < kMinHeight) {
-                    newH = kMinHeight;
-                    newW = static_cast<int>(std::round(
-                        static_cast<float>(newH) * kAspect));
-                }
-            } else {
-                newW = static_cast<int>(std::round(
-                    static_cast<float>(newH) * kAspect));
-                if (newW < kMinWidth) {
-                    newW = kMinWidth;
-                    newH = static_cast<int>(std::round(
-                        static_cast<float>(newW) / kAspect));
-                }
-            }
-
-            // Pin the opposite corner: keep whichever of left/right
-            // and top/bottom did NOT move from the previous frame.
-            int newLeft, newTop;
-            if (leftMoved && !rightMoved) {
-                newLeft = right - newW;     // right pinned
-            } else {
-                newLeft = left;             // left pinned (default)
-            }
-            if (bottomMoved && !topMoved) {
-                newTop = bottom + newH;     // bottom pinned
-            } else {
-                newTop = top;               // top pinned (default)
-            }
-
-            XPLMSetWindowGeometry(s_window,
-                                  newLeft, newTop,
-                                  newLeft + newW, newTop - newH);
-            left   = newLeft;
-            top    = newTop;
-            right  = newLeft + newW;
-            bottom = newTop  - newH;
-        }
-
-        // Persist any drag/resize that changed the box.  Equality test
-        // against s_persistedGeom — not s_prev — avoids a save storm
-        // during the snap-correction frame above.
-        const int curW = right - left;
-        const int curH = top   - bottom;
-        if (!firstSeen &&
-            (left   != s_persistedGeom.left  ||
-             top    != s_persistedGeom.top   ||
-             curW   != s_persistedGeom.width ||
-             curH   != s_persistedGeom.height))
-        {
-            s_persistedGeom.left   = left;
-            s_persistedGeom.top    = top;
-            s_persistedGeom.width  = curW;
-            s_persistedGeom.height = curH;
-            SaveIndexerWindowState();
-        }
-
-        s_prevL = left;  s_prevT = top;
-        s_prevR = right; s_prevB = bottom;
+        s_persistedGeom.left   = left;
+        s_persistedGeom.top    = top;
+        s_persistedGeom.width  = winW;
+        s_persistedGeom.height = winH;
+        SaveIndexerWindowState();
     }
 
-    RenderTexturedQuadVA(left, top, right, bottom, s_textureId);
+    RenderTexturedQuadVA(quadL, quadT, quadR, quadB, s_textureId);
 
     static bool s_loggedOnce = false;
     if (!s_loggedOnce) {
         s_loggedOnce = true;
         char eb[160];
         std::snprintf(eb, sizeof(eb),
-                      "FlyOnSpeed: indexer first draw OK — geom L=%d T=%d R=%d B=%d tex=%d\n",
-                      left, top, right, bottom, s_textureId);
+                      "FlyOnSpeed: indexer first draw OK — win=%dx%d quad=%dx%d tex=%d\n",
+                      winW, winH, quadW, quadH, s_textureId);
         XPLMDebugString(eb);
     }
 }
