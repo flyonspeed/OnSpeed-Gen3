@@ -197,22 +197,50 @@ constexpr int kPinOat     = 14;   // 1-wire OAT sensor
 constexpr int kPinSwitch  = 12;   // pilot pushbutton
 
 // ---------------------------------------------------------------------------
-// EFIS serial (RS-232 via ADM3202)
+// EFIS serial (RS-232 via ADM3202, with TTL bypass on V4B via SW1)
+//
+// V4P (Phil's Gen2v4): aircraft EFIS RX lands on J1 pin 25, routed through
+//   the ADM3202 R1 channel to ESP32 GPIO 11. Always RS-232 levels.
+//
+// V4B (Bob's box): aircraft EFIS RX lands on DB-15 pin 2 → J1 pin 24,
+//   routed through SW1 to ESP32 GPIO 9. SW1 selects between U10's R2
+//   channel (RS-232 mode) and a direct TTL bypass; either way, the data
+//   ends up on GPIO 9. The ADM3202 R1 channel that drives GPIO 11 is
+//   wired to a different J1 pin and is not in Vac's primary EFIS path.
+//
+// Symptom of getting this wrong on V4B (which v4.21 and earlier did): the
+// firmware listens on GPIO 11 while the EFIS data arrives on GPIO 9, so
+// VN-300 / Skyview / G3X / etc. appear silent regardless of EFIS_TYPE.
 // ---------------------------------------------------------------------------
+#ifdef HW_V4P
 constexpr int kEfisRx = 11;   // J1 pin 25 → R1_OUT on ADM3202
-constexpr int kEfisTx = 46;   // NC (we do not transmit to the EFIS)
+#else  // HW_V4B
+constexpr int kEfisRx = 9;    // DB-15 pin 2 → J1 pin 24 → SW1 → GPIO 9
+#endif
+constexpr int kEfisTx = -1;   // never transmit to the EFIS
 
 // ---------------------------------------------------------------------------
 // Boom serial (TTL)
+//
+// DB-15 pin 13 → ESP32 GPIO 3, direct TTL, no transceiver, no switch.
+// Same on V4P and V4B.
+//
+// Note: GPIO 3 is the ESP32-S3's UART0 RX (RXD0) at boot. With
+// ARDUINO_USB_CDC_ON_BOOT=0 + ARDUINO_USB_MODE=1 (set in platformio.ini),
+// the framework's `Serial` object is USB-CDC, not UART0. UART0 / GPIO 3
+// is therefore free for Serial1's RX pin. If a future framework upgrade
+// changes that default and Serial1 stops receiving boom bytes, the most
+// likely cause is UART0 silently re-claiming GPIO 3 before Serial1.begin
+// runs — fix is an explicit Serial.end() in setup() before Serial1.begin.
 // ---------------------------------------------------------------------------
 constexpr int kBoomRx = 3;
-constexpr int kBoomTx = 8;    // NC
+constexpr int kBoomTx = -1;   // never transmit to the boom
 
 // ---------------------------------------------------------------------------
-// Display serial (TTL/RS-232, shares R1_OUT with EFIS)
+// Display serial (TTL/RS-232, drives J1 pin 13 / DB-15 pin 12 via SW2 on V4B)
 // ---------------------------------------------------------------------------
 constexpr int kDisplayTx = 10;
-constexpr int kDisplayRx = 11;   // normally unused; shares EFIS RX
+constexpr int kDisplayRx = 11;   // normally unused
 
 // ---------------------------------------------------------------------------
 // Console UART (always builtin USB-CDC; baud rate only)
