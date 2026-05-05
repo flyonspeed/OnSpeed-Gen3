@@ -77,6 +77,14 @@ extern int   gHistoryIndex;
 // already uses this entry point in -DSIM_LIVE WASM builds.
 extern void InjectSerialByte(char inChar);
 
+// `sim/time/paused` dataref handle, looked up in XPluginStart.  Lives
+// in aoa_audio.cpp alongside the audio-path datarefs.  Used by Tick to
+// skip wire-frame emit during pause so the M5's gHistory buffer
+// (advanced on `serialDataFresh()`) doesn't keep accumulating samples
+// while the sim is frozen.
+#include "XPLMDataAccess.h"
+extern XPLMDataRef pausedDataRef;
+
 namespace onspeed_xplane::indexer {
 
 namespace {
@@ -420,6 +428,16 @@ void Tick()
     const std::uint32_t now = static_cast<std::uint32_t>(SDL_GetTicks());
     if (s_lastTickMs != 0 && (now - s_lastTickMs) < kTickPeriodMs) return;
     s_lastTickMs = now;
+
+    // Skip wire-frame emit while the sim is paused.  X-Plane's flight
+    // loop continues to fire during pause, so without this guard the
+    // M5 firmware's gHistory buffer (advanced on serialDataFresh())
+    // keeps logging the same paused vG sample at 5 Hz — the G-load
+    // page on Mode 4 visibly drifts even though the sim is frozen.
+    // Letting the parser go stale also keeps the gOnset pre-smoother
+    // and GOnsetFilter from accumulating a long string of identical
+    // samples that produce a phantom rate when the sim resumes.
+    if (pausedDataRef && XPLMGetDatai(pausedDataRef) != 0) return;
 
     const bool verbose = (s_tickCount < 5) || (s_tickCount % 60 == 0);
     ++s_tickCount;
