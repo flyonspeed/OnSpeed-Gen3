@@ -3821,7 +3821,7 @@
 </tr>
 </tbody>
 </table>
-<p>The five percent fields are all in <code>[0, 99]</code>. <code>percentLift</code> is computed live from <code>g_Sensors.AOA</code> and the active detent's calibration. The four anchor fields are computed by <code>ComputeDisplayPctAnchors</code> from the configured flap vector and the raw lever-pot ADC.</p>
+<p><code>percentLift</code> is the live AOA reading as a <code>float</code> in whole-percent units (0.0..99.9), computed from <code>g_Sensors.AOA</code> and the active detent's calibration via <code>ComputePercentLift</code>. The four anchor fields (<code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, <code>pipPctLift</code>) stay integer-percent in <code>[0, 99]</code> — they only move on detent or config-save events, so sub-percent buys nothing on those. Computed by <code>ComputeDisplayPctAnchors</code> from the configured flap vector and the raw lever-pot ADC. Comparisons between <code>percentLift</code> (float) and an anchor (int) promote the int to float; behavior is exact for our range since integer values up to 2²⁴ are representable in float32 without rounding.</p>
 <h2 id="3-gates-and-color-logic">3. Gates and color logic<a class="headerlink" href="#3-gates-and-color-logic" title="Permanent link">&para;</a></h2>
 <h3 id="31-top-chevrons">3.1 Top chevrons<a class="headerlink" href="#31-top-chevrons" title="Permanent link">&para;</a></h3>
 <p>Two stylized triangles forming an up-arrow near the top.</p>
@@ -3887,15 +3887,16 @@
 <td><code>115 → 78</code> (donut band, fixed screen-Y)</td>
 </tr>
 <tr>
-<td><code>(onSpeedSlowPctLift, stallWarnPctLift]</code></td>
+<td><code>(onSpeedSlowPctLift, 99]</code></td>
 <td><code>78 → 1</code> (linear)</td>
 </tr>
 <tr>
-<td><code>&gt; stallWarnPctLift</code></td>
+<td><code>&gt; 99</code></td>
 <td><code>1</code> (display top)</td>
 </tr>
 </tbody>
 </table>
+<p>The upper ramp tops out at percent_lift = 99 — the lift-envelope ceiling — independent of the active detent's stall-warn percent. Stall-warn drives the chevron flash-red color logic in <code>drawAOA</code> (§3.1); it does not gate Y here. Floats in (99.0, 99.9] (the float clamp range above 99) saturate at y=1 just like the integer 99 — the bar visibly pinning at "off the chart" is the documented saturation cue.</p>
 <p>The donut band is anchored at fixed pixel Y so the donut never moves on screen, regardless of which detent is active. The L/Dmax pip and the white index bar both float according to their percent values — when those values fall within the donut band, they appear inside it.</p>
 <p>Source: <code>main.cpp::mapPct2Display</code>, line ~1510.</p>
 <h2 id="5-pip-computation-pippctlift">5. Pip computation (<code>pipPctLift</code>)<a class="headerlink" href="#5-pip-computation-pippctlift" title="Permanent link">&para;</a></h2>
@@ -3912,8 +3913,9 @@
 \text{pipClean} = \text{ComputePercentLift}(\text{cleanest.fLDMAXAOA},\ \text{cleanest})
 \]</div>
 <div class="arithmatex">\[
-\text{pipFullFlap} = \frac{1}{2}\left( \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDFASTAOA},\ \text{mostDeployed}) + \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDSLOWAOA},\ \text{mostDeployed}) \right)
+\text{pipFullFlap} = \frac{1}{4}\left( 3 \cdot \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDFASTAOA},\ \text{mostDeployed}) + \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDSLOWAOA},\ \text{mostDeployed}) \right)
 \]</div>
+<p>That is, the full-flap pip target is the <strong>bottom-half-of-donut</strong> anchor — one quarter of the way from the fast (lower-percent) edge into the OnSpeed band. Lands the chevron in the lower donut at L/Dmax instead of climbing into the upper donut to meet a band-center pip (per PR #376).</p>
 <p><code>cleanest</code> is the lowest-degree configured flap entry (<code>g_Config.aFlaps[0]</code> after parse-time sort). <code>mostDeployed</code> is the highest-degree entry (<code>g_Config.aFlaps[entryCount-1]</code>). <strong>Intermediate detents are ignored</strong> for the pip — a typical 3-detent config (clean / 16° / 33°) lerps from clean to 33° as the lever moves, passing through the 16° detent's calibrated L/Dmax percent only by coincidence (the 16° detent's L/Dmax does not anchor the pip).</p>
 <p>Source: <code>DisplayPctAnchors.cpp::ComputeDisplayPctAnchors</code>.</p>
 <h3 id="why-ignore-intermediate-detents">Why ignore intermediate detents<a class="headerlink" href="#why-ignore-intermediate-detents" title="Permanent link">&para;</a></h3>
