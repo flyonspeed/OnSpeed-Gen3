@@ -5,6 +5,7 @@ const char szHtmlHeaderCss[] PROGMEM = R"=====(
 body {
     background-color: #cccccc;
     font-family: Arial, Helvetica, Sans-Serif; Color: #000088;
+    margin: 0;
     }
 /* Nav rules are scoped to `ul#liveview-nav-ul` so a content `<ul>` on
    any page (e.g. a guidelines list) doesn't pick up the dark-bar
