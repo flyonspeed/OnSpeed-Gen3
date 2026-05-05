@@ -1747,6 +1747,24 @@ void HandleLogs()
 // Lists log files (reusing the existing /download endpoint), then reports
 // per-chunk arrival timing to attribute the slowness to a specific layer.
 
+namespace
+{
+// Inline byte formatter for the file-list dropdown. The web rewrite moved
+// the canonical formatting to LogsPage.js (formatBytes); /bench renders
+// the picker server-side, so it carries its own tiny copy.
+String FormatBenchBytes(uint64_t uBytes)
+    {
+    char szBuf[24];
+    if (uBytes >= 1024ULL * 1024ULL)
+        snprintf(szBuf, sizeof(szBuf), "%.1f MB", uBytes / (1024.0 * 1024.0));
+    else if (uBytes >= 1024ULL)
+        snprintf(szBuf, sizeof(szBuf), "%.1f KB", uBytes / 1024.0);
+    else
+        snprintf(szBuf, sizeof(szBuf), "%llu B", (unsigned long long)uBytes);
+    return String(szBuf);
+    }
+}
+
 void HandleBench()
     {
     SdFileSys::SuFileInfoList   suFileList;
@@ -1789,7 +1807,7 @@ void HandleBench()
             sPage += "'>";
             sPage += suFileList[iIdx].szFileName;
             sPage += " (";
-            sPage += sFormatBytes(suFileList[iIdx].uFileSize);
+            sPage += FormatBenchBytes(suFileList[iIdx].uFileSize);
             sPage += ")</option>";
             }
         }
@@ -1799,6 +1817,14 @@ void HandleBench()
              "<label><input type='checkbox' id='discard' checked> Discard bytes "
              "(don't save)</label> "
              "<button id='go'>Run bench</button></p>\n";
+
+    // Server toggle. Port 80 = synchronous Arduino WebServer (default),
+    // port 8080 = ESPAsyncWebServer spike. A/B with the same /bench JS.
+    sPage += "<p>Server: "
+             "<label><input type='radio' name='srv' value='80' checked> "
+             "Port 80 (sync, current)</label> &nbsp; "
+             "<label><input type='radio' name='srv' value='8080'> "
+             "Port 8080 (async spike)</label></p>\n";
 
     sPage += "<div id='status' style='font-family:monospace;white-space:pre-wrap;"
              "background:#111;color:#0f0;padding:8px;min-height:10em;'>"
@@ -1830,13 +1856,19 @@ void HandleBench()
   async function run() {
     const file = document.getElementById('file').value;
     const discard = document.getElementById('discard').checked;
+    const srvPort = document.querySelector('input[name="srv"]:checked').value;
     if (!file) { log('No file selected.'); return; }
     copyBtn.disabled = true;
-    statusEl.textContent = 'Starting: /download?file=' + file + ' (discard=' + discard + ')';
+    // Same-origin (port 80) when srvPort=80, cross-origin to :8080 otherwise.
+    const url = (srvPort === '80')
+      ? '/download?file=' + encodeURIComponent(file)
+      : 'http://' + window.location.hostname + ':' + srvPort
+        + '/download?file=' + encodeURIComponent(file);
+    statusEl.textContent = 'Starting: ' + url + ' (discard=' + discard + ')';
     const t0 = performance.now();
     let resp;
     try {
-      resp = await fetch('/download?file=' + encodeURIComponent(file), {cache: 'no-store'});
+      resp = await fetch(url, {cache: 'no-store'});
     } catch (e) { log('fetch failed: ' + e); return; }
     const tFirstResponse = performance.now();
     if (!resp.ok) { log('HTTP ' + resp.status); return; }
@@ -1888,6 +1920,7 @@ void HandleBench()
     const steadyMs    = gaps.slice(steadyStart, steadyEnd).reduce((a, b) => a + b, 0);
     const result = {
       file, discard, totalSize, bytes,
+      server: srvPort === '80' ? 'sync(80)' : 'async(' + srvPort + ')',
       totalMs: +totalMs.toFixed(1),
       avgKBps: +kbps(bytes, totalMs).toFixed(1),
       steadyKBps: steadyMs > 0 ? +kbps(steadyBytes, steadyMs).toFixed(1) : 0,

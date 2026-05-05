@@ -291,6 +291,11 @@ void setup()
     // Configuration web server
     CfgWebServerInit();
 
+    // Async download spike: mirrors /download on port 8080 so /bench can
+    // A/B steady-state throughput against the sync server on port 80.
+    extern void AsyncDownloadServerInit();
+    AsyncDownloadServerInit();
+
     // Live data server
     DataServerInit();
 
