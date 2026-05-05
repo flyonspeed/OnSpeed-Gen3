@@ -5,6 +5,7 @@
 import { html } from './vendor/preact-standalone.js';
 import * as G from './core/geometry.js';
 import { colors } from './core/colors.js';
+import { fmt, fmtSigned } from './core/format.js';
 import {
   Indexer, PercentLiftNumber, CornerReadout, FlapCircle, SlipBall, EdgeTape,
   Horizon, PitchLadder, BankArc, AircraftSymbol, TopPointer, FlightPathMarker,
@@ -18,13 +19,11 @@ import {
 // frame arrives) collapses to '—'. Once data is on the wire, every
 // number renders, even when the IAS-mute gate has set AOA to its
 // `-100` sentinel.
-const fmtNum = (v, digits = 0, signed = false) => {
-  if (v === undefined || v === null || Number.isNaN(v)) return '—';
-  const n = Number(v);
-  if (!Number.isFinite(n)) return '—';
-  const fixed = n.toFixed(digits);
-  return signed && n >= 0 ? '+' + fixed : fixed;
-};
+//
+// Delegates to `fmt`/`fmtSigned` from core/format.js so values that
+// round to -0.0 render as 0.0 (or +0.0 in signed contexts).
+const fmtNum = (v, digits = 0, signed = false) =>
+  signed ? fmtSigned(v, digits) : fmt(v, digits);
 
 // Build the per-frame anchors array from a record.
 const anchorsFromRec = (r) => [
