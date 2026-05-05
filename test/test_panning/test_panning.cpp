@@ -3,7 +3,8 @@
 // Covers:
 //   - Centered (lateralG = 0) settles at 1.0/1.0
 //   - Sign convention (positive lateralG → right channel louder)
-//   - Hard pan saturates at 0.0/1.0 after the dead-zone curve clips
+//   - Hard pan saturates at 0.0/1.0 once |lateralG| reaches 0.125
+//   - Extreme lateralG (spin / snap-roll regime) holds full pan
 //   - Mid-pan preserves L/R ratio after normalization
 //   - Smoothing IIR converges asymptotically to the steady-state curve
 //   - Smoothing factor 1.0 is one-tick instant response
@@ -93,18 +94,16 @@ void test_negative_lateral_routes_to_left_channel(void)
 }
 
 // ---------------------------------------------------------------------------
-// Hard pan saturates: lateralG inside the active zone (|x| <= ~0.1)
-// pushes channelGain to ±1, producing raw (0.0, 2.0) → normalized
-// (0.0, 1.0).  The curve f(x) = -92.822 x² + 20.025 x peaks at
-// x ≈ 0.1079 with f(x) ≈ 1.08 (clamped to 1.0).  Use 0.08 G — the
-// "one ball width" tuning point — which already saturates the curve.
+// Hard pan saturates: at |lateralG| ≥ 0.125 the curve `min(1, 8·|x|)`
+// reaches 1.0, so channelGain converges to ±1 and the raw (left, right)
+// of (0.0, 2.0) normalizes to (0.0, 1.0).
 // ---------------------------------------------------------------------------
 
 void test_hard_right_pan_saturates_at_zero_one(void)
 {
     PanState s;
     PanConfig cfg;
-    PanResult r = RunToSteadyState(0.08f, cfg, s);
+    PanResult r = RunToSteadyState(0.125f, cfg, s);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, r.leftGain);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, r.rightGain);
 }
@@ -113,29 +112,44 @@ void test_hard_left_pan_saturates_at_one_zero(void)
 {
     PanState s;
     PanConfig cfg;
-    PanResult r = RunToSteadyState(-0.08f, cfg, s);
+    PanResult r = RunToSteadyState(-0.125f, cfg, s);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, r.leftGain);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, r.rightGain);
 }
 
 // ---------------------------------------------------------------------------
-// Curve is a quadratic that goes negative beyond |x| ≈ 0.216.  The
-// negative-curve regime is clamped to 0, which means very large
-// lateralG decays the panning back to centered.  This is the behavior
-// the inline Housekeeping math had before extraction; we pin it here
-// so any future curve change is a deliberate decision.
+// Spin / snap-roll regime: sustained lateral G in the 0.25 – 1.0 range
+// must render as full pan, not centered.  Pins the fix for #371.
 // ---------------------------------------------------------------------------
 
-void test_extreme_lateral_clamps_curve_to_zero(void)
+void test_extreme_lateral_saturates_curve_at_one(void)
 {
-    PanState s;
     PanConfig cfg;
-    cfg.smoothingFactor = 1.0f;
-    // |x| = 0.5: curve = -92.822*0.25 + 20.025*0.5 ≈ -13.2 → clamps to 0.
-    // channelGain stays 0 → centered output.
-    PanResult r = Apply3DPan(0.5f, s, cfg);
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, r.leftGain);
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, r.rightGain);
+    cfg.smoothingFactor = 1.0f;   // one-tick steady state
+
+    // Right side: 0.30 G — typical RV-class developed-spin lateral.
+    {
+        PanState s;
+        PanResult r = Apply3DPan(0.30f, s, cfg);
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, r.leftGain);
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, r.rightGain);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, s.channelGain);
+    }
+    // Right side: 0.50 G — heavy / longer-fuselage spin upper end.
+    {
+        PanState s;
+        PanResult r = Apply3DPan(0.50f, s, cfg);
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, r.leftGain);
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, r.rightGain);
+    }
+    // Left side: -1.0 G — snap-roll peak.
+    {
+        PanState s;
+        PanResult r = Apply3DPan(-1.0f, s, cfg);
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, r.leftGain);
+        TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, r.rightGain);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, -1.0f, s.channelGain);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -168,12 +182,9 @@ void test_output_gains_never_exceed_unity(void)
 
 void test_mid_pan_preserves_lr_ratio(void)
 {
-    // We want channelGain to be +0.5 in one tick, so use smoothing=1.0
-    // and find a lateralG that yields curve = 0.5.  The curve is
-    // -92.822 x^2 + 20.025 x; solving for f(x)=0.5 in the rising
-    // region: x ≈ 0.0271 (closed form via quadratic formula).
-    const float a = -92.822f, b = 20.025f, c = -0.5f;
-    const float x = (-b + std::sqrt(b * b - 4 * a * c)) / (2 * a);
+    // The curve `min(1, 8·|x|)` hits 0.5 at x = 0.0625 in the rising
+    // (pre-saturation) region.
+    const float x = 0.0625f;
 
     PanState s;
     PanConfig cfg;
@@ -200,13 +211,13 @@ void test_smoothing_factor_controls_convergence_rate(void)
     PanConfig cfg;
     cfg.smoothingFactor = 0.1f;   // production default
 
-    // 0.08 G saturates the active-zone curve to 1.0 (it peaks at ~0.108).
-    Apply3DPan(0.08f, s, cfg);
+    // 0.125 G is the saturation point of `min(1, 8·|x|)`.
+    Apply3DPan(0.125f, s, cfg);
     // After one tick: channelGain = 0.1 * 1.0 + 0.9 * 0 = 0.1
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.1f, s.channelGain);
 
     // After many ticks it should converge near 1.0.
-    for (int i = 0; i < 100; ++i) Apply3DPan(0.08f, s, cfg);
+    for (int i = 0; i < 100; ++i) Apply3DPan(0.125f, s, cfg);
     TEST_ASSERT_TRUE(s.channelGain > 0.99f);
     TEST_ASSERT_TRUE(s.channelGain <= 1.0f + 1e-6f);
 }
@@ -218,22 +229,22 @@ void test_smoothing_factor_one_is_instant(void)
     cfg.smoothingFactor = 1.0f;
 
     // Saturating lateralG → curve = 1.0 → instant channelGain = 1.0.
-    Apply3DPan(0.08f, s, cfg);
+    Apply3DPan(0.125f, s, cfg);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, s.channelGain);
 }
 
 // ---------------------------------------------------------------------------
-// Dead-zone: very small |lateralG| produces near-zero channelGain.
-// (The curve has f(0) = 0, f(0.005) ≈ 0.098, f(0.01) ≈ 0.19 — with
-// smoothing=0.1 a single tick at 0.005 lateral barely budges the state.)
+// Small lateral G: one tick at default smoothing barely budges the state.
+// (No true dead-zone; the curve `min(1, 8·|x|)` has slope 8 near zero,
+// so f(0.005) = 0.04 and one tick at α=0.1 leaves channelGain ≈ 0.004.)
 // ---------------------------------------------------------------------------
 
-void test_small_lateral_in_deadzone(void)
+void test_small_lateral_barely_budges_state(void)
 {
     PanState s;
     PanConfig cfg;   // default smoothing 0.1
     Apply3DPan(0.005f, s, cfg);
-    // channelGain after one tick ≈ 0.1 * 0.098 ≈ 0.01 — still very near zero.
+    // channelGain after one tick ≈ 0.1 * 0.04 = 0.004 — still very near zero.
     TEST_ASSERT_TRUE(std::fabs(s.channelGain) < 0.02f);
 }
 
@@ -251,9 +262,9 @@ void test_state_persists_across_calls(void)
     float prev = -1.0f;
     for (int i = 0; i < 10; ++i)
     {
-        // 0.08 G keeps us inside the active curve zone and avoids the
-        // negative-curve-clamps-to-0 regime beyond ~0.216 G.
-        Apply3DPan(0.08f, s, cfg);
+        // 0.125 G saturates the curve to 1.0; channelGain climbs
+        // monotonically toward 1 under the IIR.
+        Apply3DPan(0.125f, s, cfg);
         TEST_ASSERT_TRUE(s.channelGain >= prev);
         prev = s.channelGain;
     }
@@ -273,12 +284,12 @@ int main(int /*argc*/, char** /*argv*/)
     RUN_TEST(test_negative_lateral_routes_to_left_channel);
     RUN_TEST(test_hard_right_pan_saturates_at_zero_one);
     RUN_TEST(test_hard_left_pan_saturates_at_one_zero);
-    RUN_TEST(test_extreme_lateral_clamps_curve_to_zero);
+    RUN_TEST(test_extreme_lateral_saturates_curve_at_one);
     RUN_TEST(test_output_gains_never_exceed_unity);
     RUN_TEST(test_mid_pan_preserves_lr_ratio);
     RUN_TEST(test_smoothing_factor_controls_convergence_rate);
     RUN_TEST(test_smoothing_factor_one_is_instant);
-    RUN_TEST(test_small_lateral_in_deadzone);
+    RUN_TEST(test_small_lateral_barely_budges_state);
     RUN_TEST(test_state_persists_across_calls);
 
     return UNITY_END();
