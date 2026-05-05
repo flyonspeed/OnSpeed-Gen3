@@ -38,6 +38,15 @@
 //
 //   EarthVerticalG, FlightPath, VSI, Altitude,
 //   DerivedAOA, CoeffP
+//
+// Reader asymmetry: the on-firmware LogReplay task reads logs through
+// proto::log_csv::BuildHeaderIndex + ParseRowByIndex (see
+// LogCsvHeaderIndex.h), not through the position-based ParseRow below.
+// That path tolerates rename / reorder / addition / removal of columns
+// the current parser doesn't require, so old logs replay through new
+// firmware. ParseRow stays for symmetric callers (the regression
+// harness and same-revision unit tests) where the writer and reader
+// share this exact LogCsv.h file.
 
 #ifndef ONSPEED_CORE_PROTO_LOG_CSV_H
 #define ONSPEED_CORE_PROTO_LOG_CSV_H

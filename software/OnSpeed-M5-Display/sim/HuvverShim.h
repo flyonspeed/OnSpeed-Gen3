@@ -159,47 +159,62 @@ public:
 
 // Mimics M5Unified's `Button_Class` API surface, just enough for what
 // the M5 source actually uses: isPressed(), wasPressed(), pressedFor().
-// Button polling reads the GPIO directly — buttons are wired
-// active-low through the front-panel switches per V.R. Little's
-// schematic.
+// Buttons are wired active-low through the front-panel switches per
+// V.R. Little's schematic.
 //
-// Caveat: polling is not interrupt-driven. `M5.update()` is called
-// once per render cycle (~50 ms), so a press shorter than that is
-// invisible — the GPIO transitions LOW and back to HIGH between two
-// poll() calls and `wasPressed()` never fires. The upstream huVVer
-// sketch uses Jack Christensen's interrupt-driven `Button.cpp` at
-// 10 ms debounce; if PR 5 finds 50 ms latency unacceptable for
-// menu navigation, swap this for an interrupt-driven debouncer.
+// Debounce: the front-panel tactile switches bounce for ~5–20 ms on
+// each press/release. Polling the raw GPIO and edge-detecting against
+// the previous poll's value lets a single physical press register as
+// 2–6 separate `wasPressed()` events — chaotic for mode cycling and
+// brightness ramping. The implementation below only commits a
+// candidate level to the stable state once it has held for
+// kDebounceMs. 50 ms is the canonical avionics-button debounce — past
+// the 99th percentile of bounce duration on consumer-grade tactile
+// switches, well below human perceptual threshold for press latency.
 class HuvverButton {
 private:
-    int     pin_;
-    bool    pressed_      = false;
-    bool    prevPressed_  = false;
-    uint32_t lastChange_  = 0;
-    uint32_t lastPollMs_  = 0;
+    static constexpr uint32_t kDebounceMs = 50;
+
+    int      pin_;
+    bool     stable_         = false;  // committed (debounced) state
+    bool     prevStable_     = false;  // stable_ from previous poll, for wasPressed()
+    bool     candidate_      = false;  // current raw reading awaiting confirmation
+    uint32_t candidateSince_ = 0;      // millis() when candidate_ first read
+    uint32_t stableSince_    = 0;      // millis() when stable_ last transitioned, for pressedFor()
 
 public:
     explicit HuvverButton(int pin) : pin_(pin) {}
 
-    // Read current GPIO state. Idempotent within one millis() tick.
+    // Sample GPIO and advance the debounce state machine. Each call
+    // advances `prevStable_` so `wasPressed()` returns true on exactly
+    // one call after a press edge — regardless of how many loop()
+    // iterations happen per millisecond. (At 240 MHz the M5 loop runs
+    // many iterations per ms; a once-per-ms throttle on this state
+    // machine would let `wasPressed()` keep returning true across
+    // those iterations, registering one physical press as 5–10 events.)
     void poll() {
         const uint32_t now = millis();
-        if (now == lastPollMs_) return;
-        lastPollMs_ = now;
 
-        prevPressed_ = pressed_;
+        prevStable_ = stable_;
+
         // Active-low: GPIO LOW means button pressed.
-        const bool nowPressed = (digitalRead(pin_) == LOW);
-        if (nowPressed != pressed_) {
-            pressed_    = nowPressed;
-            lastChange_ = now;
+        const bool reading = (digitalRead(pin_) == LOW);
+
+        if (reading != candidate_) {
+            // Reading just changed — start a new debounce window.
+            candidate_      = reading;
+            candidateSince_ = now;
+        } else if (reading != stable_ && (now - candidateSince_) >= kDebounceMs) {
+            // Candidate has held for the debounce window — commit.
+            stable_      = reading;
+            stableSince_ = now;
         }
     }
 
-    bool isPressed()  const { return pressed_; }
-    bool wasPressed() const { return pressed_ && !prevPressed_; }
+    bool isPressed()  const { return stable_; }
+    bool wasPressed() const { return stable_ && !prevStable_; }
     bool pressedFor(uint32_t ms) const {
-        return pressed_ && (millis() - lastChange_) >= ms;
+        return stable_ && (millis() - stableSince_) >= ms;
     }
 };
 
