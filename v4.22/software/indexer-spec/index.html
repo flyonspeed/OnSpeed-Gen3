@@ -1,0 +1,4243 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Open-source AOA indicator for general aviation — installation, configuration, calibration, and flight operations guide">
+      
+      
+      
+        <link rel="canonical" href="https://dev.flyonspeed.org/v4.22/software/indexer-spec/">
+      
+      
+        <link rel="prev" href="../audio-tone-spec/">
+      
+      
+        <link rel="next" href="../../configuration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Indexer Spec - OnSpeed Gen3 Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  <script>
+  window.goatcounter = {
+    no_onload: true,
+    endpoint: "https://flyonspeed.goatcounter.com/count"
+  }
+</script>
+<script async src="//gc.zgo.at/count.js"
+        data-goatcounter="https://flyonspeed.goatcounter.com/count">
+</script>
+<script>
+  /* Count the initial page load once the script is ready */
+  var _gcInit = setInterval(function() {
+    if (!window.goatcounter || !window.goatcounter.count) return;
+    clearInterval(_gcInit);
+    window.goatcounter.count();
+  }, 100);
+
+  /* Track instant-loading navigations (Material SPA mode) */
+  if (typeof location$ !== "undefined") {
+    location$.subscribe(function(url) {
+      if (window.goatcounter && window.goatcounter.count) {
+        window.goatcounter.count({
+          path:  url.pathname + url.search,
+          title: document.title
+        });
+      }
+    });
+  }
+</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#indexer-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OnSpeed Gen3 Documentation" class="md-header__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OnSpeed Gen3 Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Indexer Spec
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="orange"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="orange"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/flyonspeed/OnSpeed-Gen3" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    flyonspeed/OnSpeed-Gen3
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../installation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Installation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../efis-integration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  EFIS Integration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Firmware
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../calibration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Calibration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../flying/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Flying
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../xplane/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  X-Plane Simulator
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../data-and-logs/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Logs
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../troubleshooting/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Troubleshooting
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OnSpeed Gen3 Documentation" class="md-nav__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    OnSpeed Gen3 Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/flyonspeed/OnSpeed-Gen3" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    flyonspeed/OnSpeed-Gen3
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/what-is-onspeed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What is OnSpeed?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/how-aoa-tones-work/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How AOA Tones Work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/system-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/what-you-need/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What You Need
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/safety/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety & Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../installation/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Installation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/mounting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mounting the Controller
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/pneumatics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pneumatic Plumbing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/wiring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Electrical Wiring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Wiring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/oat-sensor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional — OAT Sensor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/external-display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional — External Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/boom-probe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional — Boom Probe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/checklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../efis-integration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EFIS Integration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    EFIS Integration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/dynon-skyview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynon SkyView / HDX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/dynon-d10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynon D10/D100
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/garmin-g5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garmin G5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/garmin-g3x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garmin G3X
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/mgl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MGL iEFIS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/vectornav/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VectorNav VN-300
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/standalone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No EFIS (Standalone)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flashing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flashing Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ota-update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OTA Updates via WiFi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audio-tone-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-design-rule-vac" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Design rule (Vac)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-visual-elements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Visual elements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-wire-fields-that-drive-the-indexer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Wire fields that drive the indexer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gates-and-color-logic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gates and color logic
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Gates and color logic">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-top-chevrons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Top chevrons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-bottom-chevron-operational-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Bottom chevron — operational cue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-donut" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Donut
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-white-index-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 White index bar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-ldmax-pip-dots-aerodynamic-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 L/Dmax pip dots — aerodynamic cue
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-screen-y-mapping-mappct2display" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Screen-Y mapping (mapPct2Display)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-pip-computation-pippctlift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Pip computation (pipPctLift)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Pip computation (pipPctLift)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-ignore-intermediate-detents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why ignore intermediate detents
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-snap-vs-slide-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Snap-vs-slide table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-continuity-invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Continuity invariants
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-worked-example-rv-10-samfrogrocketaicom-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Worked example (RV-10, sam@frogrocketai.com calibration)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-bench-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Bench verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-wire-format-change-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Wire-format change history
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../configuration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/web-interface/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/first-time-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-Time Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/sensor-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensor Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/flap-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flap Position Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../calibration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Calibration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../calibration/how-aoa-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How OnSpeed Measures AOA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../calibration/wizard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration Wizard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../calibration/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../flying/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flying
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flying
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/tone-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the Tones Mean
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/tone-simulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tone Simulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/vn-diagram/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flight Envelope (V-n Diagram)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/normal-ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Normal Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/approach-landing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approach and Landing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/warnings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Summary of Warnings and Alerts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../xplane/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    X-Plane Simulator
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    X-Plane Simulator
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/indexer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the Indexer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/m5-tethered/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tethering a Physical M5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Aircraft Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../data-and-logs/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logs
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Logs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-and-logs/log-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding Logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-and-logs/downloading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloading Logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../troubleshooting/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Troubleshooting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/no-audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/no-efis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No EFIS Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/erratic-tones/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Erratic Tones
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/wifi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WiFi Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/console-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Console Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/config-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/log-columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CSV Log Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/serial-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display Serial Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/websocket-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiveView WebSocket Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/hardware-specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-design-rule-vac" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Design rule (Vac)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-visual-elements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Visual elements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-wire-fields-that-drive-the-indexer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Wire fields that drive the indexer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gates-and-color-logic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gates and color logic
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Gates and color logic">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-top-chevrons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Top chevrons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-bottom-chevron-operational-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Bottom chevron — operational cue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-donut" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Donut
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-white-index-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 White index bar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-ldmax-pip-dots-aerodynamic-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 L/Dmax pip dots — aerodynamic cue
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-screen-y-mapping-mappct2display" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Screen-Y mapping (mapPct2Display)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-pip-computation-pippctlift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Pip computation (pipPctLift)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Pip computation (pipPctLift)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-ignore-intermediate-detents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why ignore intermediate detents
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-snap-vs-slide-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Snap-vs-slide table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-continuity-invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Continuity invariants
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-worked-example-rv-10-samfrogrocketaicom-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Worked example (RV-10, sam@frogrocketai.com calibration)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-bench-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Bench verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-wire-format-change-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Wire-format change history
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/software/indexer-spec.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="indexer-spec">Indexer Spec<a class="headerlink" href="#indexer-spec" title="Permanent link">&para;</a></h1>
+<p>This is the developer-facing reference for the OnSpeed indexer — the visual gauge the M5 secondary display (and the in-cockpit tablet via the <code>/indexer</code> web tab) draws. It defines what every visual element shows, what gates each color change, and how each anchor on the gauge moves with the lever.</p>
+<p>It is <strong>not</strong> a pilot-facing document. For "what do the lights mean in flight," see <a href="../../flying/tone-map/">What the Tones Mean</a>. For the audio side that the chevron + audio low tone share, see <a href="../audio-tone-spec/">Audio Tone Spec</a>.</p>
+<p>The canonical implementations are:</p>
+<ul>
+<li><code>software/OnSpeed-M5-Display/src/main.cpp::drawAOA</code> — the renderer</li>
+<li><code>software/Libraries/onspeed_core/src/aoa/DisplayPctAnchors.{h,cpp}</code> — the anchor producer</li>
+<li><code>software/Libraries/onspeed_core/src/proto/DisplaySerial.h</code> — the wire format</li>
+</ul>
+<h2 id="0-design-rule-vac">0. Design rule (Vac)<a class="headerlink" href="#0-design-rule-vac" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>L/Dmax pips are aerodynamic references.</strong></p>
+<p><strong>Fast tone is an operational limit cue.</strong></p>
+<p><strong>They must remain independent.</strong></p>
+<p>— Vac, <em>L/Dmax Cue and Fast-Tone Logic</em>, §8</p>
+</blockquote>
+<div class="admonition note">
+<p class="admonition-title">Vac's 'fast tone' = OnSpeed's 'low tone'</p>
+<p>Vac's term <strong>fast tone</strong> is the cue that fires when you're flying <em>fast for this configuration</em> — i.e., AOA is below the OnSpeed band. In OnSpeed firmware terminology this is the <strong>low tone</strong> (the 400 Hz pulse, gated by <code>fLDMAXAOA</code>). The OnSpeed <em>high tone</em> (1600 Hz, gated by <code>fONSPEEDSLOWAOA</code>) is the slow-side warning, not the fast-side cue. So Vac's "fast tone is an operational limit cue" applies to the L/Dmax / low-tone gate documented throughout this spec.</p>
+</div>
+<p>This rule is load-bearing. The indexer carries two cues that are <em>visually</em> near each other but <em>semantically</em> unrelated:</p>
+<ul>
+<li><strong>Operational cue</strong>: the bottom green chevron, gated on the audio low-tone threshold. Snaps per detent. If a tone is on, the chevron is green.</li>
+<li><strong>Aerodynamic cue</strong>: the L/Dmax pip dots on the index bar's edges. Slides smoothly with the lever. Reflects the aerodynamic intuition that L/Dmax body angle slides toward the OnSpeed band as flaps deploy.</li>
+</ul>
+<p>The two coincide visually only at the cleanest detent. They diverge during deployment, by design.</p>
+<h2 id="1-visual-elements">1. Visual elements<a class="headerlink" href="#1-visual-elements" title="Permanent link">&para;</a></h2>
+<p>The indexer occupies a vertical strip on the M5 panel (and the tablet canvas). Five elements:</p>
+<table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Position</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Top chevrons</strong></td>
+<td>Top of strip</td>
+<td>Stall warning. Yellow approaching stall, red imminent, flashing red past stall warn.</td>
+</tr>
+<tr>
+<td><strong>Bottom chevron</strong></td>
+<td>Bottom of strip</td>
+<td>Operational cue. Green when the audio low tone is playing.</td>
+</tr>
+<tr>
+<td><strong>Donut top arc</strong></td>
+<td>Just above midline</td>
+<td>OnSpeed cue (top half). Green when AOA is in the upper half of the OnSpeed band.</td>
+</tr>
+<tr>
+<td><strong>Donut bottom arc</strong></td>
+<td>Just below midline</td>
+<td>OnSpeed cue (bottom half). Green when AOA is in the lower half of the OnSpeed band.</td>
+</tr>
+<tr>
+<td><strong>Donut center dot</strong></td>
+<td>Center of strip</td>
+<td>OnSpeed cue (centered). Green when AOA is in the middle 50% of the OnSpeed band.</td>
+</tr>
+<tr>
+<td><strong>White index bar</strong></td>
+<td>Slides on strip</td>
+<td>Current AOA in percent-lift space.</td>
+</tr>
+<tr>
+<td><strong>L/Dmax pip dots</strong></td>
+<td>Two small dots on strip edges</td>
+<td>Aerodynamic cue. Slides smoothly clean → fullflap.</td>
+</tr>
+</tbody>
+</table>
+<p>The strip's vertical extent maps to percent-lift via a piecewise-linear function (see §4). All gates are in percent-lift units.</p>
+<h2 id="2-wire-fields-that-drive-the-indexer">2. Wire fields that drive the indexer<a class="headerlink" href="#2-wire-fields-that-drive-the-indexer" title="Permanent link">&para;</a></h2>
+<p>The Gen3 firmware emits one <code>#1</code> frame every 50 ms. Each visual element reads one or more percent fields:</p>
+<table>
+<thead>
+<tr>
+<th>Wire field</th>
+<th>Snap or slide</th>
+<th>Drives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>percentLift</code></td>
+<td>live AOA reading</td>
+<td>white index bar position</td>
+</tr>
+<tr>
+<td><code>tonesOnPctLift</code></td>
+<td>snap per active detent</td>
+<td>bottom chevron lower gate</td>
+</tr>
+<tr>
+<td><code>onSpeedFastPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut bottom arc lower edge, donut center bounds, screen Y-mapping</td>
+</tr>
+<tr>
+<td><code>onSpeedSlowPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut top arc upper edge, screen Y-mapping, top chevron color thresholds</td>
+</tr>
+<tr>
+<td><code>stallWarnPctLift</code></td>
+<td>snap per active detent</td>
+<td>top chevron flash threshold, screen Y-mapping</td>
+</tr>
+<tr>
+<td><code>pipPctLift</code></td>
+<td>slide clean → fullflap</td>
+<td>L/Dmax pip dot positions</td>
+</tr>
+<tr>
+<td><code>flapsDeg</code></td>
+<td>per-bracket lerp</td>
+<td>flap-position widget angle (separate from indexer)</td>
+</tr>
+</tbody>
+</table>
+<p><code>percentLift</code> is the live AOA reading as a <code>float</code> in whole-percent units (0.0..99.9), computed from <code>g_Sensors.AOA</code> and the active detent's calibration via <code>ComputePercentLift</code>. The four anchor fields (<code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, <code>pipPctLift</code>) stay integer-percent in <code>[0, 99]</code> — they only move on detent or config-save events, so sub-percent buys nothing on those. Computed by <code>ComputeDisplayPctAnchors</code> from the configured flap vector and the raw lever-pot ADC. Comparisons between <code>percentLift</code> (float) and an anchor (int) promote the int to float; behavior is exact for our range since integer values up to 2²⁴ are representable in float32 without rounding.</p>
+<h2 id="3-gates-and-color-logic">3. Gates and color logic<a class="headerlink" href="#3-gates-and-color-logic" title="Permanent link">&para;</a></h2>
+<h3 id="31-top-chevrons">3.1 Top chevrons<a class="headerlink" href="#31-top-chevrons" title="Permanent link">&para;</a></h3>
+<p>Two stylized triangles forming an up-arrow near the top.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>    chevMid = onSpeedSlowPctLift + (stallWarnPctLift − onSpeedSlowPctLift) / 2
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    if percentLift &gt; onSpeedSlowPctLift  and  percentLift ≤ chevMid          → YELLOW
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    if percentLift &gt; chevMid             and  percentLift ≤ stallWarnPctLift → RED
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    if percentLift &gt; stallWarnPctLift    and  not flashing                   → RED
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    if percentLift &gt; stallWarnPctLift    and  flashing                       → DARKGREY (flashing red blink)
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    otherwise                                                                 → DARKGREY
+</code></pre></div>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~870–920.</p>
+<h3 id="32-bottom-chevron-operational-cue">3.2 Bottom chevron — <em>operational cue</em><a class="headerlink" href="#32-bottom-chevron-operational-cue" title="Permanent link">&para;</a></h3>
+<p>Two stylized triangles forming a down-arrow near the bottom.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>    if percentLift ≥ tonesOnPctLift  and  percentLift &lt; onSpeedSlowPctLift → GREEN
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    otherwise                                                              → DARKGREY
+</code></pre></div>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~921–970.</p>
+<p><strong>This gate matches the audio low-tone gate exactly.</strong> When the audio is pulsing the low tone (a "you're flying fast for this flap configuration" cue), the bottom chevron is green. When the audio goes silent or transitions to solid (in the donut band), the chevron goes dark or stays in the prior color.</p>
+<p>The audio path computes the same condition independently, against <code>g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA</code> and <code>fONSPEEDFASTAOA</code>. <code>tonesOnPctLift</code> on the wire is <code>ComputePercentLift(active.fLDMAXAOA, active, true)</code> — the percent representation of the audio threshold for the active detent. Both fire from the same source of truth; they snap together at every detent transition.</p>
+<h3 id="33-donut">3.3 Donut<a class="headerlink" href="#33-donut" title="Permanent link">&para;</a></h3>
+<p>Three concentric elements.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>    OnspeedRange = onSpeedSlowPctLift − onSpeedFastPctLift
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    bottom arc   = GREEN  if  percentLift ≥ onSpeedFastPctLift                  and  percentLift ≤ onSpeedSlowPctLift − 0.25 × OnspeedRange
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    top arc      = GREEN  if  percentLift ≥ onSpeedFastPctLift + 0.25 × OnspeedRange  and  percentLift ≤ onSpeedSlowPctLift
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    center dot   = GREEN  if  percentLift ≥ onSpeedFastPctLift + 0.25 × OnspeedRange  and  percentLift ≤ onSpeedSlowPctLift − 0.25 × OnspeedRange
+</code></pre></div>
+<p>The three regions overlap: at the geometric center of the band, all three are lit simultaneously. The center dot lights across the inner 50% of the band; the arcs light across an extra 25% on each side.</p>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~975–1000.</p>
+<h3 id="34-white-index-bar">3.4 White index bar<a class="headerlink" href="#34-white-index-bar" title="Permanent link">&para;</a></h3>
+<p>Horizontal bar across the full strip width.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>    Y = mapPct2Display(percentLift, anchors)
+</code></pre></div>
+<p>Where <code>mapPct2Display</code> (see §4) maps percent-lift to a pixel Y coordinate using the snapped band edges as anchor points.</p>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~1002–1004.</p>
+<h3 id="35-ldmax-pip-dots-aerodynamic-cue">3.5 L/Dmax pip dots — <em>aerodynamic cue</em><a class="headerlink" href="#35-ldmax-pip-dots-aerodynamic-cue" title="Permanent link">&para;</a></h3>
+<p>Two small white dots, one on each side of the strip.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>    Y = mapPct2Display(pipPctLift, anchors)
+</code></pre></div>
+<p><code>pipPctLift</code> slides smoothly across the entire pot range (see §5). At the cleanest detent, <code>pipPctLift == tonesOnPctLift</code> and the pip lines up with the bottom chevron's edge. At the most-deployed detent, <code>pipPctLift</code> equals the geometric center of that detent's OnSpeed band and the pip sits inside the donut.</p>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~1010–1014.</p>
+<h2 id="4-screen-y-mapping-mappct2display">4. Screen-Y mapping (<code>mapPct2Display</code>)<a class="headerlink" href="#4-screen-y-mapping-mappct2display" title="Permanent link">&para;</a></h2>
+<p>The strip's pixel Y coordinate is a piecewise-linear function of percent-lift, anchored on the snapped band edges:</p>
+<table>
+<thead>
+<tr>
+<th>Percent-lift range</th>
+<th>Pixel Y range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>≤ 0</code></td>
+<td><code>192</code> (display bottom)</td>
+</tr>
+<tr>
+<td><code>(0, onSpeedFastPctLift]</code></td>
+<td><code>192 → 115</code> (linear)</td>
+</tr>
+<tr>
+<td><code>(onSpeedFastPctLift, onSpeedSlowPctLift]</code></td>
+<td><code>115 → 78</code> (donut band, fixed screen-Y)</td>
+</tr>
+<tr>
+<td><code>(onSpeedSlowPctLift, 99]</code></td>
+<td><code>78 → 1</code> (linear)</td>
+</tr>
+<tr>
+<td><code>&gt; 99</code></td>
+<td><code>1</code> (display top)</td>
+</tr>
+</tbody>
+</table>
+<p>The upper ramp tops out at percent_lift = 99 — the lift-envelope ceiling — independent of the active detent's stall-warn percent. Stall-warn drives the chevron flash-red color logic in <code>drawAOA</code> (§3.1); it does not gate Y here. Floats in (99.0, 99.9] (the float clamp range above 99) saturate at y=1 just like the integer 99 — the bar visibly pinning at "off the chart" is the documented saturation cue.</p>
+<p>The donut band is anchored at fixed pixel Y so the donut never moves on screen, regardless of which detent is active. The L/Dmax pip and the white index bar both float according to their percent values — when those values fall within the donut band, they appear inside it.</p>
+<p>Source: <code>main.cpp::mapPct2Display</code>, line ~1510.</p>
+<h2 id="5-pip-computation-pippctlift">5. Pip computation (<code>pipPctLift</code>)<a class="headerlink" href="#5-pip-computation-pippctlift" title="Permanent link">&para;</a></h2>
+<p>The pip percent is a single linear interpolation between two endpoints:</p>
+<div class="arithmatex">\[
+\text{pipPctLift} = \text{round}\left(\text{lerp}\left(\text{pipClean},\ \text{pipFullFlap},\ \lambda\right)\right)
+\]</div>
+<p>with</p>
+<div class="arithmatex">\[
+\lambda = \mathrm{clamp}\!\left( \frac{\text{rawAdc} - \text{cleanest.iPotPosition}}{\text{mostDeployed.iPotPosition} - \text{cleanest.iPotPosition}},\ 0,\ 1 \right)
+\]</div>
+<p>and</p>
+<div class="arithmatex">\[
+\text{pipClean} = \text{ComputePercentLift}(\text{cleanest.fLDMAXAOA},\ \text{cleanest})
+\]</div>
+<div class="arithmatex">\[
+\text{pipFullFlap} = \frac{1}{4}\left( 3 \cdot \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDFASTAOA},\ \text{mostDeployed}) + \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDSLOWAOA},\ \text{mostDeployed}) \right)
+\]</div>
+<p>That is, the full-flap pip target is the <strong>bottom-half-of-donut</strong> anchor — one quarter of the way from the fast (lower-percent) edge into the OnSpeed band. Lands the chevron in the lower donut at L/Dmax instead of climbing into the upper donut to meet a band-center pip (per PR #376).</p>
+<p><code>cleanest</code> is the lowest-degree configured flap entry (<code>g_Config.aFlaps[0]</code> after parse-time sort). <code>mostDeployed</code> is the highest-degree entry (<code>g_Config.aFlaps[entryCount-1]</code>). <strong>Intermediate detents are ignored</strong> for the pip — a typical 3-detent config (clean / 16° / 33°) lerps from clean to 33° as the lever moves, passing through the 16° detent's calibrated L/Dmax percent only by coincidence (the 16° detent's L/Dmax does not anchor the pip).</p>
+<p>Source: <code>DisplayPctAnchors.cpp::ComputeDisplayPctAnchors</code>.</p>
+<h3 id="why-ignore-intermediate-detents">Why ignore intermediate detents<a class="headerlink" href="#why-ignore-intermediate-detents" title="Permanent link">&para;</a></h3>
+<p>Per Vac, this is intentional. The pip is a <em>visual aerodynamic reference</em>, not a per-detent calibration anchor. The aerodynamic intuition — "L/Dmax slides toward OnSpeed as flaps deploy" — is faithfully represented by a smooth two-endpoint lerp; making the pip visit each calibrated detent's L/Dmax mid-deployment introduces a subtle stutter the design specifically avoids.</p>
+<p>The operational cue (the bottom chevron, gated on <code>tonesOnPctLift</code>) handles per-detent calibration accurately, because it must match the audio.</p>
+<h2 id="6-snap-vs-slide-table">6. Snap-vs-slide table<a class="headerlink" href="#6-snap-vs-slide-table" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Behavior</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tonesOnPctLift</code></td>
+<td>snap per active detent</td>
+<td>matches audio low-tone gate; chevron snaps with audio</td>
+</tr>
+<tr>
+<td><code>onSpeedFastPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut lower edge; matches audio's onspeed-fast threshold</td>
+</tr>
+<tr>
+<td><code>onSpeedSlowPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut upper edge; matches audio's onspeed-slow threshold</td>
+</tr>
+<tr>
+<td><code>stallWarnPctLift</code></td>
+<td>snap per active detent</td>
+<td>top chevron flash; matches audio's stall-warn threshold</td>
+</tr>
+<tr>
+<td><code>pipPctLift</code></td>
+<td>slide clean → fullflap (single lerp, ignores intermediate detents)</td>
+<td>aerodynamic reference; smooth visual</td>
+</tr>
+<tr>
+<td><code>flapsDeg</code></td>
+<td>slide per-bracket (lerp adjacent detents' iDegrees)</td>
+<td>mechanical lever angle; visits every detent</td>
+</tr>
+</tbody>
+</table>
+<h2 id="7-continuity-invariants">7. Continuity invariants<a class="headerlink" href="#7-continuity-invariants" title="Permanent link">&para;</a></h2>
+<p>Pinned by <code>test/test_display_pct_anchors/</code>:</p>
+<ol>
+<li><strong><code>pipPctLift</code> is continuous in <code>rawAdc</code> everywhere.</strong> No discontinuities at detent boundaries — single lerp covers the entire pot range. Adjacent ADC samples produce pip values within 1 percent of each other.</li>
+<li><strong><code>tonesOnPctLift</code> snaps at <code>iIndex</code> advances.</strong> Same <code>rawAdc</code> with different <code>activeIndex</code> values produces different <code>tonesOnPctLift</code> values, by exactly the difference between the two detents' calibrated L/Dmax percents. The chevron edge snaps with the audio.</li>
+<li><strong><code>pipPctLift</code> is independent of <code>activeIndex</code>.</strong> The pip depends only on <code>rawAdc</code> and the configured flap vector — not on which detent is "active." A detent transition does not change the pip.</li>
+<li><strong>Pip and tones-on coincide at the cleanest detent.</strong> When <code>rawAdc == cleanest.iPotPosition</code> and <code>iIndex == 0</code>, <code>pipPctLift == tonesOnPctLift</code>. This is the visual "they line up in clean" property.</li>
+<li><strong>Pip and tones-on diverge at full flaps.</strong> When <code>rawAdc == mostDeployed.iPotPosition</code> and <code>iIndex == entryCount-1</code>, <code>pipPctLift &gt; tonesOnPctLift</code> for any sane calibration where L/Dmax is below the OnSpeed band.</li>
+</ol>
+<h2 id="8-worked-example-rv-10-samfrogrocketaicom-calibration">8. Worked example (RV-10, sam@frogrocketai.com calibration)<a class="headerlink" href="#8-worked-example-rv-10-samfrogrocketaicom-calibration" title="Permanent link">&para;</a></h2>
+<p>Three detents from <code>~/Downloads/onspeed2_latest.cfg</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Flap</th>
+<th>Pot ADC</th>
+<th><code>fLDMAXAOA</code> (°)</th>
+<th><code>fONSPEEDFASTAOA</code> (°)</th>
+<th><code>fONSPEEDSLOWAOA</code> (°)</th>
+<th><code>fAlpha0</code> (°)</th>
+<th><code>fAlphaStall</code> (°)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0° (clean)</td>
+<td>1462</td>
+<td>3.24</td>
+<td>3.98</td>
+<td>5.26</td>
+<td>−3.72</td>
+<td>10.31</td>
+</tr>
+<tr>
+<td>16°</td>
+<td>897</td>
+<td>1.11</td>
+<td>2.44</td>
+<td>3.88</td>
+<td>−6.22</td>
+<td>9.57</td>
+</tr>
+<tr>
+<td>33° (full)</td>
+<td>2</td>
+<td>−2.24</td>
+<td>2.19</td>
+<td>4.09</td>
+<td>−9.21</td>
+<td>11.57</td>
+</tr>
+</tbody>
+</table>
+<p>Computed percent-lift values (from the actual <code>ComputePercentLift</code> /
+<code>ComputeDisplayPctAnchors</code> implementation, which truncates fractions
+toward zero per the saturation convention):</p>
+<table>
+<thead>
+<tr>
+<th>Flap</th>
+<th>L/Dmax pct</th>
+<th>Fast pct</th>
+<th>Slow pct</th>
+<th>StallWarn pct</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0° (clean)</td>
+<td><strong>49</strong></td>
+<td>54</td>
+<td>64</td>
+<td>85</td>
+</tr>
+<tr>
+<td>16°</td>
+<td><strong>46</strong></td>
+<td>54</td>
+<td>63</td>
+<td>84</td>
+</tr>
+<tr>
+<td>33° (full)</td>
+<td><strong>33</strong></td>
+<td>54</td>
+<td>64</td>
+<td>82</td>
+</tr>
+</tbody>
+</table>
+<p>The pip's full-flap target is the round-half-away mean of 33°'s
+Fast and Slow: <code>lround((54 + 64) / 2.0) = 59</code>.</p>
+<p>Lever positions and what the indexer shows. Active-detent index
+follows the standard midpoint rule (<code>Flaps::Update</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Lever pot</th>
+<th>Active detent</th>
+<th><code>tonesOnPctLift</code></th>
+<th><code>pipPctLift</code></th>
+<th>flapsDeg</th>
+<th>Coincide?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1462 (clean)</td>
+<td>0°</td>
+<td>49</td>
+<td>49</td>
+<td>0</td>
+<td>yes (pip and chevron edge line up)</td>
+</tr>
+<tr>
+<td>1100 (mid clean→16°)</td>
+<td>16°</td>
+<td>46</td>
+<td>51</td>
+<td>10</td>
+<td>no</td>
+</tr>
+<tr>
+<td>897 (16° detent)</td>
+<td>16°</td>
+<td>46</td>
+<td>53</td>
+<td>16</td>
+<td>no (chevron at 46, pip at 53)</td>
+</tr>
+<tr>
+<td>450 (mid 16°→33°)</td>
+<td>16°</td>
+<td>46</td>
+<td>56</td>
+<td>24</td>
+<td>no</td>
+</tr>
+<tr>
+<td>2 (33° full)</td>
+<td>33°</td>
+<td>33</td>
+<td>59</td>
+<td>33</td>
+<td>no (chevron at 33, pip at center of donut)</td>
+</tr>
+</tbody>
+</table>
+<p>Notice that at the 16° detent, the chevron edge sits at the
+calibrated 46% (from the 16° detent's <code>fLDMAXAOA</code>), but the pip is at
+53% (from the two-endpoint lerp). The pip ignores the 16° detent's
+calibration.</p>
+<p>The lerp's denominator is the full pot span (1462 − 2 = 1460); at the
+1100 row, <code>t = (1462 − 1100) / 1460 = 0.248</code>, so
+<code>pip = lround(49 + 0.248 × (59 − 49)) = lround(51.48) = 51</code>. Same
+formula for every row.</p>
+<h2 id="9-bench-verification">9. Bench verification<a class="headerlink" href="#9-bench-verification" title="Permanent link">&para;</a></h2>
+<p>Reflash bench device with v4.22 firmware on both Gen3 main and M5. Confirm:</p>
+<ul>
+<li><strong>Clean, AOA below L/Dmax:</strong> silent, chevron grey, pip and chevron edge coincide on screen.</li>
+<li><strong>Clean, AOA between L/Dmax and OnSpeedFast:</strong> low tone pulsing, chevron green, pip and chevron edge still coincide.</li>
+<li><strong>Mid-deployment (lever between 0° and 16° detents):</strong> chevron snaps from the clean L/Dmax to the 16° detent's L/Dmax at the midpoint pot value (in lockstep with <code>iIndex</code> advancing in <code>Flaps::Update</code>); pip slides smoothly with no jump.</li>
+<li><strong>Full flaps (33°), AOA between active L/Dmax and OnSpeedFast:</strong> low tone pulsing, chevron green; pip sits up at 59% (inside the donut band on screen), well above the chevron-lit band.</li>
+</ul>
+<h2 id="10-wire-format-change-history">10. Wire-format change history<a class="headerlink" href="#10-wire-format-change-history" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>v4.21</strong> (PR #320): introduced percent anchors; <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> all snap per active detent.</li>
+<li><strong>v4.21+</strong> (PR #327): made <code>tonesOnPctLift</code> interpolate across adjacent detent brackets so the L/Dmax pip slid smoothly. <strong>This broke chevron–audio alignment mid-deployment</strong> because the chevron is gated on the same field as the audio threshold — making the field interpolated meant the chevron lit at a percent the audio did not match.</li>
+<li><strong>v4.22</strong> (PR #336): split the pip out into a new wire field, <code>pipPctLift</code>. <code>tonesOnPctLift</code> reverts to the v4.21 snap-per-detent semantics. Frame size grows from 74 to 76 bytes. Chevron and audio fire from the same threshold again.</li>
+<li><strong>v4.23</strong> (PR #386): <code>percentLift</code> widens from <code>%02u</code> (integer percent, 0..99) to <code>%03u</code> (tenths of a percent, 0..999) so the index bar advances at sub-pixel temporal smoothness off the 20 Hz frame cadence. The four band-edge anchors stay at integer-percent. <code>lateralG</code> flips to body-frame (positive = right) to match the IMU, SD log, and WebSocket JSON; slip-ball renderers negate locally. Frame size grows from 76 to 77 bytes.</li>
+</ul>
+<p>See <a href="../../reference/serial-protocol/">Display Serial Protocol</a> for the byte-level wire format.</p>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024-2026 FlyOnSpeed — Open Source (MIT)
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://www.flyonspeed.org/" target="_blank" rel="noopener" title="www.flyonspeed.org" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M351.9 280H161c2.9 64.5 17.2 123.9 37.5 167.4 11.4 24.5 23.7 41.8 35.1 52.4 11.2 10.5 18.9 12.2 22.9 12.2s11.7-1.7 22.9-12.2c11.4-10.6 23.7-28 35.1-52.4 20.3-43.5 34.6-102.9 37.5-167.4zm-191-48h190.9c-2.8-64.5-17.1-123.9-37.4-167.4-11.4-24.4-23.7-41.8-35.1-52.4C268.1 1.7 260.4 0 256.4 0s-11.7 1.7-22.9 12.2c-11.4 10.6-23.7 28-35.1 52.4-20.3 43.5-34.6 102.9-37.5 167.4m-48 0c3.5-85.6 25.6-165.1 57.9-217.3C78.7 47.3 10.9 131.2 1.5 232zM1.5 280c9.4 100.8 77.2 184.7 169.3 217.3-32.3-52.2-54.4-131.7-57.9-217.3zm398.4 0c-3.5 85.6-25.6 165.1-57.9 217.3 92.1-32.7 159.9-116.5 169.3-217.3zm111.4-48C501.9 131.2 434.1 47.3 342 14.7c32.3 52.2 54.4 131.7 57.9 217.3z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": ["latest"], "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/katex.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"></script>
+      
+        <script src="../../javascripts/vn-diagram.js"></script>
+      
+        <script src="../../javascripts/tone-simulator.js"></script>
+      
+    
+  </body>
+</html>

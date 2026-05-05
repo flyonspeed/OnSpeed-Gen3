@@ -1,0 +1,4391 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Open-source AOA indicator for general aviation — installation, configuration, calibration, and flight operations guide">
+      
+      
+      
+        <link rel="canonical" href="https://dev.flyonspeed.org/v4.22/installation/external-display/">
+      
+      
+        <link rel="prev" href="../oat-sensor/">
+      
+      
+        <link rel="next" href="../boom-probe/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Optional — External Display - OnSpeed Gen3 Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  <script>
+  window.goatcounter = {
+    no_onload: true,
+    endpoint: "https://flyonspeed.goatcounter.com/count"
+  }
+</script>
+<script async src="//gc.zgo.at/count.js"
+        data-goatcounter="https://flyonspeed.goatcounter.com/count">
+</script>
+<script>
+  /* Count the initial page load once the script is ready */
+  var _gcInit = setInterval(function() {
+    if (!window.goatcounter || !window.goatcounter.count) return;
+    clearInterval(_gcInit);
+    window.goatcounter.count();
+  }, 100);
+
+  /* Track instant-loading navigations (Material SPA mode) */
+  if (typeof location$ !== "undefined") {
+    location$.subscribe(function(url) {
+      if (window.goatcounter && window.goatcounter.count) {
+        window.goatcounter.count({
+          path:  url.pathname + url.search,
+          title: document.title
+        });
+      }
+    });
+  }
+</script>
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#optional-external-display" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="OnSpeed Gen3 Documentation" class="md-header__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            OnSpeed Gen3 Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Optional — External Display
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="blue" data-md-color-accent="orange"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="orange"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/flyonspeed/OnSpeed-Gen3" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    flyonspeed/OnSpeed-Gen3
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Installation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../efis-integration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  EFIS Integration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../software/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Firmware
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../configuration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../calibration/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Calibration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../flying/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Flying
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../xplane/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  X-Plane Simulator
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../data-and-logs/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Logs
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../troubleshooting/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Troubleshooting
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="OnSpeed Gen3 Documentation" class="md-nav__button md-logo" aria-label="OnSpeed Gen3 Documentation" data-md-component="logo">
+      
+  <img src="../../assets/images/logo.png" alt="logo">
+
+    </a>
+    OnSpeed Gen3 Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/flyonspeed/OnSpeed-Gen3" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    flyonspeed/OnSpeed-Gen3
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/what-is-onspeed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What is OnSpeed?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/how-aoa-tones-work/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How AOA Tones Work
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/system-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/what-you-need/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What You Need
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/safety/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Safety & Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Installation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mounting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mounting the Controller
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pneumatics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pneumatic Plumbing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../wiring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Electrical Wiring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Wiring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../oat-sensor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional — OAT Sensor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional — External Display
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional — External Display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#try-it-in-your-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it in your browser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-m5stack-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported M5Stack units
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Supported M5Stack units">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#buttons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buttons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#display-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Display modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#primary-aoa-indexer-full-readouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primary — AOA indexer + full readouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attitude-backup-ai-with-aoa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attitude — backup AI with AOA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#indexer-only-panel-minimal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexer-only — panel-minimal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#energy-deceleration-gauge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Energy — deceleration gauge
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#g-history-scrolling-g-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G history — scrolling G trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#status-indicators-across-all-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status indicators across all modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hardware-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hardware setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hardware setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#wiring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wiring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#powering-the-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Powering the M5
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashing-the-m5-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flashing the M5 firmware
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Flashing the M5 firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-ota-update-existing-m5-no-usb-cable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OTA update (existing M5, no USB cable)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-usb-flash-from-a-released-binary-new-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. USB flash from a released binary (new M5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-build-and-flash-from-source-developers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build and flash from source (developers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-firmware-for-an-unreleased-change-reviewers-and-testers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting firmware for an unreleased change (reviewers and testers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bench-testing-without-the-onspeed-box" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bench testing without the OnSpeed box
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serial-output-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serial output format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mounting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mounting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boom-probe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional — Boom Probe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../checklist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation Checklist
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../efis-integration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EFIS Integration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    EFIS Integration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/dynon-skyview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynon SkyView / HDX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/dynon-d10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynon D10/D100
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/garmin-g5/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garmin G5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/garmin-g3x/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Garmin G3X
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/mgl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MGL iEFIS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/vectornav/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VectorNav VN-300
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../efis-integration/standalone/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No EFIS (Standalone)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../software/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Firmware
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Firmware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/flashing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flashing Firmware
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/ota-update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OTA Updates via WiFi
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/audio-tone-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../software/indexer-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../configuration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/web-interface/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Web Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/first-time-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-Time Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/sensor-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensor Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/flap-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flap Position Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../calibration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Calibration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../calibration/how-aoa-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How OnSpeed Measures AOA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../calibration/wizard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calibration Wizard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../calibration/verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../flying/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flying
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Flying
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/tone-map/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the Tones Mean
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/tone-simulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tone Simulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/vn-diagram/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flight Envelope (V-n Diagram)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/normal-ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Normal Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/approach-landing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approach and Landing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/warnings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Summary of Warnings and Alerts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../xplane/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    X-Plane Simulator
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    X-Plane Simulator
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/indexer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the Indexer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/m5-tethered/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tethering a Physical M5
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Per-Aircraft Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../xplane/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_10" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../data-and-logs/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logs
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_10" id="__nav_10_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Logs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-and-logs/log-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Understanding Logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-and-logs/downloading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloading Logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../troubleshooting/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_11" id="__nav_11_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Troubleshooting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/no-audio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/no-efis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    No EFIS Data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/erratic-tones/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Erratic Tones
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/wifi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WiFi Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/console-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Console Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/config-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/log-columns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CSV Log Columns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/serial-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Display Serial Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/websocket-protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LiveView WebSocket Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/hardware-specs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hardware Specifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Glossary
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#try-it-in-your-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Try it in your browser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-m5stack-units" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported M5Stack units
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Supported M5Stack units">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#buttons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Buttons
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#display-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Display modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Display modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#primary-aoa-indexer-full-readouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primary — AOA indexer + full readouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attitude-backup-ai-with-aoa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attitude — backup AI with AOA
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#indexer-only-panel-minimal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexer-only — panel-minimal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#energy-deceleration-gauge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Energy — deceleration gauge
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#g-history-scrolling-g-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G history — scrolling G trace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#status-indicators-across-all-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status indicators across all modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hardware-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hardware setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hardware setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#wiring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wiring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#powering-the-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Powering the M5
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flashing-the-m5-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flashing the M5 firmware
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Flashing the M5 firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-ota-update-existing-m5-no-usb-cable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OTA update (existing M5, no USB cable)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-usb-flash-from-a-released-binary-new-m5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. USB flash from a released binary (new M5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-build-and-flash-from-source-developers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Build and flash from source (developers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-firmware-for-an-unreleased-change-reviewers-and-testers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting firmware for an unreleased change (reviewers and testers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bench-testing-without-the-onspeed-box" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bench testing without the OnSpeed box
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serial-output-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serial output format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mounting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mounting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/installation/external-display.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="optional-external-display">Optional: External Display<a class="headerlink" href="#optional-external-display" title="Permanent link">&para;</a></h1>
+<p>OnSpeed can drive an external display via serial output, giving you a
+cockpit-mounted visual readout of AOA, airspeed, attitude, flight path,
+deceleration, and G-load. Two M5Stack units are supported — the
+<strong>M5Stack Basic</strong> and the <strong>M5Stack Core2</strong> — both running the same
+open-source <a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/software/OnSpeed-M5-Display"><code>OnSpeed-M5-Display</code></a>
+firmware from a single codebase.</p>
+<div class="admonition note">
+<p class="admonition-title">Display is supplemental</p>
+<p>The external display supplements OnSpeed's audio tones — it does not
+replace them. The primary interface is still aural; your eyes should
+stay outside during approach. The display is most useful for
+post-flight analysis (G-load history), initial familiarization with
+the tones, and as a backup attitude indicator.</p>
+</div>
+<h2 id="try-it-in-your-browser">Try it in your browser<a class="headerlink" href="#try-it-in-your-browser" title="Permanent link">&para;</a></h2>
+<p>Here's the live display firmware running in your browser — same C++
+source that runs on the real M5Stack hardware, rendered at its
+native 320×240 resolution.</p>
+<iframe src="../../assets/sim/index.html"
+        width="340" height="320"
+        style="display: block; margin: 1.5em auto; border: 0;"
+        title="OnSpeed M5 display simulator"
+        loading="lazy"></iframe>
+
+<p>Click the display, then press <kbd>↓</kbd> to cycle through the five
+modes (the one you're looking at is the primary AOA indexer; there
+are four more). The data feed is a synthetic AOA ramp that sweeps
+from −4° up through past stall and back, covering the alpha_0 floor,
+the L/D<sub>MAX</sub> / ONSPEED tone bands, and the stall-warning region where
+the top chevrons flash red. The on-screen percent-lift digit
+saturates at 99 in the stall region (the saturation convention,
+"never reads 100") — same as on the real device. The wire carries
+sub-percent resolution, so the underlying index bar position
+advances smoothly even when the digit holds at 99. It's not a
+recorded flight, but everything the firmware draws is drawn the
+same way on the panel.</p>
+<p>See <a href="#display-modes">Display modes</a> below for what each mode means.</p>
+<h2 id="supported-m5stack-units">Supported M5Stack units<a class="headerlink" href="#supported-m5stack-units" title="Permanent link">&para;</a></h2>
+<p>Both supported units have the same 320×240 ILI9342C color TFT at 40 MHz
+and receive OnSpeed's 20 Hz serial stream over Port C. You can pick
+either one; the firmware is a single binary per board (built from the
+same source) and the on-screen layout is identical.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><strong>M5Stack Basic</strong></th>
+<th><strong>M5Stack Core2</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>USB-serial chip</td>
+<td>CP2104</td>
+<td>CH9102F</td>
+</tr>
+<tr>
+<td>Port C pins</td>
+<td>GPIO 16 (RX) / GPIO 17 (TX)</td>
+<td>GPIO 13 (RX) / GPIO 14 (TX)</td>
+</tr>
+<tr>
+<td>Buttons</td>
+<td>Three physical buttons</td>
+<td>Three capacitive touch zones below the screen</td>
+</tr>
+<tr>
+<td>IMU</td>
+<td>MPU9250</td>
+<td>MPU6886</td>
+</tr>
+<tr>
+<td>Power</td>
+<td>Direct 5 V</td>
+<td>AXP192 PMIC (handled by M5Unified)</td>
+</tr>
+<tr>
+<td>PlatformIO env</td>
+<td><code>m5stack-core-esp32</code></td>
+<td><code>m5stack-core2</code></td>
+</tr>
+</tbody>
+</table>
+<p>Either unit works — the Core2 adds a built-in LiPo battery and
+capacitive touch, while the Basic is slightly cheaper and has tactile
+buttons. Wiring, serial protocol, and mounting options are the same.</p>
+<h3 id="buttons">Buttons<a class="headerlink" href="#buttons" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Button</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Button A</strong> (left)</td>
+<td>Brightness down</td>
+</tr>
+<tr>
+<td><strong>Button B</strong> (middle)</td>
+<td>Cycle display mode (0 → 4, then wraps back to 0)</td>
+</tr>
+<tr>
+<td><strong>Button C</strong> (right)</td>
+<td>Brightness up</td>
+</tr>
+</tbody>
+</table>
+<p>On the Core2, these are capacitive touch zones below the screen (the
+three dots printed on the bezel); the Basic has physical push buttons.
+The firmware uses M5Unified's unified <code>M5.BtnA/B/C</code> API, so behavior is
+identical on both units.</p>
+<p>Brightness is persisted to NVS on every adjust, so the M5 boots into the
+brightness it was on at last power-down. Display mode is not persisted —
+every boot starts on Mode 0 (Primary).</p>
+<p>If you hold <strong>Button B during boot</strong>, the M5 enters WiFi OTA update
+mode instead of running the display — for updating firmware without
+needing a USB cable.</p>
+<h2 id="display-modes">Display modes<a class="headerlink" href="#display-modes" title="Permanent link">&para;</a></h2>
+<p>The five modes are selected by pressing <strong>Button B</strong>, which cycles in
+order: <strong>Primary → Attitude → Indexer-only → Energy → G history →</strong>
+back to Primary. The M5 remembers the last-used mode across power
+cycles.</p>
+<p>To preview each mode, scroll back up to the in-browser simulator and
+press <kbd>↓</kbd> to step through them. The C++ source that runs the
+sim is the same source that runs on the real M5Stack hardware, so the
+layout you see in the browser is the layout you get on the panel.</p>
+<h3 id="primary-aoa-indexer-full-readouts">Primary — AOA indexer + full readouts<a class="headerlink" href="#primary-aoa-indexer-full-readouts" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 0 — the boot default.)</em></p>
+<p>The main flight display. A vertical AOA indexer widget occupies the
+center of the screen, with supporting readouts around the edges.</p>
+<p><strong>Center — the indexer widget.</strong> Reads from top to bottom and tells
+you where your AOA sits relative to the stall/OnSpeed/LDmax setpoints
+for the current flap configuration:</p>
+<ul>
+<li><strong>Top chevrons</strong> (two stylized triangles forming an up-arrow near
+  the top of the widget) — <em>getting slow</em> warning.<ul>
+<li><strong>Yellow</strong> when AOA crosses OnSpeedSlow and approaches stall.</li>
+<li><strong>Red</strong> past the midpoint between OnSpeedSlow and StallWarn.</li>
+<li><strong>Flashing red</strong> above StallWarn — stall imminent.</li>
+</ul>
+</li>
+<li><strong>Green donut</strong> (two horizontal arcs + center dot in the middle
+  of the widget) — <em>on-speed</em> indicator. All three light up when
+  AOA is centered in the OnSpeed band.<ul>
+<li>Bottom arc green — lower half of the OnSpeed range.</li>
+<li>Center dot green — centered (your target on approach).</li>
+<li>Top arc green — upper half.</li>
+</ul>
+</li>
+<li><strong>Bottom chevrons</strong> (down-arrow near the bottom of the widget) —
+  <em>fast but safe</em> indicator. <strong>Green</strong> when AOA is between LDmax
+  and OnSpeedFast (you're a touch fast for an OnSpeed approach —
+  ease off if you want to nail on-speed).</li>
+<li><strong>White index bar</strong> — a thin horizontal bar that slides up/down
+  the widget showing your current AOA on the scale. Small white
+  dots on the left and right edges of the widget mark the <strong>LDmax</strong>
+  (best-climb / best-glide) reference.</li>
+</ul>
+<p>Visual language follows the standard FAA green/yellow/red
+progression. Green covers the whole safe band — bottom chevron
+(fast but safe) and the central donut (on-speed). Yellow and red
+escalate on the top chevrons as AOA rises toward stall.</p>
+<p><strong>Above the widget — percent lift</strong> (0–99, saturating at 99 in the
+stall region). A large white number with a black outline — readable
+against any background. The number is the honest envelope fraction:
+0% at zero-lift body angle, 99% at stall. Where each band edge falls
+on the scale (L/Dmax, OnSpeed, stall warning) varies per flap because
+the underlying calibration varies per flap — typically L/Dmax lands
+in the low 30s on clean flaps and the mid-50s on full flaps.
+Compare values by AOA region (silent / pulsing / on-speed / stall),
+not by exact percent.</p>
+<p><strong>Corners:</strong></p>
+<ul>
+<li>Top-left: current <strong>IAS</strong> in knots (big white number) with a green
+  "IAS" label, plus a small two-digit <strong>DataMark</strong> counter at the very
+  top-left corner — wraps mod 100, increments each time the pilot
+  presses the data-mark button. Mirrors the same counter on the SD log
+  and the JS indexer.</li>
+<li>Top-right: current <strong>vertical G</strong> (big white number) with a green
+  "G" label.</li>
+<li>Bottom-left: a <strong>flap position</strong> icon (circle with a rotating
+  triangular needle representing the flap angle, with stop marks at
+  the configured travel endpoints) and the numeric flap angle inside
+  the circle.</li>
+<li>Bottom-center: the <strong>slip/skid ball</strong> (green when coordinated, red
+  and flashing at high AOA with large slip).</li>
+</ul>
+<p>Primary mode does not show altitude — flip to Attitude mode (next) for
+a numeric pressure-altitude readout.</p>
+<p><strong>Right edge — G-onset rate tape.</strong> A thin yellow bar growing up
+(positive onset, G load increasing — pulling into a turn or
+pull-up) or down (negative onset, G unloading — push-over) from
+a "zero line" ladder at the right side of the screen.  Saturates
+at ±2 g/s.  The signal is the smoothed first derivative of
+vertical-G, computed by feeding <code>AccelVertFilter</code> through a 250 ms
+low-pass kernel (<code>GOnsetFilter</code> in <code>onspeed_core/filters/</code>).
+Useful as a smoothness cue: a steady long pull-up shows a small
+bar; a sudden yank shows a tall bar that dies back as the rate
+stabilizes.</p>
+<h3 id="attitude-backup-ai-with-aoa">Attitude — backup AI with AOA<a class="headerlink" href="#attitude-backup-ai-with-aoa" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 1.)</em></p>
+<p>Full-width backup artificial horizon driven by OnSpeed's AHRS.
+Sky/ground horizon with a pitch ladder (10° increments), roll
+indication via a fixed aircraft reference symbol against a rolling
+horizon, a magenta flight-path marker (concentric rings with
+perpendicular wing bars) showing the aircraft's actual vector through
+the air, slip/skid ball at the bottom, and a white VSI tape on the
+right edge with a tick ladder for climb/descent rate.  The bar fills
+at ±600 fpm — saturates beyond, so a hard climb pegs the top — and
+the 20-pixel ladder ticks give a visual reference for fine reads
+in the gentle-cruise band where small trends matter most.</p>
+<p><strong>Corners:</strong></p>
+<ul>
+<li>Top-left: current <strong>IAS</strong> in knots with an "IAS" label.</li>
+<li>Top-right: current <strong>pressure altitude</strong> with a "PALT" label. ISA
+  1013.25 hPa reference; this is not panel-altimeter altitude — no
+  Kollsman/QNH correction is applied, so it matches the panel altimeter
+  only when the altimeter is set to 29.92.</li>
+<li>Bottom-left: current <strong>vertical G</strong> with a "G" label.</li>
+<li>Bottom-right: current <strong>percent lift</strong> (the same 0–99 envelope
+  fraction shown above the Primary indexer) with an "AOA" label.</li>
+</ul>
+<p>Numeric pitch readout sits in a dark rounded rectangle behind the
+aircraft symbol at the center.</p>
+<p><strong>When to use:</strong> cross-check against the primary AI (not as a
+replacement), or during instrument transitions where you want the
+OnSpeed-derived flight path marker overlaid on an independent
+attitude source.</p>
+<h3 id="indexer-only-panel-minimal">Indexer-only — panel-minimal<a class="headerlink" href="#indexer-only-panel-minimal" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 2.)</em></p>
+<p>The Primary mode's indexer widget (chevrons + donut + index bar),
+with all the numeric fields around it <strong>stripped away</strong>. Same stall
+warnings, same on-speed cues, same colors. The <strong>DataMark</strong> counter
+stays at the top-left so the pilot can confirm a press registered
+even on this minimal layout.</p>
+<p><strong>When to use:</strong> if you already have an EFIS or dedicated ASI/ALT
+display, the numeric readouts on Primary mode are redundant. This
+mode keeps only the visual indexer — ideal for a narrow panel cutout
+beside the primary ASI.</p>
+<h3 id="energy-deceleration-gauge">Energy — deceleration gauge<a class="headerlink" href="#energy-deceleration-gauge" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 3.)</em></p>
+<p>A vertical "energy tape" gauge in the center showing instantaneous
+airspeed deceleration in <strong>knots per second</strong>. A green band marks the
+stable-energy zone (around 0 kt/s); red bands above and below flag
+rapid acceleration or deceleration. A white horizontal bar on the
+tape tracks the current smoothed decel rate.</p>
+<p>Numeric readouts in the corners: <strong>IAS</strong> (left), <strong>Kt/s decel rate</strong>
+(right). A white VSI tape runs up the right edge (same ±600 fpm
+scale as Mode 1); a slip ball sits at the bottom.</p>
+<p><strong>When to use:</strong> tuning approach energy. A well-flown stabilized
+approach shows small steady decel (tape near the green band); rapid
+swings indicate you're pumping the stick or fighting turbulence.
+Also useful for gauging flare authority right at touchdown.</p>
+<h3 id="g-history-scrolling-g-trace">G history — scrolling G trace<a class="headerlink" href="#g-history-scrolling-g-trace" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 4.)</em></p>
+<p>A scrolling graph of vertical G over approximately the last 60
+seconds. Horizontal reference lines mark each integer G (grey for
+±5, ±4, ±3, ±2, −1, −2; bright white for 1G). The trace is color-
+coded: <strong>green</strong> when positive-G, <strong>yellow</strong> for 0–1G (unloaded),
+<strong>red</strong> for negative G.</p>
+<p><strong>When to use:</strong> post-pattern, post-aerobatic, or post-turbulence
+debrief. Shows the full profile rather than just the instantaneous
+peak on the other pages. Handy for noticing that approach-to-stall
+G unloading you didn't realize you were doing.</p>
+<h3 id="status-indicators-across-all-modes">Status indicators across all modes<a class="headerlink" href="#status-indicators-across-all-modes" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>How it appears</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>No data from OnSpeed for &gt;300 ms</strong></td>
+<td>Red diagonal X across the screen with "NO DATA" text in the center</td>
+</tr>
+<tr>
+<td><strong>Stall warning</strong> (AOA &gt; StallWarn)</td>
+<td>Top chevrons flash red</td>
+</tr>
+<tr>
+<td><strong>Large slip/skid at high AOA</strong></td>
+<td>Slip ball flashes red</td>
+</tr>
+<tr>
+<td><strong>Low brightness</strong></td>
+<td>Press Button C to brighten</td>
+</tr>
+</tbody>
+</table>
+<h2 id="hardware-setup">Hardware setup<a class="headerlink" href="#hardware-setup" title="Permanent link">&para;</a></h2>
+<h3 id="wiring">Wiring<a class="headerlink" href="#wiring" title="Permanent link">&para;</a></h3>
+<p>The M5 talks to OnSpeed over a one-way serial link. Only three
+connections are needed.</p>
+<table>
+<thead>
+<tr>
+<th>OnSpeed pin</th>
+<th>Direction</th>
+<th>M5 Basic Port C RX</th>
+<th>M5 Core2 Port C RX</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPIO 10 (DISPLAY_SER_TX)</td>
+<td>→</td>
+<td>GPIO 16</td>
+<td>GPIO 13</td>
+</tr>
+<tr>
+<td>GND</td>
+<td>↔</td>
+<td>GND</td>
+<td>GND</td>
+</tr>
+</tbody>
+</table>
+<p>Port C on the Basic uses GPIO 16/17; on the Core2 it moves to
+GPIO 13/14. The M5 firmware compiles the correct pins in automatically
+per env — you only need to match the physical Port C pin on whichever
+unit you have.</p>
+<p>The OnSpeed serial output can be TTL or RS-232 level. The M5 firmware
+auto-detects on boot by trying three common port configurations (TTL
+non-inverted, RS-232 inverted, and a bench-simulator TTL variant).
+Once detected, the port mapping is saved to the M5's NVS flash so
+subsequent boots come up faster.</p>
+<ul>
+<li><strong>Baud rate:</strong> 115200 8N1</li>
+<li><strong>Frame rate:</strong> 20 Hz (every 50 ms). Each frame is 77 ASCII bytes
+  (v4.23 wire) including <code>#1</code> header, fields, CRC, and CRLF.</li>
+</ul>
+<p>See <a href="../../reference/serial-protocol/">Display Serial Protocol</a> for the
+complete wire-format reference (byte offsets, field semantics, parsing
+recommendations).</p>
+<h3 id="powering-the-m5">Powering the M5<a class="headerlink" href="#powering-the-m5" title="Permanent link">&para;</a></h3>
+<p>The M5 can be powered from:</p>
+<ul>
+<li><strong>Its own USB-C port</strong> — ideal for bench testing or a permanent
+  panel installation if you have avionics USB power (1 A at 5 V).</li>
+<li><strong>Panel 5 V supply</strong> wired into the M5 base's VCC pin on Port C.
+  Check the M5Stack documentation for current ratings before wiring
+  to ship power; ~120 mA typical at full brightness.</li>
+</ul>
+<p>Do <strong>not</strong> try to power the M5 from OnSpeed's GPIO pins — they don't
+supply enough current for the display's backlight.</p>
+<h2 id="flashing-the-m5-firmware">Flashing the M5 firmware<a class="headerlink" href="#flashing-the-m5-firmware" title="Permanent link">&para;</a></h2>
+<p>There are three ways to get firmware onto the M5 display, in increasing
+order of complexity:</p>
+<ol>
+<li><strong>OTA update</strong> (no cable) — already-flashed M5, WiFi-capable update</li>
+<li><strong>USB flash from a released binary</strong> — new M5, or recovery flash</li>
+<li><strong>Build + flash from source</strong> — developers and advanced users</li>
+</ol>
+<h3 id="1-ota-update-existing-m5-no-usb-cable">1. OTA update (existing M5, no USB cable)<a class="headerlink" href="#1-ota-update-existing-m5-no-usb-cable" title="Permanent link">&para;</a></h3>
+<p>Once an M5 has been flashed at least once with OnSpeed firmware, future
+updates can happen over WiFi — no USB cable required.</p>
+<ol>
+<li>Download <code>firmware.bin</code> for your board from the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest release page</a>. Look for:<ul>
+<li><code>onspeed-m5-X.Y.Z-basic-firmware.bin</code> (M5Stack Basic)</li>
+<li><code>onspeed-m5-X.Y.Z-core2-firmware.bin</code> (M5Stack Core2)</li>
+</ul>
+</li>
+<li>Hold <strong>Button B</strong> while powering the M5 on. It will boot into
+   firmware-update mode and display its WiFi SSID, password, and the
+   URL to browse to. The on-screen information is authoritative — use
+   those values rather than the defaults below if they differ.</li>
+<li>Connect your laptop or phone to the <strong><code>OnSpeedDisplay</code></strong> WiFi
+   network using the password <strong><code>angleofattack</code></strong>.</li>
+<li>Open <strong><code>http://192.168.0.2/upgrade</code></strong> in a browser.</li>
+<li>Click <strong>Choose file</strong>, select the <code>firmware.bin</code> you downloaded,
+   then click <strong>Update</strong>.</li>
+<li>The M5 reboots into the new firmware automatically.</li>
+</ol>
+<h3 id="2-usb-flash-from-a-released-binary-new-m5">2. USB flash from a released binary (new M5)<a class="headerlink" href="#2-usb-flash-from-a-released-binary-new-m5" title="Permanent link">&para;</a></h3>
+<p>For a freshly-purchased M5 that's never run OnSpeed firmware, flash it
+once via USB. After that, future updates can use the OTA path above.</p>
+<p><strong>Download the release assets</strong> for your board from the <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest release</a>:</p>
+<ul>
+<li><code>onspeed-m5-X.Y.Z-basic-firmware.bin</code> or <code>-core2-firmware.bin</code></li>
+<li><code>onspeed-m5-X.Y.Z-basic-bootloader.bin</code> or <code>-core2-bootloader.bin</code></li>
+<li><code>onspeed-m5-X.Y.Z-basic-partitions.bin</code> or <code>-core2-partitions.bin</code></li>
+</ul>
+<p><strong>Flash with esptool</strong> (install via <code>pip install esptool</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Replace PORT with your M5&#39;s USB-serial device:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1">#   Basic: /dev/cu.usbserial-* (CP2104) on macOS, COMn on Windows</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1">#   Core2: /dev/cu.usbserial-* (CH9102F) on macOS, COMn on Windows</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>esptool.py<span class="w"> </span>--chip<span class="w"> </span>esp32<span class="w"> </span>--port<span class="w"> </span>PORT<span class="w"> </span>--baud<span class="w"> </span><span class="m">921600</span><span class="w"> </span>write_flash<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span>0x1000<span class="w">   </span>onspeed-m5-X.Y.Z-BOARD-bootloader.bin<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span>0x8000<span class="w">   </span>onspeed-m5-X.Y.Z-BOARD-partitions.bin<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span>0x10000<span class="w">  </span>onspeed-m5-X.Y.Z-BOARD-firmware.bin
+</code></pre></div>
+<p>Replace <code>BOARD</code> with <code>basic</code> or <code>core2</code> and <code>X.Y.Z</code> with the release
+version.</p>
+<p>Alternatively, <a href="https://docs.m5stack.com/en/download">M5Burner</a> is a
+GUI tool from M5Stack that can flash custom firmware. Use its
+"Custom firmware" tab and point it at the three release <code>.bin</code> files.</p>
+<h3 id="3-build-and-flash-from-source-developers">3. Build and flash from source (developers)<a class="headerlink" href="#3-build-and-flash-from-source-developers" title="Permanent link">&para;</a></h3>
+<p>Prerequisites:</p>
+<ul>
+<li><a href="https://docs.platformio.org/en/latest/core/installation.html">PlatformIO CLI</a>
+  installed</li>
+<li>M5Stack Basic or Core2 connected to your laptop via USB-C</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd</span><span class="w"> </span>software/OnSpeed-M5-Display
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># M5Stack Basic</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core-esp32<span class="w"> </span>-t<span class="w"> </span>upload
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="c1"># M5Stack Core2</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core2<span class="w"> </span>-t<span class="w"> </span>upload
+</code></pre></div>
+<p>Tail the M5's own USB serial for debug output:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pio<span class="w"> </span>device<span class="w"> </span>monitor
+</code></pre></div>
+<h3 id="getting-firmware-for-an-unreleased-change-reviewers-and-testers">Getting firmware for an unreleased change (reviewers and testers)<a class="headerlink" href="#getting-firmware-for-an-unreleased-change-reviewers-and-testers" title="Permanent link">&para;</a></h3>
+<p><strong>From a PR:</strong> every pull request that touches M5 display code builds
+both board variants in CI and posts a sticky comment with direct
+download links to the <code>.zip</code> artifacts. Look for the "Firmware
+Artifacts" comment on the PR; it includes a table with Basic and
+Core2 rows.</p>
+<p><strong>From master:</strong> the latest successful master CI run's artifacts are
+listed at <a href="https://nightly.link/flyonspeed/OnSpeed-Gen3/workflows/ci/master">nightly.link for OnSpeed-Gen3 CI on master</a>
+(no GitHub login required). Look for <code>m5-display-basic-…zip</code> or
+<code>m5-display-core2-…zip</code>. The same shortcut is on the <strong>master
+artifacts</strong> badge in the <a href="https://github.com/flyonspeed/OnSpeed-Gen3#readme">README</a>.</p>
+<p>CI artifacts expire 30 days after the run.</p>
+<h2 id="bench-testing-without-the-onspeed-box">Bench testing without the OnSpeed box<a class="headerlink" href="#bench-testing-without-the-onspeed-box" title="Permanent link">&para;</a></h2>
+<p>You can test the M5 display on your desk before connecting it to a
+running OnSpeed box. Use the Python replay tool under
+<a href="https://github.com/flyonspeed/OnSpeed-Gen3/tree/master/tools/m5-replay"><code>tools/m5-replay/</code></a>
+with an inexpensive USB-to-TTL dongle:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>tools/m5-replay
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="c1"># Real flight log</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span>--input<span class="w"> </span>/path/to/OnSpeed_log.csv
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Deterministic synthetic demo (cruise → approach → stall → g-turns)</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>uv<span class="w"> </span>run<span class="w"> </span>replay.py<span class="w"> </span>--port<span class="w"> </span>/dev/cu.usbserial-XXXX<span class="w"> </span>--synthetic
+</code></pre></div>
+<p>See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/tools/m5-replay/README.md"><code>tools/m5-replay/README.md</code></a>
+for the hardware shopping list, wiring diagram, and protocol details.</p>
+<h2 id="serial-output-format">Serial output format<a class="headerlink" href="#serial-output-format" title="Permanent link">&para;</a></h2>
+<p>The OnSpeed firmware's serial output format is configurable via the
+<code>SERIALOUTFORMAT</code> field in the configuration:</p>
+<ul>
+<li><strong>ONSPEED</strong> — native <code>#1</code> format (73-byte payload + CRC + CRLF = 77
+  bytes total, v4.23 wire) carrying attitude, IAS, pressure altitude,
+  percent-lift (tenths of a percent), the per-flap percent anchors that
+  drive an indexer (L/D<sub>MAX</sub> audio gate, OnSpeedFast, OnSpeedSlow,
+  stall-warn, plus the separate visual L/D<sub>MAX</sub> pip), G-loading, and
+  flap travel range.
+  Use this with <code>OnSpeed-M5-Display</code> or any third-party
+  display reading the full data set. Full byte-level wire-format
+  reference: <a href="../../reference/serial-protocol/">Display Serial Protocol</a>.</li>
+<li><strong>G3X</strong> — Garmin G3X-compatible subset for use with Garmin panel
+  displays. Drops AOA setpoints and aerodynamic anchors; carries only
+  what a stock G3X-compatible PFD knows how to render.</li>
+</ul>
+<h2 id="mounting">Mounting<a class="headerlink" href="#mounting" title="Permanent link">&para;</a></h2>
+<p>Mount the display where it's visible during approach without blocking
+your view of primary instruments. Common locations:</p>
+<ul>
+<li>Panel cutout (flush-mount, Mode 2 narrow layout is designed for this)</li>
+<li>Glareshield mount on a RAM-style ball joint</li>
+<li>Side console near the throttle quadrant</li>
+</ul>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2024-2026 FlyOnSpeed — Open Source (MIT)
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://www.flyonspeed.org/" target="_blank" rel="noopener" title="www.flyonspeed.org" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M351.9 280H161c2.9 64.5 17.2 123.9 37.5 167.4 11.4 24.5 23.7 41.8 35.1 52.4 11.2 10.5 18.9 12.2 22.9 12.2s11.7-1.7 22.9-12.2c11.4-10.6 23.7-28 35.1-52.4 20.3-43.5 34.6-102.9 37.5-167.4zm-191-48h190.9c-2.8-64.5-17.1-123.9-37.4-167.4-11.4-24.4-23.7-41.8-35.1-52.4C268.1 1.7 260.4 0 256.4 0s-11.7 1.7-22.9 12.2c-11.4 10.6-23.7 28-35.1 52.4-20.3 43.5-34.6 102.9-37.5 167.4m-48 0c3.5-85.6 25.6-165.1 57.9-217.3C78.7 47.3 10.9 131.2 1.5 232zM1.5 280c9.4 100.8 77.2 184.7 169.3 217.3-32.3-52.2-54.4-131.7-57.9-217.3zm398.4 0c-3.5 85.6-25.6 165.1-57.9 217.3 92.1-32.7 159.9-116.5 169.3-217.3zm111.4-48C501.9 131.2 434.1 47.3 342 14.7c32.3 52.2 54.4 131.7 57.9 217.3z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": ["latest"], "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/katex.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"></script>
+      
+        <script src="../../javascripts/vn-diagram.js"></script>
+      
+        <script src="../../javascripts/tone-simulator.js"></script>
+      
+    
+  </body>
+</html>
