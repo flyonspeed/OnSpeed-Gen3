@@ -294,7 +294,9 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
     std::string_view sv(sConfig.c_str(), sConfig.length());
     if (onspeed::config::IsV1Format(sv))
         {
-#ifdef SUPPORT_CONFIG_V1
+        // Legacy Gen2-era flat-tag config format.  Always supported
+        // for pilots upgrading from Gen2 SD cards; CONFIG2 below is
+        // the format the firmware emits on save.
         onspeed::config::V1ParseStatus v1status =
             onspeed::config::ParseV1(sv, *this);
 
@@ -308,9 +310,6 @@ bool FOSConfig::LoadConfigFromString(String sConfig)
 
         ApplyPostParseSideEffects(*this);
         return true;
-#else
-        return false;
-#endif
         }
 
     // CONFIG2 format — delegated to onspeed_core/config/ConfigXmlParse.

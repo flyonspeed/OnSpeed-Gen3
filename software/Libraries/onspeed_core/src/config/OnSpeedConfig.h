@@ -25,16 +25,16 @@
 
 #include <util/OnSpeedTypes.h>  // SuCalibrationCurve, MAX_AOA_CURVES, MAX_CURVE_COEFF
 
-#define SUPPORT_CONFIG_V1
-
 namespace onspeed::config {
 
 // ============================================================================
 // Fixed-capacity CSV-parsed arrays (V1 config format helpers).
 // Kept at file scope — several sketch helpers return these by value.
+// V1 is the legacy Gen2-era flat-tag config format; the firmware always
+// supports importing it for pilots upgrading from Gen2 SD cards.  See
+// ConfigV1Parse.h for the parser; CONFIG2 is the current XML format.
 // ============================================================================
 
-#ifdef SUPPORT_CONFIG_V1
 struct SuIntArray {
     int Count;
     int Items[onspeed::MAX_AOA_CURVES];
@@ -44,7 +44,6 @@ struct SuFloatArray {
     int   Count;
     float Items[onspeed::MAX_AOA_CURVES];
 };
-#endif
 
 // ============================================================================
 // Data source selector
