@@ -1,0 +1,334 @@
+/* PageShell chrome plus per-page styles.  Bundled into static_app_css.h
+   alongside the JS bundle and served at /static/app-<sha>.css with
+   immutable cache.
+
+   The chrome rules mirror the legacy header (`Web/html_header_css.h`)
+   so the Preact-served pages (`/live`, `/indexer`) match the still-
+   server-rendered pages (`/aoaconfig`, `/calwiz`, `/logs`, etc.).
+   Light grey body, dark grey nav, red hover.  Dropdowns reveal only
+   when `aria-expanded="true"` on the trigger; PageShell.js sets that
+   based on pointer hover, click toggle, or keyboard activation —
+   single source of truth.  CSS doesn't open the menu directly via
+   `:hover` or `:focus-within` because those race the JS state and
+   produce the "two menus open at once" bug when moving between
+   sibling tabs. */
+
+/* ---------- Body chrome ---------- */
+body {
+  background-color: #cccccc;
+  font-family: Arial, Helvetica, Sans-Serif;
+  color: #000088;
+  margin: 0;
+}
+
+* { box-sizing: border-box; }
+
+/* ---------- Header (logo + firmware version) ---------- */
+.header-container {
+  display: flex;
+  align-items: flex-end;
+  margin: 0px;
+}
+
+.firmware {
+  font-size: 9px;
+  margin-bottom: 6px;
+  margin-left: 10px;
+}
+
+.logo {
+  font-size: 36px;
+  font-weight: bold;
+  font-family: helvetica;
+  color: black;
+}
+
+/* ---------- Nav ---------- */
+ul {
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #333;
+}
+
+li { float: left; }
+
+li a, .dropbtn {
+  display: inline-block;
+  color: white;
+  text-align: center;
+  padding: 14px 16px;
+  text-decoration: none;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+li a.active, .dropbtn.active { background-color: #b00000; }
+
+li a:hover,
+.dropdown .dropbtn[aria-expanded="true"] {
+  background-color: red;
+}
+
+li.dropdown { display: inline-block; }
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: #f9f9f9;
+  min-width: 160px;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+.dropdown-content a {
+  color: black;
+  padding: 12px 16px;
+  text-decoration: none;
+  display: block;
+  text-align: left;
+}
+
+.dropdown-content a:hover { background-color: #f1f1f1; }
+
+.dropdown .dropbtn[aria-expanded="true"] + .dropdown-content { display: block; }
+
+/* Narrow phone viewports: tighten the nav so all five items fit on a
+   single row. */
+@media screen and (max-width: 480px) {
+  li a, .dropbtn {
+    padding: 12px 8px;
+    font-size: 14px;
+  }
+}
+
+/* ---------- Static fallback nav (shown only when JS is disabled) ---------- */
+.onspeed-fallback-nav {
+  padding: 10px 14px;
+  background: #333;
+  color: #ccc;
+  font-size: 14px;
+}
+.onspeed-fallback-nav a { color: #fff; text-decoration: none; }
+.onspeed-fallback-nav a:hover { text-decoration: underline; }
+
+/* ---------- Avionics palette tokens (used by SVG components) ---------- */
+:root {
+  --bg: #111;
+  --ink: #eee;
+  --panel-bg: #000;
+  --white: #ffffff;
+  --green: #00ff3a;
+  --yellow: #fffd40;
+  --red: #ff0018;
+  --grey: #888;
+  --dark-grey: #6b6d54;
+  --light-grey: #aaa;
+  --sky: #00fffe;
+  --ground: #954511;
+  --magenta: #ff00ff;
+  --orange: #ff8800;
+  --blue: #0000ff;
+  --font-numeric: 'B612', 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ---------- IndexerPage --------------------------------------------------
+   Wrapper has its own dark background — the indexer panel is a dark
+   "instrument" embedded inside the light-grey page body.  Same pattern
+   as the legacy /live page hosted the SVG indexer in a panel inside the
+   pageHeader chrome.
+*/
+#indexer-app {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg, #111);
+  color: var(--ink, #eee);
+  padding-bottom: 32px;
+  margin: 12px;
+  border-radius: 4px;
+}
+#liveview-header {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--dark-grey, #6b6d54);
+}
+#status-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 12px;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+#connectionstatus { font-weight: bold; }
+#age-indicator { font-variant-numeric: tabular-nums; }
+#mode-nav {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dark-grey, #6b6d54);
+  overflow-x: auto;
+}
+#mode-nav button {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--ink, #eee);
+  border: 1px solid var(--dark-grey, #6b6d54);
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+#mode-nav button.active {
+  background: var(--green, #00ff3a);
+  color: var(--panel-bg, #000);
+  border-color: var(--green, #00ff3a);
+}
+#liveview-main { padding: 8px 12px 12px; }
+#mode-container {
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 4 / 3;
+  margin: 0 auto;
+  background: var(--panel-bg, #000);
+}
+#mode-container svg { width: 100%; height: 100%; display: block; }
+#datafields-wrap { margin: 12px auto 0; max-width: 480px; text-align: center; }
+#datafields-toggle {
+  background: transparent;
+  color: var(--ink, #eee);
+  border: 1px solid var(--dark-grey, #6b6d54);
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#datafields { margin-top: 10px; display: flex; justify-content: center; }
+#datafields table {
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+#datafields td { padding: 3px 12px; }
+#datafields td:first-child { color: var(--light-grey, #aaa); text-align: right; }
+#datafields td:last-child { text-align: left; }
+#footer-warning {
+  margin: 18px 12px 0;
+  padding: 6px 8px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--yellow, #fffd40);
+  border-top: 1px solid var(--dark-grey, #6b6d54);
+}
+
+/* ---------- LivePage -----------------------------------------------------
+   Same pattern as the indexer — dark wrapper sits as an embedded panel
+   inside the light-grey body.
+*/
+.live-page {
+  background: var(--bg, #111);
+  color: var(--ink, #eee);
+  padding: 16px;
+  margin: 12px;
+  border-radius: 4px;
+}
+.live-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-bottom: 1px solid var(--dark-grey, #6b6d54);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+.live-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.live-status {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.live-status-age { font-weight: bold; }
+
+.live-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.live-tabs button {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--ink, #eee);
+  border: 1px solid var(--dark-grey, #6b6d54);
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.live-tabs button.active {
+  background: var(--green, #00ff3a);
+  color: var(--panel-bg, #000);
+  border-color: var(--green, #00ff3a);
+}
+
+.live-body {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+@media screen and (min-width: 720px) {
+  .live-body { grid-template-columns: minmax(320px, 480px) 1fr; }
+}
+.live-svg-panel {
+  background: var(--panel-bg, #000);
+  border: 1px solid var(--dark-grey, #6b6d54);
+  border-radius: 4px;
+  aspect-ratio: 4 / 3;
+  position: relative;
+}
+.live-svg-panel svg { width: 100%; height: 100%; display: block; }
+.live-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--light-grey, #aaa);
+  font-size: 14px;
+  margin: 0;
+}
+
+.live-data-table {
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  align-self: start;
+}
+.live-data-table th,
+.live-data-table td { padding: 4px 12px; text-align: left; }
+.live-data-table th {
+  color: var(--light-grey, #aaa);
+  font-weight: normal;
+  width: 40%;
+}
+.live-data-table td { color: var(--ink, #eee); }
+
+.live-warning {
+  margin-top: 18px;
+  padding: 6px 8px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--yellow, #fffd40);
+  border-top: 1px solid var(--dark-grey, #6b6d54);
+}

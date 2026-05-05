@@ -43,8 +43,9 @@ using onspeed::inhg2mb;
 #include "Web/html_logo.h"
 #include "Web/html_header.h"
 #include "Web/html_header_css.h"
-#include "Web/html_liveview.h"
-#include "Web/html_indexer.h"
+#include "Web/html_stubs.h"
+#include "Web/static_app_js.h"
+#include "Web/static_app_css.h"
 #include "Web/html_calibration.h"
 #include "Web/javascript_calibration.h"
 #include "Web/javascript_chartist1.h"
@@ -132,6 +133,12 @@ void HandleJsChartist();
 void HandleJsRegression();
 void HandleJsSGFilter();
 void HandleJsCalibration();
+
+// Shared Preact bundle handlers — content-hashed URLs, immutable
+// Cache-Control.  Match by path prefix `/static/app-`.
+void HandleStaticAppJs();
+void HandleStaticAppCss();
+static void ServePageStub(const char* stub);
 
 // Indexer tab — embeds the M5 sim WASM, fed by the binary
 // display-serial frames broadcast on port 81's WebSocket.
@@ -382,16 +389,30 @@ void CfgWebServerInit()
                 }
             } // end second lambda expression
         );
-#if 0
-    // Called when the url is not defined here
+    // /static/app-<sha>.{js,css} prefix routing.  ESP32 WebServer's
+    // `on()` API only matches exact paths, so the content-hashed URL
+    // (`/static/app-3a7f81b2.js`) needs a custom dispatcher.  Anything
+    // else falls through to a 404.
     CfgServer.onNotFound(
         []()
             {
-            if (!HandleFileRead(CfgServer.uri()))
-                CfgServer.send(404, "text/plain", "File Not Found");
+            const String uri = CfgServer.uri();
+            if (uri.startsWith("/static/app-"))
+                {
+                if (uri.endsWith(".js"))
+                    {
+                    HandleStaticAppJs();
+                    return;
+                    }
+                if (uri.endsWith(".css"))
+                    {
+                    HandleStaticAppCss();
+                    return;
+                    }
+                }
+            CfgServer.send(404, "text/plain", "File Not Found");
             }
         );
-#endif
     // Register request headers we need to inspect (ESP32 WebServer discards them by default)
     const char* headersToCollect[] = { "If-None-Match" };
     CfgServer.collectHeaders(headersToCollect, 1);
@@ -573,40 +594,67 @@ void HandleReboot()
 
 
 // ----------------------------------------------------------------------------
+// Per-page Preact stubs.  ServePageStub() emits the per-route HTML
+// stub (a complete document; bundler-generated) with ETag caching.
+// The stub references /static/app-<sha>.{js,css} which carry the
+// PageShell + the page component.  No pageHeader/pageFooter concat —
+// PageShell owns the nav.
 
-void HandleLive()
+static void ServePageStub(const char* stub)
     {
     if (SendWithETag("text/html"))
         return;
-
-    String sPage;
-    UpdateHeader();
-    sPage.reserve(pageHeader.length() + sizeof(htmlLiveView) + pageFooter.length());
-    sPage += pageHeader;
-    sPage += htmlLiveView;
-    sPage += pageFooter;
-    CfgServer.send(200, "text/html", sPage);
+    CfgServer.send_P(200, "text/html", stub);
     }
 
-// ----------------------------------------------------------------------------
-// /indexer — 5-mode Preact SVG view, generated from
-// tools/liveview-prototype/ by scripts/build_liveview_html.py.  Wraps in
-// pageHeader / pageFooter so the page shares the standard OnSpeed nav
-// (logo, Tools / Settings dropdowns, Home / LiveView / Indexer links)
-// with the rest of the firmware web UI — same pattern as HandleLive.
+// /live is gone — the new /indexer covers everything that page used
+// to render (Mode 0 indexer + the data-fields panel for the legacy
+// 13-row stat table).  Keep the route registered as a 302 redirect so
+// pilot bookmarks from the legacy era still land on a working page.
+void HandleLive()
+    {
+    CfgServer.sendHeader("Location", "/indexer", true);
+    CfgServer.send(302, "text/plain", "");
+    }
 
 void HandleIndexer()
     {
-    if (SendWithETag("text/html"))
-        return;
+    ServePageStub(htmlStub_indexer);
+    }
 
-    String sPage;
-    UpdateHeader();
-    sPage.reserve(pageHeader.length() + sizeof(htmlIndexer) + pageFooter.length());
-    sPage += pageHeader;
-    sPage += htmlIndexer;
-    sPage += pageFooter;
-    CfgServer.send(200, "text/html", sPage);
+// ----------------------------------------------------------------------------
+// Shared bundle handlers.  The path is content-hashed
+// (/static/app-<etag>.js) so we can serve with `immutable` cache —
+// the URL changes whenever the bundle content changes, so the
+// browser never has to revalidate.  Returned bytes are gzip-compressed
+// in PROGMEM and sent verbatim with `Content-Encoding: gzip`.
+
+static void SendImmutableGzip(const uint8_t* data, size_t len,
+                              const char* etag, const char* contentType)
+    {
+    String sETag = String("\"") + etag + "\"";
+    if (CfgServer.hasHeader("If-None-Match") &&
+        CfgServer.header("If-None-Match") == sETag)
+        {
+        CfgServer.send(304);
+        return;
+        }
+    CfgServer.sendHeader("ETag", sETag);
+    CfgServer.sendHeader("Cache-Control", "public, max-age=31536000, immutable");
+    CfgServer.sendHeader("Content-Encoding", "gzip");
+    CfgServer.send_P(200, contentType, (PGM_P)data, len);
+    }
+
+void HandleStaticAppJs()
+    {
+    SendImmutableGzip(static_app_js, static_app_js_len,
+                      static_app_js_etag, static_app_js_content_type);
+    }
+
+void HandleStaticAppCss()
+    {
+    SendImmutableGzip(static_app_css, static_app_css_len,
+                      static_app_css_etag, static_app_css_content_type);
     }
 
 // ----------------------------------------------------------------------------

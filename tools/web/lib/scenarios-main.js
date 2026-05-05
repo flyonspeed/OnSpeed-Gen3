@@ -8,7 +8,7 @@
 
 import { html, render } from './vendor/preact-standalone.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from './modes.js';
-import * as G from './geometry.js';
+import * as G from './core/geometry.js';
 import { scenarios } from './scenarios.js';
 
 let currentScenario = 'idle';

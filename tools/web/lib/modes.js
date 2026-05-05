@@ -3,13 +3,13 @@
 // the M5-style stale-data overlay.
 
 import { html } from './vendor/preact-standalone.js';
-import * as G from './geometry.js';
-import { colors } from './colors.js';
+import * as G from './core/geometry.js';
+import { colors } from './core/colors.js';
 import {
   Indexer, PercentLiftNumber, CornerReadout, FlapCircle, SlipBall, EdgeTape,
   Horizon, PitchLadder, BankArc, AircraftSymbol, TopPointer, FlightPathMarker,
   PitchReadout, DecelGauge, GHistory, StaleOverlay,
-} from './components.js';
+} from './components/svg/index.js';
 
 // Format a numeric corner readout. The M5 hardware (main.cpp:773-779)
 // shows IAS / G / PALT unconditionally — they're independent signals

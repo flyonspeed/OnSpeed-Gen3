@@ -1,0 +1,15 @@
+{
+  "name": "onspeed-web",
+  "version": "0.1.0",
+  "description": "OnSpeed firmware web UI source.  Bundled into PROGMEM by scripts/build_web_bundle.py.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node dev-server/server.mjs --mock",
+    "dev:proxy": "node dev-server/server.mjs --proxy http://192.168.0.1",
+    "test": "node test/geometry-invariants.mjs && node test/render-smoke.mjs"
+  }
+}
