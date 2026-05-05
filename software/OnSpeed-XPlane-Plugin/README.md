@@ -3,7 +3,7 @@
 OnSpeed AOA tones for X-Plane 12. Plays the same audio cues as the
 panel-mounted Gen3 box, driven by X-Plane's flight model.
 
-**End-user docs**: [Simulator → X-Plane Plugin](https://dev.flyonspeed.org/OnSpeed-Gen3/simulator/xplane-plugin/) — install, usage, troubleshooting.
+**End-user docs**: [X-Plane Simulator](https://dev.flyonspeed.org/OnSpeed-Gen3/xplane/) — install, indexer, M5 tethering, settings, troubleshooting.
 
 ## Building from source
 
