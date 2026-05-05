@@ -278,6 +278,64 @@ void test_g5_wrong_inner_magic_discarded_at_decode(void)
     TEST_ASSERT_FALSE(frame.has_value());
 }
 
+void test_g5_time_of_day_round_trip(void)
+{
+    // buildG5Frame writes "12345678" at offsets 3..10 — HH=12 MM=34
+    // SS=56 CS=78. The parser must populate timeOfDayHms with the
+    // canonical HH:MM:SS.FF form for the sidecar metadata.
+    char buf[59];
+    buildG5Frame(buf, 0.0f, 0.0f, 0, 100.0f, 3000, 0.0f, 1.0f, 0);
+    GarminG5Parser parser;
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("12:34:56.78", frame->timeOfDayHms);
+}
+
+void test_g5_time_of_day_non_digits_leave_empty(void)
+{
+    // Garbled time bytes should leave timeOfDayHms empty so the
+    // sidecar does not record a junk stamp.
+    char buf[59];
+    buildG5Frame(buf, 0.0f, 0.0f, 0, 100.0f, 3000, 0.0f, 1.0f, 0);
+    buf[3] = '-'; buf[4] = '-';   // overwrite HH digits
+
+    // Recompute CRC after corruption so the frame still validates and
+    // exercises the time-validity guard, not the CRC failure branch.
+    int crc = 0;
+    for (int i = 0; i <= 54; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[55] = tmp[0]; buf[56] = tmp[1];
+
+    GarminG5Parser parser;
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
+void test_g5_time_of_day_out_of_range_leaves_empty(void)
+{
+    // ASCII-digit bytes that decode out-of-range (HH > 23 / MM > 59 /
+    // SS > 59 / FF > 99) leave timeOfDayHms empty rather than write a
+    // nonsensical wall-clock stamp.  HH=99 here.
+    char buf[59];
+    buildG5Frame(buf, 0.0f, 0.0f, 0, 100.0f, 3000, 0.0f, 1.0f, 0);
+    buf[3] = '9'; buf[4] = '9';   // HH=99 (invalid)
+
+    int crc = 0;
+    for (int i = 0; i <= 54; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[55] = tmp[0]; buf[56] = tmp[1];
+
+    GarminG5Parser parser;
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -296,5 +354,8 @@ int main(int, char**)
     RUN_TEST(test_g5_vsi_field);
     RUN_TEST(test_g5_buffer_overflow_resets_and_recovers);
     RUN_TEST(test_g5_wrong_inner_magic_discarded_at_decode);
+    RUN_TEST(test_g5_time_of_day_round_trip);
+    RUN_TEST(test_g5_time_of_day_non_digits_leave_empty);
+    RUN_TEST(test_g5_time_of_day_out_of_range_leaves_empty);
     return UNITY_END();
 }

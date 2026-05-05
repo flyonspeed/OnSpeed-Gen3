@@ -14,6 +14,7 @@
 
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -142,6 +143,25 @@ void GarminG5Parser::Decode()
     }
     // G5 does not output AOA%; aoaPercent stays at kEfisFieldAbsent.
     out.source     = EfisSource::Garmin;
+
+    // Time-of-day: bytes 3..10 carry "HHMMSSFF" (FF = centiseconds).
+    // Validate ASCII digits and HH<=23, MM<=59, SS<=59, FF<=99 — an
+    // out-of-spec or never-locked GPS frame leaves timeOfDayHms empty
+    // rather than poisoning the sidecar metadata stamp.
+    auto twoDigit = [](char a, char b) -> int {
+        if (a < '0' || a > '9' || b < '0' || b > '9') return -1;
+        return (a - '0') * 10 + (b - '0');
+    };
+    const int hh = twoDigit(buf_[3], buf_[4]);
+    const int mm = twoDigit(buf_[5], buf_[6]);
+    const int ss = twoDigit(buf_[7], buf_[8]);
+    const int ff = twoDigit(buf_[9], buf_[10]);
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 &&
+        ss >= 0 && ss <= 59 && ff >= 0 && ff <= 99)
+    {
+        snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
+                 "%02d:%02d:%02d.%02d", hh, mm, ss, ff);
+    }
 
     pending_ = out;
 }

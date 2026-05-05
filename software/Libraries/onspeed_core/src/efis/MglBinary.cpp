@@ -189,6 +189,13 @@ void MglBinaryParser::Decode()
             out.vsiFpm     = static_cast<float>(msg->Msg1.VSI);
             out.oatCelsius = static_cast<float>(msg->Msg1.OAT);
             out.source     = EfisSource::Mgl;
+            // Time-of-day from packed Msg1 fields. MGL is binary so no
+            // sentinel-byte gating; clamp the values to the valid HH:MM:SS
+            // range as a defense against a corrupt or never-set RTC.
+            if (msg->Msg1.Hour <= 23 && msg->Msg1.Minute <= 59 && msg->Msg1.Second <= 59)
+                snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
+                         "%02u:%02u:%02u",
+                         msg->Msg1.Hour, msg->Msg1.Minute, msg->Msg1.Second);
             pending_ = out;
             break;
         }

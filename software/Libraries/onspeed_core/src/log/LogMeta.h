@@ -26,8 +26,9 @@ enum class EfisType : uint8_t {
 // "YYYY-MM-DDTHH:MM:SSZ" is 20 chars; 24 gives slack for trailing NUL + noise.
 inline constexpr size_t kLogMetaUtcLen = 24;
 
-// "HH:MM:SS" is 8 chars + NUL.
-inline constexpr size_t kLogMetaHmsLen = 9;
+// "HH:MM:SS.FF" is 11 chars + NUL.  D10 / G5 / G3X / MGL parsers carry
+// centiseconds; SkyView's "HH:MM:SS" still fits.
+inline constexpr size_t kLogMetaHmsLen = 12;
 
 // Firmware version strings; BuildInfo::version is "X.Y.Z" plus optional "-dirty".
 inline constexpr size_t kLogMetaFwLen  = 24;

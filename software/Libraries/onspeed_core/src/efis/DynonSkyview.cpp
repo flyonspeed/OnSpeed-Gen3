@@ -53,9 +53,12 @@ static int parseHexCRC(const char* buf, int pos)
 
 // Parse Dynon !1 System Time bytes buf[3..8] ("HHMMSS" — the FF fraction
 // at buf[9..10] is ignored). Writes an 8-char "HH:MM:SS" NUL-terminated
-// string into `out[9]`. Writes an empty string if any dash is present in
-// the 6 HHMMSS bytes or if H/M/S are out of range.
-static void parseSystemTime(const char* buf, char out[9])
+// string into `out` (which must be at least 9 bytes; current callers
+// pass `EfisFrame::timeOfDayHms`, sized 12 to fit the centisecond
+// formats produced by D10/G5/G3X/MGL — SkyView only fills the first 9).
+// Writes an empty string if any dash is present in the 6 HHMMSS bytes
+// or if H/M/S are out of range.
+static void parseSystemTime(const char* buf, char* out)
 {
     out[0] = '\0';
 
@@ -207,10 +210,16 @@ bool DynonSkyviewParser::DecodeEms(EfisFrame& out)
     if (calcCRC != parseHexCRC(buf_, 221))
         return false;
 
-    // EMS carries engine data only (RPM, MAP, fuel flow, PercentPower).
-    // EfisFrame has no engine fields, so leave every numeric field at
-    // kEfisFieldAbsent — applyFrame() will hold all prior suEfis values.
-    // Source is still set so consumers can log that EMS arrived this frame.
+    // Field offsets and scales: Dynon SkyView serial spec, EMS frame.
+    // Sentinel "XXX"/"XXXX" decodes to kEfisFieldAbsent so applyFrame()
+    // holds the prior value rather than overwriting with junk.
+    const float kNaN = kEfisFieldAbsent;
+    out.rpm              = parseFieldFloat(buf_, 18, 4, "XXXX", kNaN, 1.0f);
+    out.mapInchHg        = parseFieldFloat(buf_, 26, 3, "XXX",  kNaN, 10.0f);
+    out.fuelFlowGph      = parseFieldFloat(buf_, 29, 3, "XXX",  kNaN, 10.0f);
+    out.fuelRemainingGal = parseFieldFloat(buf_, 44, 3, "XXX",  kNaN, 10.0f);
+    out.percentPower     = parseFieldFloat(buf_, 217, 3, "XXX", kNaN, 1.0f);
+
     out.source = EfisSource::Dynon;
     return true;
 }

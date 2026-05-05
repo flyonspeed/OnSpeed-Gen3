@@ -26,6 +26,15 @@ EfisSerialPort::EfisSerialPort()
     suEfis.VSI              = 0;
     suEfis.TAS              = 0.00f;
     suEfis.OAT              = 0.00f;
+    // EMS engine fields zero-initialize to "no data received."  When an
+    // EFIS is connected but sends no EMS frames (non-EMS-equipped
+    // aircraft, or a D10/G5/MGL connection where no EMS frame exists),
+    // applyFrame() never overwrites these defaults — the SD log reads
+    // 0 for the duration.  Post-flight tools should treat the row's
+    // efisRpm/efisMap/efisFuelFlow/efisFuelRemaining/efisPercentPower
+    // columns as "absent" when all five read 0 with `efisAge` not set.
+    // Changing this to NaN/empty-string output is tracked separately;
+    // leaving 0 here preserves the pre-PR contract for downstream tools.
     suEfis.FuelRemaining    = 0.00f;
     suEfis.FuelFlow         = 0.00f;
     suEfis.MAP              = 0.00f;
@@ -156,6 +165,19 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
     if (std::isfinite(frame.vsiFpm))     suEfis.VSI         = static_cast<int>(frame.vsiFpm);
     if (std::isfinite(frame.tasKt))      suEfis.TAS         = frame.tasKt;
     if (std::isfinite(frame.oatCelsius)) suEfis.OAT         = frame.oatCelsius;
+
+    // Engine fields (Dynon SkyView EMS and Garmin G3X EMS; absent on
+    // non-EMS frames and on protocols that don't carry engine data).
+    // Same hold-last semantics as the airdata fields: non-finite ->
+    // skip, finite -> overwrite. The SD log writer in
+    // tasks/LogSensor.cpp reads these members directly into
+    // row.efisRpm / efisMap / efisFuelFlow / efisFuelRemaining /
+    // efisPercentPower.
+    if (std::isfinite(frame.rpm))              suEfis.RPM           = static_cast<int>(frame.rpm);
+    if (std::isfinite(frame.mapInchHg))        suEfis.MAP           = frame.mapInchHg;
+    if (std::isfinite(frame.fuelFlowGph))      suEfis.FuelFlow      = frame.fuelFlowGph;
+    if (std::isfinite(frame.fuelRemainingGal)) suEfis.FuelRemaining = frame.fuelRemainingGal;
+    if (std::isfinite(frame.percentPower))     suEfis.PercentPower  = static_cast<int>(frame.percentPower);
 
     // Copy time-of-day string ONLY when this frame actually carries one —
     // matches the "hold last value" pattern used for every numeric field

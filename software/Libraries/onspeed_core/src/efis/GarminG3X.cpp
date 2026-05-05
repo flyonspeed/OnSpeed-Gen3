@@ -9,6 +9,7 @@
 
 #include <climits>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -150,6 +151,25 @@ void GarminG3XParser::DecodeAttitude()
     }
     out.source     = EfisSource::Garmin;
 
+    // Time-of-day: bytes 3..10 carry "HHMMSSFF" (FF = centiseconds).
+    // Validate ASCII digits and HH<=23, MM<=59, SS<=59, FF<=99 — an
+    // out-of-spec or never-locked GPS frame leaves timeOfDayHms empty
+    // rather than poisoning the sidecar metadata stamp.
+    auto twoDigit = [](char a, char b) -> int {
+        if (a < '0' || a > '9' || b < '0' || b > '9') return -1;
+        return (a - '0') * 10 + (b - '0');
+    };
+    const int hh = twoDigit(buf_[3], buf_[4]);
+    const int mm = twoDigit(buf_[5], buf_[6]);
+    const int ss = twoDigit(buf_[7], buf_[8]);
+    const int ff = twoDigit(buf_[9], buf_[10]);
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 &&
+        ss >= 0 && ss <= 59 && ff >= 0 && ff <= 99)
+    {
+        snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
+                 "%02d:%02d:%02d.%02d", hh, mm, ss, ff);
+    }
+
     pending_ = out;
 }
 
@@ -164,11 +184,18 @@ void GarminG3XParser::DecodeEms()
     if (calcCRC != parseHexCRC(buf_, 217))
         return;
 
-    // EMS carries engine data only (RPM, MAP, fuel flow). EfisFrame has no
-    // engine fields, so emit an all-absent frame: every numeric field stays
-    // at kEfisFieldAbsent and applyFrame() holds all prior suEfis values.
-    // The source is still set so consumers can log that EMS arrived.
+    // Field offsets and scales: Garmin G3X serial spec, EMS frame.
+    // Sentinel "___"/"____" decodes to kEfisFieldAbsent so applyFrame()
+    // holds the prior value rather than overwriting with junk. G3X EMS
+    // carries no PercentPower (Dynon SkyView's wire does); leave it
+    // absent here.
     EfisFrame out;
+    const float kNaN = kEfisFieldAbsent;
+    out.rpm              = parseFieldFloat(buf_, 18, 4, "____", kNaN, 1.0f);
+    out.mapInchHg        = parseFieldFloat(buf_, 26, 3, "___",  kNaN, 10.0f);
+    out.fuelFlowGph      = parseFieldFloat(buf_, 29, 3, "___",  kNaN, 10.0f);
+    out.fuelRemainingGal = parseFieldFloat(buf_, 44, 3, "___",  kNaN, 10.0f);
+
     out.source = EfisSource::Garmin;
     pending_   = out;
 }

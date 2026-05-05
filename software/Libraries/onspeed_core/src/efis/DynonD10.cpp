@@ -5,6 +5,7 @@
 
 #include <efis/DynonD10.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -137,6 +138,25 @@ void DynonD10Parser::Decode()
         // altitude in metres (× 3.28084 to feet), VSI feet/sec (× 60 to fpm)
         out.paltFt = parseFieldFloat(buf_, 24, 5, nullptr, 0.0f, 1.0f) * 3.28084f;
         out.vsiFpm = parseFieldFloat(buf_, 29, 4, nullptr, 0.0f, 10.0f) * 60.0f;
+    }
+
+    // Time-of-day: bytes 0..7 carry "HHMMSSFF" (FF = centiseconds).
+    // Validate ASCII digits and HH<=23, MM<=59, SS<=59, FF<=99 — an
+    // out-of-spec or never-locked GPS frame leaves timeOfDayHms empty
+    // rather than poisoning the sidecar metadata stamp.
+    auto twoDigit = [](char a, char b) -> int {
+        if (a < '0' || a > '9' || b < '0' || b > '9') return -1;
+        return (a - '0') * 10 + (b - '0');
+    };
+    const int hh = twoDigit(buf_[0], buf_[1]);
+    const int mm = twoDigit(buf_[2], buf_[3]);
+    const int ss = twoDigit(buf_[4], buf_[5]);
+    const int ff = twoDigit(buf_[6], buf_[7]);
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 &&
+        ss >= 0 && ss <= 59 && ff >= 0 && ff <= 99)
+    {
+        snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
+                 "%02d:%02d:%02d.%02d", hh, mm, ss, ff);
     }
 
     out.source = EfisSource::Dynon;
