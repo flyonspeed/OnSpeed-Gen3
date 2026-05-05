@@ -301,6 +301,9 @@ void LogSensor::Open()
             headerRow.efisEnabled = g_Config.bReadEfisData;
             headerRow.efisIsVn300 = g_Config.bReadEfisData &&
                                     (g_EfisSerial.enType == EfisSerialPort::EnVN300);
+            // Always capture the raw flap-pot ADC in new logs; replay tools
+            // need it to reproduce the L/Dmax pip slide between detents.
+            headerRow.flapsRawAdcPresent = true;
 
             static char szHeader[onspeed::proto::log_csv::kHeaderMaxBytes];
             size_t hdrLen = onspeed::proto::log_csv::WriteHeader(headerRow, szHeader, sizeof(szHeader));
@@ -520,6 +523,7 @@ void LogSensor::Write()
     row.efisEnabled = g_Config.bReadEfisData;
     row.efisIsVn300 = g_Config.bReadEfisData &&
                       (g_EfisSerial.enType == EfisSerialPort::EnVN300);
+    row.flapsRawAdcPresent = true;
 
     row.timeStampMs      = (uint32_t)uTimeStamp;
     row.pfwdCounts       = g_Sensors.iPfwd;
@@ -531,6 +535,7 @@ void LogSensor::Write()
     row.iasKt            = g_Sensors.IAS;
     row.angleOfAttackDeg = g_Sensors.AOA;
     row.flapsPos         = g_Flaps.iPosition;
+    row.flapsRawAdc      = g_Flaps.uValue;
     row.dataMark         = g_iDataMark;
     row.oatCelsius       = g_Sensors.OatC;
     row.tasKt            = mps2kts(g_AHRS.fTAS);

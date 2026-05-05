@@ -168,6 +168,15 @@ static bool ParseUint32(std::string_view tok, uint32_t& out)
     return true;
 }
 
+static bool ParseUint16(std::string_view tok, uint16_t& out)
+{
+    uint32_t v32 = 0;
+    if (!ParseUint32(tok, v32)) return false;
+    if (v32 > 0xFFFFu) return false;
+    out = (uint16_t)v32;
+    return true;
+}
+
 static bool ParseString(std::string_view tok, char* out, size_t outCap)
 {
     if (outCap == 0) return false;
@@ -227,6 +236,12 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
 
     ok &= Appendf(out, outCapacity, &len, ",EarthVerticalG,FlightPath,VSI,Altitude");
     ok &= Appendf(out, outCapacity, &len, ",DerivedAOA,CoeffP");
+
+    // Tail-optional: emit only when this session captures the raw flap-pot
+    // ADC.  Placed last so older logs (without the column) parse byte-for-byte
+    // identically against the same FormatRow output.
+    if (row.flapsRawAdcPresent)
+        ok &= Appendf(out, outCapacity, &len, ",flapsRawADC");
 
     return ok ? len : 0;
 }
@@ -323,6 +338,11 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     ok &= Appendf(out, outCapacity, &len,
         ",%.4f,%.4f",
         row.derivedAoaDeg, row.coeffP);
+
+    // Tail-optional flapsRawADC.  Mirrors WriteHeader; rows from sessions
+    // without the column omit it entirely.
+    if (row.flapsRawAdcPresent)
+        ok &= Appendf(out, outCapacity, &len, ",%u", (unsigned)row.flapsRawAdc);
 
     return ok ? len : 0;
 }
@@ -435,6 +455,15 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
     if (!tok.next(field) || !ParseFloat(field, row.altitudeFt))      return false;
     if (!tok.next(field) || !ParseFloat(field, row.derivedAoaDeg))   return false;
     if (!tok.next(field) || !ParseFloat(field, row.coeffP))          return false;
+
+    // Tail-optional flapsRawADC.  When the consumer flag is set, the column
+    // must be present and must parse; absence or junk is a malformed row.
+    // When the flag is clear, the column must be absent — extra trailing
+    // tokens are ignored.  This matches WriteHeader/FormatRow's gate on the
+    // same flag.
+    if (row.flapsRawAdcPresent) {
+        if (!tok.next(field) || !ParseUint16(field, row.flapsRawAdc)) return false;
+    }
 
     return true;
 }

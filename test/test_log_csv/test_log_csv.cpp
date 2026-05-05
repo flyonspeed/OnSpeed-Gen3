@@ -36,12 +36,17 @@ static constexpr float kTolHigh = 5e-7f;     // for %.6f columns
 static constexpr float kTolAoa  = 5e-5f;     // for %.4f columns
 
 // Fill every numeric field with a distinct, non-default value.
-static LogRow MakeTestRow(bool boom = false, bool efis = false, bool vn300 = false)
+static LogRow MakeTestRow(bool boom = false, bool efis = false, bool vn300 = false,
+                          bool flapsRawAdc = false)
 {
     LogRow r;
-    r.boomEnabled  = boom;
-    r.efisEnabled  = efis;
-    r.efisIsVn300  = vn300;
+    r.boomEnabled        = boom;
+    r.efisEnabled        = efis;
+    r.efisIsVn300        = vn300;
+    r.flapsRawAdcPresent = flapsRawAdc;
+    if (flapsRawAdc) {
+        r.flapsRawAdc = 1462;   // representative pot reading at flaps-up detent
+    }
 
     r.timeStampMs       = 123456u;
     r.pfwdCounts        = 42;
@@ -147,8 +152,9 @@ static void AssertRoundTrip(const LogRow& original)
     // Parse back into a fresh row with the same feature flags
     LogRow parsed;
     parsed.boomEnabled = original.boomEnabled;
-    parsed.efisEnabled = original.efisEnabled;
-    parsed.efisIsVn300 = original.efisIsVn300;
+    parsed.efisEnabled        = original.efisEnabled;
+    parsed.efisIsVn300        = original.efisIsVn300;
+    parsed.flapsRawAdcPresent = original.flapsRawAdcPresent;
 
     bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
@@ -188,6 +194,11 @@ static void AssertRoundTrip(const LogRow& original)
         TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.boomBeta,    parsed.boomBeta);
         TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.boomIasKt,   parsed.boomIasKt);
         TEST_ASSERT_EQUAL_INT(original.boomAgeMs, parsed.boomAgeMs);
+    }
+
+    // Tail-optional flapsRawADC: equality when the column is carried.
+    if (original.flapsRawAdcPresent) {
+        TEST_ASSERT_EQUAL_UINT16(original.flapsRawAdc, parsed.flapsRawAdc);
     }
 
     // EFIS fields
@@ -349,12 +360,56 @@ void test_header_vn300_columns_present_when_enabled(void)
 }
 
 // ============================================================================
+// Test: header — flapsRawADC column
+// ============================================================================
+
+void test_header_flaps_raw_adc_present_when_enabled(void)
+{
+    LogRow r;
+    r.flapsRawAdcPresent = true;
+    size_t len = csv::WriteHeader(r, s_hdrBuf, sizeof(s_hdrBuf));
+    TEST_ASSERT_GREATER_THAN(0u, len);
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "flapsRawADC"));
+}
+
+void test_header_flaps_raw_adc_absent_when_disabled(void)
+{
+    LogRow r;
+    r.flapsRawAdcPresent = false;
+    size_t len = csv::WriteHeader(r, s_hdrBuf, sizeof(s_hdrBuf));
+    TEST_ASSERT_GREATER_THAN(0u, len);
+    TEST_ASSERT_NULL(strstr(s_hdrBuf, "flapsRawADC"));
+}
+
+// ============================================================================
 // Test: round-trip (core only)
 // ============================================================================
 
 void test_roundtrip_core_only(void)
 {
     LogRow original = MakeTestRow(false, false, false);
+    AssertRoundTrip(original);
+}
+
+void test_roundtrip_with_flaps_raw_adc(void)
+{
+    // The whole point of the column: replay tools recover g_Flaps.uValue
+    // from the SD log so they can drive the L/Dmax pip interpolation.
+    LogRow original = MakeTestRow(false, false, false, /*flapsRawAdc=*/true);
+    original.flapsRawAdc = 897;   // representative pot reading at flaps-16 detent
+    AssertRoundTrip(original);
+}
+
+void test_roundtrip_flaps_raw_adc_extreme_values(void)
+{
+    // Cover the uint16 boundary so a future producer that emits a wider
+    // counts range (12-bit ADC: 0..4095) doesn't silently clamp.
+    LogRow original = MakeTestRow(true, true, false, /*flapsRawAdc=*/true);
+    original.flapsRawAdc = 0;
+    AssertRoundTrip(original);
+    original.flapsRawAdc = 4095;
+    AssertRoundTrip(original);
+    original.flapsRawAdc = 0xFFFFu;
     AssertRoundTrip(original);
 }
 
@@ -778,6 +833,61 @@ static const char* kFixtureRows[] = {
 
 static constexpr int kFixtureRowCount = 5;
 
+// Old-log compat: a row written before flapsRawADC existed must parse
+// cleanly when the consumer's flag is clear, and report a default-zero
+// flapsRawAdc field.
+void test_old_log_without_flaps_raw_adc_defaults_to_zero(void)
+{
+    // Format a row WITHOUT the column, then parse it back without the flag.
+    LogRow producer = MakeTestRow(false, true, false, /*flapsRawAdc=*/false);
+    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // The emitted row must not contain the column's value as a trailing field.
+    // (Equivalently: byte-identical to a row produced before this PR.)
+    LogRow consumer;
+    consumer.efisEnabled        = true;
+    consumer.efisIsVn300        = false;
+    consumer.flapsRawAdcPresent = false;
+    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), consumer);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_UINT16(0u, consumer.flapsRawAdc);
+}
+
+// Consumer flag set but column actually absent: row must be rejected.
+// Catches a future bug where the producer drops the column without the
+// consumer noticing.
+void test_flaps_raw_adc_flag_set_but_column_absent_returns_false(void)
+{
+    LogRow producer = MakeTestRow(false, true, false, /*flapsRawAdc=*/false);
+    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    LogRow consumer;
+    consumer.efisEnabled        = true;
+    consumer.efisIsVn300        = false;
+    consumer.flapsRawAdcPresent = true;
+    TEST_ASSERT_FALSE(csv::ParseRow(std::string_view(s_rowBuf, fmtLen), consumer));
+}
+
+// Out-of-range token (>0xFFFF) must fail uint16 parse.
+void test_flaps_raw_adc_overflow_returns_false(void)
+{
+    LogRow producer = MakeTestRow(false, false, false, /*flapsRawAdc=*/true);
+    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Replace the trailing flapsRawADC value with one that overflows uint16.
+    std::string mutated(s_rowBuf, fmtLen);
+    size_t lastComma = mutated.rfind(',');
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, lastComma);
+    mutated = mutated.substr(0, lastComma + 1) + "70000";
+
+    LogRow consumer;
+    consumer.flapsRawAdcPresent = true;
+    TEST_ASSERT_FALSE(csv::ParseRow(mutated, consumer));
+}
+
 // For each fixture row: parse it, re-format it, and assert byte-identical output.
 void test_fixture_row_parse_format_identical(void)
 {
@@ -841,6 +951,8 @@ int main(int, char**)
     RUN_TEST(test_header_boom_columns_absent_when_disabled);
     RUN_TEST(test_header_efis_columns_present_when_enabled);
     RUN_TEST(test_header_vn300_columns_present_when_enabled);
+    RUN_TEST(test_header_flaps_raw_adc_present_when_enabled);
+    RUN_TEST(test_header_flaps_raw_adc_absent_when_disabled);
 
     // Round-trip
     RUN_TEST(test_roundtrip_core_only);
@@ -848,6 +960,13 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_with_efis);
     RUN_TEST(test_roundtrip_with_vn300);
     RUN_TEST(test_roundtrip_boom_and_efis);
+    RUN_TEST(test_roundtrip_with_flaps_raw_adc);
+    RUN_TEST(test_roundtrip_flaps_raw_adc_extreme_values);
+
+    // Old-log compat for tail-optional flapsRawADC
+    RUN_TEST(test_old_log_without_flaps_raw_adc_defaults_to_zero);
+    RUN_TEST(test_flaps_raw_adc_flag_set_but_column_absent_returns_false);
+    RUN_TEST(test_flaps_raw_adc_overflow_returns_false);
 
     // Issue #182: sign flip
     RUN_TEST(test_pitch_rate_sign_flip_in_format_row);

@@ -2,7 +2,7 @@
 
 Complete reference for all columns in OnSpeed SD card log files. Data is logged at 50 Hz by default (configurable to 208 Hz via the web interface).
 
-Columns are written in three groups: (1) base core columns (`timeStamp` through `Roll`), (2) optional Boom and/or EFIS columns when those features are enabled, (3) derived core columns (`EarthVerticalG` through `CoeffP`). Parse by column name — direct index positions shift when optional blocks are enabled.
+Columns are written in four groups: (1) base core columns (`timeStamp` through `Roll`), (2) optional Boom and/or EFIS columns when those features are enabled, (3) derived core columns (`EarthVerticalG` through `CoeffP`), (4) tail-optional `flapsRawADC`. Parse by column name — direct index positions shift when optional blocks are enabled.
 
 ## Core Columns — Base
 
@@ -17,7 +17,7 @@ Columns are written in three groups: (1) base core columns (`timeStamp` through 
 | `Palt` | ft | Pressure altitude (ISA 1013.25 hPa reference; no Kollsman/QNH correction). Computed each row from `PStatic`. |
 | `IAS` | knots | Indicated airspeed |
 | `AngleofAttack` | degrees | Computed AOA from pressure polynomial |
-| `flapsPos` | degrees | Detected flap position |
+| `flapsPos` | degrees | Detected flap position (snapped to the nearest configured detent) |
 | `DataMark` | 0–99 | Pilot data annotation (wraps at 100) |
 | `OAT` | °C | Outside air temperature |
 | `TAS` | knots | True airspeed |
@@ -114,3 +114,13 @@ When EFIS type is `VN-300`:
 | `vnGPSFix` | enum | GPS fix quality |
 | `vnDataAge` | ms | Time since last VN-300 packet |
 | `vnTimeUTC` | HH:MM:SS.cc | UTC time from VN-300 |
+
+## Tail-Optional Columns (Format Version 2)
+
+Appended at the end of every row, after `CoeffP`. Older firmware (format
+version 1) omits these columns; parsers must look up by name from the
+header line rather than by fixed position.
+
+| Column | Units | Description |
+|--------|-------|-------------|
+| `flapsRawADC` | counts | Raw flap-lever pot ADC reading (uint16, typically 0–4095 on the 12-bit ADC). Lets replay and analysis tools reproduce the L/Dmax pip slide across detent transitions; consumers interpolate the pip lever-end-to-end using this value against the configured `<FLAPPOTPOSITIONS>` boundaries. |

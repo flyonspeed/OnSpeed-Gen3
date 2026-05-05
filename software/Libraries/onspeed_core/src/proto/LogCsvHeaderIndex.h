@@ -120,6 +120,11 @@ struct HeaderIndex {
     int idxDerivedAoa          = -1;
     int idxCoeffP              = -1;
 
+    // Tail-optional raw flap-pot ADC reading (format version 2). Absent in
+    // older logs, in which case ParseRowByIndex leaves row.flapsRawAdc at
+    // its default and clears row.flapsRawAdcPresent.
+    int idxFlapsRawAdc         = -1;
+
     int  totalColumns          = 0;
     bool boomEnabled           = false;
     bool efisEnabled           = false;

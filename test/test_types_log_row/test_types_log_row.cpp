@@ -24,6 +24,8 @@ void test_default_initializes_numeric_fields_to_zero(void)
     TEST_ASSERT_FALSE(r.boomEnabled);
     TEST_ASSERT_FALSE(r.efisEnabled);
     TEST_ASSERT_FALSE(r.efisIsVn300);
+    TEST_ASSERT_FALSE(r.flapsRawAdcPresent);
+    TEST_ASSERT_EQUAL_UINT16(0u, r.flapsRawAdc);
 }
 
 void test_fields_are_writable(void)
