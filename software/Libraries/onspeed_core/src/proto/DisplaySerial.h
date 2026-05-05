@@ -54,8 +54,9 @@
 //       transitions in lockstep with the audio path.
 //     * pipPctLift     — aerodynamic. Linearly interpolated in lever-pot
 //       space between the cleanest detent's L/Dmax percent and the
-//       most-deployed detent's OnSpeed-band center. Slides smoothly as
-//       the lever moves; does not depend on the active detent index.
+//       most-deployed detent's bottom-half-of-donut target
+//       ((3*fast + slow) / 4). Slides smoothly as the lever moves; does
+//       not depend on the active detent index.
 //   The two coincide visually only at the cleanest-detent endpoint.
 //
 //   See onspeed_core/aoa/PercentLift.h for the formula and

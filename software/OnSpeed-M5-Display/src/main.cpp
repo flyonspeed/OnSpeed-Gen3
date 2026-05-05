@@ -1058,9 +1058,10 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
      Draw marker dots at the visual L/Dmax pip (Array[kIdxPipPctLift]).
      The pip is a smooth aerodynamic reference: it lerps from the
      cleanest detent's L/Dmax percent up to the most-deployed detent's
-     OnSpeed-band center as the lever sweeps.  This is intentionally
-     decoupled from the chevron's audio gate (Array[kIdxTonesOn]) — see
-     onspeed_core/aoa/DisplayPctAnchors.h for the design rule.
+     bottom-half-of-donut target ((3*fast + slow) / 4) as the lever
+     sweeps.  This is intentionally decoupled from the chevron's audio
+     gate (Array[kIdxTonesOn]) — see onspeed_core/aoa/DisplayPctAnchors.h
+     for the design rule.
     */
     int ldmaxY = mapPct2Display(Array[pct_anchors::kIdxPipPctLift], Array);
     gdraw.fillCircle (X0 - W / 2,     ldmaxY, H / 24, TFT_BLACK);
@@ -1527,16 +1528,19 @@ void displayGloadHistory()
 // Convert AOA percent-lift to M5 display vertical coordinate.
 //
 // Two ramps with the OnSpeed donut anchored at fixed screen-y in the
-// middle.  Both ramp slopes change per flap because the band-edge
-// percents (Array[3] = OnSpeedFastPctLift, Array[4] = OnSpeedSlowPctLift,
-// Array[7] = StallWarnPctLift) change per flap.  Array[0] is always 0
-// (the alpha_0 floor in percent space).
+// middle.  The lower ramp slope changes per flap because the band-edge
+// percents (Array[3] = OnSpeedFastPctLift, Array[4] = OnSpeedSlowPctLift)
+// change per flap.  Array[0] is always 0 (the alpha_0 floor in percent
+// space).  The upper ramp tops out at percent_lift = 99 — the lift-
+// envelope ceiling — independent of the active detent's stall-warn
+// percent.  Stall-warn still drives the chevron flash-red color logic
+// in drawAOA(); this mapping only governs the y-coordinate.
 //
 //   aoaPct ≤ 0                            → y = 192 (bottom)
 //   0 < aoaPct ≤ OnSpeedFastPctLift       → linear, y = 192 → 115
 //   OnSpeedFastPctLift < aoaPct ≤ OnSpeedSlowPctLift → linear, y = 115 → 78  (donut band, fixed screen-y)
-//   OnSpeedSlowPctLift < aoaPct ≤ StallWarnPctLift   → linear, y = 78 → 1
-//   aoaPct > StallWarnPctLift             → y = 1 (top)
+//   OnSpeedSlowPctLift < aoaPct ≤ 99      → linear, y = 78 → 1
+//   aoaPct > 99                           → y = 1 (top)
 //
 // L/Dmax pip is drawn at mapPct2Display(Array[kIdxPipPctLift], Array).
 // The pip percent slides smoothly clean→fullflap; at clean it sits in
@@ -1548,7 +1552,7 @@ int mapPct2Display(int aoaPct, const int Array[])
     if      (aoaPct <= Array[0])                       return 192;                                                  // display bottom
     else if (aoaPct >  Array[0] && aoaPct <= Array[3]) return map2int((float)aoaPct,(float)Array[0],(float)Array[3],192,115); // floor → OnSpeedFast
     else if (aoaPct >  Array[3] && aoaPct <= Array[4]) return map2int((float)aoaPct,(float)Array[3],(float)Array[4],115, 78); // donut band
-    else if (aoaPct >  Array[4] && aoaPct <= Array[7]) return map2int((float)aoaPct,(float)Array[4],(float)Array[7], 78,  1); // OnSpeedSlow → StallWarn
+    else if (aoaPct >  Array[4] && aoaPct <= 99)       return map2int((float)aoaPct,(float)Array[4],99.0f,            78,  1); // OnSpeedSlow → 99% (lift ceiling)
     else                                               return 1;                                                    // display top
 }
 
@@ -1559,6 +1563,10 @@ int mapPct2Display(int aoaPct, const int Array[])
 
 int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh)
 {
+    // Degenerate band (e.g. uncalibrated anchors with Array[3] == Array[4],
+    // or Array[4] == 99): collapse to outLow rather than dividing by zero
+    // and feeding INT_MIN/INT_MAX to the renderer. Mirrors pct2y.js.
+    if (inHigh == inLow) return outLow;
     int Result;
     Result = round((float)(aoa - inLow) * (outHigh - outLow) / (float)(inHigh - inLow) + outLow);
     return Result;

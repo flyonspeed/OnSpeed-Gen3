@@ -5,7 +5,8 @@
 //     percent — the operational audio gate.
 //   * pipPctLift interpolates linearly across the entire pot range,
 //     from the cleanest detent's L/Dmax percent to the most-deployed
-//     detent's OnSpeed-band center — the visual aerodynamic reference.
+//     detent's bottom-half-of-donut target ((3*fast + slow) / 4) — the
+//     visual aerodynamic reference.
 //   * Band edges + flapsDeg behave per the table in DisplayPctAnchors.h.
 //
 // See DisplayPctAnchors.h for the design rule.
@@ -64,18 +65,27 @@ void FillSnappedOperational(DisplayPctAnchors& out,
     out.stallWarnPctLift   = ComputePercentLift(active.fSTALLWARNAOA,    active, iasValid);
 }
 
-// Compute the visual pip's "full-flap target" percent: the geometric
-// center of the most-deployed detent's OnSpeed band, in the same
-// percent space the rest of the wire uses.  Per Vac §8 + spec §6.
+// Compute the visual pip's "full-flap target" percent: the bottom-half
+// of the most-deployed detent's OnSpeed band, one quarter of the way
+// from the fast (lower-percent) edge to the slow (higher-percent) edge.
+// In the same percent space the rest of the wire uses.  Per Vac §8 +
+// spec §6 — pipPctLift remains an aerodynamic visual reference, not a
+// per-detent operational anchor; only the endpoint formula changes.
+//
+// Formula: target = (3*fastPct + slowPct) / 4
+//
+// At full flaps, this lands the pip in the lower donut half so the
+// chevron sits in the lower donut at L/Dmax instead of climbing into
+// the upper donut to meet a band-center pip.
 int FullFlapPipTarget(const SuFlaps& mostDeployed, bool iasValid)
 {
     const int fastPct = ComputePercentLift(mostDeployed.fONSPEEDFASTAOA, mostDeployed, iasValid);
     const int slowPct = ComputePercentLift(mostDeployed.fONSPEEDSLOWAOA, mostDeployed, iasValid);
-    int center = static_cast<int>(std::lround(
-        (static_cast<float>(fastPct) + static_cast<float>(slowPct)) / 2.0f));
-    if (center < 0)  center = 0;
-    if (center > 99) center = 99;
-    return center;
+    int target = static_cast<int>(std::lround(
+        (3.0f * static_cast<float>(fastPct) + static_cast<float>(slowPct)) / 4.0f));
+    if (target < 0)  target = 0;
+    if (target > 99) target = 99;
+    return target;
 }
 
 }   // namespace

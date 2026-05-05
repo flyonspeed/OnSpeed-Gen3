@@ -19,11 +19,13 @@
 //     lockstep with the audio at every detent transition.
 //   * `pipPctLift` (visual L/Dmax pip) — INTERPOLATED across the
 //     ENTIRE configured pot range, from the cleanest detent's L/Dmax
-//     percent to the most-deployed detent's OnSpeed-band center. Slides
-//     smoothly as the lever moves; ignores intermediate detents and
-//     does NOT depend on the active-detent index. The pip is purely
-//     visual; aerodynamically the L/Dmax body angle slides toward the
-//     OnSpeed band as flaps deploy, and the pip mirrors that intuition.
+//     percent to the most-deployed detent's bottom-half-of-donut target
+//     ((3*fast + slow) / 4 — one quarter from the fast edge into the
+//     OnSpeed band). Slides smoothly as the lever moves; ignores
+//     intermediate detents and does NOT depend on the active-detent
+//     index. The pip is purely visual; aerodynamically the L/Dmax body
+//     angle slides toward the OnSpeed band as flaps deploy, and the pip
+//     mirrors that intuition.
 //   * `onSpeedFastPctLift` / `onSpeedSlowPctLift` / `stallWarnPctLift`
 //     — SNAPPED to the active detent. These set the audio cue
 //     thresholds and the donut / chevron screen positions on the

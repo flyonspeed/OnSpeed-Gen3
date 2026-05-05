@@ -260,8 +260,9 @@ void DisplaySerial::Write()
     //     audio cues.  Operational cues.
     //   * pipPctLift — INTERPOLATED linearly across the entire pot range
     //     from cleanest detent's L/Dmax pct to most-deployed detent's
-    //     OnSpeed-band center.  Slides smoothly with the lever; ignores
-    //     intermediate detents.  Visual aerodynamic reference.
+    //     bottom-half-of-donut target ((3*fast + slow) / 4).  Slides
+    //     smoothly with the lever; ignores intermediate detents.  Visual
+    //     aerodynamic reference.
     //   * flapsDeg — INTERPOLATED per-bracket between adjacent detents'
     //     iDegrees so the numeric flap-angle readout slides smoothly.
     //     Mechanical cue, distinct from pipPctLift.
