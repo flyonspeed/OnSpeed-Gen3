@@ -26,10 +26,8 @@ using onspeed::SuCalibrationCurve;
 using onspeed::MAX_AOA_CURVES;
 using onspeed::MAX_CURVE_COEFF;
 using onspeed::config::SuDataSource;
-#ifdef SUPPORT_CONFIG_V1
 using onspeed::config::SuIntArray;
 using onspeed::config::SuFloatArray;
-#endif
 
 // SuFlaps is a member of OnSpeedConfig; a global alias keeps the unqualified
 // name available (e.g. the sort-lambda `[](SuFlaps a, SuFlaps b) ...` in
