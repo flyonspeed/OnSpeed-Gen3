@@ -18,6 +18,8 @@ Canonical builder/parser:
     software/Libraries/onspeed_core/src/proto/DisplaySerial.{h,cpp}
 Producer in firmware:
     software/sketch_common/src/io/DisplaySerial.cpp
+Shared Python module:
+    tools/onspeed_py/  — Frame builder, config parser, percent-lift math.
 
 Usage:
     uv run replay.py --port /dev/cu.usbserial-XXXX --input LOG.csv
@@ -37,192 +39,37 @@ import math
 import signal
 import sys
 import time
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Optional
 
+# Make `onspeed_py` importable when running the script directly out of
+# `tools/m5-replay/`. Adds `tools/` to sys.path. Migrating to a real
+# pyproject.toml package is a future option; this keeps the PEP-723
+# inline-deps header working with `uv run replay.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import serial
+
+from onspeed_py.config import (
+    FlapSetpoints,
+    load_flap_setpoints,
+    setpoints_for_flap,
+)
+from onspeed_py.frame import FRAME_LEN, PAYLOAD_LEN, Frame
+from onspeed_py.log_replay import _log_to_wire_lateral_g
+from onspeed_py.percent_lift import compute_percent_lift
+
+# Re-export for backwards compatibility with `tools/m5-replay/test_replay.py`,
+# which imports these names from the `replay` module.
+__all__ = [
+    "Frame", "FRAME_LEN", "PAYLOAD_LEN",
+    "FlapSetpoints", "compute_percent_lift", "load_flap_setpoints",
+    "setpoints_for_flap",
+    "csv_frame_stream", "synthetic_stream", "stream_to_serial",
+]
 
 FRAME_PERIOD_S = 0.050  # 20 Hz, matches kDisplaySerialPeriodMs in HardwareMap.h
 BAUD = 115200
-
-
-# ---------------------------------------------------------------------------
-# Frame construction
-# ---------------------------------------------------------------------------
-
-
-# Wire-format constants. Mirror onspeed_core/proto/DisplaySerial.h.
-PAYLOAD_LEN = 72    # bytes 0..71 — ASCII fields up to and including pipPctLift (v4.22)
-FRAME_LEN   = 76    # PAYLOAD_LEN + 2 hex CRC + CRLF
-
-
-@dataclass
-class Frame:
-    """All fields transmitted in one #1 payload.
-
-    Units / convention:
-      - `*_aoa` body angles are NOT on the wire; the percent-lift fields
-        (`tones_on_pct_lift`, `onspeed_fast_pct_lift`, etc.) are what go
-        out.  Computed via the honest single-linear formula
-        `(body_angle - alpha_0) / (alpha_stall - alpha_0) * 100` clamped
-        to [0, 99].  See onspeed_core/aoa/PercentLift.h.
-    """
-
-    pitch_deg: float = 0.0
-    roll_deg: float = 0.0
-    ias_kts: float = 0.0
-    palt_ft: float = 0.0
-    turnrate_dps: float = 0.0
-    lateral_g: float = 0.0
-    vertical_g: float = 1.0
-    percent_lift: int = 0
-    vsi_fpm: float = 0.0
-    oat_c: int = 15
-    flightpath_deg: float = 0.0
-    flap_deg: int = 0
-    tones_on_pct_lift: int = 0
-    onspeed_fast_pct_lift: int = 0
-    onspeed_slow_pct_lift: int = 0
-    stall_warn_pct_lift: int = 0
-    flaps_min_deg: int = 0
-    flaps_max_deg: int = 0
-    g_onset_rate: float = 0.0
-    spin_cue: int = 0
-    data_mark: int = 0
-    pip_pct_lift: int = 0
-
-    def to_bytes(self) -> bytes:
-        """Serialize to the 76-byte wire frame (payload + CRC + CRLF, v4.22).
-
-        Matches the printf format in onspeed_core/proto/DisplaySerial.cpp.
-        """
-        payload = (
-            f"#1"
-            f"{_clamp_int(self.pitch_deg * 10, -999, 999):+04d}"
-            f"{_clamp_int(self.roll_deg * 10, -9999, 9999):+05d}"
-            f"{_clamp_uint(self.ias_kts * 10, 0, 9999):04d}"
-            f"{_clamp_int(self.palt_ft, -99999, 99999):+06d}"
-            f"{_clamp_int(self.turnrate_dps * 10, -9999, 9999):+05d}"
-            f"{_clamp_int(self.lateral_g * 100, -99, 99):+03d}"
-            f"{_clamp_int(self.vertical_g * 10, -99, 99):+03d}"
-            f"{_clamp_uint(self.percent_lift, 0, 99):02d}"
-            f"{_clamp_int(self.vsi_fpm / 10, -999, 999):+04d}"
-            f"{_clamp_int(self.oat_c, -99, 99):+03d}"
-            f"{_clamp_int(self.flightpath_deg * 10, -999, 999):+04d}"
-            f"{_clamp_int(self.flap_deg, -99, 99):+03d}"
-            f"{_clamp_uint(self.tones_on_pct_lift, 0, 99):02d}"
-            f"{_clamp_uint(self.onspeed_fast_pct_lift, 0, 99):02d}"
-            f"{_clamp_uint(self.onspeed_slow_pct_lift, 0, 99):02d}"
-            f"{_clamp_uint(self.stall_warn_pct_lift, 0, 99):02d}"
-            f"{_clamp_int(self.flaps_min_deg, -99, 99):+03d}"
-            f"{_clamp_int(self.flaps_max_deg, -99, 99):+03d}"
-            f"{_clamp_int(self.g_onset_rate * 100, -999, 999):+04d}"
-            f"{_clamp_int(self.spin_cue, -9, 9):+02d}"
-            f"{_clamp_uint(self.data_mark, 0, 99):02d}"
-            f"{_clamp_uint(self.pip_pct_lift, 0, 99):02d}"
-        )
-        if len(payload) != PAYLOAD_LEN:
-            raise AssertionError(
-                f"payload length {len(payload)} != {PAYLOAD_LEN}: {payload!r}"
-            )
-        crc = sum(payload.encode("ascii")) & 0xFF
-        return f"{payload}{crc:02X}\r\n".encode("ascii")
-
-
-def _clamp_int(v: float, lo: int, hi: int) -> int:
-    """C-style truncation-toward-zero + clamp, matching SafeScaledInt."""
-    if not math.isfinite(v):
-        return 0
-    # int() in Python truncates toward zero, matching C's (int)cast.
-    i = int(v)
-    if i < lo:
-        return lo
-    if i > hi:
-        return hi
-    return i
-
-
-def _clamp_uint(v: float, lo: int, hi: int) -> int:
-    if not math.isfinite(v):
-        return lo
-    i = int(v)
-    if i < lo:
-        return lo
-    if i > hi:
-        return hi
-    return i
-
-
-# ---------------------------------------------------------------------------
-# Config parsing — reads per-flap setpoints from OnSpeed .cfg XML
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class FlapSetpoints:
-    degrees: int
-    ldmax_aoa: float
-    onspeed_fast_aoa: float
-    onspeed_slow_aoa: float
-    stallwarn_aoa: float
-    alpha_0: float
-    alpha_stall: float
-
-
-def load_flap_setpoints(cfg_path: Path) -> dict[int, FlapSetpoints]:
-    """Parse OnSpeed .cfg XML for per-flap setpoints."""
-    tree = ET.parse(cfg_path)
-    root = tree.getroot()
-
-    out: dict[int, FlapSetpoints] = {}
-    for fp in root.findall("FLAP_POSITION"):
-        deg = int(fp.findtext("DEGREES", "0"))
-        out[deg] = FlapSetpoints(
-            degrees=deg,
-            ldmax_aoa=float(fp.findtext("LDMAXAOA", "0")),
-            onspeed_fast_aoa=float(fp.findtext("ONSPEEDFASTAOA", "0")),
-            onspeed_slow_aoa=float(fp.findtext("ONSPEEDSLOWAOA", "0")),
-            stallwarn_aoa=float(fp.findtext("STALLWARNAOA", "0")),
-            alpha_0=float(fp.findtext("ALPHA0", "0")),
-            alpha_stall=float(fp.findtext("ALPHASTALL", "0")),
-        )
-    if not out:
-        raise ValueError(f"No FLAP_POSITION entries found in {cfg_path}")
-    return out
-
-
-def setpoints_for_flap(
-    flap_deg: int, table: dict[int, FlapSetpoints]
-) -> FlapSetpoints:
-    """Return exact match or nearest flap entry."""
-    if flap_deg in table:
-        return table[flap_deg]
-    return table[min(table.keys(), key=lambda k: abs(k - flap_deg))]
-
-
-# ---------------------------------------------------------------------------
-# PercentLift — replicates DisplaySerial.cpp:155-174 exactly
-# ---------------------------------------------------------------------------
-
-
-def compute_percent_lift(aoa: float, fs: FlapSetpoints) -> int:
-    """Honest single-linear envelope fraction, mirroring
-    onspeed_core/aoa/PercentLift.cpp::ComputePercentLift.
-
-    percentLift = (aoa - alpha_0) / (alpha_stall - alpha_0) * 100,
-    clamped to [0, 99].  When alpha_stall is uncalibrated (<= stallwarn)
-    a synthetic ceiling of stallwarn * 100/90 is used instead.
-    """
-    alpha_stall = fs.alpha_stall
-    if alpha_stall <= fs.stallwarn_aoa:
-        alpha_stall = fs.stallwarn_aoa * 100.0 / 90.0
-    span = alpha_stall - fs.alpha_0
-    if span <= 0:
-        return 0
-    pct = int((aoa - fs.alpha_0) / span * 100.0)
-    return max(0, min(99, pct))
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +115,14 @@ def csv_frame_stream(
                 ias_kts=_float_or(r.get("IAS"), 0.0),
                 palt_ft=_float_or(r.get("Palt"), 0.0),
                 turnrate_dps=_float_or(r.get("YawRate"), 0.0),
-                lateral_g=_float_or(r.get("LateralG"), 0.0),
+                # Log's `LateralG` column is body-frame (positive =
+                # airframe accel right); the wire's lateral_g is
+                # ball-frame (positive = ball deflects right, i.e.
+                # airframe accel left).  Negate to keep the M5 ball on
+                # the correct side.  Workaround for current ball-frame
+                # wire convention; remove once #374 lands and the wire
+                # flips to body-frame.
+                lateral_g=_log_to_wire_lateral_g(_float_or(r.get("LateralG"), 0.0)),
                 vertical_g=_float_or(r.get("VerticalG"), 1.0),
                 percent_lift=compute_percent_lift(aoa, fs),
                 vsi_fpm=_float_or(r.get("VSI"), 0.0),
@@ -346,7 +200,6 @@ def synthetic_stream(
     while True:
         if t < 60:
             # Cruise
-            phase = "cruise"
             ias = 140.0
             aoa_target = 2.0
             flap = 0
@@ -357,7 +210,6 @@ def synthetic_stream(
             vsi = 0.0
         elif t < 120:
             # Slow flight sweep: AOA 2 -> 8, IAS 140 -> 90
-            phase = "slow"
             u = (t - 60) / 60
             ias = 140.0 - 50.0 * u
             aoa_target = 2.0 + 6.0 * u
@@ -369,7 +221,6 @@ def synthetic_stream(
             vsi = -100.0 * u
         elif t < 180:
             # Approach config, flaps 16, on-speed
-            phase = "approach"
             ias = 80.0
             flap = 16
             fs = setpoints_for_flap(flap, setpoints)
@@ -381,7 +232,6 @@ def synthetic_stream(
             vsi = -500.0
         elif t < 210:
             # Approach-to-stall at approach flaps
-            phase = "stall"
             flap = 16
             fs = setpoints_for_flap(flap, setpoints)
             u = (t - 180) / 30
@@ -396,7 +246,6 @@ def synthetic_stream(
             vsi = -200.0
         elif t < 240:
             # Stall recovery
-            phase = "recovery"
             u = (t - 210) / 30
             ias = 55.0 + 40.0 * u
             flap = 16
@@ -409,7 +258,6 @@ def synthetic_stream(
             vsi = -1500.0 + 2000.0 * u
         elif t < 300:
             # G-turns for history mode
-            phase = "g-turns"
             u = (t - 240) / 60
             ias = 130.0
             flap = 0
