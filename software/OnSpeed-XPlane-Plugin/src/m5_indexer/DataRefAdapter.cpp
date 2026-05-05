@@ -8,6 +8,7 @@
 
 #include <aoa/PercentLift.h>
 #include <config/OnSpeedConfig.h>
+#include <filters/EMAFilter.h>
 #include <filters/GOnsetFilter.h>
 
 #include <algorithm>
@@ -185,20 +186,38 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
 
     // G onset rate: low-pass-filtered first derivative of vertical-G,
     // matching the firmware's AHRS::Update path that feeds the wire
-    // (sketch_common/src/tasks/AHRS.cpp).  The filter holds state
-    // across calls; we measure dt against XPLMGetElapsedTime so the
-    // rate tracks whatever cadence Tick() actually runs at (throttled
-    // to ~20 Hz today).  After a long Tick gap (indexer hidden,
-    // X-Plane paused), reset the filter so the first post-resume
-    // sample doesn't compute a derivative against minutes-old G.
+    // (sketch_common/src/tasks/AHRS.cpp lines 207-213).
+    //
+    // Two-stage filter:
+    //   1. EMA pre-smooth on raw vG.  X-Plane's `g_nrml` dataref is
+    //      noisy (±0.05–0.2 g per-sample even in level flight); the
+    //      firmware avoids this by feeding `AccelVertFilter.get()`
+    //      (an EMA on the raw IMU accelerometer) into GOnsetFilter,
+    //      not the raw signal.  Without pre-smoothing here, the per-
+    //      sample noise dominates the difference quotient and the
+    //      derivative output rounds to wire-zero (1 LSB = 0.01 g/s).
+    //      Alpha 0.33 ≈ 150 ms tau at 20 Hz Tick — balances noise
+    //      rejection against responsiveness to real maneuvers.
+    //   2. GOnsetFilter (250 ms tau by default) on the smoothed vG.
+    //
+    // dt comes from XPLMGetElapsedTime so the rate tracks whatever
+    // cadence Tick() actually runs at (throttled to ~20 Hz today).
+    // After a long Tick gap (indexer hidden, X-Plane paused), reset
+    // both filters so the first post-resume sample doesn't compute
+    // a derivative against minutes-old G.
+    static onspeed::EMAFilter    s_vGSmoother{0.33f};
     static onspeed::GOnsetFilter s_gOnsetFilter;
     static float                 s_lastTickSec = -1.0f;
     const float now    = XPLMGetElapsedTime();
     const float dtSec  = (s_lastTickSec < 0.0f) ? 0.0f : (now - s_lastTickSec);
-    if (dtSec > 1.0f) s_gOnsetFilter.Reset();
+    if (dtSec > 1.0f) {
+        s_vGSmoother.reset();
+        s_gOnsetFilter.Reset();
+    }
     s_lastTickSec      = now;
+    const float vGSmoothed = s_vGSmoother.update(vG);
     in.gOnsetRate      = (dtSec > 0.0f && dtSec <= 1.0f)
-                             ? s_gOnsetFilter.Update(vG, dtSec)
+                             ? s_gOnsetFilter.Update(vGSmoothed, dtSec)
                              : 0.0f;
 
     in.spinRecoveryCue = 0;        // reserved
