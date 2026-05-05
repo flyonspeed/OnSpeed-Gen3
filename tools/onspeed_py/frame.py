@@ -1,6 +1,6 @@
 """OnSpeed `#1` display-serial wire-frame builder.
 
-Produces the 76-byte ASCII frame (v4.22) that the firmware emits at
+Produces the 77-byte ASCII frame (v4.23) that the firmware emits at
 20 Hz and that `onspeed_core::ParseDisplayFrame` decodes on the M5
 side. Single source of truth for the Python side of the wire — both
 `tools/m5-replay/replay.py` and `tools/synth-record/` import `Frame`
@@ -21,8 +21,8 @@ from dataclasses import dataclass
 
 # Wire-format constants. Mirror onspeed_core/proto/DisplaySerial.h
 # (kDisplayFrameSizeBytes / kDisplayFrameChecksumLen).
-PAYLOAD_LEN = 72   # bytes 0..71 — ASCII fields up to and including pipPctLift
-FRAME_LEN   = 76   # PAYLOAD_LEN + 2 hex CRC + CRLF
+PAYLOAD_LEN = 73   # bytes 0..72 — ASCII fields up to and including pipPctLift
+FRAME_LEN   = 77   # PAYLOAD_LEN + 2 hex CRC + CRLF
 
 
 def _clamp_int(v: float, lo: int, hi: int) -> int:
@@ -51,7 +51,7 @@ def _clamp_uint(v: float, lo: int, hi: int) -> int:
 
 @dataclass
 class Frame:
-    """All fields transmitted in one `#1` payload (v4.22 wire).
+    """All fields transmitted in one `#1` payload (v4.23 wire).
 
     Field names and units mirror `DisplayBuildInputs` in
     `onspeed_core/proto/DisplaySerial.h`.
@@ -59,6 +59,11 @@ class Frame:
     Lateral G uses the BALL-FRAME convention (positive = ball deflects
     rightward, i.e. airframe accelerating leftward). The firmware
     negates the body-frame `g_AHRS.AccelLatCorr` before encoding.
+
+    `percent_lift` (v4.23 wire) carries tenths of a percent (0..999):
+    `473` means 47.3% lift. The four band-edge percents
+    (`tones_on_pct_lift`, `onspeed_fast_pct_lift`, etc.) stay at integer
+    percent (0..99); they only move on detent or config-save events.
 
     `pip_pct_lift` (v4.22+) is the visual L/Dmax pip percent — separated
     from `tones_on_pct_lift` per PR #336.
@@ -71,7 +76,7 @@ class Frame:
     turnrate_dps:          float = 0.0
     lateral_g:             float = 0.0
     vertical_g:            float = 1.0
-    percent_lift:          int   = 0
+    percent_lift:          int   = 0   # tenths of a percent (0..999); v4.23+
     vsi_fpm:               float = 0.0
     oat_c:                 int   = 15
     flightpath_deg:        float = 0.0
@@ -88,7 +93,7 @@ class Frame:
     pip_pct_lift:          int   = 0   # v4.22+, visual L/Dmax pip
 
     def to_bytes(self) -> bytes:
-        """Serialize to the 76-byte wire frame (payload + CRC + CRLF, v4.22).
+        """Serialize to the 77-byte wire frame (payload + CRC + CRLF, v4.23).
 
         Matches the printf format in
         `onspeed_core/proto/DisplaySerial.cpp::BuildDisplayFrame`.
@@ -102,7 +107,7 @@ class Frame:
             f"{_clamp_int(self.turnrate_dps * 10, -9999, 9999):+05d}"
             f"{_clamp_int(self.lateral_g * 100, -99, 99):+03d}"
             f"{_clamp_int(self.vertical_g * 10, -99, 99):+03d}"
-            f"{_clamp_uint(self.percent_lift, 0, 99):02d}"
+            f"{_clamp_uint(self.percent_lift, 0, 999):03d}"
             f"{_clamp_int(self.vsi_fpm / 10, -999, 999):+04d}"
             f"{_clamp_int(self.oat_c, -99, 99):+03d}"
             f"{_clamp_int(self.flightpath_deg * 10, -999, 999):+04d}"

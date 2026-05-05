@@ -15,11 +15,11 @@ Either way the adapter normalizes onto the `LiveSnapshot` schema.
 
 Workarounds carried here:
 
-  - **Body→ball lateralG sign negation** — the SD log's `LateralG`
-    column is body-frame (positive = airframe accelerating right);
-    `LiveSnapshot.lateral_g` is ball-frame (positive = airframe
-    accelerating left). `_log_to_wire_lateral_g` negates the value so
-    the M5 ball renders on the correct side.
+  - **lateralG sign convention** — at v4.23 the log, the wire, and
+    `LiveSnapshot.lateral_g` all use body-frame (positive = airframe
+    accelerating rightward).  No conversion needed; the
+    `_log_to_wire_lateral_g` helper is kept as a pass-through for
+    grep-ability so future convention changes stay auditable.
   - **EMA smoothing for accels** — Gen2 logs captured raw pre-filter
     accelerometer values; Gen3 firmware EMA-smooths accels at the IMU
     rate (208 Hz) with `kAccSmoothing = 0.060899` (`Ahrs.cpp`),
@@ -78,11 +78,13 @@ _TIMESTAMP_NAMES   = ("timeStamp", "Timestamp", "time_ms")
 
 
 def _log_to_wire_lateral_g(body_frame_g: float) -> float:
-    """Convert log's body-frame lateralG (positive = right) to the
-    wire's ball-frame convention (positive = leftward), which is what
-    `LiveSnapshot.lateral_g` and the wire `lateralG` field both expect.
+    """Pass through.  At v4.23 the log, the wire, and `LiveSnapshot.lateral_g`
+    all use body-frame (positive = airframe accelerating rightward), so no
+    conversion is needed.  Kept as a function call for grep-ability — every
+    log→snapshot lateral-G handoff goes through this name, which makes
+    future convention changes auditable.
     """
-    return -body_frame_g
+    return body_frame_g
 
 
 def _first_present(row: dict[str, str], names: tuple[str, ...]):

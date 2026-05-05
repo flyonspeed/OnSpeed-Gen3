@@ -165,7 +165,8 @@ const uint16_t  updateRateNumbers   = 500;  //milliseconds
 const uint16_t  flashRate           = 250;  //milliseconds
 
 // Serial data variables (definitions, declared extern in SerialRead.h)
-int             PercentLift;
+int             PercentLift         = 0;
+float           PercentLiftDeci     = 0.0f;
 float           Pitch               = 0.0;
 float           Roll                = 0.0;
 float           IAS                 = 0.0;
@@ -242,6 +243,7 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
               int16_t pitch, int16_t roll, int16_t yaw, float flightPathAngle);
 void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale);
 int mapPct2Display(int aoaPct, const int Array[]);
+int mapPct2Display(float aoaPctF, const int Array[]);
 int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh);
 #if defined(ESP_PLATFORM)
 void handleUpgrade();
@@ -1048,9 +1050,12 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
     gdraw.fillCircle (X0, Y0, bullsEye + 2, Colour);
 
     /*
-    Index pointer
+    Index pointer.  Position uses the float-resolution PercentLiftDeci
+    so the bar advances at sub-pixel temporal smoothness off the 20 Hz
+    wire — the integer aoaPct passed in still drives every chevron and
+    arc color comparison above.
     */
-    int indexY = mapPct2Display(aoaPct, Array);
+    int indexY = mapPct2Display(PercentLiftDeci, Array);
     gdraw.fillRect (X0 - W / 2, indexY, W, H / 24, TFT_WHITE);
     gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
 
@@ -1554,6 +1559,23 @@ int mapPct2Display(int aoaPct, const int Array[])
     else if (aoaPct >  Array[3] && aoaPct <= Array[4]) return map2int((float)aoaPct,(float)Array[3],(float)Array[4],115, 78); // donut band
     else if (aoaPct >  Array[4] && aoaPct <= 99)       return map2int((float)aoaPct,(float)Array[4],99.0f,            78,  1); // OnSpeedSlow → 99% (lift ceiling)
     else                                               return 1;                                                    // display top
+}
+
+// Float overload — used by drawAOA's index-pointer site so the bar y
+// position resolves to sub-pixel input even though map2int still rounds
+// to whole pixels. Mirrors the integer version exactly; only the input
+// type and band-edge comparisons differ.
+int mapPct2Display(float aoaPctF, const int Array[])
+{
+    const float a0 = (float)Array[0];
+    const float a3 = (float)Array[3];
+    const float a4 = (float)Array[4];
+
+    if      (aoaPctF <= a0)                       return 192;                              // display bottom
+    else if (aoaPctF >  a0 && aoaPctF <= a3)      return map2int(aoaPctF, a0, a3, 192, 115); // floor → OnSpeedFast
+    else if (aoaPctF >  a3 && aoaPctF <= a4)      return map2int(aoaPctF, a3, a4, 115,  78); // donut band
+    else if (aoaPctF >  a4 && aoaPctF <= 99.0f)   return map2int(aoaPctF, a4, 99.0f, 78,  1); // OnSpeedSlow → 99% (lift ceiling)
+    else                                          return 1;                                  // display top
 }
 
 

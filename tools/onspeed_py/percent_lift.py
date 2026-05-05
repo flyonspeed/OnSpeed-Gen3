@@ -36,6 +36,23 @@ def compute_percent_lift(aoa: float, fs: FlapSetpoints) -> int:
     return max(0, min(99, pct))
 
 
+def compute_percent_lift_tenths(aoa: float, fs: FlapSetpoints) -> int:
+    """Same formula scaled by 1000 — tenths of a percent, clamped [0, 999].
+
+    Mirrors `onspeed_core/aoa/PercentLift.cpp::ComputePercentLiftTenths`.
+    Used by `tools/m5-replay/replay.py` to populate the v4.23 `#1` wire's
+    `percentLift` field at sub-percent resolution.  `473` means 47.3%.
+    """
+    alpha_stall = fs.alpha_stall
+    if alpha_stall <= fs.stallwarn_aoa:
+        alpha_stall = fs.stallwarn_aoa * 100.0 / 90.0
+    span = alpha_stall - fs.alpha_0
+    if span <= 0:
+        return 0
+    tenths = int((aoa - fs.alpha_0) / span * 1000.0)
+    return max(0, min(999, tenths))
+
+
 def ias_from_aoa(aoa: float, fs: FlapSetpoints, n: float = 1.0) -> float:
     """Invert `AOA = K/IAS² + alpha_0` to get IAS for a given body angle.
 

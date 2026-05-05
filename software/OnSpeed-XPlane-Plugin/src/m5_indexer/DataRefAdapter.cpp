@@ -128,10 +128,12 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     in.paltFt            = palt;
     in.turnRateDps       = SafeGetf(s_turnRate);
 
-    // BALL-FRAME convention: positive = leftward.  X-Plane's g_side
-    // is body-frame (positive = right).  Negate to match wire spec
-    // (DisplaySerial.h:100-117).
-    in.lateralG          = -lateral;
+    // BODY-FRAME convention at v4.23: positive = airframe accel right.
+    // X-Plane's g_side is already body-frame, so pass through directly
+    // (see DisplaySerial.h's DisplayBuildInputs::lateralG block and
+    // LATERAL_G_CONVENTION.md).  The M5 ball renderer downstream
+    // negates locally for ball-frame display.
+    in.lateralG          = lateral;
 
     // verticalGScaled10 is in tenths × 10, stored as float for the
     // wire-format helper to consume.  Round to nearest tenth.
@@ -143,8 +145,10 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
 
     // Percent-lift derivation.  Uses the plugin's four AOA setpoints
     // plus alpha_0/alpha_stall approximations from MakeFlapCfg.
+    // Wire scale at v4.23 is tenths-of-a-percent (0..999) for the live
+    // AOA reading; band-edge anchors stay integer percent.
     const auto flap = MakeFlapCfg();
-    in.percentLift        = onspeed::aoa::ComputePercentLift(aoa, flap, iasValid);
+    in.percentLift        = onspeed::aoa::ComputePercentLiftTenths(aoa, flap, iasValid);
     in.tonesOnPctLift     = onspeed::aoa::ComputePercentLift(fLDMAXAOA, flap, iasValid);
     in.onSpeedFastPctLift = onspeed::aoa::ComputePercentLift(fONSPEEDFASTAOA, flap, iasValid);
     in.onSpeedSlowPctLift = onspeed::aoa::ComputePercentLift(fONSPEEDSLOWAOA, flap, iasValid);

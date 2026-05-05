@@ -53,6 +53,18 @@ int ComputePercentLift(float aoaDeg,
                        const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
                        bool iasValid);
 
+// Same honest single-linear formula, but the result is scaled by 1000
+// instead of 100 — i.e. tenths of a percent.  Returned values are in
+// [0, 999], where `473` means 47.3% lift.
+//
+// Exists alongside the integer-percent function so consumers that need
+// sub-percent resolution (the #1 display-serial wire's percentLift
+// field) can opt in without disturbing callers that work in whole
+// percents.  Returns 0 when iasValid is false.
+int ComputePercentLiftTenths(float aoaDeg,
+                             const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
+                             bool iasValid);
+
 }  // namespace aoa
 }  // namespace onspeed
 

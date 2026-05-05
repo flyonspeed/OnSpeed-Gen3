@@ -51,10 +51,12 @@ def test_one_second_window_yields_roughly_50_ticks() -> None:
     assert 40 <= len(states) <= 55, f"got {len(states)} ticks"
 
 
-def test_lat_g_sign_negated_relative_to_log() -> None:
-    """The log's `LateralG` is body-frame; the wire/LiveSnapshot
-    `lateral_g` is ball-frame. Compare the first-tick sign to the
-    raw log row to confirm the negation."""
+def test_lat_g_sign_matches_log_at_v423() -> None:
+    """At v4.23 the log, the wire, and `LiveSnapshot.lateral_g` all use
+    body-frame (positive = airframe accelerating rightward). The
+    `_log_to_wire_lateral_g` helper became a pass-through; this test
+    pins that so any future re-introduction of a log→snapshot negation
+    is caught immediately."""
     import csv
 
     # Read the first row in the [2865, 2866] window directly.
@@ -76,8 +78,10 @@ def test_lat_g_sign_negated_relative_to_log() -> None:
         target_rate_hz=50.0,
         smooth_accels=False,   # disable EMA so we can compare values directly
     ))
-    # First emitted tick uses _log_to_wire_lateral_g(raw_log) = -raw_log.
-    assert states[0].lateral_g == -log_lat_g
+    # First emitted tick: log and snapshot now use the same body-frame
+    # convention, so the value passes through unchanged (modulo the
+    # source-row time alignment, which scenario_from_log handles).
+    assert states[0].lateral_g == log_lat_g
 
 
 def test_flap_deg_unchanged_across_window() -> None:
@@ -261,12 +265,12 @@ def _settled_value(rate_hz: float, target: float = 0.5,
 
 def test_step_response_settles_within_5_tau_at_50hz() -> None:
     """EMA at 50 Hz on a 0.5g step LateralG should be within 1% of the
-    step value after 5τ (~0.37 s, well inside the 1.5 s window). Note
-    the log's body-frame value is negated to ball-frame on output, so
-    the settled value approaches -0.5.
+    step value after 5τ (~0.37 s, well inside the 1.5 s window).  At
+    v4.23 the log and snapshot share body-frame, so the settled value
+    is the input value with no sign flip.
     """
     settled = _settled_value(rate_hz=50.0, target=0.5)
-    expected = -0.5  # body→ball negation
+    expected = 0.5
     err = abs(settled - expected)
     assert err < 0.01, f"50 Hz step did not settle: got {settled} (err={err})"
 
@@ -274,7 +278,7 @@ def test_step_response_settles_within_5_tau_at_50hz() -> None:
 def test_step_response_settles_within_5_tau_at_208hz() -> None:
     """Same test at 208 Hz IMU-rate logs. Variable-dt α auto-adjusts."""
     settled = _settled_value(rate_hz=208.0, target=0.5)
-    expected = -0.5
+    expected = 0.5
     err = abs(settled - expected)
     assert err < 0.01, f"208 Hz step did not settle: got {settled} (err={err})"
 

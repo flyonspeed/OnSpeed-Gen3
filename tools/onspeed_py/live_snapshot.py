@@ -29,21 +29,17 @@ class LiveSnapshot:
     roll:        float = 0.0   # deg
     yaw_rate:    float = 0.0   # deg/s, +nose-right
     vertical_g:  float = 1.0   # g
-    # Lateral G — BALL-FRAME convention (positive = ball deflects
-    # rightward, i.e. airframe accelerating leftward). Same convention
-    # as the `#1` wire's `lateralG` field (see
-    # proto/DisplaySerial.h::DisplayBuildInputs::lateralG), which the
-    # firmware produces by negating `g_AHRS.AccelLatCorr`.
+    # Lateral G — BODY-FRAME convention at v4.23 (positive = airframe
+    # accelerating rightward).  Matches the IMU body-Y axis, the SD
+    # log's `LateralG` column, the WebSocket JSON's `lateralGLoad`
+    # field, and the `#1` wire's `lateralG` field (see
+    # proto/DisplaySerial.h::DisplayBuildInputs::lateralG).
     #
-    # WARNING — this differs from the SD log's `LateralG` column AND
-    # from the WebSocket's `lateralGLoad` field, both of which use the
-    # body-frame convention (positive = airframe accelerating right).
-    # When importing from a log row, negate the body-frame value.
-    # `onspeed_py.log_replay::_log_to_wire_lateral_g` does this.
-    #
-    # On screen: positive lateral_g (leftward airframe accel) → ball
-    # drawn RIGHT of center. Anti-yaw rudder is on the side the ball
-    # moved → press right.
+    # On screen: slip-skid ball renderers negate locally at the
+    # rendering site, so positive lateral_g (rightward airframe accel)
+    # → ball drawn LEFT of center.  Anti-yaw rudder is on the side the
+    # ball moved → press left.  The M5's SerialRead::SerialProcess
+    # applies the negation; the LiveView's slipBall.js does the same.
     lateral_g:   float = 0.0
     # Flap state — scenarios drive `lever_raw` (the raw pot ADC
     # reading). The orchestrator's display-anchors harness derives

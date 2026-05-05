@@ -9,7 +9,7 @@ This page is the canonical wire-format reference. The source of truth in code is
 
 ## Design intent
 
-The OnSpeed `#1` wire is a **percent-lift contract**, not a body-angle contract. Every AOA-related quantity on the wire is expressed as a percentage of the wing's lift envelope (the honest single-linear normalization `(AOA − α₀) / (α_stall − α₀) × 100`, clamped 0..99). The four band-edge percents (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`) are the per-flap setpoints put through the same formula. They vary per flap because the underlying body-angle calibration varies per flap.
+The OnSpeed `#1` wire is a **percent-lift contract**, not a body-angle contract. Every AOA-related quantity on the wire is expressed as a percentage of the wing's lift envelope (the honest single-linear normalization `(AOA − α₀) / (α_stall − α₀) × 100`, clamped 0..99). The current AOA is sent ×10 (tenths-of-a-percent, 0..999) so the consumer can render its index bar at sub-pixel temporal smoothness off the 20 Hz frame cadence. The four band-edge percents (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`) are the per-flap setpoints put through the same formula at integer-percent resolution (0..99) — they only move at detent-snap or config-save events. They vary per flap because the underlying body-angle calibration varies per flap.
 
 Within that contract, **the visual L/D~MAX~ pip slides smoothly and the operational anchors snap.** The pip's wire field, `pipPctLift` (added in v4.22), interpolates linearly in lever-pot space across the entire pot range from the cleanest detent's L/D~MAX~ percent to the most-deployed detent's OnSpeed-band center. The operational anchors — `tonesOnPctLift` (L/D~MAX~ for the active detent, drives the chevron + audio gate), `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift` — all snap to the active detent, in lockstep with the audio cues. Vac's design rule (`ld_max.pdf` §8): "L/Dmax pips are aerodynamic references. Fast tone is an operational limit cue. They must remain independent."
 
@@ -32,7 +32,7 @@ The OnSpeed firmware's `WriteDisplayDataTask` runs at the cadence above and re-a
 
 ### Frame structure
 
-Each frame is exactly **76 bytes** of ASCII (v4.22), terminated by CRLF. Field offsets, widths, and scale factors are fixed — there are no length prefixes, no variable-width fields, and no escapes inside the payload.
+Each frame is exactly **77 bytes** of ASCII (v4.23), terminated by CRLF. Field offsets, widths, and scale factors are fixed — there are no length prefixes, no variable-width fields, and no escapes inside the payload.
 
 | Offset | Width | Field | printf format | Wire scale | Engineering range | Wire range |
 | ---: | ---: | --- | --- | ---: | --- | --- |
@@ -42,26 +42,26 @@ Each frame is exactly **76 bytes** of ASCII (v4.22), terminated by CRLF. Field o
 | 11 | 4 | `iasKt` | `%04u` | ×10 | 0 – 999.9 kt | 0 – 9999 |
 | 15 | 6 | `paltFt` | `%+06d` | ×1 | ±99 999 ft | ±99999 |
 | 21 | 5 | `turnRateDps` | `%+05d` | ×10 | ±999.9°/s | ±9999 |
-| 26 | 3 | `lateralG` | `%+03d` | ×100 | ±0.99 g (negated, see below) | ±99 |
+| 26 | 3 | `lateralG` | `%+03d` | ×100 | ±0.99 g (body-frame, +rightward; see below) | ±99 |
 | 29 | 3 | `verticalG` | `%+03d` | ×10 | ±9.9 g (rounded to nearest 0.1 g) | ±99 |
-| 32 | 2 | `percentLift` | `%02u` | ×1 | 0 – 99 (current AOA, envelope fraction) | 0 – 99 |
-| 34 | 4 | `vsiFpm10` | `%+04d` | ×1 | ±9 990 fpm | ±999 (already divided by 10) |
-| 38 | 3 | `oatC` | `%+03d` | ×1 | ±99 °C | ±99 |
-| 41 | 4 | `flightPathDeg` | `%+04d` | ×10 | ±99.9° | ±999 |
-| 45 | 3 | `flapsDeg` | `%+03d` | ×1 | ±99° | ±99 |
-| 48 | 2 | `tonesOnPctLift` | `%02u` | ×1 | 0 – 99 (active-detent L/D~MAX~; operational, audio gate) | 0 – 99 |
-| 50 | 2 | `onSpeedFastPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedFast percent for active flap) | 0 – 99 |
-| 52 | 2 | `onSpeedSlowPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedSlow percent for active flap) | 0 – 99 |
-| 54 | 2 | `stallWarnPctLift` | `%02u` | ×1 | 0 – 99 (StallWarn percent for active flap) | 0 – 99 |
-| 56 | 3 | `flapsMinDeg` | `%+03d` | ×1 | ±99° (full retract) | ±99 |
-| 59 | 3 | `flapsMaxDeg` | `%+03d` | ×1 | ±99° (full extend) | ±99 |
-| 62 | 4 | `gOnsetRate` | `%+04d` | ×100 | ±9.99 g/s | ±999 |
-| 66 | 2 | `spinRecoveryCue` | `%+02d` | ×1 | −9 to +9 | −9 to +9 |
-| 68 | 2 | `dataMark` | `%02u` | ×1 | 0 – 99 | 0 – 99 |
-| 70 | 2 | `pipPctLift` | `%02u` | ×1 | 0 – 99 (visual L/D~MAX~ pip; aerodynamic, lerp clean→fullflap) | 0 – 99 |
-| 72 | 2 | `checksum` | `%02X` | hex | sum of bytes 0–71, low byte | `00` – `FF` |
-| 74 | 1 | terminator | literal | — | CR (`0x0D`) | |
-| 75 | 1 | terminator | literal | — | LF (`0x0A`) | |
+| 32 | 3 | `percentLift` | `%03u` | ×10 | 0.0 – 99.9 (current AOA, envelope fraction in tenths-of-a-percent) | 0 – 999 |
+| 35 | 4 | `vsiFpm10` | `%+04d` | ×1 | ±9 990 fpm | ±999 (already divided by 10) |
+| 39 | 3 | `oatC` | `%+03d` | ×1 | ±99 °C | ±99 |
+| 42 | 4 | `flightPathDeg` | `%+04d` | ×10 | ±99.9° | ±999 |
+| 46 | 3 | `flapsDeg` | `%+03d` | ×1 | ±99° | ±99 |
+| 49 | 2 | `tonesOnPctLift` | `%02u` | ×1 | 0 – 99 (active-detent L/D~MAX~; operational, audio gate) | 0 – 99 |
+| 51 | 2 | `onSpeedFastPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedFast percent for active flap) | 0 – 99 |
+| 53 | 2 | `onSpeedSlowPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedSlow percent for active flap) | 0 – 99 |
+| 55 | 2 | `stallWarnPctLift` | `%02u` | ×1 | 0 – 99 (StallWarn percent for active flap) | 0 – 99 |
+| 57 | 3 | `flapsMinDeg` | `%+03d` | ×1 | ±99° (full retract) | ±99 |
+| 60 | 3 | `flapsMaxDeg` | `%+03d` | ×1 | ±99° (full extend) | ±99 |
+| 63 | 4 | `gOnsetRate` | `%+04d` | ×100 | ±9.99 g/s | ±999 |
+| 67 | 2 | `spinRecoveryCue` | `%+02d` | ×1 | −9 to +9 | −9 to +9 |
+| 69 | 2 | `dataMark` | `%02u` | ×1 | 0 – 99 | 0 – 99 |
+| 71 | 2 | `pipPctLift` | `%02u` | ×1 | 0 – 99 (visual L/D~MAX~ pip; aerodynamic, lerp clean→fullflap) | 0 – 99 |
+| 73 | 2 | `checksum` | `%02X` | hex | sum of bytes 0–72, low byte | `00` – `FF` |
+| 75 | 1 | terminator | literal | — | CR (`0x0D`) | |
+| 76 | 1 | terminator | literal | — | LF (`0x0A`) | |
 
 Sign and width invariants:
 
@@ -73,11 +73,12 @@ Sign and width invariants:
 
 Most fields are self-describing. The ones with non-obvious conventions:
 
-- **`lateralG` is in ball-frame** (positive = leftward, what the slip-skid ball "feels"), so `Slip = LateralG × 850` plots directly. The WebSocket JSON's `lateralGLoad` ships the same source in body-frame (positive = right) — see [WebSocket protocol — lateralGLoad](./websocket-protocol.md#g-loads) for the full physics + dual-frame discussion.
+- **`lateralG` is in body-frame** at v4.23 (positive = airframe accelerating rightward), matching the IMU, SD log, and WebSocket JSON conventions. Slip-skid ball renderers negate locally at the rendering site — the ball lags opposite the airframe's centripetal acceleration, so right-yaw → ball drawn left of center. The M5 firmware (`SerialRead.cpp::SerialProcess`) and the LiveView (`tools/web/lib/core/slipBall.js`) both follow this pattern. See [WebSocket protocol — lateralGLoad](./websocket-protocol.md#g-loads) for the full physics discussion.
 - **`verticalG` is `lroundf(g × 10)`** — round-to-nearest-tenth, matching the LiveView's `verticalGLoad` rendering and the way pilots intuitively read a single-decimal display. Over-G alerting reads the unrounded float in `GLimitDecision` (Housekeeping path), so this encoding choice does not affect chime / limit behaviour.
 - **`vsiFpm10` is already divided by 10.** The wire field carries `floor(VSI_fpm / 10)`. Multiply by 10 on receive to get fpm. The cap is ±9 990 fpm.
-- **`percentLift` and the band-edge percents are computed via the canonical [`ComputePercentLift`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h)**, the honest single-linear `(AOA − α₀) / (α_stall − α₀) × 100`. Below α₀ reads 0; above α_stall clamps at 99 (saturation, never reads 100).
+- **`percentLift` is computed via the canonical [`ComputePercentLiftTenths`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/aoa/PercentLift.h)** — the honest single-linear `(AOA − α₀) / (α_stall − α₀) × 1000`. The integer-percent variant `ComputePercentLift` is used for the band-edge percents and elsewhere. Below α₀ reads `000`; above α_stall clamps at `999` (saturation, never reads `1000`). Divide by 10 for an integer-percent reading; divide by 10.0 for a sub-percent reading. The M5 consumer fills both.
 - **`percentLift` goes to 0 below the audio mute threshold** (`iMuteAudioUnderIAS`). The wire stays silent for the AOA region while the aircraft is parked.
+- **The four band-edge percents stay at integer-percent resolution.** They only move at detent-snap or config-save events, not on every frame; sub-percent resolution buys nothing on those.
 - **`tonesOnPctLift` is the active detent's L/D~MAX~ body angle put through `ComputePercentLift`** — the percent at which the audio low tone turns on. The M5 indexer's bottom green chevron gates on this value; the audio path compares `g_Sensors.AOA` directly to `g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA`. Both fire from the same source; they snap together at every detent transition. Operational cue (Vac §8).
 - **`pipPctLift` is the visual L/D~MAX~ pip** — interpolated linearly across the entire pot range from `flapEntries[0].fLDMAXAOA` percent (cleanest) to the geometric center of `flapEntries[entryCount-1]`'s OnSpeed band (most-deployed). Slides smoothly with the lever; intermediate detents are intentionally ignored. Aerodynamic cue (Vac §8). At the cleanest detent's pot position with `iIndex == 0`, `pipPctLift == tonesOnPctLift` exactly. Elsewhere they differ.
 - **`onSpeedFastPctLift` / `onSpeedSlowPctLift` / `stallWarnPctLift` are SNAPPED to the active detent** (the same one the audio path compares against). They define the donut and chevron screen-percent positions on the indexer; snapping keeps those overlays in lockstep with the audio cues that fire at the same calibrated thresholds. Operational cues.
@@ -111,7 +112,7 @@ The reference implementation lives in `onspeed_core/util/Crc.h` (`util::Checksum
 
 The `onspeed_core` library ships a reference parser at [`proto/DisplaySerial.h`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h) that runs natively (no Arduino dependency). Two entry points:
 
-- `ParseDisplayFrame(const uint8_t* buf, size_t len)` — one-shot. Hand it a 76-byte buffer; receive an `optional<DisplayFrame>`. Fails closed on bad magic, bad CRC, or any field that fails to parse.
+- `ParseDisplayFrame(const uint8_t* buf, size_t len)` — one-shot. Hand it a 77-byte buffer; receive an `optional<DisplayFrame>`. Fails closed on bad magic, bad CRC, or any field that fails to parse.
 - `DisplayFrameAccumulator::Inject(uint8_t byte)` — byte-stream. Feed it whatever the UART hands you; it returns a parsed frame on the byte that completes a valid frame, or `nullopt` otherwise. Internally it resets to start-of-frame on any `#`, drops frames that don't end with LF, and clears its buffer between frames. The same struct is used by the M5 firmware and is exercised by the native test suite.
 
 If you implement your own parser, the failure modes worth handling are the ones the reference parser handles:
@@ -136,6 +137,7 @@ The `#1` format is a **hard versioned protocol**: there is no length prefix, no 
 | ≤ 4.20 | 80 bytes | Original layout — pitch through dataMark plus per-flap body-angle setpoints (`tonesOnAoaDeg`, `onSpeedFastAoaDeg`, `onSpeedSlowAoaDeg`, `stallWarnAoaDeg`) and `aoaDeg`. Consumers reproduced the percent-lift segments locally from the body-angle anchors. |
 | 4.21 | 74 bytes | **Wire becomes a percent-lift contract.** The body-angle setpoints and `aoaDeg` come off the wire; in their place the producer emits `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift` — each per-flap setpoint put through the canonical `ComputePercentLift`. Consumers render entirely in percent space. `ComputePercentLift` itself moves to the honest single-linear formula at the same time. `gOnsetRate` (offset 62) populates from `GOnsetFilter` instead of always-zero. See [PR #320](https://github.com/flyonspeed/OnSpeed-Gen3/pull/320) and [PR #328](https://github.com/flyonspeed/OnSpeed-Gen3/pull/328). |
 | 4.22 | 76 bytes | **Pip and audio threshold separated.** New field `pipPctLift` at offset 70 carries the visual L/D~MAX~ pip; it interpolates linearly across the entire pot range from cleanest to most-deployed detent (intermediate detents intentionally ignored). `tonesOnPctLift` reverts to PR #320's snap-per-active-detent behavior so the M5 bottom chevron and the audio low-tone gate fire from the same threshold, in lockstep. All existing field offsets unchanged; new field appended before checksum. Per Vac's design rule (`ld_max.pdf` §8): aerodynamic references and operational cues must remain independent. See [Indexer Spec](../software/indexer-spec.md). **Coordinated reflash:** Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.21 receiver will fail the 76-byte parse and render NO DATA, and a v4.22 receiver will fail to assemble a 74-byte sender's frames. Same operational drill as the v4.20 → v4.21 transition. |
+| 4.23 | 77 bytes | **`percentLift` widens to tenths-of-a-percent + `lateralG` switches to body-frame.** Two coordinated wire changes ship in one bump. (1) `percentLift` (offset 32) widens from `%02u` (0..99, integer percent) to `%03u` (0..999, tenths) — the M5/huVVer-display index bar now advances at sub-pixel temporal smoothness off the 20 Hz frame cadence. Every field after it shifts +1: `vsiFpm10` 34→35, `pipPctLift` 70→71, checksum 72→73. The four band-edge percents stay at integer-percent because they only move on detent or config-save events. The Garmin G3X subset format (`SERIALOUTFORMAT=G3X`) keeps integer-percent on its own `=11` frame; producer divides by 10. (2) `lateralG` (offset 26) flips from ball-frame (positive = leftward) to **body-frame** (positive = airframe accelerating rightward), matching the IMU, SD log, and WebSocket JSON conventions. Frame size unchanged by this change — only the value's sign convention. Slip-skid ball renderers negate locally at the rendering site; the M5's `SerialRead::SerialProcess` does, the LiveView's `slipBall.js` already does. See [PR #386](https://github.com/flyonspeed/OnSpeed-Gen3/pull/386), [PR #383](https://github.com/flyonspeed/OnSpeed-Gen3/pull/383), and `LATERAL_G_CONVENTION.md`. **Coordinated reflash:** Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.22 receiver will fail the 77-byte parse and render NO DATA, and a v4.23 receiver will fail to assemble a 76-byte sender's frames. **A pre-v4.23 M5 paired with v4.23 main firmware would render the slip ball mirrored** — a coordination cue with the wrong sign. Same operational drill as the v4.21 → v4.22 transition; we're paying the wire-break cost once for both improvements. |
 
 ## G3X format (`=11` framing)
 

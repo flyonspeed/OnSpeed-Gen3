@@ -454,7 +454,7 @@ void Tick()
     }
 
     // Optional: dump the first emitted frame in hex+ascii so we can
-    // verify the wire content is sane (correct '#1' header, 76 bytes,
+    // verify the wire content is sane (correct '#1' header, 77 bytes,
     // CRLF terminator).  Lets us rule out "we're feeding the parser
     // garbage that overflows somewhere downstream".
     static bool s_dumpedFirstFrame = false;
