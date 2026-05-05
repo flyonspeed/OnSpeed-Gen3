@@ -6,7 +6,7 @@ This page is the canonical specification for that wire format.
 
 ## Design intent
 
-The WebSocket is the LiveView's data path, paralleling the [display serial protocol](serial-protocol.md) that feeds the M5 secondary display. The two paths share the same `percent-lift` contract — `percentLift`, `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, `pipPctLift` are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.
+The WebSocket is the LiveView's data path, paralleling the [display serial protocol](serial-protocol.md) that feeds the M5 secondary display. The two paths share the same `percent-lift` contract — `percentLift`, `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, `pipPctLift` are computed by the same firmware code (`onspeed_core::ComputePercentLift` + `ComputeDisplayPctAnchors`). The JSON carries the live `percentLift` as `%.1f` (full sub-percent fidelity) and the wire encodes `int(pct × 10)` in `%03u` tenths — both consumers reconstruct the same whole-percent float. The four band-edge anchors stay integer-percent on both paths. A shared indexer renderer can run identically off either transport.
 
 The encodings differ deliberately. The display serial path is a fixed-offset ASCII frame designed for a low-bandwidth UART to a hardware panel display; bandwidth and parsing simplicity matter, and adding a field is a hard protocol change that requires re-flashing both ends. The WebSocket path is JSON over TCP/WebSocket text frames, designed for browser and software consumers; bandwidth is plentiful, parsing is `JSON.parse()`, and adding a field is a soft change because old consumers ignore unknown keys.
 
@@ -104,7 +104,7 @@ Typical compacted frame size: **~390 bytes** in cruise; up to **~460 bytes** in 
 
 ## Field reference
 
-Every field appears in every frame. Floats are formatted with 2 decimal places (`%.2f`); integers are bare. Numeric values are guarded against `NaN` / `Inf` — any non-finite source value is replaced with a documented fallback (typically 0 or a sentinel) so the JSON is always parseable.
+Every field appears in every frame. Floats are formatted with 2 decimal places (`%.2f`) by default; the live `percentLift` field is `%.1f` (one decimal — matches the wire's tenths resolution) and integers are bare. Numeric values are guarded against `NaN` / `Inf` — any non-finite source value is replaced with a documented fallback (typically 0 or a sentinel) so the JSON is always parseable.
 
 A note on source selection: several attitude/air-data fields read from different sources depending on the calibration-source config:
 

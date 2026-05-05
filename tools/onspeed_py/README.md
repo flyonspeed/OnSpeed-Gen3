@@ -48,11 +48,14 @@ hack for zero install setup.
 
 The `Frame` builder emits the 77-byte (v4.23) ASCII frame defined in
 `onspeed_core/proto/DisplaySerial.h` (`kDisplayFrameSizeBytes = 77`,
-`kDisplayFrameChecksumLen = 73`). v4.23 widens `percent_lift` from
-`%02u` to `%03u` carrying tenths-of-a-percent (0..999), which shifts
-every field after it by +1 — `pip_pct_lift` now lives at offset 71
-(was 70 in v4.22). Future wire changes update this module and the
-firmware's `BuildDisplayFrame` / `ParseDisplayFrame` in lockstep.
+`kDisplayFrameChecksumLen = 73`). The `percent_lift` field on the
+wire is `%03u` (tenths-of-a-percent, 0..999), but in memory the
+`Frame` dataclass surfaces it as `percent_lift_pct: float` in
+whole-percent units (0.0..99.9) — `to_bytes()` does the `× 10`
+truncation at the encoding boundary. Same convention as the C++
+`DisplayBuildInputs::percentLiftPct` field. Future wire changes
+update this module and the firmware's `BuildDisplayFrame` /
+`ParseDisplayFrame` in lockstep.
 
 ## Tests
 
