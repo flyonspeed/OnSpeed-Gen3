@@ -2574,6 +2574,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Mode 0 — AOA + Numbers (Primary)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#g-onset-tape-right-edge-yellow-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G-onset tape (right-edge yellow bar)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -2584,6 +2601,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Mode 1 — Attitude">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vsi-tape-right-edge-white-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VSI tape (right-edge white bar)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -3423,6 +3457,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Mode 0 — AOA + Numbers (Primary)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#g-onset-tape-right-edge-yellow-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        G-onset tape (right-edge yellow bar)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -3433,6 +3484,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Mode 1 — Attitude">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vsi-tape-right-edge-white-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VSI tape (right-edge white bar)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -3557,12 +3625,35 @@ slip ball, and a G-onset rate tape on the right edge.</p>
 <li><strong>Bottom chevron</strong> — fast-but-safe (between LDmax and OnSpeedFast).</li>
 <li><strong>White index bar</strong> — current AOA on the percent-lift scale.</li>
 </ul>
+<h4 id="g-onset-tape-right-edge-yellow-bar">G-onset tape (right-edge yellow bar)<a class="headerlink" href="#g-onset-tape-right-edge-yellow-bar" title="Permanent link">&para;</a></h4>
+<p>The yellow bar on the right edge is the <strong>rate of change of vertical
+G</strong> — how aggressively you're loading or unloading the airframe right
+now. Bar grows up from the center for positive onset (G load
+increasing — pulling into a turn or pull-up), grows down for negative
+onset (G unloading — pushing over, releasing back-pressure).
+Saturates at ±2 g/s. The center pip and ladder ticks give you a
+visual reference. The bar is computed by feeding the smoothed
+vertical-G signal through a 250 ms low-pass derivative — same
+filter the firmware feeds the wire from <code>AHRS::Update</code>.</p>
+<p>Useful as an "am I loading the airframe smoothly?" cue: a steady
+long pull-up shows a small bar; a sudden yank shows a tall bar
+that dies back as the rate stabilizes.</p>
 <h3 id="mode-1-attitude">Mode 1 — Attitude<a class="headerlink" href="#mode-1-attitude" title="Permanent link">&para;</a></h3>
 <p>Backup artificial horizon driven by X-Plane's pitch and roll. Pitch
 ladder, magenta flight-path marker (concentric rings + perpendicular
-wing bars), slip/skid ball at the bottom, orange VSI tape on the
+wing bars), slip/skid ball at the bottom, white VSI tape on the
 right edge, IAS / pressure-altitude / vertical-G / percent-lift
 readouts in the corners.</p>
+<h4 id="vsi-tape-right-edge-white-bar">VSI tape (right-edge white bar)<a class="headerlink" href="#vsi-tape-right-edge-white-bar" title="Permanent link">&para;</a></h4>
+<p>The white bar on the right edge is <strong>vertical speed</strong> — how fast
+you're climbing or descending. Bar grows up from the center for
+climbs, down for descents. Saturates at ±600 fpm: a steady 300 fpm
+descent fills half the bar; a 700 fpm climb pegs it to the top.
+The ±600 fpm range is tuned for the gentle-cruise band where small
+trends matter most — for larger excursions read the IAS / FPA
+numerics in the corners. The center pip and 20-pixel ladder ticks
+give a visual reference; the bar drops to the ladder color (zero)
+in level flight.</p>
 <h3 id="mode-2-narrow-aoa">Mode 2 — Narrow AOA<a class="headerlink" href="#mode-2-narrow-aoa" title="Permanent link">&para;</a></h3>
 <p>Mode 0's indexer widget with all the numeric fields stripped away.
 Same chevrons, donut, and index bar; nothing else.</p>
