@@ -152,9 +152,13 @@ nav:
     - Normal Operations: flying/normal-ops.md
     - Approach and Landing: flying/approach-landing.md
     - Summary of Warnings and Alerts: flying/warnings.md
-  - Simulator:
-    - simulator/index.md
-    - X-Plane Plugin: simulator/xplane-plugin.md
+  - X-Plane Simulator:
+    - xplane/index.md
+    - Install: xplane/install.md
+    - Using the Indexer: xplane/indexer.md
+    - Tethering a Physical M5: xplane/m5-tethered.md
+    - Per-Aircraft Settings: xplane/settings.md
+    - Troubleshooting: xplane/troubleshooting.md
   - Logs:
     - data-and-logs/index.md
     - Understanding Logs: data-and-logs/log-format.md

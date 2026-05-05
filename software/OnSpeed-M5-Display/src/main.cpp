@@ -97,6 +97,14 @@ bool        fwUpdateMode = false;
 #define TFT_GREY        0x7BEF
 #define TFT_LIGHT_GREY  0xAD55
 
+// Color depth for the off-screen sprite.  Defaults to 8bpp (palette
+// indexed) for the firmware builds where flash + RAM matter.  The
+// X-Plane plugin overrides to 16bpp via the build flag so its custom
+// Panel_FrameBufferBase subclass can read out RGB565 directly.
+#ifndef XPLANE_PLUGIN_DEPTH
+#define XPLANE_PLUGIN_DEPTH 8
+#endif
+
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
 
@@ -269,7 +277,7 @@ void setup()
     dacWrite(25, 0);
 #endif
 
-    gdraw.setColorDepth(8);
+    gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
     gdraw.createSprite(WIDTH, HEIGHT);
     gdraw.fillSprite (TFT_BLACK);
 
@@ -290,7 +298,7 @@ void setup()
         if (M5.BtnB.isPressed())
         {
             fwUpdateMode=true;
-            gdraw.setColorDepth(8);
+            gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
             gdraw.createSprite(WIDTH, HEIGHT);
             gdraw.fillSprite (TFT_BLACK);
             gdraw.setFont(FSSB12);
@@ -353,7 +361,7 @@ void setup()
                         if (!Update.begin(UPDATE_SIZE_UNKNOWN))
                         { //start with max available size
                         }
-                        gdraw.setColorDepth(8);
+                        gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
                         gdraw.createSprite(WIDTH, HEIGHT);
                         gdraw.fillSprite (TFT_BLACK);
                         gdraw.setFont(FSSB12);
@@ -401,11 +409,17 @@ void setup()
     if (fwUpdateMode)
         return; // do not continue if firmware upgrade mode was selected.
 
-#if defined(ESP_PLATFORM) && !defined(DUMMY_SERIAL_DATA)
-    //select serial port from preferences or detect it
-    serialSetup();
-    Serial.begin(115200); // console serial
+#if defined(ESP_PLATFORM)
+    // Console UART for diagnostic prints. Opened in both real-data
+    // and DUMMY_SERIAL_DATA builds so debug log lines reach the host
+    // regardless of which mode is active.
+    Serial.begin(115200);
     delay (100);
+#if !defined(DUMMY_SERIAL_DATA)
+    // select serial port from preferences or detect it (Serial2 — the
+    // OnSpeed `#1` wire input).
+    serialSetup();
+#endif
 #endif
 
 } // end setup()
@@ -417,7 +431,17 @@ void setup()
 
 void loop()
 {
+#ifndef XPLANE_PLUGIN_BUILD
+    // M5.update() polls buttons / IMU / RTC / PMIC via the M5Unified
+    // singleton.  In the X-Plane plugin context M5.begin() was never
+    // called (we drive M5.Display.setPanel() directly without bringing
+    // up the full board), so the singleton sits on Panel_NULL and
+    // calling update() pokes uninitialized hardware peripheral state.
+    // Today this is harmless (M5Unified no-ops on Panel_NULL); guarded
+    // for defense-in-depth against a future M5GFX version where the
+    // default device gets a less benign auto-init.
     M5.update();
+#endif
 
 #if defined(ESP_PLATFORM)
     if (fwUpdateMode)
@@ -451,7 +475,7 @@ void loop()
 
     if (M5.BtnB.wasPressed())
     {
-        gdraw.setColorDepth(8);
+        gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
         gdraw.createSprite(WIDTH, HEIGHT);
         gdraw.fillSprite (TFT_BLACK);
         displayType ++;
@@ -475,7 +499,7 @@ void loop()
     {
         loopTime = millis();
 
-        gdraw.setColorDepth(8);
+        gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
         gdraw.createSprite(WIDTH, HEIGHT);
         gdraw.fillSprite (TFT_BLACK);
         // Reset text anchoring for this frame. M5GFX's print()/setCursor()
