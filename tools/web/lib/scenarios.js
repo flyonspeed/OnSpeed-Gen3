@@ -64,6 +64,11 @@ export const scenarios = {
     // Cruise G: gentle ±0.15 G turbulence around 1 G so the g-history
     // strip chart shows a live trace instead of a flat line.
     verticalG: 1.0 + 0.15 * Math.sin(2 * Math.PI * t / 6000),
+    // Tick the data-mark counter once per simulated second so the
+    // top-left readout exercises the full 0..99 mod range during a
+    // dev-server demo. Real hardware advances on each 1 s long-press
+    // of the OnSpeed switch, not on a timer — this is dev-only.
+    dataMark: Math.floor(t / 1000) % 100,
   }),
   approach: (t) => {
     // 30 s sweep: percent-lift goes from 30 to 90 over 15 s, back to 30 over 15 s.

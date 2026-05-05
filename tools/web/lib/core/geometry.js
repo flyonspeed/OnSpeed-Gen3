@@ -127,6 +127,20 @@ export const CORNER_LABEL_FONT_SIZE = 33;
 export const CORNER_NUM_FONT_SIZE   = 33;
 
 // ----------------------------------------------------------------------------
+// DataMark counter — top-left readout, modes 0 + 2.
+// Mirrors main.cpp:924-927 (FM12, white, setCursor(10, 15) under
+// baseline_left). Anchored at the digit baseline so y=15 puts the
+// glyphs roughly y=1..y=15 — clear of the indexer at x>=109 and the
+// IAS readout below at y=90.
+// ----------------------------------------------------------------------------
+
+export const DATAMARK_X = 10;
+export const DATAMARK_Y = 15;
+// Font: FM12 (FreeMono 12pt) on the M5; ascent ~14 px. SVG font-size 14
+// at the same baseline-y matches the visual height closely.
+export const DATAMARK_FONT_SIZE = 14;
+
+// ----------------------------------------------------------------------------
 // Flap circle widget.
 // displayAOA() :790-:835.
 // ----------------------------------------------------------------------------

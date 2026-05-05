@@ -110,6 +110,20 @@ export const CornerReadout = ({ label, value,
           text-anchor=${anchor} dominant-baseline=${numBaseline}>${value}</text>
   </g>`;
 
+// DataMark counter readout — top-left, modes 0 + 2. The wire field is
+// already mod-100 from the firmware (Switch.cpp long-press → offset 69
+// in the display frame), so a 2-digit zero-padded format mirrors the
+// M5's `printf("%02d", DataMark)`.
+export const DataMark = ({ value }) => {
+  const v = (value == null || Number.isNaN(value)) ? 0 : value;
+  const padded = String(v).padStart(2, '0');
+  return html`
+    <text x=${G.DATAMARK_X} y=${G.DATAMARK_Y}
+          font-family="Helvetica, Arial, sans-serif"
+          font-size=${G.DATAMARK_FONT_SIZE}
+          fill=${colors.TFT_WHITE}>${padded}</text>`;
+};
+
 export const FlapCircle = ({ flapPos, flapsMin, flapsMax }) => {
   const frac = flapWidgetFrac(flapPos, flapsMin, flapsMax);
   const a = flapTriangleTransform(frac) * Math.PI / 180;
