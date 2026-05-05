@@ -197,6 +197,25 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
                              ? s_gOnsetFilter.Update(vG, dtSec)
                              : 0.0f;
 
+    // Diagnostic: log gOnset state once a second when env flag set, so
+    // we can confirm the filter sees varying vG and produces non-zero
+    // output during a maneuver.  Cached env-read.
+    static const bool kLogGOnset = []() {
+        const char* v = std::getenv("FLYONSPEED_INDEXER_LOG_GONSET");
+        return v && v[0] && v[0] != '0';
+    }();
+    if (kLogGOnset) {
+        static int s_gOnsetLogCounter = 0;
+        if (++s_gOnsetLogCounter >= 20) {     // ~once/sec at 20 Hz Tick
+            s_gOnsetLogCounter = 0;
+            char buf[160];
+            std::snprintf(buf, sizeof(buf),
+                          "FlyOnSpeed: gOnset vG=%.3f dt=%.3f rate=%.3f\n",
+                          vG, dtSec, in.gOnsetRate);
+            XPLMDebugString(buf);
+        }
+    }
+
     in.spinRecoveryCue = 0;        // reserved
     in.dataMark        = 0;        // v1 placeholder
 
