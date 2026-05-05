@@ -10,7 +10,7 @@ The Garmin G3X and G3X Touch are full-featured experimental EFIS systems. OnSpee
 
 ## Wiring
 
-Connect the G3X serial **TX** output to OnSpeed **RX** (GPIO 11). The G3X has multiple serial ports — use one that isn't already assigned to autopilot, transponder, or other devices.
+Connect the G3X serial **TX** output to OnSpeed **RX** (GPIO 11 on V4P, GPIO 9 on V4B). The G3X has multiple serial ports — use one that isn't already assigned to autopilot, transponder, or other devices.
 
 ## Data Available
 

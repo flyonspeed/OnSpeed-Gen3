@@ -10,7 +10,7 @@ The Dynon D10 and D100 are legacy Dynon EFIS units. OnSpeed supports their seria
 
 ## Wiring
 
-Same as [Dynon SkyView](dynon-skyview.md) — connect the Dynon serial TX to OnSpeed RX (GPIO 11).
+Same as [Dynon SkyView](dynon-skyview.md) — connect the Dynon serial TX to OnSpeed RX (GPIO 11 on V4P, GPIO 9 on V4B).
 
 ## Data Available
 

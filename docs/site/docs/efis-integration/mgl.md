@@ -10,7 +10,7 @@ MGL Avionics iEFIS and Odyssey systems use a binary serial protocol (iLink) to c
 
 ## Wiring
 
-Connect the MGL serial **TX** output to OnSpeed **RX** (GPIO 11).
+Connect the MGL serial **TX** output to OnSpeed **RX** (GPIO 11 on V4P, GPIO 9 on V4B).
 
 ## Protocol Details
 

@@ -39,7 +39,7 @@ The V4B board uses a **resistor ladder** with jumper wires to indicate discrete 
 
 If you have a glass panel EFIS, connecting it to OnSpeed provides IAS, OAT, attitude, and other data that improves system performance.
 
-- **OnSpeed RX pin**: GPIO 11 (through ADM3202 RS-232 level shifter)
+- **OnSpeed RX pin**: GPIO 11 on V4P (through ADM3202 RS-232 level shifter), GPIO 9 on V4B (through SW1, RS-232 or TTL bypass)
 - **Baud rate**: 115200, 8N1
 - **Wiring**: Connect your EFIS's serial **TX** output to the OnSpeed **RX** input
 
@@ -77,7 +77,7 @@ An LED on GPIO 13 provides a heartbeat indicator showing the system is running. 
 |-----------|-----|-----------|-------|
 | Power (12–28V) | VIN | Input | Through circuit breaker |
 | Ground | GND | — | Aircraft ground bus |
-| EFIS Serial | GPIO 11 (RX) | Input | RS-232 level, 115200 baud |
+| EFIS Serial | GPIO 11 (RX) on V4P, GPIO 9 (RX) on V4B | Input | RS-232 level, 115200 baud |
 | Flap Pot (V4P) | MCP3202 CH0 | Input | Through external ADC |
 | Volume Pot (V4P) | MCP3202 CH1 | Input | Through external ADC |
 | Audio Left | I2S DOUT | Output | See [Audio Wiring](audio.md) |

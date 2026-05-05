@@ -22,7 +22,7 @@ The consumer renders entirely in percent space — one mapping function from per
 | Baud rate | 115200 |
 | Frame format | 8N1 |
 | Levels | TTL or RS-232 (auto-detected by the M5; pin invert depends on which power-board variant feeds the line) |
-| Pinout (Gen3) | TX on GPIO 10 (`kDisplayTx` in `HardwareMap.h`); shares R1\_OUT with EFIS RX |
+| Pinout (Gen3) | TX on GPIO 10 (`kDisplayTx` in `HardwareMap.h`). On V4P the line shares the R1 transceiver with EFIS RX; on V4B it routes through SW2 to J1 pin 13 / DB-15 pin 12. |
 | Frame cadence | 20 Hz nominal (50 ms period); driven by `kDisplaySerialPeriodMs` in `HardwareMap.h` |
 | Direction | One-way, OnSpeed → display. The display does not transmit. |
 
