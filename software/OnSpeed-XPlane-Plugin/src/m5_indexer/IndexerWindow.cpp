@@ -228,13 +228,36 @@ void DrawWindow(XPLMWindowID, void*)
     const int quadT    = top  - offY;
     const int quadB    = quadT - quadH;
 
-    // Persist any drag/resize that changed the box.  Compared
-    // against s_persistedGeom rather than the previous frame so the
-    // save fires once per user action, not every frame.
-    if (left   != s_persistedGeom.left  ||
-        top    != s_persistedGeom.top   ||
-        winW   != s_persistedGeom.width ||
-        winH   != s_persistedGeom.height)
+    // Persist any drag/resize that changed the box.  Compared against
+    // s_persistedGeom rather than the previous frame so the save fires
+    // once per user action, not every frame.
+    //
+    // Reject obviously-bad geometry before saving — we've seen
+    // XPLMGetWindowGeometry briefly return nonsense values like
+    // left=67821 during pop-out / multi-monitor transitions, and once
+    // that lands in the .prf the user can't relaunch back into a
+    // visible window.  Stay within ±50000 boxels (any sane multi-
+    // monitor desktop fits) AND require the box to overlap the
+    // current global screen bounds with at least kMinVisible boxels.
+    constexpr int kSaneAbs    = 50000;
+    constexpr int kMinVisible = 80;
+    int sLeft = 0, sTop = 0, sRight = 0, sBottom = 0;
+    XPLMGetScreenBoundsGlobal(&sLeft, &sTop, &sRight, &sBottom);
+    const bool absSane =
+        std::abs(left) < kSaneAbs && std::abs(top) < kSaneAbs &&
+        winW > 0 && winH > 0 && winW < kSaneAbs && winH < kSaneAbs;
+    const bool onScreen =
+        sRight <= sLeft || sTop <= sBottom ||                     // bounds query failed → don't gate
+        ((left + winW) > (sLeft + kMinVisible) &&
+         left < (sRight - kMinVisible) &&
+         (top - winH) < (sTop - kMinVisible) &&
+         top > (sBottom + kMinVisible));
+
+    if (absSane && onScreen &&
+        (left != s_persistedGeom.left  ||
+         top  != s_persistedGeom.top   ||
+         winW != s_persistedGeom.width ||
+         winH != s_persistedGeom.height))
     {
         s_persistedGeom.left   = left;
         s_persistedGeom.top    = top;
@@ -677,10 +700,29 @@ int GetMode()
 
 void ApplyPersistedGeometry(int left, int top, int width, int height)
 {
-    // Sanity-clamp the loaded values so a hand-edited or corrupt .prf
-    // can't push the window off-screen or into a degenerate size.
+    // Sanity-clamp size so a corrupt .prf can't degenerate the window.
     if (width  < kMinWidth)  width  = kMinWidth;
     if (height < kMinHeight) height = kMinHeight;
+
+    // Pull the global X-Plane desktop bounds and clamp the top-left
+    // corner so at least kMinVisible boxels of the window remain
+    // visible.  Real-world failure (2026-05-05): indexerLeft = 67821
+    // turned up in a .prf after a popped-out / multi-monitor session
+    // and stranded the window 67k boxels off the right edge of the
+    // screen with no menu way to drag it back.
+    int sLeft = 0, sTop = 0, sRight = 0, sBottom = 0;
+    XPLMGetScreenBoundsGlobal(&sLeft, &sTop, &sRight, &sBottom);
+    constexpr int kMinVisible = 80;     // boxels of window kept on-screen
+    if (sRight > sLeft && sTop > sBottom) {
+        const int maxLeft = sRight  - kMinVisible;
+        const int minLeft = sLeft   - (width  - kMinVisible);
+        const int maxTop  = sTop;
+        const int minTop  = sBottom + kMinVisible;
+        if (left > maxLeft) left = maxLeft;
+        if (left < minLeft) left = minLeft;
+        if (top  > maxTop)  top  = maxTop;
+        if (top  < minTop)  top  = minTop;
+    }
 
     s_persistedGeom.left   = left;
     s_persistedGeom.top    = top;
