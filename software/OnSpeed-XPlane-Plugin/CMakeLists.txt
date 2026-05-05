@@ -273,14 +273,35 @@ if(ENABLE_M5_INDEXER)
     # our strict warning posture.  Downgrade -Werror for those TUs and
     # for our own indexer TUs (which transitively include M5GFX headers
     # that use C-style casts).
+    #
+    # Per-function/per-data sections + hidden visibility so the linker
+    # can dead-strip everything we don't actually call into from the
+    # X-Plane plugin entry points.  The unstripped indexer build is
+    # ~54 MB, dominated by M5GFX's CJK font tables and ~30 unused
+    # panel drivers.  Hidden visibility means those symbols aren't
+    # exported from the .xpl, so -dead_strip / --gc-sections drops
+    # the unreferenced sections — bringing the build down to ~660 KB.
     set_source_files_properties(
         ${M5_FW_SOURCES} ${M5G_SOURCES} ${M5U_SOURCES} ${TINYXML_SRC}
         src/m5_indexer/Panel_PluginCanvas.cpp
         src/m5_indexer/IndexerWindow.cpp
         src/m5_indexer/DataRefAdapter.cpp
         PROPERTIES
-        COMPILE_FLAGS "-w"
+        COMPILE_FLAGS
+            "-w -ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden"
     )
+
+    # Drop unreferenced sections at link time.  Combined with the
+    # hidden-visibility + sectioned compile flags above, this is what
+    # actually shrinks the output — without -dead_strip / --gc-sections
+    # the static-data sections (font glyph tables, vtables for unused
+    # panel classes, etc.) stay in the dylib even though nothing calls
+    # them.
+    if(APPLE)
+        target_link_options(AOA-Tone-FlyOnSpeed PRIVATE "-Wl,-dead_strip")
+    else()
+        target_link_options(AOA-Tone-FlyOnSpeed PRIVATE "-Wl,--gc-sections")
+    endif()
 endif()
 
 if(NOT APPLE)
