@@ -20,6 +20,16 @@ software/Libraries/version/buildinfo.cpp
 lib/version/buildinfo.cpp
 *.ino.cpp
 
+# Web bundle: generated from tools/web/ by scripts/build_web_bundle.py.
+# PlatformIO regenerates these as a pre-build hook.  Arduino IDE users
+# must run `python3 scripts/build_web_bundle.py` once after clone (and
+# again after editing tools/web/).
+software/OnSpeed-Gen3-ESP32/Web/static_app_js.h
+software/OnSpeed-Gen3-ESP32/Web/static_app_css.h
+software/OnSpeed-Gen3-ESP32/Web/html_stubs.h
+software/OnSpeed-Gen3-ESP32/Web/legacy_pages.h
+software/OnSpeed-Gen3-ESP32/Web/legacy_pages.cpp
+
 # git worktrees for parallel subagent work
 .worktrees/
 

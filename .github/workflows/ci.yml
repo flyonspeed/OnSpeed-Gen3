@@ -101,13 +101,13 @@ jobs:
           path: .pio/build/${{ matrix.env }}/*.bin
           retention-days: 30
 
-  web-bundle-fresh:
-    # Verifies the committed Web/static_app_js.h, static_app_css.h, and
-    # html_stubs.h match what scripts/build_web_bundle.py produces.
-    # Catches contributors who edit tools/web/ source without regenerating
-    # the bundle — Arduino IDE users compile the committed headers
-    # directly, so stale outputs would silently break their flash.
-    name: Verify shared web bundle is up to date
+  web-bundle-builds:
+    # Verifies scripts/build_web_bundle.py runs cleanly from a fresh
+    # checkout.  The generated headers are .gitignore'd; the firmware
+    # build job (which runs `pio run`) regenerates them as a pre-build
+    # hook.  This job exists so that bundler regressions are caught
+    # independently of the firmware build matrix.
+    name: Verify web bundler runs cleanly
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -120,28 +120,23 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Regenerate web bundle
+      - name: Run web bundler
         run: python3 scripts/build_web_bundle.py
 
-      - name: Verify committed headers are current
+      - name: Verify expected outputs were produced
         run: |
           set -e
-          STALE=0
           for f in \
               software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
               software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
               software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
               software/OnSpeed-Gen3-ESP32/Web/legacy_pages.h \
               software/OnSpeed-Gen3-ESP32/Web/legacy_pages.cpp; do
-            if ! git diff --exit-code -- "$f"; then
-              echo "::error::$f is stale."
-              STALE=1
+            if [ ! -s "$f" ]; then
+              echo "::error::Bundler did not produce $f"
+              exit 1
             fi
           done
-          if [ "$STALE" -ne 0 ]; then
-            echo "::error::Run 'python3 scripts/build_web_bundle.py' and commit the result."
-            exit 1
-          fi
 
   web-tests:
     # Pure-JS tests for the firmware web UI:
