@@ -260,6 +260,27 @@ void test_g3x_att_time_of_day_non_digits_leave_empty(void)
     TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
 }
 
+void test_g3x_att_time_of_day_out_of_range_leaves_empty(void)
+{
+    // ASCII-digit bytes that decode out-of-range (HH > 23 / MM > 59 /
+    // SS > 59 / FF > 99) leave timeOfDayHms empty rather than write a
+    // nonsensical wall-clock stamp.  HH=99 here.
+    char buf[59];
+    buildG3XAttFrame(buf, 0.0f, 0.0f, 0, 100.0f, 3000, 0.0f, 1.0f, 0, 0, 0.0f);
+    buf[3] = '9'; buf[4] = '9';   // HH=99 (invalid)
+    int crc = 0;
+    for (int i = 0; i <= 54; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    putField(buf, 55, tmp, 2);
+
+    GarminG3XParser parser;
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
 void test_g3x_interleaved_att_and_ems(void)
 {
     char att[59];
@@ -372,6 +393,7 @@ int main(int, char**)
     RUN_TEST(test_g3x_ems_engine_sentinels_become_nan);
     RUN_TEST(test_g3x_att_time_of_day_round_trip);
     RUN_TEST(test_g3x_att_time_of_day_non_digits_leave_empty);
+    RUN_TEST(test_g3x_att_time_of_day_out_of_range_leaves_empty);
     RUN_TEST(test_g3x_interleaved_att_and_ems);
     RUN_TEST(test_g3x_truncated_no_output);
     RUN_TEST(test_g3x_corrupted_crc_no_output);

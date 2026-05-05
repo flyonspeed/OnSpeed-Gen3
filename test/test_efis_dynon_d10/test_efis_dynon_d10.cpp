@@ -312,6 +312,28 @@ void test_d10_time_of_day_non_digits_leave_empty(void)
     TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
 }
 
+void test_d10_time_of_day_out_of_range_leaves_empty(void)
+{
+    // ASCII-digit bytes that decode to HH > 23 / MM > 59 / SS > 59 /
+    // FF > 99 should leave timeOfDayHms empty rather than write a
+    // nonsensical wall-clock stamp.  HH=99 here.
+    char buf[53];
+    buildD10Frame(buf, 0.0f, 0.0f, 50.0f, 1500.0f, 0.0f, 0.0f, 1.0f, 0, 0x0);
+    buf[0] = '9'; buf[1] = '9';   // HH=99 (invalid)
+
+    int crc = 0;
+    for (int i = 0; i <= 48; i++) crc += static_cast<unsigned char>(buf[i]);
+    crc &= 0xFF;
+    char tmp[4];
+    snprintf(tmp, sizeof(tmp), "%02X", crc);
+    buf[49] = tmp[0]; buf[50] = tmp[1];
+
+    DynonD10Parser parser;
+    auto frame = primeAndFeed(parser, buf, 53);
+    TEST_ASSERT_TRUE(frame.has_value());
+    TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -329,5 +351,6 @@ int main(int, char**)
     RUN_TEST(test_d10_buffer_overflow_resets_and_recovers);
     RUN_TEST(test_d10_time_of_day_round_trip);
     RUN_TEST(test_d10_time_of_day_non_digits_leave_empty);
+    RUN_TEST(test_d10_time_of_day_out_of_range_leaves_empty);
     return UNITY_END();
 }

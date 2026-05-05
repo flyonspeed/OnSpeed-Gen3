@@ -26,6 +26,15 @@ EfisSerialPort::EfisSerialPort()
     suEfis.VSI              = 0;
     suEfis.TAS              = 0.00f;
     suEfis.OAT              = 0.00f;
+    // EMS engine fields zero-initialize to "no data received."  When an
+    // EFIS is connected but sends no EMS frames (non-EMS-equipped
+    // aircraft, or a D10/G5/MGL connection where no EMS frame exists),
+    // applyFrame() never overwrites these defaults — the SD log reads
+    // 0 for the duration.  Post-flight tools should treat the row's
+    // efisRpm/efisMap/efisFuelFlow/efisFuelRemaining/efisPercentPower
+    // columns as "absent" when all five read 0 with `efisAge` not set.
+    // Changing this to NaN/empty-string output is tracked separately;
+    // leaving 0 here preserves the pre-PR contract for downstream tools.
     suEfis.FuelRemaining    = 0.00f;
     suEfis.FuelFlow         = 0.00f;
     suEfis.MAP              = 0.00f;

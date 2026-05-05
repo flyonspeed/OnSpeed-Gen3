@@ -53,9 +53,12 @@ static int parseHexCRC(const char* buf, int pos)
 
 // Parse Dynon !1 System Time bytes buf[3..8] ("HHMMSS" — the FF fraction
 // at buf[9..10] is ignored). Writes an 8-char "HH:MM:SS" NUL-terminated
-// string into `out[9]`. Writes an empty string if any dash is present in
-// the 6 HHMMSS bytes or if H/M/S are out of range.
-static void parseSystemTime(const char* buf, char out[9])
+// string into `out` (which must be at least 9 bytes; current callers
+// pass `EfisFrame::timeOfDayHms`, sized 12 to fit the centisecond
+// formats produced by D10/G5/G3X/MGL — SkyView only fills the first 9).
+// Writes an empty string if any dash is present in the 6 HHMMSS bytes
+// or if H/M/S are out of range.
+static void parseSystemTime(const char* buf, char* out)
 {
     out[0] = '\0';
 

@@ -67,7 +67,12 @@ void test_fields_are_writable(void)
 void test_size_is_reasonable(void)
 {
     // 16 floats (64 B) + enum (4 B) + uint32 timestamp (4 B) +
-    // char[12] time-of-day (12 B) = 84 B nominal. Allow padding to 96.
+    // char[12] time-of-day (12 B) = 84 B nominal, padded to 96.
+    // EfisFrame is a normalized shared type whose size growth has
+    // documented cost (copies in pending_ / TakeFrame()), so pin both
+    // bounds — accidental field additions that bump padding to the next
+    // alignment slot fail closed.
+    TEST_ASSERT_GREATER_OR_EQUAL(84u, sizeof(EfisFrame));
     TEST_ASSERT_LESS_OR_EQUAL(96u, sizeof(EfisFrame));
 }
 
