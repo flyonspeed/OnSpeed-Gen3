@@ -49,11 +49,9 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #if defined(REPEATER_MODE)
 #define VARIANT_PREFIX "R"
 #define IAS_IN_MPH
-#define DATAMARK_DISPLAY
 #elif defined(VAC_MODE)
 #define VARIANT_PREFIX "V"
 #define IAS_IN_MPH
-#define DATAMARK_DISPLAY
 #else
 #define VARIANT_PREFIX ""
 #endif
@@ -915,14 +913,18 @@ void displayAOA()
     gdraw.drawLine (306, 119, 312, 119, TFT_GREY);
     gdraw.drawLine (306, 120, 312, 120, TFT_GREY);
 
-#if defined(DATAMARK_DISPLAY)
-    // Draw Data Mark value
-    // --------------------
+    // Draw the data-mark counter at top-left.  Increments on a 1-second
+    // long-press of the OnSpeed switch (Switch.cpp); the value comes
+    // off the wire (offset 69, mod 100) so the M5 readout matches what
+    // the SD log records.  Drawn on both Mode 0 (Primary) and Mode 2
+    // (Indexer-only) so the counter advance stays visible regardless of
+    // which page the pilot picked — confirms the long-press registered.
+    // 16×14 px at top-left, well clear of the indexer column (x=109+)
+    // and the IAS readout (y=90).
     gdraw.setFont(FM12);
     gdraw.setTextColor (TFT_WHITE);
     gdraw.setCursor(10, 15);
     gdraw.printf ("%02d", DataMark);
-#endif
 } // end displayAOA()
 
 
