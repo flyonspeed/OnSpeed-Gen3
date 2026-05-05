@@ -3176,6 +3176,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#tail-optional-columns-format-version-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tail-Optional Columns (Format Version 2)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3385,6 +3396,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#tail-optional-columns-format-version-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tail-Optional Columns (Format Version 2)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3412,7 +3434,7 @@
 
 <h1 id="csv-log-columns-reference">CSV Log Columns Reference<a class="headerlink" href="#csv-log-columns-reference" title="Permanent link">&para;</a></h1>
 <p>Complete reference for all columns in OnSpeed SD card log files. Data is logged at 50 Hz by default (configurable to 208 Hz via the web interface).</p>
-<p>Columns are written in three groups: (1) base core columns (<code>timeStamp</code> through <code>Roll</code>), (2) optional Boom and/or EFIS columns when those features are enabled, (3) derived core columns (<code>EarthVerticalG</code> through <code>CoeffP</code>). Parse by column name — direct index positions shift when optional blocks are enabled.</p>
+<p>Columns are written in four groups: (1) base core columns (<code>timeStamp</code> through <code>Roll</code>), (2) optional Boom and/or EFIS columns when those features are enabled, (3) derived core columns (<code>EarthVerticalG</code> through <code>CoeffP</code>), (4) tail-optional <code>flapsRawADC</code>. Parse by column name — direct index positions shift when optional blocks are enabled.</p>
 <h2 id="core-columns-base">Core Columns — Base<a class="headerlink" href="#core-columns-base" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3471,7 +3493,7 @@
 <tr>
 <td><code>flapsPos</code></td>
 <td>degrees</td>
-<td>Detected flap position</td>
+<td>Detected flap position (snapped to the nearest configured detent)</td>
 </tr>
 <tr>
 <td><code>DataMark</code></td>
@@ -3864,6 +3886,26 @@
 <td><code>vnTimeUTC</code></td>
 <td>HH:MM:SS.cc</td>
 <td>UTC time from VN-300</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tail-optional-columns-format-version-2">Tail-Optional Columns (Format Version 2)<a class="headerlink" href="#tail-optional-columns-format-version-2" title="Permanent link">&para;</a></h2>
+<p>Appended at the end of every row, after <code>CoeffP</code>. Older firmware (format
+version 1) omits these columns; parsers must look up by name from the
+header line rather than by fixed position.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flapsRawADC</code></td>
+<td>counts</td>
+<td>Raw flap-lever pot ADC reading (uint16, typically 0–4095 on the 12-bit ADC). Lets replay and analysis tools reproduce the L/Dmax pip slide across detent transitions; consumers interpolate the pip lever-end-to-end using this value against the configured <code>&lt;FLAPPOTPOSITIONS&gt;</code> boundaries.</td>
 </tr>
 </tbody>
 </table>

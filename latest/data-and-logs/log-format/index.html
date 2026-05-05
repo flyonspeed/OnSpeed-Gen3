@@ -2840,6 +2840,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#tail-optional-format-version-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tail-Optional (Format Version 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3536,6 +3547,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#tail-optional-format-version-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tail-Optional (Format Version 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3648,7 +3670,7 @@
 <tr>
 <td><code>flapsPos</code></td>
 <td>degrees</td>
-<td>Detected flap position</td>
+<td>Detected flap position (snapped to the nearest configured detent)</td>
 </tr>
 <tr>
 <td><code>OAT</code></td>
@@ -3938,6 +3960,25 @@
 <td><code>DataMark</code></td>
 <td>0–99</td>
 <td>Pilot annotation mark (wraps at 100)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tail-optional-format-version-2">Tail-Optional (Format Version 2)<a class="headerlink" href="#tail-optional-format-version-2" title="Permanent link">&para;</a></h3>
+<p>Appended at the very end of every row, after <code>CoeffP</code>. Older firmware
+(format version 1) omits these columns entirely.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Units</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flapsRawADC</code></td>
+<td>counts</td>
+<td>Raw flap-lever pot ADC reading. Replay tools interpolate the L/Dmax pip across detent transitions using this value and the configured <code>&lt;FLAPPOTPOSITIONS&gt;</code> boundaries.</td>
 </tr>
 </tbody>
 </table>
