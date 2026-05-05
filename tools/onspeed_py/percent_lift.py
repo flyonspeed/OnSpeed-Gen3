@@ -19,38 +19,31 @@ import math
 from .config import FlapSetpoints
 
 
-def compute_percent_lift(aoa: float, fs: FlapSetpoints) -> int:
-    """Honest single-linear envelope fraction, clamped to [0, 99].
+def compute_percent_lift(aoa: float, fs: FlapSetpoints) -> float:
+    """Honest single-linear envelope fraction, clamped to [0.0, 99.9].
+
+    Mirrors `onspeed_core/aoa/PercentLift.cpp::ComputePercentLift` —
+    returns whole-percent units (e.g. 47.3) so callers don't have to
+    juggle a separate "tenths" scale.  Wire encoders (Frame builder
+    here, BuildDisplayFrame in C++) scale ×10 and truncate to int for
+    the `#1` wire's tenths field.
 
     When `alpha_stall` is uncalibrated (≤ `stallwarn_aoa`), use the
     synthetic ceiling `stallwarn * 100/90` so band edges still render
     in roughly the right places on a not-yet-fitted config.
+
+    The 99.9 ceiling (rather than 99.0) is load-bearing for the wire
+    encoding: the encoder multiplies by 10 and truncates, and the
+    field saturates at 999 (never 1000) by convention.
     """
     alpha_stall = fs.alpha_stall
     if alpha_stall <= fs.stallwarn_aoa:
         alpha_stall = fs.stallwarn_aoa * 100.0 / 90.0
     span = alpha_stall - fs.alpha_0
     if span <= 0:
-        return 0
-    pct = int((aoa - fs.alpha_0) / span * 100.0)
-    return max(0, min(99, pct))
-
-
-def compute_percent_lift_tenths(aoa: float, fs: FlapSetpoints) -> int:
-    """Same formula scaled by 1000 — tenths of a percent, clamped [0, 999].
-
-    Mirrors `onspeed_core/aoa/PercentLift.cpp::ComputePercentLiftTenths`.
-    Used by `tools/m5-replay/replay.py` to populate the v4.23 `#1` wire's
-    `percentLift` field at sub-percent resolution.  `473` means 47.3%.
-    """
-    alpha_stall = fs.alpha_stall
-    if alpha_stall <= fs.stallwarn_aoa:
-        alpha_stall = fs.stallwarn_aoa * 100.0 / 90.0
-    span = alpha_stall - fs.alpha_0
-    if span <= 0:
-        return 0
-    tenths = int((aoa - fs.alpha_0) / span * 1000.0)
-    return max(0, min(999, tenths))
+        return 0.0
+    pct = (aoa - fs.alpha_0) / span * 100.0
+    return max(0.0, min(99.9, pct))
 
 
 def ias_from_aoa(aoa: float, fs: FlapSetpoints, n: float = 1.0) -> float:

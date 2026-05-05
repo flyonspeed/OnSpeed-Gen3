@@ -6,7 +6,7 @@ This page is the canonical specification for that wire format.
 
 ## Design intent
 
-The WebSocket is the LiveView's data path, paralleling the [display serial protocol](serial-protocol.md) that feeds the M5 secondary display. The two paths share the same `percent-lift` contract — `percentLift`, `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, `pipPctLift` are computed by the same firmware code and travel byte-for-byte equivalent values on either path. A future shared indexer renderer can run identically off either transport.
+The WebSocket is the LiveView's data path, paralleling the [display serial protocol](serial-protocol.md) that feeds the M5 secondary display. The two paths share the same `percent-lift` contract — `percentLift`, `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, `pipPctLift` are computed by the same firmware code (`onspeed_core::ComputePercentLift` + `ComputeDisplayPctAnchors`). The JSON formats `percentLift` as `%.1f` (rounded to one decimal); the wire encodes `int(pct × 10)` in `%03u` (truncated to one decimal). Consumers reading either transport reconstruct a whole-percent float; the two reconstructions agree to within 0.1% — the wire's tenths-of-a-percent quantization is the resolution limit, and the truncate-vs-round encoding choice at each boundary can produce a sub-tenth difference on the same source AOA. The four band-edge anchors stay integer-percent on both paths. A shared indexer renderer can run identically off either transport at the granularity that matters for visual rendering.
 
 The encodings differ deliberately. The display serial path is a fixed-offset ASCII frame designed for a low-bandwidth UART to a hardware panel display; bandwidth and parsing simplicity matter, and adding a field is a hard protocol change that requires re-flashing both ends. The WebSocket path is JSON over TCP/WebSocket text frames, designed for browser and software consumers; bandwidth is plentiful, parsing is `JSON.parse()`, and adding a field is a soft change because old consumers ignore unknown keys.
 
@@ -89,7 +89,7 @@ Example payload (formatted; on the wire it's compact, no whitespace). Values are
   "DecelRate": -0.15,
   "OAT": 22.50,
   "DerivedAOA": 4.18,
-  "percentLift": 34,
+  "percentLift": 34.7,
   "tonesOnPctLift": 18,
   "onSpeedFastPctLift": 32,
   "onSpeedSlowPctLift": 48,
@@ -104,7 +104,7 @@ Typical compacted frame size: **~390 bytes** in cruise; up to **~460 bytes** in 
 
 ## Field reference
 
-Every field appears in every frame. Floats are formatted with 2 decimal places (`%.2f`); integers are bare. Numeric values are guarded against `NaN` / `Inf` — any non-finite source value is replaced with a documented fallback (typically 0 or a sentinel) so the JSON is always parseable.
+Every field appears in every frame. Floats are formatted with 2 decimal places (`%.2f`) by default; the live `percentLift` field is `%.1f` (one decimal — matches the wire's tenths resolution) and integers are bare. Numeric values are guarded against `NaN` / `Inf` — any non-finite source value is replaced with a documented fallback (typically 0 or a sentinel) so the JSON is always parseable.
 
 A note on source selection: several attitude/air-data fields read from different sources depending on the calibration-source config:
 
@@ -146,7 +146,7 @@ The per-field tables below note source variations where they apply.
 | --- | --- | --- | --- |
 | `AOA` | float | degrees | **Body angle**, not wing AOA. The fuselage-to-wind angle. See [How OnSpeed Measures AOA](../calibration/how-aoa-works.md) for the convention. Sentinel value `-100` is emitted when AOA is `NaN` or IAS is below the audio mute threshold (`MUTE_UNDER_IAS` in config); the LiveView gates on `AOA > -20` to render N/A in that state. |
 | `DerivedAOA` | float | degrees | Body angle derived from the AHRS (pitch and flight path), `g_AHRS.DerivedAOA`. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning. |
-| `percentLift` | int | 0–99 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0, 99]`. Uses the **active-detent** flap calibration (matches what the audio path uses). |
+| `percentLift` | float | 0.0–99.9 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift::ComputePercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0.0, 99.9]`. Emitted with one decimal of precision (e.g. `34.7`) so the LiveView indexer bar can advance at sub-pixel temporal smoothness off the 20 Hz cadence — same fidelity the M5 wire carries via its `%03u` tenths-of-a-percent field. Consumers expecting an integer can `Math.round` / `int()` at the readout site. Uses the **active-detent** flap calibration (matches what the audio path uses). |
 | `coeffP` | float | dimensionless | Ratiometric pressure coefficient (the "CP3" form in the firmware): `P45 / Pfwd`, where `Pfwd` is the differential pitot pressure and `P45` is the differential AOA pressure from the angled-port probe. Returns `0.0` when `Pfwd ≤ 0` to avoid division-by-zero on the ground. The textbook-form Cp `(P_aoa − P_static) / q` is **not** what's emitted here — the firmware uses the ratiometric form because it stays well-behaved through the AOA-port pressure zero-crossing on Dynon-style probes. Implementation: `onspeed_core/util/OnSpeedTypes.h::pressureCoeff()`. |
 
 ### Indexer percent-lift anchors

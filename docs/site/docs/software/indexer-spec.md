@@ -60,7 +60,7 @@ The Gen3 firmware emits one `#1` frame every 50 ms. Each visual element reads on
 | `pipPctLift` | slide clean → fullflap | L/Dmax pip dot positions |
 | `flapsDeg` | per-bracket lerp | flap-position widget angle (separate from indexer) |
 
-The five percent fields are all in `[0, 99]`. `percentLift` is computed live from `g_Sensors.AOA` and the active detent's calibration. The four anchor fields are computed by `ComputeDisplayPctAnchors` from the configured flap vector and the raw lever-pot ADC.
+`percentLift` is the live AOA reading as a `float` in whole-percent units (0.0..99.9), computed from `g_Sensors.AOA` and the active detent's calibration via `ComputePercentLift`. The four anchor fields (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, `pipPctLift`) stay integer-percent in `[0, 99]` — they only move on detent or config-save events, so sub-percent buys nothing on those. Computed by `ComputeDisplayPctAnchors` from the configured flap vector and the raw lever-pot ADC. Comparisons between `percentLift` (float) and an anchor (int) promote the int to float; behavior is exact for our range since integer values up to 2²⁴ are representable in float32 without rounding.
 
 ## 3. Gates and color logic
 
@@ -144,8 +144,10 @@ The strip's pixel Y coordinate is a piecewise-linear function of percent-lift, a
 | `≤ 0` | `192` (display bottom) |
 | `(0, onSpeedFastPctLift]` | `192 → 115` (linear) |
 | `(onSpeedFastPctLift, onSpeedSlowPctLift]` | `115 → 78` (donut band, fixed screen-Y) |
-| `(onSpeedSlowPctLift, stallWarnPctLift]` | `78 → 1` (linear) |
-| `> stallWarnPctLift` | `1` (display top) |
+| `(onSpeedSlowPctLift, 99]` | `78 → 1` (linear) |
+| `> 99` | `1` (display top) |
+
+The upper ramp tops out at percent_lift = 99 — the lift-envelope ceiling — independent of the active detent's stall-warn percent. Stall-warn drives the chevron flash-red color logic in `drawAOA` (§3.1); it does not gate Y here. Floats in (99.0, 99.9] (the float clamp range above 99) saturate at y=1 just like the integer 99 — the bar visibly pinning at "off the chart" is the documented saturation cue.
 
 The donut band is anchored at fixed pixel Y so the donut never moves on screen, regardless of which detent is active. The L/Dmax pip and the white index bar both float according to their percent values — when those values fall within the donut band, they appear inside it.
 
@@ -172,8 +174,10 @@ $$
 $$
 
 $$
-\text{pipFullFlap} = \frac{1}{2}\left( \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDFASTAOA},\ \text{mostDeployed}) + \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDSLOWAOA},\ \text{mostDeployed}) \right)
+\text{pipFullFlap} = \frac{1}{4}\left( 3 \cdot \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDFASTAOA},\ \text{mostDeployed}) + \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDSLOWAOA},\ \text{mostDeployed}) \right)
 $$
+
+That is, the full-flap pip target is the **bottom-half-of-donut** anchor — one quarter of the way from the fast (lower-percent) edge into the OnSpeed band. Lands the chevron in the lower donut at L/Dmax instead of climbing into the upper donut to meet a band-center pip (per PR #376).
 
 `cleanest` is the lowest-degree configured flap entry (`g_Config.aFlaps[0]` after parse-time sort). `mostDeployed` is the highest-degree entry (`g_Config.aFlaps[entryCount-1]`). **Intermediate detents are ignored** for the pip — a typical 3-detent config (clean / 16° / 33°) lerps from clean to 33° as the lever moves, passing through the 16° detent's calibrated L/Dmax percent only by coincidence (the 16° detent's L/Dmax does not anchor the pip).
 

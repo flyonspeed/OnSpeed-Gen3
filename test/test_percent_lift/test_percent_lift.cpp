@@ -3,6 +3,10 @@
 // Pins the honest single-linear normalization:
 //   percentLift = (aoaDeg - fAlpha0) / (fAlphaStall - fAlpha0) * 100
 //
+// The function returns whole-percent units as a float (0.0..99.9) since
+// the v4.24 unification.  The wire encoder in BuildDisplayFrame scales
+// ×10 and truncates to int for the `%03u` tenths-of-a-percent field.
+//
 // Where each per-flap setpoint (LDmax, OnSpeedFast/Slow, StallWarn)
 // lands on this scale is *whatever the calibration says* — the
 // percent values vary per flap because the aerodynamics vary per
@@ -17,11 +21,15 @@
 #include <config/OnSpeedConfig.h>
 
 using onspeed::aoa::ComputePercentLift;
-using onspeed::aoa::ComputePercentLiftTenths;
 using SuFlaps = onspeed::config::OnSpeedConfig::SuFlaps;
 
 void setUp(void) {}
 void tearDown(void) {}
+
+// Tolerance for float-percent comparisons: 0.05% is well below the
+// minimum the wire's tenths field can resolve (0.1%) and well below
+// any flight-meaningful change.
+static constexpr float kPctEps = 0.05f;
 
 // Realistic-ish RV-10-style flap calibration.
 // Span = alpha_stall - alpha_0 = 11.0 - (-2.5) = 13.5 deg.
@@ -78,12 +86,12 @@ static SuFlaps makeUncalibratedFlaps()
     return f;
 }
 
-// Helper: expected percent for the honest formula.
-static int expectedPct(float aoaDeg, float alpha0, float alphaStall)
+// Helper: expected percent for the honest formula (whole-percent float).
+static float expectedPctF(float aoaDeg, float alpha0, float alphaStall)
 {
-    int p = static_cast<int>((aoaDeg - alpha0) / (alphaStall - alpha0) * 100.0f);
-    if (p < 0)  p = 0;
-    if (p > 99) p = 99;
+    float p = (aoaDeg - alpha0) / (alphaStall - alpha0) * 100.0f;
+    if (p < 0.0f)  p = 0.0f;
+    if (p > 99.9f) p = 99.9f;
     return p;
 }
 
@@ -95,9 +103,9 @@ void test_ias_invalid_returns_zero(void)
 {
     SuFlaps f = makeRv10ZeroFlaps();
     // Even at stall AOA, with iasValid=false we should still get 0.
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(11.0f, f, false));
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(0.0f,  f, false));
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(-5.0f, f, false));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(11.0f, f, false));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(0.0f,  f, false));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(-5.0f, f, false));
 }
 
 // ============================================================================
@@ -107,28 +115,30 @@ void test_ias_invalid_returns_zero(void)
 void test_at_alpha_0_returns_0(void)
 {
     SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(f.fAlpha0, f, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(f.fAlpha0, f, true));
 }
 
 void test_below_alpha_0_clamps_to_0(void)
 {
     SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(-10.0f, f, true));
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(f.fAlpha0 - 5.0f, f, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(-10.0f, f, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(f.fAlpha0 - 5.0f, f, true));
 }
 
-void test_at_alpha_stall_clamps_to_99(void)
+void test_at_alpha_stall_clamps_to_99_9(void)
 {
-    // Honest formula at alpha_stall = exactly 100, then clamped to 99.
+    // Honest formula at alpha_stall = exactly 100, then clamped to 99.9
+    // (saturation convention — never reads 100, the wire encoder's
+    // tenths field never emits 1000).
     SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(99, ComputePercentLift(f.fAlphaStall, f, true));
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 99.9f, ComputePercentLift(f.fAlphaStall, f, true));
 }
 
-void test_above_alpha_stall_clamps_to_99(void)
+void test_above_alpha_stall_clamps_to_99_9(void)
 {
     SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(99, ComputePercentLift(20.0f, f, true));
-    TEST_ASSERT_EQUAL_INT(99, ComputePercentLift(40.0f, f, true));
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 99.9f, ComputePercentLift(20.0f, f, true));
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 99.9f, ComputePercentLift(40.0f, f, true));
 }
 
 void test_midpoint_alpha_0_to_alpha_stall(void)
@@ -136,7 +146,7 @@ void test_midpoint_alpha_0_to_alpha_stall(void)
     // (alpha_0 + alpha_stall) / 2 = 4.25 -> exactly 50%.
     SuFlaps f = makeRv10ZeroFlaps();
     const float mid = (f.fAlpha0 + f.fAlphaStall) / 2.0f;
-    TEST_ASSERT_INT_WITHIN(1, 50, ComputePercentLift(mid, f, true));
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 50.0f, ComputePercentLift(mid, f, true));
 }
 
 void test_linearity(void)
@@ -148,10 +158,49 @@ void test_linearity(void)
     for (int i = 0; i <= 10; ++i) {
         const float frac = static_cast<float>(i) / 10.0f;     // 0.0 .. 1.0
         const float aoa  = f.fAlpha0 + frac * span;
-        const int   exp  = expectedPct(aoa, f.fAlpha0, f.fAlphaStall);
-        const int   got  = ComputePercentLift(aoa, f, true);
-        TEST_ASSERT_INT_WITHIN(1, exp, got);
+        const float exp  = expectedPctF(aoa, f.fAlpha0, f.fAlphaStall);
+        const float got  = ComputePercentLift(aoa, f, true);
+        TEST_ASSERT_FLOAT_WITHIN(kPctEps, exp, got);
     }
+}
+
+// ============================================================================
+// Sub-percent fidelity (the wire's tenths-of-a-percent resolution
+// surfaces here as float fractional values).
+// ============================================================================
+
+void test_sub_percent_fidelity_carries_through(void)
+{
+    // span = 13.5 deg; 1% = 0.135 deg of body angle.
+    // Step from 0.0 deg to 0.0135 deg in tiny increments and confirm
+    // the float return distinguishes them.
+    SuFlaps f = makeRv10ZeroFlaps();
+    const float span = f.fAlphaStall - f.fAlpha0;    // 13.5
+    const float onePct = span / 100.0f;              // 0.135 deg
+
+    const float p0 = ComputePercentLift(f.fAlpha0 + 0.5f * onePct, f, true);
+    const float p1 = ComputePercentLift(f.fAlpha0 + 0.7f * onePct, f, true);
+    // Both should land below 1.0% but be distinct (sub-percent fidelity).
+    TEST_ASSERT_TRUE(p0 < 1.0f);
+    TEST_ASSERT_TRUE(p1 < 1.0f);
+    TEST_ASSERT_TRUE(p1 > p0);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 0.5f, p0);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 0.7f, p1);
+}
+
+void test_saturation_below_100(void)
+{
+    // The clamp at 99.9 means the wire encoder's truncation
+    // `static_cast<int>(99.9f * 10.0f)` lands at 999 — never 1000.
+    // This is the load-bearing invariant for the wire.
+    SuFlaps f = makeRv10ZeroFlaps();
+    const float pct = ComputePercentLift(1000.0f, f, true);   // way above stall
+    TEST_ASSERT_TRUE(pct < 100.0f);
+    TEST_ASSERT_TRUE(pct >= 99.0f);
+    // Wire encoding sanity check (mirrors BuildDisplayFrame's truncation).
+    const int wireTenths = static_cast<int>(pct * 10.0f);
+    TEST_ASSERT_TRUE(wireTenths <= 999);
+    TEST_ASSERT_TRUE(wireTenths >= 990);
 }
 
 // ============================================================================
@@ -159,10 +208,7 @@ void test_linearity(void)
 //
 // L/Dmax-the-body-angle is a measurable, flyable property of the
 // active flap.  Its position on the lift envelope (the percent value
-// the indexer reads at L/Dmax body angle) varies per flap.  These
-// tests verify that the function delivers different percents for the
-// same-name setpoints across two different flap configs — the exact
-// behavior the segmented function used to hide.
+// the indexer reads at L/Dmax body angle) varies per flap.
 // ============================================================================
 
 void test_ldmax_percent_varies_per_flap(void)
@@ -170,22 +216,19 @@ void test_ldmax_percent_varies_per_flap(void)
     SuFlaps clean = makeRv10ZeroFlaps();
     SuFlaps full  = makeRv10FullFlaps();
 
-    int cleanLdmaxPct = ComputePercentLift(clean.fLDMAXAOA, clean, true);
-    int fullLdmaxPct  = ComputePercentLift(full.fLDMAXAOA,  full,  true);
+    const float cleanLdmaxPct = ComputePercentLift(clean.fLDMAXAOA, clean, true);
+    const float fullLdmaxPct  = ComputePercentLift(full.fLDMAXAOA,  full,  true);
 
     // Both should land somewhere in the lower-middle of the envelope,
-    // but at *different* percents.  For these fixtures: clean L/Dmax
-    // (2.0 deg, span 13.5) -> ~33%; full L/Dmax (-2.2 deg, span 20.5)
-    // -> ~33%.  These happen to be close — the point is that they're
-    // computed from the calibration, not hardcoded to 50.
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(clean.fLDMAXAOA, clean.fAlpha0, clean.fAlphaStall),
-                           cleanLdmaxPct);
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(full.fLDMAXAOA, full.fAlpha0, full.fAlphaStall),
-                           fullLdmaxPct);
+    // but per the formula on each detent's own (alpha_0, alpha_stall).
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps,
+        expectedPctF(clean.fLDMAXAOA, clean.fAlpha0, clean.fAlphaStall), cleanLdmaxPct);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps,
+        expectedPctF(full.fLDMAXAOA, full.fAlpha0, full.fAlphaStall), fullLdmaxPct);
 
-    // Neither should be 50 — that was the segmented function's lie.
-    TEST_ASSERT_NOT_EQUAL(50, cleanLdmaxPct);
-    TEST_ASSERT_NOT_EQUAL(50, fullLdmaxPct);
+    // Neither should be 50 — the segmented function used to lie at 50%.
+    TEST_ASSERT_TRUE(std::fabs(cleanLdmaxPct - 50.0f) > 1.0f);
+    TEST_ASSERT_TRUE(std::fabs(fullLdmaxPct  - 50.0f) > 1.0f);
 }
 
 void test_onspeed_band_edges_vary_per_flap(void)
@@ -193,22 +236,18 @@ void test_onspeed_band_edges_vary_per_flap(void)
     SuFlaps clean = makeRv10ZeroFlaps();
     SuFlaps full  = makeRv10FullFlaps();
 
-    // OnSpeedFast: clean (5.0) -> ~55%, full (2.4) -> ~55%.
-    // OnSpeedSlow: clean (7.5) -> ~74%, full (4.1) -> ~64%.
-    int cleanFast = ComputePercentLift(clean.fONSPEEDFASTAOA, clean, true);
-    int fullFast  = ComputePercentLift(full.fONSPEEDFASTAOA,  full,  true);
-    int cleanSlow = ComputePercentLift(clean.fONSPEEDSLOWAOA, clean, true);
-    int fullSlow  = ComputePercentLift(full.fONSPEEDSLOWAOA,  full,  true);
+    const float cleanFast = ComputePercentLift(clean.fONSPEEDFASTAOA, clean, true);
+    const float fullFast  = ComputePercentLift(full.fONSPEEDFASTAOA,  full,  true);
+    const float cleanSlow = ComputePercentLift(clean.fONSPEEDSLOWAOA, clean, true);
+    const float fullSlow  = ComputePercentLift(full.fONSPEEDSLOWAOA,  full,  true);
 
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(clean.fONSPEEDFASTAOA, clean.fAlpha0, clean.fAlphaStall), cleanFast);
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(full.fONSPEEDFASTAOA,  full.fAlpha0,  full.fAlphaStall),  fullFast);
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(clean.fONSPEEDSLOWAOA, clean.fAlpha0, clean.fAlphaStall), cleanSlow);
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(full.fONSPEEDSLOWAOA,  full.fAlpha0,  full.fAlphaStall),  fullSlow);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, expectedPctF(clean.fONSPEEDFASTAOA, clean.fAlpha0, clean.fAlphaStall), cleanFast);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, expectedPctF(full.fONSPEEDFASTAOA,  full.fAlpha0,  full.fAlphaStall),  fullFast);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, expectedPctF(clean.fONSPEEDSLOWAOA, clean.fAlpha0, clean.fAlphaStall), cleanSlow);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, expectedPctF(full.fONSPEEDSLOWAOA,  full.fAlpha0,  full.fAlphaStall),  fullSlow);
 
-    // Neither should be 55 or 66 — those were the segmented function's lies.
-    // (Within rounding: %01 means 56 close enough to 55 — but 64 is clearly
-    //  not 66, so this test catches the case meaningfully.)
-    TEST_ASSERT_NOT_EQUAL(66, fullSlow);
+    // Full-flap slow should not be 66 (that was the segmented function's lie).
+    TEST_ASSERT_TRUE(std::fabs(fullSlow - 66.0f) > 1.0f);
 }
 
 void test_stall_warn_percent_varies_per_flap(void)
@@ -216,15 +255,15 @@ void test_stall_warn_percent_varies_per_flap(void)
     SuFlaps clean = makeRv10ZeroFlaps();
     SuFlaps full  = makeRv10FullFlaps();
 
-    int cleanWarn = ComputePercentLift(clean.fSTALLWARNAOA, clean, true);
-    int fullWarn  = ComputePercentLift(full.fSTALLWARNAOA,  full,  true);
+    const float cleanWarn = ComputePercentLift(clean.fSTALLWARNAOA, clean, true);
+    const float fullWarn  = ComputePercentLift(full.fSTALLWARNAOA,  full,  true);
 
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(clean.fSTALLWARNAOA, clean.fAlpha0, clean.fAlphaStall), cleanWarn);
-    TEST_ASSERT_INT_WITHIN(1, expectedPct(full.fSTALLWARNAOA,  full.fAlpha0,  full.fAlphaStall),  fullWarn);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, expectedPctF(clean.fSTALLWARNAOA, clean.fAlpha0, clean.fAlphaStall), cleanWarn);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, expectedPctF(full.fSTALLWARNAOA,  full.fAlpha0,  full.fAlphaStall),  fullWarn);
 
     // Neither should be 90 — the segmented function's lie.
-    TEST_ASSERT_NOT_EQUAL(90, cleanWarn);
-    TEST_ASSERT_NOT_EQUAL(90, fullWarn);
+    TEST_ASSERT_TRUE(std::fabs(cleanWarn - 90.0f) > 1.0f);
+    TEST_ASSERT_TRUE(std::fabs(fullWarn  - 90.0f) > 1.0f);
 }
 
 // ============================================================================
@@ -235,17 +274,17 @@ void test_uncalibrated_alpha_stall_uses_fallback(void)
 {
     // fAlphaStall = 0 (uncalibrated) -> function falls back to
     // fSTALLWARNAOA * 100 / 90 = 9.5 * 100/90 = 10.555 as the synthetic
-    // upper anchor.  At that AOA the formula reads 100, clamped to 99.
+    // upper anchor.  At that AOA the formula reads 100, clamped to 99.9.
     SuFlaps f = makeUncalibratedFlaps();   // alpha_0 = 0, alpha_stall = 0
-    int top = ComputePercentLift(9.5f * 100.0f / 90.0f, f, true);
-    TEST_ASSERT_EQUAL_INT(99, top);
+    const float top = ComputePercentLift(9.5f * 100.0f / 90.0f, f, true);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 99.9f, top);
 }
 
 void test_uncalibrated_zero_floor(void)
 {
     // alpha_0 = 0 (uncalibrated) -> AOA exactly at 0 reads 0%.
     SuFlaps f = makeUncalibratedFlaps();
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(0.0f, f, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(0.0f, f, true));
 }
 
 // ============================================================================
@@ -262,32 +301,32 @@ void test_uncalibrated_zero_floor(void)
 void test_anchors_stable_across_ias_validity(void)
 {
     SuFlaps f = makeRv10ZeroFlaps();
-    int aliveLdmax    = ComputePercentLift(f.fLDMAXAOA,       f, true);
-    int aliveFast     = ComputePercentLift(f.fONSPEEDFASTAOA, f, true);
-    int aliveSlow     = ComputePercentLift(f.fONSPEEDSLOWAOA, f, true);
-    int aliveWarn     = ComputePercentLift(f.fSTALLWARNAOA,   f, true);
+    const float aliveLdmax    = ComputePercentLift(f.fLDMAXAOA,       f, true);
+    const float aliveFast     = ComputePercentLift(f.fONSPEEDFASTAOA, f, true);
+    const float aliveSlow     = ComputePercentLift(f.fONSPEEDSLOWAOA, f, true);
+    const float aliveWarn     = ComputePercentLift(f.fSTALLWARNAOA,   f, true);
 
     // Producer always passes iasValid=true for setpoint percents — but
     // even if a future caller passed false, the only effect should be
     // returning 0, never producing a different non-zero value.  This
     // pins the contract that the function cannot silently drift on
     // the iasValid axis.
-    int deadLdmax = ComputePercentLift(f.fLDMAXAOA,       f, false);
-    int deadFast  = ComputePercentLift(f.fONSPEEDFASTAOA, f, false);
-    int deadSlow  = ComputePercentLift(f.fONSPEEDSLOWAOA, f, false);
-    int deadWarn  = ComputePercentLift(f.fSTALLWARNAOA,   f, false);
+    const float deadLdmax = ComputePercentLift(f.fLDMAXAOA,       f, false);
+    const float deadFast  = ComputePercentLift(f.fONSPEEDFASTAOA, f, false);
+    const float deadSlow  = ComputePercentLift(f.fONSPEEDSLOWAOA, f, false);
+    const float deadWarn  = ComputePercentLift(f.fSTALLWARNAOA,   f, false);
 
-    TEST_ASSERT_EQUAL_INT(0, deadLdmax);
-    TEST_ASSERT_EQUAL_INT(0, deadFast);
-    TEST_ASSERT_EQUAL_INT(0, deadSlow);
-    TEST_ASSERT_EQUAL_INT(0, deadWarn);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, deadLdmax);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, deadFast);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, deadSlow);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, deadWarn);
 
     // Sanity: alive values are nonzero (the test is meaningful only
     // because the alive case actually computes per the formula).
-    TEST_ASSERT_NOT_EQUAL(0, aliveLdmax);
-    TEST_ASSERT_NOT_EQUAL(0, aliveFast);
-    TEST_ASSERT_NOT_EQUAL(0, aliveSlow);
-    TEST_ASSERT_NOT_EQUAL(0, aliveWarn);
+    TEST_ASSERT_TRUE(aliveLdmax > 0.0f);
+    TEST_ASSERT_TRUE(aliveFast  > 0.0f);
+    TEST_ASSERT_TRUE(aliveSlow  > 0.0f);
+    TEST_ASSERT_TRUE(aliveWarn  > 0.0f);
 }
 
 // ============================================================================
@@ -297,9 +336,9 @@ void test_anchors_stable_across_ias_validity(void)
 void test_nan_input_returns_zero(void)
 {
     SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(NAN, f, true));
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(INFINITY, f, true));
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLift(-INFINITY, f, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(NAN, f, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(INFINITY, f, true));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, ComputePercentLift(-INFINITY, f, true));
 }
 
 void test_degenerate_calibration_returns_zero(void)
@@ -310,94 +349,39 @@ void test_degenerate_calibration_returns_zero(void)
     f.fAlpha0       = 5.0f;
     f.fAlphaStall   = 4.0f;
     f.fSTALLWARNAOA = 3.5f;
-    int pct = ComputePercentLift(4.5f, f, true);
-    TEST_ASSERT_EQUAL_INT(0, pct);
+    const float pct = ComputePercentLift(4.5f, f, true);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, pct);
 }
 
 // ============================================================================
-// ComputePercentLiftTenths — same formula scaled ×1000 for the v4.23 wire
-// ============================================================================
+// Wire encoding round-trip (matches BuildDisplayFrame's truncation
+// `int(pct * 10.0f)` clamped to [0, 999]).
 //
-// Pinned defenses against silent body-angle drift on the wire: every
-// degenerate path that returns 0 in the integer version must also
-// return 0 in the tenths version, and the saturation ceiling must
-// land at 999, not 1000.
+// Wire output agrees with v4.23 master to within ±1 in the wire-tenths
+// field at IEEE 754 precision boundaries.  The new pipeline introduces
+// one extra `× 10` float multiply that wasn't there in v4.23
+// (`int(frac * 1000)`); ~282 of ~10⁹ representable float fractions
+// differ by 1 ULP at the truncation step.  0.1% on the wire is
+// invisible to pilot and audio path, but the discrepancy is real and
+// the tests below pin a ±1 tolerance instead of strict equality at
+// boundary inputs.
+// ============================================================================
 
-void test_tenths_at_alpha_0_returns_0(void)
+void test_wire_tenths_truncation(void)
 {
     SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(f.fAlpha0, f, true));
-}
+    const float span = f.fAlphaStall - f.fAlpha0;    // 13.5
 
-void test_tenths_at_alpha_stall_clamps_to_999(void)
-{
-    SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(999, ComputePercentLiftTenths(f.fAlphaStall, f, true));
-    // Above alpha_stall also saturates at 999, never wraps to 0/1000.
-    TEST_ASSERT_EQUAL_INT(999, ComputePercentLiftTenths(20.0f, f, true));
-}
+    // At the midpoint, formula gives exactly 50.0% → wire 500 tenths.
+    const float midPct = ComputePercentLift(f.fAlpha0 + span * 0.5f, f, true);
+    TEST_ASSERT_FLOAT_WITHIN(kPctEps, 50.0f, midPct);
+    TEST_ASSERT_EQUAL_INT(500, static_cast<int>(midPct * 10.0f));
 
-void test_tenths_midpoint_returns_500(void)
-{
-    SuFlaps f = makeRv10ZeroFlaps();  // span = 13.5
-    const float midAoa = (f.fAlpha0 + f.fAlphaStall) / 2.0f;
-    int tenths = ComputePercentLiftTenths(midAoa, f, true);
-    // Allow ±1 tenth for floating-point truncation.
-    TEST_ASSERT_INT_WITHIN(1, 500, tenths);
-}
+    // At alpha_0, formula gives 0.0 → wire 0.
+    TEST_ASSERT_EQUAL_INT(0, static_cast<int>(ComputePercentLift(f.fAlpha0, f, true) * 10.0f));
 
-void test_tenths_ias_invalid_returns_zero(void)
-{
-    SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(f.fAlphaStall, f, false));
-}
-
-void test_tenths_nan_input_returns_zero(void)
-{
-    SuFlaps f = makeRv10ZeroFlaps();
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(NAN,       f, true));
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(INFINITY,  f, true));
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(-INFINITY, f, true));
-}
-
-void test_tenths_degenerate_calibration_returns_zero(void)
-{
-    // alpha_0 >= alpha_stall: span <= 0 → return 0, not divide-by-zero.
-    SuFlaps f;
-    f.fAlpha0       = 5.0f;
-    f.fAlphaStall   = 4.0f;
-    f.fSTALLWARNAOA = 3.5f;
-    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(4.5f, f, true));
-}
-
-void test_tenths_uncalibrated_alpha_stall_uses_fallback(void)
-{
-    // When alphaStall ≤ stallwarn the function uses stallwarn*100/90 as
-    // the synthetic ceiling.  Stallwarn at 9.0 → ceiling at 10.0 → reading
-    // at 5.0 lands halfway → ~500 tenths.
-    SuFlaps f = makeUncalibratedFlaps();  // alpha_stall=0, stallwarn=9.5
-    f.fSTALLWARNAOA = 9.0f;
-    f.fAlphaStall   = 0.0f;  // unset → fallback path
-    f.fAlpha0       = 0.0f;
-    int tenths = ComputePercentLiftTenths(5.0f, f, true);
-    // Fallback ceiling = 9.0 * 100/90 = 10.0; (5-0)/10 * 1000 = 500.
-    TEST_ASSERT_INT_WITHIN(2, 500, tenths);
-}
-
-void test_tenths_matches_integer_version_at_band_edges(void)
-{
-    // Tenths reading divided by 10 should equal the integer reading
-    // for every body angle that lands inside the [0, 99] saturation
-    // range.  Pins that the two helpers agree on the formula.
-    SuFlaps f = makeRv10ZeroFlaps();
-    for (float aoa : {f.fAlpha0 + 1.0f, 0.0f, 5.0f, 8.0f, f.fAlphaStall - 1.0f}) {
-        int integer = ComputePercentLift(aoa, f, true);
-        int tenths  = ComputePercentLiftTenths(aoa, f, true);
-        // Allow ±1 percent tolerance — the integer truncation in the
-        // two functions can diverge by ≤1 due to int-cast rounding at
-        // different scales.
-        TEST_ASSERT_INT_WITHIN(1, integer, tenths / 10);
-    }
+    // Above alpha_stall, formula clamps to 99.9 → wire 999.
+    TEST_ASSERT_EQUAL_INT(999, static_cast<int>(ComputePercentLift(20.0f, f, true) * 10.0f));
 }
 
 // ============================================================================
@@ -412,10 +396,12 @@ int main(void)
 
     RUN_TEST(test_at_alpha_0_returns_0);
     RUN_TEST(test_below_alpha_0_clamps_to_0);
-    RUN_TEST(test_at_alpha_stall_clamps_to_99);
-    RUN_TEST(test_above_alpha_stall_clamps_to_99);
+    RUN_TEST(test_at_alpha_stall_clamps_to_99_9);
+    RUN_TEST(test_above_alpha_stall_clamps_to_99_9);
     RUN_TEST(test_midpoint_alpha_0_to_alpha_stall);
     RUN_TEST(test_linearity);
+    RUN_TEST(test_sub_percent_fidelity_carries_through);
+    RUN_TEST(test_saturation_below_100);
 
     RUN_TEST(test_ldmax_percent_varies_per_flap);
     RUN_TEST(test_onspeed_band_edges_vary_per_flap);
@@ -428,15 +414,7 @@ int main(void)
     RUN_TEST(test_anchors_stable_across_ias_validity);
     RUN_TEST(test_nan_input_returns_zero);
 
-    // Tenths variant (v4.23 wire scale)
-    RUN_TEST(test_tenths_at_alpha_0_returns_0);
-    RUN_TEST(test_tenths_at_alpha_stall_clamps_to_999);
-    RUN_TEST(test_tenths_midpoint_returns_500);
-    RUN_TEST(test_tenths_ias_invalid_returns_zero);
-    RUN_TEST(test_tenths_nan_input_returns_zero);
-    RUN_TEST(test_tenths_degenerate_calibration_returns_zero);
-    RUN_TEST(test_tenths_uncalibrated_alpha_stall_uses_fallback);
-    RUN_TEST(test_tenths_matches_integer_version_at_band_edges);
+    RUN_TEST(test_wire_tenths_truncation);
 
     return UNITY_END();
 }

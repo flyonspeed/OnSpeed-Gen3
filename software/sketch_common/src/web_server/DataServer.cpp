@@ -305,7 +305,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
         "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
         "\"gOnsetRate\":%.2f,"
-        "\"percentLift\":%i,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
+        "\"percentLift\":%.1f,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
         "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
@@ -408,10 +408,13 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
 
     // Live percent-lift reading — the active-detent calibration is
     // what the audio path uses, so this matches what the pilot hears.
-    int iJsonPercentLift   = 0;
+    // Float in whole-percent units (0.0..99.9) so LiveView can render
+    // the index bar at sub-percent fidelity (matches the wire-tenths
+    // resolution available on the M5 wire).
+    float fJsonPercentLiftPct = 0.0f;
     if (bSnapValid)
         {
-        iJsonPercentLift = ComputePercentLift(fAoaSnap, flapSnapshot, bIasValidForOutput);
+        fJsonPercentLiftPct = ComputePercentLift(fAoaSnap, flapSnapshot, bIasValidForOutput);
         }
 
     // Display percent anchors (Vac, ld_max.pdf §8 — aerodynamic
@@ -502,7 +505,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiOAT,
         fDerivedAOA,
         fGOnsetRate,
-        iJsonPercentLift,
+        fJsonPercentLiftPct,
         iJsonTonesOnPct,
         iJsonFastPct,
         iJsonSlowPct,

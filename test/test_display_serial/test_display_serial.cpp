@@ -107,7 +107,7 @@ void test_roundtrip_all_zeros(void)
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.turnRateDps);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_100, 0.0f, f.lateralG);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.verticalG);
-    TEST_ASSERT_EQUAL(0, f.percentLift);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, f.percentLiftPct);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_1,   0.0f, f.vsiFpm);
     TEST_ASSERT_EQUAL(0, f.oatC);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  0.0f, f.flightPathDeg);
@@ -198,11 +198,14 @@ void test_roundtrip_vertical_g(void)
 
 void test_roundtrip_percent_lift(void)
 {
+    // 55 / 10 = 5.5%; encoder writes wire-tenths "055", decoder
+    // returns 5.5f.  Whole-percent on each side, wire-tenths in the
+    // middle.
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 55;
+    in.percentLiftPct = 5.5f;
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(55, f.percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 5.5f, f.percentLiftPct);
 }
 
 void test_roundtrip_vsi(void)
@@ -364,14 +367,17 @@ void test_clamp_roll_high(void)
 
 void test_clamp_percent_lift_high(void)
 {
-    // percentLift on the wire is tenths of a percent (0..999) at v4.23.
-    // Clamp saturates at 999 — never emits 1000 (which would render
-    // 100.0% on the consumer side).
+    // percentLift on the wire is tenths of a percent (0..999) at v4.23
+    // — saturates at 999 (never emits 1000).  The producer side clamps
+    // percentLiftPct at 99.9 (whole-percent), which the encoder
+    // multiplies by 10 to land at 999.  Test by passing a wildly
+    // out-of-range float and confirming the parser still yields 99.9
+    // (the saturation ceiling).
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 1234;
+    in.percentLiftPct = 123.4f;   // out of range; encoder clamps
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(999, f.percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 99.9f, f.percentLiftPct);
 }
 
 // ----------------------------------------------------------------------------
@@ -417,49 +423,50 @@ void test_ias_high(void)
 void test_percent_lift_zero(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 0;
+    in.percentLiftPct = 0.0f;
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(0, f.percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, f.percentLiftPct);
 }
 
-void test_percent_lift_50(void)
+void test_percent_lift_5_0(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 50;
+    in.percentLiftPct = 5.0f;     // wire 050 → 5.0%
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(50, f.percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 5.0f, f.percentLiftPct);
 }
 
-void test_percent_lift_99(void)
+void test_percent_lift_9_9(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 99;
+    in.percentLiftPct = 9.9f;     // wire 099 → 9.9%
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(99, f.percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 9.9f, f.percentLiftPct);
 }
 
 void test_percent_lift_sub_percent_roundtrip(void)
 {
-    // Wire scale at v4.23 is tenths-of-a-percent. 473 = 47.3% lift.
-    // The integer-percent consumer reads 47 (`/10`); the tenths
-    // consumer reads 47.3 (`/10.0f`).
+    // 47.3% lift goes to wire as `int(47.3 * 10) = 473`, parses back
+    // to 47.3.  The float field carries the wire's tenths-resolution.
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 473;
+    in.percentLiftPct = 47.3f;
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(473, f.percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 47.3f, f.percentLiftPct);
 }
 
-void test_percent_lift_999_max(void)
+void test_percent_lift_99_9_max(void)
 {
+    // The float clamp at 99.9 is load-bearing: 99.9 * 10 = 999 exactly,
+    // so the wire emits 999 (never 1000).
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 999;
+    in.percentLiftPct = 99.9f;
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(999, f.percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 99.9f, f.percentLiftPct);
 }
 
 // ----------------------------------------------------------------------------
@@ -610,7 +617,7 @@ void test_accumulator_parses_complete_frame(void)
     // wrong frame got returned.
     DisplayBuildInputs in = zeroInputs();
     in.pitchDeg          = 7.5f;
-    in.percentLift       = 42;
+    in.percentLiftPct    = 4.2f;     // wire 042 → 4.2%
     in.tonesOnPctLift    = 33;
     in.onSpeedFastPctLift = 55;
     buildOk(in);
@@ -626,7 +633,7 @@ void test_accumulator_parses_complete_frame(void)
     auto r = accum.Inject(frameBuf[kDisplayFrameSizeBytes - 1]);
     TEST_ASSERT_TRUE(r.has_value());
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10,  7.5f, r->pitchDeg);
-    TEST_ASSERT_EQUAL(42, r->percentLift);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 4.2f, r->percentLiftPct);
     TEST_ASSERT_EQUAL(33, r->tonesOnPctLift);
     TEST_ASSERT_EQUAL(55, r->onSpeedFastPctLift);
 }
@@ -784,10 +791,10 @@ int main(int, char**)
     RUN_TEST(test_ias_zero);
     RUN_TEST(test_ias_high);
     RUN_TEST(test_percent_lift_zero);
-    RUN_TEST(test_percent_lift_50);
-    RUN_TEST(test_percent_lift_99);
+    RUN_TEST(test_percent_lift_5_0);
+    RUN_TEST(test_percent_lift_9_9);
     RUN_TEST(test_percent_lift_sub_percent_roundtrip);
-    RUN_TEST(test_percent_lift_999_max);
+    RUN_TEST(test_percent_lift_99_9_max);
 
     RUN_TEST(test_parse_null_buffer);
     RUN_TEST(test_parse_too_short);

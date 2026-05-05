@@ -85,10 +85,19 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
 
     // percentLift on the wire carries tenths of a percent (0..999) so the
     // M5's index bar can advance at sub-pixel temporal smoothness off the
-    // 20 Hz frame cadence. Clamp at 999 — the formula's saturation
-    // convention never emits 1000.
-    const unsigned uPctLift    = ClampUInt(static_cast<unsigned>(
-                                     ClampInt(in.percentLift, 0, 999)), 0, 999);
+    // 20 Hz frame cadence.  Producers fill `percentLiftPct` as a whole-
+    // percent float (e.g. 47.3); we encode `int(pct × 10)` here via
+    // SafeScaledInt's truncation toward zero.  Wire output agrees with
+    // v4.23 master to within ±1 in the wire-tenths field at IEEE 754
+    // precision boundaries (the new pipeline uses one extra `*10`
+    // float multiply that wasn't there before; ~282 of ~10⁹ representable
+    // float fractions differ by 1 ULP at the truncation step — see
+    // test_byte_equivalence_with_v423 for the exact characterization).
+    // 0.1% on the wire is invisible to pilot and audio path.  Clamp
+    // at 999 — the formula's saturation convention never emits 1000
+    // (PercentLift.cpp clamps at 99.9).
+    const int      iPctLiftRaw = SafeScaledInt(in.percentLiftPct, 10.0f, 0, 999);
+    const unsigned uPctLift    = ClampUInt(static_cast<unsigned>(iPctLiftRaw), 0, 999);
     const int      iVsi10      = ClampInt(in.vsiFpm10,           -999,   999);
     const int      iOatC       = ClampInt(in.oatC,               -99,    99);
     const int      iFpa10      = SafeScaledInt(in.flightPathDeg, 10.0f,  -999,   999);
@@ -254,7 +263,8 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     if (!extractInt(26, 3, &iLatG100))      return std::nullopt;
     if (!extractInt(29, 3, &iVertG10))      return std::nullopt;
     // percentLift widened to %03u (tenths of a percent, 0..999) at v4.23;
-    // every subsequent offset shifts +1.
+    // every subsequent offset shifts +1.  We divide by 10 to surface the
+    // value as whole-percent float (e.g. 47.3) for consumers.
     if (!extractUInt(32, 3, &uPctLift))     return std::nullopt;
     if (!extractInt(35, 4, &iVsi10))        return std::nullopt;
     if (!extractInt(39, 3, &iOatC))         return std::nullopt;
@@ -279,7 +289,7 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     f.turnRateDps        = static_cast<float>(iYaw10)    / 10.0f;
     f.lateralG           = static_cast<float>(iLatG100)  / 100.0f;
     f.verticalG          = static_cast<float>(iVertG10)  / 10.0f;
-    f.percentLift        = static_cast<int>(uPctLift);
+    f.percentLiftPct     = static_cast<float>(uPctLift) / 10.0f;
     f.vsiFpm             = static_cast<float>(iVsi10)    * 10.0f;
     f.oatC               = iOatC;
     f.flightPathDeg      = static_cast<float>(iFpa10)    / 10.0f;

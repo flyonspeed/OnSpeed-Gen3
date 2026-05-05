@@ -60,10 +60,13 @@ class Frame:
     rightward, i.e. airframe accelerating leftward). The firmware
     negates the body-frame `g_AHRS.AccelLatCorr` before encoding.
 
-    `percent_lift` (v4.23 wire) carries tenths of a percent (0..999):
-    `473` means 47.3% lift. The four band-edge percents
-    (`tones_on_pct_lift`, `onspeed_fast_pct_lift`, etc.) stay at integer
-    percent (0..99); they only move on detent or config-save events.
+    `percent_lift_pct` is in whole-percent units (0.0..99.9); the wire
+    encoder scales ×10 and truncates to int for the v4.23 `%03u` field
+    (range 0..999) — the wire still carries tenths-of-a-percent for
+    sub-pixel temporal smoothness, but every consumer surfaces a float.
+    The four band-edge percents (`tones_on_pct_lift`,
+    `onspeed_fast_pct_lift`, etc.) stay at integer percent (0..99);
+    they only move on detent or config-save events.
 
     `pip_pct_lift` (v4.22+) is the visual L/Dmax pip percent — separated
     from `tones_on_pct_lift` per PR #336.
@@ -76,7 +79,7 @@ class Frame:
     turnrate_dps:          float = 0.0
     lateral_g:             float = 0.0
     vertical_g:            float = 1.0
-    percent_lift:          int   = 0   # tenths of a percent (0..999); v4.23+
+    percent_lift_pct:      float = 0.0  # whole percent (0.0..99.9); v4.23 wire encoder scales ×10 to tenths
     vsi_fpm:               float = 0.0
     oat_c:                 int   = 15
     flightpath_deg:        float = 0.0
@@ -107,7 +110,7 @@ class Frame:
             f"{_clamp_int(self.turnrate_dps * 10, -9999, 9999):+05d}"
             f"{_clamp_int(self.lateral_g * 100, -99, 99):+03d}"
             f"{_clamp_int(self.vertical_g * 10, -99, 99):+03d}"
-            f"{_clamp_uint(self.percent_lift, 0, 999):03d}"
+            f"{_clamp_uint(self.percent_lift_pct * 10.0, 0, 999):03d}"
             f"{_clamp_int(self.vsi_fpm / 10, -999, 999):+04d}"
             f"{_clamp_int(self.oat_c, -99, 99):+03d}"
             f"{_clamp_int(self.flightpath_deg * 10, -999, 999):+04d}"

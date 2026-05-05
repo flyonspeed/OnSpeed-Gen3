@@ -57,7 +57,7 @@ from onspeed_py.config import (
 )
 from onspeed_py.frame import FRAME_LEN, PAYLOAD_LEN, Frame
 from onspeed_py.log_replay import _log_to_wire_lateral_g
-from onspeed_py.percent_lift import compute_percent_lift, compute_percent_lift_tenths
+from onspeed_py.percent_lift import compute_percent_lift
 
 # Re-export for backwards compatibility with `tools/m5-replay/test_replay.py`,
 # which imports these names from the `replay` module.
@@ -120,9 +120,10 @@ def csv_frame_stream(
                 # helper is kept for grep-ability across surfaces.
                 lateral_g=_log_to_wire_lateral_g(_float_or(r.get("LateralG"), 0.0)),
                 vertical_g=_float_or(r.get("VerticalG"), 1.0),
-                # Wire field carries tenths of a percent at v4.23
-                # (0..999).  Band-edge percents stay integer.
-                percent_lift=compute_percent_lift_tenths(aoa, fs),
+                # Live AOA in whole-percent float (0.0..99.9). Frame.to_bytes
+                # scales ×10 to the wire's tenths-of-a-percent field.
+                # Band-edge percents stay integer.
+                percent_lift_pct=compute_percent_lift(aoa, fs),
                 vsi_fpm=_float_or(r.get("VSI"), 0.0),
                 oat_c=int(_float_or(r.get("OAT"), 15.0)),
                 flightpath_deg=_float_or(r.get("FlightPath"), 0.0),
@@ -271,8 +272,9 @@ def synthetic_stream(
             continue
 
         fs = setpoints_for_flap(flap, setpoints)
-        # Wire field is tenths of a percent at v4.23 (0..999).
-        pct = compute_percent_lift_tenths(aoa_target, fs)
+        # Live AOA in whole-percent float; Frame.to_bytes scales ×10 to
+        # the v4.23 wire's tenths-of-a-percent field.
+        pct = compute_percent_lift(aoa_target, fs)
 
         yield Frame(
             pitch_deg=pitch,
@@ -282,7 +284,7 @@ def synthetic_stream(
             turnrate_dps=roll * 0.3,
             lateral_g=lat,
             vertical_g=vg,
-            percent_lift=pct,
+            percent_lift_pct=pct,
             vsi_fpm=vsi,
             oat_c=15,
             flightpath_deg=pitch - 2.0,

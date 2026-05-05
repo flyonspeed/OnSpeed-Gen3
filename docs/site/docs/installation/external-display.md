@@ -31,10 +31,13 @@ modes (the one you're looking at is the primary AOA indexer; there
 are four more). The data feed is a synthetic AOA ramp that sweeps
 from −4° up through past stall and back, covering the alpha_0 floor,
 the L/D~MAX~ / ONSPEED tone bands, and the stall-warning region where
-the top chevrons flash red. PercentLift saturates at 99 in the stall
-region — same as on the real device, where the wire protocol caps the
-field at 99. It's not a recorded flight, but everything the firmware
-draws is drawn the same way on the panel.
+the top chevrons flash red. The on-screen percent-lift digit
+saturates at 99 in the stall region (the saturation convention,
+"never reads 100") — same as on the real device. The wire carries
+sub-percent resolution, so the underlying index bar position
+advances smoothly even when the digit holds at 99. It's not a
+recorded flight, but everything the firmware draws is drawn the
+same way on the panel.
 
 See [Display modes](#display-modes) below for what each mode means.
 

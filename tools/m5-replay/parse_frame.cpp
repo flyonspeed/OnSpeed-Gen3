@@ -55,7 +55,7 @@ int main()
     std::printf("turnRateDps=%.4f\n",         f.turnRateDps);
     std::printf("lateralG=%.4f\n",            f.lateralG);
     std::printf("verticalG=%.4f\n",           f.verticalG);
-    std::printf("percentLift=%d\n",           f.percentLift);
+    std::printf("percentLiftPct=%.4f\n",      f.percentLiftPct);
     std::printf("vsiFpm=%.4f\n",              f.vsiFpm);
     std::printf("oatC=%d\n",                  f.oatC);
     std::printf("flightPathDeg=%.4f\n",       f.flightPathDeg);

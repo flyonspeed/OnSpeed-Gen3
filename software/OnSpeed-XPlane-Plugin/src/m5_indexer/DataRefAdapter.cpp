@@ -148,14 +148,15 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
 
     // Percent-lift derivation.  Uses the plugin's four AOA setpoints
     // plus alpha_0/alpha_stall approximations from MakeFlapCfg.
-    // Wire scale at v4.23 is tenths-of-a-percent (0..999) for the live
-    // AOA reading; band-edge anchors stay integer percent.
+    // The live AOA reading is whole-percent float (the wire encoder in
+    // BuildDisplayFrame scales ×10 to wire-tenths); band-edge anchors
+    // are int (snapped per detent, integer-percent resolution).
     const auto flap = MakeFlapCfg();
-    in.percentLift        = onspeed::aoa::ComputePercentLiftTenths(aoa, flap, iasValid);
-    in.tonesOnPctLift     = onspeed::aoa::ComputePercentLift(fLDMAXAOA, flap, iasValid);
-    in.onSpeedFastPctLift = onspeed::aoa::ComputePercentLift(fONSPEEDFASTAOA, flap, iasValid);
-    in.onSpeedSlowPctLift = onspeed::aoa::ComputePercentLift(fONSPEEDSLOWAOA, flap, iasValid);
-    in.stallWarnPctLift   = onspeed::aoa::ComputePercentLift(fSTALLWARNAOA,   flap, iasValid);
+    in.percentLiftPct     = onspeed::aoa::ComputePercentLift(aoa, flap, iasValid);
+    in.tonesOnPctLift     = static_cast<int>(onspeed::aoa::ComputePercentLift(fLDMAXAOA,       flap, iasValid));
+    in.onSpeedFastPctLift = static_cast<int>(onspeed::aoa::ComputePercentLift(fONSPEEDFASTAOA, flap, iasValid));
+    in.onSpeedSlowPctLift = static_cast<int>(onspeed::aoa::ComputePercentLift(fONSPEEDSLOWAOA, flap, iasValid));
+    in.stallWarnPctLift   = static_cast<int>(onspeed::aoa::ComputePercentLift(fSTALLWARNAOA,   flap, iasValid));
 
     // Visual L/Dmax pip: lerp clean→fullflap by flap-handle ratio, where
     // the fullflap target is the bottom-half-of-donut anchor

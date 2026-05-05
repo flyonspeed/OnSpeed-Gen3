@@ -72,7 +72,9 @@ export const scenarios = {
     return record({
       iasKt: 75 - 15 * frac,            // 75 → 60
       paltFt: 800,
-      percentLift: Math.round(30 + 60 * frac),
+      // Float so dev-server demos exhibit sub-percent index-bar smoothness
+      // (the JSON wire carries `%.1f` since v4.24).
+      percentLift: 30 + 60 * frac,
       pitchDeg: 4 + 4 * frac,
       // Roll ±5° over the cycle to exercise the horizon + ladder.
       rollDeg: 5 * Math.sin(2 * Math.PI * t / 10000),
@@ -90,8 +92,8 @@ export const scenarios = {
   stall: (t) => {
     // 10 s climb past stallWarn into flashing red, then recovery.
     const phase = (t / 10000) % 1;  // 0..1
-    const pct = phase < 0.7 ? Math.round(50 + 50 * (phase / 0.7))   // climb 50→100
-                            : Math.round(100 - 80 * ((phase - 0.7) / 0.3));  // recover 100→20
+    const pct = phase < 0.7 ? (50 + 50 * (phase / 0.7))   // climb 50→100
+                            : (100 - 80 * ((phase - 0.7) / 0.3));  // recover 100→20
     // Sharp pull-up then recovery: ~+1.5 g/s during climb, ~-1.5 g/s on
     // recovery. Bar will saturate (height clamped at 120) for part of
     // the climb, exercising the full visual range.

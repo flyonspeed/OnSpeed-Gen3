@@ -16,7 +16,7 @@
 //   21       5     turnRateDps         %+05d    ×10     signed, –9999 to +9999
 //   26       3     lateralG            %+03d    ×100    signed, –99 to +99 (body-frame, +rightward)
 //   29       3     verticalG           %+03d    ×10     signed, –99 to +99
-//   32       3     percentLift         %03u     ×10     unsigned, 0–999 (tenths of a percent — `473` = 47.3%)
+//   32       3     percentLift         %03u     ×10     unsigned, 0–999 (wire-tenths of a percent; consumers see whole-percent float, `473` = 47.3%)
 //   35       4     vsiFpm10            %+04d    ×1      vsi_fpm/10, –999 to +999
 //   39       3     oatC                %+03d    ×1      signed, –99 to +99
 //   42       4     flightPathDeg       %+04d    ×10     signed, –999 to +999
@@ -36,11 +36,15 @@
 //
 // Design intent — the percent-lift contract:
 //   Percent-lift is the honest single-linear envelope fraction:
-//     percentLift = (AOA − α₀) / (α_stall − α₀) × 100, clamped to [0, 99]
-//   The current AOA is sent on the wire scaled ×10 (tenths of a percent,
-//   range 0..999) so the consumer's index bar can render at sub-pixel
-//   temporal smoothness off the 20 Hz frame cadence.  The four band-edge
-//   percents (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`,
+//     percentLift = (AOA − α₀) / (α_stall − α₀) × 100, clamped to [0.0, 99.9]
+//   On the wire, the current AOA is encoded as `int(percent × 10)` in a
+//   `%03u` field (range 0..999) so the consumer's index bar can render at
+//   sub-pixel temporal smoothness off the 20 Hz frame cadence.  In memory,
+//   producers set `DisplayBuildInputs::percentLiftPct` (float, whole
+//   percent) and parsers read `DisplayFrame::percentLiftPct` (float, whole
+//   percent) — the wire's tenths encoding is an implementation detail of
+//   the encode/decode boundary.  The four band-edge percents
+//   (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`,
 //   `stallWarnPctLift`) are the per-flap setpoints put through the same
 //   formula at integer-percent resolution (0..99) — they only move at
 //   detent-snap or config-save events, so sub-percent resolution buys
@@ -133,7 +137,7 @@ struct DisplayBuildInputs {
     float turnRateDps        = 0.0f;  // yaw rate (deg/s)
     float lateralG           = 0.0f;  // lateral acceleration (g); body-frame, positive = airframe accel rightward
     float verticalGScaled10  = 0.0f;  // vertical G × 10, already rounded to nearest tenth (raw int, stored as float)
-    int   percentLift        = 0;     // current AOA, tenths of a percent (0–999); BuildFrame emits as %03u
+    float percentLiftPct     = 0.0f;  // current AOA, whole percent (0.0–99.9); BuildFrame emits as int(pct × 10) in %03u
     int   vsiFpm10           = 0;     // vsi / 10 (fpm), floored — range –999..+999
     int   oatC               = 0;     // OAT (°C); only valid when OAT sensor enabled
     float flightPathDeg      = 0.0f;  // flight-path angle (deg)
@@ -165,7 +169,7 @@ struct DisplayFrame {
     float turnRateDps        = 0.0f;
     float lateralG           = 0.0f;  // body-frame (see BuildInputs convention)
     float verticalG          = 0.0f;  // in g (wire value / 10)
-    int   percentLift        = 0;     // tenths of a percent (0–999); ParseFrame returns the wire value as-is
+    float percentLiftPct     = 0.0f;  // whole percent (0.0–99.9); ParseFrame divides the wire's tenths field by 10
     float vsiFpm             = 0.0f;  // in fpm (wire value × 10)
     int   oatC               = 0;
     float flightPathDeg      = 0.0f;
