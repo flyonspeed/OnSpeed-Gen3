@@ -196,21 +196,22 @@ jobs:
         with:
           fetch-depth: 0          # generate_buildinfo.py needs git tags
 
-      - name: Install OpenAL (Linux only)
+      # OpenAL + SDL2 on Linux: cached .deb files skip the slow Azure-
+      # mirror apt-get update on warm-cache runs (~5 s vs ~7 min).
+      # See ci.yml for the full rationale.
+      - name: Install OpenAL + SDL2 (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenal-dev
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.0
+        with:
+          packages: libopenal-dev libsdl2-dev
+          version: 1.0
 
       # M5GFX's `pio run -e native` doesn't build on MinGW (issue #396);
       # Windows leg stays audio-only via -DENABLE_M5_INDEXER=OFF below.
-      - name: Install SDL2 (mac+linux indexer build)
-        if: runner.os != 'Windows'
-        run: |
-          case "$RUNNER_OS" in
-            macOS) brew install sdl2 ;;
-            Linux) sudo apt-get install -y libsdl2-dev ;;
-          esac
+      # Linux is handled above.
+      - name: Install SDL2 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sdl2
 
       - name: Set up Python (PlatformIO host)
         if: runner.os != 'Windows'
