@@ -7,9 +7,11 @@
 //     `.round-box`, `.form-divs flex-col-N`, etc., not native OS UI)
 //   - chrome `ul` and `li` rules are scoped to `#liveview-nav-ul`
 //     (so a content `<ul>` doesn't pick up the dark-bar background)
-//   - the legacy /css/main.css served via html_header_css.h matches
-//     the same scoping discipline (so the still-server-rendered
-//     /aoaconfig page doesn't bleed either)
+//
+// pageHeader (the legacy server-rendered chrome) now links to the same
+// /static/app-<sha>.css bundle the Preact pages use, so /aoaconfig and
+// /sensorconfig render against the exact same stylesheet that the
+// dev-server serves.  Single source of truth — no drift possible.
 //
 // Run with:  node tools/web/test/css-coverage.mjs
 
@@ -23,8 +25,6 @@ const REPO_ROOT  = path.resolve(__dirname, '..', '..', '..');
 
 const PAGE_SHELL_CSS  = path.join(REPO_ROOT, 'tools', 'web', 'lib', 'shell', 'PageShell.css');
 const LEGACY_FORMS_CSS = path.join(REPO_ROOT, 'tools', 'web', 'lib', 'shell', 'legacy-forms.css');
-const LEGACY_HEADER_CSS_H = path.join(REPO_ROOT, 'software', 'OnSpeed-Gen3-ESP32',
-                                      'Web', 'html_header_css.h');
 const LEGACY_HEADER_H     = path.join(REPO_ROOT, 'software', 'OnSpeed-Gen3-ESP32',
                                       'Web', 'html_header.h');
 
@@ -132,23 +132,6 @@ test('PageShell.css: nav li is scoped', () => {
     }
     if (/^li\s+a\s*[,{]/.test(line)) {
       throw new Error(`PageShell.css line ${i + 1}: bare \`li a\` selector — must be scoped`);
-    }
-  }
-});
-
-test('legacy html_header_css.h: nav ul is scoped to #liveview-nav-ul', () => {
-  const css = read(LEGACY_HEADER_CSS_H);
-  // The legacy header CSS lives inside an R-string PROGMEM blob, but
-  // the same bare-selector scan applies — split on lines and check.
-  const lines = css.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith('//') || line.startsWith('/*')) continue;
-    if (/^ul\s*\{/.test(line)) {
-      throw new Error(`html_header_css.h line ${i + 1}: bare \`ul {\` rule — must be \`ul#liveview-nav-ul {\``);
-    }
-    if (/^li\s*\{/.test(line)) {
-      throw new Error(`html_header_css.h line ${i + 1}: bare \`li {\` rule — must be scoped`);
     }
   }
 });

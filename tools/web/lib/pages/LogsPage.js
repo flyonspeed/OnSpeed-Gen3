@@ -44,6 +44,21 @@ function isLogFile(name) {
   return lower.endsWith('.csv') || lower.endsWith('.log');
 }
 
+// Inline trash icon (Feather "trash-2" geometry).  Inherits color from
+// the enclosing button's text color via `currentColor`, so a `.greybutton`
+// renders it black and a future variant doesn't need a separate asset.
+const TrashIcon = () => html`
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+       viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+       aria-hidden="true">
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+    <path d="M10 11v6"></path>
+    <path d="M14 11v6"></path>
+    <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+  </svg>`;
+
 export function LogsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -188,21 +203,26 @@ export function LogsPage() {
                     <td style=${{ textAlign: 'right' }}>${formatBytes(f.size)}</td>
                     <td>${active
                           ? ''
-                          : html`<button type="button"
+                          : html`<button type="button" class="greybutton"
+                                         style=${{ padding: '4px 10px', fontWeight: 'bold' }}
                                          disabled=${busyDeleting}
-                                         onClick=${deleteOne(f.name)}>×</button>`}
+                                         onClick=${deleteOne(f.name)}><${TrashIcon} /></button>`}
                     </td>
                   </tr>`;
               })}
             </tbody>
           </table>
           <p>
-            <button type="button" disabled=${selected.size === 0 || busyDeleting}
+            <button type="button" class="redbutton"
+                    style=${{ padding: '8px 16px' }}
+                    disabled=${selected.size === 0 || busyDeleting}
                     onClick=${deleteSelected}>
               Delete selected (${selected.size})
             </button>
             ${' '}
-            <button type="button" onClick=${reload}>Refresh</button>
+            <button type="button" class="greybutton"
+                    style=${{ padding: '8px 16px' }}
+                    onClick=${reload}>Refresh</button>
           </p>
 
           ${others.length > 0 && html`
@@ -217,9 +237,10 @@ export function LogsPage() {
                     <td style=${{ textAlign: 'right', paddingLeft: '20px' }}>
                       ${formatBytes(f.size)}
                     </td>
-                    <td><button type="button"
+                    <td><button type="button" class="greybutton"
+                                style=${{ padding: '4px 10px', fontWeight: 'bold' }}
                                 disabled=${busyDeleting}
-                                onClick=${deleteOne(f.name)}>×</button></td>
+                                onClick=${deleteOne(f.name)}><${TrashIcon} /></button></td>
                   </tr>`)}
               </tbody>
             </table>`}`}

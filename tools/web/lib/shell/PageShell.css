@@ -5,13 +5,23 @@
    The chrome rules mirror the legacy header (`Web/html_header_css.h`)
    so the Preact-served pages (`/live`, `/indexer`) match the still-
    server-rendered pages (`/aoaconfig`, `/calwiz`, `/logs`, etc.).
-   Light grey body, dark grey nav, red hover.  Dropdowns reveal only
-   when `aria-expanded="true"` on the trigger; PageShell.js sets that
-   based on pointer hover, click toggle, or keyboard activation —
-   single source of truth.  CSS doesn't open the menu directly via
-   `:hover` or `:focus-within` because those race the JS state and
-   produce the "two menus open at once" bug when moving between
-   sibling tabs. */
+   Light grey body, dark grey nav, red hover.
+
+   Dropdown reveal: two paths, gated to avoid racing each other.
+     - Preact pages (`/live`, `/indexer`, `/logs`, ...): PageShell.js
+       owns dropdown state and writes `aria-expanded` on the trigger.
+       The aria-expanded rule below opens the menu.  CSS does NOT
+       open Preact dropdowns on `:hover` because that would race the
+       JS state and produce the "two menus open at once" bug when
+       moving between sibling tabs.
+     - Legacy pages (`/aoaconfig`, `/calwiz`, etc.): no PageShell JS
+       runs.  The trigger markup lacks `aria-expanded` entirely, so
+       the `:not([aria-expanded])` rule below opens the menu on
+       hover, matching the legacy stylesheet (`html_header_css.h`).
+   The `:not([aria-expanded])` selector is the gate: a Preact-rendered
+   trigger always carries `aria-expanded="false"` initially, which
+   takes the attribute out of the negated set and keeps the
+   hover-on-Preact race from re-emerging. */
 
 /* ---------- Body chrome ---------- */
 body {
@@ -78,6 +88,7 @@ ul#liveview-nav-ul > li > a.active,
 ul#liveview-nav-ul .dropbtn.active { background-color: #b00000; }
 
 ul#liveview-nav-ul > li > a:hover,
+ul#liveview-nav-ul .dropdown:hover .dropbtn:not([aria-expanded]),
 ul#liveview-nav-ul .dropdown .dropbtn[aria-expanded="true"] {
   background-color: red;
 }
@@ -103,6 +114,7 @@ ul#liveview-nav-ul li.dropdown { display: inline-block; }
 
 .dropdown-content a:hover { background-color: #f1f1f1; }
 
+.dropdown:hover .dropbtn:not([aria-expanded]) ~ .dropdown-content,
 .dropdown .dropbtn[aria-expanded="true"] + .dropdown-content { display: block; }
 
 /* Narrow phone viewports: tighten the nav so all five items fit on a

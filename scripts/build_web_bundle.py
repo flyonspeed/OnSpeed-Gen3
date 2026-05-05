@@ -361,7 +361,46 @@ def _bundle_js():
     chunks.append("  }")
     chunks.append("}")
 
-    return "\n".join(chunks)
+    bundled = "\n".join(chunks)
+    _assert_no_duplicate_top_level_identifiers(bundled)
+    return bundled
+
+
+_RE_TOP_LEVEL_DECL = re.compile(
+    r"^(?:const|let|var|function|class|async\s+function)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+    re.MULTILINE,
+)
+
+
+def _assert_no_duplicate_top_level_identifiers(bundled_js):
+    """Fail loudly if two pages declare the same top-level identifier.
+
+    The bundler concatenates every `lib/**/*.js` module into a single
+    global script tag.  Module-scope `const X = …` declarations from
+    two different files end up in the same lexical scope and the
+    browser raises `Uncaught SyntaxError: Identifier 'X' has already
+    been declared`.  The page never mounts.
+
+    Catch it here, at build time, with a clear message naming the
+    duplicates.  The fix is to rename one (or factor the constant into
+    a shared helper module).
+    """
+    counts = {}
+    for match in _RE_TOP_LEVEL_DECL.finditer(bundled_js):
+        name = match.group(1)
+        counts[name] = counts.get(name, 0) + 1
+    duplicates = sorted((n, c) for n, c in counts.items() if c > 1)
+    if duplicates:
+        msg_lines = [
+            "build_web_bundle: duplicate top-level identifier(s) in JS bundle:",
+        ]
+        for name, count in duplicates:
+            msg_lines.append(f"  {count}x  {name}")
+        msg_lines.append(
+            "Rename one of the colliding declarations or move it into a"
+            " shared helper module under lib/core/."
+        )
+        raise SystemExit("\n".join(msg_lines))
 
 
 # ---------------------------------------------------------------------
@@ -476,11 +515,15 @@ def _emit_stubs_header(out_path, etag_js, etag_css):
         f.write("\n".join(body) + "\n")
 
 
-# A small set of static fallback nav links for users with JS disabled.
-# `<noscript>`-friendly; replaced by PageShell once the bundle mounts.
+# Static fallback nav for users with JS disabled.  Wrapped in
+# `<noscript>` so the entire block is invisible to browsers with JS on
+# (per HTML spec, `<noscript>` content is not rendered when scripting is
+# enabled), and lives as a sibling of `<div id="app">` rather than a
+# child so PageShell's mount can never inherit it.
 _STATIC_FALLBACK_NAV = (
-    '<noscript>OnSpeed configuration requires JavaScript. '
-    'Use one of the links below to navigate.</noscript>'
+    '<noscript>'
+    '<p>OnSpeed configuration requires JavaScript. '
+    'Use one of the links below to navigate.</p>'
     '<nav class="onspeed-fallback-nav" aria-label="fallback">'
     '<a href="/">Home</a> | '
     '<a href="/indexer">Indexer</a> | '
@@ -490,23 +533,34 @@ _STATIC_FALLBACK_NAV = (
     '<a href="/upgrade">Upgrade</a> | '
     '<a href="/reboot">Reboot</a>'
     '</nav>'
+    '</noscript>'
 )
 
 
 def _build_stub_html(page_id, title, etag_js, etag_css):
+    # `{{onspeedVersion}}` is substituted at request time — by the
+    # firmware's ServePageStub (using BuildInfo::version) and by the
+    # dev-server (literal "dev").  PageShell reads the meta tag at
+    # first paint so the version banner has no post-mount flash.
     return (
         '<!DOCTYPE html>\n'
         '<html lang="en">\n'
         '<head>\n'
         '<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        '<meta name="onspeed-version" content="{{onspeedVersion}}">\n'
         f'<title>OnSpeed — {title}</title>\n'
+        # Inline critical CSS: paint the body bg + base text color before
+        # the bundled stylesheet downloads.  The deferred <script> tag
+        # holds the JS bundle until parse finishes; without this the
+        # browser flashes white between HTML parse and stylesheet load.
+        '<style>body{margin:0;background:#cccccc;color:#000088;'
+        'font-family:Arial,Helvetica,Sans-Serif}</style>\n'
         f'<link rel="stylesheet" href="/static/app-{etag_css}.css">\n'
         '</head>\n'
         '<body>\n'
-        f'<div id="app" data-page="{page_id}">'
         f'{_STATIC_FALLBACK_NAV}'
-        '</div>\n'
+        f'<div id="app" data-page="{page_id}"></div>\n'
         f'<script src="/static/app-{etag_js}.js" defer></script>\n'
         '</body>\n'
         '</html>'

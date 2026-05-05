@@ -15,7 +15,10 @@ import { html, useState, useEffect } from '../vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { getJson, postJson, ApiError } from '../shell/apiClient.js';
 
-const POLL_INTERVAL_MS = 1000;
+// Page-prefixed to avoid colliding with RebootPage's POLL_INTERVAL_MS.
+// The bundler concatenates every page into a single global script
+// scope, so module-scope const names must be unique across pages.
+const FORMAT_POLL_INTERVAL_MS = 1000;
 
 export function FormatPage() {
   const [phase, setPhase] = useState('confirm');
@@ -46,9 +49,9 @@ export function FormatPage() {
         // recoverable — keep trying.  A persistent failure is reported
         // when the task transitions to 'failed' upstream.
       }
-      if (!cancelled) setTimeout(tick, POLL_INTERVAL_MS);
+      if (!cancelled) setTimeout(tick, FORMAT_POLL_INTERVAL_MS);
     };
-    setTimeout(tick, POLL_INTERVAL_MS);
+    setTimeout(tick, FORMAT_POLL_INTERVAL_MS);
     return () => { cancelled = true; };
   }, [phase, taskId]);
 

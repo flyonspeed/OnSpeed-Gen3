@@ -43,7 +43,6 @@ using onspeed::ft2m;
 using onspeed::inhg2mb;
 
 #include "Web/html_header.h"
-#include "Web/html_header_css.h"
 #include "Web/html_stubs.h"
 #include "Web/legacy_pages.h"
 #include "Web/static_app_js.h"
@@ -114,7 +113,6 @@ void HandleUpgradeSuccess();
 void HandleUpgradeFailure();
 
 // Static asset handlers (served with ETag caching)
-void HandleCssMain();
 
 // Shared Preact bundle handlers — content-hashed URLs, immutable
 // Cache-Control.  Match by path prefix `/static/app-`.
@@ -241,11 +239,6 @@ void CfgWebServerInit()
 
 //    CfgServer.on("/wifireflash",     HTTP_GET,  HandleWifiReflash);
     CfgServer.on("/upgrade",         HTTP_GET,  HandleUpgrade);
-
-    // Static asset endpoints.  /css/main.css is the legacy /aoaconfig
-    // shared sheet (the Preact bundle uses /static/app-<sha>.css and
-    // doesn't go through this handler).
-    CfgServer.on("/css/main.css",    HTTP_GET,  HandleCssMain);
 
 #ifdef SUPPORT_WIFI_CLIENT
     CfgServer.on("/wifi",            HTTP_GET,  HandleWifiSettings);
@@ -374,6 +367,7 @@ void UpdateHeader()
     //    sVersion = "UNKNOWN";
 
     pageHeader.replace("wifi_fw", String("OnSpeed Version: ") + BuildInfo::version);
+    pageHeader.replace("{{appCssEtag}}", static_app_css_etag);
 
 #if 0
     // Update wifi status in html header
@@ -413,13 +407,10 @@ bool SendWithETag(const char* contentType)
 // ----------------------------------------------------------------------------
 // Static asset handlers — served from PROGMEM with ETag caching.
 // After first load the browser caches them; subsequent requests get 304.
-
-void HandleCssMain()
-    {
-    if (SendWithETag("text/css"))
-        return;
-    CfgServer.send_P(200, "text/css", szHtmlHeaderCss);
-    }
+//
+// Legacy /css/main.css was retired — pageHeader now links to the
+// bundled /static/app-<sha>.css that the Preact pages also load, so
+// firmware and dev-server share one stylesheet source.
 
 
 
@@ -464,7 +455,15 @@ static void ServePageStub(const char* stub)
     {
     if (SendWithETag("text/html"))
         return;
-    CfgServer.send_P(200, "text/html", stub);
+    // Substitute the `{{onspeedVersion}}` placeholder with the running
+    // firmware's build version.  The stub embeds it in a
+    // `<meta name="onspeed-version">` tag so PageShell can render the
+    // header banner from first paint with no /api/version round-trip.
+    // ETag is keyed on BuildInfo::version, so a firmware update
+    // invalidates the cached substituted page.
+    String sStub((const __FlashStringHelper*)stub);
+    sStub.replace("{{onspeedVersion}}", BuildInfo::version);
+    CfgServer.send(200, "text/html", sStub);
     }
 
 // /live is gone — the new /indexer covers everything that page used
@@ -1358,6 +1357,7 @@ void HandleSensorConfig()
             sEfisNote = R"#(<p style="color:green"><b>EFIS data detected:</b> pitch, roll, and altitude pre-populated from EFIS. You can override if needed.</p>)#";
 
 sPage += R"#(
+<div style="max-width: 720px; margin: 0 auto; padding: 12px;">
 <br><b>Current sensor calibration:</b><br><br>)#" + sCurrentConfig + R"#(<br>
         <p style="color:black">This procedure will calibrate the system's accelerometers, gyros and pressure sensors.<br><br>
         <b>Requirements:</b><br><br>
@@ -1386,6 +1386,7 @@ sPage += R"#(
         <button type="submit" class="button">Calibrate Sensors</button>
         <a href="/">Cancel</a>
         </form>
+</div>
 )#";
         } // end if no confirm yes
 

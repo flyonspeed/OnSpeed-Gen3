@@ -13,6 +13,7 @@ import { chevronColors } from '../../core/chevronColors.js';
 import { donutColors } from '../../core/donutColors.js';
 import { slipFromLateralG } from '../../core/slipBall.js';
 import { flapWidgetFrac, flapTriangleTransform } from '../../core/flapWidget.js';
+import { fmt } from '../../core/format.js';
 
 // SVG arc path helper — circle arc from start to end angle (radians).
 const arcPath = (cx, cy, r, startRad, endRad) => {
@@ -415,7 +416,7 @@ export const FlightPathMarker = ({ pitchDeg, flightPathDeg }) => {
 
 // Mode 1 pitch readout — small dark rounded rect over horizon.
 export const PitchReadout = ({ pitchDeg, dataValid = true }) => {
-  const txt = dataValid ? pitchDeg.toFixed(1) : '—';
+  const txt = dataValid ? fmt(pitchDeg, 1) : '—';
   return html`
     <g data-widget="pitch-readout">
       <rect x=${G.MODE1_PITCH_READOUT_X} y=${G.MODE1_PITCH_READOUT_Y}

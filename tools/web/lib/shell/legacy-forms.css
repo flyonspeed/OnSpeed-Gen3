@@ -68,6 +68,24 @@
   border-radius: 3px;
 }
 
+/* Blue action button used on /calwiz (Record).  Mirrors the legacy
+   `.wifibutton` rule from html_header_css.h so Preact pages render
+   the same blue chrome the still-server-rendered pages do. */
+.wifibutton {
+  background-color: #42a7f5;
+  border: none;
+  color: white;
+  padding: 12px 20px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 10px 25px;
+  cursor: pointer;
+  min-width: 220px;
+  border-radius: 3px;
+}
+
 /* ---------- Inputs ---------- */
 .inputField {
   width: 245px;

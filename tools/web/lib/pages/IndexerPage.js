@@ -8,6 +8,7 @@
 
 import { html, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
 import * as G from '../core/geometry.js';
+import { fmt } from '../core/format.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from '../modes.js';
 import { useWebSocket } from '../ws/wsClient.js';
 import { PageShell } from '../shell/PageShell.js';
@@ -44,13 +45,6 @@ const DATA_FIELDS = [
   ['DataMark', r => fmt(r.dataMark, 0)],
   ['Flaps',    r => fmt(r.flapsDeg, 0) + '°'],
 ];
-
-function fmt(v, d) {
-  if (v === undefined || v === null || isNaN(v)) return '—';
-  let s = Number(v).toFixed(d);
-  if (parseFloat(s) === 0) s = Math.abs(v).toFixed(d);
-  return s;
-}
 
 const DataFields = ({ rec, ageSec, expanded, onToggle }) => html`
   <div id="datafields-wrap">

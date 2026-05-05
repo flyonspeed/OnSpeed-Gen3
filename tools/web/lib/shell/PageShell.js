@@ -47,12 +47,15 @@ function resolveLogoSrc() {
 
 function resolveVersion(prop) {
   if (prop) return prop;
+  // Server-rendered meta tag is the canonical source.  The firmware
+  // substitutes BuildInfo::version into every page stub at request
+  // time; the dev-server substitutes a literal "dev".  Reading from
+  // the DOM at first paint avoids any post-mount fetch flash.
   if (typeof document !== 'undefined') {
     const m = document.querySelector('meta[name="onspeed-version"]');
     if (m && m.content) return m.content;
   }
-  // TODO: fetch from /api/version once that endpoint lands (PR 2).
-  return 'dev';
+  return '…';
 }
 
 const Dropdown = ({ group, activeId, isOpen, onPointerEnter, onClickToggle }) => html`
@@ -159,6 +162,9 @@ const Header = ({ version }) => {
 export function PageShell({ active, version, children }) {
   const path = (typeof location !== 'undefined') ? location.pathname : '/';
   const activeId = active ?? navIdForPath(path);
+  // Version comes from the server-rendered <meta name="onspeed-version">
+  // tag (or an explicit prop).  Synchronous DOM read; no post-mount
+  // fetch, no banner flash on first paint.
   const resolvedVersion = resolveVersion(version);
   return html`
     <${Header} version=${resolvedVersion} />

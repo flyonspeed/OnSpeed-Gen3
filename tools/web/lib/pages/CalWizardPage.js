@@ -549,7 +549,6 @@ function ReviewStep({ result, samples, onSave, onDiscard, saveStatus }) {
            style=${{ height: '300px', display: 'block' }} />
       <br />
       <button type="button" class="button"
-              style=${{ backgroundColor: '#42a7f5' }}
               onClick=${onSave}
               disabled=${saveStatus === 'saving'}>
         ${saveStatus === 'saving' ? 'Saving...' : 'Save Calibration'}

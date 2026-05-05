@@ -161,6 +161,11 @@ function pageStubHtml(page, args, host) {
   // `ONSPEED_LOGO_DATA_URL` global; the dev server serves the PNG
   // directly from public/ and points at it via this meta tag.
   const logoMeta = '<meta name="onspeed-logo" content="/onspeed-logo.png">';
+  // Mirror the firmware's `<meta name="onspeed-version">` substitution
+  // so PageShell renders the version banner from first paint.  The
+  // firmware injects BuildInfo::version via String::replace; the dev
+  // server uses a literal "dev" tag.
+  const versionMeta = '<meta name="onspeed-version" content="dev">';
   // The dev server serves the JS modules straight out of lib/.  No
   // bundling — the browser pulls each file via ES module imports.
   // Edits are visible on reload without a build step.
@@ -174,6 +179,7 @@ function pageStubHtml(page, args, host) {
     modeMeta,
     wsMeta,
     logoMeta,
+    versionMeta,
     '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
     '<link rel="stylesheet" href="/lib/shell/legacy-forms.css">',
     '</head>',
@@ -698,53 +704,133 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
   // .flex-col-N, .button, .greybutton, .inputField, .switch-field,
   // .sp-row family, etc.).  This is the same pair the bundler ships
   // to firmware as /static/app-<sha>.css.
+  return legacyPageHtml('/aoaconfig (dev)', 'aoaconfig', body);
+}
+
+// Render the /sensorconfig legacy page from the template +
+// dev-server/mocks/sensorconfig.json.  Mirrors HandleSensorConfig() in
+// software/sketch_common/src/web_server/ConfigWebServer.cpp's first-pass
+// branch (the form view, not the calibration result branch — that one
+// requires real sensor reads).
+async function renderSensorConfigPage() {
+  const tplPath = path.join(LEGACY_DIR, 'sensorconfig.html');
+  const cfgPath = path.join(MOCKS_DIR, 'sensorconfig.json');
+  const [tpl, cfgRaw] = await Promise.all([
+    fsp.readFile(tplPath, 'utf-8'),
+    fsp.readFile(cfgPath, 'utf-8'),
+  ]);
+  const cfg = JSON.parse(cfgRaw);
+  return substituteSensorConfig(tpl, cfg);
+}
+
+function fmt2(v) { return Number(v).toFixed(2); }
+function fmt4(v) { return Number(v).toFixed(4); }
+function fmt0(v) { return Math.round(Number(v)).toString(); }
+
+function substituteSensorConfig(tpl, cfg) {
+  let body = tpl;
+  body = body.replaceAll('{{pfwdBias}}',    fmt0(cfg.pfwdBias));
+  body = body.replaceAll('{{p45Bias}}',     fmt0(cfg.p45Bias));
+  body = body.replaceAll('{{pStaticBias}}', fmt2(cfg.pStaticBias));
+  body = body.replaceAll('{{gxBias}}',      fmt4(cfg.gxBias));
+  body = body.replaceAll('{{gyBias}}',      fmt4(cfg.gyBias));
+  body = body.replaceAll('{{gzBias}}',      fmt4(cfg.gzBias));
+  body = body.replaceAll('{{imuPitch}}',    fmt2(cfg.imuPitch));
+  body = body.replaceAll('{{pitchBias}}',   fmt2(cfg.pitchBias));
+  body = body.replaceAll('{{truePitch}}',   fmt2(cfg.truePitch));
+  body = body.replaceAll('{{imuRoll}}',     fmt2(cfg.imuRoll));
+  body = body.replaceAll('{{rollBias}}',    fmt2(cfg.rollBias));
+  body = body.replaceAll('{{trueRoll}}',    fmt2(cfg.trueRoll));
+
+  // Default form values mirror the firmware's bUseEfis branch:
+  // when fresh EFIS data is available, pre-populate from EFIS and
+  // surface the "EFIS data detected" green note.  Otherwise fall
+  // back to AHRS-derived pitch/roll plus the current Palt.
+  const efisNote = cfg.useEfis
+    ? '<p style="color:green"><b>EFIS data detected:</b> pitch, roll, and altitude pre-populated from EFIS. You can override if needed.</p>'
+    : '';
+  body = body.replaceAll('{{efisNote}}', efisNote);
+  body = body.replaceAll('{{defPitch}}', fmt2(cfg.defPitch));
+  body = body.replaceAll('{{defRoll}}',  fmt2(cfg.defRoll));
+  body = body.replaceAll('{{defPalt}}',  fmt0(cfg.defPalt));
+
+  return legacyPageHtml('/sensorconfig (dev)', 'sensorconfig', body);
+}
+
+// Common HTML wrapper for the dev-server's legacy-page renders.
+// `activeId` controls which nav entry / dropdown item gets the
+// `class="active"` annotation; the bundle CSS link list mirrors the
+// firmware's pageHeader.
+function legacyPageHtml(title, activeId, body) {
   return [
     '<!DOCTYPE html>',
     '<html lang="en">',
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<title>OnSpeed — /aoaconfig (dev)</title>',
+    `<title>OnSpeed — ${title}</title>`,
+    // Equivalent to firmware's /static/app-<sha>.css (which is the
+    // bundled concat of these two source files).  Loading the source
+    // files directly here means edits don't need a re-bundle to
+    // preview locally; the firmware still loads the bundled output.
     '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
     '<link rel="stylesheet" href="/lib/shell/legacy-forms.css">',
     '</head>',
     '<body>',
-    aoaConfigChromeHtml(),
+    legacyChromeHtml(activeId),
     body,
     '</body>',
     '</html>',
   ].join('\n');
 }
 
-// Mirror `pageHeader`'s logo + nav so /aoaconfig on the dev server
-// looks like the firmware-served page.  The version string is "dev"
-// to make it obvious the user is on the dev-server.
-function aoaConfigChromeHtml() {
+// Mirror `pageHeader`'s logo + nav so a legacy page rendered on the
+// dev server looks like the firmware-served version.  `activeId`
+// flags the matching dropdown item / primary link with class="active":
+// 'aoaconfig' | 'sensorconfig' | 'calwiz' light up the Settings
+// dropbtn + their item; primary-link ids ('logs', 'format', etc.)
+// light up the Tools dropbtn + their item.  The version string is
+// "dev" to make it obvious the user is on the dev-server.
+function legacyChromeHtml(activeId) {
+  // Items belonging to each dropdown.  Mirrors NAV in lib/shell/nav.js
+  // so the firmware-rendered legacy markup matches what PageShell.js
+  // renders on Preact pages.
+  const toolsItems = [
+    { id: 'logs',    href: '/logs',    label: 'Log Files' },
+    { id: 'format',  href: '/format',  label: 'Format SD Card' },
+    { id: 'upgrade', href: '/upgrade', label: 'Firmware Upgrade' },
+    { id: 'reboot',  href: '/reboot',  label: 'Reboot System' },
+  ];
+  const settingsItems = [
+    { id: 'aoaconfig',    href: '/aoaconfig',    label: 'System Configuration' },
+    { id: 'sensorconfig', href: '/sensorconfig', label: 'Sensor Calibration' },
+    { id: 'calwiz',       href: '/calwiz',       label: 'AOA Calibration Wizard' },
+  ];
+  const toolsActive    = toolsItems.some(i => i.id === activeId);
+  const settingsActive = settingsItems.some(i => i.id === activeId);
+  const itemMarkup = (items) => items
+    .map(i => `      <a href="${i.href}"${i.id === activeId ? ' class="active"' : ''}>${i.label}</a>`)
+    .join('\n');
   return [
     '<div class="header-container">',
     '  <img src="/onspeed-logo.png" alt="OnSpeed" />',
     '  <div class="firmware">OnSpeed Version: dev</div>',
     '</div>',
     '<ul id="liveview-nav-ul">',
-    '  <li><a href="/">Home</a></li>',
+    `  <li><a href="/"${activeId === 'home' ? ' class="active"' : ''}>Home</a></li>`,
     '  <li class="dropdown">',
-    '    <a href="javascript:void(0)" class="dropbtn">Tools</a>',
+    `    <a href="javascript:void(0)" class="dropbtn${toolsActive ? ' active' : ''}">Tools</a>`,
     '    <div class="dropdown-content">',
-    '      <a href="/logs">Log Files</a>',
-    '      <a href="/format">Format SD Card</a>',
-    '      <a href="/upgrade">Firmware Upgrade</a>',
-    '      <a href="/reboot">Reboot System</a>',
+    itemMarkup(toolsItems),
     '    </div>',
     '  </li>',
     '  <li class="dropdown">',
-    '    <a href="javascript:void(0)" class="dropbtn active">Settings</a>',
+    `    <a href="javascript:void(0)" class="dropbtn${settingsActive ? ' active' : ''}">Settings</a>`,
     '    <div class="dropdown-content">',
-    '      <a href="/aoaconfig" class="active">System Configuration</a>',
-    '      <a href="/sensorconfig">Sensor Calibration</a>',
-    '      <a href="/calwiz">AOA Calibration Wizard</a>',
+    itemMarkup(settingsItems),
     '    </div>',
     '  </li>',
-    '  <li><a href="/indexer">Indexer</a></li>',
+    `  <li><a href="/indexer"${activeId === 'indexer' ? ' class="active"' : ''}>Indexer</a></li>`,
     '</ul>',
   ].join('\n');
 }
@@ -767,6 +853,22 @@ async function route(req, res, args) {
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'text/plain' });
       res.end(`/aoaconfig render error: ${e.message}`);
+    }
+    return;
+  }
+
+  // /sensorconfig — legacy first-pass form view rendered from the
+  // template.  The firmware version also runs the calibration on the
+  // ?confirm=yes second pass; the dev server only needs the form
+  // view since no real sensors are attached.
+  if (pathname === '/sensorconfig') {
+    try {
+      const html = await renderSensorConfigPage();
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(`/sensorconfig render error: ${e.message}`);
     }
     return;
   }
