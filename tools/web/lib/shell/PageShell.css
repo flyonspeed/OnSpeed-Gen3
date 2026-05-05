@@ -43,8 +43,13 @@ body {
   color: black;
 }
 
-/* ---------- Nav ---------- */
-ul {
+/* ---------- Nav ----------
+   Scope every chrome rule to `#liveview-nav-ul`.  Pages that render a
+   content `<ul>` (IndexPage's guidelines list, future help pages,
+   etc.) would otherwise pick up the dark-bar background and the
+   `li { float: left }` collapse, because the legacy stylesheet
+   declared these against bare element selectors. */
+ul#liveview-nav-ul {
   list-style-type: none;
   margin: 0;
   padding: 0;
@@ -52,9 +57,11 @@ ul {
   background-color: #333;
 }
 
-li { float: left; }
+ul#liveview-nav-ul > li,
+ul#liveview-nav-ul li.dropdown { float: left; }
 
-li a, .dropbtn {
+ul#liveview-nav-ul > li > a,
+ul#liveview-nav-ul .dropbtn {
   display: inline-block;
   color: white;
   text-align: center;
@@ -67,14 +74,15 @@ li a, .dropbtn {
   font-size: inherit;
 }
 
-li a.active, .dropbtn.active { background-color: #b00000; }
+ul#liveview-nav-ul > li > a.active,
+ul#liveview-nav-ul .dropbtn.active { background-color: #b00000; }
 
-li a:hover,
-.dropdown .dropbtn[aria-expanded="true"] {
+ul#liveview-nav-ul > li > a:hover,
+ul#liveview-nav-ul .dropdown .dropbtn[aria-expanded="true"] {
   background-color: red;
 }
 
-li.dropdown { display: inline-block; }
+ul#liveview-nav-ul li.dropdown { display: inline-block; }
 
 .dropdown-content {
   display: none;
@@ -100,7 +108,8 @@ li.dropdown { display: inline-block; }
 /* Narrow phone viewports: tighten the nav so all five items fit on a
    single row. */
 @media screen and (max-width: 480px) {
-  li a, .dropbtn {
+  ul#liveview-nav-ul > li > a,
+  ul#liveview-nav-ul .dropbtn {
     padding: 12px 8px;
     font-size: 14px;
   }

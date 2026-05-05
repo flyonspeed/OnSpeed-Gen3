@@ -63,6 +63,7 @@ LIB_DIR        = os.path.join(WEB_DIR, "lib")
 PUBLIC_DIR     = os.path.join(WEB_DIR, "public")
 LEGACY_DIR     = os.path.join(WEB_DIR, "legacy-pages")
 SHELL_CSS      = os.path.join(LIB_DIR, "shell", "PageShell.css")
+LEGACY_FORMS_CSS = os.path.join(LIB_DIR, "shell", "legacy-forms.css")
 LOGO_PNG       = os.path.join(PUBLIC_DIR, "onspeed-logo.png")
 OUTPUT_DIR     = os.path.join(REPO_ROOT, "software", "OnSpeed-Gen3-ESP32", "Web")
 OUTPUT_JS_H    = os.path.join(OUTPUT_DIR, "static_app_js.h")
@@ -373,6 +374,15 @@ def _bundle_css():
         with open(SHELL_CSS, "r", encoding="utf-8") as f:
             parts.append(f"/* --- {os.path.relpath(SHELL_CSS, REPO_ROOT)} --- */")
             parts.append(f.read())
+    # Form / button / layout vocabulary used by the Preact pages and
+    # the still-server-rendered /aoaconfig template.  Sourced from the
+    # legacy /css/main.css.  Lives in its own file so the chrome-only
+    # rules in PageShell.css stay separated from the form-vocabulary
+    # rules.
+    if os.path.exists(LEGACY_FORMS_CSS):
+        with open(LEGACY_FORMS_CSS, "r", encoding="utf-8") as f:
+            parts.append(f"/* --- {os.path.relpath(LEGACY_FORMS_CSS, REPO_ROOT)} --- */")
+            parts.append(f.read())
     # Vendor CSS (chartist, etc.) — every .css file under lib/vendor/
     # is concatenated into the shared bundle.  Chartist is the only
     # current consumer (used by the cal wizard's review chart).
@@ -606,6 +616,8 @@ def _walk_inputs():
                 yield os.path.join(root, name)
     if os.path.exists(SHELL_CSS):
         yield SHELL_CSS
+    if os.path.exists(LEGACY_FORMS_CSS):
+        yield LEGACY_FORMS_CSS
     if os.path.exists(LOGO_PNG):
         yield LOGO_PNG
 

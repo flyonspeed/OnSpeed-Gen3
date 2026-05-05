@@ -20,7 +20,7 @@ const char szHtmlHeader[] PROGMEM = R"=====(
 <!-- <div class="wifi wifi_status" title="wifi_network"></div> -->
 </div>
 
-<ul>
+<ul id="liveview-nav-ul">
     <li><a href="/">Home</a></li>
     <li class="dropdown">
         <a href="javascript:void(0)" class="dropbtn">Tools</a>
