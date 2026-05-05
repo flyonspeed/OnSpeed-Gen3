@@ -21,6 +21,7 @@ const char legacy_aoaconfig_html[] PROGMEM = R"=====(<!--
 -->
 <script>{{aoaconfigJs}}</script>
 
+<div style="max-width: 720px; margin: 0 auto; padding: 12px;">
 <div class="content-container">
     <form  id="id_configForm" action="aoaconfigsave" method="POST">
         <div class="form round-box">
@@ -449,6 +450,7 @@ const char legacy_aoaconfig_html[] PROGMEM = R"=====(<!--
 
     <form id="id_realUploadForm">
     </form>
+</div>
 </div>
 <script>{{aoaconfigPostJs}}</script>
 )=====";
