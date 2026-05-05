@@ -78,12 +78,12 @@ The physical button on the controller (GPIO 12) provides:
 
 ### AUDIOTEST Console Command
 
-Via USB serial (921600 baud), type `AUDIOTEST` to run a 20-second audio test:
+Via USB serial (921600 baud), type `AUDIOTEST` to run an audio test sequence:
 
-- Tests left and right channels independently
-- Plays various tone types and pulse rates
-- Runs as a background task (doesn't block the console)
-- Reports "busy" if a test is already running
+- Plays the left and right speaker voice clips so each channel can be confirmed independently
+- Plays the ONSPEED solid low tone and the G-limit voice
+- Runs a continuous AOA range sweep that walks past every band edge — silent, low-pitch pulsing, ONSPEED solid, high-pitch pulsing, stall warning buzz — so every region of the tone map is heard back-to-back
+- Runs as a background task (doesn't block the console); reports "busy" if already running
 
 If you hear no audio during the test, check:
 

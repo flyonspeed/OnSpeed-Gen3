@@ -54,13 +54,13 @@ ws.binaryType = 'arraybuffer';
 ws.onmessage = (evt) => {
   if (typeof evt.data === 'string') return;   // skip the LiveView JSON
   const bytes = new Uint8Array(evt.data);
-  // bytes is one complete 76-byte #1 frame as defined in serial-protocol.md
+  // bytes is one complete 77-byte #1 frame as defined in serial-protocol.md
 };
 ```
 
 The two streams are independent — JSON frames and binary frames each run their own 50 ms broadcast loop on the same socket. They are not interleaved or paired; a consumer can drop one type without affecting the other.
 
-The binary payload is byte-for-byte identical to what the M5 hardware reads off the UART, so any consumer that already parses the [display serial protocol](serial-protocol.md) can reuse that parser directly. The frame is `kDisplayFrameSizeBytes` = 76 bytes (one `#1` frame, including CRC and CRLF). When no clients are connected, neither broadcast fires.
+The binary payload is byte-for-byte identical to what the M5 hardware reads off the UART, so any consumer that already parses the [display serial protocol](serial-protocol.md) can reuse that parser directly. The frame is `kDisplayFrameSizeBytes` = 77 bytes at v4.23 (one `#1` frame, including CRC and CRLF). When no clients are connected, neither broadcast fires.
 
 ## Frame structure
 
@@ -138,7 +138,7 @@ The per-field tables below note source variations where they apply.
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
 | `verticalGLoad` | float | g | Installation-corrected body-vertical acceleration, EMA-smoothed by AHRS::Process (α ≈ 0.06). `g_AHRS.AccelVertFilter.get()`. 1.0 g level, 2.0 g in a 60° bank. Same source the display-serial wire's `verticalG` field uses, so M5 hardware and LiveView agree to within rounding. Note: `GLimitDecision` reads the unsmoothed `AccelVertCorr` for over-G warnings; the smoothing here is purely a presentation choice. |
-| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, EMA-smoothed (α ≈ 0.06). `g_AHRS.AccelLatFilter.get()`. **Sign**: positive = right — body-frame, the IMU's view. The display-serial wire ships the same source **negated** (positive = leftward, the ball's view) so its consumers can plot the slip ball directly. Slip-renderers reading this JSON field must flip the sign locally; numeric "Lat G" readouts read it as-is. Full physics + dual-frame rationale: [`proto/DisplaySerial.h::DisplayBuildInputs::lateralG`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h). |
+| `lateralGLoad` | float | g | Installation-corrected body-lateral acceleration, EMA-smoothed (α ≈ 0.06). `g_AHRS.AccelLatFilter.get()`. **Sign**: positive = right — body-frame, the IMU's view. At v4.23 the display-serial wire's `lateralG` field uses the same body-frame convention; both transports agree. Slip-skid ball renderers negate locally at the rendering site (ball lags opposite the airframe's centripetal acceleration). Numeric "Lat G" readouts read the field as-is. Full physics + sign rationale: [`proto/DisplaySerial.h::DisplayBuildInputs::lateralG`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h). |
 
 ### AOA & lift
 
@@ -229,7 +229,7 @@ This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift
 
 **Per-field native rates.** A frame is a near-simultaneous snapshot of fields each filtered at their own native rate (gyro at AHRS rate, decel at the Savitzky-Golay window, flap index at 1 Hz, etc.). Two consecutive frames will not show identical values for slow-moving fields like `flapIndex` even when nothing changed — the snapshot is consistent, the underlying filters are not.
 
-**Coordinate consistency with display serial.** Where a field exists in both transports the values are derived from the same source and agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. **One sign-convention mismatch**: `lateralG` on the wire is negated relative to `lateralGLoad` in JSON — body-frame in JSON, ball-frame on the wire. See the field row above for the rationale.
+**Coordinate consistency with display serial.** Where a field exists in both transports the values are derived from the same source and agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. As of v4.23, sign conventions also match — the wire's `lateralG` is body-frame (positive = right), same as `lateralGLoad` in JSON. Slip-skid ball renderers negate locally at the rendering site on either transport.
 
 ## Display serial vs LiveView — the two data paths
 
@@ -257,7 +257,8 @@ Unlike the display-serial wire, **the WebSocket schema is not currently pinned b
 
 | Date | Change |
 | --- | --- |
-| 2026-04-30 | `verticalGLoad` and `lateralGLoad` are now EMA-smoothed (α ≈ 0.06) on the producer side, matching the source the display-serial wire uses. Previously both fields shipped the raw `AccelVertCorr` / `AccelLatCorr` values, which made the LiveView slip ball and G readouts visibly twitchier than the M5 hardware. `lateralGLoad` sign convention is now explicitly engineering (positive = right); slip-ball renderers must apply the negation locally to match wire-format / hardware-display behavior. |
+| 2026-05-05 | Binary `#1` mirror frame size changes to 77 bytes (v4.23 wire). `percentLift` field on the wire widens from `%02u` to `%03u` (tenths of a percent). The JSON `percentLift` already carries one decimal of precision, so the JSON path is unchanged. The wire's `lateralG` flips to body-frame (positive = right) to match `lateralGLoad` in JSON; the wire-vs-JSON sign mismatch noted in the prior change-log entry no longer applies. See [PR #386](https://github.com/flyonspeed/OnSpeed-Gen3/pull/386). |
+| 2026-04-30 | `verticalGLoad` and `lateralGLoad` are now EMA-smoothed (α ≈ 0.06) on the producer side, matching the source the display-serial wire uses. Previously both fields shipped the raw `AccelVertCorr` / `AccelLatCorr` values, which made the LiveView slip ball and G readouts visibly twitchier than the M5 hardware. `lateralGLoad` sign convention is engineering (positive = right). |
 | 2026-04-30 | Added `flapsMinDeg`, `flapsMaxDeg`, `gOnsetRate` to the schema (PR #354's broadcast additions for the indexer's flap-circle widget and gOnset edge tape). |
 | 2026-04-28 | Added binary `#1` display-serial mirror frames alongside the existing JSON text frames. Consumers must inspect the WebSocket message type before parsing — see [Two message types](#two-message-types). |
 | 2026-04-28 | Initial WebSocket protocol reference page covering the schema in master at the time of writing. |
