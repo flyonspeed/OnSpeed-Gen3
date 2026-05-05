@@ -3,10 +3,12 @@
 #include "DataRefAdapter.h"
 
 #include "XPLMDataAccess.h"
+#include "XPLMProcessing.h"
 #include "XPLMUtilities.h"
 
 #include <aoa/PercentLift.h>
 #include <config/OnSpeedConfig.h>
+#include <filters/GOnsetFilter.h>
 
 #include <algorithm>
 #include <cmath>
@@ -153,7 +155,18 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     in.onSpeedFastPctLift = onspeed::aoa::ComputePercentLift(fONSPEEDFASTAOA, flap, iasValid);
     in.onSpeedSlowPctLift = onspeed::aoa::ComputePercentLift(fONSPEEDSLOWAOA, flap, iasValid);
     in.stallWarnPctLift   = onspeed::aoa::ComputePercentLift(fSTALLWARNAOA,   flap, iasValid);
-    in.pipPctLift         = in.tonesOnPctLift;     // v1: same as tones-on; #392 derives properly
+
+    // Visual L/Dmax pip: lerp clean→fullflap by flap-handle ratio, where
+    // the fullflap target is the bottom-half-of-donut anchor
+    // ((3*fast + slow) / 4).  Mirrors the M5 firmware's per-flap target
+    // formula (main.cpp:1058-1062) so the pip slides smoothly as the
+    // pilot deploys flaps instead of staying nailed to the clean L/Dmax.
+    const float clampedRatio  = std::clamp(flapRatio, 0.0f, 1.0f);
+    const float cleanPip      = static_cast<float>(in.tonesOnPctLift);
+    const float fullFlapPip   = (3.0f * static_cast<float>(in.onSpeedFastPctLift)
+                                 + static_cast<float>(in.onSpeedSlowPctLift)) / 4.0f;
+    in.pipPctLift = static_cast<int>(std::round(
+        cleanPip * (1.0f - clampedRatio) + fullFlapPip * clampedRatio));
 
     in.vsiFpm10        = static_cast<int>(std::floor(vsiFpm / 10.0f));
     if (in.vsiFpm10 >  999) in.vsiFpm10 =  999;
@@ -170,7 +183,24 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     in.flapsMinDeg     = 0;
     in.flapsMaxDeg     = kFlapsMaxDeg;
 
-    in.gOnsetRate      = 0.0f;     // v1 placeholder per spec
+    // G onset rate: low-pass-filtered first derivative of vertical-G,
+    // matching the firmware's AHRS::Update path that feeds the wire
+    // (sketch_common/src/tasks/AHRS.cpp).  The filter holds state
+    // across calls; we measure dt against XPLMGetElapsedTime so the
+    // rate tracks whatever cadence Tick() actually runs at (throttled
+    // to ~20 Hz today).  After a long Tick gap (indexer hidden,
+    // X-Plane paused), reset the filter so the first post-resume
+    // sample doesn't compute a derivative against minutes-old G.
+    static onspeed::GOnsetFilter s_gOnsetFilter;
+    static float                 s_lastTickSec = -1.0f;
+    const float now    = XPLMGetElapsedTime();
+    const float dtSec  = (s_lastTickSec < 0.0f) ? 0.0f : (now - s_lastTickSec);
+    if (dtSec > 1.0f) s_gOnsetFilter.Reset();
+    s_lastTickSec      = now;
+    in.gOnsetRate      = (dtSec > 0.0f && dtSec <= 1.0f)
+                             ? s_gOnsetFilter.Update(vG, dtSec)
+                             : 0.0f;
+
     in.spinRecoveryCue = 0;        // reserved
     in.dataMark        = 0;        // v1 placeholder
 
