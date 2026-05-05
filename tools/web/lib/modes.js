@@ -97,7 +97,7 @@ export const Mode1 = ({ r, stale }) => {
                    width=${G.MODE1_SLIP_W} height=${G.MODE1_SLIP_H} />
       <${EdgeTape} value=${r.vsiFpm}
                    barX=${G.MODE1_VSI_BAR_X} barW=${G.MODE1_VSI_BAR_W}
-                   barColor=${colors.TFT_ORANGE}
+                   barColor=${colors.TFT_WHITE}
                    zeroY=${G.MODE1_VSI_ZERO_Y}
                    heightScale=${G.MODE1_VSI_HEIGHT_SCALE}
                    heightMax=${G.MODE1_VSI_HEIGHT_MAX}
@@ -163,7 +163,7 @@ export const Mode3 = ({ r, stale }) => {
                    width=${G.MODE3_SLIP_W} height=${G.MODE3_SLIP_H} />
       <${EdgeTape} value=${r.vsiFpm}
                    barX=${G.MODE1_VSI_BAR_X} barW=${G.MODE1_VSI_BAR_W}
-                   barColor=${colors.TFT_ORANGE}
+                   barColor=${colors.TFT_WHITE}
                    zeroY=${G.MODE1_VSI_ZERO_Y}
                    heightScale=${G.MODE1_VSI_HEIGHT_SCALE}
                    heightMax=${G.MODE1_VSI_HEIGHT_MAX}

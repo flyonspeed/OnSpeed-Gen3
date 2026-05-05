@@ -55,13 +55,41 @@ The indexer widget itself shows:
 - **Bottom chevron** — fast-but-safe (between LDmax and OnSpeedFast).
 - **White index bar** — current AOA on the percent-lift scale.
 
+#### G-onset tape (right-edge yellow bar)
+
+The yellow bar on the right edge is the **rate of change of vertical
+G** — how aggressively you're loading or unloading the airframe right
+now. Bar grows up from the center for positive onset (G load
+increasing — pulling into a turn or pull-up), grows down for negative
+onset (G unloading — pushing over, releasing back-pressure).
+Saturates at ±2 g/s. The center pip and ladder ticks give you a
+visual reference. The bar is computed by feeding the smoothed
+vertical-G signal through a 250 ms low-pass derivative — same
+filter the firmware feeds the wire from `AHRS::Update`.
+
+Useful as an "am I loading the airframe smoothly?" cue: a steady
+long pull-up shows a small bar; a sudden yank shows a tall bar
+that dies back as the rate stabilizes.
+
 ### Mode 1 — Attitude
 
 Backup artificial horizon driven by X-Plane's pitch and roll. Pitch
 ladder, magenta flight-path marker (concentric rings + perpendicular
-wing bars), slip/skid ball at the bottom, orange VSI tape on the
+wing bars), slip/skid ball at the bottom, white VSI tape on the
 right edge, IAS / pressure-altitude / vertical-G / percent-lift
 readouts in the corners.
+
+#### VSI tape (right-edge white bar)
+
+The white bar on the right edge is **vertical speed** — how fast
+you're climbing or descending. Bar grows up from the center for
+climbs, down for descents. Saturates at ±600 fpm: a steady 300 fpm
+descent fills half the bar; a 700 fpm climb pegs it to the top.
+The ±600 fpm range is tuned for the gentle-cruise band where small
+trends matter most — for larger excursions read the IAS / FPA
+numerics in the corners. The center pip and 20-pixel ladder ticks
+give a visual reference; the bar drops to the ladder color (zero)
+in level flight.
 
 ### Mode 2 — Narrow AOA
 

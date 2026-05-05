@@ -179,7 +179,7 @@ export const SlipBall = ({ lateralG, percentLift, stallWarn, flashFlag,
 };
 
 // Right-edge tape — bar grows up/down from zeroY by `value * heightScale`.
-// Used by Mode 0 (gOnset, yellow) and Modes 1/3 (VSI, orange).
+// Used by Mode 0 (gOnset, yellow) and Modes 1/3 (VSI, white).
 export const EdgeTape = ({
   value,
   barX = G.GONSET_BAR_X, barW = G.GONSET_BAR_W,
