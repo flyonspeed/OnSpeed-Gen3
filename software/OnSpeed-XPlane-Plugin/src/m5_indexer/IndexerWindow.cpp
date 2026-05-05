@@ -130,6 +130,34 @@ constexpr float kAspect = static_cast<float>(kWindowWidth) /
 constexpr int kMinWidth  = 160;
 constexpr int kMinHeight = 120;
 
+// M5-style mode button row at the bottom of the window.  The real
+// M5Stack has three hardware buttons (dim / select / bright) below
+// the screen; only Select maps to a useful action in the X-Plane
+// plugin (cycle display modes), so the button strip carries one
+// labeled "MODE" centered in the strip.
+constexpr int kButtonStripHeight = 36;     // strip y-extent in boxels
+constexpr int kButtonWidth       = 80;     // pill width
+constexpr int kButtonHeight      = 24;     // pill height
+
+// Compute the MODE button rect for a given window geometry.  Centered
+// horizontally in the bottom strip.  Returns false if the window is
+// too small to host the button (skip drawing + click-handling).
+bool ComputeButtonRect(int winLeft, int winTop, int winRight, int winBottom,
+                       int* outL, int* outT, int* outR, int* outB)
+{
+    const int winW = winRight - winLeft;
+    const int winH = winTop   - winBottom;
+    if (winW < kButtonWidth + 8 || winH < kButtonStripHeight + kMinHeight)
+        return false;
+    const int stripCenterY = winBottom + kButtonStripHeight / 2;
+    const int centerX      = (winLeft + winRight) / 2;
+    *outL = centerX - kButtonWidth  / 2;
+    *outR = centerX + kButtonWidth  / 2;
+    *outT = stripCenterY + kButtonHeight / 2;
+    *outB = stripCenterY - kButtonHeight / 2;
+    return true;
+}
+
 // Persisted window geometry.  Updated by ApplyPersistedGeometry on
 // settings load; CreateXPlaneWindow consumes it as the initial box.
 // DrawWindow watches X-Plane's reported geometry and writes back here
@@ -208,25 +236,37 @@ void DrawWindow(XPLMWindowID, void*)
 
     // Letterbox the M5 framebuffer at the panel's native 4:3 inside
     // the X-Plane window.  The user can resize the window to any
-    // shape — we draw the textured quad centered, with the rest of
-    // the window filled by xplm_WindowDecorationRoundRectangle's
-    // chrome bg.  Same approach OBS preview / VLC / RetroArch use:
-    // the rendered image stays unstretched, the user gets free
-    // layout.
-    const int winW   = right - left;
-    const int winH   = top   - bottom;
-    int       quadW  = winW;
-    int       quadH  = static_cast<int>(static_cast<float>(quadW) / kAspect);
-    if (quadH > winH) {
-        quadH = winH;
+    // shape — we draw the textured quad centered (above the bottom
+    // button strip), with the rest of the window filled by
+    // xplm_WindowDecorationRoundRectangle's chrome bg.  Same approach
+    // OBS preview / VLC / RetroArch use: rendered image stays
+    // unstretched, user gets free layout.
+    const int winW = right - left;
+    const int winH = top   - bottom;
+
+    // Reserve a strip at the bottom for the M5-style MODE button.
+    // When the window is too short to host both the button strip and
+    // a usable indexer texture, drop the strip and use the full window
+    // for the texture (button just won't appear).
+    int btnL = 0, btnT = 0, btnR = 0, btnB = 0;
+    const bool buttonVisible = ComputeButtonRect(left, top, right, bottom,
+                                                 &btnL, &btnT, &btnR, &btnB);
+    const int textureBottom = buttonVisible ? bottom + kButtonStripHeight
+                                            : bottom;
+    const int textureH      = top - textureBottom;
+
+    int quadW = winW;
+    int quadH = static_cast<int>(static_cast<float>(quadW) / kAspect);
+    if (quadH > textureH) {
+        quadH = textureH;
         quadW = static_cast<int>(static_cast<float>(quadH) * kAspect);
     }
-    const int offX     = (winW - quadW) / 2;
-    const int offY     = (winH - quadH) / 2;
-    const int quadL    = left + offX;
-    const int quadR    = quadL + quadW;
-    const int quadT    = top  - offY;
-    const int quadB    = quadT - quadH;
+    const int offX  = (winW - quadW) / 2;
+    const int offY  = (textureH - quadH) / 2;
+    const int quadL = left + offX;
+    const int quadR = quadL + quadW;
+    const int quadT = top  - offY;
+    const int quadB = quadT - quadH;
 
     // Persist any drag/resize that changed the box.  Compared
     // against s_persistedGeom rather than the previous frame so the
@@ -245,13 +285,36 @@ void DrawWindow(XPLMWindowID, void*)
 
     RenderTexturedQuadVA(quadL, quadT, quadR, quadB, s_textureId);
 
+    // M5-style MODE button at the bottom-center of the window.  The
+    // dark translucent box matches the M5's plastic button face; the
+    // label shows the current mode number so the pilot can see it
+    // change at a glance.  Drawn AFTER the texture so it overlays
+    // any letterbox area underneath.
+    if (buttonVisible) {
+        XPLMDrawTranslucentDarkBox(btnL, btnT, btnR, btnB);
+        char label[24];
+        std::snprintf(label, sizeof(label), "MODE %d",
+                      static_cast<int>(displayType));
+        float white[3] = { 1.0f, 1.0f, 1.0f };
+        // XPLMDrawString anchor is the lower-left of the first glyph,
+        // and xplmFont_Proportional is ~10 px tall.  Center vertically
+        // by anchoring at btnB + (kButtonHeight - 10) / 2.
+        const int textY = btnB + (kButtonHeight - 10) / 2;
+        // Approximate text width: 7 px per char for the proportional
+        // font.  Close enough for centering a 6-char label.
+        const int approxW = static_cast<int>(std::strlen(label)) * 7;
+        const int textX   = (btnL + btnR) / 2 - approxW / 2;
+        XPLMDrawString(white, textX, textY, label, nullptr,
+                       xplmFont_Proportional);
+    }
+
     static bool s_loggedOnce = false;
     if (!s_loggedOnce) {
         s_loggedOnce = true;
         char eb[160];
         std::snprintf(eb, sizeof(eb),
-                      "FlyOnSpeed: indexer first draw OK — win=%dx%d quad=%dx%d tex=%d\n",
-                      winW, winH, quadW, quadH, s_textureId);
+                      "FlyOnSpeed: indexer first draw OK — win=%dx%d quad=%dx%d btn=%d tex=%d\n",
+                      winW, winH, quadW, quadH, buttonVisible ? 1 : 0, s_textureId);
         XPLMDebugString(eb);
     }
 }
