@@ -38,6 +38,17 @@ iAoaMedianWindow = 5
 iAoaMeanWindow = 10
 audioEnabled = 1
 serialPortPath = /dev/cu.usbmodem11201
+indexerVisible = 1
+indexerMode = 0
+indexerPoppedOut = 0
+indexerFloatLeft = 100
+indexerFloatTop = 600
+indexerFloatWidth = 320
+indexerFloatHeight = 240
+indexerPopLeft = 100
+indexerPopTop = 100
+indexerPopWidth = 320
+indexerPopHeight = 240
 ```
 
 ## Fields
@@ -54,6 +65,13 @@ serialPortPath = /dev/cu.usbmodem11201
 | `iAoaMeanWindow` | int (samples) | 1 – 100 | Running-mean window size after the median. `1` disables. |
 | `audioEnabled` | int 0/1 | — | Sound on/off toggle. Persists across sim restart. |
 | `serialPortPath` | string | OS-dependent | USB-serial port to drive a tethered M5. Empty = no output. |
+| `indexerVisible` | int 0/1 | — | Whether the indexer window was open at last save. Restored on `XPLM_MSG_AIRPORT_LOADED`. |
+| `indexerMode` | int | 0 – 4 | Last-active indexer display mode (Primary, Attitude, Narrow AOA, Decel, G History). |
+| `indexerPoppedOut` | int 0/1 | — | Whether the indexer was floating inside X-Plane (`0`) or detached as its own OS window (`1`). |
+| `indexerFloatLeft` / `Top` | int (boxels) | screen-bounds | Top-left corner of the indexer window in X-Plane global desktop boxels, when floating. |
+| `indexerFloatWidth` / `Height` | int (boxels) | ≥ 160 × 120 | Indexer window size when floating. |
+| `indexerPopLeft` / `Top` | int (OS pixels) | OS-monitor coords | Top-left corner of the indexer window when popped out into its own OS window. |
+| `indexerPopWidth` / `Height` | int (OS pixels) | ≥ 160 × 120 | Indexer window size when popped out. |
 
 The four AOA setpoints share the same ordering invariant as the
 firmware: `fLDMAXAOA < fONSPEEDFASTAOA < fONSPEEDSLOWAOA < fSTALLWARNAOA`.
@@ -103,6 +121,13 @@ the indexer texture doesn't update after an aircraft change, this
 button reloads the plugin without restarting X-Plane. Equivalent to
 **Plugins → Reload All Plugins** but routed through this plugin's
 own teardown so settings are saved first.
+
+The `indexer*` keys are written automatically as you interact with
+the window — drag, resize, pop-out, click MODE — and read back at
+launch.  No UI for them; just put the window where you want it and
+it'll come back there next time.  See
+[Using the Indexer](indexer.md#window-appearance-and-behavior) for
+more on the sticky-window behavior.
 
 ## Limitations
 
