@@ -44,6 +44,7 @@ const DATA_FIELDS = [
   ['Roll',     r => fmt(r.rollDeg, 1) + '°'],
   ['DataMark', r => fmt(r.dataMark, 0)],
   ['Flaps',    r => fmt(r.flapsDeg, 0) + '°'],
+  ['OAT',      r => fmt(r.oatC, 1) + '°C'],
 ];
 
 const DataFields = ({ rec, ageSec, expanded, onToggle }) => html`
