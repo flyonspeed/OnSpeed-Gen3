@@ -6,31 +6,51 @@
 #include <aoa/PercentLift.h>
 
 #include <cmath>
+#include <limits>
 
 namespace onspeed {
 namespace aoa {
 
-int ComputePercentLift(float aoaDeg,
-                       const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
-                       bool iasValid)
+namespace {
+
+// Returns the raw (unclamped) lift fraction `(aoaDeg - alpha_0) / span`,
+// or NaN when the inputs make the fraction undefined (IAS invalid,
+// non-finite AOA, or degenerate calibration with span <= 0).
+//
+// `ComputePercentLift` and `ComputePercentLiftTenths` share this helper
+// so the alpha_0 floor, alpha_stall fallback, and span-zero guard
+// stay in lockstep — a future edit to any of those rules touches one
+// place.  Each public function applies its own scale + clamp on the
+// returned fraction.
+//
+// Defensive ceiling: when alpha_stall isn't calibrated (or has been
+// configured below stall-warn), fall back to a synthetic stall body
+// angle of stallWarn * 100/90.  Mirrors the historical fallback so
+// an uncalibrated unit reads roughly the same at the upper end as
+// it always has.
+//
+// alpha_0 is per-flap (typically negative on aircraft with positive
+// wing incidence) and is the floor of the percent-lift fraction —
+// see CLAUDE.md's body-angle convention block.  Both the ×100 and
+// ×1000 callers must use this same alpha_0 floor or they diverge
+// silently on uncalibrated units.
+static float ComputeLiftFraction(
+    float aoaDeg,
+    const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
+    bool iasValid)
 {
     if (!iasValid) {
-        return 0;
+        return std::numeric_limits<float>::quiet_NaN();
     }
 
     // Defend against NaN/Inf AOA explicitly.  The downstream cast
-    // `static_cast<int>(NaN)` is UB; without this guard we rely on the
-    // platform's float-to-int behaviour landing somewhere the [0,99]
-    // clamp catches.  Cheap to make the contract explicit.
+    // `static_cast<int>(NaN)` is UB; without this guard we'd rely on
+    // the platform's float-to-int behaviour landing somewhere the
+    // saturation clamp catches.
     if (!std::isfinite(aoaDeg)) {
-        return 0;
+        return std::numeric_limits<float>::quiet_NaN();
     }
 
-    // Defensive ceiling: when alpha_stall isn't calibrated (or has been
-    // configured below stall-warn), fall back to a synthetic stall body
-    // angle of stallWarn * 100/90.  Mirrors the historical fallback so
-    // an uncalibrated unit reads roughly the same at the upper end as
-    // it always has.
     float alphaStall = flapCfg.fAlphaStall;
     if (alphaStall <= flapCfg.fSTALLWARNAOA) {
         alphaStall = flapCfg.fSTALLWARNAOA * 100.0f / 90.0f;
@@ -38,12 +58,25 @@ int ComputePercentLift(float aoaDeg,
 
     const float span = alphaStall - flapCfg.fAlpha0;
     if (span <= 0.0f) {
-        // Degenerate calibration (alpha_0 >= alpha_stall).  No meaningful
-        // fraction; return 0 rather than divide-by-zero.
+        // Degenerate calibration (alpha_0 >= alpha_stall): return NaN
+        // rather than divide by zero.
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+
+    return (aoaDeg - flapCfg.fAlpha0) / span;
+}
+
+}  // namespace
+
+int ComputePercentLift(float aoaDeg,
+                       const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
+                       bool iasValid)
+{
+    const float fraction = ComputeLiftFraction(aoaDeg, flapCfg, iasValid);
+    if (!std::isfinite(fraction)) {
         return 0;
     }
 
-    const float fraction = (aoaDeg - flapCfg.fAlpha0) / span;
     int pct = static_cast<int>(fraction * 100.0f);
 
     // Clamp to [0, 99] — saturation convention, never reads 100.
@@ -56,25 +89,11 @@ int ComputePercentLiftTenths(float aoaDeg,
                              const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
                              bool iasValid)
 {
-    if (!iasValid) {
+    const float fraction = ComputeLiftFraction(aoaDeg, flapCfg, iasValid);
+    if (!std::isfinite(fraction)) {
         return 0;
     }
 
-    if (!std::isfinite(aoaDeg)) {
-        return 0;
-    }
-
-    float alphaStall = flapCfg.fAlphaStall;
-    if (alphaStall <= flapCfg.fSTALLWARNAOA) {
-        alphaStall = flapCfg.fSTALLWARNAOA * 100.0f / 90.0f;
-    }
-
-    const float span = alphaStall - flapCfg.fAlpha0;
-    if (span <= 0.0f) {
-        return 0;
-    }
-
-    const float fraction = (aoaDeg - flapCfg.fAlpha0) / span;
     int tenths = static_cast<int>(fraction * 1000.0f);
 
     // Clamp to [0, 999] — saturation convention, never reads 1000
