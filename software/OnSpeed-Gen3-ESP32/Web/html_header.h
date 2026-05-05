@@ -9,7 +9,7 @@ const char szHtmlHeader[] PROGMEM = R"=====(
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8"/>
-<link rel="stylesheet" href="/css/main.css">
+<link rel="stylesheet" href="/static/app-{{appCssEtag}}.css">
 <title>OnSpeed Gen3 Configuration</title>
 </head>
 

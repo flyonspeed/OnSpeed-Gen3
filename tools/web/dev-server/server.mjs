@@ -769,6 +769,10 @@ function legacyPageHtml(title, activeId, body) {
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>OnSpeed — ${title}</title>`,
+    // Equivalent to firmware's /static/app-<sha>.css (which is the
+    // bundled concat of these two source files).  Loading the source
+    // files directly here means edits don't need a re-bundle to
+    // preview locally; the firmware still loads the bundled output.
     '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
     '<link rel="stylesheet" href="/lib/shell/legacy-forms.css">',
     '</head>',
