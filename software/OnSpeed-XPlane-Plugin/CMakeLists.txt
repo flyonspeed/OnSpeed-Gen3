@@ -310,8 +310,11 @@ target_compile_options(AOA-Tone-FlyOnSpeed PRIVATE
     -Wformat=2
     -Wunreachable-code
     -Wnull-dereference
-    -Wold-style-cast       # plugin's only consumer of C, prefer C++ casts
     -Wno-error=format-nonliteral
+    # -Wold-style-cast is C++-only; gating with a generator expression
+    # so the M5GFX C font sources (font_fmt_txt.c, lvgl glyph blobs)
+    # don't blow up under -Werror with "-Wold-style-cast not valid for C".
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wold-style-cast>"
 )
 
 # Plugin-side characterization tests (host-side, no X-Plane needed).
