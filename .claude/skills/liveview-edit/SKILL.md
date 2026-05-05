@@ -7,7 +7,9 @@ description: Use when editing OnSpeed's LiveView (the firmware-served `/indexer`
 
 The OnSpeed firmware serves a tablet-friendly web page at `/indexer` that mirrors the M5 hardware display's five modes (Mode 0 AOA primary, Mode 1 Backup AI, Mode 2 Indexer-only, Mode 3 Energy / decel gauge, Mode 4 G-load history). Both the M5 hardware renderer (C++ on the M5Stack) and the LiveView (SVG/Preact in the browser) are derived from the same M5 source — `software/OnSpeed-M5-Display/src/main.cpp`. **Edit them in lockstep; the two surfaces are deliberately bit-faithful copies of the same UI.**
 
-The legacy `/live` page (the 2-tab AOA/AHRS view) is now served from a Preact rewrite at `tools/web/lib/pages/LivePage.js`; the bundler emits its stub into `software/OnSpeed-Gen3-ESP32/Web/html_stubs.h` alongside the indexer stub.
+The legacy `/live` page (the 2-tab AOA/AHRS view) is served from a Preact rewrite at `tools/web/lib/pages/LivePage.js`; the bundler emits its stub into `software/OnSpeed-Gen3-ESP32/Web/html_stubs.h` alongside the indexer stub.
+
+The whole web UI shares this pipeline. `/`, `/indexer`, `/live`, `/calwiz`, `/logs`, `/reboot`, `/format`, `/upgrade` all run as Preact pages bundled out of `tools/web/lib/pages/`. `/aoaconfig` and `/sensorconfig` are the two server-rendered legacy form pages; their templates and per-page JS live under `tools/web/legacy-pages/` and the bundler emits them into `software/OnSpeed-Gen3-ESP32/Web/legacy_pages.h` (declarations) + `legacy_pages.cpp` (definitions). The firmware does Mustache-style `{{name}}` substitution into these templates inside `HandleConfig` / `HandleSensorConfig`.
 
 ## The two surfaces
 
@@ -56,42 +58,53 @@ node tools/web/dev-server/capture.mjs ws://192.168.0.1:81 \
   > tools/web/dev-server/replay/my-flight.ndjson
 ```
 
-## The regenerate-and-commit contract
+## Run the JS test suite before committing
 
-The firmware-served pages reference `/static/app-<sha>.js` + `/static/app-<sha>.css`, where `<sha>` is the bundle's content hash.  Both blobs (and the per-page HTML stubs) live in `software/OnSpeed-Gen3-ESP32/Web/static_app_js.h`, `static_app_css.h`, and `html_stubs.h`.  **They are generated** from `tools/web/lib/` by `scripts/build_web_bundle.py`. The generated headers are **committed to the repo** so Arduino IDE contributors (who don't run PlatformIO and never fire the pre-build hook) compile against an up-to-date version.
+The web bundle ships pure-JS tests that run on Node 20+ with zero deps. CI runs these in the `web-tests` job:
+
+```bash
+node tools/web/test/geometry-invariants.mjs   # SVG pixel-math invariants
+node tools/web/test/render-smoke.mjs          # Preact page render smoke
+node tools/web/test/api-schema.mjs            # /api/* fixture shape pinning
+node tools/web/test/css-coverage.mjs          # bundled CSS selector presence
+node tools/web/test/format.mjs                # number/duration formatters
+node tools/web/test/aoaconfig-markers.mjs     # legacy /aoaconfig {{marker}} drift
+```
+
+Or in one shot: `for t in tools/web/test/*.mjs; do node "$t"; done`.
+
+The schema-pin tests are load-bearing: `aoaconfig-markers.mjs` fails CI if any of the three lockstep marker sets (the `{{name}}` set in `aoaconfig.html`, the substitutions in `HandleConfig()`, and the substitutions in `substituteAoaConfig()`) drift. The C++ side of the WebSocket schema is pinned by `pio test -e native -f test_data_server_json` against `onspeed_core/api/LiveDataJsonKeys.h`.
+
+## The bundle is generated, not committed
+
+The firmware-served pages reference `/static/app-<sha>.js` + `/static/app-<sha>.css`, where `<sha>` is the bundle's content hash.  Both blobs (and the per-page HTML stubs) land in `software/OnSpeed-Gen3-ESP32/Web/static_app_js.h`, `static_app_css.h`, `html_stubs.h`, and `legacy_pages.{h,cpp}`.  **These are generated** from `tools/web/` by `scripts/build_web_bundle.py` and are `.gitignore`'d.  Don't commit them; just commit your source change.
 
 ### When you edit web source
 
-ALWAYS regenerate and commit the bundle alongside your source change:
+Edit the source under `tools/web/` and commit it.  No bundle artifacts to stage.
 
 ```bash
-# After editing anything under tools/web/lib/ or tools/web/lib/shell/PageShell.css
-python3 scripts/build_web_bundle.py
-
-# Commit source edit + regenerated headers in the same commit
-git add tools/web/ \
-        software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
-        software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
-        software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
-        software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
+git add tools/web/
 git commit
 ```
 
-The CI workflow `.github/workflows/ci.yml` has a `web-bundle-fresh` job that runs the generator and `git diff --exit-code`s the result. **A forgotten regeneration fails PR checks.** This is intentional — Arduino IDE flashing stale committed headers would silently break the pages for that contributor.
+PlatformIO regenerates on the next `pio run` (the bundler is registered as a pre-build extra_script with skip-if-fresh).
 
 ### When you edit only firmware-side code (DataServer.cpp, AHRS, etc.)
 
 If you change the JSON wire shape:
 1. Update `tools/web/lib/ws/wsClient.js`'s `frameToRecord` field map.
-2. Regenerate (per above) so the firmware bundle picks up the new field.
+2. Next `pio run` regenerates the bundle so the firmware picks up the new field.
 
-### PlatformIO contributors get auto-regen
+### Arduino IDE contributors regenerate manually
 
-PlatformIO build environments register `scripts/build_web_bundle.py` as a `pre:` extra_script. `pio run` regenerates on demand (skip-if-fresh — only if a source mtime is newer than the output).
+Arduino IDE doesn't run pre-build Python scripts, so a fresh clone won't have the headers and the first compile fails with `"Web/static_app_js.h: No such file or directory"`.  The fix:
 
 ```bash
-pio run -e esp32s3-v4p   # regenerates the bundle if needed, then builds firmware
+python3 scripts/build_web_bundle.py
 ```
+
+Run it again whenever you edit `tools/web/`.
 
 ## Layout / pixel polish patterns
 
@@ -145,8 +158,11 @@ If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mo
 - `tools/web/lib/pages/LivePage.js` — top-level component for `/live`
 - `tools/web/lib/shell/PageShell.js` — global nav + footer chrome
 - `tools/web/lib/vendor/preact-standalone.js` — vendored Preact + htm (MIT)
+- `tools/web/legacy-pages/` — server-rendered `/aoaconfig` and `/sensorconfig` templates + per-page JS
+- `tools/web/test/` — Node 20+ test suites (geometry, render-smoke, api-schema, css-coverage, aoaconfig-markers, format)
 - `scripts/build_web_bundle.py` — bundler. Read its top docstring for transformation rules.
-- `software/OnSpeed-Gen3-ESP32/Web/static_app_js.h` — generated PROGMEM JS bundle. Never edit by hand.
-- `software/OnSpeed-Gen3-ESP32/Web/static_app_css.h` — generated PROGMEM CSS bundle. Same.
-- `software/OnSpeed-Gen3-ESP32/Web/html_stubs.h` — generated per-page HTML stubs. Same.
+- `software/OnSpeed-Gen3-ESP32/Web/static_app_js.h` — generated PROGMEM JS bundle (gitignored; do not commit). Never edit by hand.
+- `software/OnSpeed-Gen3-ESP32/Web/static_app_css.h` — generated PROGMEM CSS bundle (gitignored). Same.
+- `software/OnSpeed-Gen3-ESP32/Web/html_stubs.h` — generated per-page HTML stubs (gitignored). Same.
+- `software/OnSpeed-Gen3-ESP32/Web/legacy_pages.{h,cpp}` — generated /aoaconfig + /sensorconfig template strings (gitignored). Same.
 - `software/OnSpeed-M5-Display/src/main.cpp` — M5 hardware renderer (source of truth for layout)

@@ -214,34 +214,32 @@ scope.
 
 ### Editing source
 
-After changing anything under `tools/web/lib/`,
-`tools/web/lib/shell/PageShell.css`, or
-`scripts/build_web_bundle.py`, regenerate and commit BOTH the source
-and the headers:
+The bundle outputs (`static_app_js.h`, `static_app_css.h`,
+`html_stubs.h`, `legacy_pages.{h,cpp}`) are `.gitignore`'d — only the
+source under `tools/web/` is committed.  Just edit the source and
+build; the headers regenerate on demand.
+
+PlatformIO users get this for free — `scripts/build_web_bundle.py` is
+registered as a pre-build extra_script with skip-if-fresh, so `pio run`
+regenerates whenever a source file's mtime is newer than the output.
+
+Arduino IDE users have to run the bundler manually once after clone
+(and again after editing `tools/web/`):
 
 ```bash
 python3 scripts/build_web_bundle.py
-git add tools/web/... \
-        software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
-        software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
-        software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
-        software/OnSpeed-Gen3-ESP32/Web/legacy_pages.h \
-        software/OnSpeed-Gen3-ESP32/Web/legacy_pages.cpp
-git commit
 ```
 
-CI's `web-bundle-fresh` job verifies the committed headers match what
-the script would produce — a forgotten regeneration fails the PR check.
-
-PlatformIO users: `pio run` regenerates the headers on demand (the
-script is registered as a pre-build extra_script with skip-if-fresh).
+The first compile will fail with a "no such file" error on
+`Web/static_app_js.h` if you forget; the fix is the line above.
 
 ### Don't edit the generated headers
 
-`static_app_js.h`, `static_app_css.h`, and `html_stubs.h` start with
-an `// AUTO-GENERATED` comment.  If you find yourself editing them,
-stop — your changes will be erased on the next build.  Edit the
-source under `lib/` and regenerate.
+`static_app_js.h`, `static_app_css.h`, `html_stubs.h`, and
+`legacy_pages.{h,cpp}` start with an `// AUTO-GENERATED` comment.  If
+you find yourself editing them, stop — your changes will be erased on
+the next build.  Edit the source under `lib/` (or `legacy-pages/`) and
+regenerate.
 
 ## Tests
 
