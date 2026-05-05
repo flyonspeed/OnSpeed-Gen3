@@ -531,15 +531,27 @@ void loop()
             displayPalt        = Palt;
             displayPitch       = Pitch;
             displayVerticalG   = VerticalG;
-            // Snapshot for the readout digits.  Round and clamp to [0, 99]
-            // so a saturated 99.9 (the float ceiling) doesn't transiently
-            // render as "100" in the 2-digit field — the saturation
-            // convention is "never reads 100", same as it's always been.
+            // Snapshot for the readout digits.  Truncate (NOT round) and
+            // clamp to [0, 99] so:
+            //   (a) the digit stays in lockstep with the chevron color
+            //       comparisons, which use the raw float aoaPct against
+            //       integer band anchors via implicit promotion (e.g.
+            //       `aoaPct >= Array[2]` flips at exactly aoaPct == 33,
+            //       not at aoaPct == 32.5).  Rounding here would advance
+            //       the digit to "33" at PercentLift = 32.5 while the
+            //       chevron stays dark until 33.0 — a per-frame
+            //       indicator-vs-color disagreement at the threshold.
+            //   (b) a saturated 99.9 (the float ceiling) renders as
+            //       "99", not "100" — the saturation convention is
+            //       "never reads 100", same as it's always been.  Old
+            //       code `PercentLift = f.percentLift / 10` (int /
+            //       int) was also truncation, so this matches v4.23
+            //       behavior exactly.
             {
-                long pctLong = lroundf(PercentLift);
-                if (pctLong < 0)  pctLong = 0;
-                if (pctLong > 99) pctLong = 99;
-                displayPercentLift = static_cast<int>(pctLong);
+                int pctInt = static_cast<int>(PercentLift);
+                if (pctInt < 0)  pctInt = 0;
+                if (pctInt > 99) pctInt = 99;
+                displayPercentLift = pctInt;
             }
             displayDecelRate   = SmoothedDecelRate;
             numbersUpdateTime  = millis();
@@ -1581,8 +1593,17 @@ int mapPct2Display(int aoaPct, const int Array[])
 
 // Float overload — used by drawAOA's index-pointer site so the bar y
 // position resolves to sub-pixel input even though map2int still rounds
-// to whole pixels. Mirrors the integer version exactly; only the input
-// type and band-edge comparisons differ.
+// to whole pixels.  Mirrors the integer version's piecewise ramp.
+//
+// Upper ramp ceiling is 99.0 (matching the integer overload), even
+// though `PercentLift` itself can range up to 99.9 (the float clamp
+// from PercentLift.cpp).  Floats in (99.0, 99.9] saturate at y=1 just
+// like the integer 99 does — that's the documented "lift-envelope
+// ceiling" contract: the bar is pinned at top whenever the pilot is
+// at or above 99%.  The 0.9% range in (99.0, 99.9] is intentionally
+// not interpolated; the wire can carry sub-tenth values up there
+// (pilot deep into stall) but the bar visibly saturating at "off the
+// chart" is the right cue.
 int mapPct2Display(float aoaPctF, const int Array[])
 {
     const float a0 = (float)Array[0];
@@ -1592,7 +1613,7 @@ int mapPct2Display(float aoaPctF, const int Array[])
     if      (aoaPctF <= a0)                       return 192;                              // display bottom
     else if (aoaPctF >  a0 && aoaPctF <= a3)      return map2int(aoaPctF, a0, a3, 192, 115); // floor → OnSpeedFast
     else if (aoaPctF >  a3 && aoaPctF <= a4)      return map2int(aoaPctF, a3, a4, 115,  78); // donut band
-    else if (aoaPctF >  a4 && aoaPctF <= 99.0f)   return map2int(aoaPctF, a4, 99.0f, 78,  1); // OnSpeedSlow → 99% (lift ceiling)
+    else if (aoaPctF >  a4 && aoaPctF <= 99.0f)   return map2int(aoaPctF, a4, 99.0f, 78,  1); // OnSpeedSlow → 99% (lift ceiling — saturates at top above 99)
     else                                          return 1;                                  // display top
 }
 

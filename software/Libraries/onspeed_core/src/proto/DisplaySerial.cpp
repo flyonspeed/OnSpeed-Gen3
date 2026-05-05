@@ -86,12 +86,16 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     // percentLift on the wire carries tenths of a percent (0..999) so the
     // M5's index bar can advance at sub-pixel temporal smoothness off the
     // 20 Hz frame cadence.  Producers fill `percentLiftPct` as a whole-
-    // percent float (e.g. 47.3); we encode `int(pct × 10)` here.  The
-    // truncation (rather than rounding) matches the historical
-    // `static_cast<int>(fraction * 1000.0f)` path so wire bytes stay
-    // byte-for-byte identical to v4.23 master output for the same AOA.
-    // Clamp at 999 — the formula's saturation convention never emits
-    // 1000 (PercentLift.cpp clamps at 99.9).
+    // percent float (e.g. 47.3); we encode `int(pct × 10)` here via
+    // SafeScaledInt's truncation toward zero.  Wire output agrees with
+    // v4.23 master to within ±1 in the wire-tenths field at IEEE 754
+    // precision boundaries (the new pipeline uses one extra `*10`
+    // float multiply that wasn't there before; ~282 of ~10⁹ representable
+    // float fractions differ by 1 ULP at the truncation step — see
+    // test_byte_equivalence_with_v423 for the exact characterization).
+    // 0.1% on the wire is invisible to pilot and audio path.  Clamp
+    // at 999 — the formula's saturation convention never emits 1000
+    // (PercentLift.cpp clamps at 99.9).
     const int      iPctLiftRaw = SafeScaledInt(in.percentLiftPct, 10.0f, 0, 999);
     const unsigned uPctLift    = ClampUInt(static_cast<unsigned>(iPctLiftRaw), 0, 999);
     const int      iVsi10      = ClampInt(in.vsiFpm10,           -999,   999);

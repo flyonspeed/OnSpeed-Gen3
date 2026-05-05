@@ -69,11 +69,14 @@ export const Indexer = ({ percentLift, anchors, flashFlag, aoaIsValid }) => {
 
 export const PercentLiftNumber = ({ percent, aoaIsValid }) => {
   if (!aoaIsValid) return null;
-  // Round + clamp so the 2-digit field never reads "100" — same
-  // saturation convention the M5 firmware uses (see main.cpp's
-  // displayPercentLift snapshot).
-  const rounded = Math.min(99, Math.max(0, Math.round(percent)));
-  const s = String(rounded).padStart(2, '0');
+  // Truncate (NOT round) and clamp to [0, 99] so the digit stays in
+  // lockstep with the chevron color comparisons, which use the raw
+  // float percent against integer anchors (e.g. `percent >= tonesOn`
+  // flips at exactly percent == 33, not at percent == 32.5).  Match
+  // the M5 firmware's `displayPercentLift` snapshot in main.cpp.
+  // The 99-clamp also keeps a saturated 99.9 from rendering as "100".
+  const truncated = Math.min(99, Math.max(0, Math.trunc(percent)));
+  const s = String(truncated).padStart(2, '0');
   return html`
     <g data-widget="percent-lift-number">
       <text x=${G.PCT_LIFT_X} y=${G.PCT_LIFT_Y}

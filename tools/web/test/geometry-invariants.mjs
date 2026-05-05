@@ -119,6 +119,7 @@ eq(mapPct2Display(0, anchors), 192, 'pct=0 → bottom of indexer (y=192)');
 eq(mapPct2Display(50, anchors), 115, 'pct=fastEdge → 115 (donut bottom edge)');
 eq(mapPct2Display(70, anchors), 78, 'pct=slowEdge → 78 (donut top edge)');
 eq(mapPct2Display(99, anchors), 1, 'pct=99 → 1 (top, lift-envelope ceiling)');
+eq(mapPct2Display(99.5, anchors), 1, 'pct in (99, 99.9] saturates at top (off-the-chart cue)');
 eq(mapPct2Display(100, anchors), 1, 'pct above 99 clamps to top');
 ok(mapPct2Display(90, anchors) > 1 && mapPct2Display(90, anchors) < 78,
    'pct=stallWarn lands on upper ramp between 78 and 1, not pinned at top');

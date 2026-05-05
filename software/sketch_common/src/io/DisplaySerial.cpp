@@ -305,9 +305,12 @@ void DisplaySerial::Write()
         const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
         const int      iVertG10   = ClampInt(iDisplayVerticalG,                -99,      99);
         // G3X format keeps integer percent (0..99) on its own wire.
-        // Truncate the float pct value (matches the int-tenths-then-/10
-        // path that v4.22 used).
-        const unsigned uPctLift   = ClampUInt((unsigned)fPercentLiftPct, 0, 99);
+        // Use SafeScaledInt (which guards against NaN/Inf and out-of-
+        // range floats) instead of a direct float-to-unsigned cast,
+        // since `static_cast<unsigned>(NaN)` is UB.  Truncation matches
+        // the v4.22 int-tenths-then-/10 path.
+        const int      iPctLiftG3X = SafeScaledInt(fPercentLiftPct, 1.0f, 0, 99);
+        const unsigned uPctLift    = static_cast<unsigned>(iPctLiftG3X);
 
         const int iChars = snprintf(
             serialOutString,
