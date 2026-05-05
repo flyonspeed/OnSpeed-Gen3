@@ -70,8 +70,11 @@ eq(G.MODE1_CORNER_RIGHT_X, 307, 'Mode 1 RIGHT_X = 307 (main.cpp:532)');
 // ----- Mode 1 VSI tape ---------------------------------------------------
 
 eq(G.MODE1_VSI_BAR_X, 313, 'VSI bar x = 313');
-near(600 * G.MODE1_VSI_HEIGHT_SCALE, G.MODE1_VSI_HEIGHT_MAX, 0.01,
-     '600 fpm fills the VSI bar');
+near(G.MODE1_VSI_FULL_SCALE_FPM * G.MODE1_VSI_HEIGHT_SCALE,
+     G.MODE1_VSI_HEIGHT_MAX, 0.01,
+     'full-scale fpm fills the VSI bar');
+eq(G.MODE1_VSI_FULL_SCALE_FPM, 600,
+   'VSI bar saturates at ±600 fpm (matches kVsiBarFullScaleFpm in main.cpp)');
 const tickCount = (G.MODE1_VSI_TICK_LAST_Y - G.MODE1_VSI_TICK_FIRST_Y) / G.MODE1_VSI_TICK_STEP + 1;
 eq(tickCount, 11, '11 VSI ladder ticks (every 20 px from 19..219)');
 

@@ -299,11 +299,16 @@ export const MODE1_SLIP_H = 20;
 
 // Mode 1 VSI tape. main.cpp:600-621.
 // Same edgeTape widget as Mode 0's gOnset, but with VSI scaling and
-// orange bar color. height = |iVSI × 120 / 600|, clamped 0..120.
+// white bar color (orange was unreadable against the attitude-page
+// background). height = |iVSI × 120 / 600|, clamped 0..120.
+// Mirror constants kVsiBarHeightPx + kVsiBarFullScaleFpm in
+// software/OnSpeed-M5-Display/src/main.cpp.
 export const MODE1_VSI_BAR_X        = 313;       // :609
 export const MODE1_VSI_BAR_W        = 7;
-export const MODE1_VSI_HEIGHT_SCALE = 120 / 600; // 0.2 px/fpm
 export const MODE1_VSI_HEIGHT_MAX   = 120;
+export const MODE1_VSI_FULL_SCALE_FPM = 600;
+export const MODE1_VSI_HEIGHT_SCALE =
+    MODE1_VSI_HEIGHT_MAX / MODE1_VSI_FULL_SCALE_FPM; // 0.2 px/fpm
 export const MODE1_VSI_ZERO_Y       = 119;       // :607-608
 // Tick ladder: every 20 px from y=19 to y=219 (:613).
 // Tick endpoints. Per user polish-pass-3: ticks must touch the right

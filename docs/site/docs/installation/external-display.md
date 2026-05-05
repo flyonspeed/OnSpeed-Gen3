@@ -149,10 +149,16 @@ not by exact percent.
 Primary mode does not show altitude — flip to Attitude mode (next) for
 a numeric pressure-altitude readout.
 
-**Right edge — G-onset rate tape.** A thin orange bar above or
-below a "zero line" ladder at the right side of the screen, showing
-instantaneous onset (rate of G change per second). Useful for
-spotting sudden pull-ups / push-overs during maneuvering.
+**Right edge — G-onset rate tape.** A thin yellow bar growing up
+(positive onset, G load increasing — pulling into a turn or
+pull-up) or down (negative onset, G unloading — push-over) from
+a "zero line" ladder at the right side of the screen.  Saturates
+at ±2 g/s.  The signal is the smoothed first derivative of
+vertical-G, computed by feeding `AccelVertFilter` through a 250 ms
+low-pass kernel (`GOnsetFilter` in `onspeed_core/filters/`).
+Useful as a smoothness cue: a steady long pull-up shows a small
+bar; a sudden yank shows a tall bar that dies back as the rate
+stabilizes.
 
 ### Attitude — backup AI with AOA
 
@@ -163,8 +169,11 @@ Sky/ground horizon with a pitch ladder (10° increments), roll
 indication via a fixed aircraft reference symbol against a rolling
 horizon, a magenta flight-path marker (concentric rings with
 perpendicular wing bars) showing the aircraft's actual vector through
-the air, slip/skid ball at the bottom, and an orange VSI tape on the
-right edge with a tick ladder for climb/descent rate.
+the air, slip/skid ball at the bottom, and a white VSI tape on the
+right edge with a tick ladder for climb/descent rate.  The bar fills
+at ±600 fpm — saturates beyond, so a hard climb pegs the top — and
+the 20-pixel ladder ticks give a visual reference for fine reads
+in the gentle-cruise band where small trends matter most.
 
 **Corners:**
 
@@ -209,8 +218,8 @@ rapid acceleration or deceleration. A white horizontal bar on the
 tape tracks the current smoothed decel rate.
 
 Numeric readouts in the corners: **IAS** (left), **Kt/s decel rate**
-(right). An orange VSI tape runs up the right edge; a slip ball sits
-at the bottom.
+(right). A white VSI tape runs up the right edge (same ±600 fpm
+scale as Mode 1); a slip ball sits at the bottom.
 
 **When to use:** tuning approach energy. A well-flown stabilized
 approach shows small steady decel (tape near the green band); rapid

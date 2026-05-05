@@ -142,6 +142,14 @@ int PctAnchors[8];
 const uint16_t  WIDTH               = 320; //X
 const uint16_t  HEIGHT              = 240; //Y
 
+// VSI bar scaling for Mode 1 (Attitude) and Mode 3 (Energy).  120-px
+// bar fills at ±600 fpm — fine-grained for the gentle-cruise band
+// pilots typically reference in normal flight.  Saturates beyond,
+// which is intentional: the IAS / FPA readouts cover larger excursions.
+// Mirror constant in tools/web/lib/core/geometry.js (MODE1_VSI_*).
+constexpr int kVsiBarHeightPx     = 120;
+constexpr int kVsiBarFullScaleFpm = 600;
+
 // display variables
 uint64_t        loopTime            = millis();
 uint64_t        currentMillis;
@@ -627,12 +635,12 @@ void loop()
                 // draw iVSI line
                 if (iVSI!=0.0)
                 {
-                    int vsiHeight=abs(int(iVSI*120/600));
-                    vsiHeight=constrain(vsiHeight,0,120);
+                    int vsiHeight=abs(int(iVSI*kVsiBarHeightPx/kVsiBarFullScaleFpm));
+                    vsiHeight=constrain(vsiHeight,0,kVsiBarHeightPx);
                     int vsiTop;
                     if (iVSI > 0) vsiTop = 119 - vsiHeight;
                     else          vsiTop = 119;
-                    gdraw.fillRect(313,vsiTop,7,vsiHeight,TFT_ORANGE);
+                    gdraw.fillRect(313,vsiTop,7,vsiHeight,TFT_WHITE);
                 }
 
                 // vsi ladder, every 20 pixels
@@ -1418,12 +1426,12 @@ void displayDecelGauge()
     // draw iVSI line
     if (iVSI!=0.0)
     {
-        int vsiHeight=abs(int(iVSI*120/600));
-        vsiHeight=constrain(vsiHeight,0,120);
+        int vsiHeight=abs(int(iVSI*kVsiBarHeightPx/kVsiBarFullScaleFpm));
+        vsiHeight=constrain(vsiHeight,0,kVsiBarHeightPx);
         int vsiTop;
         if (iVSI > 0) vsiTop = 119 - vsiHeight;
         else          vsiTop = 119;
-        gdraw.fillRect(313,vsiTop,7,vsiHeight,TFT_ORANGE);
+        gdraw.fillRect(313,vsiTop,7,vsiHeight,TFT_WHITE);
     }
 
     // vsi ladder, every 20 pixels
