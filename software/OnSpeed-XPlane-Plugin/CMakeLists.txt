@@ -8,6 +8,13 @@ project(AOA-Tone-FlyOnSpeed C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Indexer feature flag is read by the per-OS arch logic below
+# (single-arch macOS builds when ON, universal otherwise), so the
+# option() declaration must precede it.  Full description and the
+# rationale for ON-by-default lives at the dedicated block further
+# down — this is just the early declaration.
+option(ENABLE_M5_INDEXER "Build the embedded M5 indexer renderer" ON)
+
 # SDK version + platform defines.  XPLM200..XPLM400 unlock the
 # corresponding-version SDK API surface (each adds new entry points
 # behind #if defined(XPLMxxx)).  We target XPLM400 so we get the full
@@ -92,12 +99,15 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/version
 #
 # Linking the M5 firmware + M5GFX + M5Unified + SDL2 produces an
 # in-process indexer renderer that draws into an X-Plane window.  The
-# audio path doesn't need any of this; off by default until the
-# feature lands fully tested across all three host platforms.
+# audio path doesn't need any of this; the option is provided so an
+# audio-only build remains possible (e.g., if SDL2 or the M5 libdeps
+# are unavailable on a host).
 #
-# Enable: -DENABLE_M5_INDEXER=ON
+# Enabled by default — release artifacts ship with the indexer.
+# Disable with -DENABLE_M5_INDEXER=OFF for an audio-only build.
+# The option() itself is declared near the top of this file so the
+# arch logic can read it; this section keeps the dependency wiring.
 # --------------------------------------------------------------------
-option(ENABLE_M5_INDEXER "Build the embedded M5 indexer renderer" OFF)
 
 set(PLUGIN_SOURCES
     src/aoa_audio.cpp
@@ -300,8 +310,11 @@ target_compile_options(AOA-Tone-FlyOnSpeed PRIVATE
     -Wformat=2
     -Wunreachable-code
     -Wnull-dereference
-    -Wold-style-cast       # plugin's only consumer of C, prefer C++ casts
     -Wno-error=format-nonliteral
+    # -Wold-style-cast is C++-only; gating with a generator expression
+    # so the M5GFX C font sources (font_fmt_txt.c, lvgl glyph blobs)
+    # don't blow up under -Werror with "-Wold-style-cast not valid for C".
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wold-style-cast>"
 )
 
 # Plugin-side characterization tests (host-side, no X-Plane needed).

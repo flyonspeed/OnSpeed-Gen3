@@ -202,6 +202,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libopenal-dev
 
+      # M5GFX's `pio run -e native` doesn't build on MinGW (issue #396);
+      # Windows leg stays audio-only via -DENABLE_M5_INDEXER=OFF below.
+      - name: Install SDL2 (mac+linux indexer build)
+        if: runner.os != 'Windows'
+        run: |
+          case "$RUNNER_OS" in
+            macOS) brew install sdl2 ;;
+            Linux) sudo apt-get install -y libsdl2-dev ;;
+          esac
+
+      - name: Set up Python (PlatformIO host)
+        if: runner.os != 'Windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO core + M5 libdeps
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            software/OnSpeed-M5-Display/.pio
+          key: pio-${{ runner.os }}-${{ hashFiles('software/OnSpeed-M5-Display/platformio.ini') }}
+
+      - name: Prefetch M5GFX/M5Unified via PlatformIO native build
+        if: runner.os != 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+          pio run -e native -d software/OnSpeed-M5-Display
+
       - name: Configure vcpkg NuGet cache (Windows only)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -238,8 +270,10 @@ jobs:
       - name: Select MinGW generator (Windows only)
         if: runner.os == 'Windows'
         run: |
+          # ENABLE_M5_INDEXER=OFF on Windows until #396; see ci.yml for
+          # rationale.  Windows release artifact remains audio-only.
           echo "CMAKE_GENERATOR=MinGW Makefiles" >> "$GITHUB_ENV"
-          echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static" >> "$GITHUB_ENV"
+          echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static -DENABLE_M5_INDEXER=OFF" >> "$GITHUB_ENV"
 
       - name: Configure
         run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build ${CMAKE_EXTRA_ARGS}

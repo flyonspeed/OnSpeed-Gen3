@@ -12,8 +12,11 @@
 #include <cstdint>
 #include <mutex>
 
-// M5GFX is included inside `lgfx::v1`.
-#include <lgfx/v1/Panel/Panel_FrameBufferBase.hpp>
+// M5GFX is included inside `lgfx::v1`.  Lowercase `panel/`: the M5GFX
+// libdeps tree on disk uses lowercase, so this include is correct on
+// case-sensitive filesystems (Linux).  macOS / Windows resolved the
+// previous capitalized form via case-insensitive defaults.
+#include <lgfx/v1/panel/Panel_FrameBufferBase.hpp>
 
 namespace onspeed_xplane {
 
