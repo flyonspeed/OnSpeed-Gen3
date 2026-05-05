@@ -34,6 +34,7 @@
 #include <unity.h>
 
 #include <api/CalwizSave.h>
+#include <api/CalwizSaveParse.h>
 #include <config/OnSpeedConfig.h>
 
 #include <cstring>
@@ -41,6 +42,11 @@
 
 using onspeed::api::ApplyCalwizSave;
 using onspeed::api::CalwizSaveInput;
+using onspeed::api::CalwizSaveParseResult;
+using onspeed::api::ExtractCalwizSave;
+using onspeed::api::FindJsonValueStart;
+using onspeed::api::ParseJsonInt;
+using onspeed::api::ParseJsonNumber;
 using onspeed::config::OnSpeedConfig;
 using SuFlaps = OnSpeedConfig::SuFlaps;
 
@@ -314,6 +320,271 @@ void test_curve_coefficient_mapping_explicit(void) {
     TEST_ASSERT_EQUAL_UINT8(1, f.AoaCurve.iCurveType);
 }
 
+// ============================================================================
+// End-to-end JSON-body tests (R1).
+//
+// PR 3's differential test (above) only exercised ApplyCalwizSave,
+// the post-parse mutation helper.  PR 4 adds tests against the
+// firmware's actual JSON parser (FindJsonValueStart + ParseJsonNumber
+// + ExtractCalwizSave) so the lexer is a CI-pinned contract.  Once
+// PR 5 deletes the legacy form path, ParseJsonNumber is the only
+// remaining write path into g_Config.aFlaps; getting it wrong here
+// silently corrupts calibration.
+// ============================================================================
+
+namespace {
+
+// Build a happy-path JSON body programmatically.  Keep it compact —
+// the production wizard emits compact JSON.stringify output, so the
+// test mirrors that shape.
+std::string MakeJsonBody(int flapsPos, const CalwizSaveInput& in) {
+    char buf[768];
+    std::snprintf(buf, sizeof(buf),
+        "{\"flapsPos\":%d,"
+        "\"LDmaxSetpoint\":%.6g,"
+        "\"OSFastSetpoint\":%.6g,"
+        "\"OSSlowSetpoint\":%.6g,"
+        "\"StallWarnSetpoint\":%.6g,"
+        "\"StallSetpoint\":%.6g,"
+        "\"ManeuveringSetpoint\":%.6g,"
+        "\"alpha0\":%.6g,"
+        "\"alphaStall\":%.6g,"
+        "\"K_fit\":%.6g,"
+        "\"curve0\":%.6g,"
+        "\"curve1\":%.6g,"
+        "\"curve2\":%.6g}",
+        flapsPos,
+        static_cast<double>(in.ldMaxAoaDeg),
+        static_cast<double>(in.onSpeedFastAoaDeg),
+        static_cast<double>(in.onSpeedSlowAoaDeg),
+        static_cast<double>(in.stallWarnAoaDeg),
+        static_cast<double>(in.stallAoaDeg),
+        static_cast<double>(in.maneuveringAoaDeg),
+        static_cast<double>(in.alpha0Deg),
+        static_cast<double>(in.alphaStallDeg),
+        static_cast<double>(in.kFit),
+        static_cast<double>(in.curve0),
+        static_cast<double>(in.curve1),
+        static_cast<double>(in.curve2));
+    return std::string(buf);
+}
+
+}  // namespace
+
+// ---- ParseJsonNumber lexer edge cases (R1) -----------------------
+
+void test_parse_json_number_scientific_large(void) {
+    std::string body = "{\"x\":1e10}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 0.0f;
+    TEST_ASSERT_TRUE(ParseJsonNumber(body, p, &v));
+    TEST_ASSERT_EQUAL_FLOAT(1e10f, v);
+}
+
+void test_parse_json_number_negative_scientific(void) {
+    std::string body = "{\"x\":-0.5e-3}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 0.0f;
+    TEST_ASSERT_TRUE(ParseJsonNumber(body, p, &v));
+    TEST_ASSERT_FLOAT_WITHIN(1e-9f, -5e-4f, v);
+}
+
+void test_parse_json_number_double_dot_rejected(void) {
+    std::string body = "{\"x\":1.2.3}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = -999.0f;
+    TEST_ASSERT_FALSE(ParseJsonNumber(body, p, &v));
+}
+
+void test_parse_json_number_skips_leading_whitespace(void) {
+    // The lexer tolerates spaces / tabs adjacent to the colon; the
+    // wizard never emits them, but proxies and reformatters can.
+    std::string body = "{\"x\":   42.5}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 0.0f;
+    TEST_ASSERT_TRUE(ParseJsonNumber(body, p, &v));
+    TEST_ASSERT_EQUAL_FLOAT(42.5f, v);
+}
+
+void test_parse_json_number_integer_form_for_float_field(void) {
+    // The wizard sometimes ships an integer (e.g. 5) into a float
+    // field.  ParseJsonNumber accepts the integer form per JSON.
+    std::string body = "{\"x\":5}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 0.0f;
+    TEST_ASSERT_TRUE(ParseJsonNumber(body, p, &v));
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, v);
+}
+
+void test_parse_json_number_zero_and_negative_zero(void) {
+    std::string body0  = "{\"x\":0}";
+    std::string bodyN0 = "{\"x\":-0}";
+    float v = 999.0f;
+    int p = FindJsonValueStart(body0, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    TEST_ASSERT_TRUE(ParseJsonNumber(body0, p, &v));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, v);
+
+    p = FindJsonValueStart(bodyN0, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    TEST_ASSERT_TRUE(ParseJsonNumber(bodyN0, p, &v));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, v);  // -0.0f == 0.0f under IEEE 754
+}
+
+void test_parse_json_number_overflow_to_infinity_rejected(void) {
+    // 1e999 lexes as a valid JSON number, but strtof returns
+    // ±HUGE_VALF; the lexer rejects non-finite results so the
+    // SuFlaps never sees Inf.
+    std::string body = "{\"x\":1e999}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 999.0f;
+    TEST_ASSERT_FALSE(ParseJsonNumber(body, p, &v));
+}
+
+void test_parse_json_number_rejects_nan_token(void) {
+    // `NaN` is not a JSON number — alphabetic tokens fail the lex.
+    std::string body = "{\"x\":NaN}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 999.0f;
+    TEST_ASSERT_FALSE(ParseJsonNumber(body, p, &v));
+}
+
+void test_parse_json_number_rejects_infinity_token(void) {
+    std::string body = "{\"x\":Infinity}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 999.0f;
+    TEST_ASSERT_FALSE(ParseJsonNumber(body, p, &v));
+}
+
+void test_parse_json_number_rejects_e_without_exponent_digits(void) {
+    std::string body = "{\"x\":1e}";
+    int p = FindJsonValueStart(body, "x");
+    TEST_ASSERT_TRUE(p >= 0);
+    float v = 999.0f;
+    TEST_ASSERT_FALSE(ParseJsonNumber(body, p, &v));
+}
+
+// ---- ExtractCalwizSave end-to-end happy path ----------------------
+
+void test_endtoend_json_body_clean_path(void) {
+    // Full wizard output flow: build a JSON body, parse it back, and
+    // verify the resulting SuFlaps post-state matches what the
+    // CalwizSaveInput would produce when applied directly.  Pins the
+    // parser/applier pair as a single contract.
+    const Fixture& fx = kFixtures[0];  // clean_in_order
+    std::string body = MakeJsonBody(fx.flapDegrees, fx.input);
+    auto r = ExtractCalwizSave(body);
+    TEST_ASSERT_TRUE_MESSAGE(r.ok, r.errorMessage.c_str());
+    TEST_ASSERT_EQUAL_INT(fx.flapDegrees, r.flapsPos);
+
+    SuFlaps direct = MakeFreshFlap(fx.flapDegrees);
+    SuFlaps parsed = MakeFreshFlap(fx.flapDegrees);
+    ApplyCalwizSave(direct, fx.input);
+    ApplyCalwizSave(parsed, r.input);
+
+    AssertFlapBytewiseEqual(direct, parsed, "endtoend_json_body_clean_path");
+}
+
+// ---- ExtractCalwizSave error paths (R1 + R2) ---------------------
+
+void test_endtoend_json_body_missing_field_400s(void) {
+    // R2: the wizard never strips a field, but a buggy client could.
+    // Confirm the parser rejects an absent LDmaxSetpoint with the
+    // path-keyed error the HTTP handler turns into 400.  Legacy
+    // form path zeros missing fields silently — this divergence is
+    // intentional.
+    const Fixture& fx = kFixtures[0];
+    std::string body = MakeJsonBody(fx.flapDegrees, fx.input);
+    // Replace the LDmax key with a different key so it's effectively
+    // absent.  Keeps the JSON well-formed.
+    auto pos = body.find("\"LDmaxSetpoint\"");
+    TEST_ASSERT_TRUE(pos != std::string::npos);
+    body.replace(pos, std::string("\"LDmaxSetpoint\"").size(),
+                 "\"unrelatedKey\"");
+    auto r = ExtractCalwizSave(body);
+    TEST_ASSERT_FALSE(r.ok);
+    TEST_ASSERT_EQUAL_STRING("LDmaxSetpoint", r.errorField.c_str());
+}
+
+void test_endtoend_json_body_nan_string_rejected(void) {
+    // R2: a body with the literal token `NaN` (or `Infinity`) is
+    // rejected.  Legacy atof would silently store NaN/Inf into the
+    // SuFlaps; the new path 400s.
+    std::string body =
+        "{\"flapsPos\":0,"
+        "\"LDmaxSetpoint\":NaN,"
+        "\"OSFastSetpoint\":7,\"OSSlowSetpoint\":9,"
+        "\"StallWarnSetpoint\":11,\"StallSetpoint\":12,"
+        "\"ManeuveringSetpoint\":6,"
+        "\"alpha0\":-2,\"alphaStall\":13,"
+        "\"K_fit\":25000,"
+        "\"curve0\":0.01,\"curve1\":-0.4,\"curve2\":7}";
+    auto r = ExtractCalwizSave(body);
+    TEST_ASSERT_FALSE(r.ok);
+    TEST_ASSERT_EQUAL_STRING("LDmaxSetpoint", r.errorField.c_str());
+}
+
+void test_endtoend_json_body_infinity_string_rejected(void) {
+    std::string body =
+        "{\"flapsPos\":0,"
+        "\"LDmaxSetpoint\":4.5,"
+        "\"OSFastSetpoint\":Infinity,\"OSSlowSetpoint\":9,"
+        "\"StallWarnSetpoint\":11,\"StallSetpoint\":12,"
+        "\"ManeuveringSetpoint\":6,"
+        "\"alpha0\":-2,\"alphaStall\":13,"
+        "\"K_fit\":25000,"
+        "\"curve0\":0.01,\"curve1\":-0.4,\"curve2\":7}";
+    auto r = ExtractCalwizSave(body);
+    TEST_ASSERT_FALSE(r.ok);
+    TEST_ASSERT_EQUAL_STRING("OSFastSetpoint", r.errorField.c_str());
+}
+
+void test_endtoend_json_body_empty_body_400s(void) {
+    auto r = ExtractCalwizSave(std::string_view());
+    TEST_ASSERT_FALSE(r.ok);
+    TEST_ASSERT_EQUAL_STRING("body", r.errorField.c_str());
+}
+
+// ============================================================================
+// Boundary fixtures (R2).
+//
+// SetpointOrderError() at OnSpeedConfig.cpp:46-47 enforces
+// `alpha_0 < LDMAX` strictly; equality is treated as an order error
+// (the percent-lift formula divides by alpha_stall - alpha_0 and a
+// degenerate alpha_0 == alpha_stall would zero the denominator).
+// These fixtures pin the boundary behavior.
+// ============================================================================
+
+void test_alpha0_equals_ldmax_is_order_error(void) {
+    SuFlaps f = MakeFreshFlap(0);
+    CalwizSaveInput in = kFixtures[0].input;
+    in.alpha0Deg = in.ldMaxAoaDeg;  // alpha_0 == LDMAX (boundary)
+    ApplyCalwizSave(f, in);
+    std::string err = f.SetpointOrderError();
+    TEST_ASSERT_TRUE_MESSAGE(!err.empty(),
+        "alpha_0 == LDMAX should trigger an order error (>= rule)");
+    TEST_ASSERT_TRUE_MESSAGE(err.find("Alpha0") != std::string::npos,
+        "order error should mention Alpha0");
+}
+
+void test_alpha0_above_ldmax_is_order_error(void) {
+    SuFlaps f = MakeFreshFlap(0);
+    CalwizSaveInput in = kFixtures[0].input;
+    in.alpha0Deg = in.ldMaxAoaDeg + 1.0f;  // typo: alpha_0 > LDMAX
+    ApplyCalwizSave(f, in);
+    std::string err = f.SetpointOrderError();
+    TEST_ASSERT_TRUE(!err.empty());
+    TEST_ASSERT_TRUE(err.find("Alpha0") != std::string::npos);
+}
+
 // ----------------------------------------------------------------------------
 // Main
 // ----------------------------------------------------------------------------
@@ -327,6 +598,27 @@ int main(void) {
     RUN_TEST(test_full_in_order);
     RUN_TEST(test_ldmax_above_osfast);
     RUN_TEST(test_curve_coefficient_mapping_explicit);
+
+    // R1 — JSON parser end-to-end.
+    RUN_TEST(test_parse_json_number_scientific_large);
+    RUN_TEST(test_parse_json_number_negative_scientific);
+    RUN_TEST(test_parse_json_number_double_dot_rejected);
+    RUN_TEST(test_parse_json_number_skips_leading_whitespace);
+    RUN_TEST(test_parse_json_number_integer_form_for_float_field);
+    RUN_TEST(test_parse_json_number_zero_and_negative_zero);
+    RUN_TEST(test_parse_json_number_overflow_to_infinity_rejected);
+    RUN_TEST(test_parse_json_number_rejects_nan_token);
+    RUN_TEST(test_parse_json_number_rejects_infinity_token);
+    RUN_TEST(test_parse_json_number_rejects_e_without_exponent_digits);
+    RUN_TEST(test_endtoend_json_body_clean_path);
+    RUN_TEST(test_endtoend_json_body_missing_field_400s);
+    RUN_TEST(test_endtoend_json_body_nan_string_rejected);
+    RUN_TEST(test_endtoend_json_body_infinity_string_rejected);
+    RUN_TEST(test_endtoend_json_body_empty_body_400s);
+
+    // R2 — boundary fixtures for SetpointOrderError.
+    RUN_TEST(test_alpha0_equals_ldmax_is_order_error);
+    RUN_TEST(test_alpha0_above_ldmax_is_order_error);
 
     return UNITY_END();
 }

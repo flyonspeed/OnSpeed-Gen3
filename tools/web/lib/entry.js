@@ -7,6 +7,11 @@
 import { html, render } from './vendor/preact-standalone.js';
 import { IndexerPage } from './pages/IndexerPage.js';
 import { CalWizardPage } from './pages/CalWizardPage.js';
+import { IndexPage } from './pages/IndexPage.js';
+import { RebootPage } from './pages/RebootPage.js';
+import { FormatPage } from './pages/FormatPage.js';
+import { UpgradePage } from './pages/UpgradePage.js';
+import { LogsPage } from './pages/LogsPage.js';
 
 // Page registry.  Keep this in sync with the bundler's stub list (see
 // `scripts/build_web_bundle.py`'s PAGES table).  Adding a page means
@@ -14,6 +19,11 @@ import { CalWizardPage } from './pages/CalWizardPage.js';
 const PAGES = {
   indexer: IndexerPage,
   calwiz:  CalWizardPage,
+  home:    IndexPage,
+  reboot:  RebootPage,
+  format:  FormatPage,
+  upgrade: UpgradePage,
+  logs:    LogsPage,
 };
 
 export function start() {

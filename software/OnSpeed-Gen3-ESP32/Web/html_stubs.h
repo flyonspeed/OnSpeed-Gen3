@@ -18,7 +18,7 @@ static const char htmlStub_indexer[] PROGMEM = R"=====(<!DOCTYPE html>
 </head>
 <body>
 <div id="app" data-page="indexer"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
-<script src="/static/app-87f37c5e4547.js" defer></script>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
 </body>
 </html>)=====";
 
@@ -32,7 +32,77 @@ static const char htmlStub_calwiz[] PROGMEM = R"=====(<!DOCTYPE html>
 </head>
 <body>
 <div id="app" data-page="calwiz"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
-<script src="/static/app-87f37c5e4547.js" defer></script>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
+</body>
+</html>)=====";
+
+static const char htmlStub_home[] PROGMEM = R"=====(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnSpeed — Home</title>
+<link rel="stylesheet" href="/static/app-5191f00d011e.css">
+</head>
+<body>
+<div id="app" data-page="home"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
+</body>
+</html>)=====";
+
+static const char htmlStub_reboot[] PROGMEM = R"=====(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnSpeed — Reboot</title>
+<link rel="stylesheet" href="/static/app-5191f00d011e.css">
+</head>
+<body>
+<div id="app" data-page="reboot"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
+</body>
+</html>)=====";
+
+static const char htmlStub_format[] PROGMEM = R"=====(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnSpeed — Format SD</title>
+<link rel="stylesheet" href="/static/app-5191f00d011e.css">
+</head>
+<body>
+<div id="app" data-page="format"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
+</body>
+</html>)=====";
+
+static const char htmlStub_upgrade[] PROGMEM = R"=====(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnSpeed — Firmware Upgrade</title>
+<link rel="stylesheet" href="/static/app-5191f00d011e.css">
+</head>
+<body>
+<div id="app" data-page="upgrade"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
+</body>
+</html>)=====";
+
+static const char htmlStub_logs[] PROGMEM = R"=====(<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnSpeed — Logs</title>
+<link rel="stylesheet" href="/static/app-5191f00d011e.css">
+</head>
+<body>
+<div id="app" data-page="logs"><noscript>OnSpeed configuration requires JavaScript. Use one of the links below to navigate.</noscript><nav class="onspeed-fallback-nav" aria-label="fallback"><a href="/">Home</a> | <a href="/indexer">Indexer</a> | <a href="/aoaconfig">Config</a> | <a href="/calwiz">Calibration</a> | <a href="/logs">Logs</a> | <a href="/upgrade">Upgrade</a> | <a href="/reboot">Reboot</a></nav></div>
+<script src="/static/app-d50f3dc82cee.js" defer></script>
 </body>
 </html>)=====";
 

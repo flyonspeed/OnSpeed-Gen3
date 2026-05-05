@@ -1,0 +1,209 @@
+// LogsPage (/logs): SD log file listing.  Backed by /api/logs (which
+// also classifies files into log .csv/.log + non-log "other" files
+// based on the extension; LogsPage mirrors that split visually).
+//
+// Per-row controls:
+//   - Checkbox per non-active row → bulk delete via /api/logs/delete-bulk.
+//   - Direct download links to /download?file=… for browser-native
+//     streaming (no JSON wrapper — the legacy /download path is
+//     intact and serves the file as Content-Type: text/csv).
+//   - Trash icon per row → individual delete via the bulk endpoint
+//     with a single-name body.
+//
+// Active-log row is rendered without checkbox or trash icon and
+// labeled "(active)" — the API's IsActiveLogFile() check guards
+// the actual delete, but reflecting it in the UI prevents confusion.
+
+import { html, useState, useEffect } from '../vendor/preact-standalone.js';
+import { PageShell } from '../shell/PageShell.js';
+import { getJson, postJson, ApiError } from '../shell/apiClient.js';
+
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return '—';
+  const total = Math.round(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+function formatStart(meta) {
+  if (!meta) return '—';
+  if (meta.utcStart) return meta.utcStart;
+  if (meta.timeOfDayStart) return meta.timeOfDayStart;
+  return '—';
+}
+
+function isLogFile(name) {
+  const lower = name.toLowerCase();
+  return lower.endsWith('.csv') || lower.endsWith('.log');
+}
+
+export function LogsPage() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [busyDeleting, setBusyDeleting] = useState(false);
+
+  const reload = async () => {
+    setError(null);
+    try {
+      const d = await getJson('/api/logs');
+      setData(d);
+      setSelected(new Set());
+    } catch (e) {
+      setError((e instanceof ApiError) ? e.message : String(e));
+    }
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  const toggle = (name) => () => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const allSelectableNames = data
+    ? data.files
+        .filter(f => f.name !== data.activeLog && isLogFile(f.name))
+        .map(f => f.name)
+    : [];
+  const allChecked = allSelectableNames.length > 0 &&
+                     allSelectableNames.every(n => selected.has(n));
+  const someChecked = allSelectableNames.some(n => selected.has(n));
+
+  const toggleAll = () => {
+    setSelected(prev => {
+      if (allChecked) return new Set();
+      return new Set(allSelectableNames);
+    });
+  };
+
+  const deleteSelected = async () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Delete ${selected.size} file(s)?`)) return;
+    setBusyDeleting(true);
+    try {
+      await postJson('/api/logs/delete-bulk', { names: [...selected] });
+      await reload();
+    } catch (e) {
+      setError((e instanceof ApiError) ? e.message : String(e));
+    } finally {
+      setBusyDeleting(false);
+    }
+  };
+
+  const deleteOne = (name) => async () => {
+    if (!window.confirm(`Delete ${name}?`)) return;
+    setBusyDeleting(true);
+    try {
+      await postJson('/api/logs/delete-bulk', { names: [name] });
+      await reload();
+    } catch (e) {
+      setError((e instanceof ApiError) ? e.message : String(e));
+    } finally {
+      setBusyDeleting(false);
+    }
+  };
+
+  // Split into logs + other files (config backups, boot_log.txt, etc.).
+  const logs   = data ? data.files.filter(f => isLogFile(f.name)) : [];
+  const others = data ? data.files.filter(f => !isLogFile(f.name)) : [];
+  const logsTotal   = logs.reduce((a, f) => a + (f.size || 0), 0);
+  const othersTotal = others.reduce((a, f) => a + (f.size || 0), 0);
+
+  return html`
+    <${PageShell} active="logs">
+      <div style=${{ padding: '12px' }}>
+        ${error && html`<p style=${{ color: 'red' }}>SD card busy or unreachable: ${error}</p>`}
+        ${!data && !error && html`<p>Loading…</p>`}
+        ${data && html`
+          <h2>Logs</h2>
+          <p>${logs.length} log${logs.length === 1 ? '' : 's'},
+             ${formatBytes(logsTotal)} total</p>
+
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" title="Select all"
+                           checked=${allChecked}
+                           ref=${(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                           onChange=${toggleAll} /></th>
+                <th style=${{ textAlign: 'left' }}>Name</th>
+                <th style=${{ textAlign: 'left' }}>Start</th>
+                <th style=${{ textAlign: 'left' }}>Duration</th>
+                <th style=${{ textAlign: 'right' }}>Max IAS</th>
+                <th style=${{ textAlign: 'right' }}>Max PAlt</th>
+                <th style=${{ textAlign: 'right' }}>Size</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${logs.map(f => {
+                const active = f.name === data.activeLog;
+                const meta = f.meta;
+                return html`
+                  <tr>
+                    <td>${active
+                          ? ''
+                          : html`<input type="checkbox" checked=${selected.has(f.name)}
+                                        onChange=${toggle(f.name)} />`}
+                    </td>
+                    <td>
+                      <a href=${'/download?file=' + encodeURIComponent(f.name)}>${f.name}</a>
+                      ${active && html` <span style=${{ color: '#888' }}>(active)</span>`}
+                    </td>
+                    <td>${meta ? formatStart(meta) : '—'}</td>
+                    <td>${meta ? formatDuration(meta.durationMs) : '—'}</td>
+                    <td style=${{ textAlign: 'right' }}>${meta ? meta.maxIasKt.toFixed(0) + ' kt' : '—'}</td>
+                    <td style=${{ textAlign: 'right' }}>${meta ? meta.maxPaltFt.toFixed(0) + ' ft' : '—'}</td>
+                    <td style=${{ textAlign: 'right' }}>${formatBytes(f.size)}</td>
+                    <td>${active
+                          ? ''
+                          : html`<button type="button"
+                                         disabled=${busyDeleting}
+                                         onClick=${deleteOne(f.name)}>×</button>`}
+                    </td>
+                  </tr>`;
+              })}
+            </tbody>
+          </table>
+          <p>
+            <button type="button" disabled=${selected.size === 0 || busyDeleting}
+                    onClick=${deleteSelected}>
+              Delete selected (${selected.size})
+            </button>
+            ${' '}
+            <button type="button" onClick=${reload}>Refresh</button>
+          </p>
+
+          ${others.length > 0 && html`
+            <h2>Other files</h2>
+            <p>${others.length} file${others.length === 1 ? '' : 's'},
+               ${formatBytes(othersTotal)} total</p>
+            <table>
+              <tbody>
+                ${others.map(f => html`
+                  <tr>
+                    <td><a href=${'/download?file=' + encodeURIComponent(f.name)}>${f.name}</a></td>
+                    <td style=${{ textAlign: 'right', paddingLeft: '20px' }}>
+                      ${formatBytes(f.size)}
+                    </td>
+                    <td><button type="button"
+                                disabled=${busyDeleting}
+                                onClick=${deleteOne(f.name)}>×</button></td>
+                  </tr>`)}
+              </tbody>
+            </table>`}`}
+      </div>
+    <//>`;
+}

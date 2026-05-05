@@ -127,6 +127,11 @@ function mimeFor(filePath) {
 const PAGES = [
   { id: 'indexer', path: '/indexer', title: 'Indexer' },
   { id: 'calwiz',  path: '/calwiz',  title: 'Calibration' },
+  { id: 'home',    path: '/',        title: 'Home' },
+  { id: 'reboot',  path: '/reboot',  title: 'Reboot' },
+  { id: 'format',  path: '/format',  title: 'Format SD' },
+  { id: 'upgrade', path: '/upgrade', title: 'Firmware Upgrade' },
+  { id: 'logs',    path: '/logs',    title: 'Logs' },
 ];
 
 // Routes that 30x to a page rather than rendering one.  `/live` is
@@ -513,12 +518,8 @@ async function route(req, res, args) {
     if (f && await serveFile(f, res)) return;
   }
 
-  // Index fallback: redirect bare / to /indexer.
-  if (pathname === '/' || pathname === '') {
-    res.writeHead(302, { Location: '/indexer' });
-    res.end();
-    return;
-  }
+  // The "home" page is registered above with path "/"; if we get here,
+  // it's because no page matched (theoretically unreachable).
 
   // Anything else: try /public/.  Use this for /style.css etc.
   const pubFile = safeJoin(PUBLIC_DIR, pathname);

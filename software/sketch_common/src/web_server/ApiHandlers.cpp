@@ -32,6 +32,7 @@
 #include "src/Globals.h"
 
 #include <api/CalwizSave.h>
+#include <api/CalwizSaveParse.h>
 #include <api/CalwizStateJson.h>
 #include <log/LogMeta.h>
 #include <log/LogMetaFile.h>
@@ -368,7 +369,15 @@ void HandleApiSampleP45() {
 // ============================================================================
 
 void HandleApiAudioTestStart() {
-    g_AudioPlay.StartAudioTest();
+    // StartAudioTest returns false when an audio task is already
+    // playing (legacy /getvalue?name=AUDIOTEST mapped that to a
+    // "Audio Test Busy" string).  The new contract is 409 Conflict
+    // with the standard path-keyed error body so the client can
+    // distinguish "already running" from "no audio device".
+    if (!g_AudioPlay.StartAudioTest()) {
+        SendError(409, "audiotest", "already running");
+        return;
+    }
     SendOk();
 }
 
@@ -720,117 +729,24 @@ void HandleApiCalwizState() {
     SendJson(200, String(json.c_str()));
 }
 
-// ----------------------------------------------------------------------------
-// JSON-body field readers used by HandleApiCalwizSave.
-//
-// The body is small (~200 bytes) and the field set is fixed, so we
-// scan it manually instead of pulling in ArduinoJson — same approach
-// HandleApiLogsDeleteBulk uses.  The parsers below find a `"key"`
-// substring then read the JSON value that follows the next `:`.
-// `atof` matches FOSConfig::ToFloat in Config.cpp (the legacy POST
-// also goes through atof).
-// ----------------------------------------------------------------------------
-
-namespace {
-
-// Find the value position after `"<key>":` in the JSON body.  Returns
-// -1 if the key isn't found.  Whitespace tolerance is small — the
-// new client emits compact JSON, but a few spaces around the colon
-// won't trip us up.
-int FindJsonValueStart(const String& body, const char* key) {
-    String needle = "\"";
-    needle += key;
-    needle += "\"";
-    int k = body.indexOf(needle);
-    if (k < 0) return -1;
-    int colon = body.indexOf(':', k + needle.length());
-    if (colon < 0) return -1;
-    int p = colon + 1;
-    while (p < (int)body.length() && (body[p] == ' ' || body[p] == '\t'))
-        ++p;
-    return p;
-}
-
-// Read a numeric JSON value (possibly negative, possibly fractional)
-// starting at `start`.  Stops at the first character that's not part
-// of a JSON number.  Returns true on success and writes the parsed
-// float to `*out`; on failure returns false.
-bool ParseJsonNumber(const String& body, int start, float* out) {
-    if (start < 0 || start >= (int)body.length()) return false;
-    int end = start;
-    if (body[end] == '-' || body[end] == '+') ++end;
-    bool sawDigit = false;
-    while (end < (int)body.length()) {
-        char c = body[end];
-        if ((c >= '0' && c <= '9') || c == '.' ||
-            c == 'e' || c == 'E' || c == '+' || c == '-') {
-            if (c >= '0' && c <= '9') sawDigit = true;
-            ++end;
-        } else {
-            break;
-        }
-    }
-    if (!sawDigit) return false;
-    String num = body.substring(start, end);
-    *out = ::atof(num.c_str());
-    return true;
-}
-
-// Read a JSON integer value.  Same shape as ParseJsonNumber but
-// returns an int and rejects fractional / scientific forms (the
-// flapsPos field is integer degrees).
-bool ParseJsonInt(const String& body, int start, int* out) {
-    if (start < 0 || start >= (int)body.length()) return false;
-    int end = start;
-    if (body[end] == '-' || body[end] == '+') ++end;
-    bool sawDigit = false;
-    while (end < (int)body.length()) {
-        char c = body[end];
-        if (c >= '0' && c <= '9') {
-            sawDigit = true;
-            ++end;
-        } else {
-            break;
-        }
-    }
-    if (!sawDigit) return false;
-    String num = body.substring(start, end);
-    *out = ::atoi(num.c_str());
-    return true;
-}
-
-// Convenience: read a required float by key.  On missing/unparseable,
-// emits a 400 with `errors[].path = key` and returns false.
-bool ReadFloatField(const String& body, const char* key, float* out) {
-    int p = FindJsonValueStart(body, key);
-    if (p < 0) return false;
-    return ParseJsonNumber(body, p, out);
-}
-
-}  // namespace
-
 // ============================================================================
 // Cal wizard save (write side).
 // ============================================================================
 //
-// Mirrors HandleCalWizard step=save in ConfigWebServer.cpp:3092-3139:
-//   1. Look up the matching SuFlaps by `flapsPos` (== iDegrees).
-//   2. Apply setpoints + curve coefficients.
-//   3. Save config to file.
-//   4. If SetpointOrderError() is non-empty, ship a warning string.
+// Reads a JSON body (~200 bytes) of 12 named floats + the integer
+// flapsPos, locates the matching SuFlaps by iDegrees, applies via
+// the pure helper `ApplyCalwizSave`, saves config, and reports any
+// SetpointOrderError as a JSON warning.
 //
-// Differences vs the legacy:
-//   - JSON in / JSON out (legacy was form-encoded in / text-html out).
-//   - Mutation goes through `ApplyCalwizSave`, the pure helper the
-//     differential test pins.
-//   - Warning text passes through verbatim ("WARNING: Configuration
-//     saved, but <SetpointOrderError text>"), so the JSON warning is
-//     directly comparable to the legacy string.
+// Body parsing is in onspeed_core (api/CalwizSaveParse.cpp) so
+// test_calwiz_save_diff exercises the actual lexer the firmware runs.
+// The lexer rejects NaN/Infinity/overflow tokens so non-finite values
+// never reach the SuFlaps; missing required fields produce a 400
+// with the path-keyed error.
 //
 // Concurrency: the per-flap mutation runs under xAhrsMutex (matches
 // the read-side handler's snapshot lock).  SaveConfigurationToFile()
-// runs OUTSIDE the mutex — it takes its own internal mutex and the
-// legacy POST handler also calls it without holding xAhrsMutex.
+// runs OUTSIDE the mutex — it takes its own internal mutex.
 
 void HandleApiCalwizSave() {
     if (!CfgServer.hasArg("plain")) {
@@ -839,37 +755,14 @@ void HandleApiCalwizSave() {
     }
     const String body = CfgServer.arg("plain");
 
-    int flapsPos = 0;
-    {
-        int p = FindJsonValueStart(body, "flapsPos");
-        if (p < 0 || !ParseJsonInt(body, p, &flapsPos)) {
-            SendError(400, "flapsPos", "missing or non-numeric");
-            return;
-        }
+    auto parsed = onspeed::api::ExtractCalwizSave(
+        std::string_view(body.c_str(), body.length()));
+    if (!parsed.ok) {
+        SendError(400, parsed.errorField.c_str(), parsed.errorMessage.c_str());
+        return;
     }
-
-    onspeed::api::CalwizSaveInput in;
-    struct Field { const char* key; float* dest; };
-    const Field fields[] = {
-        { "LDmaxSetpoint",       &in.ldMaxAoaDeg       },
-        { "OSFastSetpoint",      &in.onSpeedFastAoaDeg },
-        { "OSSlowSetpoint",      &in.onSpeedSlowAoaDeg },
-        { "StallWarnSetpoint",   &in.stallWarnAoaDeg   },
-        { "StallSetpoint",       &in.stallAoaDeg       },
-        { "ManeuveringSetpoint", &in.maneuveringAoaDeg },
-        { "alpha0",              &in.alpha0Deg         },
-        { "alphaStall",          &in.alphaStallDeg     },
-        { "K_fit",               &in.kFit              },
-        { "curve0",              &in.curve0            },
-        { "curve1",              &in.curve1            },
-        { "curve2",              &in.curve2            },
-    };
-    for (const Field& f : fields) {
-        if (!ReadFloatField(body, f.key, f.dest)) {
-            SendError(400, f.key, "missing or non-numeric");
-            return;
-        }
-    }
+    const int flapsPos = parsed.flapsPos;
+    const onspeed::api::CalwizSaveInput& in = parsed.input;
 
     // Locate the matching SuFlaps under xAhrsMutex (the read-side
     // endpoint snapshots under the same lock).  Mutate in-place via
@@ -903,15 +796,13 @@ void HandleApiCalwizSave() {
         return;
     }
 
-    // Match legacy: save unconditionally, even when the order check
-    // fails.  The legacy ignores the return value of
-    // SaveConfigurationToFile; preserve that behavior.
+    // Save unconditionally, including when the order check fails.  A
+    // pilot may want the partially-bad save as a starting point to
+    // edit by hand.  SaveConfigurationToFile() ignores its own return
+    // value here; preserve that.
     g_Config.SaveConfigurationToFile();
 
     if (warning.length() > 0) {
-        // Forward the SetpointOrderError text verbatim so external
-        // tools can match it against the legacy "WARNING: ... " body.
-        // Logging mirrors the legacy MsgLog entry.
         g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
                      "Calwiz flap %d deg: %s\n", flapsPos, warning.c_str());
 

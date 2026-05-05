@@ -93,8 +93,16 @@ ENTRY_MODULE  = os.path.join(LIB_DIR, "entry.js")
 # in html_stubs.h as `htmlStub_<suffix>`.  The stub references the
 # `data-page="<page-id>"` attribute the bundle's entry.js reads.
 PAGES = [
-    ("indexer", "Indexer",     "indexer"),
-    ("calwiz",  "Calibration", "calwiz"),
+    ("indexer", "Indexer",          "indexer"),
+    ("calwiz",  "Calibration",      "calwiz"),
+    ("home",    "Home",             "home"),
+    ("reboot",  "Reboot",           "reboot"),
+    ("format",  "Format SD",        "format"),
+    ("upgrade", "Firmware Upgrade", "upgrade"),
+    ("logs",    "Logs",             "logs"),
+    # /sensorconfig is deferred — its read view needs a sensors-snapshot
+    # endpoint (raw IMU pitch/roll, current biases, EFIS readings) that
+    # doesn't exist yet.  Lands in PR 5 once /api/sensors is added.
 ]
 
 
