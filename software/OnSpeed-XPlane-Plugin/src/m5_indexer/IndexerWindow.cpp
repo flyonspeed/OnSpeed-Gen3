@@ -77,12 +77,10 @@ extern int   gHistoryIndex;
 // already uses this entry point in -DSIM_LIVE WASM builds.
 extern void InjectSerialByte(char inChar);
 
-// Implemented in aoa_audio.cpp.  Captures the indexer's current
-// visibility, mode, and geometry into the per-aircraft .prf.  Called
-// after any user-driven change (menu Show/Hide, mode click on body,
-// drag, resize) so the next sim launch puts the indexer back where
-// the pilot left it.
-extern void SaveIndexerWindowState();
+// Persistence is driven entirely from aoa_audio.cpp now: a periodic
+// flight-loop callback there polls indexer::IsDirty(), reads
+// indexer::GetCurrentState(), and writes the .prf — debounced to
+// the SDK's recommended cadence rather than every-frame.
 
 namespace onspeed_xplane::indexer {
 
@@ -130,18 +128,16 @@ constexpr float kAspect = static_cast<float>(kWindowWidth) /
 constexpr int kMinWidth  = 160;
 constexpr int kMinHeight = 120;
 
-// Persisted window geometry.  Updated by ApplyPersistedGeometry on
-// settings load; CreateXPlaneWindow consumes it as the initial box.
-// DrawWindow watches X-Plane's reported geometry and writes back here
-// when the user drags or resizes, then aoa_audio.cpp's flight loop
-// scoops the change into the .prf via SaveIndexerWindowState.
-struct GeomState {
-    int left   = 100;
-    int top    = 600;
-    int width  = kWindowWidth;
-    int height = kWindowHeight;
-};
-GeomState s_persistedGeom;
+// Persisted indexer state.  Two geometries kept independently — see
+// PersistedState in IndexerWindow.h for the rationale.
+PersistedState s_persisted;
+
+// Dirty flag, flipped when MarkDirtyIfChanged sees the live window
+// geometry diverge from s_persisted.  The periodic save callback in
+// aoa_audio.cpp polls IsDirty() and calls SaveSettings + ClearDirty
+// when it fires.  Replaces the old per-frame save in DrawWindow that
+// hammered the .prf on every drag/resize tick.
+bool s_dirty = false;
 
 // ------------------------------------------------------------------
 // X-Plane window callbacks
@@ -228,43 +224,14 @@ void DrawWindow(XPLMWindowID, void*)
     const int quadT    = top  - offY;
     const int quadB    = quadT - quadH;
 
-    // Persist any drag/resize that changed the box.  Compared against
-    // s_persistedGeom rather than the previous frame so the save fires
-    // once per user action, not every frame.
-    //
-    // Reject obviously-bad geometry before saving — we've seen
-    // XPLMGetWindowGeometry briefly return nonsense values like
-    // left=67821 during pop-out / multi-monitor transitions, and once
-    // that lands in the .prf the user can't relaunch back into a
-    // visible window.  Stay within ±50000 boxels (any sane multi-
-    // monitor desktop fits) AND require the box to overlap the
-    // current global screen bounds with at least kMinVisible boxels.
-    constexpr int kSaneAbs    = 50000;
-    constexpr int kMinVisible = 80;
-    int sLeft = 0, sTop = 0, sRight = 0, sBottom = 0;
-    XPLMGetScreenBoundsGlobal(&sLeft, &sTop, &sRight, &sBottom);
-    const bool absSane =
-        std::abs(left) < kSaneAbs && std::abs(top) < kSaneAbs &&
-        winW > 0 && winH > 0 && winW < kSaneAbs && winH < kSaneAbs;
-    const bool onScreen =
-        sRight <= sLeft || sTop <= sBottom ||                     // bounds query failed → don't gate
-        ((left + winW) > (sLeft + kMinVisible) &&
-         left < (sRight - kMinVisible) &&
-         (top - winH) < (sTop - kMinVisible) &&
-         top > (sBottom + kMinVisible));
-
-    if (absSane && onScreen &&
-        (left != s_persistedGeom.left  ||
-         top  != s_persistedGeom.top   ||
-         winW != s_persistedGeom.width ||
-         winH != s_persistedGeom.height))
-    {
-        s_persistedGeom.left   = left;
-        s_persistedGeom.top    = top;
-        s_persistedGeom.width  = winW;
-        s_persistedGeom.height = winH;
-        SaveIndexerWindowState();
-    }
+    // No save here — geometry persistence is driven by the periodic
+    // save callback in aoa_audio.cpp, which polls MarkDirtyIfChanged()
+    // each tick and flushes once every kPersistFlushInterval seconds.
+    // Per-frame fopen/write was hammering the .prf on every drag and
+    // occasionally captured transient nonsense geometry (left=67821
+    // during pop-out transitions); the canonical X-Plane plugin
+    // pattern is debounced periodic save + final flush at WILL_WRITE_PREFS
+    // and XPluginStop.
 
     RenderTexturedQuadVA(quadL, quadT, quadR, quadB, s_textureId);
 
@@ -290,7 +257,8 @@ int HandleClick(XPLMWindowID, int /*x*/, int /*y*/,
     if (status == xplm_MouseDown) {
         const int next = (static_cast<int>(displayType) + 1) % 5;
         displayType = static_cast<int16_t>(next);
-        SaveIndexerWindowState();
+        // Mode change will be picked up by the next MarkDirtyIfChanged
+        // tick from the periodic save callback.
     }
     return 1;
 }
@@ -427,10 +395,14 @@ bool CreateXPlaneWindow()
 
     XPLMCreateWindow_t params = {};
     params.structSize             = sizeof(params);
-    params.left                   = s_persistedGeom.left;
-    params.top                    = s_persistedGeom.top;
-    params.right                  = s_persistedGeom.left + s_persistedGeom.width;
-    params.bottom                 = s_persistedGeom.top  - s_persistedGeom.height;
+    // Initial geometry is always floating-mode default — the canonical
+    // X-Plane plugin pattern is to defer geometry restore until
+    // XPLM_MSG_AIRPORT_LOADED, when screen bounds and OS monitor
+    // mappings are stable.  ApplyPersistedState handles the snap then.
+    params.left                   = s_persisted.floatLeft;
+    params.top                    = s_persisted.floatTop;
+    params.right                  = s_persisted.floatLeft + s_persisted.floatWidth;
+    params.bottom                 = s_persisted.floatTop  - s_persisted.floatHeight;
     params.visible                = 0;       // start hidden; menu toggles
     params.drawWindowFunc         = DrawWindow;
     params.handleMouseClickFunc   = HandleClick;
@@ -698,60 +670,190 @@ int GetMode()
     return static_cast<int>(displayType);
 }
 
-void ApplyPersistedGeometry(int left, int top, int width, int height)
-{
-    // Sanity-clamp size so a corrupt .prf can't degenerate the window.
-    if (width  < kMinWidth)  width  = kMinWidth;
-    if (height < kMinHeight) height = kMinHeight;
+// Sanity bounds for any persisted coord — any sane multi-monitor
+// desktop fits within ±50000 px/boxels.  Anything bigger is junk
+// (transient pop-out coordinate confusion, hand-edited file, etc.)
+// and should be treated as "no saved geometry, use defaults."
+constexpr int kSaneAbs    = 50000;
+constexpr int kMinVisible = 80;     // px/boxels of window kept on-screen
 
-    // Pull the global X-Plane desktop bounds and clamp the top-left
-    // corner so at least kMinVisible boxels of the window remain
-    // visible.  Real-world failure (2026-05-05): indexerLeft = 67821
-    // turned up in a .prf after a popped-out / multi-monitor session
-    // and stranded the window 67k boxels off the right edge of the
-    // screen with no menu way to drag it back.
+static void ClampFloatingGeom(PersistedState* st)
+{
+    if (st->floatWidth  < kMinWidth)  st->floatWidth  = kMinWidth;
+    if (st->floatHeight < kMinHeight) st->floatHeight = kMinHeight;
+
+    // Reject pathological absolute values entirely (defaults stand).
+    if (std::abs(st->floatLeft) >= kSaneAbs ||
+        std::abs(st->floatTop)  >= kSaneAbs ||
+        st->floatWidth  >= kSaneAbs ||
+        st->floatHeight >= kSaneAbs)
+    {
+        st->floatLeft   = 100;
+        st->floatTop    = 600;
+        st->floatWidth  = kWindowWidth;
+        st->floatHeight = kWindowHeight;
+    }
+
+    // Clamp against the live X-Plane desktop bounds so at least
+    // kMinVisible boxels stay on-screen.  Multi-monitor disconnect
+    // since the .prf was last written can put a previously-visible
+    // window off-screen otherwise.
     int sLeft = 0, sTop = 0, sRight = 0, sBottom = 0;
     XPLMGetScreenBoundsGlobal(&sLeft, &sTop, &sRight, &sBottom);
-    constexpr int kMinVisible = 80;     // boxels of window kept on-screen
     if (sRight > sLeft && sTop > sBottom) {
         const int maxLeft = sRight  - kMinVisible;
-        const int minLeft = sLeft   - (width  - kMinVisible);
+        const int minLeft = sLeft   - (st->floatWidth  - kMinVisible);
         const int maxTop  = sTop;
         const int minTop  = sBottom + kMinVisible;
-        if (left > maxLeft) left = maxLeft;
-        if (left < minLeft) left = minLeft;
-        if (top  > maxTop)  top  = maxTop;
-        if (top  < minTop)  top  = minTop;
-    }
-
-    s_persistedGeom.left   = left;
-    s_persistedGeom.top    = top;
-    s_persistedGeom.width  = width;
-    s_persistedGeom.height = height;
-
-    if (s_window) {
-        XPLMSetWindowGeometry(s_window,
-                              left, top, left + width, top - height);
+        if (st->floatLeft > maxLeft) st->floatLeft = maxLeft;
+        if (st->floatLeft < minLeft) st->floatLeft = minLeft;
+        if (st->floatTop  > maxTop)  st->floatTop  = maxTop;
+        if (st->floatTop  < minTop)  st->floatTop  = minTop;
     }
 }
 
-void GetCurrentGeometry(int* left, int* top, int* width, int* height)
+static void ClampPopOutGeom(PersistedState* st)
 {
-    if (!left || !top || !width || !height) return;
-    if (s_window) {
+    if (st->popWidth  < kMinWidth)  st->popWidth  = kMinWidth;
+    if (st->popHeight < kMinHeight) st->popHeight = kMinHeight;
+
+    // Reject pathological values; we don't know which OS monitor the
+    // window will land on so we can't tightly bounds-check left/top.
+    // The OS itself will clamp visible-area on XPLMSetWindowGeometryOS.
+    if (std::abs(st->popLeft) >= kSaneAbs ||
+        std::abs(st->popTop)  >= kSaneAbs ||
+        st->popWidth  >= kSaneAbs ||
+        st->popHeight >= kSaneAbs)
+    {
+        st->popLeft   = 100;
+        st->popTop    = 100;
+        st->popWidth  = kWindowWidth;
+        st->popHeight = kWindowHeight;
+    }
+}
+
+void ApplyPersistedState(const PersistedState& in)
+{
+    PersistedState st = in;
+    ClampFloatingGeom(&st);
+    ClampPopOutGeom(&st);
+    s_persisted = st;
+
+    if (!s_window) {
+        // No window yet; CreateXPlaneWindow will read s_persisted.float*
+        // when it lazy-inits.  Pop-out + restore happens on a later
+        // ApplyPersistedState() call after the window exists.
+        return;
+    }
+
+    // Apply the right geometry for the saved positioning mode.  Order:
+    // set positioning mode first (X-Plane reparents the window), then
+    // set the geometry in that mode's coordinate space.
+    if (st.isPoppedOut) {
+        XPLMSetWindowPositioningMode(s_window, xplm_WindowPopOut, -1);
+        XPLMSetWindowGeometryOS(s_window,
+                                st.popLeft,
+                                st.popTop,
+                                st.popLeft + st.popWidth,
+                                st.popTop  - st.popHeight);
+    } else {
+        XPLMSetWindowPositioningMode(s_window, xplm_WindowPositionFree, -1);
+        XPLMSetWindowGeometry(s_window,
+                              st.floatLeft,
+                              st.floatTop,
+                              st.floatLeft + st.floatWidth,
+                              st.floatTop  - st.floatHeight);
+    }
+
+    // Visibility last so the user sees the window snap into place.
+    XPLMSetWindowIsVisible(s_window, st.visible ? 1 : 0);
+    s_visible = st.visible;
+
+    // After a clean restore, geometry matches s_persisted by
+    // construction — clear any spurious dirty state from the
+    // intervening transitions.
+    s_dirty = false;
+}
+
+void GetCurrentState(PersistedState* out)
+{
+    if (!out) return;
+    *out = s_persisted;
+    out->visible = IsVisible();
+    out->mode    = static_cast<int>(displayType);
+
+    if (!s_window) return;
+
+    const bool poppedOut = (XPLMWindowIsPoppedOut(s_window) != 0);
+    out->isPoppedOut = poppedOut;
+    if (poppedOut) {
+        int l, t, r, b;
+        XPLMGetWindowGeometryOS(s_window, &l, &t, &r, &b);
+        out->popLeft   = l;
+        out->popTop    = t;
+        out->popWidth  = r - l;
+        out->popHeight = t - b;
+    } else {
         int l, t, r, b;
         XPLMGetWindowGeometry(s_window, &l, &t, &r, &b);
-        *left   = l;
-        *top    = t;
-        *width  = r - l;
-        *height = t - b;
-    } else {
-        *left   = s_persistedGeom.left;
-        *top    = s_persistedGeom.top;
-        *width  = s_persistedGeom.width;
-        *height = s_persistedGeom.height;
+        out->floatLeft   = l;
+        out->floatTop    = t;
+        out->floatWidth  = r - l;
+        out->floatHeight = t - b;
     }
 }
+
+void MarkDirtyIfChanged()
+{
+    if (!s_window) return;
+    PersistedState live;
+    GetCurrentState(&live);
+
+    // Coord-of-the-active-mode comparison — and toggling pop-out alone
+    // is also a change worth saving, even if neither geometry moved.
+    bool changed =
+        live.visible     != s_persisted.visible    ||
+        live.mode        != s_persisted.mode       ||
+        live.isPoppedOut != s_persisted.isPoppedOut;
+    if (live.isPoppedOut) {
+        changed = changed ||
+            live.popLeft   != s_persisted.popLeft   ||
+            live.popTop    != s_persisted.popTop    ||
+            live.popWidth  != s_persisted.popWidth  ||
+            live.popHeight != s_persisted.popHeight;
+    } else {
+        changed = changed ||
+            live.floatLeft   != s_persisted.floatLeft   ||
+            live.floatTop    != s_persisted.floatTop    ||
+            live.floatWidth  != s_persisted.floatWidth  ||
+            live.floatHeight != s_persisted.floatHeight;
+    }
+
+    if (changed) {
+        // Reject obviously-bad live coords before commit.  Typically
+        // happens during a pop-out transition — 2-3 frames of
+        // junk geometry from the SDK before things stabilize.  Don't
+        // mark dirty for those; the next stable read will catch the
+        // real new coords.
+        const bool floatOK =
+            std::abs(live.floatLeft) < kSaneAbs &&
+            std::abs(live.floatTop)  < kSaneAbs &&
+            live.floatWidth  > 0 && live.floatHeight > 0 &&
+            live.floatWidth  < kSaneAbs && live.floatHeight < kSaneAbs;
+        const bool popOK =
+            std::abs(live.popLeft) < kSaneAbs &&
+            std::abs(live.popTop)  < kSaneAbs &&
+            live.popWidth  > 0 && live.popHeight > 0 &&
+            live.popWidth  < kSaneAbs && live.popHeight < kSaneAbs;
+        if (!floatOK || !popOK) return;
+
+        s_persisted = live;
+        s_dirty     = true;
+    }
+}
+
+bool IsDirty() { return s_dirty; }
+void ClearDirty() { s_dirty = false; }
 
 void Shutdown()
 {

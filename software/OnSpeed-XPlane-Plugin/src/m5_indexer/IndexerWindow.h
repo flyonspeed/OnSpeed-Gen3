@@ -42,17 +42,43 @@ void Hide();
 void SetMode(int mode);
 int  GetMode();
 
-// Apply persisted window geometry (X-Plane window coords: top-left
-// corner + width/height).  If the window already exists, the geometry
-// is applied immediately; otherwise it's stashed and used as the
-// initial box when the window gets lazy-created on first Show().
-// Width/height < kMinWidth/kMinHeight are clamped up.
-void ApplyPersistedGeometry(int left, int top, int width, int height);
+// Persisted indexer state.  Two geometries are kept independently so
+// that toggling pop-out and back returns the window to its previous
+// floating position (and vice versa).  Floating coords are X-Plane
+// global desktop boxels; pop-out coords are OS-monitor pixels.
+struct PersistedState {
+    bool visible      = false;
+    int  mode         = 0;
+    bool isPoppedOut  = false;
+    int  floatLeft = 100, floatTop = 600, floatWidth = 320, floatHeight = 240;
+    int  popLeft = 100, popTop = 100, popWidth = 320, popHeight = 240;
+};
 
-// Read current window geometry into out params.  If the window doesn't
-// exist yet, returns the persisted (or default) geometry.  Used by
-// aoa_audio.cpp to capture user drag/resize for SaveSettings.
-void GetCurrentGeometry(int* left, int* top, int* width, int* height);
+// Apply persisted state on a stable boot signal (XPLM_MSG_AIRPORT_LOADED
+// is the canonical X-Plane plugin pattern — by then screen bounds are
+// real and the OS pop-out monitor mapping is stable).  Applies
+// positioning mode + the appropriate geometry + visibility, in that
+// order, with screen-bounds clamping for the floating case.
+void ApplyPersistedState(const PersistedState& st);
+
+// Snapshot current window state for saving.  Reads the right geometry
+// for the current positioning mode (floating vs popped-out) and leaves
+// the other mode's geometry at whatever was last persisted, so a
+// pop-out → drag → un-pop session preserves both positions.  When the
+// window doesn't exist yet, returns the previously-persisted state.
+void GetCurrentState(PersistedState* out);
+
+// Compare current geometry against the last-persisted snapshot and
+// flip an internal dirty flag if they differ.  The periodic flight-
+// loop save callback in aoa_audio.cpp calls this each tick and
+// flushes once every kPersistFlushInterval seconds.  Cheaper than
+// fopen/write every frame and avoids the spammy mid-drag save churn
+// the SDK warns about.
+void MarkDirtyIfChanged();
+
+// True iff the dirty flag is set.  Cleared by ClearDirty().
+bool IsDirty();
+void ClearDirty();
 
 // Tear down the X-Plane window and GL texture.  Called from XPluginStop.
 void Shutdown();

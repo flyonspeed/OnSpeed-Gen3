@@ -188,17 +188,14 @@ static bool audioEnabled = false;
 static XPLMMenuID menuId;
 
 // Indexer window state, persisted per-aircraft alongside the audio
-// settings.  Sticky across sim restarts so the pilot doesn't have to
-// rediscover the indexer + reposition it on every flight.  Geometry
-// is X-Plane window coords (boxels): left/top are the top-left
-// corner, width/height are the box extents.  Defaults match the
-// initial CreateXPlaneWindow box (320×240 at 100,600).
-static bool indexerVisibleSetting = false;
-static int  indexerModeSetting    = 0;
-static int  indexerLeftSetting    = 100;
-static int  indexerTopSetting     = 600;
-static int  indexerWidthSetting   = 320;
-static int  indexerHeightSetting  = 240;
+// settings.  Sticky across sim restarts and pop-out toggles — both
+// floating and pop-out geometries are tracked independently so a
+// pop → drag → un-pop cycle returns the floating window to its
+// previous position.  See onspeed_xplane::indexer::PersistedState
+// for the on-disk schema.
+#ifdef ENABLE_M5_INDEXER
+static onspeed_xplane::indexer::PersistedState indexerSettings;
+#endif
 
 // AOA smoothing pipeline.  Window sizes are runtime-configurable via
 // iAoaMedianWindow / iAoaMeanWindow; rebuildAoaSmoothers() swaps in
@@ -310,35 +307,33 @@ static void SaveSettings() {
     std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
     std::fprintf(fp, "audioEnabled = %d\n",       audioEnabled ? 1 : 0);
     std::fprintf(fp, "serialPortPath = %s\n",     sSerialPortPath.c_str());
-    std::fprintf(fp, "indexerVisible = %d\n",     indexerVisibleSetting ? 1 : 0);
-    std::fprintf(fp, "indexerMode = %d\n",        indexerModeSetting);
-    std::fprintf(fp, "indexerLeft = %d\n",        indexerLeftSetting);
-    std::fprintf(fp, "indexerTop = %d\n",         indexerTopSetting);
-    std::fprintf(fp, "indexerWidth = %d\n",       indexerWidthSetting);
-    std::fprintf(fp, "indexerHeight = %d\n",      indexerHeightSetting);
+#ifdef ENABLE_M5_INDEXER
+    std::fprintf(fp, "indexerVisible = %d\n",     indexerSettings.visible ? 1 : 0);
+    std::fprintf(fp, "indexerMode = %d\n",        indexerSettings.mode);
+    std::fprintf(fp, "indexerPoppedOut = %d\n",   indexerSettings.isPoppedOut ? 1 : 0);
+    std::fprintf(fp, "indexerFloatLeft = %d\n",   indexerSettings.floatLeft);
+    std::fprintf(fp, "indexerFloatTop = %d\n",    indexerSettings.floatTop);
+    std::fprintf(fp, "indexerFloatWidth = %d\n",  indexerSettings.floatWidth);
+    std::fprintf(fp, "indexerFloatHeight = %d\n", indexerSettings.floatHeight);
+    std::fprintf(fp, "indexerPopLeft = %d\n",     indexerSettings.popLeft);
+    std::fprintf(fp, "indexerPopTop = %d\n",      indexerSettings.popTop);
+    std::fprintf(fp, "indexerPopWidth = %d\n",    indexerSettings.popWidth);
+    std::fprintf(fp, "indexerPopHeight = %d\n",   indexerSettings.popHeight);
+#endif
     std::fclose(fp);
 }
 
 #ifdef ENABLE_M5_INDEXER
-// Capture the indexer's current visibility, mode, and geometry into
-// the in-memory settings, then write them to the .prf.  Called from
-// IndexerWindow.cpp on user-driven changes (menu toggle, mode click,
-// drag, resize) so the next sim launch puts the indexer back where
-// the pilot left it.
-//
-// Defined at namespace scope (no `static`) so the extern declaration
-// in IndexerWindow.cpp resolves to it at link time.
+// Snapshot indexer state and persist.  Called by the periodic save
+// callback when MarkDirtyIfChanged fires, by menu Show/Hide handlers
+// for an immediate flush, by XPLM_MSG_WILL_WRITE_PREFS as a last
+// chance before X-Plane writes its own prefs, and by XPluginStop on
+// clean shutdown.
 void SaveIndexerWindowState()
 {
-    indexerVisibleSetting = onspeed_xplane::indexer::IsVisible();
-    indexerModeSetting    = onspeed_xplane::indexer::GetMode();
-    int l, t, w, h;
-    onspeed_xplane::indexer::GetCurrentGeometry(&l, &t, &w, &h);
-    indexerLeftSetting   = l;
-    indexerTopSetting    = t;
-    indexerWidthSetting  = w;
-    indexerHeightSetting = h;
+    onspeed_xplane::indexer::GetCurrentState(&indexerSettings);
     SaveSettings();
+    onspeed_xplane::indexer::ClearDirty();
 }
 #endif
 
@@ -373,12 +368,19 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
         else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
-        else if (!std::strcmp(key, "indexerVisible"))     indexerVisibleSetting = std::atoi(val) != 0;
-        else if (!std::strcmp(key, "indexerMode"))        indexerModeSetting    = std::atoi(val);
-        else if (!std::strcmp(key, "indexerLeft"))        indexerLeftSetting    = std::atoi(val);
-        else if (!std::strcmp(key, "indexerTop"))         indexerTopSetting     = std::atoi(val);
-        else if (!std::strcmp(key, "indexerWidth"))       indexerWidthSetting   = std::atoi(val);
-        else if (!std::strcmp(key, "indexerHeight"))      indexerHeightSetting  = std::atoi(val);
+#ifdef ENABLE_M5_INDEXER
+        else if (!std::strcmp(key, "indexerVisible"))      indexerSettings.visible      = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "indexerMode"))         indexerSettings.mode         = std::atoi(val);
+        else if (!std::strcmp(key, "indexerPoppedOut"))    indexerSettings.isPoppedOut  = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "indexerFloatLeft"))    indexerSettings.floatLeft    = std::atoi(val);
+        else if (!std::strcmp(key, "indexerFloatTop"))     indexerSettings.floatTop     = std::atoi(val);
+        else if (!std::strcmp(key, "indexerFloatWidth"))   indexerSettings.floatWidth   = std::atoi(val);
+        else if (!std::strcmp(key, "indexerFloatHeight"))  indexerSettings.floatHeight  = std::atoi(val);
+        else if (!std::strcmp(key, "indexerPopLeft"))      indexerSettings.popLeft      = std::atoi(val);
+        else if (!std::strcmp(key, "indexerPopTop"))       indexerSettings.popTop       = std::atoi(val);
+        else if (!std::strcmp(key, "indexerPopWidth"))     indexerSettings.popWidth     = std::atoi(val);
+        else if (!std::strcmp(key, "indexerPopHeight"))    indexerSettings.popHeight    = std::atoi(val);
+#endif
         else if (!std::strcmp(key, "serialPortPath")) {
             // Defensive trim: sscanf %127[^\n\r] captures any trailing
             // spaces on the line, and the auto-retry loop would silently
@@ -660,22 +662,14 @@ static void OnAircraftLoaded() {
         onspeed_xplane::indexer::CloseSerialOut();
     }
 
-    // Apply persisted indexer state for the new aircraft: stash
-    // mode + geometry first (the indexer applies geometry to the
-    // X-Plane window if it already exists, otherwise holds it for
-    // CreateXPlaneWindow to consume on first Show), then drive
-    // visibility.  Show() may lazy-init the window — by that point
-    // the persisted geometry is in place and gets used as the
-    // initial box.
-    onspeed_xplane::indexer::SetMode(indexerModeSetting);
-    onspeed_xplane::indexer::ApplyPersistedGeometry(
-        indexerLeftSetting, indexerTopSetting,
-        indexerWidthSetting, indexerHeightSetting);
-    if (indexerVisibleSetting) {
-        onspeed_xplane::indexer::Show();
-    } else {
-        onspeed_xplane::indexer::Hide();
-    }
+    // Mode is safe to set immediately (it's just an int the M5
+    // firmware reads).  Geometry + pop-out + visibility are deferred
+    // to XPLM_MSG_AIRPORT_LOADED in XPluginReceiveMessage — that's
+    // when X-Plane's screen bounds and OS monitor mappings are
+    // stable.  Setting the window position here, before scenery
+    // finishes loading, was the source of the "weird size during
+    // flight loading" jitter the user observed.
+    onspeed_xplane::indexer::SetMode(indexerSettings.mode);
 #endif
 }
 
@@ -1234,8 +1228,9 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
             onspeed_xplane::indexer::Hide();
         else
             onspeed_xplane::indexer::Show();
-        indexerVisibleSetting = onspeed_xplane::indexer::IsVisible();
-        SaveSettings();
+        // Snapshot + flush so the toggle persists immediately rather
+        // than waiting for the periodic save tick.
+        SaveIndexerWindowState();
         return;
     }
     if (!strcmp(tag, "SerialOff")) {
@@ -1268,9 +1263,8 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
         if (!onspeed_xplane::indexer::IsVisible())
             onspeed_xplane::indexer::Show();
         onspeed_xplane::indexer::SetMode(mode);
-        indexerVisibleSetting = true;
-        indexerModeSetting    = mode;
-        SaveSettings();
+        // Immediate flush so the change survives a quick restart.
+        SaveIndexerWindowState();
         return;
     }
 #endif
@@ -1553,6 +1547,29 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#ifdef ENABLE_M5_INDEXER
+// Periodic save callback for indexer state.  Polls
+// MarkDirtyIfChanged() each tick — if the user has dragged, resized,
+// toggled pop-out, or cycled mode, it sets a dirty flag.  The flush
+// itself runs once every kPersistFlushInterval to debounce drag
+// motion (canonical X-Plane plugin pattern: don't fopen/write every
+// frame, batch into chunks).
+constexpr float kPersistFlushInterval = 1.0f;   // seconds
+
+static float SaveIndexerStatePeriodic(
+    [[maybe_unused]] float elapsed,
+    [[maybe_unused]] float elapsed_sim,
+    [[maybe_unused]] int counter,
+    [[maybe_unused]] void* ref)
+{
+    onspeed_xplane::indexer::MarkDirtyIfChanged();
+    if (onspeed_xplane::indexer::IsDirty() && s_settingsLoaded) {
+        SaveIndexerWindowState();
+    }
+    return kPersistFlushInterval;
+}
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // XPluginStart: validate sizes, find datarefs, register flight loops, build menu.
 PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
@@ -1620,6 +1637,14 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     crashedDataRef = XPLMFindDataRef("sim/flightmodel2/misc/has_crashed");
 
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
+
+#ifdef ENABLE_M5_INDEXER
+    // Periodic save callback for indexer window state.  Runs every
+    // ~1s after the first tick, polls for dirty state, flushes
+    // SaveSettings if anything changed.
+    XPLMRegisterFlightLoopCallback(SaveIndexerStatePeriodic,
+                                   kPersistFlushInterval, nullptr);
+#endif
 
     // Plugins menu entry that opens the control window.
     int item = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "Fly On Speed", nullptr, 1);
@@ -1694,6 +1719,13 @@ PLUGIN_API void XPluginStop(void) {
     XPLMUnregisterFlightLoopCallback(CheckAOAAndPlayTone, nullptr);
 
 #ifdef ENABLE_M5_INDEXER
+    // Final flush of any pending dirty state — XPLM_MSG_WILL_WRITE_PREFS
+    // usually catches this earlier, but a "Reload all plugins" path
+    // bypasses prefs writing and lands here directly.
+    if (onspeed_xplane::indexer::IsDirty()) {
+        SaveIndexerWindowState();
+    }
+    XPLMUnregisterFlightLoopCallback(SaveIndexerStatePeriodic, nullptr);
     onspeed_xplane::indexer::Shutdown();
 #endif
 
@@ -1727,6 +1759,39 @@ PLUGIN_API void XPluginReceiveMessage([[maybe_unused]] XPLMPluginID inFromWho,
     {
         OnAircraftLoaded();
     }
+#ifdef ENABLE_M5_INDEXER
+    // XPLM_MSG_AIRPORT_LOADED fires after scenery has finished loading
+    // and the aircraft is positioned at its starting airport.  This is
+    // the canonical X-Plane plugin signal for "screen bounds and OS
+    // monitor mappings are now stable" — see the SDK's deferred-init
+    // article.  Restoring window geometry here matches the timing of
+    // X-Plane's own G1000 / X1000 windows snapping into their saved
+    // spots during the "Preparing world" phase.
+    if (inMessage == XPLM_MSG_AIRPORT_LOADED) {
+        // The window may not exist yet (user hasn't opened the indexer
+        // since plugin load).  ApplyPersistedState handles that case
+        // by stashing the state for the eventual lazy-create.
+        if (indexerSettings.visible) {
+            // Make sure the window exists before geometry/visibility
+            // get set on it.  Show() lazy-inits if needed, then the
+            // ApplyPersistedState below sets the right positioning
+            // mode + geometry on the live window.
+            onspeed_xplane::indexer::Show();
+        }
+        onspeed_xplane::indexer::ApplyPersistedState(indexerSettings);
+    }
+
+    // Final flush of any pending dirty state before X-Plane writes
+    // its own prefs.  XPLM_MSG_WILL_WRITE_PREFS fires once during
+    // the X-Plane shutdown sequence; XPluginStop fires later but
+    // doesn't always run cleanly under crash conditions, so save
+    // here too as the more reliable path.
+    if (inMessage == XPLM_MSG_WILL_WRITE_PREFS &&
+        onspeed_xplane::indexer::IsDirty())
+    {
+        SaveIndexerWindowState();
+    }
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
