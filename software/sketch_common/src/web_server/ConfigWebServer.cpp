@@ -1366,6 +1366,7 @@ void HandleSensorConfig()
             sEfisNote = R"#(<p style="color:green"><b>EFIS data detected:</b> pitch, roll, and altitude pre-populated from EFIS. You can override if needed.</p>)#";
 
 sPage += R"#(
+<div style="max-width: 720px; margin: 0 auto; padding: 12px;">
 <br><b>Current sensor calibration:</b><br><br>)#" + sCurrentConfig + R"#(<br>
         <p style="color:black">This procedure will calibrate the system's accelerometers, gyros and pressure sensors.<br><br>
         <b>Requirements:</b><br><br>
@@ -1394,6 +1395,7 @@ sPage += R"#(
         <button type="submit" class="button">Calibrate Sensors</button>
         <a href="/">Cancel</a>
         </form>
+</div>
 )#";
         } // end if no confirm yes
 
