@@ -2554,6 +2554,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#window-appearance-and-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Window appearance and behavior
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Window appearance and behavior">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#letterboxing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letterboxing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sticky-position-across-launches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sticky position across launches
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pop-out-mode-multi-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pop-out mode (multi-monitor)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-five-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3437,6 +3487,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#window-appearance-and-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Window appearance and behavior
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Window appearance and behavior">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#letterboxing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letterboxing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sticky-position-across-launches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sticky position across launches
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pop-out-mode-multi-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pop-out mode (multi-monitor)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-five-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3597,9 +3697,12 @@ of latency on first show; subsequent shows are immediate.</p>
 <h2 id="cycling-modes">Cycling modes<a class="headerlink" href="#cycling-modes" title="Permanent link">&para;</a></h2>
 <p>Two ways to change which of the five modes is on screen:</p>
 <ul>
-<li><strong>Click anywhere inside the indexer body.</strong> Each click steps the
-  mode forward; mode 4 wraps back to mode 0. The titlebar is reserved
-  for drag, so clicks there don't cycle.</li>
+<li><strong>Click the MODE button</strong> at the bottom-center of the indexer
+  window.  Each click steps the mode forward; mode 4 wraps back to
+  mode 0.  The label updates to "MODE 0", "MODE 1", etc.  Clicks on
+  the indexer body itself, the titlebar, or anywhere outside the
+  button are pass-through — they don't cycle the mode and don't
+  steal focus from whatever you were doing.</li>
 <li><strong>Plugins → Fly On Speed → Indexer Mode N</strong> jumps directly to mode
   <em>N</em>. The window auto-shows if it isn't already visible.</li>
 </ul>
@@ -3607,6 +3710,42 @@ of latency on first show; subsequent shows are immediate.</p>
 plugin's <code>SetMode()</code> writes the M5's global state directly so a
 plugin-side mode change behaves identically to a Button-B press on a
 physical M5.</p>
+<h2 id="window-appearance-and-behavior">Window appearance and behavior<a class="headerlink" href="#window-appearance-and-behavior" title="Permanent link">&para;</a></h2>
+<h3 id="letterboxing">Letterboxing<a class="headerlink" href="#letterboxing" title="Permanent link">&para;</a></h3>
+<p>The indexer texture is 320×240 pixels (the M5Stack's native LCD
+resolution).  When you drag the X-Plane window to a different shape,
+the texture stays at 4:3 aspect — it's centered with letterbox bars
+filling whatever extra space you've given it.  Drag the window
+proportionally bigger and the texture scales together; drag wide
+or tall and the un-needed area shows the chrome bg.</p>
+<p>This avoids the "stretched smooshed indexer" you'd otherwise get
+from non-4:3 windows.</p>
+<h3 id="sticky-position-across-launches">Sticky position across launches<a class="headerlink" href="#sticky-position-across-launches" title="Permanent link">&para;</a></h3>
+<p>The indexer window remembers, per-aircraft, whether you had it
+visible, what mode it was on, where it was on the screen, what
+size, and whether it was in pop-out mode (own OS window, draggable
+to other monitors).  All of that comes back the next time you load
+the same aircraft.</p>
+<p>The restore happens during X-Plane's "Preparing world" phase —
+same timing as stock G1000 / X1000 windows snapping into their
+saved spots.  Position-on-disk lives in
+<code>Output/preferences/AOA-Tone-FlyOnSpeed-&lt;aircraft&gt;.prf</code> alongside
+the audio settings.  See <a href="../settings/">Per-Aircraft Settings</a> for
+the file's full schema.</p>
+<h3 id="pop-out-mode-multi-monitor">Pop-out mode (multi-monitor)<a class="headerlink" href="#pop-out-mode-multi-monitor" title="Permanent link">&para;</a></h3>
+<p>The pop-out button on the X-Plane window's chrome (top-right)
+detaches the indexer into its own OS window — at which point you
+can drag it to a different monitor, snap it to a corner, etc.,
+exactly like any other OS window.</p>
+<p>The pop-out position persists separately from the floating
+position, so:</p>
+<ul>
+<li>Drag the floating indexer to spot A, pop out, drag to monitor 2,
+  un-pop → indexer returns to spot A.</li>
+<li>Pop back out → returns to monitor 2 spot.</li>
+<li>Quit X-Plane and relaunch in either mode → restores wherever
+  you last had it.</li>
+</ul>
 <h2 id="the-five-modes">The five modes<a class="headerlink" href="#the-five-modes" title="Permanent link">&para;</a></h2>
 <p>The same five modes the M5 firmware ships. For full descriptions of
 each mode (what every readout means, when to use it), see the

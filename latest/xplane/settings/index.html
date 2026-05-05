@@ -3439,6 +3439,17 @@ file is fine; the plugin only writes keys it knows.</p>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>iAoaMeanWindow = 10
 <a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>audioEnabled = 1
 <a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>serialPortPath = /dev/cu.usbmodem11201
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>indexerVisible = 1
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>indexerMode = 0
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>indexerPoppedOut = 0
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>indexerFloatLeft = 100
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>indexerFloatTop = 600
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>indexerFloatWidth = 320
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>indexerFloatHeight = 240
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>indexerPopLeft = 100
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>indexerPopTop = 100
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>indexerPopWidth = 320
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>indexerPopHeight = 240
 </code></pre></div>
 <h2 id="fields">Fields<a class="headerlink" href="#fields" title="Permanent link">&para;</a></h2>
 <table>
@@ -3511,6 +3522,48 @@ file is fine; the plugin only writes keys it knows.</p>
 <td>OS-dependent</td>
 <td>USB-serial port to drive a tethered M5. Empty = no output.</td>
 </tr>
+<tr>
+<td><code>indexerVisible</code></td>
+<td>int 0/1</td>
+<td>—</td>
+<td>Whether the indexer window was open at last save. Restored on <code>XPLM_MSG_AIRPORT_LOADED</code>.</td>
+</tr>
+<tr>
+<td><code>indexerMode</code></td>
+<td>int</td>
+<td>0 – 4</td>
+<td>Last-active indexer display mode (Primary, Attitude, Narrow AOA, Decel, G History).</td>
+</tr>
+<tr>
+<td><code>indexerPoppedOut</code></td>
+<td>int 0/1</td>
+<td>—</td>
+<td>Whether the indexer was floating inside X-Plane (<code>0</code>) or detached as its own OS window (<code>1</code>).</td>
+</tr>
+<tr>
+<td><code>indexerFloatLeft</code> / <code>Top</code></td>
+<td>int (boxels)</td>
+<td>screen-bounds</td>
+<td>Top-left corner of the indexer window in X-Plane global desktop boxels, when floating.</td>
+</tr>
+<tr>
+<td><code>indexerFloatWidth</code> / <code>Height</code></td>
+<td>int (boxels)</td>
+<td>≥ 160 × 120</td>
+<td>Indexer window size when floating.</td>
+</tr>
+<tr>
+<td><code>indexerPopLeft</code> / <code>Top</code></td>
+<td>int (OS pixels)</td>
+<td>OS-monitor coords</td>
+<td>Top-left corner of the indexer window when popped out into its own OS window.</td>
+</tr>
+<tr>
+<td><code>indexerPopWidth</code> / <code>Height</code></td>
+<td>int (OS pixels)</td>
+<td>≥ 160 × 120</td>
+<td>Indexer window size when popped out.</td>
+</tr>
 </tbody>
 </table>
 <p>The four AOA setpoints share the same ordering invariant as the
@@ -3555,6 +3608,12 @@ the indexer texture doesn't update after an aircraft change, this
 button reloads the plugin without restarting X-Plane. Equivalent to
 <strong>Plugins → Reload All Plugins</strong> but routed through this plugin's
 own teardown so settings are saved first.</p>
+<p>The <code>indexer*</code> keys are written automatically as you interact with
+the window — drag, resize, pop-out, click MODE — and read back at
+launch.  No UI for them; just put the window where you want it and
+it'll come back there next time.  See
+<a href="../indexer/#window-appearance-and-behavior">Using the Indexer</a> for
+more on the sticky-window behavior.</p>
 <h2 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h2>
 <p>The four AOA setpoints are a single set, not per-flap. The firmware
 stores six setpoints per flap detent and switches sets when the lever

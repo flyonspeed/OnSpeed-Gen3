@@ -2660,6 +2660,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#indexer-in-the-wrong-place-after-monitor-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexer in the wrong place after monitor change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#settings-not-persisting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3386,6 +3397,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#indexer-in-the-wrong-place-after-monitor-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indexer in the wrong place after monitor change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#settings-not-persisting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3504,6 +3526,31 @@ full rundown. Quick checks:</p>
 <li>Confirm the M5 is running <code>OnSpeed-M5-Display</code> firmware, not
   stock M5 demo software.</li>
 </ul>
+<h2 id="indexer-in-the-wrong-place-after-monitor-change">Indexer in the wrong place after monitor change<a class="headerlink" href="#indexer-in-the-wrong-place-after-monitor-change" title="Permanent link">&para;</a></h2>
+<p>The plugin saves the indexer's last position per-aircraft and restores
+it during X-Plane's "Preparing world" boot phase.  If a monitor that
+was attached when you saved isn't there at the next launch — or if
+the .prf was hand-edited with bad coordinates — the window can end
+up off-screen.</p>
+<p>Two recoveries:</p>
+<ul>
+<li><strong>Soft fix (in-sim).</strong>  Open the audio control window
+  (<strong>Plugins → Fly On Speed → Show</strong>) and click <strong>Indexer: Show/Hide</strong>
+  twice.  The first click hides; the second triggers a fresh Show
+  which goes through the geometry-clamp pass and forces the window
+  back on-screen if the saved coords are crazy.  The plugin checks
+  the live X-Plane desktop bounds and clamps so at least 80 boxels
+  of the window stay visible.</li>
+<li><strong>Hard fix (edit the .prf).</strong>  Quit X-Plane.  Open the per-aircraft
+  <code>.prf</code> (path documented in <a href="../settings/">Per-Aircraft Settings</a>).
+  Set <code>indexerFloatLeft</code> / <code>indexerFloatTop</code> to something sensible
+  for your screen (e.g. 100 / 600), set <code>indexerPoppedOut = 0</code> to
+  force back into the X-Plane main window.  Relaunch.</li>
+</ul>
+<p>The plugin also rejects obviously-bad coords on save — anything
+beyond ±50000 px/boxels is treated as a transient SDK glitch and
+not written — so this should be an edge case.  If you see it
+happen reliably, please file an issue with the .prf attached.</p>
 <h2 id="settings-not-persisting">Settings not persisting<a class="headerlink" href="#settings-not-persisting" title="Permanent link">&para;</a></h2>
 <p>The plugin writes the per-aircraft <code>.prf</code> on every successful Save
 and on <code>XPluginStop</code>. If your edits don't survive a sim restart:</p>
