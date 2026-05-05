@@ -141,6 +141,61 @@ constexpr int kMinVisible = 80;     // px/boxels of window kept on-screen
 constexpr float kAspect = static_cast<float>(kWindowWidth) /
                           static_cast<float>(kWindowHeight);
 
+// M5Stack-body chrome layout.  The plugin window's content area is
+// painted to look like a real M5Stack hardware unit: black body, thin
+// bezel around the screen, three round-style buttons in a row below.
+// Proportions taken from a Basic M5 (the screen occupies ~75% of the
+// front face vertically, with the 3-button row in the lower ~20%
+// margin).  All values scale with the X-Plane window.
+constexpr int   kBezelPx              = 6;     // black bezel inset around the M5 screen
+constexpr int   kButtonRowHeight      = 36;    // strip y-extent reserved for the button row
+constexpr int   kButtonWidth          = 56;    // each pill button width
+constexpr int   kButtonHeight         = 22;    // each pill button height
+constexpr int   kButtonSpacing        = 16;    // horizontal gap between adjacent buttons
+constexpr int   kButtonStripPadding   = 6;     // extra body padding above/below the buttons
+
+// Three buttons in a row: DIM (left, no-op), MODE (center, cycles
+// mode), BRIGHT (right, no-op).  Only MODE is wired today; DIM/BRIGHT
+// are visual-only to match the real M5's three-button hardware row.
+struct ButtonRect { int l, t, r, b; };
+struct ButtonRow {
+    bool       valid;        // false when window is too small to host the row
+    ButtonRect dim;
+    ButtonRect mode;
+    ButtonRect bright;
+};
+
+ButtonRow ComputeButtonRow(int winLeft, int winTop, int winRight, int winBottom)
+{
+    ButtonRow row{};
+    const int winW = winRight - winLeft;
+    const int winH = winTop   - winBottom;
+    const int rowSpan = 3 * kButtonWidth + 2 * kButtonSpacing;
+    if (winW < rowSpan + 2 * kBezelPx ||
+        winH < kButtonRowHeight + kMinHeight) {
+        row.valid = false;
+        return row;
+    }
+    row.valid = true;
+    const int rowCenterY = winBottom + kButtonRowHeight / 2;
+    const int leftStart  = (winLeft + winRight) / 2 - rowSpan / 2;
+    const int btnT       = rowCenterY + kButtonHeight / 2;
+    const int btnB       = rowCenterY - kButtonHeight / 2;
+    row.dim    = { leftStart,
+                   btnT,
+                   leftStart + kButtonWidth,
+                   btnB };
+    row.mode   = { row.dim.r + kButtonSpacing,
+                   btnT,
+                   row.dim.r + kButtonSpacing + kButtonWidth,
+                   btnB };
+    row.bright = { row.mode.r + kButtonSpacing,
+                   btnT,
+                   row.mode.r + kButtonSpacing + kButtonWidth,
+                   btnB };
+    return row;
+}
+
 // Persisted indexer state.  Default values are the same as the
 // pre-sticky-persistence behavior so a fresh install (no .prf yet)
 // puts the window where the old code did.
@@ -216,27 +271,85 @@ void DrawWindow(XPLMWindowID, void*)
     int left, top, right, bottom;
     XPLMGetWindowGeometry(s_window, &left, &top, &right, &bottom);
 
-    // Letterbox the M5 framebuffer at the panel's native 4:3 inside
-    // the X-Plane window.  User can drag the window to any shape;
-    // the textured quad fits centered at 4:3 with the chrome bg
-    // showing through as letterbox bars.  Same approach OBS preview /
-    // VLC / RetroArch use for video, and what avoids the "stretched
-    // smooshed indexer" shapes the user reported on 2026-05-05.
-    const int winW   = right - left;
-    const int winH   = top   - bottom;
-    int       quadW  = winW;
-    int       quadH  = static_cast<int>(static_cast<float>(quadW) / kAspect);
-    if (quadH > winH) {
-        quadH = winH;
+    // Lay out the M5 "physical" chrome inside the X-Plane window.
+    // The button row reserves a strip at the bottom; the screen
+    // letterboxes into the area above it at 4:3 (with a thin black
+    // bezel around the texture); the M5 body fills the rest.
+    const int winW = right - left;
+    const int winH = top   - bottom;
+
+    const ButtonRow buttons = ComputeButtonRow(left, top, right, bottom);
+    const int screenAreaTop    = top - kButtonStripPadding;
+    const int screenAreaBottom = buttons.valid
+        ? bottom + kButtonRowHeight + kButtonStripPadding
+        : bottom + kButtonStripPadding;
+    const int screenAreaH = screenAreaTop - screenAreaBottom;
+    const int screenAreaW = winW - 2 * kBezelPx;
+
+    // Letterbox the M5 framebuffer at native 4:3 inside the screen
+    // area (which is itself inset from the X-Plane window by the
+    // button row + body padding + side bezels).
+    int quadW = std::max(0, screenAreaW);
+    int quadH = static_cast<int>(static_cast<float>(quadW) / kAspect);
+    if (quadH > screenAreaH) {
+        quadH = std::max(0, screenAreaH);
         quadW = static_cast<int>(static_cast<float>(quadH) * kAspect);
     }
-    const int offX  = (winW - quadW) / 2;
-    const int offY  = (winH - quadH) / 2;
-    const int quadL = left + offX;
+    const int quadL = (left + right)            / 2 - quadW / 2;
     const int quadR = quadL + quadW;
-    const int quadT = top  - offY;
+    const int quadT = (screenAreaTop + screenAreaBottom) / 2 + quadH / 2;
     const int quadB = quadT - quadH;
+
+    // M5 body fill — translucent dark boxes layered on the X-Plane
+    // chrome bg compound to approximate the matte-black plastic of a
+    // real M5.  Three layers around the textured quad: top (above
+    // the screen), sides (left+right of the screen), and the button-
+    // row strip below.  Stacked because XPLMDrawTranslucentDarkBox
+    // is the only paint primitive that's reliable on Apple Silicon's
+    // Metal-bridged GL.
+    auto paintBody = [&](int l, int t, int r, int b) {
+        if (l < r && b < t) {
+            XPLMDrawTranslucentDarkBox(l, t, r, b);
+            XPLMDrawTranslucentDarkBox(l, t, r, b);  // double for darker
+        }
+    };
+    // Top body strip (above the textured screen area).
+    paintBody(left, top, right, screenAreaTop);
+    // Left side body.
+    paintBody(left, screenAreaTop, quadL, screenAreaBottom);
+    // Right side body.
+    paintBody(quadR, screenAreaTop, right, screenAreaBottom);
+    // Bottom button-row body (whole strip; buttons get drawn on top).
+    paintBody(left, screenAreaBottom, right, bottom);
+
+    // Thin black bezel around the screen — single translucent layer
+    // tightly framing the textured quad.  Visually separates the
+    // matte-black body from the live screen.
+    const int bezelInset = 2;
+    paintBody(quadL - bezelInset, quadT + bezelInset,
+              quadR + bezelInset, quadT);                  // top
+    paintBody(quadL - bezelInset, quadB,
+              quadR + bezelInset, quadB - bezelInset);     // bottom
+    paintBody(quadL - bezelInset, quadT, quadL, quadB);    // left
+    paintBody(quadR, quadT, quadR + bezelInset, quadB);    // right
+
+    // The screen itself.
     RenderTexturedQuadVA(quadL, quadT, quadR, quadB, s_textureId);
+
+    // Three blank buttons across the bottom row, matching the real
+    // M5Stack's three hardware buttons.  None are wired today — the
+    // visible mode-cycle path is the existing whole-body click
+    // (HandleClick), which works regardless of where in the window
+    // the click landed.  Buttons stay unlabeled to match the M5
+    // hardware (which has no printed labels on the front face).
+    auto drawButton = [&](const ButtonRect& r) {
+        XPLMDrawTranslucentDarkBox(r.l, r.t, r.r, r.b);
+    };
+    if (buttons.valid) {
+        drawButton(buttons.dim);
+        drawButton(buttons.mode);
+        drawButton(buttons.bright);
+    }
 
     static bool s_loggedOnce = false;
     if (!s_loggedOnce) {
