@@ -85,6 +85,7 @@ void ConsoleSerialIO::DisplayConsoleHelp()
         pSerial->println("VNOCHIMETEST         - Play Vno chime");
         pSerial->println("TASKS                - Show info about running tasks");
         pSerial->println("BOOTLOG              - Show last 20 lines of /boot_log.txt");
+        pSerial->println("CRASHME              - Force a panic (StoreProhibited) for diag testing");
         pSerial->println("COOKIE");
         pSerial->println("");
 
@@ -542,6 +543,27 @@ void ConsoleSerialIO::Read()
                 BootDiag::PrintBootLog(*pSerial, 20);
                 g_Log.println("DONE.");
                 } // end BOOTLOG
+
+            // CRASHME
+            // -------
+            // Force a deterministic StoreProhibited exception so the next boot
+            // exercises the BootDiagnostics coredump-archival path. Useful for
+            // bench-testing /coredumps/ archival without provoking a real bug.
+            // No safety guard intentional — this is a diagnostic command.
+            //
+            // We obscure the bad pointer behind a volatile so the compiler's
+            // null-deref warning (-Wnull-dereference) doesn't refuse to build.
+            // The runtime behavior is identical: write to address zero faults.
+            else if (strncasecmp(szCmdToken, "CRASHME", 7) == 0)
+                {
+                g_Log.println("CRASHME: forcing StoreProhibited in 1 second...");
+                delay(1000);
+                volatile uintptr_t uBadAddr = 0;
+                volatile int * pCrash = reinterpret_cast<volatile int *>(uBadAddr);
+                *pCrash = 0xDEADBEEF;
+                // unreachable, but keep the compiler honest
+                g_Log.println("CRASHME: huh, didn't crash?");
+                } // end CRASHME
 
             // HELP
             // ----

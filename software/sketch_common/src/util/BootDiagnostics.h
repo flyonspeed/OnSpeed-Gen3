@@ -4,10 +4,22 @@
 // a monotonic boot counter, and how long the previous boot lived, and
 // persists them across power cycles in NVS + SD card /boot_log.txt.
 //
+// On boots that recover from a panic (PANIC, TASK_WDT, INT_WDT, ...) the
+// ESP-IDF panic handler has written a binary coredump to the dedicated
+// coredump partition before reset. AppendToSd() additionally archives
+// that coredump to /coredumps/coredump_<NNNN>_<version>_<task>.bin on the
+// SD card and emits an indented panic-summary line under the boot's row
+// in /boot_log.txt — enough for a pilot to email us the file plus a
+// one-liner that already says what assertion fired and on which task.
+//
 // Access paths for the pilot:
 //   1. Pop the microSD card and read /boot_log.txt on any computer.
+//      For panic-class events, also grab the matching .bin from /coredumps/.
 //   2. Connect phone to the "OnSpeed" WiFi, browse 192.168.0.1/logs, download.
 //   3. USB serial console: type BOOTLOG to tail the file.
+//
+// Bench-test the panic path with the CRASHME console command — it forces a
+// LoadProhibited exception so the next boot exercises the full archival path.
 //
 #pragma once
 
