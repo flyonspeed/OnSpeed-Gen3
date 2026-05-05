@@ -225,7 +225,8 @@ git add tools/web/... \
         software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
         software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
         software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
-        software/OnSpeed-Gen3-ESP32/Web/html_indexer.h
+        software/OnSpeed-Gen3-ESP32/Web/legacy_pages.h \
+        software/OnSpeed-Gen3-ESP32/Web/legacy_pages.cpp
 git commit
 ```
 

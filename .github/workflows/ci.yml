@@ -131,7 +131,8 @@ jobs:
               software/OnSpeed-Gen3-ESP32/Web/static_app_js.h \
               software/OnSpeed-Gen3-ESP32/Web/static_app_css.h \
               software/OnSpeed-Gen3-ESP32/Web/html_stubs.h \
-              software/OnSpeed-Gen3-ESP32/Web/html_indexer.h; do
+              software/OnSpeed-Gen3-ESP32/Web/legacy_pages.h \
+              software/OnSpeed-Gen3-ESP32/Web/legacy_pages.cpp; do
             if ! git diff --exit-code -- "$f"; then
               echo "::error::$f is stale."
               STALE=1
@@ -152,7 +153,13 @@ jobs:
     #   - render-smoke: each page module imports cleanly and renders
     #     via Preact into a mock DOM, with key landmarks present
     #     (<svg>, mode buttons, data table).
-    name: Web tests (geometry + render-smoke)
+    #   - api-schema: every dev-server mock under
+    #     tools/web/dev-server/mocks/ matches the JSON shape the live
+    #     firmware emits.
+    #   - aoaconfig-markers: the {{marker}} set in aoaconfig.html, the
+    #     C++ HandleConfig substitutions, and the JS dev-server
+    #     substituteAoaConfig substitutions stay in lockstep.
+    name: Web tests (geometry + render-smoke + api-schema + aoaconfig-markers)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -170,6 +177,12 @@ jobs:
 
       - name: Run render-smoke test
         run: node tools/web/test/render-smoke.mjs
+
+      - name: Run api-schema test
+        run: node tools/web/test/api-schema.mjs
+
+      - name: Run aoaconfig-markers test
+        run: node tools/web/test/aoaconfig-markers.mjs
 
   build-m5-display:
     name: Build M5 Display Firmware (${{ matrix.board }})
@@ -742,7 +755,7 @@ jobs:
             | **Windows** | [${{ steps.artifacts.outputs.xpw_name }}](${{ steps.artifacts.outputs.xpw_url }}) |
             | **Linux** | [${{ steps.artifacts.outputs.xpl_name }}](${{ steps.artifacts.outputs.xpl_url }}) |
 
-            Drop the `.xpl` into `X-Plane 12/Resources/plugins/AOA-Tone-FlyOnSpeed/<arch>/`. Restart X-Plane to load. See the [X-Plane plugin docs](https://dev.flyonspeed.org/OnSpeed-Gen3/xplane/) for install details and usage.
+            Drop the `.xpl` into `X-Plane 12/Resources/plugins/AOA-Tone-FlyOnSpeed/<arch>/`. Restart X-Plane to load. See the [X-Plane plugin docs](https://dev.flyonspeed.org/OnSpeed-Gen3/simulator/xplane-plugin/) for install details and usage.
 
             ---
 
