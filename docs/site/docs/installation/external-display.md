@@ -74,6 +74,10 @@ three dots printed on the bezel); the Basic has physical push buttons.
 The firmware uses M5Unified's unified `M5.BtnA/B/C` API, so behavior is
 identical on both units.
 
+Brightness is persisted to NVS on every adjust, so the M5 boots into the
+brightness it was on at last power-down. Display mode is not persisted —
+every boot starts on Mode 0 (Primary).
+
 If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.
@@ -139,7 +143,10 @@ not by exact percent.
 **Corners:**
 
 - Top-left: current **IAS** in knots (big white number) with a green
-  "IAS" label.
+  "IAS" label, plus a small two-digit **DataMark** counter at the very
+  top-left corner — wraps mod 100, increments each time the pilot
+  presses the data-mark button. Mirrors the same counter on the SD log
+  and the JS indexer.
 - Top-right: current **vertical G** (big white number) with a green
   "G" label.
 - Bottom-left: a **flap position** icon (circle with a rotating
@@ -203,7 +210,9 @@ attitude source.
 
 The Primary mode's indexer widget (chevrons + donut + index bar),
 with all the numeric fields around it **stripped away**. Same stall
-warnings, same on-speed cues, same colors.
+warnings, same on-speed cues, same colors. The **DataMark** counter
+stays at the top-left so the pilot can confirm a press registered
+even on this minimal layout.
 
 **When to use:** if you already have an EFIS or dedicated ASI/ALT
 display, the numeric readouts on Primary mode are redundant. This
@@ -277,8 +286,8 @@ Once detected, the port mapping is saved to the M5's NVS flash so
 subsequent boots come up faster.
 
 - **Baud rate:** 115200 8N1
-- **Frame rate:** 20 Hz (every 50 ms). Each frame is 76 ASCII bytes
-  (v4.22 wire) including `#1` header, fields, CRC, and CRLF.
+- **Frame rate:** 20 Hz (every 50 ms). Each frame is 77 ASCII bytes
+  (v4.23 wire) including `#1` header, fields, CRC, and CRLF.
 
 See [Display Serial Protocol](../reference/serial-protocol.md) for the
 complete wire-format reference (byte offsets, field semantics, parsing
@@ -422,11 +431,12 @@ for the hardware shopping list, wiring diagram, and protocol details.
 The OnSpeed firmware's serial output format is configurable via the
 `SERIALOUTFORMAT` field in the configuration:
 
-- **ONSPEED** — native `#1` format (72-byte payload + CRC + CRLF = 76
-  bytes total, v4.22 wire) carrying attitude, IAS, pressure altitude,
-  percent-lift, the per-flap percent anchors that drive an indexer
-  (L/D~MAX~ audio gate, OnSpeedFast, OnSpeedSlow, stall-warn, plus the
-  separate visual L/D~MAX~ pip), G-loading, and flap travel range.
+- **ONSPEED** — native `#1` format (73-byte payload + CRC + CRLF = 77
+  bytes total, v4.23 wire) carrying attitude, IAS, pressure altitude,
+  percent-lift (tenths of a percent), the per-flap percent anchors that
+  drive an indexer (L/D~MAX~ audio gate, OnSpeedFast, OnSpeedSlow,
+  stall-warn, plus the separate visual L/D~MAX~ pip), G-loading, and
+  flap travel range.
   Use this with `OnSpeed-M5-Display` or any third-party
   display reading the full data set. Full byte-level wire-format
   reference: [Display Serial Protocol](../reference/serial-protocol.md).

@@ -115,13 +115,13 @@ Available modules include: AHRS, Audio, Config, Console, DataServer, Display, EF
 
 ### AUDIOTEST
 
-Run a 20-second audio test sequence.
+Run an audio test sequence.
 
 ```
 AUDIOTEST
 ```
 
-Plays test tones through left and right channels. Runs as a background task (doesn't block the console). Returns "busy" if already running.
+Plays the left/right speaker voice clips, the ONSPEED solid low tone, the G-limit voice, then a continuous AOA range sweep that walks linearly from just below L/D~MAX~ past the stall-warn threshold — covering every region of the tone map (silent → low-pitch pulsing → ONSPEED solid → high-pitch pulsing → stall warning buzz). Runs as a background task (doesn't block the console). Returns "busy" if already running.
 
 ### VNOCHIMETEST
 
@@ -190,6 +190,8 @@ BOOTLOG
 
 Each line records one boot: monotonic boot counter, firmware version + git short SHA, ESP32 reset reason, how long the previous boot lived, and free heap at append time. Useful when chasing intermittent power-on failures — `BROWNOUT` and `PWRGLITCH` reset reasons point at supply-side problems, `PANIC` / `WDT` at firmware bugs. The same file is also accessible at `/logs` over WiFi or by pulling the SD card.
 
+For panic-class reset reasons, the BootDiagnostics path also archives the ESP-IDF binary coredump from the dedicated coredump partition to `/coredumps/coredump_NNNN_<version>_<task>.bin` on the SD card. To send a crash report, attach the `boot_log.txt` line plus the matching `.bin` from `/coredumps/`.
+
 ### REBOOT
 
 Restart the controller.
@@ -199,6 +201,24 @@ REBOOT
 ```
 
 Equivalent to power cycling. Configuration is reloaded from storage.
+
+### WIFIREFLASH
+
+Listed in `HELP` for historical reasons. The handler currently prints `wifi reflash mode not supported` and does nothing — the on-board ESP32-S3's WiFi runs in the same firmware image as the rest of the system, so there's nothing separate to reflash.
+
+```
+WIFIREFLASH
+```
+
+### CRASHME
+
+Force a deterministic StoreProhibited exception so the next boot exercises the BootDiagnostics coredump archival path. Used by developers to bench-test `/coredumps/` archival without provoking a real bug.
+
+```
+CRASHME
+```
+
+After the panic, the next boot writes a `coredump_NNNN_<version>_<task>.bin` to the SD card under `/coredumps/` and appends the panic reason to `/boot_log.txt`. View with `BOOTLOG`.
 
 ## Tips
 

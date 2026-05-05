@@ -318,6 +318,38 @@ The voice is **the team telling the rest of the team what landed this release.**
 | "the shared-codebase release" | "onspeed_core extraction. Logic shared across Gen3, M5, X-Plane plugin." |
 | "exciting new feature" | (cut — the feature's description is the excitement) |
 
+#### Pilot-facing voice — no engineering vocabulary above the fold
+
+The "What pilots will notice" and "Things to watch out for" sections are read by pilots. Pilots do not know — and do not need to know — what a "wire bump" is, what "PROGMEM" is, what "subpixel smoothness" or "anti-aliasing" or "EMA" or "lerp" or "dataref" or "OpenAL streaming pipeline" is. They know what they will hear, what they will see, and what they have to do. Anything else above the fold is a tone-deaf engineer talking past them.
+
+**The translation rule:** describe the pilot-visible effect in plain words. The mechanism, if it goes anywhere at all, lives in "What changed" further down. If you find yourself naming a function, a struct, a wire offset, a flag, a build define, or a math operator in a pilot-facing bullet, rewrite the bullet.
+
+| Engineer voice (don't, in pilot sections) | Pilot voice (do) |
+|---|---|
+| "Wire format bumps from 76 → 77 bytes" | "You have to flash both the M5 and the Gen3 box together — old M5 firmware will not work with the new Gen3 firmware" |
+| "Index bar renders at sub-pixel temporal smoothness off the 20 Hz frame cadence" | "The index bar moves smoother than before and feels more responsive" |
+| "`pipPctLift` lerps clean → fullflap by the flap-handle ratio" | "The L/Dmax pip slides as you move the flap handle" |
+| "`gOnsetRate` is computed from the verticalG dataref through `GOnsetFilter` with a pre-smoother" | "The G-onset bar actually responds when you pull" |
+| "Streaming OpenAL pipeline fed by `Envelope` / `AudioMixer` / `AudioOrchestrator`; pulse cadence is sample-accurate" | "Audio sounds like the box" |
+| "Wire emit gates on `sim/time/paused` so the M5's gHistory buffer stops scrolling" | "The G-load history page freezes when the sim pauses" |
+| "M5GFX's bundled CJK font tables and unused panel-driver classes were exported from the dylib; `-fvisibility=hidden` plus dead-strip flags trims it 80×" | "The plugin file is 660 KB now, not 54 MB. Same indexer, same audio." |
+| "Preact application served from gzipped PROGMEM bundles" | "The web pages have been rewritten" |
+| "The cal wizard no longer applies a client-side EMA. The on-screen readouts update at WebSocket rate instead of through a 250 ms low-pass" | "The cal wizard's on-screen readouts update faster — the values you watch during a stall pull no longer go through a quarter-second visual smoothing pass" |
+| "Loaded-ear gain rises from 1.000 to 1.000 (saturation in both) but the unloaded-ear gain drops from 0.131 to 0.429" | "Expect the directional cue to feel sharper in coordinated turns" |
+| "`SUPPORT_WIFI_CLIENT` and `SUPPORT_CONFIG_V1` build flags are gone" | (cut from pilot sections — this is developer-facing housekeeping; goes in the post-fold "Cleanup" section if anywhere) |
+
+**Pilot-facing words that don't belong**, in approximate order of how often the LLM reaches for them:
+
+- wire / wire format / frame / payload / offset / byte / packet
+- subpixel / sub-pixel / anti-aliased / fractional pixels
+- EMA / low-pass / filter / decimation / interpolation / lerp / dataref
+- struct / field / flag / build flag / `#define` / namespace / handler / endpoint / route
+- PROGMEM / heap / DMA / mutex / SDK / bundle / blob
+- saturation / saturating / monotonic / continuous / discontinuity
+- "emit" / "consume" / "consumer" / "transport" / "pipeline"
+
+**Test before publishing the pilot section:** read each bullet aloud. Imagine the audience is a pilot at the airport reading on their phone. If you'd be embarrassed by a bullet, rewrite it. If a phrase would force the pilot to ask "what's a wire?", rewrite it. The engineering reader gets their detail in the post-fold sections — they're not deprived by your translating up top, they're served by it.
+
 **Specific words to avoid**, because the LLM produces them by default and they set off marketing-detection:
 
 - finally, now at last, at long last
