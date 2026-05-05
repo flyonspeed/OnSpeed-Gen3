@@ -15,6 +15,7 @@ static const char htmlStub_indexer[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="onspeed-version" content="{{onspeedVersion}}">
 <title>OnSpeed — Indexer</title>
+<style>body{margin:0;background:#cccccc;color:#000088;font-family:Arial,Helvetica,Sans-Serif}</style>
 <link rel="stylesheet" href="/static/app-ce5fb7c0195c.css">
 </head>
 <body>
@@ -30,6 +31,7 @@ static const char htmlStub_calwiz[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="onspeed-version" content="{{onspeedVersion}}">
 <title>OnSpeed — Calibration</title>
+<style>body{margin:0;background:#cccccc;color:#000088;font-family:Arial,Helvetica,Sans-Serif}</style>
 <link rel="stylesheet" href="/static/app-ce5fb7c0195c.css">
 </head>
 <body>
@@ -45,6 +47,7 @@ static const char htmlStub_home[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="onspeed-version" content="{{onspeedVersion}}">
 <title>OnSpeed — Home</title>
+<style>body{margin:0;background:#cccccc;color:#000088;font-family:Arial,Helvetica,Sans-Serif}</style>
 <link rel="stylesheet" href="/static/app-ce5fb7c0195c.css">
 </head>
 <body>
@@ -60,6 +63,7 @@ static const char htmlStub_reboot[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="onspeed-version" content="{{onspeedVersion}}">
 <title>OnSpeed — Reboot</title>
+<style>body{margin:0;background:#cccccc;color:#000088;font-family:Arial,Helvetica,Sans-Serif}</style>
 <link rel="stylesheet" href="/static/app-ce5fb7c0195c.css">
 </head>
 <body>
@@ -75,6 +79,7 @@ static const char htmlStub_format[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="onspeed-version" content="{{onspeedVersion}}">
 <title>OnSpeed — Format SD</title>
+<style>body{margin:0;background:#cccccc;color:#000088;font-family:Arial,Helvetica,Sans-Serif}</style>
 <link rel="stylesheet" href="/static/app-ce5fb7c0195c.css">
 </head>
 <body>
@@ -90,6 +95,7 @@ static const char htmlStub_upgrade[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="onspeed-version" content="{{onspeedVersion}}">
 <title>OnSpeed — Firmware Upgrade</title>
+<style>body{margin:0;background:#cccccc;color:#000088;font-family:Arial,Helvetica,Sans-Serif}</style>
 <link rel="stylesheet" href="/static/app-ce5fb7c0195c.css">
 </head>
 <body>
@@ -105,6 +111,7 @@ static const char htmlStub_logs[] PROGMEM = R"=====(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="onspeed-version" content="{{onspeedVersion}}">
 <title>OnSpeed — Logs</title>
+<style>body{margin:0;background:#cccccc;color:#000088;font-family:Arial,Helvetica,Sans-Serif}</style>
 <link rel="stylesheet" href="/static/app-ce5fb7c0195c.css">
 </head>
 <body>

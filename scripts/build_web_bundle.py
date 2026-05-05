@@ -550,6 +550,12 @@ def _build_stub_html(page_id, title, etag_js, etag_css):
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         '<meta name="onspeed-version" content="{{onspeedVersion}}">\n'
         f'<title>OnSpeed — {title}</title>\n'
+        # Inline critical CSS: paint the body bg + base text color before
+        # the bundled stylesheet downloads.  The deferred <script> tag
+        # holds the JS bundle until parse finishes; without this the
+        # browser flashes white between HTML parse and stylesheet load.
+        '<style>body{margin:0;background:#cccccc;color:#000088;'
+        'font-family:Arial,Helvetica,Sans-Serif}</style>\n'
         f'<link rel="stylesheet" href="/static/app-{etag_css}.css">\n'
         '</head>\n'
         '<body>\n'
