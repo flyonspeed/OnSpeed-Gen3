@@ -293,17 +293,35 @@ void DrawWindow(XPLMWindowID, void*)
     if (buttonVisible) {
         XPLMDrawTranslucentDarkBox(btnL, btnT, btnR, btnB);
         char label[24];
-        std::snprintf(label, sizeof(label), "MODE %d",
-                      static_cast<int>(displayType));
+        const int labelLen = std::snprintf(label, sizeof(label), "MODE %d",
+                                           static_cast<int>(displayType));
         float white[3] = { 1.0f, 1.0f, 1.0f };
-        // XPLMDrawString anchor is the lower-left of the first glyph,
-        // and xplmFont_Proportional is ~10 px tall.  Center vertically
-        // by anchoring at btnB + (kButtonHeight - 10) / 2.
-        const int textY = btnB + (kButtonHeight - 10) / 2;
-        // Approximate text width: 7 px per char for the proportional
-        // font.  Close enough for centering a 6-char label.
-        const int approxW = static_cast<int>(std::strlen(label)) * 7;
-        const int textX   = (btnL + btnR) / 2 - approxW / 2;
+
+        // XPLMDrawString anchors the BASELINE of the first glyph at
+        // (textX, textY) — not the lower-left of the bounding box.
+        // The baseline sits roughly 1/4 of the font height above the
+        // glyph cell bottom (descender region), so center vertically
+        // by placing the baseline at:
+        //
+        //     btnB + (kButtonHeight - fontH) / 2 + descender
+        //
+        // XPLMGetFontDimensions reports total cell height; the SDK
+        // doesn't separately expose the baseline offset, but a 1/4
+        // bias approximates standard typography for sans-serif UI
+        // fonts.  Visually this lands the glyph cell vertically
+        // centered in the button.
+        int fontH = 10;
+        XPLMGetFontDimensions(xplmFont_Proportional, nullptr, &fontH, nullptr);
+        const int descender = std::max(2, fontH / 4);
+        const int textY = btnB + (kButtonHeight - fontH) / 2 + descender;
+
+        // Exact pixel width via SDK; approximation we used to do
+        // ("7 px per char") overestimated width and biased the text
+        // visibly left of center on a 6-char "MODE N" label.
+        const int textW = static_cast<int>(std::round(
+            XPLMMeasureString(xplmFont_Proportional, label, labelLen)));
+        const int textX = (btnL + btnR) / 2 - textW / 2;
+
         XPLMDrawString(white, textX, textY, label, nullptr,
                        xplmFont_Proportional);
     }
