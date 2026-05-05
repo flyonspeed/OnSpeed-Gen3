@@ -19,7 +19,9 @@ The pilots on this team do not want marketing voice from their own project. They
 
 What the notes need to communicate, in order:
 
-1. **What pilots will notice.** Lead with this. Bulleted list, grouped by surface (Audio / M5 display / LiveView / etc.) when there's enough variety to group. Each bullet is one concrete behavior change a pilot or test pilot can verify on the next flight, in plain language. The PR cite goes at the end in parentheses; the bullet itself does not lead with the PR number or the firmware-internal mechanism.
+1. **Pilot notes.** Lead with this. Bulleted list, grouped by surface (Audio / M5 display / LiveView / etc.) when there's enough variety to group. Each bullet is one concrete behavior change a pilot or test pilot can verify on the next flight, in plain language. The PR cite goes at the end in parentheses; the bullet itself does not lead with the PR number or the firmware-internal mechanism.
+
+   **Don't label the audience.** Do not name the section `## What pilots will notice` or `## For pilots` or `## Pilot-facing changes`. The whole release is for pilots — labeling the audience is condescending. Call this section `## Pilot notes`, or `## Release notes`, or just the version (`## v4.22`); pick whatever reads cleanest and use it consistently across releases. Same rule for sub-headers: `**Audio**`, not `**What pilots hear**`. Same rule for the watch-outs section: `## Things to watch out for` or `## Before you fly v4.22`, not `## What pilots need to do`.
 2. **Things to watch out for.** Bulleted list of pilot-action items: required reflashes of paired hardware (M5, huVVer-AVI), behavior changes that need verification before relying on tones, deprecations. Empty section is fine if there's nothing — but if there's a wire-format break, an algorithm-default change, or a known-unverified feature, it goes here, not buried below.
 3. **Recalibration status.** Does the pilot need to recalibrate after flashing? Mandatory callout every time, even when the answer is no.
 4. **Context and theme.** One paragraph at the top of "What changed". (In a longer release this can also serve as the intro under the title — but if the pilot-first list above already conveys the theme, don't restate.)
@@ -51,7 +53,7 @@ This skill captures the OnSpeed-specific process for getting from "release v4.X"
 5. **Always include a recalibration callout.** Every release. Even if the answer is "no recalibration needed."
 6. **Always calibrate voice against the previous release.** Read it before drafting. The previous release is the canonical example of project tone and structure.
 7. **Always audit the docs site for drift before drafting.** Pilots read the docs to understand what a release means — stale docs turn a clean release into a support problem. See Phase 0 below.
-8. **Lead with what pilots will notice, not the theme paragraph.** Bulleted, plain-language, grouped by surface (Audio / M5 display / LiveView / etc.) when there's variety. The theme paragraph and engineering depth live below the fold. See "What the notes need to communicate, in order" above and the v4.21 reference release.
+8. **Lead with the pilot notes, not the theme paragraph.** Bulleted, plain-language, grouped by surface (Audio / M5 display / LiveView / etc.) when there's variety. The theme paragraph and engineering depth live below the fold. The lead section is named `## Pilot notes` (or just the version, e.g. `## v4.22`) — never `## What pilots will notice` or `## For pilots`. See "What the notes need to communicate, in order" above and the v4.21 reference release.
 9. **Render-test the GitHub markdown.** Release notes render under GitHub Flavored Markdown, not MkDocs Material. `~text~` is strikethrough not subscript; `!!! warning` admonitions don't exist; `$math$` doesn't render. After pushing the draft, grep the rendered body for `~[A-Za-z]` and visually scan the page. See "GitHub markdown — different from the docs site" below.
 
 Violating the letter of these rules is violating the spirit. Don't rationalize.
@@ -209,9 +211,9 @@ Write to `/tmp/v<version>-release-notes.md`.
 ```markdown
 **Release date:** <Month YYYY>
 
-## What pilots will notice
+## Pilot notes
 
-<Group by surface when there's variety: Audio / M5 display / LiveView / EFIS / Logs. If there are only 2-3 bullets, skip the grouping.>
+<Group by surface when there's variety: Audio / M5 display / LiveView / EFIS / Logs. If there are only 2-3 bullets, skip the grouping. Sub-headers are surface names — `**Audio**`, `**M5 display**`, `**X-Plane plugin**` — not audience labels like `**What pilots hear**`.>
 
 **<Surface 1>**
 
@@ -320,7 +322,7 @@ The voice is **the team telling the rest of the team what landed this release.**
 
 #### Pilot-facing voice — no engineering vocabulary above the fold
 
-The "What pilots will notice" and "Things to watch out for" sections are read by pilots. Pilots do not know — and do not need to know — what a "wire bump" is, what "PROGMEM" is, what "subpixel smoothness" or "anti-aliasing" or "EMA" or "lerp" or "dataref" or "OpenAL streaming pipeline" is. They know what they will hear, what they will see, and what they have to do. Anything else above the fold is a tone-deaf engineer talking past them.
+The "Pilot notes" and "Things to watch out for" sections are read by pilots. Pilots do not know — and do not need to know — what a "wire bump" is, what "PROGMEM" is, what "subpixel smoothness" or "anti-aliasing" or "EMA" or "lerp" or "dataref" or "OpenAL streaming pipeline" is. They know what they will hear, what they will see, and what they have to do. Anything else above the fold is a tone-deaf engineer talking past them.
 
 **The translation rule:** describe the pilot-visible effect in plain words. The mechanism, if it goes anywhere at all, lives in "What changed" further down. If you find yourself naming a function, a struct, a wire offset, a flag, a build define, or a math operator in a pilot-facing bullet, rewrite the bullet.
 
@@ -442,7 +444,8 @@ Confirm `isDraft: true` and `targetCommitish` matches the SHA you intended. Repo
 | Publishing the draft because it looks good | Publishing is the user's call, every time. | Stop at the draft. Show the URL. |
 | Generating notes from `git log --oneline` alone | Commit subjects describe what, not why or how it matters. | Read the PR body for every commit. |
 | Forgetting to confirm release count and target with the user | A surprise scope or wrong target wastes work. | Confirm both before Phase 3. |
-| Leading the release with a theme paragraph full of internal mechanism (`compFadeIn_`, `q_bias`, `safeAsin`) | The first thing a pilot reads should be what they will hear, see, or need to do — not the firmware-internal terms. The engineering depth lives below the fold. | "What pilots will notice" bullets first, grouped by surface (Audio / M5 / LiveView). "Things to watch out for" second. Theme paragraph optional, kept terse, lower in the page. |
+| Leading the release with a theme paragraph full of internal mechanism (`compFadeIn_`, `q_bias`, `safeAsin`) | The first thing a pilot reads should be what they will hear, see, or need to do — not the firmware-internal terms. The engineering depth lives below the fold. | "Pilot notes" bullets first, grouped by surface (Audio / M5 / LiveView). "Things to watch out for" second. Theme paragraph optional, kept terse, lower in the page. |
+| Naming the lead section `## What pilots will notice` or `## For pilots` | The whole release is for pilots. Labeling the audience is condescending — pilots reading their own project's notes don't need to be told the notes are for them. | `## Pilot notes`, `## Release notes`, or just the version (`## v4.22`). Stay consistent across releases. |
 | Using docs-site KaTeX subscript syntax (`L/D~MAX~`, `V~REF~`) in release notes | GitHub renders `~text~` as strikethrough, not subscript. The pilot sees ~~MAX~~ struck through. | Use flat text in release notes — `L/Dmax`, `Vref`, `alpha_stall`. The KaTeX syntax is an MkDocs Material extension that does not exist on github.com release pages. |
 | Pasting `!!! warning` / `!!! note` admonitions from docs-site prose | They render as literal text on GitHub releases. | Use `> **Warning:**` blockquotes or bold-led paragraphs. |
 
@@ -461,7 +464,8 @@ These thoughts mean you're rationalizing:
 - "I'll batch-publish two releases at once" → no, draft only, one at a time, manual publish
 - "This bullet sounds a little promotional but it's fine" → it isn't. Rewrite in plain-statement voice. Readers detect marketing tone immediately in their own project's release notes, and it reads as condescending from their own team.
 - "Pilots will be excited about X" → cut the excitement framing. Describe X. Let X speak for itself.
-- "I'll lead with the theme paragraph, the bullets can come later" → no. Lead with "What pilots will notice" bullets. The pocket-protector engineering details live below the fold.
+- "I'll lead with the theme paragraph, the bullets can come later" → no. Lead with the "Pilot notes" bullets. The pocket-protector engineering details live below the fold.
+- "I'll name the lead section `## What pilots will notice` so the audience is clear" → no. The audience is obvious; labeling it is condescending. `## Pilot notes` or just the version.
 - "`L/D~MAX~` is what the docs site uses, it'll be fine here" → no. GitHub renders that as strikethrough. Use `L/Dmax` flat.
 - "I'll paste this `!!! warning` block from the docs and it'll work" → no. GitHub does not render MkDocs admonitions. Use `> **Warning:**`.
 
@@ -473,6 +477,6 @@ Read these in order — each one shows the structure the next was built on, with
 
 - **v4.15** — `gh release view v4.15` — Major safety/calibration release with mandatory recalibration. Use as the template for "recalibration required" framing.
 - **v4.16** — `gh release view v4.16` — Delivery-focused release with no recalibration needed. Use as the template for "no recalibration required" framing and for releases dominated by docs/infrastructure work.
-- **v4.21** — `gh release view v4.21` — Audio engine port + percent-lift wire change + EKF6 correctness, with M5 reflash required. **Use as the canonical structure**: "What pilots will notice" bullets grouped by surface, "Things to watch out for" with paired-hardware reflash + EKF6 verification, then "No recalibration required", then "What changed" with Highlights, then per-section one-liners. This is the structure introduced in v4.21 in response to the v4.21-draft feedback that the engineering-deep theme paragraph was burying the pilot-relevant changes.
+- **v4.21** — `gh release view v4.21` — Audio engine port + percent-lift wire change + EKF6 correctness, with M5 reflash required. **Use as the canonical structure** (note: v4.21 still uses the older `## What pilots will notice` header — v4.22 onward use `## Pilot notes` per the audience-labeling fix; structure underneath is the same): pilot-notes bullets grouped by surface, then "Things to watch out for" with paired-hardware reflash + EKF6 verification, then "No recalibration required", then "What changed" with Highlights, then per-section one-liners. This is the structure introduced in v4.21 in response to the v4.21-draft feedback that the engineering-deep theme paragraph was burying the pilot-relevant changes.
 
 Read all three. They show the full range of section vocabulary in action.
