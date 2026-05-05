@@ -1,0 +1,45 @@
+{
+  "activeLog": "log_042.csv",
+  "totalSize": 18327454,
+  "files": [
+    {
+      "name": "log_042.csv",
+      "size": 4521987,
+      "hasMeta": true,
+      "meta": {
+        "durationMs": 1842000,
+        "rowCount": 92100,
+        "maxIasKt": 156.4,
+        "maxPaltFt": 8420,
+        "firmware": "4.15.0",
+        "firmwareSha": "9a3cce7",
+        "efisType": "dynon",
+        "gpsFixSeen": true,
+        "utcStart": "2026-04-30T18:32:11Z",
+        "timeOfDayStart": "11:32:11"
+      }
+    },
+    {
+      "name": "log_041.csv",
+      "size": 8123456,
+      "hasMeta": true,
+      "meta": {
+        "durationMs": 3210000,
+        "rowCount": 160500,
+        "maxIasKt": 162.1,
+        "maxPaltFt": 9100,
+        "firmware": "4.15.0",
+        "firmwareSha": "9a3cce7",
+        "efisType": "dynon",
+        "gpsFixSeen": true,
+        "utcStart": "2026-04-29T16:14:02Z",
+        "timeOfDayStart": "09:14:02"
+      }
+    },
+    {
+      "name": "log_040.csv",
+      "size": 5682011,
+      "hasMeta": false
+    }
+  ]
+}

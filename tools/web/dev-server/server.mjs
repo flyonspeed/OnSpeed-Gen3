@@ -224,10 +224,11 @@ async function handleApi(req, res, args) {
     return proxyRequest(req, res, args.proxy);
   }
   if (args.mode === 'mock') {
-    // Path → mocks file: /api/foo/bar -> mocks/foo-bar.json (no
-    // directory recursion, keep mock layout flat).
-    const apiPath = req.url.split('?')[0].replace(/^\/api\//, '');
-    const mockName = apiPath.replace(/\//g, '-') + '.json';
+    // Path → mocks file: /api/foo/bar -> mocks/api-foo-bar.json (the
+    // /api/ prefix is preserved in the filename so the mock layout
+    // mirrors the URL exactly; convention documented in README.md).
+    const reqPath = req.url.split('?')[0].replace(/^\//, '');
+    const mockName = reqPath.replace(/\//g, '-') + '.json';
     const mockFile = safeJoin(MOCKS_DIR, mockName);
     if (mockFile && fs.existsSync(mockFile)) {
       const data = await fsp.readFile(mockFile);
@@ -236,7 +237,7 @@ async function handleApi(req, res, args) {
       return;
     }
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ message: `No mock for /api/${apiPath}` }));
+    res.end(JSON.stringify({ message: `No mock for /${reqPath}` }));
     return;
   }
   res.writeHead(503, { 'Content-Type': 'application/json' });

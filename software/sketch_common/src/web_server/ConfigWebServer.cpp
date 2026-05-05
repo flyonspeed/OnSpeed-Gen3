@@ -35,6 +35,8 @@
 
 #include "src/Globals.h"
 
+#include "src/web_server/ApiHandlers.h"
+
 using onspeed::accelPitch;
 using onspeed::accelRoll;
 using onspeed::ft2m;
@@ -344,6 +346,33 @@ void CfgWebServerInit()
 #ifdef SUPPORT_WIFI_CLIENT
     CfgServer.on("/wifi",            HTTP_GET,  HandleWifiSettings);
 #endif
+
+    // ------------------------------------------------------------------
+    // /api/* — JSON endpoints added in PR 2 of the web rewrite.  Sit
+    // alongside the legacy form-encoded routes above; nothing legacy
+    // changes.  See ApiHandlers.cpp for the implementations.
+    // ------------------------------------------------------------------
+    CfgServer.on("/api/sample/aoa",        HTTP_GET,  onspeed::api::HandleApiSampleAoa);
+    CfgServer.on("/api/sample/flaps-raw",  HTTP_GET,  onspeed::api::HandleApiSampleFlapsRaw);
+    CfgServer.on("/api/sample/volume",     HTTP_GET,  onspeed::api::HandleApiSampleVolume);
+    CfgServer.on("/api/sample/pfwd",       HTTP_GET,  onspeed::api::HandleApiSamplePfwd);
+    CfgServer.on("/api/sample/p45",        HTTP_GET,  onspeed::api::HandleApiSampleP45);
+
+    CfgServer.on("/api/audiotest",         HTTP_POST, onspeed::api::HandleApiAudioTestStart);
+    CfgServer.on("/api/audiotest/stop",    HTTP_POST, onspeed::api::HandleApiAudioTestStop);
+    CfgServer.on("/api/audiotest/status",  HTTP_GET,  onspeed::api::HandleApiAudioTestStatus);
+    CfgServer.on("/api/vnochime/test",     HTTP_POST, onspeed::api::HandleApiVnoChimeTest);
+
+    CfgServer.on("/api/logs",              HTTP_GET,  onspeed::api::HandleApiLogs);
+    CfgServer.on("/api/logs/delete-bulk",  HTTP_POST, onspeed::api::HandleApiLogsDeleteBulk);
+
+    CfgServer.on("/api/format",            HTTP_POST, onspeed::api::HandleApiFormat);
+    CfgServer.on("/api/format/status",     HTTP_GET,  onspeed::api::HandleApiFormatStatus);
+    CfgServer.on("/api/reboot",            HTTP_POST, onspeed::api::HandleApiReboot);
+
+    CfgServer.on("/api/calwiz/state",      HTTP_GET,  onspeed::api::HandleApiCalwizState);
+
+    CfgServer.on("/api/version",           HTTP_GET,  onspeed::api::HandleApiVersion);
 
     // Handling uploading firmware file
     CfgServer.on("/upload", HTTP_POST,
