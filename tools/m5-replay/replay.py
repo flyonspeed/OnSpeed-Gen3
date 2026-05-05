@@ -8,7 +8,7 @@
 """Stream OnSpeed #1 display-serial frames to an M5Stack secondary display.
 
 Reads an OnSpeed SD-card CSV log (or generates synthetic data), formats the
-72-byte ASCII payload + 2-byte CRC + CRLF (76 bytes total, v4.22) exactly
+73-byte ASCII payload + 2-byte CRC + CRLF (77 bytes total, v4.23) exactly
 as the Gen3 firmware does, and writes it at 20 Hz to a serial port
 (typically a USB-to-TTL dongle).
 
@@ -57,7 +57,7 @@ from onspeed_py.config import (
 )
 from onspeed_py.frame import FRAME_LEN, PAYLOAD_LEN, Frame
 from onspeed_py.log_replay import _log_to_wire_lateral_g
-from onspeed_py.percent_lift import compute_percent_lift
+from onspeed_py.percent_lift import compute_percent_lift, compute_percent_lift_tenths
 
 # Re-export for backwards compatibility with `tools/m5-replay/test_replay.py`,
 # which imports these names from the `replay` module.
@@ -115,16 +115,14 @@ def csv_frame_stream(
                 ias_kts=_float_or(r.get("IAS"), 0.0),
                 palt_ft=_float_or(r.get("Palt"), 0.0),
                 turnrate_dps=_float_or(r.get("YawRate"), 0.0),
-                # Log's `LateralG` column is body-frame (positive =
-                # airframe accel right); the wire's lateral_g is
-                # ball-frame (positive = ball deflects right, i.e.
-                # airframe accel left).  Negate to keep the M5 ball on
-                # the correct side.  Workaround for current ball-frame
-                # wire convention; remove once #374 lands and the wire
-                # flips to body-frame.
+                # Log, wire, and snapshot all use body-frame at v4.23
+                # (positive = airframe accel right).  The pass-through
+                # helper is kept for grep-ability across surfaces.
                 lateral_g=_log_to_wire_lateral_g(_float_or(r.get("LateralG"), 0.0)),
                 vertical_g=_float_or(r.get("VerticalG"), 1.0),
-                percent_lift=compute_percent_lift(aoa, fs),
+                # Wire field carries tenths of a percent at v4.23
+                # (0..999).  Band-edge percents stay integer.
+                percent_lift=compute_percent_lift_tenths(aoa, fs),
                 vsi_fpm=_float_or(r.get("VSI"), 0.0),
                 oat_c=int(_float_or(r.get("OAT"), 15.0)),
                 flightpath_deg=_float_or(r.get("FlightPath"), 0.0),
@@ -273,7 +271,8 @@ def synthetic_stream(
             continue
 
         fs = setpoints_for_flap(flap, setpoints)
-        pct = compute_percent_lift(aoa_target, fs)
+        # Wire field is tenths of a percent at v4.23 (0..999).
+        pct = compute_percent_lift_tenths(aoa_target, fs)
 
         yield Frame(
             pitch_deg=pitch,

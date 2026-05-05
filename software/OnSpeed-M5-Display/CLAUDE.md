@@ -136,8 +136,8 @@ matters. These are what the Gen2 code was tuned against:
 ## Protocol
 
 The M5 consumes the OnSpeed `#1` serial protocol at 20 Hz (50 ms):
-76-byte ASCII frames on `Serial2` (GPIO 16/17 on Basic, GPIO 13/14 on
-Core2), 115200 8N1 (v4.22 wire; v4.21 was 74 bytes). See
+77-byte ASCII frames on `Serial2` (GPIO 16/17 on Basic, GPIO 13/14 on
+Core2), 115200 8N1 (v4.23 wire; v4.22 was 76 bytes). See
 `kDisplaySerialPeriodMs` in the main firmware's `HardwareMap.h` for
 the canonical rate constant. Wire format details:
 `docs/site/docs/reference/serial-protocol.md`.

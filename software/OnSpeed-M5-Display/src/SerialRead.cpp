@@ -101,7 +101,13 @@ void InjectSerialByte(char inChar)
     Palt                 = f.paltFt;
     LateralG             = f.lateralG;
     VerticalG            = f.verticalG;
-    PercentLift          = f.percentLift;
+    // Wire field is tenths of a percent (0..999) at v4.23. Two consumers:
+    // PercentLift (integer 0..99) drives chevron color logic and slip
+    // color comparisons; PercentLiftDeci (float 0.0..99.9) drives the
+    // index-bar y position so it advances at sub-pixel temporal smoothness
+    // off the 20 Hz wire.
+    PercentLift          = f.percentLift / 10;
+    PercentLiftDeci      = f.percentLift / 10.0f;
     iVSI                 = f.vsiFpm;
     OAT                  = f.oatC;
     FlightPath           = f.flightPathDeg;
@@ -314,10 +320,13 @@ void SerialRead()
 
 void SerialProcess(float frameDtSec)
 {
-    // Wire's LateralG is already smoothed and in ball-frame sign
-    // (positive = leftward); ×850 plots directly to slip pixels.
-    // Convention rationale: proto/DisplaySerial.h::DisplayBuildInputs::lateralG.
-    Slip               = int(LateralG * 34 / 0.04);
+    // Wire's LateralG is already EMA-smoothed by the main firmware (via
+    // AccelLatFilter in onspeed_core/ahrs) and in body-frame sign at v4.23
+    // (positive = airframe accelerating rightward, matching IMU + log +
+    // WebSocket JSON). Negate locally for the ball-frame rendering
+    // convention (positive Slip = ball drawn right of center). Same
+    // pattern the LiveView's slipBall.js uses.  See LATERAL_G_CONVENTION.md.
+    Slip               = int(-LateralG * 34 / 0.04);
     Slip               = constrain(Slip,-99,99);
 
     // Compute IAS derivative (deceleration) in knots/sec.

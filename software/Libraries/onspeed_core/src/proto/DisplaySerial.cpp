@@ -83,8 +83,12 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     // cannot hit undefined float-to-int conversion.
     const int iVertG10 = SafeScaledInt(in.verticalGScaled10, 1.0f, -99, 99);
 
+    // percentLift on the wire carries tenths of a percent (0..999) so the
+    // M5's index bar can advance at sub-pixel temporal smoothness off the
+    // 20 Hz frame cadence. Clamp at 999 — the formula's saturation
+    // convention never emits 1000.
     const unsigned uPctLift    = ClampUInt(static_cast<unsigned>(
-                                     ClampInt(in.percentLift, 0, 99)), 0, 99);
+                                     ClampInt(in.percentLift, 0, 999)), 0, 999);
     const int      iVsi10      = ClampInt(in.vsiFpm10,           -999,   999);
     const int      iOatC       = ClampInt(in.oatC,               -99,    99);
     const int      iFpa10      = SafeScaledInt(in.flightPathDeg, 10.0f,  -999,   999);
@@ -115,7 +119,7 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int iChars = std::snprintf(
         staging,
         sizeof(staging),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%03u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
         iPitch10,
         iRoll10,
         uIas10,
@@ -249,21 +253,23 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     if (!extractInt(21, 5, &iYaw10))        return std::nullopt;
     if (!extractInt(26, 3, &iLatG100))      return std::nullopt;
     if (!extractInt(29, 3, &iVertG10))      return std::nullopt;
-    if (!extractUInt(32, 2, &uPctLift))     return std::nullopt;
-    if (!extractInt(34, 4, &iVsi10))        return std::nullopt;
-    if (!extractInt(38, 3, &iOatC))         return std::nullopt;
-    if (!extractInt(41, 4, &iFpa10))        return std::nullopt;
-    if (!extractInt(45, 3, &iFlapsDeg))     return std::nullopt;
-    if (!extractUInt(48, 2, &uTonesOnPct))  return std::nullopt;
-    if (!extractUInt(50, 2, &uFastPct))     return std::nullopt;
-    if (!extractUInt(52, 2, &uSlowPct))     return std::nullopt;
-    if (!extractUInt(54, 2, &uWarnPct))     return std::nullopt;
-    if (!extractInt(56, 3, &iFlapsMin))     return std::nullopt;
-    if (!extractInt(59, 3, &iFlapsMax))     return std::nullopt;
-    if (!extractInt(62, 4, &iOnset100))     return std::nullopt;
-    if (!extractInt(66, 2, &iSpinCue))      return std::nullopt;
-    if (!extractUInt(68, 2, &uDataMark))    return std::nullopt;
-    if (!extractUInt(70, 2, &uPipPct))      return std::nullopt;
+    // percentLift widened to %03u (tenths of a percent, 0..999) at v4.23;
+    // every subsequent offset shifts +1.
+    if (!extractUInt(32, 3, &uPctLift))     return std::nullopt;
+    if (!extractInt(35, 4, &iVsi10))        return std::nullopt;
+    if (!extractInt(39, 3, &iOatC))         return std::nullopt;
+    if (!extractInt(42, 4, &iFpa10))        return std::nullopt;
+    if (!extractInt(46, 3, &iFlapsDeg))     return std::nullopt;
+    if (!extractUInt(49, 2, &uTonesOnPct))  return std::nullopt;
+    if (!extractUInt(51, 2, &uFastPct))     return std::nullopt;
+    if (!extractUInt(53, 2, &uSlowPct))     return std::nullopt;
+    if (!extractUInt(55, 2, &uWarnPct))     return std::nullopt;
+    if (!extractInt(57, 3, &iFlapsMin))     return std::nullopt;
+    if (!extractInt(60, 3, &iFlapsMax))     return std::nullopt;
+    if (!extractInt(63, 4, &iOnset100))     return std::nullopt;
+    if (!extractInt(67, 2, &iSpinCue))      return std::nullopt;
+    if (!extractUInt(69, 2, &uDataMark))    return std::nullopt;
+    if (!extractUInt(71, 2, &uPipPct))      return std::nullopt;
 
     DisplayFrame f;
     f.pitchDeg           = static_cast<float>(iPitch10)  / 10.0f;

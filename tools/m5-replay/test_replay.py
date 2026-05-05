@@ -113,21 +113,23 @@ def test_offsets_round_trip() -> None:
     assert abs(int(s[21:26]) / 10 - f.turnrate_dps) < 0.1
     assert abs(int(s[26:29]) / 100 - f.lateral_g) < 0.01
     assert abs(int(s[29:32]) / 10 - f.vertical_g) < 0.1
-    assert int(s[32:34]) == f.percent_lift
-    assert int(s[34:38]) * 10 == round(f.vsi_fpm / 10) * 10
-    assert int(s[38:41]) == f.oat_c
-    assert abs(int(s[41:45]) / 10 - f.flightpath_deg) < 0.1
-    assert int(s[45:48]) == f.flap_deg
-    assert int(s[48:50]) == f.tones_on_pct_lift
-    assert int(s[50:52]) == f.onspeed_fast_pct_lift
-    assert int(s[52:54]) == f.onspeed_slow_pct_lift
-    assert int(s[54:56]) == f.stall_warn_pct_lift
-    assert int(s[56:59]) == f.flaps_min_deg
-    assert int(s[59:62]) == f.flaps_max_deg
-    assert abs(int(s[62:66]) / 100 - f.g_onset_rate) < 0.01
-    assert int(s[66:68]) == f.spin_cue
-    assert int(s[68:70]) == f.data_mark
-    assert int(s[70:72]) == f.pip_pct_lift
+    # percent_lift widened to 3 chars (tenths-of-a-percent) at v4.23;
+    # offsets from 32 onward are +1 from v4.22.
+    assert int(s[32:35]) == f.percent_lift
+    assert int(s[35:39]) * 10 == round(f.vsi_fpm / 10) * 10
+    assert int(s[39:42]) == f.oat_c
+    assert abs(int(s[42:46]) / 10 - f.flightpath_deg) < 0.1
+    assert int(s[46:49]) == f.flap_deg
+    assert int(s[49:51]) == f.tones_on_pct_lift
+    assert int(s[51:53]) == f.onspeed_fast_pct_lift
+    assert int(s[53:55]) == f.onspeed_slow_pct_lift
+    assert int(s[55:57]) == f.stall_warn_pct_lift
+    assert int(s[57:60]) == f.flaps_min_deg
+    assert int(s[60:63]) == f.flaps_max_deg
+    assert abs(int(s[63:67]) / 100 - f.g_onset_rate) < 0.01
+    assert int(s[67:69]) == f.spin_cue
+    assert int(s[69:71]) == f.data_mark
+    assert int(s[71:73]) == f.pip_pct_lift
 
 
 def test_negative_values_sign_preserved() -> None:
@@ -138,7 +140,9 @@ def test_negative_values_sign_preserved() -> None:
     wire = Frame(pitch_deg=-5.0, flightpath_deg=-3.5).to_bytes()
     s = wire[:PAYLOAD_LEN].decode("ascii")
     assert s[2]  == "-", f"pitch sign missing: {s[2:6]!r}"
-    assert s[41] == "-", f"flightPath sign missing: {s[41:45]!r}"
+    # flightPath sign at offset 42 (was 41 at v4.22; shifted +1 by the
+    # percent_lift widen at v4.23).
+    assert s[42] == "-", f"flightPath sign missing: {s[42:46]!r}"
 
 
 def test_compute_percent_lift_honest_formula() -> None:
@@ -303,7 +307,7 @@ def test_firmware_parser_rejects_old_94_byte_frame() -> None:
     """A frame at a non-current wire size must NOT decode against the
     current parser.  Catches the regression where a stale builder is
     paired with new firmware.  (Test name still says "94"; the actual
-    test produces FRAME_LEN+20 = 96 bytes against the v4.22 76-byte
+    test produces FRAME_LEN+20 = 97 bytes against the v4.23 77-byte
     parser, which is still a non-current size.)
     """
     if not PARSE_BIN.exists():

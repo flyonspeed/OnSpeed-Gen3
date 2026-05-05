@@ -52,5 +52,37 @@ int ComputePercentLift(float aoaDeg,
     return pct;
 }
 
+int ComputePercentLiftTenths(float aoaDeg,
+                             const ::onspeed::config::OnSpeedConfig::SuFlaps& flapCfg,
+                             bool iasValid)
+{
+    if (!iasValid) {
+        return 0;
+    }
+
+    if (!std::isfinite(aoaDeg)) {
+        return 0;
+    }
+
+    float alphaStall = flapCfg.fAlphaStall;
+    if (alphaStall <= flapCfg.fSTALLWARNAOA) {
+        alphaStall = flapCfg.fSTALLWARNAOA * 100.0f / 90.0f;
+    }
+
+    const float span = alphaStall - flapCfg.fAlpha0;
+    if (span <= 0.0f) {
+        return 0;
+    }
+
+    const float fraction = (aoaDeg - flapCfg.fAlpha0) / span;
+    int tenths = static_cast<int>(fraction * 1000.0f);
+
+    // Clamp to [0, 999] — saturation convention, never reads 1000
+    // (would render as 100.0% on the consumer side).
+    if (tenths < 0)   tenths = 0;
+    if (tenths > 999) tenths = 999;
+    return tenths;
+}
+
 }  // namespace aoa
 }  // namespace onspeed

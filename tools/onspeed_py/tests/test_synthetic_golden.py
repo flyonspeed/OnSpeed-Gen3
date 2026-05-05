@@ -26,7 +26,7 @@ sys.path.insert(0, str(M5_REPLAY_DIR))
 from onspeed_py.config import FlapSetpoints
 
 # Pinned pre-migration hash. See module docstring for regeneration.
-GOLDEN_SHA256 = "a8912491b13bd37d2ab24f913dcbd1d4c93e3668dd49fd59b41b9ad1206e3948"
+GOLDEN_SHA256 = "d29e44dc48d9f0920afa6b6786dd032f5372cb21d67e61d173f5bd87b0faec3a"
 GOLDEN_FRAME_COUNT = 100
 
 

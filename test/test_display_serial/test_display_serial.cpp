@@ -293,15 +293,17 @@ void test_roundtrip_pip_pct_lift(void)
     TEST_ASSERT_EQUAL(53, f.pipPctLift);
 }
 
-void test_pip_pct_lift_at_offset_70(void)
+void test_pip_pct_lift_at_offset_71(void)
 {
     DisplayBuildInputs in = zeroInputs();
     in.pipPctLift = 47;
     buildOk(in);
-    // Pin the wire-format invariant: pipPctLift occupies bytes 70-71
-    // of the frame (just before the 2-byte checksum and CRLF).
-    TEST_ASSERT_EQUAL('4', frameBuf[70]);
-    TEST_ASSERT_EQUAL('7', frameBuf[71]);
+    // Pin the wire-format invariant: pipPctLift occupies bytes 71-72
+    // of the frame at v4.23 (just before the 2-byte checksum and CRLF).
+    // Shifted from offset 70 at v4.22 because percentLift widened
+    // %02u → %03u for tenths-of-a-percent resolution.
+    TEST_ASSERT_EQUAL('4', frameBuf[71]);
+    TEST_ASSERT_EQUAL('7', frameBuf[72]);
 }
 
 void test_pip_pct_lift_clamps_high(void)
@@ -346,11 +348,14 @@ void test_clamp_roll_high(void)
 
 void test_clamp_percent_lift_high(void)
 {
+    // percentLift on the wire is tenths of a percent (0..999) at v4.23.
+    // Clamp saturates at 999 — never emits 1000 (which would render
+    // 100.0% on the consumer side).
     DisplayBuildInputs in = zeroInputs();
-    in.percentLift = 999;
+    in.percentLift = 1234;
     buildOk(in);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_EQUAL(99, f.percentLift);
+    TEST_ASSERT_EQUAL(999, f.percentLift);
 }
 
 // ----------------------------------------------------------------------------
@@ -418,6 +423,27 @@ void test_percent_lift_99(void)
     buildOk(in);
     DisplayFrame f = parseOk();
     TEST_ASSERT_EQUAL(99, f.percentLift);
+}
+
+void test_percent_lift_sub_percent_roundtrip(void)
+{
+    // Wire scale at v4.23 is tenths-of-a-percent. 473 = 47.3% lift.
+    // The integer-percent consumer reads 47 (`/10`); the tenths
+    // consumer reads 47.3 (`/10.0f`).
+    DisplayBuildInputs in = zeroInputs();
+    in.percentLift = 473;
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(473, f.percentLift);
+}
+
+void test_percent_lift_999_max(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.percentLift = 999;
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_EQUAL(999, f.percentLift);
 }
 
 // ----------------------------------------------------------------------------
@@ -501,15 +527,16 @@ void test_build_small_output(void)
 void test_known_frame_content(void)
 {
     // Compute expected payload directly (mirrors Gen3 DisplaySerial::Write).
+    // percentLift widened to %03u at v4.23 (tenths of a percent, 0..999).
     char expected_payload[200];
     int n = snprintf(
         expected_payload, sizeof(expected_payload),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%02u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
+        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%03u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
         0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0,
         0u, 0u, 0u, 0u,                          // tonesOn/Fast/Slow/StallWarn pct
         0, 0,                                    // flapsMin, flapsMax
         0, 0, 0u,
-        0u);                                     // pipPctLift (v4.22)
+        0u);                                     // pipPctLift
     TEST_ASSERT_EQUAL(static_cast<int>(kDisplayFrameChecksumLen), n);
 
     buildOk(zeroInputs());
@@ -727,7 +754,7 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_spin_cue_positive);
     RUN_TEST(test_roundtrip_spin_cue_negative);
     RUN_TEST(test_roundtrip_pip_pct_lift);
-    RUN_TEST(test_pip_pct_lift_at_offset_70);
+    RUN_TEST(test_pip_pct_lift_at_offset_71);
     RUN_TEST(test_pip_pct_lift_clamps_high);
 
     RUN_TEST(test_clamp_pitch_high);
@@ -742,6 +769,8 @@ int main(int, char**)
     RUN_TEST(test_percent_lift_zero);
     RUN_TEST(test_percent_lift_50);
     RUN_TEST(test_percent_lift_99);
+    RUN_TEST(test_percent_lift_sub_percent_roundtrip);
+    RUN_TEST(test_percent_lift_999_max);
 
     RUN_TEST(test_parse_null_buffer);
     RUN_TEST(test_parse_too_short);

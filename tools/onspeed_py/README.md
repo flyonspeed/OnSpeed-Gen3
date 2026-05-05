@@ -3,7 +3,7 @@
 Single-source-of-truth Python implementation of the OnSpeed
 flight-data pipeline:
 
-- **`frame.py`** — `Frame` builder for the `#1` 76-byte (v4.22) display-
+- **`frame.py`** — `Frame` builder for the `#1` 77-byte (v4.23) display-
   serial wire format. Mirrors `onspeed_core/proto/DisplaySerial.{h,cpp}`
   byte for byte. Both `tools/m5-replay/replay.py` and
   `tools/synth-record/` consume this.
@@ -46,11 +46,12 @@ hack for zero install setup.
 
 ## Wire-format alignment
 
-The `Frame` builder emits the 76-byte (v4.22) ASCII frame defined in
-`onspeed_core/proto/DisplaySerial.h` (`kDisplayFrameSizeBytes = 76`,
-`kDisplayFrameChecksumLen = 72`). The `pip_pct_lift` field at offset
-70 was added by PR #336 (separating the visual L/Dmax pip from the
-tones-on threshold). Future wire changes update this module and the
+The `Frame` builder emits the 77-byte (v4.23) ASCII frame defined in
+`onspeed_core/proto/DisplaySerial.h` (`kDisplayFrameSizeBytes = 77`,
+`kDisplayFrameChecksumLen = 73`). v4.23 widens `percent_lift` from
+`%02u` to `%03u` carrying tenths-of-a-percent (0..999), which shifts
+every field after it by +1 — `pip_pct_lift` now lives at offset 71
+(was 70 in v4.22). Future wire changes update this module and the
 firmware's `BuildDisplayFrame` / `ParseDisplayFrame` in lockstep.
 
 ## Tests

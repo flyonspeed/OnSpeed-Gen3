@@ -1,10 +1,10 @@
 // proto/DisplaySerial.h — OnSpeed `#1` display-serial protocol.
 //
-// This is the single source of truth for the wire format of the 76-byte ASCII
+// This is the single source of truth for the wire format of the 77-byte ASCII
 // frame exchanged between the Gen3 main firmware (producer) and the M5Stack
-// secondary display firmware (consumer). (v4.22 size; was 74 bytes in v4.21.)
+// secondary display firmware (consumer). (v4.23 size; was 76 bytes in v4.22.)
 //
-// Frame format (76 bytes total, v4.22):
+// Frame format (77 bytes total, v4.23):
 //
 //   Offset  Width  Field               Format   Scale   Notes
 //   ------  -----  ------------------  -------  ------  ----------------------
@@ -14,32 +14,37 @@
 //   11       4     iasKt               %04u     ×10     unsigned, 0–9999
 //   15       6     paltFt              %+06d    ×1      signed, –99999 to +99999
 //   21       5     turnRateDps         %+05d    ×10     signed, –9999 to +9999
-//   26       3     lateralG            %+03d    ×100    signed, –99 to +99
+//   26       3     lateralG            %+03d    ×100    signed, –99 to +99 (body-frame, +rightward)
 //   29       3     verticalG           %+03d    ×10     signed, –99 to +99
-//   32       2     percentLift         %02u     ×1      unsigned, 0–99
-//   34       4     vsiFpm10            %+04d    ×1      vsi_fpm/10, –999 to +999
-//   38       3     oatC                %+03d    ×1      signed, –99 to +99
-//   41       4     flightPathDeg       %+04d    ×10     signed, –999 to +999
-//   45       3     flapsDeg            %+03d    ×1      signed, –99 to +99
-//   48       2     tonesOnPctLift      %02u     ×1      unsigned, 0–99 (active-detent L/Dmax — operational audio gate, snapped per detent)
-//   50       2     onSpeedFastPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedFast body angle through the percent-lift formula)
-//   52       2     onSpeedSlowPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedSlow body angle through the percent-lift formula)
-//   54       2     stallWarnPctLift    %02u     ×1      unsigned, 0–99 (StallWarn body angle through the percent-lift formula)
-//   56       3     flapsMinDeg         %+03d    ×1      signed, –99 to +99 (min configured flap deg)
-//   59       3     flapsMaxDeg         %+03d    ×1      signed, –99 to +99 (max configured flap deg)
-//   62       4     gOnsetRate          %+04d    ×100    signed, –999 to +999
-//   66       2     spinRecoveryCue     %+02d    ×1      signed, –9 to +9
-//   68       2     dataMark            %02u     ×1      unsigned, 0–99
-//   70       2     pipPctLift          %02u     ×1      unsigned, 0–99 (visual L/Dmax pip — aerodynamic reference, lerp clean→fullflap)
-//   72       2     checksum            ASCII hex        sum of bytes 0–71 & 0xFF
-//   74       2     terminator          CR LF    —       0x0D 0x0A
+//   32       3     percentLift         %03u     ×10     unsigned, 0–999 (tenths of a percent — `473` = 47.3%)
+//   35       4     vsiFpm10            %+04d    ×1      vsi_fpm/10, –999 to +999
+//   39       3     oatC                %+03d    ×1      signed, –99 to +99
+//   42       4     flightPathDeg       %+04d    ×10     signed, –999 to +999
+//   46       3     flapsDeg            %+03d    ×1      signed, –99 to +99
+//   49       2     tonesOnPctLift      %02u     ×1      unsigned, 0–99 (active-detent L/Dmax — operational audio gate, snapped per detent)
+//   51       2     onSpeedFastPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedFast body angle through the percent-lift formula)
+//   53       2     onSpeedSlowPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedSlow body angle through the percent-lift formula)
+//   55       2     stallWarnPctLift    %02u     ×1      unsigned, 0–99 (StallWarn body angle through the percent-lift formula)
+//   57       3     flapsMinDeg         %+03d    ×1      signed, –99 to +99 (min configured flap deg)
+//   60       3     flapsMaxDeg         %+03d    ×1      signed, –99 to +99 (max configured flap deg)
+//   63       4     gOnsetRate          %+04d    ×100    signed, –999 to +999
+//   67       2     spinRecoveryCue     %+02d    ×1      signed, –9 to +9
+//   69       2     dataMark            %02u     ×1      unsigned, 0–99
+//   71       2     pipPctLift          %02u     ×1      unsigned, 0–99 (visual L/Dmax pip — aerodynamic reference, lerp clean→fullflap)
+//   73       2     checksum            ASCII hex        sum of bytes 0–72 & 0xFF
+//   75       2     terminator          CR LF    —       0x0D 0x0A
 //
 // Design intent — the percent-lift contract:
 //   Percent-lift is the honest single-linear envelope fraction:
 //     percentLift = (AOA − α₀) / (α_stall − α₀) × 100, clamped to [0, 99]
-//   The four band-edge percents (`tonesOnPctLift`, `onSpeedFastPctLift`,
-//   `onSpeedSlowPctLift`, `stallWarnPctLift`) are the per-flap setpoints
-//   put through the same formula.  Each one varies per flap because the
+//   The current AOA is sent on the wire scaled ×10 (tenths of a percent,
+//   range 0..999) so the consumer's index bar can render at sub-pixel
+//   temporal smoothness off the 20 Hz frame cadence.  The four band-edge
+//   percents (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`,
+//   `stallWarnPctLift`) are the per-flap setpoints put through the same
+//   formula at integer-percent resolution (0..99) — they only move at
+//   detent-snap or config-save events, so sub-percent resolution buys
+//   nothing on those.  Each band-edge varies per flap because the
 //   underlying body angles vary per flap.  Consumers should use these
 //   percents as the band anchors when rendering an indexer or pip — the
 //   wire never carries body angles for AOA.
@@ -82,11 +87,12 @@
 namespace onspeed::proto {
 
 /// Total length of a complete #1 frame in bytes (including CRLF terminator).
-/// v4.21 was 74 bytes; v4.22 is 76 (adds pipPctLift at offset 70).
-inline constexpr size_t kDisplayFrameSizeBytes = 76;
+/// v4.21 was 74 bytes; v4.22 was 76 (added pipPctLift at offset 70);
+/// v4.23 is 77 (widens percentLift to 3 chars carrying tenths of a percent).
+inline constexpr size_t kDisplayFrameSizeBytes = 77;
 
-/// Length of the ASCII payload that the checksum covers (bytes 0–71 inclusive).
-inline constexpr size_t kDisplayFrameChecksumLen = 72;
+/// Length of the ASCII payload that the checksum covers (bytes 0–72 inclusive).
+inline constexpr size_t kDisplayFrameChecksumLen = 73;
 
 /// Nominal period between frames (milliseconds). Matches
 /// kDisplaySerialPeriodMs in the Gen3 firmware's HardwareMap.h.
@@ -98,23 +104,25 @@ inline constexpr int kDisplayFramePeriodMs = 50;
 // All values are in engineering units. BuildFrame applies the wire-format
 // scale factors, sign conventions, and clamp ranges.
 //
-// Convention: lateralG is in BALL-FRAME (positive = leftward), not
-//   body-frame.  This is the canonical reference for the dual-frame
-//   sign decision; every other code site (M5 SerialRead, JS slipBall,
-//   web-socket-protocol.md) refers back here.
+// Convention: lateralG is in BODY-FRAME at v4.23 (positive = airframe
+//   accelerating rightward).  Matches the IMU's body-Y axis, the SD
+//   log's `imuLateralG` column, and the WebSocket JSON's `lateralGLoad`
+//   field — every transport now uses the same sign convention.  This
+//   is the canonical reference for the convention; every other code
+//   site (M5 SerialRead, JS slipBall, web-socket-protocol.md) refers
+//   back here.
 //
 //   Physics: when the body yaws right, the free-floating ball in the
 //   slip-skid tube has its own inertia and is "left behind" by the
-//   moving tube — so the ball deflects LEFT.  The wire encodes that
-//   ball-frame view directly, and `Slip = LateralG × 850` in the M5
-//   consumer plots ball position with no further sign work.
+//   moving tube — so the ball deflects LEFT.  Slip-skid ball renderers
+//   (the M5's SerialRead::SerialProcess and the LiveView's slipBall.js)
+//   negate locally at the rendering site to recover ball-frame
+//   (positive = ball drawn right of center).
 //
-//   Mechanically this is just `−AccelLatFilter` from the producer's
-//   IMU body-Y axis; the Gen3 builder applies the negation here at
-//   the wire-format boundary.  The WebSocket JSON's `lateralGLoad`
-//   field ships the same source un-negated (body-frame, positive =
-//   right) for numeric "Lat G" readouts — JS slip-ball renderers
-//   reading JSON must flip the sign locally to recover ball-frame.
+//   The Gen3 builder transmits `g_AHRS.AccelLatFilter.get()` directly
+//   — no negation at the wire-format boundary.  See
+//   LATERAL_G_CONVENTION.md for the full chain of how this value flows
+//   through every surface.
 // ============================================================================
 
 struct DisplayBuildInputs {
@@ -123,9 +131,9 @@ struct DisplayBuildInputs {
     float iasKt              = 0.0f;  // indicated airspeed (kt); 0 when below mute threshold
     float paltFt             = 0.0f;  // pressure altitude (ft)
     float turnRateDps        = 0.0f;  // yaw rate (deg/s)
-    float lateralG           = 0.0f;  // lateral acceleration, negated (g); positive = leftward
+    float lateralG           = 0.0f;  // lateral acceleration (g); body-frame, positive = airframe accel rightward
     float verticalGScaled10  = 0.0f;  // vertical G × 10, already rounded to nearest tenth (raw int, stored as float)
-    int   percentLift        = 0;     // current AOA expressed as honest envelope fraction, 0–99
+    int   percentLift        = 0;     // current AOA, tenths of a percent (0–999); BuildFrame emits as %03u
     int   vsiFpm10           = 0;     // vsi / 10 (fpm), floored — range –999..+999
     int   oatC               = 0;     // OAT (°C); only valid when OAT sensor enabled
     float flightPathDeg      = 0.0f;  // flight-path angle (deg)
@@ -155,9 +163,9 @@ struct DisplayFrame {
     float iasKt              = 0.0f;
     float paltFt             = 0.0f;
     float turnRateDps        = 0.0f;
-    float lateralG           = 0.0f;  // negated (see BuildInputs convention)
+    float lateralG           = 0.0f;  // body-frame (see BuildInputs convention)
     float verticalG          = 0.0f;  // in g (wire value / 10)
-    int   percentLift        = 0;
+    int   percentLift        = 0;     // tenths of a percent (0–999); ParseFrame returns the wire value as-is
     float vsiFpm             = 0.0f;  // in fpm (wire value × 10)
     int   oatC               = 0;
     float flightPathDeg      = 0.0f;
