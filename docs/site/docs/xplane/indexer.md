@@ -22,9 +22,12 @@ of latency on first show; subsequent shows are immediate.
 
 Two ways to change which of the five modes is on screen:
 
-- **Click anywhere inside the indexer body.** Each click steps the
-  mode forward; mode 4 wraps back to mode 0. The titlebar is reserved
-  for drag, so clicks there don't cycle.
+- **Click the MODE button** at the bottom-center of the indexer
+  window.  Each click steps the mode forward; mode 4 wraps back to
+  mode 0.  The label updates to "MODE 0", "MODE 1", etc.  Clicks on
+  the indexer body itself, the titlebar, or anywhere outside the
+  button are pass-through — they don't cycle the mode and don't
+  steal focus from whatever you were doing.
 - **Plugins → Fly On Speed → Indexer Mode N** jumps directly to mode
   *N*. The window auto-shows if it isn't already visible.
 
@@ -32,6 +35,51 @@ The mode index is the same `displayType` the M5 firmware uses; the
 plugin's `SetMode()` writes the M5's global state directly so a
 plugin-side mode change behaves identically to a Button-B press on a
 physical M5.
+
+## Window appearance and behavior
+
+### Letterboxing
+
+The indexer texture is 320×240 pixels (the M5Stack's native LCD
+resolution).  When you drag the X-Plane window to a different shape,
+the texture stays at 4:3 aspect — it's centered with letterbox bars
+filling whatever extra space you've given it.  Drag the window
+proportionally bigger and the texture scales together; drag wide
+or tall and the un-needed area shows the chrome bg.
+
+This avoids the "stretched smooshed indexer" you'd otherwise get
+from non-4:3 windows.
+
+### Sticky position across launches
+
+The indexer window remembers, per-aircraft, whether you had it
+visible, what mode it was on, where it was on the screen, what
+size, and whether it was in pop-out mode (own OS window, draggable
+to other monitors).  All of that comes back the next time you load
+the same aircraft.
+
+The restore happens during X-Plane's "Preparing world" phase —
+same timing as stock G1000 / X1000 windows snapping into their
+saved spots.  Position-on-disk lives in
+`Output/preferences/AOA-Tone-FlyOnSpeed-<aircraft>.prf` alongside
+the audio settings.  See [Per-Aircraft Settings](settings.md) for
+the file's full schema.
+
+### Pop-out mode (multi-monitor)
+
+The pop-out button on the X-Plane window's chrome (top-right)
+detaches the indexer into its own OS window — at which point you
+can drag it to a different monitor, snap it to a corner, etc.,
+exactly like any other OS window.
+
+The pop-out position persists separately from the floating
+position, so:
+
+- Drag the floating indexer to spot A, pop out, drag to monitor 2,
+  un-pop → indexer returns to spot A.
+- Pop back out → returns to monitor 2 spot.
+- Quit X-Plane and relaunch in either mode → restores wherever
+  you last had it.
 
 ## The five modes
 

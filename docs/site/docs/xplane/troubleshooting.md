@@ -76,6 +76,34 @@ full rundown. Quick checks:
 - Confirm the M5 is running `OnSpeed-M5-Display` firmware, not
   stock M5 demo software.
 
+## Indexer in the wrong place after monitor change
+
+The plugin saves the indexer's last position per-aircraft and restores
+it during X-Plane's "Preparing world" boot phase.  If a monitor that
+was attached when you saved isn't there at the next launch — or if
+the .prf was hand-edited with bad coordinates — the window can end
+up off-screen.
+
+Two recoveries:
+
+- **Soft fix (in-sim).**  Open the audio control window
+  (**Plugins → Fly On Speed → Show**) and click **Indexer: Show/Hide**
+  twice.  The first click hides; the second triggers a fresh Show
+  which goes through the geometry-clamp pass and forces the window
+  back on-screen if the saved coords are crazy.  The plugin checks
+  the live X-Plane desktop bounds and clamps so at least 80 boxels
+  of the window stay visible.
+- **Hard fix (edit the .prf).**  Quit X-Plane.  Open the per-aircraft
+  `.prf` (path documented in [Per-Aircraft Settings](settings.md)).
+  Set `indexerFloatLeft` / `indexerFloatTop` to something sensible
+  for your screen (e.g. 100 / 600), set `indexerPoppedOut = 0` to
+  force back into the X-Plane main window.  Relaunch.
+
+The plugin also rejects obviously-bad coords on save — anything
+beyond ±50000 px/boxels is treated as a transient SDK glitch and
+not written — so this should be an edge case.  If you see it
+happen reliably, please file an issue with the .prf attached.
+
 ## Settings not persisting
 
 The plugin writes the per-aircraft `.prf` on every successful Save
