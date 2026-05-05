@@ -161,6 +161,11 @@ function pageStubHtml(page, args, host) {
   // `ONSPEED_LOGO_DATA_URL` global; the dev server serves the PNG
   // directly from public/ and points at it via this meta tag.
   const logoMeta = '<meta name="onspeed-logo" content="/onspeed-logo.png">';
+  // Mirror the firmware's `<meta name="onspeed-version">` substitution
+  // so PageShell renders the version banner from first paint.  The
+  // firmware injects BuildInfo::version via String::replace; the dev
+  // server uses a literal "dev" tag.
+  const versionMeta = '<meta name="onspeed-version" content="dev">';
   // The dev server serves the JS modules straight out of lib/.  No
   // bundling — the browser pulls each file via ES module imports.
   // Edits are visible on reload without a build step.
@@ -174,6 +179,7 @@ function pageStubHtml(page, args, host) {
     modeMeta,
     wsMeta,
     logoMeta,
+    versionMeta,
     '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
     '<link rel="stylesheet" href="/lib/shell/legacy-forms.css">',
     '</head>',

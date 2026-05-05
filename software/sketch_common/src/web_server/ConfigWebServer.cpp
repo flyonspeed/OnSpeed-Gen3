@@ -464,7 +464,15 @@ static void ServePageStub(const char* stub)
     {
     if (SendWithETag("text/html"))
         return;
-    CfgServer.send_P(200, "text/html", stub);
+    // Substitute the `{{onspeedVersion}}` placeholder with the running
+    // firmware's build version.  The stub embeds it in a
+    // `<meta name="onspeed-version">` tag so PageShell can render the
+    // header banner from first paint with no /api/version round-trip.
+    // ETag is keyed on BuildInfo::version, so a firmware update
+    // invalidates the cached substituted page.
+    String sStub((const __FlashStringHelper*)stub);
+    sStub.replace("{{onspeedVersion}}", BuildInfo::version);
+    CfgServer.send(200, "text/html", sStub);
     }
 
 // /live is gone — the new /indexer covers everything that page used

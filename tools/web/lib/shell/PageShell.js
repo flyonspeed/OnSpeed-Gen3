@@ -30,7 +30,6 @@
 
 import { html, useState, useEffect } from '../vendor/preact-standalone.js';
 import { NAV, navIdForPath } from './nav.js';
-import { getJson } from './apiClient.js';
 
 function resolveLogoSrc() {
   // Prefer the meta tag (dev server sets a real URL; bundler stub does
@@ -46,13 +45,16 @@ function resolveLogoSrc() {
   return null;
 }
 
-function initialVersion(prop) {
+function resolveVersion(prop) {
   if (prop) return prop;
+  // Server-rendered meta tag is the canonical source.  The firmware
+  // substitutes BuildInfo::version into every page stub at request
+  // time; the dev-server substitutes a literal "dev".  Reading from
+  // the DOM at first paint avoids any post-mount fetch flash.
   if (typeof document !== 'undefined') {
     const m = document.querySelector('meta[name="onspeed-version"]');
     if (m && m.content) return m.content;
   }
-  // Placeholder shown until the /api/version fetch resolves on mount.
   return '…';
 }
 
@@ -160,18 +162,10 @@ const Header = ({ version }) => {
 export function PageShell({ active, version, children }) {
   const path = (typeof location !== 'undefined') ? location.pathname : '/';
   const activeId = active ?? navIdForPath(path);
-  // Seed from prop / meta tag, then overwrite with the live
-  // /api/version response on mount.  If the fetch fails (offline,
-  // dev-server without a mock), the seeded value stands.
-  const [resolvedVersion, setResolvedVersion] = useState(() => initialVersion(version));
-  useEffect(() => {
-    if (version) return undefined;
-    let cancelled = false;
-    getJson('/api/version')
-      .then(data => { if (!cancelled && data && data.version) setResolvedVersion(data.version); })
-      .catch(() => { /* keep the seeded placeholder */ });
-    return () => { cancelled = true; };
-  }, [version]);
+  // Version comes from the server-rendered <meta name="onspeed-version">
+  // tag (or an explicit prop).  Synchronous DOM read; no post-mount
+  // fetch, no banner flash on first paint.
+  const resolvedVersion = resolveVersion(version);
   return html`
     <${Header} version=${resolvedVersion} />
     <${Nav} activeId=${activeId} />

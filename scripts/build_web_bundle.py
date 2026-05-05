@@ -538,12 +538,17 @@ _STATIC_FALLBACK_NAV = (
 
 
 def _build_stub_html(page_id, title, etag_js, etag_css):
+    # `{{onspeedVersion}}` is substituted at request time — by the
+    # firmware's ServePageStub (using BuildInfo::version) and by the
+    # dev-server (literal "dev").  PageShell reads the meta tag at
+    # first paint so the version banner has no post-mount flash.
     return (
         '<!DOCTYPE html>\n'
         '<html lang="en">\n'
         '<head>\n'
         '<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        '<meta name="onspeed-version" content="{{onspeedVersion}}">\n'
         f'<title>OnSpeed — {title}</title>\n'
         f'<link rel="stylesheet" href="/static/app-{etag_css}.css">\n'
         '</head>\n'
