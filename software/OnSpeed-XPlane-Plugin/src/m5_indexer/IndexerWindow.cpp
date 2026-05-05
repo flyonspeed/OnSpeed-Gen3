@@ -134,6 +134,13 @@ constexpr int kMinHeight = 120;
 constexpr int kSaneAbs    = 50000;
 constexpr int kMinVisible = 80;     // px/boxels of window kept on-screen
 
+// 4:3 aspect ratio of the M5 panel (320:240).  DrawWindow letterboxes
+// the textured quad inside whatever window shape the user picks, so
+// the indexer texture stays unstretched at any window size — non-4:3
+// resizes get black bars on the long axis.
+constexpr float kAspect = static_cast<float>(kWindowWidth) /
+                          static_cast<float>(kWindowHeight);
+
 // Persisted indexer state.  Default values are the same as the
 // pre-sticky-persistence behavior so a fresh install (no .prf yet)
 // puts the window where the old code did.
@@ -208,7 +215,28 @@ void DrawWindow(XPLMWindowID, void*)
 
     int left, top, right, bottom;
     XPLMGetWindowGeometry(s_window, &left, &top, &right, &bottom);
-    RenderTexturedQuadVA(left, top, right, bottom, s_textureId);
+
+    // Letterbox the M5 framebuffer at the panel's native 4:3 inside
+    // the X-Plane window.  User can drag the window to any shape;
+    // the textured quad fits centered at 4:3 with the chrome bg
+    // showing through as letterbox bars.  Same approach OBS preview /
+    // VLC / RetroArch use for video, and what avoids the "stretched
+    // smooshed indexer" shapes the user reported on 2026-05-05.
+    const int winW   = right - left;
+    const int winH   = top   - bottom;
+    int       quadW  = winW;
+    int       quadH  = static_cast<int>(static_cast<float>(quadW) / kAspect);
+    if (quadH > winH) {
+        quadH = winH;
+        quadW = static_cast<int>(static_cast<float>(quadH) * kAspect);
+    }
+    const int offX  = (winW - quadW) / 2;
+    const int offY  = (winH - quadH) / 2;
+    const int quadL = left + offX;
+    const int quadR = quadL + quadW;
+    const int quadT = top  - offY;
+    const int quadB = quadT - quadH;
+    RenderTexturedQuadVA(quadL, quadT, quadR, quadB, s_textureId);
 
     static bool s_loggedOnce = false;
     if (!s_loggedOnce) {
