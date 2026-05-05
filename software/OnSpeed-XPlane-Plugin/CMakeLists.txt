@@ -8,6 +8,13 @@ project(AOA-Tone-FlyOnSpeed C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Indexer feature flag is read by the per-OS arch logic below
+# (single-arch macOS builds when ON, universal otherwise), so the
+# option() declaration must precede it.  Full description and the
+# rationale for ON-by-default lives at the dedicated block further
+# down — this is just the early declaration.
+option(ENABLE_M5_INDEXER "Build the embedded M5 indexer renderer" ON)
+
 # SDK version + platform defines.  XPLM200..XPLM400 unlock the
 # corresponding-version SDK API surface (each adds new entry points
 # behind #if defined(XPLMxxx)).  We target XPLM400 so we get the full
@@ -98,8 +105,9 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/version
 #
 # Enabled by default — release artifacts ship with the indexer.
 # Disable with -DENABLE_M5_INDEXER=OFF for an audio-only build.
+# The option() itself is declared near the top of this file so the
+# arch logic can read it; this section keeps the dependency wiring.
 # --------------------------------------------------------------------
-option(ENABLE_M5_INDEXER "Build the embedded M5 indexer renderer" ON)
 
 set(PLUGIN_SOURCES
     src/aoa_audio.cpp
