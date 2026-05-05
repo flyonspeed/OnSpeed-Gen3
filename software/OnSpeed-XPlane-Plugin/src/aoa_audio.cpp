@@ -187,6 +187,19 @@ static XPWidgetID widgetButtonRestoreDefaults = nullptr;
 static bool audioEnabled = false;
 static XPLMMenuID menuId;
 
+// Indexer window state, persisted per-aircraft alongside the audio
+// settings.  Sticky across sim restarts so the pilot doesn't have to
+// rediscover the indexer + reposition it on every flight.  Geometry
+// is X-Plane window coords (boxels): left/top are the top-left
+// corner, width/height are the box extents.  Defaults match the
+// initial CreateXPlaneWindow box (320×240 at 100,600).
+static bool indexerVisibleSetting = false;
+static int  indexerModeSetting    = 0;
+static int  indexerLeftSetting    = 100;
+static int  indexerTopSetting     = 600;
+static int  indexerWidthSetting   = 320;
+static int  indexerHeightSetting  = 240;
+
 // AOA smoothing pipeline.  Window sizes are runtime-configurable via
 // iAoaMedianWindow / iAoaMeanWindow; rebuildAoaSmoothers() swaps in
 // fresh filter instances when the user updates them.
@@ -277,8 +290,37 @@ static void SaveSettings() {
     std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
     std::fprintf(fp, "audioEnabled = %d\n",       audioEnabled ? 1 : 0);
     std::fprintf(fp, "serialPortPath = %s\n",     sSerialPortPath.c_str());
+    std::fprintf(fp, "indexerVisible = %d\n",     indexerVisibleSetting ? 1 : 0);
+    std::fprintf(fp, "indexerMode = %d\n",        indexerModeSetting);
+    std::fprintf(fp, "indexerLeft = %d\n",        indexerLeftSetting);
+    std::fprintf(fp, "indexerTop = %d\n",         indexerTopSetting);
+    std::fprintf(fp, "indexerWidth = %d\n",       indexerWidthSetting);
+    std::fprintf(fp, "indexerHeight = %d\n",      indexerHeightSetting);
     std::fclose(fp);
 }
+
+#ifdef ENABLE_M5_INDEXER
+// Capture the indexer's current visibility, mode, and geometry into
+// the in-memory settings, then write them to the .prf.  Called from
+// IndexerWindow.cpp on user-driven changes (menu toggle, mode click,
+// drag, resize) so the next sim launch puts the indexer back where
+// the pilot left it.
+//
+// Defined at namespace scope (no `static`) so the extern declaration
+// in IndexerWindow.cpp resolves to it at link time.
+void SaveIndexerWindowState()
+{
+    indexerVisibleSetting = onspeed_xplane::indexer::IsVisible();
+    indexerModeSetting    = onspeed_xplane::indexer::GetMode();
+    int l, t, w, h;
+    onspeed_xplane::indexer::GetCurrentGeometry(&l, &t, &w, &h);
+    indexerLeftSetting   = l;
+    indexerTopSetting    = t;
+    indexerWidthSetting  = w;
+    indexerHeightSetting = h;
+    SaveSettings();
+}
+#endif
 
 // Best-effort key=value parser.  Unknown keys, malformed lines, and
 // missing files are all silently ignored — defaults stand in.
@@ -304,6 +346,12 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
         else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "indexerVisible"))     indexerVisibleSetting = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "indexerMode"))        indexerModeSetting    = std::atoi(val);
+        else if (!std::strcmp(key, "indexerLeft"))        indexerLeftSetting    = std::atoi(val);
+        else if (!std::strcmp(key, "indexerTop"))         indexerTopSetting     = std::atoi(val);
+        else if (!std::strcmp(key, "indexerWidth"))       indexerWidthSetting   = std::atoi(val);
+        else if (!std::strcmp(key, "indexerHeight"))      indexerHeightSetting  = std::atoi(val);
         else if (!std::strcmp(key, "serialPortPath")) {
             // Defensive trim: sscanf %127[^\n\r] captures any trailing
             // spaces on the line, and the auto-retry loop would silently
@@ -575,6 +623,23 @@ static void OnAircraftLoaded() {
         onspeed_xplane::indexer::OpenSerialOut(sSerialPortPath);
     } else {
         onspeed_xplane::indexer::CloseSerialOut();
+    }
+
+    // Apply persisted indexer state for the new aircraft: stash
+    // mode + geometry first (the indexer applies geometry to the
+    // X-Plane window if it already exists, otherwise holds it for
+    // CreateXPlaneWindow to consume on first Show), then drive
+    // visibility.  Show() may lazy-init the window — by that point
+    // the persisted geometry is in place and gets used as the
+    // initial box.
+    onspeed_xplane::indexer::SetMode(indexerModeSetting);
+    onspeed_xplane::indexer::ApplyPersistedGeometry(
+        indexerLeftSetting, indexerTopSetting,
+        indexerWidthSetting, indexerHeightSetting);
+    if (indexerVisibleSetting) {
+        onspeed_xplane::indexer::Show();
+    } else {
+        onspeed_xplane::indexer::Hide();
     }
 #endif
 }
@@ -1134,6 +1199,8 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
             onspeed_xplane::indexer::Hide();
         else
             onspeed_xplane::indexer::Show();
+        indexerVisibleSetting = onspeed_xplane::indexer::IsVisible();
+        SaveSettings();
         return;
     }
     if (!strcmp(tag, "SerialOff")) {
@@ -1166,6 +1233,9 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
         if (!onspeed_xplane::indexer::IsVisible())
             onspeed_xplane::indexer::Show();
         onspeed_xplane::indexer::SetMode(mode);
+        indexerVisibleSetting = true;
+        indexerModeSetting    = mode;
+        SaveSettings();
         return;
     }
 #endif

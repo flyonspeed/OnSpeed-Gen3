@@ -42,6 +42,18 @@ void Hide();
 void SetMode(int mode);
 int  GetMode();
 
+// Apply persisted window geometry (X-Plane window coords: top-left
+// corner + width/height).  If the window already exists, the geometry
+// is applied immediately; otherwise it's stashed and used as the
+// initial box when the window gets lazy-created on first Show().
+// Width/height < kMinWidth/kMinHeight are clamped up.
+void ApplyPersistedGeometry(int left, int top, int width, int height);
+
+// Read current window geometry into out params.  If the window doesn't
+// exist yet, returns the persisted (or default) geometry.  Used by
+// aoa_audio.cpp to capture user drag/resize for SaveSettings.
+void GetCurrentGeometry(int* left, int* top, int* width, int* height);
+
 // Tear down the X-Plane window and GL texture.  Called from XPluginStop.
 void Shutdown();
 

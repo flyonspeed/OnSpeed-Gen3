@@ -77,6 +77,13 @@ extern int   gHistoryIndex;
 // already uses this entry point in -DSIM_LIVE WASM builds.
 extern void InjectSerialByte(char inChar);
 
+// Implemented in aoa_audio.cpp.  Captures the indexer's current
+// visibility, mode, and geometry into the per-aircraft .prf.  Called
+// after any user-driven change (menu Show/Hide, mode click on body,
+// drag, resize) so the next sim launch puts the indexer back where
+// the pilot left it.
+extern void SaveIndexerWindowState();
+
 namespace onspeed_xplane::indexer {
 
 namespace {
@@ -111,6 +118,30 @@ std::uint64_t                 s_serialErrCount = 0;
 // 1:1 by default; could pixel-double in a follow-up.
 constexpr int kWindowWidth  = 320;
 constexpr int kWindowHeight = 240;
+
+// 4:3 aspect ratio of the M5 panel (320:240).  The window draw code
+// snaps user resizes to this ratio (drag-corner anchored) so the
+// rendered indexer stays unstretched at any window size.
+constexpr float kAspect = static_cast<float>(kWindowWidth) /
+                          static_cast<float>(kWindowHeight);
+
+// Floor on resize — keeps the indexer readable and bounds the
+// aspect-snap math against degenerate sizes.
+constexpr int kMinWidth  = 160;
+constexpr int kMinHeight = 120;
+
+// Persisted window geometry.  Updated by ApplyPersistedGeometry on
+// settings load; CreateXPlaneWindow consumes it as the initial box.
+// DrawWindow watches X-Plane's reported geometry and writes back here
+// when the user drags or resizes, then aoa_audio.cpp's flight loop
+// scoops the change into the .prf via SaveIndexerWindowState.
+struct GeomState {
+    int left   = 100;
+    int top    = 600;
+    int width  = kWindowWidth;
+    int height = kWindowHeight;
+};
+GeomState s_persistedGeom;
 
 // ------------------------------------------------------------------
 // X-Plane window callbacks
@@ -174,6 +205,118 @@ void DrawWindow(XPLMWindowID, void*)
 
     int left, top, right, bottom;
     XPLMGetWindowGeometry(s_window, &left, &top, &right, &bottom);
+
+    // Aspect-ratio lock + drag-corner detection.
+    //
+    // X-Plane doesn't expose which corner the user grabbed during a
+    // resize — it just hands us new geometry per frame.  Compare to
+    // the previous frame to figure out which edges moved, then anchor
+    // the opposite edge while snapping width:height back to 4:3.
+    // Standard pattern: macOS / Photoshop / OBS preview do the same
+    // thing; the dragged corner stays under the cursor and the
+    // opposite corner pins.
+    //
+    // Tolerance handles float-roundtrip noise from XPLMSetWindowGeometry
+    // (the SDK occasionally returns ±1 boxel from what we wrote).
+    {
+        static int s_prevL = -1, s_prevT = -1, s_prevR = -1, s_prevB = -1;
+        constexpr int kEpsilon = 2;
+
+        const int width  = right - left;
+        const int height = top   - bottom;
+        const float aspect = (height > 0)
+                             ? (static_cast<float>(width) / height) : kAspect;
+
+        const bool leftMoved   = std::abs(left   - s_prevL) > kEpsilon;
+        const bool rightMoved  = std::abs(right  - s_prevR) > kEpsilon;
+        const bool topMoved    = std::abs(top    - s_prevT) > kEpsilon;
+        const bool bottomMoved = std::abs(bottom - s_prevB) > kEpsilon;
+
+        const bool firstSeen   = (s_prevL == -1);
+        const bool aspectOff   = std::abs(aspect - kAspect) > 0.01f;
+
+        if (!firstSeen && aspectOff &&
+            (leftMoved || rightMoved || topMoved || bottomMoved))
+        {
+            // Pin the corner whose two edges did NOT move, anchor the
+            // dragged corner under the cursor, and recompute the
+            // un-pinned extents to satisfy 4:3.
+            //
+            // Choose which extent (width or height) drives the snap
+            // based on which edge(s) moved more — keeps the dragged
+            // axis as the "ground truth" so the cursor stays under
+            // the corner the user is pulling.
+            const int dW = std::abs((right  - left)  -
+                                    (s_prevR - s_prevL));
+            const int dH = std::abs((top    - bottom) -
+                                    (s_prevT - s_prevB));
+            const bool widthDrives = dW >= dH;
+
+            int newW = std::max(width,  kMinWidth);
+            int newH = std::max(height, kMinHeight);
+            if (widthDrives) {
+                newH = static_cast<int>(std::round(
+                    static_cast<float>(newW) / kAspect));
+                if (newH < kMinHeight) {
+                    newH = kMinHeight;
+                    newW = static_cast<int>(std::round(
+                        static_cast<float>(newH) * kAspect));
+                }
+            } else {
+                newW = static_cast<int>(std::round(
+                    static_cast<float>(newH) * kAspect));
+                if (newW < kMinWidth) {
+                    newW = kMinWidth;
+                    newH = static_cast<int>(std::round(
+                        static_cast<float>(newW) / kAspect));
+                }
+            }
+
+            // Pin the opposite corner: keep whichever of left/right
+            // and top/bottom did NOT move from the previous frame.
+            int newLeft, newTop;
+            if (leftMoved && !rightMoved) {
+                newLeft = right - newW;     // right pinned
+            } else {
+                newLeft = left;             // left pinned (default)
+            }
+            if (bottomMoved && !topMoved) {
+                newTop = bottom + newH;     // bottom pinned
+            } else {
+                newTop = top;               // top pinned (default)
+            }
+
+            XPLMSetWindowGeometry(s_window,
+                                  newLeft, newTop,
+                                  newLeft + newW, newTop - newH);
+            left   = newLeft;
+            top    = newTop;
+            right  = newLeft + newW;
+            bottom = newTop  - newH;
+        }
+
+        // Persist any drag/resize that changed the box.  Equality test
+        // against s_persistedGeom — not s_prev — avoids a save storm
+        // during the snap-correction frame above.
+        const int curW = right - left;
+        const int curH = top   - bottom;
+        if (!firstSeen &&
+            (left   != s_persistedGeom.left  ||
+             top    != s_persistedGeom.top   ||
+             curW   != s_persistedGeom.width ||
+             curH   != s_persistedGeom.height))
+        {
+            s_persistedGeom.left   = left;
+            s_persistedGeom.top    = top;
+            s_persistedGeom.width  = curW;
+            s_persistedGeom.height = curH;
+            SaveIndexerWindowState();
+        }
+
+        s_prevL = left;  s_prevT = top;
+        s_prevR = right; s_prevB = bottom;
+    }
+
     RenderTexturedQuadVA(left, top, right, bottom, s_textureId);
 
     static bool s_loggedOnce = false;
@@ -198,6 +341,7 @@ int HandleClick(XPLMWindowID, int /*x*/, int /*y*/,
     if (status == xplm_MouseDown) {
         const int next = (static_cast<int>(displayType) + 1) % 5;
         displayType = static_cast<int16_t>(next);
+        SaveIndexerWindowState();
     }
     return 1;
 }
@@ -334,10 +478,10 @@ bool CreateXPlaneWindow()
 
     XPLMCreateWindow_t params = {};
     params.structSize             = sizeof(params);
-    params.left                   = 100;
-    params.top                    = 600;
-    params.right                  = 100 + kWindowWidth;
-    params.bottom                 = 600 - kWindowHeight;
+    params.left                   = s_persistedGeom.left;
+    params.top                    = s_persistedGeom.top;
+    params.right                  = s_persistedGeom.left + s_persistedGeom.width;
+    params.bottom                 = s_persistedGeom.top  - s_persistedGeom.height;
     params.visible                = 0;       // start hidden; menu toggles
     params.drawWindowFunc         = DrawWindow;
     params.handleMouseClickFunc   = HandleClick;
@@ -357,6 +501,16 @@ bool CreateXPlaneWindow()
     if (!s_window) return false;
 
     XPLMSetWindowTitle(s_window, "OnSpeed Indexer");
+
+    // Floor on user-driven resize.  X-Plane's resize handle would
+    // otherwise let the user shrink the window to a few pixels and
+    // the aspect-snap math would have nothing useful to anchor on.
+    // Max set to a deliberately enormous value (X-Plane treats it as
+    // "no practical upper bound" — pilots on 4K-plus displays can
+    // blow the indexer up to whatever size they want).
+    XPLMSetWindowResizingLimits(s_window,
+                                kMinWidth, kMinHeight,
+                                /*maxW=*/100000, /*maxH=*/100000);
     return true;
 }
 
@@ -593,6 +747,42 @@ void SetMode(int mode)
 int GetMode()
 {
     return static_cast<int>(displayType);
+}
+
+void ApplyPersistedGeometry(int left, int top, int width, int height)
+{
+    // Sanity-clamp the loaded values so a hand-edited or corrupt .prf
+    // can't push the window off-screen or into a degenerate size.
+    if (width  < kMinWidth)  width  = kMinWidth;
+    if (height < kMinHeight) height = kMinHeight;
+
+    s_persistedGeom.left   = left;
+    s_persistedGeom.top    = top;
+    s_persistedGeom.width  = width;
+    s_persistedGeom.height = height;
+
+    if (s_window) {
+        XPLMSetWindowGeometry(s_window,
+                              left, top, left + width, top - height);
+    }
+}
+
+void GetCurrentGeometry(int* left, int* top, int* width, int* height)
+{
+    if (!left || !top || !width || !height) return;
+    if (s_window) {
+        int l, t, r, b;
+        XPLMGetWindowGeometry(s_window, &l, &t, &r, &b);
+        *left   = l;
+        *top    = t;
+        *width  = r - l;
+        *height = t - b;
+    } else {
+        *left   = s_persistedGeom.left;
+        *top    = s_persistedGeom.top;
+        *width  = s_persistedGeom.width;
+        *height = s_persistedGeom.height;
+    }
 }
 
 void Shutdown()
