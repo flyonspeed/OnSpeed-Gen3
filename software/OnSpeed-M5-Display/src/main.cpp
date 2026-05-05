@@ -1563,6 +1563,10 @@ int mapPct2Display(int aoaPct, const int Array[])
 
 int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh)
 {
+    // Degenerate band (e.g. uncalibrated anchors with Array[3] == Array[4],
+    // or Array[4] == 99): collapse to outLow rather than dividing by zero
+    // and feeding INT_MIN/INT_MAX to the renderer. Mirrors pct2y.js.
+    if (inHigh == inLow) return outLow;
     int Result;
     Result = round((float)(aoa - inLow) * (outHigh - outLow) / (float)(inHigh - inLow) + outLow);
     return Result;

@@ -122,6 +122,17 @@ ok(mapPct2Display(90, anchors) > 1 && mapPct2Display(90, anchors) < 78,
 ok(mapPct2Display(60, anchors) < mapPct2Display(50, anchors),
    'pct ramps monotonically up (lower y is HIGHER on screen)');
 
+// Degenerate-band guards: when adjacent anchors land on the same value,
+// the matching branch has zero span and would divide by zero without the
+// inHigh==inLow guard in map2int. Both pct2y.js and main.cpp's map2int
+// collapse the empty band to outLow rather than producing ±Inf.
+const fastEqSlow = [0, 0, 30, 50, 50, 0, 50, 90];  // fast==slow (band collapsed)
+eq(mapPct2Display(50, fastEqSlow), 115,
+   'Array[3]==Array[4]: pct at the collapsed band lands at outLow (115), not divide-by-zero');
+const slowAt99 = [0, 0, 30, 50, 99, 0, 50, 99];    // slow==99 (upper ramp collapsed)
+eq(mapPct2Display(99, slowAt99), 78,
+   'Array[4]==99: pct=99 lands at slow-edge y (78), not divide-by-zero');
+
 // ----- chevron color logic ------------------------------------------------
 //
 // Encodes the audio-cue gating. The legacy /live had this hand-coded;
