@@ -6,11 +6,11 @@
 //
 // Pipeline per call:
 //
-//   1. Curve gain: a quadratic ramps |lateralG| through unity at
-//      ±0.08 G (one slip-skid ball width in coordinated-flight
-//      terms) and clamps to [0, 1].  Beyond ~0.216 G the quadratic
-//      goes negative; the clamp returns it to 0, so very large
-//      lateral G decays the pan back to centered.
+//   1. Curve gain: a saturating linear ramp `min(1, 8·|lateralG|)`
+//      reaches unity at 0.125 G (~1.5 slip-skid ball widths) and
+//      holds at 1.0 for every larger lateral load.  Monotonic, with
+//      no descending tail, so spin / snap-roll lateral loads (0.3 G
+//      and up) render as fully panned rather than centered.
 //
 //   2. Sign restore: the curve operates on |lateralG|; the sign is
 //      reattached so positive lateralG steers the audio to the right

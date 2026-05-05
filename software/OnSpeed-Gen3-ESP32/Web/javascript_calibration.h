@@ -8,14 +8,12 @@ var StallWarnMargin       = 5; // knots
 var LDmaxIAS              = 100; // will be calculated later based on flap position
 var acVfe                 = 0;  // max flap extension speed, set from config
 var AOA                   = 0;
-var IASsmoothed           = 0;
 var IAS                   = 0;
 var PAlt                  = 0;
 var GLoad                 = 1;
 var GLoadLat              = 0;
 var PitchAngle            = 0;
 var RollAngle             = 0;
-var smoothingAlpha        = 0.9;
 var smoothingAlphaFwdAcc  = 0.04;
 var liveConnecting        = false;
 var flightPath            = 0;
@@ -100,50 +98,42 @@ function constrain(x,out_min,out_max)
 
 function onMessage(evt)
   {
-  // smoother values are display with the formula: value = measurement*alpha + previous value*(1-alpha)
+  // All numeric fields arrive firmware-smoothed (Ahrs.cpp accel filters at
+  // alpha=0.0609, IAS smoothing at alpha=0.0179, AOA via AOACalculator EMA).
+  // The wizard reads them directly — additional client-side EMA was layered
+  // on top of firmware smoothing and added visible lag to the G readout
+  // without improving the recorded sample arrays (which use raw OnSpeed.coeffP,
+  // OnSpeed.IAS, OnSpeed.DerivedAOA in recordData()).
+  //
+  // Each field is `?? 0`-guarded against an empty/truncated JSON payload —
+  // DataServer emits `{}` when its 512-byte buffer can't hold the full
+  // packet (DataServer.cpp:517), so a missing key must not throw on
+  // `.toFixed`.
   try {
     // console.log(evt.data);
     var OnSpeed = JSON.parse(evt.data);
 
-    // I have had a problem with sometimes (probably due to some race condition) the
-    // first time through a smoothing loop, the variable to be smoothed is NaN. In this
-    // case NaN continues to propigate. These tests make sure the initial smoothed
-    // value is not NaN.
-    if (Number.isNaN(AOA))             { AOA             = 0.0; }
-    if (Number.isNaN(IAS))             { IAS             = 0.0; }
-    if (Number.isNaN(PAlt))            { PAlt            = 0.0; }
-    if (Number.isNaN(GLoad))           { GLoad           = 0.0; }
-    if (Number.isNaN(GLoadLat))        { GLoadLat        = 0.0; }
-    if (Number.isNaN(PitchAngle))      { PitchAngle      = 0.0; }
-    if (Number.isNaN(RollAngle))       { RollAngle       = 0.0; }
-    if (Number.isNaN(iVSI))            { iVSI            = 0.0; }
-    if (Number.isNaN(flightPath))      { flightPath      = 0.0; }
     if (Number.isNaN(smoothDecelRate)) { smoothDecelRate = 0.0; }
 
-    AOA                  = (OnSpeed.AOA*smoothingAlpha+AOA*(1-smoothingAlpha)).toFixed(2);
-    IAS                  = OnSpeed.IAS;
-    IASsmoothed          = (OnSpeed.IAS*smoothingAlpha+IASsmoothed*(1-smoothingAlpha)).toFixed(2);
-    PAlt                 = (OnSpeed.PAlt*smoothingAlpha+PAlt*(1-smoothingAlpha)).toFixed(2);
-    GLoad                = (OnSpeed.verticalGLoad*smoothingAlpha+GLoad*(1-smoothingAlpha)).toFixed(2);
-    GLoadLat             = (OnSpeed.lateralGLoad*smoothingAlpha+GLoadLat*(1-smoothingAlpha)).toFixed(2);
-    PitchAngle           = OnSpeed.Pitch;
-    RollAngle            = OnSpeed.Roll;
-    LDmax                = OnSpeed.LDmax;
-    OnspeedFast          = OnSpeed.OnspeedFast;
-    OnspeedSlow          = OnSpeed.OnspeedSlow;
-    OnspeedWarn          = OnSpeed.OnspeedWarn;
+    AOA                  = (OnSpeed.AOA          ?? 0).toFixed(2);
+    IAS                  = OnSpeed.IAS           ?? 0;
+    PAlt                 = (OnSpeed.PAlt         ?? 0).toFixed(2);
+    GLoad                = (OnSpeed.verticalGLoad ?? 0).toFixed(2);
+    GLoadLat             = (OnSpeed.lateralGLoad ?? 0).toFixed(2);
+    PitchAngle           = OnSpeed.Pitch         ?? 0;
+    RollAngle            = OnSpeed.Roll          ?? 0;
     smoothingAlphaFwdAcc = parseFloat(document.getElementById("smoothingValue").value);
     document.getElementById("currentSmoothing").innerHTML = smoothingAlphaFwdAcc.toFixed(2);
 
-    iVSI                 = OnSpeed.kalmanVSI;
-    flightPath           = OnSpeed.flightPath;
+    iVSI                 = OnSpeed.kalmanVSI     ?? 0;
+    flightPath           = OnSpeed.flightPath    ?? 0;
     derivedAOA           = PitchAngle - flightPath;
-    cP                   = OnSpeed.coeffP;
-    pitchRate            = OnSpeed.PitchRate;
-    decelRate            = OnSpeed.DecelRate;
+    cP                   = OnSpeed.coeffP        ?? 0;
+    pitchRate            = OnSpeed.PitchRate     ?? 0;
+    decelRate            = OnSpeed.DecelRate     ?? 0;
 
-    flapsPos             = OnSpeed.flapsPos;
-    flapIndex            = OnSpeed.flapIndex;
+    flapsPos             = OnSpeed.flapsPos      ?? 0;
+    flapIndex            = OnSpeed.flapIndex     ?? 0;
 
     if (flapIndex == 0)
       {
@@ -157,7 +147,7 @@ function onMessage(evt)
     // Update decel needle
     document.getElementById("decelneedle").setAttribute("transform", "translate(0," + decelTranslate + ")");
     document.getElementById("currentFlaps").innerHTML = flapsPos;
-    document.getElementById("currentIAS").innerHTML   = IASsmoothed;
+    document.getElementById("currentIAS").innerHTML   = IAS.toFixed(2);
     document.getElementById("currentDecel").innerHTML = smoothDecelRate.toFixed(1);
 
     if (dataRecording)

@@ -3,6 +3,7 @@
 
 #include <audio/Panning.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace onspeed {
@@ -10,19 +11,25 @@ namespace audio {
 
 namespace {
 
-// Quadratic gain curve (no true dead-zone — f'(0) = 20.025).  Tuned
-// in Gen2 against the inclinometer; |lateralG| ≈ 0.08 corresponds to
-// one slip-skid ball width.
-//   f(0.00)  =  0.000
-//   f(0.05)  =  0.769
-//   f(0.08)  =  1.008  → caller clamps to 1.0
-//   f(0.108) =  1.080  (curve apex)
-//   f(0.216) =  0.000  (descending root — caller clamps the negative
-//                       tail to 0, so very large |lateralG| renders
-//                       as centered audio)
+// Saturating linear gain curve.  Monotonic in |lateralG|, no descending
+// tail: pan ramps from 0 at 0 G to fully saturated at 0.125 G (~1.5
+// slip-skid ball widths) and holds at 1.0 for every larger lateral
+// load.  This keeps the directional cue audible through the entire
+// spin / snap-roll regime (0.3–0.8 G sustained), where the prior
+// downward-opening parabola crossed zero at |x| ≈ 0.216 G and the
+// caller's [0, 1] clamp pinned the gain to 0 — i.e. centered audio
+// with no L/R difference exactly when the cue matters most.
+//   f(0.000)  =  0.000
+//   f(0.050)  =  0.400
+//   f(0.080)  =  0.640
+//   f(0.125)  =  1.000  (saturation point)
+//   f(0.250)  =  1.000
+//   f(0.500)  =  1.000
+//   f(1.000)  =  1.000
+// Closes #371.
 inline float CurveGain(float absLateralG)
 {
-    return -92.822f * absLateralG * absLateralG + 20.025f * absLateralG;
+    return std::min(1.0f, 8.0f * absLateralG);
 }
 
 inline float Clamp(float v, float lo, float hi)
