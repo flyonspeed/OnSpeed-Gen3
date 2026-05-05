@@ -235,6 +235,14 @@ constexpr const char* kSettingsSuffix = ".prf";
 // change races with a button press.
 static std::string s_SettingsPath;
 
+// Gate on SaveSettings so an early in-memory mutation (e.g. user
+// clicks a menu item before XPLM_MSG_PLANE_LOADED has triggered the
+// deferred OnAircraftLoaded → LoadSettings) can't dump compile-time
+// defaults over the pilot's saved AOA setpoints / volume / smoothing.
+// Set true at the bottom of LoadSettings (or in OnAircraftLoaded
+// after a missing-file noop).
+static bool s_settingsLoaded = false;
+
 static std::string sanitizeAcfBasename(const char* acfFileName) {
     std::string out;
     out.reserve(strlen(acfFileName));
@@ -274,6 +282,18 @@ static std::string buildSettingsPath() {
 
 static void SaveSettings() {
     if (s_SettingsPath.empty()) return;
+    if (!s_settingsLoaded) {
+        // Race-guard: an indexer click or menu toggle reached us
+        // before the deferred OnAircraftLoaded had a chance to load
+        // the .prf, so the in-memory AOA setpoints / volume etc. are
+        // still compile defaults.  Writing now would clobber the
+        // pilot's saved calibration with defaults.  Skip the save;
+        // the next user-driven change after settings finish loading
+        // will persist the right state.
+        XPLMDebugString("FlyOnSpeed: SaveSettings skipped — settings "
+                        "not yet loaded for this aircraft\n");
+        return;
+    }
     FILE* fp = std::fopen(s_SettingsPath.c_str(), "w");
     if (!fp) {
         XPLMDebugString(("FlyOnSpeed: SaveSettings: could not open "
@@ -327,7 +347,14 @@ void SaveIndexerWindowState()
 static void LoadSettings() {
     if (s_SettingsPath.empty()) return;
     FILE* fp = std::fopen(s_SettingsPath.c_str(), "r");
-    if (!fp) return;   // first run for this aircraft; defaults are fine
+    if (!fp) {
+        // First run for this aircraft; defaults are fine.  Mark the
+        // settings as loaded anyway so any subsequent user-driven
+        // change can save them — the alternative (never persist
+        // until a .prf already exists) is a chicken-and-egg trap.
+        s_settingsLoaded = true;
+        return;
+    }
 
     char line[256];
     while (std::fgets(line, sizeof(line), fp)) {
@@ -364,6 +391,7 @@ static void LoadSettings() {
         }
     }
     std::fclose(fp);
+    s_settingsLoaded = true;
 }
 
 // --------------------------------------------------------------------------
@@ -610,6 +638,13 @@ static void OnAircraftLoaded() {
     } else if (s_SettingsPath != previous) {
         XPLMDebugString(("FlyOnSpeed: settings path = "
                          + s_SettingsPath + "\n").c_str());
+        // Park the load-gate while we point at the new aircraft's
+        // .prf and read it.  Any stray menu click that lands during
+        // this window will hit SaveSettings's gate and be skipped
+        // rather than dump the previous aircraft's state into the
+        // new aircraft's file.  LoadSettings flips the flag back on
+        // exit (whether the file existed or not).
+        s_settingsLoaded = false;
         LoadSettings();
     }
     rebuildAoaSmoothers();
