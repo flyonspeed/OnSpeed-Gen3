@@ -302,6 +302,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libopenal-dev
 
+      - name: Install SDL2 (indexer build)
+        run: |
+          case "$RUNNER_OS" in
+            macOS)   brew install sdl2 ;;
+            Linux)   sudo apt-get install -y libsdl2-dev ;;
+            Windows) vcpkg install sdl2 --triplet x64-mingw-static ;;
+          esac
+
+      - name: Set up Python (PlatformIO host)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO core + M5 libdeps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            software/OnSpeed-M5-Display/.pio
+          key: pio-${{ runner.os }}-${{ hashFiles('software/OnSpeed-M5-Display/platformio.ini') }}
+
+      - name: Prefetch M5GFX/M5Unified via PlatformIO native build
+        run: |
+          # The X-Plane indexer reuses the M5 display project's libdeps
+          # tree (M5GFX + M5Unified resolved via PlatformIO).  Building
+          # the native env once populates .pio/libdeps/native/ where the
+          # plugin's CMake expects to find them.
+          python -m pip install --upgrade pip
+          pip install platformio
+          pio run -e native -d software/OnSpeed-M5-Display
+
       - name: Configure vcpkg NuGet cache (Windows only)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -356,6 +387,7 @@ jobs:
           # MSVC's link.exe can't consume them. MinGW-w64 (preinstalled on
           # windows-latest) links them directly. Pass vcpkg's toolchain
           # file so FindOpenAL resolves the static build.
+          #
           echo "CMAKE_GENERATOR=MinGW Makefiles" >> "$GITHUB_ENV"
           echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static" >> "$GITHUB_ENV"
 

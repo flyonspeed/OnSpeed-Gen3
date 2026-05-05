@@ -92,12 +92,14 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/version
 #
 # Linking the M5 firmware + M5GFX + M5Unified + SDL2 produces an
 # in-process indexer renderer that draws into an X-Plane window.  The
-# audio path doesn't need any of this; off by default until the
-# feature lands fully tested across all three host platforms.
+# audio path doesn't need any of this; the option is provided so an
+# audio-only build remains possible (e.g., if SDL2 or the M5 libdeps
+# are unavailable on a host).
 #
-# Enable: -DENABLE_M5_INDEXER=ON
+# Enabled by default — release artifacts ship with the indexer.
+# Disable with -DENABLE_M5_INDEXER=OFF for an audio-only build.
 # --------------------------------------------------------------------
-option(ENABLE_M5_INDEXER "Build the embedded M5 indexer renderer" OFF)
+option(ENABLE_M5_INDEXER "Build the embedded M5 indexer renderer" ON)
 
 set(PLUGIN_SOURCES
     src/aoa_audio.cpp

@@ -7,13 +7,26 @@ panel-mounted Gen3 box, driven by X-Plane's flight model.
 
 ## Building from source
 
-Requires CMake 3.15+, a C++17 compiler, and OpenAL.
+Requires CMake 3.15+, a C++17 compiler, OpenAL, SDL2, and PlatformIO
+(for the M5 libdeps prefetch).  The embedded M5 indexer is built by
+default; pass `-DENABLE_M5_INDEXER=OFF` for an audio-only `.xpl`.
 
-| OS | OpenAL |
-|---|---|
-| macOS | system framework, no install needed |
-| Linux | `sudo apt-get install libopenal-dev` |
-| Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` |
+| OS | OpenAL | SDL2 |
+|---|---|---|
+| macOS | system framework, no install needed | `brew install sdl2` |
+| Linux | `sudo apt-get install libopenal-dev` | `sudo apt-get install libsdl2-dev` |
+| Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` | `vcpkg install sdl2 --triplet x64-mingw-static` |
+
+The embedded M5 indexer reuses the M5 display project's PlatformIO
+libdeps cache (M5GFX + M5Unified).  Populate it once before
+configuring:
+
+```bash
+pip install platformio
+pio run -e native -d ../OnSpeed-M5-Display
+```
+
+Then build the plugin:
 
 ```bash
 cmake -S . -B build
@@ -21,6 +34,12 @@ cmake --build build
 ```
 
 Output: `build/{mac_x64,lin_x64,win_x64}/AOA-Tone-FlyOnSpeed.xpl`.
+
+**Audio-only build** (skips SDL2 + the M5 prefetch):
+
+```bash
+cmake -S . -B build -DENABLE_M5_INDEXER=OFF
+```
 
 To install into a local X-Plane for dev testing (macOS/Linux):
 
