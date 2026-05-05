@@ -59,10 +59,15 @@ void FillSnappedOperational(DisplayPctAnchors& out,
                             const SuFlaps& active,
                             bool iasValid)
 {
-    out.tonesOnPctLift     = ComputePercentLift(active.fLDMAXAOA,        active, iasValid);
-    out.onSpeedFastPctLift = ComputePercentLift(active.fONSPEEDFASTAOA,  active, iasValid);
-    out.onSpeedSlowPctLift = ComputePercentLift(active.fONSPEEDSLOWAOA,  active, iasValid);
-    out.stallWarnPctLift   = ComputePercentLift(active.fSTALLWARNAOA,    active, iasValid);
+    // ComputePercentLift returns float (whole percent); the snapped
+    // band-edge fields stay integer-percent on the wire (only move on
+    // detent / config-save events, sub-percent buys nothing). Truncate
+    // matches `static_cast<int>(ComputePercentLift(...))` everywhere
+    // these snapped anchors are surfaced.
+    out.tonesOnPctLift     = static_cast<int>(ComputePercentLift(active.fLDMAXAOA,        active, iasValid));
+    out.onSpeedFastPctLift = static_cast<int>(ComputePercentLift(active.fONSPEEDFASTAOA,  active, iasValid));
+    out.onSpeedSlowPctLift = static_cast<int>(ComputePercentLift(active.fONSPEEDSLOWAOA,  active, iasValid));
+    out.stallWarnPctLift   = static_cast<int>(ComputePercentLift(active.fSTALLWARNAOA,    active, iasValid));
 }
 
 // Compute the visual pip's "full-flap target" percent: the bottom-half
@@ -79,8 +84,8 @@ void FillSnappedOperational(DisplayPctAnchors& out,
 // the upper donut to meet a band-center pip.
 int FullFlapPipTarget(const SuFlaps& mostDeployed, bool iasValid)
 {
-    const int fastPct = ComputePercentLift(mostDeployed.fONSPEEDFASTAOA, mostDeployed, iasValid);
-    const int slowPct = ComputePercentLift(mostDeployed.fONSPEEDSLOWAOA, mostDeployed, iasValid);
+    const int fastPct = static_cast<int>(ComputePercentLift(mostDeployed.fONSPEEDFASTAOA, mostDeployed, iasValid));
+    const int slowPct = static_cast<int>(ComputePercentLift(mostDeployed.fONSPEEDSLOWAOA, mostDeployed, iasValid));
     int target = static_cast<int>(std::lround(
         (3.0f * static_cast<float>(fastPct) + static_cast<float>(slowPct)) / 4.0f));
     if (target < 0)  target = 0;
@@ -141,7 +146,7 @@ DisplayPctAnchors ComputeDisplayPctAnchors(
         const int potB      = mostDeployed.iPotPosition;
         const int span      = potB - potA;
 
-        const int pipClean    = ComputePercentLift(cleanest.fLDMAXAOA, cleanest, iasValid);
+        const int pipClean    = static_cast<int>(ComputePercentLift(cleanest.fLDMAXAOA, cleanest, iasValid));
         const int pipFullFlap = FullFlapPipTarget(mostDeployed, iasValid);
 
         float lambda;

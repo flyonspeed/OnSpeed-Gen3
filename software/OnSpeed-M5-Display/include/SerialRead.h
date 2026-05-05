@@ -2,14 +2,15 @@
 
 // Serial data variables (shared with main display code)
 //
-// PercentLift is the integer (0..99) percent-of-stall, used for chevron
-// color logic and slip-color comparisons.  PercentLiftDeci carries the
-// same value with one decimal place (0.0..99.9), used for the AOA bar's
-// y position so it advances at sub-pixel temporal smoothness off the
-// 20 Hz wire.  Both are populated from the same wire field (tenths of
-// a percent, 0..999) on each parsed frame.
-extern int             PercentLift;
-extern float           PercentLiftDeci;
+// PercentLift is the percent-of-stall as a float in whole-percent units
+// (0.0..99.9).  Drives every consumer: chevron color logic, slip-color
+// comparison, the on-screen percent number readout (rounded to int at
+// presentation), and the AOA index bar's y position.  Sub-percent
+// resolution off the 20 Hz wire gives the index bar temporally smooth
+// motion; chevron color comparisons against integer band anchors
+// compare via implicit float-int promotion (e.g. `aoaPct > Array[4]`),
+// which is exact for integer-valued floats up to 2^24.
+extern float           PercentLift;
 extern float           Pitch;
 extern float           Roll;
 extern float           IAS;

@@ -103,9 +103,15 @@ static SuFlaps makeTakeoffDetent()
 // Helpers
 // ============================================================================
 
+// ComputePercentLift returns float (whole percent, 0.0..99.9); these
+// tests work in integer percent because they assert on the snapped
+// per-detent band-edge values (the same int rounding the production
+// DisplayPctAnchors fields use).  Truncation here matches the
+// `static_cast<int>(ComputePercentLift(...))` callsite in
+// DisplayPctAnchors.cpp.
 static int Pct(float aoaDeg, const SuFlaps& f, bool iasValid = true)
 {
-    return ComputePercentLift(aoaDeg, f, iasValid);
+    return static_cast<int>(ComputePercentLift(aoaDeg, f, iasValid));
 }
 
 // Bottom-half-of-donut target for the pip at full flaps: one quarter of

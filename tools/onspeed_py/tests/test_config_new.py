@@ -64,11 +64,13 @@ def test_new_compute_percent_lift_uses_alpha_0() -> None:
     fs = load_flap_setpoints(FIX / "n720ak_config.cfg")[0]
     # Body angle 0 is above alpha_0 (-3.72), so percent > 0.
     pct_at_zero_body_angle = compute_percent_lift(0.0, fs)
-    assert pct_at_zero_body_angle > 0
-    # Body angle == alpha_0 → percent == 0.
-    assert compute_percent_lift(fs.alpha_0, fs) == 0
-    # Body angle == alpha_stall → percent clamps to 99.
-    assert compute_percent_lift(fs.alpha_stall, fs) == 99
+    assert pct_at_zero_body_angle > 0.0
+    # Body angle == alpha_0 → percent == 0.0.
+    assert compute_percent_lift(fs.alpha_0, fs) == 0.0
+    # Body angle == alpha_stall → percent clamps to 99.9 (saturation
+    # convention; wire encoder multiplies by 10 to land at 999, never
+    # 1000).
+    assert abs(compute_percent_lift(fs.alpha_stall, fs) - 99.9) < 0.05
 
 
 def test_new_ias_from_aoa_works_when_kfit_calibrated() -> None:

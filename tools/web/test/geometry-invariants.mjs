@@ -136,6 +136,40 @@ const slowAt99 = [0, 0, 30, 50, 99, 0, 50, 99];    // slow==99 (upper ramp colla
 eq(mapPct2Display(99, slowAt99), 78,
    'Array[4]==99: pct=99 lands at slow-edge y (78), not divide-by-zero');
 
+// Regression: the index-bar bug from the v4.23 wire-format split.
+// Before the v4.24 unification, the renderer read `PercentLiftDeci`
+// (a *separate* float global) for the bar y-position, while
+// `PercentLift` (int) drove the chevrons.  Any code path that
+// populated the int but forgot the float (e.g. the M5 sim's
+// DUMMY_SERIAL_DATA block) would pin the bar at y=192 forever.  We
+// catch the equivalent failure mode now by:
+//   1. asserting the bar y is a strict function of percent_lift
+//      (different inputs must produce different outputs), and
+//   2. asserting that fractional pcts produce y values strictly
+//      between adjacent integer-pct outputs (sub-percent fidelity
+//      survives end-to-end through the float pipeline).
+// Without these, the previous bug could re-emerge silently if a
+// future refactor reintroduces a "second hidden global" — the test
+// pins the contract that one float in, one indexY out.
+// Lower y on screen = higher on the indexer column.  The mapping is
+// monotonically decreasing in pct: bigger pct → smaller y.
+const yAt0    = mapPct2Display(0,    anchors);  // floor case
+const yAt05   = mapPct2Display(0.5,  anchors);  // sub-percent above floor
+ok(yAt0 === 192, 'pct=0 still maps to floor y=192');
+ok(yAt05 < yAt0,
+   'pct=0.5 advances bar above floor (was pinned at 192 in the v4.23 bug)');
+
+// Sub-percent fidelity in the mapping function (before SVG int-rounding):
+// the difference between pct=20 and pct=20.5 must be visible in the
+// returned y.  Walk pct in 0.5 steps across the upper ramp where 1 pct
+// of body-angle corresponds to ~3.85 y-pixels; 0.5 pct → ~1.9 px,
+// distinguishable after Math.round.
+const yPct70  = mapPct2Display(70,   anchors);
+const yPct705 = mapPct2Display(70.5, anchors);
+const yPct71  = mapPct2Display(71,   anchors);
+ok(yPct705 < yPct70 && yPct705 > yPct71,
+   'fractional pct=70.5 lands strictly between pct=70 and pct=71 (sub-percent fidelity)');
+
 // ----- chevron color logic ------------------------------------------------
 //
 // Encodes the audio-cue gating. The legacy /live had this hand-coded;

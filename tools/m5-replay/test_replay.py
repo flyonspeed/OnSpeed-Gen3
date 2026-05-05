@@ -63,7 +63,7 @@ def test_frame_crc_matches_firmware_convention() -> None:
         roll_deg=-2.0,
         ias_kts=100.0,
         palt_ft=2500,
-        percent_lift=42,
+        percent_lift_pct=4.2,
     ).to_bytes()
     payload = wire[:PAYLOAD_LEN]
     crc_str = wire[CRC_HEX_START:CRC_HEX_END].decode("ascii")
@@ -87,7 +87,7 @@ def test_offsets_round_trip() -> None:
         turnrate_dps=3.0,
         lateral_g=0.05,
         vertical_g=1.2,
-        percent_lift=42,
+        percent_lift_pct=4.2,
         vsi_fpm=-600,
         oat_c=15,
         flightpath_deg=-2.0,
@@ -114,8 +114,9 @@ def test_offsets_round_trip() -> None:
     assert abs(int(s[26:29]) / 100 - f.lateral_g) < 0.01
     assert abs(int(s[29:32]) / 10 - f.vertical_g) < 0.1
     # percent_lift widened to 3 chars (tenths-of-a-percent) at v4.23;
-    # offsets from 32 onward are +1 from v4.22.
-    assert int(s[32:35]) == f.percent_lift
+    # offsets from 32 onward are +1 from v4.22.  The Frame field is
+    # whole-percent float (e.g. 4.2); to_bytes scales ×10 and truncates.
+    assert int(s[32:35]) == int(f.percent_lift_pct * 10)
     assert int(s[35:39]) * 10 == round(f.vsi_fpm / 10) * 10
     assert int(s[39:42]) == f.oat_c
     assert abs(int(s[42:46]) / 10 - f.flightpath_deg) < 0.1
@@ -161,15 +162,15 @@ def test_compute_percent_lift_honest_formula() -> None:
         stallwarn_aoa=9.5,
         alpha_stall=11.0,
     )
-    # Endpoints
-    assert compute_percent_lift(fs.alpha_0, fs) == 0
-    assert compute_percent_lift(fs.alpha_stall, fs) == 99   # clamped
-    # L/Dmax body angle 2.0 -> (4.5/13.5)*100 = 33.33 -> 33.  Not 50.
+    # Endpoints (whole-percent float, [0.0, 99.9])
+    assert compute_percent_lift(fs.alpha_0, fs) == 0.0
+    assert abs(compute_percent_lift(fs.alpha_stall, fs) - 99.9) < 0.05  # clamped
+    # L/Dmax body angle 2.0 -> (4.5/13.5)*100 = 33.33%.  Not 50.
     ldmax_pct = compute_percent_lift(fs.ldmax_aoa, fs)
-    assert ldmax_pct in (32, 33, 34), f"unexpected ldmax pct {ldmax_pct}"
-    # OnSpeedSlow 7.5 -> (10/13.5)*100 = 74.07 -> 74.  Not 66.
+    assert 32.0 < ldmax_pct < 34.0, f"unexpected ldmax pct {ldmax_pct}"
+    # OnSpeedSlow 7.5 -> (10/13.5)*100 = 74.07%.  Not 66.
     slow_pct = compute_percent_lift(fs.onspeed_slow_aoa, fs)
-    assert slow_pct in (73, 74, 75), f"unexpected slow pct {slow_pct}"
+    assert 73.0 < slow_pct < 75.0, f"unexpected slow pct {slow_pct}"
 
 
 def test_clamp_protects_against_out_of_range() -> None:
@@ -238,7 +239,7 @@ def test_firmware_parser_round_trip() -> None:
         turnrate_dps=3.5,
         lateral_g=0.05,
         vertical_g=1.2,
-        percent_lift=42,
+        percent_lift_pct=4.2,
         vsi_fpm=-630,
         oat_c=15,
         flightpath_deg=-2.3,
@@ -268,7 +269,11 @@ def test_firmware_parser_round_trip() -> None:
     close("turnRateDps",       f.turnrate_dps,       0.11)
     close("lateralG",          f.lateral_g,          0.011)
     close("verticalG",         f.vertical_g,         0.11)
-    assert int(parsed["percentLift"]) == f.percent_lift
+    # parse_frame.cpp prints `percentLiftPct=<float>` in whole-percent
+    # units (e.g. 4.2000) — round-trip fidelity is the wire's tenths
+    # resolution, so a 0.05% tolerance comfortably catches any silent
+    # truncation regression.
+    close("percentLiftPct",    f.percent_lift_pct,   0.05)
     close("vsiFpm",             round(f.vsi_fpm / 10) * 10, 11.0)
     assert int(parsed["oatC"]) == f.oat_c
     close("flightPathDeg",      f.flightpath_deg,     0.11)

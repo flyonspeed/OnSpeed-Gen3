@@ -69,7 +69,11 @@ export const Indexer = ({ percentLift, anchors, flashFlag, aoaIsValid }) => {
 
 export const PercentLiftNumber = ({ percent, aoaIsValid }) => {
   if (!aoaIsValid) return null;
-  const s = String(percent).padStart(2, '0');
+  // Round + clamp so the 2-digit field never reads "100" — same
+  // saturation convention the M5 firmware uses (see main.cpp's
+  // displayPercentLift snapshot).
+  const rounded = Math.min(99, Math.max(0, Math.round(percent)));
+  const s = String(rounded).padStart(2, '0');
   return html`
     <g data-widget="percent-lift-number">
       <text x=${G.PCT_LIFT_X} y=${G.PCT_LIFT_Y}

@@ -13,7 +13,6 @@ using onspeed::m2ft;
 using onspeed::mps2fpm;
 using onspeed::aoa::ComputeDisplayPctAnchors;
 using onspeed::aoa::ComputePercentLift;
-using onspeed::aoa::ComputePercentLiftTenths;
 using onspeed::aoa::DisplayPctAnchors;
 using onspeed::proto::DisplayBuildInputs;
 using onspeed::proto::BuildDisplayFrame;
@@ -128,7 +127,7 @@ void DisplaySerial::Write()
 
     char    serialOutString[200];
 
-    int     iPercentLiftTenths;   // 0..999 (tenths of a percent) — wire scale
+    float   fPercentLiftPct;      // 0.0..99.9, whole percent (wire encoder scales ×10 to tenths)
     float   fDisplayAOA;
     float   fDisplayIAS;
     int     iDisplayVerticalG;
@@ -240,18 +239,19 @@ void DisplaySerial::Write()
         xSemaphoreGive(xAhrsMutex);
         }
 
-    // PercentLift on the #1 wire carries tenths of a percent (0..999) so
-    // the M5's index bar can render at sub-pixel temporal smoothness off
-    // the 20 Hz frame cadence; the band-edge anchors below stay at integer
-    // percents.  See onspeed_core/aoa/PercentLift.h for the honest
-    // single-linear formula.  The G3X `=11` subset further down divides
-    // by 10 to keep its own integer-percent contract.
+    // PercentLift in whole-percent float (0.0..99.9). The wire encoder
+    // (BuildDisplayFrame in onspeed_core) multiplies by 10 and truncates
+    // to int for the `%03u` tenths field; the band-edge anchors below
+    // stay at integer percents.  See onspeed_core/aoa/PercentLift.h for
+    // the honest single-linear formula.  The G3X `=11` subset further
+    // down rounds down to integer to keep its own integer-percent
+    // contract.
     if (bFlapSnapshotValid)
-        iPercentLiftTenths = ComputePercentLiftTenths(g_Sensors.AOA,
-                                                      flapSnapshot,
-                                                      bIasValidForOutput);
+        fPercentLiftPct = ComputePercentLift(g_Sensors.AOA,
+                                             flapSnapshot,
+                                             bIasValidForOutput);
     else
-        iPercentLiftTenths = 0;
+        fPercentLiftPct = 0.0f;
 
     // Display percent anchors for the M5 indexer (Vac, ld_max.pdf §8 —
     // aerodynamic references and operational cues must remain
@@ -304,9 +304,10 @@ void DisplaySerial::Write()
         // Do NOT remove without coordinating with Garmin G3X users.
         const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
         const int      iVertG10   = ClampInt(iDisplayVerticalG,                -99,      99);
-        // G3X format keeps integer percent (0..99) on its own wire, so
-        // divide the #1-wire tenths value back down for this protocol.
-        const unsigned uPctLift   = ClampUInt((unsigned)(iPercentLiftTenths / 10), 0,       99);
+        // G3X format keeps integer percent (0..99) on its own wire.
+        // Truncate the float pct value (matches the int-tenths-then-/10
+        // path that v4.22 used).
+        const unsigned uPctLift   = ClampUInt((unsigned)fPercentLiftPct, 0, 99);
 
         const int iChars = snprintf(
             serialOutString,
@@ -357,7 +358,7 @@ void DisplaySerial::Write()
         // does the same). See LATERAL_G_CONVENTION.md and #383.
         inputs.lateralG           = g_AHRS.AccelLatFilter.get();
         inputs.verticalGScaled10  = static_cast<float>(iDisplayVerticalG);
-        inputs.percentLift        = iPercentLiftTenths;  // wire scale: 0..999
+        inputs.percentLiftPct     = fPercentLiftPct;     // 0.0..99.9, encoder scales ×10 to tenths
         inputs.vsiFpm10           = ClampInt(
                                         (int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f),
                                         -999, 999);

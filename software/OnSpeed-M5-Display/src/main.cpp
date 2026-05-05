@@ -173,8 +173,7 @@ const uint16_t  updateRateNumbers   = 500;  //milliseconds
 const uint16_t  flashRate           = 250;  //milliseconds
 
 // Serial data variables (definitions, declared extern in SerialRead.h)
-int             PercentLift         = 0;
-float           PercentLiftDeci     = 0.0f;
+float           PercentLift         = 0.0f;
 float           Pitch               = 0.0;
 float           Roll                = 0.0;
 float           IAS                 = 0.0;
@@ -240,7 +239,7 @@ uint16_t        wgtX0;
 uint16_t        wgtY0;
 
 // Forward declarations
-void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boolean flashing, const int Array[]);
+void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoaPct, boolean flashing, const int Array[]);
 void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int16_t slipValue, boolean flashing, const int Array[]);
 void displayAOA();
 void displayDecelGauge();
@@ -532,7 +531,16 @@ void loop()
             displayPalt        = Palt;
             displayPitch       = Pitch;
             displayVerticalG   = VerticalG;
-            displayPercentLift = PercentLift;
+            // Snapshot for the readout digits.  Round and clamp to [0, 99]
+            // so a saturated 99.9 (the float ceiling) doesn't transiently
+            // render as "100" in the 2-digit field — the saturation
+            // convention is "never reads 100", same as it's always been.
+            {
+                long pctLong = lroundf(PercentLift);
+                if (pctLong < 0)  pctLong = 0;
+                if (pctLong > 99) pctLong = 99;
+                displayPercentLift = static_cast<int>(pctLong);
+            }
             displayDecelRate   = SmoothedDecelRate;
             numbersUpdateTime  = millis();
         } // end if update numbers
@@ -913,7 +921,7 @@ void displayAOA()
 // the current AOA's percent (0..99) and Array[] holds the per-flap percent
 // anchors populated by displayAOA().
 //
-void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boolean flashing, const int Array[])
+void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoaPct, boolean flashing, const int Array[])
 {
     float       Theta;
     float       cosTheta;
@@ -1058,12 +1066,14 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, int aoaPct, boole
     gdraw.fillCircle (X0, Y0, bullsEye + 2, Colour);
 
     /*
-    Index pointer.  Position uses the float-resolution PercentLiftDeci
-    so the bar advances at sub-pixel temporal smoothness off the 20 Hz
-    wire — the integer aoaPct passed in still drives every chevron and
-    arc color comparison above.
+    Index pointer.  Position uses the same float-resolution aoaPct that
+    drives every chevron and arc color comparison above; the float
+    overload of mapPct2Display gives the bar sub-pixel temporal
+    smoothness off the 20 Hz wire.  Comparisons against integer band
+    anchors (Array[i]) compare via implicit float-int promotion —
+    exact for integer-valued floats in the [0, 99] range we work in.
     */
-    int indexY = mapPct2Display(PercentLiftDeci, Array);
+    int indexY = mapPct2Display(aoaPct, Array);
     gdraw.fillRect (X0 - W / 2, indexY, W, H / 24, TFT_WHITE);
     gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
 

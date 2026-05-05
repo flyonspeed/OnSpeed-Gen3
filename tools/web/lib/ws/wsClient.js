@@ -39,6 +39,13 @@ function parseIntOr0(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Same as parseIntOr0 but for fields that carry sub-percent fidelity
+// (percentLift since v4.23).  Falls back to 0 for missing/non-numeric.
+function parseFloatOr0(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 // Map a raw firmware JSON frame to the record shape the page components
 // expect.  Exported so tests can build records without touching the
 // network.
@@ -58,7 +65,7 @@ export function frameToRecord(o) {
     vsiFpm:        o.kalmanVSI,
     flightPathDeg: o.flightPath,
     decelRate:     parseFloat(o.DecelRate) || 0,
-    percentLift:        parseIntOr0(o.percentLift),
+    percentLift:        parseFloatOr0(o.percentLift),
     tonesOnPctLift:     parseIntOr0(o.tonesOnPctLift),
     onSpeedFastPctLift: parseIntOr0(o.onSpeedFastPctLift),
     onSpeedSlowPctLift: parseIntOr0(o.onSpeedSlowPctLift),

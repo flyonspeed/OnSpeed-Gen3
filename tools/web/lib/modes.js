@@ -134,7 +134,7 @@ export const Mode1 = ({ r, stale }) => {
           labelFontSize=${G.MODE1_CORNER_LABEL_FONT_SIZE}
           numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE} />
       <${CornerReadout} label="AOA"
-          value=${aoaIsValid ? String(Math.round(r.percentLift)).padStart(2, '0') : '—'}
+          value=${aoaIsValid ? String(Math.min(99, Math.max(0, Math.round(r.percentLift)))).padStart(2, '0') : '—'}
           labelX=${G.MODE1_CORNER_RIGHT_X} labelY=${G.MODE1_CORNER_BOT_LABEL_Y}
           numX=${G.MODE1_CORNER_BOT_RIGHT_NUM_X} numY=${G.MODE1_CORNER_BOT_NUM_Y}
           anchor="end" labelColor=${colors.TFT_LIGHTGREY} numColor=${colors.TFT_WHITE}

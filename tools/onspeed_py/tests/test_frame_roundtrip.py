@@ -28,7 +28,7 @@ def test_frame_crc_matches_firmware_convention() -> None:
         roll_deg=-2.0,
         ias_kts=100.0,
         palt_ft=2500,
-        percent_lift=42,
+        percent_lift_pct=4.2,
     ).to_bytes()
     payload = wire[:PAYLOAD_LEN]
     crc_str = wire[PAYLOAD_LEN:PAYLOAD_LEN + 2].decode("ascii")
@@ -49,7 +49,7 @@ def test_offsets_round_trip() -> None:
         turnrate_dps=3.0,
         lateral_g=0.05,
         vertical_g=1.2,
-        percent_lift=42,
+        percent_lift_pct=4.2,
         vsi_fpm=-600,
         oat_c=15,
         flightpath_deg=-2.0,
@@ -74,8 +74,9 @@ def test_offsets_round_trip() -> None:
     assert abs(int(s[26:29]) / 100 - f.lateral_g) < 0.01
     assert abs(int(s[29:32]) / 10 - f.vertical_g) < 0.1
     # percent_lift widened to 3 chars (tenths-of-a-percent) at v4.23;
-    # offsets from 32 onward are +1 from v4.22.
-    assert int(s[32:35]) == f.percent_lift
+    # offsets from 32 onward are +1 from v4.22.  The Frame field is
+    # whole-percent float (e.g. 4.2); to_bytes scales ×10 and truncates.
+    assert int(s[32:35]) == int(f.percent_lift_pct * 10)
     assert int(s[35:39]) * 10 == round(f.vsi_fpm / 10) * 10
     assert int(s[39:42]) == f.oat_c
     assert abs(int(s[42:46]) / 10 - f.flightpath_deg) < 0.1

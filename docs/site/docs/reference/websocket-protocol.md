@@ -89,7 +89,7 @@ Example payload (formatted; on the wire it's compact, no whitespace). Values are
   "DecelRate": -0.15,
   "OAT": 22.50,
   "DerivedAOA": 4.18,
-  "percentLift": 34,
+  "percentLift": 34.7,
   "tonesOnPctLift": 18,
   "onSpeedFastPctLift": 32,
   "onSpeedSlowPctLift": 48,
@@ -146,7 +146,7 @@ The per-field tables below note source variations where they apply.
 | --- | --- | --- | --- |
 | `AOA` | float | degrees | **Body angle**, not wing AOA. The fuselage-to-wind angle. See [How OnSpeed Measures AOA](../calibration/how-aoa-works.md) for the convention. Sentinel value `-100` is emitted when AOA is `NaN` or IAS is below the audio mute threshold (`MUTE_UNDER_IAS` in config); the LiveView gates on `AOA > -20` to render N/A in that state. |
 | `DerivedAOA` | float | degrees | Body angle derived from the AHRS (pitch and flight path), `g_AHRS.DerivedAOA`. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning. |
-| `percentLift` | int | 0–99 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0, 99]`. Uses the **active-detent** flap calibration (matches what the audio path uses). |
+| `percentLift` | float | 0.0–99.9 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift::ComputePercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0.0, 99.9]`. Emitted with one decimal of precision (e.g. `34.7`) so the LiveView indexer bar can advance at sub-pixel temporal smoothness off the 20 Hz cadence — same fidelity the M5 wire carries via its `%03u` tenths-of-a-percent field. Consumers expecting an integer can `Math.round` / `int()` at the readout site. Uses the **active-detent** flap calibration (matches what the audio path uses). |
 | `coeffP` | float | dimensionless | Ratiometric pressure coefficient (the "CP3" form in the firmware): `P45 / Pfwd`, where `Pfwd` is the differential pitot pressure and `P45` is the differential AOA pressure from the angled-port probe. Returns `0.0` when `Pfwd ≤ 0` to avoid division-by-zero on the ground. The textbook-form Cp `(P_aoa − P_static) / q` is **not** what's emitted here — the firmware uses the ratiometric form because it stays well-behaved through the AOA-port pressure zero-crossing on Dynon-style probes. Implementation: `onspeed_core/util/OnSpeedTypes.h::pressureCoeff()`. |
 
 ### Indexer percent-lift anchors

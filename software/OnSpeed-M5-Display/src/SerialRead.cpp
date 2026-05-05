@@ -101,13 +101,14 @@ void InjectSerialByte(char inChar)
     Palt                 = f.paltFt;
     LateralG             = f.lateralG;
     VerticalG            = f.verticalG;
-    // Wire field is tenths of a percent (0..999) at v4.23. Two consumers:
-    // PercentLift (integer 0..99) drives chevron color logic and slip
-    // color comparisons; PercentLiftDeci (float 0.0..99.9) drives the
-    // index-bar y position so it advances at sub-pixel temporal smoothness
-    // off the 20 Hz wire.
-    PercentLift          = f.percentLift / 10;
-    PercentLiftDeci      = f.percentLift / 10.0f;
+    // ParseDisplayFrame already divides the wire's tenths field (0..999)
+    // by 10 and surfaces a whole-percent float (0.0..99.9), which is
+    // what every consumer here wants — chevron / arc / slip-color
+    // comparisons against integer Array[i] anchors via implicit
+    // float-int promotion (exact for our [0, 99] range), and the
+    // index-bar y position via the float overload of mapPct2Display
+    // for sub-pixel temporal smoothness.
+    PercentLift          = f.percentLiftPct;
     iVSI                 = f.vsiFpm;
     OAT                  = f.oatC;
     FlightPath           = f.flightPathDeg;
@@ -165,7 +166,7 @@ void InjectSerialByte(char inChar)
     SerialProcess(frameDtSec);
 
     #ifdef SERIALDATADEBUG
-    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, PctLift: %d", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, PercentLift);
+    Serial.printf("ONSPEED data: Millis %i, IAS %.2f, Pitch %.1f, Roll %.1f, LateralG %.2f, VerticalG %.2f, Palt %0.1f, iVSI %.1f, PctLift: %.1f", millis()-serialMillis, IAS, Pitch, Roll, LateralG, VerticalG, Palt, iVSI, PercentLift);
     Serial.println();
     #endif
 
@@ -267,11 +268,13 @@ void SerialRead()
         // 30 s sweep: 15 s up (0 → 99), 15 s down (99 → 0).  About 7%
         // per second — slow enough to read each transition (chevron
         // colors, donut arcs, L/Dmax pip alignment) on the way through.
-        const float phase = (float)((currMillis % 30000) / 15000.0f); // 0..2
-        const float frac  = (phase <= 1.0f) ? phase : (2.0f - phase); // 0→1→0
-        int demoPct = (int)(frac * 99.0f + 0.5f);
-        if (demoPct < 0)  demoPct = 0;
-        if (demoPct > 99) demoPct = 99;
+        // Float so the index-bar shows the sub-percent temporal
+        // smoothness the wire can carry.
+        const float phase   = (float)((currMillis % 30000) / 15000.0f); // 0..2
+        const float frac    = (phase <= 1.0f) ? phase : (2.0f - phase); // 0→1→0
+        float demoPct = frac * 99.9f;
+        if (demoPct < 0.0f)  demoPct = 0.0f;
+        if (demoPct > 99.9f) demoPct = 99.9f;
 
         Pitch                = 5.0;
         Roll                 = 0.0;
@@ -298,7 +301,10 @@ void SerialRead()
         StallWarnPctLift     = pctOf(kWarn);
         PipPctLift           = TonesOnPctLift;
 
-        // Drive only the index-bar position.
+        // Drive only the index-bar position.  Float assignment from
+        // the demoPct sweep — same global the wire-fed path writes via
+        // ParseDisplayFrame, so the dummy and live paths exercise the
+        // same downstream rendering code.
         PercentLift          = demoPct;
 
         gOnsetRate           = 0.0f;
