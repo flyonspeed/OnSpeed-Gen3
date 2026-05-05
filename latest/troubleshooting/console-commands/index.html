@@ -3187,6 +3187,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#wifireflash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WIFIREFLASH
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#crashme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CRASHME
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3711,6 +3733,28 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#wifireflash" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        WIFIREFLASH
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#crashme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CRASHME
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3827,10 +3871,10 @@
 <p>Levels: <code>debug</code>, <code>warning</code>, <code>error</code>, <code>off</code></p>
 <p>Available modules include: AHRS, Audio, Config, Console, DataServer, Display, EFIS, Flaps, GLimit, HeartBeat, IMU, LogReplay, LogSensor, Pressure, SdFileSys, SensorIO, Switch, Volume, VnoChime, Web.</p>
 <h3 id="audiotest">AUDIOTEST<a class="headerlink" href="#audiotest" title="Permanent link">&para;</a></h3>
-<p>Run a 20-second audio test sequence.</p>
+<p>Run an audio test sequence.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>AUDIOTEST
 </code></pre></div>
-<p>Plays test tones through left and right channels. Runs as a background task (doesn't block the console). Returns "busy" if already running.</p>
+<p>Plays the left/right speaker voice clips, the ONSPEED solid low tone, the G-limit voice, then a continuous AOA range sweep that walks linearly from just below L/D<sub>MAX</sub> past the stall-warn threshold — covering every region of the tone map (silent → low-pitch pulsing → ONSPEED solid → high-pitch pulsing → stall warning buzz). Runs as a background task (doesn't block the console). Returns "busy" if already running.</p>
 <h3 id="vnochimetest">VNOCHIMETEST<a class="headerlink" href="#vnochimetest" title="Permanent link">&para;</a></h3>
 <p>Play the Vno overspeed chime once.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>VNOCHIMETEST
@@ -3867,11 +3911,21 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>BOOTLOG
 </code></pre></div>
 <p>Each line records one boot: monotonic boot counter, firmware version + git short SHA, ESP32 reset reason, how long the previous boot lived, and free heap at append time. Useful when chasing intermittent power-on failures — <code>BROWNOUT</code> and <code>PWRGLITCH</code> reset reasons point at supply-side problems, <code>PANIC</code> / <code>WDT</code> at firmware bugs. The same file is also accessible at <code>/logs</code> over WiFi or by pulling the SD card.</p>
+<p>For panic-class reset reasons, the BootDiagnostics path also archives the ESP-IDF binary coredump from the dedicated coredump partition to <code>/coredumps/coredump_NNNN_&lt;version&gt;_&lt;task&gt;.bin</code> on the SD card. To send a crash report, attach the <code>boot_log.txt</code> line plus the matching <code>.bin</code> from <code>/coredumps/</code>.</p>
 <h3 id="reboot">REBOOT<a class="headerlink" href="#reboot" title="Permanent link">&para;</a></h3>
 <p>Restart the controller.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>REBOOT
 </code></pre></div>
 <p>Equivalent to power cycling. Configuration is reloaded from storage.</p>
+<h3 id="wifireflash">WIFIREFLASH<a class="headerlink" href="#wifireflash" title="Permanent link">&para;</a></h3>
+<p>Listed in <code>HELP</code> for historical reasons. The handler currently prints <code>wifi reflash mode not supported</code> and does nothing — the on-board ESP32-S3's WiFi runs in the same firmware image as the rest of the system, so there's nothing separate to reflash.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>WIFIREFLASH
+</code></pre></div>
+<h3 id="crashme">CRASHME<a class="headerlink" href="#crashme" title="Permanent link">&para;</a></h3>
+<p>Force a deterministic StoreProhibited exception so the next boot exercises the BootDiagnostics coredump archival path. Used by developers to bench-test <code>/coredumps/</code> archival without provoking a real bug.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>CRASHME
+</code></pre></div>
+<p>After the panic, the next boot writes a <code>coredump_NNNN_&lt;version&gt;_&lt;task&gt;.bin</code> to the SD card under <code>/coredumps/</code> and appends the panic reason to <code>/boot_log.txt</code>. View with <code>BOOTLOG</code>.</p>
 <h2 id="tips">Tips<a class="headerlink" href="#tips" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>SENSORS is your best friend</strong> — run it whenever something seems wrong. It shows you exactly what every sensor is reading.</li>

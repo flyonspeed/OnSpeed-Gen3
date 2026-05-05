@@ -4131,7 +4131,8 @@ formula for every row.</p>
 <ul>
 <li><strong>v4.21</strong> (PR #320): introduced percent anchors; <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> all snap per active detent.</li>
 <li><strong>v4.21+</strong> (PR #327): made <code>tonesOnPctLift</code> interpolate across adjacent detent brackets so the L/Dmax pip slid smoothly. <strong>This broke chevron–audio alignment mid-deployment</strong> because the chevron is gated on the same field as the audio threshold — making the field interpolated meant the chevron lit at a percent the audio did not match.</li>
-<li><strong>v4.22</strong> (this PR): split the pip out into a new wire field, <code>pipPctLift</code>. <code>tonesOnPctLift</code> reverts to the v4.21 snap-per-detent semantics. Frame size grows from 74 to 76 bytes. Chevron and audio fire from the same threshold again.</li>
+<li><strong>v4.22</strong> (PR #336): split the pip out into a new wire field, <code>pipPctLift</code>. <code>tonesOnPctLift</code> reverts to the v4.21 snap-per-detent semantics. Frame size grows from 74 to 76 bytes. Chevron and audio fire from the same threshold again.</li>
+<li><strong>v4.23</strong> (PR #386): <code>percentLift</code> widens from <code>%02u</code> (integer percent, 0..99) to <code>%03u</code> (tenths of a percent, 0..999) so the index bar advances at sub-pixel temporal smoothness off the 20 Hz frame cadence. The four band-edge anchors stay at integer-percent. <code>lateralG</code> flips to body-frame (positive = right) to match the IMU, SD log, and WebSocket JSON; slip-ball renderers negate locally. Frame size grows from 76 to 77 bytes.</li>
 </ul>
 <p>See <a href="../../reference/serial-protocol/">Display Serial Protocol</a> for the byte-level wire format.</p>
 

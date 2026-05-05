@@ -3607,12 +3607,12 @@
 </ul>
 <h2 id="testing-audio">Testing Audio<a class="headerlink" href="#testing-audio" title="Permanent link">&para;</a></h2>
 <h3 id="audiotest-console-command">AUDIOTEST Console Command<a class="headerlink" href="#audiotest-console-command" title="Permanent link">&para;</a></h3>
-<p>Via USB serial (921600 baud), type <code>AUDIOTEST</code> to run a 20-second audio test:</p>
+<p>Via USB serial (921600 baud), type <code>AUDIOTEST</code> to run an audio test sequence:</p>
 <ul>
-<li>Tests left and right channels independently</li>
-<li>Plays various tone types and pulse rates</li>
-<li>Runs as a background task (doesn't block the console)</li>
-<li>Reports "busy" if a test is already running</li>
+<li>Plays the left and right speaker voice clips so each channel can be confirmed independently</li>
+<li>Plays the ONSPEED solid low tone and the G-limit voice</li>
+<li>Runs a continuous AOA range sweep that walks past every band edge — silent, low-pitch pulsing, ONSPEED solid, high-pitch pulsing, stall warning buzz — so every region of the tone map is heard back-to-back</li>
+<li>Runs as a background task (doesn't block the console); reports "busy" if already running</li>
 </ul>
 <p>If you hear no audio during the test, check:</p>
 <ol>
