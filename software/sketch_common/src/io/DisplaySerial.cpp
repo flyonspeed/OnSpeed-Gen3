@@ -296,6 +296,12 @@ void DisplaySerial::Write()
         const int      iRoll10    = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
         const unsigned uIas10     = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
         const int      iPaltFt    = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
+        // G3X format negates intentionally — the Garmin `=11` wire's
+        // lateralG field has its own convention separate from the `#1`
+        // wire's body-frame at v4.23.  Pilots with Garmin G3X EFIS
+        // receiving OnSpeed output rely on this negation to match what
+        // their EFIS already expects from a Garmin-format AHRS source.
+        // Do NOT remove without coordinating with Garmin G3X users.
         const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
         const int      iVertG10   = ClampInt(iDisplayVerticalG,                -99,      99);
         // G3X format keeps integer percent (0..99) on its own wire, so
@@ -334,9 +340,7 @@ void DisplaySerial::Write()
         // is defined in exactly one place (onspeed_core/proto/DisplaySerial.h).
         //
         // The per-field scale factors, clamps, and sign conventions are
-        // documented there. BuildDisplayFrame produces the same bytes that
-        // the previous hand-coded snprintf/CRC block did for any given set
-        // of inputs.
+        // documented there.
 
         const int iOATc = g_Config.bOatSensor ? int(g_Sensors.OatC) : 0;
 

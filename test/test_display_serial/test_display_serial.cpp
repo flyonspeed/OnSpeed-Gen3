@@ -306,6 +306,22 @@ void test_pip_pct_lift_at_offset_71(void)
     TEST_ASSERT_EQUAL('7', frameBuf[72]);
 }
 
+void test_vsi_at_offset_35_pins_v423_layout_shift(void)
+{
+    // Mid-frame byte-level pin: vsiFpm10 occupies bytes 35-38 at v4.23
+    // (was 34-37 at v4.22 — the +1 shift comes from percentLift widening
+    // %02u → %03u). A partial revert of the parser offsets to v4.22
+    // would be caught here with a named field rather than just a
+    // checksum-mismatch failure.
+    DisplayBuildInputs in = zeroInputs();
+    in.vsiFpm10 = 123;  // distinctive non-zero so any byte misalignment is visible
+    buildOk(in);
+    TEST_ASSERT_EQUAL('+', frameBuf[35]);
+    TEST_ASSERT_EQUAL('1', frameBuf[36]);
+    TEST_ASSERT_EQUAL('2', frameBuf[37]);
+    TEST_ASSERT_EQUAL('3', frameBuf[38]);
+}
+
 void test_pip_pct_lift_clamps_high(void)
 {
     DisplayBuildInputs in = zeroInputs();
@@ -755,6 +771,7 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_spin_cue_negative);
     RUN_TEST(test_roundtrip_pip_pct_lift);
     RUN_TEST(test_pip_pct_lift_at_offset_71);
+    RUN_TEST(test_vsi_at_offset_35_pins_v423_layout_shift);
     RUN_TEST(test_pip_pct_lift_clamps_high);
 
     RUN_TEST(test_clamp_pitch_high);

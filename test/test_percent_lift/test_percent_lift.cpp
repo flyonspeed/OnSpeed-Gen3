@@ -17,6 +17,7 @@
 #include <config/OnSpeedConfig.h>
 
 using onspeed::aoa::ComputePercentLift;
+using onspeed::aoa::ComputePercentLiftTenths;
 using SuFlaps = onspeed::config::OnSpeedConfig::SuFlaps;
 
 void setUp(void) {}
@@ -314,6 +315,92 @@ void test_degenerate_calibration_returns_zero(void)
 }
 
 // ============================================================================
+// ComputePercentLiftTenths — same formula scaled ×1000 for the v4.23 wire
+// ============================================================================
+//
+// Pinned defenses against silent body-angle drift on the wire: every
+// degenerate path that returns 0 in the integer version must also
+// return 0 in the tenths version, and the saturation ceiling must
+// land at 999, not 1000.
+
+void test_tenths_at_alpha_0_returns_0(void)
+{
+    SuFlaps f = makeRv10ZeroFlaps();
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(f.fAlpha0, f, true));
+}
+
+void test_tenths_at_alpha_stall_clamps_to_999(void)
+{
+    SuFlaps f = makeRv10ZeroFlaps();
+    TEST_ASSERT_EQUAL_INT(999, ComputePercentLiftTenths(f.fAlphaStall, f, true));
+    // Above alpha_stall also saturates at 999, never wraps to 0/1000.
+    TEST_ASSERT_EQUAL_INT(999, ComputePercentLiftTenths(20.0f, f, true));
+}
+
+void test_tenths_midpoint_returns_500(void)
+{
+    SuFlaps f = makeRv10ZeroFlaps();  // span = 13.5
+    const float midAoa = (f.fAlpha0 + f.fAlphaStall) / 2.0f;
+    int tenths = ComputePercentLiftTenths(midAoa, f, true);
+    // Allow ±1 tenth for floating-point truncation.
+    TEST_ASSERT_INT_WITHIN(1, 500, tenths);
+}
+
+void test_tenths_ias_invalid_returns_zero(void)
+{
+    SuFlaps f = makeRv10ZeroFlaps();
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(f.fAlphaStall, f, false));
+}
+
+void test_tenths_nan_input_returns_zero(void)
+{
+    SuFlaps f = makeRv10ZeroFlaps();
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(NAN,       f, true));
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(INFINITY,  f, true));
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(-INFINITY, f, true));
+}
+
+void test_tenths_degenerate_calibration_returns_zero(void)
+{
+    // alpha_0 >= alpha_stall: span <= 0 → return 0, not divide-by-zero.
+    SuFlaps f;
+    f.fAlpha0       = 5.0f;
+    f.fAlphaStall   = 4.0f;
+    f.fSTALLWARNAOA = 3.5f;
+    TEST_ASSERT_EQUAL_INT(0, ComputePercentLiftTenths(4.5f, f, true));
+}
+
+void test_tenths_uncalibrated_alpha_stall_uses_fallback(void)
+{
+    // When alphaStall ≤ stallwarn the function uses stallwarn*100/90 as
+    // the synthetic ceiling.  Stallwarn at 9.0 → ceiling at 10.0 → reading
+    // at 5.0 lands halfway → ~500 tenths.
+    SuFlaps f = makeUncalibratedFlaps();  // alpha_stall=0, stallwarn=9.5
+    f.fSTALLWARNAOA = 9.0f;
+    f.fAlphaStall   = 0.0f;  // unset → fallback path
+    f.fAlpha0       = 0.0f;
+    int tenths = ComputePercentLiftTenths(5.0f, f, true);
+    // Fallback ceiling = 9.0 * 100/90 = 10.0; (5-0)/10 * 1000 = 500.
+    TEST_ASSERT_INT_WITHIN(2, 500, tenths);
+}
+
+void test_tenths_matches_integer_version_at_band_edges(void)
+{
+    // Tenths reading divided by 10 should equal the integer reading
+    // for every body angle that lands inside the [0, 99] saturation
+    // range.  Pins that the two helpers agree on the formula.
+    SuFlaps f = makeRv10ZeroFlaps();
+    for (float aoa : {f.fAlpha0 + 1.0f, 0.0f, 5.0f, 8.0f, f.fAlphaStall - 1.0f}) {
+        int integer = ComputePercentLift(aoa, f, true);
+        int tenths  = ComputePercentLiftTenths(aoa, f, true);
+        // Allow ±1 percent tolerance — the integer truncation in the
+        // two functions can diverge by ≤1 due to int-cast rounding at
+        // different scales.
+        TEST_ASSERT_INT_WITHIN(1, integer, tenths / 10);
+    }
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -340,6 +427,16 @@ int main(void)
 
     RUN_TEST(test_anchors_stable_across_ias_validity);
     RUN_TEST(test_nan_input_returns_zero);
+
+    // Tenths variant (v4.23 wire scale)
+    RUN_TEST(test_tenths_at_alpha_0_returns_0);
+    RUN_TEST(test_tenths_at_alpha_stall_clamps_to_999);
+    RUN_TEST(test_tenths_midpoint_returns_500);
+    RUN_TEST(test_tenths_ias_invalid_returns_zero);
+    RUN_TEST(test_tenths_nan_input_returns_zero);
+    RUN_TEST(test_tenths_degenerate_calibration_returns_zero);
+    RUN_TEST(test_tenths_uncalibrated_alpha_stall_uses_fallback);
+    RUN_TEST(test_tenths_matches_integer_version_at_band_edges);
 
     return UNITY_END();
 }
