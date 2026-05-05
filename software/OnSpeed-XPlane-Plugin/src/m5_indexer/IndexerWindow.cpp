@@ -141,6 +141,39 @@ constexpr int kMinVisible = 80;     // px/boxels of window kept on-screen
 constexpr float kAspect = static_cast<float>(kWindowWidth) /
                           static_cast<float>(kWindowHeight);
 
+// M5-style mode button row at the bottom of the window.  The real
+// M5Stack has three hardware buttons (dim / select / bright) below
+// the screen; only Select maps to a useful action in the X-Plane
+// plugin (cycle display modes), so the button strip carries one
+// labeled "MODE N" centered in the strip.  Provides a visible
+// click target — the existing whole-body click cycle still works,
+// but the button gives a discoverable cue the way the real M5's
+// hardware-button row does.
+constexpr int kButtonStripHeight = 36;     // strip y-extent in boxels
+constexpr int kButtonWidth       = 80;     // pill width
+constexpr int kButtonHeight      = 24;     // pill height
+
+// Compute the MODE button rect for a given window geometry.  Centered
+// horizontally in the bottom strip.  Returns false if the window is
+// too small to host both a usable indexer texture above and the
+// button strip below (skip drawing + click-handling, use the full
+// window for the texture).
+bool ComputeButtonRect(int winLeft, int winTop, int winRight, int winBottom,
+                       int* outL, int* outT, int* outR, int* outB)
+{
+    const int winW = winRight - winLeft;
+    const int winH = winTop   - winBottom;
+    if (winW < kButtonWidth + 8 || winH < kButtonStripHeight + kMinHeight)
+        return false;
+    const int stripCenterY = winBottom + kButtonStripHeight / 2;
+    const int centerX      = (winLeft + winRight) / 2;
+    *outL = centerX - kButtonWidth  / 2;
+    *outR = centerX + kButtonWidth  / 2;
+    *outT = stripCenterY + kButtonHeight / 2;
+    *outB = stripCenterY - kButtonHeight / 2;
+    return true;
+}
+
 // Persisted indexer state.  Default values are the same as the
 // pre-sticky-persistence behavior so a fresh install (no .prf yet)
 // puts the window where the old code did.
@@ -217,26 +250,73 @@ void DrawWindow(XPLMWindowID, void*)
     XPLMGetWindowGeometry(s_window, &left, &top, &right, &bottom);
 
     // Letterbox the M5 framebuffer at the panel's native 4:3 inside
-    // the X-Plane window.  User can drag the window to any shape;
-    // the textured quad fits centered at 4:3 with the chrome bg
-    // showing through as letterbox bars.  Same approach OBS preview /
-    // VLC / RetroArch use for video, and what avoids the "stretched
-    // smooshed indexer" shapes the user reported on 2026-05-05.
-    const int winW   = right - left;
-    const int winH   = top   - bottom;
-    int       quadW  = winW;
-    int       quadH  = static_cast<int>(static_cast<float>(quadW) / kAspect);
-    if (quadH > winH) {
-        quadH = winH;
+    // the X-Plane window, ABOVE the bottom MODE-button strip.  User
+    // can drag the window to any shape; the textured quad fits
+    // centered at 4:3 with the chrome bg showing through as letterbox
+    // bars.  Strip is dropped (texture uses full window) when the
+    // window is too short to host both — see ComputeButtonRect.
+    const int winW = right - left;
+    const int winH = top   - bottom;
+
+    int btnL = 0, btnT = 0, btnR = 0, btnB = 0;
+    const bool buttonVisible = ComputeButtonRect(left, top, right, bottom,
+                                                 &btnL, &btnT, &btnR, &btnB);
+    const int textureBottom = buttonVisible ? bottom + kButtonStripHeight
+                                            : bottom;
+    const int textureH      = top - textureBottom;
+
+    int quadW = winW;
+    int quadH = static_cast<int>(static_cast<float>(quadW) / kAspect);
+    if (quadH > textureH) {
+        quadH = textureH;
         quadW = static_cast<int>(static_cast<float>(quadH) * kAspect);
     }
     const int offX  = (winW - quadW) / 2;
-    const int offY  = (winH - quadH) / 2;
+    const int offY  = (textureH - quadH) / 2;
     const int quadL = left + offX;
     const int quadR = quadL + quadW;
     const int quadT = top  - offY;
     const int quadB = quadT - quadH;
     RenderTexturedQuadVA(quadL, quadT, quadR, quadB, s_textureId);
+
+    // M5-style MODE button at the bottom-center of the window.  The
+    // dark translucent box matches the M5's plastic button face; the
+    // label shows the current mode number so the pilot can see it
+    // change at a glance.  Drawn AFTER the texture so it overlays
+    // any letterbox area underneath.  Uses XPLMDrawTranslucentDarkBox
+    // and XPLMDrawString which handle their own GL state safely on
+    // Apple Silicon (raw GL primitives don't).
+    if (buttonVisible) {
+        XPLMDrawTranslucentDarkBox(btnL, btnT, btnR, btnB);
+        char label[24];
+        const int labelLen = std::snprintf(label, sizeof(label), "MODE %d",
+                                           static_cast<int>(displayType));
+        float white[3] = { 1.0f, 1.0f, 1.0f };
+
+        // XPLMDrawString anchors the BASELINE of the first glyph at
+        // (textX, textY) — not the lower-left of the bounding box.
+        // The baseline sits roughly 1/4 of the font height above the
+        // glyph cell bottom (descender region), so center vertically
+        // by placing the baseline at:
+        //
+        //     btnB + (kButtonHeight - fontH) / 2 + descender
+        //
+        // XPLMGetFontDimensions reports total cell height; the SDK
+        // doesn't separately expose the baseline offset, but a 1/4
+        // bias approximates standard typography for sans-serif UI
+        // fonts.
+        int fontH = 10;
+        XPLMGetFontDimensions(xplmFont_Proportional, nullptr, &fontH, nullptr);
+        const int descender = std::max(2, fontH / 4);
+        const int textY = btnB + (kButtonHeight - fontH) / 2 + descender;
+
+        const int textW = static_cast<int>(std::round(
+            XPLMMeasureString(xplmFont_Proportional, label, labelLen)));
+        const int textX = (btnL + btnR) / 2 - textW / 2;
+
+        XPLMDrawString(white, textX, textY, label, nullptr,
+                       xplmFont_Proportional);
+    }
 
     static bool s_loggedOnce = false;
     if (!s_loggedOnce) {
@@ -254,10 +334,23 @@ void DrawWindow(XPLMWindowID, void*)
 // so clicks reach this handler only when the user clicked inside the
 // content area we paint into.  Fires on MouseDown so the mode change
 // is responsive — without waiting for MouseUp.
-int HandleClick(XPLMWindowID, int /*x*/, int /*y*/,
+int HandleClick(XPLMWindowID, int x, int y,
                 XPLMMouseStatus status, void* /*refcon*/)
 {
-    if (status == xplm_MouseDown) {
+    // Only the MODE button cycles modes — body clicks are pass-through
+    // so the user can drag-focus the window without cycling.  Compute
+    // the button rect against the live geometry and check if the click
+    // landed inside.
+    if (status != xplm_MouseDown) return 1;
+    if (!s_window) return 1;
+
+    int wL, wT, wR, wB;
+    XPLMGetWindowGeometry(s_window, &wL, &wT, &wR, &wB);
+    int bL, bT, bR, bB;
+    if (!ComputeButtonRect(wL, wT, wR, wB, &bL, &bT, &bR, &bB)) return 1;
+
+    // X-Plane window coords: y grows up (top > bottom), x grows right.
+    if (x >= bL && x <= bR && y >= bB && y <= bT) {
         const int next = (static_cast<int>(displayType) + 1) % 5;
         displayType = static_cast<int16_t>(next);
     }
