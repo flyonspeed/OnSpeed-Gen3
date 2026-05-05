@@ -15,7 +15,7 @@ default; pass `-DENABLE_M5_INDEXER=OFF` for an audio-only `.xpl`.
 |---|---|---|
 | macOS | system framework, no install needed | `brew install sdl2` |
 | Linux | `sudo apt-get install libopenal-dev` | `sudo apt-get install libsdl2-dev` |
-| Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` | `vcpkg install sdl2 --triplet x64-mingw-static` |
+| Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` | not yet supported (#396) — pass `-DENABLE_M5_INDEXER=OFF` |
 
 The embedded M5 indexer reuses the M5 display project's PlatformIO
 libdeps cache (M5GFX + M5Unified).  Populate it once before

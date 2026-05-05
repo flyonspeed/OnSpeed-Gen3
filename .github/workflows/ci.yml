@@ -302,20 +302,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libopenal-dev
 
-      - name: Install SDL2 (indexer build)
+      # M5GFX's `pio run -e native` env doesn't currently build on
+      # MinGW (issue #396) — common.hpp's platform switch only knows
+      # ESP-IDF / SDL2-on-POSIX / WASM.  Skip indexer setup on Windows
+      # and explicitly opt the Windows leg out via -DENABLE_M5_INDEXER=OFF
+      # below.  Mac + Linux build the indexer.
+      - name: Install SDL2 (mac+linux indexer build)
+        if: runner.os != 'Windows'
         run: |
           case "$RUNNER_OS" in
-            macOS)   brew install sdl2 ;;
-            Linux)   sudo apt-get install -y libsdl2-dev ;;
-            Windows) vcpkg install sdl2 --triplet x64-mingw-static ;;
+            macOS) brew install sdl2 ;;
+            Linux) sudo apt-get install -y libsdl2-dev ;;
           esac
 
       - name: Set up Python (PlatformIO host)
+        if: runner.os != 'Windows'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Cache PlatformIO core + M5 libdeps
+        if: runner.os != 'Windows'
         uses: actions/cache@v4
         with:
           path: |
@@ -324,6 +331,7 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('software/OnSpeed-M5-Display/platformio.ini') }}
 
       - name: Prefetch M5GFX/M5Unified via PlatformIO native build
+        if: runner.os != 'Windows'
         run: |
           # The X-Plane indexer reuses the M5 display project's libdeps
           # tree (M5GFX + M5Unified resolved via PlatformIO).  Building
@@ -388,8 +396,14 @@ jobs:
           # windows-latest) links them directly. Pass vcpkg's toolchain
           # file so FindOpenAL resolves the static build.
           #
+          # ENABLE_M5_INDEXER=OFF on Windows until #396 verifies the
+          # SDL2 + M5GFX path on MinGW.  M5GFX's common.hpp doesn't
+          # recognize MinGW as a host platform; pio run -e native fails
+          # to even compile the libdeps.  CMake default is ON; this
+          # opts the Windows leg out so the audio-only .xpl keeps
+          # shipping while indexer support lands.
           echo "CMAKE_GENERATOR=MinGW Makefiles" >> "$GITHUB_ENV"
-          echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static" >> "$GITHUB_ENV"
+          echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static -DENABLE_M5_INDEXER=OFF" >> "$GITHUB_ENV"
 
       - name: Configure
         run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build ${CMAKE_EXTRA_ARGS}
