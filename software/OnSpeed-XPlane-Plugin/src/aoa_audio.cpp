@@ -566,11 +566,6 @@ static void OnAircraftLoaded() {
     }
     rebuildAoaSmoothers();
     UpdateAOATextFields();
-    // Reflect the loaded audioEnabled state on the toggle button.
-    if (audioToggleCheckbox) {
-        XPSetWidgetDescriptor(audioToggleCheckbox,
-                              audioEnabled ? "Sound: On" : "Sound: Off");
-    }
 #ifdef ENABLE_M5_INDEXER
     // Open the configured USB-serial port if one is set.  Failures
     // are logged inside OpenSerialOut and just leave the port closed
@@ -998,7 +993,7 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     
     audioToggleCheckbox = createWidget(
         xpWidgetClass_Button,
-        "Sound: Off"
+        audioEnabled ? "Sound: On" : "Sound: Off"
     );
 
     // Reload Plugins: pick up a freshly-built .xpl without restarting
@@ -1047,6 +1042,11 @@ static void UpdateAOATextFields() {
 
     snprintf(buffer, sizeof(buffer), "%d", iAoaMeanWindow);
     XPSetWidgetDescriptor(widgetAoaMeanWindow, buffer);
+
+    if (audioToggleCheckbox) {
+        XPSetWidgetDescriptor(audioToggleCheckbox,
+                              audioEnabled ? "Sound: On" : "Sound: Off");
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
