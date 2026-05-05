@@ -39,22 +39,12 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 //#define SERIALDATADEBUG   // show serial packet debug
 //#define DUMMY_SERIAL_DATA // dummy serial data for display test
-//#define IAS_IN_MPH        // uncomment this line for IAS in MPH, otherwise it will display in Kts;
 
-//#define REPEATER_MODE       // Used to turn on settings for video recorder repeater
-//#define VAC_MODE            // Used to turn on Vac specific features
-
-// REPEATER_MODE/VAC_MODE prefix character (R/V) for the variant, prepended
-// to BuildInfo::version at runtime by the renderers below.
-#if defined(REPEATER_MODE)
-#define VARIANT_PREFIX "R"
-#define IAS_IN_MPH
-#elif defined(VAC_MODE)
-#define VARIANT_PREFIX "V"
-#define IAS_IN_MPH
-#else
-#define VARIANT_PREFIX ""
-#endif
+// IAS_IN_MPH gates the IAS units readout (knots default, MPH if
+// defined).  Tracked for runtime promotion in issue #419 — once that
+// lands, the `#define` goes away and pilots flip units at runtime.
+// Until then, uncomment to rebuild with MPH.
+//#define IAS_IN_MPH
 
 #include <GaugeWidgets.h>
 #if defined(HUVVER)
@@ -155,13 +145,13 @@ uint64_t        previousMillis      = millis();
 uint64_t        flashTime           = millis();
 uint64_t        numbersUpdateTime;
 uint64_t        gHistoryTime        = millis();
-#ifndef REPEATER_MODE
+// Initial defaults.  `displayBrightness` is restored from NVS at boot
+// (see setup()); pilot adjustments via BtnA/BtnC persist on press, so
+// the M5 boots back into the brightness it was on at last power-down.
+// `displayType` is not persisted — every boot starts on Mode 0
+// (Primary), the documented default.
 uint16_t        displayBrightness   = 255;
 int16_t         displayType         = 0;
-#else
-uint16_t        displayBrightness   = 4;
-int16_t         displayType         = 0;
-#endif
 boolean         numericDisplay;
 boolean         flashFlag;
 // Match the OnSpeed #1 frame rate (50 ms cadence from DisplaySerial.cpp)
@@ -320,7 +310,7 @@ void setup()
             gdraw.drawString("Browse to:",20,140);
             gdraw.drawString("http://"+String(aiIP[0])+"."+String(aiIP[1])+"."+String(aiIP[2])+"."+String(aiIP[3])+"/upgrade",20,170);
             gdraw.setTextDatum(ML_DATUM);
-            gdraw.drawString(String(VARIANT_PREFIX) + BuildInfo::version, 5, 215);
+            gdraw.drawString(String(BuildInfo::version), 5, 215);
 
             gdraw.setFont(FSSB12);
             gdraw.setTextColor (TFT_RED);
@@ -427,6 +417,16 @@ void setup()
     // OnSpeed `#1` wire input).
     serialSetup();
 #endif
+
+    // Restore the pilot's persisted brightness preference.  The splash
+    // ran at the fixed 50/255 dim; loop() applies displayBrightness on
+    // every iteration so the first frame after splash gets the right
+    // value.  Default 255 (full bright) on a fresh M5 with no saved
+    // preference.
+    preferences.begin("OnSpeed", true);  // read-only
+    displayBrightness = preferences.getUShort("Brightness", 255);
+    preferences.end();
+    displayBrightness = constrain(displayBrightness, 1, 255);
 #endif
 
 } // end setup()
@@ -473,12 +473,28 @@ void loop()
     //
     // BtnC doubles brightness, BtnA halves it. constrain() below clamps to
     // the [1, 255] range so no guards are needed on the actions themselves.
+    // Persist to NVS on each adjust so the pilot's chosen brightness
+    // survives power-cycles — same "OnSpeed" namespace the SerialPort
+    // detection uses (SerialRead.cpp).  M5Unified's NVS handles wear-
+    // leveling; button-press cadence is far below the rewrite limits.
+    const uint16_t prevBrightness = displayBrightness;
     if (M5.BtnC.wasPressed()) displayBrightness *= 2;  // brightness up
     if (M5.BtnA.wasPressed()) displayBrightness /= 2;  // brightness down
 
     displayBrightness = constrain(displayBrightness, 1, 255);
 
     M5.Display.setBrightness(displayBrightness);
+
+#if defined(ESP_PLATFORM)
+    if (displayBrightness != prevBrightness)
+    {
+        preferences.begin("OnSpeed", false);
+        preferences.putUShort("Brightness", displayBrightness);
+        preferences.end();
+    }
+#else
+    (void)prevBrightness;
+#endif
 
     if (M5.BtnB.wasPressed())
     {
@@ -1659,7 +1675,6 @@ static String buildHtmlTitle()
         "<center>\n"
         "    <h2><u>FlyONSPEED M5 Display</u><br>Upgrade Server</h2>\n"
         "    <h3>Current Ver ")
-        + VARIANT_PREFIX
         + BuildInfo::version
         + "</h3>\n"
         "</center>\n";
@@ -1798,7 +1813,7 @@ void displaySplashScreen()
     // Explicit .c_str(): the native-build drawString overload accepts a
     // bare C-string only. The ESP path had an implicit String->const char*
     // conversion through M5GFX's Arduino-flavored overloads.
-    const String versionLine = String("Version: ") + VARIANT_PREFIX + BuildInfo::version;
+    const String versionLine = String("Version: ") + BuildInfo::version;
     gdraw.drawString(versionLine.c_str(), 160, 120);
     gdraw.drawString("To upgrade press Center button",160,220);
     gdraw.pushSprite (0, 0);
