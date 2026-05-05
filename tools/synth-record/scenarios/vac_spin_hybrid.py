@@ -101,17 +101,17 @@ def scenario():
     # Phase 2a: spin onset — yaw builds, roll deepens, vG drops.
     # 1.0s — fast enough to feel the autorotation start.
     #
-    # Sign convention (CRITICAL — easy to get wrong):
-    #   yaw_rate < 0 = nose-left = LEFT spin
-    #   wire lateralG: positive = leftward body accel (proto/DisplaySerial.h
-    #     convention; the producer negates AccelLatCorr).  In a left spin
-    #     the airframe is being pulled LEFTWARD by centripetal force →
-    #     wire lateralG should be POSITIVE.
-    #   M5 ball: drawn at (CenterX + slipValue × ...) where slipValue is
-    #     proportional to wire lateralG.  Positive lateralG → ball drawn
-    #     RIGHT of center, which is the correct ball-lag-behind-airframe
-    #     physics for a left spin.
-    #   Cue: -sign(yaw) = +1 (press right rudder = anti-yaw).
+    # Sign convention (CRITICAL — easy to get wrong).  See
+    # local-plans/LATERAL_G_CONVENTION.md for the full chain.
+    #   This scenario is a LEFT spin: yaw_rate < 0 (nose-left).
+    #   Body-frame lateral_g is NEGATIVE — the airframe is being
+    #     pulled leftward by centripetal force.
+    #   Wire `lateralG` carries body-frame as-is (PR #386 / v4.23).
+    #   M5 SerialRead::SerialProcess negates locally for ball-frame
+    #     display: Slip = -LateralG × 850.  Negative body-frame →
+    #     positive Slip → ball drawn RIGHT of center, matching the
+    #     ball-lag-behind-airframe physics for a left spin.
+    #   Cue: -sign(yaw_rate) = +1 → press RIGHT rudder (anti-yaw).
     spin_onset = smooth_to({
         "aoa":         (last.aoa,        aoa_in_spin),
         "ias":         (last.ias,        wfb.ias_from_aoa(aoa_in_spin, fs0, n=0.5)),
@@ -119,7 +119,7 @@ def scenario():
         "roll":        (last.roll,       -25.0),
         "yaw_rate":    (last.yaw_rate,   -50.0),
         "vertical_g":  (last.vertical_g, 0.6),
-        "lateral_g":   (last.lateral_g,  +0.30),   # +ve = leftward accel = ball right
+        "lateral_g":   (last.lateral_g,  -0.30),   # body-frame: -ve = leftward airframe accel = LEFT spin
     }, duration=1.0)
 
     # Phase 2b: yaw climbs to plateau, roll deepens further, vG settles low.
@@ -131,7 +131,7 @@ def scenario():
         "roll":        (-25.0,          -50.0),
         "yaw_rate":    (-50.0,          yaw_plateau),
         "vertical_g":  (0.6,            0.4),
-        "lateral_g":   (+0.30,          +0.40),
+        "lateral_g":   (-0.30,          -0.40),
     }, duration=1.5)
 
     # Phase 2c: developed spin, cue actively displayed.
@@ -143,7 +143,7 @@ def scenario():
         "roll":        (-50.0,         -55.0),
         "yaw_rate":    (yaw_plateau,   yaw_plateau),
         "vertical_g":  (0.4,           0.4),
-        "lateral_g":   (+0.40,         +0.40),
+        "lateral_g":   (-0.40,         -0.40),
     }, duration=2.0)
 
     # --- Phase 3: synthetic recovery ---
@@ -158,7 +158,7 @@ def scenario():
         "roll":        (-55.0,             -15.0),
         "yaw_rate":    (yaw_plateau,       -3.0),
         "vertical_g":  (0.4,               1.0),
-        "lateral_g":   (+0.40,             +0.05),
+        "lateral_g":   (-0.40,             -0.05),
     }, duration=1.0)
 
     pullout = smooth_to({
@@ -168,7 +168,7 @@ def scenario():
         "roll":        (-15.0,                        0.0),
         "yaw_rate":    (-3.0,                         0.0),
         "vertical_g":  (1.0,                          1.5),
-        "lateral_g":   (+0.05,                        0.0),
+        "lateral_g":   (-0.05,                        0.0),
     }, duration=1.5)
 
     synthetic = env.chain(spin_onset, spin_developing, spin_hold,

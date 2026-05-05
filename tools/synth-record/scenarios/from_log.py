@@ -48,19 +48,14 @@ _PITCH_NAMES       = ("Pitch", "pitch")
 _ROLL_NAMES        = ("Roll", "roll")
 _YAW_RATE_NAMES    = ("YawRate", "yawRate", "yaw_rate")
 _VERT_G_NAMES      = ("VerticalG", "verticalG", "vertical_g")
-# IMPORTANT — sign convention: the SD log column `LateralG` carries the
-# raw IMU Y-axis accel (body frame, positive = airframe accelerating
-# right).  Same convention as the WebSocket `lateralGLoad` field.
-#
-# The `#1` serial wire's `lateralG` field uses the OPPOSITE convention
-# (ball frame, positive = leftward) — the firmware negates the body
-# value before encoding it for M5 transmission.  See
-# proto/DisplaySerial.h::DisplayBuildInputs.
-#
-# We're driving the M5 sim, so we must negate the log value when we
-# fill LiveSnapshot.lateral_g — see the `_log_to_wire_lateral_g`
-# converter below.  Without this negation the ball renders mirrored
-# left↔right relative to the airframe's actual motion.
+# Sign convention: at v4.23 (PR #386), the SD log column `LateralG`,
+# the `#1` wire's `lateralG` field, the WebSocket JSON's
+# `lateralGLoad`, and `LiveSnapshot.lateral_g` all use body-frame
+# (positive = airframe accelerating rightward).  Slip-skid ball
+# renderers (M5 firmware, LiveView slipBall.js) negate locally at the
+# rendering site to recover ball-frame display.  See
+# proto/DisplaySerial.h::DisplayBuildInputs::lateralG and
+# local-plans/LATERAL_G_CONVENTION.md.
 _LAT_G_NAMES       = ("LateralG", "lateralG", "lateral_g")
 _OAT_NAMES         = ("OAT", "oat")
 _VSI_NAMES         = ("VSI", "vsi")
@@ -71,11 +66,14 @@ _TIMESTAMP_NAMES   = ("timeStamp", "Timestamp", "time_ms")
 
 
 def _log_to_wire_lateral_g(body_frame_g: float) -> float:
-    """Convert log's body-frame lateralG (positive = right) to the wire's
-    ball-frame convention (positive = leftward), which is what
-    LiveSnapshot.lateral_g and the wire `lateralG` field both expect.
+    """Pass through.  At v4.23 the log, the wire, and
+    LiveSnapshot.lateral_g all use body-frame (positive = airframe
+    accelerating rightward), so no conversion is needed.  Kept as a
+    function call for grep-ability — every log→snapshot lateral-G
+    handoff goes through this name, which makes future convention
+    changes auditable.
     """
-    return -body_frame_g
+    return body_frame_g
 
 
 def _first_present(row: dict[str, str], names: tuple[str, ...]):
@@ -268,9 +266,8 @@ def scenario_from_log(log_path: Path,
                 break
 
             # Always feed EMA so it tracks the actual log rate, even on
-            # rows we don't emit.  Convert log's body-frame lateralG to
-            # the wire's ball-frame convention immediately so the EMA
-            # state is consistent with downstream consumers.
+            # rows we don't emit.  Log, wire, and LiveSnapshot all use
+            # body-frame at v4.23; the helper is a pass-through.
             raw_lat   = _log_to_wire_lateral_g(_ffloat(row, _LAT_G_NAMES))
             raw_vert  = _ffloat(row, _VERT_G_NAMES, default=1.0)
             raw_pitch = _ffloat(row, _PITCH_NAMES)
