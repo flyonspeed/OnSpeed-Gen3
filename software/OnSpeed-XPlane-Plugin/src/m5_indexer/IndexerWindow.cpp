@@ -120,6 +120,32 @@ std::uint64_t                 s_serialErrCount = 0;
 constexpr int kWindowWidth  = 320;
 constexpr int kWindowHeight = 240;
 
+// Floor on resize.  X-Plane allows arbitrary user drag; below this
+// the window is too small for the M5 framebuffer to show anything
+// useful and we skip persistence to avoid getting stuck in a
+// degenerate state.
+constexpr int kMinWidth  = 160;
+constexpr int kMinHeight = 120;
+
+// Sanity bounds on persisted coords.  Any sane multi-monitor desktop
+// fits within ±50000 px/boxels.  Anything bigger is junk (transient
+// pop-out coordinate confusion seen on 2026-05-05, hand-edited file,
+// etc.) and should be rejected on save.
+constexpr int kSaneAbs    = 50000;
+constexpr int kMinVisible = 80;     // px/boxels of window kept on-screen
+
+// Persisted indexer state.  Default values are the same as the
+// pre-sticky-persistence behavior so a fresh install (no .prf yet)
+// puts the window where the old code did.
+PersistedState s_persisted;
+
+// Dirty flag, flipped by MarkDirtyIfChanged when the live window
+// geometry diverges from s_persisted.  Polled by aoa_audio.cpp's
+// periodic save callback (1 Hz), which flushes SaveSettings if set.
+// Replaces the old per-frame fopen/write in DrawWindow that was
+// hammering the .prf on every drag tick.
+bool s_dirty = false;
+
 // ------------------------------------------------------------------
 // X-Plane window callbacks
 // ------------------------------------------------------------------
@@ -342,10 +368,15 @@ bool CreateXPlaneWindow()
 
     XPLMCreateWindow_t params = {};
     params.structSize             = sizeof(params);
-    params.left                   = 100;
-    params.top                    = 600;
-    params.right                  = 100 + kWindowWidth;
-    params.bottom                 = 600 - kWindowHeight;
+    // Initial geometry comes from the persisted floating coords
+    // (defaults match the pre-sticky-persistence values).  When the
+    // .prf has saved state, the periodic-save callback in
+    // aoa_audio.cpp will then call ApplyPersistedState() on the next
+    // tick after AIRPORT_LOADED to restore pop-out mode + visibility.
+    params.left                   = s_persisted.floatLeft;
+    params.top                    = s_persisted.floatTop;
+    params.right                  = s_persisted.floatLeft + s_persisted.floatWidth;
+    params.bottom                 = s_persisted.floatTop  - s_persisted.floatHeight;
     params.visible                = 0;       // start hidden; menu toggles
     params.drawWindowFunc         = DrawWindow;
     params.handleMouseClickFunc   = HandleClick;
@@ -612,6 +643,207 @@ int GetMode()
 {
     return static_cast<int>(displayType);
 }
+
+// ------------------------------------------------------------------
+// Persisted state machinery
+// ------------------------------------------------------------------
+
+namespace {
+
+void ClampFloatingGeom(PersistedState* st)
+{
+    if (st->floatWidth  < kMinWidth)  st->floatWidth  = kMinWidth;
+    if (st->floatHeight < kMinHeight) st->floatHeight = kMinHeight;
+
+    // Reject pathological absolute values entirely (defaults stand).
+    if (std::abs(st->floatLeft) >= kSaneAbs ||
+        std::abs(st->floatTop)  >= kSaneAbs ||
+        st->floatWidth  >= kSaneAbs ||
+        st->floatHeight >= kSaneAbs)
+    {
+        st->floatLeft   = 100;
+        st->floatTop    = 600;
+        st->floatWidth  = kWindowWidth;
+        st->floatHeight = kWindowHeight;
+    }
+
+    // Clamp against live X-Plane desktop bounds so kMinVisible boxels
+    // stay on-screen.  Multi-monitor disconnect since the .prf was
+    // last written can put a previously-visible window off-screen
+    // otherwise.
+    int sLeft = 0, sTop = 0, sRight = 0, sBottom = 0;
+    XPLMGetScreenBoundsGlobal(&sLeft, &sTop, &sRight, &sBottom);
+    if (sRight > sLeft && sTop > sBottom) {
+        const int maxLeft = sRight  - kMinVisible;
+        const int minLeft = sLeft   - (st->floatWidth  - kMinVisible);
+        const int maxTop  = sTop;
+        const int minTop  = sBottom + kMinVisible;
+        if (st->floatLeft > maxLeft) st->floatLeft = maxLeft;
+        if (st->floatLeft < minLeft) st->floatLeft = minLeft;
+        if (st->floatTop  > maxTop)  st->floatTop  = maxTop;
+        if (st->floatTop  < minTop)  st->floatTop  = minTop;
+    }
+}
+
+void ClampPopOutGeom(PersistedState* st)
+{
+    if (st->popWidth  < kMinWidth)  st->popWidth  = kMinWidth;
+    if (st->popHeight < kMinHeight) st->popHeight = kMinHeight;
+
+    // We don't know which OS monitor the window will land on so we
+    // can't tightly bounds-check left/top — the OS itself will clamp
+    // visible-area on XPLMSetWindowGeometryOS.  Reject only the
+    // pathological-magnitude cases.
+    if (std::abs(st->popLeft) >= kSaneAbs ||
+        std::abs(st->popTop)  >= kSaneAbs ||
+        st->popWidth  >= kSaneAbs ||
+        st->popHeight >= kSaneAbs)
+    {
+        st->popLeft   = 100;
+        st->popTop    = 100;
+        st->popWidth  = kWindowWidth;
+        st->popHeight = kWindowHeight;
+    }
+}
+
+}  // namespace
+
+void ApplyPersistedState(const PersistedState& in)
+{
+    PersistedState st = in;
+    ClampFloatingGeom(&st);
+    ClampPopOutGeom(&st);
+    s_persisted = st;
+
+    // Logging is cheap and load-bearing for debugging the boot path —
+    // keep it.  XPLMDebugString is safe from any non-render context.
+    char dbuf[256];
+    std::snprintf(dbuf, sizeof(dbuf),
+        "FlyOnSpeed: ApplyPersistedState window=%p visible=%d popped=%d "
+        "float=%d,%d,%dx%d\n",
+        static_cast<const void*>(s_window),
+        st.visible ? 1 : 0,
+        st.isPoppedOut ? 1 : 0,
+        st.floatLeft, st.floatTop, st.floatWidth, st.floatHeight);
+    XPLMDebugString(dbuf);
+
+    // If the user has never opened the indexer this session, the
+    // window doesn't exist yet.  CreateXPlaneWindow will read
+    // s_persisted on first Show; pop-out mode + visibility get
+    // applied here on the next ApplyPersistedState() after that.
+    // For visible=true on cold boot we DO want to make the window
+    // appear, but only from a flight-loop callback context — Show()
+    // lazy-inits SDL/M5GFX and the M5Unified singleton can't tolerate
+    // that from arbitrary SDK threads.  This function is documented
+    // to only be called from the periodic flight-loop callback, so
+    // calling Show() here is safe.
+    if (st.visible && !s_window) {
+        Show();
+    }
+
+    if (!s_window) {
+        // Show() failed to create the window (or visible=false).
+        // Nothing more to do; the flag is held for next call.
+        return;
+    }
+
+    // Window exists.  Apply positioning mode first (X-Plane reparents
+    // the window into a new coord space), then geometry in that
+    // mode's space, then visibility.
+    if (st.isPoppedOut) {
+        XPLMSetWindowPositioningMode(s_window, xplm_WindowPopOut, -1);
+        XPLMSetWindowGeometryOS(s_window,
+                                st.popLeft,
+                                st.popTop,
+                                st.popLeft + st.popWidth,
+                                st.popTop  - st.popHeight);
+    } else {
+        XPLMSetWindowPositioningMode(s_window, xplm_WindowPositionFree, -1);
+        XPLMSetWindowGeometry(s_window,
+                              st.floatLeft,
+                              st.floatTop,
+                              st.floatLeft + st.floatWidth,
+                              st.floatTop  - st.floatHeight);
+    }
+
+    XPLMSetWindowIsVisible(s_window, st.visible ? 1 : 0);
+    s_visible = st.visible;
+    s_dirty   = false;     // geometry now matches s_persisted
+}
+
+void GetCurrentState(PersistedState* out)
+{
+    if (!out) return;
+    *out = s_persisted;
+    out->visible = IsVisible();
+    out->mode    = static_cast<int>(displayType);
+
+    if (!s_window) return;
+
+    const bool poppedOut = (XPLMWindowIsPoppedOut(s_window) != 0);
+    out->isPoppedOut = poppedOut;
+    if (poppedOut) {
+        int l, t, r, b;
+        XPLMGetWindowGeometryOS(s_window, &l, &t, &r, &b);
+        // Only commit if the read looks sane.  X-Plane occasionally
+        // returns transient nonsense during pop-out / un-pop / monitor
+        // change; the sane-bounds gate prevents that landing in the .prf.
+        if (std::abs(l) < kSaneAbs && std::abs(t) < kSaneAbs &&
+            (r - l) > 0 && (t - b) > 0 &&
+            (r - l) < kSaneAbs && (t - b) < kSaneAbs)
+        {
+            out->popLeft   = l;
+            out->popTop    = t;
+            out->popWidth  = r - l;
+            out->popHeight = t - b;
+        }
+    } else {
+        int l, t, r, b;
+        XPLMGetWindowGeometry(s_window, &l, &t, &r, &b);
+        if (std::abs(l) < kSaneAbs && std::abs(t) < kSaneAbs &&
+            (r - l) > 0 && (t - b) > 0 &&
+            (r - l) < kSaneAbs && (t - b) < kSaneAbs)
+        {
+            out->floatLeft   = l;
+            out->floatTop    = t;
+            out->floatWidth  = r - l;
+            out->floatHeight = t - b;
+        }
+    }
+}
+
+void MarkDirtyIfChanged()
+{
+    if (!s_window) return;
+    PersistedState live;
+    GetCurrentState(&live);
+
+    bool changed =
+        live.visible     != s_persisted.visible    ||
+        live.mode        != s_persisted.mode       ||
+        live.isPoppedOut != s_persisted.isPoppedOut;
+    if (live.isPoppedOut) {
+        changed = changed ||
+            live.popLeft   != s_persisted.popLeft   ||
+            live.popTop    != s_persisted.popTop    ||
+            live.popWidth  != s_persisted.popWidth  ||
+            live.popHeight != s_persisted.popHeight;
+    } else {
+        changed = changed ||
+            live.floatLeft   != s_persisted.floatLeft   ||
+            live.floatTop    != s_persisted.floatTop    ||
+            live.floatWidth  != s_persisted.floatWidth  ||
+            live.floatHeight != s_persisted.floatHeight;
+    }
+
+    if (changed) {
+        s_persisted = live;
+        s_dirty     = true;
+    }
+}
+
+bool IsDirty()  { return s_dirty; }
+void ClearDirty() { s_dirty = false; }
 
 void Shutdown()
 {

@@ -42,6 +42,44 @@ void Hide();
 void SetMode(int mode);
 int  GetMode();
 
+// Persisted indexer state.  Two geometries are tracked independently
+// so that toggling pop-out mode and back returns the window to its
+// previous floating position (and vice versa).  Floating coords are
+// X-Plane global desktop boxels; pop-out coords are OS-monitor pixels.
+struct PersistedState {
+    bool visible      = false;
+    int  mode         = 0;
+    bool isPoppedOut  = false;
+    int  floatLeft = 100, floatTop = 600, floatWidth = 320, floatHeight = 240;
+    int  popLeft = 100, popTop = 100, popWidth = 320, popHeight = 240;
+};
+
+// Apply persisted state.  MUST be called from a flight-loop callback,
+// not a message handler — calling from XPLM_MSG_AIRPORT_LOADED
+// crashed X-Plane on plugin reload because Show() triggers
+// SDL/M5GFX/panel-framebuffer lazy init that the M5Unified singleton
+// + SDL timer subsystem don't tolerate from arbitrary SDK message
+// dispatch contexts.  aoa_audio.cpp's periodic save callback
+// observes a one-shot flag set in the AIRPORT_LOADED handler and
+// invokes ApplyPersistedState on the next flight-loop tick.
+void ApplyPersistedState(const PersistedState& st);
+
+// Snapshot current window state for saving.  Reads geometry from the
+// active positioning mode (floating vs popped-out) via the matching
+// SDK getter; the other mode's coords are held at their last persisted
+// values so a pop-out → drag → un-pop session preserves both spots.
+// Filters out obviously-bad reads (multi-monitor transition glitches
+// that previously stranded the window 67k boxels off-screen).
+void GetCurrentState(PersistedState* out);
+
+// Compare current geometry against the last-persisted snapshot.
+// Sets a dirty flag if anything changed and the new state is
+// well-formed.  Polled by the periodic save callback in
+// aoa_audio.cpp; flushes via SaveSettings if dirty.
+void MarkDirtyIfChanged();
+bool IsDirty();
+void ClearDirty();
+
 // Tear down the X-Plane window and GL texture.  Called from XPluginStop.
 void Shutdown();
 
