@@ -3599,7 +3599,7 @@
 <h2 id="efis-serial-connection">EFIS Serial Connection<a class="headerlink" href="#efis-serial-connection" title="Permanent link">&para;</a></h2>
 <p>If you have a glass panel EFIS, connecting it to OnSpeed provides IAS, OAT, attitude, and other data that improves system performance.</p>
 <ul>
-<li><strong>OnSpeed RX pin</strong>: GPIO 11 (through ADM3202 RS-232 level shifter)</li>
+<li><strong>OnSpeed RX pin</strong>: GPIO 11 on V4P (through ADM3202 RS-232 level shifter), GPIO 9 on V4B (through SW1, RS-232 or TTL bypass)</li>
 <li><strong>Baud rate</strong>: 115200, 8N1</li>
 <li><strong>Wiring</strong>: Connect your EFIS's serial <strong>TX</strong> output to the OnSpeed <strong>RX</strong> input</li>
 </ul>
@@ -3647,7 +3647,7 @@
 </tr>
 <tr>
 <td>EFIS Serial</td>
-<td>GPIO 11 (RX)</td>
+<td>GPIO 11 (RX) on V4P, GPIO 9 (RX) on V4B</td>
 <td>Input</td>
 <td>RS-232 level, 115200 baud</td>
 </tr>

@@ -3413,8 +3413,8 @@
 <h2 id="wiring">Wiring<a class="headerlink" href="#wiring" title="Permanent link">&para;</a></h2>
 <p>Connect your EFIS serial <strong>TX</strong> (transmit) output to the OnSpeed <strong>RX</strong> (receive) input:</p>
 <ul>
-<li><strong>OnSpeed RX pin</strong>: GPIO 11 (through ADM3202 RS-232 level shifter on the PCB)</li>
-<li><strong>OnSpeed TX pin</strong>: GPIO 46 (not connected — OnSpeed only receives from the EFIS)</li>
+<li><strong>OnSpeed RX pin</strong>: GPIO 11 on V4P (through ADM3202 RS-232 level shifter), GPIO 9 on V4B (through SW1, RS-232 or TTL bypass)</li>
+<li><strong>OnSpeed TX pin</strong>: not connected — OnSpeed only receives from the EFIS</li>
 </ul>
 <div class="admonition warning">
 <p class="admonition-title">TX to RX — not TX to TX</p>

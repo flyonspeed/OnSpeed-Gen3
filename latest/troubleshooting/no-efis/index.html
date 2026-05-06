@@ -3521,7 +3521,7 @@
 <h2 id="check-3-txrx-polarity">Check 3: TX/RX Polarity<a class="headerlink" href="#check-3-txrx-polarity" title="Permanent link">&para;</a></h2>
 <p>Serial connections are <strong>crossed</strong>: the EFIS <strong>transmit</strong> (TX) pin connects to the OnSpeed <strong>receive</strong> (RX) pin.</p>
 <ul>
-<li>OnSpeed RX: GPIO 11 (through ADM3202 RS-232 level shifter)</li>
+<li>OnSpeed RX: GPIO 11 on V4P (through ADM3202 RS-232 level shifter), GPIO 9 on V4B (through SW1)</li>
 <li>If you wired TX to TX, no data will flow</li>
 <li>Swap the wire at one end</li>
 </ul>
