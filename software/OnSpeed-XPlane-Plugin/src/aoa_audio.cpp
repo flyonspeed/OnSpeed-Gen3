@@ -303,6 +303,11 @@ static std::string buildSettingsPath() {
     return path;
 }
 
+// Forward decls so visibility-changing handlers (close button, Show
+// menu) can capture the latest geometry before persisting.
+static void RefreshAudioWindowState();
+static bool AudioWindowChanged();
+
 static void SaveSettings() {
     if (s_SettingsPath.empty()) return;
     if (!s_settingsLoaded) {
@@ -716,11 +721,16 @@ static void OnAircraftLoaded() {
                                  s_audioWindow.width, s_audioWindow.height);
         UpdateAOATextFields();
     } else if (s_audioWindow.visible && audioControlWidget) {
-        // Aircraft change while the panel was open: re-show in case
-        // the previous aircraft's .prf had it hidden and we already
-        // hid it during that aircraft's session.
+        // New aircraft's .prf says the panel was open.  The widget
+        // already exists from the prior aircraft's session — show it
+        // in case it was hidden during that session.
         XPShowWidget(audioControlWidget);
         UpdateAOATextFields();
+    } else if (!s_audioWindow.visible && audioControlWidget) {
+        // New aircraft's .prf says the panel was closed.  Hide the
+        // existing widget so it matches the saved state (the previous
+        // aircraft's session had it open).
+        XPHideWidget(audioControlWidget);
     }
 }
 
@@ -910,10 +920,12 @@ static int AudioControlHandler(
 {
     if (inMessage == xpMessage_CloseButtonPushed) {
         XPHideWidget(audioControlWidget);
-        // Pilot closed the window: persist hidden so a reboot
-        // doesn't reopen it.
-        if (s_audioWindow.visible) {
-            s_audioWindow.visible = false;
+        // Refresh after hiding so s_audioWindow.visible reflects the
+        // close *and* any unflushed drag/resize the periodic poll
+        // hadn't picked up yet.  Persist if anything changed so a
+        // reboot reopens at the right place — or stays closed.
+        RefreshAudioWindowState();
+        if (AudioWindowChanged()) {
             SaveSettings();
         }
         return 1;
@@ -1278,10 +1290,12 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
         }
-        // Pilot opened the window: persist visibility so a reboot
-        // brings it back automatically.
-        if (!s_audioWindow.visible) {
-            s_audioWindow.visible = true;
+        // Refresh after showing so s_audioWindow.visible reflects the
+        // open *and* any unflushed drag/resize the periodic poll
+        // hadn't picked up yet.  Persist if anything changed so a
+        // reboot reopens automatically at the right place.
+        RefreshAudioWindowState();
+        if (AudioWindowChanged()) {
             SaveSettings();
         }
         return;
@@ -1637,8 +1651,8 @@ static void RefreshAudioWindowState()
 
     // X-Plane occasionally returns transient nonsense during drags
     // / monitor changes.  Reject pathological reads so the .prf
-    // doesn't get poisoned.
-    constexpr int kSaneAbs = 100000;
+    // doesn't get poisoned.  Matches kSaneAbs in IndexerWindow.cpp.
+    constexpr int kSaneAbs = 50000;
     const int width  = right - left;
     const int height = top   - bottom;
     if (std::abs(left) >= kSaneAbs || std::abs(top) >= kSaneAbs ||
@@ -1840,18 +1854,20 @@ PLUGIN_API void XPluginStop(void) {
         audioThread.reset();
     }
 
-    if (audioControlWidget) {
-        XPDestroyWidget(audioControlWidget, 1);
-        audioControlWidget = nullptr;
-    }
-    // Final flush of the audio control window geometry before
-    // teardown.  Mirrors the WILL_WRITE_PREFS hook for the path
-    // where X-Plane skips that message (e.g., crash-shutdown).
+    // Capture the audio control window's final geometry + visibility
+    // and flush to .prf before destroying the widget.  Mirrors the
+    // WILL_WRITE_PREFS hook for paths where X-Plane skips that message
+    // (e.g., crash-shutdown).  RefreshAudioWindowState early-returns
+    // once the widget is gone, so this must run first.
     if (s_settingsLoaded) {
         RefreshAudioWindowState();
         if (AudioWindowChanged()) {
             SaveSettings();
         }
+    }
+    if (audioControlWidget) {
+        XPDestroyWidget(audioControlWidget, 1);
+        audioControlWidget = nullptr;
     }
 
     XPLMDestroyMenu(menuId);
