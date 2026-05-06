@@ -14,6 +14,12 @@ extern float           PercentLift;
 extern float           Pitch;
 extern float           Roll;
 extern float           IAS;
+// Air-data validity flag derived from the wire's iasKt sentinel
+// (kIasInvalidWireSentinel == 9999).  When false, the producer's
+// bIasAlive flag is false — the renderer must dash IAS and
+// percentLift digits rather than show the raw wire value.  See
+// proto/DisplaySerial.h for the contract and issue #358 for context.
+extern bool            IasIsValid;
 extern float           Palt;
 extern float           iVSI;
 extern float           VerticalG;

@@ -8,6 +8,7 @@
 #include <WebSocketsServer.h>   // https://github.com/Links2004/arduinoWebSockets version 2.1.3
 
 #include <algorithm>
+#include <cstring>
 
 #include "src/Globals.h"
 
@@ -175,15 +176,21 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // for over-G warnings; the smoothing is purely a presentation choice.
     float fVerticalGload = g_AHRS.AccelVertFilter.get();
 
-    // AOA is gated by the user-tunable `iMuteAudioUnderIAS` threshold,
-    // not `bIasAlive`.  Rationale: `iMuteAudioUnderIAS` is a UX knob
-    // (pilot sets where they want AOA callouts to appear) — it is
-    // configured independently of sensor validity.  `bIasAlive` is the
-    // sensor-level validity flag (20/15 kt fixed).  Audio mute uses
-    // `iMuteAudioUnderIAS` with its own +5 kt hysteresis; keep the web
-    // UI's "show AOA?" decision aligned with that UX choice rather than
-    // surfacing AOA 10 kt earlier than the pilot configured.
-    if (isnan(g_Sensors.AOA) || g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
+    // AOA is gated by the sensor-level `bIasAlive` flag — the canonical
+    // "air data is valid" signal (rising-edge 20 kt, falling 15 kt,
+    // hysteresis; backed by the pitot deadband so it can't latch alive
+    // on sensor noise alone).  Display validity is a sensor-level fact,
+    // not a UX choice; `iMuteAudioUnderIAS` keeps its job in the audio
+    // path (Audio.cpp) and no longer drives display gates.  See issue
+    // #358 for the rationale.
+    //
+    // Sentinel `-100` is preserved for AOA (rather than emitted as
+    // `null`) because the consumer wsClient.js distinguishes valid
+    // from invalid via `o.AOA > AOA_NA_SENTINEL` — and JS coerces
+    // `null > -20` to `true` (null → 0 in numeric comparisons), which
+    // would silently mark a null reading as valid.  Keeping the
+    // numeric sentinel is the minimal-impact change.
+    if (isnan(g_Sensors.AOA) || !g_Sensors.bIasAlive)
     {
         fWifiAOA = -100;
     }
@@ -297,15 +304,22 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // body-angle setpoints (LDmax, OnSpeedFast/Slow/Warn, alpha_0,
     // alpha_stall) are gone — every consumer renders against the
     // percent anchors instead.
+    // IAS and percentLift use %s placeholders (rather than %.2f / %.1f)
+    // so the producer can emit JSON `null` for those fields when air
+    // data is not valid (bIasAlive=false).  Consumer's fmt() helper
+    // collapses null/undefined/NaN to '—'.  AOA stays %.2f and rides
+    // its `-100` numeric sentinel — see the gating block above for the
+    // rationale (JS `null > -20` is true, so swapping AOA to null
+    // would break the wsClient validity check).
     const char * szFormat =
-        "{\"AOA\":%.2f,\"Pitch\":%.2f,\"Roll\":%.2f,\"IAS\":%.2f,\"PAlt\":%.2f,"
+        "{\"AOA\":%.2f,\"Pitch\":%.2f,\"Roll\":%.2f,\"IAS\":%s,\"PAlt\":%.2f,"
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,"
         "\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"flapsMinDeg\":%i,\"flapsMaxDeg\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
         "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
         "\"gOnsetRate\":%.2f,"
-        "\"percentLift\":%.1f,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
+        "\"percentLift\":%s,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
         "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
@@ -403,8 +417,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // percent-lift bar could disagree by one sample tick.  Cheap
     // local snapshot keeps them coherent.
     const float fAoaSnap         = g_Sensors.AOA;
-    const float fIasSnap         = g_Sensors.IAS;
-    const bool bIasValidForOutput = (fIasSnap >= g_Config.iMuteAudioUnderIAS);
+    // Match the AOA gate above and the M5 wire-format gate in
+    // DisplaySerial.cpp: display validity rides on bIasAlive (sensor-
+    // level), not the audio mute threshold (UX-level).  See #358.
+    const bool bIasValidForOutput = g_Sensors.bIasAlive;
 
     // Live percent-lift reading — the active-detent calibration is
     // what the audio path uses, so this matches what the pilot hears.
@@ -478,6 +494,24 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // LiveView's right-edge tape stay in lockstep.
     const float fGOnsetRate = SafeJsonFloat(g_AHRS.gOnsetRate, 0.0f);
 
+    // Format the IAS / percentLift values as strings — JSON `null`
+    // when air data is invalid (so the consumer's fmt() helper dashes
+    // them) or the formatted float otherwise.  16-byte staging buffers
+    // hold the longest expected output: "9999.99" + sign + null = 9
+    // chars for IAS, "99.9" + null = 5 for percentLift.
+    char szIas[16];
+    char szPctLift[16];
+    if (bIasValidForOutput)
+        {
+        snprintf(szIas,     sizeof(szIas),     "%.2f", fWifiIAS);
+        snprintf(szPctLift, sizeof(szPctLift), "%.1f", fJsonPercentLiftPct);
+        }
+    else
+        {
+        std::strcpy(szIas,     "null");
+        std::strcpy(szPctLift, "null");
+        }
+
     // szFormat is a compile-time constant split across lines for readability.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -488,7 +522,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiAOA,
         fWifiPitch,
         fWifiRoll,
-        fWifiIAS,
+        szIas,
         fPAltFt,
         fVerticalGload,
         fLatG,
@@ -505,7 +539,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiOAT,
         fDerivedAOA,
         fGOnsetRate,
-        fJsonPercentLiftPct,
+        szPctLift,
         iJsonTonesOnPct,
         iJsonFastPct,
         iJsonSlowPct,
