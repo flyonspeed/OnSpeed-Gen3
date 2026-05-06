@@ -7,15 +7,26 @@ panel-mounted Gen3 box, driven by X-Plane's flight model.
 
 ## Building from source
 
-Requires CMake 3.15+, a C++17 compiler, OpenAL, SDL2, and PlatformIO
-(for the M5 libdeps prefetch).  The embedded M5 indexer is built by
+Requires CMake 3.15+, a C++17 compiler, OpenAL, and PlatformIO (for
+the M5 libdeps prefetch).  The embedded M5 indexer is built by
 default; pass `-DENABLE_M5_INDEXER=OFF` for an audio-only `.xpl`.
+
+SDL2 is fetched as source and built as a static library at configure
+time — no system install required, and the resulting `.xpl` ships
+without an external libSDL2 dylib dependency.  Add an extra ~30 s
+to first-time configure for the SDL2 pull; subsequent builds reuse
+the cached source.
 
 | OS | OpenAL | SDL2 |
 |---|---|---|
-| macOS | system framework, no install needed | `brew install sdl2` |
-| Linux | `sudo apt-get install libopenal-dev` | `sudo apt-get install libsdl2-dev` |
+| macOS | system framework, no install needed | bundled (FetchContent) |
+| Linux | `sudo apt-get install libopenal-dev` | bundled (FetchContent) |
 | Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` | not yet supported (#396) — pass `-DENABLE_M5_INDEXER=OFF` |
+
+To opt out of the bundled SDL2 (faster incremental dev builds at the
+cost of a non-portable `.xpl`), pass `-DONSPEED_SYSTEM_SDL2=ON` and
+install SDL2 via your package manager (`brew install sdl2` /
+`apt install libsdl2-dev`).
 
 The embedded M5 indexer reuses the M5 display project's PlatformIO
 libdeps cache (M5GFX + M5Unified).  Populate it once before

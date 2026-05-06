@@ -25,14 +25,13 @@ add_compile_definitions(XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM303=1 XPLM40
 
 # Per-OS SDK library directory and platform define expected by the X-Plane SDK.
 if(APPLE)
-    if(ENABLE_M5_INDEXER)
-        # Indexer build links SDL2 from Homebrew which is single-arch
-        # on most dev installs.  Force native arch only.  Universal
-        # build comes back when we statically link a fat SDL2 build.
-        set(CMAKE_OSX_ARCHITECTURES "arm64")
-    else()
-        set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
-    endif()
+    # SDL2 is built from source as a static library (see the
+    # ENABLE_M5_INDEXER block below), so the resulting .xpl is
+    # self-contained and works on any Mac without a Homebrew SDL2
+    # install.  We can build a universal binary in either
+    # configuration since the static SDL2 lib is built for both
+    # architectures alongside the rest of the plugin.
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
     set(XPLANE_SDK_LIBS "${CMAKE_CURRENT_SOURCE_DIR}/SDK/Libraries/Mac")
     add_compile_definitions(XPLM_64=1 APL=1)
     add_compile_options(-Wno-deprecated-declarations)  # OpenAL on macOS
@@ -124,31 +123,97 @@ if(ENABLE_M5_INDEXER)
     # on `#if defined(SDL_h_)`, which the M5 firmware calls every loop.
     # Even though we don't open an SDL window (we use a custom panel),
     # SDL2 must be linked so those time helpers compile in.
-    # SDL2: try config first (works for vcpkg + most modern installs);
-    # fall back to module mode (works for Homebrew + apt).  On macOS
-    # without a system SDL2.framework, Homebrew installs a regular
-    # dylib + headers under /opt/homebrew/include/SDL2/ — module mode
-    # finds those via SDL2_INCLUDE_DIR + SDL2_LIBRARY.
-    find_package(SDL2 CONFIG QUIET)
-    if(SDL2_FOUND AND TARGET SDL2::SDL2)
-        list(APPEND PLUGIN_EXTRA_LIBS SDL2::SDL2)
-    else()
-        # Module-mode fallback.  On macOS Homebrew, SDL2 lives at
-        # ${brew_prefix}/opt/sdl2; CMake's find_package SDL2 in MODULE
-        # mode (via FindSDL2.cmake — usually present, sometimes not)
-        # may need PKG_CONFIG_PATH hints.  Use the brute-force find.
-        find_path(SDL2_INCLUDE_DIR SDL.h
-            HINTS /opt/homebrew/include /usr/local/include /usr/include
-            PATH_SUFFIXES SDL2)
-        find_library(SDL2_LIBRARY NAMES SDL2 SDL2-2.0
-            HINTS /opt/homebrew/lib /usr/local/lib /usr/lib)
-        if(NOT SDL2_INCLUDE_DIR OR NOT SDL2_LIBRARY)
-            message(FATAL_ERROR
-                "ENABLE_M5_INDEXER requires SDL2.  Install via "
-                "`brew install sdl2` (macOS) or `apt install libsdl2-dev` (Linux).")
+    #
+    # We build SDL2 from source as a static library so the resulting
+    # .xpl is self-contained.  Pilot-side installs don't need a
+    # `brew install sdl2` (or apt-get / vcpkg equivalent); copying
+    # the .xpl into place is the only step.  On macOS this also
+    # allows universal-binary builds — Homebrew SDL2 is single-arch
+    # on most dev installs.
+    #
+    # Set ONSPEED_SYSTEM_SDL2=ON to opt out and link the system SDL2
+    # instead (faster incremental dev builds; produces a non-portable
+    # .xpl).
+    option(ONSPEED_SYSTEM_SDL2
+           "Link system SDL2 instead of building it statically" OFF)
+
+    if(ONSPEED_SYSTEM_SDL2)
+        # System-SDL2 path: same finder logic the build used pre-PR.
+        # Try CONFIG first (vcpkg, modern installs); fall back to a
+        # brute-force find_path/find_library (Homebrew, apt).
+        find_package(SDL2 CONFIG QUIET)
+        if(SDL2_FOUND AND TARGET SDL2::SDL2)
+            list(APPEND PLUGIN_EXTRA_LIBS SDL2::SDL2)
+        else()
+            find_path(SDL2_INCLUDE_DIR SDL.h
+                HINTS /opt/homebrew/include /usr/local/include /usr/include
+                PATH_SUFFIXES SDL2)
+            find_library(SDL2_LIBRARY NAMES SDL2 SDL2-2.0
+                HINTS /opt/homebrew/lib /usr/local/lib /usr/lib)
+            if(NOT SDL2_INCLUDE_DIR OR NOT SDL2_LIBRARY)
+                message(FATAL_ERROR
+                    "ONSPEED_SYSTEM_SDL2=ON but no SDL2 found.  Install via "
+                    "`brew install sdl2` (macOS) or `apt install libsdl2-dev` "
+                    "(Linux), or unset the option to build SDL2 from source.")
+            endif()
+            list(APPEND PLUGIN_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
+            list(APPEND PLUGIN_EXTRA_LIBS ${SDL2_LIBRARY})
         endif()
-        list(APPEND PLUGIN_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
-        list(APPEND PLUGIN_EXTRA_LIBS ${SDL2_LIBRARY})
+    else()
+        # FetchContent path: download SDL2 source at configure time and
+        # build it as a static library inside our build tree.  The
+        # SDL2-static target is wired into PLUGIN_EXTRA_LIBS along with
+        # everything else SDL2 transitively needs (Cocoa, IOKit,
+        # CoreVideo, etc. on macOS — SDL2's CMake handles those via
+        # interface link libraries).
+        include(FetchContent)
+        # Pin to a release tag so configure-time isn't a moving target
+        # and the resulting .xpl ships with a known SDL2 version.
+        # 2.32.10 is the current stable release as of May 2026.
+        FetchContent_Declare(SDL2_static
+            GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+            GIT_TAG        release-2.32.10
+            GIT_SHALLOW    TRUE
+        )
+        # SDL2's option() declarations gate every subsystem; we set
+        # them BEFORE FetchContent_MakeAvailable so they take effect
+        # when SDL2's CMakeLists.txt runs.
+        #
+        # Static build, no shared lib, no test programs, no
+        # installable rules.  PIC because the .xpl is a shared object
+        # (X-Plane dlopen's it) and any static archive linked into a
+        # shared object needs position-independent code on Linux.
+        set(SDL_SHARED      OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC      ON  CACHE BOOL "" FORCE)
+        set(SDL_STATIC_PIC  ON  CACHE BOOL "" FORCE)
+        set(SDL_TEST        OFF CACHE BOOL "" FORCE)
+        set(SDL_TESTS       OFF CACHE BOOL "" FORCE)
+        set(SDL_INSTALL_TESTS OFF CACHE BOOL "" FORCE)
+        # Strip subsystems we don't use — the M5 firmware only touches
+        # SDL_GetTicks / SDL_Delay (timer subsystem).  Keeping unused
+        # subsystems disabled trims static-archive size from ~30 MB to
+        # ~4 MB and skips link-time pulls of frameworks we don't need.
+        set(SDL_AUDIO       OFF CACHE BOOL "" FORCE)
+        set(SDL_VIDEO       OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER      OFF CACHE BOOL "" FORCE)
+        set(SDL_JOYSTICK    OFF CACHE BOOL "" FORCE)
+        set(SDL_HAPTIC      OFF CACHE BOOL "" FORCE)
+        set(SDL_HIDAPI      OFF CACHE BOOL "" FORCE)
+        set(SDL_POWER       OFF CACHE BOOL "" FORCE)
+        set(SDL_SENSOR      OFF CACHE BOOL "" FORCE)
+        set(SDL_FILE        OFF CACHE BOOL "" FORCE)
+        set(SDL_LOADSO      OFF CACHE BOOL "" FORCE)
+        set(SDL_CPUINFO     OFF CACHE BOOL "" FORCE)
+        set(SDL_FILESYSTEM  OFF CACHE BOOL "" FORCE)
+        set(SDL_LOCALE      OFF CACHE BOOL "" FORCE)
+        set(SDL_MISC        OFF CACHE BOOL "" FORCE)
+
+        FetchContent_MakeAvailable(SDL2_static)
+        # SDL2 exports the static lib as `SDL2-static`.  M5GFX's
+        # source includes use the bare `<SDL.h>` form, which SDL2
+        # places under `<src>/include/`; FetchContent's target
+        # propagates that include directory automatically.
+        list(APPEND PLUGIN_EXTRA_LIBS SDL2-static)
     endif()
 
     # M5GFX + M5Unified live under the M5 display project's PlatformIO
