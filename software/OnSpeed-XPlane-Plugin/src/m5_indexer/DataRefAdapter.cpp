@@ -132,7 +132,13 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     // that body angle isn't aerodynamically meaningful when the gear
     // is loading the airframe, but V² describes wing effort directly
     // (max effort at low V, dropping off as V exceeds Vs).
-    const bool onGround = SafeGetBool(s_onGroundAny);
+    //
+    // Debounce against single-tick flicker (rough taxi, gear bounce
+    // on landing).  Static state is safe because BuildInputsFromDatarefs
+    // is only called from the X-Plane flight loop on a single thread.
+    static OnGroundDebounceState s_onGroundDebounce{};
+    const bool rawOnGround = SafeGetBool(s_onGroundAny);
+    const bool onGround    = DebounceOnGround(rawOnGround, s_onGroundDebounce);
 
     FillPercentLift(in, aoa, ias, flapRatio, iasValid, onGround);
 

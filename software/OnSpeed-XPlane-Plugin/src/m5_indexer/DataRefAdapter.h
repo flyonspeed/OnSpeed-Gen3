@@ -80,4 +80,37 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
                      bool  iasValid,
                      bool  onGround);
 
+// Debounce filter for sim/flightmodel/failures/onground_any.
+//
+// X-Plane reports "any gear touching" as a single-frame boolean.
+// On a rough taxi, gear bounce on landing, or simulator hiccups it
+// can flicker for a single tick.  Combined with the regime swap in
+// FillPercentLift (alpha vs V²) and the iasValid gate in the alpha
+// path, a flicker at low taxi speed could oscillate the live percent
+// between near-0% (alpha-path with iasValid=false) and ~99% (V²
+// saturated below Vs).
+//
+// Pattern: the new state must hold for `kHoldFrames` consecutive
+// ticks before the debounced output flips.  At a typical X-Plane
+// flight-loop rate of 30-60 Hz, kHoldFrames=5 is ~80-160 ms — long
+// enough to absorb a one-frame gear bounce, short enough to not be
+// perceptible at takeoff/landing.
+//
+// `state` is the debouncer's persistent storage; the caller owns it.
+// Initialize to {.debounced=false, .pending=false, .pendingFrames=0}.
+struct OnGroundDebounceState {
+    bool debounced     = false;   // current debounced output
+    bool pending       = false;   // last raw input observed
+    int  pendingFrames = 0;       // consecutive ticks of `pending`
+};
+
+// Pure-function debounce: pass current raw `onground_any` value,
+// receive debounced output.  Mutates `state` in place.
+//
+// Held to a constant 5 ticks for now; if X-Plane changes its
+// flight-loop rate dramatically we can switch to time-based.
+constexpr int kOnGroundHoldFrames = 5;
+
+bool DebounceOnGround(bool rawOnGround, OnGroundDebounceState& state);
+
 }  // namespace onspeed_xplane::indexer

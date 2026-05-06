@@ -25,8 +25,9 @@ extern float fONSPEEDSLOWAOA;
 extern float fSTALLWARNAOA;
 
 // 1G clean stall speed (KIAS), used by the on-ground V² formula.
-// 0 disables the V² path (alpha-only fallback).  Owned by
-// aoa_audio.cpp; seeded from acf_Vs and pilot-editable.
+// Owned by aoa_audio.cpp; seeded from acf_Vs and pilot-editable.
+// Sentinels (0 and -1) both disable the V² path and fall back to
+// the alpha formula — see aoa_audio.cpp for the difference.
 extern int   iVs1G;
 
 namespace onspeed_xplane::indexer {
@@ -62,15 +63,32 @@ inline float AlphaStallApprox()
 //
 //   pct_v² = (Vs / V)² * stallWarnPct
 //
-// Why scaled by stallWarnPct: the alpha-based formula puts the
-// StallWarn setpoint at ~92% (per the synthetic alpha_stall
-// = stallWarn * 1.075, so stallWarn / alpha_stall ≈ 0.93).  We
-// want V² and alpha to agree on where "near stall" is on the
-// indexer band, so the V² formula reads stallWarnPct% when V == Vs
-// rather than a literal 100% (which would put the chevron above
-// the StallWarn pip whenever V <= Vs, including a stationary
-// airplane).  This keeps the visual reference consistent across
-// the takeoff transition.
+// Anchor choice (StallWarn vs literal stall — design decision):
+// physically, V == Vs corresponds to alpha == alpha_stall, which
+// on the alpha scale reads ~99.9% (the top of the band).  Scaling
+// the V² formula by stallWarnPct (~93%) instead means V == Vs
+// reads ~93% — the StallWarn pip — not ~100%.  The alpha and V²
+// scales disagree at the stall anchor by ~7 percentage points.
+//
+// We accept that disagreement deliberately:
+//   * The takeoff-roll regime (V well below Vs) is the dominant
+//     view.  Saturating to stallWarnPct vs 100% is invisible there
+//     because pct is already clamped to 99.9.
+//   * Aligning at the StallWarn pip — where the chevron transitions
+//     into the warning region — gives a clean visual handoff at
+//     the regime boundary.  Aligning at 100% would put the V²
+//     chevron above the StallWarn pip whenever V <= Vs (including
+//     a stationary airplane), which crowds the pip with noise.
+//   * The brief V≈Vs window during late roll-out is the only place
+//     this matters, and a pilot reading "93%" at V=Vs gets the
+//     correct cue ("you're at the warning, rotate now"); the
+//     regime then flips to alpha as the gear unloads, where the
+//     reading becomes the honest alpha-based percent.
+//
+// The pilot's defense against the 7-point compression is the
+// alpha formula: as soon as `onground_any` flips false (rotation,
+// liftoff), the indicator switches to the alpha reading which is
+// anchored at literal stall.
 //
 // Returns NaN when iVs1G or V are non-positive — caller falls
 // back to the alpha-based formula in that case.
@@ -78,6 +96,10 @@ static float ComputeIasPercentLift(float liveIasKt,
                                    float stallWarnPct)
 {
     if (iVs1G <= 0) {
+        // Both 0 ("auto, no acf_Vs available") and -1 ("pilot
+        // disabled") trip this branch — caller falls back to the
+        // alpha-based formula, which is the right behavior for
+        // both sentinels.
         return std::numeric_limits<float>::quiet_NaN();
     }
     if (liveIasKt < 0.5f) {
@@ -137,7 +159,8 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
             liveIasKt, static_cast<float>(in.stallWarnPctLift));
     }
     if (!std::isfinite(livePct)) {
-        // Either in flight, or on-ground with no Vs configured.
+        // Either in flight, or on-ground with no Vs configured
+        // (iVs1G == 0 "auto-no-data" or iVs1G == -1 "disabled").
         // Use the firmware-shared alpha formula.  Same gate the
         // firmware applies — iasValid false (e.g., taxi below the
         // mute floor with no Vs known) returns 0.
@@ -157,6 +180,39 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
                                  + static_cast<float>(in.onSpeedSlowPctLift)) / 4.0f;
     in.pipPctLift = static_cast<int>(std::round(
         cleanPip * (1.0f - clampedRatio) + fullFlapPip * clampedRatio));
+}
+
+// Pure-function on_ground debounce.  See DataRefAdapter.h for
+// rationale.  Held in this TU (rather than DataRefAdapter.cpp)
+// because the unit test in tests/iasground_pct.cpp links
+// PercentLiftFill.cpp directly without XPLM stubs, and we want
+// debounce coverage in the same harness as the V² formula.
+bool DebounceOnGround(bool rawOnGround, OnGroundDebounceState& state)
+{
+    if (rawOnGround == state.debounced) {
+        // No change pending; reset the counter so a transient
+        // toward the same value as `debounced` doesn't leave a
+        // stale partial count behind.
+        state.pending       = state.debounced;
+        state.pendingFrames = 0;
+        return state.debounced;
+    }
+
+    if (rawOnGround == state.pending) {
+        // Already counting toward this value — extend the run.
+        ++state.pendingFrames;
+    } else {
+        // Direction reversed; restart the count toward the new
+        // value.  First tick observed counts as 1.
+        state.pending       = rawOnGround;
+        state.pendingFrames = 1;
+    }
+
+    if (state.pendingFrames >= kOnGroundHoldFrames) {
+        state.debounced     = rawOnGround;
+        state.pendingFrames = 0;
+    }
+    return state.debounced;
 }
 
 }  // namespace onspeed_xplane::indexer

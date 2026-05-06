@@ -198,11 +198,115 @@ int main()
                     /*onGround=*/ false);
 
     // Both should be in the OnSpeed band region (~60-80%).  The
-    // exact numbers will differ slightly (V² vs alpha) but a 20-pct
-    // jump would be jarring.
-    check(std::fabs(preLift.percentLiftPct - postLift.percentLiftPct) < 25.0f,
-          "regime transition at Vr is < 25 percentage points "
+    // exact numbers should differ very little (V² vs alpha agree at
+    // the StallWarn anchor by construction; the gap at typical Vr
+    // measures ~3 pp empirically with this calibration).  The 5 pp
+    // bound is empirically chosen with headroom — not a design
+    // constraint — to catch regime-transition regressions while
+    // tolerating future small calibration tweaks.
+    check(std::fabs(preLift.percentLiftPct - postLift.percentLiftPct) < 5.0f,
+          "regime transition at Vr is < 5 percentage points "
           "(V² and alpha agree near the OnSpeed band)");
+
+    // --------------------------------------------------------------
+    // 7. Sentinel iVs1G == -1 ("user explicitly disabled"): on-ground
+    //    falls back to alpha just like iVs1G == 0, but the difference
+    //    matters at the OnAircraftLoaded layer where 0 triggers an
+    //    auto-seed and -1 doesn't.  Since FillPercentLift only sees
+    //    the value, the visible behavior here is identical to the
+    //    iVs1G==0 case — exercise it explicitly so a future regression
+    //    that breaks the `<= 0` check (e.g. only checks `== 0`)
+    //    surfaces here.
+    // --------------------------------------------------------------
+    iVs1G = -1;
+    DisplayBuildInputs disabled{};
+    FillPercentLift(disabled,
+                    /*liveAoaDeg=*/      7.0f,
+                    /*liveIasKt=*/       40.0f,
+                    /*flapHandleRatio=*/ 0.0f,
+                    /*iasValid=*/        true,
+                    /*onGround=*/        true);
+    // Alpha formula at 7° with iasValid=true returns a real percent
+    // around the LDmax anchor.  Specifically NOT the V² number.
+    check(disabled.percentLiftPct > 30.0f && disabled.percentLiftPct < 70.0f,
+          "iVs1G == -1 (disabled) falls back to alpha (real pct, not V²)");
+    // V² at this scenario would saturate to 99.9 (V=40 < Vs=60).
+    // We must not see that.
+    check(disabled.percentLiftPct < 90.0f,
+          "iVs1G == -1 does not take the V² path (would saturate to 99)");
+    iVs1G = 60;   // restore
+
+    // --------------------------------------------------------------
+    // 8. onground_any debounce: alternating raw inputs must not
+    //    propagate to the debounced output.  The debounce threshold
+    //    is kOnGroundHoldFrames=5 consecutive ticks; a single-frame
+    //    flip should be absorbed.
+    // --------------------------------------------------------------
+    using onspeed_xplane::indexer::DebounceOnGround;
+    using onspeed_xplane::indexer::OnGroundDebounceState;
+    using onspeed_xplane::indexer::kOnGroundHoldFrames;
+
+    {
+        OnGroundDebounceState st{};       // starts in air (false)
+        // Single-frame flicker: one tick of true, then back to false.
+        // Output must remain false (we never accumulated 5 ticks).
+        check(!DebounceOnGround(true,  st), "1-tick flicker T: still ground=false");
+        check(!DebounceOnGround(false, st), "post-flicker F: still ground=false");
+
+        // Sustained true for kOnGroundHoldFrames ticks: output flips.
+        bool out = false;
+        for (int i = 0; i < kOnGroundHoldFrames; ++i) {
+            out = DebounceOnGround(true, st);
+        }
+        check(out, "sustained true for hold-frames flips debounce true");
+
+        // Now sustained-false flicker once, then back to true.  Must
+        // remain true (debounced).
+        check(DebounceOnGround(false, st), "1-tick reverse flicker: still ground=true");
+        check(DebounceOnGround(true,  st), "post-reverse-flicker: still ground=true");
+
+        // Alternating inputs forever: debounced output never changes
+        // because no value accumulates kOnGroundHoldFrames consecutive
+        // ticks.  Run 50 alternating cycles and confirm.
+        bool stuckOut = true;
+        for (int i = 0; i < 50; ++i) {
+            stuckOut = DebounceOnGround(i & 1 ? false : true, st);
+        }
+        check(stuckOut, "alternating raw inputs do not flip debounced output");
+    }
+
+    // --------------------------------------------------------------
+    // 9. Debounce + percent-lift integration: even if a flicker hits
+    //    BuildInputsFromDatarefs, the percent reading must not flip
+    //    full-scale per call.  Simulate by running FillPercentLift
+    //    with the *debounced* on-ground (what production code uses)
+    //    across an alternating raw stream and confirm the percent
+    //    stays inside a tight band.
+    // --------------------------------------------------------------
+    {
+        OnGroundDebounceState st{};
+        // Settle on-ground = true.
+        for (int i = 0; i < kOnGroundHoldFrames; ++i) DebounceOnGround(true, st);
+
+        float minPct =  1e9f;
+        float maxPct = -1e9f;
+        // Alternate raw input 30 times.  Each call uses the debounced
+        // result (stuck true), so percent should be stable per V²
+        // formula at constant (Vs, V).
+        for (int i = 0; i < 30; ++i) {
+            const bool dbg = DebounceOnGround(i & 1 ? false : true, st);
+            DisplayBuildInputs frame{};
+            FillPercentLift(frame, 4.0f, 70.0f, 0.0f, true, dbg);
+            if (frame.percentLiftPct < minPct) minPct = frame.percentLiftPct;
+            if (frame.percentLiftPct > maxPct) maxPct = frame.percentLiftPct;
+        }
+        // Tight band: V² formula at constant (Vs=60, V=70) is
+        // deterministic — same value every call.  Bound is generous
+        // (1 pp) only to absorb floating-point drift if the formula
+        // ever picks up a per-call rounding step.
+        check((maxPct - minPct) < 1.0f,
+              "alternating raw on-ground does not perturb percent (debounce holds it)");
+    }
 
     if (failures == 0) {
         std::printf("OK: iasground_pct (all invariants hold)\n");

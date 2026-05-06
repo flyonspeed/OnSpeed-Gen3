@@ -142,10 +142,14 @@ int iAoaMeanWindow   = 10;    // 1 disables mean (passthrough)
 //
 // Seeded from `sim/aircraft/view/acf_Vs` (KIAS) per X-Plane
 // aircraft on first load; pilot can override via the audio control
-// window.  Sentinel: 0 means "no Vs known" — falls back to the
-// alpha-based formula on the ground (so the pre-fix behavior
-// stays in place for aircraft where neither acf_Vs nor the pilot
-// has supplied a value).
+// window.  Sentinels:
+//    0  = "auto" — re-seed from acf_Vs on every aircraft load
+//   -1  = "disabled" — pilot has explicitly opted out; do not seed
+//                      and fall back to the alpha-based formula
+//   >0  = explicit Vs in KIAS (seeded or pilot-set)
+// Both 0 and -1 disable the V² path (alpha-only fallback) so the
+// pre-fix behavior stays in place for aircraft where neither
+// acf_Vs nor the pilot has supplied a value.
 int iVs1G = 0;
 
 // Master volume (0-100 %).  Mirrors the firmware's pot-driven
@@ -664,10 +668,15 @@ static std::optional<ValidatedSettings> readAndValidateFields(
                     onspeed::AOA_MAX_VALUE, v.fSTALLWARNAOA);
     ok &= readInt(widgetMuteAudioUnderIAS, "Mute Under IAS",
                   0, 250, v.iMuteAudioUnderIAS);
-    // 0 disables IAS²-on-ground (alpha-only fallback); upper 250
-    // matches the same range as Mute Under IAS for consistency.
+    // Vs (1G) sentinels:
+    //    0 = "auto"     — re-seed from acf_Vs on aircraft load
+    //   -1 = "disabled" — pilot opted out, never auto-seed
+    //   >0 = explicit Vs in KIAS
+    // Both 0 and -1 fall back to the alpha path; the difference is
+    // whether OnAircraftLoaded re-seeds.  Upper bound 250 matches
+    // Mute Under IAS for consistency.
     ok &= readInt(widgetVs1G,              "Vs (1G)",
-                  0, 250, v.iVs1G);
+                  -1, 250, v.iVs1G);
     ok &= readInt(widgetMasterVolumePct,   "Master Volume",
                   0, 100, v.iMasterVolumePct);
     ok &= readInt(widgetAoaMedianWindow,   "AOA Median Window",
@@ -746,16 +755,46 @@ static void OnAircraftLoaded() {
     }
 
     // Seed iVs1G from acf_Vs if the .prf hasn't supplied a value
-    // (iVs1G == 0 sentinel).  Plane Maker stores it in KIAS as a
-    // per-aircraft constant; non-zero only for aircraft whose author
-    // populated the field.  Pilot's manual override (set via the
-    // audio control window and persisted) wins because LoadSettings
-    // would have set iVs1G > 0 already, gating this branch off.  We
-    // round here rather than truncate so an acf value of e.g. 62.7
-    // becomes 63 instead of 62.
+    // (iVs1G == 0 sentinel — "auto").  Plane Maker stores it in
+    // KIAS as a per-aircraft constant; non-zero only for aircraft
+    // whose author populated the field.  Pilot's manual override
+    // (set via the audio control window and persisted) wins because
+    // LoadSettings would have set iVs1G > 0 (or -1 for "disabled")
+    // already, gating this branch off.  We round here rather than
+    // truncate so an acf value of e.g. 62.7 becomes 63 instead of 62.
+    //
+    // Unit (KIAS) verified against three independent open-source
+    // X-Plane plugins, all of which treat acf_Vs identically to its
+    // KIAS-annotated siblings (acf_Vne / acf_Vno / acf_Vfe / acf_Vso):
+    //   - vranki/ExtPlane simulator returns 100 for acf_Vs (knots,
+    //     since 100 m/s ≈ 194 kt is implausible for any GA stall).
+    //   - vranki/ExtPlane-Panel AirspeedIndicator.qml feeds acf_Vs
+    //     through the same uVelocityKnots scaleFactor as acf_Vne
+    //     and acf_Vno (which DataRefs.txt confirms are kias).
+    //   - blauret/pyG5 (pyG5Network.py) explicitly tags acf_Vs
+    //     with the unit string "kt".
+    // X-Plane's DataRefs.txt leaves the unit column blank for
+    // acf_Vs (a documentation gap, not a unit difference) — every
+    // other V-speed in that file annotated "kias" sits next to a
+    // blank-or-kias acf_Vs row treated as kias in practice.
+    //
+    // Defensive: if acf_Vs comes through < 25, refuse to seed.  A
+    // KIAS Vs below 25 kt is implausible for any real aircraft
+    // (the slowest powered ultralights are around 28-30), but a
+    // m/s Vs of 20-25 m/s is a perfectly plausible C172 (~40 kt =
+    // 20.6 m/s).  If a future X-Plane version starts returning m/s
+    // here we want to skip the seed and let the pilot enter Vs
+    // by hand rather than auto-seed wildly wrong KIAS.
     if (iVs1G == 0 && acfVsDataRef) {
         const float acfVs = XPLMGetDataf(acfVsDataRef);
-        if (acfVs > 0.0f && acfVs < 250.0f) {
+        if (acfVs > 0.0f && acfVs < 25.0f) {
+            char buf[200];
+            std::snprintf(buf, sizeof(buf),
+                "FlyOnSpeed: acf_Vs=%.1f looks like m/s (KIAS expected); "
+                "skipping auto-seed — set Vs manually via the audio "
+                "control window\n", acfVs);
+            XPLMDebugString(buf);
+        } else if (acfVs >= 25.0f && acfVs < 250.0f) {
             iVs1G = static_cast<int>(std::round(acfVs));
             XPLMDebugString(("FlyOnSpeed: seeded iVs1G="
                              + std::to_string(iVs1G)
@@ -1229,7 +1268,10 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
 
     // Vs at 1G (KIAS).  Used by the on-ground percent-lift formula
     // to derive percent-of-stall from V² when the gear is loaded.
-    // 0 disables (alpha-only fallback).  Seeded from acf_Vs.
+    // Sentinels: 0 = auto-seed from acf_Vs on aircraft load,
+    // -1 = explicitly disabled (pilot opted out), >0 = explicit
+    // value.  Both 0 and -1 fall back to alpha; -1 is sticky across
+    // aircraft loads, 0 is not.
     widgetVs1G              = createLabeledIntField(
         "Vs at 1G (kt):", iVs1G);
 
@@ -1923,10 +1965,11 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     acfHasStallwarnDataRef = XPLMFindDataRef("sim/aircraft/view/acf_has_stallwarn");
 
     // acf_Vs is a per-aircraft Plane Maker constant (1G clean stall
-    // speed in KIAS).  Used to seed iVs1G on first aircraft load.
-    // Optional: third-party authors sometimes leave it 0; in that case
-    // the seed-from-acf path stays a no-op and the pilot sets it via
-    // the audio control window.
+    // speed in KIAS — see OnAircraftLoaded for the unit citation).
+    // Used to seed iVs1G on first aircraft load.  Optional: third-
+    // party authors sometimes leave it 0; in that case the seed-
+    // from-acf path stays a no-op and the pilot sets it via the
+    // audio control window.
     acfVsDataRef = XPLMFindDataRef("sim/aircraft/view/acf_Vs");
 
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
