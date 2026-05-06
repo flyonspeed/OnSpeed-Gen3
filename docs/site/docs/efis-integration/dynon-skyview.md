@@ -59,7 +59,7 @@ On the SkyView:
 
 ### Step 3: Wire the Connection
 
-Connect the Dynon serial **TX** pin to the OnSpeed **RX** pin (GPIO 11):
+Connect the Dynon serial **TX** pin to the OnSpeed **RX** pin (GPIO 11 on V4P, GPIO 9 on V4B):
 
 - Find the TX pin for your chosen serial port on the SkyView rear connector
 - Run a wire from Dynon TX to OnSpeed RX

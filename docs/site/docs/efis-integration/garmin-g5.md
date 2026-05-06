@@ -10,7 +10,7 @@ The Garmin G5 is a compact, standalone electronic flight instrument. OnSpeed can
 
 ## Wiring
 
-Connect the G5 serial **TX** output to OnSpeed **RX** (GPIO 11). Consult the G5 installation manual for the serial output pin location on the rear connector.
+Connect the G5 serial **TX** output to OnSpeed **RX** (GPIO 11 on V4P, GPIO 9 on V4B). Consult the G5 installation manual for the serial output pin location on the rear connector.
 
 ## Data Available
 

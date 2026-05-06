@@ -85,7 +85,7 @@
 | Interface | TX GPIO | RX GPIO | Baud | Notes |
 |-----------|---------|---------|------|-------|
 | USB Console | — | — | 921600 | Native USB CDC |
-| EFIS | 46 (NC) | 11 | 115200 | RS-232 via ADM3202 |
+| EFIS | — (NC) | 11 | 115200 | RS-232 via ADM3202 (V4P RX path) |
 | Boom | 8 (NC) | 3 | 115200 | TTL level |
 | Display | 10 | 11 (shared) | varies | RS-232 |
 
@@ -108,4 +108,5 @@
 | I2S_BCK | GPIO 20 | GPIO 45 |
 | I2S_DOUT | GPIO 19 | GPIO 48 |
 | I2S_LRCK | GPIO 8 | GPIO 47 |
+| EFIS RX | GPIO 11 (J1 pin 25 → ADM3202 R1) | GPIO 9 (DB-15 pin 2 → J1 pin 24 → SW1, RS-232 or TTL bypass) |
 | External ADC | MCP3202 on SPI | Direct analog (GPIO 1, 2) |

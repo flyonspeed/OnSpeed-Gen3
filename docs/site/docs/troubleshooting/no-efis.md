@@ -27,7 +27,7 @@ All EFIS types require **115200 baud** on the OnSpeed side. The EFIS must also b
 
 Serial connections are **crossed**: the EFIS **transmit** (TX) pin connects to the OnSpeed **receive** (RX) pin.
 
-- OnSpeed RX: GPIO 11 (through ADM3202 RS-232 level shifter)
+- OnSpeed RX: GPIO 11 on V4P (through ADM3202 RS-232 level shifter), GPIO 9 on V4B (through SW1)
 - If you wired TX to TX, no data will flow
 - Swap the wire at one end
 

@@ -42,8 +42,8 @@ The EFIS must be configured to output serial data at **115200 baud**. This is no
 
 Connect your EFIS serial **TX** (transmit) output to the OnSpeed **RX** (receive) input:
 
-- **OnSpeed RX pin**: GPIO 11 (through ADM3202 RS-232 level shifter on the PCB)
-- **OnSpeed TX pin**: GPIO 46 (not connected — OnSpeed only receives from the EFIS)
+- **OnSpeed RX pin**: GPIO 11 on V4P (through ADM3202 RS-232 level shifter), GPIO 9 on V4B (through SW1, RS-232 or TTL bypass)
+- **OnSpeed TX pin**: not connected — OnSpeed only receives from the EFIS
 
 !!! warning "TX to RX — not TX to TX"
     Serial connections are crossed. Connect the EFIS **transmit** pin to the OnSpeed **receive** pin. This is the most common wiring mistake.

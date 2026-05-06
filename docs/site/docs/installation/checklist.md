@@ -33,7 +33,7 @@ Use this checklist to verify your hardware installation is complete before proce
 
 ## Electrical — Optional
 
-- [ ] EFIS serial: TX from EFIS connected to OnSpeed RX (GPIO 11)
+- [ ] EFIS serial: TX from EFIS connected to OnSpeed RX (GPIO 11 on V4P, GPIO 9 on V4B)
 - [ ] Flap position sensor: potentiometer or jumpers wired and connected
 - [ ] Volume potentiometer: wired to ADC input (if using hardware volume control)
 - [ ] Button/switch: wired between GPIO 12 and ground
