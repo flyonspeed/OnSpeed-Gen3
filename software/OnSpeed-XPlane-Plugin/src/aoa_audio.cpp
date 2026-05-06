@@ -355,8 +355,13 @@ static std::string buildSettingsPath() {
 static void RefreshAudioWindowState();
 static bool AudioWindowChanged();
 
-static void SaveSettings() {
-    if (s_SettingsPath.empty()) return;
+// Returns true only when the .prf was opened, all fields written, and
+// fclose reported no buffered-write error.  Callers that gate
+// follow-on side effects on a confirmed write (e.g. renaming a legacy
+// file after a successful import) must check this return value.
+// Fire-and-forget callers can ignore it.
+static bool SaveSettings() {
+    if (s_SettingsPath.empty()) return false;
     if (!s_settingsLoaded) {
         // Race-guard: SaveSettings called before LoadSettings finished
         // for the current aircraft.  In-memory AOA setpoints / volume /
@@ -365,13 +370,13 @@ static void SaveSettings() {
         // user-driven change after load completes will persist.
         XPLMDebugString("FlyOnSpeed: SaveSettings skipped — settings "
                         "not yet loaded for this aircraft\n");
-        return;
+        return false;
     }
     FILE* fp = std::fopen(s_SettingsPath.c_str(), "w");
     if (!fp) {
         XPLMDebugString(("FlyOnSpeed: SaveSettings: could not open "
                          + s_SettingsPath + " for writing\n").c_str());
-        return;
+        return false;
     }
     std::fprintf(fp, "fLDMAXAOA = %.3f\n",       fLDMAXAOA);
     std::fprintf(fp, "fONSPEEDFASTAOA = %.3f\n", fONSPEEDFASTAOA);
@@ -404,7 +409,17 @@ static void SaveSettings() {
     std::fprintf(fp, "indexerPopWidth = %d\n",    indexerSettings.popWidth);
     std::fprintf(fp, "indexerPopHeight = %d\n",   indexerSettings.popHeight);
 #endif
-    std::fclose(fp);
+    // fclose can return EOF if a buffered fprintf write hit an error
+    // that fprintf itself didn't surface (full disk, broken NAS mount).
+    // Treat it as a write failure so callers don't act on a corrupt or
+    // truncated .prf.
+    if (std::fclose(fp) != 0) {
+        XPLMDebugString(("FlyOnSpeed: SaveSettings: fclose reported error "
+                         "for " + s_SettingsPath +
+                         " — .prf may be incomplete\n").c_str());
+        return false;
+    }
+    return true;
 }
 
 #ifdef ENABLE_M5_INDEXER
@@ -497,45 +512,43 @@ static bool LoadSettings() {
 }
 
 // --------------------------------------------------------------------------
-// Legacy json-config import (one-time).
+// Legacy json-config import (one-time per aircraft).
 //
-// The pre-subtree X-Plane plugin (flyonspeed/OnSpeed-XPlane on the
-// `json-config` branch) persisted settings to
-// `<X-Plane root>/Custom Data/<acf_ui_name>.json`.  Pilots who used
-// that plugin have hand-calibrated thresholds in those files that
-// don't survive switching to the new .prf-based persistence.
-//
-// On aircraft load, when no .prf exists yet for the active aircraft,
-// look for the legacy json file by `acf_ui_name` and, if found,
-// import the five keys it stored:
+// On aircraft load, when no .prf yet exists, look for a flat JSON
+// file at `<X-Plane root>/Custom Data/<acf_ui_name>.json` and, if
+// present, parse these five keys into the live AOA threshold globals:
 //
 //   "Below LDMax"      → fLDMAXAOA
 //   "Below OnSpeed"    → fONSPEEDFASTAOA
 //   "OnSpeed Max"      → fONSPEEDSLOWAOA
 //   "Above OnSpeed"    → fSTALLWARNAOA
-//   "IAS Tone Enable"  → iMuteAudioUnderIAS (boolean: 1.0 → 25 [enabled],
-//                                            0.0 → 0 [disabled])
+//   "IAS Tone Enable"  → iMuteAudioUnderIAS  (1.0 → 25, 0.0 → 0)
 //
-// After a successful import the legacy file is renamed to
-// `<name>.json.imported` so re-imports don't repeat if the pilot
-// later wipes their .prf, and so the pilot can revert by renaming
-// back if anything went wrong.  Output state is committed via
-// SaveSettings, which writes the new .prf for this aircraft.
+// On a successful import, persist via SaveSettings and rename the
+// legacy file to `<name>.json.imported`.  The rename runs only when
+// SaveSettings reports the .prf was actually written (see the gate
+// in TryImportLegacyJson) so a write failure leaves the legacy file
+// in place for retry on the next load.
 //
-// JSON parsing here is a tiny hand-roll — the legacy format is a
-// single flat object with string keys and float values.  A full
-// JSON dependency just for this one-shot import would be overkill.
+// No-op when:
+//   * No legacy file exists.
+//   * Any of the four threshold keys is missing or unparseable.
+//   * Threshold ordering is invalid (LDmax < Fast < Slow < Warn required).
+//
+// JSON parsing is hand-rolled (extractJsonFloat) since the input is
+// a flat object with five string-keyed float values; a JSON library
+// dependency for one one-shot path is overkill.  See
+// tests/legacy_json_parse.cpp for the parser contract.
 // --------------------------------------------------------------------------
 
 // Extract a float value for `key` from a flat JSON object string.
 // Returns true if the key was found and parsed; false otherwise.
 //
-// Accepts either the legacy plugin's `{"key": 6.0}` form or any
-// equivalent whitespace-tolerant variant.  Robust against extra
-// whitespace, trailing comma, and other minor JSON style choices.
-// Not a general JSON parser — does not handle nested objects,
-// arrays, escaped strings, or non-ASCII keys.  None of those occur
-// in the legacy format.
+// Accepts the input format `{"key": 6.0}` and any whitespace-tolerant
+// variant.  Robust against extra whitespace, trailing comma, and minor
+// JSON style choices.  Not a general JSON parser — does not handle
+// nested objects, arrays, escaped strings, or non-ASCII keys.  None
+// of those occur in the legacy format this parser accepts.
 static bool extractJsonFloat(const std::string& body,
                              const char* key,
                              float& out)
@@ -574,6 +587,15 @@ static bool extractJsonFloat(const std::string& body,
 // Build the absolute path to the legacy json-config file for the
 // currently-loaded user aircraft.  Returns empty string if X-Plane
 // reports no user aircraft or has no `acf_ui_name` available.
+//
+// Note: acf_ui_name is used raw (no path-separator sanitization,
+// unlike buildSettingsPath which routes through sanitizeAcfBasename).
+// The legacy plugin also used raw acf_ui_name in its sprintf, so an
+// aircraft with `/` or `\` in its UI name had the legacy file
+// written at the corresponding subdirectory path.  Reading raw
+// matches what was written — anything else would miss the file.
+// fopen returns NULL silently when the subdirectory doesn't exist,
+// and the import is skipped in that case.
 static std::string buildLegacyJsonPath() {
     char xpRoot[1024] = {0};
     XPLMGetSystemPath(xpRoot);
@@ -592,13 +614,15 @@ static std::string buildLegacyJsonPath() {
 }
 
 // Try to import a legacy json-config file for the active aircraft.
-// Called from OnAircraftLoaded only when the new .prf was absent
-// (first-run for this aircraft on the new plugin).  No-op if the
-// legacy file isn't present, can't be read, or fails to parse.
+// Called from OnAircraftLoaded only when no .prf exists yet for this
+// aircraft.  No-op if the legacy file isn't present, can't be read,
+// or fails to parse.
 //
-// On success: writes the parsed values into the live globals,
-// persists via SaveSettings, renames the legacy file to
-// `<name>.json.imported` to prevent repeated imports.
+// On success: writes the parsed values into the live globals and
+// calls SaveSettings.  Only when SaveSettings confirms the .prf was
+// written does the legacy file get renamed to `<name>.json.imported`
+// — a write failure leaves the legacy file untouched so the import
+// retries on the next aircraft load.
 static void TryImportLegacyJson() {
     const std::string legacyPath = buildLegacyJsonPath();
     if (legacyPath.empty()) return;
@@ -667,13 +691,27 @@ static void TryImportLegacyJson() {
                      + " Warn=" + std::to_string(warn)
                      + "\n").c_str());
 
-    // Persist to the new .prf so the import is one-shot.
-    SaveSettings();
+    // Persist to the new .prf so the import is one-shot.  Gate the
+    // legacy-file rename on a confirmed write: if SaveSettings can't
+    // open the file or fclose reports a buffered-write error, the
+    // .prf may not exist on disk — renaming the legacy file in that
+    // state would leave the pilot with neither file on the next
+    // load.  Leave the legacy file in place; the next aircraft load
+    // retries the import.
+    if (!SaveSettings()) {
+        XPLMDebugString("FlyOnSpeed: legacy json values applied to live "
+                        "state but .prf write failed — legacy file left "
+                        "in place, import will retry on next aircraft "
+                        "load\n");
+        UpdateAOATextFields();
+        return;
+    }
 
     // Rename the legacy file to <name>.json.imported so this branch
     // doesn't fire again if the pilot wipes their .prf, and so the
     // pilot can revert by renaming back.  Best-effort: a rename
-    // failure is logged but doesn't undo the import.
+    // failure is logged but doesn't undo the import (the .prf is
+    // already on disk).
     const std::string archivedPath = legacyPath + ".imported";
     if (std::rename(legacyPath.c_str(), archivedPath.c_str()) != 0) {
         XPLMDebugString(("FlyOnSpeed: failed to rename legacy json to "
@@ -963,12 +1001,14 @@ static void OnAircraftLoaded() {
         iVs1G = kDefaultSettings.iVs1G;
         const bool prfFound = LoadSettings();
 
-        // First aircraft load on the new plugin (no .prf yet): look
-        // for a legacy json-config file at
-        // <X-Plane root>/Custom Data/<acf_ui_name>.json and import
-        // the four AOA thresholds + IAS-mute flag if present.
-        // See TryImportLegacyJson for the no-op cases and the full
-        // key mapping.
+        // No .prf yet for this aircraft: try importing settings from
+        // a legacy json-config file in `Custom Data/<acf>.json` if
+        // one exists.  TryImportLegacyJson is a no-op when no legacy
+        // file is present, when parsing is incomplete, or when the
+        // thresholds are out of order; the pilot then ends up with
+        // compiled-in defaults and can calibrate via the audio
+        // control window.  See TryImportLegacyJson for the format
+        // and the full set of no-op cases.
         if (!prfFound) {
             TryImportLegacyJson();
         }
