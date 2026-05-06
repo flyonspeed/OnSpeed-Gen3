@@ -27,3 +27,18 @@ target_compile_options(tone_characterization PRIVATE
     -Wall -Wextra -Werror -Wshadow -Wformat=2)
 
 add_test(NAME tone_characterization COMMAND tone_characterization)
+
+# band_edge_iasvalid — pins the band-edge / pip iasValid contract.
+# Compiles PercentLiftFill.cpp directly (no XPLM linkage needed) so
+# the test exercises production code.
+add_executable(band_edge_iasvalid
+    band_edge_iasvalid.cpp
+    ../src/m5_indexer/PercentLiftFill.cpp)
+target_link_libraries(band_edge_iasvalid PRIVATE onspeed_core)
+target_compile_features(band_edge_iasvalid PRIVATE cxx_std_17)
+target_compile_options(band_edge_iasvalid PRIVATE
+    -Wall -Wextra -Werror -Wshadow -Wformat=2)
+target_include_directories(band_edge_iasvalid PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+
+add_test(NAME band_edge_iasvalid COMMAND band_edge_iasvalid)

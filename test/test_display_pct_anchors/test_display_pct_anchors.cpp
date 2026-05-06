@@ -463,6 +463,15 @@ void test_out_of_range_active_index_clamps_safely(void)
 // iasValid forwarded.  When false, all percent fields go to 0
 // (ComputePercentLift's contract).  flapsDeg is mechanical and stays
 // interpolated.
+//
+// NOTE: This test pins the function's behavior when called with
+// iasValid=false on anchor computations.  No production caller does
+// this — see DisplayPctAnchors.h's producer note "the producer always
+// passes true for the band-edge / L/Dmax anchors" (lines 97-100),
+// matched by sketch_common DisplaySerial.cpp / DataServer.cpp and
+// (post-PR #432) the X-Plane plugin's PercentLiftFill.cpp.  The test
+// exists because the function still has documented behavior in the
+// iasValid=false case, even though that case is now an anti-pattern.
 void test_ias_invalid_forwarded(void)
 {
     SuFlaps flaps[2] = { makeCleanDetent(), makeFullDetent() };

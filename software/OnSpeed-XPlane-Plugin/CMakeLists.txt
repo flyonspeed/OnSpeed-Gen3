@@ -237,6 +237,7 @@ if(ENABLE_M5_INDEXER)
         src/m5_indexer/Panel_PluginCanvas.cpp
         src/m5_indexer/IndexerWindow.cpp
         src/m5_indexer/DataRefAdapter.cpp
+        src/m5_indexer/PercentLiftFill.cpp
         ${M5_FW_SOURCES}
         ${M5G_SOURCES}
         ${M5U_SOURCES}
@@ -286,6 +287,7 @@ if(ENABLE_M5_INDEXER)
         src/m5_indexer/Panel_PluginCanvas.cpp
         src/m5_indexer/IndexerWindow.cpp
         src/m5_indexer/DataRefAdapter.cpp
+        src/m5_indexer/PercentLiftFill.cpp
         PROPERTIES
         COMPILE_FLAGS
             "-w -ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden"
