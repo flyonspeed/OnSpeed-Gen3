@@ -3,7 +3,7 @@
 **Status:** Approved, pre-implementation.
 **Author:** sam@frogrocketai.com
 **Date:** 2026-05-06.
-**Tracking issue:** linked from PR description once branch is pushed.
+**Tracking issue:** [flyonspeed/OnSpeed-Gen3#430](https://github.com/flyonspeed/OnSpeed-Gen3/issues/430)
 
 ## Problem
 
