@@ -133,12 +133,14 @@ void DisplaySerial::Write()
     int     iDisplayVerticalG;
 
     fDisplayIAS = g_Sensors.IAS;
-    // Display-serial gate uses the user-tunable `iMuteAudioUnderIAS`
-    // rather than the sensor-level `bIasAlive` flag (see DataServer.cpp
-    // for the full rationale): the pilot's configured "below which
-    // nothing should show up" choice is the right UX threshold for
-    // external displays too.
-    const bool bIasValidForOutput = (fDisplayIAS >= g_Config.iMuteAudioUnderIAS);
+    // Display-serial gate uses the sensor-level `bIasAlive` flag — the
+    // canonical "air data is valid" signal (rising-edge 20 kt, falling
+    // 15 kt, hysteresis; backed by the pitot deadband so it can't latch
+    // alive on sensor noise alone).  Display validity is a sensor-level
+    // fact, not a UX choice: the audio-mute threshold (iMuteAudioUnderIAS)
+    // controls when tones play, not whether displayed values are
+    // trustworthy.  See issue #358.
+    const bool bIasValidForOutput = g_Sensors.bIasAlive;
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
     const float fPAltFt = m2ft(g_AHRS.KalmanAlt);
 
@@ -352,6 +354,10 @@ void DisplaySerial::Write()
         inputs.pitchDeg           = g_AHRS.SmoothedPitch;
         inputs.rollDeg            = g_AHRS.SmoothedRoll;
         inputs.iasKt              = fIasForOutput;
+        // Sentinel-encode IAS on the wire when air data is not valid;
+        // the M5 consumer renders "--" for IAS and percentLift digits.
+        // See proto/DisplaySerial.h for the iasValid contract.
+        inputs.iasValid           = bIasValidForOutput;
         inputs.paltFt             = fPAltFt;
         inputs.turnRateDps        = g_AHRS.gYaw;
         // Body-frame: positive = airframe accelerating rightward, matching

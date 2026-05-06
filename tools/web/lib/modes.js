@@ -12,13 +12,16 @@ import {
   PitchReadout, DecelGauge, GHistory, StaleOverlay,
 } from './components/svg/index.js';
 
-// Format a numeric corner readout. The M5 hardware (main.cpp:773-779)
-// shows IAS / G / PALT unconditionally — they're independent signals
-// and don't share AOA's mute-below-threshold gate. We mirror that here:
-// only `undefined` / `null` / `NaN` (i.e. before the first WebSocket
-// frame arrives) collapses to '—'. Once data is on the wire, every
-// number renders, even when the IAS-mute gate has set AOA to its
-// `-100` sentinel.
+// Format a numeric corner readout. PAlt and G are independent of AOA
+// validity and render unconditionally once data is on the wire — they
+// are sourced from the static-pressure sensor and the IMU, not the
+// pitot pressure that gates air-data validity.  IAS now ships as JSON
+// `null` when the producer's `bIasAlive` flag is false (issue #358);
+// `fmt` collapses null/undefined/NaN to '—', so the IAS corner dashes
+// on a powered-but-not-flying bench, then transitions to live values
+// once the pitot blows past 20 kt.  AOA still rides its `-100`
+// numeric sentinel for backwards compatibility — the wsClient gates
+// AOA-driven elements on `aoaIsValid` rather than dashing here.
 //
 // Delegates to `fmt`/`fmtSigned` from core/format.js so values that
 // round to -0.0 render as 0.0 (or +0.0 in signed contexts).

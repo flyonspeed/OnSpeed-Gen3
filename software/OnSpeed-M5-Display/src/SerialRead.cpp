@@ -98,6 +98,12 @@ void InjectSerialByte(char inChar)
     Pitch                = f.pitchDeg;
     Roll                 = f.rollDeg;
     IAS                  = f.iasKt;
+    // ParseDisplayFrame sets iasIsValid=false when the wire's iasKt
+    // field carried the kIasInvalidWireSentinel (9999) — which the Gen3
+    // producer emits when its bIasAlive flag is false (sensor air-data
+    // not valid).  Render path dashes IAS / percentLift digits when
+    // false.  See proto/DisplaySerial.h for the contract.
+    IasIsValid           = f.iasIsValid;
     Palt                 = f.paltFt;
     LateralG             = f.lateralG;
     VerticalG            = f.verticalG;
@@ -279,6 +285,7 @@ void SerialRead()
         Pitch                = 5.0;
         Roll                 = 0.0;
         IAS                  = 100.0;
+        IasIsValid           = true;   // dummy demo always renders live values, never dashed
         Palt                 = 2500.0;
         LateralG             = 0.0;
         VerticalG            = 1.0;

@@ -182,6 +182,10 @@ float           PercentLift         = 0.0f;
 float           Pitch               = 0.0;
 float           Roll                = 0.0;
 float           IAS                 = 0.0;
+// Default to false so a powered M5 with no serial frames yet shows
+// dashed IAS / percentLift rather than a stale "0".  Flips to the
+// wire's iasIsValid value once frames start arriving.
+bool            IasIsValid          = false;
 float           Palt                = 0.0;
 float           iVSI                = 0.0;
 float           VerticalG           = 1.0;
@@ -681,8 +685,14 @@ void loop()
                 gdraw.setFont(FSSB18);
                 gdraw.setTextColor (TFT_BLACK);
 
+                // IAS dashes when the producer's bIasAlive is false (the
+                // wire's iasKt sentinel was 9999); see proto/DisplaySerial.h
+                // and issue #358.
                 gdraw.setCursor(5, 30);
-                gdraw.print(int(displayIAS));
+                if (IasIsValid)
+                    gdraw.print(int(displayIAS));
+                else
+                    gdraw.print("--");
 
                 char PressAltStr[8];
                 snprintf(PressAltStr, sizeof(PressAltStr), "%5.0f", displayPalt);
@@ -693,8 +703,14 @@ void loop()
                 gdraw.setCursor(5, 198);
                 gdraw.printf("%1.1f", displayVerticalG);
 
+                // Percent-lift dashes whenever IAS is invalid — without
+                // air data, percent-of-stall is not meaningful (same
+                // gate the producer applies).
                 char PctStr[4];
-                snprintf(PctStr, sizeof(PctStr), "%02d", displayPercentLift);
+                if (IasIsValid)
+                    snprintf(PctStr, sizeof(PctStr), "%02d", displayPercentLift);
+                else
+                    snprintf(PctStr, sizeof(PctStr), "--");
                 gdraw.setCursor(RIGHT_X - (int)gdraw.textWidth(PctStr), 198);
                 gdraw.print(PctStr);
 
@@ -842,9 +858,14 @@ void displayAOA()
     // Percent lift number (above chevron). Outlined by drawing black
     // copies at ±3 offset then white on top. Uses setCursor+print with
     // the frame default datum (baseline_left) — same convention as the
-    // rest of this page.
+    // rest of this page.  Dashes when the producer's bIasAlive is
+    // false (wire's iasKt sentinel was 9999): without air data,
+    // percent-of-stall is not meaningful.  See issue #358.
     char PctLiftStr[4];
-    snprintf(PctLiftStr, sizeof(PctLiftStr), "%02d", displayPercentLift);
+    if (IasIsValid)
+        snprintf(PctLiftStr, sizeof(PctLiftStr), "%02d", displayPercentLift);
+    else
+        snprintf(PctLiftStr, sizeof(PctLiftStr), "--");
     const int pctX = (displayPercentLift < 100) ? PERCENT_X_POS : PERCENT_X_POS - 7;
     gdraw.setTextColor (TFT_BLACK);
     for (int xoffset = -3; xoffset <=3; xoffset += 3)
@@ -876,7 +897,10 @@ void displayAOA()
         gdraw.setFont(FSSB18);
         gdraw.setTextColor (TFT_WHITE);
         gdraw.setCursor(7, NUM_Y);
-        gdraw.print(int(displayIAS));
+        if (IasIsValid)
+            gdraw.print(int(displayIAS));
+        else
+            gdraw.print("--");
 
         char GStr[6];
         snprintf(GStr, sizeof(GStr), "%+1.1f", displayVerticalG);
@@ -1543,7 +1567,10 @@ void displayDecelGauge()
     gdraw.setFont(FSSB18);
     gdraw.setTextColor (TFT_WHITE);
     gdraw.setCursor(7, DEC_NUM_Y);
-    gdraw.print(int(displayIAS));
+    if (IasIsValid)
+        gdraw.print(int(displayIAS));
+    else
+        gdraw.print("--");
 
     char DecelStr[6];
     snprintf(DecelStr, sizeof(DecelStr), "%+1.1f", displayDecelRate);

@@ -73,7 +73,17 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     // DisplaySerial::Write() does, so the output is bit-identical.
     const int      iPitch10    = SafeScaledInt(in.pitchDeg,       10.0f,  -999,   999);
     const int      iRoll10     = SafeScaledInt(in.rollDeg,        10.0f, -9999,  9999);
-    const unsigned uIas10      = SafeScaledUInt(in.iasKt,         10.0f,     0,  9999);
+
+    // iasKt: when the producer marks air-data invalid, write the
+    // sentinel kIasInvalidWireSentinel (9999) instead of the live
+    // value.  A live SafeScaledUInt would clamp a near-stall taxi to 0
+    // and a hangar wind gust to a small but nonzero number — neither
+    // distinguishable from "data not valid" — so the encoder controls
+    // the bit pattern explicitly here.  See iasValid contract in
+    // DisplaySerial.h.
+    const unsigned uIas10      = in.iasValid
+        ? SafeScaledUInt(in.iasKt, 10.0f, 0, 9999)
+        : static_cast<unsigned>(kIasInvalidWireSentinel);
     const int      iPaltFt     = SafeScaledInt(in.paltFt,          1.0f, -99999, 99999);
     const int      iYaw10      = SafeScaledInt(in.turnRateDps,    10.0f, -9999,  9999);
     const int      iLatG100    = SafeScaledInt(in.lateralG,      100.0f,   -99,    99);
@@ -284,7 +294,13 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     DisplayFrame f;
     f.pitchDeg           = static_cast<float>(iPitch10)  / 10.0f;
     f.rollDeg            = static_cast<float>(iRoll10)   / 10.0f;
+    // iasKt: detect the kIasInvalidWireSentinel and surface it as
+    // iasIsValid=false rather than as a 999.9 kt reading.  The raw
+    // iasKt field is left set to whatever the wire carried so a
+    // diagnostic consumer can still see it; the contract is
+    // "consumers must check iasIsValid before trusting iasKt".
     f.iasKt              = static_cast<float>(uIas10)    / 10.0f;
+    f.iasIsValid         = (uIas10 != kIasInvalidWireSentinel);
     f.paltFt             = static_cast<float>(iPaltFt);
     f.turnRateDps        = static_cast<float>(iYaw10)    / 10.0f;
     f.lateralG           = static_cast<float>(iLatG100)  / 100.0f;
