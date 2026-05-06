@@ -203,6 +203,12 @@ Keys persisted:
 - `iMuteAudioUnderIAS`, `iMasterVolumePct`
 - `iAoaMedianWindow`, `iAoaMeanWindow`
 - `audioEnabled` (0/1)
+- `bMuteStallHorn` (0/1) — when 1, plugin clears
+  `sim/aircraft/view/acf_has_stallwarn` each flight loop so the sim's
+  built-in stall horn doesn't talk over OnSpeed's audio.  Original
+  `.acf`-defined value is captured on first apply per-aircraft and
+  restored on toggle-off, so an aircraft that legitimately has no horn
+  doesn't end up with one after a mute/unmute cycle.
 - `serialPortPath` (string, may be empty)
 
 The audio control window (Plugins → Fly On Speed → Show) edits all

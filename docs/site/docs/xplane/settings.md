@@ -92,6 +92,16 @@ smoothing windows as editable text rows; `audioEnabled` is the
 separately via **Plugins → Fly On Speed → Serial output → \<port\>**
 (see [Tethering a Physical M5](m5-tethered.md)).
 
+**Plugins → Fly On Speed → Mute X-Plane stall horn** silences the
+sim's built-in stall warning so it doesn't talk over OnSpeed's audio.
+The setting is per-aircraft and persists across X-Plane sessions in
+the `.prf`. Toggling off restores whatever the aircraft's `.acf` file
+originally specified, so an aircraft that legitimately has no stall
+horn doesn't end up with one after a mute/unmute cycle. Note: only
+the sim's default stall warning is suppressed; some third-party
+aircraft drive their own horn from a separate plugin or panel system,
+which this toggle can't reach.
+
 Click **Save** to validate, apply, and write to the per-aircraft
 `.prf`. Validation runs in two passes:
 
