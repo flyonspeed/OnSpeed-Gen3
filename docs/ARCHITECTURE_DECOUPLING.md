@@ -4,6 +4,8 @@ This document is a **contract** for how OnSpeed firmware should be structured as
 
 It is not a reorganization plan. Migration sequencing belongs in its own document; this one defines what we are reorganizing toward.
 
+> **Last reconciled with master:** 2026-05-06, against tip `c429013` (post-v4.22.1). Major releases v4.21 (audio engine port, percent-lift honesty, EKF6 correctness) and v4.22 (Web UI rewrite, X-Plane indexer window, wire v4.23) have shipped since the original draft. See **"What's already moving in this direction"** below for the running scoreboard, and **"Next priority"** at the bottom for the leverage call.
+
 ## The model
 
 OnSpeed is **a stream-processing system, not a sensor reader with extras bolted on**. The processing core (AHRS fusion, AOA calculation, percent-lift mapping, tone decisions, audio synthesis) is the same regardless of where the bytes come from or where the answers go. The only thing that changes between an aircraft, a simulator, a replayed flight, and a unit test is the **adapter layer** at each end.
@@ -65,17 +67,21 @@ The architecture matches what the user is describing. **What we have not interna
 
 Every module takes inputs, returns outputs, holds state on `this`. No hidden globals.
 
-### The X-Plane plugin proves the model works
+### The X-Plane plugin proves the model works (and keeps proving it)
 
-`software/OnSpeed-XPlane-Plugin/` is the cleanest possible consumer of the architecture. It:
+`software/OnSpeed-XPlane-Plugin/` is the cleanest possible consumer of the architecture, and the gap between "consumes core algorithms" and "is a complete OnSpeed frontend" closed substantially in v4.22.
 
-- Reads X-Plane datarefs (a data-source adapter)
-- Calls `ToneCalc::calculateTone()` from `onspeed_core` directly
-- Synthesizes PCM with `ToneSynth` from `onspeed_core` directly
-- Plays via OpenAL (a sink adapter)
-- Has its own MIT license, builds standalone with CMake, has its own test suite
+What the plugin is, as of c429013:
 
-**Zero coupling to ESP32 sketch state.** This is what every external consumer should look like.
+- A **data-source adapter** reading X-Plane datarefs.
+- An **audio sink** that calls `ToneCalc::calculateTone()` and synthesizes PCM via `ToneSynth` — same code the firmware runs (#394 made this spec-conformant: per-pulse stall-volume ramp, directional stereo pan, full audio chain, not buffered samples with sleeps between).
+- A **display sink** that **embeds the M5 indexer** in a floating X-Plane window (#395, #415, #416). All five M5 modes — AOA primary, Backup AI, Indexer-only, Energy decel, G-history — render in-sim, click-to-cycle, pop out to a second monitor, position remembered per aircraft (#414).
+- The plugin derives `pipPctLift` and `gOnsetRate` from datarefs (#405) — i.e., it produces the same wire fields the firmware does, from a different data source, and feeds them to the same renderer.
+- 660 KB binary (#409, was 54 MB), MIT-licensed, standalone CMake, own test suite.
+
+**The architectural significance is large.** The plugin runs the *same indexer code* the M5 sketch runs, against the *same wire format* (`DisplayBuildInputs` from `onspeed_core/proto/`), driven by a *different data source*. This is the doc's data-source-and-sink model fully realized for the X-Plane case. The decoupling isn't aspirational; it's already paid for itself.
+
+The lesson to keep pulling forward: **the wire format (`DisplayBuildInputs`) is the seam**. Anything that produces a `DisplayBuildInputs` frame can drive the indexer. Anything that consumes one can render. Real OnSpeed firmware, X-Plane plugin, future MAVLink-bridged simulator, future log-replay-to-indexer tool — they share the format, they share the renderer.
 
 ### Codecs in `proto/` are pure and bidirectional
 
@@ -91,13 +97,24 @@ This is what the WebSocket JSON schema should look like next. (It also points at
 
 These are concrete. Each one is a place where the next person adding a data source or a sink will trip.
 
-### 1. The WebSocket JSON has no schema
+### 1. The WebSocket JSON has no schema *(partial: drift detection landed; codec-from-struct still missing)*
 
-`DataServer.cpp:300-309` builds the JSON with a hand-written `snprintf` format string. There is no test that pins the field set. Issue #363 is the canonical example: PR #320 dropped four body-angle fields from the wire when it added percent anchors, and the cal wizard JS kept reading them for several months without anything firing. The fix (PR #365) was 11 lines, but the *bug* was schema drift between writer and reader, identical in shape to what #353 fixed for log files.
+**v4.22 update.** PR #369 (`467174f`) shipped drift detection in v4.22:
 
-**What honoring rule 2 would look like:** the JSON broadcast is generated from a struct (call it `LiveDataFrame`) declared in `onspeed_core/src/proto/`, with a `FormatLiveData(const LiveDataFrame&, char* out, size_t cap)` codec and a test pinning the field set. Every JS consumer (`/live`, `/indexer`, `/calwiz`) imports a single reference list of expected fields. Changing the schema becomes a deliberate edit; reads of removed fields fail at the schema layer, not silently as `undefined`.
+- `software/Libraries/onspeed_core/src/api/LiveDataJsonKeys.h` declares `kLiveDataJsonKeys[]` as the single canonical list of 27 field names.
+- `test/test_data_server_json/` (5 native tests) asserts the firmware's `snprintf` format emits exactly those keys, that the dev-server replay NDJSON fixture carries the same set, and that the `/api/livedata` mock matches.
+- `tools/web/test/api-schema.mjs` adds ~129 JS-side invariants covering every field's type, units, and range.
+- PR #345 published a human-readable WebSocket protocol reference at `dev.flyonspeed.org/reference/websocket-protocol/`.
 
-This is a small PR, separable from any other refactor, and it forecloses a class of bug we have already seen twice (#353 for logs, #363 for JSON).
+**What this catches:** the next PR #363. Anyone who edits the format string without editing `kLiveDataJsonKeys[]` (or vice versa) fails the test. Anyone who adds a JS read against an unknown field fails the JS schema test.
+
+**What this does not yet do** — and what the original §1 vision called for:
+
+- The JSON is still emitted by hand-written `snprintf`, not generated from a `LiveDataFrame` struct + codec.
+- There is no `LiveDataFrame` struct in `onspeed_core/proto/` that other sinks (MAVLink, BLE GATT, future HUD) could share. The drift contract is name-level, not type-level.
+- DataServer still reads its 25 globals directly (see §2). The schema pin protects the wire from drift, but doesn't fix the producer.
+
+**Net:** the bug class is foreclosed. The architectural unification (one struct, many encoders) is not. Step 1 of the plan (LiveDataFrame snapshot) is still the right next move; step 2 (the schema layer) is now *partially done*, with the cheaper half delivered.
 
 ### 2. `DataServer.cpp` reads 25 unique global fields directly
 
@@ -107,25 +124,41 @@ The `xAhrsMutex` snapshot at line 368 covers part of this (the flap vector and l
 
 **What honoring the model would look like:** the JSON builder takes a `LiveDataFrame` struct produced by a single snapshot function called once per 50 ms tick. The snapshot function holds the relevant mutexes, copies into the frame, and returns. The builder formats from the frame. New AHRS fields land by extending the frame, in one place; the JSON builder is a pure function of the frame.
 
-### 3. LogReplay unpacks into globals
+### 3. LogReplay unpacks into globals *(unchanged in firmware; Python tooling is starting to formalize the shape)*
 
-`LogReplay.cpp:224-269` reads a `LogRow` and assigns 15+ global fields: `g_Sensors.PfwdSmoothed = row.pfwdSmoothed`, `g_AHRS.SmoothedPitch = row.pitchDeg`, `g_pIMU->Ax = row.imuForwardG`, etc. PR #353 fixed how the row gets parsed from CSV; it did not change how the row gets distributed afterward. A simulator data source (UDP socket from a sim) tomorrow has to duplicate this unpacking exactly, or copy this file and edit it, or refactor it.
+Firmware: `LogReplay.cpp:224-269` reads a `LogRow` and assigns 15+ global fields: `g_Sensors.PfwdSmoothed = row.pfwdSmoothed`, `g_AHRS.SmoothedPitch = row.pitchDeg`, `g_pIMU->Ax = row.imuForwardG`, etc. PR #353 fixed how the row gets parsed from CSV; it did not change how the row gets distributed afterward. A simulator data source (UDP socket from a sim) tomorrow has to duplicate this unpacking exactly, or copy this file and edit it, or refactor it.
+
+**v4.22 update on the tooling side.** PR #380 added `tools/onspeed_py/` — a shared Python module for offline analysis — and its `live_snapshot.py` already declares the per-tick aircraft-state struct the firmware doesn't have yet. The module's docstring is explicit:
+
+> `LiveSnapshot` is the input shape that orchestrators (synth-record scenarios, log-replay adapters, future analysis tools) feed to the display + audio pipeline. … shaped to match the eventual `LiveDataFrame` struct from `docs/ARCHITECTURE_DECOUPLING.md` §1. When that struct lands in `onspeed_core/proto/`, this Python class becomes a thin wrapper around its codec.
+
+So the Python side has the snapshot frame already, and is being designed against this doc directly. The C++ port has not landed.
 
 **What honoring rule 1 would look like:** there is a single function `ApplyDataSourceFrame(const SourceFrame&)` that distributes incoming data to wherever it needs to go. Every adapter (real-sensor reader, LogReplay, simulator bridge, X-Plane bridge if we ever embed it) produces a `SourceFrame` and calls this function. New source = new adapter, no edits to the distributor.
 
 The reason this hasn't bitten is that we have one source at a time (compile-time selection: `EnSensors` / `EnReplay` / `EnTestPot` / `EnRangeSweep`). The minute we want a second simultaneously — say, "live sensors with synthetic AOA injection for cal-wizard rehearsal" — we have to invent the abstraction anyway.
 
-### 4. The cal wizard recomputes DerivedAOA client-side and is wrong under EKF6
+### 4. The cal wizard recomputes DerivedAOA client-side and is wrong under EKF6 *(fixed in code in v4.22; issue ticket stale)*
 
-Issue #366 (filed during the #365 review). `javascript_calibration.h:125`: `derivedAOA = PitchAngle - flightPath`. This matches `Ahrs.cpp:487`'s Madgwick branch exactly, and silently disagrees with `Ahrs.cpp:408`'s EKF6 branch (`DerivedAOA = state.alpha_deg()`). The wizard fits its calibration curve against the wrong signal when EKF6 is active.
+**v4.22 update.** PR #373 (`f077f7d`) ported the cal wizard from the legacy form-and-PROGMEM-JS pattern to a Preact page. The new wizard at `tools/web/lib/pages/CalWizardPage.js:222` reads:
 
-This is rule 3 violated in miniature: the wizard had its own *fourth* AOA estimator (`PitchAngle - flightPath`), not declared as one, parallel to the one the runtime audio path uses. The fix is to consume `OnSpeed.DerivedAOA` from the wire (which is the firmware's authoritative value, whichever AHRS is active). The discipline is: *a downstream consumer must not reinvent an upstream computation* — the seam is the wire frame.
+```js
+derivedAoaDeg: Number(o.DerivedAOA) || 0,
+```
 
-### 5. The audio path reads `g_Config` directly
+— i.e., it consumes the firmware's authoritative `DerivedAOA` directly off the wire, the seam this doc said it should use. `OnSpeed.DerivedAOA` reflects whichever AHRS is active (Madgwick `SmoothedPitch − FlightPath` or EKF6 `state.alpha_deg()`), so the wizard now fits against the same signal the runtime audio path consumes. The PR also added `software/Libraries/onspeed_core/src/api/CalwizSave.{h,cpp}` (pure mutation logic) and `test_calwiz_save_diff` (byte-identical state vs. legacy path), so the save round-trip is differentially tested.
 
-`Audio::Play()` and `g_AudioPlay.UpdateTones()` read volume curves and pulse parameters from `g_Config.*` at the call site. `ToneCalc::calculateTone()` is pure (it takes a thresholds struct), but the wrapper around it pulls from globals. A second audio path tomorrow — for example, the X-Plane plugin's audio thread, or a "run audio decisions on replayed data and emit a transcript" tool — would need to either read the same globals or duplicate the wrapper.
+**Issue #366 is functionally closed in code as of v4.22 but the GitHub ticket is still open** — bookkeeping debt, not a real bug surface. Worth closing the ticket and citing PR #373 + `CalWizardPage.js:222` in the close.
 
-The plugin gets away with it today because it talks to `ToneCalc` and `ToneSynth` directly, bypassing the sketch wrapper. That works because the plugin doesn't need volume curves. The moment we want consistent volume behavior between firmware and plugin (or between firmware and a future bench-test analysis tool), the wrapper has to take its config as an argument.
+The discipline lesson stands: *a downstream consumer must not reinvent an upstream computation* — the seam is the wire frame. The cal wizard has now graduated from violating this rule to embodying it, and the differential test pins the contract so it can't regress.
+
+### 5. The audio path reads `g_Config` directly *(still tangled in firmware; partly extracted in v4.22)*
+
+Firmware: `Audio.cpp:623–645` reads `g_Config.iMuteAudioUnderIAS` directly at the IAS-gating layer (mute threshold, +5 kt unmute hysteresis, gating decision). `ToneCalc::calculateTone()` is pure (it takes a thresholds struct), but the wrapper around it still pulls from globals.
+
+**v4.22 progress.** PR #381 extracted the tone-decision tree into `onspeed_core::audio::AudioOrchestrator` (`MakePulseSpec`, `MakeSolidSpec`, `DecideAndArm`) — pure, takes an `OrchestratorConfig` struct. PR #394 made the X-Plane plugin spec-conformant, running the same audio chain (per-pulse stall-volume ramp, directional stereo pan from sim lateral-G) the firmware does. So the *DSP* is in core; what's still in the sketch wrapper is the *config-read at the gating layer*.
+
+The seam to chase next: the IAS-gating logic in `Audio.cpp` should take its mute threshold and hysteresis as parameters from a `ToneInputs` struct, not from `g_Config` directly. With that, the firmware audio task and the X-Plane plugin's audio thread differ only in where their config comes from (XML on flash vs. datarefs in the sim), not in how they consume it.
 
 ### 6. Estimators aren't parallel yet
 
@@ -142,6 +175,37 @@ These are five named estimators of the same underlying quantity, computed from o
 **What blocks it today:** every consumer reads `g_Sensors.AOA`. There is no struct named `AoaEstimates` carrying multiple values. Adding parallel estimators without that struct would mean either inventing a new global per estimator (bad) or routing them through a side channel (bad). With the struct, ToneCalc takes `const AoaEstimates&` and chooses or blends; the calibration-residual monitor reads the same struct and emits a "calibration drift" signal; the cal wizard could use any chosen estimator without recomputing.
 
 This is the largest pending change, and probably the highest-leverage one for the OnSpeed mission.
+
+## What's already moving in this direction (running scoreboard)
+
+This section tracks landed work that pulls in the model's direction. It's intentionally separate from the audit above — the audit names the gaps, this names the deliveries.
+
+**v4.21 (April 27, 2026)** — ground-truth correctness for AHRS/audio:
+
+- **PR #320 / #336** Honest single-linear PercentLift formula + percent-anchor wire format. Replaced four body-angle setpoints on the wire with five percent anchors (`tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift`, `pipPctLift`). Issue #363 surfaced from the schema-drift fallout; PR #365 fixed the cal wizard side. The "schemas as artifacts" lesson got teeth here.
+- **PR #102** Audio engine port to Gen3: DAHDR envelope + per-PPS volume ramp.
+- **PR #316/#318/#319** EKF6 correctness: gyro scale, dt scaling for process noise, q_bias bump.
+- **PR #312** AHRS test fixtures aligned with production +1g sign convention.
+
+**v4.22 (May 5, 2026)** — the platform shift:
+
+- **PR #353** *LogCsvHeaderIndex name-keyed log parsing.* The doc cites this as the prototype for "schema as first-class artifact." Twenty-one tests pinning the contract; old logs replay correctly across firmware versions.
+- **PRs #367, #369, #373, #378, #382, #384, #385, #387** *Web UI rewrite to Preact.* Server-side `/api/*` JSON endpoints, shared bundle, dev server with replay fixtures, every legacy form route preserved.
+- **PR #369** *WebSocket schema pin.* Field-set drift detection via `LiveDataJsonKeys.h` + `test_data_server_json` (5 native tests) + `tools/web/test/api-schema.mjs` (~129 JS-side invariants). See §1 for what's still missing (the codec-from-struct).
+- **PR #373** *Cal wizard ported to Preact + `CalwizSave.{h,cpp}` + `test_calwiz_save_diff`.* Pure mutation logic in core, byte-identical state vs. legacy path. Closes the §4 EKF6 bug functionally.
+- **PR #345** *External-facing WebSocket protocol reference page.* Published at `dev.flyonspeed.org/reference/websocket-protocol/`. Names every wire field, type, units, source. The wire is now a public contract, not a private implementation detail.
+- **PR #380** *`tools/onspeed_py/` shared Python module.* `LiveSnapshot`, `Frame`, `FlapSetpoints`, `ComputeLiftFraction`, config parser, log replay. Cites this doc by name; designed against §1's `LiveDataFrame` shape.
+- **PRs #386, #407, #413** *Wire v4.23 versioned bump.* `percentLift` becomes tenths-of-a-percent (sub-percent resolution on the indexer); `lateralG` becomes body-frame. Frame size 76 → 77 bytes. **Coordinated flash required (M5 + Gen3 box) — versioned wire discipline working.** Issue #402 captures wire-version-field design for the next breaking change.
+- **PR #391** EFIS engine + time-of-day fields routed through `EfisFrame` for D10/G5/G3X/MGL. Narrows the surface DataServer reads from EFIS globals (though doesn't fully fix §2).
+- **PRs #394, #395, #404, #405, #409, #410, #411, #414, #415, #416, #420** *X-Plane plugin maturity.* Plugin embeds the M5 indexer, audio is spec-conformant, derives `pipPctLift`/`gOnsetRate` from datarefs, persists state per aircraft, 660 KB binary. The "X-Plane plugin proves the model" claim is now substantially stronger than when this doc was first drafted.
+- **PR #357** BootDiagnostics: panic coredumps archived to SD with one-line summary. Field diagnosis is a one-line email instead of bench work.
+- **PR #377** Raw flap-pot ADC in the log. Replay tools can reproduce smooth-sliding pip across detents.
+
+**v4.22.1 (May 6, 2026)** — V4B EFIS RX pin fix (#428).
+
+**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. Schema discipline at the WS layer (#369), wire-version discipline at the M5 layer (#386), and an external-facing protocol reference (#345) all landed together. The X-Plane plugin became a complete frontend (#394–#420). The cal wizard moved off the legacy path (#373). The Python tooling formalized the shape this doc proposed (#380).
+
+What did *not* land in this window: the C++ `LiveDataFrame` snapshot in DataServer (§2), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). Those are still the next moves.
 
 ## Data sources: what's complete, what's missing
 
@@ -285,17 +349,24 @@ These are the discipline questions to ask. If the answer to any of them is "edit
 
 This document defines the *shape*. Detailed sequencing belongs in its own plan. The list below is the rough order of leverage, with explicit notes on **where we should adopt an existing standard rather than invent our own**.
 
-### 1. `LiveDataFrame` snapshot in DataServer (medium)
+### 1. `LiveDataFrame` snapshot in DataServer (medium) — **the single highest-leverage open piece**
 
-Define a `LiveDataFrame` struct, snapshot all 25 globals into it once per 50 ms tick under the relevant mutexes, and have the JSON builder format from the frame. Fixes the global-address-book reader and gives every other sink the same input.
+Define a `LiveDataFrame` struct in `onspeed_core/src/proto/`, snapshot all 25 globals into it once per 50 ms tick under the relevant mutexes, and have the JSON builder format from the frame. Fixes the global-address-book reader (§2) and gives every other sink the same input.
 
-Standard to hew to: **none yet** — this is internal scaffolding. But the frame becomes the source of truth that downstream wire formats (JSON, MAVLink, future HUD) all encode from.
+**v4.22 starting state (helpful prior work):**
+- `tools/onspeed_py/live_snapshot.py` already declares this struct on the Python side, designed against this doc. The C++ port can mirror its shape directly — names, units, comments are already settled.
+- `software/Libraries/onspeed_core/src/api/LiveDataJsonKeys.h` already pins the field-name list (PR #369). Defining `LiveDataFrame` with the same field names completes the contract on the producer side.
+- `DisplayBuildInputs` in `proto/DisplaySerial.h` is already a sibling of this idea — same per-tick state shape — and the X-Plane plugin already encodes against it. `LiveDataFrame` can either subsume `DisplayBuildInputs` or sit alongside it (they overlap heavily).
 
-### 2. WebSocket JSON schema (small)
+Standard to hew to: **none externally** — this is internal scaffolding. But it's the unblocking step for steps 4 (MAVLink emit), 5 (indexer-as-generic-HUD), 7 (parallel estimators), and 10 (BLE). Cheaper to build now (Python already specced the shape) than to defer.
 
-Generate `UpdateLiveDataJson()` from the `LiveDataFrame` declaration via a codec module in `onspeed_core/src/proto/` with a round-trip test. Pin the field set so the next #363 fails at the test, not in a pilot's browser.
+### 2. WebSocket JSON schema (small) — **partially done in v4.22**
 
-Standard to hew to: **JSON Schema** for the field-set declaration, so downstream clients (cal wizard, M5 sim, future tools) can validate inputs against the same schema artifact rather than each shipping its own list of expected keys.
+**Status:** PR #369 landed name-level drift detection. `LiveDataJsonKeys.h` + `test_data_server_json` + `tools/web/test/api-schema.mjs`. The next #363 fails at test time.
+
+**Still missing:** the JSON builder is hand-written `snprintf`, not generated from `LiveDataFrame`. Once step 1 lands, `UpdateLiveDataJson()` becomes a one-line call into a codec; right now it's 25 hand-coded global reads with `SafeJsonFloat` wrappers.
+
+Standard to hew to: **JSON Schema** for the field-set declaration. PR #345's external protocol reference page is the human-facing version of this; a machine-readable `livedata.schema.json` checked into the repo would let tooling (the dev server, future analysis scripts, third-party consumers) validate against the same artifact.
 
 ### 3. OAT and boom re-injection in LogReplay (small)
 
@@ -357,3 +428,20 @@ Independent of all wire-format work. When we want a phone-paired indexer that do
 Each step is independently reviewable and shippable. None require a top-down rewrite. The pattern they share is **import the schema discipline that adjacent communities have already worked out**, and reserve our own design effort for the parts that actually are OnSpeed-specific (audio decisions, percent-lift math, calibration logic).
 
 The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it, and reaches for an existing protocol before inventing one.
+
+## Next priority (as of 2026-05-06)
+
+If only one of these landed in the next release window, **step 1 — the C++ `LiveDataFrame` snapshot in `onspeed_core/proto/`** — is the highest-leverage move, and the cheapest it has ever been.
+
+Why now:
+- The Python side (`tools/onspeed_py/live_snapshot.py`, PR #380) already designed the struct's shape, against this doc by name. The naming, units, and field set are settled.
+- The schema-pin half of the contract (PR #369's `LiveDataJsonKeys.h`) is in place. A `LiveDataFrame` whose field names match `kLiveDataJsonKeys[]` finishes the producer-side closure.
+- `DisplayBuildInputs` is already a sibling shape and is exercised cross-platform (firmware, X-Plane plugin, M5 sketch). Subsuming or aligning with it costs little.
+- Every downstream step (#4 MAVLink emit, #5 indexer-as-generic-HUD, #7 `AoaEstimates` parallel estimators, #10 BLE GATT) takes a `LiveDataFrame` as input. Without it, each of those steps re-invents its own snapshot.
+
+What's *not* the next priority, and why:
+- **MAVLink emit (#4)** is tempting because it unlocks the most external compatibility, but doing it before step 1 means the MAVLink emitter has to read 25 globals directly — duplicating DataServer's tangling rather than fixing it.
+- **OAT / boom re-injection in LogReplay (#3)** is small and worth doing soon, but it's not the architectural bottleneck.
+- **Parallel estimators (#7)** is the largest leverage for the OnSpeed mission long term, but it depends on `LiveDataFrame` (or a sibling `AoaEstimates` struct routed the same way) to land first without re-inventing the snapshot pattern.
+
+Recommend pairing step 1 with **closing issue #366** (the cal wizard EKF6 ticket — fixed in code in v4.22, ticket still open) as a small bookkeeping cleanup. The audit's §4 has aged; the ticket should reflect that.
