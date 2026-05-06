@@ -189,10 +189,20 @@ if(ENABLE_M5_INDEXER)
         set(SDL_TEST        OFF CACHE BOOL "" FORCE)
         set(SDL_TESTS       OFF CACHE BOOL "" FORCE)
         set(SDL_INSTALL_TESTS OFF CACHE BOOL "" FORCE)
-        # Strip subsystems we don't use — the M5 firmware only touches
-        # SDL_GetTicks / SDL_Delay (timer subsystem).  Keeping unused
-        # subsystems disabled trims static-archive size from ~30 MB to
-        # ~4 MB and skips link-time pulls of frameworks we don't need.
+        # The plugin only calls SDL_GetTicks / SDL_Delay (timer
+        # subsystem); the lines below declare every other subsystem as
+        # unused.  In SDL2 2.32.10 these flags are documentary rather
+        # than load-bearing — SDL2's CMakeLists.txt still compiles the
+        # video/audio/render TUs into the static archive and links
+        # Cocoa/Carbon/CoreVideo/Foundation unconditionally on macOS.
+        # The size win in the shipped `.xpl` comes from the linker:
+        # `-Wl,-dead_strip` (mac) and `--gc-sections` (Linux) drop
+        # unreferenced code, and the hidden-visibility + per-section
+        # compile flags applied to the indexer TUs further down this
+        # file are what make dead-strip effective.  The flags stay as a
+        # signal of intent — future SDL2 versions may honor them as
+        # real size optimizations, and they document the dependency
+        # surface for anyone auditing the build.
         set(SDL_AUDIO       OFF CACHE BOOL "" FORCE)
         set(SDL_VIDEO       OFF CACHE BOOL "" FORCE)
         set(SDL_RENDER      OFF CACHE BOOL "" FORCE)

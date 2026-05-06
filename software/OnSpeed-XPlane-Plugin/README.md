@@ -11,22 +11,26 @@ Requires CMake 3.15+, a C++17 compiler, OpenAL, and PlatformIO (for
 the M5 libdeps prefetch).  The embedded M5 indexer is built by
 default; pass `-DENABLE_M5_INDEXER=OFF` for an audio-only `.xpl`.
 
-SDL2 is fetched as source and built as a static library at configure
-time — no system install required, and the resulting `.xpl` ships
-without an external libSDL2 dylib dependency.  Add an extra ~30 s
-to first-time configure for the SDL2 pull; subsequent builds reuse
-the cached source.
+The plugin's CMake build fetches SDL2 as source and links it statically,
+so the resulting `.xpl` has no `libSDL2` dylib dependency on the pilot's
+machine.  First-time configure adds ~30 s for the SDL2 pull; subsequent
+builds reuse the cached source.
 
-| OS | OpenAL | SDL2 |
+The M5 indexer prefetch step (`pio run -e native -d ../OnSpeed-M5-Display`,
+called out below) is a separate PlatformIO project that links system
+SDL2 directly — a developer building the plugin from source still needs
+SDL2 installed for that prefetch.  The pilot installing the prebuilt
+`.xpl` does not.
+
+| OS | OpenAL (developer) | SDL2 (developer) |
 |---|---|---|
-| macOS | system framework, no install needed | bundled (FetchContent) |
-| Linux | `sudo apt-get install libopenal-dev` | bundled (FetchContent) |
-| Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` | not yet supported (#396) — pass `-DENABLE_M5_INDEXER=OFF` |
+| macOS | system framework, no install needed | `brew install sdl2` (for M5 prefetch); plugin links its own static SDL2 |
+| Linux | `sudo apt-get install libopenal-dev` | `sudo apt-get install libsdl2-dev` (for M5 prefetch); plugin links its own static SDL2 |
+| Windows | [OpenAL Soft](https://www.openal-soft.org/), set `OPENAL_INCLUDE_DIR` and `OPENAL_LIBRARY` | M5 indexer not yet supported (#396) — pass `-DENABLE_M5_INDEXER=OFF` |
 
 To opt out of the bundled SDL2 (faster incremental dev builds at the
-cost of a non-portable `.xpl`), pass `-DONSPEED_SYSTEM_SDL2=ON` and
-install SDL2 via your package manager (`brew install sdl2` /
-`apt install libsdl2-dev`).
+cost of a non-portable `.xpl`), pass `-DONSPEED_SYSTEM_SDL2=ON` to use
+the system SDL2 already installed for the M5 prefetch.
 
 The embedded M5 indexer reuses the M5 display project's PlatformIO
 libdeps cache (M5GFX + M5Unified).  Populate it once before
