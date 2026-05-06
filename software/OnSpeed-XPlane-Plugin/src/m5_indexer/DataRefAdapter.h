@@ -23,4 +23,34 @@ void InitDataRefs();
 // Returns a fully-populated struct ready for BuildDisplayFrame.
 onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs();
 
+// Pure-function helper: fill the five percent-lift fields
+// (percentLiftPct + four anchors) and pipPctLift on `in` from the
+// given inputs.  Extracted from BuildInputsFromDatarefs so it can be
+// unit-tested without linking XPLM.  Reads the AOA-threshold globals
+// (fLDMAXAOA et al.) and the synthetic alpha_0 / alpha_stall via the
+// plugin's MakeFlapCfg path; callers of the unit test override the
+// globals before invoking, the production path leaves them as the
+// pilot configured.
+//
+// liveAoaDeg is X-Plane's `sim/flightmodel/position/alpha` reading.
+// flapHandleRatio is `sim/cockpit2/controls/flap_handle_deploy_ratio`,
+// already clamped to [0, 1].  iasValid is the same gate the audio
+// path uses (true unless IAS is below iMuteAudioUnderIAS).
+//
+// Important contract:
+//   - The four band-edge anchors (tonesOnPctLift, onSpeedFastPctLift,
+//     onSpeedSlowPctLift, stallWarnPctLift) and the pip lerp endpoints
+//     derived from them are computed with iasValid=true unconditionally.
+//     Anchor positions are pure functions of calibration; collapsing
+//     them when air isn't moving pins every visual reference (and the
+//     pip) to the bottom of the indexer regardless of live alpha.
+//   - Only the live percentLiftPct field gates on the caller's
+//     iasValid.
+// Mirrors the firmware contract pinned in onspeed_core
+// DisplayPctAnchors.h.
+void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
+                     float liveAoaDeg,
+                     float flapHandleRatio,
+                     bool  iasValid);
+
 }  // namespace onspeed_xplane::indexer
