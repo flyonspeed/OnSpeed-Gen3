@@ -349,16 +349,80 @@ These are the discipline questions to ask. If the answer to any of them is "edit
 
 This document defines the *shape*. Detailed sequencing belongs in its own plan. The list below is the rough order of leverage, with explicit notes on **where we should adopt an existing standard rather than invent our own**.
 
-### 1. `LiveDataFrame` snapshot in DataServer (medium) — **the single highest-leverage open piece**
+### 1. `LiveDataFrame` + `LiveDataView` (medium) — **the single highest-leverage open piece**
 
-Define a `LiveDataFrame` struct in `onspeed_core/src/proto/`, snapshot all 25 globals into it once per 50 ms tick under the relevant mutexes, and have the JSON builder format from the frame. Fixes the global-address-book reader (§2) and gives every other sink the same input.
+Build the snapshot at the sink boundary as a *composed* type — directly holding the existing per-stream snapshot structs (`ImuSample`, `SensorSample`, `AhrsOutputs`, `EfisFrame`, `FlapState`, `BoomFrame`) — and pair it with a `LiveDataView` accessor layer that exposes selection-policy fusion (`PreferEfis`, `PreferInternal`, `EfisOnly`, `InternalOnly`) and freshness gating to consumers. Fixes §2 (the 25-global address-book reader) by making the snapshot the one place fusion logic lives, instead of the four ad-hoc per-consumer copies that exist today (see "Why the view layer matters" below).
+
+**Shape:**
+
+```cpp
+struct LiveDataFrame {
+    uint32_t snapshotTickUs;     // when BuildLiveDataFrame() ran
+    ImuSample      imu;          // 208 Hz; existing type, has timestampUs
+    SensorSample   sensors;      // 50 Hz;  existing type, has timestampUs + iasAlive
+    AhrsOutputs    ahrs;         // 208 Hz; existing type, has timestampUs
+    EfisFrame      efis;         // ~50 Hz; existing type, needs timestampUs added
+    FlapState      flaps;        // 1 Hz;   existing type, needs timestampUs added
+    BoomFrame      boom;         // ~10 Hz; existing type, needs timestampUs + present added
+    DisplayAnchors displayAnchors;  // derived at snapshot time from flaps + config
+    DataMarkState  dataMark;        // event-driven counter + last-increment timestamp
+};
+```
+
+Roughly 320 bytes total. Five of the eight fields are existing types reused unchanged; three need a `timestampUs` (and `present` flag for boom) added for symmetry. `DisplayAnchors` and `DataMarkState` are new but small (~30 lines combined).
+
+**Accessor layer:**
+
+```cpp
+class LiveDataView {
+    const LiveDataFrame& f_;
+public:
+    std::optional<float> pitchDeg(Source policy = Source::PreferInternal) const;
+    std::optional<float> aoaDeg() const;
+    std::optional<float> boomAlphaDeg(int maxAgeMs = 500) const;
+    // ... etc.
+};
+```
+
+The view collapses the four existing ad-hoc fusion sites (DataServer's `bCalSourceEfis` if/else, DisplaySerial's always-internal read, the audio path's IAS-mute gate, the cal wizard's wire-driven inheritance) into one named, testable, policy-parameterized layer. Today's "the JSON broadcaster picks per-field for everyone" silently disagrees with "the M5 always shows internal AHRS"; under the view, each consumer states its own policy explicitly.
+
+**Why the rate-aware composition matters:**
+Today's implicit cross-rate merge is "every sink at 20 Hz reads the most recent value of each upstream signal regardless of that signal's own rate." Three sinks implement this independently. The composed `LiveDataFrame` makes the merge structural (each sub-stream carries its own timestamp; the snapshot tick is separate) and named (one `BuildLiveDataFrame()` function, mutex policy localized). Consumers that don't care about freshness ignore the timestamps; consumers that do care (cal wizard's sample-pairing, future replay correctness, parallel-estimator agreement checks) reach into the relevant sub-struct.
 
 **v4.22 starting state (helpful prior work):**
-- `tools/onspeed_py/live_snapshot.py` already declares this struct on the Python side, designed against this doc. The C++ port can mirror its shape directly — names, units, comments are already settled.
-- `software/Libraries/onspeed_core/src/api/LiveDataJsonKeys.h` already pins the field-name list (PR #369). Defining `LiveDataFrame` with the same field names completes the contract on the producer side.
-- `DisplayBuildInputs` in `proto/DisplaySerial.h` is already a sibling of this idea — same per-tick state shape — and the X-Plane plugin already encodes against it. `LiveDataFrame` can either subsume `DisplayBuildInputs` or sit alongside it (they overlap heavily).
+- `tools/onspeed_py/live_snapshot.py` already declares this struct on the Python side, designed against this doc by name. The C++ port mirrors the shape; the Python class becomes a thin codec wrapper afterward.
+- `software/Libraries/onspeed_core/src/api/LiveDataJsonKeys.h` (PR #369) already pins the wire-side field-name list. Defining `LiveDataFrame` with the same names completes the contract on the producer side.
+- `DisplayBuildInputs` in `proto/DisplaySerial.h` is the precursor flat shape; the M5 wire encoder migrates to take `LiveDataFrame` (or a flattened projection of it). The X-Plane plugin already exercises this through `DataRefAdapter::BuildInputsFromDatarefs()` — the projection pattern is proven.
+- `Snapshot()` methods on `g_pIMU` and `g_Sensors` already exist and return POD copies. Extending the pattern to `g_AHRS`, `g_Flaps`, `g_EfisSerial`, `g_BoomSerial` is mechanical (~10 lines each).
 
-Standard to hew to: **none externally** — this is internal scaffolding. But it's the unblocking step for steps 4 (MAVLink emit), 5 (indexer-as-generic-HUD), 7 (parallel estimators), and 10 (BLE). Cheaper to build now (Python already specced the shape) than to defer.
+**Performance check (verified, not hand-waved):**
+- Memory: ~320 bytes per frame, 0.06% of SRAM. Holding a ring of 4 frames for derivative work is 1.3 KB.
+- CPU per snapshot: ~200 ns memcpy + mutex take/give (~1–2 µs uncontended). At 20 Hz that's ~200 µs/sec total. **0.02% CPU.**
+- JSON wire growth from adding 5 timestamp fields: ~50 bytes on a ~330-byte payload; 1 KB/s extra over WiFi at 20 Hz.
+- M5 wire: unchanged (encoder reads from sub-structs but emits the same flat 77-byte v4.23 format).
+- SD log: unchanged (`LogRow` stays its own shape; `LogRowFromLiveDataFrame()` becomes the bridge if we want unified replay).
+
+The "this is too expensive" reflex doesn't survive the numbers. Memory and CPU are rounding errors; wire-size growth is sub-percent; build time is neutral.
+
+**What this *does not* try to be:**
+- Not a Reactive-Extensions-style stream framework. There's no observer pattern, no backpressure, no windowing. The snapshot is a *pull* model at the sink rate.
+- Not a Kalman fusion engine across heterogeneous sensors. The view's selection policies are the same model real avionics ships with (ArduPilot's `EK3_SRC*` parameter family, MAVLink's per-component source selection) — pick the source per consumer, with freshness gates and fallbacks. Sophisticated Kalman blending across boom + EFIS + pressure would be an `EKF8`/`EKF10` redesign, separable from this work and not precluded by this design.
+- Not a substitute for audio's internal state, configuration, or AHRS-internal covariances. Those have their own homes.
+
+**EFIS sub-struct shape — open design question, deferred:**
+
+`EfisFrame` today is a flat product type with NaN sentinels for "this protocol doesn't carry this field." VN-300 (inertial nav with GNSS + 25-field superset) and the ADAHRS-style protocols (Dynon, Garmin, MGL, ~8 common fields) get stuffed into the same shape. The honest model would be a sum type — `std::variant<DynonFrame, GarminFrame, MglFrame, Vn300Frame>` — where the field set the type system enforces matches what the protocol actually carries.
+
+Considered and **deferred**, with reasoning recorded so we don't relitigate:
+
+- The dominant access pattern is "give me pitch / IAS / palt from whichever EFIS is connected" — common-field reads probably outnumber vendor-specific reads ~20:1. A sum type pushes visit-or-switch boilerplate into every common-field consumer; the wide product collapses it.
+- Common fields appear in every variant. The natural de-duplication (factor `EfisCommonFields` out, have each variant *contain* it) converges back toward today's shape. The genuine divergence is one outlier (VN-300 inertial nav) and a cluster of ADAHRS protocols with subset variations — not N truly-different beasts.
+- `std::variant` carries a discriminator and sizes to the largest member (~120 bytes for the Vn300 case). `std::visit` introduces toolchain interactions worth verifying on ESP32-arduino's `-fno-rtti` build. Workable, but non-zero ongoing complexity.
+- The pattern that probably *does* fit: a **grouped product** — `EfisFrame { EfisCommonFields common; EngineFields engine; InertialNavFields inertial; }` with `present` flags on the optional sub-products. Type-level grouping clarifies what comes from where without forcing visit boilerplate on common-field consumers. Mirrors the `BoomFrame { ...; bool present; }` pattern that already works elsewhere in the codebase.
+
+When to revisit: if we add a sixth or seventh EFIS protocol and the common-field redundancy starts hurting; or when an engine-fields-only consumer (HUD glasses showing fuel and RPM) makes the type-level grouping load-bearing. For step 1 of this plan, `EfisFrame` enters `LiveDataFrame` in its current shape.
+
+**Standard to hew to:** **none externally** — internal scaffolding. But it's the unblocking step for steps 4 (MAVLink emit; the emitter takes a `LiveDataFrame`), 5 (indexer-as-generic-HUD; the indexer's data layer migrates to `LiveDataFrame`), 7 (parallel estimators land as additive accessors on `LiveDataView`, no struct restructure), and 10 (BLE GATT producer takes a `LiveDataFrame`). Cheaper to build with the right shape now than to migrate three sinks later.
 
 ### 2. WebSocket JSON schema (small) — **partially done in v4.22**
 
