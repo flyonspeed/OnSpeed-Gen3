@@ -408,6 +408,17 @@ jobs:
           echo "CMAKE_GENERATOR=MinGW Makefiles" >> "$GITHUB_ENV"
           echo "CMAKE_EXTRA_ARGS=-DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-mingw-static -DENABLE_M5_INDEXER=OFF" >> "$GITHUB_ENV"
 
+      # FetchContent shallow-clones SDL2 release-2.32.10 (~30 s on a
+      # cold cache).  Caching the populated _deps tree across runs lets
+      # cmake skip the clone entirely when the tag hasn't moved.  Bump
+      # the SDL2 tag in the cache key when CMakeLists.txt bumps it.
+      - name: Cache SDL2 FetchContent source
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: software/OnSpeed-XPlane-Plugin/build/_deps
+          key: sdl2-fetchcontent-release-2.32.10-${{ runner.os }}
+
       - name: Configure
         run: cmake -S software/OnSpeed-XPlane-Plugin -B software/OnSpeed-XPlane-Plugin/build ${CMAKE_EXTRA_ARGS}
 
@@ -421,6 +432,24 @@ jobs:
         run: |
           ls -la software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/ || true
           test -f software/OnSpeed-XPlane-Plugin/build/${{ matrix.arch_dir }}/AOA-Tone-FlyOnSpeed.xpl
+
+      - name: Audit macOS .xpl has no SDL2 dylib dep
+        if: runner.os == 'macOS'
+        run: |
+          # End-user promise: the .xpl loads on a stock X-Plane install
+          # with no Homebrew SDL2 present. Static-linking SDL2 satisfies
+          # this today; the audit guards against regressions — e.g. an
+          # accidental `-DONSPEED_SYSTEM_SDL2=ON` toggle, or a new
+          # dependency pulling SDL2 dynamically through a transitive
+          # link.  Fail the job if `otool -L` shows a libSDL2 reference.
+          XPL=software/OnSpeed-XPlane-Plugin/build/mac_x64/AOA-Tone-FlyOnSpeed.xpl
+          DEPS=$(otool -L "$XPL" | tail -n +2)
+          echo "--- otool -L ---"; echo "$DEPS"
+          if echo "$DEPS" | grep -qi 'libSDL2'; then
+            echo "ERROR: .xpl has unexpected libSDL2 dylib dependency"
+            echo "Static SDL2 build broke; check ONSPEED_SYSTEM_SDL2 setting and CMakeLists.txt."
+            exit 1
+          fi
 
       - name: Audit Windows .xpl has only OS DLL deps
         if: runner.os == 'Windows'
