@@ -50,6 +50,7 @@
 #include "XPWidgetUtils.h"
 #include "XPLMMenus.h"
 
+#include <cctype>
 #include <climits>
 #include <cmath>
 #include <cstdlib>
@@ -422,15 +423,20 @@ void SaveIndexerWindowState()
 
 // Best-effort key=value parser.  Unknown keys, malformed lines, and
 // missing files are all silently ignored — defaults stand in.
-static void LoadSettings() {
-    if (s_SettingsPath.empty()) return;
+//
+// Returns true if a .prf file was found and read for the current
+// aircraft; false if the file didn't exist (first run for this
+// aircraft).  Caller uses this to decide whether to attempt the
+// one-time import from the legacy json-config plugin's format.
+static bool LoadSettings() {
+    if (s_SettingsPath.empty()) return false;
     FILE* fp = std::fopen(s_SettingsPath.c_str(), "r");
     if (!fp) {
         // First run for this aircraft; defaults are fine.  Mark
         // settings loaded anyway so subsequent user-driven changes
         // can persist.
         s_settingsLoaded = true;
-        return;
+        return false;
     }
 
     char line[256];
@@ -487,6 +493,201 @@ static void LoadSettings() {
     // state.  Seed the periodic save's diff baseline so a no-op tick
     // doesn't immediately rewrite the file with the same values.
     s_audioWindowLastSaved = s_audioWindow;
+    return true;
+}
+
+// --------------------------------------------------------------------------
+// Legacy json-config import (one-time).
+//
+// The pre-subtree X-Plane plugin (flyonspeed/OnSpeed-XPlane on the
+// `json-config` branch) persisted settings to
+// `<X-Plane root>/Custom Data/<acf_ui_name>.json`.  Pilots who used
+// that plugin have hand-calibrated thresholds in those files that
+// don't survive switching to the new .prf-based persistence.
+//
+// On aircraft load, when no .prf exists yet for the active aircraft,
+// look for the legacy json file by `acf_ui_name` and, if found,
+// import the five keys it stored:
+//
+//   "Below LDMax"      → fLDMAXAOA
+//   "Below OnSpeed"    → fONSPEEDFASTAOA
+//   "OnSpeed Max"      → fONSPEEDSLOWAOA
+//   "Above OnSpeed"    → fSTALLWARNAOA
+//   "IAS Tone Enable"  → iMuteAudioUnderIAS (boolean: 1.0 → 25 [enabled],
+//                                            0.0 → 0 [disabled])
+//
+// After a successful import the legacy file is renamed to
+// `<name>.json.imported` so re-imports don't repeat if the pilot
+// later wipes their .prf, and so the pilot can revert by renaming
+// back if anything went wrong.  Output state is committed via
+// SaveSettings, which writes the new .prf for this aircraft.
+//
+// JSON parsing here is a tiny hand-roll — the legacy format is a
+// single flat object with string keys and float values.  A full
+// JSON dependency just for this one-shot import would be overkill.
+// --------------------------------------------------------------------------
+
+// Extract a float value for `key` from a flat JSON object string.
+// Returns true if the key was found and parsed; false otherwise.
+//
+// Accepts either the legacy plugin's `{"key": 6.0}` form or any
+// equivalent whitespace-tolerant variant.  Robust against extra
+// whitespace, trailing comma, and other minor JSON style choices.
+// Not a general JSON parser — does not handle nested objects,
+// arrays, escaped strings, or non-ASCII keys.  None of those occur
+// in the legacy format.
+static bool extractJsonFloat(const std::string& body,
+                             const char* key,
+                             float& out)
+{
+    // Find `"key"` literally.
+    const std::string needle = std::string("\"") + key + "\"";
+    size_t k = body.find(needle);
+    if (k == std::string::npos) return false;
+    k += needle.size();
+    // Skip whitespace + colon.
+    while (k < body.size() && std::isspace(static_cast<unsigned char>(body[k]))) ++k;
+    if (k >= body.size() || body[k] != ':') return false;
+    ++k;
+    while (k < body.size() && std::isspace(static_cast<unsigned char>(body[k]))) ++k;
+    // Read float up to next non-numeric/sign/dot/exponent char.
+    size_t end = k;
+    while (end < body.size()) {
+        char c = body[end];
+        if ((c >= '0' && c <= '9') || c == '.' || c == '-' || c == '+'
+            || c == 'e' || c == 'E') {
+            ++end;
+        } else {
+            break;
+        }
+    }
+    if (end == k) return false;
+    const std::string numStr = body.substr(k, end - k);
+    char* parseEnd = nullptr;
+    const float v = std::strtof(numStr.c_str(), &parseEnd);
+    if (parseEnd != numStr.c_str() + numStr.size()) return false;
+    if (!std::isfinite(v)) return false;
+    out = v;
+    return true;
+}
+
+// Build the absolute path to the legacy json-config file for the
+// currently-loaded user aircraft.  Returns empty string if X-Plane
+// reports no user aircraft or has no `acf_ui_name` available.
+static std::string buildLegacyJsonPath() {
+    char xpRoot[1024] = {0};
+    XPLMGetSystemPath(xpRoot);
+
+    XPLMDataRef uiNameRef = XPLMFindDataRef("sim/aircraft/view/acf_ui_name");
+    if (!uiNameRef) return {};
+    char uiName[256] = {0};
+    XPLMGetDatab(uiNameRef, uiName, 0, sizeof(uiName) - 1);
+    if (uiName[0] == '\0') return {};
+
+    std::string path = xpRoot;
+    path += "Custom Data/";
+    path += uiName;
+    path += ".json";
+    return path;
+}
+
+// Try to import a legacy json-config file for the active aircraft.
+// Called from OnAircraftLoaded only when the new .prf was absent
+// (first-run for this aircraft on the new plugin).  No-op if the
+// legacy file isn't present, can't be read, or fails to parse.
+//
+// On success: writes the parsed values into the live globals,
+// persists via SaveSettings, renames the legacy file to
+// `<name>.json.imported` to prevent repeated imports.
+static void TryImportLegacyJson() {
+    const std::string legacyPath = buildLegacyJsonPath();
+    if (legacyPath.empty()) return;
+
+    FILE* fp = std::fopen(legacyPath.c_str(), "r");
+    if (!fp) return;   // No legacy file; nothing to do.
+
+    // Read the entire file (at most a few hundred bytes for the
+    // legacy format) into memory for parsing.
+    std::string body;
+    char buf[1024];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), fp)) > 0) {
+        body.append(buf, n);
+        if (body.size() > 65536) break;   // Sanity cap on file size.
+    }
+    std::fclose(fp);
+
+    XPLMDebugString(("FlyOnSpeed: legacy json-config found at "
+                     + legacyPath + " — attempting import\n").c_str());
+
+    float ldmax = 0.0f, fast = 0.0f, slow = 0.0f, warn = 0.0f, iasEnable = 0.0f;
+    const bool gotLdmax = extractJsonFloat(body, "Below LDMax",     ldmax);
+    const bool gotFast  = extractJsonFloat(body, "Below OnSpeed",   fast);
+    const bool gotSlow  = extractJsonFloat(body, "OnSpeed Max",     slow);
+    const bool gotWarn  = extractJsonFloat(body, "Above OnSpeed",   warn);
+    // IAS Tone Enable was a float-typed boolean in the legacy format;
+    // missing key shouldn't fail the import, just keep current default.
+    const bool gotIas   = extractJsonFloat(body, "IAS Tone Enable", iasEnable);
+
+    // The four threshold keys are required; without all four the
+    // import is meaningless.  Skip on partial parse — pilot's .prf
+    // stays at compiled-in defaults and the legacy file stays in
+    // place for them to inspect.
+    if (!(gotLdmax && gotFast && gotSlow && gotWarn)) {
+        XPLMDebugString("FlyOnSpeed: legacy json-config parse incomplete — "
+                        "skipping import (file left in place)\n");
+        return;
+    }
+
+    // Order check: LDmax < Fast < Slow < Warn.  A scrambled legacy
+    // file shouldn't produce a corrupt new .prf.  Falls back to
+    // defaults on a bad file.
+    if (!(ldmax < fast && fast < slow && slow < warn)) {
+        XPLMDebugString("FlyOnSpeed: legacy json-config thresholds out of "
+                        "order — skipping import (file left in place)\n");
+        return;
+    }
+
+    fLDMAXAOA       = ldmax;
+    fONSPEEDFASTAOA = fast;
+    fONSPEEDSLOWAOA = slow;
+    fSTALLWARNAOA   = warn;
+    if (gotIas) {
+        // Legacy "IAS Tone Enable" was a bool meaning "audio gates on
+        // IAS."  Map true → the new plugin's default mute-floor of 25
+        // kt; false → 0 (no mute).  Pilots can fine-tune via the
+        // audio control window after import.
+        iMuteAudioUnderIAS = (iasEnable >= 0.5f) ? 25 : 0;
+    }
+
+    XPLMDebugString(("FlyOnSpeed: imported legacy thresholds — "
+                     "LDmax=" + std::to_string(ldmax)
+                     + " Fast=" + std::to_string(fast)
+                     + " Slow=" + std::to_string(slow)
+                     + " Warn=" + std::to_string(warn)
+                     + "\n").c_str());
+
+    // Persist to the new .prf so the import is one-shot.
+    SaveSettings();
+
+    // Rename the legacy file to <name>.json.imported so this branch
+    // doesn't fire again if the pilot wipes their .prf, and so the
+    // pilot can revert by renaming back.  Best-effort: a rename
+    // failure is logged but doesn't undo the import.
+    const std::string archivedPath = legacyPath + ".imported";
+    if (std::rename(legacyPath.c_str(), archivedPath.c_str()) != 0) {
+        XPLMDebugString(("FlyOnSpeed: failed to rename legacy json to "
+                         + archivedPath
+                         + " (import succeeded, manual rename advised)\n")
+                        .c_str());
+    } else {
+        XPLMDebugString(("FlyOnSpeed: archived legacy json to "
+                         + archivedPath + "\n").c_str());
+    }
+
+    // Refresh widget text fields if the audio control window is open
+    // so the pilot sees the imported values immediately.
+    UpdateAOATextFields();
 }
 
 // --------------------------------------------------------------------------
@@ -760,7 +961,17 @@ static void OnAircraftLoaded() {
         // parser leaves any global untouched if its key isn't present
         // in the file, so we have to explicitly clear iVs1G ourselves.
         iVs1G = kDefaultSettings.iVs1G;
-        LoadSettings();
+        const bool prfFound = LoadSettings();
+
+        // First aircraft load on the new plugin (no .prf yet): look
+        // for a legacy json-config file at
+        // <X-Plane root>/Custom Data/<acf_ui_name>.json and import
+        // the four AOA thresholds + IAS-mute flag if present.
+        // See TryImportLegacyJson for the no-op cases and the full
+        // key mapping.
+        if (!prfFound) {
+            TryImportLegacyJson();
+        }
     }
 
     // Seed iVs1G from acf_Vs if the .prf hasn't supplied a value
