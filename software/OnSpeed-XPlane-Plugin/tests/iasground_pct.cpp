@@ -2,11 +2,11 @@
 // percent-lift formula.
 //
 // On-ground rule (Vac, design discussion in PR #434):
-//   When the gear is loaded, body angle isn't aerodynamically
-//   meaningful — the gear, not the wing, is supporting weight.
-//   Percent-lift becomes "how loaded the wing is at this airspeed
-//   if it had to support weight in 1G level."  That's the V²
-//   formula:
+//   When the gear is loaded above the user's IAS-mute floor, body
+//   angle isn't aerodynamically meaningful — the gear, not the
+//   wing, is supporting weight.  Percent-lift becomes "how loaded
+//   the wing is at this airspeed if it had to support weight in 1G
+//   level."  That's the V² formula:
 //
 //       pct_v² = (Vs / V)²  ·  stallWarnPct
 //
@@ -14,15 +14,26 @@
 //   and the alpha scale agree on where "near stall" sits on the
 //   indexer band.
 //
+// IAS-mute floor (matches firmware DisplaySerial.cpp:252):
+//   Below the user's iMuteAudioUnderIAS, percent collapses to 0
+//   regardless of whether the airplane is on the ground.  Taxi at
+//   10-20 kt shows nothing (chevron at the bottom of the band) —
+//   the pilot has explicitly configured "below this IAS, don't
+//   tell me anything," and the V² path honors that the same way
+//   the alpha path does.  V² only runs when iasValid=true AND
+//   onGround=true.
+//
 // The tests below verify:
-//   1. Pre-takeoff at low V, percent saturates near max — the
-//      wing is at max effort.
-//   2. As V rises through Vs, the pct passes through StallWarn.
-//   3. Past Vs (rolling fast / liftoff regime), percent drops
+//   1. Below mute floor (iasValid=false) on the ground: percent
+//      collapses to 0 — matches firmware's display gate.
+//   2. Above mute floor (iasValid=true) on the ground: V² runs.
+//      At low V well below Vs, percent saturates near max.
+//   3. As V rises through Vs, the pct passes through StallWarn.
+//   4. Past Vs (rolling fast / liftoff regime), percent drops
 //      smoothly into the OnSpeed band.
-//   4. With iVs1G == 0 (no Vs known), on-ground falls back to
+//   5. With iVs1G == 0 (no Vs known), on-ground falls back to
 //      alpha — old behavior preserved.
-//   5. In flight (onGround=false), the alpha formula is used
+//   6. In flight (onGround=false), the alpha formula is used
 //      regardless of iVs1G, even at V well below Vs.
 
 #include "../src/m5_indexer/DataRefAdapter.h"
@@ -80,37 +91,66 @@ int main()
           "fixture: stallWarn anchor in (80, 100)");
 
     // --------------------------------------------------------------
-    // 1. Pre-takeoff (V ≈ 0): percent saturates at stallWarnPct.
-    //    Wing is at max effort — pilot's takeoff-roll mental model.
+    // 1. Below mute floor on the ground (iasValid=false): percent
+    //    collapses to 0.  Matches firmware DisplaySerial.cpp:252,
+    //    where ComputePercentLift(... iasValid=false) returns 0 and
+    //    the M5 indexer chevron sits at the bottom of the band.
+    //    Pilot's explicit "mute under X kt" choice is honored —
+    //    taxi shows nothing, not a saturated chevron.
     // --------------------------------------------------------------
-    DisplayBuildInputs at0{};
-    FillPercentLift(at0,
+    DisplayBuildInputs taxi0{};
+    FillPercentLift(taxi0,
                     /*liveAoaDeg=*/      4.0f,    // body-angle on the ramp
                     /*liveIasKt=*/       0.0f,
                     /*flapHandleRatio=*/ 0.0f,
-                    /*iasValid=*/        false,   // below mute threshold
+                    /*iasValid=*/        false,   // below mute floor
                     /*onGround=*/        true);
-    check(nearly(at0.percentLiftPct, stallWarnPct, 0.5f),
-          "V=0 saturates at stallWarn pct (V → 0 means max wing effort)");
+    check(nearly(taxi0.percentLiftPct, 0.0f, 0.5f),
+          "V=0 with iasValid=false: percent is 0 (firmware-style mute)");
 
-    DisplayBuildInputs at20{};
-    FillPercentLift(at20, 4.0f, 20.0f, 0.0f, false, true);
-    // (60/20)^2 * stallWarnPct = 9 * 92 = saturates → clamp at 99.9
-    check(at20.percentLiftPct >= 99.0f,
-          "V=20 saturates above 99% (well below Vs, max wing effort)");
+    DisplayBuildInputs taxi10{};
+    FillPercentLift(taxi10, 4.0f, 10.0f, 0.0f, /*iasValid=*/ false, true);
+    check(nearly(taxi10.percentLiftPct, 0.0f, 0.5f),
+          "V=10 taxi below mute: percent is 0 (no saturated chevron)");
 
-    DisplayBuildInputs at30{};
-    FillPercentLift(at30, 4.0f, 30.0f, 0.0f, false, true);
-    // (60/30)^2 * 92 = 4 * 92 = saturates
-    check(at30.percentLiftPct >= 99.0f,
-          "V=30 saturates above 99%");
+    DisplayBuildInputs taxi20{};
+    FillPercentLift(taxi20, 4.0f, 20.0f, 0.0f, /*iasValid=*/ false, true);
+    check(nearly(taxi20.percentLiftPct, 0.0f, 0.5f),
+          "V=20 taxi below mute: percent is 0 (matches firmware)");
 
     // --------------------------------------------------------------
-    // 2. V == Vs: percent is at the StallWarn anchor exactly.
-    //    Both percent scales agree at this anchor, by construction.
+    // 2. Above mute floor on the ground (iasValid=true) at low V:
+    //    V² formula runs and saturates near max.  Wing is at max
+    //    effort — pilot's takeoff-roll mental model.  The user has
+    //    crossed their configured mute floor, so the indicator
+    //    starts showing a real reading; well below Vs that reading
+    //    is "saturated stall" because the airplane isn't flying.
+    // --------------------------------------------------------------
+    DisplayBuildInputs roll25{};
+    FillPercentLift(roll25, 4.0f, 25.0f, 0.0f, /*iasValid=*/ true, true);
+    // (60/25)^2 * stallWarnPct = 5.76 * 92 = saturates → clamp at 99.9
+    check(roll25.percentLiftPct >= 99.0f,
+          "V=25 (just past mute floor): saturated near 99 (way below Vs)");
+
+    DisplayBuildInputs roll35{};
+    FillPercentLift(roll35, 4.0f, 35.0f, 0.0f, /*iasValid=*/ true, true);
+    // (60/35)^2 * 92 = 2.94 * 92 = saturates → clamp at 99.9
+    check(roll35.percentLiftPct >= 99.0f,
+          "V=35 takeoff roll: still saturated, well below Vs");
+
+    DisplayBuildInputs roll45{};
+    FillPercentLift(roll45, 4.0f, 45.0f, 0.0f, /*iasValid=*/ true, true);
+    // (60/45)^2 * 92 = 1.78 * 92 = saturates → clamp at 99.9
+    check(roll45.percentLiftPct >= 99.0f,
+          "V=45 mid roll: still saturated, V² > 1.0 below Vs");
+
+    // --------------------------------------------------------------
+    // 3. V == Vs (above mute floor): percent is at the StallWarn
+    //    anchor exactly.  Both percent scales agree at this anchor,
+    //    by construction.
     // --------------------------------------------------------------
     DisplayBuildInputs atVs{};
-    FillPercentLift(atVs, 4.0f, 60.0f, 0.0f, true, true);
+    FillPercentLift(atVs, 4.0f, 60.0f, 0.0f, /*iasValid=*/ true, true);
     check(nearly(atVs.percentLiftPct, stallWarnPct, 1.0f),
           "V == Vs lands at the StallWarn anchor (alignment property)");
 

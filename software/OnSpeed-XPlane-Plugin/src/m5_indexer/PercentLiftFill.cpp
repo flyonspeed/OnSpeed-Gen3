@@ -147,23 +147,48 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
     in.onSpeedSlowPctLift = static_cast<int>(onspeed::aoa::ComputePercentLift(fONSPEEDSLOWAOA, flap, true));
     in.stallWarnPctLift   = static_cast<int>(onspeed::aoa::ComputePercentLift(fSTALLWARNAOA,   flap, true));
 
-    // Live percent: V²-based on the ground (when Vs is known),
-    // alpha-based in the air or as the fallback when Vs == 0.
+    // Live percent: V²-based on the ground above the IAS-mute floor,
+    // alpha-based in the air, 0 below the IAS-mute floor (in either
+    // ground state — matches firmware's display gate so taxi below
+    // the user's configured mute IAS shows nothing rather than a
+    // saturated chevron).
+    //
     // The V² path uses the StallWarn anchor as its scaling factor
     // so V == Vs lands right at the StallWarn pip — visually
-    // consistent with where the alpha formula puts an aircraft
-    // at alpha_stall in level flight.
+    // consistent with where the alpha formula puts an aircraft at
+    // alpha_stall in level flight.
+    //
+    // Why the iasValid gate is on V² too:
+    //
+    // The firmware's DisplaySerial.cpp:252 computes percent via
+    // ComputePercentLift(g_Sensors.AOA, flap, bIasValidForOutput)
+    // where bIasValidForOutput = (IAS >= iMuteAudioUnderIAS).
+    // Below the user's mute floor, the firmware's percent is 0 and
+    // the M5 indexer chevron sits at the bottom of the band — no
+    // saturated reading during taxi.  The pilot has explicitly
+    // configured "below this IAS, don't tell me anything"; the
+    // plugin honors that same setting for the V² path.
+    //
+    // A pilot taxiing at 10-20 kt sees an unlit indexer in the real
+    // airplane (firmware sends 0).  Without this gate, the X-Plane
+    // plugin would show a fully-saturated chevron during taxi —
+    // visually distinct from the real airplane and contrary to the
+    // pilot's "mute under X kt" UX choice.  With the gate, taxi
+    // shows nothing (matching firmware), and the V² formula kicks
+    // in only once the airplane crosses the user's mute floor —
+    // which happens during the takeoff roll and continues smoothly
+    // through Vr into the alpha regime after liftoff.
     float livePct = std::numeric_limits<float>::quiet_NaN();
-    if (onGround) {
+    if (onGround && iasValid) {
         livePct = ComputeIasPercentLift(
             liveIasKt, static_cast<float>(in.stallWarnPctLift));
     }
     if (!std::isfinite(livePct)) {
-        // Either in flight, or on-ground with no Vs configured
-        // (iVs1G == 0 "auto-no-data" or iVs1G == -1 "disabled").
-        // Use the firmware-shared alpha formula.  Same gate the
-        // firmware applies — iasValid false (e.g., taxi below the
-        // mute floor with no Vs known) returns 0.
+        // In flight, or on-ground with no Vs configured (iVs1G == 0
+        // "auto-no-data" or iVs1G == -1 "disabled"), or on-ground
+        // below the mute floor.  Use the firmware-shared alpha
+        // formula.  Same gate the firmware applies: iasValid false
+        // returns 0.
         livePct = onspeed::aoa::ComputePercentLift(liveAoaDeg, flap, iasValid);
     }
     in.percentLiftPct = livePct;
