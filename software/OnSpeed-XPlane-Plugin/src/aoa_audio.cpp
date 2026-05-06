@@ -52,6 +52,7 @@
 
 #include <climits>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <thread>
@@ -86,6 +87,7 @@
 void cleanupAudio();
 void AudioRenderThread();
 static void UpdateAOATextFields();
+static void CreateAudioControlWindow(int x, int y, int w, int h);
 
 // Per-aircraft AOA setpoints, named to match the firmware's
 // per-flap config fields (Config.h::SuFlaps).  The four boundary
@@ -245,6 +247,25 @@ static onspeed_xplane::indexer::PersistedState indexerSettings;
 static bool s_indexerRestorePending = false;
 #endif
 
+// Audio control window (Plugins → Fly On Speed → Show) geometry +
+// visibility, persisted per-aircraft.  Defaults match the historical
+// CreateAudioControlWindow(300, 690, 280, 470) literals.  Visibility
+// defaults to false so a fresh aircraft doesn't auto-pop the panel
+// the first time it loads — only an aircraft that previously had the
+// panel open at save time will have it reopen.
+struct AudioWindowState {
+    int  left   = 300;
+    int  top    = 690;
+    int  width  = 280;
+    int  height = 470;
+    bool visible = false;
+};
+static AudioWindowState s_audioWindow;
+// Track the last-persisted geometry so the periodic save callback
+// only writes the .prf when the user actually moves or resizes the
+// window — avoids hammering disk on every tick.
+static AudioWindowState s_audioWindowLastSaved;
+
 static std::string sanitizeAcfBasename(const char* acfFileName) {
     std::string out;
     out.reserve(strlen(acfFileName));
@@ -310,6 +331,12 @@ static void SaveSettings() {
     std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
     std::fprintf(fp, "audioEnabled = %d\n",       audioEnabled ? 1 : 0);
     std::fprintf(fp, "serialPortPath = %s\n",     sSerialPortPath.c_str());
+    std::fprintf(fp, "audioWindowVisible = %d\n", s_audioWindow.visible ? 1 : 0);
+    std::fprintf(fp, "audioWindowLeft = %d\n",    s_audioWindow.left);
+    std::fprintf(fp, "audioWindowTop = %d\n",     s_audioWindow.top);
+    std::fprintf(fp, "audioWindowWidth = %d\n",   s_audioWindow.width);
+    std::fprintf(fp, "audioWindowHeight = %d\n",  s_audioWindow.height);
+    s_audioWindowLastSaved = s_audioWindow;
 #ifdef ENABLE_M5_INDEXER
     std::fprintf(fp, "indexerVisible = %d\n",     indexerSettings.visible ? 1 : 0);
     std::fprintf(fp, "indexerMode = %d\n",        indexerSettings.mode);
@@ -370,6 +397,11 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
         else if (!std::strcmp(key, "audioEnabled"))       audioEnabled       = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "audioWindowVisible")) s_audioWindow.visible = std::atoi(val) != 0;
+        else if (!std::strcmp(key, "audioWindowLeft"))    s_audioWindow.left    = std::atoi(val);
+        else if (!std::strcmp(key, "audioWindowTop"))     s_audioWindow.top     = std::atoi(val);
+        else if (!std::strcmp(key, "audioWindowWidth"))   s_audioWindow.width   = std::atoi(val);
+        else if (!std::strcmp(key, "audioWindowHeight"))  s_audioWindow.height  = std::atoi(val);
 #ifdef ENABLE_M5_INDEXER
         else if (!std::strcmp(key, "indexerVisible"))      indexerSettings.visible      = std::atoi(val) != 0;
         else if (!std::strcmp(key, "indexerMode"))         indexerSettings.mode         = std::atoi(val);
@@ -396,6 +428,10 @@ static void LoadSettings() {
     }
     std::fclose(fp);
     s_settingsLoaded = true;
+    // The .prf we just read is, by definition, the last on-disk
+    // state.  Seed the periodic save's diff baseline so a no-op tick
+    // doesn't immediately rewrite the file with the same values.
+    s_audioWindowLastSaved = s_audioWindow;
 }
 
 // --------------------------------------------------------------------------
@@ -670,6 +706,22 @@ static void OnAircraftLoaded() {
     // next tick.
     onspeed_xplane::indexer::SetMode(indexerSettings.mode);
 #endif
+
+    // Audio control window: if the .prf had it open at last save,
+    // reopen it now at its saved geometry.  Widgets are lighter than
+    // the indexer's lazy-init path, so creating one from this flight-
+    // loop callback is safe (no SDL / M5GFX involved).
+    if (s_audioWindow.visible && !audioControlWidget) {
+        CreateAudioControlWindow(s_audioWindow.left,  s_audioWindow.top,
+                                 s_audioWindow.width, s_audioWindow.height);
+        UpdateAOATextFields();
+    } else if (s_audioWindow.visible && audioControlWidget) {
+        // Aircraft change while the panel was open: re-show in case
+        // the previous aircraft's .prf had it hidden and we already
+        // hid it during that aircraft's session.
+        XPShowWidget(audioControlWidget);
+        UpdateAOATextFields();
+    }
 }
 
 // Audio render thread.  Owns the OpenAL queue pump; reads g_Engine
@@ -858,6 +910,12 @@ static int AudioControlHandler(
 {
     if (inMessage == xpMessage_CloseButtonPushed) {
         XPHideWidget(audioControlWidget);
+        // Pilot closed the window: persist hidden so a reboot
+        // doesn't reopen it.
+        if (s_audioWindow.visible) {
+            s_audioWindow.visible = false;
+            SaveSettings();
+        }
         return 1;
     }
 
@@ -1214,10 +1272,17 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
     const char* tag = static_cast<const char *>(iRef);
     if (!strcmp(tag, "Show")) {
         if (!audioControlWidget) {
-            CreateAudioControlWindow(300, 690, 280, 470);
+            CreateAudioControlWindow(s_audioWindow.left,  s_audioWindow.top,
+                                     s_audioWindow.width, s_audioWindow.height);
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
+        }
+        // Pilot opened the window: persist visibility so a reboot
+        // brings it back automatically.
+        if (!s_audioWindow.visible) {
+            s_audioWindow.visible = true;
+            SaveSettings();
         }
         return;
     }
@@ -1543,47 +1608,97 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#ifdef ENABLE_M5_INDEXER
-// Periodic flight-loop callback for indexer state — handles BOTH
-// the post-AIRPORT_LOADED restore (Show / pop-out / geometry /
-// visibility) AND the dirty-poll save.  Combining them keeps both
-// operations on the safe flight-loop callback context: the message-
-// handler-based restore in v1 (PR #406) crashed X-Plane because
-// Show() lazy-inits SDL/M5GFX/M5Unified-singleton/panel-framebuffer,
-// which doesn't tolerate execution from arbitrary SDK message
-// dispatch contexts.
+// Periodic flight-loop callback for persisted UI state — handles
+// the post-AIRPORT_LOADED indexer restore (M5 build only), the
+// indexer dirty-poll save (M5 build only), and the audio control
+// window geometry dirty-poll save (always).  All three live on the
+// same 1 Hz tick so the .prf flush cadence stays predictable.
+//
+// On M5 builds the indexer needs the flight-loop context because
+// Show() lazy-inits SDL/M5GFX/M5Unified-singleton/panel-framebuffer
+// (the message-handler-based restore in v1, PR #406, crashed
+// X-Plane).  The audio control window is just a widget — no lazy
+// init — but folding its dirty-poll into the same tick keeps
+// behavior consistent across both build flavors.
 //
 // Cadence: 1 Hz.  Mid-drag this means up to 1 s lag between user
 // release and .prf flush — fine, matches the SDK's debounce
 // recommendation.
 constexpr float kPersistFlushInterval = 1.0f;
 
-static float SaveIndexerStatePeriodic(
+// Snapshot the audio control window's current geometry + visibility
+// into s_audioWindow.  No-op when the widget hasn't been created.
+// Called from the periodic callback to detect user drags / resizes.
+static void RefreshAudioWindowState()
+{
+    if (!audioControlWidget) return;
+    int left = 0, top = 0, right = 0, bottom = 0;
+    XPGetWidgetGeometry(audioControlWidget, &left, &top, &right, &bottom);
+
+    // X-Plane occasionally returns transient nonsense during drags
+    // / monitor changes.  Reject pathological reads so the .prf
+    // doesn't get poisoned.
+    constexpr int kSaneAbs = 100000;
+    const int width  = right - left;
+    const int height = top   - bottom;
+    if (std::abs(left) >= kSaneAbs || std::abs(top) >= kSaneAbs ||
+        width <= 0 || height <= 0 ||
+        width >= kSaneAbs || height >= kSaneAbs) {
+        return;
+    }
+    s_audioWindow.left    = left;
+    s_audioWindow.top     = top;
+    s_audioWindow.width   = width;
+    s_audioWindow.height  = height;
+    s_audioWindow.visible = (XPIsWidgetVisible(audioControlWidget) != 0);
+}
+
+static bool AudioWindowChanged()
+{
+    return s_audioWindow.left    != s_audioWindowLastSaved.left    ||
+           s_audioWindow.top     != s_audioWindowLastSaved.top     ||
+           s_audioWindow.width   != s_audioWindowLastSaved.width   ||
+           s_audioWindow.height  != s_audioWindowLastSaved.height  ||
+           s_audioWindow.visible != s_audioWindowLastSaved.visible;
+}
+
+static float SavePersistedStatePeriodic(
     [[maybe_unused]] float elapsed,
     [[maybe_unused]] float elapsed_sim,
     [[maybe_unused]] int counter,
     [[maybe_unused]] void* ref)
 {
-    // 1) One-shot: apply persisted state if AIRPORT_LOADED queued one.
-    //    Must run before MarkDirtyIfChanged so the snap-to-saved-spot
-    //    write doesn't immediately get re-saved as "user changed
-    //    geometry."
+#ifdef ENABLE_M5_INDEXER
+    // 1) One-shot: apply persisted indexer state if AIRPORT_LOADED
+    //    queued one.  Must run before MarkDirtyIfChanged so the
+    //    snap-to-saved-spot write doesn't immediately get re-saved
+    //    as "user changed geometry."
     if (s_indexerRestorePending && s_settingsLoaded) {
         s_indexerRestorePending = false;
         XPLMDebugString("FlyOnSpeed: applying persisted indexer state\n");
         onspeed_xplane::indexer::ApplyPersistedState(indexerSettings);
     }
 
-    // 2) Poll for user-driven change (drag / resize / pop-out / mode
-    //    cycle), flush if dirty.
+    // 2) Poll for user-driven indexer change (drag / resize / pop-
+    //    out / mode cycle), flush if dirty.
     onspeed_xplane::indexer::MarkDirtyIfChanged();
     if (onspeed_xplane::indexer::IsDirty() && s_settingsLoaded) {
         SaveIndexerWindowState();
     }
+#endif
+
+    // 3) Audio control window dirty-poll.  SaveSettings handles its
+    //    own load-gate and writes the whole .prf in one fwrite, so
+    //    we don't need to coordinate with the indexer save above.
+    if (s_settingsLoaded) {
+        RefreshAudioWindowState();
+        if (AudioWindowChanged()) {
+            SaveSettings();
+        }
+    }
 
     return kPersistFlushInterval;
 }
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // XPluginStart: validate sizes, find datarefs, register flight loops, build menu.
@@ -1653,12 +1768,12 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
 
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
 
-#ifdef ENABLE_M5_INDEXER
-    // 1 Hz callback that both applies the AIRPORT_LOADED-deferred
-    // restore (one-shot) and polls for dirty geometry changes to flush.
-    XPLMRegisterFlightLoopCallback(SaveIndexerStatePeriodic,
+    // 1 Hz callback that polls user-driven UI state changes (audio
+    // control window always; indexer when ENABLE_M5_INDEXER) and
+    // flushes them to the per-aircraft .prf.  On M5 builds it also
+    // applies the AIRPORT_LOADED-deferred indexer restore.
+    XPLMRegisterFlightLoopCallback(SavePersistedStatePeriodic,
                                    kPersistFlushInterval, nullptr);
-#endif
 
     // Plugins menu entry that opens the control window.
     int item = XPLMAppendMenuItem(XPLMFindPluginsMenu(), "Fly On Speed", nullptr, 1);
@@ -1729,8 +1844,19 @@ PLUGIN_API void XPluginStop(void) {
         XPDestroyWidget(audioControlWidget, 1);
         audioControlWidget = nullptr;
     }
+    // Final flush of the audio control window geometry before
+    // teardown.  Mirrors the WILL_WRITE_PREFS hook for the path
+    // where X-Plane skips that message (e.g., crash-shutdown).
+    if (s_settingsLoaded) {
+        RefreshAudioWindowState();
+        if (AudioWindowChanged()) {
+            SaveSettings();
+        }
+    }
+
     XPLMDestroyMenu(menuId);
     XPLMUnregisterFlightLoopCallback(CheckAOAAndPlayTone, nullptr);
+    XPLMUnregisterFlightLoopCallback(SavePersistedStatePeriodic, nullptr);
 
 #ifdef ENABLE_M5_INDEXER
     // Final flush of any pending dirty state — WILL_WRITE_PREFS
@@ -1739,7 +1865,6 @@ PLUGIN_API void XPluginStop(void) {
     if (onspeed_xplane::indexer::IsDirty()) {
         SaveIndexerWindowState();
     }
-    XPLMUnregisterFlightLoopCallback(SaveIndexerStatePeriodic, nullptr);
     onspeed_xplane::indexer::Shutdown();
 #endif
 
@@ -1772,6 +1897,16 @@ PLUGIN_API void XPluginReceiveMessage([[maybe_unused]] XPLMPluginID inFromWho,
         reinterpret_cast<intptr_t>(inParam) == 0)
     {
         OnAircraftLoaded();
+    }
+
+    // Final-flush hook for the audio control window's geometry
+    // before X-Plane writes its own prefs and exits.  The periodic
+    // tick may not have run since the user's last drag.
+    if (inMessage == XPLM_MSG_WILL_WRITE_PREFS && s_settingsLoaded) {
+        RefreshAudioWindowState();
+        if (AudioWindowChanged()) {
+            SaveSettings();
+        }
     }
 #ifdef ENABLE_M5_INDEXER
     // XPLM_MSG_AIRPORT_LOADED fires after scenery has finished loading
