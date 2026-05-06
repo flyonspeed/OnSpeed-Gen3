@@ -81,6 +81,12 @@
 #include "serial_port.h"
 #include "m5_indexer/DataRefAdapter.h"
 #endif
+
+// AutoSetpoints helper is platform-independent and lives under
+// m5_indexer/ for namespace cohesion, but the auto-derivation runs in
+// the audio flight loop too — keep the include unconditional so an
+// audio-only build still benefits from per-aircraft setpoint defaults.
+#include "m5_indexer/AutoSetpoints.h"
 #include <filters/RunningMedian.h>
 #include <util/OnSpeedTypes.h>
 
@@ -101,11 +107,41 @@ static void CreateAudioControlWindow(int x, int y, int w, int h);
 //   above StallWarn          → high pulsed at stall PPS (20)
 //
 // Defaults are generic; pilots tune these to match their airframe
-// (or copy from a calibrated OnSpeed installation).
+// (or copy from a calibrated OnSpeed installation).  In auto mode the
+// per-frame derivation in DataRefAdapter overwrites these from
+// X-Plane's stall-AOA datarefs each tick — see auto-setpoint block
+// below.
 float fLDMAXAOA       = 6.0f;
 float fONSPEEDFASTAOA = 7.3f;
 float fONSPEEDSLOWAOA = 9.6f;
 float fSTALLWARNAOA   = 12.5f;
+
+// Auto vs manual setpoint mode.  In Auto mode, the plugin derives
+// the four `f*AOA` globals each frame from X-Plane's per-aircraft
+// stall AOA (`acf_max_aoa_no_flap`, `acf_max_aoa_full_flap`) lerped
+// by `flap_handle_deploy_ratio`, multiplied by the four NAOA
+// fractions below.  In Manual mode the four `f*AOA` globals are
+// pilot-set and fixed across all flap positions (today's behavior).
+//
+// Detection rule: a fresh aircraft (no .prf yet) defaults to Auto.
+// A .prf parsed without a `setpoint_mode` key but with `fLDMAXAOA`
+// set is treated as Manual (preserves pilots whose carefully-tuned
+// .prf predates this feature).  Pilot can flip modes via the radio
+// buttons in the audio control window at any time.
+//
+// See issue #392 and src/m5_indexer/AutoSetpoints.h.
+enum class SetpointMode { Auto, Manual };
+SetpointMode g_setpointMode = SetpointMode::Auto;
+
+// NAOA fractions used by auto mode to scale alpha_stall into the four
+// setpoint AOAs.  Defaults match the calibration wizard's lift-equation
+// fit; pilots can override per-aircraft via the audio control window.
+// Persisted alongside f*AOA in the .prf so a flip from Auto to Manual
+// (or vice versa) doesn't lose the pilot's per-aircraft tuning.
+float g_naoaLdmax       = onspeed_xplane::indexer::kCanonicalNaoa.ldmax;
+float g_naoaOnSpeedFast = onspeed_xplane::indexer::kCanonicalNaoa.onSpeedFast;
+float g_naoaOnSpeedSlow = onspeed_xplane::indexer::kCanonicalNaoa.onSpeedSlow;
+float g_naoaStallWarn   = onspeed_xplane::indexer::kCanonicalNaoa.stallWarn;
 
 // USB-serial output to a physical M5Stack.  Empty string = disabled.
 // On macOS path looks like "/dev/cu.usbmodem11201", on Linux
@@ -191,6 +227,16 @@ XPLMDataRef crashedDataRef   = nullptr;     // sim/flightmodel2/misc/has_crashed
 XPLMDataRef acfHasStallwarnDataRef = nullptr;
 XPLMDataRef acfVsDataRef     = nullptr;     // sim/aircraft/view/acf_Vs (float, KIAS)
 
+// Auto-setpoint datarefs.  acf_max_aoa_no_flap and
+// acf_max_aoa_full_flap are X-Plane's modeled wing AOA at stall (deg);
+// flap_handle_deploy_ratio is the continuous flap deployment fraction
+// (0..1) the flight model uses to lerp between the two stall AOAs.
+// All three are optional — if any is missing, auto mode silently
+// falls back to manual-mode globals.
+XPLMDataRef acfMaxAoaNoFlapRef    = nullptr;
+XPLMDataRef acfMaxAoaFullFlapRef  = nullptr;
+XPLMDataRef flapHandleDeployRef   = nullptr;
+
 // Control-window widget handles.
 static XPWidgetID audioControlWidget  = nullptr;
 static XPWidgetID audioToggleCheckbox = nullptr;
@@ -212,6 +258,21 @@ static XPWidgetID widgetAoaMedianWindow       = nullptr;
 static XPWidgetID widgetAoaMeanWindow         = nullptr;
 static XPWidgetID widgetButtonSave            = nullptr;
 static XPWidgetID widgetButtonRestoreDefaults = nullptr;
+
+// Auto-mode UI: radio buttons select Auto vs Manual setpoint mode;
+// four NAOA-fraction text fields are editable in Auto mode (and
+// persisted across mode flips).  Two captions display the
+// currently-derived stall AOA and a per-row preview of the current
+// auto-derived setpoints — informational, updated whenever the form
+// is rendered.
+static XPWidgetID widgetRadioAutoMode    = nullptr;
+static XPWidgetID widgetRadioManualMode  = nullptr;
+static XPWidgetID widgetNaoaLdmax        = nullptr;
+static XPWidgetID widgetNaoaOnSpeedFast  = nullptr;
+static XPWidgetID widgetNaoaOnSpeedSlow  = nullptr;
+static XPWidgetID widgetNaoaStallWarn    = nullptr;
+static XPWidgetID widgetCaptionStallAoa  = nullptr;
+static XPWidgetID widgetCaptionDerived   = nullptr;
 static bool audioEnabled = false;
 
 // User-controlled override for X-Plane's built-in stall horn.  When true,
@@ -304,7 +365,7 @@ struct AudioWindowState {
     int  left   = 300;
     int  top    = 690;
     int  width  = 280;
-    int  height = 470;
+    int  height = 660;
     bool visible = false;
 };
 static AudioWindowState s_audioWindow;
@@ -355,6 +416,61 @@ static std::string buildSettingsPath() {
 static void RefreshAudioWindowState();
 static bool AudioWindowChanged();
 
+// Read auto-setpoint datarefs and (if present) compute the four
+// f*AOA setpoints from current X-Plane state.  Called per-frame from
+// the flight loop while in Auto mode; also called from the UI layer
+// to refresh the read-only "currently derived" labels.
+//
+// On bad/missing datarefs (acf_max_aoa_* reads zero, or refs missing
+// entirely) returns applied=false and leaves caller's state alone.
+// In production that means the previously-set f*AOA globals stand —
+// either pilot's manual values or the last successful auto-derive.
+static onspeed_xplane::indexer::DerivedSetpoints CurrentAutoDerivation()
+{
+    const float aoaNoFlap   = acfMaxAoaNoFlapRef
+                                ? XPLMGetDataf(acfMaxAoaNoFlapRef) : 0.0f;
+    const float aoaFullFlap = acfMaxAoaFullFlapRef
+                                ? XPLMGetDataf(acfMaxAoaFullFlapRef) : 0.0f;
+    const float flapRatio   = flapHandleDeployRef
+                                ? XPLMGetDataf(flapHandleDeployRef) : 0.0f;
+
+    const onspeed_xplane::indexer::NaoaFractions naoa{
+        g_naoaLdmax, g_naoaOnSpeedFast,
+        g_naoaOnSpeedSlow, g_naoaStallWarn,
+    };
+    return onspeed_xplane::indexer::DeriveSetpointsFromStall(
+        aoaNoFlap, aoaFullFlap, flapRatio, naoa);
+}
+
+// Auto-mode hook: on each flight loop tick, push the per-frame
+// derivation into the four f*AOA globals.  No-op (returns
+// silently) when datarefs aren't populated; logs once if it
+// declines to apply on the very first tick after enabling auto
+// mode so a pilot debugging "why is auto mode doing nothing?"
+// has a breadcrumb.
+static void ApplyAutoDerivedSetpointsForFrame()
+{
+    if (g_setpointMode != SetpointMode::Auto) return;
+    const auto d = CurrentAutoDerivation();
+    if (!d.applied) {
+        // One-shot debug log: once per session, the first time auto
+        // mode declines to apply on a frame.  Helps a pilot diagnose
+        // a freeware airframe whose acf_max_aoa_* values aren't set.
+        static bool s_warned = false;
+        if (!s_warned) {
+            XPLMDebugString("FlyOnSpeed: auto-mode setpoints unavailable "
+                            "(acf_max_aoa_no_flap/full_flap missing or 0); "
+                            "f*AOA globals unchanged this frame\n");
+            s_warned = true;
+        }
+        return;
+    }
+    fLDMAXAOA       = d.ldmax;
+    fONSPEEDFASTAOA = d.onSpeedFast;
+    fONSPEEDSLOWAOA = d.onSpeedSlow;
+    fSTALLWARNAOA   = d.stallWarn;
+}
+
 // Returns true only when the .prf was opened, all fields written, and
 // fclose reported no buffered-write error.  Callers that gate
 // follow-on side effects on a confirmed write (e.g. renaming a legacy
@@ -378,6 +494,12 @@ static bool SaveSettings() {
                          + s_SettingsPath + " for writing\n").c_str());
         return false;
     }
+    std::fprintf(fp, "setpoint_mode = %s\n",
+                 g_setpointMode == SetpointMode::Auto ? "auto" : "manual");
+    std::fprintf(fp, "naoa_ldmax = %.4f\n",       g_naoaLdmax);
+    std::fprintf(fp, "naoa_onspeedfast = %.4f\n", g_naoaOnSpeedFast);
+    std::fprintf(fp, "naoa_onspeedslow = %.4f\n", g_naoaOnSpeedSlow);
+    std::fprintf(fp, "naoa_stallwarn = %.4f\n",   g_naoaStallWarn);
     std::fprintf(fp, "fLDMAXAOA = %.3f\n",       fLDMAXAOA);
     std::fprintf(fp, "fONSPEEDFASTAOA = %.3f\n", fONSPEEDFASTAOA);
     std::fprintf(fp, "fONSPEEDSLOWAOA = %.3f\n", fONSPEEDSLOWAOA);
@@ -447,16 +569,26 @@ void SaveIndexerWindowState()
 // aircraft; false if the file didn't exist (first run for this
 // aircraft).  Caller uses this to decide whether to attempt the
 // one-time import from the legacy json-config plugin's format.
+//
+// Backward-compat for setpoint mode: a .prf written before the
+// auto-setpoint feature has no `setpoint_mode` key but does carry
+// `fLDMAXAOA` etc. (the pilot's hand-tuned setpoints).  Treat that
+// case as Manual mode so the existing tuning is preserved exactly.
+// A fresh .prf (no such keys) defaults to Auto via the global
+// initializer; the explicit mode key in newer files always wins.
 static bool LoadSettings() {
     if (s_SettingsPath.empty()) return false;
     FILE* fp = std::fopen(s_SettingsPath.c_str(), "r");
     if (!fp) {
-        // First run for this aircraft; defaults are fine.  Mark
-        // settings loaded anyway so subsequent user-driven changes
-        // can persist.
+        // First run for this aircraft; defaults (including Auto mode)
+        // stand.  Mark settings loaded anyway so subsequent user-driven
+        // changes can persist.
         s_settingsLoaded = true;
         return false;
     }
+
+    bool sawSetpointModeKey = false;
+    bool sawLegacySetpoint  = false;
 
     char line[256];
     while (std::fgets(line, sizeof(line), fp)) {
@@ -466,10 +598,23 @@ static bool LoadSettings() {
         if (std::sscanf(line, " %63[^= \t] = %127[^\n\r]", key, val) != 2)
             continue;
 
-        if      (!std::strcmp(key, "fLDMAXAOA"))          fLDMAXAOA          = std::atof(val);
+        if      (!std::strcmp(key, "fLDMAXAOA"))          { fLDMAXAOA = std::atof(val); sawLegacySetpoint = true; }
         else if (!std::strcmp(key, "fONSPEEDFASTAOA"))    fONSPEEDFASTAOA    = std::atof(val);
         else if (!std::strcmp(key, "fONSPEEDSLOWAOA"))    fONSPEEDSLOWAOA    = std::atof(val);
         else if (!std::strcmp(key, "fSTALLWARNAOA"))      fSTALLWARNAOA      = std::atof(val);
+        else if (!std::strcmp(key, "setpoint_mode")) {
+            sawSetpointModeKey = true;
+            // Trim trailing whitespace so a hand-edited "manual " parses.
+            std::string v = val;
+            while (!v.empty() && (v.back() == ' ' || v.back() == '\t'))
+                v.pop_back();
+            g_setpointMode = (v == "manual") ? SetpointMode::Manual
+                                             : SetpointMode::Auto;
+        }
+        else if (!std::strcmp(key, "naoa_ldmax"))         g_naoaLdmax        = std::atof(val);
+        else if (!std::strcmp(key, "naoa_onspeedfast"))   g_naoaOnSpeedFast  = std::atof(val);
+        else if (!std::strcmp(key, "naoa_onspeedslow"))   g_naoaOnSpeedSlow  = std::atof(val);
+        else if (!std::strcmp(key, "naoa_stallwarn"))     g_naoaStallWarn    = std::atof(val);
         else if (!std::strcmp(key, "iMuteAudioUnderIAS")) iMuteAudioUnderIAS = std::atoi(val);
         else if (!std::strcmp(key, "iVs1G"))              iVs1G              = std::atoi(val);
         else if (!std::strcmp(key, "iMasterVolumePct"))   iMasterVolumePct   = std::atoi(val);
@@ -507,6 +652,15 @@ static bool LoadSettings() {
         }
     }
     std::fclose(fp);
+
+    // Legacy-compat: a .prf with hand-tuned `fLDMAXAOA` but no
+    // `setpoint_mode` key predates this feature.  Treat as Manual so
+    // the pilot's tuning is honored verbatim.  The mode key (when
+    // present) always wins.
+    if (!sawSetpointModeKey && sawLegacySetpoint) {
+        g_setpointMode = SetpointMode::Manual;
+    }
+
     s_settingsLoaded = true;
     // The .prf we just read is, by definition, the last on-disk
     // state.  Seed the periodic save's diff baseline so a no-op tick
@@ -746,10 +900,15 @@ static void TryImportLegacyJson() {
 //      so the plugin reports the same error wording the firmware uses.
 
 struct ValidatedSettings {
+    SetpointMode mode;
     float fLDMAXAOA;
     float fONSPEEDFASTAOA;
     float fONSPEEDSLOWAOA;
     float fSTALLWARNAOA;
+    float fNaoaLdmax;
+    float fNaoaOnSpeedFast;
+    float fNaoaOnSpeedSlow;
+    float fNaoaStallWarn;
     int   iMuteAudioUnderIAS;
     int   iVs1G;
     int   iMasterVolumePct;
@@ -758,12 +917,18 @@ struct ValidatedSettings {
 };
 
 // Compiled-in defaults — what "Restore Defaults" reverts to.  These
-// are generic GA values; real airframes need to override them via Save.
+// are generic GA values; real airframes need to override them via
+// Save (or pick auto mode for X-Plane-derived defaults).
 constexpr ValidatedSettings kDefaultSettings{
+    /*mode=*/             SetpointMode::Auto,
     /*fLDMAXAOA=*/        6.0f,
     /*fONSPEEDFASTAOA=*/  7.3f,
     /*fONSPEEDSLOWAOA=*/  9.6f,
     /*fSTALLWARNAOA=*/   12.5f,
+    /*fNaoaLdmax=*/       onspeed_xplane::indexer::kCanonicalNaoa.ldmax,
+    /*fNaoaOnSpeedFast=*/ onspeed_xplane::indexer::kCanonicalNaoa.onSpeedFast,
+    /*fNaoaOnSpeedSlow=*/ onspeed_xplane::indexer::kCanonicalNaoa.onSpeedSlow,
+    /*fNaoaStallWarn=*/   onspeed_xplane::indexer::kCanonicalNaoa.stallWarn,
     /*iMuteAudioUnderIAS=*/25,
     /*iVs1G=*/             0,    // 0 = will be re-seeded from acf_Vs on
                                   // aircraft load; see OnAircraftLoaded.
@@ -892,6 +1057,46 @@ static std::optional<ValidatedSettings> readAndValidateFields(
         return true;
     };
 
+    // Mode is read from the radio buttons rather than a text field.
+    // ButtonState property: 1 = checked, 0 = unchecked.  Auto is the
+    // canonical default, so a tie or both-clear (shouldn't happen via
+    // the radio handler) falls back to Auto.
+    const int autoChecked = widgetRadioAutoMode
+        ? XPGetWidgetProperty(widgetRadioAutoMode,
+                              xpProperty_ButtonState, nullptr) : 1;
+    v.mode = autoChecked ? SetpointMode::Auto : SetpointMode::Manual;
+
+    bool ok = true;
+
+    // NAOA fractions (auto mode tuning).  Bounded loosely: 0.05..1.0.
+    // Anything below 0.05 would put a setpoint at <5 % of stall AOA,
+    // which is well below useful; anything above 1.0 would be at-or-
+    // above the modeled stall, which makes no sense as a setpoint.
+    if (widgetNaoaLdmax) {
+        ok &= readFloat(widgetNaoaLdmax,       "LDmax NAOA",
+                        0.05f, 1.0f, v.fNaoaLdmax);
+    } else {
+        v.fNaoaLdmax = g_naoaLdmax;
+    }
+    if (widgetNaoaOnSpeedFast) {
+        ok &= readFloat(widgetNaoaOnSpeedFast, "OnSpeedFast NAOA",
+                        0.05f, 1.0f, v.fNaoaOnSpeedFast);
+    } else {
+        v.fNaoaOnSpeedFast = g_naoaOnSpeedFast;
+    }
+    if (widgetNaoaOnSpeedSlow) {
+        ok &= readFloat(widgetNaoaOnSpeedSlow, "OnSpeedSlow NAOA",
+                        0.05f, 1.0f, v.fNaoaOnSpeedSlow);
+    } else {
+        v.fNaoaOnSpeedSlow = g_naoaOnSpeedSlow;
+    }
+    if (widgetNaoaStallWarn) {
+        ok &= readFloat(widgetNaoaStallWarn,   "StallWarn NAOA",
+                        0.05f, 1.0f, v.fNaoaStallWarn);
+    } else {
+        v.fNaoaStallWarn = g_naoaStallWarn;
+    }
+
     // AOA setpoints are bounded by the universal AOA range.  Setpoints
     // above zero only — LDmax can't be 0 in any normal airframe.  AOA
     // *measurements* can be negative (the plugin's AOA dataref reads
@@ -900,7 +1105,6 @@ static std::optional<ValidatedSettings> readAndValidateFields(
     // and must be positive.  Upper bound matches onspeed_core's
     // universal AOA_MAX_VALUE so plugin + firmware agree on the
     // notion of "valid AOA value at all."
-    bool ok = true;
     ok &= readFloat(widgetLDMaxAOA,       "LDmax AOA",        0.0f,
                     onspeed::AOA_MAX_VALUE, v.fLDMAXAOA);
     ok &= readFloat(widgetOnSpeedFastAOA, "OnSpeed Fast AOA", 0.0f,
@@ -935,19 +1139,42 @@ static std::optional<ValidatedSettings> readAndValidateFields(
     // Mark every field that participates in an ordering violation —
     // we don't know which value the user mis-typed, but at least all
     // four are visually flagged.
-    onspeed::config::OnSpeedConfig::SuFlaps flap;
-    flap.fLDMAXAOA       = v.fLDMAXAOA;
-    flap.fONSPEEDFASTAOA = v.fONSPEEDFASTAOA;
-    flap.fONSPEEDSLOWAOA = v.fONSPEEDSLOWAOA;
-    flap.fSTALLWARNAOA   = v.fSTALLWARNAOA;
-    const std::string orderErr = flap.SetpointOrderError();
-    if (!orderErr.empty()) {
-        setError(orderErr);
-        markFieldInvalid(widgetLDMaxAOA);
-        markFieldInvalid(widgetOnSpeedFastAOA);
-        markFieldInvalid(widgetOnSpeedSlowAOA);
-        markFieldInvalid(widgetStallWarnAOA);
-        return std::nullopt;
+    //
+    // Auto mode: the f*AOA fields show the most recent auto-derive
+    // snapshot, which may legitimately be reordered if the pilot is
+    // editing during a flap-handle move.  Skip the ordering check in
+    // auto mode and rely on the NAOA fractions being a monotone
+    // sequence (validated implicitly by their range bounds + ordering
+    // check below).
+    if (v.mode == SetpointMode::Manual) {
+        onspeed::config::OnSpeedConfig::SuFlaps flap;
+        flap.fLDMAXAOA       = v.fLDMAXAOA;
+        flap.fONSPEEDFASTAOA = v.fONSPEEDFASTAOA;
+        flap.fONSPEEDSLOWAOA = v.fONSPEEDSLOWAOA;
+        flap.fSTALLWARNAOA   = v.fSTALLWARNAOA;
+        const std::string orderErr = flap.SetpointOrderError();
+        if (!orderErr.empty()) {
+            setError(orderErr);
+            markFieldInvalid(widgetLDMaxAOA);
+            markFieldInvalid(widgetOnSpeedFastAOA);
+            markFieldInvalid(widgetOnSpeedSlowAOA);
+            markFieldInvalid(widgetStallWarnAOA);
+            return std::nullopt;
+        }
+    } else {
+        // Auto mode: NAOA fractions must be strictly increasing for
+        // the derived AOAs to come out in order.
+        if (!(v.fNaoaLdmax       < v.fNaoaOnSpeedFast &&
+              v.fNaoaOnSpeedFast < v.fNaoaOnSpeedSlow &&
+              v.fNaoaOnSpeedSlow < v.fNaoaStallWarn)) {
+            setError("NAOA fractions must increase: "
+                     "LDmax < OnSpeedFast < OnSpeedSlow < StallWarn");
+            if (widgetNaoaLdmax)       markFieldInvalid(widgetNaoaLdmax);
+            if (widgetNaoaOnSpeedFast) markFieldInvalid(widgetNaoaOnSpeedFast);
+            if (widgetNaoaOnSpeedSlow) markFieldInvalid(widgetNaoaOnSpeedSlow);
+            if (widgetNaoaStallWarn)   markFieldInvalid(widgetNaoaStallWarn);
+            return std::nullopt;
+        }
     }
 
     return v;
@@ -956,7 +1183,19 @@ static std::optional<ValidatedSettings> readAndValidateFields(
 // Apply a validated settings bundle to the live state, rebuilding
 // dependent state (smoothers).  Refreshes widget text so the user
 // sees the canonical formatting.  Doesn't save — caller decides.
+//
+// In Auto mode, the manual f*AOA fields submitted by the form are
+// kept as the "last-known snapshot" but immediately overwritten by
+// ApplyAutoDerivedSetpointsForFrame on the next flight-loop tick.
+// The NAOA fractions are the authoritative values in Auto mode; the
+// snapshot exists so a flip to Manual mode finds reasonable starting
+// values rather than zero.
 static void ApplyValidatedSettings(const ValidatedSettings& v) {
+    g_setpointMode     = v.mode;
+    g_naoaLdmax        = v.fNaoaLdmax;
+    g_naoaOnSpeedFast  = v.fNaoaOnSpeedFast;
+    g_naoaOnSpeedSlow  = v.fNaoaOnSpeedSlow;
+    g_naoaStallWarn    = v.fNaoaStallWarn;
     fLDMAXAOA          = v.fLDMAXAOA;
     fONSPEEDFASTAOA    = v.fONSPEEDFASTAOA;
     fONSPEEDSLOWAOA    = v.fONSPEEDSLOWAOA;
@@ -969,6 +1208,12 @@ static void ApplyValidatedSettings(const ValidatedSettings& v) {
         iAoaMedianWindow = v.iAoaMedianWindow;
         iAoaMeanWindow   = v.iAoaMeanWindow;
         rebuildAoaSmoothers();
+    }
+    // If the user committed Auto mode, immediately push a fresh
+    // derivation so the f*AOA snapshot reflects current X-Plane
+    // state rather than whatever was in the form.
+    if (g_setpointMode == SetpointMode::Auto) {
+        ApplyAutoDerivedSetpointsForFrame();
     }
     UpdateAOATextFields();
 }
@@ -1335,6 +1580,29 @@ static int AudioControlHandler(
         return 0;   // let widget continue normal processing
     }
 
+    // Radio-button group: enforce single-selection by hand (the
+    // widget API sets the clicked button's state to 1 but won't
+    // clear siblings).  No live commit — the new mode applies only
+    // when the user clicks Save, matching the rest of the form's
+    // all-or-nothing semantics.
+    if (inMessage == xpMsg_ButtonStateChanged) {
+        XPWidgetID clicked = reinterpret_cast<XPWidgetID>(inParam1);
+        if (clicked == widgetRadioAutoMode && widgetRadioManualMode) {
+            XPSetWidgetProperty(widgetRadioAutoMode,
+                                xpProperty_ButtonState, 1);
+            XPSetWidgetProperty(widgetRadioManualMode,
+                                xpProperty_ButtonState, 0);
+            return 1;
+        }
+        if (clicked == widgetRadioManualMode && widgetRadioAutoMode) {
+            XPSetWidgetProperty(widgetRadioManualMode,
+                                xpProperty_ButtonState, 1);
+            XPSetWidgetProperty(widgetRadioAutoMode,
+                                xpProperty_ButtonState, 0);
+            return 1;
+        }
+    }
+
     if (inMessage == xpMsg_PushButtonPressed) {
         if (inParam1 == reinterpret_cast<intptr_t>(audioToggleCheckbox)) {
             audioEnabled = !audioEnabled;
@@ -1517,10 +1785,64 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
 
     widgetAudioStatus = createWidget(
         xpWidgetClass_Caption,
-        "" 
+        ""
     );
-    
-    // AOA setpoints (firmware terminology: see Config.h::SuFlaps).
+
+    // Setpoint mode radio buttons.  Auto = derive setpoints from
+    // X-Plane's stall AOA each frame (per-aircraft, no manual tuning).
+    // Manual = pilot-set setpoints fixed across all flap positions
+    // (legacy behavior).  See issue #392.
+    createWidget(xpWidgetClass_Caption, "Setpoint mode:");
+
+    widgetRadioAutoMode = createWidget(
+        xpWidgetClass_Button, "Auto (derive from X-Plane stall AOA)",
+        /*leftOffset=*/30, /*width=*/220);
+    XPSetWidgetProperty(widgetRadioAutoMode,
+                        xpProperty_ButtonType, xpRadioButton);
+    XPSetWidgetProperty(widgetRadioAutoMode,
+                        xpProperty_ButtonBehavior,
+                        xpButtonBehaviorRadioButton);
+    XPSetWidgetProperty(widgetRadioAutoMode,
+                        xpProperty_ButtonState,
+                        g_setpointMode == SetpointMode::Auto ? 1 : 0);
+
+    widgetRadioManualMode = createWidget(
+        xpWidgetClass_Button, "Manual (fixed across all flaps)",
+        /*leftOffset=*/30, /*width=*/220);
+    XPSetWidgetProperty(widgetRadioManualMode,
+                        xpProperty_ButtonType, xpRadioButton);
+    XPSetWidgetProperty(widgetRadioManualMode,
+                        xpProperty_ButtonBehavior,
+                        xpButtonBehaviorRadioButton);
+    XPSetWidgetProperty(widgetRadioManualMode,
+                        xpProperty_ButtonState,
+                        g_setpointMode == SetpointMode::Manual ? 1 : 0);
+
+    // NAOA fractions — auto-mode tuning knobs.  Editable in either
+    // mode (so the pilot can tune Auto ahead of switching to it),
+    // but only consulted when mode = Auto.
+    widgetNaoaLdmax        = createLabeledFloatField("LDmax NAOA:",
+                                                     g_naoaLdmax);
+    widgetNaoaOnSpeedFast  = createLabeledFloatField("OnSpeedFast NAOA:",
+                                                     g_naoaOnSpeedFast);
+    widgetNaoaOnSpeedSlow  = createLabeledFloatField("OnSpeedSlow NAOA:",
+                                                     g_naoaOnSpeedSlow);
+    widgetNaoaStallWarn    = createLabeledFloatField("StallWarn NAOA:",
+                                                     g_naoaStallWarn);
+
+    // Read-only displays of the live X-Plane stall AOA + the four
+    // currently-derived setpoints.  Updated by UpdateAOATextFields
+    // each time the form is rendered.  In Manual mode the captions
+    // still show the would-be auto-derive (informational; helps the
+    // pilot see what would happen if they flipped to Auto).
+    widgetCaptionStallAoa = createWidget(xpWidgetClass_Caption, "",
+                                         /*leftOffset=*/20, /*width=*/240);
+    widgetCaptionDerived  = createWidget(xpWidgetClass_Caption, "",
+                                         /*leftOffset=*/20, /*width=*/240);
+
+    // AOA setpoints (firmware terminology: see Config.h::SuFlaps).  In
+    // Manual mode these are pilot-set; in Auto mode they're a
+    // last-derived snapshot, overwritten each frame.
     widgetLDMaxAOA          = createLabeledFloatField("LDmax AOA:",        fLDMAXAOA);
     widgetOnSpeedFastAOA    = createLabeledFloatField("OnSpeed Fast AOA:", fONSPEEDFASTAOA);
     widgetOnSpeedSlowAOA    = createLabeledFloatField("OnSpeed Slow AOA:", fONSPEEDSLOWAOA);
@@ -1587,7 +1909,73 @@ static void UpdateAOATextFields() {
         return;
     }
 
-    char buffer[16];
+    char buffer[64];
+
+    if (widgetRadioAutoMode) {
+        XPSetWidgetProperty(widgetRadioAutoMode,
+                            xpProperty_ButtonState,
+                            g_setpointMode == SetpointMode::Auto ? 1 : 0);
+    }
+    if (widgetRadioManualMode) {
+        XPSetWidgetProperty(widgetRadioManualMode,
+                            xpProperty_ButtonState,
+                            g_setpointMode == SetpointMode::Manual ? 1 : 0);
+    }
+
+    if (widgetNaoaLdmax) {
+        snprintf(buffer, sizeof(buffer), "%.3f", g_naoaLdmax);
+        XPSetWidgetDescriptor(widgetNaoaLdmax, buffer);
+    }
+    if (widgetNaoaOnSpeedFast) {
+        snprintf(buffer, sizeof(buffer), "%.3f", g_naoaOnSpeedFast);
+        XPSetWidgetDescriptor(widgetNaoaOnSpeedFast, buffer);
+    }
+    if (widgetNaoaOnSpeedSlow) {
+        snprintf(buffer, sizeof(buffer), "%.3f", g_naoaOnSpeedSlow);
+        XPSetWidgetDescriptor(widgetNaoaOnSpeedSlow, buffer);
+    }
+    if (widgetNaoaStallWarn) {
+        snprintf(buffer, sizeof(buffer), "%.3f", g_naoaStallWarn);
+        XPSetWidgetDescriptor(widgetNaoaStallWarn, buffer);
+    }
+
+    // Live readout of the current X-Plane stall AOA + auto-derived
+    // setpoints.  In auto mode this matches the f*AOA fields below
+    // (the f*AOA fields are the most recent derivation snapshot).  In
+    // manual mode the captions show the would-be auto values for
+    // comparison.
+    if (widgetCaptionStallAoa || widgetCaptionDerived) {
+        const auto d = CurrentAutoDerivation();
+        if (widgetCaptionStallAoa) {
+            if (d.applied) {
+                const float aoaNoFlap   = acfMaxAoaNoFlapRef
+                    ? XPLMGetDataf(acfMaxAoaNoFlapRef) : 0.0f;
+                const float aoaFullFlap = acfMaxAoaFullFlapRef
+                    ? XPLMGetDataf(acfMaxAoaFullFlapRef) : 0.0f;
+                const float ratio = flapHandleDeployRef
+                    ? XPLMGetDataf(flapHandleDeployRef) : 0.0f;
+                snprintf(buffer, sizeof(buffer),
+                         "X-Plane stall AOA: %.1f° clean, %.1f° full "
+                         "(flap %.0f%%)",
+                         aoaNoFlap, aoaFullFlap, ratio * 100.0f);
+            } else {
+                snprintf(buffer, sizeof(buffer),
+                         "X-Plane stall AOA: unavailable");
+            }
+            XPSetWidgetDescriptor(widgetCaptionStallAoa, buffer);
+        }
+        if (widgetCaptionDerived) {
+            if (d.applied) {
+                snprintf(buffer, sizeof(buffer),
+                         "Derived: %.1f / %.1f / %.1f / %.1f°",
+                         d.ldmax, d.onSpeedFast, d.onSpeedSlow, d.stallWarn);
+            } else {
+                snprintf(buffer, sizeof(buffer),
+                         "Derived: unavailable (manual setpoints used)");
+            }
+            XPSetWidgetDescriptor(widgetCaptionDerived, buffer);
+        }
+    }
 
     snprintf(buffer, sizeof(buffer), "%.1f", fLDMAXAOA);
     XPSetWidgetDescriptor(widgetLDMaxAOA, buffer);
@@ -2032,6 +2420,11 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
                           [[maybe_unused]] int inCounter,
                           [[maybe_unused]] void *inRefcon) {
 
+    // Auto-mode: refresh f*AOA from current X-Plane stall AOA + flap
+    // ratio before any consumer (audio path, indexer percent-lift) reads
+    // them.  Manual mode: no-op.
+    ApplyAutoDerivedSetpointsForFrame();
+
     // use XPLMGetDataf to get the AOA value.  https://developer.x-plane.com/sdk/XPLMDataAccess/#XPLMDataRef
 
     // Suppress the sim's built-in stall horn so it doesn't talk over
@@ -2235,6 +2628,13 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // from-acf path stays a no-op and the pilot sets it via the
     // audio control window.
     acfVsDataRef = XPLMFindDataRef("sim/aircraft/view/acf_Vs");
+
+    // Auto-setpoint datarefs (issue #392).  Optional: if any are
+    // missing, auto-mode silently leaves the f*AOA globals at their
+    // last-known values and logs once on the first such frame.
+    acfMaxAoaNoFlapRef   = XPLMFindDataRef("sim/aircraft/controls/acf_max_aoa_no_flap");
+    acfMaxAoaFullFlapRef = XPLMFindDataRef("sim/aircraft/controls/acf_max_aoa_full_flap");
+    flapHandleDeployRef  = XPLMFindDataRef("sim/cockpit2/controls/flap_handle_deploy_ratio");
 
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
 

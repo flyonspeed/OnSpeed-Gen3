@@ -111,10 +111,21 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/version
 set(PLUGIN_SOURCES
     src/aoa_audio.cpp
     src/serial_port.cpp
+    # AutoSetpoints is platform-independent (no XPLM, no M5GFX) and
+    # used in both indexer-on and audio-only builds — aoa_audio.cpp
+    # includes it directly to scale setpoints per X-Plane's per-aircraft
+    # stall AOA each flight-loop tick.  Lives under m5_indexer/ for
+    # namespace cohesion (the indexer's percent-lift pipeline reads the
+    # same f*AOA globals it writes).
+    src/m5_indexer/AutoSetpoints.cpp
 )
 set(PLUGIN_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/SDK/CHeaders/XPLM
     ${CMAKE_CURRENT_SOURCE_DIR}/SDK/CHeaders/Widgets
+    # src/ on the include path so aoa_audio.cpp finds
+    # m5_indexer/AutoSetpoints.h.  M5-indexer-on builds add more paths
+    # below.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 set(PLUGIN_EXTRA_LIBS "")
 
