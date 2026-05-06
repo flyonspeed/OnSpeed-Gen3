@@ -34,8 +34,10 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs();
 //
 // liveAoaDeg is X-Plane's `sim/flightmodel/position/alpha` reading.
 // flapHandleRatio is `sim/cockpit2/controls/flap_handle_deploy_ratio`,
-// already clamped to [0, 1].  iasValid is the same gate the audio
-// path uses (true unless IAS is below iMuteAudioUnderIAS).
+// already clamped to [0, 1].  iasValid is true when IAS is at or
+// above iMuteAudioUnderIAS.  (The audio path uses a hysteretic gate;
+// this derivation is non-hysteretic, so inside the 5-kt hysteresis
+// band audio is muted but iasValid is true.)
 //
 // Important contract:
 //   - The four band-edge anchors (tonesOnPctLift, onSpeedFastPctLift,
