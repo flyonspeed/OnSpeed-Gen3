@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 // Plugin-side AOA threshold globals.  Defined in aoa_audio.cpp; the
 // indexer reads them to derive percent-lift band edges (the visual
@@ -22,6 +23,11 @@ extern float fLDMAXAOA;
 extern float fONSPEEDFASTAOA;
 extern float fONSPEEDSLOWAOA;
 extern float fSTALLWARNAOA;
+
+// 1G clean stall speed (KIAS), used by the on-ground V² formula.
+// 0 disables the V² path (alpha-only fallback).  Owned by
+// aoa_audio.cpp; seeded from acf_Vs and pilot-editable.
+extern int   iVs1G;
 
 namespace onspeed_xplane::indexer {
 
@@ -51,10 +57,51 @@ inline float AlphaStallApprox()
 
 }  // namespace
 
+// On-ground percent lift from V², scaled to align with the
+// alpha-based percent scale.  See FillPercentLift's contract.
+//
+//   pct_v² = (Vs / V)² * stallWarnPct
+//
+// Why scaled by stallWarnPct: the alpha-based formula puts the
+// StallWarn setpoint at ~92% (per the synthetic alpha_stall
+// = stallWarn * 1.075, so stallWarn / alpha_stall ≈ 0.93).  We
+// want V² and alpha to agree on where "near stall" is on the
+// indexer band, so the V² formula reads stallWarnPct% when V == Vs
+// rather than a literal 100% (which would put the chevron above
+// the StallWarn pip whenever V <= Vs, including a stationary
+// airplane).  This keeps the visual reference consistent across
+// the takeoff transition.
+//
+// Returns NaN when iVs1G or V are non-positive — caller falls
+// back to the alpha-based formula in that case.
+static float ComputeIasPercentLift(float liveIasKt,
+                                   float stallWarnPct)
+{
+    if (iVs1G <= 0) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    if (liveIasKt < 0.5f) {
+        // V → 0 makes (Vs/V)² blow up; saturate to "max wing
+        // effort" instead of dividing by zero.  0.5 kt is a
+        // generous threshold matching X-Plane's IAS reading
+        // when the airplane is at rest with engine running
+        // (sometimes shows ~0.1 kt prop wash).
+        return stallWarnPct;
+    }
+    const float vs    = static_cast<float>(iVs1G);
+    const float ratio = vs / liveIasKt;
+    float pct = ratio * ratio * stallWarnPct;
+    if (pct < 0.0f)  pct = 0.0f;
+    if (pct > 99.9f) pct = 99.9f;
+    return pct;
+}
+
 void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
                      float liveAoaDeg,
+                     float liveIasKt,
                      float flapHandleRatio,
-                     bool  iasValid)
+                     bool  iasValid,
+                     bool  onGround)
 {
     // Percent-lift derivation.  Uses the plugin's four AOA setpoints
     // plus alpha_0/alpha_stall approximations from MakeFlapCfg.
@@ -73,11 +120,30 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
     // true for the band-edge / L/Dmax anchors") and the call sites
     // in sketch_common DisplaySerial.cpp / DataServer.cpp.
     const auto flap = MakeFlapCfg();
-    in.percentLiftPct     = onspeed::aoa::ComputePercentLift(liveAoaDeg, flap, iasValid);
     in.tonesOnPctLift     = static_cast<int>(onspeed::aoa::ComputePercentLift(fLDMAXAOA,       flap, true));
     in.onSpeedFastPctLift = static_cast<int>(onspeed::aoa::ComputePercentLift(fONSPEEDFASTAOA, flap, true));
     in.onSpeedSlowPctLift = static_cast<int>(onspeed::aoa::ComputePercentLift(fONSPEEDSLOWAOA, flap, true));
     in.stallWarnPctLift   = static_cast<int>(onspeed::aoa::ComputePercentLift(fSTALLWARNAOA,   flap, true));
+
+    // Live percent: V²-based on the ground (when Vs is known),
+    // alpha-based in the air or as the fallback when Vs == 0.
+    // The V² path uses the StallWarn anchor as its scaling factor
+    // so V == Vs lands right at the StallWarn pip — visually
+    // consistent with where the alpha formula puts an aircraft
+    // at alpha_stall in level flight.
+    float livePct = std::numeric_limits<float>::quiet_NaN();
+    if (onGround) {
+        livePct = ComputeIasPercentLift(
+            liveIasKt, static_cast<float>(in.stallWarnPctLift));
+    }
+    if (!std::isfinite(livePct)) {
+        // Either in flight, or on-ground with no Vs configured.
+        // Use the firmware-shared alpha formula.  Same gate the
+        // firmware applies — iasValid false (e.g., taxi below the
+        // mute floor with no Vs known) returns 0.
+        livePct = onspeed::aoa::ComputePercentLift(liveAoaDeg, flap, iasValid);
+    }
+    in.percentLiftPct = livePct;
 
     // Visual L/Dmax pip: lerp clean→fullflap by flap-handle ratio,
     // where the fullflap target is the bottom-half-of-donut anchor

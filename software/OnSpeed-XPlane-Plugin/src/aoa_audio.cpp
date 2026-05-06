@@ -133,6 +133,21 @@ constexpr int kIasMuteHysteresisKt = 5;
 int iAoaMedianWindow = 5;     // 1 disables median (passthrough)
 int iAoaMeanWindow   = 10;    // 1 disables mean (passthrough)
 
+// 1G clean stall speed (KIAS) used by the on-ground percent-lift
+// formula.  When the aircraft is on the ground, body-angle AOA is
+// not aerodynamically meaningful (gear is loading the airframe);
+// we instead derive percent-of-stall from V² (IAS²) so the indexer
+// reflects "how loaded the wing is at this airspeed" — which is
+// what the pilot wants on the takeoff roll.  See FillPercentLift.
+//
+// Seeded from `sim/aircraft/view/acf_Vs` (KIAS) per X-Plane
+// aircraft on first load; pilot can override via the audio control
+// window.  Sentinel: 0 means "no Vs known" — falls back to the
+// alpha-based formula on the ground (so the pre-fix behavior
+// stays in place for aircraft where neither acf_Vs nor the pilot
+// has supplied a value).
+int iVs1G = 0;
+
 // Master volume (0-100 %).  Mirrors the firmware's pot-driven
 // fVolume scaling — the per-PPS fVolumeMult ramp from STALL_VOL_MIN
 // (cruise/OnSpeed) to STALL_VOL_MAX (stall warning) is multiplied by
@@ -169,6 +184,7 @@ XPLMDataRef crashedDataRef   = nullptr;     // sim/flightmodel2/misc/has_crashed
 // flight loop when the user has chosen to mute the sim's stall horn,
 // because X-Plane restores the .acf-defined value on aircraft load.
 XPLMDataRef acfHasStallwarnDataRef = nullptr;
+XPLMDataRef acfVsDataRef     = nullptr;     // sim/aircraft/view/acf_Vs (float, KIAS)
 
 // Control-window widget handles.
 static XPWidgetID audioControlWidget  = nullptr;
@@ -185,6 +201,7 @@ static XPWidgetID widgetOnSpeedFastAOA        = nullptr;
 static XPWidgetID widgetOnSpeedSlowAOA        = nullptr;
 static XPWidgetID widgetStallWarnAOA          = nullptr;
 static XPWidgetID widgetMuteAudioUnderIAS     = nullptr;
+static XPWidgetID widgetVs1G                  = nullptr;
 static XPWidgetID widgetMasterVolumePct       = nullptr;
 static XPWidgetID widgetAoaMedianWindow       = nullptr;
 static XPWidgetID widgetAoaMeanWindow         = nullptr;
@@ -356,6 +373,7 @@ static void SaveSettings() {
     std::fprintf(fp, "fONSPEEDSLOWAOA = %.3f\n", fONSPEEDSLOWAOA);
     std::fprintf(fp, "fSTALLWARNAOA = %.3f\n",   fSTALLWARNAOA);
     std::fprintf(fp, "iMuteAudioUnderIAS = %d\n", iMuteAudioUnderIAS);
+    std::fprintf(fp, "iVs1G = %d\n",              iVs1G);
     std::fprintf(fp, "iMasterVolumePct = %d\n",   iMasterVolumePct);
     std::fprintf(fp, "iAoaMedianWindow = %d\n",   iAoaMedianWindow);
     std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
@@ -424,6 +442,7 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "fONSPEEDSLOWAOA"))    fONSPEEDSLOWAOA    = std::atof(val);
         else if (!std::strcmp(key, "fSTALLWARNAOA"))      fSTALLWARNAOA      = std::atof(val);
         else if (!std::strcmp(key, "iMuteAudioUnderIAS")) iMuteAudioUnderIAS = std::atoi(val);
+        else if (!std::strcmp(key, "iVs1G"))              iVs1G              = std::atoi(val);
         else if (!std::strcmp(key, "iMasterVolumePct"))   iMasterVolumePct   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMedianWindow"))   iAoaMedianWindow   = std::atoi(val);
         else if (!std::strcmp(key, "iAoaMeanWindow"))     iAoaMeanWindow     = std::atoi(val);
@@ -485,6 +504,7 @@ struct ValidatedSettings {
     float fONSPEEDSLOWAOA;
     float fSTALLWARNAOA;
     int   iMuteAudioUnderIAS;
+    int   iVs1G;
     int   iMasterVolumePct;
     int   iAoaMedianWindow;
     int   iAoaMeanWindow;
@@ -498,6 +518,8 @@ constexpr ValidatedSettings kDefaultSettings{
     /*fONSPEEDSLOWAOA=*/  9.6f,
     /*fSTALLWARNAOA=*/   12.5f,
     /*iMuteAudioUnderIAS=*/25,
+    /*iVs1G=*/             0,    // 0 = will be re-seeded from acf_Vs on
+                                  // aircraft load; see OnAircraftLoaded.
     /*iMasterVolumePct=*/ 100,
     /*iAoaMedianWindow=*/   5,
     /*iAoaMeanWindow=*/    10,
@@ -642,6 +664,10 @@ static std::optional<ValidatedSettings> readAndValidateFields(
                     onspeed::AOA_MAX_VALUE, v.fSTALLWARNAOA);
     ok &= readInt(widgetMuteAudioUnderIAS, "Mute Under IAS",
                   0, 250, v.iMuteAudioUnderIAS);
+    // 0 disables IAS²-on-ground (alpha-only fallback); upper 250
+    // matches the same range as Mute Under IAS for consistency.
+    ok &= readInt(widgetVs1G,              "Vs (1G)",
+                  0, 250, v.iVs1G);
     ok &= readInt(widgetMasterVolumePct,   "Master Volume",
                   0, 100, v.iMasterVolumePct);
     ok &= readInt(widgetAoaMedianWindow,   "AOA Median Window",
@@ -684,6 +710,7 @@ static void ApplyValidatedSettings(const ValidatedSettings& v) {
     fONSPEEDSLOWAOA    = v.fONSPEEDSLOWAOA;
     fSTALLWARNAOA      = v.fSTALLWARNAOA;
     iMuteAudioUnderIAS = v.iMuteAudioUnderIAS;
+    iVs1G              = v.iVs1G;
     iMasterVolumePct   = v.iMasterVolumePct;
     if (v.iAoaMedianWindow != iAoaMedianWindow ||
         v.iAoaMeanWindow   != iAoaMeanWindow) {
@@ -717,6 +744,29 @@ static void OnAircraftLoaded() {
         s_settingsLoaded = false;
         LoadSettings();
     }
+
+    // Seed iVs1G from acf_Vs if the .prf hasn't supplied a value
+    // (iVs1G == 0 sentinel).  Plane Maker stores it in KIAS as a
+    // per-aircraft constant; non-zero only for aircraft whose author
+    // populated the field.  Pilot's manual override (set via the
+    // audio control window and persisted) wins because LoadSettings
+    // would have set iVs1G > 0 already, gating this branch off.  We
+    // round here rather than truncate so an acf value of e.g. 62.7
+    // becomes 63 instead of 62.
+    if (iVs1G == 0 && acfVsDataRef) {
+        const float acfVs = XPLMGetDataf(acfVsDataRef);
+        if (acfVs > 0.0f && acfVs < 250.0f) {
+            iVs1G = static_cast<int>(std::round(acfVs));
+            XPLMDebugString(("FlyOnSpeed: seeded iVs1G="
+                             + std::to_string(iVs1G)
+                             + " from acf_Vs\n").c_str());
+            // Persist immediately so a future plugin reload doesn't
+            // re-seed against a different acf the pilot hadn't yet
+            // calibrated by hand.
+            SaveSettings();
+        }
+    }
+
     rebuildAoaSmoothers();
     UpdateAOATextFields();
 
@@ -1177,6 +1227,12 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     widgetMuteAudioUnderIAS = createLabeledIntField(
         "Mute Under IAS (kt):", iMuteAudioUnderIAS);
 
+    // Vs at 1G (KIAS).  Used by the on-ground percent-lift formula
+    // to derive percent-of-stall from V² when the gear is loaded.
+    // 0 disables (alpha-only fallback).  Seeded from acf_Vs.
+    widgetVs1G              = createLabeledIntField(
+        "Vs at 1G (kt):", iVs1G);
+
     // Master volume (0-100 %).  Mirrors the firmware's pot.
     widgetMasterVolumePct   = createLabeledIntField(
         "Master Volume (%):", iMasterVolumePct);
@@ -1241,6 +1297,9 @@ static void UpdateAOATextFields() {
 
     snprintf(buffer, sizeof(buffer), "%d", iMuteAudioUnderIAS);
     XPSetWidgetDescriptor(widgetMuteAudioUnderIAS, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%d", iVs1G);
+    XPSetWidgetDescriptor(widgetVs1G, buffer);
 
     snprintf(buffer, sizeof(buffer), "%d", iMasterVolumePct);
     XPSetWidgetDescriptor(widgetMasterVolumePct, buffer);
@@ -1862,6 +1921,13 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // override has to be reapplied — see CheckAOAAndPlayTone.  Optional:
     // if the dataref is missing the toggle is a no-op.
     acfHasStallwarnDataRef = XPLMFindDataRef("sim/aircraft/view/acf_has_stallwarn");
+
+    // acf_Vs is a per-aircraft Plane Maker constant (1G clean stall
+    // speed in KIAS).  Used to seed iVs1G on first aircraft load.
+    // Optional: third-party authors sometimes leave it 0; in that case
+    // the seed-from-acf path stays a no-op and the pilot sets it via
+    // the audio control window.
+    acfVsDataRef = XPLMFindDataRef("sim/aircraft/view/acf_Vs");
 
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
 

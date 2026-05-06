@@ -31,6 +31,11 @@ float fONSPEEDFASTAOA =  7.3f;
 float fONSPEEDSLOWAOA =  9.6f;
 float fSTALLWARNAOA   = 12.5f;
 
+// 0 disables the V² on-ground formula so this test exercises the
+// alpha-only path (the original PR #432 bug surface).  The V² path
+// gets its own test in iasground_pct.cpp.
+int iVs1G = 0;
+
 namespace {
 
 bool nearly(float a, float b, float tol = 0.5f)
@@ -64,11 +69,16 @@ int main()
     // pip slides smoothly with the flap handle.
     // ----------------------------------------------------------------
 
+    // iVs1G=0 above means the on-ground V² path is disabled and
+    // FillPercentLift falls back to the alpha-based formula on
+    // both regimes — matching the original PR #432 surface.
     DisplayBuildInputs onGround{};
     FillPercentLift(onGround,
-                    /*liveAoaDeg=*/   7.0f,
+                    /*liveAoaDeg=*/      7.0f,
+                    /*liveIasKt=*/       40.0f,
                     /*flapHandleRatio=*/ 0.0f,
-                    /*iasValid=*/    false);
+                    /*iasValid=*/        false,
+                    /*onGround=*/        true);
 
     // Live reading: ComputePercentLift's contract returns 0 when
     // iasValid=false.  No airflow, no live percent — by design.
@@ -108,9 +118,11 @@ int main()
     // ----------------------------------------------------------------
     DisplayBuildInputs inFlight{};
     FillPercentLift(inFlight,
-                    /*liveAoaDeg=*/   7.0f,
+                    /*liveAoaDeg=*/      7.0f,
+                    /*liveIasKt=*/       80.0f,
                     /*flapHandleRatio=*/ 0.0f,
-                    /*iasValid=*/    true);
+                    /*iasValid=*/        true,
+                    /*onGround=*/        false);
 
     check(inFlight.tonesOnPctLift     == onGround.tonesOnPctLift,
           "tonesOnPctLift identical across iasValid (anchors are pure)");
@@ -139,10 +151,10 @@ int main()
     // when iasValid=false; post-fix it slides smoothly.
     // ----------------------------------------------------------------
     DisplayBuildInputs flapHalf{};
-    FillPercentLift(flapHalf, 7.0f, 0.5f, false);
+    FillPercentLift(flapHalf, 7.0f, 40.0f, 0.5f, false, true);
 
     DisplayBuildInputs flapFull{};
-    FillPercentLift(flapFull, 7.0f, 1.0f, false);
+    FillPercentLift(flapFull, 7.0f, 40.0f, 1.0f, false, true);
 
     check(flapHalf.pipPctLift > onGround.pipPctLift,
           "pipPctLift rises as flaps deploy (clean -> half)");
