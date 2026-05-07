@@ -182,6 +182,7 @@ const rebootMod  = await import(new URL('../lib/pages/RebootPage.js', import.met
 const formatMod  = await import(new URL('../lib/pages/FormatPage.js', import.meta.url));
 const upgradeMod = await import(new URL('../lib/pages/UpgradePage.js', import.meta.url));
 const sensorCalMod = await import(new URL('../lib/pages/SensorCalPage.js', import.meta.url));
+const modesMod   = await import(new URL('../lib/modes.js', import.meta.url));
 
 let passed = 0, failed = 0;
 const results = [];
@@ -518,6 +519,70 @@ test('CalWizardPage renders form-divs and flex-col layout classes', () => {
     (n.getAttribute && n.getAttribute('class') || '').split(/\s+/).includes('form-divs'));
   if (formDivs.length === 0)
     throw new Error('CalWizardPage has no class="form-divs" element — styling regression');
+});
+
+// Issue #358: when the producer ships JSON `null` for IAS (bIasAlive
+// false), the corner readouts must render an em-dash placeholder
+// instead of "0", "NaN", or "null".  Mirrors the M5 firmware's
+// "--" gating in main.cpp.
+function makeNullAirDataRecord() {
+  return {
+    aoaDeg: -100, aoaIsValid: false, derivedAoaDeg: 0,
+    pitchDeg: 0, rollDeg: 0,
+    verticalG: 1, lateralG: 0, pitchRate: 0,
+    iasKt: null, paltFt: 1000, oatC: null,
+    vsiFpm: 0, flightPathDeg: 0,
+    decelRate: 0,
+    percentLift: 0,
+    tonesOnPctLift: 30, onSpeedFastPctLift: 50, onSpeedSlowPctLift: 60,
+    stallWarnPctLift: 90, pipPctLift: 70,
+    flapsDeg: 0, flapsMinDeg: 0, flapsMaxDeg: 33,
+    gOnsetRate: 0, dataMark: 0,
+  };
+}
+
+function findTextNodes(root) {
+  return [...walk(root)].filter(n => n.localName === '#text' && n.data);
+}
+
+test('Mode0 renders em-dash for IAS when iasKt is null', () => {
+  const r = makeNullAirDataRecord();
+  const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  // fmt(null, 0) returns '—' (U+2014); the IAS readout shows it
+  // unmodified. Plain '-' would mean a number leaked through.
+  if (!texts.some(t => t === '—'))
+    throw new Error('expected an em-dash text node for null IAS, got: ' + texts.join('|'));
+  // Defense-in-depth: no "null" / "NaN" / "undefined" strings.
+  for (const t of texts) {
+    if (/null|nan|undefined/i.test(t))
+      throw new Error('rendered text contains placeholder leak: ' + JSON.stringify(t));
+  }
+});
+
+test('Mode1 renders em-dash for IAS when iasKt is null', () => {
+  const r = makeNullAirDataRecord();
+  const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  if (!texts.some(t => t === '—'))
+    throw new Error('expected an em-dash text node for null IAS in Mode1, got: ' + texts.join('|'));
+});
+
+test('Mode3 renders em-dash for IAS when iasKt is null', () => {
+  const r = makeNullAirDataRecord();
+  const root = renderInto(html`<${modesMod.Mode3} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  if (!texts.some(t => t === '—'))
+    throw new Error('expected an em-dash text node for null IAS in Mode3, got: ' + texts.join('|'));
+});
+
+test('Mode0 hides the percent-lift number when aoaIsValid is false', () => {
+  const r = makeNullAirDataRecord();
+  const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
+  const groups = [...walk(root)].filter(n =>
+    n.localName === 'g' && n.getAttribute('data-widget') === 'percent-lift-number');
+  if (groups.length !== 0)
+    throw new Error('PercentLiftNumber rendered when aoaIsValid was false');
 });
 
 await runTests();
