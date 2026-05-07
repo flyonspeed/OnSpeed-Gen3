@@ -14,11 +14,17 @@
 //
 // alpha_0 is implicitly 0.  The plugin's AOA convention is X-Plane's
 // `sim/flightmodel/position/alpha`, which is wing AOA, not body angle.
-// In wing-AOA space the lift floor IS at alpha = 0 (the wing is at
-// zero lift when the relative wind is parallel to the chord).  The
-// firmware's per-flap `alpha_0` is the body-angle floor, which folds
-// in wing incidence; X-Plane's `alpha` already excludes that.  So in
-// the plugin: setpoint = naoa * alpha_stall (no alpha_0 term).
+// alpha_0 = 0 is exact for symmetric airfoils.  Cambered airfoils
+// have alpha_0 ≈ -2° to -4° (lift floor is at slightly negative wing
+// AOA), but X-Plane doesn't expose a per-aircraft zero-lift AOA
+// dataref.  The approximation produces setpoints ~0.5-1.5° high for
+// cambered GA aircraft — direction of error is conservative (cues
+// fire slightly early), and pilots can fine-tune NAOA fractions in
+// the audio control window to compensate.
+//
+// The firmware's per-flap `alpha_0` is the body-angle floor, which
+// folds in wing incidence; X-Plane's `alpha` already excludes that.
+// So in the plugin: setpoint = naoa * alpha_stall (no alpha_0 term).
 //
 // The four NAOA fractions come from the calibration wizard's lift-
 // equation fit in tools/web/lib/pages/CalWizardPage.js:

@@ -135,6 +135,46 @@ int main()
           "auto-derive applies at alpha_stall just above plausibility floor");
 
     // ----------------------------------------------------------------
+    // 4b. Partial-dataref fallback.  Aircraft authors commonly leave
+    //     one of the two acf_max_aoa_* values at the Plane-Maker
+    //     default of 0 while populating the other.  The lerp would
+    //     pull the band toward 0 with flap deployment and collapse
+    //     approach cues; the helper falls back to the plausible
+    //     endpoint as a constant for the entire flap range.
+    // ----------------------------------------------------------------
+
+    // no_flap=14, full_flap=0: only clean-stall is plausible.  Use 14
+    // for every flap position.
+    DerivedSetpoints dNoFlapOnly0 = DeriveSetpointsFromStall(14.0f, 0.0f, 0.0f,
+                                                             kCanonicalNaoa);
+    check(dNoFlapOnly0.applied,
+          "fallback applies when only no_flap dataref is plausible (flap=0)");
+    check(nearly(dNoFlapOnly0.stallWarn, 0.92f * 14.0f),
+          "no_flap-only fallback uses 14° at flap=0");
+
+    DerivedSetpoints dNoFlapOnly1 = DeriveSetpointsFromStall(14.0f, 0.0f, 1.0f,
+                                                             kCanonicalNaoa);
+    check(dNoFlapOnly1.applied,
+          "fallback applies when only no_flap dataref is plausible (flap=1)");
+    check(nearly(dNoFlapOnly1.stallWarn, 0.92f * 14.0f),
+          "no_flap-only fallback still uses 14° at flap=1 (no lerp toward 0)");
+
+    // full_flap=14, no_flap=0: symmetric case (rarer, but possible).
+    DerivedSetpoints dFullFlapOnly0 = DeriveSetpointsFromStall(0.0f, 14.0f, 0.0f,
+                                                               kCanonicalNaoa);
+    check(dFullFlapOnly0.applied,
+          "fallback applies when only full_flap dataref is plausible (flap=0)");
+    check(nearly(dFullFlapOnly0.stallWarn, 0.92f * 14.0f),
+          "full_flap-only fallback uses 14° at flap=0 (no lerp toward 0)");
+
+    DerivedSetpoints dFullFlapOnly1 = DeriveSetpointsFromStall(0.0f, 14.0f, 1.0f,
+                                                               kCanonicalNaoa);
+    check(dFullFlapOnly1.applied,
+          "fallback applies when only full_flap dataref is plausible (flap=1)");
+    check(nearly(dFullFlapOnly1.stallWarn, 0.92f * 14.0f),
+          "full_flap-only fallback uses 14° at flap=1");
+
+    // ----------------------------------------------------------------
     // 5. Custom NAOA fractions: pilot can override the defaults.
     //    Sanity-check the math is strictly multiplicative — no hidden
     //    constants on the path.

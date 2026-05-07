@@ -442,26 +442,29 @@ static onspeed_xplane::indexer::DerivedSetpoints CurrentAutoDerivation()
         aoaNoFlap, aoaFullFlap, flapRatio, naoa);
 }
 
+// One-shot warning latch for the auto-derive hook.  Module-scope so
+// OnAircraftLoaded can reset it; without that reset, the first
+// freeware airframe with missing acf_max_aoa_* datarefs trips the
+// warning, and every subsequent aircraft load that hits the same
+// condition is silent — leaving a pilot with no diagnostic for
+// "auto mode does nothing on this plane."
+static bool s_autoDeriveWarned = false;
+
 // Auto-mode hook: on each flight loop tick, push the per-frame
 // derivation into the four f*AOA globals.  No-op (returns
-// silently) when datarefs aren't populated; logs once if it
-// declines to apply on the very first tick after enabling auto
-// mode so a pilot debugging "why is auto mode doing nothing?"
-// has a breadcrumb.
+// silently) when datarefs aren't populated; logs once per aircraft
+// load if it declines to apply so a pilot debugging "why is auto
+// mode doing nothing?" has a breadcrumb.
 static void ApplyAutoDerivedSetpointsForFrame()
 {
     if (g_setpointMode != SetpointMode::Auto) return;
     const auto d = CurrentAutoDerivation();
     if (!d.applied) {
-        // One-shot debug log: once per session, the first time auto
-        // mode declines to apply on a frame.  Helps a pilot diagnose
-        // a freeware airframe whose acf_max_aoa_* values aren't set.
-        static bool s_warned = false;
-        if (!s_warned) {
+        if (!s_autoDeriveWarned) {
             XPLMDebugString("FlyOnSpeed: auto-mode setpoints unavailable "
                             "(acf_max_aoa_no_flap/full_flap missing or 0); "
                             "f*AOA globals unchanged this frame\n");
-            s_warned = true;
+            s_autoDeriveWarned = true;
         }
         return;
     }
@@ -469,6 +472,11 @@ static void ApplyAutoDerivedSetpointsForFrame()
     fONSPEEDFASTAOA = d.onSpeedFast;
     fONSPEEDSLOWAOA = d.onSpeedSlow;
     fSTALLWARNAOA   = d.stallWarn;
+
+    // Keep the audio-control-window readouts in sync when the window
+    // is open during a flap deployment or mid-flight aircraft swap so
+    // the "Currently derived" labels match the live globals.
+    if (s_audioWindow.visible) UpdateAOATextFields();
 }
 
 // Returns true only when the .prf was opened, all fields written, and
@@ -841,6 +849,15 @@ static void TryImportLegacyJson() {
         // audio control window after import.
         iMuteAudioUnderIAS = (iasEnable >= 0.5f) ? 25 : 0;
     }
+    // Force Manual mode for an imported aircraft.  The legacy
+    // json-config plugin had no concept of auto-derivation; pilots
+    // who calibrated on it have hand-tuned thresholds and expect
+    // those numbers to stick.  In Auto mode, the next flight-loop
+    // tick would overwrite the four f*AOA globals with NAOA-derived
+    // values and silently discard the imported calibration.  Pilots
+    // who want to try auto mode can flip the switch in the audio
+    // control window.
+    g_setpointMode = SetpointMode::Manual;
 
     XPLMDebugString(("FlyOnSpeed: imported legacy thresholds — "
                      "LDmax=" + std::to_string(ldmax)
@@ -1227,6 +1244,10 @@ static void ApplyValidatedSettings(const ValidatedSettings& v) {
 static void OnAircraftLoaded() {
     const std::string previous = s_SettingsPath;
     s_SettingsPath = buildSettingsPath();
+
+    // Each aircraft gets its own one-shot auto-derive warning shot.
+    // See s_autoDeriveWarned for the rationale.
+    s_autoDeriveWarned = false;
 
     if (s_SettingsPath.empty()) {
         XPLMDebugString("FlyOnSpeed: OnAircraftLoaded: no aircraft yet "
