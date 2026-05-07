@@ -395,7 +395,6 @@ static bool SaveSettings() {
     std::fprintf(fp, "audioWindowTop = %d\n",     s_audioWindow.top);
     std::fprintf(fp, "audioWindowWidth = %d\n",   s_audioWindow.width);
     std::fprintf(fp, "audioWindowHeight = %d\n",  s_audioWindow.height);
-    s_audioWindowLastSaved = s_audioWindow;
 #ifdef ENABLE_M5_INDEXER
     std::fprintf(fp, "indexerVisible = %d\n",     indexerSettings.visible ? 1 : 0);
     std::fprintf(fp, "indexerMode = %d\n",        indexerSettings.mode);
@@ -419,6 +418,11 @@ static bool SaveSettings() {
                          " — .prf may be incomplete\n").c_str());
         return false;
     }
+    // Periodic-save baseline only updates on a confirmed-clean
+    // write.  If fclose failed above, leave s_audioWindowLastSaved
+    // untouched so AudioWindowChanged() returns true next tick and
+    // the periodic-save callback retries.
+    s_audioWindowLastSaved = s_audioWindow;
     return true;
 }
 
