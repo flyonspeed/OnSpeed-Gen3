@@ -799,6 +799,8 @@ void test_aircraft_glimit_legacy_normal_migrates(void)
                       static_cast<int>(st));
     TEST_ASSERT_FLOAT_WITHIN(1e-4f,  3.8f,  cfg.fAcGlimit);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.52f, cfg.fAcNegGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  3.8f,  cfg.fCustomAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.52f, cfg.fCustomAcNegGlimit);
 }
 
 // Old config with a positive that doesn't match any named preset
@@ -821,6 +823,8 @@ void test_aircraft_glimit_legacy_unmatched_pos_uses_default_neg(void)
                       static_cast<int>(st));
     TEST_ASSERT_FLOAT_WITHIN(1e-4f,  2.5f,   cfg.fAcGlimit);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.76f,  cfg.fAcNegGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  2.5f,   cfg.fCustomAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.76f,  cfg.fCustomAcNegGlimit);
 }
 
 // Round-trip the new Custom-storage fields independently of the
