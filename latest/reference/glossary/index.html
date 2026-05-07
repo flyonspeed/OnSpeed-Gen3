@@ -3271,6 +3271,10 @@
 <td>Angle of Attack — the angle between the wing chord line and the relative wind. Also referred to by the Greek letter alpha (α). Determines lift and proximity to stall. <strong>In OnSpeed firmware and config, the variable named <code>AOA</code> is body angle (fuselage-to-wind), not wing AOA — see Body Angle below.</strong></td>
 </tr>
 <tr>
+<td><strong>Attitude (display mode)</strong></td>
+<td>Indexer page (Mode 1) showing a synthetic horizon driven by OnSpeed's AHRS — pitch ladder, roll, magenta flight-path marker, slip ball, VSI tape, and IAS / PALT / G / percent-lift readouts. Used as a backup AI cross-check or for verifying IMU operation. Distinct from the <em>AHRS algorithm</em> itself.</td>
+</tr>
+<tr>
 <td><strong>alpha_0</strong> (<span class="arithmatex">\(\alpha_0\)</span>)</td>
 <td>Zero-lift body angle — the body angle (DerivedAOA) at which the wing produces zero lift. Typically <strong>negative</strong> because most aircraft have wing incidence: the fuselage points nose-down when the wing is at zero AOA. Varies with flap setting.</td>
 </tr>
@@ -3297,6 +3301,10 @@
 <tr>
 <td><strong>Critical AOA</strong></td>
 <td>The angle of attack at which the wing stalls. Essentially constant for a given flap configuration, regardless of gross weight or load factor. An airplane can stall at any airspeed and in any attitude, but critical AOA remains the same.</td>
+</tr>
+<tr>
+<td><strong>Decel Display</strong></td>
+<td>Indexer page showing instantaneous airspeed deceleration in knots per second on a vertical "energy tape" gauge. Mode 3 of five. Used for tuning approach energy and gauging flare authority.</td>
 </tr>
 <tr>
 <td><strong>DerivedAOA</strong></td>
@@ -3331,6 +3339,10 @@
 <td>Exponential Moving Average — a smoothing filter that weights recent samples more heavily</td>
 </tr>
 <tr>
+<td><strong>Energy Display</strong></td>
+<td>The default (Mode 0) indexer page. Combines the AOA indexer widget with IAS, vertical-G, flap position, slip ball, percent-lift number, and a G-onset rate tape. The page Vac calls the "energy management" view; what older code labelled "Primary" or "AOA + Numbers."</td>
+</tr>
+<tr>
 <td><strong>FlightPath</strong></td>
 <td>The angle between the aircraft's velocity vector and the horizontal. Computed as arcsin(VSI/TAS).</td>
 </tr>
@@ -3343,6 +3355,10 @@
 <td>Real-Time Operating System used by the ESP32 firmware for multitasking</td>
 </tr>
 <tr>
+<td><strong>Historic G</strong></td>
+<td>Indexer page showing a 60-second scrolling vertical-G strip chart. Mode 4 of five. Used during flight test to review G-load excursions after the fact (e.g., wind-up turns).</td>
+</tr>
+<tr>
 <td><strong>I2S</strong></td>
 <td>Inter-IC Sound — digital audio interface protocol used for the stereo audio output</td>
 </tr>
@@ -3353,6 +3369,10 @@
 <tr>
 <td><strong>IMU</strong></td>
 <td>Inertial Measurement Unit — a sensor package containing accelerometers and gyroscopes</td>
+</tr>
+<tr>
+<td><strong>Indexer</strong></td>
+<td>Three meanings, all in active use: (1) the chevron-and-donut <strong>AOA-display widget</strong> at the center of every indexer page (military terminology — what Vac calls the "AOA indexer"); (2) the <strong>page collection</strong> as a whole (the <code>/indexer</code> web route, the M5 firmware); (3) <strong>Mode 2</strong> specifically — the AOA-only page that shows the indexer widget without surrounding numeric readouts. Context disambiguates.</td>
 </tr>
 <tr>
 <td><strong>Instantaneous Turn</strong></td>

@@ -1165,10 +1165,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#primary-aoa-indexer-full-readouts" class="md-nav__link">
+  <a href="#energy-display-aoa-indexer-full-readouts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Primary — AOA indexer + full readouts
+        Energy Display — AOA indexer + full readouts
       
     </span>
   </a>
@@ -1176,10 +1176,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#attitude-backup-ai-with-aoa" class="md-nav__link">
+  <a href="#attitude-synthetic-horizon-with-aoa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Attitude — backup AI with AOA
+        Attitude — synthetic horizon with AOA
       
     </span>
   </a>
@@ -1187,10 +1187,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#indexer-only-panel-minimal" class="md-nav__link">
+  <a href="#indexer-panel-minimal" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Indexer-only — panel-minimal
+        Indexer — panel-minimal
       
     </span>
   </a>
@@ -1198,10 +1198,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#energy-deceleration-gauge" class="md-nav__link">
+  <a href="#decel-display-deceleration-gauge" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Energy — deceleration gauge
+        Decel Display — deceleration gauge
       
     </span>
   </a>
@@ -1209,10 +1209,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#g-history-scrolling-g-trace" class="md-nav__link">
+  <a href="#historic-g-scrolling-g-trace" class="md-nav__link">
     <span class="md-ellipsis">
       
-        G history — scrolling G trace
+        Historic G — scrolling G trace
       
     </span>
   </a>
@@ -3582,10 +3582,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#primary-aoa-indexer-full-readouts" class="md-nav__link">
+  <a href="#energy-display-aoa-indexer-full-readouts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Primary — AOA indexer + full readouts
+        Energy Display — AOA indexer + full readouts
       
     </span>
   </a>
@@ -3593,10 +3593,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#attitude-backup-ai-with-aoa" class="md-nav__link">
+  <a href="#attitude-synthetic-horizon-with-aoa" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Attitude — backup AI with AOA
+        Attitude — synthetic horizon with AOA
       
     </span>
   </a>
@@ -3604,10 +3604,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#indexer-only-panel-minimal" class="md-nav__link">
+  <a href="#indexer-panel-minimal" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Indexer-only — panel-minimal
+        Indexer — panel-minimal
       
     </span>
   </a>
@@ -3615,10 +3615,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#energy-deceleration-gauge" class="md-nav__link">
+  <a href="#decel-display-deceleration-gauge" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Energy — deceleration gauge
+        Decel Display — deceleration gauge
       
     </span>
   </a>
@@ -3626,10 +3626,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#g-history-scrolling-g-trace" class="md-nav__link">
+  <a href="#historic-g-scrolling-g-trace" class="md-nav__link">
     <span class="md-ellipsis">
       
-        G history — scrolling G trace
+        Historic G — scrolling G trace
       
     </span>
   </a>
@@ -3822,8 +3822,8 @@ firmware from a single codebase.</p>
 <p>The external display supplements OnSpeed's audio tones — it does not
 replace them. The primary interface is still aural; your eyes should
 stay outside during approach. The display is most useful for
-post-flight analysis (G-load history), initial familiarization with
-the tones, and as a backup attitude indicator.</p>
+post-flight analysis (the Historic G page), initial familiarization
+with the tones, and as a backup attitude indicator.</p>
 </div>
 <h2 id="try-it-in-your-browser">Try it in your browser<a class="headerlink" href="#try-it-in-your-browser" title="Permanent link">&para;</a></h2>
 <p>Here's the live display firmware running in your browser — same C++
@@ -3926,20 +3926,21 @@ The firmware uses M5Unified's unified <code>M5.BtnA/B/C</code> API, so behavior 
 identical on both units.</p>
 <p>Brightness is persisted to NVS on every adjust, so the M5 boots into the
 brightness it was on at last power-down. Display mode is not persisted —
-every boot starts on Mode 0 (Primary).</p>
+every boot starts on Mode 0 (Energy Display).</p>
 <p>If you hold <strong>Button B during boot</strong>, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.</p>
 <h2 id="display-modes">Display modes<a class="headerlink" href="#display-modes" title="Permanent link">&para;</a></h2>
 <p>The five modes are selected by pressing <strong>Button B</strong>, which cycles in
-order: <strong>Primary → Attitude → Indexer-only → Energy → G history →</strong>
-back to Primary. The M5 remembers the last-used mode across power
-cycles.</p>
+order: <strong>Energy Display → Attitude → Indexer → Decel Display →
+Historic G →</strong> back to Energy Display. The M5 boots into Energy
+Display (Mode 0) on every power cycle; only display brightness
+persists across power-down.</p>
 <p>To preview each mode, scroll back up to the in-browser simulator and
 press <kbd>↓</kbd> to step through them. The C++ source that runs the
 sim is the same source that runs on the real M5Stack hardware, so the
 layout you see in the browser is the layout you get on the panel.</p>
-<h3 id="primary-aoa-indexer-full-readouts">Primary — AOA indexer + full readouts<a class="headerlink" href="#primary-aoa-indexer-full-readouts" title="Permanent link">&para;</a></h3>
+<h3 id="energy-display-aoa-indexer-full-readouts">Energy Display — AOA indexer + full readouts<a class="headerlink" href="#energy-display-aoa-indexer-full-readouts" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 0 — the boot default.)</em></p>
 <p>The main flight display. A vertical AOA indexer widget occupies the
 center of the screen, with supporting readouts around the edges.</p>
@@ -4000,7 +4001,7 @@ not by exact percent.</p>
 <li>Bottom-center: the <strong>slip/skid ball</strong> (green when coordinated, red
   and flashing at high AOA with large slip).</li>
 </ul>
-<p>Primary mode does not show altitude — flip to Attitude mode (next) for
+<p>Energy Display does not show altitude — flip to Attitude mode (next) for
 a numeric pressure-altitude readout.</p>
 <p><strong>Right edge — G-onset rate tape.</strong> A thin yellow bar growing up
 (positive onset, G load increasing — pulling into a turn or
@@ -4012,7 +4013,7 @@ low-pass kernel (<code>GOnsetFilter</code> in <code>onspeed_core/filters/</code>
 Useful as a smoothness cue: a steady long pull-up shows a small
 bar; a sudden yank shows a tall bar that dies back as the rate
 stabilizes.</p>
-<h3 id="attitude-backup-ai-with-aoa">Attitude — backup AI with AOA<a class="headerlink" href="#attitude-backup-ai-with-aoa" title="Permanent link">&para;</a></h3>
+<h3 id="attitude-synthetic-horizon-with-aoa">Attitude — synthetic horizon with AOA<a class="headerlink" href="#attitude-synthetic-horizon-with-aoa" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 1.)</em></p>
 <p>Full-width backup artificial horizon driven by OnSpeed's AHRS.
 Sky/ground horizon with a pitch ladder (10° increments), roll
@@ -4033,7 +4034,7 @@ in the gentle-cruise band where small trends matter most.</p>
   only when the altimeter is set to 29.92.</li>
 <li>Bottom-left: current <strong>vertical G</strong> with a "G" label.</li>
 <li>Bottom-right: current <strong>percent lift</strong> (the same 0–99 envelope
-  fraction shown above the Primary indexer) with an "AOA" label.</li>
+  fraction shown above the Energy Display indexer) with an "AOA" label.</li>
 </ul>
 <p>Numeric pitch readout sits in a dark rounded rectangle behind the
 aircraft symbol at the center.</p>
@@ -4041,18 +4042,18 @@ aircraft symbol at the center.</p>
 replacement), or during instrument transitions where you want the
 OnSpeed-derived flight path marker overlaid on an independent
 attitude source.</p>
-<h3 id="indexer-only-panel-minimal">Indexer-only — panel-minimal<a class="headerlink" href="#indexer-only-panel-minimal" title="Permanent link">&para;</a></h3>
+<h3 id="indexer-panel-minimal">Indexer — panel-minimal<a class="headerlink" href="#indexer-panel-minimal" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 2.)</em></p>
-<p>The Primary mode's indexer widget (chevrons + donut + index bar),
+<p>The Energy Display's indexer widget (chevrons + donut + index bar),
 with all the numeric fields around it <strong>stripped away</strong>. Same stall
 warnings, same on-speed cues, same colors. The <strong>DataMark</strong> counter
 stays at the top-left so the pilot can confirm a press registered
 even on this minimal layout.</p>
 <p><strong>When to use:</strong> if you already have an EFIS or dedicated ASI/ALT
-display, the numeric readouts on Primary mode are redundant. This
+display, the numeric readouts on Energy Display are redundant. This
 mode keeps only the visual indexer — ideal for a narrow panel cutout
 beside the primary ASI.</p>
-<h3 id="energy-deceleration-gauge">Energy — deceleration gauge<a class="headerlink" href="#energy-deceleration-gauge" title="Permanent link">&para;</a></h3>
+<h3 id="decel-display-deceleration-gauge">Decel Display — deceleration gauge<a class="headerlink" href="#decel-display-deceleration-gauge" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 3.)</em></p>
 <p>A vertical "energy tape" gauge in the center showing instantaneous
 airspeed deceleration in <strong>knots per second</strong>. A green band marks the
@@ -4066,7 +4067,7 @@ scale as Mode 1); a slip ball sits at the bottom.</p>
 approach shows small steady decel (tape near the green band); rapid
 swings indicate you're pumping the stick or fighting turbulence.
 Also useful for gauging flare authority right at touchdown.</p>
-<h3 id="g-history-scrolling-g-trace">G history — scrolling G trace<a class="headerlink" href="#g-history-scrolling-g-trace" title="Permanent link">&para;</a></h3>
+<h3 id="historic-g-scrolling-g-trace">Historic G — scrolling G trace<a class="headerlink" href="#historic-g-scrolling-g-trace" title="Permanent link">&para;</a></h3>
 <p><em>(Mode 4.)</em></p>
 <p>A scrolling graph of vertical G over approximately the last 60
 seconds. Horizontal reference lines mark each integer G (grey for
@@ -4279,7 +4280,7 @@ for the hardware shopping list, wiring diagram, and protocol details.</p>
 <p>Mount the display where it's visible during approach without blocking
 your view of primary instruments. Common locations:</p>
 <ul>
-<li>Panel cutout (flush-mount, Mode 2 narrow layout is designed for this)</li>
+<li>Panel cutout (flush-mount, Indexer mode's narrow layout is designed for this)</li>
 <li>Glareshield mount on a RAM-style ball joint</li>
 <li>Side console near the throttle quadrant</li>
 </ul>

@@ -2616,15 +2616,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mode-0-aoa-numbers-primary" class="md-nav__link">
+  <a href="#energy-display" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 0 — AOA + Numbers (Primary)
+        Energy Display
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Mode 0 — AOA + Numbers (Primary)">
+    <nav class="md-nav" aria-label="Energy Display">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2644,15 +2644,15 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-1-attitude" class="md-nav__link">
+  <a href="#attitude" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 1 — Attitude
+        Attitude
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Mode 1 — Attitude">
+    <nav class="md-nav" aria-label="Attitude">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2672,10 +2672,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-2-narrow-aoa" class="md-nav__link">
+  <a href="#indexer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 2 — Narrow AOA
+        Indexer
       
     </span>
   </a>
@@ -2683,10 +2683,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-3-decel" class="md-nav__link">
+  <a href="#decel-display" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 3 — Decel
+        Decel Display
       
     </span>
   </a>
@@ -2694,10 +2694,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-4-g-history" class="md-nav__link">
+  <a href="#historic-g" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 4 — G History
+        Historic G
       
     </span>
   </a>
@@ -3549,15 +3549,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mode-0-aoa-numbers-primary" class="md-nav__link">
+  <a href="#energy-display" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 0 — AOA + Numbers (Primary)
+        Energy Display
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Mode 0 — AOA + Numbers (Primary)">
+    <nav class="md-nav" aria-label="Energy Display">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3577,15 +3577,15 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-1-attitude" class="md-nav__link">
+  <a href="#attitude" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 1 — Attitude
+        Attitude
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Mode 1 — Attitude">
+    <nav class="md-nav" aria-label="Attitude">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -3605,10 +3605,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-2-narrow-aoa" class="md-nav__link">
+  <a href="#indexer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 2 — Narrow AOA
+        Indexer
       
     </span>
   </a>
@@ -3616,10 +3616,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-3-decel" class="md-nav__link">
+  <a href="#decel-display" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 3 — Decel
+        Decel Display
       
     </span>
   </a>
@@ -3627,10 +3627,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#mode-4-g-history" class="md-nav__link">
+  <a href="#historic-g" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Mode 4 — G History
+        Historic G
       
     </span>
   </a>
@@ -3751,7 +3751,8 @@ position, so:</p>
 each mode (what every readout means, when to use it), see the
 <a href="../../installation/external-display/#display-modes">external display modes section</a>
 — the plugin runs the same C++ source.</p>
-<h3 id="mode-0-aoa-numbers-primary">Mode 0 — AOA + Numbers (Primary)<a class="headerlink" href="#mode-0-aoa-numbers-primary" title="Permanent link">&para;</a></h3>
+<h3 id="energy-display">Energy Display<a class="headerlink" href="#energy-display" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 0 — the boot default.)</em></p>
 <p>The default after first show. Vertical AOA indexer in the center,
 flanked by IAS, vertical-G, flap-position icon, percent-lift number,
 slip ball, and a G-onset rate tape on the right edge.</p>
@@ -3777,7 +3778,8 @@ filter the firmware feeds the wire from <code>AHRS::Update</code>.</p>
 <p>Useful as an "am I loading the airframe smoothly?" cue: a steady
 long pull-up shows a small bar; a sudden yank shows a tall bar
 that dies back as the rate stabilizes.</p>
-<h3 id="mode-1-attitude">Mode 1 — Attitude<a class="headerlink" href="#mode-1-attitude" title="Permanent link">&para;</a></h3>
+<h3 id="attitude">Attitude<a class="headerlink" href="#attitude" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 1.)</em></p>
 <p>Backup artificial horizon driven by X-Plane's pitch and roll. Pitch
 ladder, magenta flight-path marker (concentric rings + perpendicular
 wing bars), slip/skid ball at the bottom, white VSI tape on the
@@ -3793,15 +3795,18 @@ trends matter most — for larger excursions read the IAS / FPA
 numerics in the corners. The center pip and 20-pixel ladder ticks
 give a visual reference; the bar drops to the ladder color (zero)
 in level flight.</p>
-<h3 id="mode-2-narrow-aoa">Mode 2 — Narrow AOA<a class="headerlink" href="#mode-2-narrow-aoa" title="Permanent link">&para;</a></h3>
-<p>Mode 0's indexer widget with all the numeric fields stripped away.
-Same chevrons, donut, and index bar; nothing else.</p>
-<h3 id="mode-3-decel">Mode 3 — Decel<a class="headerlink" href="#mode-3-decel" title="Permanent link">&para;</a></h3>
+<h3 id="indexer">Indexer<a class="headerlink" href="#indexer" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 2.)</em></p>
+<p>The Energy Display's indexer widget with all the numeric fields
+stripped away. Same chevrons, donut, and index bar; nothing else.</p>
+<h3 id="decel-display">Decel Display<a class="headerlink" href="#decel-display" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 3.)</em></p>
 <p>Vertical "energy tape" gauge showing instantaneous airspeed
 deceleration in knots per second. Green band marks the stable-energy
 zone; red bands above and below flag rapid acceleration or
 deceleration. Useful for tuning approach energy.</p>
-<h3 id="mode-4-g-history">Mode 4 — G History<a class="headerlink" href="#mode-4-g-history" title="Permanent link">&para;</a></h3>
+<h3 id="historic-g">Historic G<a class="headerlink" href="#historic-g" title="Permanent link">&para;</a></h3>
+<p><em>(Mode 4.)</em></p>
 <p>Rolling 1-minute strip-chart of vertical G (the on-screen header
 reads <code>G-LOAD [1 min]</code>). Useful for spotting how hard you pulled in
 a maneuver after the fact.</p>
