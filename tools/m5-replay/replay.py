@@ -108,11 +108,19 @@ def csv_frame_stream(
         def row_to_frame(r: dict[str, str]) -> Frame:
             flap = _int_or(r.get("flapsPos"), 0)
             fs = setpoints_for_flap(flap, setpoints)
-            aoa = _float_or(r.get("AngleofAttack"), 0.0)
+            # IAS / AngleofAttack are gated by the format-3 air-data
+            # convention: an empty cell means "no valid air data" and
+            # propagates as NaN through compute_percent_lift.  Frame.to_bytes
+            # clamps NaN to 0 at the wire boundary, which is the wire's
+            # native "no data" sentinel for IAS and percent-lift.  Other
+            # columns keep the strict default-on-empty behavior so a
+            # truncated SD write still surfaces as a missing field rather
+            # than a NaN payload that would silently zero the wire frame.
+            aoa = _float_or_nan_for_air_data(r.get("AngleofAttack"))
             return Frame(
                 pitch_deg=_float_or(r.get("Pitch"), 0.0),
                 roll_deg=_float_or(r.get("Roll"), 0.0),
-                ias_kts=_float_or(r.get("IAS"), 0.0),
+                ias_kts=_float_or_nan_for_air_data(r.get("IAS")),
                 palt_ft=_float_or(r.get("Palt"), 0.0),
                 turnrate_dps=_float_or(r.get("YawRate"), 0.0),
                 # Log, wire, and snapshot all use body-frame at v4.23
@@ -174,6 +182,30 @@ def _float_or(s: Optional[str], default: float) -> float:
     if not math.isfinite(v):
         return default
     return v
+
+
+def _float_or_nan_for_air_data(s: Optional[str]) -> float:
+    """Permissive variant for the format-3 gated air-data columns.
+
+    Empty cell (`",,"`) means "no valid air data" — yields NaN so
+    `compute_percent_lift` and the orchestrator see the gap explicitly.
+    The Frame builder's `_clamp_int` / `_clamp_uint` helpers detect NaN
+    via `math.isfinite` and emit the wire's native zero sentinel for
+    IAS and percent-lift fields.
+
+    A missing key (column absent from the header entirely) still
+    returns 0.0 — that's an old-format log that never carried this
+    column, not a producer-gated empty cell.  Keeping the two cases
+    separate preserves the strict behavior for non-gated columns.
+    """
+    if s is None:
+        return 0.0
+    if s == "":
+        return math.nan
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
 
 
 def _int_or(s: Optional[str], default: int) -> int:

@@ -30,7 +30,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from replay import Frame, FlapSetpoints, FRAME_LEN, PAYLOAD_LEN, compute_percent_lift
+from replay import (
+    Frame, FlapSetpoints, FRAME_LEN, PAYLOAD_LEN,
+    _float_or, _float_or_nan_for_air_data, _int_or,
+    compute_percent_lift, csv_frame_stream,
+)
 
 HERE = Path(__file__).resolve().parent
 PARSE_BIN = HERE / ".pio" / "build" / "native" / "program"
@@ -308,6 +312,149 @@ def test_firmware_parser_rejects_bad_crc() -> None:
     assert b"parse_failed" in result.stdout, f"expected 'parse_failed', got: {result.stdout!r}"
 
 
+# ---------------------------------------------------------------------------
+# Format-3 CSV gated-column handling
+# ---------------------------------------------------------------------------
+
+
+def test_float_or_nan_for_air_data_empty_yields_nan() -> None:
+    """Empty cell on a gated air-data column → NaN, not 0.0."""
+    assert math.isnan(_float_or_nan_for_air_data(""))
+
+
+def test_float_or_nan_for_air_data_missing_key_yields_zero() -> None:
+    """A column missing from the header (old-format log that never
+    carried it) returns 0.0 — that's a different signal than a
+    producer-gated empty cell on a v3 row.
+    """
+    assert _float_or_nan_for_air_data(None) == 0.0
+
+
+def test_float_or_nan_for_air_data_numeric_unchanged() -> None:
+    """v2 (all-numeric) rows parse identically."""
+    assert _float_or_nan_for_air_data("73.1") == 73.1
+
+
+def test_float_or_strict_path_unaffected() -> None:
+    """Pin that the non-gated `_float_or` keeps its strict default-on-
+    empty contract.  Truncation detection on Palt / Pitch / VerticalG
+    must not regress.
+    """
+    assert _float_or("", 0.0) == 0.0
+    assert _float_or(None, 0.0) == 0.0
+    assert _float_or("3.14", 0.0) == 3.14
+
+
+def test_csv_frame_stream_v3_at_rest_does_not_emit_ias_zero() -> None:
+    """End-to-end replay of a v3-shaped CSV with empty IAS / AngleofAttack
+    cells.  The Frame ias_kts goes to 0 at the wire boundary (the wire's
+    own "no data" sentinel), but the percent-lift field also rides the
+    NaN→0 clamp instead of a fake "33% L/Dmax-flavored" reading from a
+    coerced AOA=0.
+
+    Pre-fix behavior: AOA=0 (silently coerced) → compute_percent_lift
+    returns ~18% on RV-10 clean (alpha_0=-2.5, span=13.5), which would
+    paint a "below L/Dmax" indicator on a parked airplane.  Post-fix:
+    NaN AOA → NaN percent-lift → wire encoder clamps to 0 → indicator
+    reads zero (the correct "no data" value for the wire).
+    """
+    csv_text = (
+        "timeStamp,Pitch,Roll,IAS,Palt,YawRate,LateralG,VerticalG,"
+        "AngleofAttack,VSI,OAT,FlightPath,flapsPos,DataMark\n"
+    )
+    for i in range(20):
+        ts = i * 50  # 20 Hz
+        # Empty IAS and AngleofAttack cells, everything else numeric.
+        csv_text += (
+            f"{ts},2.0,0.0,,2500,0.0,0.0,1.0,,0.0,15,0.0,0,0\n"
+        )
+
+    setpoints = {
+        0: FlapSetpoints(
+            degrees=0, pot_value=129,
+            alpha_0=-2.5, ldmax_aoa=2.0,
+            onspeed_fast_aoa=5.0, onspeed_slow_aoa=7.5,
+            stallwarn_aoa=9.5, alpha_stall=11.0,
+        )
+    }
+
+    import tempfile
+    from pathlib import Path
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+        f.write(csv_text)
+        log_path = Path(f.name)
+
+    try:
+        frames = list(csv_frame_stream(log_path, setpoints, skip_seconds=0.0))
+    finally:
+        log_path.unlink()
+
+    assert len(frames) > 0, "expected at least one frame"
+    for fr in frames:
+        # NaN propagates from the CSV all the way to the Frame fields.
+        # Frame.to_bytes() projects NaN to the wire's zero sentinel
+        # (per `_clamp_int` / `_clamp_uint` in onspeed_py.frame), but
+        # the Python-side Frame still carries NaN so callers that
+        # introspect frames before serialization see the gap.
+        assert math.isnan(fr.ias_kts), (
+            f"v3 at-rest: expected NaN ias_kts, got {fr.ias_kts}"
+        )
+        assert math.isnan(fr.percent_lift_pct), (
+            f"v3 at-rest: expected NaN percent_lift_pct (NaN AOA "
+            f"propagates through compute_percent_lift), got "
+            f"{fr.percent_lift_pct}"
+        )
+        # to_bytes() must still produce a valid wire frame — NaN gets
+        # clamped to the wire's zero sentinel (`%04d` → 0000 for IAS,
+        # `%03u` → 000 for percent_lift).  Pin both encodings.
+        wire = fr.to_bytes()
+        assert len(wire) == FRAME_LEN
+        s = wire[:PAYLOAD_LEN].decode("ascii")
+        assert s[11:15] == "0000", f"IAS field should be 0000 on NaN, got {s[11:15]!r}"
+        assert s[32:35] == "000", f"percent_lift field should be 000 on NaN, got {s[32:35]!r}"
+
+
+def test_csv_frame_stream_v2_in_flight_unchanged() -> None:
+    """v2-shaped CSV (all-numeric IAS/AOA) parses identically to before.
+    Pins back-compat: existing flight logs replay the same way.
+    """
+    csv_text = (
+        "timeStamp,Pitch,Roll,IAS,Palt,YawRate,LateralG,VerticalG,"
+        "AngleofAttack,VSI,OAT,FlightPath,flapsPos,DataMark\n"
+    )
+    for i in range(20):
+        ts = i * 50
+        csv_text += (
+            f"{ts},2.0,0.0,73.1,2500,0.0,0.0,1.0,8.0,0.0,15,0.0,0,0\n"
+        )
+
+    setpoints = {
+        0: FlapSetpoints(
+            degrees=0, pot_value=129,
+            alpha_0=-2.5, ldmax_aoa=2.0,
+            onspeed_fast_aoa=5.0, onspeed_slow_aoa=7.5,
+            stallwarn_aoa=9.5, alpha_stall=11.0,
+        )
+    }
+
+    import tempfile
+    from pathlib import Path
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+        f.write(csv_text)
+        log_path = Path(f.name)
+
+    try:
+        frames = list(csv_frame_stream(log_path, setpoints, skip_seconds=0.0))
+    finally:
+        log_path.unlink()
+
+    assert len(frames) > 0
+    for fr in frames:
+        assert fr.ias_kts == 73.1
+        # AOA=8.0 → (10.5 / 13.5) * 100 ≈ 77.78% on RV-10 clean.
+        assert 77.0 < fr.percent_lift_pct < 79.0
+
+
 def test_firmware_parser_rejects_old_94_byte_frame() -> None:
     """A frame at a non-current wire size must NOT decode against the
     current parser.  Catches the regression where a stale builder is
@@ -347,6 +494,13 @@ def main() -> int:
         test_compute_percent_lift_honest_formula,
         test_clamp_protects_against_out_of_range,
         test_nan_and_inf_dont_break,
+        # Format-3 CSV gated-column handling
+        test_float_or_nan_for_air_data_empty_yields_nan,
+        test_float_or_nan_for_air_data_missing_key_yields_zero,
+        test_float_or_nan_for_air_data_numeric_unchanged,
+        test_float_or_strict_path_unaffected,
+        test_csv_frame_stream_v3_at_rest_does_not_emit_ias_zero,
+        test_csv_frame_stream_v2_in_flight_unchanged,
         # Layer 2: firmware-parser interop
         test_firmware_parser_round_trip,
         test_firmware_parser_rejects_bad_crc,
