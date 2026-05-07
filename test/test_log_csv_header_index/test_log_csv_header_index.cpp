@@ -251,6 +251,32 @@ void test_build_index_vn300_without_est_alt_ft_still_enables(void)
     TEST_ASSERT_TRUE(idx.efisEnabled);
     TEST_ASSERT_TRUE(idx.efisIsVn300);
     TEST_ASSERT_EQUAL_INT(-1, idx.idxVnEstAltFt);
+
+    // End-to-end parse path: a v2 row (26 VN-300 fields, no altitude column)
+    // must parse without striding off-by-one, must leave row.vnEstAltFt at
+    // its default (0.0f), and must read row.vnGpsFix from the correct token.
+    static const char kRow[] =
+        "20000,110,1.60,210,2.60,1013.40,1500.0,92.0,3.80,5,0,12.0,94.5,"
+        "25.5,1.030,0.020,-0.040,4.000,-3.500,-1.000,2.500,-0.800,"
+        // VN-300 group, 26 fields (no vnEstAltFt):
+        "0.100,0.200,0.300,50.000,30.000,-1.500,0.050,0.010,1.020,"
+        "270.500,1.500,-2.000,0.040,0.005,0.010,0.500,0.300,0.400,"
+        "50.100,30.100,-1.400,37.123456,-122.456789,3,25,12:34:56,"
+        "1.030,1.500,300.0,1500.0,3.85,0.150";
+
+    onspeed::LogRow row{};
+    row.efisEnabled = idx.efisEnabled;
+    row.efisIsVn300 = idx.efisIsVn300;
+    TEST_ASSERT_TRUE(ParseRowByIndex(kRow, idx, row));
+
+    // The new column stayed at its default — TakeFloat is a no-op when idx<0.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, row.vnEstAltFt);
+    // Adjacent column read from the right token (no off-by-one stride).
+    TEST_ASSERT_EQUAL_INT(3, row.vnGpsFix);
+    // Sanity: another VN-300 field also reads correctly. vnGnssLat is double;
+    // Unity's float-precision assertions cast both sides to float, which is
+    // adequate for a no-stride-off-by-one check.
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 37.123456f, (float)row.vnGnssLat);
 }
 
 void test_parserowbyindex_vn300_est_alt_ft_at_noncanonical_position(void)

@@ -111,6 +111,7 @@ When EFIS type is `VN-300`:
 | `vnGnssVelNedDown` | m/s | GPS down velocity |
 | `vnGnssLat` | degrees | GPS latitude |
 | `vnGnssLon` | degrees | GPS longitude |
+| `vnEstAltFt` | feet | INS-estimated altitude from Common.Position (sensor-fused GPS+IMU) — filter on `vnGPSFix` |
 | `vnGPSFix` | enum | GPS fix quality |
 | `vnDataAge` | ms | Time since last VN-300 packet |
 | `vnTimeUTC` | HH:MM:SS.cc | UTC time from VN-300 |
