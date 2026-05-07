@@ -679,10 +679,17 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
   body = body.replaceAll('{{acBestGlideIAS}}', String(cfg.acBestGlideIAS));
   body = body.replaceAll('{{acVfe}}',          String(cfg.acVfe));
   body = body.replaceAll('{{acGlimit}}',       String(cfg.acGlimit));
-  const fVal = Number(cfg.acGlimit);
-  const isNormal    = fVal >= 3.795 && fVal <= 3.805;
-  const isUtility   = fVal >= 4.395 && fVal <= 4.405;
-  const isAerobatic = fVal >= 5.995 && fVal <= 6.005;
+  // Negative G is shown to the pilot as a positive magnitude; the
+  // mock JSON stores it negative to match firmware persistence.
+  body = body.replaceAll('{{acNegGlimit}}',    String(Math.abs(Number(cfg.acNegGlimit))));
+  // A named category is "active" only when both pos and neg sides
+  // match the preset's pair (mirrors HandleConfig's matches() lambda).
+  const fPos = Number(cfg.acGlimit);
+  const fNeg = Number(cfg.acNegGlimit);
+  const matches = (a, b) => Math.abs(a - b) <= 0.005;
+  const isNormal    = matches(fPos,  3.80) && matches(fNeg, -1.52);
+  const isUtility   = matches(fPos,  4.40) && matches(fNeg, -1.76);
+  const isAerobatic = matches(fPos,  6.00) && matches(fNeg, -3.00);
   const isPreset    = isNormal || isUtility || isAerobatic;
   body = body.replaceAll('{{glimitNormalChecked}}',    checkedAttr(isNormal));
   body = body.replaceAll('{{glimitUtilityChecked}}',   checkedAttr(isUtility));

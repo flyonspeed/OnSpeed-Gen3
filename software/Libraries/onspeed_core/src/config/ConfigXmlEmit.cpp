@@ -178,6 +178,7 @@ std::string EmitXml(const OnSpeedConfig& cfg)
     AddFloat(ac, "BEST_GLIDE_IAS",  cfg.fAcBestGlideIAS);
     AddFloat(ac, "VFE",             cfg.fAcVfe);
     AddFloat(ac, "G_LIMIT",         cfg.fAcGlimit);
+    AddFloat(ac, "NEG_G_LIMIT",     cfg.fAcNegGlimit);
 
     XMLPrinter printer;
     doc.Print(&printer);

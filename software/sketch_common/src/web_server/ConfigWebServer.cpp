@@ -792,12 +792,20 @@ void HandleConfig()
     sBody.replace("{{acBestGlideIAS}}", String(g_Config.fAcBestGlideIAS));
     sBody.replace("{{acVfe}}",          String(g_Config.fAcVfe));
     sBody.replace("{{acGlimit}}",       String(g_Config.fAcGlimit));
+    // Negative G is shown to the pilot as a positive magnitude.
+    sBody.replace("{{acNegGlimit}}",    String(fabsf(g_Config.fAcNegGlimit)));
 
     {
-    float fVal = g_Config.fAcGlimit;
-    bool bIsNormal    = (fVal >= 3.795f && fVal <= 3.805f);
-    bool bIsUtility   = (fVal >= 4.395f && fVal <= 4.405f);
-    bool bIsAerobatic = (fVal >= 5.995f && fVal <= 6.005f);
+    // A named category is "active" only when both the positive and the
+    // negative limit match the preset's pair.  Either side off-preset
+    // -> Custom.  Tolerance ±0.005 G matches the pre-existing positive
+    // check, well below the input field's two-decimal precision.
+    float fPos = g_Config.fAcGlimit;
+    float fNeg = g_Config.fAcNegGlimit;
+    auto matches = [](float a, float b) { return fabsf(a - b) <= 0.005f; };
+    bool bIsNormal    = matches(fPos,  3.80f) && matches(fNeg, -1.52f);
+    bool bIsUtility   = matches(fPos,  4.40f) && matches(fNeg, -1.76f);
+    bool bIsAerobatic = matches(fPos,  6.00f) && matches(fNeg, -3.00f);
     bool bIsPreset    = bIsNormal || bIsUtility || bIsAerobatic;
     sBody.replace("{{glimitNormalChecked}}",    String(bIsNormal    ? " checked" : ""));
     sBody.replace("{{glimitUtilityChecked}}",   String(bIsUtility   ? " checked" : ""));
@@ -1071,7 +1079,20 @@ void HandleConfigSave()
     if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();
     if (CfgServer.hasArg("acBestGlideIAS")) g_Config.fAcBestGlideIAS =CfgServer.arg("acBestGlideIAS").toFloat();
     if (CfgServer.hasArg("acVfe"))          g_Config.fAcVfe          =CfgServer.arg("acVfe").toFloat();
-    if (CfgServer.hasArg("acGlimit"))       g_Config.fAcGlimit      =CfgServer.arg("acGlimit").toFloat();
+    // acGlimit (positive) and acNegGlimit (negative magnitude as typed
+    // by the pilot, stored negative).  Both validated against sane
+    // structural-category bounds; on out-of-range input, silently keep
+    // the prior value — same convention as asymmetricReduction above.
+    if (CfgServer.hasArg("acGlimit"))
+        {
+        float f = fabsf(CfgServer.arg("acGlimit").toFloat());
+        if (f > 0.0f && f <= 10.0f) g_Config.fAcGlimit = f;
+        }
+    if (CfgServer.hasArg("acNegGlimit"))
+        {
+        float f = fabsf(CfgServer.arg("acNegGlimit").toFloat());
+        if (f > 0.0f && f <= 5.0f) g_Config.fAcNegGlimit = -f;
+        }
 
     // Handle Add Flap
     if (CfgServer.hasArg("addFlapPos"))

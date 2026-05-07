@@ -80,5 +80,6 @@
   "acGrossWeight": 2700,
   "acBestGlideIAS": 87.5,
   "acVfe": 96.0,
-  "acGlimit": 4.4
+  "acGlimit": 4.4,
+  "acNegGlimit": -1.76
 }

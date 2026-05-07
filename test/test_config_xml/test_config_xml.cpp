@@ -302,6 +302,7 @@ static bool ConfigsEqual(const OnSpeedConfig& a, const OnSpeedConfig& b)
     if (std::fabs(a.fAcBestGlideIAS - b.fAcBestGlideIAS) > 1e-5f) return false;
     if (std::fabs(a.fAcVfe          - b.fAcVfe)          > 1e-5f) return false;
     if (std::fabs(a.fAcGlimit       - b.fAcGlimit)       > 1e-5f) return false;
+    if (std::fabs(a.fAcNegGlimit    - b.fAcNegGlimit)    > 1e-5f) return false;
 
     return true;
 }
@@ -690,7 +691,8 @@ void test_aircraft_block_roundtrip(void)
     a.iAcGrossWeight  = 2750;
     a.fAcBestGlideIAS = 87.5f;
     a.fAcVfe          = 100.0f;
-    a.fAcGlimit       = 3.8f;
+    a.fAcGlimit       =  3.8f;
+    a.fAcNegGlimit    = -1.52f;
 
     std::string xml = EmitXml(a);
     OnSpeedConfig b;
@@ -700,7 +702,51 @@ void test_aircraft_block_roundtrip(void)
     TEST_ASSERT_EQUAL_INT(2750, b.iAcGrossWeight);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 87.5f,  b.fAcBestGlideIAS);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 100.0f, b.fAcVfe);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.8f,   b.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  3.80f, b.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.52f, b.fAcNegGlimit);
+}
+
+// Custom-mode pos/neg pair that does not match any named category.
+// Round-trips both fields with their actual stored sign convention
+// (negative G stored as a negative float).
+void test_aircraft_custom_glimit_roundtrip(void)
+{
+    OnSpeedConfig a;
+    a.fAcGlimit    =  5.5f;
+    a.fAcNegGlimit = -2.5f;
+
+    std::string xml = EmitXml(a);
+    OnSpeedConfig b;
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(ParseXml(xml, b)));
+
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  5.5f, b.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -2.5f, b.fAcNegGlimit);
+}
+
+// Old configs (written before the Custom-mode pos/neg split) lack the
+// <NEG_G_LIMIT> element.  Parsing must succeed and leave fAcNegGlimit
+// at the LoadDefaults seed (-1.76 G, the Utility negative side) so the
+// UI opens at a labeled category until the pilot edits and re-saves.
+void test_aircraft_glimit_legacy_no_neg_field(void)
+{
+    const char* kLegacyXml =
+        "<?xml version=\"1.0\"?>\n"
+        "<CONFIG2>\n"
+        "  <AIRCRAFT>\n"
+        "    <GROSS_WEIGHT>2700</GROSS_WEIGHT>\n"
+        "    <BEST_GLIDE_IAS>87.5</BEST_GLIDE_IAS>\n"
+        "    <VFE>96.0</VFE>\n"
+        "    <G_LIMIT>4.4</G_LIMIT>\n"
+        "  </AIRCRAFT>\n"
+        "</CONFIG2>\n";
+
+    OnSpeedConfig cfg;  // ctor calls LoadDefaults -> fAcNegGlimit = -1.76f
+    XmlParseStatus st = ParseXml(kLegacyXml, cfg);
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(st));
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  4.4f,  cfg.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.76f, cfg.fAcNegGlimit);
 }
 
 void test_vno_block_roundtrip(void)
@@ -926,6 +972,8 @@ int main(int argc, char** argv)
     RUN_TEST(test_cas_curve_roundtrip);
     RUN_TEST(test_bias_block_roundtrip);
     RUN_TEST(test_aircraft_block_roundtrip);
+    RUN_TEST(test_aircraft_custom_glimit_roundtrip);
+    RUN_TEST(test_aircraft_glimit_legacy_no_neg_field);
     RUN_TEST(test_vno_block_roundtrip);
     RUN_TEST(test_load_limit_asymmetric_roundtrip);
     RUN_TEST(test_single_flap_entry_roundtrip);

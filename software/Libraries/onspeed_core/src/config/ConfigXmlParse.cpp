@@ -309,6 +309,12 @@ XmlParseStatus ParseXml(std::string_view xml, OnSpeedConfig& cfg)
         GetFloat(pAc, "BEST_GLIDE_IAS", cfg.fAcBestGlideIAS);
         GetFloat(pAc, "VFE",            cfg.fAcVfe);
         GetFloat(pAc, "G_LIMIT",        cfg.fAcGlimit);
+        // <NEG_G_LIMIT> absent on configs written before the Custom-mode
+        // pos/neg split landed.  Leaving cfg.fAcNegGlimit untouched
+        // preserves the LoadDefaults seed (-1.76 G, the Utility negative
+        // side) so an old config opens as a labeled category until the
+        // pilot edits and re-saves.
+        GetFloat(pAc, "NEG_G_LIMIT",    cfg.fAcNegGlimit);
     }
 
     if (tooManyFlaps)
