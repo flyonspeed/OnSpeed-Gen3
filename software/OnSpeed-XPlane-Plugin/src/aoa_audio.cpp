@@ -228,6 +228,7 @@ XPLMDataRef crashedDataRef   = nullptr;     // sim/flightmodel2/misc/has_crashed
 // because X-Plane restores the .acf-defined value on aircraft load.
 XPLMDataRef acfHasStallwarnDataRef = nullptr;
 XPLMDataRef acfVsDataRef     = nullptr;     // sim/aircraft/view/acf_Vs (float, KIAS)
+XPLMDataRef onGroundAnyDataRef = nullptr;   // sim/flightmodel/failures/onground_any (int, 1 = any gear touching)
 
 // Auto-setpoint datarefs.  acf_max_aoa_no_flap and
 // acf_max_aoa_full_flap are X-Plane's modeled wing AOA at stall (deg);
@@ -2675,7 +2676,28 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
         XPLMSetDatai(acfHasStallwarnDataRef, 0);
     }
 
-    float aoa = XPLMGetDataf(aoaDataRef);
+    // On the ground above the IAS-mute floor with a known Vs, drive
+    // the audio path off the V² formula (same source the indicator
+    // uses) instead of X-Plane's raw alpha dataref.  Reason: weight
+    // on the gear pins X-Plane's geometric alpha well below the AOA
+    // setpoints, so comparing raw alpha against fLDMAXAOA / etc.
+    // never fires a tone during the takeoff roll — even though the
+    // wing is at max effort and the indicator is correctly pegged at
+    // ~99%.  MaybeSynthesizeAoaFromVSquared returns NaN unless the
+    // V² regime is active; otherwise we use the raw alpha dataref
+    // exactly as in flight.  See PercentLiftFill.cpp's docstring for
+    // the full design.
+    const float fIas      = XPLMGetDataf(iasDataRef);
+    const bool  iasValid  = (iMuteAudioUnderIAS == 0)
+                            || (fIas >= iMuteAudioUnderIAS);
+    const bool  onGround  = onGroundAnyDataRef
+                            && XPLMGetDatai(onGroundAnyDataRef) != 0;
+    const float synthAoa  = onspeed_xplane::indexer::
+                            MaybeSynthesizeAoaFromVSquared(
+                                fIas, iasValid, onGround);
+    const float aoa = std::isfinite(synthAoa)
+                        ? synthAoa
+                        : XPLMGetDataf(aoaDataRef);
     PlayAOATone(aoa, inElapsedSinceLastCall);
 
 #ifdef ENABLE_M5_INDEXER
@@ -2864,6 +2886,13 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // from-acf path stays a no-op and the pilot sets it via the
     // audio control window.
     acfVsDataRef = XPLMFindDataRef("sim/aircraft/view/acf_Vs");
+
+    // sim/flightmodel/failures/onground_any — int, true while any
+    // landing gear is touching.  Used to gate the V² audio synthesis
+    // (audio path drives tones from V²-synthesized AOA on the ground
+    // so cues match the indicator instead of comparing raw alpha
+    // against thresholds).  See MaybeSynthesizeAoaFromVSquared.
+    onGroundAnyDataRef = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
 
     // Auto-setpoint datarefs (issue #392).  Optional: if any are
     // missing, auto-mode silently leaves the f*AOA globals at their

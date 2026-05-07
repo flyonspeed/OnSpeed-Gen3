@@ -118,6 +118,53 @@ static float ComputeIasPercentLift(float liveIasKt,
     return pct;
 }
 
+// Synthesize a wing-AOA value the audio path can compare against the
+// f*AOA thresholds, derived from the V² percent rather than X-Plane's
+// `sim/flightmodel/position/alpha`.
+//
+// Why: on the ground at IAS=50 with weight on the gear, X-Plane's
+// `alpha` reports the geometric wing-to-relative-wind angle, which is
+// well below stall (typically 4-7 degrees for a tail-low rolling
+// attitude).  The indicator's V² formula correctly reads ~99% (wing
+// would be at max effort if flying), but the audio path comparing
+// raw alpha against fLDMAXAOA reads "below LDmax" → no tone.  The
+// indicator and audio cues disagree.
+//
+// Fix: when the V² path is active for the indicator (onGround &&
+// iasValid && iVs1G > 0), drive the audio path off the same V²
+// percent.  Convert percent back to a wing-AOA value via the inverse
+// of ComputePercentLift's formula:
+//
+//   pct = (alpha - alpha_0) / (alpha_stall - alpha_0) * 100
+//   alpha = alpha_0 + (pct/100) * (alpha_stall - alpha_0)
+//
+// where alpha_0 / alpha_stall are MakeFlapCfg's synthetic anchors (the
+// same ones FillPercentLift uses).  Feed the synthesized AOA to
+// PlayAOATone, which compares against fLDMAXAOA / fONSPEEDFAST /
+// fONSPEEDSLOW / fSTALLWARN — and now produces tones consistent with
+// what the indicator shows.
+//
+// Returns NaN when V² mode is not active for any reason — caller
+// falls back to the raw alpha dataref reading.
+float MaybeSynthesizeAoaFromVSquared(float liveIasKt,
+                                     bool  iasValid,
+                                     bool  onGround)
+{
+    if (!(onGround && iasValid)) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    const auto flap = MakeFlapCfg();
+    const float stallWarnPct = onspeed::aoa::ComputePercentLift(
+        fSTALLWARNAOA, flap, true);
+    const float pct = ComputeIasPercentLift(liveIasKt, stallWarnPct);
+    if (!std::isfinite(pct)) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    const float alpha0     = kAlpha0Approx;
+    const float alphaStall = AlphaStallApprox();
+    return alpha0 + (pct / 100.0f) * (alphaStall - alpha0);
+}
+
 void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
                      float liveAoaDeg,
                      float liveIasKt,
