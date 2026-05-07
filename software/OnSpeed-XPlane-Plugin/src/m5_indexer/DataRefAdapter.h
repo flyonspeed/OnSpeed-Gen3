@@ -138,3 +138,11 @@ constexpr int kOnGroundHoldFrames = 5;
 bool DebounceOnGround(bool rawOnGround, OnGroundDebounceState& state);
 
 }  // namespace onspeed_xplane::indexer
+
+// Shared debounced onground_any value.  Defined in aoa_audio.cpp;
+// CheckAOAAndPlayTone (audio path) writes it once per flight-loop
+// tick after running the raw onground_any reading through
+// DebounceOnGround.  BuildInputsFromDatarefs reads it so the audio
+// path's V² regime and the indexer's V² regime can never disagree
+// on a single-tick flicker — both consume the same debounced value.
+extern bool g_DebouncedOnGround;

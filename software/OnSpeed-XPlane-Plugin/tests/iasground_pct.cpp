@@ -349,6 +349,99 @@ int main()
               "alternating raw on-ground does not perturb percent (debounce holds it)");
     }
 
+    // --------------------------------------------------------------
+    // 10. MaybeSynthesizeAoaFromVSquared — direct test of the audio
+    //     path's V² → AOA inversion.  CheckAOAAndPlayTone feeds the
+    //     returned AOA to PlayAOATone, which compares against the
+    //     fLDMAXAOA / fONSPEEDFAST / fONSPEEDSLOW / fSTALLWARN
+    //     thresholds.  Pin the contract so a future change to the
+    //     forward formula in MakeFlapCfg doesn't silently desync the
+    //     audio path's inversion from the indicator's forward path.
+    // --------------------------------------------------------------
+    using onspeed_xplane::indexer::MaybeSynthesizeAoaFromVSquared;
+
+    // Off the ground: V² regime not active, returns NaN so the
+    // caller falls back to raw alpha.
+    {
+        const float r = MaybeSynthesizeAoaFromVSquared(
+                            /*liveIasKt=*/70.0f,
+                            /*iasValid=*/ true,
+                            /*onGround=*/ false);
+        check(std::isnan(r), "off-ground returns NaN (fall back to raw alpha)");
+    }
+
+    // On the ground but iasValid=false (below mute floor): NaN.
+    {
+        const float r = MaybeSynthesizeAoaFromVSquared(
+                            /*liveIasKt=*/10.0f,
+                            /*iasValid=*/ false,
+                            /*onGround=*/ true);
+        check(std::isnan(r), "iasValid=false on the ground returns NaN");
+    }
+
+    // V² active at V == Vs: synthesized AOA must round-trip back
+    // through ComputePercentLift to the same StallWarn percent.
+    // This is the alignment property that keeps audio cues at the
+    // same band boundaries the indicator shows.
+    {
+        const float r = MaybeSynthesizeAoaFromVSquared(
+                            /*liveIasKt=*/60.0f,   // V == Vs
+                            /*iasValid=*/ true,
+                            /*onGround=*/ true);
+        check(std::isfinite(r), "V²-active V==Vs returns finite AOA");
+        check(r > 0.0f && r < fALPHASTALL,
+              "V²-active V==Vs returns AOA in (0, alpha_stall)");
+        // Returned AOA at V=Vs should sit at fSTALLWARNAOA exactly
+        // (or within float-rounding of it).  This is the alignment
+        // anchor: the inversion uses the same MakeFlapCfg the
+        // forward path does.
+        check(nearly(r, fSTALLWARNAOA, 0.5f),
+              "V==Vs synthesized AOA lands near fSTALLWARNAOA");
+    }
+
+    // V > Vs (post-rotation regime): synthesized AOA drops below
+    // fSTALLWARNAOA, into the OnSpeed band.
+    {
+        const float r = MaybeSynthesizeAoaFromVSquared(
+                            /*liveIasKt=*/80.0f,   // 1.33·Vs
+                            /*iasValid=*/ true,
+                            /*onGround=*/ true);
+        check(std::isfinite(r), "V²-active V>Vs returns finite AOA");
+        check(r < fSTALLWARNAOA,
+              "V>Vs synthesized AOA drops below StallWarn");
+        check(r > fLDMAXAOA,
+              "V=80 (1.33·Vs) synthesized AOA stays above LDmax");
+    }
+
+    // V << Vs (early takeoff roll, well below stall speed): V²
+    // saturates near max, synthesized AOA pegs near fALPHASTALL.
+    // This is the takeoff-roll case the audio synthesis was added
+    // to fix — silent before, audible "near stall" tones now.
+    {
+        const float r = MaybeSynthesizeAoaFromVSquared(
+                            /*liveIasKt=*/30.0f,   // 0.5·Vs, well below
+                            /*iasValid=*/ true,
+                            /*onGround=*/ true);
+        check(std::isfinite(r), "V²-active V<<Vs returns finite AOA");
+        check(r > fSTALLWARNAOA,
+              "V<<Vs synthesized AOA exceeds StallWarn (saturated)");
+    }
+
+    // iVs1G == 0 (no Vs known): V² formula declines, returns NaN
+    // so the audio path falls back to raw alpha.  Same fallback as
+    // the indicator's FillPercentLift uses.
+    {
+        const int savedVs = iVs1G;
+        iVs1G = 0;
+        const float r = MaybeSynthesizeAoaFromVSquared(
+                            /*liveIasKt=*/60.0f,
+                            /*iasValid=*/ true,
+                            /*onGround=*/ true);
+        check(std::isnan(r),
+              "iVs1G==0 on-ground returns NaN (alpha-path fallback)");
+        iVs1G = savedVs;
+    }
+
     if (failures == 0) {
         std::printf("OK: iasground_pct (all invariants hold)\n");
         return EXIT_SUCCESS;

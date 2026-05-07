@@ -133,6 +133,17 @@ float fSTALLWARNAOA   = 12.5f;
 // acf_stall_warn_alpha / 0.92 in SeedSetpointsFromDatarefs.
 float fALPHASTALL    = 13.6f;   // 12.5 / 0.92, matches the canonical fraction
 
+// Shared debounced onground_any value.  Written by CheckAOAAndPlayTone
+// (audio path) once per flight-loop tick after running the raw
+// onground_any reading through DebounceOnGround.  Read by the
+// indexer's BuildInputsFromDatarefs so audio and indicator can never
+// disagree on whether we're in the V² (on-ground) regime — a single-
+// frame raw flicker is absorbed once for both consumers instead of
+// each running its own debouncer.  False at static init so the very
+// first flight-loop tick starts in the safe "in flight, use alpha"
+// regime; the next tick latches the actual ground state.
+bool g_DebouncedOnGround = false;
+
 // USB-serial output to a physical M5Stack.  Empty string = disabled.
 // On macOS path looks like "/dev/cu.usbmodem11201", on Linux
 // "/dev/ttyACM0", on Windows "COM5".  Persisted per-aircraft in the
@@ -550,6 +561,16 @@ static bool LoadSettings() {
         return false;
     }
 
+    // Track whether the .prf carried an explicit fALPHASTALL key.  Old
+    // .prf files (pre-#445) don't have it; loading those would leave
+    // fALPHASTALL at the compiled default (13.6) regardless of whatever
+    // fSTALLWARNAOA the pilot tuned.  If the pilot's fSTALLWARNAOA
+    // exceeds 13.6, the V² synthesis ends up with a non-positive
+    // (alphaStall - alpha0) span and produces garbage AOA.  After parse,
+    // re-derive fALPHASTALL = fSTALLWARNAOA / 0.92 when the key was
+    // missing — same canonical fraction the seed path uses.
+    bool sawAlphaStallKey = false;
+
     char line[256];
     while (std::fgets(line, sizeof(line), fp)) {
         char key[64];
@@ -562,7 +583,7 @@ static bool LoadSettings() {
         else if (!std::strcmp(key, "fONSPEEDFASTAOA"))    fONSPEEDFASTAOA    = std::atof(val);
         else if (!std::strcmp(key, "fONSPEEDSLOWAOA"))    fONSPEEDSLOWAOA    = std::atof(val);
         else if (!std::strcmp(key, "fSTALLWARNAOA"))      fSTALLWARNAOA      = std::atof(val);
-        else if (!std::strcmp(key, "fALPHASTALL"))        fALPHASTALL        = std::atof(val);
+        else if (!std::strcmp(key, "fALPHASTALL"))      { fALPHASTALL        = std::atof(val); sawAlphaStallKey = true; }
         // setpoint_mode / naoa_* keys (from the brief auto-mode
         // experiment) are silently ignored if present in an old .prf.
         else if (!std::strcmp(key, "iMuteAudioUnderIAS")) iMuteAudioUnderIAS = std::atoi(val);
@@ -602,6 +623,21 @@ static bool LoadSettings() {
         }
     }
     std::fclose(fp);
+
+    // Old-.prf forward-compat: when fALPHASTALL was absent from the
+    // file (pre-#445 .prfs), re-derive it from the loaded fSTALLWARNAOA
+    // using the canonical NAOA stallWarn fraction (0.92).  Without this,
+    // a hand-tuned fSTALLWARNAOA above the compiled default of 13.6
+    // would silently violate StallWarn < alpha_stall and corrupt the
+    // V² synthesis until the pilot's next Save (which the validator
+    // would catch).  Doing it here means the first flight-loop tick
+    // after load already has a coherent (alphaStall - alpha0) span.
+    if (!sawAlphaStallKey) {
+        fALPHASTALL = fSTALLWARNAOA /
+                      onspeed_xplane::indexer::kCanonicalNaoa.stallWarn;
+        XPLMDebugString("FlyOnSpeed: .prf had no fALPHASTALL key; "
+                        "re-derived from fSTALLWARNAOA / 0.92\n");
+    }
 
     s_settingsLoaded = true;
     // Always snap window height to the canonical value.  Past
@@ -2230,11 +2266,24 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
     // V² regime is active; otherwise we use the raw alpha dataref
     // exactly as in flight.  See PercentLiftFill.cpp's docstring for
     // the full design.
+    //
+    // Debounce against single-tick flicker (rough taxi, gear bounce on
+    // landing).  The debounced result is cached for the indexer to
+    // read via GetDebouncedOnGround so audio and indicator agree on
+    // the regime — without that, a one-frame raw-flicker would put
+    // the audio in V² mode while the indexer's debouncer still saw
+    // alpha mode (or vice versa).  Static state is safe because
+    // CheckAOAAndPlayTone runs on the X-Plane flight-loop thread.
+    static onspeed_xplane::indexer::OnGroundDebounceState
+        s_onGroundDebounce{};
     const float fIas      = XPLMGetDataf(iasDataRef);
     const bool  iasValid  = (iMuteAudioUnderIAS == 0)
                             || (fIas >= iMuteAudioUnderIAS);
-    const bool  onGround  = onGroundAnyDataRef
-                            && XPLMGetDatai(onGroundAnyDataRef) != 0;
+    const bool  rawOnGround = onGroundAnyDataRef
+                              && XPLMGetDatai(onGroundAnyDataRef) != 0;
+    const bool  onGround = onspeed_xplane::indexer::DebounceOnGround(
+                              rawOnGround, s_onGroundDebounce);
+    g_DebouncedOnGround = onGround;   // shared with the indexer's Tick
     const float synthAoa  = onspeed_xplane::indexer::
                             MaybeSynthesizeAoaFromVSquared(
                                 fIas, iasValid, onGround);
