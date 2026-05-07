@@ -26,6 +26,11 @@ void test_default_initializes_numeric_fields_to_zero(void)
     TEST_ASSERT_FALSE(r.efisIsVn300);
     TEST_ASSERT_FALSE(r.flapsRawAdcPresent);
     TEST_ASSERT_EQUAL_UINT16(0u, r.flapsRawAdc);
+    // Format-3 air-data validity flags default true so existing producers
+    // (replay tools, fixture tests, regression harness) keep emitting
+    // numeric cells without touching the new fields.
+    TEST_ASSERT_TRUE(r.iasValid);
+    TEST_ASSERT_TRUE(r.efisPercentLiftValid);
 }
 
 void test_fields_are_writable(void)

@@ -6,6 +6,7 @@
 // These tests cover the canonical-minimum-required header — the subset that
 // every OnSpeed log carries regardless of optional boom/EFIS groups.
 
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -298,6 +299,10 @@ void test_parserowbyindex_canonical_roundtrip(void)
 
 void test_parserowbyindex_empty_field_fails(void)
 {
+    // Format-3: IAS, AngleofAttack, DerivedAOA share the iasValid gate and
+    // must all be empty together (or all numeric).  Empty IAS while
+    // AngleofAttack and DerivedAOA carry numeric values is a corrupt
+    // write and must be rejected.
     static const char kHeader[] =
         "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
         "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
@@ -306,7 +311,6 @@ void test_parserowbyindex_empty_field_fails(void)
     HeaderIndex idx;
     TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx));
 
-    // Same shape as the canonical row but with the IAS field empty.
     static const char kRow[] =
         "12345,100,1.5,200,2.5,1013.25,1234.0,,4.2,10,3,15.0,90.1,"
         "25.0,1.02,0.01,-0.03,5.0,-7.5,-2.0,3.5,-1.2,"
@@ -314,6 +318,34 @@ void test_parserowbyindex_empty_field_fails(void)
 
     onspeed::LogRow row{};
     TEST_ASSERT_FALSE(ParseRowByIndex(kRow, idx, row));
+}
+
+void test_parserowbyindex_invalid_ias_round_trip(void)
+{
+    // Coherent format-3 row: all three air-data cells (IAS, AngleofAttack,
+    // DerivedAOA) empty.  ParseRowByIndex decodes them to NaN and clears
+    // iasValid on the parsed row.
+    static const char kHeader[] =
+        "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
+        "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
+        "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
+        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
+    HeaderIndex idx;
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx));
+
+    static const char kRow[] =
+        "12345,100,1.5,200,2.5,1013.25,1234.0,,,10,3,15.0,90.1,"
+        "25.0,1.02,0.01,-0.03,5.0,-7.5,-2.0,3.5,-1.2,"
+        "1.00,2.0,250.0,1300.0,,0.123";
+
+    onspeed::LogRow row{};
+    TEST_ASSERT_TRUE(ParseRowByIndex(kRow, idx, row));
+    TEST_ASSERT_FALSE(row.iasValid);
+    TEST_ASSERT_TRUE(std::isnan(row.iasKt));
+    TEST_ASSERT_TRUE(std::isnan(row.angleOfAttackDeg));
+    TEST_ASSERT_TRUE(std::isnan(row.derivedAoaDeg));
+    // CoeffP must remain numeric — not gated.
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.123f, row.coeffP);
 }
 
 void test_parserowbyindex_reordered_roundtrip(void)
@@ -709,6 +741,7 @@ int main(int, char**)
     RUN_TEST(test_build_index_boom_partial_warns_no_enable);
     RUN_TEST(test_parserowbyindex_canonical_roundtrip);
     RUN_TEST(test_parserowbyindex_empty_field_fails);
+    RUN_TEST(test_parserowbyindex_invalid_ias_round_trip);
     RUN_TEST(test_parserowbyindex_reordered_roundtrip);
     RUN_TEST(test_parserowbyindex_efis_roundtrip);
     RUN_TEST(test_parserowbyindex_vn300_roundtrip);

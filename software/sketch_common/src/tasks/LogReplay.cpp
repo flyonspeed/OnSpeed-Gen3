@@ -244,6 +244,11 @@ bool ReadLogLine()
 
         g_Sensors.Palt       = row.paltFt;
         g_Sensors.IAS        = row.iasKt;
+        // Mirror the producer's air-data validity gate.  Rows where the
+        // producer's bIasAlive was false carry iasKt == NaN; downstream
+        // firmware (DataServer, DisplaySerial, M5 wire) gates display
+        // surfaces on this flag, so replay reads must propagate it.
+        g_Sensors.bIasAlive  = row.iasValid;
         g_iDataMark          = row.dataMark;
         g_AHRS.KalmanVSI     = fpm2mps(row.vsiFpm);
 
