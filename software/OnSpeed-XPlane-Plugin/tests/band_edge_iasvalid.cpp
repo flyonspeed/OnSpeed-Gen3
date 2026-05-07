@@ -27,6 +27,7 @@ float fLDMAXAOA       =  6.0f;
 float fONSPEEDFASTAOA =  7.3f;
 float fONSPEEDSLOWAOA =  9.6f;
 float fSTALLWARNAOA   = 12.5f;
+float fALPHASTALL     = 13.6f;
 
 // 0 disables the V² on-ground formula so this test exercises the
 // alpha-only path.  The V² path gets its own test in

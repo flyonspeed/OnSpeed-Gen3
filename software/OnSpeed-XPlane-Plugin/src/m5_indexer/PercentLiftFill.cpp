@@ -23,6 +23,10 @@ extern float fLDMAXAOA;
 extern float fONSPEEDFASTAOA;
 extern float fONSPEEDSLOWAOA;
 extern float fSTALLWARNAOA;
+// Wing AOA at literal stall — the 100% point on the indexer.
+// Pilot-editable, persisted in the .prf, seeded per-aircraft from
+// acf_stall_warn_alpha / 0.92.
+extern float fALPHASTALL;
 
 // 1G clean stall speed (KIAS), used by the on-ground V² formula.
 // Owned by aoa_audio.cpp; seeded from acf_Vs and pilot-editable.
@@ -44,27 +48,13 @@ namespace {
 // best available approximation.
 constexpr float kAlpha0 = 0.0f;
 
-// alpha_stall: derived from the pilot's StallWarn setpoint and the
-// canonical NAOA fraction (StallWarn = 0.92 × alpha_stall).  When the
-// seed-from-datarefs path runs, fSTALLWARNAOA was written as
-// 0.92 × (acf_stall_warn_alpha / 0.92) = acf_stall_warn_alpha, so
-// dividing back by 0.92 recovers the X-Plane stall AOA exactly.
-// When the pilot has hand-tuned fSTALLWARNAOA, this preserves their
-// intent (their StallWarn pip lands at 92% on the indexer regardless
-// of where they set it).
-inline float AlphaStallFromSetpoints()
-{
-    constexpr float kNaoaStallWarn = 0.92f;
-    return fSTALLWARNAOA / kNaoaStallWarn;
-}
-
 // Build a stack-local SuFlaps just for ComputePercentLift.  Avoids
 // pulling the entire OnSpeedConfig parser into the plugin.
 ::onspeed::config::OnSpeedConfig::SuFlaps MakeFlapCfg()
 {
     ::onspeed::config::OnSpeedConfig::SuFlaps f{};
     f.fAlpha0         = kAlpha0;
-    f.fAlphaStall     = AlphaStallFromSetpoints();
+    f.fAlphaStall     = fALPHASTALL;
     f.fLDMAXAOA       = fLDMAXAOA;
     f.fONSPEEDFASTAOA = fONSPEEDFASTAOA;
     f.fONSPEEDSLOWAOA = fONSPEEDSLOWAOA;
@@ -177,7 +167,7 @@ float MaybeSynthesizeAoaFromVSquared(float liveIasKt,
         return std::numeric_limits<float>::quiet_NaN();
     }
     const float alpha0     = kAlpha0;
-    const float alphaStall = AlphaStallFromSetpoints();
+    const float alphaStall = fALPHASTALL;
     return alpha0 + (pct / 100.0f) * (alphaStall - alpha0);
 }
 

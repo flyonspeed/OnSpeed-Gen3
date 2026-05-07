@@ -117,6 +117,13 @@ float fONSPEEDFASTAOA = 7.3f;
 float fONSPEEDSLOWAOA = 9.6f;
 float fSTALLWARNAOA   = 12.5f;
 
+// Wing AOA at literal stall — the 100% point on the indexer's
+// percent-lift scale.  Pilot-editable; defaults to a generic stall
+// AOA that's well above the StallWarn anchor so an unseeded pilot
+// sees plausible scaling out of the box.  Seeded per-aircraft from
+// acf_stall_warn_alpha / 0.92 in SeedSetpointsFromDatarefs.
+float fALPHASTALL    = 13.6f;   // 12.5 / 0.92, matches the canonical fraction
+
 // USB-serial output to a physical M5Stack.  Empty string = disabled.
 // On macOS path looks like "/dev/cu.usbmodem11201", on Linux
 // "/dev/ttyACM0", on Windows "COM5".  Persisted per-aircraft in the
@@ -230,6 +237,7 @@ static XPWidgetID widgetLDMaxAOA              = nullptr;
 static XPWidgetID widgetOnSpeedFastAOA        = nullptr;
 static XPWidgetID widgetOnSpeedSlowAOA        = nullptr;
 static XPWidgetID widgetStallWarnAOA          = nullptr;
+static XPWidgetID widgetAlphaStall            = nullptr;
 static XPWidgetID widgetMuteAudioUnderIAS     = nullptr;
 static XPWidgetID widgetVs1G                  = nullptr;
 static XPWidgetID widgetMasterVolumePct       = nullptr;
@@ -327,16 +335,18 @@ static bool s_indexerRestorePending = false;
 // the first time it loads — only an aircraft that previously had the
 // panel open at save time will have it reopen.
 //
-// Minimum height fits ~13 widget rows × 25 px pitch + chrome.  An
-// older .prf with a larger persisted height (from the auto-mode
-// experiment) is harmless — bigger window, same widgets.
-static constexpr int kMinAudioWindowHeight = 470;
+// Sized to fit the current widget count (5 setpoint floats + 5
+// scalar ints + 3 buttons + 3 status captions ≈ 16 rows) at 25 px
+// pitch plus chrome.  A larger persisted height (e.g. 820 from the
+// auto-mode experiment) is clamped DOWN to this on load — the prior
+// value would leave the bottom of the window way past the buttons.
+static constexpr int kAudioWindowHeight = 470;
 
 struct AudioWindowState {
     int  left   = 300;
     int  top    = 690;
     int  width  = 280;
-    int  height = kMinAudioWindowHeight;
+    int  height = kAudioWindowHeight;
     bool visible = false;
 };
 static AudioWindowState s_audioWindow;
@@ -419,6 +429,10 @@ static void SeedSetpointsFromDatarefs()
     fONSPEEDFASTAOA = d.onSpeedFast;
     fONSPEEDSLOWAOA = d.onSpeedSlow;
     fSTALLWARNAOA   = d.stallWarn;
+    // alpha_stall = StallWarn / 0.92 by canonical fraction.  The
+    // indexer's 100% point lands at this value on the wing-AOA scale.
+    fALPHASTALL     = d.stallWarn /
+                      onspeed_xplane::indexer::kCanonicalNaoa.stallWarn;
 }
 
 // Returns true only when the .prf was opened, all fields written, and
@@ -448,6 +462,7 @@ static bool SaveSettings() {
     std::fprintf(fp, "fONSPEEDFASTAOA = %.3f\n", fONSPEEDFASTAOA);
     std::fprintf(fp, "fONSPEEDSLOWAOA = %.3f\n", fONSPEEDSLOWAOA);
     std::fprintf(fp, "fSTALLWARNAOA = %.3f\n",   fSTALLWARNAOA);
+    std::fprintf(fp, "fALPHASTALL = %.3f\n",     fALPHASTALL);
     std::fprintf(fp, "iMuteAudioUnderIAS = %d\n", iMuteAudioUnderIAS);
     std::fprintf(fp, "iVs1G = %d\n",              iVs1G);
     std::fprintf(fp, "iMasterVolumePct = %d\n",   iMasterVolumePct);
@@ -538,6 +553,7 @@ static bool LoadSettings() {
         else if (!std::strcmp(key, "fONSPEEDFASTAOA"))    fONSPEEDFASTAOA    = std::atof(val);
         else if (!std::strcmp(key, "fONSPEEDSLOWAOA"))    fONSPEEDSLOWAOA    = std::atof(val);
         else if (!std::strcmp(key, "fSTALLWARNAOA"))      fSTALLWARNAOA      = std::atof(val);
+        else if (!std::strcmp(key, "fALPHASTALL"))        fALPHASTALL        = std::atof(val);
         // setpoint_mode / naoa_* keys (from the brief auto-mode
         // experiment) are silently ignored if present in an old .prf.
         else if (!std::strcmp(key, "iMuteAudioUnderIAS")) iMuteAudioUnderIAS = std::atoi(val);
@@ -579,13 +595,12 @@ static bool LoadSettings() {
     std::fclose(fp);
 
     s_settingsLoaded = true;
-    // Floor the persisted window height at the minimum that fits the
-    // current widget set.  Larger persisted heights (e.g. from the
-    // brief auto-mode experiment that needed 820 px) are left alone —
-    // the extra blank space is harmless.
-    if (s_audioWindow.height < kMinAudioWindowHeight) {
-        s_audioWindow.height = kMinAudioWindowHeight;
-    }
+    // Always snap window height to the canonical value.  Past
+    // versions persisted larger heights (e.g. 820 px from the
+    // auto-mode experiment) that leave a wide empty band below the
+    // buttons; smaller heights cut off the bottom buttons.  Width
+    // and position remain pilot-controlled via window drag.
+    s_audioWindow.height = kAudioWindowHeight;
     // Pull the window up if growing the height would push the bottom
     // edge off-screen.  X-Plane window coords are bottom-left origin
     // (positive y = up); top - height is the window's bottom edge.
@@ -768,6 +783,11 @@ static bool TryImportLegacyJson() {
     fONSPEEDFASTAOA = fast;
     fONSPEEDSLOWAOA = slow;
     fSTALLWARNAOA   = warn;
+    // Legacy json had no alpha_stall field; recover it from StallWarn
+    // via the canonical 0.92 fraction (same recovery formula the
+    // indexer uses if alpha_stall isn't editable).
+    fALPHASTALL     = warn /
+                      onspeed_xplane::indexer::kCanonicalNaoa.stallWarn;
     if (gotIas) {
         // Legacy "IAS Tone Enable" was a bool meaning "audio gates on
         // IAS."  Map true → the new plugin's default mute-floor of 25
@@ -841,6 +861,7 @@ struct ValidatedSettings {
     float fONSPEEDFASTAOA;
     float fONSPEEDSLOWAOA;
     float fSTALLWARNAOA;
+    float fALPHASTALL;
     int   iMuteAudioUnderIAS;
     int   iVs1G;
     int   iMasterVolumePct;
@@ -860,6 +881,7 @@ constexpr ValidatedSettings kDefaultSettings{
     /*fONSPEEDFASTAOA=*/  7.3f,
     /*fONSPEEDSLOWAOA=*/  9.6f,
     /*fSTALLWARNAOA=*/   12.5f,
+    /*fALPHASTALL=*/     13.6f,  // 12.5 / 0.92, generic
     /*iMuteAudioUnderIAS=*/25,
     /*iVs1G=*/             0,    // 0 = will be re-seeded from acf_Vs on
                                   // aircraft load; see OnAircraftLoaded.
@@ -1006,6 +1028,8 @@ static std::optional<ValidatedSettings> readAndValidateFields(
                     onspeed::AOA_MAX_VALUE, v.fONSPEEDSLOWAOA);
     ok &= readFloat(widgetStallWarnAOA,   "Stall Warn AOA",   0.0f,
                     onspeed::AOA_MAX_VALUE, v.fSTALLWARNAOA);
+    ok &= readFloat(widgetAlphaStall,     "Alpha Stall",      0.0f,
+                    onspeed::AOA_MAX_VALUE, v.fALPHASTALL);
     ok &= readInt(widgetMuteAudioUnderIAS, "Mute Under IAS",
                   0, 250, v.iMuteAudioUnderIAS);
     // Vs (1G) sentinels:
@@ -1046,6 +1070,16 @@ static std::optional<ValidatedSettings> readAndValidateFields(
         markFieldInvalid(widgetStallWarnAOA);
         return std::nullopt;
     }
+    // alpha_stall must sit above StallWarn — it's the literal-stall
+    // anchor; the four setpoints are scaled fractions of it.  StallWarn
+    // at or above alpha_stall would put the StallWarn pip at or beyond
+    // 100% on the indexer.
+    if (v.fALPHASTALL <= v.fSTALLWARNAOA) {
+        setError("Alpha Stall must be greater than Stall Warn AOA");
+        markFieldInvalid(widgetAlphaStall);
+        markFieldInvalid(widgetStallWarnAOA);
+        return std::nullopt;
+    }
 
     return v;
 }
@@ -1058,6 +1092,7 @@ static void ApplyValidatedSettings(const ValidatedSettings& v) {
     fONSPEEDFASTAOA    = v.fONSPEEDFASTAOA;
     fONSPEEDSLOWAOA    = v.fONSPEEDSLOWAOA;
     fSTALLWARNAOA      = v.fSTALLWARNAOA;
+    fALPHASTALL        = v.fALPHASTALL;
     iMuteAudioUnderIAS = v.iMuteAudioUnderIAS;
     iVs1G              = v.iVs1G;
     iMasterVolumePct   = v.iMasterVolumePct;
@@ -1108,6 +1143,7 @@ static void OnAircraftLoaded() {
         fONSPEEDFASTAOA = kDefaultSettings.fONSPEEDFASTAOA;
         fONSPEEDSLOWAOA = kDefaultSettings.fONSPEEDSLOWAOA;
         fSTALLWARNAOA   = kDefaultSettings.fSTALLWARNAOA;
+        fALPHASTALL     = kDefaultSettings.fALPHASTALL;
         const bool prfFound = LoadSettings();
 
         // No .prf yet for this aircraft: try importing settings from
@@ -1651,6 +1687,12 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     widgetStallWarnAOA   = createLabeledFloatField("Stall Warn AOA:",
                                                    fSTALLWARNAOA,
                                                    &manualLabel);
+    // alpha_stall: the wing AOA at literal stall (100% on the indexer
+    // scale).  Seeded from acf_stall_warn_alpha / 0.92 — pilot can
+    // tune to match a hand-flown stall test.
+    widgetAlphaStall     = createLabeledFloatField("Alpha Stall:",
+                                                   fALPHASTALL,
+                                                   &manualLabel);
 
     // ---- Common settings (always visible) -----------------------
     // IAS gate (firmware: iMuteAudioUnderIAS; 0 = never mute).
@@ -1719,6 +1761,9 @@ static void UpdateAOATextFields() {
 
     snprintf(buffer, sizeof(buffer), "%.1f", fSTALLWARNAOA);
     XPSetWidgetDescriptor(widgetStallWarnAOA, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f", fALPHASTALL);
+    XPSetWidgetDescriptor(widgetAlphaStall, buffer);
 
     snprintf(buffer, sizeof(buffer), "%d", iMuteAudioUnderIAS);
     XPSetWidgetDescriptor(widgetMuteAudioUnderIAS, buffer);
