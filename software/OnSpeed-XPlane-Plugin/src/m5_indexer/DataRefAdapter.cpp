@@ -133,12 +133,13 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     // is loading the airframe, but V² describes wing effort directly
     // (max effort at low V, dropping off as V exceeds Vs).
     //
-    // Debounce against single-tick flicker (rough taxi, gear bounce
-    // on landing).  Static state is safe because BuildInputsFromDatarefs
-    // is only called from the X-Plane flight loop on a single thread.
-    static OnGroundDebounceState s_onGroundDebounce{};
-    const bool rawOnGround = SafeGetBool(s_onGroundAny);
-    const bool onGround    = DebounceOnGround(rawOnGround, s_onGroundDebounce);
+    // Read the shared g_DebouncedOnGround value the audio path writes
+    // earlier in the same flight-loop tick (CheckAOAAndPlayTone runs
+    // before this Tick).  Sharing the debounced result rather than
+    // running a second debouncer here means audio and indicator can
+    // never disagree on the V² regime due to a single-tick flicker:
+    // they both consume the same bool.
+    const bool onGround = g_DebouncedOnGround;
 
     FillPercentLift(in, aoa, ias, flapRatio, iasValid, onGround);
 

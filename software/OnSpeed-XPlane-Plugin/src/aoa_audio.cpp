@@ -62,6 +62,7 @@
 #include <optional>
 #include <memory>
 #include <string>
+#include <vector>
 
 // Plugin shares its audio engine with the firmware via onspeed_core —
 // envelope shape, orchestration decision, mixing, and synthesis are
@@ -79,8 +80,23 @@
 #ifdef ENABLE_M5_INDEXER
 #include "m5_indexer/IndexerWindow.h"
 #include "serial_port.h"
-#include "m5_indexer/DataRefAdapter.h"
 #endif
+
+// DataRefAdapter.h declares both indexer-side helpers
+// (BuildInputsFromDatarefs, FillPercentLift) AND the audio-path
+// helper MaybeSynthesizeAoaFromVSquared.  The header is pure
+// declarations (no XPLM, no M5GFX includes), so it's safe to include
+// unconditionally.  In audio-only builds we link only the
+// MaybeSynthesizeAoaFromVSquared definition (PercentLiftFill.cpp);
+// BuildInputsFromDatarefs / FillPercentLift remain unlinked because
+// nothing in the audio path calls them.
+#include "m5_indexer/DataRefAdapter.h"
+
+// AutoSetpoints helper is platform-independent and lives under
+// m5_indexer/ for namespace cohesion, but the auto-derivation runs in
+// the audio flight loop too — keep the include unconditional so an
+// audio-only build still benefits from per-aircraft setpoint defaults.
+#include "m5_indexer/AutoSetpoints.h"
 #include <filters/RunningMedian.h>
 #include <util/OnSpeedTypes.h>
 
@@ -100,12 +116,33 @@ static void CreateAudioControlWindow(int x, int y, int w, int h);
 //   OnSpeedSlow .. StallWarn → high pulsed (1.5..6.2 PPS)
 //   above StallWarn          → high pulsed at stall PPS (20)
 //
-// Defaults are generic; pilots tune these to match their airframe
-// (or copy from a calibrated OnSpeed installation).
+// Compiled-in defaults are generic and only used when no .prf exists
+// AND the per-aircraft auto-seed (see SeedSetpointsFromDatarefs) can't
+// derive values from X-Plane's stall datarefs.  After first load,
+// pilots tune these via the audio control window and the values
+// persist to the per-aircraft .prf.
 float fLDMAXAOA       = 6.0f;
 float fONSPEEDFASTAOA = 7.3f;
 float fONSPEEDSLOWAOA = 9.6f;
 float fSTALLWARNAOA   = 12.5f;
+
+// Wing AOA at literal stall — the 100% point on the indexer's
+// percent-lift scale.  Pilot-editable; defaults to a generic stall
+// AOA that's well above the StallWarn anchor so an unseeded pilot
+// sees plausible scaling out of the box.  Seeded per-aircraft from
+// acf_stall_warn_alpha / 0.92 in SeedSetpointsFromDatarefs.
+float fALPHASTALL    = 13.6f;   // 12.5 / 0.92, matches the canonical fraction
+
+// Shared debounced onground_any value.  Written by CheckAOAAndPlayTone
+// (audio path) once per flight-loop tick after running the raw
+// onground_any reading through DebounceOnGround.  Read by the
+// indexer's BuildInputsFromDatarefs so audio and indicator can never
+// disagree on whether we're in the V² (on-ground) regime — a single-
+// frame raw flicker is absorbed once for both consumers instead of
+// each running its own debouncer.  False at static init so the very
+// first flight-loop tick starts in the safe "in flight, use alpha"
+// regime; the next tick latches the actual ground state.
+bool g_DebouncedOnGround = false;
 
 // USB-serial output to a physical M5Stack.  Empty string = disabled.
 // On macOS path looks like "/dev/cu.usbmodem11201", on Linux
@@ -190,13 +227,28 @@ XPLMDataRef crashedDataRef   = nullptr;     // sim/flightmodel2/misc/has_crashed
 // because X-Plane restores the .acf-defined value on aircraft load.
 XPLMDataRef acfHasStallwarnDataRef = nullptr;
 XPLMDataRef acfVsDataRef     = nullptr;     // sim/aircraft/view/acf_Vs (float, KIAS)
+XPLMDataRef onGroundAnyDataRef = nullptr;   // sim/flightmodel/failures/onground_any (int, 1 = any gear touching)
+
+// Seed-on-first-load datarefs.  Read once per aircraft load when no
+// .prf is present yet; their values seed the four f*AOA globals
+// before the audio control window opens.  After seeding, the pilot
+// owns the values; nothing in this plugin overwrites them.
+//
+// acf_stall_warn_alpha is the per-aircraft wing AOA at which the
+// stall warner fires (RV-10 = 10°, C172 = 12°, F-14 = 20°).  acf_Vso
+// + acf_Vs supply per-flap reduction at seed time so the seeded
+// values reflect a representative mid-flap config rather than
+// clean-only.  flap_handle_deploy_ratio = 0 at seed time gives the
+// clean-config seed; pilots flying full-flap approaches will likely
+// adjust the seeded values down to match their use.
+XPLMDataRef acfStallWarnAlphaRef  = nullptr;
+XPLMDataRef acfVsoDataRef         = nullptr;  // sim/aircraft/view/acf_Vso (KIAS, full flap)
 
 // Control-window widget handles.
 static XPWidgetID audioControlWidget  = nullptr;
 static XPWidgetID audioToggleCheckbox = nullptr;
 static XPWidgetID widgetAOAValue      = nullptr;
 static XPWidgetID widgetAudioStatus   = nullptr;
-static XPWidgetID widgetButtonStallHorn = nullptr;
 
 // Editable-field handles.  Declared here (rather than next to the
 // CreateAudioControlWindow that builds them) because the validator
@@ -205,6 +257,7 @@ static XPWidgetID widgetLDMaxAOA              = nullptr;
 static XPWidgetID widgetOnSpeedFastAOA        = nullptr;
 static XPWidgetID widgetOnSpeedSlowAOA        = nullptr;
 static XPWidgetID widgetStallWarnAOA          = nullptr;
+static XPWidgetID widgetAlphaStall            = nullptr;
 static XPWidgetID widgetMuteAudioUnderIAS     = nullptr;
 static XPWidgetID widgetVs1G                  = nullptr;
 static XPWidgetID widgetMasterVolumePct       = nullptr;
@@ -212,6 +265,7 @@ static XPWidgetID widgetAoaMedianWindow       = nullptr;
 static XPWidgetID widgetAoaMeanWindow         = nullptr;
 static XPWidgetID widgetButtonSave            = nullptr;
 static XPWidgetID widgetButtonRestoreDefaults = nullptr;
+
 static bool audioEnabled = false;
 
 // User-controlled override for X-Plane's built-in stall horn.  When true,
@@ -231,6 +285,10 @@ static bool bMuteStallHorn = false;
 static int g_iAcfHasStallwarnOriginal = -1;
 
 static XPLMMenuID menuId;
+// Menu-item index for the "Mute X-Plane stall horn" entry — captured at
+// menu build time so AudioMenuHandler can flip its checkmark without
+// rebuilding the menu.  -1 until the menu is constructed.
+static int g_MuteStallHornItemIdx = -1;
 
 // AOA smoothing pipeline.  Window sizes are runtime-configurable via
 // iAoaMedianWindow / iAoaMeanWindow; rebuildAoaSmoothers() swaps in
@@ -296,11 +354,19 @@ static bool s_indexerRestorePending = false;
 // defaults to false so a fresh aircraft doesn't auto-pop the panel
 // the first time it loads — only an aircraft that previously had the
 // panel open at save time will have it reopen.
+//
+// Sized to fit the current widget count (5 setpoint floats + 5
+// scalar ints + 3 buttons + 3 status captions ≈ 16 rows) at 25 px
+// pitch plus chrome.  A larger persisted height (e.g. 820 from the
+// auto-mode experiment) is clamped DOWN to this on load — the prior
+// value would leave the bottom of the window way past the buttons.
+static constexpr int kAudioWindowHeight = 470;
+
 struct AudioWindowState {
     int  left   = 300;
     int  top    = 690;
     int  width  = 280;
-    int  height = 470;
+    int  height = kAudioWindowHeight;
     bool visible = false;
 };
 static AudioWindowState s_audioWindow;
@@ -308,43 +374,6 @@ static AudioWindowState s_audioWindow;
 // only writes the .prf when the user actually moves or resizes the
 // window — avoids hammering disk on every tick.
 static AudioWindowState s_audioWindowLastSaved;
-
-// Minimum boxels of the audio control window kept on-screen after a
-// monitor swap.  Matches the floating-indexer kMinVisible (80 in
-// IndexerWindow.cpp) so both windows treat "still grabbable" the
-// same way.
-constexpr int kAudioWindowMinVisible = 80;
-
-// Clamp s_audioWindow.left/top so the title bar stays grabbable on
-// the current X-Plane screen rect.  Without this, a per-aircraft
-// .prf saved when X-Plane spanned a tall external monitor (e.g.
-// audioWindowTop = 1307) restores fully off-screen on a 1080-tall
-// monitor, with no in-game way to recover.
-//
-// X-Plane "global" coords cover the union of all monitors X-Plane
-// is rendering to, so this clamp respects multi-monitor setups: a
-// position legitimately on a second X-Plane monitor stays put as
-// long as that monitor is still in the bounds.  When the user
-// disconnects a monitor, the bounds shrink and the window snaps to
-// the remaining visible area.
-//
-// Skips clamping if XPLMGetScreenBoundsGlobal returns a degenerate
-// rect (e.g. during early plugin init before the screen is up).
-static void ClampAudioWindowOnScreen() {
-    int sLeft = 0, sTop = 0, sRight = 0, sBottom = 0;
-    XPLMGetScreenBoundsGlobal(&sLeft, &sTop, &sRight, &sBottom);
-    if (sRight <= sLeft || sTop <= sBottom) return;
-
-    const int maxLeft = sRight - kAudioWindowMinVisible;
-    const int minLeft = sLeft  - (s_audioWindow.width - kAudioWindowMinVisible);
-    const int maxTop  = sTop;
-    const int minTop  = sBottom + kAudioWindowMinVisible;
-
-    if (s_audioWindow.left > maxLeft) s_audioWindow.left = maxLeft;
-    if (s_audioWindow.left < minLeft) s_audioWindow.left = minLeft;
-    if (s_audioWindow.top  > maxTop)  s_audioWindow.top  = maxTop;
-    if (s_audioWindow.top  < minTop)  s_audioWindow.top  = minTop;
-}
 
 static std::string sanitizeAcfBasename(const char* acfFileName) {
     std::string out;
@@ -388,6 +417,44 @@ static std::string buildSettingsPath() {
 static void RefreshAudioWindowState();
 static bool AudioWindowChanged();
 
+// One-shot seed: read X-Plane's stall datarefs and overwrite the four
+// f*AOA setpoint globals with sensible per-aircraft defaults.  Called
+// from OnAircraftLoaded only when no per-aircraft .prf exists yet —
+// once a pilot has saved their tuning, those values persist and this
+// function isn't called again for that aircraft.
+//
+// Uses flapRatio=0 (clean config) so the seeded values are the clean
+// setpoints; pilots can adjust from there.  When acf_stall_warn_alpha
+// is missing or zero, leaves the compiled-in defaults in place and
+// logs a breadcrumb.
+static void SeedSetpointsFromDatarefs()
+{
+    const float stallWarnAoa = acfStallWarnAlphaRef
+                                ? XPLMGetDataf(acfStallWarnAlphaRef) : 0.0f;
+    const float vsKt         = acfVsDataRef
+                                ? XPLMGetDataf(acfVsDataRef)         : 0.0f;
+    const float vsoKt        = acfVsoDataRef
+                                ? XPLMGetDataf(acfVsoDataRef)        : 0.0f;
+
+    const auto d = onspeed_xplane::indexer::DeriveSetpointsFromDatarefs(
+        stallWarnAoa, vsKt, vsoKt, /*flapRatio=*/0.0f,
+        onspeed_xplane::indexer::kCanonicalNaoa);
+    if (!d.applied) {
+        XPLMDebugString("FlyOnSpeed: seed setpoints declined "
+                        "(acf_stall_warn_alpha missing or 0); "
+                        "compiled-in defaults stand\n");
+        return;
+    }
+    fLDMAXAOA       = d.ldmax;
+    fONSPEEDFASTAOA = d.onSpeedFast;
+    fONSPEEDSLOWAOA = d.onSpeedSlow;
+    fSTALLWARNAOA   = d.stallWarn;
+    // alpha_stall = StallWarn / 0.92 by canonical fraction.  The
+    // indexer's 100% point lands at this value on the wing-AOA scale.
+    fALPHASTALL     = d.stallWarn /
+                      onspeed_xplane::indexer::kCanonicalNaoa.stallWarn;
+}
+
 // Returns true only when the .prf was opened, all fields written, and
 // fclose reported no buffered-write error.  Callers that gate
 // follow-on side effects on a confirmed write (e.g. renaming a legacy
@@ -415,6 +482,7 @@ static bool SaveSettings() {
     std::fprintf(fp, "fONSPEEDFASTAOA = %.3f\n", fONSPEEDFASTAOA);
     std::fprintf(fp, "fONSPEEDSLOWAOA = %.3f\n", fONSPEEDSLOWAOA);
     std::fprintf(fp, "fSTALLWARNAOA = %.3f\n",   fSTALLWARNAOA);
+    std::fprintf(fp, "fALPHASTALL = %.3f\n",     fALPHASTALL);
     std::fprintf(fp, "iMuteAudioUnderIAS = %d\n", iMuteAudioUnderIAS);
     std::fprintf(fp, "iVs1G = %d\n",              iVs1G);
     std::fprintf(fp, "iMasterVolumePct = %d\n",   iMasterVolumePct);
@@ -479,17 +547,29 @@ void SaveIndexerWindowState()
 // Returns true if a .prf file was found and read for the current
 // aircraft; false if the file didn't exist (first run for this
 // aircraft).  Caller uses this to decide whether to attempt the
-// one-time import from the legacy json-config plugin's format.
+// one-time import from the legacy json-config plugin's format and
+// whether to seed setpoints from X-Plane's stall datarefs.
 static bool LoadSettings() {
     if (s_SettingsPath.empty()) return false;
     FILE* fp = std::fopen(s_SettingsPath.c_str(), "r");
     if (!fp) {
-        // First run for this aircraft; defaults are fine.  Mark
+        // First run for this aircraft; compiled-in defaults stand
+        // until the seed-from-datarefs path overwrites them.  Mark
         // settings loaded anyway so subsequent user-driven changes
         // can persist.
         s_settingsLoaded = true;
         return false;
     }
+
+    // Track whether the .prf carried an explicit fALPHASTALL key.  Old
+    // .prf files (pre-#445) don't have it; loading those would leave
+    // fALPHASTALL at the compiled default (13.6) regardless of whatever
+    // fSTALLWARNAOA the pilot tuned.  If the pilot's fSTALLWARNAOA
+    // exceeds 13.6, the V² synthesis ends up with a non-positive
+    // (alphaStall - alpha0) span and produces garbage AOA.  After parse,
+    // re-derive fALPHASTALL = fSTALLWARNAOA / 0.92 when the key was
+    // missing — same canonical fraction the seed path uses.
+    bool sawAlphaStallKey = false;
 
     char line[256];
     while (std::fgets(line, sizeof(line), fp)) {
@@ -503,6 +583,9 @@ static bool LoadSettings() {
         else if (!std::strcmp(key, "fONSPEEDFASTAOA"))    fONSPEEDFASTAOA    = std::atof(val);
         else if (!std::strcmp(key, "fONSPEEDSLOWAOA"))    fONSPEEDSLOWAOA    = std::atof(val);
         else if (!std::strcmp(key, "fSTALLWARNAOA"))      fSTALLWARNAOA      = std::atof(val);
+        else if (!std::strcmp(key, "fALPHASTALL"))      { fALPHASTALL        = std::atof(val); sawAlphaStallKey = true; }
+        // setpoint_mode / naoa_* keys (from the brief auto-mode
+        // experiment) are silently ignored if present in an old .prf.
         else if (!std::strcmp(key, "iMuteAudioUnderIAS")) iMuteAudioUnderIAS = std::atoi(val);
         else if (!std::strcmp(key, "iVs1G"))              iVs1G              = std::atoi(val);
         else if (!std::strcmp(key, "iMasterVolumePct"))   iMasterVolumePct   = std::atoi(val);
@@ -540,7 +623,37 @@ static bool LoadSettings() {
         }
     }
     std::fclose(fp);
+
+    // Old-.prf forward-compat: when fALPHASTALL was absent from the
+    // file (pre-#445 .prfs), re-derive it from the loaded fSTALLWARNAOA
+    // using the canonical NAOA stallWarn fraction (0.92).  Without this,
+    // a hand-tuned fSTALLWARNAOA above the compiled default of 13.6
+    // would silently violate StallWarn < alpha_stall and corrupt the
+    // V² synthesis until the pilot's next Save (which the validator
+    // would catch).  Doing it here means the first flight-loop tick
+    // after load already has a coherent (alphaStall - alpha0) span.
+    if (!sawAlphaStallKey) {
+        fALPHASTALL = fSTALLWARNAOA /
+                      onspeed_xplane::indexer::kCanonicalNaoa.stallWarn;
+        XPLMDebugString("FlyOnSpeed: .prf had no fALPHASTALL key; "
+                        "re-derived from fSTALLWARNAOA / 0.92\n");
+    }
+
     s_settingsLoaded = true;
+    // Always snap window height to the canonical value.  Past
+    // versions persisted larger heights (e.g. 820 px from the
+    // auto-mode experiment) that leave a wide empty band below the
+    // buttons; smaller heights cut off the bottom buttons.  Width
+    // and position remain pilot-controlled via window drag.
+    s_audioWindow.height = kAudioWindowHeight;
+    // Pull the window up if growing the height would push the bottom
+    // edge off-screen.  X-Plane window coords are bottom-left origin
+    // (positive y = up); top - height is the window's bottom edge.
+    // 50 is a small safety margin from the absolute bottom of the
+    // screen so the close-box / status bar stays usable.
+    if (s_audioWindow.top - s_audioWindow.height < 50) {
+        s_audioWindow.top = s_audioWindow.height + 50;
+    }
     // The .prf we just read is, by definition, the last on-disk
     // state.  Seed the periodic save's diff baseline so a no-op tick
     // doesn't immediately rewrite the file with the same values.
@@ -652,20 +765,22 @@ static std::string buildLegacyJsonPath() {
 
 // Try to import a legacy json-config file for the active aircraft.
 // Called from OnAircraftLoaded only when no .prf exists yet for this
-// aircraft.  No-op if the legacy file isn't present, can't be read,
-// or fails to parse.
+// aircraft.  Returns true when the four threshold globals were
+// overwritten from the legacy file (caller skips the dataref-seed
+// path in that case).  Returns false on no-op (file missing, parse
+// incomplete, thresholds out of order); caller's seed path runs.
 //
 // On success: writes the parsed values into the live globals and
 // calls SaveSettings.  Only when SaveSettings confirms the .prf was
 // written does the legacy file get renamed to `<name>.json.imported`
 // — a write failure leaves the legacy file untouched so the import
 // retries on the next aircraft load.
-static void TryImportLegacyJson() {
+static bool TryImportLegacyJson() {
     const std::string legacyPath = buildLegacyJsonPath();
-    if (legacyPath.empty()) return;
+    if (legacyPath.empty()) return false;
 
     FILE* fp = std::fopen(legacyPath.c_str(), "r");
-    if (!fp) return;   // No legacy file; nothing to do.
+    if (!fp) return false;   // No legacy file; nothing to do.
 
     // Read the entire file (at most a few hundred bytes for the
     // legacy format) into memory for parsing.
@@ -697,7 +812,7 @@ static void TryImportLegacyJson() {
     if (!(gotLdmax && gotFast && gotSlow && gotWarn)) {
         XPLMDebugString("FlyOnSpeed: legacy json-config parse incomplete — "
                         "skipping import (file left in place)\n");
-        return;
+        return false;
     }
 
     // Order check: LDmax < Fast < Slow < Warn.  A scrambled legacy
@@ -706,13 +821,18 @@ static void TryImportLegacyJson() {
     if (!(ldmax < fast && fast < slow && slow < warn)) {
         XPLMDebugString("FlyOnSpeed: legacy json-config thresholds out of "
                         "order — skipping import (file left in place)\n");
-        return;
+        return false;
     }
 
     fLDMAXAOA       = ldmax;
     fONSPEEDFASTAOA = fast;
     fONSPEEDSLOWAOA = slow;
     fSTALLWARNAOA   = warn;
+    // Legacy json had no alpha_stall field; recover it from StallWarn
+    // via the canonical 0.92 fraction (same recovery formula the
+    // indexer uses if alpha_stall isn't editable).
+    fALPHASTALL     = warn /
+                      onspeed_xplane::indexer::kCanonicalNaoa.stallWarn;
     if (gotIas) {
         // Legacy "IAS Tone Enable" was a bool meaning "audio gates on
         // IAS."  Map true → the new plugin's default mute-floor of 25
@@ -720,7 +840,6 @@ static void TryImportLegacyJson() {
         // audio control window after import.
         iMuteAudioUnderIAS = (iasEnable >= 0.5f) ? 25 : 0;
     }
-
     XPLMDebugString(("FlyOnSpeed: imported legacy thresholds — "
                      "LDmax=" + std::to_string(ldmax)
                      + " Fast=" + std::to_string(fast)
@@ -741,7 +860,10 @@ static void TryImportLegacyJson() {
                         "in place, import will retry on next aircraft "
                         "load\n");
         UpdateAOATextFields();
-        return;
+        // Live globals were overwritten with the legacy values; the
+        // .prf write failed but the in-memory state IS the imported
+        // calibration.  Tell the caller not to reseed.
+        return true;
     }
 
     // Rename the legacy file to <name>.json.imported so this branch
@@ -763,6 +885,7 @@ static void TryImportLegacyJson() {
     // Refresh widget text fields if the audio control window is open
     // so the pilot sees the imported values immediately.
     UpdateAOATextFields();
+    return true;
 }
 
 // --------------------------------------------------------------------------
@@ -783,6 +906,7 @@ struct ValidatedSettings {
     float fONSPEEDFASTAOA;
     float fONSPEEDSLOWAOA;
     float fSTALLWARNAOA;
+    float fALPHASTALL;
     int   iMuteAudioUnderIAS;
     int   iVs1G;
     int   iMasterVolumePct;
@@ -791,12 +915,18 @@ struct ValidatedSettings {
 };
 
 // Compiled-in defaults — what "Restore Defaults" reverts to.  These
-// are generic GA values; real airframes need to override them via Save.
+// are generic GA values; real airframes need to override them via
+// Save.  On a fresh aircraft (no .prf yet), OnAircraftLoaded seeds
+// the four f*AOA globals from X-Plane's stall datarefs before the
+// audio control window opens, so the pilot sees per-airframe values
+// instead of these generic defaults — but if the seed declines (no
+// stall_warn_alpha), these stand.
 constexpr ValidatedSettings kDefaultSettings{
     /*fLDMAXAOA=*/        6.0f,
     /*fONSPEEDFASTAOA=*/  7.3f,
     /*fONSPEEDSLOWAOA=*/  9.6f,
     /*fSTALLWARNAOA=*/   12.5f,
+    /*fALPHASTALL=*/     13.6f,  // 12.5 / 0.92, generic
     /*iMuteAudioUnderIAS=*/25,
     /*iVs1G=*/             0,    // 0 = will be re-seeded from acf_Vs on
                                   // aircraft load; see OnAircraftLoaded.
@@ -925,6 +1055,8 @@ static std::optional<ValidatedSettings> readAndValidateFields(
         return true;
     };
 
+    bool ok = true;
+
     // AOA setpoints are bounded by the universal AOA range.  Setpoints
     // above zero only — LDmax can't be 0 in any normal airframe.  AOA
     // *measurements* can be negative (the plugin's AOA dataref reads
@@ -933,7 +1065,6 @@ static std::optional<ValidatedSettings> readAndValidateFields(
     // and must be positive.  Upper bound matches onspeed_core's
     // universal AOA_MAX_VALUE so plugin + firmware agree on the
     // notion of "valid AOA value at all."
-    bool ok = true;
     ok &= readFloat(widgetLDMaxAOA,       "LDmax AOA",        0.0f,
                     onspeed::AOA_MAX_VALUE, v.fLDMAXAOA);
     ok &= readFloat(widgetOnSpeedFastAOA, "OnSpeed Fast AOA", 0.0f,
@@ -942,6 +1073,8 @@ static std::optional<ValidatedSettings> readAndValidateFields(
                     onspeed::AOA_MAX_VALUE, v.fONSPEEDSLOWAOA);
     ok &= readFloat(widgetStallWarnAOA,   "Stall Warn AOA",   0.0f,
                     onspeed::AOA_MAX_VALUE, v.fSTALLWARNAOA);
+    ok &= readFloat(widgetAlphaStall,     "Alpha Stall",      0.0f,
+                    onspeed::AOA_MAX_VALUE, v.fALPHASTALL);
     ok &= readInt(widgetMuteAudioUnderIAS, "Mute Under IAS",
                   0, 250, v.iMuteAudioUnderIAS);
     // Vs (1G) sentinels:
@@ -982,6 +1115,16 @@ static std::optional<ValidatedSettings> readAndValidateFields(
         markFieldInvalid(widgetStallWarnAOA);
         return std::nullopt;
     }
+    // alpha_stall must sit above StallWarn — it's the literal-stall
+    // anchor; the four setpoints are scaled fractions of it.  StallWarn
+    // at or above alpha_stall would put the StallWarn pip at or beyond
+    // 100% on the indexer.
+    if (v.fALPHASTALL <= v.fSTALLWARNAOA) {
+        setError("Alpha Stall must be greater than Stall Warn AOA");
+        markFieldInvalid(widgetAlphaStall);
+        markFieldInvalid(widgetStallWarnAOA);
+        return std::nullopt;
+    }
 
     return v;
 }
@@ -994,6 +1137,7 @@ static void ApplyValidatedSettings(const ValidatedSettings& v) {
     fONSPEEDFASTAOA    = v.fONSPEEDFASTAOA;
     fONSPEEDSLOWAOA    = v.fONSPEEDSLOWAOA;
     fSTALLWARNAOA      = v.fSTALLWARNAOA;
+    fALPHASTALL        = v.fALPHASTALL;
     iMuteAudioUnderIAS = v.iMuteAudioUnderIAS;
     iVs1G              = v.iVs1G;
     iMasterVolumePct   = v.iMasterVolumePct;
@@ -1036,18 +1180,36 @@ static void OnAircraftLoaded() {
         // parser leaves any global untouched if its key isn't present
         // in the file, so we have to explicitly clear iVs1G ourselves.
         iVs1G = kDefaultSettings.iVs1G;
+        // Reset f*AOA to compiled defaults so a previous aircraft's
+        // values don't bleed through to a fresh-aircraft seed when
+        // the seed-from-datarefs path declines (acf_stall_warn_alpha
+        // missing).
+        fLDMAXAOA       = kDefaultSettings.fLDMAXAOA;
+        fONSPEEDFASTAOA = kDefaultSettings.fONSPEEDFASTAOA;
+        fONSPEEDSLOWAOA = kDefaultSettings.fONSPEEDSLOWAOA;
+        fSTALLWARNAOA   = kDefaultSettings.fSTALLWARNAOA;
+        fALPHASTALL     = kDefaultSettings.fALPHASTALL;
         const bool prfFound = LoadSettings();
 
         // No .prf yet for this aircraft: try importing settings from
         // a legacy json-config file in `Custom Data/<acf>.json` if
         // one exists.  TryImportLegacyJson is a no-op when no legacy
         // file is present, when parsing is incomplete, or when the
-        // thresholds are out of order; the pilot then ends up with
-        // compiled-in defaults and can calibrate via the audio
-        // control window.  See TryImportLegacyJson for the format
-        // and the full set of no-op cases.
+        // thresholds are out of order.
+        //
+        // If neither a .prf nor a legacy json yields setpoints, seed
+        // the four f*AOA globals from X-Plane's stall datarefs
+        // (acf_stall_warn_alpha + acf_Vs + acf_Vso) so a fresh
+        // aircraft has plausible per-airframe defaults instead of
+        // generic compiled-in values.  The pilot's first Save in the
+        // audio control window persists those values; from then on
+        // the .prf wins and seed-from-datarefs isn't called again
+        // for this aircraft.
         if (!prfFound) {
-            TryImportLegacyJson();
+            const bool importedJson = TryImportLegacyJson();
+            if (!importedJson) {
+                SeedSetpointsFromDatarefs();
+            }
         }
     }
 
@@ -1117,10 +1279,12 @@ static void OnAircraftLoaded() {
     // 0 as the "original," and toggle-off would leave the new aircraft
     // muted until next reload.  Defer-to-AIRPORT_LOADED (the existing
     // s_indexerRestorePending pattern) is the fix if this ever bites.
-    // Reset the captured original-stall-horn-state so a new aircraft's
-    // stall-horn setting gets re-captured the first time the in-panel
-    // toggle runs (handled by CheckAOAAndPlayTone's first write).
+    // Sync the menu checkmark with whatever LoadSettings restored for
+    // this aircraft.
     g_iAcfHasStallwarnOriginal = -1;
+    if (g_MuteStallHornItemIdx >= 0)
+        XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
+            bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 #ifdef ENABLE_M5_INDEXER
     // Open the configured USB-serial port if one is set.  Failures
     // are logged inside OpenSerialOut and just leave the port closed
@@ -1146,20 +1310,9 @@ static void OnAircraftLoaded() {
     // the indexer's lazy-init path, so creating one from this flight-
     // loop callback is safe (no SDL / M5GFX involved).
     if (s_audioWindow.visible && !audioControlWidget) {
-        ClampAudioWindowOnScreen();
         CreateAudioControlWindow(s_audioWindow.left,  s_audioWindow.top,
                                  s_audioWindow.width, s_audioWindow.height);
         UpdateAOATextFields();
-        // Flush any clamp-induced position change to the .prf
-        // immediately, instead of waiting on the periodic save tick.
-        // Without this, a quit-within-1s-of-aircraft-load loses the
-        // corrected position and re-clamps next boot from the same
-        // off-screen .prf value.  Mirrors the "Show" menu handler's
-        // flush at line ~1759.
-        RefreshAudioWindowState();
-        if (AudioWindowChanged()) {
-            SaveSettings();
-        }
     } else if (s_audioWindow.visible && audioControlWidget) {
         // New aircraft's .prf says the panel was open.  The widget
         // already exists from the prior aircraft's session — show it
@@ -1381,27 +1534,7 @@ static int AudioControlHandler(
         if (inParam1 == reinterpret_cast<intptr_t>(audioToggleCheckbox)) {
             audioEnabled = !audioEnabled;
             XPSetWidgetDescriptor(audioToggleCheckbox,
-                                  audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off");
-            SaveSettings();
-            return 1;
-        }
-        // X-Plane stall horn toggle: flips bMuteStallHorn and refreshes
-        // the button label.  Label reads "on" when the sim's horn plays
-        // and "off" when this plugin is muting it.  When toggling back
-        // to "on" we restore the .acf's original acf_has_stallwarn
-        // value (captured the first time we muted) — without that, the
-        // sim would treat the horn as permanently disabled until the
-        // next aircraft reload, since CheckAOAAndPlayTone only
-        // overwrites the dataref while bMuteStallHorn is true.
-        else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonStallHorn)) {
-            bMuteStallHorn = !bMuteStallHorn;
-            XPSetWidgetDescriptor(widgetButtonStallHorn,
-                bMuteStallHorn ? "X-Plane Stall Horn: Off"
-                              : "X-Plane Stall Horn: On");
-            if (!bMuteStallHorn && acfHasStallwarnDataRef &&
-                g_iAcfHasStallwarnOriginal >= 0) {
-                XPLMSetDatai(acfHasStallwarnDataRef, g_iAcfHasStallwarnOriginal);
-            }
+                                  audioEnabled ? "Sound: On" : "Sound: Off");
             SaveSettings();
             return 1;
         }
@@ -1468,7 +1601,7 @@ static XPWidgetID createWidget(int widgetClass, const char* description, int lef
         audioControlWidget,                   // container
         widgetClass                           // class
     );
-    
+
     return newWidget;
 }
 
@@ -1483,10 +1616,13 @@ constexpr int kFieldWidth      = 60;
 
 // Add a label + text-field pair as one stacked row.  initialText is
 // caller-formatted (use snprintf "%.1f" for floats, "%d" for ints)
-// so each field controls its own display format.
+// so each field controls its own display format.  When outLabel is
+// non-null, the caller receives the label-caption handle too — used
+// for mode-aware show/hide so both halves of the row toggle together.
 static XPWidgetID createLabeledTextField(const char* label,
                                          const char* initialText,
-                                         int leftOffset = 20) {
+                                         int leftOffset = 20,
+                                         XPWidgetID* outLabel = nullptr) {
     if (audioControlWidget == nullptr) {
         return nullptr;
     }
@@ -1496,16 +1632,17 @@ static XPWidgetID createLabeledTextField(const char* label,
 
     g_NextWidgetTop -= (kWidgetHeight + kWidgetMargin);
 
-    // Caption: passive label to the left of the field.  Handle is
-    // intentionally not stored — the parent window owns and tears
-    // it down on close.
-    XPCreateWidget(
+    // Caption: passive label to the left of the field.  When the
+    // caller didn't ask for the handle, the parent window still owns
+    // the caption and tears it down on close.
+    XPWidgetID labelCaption = XPCreateWidget(
         left + leftOffset,                              // left
         g_NextWidgetTop,                                // top
         left + leftOffset + kLabelWidth,                // right
         g_NextWidgetTop - kWidgetHeight,                // bottom
         1, label, 0, audioControlWidget,
         xpWidgetClass_Caption);
+    if (outLabel) *outLabel = labelCaption;
 
     XPWidgetID textField = XPCreateWidget(
         left + leftOffset + kLabelWidth + kLabelFieldGap,                // left
@@ -1523,17 +1660,20 @@ static XPWidgetID createLabeledTextField(const char* label,
 }
 
 // Convenience wrappers around createLabeledTextField.  Floats render
-// to one decimal; ints render with no decimal.
-static XPWidgetID createLabeledFloatField(const char* label, float value) {
+// to one decimal; ints render with no decimal.  outLabel mirrors the
+// underlying helper for mode-aware visibility tracking.
+static XPWidgetID createLabeledFloatField(const char* label, float value,
+                                          XPWidgetID* outLabel = nullptr) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.1f", value);
-    return createLabeledTextField(label, buf);
+    return createLabeledTextField(label, buf, /*leftOffset=*/20, outLabel);
 }
 
-static XPWidgetID createLabeledIntField(const char* label, int value) {
+static XPWidgetID createLabeledIntField(const char* label, int value,
+                                        XPWidgetID* outLabel = nullptr) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%d", value);
-    return createLabeledTextField(label, buf);
+    return createLabeledTextField(label, buf, /*leftOffset=*/20, outLabel);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1542,10 +1682,10 @@ static XPWidgetID createLabeledIntField(const char* label, int value) {
 static void CreateAudioControlWindow(int x, int y, int w, int h) {
     int x2 = x + w;
     int y2 = y - h;
-    
+
     // Reset the g_NextWidgetTop for new window
     g_NextWidgetTop = 0;
-    
+
     // Create main window
     audioControlWidget = XPCreateWidget(x, y, x2, y2,
         1,  // Visible
@@ -1553,7 +1693,7 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
         1,  // root
         nullptr, // no container
         xpWidgetClass_MainWindow);
-    
+
     XPSetWidgetProperty(audioControlWidget, xpProperty_MainWindowHasCloseBoxes, 1);
 
     // Create version label
@@ -1575,18 +1715,31 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
         ""
     );
 
-    // Master volume (0-100 %).  Mirrors the firmware's pot.  First
-    // editable field — the most-touched setting goes at the top so
-    // pilots don't have to scroll past calibration to reach it.
-    widgetMasterVolumePct   = createLabeledIntField(
-        "Master Volume (%):", iMasterVolumePct);
-
     // AOA setpoints (firmware terminology: see Config.h::SuFlaps).
-    widgetLDMaxAOA          = createLabeledFloatField("LDmax AOA:",        fLDMAXAOA);
-    widgetOnSpeedFastAOA    = createLabeledFloatField("OnSpeed Fast AOA:", fONSPEEDFASTAOA);
-    widgetOnSpeedSlowAOA    = createLabeledFloatField("OnSpeed Slow AOA:", fONSPEEDSLOWAOA);
-    widgetStallWarnAOA      = createLabeledFloatField("Stall Warn AOA:",   fSTALLWARNAOA);
+    // Pilot-set and fixed across all flaps.  Seeded from X-Plane's
+    // stall datarefs on first aircraft load (see SeedSetpointsFromDatarefs);
+    // saved values overwrite the seed on subsequent loads.
+    XPWidgetID manualLabel = nullptr;
+    widgetLDMaxAOA       = createLabeledFloatField("LDmax AOA:",
+                                                   fLDMAXAOA,
+                                                   &manualLabel);
+    widgetOnSpeedFastAOA = createLabeledFloatField("OnSpeed Fast AOA:",
+                                                   fONSPEEDFASTAOA,
+                                                   &manualLabel);
+    widgetOnSpeedSlowAOA = createLabeledFloatField("OnSpeed Slow AOA:",
+                                                   fONSPEEDSLOWAOA,
+                                                   &manualLabel);
+    widgetStallWarnAOA   = createLabeledFloatField("Stall Warn AOA:",
+                                                   fSTALLWARNAOA,
+                                                   &manualLabel);
+    // alpha_stall: the wing AOA at literal stall (100% on the indexer
+    // scale).  Seeded from acf_stall_warn_alpha / 0.92 — pilot can
+    // tune to match a hand-flown stall test.
+    widgetAlphaStall     = createLabeledFloatField("Alpha Stall:",
+                                                   fALPHASTALL,
+                                                   &manualLabel);
 
+    // ---- Common settings (always visible) -----------------------
     // IAS gate (firmware: iMuteAudioUnderIAS; 0 = never mute).
     widgetMuteAudioUnderIAS = createLabeledIntField(
         "Mute Under IAS (kt):", iMuteAudioUnderIAS);
@@ -1600,13 +1753,17 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     widgetVs1G              = createLabeledIntField(
         "Vs at 1G (kt):", iVs1G);
 
+    // Master volume (0-100 %).  Mirrors the firmware's pot.
+    widgetMasterVolumePct   = createLabeledIntField(
+        "Master Volume (%):", iMasterVolumePct);
+
     // Plugin-only AOA smoothing (no firmware analog — the firmware
     // smooths upstream in pressure-space).  1 disables.
     widgetAoaMedianWindow   = createLabeledIntField(
         "AOA Median Window:", iAoaMedianWindow);
     widgetAoaMeanWindow     = createLabeledIntField(
         "AOA Mean Window:",   iAoaMeanWindow);
-
+    
     // Save: validate every field, commit to live state, persist to
     // disk for the current aircraft.  Invalid fields get a "!! "
     // prefix marker; the status line shows the first error.
@@ -1617,21 +1774,12 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     // Save).  Useful escape after experimentation goes wrong.
     widgetButtonRestoreDefaults = createWidget(
         xpWidgetClass_Button, "Restore Defaults");
-
+    
     audioToggleCheckbox = createWidget(
         xpWidgetClass_Button,
-        audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off"
+        audioEnabled ? "Sound: On" : "Sound: Off"
     );
 
-    // X-Plane stall horn toggle.  Label reads "on" when the sim's
-    // built-in horn is allowed to play, "off" when this plugin is
-    // muting it (the more-common pilot preference once OnSpeed audio
-    // takes over the role).  Inverts bMuteStallHorn for display.
-    widgetButtonStallHorn = createWidget(
-        xpWidgetClass_Button,
-        bMuteStallHorn ? "X-Plane Stall Horn: Off" : "X-Plane Stall Horn: On"
-    );
-    
     XPAddWidgetCallback(audioControlWidget, AudioControlHandler);
 }
 
@@ -1645,7 +1793,7 @@ static void UpdateAOATextFields() {
         return;
     }
 
-    char buffer[16];
+    char buffer[64];
 
     snprintf(buffer, sizeof(buffer), "%.1f", fLDMAXAOA);
     XPSetWidgetDescriptor(widgetLDMaxAOA, buffer);
@@ -1658,6 +1806,9 @@ static void UpdateAOATextFields() {
 
     snprintf(buffer, sizeof(buffer), "%.1f", fSTALLWARNAOA);
     XPSetWidgetDescriptor(widgetStallWarnAOA, buffer);
+
+    snprintf(buffer, sizeof(buffer), "%.1f", fALPHASTALL);
+    XPSetWidgetDescriptor(widgetAlphaStall, buffer);
 
     snprintf(buffer, sizeof(buffer), "%d", iMuteAudioUnderIAS);
     XPSetWidgetDescriptor(widgetMuteAudioUnderIAS, buffer);
@@ -1676,13 +1827,7 @@ static void UpdateAOATextFields() {
 
     if (audioToggleCheckbox) {
         XPSetWidgetDescriptor(audioToggleCheckbox,
-                              audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off");
-    }
-
-    if (widgetButtonStallHorn) {
-        XPSetWidgetDescriptor(widgetButtonStallHorn,
-                              bMuteStallHorn ? "X-Plane Stall Horn: Off"
-                                             : "X-Plane Stall Horn: On");
+                              audioEnabled ? "Sound: On" : "Sound: Off");
     }
 }
 
@@ -1758,24 +1903,38 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
     const char* tag = static_cast<const char *>(iRef);
     if (!strcmp(tag, "Show")) {
         if (!audioControlWidget) {
-            ClampAudioWindowOnScreen();
             CreateAudioControlWindow(s_audioWindow.left,  s_audioWindow.top,
                                      s_audioWindow.width, s_audioWindow.height);
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
-        } else {
-            XPHideWidget(audioControlWidget);
         }
-        // Refresh after the toggle so s_audioWindow.visible reflects
-        // the new open/closed state *and* any unflushed drag/resize
-        // the periodic poll hadn't picked up yet.  Persist if
-        // anything changed so a reboot reopens (or stays closed) at
-        // the right place.
+        // Refresh after showing so s_audioWindow.visible reflects the
+        // open *and* any unflushed drag/resize the periodic poll
+        // hadn't picked up yet.  Persist if anything changed so a
+        // reboot reopens automatically at the right place.
         RefreshAudioWindowState();
         if (AudioWindowChanged()) {
             SaveSettings();
         }
+        return;
+    }
+    if (!strcmp(tag, "MuteStallHorn")) {
+        bMuteStallHorn = !bMuteStallHorn;
+        if (g_MuteStallHornItemIdx >= 0)
+            XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
+                bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+        // When toggling off, restore whatever the .acf originally
+        // specified (captured the first time we muted for this
+        // aircraft) rather than blindly writing 1.  CheckAOAAndPlayTone
+        // only writes acf_has_stallwarn while the override is active,
+        // so toggling off would otherwise leave the sim's horn disabled
+        // until the next aircraft reload.
+        if (!bMuteStallHorn && acfHasStallwarnDataRef &&
+            g_iAcfHasStallwarnOriginal >= 0) {
+            XPLMSetDatai(acfHasStallwarnDataRef, g_iAcfHasStallwarnOriginal);
+        }
+        SaveSettings();
         return;
     }
 #ifdef ENABLE_M5_INDEXER
@@ -1807,6 +1966,18 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
             SetSerialPort(p);
             return;
         }
+    }
+    // IndexerMode<N> entries: parse the trailing digit.
+    if (!strncmp(tag, "IndexerMode", 11)) {
+        const int mode = tag[11] - '0';
+        // Show first — on first-time Show, the indexer's lazy-init
+        // resets displayType to 0 as part of InstallPanelAndRunSetup.
+        // SetMode AFTER so our requested mode wins.
+        if (!onspeed_xplane::indexer::IsVisible())
+            onspeed_xplane::indexer::Show();
+        onspeed_xplane::indexer::SetMode(mode);
+        SaveIndexerWindowState();   // immediate persist of mode change
+        return;
     }
 #endif
 }
@@ -2084,7 +2255,41 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
         XPLMSetDatai(acfHasStallwarnDataRef, 0);
     }
 
-    float aoa = XPLMGetDataf(aoaDataRef);
+    // On the ground above the IAS-mute floor with a known Vs, drive
+    // the audio path off the V² formula (same source the indicator
+    // uses) instead of X-Plane's raw alpha dataref.  Reason: weight
+    // on the gear pins X-Plane's geometric alpha well below the AOA
+    // setpoints, so comparing raw alpha against fLDMAXAOA / etc.
+    // never fires a tone during the takeoff roll — even though the
+    // wing is at max effort and the indicator is correctly pegged at
+    // ~99%.  MaybeSynthesizeAoaFromVSquared returns NaN unless the
+    // V² regime is active; otherwise we use the raw alpha dataref
+    // exactly as in flight.  See PercentLiftFill.cpp's docstring for
+    // the full design.
+    //
+    // Debounce against single-tick flicker (rough taxi, gear bounce on
+    // landing).  The debounced result is cached for the indexer to
+    // read via GetDebouncedOnGround so audio and indicator agree on
+    // the regime — without that, a one-frame raw-flicker would put
+    // the audio in V² mode while the indexer's debouncer still saw
+    // alpha mode (or vice versa).  Static state is safe because
+    // CheckAOAAndPlayTone runs on the X-Plane flight-loop thread.
+    static onspeed_xplane::indexer::OnGroundDebounceState
+        s_onGroundDebounce{};
+    const float fIas      = XPLMGetDataf(iasDataRef);
+    const bool  iasValid  = (iMuteAudioUnderIAS == 0)
+                            || (fIas >= iMuteAudioUnderIAS);
+    const bool  rawOnGround = onGroundAnyDataRef
+                              && XPLMGetDatai(onGroundAnyDataRef) != 0;
+    const bool  onGround = onspeed_xplane::indexer::DebounceOnGround(
+                              rawOnGround, s_onGroundDebounce);
+    g_DebouncedOnGround = onGround;   // shared with the indexer's Tick
+    const float synthAoa  = onspeed_xplane::indexer::
+                            MaybeSynthesizeAoaFromVSquared(
+                                fIas, iasValid, onGround);
+    const float aoa = std::isfinite(synthAoa)
+                        ? synthAoa
+                        : XPLMGetDataf(aoaDataRef);
     PlayAOATone(aoa, inElapsedSinceLastCall);
 
 #ifdef ENABLE_M5_INDEXER
@@ -2274,6 +2479,23 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // audio control window.
     acfVsDataRef = XPLMFindDataRef("sim/aircraft/view/acf_Vs");
 
+    // sim/flightmodel/failures/onground_any — int, true while any
+    // landing gear is touching.  Used to gate the V² audio synthesis
+    // (audio path drives tones from V²-synthesized AOA on the ground
+    // so cues match the indicator instead of comparing raw alpha
+    // against thresholds).  See MaybeSynthesizeAoaFromVSquared.
+    onGroundAnyDataRef = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
+
+    // Seed-on-first-load datarefs (issue #392).  Read once per
+    // aircraft from SeedSetpointsFromDatarefs when no .prf is
+    // present, then never again for that aircraft.  Optional: a
+    // missing dataref falls back through the helper's safer path
+    // (compiled-in defaults stand when acf_stall_warn_alpha is
+    // missing entirely; flat alpha_stall when only Vs/Vso are
+    // missing).
+    acfStallWarnAlphaRef = XPLMFindDataRef("sim/aircraft/overflow/acf_stall_warn_alpha");
+    acfVsoDataRef        = XPLMFindDataRef("sim/aircraft/view/acf_Vso");
+
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
 
     // 1 Hz callback that polls user-driven UI state changes (audio
@@ -2289,12 +2511,36 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // The SDK takes a non-const void* for menu item refcons; the matching
     // handler casts it back to const char* before strcmp. Discriminator
     // string is a literal — never written through the void*.
-    XPLMAppendMenuItem(menuId, "Settings: Show/Hide",
+    XPLMAppendMenuItem(menuId, "Show",
                        static_cast<void*>(const_cast<char*>("Show")), 1);
 
+    XPLMAppendMenuSeparator(menuId);
+    g_MuteStallHornItemIdx = XPLMAppendMenuItem(menuId,
+        "Mute X-Plane stall horn",
+        static_cast<void*>(const_cast<char*>("MuteStallHorn")), 1);
+    XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
+        bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+
 #ifdef ENABLE_M5_INDEXER
+    // Indexer menu items.  Discriminator strings are literals, never
+    // written through the void* refcon.  AudioMenuHandler dispatches
+    // on strcmp.
+    XPLMAppendMenuSeparator(menuId);
     XPLMAppendMenuItem(menuId, "Indexer: Show/Hide",
                        static_cast<void*>(const_cast<char*>("IndexerToggle")), 1);
+    // Names mirror tools/web/lib/pages/IndexerPage.js MODES table.
+    // Refcons stay "IndexerMode0..4" (the strcmp discriminator the
+    // handler dispatches on); only the user-visible labels change.
+    XPLMAppendMenuItem(menuId, "Energy",
+                       static_cast<void*>(const_cast<char*>("IndexerMode0")), 1);
+    XPLMAppendMenuItem(menuId, "Attitude",
+                       static_cast<void*>(const_cast<char*>("IndexerMode1")), 1);
+    XPLMAppendMenuItem(menuId, "Indexer",
+                       static_cast<void*>(const_cast<char*>("IndexerMode2")), 1);
+    XPLMAppendMenuItem(menuId, "Decel",
+                       static_cast<void*>(const_cast<char*>("IndexerMode3")), 1);
+    XPLMAppendMenuItem(menuId, "Historic G",
+                       static_cast<void*>(const_cast<char*>("IndexerMode4")), 1);
 
     // USB-serial submenu — routes the same wire frames to a physical
     // M5Stack so a Core2 plugged into a USB-C port behaves like a

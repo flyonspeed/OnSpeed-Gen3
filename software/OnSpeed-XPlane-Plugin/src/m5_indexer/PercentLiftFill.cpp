@@ -23,6 +23,10 @@ extern float fLDMAXAOA;
 extern float fONSPEEDFASTAOA;
 extern float fONSPEEDSLOWAOA;
 extern float fSTALLWARNAOA;
+// Wing AOA at literal stall — the 100% point on the indexer.
+// Pilot-editable, persisted in the .prf, seeded per-aircraft from
+// acf_stall_warn_alpha / 0.92.
+extern float fALPHASTALL;
 
 // 1G clean stall speed (KIAS), used by the on-ground V² formula.
 // Owned by aoa_audio.cpp; seeded from acf_Vs and pilot-editable.
@@ -34,21 +38,23 @@ namespace onspeed_xplane::indexer {
 
 namespace {
 
-// alpha_0 / alpha_stall approximation per spec.  Replaced by issue #392.
-constexpr float kAlpha0Approx = -2.0f;          // body-angle convention
-
-inline float AlphaStallApprox()
-{
-    return fSTALLWARNAOA * 1.075f;              // StallWarn ≈ 93% of stall
-}
+// alpha_0: the AOA at zero wing lift.  Zero by construction in the
+// X-Plane plugin's reference frame: this code reads
+// `sim/flightmodel/position/alpha`, which is *wing* AOA (not body
+// angle the way the firmware's AOA dataref is).  In wing-AOA terms a
+// zero-lift airfoil sits at alpha=0 by definition; the small offset
+// from that for a real cambered wing (a degree or two negative) isn't
+// exposed by any X-Plane dataref, so 0 is both the convention and the
+// best available approximation.
+constexpr float kAlpha0 = 0.0f;
 
 // Build a stack-local SuFlaps just for ComputePercentLift.  Avoids
 // pulling the entire OnSpeedConfig parser into the plugin.
 ::onspeed::config::OnSpeedConfig::SuFlaps MakeFlapCfg()
 {
     ::onspeed::config::OnSpeedConfig::SuFlaps f{};
-    f.fAlpha0         = kAlpha0Approx;
-    f.fAlphaStall     = AlphaStallApprox();
+    f.fAlpha0         = kAlpha0;
+    f.fAlphaStall     = fALPHASTALL;
     f.fLDMAXAOA       = fLDMAXAOA;
     f.fONSPEEDFASTAOA = fONSPEEDFASTAOA;
     f.fONSPEEDSLOWAOA = fONSPEEDSLOWAOA;
@@ -116,6 +122,53 @@ static float ComputeIasPercentLift(float liveIasKt,
     if (pct < 0.0f)  pct = 0.0f;
     if (pct > 99.9f) pct = 99.9f;
     return pct;
+}
+
+// Synthesize a wing-AOA value the audio path can compare against the
+// f*AOA thresholds, derived from the V² percent rather than X-Plane's
+// `sim/flightmodel/position/alpha`.
+//
+// Why: on the ground at IAS=50 with weight on the gear, X-Plane's
+// `alpha` reports the geometric wing-to-relative-wind angle, which is
+// well below stall (typically 4-7 degrees for a tail-low rolling
+// attitude).  The indicator's V² formula correctly reads ~99% (wing
+// would be at max effort if flying), but the audio path comparing
+// raw alpha against fLDMAXAOA reads "below LDmax" → no tone.  The
+// indicator and audio cues disagree.
+//
+// Fix: when the V² path is active for the indicator (onGround &&
+// iasValid && iVs1G > 0), drive the audio path off the same V²
+// percent.  Convert percent back to a wing-AOA value via the inverse
+// of ComputePercentLift's formula:
+//
+//   pct = (alpha - alpha_0) / (alpha_stall - alpha_0) * 100
+//   alpha = alpha_0 + (pct/100) * (alpha_stall - alpha_0)
+//
+// where alpha_0 / alpha_stall are MakeFlapCfg's synthetic anchors (the
+// same ones FillPercentLift uses).  Feed the synthesized AOA to
+// PlayAOATone, which compares against fLDMAXAOA / fONSPEEDFAST /
+// fONSPEEDSLOW / fSTALLWARN — and now produces tones consistent with
+// what the indicator shows.
+//
+// Returns NaN when V² mode is not active for any reason — caller
+// falls back to the raw alpha dataref reading.
+float MaybeSynthesizeAoaFromVSquared(float liveIasKt,
+                                     bool  iasValid,
+                                     bool  onGround)
+{
+    if (!(onGround && iasValid)) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    const auto flap = MakeFlapCfg();
+    const float stallWarnPct = onspeed::aoa::ComputePercentLift(
+        fSTALLWARNAOA, flap, true);
+    const float pct = ComputeIasPercentLift(liveIasKt, stallWarnPct);
+    if (!std::isfinite(pct)) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    const float alpha0     = kAlpha0;
+    const float alphaStall = fALPHASTALL;
+    return alpha0 + (pct / 100.0f) * (alphaStall - alpha0);
 }
 
 void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,

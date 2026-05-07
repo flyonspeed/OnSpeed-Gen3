@@ -80,6 +80,30 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
                      bool  iasValid,
                      bool  onGround);
 
+// Synthesize a wing-AOA value the audio path can compare against the
+// f*AOA thresholds, derived from the V² percent rather than X-Plane's
+// raw alpha dataref.
+//
+// On the ground at IAS=50 with weight on the gear, X-Plane's alpha
+// reports the geometric wing-to-relative-wind angle, which is well
+// below stall (typically 4-7 degrees for a tail-low rolling attitude).
+// The indicator's V² formula correctly reads ~99% (wing would be at
+// max effort if flying), but the audio path comparing raw alpha
+// against fLDMAXAOA reads "below LDmax" → no tone.  Indicator and
+// audio cues disagree.
+//
+// When V² mode is active for the indicator (onGround && iasValid &&
+// iVs1G > 0), this function returns a synthesized wing AOA equivalent
+// to where the V² percent would land on the alpha scale.  Caller
+// feeds this synthesized value into PlayAOATone in place of the raw
+// alpha dataref so audio cues track the indicator.
+//
+// Returns NaN when V² mode is not active — caller should use the raw
+// alpha dataref reading instead.
+float MaybeSynthesizeAoaFromVSquared(float liveIasKt,
+                                     bool  iasValid,
+                                     bool  onGround);
+
 // Debounce filter for sim/flightmodel/failures/onground_any.
 //
 // X-Plane reports "any gear touching" as a single-frame boolean.
@@ -114,3 +138,11 @@ constexpr int kOnGroundHoldFrames = 5;
 bool DebounceOnGround(bool rawOnGround, OnGroundDebounceState& state);
 
 }  // namespace onspeed_xplane::indexer
+
+// Shared debounced onground_any value.  Defined in aoa_audio.cpp;
+// CheckAOAAndPlayTone (audio path) writes it once per flight-loop
+// tick after running the raw onground_any reading through
+// DebounceOnGround.  BuildInputsFromDatarefs reads it so the audio
+// path's V² regime and the indexer's V² regime can never disagree
+// on a single-tick flicker — both consume the same debounced value.
+extern bool g_DebouncedOnGround;

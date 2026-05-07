@@ -69,3 +69,17 @@ target_compile_options(legacy_json_parse PRIVATE
     -Wall -Wextra -Werror -Wshadow -Wformat=2)
 
 add_test(NAME legacy_json_parse COMMAND legacy_json_parse)
+
+# auto_setpoints — pins the per-frame derivation in auto mode that
+# turns X-Plane's stall-AOA datarefs into the four AOA setpoints.
+# Compiles AutoSetpoints.cpp directly (no XPLM, no onspeed_core).
+add_executable(auto_setpoints
+    auto_setpoints.cpp
+    ../src/m5_indexer/AutoSetpoints.cpp)
+target_compile_features(auto_setpoints PRIVATE cxx_std_17)
+target_compile_options(auto_setpoints PRIVATE
+    -Wall -Wextra -Werror -Wshadow -Wformat=2)
+target_include_directories(auto_setpoints PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+
+add_test(NAME auto_setpoints COMMAND auto_setpoints)
