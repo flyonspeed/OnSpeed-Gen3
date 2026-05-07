@@ -37,6 +37,7 @@ iMasterVolumePct = 100
 iAoaMedianWindow = 5
 iAoaMeanWindow = 10
 audioEnabled = 1
+bMuteStallHorn = 0
 serialPortPath = /dev/cu.usbmodem11201
 indexerVisible = 1
 indexerMode = 0
@@ -64,6 +65,7 @@ indexerPopHeight = 240
 | `iAoaMedianWindow` | int (samples) | 1 – 100 | Median-despike window size on the AOA dataref. `1` disables. |
 | `iAoaMeanWindow` | int (samples) | 1 – 100 | Running-mean window size after the median. `1` disables. |
 | `audioEnabled` | int 0/1 | — | Sound on/off toggle. Persists across sim restart. |
+| `bMuteStallHorn` | int 0/1 | — | Mute the sim's built-in stall horn. Toggled via **Plugins → Fly On Speed → Mute X-Plane stall horn**. When `1`, the plugin clears `sim/aircraft/view/acf_has_stallwarn` each flight loop. |
 | `serialPortPath` | string | OS-dependent | USB-serial port to drive a tethered M5. Empty = no output. |
 | `indexerVisible` | int 0/1 | — | Whether the indexer window was open at last save. Restored on `XPLM_MSG_AIRPORT_LOADED`. |
 | `indexerMode` | int | 0 – 4 | Last-active indexer display mode (Primary, Attitude, Narrow AOA, Decel, G History). |
@@ -98,9 +100,12 @@ The setting is per-aircraft and persists across X-Plane sessions in
 the `.prf`. Toggling off restores whatever the aircraft's `.acf` file
 originally specified, so an aircraft that legitimately has no stall
 horn doesn't end up with one after a mute/unmute cycle. Note: only
-the sim's default stall warning is suppressed; some third-party
-aircraft drive their own horn from a separate plugin or panel system,
-which this toggle can't reach.
+the sim's default `acf_has_stallwarn`-driven warning is suppressed.
+Some third-party aircraft drive their own horn from a separate plugin
+or panel system, which this toggle can't reach. Aircraft that drive a
+variable-intensity stall warning through
+`sim/cockpit2/annunciators/stall_warning_ratio` directly also bypass
+`acf_has_stallwarn` and aren't affected by this toggle.
 
 Click **Save** to validate, apply, and write to the per-aircraft
 `.prf`. Validation runs in two passes:

@@ -720,11 +720,19 @@ static void OnAircraftLoaded() {
     rebuildAoaSmoothers();
     UpdateAOATextFields();
 
-    // The new aircraft's .acf has just been applied to acf_has_stallwarn,
-    // so any value we previously captured for the prior aircraft is
-    // stale.  Drop it; the next mute-on read in CheckAOAAndPlayTone will
-    // re-capture from the new aircraft's value.  Sync the menu checkmark
-    // with whatever LoadSettings restored for this aircraft.
+    // Drop the prior aircraft's captured acf_has_stallwarn value; the
+    // next mute-on tick in CheckAOAAndPlayTone re-captures from whatever
+    // is live on the new aircraft.  Assumes XPLM_MSG_PLANE_LOADED fires
+    // after the new .acf has been applied to the dataref — likely true
+    // and consistent with the indexer's deferred-restore pattern, but
+    // the SDK doesn't pin this down explicitly.  If a future X-Plane
+    // version were to fire PLANE_LOADED before the .acf-driven dataref
+    // values land, the next capture would lock in our previously-written
+    // 0 as the "original," and toggle-off would leave the new aircraft
+    // muted until next reload.  Defer-to-AIRPORT_LOADED (the existing
+    // s_indexerRestorePending pattern) is the fix if this ever bites.
+    // Sync the menu checkmark with whatever LoadSettings restored for
+    // this aircraft.
     g_iAcfHasStallwarnOriginal = -1;
     if (g_MuteStallHornItemIdx >= 0)
         XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
