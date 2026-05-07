@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://dev.flyonspeed.org/latest/software/audio-tone-spec/">
+        <link rel="canonical" href="https://dev.flyonspeed.org/latest/reference/indexer-spec/">
       
       
-        <link rel="prev" href="../building/">
+        <link rel="prev" href="../audio-tone-spec/">
       
       
-        <link rel="next" href="../indexer-spec/">
+        <link rel="next" href="../hardware-specs/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Audio Tone Spec (WIP) - OnSpeed Gen3 Documentation</title>
+        <title>Indexer Spec - OnSpeed Gen3 Documentation</title>
       
     
     
@@ -115,7 +115,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#audio-tone-spec" class="md-skip">
+        <a href="#indexer-spec" class="md-skip">
           Skip to content
         </a>
       
@@ -152,7 +152,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Audio Tone Spec (WIP)
+              Indexer Spec
             
           </span>
         </div>
@@ -348,13 +348,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../software/" class="md-tabs__link">
           
   
   
@@ -504,11 +502,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../reference/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -1425,8 +1425,6 @@
       
   
   
-    
-  
   
   
     
@@ -1442,31 +1440,26 @@
       
         
       
-        
-      
-        
-      
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../software/" class="md-nav__link ">
               
   
   
@@ -1484,13 +1477,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1510,7 +1503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../flashing/" class="md-nav__link">
+      <a href="../../software/flashing/" class="md-nav__link">
         
   
   
@@ -1538,7 +1531,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ota-update/" class="md-nav__link">
+      <a href="../../software/ota-update/" class="md-nav__link">
         
   
   
@@ -1566,7 +1559,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../building/" class="md-nav__link">
+      <a href="../../software/building/" class="md-nav__link">
         
   
   
@@ -1574,308 +1567,6 @@
     
   
     Building from Source
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-    
-  
-  
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Audio Tone Spec (WIP)
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Audio Tone Spec (WIP)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#0-signal-chain" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        0. Signal chain
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#1-tone-decision-regions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Tone-decision regions
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="1. Tone-decision regions">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#mute-region-details" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MUTE region details
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2-per-pulse-envelope-dahdr-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Per-pulse envelope (DAHDR shape)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="2. Per-pulse envelope (DAHDR shape)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#worked-numeric-values" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Worked numeric values
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gate-trace-per-pulse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Gate trace per pulse
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#solid-tone-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Solid tone shape
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-cadence-requirement" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Cadence requirement
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-transition-policies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Transition policies
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-per-pps-volume-ramp-carrier-amplitude" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. Per-PPS volume ramp (carrier amplitude)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-master-volume" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. Master volume
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#7-3d-audio-centripetal-lateral-pan" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. 3D audio (centripetal lateral pan)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#8-click-free-invariant" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. Click-free invariant
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#9-voice-pcm-playback" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        9. Voice (PCM) playback
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#10-audio-switch" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        10. Audio switch
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#11-latency-targets" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        11. Latency targets
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#reporting-discrepancies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reporting discrepancies
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../indexer-spec/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Indexer Spec
   
 
     
@@ -3226,6 +2917,8 @@
       
   
   
+    
+  
   
   
     
@@ -3247,26 +2940,31 @@
       
         
       
+        
+      
+        
+      
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_12" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_12" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../reference/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -3284,13 +2982,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_12" id="__nav_12_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_12_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_12">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3310,7 +3008,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/config-parameters/" class="md-nav__link">
+      <a href="../config-parameters/" class="md-nav__link">
         
   
   
@@ -3338,7 +3036,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/log-columns/" class="md-nav__link">
+      <a href="../log-columns/" class="md-nav__link">
         
   
   
@@ -3366,7 +3064,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/serial-protocol/" class="md-nav__link">
+      <a href="../serial-protocol/" class="md-nav__link">
         
   
   
@@ -3394,7 +3092,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/websocket-protocol/" class="md-nav__link">
+      <a href="../websocket-protocol/" class="md-nav__link">
         
   
   
@@ -3422,7 +3120,309 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/hardware-specs/" class="md-nav__link">
+      <a href="../audio-tone-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-design-rule-vac" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. Design rule (Vac)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-visual-elements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Visual elements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-wire-fields-that-drive-the-indexer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Wire fields that drive the indexer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gates-and-color-logic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gates and color logic
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Gates and color logic">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-top-chevrons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Top chevrons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-bottom-chevron-operational-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Bottom chevron — operational cue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-donut" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Donut
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-white-index-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 White index bar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-ldmax-pip-dots-aerodynamic-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 L/Dmax pip dots — aerodynamic cue
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-screen-y-mapping-mappct2display" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Screen-Y mapping (mapPct2Display)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-pip-computation-pippctlift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Pip computation (pipPctLift)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Pip computation (pipPctLift)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-ignore-intermediate-detents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why ignore intermediate detents
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-snap-vs-slide-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Snap-vs-slide table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-continuity-invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Continuity invariants
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-worked-example-rv-10-samfrogrocketaicom-calibration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Worked example (RV-10, sam@frogrocketai.com calibration)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-bench-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Bench verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-wire-format-change-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Wire-format change history
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware-specs/" class="md-nav__link">
         
   
   
@@ -3450,7 +3450,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/glossary/" class="md-nav__link">
+      <a href="../glossary/" class="md-nav__link">
         
   
   
@@ -3505,10 +3505,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#0-signal-chain" class="md-nav__link">
+  <a href="#0-design-rule-vac" class="md-nav__link">
     <span class="md-ellipsis">
       
-        0. Signal chain
+        0. Design rule (Vac)
       
     </span>
   </a>
@@ -3516,22 +3516,88 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#1-tone-decision-regions" class="md-nav__link">
+  <a href="#1-visual-elements" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Tone-decision regions
+        1. Visual elements
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="1. Tone-decision regions">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-wire-fields-that-drive-the-indexer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Wire fields that drive the indexer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-gates-and-color-logic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Gates and color logic
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Gates and color logic">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mute-region-details" class="md-nav__link">
+  <a href="#31-top-chevrons" class="md-nav__link">
     <span class="md-ellipsis">
       
-        MUTE region details
+        3.1 Top chevrons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-bottom-chevron-operational-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Bottom chevron — operational cue
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-donut" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Donut
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-white-index-bar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 White index bar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-ldmax-pip-dots-aerodynamic-cue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 L/Dmax pip dots — aerodynamic cue
       
     </span>
   </a>
@@ -3544,44 +3610,33 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-per-pulse-envelope-dahdr-shape" class="md-nav__link">
+  <a href="#4-screen-y-mapping-mappct2display" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Per-pulse envelope (DAHDR shape)
+        4. Screen-Y mapping (mapPct2Display)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="2. Per-pulse envelope (DAHDR shape)">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-pip-computation-pippctlift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Pip computation (pipPctLift)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Pip computation (pipPctLift)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#worked-numeric-values" class="md-nav__link">
+  <a href="#why-ignore-intermediate-detents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worked numeric values
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gate-trace-per-pulse" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Gate trace per pulse
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#solid-tone-shape" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Solid tone shape
+        Why ignore intermediate detents
       
     </span>
   </a>
@@ -3594,10 +3649,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-cadence-requirement" class="md-nav__link">
+  <a href="#6-snap-vs-slide-table" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Cadence requirement
+        6. Snap-vs-slide table
       
     </span>
   </a>
@@ -3605,10 +3660,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-transition-policies" class="md-nav__link">
+  <a href="#7-continuity-invariants" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Transition policies
+        7. Continuity invariants
       
     </span>
   </a>
@@ -3616,10 +3671,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-per-pps-volume-ramp-carrier-amplitude" class="md-nav__link">
+  <a href="#8-worked-example-rv-10-samfrogrocketaicom-calibration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Per-PPS volume ramp (carrier amplitude)
+        8. Worked example (RV-10, sam@frogrocketai.com calibration)
       
     </span>
   </a>
@@ -3627,10 +3682,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-master-volume" class="md-nav__link">
+  <a href="#9-bench-verification" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Master volume
+        9. Bench verification
       
     </span>
   </a>
@@ -3638,65 +3693,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#7-3d-audio-centripetal-lateral-pan" class="md-nav__link">
+  <a href="#10-wire-format-change-history" class="md-nav__link">
     <span class="md-ellipsis">
       
-        7. 3D audio (centripetal lateral pan)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#8-click-free-invariant" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. Click-free invariant
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#9-voice-pcm-playback" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        9. Voice (PCM) playback
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#10-audio-switch" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        10. Audio switch
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#11-latency-targets" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        11. Latency targets
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#reporting-discrepancies" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reporting discrepancies
+        10. Wire-format change history
       
     </span>
   </a>
@@ -3720,7 +3720,7 @@
 
 
   
-    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/software/audio-tone-spec.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/flyonspeed/OnSpeed-Gen3/edit/master/docs/site/docs/reference/indexer-spec.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -3728,464 +3728,443 @@
   
 
 
-<h1 id="audio-tone-spec">Audio Tone Spec<a class="headerlink" href="#audio-tone-spec" title="Permanent link">&para;</a></h1>
-<p>This is the developer-facing reference for the OnSpeed aural-tone subsystem. It defines the audible output precisely enough that two independent implementations should produce indistinguishable audio at the speaker.</p>
-<p>It is <strong>not</strong> a pilot-facing document. For "what do the tones mean in flight", see <a href="../../flying/tone-map/">What the Tones Mean</a>.</p>
-<p>The canonical implementation is the Gen3 firmware on <code>master</code>. Where Gen2 (the Teensy-based reference Lenny tuned) differs, the spec calls out the deviation under a "Gen2 deviation" admonition — useful context for porters, but not a contract.</p>
-<div class="admonition warning">
-<p class="admonition-title">Bench verification still pending</p>
-<p>The audible behaviour on real V4P hardware has not yet been scope-traced and compared side-by-side with a Gen2 unit. Until that's done, treat the spec as the design intent; if hardware diverges from the spec, file an issue with the trace.</p>
+<h1 id="indexer-spec">Indexer Spec<a class="headerlink" href="#indexer-spec" title="Permanent link">&para;</a></h1>
+<p>This is the developer-facing reference for the OnSpeed indexer — the visual gauge the M5 secondary display (and the in-cockpit tablet via the <code>/indexer</code> web tab) draws. It defines what every visual element shows, what gates each color change, and how each anchor on the gauge moves with the lever.</p>
+<p>It is <strong>not</strong> a pilot-facing document. For "what do the lights mean in flight," see <a href="../../flying/tone-map/">What the Tones Mean</a>. For the audio side that the chevron + audio low tone share, see <a href="../audio-tone-spec/">Audio Tone Spec</a>.</p>
+<p>The canonical implementations are:</p>
+<ul>
+<li><code>software/OnSpeed-M5-Display/src/main.cpp::drawAOA</code> — the renderer</li>
+<li><code>software/Libraries/onspeed_core/src/aoa/DisplayPctAnchors.{h,cpp}</code> — the anchor producer</li>
+<li><code>software/Libraries/onspeed_core/src/proto/DisplaySerial.h</code> — the wire format</li>
+</ul>
+<h2 id="0-design-rule-vac">0. Design rule (Vac)<a class="headerlink" href="#0-design-rule-vac" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>L/Dmax pips are aerodynamic references.</strong></p>
+<p><strong>Fast tone is an operational limit cue.</strong></p>
+<p><strong>They must remain independent.</strong></p>
+<p>— Vac, <em>L/Dmax Cue and Fast-Tone Logic</em>, §8</p>
+</blockquote>
+<div class="admonition note">
+<p class="admonition-title">Vac's 'fast tone' = OnSpeed's 'low tone'</p>
+<p>Vac's term <strong>fast tone</strong> is the cue that fires when you're flying <em>fast for this configuration</em> — i.e., AOA is below the OnSpeed band. In OnSpeed firmware terminology this is the <strong>low tone</strong> (the 400 Hz pulse, gated by <code>fLDMAXAOA</code>). The OnSpeed <em>high tone</em> (1600 Hz, gated by <code>fONSPEEDSLOWAOA</code>) is the slow-side warning, not the fast-side cue. So Vac's "fast tone is an operational limit cue" applies to the L/Dmax / low-tone gate documented throughout this spec.</p>
 </div>
-<h2 id="0-signal-chain">0. Signal chain<a class="headerlink" href="#0-signal-chain" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sinewave(carrier_hz, carrier_amp) → envelope(gate ∈ [0,1])
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>   → tone_mixer(master_volume)
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>   → ampLeft(left_pan_gain), ampRight(right_pan_gain)
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>   → DAC L/R
+<p>This rule is load-bearing. The indexer carries two cues that are <em>visually</em> near each other but <em>semantically</em> unrelated:</p>
+<ul>
+<li><strong>Operational cue</strong>: the bottom green chevron, gated on the audio low-tone threshold. Snaps per detent. If a tone is on, the chevron is green.</li>
+<li><strong>Aerodynamic cue</strong>: the L/Dmax pip dots on the index bar's edges. Slides smoothly with the lever. Reflects the aerodynamic intuition that L/Dmax body angle slides toward the OnSpeed band as flaps deploy.</li>
+</ul>
+<p>The two coincide visually only at the cleanest detent. They diverge during deployment, by design.</p>
+<h2 id="1-visual-elements">1. Visual elements<a class="headerlink" href="#1-visual-elements" title="Permanent link">&para;</a></h2>
+<p>The indexer occupies a vertical strip on the M5 panel (and the tablet canvas). Five elements:</p>
+<table>
+<thead>
+<tr>
+<th>Element</th>
+<th>Position</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Top chevrons</strong></td>
+<td>Top of strip</td>
+<td>Stall warning. Yellow approaching stall, red imminent, flashing red past stall warn.</td>
+</tr>
+<tr>
+<td><strong>Bottom chevron</strong></td>
+<td>Bottom of strip</td>
+<td>Operational cue. Green when the audio low tone is playing.</td>
+</tr>
+<tr>
+<td><strong>Donut top arc</strong></td>
+<td>Just above midline</td>
+<td>OnSpeed cue (top half). Green when AOA is in the upper half of the OnSpeed band.</td>
+</tr>
+<tr>
+<td><strong>Donut bottom arc</strong></td>
+<td>Just below midline</td>
+<td>OnSpeed cue (bottom half). Green when AOA is in the lower half of the OnSpeed band.</td>
+</tr>
+<tr>
+<td><strong>Donut center dot</strong></td>
+<td>Center of strip</td>
+<td>OnSpeed cue (centered). Green when AOA is in the middle 50% of the OnSpeed band.</td>
+</tr>
+<tr>
+<td><strong>White index bar</strong></td>
+<td>Slides on strip</td>
+<td>Current AOA in percent-lift space.</td>
+</tr>
+<tr>
+<td><strong>L/Dmax pip dots</strong></td>
+<td>Two small dots on strip edges</td>
+<td>Aerodynamic cue. Slides smoothly clean → fullflap.</td>
+</tr>
+</tbody>
+</table>
+<p>The strip's vertical extent maps to percent-lift via a piecewise-linear function (see §4). All gates are in percent-lift units.</p>
+<h2 id="2-wire-fields-that-drive-the-indexer">2. Wire fields that drive the indexer<a class="headerlink" href="#2-wire-fields-that-drive-the-indexer" title="Permanent link">&para;</a></h2>
+<p>The Gen3 firmware emits one <code>#1</code> frame every 50 ms. Each visual element reads one or more percent fields:</p>
+<table>
+<thead>
+<tr>
+<th>Wire field</th>
+<th>Snap or slide</th>
+<th>Drives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>percentLift</code></td>
+<td>live AOA reading</td>
+<td>white index bar position</td>
+</tr>
+<tr>
+<td><code>tonesOnPctLift</code></td>
+<td>snap per active detent</td>
+<td>bottom chevron lower gate</td>
+</tr>
+<tr>
+<td><code>onSpeedFastPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut bottom arc lower edge, donut center bounds, screen Y-mapping</td>
+</tr>
+<tr>
+<td><code>onSpeedSlowPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut top arc upper edge, screen Y-mapping, top chevron color thresholds</td>
+</tr>
+<tr>
+<td><code>stallWarnPctLift</code></td>
+<td>snap per active detent</td>
+<td>top chevron flash threshold, screen Y-mapping</td>
+</tr>
+<tr>
+<td><code>pipPctLift</code></td>
+<td>slide clean → fullflap</td>
+<td>L/Dmax pip dot positions</td>
+</tr>
+<tr>
+<td><code>flapsDeg</code></td>
+<td>per-bracket lerp</td>
+<td>flap-position widget angle (separate from indexer)</td>
+</tr>
+</tbody>
+</table>
+<p><code>percentLift</code> is the live AOA reading as a <code>float</code> in whole-percent units (0.0..99.9), computed from <code>g_Sensors.AOA</code> and the active detent's calibration via <code>ComputePercentLift</code>. The four anchor fields (<code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, <code>pipPctLift</code>) stay integer-percent in <code>[0, 99]</code> — they only move on detent or config-save events, so sub-percent buys nothing on those. Computed by <code>ComputeDisplayPctAnchors</code> from the configured flap vector and the raw lever-pot ADC. Comparisons between <code>percentLift</code> (float) and an anchor (int) promote the int to float; behavior is exact for our range since integer values up to 2²⁴ are representable in float32 without rounding.</p>
+<h2 id="3-gates-and-color-logic">3. Gates and color logic<a class="headerlink" href="#3-gates-and-color-logic" title="Permanent link">&para;</a></h2>
+<h3 id="31-top-chevrons">3.1 Top chevrons<a class="headerlink" href="#31-top-chevrons" title="Permanent link">&para;</a></h3>
+<p>Two stylized triangles forming an up-arrow near the top.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>    chevMid = onSpeedSlowPctLift + (stallWarnPctLift − onSpeedSlowPctLift) / 2
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    if percentLift &gt; onSpeedSlowPctLift  and  percentLift ≤ chevMid          → YELLOW
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    if percentLift &gt; chevMid             and  percentLift ≤ stallWarnPctLift → RED
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    if percentLift &gt; stallWarnPctLift    and  not flashing                   → RED
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    if percentLift &gt; stallWarnPctLift    and  flashing                       → DARKGREY (flashing red blink)
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    otherwise                                                                 → DARKGREY
 </code></pre></div>
-<p>For each output sample, the audible level is:</p>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~870–920.</p>
+<h3 id="32-bottom-chevron-operational-cue">3.2 Bottom chevron — <em>operational cue</em><a class="headerlink" href="#32-bottom-chevron-operational-cue" title="Permanent link">&para;</a></h3>
+<p>Two stylized triangles forming a down-arrow near the bottom.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>    if percentLift ≥ tonesOnPctLift  and  percentLift &lt; onSpeedSlowPctLift → GREEN
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    otherwise                                                              → DARKGREY
+</code></pre></div>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~921–970.</p>
+<p><strong>This gate matches the audio low-tone gate exactly.</strong> When the audio is pulsing the low tone (a "you're flying fast for this flap configuration" cue), the bottom chevron is green. When the audio goes silent or transitions to solid (in the donut band), the chevron goes dark or stays in the prior color.</p>
+<p>The audio path computes the same condition independently, against <code>g_Config.aFlaps[g_Flaps.iIndex].fLDMAXAOA</code> and <code>fONSPEEDFASTAOA</code>. <code>tonesOnPctLift</code> on the wire is <code>ComputePercentLift(active.fLDMAXAOA, active, true)</code> — the percent representation of the audio threshold for the active detent. Both fire from the same source of truth; they snap together at every detent transition.</p>
+<h3 id="33-donut">3.3 Donut<a class="headerlink" href="#33-donut" title="Permanent link">&para;</a></h3>
+<p>Three concentric elements.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>    OnspeedRange = onSpeedSlowPctLift − onSpeedFastPctLift
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    bottom arc   = GREEN  if  percentLift ≥ onSpeedFastPctLift                  and  percentLift ≤ onSpeedSlowPctLift − 0.25 × OnspeedRange
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    top arc      = GREEN  if  percentLift ≥ onSpeedFastPctLift + 0.25 × OnspeedRange  and  percentLift ≤ onSpeedSlowPctLift
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    center dot   = GREEN  if  percentLift ≥ onSpeedFastPctLift + 0.25 × OnspeedRange  and  percentLift ≤ onSpeedSlowPctLift − 0.25 × OnspeedRange
+</code></pre></div>
+<p>The three regions overlap: at the geometric center of the band, all three are lit simultaneously. The center dot lights across the inner 50% of the band; the arcs light across an extra 25% on each side.</p>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~975–1000.</p>
+<h3 id="34-white-index-bar">3.4 White index bar<a class="headerlink" href="#34-white-index-bar" title="Permanent link">&para;</a></h3>
+<p>Horizontal bar across the full strip width.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>    Y = mapPct2Display(percentLift, anchors)
+</code></pre></div>
+<p>Where <code>mapPct2Display</code> (see §4) maps percent-lift to a pixel Y coordinate using the snapped band edges as anchor points.</p>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~1002–1004.</p>
+<h3 id="35-ldmax-pip-dots-aerodynamic-cue">3.5 L/Dmax pip dots — <em>aerodynamic cue</em><a class="headerlink" href="#35-ldmax-pip-dots-aerodynamic-cue" title="Permanent link">&para;</a></h3>
+<p>Two small white dots, one on each side of the strip.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>    Y = mapPct2Display(pipPctLift, anchors)
+</code></pre></div>
+<p><code>pipPctLift</code> slides smoothly across the entire pot range (see §5). At the cleanest detent, <code>pipPctLift == tonesOnPctLift</code> and the pip lines up with the bottom chevron's edge. At the most-deployed detent, <code>pipPctLift</code> equals the geometric center of that detent's OnSpeed band and the pip sits inside the donut.</p>
+<p>Source: <code>main.cpp::drawAOA</code>, lines ~1010–1014.</p>
+<h2 id="4-screen-y-mapping-mappct2display">4. Screen-Y mapping (<code>mapPct2Display</code>)<a class="headerlink" href="#4-screen-y-mapping-mappct2display" title="Permanent link">&para;</a></h2>
+<p>The strip's pixel Y coordinate is a piecewise-linear function of percent-lift, anchored on the snapped band edges:</p>
+<table>
+<thead>
+<tr>
+<th>Percent-lift range</th>
+<th>Pixel Y range</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>≤ 0</code></td>
+<td><code>192</code> (display bottom)</td>
+</tr>
+<tr>
+<td><code>(0, onSpeedFastPctLift]</code></td>
+<td><code>192 → 115</code> (linear)</td>
+</tr>
+<tr>
+<td><code>(onSpeedFastPctLift, onSpeedSlowPctLift]</code></td>
+<td><code>115 → 78</code> (donut band, fixed screen-Y)</td>
+</tr>
+<tr>
+<td><code>(onSpeedSlowPctLift, 99]</code></td>
+<td><code>78 → 1</code> (linear)</td>
+</tr>
+<tr>
+<td><code>&gt; 99</code></td>
+<td><code>1</code> (display top)</td>
+</tr>
+</tbody>
+</table>
+<p>The upper ramp tops out at percent_lift = 99 — the lift-envelope ceiling — independent of the active detent's stall-warn percent. Stall-warn drives the chevron flash-red color logic in <code>drawAOA</code> (§3.1); it does not gate Y here. Floats in (99.0, 99.9] (the float clamp range above 99) saturate at y=1 just like the integer 99 — the bar visibly pinning at "off the chart" is the documented saturation cue.</p>
+<p>The donut band is anchored at fixed pixel Y so the donut never moves on screen, regardless of which detent is active. The L/Dmax pip and the white index bar both float according to their percent values — when those values fall within the donut band, they appear inside it.</p>
+<p>Source: <code>main.cpp::mapPct2Display</code>, line ~1510.</p>
+<h2 id="5-pip-computation-pippctlift">5. Pip computation (<code>pipPctLift</code>)<a class="headerlink" href="#5-pip-computation-pippctlift" title="Permanent link">&para;</a></h2>
+<p>The pip percent is a single linear interpolation between two endpoints:</p>
 <div class="arithmatex">\[
-\text{sample}_L = \sin(2\pi \cdot \text{carrier\_hz} \cdot t) \cdot \text{carrier\_amp} \cdot \text{gate}(t) \cdot \text{master\_volume} \cdot \text{left\_pan\_gain}
+\text{pipPctLift} = \text{round}\left(\text{lerp}\left(\text{pipClean},\ \text{pipFullFlap},\ \lambda\right)\right)
+\]</div>
+<p>with</p>
+<div class="arithmatex">\[
+\lambda = \mathrm{clamp}\!\left( \frac{\text{rawAdc} - \text{cleanest.iPotPosition}}{\text{mostDeployed.iPotPosition} - \text{cleanest.iPotPosition}},\ 0,\ 1 \right)
+\]</div>
+<p>and</p>
+<div class="arithmatex">\[
+\text{pipClean} = \text{ComputePercentLift}(\text{cleanest.fLDMAXAOA},\ \text{cleanest})
 \]</div>
 <div class="arithmatex">\[
-\text{sample}_R = \sin(2\pi \cdot \text{carrier\_hz} \cdot t) \cdot \text{carrier\_amp} \cdot \text{gate}(t) \cdot \text{master\_volume} \cdot \text{right\_pan\_gain}
+\text{pipFullFlap} = \frac{1}{4}\left( 3 \cdot \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDFASTAOA},\ \text{mostDeployed}) + \text{ComputePercentLift}(\text{mostDeployed.fONSPEEDSLOWAOA},\ \text{mostDeployed}) \right)
 \]</div>
+<p>That is, the full-flap pip target is the <strong>bottom-half-of-donut</strong> anchor — one quarter of the way from the fast (lower-percent) edge into the OnSpeed band. Lands the chevron in the lower donut at L/Dmax instead of climbing into the upper donut to meet a band-center pip (per PR #376).</p>
+<p><code>cleanest</code> is the lowest-degree configured flap entry (<code>g_Config.aFlaps[0]</code> after parse-time sort). <code>mostDeployed</code> is the highest-degree entry (<code>g_Config.aFlaps[entryCount-1]</code>). <strong>Intermediate detents are ignored</strong> for the pip — a typical 3-detent config (clean / 16° / 33°) lerps from clean to 33° as the lever moves, passing through the 16° detent's calibrated L/Dmax percent only by coincidence (the 16° detent's L/Dmax does not anchor the pip).</p>
+<p>Source: <code>DisplayPctAnchors.cpp::ComputeDisplayPctAnchors</code>.</p>
+<h3 id="why-ignore-intermediate-detents">Why ignore intermediate detents<a class="headerlink" href="#why-ignore-intermediate-detents" title="Permanent link">&para;</a></h3>
+<p>Per Vac, this is intentional. The pip is a <em>visual aerodynamic reference</em>, not a per-detent calibration anchor. The aerodynamic intuition — "L/Dmax slides toward OnSpeed as flaps deploy" — is faithfully represented by a smooth two-endpoint lerp; making the pip visit each calibrated detent's L/Dmax mid-deployment introduces a subtle stutter the design specifically avoids.</p>
+<p>The operational cue (the bottom chevron, gated on <code>tonesOnPctLift</code>) handles per-detent calibration accurately, because it must match the audio.</p>
+<h2 id="6-snap-vs-slide-table">6. Snap-vs-slide table<a class="headerlink" href="#6-snap-vs-slide-table" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Term</th>
-<th>Domain</th>
-<th>Meaning</th>
+<th>Field</th>
+<th>Behavior</th>
+<th>Why</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>carrier_hz</code></td>
-<td>{400, 1600} Hz</td>
-<td>Low / high tone (Audio.cpp <code>LOW_TONE_HZ</code> / <code>HIGH_TONE_HZ</code>)</td>
+<td><code>tonesOnPctLift</code></td>
+<td>snap per active detent</td>
+<td>matches audio low-tone gate; chevron snaps with audio</td>
 </tr>
 <tr>
-<td><code>carrier_amp</code></td>
-<td>[0, 1]</td>
-<td>Per-PPS amplitude (<code>ToneResult::fVolumeMult</code>); see §5</td>
+<td><code>onSpeedFastPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut lower edge; matches audio's onspeed-fast threshold</td>
 </tr>
 <tr>
-<td><code>gate(t)</code></td>
-<td>[0, 1]</td>
-<td>DAHDR envelope output</td>
+<td><code>onSpeedSlowPctLift</code></td>
+<td>snap per active detent</td>
+<td>donut upper edge; matches audio's onspeed-slow threshold</td>
 </tr>
 <tr>
-<td><code>master_volume</code></td>
-<td>[0, 1]</td>
-<td>Pot-derived (<code>AudioPlay::SetVolume</code>)</td>
+<td><code>stallWarnPctLift</code></td>
+<td>snap per active detent</td>
+<td>top chevron flash; matches audio's stall-warn threshold</td>
 </tr>
 <tr>
-<td><code>left_pan_gain</code>, <code>right_pan_gain</code></td>
-<td>[0, 2]</td>
-<td>3D-audio centripetal pan; can exceed 1.0 in a hard turn (see §8 for clipping behaviour)</td>
+<td><code>pipPctLift</code></td>
+<td>slide clean → fullflap (single lerp, ignores intermediate detents)</td>
+<td>aerodynamic reference; smooth visual</td>
+</tr>
+<tr>
+<td><code>flapsDeg</code></td>
+<td>slide per-bracket (lerp adjacent detents' iDegrees)</td>
+<td>mechanical lever angle; visits every detent</td>
 </tr>
 </tbody>
 </table>
-<h2 id="1-tone-decision-regions">1. Tone-decision regions<a class="headerlink" href="#1-tone-decision-regions" title="Permanent link">&para;</a></h2>
-<p><code>UpdateTones()</code> runs at 50 Hz and maps the current <span class="arithmatex">\((\text{IAS}, \text{AOA}, \text{flap-position-derived setpoints})\)</span> to a tone mode. Decision precedence is top-down — first match wins.</p>
-<table>
-<thead>
-<tr>
-<th>Region</th>
-<th>Condition</th>
-<th>Mode</th>
-<th>Tone</th>
-<th>PPS</th>
-<th>Carrier amp</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>MUTE</strong></td>
-<td><code>IAS</code> below the unmute threshold (see below)</td>
-<td><code>TONE_OFF</code></td>
-<td>none</td>
-<td>n/a</td>
-<td>0</td>
-</tr>
-<tr>
-<td><strong>STALL</strong></td>
-<td><code>AOA ≥ stallWarningAOA</code></td>
-<td><code>PULSE_TONE</code></td>
-<td>high (1600 Hz)</td>
-<td><strong>20.0</strong> (<code>HIGH_TONE_STALL_PPS</code>)</td>
-<td><strong>1.0</strong></td>
-</tr>
-<tr>
-<td><strong>APPROACH-STALL</strong></td>
-<td><code>onSpeedAOAslow &lt; AOA &lt; stallWarningAOA</code></td>
-<td><code>PULSE_TONE</code></td>
-<td>high (1600 Hz)</td>
-<td>linear <strong>1.5 → 6.2</strong> as AOA goes onSpeedSlow → stallWarn</td>
-<td>linear <strong>0.25 → 1.0</strong> over the same range</td>
-</tr>
-<tr>
-<td><strong>ON-SPEED</strong></td>
-<td><code>onSpeedAOAfast ≤ AOA ≤ onSpeedAOAslow</code></td>
-<td><code>SOLID_TONE</code></td>
-<td>low (400 Hz)</td>
-<td>n/a (sustained)</td>
-<td><strong>0.25</strong></td>
-</tr>
-<tr>
-<td><strong>PULSED-LOW</strong></td>
-<td><code>LDmaxAOA ≤ AOA &lt; onSpeedAOAfast</code> AND <code>LDmaxAOA &lt; onSpeedAOAfast</code></td>
-<td><code>PULSE_TONE</code></td>
-<td>low (400 Hz)</td>
-<td>linear <strong>1.5 → 8.2</strong> as AOA goes LDmax → onSpeedFast</td>
-<td><strong>0.25</strong></td>
-</tr>
-<tr>
-<td><strong>BELOW-LDMAX</strong></td>
-<td><code>AOA &lt; LDmaxAOA</code> (or <code>LDmaxAOA ≥ onSpeedAOAfast</code>)</td>
-<td><code>TONE_OFF</code></td>
-<td>none</td>
-<td>n/a</td>
-<td>0</td>
-</tr>
-</tbody>
-</table>
-<div class="admonition note">
-<p class="admonition-title">Full-flaps PULSED-LOW skip</p>
-<p>When <code>LDmaxAOA ≥ onSpeedAOAfast</code> (typical full-flaps case), the PULSED-LOW region is skipped entirely. AOA below onSpeedFast goes straight to <code>TONE_OFF</code>.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Uncalibrated configuration gate</p>
-<p>If any of <code>fONSPEEDFASTAOA</code>, <code>fONSPEEDSLOWAOA</code>, <code>fSTALLWARNAOA</code> is <code>≤ 0</code>, <code>calculateTone</code> returns <code>None</code>. Defense-in-depth against an uninitialised or partially-saved configuration reaching the audio path.</p>
-</div>
-<h3 id="mute-region-details">MUTE region details<a class="headerlink" href="#mute-region-details" title="Permanent link">&para;</a></h3>
-<p>The MUTE row above describes the AOA-decision-side gate. Two refinements:</p>
-<ul>
-<li><strong>Hysteresis</strong>. Audio unmutes when <code>IAS ≥ iMuteAudioUnderIAS + 5</code> (kt) and re-mutes when <code>IAS &lt; iMuteAudioUnderIAS</code>. The +5 kt unmute band prevents touchdown chatter as IAS oscillates a few knots around the threshold.</li>
-<li><strong><code>iMuteAudioUnderIAS == 0</code> always-on sentinel</strong>. A configured value of 0 means "never mute — audio is live from boot regardless of IAS." Useful for bench testing or non-airspeed-equipped installations.</li>
-</ul>
-<details class="note">
-<summary>Gen2 deviation</summary>
-<p>Gen2 uses a bare <code>IAS ≤ muteAudioUnderIAS</code> check with no hysteresis, producing audible chatter at touchdown as IAS oscillates around the threshold. Gen2 has no always-on sentinel; configuring 0 mutes below 0 kt (always-on by accident).</p>
-</details>
-<h2 id="2-per-pulse-envelope-dahdr-shape">2. Per-pulse envelope (DAHDR shape)<a class="headerlink" href="#2-per-pulse-envelope-dahdr-shape" title="Permanent link">&para;</a></h2>
-<p>For <code>PULSE_TONE</code> modes, every pulse is shaped by Delay → Attack → Hold → Decay, then a silent inter-pulse Gap, then auto-loop to the next pulse. All times in milliseconds.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pulse_period = 1000 / pps                        # full cycle
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>tone_length  = pulse_period - 3                  # envelope-active window
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>ramp_time    = 5  if pps == 20.0 (stall)         # STALL_RAMP_TIME
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>             = 15 otherwise                      # TONE_RAMP_TIME
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>silent_delay = tone_length / 2                   # silent first half
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>attack       = ramp_time
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>hold         = tone_length / 2 - 2 * ramp_time   # clamped ≥ 0
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>decay        = ramp_time
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>gap          = pulse_period - (silent_delay + attack + hold + decay)
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>             = 3 ms                              # inter-pulse silence
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>release      = ramp_time                         # only on NoteOff (mode change)
-</code></pre></div>
-<h3 id="worked-numeric-values">Worked numeric values<a class="headerlink" href="#worked-numeric-values" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>PPS</th>
-<th><code>pulse_period</code></th>
-<th><code>silent_delay</code></th>
-<th><code>attack</code></th>
-<th><code>hold</code></th>
-<th><code>decay</code></th>
-<th><code>gap</code></th>
-<th><code>release</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1.5 (min)</td>
-<td>666.67 ms</td>
-<td>331.83</td>
-<td>15</td>
-<td>301.83</td>
-<td>15</td>
-<td>3</td>
-<td>15</td>
-</tr>
-<tr>
-<td>6.2 (high max)</td>
-<td>161.29 ms</td>
-<td>79.15</td>
-<td>15</td>
-<td>49.15</td>
-<td>15</td>
-<td>3</td>
-<td>15</td>
-</tr>
-<tr>
-<td>8.2 (low max)</td>
-<td>121.95 ms</td>
-<td>59.48</td>
-<td>15</td>
-<td>29.48</td>
-<td>15</td>
-<td>3</td>
-<td>15</td>
-</tr>
-<tr>
-<td>20.0 (stall)</td>
-<td>50.00 ms</td>
-<td>23.50</td>
-<td><strong>5</strong></td>
-<td>13.50</td>
-<td><strong>5</strong></td>
-<td>3</td>
-<td><strong>5</strong></td>
-</tr>
-</tbody>
-</table>
-<h3 id="gate-trace-per-pulse">Gate trace per pulse<a class="headerlink" href="#gate-trace-per-pulse" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1.0 ─                    ┌──────────┐
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>                         │  hold    │
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>                        ╱│          │╲
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>gate                   ╱ │          │ ╲
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>                      ╱  │          │  ╲
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>0.0 ─────────────────╱   │          │   ╲────────────
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>     │← silent_delay→│attack│       │decay│←  gap   →│
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>     0              SD   SD+A    SD+A+H  SD+A+H+D   period
-</code></pre></div>
-<h3 id="solid-tone-shape">Solid tone shape<a class="headerlink" href="#solid-tone-shape" title="Permanent link">&para;</a></h3>
-<p>For <code>SOLID_TONE</code> (on-speed region):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>silent_delay = 60.97 ms       # = 1000 / LOW_TONE_PPS_MAX / 2
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>attack       = 15 ms          # TONE_RAMP_TIME
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>sustain      = ∞              # until tone changes
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>release      = 15 ms          # on NoteOff
-</code></pre></div>
-<p>The 60.97 ms entry delay is <strong>unconditional</strong> — applied every time <code>SOLID_TONE</code> is entered, regardless of what was playing before. The constant value (rather than a state-dependent value) keeps the spec stable across <code>UpdateTones()</code> cycles, so the running envelope's same-spec debounce correctly leaves the running Sustain alone.</p>
-<h2 id="3-cadence-requirement">3. Cadence requirement<a class="headerlink" href="#3-cadence-requirement" title="Permanent link">&para;</a></h2>
-<p>The <strong>measured pulse-to-pulse period at the speaker</strong> must equal <code>1000 / pps</code> ms within ± 1 audio-sample of jitter, for any pps in the supported range <span class="arithmatex">\([1.5, 20.0]\)</span>.</p>
-<p>If you record the audio and detect attack-onsets, the time from one attack-onset to the next must equal <code>1000/pps</code> ms within one audio-sample tolerance.</p>
-<details class="note">
-<summary>Implementation note</summary>
-<p>The implementation runs a sample-by-sample envelope state machine that auto-loops Decay → Gap → Delay. The Gap phase exists specifically to make the cycle period add up to <code>pulse_period</code> exactly; without it the cycle would be <code>tone_length = pulse_period - 3 ms</code> and pulses would run ~3 ms early per cycle (≈ 6% over at stall PPS).</p>
-</details>
-<details class="note">
-<summary>Gen2 deviation</summary>
-<p>Gen2's hardware <code>IntervalTimer</code> schedules each pulse fire at exactly <code>1000/pps</code> µs. Equivalent cadence, different mechanism.</p>
-</details>
-<h2 id="4-transition-policies">4. Transition policies<a class="headerlink" href="#4-transition-policies" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>From → To</th>
-<th>Behaviour</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>any → MUTE</td>
-<td>NoteOff: release current tone (15 ms, or 5 ms if stall). Gate at 0 after release completes.</td>
-</tr>
-<tr>
-<td>MUTE → STALL / APPROACH-STALL / ON-SPEED / PULSED-LOW</td>
-<td>Apply the new mode's entry envelope. For <code>PULSE_TONE</code>, the first pulse uses the standard <code>silent_delay = tone_length/2</code>. For <code>SOLID_TONE</code>, apply the 60.97 ms entry delay.</td>
-</tr>
-<tr>
-<td>ON-SPEED → STALL / APPROACH-STALL</td>
-<td>Sustain → Release; Release tail (15 ms or 5 ms) overlaps with the new pulse's first silent_delay. The new pulse spec uses the shortened <code>silent_delay = 60.97 ms</code> (instead of <code>tone_length/2</code>) so the first new pulse arrives within one perceptual half-period rather than waiting a full pulse_period.</td>
-</tr>
-<tr>
-<td>ON-SPEED → PULSED-LOW</td>
-<td>Same shortened-first-pulse treatment as ON-SPEED → STALL.</td>
-</tr>
-<tr>
-<td>STALL / APPROACH-STALL / PULSED-LOW → ON-SPEED</td>
-<td>NoteOn-during-active enters Release; the Release tail (15 ms) overlaps with the SOLID_TONE's 60.97 ms silent entry delay.</td>
-</tr>
-<tr>
-<td>STALL ↔ APPROACH-STALL (PPS change, same carrier)</td>
-<td>The currently-running pulse finishes naturally. The next pulse uses the new PPS's envelope shape. No release between same-tone PPS changes.</td>
-</tr>
-<tr>
-<td>PULSED-LOW PPS change</td>
-<td>Same as STALL ↔ APPROACH-STALL.</td>
-</tr>
-</tbody>
-</table>
-<details class="note">
-<summary>Gen2 deviation: solid → pulsed snap</summary>
-<p>Gen2's Teensy envelope is configured with <code>releaseNoteOn(0)</code>, which causes a <code>noteOn</code> arriving during the previous note's release to <strong>snap mult to 0 and start the new envelope from zero</strong> rather than performing a graceful release ramp. At the SOLID → PULSED transition this produces an audible click — the sustained tone cuts off in roughly one sample. Gen3 performs a smooth Release ramp (<code>SameSpec</code> debounce + Sustain → Release path) and avoids the click.</p>
-</details>
-<h2 id="5-per-pps-volume-ramp-carrier-amplitude">5. Per-PPS volume ramp (carrier amplitude)<a class="headerlink" href="#5-per-pps-volume-ramp-carrier-amplitude" title="Permanent link">&para;</a></h2>
-<p>The carrier amplitude is determined by the AOA region:</p>
-<table>
-<thead>
-<tr>
-<th>Region</th>
-<th><code>carrier_amp</code></th>
-<th>Formula</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>MUTE</td>
-<td>0 (no audio)</td>
-<td>—</td>
-</tr>
-<tr>
-<td>STALL</td>
-<td>1.0 (<code>STALL_VOL_MAX</code>)</td>
-<td>constant</td>
-</tr>
-<tr>
-<td>APPROACH-STALL</td>
-<td>linear from 0.25 → 1.0</td>
-<td><code>mapfloat(AOA, onSpeedSlow, stallWarn, STALL_VOL_MIN, STALL_VOL_MAX)</code></td>
-</tr>
-<tr>
-<td>ON-SPEED</td>
-<td>0.25 (<code>STALL_VOL_MIN</code>)</td>
-<td>constant</td>
-</tr>
-<tr>
-<td>PULSED-LOW</td>
-<td>0.25 (<code>STALL_VOL_MIN</code>)</td>
-<td>constant</td>
-</tr>
-</tbody>
-</table>
-<p>The ramp is on the <strong>amplitude</strong>, not the gate, so each pulse keeps the same shape but gets louder as the aircraft approaches stall.</p>
-<details class="note">
-<summary>Implementation note</summary>
-<p><code>calculateTone</code> returns <code>fVolumeMult</code> alongside <code>enTone</code> and <code>fPulseFreq</code>. The audio task multiplies it into the per-sample composition (§0), so the value takes effect at the next pump.</p>
-</details>
-<details class="note">
-<summary>Gen2 deviation: input variable</summary>
-<p>Gen2's <code>mapfloat</code> takes <code>pps</code> as input rather than <code>AOA</code>. Mathematically equivalent on the linear segment because PPS and AOA are linearly related there. The numeric output is the same.</p>
-</details>
-<h2 id="6-master-volume">6. Master volume<a class="headerlink" href="#6-master-volume" title="Permanent link">&para;</a></h2>
-<p>A single multiplier <span class="arithmatex">\(\text{master\_volume} \in [0, 1]\)</span> is applied to all tone output. Read from a volume pot via <code>analogRead</code>, smoothed with α = 0.5 EMA, mapped from the configured analog range to <code>[0, 100]%</code>, then divided by 100 and applied at the tone-mixer stage. Updates take effect within ≈40 ms (one volume-poll iteration).</p>
-<h2 id="7-3d-audio-centripetal-lateral-pan">7. 3D audio (centripetal lateral pan)<a class="headerlink" href="#7-3d-audio-centripetal-lateral-pan" title="Permanent link">&para;</a></h2>
-<p>A per-channel multiplier is applied at the amp stage:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>left_pan_gain  = abs(-1 + channelGain)
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>right_pan_gain = abs( 1 + channelGain)
-</code></pre></div>
-<p>Where <code>channelGain = α · curve(|aLatCorr|) · sign(aLatCorr) + (1-α) · prevChannelGain</code>, with <code>α = 0.1</code>, <code>aLatCorr</code> the smoothed installation-corrected lateral G, and <code>curve</code> the saturating linear ramp <span class="arithmatex">\(\min(1, \, 8 \cdot x)\)</span> — unity at <span class="arithmatex">\(x = 0.125\,\text{g}\)</span> (about 1.5 slip-skid ball widths) and held at unity for every larger lateral load.</p>
-<table>
-<thead>
-<tr>
-<th>Aircraft state</th>
-<th><code>aLatCorr</code></th>
-<th><code>channelGain</code></th>
-<th>left</th>
-<th>right</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Trim</td>
-<td>0</td>
-<td>0</td>
-<td>1</td>
-<td>1</td>
-</tr>
-<tr>
-<td>Right turn (coordinated)</td>
-<td>&gt; 0</td>
-<td>&gt; 0</td>
-<td>&lt; 1</td>
-<td>&gt; 1</td>
-</tr>
-<tr>
-<td>Left turn (coordinated)</td>
-<td>&lt; 0</td>
-<td>&lt; 0</td>
-<td>&gt; 1</td>
-<td>&lt; 1</td>
-</tr>
-<tr>
-<td>Developed spin / snap roll</td>
-<td><span class="arithmatex">\(\geq 0.25\)</span> g</td>
-<td><span class="arithmatex">\(\pm 1\)</span></td>
-<td>0 / 1</td>
-<td>1 / 0</td>
-</tr>
-</tbody>
-</table>
-<p>The curve is monotonic in <span class="arithmatex">\(\lvert x \rvert\)</span> and has no descending tail, so spin and snap-roll lateral loads (sustained 0.3–0.8 g) render as full pan rather than centered audio. See <a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/371">#371</a> for the analysis that motivated the saturating-linear shape over the prior <span class="arithmatex">\(-92.822 \cdot x^2 + 20.025 \cdot x\)</span> parabola, whose descending root at <span class="arithmatex">\(x \approx 0.216\)</span> g caused the gain to clamp to zero — and the audio to render centered — in exactly the regime where the directional cue is most useful.</p>
-<p>3D-pan updates fire from the housekeeping task at ~10 Hz. The α=0.1 EMA limits the per-update step to a small fraction of the swing — generally inaudible, but not strictly click-free if the multiplier changes during attack/hold/decay/sustain. See §8.</p>
-<h2 id="8-click-free-invariant">8. Click-free invariant<a class="headerlink" href="#8-click-free-invariant" title="Permanent link">&para;</a></h2>
-<p>The audible signal must not contain large step discontinuities. The envelope's silent_delay and release phases provide a window during which other multipliers (<code>carrier_amp</code>, <code>master_volume</code>, pan gains) can change without producing audible clicks, because the gate is at or near zero.</p>
-<p>In particular:</p>
-<ul>
-<li><code>carrier_amp</code> step changes at AOA-region transitions land during the next pulse's silent_delay or during the previous mode's release tail.</li>
-<li><code>master_volume</code> step changes are damped by the EMA pot smoothing AND fall during silent_delay/release windows for most pulses (silent_delay ≥ 23.5 ms at all PPS).</li>
-<li>Pan multiplier updates are damped by the α=0.1 EMA on <code>channelGain</code>.</li>
-</ul>
-<div class="admonition warning">
-<p class="admonition-title">Not strictly click-free at the tail</p>
-<p>A small audible step is possible when <code>carrier_amp</code> or <code>master_volume</code> changes during the release ramp of an outgoing pulse — the gate is at a small but nonzero level, so the step bleeds through. The step is small in absolute terms (release-tail is at low gate level) and rarely audible. A future revision might require deferring <code>carrier_amp</code> writes until the gate has fully reached zero.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Output clipping (V4P hardware-protection)</p>
-<p>The per-sample composition <code>fL = fVolume × fStallVolumeMult × fLeftGain</code> is hard-clamped to ≤ 1.0 in the audio task to prevent 16-bit PCM clipping when the 3D pan gain (which can reach 2.0 in a hard turn) combines with master volume above ~50%. Input over-range produces an amplitude ceiling rather than a wrap-around glitch.</p>
-</div>
-<h2 id="9-voice-pcm-playback">9. Voice (PCM) playback<a class="headerlink" href="#9-voice-pcm-playback" title="Permanent link">&para;</a></h2>
-<p>Distinct from the tone path. PCM audio (e.g. stall-warning voice clip) plays through a separate audio source into the mixer with a <code>VOICE_BOOST = 3.0</code> factor above the tone gain. Voice and tones can mix simultaneously. Voice playback does NOT involve the DAHDR envelope.</p>
-<details class="note">
-<summary>Gen2 deviation</summary>
-<p>Gen2 boosts voice 10× the tone master (<code>mixer1.gain(2, 10*volumePercent/100.0)</code>). The 3× value on Gen3 is tuned for the V4P I2S DAC + amp circuit, where 10× would clip given the higher native amplitude of the source PCM and the upstream <code>fStallVolumeMult × fVolume × fGain</code> chain. Both numbers are correct for their respective hardware.</p>
-</details>
-<h2 id="10-audio-switch">10. Audio switch<a class="headerlink" href="#10-audio-switch" title="Permanent link">&para;</a></h2>
-<p>A physical switch (<code>g_bAudioEnable</code>) can mute all audio. When the switch is off, audio routes through <code>calculateToneMuted</code>, which lets ONLY the stall warning fire (high-tone, 20 PPS, full amplitude). All other regions are silenced.</p>
-<p>When the switch flips back on, the next <code>UpdateTones()</code> call re-arms the appropriate mode for the current AOA.</p>
-<details class="note">
-<summary>Gen2 deviation: stall warning silenced when user-muted</summary>
-<p>Gen2's switch-off path silences everything, including the stall warning (<code>Tones.ino:34-40</code> sets the carrier amplitude to 0 unconditionally). Gen3 deliberately keeps the stall warning live regardless of the user-mute switch — silencing the stall warning is unsafe.</p>
-</details>
-<h2 id="11-latency-targets">11. Latency targets<a class="headerlink" href="#11-latency-targets" title="Permanent link">&para;</a></h2>
-<p>Two sources of delay between the AOA decision in <code>UpdateTones()</code> and the first audible attack of the new tone:</p>
+<h2 id="7-continuity-invariants">7. Continuity invariants<a class="headerlink" href="#7-continuity-invariants" title="Permanent link">&para;</a></h2>
+<p>Pinned by <code>test/test_display_pct_anchors/</code>:</p>
 <ol>
-<li><strong>Scheduling latency</strong>: time until the implementation's "next tone update" hook fires. Gen3 calls SetTone synchronously from <code>UpdateTones()</code> — scheduling latency is 0.</li>
-<li><strong>Envelope latency</strong>: time from the new spec arming to the first non-zero gate sample = <code>silent_delay + attack</code>.</li>
+<li><strong><code>pipPctLift</code> is continuous in <code>rawAdc</code> everywhere.</strong> No discontinuities at detent boundaries — single lerp covers the entire pot range. Adjacent ADC samples produce pip values within 1 percent of each other.</li>
+<li><strong><code>tonesOnPctLift</code> snaps at <code>iIndex</code> advances.</strong> Same <code>rawAdc</code> with different <code>activeIndex</code> values produces different <code>tonesOnPctLift</code> values, by exactly the difference between the two detents' calibrated L/Dmax percents. The chevron edge snaps with the audio.</li>
+<li><strong><code>pipPctLift</code> is independent of <code>activeIndex</code>.</strong> The pip depends only on <code>rawAdc</code> and the configured flap vector — not on which detent is "active." A detent transition does not change the pip.</li>
+<li><strong>Pip and tones-on coincide at the cleanest detent.</strong> When <code>rawAdc == cleanest.iPotPosition</code> and <code>iIndex == 0</code>, <code>pipPctLift == tonesOnPctLift</code>. This is the visual "they line up in clean" property.</li>
+<li><strong>Pip and tones-on diverge at full flaps.</strong> When <code>rawAdc == mostDeployed.iPotPosition</code> and <code>iIndex == entryCount-1</code>, <code>pipPctLift &gt; tonesOnPctLift</code> for any sane calibration where L/Dmax is below the OnSpeed band.</li>
 </ol>
+<h2 id="8-worked-example-rv-10-samfrogrocketaicom-calibration">8. Worked example (RV-10, sam@frogrocketai.com calibration)<a class="headerlink" href="#8-worked-example-rv-10-samfrogrocketaicom-calibration" title="Permanent link">&para;</a></h2>
+<p>Three detents from <code>~/Downloads/onspeed2_latest.cfg</code>:</p>
 <table>
 <thead>
 <tr>
-<th>Stimulus</th>
-<th>Total latency</th>
+<th>Flap</th>
+<th>Pot ADC</th>
+<th><code>fLDMAXAOA</code> (°)</th>
+<th><code>fONSPEEDFASTAOA</code> (°)</th>
+<th><code>fONSPEEDSLOWAOA</code> (°)</th>
+<th><code>fAlpha0</code> (°)</th>
+<th><code>fAlphaStall</code> (°)</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>MUTE → STALL transition</td>
-<td><code>silent_delay(20 PPS) + attack(5 ms) = 28.5 ms</code></td>
+<td>0° (clean)</td>
+<td>1462</td>
+<td>3.24</td>
+<td>3.98</td>
+<td>5.26</td>
+<td>−3.72</td>
+<td>10.31</td>
 </tr>
 <tr>
-<td>ON-SPEED → STALL transition</td>
-<td><code>60.97 ms (shortened delay) + 5 ms (attack) ≈ 66 ms</code></td>
+<td>16°</td>
+<td>897</td>
+<td>1.11</td>
+<td>2.44</td>
+<td>3.88</td>
+<td>−6.22</td>
+<td>9.57</td>
 </tr>
 <tr>
-<td>AOA chatter at any threshold</td>
-<td>Must NOT produce audible artifacts. The current pulse finishes; transitions only happen at pulse boundaries.</td>
-</tr>
-<tr>
-<td><code>master_volume</code> change via pot</td>
-<td>≤ 40 ms perceived response</td>
-</tr>
-<tr>
-<td>3D-pan change</td>
-<td>≤ 100 ms perceived response (slow, intentional)</td>
+<td>33° (full)</td>
+<td>2</td>
+<td>−2.24</td>
+<td>2.19</td>
+<td>4.09</td>
+<td>−9.21</td>
+<td>11.57</td>
 </tr>
 </tbody>
 </table>
-<details class="note">
-<summary>Gen2 deviation</summary>
-<p>Gen2's <code>IntervalTimer</code> runs the pulse cadence; mode changes have to wait for the next timer fire to take effect, adding up to one <code>pulse_period</code> of the outgoing mode's PPS. Worst-case MUTE → STALL is therefore <code>1000/20 + 28.5 ≈ 78.5 ms</code> on Gen2.</p>
-</details>
-<h2 id="reporting-discrepancies">Reporting discrepancies<a class="headerlink" href="#reporting-discrepancies" title="Permanent link">&para;</a></h2>
-<p>If you find:</p>
+<p>Computed percent-lift values (from the actual <code>ComputePercentLift</code> /
+<code>ComputeDisplayPctAnchors</code> implementation, which truncates fractions
+toward zero per the saturation convention):</p>
+<table>
+<thead>
+<tr>
+<th>Flap</th>
+<th>L/Dmax pct</th>
+<th>Fast pct</th>
+<th>Slow pct</th>
+<th>StallWarn pct</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0° (clean)</td>
+<td><strong>49</strong></td>
+<td>54</td>
+<td>64</td>
+<td>85</td>
+</tr>
+<tr>
+<td>16°</td>
+<td><strong>46</strong></td>
+<td>54</td>
+<td>63</td>
+<td>84</td>
+</tr>
+<tr>
+<td>33° (full)</td>
+<td><strong>33</strong></td>
+<td>54</td>
+<td>64</td>
+<td>82</td>
+</tr>
+</tbody>
+</table>
+<p>The pip's full-flap target is the round-half-away mean of 33°'s
+Fast and Slow: <code>lround((54 + 64) / 2.0) = 59</code>.</p>
+<p>Lever positions and what the indexer shows. Active-detent index
+follows the standard midpoint rule (<code>Flaps::Update</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Lever pot</th>
+<th>Active detent</th>
+<th><code>tonesOnPctLift</code></th>
+<th><code>pipPctLift</code></th>
+<th>flapsDeg</th>
+<th>Coincide?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1462 (clean)</td>
+<td>0°</td>
+<td>49</td>
+<td>49</td>
+<td>0</td>
+<td>yes (pip and chevron edge line up)</td>
+</tr>
+<tr>
+<td>1100 (mid clean→16°)</td>
+<td>16°</td>
+<td>46</td>
+<td>51</td>
+<td>10</td>
+<td>no</td>
+</tr>
+<tr>
+<td>897 (16° detent)</td>
+<td>16°</td>
+<td>46</td>
+<td>53</td>
+<td>16</td>
+<td>no (chevron at 46, pip at 53)</td>
+</tr>
+<tr>
+<td>450 (mid 16°→33°)</td>
+<td>16°</td>
+<td>46</td>
+<td>56</td>
+<td>24</td>
+<td>no</td>
+</tr>
+<tr>
+<td>2 (33° full)</td>
+<td>33°</td>
+<td>33</td>
+<td>59</td>
+<td>33</td>
+<td>no (chevron at 33, pip at center of donut)</td>
+</tr>
+</tbody>
+</table>
+<p>Notice that at the 16° detent, the chevron edge sits at the
+calibrated 46% (from the 16° detent's <code>fLDMAXAOA</code>), but the pip is at
+53% (from the two-endpoint lerp). The pip ignores the 16° detent's
+calibration.</p>
+<p>The lerp's denominator is the full pot span (1462 − 2 = 1460); at the
+1100 row, <code>t = (1462 − 1100) / 1460 = 0.248</code>, so
+<code>pip = lround(49 + 0.248 × (59 − 49)) = lround(51.48) = 51</code>. Same
+formula for every row.</p>
+<h2 id="9-bench-verification">9. Bench verification<a class="headerlink" href="#9-bench-verification" title="Permanent link">&para;</a></h2>
+<p>Reflash bench device with v4.22 firmware on both Gen3 main and M5. Confirm:</p>
 <ul>
-<li><strong>Spec ambiguity</strong>: file an issue. The goal is "two independent implementations produce indistinguishable audio at the speaker"; if it's not precise enough to support that, it's not done yet.</li>
-<li><strong>Hardware that doesn't match the spec</strong>: file an issue with the listening-test or scope-trace evidence; that's a real bug.</li>
-<li><strong>Gen2 source code that disagrees with this spec on a non-Gen2-deviation point</strong>: the Gen3 implementation is the canonical reference now, so this only matters if you're porting Gen3 behaviour back to Gen2 or if you spot an undocumented deviation.</li>
+<li><strong>Clean, AOA below L/Dmax:</strong> silent, chevron grey, pip and chevron edge coincide on screen.</li>
+<li><strong>Clean, AOA between L/Dmax and OnSpeedFast:</strong> low tone pulsing, chevron green, pip and chevron edge still coincide.</li>
+<li><strong>Mid-deployment (lever between 0° and 16° detents):</strong> chevron snaps from the clean L/Dmax to the 16° detent's L/Dmax at the midpoint pot value (in lockstep with <code>iIndex</code> advancing in <code>Flaps::Update</code>); pip slides smoothly with no jump.</li>
+<li><strong>Full flaps (33°), AOA between active L/Dmax and OnSpeedFast:</strong> low tone pulsing, chevron green; pip sits up at 59% (inside the donut band on screen), well above the chevron-lit band.</li>
 </ul>
+<h2 id="10-wire-format-change-history">10. Wire-format change history<a class="headerlink" href="#10-wire-format-change-history" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>v4.21</strong> (PR #320): introduced percent anchors; <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code> all snap per active detent.</li>
+<li><strong>v4.21+</strong> (PR #327): made <code>tonesOnPctLift</code> interpolate across adjacent detent brackets so the L/Dmax pip slid smoothly. <strong>This broke chevron–audio alignment mid-deployment</strong> because the chevron is gated on the same field as the audio threshold — making the field interpolated meant the chevron lit at a percent the audio did not match.</li>
+<li><strong>v4.22</strong> (PR #336): split the pip out into a new wire field, <code>pipPctLift</code>. <code>tonesOnPctLift</code> reverts to the v4.21 snap-per-detent semantics. Frame size grows from 74 to 76 bytes. Chevron and audio fire from the same threshold again.</li>
+<li><strong>v4.23</strong> (PR #386): <code>percentLift</code> widens from <code>%02u</code> (integer percent, 0..99) to <code>%03u</code> (tenths of a percent, 0..999) so the index bar advances at sub-pixel temporal smoothness off the 20 Hz frame cadence. The four band-edge anchors stay at integer-percent. <code>lateralG</code> flips to body-frame (positive = right) to match the IMU, SD log, and WebSocket JSON; slip-ball renderers negate locally. Frame size grows from 76 to 77 bytes.</li>
+</ul>
+<p>See <a href="../serial-protocol/">Display Serial Protocol</a> for the byte-level wire format.</p>
 
 
 

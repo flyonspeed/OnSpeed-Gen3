@@ -193,6 +193,10 @@
          <lastmod>2026-05-07</lastmod>
     </url>
     <url>
+         <loc>https://dev.flyonspeed.org/latest/reference/audio-tone-spec/</loc>
+         <lastmod>2026-05-07</lastmod>
+    </url>
+    <url>
          <loc>https://dev.flyonspeed.org/latest/reference/config-parameters/</loc>
          <lastmod>2026-05-07</lastmod>
     </url>
@@ -202,6 +206,10 @@
     </url>
     <url>
          <loc>https://dev.flyonspeed.org/latest/reference/hardware-specs/</loc>
+         <lastmod>2026-05-07</lastmod>
+    </url>
+    <url>
+         <loc>https://dev.flyonspeed.org/latest/reference/indexer-spec/</loc>
          <lastmod>2026-05-07</lastmod>
     </url>
     <url>
@@ -221,19 +229,11 @@
          <lastmod>2026-05-07</lastmod>
     </url>
     <url>
-         <loc>https://dev.flyonspeed.org/latest/software/audio-tone-spec/</loc>
-         <lastmod>2026-05-07</lastmod>
-    </url>
-    <url>
          <loc>https://dev.flyonspeed.org/latest/software/building/</loc>
          <lastmod>2026-05-07</lastmod>
     </url>
     <url>
          <loc>https://dev.flyonspeed.org/latest/software/flashing/</loc>
-         <lastmod>2026-05-07</lastmod>
-    </url>
-    <url>
-         <loc>https://dev.flyonspeed.org/latest/software/indexer-spec/</loc>
          <lastmod>2026-05-07</lastmod>
     </url>
     <url>

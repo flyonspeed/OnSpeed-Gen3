@@ -4,7 +4,7 @@
  * Renders a side-view aircraft that pitches with AOA over a fan of
  * reference lines into colored tone-region bands (STALL / SLOW /
  * ONSPEED / L/Dmax) and produces audio matching the OnSpeed audio
- * tone spec at docs/site/docs/software/audio-tone-spec.md.
+ * tone spec at docs/site/docs/reference/audio-tone-spec.md.
  *
  * Audio path implements:
  *   - Tone-decision regions (spec §1)

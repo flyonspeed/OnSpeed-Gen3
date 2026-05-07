@@ -1440,10 +1440,6 @@
       
         
       
-        
-      
-        
-      
     
     
     
@@ -1571,62 +1567,6 @@
     
   
     Building from Source
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../software/audio-tone-spec/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Audio Tone Spec (WIP)
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../software/indexer-spec/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Indexer Spec
   
 
     
@@ -3000,6 +2940,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -3352,6 +3296,62 @@
     
   
     LiveView WebSocket Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audio-tone-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Audio Tone Spec (WIP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../indexer-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indexer Spec
   
 
     
@@ -4014,7 +4014,7 @@
 <tr>
 <td>4.22</td>
 <td style="text-align: right;">76 bytes</td>
-<td><strong>Pip and audio threshold separated.</strong> New field <code>pipPctLift</code> at offset 70 carries the visual L/D<sub>MAX</sub> pip; it interpolates linearly across the entire pot range from cleanest to most-deployed detent (intermediate detents intentionally ignored). <code>tonesOnPctLift</code> reverts to PR #320's snap-per-active-detent behavior so the M5 bottom chevron and the audio low-tone gate fire from the same threshold, in lockstep. All existing field offsets unchanged; new field appended before checksum. Per Vac's design rule (<code>ld_max.pdf</code> §8): aerodynamic references and operational cues must remain independent. See <a href="../../software/indexer-spec/">Indexer Spec</a>. <strong>Coordinated reflash:</strong> Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.21 receiver will fail the 76-byte parse and render NO DATA, and a v4.22 receiver will fail to assemble a 74-byte sender's frames. Same operational drill as the v4.20 → v4.21 transition.</td>
+<td><strong>Pip and audio threshold separated.</strong> New field <code>pipPctLift</code> at offset 70 carries the visual L/D<sub>MAX</sub> pip; it interpolates linearly across the entire pot range from cleanest to most-deployed detent (intermediate detents intentionally ignored). <code>tonesOnPctLift</code> reverts to PR #320's snap-per-active-detent behavior so the M5 bottom chevron and the audio low-tone gate fire from the same threshold, in lockstep. All existing field offsets unchanged; new field appended before checksum. Per Vac's design rule (<code>ld_max.pdf</code> §8): aerodynamic references and operational cues must remain independent. See <a href="../indexer-spec/">Indexer Spec</a>. <strong>Coordinated reflash:</strong> Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.21 receiver will fail the 76-byte parse and render NO DATA, and a v4.22 receiver will fail to assemble a 74-byte sender's frames. Same operational drill as the v4.20 → v4.21 transition.</td>
 </tr>
 <tr>
 <td>4.23</td>
