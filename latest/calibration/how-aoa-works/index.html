@@ -2172,6 +2172,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#why-the-calibration-sweep-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the calibration sweep works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calibration-reality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calibration reality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#some-dynon-aoa-systems-peak-at-80-lift-not-100" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Some Dynon AOA systems peak at 80% lift, not 100%
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#ldmax-pip-vs-low-tone-threshold" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2282,6 +2315,8 @@
       
         
           
+        
+      
         
       
         
@@ -2479,6 +2514,34 @@
     
   
     Approach and Landing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../flying/flight-test-procedures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flight Test Procedures
   
 
     
@@ -3492,6 +3555,39 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#why-the-calibration-sweep-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the calibration sweep works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calibration-reality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calibration reality
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#some-dynon-aoa-systems-peak-at-80-lift-not-100" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Some Dynon AOA systems peak at 80% lift, not 100%
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#ldmax-pip-vs-low-tone-threshold" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3649,6 +3745,34 @@
 <li><strong>IAS to DerivedAOA hyperbola</strong> — the <span class="arithmatex">\(K/\text{IAS}^2 + \alpha_0\)</span> fit that extracts <span class="arithmatex">\(\alpha_0\)</span>, <span class="arithmatex">\(\alpha_\text{stall}\)</span>, and the <span class="arithmatex">\(K\)</span> parameter</li>
 </ol>
 <p>From these, it computes the six AOA setpoints (L/D<sub>MAX</sub>, ONSPEED-Fast, ONSPEED-Slow, Stall Warning, Stall, Maneuvering) using the normalized AOA fractions.</p>
+<h2 id="why-the-calibration-sweep-works">Why the calibration sweep works<a class="headerlink" href="#why-the-calibration-sweep-works" title="Permanent link">&para;</a></h2>
+<p>The wizard's procedure — a single deceleration sweep at idle power, wings level, ball centered, from above approach speed down to the stall — is not arbitrary. Each constraint exists to make the recorded data match the assumptions baked into the lift-equation fit.</p>
+<p><strong>Idle power, wings level, coordinated.</strong> The hyperbolic fit <span class="arithmatex">\(\alpha = K/\text{IAS}^2 + \alpha_0\)</span> assumes steady, unaccelerated flight at 1 G. Power applied to the propeller adds thrust that the fit doesn't model. Bank or sideslip changes the load factor and the pressure field at the AOA probe. A sweep flown clean of these confounders produces a curve that fits the model; a sweep flown with power, bank, or yaw produces noise the wizard tries to fit anyway.</p>
+<p><strong>Stop trimming at 80–90 KIAS.</strong> Trimming all the way down to the stall buries control-position changes inside the data. The recorded pitch attitude at the slow end of the sweep is no longer a clean reflection of AOA; it's pitch attitude plus whatever the trim and elevator are doing. Stopping the trim adjustment at 80–90 KIAS keeps the slow end of the sweep clean.</p>
+<p><strong>Recover with AOA, not power.</strong> When you reach the stall warning, ease the stick forward to break the AOA, then add power. Pulling power back to recover flattens the recovery curve and hides the AOA peak the wizard needs to identify <span class="arithmatex">\(\alpha_\text{stall}\)</span>.</p>
+<p><strong>Peak-AOA extraction is per-flap.</strong> Each flap setting moves <span class="arithmatex">\(\alpha_0\)</span>, <span class="arithmatex">\(\alpha_\text{stall}\)</span>, and the lift-curve slope. There is no shortcut to calibrating one flap setting and scaling — the fit is genuinely different per flap, which is why the wizard runs once per flap detent.</p>
+<p>The mechanics above are the OnSpeed wizard's automated form of a technique Vac described pre-OnSpeed for pilots characterizing a third-party EFIS's AOA scaling, in <a href="https://vansairforce.net/threads/on-speed-angle-of-attack-video.148638/">On Speed Angle of Attack Video</a> (post #25). The flying is the same; the wizard does the data extraction the EFIS-characterization workflow used to do by hand:</p>
+<blockquote>
+<p>"The simplest technique is to select idle power and maintain altitude precisely. Trim as the airplane decelerates, but stop trimming at about 80-90. After the stall, use AoA to recover (i.e., pitch down) and let the airplane recover at idle power and accelerate to about 100 MPH/90 KTS indicated… This isn't a speed drill — about 45-60 seconds per stall should work out about right."</p>
+</blockquote>
+<h2 id="calibration-reality">Calibration reality<a class="headerlink" href="#calibration-reality" title="Permanent link">&para;</a></h2>
+<p>A pressure-derived AOA system measures AOA through a stack of sensors, plumbing, and air data — and every layer adds error.</p>
+<p><strong>Static-source position error.</strong> The static port is calibrated for unaccelerated, level flight at one airspeed. Outside that band the indicated static pressure drifts from true static, IAS drifts from CAS, and dynamic pressure at the AOA probe drifts from the value the fit assumes. The drift is small — 1–2 knots is typical — and it's mostly absorbed into the calibrated curve, but it's why a sweep flown at one altitude may produce slightly different setpoints than a sweep flown at another.</p>
+<p><strong>Yaw effects.</strong> Sideslip changes the pressure field at the AOA probe. Conventional pitot/AOA probes (Dynon, Garmin) lose accuracy past about 6° of yaw with a blade probe and about 20° with a sphere probe. The system can still detect the stall through significant yaw — Vac demonstrates oscillating slipping stalls in the <a href="https://vansairforce.net/threads/aoa-system-calibration-and-use.222357/">AOA System – Calibration and Use</a> thread — but the absolute AOA reading drifts during heavy slip.</p>
+<p><strong>Icing.</strong> Pitot ice plugs the dynamic-pressure inlet, which drives both IAS and pressure-derived AOA toward zero. Plumbing ice between the probe and the sensor can introduce slow drift before complete blockage. Pitot heat is the only mitigation; without it, an iced probe is a silent failure mode for both airspeed and AOA.</p>
+<p><strong>Probe placement.</strong> The probe lives in the wing's flow field, which is itself disturbed by the airframe. Move the probe more than a few inches and the calibration shifts. Vac's note from <a href="https://vansairforce.net/threads/go-down-speed-up-stall-out.228078/">Go down, speed up, stall out…</a> (post #25):</p>
+<blockquote>
+<p>"Aerodynamics (thus AOA performance) occur when the tubes are in the same flow field. There is an art to sensor placement when the objective is accurate performance and good transient response."</p>
+</blockquote>
+<p>A correct calibration is not "the AOA reading matches a reference instrument exactly." It is "the tone transitions arrive at the airspeeds and load factors the lift equation predicts, and the stall warning fires before the break." The wizard's fit captures that relationship; the <a href="../../flying/flight-test-procedures/">verification flight</a> confirms it.</p>
+<h2 id="some-dynon-aoa-systems-peak-at-80-lift-not-100">Some Dynon AOA systems peak at 80% lift, not 100%<a class="headerlink" href="#some-dynon-aoa-systems-peak-at-80-lift-not-100" title="Permanent link">&para;</a></h2>
+<p>OnSpeed's wizard finds <span class="arithmatex">\(\alpha_\text{stall}\)</span> from the AOA peak in the deceleration sweep. Some EFIS-derived AOA systems display lift fraction relative to a reference that is not 100% at the stall — the Dynon DY-10/100 stack, in the example below, peaks at ~80% during a clean-configuration stall:</p>
+<blockquote>
+<p>"You can see the stall is occurring at about 80% total lift in this case, not 100. Now ONSPEED still occurs at 60% of peak (i.e., .6 × 80%); but I don't think the Dynon graphic display makes allowance for this."<br />
+— Vac, <a href="https://vansairforce.net/threads/what-energy-sounds-like.196593/">What Energy Sounds Like</a> (post #6)</p>
+</blockquote>
+<p>When the EFIS's "100%" doesn't actually correspond to the stall, you can't read setpoints off the graphic at face value. The fix is proportional: ONSPEED on a system that peaks at 80% sits at <span class="arithmatex">\(0.6 \times 0.8 = 48\%\)</span> of the displayed lift fraction, not at 60%. OnSpeed avoids this by computing fractional lift from <span class="arithmatex">\((\alpha - \alpha_0) / (\alpha_\text{stall} - \alpha_0)\)</span>, where <span class="arithmatex">\(\alpha_\text{stall}\)</span> is the value the wizard captured at the actual stall. The OnSpeed indexer's 99% reading corresponds to the wing at the calibrated stall AOA, regardless of what any other instrument shows.</p>
+<p>This matters when comparing OnSpeed's ONSPEED tone arrival to a Dynon (or similar) percent-lift readout side-by-side. The numbers can differ by 10–20 percentage points without either system being wrong; they're computing a fraction against different references. Trust the tone, not the cross-display arithmetic.</p>
 <h2 id="ldmax-pip-vs-low-tone-threshold">L/D<sub>MAX</sub> pip vs. low-tone threshold<a class="headerlink" href="#ldmax-pip-vs-low-tone-threshold" title="Permanent link">&para;</a></h2>
 <p>The indexer carries two cues that look related but are independent:</p>
 <ul>

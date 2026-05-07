@@ -16,7 +16,7 @@
         <link rel="prev" href="../normal-ops/">
       
       
-        <link rel="next" href="../warnings/">
+        <link rel="next" href="../flight-test-procedures/">
       
       
         
@@ -2126,6 +2126,8 @@
       
         
       
+        
+      
     
     
     
@@ -2362,6 +2364,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#energy-management-power-and-pitch-aoa-tells-you-what-state-youre-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Energy management: power and pitch, AOA tells you what state you're in
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#standard-approach" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2467,6 +2480,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#stereo-panning-if-the-tone-shifts-youre-slipping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stereo panning: if the tone shifts, you're slipping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#unload-for-control" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2503,6 +2527,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../flight-test-procedures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Flight Test Procedures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -3414,6 +3466,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#energy-management-power-and-pitch-aoa-tells-you-what-state-youre-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Energy management: power and pitch, AOA tells you what state you're in
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#standard-approach" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3519,6 +3582,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#stereo-panning-if-the-tone-shifts-youre-slipping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stereo panning: if the tone shifts, you're slipping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#unload-for-control" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3578,6 +3652,52 @@
 
 <h1 id="approach-and-landing">Approach and Landing<a class="headerlink" href="#approach-and-landing" title="Permanent link">&para;</a></h1>
 <p>OnSpeed's primary value is during the approach and landing phase — the most dangerous part of every flight. The tone provides directive feedback that simplifies energy management during the highest-workload phases of flight.</p>
+<h2 id="energy-management-power-and-pitch-aoa-tells-you-what-state-youre-in">Energy management: power and pitch, AOA tells you what state you're in<a class="headerlink" href="#energy-management-power-and-pitch-aoa-tells-you-what-state-youre-in" title="Permanent link">&para;</a></h2>
+<p>Energy management is the algebra of pitch, throttle, and altitude. The pilot has two primary controls — pitch and power — and they together set the aircraft's energy state. AOA doesn't <em>control</em> energy state; it <em>reports</em> it.</p>
+<p>The technical name for the quantity is <strong>specific excess power</strong>, written <span class="arithmatex">\(P_s\)</span> ("P sub S"). The general (maneuvering) form is <span class="arithmatex">\(P_s = (T - D) \cdot V / (W \cdot n)\)</span>, where <span class="arithmatex">\(T\)</span> is thrust, <span class="arithmatex">\(D\)</span> is drag, <span class="arithmatex">\(V\)</span> is velocity, <span class="arithmatex">\(W\)</span> is weight, and <span class="arithmatex">\(n\)</span> is load factor — Vac's formulation in <a href="https://vansairforce.net/threads/angle-of-attack-and-energy-maneuverability.225345/">Angle of Attack and Energy Maneuverability</a> (post #23). On a 1 G stabilized approach <span class="arithmatex">\(n = 1\)</span> and the formula collapses to <span class="arithmatex">\((T - D) \cdot V / W\)</span> — "thrust minus drag, divided by weight." When <span class="arithmatex">\(P_s\)</span> is positive, the airplane can climb, accelerate, or both. When <span class="arithmatex">\(P_s\)</span> is negative, the airplane is descending or decelerating. When <span class="arithmatex">\(P_s\)</span> is zero, thrust and drag are balanced for the current effective weight.</p>
+<p>The ONSPEED solid tone arrives at <span class="arithmatex">\(P_s = 0\)</span>.</p>
+<blockquote>
+<p>"If we have more thrust than drag (for a given weight), then our 'p sub s' is positive: we can go up, accelerate or both. If, however, there is more drag than thrust, then 'p sub s' is NEGATIVE. The airplane is going down, slowing down or both… If thrust and drag are balanced, then 'p sub s' is zero, and the airplane achieves best sustained turn performance for that power setting. The cool thing is that thrust and drag are balanced when an airplane is ONSPEED."<br />
+— Vac, <a href="https://vansairforce.net/threads/what-energy-sounds-like.196593/">What Energy Sounds Like</a> (post #1)</p>
+</blockquote>
+<p>The tone-to-action map follows directly:</p>
+<table>
+<thead>
+<tr>
+<th>Tone</th>
+<th>Energy state</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Silence (above L/D<sub>MAX</sub>)</td>
+<td><span class="arithmatex">\(P_s\)</span> strongly positive</td>
+<td>Decelerate or climb</td>
+</tr>
+<tr>
+<td>Low-pitch pulsing</td>
+<td><span class="arithmatex">\(P_s\)</span> positive but trending toward balance</td>
+<td>Continue deceleration</td>
+</tr>
+<tr>
+<td>ONSPEED solid tone</td>
+<td><span class="arithmatex">\(P_s = 0\)</span> — balanced</td>
+<td>Hold pitch and power</td>
+</tr>
+<tr>
+<td>High-pitch pulsing</td>
+<td><span class="arithmatex">\(P_s\)</span> negative — bleeding energy</td>
+<td>Push: power, pitch, or both</td>
+</tr>
+<tr>
+<td>Stall warning buzz</td>
+<td>At the aerodynamic limit</td>
+<td>Unload immediately</td>
+</tr>
+</tbody>
+</table>
+<p>For the aerodynamic background — V-n diagram, the relationship between AOA and load factor, why ONSPEED is at ~60% of maximum lift — see <a href="../../calibration/how-aoa-works/">How OnSpeed Measures AOA</a>. The FAA's <a href="https://www.faa.gov/regulations_policies/handbooks_manuals/aviation/airplane_handbook">Airplane Flying Handbook (FAA-H-8083-3C), Chapter 4</a> covers slow flight, stalls, and energy management at GA-pilot depth.</p>
 <h2 id="standard-approach">Standard Approach<a class="headerlink" href="#standard-approach" title="Permanent link">&para;</a></h2>
 <ol>
 <li><strong>Configure for landing</strong> — set flaps as desired for the approach</li>
@@ -3644,6 +3764,15 @@
 <li>Hold this while you set up for an emergency landing</li>
 <li>The tone doesn't change with weight — at any weight, the best-glide AOA is the same, even though the best-glide <em>speed</em> changes</li>
 </ul>
+<h2 id="stereo-panning-if-the-tone-shifts-youre-slipping">Stereo panning: if the tone shifts, you're slipping<a class="headerlink" href="#stereo-panning-if-the-tone-shifts-youre-slipping" title="Permanent link">&para;</a></h2>
+<p>When 3D Audio is enabled and the audio panel is wired in stereo, the tone pans left and right with lateral acceleration. The pan tracks the slip/skid ball — when the ball rolls right, the tone shifts to the right ear; when the ball rolls left, the tone shifts to the left ear. Coordinated flight centers the tone.</p>
+<p>The technique is the same one used with the slip/skid ball: <strong>step on the tone</strong>. If the ONSPEED solid tone shifts to the right ear, apply right rudder until it centers. The audio cue and the visual ball move together, so internalizing the tone pan is internalizing coordination feedback that doesn't require looking at the panel.</p>
+<blockquote>
+<p>"We decided to capitalize on the human brain's excellent evolved response to figure out what direction a sound is coming from. Garmin calls this '3D audio.' Most of us call this stereo… The tone mimics the behavior of the ball. To coordinate, you 'step on the tone' the same way you 'step on the ball.' A handy feature when you are trying to max perform the airplane and may be intentionally operating at reduced margin."<br />
+— Vac, <a href="https://vansairforce.net/threads/what-sideslip-sounds-like.196727/">What Sideslip Sounds Like</a> (post #1)</p>
+</blockquote>
+<p>This matters most in the base-to-final turn. A skidding turn (rudder in the direction of turn, opposite aileron) has the ball rolling out of the turn; a stall in that condition produces a near-instant snap roll. The pan gives a head-up, hands-stay-on-stick coordination cue while you're focused on the runway. If the tone shifts toward the inside of the turn, the rudder input is too aggressive — relax it.</p>
+<p>3D Audio requires stereo audio panel wiring (see <a href="../../installation/audio/">Audio Wiring</a>) and is enabled in <a href="../../configuration/audio/#3d-audio-lateral-g-panning">Audio Settings</a>. On a mono installation, the pan is silent and the rest of the tone family still works.</p>
 <h2 id="unload-for-control">Unload for Control<a class="headerlink" href="#unload-for-control" title="Permanent link">&para;</a></h2>
 <p>"Unload for control" is the fundamental principle for maintaining positive aircraft control near the aerodynamic limits. If the wing approaches its maximum lift capability and no corrective action is taken, the airplane will stall. To unload simply means to <strong>reduce the wing's lift demand by decreasing angle of attack and load factor</strong>.</p>
 <p>An airplane cannot stall at zero G. Any reduction in load factor reduces stall speed. At half a G, stall speed is approximately 70% of the 1G stall speed.</p>
