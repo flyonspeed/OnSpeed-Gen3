@@ -1371,7 +1371,7 @@ static int AudioControlHandler(
         if (inParam1 == reinterpret_cast<intptr_t>(audioToggleCheckbox)) {
             audioEnabled = !audioEnabled;
             XPSetWidgetDescriptor(audioToggleCheckbox,
-                                  audioEnabled ? "Sound: On" : "Sound: Off");
+                                  audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off");
             SaveSettings();
             return 1;
         }
@@ -1610,7 +1610,7 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
 
     audioToggleCheckbox = createWidget(
         xpWidgetClass_Button,
-        audioEnabled ? "Sound: On" : "Sound: Off"
+        audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off"
     );
 
     // X-Plane stall horn toggle.  Label reads "on" when the sim's
@@ -1666,7 +1666,7 @@ static void UpdateAOATextFields() {
 
     if (audioToggleCheckbox) {
         XPSetWidgetDescriptor(audioToggleCheckbox,
-                              audioEnabled ? "Sound: On" : "Sound: Off");
+                              audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off");
     }
 }
 
@@ -1748,11 +1748,14 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
+        } else {
+            XPHideWidget(audioControlWidget);
         }
-        // Refresh after showing so s_audioWindow.visible reflects the
-        // open *and* any unflushed drag/resize the periodic poll
-        // hadn't picked up yet.  Persist if anything changed so a
-        // reboot reopens automatically at the right place.
+        // Refresh after the toggle so s_audioWindow.visible reflects
+        // the new open/closed state *and* any unflushed drag/resize
+        // the periodic poll hadn't picked up yet.  Persist if
+        // anything changed so a reboot reopens (or stays closed) at
+        // the right place.
         RefreshAudioWindowState();
         if (AudioWindowChanged()) {
             SaveSettings();
