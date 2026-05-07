@@ -48,6 +48,7 @@ float fLDMAXAOA       =  6.0f;
 float fONSPEEDFASTAOA =  7.3f;
 float fONSPEEDSLOWAOA =  9.6f;
 float fSTALLWARNAOA   = 12.5f;
+float fALPHASTALL     = 13.6f;
 
 // 60 kt is a representative light-GA 1G clean stall for the
 // scenarios below (RV-10 ≈ 62 kt, T-6 ≈ 63, C172 ≈ 40, T-6 high

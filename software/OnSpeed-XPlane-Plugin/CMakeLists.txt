@@ -111,10 +111,30 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../Libraries/version
 set(PLUGIN_SOURCES
     src/aoa_audio.cpp
     src/serial_port.cpp
+    # AutoSetpoints is platform-independent (no XPLM, no M5GFX) and
+    # used in both indexer-on and audio-only builds — aoa_audio.cpp
+    # includes it directly to scale setpoints per X-Plane's per-aircraft
+    # stall AOA each flight-loop tick.  Lives under m5_indexer/ for
+    # namespace cohesion (the indexer's percent-lift pipeline reads the
+    # same f*AOA globals it writes).
+    src/m5_indexer/AutoSetpoints.cpp
+    # PercentLiftFill is also platform-independent (no XPLM, no M5GFX)
+    # and used in both flavors — the audio path calls
+    # MaybeSynthesizeAoaFromVSquared from CheckAOAAndPlayTone so that
+    # tones track the indicator during takeoff roll (where X-Plane's
+    # raw alpha sits at the geometric ground angle, well below LDmax).
+    # The function lives here because it composes the same
+    # MakeFlapCfg / ComputeIasPercentLift helpers that drive the
+    # indexer's V² fill, so audio and indicator agree by construction.
+    src/m5_indexer/PercentLiftFill.cpp
 )
 set(PLUGIN_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/SDK/CHeaders/XPLM
     ${CMAKE_CURRENT_SOURCE_DIR}/SDK/CHeaders/Widgets
+    # src/ on the include path so aoa_audio.cpp finds
+    # m5_indexer/AutoSetpoints.h.  M5-indexer-on builds add more paths
+    # below.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 set(PLUGIN_EXTRA_LIBS "")
 
@@ -312,7 +332,9 @@ if(ENABLE_M5_INDEXER)
         src/m5_indexer/Panel_PluginCanvas.cpp
         src/m5_indexer/IndexerWindow.cpp
         src/m5_indexer/DataRefAdapter.cpp
-        src/m5_indexer/PercentLiftFill.cpp
+        # PercentLiftFill.cpp is already in the audio-only PLUGIN_SOURCES
+        # list above (the audio path's V² synthesis depends on it), so
+        # don't list it again here or the linker sees duplicate symbols.
         ${M5_FW_SOURCES}
         ${M5G_SOURCES}
         ${M5U_SOURCES}
