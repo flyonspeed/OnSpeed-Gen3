@@ -34,12 +34,28 @@ namespace onspeed_xplane::indexer {
 
 namespace {
 
-// alpha_0 / alpha_stall approximation per spec.  Replaced by issue #392.
-constexpr float kAlpha0Approx = -2.0f;          // body-angle convention
+// alpha_0: the AOA at zero wing lift.  Zero by construction in the
+// X-Plane plugin's reference frame: this code reads
+// `sim/flightmodel/position/alpha`, which is *wing* AOA (not body
+// angle the way the firmware's AOA dataref is).  In wing-AOA terms a
+// zero-lift airfoil sits at alpha=0 by definition; the small offset
+// from that for a real cambered wing (a degree or two negative) isn't
+// exposed by any X-Plane dataref, so 0 is both the convention and the
+// best available approximation.
+constexpr float kAlpha0 = 0.0f;
 
-inline float AlphaStallApprox()
+// alpha_stall: derived from the pilot's StallWarn setpoint and the
+// canonical NAOA fraction (StallWarn = 0.92 × alpha_stall).  When the
+// seed-from-datarefs path runs, fSTALLWARNAOA was written as
+// 0.92 × (acf_stall_warn_alpha / 0.92) = acf_stall_warn_alpha, so
+// dividing back by 0.92 recovers the X-Plane stall AOA exactly.
+// When the pilot has hand-tuned fSTALLWARNAOA, this preserves their
+// intent (their StallWarn pip lands at 92% on the indexer regardless
+// of where they set it).
+inline float AlphaStallFromSetpoints()
 {
-    return fSTALLWARNAOA * 1.075f;              // StallWarn ≈ 93% of stall
+    constexpr float kNaoaStallWarn = 0.92f;
+    return fSTALLWARNAOA / kNaoaStallWarn;
 }
 
 // Build a stack-local SuFlaps just for ComputePercentLift.  Avoids
@@ -47,8 +63,8 @@ inline float AlphaStallApprox()
 ::onspeed::config::OnSpeedConfig::SuFlaps MakeFlapCfg()
 {
     ::onspeed::config::OnSpeedConfig::SuFlaps f{};
-    f.fAlpha0         = kAlpha0Approx;
-    f.fAlphaStall     = AlphaStallApprox();
+    f.fAlpha0         = kAlpha0;
+    f.fAlphaStall     = AlphaStallFromSetpoints();
     f.fLDMAXAOA       = fLDMAXAOA;
     f.fONSPEEDFASTAOA = fONSPEEDFASTAOA;
     f.fONSPEEDSLOWAOA = fONSPEEDSLOWAOA;
@@ -160,8 +176,8 @@ float MaybeSynthesizeAoaFromVSquared(float liveIasKt,
     if (!std::isfinite(pct)) {
         return std::numeric_limits<float>::quiet_NaN();
     }
-    const float alpha0     = kAlpha0Approx;
-    const float alphaStall = AlphaStallApprox();
+    const float alpha0     = kAlpha0;
+    const float alphaStall = AlphaStallFromSetpoints();
     return alpha0 + (pct / 100.0f) * (alphaStall - alpha0);
 }
 
