@@ -151,6 +151,7 @@ nav:
     - Flight Envelope (V-n Diagram): flying/vn-diagram.md
     - Normal Operations: flying/normal-ops.md
     - Approach and Landing: flying/approach-landing.md
+    - Flight Test Procedures: flying/flight-test-procedures.md
     - Summary of Warnings and Alerts: flying/warnings.md
   - X-Plane Simulator:
     - xplane/index.md
