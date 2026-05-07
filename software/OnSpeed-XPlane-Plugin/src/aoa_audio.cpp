@@ -62,6 +62,7 @@
 #include <optional>
 #include <memory>
 #include <string>
+#include <vector>
 
 // Plugin shares its audio engine with the firmware via onspeed_core —
 // envelope shape, orchestration decision, mixing, and synthesis are
@@ -95,6 +96,7 @@ void cleanupAudio();
 void AudioRenderThread();
 static void UpdateAOATextFields();
 static void CreateAudioControlWindow(int x, int y, int w, int h);
+static void ApplySetpointModeVisibility();
 
 // Per-aircraft AOA setpoints, named to match the firmware's
 // per-flap config fields (Config.h::SuFlaps).  The four boundary
@@ -261,18 +263,34 @@ static XPWidgetID widgetButtonRestoreDefaults = nullptr;
 
 // Auto-mode UI: radio buttons select Auto vs Manual setpoint mode;
 // four NAOA-fraction text fields are editable in Auto mode (and
-// persisted across mode flips).  Two captions display the
-// currently-derived stall AOA and a per-row preview of the current
-// auto-derived setpoints — informational, updated whenever the form
-// is rendered.
-static XPWidgetID widgetRadioAutoMode    = nullptr;
-static XPWidgetID widgetRadioManualMode  = nullptr;
-static XPWidgetID widgetNaoaLdmax        = nullptr;
-static XPWidgetID widgetNaoaOnSpeedFast  = nullptr;
-static XPWidgetID widgetNaoaOnSpeedSlow  = nullptr;
-static XPWidgetID widgetNaoaStallWarn    = nullptr;
-static XPWidgetID widgetCaptionStallAoa  = nullptr;
-static XPWidgetID widgetCaptionDerived   = nullptr;
+// persisted across mode flips).  A header caption plus four read-only
+// per-row captions display the live X-Plane stall AOA and the
+// currently-derived setpoints for the current flap position; updated
+// each frame in auto mode by ApplyAutoDerivedSetpointsForFrame, and
+// at form-render time by UpdateAOATextFields.
+static XPWidgetID widgetRadioAutoMode      = nullptr;
+static XPWidgetID widgetRadioManualMode    = nullptr;
+static XPWidgetID widgetNaoaLdmax          = nullptr;
+static XPWidgetID widgetNaoaOnSpeedFast    = nullptr;
+static XPWidgetID widgetNaoaOnSpeedSlow    = nullptr;
+static XPWidgetID widgetNaoaStallWarn      = nullptr;
+static XPWidgetID widgetCaptionStallAoa    = nullptr;
+static XPWidgetID widgetDerivedHeader      = nullptr;
+static XPWidgetID widgetDerivedLDmax       = nullptr;
+static XPWidgetID widgetDerivedOnSpeedFast = nullptr;
+static XPWidgetID widgetDerivedOnSpeedSlow = nullptr;
+static XPWidgetID widgetDerivedStallWarn   = nullptr;
+static XPWidgetID widgetNaoaSectionHeader  = nullptr;
+
+// Mode-aware visibility: widgets created in the auto-only or
+// manual-only regions of the form push their handle (and, for labeled
+// fields, the matching label caption) into one of these vectors.
+// ApplySetpointModeVisibility walks them at mode-flip time to show /
+// hide the right group.  Vectors are populated in
+// CreateAudioControlWindow and reset there too (window rebuild
+// scenario, e.g. after a plugin reload).
+static std::vector<XPWidgetID> g_autoModeWidgets;
+static std::vector<XPWidgetID> g_manualModeWidgets;
 static bool audioEnabled = false;
 
 // User-controlled override for X-Plane's built-in stall horn.  When true,
@@ -1232,6 +1250,7 @@ static void ApplyValidatedSettings(const ValidatedSettings& v) {
     if (g_setpointMode == SetpointMode::Auto) {
         ApplyAutoDerivedSetpointsForFrame();
     }
+    ApplySetpointModeVisibility();
     UpdateAOATextFields();
 }
 
@@ -1337,6 +1356,10 @@ static void OnAircraftLoaded() {
     }
 
     rebuildAoaSmoothers();
+    // LoadSettings may have flipped g_setpointMode for this aircraft;
+    // make the form's auto-only / manual-only widget regions match
+    // before the next render.  No-op if the window isn't built yet.
+    ApplySetpointModeVisibility();
     UpdateAOATextFields();
 
     // Drop the prior aircraft's captured acf_has_stallwarn value; the
@@ -1603,9 +1626,13 @@ static int AudioControlHandler(
 
     // Radio-button group: enforce single-selection by hand (the
     // widget API sets the clicked button's state to 1 but won't
-    // clear siblings).  No live commit — the new mode applies only
-    // when the user clicks Save, matching the rest of the form's
-    // all-or-nothing semantics.
+    // clear siblings).  Flip g_setpointMode immediately so the
+    // auto-only / manual-only widget regions can show/hide on the
+    // same click — the actual setpoint values still commit only
+    // on Save, matching the rest of the form's all-or-nothing
+    // semantics.  readAndValidateFields reads mode from the radio
+    // ButtonState (not g_setpointMode) so a click-then-cancel via
+    // an unsaved window close reverts cleanly.
     if (inMessage == xpMsg_ButtonStateChanged) {
         XPWidgetID clicked = reinterpret_cast<XPWidgetID>(inParam1);
         if (clicked == widgetRadioAutoMode && widgetRadioManualMode) {
@@ -1613,6 +1640,9 @@ static int AudioControlHandler(
                                 xpProperty_ButtonState, 1);
             XPSetWidgetProperty(widgetRadioManualMode,
                                 xpProperty_ButtonState, 0);
+            g_setpointMode = SetpointMode::Auto;
+            ApplySetpointModeVisibility();
+            UpdateAOATextFields();
             return 1;
         }
         if (clicked == widgetRadioManualMode && widgetRadioAutoMode) {
@@ -1620,6 +1650,9 @@ static int AudioControlHandler(
                                 xpProperty_ButtonState, 1);
             XPSetWidgetProperty(widgetRadioAutoMode,
                                 xpProperty_ButtonState, 0);
+            g_setpointMode = SetpointMode::Manual;
+            ApplySetpointModeVisibility();
+            UpdateAOATextFields();
             return 1;
         }
     }
@@ -1674,6 +1707,26 @@ static int AudioControlHandler(
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Show the auto-only widgets and hide the manual-only widgets (or
+// vice versa) so only the active setpoint-mode region is rendered.
+// Walks the per-mode widget vectors built in CreateAudioControlWindow.
+// Called whenever g_setpointMode changes (radio click, validated
+// commit, .prf load on aircraft swap) and once at window-build time
+// so the initial render matches the loaded mode.
+static void ApplySetpointModeVisibility() {
+    const bool isAuto = (g_setpointMode == SetpointMode::Auto);
+    for (XPWidgetID w : g_autoModeWidgets) {
+        if (!w) continue;
+        if (isAuto) XPShowWidget(w); else XPHideWidget(w);
+    }
+    for (XPWidgetID w : g_manualModeWidgets) {
+        if (!w) continue;
+        if (isAuto) XPHideWidget(w); else XPShowWidget(w);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Stack a single-row widget below the previously-added one.
 static XPWidgetID createWidget(int widgetClass, const char* description, int leftOffset = 20, int width = 140) {
     if (audioControlWidget == nullptr) {
@@ -1702,8 +1755,31 @@ static XPWidgetID createWidget(int widgetClass, const char* description, int lef
         audioControlWidget,                   // container
         widgetClass                           // class
     );
-    
+
     return newWidget;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Add a caption widget on the same vertical row as the previously-
+// created widget — does NOT advance g_NextWidgetTop.  Used to place a
+// label to the right of a narrow radio-button glyph: the radio's
+// descriptor stays empty (so the X-Plane SDK can't center the glyph
+// over the text), and the label sits in this caption next to it.
+static XPWidgetID createSiblingCaption(int leftOffset, int width,
+                                       const char* description) {
+    if (audioControlWidget == nullptr) {
+        return nullptr;
+    }
+    int left, top, right, bottom;
+    XPGetWidgetGeometry(audioControlWidget, &left, &top, &right, &bottom);
+    return XPCreateWidget(
+        left + leftOffset,
+        g_NextWidgetTop,
+        left + leftOffset + width,
+        g_NextWidgetTop - kWidgetHeight,
+        1, description, 0, audioControlWidget,
+        xpWidgetClass_Caption);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1717,10 +1793,13 @@ constexpr int kFieldWidth      = 60;
 
 // Add a label + text-field pair as one stacked row.  initialText is
 // caller-formatted (use snprintf "%.1f" for floats, "%d" for ints)
-// so each field controls its own display format.
+// so each field controls its own display format.  When outLabel is
+// non-null, the caller receives the label-caption handle too — used
+// for mode-aware show/hide so both halves of the row toggle together.
 static XPWidgetID createLabeledTextField(const char* label,
                                          const char* initialText,
-                                         int leftOffset = 20) {
+                                         int leftOffset = 20,
+                                         XPWidgetID* outLabel = nullptr) {
     if (audioControlWidget == nullptr) {
         return nullptr;
     }
@@ -1730,16 +1809,17 @@ static XPWidgetID createLabeledTextField(const char* label,
 
     g_NextWidgetTop -= (kWidgetHeight + kWidgetMargin);
 
-    // Caption: passive label to the left of the field.  Handle is
-    // intentionally not stored — the parent window owns and tears
-    // it down on close.
-    XPCreateWidget(
+    // Caption: passive label to the left of the field.  When the
+    // caller didn't ask for the handle, the parent window still owns
+    // the caption and tears it down on close.
+    XPWidgetID labelCaption = XPCreateWidget(
         left + leftOffset,                              // left
         g_NextWidgetTop,                                // top
         left + leftOffset + kLabelWidth,                // right
         g_NextWidgetTop - kWidgetHeight,                // bottom
         1, label, 0, audioControlWidget,
         xpWidgetClass_Caption);
+    if (outLabel) *outLabel = labelCaption;
 
     XPWidgetID textField = XPCreateWidget(
         left + leftOffset + kLabelWidth + kLabelFieldGap,                // left
@@ -1757,17 +1837,20 @@ static XPWidgetID createLabeledTextField(const char* label,
 }
 
 // Convenience wrappers around createLabeledTextField.  Floats render
-// to one decimal; ints render with no decimal.
-static XPWidgetID createLabeledFloatField(const char* label, float value) {
+// to one decimal; ints render with no decimal.  outLabel mirrors the
+// underlying helper for mode-aware visibility tracking.
+static XPWidgetID createLabeledFloatField(const char* label, float value,
+                                          XPWidgetID* outLabel = nullptr) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.1f", value);
-    return createLabeledTextField(label, buf);
+    return createLabeledTextField(label, buf, /*leftOffset=*/20, outLabel);
 }
 
-static XPWidgetID createLabeledIntField(const char* label, int value) {
+static XPWidgetID createLabeledIntField(const char* label, int value,
+                                        XPWidgetID* outLabel = nullptr) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%d", value);
-    return createLabeledTextField(label, buf);
+    return createLabeledTextField(label, buf, /*leftOffset=*/20, outLabel);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1776,10 +1859,17 @@ static XPWidgetID createLabeledIntField(const char* label, int value) {
 static void CreateAudioControlWindow(int x, int y, int w, int h) {
     int x2 = x + w;
     int y2 = y - h;
-    
+
     // Reset the g_NextWidgetTop for new window
     g_NextWidgetTop = 0;
-    
+
+    // Mode-aware visibility tracking is rebuilt from scratch each
+    // time the window is built (e.g. plugin reload).  Old handles
+    // are stale at this point — the prior widget tree has been torn
+    // down with audioControlWidget.
+    g_autoModeWidgets.clear();
+    g_manualModeWidgets.clear();
+
     // Create main window
     audioControlWidget = XPCreateWidget(x, y, x2, y2,
         1,  // Visible
@@ -1787,7 +1877,7 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
         1,  // root
         nullptr, // no container
         xpWidgetClass_MainWindow);
-    
+
     XPSetWidgetProperty(audioControlWidget, xpProperty_MainWindowHasCloseBoxes, 1);
 
     // Create version label
@@ -1813,11 +1903,23 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     // X-Plane's stall AOA each frame (per-aircraft, no manual tuning).
     // Manual = pilot-set setpoints fixed across all flap positions
     // (legacy behavior).  See issue #392.
+    //
+    // Layout: each radio is a narrow 14-px button with an empty
+    // descriptor so the X-Plane SDK can't center the radio glyph
+    // over the label text.  A sibling caption (createSiblingCaption,
+    // does not advance g_NextWidgetTop) sits immediately to the
+    // right and carries the human-readable label.
     createWidget(xpWidgetClass_Caption, "Setpoint mode:");
 
+    constexpr int kRadioLeftOffset      = 20;
+    constexpr int kRadioGlyphWidth      = 14;
+    constexpr int kRadioLabelLeftOffset = kRadioLeftOffset
+                                        + kRadioGlyphWidth + 4;
+    constexpr int kRadioLabelWidth      = 240;
+
     widgetRadioAutoMode = createWidget(
-        xpWidgetClass_Button, "Auto (derive from X-Plane stall AOA)",
-        /*leftOffset=*/30, /*width=*/220);
+        xpWidgetClass_Button, "",
+        kRadioLeftOffset, kRadioGlyphWidth);
     XPSetWidgetProperty(widgetRadioAutoMode,
                         xpProperty_ButtonType, xpRadioButton);
     XPSetWidgetProperty(widgetRadioAutoMode,
@@ -1826,10 +1928,12 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     XPSetWidgetProperty(widgetRadioAutoMode,
                         xpProperty_ButtonState,
                         g_setpointMode == SetpointMode::Auto ? 1 : 0);
+    createSiblingCaption(kRadioLabelLeftOffset, kRadioLabelWidth,
+                         "Auto (derive from X-Plane stall AOA)");
 
     widgetRadioManualMode = createWidget(
-        xpWidgetClass_Button, "Manual (fixed across all flaps)",
-        /*leftOffset=*/30, /*width=*/220);
+        xpWidgetClass_Button, "",
+        kRadioLeftOffset, kRadioGlyphWidth);
     XPSetWidgetProperty(widgetRadioManualMode,
                         xpProperty_ButtonType, xpRadioButton);
     XPSetWidgetProperty(widgetRadioManualMode,
@@ -1838,37 +1942,114 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     XPSetWidgetProperty(widgetRadioManualMode,
                         xpProperty_ButtonState,
                         g_setpointMode == SetpointMode::Manual ? 1 : 0);
+    createSiblingCaption(kRadioLabelLeftOffset, kRadioLabelWidth,
+                         "Manual (fixed across all flaps)");
 
-    // NAOA fractions — auto-mode tuning knobs.  Editable in either
-    // mode (so the pilot can tune Auto ahead of switching to it),
-    // but only consulted when mode = Auto.
-    widgetNaoaLdmax        = createLabeledFloatField("LDmax NAOA:",
-                                                     g_naoaLdmax);
-    widgetNaoaOnSpeedFast  = createLabeledFloatField("OnSpeedFast NAOA:",
-                                                     g_naoaOnSpeedFast);
-    widgetNaoaOnSpeedSlow  = createLabeledFloatField("OnSpeedSlow NAOA:",
-                                                     g_naoaOnSpeedSlow);
-    widgetNaoaStallWarn    = createLabeledFloatField("StallWarn NAOA:",
-                                                     g_naoaStallWarn);
+    // ---- AUTO MODE region ---------------------------------------
+    // Visible only when g_setpointMode == Auto (ApplySetpointModeVisibility
+    // walks g_autoModeWidgets / g_manualModeWidgets at mode-flip time).
+    //
+    // Layout, top to bottom:
+    //   1. "Auto-derived setpoints (current flap):" header caption.
+    //   2. "X-Plane stall AOA: ..." live status caption.
+    //   3-6. Four read-only "<setpoint>: <value>°" captions, refreshed
+    //      by UpdateAOATextFields and again by the per-frame
+    //      ApplyAutoDerivedSetpointsForFrame so flap deployment is
+    //      reflected as it happens.
+    //   7. "NAOA fractions (tune for unusual airfoils):" header.
+    //   8-11. Four editable NAOA float fields.
+    widgetDerivedHeader = createWidget(xpWidgetClass_Caption,
+                                       "Auto-derived setpoints (current flap):",
+                                       /*leftOffset=*/20, /*width=*/260);
+    g_autoModeWidgets.push_back(widgetDerivedHeader);
 
-    // Read-only displays of the live X-Plane stall AOA + the four
-    // currently-derived setpoints.  Updated by UpdateAOATextFields
-    // each time the form is rendered.  In Manual mode the captions
-    // still show the would-be auto-derive (informational; helps the
-    // pilot see what would happen if they flipped to Auto).
     widgetCaptionStallAoa = createWidget(xpWidgetClass_Caption, "",
-                                         /*leftOffset=*/20, /*width=*/240);
-    widgetCaptionDerived  = createWidget(xpWidgetClass_Caption, "",
-                                         /*leftOffset=*/20, /*width=*/240);
+                                         /*leftOffset=*/30, /*width=*/250);
+    g_autoModeWidgets.push_back(widgetCaptionStallAoa);
 
-    // AOA setpoints (firmware terminology: see Config.h::SuFlaps).  In
-    // Manual mode these are pilot-set; in Auto mode they're a
-    // last-derived snapshot, overwritten each frame.
-    widgetLDMaxAOA          = createLabeledFloatField("LDmax AOA:",        fLDMAXAOA);
-    widgetOnSpeedFastAOA    = createLabeledFloatField("OnSpeed Fast AOA:", fONSPEEDFASTAOA);
-    widgetOnSpeedSlowAOA    = createLabeledFloatField("OnSpeed Slow AOA:", fONSPEEDSLOWAOA);
-    widgetStallWarnAOA      = createLabeledFloatField("Stall Warn AOA:",   fSTALLWARNAOA);
+    widgetDerivedLDmax = createWidget(xpWidgetClass_Caption,
+                                       "LDmax: -",
+                                       /*leftOffset=*/30, /*width=*/250);
+    g_autoModeWidgets.push_back(widgetDerivedLDmax);
 
+    widgetDerivedOnSpeedFast = createWidget(xpWidgetClass_Caption,
+                                             "OnSpeedFast: -",
+                                             /*leftOffset=*/30, /*width=*/250);
+    g_autoModeWidgets.push_back(widgetDerivedOnSpeedFast);
+
+    widgetDerivedOnSpeedSlow = createWidget(xpWidgetClass_Caption,
+                                             "OnSpeedSlow: -",
+                                             /*leftOffset=*/30, /*width=*/250);
+    g_autoModeWidgets.push_back(widgetDerivedOnSpeedSlow);
+
+    widgetDerivedStallWarn = createWidget(xpWidgetClass_Caption,
+                                           "StallWarn: -",
+                                           /*leftOffset=*/30, /*width=*/250);
+    g_autoModeWidgets.push_back(widgetDerivedStallWarn);
+
+    widgetNaoaSectionHeader = createWidget(
+        xpWidgetClass_Caption,
+        "NAOA fractions (tune for unusual airfoils):",
+        /*leftOffset=*/20, /*width=*/260);
+    g_autoModeWidgets.push_back(widgetNaoaSectionHeader);
+
+    XPWidgetID naoaLabel = nullptr;
+    widgetNaoaLdmax        = createLabeledFloatField("LDmax NAOA:",
+                                                     g_naoaLdmax,
+                                                     &naoaLabel);
+    g_autoModeWidgets.push_back(widgetNaoaLdmax);
+    g_autoModeWidgets.push_back(naoaLabel);
+
+    widgetNaoaOnSpeedFast  = createLabeledFloatField("OnSpeedFast NAOA:",
+                                                     g_naoaOnSpeedFast,
+                                                     &naoaLabel);
+    g_autoModeWidgets.push_back(widgetNaoaOnSpeedFast);
+    g_autoModeWidgets.push_back(naoaLabel);
+
+    widgetNaoaOnSpeedSlow  = createLabeledFloatField("OnSpeedSlow NAOA:",
+                                                     g_naoaOnSpeedSlow,
+                                                     &naoaLabel);
+    g_autoModeWidgets.push_back(widgetNaoaOnSpeedSlow);
+    g_autoModeWidgets.push_back(naoaLabel);
+
+    widgetNaoaStallWarn    = createLabeledFloatField("StallWarn NAOA:",
+                                                     g_naoaStallWarn,
+                                                     &naoaLabel);
+    g_autoModeWidgets.push_back(widgetNaoaStallWarn);
+    g_autoModeWidgets.push_back(naoaLabel);
+
+    // ---- MANUAL MODE region -------------------------------------
+    // AOA setpoints (firmware terminology: see Config.h::SuFlaps),
+    // pilot-set and fixed across all flaps.  Visible only when
+    // g_setpointMode == Manual; the four widgets remain in the tree
+    // when hidden so readAndValidateFields can still address them
+    // by name (their last-known values pass through unchanged).
+    XPWidgetID manualLabel = nullptr;
+    widgetLDMaxAOA          = createLabeledFloatField("LDmax AOA:",
+                                                      fLDMAXAOA,
+                                                      &manualLabel);
+    g_manualModeWidgets.push_back(widgetLDMaxAOA);
+    g_manualModeWidgets.push_back(manualLabel);
+
+    widgetOnSpeedFastAOA    = createLabeledFloatField("OnSpeed Fast AOA:",
+                                                      fONSPEEDFASTAOA,
+                                                      &manualLabel);
+    g_manualModeWidgets.push_back(widgetOnSpeedFastAOA);
+    g_manualModeWidgets.push_back(manualLabel);
+
+    widgetOnSpeedSlowAOA    = createLabeledFloatField("OnSpeed Slow AOA:",
+                                                      fONSPEEDSLOWAOA,
+                                                      &manualLabel);
+    g_manualModeWidgets.push_back(widgetOnSpeedSlowAOA);
+    g_manualModeWidgets.push_back(manualLabel);
+
+    widgetStallWarnAOA      = createLabeledFloatField("Stall Warn AOA:",
+                                                      fSTALLWARNAOA,
+                                                      &manualLabel);
+    g_manualModeWidgets.push_back(widgetStallWarnAOA);
+    g_manualModeWidgets.push_back(manualLabel);
+
+    // ---- Common settings (always visible) -----------------------
     // IAS gate (firmware: iMuteAudioUnderIAS; 0 = never mute).
     widgetMuteAudioUnderIAS = createLabeledIntField(
         "Mute Under IAS (kt):", iMuteAudioUnderIAS);
@@ -1916,8 +2097,13 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
         xpWidgetClass_Button,
         "Reload Plugins"
     );
-    
+
     XPAddWidgetCallback(audioControlWidget, AudioControlHandler);
+
+    // Initial visibility matches the loaded mode; without this the
+    // first render shows both regions because every widget was
+    // created with visible=1.
+    ApplySetpointModeVisibility();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1960,12 +2146,12 @@ static void UpdateAOATextFields() {
         XPSetWidgetDescriptor(widgetNaoaStallWarn, buffer);
     }
 
-    // Live readout of the current X-Plane stall AOA + auto-derived
-    // setpoints.  In auto mode this matches the f*AOA fields below
-    // (the f*AOA fields are the most recent derivation snapshot).  In
-    // manual mode the captions show the would-be auto values for
-    // comparison.
-    if (widgetCaptionStallAoa || widgetCaptionDerived) {
+    // Live readout of the current X-Plane stall AOA and the four
+    // auto-derived setpoints for the current flap position.  Only
+    // populated in auto mode (manual mode hides these widgets via
+    // ApplySetpointModeVisibility), so the manual-mode pilot's f*AOA
+    // form values aren't shadowed by the auto-derive numbers.
+    if (g_setpointMode == SetpointMode::Auto) {
         const auto d = CurrentAutoDerivation();
         if (widgetCaptionStallAoa) {
             if (d.applied) {
@@ -1976,7 +2162,7 @@ static void UpdateAOATextFields() {
                 const float ratio = flapHandleDeployRef
                     ? XPLMGetDataf(flapHandleDeployRef) : 0.0f;
                 snprintf(buffer, sizeof(buffer),
-                         "X-Plane stall AOA: %.1f° clean, %.1f° full "
+                         "X-Plane stall AOA: %.1f deg clean, %.1f deg full "
                          "(flap %.0f%%)",
                          aoaNoFlap, aoaFullFlap, ratio * 100.0f);
             } else {
@@ -1985,16 +2171,45 @@ static void UpdateAOATextFields() {
             }
             XPSetWidgetDescriptor(widgetCaptionStallAoa, buffer);
         }
-        if (widgetCaptionDerived) {
+        if (widgetDerivedLDmax) {
             if (d.applied) {
                 snprintf(buffer, sizeof(buffer),
-                         "Derived: %.1f / %.1f / %.1f / %.1f°",
-                         d.ldmax, d.onSpeedFast, d.onSpeedSlow, d.stallWarn);
+                         "LDmax:       %.1f deg", d.ldmax);
             } else {
                 snprintf(buffer, sizeof(buffer),
-                         "Derived: unavailable (manual setpoints used)");
+                         "LDmax:       (no datarefs)");
             }
-            XPSetWidgetDescriptor(widgetCaptionDerived, buffer);
+            XPSetWidgetDescriptor(widgetDerivedLDmax, buffer);
+        }
+        if (widgetDerivedOnSpeedFast) {
+            if (d.applied) {
+                snprintf(buffer, sizeof(buffer),
+                         "OnSpeedFast: %.1f deg", d.onSpeedFast);
+            } else {
+                snprintf(buffer, sizeof(buffer),
+                         "OnSpeedFast: (no datarefs)");
+            }
+            XPSetWidgetDescriptor(widgetDerivedOnSpeedFast, buffer);
+        }
+        if (widgetDerivedOnSpeedSlow) {
+            if (d.applied) {
+                snprintf(buffer, sizeof(buffer),
+                         "OnSpeedSlow: %.1f deg", d.onSpeedSlow);
+            } else {
+                snprintf(buffer, sizeof(buffer),
+                         "OnSpeedSlow: (no datarefs)");
+            }
+            XPSetWidgetDescriptor(widgetDerivedOnSpeedSlow, buffer);
+        }
+        if (widgetDerivedStallWarn) {
+            if (d.applied) {
+                snprintf(buffer, sizeof(buffer),
+                         "StallWarn:   %.1f deg", d.stallWarn);
+            } else {
+                snprintf(buffer, sizeof(buffer),
+                         "StallWarn:   (no datarefs)");
+            }
+            XPSetWidgetDescriptor(widgetDerivedStallWarn, buffer);
         }
     }
 
