@@ -124,7 +124,7 @@ The wizard's procedure — a single deceleration sweep at idle power, wings leve
 
 **Peak-AOA extraction is per-flap.** Each flap setting moves $\alpha_0$, $\alpha_\text{stall}$, and the lift-curve slope. There is no shortcut to calibrating one flap setting and scaling — the fit is genuinely different per flap, which is why the wizard runs once per flap detent.
 
-Vac's procedure summary, from [On Speed Angle of Attack Video](https://vansairforce.net/threads/on-speed-angle-of-attack-video.148638/) (post #25):
+The mechanics above are the OnSpeed wizard's automated form of a technique Vac described pre-OnSpeed for pilots characterizing a third-party EFIS's AOA scaling, in [On Speed Angle of Attack Video](https://vansairforce.net/threads/on-speed-angle-of-attack-video.148638/) (post #25). The flying is the same; the wizard does the data extraction the EFIS-characterization workflow used to do by hand:
 
 > "The simplest technique is to select idle power and maintain altitude precisely. Trim as the airplane decelerates, but stop trimming at about 80-90. After the stall, use AoA to recover (i.e., pitch down) and let the airplane recover at idle power and accelerate to about 100 MPH/90 KTS indicated… This isn't a speed drill — about 45-60 seconds per stall should work out about right."
 
@@ -146,7 +146,7 @@ A correct calibration is not "the AOA reading matches a reference instrument exa
 
 ## Some Dynon AOA systems peak at 80% lift, not 100%
 
-OnSpeed's wizard finds $\alpha_\text{stall}$ from the AOA peak in the deceleration sweep. Some EFIS-derived AOA systems display lift fraction relative to a reference that is not 100% at the stall — the Dynon DY-10/100 stack, for example, often peaks at ~80% during a clean-configuration stall, depending on calibration.
+OnSpeed's wizard finds $\alpha_\text{stall}$ from the AOA peak in the deceleration sweep. Some EFIS-derived AOA systems display lift fraction relative to a reference that is not 100% at the stall — the Dynon DY-10/100 stack, in the example below, peaks at ~80% during a clean-configuration stall:
 
 > "You can see the stall is occurring at about 80% total lift in this case, not 100. Now ONSPEED still occurs at 60% of peak (i.e., .6 × 80%); but I don't think the Dynon graphic display makes allowance for this."  
 > — Vac, [What Energy Sounds Like](https://vansairforce.net/threads/what-energy-sounds-like.196593/) (post #6)

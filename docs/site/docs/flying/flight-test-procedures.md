@@ -30,7 +30,7 @@ The wind-up turn is where you can hear that transition. As you tighten the turn,
 2. **Area**: clear of traffic, away from terrain and clouds.
 3. **Configuration**: clean (flaps 0°), trim for cruise, power set for level flight.
 4. **Display**: Mode 4 (G History) on the external display or X-Plane indexer. Note the trace baseline at 1 G.
-5. **Calibration**: a recent flaps-0 calibration with R² > 0.95.
+5. **Calibration**: a recent flaps-0 calibration meeting the wizard's [good-data criteria](../calibration/wizard.md#what-good-data-looks-like) (R² > 0.95 on both fits, setpoints sensible for the aircraft).
 
 ### Procedure
 

@@ -6,7 +6,7 @@ OnSpeed's primary value is during the approach and landing phase — the most da
 
 Energy management is the algebra of pitch, throttle, and altitude. The pilot has two primary controls — pitch and power — and they together set the aircraft's energy state. AOA doesn't *control* energy state; it *reports* it.
 
-The technical name for the quantity is **specific excess power**, written $P_s$ ("P sub S") and defined as $(T - D) \cdot V / W$, where $T$ is thrust, $D$ is drag, $V$ is velocity, and $W$ is weight. Practically, $P_s$ is "thrust minus drag, divided by effective weight." When $P_s$ is positive, the airplane can climb, accelerate, or both. When $P_s$ is negative, the airplane is descending or decelerating. When $P_s$ is zero, thrust and drag are balanced for the current effective weight.
+The technical name for the quantity is **specific excess power**, written $P_s$ ("P sub S"). The general (maneuvering) form is $P_s = (T - D) \cdot V / (W \cdot n)$, where $T$ is thrust, $D$ is drag, $V$ is velocity, $W$ is weight, and $n$ is load factor — Vac's formulation in [Angle of Attack and Energy Maneuverability](https://vansairforce.net/threads/angle-of-attack-and-energy-maneuverability.225345/) (post #23). On a 1 G stabilized approach $n = 1$ and the formula collapses to $(T - D) \cdot V / W$ — "thrust minus drag, divided by weight." When $P_s$ is positive, the airplane can climb, accelerate, or both. When $P_s$ is negative, the airplane is descending or decelerating. When $P_s$ is zero, thrust and drag are balanced for the current effective weight.
 
 The ONSPEED solid tone arrives at $P_s = 0$.
 
