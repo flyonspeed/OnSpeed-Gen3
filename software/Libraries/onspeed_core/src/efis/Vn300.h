@@ -23,7 +23,10 @@
 //
 // Fields extracted (all floats, little-endian):
 //   AngularRate{Roll,Pitch,Yaw} at offsets 8/12/16
-//   GnssLat (double) at 20, GnssLon (double) at 28
+//   GnssLat (double) at 20, GnssLon (double) at 28,
+//     altitude (double) at 36 — INS-estimated altitude in metres from the
+//     Common.Position group (sensor-fused GPS+IMU LLA), not the raw GNSS
+//     altitude that would come from a separate GPSGROUP_POSLLA selector
 //   VelNed{North,East,Down} at 44/48/52
 //   Accel{Fwd,Lat,Vert} at 56/60/64
 //   GPS time bytes at 71..73 (Hour, Min, Sec)
@@ -83,6 +86,9 @@ struct Vn300Data {
     float        gnssVelNedDown     = 0.0f;
     double       gnssLat            = 0.0;
     double       gnssLon            = 0.0;
+    // INS-estimated altitude (metres) from the Common.Position group.
+    // Sensor-fused GPS+IMU LLA, not raw GNSS altitude.
+    double       estAltMeters       = 0.0;
     uint8_t      gpsFix             = 0;
     char         szTimeUTC[24]      = {};
 };

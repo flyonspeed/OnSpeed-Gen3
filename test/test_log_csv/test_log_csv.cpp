@@ -125,6 +125,7 @@ static LogRow MakeTestRow(bool boom = false, bool efis = false, bool vn300 = fal
         r.vnGnssVelNedDown   = -1.40f;
         r.vnGnssLat          = 37.123456;
         r.vnGnssLon          = -122.654321;
+        r.vnEstAltFt         = 4521.75f;
         r.vnGpsFix           = 1;
         r.vnDataAgeMs        = 55;
         strncpy(r.vnTimeUtc, "2026-04-11T14:30:00Z", kLogRowUtcTimeLen - 1);
@@ -249,6 +250,7 @@ static void AssertRoundTrip(const LogRow& original)
         // is not enabled in the native test config.
         TEST_ASSERT_FLOAT_WITHIN(1e-5f, (float)original.vnGnssLat, (float)parsed.vnGnssLat);
         TEST_ASSERT_FLOAT_WITHIN(1e-5f, (float)original.vnGnssLon, (float)parsed.vnGnssLon);
+        TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.vnEstAltFt, parsed.vnEstAltFt);
         TEST_ASSERT_EQUAL_INT(original.vnGpsFix,   parsed.vnGpsFix);
         TEST_ASSERT_EQUAL_INT(original.vnDataAgeMs, parsed.vnDataAgeMs);
         TEST_ASSERT_EQUAL_STRING(original.vnTimeUtc, parsed.vnTimeUtc);
@@ -355,6 +357,7 @@ void test_header_vn300_columns_present_when_enabled(void)
     TEST_ASSERT_GREATER_THAN(0u, len);
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnYaw"));
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnGnssLat"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnEstAltFt"));
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnTimeUTC"));
     TEST_ASSERT_NULL(strstr(s_hdrBuf, "efisIAS"));
 }

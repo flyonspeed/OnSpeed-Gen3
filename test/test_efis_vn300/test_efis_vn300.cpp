@@ -16,7 +16,8 @@
 //   [16..19] AngularRateYaw
 //   [20..27] GnssLat (double, LE)
 //   [28..35] GnssLon (double, LE)
-//   [36..43] (GnssAlt, not used)
+//   [36..43] EstAltMeters (double, LE) — INS-estimated altitude from
+//                                         the Common.Position group
 //   [44..47] VelNedNorth (float)
 //   [48..51] VelNedEast
 //   [52..55] VelNedDown
@@ -104,7 +105,7 @@ static void buildVn300Packet(uint8_t buf[127],
     writeFloat(buf, 16, 0.03f);   // AngularRateYaw
     writeDouble(buf, 20, 37.7749);   // GnssLat
     writeDouble(buf, 28, -122.4194); // GnssLon
-    // [36..43] skip (GnssAlt not used)
+    writeDouble(buf, 36, 1378.265);  // EstAltMeters (~4521 ft)
     writeFloat(buf, 44, 50.0f);   // VelNedNorth
     writeFloat(buf, 48, 5.0f);    // VelNedEast
     writeFloat(buf, 52, -1.5f);   // VelNedDown
@@ -297,6 +298,20 @@ void test_vn300_gps_fix_in_data(void)
     TEST_ASSERT_EQUAL_UINT8(3, data->gpsFix);
 }
 
+void test_vn300_est_alt_meters_in_data(void)
+{
+    uint8_t buf[127];
+    buildVn300Packet(buf, 0.0f, 0.0f, 0.0f);
+    Vn300Parser parser;
+    feedAll(parser, buf, 127);
+    auto data = parser.TakeVn300Data();
+    TEST_ASSERT_TRUE(data.has_value());
+    // buildVn300Packet writes 1378.265 m at offset 36; the parser reads that
+    // double via array2double. Tolerance is loose to absorb the round-trip
+    // through a double constant in the synthetic frame.
+    TEST_ASSERT_FLOAT_WITHIN(1e-3, 1378.265, data->estAltMeters);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -314,5 +329,6 @@ int main(int, char**)
     RUN_TEST(test_vn300_take_frame_clears_pending);
     RUN_TEST(test_vn300_take_data_clears_pending);
     RUN_TEST(test_vn300_gps_fix_in_data);
+    RUN_TEST(test_vn300_est_alt_meters_in_data);
     return UNITY_END();
 }

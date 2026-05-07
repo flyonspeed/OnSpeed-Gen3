@@ -67,6 +67,7 @@ EfisSerialPort::EfisSerialPort()
     suVN300.GPSFix           = 0;
     suVN300.GnssLat          = 0.00;
     suVN300.GnssLon          = 0.00;
+    suVN300.EstAltMeters     = 0.00;
     suVN300.szTimeUTC[0]     = '\0';
 
     uTimestamp = millis();
@@ -228,6 +229,7 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
     suVN300.GnssVelNedDown   = data.gnssVelNedDown;
     suVN300.GnssLat          = data.gnssLat;
     suVN300.GnssLon          = data.gnssLon;
+    suVN300.EstAltMeters     = data.estAltMeters;
     suVN300.GPSFix           = data.gpsFix;
 
     // Copy the time string

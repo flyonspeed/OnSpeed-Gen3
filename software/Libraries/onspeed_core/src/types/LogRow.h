@@ -142,6 +142,12 @@ struct LogRow {
     float vnGnssVelNedDown   = 0.0f;
     double vnGnssLat         = 0.0;
     double vnGnssLon         = 0.0;
+    // INS-estimated altitude (feet) from the VN-300 Common.Position LLA.
+    // Sensor-fused GPS+IMU estimate; smoother through brief GPS dropouts
+    // than raw GNSS altitude. Filter on vnGpsFix to drop frames without
+    // a fix. AHRS / Kalman / density-altitude internals continue using
+    // paltFt (Honeywell pitot-static pressure altitude).
+    float vnEstAltFt         = 0.0f;
     int   vnGpsFix           = 0;
     int   vnDataAgeMs        = 0;
     // Last column of a VN-300 row, written by FormatRow as `%s`.  CSV row

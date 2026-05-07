@@ -286,7 +286,7 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 ",vnLinAccFwd,vnLinAccLat,vnLinAccVert"
                 ",vnYawSigma,vnRollSigma,vnPitchSigma"
                 ",vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown"
-                ",vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,vnTimeUTC");
+                ",vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,vnTimeUTC");
         } else {
             ok &= Appendf(out, outCapacity, &len,
                 ",efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG"
@@ -379,7 +379,7 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
             ok &= Appendf(out, outCapacity, &len,
                 ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f"
                 ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f"
-                ",%.2f,%.2f,%.2f,%.6f,%.6f,%i,%i,%s",
+                ",%.2f,%.2f,%.2f,%.6f,%.6f,%.2f,%i,%i,%s",
                 row.vnAngularRateRoll,  row.vnAngularRatePitch, row.vnAngularRateYaw,
                 row.vnVelNedNorth,      row.vnVelNedEast,       row.vnVelNedDown,
                 row.vnAccelFwd,         row.vnAccelLat,         row.vnAccelVert,
@@ -387,8 +387,8 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 row.vnLinAccFwd,        row.vnLinAccLat,        row.vnLinAccVert,
                 row.vnYawSigma,         row.vnRollSigma,        row.vnPitchSigma,
                 row.vnGnssVelNedNorth,  row.vnGnssVelNedEast,   row.vnGnssVelNedDown,
-                row.vnGnssLat,          row.vnGnssLon,          row.vnGpsFix,
-                row.vnDataAgeMs,        row.vnTimeUtc);
+                row.vnGnssLat,          row.vnGnssLon,          row.vnEstAltFt,
+                row.vnGpsFix,           row.vnDataAgeMs,        row.vnTimeUtc);
         } else {
             // Standard EFIS (Dynon, Garmin, MGL, etc.)
             // efisPercentLift goes empty when !efisPercentLiftValid (mirrors
@@ -519,6 +519,7 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
             if (!tok.next(field) || !ParseFloat(field, row.vnGnssVelNedDown))   return false;
             if (!tok.next(field) || !ParseDouble(field, row.vnGnssLat))         return false;
             if (!tok.next(field) || !ParseDouble(field, row.vnGnssLon))         return false;
+            if (!tok.next(field) || !ParseFloat(field, row.vnEstAltFt))         return false;
             if (!tok.next(field) || !ParseInt(field, row.vnGpsFix))             return false;
             if (!tok.next(field) || !ParseInt(field, row.vnDataAgeMs))          return false;
             if (!tok.next(field) || !ParseString(field, row.vnTimeUtc,
