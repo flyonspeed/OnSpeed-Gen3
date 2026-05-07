@@ -303,6 +303,8 @@ static bool ConfigsEqual(const OnSpeedConfig& a, const OnSpeedConfig& b)
     if (std::fabs(a.fAcVfe          - b.fAcVfe)          > 1e-5f) return false;
     if (std::fabs(a.fAcGlimit       - b.fAcGlimit)       > 1e-5f) return false;
     if (std::fabs(a.fAcNegGlimit    - b.fAcNegGlimit)    > 1e-5f) return false;
+    if (std::fabs(a.fCustomAcGlimit    - b.fCustomAcGlimit)    > 1e-5f) return false;
+    if (std::fabs(a.fCustomAcNegGlimit - b.fCustomAcNegGlimit) > 1e-5f) return false;
 
     return true;
 }
@@ -725,9 +727,12 @@ void test_aircraft_custom_glimit_roundtrip(void)
 }
 
 // Old configs (written before the Custom-mode pos/neg split) lack the
-// <NEG_G_LIMIT> element.  Parsing must succeed and leave fAcNegGlimit
-// at the LoadDefaults seed (-1.76 G, the Utility negative side) so the
-// UI opens at a labeled category until the pilot edits and re-saves.
+// <NEG_G_LIMIT> element.  When fAcGlimit matches a named-category
+// preset, the parser pairs it with that preset's negative so the UI
+// opens at the same labeled category the pilot saw before the upgrade.
+// Custom-storage fields, also absent in old configs, seed from the
+// active fields so picking Custom for the first time after an upgrade
+// shows what the pilot would expect.
 void test_aircraft_glimit_legacy_no_neg_field(void)
 {
     const char* kLegacyXml =
@@ -741,12 +746,104 @@ void test_aircraft_glimit_legacy_no_neg_field(void)
         "  </AIRCRAFT>\n"
         "</CONFIG2>\n";
 
-    OnSpeedConfig cfg;  // ctor calls LoadDefaults -> fAcNegGlimit = -1.76f
+    OnSpeedConfig cfg;  // ctor calls LoadDefaults
     XmlParseStatus st = ParseXml(kLegacyXml, cfg);
     TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
                       static_cast<int>(st));
     TEST_ASSERT_FLOAT_WITHIN(1e-4f,  4.4f,  cfg.fAcGlimit);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.76f, cfg.fAcNegGlimit);
+    // Custom-storage migration seeds from the active fields.
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  4.4f,  cfg.fCustomAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.76f, cfg.fCustomAcNegGlimit);
+}
+
+// Old Aerobatic config: <G_LIMIT>=6.0 with no <NEG_G_LIMIT> migrates
+// to the Aerobatic-paired negative (-3.0), preserving the named
+// category on upgrade.  Without the matched-preset migration the
+// parser would fall back to the LoadDefaults seed of -1.76 and the
+// pilot's Aerobatic config would silently appear as Custom in the UI.
+void test_aircraft_glimit_legacy_aerobatic_migrates(void)
+{
+    const char* kLegacyXml =
+        "<?xml version=\"1.0\"?>\n"
+        "<CONFIG2>\n"
+        "  <AIRCRAFT>\n"
+        "    <G_LIMIT>6.0</G_LIMIT>\n"
+        "  </AIRCRAFT>\n"
+        "</CONFIG2>\n";
+
+    OnSpeedConfig cfg;
+    XmlParseStatus st = ParseXml(kLegacyXml, cfg);
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(st));
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  6.0f,  cfg.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -3.0f,  cfg.fAcNegGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  6.0f,  cfg.fCustomAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -3.0f,  cfg.fCustomAcNegGlimit);
+}
+
+// Old Normal config: <G_LIMIT>=3.8 pairs with -1.52.
+void test_aircraft_glimit_legacy_normal_migrates(void)
+{
+    const char* kLegacyXml =
+        "<?xml version=\"1.0\"?>\n"
+        "<CONFIG2>\n"
+        "  <AIRCRAFT>\n"
+        "    <G_LIMIT>3.8</G_LIMIT>\n"
+        "  </AIRCRAFT>\n"
+        "</CONFIG2>\n";
+
+    OnSpeedConfig cfg;
+    XmlParseStatus st = ParseXml(kLegacyXml, cfg);
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(st));
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  3.8f,  cfg.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.52f, cfg.fAcNegGlimit);
+}
+
+// Old config with a positive that doesn't match any named preset
+// (e.g. a pilot who edited only the positive limit on Gen2): falls
+// through to the LoadDefaults seed for the negative, and the UI
+// renders this as Custom because the positive is off-preset.
+void test_aircraft_glimit_legacy_unmatched_pos_uses_default_neg(void)
+{
+    const char* kLegacyXml =
+        "<?xml version=\"1.0\"?>\n"
+        "<CONFIG2>\n"
+        "  <AIRCRAFT>\n"
+        "    <G_LIMIT>2.5</G_LIMIT>\n"
+        "  </AIRCRAFT>\n"
+        "</CONFIG2>\n";
+
+    OnSpeedConfig cfg;
+    XmlParseStatus st = ParseXml(kLegacyXml, cfg);
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(st));
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  2.5f,   cfg.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.76f,  cfg.fAcNegGlimit);
+}
+
+// Round-trip the new Custom-storage fields independently of the
+// active fields.  Picking Utility (active) while the pilot has Custom
+// values typed (5.5 / -2.5) must persist all four through Save +
+// Reload.
+void test_aircraft_custom_glimit_storage_roundtrip(void)
+{
+    OnSpeedConfig a;
+    a.fAcGlimit          =  4.4f;   // Utility active
+    a.fAcNegGlimit       = -1.76f;
+    a.fCustomAcGlimit    =  5.5f;   // pilot's typed Custom values
+    a.fCustomAcNegGlimit = -2.5f;
+
+    std::string xml = EmitXml(a);
+    OnSpeedConfig b;
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(ParseXml(xml, b)));
+
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  4.4f,  b.fAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -1.76f, b.fAcNegGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  5.5f,  b.fCustomAcGlimit);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, -2.5f,  b.fCustomAcNegGlimit);
 }
 
 void test_vno_block_roundtrip(void)
@@ -974,6 +1071,10 @@ int main(int argc, char** argv)
     RUN_TEST(test_aircraft_block_roundtrip);
     RUN_TEST(test_aircraft_custom_glimit_roundtrip);
     RUN_TEST(test_aircraft_glimit_legacy_no_neg_field);
+    RUN_TEST(test_aircraft_glimit_legacy_aerobatic_migrates);
+    RUN_TEST(test_aircraft_glimit_legacy_normal_migrates);
+    RUN_TEST(test_aircraft_glimit_legacy_unmatched_pos_uses_default_neg);
+    RUN_TEST(test_aircraft_custom_glimit_storage_roundtrip);
     RUN_TEST(test_vno_block_roundtrip);
     RUN_TEST(test_load_limit_asymmetric_roundtrip);
     RUN_TEST(test_single_flap_entry_roundtrip);

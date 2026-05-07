@@ -791,9 +791,15 @@ void HandleConfig()
     sBody.replace("{{acGrossWeight}}",  String(g_Config.iAcGrossWeight));
     sBody.replace("{{acBestGlideIAS}}", String(g_Config.fAcBestGlideIAS));
     sBody.replace("{{acVfe}}",          String(g_Config.fAcVfe));
-    sBody.replace("{{acGlimit}}",       String(g_Config.fAcGlimit));
-    // Negative G is shown to the pilot as a positive magnitude.
-    sBody.replace("{{acNegGlimit}}",    String(fabsf(g_Config.fAcNegGlimit)));
+    // The Custom-G inputs always render the pilot's typed Custom
+    // values, regardless of which radio is active.  That way Custom
+    // values survive when the pilot tries a named category and saves
+    // — the active fAcGlimit/fAcNegGlimit fields hold the named
+    // preset, while fCustomAcGlimit/fCustomAcNegGlimit preserve what
+    // the pilot would re-enter Custom mode with.  Negative G is
+    // shown as a positive magnitude.
+    sBody.replace("{{customAcGlimit}}",    String(g_Config.fCustomAcGlimit, 2));
+    sBody.replace("{{customAcNegGlimit}}", String(fabsf(g_Config.fCustomAcNegGlimit), 2));
 
     {
     // A named category is "active" only when both the positive and the
@@ -1079,10 +1085,17 @@ void HandleConfigSave()
     if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();
     if (CfgServer.hasArg("acBestGlideIAS")) g_Config.fAcBestGlideIAS =CfgServer.arg("acBestGlideIAS").toFloat();
     if (CfgServer.hasArg("acVfe"))          g_Config.fAcVfe          =CfgServer.arg("acVfe").toFloat();
-    // acGlimit (positive) and acNegGlimit (negative magnitude as typed
-    // by the pilot, stored negative).  Both validated against sane
-    // structural-category bounds; on out-of-range input, silently keep
-    // the prior value — same convention as asymmetricReduction above.
+    // acGlimit / acNegGlimit are the active values driven by the
+    // selected radio: when a named category is active the JS handler
+    // injects hidden inputs with the preset pair; when Custom is
+    // active the JS re-enables the Custom inputs and they POST under
+    // these names.  customAcGlimit / customAcNegGlimit always carry
+    // the pilot's typed Custom values (independent of which radio is
+    // active) so picking a named category and saving doesn't erase
+    // the typed Custom pair.  Both pairs validated against sane
+    // structural-category bounds; on out-of-range input, silently
+    // keep the prior value — same convention as asymmetricReduction
+    // above.
     if (CfgServer.hasArg("acGlimit"))
         {
         float f = fabsf(CfgServer.arg("acGlimit").toFloat());
@@ -1092,6 +1105,16 @@ void HandleConfigSave()
         {
         float f = fabsf(CfgServer.arg("acNegGlimit").toFloat());
         if (f > 0.0f && f <= 5.0f) g_Config.fAcNegGlimit = -f;
+        }
+    if (CfgServer.hasArg("customAcGlimit"))
+        {
+        float f = fabsf(CfgServer.arg("customAcGlimit").toFloat());
+        if (f > 0.0f && f <= 10.0f) g_Config.fCustomAcGlimit = f;
+        }
+    if (CfgServer.hasArg("customAcNegGlimit"))
+        {
+        float f = fabsf(CfgServer.arg("customAcNegGlimit").toFloat());
+        if (f > 0.0f && f <= 5.0f) g_Config.fCustomAcNegGlimit = -f;
         }
 
     // Handle Add Flap

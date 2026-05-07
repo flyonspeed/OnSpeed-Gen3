@@ -678,10 +678,14 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
   body = body.replaceAll('{{acGrossWeight}}',  String(cfg.acGrossWeight));
   body = body.replaceAll('{{acBestGlideIAS}}', String(cfg.acBestGlideIAS));
   body = body.replaceAll('{{acVfe}}',          String(cfg.acVfe));
-  body = body.replaceAll('{{acGlimit}}',       String(cfg.acGlimit));
-  // Negative G is shown to the pilot as a positive magnitude; the
-  // mock JSON stores it negative to match firmware persistence.
-  body = body.replaceAll('{{acNegGlimit}}',    String(Math.abs(Number(cfg.acNegGlimit))));
+  // The Custom-G inputs always render the pilot's typed Custom
+  // values, regardless of which radio is active.  Mirrors HandleConfig.
+  // Negative G is shown as a positive magnitude; the mock JSON stores
+  // it negative to match firmware persistence.
+  body = body.replaceAll('{{customAcGlimit}}',
+                         Number(cfg.customAcGlimit).toFixed(2));
+  body = body.replaceAll('{{customAcNegGlimit}}',
+                         Math.abs(Number(cfg.customAcNegGlimit)).toFixed(2));
   // A named category is "active" only when both pos and neg sides
   // match the preset's pair (mirrors HandleConfig's matches() lambda).
   const fPos = Number(cfg.acGlimit);

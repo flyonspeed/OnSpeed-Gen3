@@ -81,5 +81,7 @@
   "acBestGlideIAS": 87.5,
   "acVfe": 96.0,
   "acGlimit": 4.4,
-  "acNegGlimit": -1.76
+  "acNegGlimit": -1.76,
+  "customAcGlimit": 4.4,
+  "customAcNegGlimit": -1.76
 }

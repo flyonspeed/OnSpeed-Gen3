@@ -169,6 +169,10 @@ bool OnSpeedConfig::LoadDefaults()
     fAcVfe              = 0.0f;
     fAcGlimit           =  4.4f;
     fAcNegGlimit        = -1.76f;
+    // Custom storage seeds match the Utility default — sane starting
+    // point if the pilot picks Custom for the first time and edits.
+    fCustomAcGlimit     =  4.4f;
+    fCustomAcNegGlimit  = -1.76f;
 
     return true;
 }
