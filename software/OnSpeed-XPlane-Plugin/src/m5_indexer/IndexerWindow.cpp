@@ -148,12 +148,18 @@ constexpr float kAspect = static_cast<float>(kWindowWidth) /
 // M5Stack has three hardware buttons (dim / select / bright) below
 // the screen; only Select maps to a useful action in the X-Plane
 // plugin (cycle display modes), so the button strip carries one
-// labeled "MODE N" centered in the strip.  Provides a visible
-// click target — the existing whole-body click cycle still works,
-// but the button gives a discoverable cue the way the real M5's
-// hardware-button row does.
+// labeled with the active page name centered in the strip.  Provides
+// a visible click target — the existing whole-body click cycle still
+// works, but the button gives a discoverable cue the way the real
+// M5's hardware-button row does.
 constexpr int kButtonStripHeight = 36;     // strip y-extent in boxels
-constexpr int kButtonWidth       = 80;     // pill width
+// Width sized for the longest page name ("Energy Display" /
+// "Decel Display", 14 chars at xplmFont_Proportional), with horizontal
+// padding so the label doesn't bleed to the dark-box edges.  Old
+// "MODE N" (~42 px wide) sat well under the previous 80 px box, but
+// the canonical page names are double the character count and would
+// overflow at 80.
+constexpr int kButtonWidth       = 120;    // pill width
 constexpr int kButtonHeight      = 24;     // pill height
 
 // Compute the MODE button rect for a given window geometry.  Centered

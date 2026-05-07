@@ -86,8 +86,9 @@ needing a USB cable.
 
 The five modes are selected by pressing **Button B**, which cycles in
 order: **Energy Display → Attitude → Indexer → Decel Display →
-Historic G →** back to Energy Display. The M5 remembers the last-used
-mode across power cycles.
+Historic G →** back to Energy Display. The M5 boots into Energy
+Display (Mode 0) on every power cycle; only display brightness
+persists across power-down.
 
 To preview each mode, scroll back up to the in-browser simulator and
 press <kbd>↓</kbd> to step through them. The C++ source that runs the
