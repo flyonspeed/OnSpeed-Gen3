@@ -2,7 +2,7 @@
 
 Procedures for verifying calibration and exploring the flight envelope at altitude. These are not normal-ops techniques — they are deliberate test maneuvers flown to gather data and confirm the system behaves as expected before relying on it in the pattern.
 
-The external display's [G History mode](../installation/external-display.md#g-history-scrolling-g-trace) (Mode 4) and the X-Plane plugin's [G History mode](../xplane/indexer.md) (Mode 4) exist for this purpose — they show vertical G over the last ~60 seconds, color-coded green/yellow/red, so the post-test debrief is on screen rather than reconstructed from the SD log.
+The external display's [Historic G mode](../installation/external-display.md#historic-g-scrolling-g-trace) (Mode 4) and the X-Plane plugin's [Historic G mode](../xplane/indexer.md) (Mode 4) exist for this purpose — they show vertical G over the last ~60 seconds, color-coded green/yellow/red, so the post-test debrief is on screen rather than reconstructed from the SD log.
 
 !!! warning "Altitude, area, and recovery"
     Every procedure on this page is flown at altitude (3,000 ft AGL or higher), clear of traffic, in coordinated flight, and with a recovery plan rehearsed before the maneuver. Stop on the first cue you weren't expecting.
@@ -29,7 +29,7 @@ The wind-up turn is where you can hear that transition. As you tighten the turn,
 1. **Altitude**: 3,000 ft AGL minimum, with at least 1,000 ft of recovery margin below.
 2. **Area**: clear of traffic, away from terrain and clouds.
 3. **Configuration**: clean (flaps 0°), trim for cruise, power set for level flight.
-4. **Display**: Mode 4 (G History) on the external display or X-Plane indexer. Note the trace baseline at 1 G.
+4. **Display**: Mode 4 (Historic G) on the external display or X-Plane indexer. Note the trace baseline at 1 G.
 5. **Calibration**: a recent flaps-0 calibration meeting the wizard's [good-data criteria](../calibration/wizard.md#what-good-data-looks-like) (R² > 0.95 on both fits, setpoints sensible for the aircraft).
 
 ### Procedure
