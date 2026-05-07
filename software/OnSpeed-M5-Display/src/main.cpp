@@ -440,6 +440,14 @@ void setup()
     // every iteration so the first frame after splash gets the right
     // value.  Defaults: full bright, Mode 0 on a fresh M5 with no saved
     // preferences.
+    //
+    // DisplayType uses getShort/putShort (signed nvs_get_i16) because
+    // displayType is int16_t even though values are 0..4.  Brightness
+    // uses uint16_t and the unsigned variants.  The pair has to stay
+    // matched: NVS treats signed vs unsigned i16 as distinct slots, so
+    // writing with putShort and reading with getUShort returns the
+    // default, not the value.  Don't "normalize" to a single variant
+    // without also clearing the existing key.
     preferences.begin("OnSpeed", true);  // read-only
     displayBrightness = preferences.getUShort("Brightness", 255);
     displayType       = preferences.getShort("DisplayType", 0);
