@@ -270,4 +270,4 @@ Reflash bench device with v4.22 firmware on both Gen3 main and M5. Confirm:
 - **v4.22** (PR #336): split the pip out into a new wire field, `pipPctLift`. `tonesOnPctLift` reverts to the v4.21 snap-per-detent semantics. Frame size grows from 74 to 76 bytes. Chevron and audio fire from the same threshold again.
 - **v4.23** (PR #386): `percentLift` widens from `%02u` (integer percent, 0..99) to `%03u` (tenths of a percent, 0..999) so the index bar advances at sub-pixel temporal smoothness off the 20 Hz frame cadence. The four band-edge anchors stay at integer-percent. `lateralG` flips to body-frame (positive = right) to match the IMU, SD log, and WebSocket JSON; slip-ball renderers negate locally. Frame size grows from 76 to 77 bytes.
 
-See [Display Serial Protocol](../reference/serial-protocol.md) for the byte-level wire format.
+See [Display Serial Protocol](serial-protocol.md) for the byte-level wire format.
