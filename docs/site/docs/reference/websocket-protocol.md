@@ -159,7 +159,7 @@ Five fields driving the LiveView indexer's band edges and L/Dmax pip. The first 
 | `onSpeedFastPctLift` | int | 0–99 | **Snapped**. OnSpeedFast threshold — the lower edge of the donut band. |
 | `onSpeedSlowPctLift` | int | 0–99 | **Snapped**. OnSpeedSlow threshold — the upper edge of the donut band. |
 | `stallWarnPctLift` | int | 0–99 | **Snapped**. StallWarn threshold — the chevron's flash-on point. |
-| `pipPctLift` | int | 0–99 | **Interpolated** linearly clean → full-flap across the configured flap range, ignoring intermediate detents. The L/Dmax pip dot's visual position; deliberately separated from `tonesOnPctLift` (which snaps to detents) so the pip can slide smoothly with the lever. See the [indexer spec](../software/indexer-spec.md) for the rationale. |
+| `pipPctLift` | int | 0–99 | **Interpolated** linearly clean → full-flap across the configured flap range, ignoring intermediate detents. The L/Dmax pip dot's visual position; deliberately separated from `tonesOnPctLift` (which snaps to detents) so the pip can slide smoothly with the lever. See the [indexer spec](indexer-spec.md) for the rationale. |
 
 ### Flap state
 

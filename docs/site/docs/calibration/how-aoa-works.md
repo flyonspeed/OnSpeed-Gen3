@@ -166,7 +166,7 @@ Per Vac's design rule, "L/Dmax pips are aerodynamic references; fast tone is an 
 
 The two coincide visually only at the cleanest detent, where L/D~MAX~ *is* both the audio threshold and the aerodynamic reference. As flaps deploy, the pip slides up through the donut band while the chevron edge stays at the active detent's calibrated L/D~MAX~ percent.
 
-For the full layered specification — every gate, every color rule, every wire field — see [Indexer Spec](../software/indexer-spec.md).
+For the full layered specification — every gate, every color rule, every wire field — see [Indexer Spec](../reference/indexer-spec.md).
 
 ### Worked example (RV-10, 0° / 16° / 33° calibration)
 

@@ -128,8 +128,6 @@ nav:
     - Flashing Firmware: software/flashing.md
     - OTA Updates via WiFi: software/ota-update.md
     - Building from Source: software/building.md
-    - Audio Tone Spec (WIP): software/audio-tone-spec.md
-    - Indexer Spec: software/indexer-spec.md
   - Configuration:
     - configuration/index.md
     - Web Interface: configuration/web-interface.md
@@ -177,5 +175,7 @@ nav:
     - CSV Log Columns: reference/log-columns.md
     - Display Serial Protocol: reference/serial-protocol.md
     - LiveView WebSocket Protocol: reference/websocket-protocol.md
+    - Audio Tone Spec (WIP): reference/audio-tone-spec.md
+    - Indexer Spec: reference/indexer-spec.md
     - Hardware Specifications: reference/hardware-specs.md
     - Glossary: reference/glossary.md
