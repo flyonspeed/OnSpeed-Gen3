@@ -381,11 +381,18 @@ static bool s_indexerRestorePending = false;
 // defaults to false so a fresh aircraft doesn't auto-pop the panel
 // the first time it loads — only an aircraft that previously had the
 // panel open at save time will have it reopen.
+// Minimum window height to fit the auto-mode field set without the
+// Save / Restore / Sound / Reload buttons falling off the bottom.
+// Auto mode has ~26 widget rows (header + radios + auto-derived
+// readouts + NAOA fractions + common settings + 4 buttons); manual
+// mode is shorter but uses the same window height.
+static constexpr int kMinAudioWindowHeight = 740;
+
 struct AudioWindowState {
     int  left   = 300;
     int  top    = 690;
     int  width  = 280;
-    int  height = 660;
+    int  height = kMinAudioWindowHeight;
     bool visible = false;
 };
 static AudioWindowState s_audioWindow;
@@ -687,6 +694,22 @@ static bool LoadSettings() {
     }
 
     s_settingsLoaded = true;
+    // Force a minimum height on the audio control window: pilots
+    // upgrading from earlier plugin versions had a smaller default
+    // (470, 660) saved to .prf, which now leaves the bottom buttons
+    // off-screen because auto mode added widget rows.  Clamp on
+    // load; periodic save will then persist the bumped value.
+    if (s_audioWindow.height < kMinAudioWindowHeight) {
+        s_audioWindow.height = kMinAudioWindowHeight;
+    }
+    // Pull the window up if growing the height would push the bottom
+    // edge off-screen.  X-Plane window coords are bottom-left origin
+    // (positive y = up); top - height is the window's bottom edge.
+    // 50 is a small safety margin from the absolute bottom of the
+    // screen so the close-box / status bar stays usable.
+    if (s_audioWindow.top - s_audioWindow.height < 50) {
+        s_audioWindow.top = s_audioWindow.height + 50;
+    }
     // The .prf we just read is, by definition, the last on-disk
     // state.  Seed the periodic save's diff baseline so a no-op tick
     // doesn't immediately rewrite the file with the same values.
