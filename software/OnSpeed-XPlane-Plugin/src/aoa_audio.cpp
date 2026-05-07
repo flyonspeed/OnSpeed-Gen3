@@ -165,6 +165,10 @@ XPLMDataRef iasDataRef       = nullptr;     // sim/flightmodel/position/indicate
 XPLMDataRef lateralGDataRef  = nullptr;     // sim/flightmodel/forces/g_side
 XPLMDataRef pausedDataRef    = nullptr;     // sim/time/paused (int, 1 when paused)
 XPLMDataRef crashedDataRef   = nullptr;     // sim/flightmodel2/misc/has_crashed (int, 1 after crash)
+// sim/aircraft/view/acf_has_stallwarn — int, writable.  Reapplied each
+// flight loop when the user has chosen to mute the sim's stall horn,
+// because X-Plane restores the .acf-defined value on aircraft load.
+XPLMDataRef acfHasStallwarnDataRef = nullptr;
 
 // Control-window widget handles.
 static XPWidgetID audioControlWidget  = nullptr;
@@ -187,7 +191,28 @@ static XPWidgetID widgetAoaMeanWindow         = nullptr;
 static XPWidgetID widgetButtonSave            = nullptr;
 static XPWidgetID widgetButtonRestoreDefaults = nullptr;
 static bool audioEnabled = false;
+
+// User-controlled override for X-Plane's built-in stall horn.  When true,
+// CheckAOAAndPlayTone clears acf_has_stallwarn each flight loop so the
+// sim doesn't play its own stall warning over OnSpeed's audio cues.
+// Persisted per-aircraft.  Default off (sim's horn behaves normally).
+static bool bMuteStallHorn = false;
+
+// Original value of acf_has_stallwarn captured the first time we mute
+// the horn for the current aircraft.  Toggling the mute back off
+// restores this value rather than blindly writing 1, so an aircraft
+// whose .acf legitimately has no stall horn doesn't end up with one
+// after a mute / unmute cycle.  -1 means "not yet captured."
+// X-Plane resets the dataref to the .acf default on aircraft load, so
+// OnAircraftLoaded() resets this back to -1 — the next mute for the
+// new aircraft re-captures.
+static int g_iAcfHasStallwarnOriginal = -1;
+
 static XPLMMenuID menuId;
+// Menu-item index for the "Mute X-Plane stall horn" entry — captured at
+// menu build time so AudioMenuHandler can flip its checkmark without
+// rebuilding the menu.  -1 until the menu is constructed.
+static int g_MuteStallHornItemIdx = -1;
 
 // AOA smoothing pipeline.  Window sizes are runtime-configurable via
 // iAoaMedianWindow / iAoaMeanWindow; rebuildAoaSmoothers() swaps in
@@ -335,6 +360,7 @@ static void SaveSettings() {
     std::fprintf(fp, "iAoaMedianWindow = %d\n",   iAoaMedianWindow);
     std::fprintf(fp, "iAoaMeanWindow = %d\n",     iAoaMeanWindow);
     std::fprintf(fp, "audioEnabled = %d\n",       audioEnabled ? 1 : 0);
+    std::fprintf(fp, "bMuteStallHorn = %d\n",     bMuteStallHorn ? 1 : 0);
     std::fprintf(fp, "serialPortPath = %s\n",     sSerialPortPath.c_str());
     std::fprintf(fp, "audioWindowVisible = %d\n", s_audioWindow.visible ? 1 : 0);
     std::fprintf(fp, "audioWindowLeft = %d\n",    s_audioWindow.left);
@@ -407,6 +433,7 @@ static void LoadSettings() {
         else if (!std::strcmp(key, "audioWindowTop"))     s_audioWindow.top     = std::atoi(val);
         else if (!std::strcmp(key, "audioWindowWidth"))   s_audioWindow.width   = std::atoi(val);
         else if (!std::strcmp(key, "audioWindowHeight"))  s_audioWindow.height  = std::atoi(val);
+        else if (!std::strcmp(key, "bMuteStallHorn"))     bMuteStallHorn     = std::atoi(val) != 0;
 #ifdef ENABLE_M5_INDEXER
         else if (!std::strcmp(key, "indexerVisible"))      indexerSettings.visible      = std::atoi(val) != 0;
         else if (!std::strcmp(key, "indexerMode"))         indexerSettings.mode         = std::atoi(val);
@@ -692,6 +719,24 @@ static void OnAircraftLoaded() {
     }
     rebuildAoaSmoothers();
     UpdateAOATextFields();
+
+    // Drop the prior aircraft's captured acf_has_stallwarn value; the
+    // next mute-on tick in CheckAOAAndPlayTone re-captures from whatever
+    // is live on the new aircraft.  Assumes XPLM_MSG_PLANE_LOADED fires
+    // after the new .acf has been applied to the dataref — likely true
+    // and consistent with the indexer's deferred-restore pattern, but
+    // the SDK doesn't pin this down explicitly.  If a future X-Plane
+    // version were to fire PLANE_LOADED before the .acf-driven dataref
+    // values land, the next capture would lock in our previously-written
+    // 0 as the "original," and toggle-off would leave the new aircraft
+    // muted until next reload.  Defer-to-AIRPORT_LOADED (the existing
+    // s_indexerRestorePending pattern) is the fix if this ever bites.
+    // Sync the menu checkmark with whatever LoadSettings restored for
+    // this aircraft.
+    g_iAcfHasStallwarnOriginal = -1;
+    if (g_MuteStallHornItemIdx >= 0)
+        XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
+            bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 #ifdef ENABLE_M5_INDEXER
     // Open the configured USB-serial port if one is set.  Failures
     // are logged inside OpenSerialOut and just leave the port closed
@@ -1300,6 +1345,24 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
         }
         return;
     }
+    if (!strcmp(tag, "MuteStallHorn")) {
+        bMuteStallHorn = !bMuteStallHorn;
+        if (g_MuteStallHornItemIdx >= 0)
+            XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
+                bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+        // When toggling off, restore whatever the .acf originally
+        // specified (captured the first time we muted for this
+        // aircraft) rather than blindly writing 1.  CheckAOAAndPlayTone
+        // only writes acf_has_stallwarn while the override is active,
+        // so toggling off would otherwise leave the sim's horn disabled
+        // until the next aircraft reload.
+        if (!bMuteStallHorn && acfHasStallwarnDataRef &&
+            g_iAcfHasStallwarnOriginal >= 0) {
+            XPLMSetDatai(acfHasStallwarnDataRef, g_iAcfHasStallwarnOriginal);
+        }
+        SaveSettings();
+        return;
+    }
 #ifdef ENABLE_M5_INDEXER
     if (!strcmp(tag, "IndexerToggle")) {
         if (onspeed_xplane::indexer::IsVisible())
@@ -1606,6 +1669,18 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
 
     // use XPLMGetDataf to get the AOA value.  https://developer.x-plane.com/sdk/XPLMDataAccess/#XPLMDataRef
 
+    // Suppress the sim's built-in stall horn so it doesn't talk over
+    // OnSpeed's audio.  Reapplied every tick because X-Plane resets
+    // acf_has_stallwarn from the .acf file each time the aircraft loads.
+    // Capture the .acf-defined value the first time we mute for this
+    // aircraft, so toggling off restores it instead of writing a hard 1
+    // (which would be wrong for an aircraft that originally had no horn).
+    if (bMuteStallHorn && acfHasStallwarnDataRef) {
+        if (g_iAcfHasStallwarnOriginal < 0)
+            g_iAcfHasStallwarnOriginal = XPLMGetDatai(acfHasStallwarnDataRef);
+        XPLMSetDatai(acfHasStallwarnDataRef, 0);
+    }
+
     float aoa = XPLMGetDataf(aoaDataRef);
     PlayAOATone(aoa, inElapsedSinceLastCall);
 
@@ -1780,6 +1855,14 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // if the dataref is missing the crash gate is skipped.
     crashedDataRef = XPLMFindDataRef("sim/flightmodel2/misc/has_crashed");
 
+    // Aircraft-level "has audio stall warning" flag.  Writable int.
+    // We toggle it to 0 each flight loop when bMuteStallHorn is set, so
+    // X-Plane's own stall warning audio doesn't talk over OnSpeed's
+    // tones.  X-Plane restores the .acf default on aircraft load, so the
+    // override has to be reapplied — see CheckAOAAndPlayTone.  Optional:
+    // if the dataref is missing the toggle is a no-op.
+    acfHasStallwarnDataRef = XPLMFindDataRef("sim/aircraft/view/acf_has_stallwarn");
+
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
 
     // 1 Hz callback that polls user-driven UI state changes (audio
@@ -1797,6 +1880,13 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // string is a literal — never written through the void*.
     XPLMAppendMenuItem(menuId, "Show",
                        static_cast<void*>(const_cast<char*>("Show")), 1);
+
+    XPLMAppendMenuSeparator(menuId);
+    g_MuteStallHornItemIdx = XPLMAppendMenuItem(menuId,
+        "Mute X-Plane stall horn",
+        static_cast<void*>(const_cast<char*>("MuteStallHorn")), 1);
+    XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
+        bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 
 #ifdef ENABLE_M5_INDEXER
     // Indexer menu items.  Discriminator strings are literals, never
