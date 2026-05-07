@@ -153,13 +153,7 @@ constexpr float kAspect = static_cast<float>(kWindowWidth) /
 // works, but the button gives a discoverable cue the way the real
 // M5's hardware-button row does.
 constexpr int kButtonStripHeight = 36;     // strip y-extent in boxels
-// Width sized for the longest page name ("Energy Display" /
-// "Decel Display", 14 chars at xplmFont_Proportional), with horizontal
-// padding so the label doesn't bleed to the dark-box edges.  Old
-// "MODE N" (~42 px wide) sat well under the previous 80 px box, but
-// the canonical page names are double the character count and would
-// overflow at 80.
-constexpr int kButtonWidth       = 120;    // pill width
+constexpr int kButtonWidth       = 80;     // pill width
 constexpr int kButtonHeight      = 24;     // pill height
 
 // Compute the MODE button rect for a given window geometry.  Centered
@@ -290,9 +284,9 @@ void DrawWindow(XPLMWindowID, void*)
 
     // M5-style MODE button at the bottom-center of the window.  The
     // dark translucent box matches the M5's plastic button face; the
-    // label shows the current page name (Energy Display / Attitude /
-    // Indexer / Decel Display / Historic G) so the pilot can see it
-    // change at a glance.  Drawn AFTER the texture so it overlays
+    // label shows the current page name (Energy / Attitude / Indexer
+    // / Decel / Historic G) so the pilot can see it change at a
+    // glance.  Drawn AFTER the texture so it overlays
     // any letterbox area underneath.  Uses XPLMDrawTranslucentDarkBox
     // and XPLMDrawString which handle their own GL state safely on
     // Apple Silicon (raw GL primitives don't).

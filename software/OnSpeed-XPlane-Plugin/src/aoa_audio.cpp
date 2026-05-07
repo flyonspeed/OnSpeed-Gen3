@@ -2271,13 +2271,13 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // Names mirror tools/web/lib/pages/IndexerPage.js MODES table.
     // Refcons stay "IndexerMode0..4" (the strcmp discriminator the
     // handler dispatches on); only the user-visible labels change.
-    XPLMAppendMenuItem(menuId, "Energy Display",
+    XPLMAppendMenuItem(menuId, "Energy",
                        static_cast<void*>(const_cast<char*>("IndexerMode0")), 1);
     XPLMAppendMenuItem(menuId, "Attitude",
                        static_cast<void*>(const_cast<char*>("IndexerMode1")), 1);
     XPLMAppendMenuItem(menuId, "Indexer",
                        static_cast<void*>(const_cast<char*>("IndexerMode2")), 1);
-    XPLMAppendMenuItem(menuId, "Decel Display",
+    XPLMAppendMenuItem(menuId, "Decel",
                        static_cast<void*>(const_cast<char*>("IndexerMode3")), 1);
     XPLMAppendMenuItem(menuId, "Historic G",
                        static_cast<void*>(const_cast<char*>("IndexerMode4")), 1);

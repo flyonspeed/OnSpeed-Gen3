@@ -162,11 +162,11 @@ int16_t         displayType         = 0;
 // linkage in C++, which would hide the symbol from the X-Plane plugin
 // linker.
 extern const char* const kModeNames[5] = {
-    "Energy Display",  // 0 — boot default
-    "Attitude",        // 1
-    "Indexer",         // 2 — AOA-only page
-    "Decel Display",   // 3
-    "Historic G",      // 4
+    "Energy",      // 0 — boot default (Energy Display, shortened)
+    "Attitude",    // 1
+    "Indexer",     // 2 — AOA-only page
+    "Decel",       // 3 — Decel Display, shortened
+    "Historic G",  // 4
 };
 boolean         numericDisplay;
 boolean         flashFlag;

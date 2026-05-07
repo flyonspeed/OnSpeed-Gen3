@@ -33,11 +33,11 @@ function safeLsSet(key, value) {
 // 225345). Mode 0 is the energy-management primary page; Mode 3 is
 // the deceleration display — these were swapped in older code.
 const MODES = [
-  { id: 'energy',   label: 'Energy Display', C: Mode0 },
-  { id: 'attitude', label: 'Attitude',       C: Mode1 },
-  { id: 'indexer',  label: 'Indexer',        C: Mode2 },
-  { id: 'decel',    label: 'Decel Display',  C: Mode3 },
-  { id: 'historic', label: 'Historic G',     C: Mode4 },
+  { id: 'energy',   label: 'Energy',     C: Mode0 },
+  { id: 'attitude', label: 'Attitude',   C: Mode1 },
+  { id: 'indexer',  label: 'Indexer',    C: Mode2 },
+  { id: 'decel',    label: 'Decel',      C: Mode3 },
+  { id: 'historic', label: 'Historic G', C: Mode4 },
 ];
 
 // Migrate legacy `liveview-mode` localStorage values written by the
