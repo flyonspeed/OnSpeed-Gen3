@@ -650,12 +650,20 @@ void loop()
 
                 // IAS dashes when the producer's bIasAlive is false (the
                 // wire's iasKt sentinel was 9999); see proto/DisplaySerial.h
-                // and issue #358.
-                gdraw.setCursor(5, 30);
+                // and issue #358.  Dashes right-align to where a 3-digit
+                // IAS reading would end so the placeholder sits in the
+                // same visual column as live digits.
                 if (IasIsValid)
+                    {
+                    gdraw.setCursor(5, 30);
                     gdraw.print(int(displayIAS));
+                    }
                 else
+                    {
+                    const int iasRightX = 5 + (int)gdraw.textWidth("000");
+                    gdraw.setCursor(iasRightX - (int)gdraw.textWidth("--"), 30);
                     gdraw.print("--");
+                    }
 
                 char PressAltStr[8];
                 snprintf(PressAltStr, sizeof(PressAltStr), "%5.0f", displayPalt);
@@ -829,7 +837,14 @@ void displayAOA()
         snprintf(PctLiftStr, sizeof(PctLiftStr), "%02d", displayPercentLift);
     else
         snprintf(PctLiftStr, sizeof(PctLiftStr), "--");
-    const int pctX = (displayPercentLift < 100) ? PERCENT_X_POS : PERCENT_X_POS - 7;
+    // Dashes right-align to where a 2-digit reading would end so the
+    // placeholder sits in the same visual column as live "%02d" digits.
+    // 3-digit live values shift -7 to keep the right edge in place.
+    int pctX;
+    if (!IasIsValid)
+        pctX = (PERCENT_X_POS + (int)gdraw.textWidth("00")) - (int)gdraw.textWidth(PctLiftStr);
+    else
+        pctX = (displayPercentLift < 100) ? PERCENT_X_POS : PERCENT_X_POS - 7;
     gdraw.setTextColor (TFT_BLACK);
     for (int xoffset = -3; xoffset <=3; xoffset += 3)
         for (int yoffset = -3; yoffset <=3; yoffset += 3)
@@ -857,13 +872,22 @@ void displayAOA()
         gdraw.print("G");
 
         // ----- Numbers (IAS left, G right, same y) -----
+        // IAS dashes right-align to where a 3-digit reading would end
+        // so the placeholder sits in the same visual column as live
+        // digits — the G readout on the right is the visual reference.
         gdraw.setFont(FSSB18);
         gdraw.setTextColor (TFT_WHITE);
-        gdraw.setCursor(7, NUM_Y);
         if (IasIsValid)
+            {
+            gdraw.setCursor(7, NUM_Y);
             gdraw.print(int(displayIAS));
+            }
         else
+            {
+            const int iasRightX = 7 + (int)gdraw.textWidth("000");
+            gdraw.setCursor(iasRightX - (int)gdraw.textWidth("--"), NUM_Y);
             gdraw.print("--");
+            }
 
         char GStr[6];
         snprintf(GStr, sizeof(GStr), "%+1.1f", displayVerticalG);
@@ -1527,13 +1551,21 @@ void displayDecelGauge()
     gdraw.print("Kt/s");
 
     // ----- Numbers -----
+    // IAS dashes right-align to where a 3-digit reading would end so
+    // the placeholder shares the live-digit column.
     gdraw.setFont(FSSB18);
     gdraw.setTextColor (TFT_WHITE);
-    gdraw.setCursor(7, DEC_NUM_Y);
     if (IasIsValid)
+        {
+        gdraw.setCursor(7, DEC_NUM_Y);
         gdraw.print(int(displayIAS));
+        }
     else
+        {
+        const int iasRightX = 7 + (int)gdraw.textWidth("000");
+        gdraw.setCursor(iasRightX - (int)gdraw.textWidth("--"), DEC_NUM_Y);
         gdraw.print("--");
+        }
 
     char DecelStr[6];
     snprintf(DecelStr, sizeof(DecelStr), "%+1.1f", displayDecelRate);
