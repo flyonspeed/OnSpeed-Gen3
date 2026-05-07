@@ -13,7 +13,7 @@ import { scenarios } from './scenarios.js';
 
 let currentScenario = 'idle';
 let scenarioStart = performance.now();
-let currentMode = 'aoa';
+let currentMode = 'energy';
 
 // Mode 4's ring buffer is owned here (not inside the component) so it
 // survives across renders. The firmware-side App uses a useRef inside
@@ -23,12 +23,13 @@ gBuf.fill(1.0);
 let gWriteIdx = 0;
 let lastSampleMs = 0;
 
+// IDs mirror tools/web/lib/pages/IndexerPage.js MODES table.
 const PANELS = [
-  { id: 'aoa',          C: Mode0 },
-  { id: 'attitude',     C: Mode1 },
-  { id: 'indexer-only', C: Mode2 },
-  { id: 'energy',       C: Mode3 },
-  { id: 'ghistory',     C: Mode4 },
+  { id: 'energy',   C: Mode0 },
+  { id: 'attitude', C: Mode1 },
+  { id: 'indexer',  C: Mode2 },
+  { id: 'decel',    C: Mode3 },
+  { id: 'historic', C: Mode4 },
 ];
 
 function paintAll(rec) {

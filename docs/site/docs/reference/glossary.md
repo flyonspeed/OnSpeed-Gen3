@@ -4,6 +4,7 @@
 |------|-----------|
 | **AHRS** | Attitude and Heading Reference System — fuses accelerometer and gyroscope data to estimate pitch, roll, and heading |
 | **AOA** | Angle of Attack — the angle between the wing chord line and the relative wind. Also referred to by the Greek letter alpha (α). Determines lift and proximity to stall. **In OnSpeed firmware and config, the variable named `AOA` is body angle (fuselage-to-wind), not wing AOA — see Body Angle below.** |
+| **Attitude (display mode)** | Indexer page (Mode 1) showing a synthetic horizon driven by OnSpeed's AHRS — pitch ladder, roll, magenta flight-path marker, slip ball, VSI tape, and IAS / PALT / G / percent-lift readouts. Used as a backup AI cross-check or for verifying IMU operation. Distinct from the *AHRS algorithm* itself. |
 | **alpha_0** ($\alpha_0$) | Zero-lift body angle — the body angle (DerivedAOA) at which the wing produces zero lift. Typically **negative** because most aircraft have wing incidence: the fuselage points nose-down when the wing is at zero AOA. Varies with flap setting. |
 | **alpha_stall** ($\alpha_\text{stall}$) | Critical body angle — the body angle at which the wing stalls (maximum lift coefficient exceeded). Essentially constant for a given configuration, regardless of weight or load factor. |
 | **Body Angle** | The difference between pitch attitude and flight-path angle ($\text{Pitch} - \text{FlightPath}$). The angle the fuselage makes with the relative wind. **What OnSpeed actually measures and calibrates against** — wing AOA is a different quantity that OnSpeed never computes directly. The two are linearly related (body angle = wing AOA + wing incidence + small terms), so body angle is a faithful proxy for the pilot. Equivalent to DerivedAOA. |
@@ -11,6 +12,7 @@
 | **C~L~** | Coefficient of Lift — a dimensionless parameter describing how much lift an airfoil produces relative to the surrounding airflow. Directly proportional to AOA over the normal operating range. |
 | **Cp** | Coefficient of Pressure — the ratio of AOA probe differential pressure to pitot (dynamic) pressure. Varies with angle of attack. |
 | **Critical AOA** | The angle of attack at which the wing stalls. Essentially constant for a given flap configuration, regardless of gross weight or load factor. An airplane can stall at any airspeed and in any attitude, but critical AOA remains the same. |
+| **Decel Display** | Indexer page showing instantaneous airspeed deceleration in knots per second on a vertical "energy tape" gauge. Mode 3 of five. Used for tuning approach energy and gauging flare authority. |
 | **DerivedAOA** | SmoothedPitch - FlightPath. The fuselage-to-wind angle computed from the AHRS and vertical speed. Used as the reference AOA for calibration. |
 | **Directive Information** | Information that directly calls for pilot action, requiring no interpretation. An AOA tone is directive — it tells you to push or pull. Contrast with *descriptive information*. |
 | **Descriptive Information** | Information that must be perceived, interpreted, and then acted upon. A conventional flight instrument is descriptive — the pilot must see it, understand it, then respond. |
@@ -19,12 +21,15 @@
 | **EFIS** | Electronic Flight Instrument System — glass panel avionics (Dynon, Garmin, MGL, etc.) |
 | **EKF6** | 6-state Extended Kalman Filter — an AHRS algorithm that estimates pitch, roll, AOA, and 3 gyro biases |
 | **EMA** | Exponential Moving Average — a smoothing filter that weights recent samples more heavily |
+| **Energy Display** | The default (Mode 0) indexer page. Combines the AOA indexer widget with IAS, vertical-G, flap position, slip ball, percent-lift number, and a G-onset rate tape. The page Vac calls the "energy management" view; what older code labelled "Primary" or "AOA + Numbers." |
 | **FlightPath** | The angle between the aircraft's velocity vector and the horizontal. Computed as arcsin(VSI/TAS). |
 | **Fractional Lift** | How hard the wing is working relative to its maximum capability, expressed as a fraction from 0 (zero lift) to 1 (stall). Mathematically identical to NAOA. The percent at which each tone region transitions varies per flap by calibration — there are no fixed-percent band edges. |
 | **FreeRTOS** | Real-Time Operating System used by the ESP32 firmware for multitasking |
+| **Historic G** | Indexer page showing a 60-second scrolling vertical-G strip chart. Mode 4 of five. Used during flight test to review G-load excursions after the fact (e.g., wind-up turns). |
 | **I2S** | Inter-IC Sound — digital audio interface protocol used for the stereo audio output |
 | **IAS** | Indicated Airspeed — airspeed as measured by the pitot system, uncorrected for position error or density |
 | **IMU** | Inertial Measurement Unit — a sensor package containing accelerometers and gyroscopes |
+| **Indexer** | Three meanings, all in active use: (1) the chevron-and-donut **AOA-display widget** at the center of every indexer page (military terminology — what Vac calls the "AOA indexer"); (2) the **page collection** as a whole (the `/indexer` web route, the M5 firmware); (3) **Mode 2** specifically — the AOA-only page that shows the indexer widget without surrounding numeric readouts. Context disambiguates. |
 | **Instantaneous Turn** | A turn where the pilot pulls beyond ONSPEED, borrowing energy. Turn rate increases briefly but the condition is unsustainable — airspeed decays and AOA continues to increase. |
 | **K parameter** | The lift sensitivity constant in the equation DerivedAOA = K/IAS² + alpha_0. Related to weight, wing area, and lift curve slope. |
 | **L/D~MAX~** | Maximum Lift-to-Drag ratio — the AOA at which the aircraft achieves the best glide ratio. Where this lands on the fractional-lift scale varies per flap by calibration; the audio cue (start of fast tone) is what the pilot follows, not a fixed percent. Corresponds to best-glide speed and maximum range. |

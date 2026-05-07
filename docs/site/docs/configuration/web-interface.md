@@ -22,7 +22,7 @@ You can also use the mDNS name: **`http://onspeed.local`** (may not work on all 
 |------|-----|--------------|
 | **Home** | `/` | Landing page with usage guidelines |
 | **Live View** | `/live` | Real-time AOA gauge, attitude indicator, sensor data (WebSocket, 20 Hz) |
-| **Indexer** | `/indexer` | Preact-based five-mode tablet indexer — same SVG layout the M5 firmware draws (Primary, Attitude, Indexer-only, Energy, G History). Runs over the same WebSocket as Live View. Useful for an in-cockpit tablet alongside or in place of an M5. |
+| **Indexer** | `/indexer` | Preact-based five-mode tablet indexer — same SVG layout the M5 firmware draws (Energy Display, Attitude, Indexer, Decel Display, Historic G). Runs over the same WebSocket as Live View. Useful for an in-cockpit tablet alongside or in place of an M5. |
 | **AOA Config** | `/aoaconfig` | Main configuration page — flap settings, audio, EFIS type, orientation |
 | **Sensor Config** | `/sensorconfig` | Sensor bias calibration and orientation setup |
 | **Calibration Wizard** | `/calwiz` | Interactive in-flight calibration wizard |

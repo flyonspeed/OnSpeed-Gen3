@@ -64,6 +64,9 @@ extern void setup();                  // M5 firmware entry — NOT called from
                                       // overrides our custom panel)
 extern void loop();                   // M5 firmware per-tick
 extern int16_t displayType;           // 0..4 mode selector
+extern const char* const kModeNames[5]; // canonical page names (mirrors
+                                        // tools/web/lib/pages/IndexerPage.js;
+                                        // defined in M5 main.cpp)
 
 // Globals from M5 firmware that the renderer expects to be initialized
 // before the first loop() call.  We replicate the minimal subset of
@@ -281,16 +284,17 @@ void DrawWindow(XPLMWindowID, void*)
 
     // M5-style MODE button at the bottom-center of the window.  The
     // dark translucent box matches the M5's plastic button face; the
-    // label shows the current mode number so the pilot can see it
+    // label shows the current page name (Energy Display / Attitude /
+    // Indexer / Decel Display / Historic G) so the pilot can see it
     // change at a glance.  Drawn AFTER the texture so it overlays
     // any letterbox area underneath.  Uses XPLMDrawTranslucentDarkBox
     // and XPLMDrawString which handle their own GL state safely on
     // Apple Silicon (raw GL primitives don't).
     if (buttonVisible) {
         XPLMDrawTranslucentDarkBox(btnL, btnT, btnR, btnB);
-        char label[24];
-        const int labelLen = std::snprintf(label, sizeof(label), "MODE %d",
-                                           static_cast<int>(displayType));
+        const int idx = std::min(4, std::max(0, static_cast<int>(displayType)));
+        const char* label = kModeNames[idx];
+        const int labelLen = static_cast<int>(std::strlen(label));
         float white[3] = { 1.0f, 1.0f, 1.0f };
 
         // XPLMDrawString anchors the BASELINE of the first glyph at

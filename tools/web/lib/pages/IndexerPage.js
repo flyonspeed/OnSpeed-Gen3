@@ -1,10 +1,16 @@
-// Indexer page (/indexer): five OnSpeed display modes (AOA primary,
-// Backup AI, Indexer-only, Energy, G-history) backed by the live
-// WebSocket feed.
+// Indexer page (/indexer): five OnSpeed display modes (Energy
+// Display, Attitude, Indexer, Decel Display, Historic G) backed by
+// the live WebSocket feed.
 //
 // Modes are pure functions of the WebSocket record from
 // `useWebSocket()`.  Mode selection persists to localStorage so a
 // reload comes back to the last view.
+//
+// This file is the canonical source of mode names. The C++ M5
+// firmware (software/OnSpeed-M5-Display/src/main.cpp), the X-Plane
+// plugin menu/button (software/OnSpeed-XPlane-Plugin/), and the docs
+// site (docs/site/docs/) all mirror the names from the MODES table
+// below. Keep them in sync when changing names.
 
 import { html, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
 import * as G from '../core/geometry.js';
@@ -23,13 +29,48 @@ function safeLsSet(key, value) {
   try { localStorage.setItem(key, value); } catch { /* ignore */ }
 }
 
+// Names follow Vac's canonical terminology (VAF threads 228078,
+// 225345). Mode 0 is the energy-management primary page; Mode 3 is
+// the deceleration display — these were swapped in older code.
 const MODES = [
-  { id: 'aoa',           label: 'AOA',      C: Mode0 },
-  { id: 'attitude',      label: 'Attitude', C: Mode1 },
-  { id: 'indexer-only',  label: 'Indexer',  C: Mode2 },
-  { id: 'energy',        label: 'Energy',   C: Mode3 },
-  { id: 'ghistory',      label: 'G-Hist',   C: Mode4 },
+  { id: 'energy',   label: 'Energy Display', C: Mode0 },
+  { id: 'attitude', label: 'Attitude',       C: Mode1 },
+  { id: 'indexer',  label: 'Indexer',        C: Mode2 },
+  { id: 'decel',    label: 'Decel Display',  C: Mode3 },
+  { id: 'historic', label: 'Historic G',     C: Mode4 },
 ];
+
+// Migrate legacy `liveview-mode` localStorage values written by the
+// pre-rename code so a stale browser doesn't fall back to the default
+// and lose the pilot's last-mode preference. We can't tell legacy
+// `'energy'` (Mode 3 in old code) from new `'energy'` (Mode 0 in new
+// code) by value alone, so we bump the storage key: the new code
+// reads/writes `liveview-mode-v2`, runs a one-shot migration from the
+// legacy `liveview-mode` if v2 isn't set yet, then forgets the legacy
+// key.
+const MODE_LS_KEY = 'liveview-mode-v2';
+const LEGACY_MODE_LS_KEY = 'liveview-mode';
+const LEGACY_MODE_IDS = {
+  aoa:            'energy',
+  attitude:       'attitude',
+  'indexer-only': 'indexer',
+  energy:         'decel',
+  ghistory:       'historic',
+};
+
+function readPersistedMode() {
+  const v2 = safeLsGet(MODE_LS_KEY);
+  if (v2 && MODES.some(m => m.id === v2)) return v2;
+  const legacy = safeLsGet(LEGACY_MODE_LS_KEY);
+  if (legacy) {
+    const migrated = LEGACY_MODE_IDS[legacy];
+    if (migrated) {
+      safeLsSet(MODE_LS_KEY, migrated);
+      return migrated;
+    }
+  }
+  return 'energy';
+}
 
 const DATA_FIELDS = [
   ['AOA',      r => r.aoaIsValid ? r.aoaDeg.toFixed(2) + '°' : 'N/A'],
@@ -125,7 +166,7 @@ const EMPTY_REC = {
 
 export function IndexerPage() {
   const { rec, status, ageSec } = useWebSocket();
-  const [mode, setMode] = useState(safeLsGet('liveview-mode') || 'aoa');
+  const [mode, setMode] = useState(readPersistedMode);
   const [dfExpanded, setDfExpanded] = useState(safeLsGet('liveview-datafields-expanded') === '1');
 
   // The WebSocket arrives at 20 Hz and the hook triggers a render on
@@ -140,7 +181,7 @@ export function IndexerPage() {
 
   const setModeAndPersist = (m) => {
     setMode(m);
-    safeLsSet('liveview-mode', m);
+    safeLsSet(MODE_LS_KEY, m);
   };
   const toggleDf = () => {
     const next = !dfExpanded;

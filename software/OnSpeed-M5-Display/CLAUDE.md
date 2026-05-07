@@ -15,13 +15,20 @@ All four share the same renderer source. Per-target wiring is in
 `sim/ArduinoShim.h` (native) and `sim/HuvverShim.h` (huVVer);
 `#ifdef ESP_PLATFORM` gates Arduino-only code.
 
-Renders five modes (internally numbered 0–4):
+Renders five modes (numbered 0–4; numbers are stable across renames
+because the X-Plane plugin's `indexerMode` per-aircraft pref stores
+the integer):
 
-- **Primary** (0, default) — AOA indexer + surrounding IAS/G/flap/slip readouts.
-- **Attitude** (1) — Backup AI with flight-path marker.
-- **Indexer-only** (2) — Same indexer widget, numeric readouts stripped.
-- **Energy** (3) — Deceleration gauge in kt/s.
-- **G history** (4) — 60-second scrolling G trace.
+- **Energy Display** (0, default) — AOA indexer + surrounding IAS/G/flap/slip readouts.
+- **Attitude** (1) — Synthetic horizon with flight-path marker.
+- **Indexer** (2) — Same indexer widget, numeric readouts stripped (AOA-only page).
+- **Decel Display** (3) — IAS-derivative gauge in kt/s.
+- **Historic G** (4) — 60-second scrolling vertical-G trace.
+
+Names follow Vac's canonical terminology (VAF threads 228078,
+225345). The canonical UI list lives in
+`tools/web/lib/pages/IndexerPage.js`; `kModeNames[5]` in `src/main.cpp`
+mirrors it.
 
 End-user docs: `docs/site/docs/installation/external-display.md`.
 Attribution / licensing: `CREDITS.md` in this directory.

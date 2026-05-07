@@ -13,8 +13,8 @@ This is the companion to the M5 display firmware at
 ## What this is for
 
 You have an M5Stack Basic or Core2 and want to test the five OnSpeed
-display modes (AOA chevron, attitude indicator, narrow AOA, decel gauge,
-G-load history) at your desk. The OnSpeed Gen3 box is mounted in the
+display modes (Energy Display, Attitude, Indexer, Decel Display,
+Historic G) at your desk. The OnSpeed Gen3 box is mounted in the
 plane, but the M5 is powered from USB-C and just needs a stream of valid
 `#1` frames on its RX pin.
 
@@ -154,7 +154,7 @@ Cycles forever through this 5-minute script:
 | 120–180 | Approach | IAS 80 kt, flaps 16, AOA at OnSpeedSlow, gentle roll |
 | 180–210 | Approach-to-stall | AOA climbs past StallWarn to AlphaStall |
 | 210–240 | Recovery | IAS builds back, AOA drops, G excursion |
-| 240–300 | G-turns | ±45° rolls, G up to 1.8 — exercises G-history mode |
+| 240–300 | G-turns | ±45° rolls, G up to 1.8 — exercises Historic G mode |
 
 After 5 minutes, loops back to cruise.
 

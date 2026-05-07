@@ -179,7 +179,7 @@ export const SLIP_BALL_R   = SLIP_H / 2 - 1;       // 16
 export const SLIP_BALL_X_RANGE = (SLIP_W - SLIP_H - 1) / 2;  // 62.5
 
 // ----------------------------------------------------------------------------
-// Mode 1: Attitude / Backup AI
+// Mode 1: Attitude
 // ----------------------------------------------------------------------------
 // Source: software/OnSpeed-M5-Display/src/main.cpp
 //   - case 1 block at lines 521-624 (corner readouts, slip ball, pitch

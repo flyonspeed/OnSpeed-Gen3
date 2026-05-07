@@ -88,7 +88,9 @@ each mode (what every readout means, when to use it), see the
 [external display modes section](../installation/external-display.md#display-modes)
 — the plugin runs the same C++ source.
 
-### Mode 0 — AOA + Numbers (Primary)
+### Energy Display
+
+*(Mode 0 — the boot default.)*
 
 The default after first show. Vertical AOA indexer in the center,
 flanked by IAS, vertical-G, flap-position icon, percent-lift number,
@@ -119,7 +121,9 @@ Useful as an "am I loading the airframe smoothly?" cue: a steady
 long pull-up shows a small bar; a sudden yank shows a tall bar
 that dies back as the rate stabilizes.
 
-### Mode 1 — Attitude
+### Attitude
+
+*(Mode 1.)*
 
 Backup artificial horizon driven by X-Plane's pitch and roll. Pitch
 ladder, magenta flight-path marker (concentric rings + perpendicular
@@ -139,19 +143,25 @@ numerics in the corners. The center pip and 20-pixel ladder ticks
 give a visual reference; the bar drops to the ladder color (zero)
 in level flight.
 
-### Mode 2 — Narrow AOA
+### Indexer
 
-Mode 0's indexer widget with all the numeric fields stripped away.
-Same chevrons, donut, and index bar; nothing else.
+*(Mode 2.)*
 
-### Mode 3 — Decel
+The Energy Display's indexer widget with all the numeric fields
+stripped away. Same chevrons, donut, and index bar; nothing else.
+
+### Decel Display
+
+*(Mode 3.)*
 
 Vertical "energy tape" gauge showing instantaneous airspeed
 deceleration in knots per second. Green band marks the stable-energy
 zone; red bands above and below flag rapid acceleration or
 deceleration. Useful for tuning approach energy.
 
-### Mode 4 — G History
+### Historic G
+
+*(Mode 4.)*
 
 Rolling 1-minute strip-chart of vertical G (the on-screen header
 reads `G-LOAD [1 min]`). Useful for spotting how hard you pulled in

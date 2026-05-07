@@ -154,7 +154,7 @@ which pins the documented JSON shape for every endpoint.
 
 | Route       | Component        | What it does                                                                  |
 |-------------|------------------|-------------------------------------------------------------------------------|
-| `/indexer`  | `IndexerPage`    | 5-mode SVG view (AOA / Attitude / Indexer / Energy / G-history)               |
+| `/indexer`  | `IndexerPage`    | 5-mode SVG view (Energy Display / Attitude / Indexer / Decel Display / Historic G) |
 | `/live`     | `LivePage`       | Two-tab AOA / AHRS read-only page; preserves the legacy `/live` info density  |
 
 The page list is the source of truth in three places that must stay

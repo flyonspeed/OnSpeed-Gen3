@@ -68,7 +68,7 @@ indexerPopHeight = 240
 | `bMuteStallHorn` | int 0/1 | — | Mute the sim's built-in stall horn. Toggled via **Plugins → Fly On Speed → Mute X-Plane stall horn**. When `1`, the plugin clears `sim/aircraft/view/acf_has_stallwarn` each flight loop. |
 | `serialPortPath` | string | OS-dependent | USB-serial port to drive a tethered M5. Empty = no output. |
 | `indexerVisible` | int 0/1 | — | Whether the indexer window was open at last save. Restored on `XPLM_MSG_AIRPORT_LOADED`. |
-| `indexerMode` | int | 0 – 4 | Last-active indexer display mode (Primary, Attitude, Narrow AOA, Decel, G History). |
+| `indexerMode` | int | 0 – 4 | Last-active indexer display mode (Energy Display, Attitude, Indexer, Decel Display, Historic G). |
 | `indexerPoppedOut` | int 0/1 | — | Whether the indexer was floating inside X-Plane (`0`) or detached as its own OS window (`1`). |
 | `indexerFloatLeft` / `Top` | int (boxels) | screen-bounds | Top-left corner of the indexer window in X-Plane global desktop boxels, when floating. |
 | `indexerFloatWidth` / `Height` | int (boxels) | ≥ 160 × 120 | Indexer window size when floating. |
