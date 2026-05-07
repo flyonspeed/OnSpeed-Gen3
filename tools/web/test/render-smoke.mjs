@@ -514,6 +514,16 @@ function findTextNodes(root) {
   return [...walk(root)].filter(n => n.localName === '#text' && n.data);
 }
 
+// Defense-in-depth: rendered text nodes must never contain "null",
+// "NaN", or "undefined" — those are signs that fmt() / a corner gate
+// missed a non-finite input and a JS coercion leaked through.
+function assertNoPlaceholderLeaks(texts) {
+  for (const t of texts) {
+    if (/null|nan|undefined/i.test(t))
+      throw new Error('rendered text contains placeholder leak: ' + JSON.stringify(t));
+  }
+}
+
 test('Mode0 renders em-dash for IAS when iasKt is null', () => {
   const r = makeNullAirDataRecord();
   const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
@@ -522,19 +532,70 @@ test('Mode0 renders em-dash for IAS when iasKt is null', () => {
   // unmodified. Plain '-' would mean a number leaked through.
   if (!texts.some(t => t === '—'))
     throw new Error('expected an em-dash text node for null IAS, got: ' + texts.join('|'));
-  // Defense-in-depth: no "null" / "NaN" / "undefined" strings.
-  for (const t of texts) {
-    if (/null|nan|undefined/i.test(t))
-      throw new Error('rendered text contains placeholder leak: ' + JSON.stringify(t));
-  }
+  assertNoPlaceholderLeaks(texts);
 });
 
-test('Mode1 renders em-dash for IAS when iasKt is null', () => {
-  const r = makeNullAirDataRecord();
+// Walk a CornerReadout's <g data-widget="corner"> group and return its
+// two text children's `.data` strings as { label, value }. The
+// CornerReadout structure (svg/index.js:94-111) is fixed: first <text>
+// is the label, second <text> is the value.
+function readCorner(g) {
+  const texts = [...walk(g)].filter(n => n.localName === 'text');
+  const inner = (t) => {
+    // Preact renders ${value} as a single child #text node.
+    const child = (t.childNodes || []).find(c => c.localName === '#text');
+    return child ? child.data : '';
+  };
+  return { label: inner(texts[0]), value: inner(texts[1]) };
+}
+
+function findCornerByLabel(root, label) {
+  const groups = [...walk(root)].filter(n =>
+    n.localName === 'g' && n.getAttribute('data-widget') === 'corner');
+  return groups.map(readCorner).find(c => c.label === label);
+}
+
+// Mode 1 has TWO CornerReadouts that emit em-dashes: IAS on the left
+// (fmt(null, 0) → '—') and AOA on the right (the aoaIsValid ternary).
+// Each test fixture pins exactly one source: the other corner stays
+// numeric so the em-dash count is exactly 1, and the corner-by-label
+// lookup confirms the dash is in the expected position.
+test('Mode1 IAS-corner shows em-dash when iasKt is null (AOA stays numeric)', () => {
+  const r = { ...makeNullAirDataRecord(), iasKt: null,
+              aoaIsValid: true, percentLift: 42 };
   const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
-  if (!texts.some(t => t === '—'))
-    throw new Error('expected an em-dash text node for null IAS in Mode1, got: ' + texts.join('|'));
+  const dashCount = texts.filter(t => t === '—').length;
+  if (dashCount !== 1)
+    throw new Error(`expected exactly 1 em-dash in Mode1, got ${dashCount}: ${texts.join('|')}`);
+  const ias = findCornerByLabel(root, 'IAS');
+  if (!ias) throw new Error('Mode1 has no IAS corner');
+  if (ias.value !== '—')
+    throw new Error(`IAS corner value should be em-dash, got ${JSON.stringify(ias.value)}`);
+  const aoa = findCornerByLabel(root, 'AOA');
+  if (!aoa) throw new Error('Mode1 has no AOA corner');
+  if (aoa.value === '—')
+    throw new Error('AOA corner should render numeric percent-lift, got em-dash');
+  assertNoPlaceholderLeaks(texts);
+});
+
+test('Mode1 AOA-corner shows em-dash when aoaIsValid is false (IAS stays numeric)', () => {
+  const r = { ...makeNullAirDataRecord(), iasKt: 100,
+              aoaIsValid: false, aoaDeg: -100 };
+  const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  const dashCount = texts.filter(t => t === '—').length;
+  if (dashCount !== 1)
+    throw new Error(`expected exactly 1 em-dash in Mode1, got ${dashCount}: ${texts.join('|')}`);
+  const aoa = findCornerByLabel(root, 'AOA');
+  if (!aoa) throw new Error('Mode1 has no AOA corner');
+  if (aoa.value !== '—')
+    throw new Error(`AOA corner value should be em-dash, got ${JSON.stringify(aoa.value)}`);
+  const ias = findCornerByLabel(root, 'IAS');
+  if (!ias) throw new Error('Mode1 has no IAS corner');
+  if (ias.value === '—')
+    throw new Error('IAS corner should render the numeric IAS, got em-dash');
+  assertNoPlaceholderLeaks(texts);
 });
 
 test('Mode3 renders em-dash for IAS when iasKt is null', () => {
@@ -543,6 +604,7 @@ test('Mode3 renders em-dash for IAS when iasKt is null', () => {
   const texts = findTextNodes(root).map(n => n.data);
   if (!texts.some(t => t === '—'))
     throw new Error('expected an em-dash text node for null IAS in Mode3, got: ' + texts.join('|'));
+  assertNoPlaceholderLeaks(texts);
 });
 
 test('Mode0 hides the percent-lift number when aoaIsValid is false', () => {
