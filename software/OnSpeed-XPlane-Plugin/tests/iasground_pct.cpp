@@ -31,8 +31,8 @@
 //   3. As V rises through Vs, the pct passes through StallWarn.
 //   4. Past Vs (rolling fast / liftoff regime), percent drops
 //      smoothly into the OnSpeed band.
-//   5. With iVs1G == 0 (no Vs known), on-ground falls back to
-//      alpha — old behavior preserved.
+//   5. With iVs1G == 0 (no Vs known), on-ground falls back to the
+//      alpha formula — same path the in-flight branch uses.
 //   6. In flight (onGround=false), the alpha formula is used
 //      regardless of iVs1G, even at V well below Vs.
 
@@ -187,11 +187,11 @@ int main()
     DisplayBuildInputs noVs{};
     FillPercentLift(noVs, 7.0f, 0.0f, 0.0f, false, true);
     // iasValid=false on the alpha path means percent collapses to 0
-    // (ComputePercentLift's contract).  This is the OLD behavior —
-    // documenting it here proves the V² path is the only escape.
+    // (ComputePercentLift's contract).  iVs1G == 0 disables the V²
+    // path so the alpha path's gate becomes the only behavior.
     check(nearly(noVs.percentLiftPct, 0.0f, 0.1f),
           "no Vs configured: on-ground percent falls back to alpha "
-          "(returns 0 below mute threshold, the old behavior)");
+          "(returns 0 below mute threshold)");
     iVs1G = 60;   // restore for subsequent assertions
 
     // --------------------------------------------------------------

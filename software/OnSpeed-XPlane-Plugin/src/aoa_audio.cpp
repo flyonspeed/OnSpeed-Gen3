@@ -147,9 +147,9 @@ int iAoaMeanWindow   = 10;    // 1 disables mean (passthrough)
 //   -1  = "disabled" — pilot has explicitly opted out; do not seed
 //                      and fall back to the alpha-based formula
 //   >0  = explicit Vs in KIAS (seeded or pilot-set)
-// Both 0 and -1 disable the V² path (alpha-only fallback) so the
-// pre-fix behavior stays in place for aircraft where neither
-// acf_Vs nor the pilot has supplied a value.
+// Both 0 and -1 disable the V² path; the live percent reading then
+// comes from the alpha-based formula (gated on iasValid) for
+// aircraft where neither acf_Vs nor the pilot has supplied a value.
 int iVs1G = 0;
 
 // Master volume (0-100 %).  Mirrors the firmware's pot-driven
@@ -751,6 +751,15 @@ static void OnAircraftLoaded() {
         // hits SaveSettings's gate and is skipped.  LoadSettings
         // flips the flag back on exit.
         s_settingsLoaded = false;
+        // Reset iVs1G to its compiled default before reading the new
+        // aircraft's .prf.  Without this, the prior aircraft's value
+        // bleeds through when the new .prf doesn't have an `iVs1G`
+        // key — which silently disables auto-seeding when the prior
+        // aircraft had iVs1G == -1 ("user disabled V²"), and silently
+        // skips the seed when iVs1G > 0 too.  LoadSettings's tolerant
+        // parser leaves any global untouched if its key isn't present
+        // in the file, so we have to explicitly clear iVs1G ourselves.
+        iVs1G = kDefaultSettings.iVs1G;
         LoadSettings();
     }
 
