@@ -1,11 +1,11 @@
 ---
 name: liveview-edit
-description: Use when editing OnSpeed's LiveView (the firmware-served `/indexer` Preact page), iterating on the M5 hardware display in lockstep with the JS rendering, polishing pixel layouts, regenerating the embedded HTML bundle, debugging WebSocket reconnect or data-fields behavior, or working on any of the five SVG modes (Mode 0 AOA, Mode 1 Attitude, Mode 2 Indexer-only, Mode 3 Energy, Mode 4 G-history). Explains the M5↔Preact parallel-iteration workflow and the regenerate-and-commit contract for the firmware-served bundle.
+description: Use when editing OnSpeed's LiveView (the firmware-served `/indexer` Preact page), iterating on the M5 hardware display in lockstep with the JS rendering, polishing pixel layouts, regenerating the embedded HTML bundle, debugging WebSocket reconnect or data-fields behavior, or working on any of the five SVG modes (Mode 0 Energy Display, Mode 1 Attitude, Mode 2 Indexer, Mode 3 Decel Display, Mode 4 Historic G). Explains the M5↔Preact parallel-iteration workflow and the regenerate-and-commit contract for the firmware-served bundle.
 ---
 
 # Editing OnSpeed LiveView
 
-The OnSpeed firmware serves a tablet-friendly web page at `/indexer` that mirrors the M5 hardware display's five modes (Mode 0 AOA primary, Mode 1 Backup AI, Mode 2 Indexer-only, Mode 3 Energy / decel gauge, Mode 4 G-load history). Both the M5 hardware renderer (C++ on the M5Stack) and the LiveView (SVG/Preact in the browser) are derived from the same M5 source — `software/OnSpeed-M5-Display/src/main.cpp`. **Edit them in lockstep; the two surfaces are deliberately bit-faithful copies of the same UI.**
+The OnSpeed firmware serves a tablet-friendly web page at `/indexer` that mirrors the M5 hardware display's five modes (Mode 0 Energy Display, Mode 1 Attitude, Mode 2 Indexer, Mode 3 Decel Display, Mode 4 Historic G). Both the M5 hardware renderer (C++ on the M5Stack) and the LiveView (SVG/Preact in the browser) are derived from the same M5 source — `software/OnSpeed-M5-Display/src/main.cpp`. **Edit them in lockstep; the two surfaces are deliberately bit-faithful copies of the same UI.**
 
 The legacy `/live` page (the 2-tab AOA/AHRS view) is served from a Preact rewrite at `tools/web/lib/pages/LivePage.js`; the bundler emits its stub into `software/OnSpeed-Gen3-ESP32/Web/html_stubs.h` alongside the indexer stub.
 

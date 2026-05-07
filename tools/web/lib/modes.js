@@ -46,12 +46,12 @@ const Panel = ({ children, stale }) => html`
     <${StaleOverlay} stale=${stale} />
   </svg>`;
 
-// --- Mode 0: AOA Primary --------------------------------------------------
+// --- Mode 0: Energy Display -----------------------------------------------
 //
-// Mode 2 is the same renderer with `numericDisplay=false` — corners + flap
-// circle hide, slip ball + gOnset stay, indexer + percent number stay.
-// Matches the C++ structure at main.cpp:511-635 where both cases call
-// displayAOA() with the gate flag.
+// Mode 2 (Indexer) is the same renderer with `numericDisplay=false` —
+// corners + flap circle hide, slip ball + gOnset stay, indexer +
+// percent number stay. Matches the C++ structure at main.cpp:511-635
+// where both cases call displayAOA() with the gate flag.
 export const Mode0 = ({ r, stale, numericDisplay = true }) => {
   const anchors = anchorsFromRec(r);
   const flashFlag = flashFlagNow();
@@ -79,7 +79,7 @@ export const Mode0 = ({ r, stale, numericDisplay = true }) => {
     <//>`;
 };
 
-// --- Mode 1: Backup AI ---------------------------------------------------
+// --- Mode 1: Attitude -----------------------------------------------------
 export const Mode1 = ({ r, stale }) => {
   const flashFlag = flashFlagNow();
   const aoaIsValid = r.aoaIsValid !== false;
@@ -144,12 +144,12 @@ export const Mode1 = ({ r, stale }) => {
     <//>`;
 };
 
-// --- Mode 2: Indexer-only -------------------------------------------------
+// --- Mode 2: Indexer ------------------------------------------------------
 // Mirrors C++: same renderer body as Mode 0, numericDisplay=false.
 export const Mode2 = ({ r, stale }) => html`
   <${Mode0} r=${r} stale=${stale} numericDisplay=${false} />`;
 
-// --- Mode 3: Energy / decel gauge -----------------------------------------
+// --- Mode 3: Decel Display ------------------------------------------------
 //
 // The decel pointer reflects IAS-derivative state, not AOA validity, so
 // it draws unconditionally — same as the M5 hardware page.
@@ -186,7 +186,7 @@ export const Mode3 = ({ r, stale }) => {
     <//>`;
 };
 
-// --- Mode 4: G-history ---------------------------------------------------
+// --- Mode 4: Historic G ---------------------------------------------------
 //
 // The 300-sample ring buffer is owned by the parent (firmware/main.js)
 // because Preact tears down state on parent re-render; we don't want

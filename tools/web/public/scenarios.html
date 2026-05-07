@@ -18,11 +18,11 @@
   <h1>OnSpeed LiveView Prototype</h1>
 </header>
 <nav id="mode-nav">
-  <button data-mode="aoa" type="button">AOA</button>
-  <button data-mode="attitude" type="button">AI</button>
-  <button data-mode="indexer-only" type="button">Idx</button>
   <button data-mode="energy" type="button">Energy</button>
-  <button data-mode="ghistory" type="button">G-Hist</button>
+  <button data-mode="attitude" type="button">Attitude</button>
+  <button data-mode="indexer" type="button">Indexer</button>
+  <button data-mode="decel" type="button">Decel</button>
+  <button data-mode="historic" type="button">Historic G</button>
 </nav>
 <nav id="scenario-nav">
   <button data-scenario="idle" type="button">Idle</button>
@@ -32,11 +32,11 @@
 </nav>
 <main>
   <section class="panel" id="svg-panel">
-    <div data-mode-panel="aoa" id="svg-root"></div>
+    <div data-mode-panel="energy" id="svg-root"></div>
     <div data-mode-panel="attitude" style="display:none;"></div>
-    <div data-mode-panel="indexer-only" style="display:none;"></div>
-    <div data-mode-panel="energy" style="display:none;"></div>
-    <div data-mode-panel="ghistory" style="display:none;"></div>
+    <div data-mode-panel="indexer" style="display:none;"></div>
+    <div data-mode-panel="decel" style="display:none;"></div>
+    <div data-mode-panel="historic" style="display:none;"></div>
   </section>
 </main>
 <script type="module" src="/lib/scenarios-main.js"></script>

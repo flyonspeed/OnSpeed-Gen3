@@ -17,8 +17,8 @@ connected M5Stack.
   match the panel box sample-for-sample.
 - **Embedded indexer** — a floating X-Plane window hosts the OnSpeed M5
   indexer renderer. Five display modes (the same five the M5 firmware
-  ships with): AOA + numbers, attitude, narrow AOA, decel gauge, and
-  G-history. Click the indexer body to cycle modes, or use the menu.
+  ships with): Energy Display, Attitude, Indexer, Decel Display, and
+  Historic G. Click the indexer body to cycle modes, or use the menu.
 - **Physical M5 passthrough** — when configured, every display-serial
   frame the plugin builds is also pushed to a USB-serial port at
   115200 8N1. A Core2 plugged into the sim PC behaves the same way it

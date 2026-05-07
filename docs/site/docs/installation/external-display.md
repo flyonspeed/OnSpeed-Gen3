@@ -11,8 +11,8 @@ firmware from a single codebase.
     The external display supplements OnSpeed's audio tones — it does not
     replace them. The primary interface is still aural; your eyes should
     stay outside during approach. The display is most useful for
-    post-flight analysis (G-load history), initial familiarization with
-    the tones, and as a backup attitude indicator.
+    post-flight analysis (the Historic G page), initial familiarization
+    with the tones, and as a backup attitude indicator.
 
 ## Try it in your browser
 
@@ -76,7 +76,7 @@ identical on both units.
 
 Brightness is persisted to NVS on every adjust, so the M5 boots into the
 brightness it was on at last power-down. Display mode is not persisted —
-every boot starts on Mode 0 (Primary).
+every boot starts on Mode 0 (Energy Display).
 
 If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
@@ -85,16 +85,17 @@ needing a USB cable.
 ## Display modes
 
 The five modes are selected by pressing **Button B**, which cycles in
-order: **Primary → Attitude → Indexer-only → Energy → G history →**
-back to Primary. The M5 remembers the last-used mode across power
-cycles.
+order: **Energy Display → Attitude → Indexer → Decel Display →
+Historic G →** back to Energy Display. The M5 boots into Energy
+Display (Mode 0) on every power cycle; only display brightness
+persists across power-down.
 
 To preview each mode, scroll back up to the in-browser simulator and
 press <kbd>↓</kbd> to step through them. The C++ source that runs the
 sim is the same source that runs on the real M5Stack hardware, so the
 layout you see in the browser is the layout you get on the panel.
 
-### Primary — AOA indexer + full readouts
+### Energy Display — AOA indexer + full readouts
 
 *(Mode 0 — the boot default.)*
 
@@ -156,7 +157,7 @@ not by exact percent.
 - Bottom-center: the **slip/skid ball** (green when coordinated, red
   and flashing at high AOA with large slip).
 
-Primary mode does not show altitude — flip to Attitude mode (next) for
+Energy Display does not show altitude — flip to Attitude mode (next) for
 a numeric pressure-altitude readout.
 
 **Right edge — G-onset rate tape.** A thin yellow bar growing up
@@ -170,7 +171,7 @@ Useful as a smoothness cue: a steady long pull-up shows a small
 bar; a sudden yank shows a tall bar that dies back as the rate
 stabilizes.
 
-### Attitude — backup AI with AOA
+### Attitude — synthetic horizon with AOA
 
 *(Mode 1.)*
 
@@ -194,7 +195,7 @@ in the gentle-cruise band where small trends matter most.
   only when the altimeter is set to 29.92.
 - Bottom-left: current **vertical G** with a "G" label.
 - Bottom-right: current **percent lift** (the same 0–99 envelope
-  fraction shown above the Primary indexer) with an "AOA" label.
+  fraction shown above the Energy Display indexer) with an "AOA" label.
 
 Numeric pitch readout sits in a dark rounded rectangle behind the
 aircraft symbol at the center.
@@ -204,22 +205,22 @@ replacement), or during instrument transitions where you want the
 OnSpeed-derived flight path marker overlaid on an independent
 attitude source.
 
-### Indexer-only — panel-minimal
+### Indexer — panel-minimal
 
 *(Mode 2.)*
 
-The Primary mode's indexer widget (chevrons + donut + index bar),
+The Energy Display's indexer widget (chevrons + donut + index bar),
 with all the numeric fields around it **stripped away**. Same stall
 warnings, same on-speed cues, same colors. The **DataMark** counter
 stays at the top-left so the pilot can confirm a press registered
 even on this minimal layout.
 
 **When to use:** if you already have an EFIS or dedicated ASI/ALT
-display, the numeric readouts on Primary mode are redundant. This
+display, the numeric readouts on Energy Display are redundant. This
 mode keeps only the visual indexer — ideal for a narrow panel cutout
 beside the primary ASI.
 
-### Energy — deceleration gauge
+### Decel Display — deceleration gauge
 
 *(Mode 3.)*
 
@@ -238,7 +239,7 @@ approach shows small steady decel (tape near the green band); rapid
 swings indicate you're pumping the stick or fighting turbulence.
 Also useful for gauging flare authority right at touchdown.
 
-### G history — scrolling G trace
+### Historic G — scrolling G trace
 
 *(Mode 4.)*
 
@@ -449,6 +450,6 @@ The OnSpeed firmware's serial output format is configurable via the
 Mount the display where it's visible during approach without blocking
 your view of primary instruments. Common locations:
 
-- Panel cutout (flush-mount, Mode 2 narrow layout is designed for this)
+- Panel cutout (flush-mount, Indexer mode's narrow layout is designed for this)
 - Glareshield mount on a RAM-style ball joint
 - Side console near the throttle quadrant

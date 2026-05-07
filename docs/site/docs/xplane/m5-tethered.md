@@ -92,8 +92,8 @@ With data flowing, the M5 behaves identically to its in-airplane
 configuration:
 
 - **BtnA (left)** — display brightness down.
-- **BtnB (middle)** — cycle display modes (AOA + numbers, attitude,
-  narrow AOA, decel gauge, G history).
+- **BtnB (middle)** — cycle display modes (Energy Display, Attitude,
+  Indexer, Decel Display, Historic G).
 - **BtnC (right)** — display brightness up.
 
 See [Using the indexer](indexer.md) for the per-mode descriptions.

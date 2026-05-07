@@ -1,8 +1,8 @@
 // Ported from OnSpeed Gen2 OnSpeed_M5_display/OnSpeed_M5_display.ino
 // M5Stack Core ESP32 secondary display for OnSpeed AOA system.
 //
-// Provides 5 display modes: AOA chevron, attitude indicator, narrow AOA,
-// deceleration gauge, and G-load history.
+// Provides 5 display modes: Energy Display, Attitude, Indexer, Decel
+// Display, and Historic G.
 //
 // Changes from Gen2:
 // - Replaced buggy SavLayFilter with correct SavGolDerivative
@@ -149,9 +149,25 @@ uint64_t        gHistoryTime        = millis();
 // (see setup()); pilot adjustments via BtnA/BtnC persist on press, so
 // the M5 boots back into the brightness it was on at last power-down.
 // `displayType` is not persisted — every boot starts on Mode 0
-// (Primary), the documented default.
+// (Energy Display), the documented default.
 uint16_t        displayBrightness   = 255;
 int16_t         displayType         = 0;
+
+// Canonical names per Vac (VAF threads 228078, 225345). Mirrors
+// tools/web/lib/pages/IndexerPage.js MODES. Indexed by displayType.
+// Used by the X-Plane plugin's on-canvas MODE button (see
+// software/OnSpeed-XPlane-Plugin/src/m5_indexer/IndexerWindow.cpp);
+// the M5 hardware itself doesn't render the name today.
+// `extern` is required: namespace-scope `const` defaults to internal
+// linkage in C++, which would hide the symbol from the X-Plane plugin
+// linker.
+extern const char* const kModeNames[5] = {
+    "Energy",      // 0 — boot default (Energy Display, shortened)
+    "Attitude",    // 1
+    "Indexer",     // 2 — AOA-only page
+    "Decel",       // 3 — Decel Display, shortened
+    "Historic G",  // 4
+};
 boolean         numericDisplay;
 boolean         flashFlag;
 // Match the OnSpeed #1 frame rate (50 ms cadence from DisplaySerial.cpp)
@@ -576,7 +592,7 @@ void loop()
         */
         switch (displayType)
         {
-            case 0: // 0 default indicator with numeric display
+            case 0: // Energy Display — indexer + IAS/G/PALT/flap/slip/percent
             {
                 wgtWidth = 102;
                 wgtHeight = 192;
@@ -586,7 +602,7 @@ void loop()
                 break;
             }
 
-            case 1:
+            case 1: // Attitude — synthetic horizon + flight-path marker
             {
                 // display Attitude Indicator
                 AiGraph (g_px0, g_py0, g_arcSize, g_arcWidth, g_maxDisplay, g_minDisplay, g_startAngle, g_arcAngle, g_clockWise,
@@ -691,7 +707,7 @@ void loop()
                 break;
             }
 
-            case 2:  // 2 narrow AOA and slip indicator
+            case 2: // Indexer — AOA-only page (chevrons + slip, no corners)
             {
                 wgtWidth  = 102;
                 wgtHeight = 192;
@@ -702,13 +718,13 @@ void loop()
                 break;
             }
 
-            case 3: // decel gauge
+            case 3: // Decel Display — IAS-derivative gauge in kt/s
             {
                 displayDecelGauge();
                 break;
             }
 
-            case 4:
+            case 4: // Historic G — 60s vertical-G strip chart
             {
                 displayGloadHistory();
                 break;
@@ -932,9 +948,9 @@ void displayAOA()
     // Draw the data-mark counter at top-left.  Increments on a 1-second
     // long-press of the OnSpeed switch (Switch.cpp); the value comes
     // off the wire (offset 69, mod 100) so the M5 readout matches what
-    // the SD log records.  Drawn on both Mode 0 (Primary) and Mode 2
-    // (Indexer-only) so the counter advance stays visible regardless of
-    // which page the pilot picked — confirms the long-press registered.
+    // the SD log records.  Drawn on both Mode 0 (Energy Display) and
+    // Mode 2 (Indexer) so the counter advance stays visible regardless
+    // of which page the pilot picked — confirms the long-press registered.
     // 16×14 px at top-left, well clear of the indexer column (x=109+)
     // and the IAS readout (y=90).
     gdraw.setFont(FM12);

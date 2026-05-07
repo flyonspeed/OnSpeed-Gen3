@@ -59,8 +59,8 @@ Keyboard mapping (inherited from `Panel_sdl`'s default keycode map):
 | ↓  (Down)     | BtnB     | Cycle display mode         |
 | →  (Right)    | BtnC     | Brightness up              |
 
-Display modes (cycled with BtnB): Primary (AOA indexer + numerics) →
-Attitude indicator → Indexer-only → Energy (decel gauge) → G-history.
+Display modes (cycled with BtnB): Energy Display → Attitude →
+Indexer → Decel Display → Historic G.
 
 ---
 
