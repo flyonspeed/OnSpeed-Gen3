@@ -3438,18 +3438,19 @@ file is fine; the plugin only writes keys it knows.</p>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>iAoaMedianWindow = 5
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>iAoaMeanWindow = 10
 <a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>audioEnabled = 1
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>serialPortPath = /dev/cu.usbmodem11201
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>indexerVisible = 1
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>indexerMode = 0
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>indexerPoppedOut = 0
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>indexerFloatLeft = 100
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>indexerFloatTop = 600
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>indexerFloatWidth = 320
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>indexerFloatHeight = 240
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>indexerPopLeft = 100
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>indexerPopTop = 100
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>indexerPopWidth = 320
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>indexerPopHeight = 240
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>bMuteStallHorn = 0
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>serialPortPath = /dev/cu.usbmodem11201
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>indexerVisible = 1
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>indexerMode = 0
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>indexerPoppedOut = 0
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>indexerFloatLeft = 100
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>indexerFloatTop = 600
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>indexerFloatWidth = 320
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>indexerFloatHeight = 240
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>indexerPopLeft = 100
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>indexerPopTop = 100
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>indexerPopWidth = 320
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>indexerPopHeight = 240
 </code></pre></div>
 <h2 id="fields">Fields<a class="headerlink" href="#fields" title="Permanent link">&para;</a></h2>
 <table>
@@ -3517,6 +3518,12 @@ file is fine; the plugin only writes keys it knows.</p>
 <td>Sound on/off toggle. Persists across sim restart.</td>
 </tr>
 <tr>
+<td><code>bMuteStallHorn</code></td>
+<td>int 0/1</td>
+<td>—</td>
+<td>Mute the sim's built-in stall horn. Toggled via <strong>Plugins → Fly On Speed → Mute X-Plane stall horn</strong>. When <code>1</code>, the plugin clears <code>sim/aircraft/view/acf_has_stallwarn</code> each flight loop.</td>
+</tr>
+<tr>
 <td><code>serialPortPath</code></td>
 <td>string</td>
 <td>OS-dependent</td>
@@ -3581,6 +3588,18 @@ smoothing windows as editable text rows; <code>audioEnabled</code> is the
 <strong>Sound: On / Sound: Off</strong> button. <code>serialPortPath</code> is set
 separately via <strong>Plugins → Fly On Speed → Serial output → \&lt;port&gt;</strong>
 (see <a href="../m5-tethered/">Tethering a Physical M5</a>).</p>
+<p><strong>Plugins → Fly On Speed → Mute X-Plane stall horn</strong> silences the
+sim's built-in stall warning so it doesn't talk over OnSpeed's audio.
+The setting is per-aircraft and persists across X-Plane sessions in
+the <code>.prf</code>. Toggling off restores whatever the aircraft's <code>.acf</code> file
+originally specified, so an aircraft that legitimately has no stall
+horn doesn't end up with one after a mute/unmute cycle. Note: only
+the sim's default <code>acf_has_stallwarn</code>-driven warning is suppressed.
+Some third-party aircraft drive their own horn from a separate plugin
+or panel system, which this toggle can't reach. Aircraft that drive a
+variable-intensity stall warning through
+<code>sim/cockpit2/annunciators/stall_warning_ratio</code> directly also bypass
+<code>acf_has_stallwarn</code> and aren't affected by this toggle.</p>
 <p>Click <strong>Save</strong> to validate, apply, and write to the per-aircraft
 <code>.prf</code>. Validation runs in two passes:</p>
 <ol>
