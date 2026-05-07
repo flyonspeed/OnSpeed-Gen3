@@ -39,10 +39,16 @@ XPLMDataRef s_vsiFpm          = nullptr;
 XPLMDataRef s_oatC            = nullptr;
 XPLMDataRef s_vpath           = nullptr;
 XPLMDataRef s_flapRatio       = nullptr;
+XPLMDataRef s_onGroundAny     = nullptr;   // int, 1 when any gear is touching
 
 inline float SafeGetf(XPLMDataRef ref, float fallback = 0.0f)
 {
     return ref ? XPLMGetDataf(ref) : fallback;
+}
+
+inline bool SafeGetBool(XPLMDataRef ref, bool fallback = false)
+{
+    return ref ? (XPLMGetDatai(ref) != 0) : fallback;
 }
 
 }  // namespace
@@ -62,6 +68,7 @@ void InitDataRefs()
     s_oatC         = XPLMFindDataRef("sim/cockpit2/temperature/outside_air_temp_degc");
     s_vpath        = XPLMFindDataRef("sim/flightmodel/position/vpath");
     s_flapRatio    = XPLMFindDataRef("sim/cockpit2/controls/flap_handle_deploy_ratio");
+    s_onGroundAny  = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
 
     auto warnIfMissing = [](XPLMDataRef ref, const char* name) {
         if (!ref) {
@@ -80,6 +87,7 @@ void InitDataRefs()
     warnIfMissing(s_verticalG,   "sim/flightmodel/forces/g_nrml");
     warnIfMissing(s_vsiFpm,      "sim/flightmodel/position/vh_ind_fpm");
     warnIfMissing(s_vpath,       "sim/flightmodel/position/vpath");
+    warnIfMissing(s_onGroundAny, "sim/flightmodel/failures/onground_any");
     if (!s_paltFt && !s_paltFallback) {
         XPLMDebugString("FlyOnSpeed: indexer no altitude dataref found\n");
     }
@@ -119,7 +127,20 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     // threshold (mirrors the firmware's iMuteAudioUnderIAS behavior).
     const bool iasValid = (iMuteAudioUnderIAS == 0) || (ias >= iMuteAudioUnderIAS);
 
-    FillPercentLift(in, aoa, flapRatio, iasValid);
+    // On-ground: percent-lift derives from V² instead of body angle.
+    // See FillPercentLift's contract for why; the short version is
+    // that body angle isn't aerodynamically meaningful when the gear
+    // is loading the airframe, but V² describes wing effort directly
+    // (max effort at low V, dropping off as V exceeds Vs).
+    //
+    // Debounce against single-tick flicker (rough taxi, gear bounce
+    // on landing).  Static state is safe because BuildInputsFromDatarefs
+    // is only called from the X-Plane flight loop on a single thread.
+    static OnGroundDebounceState s_onGroundDebounce{};
+    const bool rawOnGround = SafeGetBool(s_onGroundAny);
+    const bool onGround    = DebounceOnGround(rawOnGround, s_onGroundDebounce);
+
+    FillPercentLift(in, aoa, ias, flapRatio, iasValid, onGround);
 
     in.vsiFpm10        = static_cast<int>(std::floor(vsiFpm / 10.0f));
     if (in.vsiFpm10 >  999) in.vsiFpm10 =  999;

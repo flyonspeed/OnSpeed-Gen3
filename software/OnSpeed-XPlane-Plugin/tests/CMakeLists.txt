@@ -42,3 +42,18 @@ target_include_directories(band_edge_iasvalid PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 add_test(NAME band_edge_iasvalid COMMAND band_edge_iasvalid)
+
+# iasground_pct — pins the on-ground V² percent-lift formula.
+# Same compile pattern as band_edge_iasvalid: links PercentLiftFill.cpp
+# directly so the test exercises production code without XPLM stubs.
+add_executable(iasground_pct
+    iasground_pct.cpp
+    ../src/m5_indexer/PercentLiftFill.cpp)
+target_link_libraries(iasground_pct PRIVATE onspeed_core)
+target_compile_features(iasground_pct PRIVATE cxx_std_17)
+target_compile_options(iasground_pct PRIVATE
+    -Wall -Wextra -Werror -Wshadow -Wformat=2)
+target_include_directories(iasground_pct PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+
+add_test(NAME iasground_pct COMMAND iasground_pct)

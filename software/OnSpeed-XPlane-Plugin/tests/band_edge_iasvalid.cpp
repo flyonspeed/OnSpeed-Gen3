@@ -1,21 +1,18 @@
 // Regression test pinning the X-Plane plugin's band-edge / pip
 // independence from iasValid.
 //
-// Bug: DataRefAdapter::BuildInputsFromDatarefs forwarded `iasValid`
-// to the four band-edge anchor calls (tonesOn / fast / slow /
-// stallWarn) and to the pip lerp endpoints derived from them.  On
-// the ground at IAS below the audio mute threshold, every anchor
-// collapsed to 0 and the indexer's pip pinned to the bottom of the
-// band regardless of live alpha — wrong: the pip is an aerodynamic
-// visual reference at calibration anchors, and those anchors don't
-// depend on whether the air is moving.
+// Contract: the four band-edge anchors (tonesOn / fast / slow /
+// stallWarn) and the pip lerp endpoints derived from them are pure
+// functions of calibration.  Their position on the percent scale
+// depends only on the per-flap setpoints, not on whether the air is
+// moving.  Only the live `percentLiftPct` field gates on iasValid.
 //
-// Contract pinned in onspeed_core's DisplayPctAnchors.h producer
-// note ("the producer always passes true for the band-edge / L/Dmax
-// anchors") and matched by the firmware call sites in
+// Source of the contract: onspeed_core DisplayPctAnchors.h's
+// producer note ("the producer always passes true for the band-edge
+// / L/Dmax anchors"), matched by the firmware call sites in
 // DisplaySerial.cpp + DataServer.cpp.  This test calls the plugin's
-// FillPercentLift directly, exercising the production code path
-// post-fix.
+// FillPercentLift directly, exercising the same production code
+// path that feeds the wire format.
 
 #include "../src/m5_indexer/DataRefAdapter.h"
 
@@ -30,6 +27,11 @@ float fLDMAXAOA       =  6.0f;
 float fONSPEEDFASTAOA =  7.3f;
 float fONSPEEDSLOWAOA =  9.6f;
 float fSTALLWARNAOA   = 12.5f;
+
+// 0 disables the V² on-ground formula so this test exercises the
+// alpha-only path.  The V² path gets its own test in
+// iasground_pct.cpp.
+int iVs1G = 0;
 
 namespace {
 
@@ -64,26 +66,31 @@ int main()
     // pip slides smoothly with the flap handle.
     // ----------------------------------------------------------------
 
+    // iVs1G=0 above means the on-ground V² path is disabled and
+    // FillPercentLift falls back to the alpha-based formula on
+    // both regimes — matching the original PR #432 surface.
     DisplayBuildInputs onGround{};
     FillPercentLift(onGround,
-                    /*liveAoaDeg=*/   7.0f,
+                    /*liveAoaDeg=*/      7.0f,
+                    /*liveIasKt=*/       40.0f,
                     /*flapHandleRatio=*/ 0.0f,
-                    /*iasValid=*/    false);
+                    /*iasValid=*/        false,
+                    /*onGround=*/        true);
 
     // Live reading: ComputePercentLift's contract returns 0 when
     // iasValid=false.  No airflow, no live percent — by design.
     check(nearly(onGround.percentLiftPct, 0.0f),
           "live percentLiftPct collapses to 0 when iasValid=false");
 
-    // Anchors: must NOT collapse — the bug.
+    // Anchors: pure functions of calibration, do not collapse with iasValid.
     check(onGround.tonesOnPctLift     > 40 && onGround.tonesOnPctLift     < 70,
-          "tonesOnPctLift sits in (40, 70) on the ground (was 0, the bug)");
+          "tonesOnPctLift in (40, 70) regardless of iasValid");
     check(onGround.onSpeedFastPctLift > 50 && onGround.onSpeedFastPctLift < 80,
-          "onSpeedFastPctLift sits in (50, 80) on the ground (was 0, the bug)");
+          "onSpeedFastPctLift in (50, 80) regardless of iasValid");
     check(onGround.onSpeedSlowPctLift > 60 && onGround.onSpeedSlowPctLift < 90,
-          "onSpeedSlowPctLift sits in (60, 90) on the ground (was 0, the bug)");
+          "onSpeedSlowPctLift in (60, 90) regardless of iasValid");
     check(onGround.stallWarnPctLift   > 90 && onGround.stallWarnPctLift   < 100,
-          "stallWarnPctLift sits in (90, 100) on the ground (was 0, the bug)");
+          "stallWarnPctLift in (90, 100) regardless of iasValid");
 
     // Anchor ordering: must be strictly increasing on a sane
     // calibration.  An aside that catches accidental sign / formula
@@ -95,12 +102,12 @@ int main()
     check(onGround.onSpeedSlowPctLift < onGround.stallWarnPctLift,
           "anchor ordering: OnSpeedSlow < StallWarn");
 
-    // Pip: at flapRatio=0 the pip equals the clean LDmax pct (was 0
-    // pre-fix because `cleanPip = tonesOnPctLift = 0`).
+    // Pip: at flapRatio=0 the pip equals the clean LDmax pct because
+    // the lerp's clean endpoint is tonesOnPctLift.
     check(onGround.pipPctLift == onGround.tonesOnPctLift,
-          "pip == tonesOnPctLift at clean (was 0 == 0 pre-fix; now real == real)");
+          "pip == tonesOnPctLift at clean flap setting");
     check(onGround.pipPctLift > 0,
-          "pipPctLift is non-zero on the ground at clean (was 0, the bug)");
+          "pipPctLift is non-zero at clean (anchors stay calibrated)");
 
     // ----------------------------------------------------------------
     // In-flight (iasValid=true).  Anchors should be identical to the
@@ -108,9 +115,11 @@ int main()
     // ----------------------------------------------------------------
     DisplayBuildInputs inFlight{};
     FillPercentLift(inFlight,
-                    /*liveAoaDeg=*/   7.0f,
+                    /*liveAoaDeg=*/      7.0f,
+                    /*liveIasKt=*/       80.0f,
                     /*flapHandleRatio=*/ 0.0f,
-                    /*iasValid=*/    true);
+                    /*iasValid=*/        true,
+                    /*onGround=*/        false);
 
     check(inFlight.tonesOnPctLift     == onGround.tonesOnPctLift,
           "tonesOnPctLift identical across iasValid (anchors are pure)");
@@ -139,10 +148,10 @@ int main()
     // when iasValid=false; post-fix it slides smoothly.
     // ----------------------------------------------------------------
     DisplayBuildInputs flapHalf{};
-    FillPercentLift(flapHalf, 7.0f, 0.5f, false);
+    FillPercentLift(flapHalf, 7.0f, 40.0f, 0.5f, false, true);
 
     DisplayBuildInputs flapFull{};
-    FillPercentLift(flapFull, 7.0f, 1.0f, false);
+    FillPercentLift(flapFull, 7.0f, 40.0f, 1.0f, false, true);
 
     check(flapHalf.pipPctLift > onGround.pipPctLift,
           "pipPctLift rises as flaps deploy (clean -> half)");
