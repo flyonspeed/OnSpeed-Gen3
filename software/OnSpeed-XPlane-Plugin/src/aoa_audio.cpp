@@ -1150,6 +1150,16 @@ static void OnAircraftLoaded() {
         CreateAudioControlWindow(s_audioWindow.left,  s_audioWindow.top,
                                  s_audioWindow.width, s_audioWindow.height);
         UpdateAOATextFields();
+        // Flush any clamp-induced position change to the .prf
+        // immediately, instead of waiting on the periodic save tick.
+        // Without this, a quit-within-1s-of-aircraft-load loses the
+        // corrected position and re-clamps next boot from the same
+        // off-screen .prf value.  Mirrors the "Show" menu handler's
+        // flush at line ~1759.
+        RefreshAudioWindowState();
+        if (AudioWindowChanged()) {
+            SaveSettings();
+        }
     } else if (s_audioWindow.visible && audioControlWidget) {
         // New aircraft's .prf says the panel was open.  The widget
         // already exists from the prior aircraft's session — show it
@@ -1667,6 +1677,12 @@ static void UpdateAOATextFields() {
     if (audioToggleCheckbox) {
         XPSetWidgetDescriptor(audioToggleCheckbox,
                               audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off");
+    }
+
+    if (widgetButtonStallHorn) {
+        XPSetWidgetDescriptor(widgetButtonStallHorn,
+                              bMuteStallHorn ? "X-Plane Stall Horn: Off"
+                                             : "X-Plane Stall Horn: On");
     }
 }
 
