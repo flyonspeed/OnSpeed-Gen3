@@ -230,15 +230,16 @@ XPLMDataRef acfHasStallwarnDataRef = nullptr;
 XPLMDataRef acfVsDataRef     = nullptr;     // sim/aircraft/view/acf_Vs (float, KIAS)
 XPLMDataRef onGroundAnyDataRef = nullptr;   // sim/flightmodel/failures/onground_any (int, 1 = any gear touching)
 
-// Auto-setpoint datarefs.  acf_max_aoa_no_flap and
-// acf_max_aoa_full_flap are X-Plane's modeled wing AOA at stall (deg);
-// flap_handle_deploy_ratio is the continuous flap deployment fraction
-// (0..1) the flight model uses to lerp between the two stall AOAs.
-// All three are optional — if any is missing, auto mode silently
-// falls back to manual-mode globals.
-XPLMDataRef acfMaxAoaNoFlapRef    = nullptr;
-XPLMDataRef acfMaxAoaFullFlapRef  = nullptr;
-XPLMDataRef flapHandleDeployRef   = nullptr;
+// Auto-setpoint dataref.  acf_stall_warn_alpha is the per-aircraft
+// wing AOA at which the stall warner fires — populated from Plane
+// Maker's "stall warn alpha" field, present in stock X-Plane aircraft
+// (RV-10 = 10°, C172 = 12°, F-14 = 20°).  Auto mode treats this as
+// the StallWarn anchor and scales the other three setpoints from the
+// canonical NAOA fractions.  Setpoints are flat across flap positions
+// because X-Plane doesn't expose per-flap stall AOA.  If the dataref
+// is missing or zero, auto mode silently leaves the live globals at
+// their last-known values.
+XPLMDataRef acfStallWarnAlphaRef  = nullptr;
 
 // Control-window widget handles.
 static XPWidgetID audioControlWidget  = nullptr;
@@ -440,30 +441,27 @@ static bool AudioWindowChanged();
 // the flight loop while in Auto mode; also called from the UI layer
 // to refresh the read-only "currently derived" labels.
 //
-// On bad/missing datarefs (acf_max_aoa_* reads zero, or refs missing
-// entirely) returns applied=false and leaves caller's state alone.
-// In production that means the previously-set f*AOA globals stand —
-// either pilot's manual values or the last successful auto-derive.
+// On bad/missing datarefs (acf_stall_warn_alpha reads zero, or ref
+// missing entirely) returns applied=false and leaves caller's state
+// alone.  In production that means the previously-set f*AOA globals
+// stand — either pilot's manual values or the last successful
+// auto-derive.
 static onspeed_xplane::indexer::DerivedSetpoints CurrentAutoDerivation()
 {
-    const float aoaNoFlap   = acfMaxAoaNoFlapRef
-                                ? XPLMGetDataf(acfMaxAoaNoFlapRef) : 0.0f;
-    const float aoaFullFlap = acfMaxAoaFullFlapRef
-                                ? XPLMGetDataf(acfMaxAoaFullFlapRef) : 0.0f;
-    const float flapRatio   = flapHandleDeployRef
-                                ? XPLMGetDataf(flapHandleDeployRef) : 0.0f;
+    const float stallWarnAoa = acfStallWarnAlphaRef
+                                ? XPLMGetDataf(acfStallWarnAlphaRef) : 0.0f;
 
     const onspeed_xplane::indexer::NaoaFractions naoa{
         g_naoaLdmax, g_naoaOnSpeedFast,
         g_naoaOnSpeedSlow, g_naoaStallWarn,
     };
-    return onspeed_xplane::indexer::DeriveSetpointsFromStall(
-        aoaNoFlap, aoaFullFlap, flapRatio, naoa);
+    return onspeed_xplane::indexer::DeriveSetpointsFromStallWarn(
+        stallWarnAoa, naoa);
 }
 
 // One-shot warning latch for the auto-derive hook.  Module-scope so
 // OnAircraftLoaded can reset it; without that reset, the first
-// freeware airframe with missing acf_max_aoa_* datarefs trips the
+// freeware airframe with missing acf_stall_warn_alpha trips the
 // warning, and every subsequent aircraft load that hits the same
 // condition is silent — leaving a pilot with no diagnostic for
 // "auto mode does nothing on this plane."
@@ -2156,19 +2154,14 @@ static void UpdateAOATextFields() {
         const auto d = CurrentAutoDerivation();
         if (widgetCaptionStallAoa) {
             if (d.applied) {
-                const float aoaNoFlap   = acfMaxAoaNoFlapRef
-                    ? XPLMGetDataf(acfMaxAoaNoFlapRef) : 0.0f;
-                const float aoaFullFlap = acfMaxAoaFullFlapRef
-                    ? XPLMGetDataf(acfMaxAoaFullFlapRef) : 0.0f;
-                const float ratio = flapHandleDeployRef
-                    ? XPLMGetDataf(flapHandleDeployRef) : 0.0f;
+                const float stallWarnAoa = acfStallWarnAlphaRef
+                    ? XPLMGetDataf(acfStallWarnAlphaRef) : 0.0f;
                 snprintf(buffer, sizeof(buffer),
-                         "X-Plane stall AOA: %.1f deg clean, %.1f deg full "
-                         "(flap %.0f%%)",
-                         aoaNoFlap, aoaFullFlap, ratio * 100.0f);
+                         "X-Plane stall warn AOA: %.1f deg",
+                         stallWarnAoa);
             } else {
                 snprintf(buffer, sizeof(buffer),
-                         "X-Plane stall AOA: unavailable");
+                         "X-Plane stall warn AOA: unavailable");
             }
             XPSetWidgetDescriptor(widgetCaptionStallAoa, buffer);
         }
@@ -2894,12 +2887,10 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // against thresholds).  See MaybeSynthesizeAoaFromVSquared.
     onGroundAnyDataRef = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
 
-    // Auto-setpoint datarefs (issue #392).  Optional: if any are
-    // missing, auto-mode silently leaves the f*AOA globals at their
+    // Auto-setpoint dataref (issue #392).  Optional: if missing or
+    // zero, auto mode silently leaves the f*AOA globals at their
     // last-known values and logs once on the first such frame.
-    acfMaxAoaNoFlapRef   = XPLMFindDataRef("sim/aircraft/controls/acf_max_aoa_no_flap");
-    acfMaxAoaFullFlapRef = XPLMFindDataRef("sim/aircraft/controls/acf_max_aoa_full_flap");
-    flapHandleDeployRef  = XPLMFindDataRef("sim/cockpit2/controls/flap_handle_deploy_ratio");
+    acfStallWarnAlphaRef = XPLMFindDataRef("sim/aircraft/overflow/acf_stall_warn_alpha");
 
     XPLMRegisterFlightLoopCallback(CheckAOAAndPlayTone, 1.0, nullptr);
 
