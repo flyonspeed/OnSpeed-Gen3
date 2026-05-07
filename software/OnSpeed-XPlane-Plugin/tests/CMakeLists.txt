@@ -57,3 +57,15 @@ target_include_directories(iasground_pct PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 add_test(NAME iasground_pct COMMAND iasground_pct)
+
+# legacy_json_parse — pins the hand-rolled JSON parser used by the
+# legacy json-config import path in aoa_audio.cpp::TryImportLegacyJson.
+# The test mirrors the function under test (it's static in
+# aoa_audio.cpp); see the comment block at the top of the test file
+# for why we duplicate rather than expose.
+add_executable(legacy_json_parse legacy_json_parse.cpp)
+target_compile_features(legacy_json_parse PRIVATE cxx_std_17)
+target_compile_options(legacy_json_parse PRIVATE
+    -Wall -Wextra -Werror -Wshadow -Wformat=2)
+
+add_test(NAME legacy_json_parse COMMAND legacy_json_parse)
