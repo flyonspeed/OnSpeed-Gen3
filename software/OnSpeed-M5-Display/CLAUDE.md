@@ -19,7 +19,7 @@ Renders five modes (numbered 0–4; numbers are stable across renames
 because the X-Plane plugin's `indexerMode` per-aircraft pref stores
 the integer):
 
-- **Energy Display** (0, default) — AOA indexer + surrounding IAS/G/flap/slip readouts.
+- **Energy Display** (0, default on a fresh M5) — AOA indexer + surrounding IAS/G/flap/slip readouts. Last-used mode persists in NVS, so subsequent boots come up on whichever mode the pilot last selected.
 - **Attitude** (1) — Synthetic horizon with flight-path marker.
 - **Indexer** (2) — Same indexer widget, numeric readouts stripped (AOA-only page).
 - **Decel Display** (3) — IAS-derivative gauge in kt/s.
@@ -208,8 +208,10 @@ the TBX transponder-controller App), residual NVS state from that
 firmware can produce odd behavior on first boot of the OnSpeed
 display. Clear it once: power-cycle while holding the **Menu (square)
 + Select (round) buttons together**. The boot menu reads this combo
-as "restore system settings to factory defaults" — fine because the
-OnSpeed display firmware doesn't persist any settings to NVS today.
+as "restore system settings to factory defaults". The OnSpeed display
+firmware persists three keys in the `OnSpeed` namespace — `SerialPort`
+(re-detected on first boot anyway), `Brightness` (defaults to full),
+and `DisplayType` (defaults to Mode 0) — all cheap to re-establish.
 
 ### Buttons
 
