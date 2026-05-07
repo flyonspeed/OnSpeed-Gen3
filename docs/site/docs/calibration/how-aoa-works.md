@@ -112,6 +112,49 @@ The wizard performs two fits:
 
 From these, it computes the six AOA setpoints (L/D~MAX~, ONSPEED-Fast, ONSPEED-Slow, Stall Warning, Stall, Maneuvering) using the normalized AOA fractions.
 
+## Why the calibration sweep works
+
+The wizard's procedure — a single deceleration sweep at idle power, wings level, ball centered, from above approach speed down to the stall — is not arbitrary. Each constraint exists to make the recorded data match the assumptions baked into the lift-equation fit.
+
+**Idle power, wings level, coordinated.** The hyperbolic fit $\alpha = K/\text{IAS}^2 + \alpha_0$ assumes steady, unaccelerated flight at 1 G. Power applied to the propeller adds thrust that the fit doesn't model. Bank or sideslip changes the load factor and the pressure field at the AOA probe. A sweep flown clean of these confounders produces a curve that fits the model; a sweep flown with power, bank, or yaw produces noise the wizard tries to fit anyway.
+
+**Stop trimming at 80–90 KIAS.** Trimming all the way down to the stall buries control-position changes inside the data. The recorded pitch attitude at the slow end of the sweep is no longer a clean reflection of AOA; it's pitch attitude plus whatever the trim and elevator are doing. Stopping the trim adjustment at 80–90 KIAS keeps the slow end of the sweep clean.
+
+**Recover with AOA, not power.** When you reach the stall warning, ease the stick forward to break the AOA, then add power. Pulling power back to recover flattens the recovery curve and hides the AOA peak the wizard needs to identify $\alpha_\text{stall}$.
+
+**Peak-AOA extraction is per-flap.** Each flap setting moves $\alpha_0$, $\alpha_\text{stall}$, and the lift-curve slope. There is no shortcut to calibrating one flap setting and scaling — the fit is genuinely different per flap, which is why the wizard runs once per flap detent.
+
+The mechanics above are the OnSpeed wizard's automated form of a technique Vac described pre-OnSpeed for pilots characterizing a third-party EFIS's AOA scaling, in [On Speed Angle of Attack Video](https://vansairforce.net/threads/on-speed-angle-of-attack-video.148638/) (post #25). The flying is the same; the wizard does the data extraction the EFIS-characterization workflow used to do by hand:
+
+> "The simplest technique is to select idle power and maintain altitude precisely. Trim as the airplane decelerates, but stop trimming at about 80-90. After the stall, use AoA to recover (i.e., pitch down) and let the airplane recover at idle power and accelerate to about 100 MPH/90 KTS indicated… This isn't a speed drill — about 45-60 seconds per stall should work out about right."
+
+## Calibration reality
+
+A pressure-derived AOA system measures AOA through a stack of sensors, plumbing, and air data — and every layer adds error.
+
+**Static-source position error.** The static port is calibrated for unaccelerated, level flight at one airspeed. Outside that band the indicated static pressure drifts from true static, IAS drifts from CAS, and dynamic pressure at the AOA probe drifts from the value the fit assumes. The drift is small — 1–2 knots is typical — and it's mostly absorbed into the calibrated curve, but it's why a sweep flown at one altitude may produce slightly different setpoints than a sweep flown at another.
+
+**Yaw effects.** Sideslip changes the pressure field at the AOA probe. Conventional pitot/AOA probes (Dynon, Garmin) lose accuracy past about 6° of yaw with a blade probe and about 20° with a sphere probe. The system can still detect the stall through significant yaw — Vac demonstrates oscillating slipping stalls in the [AOA System – Calibration and Use](https://vansairforce.net/threads/aoa-system-calibration-and-use.222357/) thread — but the absolute AOA reading drifts during heavy slip.
+
+**Icing.** Pitot ice plugs the dynamic-pressure inlet, which drives both IAS and pressure-derived AOA toward zero. Plumbing ice between the probe and the sensor can introduce slow drift before complete blockage. Pitot heat is the only mitigation; without it, an iced probe is a silent failure mode for both airspeed and AOA.
+
+**Probe placement.** The probe lives in the wing's flow field, which is itself disturbed by the airframe. Move the probe more than a few inches and the calibration shifts. Vac's note from [Go down, speed up, stall out…](https://vansairforce.net/threads/go-down-speed-up-stall-out.228078/) (post #25):
+
+> "Aerodynamics (thus AOA performance) occur when the tubes are in the same flow field. There is an art to sensor placement when the objective is accurate performance and good transient response."
+
+A correct calibration is not "the AOA reading matches a reference instrument exactly." It is "the tone transitions arrive at the airspeeds and load factors the lift equation predicts, and the stall warning fires before the break." The wizard's fit captures that relationship; the [verification flight](../flying/flight-test-procedures.md) confirms it.
+
+## Some Dynon AOA systems peak at 80% lift, not 100%
+
+OnSpeed's wizard finds $\alpha_\text{stall}$ from the AOA peak in the deceleration sweep. Some EFIS-derived AOA systems display lift fraction relative to a reference that is not 100% at the stall — the Dynon DY-10/100 stack, in the example below, peaks at ~80% during a clean-configuration stall:
+
+> "You can see the stall is occurring at about 80% total lift in this case, not 100. Now ONSPEED still occurs at 60% of peak (i.e., .6 × 80%); but I don't think the Dynon graphic display makes allowance for this."  
+> — Vac, [What Energy Sounds Like](https://vansairforce.net/threads/what-energy-sounds-like.196593/) (post #6)
+
+When the EFIS's "100%" doesn't actually correspond to the stall, you can't read setpoints off the graphic at face value. The fix is proportional: ONSPEED on a system that peaks at 80% sits at $0.6 \times 0.8 = 48\%$ of the displayed lift fraction, not at 60%. OnSpeed avoids this by computing fractional lift from $(\alpha - \alpha_0) / (\alpha_\text{stall} - \alpha_0)$, where $\alpha_\text{stall}$ is the value the wizard captured at the actual stall. The OnSpeed indexer's 99% reading corresponds to the wing at the calibrated stall AOA, regardless of what any other instrument shows.
+
+This matters when comparing OnSpeed's ONSPEED tone arrival to a Dynon (or similar) percent-lift readout side-by-side. The numbers can differ by 10–20 percentage points without either system being wrong; they're computing a fraction against different references. Trust the tone, not the cross-display arithmetic.
+
 ## L/D~MAX~ pip vs. low-tone threshold
 
 The indexer carries two cues that look related but are independent:

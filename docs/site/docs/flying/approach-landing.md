@@ -2,6 +2,29 @@
 
 OnSpeed's primary value is during the approach and landing phase — the most dangerous part of every flight. The tone provides directive feedback that simplifies energy management during the highest-workload phases of flight.
 
+## Energy management: power and pitch, AOA tells you what state you're in
+
+Energy management is the algebra of pitch, throttle, and altitude. The pilot has two primary controls — pitch and power — and they together set the aircraft's energy state. AOA doesn't *control* energy state; it *reports* it.
+
+The technical name for the quantity is **specific excess power**, written $P_s$ ("P sub S"). The general (maneuvering) form is $P_s = (T - D) \cdot V / (W \cdot n)$, where $T$ is thrust, $D$ is drag, $V$ is velocity, $W$ is weight, and $n$ is load factor — Vac's formulation in [Angle of Attack and Energy Maneuverability](https://vansairforce.net/threads/angle-of-attack-and-energy-maneuverability.225345/) (post #23). On a 1 G stabilized approach $n = 1$ and the formula collapses to $(T - D) \cdot V / W$ — "thrust minus drag, divided by weight." When $P_s$ is positive, the airplane can climb, accelerate, or both. When $P_s$ is negative, the airplane is descending or decelerating. When $P_s$ is zero, thrust and drag are balanced for the current effective weight.
+
+The ONSPEED solid tone arrives at $P_s = 0$.
+
+> "If we have more thrust than drag (for a given weight), then our 'p sub s' is positive: we can go up, accelerate or both. If, however, there is more drag than thrust, then 'p sub s' is NEGATIVE. The airplane is going down, slowing down or both… If thrust and drag are balanced, then 'p sub s' is zero, and the airplane achieves best sustained turn performance for that power setting. The cool thing is that thrust and drag are balanced when an airplane is ONSPEED."  
+> — Vac, [What Energy Sounds Like](https://vansairforce.net/threads/what-energy-sounds-like.196593/) (post #1)
+
+The tone-to-action map follows directly:
+
+| Tone | Energy state | Action |
+|---|---|---|
+| Silence (above L/D~MAX~) | $P_s$ strongly positive | Decelerate or climb |
+| Low-pitch pulsing | $P_s$ positive but trending toward balance | Continue deceleration |
+| ONSPEED solid tone | $P_s = 0$ — balanced | Hold pitch and power |
+| High-pitch pulsing | $P_s$ negative — bleeding energy | Push: power, pitch, or both |
+| Stall warning buzz | At the aerodynamic limit | Unload immediately |
+
+For the aerodynamic background — V-n diagram, the relationship between AOA and load factor, why ONSPEED is at ~60% of maximum lift — see [How OnSpeed Measures AOA](../calibration/how-aoa-works.md). The FAA's [Airplane Flying Handbook (FAA-H-8083-3C), Chapter 4](https://www.faa.gov/regulations_policies/handbooks_manuals/aviation/airplane_handbook) covers slow flight, stalls, and energy management at GA-pilot depth.
+
 ## Standard Approach
 
 1. **Configure for landing** — set flaps as desired for the approach
@@ -81,6 +104,19 @@ The transition from silence to the first low-pitch pulse corresponds to the **L/
 - That's your best glide angle of attack — maximum distance per foot of altitude lost
 - Hold this while you set up for an emergency landing
 - The tone doesn't change with weight — at any weight, the best-glide AOA is the same, even though the best-glide *speed* changes
+
+## Stereo panning: if the tone shifts, you're slipping
+
+When 3D Audio is enabled and the audio panel is wired in stereo, the tone pans left and right with lateral acceleration. The pan tracks the slip/skid ball — when the ball rolls right, the tone shifts to the right ear; when the ball rolls left, the tone shifts to the left ear. Coordinated flight centers the tone.
+
+The technique is the same one used with the slip/skid ball: **step on the tone**. If the ONSPEED solid tone shifts to the right ear, apply right rudder until it centers. The audio cue and the visual ball move together, so internalizing the tone pan is internalizing coordination feedback that doesn't require looking at the panel.
+
+> "We decided to capitalize on the human brain's excellent evolved response to figure out what direction a sound is coming from. Garmin calls this '3D audio.' Most of us call this stereo… The tone mimics the behavior of the ball. To coordinate, you 'step on the tone' the same way you 'step on the ball.' A handy feature when you are trying to max perform the airplane and may be intentionally operating at reduced margin."  
+> — Vac, [What Sideslip Sounds Like](https://vansairforce.net/threads/what-sideslip-sounds-like.196727/) (post #1)
+
+This matters most in the base-to-final turn. A skidding turn (rudder in the direction of turn, opposite aileron) has the ball rolling out of the turn; a stall in that condition produces a near-instant snap roll. The pan gives a head-up, hands-stay-on-stick coordination cue while you're focused on the runway. If the tone shifts toward the inside of the turn, the rudder input is too aggressive — relax it.
+
+3D Audio requires stereo audio panel wiring (see [Audio Wiring](../installation/audio.md)) and is enabled in [Audio Settings](../configuration/audio.md#3d-audio-lateral-g-panning). On a mono installation, the pan is silent and the rest of the tone family still works.
 
 ## Unload for Control
 

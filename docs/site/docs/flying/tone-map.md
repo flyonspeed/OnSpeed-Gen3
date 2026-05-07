@@ -2,6 +2,19 @@
 
 This is the complete reference for all OnSpeed audio cues. Print this page and keep it in the cockpit until you've internalized the tone progression.
 
+!!! note "Heritage: directive vs. descriptive"
+    Aural AOA cues for carrier landings predate OnSpeed by decades. Vac credits the Royal Navy in [Go down, speed up, stall out…](https://vansairforce.net/threads/go-down-speed-up-stall-out.228078/) (post #25): "the Royal Navy hit it out of the park when they developed an aural AOA cue back in the Stone Age." The F-4 Phantom (1960s) is the most widely cited military example, and the OnSpeed tone family descends from that broader carrier-aviation lineage.
+
+    It survives because it works: it gives the pilot **directive** information — what to do — rather than **descriptive** information — what's happening — which the pilot then has to interpret and react to.
+
+    A conventional airspeed indicator is descriptive. The pilot sees a number, computes a margin to V~REF~ at the current weight and load factor, and reacts. Vac's framing in [Angle of Attack and Energy Maneuverability](https://vansairforce.net/threads/angle-of-attack-and-energy-maneuverability.225345/) (post #37):
+
+    > "Conventional flight instruments present *descriptive* information to the pilot. That information must be interpreted, usually visually, and processed. Then the pilot must react. Assuming the pilot sees the cue, it takes about a half second to interpret and another half second to react… An AOA *tone* provides *directive* and descriptive information. Assuming the pilot hears the cue, they can respond in half of the time."
+
+    The tones below are commands as much as status reports — pull, hold, push, unload, or, in the silent fast region, no action needed. The aerodynamic state behind each (fast, ONSPEED, slow, stall warning) is the descriptive information; the action the pilot takes in response is the directive part. Both arrive in the same cue.
+
+    The lineage isn't accidental. The same tone family worked for carrier-deck pilots flying narrow approach AOA bands at night in heavy aircraft, and it works for a single-engine GA airplane on a stabilized final. The constraints on aerodynamic margin, pilot workload, and reaction time are similar enough that the directive logic transfers cleanly.
+
 ## Tone Regions
 
 As you slow down (AOA increases), you progress through five regions:

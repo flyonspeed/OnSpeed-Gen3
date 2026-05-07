@@ -167,6 +167,10 @@ Rolling 1-minute strip-chart of vertical G (the on-screen header
 reads `G-LOAD [1 min]`). Useful for spotting how hard you pulled in
 a maneuver after the fact.
 
+This mode is the primary readout for the wind-up turn used to verify
+ONSPEED tone tracking against load factor — see
+[Flight Test Procedures](../flying/flight-test-procedures.md#wind-up-turn-sustained-turn-rate-verification).
+
 ## What feeds the indexer
 
 The plugin's `IndexerWindow::Tick()` callback runs every X-Plane

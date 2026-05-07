@@ -254,6 +254,10 @@ debrief. Shows the full profile rather than just the instantaneous
 peak on the other pages. Handy for noticing that approach-to-stall
 G unloading you didn't realize you were doing.
 
+Mode 4 is also the primary readout for the wind-up turn flight-test
+procedure used to verify ONSPEED tone tracking under load — see
+[Flight Test Procedures](../flying/flight-test-procedures.md#wind-up-turn-sustained-turn-rate-verification).
+
 ### Status indicators across all modes
 
 | Condition | How it appears |
