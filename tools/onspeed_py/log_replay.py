@@ -41,6 +41,7 @@ Workarounds carried here:
 from __future__ import annotations
 
 import csv
+import math
 from pathlib import Path
 from typing import Iterator
 
@@ -98,9 +99,31 @@ def _first_present(row: dict[str, str], names: tuple[str, ...]):
 
 
 def _ffloat(row: dict[str, str], names: tuple[str, ...],
-            default: float = 0.0) -> float:
+            default: float = 0.0,
+            allow_empty: bool = False) -> float:
+    """Read a CSV float, optionally letting empty cells through as NaN.
+
+    `allow_empty=False` (the default) keeps the strict semantics: missing
+    or unparseable cells return `default`.  The gated air-data columns
+    (`IAS`, `AngleofAttack` / `DerivedAOA`, and `efisPercentLift` once a
+    consumer reads it) pass `allow_empty=True` so the format-3 "no valid
+    air data" convention propagates as NaN — at-rest pre-takeoff samples
+    must not look like IAS=0/AOA=0 to downstream analysis.
+
+    Non-gated columns keep `allow_empty=False` so a truncated SD write
+    that left an empty cell in (e.g.) a Palt or Pitch column still falls
+    back loudly to the default rather than poisoning the rest of the row
+    with NaNs.  See the format-3 contract in `LogCsv::FormatRow`.
+    """
     v = _first_present(row, names)
     if v is None:
+        # _first_present returns None for both "key missing" and "key
+        # present but empty".  Distinguish here only when the caller
+        # opts into the gated air-data convention.
+        if allow_empty and any(
+            n in row or " " + n in row for n in names
+        ):
+            return math.nan
         return default
     try:
         return float(v)
@@ -307,8 +330,12 @@ def scenario_from_log(log_path: Path,
 
             states.append(LiveSnapshot(
                 t=ts - t_start_s,
-                aoa=_ffloat(row, _AOA_NAMES),
-                ias=_ffloat(row, _IAS_NAMES),
+                # IAS, AngleofAttack, and DerivedAOA share the format-3
+                # air-data gate: empty cell means "no valid air data"
+                # and propagates as NaN so the orchestrator can render
+                # the at-rest segment as "no data" instead of zero.
+                aoa=_ffloat(row, _AOA_NAMES, allow_empty=True),
+                ias=_ffloat(row, _IAS_NAMES, allow_empty=True),
                 pitch=pitch,
                 roll=roll,
                 yaw_rate=_ffloat(row, _YAW_RATE_NAMES),
