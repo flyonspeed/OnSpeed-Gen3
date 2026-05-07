@@ -1386,8 +1386,8 @@ static int AudioControlHandler(
         else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonStallHorn)) {
             bMuteStallHorn = !bMuteStallHorn;
             XPSetWidgetDescriptor(widgetButtonStallHorn,
-                bMuteStallHorn ? "X-Plane stall horn: off"
-                              : "X-Plane stall horn: on");
+                bMuteStallHorn ? "X-Plane Stall Horn: Off"
+                              : "X-Plane Stall Horn: On");
             if (!bMuteStallHorn && acfHasStallwarnDataRef &&
                 g_iAcfHasStallwarnOriginal >= 0) {
                 XPLMSetDatai(acfHasStallwarnDataRef, g_iAcfHasStallwarnOriginal);
@@ -1619,7 +1619,7 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     // takes over the role).  Inverts bMuteStallHorn for display.
     widgetButtonStallHorn = createWidget(
         xpWidgetClass_Button,
-        bMuteStallHorn ? "X-Plane stall horn: off" : "X-Plane stall horn: on"
+        bMuteStallHorn ? "X-Plane Stall Horn: Off" : "X-Plane Stall Horn: On"
     );
     
     XPAddWidgetCallback(audioControlWidget, AudioControlHandler);
