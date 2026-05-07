@@ -6,6 +6,7 @@
 
 #include <proto/LogCsvHeaderIndex.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <string_view>
@@ -406,7 +407,10 @@ bool ParseUint16Tok(std::string_view tok, uint16_t& out)
 // Convenience: pull a field by index. Returns false on missing token,
 // empty token, or numeric parse failure (consistent with LogCsv::ParseRow).
 // If the column is absent in the log (idx == -1), leaves the destination
-// unchanged and returns true.
+// unchanged and returns true.  TakeFloatAllowEmpty / TakeIntAllowEmpty
+// below relax the empty-token rejection for the four `bIasAlive`-gated
+// columns; every other column still rejects empty to preserve corruption
+// detection (a truncated SD write that left two adjacent commas).
 bool TakeFloat(const std::string_view* tokens, int tokenCount, int idx, float& out)
 {
     if (idx < 0) return true;
@@ -436,6 +440,39 @@ bool TakeUint16(const std::string_view* tokens, int tokenCount, int idx, uint16_
     if (idx < 0) return true;
     if (idx >= tokenCount) return false;
     return ParseUint16Tok(tokens[idx], out);
+}
+// Empty-tolerant variants for the four `bIasAlive`-gated columns
+// (IAS, AngleofAttack, DerivedAOA, efisPercentLift).  Empty token decodes
+// to NaN (float) or 0 (int) with `outValid` cleared; otherwise behaves
+// like Take{Float,Int}.  Absent column (idx == -1) leaves outputs untouched
+// and returns true with `outValid` left at its caller-provided value.
+bool TakeFloatAllowEmpty(const std::string_view* tokens, int tokenCount, int idx,
+                         float& out, bool& outValid)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    if (tokens[idx].empty()) {
+        out = std::nanf("");
+        outValid = false;
+        return true;
+    }
+    if (!ParseFloatTok(tokens[idx], out)) return false;
+    outValid = true;
+    return true;
+}
+bool TakeIntAllowEmpty(const std::string_view* tokens, int tokenCount, int idx,
+                       int& out, bool& outValid)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    if (tokens[idx].empty()) {
+        out = 0;
+        outValid = false;
+        return true;
+    }
+    if (!ParseIntTok(tokens[idx], out)) return false;
+    outValid = true;
+    return true;
 }
 // Copy an indexed token into a fixed-size char buffer, NUL-terminated.
 // An empty token writes a 0-length string with NUL terminator and returns
@@ -474,8 +511,17 @@ bool ParseRowByIndex(std::string_view line,
     if (!TakeFloat (tokens, tokenCount, idx.idxP45Smoothed,  row.p45Smoothed))     return false;
     if (!TakeFloat (tokens, tokenCount, idx.idxPStatic,      row.pStaticMbar))     return false;
     if (!TakeFloat (tokens, tokenCount, idx.idxPaltFt,       row.paltFt))          return false;
-    if (!TakeFloat (tokens, tokenCount, idx.idxIasKt,        row.iasKt))           return false;
-    if (!TakeFloat (tokens, tokenCount, idx.idxAoaDeg,       row.angleOfAttackDeg))return false;
+    if (!TakeFloatAllowEmpty(tokens, tokenCount, idx.idxIasKt,
+                             row.iasKt, row.iasValid))                            return false;
+    {
+        // AngleofAttack shares the iasValid gate with IAS; reject mixed-state
+        // rows where one cell is empty and the other numeric (would mean a
+        // corrupt write).
+        bool aoaValid = false;
+        if (!TakeFloatAllowEmpty(tokens, tokenCount, idx.idxAoaDeg,
+                                 row.angleOfAttackDeg, aoaValid))                 return false;
+        if (idx.idxAoaDeg >= 0 && aoaValid != row.iasValid)                       return false;
+    }
     if (!TakeInt   (tokens, tokenCount, idx.idxFlapsPos,     row.flapsPos))        return false;
     if (!TakeInt   (tokens, tokenCount, idx.idxDataMark,     row.dataMark))        return false;
     if (!TakeFloat (tokens, tokenCount, idx.idxOatCelsius,   row.oatCelsius))      return false;
@@ -544,7 +590,9 @@ bool ParseRowByIndex(std::string_view line,
         if (!TakeFloat (tokens, tokenCount, idx.idxEfisRoll,          row.efisRollDeg))         return false;
         if (!TakeFloat (tokens, tokenCount, idx.idxEfisLateralG,      row.efisLateralG))        return false;
         if (!TakeFloat (tokens, tokenCount, idx.idxEfisVerticalG,     row.efisVerticalG))       return false;
-        if (!TakeInt   (tokens, tokenCount, idx.idxEfisPercentLift,   row.efisPercentLift))     return false;
+        if (!TakeIntAllowEmpty(tokens, tokenCount, idx.idxEfisPercentLift,
+                               row.efisPercentLift,
+                               row.efisPercentLiftValid))                         return false;
         if (!TakeInt   (tokens, tokenCount, idx.idxEfisPalt,          row.efisPaltFt))          return false;
         if (!TakeInt   (tokens, tokenCount, idx.idxEfisVsi,           row.efisVsiFpm))          return false;
         if (!TakeFloat (tokens, tokenCount, idx.idxEfisTas,           row.efisTasKt))           return false;
@@ -564,7 +612,13 @@ bool ParseRowByIndex(std::string_view line,
     if (!TakeFloat(tokens, tokenCount, idx.idxFlightPathDeg,  row.flightPathDeg))   return false;
     if (!TakeFloat(tokens, tokenCount, idx.idxVsiFpm,         row.vsiFpm))          return false;
     if (!TakeFloat(tokens, tokenCount, idx.idxAltitude,       row.altitudeFt))      return false;
-    if (!TakeFloat(tokens, tokenCount, idx.idxDerivedAoa,     row.derivedAoaDeg))   return false;
+    {
+        // DerivedAOA shares the iasValid gate with IAS / AngleofAttack.
+        bool derivedValid = false;
+        if (!TakeFloatAllowEmpty(tokens, tokenCount, idx.idxDerivedAoa,
+                                 row.derivedAoaDeg, derivedValid))                return false;
+        if (idx.idxDerivedAoa >= 0 && derivedValid != row.iasValid)               return false;
+    }
     if (!TakeFloat(tokens, tokenCount, idx.idxCoeffP,         row.coeffP))          return false;
 
     // Tail-optional flapsRawADC (format version 2). Reflect presence into the

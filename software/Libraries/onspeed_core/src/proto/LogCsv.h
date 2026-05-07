@@ -42,6 +42,13 @@
 //   [if flapsRawAdcPresent]
 //   flapsRawADC      (raw flap-pot ADC counts; uint16)
 //
+// Empty-cell convention (format version 3): IAS, AngleofAttack,
+// DerivedAOA, and efisPercentLift go empty (Dynon `,,`) when the
+// producer's `bIasAlive` gate is false.  ParseRow / ParseRowByIndex
+// accept empty for these four columns and decode to NaN (floats) or
+// 0 with a separate validity bit (efisPercentLift); every other column
+// still rejects empty so the parser detects truncated SD writes.
+//
 // Reader asymmetry: the on-firmware LogReplay task reads logs through
 // proto::log_csv::BuildHeaderIndex + ParseRowByIndex (see
 // LogCsvHeaderIndex.h), not through the position-based ParseRow below.
@@ -65,7 +72,14 @@ namespace onspeed::proto::log_csv {
 // Version 2: added tail-optional `flapsRawADC` column.  Older logs without
 // the column still parse cleanly — consumers detect the column by name in
 // the header line (HasColumn) and gate ParseRow on the presence flag.
-inline constexpr int kFormatVersion = 2;
+// Version 3: IAS, AngleofAttack, DerivedAOA, and efisPercentLift go empty
+// when the producer's `bIasAlive` gate is false (Dynon convention —
+// empty cell distinguishes "no valid air data" from "real reading of
+// 0.0").  ParseRow / ParseRowByIndex decode empty to NaN (floats) or 0
+// with a separate validity bit (efisPercentLift).  Older v2 logs still
+// parse: they always emit numbers, which the AllowEmpty path accepts as
+// the valid-true case.
+inline constexpr int kFormatVersion = 3;
 
 // Conservative upper bounds for the two output buffers.
 // Both are sized to accommodate the VN-300 variant, which is the widest row.

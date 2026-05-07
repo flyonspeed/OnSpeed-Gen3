@@ -534,6 +534,11 @@ void LogSensor::Write()
     row.paltFt           = g_Sensors.Palt;
     row.iasKt            = g_Sensors.IAS;
     row.angleOfAttackDeg = g_Sensors.AOA;
+    // CSV cells for IAS / AngleofAttack / DerivedAOA / efisPercentLift go
+    // empty when the sensor-level air-data gate is closed (matches the
+    // M5 wire / WebSocket JSON convention from PR #431).
+    row.iasValid              = g_Sensors.bIasAlive;
+    row.efisPercentLiftValid  = g_Sensors.bIasAlive;
     row.flapsPos         = g_Flaps.iPosition;
     row.flapsRawAdc      = g_Flaps.uValue;
     row.dataMark         = g_iDataMark;

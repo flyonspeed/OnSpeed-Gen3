@@ -182,6 +182,26 @@ struct LogRow {
     // so ParseRow consumes the field.  Default false preserves byte-identical
     // emission for fixture-based tests that pre-date the column.
     bool flapsRawAdcPresent = false;
+
+    // Air-data validity for this row.  Mirrors the producer's `bIasAlive`
+    // gate (sensor-level air-data validity, see SensorIO.cpp).  When false,
+    // FormatRow emits empty CSV cells (Dynon convention) for IAS,
+    // AngleofAttack, and DerivedAOA — distinguishing a real reading of
+    // 0.0 from "no valid air data yet" so offline analysis tools don't
+    // see phantom IAS=0/AOA=0 samples on the ramp.  ParseRow restores
+    // empty cells to NaN and sets this flag to false.
+    // Default true preserves byte-identical emission for callers that
+    // populate LogRow without touching this field (replay tools, fixture
+    // tests, the regression harness).
+    bool iasValid = true;
+
+    // Validity for the efisPercentLift integer column (mirrors `iasValid`
+    // semantics for the EFIS-fed percent-lift readout).  Float columns
+    // can carry NaN to mean "no reading"; the int column needs a separate
+    // bit because there's no in-band sentinel that doesn't collide with
+    // a real reading.  When false, FormatRow emits an empty cell;
+    // ParseRow restores empty to efisPercentLift=0 with this flag false.
+    bool efisPercentLiftValid = true;
 };
 
 }   // namespace onspeed
