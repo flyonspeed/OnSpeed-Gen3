@@ -123,9 +123,19 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     // wire-format helper to consume.  Round to nearest tenth.
     in.verticalGScaled10 = std::round(vG * 10.0f);
 
-    // Operational gate: only emit IAS if above the plugin's mute
-    // threshold (mirrors the firmware's iMuteAudioUnderIAS behavior).
+    // Operational gate: above the plugin's mute floor, the pilot has
+    // configured "show me stuff at this IAS and up".  Below it, the
+    // tethered M5 should dash IAS / percentLift digits the same way
+    // it dashes when the firmware's bIasAlive flag is false — the
+    // pilot's "below this, nothing" preference is honored uniformly
+    // across the firmware path and the plugin path even though the
+    // underlying gate predicates differ (firmware: pitot hysteresis
+    // band; plugin: user-tunable mute floor on a clean dataref).
+    // See issue #358 for the wire-format contract; FillPercentLift
+    // and the ias-on-ground V² synthesis (issue #392) both consume
+    // the same gate.
     const bool iasValid = (iMuteAudioUnderIAS == 0) || (ias >= iMuteAudioUnderIAS);
+    in.iasValid = iasValid;
 
     // On-ground: percent-lift derives from V² instead of body angle.
     // See FillPercentLift's contract for why; the short version is
