@@ -381,12 +381,13 @@ static bool s_indexerRestorePending = false;
 // defaults to false so a fresh aircraft doesn't auto-pop the panel
 // the first time it loads — only an aircraft that previously had the
 // panel open at save time will have it reopen.
-// Minimum window height to fit the auto-mode field set without the
-// Save / Restore / Sound / Reload buttons falling off the bottom.
-// Auto mode has ~26 widget rows (header + radios + auto-derived
-// readouts + NAOA fractions + common settings + 4 buttons); manual
-// mode is shorter but uses the same window height.
-static constexpr int kMinAudioWindowHeight = 740;
+// Minimum window height to fit BOTH mode field sets at full extent.
+// Hidden widgets (XPHideWidget) keep their geometry slot, so the
+// total layout height is the union of auto-mode and manual-mode
+// rows: ~30 widget rows × 25 px row pitch + initial top offset +
+// chrome.  Buttons sit at the bottom; if we under-budget here the
+// Reload Plugins button falls off the visible window.
+static constexpr int kMinAudioWindowHeight = 820;
 
 struct AudioWindowState {
     int  left   = 300;
