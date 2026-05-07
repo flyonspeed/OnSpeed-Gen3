@@ -145,11 +145,12 @@ uint64_t        previousMillis      = millis();
 uint64_t        flashTime           = millis();
 uint64_t        numbersUpdateTime;
 uint64_t        gHistoryTime        = millis();
-// Initial defaults.  `displayBrightness` is restored from NVS at boot
-// (see setup()); pilot adjustments via BtnA/BtnC persist on press, so
-// the M5 boots back into the brightness it was on at last power-down.
-// `displayType` is not persisted — every boot starts on Mode 0
-// (Energy Display), the documented default.
+// Initial defaults.  `displayBrightness` and `displayType` are both
+// restored from NVS at boot (see setup()); pilot adjustments via
+// BtnA/BtnC (brightness) and BtnB (mode cycle) persist on press, so
+// the M5 boots back into whatever brightness/page it was on at last
+// power-down.  Defaults below apply on a fresh M5 with no saved
+// preference: full brightness, Mode 0 (Energy Display).
 uint16_t        displayBrightness   = 255;
 int16_t         displayType         = 0;
 
@@ -434,15 +435,17 @@ void setup()
     serialSetup();
 #endif
 
-    // Restore the pilot's persisted brightness preference.  The splash
+    // Restore the pilot's persisted brightness + mode.  The splash
     // ran at the fixed 50/255 dim; loop() applies displayBrightness on
     // every iteration so the first frame after splash gets the right
-    // value.  Default 255 (full bright) on a fresh M5 with no saved
-    // preference.
+    // value.  Defaults: full bright, Mode 0 on a fresh M5 with no saved
+    // preferences.
     preferences.begin("OnSpeed", true);  // read-only
     displayBrightness = preferences.getUShort("Brightness", 255);
+    displayType       = preferences.getShort("DisplayType", 0);
     preferences.end();
     displayBrightness = constrain(displayBrightness, 1, 255);
+    displayType       = constrain(displayType, 0, 4);
 #endif
 
 } // end setup()
@@ -519,6 +522,16 @@ void loop()
         gdraw.fillSprite (TFT_BLACK);
         displayType ++;
         if (displayType > 4) displayType = 0; // type of display
+
+#if defined(ESP_PLATFORM)
+        // Persist the new mode the same way brightness persists on
+        // BtnA/BtnC: write on every press.  M5Unified's NVS handles
+        // wear-leveling; pilots cycle modes a handful of times per
+        // flight, far below rewrite limits.
+        preferences.begin("OnSpeed", false);
+        preferences.putShort("DisplayType", displayType);
+        preferences.end();
+#endif
     }
 
     // update G history buffer (finding 037: only when data is fresh —

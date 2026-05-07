@@ -74,9 +74,10 @@ three dots printed on the bezel); the Basic has physical push buttons.
 The firmware uses M5Unified's unified `M5.BtnA/B/C` API, so behavior is
 identical on both units.
 
-Brightness is persisted to NVS on every adjust, so the M5 boots into the
-brightness it was on at last power-down. Display mode is not persisted —
-every boot starts on Mode 0 (Energy Display).
+Brightness and display mode are both persisted to NVS on every adjust,
+so the M5 boots back into whichever brightness and page the pilot last
+selected. A fresh M5 with no saved preferences defaults to full
+brightness and Mode 0 (Energy Display).
 
 If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
@@ -86,9 +87,9 @@ needing a USB cable.
 
 The five modes are selected by pressing **Button B**, which cycles in
 order: **Energy Display → Attitude → Indexer → Decel Display →
-Historic G →** back to Energy Display. The M5 boots into Energy
-Display (Mode 0) on every power cycle; only display brightness
-persists across power-down.
+Historic G →** back to Energy Display. The last-used mode persists
+across power cycles; a fresh M5 with no saved preference comes up
+on Energy Display (Mode 0).
 
 To preview each mode, scroll back up to the in-browser simulator and
 press <kbd>↓</kbd> to step through them. The C++ source that runs the

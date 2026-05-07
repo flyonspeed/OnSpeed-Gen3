@@ -19,7 +19,7 @@ Renders five modes (numbered 0–4; numbers are stable across renames
 because the X-Plane plugin's `indexerMode` per-aircraft pref stores
 the integer):
 
-- **Energy Display** (0, default) — AOA indexer + surrounding IAS/G/flap/slip readouts.
+- **Energy Display** (0, default on a fresh M5) — AOA indexer + surrounding IAS/G/flap/slip readouts. Last-used mode persists in NVS, so subsequent boots come up on whichever mode the pilot last selected.
 - **Attitude** (1) — Synthetic horizon with flight-path marker.
 - **Indexer** (2) — Same indexer widget, numeric readouts stripped (AOA-only page).
 - **Decel Display** (3) — IAS-derivative gauge in kt/s.
