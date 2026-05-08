@@ -418,7 +418,7 @@ async function driveScenario(name, emit) {
 // don't get silently dropped.
 function recordToFrame(r) {
   return {
-    AOA:               r.aoaDeg ?? r.aoa ?? -100,
+    AOA:               r.aoaDeg ?? r.aoa ?? null,
     DerivedAOA:        r.derivedAoaDeg ?? 0,
     Pitch:             r.pitchDeg ?? 0,
     Roll:              r.rollDeg ?? 0,
