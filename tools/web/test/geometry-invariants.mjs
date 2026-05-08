@@ -9,6 +9,7 @@
 
 import * as G from '../lib/core/geometry.js';
 import { chevronColors } from '../lib/core/chevronColors.js';
+import { colors } from '../lib/core/colors.js';
 import { donutColors } from '../lib/core/donutColors.js';
 import { mapPct2Display } from '../lib/core/pct2y.js';
 import { flapWidgetFrac, flapTriangleTransform } from '../lib/core/flapWidget.js';
@@ -189,6 +190,20 @@ const chevWarn = chevronColors({ percentLift: 95, anchors, flashFlag: false });
 const chevFlash = chevronColors({ percentLift: 95, anchors, flashFlag: true });
 ok(chevWarn.top !== chevFlash.top,
    'flashFlag swaps top chevron color above stallWarn');
+
+// Yellow→red boundary uses M5's integer divide (main.cpp::drawAOA), not a
+// float midpoint. With odd (stallWarn − onSpeedSlow), the boundary lands
+// 0.5% lower than a float midpoint would. Pin it: anchors with onSpeedSlow=53,
+// stallWarn=66 give span=13, M5 chevMid = 53 + 13/2 (int) = 53 + 6 = 59.
+// percentLift=59 → YELLOW (≤ chevMid), percentLift=60 → RED (> chevMid).
+// A float midpoint (59.5) would have flipped percentLift=59 to RED.
+const oddAnchors = [0, 0, 30, 40, 53, 0, 35, 66];
+const chevAtMid = chevronColors({ percentLift: 59, anchors: oddAnchors, flashFlag: false });
+ok(chevAtMid.top === colors.TFT_YELLOW,
+   'top chevron at M5 int chevMid (=59 for span 13) stays YELLOW; float midpoint would have been RED');
+const chevPastMid = chevronColors({ percentLift: 60, anchors: oddAnchors, flashFlag: false });
+ok(chevPastMid.top === colors.TFT_RED,
+   'top chevron one step past M5 int chevMid is RED');
 
 // ----- donut color logic --------------------------------------------------
 //

@@ -10,7 +10,11 @@ export function chevronColors({ percentLift, anchors, flashFlag }) {
   const onSpeedSlow = anchors[4];
   const stallWarn   = anchors[7];
   const tonesOn     = anchors[2];
-  const chevMid     = onSpeedSlow + (stallWarn - onSpeedSlow) / 2;
+  // Match M5's integer divide (main.cpp::drawAOA) so the yellow→red boundary
+  // lines up bit-for-bit with the M5 hardware. For odd (stallWarn − onSpeedSlow)
+  // spans the M5's int truncation puts the boundary 0.5% lower than a float
+  // midpoint would; honor that.
+  const chevMid     = onSpeedSlow + Math.floor((stallWarn - onSpeedSlow) / 2);
 
   // Top chevron — escalates yellow → red as AOA approaches stall.
   let top = colors.TFT_DARKGREY;
