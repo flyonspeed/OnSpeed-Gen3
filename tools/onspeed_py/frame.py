@@ -24,6 +24,16 @@ from dataclasses import dataclass
 PAYLOAD_LEN = 73   # bytes 0..72 — ASCII fields up to and including pipPctLift
 FRAME_LEN   = 77   # PAYLOAD_LEN + 2 hex CRC + CRLF
 
+# IAS-invalid wire sentinel.  Mirrors `kIasInvalidWireSentinel` in
+# onspeed_core/proto/DisplaySerial.h: when the producer marks air-data
+# invalid, the iasKt %04u field carries 9999.  The M5 parser detects
+# this exact value, sets `iasIsValid=false` on the parsed frame, and
+# renders dashes for both IAS and percentLift.  Picked as the maximum
+# of the field width — far above any operational airspeed — so a
+# consumer that ignores `iasIsValid` still sees an obviously bogus
+# rather than a plausibly-low IAS reading.
+IAS_INVALID_WIRE_SENTINEL = 9999
+
 
 def _clamp_int(v: float, lo: int, hi: int) -> int:
     """C-style truncation-toward-zero + clamp, matching SafeScaledInt."""
@@ -75,6 +85,14 @@ class Frame:
     pitch_deg:             float = 0.0
     roll_deg:              float = 0.0
     ias_kts:               float = 0.0
+    # Air-data validity flag.  Mirrors `DisplayBuildInputs::iasValid` in
+    # onspeed_core/proto/DisplaySerial.h.  When False, `to_bytes()`
+    # writes the IAS_INVALID_WIRE_SENTINEL (9999) into the iasKt field
+    # regardless of the `ias_kts` value, which the M5 parser uses to
+    # flip `iasIsValid=false` and render dashes for IAS and percentLift.
+    # Default True keeps live-mode and v2-log producers (all-numeric
+    # IAS) emitting the live value unchanged.
+    ias_valid:             bool  = True
     palt_ft:               float = 0.0
     turnrate_dps:          float = 0.0
     lateral_g:             float = 0.0
@@ -101,11 +119,25 @@ class Frame:
         Matches the printf format in
         `onspeed_core/proto/DisplaySerial.cpp::BuildDisplayFrame`.
         """
+        # Wire contract: when `ias_valid` is False, write
+        # IAS_INVALID_WIRE_SENTINEL (9999) into the iasKt %04u field.
+        # The M5 parser detects this exact value and flips
+        # `iasIsValid=false`, which the M5 firmware uses to render
+        # dashes for IAS and percentLift.  See iasValid contract in
+        # onspeed_core/proto/DisplaySerial.h.  Invalidity wins over
+        # the live `ias_kts` value — a defensively-set NaN with
+        # `ias_valid=True` still falls through `_clamp_uint`'s NaN
+        # branch (returns the lower clamp 0), but the canonical caller
+        # (live mode / v3 log replay) pairs NaN with `ias_valid=False`.
+        ias10_field = (
+            IAS_INVALID_WIRE_SENTINEL if not self.ias_valid
+            else _clamp_uint(self.ias_kts * 10, 0, 9999)
+        )
         payload = (
             "#1"
             f"{_clamp_int(self.pitch_deg * 10, -999, 999):+04d}"
             f"{_clamp_int(self.roll_deg * 10, -9999, 9999):+05d}"
-            f"{_clamp_uint(self.ias_kts * 10, 0, 9999):04d}"
+            f"{ias10_field:04d}"
             f"{_clamp_int(self.palt_ft, -99999, 99999):+06d}"
             f"{_clamp_int(self.turnrate_dps * 10, -9999, 9999):+05d}"
             f"{_clamp_int(self.lateral_g * 100, -99, 99):+03d}"

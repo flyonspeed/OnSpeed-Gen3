@@ -8,7 +8,14 @@ the same `Frame` builder against the C++ `ParseDisplayFrame`.
 
 from __future__ import annotations
 
-from onspeed_py.frame import FRAME_LEN, PAYLOAD_LEN, Frame
+import pytest
+
+from onspeed_py.frame import (
+    FRAME_LEN,
+    IAS_INVALID_WIRE_SENTINEL,
+    PAYLOAD_LEN,
+    Frame,
+)
 
 
 def test_frame_length() -> None:
@@ -116,3 +123,44 @@ def test_nan_and_inf_dont_break() -> None:
         flightpath_deg=float("-inf"),
     ).to_bytes()
     assert len(wire) == FRAME_LEN
+
+
+@pytest.mark.parametrize(
+    "ias_kts, ias_valid, expected_ias_field",
+    [
+        # NaN paired with ias_valid=False: emits the 9999 wire sentinel.
+        (float("nan"), False, "9999"),
+        # Live numeric value with ias_valid=True: encodes as ias × 10
+        # in the %04u field (42.5 → 425).
+        (42.5,         True,  "0425"),
+        # Defensive: invalidity wins over the live float — even a
+        # numeric ias_kts with ias_valid=False emits 9999.  Pins the
+        # contract that consumers must treat ias_valid as authoritative
+        # rather than inferring validity from the iasKt field alone.
+        (42.5,         False, "9999"),
+    ],
+)
+def test_ias_valid_flag_drives_wire_sentinel(
+    ias_kts: float, ias_valid: bool, expected_ias_field: str
+) -> None:
+    """`Frame.ias_valid=False` projects to `IAS_INVALID_WIRE_SENTINEL`
+    (9999) in the iasKt %04u field, regardless of the `ias_kts` value.
+    Mirrors `kIasInvalidWireSentinel` in
+    onspeed_core/proto/DisplaySerial.h — the M5 parser detects this
+    exact value and flips `iasIsValid=false` to render dashes for IAS
+    and percentLift.
+    """
+    wire = Frame(ias_kts=ias_kts, ias_valid=ias_valid).to_bytes()
+    s = wire[:PAYLOAD_LEN].decode("ascii")
+    assert s[11:15] == expected_ias_field, (
+        f"ias_kts={ias_kts}, ias_valid={ias_valid}: "
+        f"expected iasKt field {expected_ias_field!r}, got {s[11:15]!r}"
+    )
+
+
+def test_ias_invalid_wire_sentinel_constant_matches_cpp() -> None:
+    """The Python-side constant matches the wire's max-of-field value
+    declared in onspeed_core/proto/DisplaySerial.h.  Catches drift if
+    the C++ side ever re-picks the sentinel.
+    """
+    assert IAS_INVALID_WIRE_SENTINEL == 9999

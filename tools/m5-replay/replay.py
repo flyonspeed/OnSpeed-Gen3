@@ -110,17 +110,22 @@ def csv_frame_stream(
             fs = setpoints_for_flap(flap, setpoints)
             # IAS / AngleofAttack are gated by the format-3 air-data
             # convention: an empty cell means "no valid air data" and
-            # propagates as NaN through compute_percent_lift.  Frame.to_bytes
-            # clamps NaN to 0 at the wire boundary, which is the wire's
-            # native "no data" sentinel for IAS and percent-lift.  Other
-            # columns keep the strict default-on-empty behavior so a
-            # truncated SD write still surfaces as a missing field rather
-            # than a NaN payload that would silently zero the wire frame.
+            # parses as NaN here.  We pair the NaN IAS with
+            # `ias_valid=False` so `Frame.to_bytes()` writes the 9999
+            # wire sentinel into the iasKt field — the M5 parser flips
+            # `iasIsValid=false` on that exact value and renders dashes
+            # for IAS and percentLift.  Other CSV columns keep the
+            # strict default-on-empty behavior so a truncated SD write
+            # still surfaces as a missing field rather than a NaN
+            # payload that would mis-encode the rest of the wire frame.
+            ias_value = _float_or_nan_for_air_data(r.get("IAS"))
+            ias_alive = math.isfinite(ias_value)
             aoa = _float_or_nan_for_air_data(r.get("AngleofAttack"))
             return Frame(
                 pitch_deg=_float_or(r.get("Pitch"), 0.0),
                 roll_deg=_float_or(r.get("Roll"), 0.0),
-                ias_kts=_float_or_nan_for_air_data(r.get("IAS")),
+                ias_kts=ias_value,
+                ias_valid=ias_alive,
                 palt_ft=_float_or(r.get("Palt"), 0.0),
                 turnrate_dps=_float_or(r.get("YawRate"), 0.0),
                 # Log, wire, and snapshot all use body-frame at v4.23
@@ -189,9 +194,11 @@ def _float_or_nan_for_air_data(s: Optional[str]) -> float:
 
     Empty cell (`",,"`) means "no valid air data" — yields NaN so
     `compute_percent_lift` and the orchestrator see the gap explicitly.
-    The Frame builder's `_clamp_int` / `_clamp_uint` helpers detect NaN
-    via `math.isfinite` and emit the wire's native zero sentinel for
-    IAS and percent-lift fields.
+    The caller pairs a NaN IAS with `Frame(ias_valid=False)`, which
+    `Frame.to_bytes()` projects as the wire's 9999 IAS-invalid sentinel
+    (kIasInvalidWireSentinel in onspeed_core/proto/DisplaySerial.h).
+    The M5 parser detects that value, flips `iasIsValid=false`, and the
+    M5 firmware renders dashes for IAS and percentLift.
 
     A missing key (column absent from the header entirely) still
     returns 0.0 — that's an old-format log that never carried this

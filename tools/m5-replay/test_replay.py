@@ -347,16 +347,15 @@ def test_float_or_strict_path_unaffected() -> None:
 
 def test_csv_frame_stream_v3_at_rest_does_not_emit_ias_zero() -> None:
     """End-to-end replay of a v3-shaped CSV with empty IAS / AngleofAttack
-    cells.  The Frame ias_kts goes to 0 at the wire boundary (the wire's
-    own "no data" sentinel), but the percent-lift field also rides the
-    NaN→0 clamp instead of a fake "33% L/Dmax-flavored" reading from a
-    coerced AOA=0.
-
-    Pre-fix behavior: AOA=0 (silently coerced) → compute_percent_lift
-    returns ~18% on RV-10 clean (alpha_0=-2.5, span=13.5), which would
-    paint a "below L/Dmax" indicator on a parked airplane.  Post-fix:
-    NaN AOA → NaN percent-lift → wire encoder clamps to 0 → indicator
-    reads zero (the correct "no data" value for the wire).
+    cells.  The CSV produces NaN IAS / NaN AOA on those rows; the Frame
+    builder pairs the NaN with `ias_valid=False`, which `to_bytes()`
+    projects as the 9999 IAS-invalid wire sentinel (matching
+    `kIasInvalidWireSentinel` in onspeed_core/proto/DisplaySerial.h).
+    The M5 parser detects 9999 and flips `iasIsValid=false`, which the
+    M5 firmware uses to render dashes for IAS and percentLift.  The
+    percentLift field still encodes as 000 (NaN AOA → NaN percent-lift
+    → `_clamp_uint` lower-bound), but consumers gate on `iasIsValid`
+    rather than treating 0 as a sentinel.
     """
     csv_text = (
         "timeStamp,Pitch,Roll,IAS,Palt,YawRate,LateralG,VerticalG,"
@@ -391,27 +390,37 @@ def test_csv_frame_stream_v3_at_rest_does_not_emit_ias_zero() -> None:
 
     assert len(frames) > 0, "expected at least one frame"
     for fr in frames:
-        # NaN propagates from the CSV all the way to the Frame fields.
-        # Frame.to_bytes() projects NaN to the wire's zero sentinel
-        # (per `_clamp_int` / `_clamp_uint` in onspeed_py.frame), but
-        # the Python-side Frame still carries NaN so callers that
+        # NaN propagates from the CSV all the way to the Frame fields,
+        # and the row builder pairs the NaN IAS with `ias_valid=False`.
+        # The Python-side Frame keeps the NaN so callers that
         # introspect frames before serialization see the gap.
         assert math.isnan(fr.ias_kts), (
             f"v3 at-rest: expected NaN ias_kts, got {fr.ias_kts}"
+        )
+        assert fr.ias_valid is False, (
+            f"v3 at-rest: NaN IAS must propagate as ias_valid=False, "
+            f"got ias_valid={fr.ias_valid}"
         )
         assert math.isnan(fr.percent_lift_pct), (
             f"v3 at-rest: expected NaN percent_lift_pct (NaN AOA "
             f"propagates through compute_percent_lift), got "
             f"{fr.percent_lift_pct}"
         )
-        # to_bytes() must still produce a valid wire frame — NaN gets
-        # clamped to the wire's zero sentinel (`%04d` → 0000 for IAS,
-        # `%03u` → 000 for percent_lift).  Pin both encodings.
+        # to_bytes() projects `ias_valid=False` to the 9999 wire
+        # sentinel in the iasKt %04u field; the M5 parser detects that
+        # exact value and flips iasIsValid=false to render dashes.
+        # The percent-lift field clamps NaN to 000 — consumers gate on
+        # iasIsValid, not on the percent-lift bytes.
         wire = fr.to_bytes()
         assert len(wire) == FRAME_LEN
         s = wire[:PAYLOAD_LEN].decode("ascii")
-        assert s[11:15] == "0000", f"IAS field should be 0000 on NaN, got {s[11:15]!r}"
-        assert s[32:35] == "000", f"percent_lift field should be 000 on NaN, got {s[32:35]!r}"
+        assert s[11:15] == "9999", (
+            f"IAS field should carry the 9999 invalid-wire sentinel, "
+            f"got {s[11:15]!r}"
+        )
+        assert s[32:35] == "000", (
+            f"percent_lift field clamps NaN to 000, got {s[32:35]!r}"
+        )
 
 
 def test_csv_frame_stream_v2_in_flight_unchanged() -> None:

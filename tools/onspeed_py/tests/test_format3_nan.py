@@ -263,10 +263,10 @@ def test_compute_percent_lift_nan_in_nan_out() -> None:
 
     Python's `min`/`max` drops NaN asymmetrically depending on argument
     order — the explicit isnan guard at the top of compute_percent_lift
-    makes the propagation deterministic.  This is the bridge between
-    log_replay's NaN output and the wire encoder's NaN→0 clamp:
-    consumers that read the LiveSnapshot directly see "no data", and
-    only the wire-frame boundary projects to the wire's zero sentinel.
+    makes the propagation deterministic.  Consumers that read the
+    LiveSnapshot directly see "no data" via NaN; the wire-frame
+    boundary projects validity through `Frame.ias_valid`, which writes
+    the 9999 IAS-invalid sentinel for the M5 parser.
     """
     fs = _rv10_clean_setpoints()
     pct = compute_percent_lift(math.nan, fs)
