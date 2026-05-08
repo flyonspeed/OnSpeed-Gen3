@@ -274,6 +274,33 @@ const [overlayLocked, setOverlayLocked] = useState(true);  // default locked so 
 
 **Dispatch agent prompt** below.
 
+### IM-3. Visual layout-edit mode
+
+Per the resolution to question 3 above, layout uses presets + per-
+widget toggle, PLUS visual position-tweaking handles so Sam doesn't
+have to verbally tell an agent to nudge the indexer 20 px left.
+
+**Design:**
+
+- Default state: layout is "locked." Widgets render at their preset
+  positions. No drag handles visible.
+- "Edit layout" button (or shift-key hold) → enter edit mode:
+  - Each visible widget gets a dashed outline + drag handle.
+  - Drag the widget body = move (clamped to keep it on-screen).
+  - Drag a corner handle = resize.
+  - Snapping: hold near the 8 anchor points (corners + midpoints of
+    edges) and the widget snaps to align. Tolerance 16 px.
+- "Done editing" or click outside → exit edit mode.
+- Save layout to localStorage keyed by preset name. Reset-to-preset
+  button restores defaults.
+- Each preset has a JSON layout file shipped with the page:
+  `lib/replay/layouts/full_hud.json`, etc. Loading a preset replaces
+  the layout state.
+
+**Critical**: all of this only matters if export uses the same
+positions. `exportOverlayedVideo` already takes inset values via a
+prop; we widen that to a per-widget map.
+
 ### MEDIUM (HUD widget set + toggle UI)
 
 This is the big one. The reference image at `~/Desktop/Screenshot 2026-05-08 at 8.00.54 AM.png` shows the Garmin G3X-style full HUD. We don't need all of it — focus on **airspeed, heading, VSI, slip ball, percent-lift indexer** (the elements you called out as "really good and would help orient folks").
@@ -320,34 +347,169 @@ Each is a `<label class="replay-toggle"><input type="checkbox" ... /></label>` (
 
 **Critical:** export pipeline must respect the toggle state. The simplest way: render the toggled-off widgets with `display: none` so they don't appear in the SVG that `getOverlaySvg()` rasterizes.
 
-### LATER (Phase 5 + drag-resize + more)
+### MED-4. MP4 export via ffmpeg-wasm (Phase 4.5)
+
+Browser `MediaRecorder` writes WebM only — Chrome doesn't ship the AVC
+encoder so MP4/H.264 isn't an option there. Vac/Yaw need MP4 for
+local mix workflows. Path A from the form-factor decision: ship
+`@ffmpeg/ffmpeg` as a transcode pass at the end of an export.
+
+**File to add**: `tools/web/lib/replay/transcodeMp4.js`. Wraps the
+ffmpeg-wasm load + transcode call. Lazy-loaded on first MP4 click so
+the page doesn't pay the ~30 MB asset cost up front.
+
+**UI**: alongside "Export WebM", add "Export MP4". Shares all the
+same range/clip flows. Internally: record to WebM via the existing
+pipeline, then run ffmpeg-wasm to re-encode to MP4. Progress bar
+splits into "recording … 60% / transcoding … 40%" phases.
+
+**Lazy load pattern**:
+```js
+async function getFFmpeg() {
+  const mod = await import('@ffmpeg/ffmpeg');
+  // ... initialize
+}
+```
+
+This keeps WebM-only users from paying the asset cost.
+
+### MED-5. Static-build deploy
+
+Today the replay tool runs only via `node tools/web/dev-server/server.mjs`.
+For Vac to use it without cloning the repo, ship a static-built
+SPA. Steps:
+
+1. Add a build script: `tools/web/scripts/build_static.sh` that:
+   - Concats `lib/` modules (already half-done by
+     `scripts/build_web_bundle.py`, but we'd want a non-firmware
+     variant that includes `lib/replay/`).
+   - Inlines `lib/shell/PageShell.css` + the logo + meta tags.
+   - Writes `dist/replay/index.html` + a single bundle.
+2. CI uploads `dist/replay/` to a static host (Vercel, Netlify,
+   Cloudflare Pages, or `gh-pages` branch under
+   `flyonspeed.org/replay`).
+3. Update the README + a `/replay` route on the docs site that
+   embeds or links to it.
+
+The static deploy doesn't need a backend. All processing stays
+client-side; user files never leave the browser.
+
+### LATER
 
 | Item | Why later |
 |---|---|
-| Drag-to-resize each widget | Useful but presets cover 90% of the case. |
-| Per-widget styling (colors, font sizes) | Pilot probably never wants to override default colors; risks looking like a 90s flight sim. |
-| Concatenate clips into one output | Requires WebCodecs or ffmpeg-wasm. Sequential separate files is enough for Pack's workflow. |
-| MP4 export (Remotion) | Browser MediaRecorder can't write MP4/H.264 in Chrome. Frame-by-frame Remotion render is the path. ~1 day of work. |
-| Multi-anchor sync (handle edited reels) | Pause/Attach re-sync covers most cases. |
+| WebCodecs + mp4-muxer (replace ffmpeg-wasm) | Cuts the 30 MB asset cost. Worth doing once the static deploy is real and bundle size matters. ~2-3 days of work. |
+| Drag-to-resize each widget | Useful but presets cover 90% of the case. Lands with IM-3 if the agent has time. |
+| Concatenate clips into one output | Requires WebCodecs or ffmpeg-wasm (the latter is already loaded for MP4 — opportunistic). Sequential separate files is enough today. |
+| Electron app | If the static deploy reveals a real wall (e.g. 17 GB videos that browsers can't seek smoothly), promote to Electron with the same React tree. ~3 days. |
+| Multi-anchor sync | Pause/Attach re-sync covers most cases. |
 | Audio cross-correlation auto-sync | Cool but overkill. |
 
 ---
 
-## Open questions for Sam
+## Open questions for Sam — RESOLVED 2026-05-08
 
-These need your call before an agent can dispatch the next chunk:
+These were the open questions; the resolutions are now load-bearing
+for what gets built next.
 
-1. **HUD widget aesthetic**: do you want OnSpeed-original styling (current dark indexer + simple SVG) OR mimicking the Garmin G3X look (white tapes on dark backdrop, color zones, V-speed bugs)? If G3X-style, where do V-speeds (Vno, Vne, Vfe) come from? They're not in the SD log; either we read from the config XML (it has none today) or you hardcode per-airframe.
+1. **HUD widget aesthetic** → **OnSpeed-original styling, not G3X**. The
+   tool is for analyzing what the airplane and the pilot's controls
+   are doing, not for impressing onlookers. Add minimal HUD elements:
+   attitude indicator (see-through, overlaid as a HUD), altitude
+   tape with VSI carrot, IAS tape, slip ball. Indexer on the right.
+   No V-speed bugs, no yellow/red arc gradients, no G3X-style
+   chrome. **Don't go turbo.**
 
-2. **Heading data source**: SD log column? `Pitch`/`Roll` are there, but heading isn't on a quick scan. If absent, do we (a) skip the heading widget, (b) integrate yaw rate (drifts badly), or (c) use the EFIS column `efisMagHeading` (only present when EFIS is enabled, which depends on the install)?
+2. **Heading data source** → **EFIS column when present, otherwise
+   skip**. For VN-300-equipped airframes (Vac), use the existing
+   `vnYawDeg` log column (VN-300's `yaw` is the gyrocompass heading
+   per UM005 §5.8.6). For Dynon/Garmin/MGL-equipped, use
+   `efisMagHeading`. If neither is populated, hide the heading
+   widget entirely. **Do NOT integrate yaw rate** — drifts unboundedly.
 
-3. **Layout**: 3 presets + per-widget toggle (recommendation B), OR drag-each-widget-anywhere (A)?
+3. **Layout** → **Recommendation B (presets + per-widget toggle) PLUS
+   visual position tweaking**. Three presets ("Full HUD", "Minimal",
+   "Indexer only"). Per-widget on/off checkbox. PLUS each widget
+   gets drag-to-position handles in an "Edit layout" mode (shift-key
+   to enter, click outside to exit) so Sam doesn't have to verbally
+   describe positions to an agent. Save layout to localStorage.
 
-4. **Default widget set on first load**: just the indexer (current behavior), OR airspeed + indexer + slip + altitude (a useful default HUD)?
+4. **Default widget set on first load** → **useful HUD**: indexer,
+   IAS tape, altitude+VSI tape, slip ball, attitude indicator.
+   Heading off by default (since it depends on EFIS). User can
+   toggle.
 
-5. **Should "Export WebM" button move into a "File → Export…" menu** with sub-options (full / from playhead / current clip set / each clip separately)? Right now it's a single button labeled "Export WebM" which is ambiguous as the feature set grows.
+5. **Export menu reshape** → DEFERRED. Single "Export WebM" button is
+   fine until the feature set grows further; "Export all clips" in
+   the ClipBuilder panel covers the multi-output case.
 
-6. **Drag-on-timeline conflict**: today plain-click = seek video, shift-click = override anchor. After IM-1 lands, plain-click = ambiguous (could be seek or could be start of a drag). Resolution: treat any pointer movement > 4 px during pointerdown as drag-start, otherwise treat as click. OK with that?
+6. **Drag-on-timeline disambiguation** → **4 px movement threshold**.
+   pointerdown remembers (x, y); on pointermove, if the pointer has
+   moved > 4 px from the down position, treat as drag-start.
+   Otherwise on pointerup, treat as click (seek video). Same
+   threshold for the indexer/widget drag handlers.
+
+## Form factor — single-page web app, deployable to a static URL
+
+**Decision**: ship as a static-built SPA at `flyonspeed.org/replay` (or
+any sub-route) initially. Drop files in, get WebM out. No install.
+
+Why:
+- Same code we have today with a static-build entry. ~half-day.
+- Vac bookmarks a URL; no terminal, no Node, no git clone.
+- Static deploy is also where it makes sense to embed examples,
+  link to the docs, etc., later.
+- Browser handles the 17 GB video via blob URL (Chrome streams
+  reads, doesn't load into RAM). Same as the dev-server today.
+
+Future option (if Vac hits a real wall): **Electron app**. Same React
+tree. Native filesystem (no blob URLs), bundled `ffmpeg` for MP4
+transcode, signed installer, app icon. ~3 days of work. Defer until
+the static deploy reveals a concrete need.
+
+**NOT** doing: embedding into the main flyonspeed.org marketing site,
+or shipping inside the firmware, or building a proper desktop video
+editor.
+
+## MP4 export — three paths, picking one
+
+**Why MP4 is hard:**
+- Browser `MediaRecorder` only writes WebM/VP9 reliably across Chrome
+  + Firefox. MP4/H.264 encode is **disabled in Chrome by policy** (no
+  AVC encoder in Chromium open-source; Safari has it).
+- We pick from: ffmpeg-wasm transcode, headless Remotion render, or
+  WebCodecs + a small mp4 muxer.
+
+**Three paths:**
+
+| Path | Implementation | Asset cost | Runtime cost | Future-proof |
+|---|---|---|---|---|
+| **A. ffmpeg-wasm transcode** | Record WebM, then re-encode to MP4 via `@ffmpeg/ffmpeg` | +30 MB | Slow (real transcode) | Medium — works everywhere browsers run, asset is large |
+| **B. Remotion / headless renderer** | Same React tree, frame-by-frame headless Chromium + ffmpeg | 0 (CLI/Electron only) | Fast, deterministic | Best quality — but requires Node runtime |
+| **C. WebCodecs + mp4-muxer** | `VideoEncoder` writes H.264 frames; tiny WASM muxer writes the container | +30 KB | Fast (hardware accel) | Best long-term — pure browser, ~zero overhead |
+
+**Recommendation**:
+- **Phase 4.5 (next)**: ship **Path A (ffmpeg-wasm)** as the MP4 button
+  alongside the existing WebM button. Half-day of work, fits the
+  static-deploy form factor. Yaw/Vac get MP4 today.
+- **Phase 5 (later)**: replace internals with **Path C (WebCodecs +
+  muxer)** when we want to cut the 30 MB asset cost. Same UI, smaller
+  download.
+- **Path B (Remotion)**: defer indefinitely unless we move to Electron.
+  Headless renderers are great for batch / server-side, but the in-
+  browser tool already gets 90% there.
+
+## Drift-prevention strategy
+
+We now have **three implementations** of the same algorithms (firmware
+C++, Python tools, JS replay). All three implement: percent-lift,
+display anchors, EMA accel smoothing, flap detection, body-angle
+conversion. As the codebase evolves, drift between them will silently
+break analysis tools.
+
+**See `PLAN_DRIFT_PREVENTION.md` for the proposed approach** — short
+version: a cross-implementation JSON fixture set, run from CI in all
+three languages. The JSON is the spec; code is the implementation.
 
 ---
 
