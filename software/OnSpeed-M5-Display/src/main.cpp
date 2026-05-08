@@ -256,8 +256,8 @@ void displayGloadHistory();
 void displaySplashScreen();
 void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16_t maxDisplay, int16_t minDisplay,
               int16_t startAngle, int16_t arcAngle, bool clockWise, uint8_t gradMarks,
-              int16_t pitch, int16_t roll, int16_t yaw, float flightPathAngle);
-void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale);
+              float pitch, float roll, int16_t yaw, float flightPathAngle);
+void pitchGraph(float pitch, float roll, int16_t px0, int16_t py0, uint8_t scale);
 int mapPct2Display(int aoaPct, const int Array[]);
 int mapPct2Display(float aoaPctF, const int Array[]);
 int map2int(float aoa, float inLow, float inHigh, int outLow, int outHigh);
@@ -631,7 +631,7 @@ void loop()
             {
                 // display Attitude Indicator
                 AiGraph (g_px0, g_py0, g_arcSize, g_arcWidth, g_maxDisplay, g_minDisplay, g_startAngle, g_arcAngle, g_clockWise,
-                g_gradMarks, int(Pitch), int(Roll), 360, FlightPath);
+                g_gradMarks, Pitch, Roll, 360, FlightPath);
 
                 // All four corners use setCursor+print with baseline_left
                 // (frame default) for consistent y semantics. Right-side
@@ -1242,7 +1242,7 @@ void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipVa
 
 void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16_t maxDisplay, int16_t minDisplay,
               int16_t startAngle, int16_t arcAngle, bool clockWise, uint8_t gradMarks,
-              int16_t pitch, int16_t roll, int16_t yaw, float flightPathAngle)
+              float pitch, float roll, int16_t yaw, float flightPathAngle)
 {
 
 /*
@@ -1314,7 +1314,7 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
     myGauges.setPointer (8, 0, 0, 0, '\0');
 
     myGauges.arcGraph (px0, py0, arcSize, arcWidth , maxDisplay, minDisplay,
-                       -roll, arcAngle, clockWise, gradMarks);
+                       static_cast<int16_t>(lroundf(-roll)), arcAngle, clockWise, gradMarks);
 
     /*
     Draw additional small markers
@@ -1336,7 +1336,7 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
     myGauges.setPointer (8, 0, 0,  0, '\0');
 
     myGauges.arcGraph (px0, py0, arcSize, arcWidth , maxDisplay, minDisplay,
-                       -roll, arcAngle, clockWise, gradMarks);
+                       static_cast<int16_t>(lroundf(-roll)), arcAngle, clockWise, gradMarks);
 
 
   /*
@@ -1420,7 +1420,7 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
     */
 
     // 120 -screen center
-    int fpY = 120-(flightPathAngle-Pitch)*120/40; // 40 degrees of pitch per half screen height
+    int fpY = 120-(flightPathAngle-pitch)*120/40; // 40 degrees of pitch per half screen height
     fpY = constrain(fpY,0,239);
     int fpX = 159; // screen center
 
@@ -1449,7 +1449,7 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
 
 // -----------------------------------------------
 
-void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t scale)
+void pitchGraph(float pitch, float roll, int16_t px0, int16_t py0, uint8_t scale)
 {
 
     float px1, px2, px3, px4;
@@ -1507,7 +1507,7 @@ void pitchGraph(int16_t pitch, int16_t roll, int16_t px0, int16_t py0, uint8_t s
 
         px4 += xRotate*0.75f;
         py4 -= yRotate*0.75f;
-        myGauges.printNum (String (i)+"o", px4, py4, 8, 12, roll, TFT_BLACK, ML_DATUM);
+        myGauges.printNum (String (i)+"o", px4, py4, 8, 12, static_cast<int16_t>(lroundf(roll)), TFT_BLACK, ML_DATUM);
     }
     gdraw.setTextDatum(textdatum_t::baseline_left); // restore project datum convention
 } // end pitchGraph
