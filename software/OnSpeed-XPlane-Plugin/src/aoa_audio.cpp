@@ -249,6 +249,7 @@ static XPWidgetID audioControlWidget  = nullptr;
 static XPWidgetID audioToggleCheckbox = nullptr;
 static XPWidgetID widgetAOAValue      = nullptr;
 static XPWidgetID widgetAudioStatus   = nullptr;
+static XPWidgetID widgetButtonStallHorn = nullptr;
 
 // Editable-field handles.  Declared here (rather than next to the
 // CreateAudioControlWindow that builds them) because the validator
@@ -285,10 +286,6 @@ static bool bMuteStallHorn = false;
 static int g_iAcfHasStallwarnOriginal = -1;
 
 static XPLMMenuID menuId;
-// Menu-item index for the "Mute X-Plane stall horn" entry — captured at
-// menu build time so AudioMenuHandler can flip its checkmark without
-// rebuilding the menu.  -1 until the menu is constructed.
-static int g_MuteStallHornItemIdx = -1;
 
 // AOA smoothing pipeline.  Window sizes are runtime-configurable via
 // iAoaMedianWindow / iAoaMeanWindow; rebuildAoaSmoothers() swaps in
@@ -374,6 +371,43 @@ static AudioWindowState s_audioWindow;
 // only writes the .prf when the user actually moves or resizes the
 // window — avoids hammering disk on every tick.
 static AudioWindowState s_audioWindowLastSaved;
+
+// Minimum boxels of the audio control window kept on-screen after a
+// monitor swap.  Matches the floating-indexer kMinVisible (80 in
+// IndexerWindow.cpp) so both windows treat "still grabbable" the
+// same way.
+constexpr int kAudioWindowMinVisible = 80;
+
+// Clamp s_audioWindow.left/top so the title bar stays grabbable on
+// the current X-Plane screen rect.  Without this, a per-aircraft
+// .prf saved when X-Plane spanned a tall external monitor (e.g.
+// audioWindowTop = 1307) restores fully off-screen on a 1080-tall
+// monitor, with no in-game way to recover.
+//
+// X-Plane "global" coords cover the union of all monitors X-Plane
+// is rendering to, so this clamp respects multi-monitor setups: a
+// position legitimately on a second X-Plane monitor stays put as
+// long as that monitor is still in the bounds.  When the user
+// disconnects a monitor, the bounds shrink and the window snaps to
+// the remaining visible area.
+//
+// Skips clamping if XPLMGetScreenBoundsGlobal returns a degenerate
+// rect (e.g. during early plugin init before the screen is up).
+static void ClampAudioWindowOnScreen() {
+    int sLeft = 0, sTop = 0, sRight = 0, sBottom = 0;
+    XPLMGetScreenBoundsGlobal(&sLeft, &sTop, &sRight, &sBottom);
+    if (sRight <= sLeft || sTop <= sBottom) return;
+
+    const int maxLeft = sRight - kAudioWindowMinVisible;
+    const int minLeft = sLeft  - (s_audioWindow.width - kAudioWindowMinVisible);
+    const int maxTop  = sTop;
+    const int minTop  = sBottom + kAudioWindowMinVisible;
+
+    if (s_audioWindow.left > maxLeft) s_audioWindow.left = maxLeft;
+    if (s_audioWindow.left < minLeft) s_audioWindow.left = minLeft;
+    if (s_audioWindow.top  > maxTop)  s_audioWindow.top  = maxTop;
+    if (s_audioWindow.top  < minTop)  s_audioWindow.top  = minTop;
+}
 
 static std::string sanitizeAcfBasename(const char* acfFileName) {
     std::string out;
@@ -1279,12 +1313,10 @@ static void OnAircraftLoaded() {
     // 0 as the "original," and toggle-off would leave the new aircraft
     // muted until next reload.  Defer-to-AIRPORT_LOADED (the existing
     // s_indexerRestorePending pattern) is the fix if this ever bites.
-    // Sync the menu checkmark with whatever LoadSettings restored for
-    // this aircraft.
+    // Reset the captured original-stall-horn-state so a new aircraft's
+    // stall-horn setting gets re-captured the first time the in-panel
+    // toggle runs (handled by CheckAOAAndPlayTone's first write).
     g_iAcfHasStallwarnOriginal = -1;
-    if (g_MuteStallHornItemIdx >= 0)
-        XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
-            bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
 #ifdef ENABLE_M5_INDEXER
     // Open the configured USB-serial port if one is set.  Failures
     // are logged inside OpenSerialOut and just leave the port closed
@@ -1310,9 +1342,20 @@ static void OnAircraftLoaded() {
     // the indexer's lazy-init path, so creating one from this flight-
     // loop callback is safe (no SDL / M5GFX involved).
     if (s_audioWindow.visible && !audioControlWidget) {
+        ClampAudioWindowOnScreen();
         CreateAudioControlWindow(s_audioWindow.left,  s_audioWindow.top,
                                  s_audioWindow.width, s_audioWindow.height);
         UpdateAOATextFields();
+        // Flush any clamp-induced position change to the .prf
+        // immediately, instead of waiting on the periodic save tick.
+        // Without this, a quit-within-1s-of-aircraft-load loses the
+        // corrected position and re-clamps next boot from the same
+        // off-screen .prf value.  Mirrors the "Show" menu handler's
+        // flush at line ~1759.
+        RefreshAudioWindowState();
+        if (AudioWindowChanged()) {
+            SaveSettings();
+        }
     } else if (s_audioWindow.visible && audioControlWidget) {
         // New aircraft's .prf says the panel was open.  The widget
         // already exists from the prior aircraft's session — show it
@@ -1534,7 +1577,27 @@ static int AudioControlHandler(
         if (inParam1 == reinterpret_cast<intptr_t>(audioToggleCheckbox)) {
             audioEnabled = !audioEnabled;
             XPSetWidgetDescriptor(audioToggleCheckbox,
-                                  audioEnabled ? "Sound: On" : "Sound: Off");
+                                  audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off");
+            SaveSettings();
+            return 1;
+        }
+        // X-Plane stall horn toggle: flips bMuteStallHorn and refreshes
+        // the button label.  Label reads "on" when the sim's horn plays
+        // and "off" when this plugin is muting it.  When toggling back
+        // to "on" we restore the .acf's original acf_has_stallwarn
+        // value (captured the first time we muted) — without that, the
+        // sim would treat the horn as permanently disabled until the
+        // next aircraft reload, since CheckAOAAndPlayTone only
+        // overwrites the dataref while bMuteStallHorn is true.
+        else if (inParam1 == reinterpret_cast<intptr_t>(widgetButtonStallHorn)) {
+            bMuteStallHorn = !bMuteStallHorn;
+            XPSetWidgetDescriptor(widgetButtonStallHorn,
+                bMuteStallHorn ? "X-Plane Stall Horn: Off"
+                              : "X-Plane Stall Horn: On");
+            if (!bMuteStallHorn && acfHasStallwarnDataRef &&
+                g_iAcfHasStallwarnOriginal >= 0) {
+                XPLMSetDatai(acfHasStallwarnDataRef, g_iAcfHasStallwarnOriginal);
+            }
             SaveSettings();
             return 1;
         }
@@ -1715,6 +1778,12 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
         ""
     );
 
+    // Master volume (0-100 %).  Mirrors the firmware's pot.  First
+    // editable field — the most-touched setting goes at the top so
+    // pilots don't have to scroll past calibration to reach it.
+    widgetMasterVolumePct   = createLabeledIntField(
+        "Master Volume (%):", iMasterVolumePct);
+
     // AOA setpoints (firmware terminology: see Config.h::SuFlaps).
     // Pilot-set and fixed across all flaps.  Seeded from X-Plane's
     // stall datarefs on first aircraft load (see SeedSetpointsFromDatarefs);
@@ -1753,17 +1822,13 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     widgetVs1G              = createLabeledIntField(
         "Vs at 1G (kt):", iVs1G);
 
-    // Master volume (0-100 %).  Mirrors the firmware's pot.
-    widgetMasterVolumePct   = createLabeledIntField(
-        "Master Volume (%):", iMasterVolumePct);
-
     // Plugin-only AOA smoothing (no firmware analog — the firmware
     // smooths upstream in pressure-space).  1 disables.
     widgetAoaMedianWindow   = createLabeledIntField(
         "AOA Median Window:", iAoaMedianWindow);
     widgetAoaMeanWindow     = createLabeledIntField(
         "AOA Mean Window:",   iAoaMeanWindow);
-    
+
     // Save: validate every field, commit to live state, persist to
     // disk for the current aircraft.  Invalid fields get a "!! "
     // prefix marker; the status line shows the first error.
@@ -1774,10 +1839,19 @@ static void CreateAudioControlWindow(int x, int y, int w, int h) {
     // Save).  Useful escape after experimentation goes wrong.
     widgetButtonRestoreDefaults = createWidget(
         xpWidgetClass_Button, "Restore Defaults");
-    
+
     audioToggleCheckbox = createWidget(
         xpWidgetClass_Button,
-        audioEnabled ? "Sound: On" : "Sound: Off"
+        audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off"
+    );
+
+    // X-Plane stall horn toggle.  Label reads "on" when the sim's
+    // built-in horn is allowed to play, "off" when this plugin is
+    // muting it (the more-common pilot preference once OnSpeed audio
+    // takes over the role).  Inverts bMuteStallHorn for display.
+    widgetButtonStallHorn = createWidget(
+        xpWidgetClass_Button,
+        bMuteStallHorn ? "X-Plane Stall Horn: Off" : "X-Plane Stall Horn: On"
     );
 
     XPAddWidgetCallback(audioControlWidget, AudioControlHandler);
@@ -1827,7 +1901,13 @@ static void UpdateAOATextFields() {
 
     if (audioToggleCheckbox) {
         XPSetWidgetDescriptor(audioToggleCheckbox,
-                              audioEnabled ? "Sound: On" : "Sound: Off");
+                              audioEnabled ? "OnSpeed Tones: On" : "OnSpeed Tones: Off");
+    }
+
+    if (widgetButtonStallHorn) {
+        XPSetWidgetDescriptor(widgetButtonStallHorn,
+                              bMuteStallHorn ? "X-Plane Stall Horn: Off"
+                                             : "X-Plane Stall Horn: On");
     }
 }
 
@@ -1903,38 +1983,24 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
     const char* tag = static_cast<const char *>(iRef);
     if (!strcmp(tag, "Show")) {
         if (!audioControlWidget) {
+            ClampAudioWindowOnScreen();
             CreateAudioControlWindow(s_audioWindow.left,  s_audioWindow.top,
                                      s_audioWindow.width, s_audioWindow.height);
         } else if (!XPIsWidgetVisible(audioControlWidget)) {
             XPShowWidget(audioControlWidget);
             UpdateAOATextFields(); // Update text fields when showing the window
+        } else {
+            XPHideWidget(audioControlWidget);
         }
-        // Refresh after showing so s_audioWindow.visible reflects the
-        // open *and* any unflushed drag/resize the periodic poll
-        // hadn't picked up yet.  Persist if anything changed so a
-        // reboot reopens automatically at the right place.
+        // Refresh after the toggle so s_audioWindow.visible reflects
+        // the new open/closed state *and* any unflushed drag/resize
+        // the periodic poll hadn't picked up yet.  Persist if
+        // anything changed so a reboot reopens (or stays closed) at
+        // the right place.
         RefreshAudioWindowState();
         if (AudioWindowChanged()) {
             SaveSettings();
         }
-        return;
-    }
-    if (!strcmp(tag, "MuteStallHorn")) {
-        bMuteStallHorn = !bMuteStallHorn;
-        if (g_MuteStallHornItemIdx >= 0)
-            XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
-                bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
-        // When toggling off, restore whatever the .acf originally
-        // specified (captured the first time we muted for this
-        // aircraft) rather than blindly writing 1.  CheckAOAAndPlayTone
-        // only writes acf_has_stallwarn while the override is active,
-        // so toggling off would otherwise leave the sim's horn disabled
-        // until the next aircraft reload.
-        if (!bMuteStallHorn && acfHasStallwarnDataRef &&
-            g_iAcfHasStallwarnOriginal >= 0) {
-            XPLMSetDatai(acfHasStallwarnDataRef, g_iAcfHasStallwarnOriginal);
-        }
-        SaveSettings();
         return;
     }
 #ifdef ENABLE_M5_INDEXER
@@ -1966,18 +2032,6 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
             SetSerialPort(p);
             return;
         }
-    }
-    // IndexerMode<N> entries: parse the trailing digit.
-    if (!strncmp(tag, "IndexerMode", 11)) {
-        const int mode = tag[11] - '0';
-        // Show first — on first-time Show, the indexer's lazy-init
-        // resets displayType to 0 as part of InstallPanelAndRunSetup.
-        // SetMode AFTER so our requested mode wins.
-        if (!onspeed_xplane::indexer::IsVisible())
-            onspeed_xplane::indexer::Show();
-        onspeed_xplane::indexer::SetMode(mode);
-        SaveIndexerWindowState();   // immediate persist of mode change
-        return;
     }
 #endif
 }
@@ -2511,36 +2565,12 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
     // The SDK takes a non-const void* for menu item refcons; the matching
     // handler casts it back to const char* before strcmp. Discriminator
     // string is a literal — never written through the void*.
-    XPLMAppendMenuItem(menuId, "Show",
+    XPLMAppendMenuItem(menuId, "Settings: Show/Hide",
                        static_cast<void*>(const_cast<char*>("Show")), 1);
 
-    XPLMAppendMenuSeparator(menuId);
-    g_MuteStallHornItemIdx = XPLMAppendMenuItem(menuId,
-        "Mute X-Plane stall horn",
-        static_cast<void*>(const_cast<char*>("MuteStallHorn")), 1);
-    XPLMCheckMenuItem(menuId, g_MuteStallHornItemIdx,
-        bMuteStallHorn ? xplm_Menu_Checked : xplm_Menu_Unchecked);
-
 #ifdef ENABLE_M5_INDEXER
-    // Indexer menu items.  Discriminator strings are literals, never
-    // written through the void* refcon.  AudioMenuHandler dispatches
-    // on strcmp.
-    XPLMAppendMenuSeparator(menuId);
     XPLMAppendMenuItem(menuId, "Indexer: Show/Hide",
                        static_cast<void*>(const_cast<char*>("IndexerToggle")), 1);
-    // Names mirror tools/web/lib/pages/IndexerPage.js MODES table.
-    // Refcons stay "IndexerMode0..4" (the strcmp discriminator the
-    // handler dispatches on); only the user-visible labels change.
-    XPLMAppendMenuItem(menuId, "Energy",
-                       static_cast<void*>(const_cast<char*>("IndexerMode0")), 1);
-    XPLMAppendMenuItem(menuId, "Attitude",
-                       static_cast<void*>(const_cast<char*>("IndexerMode1")), 1);
-    XPLMAppendMenuItem(menuId, "Indexer",
-                       static_cast<void*>(const_cast<char*>("IndexerMode2")), 1);
-    XPLMAppendMenuItem(menuId, "Decel",
-                       static_cast<void*>(const_cast<char*>("IndexerMode3")), 1);
-    XPLMAppendMenuItem(menuId, "Historic G",
-                       static_cast<void*>(const_cast<char*>("IndexerMode4")), 1);
 
     // USB-serial submenu — routes the same wire frames to a physical
     // M5Stack so a Core2 plugged into a USB-C port behaves like a
