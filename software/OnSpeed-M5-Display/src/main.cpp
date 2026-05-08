@@ -1533,12 +1533,17 @@ void displayDecelGauge()
     gdraw.fillRect(109,87,102,36,TFT_GREEN);
     gdraw.drawRoundRect(109,1,102,210,5,TFT_LIGHT_GREY);
 
-    int decelIndex=int(35.143*SmoothedDecelRate+141.48-3.5); // 3.5 is half the indexer pointer height
-    decelIndex=constrain(decelIndex,2,205);
+    // Index pointer hides when air data is invalid; gauge background, green
+    // band, ticks, and labels keep rendering as static aerodynamic
+    // reference.  Matches the IAS / percentLift dashing pattern.  See #484.
+    if (IasIsValid)
+    {
+        int decelIndex=int(35.143*SmoothedDecelRate+141.48-3.5); // 3.5 is half the indexer pointer height
+        decelIndex=constrain(decelIndex,2,205);
 
-    // draw index pointer
-    gdraw.fillRect (109, decelIndex, 102, 7, TFT_WHITE);
-    gdraw.drawRect (109, decelIndex, 102, 7, TFT_BLACK);
+        gdraw.fillRect (109, decelIndex, 102, 7, TFT_WHITE);
+        gdraw.drawRect (109, decelIndex, 102, 7, TFT_BLACK);
+    }
 
     // gauge numbers
     gdraw.setFont(FSS9);
@@ -1615,10 +1620,18 @@ void displayDecelGauge()
         gdraw.print("--");
         }
 
-    char DecelStr[6];
-    snprintf(DecelStr, sizeof(DecelStr), "%+1.1f", displayDecelRate);
-    gdraw.setCursor(DEC_RIGHT_X - (int)gdraw.textWidth(DecelStr), DEC_NUM_Y);
-    gdraw.print(DecelStr);
+    if (IasIsValid)
+    {
+        char DecelStr[6];
+        snprintf(DecelStr, sizeof(DecelStr), "%+1.1f", displayDecelRate);
+        gdraw.setCursor(DEC_RIGHT_X - (int)gdraw.textWidth(DecelStr), DEC_NUM_Y);
+        gdraw.print(DecelStr);
+    }
+    else
+    {
+        gdraw.setCursor(DEC_RIGHT_X - (int)gdraw.textWidth("--"), DEC_NUM_Y);
+        gdraw.print("--");
+    }
 }
 
 

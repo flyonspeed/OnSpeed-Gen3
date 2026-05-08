@@ -155,21 +155,24 @@ export const Mode2 = ({ r, stale }) => html`
 
 // --- Mode 3: Decel Display ------------------------------------------------
 //
-// The decel pointer reflects IAS-derivative state, not AOA validity, so
-// it draws unconditionally — same as the M5 hardware page.
-//
 // `decelRateSmoothed` is the EMA(α=0.04 @ 20 Hz) version of `r.decelRate`
 // computed by the parent (IndexerPage's useDecelEma hook).  Matches the
 // M5 firmware's `SmoothedDecelRate` (SerialRead.cpp:344) in
 // time-constant during normal continuous operation — both surfaces poll
 // at 20 Hz and use the same alpha.  Falls back to the raw `r.decelRate`
 // for the very first frame, before the EMA has seeded.  Bug #362.
+//
+// Gauge background, green band, ticks, and labels render unconditionally
+// (aerodynamic reference, not live data).  The moving pointer hides and
+// the Kt/s digit dashes when air data is invalid — matches IAS / percentLift
+// dashing pattern the rest of the indexer uses.  See #484.
 export const Mode3 = ({ r, stale, decelRateSmoothed }) => {
   const flashFlag = flashFlagNow();
+  const aoaIsValid = r.aoaIsValid !== false;
   const decelDisplay = decelRateSmoothed != null ? decelRateSmoothed : (r.decelRate || 0);
   return html`
     <${Panel} stale=${stale}>
-      <${DecelGauge} decelRate=${decelDisplay} />
+      <${DecelGauge} decelRate=${decelDisplay} dataValid=${aoaIsValid} />
       <${SlipBall} lateralG=${r.lateralG} percentLift=${r.percentLift}
                    stallWarn=${r.stallWarnPctLift} flashFlag=${flashFlag}
                    x=${G.MODE3_SLIP_X} y=${G.MODE3_SLIP_Y}
@@ -192,7 +195,7 @@ export const Mode3 = ({ r, stale, decelRateSmoothed }) => {
           labelX=${G.MODE3_CORNER_LEFT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
           numX=${G.MODE3_CORNER_LEFT_NUM_X} numY=${G.MODE3_CORNER_NUM_Y} />
       <${CornerReadout} label="Kt/s"
-          value=${fmtNum(decelDisplay, 1, true)}
+          value=${aoaIsValid ? fmtNum(decelDisplay, 1, true) : '—'}
           labelX=${G.MODE3_CORNER_RIGHT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
           numX=${G.MODE3_CORNER_RIGHT_X} numY=${G.MODE3_CORNER_NUM_Y} anchor="end" />
     <//>`;
