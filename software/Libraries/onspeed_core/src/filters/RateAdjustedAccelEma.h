@@ -38,6 +38,8 @@
 
 #include <cmath>
 
+#include <ahrs/Ahrs.h>
+
 namespace onspeed::filters {
 
 // ---------------------------------------------------------------------------
@@ -46,14 +48,36 @@ namespace onspeed::filters {
 // Derived from kAccSmoothing (Ahrs.cpp) at the IMU sample rate:
 //   τ = -(1/208) / ln(1 − 0.060899) ≈ 0.076516 s
 //
-// If kAccSmoothing in Ahrs.cpp changes, this constant must be updated to
-// match: recompute with  τ = -(1/imuHz) / ln(1 − kAccSmoothing).
+// If kAccSmoothing changes, this constant must be updated to match:
+// recompute with  τ = -(1/imuHz) / ln(1 − kAccSmoothing).
 //
-// Cross-reference: software/Libraries/onspeed_core/src/ahrs/Ahrs.cpp
-//   constexpr float kAccSmoothing = 0.060899f;  // EMA alpha for accels
-//   (running at imuSampleRateHz = 208 Hz)
+// Cross-reference: software/Libraries/onspeed_core/src/ahrs/Ahrs.h
+//   inline constexpr float kAccSmoothing = 0.060899f;  // EMA alpha for accels
+//   (running at imuSampleRateHz = 208 Hz; formerly in anon namespace in Ahrs.cpp)
 // ---------------------------------------------------------------------------
 inline constexpr float kAccelEmaTauSec = 0.076516f;
+
+// Compile-time consistency: kAccelEmaTauSec must be the τ that produces
+// ::onspeed::ahrs::kAccSmoothing as α at 208 Hz.  If the firmware filter
+// is ever retuned, this assert forces the τ to be updated alongside it (or
+// this header to be regenerated).  The alternative — silent drift between
+// firmware α and replay τ — would produce subtly wrong replay output that
+// no other test catches.
+//
+// The agreed-upon pair (α=0.060899, τ=0.076516) satisfies
+//   α = 1 − exp(−(1/208) / τ)
+// within 2e-7.  We verify both constants remain within a tight numeric band;
+// changing either fails the build with an actionable message.  To update:
+//   new τ = −(1/imuHz) / ln(1 − new_α)
+// then adjust the bounds below and in kAccSmoothing's declaration in Ahrs.h.
+static_assert(::onspeed::ahrs::kAccSmoothing > 0.060898f &&
+              ::onspeed::ahrs::kAccSmoothing < 0.060900f,
+              "ahrs::kAccSmoothing changed; recompute kAccelEmaTauSec = "
+              "-(1/208) / ln(1 - kAccSmoothing) and update the bounds here.");
+static_assert(kAccelEmaTauSec > 0.07651f && kAccelEmaTauSec < 0.07652f,
+              "kAccelEmaTauSec changed; verify it matches ahrs::kAccSmoothing "
+              "via tau = -(1/208) / ln(1 - kAccSmoothing) and update bounds. "
+              "See PLAN_FIRMWARE_LOG_REPLAY_PARITY.md.");
 
 // ---------------------------------------------------------------------------
 // RateAdjustedAccelEma

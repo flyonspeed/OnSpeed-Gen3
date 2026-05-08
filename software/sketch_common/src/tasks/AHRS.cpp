@@ -19,7 +19,9 @@ using onspeed::accelRoll;
 // Smoothing alpha for the legacy EMA accel filters.  Kept here only so
 // the filter objects on the AHRS class can be constructed with the same
 // coefficient as core (cosmetic — `update()` is never called on them).
-static constexpr float kAccSmoothing = 0.060899f;
+// Source the constant from the public AHRS header to keep all three sites
+// in sync; see the static_assert in RateAdjustedAccelEma.h.
+static constexpr float kAccSmoothing = onspeed::ahrs::kAccSmoothing;
 
 // ----------------------------------------------------------------------------
 

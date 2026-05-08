@@ -16,6 +16,7 @@
 // The flight-truth test (awaiting Issue #485) is in test_flight_truth.cpp.
 
 #include <unity.h>
+#include <ahrs/Ahrs.h>
 #include <filters/RateAdjustedAccelEma.h>
 #include <cmath>
 #include <limits>
@@ -31,8 +32,10 @@ using onspeed::filters::kAccelEmaTauSec;
 static constexpr float kLogHz      = 50.0f;
 // Firmware IMU rate (used in math-verification test).
 static constexpr float kFirmwareHz = 208.0f;
-// Firmware accel EMA alpha (from Ahrs.cpp — cross-reference verified by test below).
-static constexpr float kFirmwareAlpha = 0.060899f;
+// Firmware accel EMA alpha — sourced from the public AHRS header so retuning
+// the firmware filter automatically updates this test.  Previously hand-copied;
+// static_assert in RateAdjustedAccelEma.h keeps the τ in sync.
+static constexpr float kFirmwareAlpha = ::onspeed::ahrs::kAccSmoothing;
 
 // ============================================================================
 // Helper: discrete-time EMA frequency response magnitude.
