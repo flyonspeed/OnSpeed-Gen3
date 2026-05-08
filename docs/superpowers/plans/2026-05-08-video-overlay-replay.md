@@ -274,19 +274,78 @@ bugs, no color-zone arcs, no gradients. Minimal HUD elements.
 The widget gallery page accelerates this dramatically — Sam can
 review each widget in isolation in seconds.
 
-### Step 4 — Layer 3 chrome (presets, toggles, drag-position)
+### Step 4 — Layer 3 chrome (declarative layout, toggles, drag-edit)
+
+**Inspired by `gopro-dashboard-overlay`'s nested-translate XML
+layout system.** Single source of truth: a JSON layout file with
+composable groups, source-controllable, shareable across pilots.
+Drag-to-edit UI reads/writes the same JSON.
 
 **What ships:**
-- **Layout JSON files.** `tools/web/lib/replay/layouts/{full_hud,minimal,indexer_only}.json`. Each declares `[{ widgetId, anchor, offset, size }]`.
-- **Per-widget toggle UI.** Row of checkboxes under the mode buttons. Stored in component state, persists to localStorage.
-- **Drag-to-position.** "Edit layout" button enters a mode where each visible widget gets a drag handle + dashed outline. Drag = move (clamped to viewport, snaps to 8 anchor points within 16 px). Click outside = exit edit mode.
-- **Reset to preset** button.
-- **Critical hookup:** export pipeline must read live `overlayPos` per widget so exported video matches what the pilot sees.
 
-**Default loadout on first visit:** indexer + airspeed tape + altitude/VSI + slip + attitude. Heading off (depends on EFIS).
+a) **Declarative layout file** at `lib/replay/layouts/default.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "name":          "default-hud",
+  "groups": [
+    {
+      "name":      "right-cluster",
+      "translate": { "right": 12, "bottom": 56 },
+      "widgets": [
+        { "type": "indexer",        "size": 0.22 },
+        { "type": "altitude-tape",  "translate": { "y": -0.05 } }
+      ]
+    },
+    {
+      "name":      "airspeed-tape-left",
+      "translate": { "left": 12, "bottom": 56 },
+      "widgets":  [{ "type": "airspeed-tape", "size": 0.18 }]
+    },
+    {
+      "name":      "slip-ball-bottom",
+      "translate": { "centerX": 0.5, "bottom": 80 },
+      "widgets":  [{ "type": "slip-ball", "size": 0.10 }]
+    }
+  ]
+}
+```
+
+   Composable nested transforms: move a group, move all children
+   together. Shareable: Vac sends his preferred layout to another
+   pilot via one JSON file.
+
+b) **Two preset layouts shipped**: `default.json` (the one above —
+   indexer + airspeed + altitude/VSI + slip + attitude),
+   `indexer-only.json` (just the indexer, current behavior).
+
+c) **Per-widget toggle UI**: row of checkboxes under the mode
+   buttons. Toggling = visibility flag, NOT layout-edit. Toggle
+   off, the widget hides; toggle back on, it's at the same
+   position. Persisted to localStorage as a separate visibility
+   layer over the layout JSON.
+
+d) **Drag-to-edit mode**: "Edit layout" button enters a mode where
+   each widget gets a drag handle + dashed outline. Drag a
+   widget = move within its group. Drag a group label = move the
+   whole group. Snap to 8 anchor points within 16 px. Click
+   outside = exit. **Edit mode reads/writes the JSON layout state**
+   (saved to localStorage as an override).
+
+e) **Reset to default** button: drops localStorage override, falls
+   back to `default.json`.
+
+f) **Critical hookup**: export pipeline must read the live layout
+   state and rasterize each widget at its current position. Same
+   widgets, same positions, exported video matches preview.
+
+**Default visibility on first visit:** indexer, airspeed tape,
+altitude/VSI, slip ball, attitude indicator. Heading off (depends on
+EFIS data presence — only renders when `record.magHeadingDeg` is finite).
 
 **Owner:** UI-heavy agent dispatch; needs Layer 2 widgets shipped first.
-**Effort:** ~1-2 days.
+**Effort:** ~2 days (was 1-2; layout-as-JSON adds nuance).
 
 ### Step 5 — Layer 4 timeline interactions
 
@@ -715,6 +774,40 @@ answer:
 | **Test export from prior session** | `~/Desktop/replay-export-test.webm` |
 
 ---
+
+## Lessons from prior art
+
+[**gopro-dashboard-overlay**](https://github.com/time4tea/gopro-dashboard-overlay)
+is the closest analog to what we're building (telemetry overlay on
+action-cam video). Reviewed for lessons on 2026-05-08.
+
+**What we adopted:**
+- **Composable-nested-translate layout file** (their XML → our JSON).
+  Layouts are source-controllable, shareable, diffable. See Layer 3
+  redesign above.
+- **Hardware-accelerated encode = 17× realtime** (their NVENC → our
+  WebCodecs/VideoToolbox). Validates the "faster than realtime"
+  promise is real.
+- **"Overlay only" mode** — render an indexer animation against a
+  black backdrop with no source video. Future feature, not Phase 1.
+
+**What we deliberately didn't copy:**
+- **Server-side Python orchestrating FFmpeg.** They're a CLI tool
+  that ships a Docker image. We're a browser tool with live
+  preview. WebCodecs gives us the same speed without the
+  orchestration cost.
+- **Vendored map-tile system (Geotiler).** We don't need a route map
+  for OnSpeed. Avoiding that whole world of pain (tile licensing,
+  attribution, server agreements).
+- **Two rendering backends** (Pillow + Cairo). They have legacy
+  reasons for both; we're SVG-only and that's enough.
+- **XML format.** We use JSON because we're browser-native; XML's
+  composability advantage is preserved via nested groups in JSON.
+
+**Privacy note worth documenting**: exported videos contain raw
+flight data — times, altitudes, configurations, occasionally GPS.
+Add a one-line warning to user-facing replay docs (Step 7) that
+pilots should review before public sharing.
 
 ## Commit history on this branch
 
