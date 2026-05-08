@@ -167,32 +167,63 @@ When testing, prefer `~/Downloads/onspeed2_latest.cfg` (newer V2 with
 ALPHA0 populated). The older `2_11_26_config.cfg` works but produces
 visibly-wrong percent-lift in the lower band.
 
-### 3. The SD log writes RAW IMU values; firmware EMA happens on the wire
+### 3. Log carries raw IMU; wire carries AHRS-filtered IMU; replay must rate-adjust
 
-The firmware reads IMU at 208 Hz, applies EMA smoothing
-(α=0.060899), and emits the smoothed values on the M5 wire / JSON.
-**The SD log captures the raw pre-EMA `Ay` / `Az` / `Ax` values at
-50 Hz** (`g_pIMU->Ay`, etc., in `tasks/LogSensor.cpp`).
+**The actual data flow** (verified by reading the code, not by
+reasoning from constants):
 
-For replay to look like what the M5 displayed in flight, the EMA
-needs to see input at 208 Hz — same rate firmware feeds it during
-flight.
+- The IMU chip (LSM6) is configured for **208 Hz output rate** with
+  a **67 Hz analog LPF** (`IMU330.cpp:77`, `:89`).
+- The AHRS engine (`onspeed_core/ahrs/Ahrs.cpp:317/341`) runs an EMA
+  on `accelLatCorr_` at IMU update rate with **α=0.060899**.
+  Continuous-time τ ≈ 0.079 s.
+- The wire's `lateralG` reads from `g_AHRS.AccelLatFilter.get()`
+  (`io/DisplaySerial.cpp:368`) which is `seed()`-mirrored from
+  `core_.accelLatSmoothedG()` once per AHRS tick (`AHRS.cpp:112`).
+  So the wire IS the engine's filter output.
+- The SD log writes raw `g_pIMU->Ay` into the `LateralG` column
+  (`LogSensor.cpp:552`) at 50 Hz log rate. **Unfiltered.**
+- Same story for `VerticalG` and `ForwardG`. Other channels:
+  `pitchDeg` / `rollDeg` are log-side already-smoothed (`g_AHRS.SmoothedPitch/Roll`);
+  AOA is also log-side already-smoothed (`g_Sensors.AOA` post-EMA).
+  Lateral / vertical / forward G are uniquely the channels where the
+  wire is filtered and the log is raw.
 
-**Today's situation (pre-`PLAN_FIRMWARE_LOG_REPLAY_PARITY.md`)**: the
-JS Replay tool patches over this with a variable-dt EMA tuned to
-`KACC_TAU_S = 0.50` in `lib/replay/logReplay.js`. It's a hand-tuned
-approximation, not a correct re-execution of the firmware filter.
+**What replay must do**: the log captures one in every ~four IMU
+samples, unfiltered. Replay can't perfectly reproduce the wire (the
+high-frequency content the firmware filter rejected isn't in the
+log), but it CAN come as close as 50 Hz data permits — by applying
+a **rate-adjusted EMA** whose continuous-time τ matches the
+firmware's. At 50 Hz with τ=0.079s, that's α'=0.224.
 
-**Target situation (post-firmware-LogReplay-parity + WASM)**:
-firmware LogReplay up-samples 50 Hz log input to 208 Hz at ingest
-(linear interp), feeds the unchanged α=0.060899 filter, and emits
-the same wire output flight produced. The Replay tool calls into
-the WASM build of LogReplay and inherits this behavior. The
-`KACC_TAU_S` constant and variable-dt code in JS get deleted.
+That's the v3 fix. See `PLAN_FIRMWARE_LOG_REPLAY_PARITY.md`.
 
-**While the JS patch still exists**: if you're tempted to lower
-`KACC_TAU_S`, test against a real calm-cruise segment of a flight
-video before merging. The slip ball will visibly twitch otherwise.
+**What replay does NOT do**:
+
+- **Doesn't add log columns.** Schema is preserved; old offline
+  tools keep reading old logs.
+- **Doesn't re-run AHRS at 50 Hz.** Filtering the raw channel
+  directly with rate-adjusted α is strictly better than running AHRS
+  on under-sampled data.
+- **Doesn't over-smooth for video readability.** Replay shows what
+  the M5 saw. The M5 IS jittery in real flight — 30+ mg of
+  sample-to-sample noise during turns and maneuvering. That jitter
+  is real flight; replay should show it. The current JS
+  `KACC_TAU_S = 0.50` is a workaround that produces output 6× more
+  smoothed than the firmware actually emits; it's deleted in
+  Sub-task 2.
+
+**The historical PR #475 mistake**: claimed the firmware ran an EMA
+at 208 Hz and LogReplay drove that same filter at the wrong rate.
+False premise — there are TWO EMAs and only one runs at 208 Hz.
+Bulldog caught it (the AOA EMA actually runs at 50 Hz; the 208 Hz
+filter is the AHRS accel EMA which lives in the engine, not in
+`LogReplay.cpp`). PR closed.
+
+**The historical "log the smoothed channel" v2 plan**: drafted but
+never implemented. Schema changes are expensive (every offline tool
+that reads OnSpeed logs has to update); when the same fix can be
+done in math (rate-adjusted filter), prefer math.
 
 ### 4. Old SD logs don't carry `flapsRawADC`
 

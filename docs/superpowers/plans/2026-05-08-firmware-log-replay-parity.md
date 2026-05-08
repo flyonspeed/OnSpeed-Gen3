@@ -1,6 +1,6 @@
-# PLAN_FIRMWARE_LOG_REPLAY_PARITY.md — Firmware LogReplay Closes the Gaps
+# PLAN_FIRMWARE_LOG_REPLAY_PARITY.md — Replay Shows What the M5 Saw
 
-**Date:** 2026-05-08
+**Date:** 2026-05-08 (v3 — supersedes prior premises; v1 had the wrong filter, v2 added unnecessary log columns).
 **Owner:** Sam
 **Status:** Proposed.
 **Sequenced:** BEFORE `PLAN_WASM_CORE.md` Step 2 (the streaming-pipeline binding).
@@ -8,388 +8,406 @@
 
 ## The thesis
 
-> Firmware LogReplay mode should produce, from an SD log, the same wire
-> output the firmware produced live during that flight. Today it
-> doesn't — the JS Replay tool papers over two firmware-side gaps. Fix
-> them in firmware. The Replay tool then inherits correct behavior for
-> free via the WASM build.
+> Replay shows what the M5 saw. The log captures raw IMU at 50 Hz;
+> the wire's slip-ball lateral-g comes from a 208 Hz EMA in the AHRS
+> engine. Replay can't perfectly reproduce the wire because the high-
+> frequency content the firmware filter rejected isn't in the log —
+> but it can come as close as the 50 Hz data permits, by applying a
+> **rate-adjusted EMA** whose continuous-time τ matches the firmware's.
+> No log schema change, no UI presentation hack, no "make the video
+> calmer than flight" — just: filter the raw column with the right α
+> for 50 Hz so the result matches the M5's display behavior.
 
-## The two gaps
+## What this is NOT
 
-### Gap 1 — IMU EMA at log rate
+- **NOT** "make replay videos watchable" through over-smoothing.
+  Replay shows what the M5 saw. The M5 IS jittery in flight; the
+  replay should be too. The current JS `KACC_TAU_S = 0.50` over-
+  smooths to something calmer than the M5's actual output — that's a
+  workaround we're closing, not a feature we're keeping.
+- **NOT** adding new log columns. The log captures raw `g_pIMU->Ay`;
+  that's enough.
+- **NOT** re-running AHRS at 50 Hz inside replay. Filtering the raw
+  channel directly with rate-adjusted α gives a strictly better
+  approximation than running AHRS on under-sampled data.
 
-The firmware reads IMU at **208 Hz** and applies a fixed-α EMA
-(α=0.060899). Continuous-time τ ≈ 0.0741 s.
+## What we got wrong, twice
 
-The SD log records **raw, pre-EMA** `Ax/Ay/Az` at the log rate
-(50 Hz on default builds, 208 Hz only when the user sets
-`iLogRate=208`).
+**v1 (PR #475, closed):** claimed the firmware ran an EMA at 208 Hz
+and LogReplay drove that same filter at the wrong rate. Bulldog
+caught it: the AOA EMA runs natively at 50 Hz inside `SensorIO::Read`
+(`HardwareMap.h:257`, `kPressureSampleRateHz=50`); the 208 Hz / α=0.060899
+filter is the AHRS accel EMA which lives inside the engine
+(`onspeed_core/ahrs/Ahrs.cpp:317`), not in the LogReplay code path.
+Upsampling at ingest was solving a non-problem on the wrong filter.
+PR closed.
 
-When LogReplay reads back a 50 Hz log and feeds those samples to the
-*same* fixed-α EMA, every sample carries 4× more weight per real
-second than it did in flight. The effective continuous-time τ shrinks
-to ~0.018 s. The replayed wire output looks visibly twitchier than
-flight.
+**v2 (briefly):** proposed adding new "smoothed" columns to the SD
+log. Unnecessary — the existing raw column plus the right filter at
+the right rate produces faithful output. Avoids touching the schema
+(every offline tool that reads OnSpeed logs gets to keep its parser
+unchanged).
 
-This is not an algorithmic bug in the EMA. It's a **rate-coupling
-bug** in LogReplay: the filter is being driven at the wrong sample
-rate.
+This is v3. We finally read the actual code paths and the real
+flight data, and the math agrees with the architecture.
 
-### Gap 2 — Missing `flapsRawADC` column in old logs
+## How the data actually flows
 
-Logs from before ~PR #221 don't carry the raw flap-pot ADC. The
-firmware's `FlapsDetector` snaps to the nearest detent before logging,
-so old logs only contain the snapped detent integer. Mid-detent
-fractions are lost.
+```
+Live flight:
+  g_pIMU->Ay (raw, 208 Hz inside g_pIMU updates)
+       │
+       │ Ahrs::Step() at IMU rate (208 Hz)
+       ▼
+  core_.accelLatFilter_.update(accelLatCorr_)         # α=0.060899
+       │
+       │ via PublishCoreState_, AccelLatFilter.seed(...)
+       ▼
+  g_AHRS.AccelLatFilter.get()  ──►  inputs.lateralG  ──►  WIRE  ──►  M5 slip ball
 
-The L/Dmax pip on the M5 indexer is a function of `flapsRawADC` (the
-firmware morphs the pip linearly between detents during a flap
-movement). Without raw ADC, the pip jumps at every detent transition
-on replay.
-
-The JS Replay tool today synthesizes a fake ADC sweep across detent
-transitions (smoothstep windows centered on the snap tick — mirrors
-the firmware's flip-at-midpoint physics). This works but it's a
-patch outside the spec.
-
-## Where the fixes live — engine extraction
-
-`software/sketch_common/src/tasks/LogReplay.cpp` today is a FreeRTOS
-task that owns SD-card reads, button mocks, LED blink, and the
-per-row processing loop all in one file. It uses `Arduino.h`,
-`FreeRTOS.h`, and `millis()` — not platform-free. WASM Step 2 from
-`PLAN_WASM_CORE.md` cannot bind it as-is.
-
-**Precedent: `software/sketch_common/src/tasks/AHRS.cpp`.** That task
-is a thin wrapper around `software/Libraries/onspeed_core/src/ahrs/Ahrs.{h,cpp}`.
-The task owns FreeRTOS scheduling and the `g_pIMU` snapshot; the engine
-in `onspeed_core/ahrs/` owns Madgwick / EKF6 math. This is the model.
-
-**LogReplay needs the same split.** Both Fix 1 and Fix 2 (and the
-existing per-row work) belong in a new
-`software/Libraries/onspeed_core/src/replay/LogReplayEngine.{h,cpp}`.
-The engine surface is roughly:
-
-```cpp
-namespace onspeed::replay {
-
-struct LogRow {            // raw values from one CSV row
-  float ax, ay, az, gx, gy, gz;
-  float ias, palt, oat;
-  int   flapsRawAdc;       // -1 if column missing
-  int   flapDetentDeg;     // snapped detent from log
-  uint32_t timestampMs;
-  // ... etc.
-};
-
-struct WireRecord {        // what the M5 receives
-  // ... existing display-frame fields ...
-};
-
-class LogReplayEngine {
-public:
-  LogReplayEngine(const ConfigStruct& cfg, int logSampleRateHz,
-                  bool flapsRawAdcAvailable);
-  WireRecord step(const LogRow& row);  // pure function over engine state
-  // No millis(), no SD-card, no FreeRTOS.
-};
-
-}  // namespace onspeed::replay
+Separately, at 50 Hz log tick:
+  g_pIMU->Ay  ──►  log column LateralG    (RAW — same source value, but at the
+                                            log tick instead of the IMU tick)
 ```
 
-`software/sketch_common/src/tasks/LogReplay.cpp` retains its
-FreeRTOS task scaffolding (queue draining, SD-card reads, button
-mocks, LED blink, USB-CDC writes) but delegates the per-row
-`(raw_row → wire_record)` work to `LogReplayEngine::step()`.
+Two different timelines, two different views. The wire timeline runs
+at 208 Hz with a low-pass filter. The log timeline runs at 50 Hz
+with no filter. The log captures one in every ~four IMU samples,
+unfiltered; the wire emits a smoothed running estimate over all
+four.
 
-`host_main replay` (PLAN_PYTHON_CONSOLIDATION Step 0) constructs a
-`LogReplayEngine` directly, drives it from a CSV reader, and writes
-JSONL to stdout — no FreeRTOS wrapper.
+## What "matches the M5" can mean given 50 Hz data
 
-The WASM build (PLAN_WASM_CORE Step 2) binds `LogReplayEngine`
-directly via embind. Same engine, three callers.
-
-`scripts/check_core_purity.sh` enforces that
-`onspeed_core/replay/LogReplayEngine` has no `Arduino.h`,
-`FreeRTOS.h`, or `millis()` references.
-
-## What firmware LogReplay should do
-
-### Fix 1 — Rate-correct EMA at ingest
-
-Two viable options. **Option A is preferred** (simpler, one code change).
-
-**Option A: Up-sample at ingest.** LogReplay reads each row at the
-log's actual rate, then up-samples to 208 Hz before feeding the EMA
-(linear interp or hold-last). The EMA sees what the firmware always
-sees. No filter changes.
-
-```cpp
-// pseudocode in LogReplay.cpp
-const int targetHz = 208;
-const int logHz = log.headerSampleRate;  // 50 or 208
-const int upsampleRatio = targetHz / logHz;  // 4 or 1
-
-for (each row in log) {
-  for (int k = 0; k < upsampleRatio; k++) {
-    interpolate(row, nextRow, k / upsampleRatio) -> sample;
-    g_pIMU->ApplyEma(sample);          // same fixed-α EMA
-    g_pIMU->Smoothed -> downstream;    // M5 wire, etc.
-  }
-}
+The firmware's filter is:
+```
+y[k+1] = (1-α) · y[k] + α · x[k+1]   at 208 Hz, α = 0.060899
+```
+Continuous-time τ:
+```
+τ ≈ -(1/Hz) / ln(1-α) ≈ 1 / (α·Hz) ≈ 0.079 s
 ```
 
-Side effect: the ingested wire stream is at 208 Hz internally. The
-downstream wire output to M5 is paced at its own 20 Hz, so the
-upsampling is invisible to consumers — only the EMA sees it.
-
-**Option B: Sample-rate-aware EMA.** Add a public
-`onspeed_core/filters/EMAFilter.h` constructor that takes an
-expected sample period. Adjust α at construct time so the
-continuous-time τ stays ~0.0741 s regardless of input rate. Then
-LogReplay swaps the filter for the right one based on log rate.
-
-```cpp
-// Continuous-time form: y[k+1] = y[k] + (1 - exp(-dt/tau)) * (x[k+1] - y[k])
-EMAFilter accelEma(/*tau_s=*/0.0741f, /*dt_s=*/1.0f / logHz);
+To match that τ at 50 Hz, with input dt=20ms:
+```
+α' = 1 - exp(-dt / τ) = 1 - exp(-(1/50) / 0.079) ≈ 0.224
 ```
 
-Option B is more honest (the filter genuinely is rate-aware). It also
-changes a struct used in flight-time code paths. **Option A is
-cheaper to land safely** and produces identical output to flight at
-208 Hz log rate; defer Option B unless real flight bench-replay shows
-Option A masks a defect.
+Applied to the same underlying signal, sampled at 50 Hz instead of
+208 Hz, the rate-adjusted EMA produces an output that — for
+band-limited signals (energy below 25 Hz Nyquist) — converges to
+the same value as the firmware's filter on the same physical signal.
+For signals with energy between 25 Hz and 67 Hz (the IMU's analog LPF
+bandwidth), the 50 Hz log has aliased content; rate-adjusted filtering
+can't recover that. **The bound on accuracy is determined by the
+flight's signal content, not the filter math.** A 208 Hz reference
+flight log (Sub-task 1's flight-truth test) tells us how big that
+bound actually is on real flights.
 
-### Fix 2 — Synthesize ADC sweep when missing
+A first-pass quantitative check on Sam's existing 50 Hz log shows
+the math at least produces the expected shape. On a 200-second
+high-activity segment:
 
-LogReplay knows the log version (header). When `flapsRawADC` column is
-absent, it synthesizes the same smoothstep sweep that lives in JS
-today, but in C++ in `LogReplay.cpp`.
+| filter | effective τ | output std | sample-to-sample jitter |
+|---|---|---|---|
+| raw | — | 0.128 g | 0.200 g |
+| firmware α=0.060899 at 50 Hz (naive, wrong rate) | 0.328 s | 0.025 g | 0.008 g |
+| rate-adjusted α=0.224 at 50 Hz | 0.079 s | 0.043 g | 0.031 g |
+| JS over-smooth τ=0.50 (today's workaround) | 0.500 s | 0.022 g | 0.005 g |
 
-The math is already a one-page port (the JS version is `synthLeverSweep`
-in `tools/web/lib/replay/logReplay.js`):
+Naive-firmware-α at log rate gives ~4× the smoothing the firmware
+actually applied (because at 50 Hz that α has 4× the time-constant).
+JS τ=0.50 is 6× the firmware's τ. **Rate-adjusted is the only one
+that matches the M5's actual display behavior.** Naive and JS are
+both over-smoothed by accident or for video aesthetics; both go
+away.
 
-1. **First pass**: fill every row's synth ADC with the *current*
-   detent's pot value. Rows in long mid-flight stretches don't
-   accidentally retain the initial value.
-2. **Second pass**: paint a smoothstep window centered on each detent
-   transition tick.
+## Sub-task 1 — Rate-adjusted accel EMA primitive
 
-`FlapsDetector` then runs against the synth ADC and produces correct
-fractional positions. The L/Dmax pip morphs smoothly. Nothing
-downstream knows the data was synthesized.
+What ships:
 
-When `flapsRawADC` IS present (newer logs), LogReplay ingests it
-verbatim. No synthesis.
+1. **`software/Libraries/onspeed_core/src/filters/RateAdjustedAccelEma.h`**
+   (header-only is fine if the math fits — class with `update()`,
+   `get()`, `reset()`, constructed with `(inputHz, targetTauSec)`).
+   Computes `α = 1 - exp(-(1/inputHz) / targetTauSec)` at construct
+   time. No platform deps. `check_core_purity.sh` enforces.
 
-## Acceptance — bench replay
+2. **A canonical constant for the firmware's accel-EMA target τ**
+   (≈0.079 s — derived from α=0.060899 at 208 Hz). Live in a header
+   alongside the firmware constant, so any change to the firmware
+   filter automatically updates the rate-adjusted target.
 
-The firmware-side fix is correct when:
+3. **Synthetic-signal tests** in `test/test_rate_adjusted_accel_ema/`:
+   - **Step input**: both filters (firmware-form at 208 Hz on the
+     original signal, rate-adjusted at 50 Hz on the decimated signal)
+     must converge to the same final value. Time-to-90% within
+     bounded tolerance.
+   - **Ramp**: same final value, bounded steady-state error.
+   - **Sine sweep at 1/5/10/20 Hz** (well below 25 Hz Nyquist):
+     output amplitudes must match within bounded tolerance.
+   - **Sine at 30 Hz** (above 50 Hz Nyquist, near 67 Hz IMU LPF
+     bandwidth): looser bound; documents the aliasing-induced gap.
+     Test asserts the gap is bounded but doesn't demand parity.
 
-1. Take an SD log from a recent flight (Sam's `4_11_26` log fits).
-2. Replay through LogReplay on the bench.
-3. Capture the M5 wire output.
-4. Compare against the wire output the firmware produced live during
-   that same flight (need either a contemporaneous wire dump, or
-   reconstruct expected wire output from the live-flight EFIS feed
-   the SD log captured).
+4. **A flight-truth test** scaffolded but **awaiting reference data**
+   (see Issue [TBD] — Sam recording a 208 Hz reference log). When
+   the log lands, the test:
+   - Reads the 208 Hz raw `Ay` column.
+   - Runs firmware-form filter (α=0.060899, dt=1/208) on it. This is
+     the "what the M5 actually saw" reference.
+   - Decimates to 50 Hz (every 4th sample), runs rate-adjusted filter
+     (α=0.224, dt=1/50) on the decimation.
+   - Sample-aligns and computes RMS divergence over the entire
+     flight.
+   - Asserts RMS divergence ≤ pinned tolerance (number TBD; ship the
+     measured number with the PR description).
 
-Slip ball, AOA bar, L/Dmax pip should all match flight to within a
-small float tolerance — no visible twitchiness, no detent-tick jumps.
+   Until the reference log exists, the synthetic tests are the gate.
 
-The native unit-test surface is a regression of `host_main replay`
-output against committed goldens (existing `tools/regression/run_snapshot.py`).
-A 50 Hz golden + a 208 Hz golden, both run through LogReplay, both
-producing wire output that matches the existing live-mode reference.
+5. **Optional firmware-side adoption**: the firmware's existing
+   `AccelLatFilter` (`AHRS.cpp:124`, currently a vestigial
+   `EMAFilter` mirror seeded from the engine output) can be replaced
+   with `RateAdjustedAccelEma(208, 0.079)`. Algebraically identical
+   for that input rate, but unifies the implementation — one filter
+   class, two construct-time configurations. Ship as a follow-on if
+   the diff is mechanical; defer if it surfaces hidden coupling.
 
-## Cascading benefit — Replay tool deletes its patches
+Effort: ~1 day (synthetic tests + class). Flight-truth test scaffold
+adds another ~half-day on top, deferred to whenever the reference
+log exists.
 
-After this lands, post-WASM `PLAN_WASM_CORE.md` Step 2 can delete:
+## Sub-task 2 — `LogReplayEngine` uses the filter
 
-- `tools/web/lib/replay/logReplay.js::KACC_TAU_S` and the variable-dt
-  EMA loop (~30 LOC).
-- `tools/web/lib/replay/logReplay.js::synthLeverSweep` (~50 LOC).
+What ships:
 
-The WASM-bound LogReplay does both correctly. The Replay tool just
-calls into it. Drift impossible by construction — the Replay tool and
-firmware run literally the same code on the same SD log.
+1. `LogReplayEngine` constructs three `RateAdjustedAccelEma`
+   instances (lateral, vertical, forward) at log rate. Per row,
+   feeds raw `imuLateralG` / `imuVerticalG` / `imuForwardG` through
+   them.
+2. `ReplayStepResult` exposes the smoothed values. `step()` no longer
+   passes raw IMU through to the wire-shaped output.
+3. Update existing characterization tests
+   (`test_log_replay_engine.cpp`):
+   - Pin numeric values for the smoothed channels using the
+     rate-adjusted output.
+   - Add at least one assertion against a real flight-log row using
+     the actual filter — pin the expected smoothed value to ≥4
+     decimals.
+4. JS Replay tool's `KACC_TAU_S = 0.50` and the variable-dt EMA loop
+   in `tools/web/lib/replay/logReplay.js` get **deleted** in this
+   sub-task or its immediate WASM follow-on. After WASM Step 2
+   binds the engine, JS calls into the same C++ that firmware-side
+   replay does. No JS over-smooth.
+5. `tools/regression/host_main.cpp::CmdReplay` — output schema
+   reflects the smoothed channels. Regenerate the snapshot golden
+   (`tools/regression/fixtures/replay_engine_golden.csv`).
 
-## What this does NOT change
+Effort: ~half-day.
 
-- Firmware behavior in flight. LogReplay is a separate mode (the
-  firmware enters it via console command or boot flag). Live flight
-  ingest paths are untouched.
-- The 208 Hz IMU EMA itself. Its α stays at 0.060899. We're fixing the
-  rate of input it sees in LogReplay mode, not the filter.
-- The Replay tool's UI, sync, marks, clip builder. Those stay JS.
+## Sub-task 3 — Synth `flapsRawADC` for old logs
 
-## Effort estimate
+Unchanged from prior versions. Logs from before ~PR #221 lack a raw
+flap-pot ADC column; without it, the L/Dmax pip jumps at every
+detent transition.
 
-~3-4 days, in 2-3 small PRs.
+What ships:
 
-- Day 1-2: **Engine extraction.** Move the per-row pipeline from
-  `sketch_common/src/tasks/LogReplay.cpp` into
-  `onspeed_core/src/replay/LogReplayEngine.{h,cpp}`. No behavior
-  change. Existing firmware LogReplay still produces the same
-  (twitchy, jumpy) output as before — but now via an engine call.
-  Bench-test: SD log replay matches its prior behavior bit-for-bit.
-  This is the riskiest PR; gets its own commit so it's reviewable.
-- Day 3: Fix 1 (Option A — up-sample at ingest, inside the engine).
-  Bench-test against a known SD log + flight reference.
-- Day 4: Fix 2 (synthesize ADC when column is missing, inside the
-  engine). Bench-test with an old (pre-PR-#221) log to verify pip
-  morphs smoothly.
+- `LogReplayEngine` detects a missing `flapsRawADC` column.
+- Synthesizes a smoothstep sweep across detent transitions
+  (mirrors firmware's flip-at-midpoint physics; the JS
+  `synthLeverSweep` is the math reference).
+- When the column IS present, ingests it verbatim.
 
-If bench tests reveal Option A masks something, cut over to Option B
-(another 0.5-1 day; structural change to `EMAFilter`).
+Effort: ~half-day.
 
-**Independence**: Fix 1 and Fix 2 can ship as separate PRs after the
-engine extraction lands. Engine extraction is the load-bearing PR;
-Fix 1 and Fix 2 are mechanical edits inside it.
+## Total effort
 
-## Why this is the right move
+~2 days, in 3 small PRs. Independent of each other except that
+Sub-task 2 depends on Sub-task 1's filter primitive existing.
 
-1. **Closes the last "Replay tool reimplements firmware" leak.** The
-   percent-lift, anchor, tone-decision, AHRS algorithms already live
-   in onspeed_core. The replay-mode rate adapter and ADC-synth gap are
-   the last firmware-shaped patches living in JS. They belong in
-   firmware.
-2. **Makes LogReplay genuinely useful.** "Plug in an SD card, see what
-   the M5 saw in flight" is the feature; today it's an approximation.
-3. **Eliminates one branch of post-WASM JS** — no special replay code
-   path. The WASM build is the firmware build.
-4. **Future SD-log ingest paths inherit the fix.** Any new tool that
-   loads SD logs (analysis, calibration replay, etc.) gets correct
-   behavior automatically.
+## What this DOES NOT change
+
+- Live flight behavior. The firmware's actual flight-time filter
+  (`core_.accelLatFilter_` at IMU rate) is unchanged. Optional
+  Sub-task 1 follow-on unifies the class but doesn't change behavior.
+- The SD log's columns. Schema is preserved; old offline tools keep
+  reading old logs as before.
+- The wire format. The M5 sees the same bytes it always did.
+- The Replay tool's UI, sync, marks, clip builder.
+
+## Cascading benefit
+
+After Sub-tasks 1 + 2:
+- `tools/web/lib/replay/logReplay.js::KACC_TAU_S` and variable-dt
+  EMA — deleted.
+- `tools/web/lib/replay/logReplay.js::synthLeverSweep` — moved into
+  the engine (Sub-task 3) or deleted if Sub-task 3 lands first.
+
+After WASM Step 2 binds the engine, JS Replay calls the same C++
+that the firmware-side replay path will use. The "compile, don't
+port" architecture finally extends to the replay path.
+
+## What we learned (bake into AGENT_CONTEXT)
+
+Three principles surfaced by this rewrite arc:
+
+1. **Trace the data path through actual firmware code before
+   specifying a fix.** PR #475 implemented exactly what its plan
+   said and was wrong because the plan had the wrong premise. Future
+   plans involving cross-module data flow must include "trace the
+   data path through the actual firmware code" as a verification
+   step.
+
+2. **Don't add log columns to fix a math problem.** Schema changes
+   are expensive (every offline tool that reads OnSpeed logs has to
+   update). When the same fix can be done in math (rate-adjusted
+   filter), prefer math.
+
+3. **Don't introduce presentation-only filtering disguised as
+   correctness.** The JS `KACC_TAU_S = 0.50` was tuned for "ball
+   looks calmer than the M5 displayed" — that was an aesthetic
+   choice in correctness clothing. Replay shows what the M5 saw.
+   Period. If a future feature wants different filtering for some
+   workflow, that's a separate visible toggle, not a hidden default.
+
+## Open work tracked as GitHub issues
+
+- **Issue: Record a 208 Hz reference flight log for filter validation.**
+  Sam set `iLogRate=208` in config and flies a representative pattern
+  (taxi → takeoff → climb → maneuvering turns → cruise → descent →
+  landing). The log file becomes a permanent test fixture for
+  Sub-task 1's flight-truth test. Until this exists, Sub-task 1
+  ships with synthetic-signal validation only.
 
 ## Dispatch prompts
 
-### PR 1 — Engine extraction (no behavior change)
+### Sub-task 1 prompt — Rate-adjusted accel EMA
 
 ```
-Extract the LogReplay per-row pipeline into onspeed_core. Behavior
-must not change in this PR.
+Implement Sub-task 1 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md (v3):
+build the rate-adjusted accel EMA primitive in onspeed_core, with
+synthetic-signal tests. Flight-truth test scaffolded but skipped
+until a 208 Hz reference log lands.
 
 WORKTREE: a fresh worktree off origin/master
 PLAN: docs/superpowers/plans/2026-05-08-firmware-log-replay-parity.md
-PRECEDENT: software/sketch_common/src/tasks/AHRS.cpp + software/
-           Libraries/onspeed_core/src/ahrs/Ahrs.{h,cpp}. AHRS is the
-           model: a thin task that delegates per-tick math to an
-           onspeed_core engine.
-COMPANION READING:
-  - software/sketch_common/src/tasks/LogReplay.cpp/h (the task today)
-  - software/Libraries/onspeed_core/src/ahrs/Ahrs.{h,cpp} (precedent)
-  - software/sketch_common/src/tasks/AHRS.cpp (precedent task wrapper)
-  - tools/web/lib/replay/logReplay.js (current JS patches, for context)
+PRECEDENT: software/Libraries/onspeed_core/src/filters/EMAFilter.h
+           (the existing fixed-α implementation; this is similar but
+           computes α from rate + tau)
 
 WHAT TO BUILD:
-  1. New software/Libraries/onspeed_core/src/replay/LogReplayEngine.{h,cpp}.
-     - Pure C++. No Arduino.h, no FreeRTOS.h, no millis(), no SD-card I/O.
-     - Constructor: takes ConfigStruct, log sample-rate hint,
-       flapsRawAdc-available bool.
-     - Method: WireRecord step(const LogRow& row).
-     - Holds whatever per-replay state is currently in LogReplay.cpp's
-       file-scope globals — EMA state, detent-tracker state, etc. —
-       as members.
-  2. Move the per-row processing code FROM sketch_common/src/tasks/
-     LogReplay.cpp INTO LogReplayEngine. Behavior preserved verbatim
-     (no rate fix yet, no ADC synth yet).
-  3. sketch_common/src/tasks/LogReplay.cpp retains its FreeRTOS task
-     scaffolding but constructs a LogReplayEngine and calls step()
-     per row. Test-pot mode + button mocks + LED blink stay where
-     they are.
-  4. tools/regression/host_main.cpp (or a new subcommand if
-     PLAN_PYTHON_CONSOLIDATION Step 0 has landed) gets a `replay`
-     subcommand that constructs a LogReplayEngine, reads CSV from
-     stdin or --input, writes JSONL to stdout. Used by future
-     regression fixtures.
-  5. Snapshot regression: extend tools/regression/run_snapshot.py
-     with a fixture covering LogReplay output. Output must bit-match
-     a committed golden generated from current behavior. (We're
-     freezing today's behavior so Fix 1/Fix 2 PRs can show diffs.)
+  1. New software/Libraries/onspeed_core/src/filters/RateAdjustedAccelEma.h.
+     Constructor: (inputHz, targetTauSec). Method: update(value),
+     get(), reset(). Computes alpha = 1 - exp(-(1/inputHz) /
+     targetTauSec). No platform deps. Header-only.
+  2. A header constant for the firmware accel filter's target tau:
+     onspeed::filters::kAccelEmaTauSec ≈ 0.079f, derived from the
+     existing α=0.060899 at 208 Hz. Live alongside the firmware
+     constant so they can't drift.
+  3. test/test_rate_adjusted_accel_ema/test_rate_adjusted_accel_ema.cpp:
+     - Step input: assert convergence to final value, time-to-90%
+       within tolerance.
+     - Ramp: assert steady-state error.
+     - Sine at 1/5/10/20 Hz: amplitude match within tolerance.
+     - Sine at 30 Hz: looser bound documenting aliasing gap.
+  4. test_flight_truth.cpp scaffold with the comparison logic but
+     a TEST_IGNORE() until the 208 Hz reference log fixture exists
+     (track via GitHub issue).
 
 VERIFY:
-  - pio test -e native (existing tests still pass).
-  - ./scripts/check_core_purity.sh (LogReplayEngine has no platform
-    deps).
-  - pio run -e esp32s3-v4p (firmware still builds).
-  - Bench: SD log replay on real hardware produces same output as
-    before this PR. Slip ball is still twitchy; pip still jumps.
-    That's intentional — the bugs are preserved here, fixed in
-    PR 2/PR 3.
+  - pio test -e native green, including the new test suite
+  - check_core_purity.sh green
+  - pio run -e esp32s3-v4p green (no firmware regression)
 
-COMMIT: "onspeed_core: extract LogReplayEngine (behavior unchanged)".
+COMMIT: "filters: rate-adjusted accel EMA + synthetic-signal tests".
 ```
 
-### PR 2 — Fix 1: rate-correct EMA at ingest
+### Sub-task 2 prompt — LogReplayEngine integration
 
 ```
-With LogReplayEngine extracted (PR 1 merged), fix the IMU EMA
-rate-coupling bug.
+Implement Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md (v3):
+LogReplayEngine uses RateAdjustedAccelEma to filter raw IMU columns
+into smoothed wire-shaped values.
 
-WORKTREE: a fresh worktree off origin/master with PR 1 merged
+WORKTREE: a fresh worktree off origin/master with Sub-task 1 merged
 PLAN: docs/superpowers/plans/2026-05-08-firmware-log-replay-parity.md
 
 WHAT TO BUILD:
-  - Inside LogReplayEngine::step(), if logSampleRateHz < 208,
-    upsample to 208 Hz before feeding the IMU EMA. Linear interp
-    between current row and previous row's IMU values, or hold-last;
-    pick whichever is simpler given the existing engine state shape.
-  - At logSampleRateHz == 208, no upsampling needed.
-  - Wire output frequency to downstream stays unchanged — the engine
-    only emits one WireRecord per input row; upsampling is internal
-    to the EMA loop.
+  1. LogReplayEngine constructor instantiates three
+     RateAdjustedAccelEma instances at the log rate.
+  2. step() runs raw imuLateralG / imuVerticalG / imuForwardG
+     through them; emits smoothed values in ReplayStepResult.
+  3. Existing characterization tests (test_log_replay_engine.cpp):
+     update pinned numeric assertions to reflect the smoothed
+     output. Pin a representative real flight-log row (from
+     ~/Downloads/sam_onspeed_aoa_4_11_2026.csv if available locally,
+     or a smaller fixture) to ≥4 decimal places.
+  4. tools/regression/host_main.cpp::CmdReplay output schema
+     updated to expose smoothed channels. Regenerate
+     tools/regression/fixtures/replay_engine_golden.csv.
+  5. tools/web/lib/replay/logReplay.js: delete KACC_TAU_S, the
+     variable-dt EMA loop, and any related smoothing wiring. The
+     replay UI now displays whatever ReplayStepResult emits, no JS-
+     side filtering. (If WASM Step 2 hasn't shipped yet, the JS code
+     reads its values from a bridging path; document the temporary
+     state and remove the workaround as soon as WASM is in place.)
 
 VERIFY:
-  - tools/regression/run_snapshot.py with a 50 Hz fixture log:
-    output now differs from PR 1's golden in exactly the IMU-derived
-    fields (slip ball, pitch/roll). Regenerate the golden, commit it.
-    Run again, green.
-  - Bench: SD log replay shows slip ball matching flight smoothness.
-    (Compare against a flight where Sam has independent reference.)
+  - pio test -e native green
+  - run_snapshot.py green (with regenerated replay_engine golden,
+    AHRS regression untouched)
+  - check_core_purity.sh green
+  - manual: load a flight log in /replay, eyeball that the slip
+    ball moves at flight-realistic rate (jittery during turns,
+    stable during cruise)
 
-COMMIT: "replay: rate-correct LogReplay EMA at log ingest (Fix 1)".
+COMMIT: "replay: engine uses rate-adjusted accel EMA on raw IMU".
 ```
 
-### PR 3 — Fix 2: synth ADC when column missing
+### Sub-task 3 prompt — Synth flapsRawADC for old logs
 
 ```
-With LogReplayEngine + Fix 1 merged, address the missing-flapsRawADC
-case for old logs.
+(Unchanged from prior versions of the plan — same dispatch prompt
+as in v2.)
 
-WORKTREE: a fresh worktree off origin/master with PRs 1+2 merged
+Implement Sub-task 3 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md (v3):
+synthesize flapsRawADC sweep when missing.
+
+WORKTREE: fresh worktree off origin/master with Sub-tasks 1+2 merged
 PLAN: docs/superpowers/plans/2026-05-08-firmware-log-replay-parity.md
-COMPANION READING:
-  - tools/web/lib/replay/logReplay.js::synthLeverSweep
-    (the JS implementation we're porting)
+COMPANION: tools/web/lib/replay/logReplay.js::synthLeverSweep
+           (the JS version we're porting).
 
 WHAT TO BUILD:
-  - In LogReplayEngine constructor, accept a flapsRawAdcAvailable
-    bool (already added in PR 1).
+  - LogReplayEngine constructor takes flapsRawAdcAvailable (already
+    in place from PR #470).
   - When false, synthesize the ADC sweep across detent transitions:
     1. First pass: fill every row with current detent's pot value.
-    2. Second pass: paint smoothstep window centered on each
-       transition tick (mirrors firmware's flip-at-midpoint physics).
-  - When true, ingest the column verbatim.
-  - FlapsDetector inside the engine consumes the synth ADC the
-    same as it consumes real ADC — no other code path knows.
+    2. Second pass: paint smoothstep window centered on transitions.
+  - When true, ingest verbatim.
+  - FlapsDetector inside engine consumes synth ADC same as real ADC.
 
 VERIFY:
-  - tools/regression/run_snapshot.py with a pre-PR-#221 fixture log
-    (no flapsRawADC column): L/Dmax pip output morphs smoothly.
-    Regenerate golden, commit it.
-  - Bench: SD log replay of an old log shows pip morphing across
-    detent transitions instead of jumping.
+  - run_snapshot.py with a pre-PR-#221 fixture log: pip morphs
+    smoothly across detent transitions.
+  - Bench: SD log replay of an old log shows pip morphing.
 
-COMMIT: "replay: synth flap-pot ADC when log lacks the column (Fix 2)".
+COMMIT: "replay: synth flap-pot ADC when log lacks the column".
 ```
 
 ## Coordination
 
-- Lands BEFORE `PLAN_WASM_CORE.md` Step 2. Step 2's "delete the JS
-  variable-dt EMA + synth sweep" instruction depends on the firmware
-  doing it correctly first.
-- Independent of `PLAN_PYTHON_CONSOLIDATION.md` Step 0 (host_main CLI).
-  Either order works; both are foundation work.
-- Does not touch the Replay tool. The cleanup of JS patches is in
-  WASM Step 2.
+- Closes the JS Replay tool's `KACC_TAU_S = 0.50` hand-tune by
+  superseding it (Sub-task 2).
+- Lands BEFORE `PLAN_WASM_CORE.md` Step 2 (the streaming-pipeline
+  binding). After Step 2, the JS UI calls into the same engine the
+  firmware uses for replay; no separate JS smoothing exists at all.
+- Does not touch the Replay tool UI, sync, marks, clip builder.
+- Does not change wire format, live flight behavior, or M5 firmware.
+
+## Reference: prior PR closures
+
+- **PR #475** ("rate-correct IMU EMA at log ingest") — closed without
+  merge. The v1 plan's premise was wrong about which filter ran at
+  which rate. See the PR's closure comment.
+- **No PR for v2 (log-schema-add)** — the v2 plan was drafted and
+  reviewed but not implemented before v3 superseded it.
