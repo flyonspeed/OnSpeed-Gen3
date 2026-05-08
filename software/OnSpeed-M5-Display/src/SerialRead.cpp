@@ -103,7 +103,29 @@ void InjectSerialByte(char inChar)
     // producer emits when its bIasAlive flag is false (sensor air-data
     // not valid).  Render path dashes IAS / percentLift digits when
     // false.  See proto/DisplaySerial.h for the contract.
-    IasIsValid           = f.iasIsValid;
+    {
+        const bool bWasIasValid = IasIsValid;
+        IasIsValid = f.iasIsValid;
+
+        // iasIsValid false→true (taxi → takeoff roll, IAS rising through
+        // the Gen3's bIasAlive deadband): while invalid the wire encodes
+        // iasKt = 9999 (the sentinel), which this parser surfaces as
+        // IAS = 999.9.  The local SavGol window therefore accumulates ~15
+        // frames of 999.9 during ground roll.  At the transition the wire
+        // shifts to a real ~20 kt value and Compute() sees a step from
+        // ~999.9 down to ~20, producing a massive negative DecelRate spike
+        // for ~750 ms while the window flushes.  Reset the filter and zero
+        // the EMA at the edge so the first 15 post-transition frames read
+        // 0 (filling) instead of garbage.  Closes #483.  Companion to the
+        // firmware-side reset on the Gen3 (PR #482) and the gap-triggered
+        // reset below (finding 036).
+        if (IasIsValid && !bWasIasValid)
+        {
+            iasDerivative.reset();
+            DecelRate         = 0.0f;
+            SmoothedDecelRate = 0.0f;
+        }
+    }
     Palt                 = f.paltFt;
     LateralG             = f.lateralG;
     VerticalG            = f.verticalG;
