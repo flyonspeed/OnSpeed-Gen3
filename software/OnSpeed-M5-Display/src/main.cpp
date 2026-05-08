@@ -1193,9 +1193,13 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoaPct, boo
     anchors (Array[i]) compare via implicit float-int promotion —
     exact for integer-valued floats in the [0, 99] range we work in.
     */
-    int indexY = mapPct2Display(aoaPct, Array);
-    gdraw.fillRect (X0 - W / 2, indexY, W, H / 24, TFT_WHITE);
-    gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
+    // Match tools/web/lib/components/svg/index.js: hide bar when air data invalid.
+    if (IasIsValid)
+    {
+        int indexY = mapPct2Display(aoaPct, Array);
+        gdraw.fillRect (X0 - W / 2, indexY, W, H / 24, TFT_WHITE);
+        gdraw.drawRect (X0 - W / 2, indexY, W, H / 24, TFT_BLACK);
+    }
 
     /*
      Draw marker dots at the visual L/Dmax pip (Array[kIdxPipPctLift]).
