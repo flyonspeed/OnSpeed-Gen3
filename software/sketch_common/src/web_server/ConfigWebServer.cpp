@@ -1314,27 +1314,56 @@ void HandleSensorConfig()
         sCurrentConfig +=" </table>\n";
 
         // Determine default pitch/roll/palt values for the form.
-        // Use EFIS data if available and fresh (< 2 seconds old), otherwise
-        // fall back to the OnSpeed AHRS values (current behavior).
-        bool    bUseEfis    = false;
-        float   fDefPitch   = g_AHRS.PitchWithBias();
-        float   fDefRoll    = g_AHRS.RollWithBias();
-        float   fDefPalt    = g_Sensors.Palt;
+        //
+        // Pitch/roll: EFIS if fresh (< 2 s) and sentinels pass; otherwise the
+        // OnSpeed AHRS reading. Both are honest references — pitch/roll bias
+        // calibrates against gravity, which the AHRS already estimates.
+        //
+        // PAlt: external truth only. The OnSpeed static sensor is the
+        // calibration target, so it is never a default. EFIS baro is used
+        // only for EFIS types that actually carry static pressure on the
+        // wire (Dynon, Garmin, MGL). VN-300 is GPS/INS with no air-data
+        // channel — its `Palt` slot is never populated, so leave the field
+        // blank and prompt the pilot to enter local field elevation.
+        bool    bUseEfisAttitude = false;
+        bool    bEfisHasPalt     = false;
+        float   fDefPitch        = g_AHRS.PitchWithBias();
+        float   fDefRoll         = g_AHRS.RollWithBias();
+        String  sDefPalt         = "";          // blank → placeholder shown
+        String  sPaltPlaceholder = "e.g. 1234"; // local field PAlt in feet
 
         if (g_Config.bReadEfisData &&
             (millis() - g_EfisSerial.uTimestamp < 2000) &&
             g_EfisSerial.suEfis.Pitch > -90 &&     // not the -100 invalid sentinel
             g_EfisSerial.suEfis.Roll  > -179)       // not the -180 invalid sentinel
             {
-            fDefPitch   = g_EfisSerial.suEfis.Pitch;
-            fDefRoll    = g_EfisSerial.suEfis.Roll;
-            fDefPalt    = g_EfisSerial.suEfis.Palt;
-            bUseEfis    = true;
+            fDefPitch        = g_EfisSerial.suEfis.Pitch;
+            fDefRoll         = g_EfisSerial.suEfis.Roll;
+            bUseEfisAttitude = true;
+
+            // Positive list of EFIS types whose wire protocol carries static
+            // pressure. A new non-baro EFIS added to the enum stays out of
+            // this list by default and the PAlt field stays blank.
+            const auto enType = g_EfisSerial.enType;
+            const bool bEfisSuppliesBaro =
+                (enType == EfisSerialPort::EnDynonSkyview) ||
+                (enType == EfisSerialPort::EnDynonD10)     ||
+                (enType == EfisSerialPort::EnGarminG5)     ||
+                (enType == EfisSerialPort::EnGarminG3X)    ||
+                (enType == EfisSerialPort::EnMglBinary);
+
+            if (bEfisSuppliesBaro)
+                {
+                sDefPalt     = String(g_EfisSerial.suEfis.Palt);
+                bEfisHasPalt = true;
+                }
             }
 
         String sEfisNote = "";
-        if (bUseEfis)
+        if (bUseEfisAttitude && bEfisHasPalt)
             sEfisNote = R"#(<p style="color:green"><b>EFIS data detected:</b> pitch, roll, and altitude pre-populated from EFIS. You can override if needed.</p>)#";
+        else if (bUseEfisAttitude)
+            sEfisNote = R"#(<p style="color:green"><b>EFIS data detected:</b> pitch and roll pre-populated from EFIS. Enter local field PAlt manually (set altimeter to 29.92 inHg and read).</p>)#";
 
 sPage += R"#(
 <div style="max-width: 720px; margin: 0 auto; padding: 12px;">
@@ -1358,7 +1387,7 @@ sPage += R"#(
         <tr><td><label>True Aircraft Roll (degrees)</label></td>
         <td><input class="inputField" type="text" name="trueAircraftRoll" value=")#" + String(fDefRoll) + R"#("></td></tr>
         <tr><td><label>True Aircraft Pressure Altitude (feet)</label></td>
-        <td><input class="inputField" type="text" name="trueAircraftPalt" value=")#" + String(fDefPalt) + R"#("></td></tr>
+        <td><input class="inputField" type="text" name="trueAircraftPalt" value=")#" + sDefPalt + R"#(" placeholder=")#" + sPaltPlaceholder + R"#(" required></td></tr>
         </table>
 
         <input type="hidden" name="confirm" value="yes">
@@ -1374,6 +1403,20 @@ sPage += R"#(
     // Second time through with a confirm yes
     else
         {
+        // PAlt is the calibration target for static-pressure bias, so an
+        // empty submission would silently calibrate against a 0 ft truth
+        // and bias the static sensor by ~1013 mb. Reject before any sensor
+        // reads happen. Pitch/roll fall back to 0 if missing — that just
+        // skips the bias delta, no destructive default.
+        if (CfgServer.arg("trueAircraftPalt").length() == 0)
+            {
+            sPage += R"#(<br><br><p style="color:red"><b>Error:</b> Pressure altitude is required. Set your altimeter to 29.92 inHg and enter the indicated altitude in feet, or enter your local field elevation if you don't have an EFIS supplying baro.</p>)#";
+            sPage += R"#(<br><a href="/sensorconfig">Back to sensor calibration</a>)#";
+            sPage += pageFooter;
+            CfgServer.send(400, "text/html", sPage);
+            return;
+            }
+
         float   fTrueAircraftPitch = 0.0;
         float   fTrueAircraftRoll  = 0.0;
         float   fTrueAircraftPalt  = 0;
