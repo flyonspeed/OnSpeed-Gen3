@@ -301,6 +301,44 @@ for (const [i, w] of calwizSaveWarn.warnings.entries()) {
   exactKeys(w, ['path', 'message'], `synthetic warning warnings[${i}]`);
 }
 
+// ----- /api/sensors/biases ---------------------------------------------
+
+const sensorsBiases = loadMock('api-sensors-biases');
+if (sensorsBiases) {
+  exactKeys(sensorsBiases, ['biases', 'live', 'efis'], '/api/sensors/biases');
+
+  exactKeys(sensorsBiases.biases,
+            ['pFwdCounts', 'p45Counts', 'pStaticMb',
+             'gxDegPerSec', 'gyDegPerSec', 'gzDegPerSec',
+             'pitchDeg', 'rollDeg'],
+            '/api/sensors/biases.biases');
+  ok(isInt(sensorsBiases.biases.pFwdCounts),    'biases.pFwdCounts is int');
+  ok(isInt(sensorsBiases.biases.p45Counts),     'biases.p45Counts is int');
+  ok(isNumber(sensorsBiases.biases.pStaticMb),  'biases.pStaticMb is number');
+  ok(isNumber(sensorsBiases.biases.gxDegPerSec),'biases.gxDegPerSec is number');
+  ok(isNumber(sensorsBiases.biases.gyDegPerSec),'biases.gyDegPerSec is number');
+  ok(isNumber(sensorsBiases.biases.gzDegPerSec),'biases.gzDegPerSec is number');
+  ok(isNumber(sensorsBiases.biases.pitchDeg),   'biases.pitchDeg is number');
+  ok(isNumber(sensorsBiases.biases.rollDeg),    'biases.rollDeg is number');
+
+  exactKeys(sensorsBiases.live,
+            ['imuPitchDeg', 'imuRollDeg', 'truePitchDeg', 'trueRollDeg'],
+            '/api/sensors/biases.live');
+  ok(isNumber(sensorsBiases.live.imuPitchDeg),  'live.imuPitchDeg is number');
+  ok(isNumber(sensorsBiases.live.imuRollDeg),   'live.imuRollDeg is number');
+  ok(isNumber(sensorsBiases.live.truePitchDeg), 'live.truePitchDeg is number');
+  ok(isNumber(sensorsBiases.live.trueRollDeg),  'live.trueRollDeg is number');
+
+  exactKeys(sensorsBiases.efis,
+            ['source', 'pitchDeg', 'rollDeg', 'paltFt'],
+            '/api/sensors/biases.efis');
+  ok(['none', 'vn300', 'baro'].includes(sensorsBiases.efis.source),
+     `efis.source is one of none|vn300|baro (saw ${JSON.stringify(sensorsBiases.efis.source)})`);
+  ok(isNumber(sensorsBiases.efis.pitchDeg), 'efis.pitchDeg is number');
+  ok(isNumber(sensorsBiases.efis.rollDeg),  'efis.rollDeg is number');
+  ok(isNumber(sensorsBiases.efis.paltFt),   'efis.paltFt is number');
+}
+
 // ----- /api/version ----------------------------------------------------
 
 const version = loadMock('api-version');

@@ -34,6 +34,7 @@
 #include <api/CalwizSave.h>
 #include <api/CalwizSaveParse.h>
 #include <api/CalwizStateJson.h>
+#include <api/SensorBiasesJson.h>
 #include <log/LogMeta.h>
 #include <log/LogMetaFile.h>
 
@@ -816,6 +817,77 @@ void HandleApiCalwizSave() {
     }
 
     SendOk();
+}
+
+// ============================================================================
+// Sensor calibration snapshot (read-only)
+// ============================================================================
+
+void HandleApiSensorsBiases() {
+    ::onspeed::api::SensorBiasesInputs in;
+
+    // Bias values + IMU + AHRS readings under xSensorMutex/xAhrsMutex —
+    // matches the legacy /sensorconfig handler's read pattern (no
+    // explicit mutex on the read-side panel today, but the AHRS values
+    // are written under xAhrsMutex).  Short timeout: this is a UI poll,
+    // not a flight-critical path.
+    if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(50))) {
+        in.imuPitchDeg = g_pIMU ? g_pIMU->PitchAC() : 0.0f;
+        in.imuRollDeg  = g_pIMU ? g_pIMU->RollAC()  : 0.0f;
+        xSemaphoreGive(xSensorMutex);
+    }
+
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(50))) {
+        in.truePitchDeg = g_AHRS.PitchWithBias();
+        in.trueRollDeg  = g_AHRS.RollWithBias();
+        xSemaphoreGive(xAhrsMutex);
+    }
+
+    in.pFwdBiasCounts = g_Config.iPFwdBias;
+    in.p45BiasCounts  = g_Config.iP45Bias;
+    in.pStaticBiasMb  = g_Config.fPStaticBias;
+    in.gxBias         = g_Config.fGxBias;
+    in.gyBias         = g_Config.fGyBias;
+    in.gzBias         = g_Config.fGzBias;
+    in.pitchBiasDeg   = g_Config.fPitchBias;
+    in.rollBiasDeg    = g_Config.fRollBias;
+
+    // EFIS source classification.  Mirrors the freshness + sentinel
+    // check in ConfigWebServer.cpp's HandleSensorConfig: pitch and roll
+    // are valid when bReadEfisData is on, the timestamp is < 2 s old,
+    // and neither sentinel is set.  Beyond that, VN-300 carries no
+    // baro on the wire, so we mark the source separately.  The
+    // baro-supplying types are a positive list — a future non-baro
+    // EFIS added to EnEfisType stays out of the list by default and
+    // the PAlt field stays blank.
+    in.efisSource = ::onspeed::api::EfisBaroSource::None;
+    if (g_Config.bReadEfisData &&
+        (millis() - g_EfisSerial.uTimestamp < 2000) &&
+        g_EfisSerial.suEfis.Pitch > -90.0f &&     // not the -100 invalid sentinel
+        g_EfisSerial.suEfis.Roll  > -179.0f)      // not the -180 invalid sentinel
+    {
+        in.efisPitchDeg = g_EfisSerial.suEfis.Pitch;
+        in.efisRollDeg  = g_EfisSerial.suEfis.Roll;
+
+        const auto enType = g_EfisSerial.enType;
+        const bool bEfisSuppliesBaro =
+            (enType == EfisSerialPort::EnDynonSkyview) ||
+            (enType == EfisSerialPort::EnDynonD10)     ||
+            (enType == EfisSerialPort::EnGarminG5)     ||
+            (enType == EfisSerialPort::EnGarminG3X)    ||
+            (enType == EfisSerialPort::EnMglBinary);
+
+        if (enType == EfisSerialPort::EnVN300) {
+            in.efisSource = ::onspeed::api::EfisBaroSource::Vn300;
+        } else if (bEfisSuppliesBaro) {
+            in.efisSource = ::onspeed::api::EfisBaroSource::Baro;
+            in.efisPaltFt = static_cast<float>(g_EfisSerial.suEfis.Palt);
+        }
+        // else: source remains None (set above)
+    }
+
+    std::string json = ::onspeed::api::SerializeSensorBiases(in);
+    SendJson(200, String(json.c_str()));
 }
 
 // ============================================================================

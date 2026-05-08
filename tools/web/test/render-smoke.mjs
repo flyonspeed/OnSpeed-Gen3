@@ -181,6 +181,7 @@ const indexMod   = await import(new URL('../lib/pages/IndexPage.js', import.meta
 const rebootMod  = await import(new URL('../lib/pages/RebootPage.js', import.meta.url));
 const formatMod  = await import(new URL('../lib/pages/FormatPage.js', import.meta.url));
 const upgradeMod = await import(new URL('../lib/pages/UpgradePage.js', import.meta.url));
+const sensorCalMod = await import(new URL('../lib/pages/SensorCalPage.js', import.meta.url));
 
 let passed = 0, failed = 0;
 const results = [];
@@ -479,6 +480,36 @@ test('UpgradePage renders class="button"', () => {
                   && (n.getAttribute('class') || '').split(/\s+/).includes('button'));
   if (buttons.length === 0)
     throw new Error('UpgradePage has no class="button" element — styling regression');
+});
+
+test('SensorCalPage exports a function', () => {
+  if (typeof sensorCalMod.SensorCalPage !== 'function')
+    throw new Error('SensorCalPage not exported');
+});
+
+test('SensorCalPage renders a <form>', () => {
+  // The render-smoke fetch stub returns a never-resolving promise, so
+  // SensorCalPage's getJson('/api/sensors/biases') hangs and `biases`
+  // stays null.  The page should still render its form skeleton with
+  // the "Loading current calibration..." placeholder in the bias panel.
+  const root = renderInto(html`<${sensorCalMod.SensorCalPage} />`);
+  if (!findFirst(root, 'form'))
+    throw new Error('expected a <form> element after rendering SensorCalPage');
+});
+
+test('SensorCalPage submit button is disabled while pitch/roll/PAlt are pending', () => {
+  // No WS frames have been delivered (the WebSocket stub never fires
+  // onmessage), so pitchSmooth.pending and rollSmooth.pending are both
+  // true, and PAlt has no manual entry yet.  The "Calibrate Sensors"
+  // button must therefore render as disabled — guarding against the
+  // C++ all-empty fallback that would silently calibrate against
+  // pitch=0 / roll=0.  See PR #451 review.
+  const root = renderInto(html`<${sensorCalMod.SensorCalPage} />`);
+  const submit = [...walk(root)].find(n => n.localName === 'button'
+                                          && n.getAttribute('type') === 'submit');
+  if (!submit) throw new Error('no submit button rendered');
+  if (submit.getAttribute('disabled') == null)
+    throw new Error('expected submit button to be disabled while smoothing windows are pending');
 });
 
 test('CalWizardPage renders form-divs and flex-col layout classes', () => {

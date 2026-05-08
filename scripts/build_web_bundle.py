@@ -97,16 +97,14 @@ ENTRY_MODULE  = os.path.join(LIB_DIR, "entry.js")
 # in html_stubs.h as `htmlStub_<suffix>`.  The stub references the
 # `data-page="<page-id>"` attribute the bundle's entry.js reads.
 PAGES = [
-    ("indexer", "Indexer",          "indexer"),
-    ("calwiz",  "Calibration",      "calwiz"),
-    ("home",    "Home",             "home"),
-    ("reboot",  "Reboot",           "reboot"),
-    ("format",  "Format SD",        "format"),
-    ("upgrade", "Firmware Upgrade", "upgrade"),
-    ("logs",    "Logs",             "logs"),
-    # /sensorconfig is deferred — its read view needs a sensors-snapshot
-    # endpoint (raw IMU pitch/roll, current biases, EFIS readings) that
-    # doesn't exist yet.  Lands in PR 5 once /api/sensors is added.
+    ("indexer",      "Indexer",            "indexer"),
+    ("calwiz",       "Calibration",        "calwiz"),
+    ("home",         "Home",               "home"),
+    ("reboot",       "Reboot",             "reboot"),
+    ("format",       "Format SD",          "format"),
+    ("upgrade",      "Firmware Upgrade",   "upgrade"),
+    ("logs",         "Logs",               "logs"),
+    ("sensorconfig", "Sensor Calibration", "sensorconfig"),
 ]
 
 
@@ -717,7 +715,13 @@ def main():
     print(f"build_web_bundle: js={js_size:,} css={css_size:,} "
           f"stubs={stubs_sz:,} legacy={legacy_sz:,}")
 
-    PROGMEM_BUDGET = 512 * 1024
+    # Soft guard against runaway bundle growth.  Measured against the
+    # generated .h source size (each gzipped byte expands to ~6 chars
+    # of `0x..,` text), so the threshold is roughly 6× the actual flash
+    # footprint.  The link-time bytes are the gzip lengths printed
+    # above (`static_app_js_len`, `static_app_css_len`); those drive
+    # real flash usage and stay well under 100 KB.
+    PROGMEM_BUDGET = 640 * 1024
     if js_size + css_size + stubs_sz > PROGMEM_BUDGET:
         raise SystemExit(
             f"build_web_bundle: outputs exceed {PROGMEM_BUDGET // 1024} KB "
