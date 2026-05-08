@@ -5,12 +5,23 @@
 //
 // Subcommands
 // -----------
-//   replay  [--input PATH] [--output-format csv|jsonl]
-//     Stream sensor CSV through the AHRS + tone pipeline.  `--input -` reads
-//     stdin (default).  --config is reserved for Step 2 (per-flap threshold
-//     wiring) and is an error if passed now.  Output format csv (default) is
-//     the existing golden-compatible schema; jsonl emits one JSON object per
-//     row on stdout.
+//   ahrs_tone  [--input PATH] [--output-format csv|jsonl]
+//     Stream simplified sensor CSV (ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz)
+//     through the AHRS + Madgwick + Kalman + ToneCalc pipeline.  This is
+//     the bedrock regression test (per PLAN_PYTHON_CONSOLIDATION.md line
+//     416-418): it gates against fixtures/golden.csv.  `--input -` reads
+//     stdin (default).  Output schema: see kAhrsToneOutputHeader (13 fields).
+//
+//   replay  [--input PATH] [--output-format csv|jsonl] [--log-rate 50|208]
+//     Stream an OnSpeed SD log CSV through the LogReplayEngine pipeline.
+//     `--input -` reads stdin (default).  Input must be the real SD log
+//     format (timeStamp,Pfwd,PfwdSmoothed,...) — not the simplified AHRS
+//     fixture format.  BuildHeaderIndex maps columns by name so logs from
+//     different firmware versions are accepted.  --config is reserved for
+//     Step 2 (per PLAN_PYTHON_CONSOLIDATION.md) and is an error if passed
+//     now.  Output schema: see kReplayEngineOutputHeader (23 fields).
+//     --log-rate {50|208}: log sample rate in Hz (default 50); rejected if
+//     any other value is supplied.
 //
 //   percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F
 //     Compute percent-of-stall (0..99.9) for a single AOA sample.
@@ -55,10 +66,13 @@
 #include <config/ConfigXmlParse.h>
 #include <config/OnSpeedConfig.h>
 #include <proto/DisplaySerial.h>
+#include <proto/LogCsvHeaderIndex.h>
+#include <replay/LogReplayEngine.h>
 #include <sensors/FlapsDetector.h>
 #include <sensors/IasAlive.h>
 #include <types/AhrsInputs.h>
 #include <types/AhrsOutputs.h>
+#include <types/LogRow.h>
 
 // ============================================================================
 // Minimal arg parser — recognises named flags of the form "--foo VALUE".
@@ -225,24 +239,31 @@ bool LoadConfig(const std::string& path,
     return true;
 }
 
+// Output format selector — shared by ahrs_tone and replay subcommands.
+enum class OutputFormat { Csv, Jsonl };
+
 // ============================================================================
-// REPLAY subcommand — streaming AHRS + tone pipeline.
+// AHRS_TONE subcommand — streaming AHRS + ToneCalc pipeline.
 //
-// Reads a sensor CSV (header + rows).  Each row is one sample.
+// Reads a simplified sensor CSV (header + rows). Each row is one IMU sample.
 // Writes a CSV or JSONL stream on stdout.
+//
+// This is the bedrock regression test: PLAN_PYTHON_CONSOLIDATION.md line
+// 416-418 explicitly designates it as such, and post-PLAN_WASM_CORE.md
+// the same harness runs against the WASM build for the parity check.
 //
 // Input CSV columns (header required):
 //   ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz
 //
-// Output CSV columns (kOutputHeader):
+// Output CSV columns (kAhrsToneOutputHeader):
 //   ias_kt,palt_ft,oat_c,
 //   pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,
 //   tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,
 //   tone_freq_hz,tone_level
 // ============================================================================
 
-constexpr char kInputHeader[]  = "ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz";
-constexpr char kOutputHeader[] =
+constexpr char kAhrsToneInputHeader[]  = "ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz";
+constexpr char kAhrsToneOutputHeader[] =
     "ias_kt,palt_ft,oat_c,"
     "pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,"
     "tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,"
@@ -280,12 +301,12 @@ struct InputRow {
     float gx, gy, gz;
 };
 
-bool ParseHeader(const std::string& line)
+bool ParseAhrsToneHeader(const std::string& line)
 {
-    return line == kInputHeader;
+    return line == kAhrsToneInputHeader;
 }
 
-bool ParseRow(const std::string& line, InputRow& out)
+bool ParseAhrsToneRow(const std::string& line, InputRow& out)
 {
     float* fields[] = {
         &out.ias_kt, &out.palt_ft, &out.oat_c,
@@ -303,7 +324,7 @@ bool ParseRow(const std::string& line, InputRow& out)
         }
         catch (const std::exception& e) {
             std::fprintf(stderr,
-                "host_main: cannot parse field %zu '%s': %s\n",
+                "host_main ahrs_tone: cannot parse field %zu '%s': %s\n",
                 i, tok.c_str(), e.what());
             return false;
         }
@@ -311,10 +332,10 @@ bool ParseRow(const std::string& line, InputRow& out)
     return true;
 }
 
-onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
-                                size_t frameIdx,
-                                bool oatPresentInLog,
-                                bool iasAlive)
+onspeed::AhrsInputs BuildAhrsInputs(const std::vector<InputRow>& rows,
+                                    size_t frameIdx,
+                                    bool oatPresentInLog,
+                                    bool iasAlive)
 {
     onspeed::AhrsInputs in;
     const InputRow& row = rows[frameIdx];
@@ -342,24 +363,9 @@ onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
     return in;
 }
 
-enum class OutputFormat { Csv, Jsonl };
-
-int CmdReplay(int argc, const char* const* argv)
+int CmdAhrsTone(int argc, const char* const* argv)
 {
     const char* input_path  = ArgGet(argc, argv, "--input",  "-");
-
-    // --config is reserved for Step 2 (per-flap threshold wiring).
-    // Refuse now rather than silently accept and ignore the value —
-    // a caller that passes --config and gets wrong output is harder
-    // to debug than an explicit error.
-    const char* config_path = ArgGet(argc, argv, "--config");
-    if (config_path != nullptr) {
-        std::fprintf(stderr,
-            "host_main replay: --config is reserved for Step 2 "
-            "(per PLAN_PYTHON_CONSOLIDATION.md). Not yet wired to "
-            "per-flap thresholds. Refusing to silently ignore.\n");
-        return 1;
-    }
 
     const char* fmt_str = ArgGet(argc, argv, "--output-format", "csv");
 
@@ -368,7 +374,7 @@ int CmdReplay(int argc, const char* const* argv)
         fmt = OutputFormat::Jsonl;
     } else if (std::strcmp(fmt_str, "csv") != 0) {
         std::fprintf(stderr,
-            "host_main replay: unknown --output-format '%s' (csv|jsonl)\n",
+            "host_main ahrs_tone: unknown --output-format '%s' (csv|jsonl)\n",
             fmt_str);
         return 1;
     }
@@ -379,7 +385,7 @@ int CmdReplay(int argc, const char* const* argv)
     if (std::strcmp(input_path, "-") != 0) {
         in_file.open(input_path);
         if (!in_file.is_open()) {
-            std::fprintf(stderr, "host_main replay: cannot open '%s'\n", input_path);
+            std::fprintf(stderr, "host_main ahrs_tone: cannot open '%s'\n", input_path);
             return 1;
         }
         in_stream = &in_file;
@@ -387,13 +393,13 @@ int CmdReplay(int argc, const char* const* argv)
 
     std::string line;
 
-    if (!std::getline(*in_stream, line) || !ParseHeader(line)) {
-        std::fprintf(stderr, "host_main replay: bad or missing CSV header\n");
+    if (!std::getline(*in_stream, line) || !ParseAhrsToneHeader(line)) {
+        std::fprintf(stderr, "host_main ahrs_tone: bad or missing CSV header\n");
         return 1;
     }
 
     if (fmt == OutputFormat::Csv) {
-        std::printf("%s\n", kOutputHeader);
+        std::printf("%s\n", kAhrsToneOutputHeader);
     }
 
     onspeed::ahrs::Ahrs ahrs{MakeProductionConfig()};
@@ -403,8 +409,8 @@ int CmdReplay(int argc, const char* const* argv)
     while (std::getline(*in_stream, line)) {
         if (line.empty()) continue;
         InputRow r{};
-        if (!ParseRow(line, r)) {
-            std::fprintf(stderr, "host_main replay: bad row at %zu: %s\n",
+        if (!ParseAhrsToneRow(line, r)) {
+            std::fprintf(stderr, "host_main ahrs_tone: bad row at %zu: %s\n",
                          rows.size(), line.c_str());
             return 1;
         }
@@ -413,19 +419,19 @@ int CmdReplay(int argc, const char* const* argv)
     }
 
     if (rows.empty()) {
-        std::fprintf(stderr, "host_main replay: no data rows\n");
+        std::fprintf(stderr, "host_main ahrs_tone: no data rows\n");
         return 1;
     }
 
     bool iasAlive = false;
     iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, rows.front().ias_kt);
-    onspeed::AhrsInputs seed = BuildInputs(rows, 0, oatPresentInLog, iasAlive);
+    onspeed::AhrsInputs seed = BuildAhrsInputs(rows, 0, oatPresentInLog, iasAlive);
     ahrs.Init(seed, rows.front().palt_ft);
 
     for (size_t i = 0; i < rows.size(); ++i) {
         const InputRow& r = rows[i];
         iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, r.ias_kt);
-        const onspeed::AhrsInputs in = BuildInputs(rows, i, oatPresentInLog, iasAlive);
+        const onspeed::AhrsInputs in = BuildAhrsInputs(rows, i, oatPresentInLog, iasAlive);
         const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
 
         const onspeed::ToneResult result =
@@ -476,7 +482,288 @@ int CmdReplay(int argc, const char* const* argv)
         }
     }
 
-    std::fprintf(stderr, "host_main replay: %zu rows processed\n", rows.size());
+    std::fprintf(stderr, "host_main ahrs_tone: %zu rows processed\n", rows.size());
+    return 0;
+}
+
+// ============================================================================
+// REPLAY subcommand — LogReplayEngine pipeline over a real SD log CSV.
+//
+// Reads an OnSpeed SD log CSV (the format written by firmware LogSensor).
+// The header is parsed via BuildHeaderIndex for name-keyed column mapping,
+// so logs from different firmware versions (different column sets) all work.
+// Each row is fed to onspeed::replay::LogReplayEngine::step(), which mirrors
+// the firmware's ReadLogLine() pipeline: AOA smoothing, flap index lookup,
+// pressure-coefficient computation.
+//
+// Input: real SD log CSV (timeStamp,Pfwd,PfwdSmoothed,...,DerivedAOA,CoeffP)
+//   Optional tail column: flapsRawADC (format version 2+)
+//   Optional groups: boom columns, EFIS columns (standard or VN-300)
+//   BuildHeaderIndex detects all of these from the header line.
+//
+// Output CSV columns (kReplayEngineOutputHeader), stable order:
+//   ias_kt, palt_ft, ias_valid,
+//   aoa_deg, coeff_p,
+//   flaps_pos, flaps_index, flaps_raw_adc, flaps_raw_adc_present,
+//   pitch_deg, roll_deg, flight_path_deg, kalman_vsi_mps,
+//   imu_fwd_g, imu_lat_g, imu_vert_g,
+//   imu_roll_dps, imu_pitch_dps, imu_yaw_dps,
+//   accel_lat_corr, accel_vert_corr,
+//   data_mark
+//
+// These fields map 1:1 to ReplayStepResult members.  No fields added or
+// dropped.  Column order is fixed here and in the golden fixture; it is
+// the contract Python Step 2 deserialises.
+//
+// --config is reserved for Step 2 (per PLAN_PYTHON_CONSOLIDATION.md).
+// Passing it is an error — refused explicitly rather than silently ignored.
+//
+// Sample rate: read from the log header if `iLogRate` is present; otherwise
+// defaults to 50 Hz (the firmware default for pre-version-2 logs).  Stored
+// in the engine for PRs 2/3; not yet used to correct EMA rate.
+// ============================================================================
+
+// Output column header — stable order, matches ReplayStepResult field order.
+constexpr char kReplayEngineOutputHeader[] =
+    "ias_kt,palt_ft,ias_valid,"
+    "aoa_deg,coeff_p,"
+    "flaps_pos,flaps_index,flaps_raw_adc,flaps_raw_adc_present,"
+    "pitch_deg,roll_deg,flight_path_deg,kalman_vsi_mps,"
+    "imu_fwd_g,imu_lat_g,imu_vert_g,"
+    "imu_roll_dps,imu_pitch_dps,imu_yaw_dps,"
+    "accel_lat_corr,accel_vert_corr,"
+    "data_mark";
+
+// Emit one ReplayStepResult row in CSV format.
+static void EmitCsvRow(const onspeed::replay::ReplayStepResult& r)
+{
+    std::printf(
+        "%.4f,%.4f,%d,"
+        "%.4f,%.4f,"
+        "%d,%d,%u,%d,"
+        "%.4f,%.4f,%.4f,%.6f,"
+        "%.4f,%.4f,%.4f,"
+        "%.4f,%.4f,%.4f,"
+        "%.4f,%.4f,"
+        "%d\n",
+        static_cast<double>(r.iasKt),
+        static_cast<double>(r.paltFt),
+        r.iasValid ? 1 : 0,
+        static_cast<double>(r.aoa),
+        static_cast<double>(r.coeffP),
+        r.flapsPos,
+        r.flapsIndex,
+        static_cast<unsigned>(r.flapsRawAdc),
+        r.flapsRawAdcPresent ? 1 : 0,
+        static_cast<double>(r.pitchDeg),
+        static_cast<double>(r.rollDeg),
+        static_cast<double>(r.flightPathDeg),
+        static_cast<double>(r.kalmanVSI),
+        static_cast<double>(r.imuForwardG),
+        static_cast<double>(r.imuLateralG),
+        static_cast<double>(r.imuVerticalG),
+        static_cast<double>(r.imuRollRateDps),
+        static_cast<double>(r.imuPitchRateDps),
+        static_cast<double>(r.imuYawRateDps),
+        static_cast<double>(r.accelLatCorr),
+        static_cast<double>(r.accelVertCorr),
+        r.dataMark);
+}
+
+// Emit one ReplayStepResult row in JSONL format.
+static void EmitJsonlRow(const onspeed::replay::ReplayStepResult& r)
+{
+    std::printf("{"
+        "\"ias_kt\":%.4f,"
+        "\"palt_ft\":%.4f,"
+        "\"ias_valid\":%s,"
+        "\"aoa_deg\":%.4f,"
+        "\"coeff_p\":%.4f,"
+        "\"flaps_pos\":%d,"
+        "\"flaps_index\":%d,"
+        "\"flaps_raw_adc\":%u,"
+        "\"flaps_raw_adc_present\":%s,"
+        "\"pitch_deg\":%.4f,"
+        "\"roll_deg\":%.4f,"
+        "\"flight_path_deg\":%.4f,"
+        "\"kalman_vsi_mps\":%.6f,"
+        "\"imu_fwd_g\":%.4f,"
+        "\"imu_lat_g\":%.4f,"
+        "\"imu_vert_g\":%.4f,"
+        "\"imu_roll_dps\":%.4f,"
+        "\"imu_pitch_dps\":%.4f,"
+        "\"imu_yaw_dps\":%.4f,"
+        "\"accel_lat_corr\":%.4f,"
+        "\"accel_vert_corr\":%.4f,"
+        "\"data_mark\":%d"
+        "}\n",
+        static_cast<double>(r.iasKt),
+        static_cast<double>(r.paltFt),
+        r.iasValid ? "true" : "false",
+        static_cast<double>(r.aoa),
+        static_cast<double>(r.coeffP),
+        r.flapsPos,
+        r.flapsIndex,
+        static_cast<unsigned>(r.flapsRawAdc),
+        r.flapsRawAdcPresent ? "true" : "false",
+        static_cast<double>(r.pitchDeg),
+        static_cast<double>(r.rollDeg),
+        static_cast<double>(r.flightPathDeg),
+        static_cast<double>(r.kalmanVSI),
+        static_cast<double>(r.imuForwardG),
+        static_cast<double>(r.imuLateralG),
+        static_cast<double>(r.imuVerticalG),
+        static_cast<double>(r.imuRollRateDps),
+        static_cast<double>(r.imuPitchRateDps),
+        static_cast<double>(r.imuYawRateDps),
+        static_cast<double>(r.accelLatCorr),
+        static_cast<double>(r.accelVertCorr),
+        r.dataMark);
+}
+
+int CmdReplay(int argc, const char* const* argv)
+{
+    const char* input_path = ArgGet(argc, argv, "--input", "-");
+
+    // --config is reserved for Step 2 (per-flap threshold wiring).
+    // Refuse now rather than silently accept and ignore the value —
+    // a caller that passes --config and gets wrong output is harder
+    // to debug than an explicit error.
+    const char* config_path = ArgGet(argc, argv, "--config");
+    if (config_path != nullptr) {
+        std::fprintf(stderr,
+            "host_main replay: --config is reserved for Step 2 "
+            "(per PLAN_PYTHON_CONSOLIDATION.md). Not yet wired to "
+            "per-flap thresholds. Refusing to silently ignore.\n");
+        return 1;
+    }
+
+    const char* fmt_str = ArgGet(argc, argv, "--output-format", "csv");
+
+    OutputFormat fmt = OutputFormat::Csv;
+    if (std::strcmp(fmt_str, "jsonl") == 0) {
+        fmt = OutputFormat::Jsonl;
+    } else if (std::strcmp(fmt_str, "csv") != 0) {
+        std::fprintf(stderr,
+            "host_main replay: unknown --output-format '%s' (csv|jsonl)\n",
+            fmt_str);
+        return 1;
+    }
+
+    // Open input — "-" means stdin.
+    std::istream* in_stream = &std::cin;
+    std::ifstream in_file;
+    if (std::strcmp(input_path, "-") != 0) {
+        in_file.open(input_path);
+        if (!in_file.is_open()) {
+            std::fprintf(stderr, "host_main replay: cannot open '%s'\n", input_path);
+            return 1;
+        }
+        in_stream = &in_file;
+    }
+
+    // Parse the header via BuildHeaderIndex for name-keyed column mapping.
+    // This tolerates column reordering, addition, and removal across firmware
+    // versions — the same approach used by the firmware's LogReplay task.
+    std::string header_line;
+    if (!std::getline(*in_stream, header_line)) {
+        std::fprintf(stderr, "host_main replay: empty input — no header line\n");
+        return 1;
+    }
+
+    onspeed::proto::log_csv::HeaderIndex hdr_idx;
+    auto warn_sink = [](const char* col) {
+        std::fprintf(stderr,
+            "host_main replay: header warning: missing column '%s'\n", col);
+    };
+    if (!onspeed::proto::log_csv::BuildHeaderIndex(header_line, hdr_idx, warn_sink)) {
+        std::fprintf(stderr,
+            "host_main replay: header index build failed "
+            "(too many columns or no recognized OnSpeed columns)\n");
+        return 1;
+    }
+
+    // Log sample rate: supplied via --log-rate {50|208} (default 50 Hz).
+    // 50 Hz is the firmware default; 208 Hz logs are produced when iLogRate
+    // is set to 208 in the config.  The engine stores this for PRs 2/3
+    // (rate-correct EMA, synth ADC) but does not yet use it to correct EMA.
+    // A dedicated log-rate column in the log header would let this be auto-
+    // detected; until that lands, the caller must supply --log-rate for 208 Hz
+    // logs.
+    const char* log_rate_str = ArgGet(argc, argv, "--log-rate");
+    int log_sample_rate_hz = 50;
+    if (log_rate_str != nullptr) {
+        log_sample_rate_hz = std::atoi(log_rate_str);
+        if (log_sample_rate_hz != 50 && log_sample_rate_hz != 208) {
+            std::fprintf(stderr,
+                "host_main replay: --log-rate must be 50 or 208 (got %s)\n",
+                log_rate_str);
+            return 1;
+        }
+    }
+
+    // flapsRawAdcAvailable: true when the header carries the optional column.
+    const bool flaps_raw_adc_available = (hdr_idx.idxFlapsRawAdc >= 0);
+
+    // Build engine with default config (no --config yet — Step 2).
+    // LoadDefaults() installs the explicit "uncalibrated" config: a single
+    // flap detent with iAoaSmoothing=20 and ALL polynomial coefficients
+    // zeroed.  This means aoa_deg = 0.0 in the output for every row.
+    // coeffP, IAS, palt, pitch, roll, and IMU axes still vary realistically
+    // from the log data.  To regenerate the replay golden against a real
+    // calibration in the future, plumb --config through (deferred per PR
+    // #466 review) and ship a representative test config (e.g., RV-10:
+    // alpha_0=-3.72, alpha_stall=10.31, real polynomial fit).
+    onspeed::config::OnSpeedConfig cfg;
+    cfg.LoadDefaults();
+
+    onspeed::replay::LogReplayEngine engine(cfg, log_sample_rate_hz,
+                                            flaps_raw_adc_available);
+
+    if (fmt == OutputFormat::Csv) {
+        std::printf("%s\n", kReplayEngineOutputHeader);
+    }
+
+    size_t row_count = 0;
+    std::string line;
+    while (std::getline(*in_stream, line)) {
+        // Trim trailing CR so the tokenizer sees clean input on both
+        // platforms (the firmware writes \r\n on SD; git on macOS may
+        // strip \r in checkout, leaving clean \n — handle both).
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (line.empty())
+            continue;
+
+        onspeed::LogRow row;
+        row.flapsRawAdcPresent = flaps_raw_adc_available;
+        row.boomEnabled  = hdr_idx.boomEnabled;
+        row.efisEnabled  = hdr_idx.efisEnabled;
+        row.efisIsVn300  = hdr_idx.efisIsVn300;
+
+        if (!onspeed::proto::log_csv::ParseRowByIndex(line, hdr_idx, row)) {
+            std::fprintf(stderr,
+                "host_main replay: parse error at row %zu: %s\n",
+                row_count, line.c_str());
+            return 1;
+        }
+
+        const onspeed::replay::ReplayStepResult result = engine.step(row);
+
+        if (fmt == OutputFormat::Csv) {
+            EmitCsvRow(result);
+        } else {
+            EmitJsonlRow(result);
+        }
+        ++row_count;
+    }
+
+    if (row_count == 0) {
+        std::fprintf(stderr, "host_main replay: no data rows\n");
+        return 1;
+    }
+
+    std::fprintf(stderr, "host_main replay: %zu rows processed\n", row_count);
     return 0;
 }
 
@@ -709,8 +996,14 @@ int CmdHelp()
     std::printf(
         "Usage: host_main <subcommand> [flags]\n\n"
         "Subcommands:\n"
-        "  replay  --input PATH|'-' [--output-format csv|jsonl]\n"
-        "    Stream sensor CSV through AHRS + tone pipeline.\n"
+        "  ahrs_tone  --input PATH|'-' [--output-format csv|jsonl]\n"
+        "    Stream simplified sensor CSV (ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz)\n"
+        "    through AHRS + Madgwick + Kalman + ToneCalc pipeline.\n"
+        "    Gates against fixtures/golden.csv — the bedrock regression test.\n\n"
+        "  replay  --input PATH|'-' [--output-format csv|jsonl] [--log-rate 50|208]\n"
+        "    Stream an OnSpeed SD log CSV through LogReplayEngine.\n"
+        "    Input: real SD log format (timeStamp,Pfwd,...,DerivedAOA,CoeffP).\n"
+        "    --log-rate: log sample rate in Hz (50 or 208; default 50).\n"
         "    (--config is reserved for Step 2; passing it now is an error.)\n\n"
         "  percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F\n"
         "    Compute percent-of-stall for a single AOA reading.\n\n"
@@ -743,6 +1036,7 @@ int main(int argc, char* argv[])
     const char* sub = argv[1];
 
     // Pass the full argc/argv so each subcommand sees its own flags.
+    if (std::strcmp(sub, "ahrs_tone")       == 0) return CmdAhrsTone(argc, argv);
     if (std::strcmp(sub, "replay")          == 0) return CmdReplay(argc, argv);
     if (std::strcmp(sub, "percent_lift")    == 0) return CmdPercentLift(argc, argv);
     if (std::strcmp(sub, "parse_config")    == 0) return CmdParseConfig(argc, argv);

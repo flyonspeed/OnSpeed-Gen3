@@ -309,14 +309,17 @@ def test_build_frame_missing_arg_exits_nonzero():
 # ---------------------------------------------------------------------------
 
 
-def test_replay_csv_matches_golden():
-    """The replay subcommand must produce output byte-identical to the golden CSV."""
+def test_ahrs_tone_csv_matches_golden():
+    """The ahrs_tone subcommand must produce output byte-identical to the golden CSV.
+    (Was previously named test_replay_csv_matches_golden when the AHRS+ToneCalc
+    pipeline was the `replay` subcommand. Post-PR-#476, that path is `ahrs_tone`;
+    `replay` now drives LogReplayEngine on SD-log format.)"""
     if not SHORT_REPLAY.exists():
         pytest.skip(f"short_replay.csv not found: {SHORT_REPLAY}")
     if not GOLDEN_CSV.exists():
         pytest.skip(f"golden.csv not found: {GOLDEN_CSV}")
 
-    r = run(["replay", "--input", str(SHORT_REPLAY)])
+    r = run(["ahrs_tone", "--input", str(SHORT_REPLAY)])
     assert r.returncode == 0
 
     golden = GOLDEN_CSV.read_text(encoding="utf-8").strip().splitlines()
@@ -352,14 +355,14 @@ def test_replay_csv_matches_golden():
         pytest.fail(msg)
 
 
-def test_replay_stdin_mode():
-    """replay --input - reads from stdin; should process the same data."""
+def test_ahrs_tone_stdin_mode():
+    """ahrs_tone --input - reads from stdin; should process the same data."""
     if not SHORT_REPLAY.exists():
         pytest.skip(f"short_replay.csv not found: {SHORT_REPLAY}")
 
     with SHORT_REPLAY.open("r", encoding="utf-8") as f:
         r = subprocess.run(
-            [str(host_main_bin()), "replay", "--input", "-"],
+            [str(host_main_bin()), "ahrs_tone", "--input", "-"],
             stdin=f,
             capture_output=True,
             text=True,
@@ -369,11 +372,11 @@ def test_replay_stdin_mode():
     assert len(lines) > 1, "expected header + data rows"
 
 
-def test_replay_jsonl_output():
+def test_ahrs_tone_jsonl_output():
     if not SHORT_REPLAY.exists():
         pytest.skip(f"short_replay.csv not found: {SHORT_REPLAY}")
     r = run([
-        "replay",
+        "ahrs_tone",
         "--input", str(SHORT_REPLAY),
         "--output-format", "jsonl",
     ])
@@ -388,16 +391,16 @@ def test_replay_jsonl_output():
         assert "tone_level" in obj
 
 
-def test_replay_jsonl_same_row_count_as_csv():
+def test_ahrs_tone_jsonl_same_row_count_as_csv():
     """JSONL mode must produce the same number of rows as CSV mode."""
     if not SHORT_REPLAY.exists():
         pytest.skip(f"short_replay.csv not found: {SHORT_REPLAY}")
 
-    csv_r = run(["replay", "--input", str(SHORT_REPLAY)])
+    csv_r = run(["ahrs_tone", "--input", str(SHORT_REPLAY)])
     assert csv_r.returncode == 0
     csv_rows = csv_r.stdout.strip().splitlines()[1:]  # skip header
 
-    jl_r = run(["replay", "--input", str(SHORT_REPLAY), "--output-format", "jsonl"])
+    jl_r = run(["ahrs_tone", "--input", str(SHORT_REPLAY), "--output-format", "jsonl"])
     assert jl_r.returncode == 0
     jl_rows = jl_r.stdout.strip().splitlines()
 
