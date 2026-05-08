@@ -45,6 +45,10 @@ const PUBLIC_DIR = path.join(WEB_DIR, 'public');
 const LEGACY_DIR = path.join(WEB_DIR, 'legacy-pages');
 const MOCKS_DIR  = path.join(__dirname, 'mocks');
 const REPLAY_DIR = path.join(__dirname, 'replay');
+// WASM build output: software/Libraries/onspeed_core/wasm/dist/
+// Served at /static/onspeed_core/ so wasm_core.js can import it.
+const WASM_DIST_DIR = path.resolve(
+    REPO_ROOT, 'software', 'Libraries', 'onspeed_core', 'wasm', 'dist');
 
 // ---------------------------------------------------------------------
 // CLI parsing
@@ -846,6 +850,22 @@ async function route(req, res, args) {
   // Synthetic-scenarios harness.
   if (pathname === '/scenarios.html' || pathname === '/scenarios') {
     if (await serveFile(path.join(PUBLIC_DIR, 'scenarios.html'), res)) return;
+  }
+
+  // WASM artifact under /static/onspeed_core/ → wasm/dist/
+  // Built by: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
+  // Returns 404 with a helpful message if the build hasn't been run yet.
+  if (pathname.startsWith('/static/onspeed_core/')) {
+    const rel = pathname.slice('/static/onspeed_core/'.length);
+    const f = safeJoin(WASM_DIST_DIR, rel);
+    if (f && await serveFile(f, res)) return;
+    // Artifact missing — build hasn't been run yet.
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end(
+      `WASM artifact not found: ${pathname}\n` +
+      'Run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh\n'
+    );
+    return;
   }
 
   // Static assets under /lib/ → tools/web/lib
