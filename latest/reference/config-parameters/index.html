@@ -4028,8 +4028,26 @@
 <tr>
 <td><code>AIRCRAFT &gt; G_LIMIT</code></td>
 <td>float</td>
-<td>0.0</td>
-<td>Airframe structural load factor limit. Used for maneuvering-speed computation. The config page offers FAR 23 category radio buttons (Normal +3.8G, Utility +4.4G, Aerobatic +6.0G) plus a Custom field.</td>
+<td>4.4</td>
+<td>Airframe structural positive load factor limit. Used for maneuvering-speed computation. The config page offers FAR 23 category radio buttons (Normal +3.8G, Utility +4.4G, Aerobatic +6.0G) plus a Custom field.</td>
+</tr>
+<tr>
+<td><code>AIRCRAFT &gt; NEG_G_LIMIT</code></td>
+<td>float</td>
+<td>-1.76</td>
+<td>Airframe structural negative load factor limit, stored negative. The named-category radios carry hardcoded pos/neg pairs (Normal -1.52G, Utility -1.76G, Aerobatic -3.0G); Custom mode exposes the negative magnitude as a separate input.</td>
+</tr>
+<tr>
+<td><code>AIRCRAFT &gt; CUSTOM_G_LIMIT</code></td>
+<td>float</td>
+<td>4.4</td>
+<td>Pilot's typed Custom positive G, persisted independently of <code>G_LIMIT</code> so picking a named category and saving doesn't erase the typed Custom pair.</td>
+</tr>
+<tr>
+<td><code>AIRCRAFT &gt; CUSTOM_NEG_G_LIMIT</code></td>
+<td>float</td>
+<td>-1.76</td>
+<td>Pilot's typed Custom negative G magnitude, stored negative. Mirror of <code>CUSTOM_G_LIMIT</code> for the negative side.</td>
 </tr>
 </tbody>
 </table>
