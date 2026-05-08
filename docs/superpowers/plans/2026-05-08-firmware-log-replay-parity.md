@@ -203,26 +203,57 @@ What ships:
 
 Effort: ~half-day.
 
-## Sub-task 3 — Synth `flapsRawADC` for old logs
+## Sub-task 3 — Synth `flapsRawADC` for old logs (streaming!)
 
-Unchanged from prior versions. Logs from before ~PR #221 lack a raw
-flap-pot ADC column; without it, the L/Dmax pip jumps at every
-detent transition.
+Logs from before ~PR #221 lack a raw flap-pot ADC column; without it,
+the L/Dmax pip jumps at every detent transition.
+
+**Critical design note**: the JS `synthLeverSweep` is two-pass over
+the full row list. **That shape does not translate to the C++ engine.**
+The firmware-side LogReplay task reads SD logs row-by-row; a full
+flight log (286k rows × ~100 bytes ≈ 30 MB) cannot fit in ESP32 heap.
+**The C++ synth must be streaming.**
 
 What ships:
 
 - `LogReplayEngine` detects a missing `flapsRawADC` column.
-- Synthesizes a smoothstep sweep across detent transitions
-  (mirrors firmware's flip-at-midpoint physics; the JS
-  `synthLeverSweep` is the math reference).
-- When the column IS present, ingests it verbatim.
+- **Streaming synth with bounded lookahead window**:
+  - Maintain a circular buffer of `±kSynthHalfWindow` rows
+    (default 100 rows = ±2 sec at 50 Hz, ~20 KB).
+  - `step(row)` returns the synth for the row that's `kSynthHalfWindow`
+    ticks IN THE PAST (replay output lags by 2 sec — acceptable for
+    offline replay; live ingest doesn't apply).
+  - When a detent transition is detected within the buffer, paint
+    a smoothstep window centered on the snap tick. Both edges are
+    visible because the buffer extends `kSynthHalfWindow` either
+    direction of the current emit point.
+- When the column IS present, ingests it verbatim (no buffer needed).
+- Output is identical to a batch two-pass implementation because
+  smoothstep windows are local — they never need rows outside
+  `±kSynthHalfWindow` of the transition tick.
 
-Effort: ~half-day.
+Math reference: the JS `synthLeverSweep` smoothstep math (`3t² - 2t³`,
+window centered on detent-change tick) is correct; only the
+batch-vs-streaming shape changes in the port.
+
+Tests:
+- Existing smoothstep math tests (mid-window pin, edge cases) still
+  apply — values at any tick are unchanged from the batch version.
+- Add a test specifically for the streaming buffer: feed rows one at
+  a time, verify the lagged output matches the batch reference.
+- Memory test: confirm the engine's memory footprint stays bounded
+  regardless of input length (no growing-vector storage).
+
+Effort: ~1 day (buffer + edge cases + tests). PR #488 closed
+without merge — shipped a batch `prepare(rows)` design that is
+unsafe on the firmware. This sub-task replaces that work.
 
 ## Total effort
 
-~2 days, in 3 small PRs. Independent of each other except that
+~2.5 days, in 3 small PRs. Independent of each other except that
 Sub-task 2 depends on Sub-task 1's filter primitive existing.
+Sub-task 3 was bumped from ~half-day to ~1 day after the batch
+design was rejected (must be streaming for firmware compatibility).
 
 ## What this DOES NOT change
 

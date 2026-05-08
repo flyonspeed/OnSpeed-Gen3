@@ -248,9 +248,24 @@ during real-flight verification. Don't simplify it back.
 
 **Target situation (post-firmware-LogReplay-parity + WASM)**:
 firmware LogReplay detects the missing column and synthesizes the
-sweep itself, in C++, in `LogReplay.cpp`. The Replay tool inherits
-this via the WASM build. The JS `synthLeverSweep` function gets
-deleted.
+sweep itself, in C++, inside `LogReplayEngine`. The Replay tool
+inherits this via the WASM build. The JS `synthLeverSweep` function
+gets deleted.
+
+**The two-pass JS shape does NOT translate to the engine directly.**
+The JS implementation walks the entire row list twice. The firmware-
+side LogReplay task reads SD logs row-by-row, streaming. A 95-min
+flight at 50 Hz is 286k rows × ~100 bytes = ~30 MB — far beyond ESP32
+heap. **The C++ synth must be streaming with a bounded lookahead
+window**, not batch two-pass.
+
+The right shape: keep a circular buffer of `±half_window` rows
+(~200 rows = ~20 KB at 50 Hz), step lags by `half_window` ticks but
+both edges of any transition are visible inside the buffer. Output is
+identical to the batch version because smoothstep windows are local
+(they never need rows outside `±half_window` of the transition tick).
+Latency = `half_window / 50 Hz` ≈ 2 sec, acceptable for offline
+replay. PR #488 shipped a batch design; closed and re-spec'd.
 
 ### 5. Auto-detect prefers ROTATION; crosswind turn is the fallback
 
