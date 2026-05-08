@@ -198,12 +198,13 @@ bool ComputeButtonRect(int winLeft, int winTop, int winRight, int winBottom,
     return true;
 }
 
-// Forward decl for the close-button rect helper used by both DrawWindow
-// (renders the "×") and HandleClick (hit-tests the same rect on click).
-// Definition lives below DrawWindow alongside the rest of the click
-// helpers; the forward decl keeps DrawWindow able to reference it.
+// Forward decls for helpers whose definitions live further down but
+// which DrawWindow / HandleClick (above) need to reference.
 bool ComputeCloseRect(int wL, int wT, int wR, int wB,
                       int* outL, int* outT, int* outR, int* outB);
+bool ComputePopOutRect(int wL, int wT, int wR, int wB,
+                       int* outL, int* outT, int* outR, int* outB);
+void ClampFloatingGeom(PersistedState* st);
 
 // Persisted indexer state.  Default values are the same as the
 // pre-sticky-persistence behavior so a fresh install (no .prf yet)
@@ -373,25 +374,58 @@ void DrawWindow(XPLMWindowID, void*)
                        xplmFont_Proportional);
     }
 
-    // Self-decorated chrome: a small close-button "×" in the top-right
-    // corner of the top drag strip.  We don't draw a visible drag-strip
-    // background — the texture's black bezel serves as the visual
-    // backdrop and the strip is invisible-but-clickable for window move.
-    // The close button is the only chrome the user sees; XPLMDrawString
-    // is GL-state-safe on Apple Silicon (raw glColor / glRect are not).
+    // Self-decorated chrome: title text in the top drag strip + pop-out
+    // icon + close-X in the top-right corner.  We don't draw a visible
+    // drag-strip background — the texture's black bezel serves as the
+    // backdrop.  Icons use translucent dark boxes so they stay visible
+    // against varying texture content underneath; XPLMDrawString and
+    // XPLMDrawTranslucentDarkBox are GL-state-safe on Apple Silicon
+    // (raw glColor / glRect are not).
     {
-        int cL, cT, cR, cB;
-        if (ComputeCloseRect(left, top, right, bottom,
-                             &cL, &cT, &cR, &cB)) {
-            // Translucent dark fill so the "×" is visible even against
-            // varying texture content underneath.  Matches the MODE
-            // button's visual idiom for consistency.
+        float white[3] = { 1.0f, 1.0f, 1.0f };
+        int fontH = 10;
+        XPLMGetFontDimensions(xplmFont_Proportional, nullptr, &fontH, nullptr);
+        const int descender = std::max(2, fontH / 4);
+
+        // Title text — left edge of the drag strip, vertically centered.
+        // The strip is `kDragStripHeight` boxels tall starting at `top`.
+        // Skip if the window is too narrow for the icons + a usable
+        // title (avoid title text overlapping icons).
+        int cL = 0, cT = 0, cR = 0, cB = 0;
+        const bool hasClose = ComputeCloseRect(left, top, right, bottom,
+                                               &cL, &cT, &cR, &cB);
+        const int titleX = left + 6;
+        const int titleY = top - kDragStripHeight
+                         + (kDragStripHeight - fontH) / 2 + descender;
+        const char* title = "OnSpeed Indexer";
+        const int titleW = static_cast<int>(std::round(
+            XPLMMeasureString(xplmFont_Proportional, title,
+                              static_cast<int>(std::strlen(title)))));
+        const int titleRightLimit = hasClose ? cL - 6 : right - 6;
+        if (titleX + titleW < titleRightLimit) {
+            XPLMDrawString(white, titleX, titleY, const_cast<char*>(title),
+                           nullptr, xplmFont_Proportional);
+        }
+
+        // Pop-out icon "↗" — sits to the LEFT of the close-X.  Click
+        // toggles XPLMSetWindowPositioningMode between floating and
+        // popped-out.  We use ASCII "[]" rather than a real arrow glyph
+        // because XPLMDrawString's font support doesn't include U+2197.
+        int pL, pT, pR, pB;
+        if (ComputePopOutRect(left, top, right, bottom, &pL, &pT, &pR, &pB)) {
+            XPLMDrawTranslucentDarkBox(pL, pT, pR, pB);
+            const char* icon = "[]";
+            const int iconW = static_cast<int>(std::round(
+                XPLMMeasureString(xplmFont_Proportional, icon, 2)));
+            const int iconX = (pL + pR) / 2 - iconW / 2;
+            const int iconY = pB + (kCloseBtnSize - fontH) / 2 + descender;
+            XPLMDrawString(white, iconX, iconY, const_cast<char*>(icon),
+                           nullptr, xplmFont_Proportional);
+        }
+
+        // Close-X.
+        if (hasClose) {
             XPLMDrawTranslucentDarkBox(cL, cT, cR, cB);
-            float white[3] = { 1.0f, 1.0f, 1.0f };
-            int fontH = 10;
-            XPLMGetFontDimensions(xplmFont_Proportional,
-                                  nullptr, &fontH, nullptr);
-            const int descender = std::max(2, fontH / 4);
             const char* x = "x";
             const int textW = static_cast<int>(std::round(
                 XPLMMeasureString(xplmFont_Proportional, x, 1)));
@@ -427,6 +461,24 @@ bool ComputeCloseRect(int wL, int wT, int wR, int /*wB*/,
     return true;
 }
 
+// Compute the pop-out "↗" rect immediately to the LEFT of the close-X.
+// Click toggles between floating-in-X-Plane and popped-out-OS-window
+// modes via XPLMSetWindowPositioningMode.
+bool ComputePopOutRect(int wL, int wT, int wR, int wB,
+                       int* outL, int* outT, int* outR, int* outB)
+{
+    int cL, cT, cR, cB;
+    if (!ComputeCloseRect(wL, wT, wR, wB, &cL, &cT, &cR, &cB)) return false;
+    if ((wR - wL) < 2 * (kCloseBtnSize + kCloseBtnInset)) return false;
+    // Sit immediately to the left of the close button with the same
+    // inset so the two icons feel like a pair.
+    *outR = cL - 2;
+    *outL = *outR - kCloseBtnSize;
+    *outT = cT;
+    *outB = cB;
+    return true;
+}
+
 // Decide which kind of drag a MouseDown at (x, y) inside the window
 // (wL, wT, wR, wB) represents.  Resize-edge detection is tested first
 // (corners take precedence over single edges), then top-strip move,
@@ -449,14 +501,19 @@ DragKind ClassifyMouseDown(int x, int y, int wL, int wT, int wR, int wB)
     if (nearBottom)              return DragKind::EdgeBottom;
 
     // Top drag-strip lives just below the corner-resize zone — moves
-    // the window without resizing.  Excludes the close-button rect so
-    // a click on "×" goes through the body-click path and reaches the
-    // close-button hit test.
+    // the window without resizing.  Excludes the close- and pop-out-
+    // button rects so clicks on those icons go through the body-click
+    // path and reach their respective hit tests.
     if (y >= wT - kDragStripHeight) {
         int cL, cT, cR, cB;
         if (ComputeCloseRect(wL, wT, wR, wB, &cL, &cT, &cR, &cB) &&
             x >= cL && x <= cR && y >= cB && y <= cT) {
             return DragKind::None;  // close-button click
+        }
+        int pL, pT, pR, pB;
+        if (ComputePopOutRect(wL, wT, wR, wB, &pL, &pT, &pR, &pB) &&
+            x >= pL && x <= pR && y >= pB && y <= pT) {
+            return DragKind::None;  // pop-out-button click
         }
         return DragKind::Move;
     }
@@ -563,11 +620,30 @@ int HandleClick(XPLMWindowID, int x, int y,
             return 1;  // recorded a drag intent, no further processing
         }
 
-        // Body click — close button takes priority over MODE button.
+        // Body click — close + pop-out buttons take priority over MODE
+        // button (chrome icons in the top-right corner are tested first).
         int cL, cT, cR, cB;
         if (ComputeCloseRect(wL, wT, wR, wB, &cL, &cT, &cR, &cB) &&
             x >= cL && x <= cR && y >= cB && y <= cT) {
             Hide();
+            return 1;
+        }
+        int pL, pT, pR, pB;
+        if (ComputePopOutRect(wL, wT, wR, wB, &pL, &pT, &pR, &pB) &&
+            x >= pL && x <= pR && y >= pB && y <= pT) {
+            // Toggle between floating-in-X-Plane and OS-popped-out.
+            // XPLMSetWindowPositioningMode is the SDK's pop-out trigger;
+            // the stock RoundRectangle chrome's pop-out icon called the
+            // same API.  Pass -1 for monitor: X-Plane picks the monitor
+            // the window is currently mostly on.
+            const bool poppedOut = (XPLMWindowIsPoppedOut(s_window) != 0);
+            if (poppedOut) {
+                XPLMSetWindowPositioningMode(s_window,
+                                             xplm_WindowPositionFree, -1);
+            } else {
+                XPLMSetWindowPositioningMode(s_window,
+                                             xplm_WindowPopOut, -1);
+            }
             return 1;
         }
 
@@ -631,6 +707,29 @@ int HandleClick(XPLMWindowID, int x, int y,
     }
 
     if (status == xplm_MouseUp) {
+        // On drag-release, clamp the window so kMinVisible boxels stay
+        // on-screen.  SelfDecoratedResizable doesn't have X-Plane's
+        // implicit on-screen clamp that RoundRectangle had, so without
+        // this a user can drag the window fully off-desktop and lose
+        // it.  Reuses the same ClampFloatingGeom helper that
+        // ApplyPersistedState calls on .prf load — invariant matches.
+        if (s_drag.kind != DragKind::None) {
+            int wL, wTp, wR, wB;
+            XPLMGetWindowGeometry(s_window, &wL, &wTp, &wR, &wB);
+            PersistedState tmp = s_persisted;  // copy non-geom fields
+            tmp.floatLeft   = wL;
+            tmp.floatTop    = wTp;
+            tmp.floatWidth  = wR - wL;
+            tmp.floatHeight = wTp - wB;
+            ClampFloatingGeom(&tmp);
+            const int finalL = tmp.floatLeft;
+            const int finalT = tmp.floatTop;
+            const int finalR = tmp.floatLeft + tmp.floatWidth;
+            const int finalB = tmp.floatTop  - tmp.floatHeight;
+            if (finalL != wL || finalT != wTp || finalR != wR || finalB != wB) {
+                XPLMSetWindowGeometry(s_window, finalL, finalT, finalR, finalB);
+            }
+        }
         s_drag.kind = DragKind::None;
         return 1;
     }
