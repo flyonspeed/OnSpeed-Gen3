@@ -12,18 +12,20 @@ import { RebootPage } from './pages/RebootPage.js';
 import { FormatPage } from './pages/FormatPage.js';
 import { UpgradePage } from './pages/UpgradePage.js';
 import { LogsPage } from './pages/LogsPage.js';
+import { SensorCalPage } from './pages/SensorCalPage.js';
 
 // Page registry.  Keep this in sync with the bundler's stub list (see
 // `scripts/build_web_bundle.py`'s PAGES table).  Adding a page means
 // adding a stub there AND a row here.
 const PAGES = {
-  indexer: IndexerPage,
-  calwiz:  CalWizardPage,
-  home:    IndexPage,
-  reboot:  RebootPage,
-  format:  FormatPage,
-  upgrade: UpgradePage,
-  logs:    LogsPage,
+  indexer:      IndexerPage,
+  calwiz:       CalWizardPage,
+  home:         IndexPage,
+  reboot:       RebootPage,
+  format:       FormatPage,
+  upgrade:      UpgradePage,
+  logs:         LogsPage,
+  sensorconfig: SensorCalPage,
 };
 
 export function start() {

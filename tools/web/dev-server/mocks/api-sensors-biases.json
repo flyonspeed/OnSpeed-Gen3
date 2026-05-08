@@ -1,0 +1,24 @@
+{
+  "biases": {
+    "pFwdCounts":  -42,
+    "p45Counts":     8,
+    "pStaticMb":   -0.62,
+    "gxDegPerSec": -0.0021,
+    "gyDegPerSec":  0.0017,
+    "gzDegPerSec": -0.0009,
+    "pitchDeg":    -0.31,
+    "rollDeg":      0.05
+  },
+  "live": {
+    "imuPitchDeg":   1.18,
+    "imuRollDeg":   -0.42,
+    "truePitchDeg":  0.87,
+    "trueRollDeg":  -0.37
+  },
+  "efis": {
+    "source":   "baro",
+    "pitchDeg":  0.85,
+    "rollDeg":  -0.40,
+    "paltFt":  815
+  }
+}

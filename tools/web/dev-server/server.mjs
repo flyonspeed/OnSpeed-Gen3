@@ -126,13 +126,14 @@ function mimeFor(filePath) {
 // Page registry — must mirror PAGES in build_web_bundle.py
 // ---------------------------------------------------------------------
 const PAGES = [
-  { id: 'indexer', path: '/indexer', title: 'Indexer' },
-  { id: 'calwiz',  path: '/calwiz',  title: 'Calibration' },
-  { id: 'home',    path: '/',        title: 'Home' },
-  { id: 'reboot',  path: '/reboot',  title: 'Reboot' },
-  { id: 'format',  path: '/format',  title: 'Format SD' },
-  { id: 'upgrade', path: '/upgrade', title: 'Firmware Upgrade' },
-  { id: 'logs',    path: '/logs',    title: 'Logs' },
+  { id: 'indexer',      path: '/indexer',      title: 'Indexer' },
+  { id: 'calwiz',       path: '/calwiz',       title: 'Calibration' },
+  { id: 'home',         path: '/',             title: 'Home' },
+  { id: 'reboot',       path: '/reboot',       title: 'Reboot' },
+  { id: 'format',       path: '/format',       title: 'Format SD' },
+  { id: 'upgrade',      path: '/upgrade',      title: 'Firmware Upgrade' },
+  { id: 'logs',         path: '/logs',         title: 'Logs' },
+  { id: 'sensorconfig', path: '/sensorconfig', title: 'Sensor Calibration' },
 ];
 
 // Routes that 30x to a page rather than rendering one.  `/live` is
@@ -718,56 +719,6 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
   return legacyPageHtml('/aoaconfig (dev)', 'aoaconfig', body);
 }
 
-// Render the /sensorconfig legacy page from the template +
-// dev-server/mocks/sensorconfig.json.  Mirrors HandleSensorConfig() in
-// software/sketch_common/src/web_server/ConfigWebServer.cpp's first-pass
-// branch (the form view, not the calibration result branch — that one
-// requires real sensor reads).
-async function renderSensorConfigPage() {
-  const tplPath = path.join(LEGACY_DIR, 'sensorconfig.html');
-  const cfgPath = path.join(MOCKS_DIR, 'sensorconfig.json');
-  const [tpl, cfgRaw] = await Promise.all([
-    fsp.readFile(tplPath, 'utf-8'),
-    fsp.readFile(cfgPath, 'utf-8'),
-  ]);
-  const cfg = JSON.parse(cfgRaw);
-  return substituteSensorConfig(tpl, cfg);
-}
-
-function fmt2(v) { return Number(v).toFixed(2); }
-function fmt4(v) { return Number(v).toFixed(4); }
-function fmt0(v) { return Math.round(Number(v)).toString(); }
-
-function substituteSensorConfig(tpl, cfg) {
-  let body = tpl;
-  body = body.replaceAll('{{pfwdBias}}',    fmt0(cfg.pfwdBias));
-  body = body.replaceAll('{{p45Bias}}',     fmt0(cfg.p45Bias));
-  body = body.replaceAll('{{pStaticBias}}', fmt2(cfg.pStaticBias));
-  body = body.replaceAll('{{gxBias}}',      fmt4(cfg.gxBias));
-  body = body.replaceAll('{{gyBias}}',      fmt4(cfg.gyBias));
-  body = body.replaceAll('{{gzBias}}',      fmt4(cfg.gzBias));
-  body = body.replaceAll('{{imuPitch}}',    fmt2(cfg.imuPitch));
-  body = body.replaceAll('{{pitchBias}}',   fmt2(cfg.pitchBias));
-  body = body.replaceAll('{{truePitch}}',   fmt2(cfg.truePitch));
-  body = body.replaceAll('{{imuRoll}}',     fmt2(cfg.imuRoll));
-  body = body.replaceAll('{{rollBias}}',    fmt2(cfg.rollBias));
-  body = body.replaceAll('{{trueRoll}}',    fmt2(cfg.trueRoll));
-
-  // Default form values mirror the firmware's bUseEfis branch:
-  // when fresh EFIS data is available, pre-populate from EFIS and
-  // surface the "EFIS data detected" green note.  Otherwise fall
-  // back to AHRS-derived pitch/roll plus the current Palt.
-  const efisNote = cfg.useEfis
-    ? '<p style="color:green"><b>EFIS data detected:</b> pitch, roll, and altitude pre-populated from EFIS. You can override if needed.</p>'
-    : '';
-  body = body.replaceAll('{{efisNote}}', efisNote);
-  body = body.replaceAll('{{defPitch}}', fmt2(cfg.defPitch));
-  body = body.replaceAll('{{defRoll}}',  fmt2(cfg.defRoll));
-  body = body.replaceAll('{{defPalt}}',  fmt0(cfg.defPalt));
-
-  return legacyPageHtml('/sensorconfig (dev)', 'sensorconfig', body);
-}
-
 // Common HTML wrapper for the dev-server's legacy-page renders.
 // `activeId` controls which nav entry / dropdown item gets the
 // `class="active"` annotation; the bundle CSS link list mirrors the
@@ -868,21 +819,8 @@ async function route(req, res, args) {
     return;
   }
 
-  // /sensorconfig — legacy first-pass form view rendered from the
-  // template.  The firmware version also runs the calibration on the
-  // ?confirm=yes second pass; the dev server only needs the form
-  // view since no real sensors are attached.
-  if (pathname === '/sensorconfig') {
-    try {
-      const html = await renderSensorConfigPage();
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end(`/sensorconfig render error: ${e.message}`);
-    }
-    return;
-  }
+  // /sensorconfig is served from the Preact bundle like /indexer
+  // and /calwiz — falls through to the page-stub renderer below.
 
   // Stale-bookmark redirects (e.g. /live → /indexer).
   for (const r of REDIRECTS) {

@@ -54,6 +54,12 @@ void HandleApiReboot();
 void HandleApiCalwizState();
 void HandleApiCalwizSave();
 
+// Sensor calibration snapshot.  Backs the Preact /sensorconfig page.
+// Returns current bias values, live IMU + AHRS pitch/roll, and EFIS
+// source metadata so the page knows whether to seed PAlt from the EFIS
+// or leave the field blank for manual entry.
+void HandleApiSensorsBiases();
+
 // Build / version metadata.  Stable JSON shape so external tools
 // can detect the firmware version they're talking to without
 // scraping HTML.
