@@ -160,11 +160,19 @@ bool OnSpeedConfig::LoadDefaults()
     // SD card logging
     bSdLogging          = false;
 
-    // Aircraft parameters
+    // Aircraft parameters.  Defaults match the Utility category radio
+    // (+4.4 G / -1.76 G) so a freshly defaulted config selects a sane,
+    // labeled preset rather than an out-of-band 0.0 G that the UI shows
+    // as Custom with an empty negative field.
     iAcGrossWeight      = 0;
     fAcBestGlideIAS     = 0.0f;
     fAcVfe              = 0.0f;
-    fAcGlimit           = 0.0f;
+    fAcGlimit           =  4.4f;
+    fAcNegGlimit        = -1.76f;
+    // Custom storage seeds match the Utility default — sane starting
+    // point if the pilot picks Custom for the first time and edits.
+    fCustomAcGlimit     =  4.4f;
+    fCustomAcNegGlimit  = -1.76f;
 
     return true;
 }

@@ -16,6 +16,7 @@
 #include <config/ConfigXmlParse.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <string>
 
@@ -309,6 +310,37 @@ XmlParseStatus ParseXml(std::string_view xml, OnSpeedConfig& cfg)
         GetFloat(pAc, "BEST_GLIDE_IAS", cfg.fAcBestGlideIAS);
         GetFloat(pAc, "VFE",            cfg.fAcVfe);
         GetFloat(pAc, "G_LIMIT",        cfg.fAcGlimit);
+        // Migration helper: when an old config has no <NEG_G_LIMIT>,
+        // infer the likely paired negative from the named-category
+        // preset whose positive matches.  Falls through to the
+        // LoadDefaults seed (-1.76, Utility) when fAcGlimit doesn't
+        // match any preset, which lets a truly Custom-pos config
+        // without a stored negative still land as Custom in the UI.
+        if (pAc->FirstChildElement("NEG_G_LIMIT") == nullptr) {
+            if      (std::fabs(cfg.fAcGlimit - 3.8f) < 0.005f) cfg.fAcNegGlimit = -1.52f; // Normal
+            else if (std::fabs(cfg.fAcGlimit - 4.4f) < 0.005f) cfg.fAcNegGlimit = -1.76f; // Utility
+            else if (std::fabs(cfg.fAcGlimit - 6.0f) < 0.005f) cfg.fAcNegGlimit = -3.00f; // Aerobatic
+            // else: fAcNegGlimit retains the LoadDefaults seed (-1.76).
+        } else {
+            GetFloat(pAc, "NEG_G_LIMIT", cfg.fAcNegGlimit);
+        }
+        // Migration: configs written before separate Custom storage
+        // landed have neither tag.  Seed Custom from the active fields
+        // — for an old Custom config, fAcGlimit IS the pilot's typed
+        // Custom positive (no other source existed); for an old named
+        // category, fAcGlimit equals the preset's positive, which
+        // becomes the Custom default until the pilot picks Custom and
+        // edits.
+        if (pAc->FirstChildElement("CUSTOM_G_LIMIT") == nullptr) {
+            cfg.fCustomAcGlimit = cfg.fAcGlimit;
+        } else {
+            GetFloat(pAc, "CUSTOM_G_LIMIT", cfg.fCustomAcGlimit);
+        }
+        if (pAc->FirstChildElement("CUSTOM_NEG_G_LIMIT") == nullptr) {
+            cfg.fCustomAcNegGlimit = cfg.fAcNegGlimit;
+        } else {
+            GetFloat(pAc, "CUSTOM_NEG_G_LIMIT", cfg.fCustomAcNegGlimit);
+        }
     }
 
     if (tooManyFlaps)

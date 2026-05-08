@@ -407,22 +407,100 @@
             <div class="form-divs flex-col-12">
                 <label>Aircraft category / load factor limit (G)</label>
                 <div class="radio-group">
-                    <label><input type="radio" name="acGlimitPreset" value="3.80" onchange="setGlimit(this)"{{glimitNormalChecked}}> Normal (+3.8G / -1.52G)</label>
-                    <label><input type="radio" name="acGlimitPreset" value="4.40" onchange="setGlimit(this)"{{glimitUtilityChecked}}> Utility (+4.4G / -1.76G)</label>
-                    <label><input type="radio" name="acGlimitPreset" value="6.00" onchange="setGlimit(this)"{{glimitAerobaticChecked}}> Aerobatic (+6.0G / -3.0G)</label>
-                    <label><input type="radio" name="acGlimitPreset" value="custom" onchange="setGlimit(this)"{{glimitCustomChecked}}> Custom</label>
+                    <label><input type="radio" name="acGlimitPreset" value="normal"    onchange="setGlimit(this)"{{glimitNormalChecked}}> Normal (+3.8G / -1.52G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="utility"   onchange="setGlimit(this)"{{glimitUtilityChecked}}> Utility (+4.4G / -1.76G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="aerobatic" onchange="setGlimit(this)"{{glimitAerobaticChecked}}> Aerobatic (+6.0G / -3.0G)</label>
+                    <label><input type="radio" name="acGlimitPreset" value="custom"    onchange="setGlimit(this)"{{glimitCustomChecked}}> Custom</label>
                 </div>
             </div>
-            <div class="form-divs flex-col-6" id="id_acGlimitCustomDiv" style="{{glimitCustomDisplay}}">
-                <label for="id_acGlimit">Custom G limit</label>
-                <input id="id_acGlimit" name="acGlimit" type="text" value="{{acGlimit}}"/>
+            <div class="form-divs flex-col-6 acglimitcustomsetting" style="{{glimitCustomDisplay}}">
+                <label for="id_customAcGlimit">Positive G limit</label>
+                <input id="id_customAcGlimit" name="customAcGlimit" type="text" value="{{customAcGlimit}}"/>
+            </div>
+            <div class="form-divs flex-col-6 acglimitcustomsetting" style="{{glimitCustomDisplay}}">
+                <label for="id_customAcNegGlimit">Negative G limit magnitude</label>
+                <input id="id_customAcNegGlimit" name="customAcNegGlimit" type="text" value="{{customAcNegGlimit}}"/>
             </div>
             <script>
-            function setGlimit(el){
-                var v=el.value,d=document.getElementById('id_acGlimitCustomDiv'),i=document.getElementById('id_acGlimit');
-                if(v==='custom'){d.style.display='';i.focus();}
-                else{d.style.display='none';i.value=v;}
-            }
+            // The Custom inputs always carry the pilot's typed Custom
+            // values (POSTed as customAcGlimit / customAcNegGlimit).
+            // The active values that drive g_Config.fAcGlimit /
+            // fAcNegGlimit ride along on synthetic hidden inputs named
+            // acGlimit / acNegGlimit — populated either from the
+            // preset pair (named radio) or mirroring the Custom inputs
+            // (Custom radio).  The Custom div is hidden when a named
+            // radio is active but the inputs stay enabled so the
+            // pilot's typed values survive a category-switch + Save.
+            (function(){
+                var presets = {
+                    normal:    { pos: '3.80', neg: '1.52' },
+                    utility:   { pos: '4.40', neg: '1.76' },
+                    aerobatic: { pos: '6.00', neg: '3.00' }
+                };
+                var posIn = document.getElementById('id_customAcGlimit');
+                var negIn = document.getElementById('id_customAcNegGlimit');
+                // Track whether the active pair currently mirrors the
+                // Custom inputs.  When Custom is selected, every
+                // keystroke in either visible input updates the
+                // synthetic acGlimit / acNegGlimit hidden inputs that
+                // POST the active pair.
+                var customActive = false;
+                window.setGlimit = function(el, opts){
+                    opts = opts || {};
+                    var v = el.value;
+                    var divs = document.querySelectorAll('.acglimitcustomsetting');
+                    // Drop any synthetic inputs from the previous selection.
+                    var prev = document.querySelectorAll('.acglimitpresethidden');
+                    for (var k = 0; k < prev.length; k++) prev[k].remove();
+                    var form = posIn.form;
+                    var mk = function(name, val){
+                        var h = document.createElement('input');
+                        h.type = 'hidden';
+                        h.name = name;
+                        h.value = val;
+                        h.className = 'acglimitpresethidden';
+                        form.appendChild(h);
+                        return h;
+                    };
+                    if (v === 'custom') {
+                        for (var i = 0; i < divs.length; i++) divs[i].style.display = '';
+                        if (!opts.noFocus) posIn.focus();
+                        // Active values mirror the Custom inputs and
+                        // stay live: typing into the visible inputs
+                        // updates these via the input listeners below.
+                        mk('acGlimit',    posIn.value);
+                        mk('acNegGlimit', negIn.value);
+                        customActive = true;
+                    } else if (presets[v]) {
+                        for (var j = 0; j < divs.length; j++) divs[j].style.display = 'none';
+                        // Active values come from the preset pair.
+                        // Custom inputs stay enabled so their typed
+                        // values still POST as customAcGlimit /
+                        // customAcNegGlimit.
+                        mk('acGlimit',    presets[v].pos);
+                        mk('acNegGlimit', presets[v].neg);
+                        customActive = false;
+                    }
+                };
+                var mirrorActive = function(){
+                    if (!customActive) return;
+                    var hidden = document.querySelectorAll('.acglimitpresethidden');
+                    for (var i = 0; i < hidden.length; i++) {
+                        if (hidden[i].name === 'acGlimit')    hidden[i].value = posIn.value;
+                        if (hidden[i].name === 'acNegGlimit') hidden[i].value = negIn.value;
+                    }
+                };
+                posIn.addEventListener('input', mirrorActive);
+                negIn.addEventListener('input', mirrorActive);
+                // Seed the synthetic acGlimit / acNegGlimit hidden
+                // inputs from the currently-checked radio so a Save
+                // without any radio interaction still transmits the
+                // active pair.  Skip the focus side effect on initial
+                // load — focusing on page load would steal focus from
+                // any other field the pilot is editing.
+                var checked = document.querySelector('input[name="acGlimitPreset"]:checked');
+                if (checked) window.setGlimit(checked, { noFocus: true });
+            })();
             </script>
         </section>
         <div class="form-divs flex-col-4">

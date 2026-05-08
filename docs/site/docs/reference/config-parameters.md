@@ -101,7 +101,10 @@ Over-G warning thresholds (fire when `OVERGWARNING` is enabled). Distinct from t
 | `AIRCRAFT > GROSS_WEIGHT` | int | 0 | Max gross weight (lbs) |
 | `AIRCRAFT > BEST_GLIDE_IAS` | float | 0.0 | Best glide speed at max gross weight (knots) |
 | `AIRCRAFT > VFE` | float | 0.0 | Max flaps-extended speed (knots) |
-| `AIRCRAFT > G_LIMIT` | float | 0.0 | Airframe structural load factor limit. Used for maneuvering-speed computation. The config page offers FAR 23 category radio buttons (Normal +3.8G, Utility +4.4G, Aerobatic +6.0G) plus a Custom field. |
+| `AIRCRAFT > G_LIMIT` | float | 4.4 | Airframe structural positive load factor limit. Used for maneuvering-speed computation. The config page offers FAR 23 category radio buttons (Normal +3.8G, Utility +4.4G, Aerobatic +6.0G) plus a Custom field. |
+| `AIRCRAFT > NEG_G_LIMIT` | float | -1.76 | Airframe structural negative load factor limit, stored negative. The named-category radios carry hardcoded pos/neg pairs (Normal -1.52G, Utility -1.76G, Aerobatic -3.0G); Custom mode exposes the negative magnitude as a separate input. |
+| `AIRCRAFT > CUSTOM_G_LIMIT` | float | 4.4 | Pilot's typed Custom positive G, persisted independently of `G_LIMIT` so picking a named category and saving doesn't erase the typed Custom pair. |
+| `AIRCRAFT > CUSTOM_NEG_G_LIMIT` | float | -1.76 | Pilot's typed Custom negative G magnitude, stored negative. Mirror of `CUSTOM_G_LIMIT` for the negative side. |
 
 ## Per-Flap Position Settings
 

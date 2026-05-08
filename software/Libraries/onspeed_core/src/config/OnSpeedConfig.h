@@ -230,7 +230,18 @@ public:
     int     iAcGrossWeight;
     float   fAcBestGlideIAS;    ///< Best glide airspeed at max gross weight (KIAS)
     float   fAcVfe;             ///< Max flap extension speed (KIAS)
-    float   fAcGlimit;          ///< Airframe load factor limit (G)
+    float   fAcGlimit;          ///< Airframe positive load factor limit (G)
+    float   fAcNegGlimit;       ///< Airframe negative load factor limit, stored
+                                ///< negative (e.g. -1.76f).  Active when the
+                                ///< Aircraft category radio is "Custom"; named
+                                ///< categories carry hardcoded pos/neg pairs in
+                                ///< the web UI.
+    float   fCustomAcGlimit;    ///< Pilot's typed Custom positive G, persisted
+                                ///< independently of active fAcGlimit so
+                                ///< Custom values survive a round trip through
+                                ///< a named category.
+    float   fCustomAcNegGlimit; ///< Pilot's typed Custom negative G magnitude,
+                                ///< stored negative (e.g. -2.5f).
 
     // Other config data
     char    szDefaultConfigFilename[14] = "onspeed2.cfg";
