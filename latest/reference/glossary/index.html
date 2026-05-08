@@ -3421,6 +3421,10 @@
 <td>The two small white dots on the indexer's index-bar edges. <em>Aerodynamic reference cue.</em> Slides smoothly from the cleanest detent's L/D<sub>MAX</sub> percent to the most-deployed detent's OnSpeed-band center as the lever moves; intermediate detents are intentionally ignored. The pip lines up with the bottom chevron's edge only at the cleanest detent — at deployed flap settings the pip sits inside the donut while the audio threshold (chevron edge) stays at the active detent's calibrated L/D<sub>MAX</sub> percent. Per Vac's design rule (<code>ld_max.pdf</code> §8): "L/Dmax pips are aerodynamic references." See <a href="../indexer-spec/">Indexer Spec</a>.</td>
 </tr>
 <tr>
+<td><strong>Lateral G</strong></td>
+<td>Sideways acceleration on the airframe in the body's left-right axis. Positive = airframe accelerating rightward (e.g., right-hand turn coordinated). Carried on the display-serial wire, the WebSocket JSON, and the SD log's <code>imuLateralG</code> column under the same body-frame sign convention. The slip-skid ball moves in the opposite direction, like every slip-skid ball ever made.</td>
+</tr>
+<tr>
 <td><strong>LittleFS</strong></td>
 <td>Little File System — flash-based filesystem used by the ESP32 for configuration storage</td>
 </tr>
