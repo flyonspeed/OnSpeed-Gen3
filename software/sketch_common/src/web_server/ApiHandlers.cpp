@@ -246,21 +246,24 @@ void RunFormatInline(FormatJob& job) {
 // ============================================================================
 
 void HandleApiSampleAoa() {
-    // Match DataServer.cpp's gating: NaN or below the mute threshold
-    // ships the -100 sentinel.  iMuteAudioUnderIAS is the pilot's UX
-    // knob; honoring it here keeps the LiveView and the new sample
-    // endpoint consistent.
-    float aoa;
-    if (std::isnan(g_Sensors.AOA) || g_Sensors.IAS < g_Config.iMuteAudioUnderIAS)
-        aoa = -100.0f;
-    else
-        aoa = g_Sensors.AOA;
-
+    // Mirror the WebSocket gate: bIasAlive is the canonical sensor-
+    // level air-data validity flag (rising-edge 20 kt, falling 15 kt,
+    // hysteresis).  When false or AOA is non-finite, emit JSON null
+    // matching the convention from issues #358 / #455.
     String body;
     body.reserve(32);
-    body  = F("{\"aoa\":");
-    body += JsonFloat(aoa, -100.0f);
-    body += F("}");
+    if (!g_Sensors.bIasAlive || !std::isfinite(g_Sensors.AOA))
+    {
+        body = F("{\"aoa\":null}");
+    }
+    else
+    {
+        // Snapshot once so the formatting and the gate see the same value.
+        const float aoaSnap = g_Sensors.AOA;
+        char buf[32];
+        snprintf(buf, sizeof(buf), "{\"aoa\":%.2f}", aoaSnap);
+        body = buf;
+    }
     SendJson(200, body);
 }
 

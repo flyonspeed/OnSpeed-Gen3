@@ -69,7 +69,7 @@ function isInt(v)    { return typeof v === 'number' && Number.isInteger(v); }
 const aoa = loadMock('api-sample-aoa');
 if (aoa) {
   exactKeys(aoa, ['aoa'], '/api/sample/aoa');
-  ok(isNumber(aoa.aoa) || aoa.aoa === -100, '/api/sample/aoa: aoa is number');
+  ok(isNumber(aoa.aoa) || aoa.aoa === null, '/api/sample/aoa: aoa is number or null');
 }
 
 const flapsRaw = loadMock('api-sample-flaps-raw');

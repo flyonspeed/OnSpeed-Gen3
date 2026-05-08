@@ -13,8 +13,9 @@
 //      (tools/web/dev-server/replay/cruise.ndjson) carries the same
 //      keys on every frame.
 //   3. The LiveDataJsonKeys.h list has no duplicates.
-//   4. The sentinel constants in LiveDataJsonKeys.h match the values
-//      hardcoded in DataServer.cpp (-100 for AOA, 0.0 for the rest).
+//   4. AOA, DerivedAOA, IAS, and percentLift use %s placeholders so
+//      the producer can emit JSON null when bIasAlive is false; the
+//      legacy -100 numeric sentinel for AOA is gone (issue #455).
 //
 // Native test, no Arduino, reads source files via std::ifstream.
 //
@@ -183,23 +184,22 @@ void test_livedata_mock_has_documented_keys(void) {
     }
 }
 
-// Sentinel constants must agree between LiveDataJsonKeys.h and the
-// hardcoded values in DataServer.cpp.  Spot-check the literal
-// `-100` (AOA) and `0.0f` (everything else) as they appear in the
-// source.
-void test_sentinel_constants_match_data_server(void) {
-    TEST_ASSERT_EQUAL_FLOAT(-100.0f, onspeed::api::kAoaSentinel);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f,    onspeed::api::kFloatSentinel);
+// The float fallback constant is still used for non-AOA fields that
+// silently coerce NaN to 0 via SafeJsonFloat.  AOA / DerivedAOA / IAS /
+// percentLift no longer share this fallback — they emit JSON null when
+// bIasAlive is false.  Pin the constant + assert the producer-side
+// cleanup is complete (no `-100` literal anywhere in DataServer.cpp).
+void test_no_aoa_numeric_sentinel_in_data_server(void) {
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, onspeed::api::kFloatSentinel);
 
     std::string root = FindRepoRoot();
     std::string src  = ReadFile(root + "/software/sketch_common/src/web_server/DataServer.cpp");
     TEST_ASSERT_TRUE_MESSAGE(!src.empty(), "DataServer.cpp not found");
 
-    // The AOA sentinel literal `-100` shows up in two places in the
-    // source: the assignment that uses it for the gated path and the
-    // SafeJsonFloat fallback.  We just assert it's present at all.
-    TEST_ASSERT_TRUE_MESSAGE(src.find("-100") != std::string::npos,
-                             "AOA sentinel -100 not found in DataServer.cpp");
+    // The AOA `-100` numeric sentinel is gone.  Producer emits JSON
+    // null instead, gated on bIasAlive.  Issue #455.
+    TEST_ASSERT_TRUE_MESSAGE(src.find("-100") == std::string::npos,
+                             "DataServer.cpp must not reference -100 (AOA emits JSON null, issue #455)");
 }
 
 // ----------------------------------------------------------------------------
@@ -233,11 +233,11 @@ void test_air_data_gate_uses_bIasAlive(void) {
         "g_Config.iMuteAudioUnderIAS must not gate any display value in DataServer.cpp (issue #358)");
 }
 
-// IAS and percentLift must use %s placeholders in the format string so
-// the producer can emit JSON `null` for those fields when bIasAlive is
-// false.  AOA stays %.2f (rides its -100 numeric sentinel; the
-// consumer's `o.AOA > -20` check would silently mis-classify a JSON
-// null as valid because JS coerces null → 0 in numeric comparison).
+// AOA, DerivedAOA, IAS, and percentLift must use %s placeholders in the
+// format string so the producer can emit JSON `null` when bIasAlive is
+// false.  The wsClient consumer rejects null via `typeof === 'number'`;
+// the > -20 threshold check stays as belt-and-suspenders against any
+// future numeric-sentinel drift.  Issues #358 / #455.
 void test_format_string_uses_string_placeholders_for_invalid_aware_fields(void) {
     std::string root = FindRepoRoot();
     std::string src  = ReadFile(root + "/software/sketch_common/src/web_server/DataServer.cpp");
@@ -249,10 +249,16 @@ void test_format_string_uses_string_placeholders_for_invalid_aware_fields(void) 
     TEST_ASSERT_TRUE_MESSAGE(end != std::string::npos, "szFormat terminator not found");
     std::string fmt = src.substr(begin, end - begin);
 
-    // IAS and percentLift use %s (so the value can be `null` when
-    // invalid).  Format-string substring search is robust to whitespace
-    // changes inside the literal because the key+colon+placeholder
-    // sequence is exact.
+    // All four invalid-aware fields use %s (so the value can be `null`
+    // when invalid).  Format-string substring search is robust to
+    // whitespace changes because the key+colon+placeholder sequence is
+    // exact.
+    TEST_ASSERT_TRUE_MESSAGE(
+        fmt.find("\\\"AOA\\\":%s") != std::string::npos,
+        "AOA must use %s placeholder for null-when-invalid");
+    TEST_ASSERT_TRUE_MESSAGE(
+        fmt.find("\\\"DerivedAOA\\\":%s") != std::string::npos,
+        "DerivedAOA must use %s placeholder for null-when-invalid");
     TEST_ASSERT_TRUE_MESSAGE(
         fmt.find("\\\"IAS\\\":%s") != std::string::npos,
         "IAS must use %s placeholder for null-when-invalid");
@@ -260,17 +266,61 @@ void test_format_string_uses_string_placeholders_for_invalid_aware_fields(void) 
         fmt.find("\\\"percentLift\\\":%s") != std::string::npos,
         "percentLift must use %s placeholder for null-when-invalid");
 
-    // AOA stays %.2f (numeric -100 sentinel preserved).
+    // The %.2f placeholder must NOT appear next to AOA or DerivedAOA;
+    // a regression to numeric formatting would re-introduce the bug.
     TEST_ASSERT_TRUE_MESSAGE(
-        fmt.find("\\\"AOA\\\":%.2f") != std::string::npos,
-        "AOA must stay %.2f (uses numeric sentinel, not null)");
+        fmt.find("\\\"AOA\\\":%.2f") == std::string::npos,
+        "AOA must not use %.2f placeholder (regression to numeric sentinel)");
+    TEST_ASSERT_TRUE_MESSAGE(
+        fmt.find("\\\"DerivedAOA\\\":%.2f") == std::string::npos,
+        "DerivedAOA must not use %.2f placeholder (regression to NaN-coerced-to-0)");
 
     // The producer-side branch that picks "null" vs the formatted
     // value must exist.  Spot-checks the literal "null" appearing in
     // a strcpy / strncpy / String literal.
     TEST_ASSERT_TRUE_MESSAGE(
         src.find("\"null\"") != std::string::npos,
-        "DataServer.cpp must emit \"null\" string for invalid IAS / percentLift");
+        "DataServer.cpp must emit \"null\" string for invalid AOA / DerivedAOA / IAS / percentLift");
+}
+
+// /api/sample/aoa REST endpoint must mirror the WebSocket contract:
+// gate on bIasAlive (not iMuteAudioUnderIAS), emit JSON null when
+// air data is invalid (not the legacy -100 numeric sentinel).
+// Issues #358 / #455.
+void test_api_sample_aoa_uses_bIasAlive_and_emits_null(void) {
+    std::string root = FindRepoRoot();
+    std::string src  = ReadFile(root + "/software/sketch_common/src/web_server/ApiHandlers.cpp");
+    TEST_ASSERT_TRUE_MESSAGE(!src.empty(), "ApiHandlers.cpp not found");
+
+    // Locate HandleApiSampleAoa() so subsequent grep is body-scoped.
+    auto handlerPos = src.find("HandleApiSampleAoa");
+    TEST_ASSERT_TRUE_MESSAGE(handlerPos != std::string::npos,
+                             "HandleApiSampleAoa not found in ApiHandlers.cpp");
+    auto bodyEnd = src.find("HandleApiSampleFlapsRaw", handlerPos);
+    if (bodyEnd == std::string::npos) bodyEnd = src.size();
+    std::string body = src.substr(handlerPos, bodyEnd - handlerPos);
+
+    // The handler must reference bIasAlive.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("bIasAlive") != std::string::npos,
+        "HandleApiSampleAoa must gate on bIasAlive (issue #358)");
+
+    // The audio-mute threshold must NOT drive this endpoint's gate.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("iMuteAudioUnderIAS") == std::string::npos,
+        "iMuteAudioUnderIAS must not gate /api/sample/aoa (issue #358)");
+
+    // The legacy -100 numeric sentinel must be gone; the endpoint
+    // emits JSON null for invalid frames.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("-100") == std::string::npos,
+        "HandleApiSampleAoa must not reference -100 (issue #455, emit JSON null)");
+    // The C++ source has the JSON-escaped form `\"aoa\":null` inside an
+    // F() / String literal.  We search for the escaped pattern as it
+    // appears in the .cpp file.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("\\\"aoa\\\":null") != std::string::npos,
+        "HandleApiSampleAoa must emit {\"aoa\":null} for invalid air data (issue #455)");
 }
 
 int main(void) {
@@ -280,9 +330,10 @@ int main(void) {
     RUN_TEST(test_data_server_format_string_emits_documented_keys);
     RUN_TEST(test_replay_ndjson_has_documented_keys);
     RUN_TEST(test_livedata_mock_has_documented_keys);
-    RUN_TEST(test_sentinel_constants_match_data_server);
+    RUN_TEST(test_no_aoa_numeric_sentinel_in_data_server);
     RUN_TEST(test_air_data_gate_uses_bIasAlive);
     RUN_TEST(test_format_string_uses_string_placeholders_for_invalid_aware_fields);
+    RUN_TEST(test_api_sample_aoa_uses_bIasAlive_and_emits_null);
 
     return UNITY_END();
 }

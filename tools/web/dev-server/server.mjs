@@ -418,14 +418,14 @@ async function driveScenario(name, emit) {
 // don't get silently dropped.
 function recordToFrame(r) {
   return {
-    AOA:               r.aoaDeg ?? r.aoa ?? -100,
-    DerivedAOA:        r.derivedAoaDeg ?? 0,
+    AOA:               r.aoaDeg ?? r.aoa ?? null,
+    DerivedAOA:        r.derivedAoaDeg ?? null,
     Pitch:             r.pitchDeg ?? 0,
     Roll:              r.rollDeg ?? 0,
     verticalGLoad:     r.verticalG ?? 1,
     lateralGLoad:      r.lateralG ?? 0,
     PitchRate:         r.pitchRate ?? 0,
-    IAS:               r.iasKt ?? 0,
+    IAS:               r.iasKt ?? null,
     PAlt:              r.paltFt ?? 0,
     OAT:               r.oatC ?? 20,
     kalmanVSI:         r.vsiFpm ?? 0,

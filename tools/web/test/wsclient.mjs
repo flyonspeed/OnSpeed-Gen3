@@ -1,11 +1,12 @@
 // Tests for lib/ws/wsClient.js — frame-to-record mapping.
 //
-// Issue #358: the producer now emits JSON `null` for IAS and percentLift
-// when air data is invalid (bIasAlive=false on the firmware side), and
-// rides a numeric `-100` sentinel for AOA.  This test pins the
+// Issues #358 / #455: the producer emits JSON null for AOA, DerivedAOA,
+// IAS, and percentLift when air data is invalid (bIasAlive=false on the
+// firmware side).  The -100 case below is a belt-and-suspenders guard
+// against any future numeric-sentinel drift.  This test pins the
 // consumer-side handling so a future drift in either contract (producer
-// switching AOA to null, or wsClient losing its typeof guard) breaks
-// loud rather than silently mis-classifying invalid frames as valid.
+// reverting to a numeric sentinel, or wsClient losing its typeof guard)
+// breaks loud rather than silently mis-classifying invalid frames.
 //
 // Run with:  node tools/web/test/wsclient.mjs
 //

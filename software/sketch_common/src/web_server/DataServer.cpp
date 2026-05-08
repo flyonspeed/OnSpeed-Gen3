@@ -176,29 +176,18 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // for over-G warnings; the smoothing is purely a presentation choice.
     float fVerticalGload = g_AHRS.AccelVertFilter.get();
 
-    // AOA is gated by the sensor-level `bIasAlive` flag — the canonical
-    // "air data is valid" signal (rising-edge 20 kt, falling 15 kt,
+    // AOA / DerivedAOA emit JSON null when bIasAlive is false, matching
+    // IAS / percentLift.  `bIasAlive` is the canonical sensor-level
+    // air-data validity signal (rising-edge 20 kt, falling 15 kt,
     // hysteresis; backed by the pitot deadband so it can't latch alive
     // on sensor noise alone).  Display validity is a sensor-level fact,
     // not a UX choice; `iMuteAudioUnderIAS` keeps its job in the audio
-    // path (Audio.cpp) and no longer drives display gates.  See issue
-    // #358 for the rationale.
+    // path (Audio.cpp) and no longer drives display gates.
     //
-    // Sentinel `-100` is preserved for AOA (rather than emitted as
-    // `null`) because the consumer wsClient.js distinguishes valid
-    // from invalid via `o.AOA > AOA_NA_SENTINEL` — and JS coerces
-    // `null > -20` to `true` (null → 0 in numeric comparisons), which
-    // would silently mark a null reading as valid.  Keeping the
-    // numeric sentinel is the minimal-impact change.
-    if (isnan(g_Sensors.AOA) || !g_Sensors.bIasAlive)
-    {
-        fWifiAOA = -100;
-    }
-    else
-    {
-        // protect AOA from interrupts overwriting it
-        fWifiAOA = g_Sensors.AOA;
-    }
+    // The wsClient consumer guard checks `typeof === 'number'` to reject
+    // null, then `> AOA_NA_SENTINEL` (-20) as belt-and-suspenders against
+    // any future numeric-sentinel drift.  See issues #358 and #455.
+    fWifiAOA = g_Sensors.AOA;
 
     // Pitch, Roll, VSI, Flightpath
     if (g_Config.bCalSourceEfis)
@@ -304,26 +293,23 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // body-angle setpoints (LDmax, OnSpeedFast/Slow/Warn, alpha_0,
     // alpha_stall) are gone — every consumer renders against the
     // percent anchors instead.
-    // IAS and percentLift use %s placeholders (rather than %.2f / %.1f)
-    // so the producer can emit JSON `null` for those fields when air
-    // data is not valid (bIasAlive=false).  Consumer's fmt() helper
-    // collapses null/undefined/NaN to '—'.  AOA stays %.2f and rides
-    // its `-100` numeric sentinel — see the gating block above for the
-    // rationale (JS `null > -20` is true, so swapping AOA to null
-    // would break the wsClient validity check).
+    // AOA, DerivedAOA, IAS, and percentLift use %s placeholders (rather
+    // than %.2f / %.1f) so the producer can emit JSON `null` for those
+    // fields when air data is not valid (bIasAlive=false).  Consumer's
+    // fmt() helper collapses null/undefined/NaN to '—'; the wsClient's
+    // aoaIsValid check rejects null via `typeof === 'number'`.
     const char * szFormat =
-        "{\"AOA\":%.2f,\"Pitch\":%.2f,\"Roll\":%.2f,\"IAS\":%s,\"PAlt\":%.2f,"
+        "{\"AOA\":%s,\"Pitch\":%.2f,\"Roll\":%.2f,\"IAS\":%s,\"PAlt\":%.2f,"
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,"
         "\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"flapsMinDeg\":%i,\"flapsMaxDeg\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
-        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%.2f,"
+        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%s,"
         "\"gOnsetRate\":%.2f,"
         "\"percentLift\":%s,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
         "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
-    fWifiAOA        = SafeJsonFloat(fWifiAOA, -100.0f);
     fWifiPitch      = SafeJsonFloat(fWifiPitch, 0.0f);
     fWifiRoll       = SafeJsonFloat(fWifiRoll, 0.0f);
     fWifiIAS        = SafeJsonFloat(fWifiIAS, 0.0f);
@@ -347,7 +333,6 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
     const float fPitchRate  = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
-    const float fDerivedAOA = SafeJsonFloat(g_AHRS.DerivedAOA, 0.0f);
 
     // Snapshot the active flap entry plus the full flap vector once
     // under xAhrsMutex.  Two consumers below read this snapshot:
@@ -494,13 +479,25 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // LiveView's right-edge tape stay in lockstep.
     const float fGOnsetRate = SafeJsonFloat(g_AHRS.gOnsetRate, 0.0f);
 
-    // Format the IAS / percentLift values as strings — JSON `null`
-    // when air data is invalid (so the consumer's fmt() helper dashes
-    // them) or the formatted float otherwise.  16-byte staging buffers
-    // hold the longest expected output: "9999.99" + sign + null = 9
-    // chars for IAS, "99.9" + null = 5 for percentLift.
+    // Format the AOA / DerivedAOA / IAS / percentLift values as strings
+    // — JSON `null` when air data is invalid (so the consumer's fmt()
+    // helper dashes them) or the formatted float otherwise.  AOA and
+    // DerivedAOA also dash on a NaN source value (e.g. uninitialized
+    // AHRS).  16-byte staging buffers hold the longest expected output.
+    char szAoa[16];
+    char szDerivedAoa[16];
     char szIas[16];
     char szPctLift[16];
+    if (bIasValidForOutput && IsFiniteFloat(fWifiAOA))
+        snprintf(szAoa, sizeof(szAoa), "%.2f", fWifiAOA);
+    else
+        std::strcpy(szAoa, "null");
+    // Single read so the IsFiniteFloat check and the snprintf format the same value (TOCTOU-free).
+    const float fDerivedAoaSnap = g_AHRS.DerivedAOA;
+    if (bIasValidForOutput && IsFiniteFloat(fDerivedAoaSnap))
+        snprintf(szDerivedAoa, sizeof(szDerivedAoa), "%.2f", fDerivedAoaSnap);
+    else
+        std::strcpy(szDerivedAoa, "null");
     if (bIasValidForOutput)
         {
         snprintf(szIas,     sizeof(szIas),     "%.2f", fWifiIAS);
@@ -519,7 +516,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         pOut,
         uOutSize,
         szFormat,
-        fWifiAOA,
+        szAoa,
         fWifiPitch,
         fWifiRoll,
         szIas,
@@ -537,7 +534,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fPitchRate,
         fDecelRate,
         fWifiOAT,
-        fDerivedAOA,
+        szDerivedAoa,
         fGOnsetRate,
         szPctLift,
         iJsonTonesOnPct,
