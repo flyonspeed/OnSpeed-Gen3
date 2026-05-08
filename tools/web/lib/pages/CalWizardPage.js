@@ -19,6 +19,24 @@
 import { html, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { getJson, postJson, ApiError } from '../shell/apiClient.js';
+import { makeEmaState, updateEma, setAlpha } from '../core/ema.js';
+
+// Decel-gauge smoothing slider, ported from the Gen2 wizard's
+// `javascript_calibration.h` smoothingValue input (range 0.02–0.50,
+// step 0.01).  Default 0.05 leans toward Vac's working preference of
+// "well toward SMOOTH" — at 20 Hz this is τ ≈ 1.0 s, vs Gen2's
+// default 0.10 (~0.5 s τ).  The slider value is the EMA's α directly:
+// α = updateWeight, so larger slider = more responsive needle.
+//
+// Slider state is intentionally NOT persisted to config — Gen2 didn't
+// either.  Resets to default on page reload.  The slider only affects
+// the gauge needle / numeric readout; recorded samples remain raw so
+// the post-flight curve fit is unaffected by the pilot's UX choice
+// during the run.  Bug #362.
+const DECEL_SLIDER_MIN     = 0.02;
+const DECEL_SLIDER_MAX     = 0.50;
+const DECEL_SLIDER_STEP    = 0.01;
+const DECEL_SLIDER_DEFAULT = 0.05;
 
 // Setpoint multipliers — the legacy `javascript_calibration.h`
 // constants.  IAS multiple of Vs → NAOA fraction = 1 / multiplier^2
@@ -234,11 +252,16 @@ function frameToSample(o) {
 // Decel-gauge SVG.  Mirrors the legacy /calwiz inline SVG, since the
 // shared <DecelGauge> in components/svg/ is laid out for the M5
 // 320×240 panel — the wizard's gauge has its own labels and aspect.
+//
+// `decelRate` is the EMA-smoothed value owned by the parent
+// (FlyDecelStep), with α driven by the SMOOTH ↔ RESPONSIVE slider.
+// JSON `DecelRate` is the raw SavGol-only output from the firmware;
+// every consumer (M5 hardware gauge, /indexer Mode 3, this wizard)
+// applies its own EMA tuned to its UI affordance — see issue #362
+// and docs/superpowers/specs/2026-05-08-decel-rate-smoothing-design.md.
 // ---------------------------------------------------------------------
 function DecelGaugeWizard({ decelRate }) {
-  // Legacy formula: needle Y = constrain(56 * smoothDecelRate + 38, -186, 150).
-  // Here we drop the smoothing — the WS already emits a smoothed
-  // DecelRate; double-smoothing in the JS distorted the readout.
+  // Needle Y = constrain(56 · decelRate + 38, −186, 150) (Gen2 formula).
   const dy = Math.max(-186, Math.min(150, 56 * (decelRate || 0) + 38));
   return html`
     <svg version="1.2" xmlns="http://www.w3.org/2000/svg"
@@ -275,7 +298,27 @@ function DecelGaugeWizard({ decelRate }) {
 // ---------------------------------------------------------------------
 function FlyDecelStep({ params, samples, setSamples, onAnalyzed }) {
   const [recording, setRecording] = useState(false);
+  const [smoothingAlpha, setSmoothingAlpha] = useState(DECEL_SLIDER_DEFAULT);
   const live = useLiveSamples({ recording });
+
+  // Display-only EMA on decel rate, driven by the slider.  Display
+  // value only — the recorded samples (`live.samples()`) carry the
+  // raw decelRate the WS shipped, so the post-flight curve fit is
+  // unaffected by the pilot's choice of needle smoothing.  The EMA
+  // state lives in a useRef so it accumulates across renders without
+  // re-allocating; setAlpha mutates the filter live as the slider
+  // moves (no re-seeding — see lib/core/ema.js).
+  const decelEma = useRef(makeEmaState(DECEL_SLIDER_DEFAULT));
+  const [decelSmoothed, setDecelSmoothed] = useState(0);
+  const lastSampleRef = useRef(null);
+  useEffect(() => { setAlpha(decelEma.current, smoothingAlpha); }, [smoothingAlpha]);
+  useEffect(() => {
+    if (live.last === lastSampleRef.current) return;
+    lastSampleRef.current = live.last;
+    if (!live.last) return;
+    const out = updateEma(decelEma.current, live.last.decelRateKtPerSec);
+    if (out !== null) setDecelSmoothed(out);
+  }, [live.last]);
 
   // Auto-stop on stall recovery: |pitchRate| > 5 AND pitchDeg < 0.
   // This mirrors the legacy `recordData(false)` triggered from
@@ -313,34 +356,53 @@ function FlyDecelStep({ params, samples, setSamples, onAnalyzed }) {
   return html`
     <div class="cal-flydecel">
       <div class="cal-flydecel-left">
-        <b>Calibration Wizard</b><br /><br />
         ${recording
           ? html`<div>
               Recording until stall is detected...
-              <div style=${{ marginTop: '20px', textAlign: 'center' }}>
+              <div class="cal-flydecel-record-row">
                 <button type="button" class="button" style=${{ width: '220px' }}
                         onClick=${stopRecording}>Stop</button>
               </div>
             </div>`
           : html`<div>
               Decelerate from Vmax (or Vfe). Hit Record when ready.
-              <div style=${{ marginTop: '20px', textAlign: 'center' }}>
+              <div class="cal-flydecel-record-row">
                 <button type="button" class="wifibutton"
                         onClick=${startRecording}>Record</button>
               </div>
             </div>`}
       </div>
 
-      <div class="cal-flydecel-gauge">
-        <${DecelGaugeWizard} decelRate=${last.decelRateKtPerSec} />
-      </div>
+      <div class="cal-flydecel-row">
+        <div class="cal-flydecel-gauge">
+          <${DecelGaugeWizard} decelRate=${decelSmoothed} />
+        </div>
 
-      <div class="cal-flydecel-readouts">
-        <div>Flap Pos: ${last.flapsPosDeg ?? 0} deg</div>
-        <div>IAS: ${(last.iasKt || 0).toFixed(2)} kts</div>
-        <div>DecelRate: ${(last.decelRateKtPerSec || 0).toFixed(1)} kts/s</div>
-        <div>Status: ${live.status}</div>
-        <div>Captured: ${samples.length} samples</div>
+        <div class="cal-flydecel-readouts">
+          <div>Flap Pos: ${last.flapsPosDeg ?? 0} deg</div>
+          <br />
+          <div>IAS: ${(last.iasKt || 0).toFixed(2)} kts</div>
+          <br />
+          <div>DecelRate: ${decelSmoothed.toFixed(1)} kts/s</div>
+          <br />
+          <div>Smoothing: ${smoothingAlpha.toFixed(2)}</div>
+          <div class="cal-flydecel-slider">
+            <input type="range"
+                   min=${DECEL_SLIDER_MIN}
+                   max=${DECEL_SLIDER_MAX}
+                   step=${DECEL_SLIDER_STEP}
+                   value=${smoothingAlpha}
+                   onInput=${e => setSmoothingAlpha(parseFloat(e.target.value))}
+                   aria-label="Decel-gauge smoothing" />
+            <div class="cal-flydecel-slider-labels">
+              <span>SMOOTH</span><span>RESPONSIVE</span>
+            </div>
+          </div>
+          <br />
+          <div>Status: ${live.status}</div>
+          <br />
+          <div>Captured: ${samples.length} samples</div>
+        </div>
       </div>
     </div>`;
 }
@@ -652,7 +714,7 @@ export function CalWizardPage() {
 
   return html`
     <${PageShell} active="calwiz">
-      <div class="cal-wizard" style=${{ maxWidth: '720px', margin: '0 auto' }}>
+      <div class="cal-wizard" style=${{ maxWidth: '720px', margin: '0 auto', padding: '12px' }}>
         <h2>Calibration Wizard</h2>
         ${stateError && html`
           <p class="cal-warn">Could not load saved aircraft params: ${stateError}</p>`}
