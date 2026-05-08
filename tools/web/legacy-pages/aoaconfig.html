@@ -415,11 +415,23 @@
             </div>
             <div class="form-divs flex-col-6 acglimitcustomsetting" style="{{glimitCustomDisplay}}">
                 <label for="id_customAcGlimit">Positive G limit</label>
-                <input id="id_customAcGlimit" name="customAcGlimit" type="text" value="{{customAcGlimit}}"/>
+                <div class="g-limit-input">
+                    <span class="g-limit-sign">+</span>
+                    <input id="id_customAcGlimit" name="customAcGlimit" type="text"
+                           inputmode="decimal" pattern="^[0-9]*\.?[0-9]+$"
+                           title="Enter a positive number (magnitude in G)"
+                           value="{{customAcGlimit}}"/>
+                </div>
             </div>
             <div class="form-divs flex-col-6 acglimitcustomsetting" style="{{glimitCustomDisplay}}">
                 <label for="id_customAcNegGlimit">Negative G limit magnitude</label>
-                <input id="id_customAcNegGlimit" name="customAcNegGlimit" type="text" value="{{customAcNegGlimit}}"/>
+                <div class="g-limit-input">
+                    <span class="g-limit-sign">&minus;</span>
+                    <input id="id_customAcNegGlimit" name="customAcNegGlimit" type="text"
+                           inputmode="decimal" pattern="^[0-9]*\.?[0-9]+$"
+                           title="Enter a positive magnitude (the firmware applies the negative sign)"
+                           value="{{customAcNegGlimit}}"/>
+                </div>
             </div>
             <script>
             // The Custom inputs always carry the pilot's typed Custom

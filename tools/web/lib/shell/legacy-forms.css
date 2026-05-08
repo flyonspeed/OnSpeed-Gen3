@@ -186,11 +186,44 @@
 }
 
 .radio-group label {
-  display: inline;
+  /* One option per line — labels are long enough ("Aerobatic (+6.0G /
+     -3.0G)") that side-by-side rendering wraps awkwardly at common
+     widths.  Stacking is also easier to scan when the pilot is choosing
+     a category. */
+  display: block;
+  white-space: nowrap;
   font-size: 14px;
   color: #333;
-  margin-right: 14px;
+  margin: 4px 0;
   cursor: pointer;
+}
+
+/* Custom G-limit inputs: a literal +/− sign sits inline before the
+   value box so the pilot sees `+ 4.4` and `− 1.76` instead of just
+   two unsigned magnitudes.  The negative side stores positive in the
+   field (a magnitude); the firmware applies the sign. */
+.g-limit-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.g-limit-input input {
+  flex: 1;
+}
+.g-limit-sign {
+  font-size: 18px;
+  font-weight: bold;
+  color: #000088;
+  width: 14px;
+  text-align: center;
+  user-select: none;
+}
+.g-limit-input input:invalid {
+  /* HTML5 pattern + inputmode reject anything other than a positive
+     decimal.  Visually flag the field on invalid input so the pilot
+     notices a typo before clicking Save. */
+  border-color: #c00;
+  background: #fff5f5;
 }
 
 .form-divs.inline-formfield.top-label-gap {
@@ -432,6 +465,7 @@ section h2 {
 .sp-ias {
   font-size: 14px;
   color: #666;
+  white-space: nowrap;
 }
 
 .sp-secondary {
