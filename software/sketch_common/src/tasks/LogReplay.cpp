@@ -17,12 +17,8 @@
 #include <filters/EMAFilter.h>
 #include <proto/LogCsv.h>
 #include <proto/LogCsvHeaderIndex.h>
+#include <replay/LogReplayEngine.h>
 #include <types/LogRow.h>
-
-using onspeed::pressureCoeff;
-using onspeed::fpm2mps;
-using onspeed::SuCalibrationCurve;
-using onspeed::AOACalculatorResult;
 
 FsFile                      hReplayFile;
 static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
@@ -30,6 +26,13 @@ static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
 // Header index built from the log file's own header line. Carries the
 // column-name -> ordinal mapping plus the boom/EFIS/VN-300 feature flags.
 static onspeed::proto::log_csv::HeaderIndex s_HeaderIndex{};
+
+// Per-replay-session engine instance. Constructed in OpenReplayLog once the
+// header has been parsed (to know flapsRawAdcAvailable). The engine owns the
+// AOA smoothing filter state across rows; recreating it for each new file
+// gives a clean EMA start. Pointer so construction is deferred until the
+// header is available.
+static onspeed::replay::LogReplayEngine* s_pEngine = nullptr;
 
 // Warning sink for BuildHeaderIndex. Reports each missing column on the
 // replay channel; LogRow fields for absent columns stay at their default
@@ -165,6 +168,19 @@ bool OpenReplayLog(String sLogFile)
         goto fail;
         }
 
+    // Construct a fresh engine now that the header is known. The header
+    // tells us whether flapsRawADC is available; the log rate is read from
+    // g_Config.iLogRate (50 or 208 Hz). Destroying and recreating the engine
+    // each file gives a clean AOA EMA start — the same as if the replay
+    // started from a cold state. Behavior is identical to the pre-extraction
+    // task code because the engine's step() mirrors ReadLogLine() exactly.
+    {
+    delete s_pEngine;
+    bool bFlapsRawAdcAvail = (s_HeaderIndex.idxFlapsRawAdc >= 0);
+    s_pEngine = new onspeed::replay::LogReplayEngine(
+            g_Config, g_Config.iLogRate, bFlapsRawAdcAvail);
+    }
+
     g_Log.printf("Replaying data from log file: %s\n", sLogFile.c_str());
     return true;
 
@@ -217,63 +233,50 @@ bool ReadLogLine()
         if (!bOk)
             continue;
 
-        // Unpack the LogRow into the global sensor/AHRS state that the rest
-        // of the firmware reads.
-        g_Sensors.PfwdSmoothed = row.pfwdSmoothed;
-        g_Sensors.P45Smoothed  = row.p45Smoothed;
-        g_Flaps.iPosition      = row.flapsPos;
+        // Delegate the per-row (LogRow -> globals) pipeline to the engine.
+        // The engine is constructed in OpenReplayLog once the header is known;
+        // its AOA smoother state persists across rows within this replay session.
+        // TestPot and RangeSweep tasks do not use the engine — they generate
+        // their own AOA directly and call UpdateTones themselves (see below).
+        const onspeed::replay::ReplayStepResult res =
+            s_pEngine->step(row);
+
+        // Publish the engine result to sketch globals — mirrors the write-back
+        // that was previously inline here. The engine's step() produces
+        // identical values to the old inline code; the sketch state is
+        // unchanged from the caller's perspective.
+        g_Sensors.PfwdSmoothed = res.pfwdSmoothed;
+        g_Sensors.P45Smoothed  = res.p45Smoothed;
+        g_Flaps.iPosition      = res.flapsPos;
         // Older logs without flapsRawADC leave g_Flaps.uValue at whatever it
         // was last sampled by the live ADC; only overwrite when the column
-        // was actually carried in the file. ParseRowByIndex sets
-        // row.flapsRawAdcPresent based on the HeaderIndex, mirroring the
-        // tail-optional gate in WriteHeader/FormatRow.
-        if (row.flapsRawAdcPresent)
-            g_Flaps.uValue     = row.flapsRawAdc;
+        // was actually carried in the file.
+        if (res.flapsRawAdcPresent)
+            g_Flaps.uValue     = res.flapsRawAdc;
 
-        g_fCoeffP = pressureCoeff(g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed);
+        g_fCoeffP          = res.coeffP;
+        g_Flaps.iIndex     = res.flapsIndex;
 
-        // Find the flap index from flap degrees
-        for (int iFlapsIdx = 0; iFlapsIdx < (int)g_Config.aFlaps.size(); iFlapsIdx++)
-            {
-            if (g_Flaps.iPosition == g_Config.aFlaps[iFlapsIdx].iDegrees)
-                {
-                g_Flaps.iIndex = iFlapsIdx;
-                break;
-                }
-            }
+        g_Sensors.Palt     = res.paltFt;
+        g_Sensors.IAS      = res.iasKt;
+        g_Sensors.bIasAlive = res.iasValid;
+        g_iDataMark        = res.dataMark;
+        g_AHRS.KalmanVSI   = res.kalmanVSI;
 
-        g_Sensors.Palt       = row.paltFt;
-        g_Sensors.IAS        = row.iasKt;
-        // Mirror the producer's air-data validity gate.  Rows where the
-        // producer's bIasAlive was false carry iasKt == NaN; downstream
-        // firmware (DataServer, DisplaySerial, M5 wire) gates display
-        // surfaces on this flag, so replay reads must propagate it.
-        g_Sensors.bIasAlive  = row.iasValid;
-        g_iDataMark          = row.dataMark;
-        g_AHRS.KalmanVSI     = fpm2mps(row.vsiFpm);
+        g_pIMU->Ax = res.imuForwardG;
+        g_pIMU->Ay = res.imuLateralG;
+        g_pIMU->Az = res.imuVerticalG;
+        g_pIMU->Gx = res.imuRollRateDps;
+        g_pIMU->Gy = res.imuPitchRateDps;
+        g_pIMU->Gz = res.imuYawRateDps;
 
-        // IMU state — ParseRow stores the raw (un-negated) gyro pitch rate
-        // back into imuPitchRateDps (issue #182).
-        g_pIMU->Ax = row.imuForwardG;
-        g_pIMU->Ay = row.imuLateralG;
-        g_pIMU->Az = row.imuVerticalG;
-        g_pIMU->Gx = row.imuRollRateDps;
-        g_pIMU->Gy = row.imuPitchRateDps;   // un-negated raw value
-        g_pIMU->Gz = row.imuYawRateDps;
+        g_AHRS.SmoothedPitch = res.pitchDeg;
+        g_AHRS.SmoothedRoll  = res.rollDeg;
+        g_AHRS.FlightPath    = res.flightPathDeg;
+        g_Sensors.AOA        = res.aoa;
 
-        g_AHRS.SmoothedPitch = row.pitchDeg;
-        g_AHRS.SmoothedRoll  = row.rollDeg;
-        g_AHRS.FlightPath    = row.flightPathDeg;
-
-        // AOA is recalculated from the smoothed pressures.
-        const SuCalibrationCurve& curve = g_Config.aFlaps[g_Flaps.iIndex].AoaCurve;
-        AOACalculatorResult result = g_Sensors.AoaCalc.calculate(
-                g_Sensors.PfwdSmoothed, g_Sensors.P45Smoothed, curve);
-        g_Sensors.AOA = result.aoa;
-        g_fCoeffP     = result.coeffP;
-
-        g_AHRS.AccelLatCorr  = g_pIMU->Ay;
-        g_AHRS.AccelVertCorr = g_pIMU->Az;
+        g_AHRS.AccelLatCorr  = res.accelLatCorr;
+        g_AHRS.AccelVertCorr = res.accelVertCorr;
 
         g_AudioPlay.UpdateTones(SnapshotActiveFlap());
 
