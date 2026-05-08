@@ -569,3 +569,59 @@ ul#liveview-nav-ul li.dropdown { display: inline-block; }
   color: #6b7780;
   text-align: center;
 }
+
+/* ---------- Replay: DataMark + Clip panels --------------------------- */
+
+.replay-marks,
+.replay-clips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #1a2026;
+  border-radius: 6px;
+  color: #eee;
+  margin-top: 8px;
+}
+.replay-marks-header,
+.replay-clips-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.replay-marks-list,
+.replay-clips-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.replay-mark-row,
+.replay-clip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background: #232c33;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.replay-mark-label {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-weight: 600;
+  color: #7dd3fc;
+  min-width: 30px;
+}
+.replay-mark-time {
+  color: #a8b3bd;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.replay-clips-empty {
+  color: #6b7780;
+  font-size: 12px;
+  font-style: italic;
+  padding: 4px 0;
+}

@@ -35,6 +35,7 @@ import { parseConfig } from '../replay/config.js';
 import { buildReplay } from '../replay/logReplay.js';
 import { detectTakeoff, detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
 import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
+import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 
 const MODES = [
   { id: 'energy',   label: 'Energy',     C: Mode0 },
@@ -95,7 +96,13 @@ export const ReplayPage = () => {
   // exportOverlayedVideo (call .stop() to end early).
   const [exporting, setExporting]     = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+  const [exportLabel, setExportLabel] = useState('');
   const exportHandleRef = useRef(null);
+
+  // Manual clip list. Each entry is { startMs, endMs, label }.
+  // The ClipBuilder UI displays them as a stack of editable rows;
+  // "Export all" iterates and produces one WebM per entry.
+  const [clips, setClips] = useState([]);
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -260,40 +267,65 @@ export const ReplayPage = () => {
 
   // ---------- Export flow ------------------------------------------
   //
-  // Start at the current playhead, capture through end-of-video at
-  // 1080p with the indexer overlay rasterized into each frame.
-  // MediaRecorder writes WebM; YouTube accepts WebM uploads.
-  const startExport = useCallback(async () => {
+  // The general export takes a [startSec, endSec] window. Phase-4's
+  // "export the whole thing from playhead" becomes a special case
+  // (startSec = playhead, endSec = null → duration). DataMarks and
+  // ClipBuilder rows call this with explicit windows.
+  //
+  // Returns the finished Blob (or null on error). Caller decides
+  // whether to download it directly or queue it.
+  const exportRange = useCallback(async ({ startSec, endSec, label }) => {
     const v = videoRef.current;
-    if (!v) return;
-    if (!syncReady) return;
+    if (!v) return null;
     setExporting(true);
     setExportProgress(0);
+    setExportLabel(label || '');
     try {
       const handle = await exportOverlayedVideo({
         videoEl: v,
-        // The overlay frame is a single-child wrapper around the
-        // current mode SVG. Re-resolved per frame so mode switches
-        // and pause/scrub events take effect immediately.
         getOverlaySvg: () => document.querySelector('.replay-overlay-frame > svg'),
+        startSec, endSec,
         outputWidth: 1920,
         bitrate: 12_000_000,
-        onProgress: ({ videoSec }) => {
-          if (v.duration > 0) setExportProgress(videoSec / v.duration);
+        onProgress: ({ videoSec, startSec: s, endSec: e }) => {
+          if (e > s) setExportProgress((videoSec - s) / (e - s));
         },
       });
       exportHandleRef.current = handle;
-      const blob = await handle.finished;
-      const filename = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '') +
-                       '_with_overlay.webm';
-      downloadBlob(blob, filename);
+      return await handle.finished;
     } catch (err) {
       setParseErr('Export failed: ' + (err?.message || err));
+      return null;
     } finally {
       setExporting(false);
+      setExportLabel('');
       exportHandleRef.current = null;
     }
-  }, [syncReady, videoFile]);
+  }, []);
+
+  // Phase-4 button: export the whole video from current playhead.
+  const startFullExport = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || !syncReady) return;
+    const blob = await exportRange({
+      startSec: v.currentTime,
+      endSec:   null,
+      label:    'full export',
+    });
+    if (!blob) return;
+    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+    downloadBlob(blob, `${base}_with_overlay.webm`);
+  }, [syncReady, videoFile, exportRange]);
+
+  // DataMark / ClipBuilder export: single window with a custom
+  // filename suffix. Used by the "Clip 30s" buttons and the
+  // ClipBuilder list's per-row Export.
+  const exportClip = useCallback(async ({ startSec, endSec, label, filenameSuffix }) => {
+    const blob = await exportRange({ startSec, endSec, label });
+    if (!blob) return;
+    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+    downloadBlob(blob, `${base}_${filenameSuffix}.webm`);
+  }, [exportRange, videoFile]);
 
   const stopExport = useCallback(() => {
     if (exportHandleRef.current) exportHandleRef.current.stop();
@@ -352,6 +384,64 @@ export const ReplayPage = () => {
   const ModeC = MODES.find(m => m.id === modeId)?.C ?? Mode0;
   // syncReady is computed up at the top so the export callback can
   // reference it; reuse here in the layout.
+
+  // Compute the list of data-mark events once per log change.
+  // Cheap (one pass over a 1 MB Int32Array); inline rather than
+  // useMemo since Preact-standalone's hook surface is small.
+  const marks = log ? findDataMarks(log) : [];
+
+  // Helper for the data-mark panel: jump video to a mark.
+  const jumpToMark = (markLogMs) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const tSec = logMsToVideoSec(markLogMs, sync);
+    if (Number.isFinite(tSec)) v.currentTime = Math.max(0, tSec);
+  };
+
+  // Export an N-second clip starting at a mark's video time.
+  const exportClipFromMark = (mark, durationSec) => {
+    const startSec = logMsToVideoSec(mark.logTimeMs, sync);
+    if (!Number.isFinite(startSec)) return;
+    const endSec = Math.min(videoRef.current?.duration || startSec + durationSec,
+                            startSec + durationSec);
+    return exportClip({
+      startSec,
+      endSec,
+      label: `mark ${mark.label}`,
+      filenameSuffix: `mark${mark.label}_${durationSec}s`,
+    });
+  };
+
+  // Add the current playhead as a clip start, with a default
+  // 30-second window. Pilot can edit either edge in the row.
+  const addClipFromPlayhead = (durationSec = 30) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const startVideoSec = v.currentTime;
+    if (!sync) return;
+    const startMs = sync.logTakeoffMs + (startVideoSec - sync.videoTakeoffSec) * 1000;
+    const endMs   = startMs + durationSec * 1000;
+    const label   = `clip ${String(clips.length + 1).padStart(2, '0')}`;
+    setClips(prev => [...prev, { startMs, endMs, label }]);
+  };
+
+  // Export every clip in the list as N separate WebMs in sequence.
+  const exportAllClips = async () => {
+    for (let i = 0; i < clips.length; i++) {
+      const c = clips[i];
+      const startSec = logMsToVideoSec(c.startMs, sync);
+      const endSec   = logMsToVideoSec(c.endMs,   sync);
+      if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) continue;
+      // Sequential await: each MediaRecorder run produces its own
+      // Blob and download before the next one starts.
+      // eslint-disable-next-line no-await-in-loop
+      await exportClip({
+        startSec, endSec,
+        label: c.label,
+        filenameSuffix: c.label.replace(/[^a-z0-9_-]/gi, '_'),
+      });
+    }
+  };
 
   // ---------- Layout -----------------------------------------------
 
@@ -421,7 +511,7 @@ export const ReplayPage = () => {
                     Stop
                   </button>`
               : html`
-                  <button class="replay-btn-primary" onClick=${startExport}
+                  <button class="replay-btn-primary" onClick=${startFullExport}
                           disabled=${!syncReady || !videoUrl}>
                     Export WebM
                   </button>`}
@@ -471,6 +561,7 @@ export const ReplayPage = () => {
           <${LogTimeline} log=${log} sync=${sync}
                           videoT=${videoT}
                           anchorLabel=${anchorKindLabel(anchorKind)}
+                          marks=${marks}
                           onLogTakeoffPick=${(tMs) => setSync(prev => ({
                             logTakeoffMs: tMs,
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
@@ -479,6 +570,28 @@ export const ReplayPage = () => {
                             const v = videoRef.current;
                             if (v) v.currentTime = Math.max(0, tSec);
                           }} />
+
+          ${marks.length > 0 && html`
+            <${DataMarkPanel}
+                marks=${marks}
+                sync=${sync}
+                disabled=${exporting || !syncReady}
+                onJump=${jumpToMark}
+                onClip=${exportClipFromMark} />`}
+
+          <${ClipBuilderPanel}
+              clips=${clips}
+              sync=${sync}
+              disabled=${exporting || !syncReady}
+              onAdd=${addClipFromPlayhead}
+              onRemove=${(i) => setClips(prev => prev.filter((_, j) => j !== i))}
+              onExport=${(c) => exportClip({
+                startSec: logMsToVideoSec(c.startMs, sync),
+                endSec:   logMsToVideoSec(c.endMs, sync),
+                label: c.label,
+                filenameSuffix: c.label.replace(/[^a-z0-9_-]/gi, '_'),
+              })}
+              onExportAll=${exportAllClips} />
         </footer>
       </div>
     <//>`;
@@ -503,6 +616,7 @@ export const ReplayPage = () => {
 //     plain click falls back to the shift-click behavior so the
 //     timeline is still useful for first-time setup.
 const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
+                       marks = [],
                        onLogTakeoffPick, onSeekVideo }) => {
   const W = 1100, H = 80;
   const PAD = 4;
@@ -575,6 +689,17 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
            style="width: 100%; height: ${H}px; cursor: crosshair;">
         <rect x="0" y="0" width=${W} height=${H} fill="#0e1418" />
         <path d=${d} fill="none" stroke="#5cd6ff" stroke-width="1" />
+        ${marks.map(m => {
+          if (m.logTimeMs < tMin || m.logTimeMs > tMax) return null;
+          const x = xOf(m.logTimeMs).toFixed(1);
+          return html`
+            <line x1=${x} y1="0" x2=${x} y2=${H}
+                  stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55" />
+            <text x=${(parseFloat(x) + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
+                  fill="#7dd3fc" font-size="10" font-family="monospace">
+              ${m.label}
+            </text>`;
+        })}
         ${sync && Number.isFinite(sync.logTakeoffMs) && html`
           <line x1=${xOf(sync.logTakeoffMs).toFixed(1)} y1="0"
                 x2=${xOf(sync.logTakeoffMs).toFixed(1)} y2=${H}
@@ -593,3 +718,100 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
         : 'click anywhere on the IAS trace to set the log-takeoff anchor'}</div>
     </div>`;
 };
+
+// ---------- DataMarkPanel ------------------------------------------
+
+// Lists every DataMark transition the pilot dropped during the
+// flight. Each row shows the mark's ordinal label + log time + the
+// mapped video time (when sync is established), plus action buttons:
+//   - Jump:    seek the video to the mark's video time
+//   - Clip Ns: export an N-second WebM starting at the mark
+const DataMarkPanel = ({ marks, sync, disabled, onJump, onClip }) => {
+  if (!marks || marks.length === 0) return null;
+  return html`
+    <div class="replay-marks">
+      <div class="replay-marks-header">
+        <span class="replay-label">Data marks</span>
+        <span class="replay-status">${marks.length}</span>
+      </div>
+      <div class="replay-marks-list">
+        ${marks.map(m => {
+          const videoSec = logMsToVideoSec(m.logTimeMs, sync);
+          const tStr = Number.isFinite(videoSec)
+            ? `video ${formatHms(videoSec)}`
+            : 'no sync';
+          return html`
+            <div class="replay-mark-row">
+              <span class="replay-mark-label">${m.label}</span>
+              <span class="replay-mark-time">log ${formatHms(m.logTimeMs / 1000)} · ${tStr}</span>
+              <span class="replay-spacer"></span>
+              <button class="replay-btn" disabled=${disabled || !Number.isFinite(videoSec)}
+                      onClick=${() => onJump(m.logTimeMs)}>Jump</button>
+              <button class="replay-btn" disabled=${disabled || !Number.isFinite(videoSec)}
+                      onClick=${() => onClip(m, 30)}>Clip 30 s</button>
+              <button class="replay-btn" disabled=${disabled || !Number.isFinite(videoSec)}
+                      onClick=${() => onClip(m, 60)}>Clip 60 s</button>
+            </div>`;
+        })}
+      </div>
+    </div>`;
+};
+
+// ---------- ClipBuilderPanel ---------------------------------------
+
+// User-defined clip ranges. Each row stores a {startMs, endMs,
+// label} tuple in log-time; we display + edit in seconds. The
+// expected workflow: scrub the video to a clip start, click "Add
+// 30 s clip", then optionally drag the right edge in the timeline
+// (future) or click Edit to type new times.
+const ClipBuilderPanel = ({ clips, sync, disabled, onAdd, onRemove, onExport, onExportAll }) => {
+  return html`
+    <div class="replay-clips">
+      <div class="replay-clips-header">
+        <span class="replay-label">Clips</span>
+        <span class="replay-status">${clips.length}</span>
+        <span class="replay-spacer"></span>
+        <button class="replay-btn" disabled=${disabled || !sync}
+                onClick=${() => onAdd(30)}>+ 30 s clip from playhead</button>
+        <button class="replay-btn" disabled=${disabled || !sync}
+                onClick=${() => onAdd(60)}>+ 60 s clip from playhead</button>
+        ${clips.length > 0 && html`
+          <button class="replay-btn-primary" disabled=${disabled}
+                  onClick=${onExportAll}>Export all clips</button>`}
+      </div>
+      ${clips.length === 0
+        ? html`<div class="replay-clips-empty">no clips yet — scrub video, click "+ 30 s clip"</div>`
+        : html`<div class="replay-clips-list">
+            ${clips.map((c, i) => {
+              const startSec = logMsToVideoSec(c.startMs, sync);
+              const endSec   = logMsToVideoSec(c.endMs,   sync);
+              const span = (c.endMs - c.startMs) / 1000;
+              return html`
+                <div class="replay-clip-row">
+                  <span class="replay-mark-label">${c.label}</span>
+                  <span class="replay-mark-time">
+                    ${Number.isFinite(startSec) ? formatHms(startSec) : '—'}
+                    → ${Number.isFinite(endSec) ? formatHms(endSec) : '—'}
+                    · ${span.toFixed(1)} s
+                  </span>
+                  <span class="replay-spacer"></span>
+                  <button class="replay-btn" disabled=${disabled}
+                          onClick=${() => onExport(c)}>Export</button>
+                  <button class="replay-btn-ghost" disabled=${disabled}
+                          onClick=${() => onRemove(i)}>×</button>
+                </div>`;
+            })}
+          </div>`}
+    </div>`;
+};
+
+// Format a duration in seconds as H:MM:SS or M:SS.
+function formatHms(sec) {
+  if (!Number.isFinite(sec)) return '—';
+  const total = Math.floor(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}

@@ -66,23 +66,27 @@ function svgToImage(svgEl) {
 //     getOverlaySvg:  () -> SVGElement | null  (current frame's
 //                     mode SVG; called per video frame so the
 //                     overlay state is current),
+//     startSec:       optional float (seconds). If set, video seeks
+//                     here before recording starts. Defaults to
+//                     the videoEl's current playhead.
+//     endSec:         optional float (seconds). If set, recording
+//                     stops when video crosses this time. Defaults
+//                     to videoEl.duration (i.e. record to the end).
 //     overlayInset:   { right, bottom, widthPct } — px from the
 //                     edges in canvas-space, percentage of canvas
 //                     width for the overlay box.
 //     outputWidth:    int (e.g. 1920); output canvas width.
 //                     Height derived from video aspect ratio.
 //     bitrate:        int bits/sec (default 12 Mbps)
-//     onChunk:        (Blob) => void — called for each Blob slice
-//                     of the recording; collect them and stitch.
-//                     Optional; can also use the returned `stop()`
-//                     promise.
-//     onProgress:     ({ encodedSec, videoSec }) => void
+//     onProgress:     ({ encodedSec, videoSec, startSec, endSec }) => void
 //   }
 //
-// Returns: { stop() -> Promise<Blob> }.
+// Returns: { stop() -> Promise<Blob>, finished: Promise<Blob> }.
 export async function exportOverlayedVideo(opts) {
   const {
     videoEl, getOverlaySvg,
+    startSec = null,
+    endSec   = null,
     overlayInset = { right: 24, bottom: 110, widthPct: 0.22 },
     outputWidth = 1920,
     bitrate = DEFAULT_BITRATE,
@@ -136,8 +140,9 @@ export async function exportOverlayedVideo(opts) {
 
   // Async frame driver. Plays the video at native speed, captures
   // a canvas frame each time the video paints. Stop when we hit
-  // duration or the caller calls stop().
+  // the end-of-window (or duration) or the caller calls stop().
   let stopped = false;
+  const effectiveEnd = Number.isFinite(endSec) ? endSec : videoEl.duration;
   let lastVideoTime = videoEl.currentTime;
 
   function rasterizeOverlay(scaleX, scaleY) {
@@ -175,9 +180,14 @@ export async function exportOverlayedVideo(opts) {
         onProgress({
           encodedSec: videoEl.currentTime - lastVideoTime,
           videoSec:   videoEl.currentTime,
+          startSec:   Number.isFinite(startSec) ? startSec : 0,
+          endSec:     effectiveEnd,
         });
       }
-      if (videoEl.currentTime >= videoEl.duration - 0.05 || videoEl.ended) {
+      // Stop at end of clip window (or end of video, or natural end).
+      if (videoEl.currentTime >= effectiveEnd - 0.02 ||
+          videoEl.currentTime >= videoEl.duration - 0.05 ||
+          videoEl.ended) {
         finish();
         return;
       }
@@ -210,7 +220,21 @@ export async function exportOverlayedVideo(opts) {
   };
   recorder.onerror = (e) => finishReject(e?.error || e);
 
-  // Start: rewind video to current playhead, kick the recorder, play.
+  // Seek to the clip start (if provided) and wait for the seek
+  // to settle before kicking the recorder. Without the wait,
+  // MediaRecorder captures the pre-seek frame as its first frame.
+  if (Number.isFinite(startSec) && Math.abs(videoEl.currentTime - startSec) > 0.05) {
+    await new Promise(resolve => {
+      const onSeeked = () => {
+        videoEl.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
+      videoEl.addEventListener('seeked', onSeeked, { once: true });
+      videoEl.currentTime = startSec;
+    });
+  }
+  lastVideoTime = videoEl.currentTime;
+
   recorder.start(1000);   // 1 s slice for ondataavailable
   if (videoEl.requestVideoFrameCallback) {
     videoEl.requestVideoFrameCallback(tick);
