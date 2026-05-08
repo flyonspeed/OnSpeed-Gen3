@@ -3908,9 +3908,9 @@
 <tbody>
 <tr>
 <td><code>IAS</code></td>
-<td>float</td>
+<td>float | null</td>
 <td>knots</td>
-<td>Indicated airspeed. From the EFIS (<code>g_EfisSerial.suEfis.IAS</code>) <strong>only</strong> in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived <code>g_Sensors.IAS</code> — VN-300 itself does not provide IAS.</td>
+<td>Indicated airspeed. From the EFIS (<code>g_EfisSerial.suEfis.IAS</code>) <strong>only</strong> in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived <code>g_Sensors.IAS</code> — VN-300 itself does not provide IAS. Emits JSON <code>null</code> when <code>bIasAlive</code> is false (air data invalid). Consumers should check <code>typeof === 'number'</code> before using.</td>
 </tr>
 <tr>
 <td><code>PAlt</code></td>
@@ -3976,21 +3976,21 @@
 <tbody>
 <tr>
 <td><code>AOA</code></td>
-<td>float</td>
+<td>float | null</td>
 <td>degrees</td>
-<td><strong>Body angle</strong>, not wing AOA. The fuselage-to-wind angle. See <a href="../../calibration/how-aoa-works/">How OnSpeed Measures AOA</a> for the convention. Sentinel value <code>-100</code> is emitted when AOA is <code>NaN</code> or IAS is below the audio mute threshold (<code>MUTE_UNDER_IAS</code> in config); the LiveView gates on <code>AOA &gt; -20</code> to render N/A in that state.</td>
+<td><strong>Body angle</strong>, not wing AOA. The fuselage-to-wind angle. See <a href="../../calibration/how-aoa-works/">How OnSpeed Measures AOA</a> for the convention. Emits JSON <code>null</code> when <code>bIasAlive</code> is false (air data invalid). Consumers should check <code>typeof === 'number'</code> before using.</td>
 </tr>
 <tr>
 <td><code>DerivedAOA</code></td>
-<td>float</td>
+<td>float | null</td>
 <td>degrees</td>
-<td>Body angle derived from the AHRS (pitch and flight path), <code>g_AHRS.DerivedAOA</code>. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning.</td>
+<td>Body angle derived from the AHRS (pitch and flight path), <code>g_AHRS.DerivedAOA</code>. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning. Emits JSON <code>null</code> when <code>bIasAlive</code> is false (air data invalid). Consumers should check <code>typeof === 'number'</code> before using.</td>
 </tr>
 <tr>
 <td><code>percentLift</code></td>
-<td>float</td>
+<td>float | null</td>
 <td>0.0–99.9</td>
-<td>Honest single-linear envelope fraction of the current body angle, computed by <code>onspeed_core/aoa/PercentLift::ComputePercentLift</code>: <code>(AOA − α₀) / (α_stall − α₀) × 100</code>, clamped to <code>[0.0, 99.9]</code>. Emitted with one decimal of precision (e.g. <code>34.7</code>) so the LiveView indexer bar can advance at sub-pixel temporal smoothness off the 20 Hz cadence — same fidelity the M5 wire carries via its <code>%03u</code> tenths-of-a-percent field. Consumers expecting an integer can <code>Math.round</code> / <code>int()</code> at the readout site. Uses the <strong>active-detent</strong> flap calibration (matches what the audio path uses).</td>
+<td>Honest single-linear envelope fraction of the current body angle, computed by <code>onspeed_core/aoa/PercentLift::ComputePercentLift</code>: <code>(AOA − α₀) / (α_stall − α₀) × 100</code>, clamped to <code>[0.0, 99.9]</code>. Emitted with one decimal of precision (e.g. <code>34.7</code>) so the LiveView indexer bar can advance at sub-pixel temporal smoothness off the 20 Hz cadence — same fidelity the M5 wire carries via its <code>%03u</code> tenths-of-a-percent field. Consumers expecting an integer can <code>Math.round</code> / <code>int()</code> at the readout site. Uses the <strong>active-detent</strong> flap calibration (matches what the audio path uses). Emits JSON <code>null</code> when <code>bIasAlive</code> is false (air data invalid). Consumers should check <code>typeof === 'number'</code> before using.</td>
 </tr>
 <tr>
 <td><code>coeffP</code></td>
@@ -4112,30 +4112,20 @@
 <thead>
 <tr>
 <th>Field</th>
-<th>Fallback when source is <code>NaN</code>/<code>Inf</code></th>
+<th>Fallback when source is invalid</th>
 <th>Why</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>AOA</code></td>
-<td><code>-100</code></td>
-<td>LiveView gates on <code>AOA &gt; -20</code> to render <code>N/A</code>; sentinel below that range keeps the bar hidden until real data arrives.</td>
+<td><code>AOA</code>, <code>DerivedAOA</code>, <code>IAS</code>, <code>percentLift</code></td>
+<td>JSON <code>null</code> when <code>bIasAlive=false</code></td>
+<td>Air-data fields the producer can't honestly emit when the pitot-side validity flag (<code>bIasAlive</code>, hysteresis 20 kt rising / 15 kt falling) is false. Consumers <code>typeof === 'number'</code> before reading; null falls through to N/A renderings.</td>
 </tr>
 <tr>
-<td><code>Pitch</code>, <code>Roll</code>, <code>IAS</code>, <code>kalmanVSI</code>, <code>flightPath</code>, <code>verticalGLoad</code>, <code>OAT</code></td>
-<td><code>0.0</code></td>
-<td>Nothing-special fallback; consumers that care about validity should use the indirect signals (e.g. <code>IAS == 0</code> plus elapsed time without changes).</td>
-</tr>
-<tr>
-<td><code>DerivedAOA</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code></td>
-<td><code>0.0</code></td>
-<td>Same.</td>
-</tr>
-<tr>
-<td><code>lateralGLoad</code>, <code>PAlt</code></td>
-<td><code>0.0</code></td>
-<td>Same.</td>
+<td><code>Pitch</code>, <code>Roll</code>, <code>kalmanVSI</code>, <code>flightPath</code>, <code>verticalGLoad</code>, <code>OAT</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code>, <code>lateralGLoad</code>, <code>PAlt</code></td>
+<td><code>0.0f</code> fallback on NaN (still numeric)</td>
+<td>0 is a physically meaningful reading for these fields (level pitch, no roll, no climb, etc.), so the fallback won't be confused with real data the way a numeric AOA fallback would be.</td>
 </tr>
 </tbody>
 </table>
@@ -4150,8 +4140,8 @@
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">evt</span><span class="p">.</span><span class="nx">data</span><span class="p">);</span>
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="c1">// Skip the {} truncation marker.</span>
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="kc">undefined</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="c1">// -100 is the &quot;AOA unavailable&quot; sentinel — gate on &gt; -20.</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">aoa</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="o">-</span><span class="mf">20</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="p">.</span><span class="nx">toFixed</span><span class="p">(</span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s2">&quot;°&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;N/A&quot;</span><span class="p">;</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="c1">// AOA emits null when air data is invalid; check typeof first.</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">aoa</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="ow">typeof</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;number&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">AOA</span><span class="p">.</span><span class="nx">toFixed</span><span class="p">(</span><span class="mf">1</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s2">&quot;°&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;N/A&quot;</span><span class="p">;</span>
 <a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`AOA=</span><span class="si">${</span><span class="nx">aoa</span><span class="si">}</span><span class="sb"> pct=</span><span class="si">${</span><span class="nx">data</span><span class="p">.</span><span class="nx">percentLift</span><span class="si">}</span><span class="sb">%`</span><span class="p">);</span>
 <a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">};</span>
 </code></pre></div>
@@ -4163,7 +4153,7 @@
 <p><strong>Discovery and topology.</strong> The OnSpeed runs as a WiFi access point only — there is no station-mode WebSocket today. The IP <code>192.168.0.1</code> is hard-coded by the AP DHCP config and there is no mDNS / zeroconf advertisement. A consumer must connect to the OnSpeed AP first, then dial the literal IP. If the AP IP is ever reconfigured, consumers will need to update their URL.</p>
 <p><strong>Schema versioning.</strong> The JSON has no top-level version field. The intended forward-compat strategy is "ignore unknown keys" — new fields will appear in future firmware versions; consumers must tolerate that. <strong>The project does not currently have a test pinning the JSON schema</strong>, so consumers cannot rely on a guarantee that field types and units never change for existing keys; treat the schema as documentation of current behavior, not a stability contract. The change log at the bottom of this page records breaking changes when they happen, but is dependent on someone remembering to update it.</p>
 <p><strong>Truncation handling.</strong> If <code>snprintf</code> would overflow the 512-byte buffer, the producer emits the literal <code>{}</code>. A defensive consumer should check that an expected key exists (or do <code>if (data.AOA === undefined) skipFrame()</code>) rather than blindly indexing.</p>
-<p><strong><code>AOA = -100</code> sentinel.</strong> The <code>AOA</code> field reports <code>-100</code> when the OnSpeed pitot AOA is unavailable (NaN) or IAS is below the audio mute threshold. A consumer plotting AOA in real time will get a <code>-100</code> spike at low IAS unless it gates on <code>AOA &gt; -20</code> (or any threshold above <code>-100</code>).</p>
+<p><strong>Null on invalid air data.</strong> The <code>AOA</code>, <code>DerivedAOA</code>, <code>IAS</code>, and <code>percentLift</code> fields emit JSON <code>null</code> when <code>bIasAlive</code> is false (the canonical sensor-level air-data validity flag, hysteresis 20 kt rising / 15 kt falling, backed by the pitot deadband). A third-party consumer should always check <code>typeof data.AOA === 'number'</code> (or equivalent in its language) before calling <code>.toFixed()</code> or doing arithmetic — null fields fall through to N/A renderings rather than producing spikes or NaN propagation.</p>
 <p><strong>Per-field native rates.</strong> A frame is a near-simultaneous snapshot of fields each filtered at their own native rate (gyro at AHRS rate, decel at the Savitzky-Golay window, flap index at 1 Hz, etc.). Two consecutive frames will not show identical values for slow-moving fields like <code>flapIndex</code> even when nothing changed — the snapshot is consistent, the underlying filters are not.</p>
 <p><strong>Coordinate consistency with display serial.</strong> Where a field exists in both transports the values are derived from the same source and agree to within rounding. The wire is fixed-width and applies tighter clamps; the WebSocket is unclamped. As of v4.23, sign conventions also match — the wire's <code>lateralG</code> is body-frame (positive = right), same as <code>lateralGLoad</code> in JSON. Slip-skid ball renderers negate locally at the rendering site on either transport.</p>
 <h2 id="display-serial-vs-liveview-the-two-data-paths">Display serial vs LiveView — the two data paths<a class="headerlink" href="#display-serial-vs-liveview-the-two-data-paths" title="Permanent link">&para;</a></h2>
