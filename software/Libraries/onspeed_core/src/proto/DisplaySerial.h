@@ -151,9 +151,7 @@ inline constexpr int kDisplayFramePeriodMs = 50;
 //   (positive = ball drawn right of center).
 //
 //   The Gen3 builder transmits `g_AHRS.AccelLatFilter.get()` directly
-//   — no negation at the wire-format boundary.  See
-//   LATERAL_G_CONVENTION.md for the full chain of how this value flows
-//   through every surface.
+//   — no negation at the wire-format boundary.
 // ============================================================================
 
 struct DisplayBuildInputs {

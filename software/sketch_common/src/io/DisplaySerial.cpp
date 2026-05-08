@@ -364,7 +364,7 @@ void DisplaySerial::Write()
         // the IMU, SD log, and WebSocket JSON conventions. Slip-skid ball
         // renderers negate locally at the rendering site (the M5's
         // SerialRead::SerialProcess does, and the LiveView's slipBall.js
-        // does the same). See LATERAL_G_CONVENTION.md and #383.
+        // does the same). See DisplaySerial.h's DisplayBuildInputs::lateralG block and #383.
         inputs.lateralG           = g_AHRS.AccelLatFilter.get();
         inputs.verticalGScaled10  = static_cast<float>(iDisplayVerticalG);
         inputs.percentLiftPct     = fPercentLiftPct;     // 0.0..99.9, encoder scales ×10 to tenths
