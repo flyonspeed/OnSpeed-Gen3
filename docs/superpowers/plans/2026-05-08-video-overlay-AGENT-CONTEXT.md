@@ -2,8 +2,59 @@
 
 **Last updated:** 2026-05-08 — Sam.
 
+**START HERE if you've never seen this codebase before.** If you're
+looking for the index of plan documents and reading order, see
+`2026-05-08-replay-INDEX.md`.
+
 This is the briefing every sub-agent working on the video-replay tool
-needs before touching code. The plans (`2026-05-08-video-overlay-replay.md`,
+needs before touching code.
+
+## The unified architecture (memorize this)
+
+```
+                          ┌──────────────────────────────┐
+                          │   software/Libraries/        │
+                          │   onspeed_core/              │  ← THE SPEC
+                          │   (platform-free C++)        │
+                          └──────────────┬───────────────┘
+                                         │
+                  ┌──────────────────────┼──────────────────────┐
+                  │                      │                      │
+                  ▼                      ▼                      ▼
+          ┌──────────────┐      ┌─────────────────┐    ┌────────────────┐
+          │  Firmware    │      │  X-Plane plugin │    │   M5 simulator │
+          │  (V4P/V4B)   │      │  (Mac/Win/Linux)│    │  (WASM browser)│
+          └──────┬───────┘      └─────────────────┘    └────────────────┘
+                 │
+                 │ wire format (display-serial / WebSocket JSON)
+                 ▼
+          ┌──────────────┐
+          │ M5 hardware  │ ← Basic / Core2 / huVVer-AVI
+          └──────────────┘
+
+          ┌─────────────────────┐
+          │  Replay tool (JS)   │ ← THE ONLY HAND-PORT
+          └──────────┬──────────┘
+                     │ CI gate (streaming-goldens diff vs C++)
+                     ▼
+          ┌──────────────────┐    ← Multi-subcommand binary,
+          │  host_main CLI   │      exposes every onspeed_core
+          │                  │      algorithm. Python tools call
+          │                  │      it as subprocess wrappers.
+          └──────────────────┘
+```
+
+**Three of four deploy targets compile or link `onspeed_core`** —
+they cannot drift by construction. The fourth (Replay JS) is the
+only hand-port; it gates against host_main output via CI.
+
+**Four deploy targets**: firmware on the airplane, X-Plane plugin
+(developers), M5 WASM simulator (docs site), Replay tool (Sam &
+Vac). Plus M5 hardware variants (Basic / Core2 / huVVer-AVI) which
+render the firmware's wire output but don't compute anything
+themselves.
+
+ The plans (`2026-05-08-video-overlay-replay.md`,
 `2026-05-08-cross-impl-drift-prevention.md`) cover *what* to build.
 This doc covers *what tripped me up while building it*, so future
 agents don't pay the same cost twice.
@@ -54,9 +105,11 @@ produce small POSITIVE fractions** because the wing IS lifting.
 If you find yourself writing `body_angle / alpha_stall * 100` you're
 wrong. The canonical implementation lives at:
 
-- C++: `software/Libraries/onspeed_core/src/aoa/PercentLift.cpp::ComputePercentLift`
-- Python: `tools/onspeed_py/percent_lift.py::compute_percent_lift`
-- JS: `tools/web/lib/replay/percentLift.js::computePercentLift`
+- **C++ (the spec)**: `software/Libraries/onspeed_core/src/aoa/PercentLift.cpp::ComputePercentLift`
+- **Python**: pre-consolidation = `tools/onspeed_py/percent_lift.py::compute_percent_lift` (hand-port).
+  Post-`PLAN_PYTHON_CONSOLIDATION.md` Step 1 = a thin subprocess wrapper around `host_main percent_lift`.
+- **JS** (the only sanctioned hand-port): `tools/web/lib/replay/percentLift.js::computePercentLift`.
+  Gated by streaming-goldens CI against C++ output.
 
 Project-wide CLAUDE.md `/Users/sritchie/code/onspeed/CLAUDE.md` has
 the full body-angle convention block. Read it.
@@ -237,8 +290,8 @@ await mcp.browser_evaluate({
 
 | Thing | Path | What it does |
 |---|---|---|
-| **Snapshot regression harness** | `tools/regression/{host_main.cpp,run_snapshot.py,fixtures/}` | Runs `host_main.cpp` linked against current `onspeed_core` over `short_replay.csv`, diffs against `golden.csv`. **C++ only today.** Drift-prevention plan extends to all four languages. |
-| **Python replay** | `tools/onspeed_py/{config,percent_lift,log_replay,frame}.py` + `tests/` | The Python implementation that the JS replay was ported from. Authoritative when JS has a question. |
+| **Snapshot regression harness** | `tools/regression/{host_main.cpp,run_snapshot.py,fixtures/}` | Runs `host_main.cpp` linked against current `onspeed_core` over `short_replay.csv`, diffs against `golden.csv`. **C++ only today.** Streaming-goldens plan extends host_main into a multi-subcommand CLI; CI gates JS against its output. |
+| **Python replay** | `tools/onspeed_py/{config,percent_lift,log_replay,frame}.py` + `tests/` | **PRE-CONSOLIDATION**: hand-port of firmware algorithms. **POST-`PLAN_PYTHON_CONSOLIDATION.md`**: thin subprocess wrappers around `host_main`. Algorithm code lives in C++. The wrapper interface stays; the body becomes a `subprocess.run(['host_main', ...])` call. |
 | **M5 WASM simulator** | `software/OnSpeed-M5-Display/sim/` | M5 firmware compiled to a 320×240 canvas via Emscripten + SDL2. Same renderer, different driver. **A future agent can write a "JS replay vs WASM sim" parity test.** |
 | **render-smoke tests** | `tools/web/test/render-smoke.mjs` | Renders Mode0/1/3 against fixed records; asserts text content. Layer 2 widget tests follow the same pattern. |
 | **Live `/indexer` page** | `tools/web/lib/pages/IndexerPage.js` | The live indexer. Shares SVG components with replay. **Don't break this when extracting widgets — re-export rather than moving source.** |
@@ -291,11 +344,53 @@ think to lower `KACC_TAU_S`, test on real data first. The current
 time τ; lowering it brings the noise back. The "lag" is real but
 small and reflects the wire-format quantization the firmware applies.
 
+### Don't put HUD widgets in `lib/components/svg/`
+
+HUD widgets (HudAirspeedTape, HudAltitudeTape, etc.) are
+**replay-tool-only**. They live under `lib/replay/widgets/`, not
+`lib/components/svg/`. The bundler skip-list excludes `lib/replay/`
+from firmware; if you put widgets in `lib/components/svg/` they'll
+ship in the firmware bundle and bloat flash. **The M5 hardware does
+NOT need HUD widgets** — it has its 5 built-in modes already.
+
+If a future need arises to use a HUD widget on the live `/indexer`
+page, lift it OUT of `lib/replay/` deliberately, with the cost
+(firmware flash usage) understood.
+
+### Don't have JS or Python parse CSV their own way
+
+Post-`PLAN_PYTHON_CONSOLIDATION` Step 0, **`host_main` is the
+canonical CSV parser**. JS and Python wrappers feed input through
+host_main; they don't roll their own parsers. Subtle differences in
+column-name aliasing, NaN handling, malformed-row tolerance lead to
+bugs that the streaming-goldens CI gate doesn't catch (because both
+sides see the same well-formed input).
+
+### Don't load the whole video into memory during export
+
+Cockpit videos are routinely 10-20 GB. WebCodecs export must use
+**streaming reads** from the File System Access API
+(`FileSystemFileHandle.getFile().slice()` to pull byte ranges).
+MP4Box.js demux is built around streaming — use it correctly. An
+agent that does `await file.arrayBuffer()` on a 17 GB video will
+crash the tab.
+
+### The M5 WASM simulator is "by-construction-correct" only for ALGORITHMS
+
+The simulator compiles the same C++ as the firmware, so percent-lift,
+EMA, anchors, etc. behave identically. **But its rendering** (M5GFX
+behavior on Emscripten/WASM) may differ from real-hardware behavior
+in subtle ways (font metrics, pixel rounding). Don't claim
+WASM-vs-real-M5 pixel parity. It's algorithm parity, which is what
+matters for the spec.
+
 ### Don't bypass the spec fixtures (once they exist)
 
 When `PLAN_DRIFT_PREVENTION` PR 1 lands, every algorithm change must
 ship with a JSON fixture update. Don't merge a behavior change in
-just JS or just Python — the CI gate exists for a reason.
+just JS or just C++ — the CI gate exists for a reason. (Post-Python-
+consolidation, Python is no longer a separate gate target — it's a
+host_main wrapper, automatically correct by construction.)
 
 ---
 
@@ -319,21 +414,38 @@ If you're stuck on a decision the plans don't answer:
 ## Resumable from here — pickup notes for the next session
 
 If you're picking up this work in a new session (Sam OR an agent),
-the open work items are:
+the open work items are, IN STRICT DEPENDENCY ORDER:
 
-1. **Layer 0 PR 1: extend host_main + start the streaming-goldens
-   harness.** See `PLAN_DRIFT_PREVENTION.md` "Dispatch prompt — Layer 0
-   PR 1." This is the bedrock; ship before any new algorithm work.
+0. **Python consolidation (DO FIRST).** See
+   `2026-05-08-python-consolidation.md`. Step 0 (extend host_main
+   into multi-subcommand CLI) → Step 1 (migrate percent_lift +
+   config to subprocess wrappers, proof of concept) → Steps 2-7.
+   Sam has confirmed only he is using these tools today; breaking
+   changes during migration are fine. ~5-7 days, 7 small PRs.
 
-2. **Layer 1: file-handle persistence + sync nudge buttons.** See
-   `PLAN_VIDEO_OVERLAY.md` Step 2. Half-day. No dependencies.
+1. **Layer 0 streaming-goldens CI gate.** See PLAN_VIDEO_OVERLAY's
+   "Layer 0 — drift-prevention CI gate" dispatch. Lands AFTER
+   Python consolidation — once Python is just a subprocess
+   wrapper, the only remaining drift target is JS. Two CI jobs:
+   C++ produces goldens, JS diffs against them.
 
-3. **Layer 2: HUD widget gallery + catalog.** See PLAN Step 3. Needs
-   visual iteration with Sam — build the gallery page first
-   (`tools/web/widget-gallery.html`), then design widgets one at a
-   time. OnSpeed-original styling, NOT G3X chrome.
+2. **Layer 1: file-handle persistence + sticky config + sync
+   nudge + keyboard frame-by-frame + all 5 modes.** See
+   `PLAN_VIDEO_OVERLAY.md` Step 2 (now expanded). ~1 day.
+   No dependencies on Layer 0 — can be parallelized.
+
+3. **Layer 2: HUD widget gallery + catalog.** See PLAN Step 3.
+   Needs visual iteration with Sam — build the gallery page first
+   (`tools/web/widget-gallery.html`), then design widgets one at
+   a time. OnSpeed-original styling, NOT G3X chrome.
 
 4. **Layer 3, 4, 5**: see PLAN. Each independent once Layer 2 ships.
+
+5. **Step 6.5 (deploy)**: build_static.sh + GitHub Actions hook
+   into docs deploy → dev.flyonspeed.org/replay.
+
+6. **Step 7 (docs)**: user-facing replay.md, design spec,
+   reference docs.
 
 ### What's already-fixed-and-pushed but not yet user-tested
 

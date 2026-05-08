@@ -3,8 +3,9 @@
 **Branch:** `sam/video-overlay` (pushed to `flyonspeed/OnSpeed-Gen3`).
 **Status:** Phase 1–4 + DataMark/Clip system shipped. Next chunk
 follows the layered architecture below.
-**Form factor:** static-build SPA (deploy to `flyonspeed.org/replay`
-or similar). Electron deferred until SPA reveals a concrete need.
+**Form factor:** static-build SPA shipped via the existing
+`dev.flyonspeed.org` MkDocs deploy → bookmark at `dev.flyonspeed.org/replay`.
+Electron deferred until SPA reveals a concrete need.
 **Date:** 2026-05-08.
 **Owner:** Sam.
 
@@ -40,7 +41,8 @@ excludes the replay code so the firmware bundle stays slim.
 ## The architectural invariant
 
 > **For any given `(log_row, config)`, all four implementations
-> (firmware C++, Python tools, JavaScript replay, M5 WASM simulator)
+> (firmware C++, Python tools — wrappers post-consolidation —
+> JavaScript replay, M5 WASM simulator)
 > compute the same `record`** — the bag of fields the indexer
 > renders against (IAS, AOA, percentLift, band-edge anchors,
 > smoothed accels, etc.).
@@ -139,9 +141,10 @@ the migration are fine.
 
 ### Step 1 — Harden Layer 0 (drift prevention scaffolding)
 
-**Why next:** with Python now subprocess-based (drift impossible by
-construction), the streaming-goldens harness gates the only
-remaining drift-vulnerable consumer (JS replay).
+**Why next:** with Python now subprocess-based after Step 0 (drift
+impossible by construction), the streaming-goldens harness only
+needs to gate the **one remaining hand-port: JS replay.** Two CI
+jobs: C++ host_main produces goldens; JS diffs against them.
 
 **What ships:**
 - `test/spec_fixtures/percent_lift/` directory with ~5 fixtures (clean detent, alpha_0 negative, alpha_stall fallback, NaN AOA, IAS-invalid).
@@ -154,26 +157,57 @@ remaining drift-vulnerable consumer (JS replay).
 **Blocks:** nothing today (current engine works), but blocks confidence
 in Layers 2+ once we add new behavior.
 
-### Step 2 — Layer 1 polish (sync persistence + nudge)
+### Step 2 — Layer 1 polish (sync persistence + nudge + keyboard scrub + sticky config + all modes)
 
 **Why early:** Vac is going to use this tool repeatedly. If every
-session requires re-picking files and re-syncing, friction kills
-adoption. Quick wins here pay back daily.
+session requires re-picking files, re-loading the same config,
+re-syncing, friction kills adoption. Quick wins here pay back daily.
 
 **What ships:**
-- **File-handle persistence via File System Access API.** When Vac
-  picks files, store the `FileSystemFileHandle` in IndexedDB. Next
-  session, prompt "Re-grant access to flight.mp4?" with a single
-  click instead of full re-pick.
-- **Sync nudge buttons**: ± 0.1 s, ± 1 s next to the status text. Each
-  click adjusts `sync.videoTakeoffSec` so the offset shifts by the
-  named amount. Useful when auto-detect lands you 3 frames early.
-- **Multi-anchor support** (deferred): if Vac uploads an edited reel
-  with a cut, he needs more than one anchor. Defer to when this
-  actually breaks.
+
+a) **File-handle persistence via File System Access API.** When Vac
+   picks files, store the `FileSystemFileHandle` in IndexedDB. Next
+   session, prompt "Re-grant access to flight.mp4?" with a single
+   click instead of full re-pick.
+
+b) **Sticky config across reloads.** The config file is small
+   (~3 KB) and Vac uses the same one repeatedly. Beyond just
+   storing the file *handle*, **persist the PARSED config object
+   itself** in IndexedDB on first load. Next session, the parsed
+   config is already in memory by the time the page mounts —
+   no file picker needed for config at all. The video and log
+   still need file-handle re-grant (they're large; can't store
+   contents). User can still pick a different config to override.
+
+c) **Sync nudge buttons**: ± 0.1 s, ± 1 s next to the status text.
+   Each click adjusts `sync.videoTakeoffSec` so the offset shifts
+   by the named amount. Useful when auto-detect lands you 3 frames
+   early.
+
+d) **Keyboard frame-by-frame scrubbing.** Industry-standard NLE
+   keymap so Vac's muscle memory from Premiere/FCP/DaVinci works.
+   When the video element has focus (or always, if there's no
+   conflicting focus):
+     - `←` / `→` — scrub one frame back / forward (read video's
+       actual frame rate; default 30 fps if unknown)
+     - `Shift + ←/→` — scrub ±1 second
+     - `,` / `.` — alias for `←` / `→` (NLE convention)
+     - `J` / `K` / `L` — play backward / pause / play forward
+     - `Space` — toggle play/pause (browser default; just confirm)
+   Frame-accurate seek via `videoEl.currentTime = currentTime ± (1/fps)`.
+
+e) **All five indexer modes.** Today the replay page only registers
+   Mode0/1/3 in the MODES array. Add Mode2 (Indexer-only, no
+   numeric corners) and Mode4 (Historic G). Same components,
+   imported from `lib/modes.js`. One-line addition per mode. Worth
+   doing because Vac may want each.
+
+f) **Multi-anchor support** (deferred): if Vac uploads an edited
+   reel with a cut, he needs more than one anchor. Defer to when
+   this actually breaks.
 
 **Owner:** small agent dispatch on existing `/replay` page.
-**Effort:** ~half-day.
+**Effort:** ~1 day (was half-day; keyboard scrub + sticky config add bulk).
 **Blocks:** nothing.
 
 ### Step 3 — Layer 2 widgets (in their own window)
@@ -313,6 +347,45 @@ file, fall back to MediaRecorder for that one. No transcode-to-MP4
 fallback (ffmpeg-wasm) — the bundle cost isn't worth it given
 WebCodecs covers every browser Vac uses.
 
+### Step 6.5 — Static-build deploy via dev.flyonspeed.org
+
+**Why before Step 7 (docs):** docs reference the live URL; ship the
+URL first.
+
+The **dev.flyonspeed.org docs site** already builds + deploys
+through `.github/workflows/docs.yml` (MkDocs Material + GitHub
+Pages). The replay tool ships as part of that same deploy — same
+hosting, same SSL, same CI. **Not** the public marketing site
+(`flyonspeed.org`) — that's Framer-managed.
+
+What ships:
+
+1. **`tools/web/scripts/build_static.sh`** — non-firmware bundle
+   variant. Includes `lib/replay/*` and `lib/pages/ReplayPage.js`
+   (which the firmware bundler skips). Inlines CSS, logo, meta
+   tags. Writes `dist/replay/{index.html, app.js, app.css, onspeed-logo.png}`.
+
+2. **GitHub Actions hook in `.github/workflows/docs.yml`**: before
+   `mkdocs build --strict`, run `tools/web/scripts/build_static.sh`,
+   then copy `dist/replay/` → `docs/site/site/replay/` so the
+   gh-pages deploy picks it up at the right path. (Alternative: a
+   MkDocs hook that does this at build time. Whichever is less
+   brittle against MkDocs strict mode.)
+
+3. **Discoverability**: bookmark only. **No nav entry from MkDocs.**
+   Vac knows the URL; we don't surface it on the public docs nav
+   until it's a more polished feature.
+
+The static deploy doesn't need a backend. All processing stays
+client-side; user files never leave the browser. The page does need
+File System Access API + WebCodecs, both of which work over HTTPS
+(GitHub Pages ✓).
+
+**MkDocs strict-mode gotcha**: `mkdocs build --strict` may error if
+the site/ output dir contains files MkDocs doesn't know about. Two
+fixes — copy AFTER `mkdocs build`, or add `replay/` to MkDocs's
+`extra_files` allowlist. Whichever the agent finds works first.
+
 ### Step 7 — Documentation
 
 **Three docs:**
@@ -332,10 +405,15 @@ dispatch.
 
 ---
 
-## Form factor — static-build SPA at flyonspeed.org/replay
+## Form factor — static-build SPA at **dev.flyonspeed.org/replay**
 
-**Decision**: ship as a static-built single-page app, deployable
-anywhere. No install, no clone, no terminal. Vac bookmarks a URL.
+**Decision**: ship as a static-built single-page app, deployed as
+part of the existing **dev.flyonspeed.org** docs site (MkDocs +
+GitHub Actions). Same hosting, same SSL, same CI. **Not** the
+public marketing site (`flyonspeed.org`) — that's Framer-managed.
+
+Vac bookmarks `dev.flyonspeed.org/replay`. No install, no clone,
+no terminal.
 
 **Why static SPA before Electron:**
 - Validates whether Electron is even needed. Vac will tell us by
@@ -404,7 +482,7 @@ should know about these instead of duplicating effort.
 | Thing | Path | What it does |
 |---|---|---|
 | **Snapshot regression harness** | `tools/regression/{host_main.cpp,run_snapshot.py,fixtures/}` | Runs `host_main.cpp` (linked against current `onspeed_core`) over a recorded flight excerpt, diffs output against committed `golden.csv`. **One-language today (C++)**, but the shape is exactly what we want for Layer 0. The drift-prevention plan extends this to all four languages. |
-| **Python replay tools** | `tools/onspeed_py/{config,percent_lift,log_replay,frame}.py` | The Python implementation that the JS replay was ported from. Has its own pytest suite. Treat as authoritative when the JS port has a question. |
+| **Python replay tools** | `tools/onspeed_py/{config,percent_lift,log_replay,frame}.py` | **PRE-CONSOLIDATION**: hand-port of firmware algorithm code, has its own pytest suite. **POST-`PLAN_PYTHON_CONSOLIDATION.md` Step 1+**: thin subprocess wrappers around `host_main`. The wrapper interface is what stays; the algorithm code is C++ in `onspeed_core/`. |
 | **M5 WASM simulator** | `software/OnSpeed-M5-Display/sim/` | Builds the M5 firmware to a 320×240 canvas via Emscripten + SDL2. Embedded on the docs site at `installation/external-display.md`. Same renderer; different driver. **A future "JS replay vs M5 sim" parity test runs both against the same fixture and pixel-diffs the output.** |
 | **Existing render-smoke tests** | `tools/web/test/render-smoke.mjs` | Renders Mode0/1/3 against fixed records; asserts text content. **Layer 2 widget tests follow the same pattern.** |
 | **Live `/indexer` page** | `tools/web/lib/pages/IndexerPage.js` | The existing live indexer. **Shares the SVG components** in `lib/components/svg/index.js` with the replay tool. Don't break this when extracting widgets — Layer 2 work pulls subcomponents into `lib/replay/widgets/` without changing the live page's behavior. |
@@ -415,32 +493,52 @@ should know about these instead of duplicating effort.
 
 Each step gets its own self-contained prompt.
 
-### Layer 0 — drift-prevention scaffolding
+### Step 0 — Python consolidation (do FIRST; see PLAN_PYTHON_CONSOLIDATION.md)
+
+Sequenced before everything else. Migrates Python algorithm code
+to `host_main` subprocess wrappers across 7 small PRs. Each step
+ships independently. After Step 1 (proof of concept on percent_lift
++ config), the rest is mechanical.
+
+**Dispatch prompts for each step are inside `PLAN_PYTHON_CONSOLIDATION.md`'s
+"Dispatch prompts" section.** Start with the Step 0 prompt
+("host_main multi-subcommand algorithm CLI"), then the Step 1
+prompt, then proceed in order.
+
+### Layer 0 — drift-prevention CI gate (after Python consolidation)
 
 ```
-Implement PLAN_DRIFT_PREVENTION.md PR 1: scaffold the cross-language
-fixture-driven test system.
+Implement PLAN_DRIFT_PREVENTION.md: streaming-goldens CI gate.
 
-WORKTREE: a fresh worktree off origin/master
-PLAN: ~/code/onspeed/local-plans/PLAN_DRIFT_PREVENTION.md (in repo at
-      docs/superpowers/plans/2026-05-08-cross-impl-drift-prevention.md)
+WORKTREE: a fresh worktree off origin/master, AFTER Python
+          consolidation has landed
+PLAN: docs/superpowers/plans/2026-05-08-cross-impl-drift-prevention.md
 WHAT TO BUILD:
-  1. test/spec_fixtures/percent_lift/basic_clean.json with one
-     test case (alpha_0=-3.72, alpha_stall=10.31, aoa=3.24, expected=49.6).
-  2. C++ runner: test/test_spec_fixtures/test_spec_fixtures.cpp.
-     Walks test/spec_fixtures/ via a build-time script (Python) that
-     converts JSON to embedded const data. Calls
-     ::onspeed::aoa::ComputePercentLift(...) and asserts.
-  3. Python runner: tools/onspeed_py/tests/test_spec_fixtures.py.
-     Walks the directory at runtime via pytest parametrize.
-  4. JS runner: tools/web/test/spec_fixtures.mjs. Walks the
-     directory via fs, imports the production module, asserts.
-     Plumb into npm test.
+  1. test/spec_fixtures/inputs/  — committed 208 Hz raw input CSVs
+     covering: rotation+climb, pattern lap, decel-to-stall, calm
+     cruise, full-flap landing. ~1 MB per minute of flight data.
+     Pull excerpts from a real flight log via a small extractor.
+  2. test/spec_fixtures/goldens/ — generated by host_main from each
+     input. Companion .meta.json per golden carrying provenance
+     (firmware sha, generator version, generated_at, config used).
+  3. tools/regression/regenerate_golden.sh — one-line operation
+     that rebuilds host_main, runs against every input, overwrites
+     goldens. Run intentionally on behavior changes.
+  4. CI gate: TWO jobs (after Python consolidation, Python is no
+     longer a separate gate target — it's a host_main wrapper):
+       - C++ snapshot regression: build host_main, run against
+         every input, compare to committed golden. Forces dev to
+         either revert or regenerate.
+       - JS regression: tools/web/test/streaming_goldens.mjs.
+         Walks every (input.csv, golden.csv) pair, runs JS replay
+         engine, diffs against golden. Tolerance: atol=1e-4, rtol=1e-5.
+  5. Update .github/workflows/ci.yml to plumb both jobs.
 
-VERIFY: all three runners pass green on the one fixture; modify
-the fixture's `expected` to a wrong value, all three fail.
+VERIFY: green CI; modify a value in onspeed_core, run the regen
+script, observe that JS regression fails until JS is updated to
+match.
 
-COMMIT: one focused PR titled "test: cross-language spec fixtures (scaffold)".
+COMMIT: one focused PR titled "regression: streaming-goldens CI gate (Layer 0)".
 ```
 
 ### Layer 1 — sync persistence + nudge
