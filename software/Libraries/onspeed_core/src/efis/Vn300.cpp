@@ -162,8 +162,8 @@ void Vn300Parser::Decode()
     data.linAccVert        = array2float(buf_, 109);
 
     data.yawSigma          = array2float(buf_, 113);
-    data.rollSigma         = array2float(buf_, 117);
-    data.pitchSigma        = array2float(buf_, 121);
+    data.pitchSigma        = array2float(buf_, 117);   // YprU.c1 = pitch per UM005 §5.8.8
+    data.rollSigma         = array2float(buf_, 121);   // YprU.c2 = roll
 
     pendingData_ = data;
 
