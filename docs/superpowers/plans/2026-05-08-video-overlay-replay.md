@@ -119,11 +119,29 @@ In dependency order. Each step is independently shippable. Each step
 has a recommended agent dispatch (see "Dispatch templates" at the
 bottom).
 
+### Step 0 — Python consolidation (NEW; do first)
+
+**See `PLAN_PYTHON_CONSOLIDATION.md`.** Before any new layer work,
+audit Python tools and replace algorithm code with `host_main`
+subprocess wrappers. Reduces drift surface from "four
+implementations" to "two: C++ and JS" — the JS replay is the only
+sanctioned hand-port because browsers can't shell out.
+
+**Why before everything else:** every layer below implicitly trusts
+Python tools (synth-record orchestrator, m5-replay, log_replay) to
+compute the same thing the firmware computes. Today that trust is
+on a handshake. Migrate to subprocess wrappers and the trust is
+mechanical.
+
+**Effort:** ~5-7 days, 7 small PRs in dependency order. Sam has
+confirmed only he is using these tools today; breaking changes in
+the migration are fine.
+
 ### Step 1 — Harden Layer 0 (drift prevention scaffolding)
 
-**Why first:** if the engine drifts between languages, every layer
-above is moot. Get this right before adding more pilot-facing
-features.
+**Why next:** with Python now subprocess-based (drift impossible by
+construction), the streaming-goldens harness gates the only
+remaining drift-vulnerable consumer (JS replay).
 
 **What ships:**
 - `test/spec_fixtures/percent_lift/` directory with ~5 fixtures (clean detent, alpha_0 negative, alpha_stall fallback, NaN AOA, IAS-invalid).
