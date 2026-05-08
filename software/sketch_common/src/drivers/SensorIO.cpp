@@ -403,7 +403,24 @@ void SensorIO::Read()
     // IAS against a raw threshold, so the entire signal path shares one
     // coherent "air data valid" concept.  Thresholds + citations live
     // in sensors/IasAlive.h.
-    bIasAlive = onspeed::sensors::UpdateIasAlive(bIasAlive, IAS);
+    {
+        const bool bWasIasAlive = bIasAlive;
+        bIasAlive = onspeed::sensors::UpdateIasAlive(bIasAlive, IAS);
+
+        // bIasAlive false→true transition (taxi→takeoff roll, IAS rising
+        // through the deadband): the SavGol window holds ~15 frames of stale
+        // dead-air samples (mostly zero with sensor noise).  Differencing
+        // those against fresh post-transition samples produces a spurious
+        // positive DecelRate spike for ~750 ms while the window flushes.
+        // Reset the filter at the edge so the first 15 post-transition
+        // frames read 0 instead of garbage.  See issue #481 and the
+        // companion gap-triggered reset below (PR #477).
+        if (bIasAlive && !bWasIasAlive)
+        {
+            IasDerivative.reset();
+            fDecelRate = 0.0f;
+        }
+    }
 
     // Take derivative of airspeed for deceleration calc.
     // Update once per display serial period to match tone buffer update rate.
