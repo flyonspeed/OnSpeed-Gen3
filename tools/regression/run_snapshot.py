@@ -8,42 +8,49 @@ run_snapshot.py — snapshot regression driver for onspeed_core.
 
 Builds the host_main shim (via pio) and runs two golden checks:
 
-  1. LogReplayEngine golden — `host_main replay` feeds a real SD log CSV
+  1. ahrs_tone golden — `host_main ahrs_tone` feeds a simplified sensor CSV
+     (fixtures/short_replay.csv) through the AHRS + Madgwick + Kalman +
+     ToneCalc pipeline and diffs against fixtures/golden.csv.  This is the
+     bedrock regression test (per PLAN_PYTHON_CONSOLIDATION.md line 416-418):
+     it must pass before any PR that touches onspeed_core can land.  Post-
+     PLAN_WASM_CORE.md the same harness runs against the WASM build for the
+     parity check.
+
+  2. replay_engine golden — `host_main replay` feeds a real SD log CSV
      (fixtures/replay_engine_input.csv) through LogReplayEngine and diffs
      against fixtures/replay_engine_golden.csv.  This is the primary gate
      that PRs 2/3 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md will update.
 
-  2. (Legacy) The old fixtures/short_replay.csv and golden.csv are retained
-     for reference but are no longer fed through `replay` — that subcommand
-     now requires the real SD log format.  golden.csv is kept in the repo
-     as a historical artefact of the AHRS+ToneCalc inline path that
-     existed before PR #470 landed LogReplayEngine.
+Both checks must pass.  Neither short-circuits the other: all failures are
+reported before the script exits non-zero.
 
 Usage:
   ./run_snapshot.py                    # run both checks
-  ./run_snapshot.py --update-golden    # regenerate replay_engine_golden.csv
+  ./run_snapshot.py --update-golden    # regenerate BOTH goldens from current build
   ./run_snapshot.py --rtol 1e-4        # relative tolerance (default 1e-3)
   ./run_snapshot.py --atol 1e-3        # absolute tolerance (default 1e-4)
 
 Tolerance model
 ---------------
-Uses `math.isclose(a, b, rel_tol=rtol, abs_tol=atol)` — matches if EITHER the
-relative or the absolute difference is within tolerance.  Defaults (rtol=1e-3,
+Uses `math.isclose(a, b, rel_tol=rtol, abs_tol=atol)` — a match if EITHER the
+relative or absolute difference is within tolerance.  Defaults (rtol=1e-3,
 atol=1e-4) are chosen so that:
 
   * atol=1e-4 catches any change that shows up in the %.4f CSV output.
     Two values that round to the same 4-decimal string stay within atol.
-  * rtol=1e-3 absorbs cross-platform FP nondeterminism.
+  * rtol=1e-3 absorbs cross-platform FP nondeterminism (macOS libc++ vs Linux
+    libstdc++ produce up to ~3e-4 relative drift on Madgwick/Kalman intermediate
+    values when the harness feeds non-physical input data — see issue #204).
+    Real math regressions show up at much larger magnitudes. Issue #204 covers
+    the work to fix the input data so this tolerance can tighten back to 1e-5.
 
-  LogReplayEngine's output is dominated by pass-through fields (pitch, roll,
-  IMU axes — stored directly from the log row, no trig) and a simple
-  pressure-coefficient ratio.  FP nondeterminism is much smaller than for the
-  AHRS path, so rtol=1e-3 gives generous headroom.
+An absolute-only tolerance breaks for both extremes: too loose on small values,
+too tight on large ones. `math.isclose` gets both right.
 
 Exits:
   0 — all checks pass
   1 — build failed
-  2 — output differs from golden
+  2 — output differs from golden (one or both checks)
   3 — missing input / golden files
 """
 
@@ -61,7 +68,11 @@ import click
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures"
 
-# LogReplayEngine golden — the primary snapshot gate.
+# AHRS + ToneCalc golden — the bedrock regression test.
+AHRS_INPUT  = FIXTURES / "short_replay.csv"
+AHRS_GOLDEN = FIXTURES / "golden.csv"
+
+# LogReplayEngine golden — the primary snapshot gate for LogReplayEngine.
 ENGINE_INPUT  = FIXTURES / "replay_engine_input.csv"
 ENGINE_GOLDEN = FIXTURES / "replay_engine_golden.csv"
 
@@ -84,6 +95,26 @@ def build_shim() -> None:
         sys.exit(1)
 
 
+def run_ahrs_tone(input_csv: Path) -> str:
+    """Run `host_main ahrs_tone` on the simplified sensor CSV, return stdout.
+
+    The `ahrs_tone` subcommand runs the AHRS + Madgwick + Kalman + ToneCalc
+    pipeline against the simplified fixture format (short_replay.csv).
+    Gates against fixtures/golden.csv — the bedrock regression test.
+    """
+    proc = subprocess.run(
+        [str(EXECUTABLE), "ahrs_tone", "--input", str(input_csv),
+         "--output-format", "csv"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        click.echo(f"Shim (ahrs_tone) exited with {proc.returncode}:", err=True)
+        click.echo(proc.stderr, err=True)
+        sys.exit(1)
+    return proc.stdout
+
+
 def run_engine_replay(input_csv: Path) -> str:
     """Run `host_main replay` on a real SD log CSV, return stdout.
 
@@ -98,7 +129,7 @@ def run_engine_replay(input_csv: Path) -> str:
         text=True,
     )
     if proc.returncode != 0:
-        click.echo(f"Shim exited with {proc.returncode}:", err=True)
+        click.echo(f"Shim (replay) exited with {proc.returncode}:", err=True)
         click.echo(proc.stderr, err=True)
         sys.exit(1)
     return proc.stdout
@@ -208,13 +239,24 @@ def check_golden(
 @click.option(
     "--update-golden",
     is_flag=True,
-    help="Regenerate replay_engine_golden.csv from the current build.",
+    help="Regenerate BOTH golden CSVs (golden.csv and replay_engine_golden.csv) "
+         "from the current build.",
 )
 @click.option(
     "--rtol",
     type=float,
     default=1e-3,
-    help="Relative tolerance for float comparison (default 1e-3).",
+    help="Relative tolerance for float comparison (default 1e-3 — needs to absorb "
+         "up to ~3e-4 cross-platform FP nondeterminism between macOS libc++ and "
+         "Linux libstdc++ in the cos/sin/atan paths inside Madgwick + Kalman. "
+         "Empirically observed: a non-saturated flight-path value of 35.67° drifted "
+         "by 0.009° across platforms (~2.5e-4 relative). 1e-3 gives ~3× margin. "
+         "Real math regressions show up as much larger relative changes (wrong sign, "
+         "wrong order of magnitude) and are still caught. "
+         "See issue #204 — once the harness drives physically-meaningful 208 Hz "
+         "input values (instead of a 50 Hz log treated as 208 Hz), Kalman/Madgwick "
+         "intermediate values stop saturating and the FP nondeterminism shrinks "
+         "back to ~1e-6. Tighten rtol back to 1e-5 then.",
 )
 @click.option(
     "--atol",
@@ -240,6 +282,18 @@ def main(
         click.echo(f"Executable not found at {EXECUTABLE}", err=True)
         sys.exit(3)
 
+    # --- ahrs_tone golden (bedrock AHRS+ToneCalc regression) ---
+    if not AHRS_INPUT.exists():
+        click.echo(f"AHRS input CSV not found: {AHRS_INPUT}", err=True)
+        sys.exit(3)
+
+    ahrs_tone_output = run_ahrs_tone(AHRS_INPUT)
+
+    if update_golden:
+        AHRS_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+        AHRS_GOLDEN.write_text(ahrs_tone_output, encoding="utf-8")
+        click.echo(f"Updated golden: {AHRS_GOLDEN}")
+
     # --- LogReplayEngine golden ---
     if not ENGINE_INPUT.exists():
         click.echo(f"Engine input CSV not found: {ENGINE_INPUT}", err=True)
@@ -253,8 +307,11 @@ def main(
         click.echo(f"Updated golden: {ENGINE_GOLDEN}")
         sys.exit(0)
 
-    ok = check_golden("replay_engine", engine_output, ENGINE_GOLDEN, rtol, atol)
-    sys.exit(0 if ok else 2)
+    # Run both checks; collect results without short-circuiting.
+    ok_ahrs   = check_golden("ahrs_tone",     ahrs_tone_output, AHRS_GOLDEN,   rtol, atol)
+    ok_engine = check_golden("replay_engine", engine_output,    ENGINE_GOLDEN, rtol, atol)
+
+    sys.exit(0 if (ok_ahrs and ok_engine) else 2)
 
 
 if __name__ == "__main__":

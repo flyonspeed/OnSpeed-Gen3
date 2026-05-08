@@ -5,7 +5,14 @@
 //
 // Subcommands
 // -----------
-//   replay  [--input PATH] [--output-format csv|jsonl]
+//   ahrs_tone  [--input PATH] [--output-format csv|jsonl]
+//     Stream simplified sensor CSV (ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz)
+//     through the AHRS + Madgwick + Kalman + ToneCalc pipeline.  This is
+//     the bedrock regression test (per PLAN_PYTHON_CONSOLIDATION.md line
+//     416-418): it gates against fixtures/golden.csv.  `--input -` reads
+//     stdin (default).  Output schema: see kAhrsToneOutputHeader (13 fields).
+//
+//   replay  [--input PATH] [--output-format csv|jsonl] [--log-rate 50|208]
 //     Stream an OnSpeed SD log CSV through the LogReplayEngine pipeline.
 //     `--input -` reads stdin (default).  Input must be the real SD log
 //     format (timeStamp,Pfwd,PfwdSmoothed,...) — not the simplified AHRS
@@ -13,6 +20,8 @@
 //     different firmware versions are accepted.  --config is reserved for
 //     Step 2 (per PLAN_PYTHON_CONSOLIDATION.md) and is an error if passed
 //     now.  Output schema: see kReplayEngineOutputHeader (23 fields).
+//     --log-rate {50|208}: log sample rate in Hz (default 50); rejected if
+//     any other value is supplied.
 //
 //   percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F
 //     Compute percent-of-stall (0..99.9) for a single AOA sample.
@@ -230,6 +239,253 @@ bool LoadConfig(const std::string& path,
     return true;
 }
 
+// Output format selector — shared by ahrs_tone and replay subcommands.
+enum class OutputFormat { Csv, Jsonl };
+
+// ============================================================================
+// AHRS_TONE subcommand — streaming AHRS + ToneCalc pipeline.
+//
+// Reads a simplified sensor CSV (header + rows). Each row is one IMU sample.
+// Writes a CSV or JSONL stream on stdout.
+//
+// This is the bedrock regression test: PLAN_PYTHON_CONSOLIDATION.md line
+// 416-418 explicitly designates it as such, and post-PLAN_WASM_CORE.md
+// the same harness runs against the WASM build for the parity check.
+//
+// Input CSV columns (header required):
+//   ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz
+//
+// Output CSV columns (kAhrsToneOutputHeader):
+//   ias_kt,palt_ft,oat_c,
+//   pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,
+//   tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,
+//   tone_freq_hz,tone_level
+// ============================================================================
+
+constexpr char kAhrsToneInputHeader[]  = "ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz";
+constexpr char kAhrsToneOutputHeader[] =
+    "ias_kt,palt_ft,oat_c,"
+    "pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,"
+    "tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,"
+    "tone_freq_hz,tone_level";
+
+constexpr onspeed::ToneThresholds kCleanThresholds {
+    /* fLDMAXAOA      */ 3.0f,
+    /* fONSPEEDFASTAOA*/ 6.5f,
+    /* fONSPEEDSLOWAOA*/ 9.5f,
+    /* fSTALLWARNAOA  */ 12.5f,
+};
+
+constexpr float kImuRateHz       = 208.0f;
+constexpr float kPressureRateHz  = 50.0f;
+constexpr float kImuDtSec        = 1.0f / kImuRateHz;
+constexpr uint32_t kPressurePeriodUs = 1'000'000u / 50u;
+
+onspeed::ahrs::AhrsConfig MakeProductionConfig()
+{
+    onspeed::ahrs::AhrsConfig cfg;
+    cfg.pitchBiasDeg          = 0.0f;
+    cfg.rollBiasDeg           = 0.0f;
+    cfg.algorithm             = onspeed::ahrs::Algorithm::Madgwick;
+    cfg.gyroSmoothingWindow   = 30;
+    cfg.imuSampleRateHz       = kImuRateHz;
+    cfg.pressureSampleRateHz  = kPressureRateHz;
+    return cfg;
+}
+
+struct InputRow {
+    float ias_kt;
+    float palt_ft;
+    float oat_c;
+    float ax, ay, az;
+    float gx, gy, gz;
+};
+
+bool ParseAhrsToneHeader(const std::string& line)
+{
+    return line == kAhrsToneInputHeader;
+}
+
+bool ParseAhrsToneRow(const std::string& line, InputRow& out)
+{
+    float* fields[] = {
+        &out.ias_kt, &out.palt_ft, &out.oat_c,
+        &out.ax, &out.ay, &out.az,
+        &out.gx, &out.gy, &out.gz,
+    };
+    constexpr size_t kExpected = sizeof(fields) / sizeof(fields[0]);
+
+    std::stringstream ss(line);
+    std::string tok;
+    for (size_t i = 0; i < kExpected; ++i) {
+        if (!std::getline(ss, tok, ',')) return false;
+        try {
+            *fields[i] = std::stof(tok);
+        }
+        catch (const std::exception& e) {
+            std::fprintf(stderr,
+                "host_main ahrs_tone: cannot parse field %zu '%s': %s\n",
+                i, tok.c_str(), e.what());
+            return false;
+        }
+    }
+    return true;
+}
+
+onspeed::AhrsInputs BuildAhrsInputs(const std::vector<InputRow>& rows,
+                                    size_t frameIdx,
+                                    bool oatPresentInLog,
+                                    bool iasAlive)
+{
+    onspeed::AhrsInputs in;
+    const InputRow& row = rows[frameIdx];
+    in.imu.accelXG      = row.ax;
+    in.imu.accelYG      = row.ay;
+    in.imu.accelZG      = row.az;
+    in.imu.gyroRollDps  = row.gx;
+    in.imu.gyroPitchDps = row.gy;
+    in.imu.gyroYawDps   = row.gz;
+    in.imu.tempCelsius  = 25.0f;
+    in.imu.timestampUs  = static_cast<uint32_t>(frameIdx
+                            * static_cast<uint32_t>(kImuDtSec * 1.0e6f));
+
+    in.sensors.iasKt      = row.ias_kt;
+    in.sensors.paltFt     = row.palt_ft;
+    in.sensors.oatCelsius = row.oat_c;
+    in.sensors.iasAlive   = iasAlive;
+
+    const uint32_t pressureFrame = static_cast<uint32_t>(frameIdx / 4u) + 1u;
+    in.iasUpdateTimestampUs = pressureFrame * kPressurePeriodUs;
+
+    in.useEfisOat     = false;
+    in.useInternalOat = oatPresentInLog;
+    in.efisOatCelsius = 0.0f;
+    return in;
+}
+
+int CmdAhrsTone(int argc, const char* const* argv)
+{
+    const char* input_path  = ArgGet(argc, argv, "--input",  "-");
+
+    const char* fmt_str = ArgGet(argc, argv, "--output-format", "csv");
+
+    OutputFormat fmt = OutputFormat::Csv;
+    if (std::strcmp(fmt_str, "jsonl") == 0) {
+        fmt = OutputFormat::Jsonl;
+    } else if (std::strcmp(fmt_str, "csv") != 0) {
+        std::fprintf(stderr,
+            "host_main ahrs_tone: unknown --output-format '%s' (csv|jsonl)\n",
+            fmt_str);
+        return 1;
+    }
+
+    // Open input — "-" means stdin.
+    std::istream* in_stream = &std::cin;
+    std::ifstream in_file;
+    if (std::strcmp(input_path, "-") != 0) {
+        in_file.open(input_path);
+        if (!in_file.is_open()) {
+            std::fprintf(stderr, "host_main ahrs_tone: cannot open '%s'\n", input_path);
+            return 1;
+        }
+        in_stream = &in_file;
+    }
+
+    std::string line;
+
+    if (!std::getline(*in_stream, line) || !ParseAhrsToneHeader(line)) {
+        std::fprintf(stderr, "host_main ahrs_tone: bad or missing CSV header\n");
+        return 1;
+    }
+
+    if (fmt == OutputFormat::Csv) {
+        std::printf("%s\n", kAhrsToneOutputHeader);
+    }
+
+    onspeed::ahrs::Ahrs ahrs{MakeProductionConfig()};
+
+    bool oatPresentInLog = false;
+    std::vector<InputRow> rows;
+    while (std::getline(*in_stream, line)) {
+        if (line.empty()) continue;
+        InputRow r{};
+        if (!ParseAhrsToneRow(line, r)) {
+            std::fprintf(stderr, "host_main ahrs_tone: bad row at %zu: %s\n",
+                         rows.size(), line.c_str());
+            return 1;
+        }
+        if (r.oat_c != 0.0f) oatPresentInLog = true;
+        rows.push_back(r);
+    }
+
+    if (rows.empty()) {
+        std::fprintf(stderr, "host_main ahrs_tone: no data rows\n");
+        return 1;
+    }
+
+    bool iasAlive = false;
+    iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, rows.front().ias_kt);
+    onspeed::AhrsInputs seed = BuildAhrsInputs(rows, 0, oatPresentInLog, iasAlive);
+    ahrs.Init(seed, rows.front().palt_ft);
+
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const InputRow& r = rows[i];
+        iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, r.ias_kt);
+        const onspeed::AhrsInputs in = BuildAhrsInputs(rows, i, oatPresentInLog, iasAlive);
+        const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
+
+        const onspeed::ToneResult result =
+            onspeed::calculateTone(out.derivedAoaDeg, kCleanThresholds);
+
+        float tone_freq_hz = 0.0f;
+        int   tone_level   = 0;
+        switch (result.enTone) {
+        case onspeed::EnToneType::None:
+            tone_freq_hz = 0.0f; tone_level = 0; break;
+        case onspeed::EnToneType::Low:
+            tone_freq_hz = result.fPulseFreq; tone_level = 1; break;
+        case onspeed::EnToneType::High:
+            tone_freq_hz = result.fPulseFreq; tone_level = 2; break;
+        }
+
+        if (fmt == OutputFormat::Csv) {
+            std::printf(
+                "%.4f,%.4f,%.4f,"
+                "%.4f,%.4f,%.4f,%.4f,"
+                "%.4f,%.4f,%.4f,%.4f,"
+                "%.4f,%d\n",
+                r.ias_kt, r.palt_ft, r.oat_c,
+                out.pitchDeg, out.rollDeg, out.flightPathDeg, out.derivedAoaDeg,
+                out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
+                tone_freq_hz, tone_level);
+        } else {
+            // JSONL: one JSON object per row
+            std::printf("{"
+                "\"ias_kt\":%.4f,"
+                "\"palt_ft\":%.4f,"
+                "\"oat_c\":%.4f,"
+                "\"pitch_deg\":%.4f,"
+                "\"roll_deg\":%.4f,"
+                "\"flight_path_deg\":%.4f,"
+                "\"derived_aoa_deg\":%.4f,"
+                "\"tas_mps\":%.4f,"
+                "\"kalman_alt_ft\":%.4f,"
+                "\"kalman_vsi_fpm\":%.4f,"
+                "\"earth_vert_g\":%.4f,"
+                "\"tone_freq_hz\":%.4f,"
+                "\"tone_level\":%d"
+                "}\n",
+                r.ias_kt, r.palt_ft, r.oat_c,
+                out.pitchDeg, out.rollDeg, out.flightPathDeg, out.derivedAoaDeg,
+                out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
+                tone_freq_hz, tone_level);
+        }
+    }
+
+    std::fprintf(stderr, "host_main ahrs_tone: %zu rows processed\n", rows.size());
+    return 0;
+}
+
 // ============================================================================
 // REPLAY subcommand — LogReplayEngine pipeline over a real SD log CSV.
 //
@@ -277,8 +533,6 @@ constexpr char kReplayEngineOutputHeader[] =
     "imu_roll_dps,imu_pitch_dps,imu_yaw_dps,"
     "accel_lat_corr,accel_vert_corr,"
     "data_mark";
-
-enum class OutputFormat { Csv, Jsonl };
 
 // Emit one ReplayStepResult row in CSV format.
 static void EmitCsvRow(const onspeed::replay::ReplayStepResult& r)
@@ -429,22 +683,37 @@ int CmdReplay(int argc, const char* const* argv)
         return 1;
     }
 
-    // Detect log sample rate from the column list.  The column `iLogRate` is
-    // not a standard log column (it lives in the config, not the log row), so
-    // we infer from the header: 50 Hz is the firmware default; 208 Hz logs
-    // are produced when iLogRate is set to 208 in the config.  Without a
-    // dedicated log-rate column, default to 50 Hz — correct for all pre-v4
-    // logs and for standard v4 logs.  The engine stores this for PRs 2/3
-    // (rate-correct EMA, synth ADC) but does not yet use it.
-    const int log_sample_rate_hz = 50;
+    // Log sample rate: supplied via --log-rate {50|208} (default 50 Hz).
+    // 50 Hz is the firmware default; 208 Hz logs are produced when iLogRate
+    // is set to 208 in the config.  The engine stores this for PRs 2/3
+    // (rate-correct EMA, synth ADC) but does not yet use it to correct EMA.
+    // A dedicated log-rate column in the log header would let this be auto-
+    // detected; until that lands, the caller must supply --log-rate for 208 Hz
+    // logs.
+    const char* log_rate_str = ArgGet(argc, argv, "--log-rate");
+    int log_sample_rate_hz = 50;
+    if (log_rate_str != nullptr) {
+        log_sample_rate_hz = std::atoi(log_rate_str);
+        if (log_sample_rate_hz != 50 && log_sample_rate_hz != 208) {
+            std::fprintf(stderr,
+                "host_main replay: --log-rate must be 50 or 208 (got %s)\n",
+                log_rate_str);
+            return 1;
+        }
+    }
 
     // flapsRawAdcAvailable: true when the header carries the optional column.
     const bool flaps_raw_adc_available = (hdr_idx.idxFlapsRawAdc >= 0);
 
     // Build engine with default config (no --config yet — Step 2).
-    // LoadDefaults() sets iAoaSmoothing=10 and populates a single flap
-    // detent matching the factory calibration defaults, so AOA computation
-    // produces non-trivial output against realistic pressure values.
+    // LoadDefaults() installs the explicit "uncalibrated" config: a single
+    // flap detent with iAoaSmoothing=20 and ALL polynomial coefficients
+    // zeroed.  This means aoa_deg = 0.0 in the output for every row.
+    // coeffP, IAS, palt, pitch, roll, and IMU axes still vary realistically
+    // from the log data.  To regenerate the replay golden against a real
+    // calibration in the future, plumb --config through (deferred per PR
+    // #466 review) and ship a representative test config (e.g., RV-10:
+    // alpha_0=-3.72, alpha_stall=10.31, real polynomial fit).
     onspeed::config::OnSpeedConfig cfg;
     cfg.LoadDefaults();
 
@@ -727,9 +996,14 @@ int CmdHelp()
     std::printf(
         "Usage: host_main <subcommand> [flags]\n\n"
         "Subcommands:\n"
-        "  replay  --input PATH|'-' [--output-format csv|jsonl]\n"
+        "  ahrs_tone  --input PATH|'-' [--output-format csv|jsonl]\n"
+        "    Stream simplified sensor CSV (ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz)\n"
+        "    through AHRS + Madgwick + Kalman + ToneCalc pipeline.\n"
+        "    Gates against fixtures/golden.csv — the bedrock regression test.\n\n"
+        "  replay  --input PATH|'-' [--output-format csv|jsonl] [--log-rate 50|208]\n"
         "    Stream an OnSpeed SD log CSV through LogReplayEngine.\n"
         "    Input: real SD log format (timeStamp,Pfwd,...,DerivedAOA,CoeffP).\n"
+        "    --log-rate: log sample rate in Hz (50 or 208; default 50).\n"
         "    (--config is reserved for Step 2; passing it now is an error.)\n\n"
         "  percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F\n"
         "    Compute percent-of-stall for a single AOA reading.\n\n"
@@ -762,6 +1036,7 @@ int main(int argc, char* argv[])
     const char* sub = argv[1];
 
     // Pass the full argc/argv so each subcommand sees its own flags.
+    if (std::strcmp(sub, "ahrs_tone")       == 0) return CmdAhrsTone(argc, argv);
     if (std::strcmp(sub, "replay")          == 0) return CmdReplay(argc, argv);
     if (std::strcmp(sub, "percent_lift")    == 0) return CmdPercentLift(argc, argv);
     if (std::strcmp(sub, "parse_config")    == 0) return CmdParseConfig(argc, argv);
