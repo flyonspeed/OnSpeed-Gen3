@@ -356,48 +356,53 @@ function FlyDecelStep({ params, samples, setSamples, onAnalyzed }) {
   return html`
     <div class="cal-flydecel">
       <div class="cal-flydecel-left">
-        <b>Calibration Wizard</b><br /><br />
         ${recording
           ? html`<div>
               Recording until stall is detected...
-              <div style=${{ marginTop: '20px', textAlign: 'center' }}>
+              <div class="cal-flydecel-record-row">
                 <button type="button" class="button" style=${{ width: '220px' }}
                         onClick=${stopRecording}>Stop</button>
               </div>
             </div>`
           : html`<div>
               Decelerate from Vmax (or Vfe). Hit Record when ready.
-              <div style=${{ marginTop: '20px', textAlign: 'center' }}>
+              <div class="cal-flydecel-record-row">
                 <button type="button" class="wifibutton"
                         onClick=${startRecording}>Record</button>
               </div>
             </div>`}
       </div>
 
-      <div class="cal-flydecel-gauge">
-        <${DecelGaugeWizard} decelRate=${decelSmoothed} />
-      </div>
-
-      <div class="cal-flydecel-readouts">
-        <div>Flap Pos: ${last.flapsPosDeg ?? 0} deg</div>
-        <div>IAS: ${(last.iasKt || 0).toFixed(2)} kts</div>
-        <div>DecelRate: ${decelSmoothed.toFixed(1)} kts/s</div>
-        <div>Smoothing: ${smoothingAlpha.toFixed(2)}</div>
-        <div class="cal-flydecel-slider">
-          <input type="range"
-                 min=${DECEL_SLIDER_MIN}
-                 max=${DECEL_SLIDER_MAX}
-                 step=${DECEL_SLIDER_STEP}
-                 value=${smoothingAlpha}
-                 onInput=${e => setSmoothingAlpha(parseFloat(e.target.value))}
-                 aria-label="Decel-gauge smoothing"
-                 style=${{ width: '150px' }} />
-          <div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', width: '150px' }}>
-            <span>SMOOTH</span><span>RESPONSIVE</span>
-          </div>
+      <div class="cal-flydecel-row">
+        <div class="cal-flydecel-gauge">
+          <${DecelGaugeWizard} decelRate=${decelSmoothed} />
         </div>
-        <div>Status: ${live.status}</div>
-        <div>Captured: ${samples.length} samples</div>
+
+        <div class="cal-flydecel-readouts">
+          <div>Flap Pos: ${last.flapsPosDeg ?? 0} deg</div>
+          <br />
+          <div>IAS: ${(last.iasKt || 0).toFixed(2)} kts</div>
+          <br />
+          <div>DecelRate: ${decelSmoothed.toFixed(1)} kts/s</div>
+          <br />
+          <div>Smoothing: ${smoothingAlpha.toFixed(2)}</div>
+          <div class="cal-flydecel-slider">
+            <input type="range"
+                   min=${DECEL_SLIDER_MIN}
+                   max=${DECEL_SLIDER_MAX}
+                   step=${DECEL_SLIDER_STEP}
+                   value=${smoothingAlpha}
+                   onInput=${e => setSmoothingAlpha(parseFloat(e.target.value))}
+                   aria-label="Decel-gauge smoothing" />
+            <div class="cal-flydecel-slider-labels">
+              <span>SMOOTH</span><span>RESPONSIVE</span>
+            </div>
+          </div>
+          <br />
+          <div>Status: ${live.status}</div>
+          <br />
+          <div>Captured: ${samples.length} samples</div>
+        </div>
       </div>
     </div>`;
 }
@@ -709,7 +714,7 @@ export function CalWizardPage() {
 
   return html`
     <${PageShell} active="calwiz">
-      <div class="cal-wizard" style=${{ maxWidth: '720px', margin: '0 auto' }}>
+      <div class="cal-wizard" style=${{ maxWidth: '720px', margin: '0 auto', padding: '12px' }}>
         <h2>Calibration Wizard</h2>
         ${stateError && html`
           <p class="cal-warn">Could not load saved aircraft params: ${stateError}</p>`}

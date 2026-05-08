@@ -506,3 +506,56 @@ section h2 {
   font-weight: bold;
   padding: 2px 5px;
 }
+
+/* /calwiz decel-step layout — mirrors the Gen2 wifi-board page:
+     - Top "instructions" block, ~360 px wide, contains heading +
+       prose + a centered Record/Stop button.
+     - Below, a two-column row: gauge SVG on the left (210 px wide)
+       and a readouts column on the right (150 px wide) with Flap /
+       IAS / DecelRate / Smoothing+slider / Status / Captured stacked.
+   Gen2 used `display:table` + `display:table-cell`; flex is the
+   modern equivalent and renders identically for this layout. The
+   wrapper centers in the page so the wizard isn't hard against the
+   left edge.  Source: html_calibration.h in the OnSpeed Gen2 repo. */
+.cal-flydecel {
+  max-width: 380px;
+  margin: 16px auto;
+  padding: 0 12px;
+}
+.cal-flydecel-left {
+  width: 100%;
+  margin-bottom: 20px;
+}
+.cal-flydecel-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+.cal-flydecel-gauge {
+  flex: 0 0 auto;
+}
+.cal-flydecel-readouts {
+  flex: 1 1 150px;
+  text-align: left;
+  margin-top: 10px;
+  line-height: 1.6;
+}
+.cal-flydecel-slider {
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+.cal-flydecel-slider input[type="range"] {
+  width: 150px;
+  display: block;
+}
+.cal-flydecel-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 150px;
+  font-size: 9px;
+  color: #888;
+}
+.cal-flydecel-record-row {
+  margin-top: 20px;
+  text-align: center;
+}
