@@ -124,9 +124,13 @@ const ModeNav = ({ current, onChange }) => html`
               onClick=${() => onChange(m.id)}>${m.label}</button>`)}
   </nav>`;
 
+// Frame age in seconds at which the WebSocket feed is considered stale.
+// Mirrors the StaleOverlay threshold and the M5's serialDataFresh() gate.
+const STALENESS_THRESHOLD_SEC = 3;
+
 // G-history ring buffer — kept in a useRef so it persists across
 // renders.
-function useGHistory(rec) {
+function useGHistory(rec, ageSec) {
   const buf = useRef(new Float32Array(G.MODE4_BUFFER_LEN));
   const writeIdx = useRef(0);
   const lastSampleMs = useRef(0);
@@ -137,8 +141,11 @@ function useGHistory(rec) {
   useEffect(() => { buf.current.fill(1.0); }, []);
 
   // Sample at 5 Hz (matches main.cpp:465's 200 ms gate).
+  // Skip the push when the record is absent or the feed is stale —
+  // mirrors the M5's serialDataFresh() gate on its own G-history loop.
   useEffect(() => {
     if (!rec) return;
+    if (ageSec >= STALENESS_THRESHOLD_SEC) return;
     const now = performance.now();
     if (now - lastSampleMs.current >= G.MODE4_SAMPLE_MS) {
       buf.current[writeIdx.current] = rec.verticalG ?? 1.0;
@@ -147,7 +154,7 @@ function useGHistory(rec) {
       tick.current++;
       force(tick.current);
     }
-  }, [rec]);
+  }, [rec, ageSec]);
 
   return { buf: buf.current, writeIdx: writeIdx.current };
 }
@@ -176,8 +183,8 @@ export function IndexerPage() {
   // times/sec on iPhone Safari, which is exactly the workload the
   // legacy WASM /indexer failed at.  When WS goes silent, the
   // StaleOverlay covers the panel and there's nothing to animate.
-  const stale = ageSec >= 3;
-  const gHist = useGHistory(rec);
+  const stale = ageSec >= STALENESS_THRESHOLD_SEC;
+  const gHist = useGHistory(rec, ageSec);
 
   const setModeAndPersist = (m) => {
     setMode(m);
