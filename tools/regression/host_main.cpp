@@ -1,45 +1,246 @@
-// host_main.cpp — snapshot regression harness for onspeed_core.
+// host_main.cpp — multi-subcommand algorithm CLI for onspeed_core.
 //
-// Reads a CSV of sensor samples on stdin, runs each row through the
-// extracted core pipeline (AHRS + tone calculator), and writes a CSV
-// of outputs on stdout.  Python driver at tools/regression/run_snapshot.py
-// feeds this a recorded flight log and diffs the result against a
-// golden file.
+// Each subcommand is a thin shell over an onspeed_core function.
+// Run `host_main help` for subcommand summaries.
 //
-// Input CSV columns (header row required, must match exactly):
-//   ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz
+// Subcommands
+// -----------
+//   replay  [--input PATH] [--output-format csv|jsonl]
+//     Stream sensor CSV through the AHRS + tone pipeline.  `--input -` reads
+//     stdin (default).  --config is reserved for Step 2 (per-flap threshold
+//     wiring) and is an error if passed now.  Output format csv (default) is
+//     the existing golden-compatible schema; jsonl emits one JSON object per
+//     row on stdout.
 //
-// Output CSV columns (kOutputHeader below) — extended in PR 3.2 to
-// include the AHRS outputs that drive every downstream consumer
-// (display serial, log CSV, web liveview, tone calc):
-//   ias_kt,palt_ft,oat_c,
-//   pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,
-//   tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,
-//   tone_freq_hz,tone_level
+//   percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F
+//     Compute percent-of-stall (0..99.9) for a single AOA sample.
+//     Calls onspeed::aoa::ComputePercentLift with iasValid=true.
+//     Outputs a single float followed by newline.
 //
-// Per Phase 3.2: this is the load-bearing characterization gate.  The
-// extracted Ahrs::Step must produce outputs identical to the legacy
-// AHRS::Process for every row, within math.isclose float tolerance
-// (rtol=1e-5, atol=1e-4 — see run_snapshot.py).
+//   parse_config --in PATH
+//     Parse a V2 (CONFIG2) or V1 (CONFIG) OnSpeed config file.
+//     Emits a flat JSON object with the parsed fields, including
+//     flapsByDeg as a nested object keyed by flap-degrees integer.
+//
+//   display_anchors --config PATH --flap I --raw-adc I
+//     Compute display percent anchors for the given config, flap detent
+//     index, and raw ADC reading.  Emits a JSON object with
+//     pipPctLift, tonesOnPctLift, onSpeedFastPctLift,
+//     onSpeedSlowPctLift, stallWarnPctLift, flapsDeg.
+//
+//   build_frame --record JSON
+//     Build the 77-byte #1 wire frame for the given DisplayBuildInputs
+//     JSON object.  Emits the frame bytes as lowercase hex on stdout.
+//
+// No external deps.  Arg parsing is a hand-rolled 40-line dispatcher.
+// JSON output is hand-rolled printf-based emission.  JSON input
+// (build_frame) is a hand-rolled key=value extractor.
+//
+// Compiles under -Wall -Wextra -Werror -Wshadow -Wformat=2 (native env).
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include <ahrs/Ahrs.h>
+#include <aoa/DisplayPctAnchors.h>
+#include <aoa/PercentLift.h>
 #include <audio/ToneCalc.h>
+#include <config/ConfigV1Parse.h>
+#include <config/ConfigXmlParse.h>
+#include <config/OnSpeedConfig.h>
+#include <proto/DisplaySerial.h>
+#include <sensors/FlapsDetector.h>
 #include <sensors/IasAlive.h>
 #include <types/AhrsInputs.h>
 #include <types/AhrsOutputs.h>
 
+// ============================================================================
+// Minimal arg parser — recognises named flags of the form "--foo VALUE".
+// Returns the value for the first occurrence of `flag`, or `default_val`
+// if not found.  Argc/argv are passed by reference so callers can walk them.
+// ============================================================================
+
 namespace {
 
-// Input and output schemas are kept side-by-side so that adding a column
-// to one prompts updating the other.
+// Return the value of `--flag VALUE` from argv[1..argc-1], or default_val.
+const char* ArgGet(int argc, const char* const* argv,
+                   const char* flag, const char* default_val = nullptr)
+{
+    for (int i = 1; i < argc - 1; ++i) {
+        if (std::strcmp(argv[i], flag) == 0) {
+            return argv[i + 1];
+        }
+    }
+    return default_val;
+}
+
+// ---------------------------------------------------------------------------
+// Minimal JSON emitter — hand-rolled printf-based, no external deps.
+// ---------------------------------------------------------------------------
+
+// Print a float in a way that's round-trippable at 4 decimal places.
+void JsonFloat(const char* key, float val, bool last = false)
+{
+    std::printf("  \"%s\": %.4f%s\n", key, static_cast<double>(val), last ? "" : ",");
+}
+
+void JsonInt(const char* key, int val, bool last = false)
+{
+    std::printf("  \"%s\": %d%s\n", key, val, last ? "" : ",");
+}
+
+void JsonBool(const char* key, bool val, bool last = false)
+{
+    std::printf("  \"%s\": %s%s\n", key, val ? "true" : "false", last ? "" : ",");
+}
+
+void JsonStr(const char* key, const std::string& val, bool last = false)
+{
+    // Minimal escaping: backslash and double-quote only.
+    std::printf("  \"%s\": \"", key);
+    for (char c : val) {
+        if      (c == '"')  std::printf("\\\"");
+        else if (c == '\\') std::printf("\\\\");
+        else                std::putchar(c);
+    }
+    std::printf("\"%s\n", last ? "" : ",");
+}
+
+// ---------------------------------------------------------------------------
+// Minimal JSON key-value extractor — parses objects produced by this tool
+// and by Python wrappers.  Recognises:
+//   { "key": value, ... }
+// where value is an unquoted number, "string", or true/false.
+// Does NOT handle nested objects or arrays.
+// ---------------------------------------------------------------------------
+
+// Find the raw JSON value for `key`.  Returns empty string if not found.
+//
+// NOTE: This parser is for FLAT objects with NUMERIC or BOOLEAN values only.
+// `find("\"" + key + "\"")` does a substring search; if a future caller adds
+// string-typed fields to DisplayBuildInputs, the search can match key names
+// that appear INSIDE a string value.  DisplayBuildInputs has no string fields
+// today and must not gain any without revisiting this parser.  See PR #465
+// review (M3) for the full discussion.
+std::string JsonGetValue(const std::string& json, const std::string& key)
+{
+    const std::string search = "\"" + key + "\"";
+    auto pos = json.find(search);
+    if (pos == std::string::npos) return {};
+    pos += search.size();
+    // skip whitespace and colon
+    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == ':'))
+        ++pos;
+    if (pos >= json.size()) return {};
+    if (json[pos] == '"') {
+        // quoted string
+        ++pos;
+        std::string result;
+        while (pos < json.size() && json[pos] != '"') {
+            if (json[pos] == '\\' && pos + 1 < json.size()) {
+                ++pos;
+                result += json[pos];
+            } else {
+                result += json[pos];
+            }
+            ++pos;
+        }
+        return result;
+    }
+    // unquoted value (number, true, false, null)
+    size_t end = pos;
+    while (end < json.size() && json[end] != ',' && json[end] != '}' && json[end] != '\n')
+        ++end;
+    std::string raw = json.substr(pos, end - pos);
+    // trim trailing whitespace
+    while (!raw.empty() && (raw.back() == ' ' || raw.back() == '\t'))
+        raw.pop_back();
+    return raw;
+}
+
+float JsonGetFloat(const std::string& json, const std::string& key,
+                   float default_val = 0.0f)
+{
+    const std::string v = JsonGetValue(json, key);
+    if (v.empty()) return default_val;
+    try { return std::stof(v); } catch (...) { return default_val; }
+}
+
+int JsonGetInt(const std::string& json, const std::string& key,
+               int default_val = 0)
+{
+    const std::string v = JsonGetValue(json, key);
+    if (v.empty()) return default_val;
+    try { return std::stoi(v); } catch (...) { return default_val; }
+}
+
+bool JsonGetBool(const std::string& json, const std::string& key,
+                 bool default_val = false)
+{
+    const std::string v = JsonGetValue(json, key);
+    if (v == "true")  return true;
+    if (v == "false") return false;
+    return default_val;
+}
+
+// ---------------------------------------------------------------------------
+// Shared config loader — reads a file and parses V1 or V2 XML.
+// Writes errors to stderr; returns false on failure.
+// ---------------------------------------------------------------------------
+
+bool LoadConfig(const std::string& path,
+                onspeed::config::OnSpeedConfig& cfg)
+{
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        std::fprintf(stderr, "host_main: cannot open config '%s'\n", path.c_str());
+        return false;
+    }
+    const std::string xml{std::istreambuf_iterator<char>(f),
+                           std::istreambuf_iterator<char>()};
+
+    cfg.LoadDefaults();
+
+    if (onspeed::config::IsV1Format(xml)) {
+        const auto st = onspeed::config::ParseV1(xml, cfg);
+        if (st != onspeed::config::V1ParseStatus::Ok) {
+            std::fprintf(stderr, "host_main: V1 parse error: %s\n",
+                         onspeed::config::V1ParseStatusToString(st));
+            return false;
+        }
+    } else {
+        const auto st = onspeed::config::ParseXml(xml, cfg);
+        if (st != onspeed::config::XmlParseStatus::Ok) {
+            std::fprintf(stderr, "host_main: V2 parse error: %s\n",
+                         onspeed::config::XmlParseStatusToString(st));
+            return false;
+        }
+    }
+    return true;
+}
+
+// ============================================================================
+// REPLAY subcommand — streaming AHRS + tone pipeline.
+//
+// Reads a sensor CSV (header + rows).  Each row is one sample.
+// Writes a CSV or JSONL stream on stdout.
+//
+// Input CSV columns (header required):
+//   ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz
+//
+// Output CSV columns (kOutputHeader):
+//   ias_kt,palt_ft,oat_c,
+//   pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,
+//   tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,
+//   tone_freq_hz,tone_level
+// ============================================================================
+
 constexpr char kInputHeader[]  = "ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz";
 constexpr char kOutputHeader[] =
     "ias_kt,palt_ft,oat_c,"
@@ -47,10 +248,6 @@ constexpr char kOutputHeader[] =
     "tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,"
     "tone_freq_hz,tone_level";
 
-// Placeholder AOA thresholds (degrees) matching clean-flap setpoints for a
-// typical GA aircraft.  These are not part of the AHRS-extraction
-// invariant; they're the same constants the harness used pre-PR-3.2 so
-// the tone columns continue to mean the same thing.
 constexpr onspeed::ToneThresholds kCleanThresholds {
     /* fLDMAXAOA      */ 3.0f,
     /* fONSPEEDFASTAOA*/ 6.5f,
@@ -58,16 +255,11 @@ constexpr onspeed::ToneThresholds kCleanThresholds {
     /* fSTALLWARNAOA  */ 12.5f,
 };
 
-// IMU and pressure cadences from the production firmware (HardwareMap.h).
 constexpr float kImuRateHz       = 208.0f;
 constexpr float kPressureRateHz  = 50.0f;
 constexpr float kImuDtSec        = 1.0f / kImuRateHz;
-constexpr uint32_t kPressurePeriodUs = 1'000'000u / 50u;   // 20 ms
+constexpr uint32_t kPressurePeriodUs = 1'000'000u / 50u;
 
-// Build an AHRS config matching the production defaults: zero biases
-// (the recorded log was captured on a level installation), Madgwick
-// algorithm, gyro window of 30 samples, IMU at 208 Hz.  These mirror
-// the constants in HardwareMap.h and Globals.h.
 onspeed::ahrs::AhrsConfig MakeProductionConfig()
 {
     onspeed::ahrs::AhrsConfig cfg;
@@ -84,8 +276,8 @@ struct InputRow {
     float ias_kt;
     float palt_ft;
     float oat_c;
-    float ax, ay, az;     // accelerometer in g
-    float gx, gy, gz;     // gyroscope in deg/s
+    float ax, ay, az;
+    float gx, gy, gz;
 };
 
 bool ParseHeader(const std::string& line)
@@ -119,39 +311,6 @@ bool ParseRow(const std::string& line, InputRow& out)
     return true;
 }
 
-// Build the per-frame AhrsInputs from a parsed row.  Each row is treated
-// as one IMU frame at 208 Hz; the IAS update timestamp advances every
-// 20 ms (50 Hz cadence) by stepping the timestamp in 4-frame increments
-// (~208 / 50).  This mirrors the production firmware's pressure-task
-// cadence — the AHRS sees a fresh IAS value every ~4 IMU frames.
-//
-// IMPORTANT — what this harness IS and is NOT:
-//
-// IS: a bit-stability gate. Reruns of this harness on the same input
-//     CSV should produce a byte-identical golden. Future PRs that
-//     touch onspeed_core/ahrs/ that change any output field by more
-//     than rtol=1e-5 will fail the snapshot check and require either
-//     justification or a regenerated golden.
-//
-// IS NOT: a behavioral-correctness gate vs. legacy AHRS::Process.
-//     The recorded `short_replay.csv` is the SD-card CSV log written
-//     by production firmware at 50 Hz, not raw 208 Hz IMU data. The
-//     harness feeds it as if each row is one 208 Hz IMU frame, so
-//     paltFt jumps that span ~20 ms of real time get processed at
-//     ~4.8 ms harness dt. Result: Kalman VSI values inflate ~4× and
-//     the asin(VSI/TAS) flight-path saturates at ±90°. Many golden
-//     values are physically absurd. They are still REPRODUCIBLE,
-//     which is what the gate checks.
-//
-//     A future harness PR could either (a) generate genuine 208 Hz
-//     IMU input by holding paltFt across the appropriate number of
-//     IMU frames, or (b) record a real 208 Hz IMU stream during a
-//     bench session. Either would let the golden contain physically
-//     sane values. Out of scope for the AHRS extraction.
-//
-// `iasUpdateTimestampUs` advances at the production 50 Hz pressure
-// cadence so the TAS density correction inside Ahrs::Step is gated
-// correctly even though we provide one input row per IMU frame.
 onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
                                 size_t frameIdx,
                                 bool oatPresentInLog,
@@ -174,8 +333,6 @@ onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
     in.sensors.oatCelsius = row.oat_c;
     in.sensors.iasAlive   = iasAlive;
 
-    // IAS update timestamp advances every 4 frames (~50 Hz).  This
-    // gates the TAS density correction inside Ahrs::Step.
     const uint32_t pressureFrame = static_cast<uint32_t>(frameIdx / 4u) + 1u;
     in.iasUpdateTimestampUs = pressureFrame * kPressurePeriodUs;
 
@@ -185,50 +342,69 @@ onspeed::AhrsInputs BuildInputs(const std::vector<InputRow>& rows,
     return in;
 }
 
-// IAS-alive hysteresis is shared with the sketch driver (SensorIO.cpp)
-// via onspeed::sensors::UpdateIasAlive — see sensors/IasAlive.h.  Using
-// one implementation in both places removes the drift risk this file
-// used to warn about ("kept in sync" by hope, not by mechanism).
+enum class OutputFormat { Csv, Jsonl };
 
-}   // namespace
-
-int main()
+int CmdReplay(int argc, const char* const* argv)
 {
-    std::string line;
+    const char* input_path  = ArgGet(argc, argv, "--input",  "-");
 
-    // Read and verify header.
-    if (!std::getline(std::cin, line) || !ParseHeader(line)) {
-        std::fprintf(stderr, "host_main: bad or missing CSV header\n");
+    // --config is reserved for Step 2 (per-flap threshold wiring).
+    // Refuse now rather than silently accept and ignore the value —
+    // a caller that passes --config and gets wrong output is harder
+    // to debug than an explicit error.
+    const char* config_path = ArgGet(argc, argv, "--config");
+    if (config_path != nullptr) {
+        std::fprintf(stderr,
+            "host_main replay: --config is reserved for Step 2 "
+            "(per PLAN_PYTHON_CONSOLIDATION.md). Not yet wired to "
+            "per-flap thresholds. Refusing to silently ignore.\n");
         return 1;
     }
 
-    // Emit output header.
-    std::printf("%s\n", kOutputHeader);
+    const char* fmt_str = ArgGet(argc, argv, "--output-format", "csv");
 
-    // Construct the AHRS pipeline once.  All filter state persists for
-    // the entire run, mirroring the firmware where the AHRS object
-    // lives for the full session.
+    OutputFormat fmt = OutputFormat::Csv;
+    if (std::strcmp(fmt_str, "jsonl") == 0) {
+        fmt = OutputFormat::Jsonl;
+    } else if (std::strcmp(fmt_str, "csv") != 0) {
+        std::fprintf(stderr,
+            "host_main replay: unknown --output-format '%s' (csv|jsonl)\n",
+            fmt_str);
+        return 1;
+    }
+
+    // Open input — "-" means stdin.
+    std::istream* in_stream = &std::cin;
+    std::ifstream in_file;
+    if (std::strcmp(input_path, "-") != 0) {
+        in_file.open(input_path);
+        if (!in_file.is_open()) {
+            std::fprintf(stderr, "host_main replay: cannot open '%s'\n", input_path);
+            return 1;
+        }
+        in_stream = &in_file;
+    }
+
+    std::string line;
+
+    if (!std::getline(*in_stream, line) || !ParseHeader(line)) {
+        std::fprintf(stderr, "host_main replay: bad or missing CSV header\n");
+        return 1;
+    }
+
+    if (fmt == OutputFormat::Csv) {
+        std::printf("%s\n", kOutputHeader);
+    }
+
     onspeed::ahrs::Ahrs ahrs{MakeProductionConfig()};
 
-    // Detect whether the log carries a usable OAT column.  If the entire
-    // log has oat_c == 0 (the short_replay.csv case), treat OAT as
-    // absent — the firmware would do the same when bOatSensor is false.
-    // We can't know this until we read all rows, so we use the first
-    // row and trust that the log is consistent.  A non-zero OAT in any
-    // row enables density correction.
     bool oatPresentInLog = false;
-
-    // Initialize AHRS from the first row before stepping.  Mirrors the
-    // sketch's two-phase Init/Process: the IMU's first valid sample
-    // seeds the algorithm's initial pitch/roll.  We can't peek without
-    // buffering, so process rows in two passes: first read all rows,
-    // then init from row 0 and step through 0..N-1.
     std::vector<InputRow> rows;
-    while (std::getline(std::cin, line)) {
+    while (std::getline(*in_stream, line)) {
         if (line.empty()) continue;
         InputRow r{};
         if (!ParseRow(line, r)) {
-            std::fprintf(stderr, "host_main: bad row at %zu: %s\n",
+            std::fprintf(stderr, "host_main replay: bad row at %zu: %s\n",
                          rows.size(), line.c_str());
             return 1;
         }
@@ -237,13 +413,10 @@ int main()
     }
 
     if (rows.empty()) {
-        std::fprintf(stderr, "host_main: no data rows\n");
+        std::fprintf(stderr, "host_main replay: no data rows\n");
         return 1;
     }
 
-    // Init from the very first row's IMU sample (and that row's Palt).
-    // iasAlive starts false (matches SensorIO boot state) and rises once
-    // the recorded IAS crosses the 20 kt hysteresis threshold.
     bool iasAlive = false;
     iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, rows.front().ias_kt);
     onspeed::AhrsInputs seed = BuildInputs(rows, 0, oatPresentInLog, iasAlive);
@@ -255,8 +428,6 @@ int main()
         const onspeed::AhrsInputs in = BuildInputs(rows, i, oatPresentInLog, iasAlive);
         const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
 
-        // Tone decision driven by the AHRS-derived AOA (real signal,
-        // not the lift-equation placeholder we used pre-PR-3.2).
         const onspeed::ToneResult result =
             onspeed::calculateTone(out.derivedAoaDeg, kCleanThresholds);
 
@@ -271,17 +442,315 @@ int main()
             tone_freq_hz = result.fPulseFreq; tone_level = 2; break;
         }
 
-        std::printf(
-            "%.4f,%.4f,%.4f,"
-            "%.4f,%.4f,%.4f,%.4f,"
-            "%.4f,%.4f,%.4f,%.4f,"
-            "%.4f,%d\n",
-            r.ias_kt, r.palt_ft, r.oat_c,
-            out.pitchDeg, out.rollDeg, out.flightPathDeg, out.derivedAoaDeg,
-            out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
-            tone_freq_hz, tone_level);
+        if (fmt == OutputFormat::Csv) {
+            std::printf(
+                "%.4f,%.4f,%.4f,"
+                "%.4f,%.4f,%.4f,%.4f,"
+                "%.4f,%.4f,%.4f,%.4f,"
+                "%.4f,%d\n",
+                r.ias_kt, r.palt_ft, r.oat_c,
+                out.pitchDeg, out.rollDeg, out.flightPathDeg, out.derivedAoaDeg,
+                out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
+                tone_freq_hz, tone_level);
+        } else {
+            // JSONL: one JSON object per row
+            std::printf("{"
+                "\"ias_kt\":%.4f,"
+                "\"palt_ft\":%.4f,"
+                "\"oat_c\":%.4f,"
+                "\"pitch_deg\":%.4f,"
+                "\"roll_deg\":%.4f,"
+                "\"flight_path_deg\":%.4f,"
+                "\"derived_aoa_deg\":%.4f,"
+                "\"tas_mps\":%.4f,"
+                "\"kalman_alt_ft\":%.4f,"
+                "\"kalman_vsi_fpm\":%.4f,"
+                "\"earth_vert_g\":%.4f,"
+                "\"tone_freq_hz\":%.4f,"
+                "\"tone_level\":%d"
+                "}\n",
+                r.ias_kt, r.palt_ft, r.oat_c,
+                out.pitchDeg, out.rollDeg, out.flightPathDeg, out.derivedAoaDeg,
+                out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
+                tone_freq_hz, tone_level);
+        }
     }
 
-    std::fprintf(stderr, "host_main: %zu rows processed\n", rows.size());
+    std::fprintf(stderr, "host_main replay: %zu rows processed\n", rows.size());
     return 0;
+}
+
+// ============================================================================
+// PERCENT_LIFT subcommand
+// ============================================================================
+
+int CmdPercentLift(int argc, const char* const* argv)
+{
+    const char* aoa_s      = ArgGet(argc, argv, "--aoa");
+    const char* alpha0_s   = ArgGet(argc, argv, "--alpha-0");
+    const char* stall_s    = ArgGet(argc, argv, "--alpha-stall");
+    const char* sw_s       = ArgGet(argc, argv, "--stallwarn");
+
+    if (!aoa_s || !alpha0_s || !stall_s || !sw_s) {
+        std::fprintf(stderr,
+            "usage: host_main percent_lift "
+            "--aoa F --alpha-0 F --alpha-stall F --stallwarn F\n");
+        return 1;
+    }
+
+    float aoa        = 0.0f;
+    float alpha0     = 0.0f;
+    float alphastall = 0.0f;
+    float stallwarn  = 0.0f;
+    try {
+        aoa        = std::stof(aoa_s);
+        alpha0     = std::stof(alpha0_s);
+        alphastall = std::stof(stall_s);
+        stallwarn  = std::stof(sw_s);
+    } catch (...) {
+        std::fprintf(stderr, "host_main percent_lift: bad float argument\n");
+        return 1;
+    }
+
+    onspeed::config::OnSpeedConfig::SuFlaps flap;
+    flap.fAlpha0      = alpha0;
+    flap.fAlphaStall  = alphastall;
+    flap.fSTALLWARNAOA = stallwarn;
+
+    const float pct = onspeed::aoa::ComputePercentLift(aoa, flap, /*iasValid=*/true);
+    std::printf("%.4f\n", static_cast<double>(pct));
+    return 0;
+}
+
+// ============================================================================
+// PARSE_CONFIG subcommand
+// ============================================================================
+
+int CmdParseConfig(int argc, const char* const* argv)
+{
+    const char* in_path = ArgGet(argc, argv, "--in");
+    if (!in_path) {
+        std::fprintf(stderr, "usage: host_main parse_config --in PATH\n");
+        return 1;
+    }
+
+    onspeed::config::OnSpeedConfig cfg;
+    if (!LoadConfig(in_path, cfg)) return 1;
+
+    std::printf("{\n");
+    JsonInt("aoaSmoothing",      cfg.iAoaSmoothing);
+    JsonInt("pressureSmoothing", cfg.iPressureSmoothing);
+    JsonInt("muteUnderIas",      cfg.iMuteAudioUnderIAS);
+    JsonStr("dataSource",        std::string(cfg.suDataSrc.toCStr()));
+    JsonBool("volumeControl",    cfg.bVolumeControl);
+    JsonInt("defaultVolume",     cfg.iDefaultVolume);
+    JsonBool("audio3D",          cfg.bAudio3D);
+    JsonBool("overGWarning",     cfg.bOverGWarning);
+    JsonStr("efisType",          cfg.sEfisType);
+    JsonStr("serialOutFormat",   cfg.sSerialOutFormat);
+    JsonFloat("pitchBias",       cfg.fPitchBias);
+    JsonFloat("rollBias",        cfg.fRollBias);
+    JsonFloat("gxBias",          cfg.fGxBias);
+    JsonFloat("gyBias",          cfg.fGyBias);
+    JsonFloat("gzBias",          cfg.fGzBias);
+    JsonFloat("pstaticBias",     cfg.fPStaticBias);
+    JsonFloat("loadLimitPositive", cfg.fLoadLimitPositive);
+    JsonFloat("loadLimitNegative", cfg.fLoadLimitNegative);
+    JsonInt("iAhrsAlgorithm",    cfg.iAhrsAlgorithm);
+    JsonBool("sdLogging",        cfg.bSdLogging);
+    JsonBool("boomConvertData",  cfg.bBoomConvertData);
+    JsonInt("logRate",           cfg.iLogRate);
+    JsonInt("vno",               cfg.iVno);
+
+    // flapsByDeg — nested object keyed by flap-degrees integer
+    std::printf("  \"flapsByDeg\": {\n");
+    for (size_t fi = 0; fi < cfg.aFlaps.size(); ++fi) {
+        const auto& f = cfg.aFlaps[fi];
+        const bool last_flap = (fi + 1 == cfg.aFlaps.size());
+        std::printf("    \"%d\": {\n", f.iDegrees);
+        std::printf("      \"degrees\": %d,\n", f.iDegrees);
+        std::printf("      \"potPosition\": %d,\n", f.iPotPosition);
+        std::printf("      \"ldmaxAoa\": %.4f,\n",        static_cast<double>(f.fLDMAXAOA));
+        std::printf("      \"onSpeedFastAoa\": %.4f,\n",  static_cast<double>(f.fONSPEEDFASTAOA));
+        std::printf("      \"onSpeedSlowAoa\": %.4f,\n",  static_cast<double>(f.fONSPEEDSLOWAOA));
+        std::printf("      \"stallWarnAoa\": %.4f,\n",    static_cast<double>(f.fSTALLWARNAOA));
+        std::printf("      \"stallAoa\": %.4f,\n",        static_cast<double>(f.fSTALLAOA));
+        std::printf("      \"alpha0\": %.4f,\n",          static_cast<double>(f.fAlpha0));
+        std::printf("      \"alphaStall\": %.4f,\n",      static_cast<double>(f.fAlphaStall));
+        std::printf("      \"kFit\": %.4f\n",             static_cast<double>(f.fKFit));
+        std::printf("    }%s\n", last_flap ? "" : ",");
+    }
+    std::printf("  }\n");
+    std::printf("}\n");
+    return 0;
+}
+
+// ============================================================================
+// DISPLAY_ANCHORS subcommand
+// ============================================================================
+
+int CmdDisplayAnchors(int argc, const char* const* argv)
+{
+    const char* cfg_path = ArgGet(argc, argv, "--config");
+    const char* flap_s   = ArgGet(argc, argv, "--flap");
+    const char* adc_s    = ArgGet(argc, argv, "--raw-adc");
+
+    if (!cfg_path || !flap_s || !adc_s) {
+        std::fprintf(stderr,
+            "usage: host_main display_anchors "
+            "--config PATH --flap I --raw-adc I\n");
+        return 1;
+    }
+
+    int flap_idx = 0;
+    int raw_adc  = 0;
+    try {
+        flap_idx = std::stoi(flap_s);
+        raw_adc  = std::stoi(adc_s);
+    } catch (...) {
+        std::fprintf(stderr, "host_main display_anchors: bad integer argument\n");
+        return 1;
+    }
+
+    onspeed::config::OnSpeedConfig cfg;
+    if (!LoadConfig(cfg_path, cfg)) return 1;
+
+    if (cfg.aFlaps.empty()) {
+        std::fprintf(stderr, "host_main display_anchors: config has no flap entries\n");
+        return 1;
+    }
+
+    // Clamp flap_idx to valid range.
+    if (flap_idx < 0) flap_idx = 0;
+    if (static_cast<size_t>(flap_idx) >= cfg.aFlaps.size())
+        flap_idx = static_cast<int>(cfg.aFlaps.size()) - 1;
+
+    const onspeed::aoa::DisplayPctAnchors anchors =
+        onspeed::aoa::ComputeDisplayPctAnchors(
+            static_cast<uint16_t>(raw_adc),
+            cfg.aFlaps.data(),
+            cfg.aFlaps.size(),
+            static_cast<size_t>(flap_idx),
+            /*iasValid=*/true);
+
+    std::printf("{\n");
+    JsonInt("pipPctLift",         anchors.pipPctLift);
+    JsonInt("tonesOnPctLift",     anchors.tonesOnPctLift);
+    JsonInt("onSpeedFastPctLift", anchors.onSpeedFastPctLift);
+    JsonInt("onSpeedSlowPctLift", anchors.onSpeedSlowPctLift);
+    JsonInt("stallWarnPctLift",   anchors.stallWarnPctLift);
+    JsonInt("flapsDeg",           anchors.flapsDeg, /*last=*/true);
+    std::printf("}\n");
+    return 0;
+}
+
+// ============================================================================
+// BUILD_FRAME subcommand
+// ============================================================================
+
+int CmdBuildFrame(int argc, const char* const* argv)
+{
+    const char* record_s = ArgGet(argc, argv, "--record");
+    if (!record_s) {
+        std::fprintf(stderr,
+            "usage: host_main build_frame --record JSON\n");
+        return 1;
+    }
+
+    const std::string json(record_s);
+
+    onspeed::proto::DisplayBuildInputs inp;
+    inp.pitchDeg           = JsonGetFloat(json, "pitchDeg");
+    inp.rollDeg            = JsonGetFloat(json, "rollDeg");
+    inp.iasKt              = JsonGetFloat(json, "iasKt");
+    inp.iasValid           = JsonGetBool(json, "iasValid", true);
+    inp.paltFt             = JsonGetFloat(json, "paltFt");
+    inp.turnRateDps        = JsonGetFloat(json, "turnRateDps");
+    inp.lateralG           = JsonGetFloat(json, "lateralG");
+    inp.verticalGScaled10  = JsonGetFloat(json, "verticalGScaled10");
+    inp.percentLiftPct     = JsonGetFloat(json, "percentLiftPct");
+    inp.vsiFpm10           = JsonGetInt(json, "vsiFpm10");
+    inp.oatC               = JsonGetInt(json, "oatC");
+    inp.flightPathDeg      = JsonGetFloat(json, "flightPathDeg");
+    inp.flapsDeg           = JsonGetInt(json, "flapsDeg");
+    inp.tonesOnPctLift     = JsonGetInt(json, "tonesOnPctLift");
+    inp.onSpeedFastPctLift = JsonGetInt(json, "onSpeedFastPctLift");
+    inp.onSpeedSlowPctLift = JsonGetInt(json, "onSpeedSlowPctLift");
+    inp.stallWarnPctLift   = JsonGetInt(json, "stallWarnPctLift");
+    inp.flapsMinDeg        = JsonGetInt(json, "flapsMinDeg");
+    inp.flapsMaxDeg        = JsonGetInt(json, "flapsMaxDeg");
+    inp.gOnsetRate         = JsonGetFloat(json, "gOnsetRate");
+    inp.spinRecoveryCue    = JsonGetInt(json, "spinRecoveryCue");
+    inp.dataMark           = JsonGetInt(json, "dataMark");
+    inp.pipPctLift         = JsonGetInt(json, "pipPctLift");
+
+    uint8_t buf[onspeed::proto::kDisplayFrameSizeBytes];
+    const size_t n = onspeed::proto::BuildDisplayFrame(inp, buf,
+                                                       sizeof(buf));
+    if (n == 0) {
+        std::fprintf(stderr, "host_main build_frame: BuildDisplayFrame failed\n");
+        return 1;
+    }
+
+    // Emit as lowercase hex, one line, no spaces.
+    for (size_t i = 0; i < n; ++i) {
+        std::printf("%02x", buf[i]);
+    }
+    std::printf("\n");
+    return 0;
+}
+
+// ============================================================================
+// HELP subcommand
+// ============================================================================
+
+int CmdHelp()
+{
+    std::printf(
+        "Usage: host_main <subcommand> [flags]\n\n"
+        "Subcommands:\n"
+        "  replay  --input PATH|'-' [--output-format csv|jsonl]\n"
+        "    Stream sensor CSV through AHRS + tone pipeline.\n"
+        "    (--config is reserved for Step 2; passing it now is an error.)\n\n"
+        "  percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F\n"
+        "    Compute percent-of-stall for a single AOA reading.\n\n"
+        "  parse_config --in PATH\n"
+        "    Parse a V1/V2 OnSpeed config and emit JSON.\n\n"
+        "  display_anchors --config PATH --flap I --raw-adc I\n"
+        "    Compute display percent anchors for a given flap and pot position.\n\n"
+        "  build_frame --record JSON\n"
+        "    Build a 77-byte #1 wire frame; emit as hex.\n\n"
+        "  help\n"
+        "    Show this message.\n"
+    );
+    return 0;
+}
+
+}  // namespace
+
+// ============================================================================
+// main — dispatch table
+// ============================================================================
+
+int main(int argc, char* argv[])
+{
+    if (argc < 2) {
+        std::fprintf(stderr,
+            "host_main: subcommand required. Run 'host_main help' for usage.\n");
+        return 1;
+    }
+
+    const char* sub = argv[1];
+
+    // Pass the full argc/argv so each subcommand sees its own flags.
+    if (std::strcmp(sub, "replay")          == 0) return CmdReplay(argc, argv);
+    if (std::strcmp(sub, "percent_lift")    == 0) return CmdPercentLift(argc, argv);
+    if (std::strcmp(sub, "parse_config")    == 0) return CmdParseConfig(argc, argv);
+    if (std::strcmp(sub, "display_anchors") == 0) return CmdDisplayAnchors(argc, argv);
+    if (std::strcmp(sub, "build_frame")     == 0) return CmdBuildFrame(argc, argv);
+    if (std::strcmp(sub, "help")            == 0) return CmdHelp();
+
+    std::fprintf(stderr,
+        "host_main: unknown subcommand '%s'. Run 'host_main help'.\n", sub);
+    return 1;
 }

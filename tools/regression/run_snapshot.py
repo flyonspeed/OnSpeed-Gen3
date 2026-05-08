@@ -76,14 +76,12 @@ def build_shim() -> None:
 
 
 def run_shim(input_csv: Path) -> str:
-    """Pipe input_csv through the shim and return its stdout."""
-    with input_csv.open("r", encoding="utf-8") as f:
-        proc = subprocess.run(
-            [str(EXECUTABLE)],
-            stdin=f,
-            capture_output=True,
-            text=True,
-        )
+    """Run the shim's replay subcommand and return its stdout."""
+    proc = subprocess.run(
+        [str(EXECUTABLE), "replay", "--input", str(input_csv)],
+        capture_output=True,
+        text=True,
+    )
     if proc.returncode != 0:
         click.echo(f"Shim exited with {proc.returncode}:", err=True)
         click.echo(proc.stderr, err=True)
