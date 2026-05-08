@@ -1226,7 +1226,7 @@ void drawSlip (uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H,  int16_t slipVa
     if ( flashing && (abs(slipValue) >= 30) && PercentLift >= Array[7]) Colour = TFT_BLACK;
     if (!flashing && (abs(slipValue) >= 30) && PercentLift >= Array[7]) Colour = TFT_RED;
 
-    gdraw.fillCircle (CenterX + slipValue * (W - H - 1) / 99 / 2, CenterY, H / 2 - 1, Colour);
+    gdraw.fillCircle (CenterX + (int32_t)roundf(slipValue * (W - H - 1) / (99.0f * 2)), CenterY, H / 2 - 1, Colour);
 
     /*
     Draw slip indicator tick marks in foreground
