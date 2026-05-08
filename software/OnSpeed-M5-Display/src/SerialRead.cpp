@@ -338,7 +338,7 @@ void SerialProcess(float frameDtSec)
     // (positive = airframe accelerating rightward, matching IMU + log +
     // WebSocket JSON). Negate locally for the ball-frame rendering
     // convention (positive Slip = ball drawn right of center). Same
-    // pattern the LiveView's slipBall.js uses.  See LATERAL_G_CONVENTION.md.
+    // pattern the LiveView's slipBall.js uses.  See DisplaySerial.h's DisplayBuildInputs::lateralG block.
     Slip               = int(-LateralG * 34 / 0.04);
     Slip               = constrain(Slip,-99,99);
 

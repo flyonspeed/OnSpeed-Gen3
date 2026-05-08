@@ -114,8 +114,7 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
 
     // BODY-FRAME convention at v4.23: positive = airframe accel right.
     // X-Plane's g_side is already body-frame, so pass through directly
-    // (see DisplaySerial.h's DisplayBuildInputs::lateralG block and
-    // LATERAL_G_CONVENTION.md).  The M5 ball renderer downstream
+    // (see DisplaySerial.h's DisplayBuildInputs::lateralG block).  The M5 ball renderer downstream
     // negates locally for ball-frame display.
     in.lateralG          = lateral;
 
