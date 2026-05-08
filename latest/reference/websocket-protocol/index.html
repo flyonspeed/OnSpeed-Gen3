@@ -3934,7 +3934,7 @@
 <td><code>DecelRate</code></td>
 <td>float</td>
 <td>knots/s</td>
-<td>Smoothed IAS-decel rate, <code>g_Sensors.fDecelRate</code> (Savitzky-Golay derivative of IAS). Negative = decelerating. Always from OnSpeed sensors.</td>
+<td>IAS-decel rate, <code>g_Sensors.fDecelRate</code> — the raw output of a 15-tap Savitzky-Golay first-derivative filter on smoothed IAS, scaled to kt/s. <strong>Not</strong> additionally EMA-smoothed; consumers smooth per-surface. The M5 hardware decel gauge applies an EMA at α=0.04 (~1.25 s τ at 20 Hz; see <code>software/OnSpeed-M5-Display/src/SerialRead.cpp</code>); <code>/indexer</code> Mode 3 mirrors the same α=0.04 to match the M5's time-constant during normal continuous operation; <code>/calwiz</code>'s decel step exposes a SMOOTH ↔ RESPONSIVE slider (α range 0.02–0.50, default 0.05) for the gauge needle only — recorded samples remain raw. Negative = decelerating. Always from OnSpeed sensors.</td>
 </tr>
 </tbody>
 </table>
