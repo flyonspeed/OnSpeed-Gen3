@@ -267,6 +267,14 @@ b) **The widget catalog.** New directory `tools/web/lib/replay/widgets/`.
    - `HudHeading.js` — horizontal heading tape, top edge. Reads from
      `record.magHeadingDeg` — sourced from `vnYawDeg` (VN-300) or
      `efisMagHeading` (other EFIS); skipped if absent.
+   - `HudOnSpeedLogo.js` — OnSpeed branding, **default-on, top-left**
+     of the video frame. Stateless (pure prop-driven, no record
+     dependency). Asset lives at `tools/web/static/branding/onspeed_logo.svg`
+     (copied from `~/Downloads/onspeed_logo.svg` — 14 KB SVG, scales
+     cleanly). PNG fallback at `FlyOnSpeed_Logo.png` (331 KB) if
+     SVG export through MediaRecorder/WebCodecs proves finicky;
+     prefer SVG. Configurable height (default ~10% of frame height),
+     opacity (default ~85%) via the layout JSON.
 
 c) **Widget-level render-smoke tests.** Each widget gets a fixture
    record and a snapshot test that locks visual output. Same pattern
@@ -296,6 +304,11 @@ a) **Declarative layout file** at `lib/replay/layouts/default.json`:
   "schemaVersion": 1,
   "name":          "default-hud",
   "groups": [
+    {
+      "name":      "branding-top-left",
+      "translate": { "left": 16, "top": 16 },
+      "widgets":  [{ "type": "onspeed-logo", "height": 0.10, "opacity": 0.85 }]
+    },
     {
       "name":      "right-cluster",
       "translate": { "right": 12, "bottom": 56 },
