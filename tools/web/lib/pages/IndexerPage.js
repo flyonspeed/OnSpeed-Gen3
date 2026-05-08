@@ -124,9 +124,16 @@ const ModeNav = ({ current, onChange }) => html`
               onClick=${() => onChange(m.id)}>${m.label}</button>`)}
   </nav>`;
 
-// Frame age in seconds at which the WebSocket feed is considered stale.
-// Mirrors the StaleOverlay threshold and the M5's serialDataFresh() gate.
-const STALENESS_THRESHOLD_SEC = 3;
+// Two thresholds, intentionally separate. They start equal at 3 s but the
+// design rationale differs: the overlay can react quickly to any wire gap
+// (issue #464 item 1 plans to drop it toward ~300 ms to match the M5's
+// 300 ms NO-DATA overlay), but the G-history sampler should only freeze on
+// a genuine multi-second outage so the strip chart doesn't stutter on
+// brief WiFi micro-gaps. Lowering one is not an automatic reason to lower
+// the other — name the decision points so #464 item 1's implementer sees
+// them as separate calls.
+const STALENESS_THRESHOLD_SEC    = 3;  // StaleOverlay (covers the page when stale)
+const G_HISTORY_STALENESS_SEC    = 3;  // useGHistory sampler gate
 
 // G-history ring buffer — kept in a useRef so it persists across
 // renders.
@@ -145,7 +152,7 @@ function useGHistory(rec, ageSec) {
   // mirrors the M5's serialDataFresh() gate on its own G-history loop.
   useEffect(() => {
     if (!rec) return;
-    if (ageSec >= STALENESS_THRESHOLD_SEC) return;
+    if (ageSec >= G_HISTORY_STALENESS_SEC) return;
     const now = performance.now();
     if (now - lastSampleMs.current >= G.MODE4_SAMPLE_MS) {
       buf.current[writeIdx.current] = rec.verticalG ?? 1.0;
