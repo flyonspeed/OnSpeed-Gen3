@@ -1,31 +1,40 @@
-"""OnSpeed `.cfg` XML loader for per-flap setpoints.
+"""ALGORITHM CODE LIVES IN C++.
 
-Auto-detects the two on-disk formats:
+This module is a subprocess wrapper around the host_main CLI binary.
+The canonical implementation is in
+software/Libraries/onspeed_core/src/config/ (ConfigXmlParse.cpp for V2,
+ConfigV1Parse.cpp for V1), compiled to
+tools/regression/.pio/build/native/program by `pio run -e native` in
+tools/regression/.
 
-  - **New per-flap-block format** (`<FLAP_POSITION>` blocks with nested
-    `<DEGREES>`, `<POT_VALUE>`, `<LDMAXAOA>`, ...). Used by the current
-    firmware (post-PR #320).
-  - **V1 list format** (top-level `<FLAPDEGREES>0,20,40</FLAPDEGREES>`,
-    `<SETPOINT_LDMAXAOA>8.03,5.73,4.78</SETPOINT_LDMAXAOA>`, etc.). Used
-    by older firmware including calibration runs from late 2025.
+Modifying this file does NOT change algorithm behavior. To change
+config parsing, edit the C++ in onspeed_core, rebuild host_main, then
+re-run the wrapper tests here to verify.
 
-V1 configs do not carry per-flap `alpha_0`, `alpha_stall`, or `KFIT`.
-The loader fills in defaults:
+V1 alpha_stall deserialization note:
 
-  - `alpha_0 = 0.0` — matches Gen2's piecewise-display floor.
-  - `alpha_stall = stallwarn + 1.5°` — typical wizard margin.
-  - `k_fit = 0.0` — `ias_from_aoa()` returns 0 when this is unset.
-
-These approximations are sufficient for replay rendering; if precise
-values are needed, regenerate the config with the modern wizard.
+The C++ V1 parser leaves fAlphaStall at 0.0 when the config file does
+not carry a SETPOINT_ALPHASTALL tag (the common case for old Gen2
+configs). The Python-facing API preserves the historical convention of
+defaulting V1 alpha_stall to stallwarn + 1.5 for backwards
+compatibility with replay tools that rely on that as the uncalibrated
+ceiling. This is applied in the deserialization step below, not in the
+C++ parser.
 """
 
 from __future__ import annotations
 
+import json
 import re
-import xml.etree.ElementTree as ET
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+# Locate the host_main binary built by `pio run -e native` in tools/regression/.
+_HOST_MAIN = (
+    Path(__file__).resolve().parents[2]
+    / "tools" / "regression" / ".pio" / "build" / "native" / "program"
+)
 
 
 @dataclass
@@ -42,81 +51,61 @@ class FlapSetpoints:
                                     # 0.0 if not stored in the config
 
 
+def _is_v1_format(cfg_path: Path) -> bool:
+    """Return True if the config file is V1 format (<CONFIG> root tag).
+
+    V1 detection mirrors onspeed_core/config/ConfigV1Parse.cpp::IsV1Format:
+    look for <CONFIG> but not <CONFIG2>.
+    """
+    raw = cfg_path.read_text()
+    return "<CONFIG>" in raw and "<CONFIG2>" not in raw
+
+
 def load_flap_setpoints(cfg_path: Path) -> dict[int, FlapSetpoints]:
     """Parse OnSpeed `.cfg` XML for per-flap setpoints.
 
-    Returns `{degrees: FlapSetpoints}`. Raises `ValueError` if the
-    file has neither `<FLAP_POSITION>` blocks nor a V1 `<FLAPDEGREES>`
-    list.
+    Delegates to `host_main parse_config`. Returns `{degrees: FlapSetpoints}`.
+
+    Raises `subprocess.CalledProcessError` if the file cannot be parsed.
+    Raises `ValueError` if the config has no flap entries.
     """
-    # V1 configs use tag names like `<3DAUDIO>` that aren't valid XML
-    # (tag names must start with a letter or underscore). The firmware's
-    # tinyxml2 parser is lenient; Python's stdlib parser isn't.
-    # Preprocess: rename digit-prefixed tags before parsing. The rewrite
-    # is one-way (`<3DAUDIO>` → `<_3DAUDIO>` in both open and close
-    # tags); we never write back to the cfg.
-    raw = Path(cfg_path).read_text()
-    raw = re.sub(r"<(/?)(\d)", r"<\1_\2", raw)
-    root = ET.fromstring(raw)
+    proc = subprocess.run(
+        [str(_HOST_MAIN), "parse_config", "--in", str(cfg_path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    raw = json.loads(proc.stdout)
 
-    # Try new per-flap-block format first.
-    out: dict[int, FlapSetpoints] = {}
-    for fp in root.findall("FLAP_POSITION"):
-        deg = int(fp.findtext("DEGREES", "0"))
-        out[deg] = FlapSetpoints(
-            degrees=deg,
-            pot_value=int(fp.findtext("POT_VALUE", "0")),
-            ldmax_aoa=float(fp.findtext("LDMAXAOA", "0")),
-            onspeed_fast_aoa=float(fp.findtext("ONSPEEDFASTAOA", "0")),
-            onspeed_slow_aoa=float(fp.findtext("ONSPEEDSLOWAOA", "0")),
-            stallwarn_aoa=float(fp.findtext("STALLWARNAOA", "0")),
-            alpha_0=float(fp.findtext("ALPHA0", "0")),
-            alpha_stall=float(fp.findtext("ALPHASTALL", "0")),
-            k_fit=float(fp.findtext("KFIT", "0")),
-        )
-    if out:
-        return out
-
-    # V1 fallback.
-    return _load_flap_setpoints_v1(root, cfg_path)
-
-
-def _load_flap_setpoints_v1(root: ET.Element,
-                            cfg_path: Path) -> dict[int, FlapSetpoints]:
-    """Parse the V1 list-style config."""
-    def csv_floats(tag: str) -> list[float]:
-        text = root.findtext(tag, "").strip()
-        return [float(x) for x in text.split(",")] if text else []
-
-    def csv_ints(tag: str) -> list[int]:
-        text = root.findtext(tag, "").strip()
-        return [int(x) for x in text.split(",")] if text else []
-
-    degrees       = csv_ints("FLAPDEGREES")
-    pot_positions = csv_ints("FLAPPOTPOSITIONS")
-    ldmax         = csv_floats("SETPOINT_LDMAXAOA")
-    onspeed_fast  = csv_floats("SETPOINT_ONSPEEDFASTAOA")
-    onspeed_slow  = csv_floats("SETPOINT_ONSPEEDSLOWAOA")
-    stallwarn     = csv_floats("SETPOINT_STALLWARNAOA")
-
-    if not degrees:
+    is_v1 = _is_v1_format(Path(cfg_path))
+    flaps_raw = raw.get("flapsByDeg", {})
+    if not flaps_raw:
         raise ValueError(
-            f"No FLAP_POSITION blocks AND no V1 FLAPDEGREES list found in {cfg_path}"
+            f"Config has no flap entries: {cfg_path}"
         )
 
     out: dict[int, FlapSetpoints] = {}
-    for i, deg in enumerate(degrees):
-        sw = stallwarn[i] if i < len(stallwarn) else 0.0
+    for key, f in flaps_raw.items():
+        deg          = int(key)
+        stallwarn    = float(f.get("stallWarnAoa", 0.0))
+        alpha_stall  = float(f.get("alphaStall",   0.0))
+
+        # V1 configs don't carry SETPOINT_ALPHASTALL; C++ leaves alphaStall
+        # at 0.0. Apply the Python-API convention: default to stallwarn + 1.5
+        # so replay tools get a usable uncalibrated ceiling.
+        if is_v1 and alpha_stall == 0.0:
+            alpha_stall = stallwarn + 1.5
+
         out[deg] = FlapSetpoints(
             degrees=deg,
-            pot_value=pot_positions[i] if i < len(pot_positions) else 0,
-            ldmax_aoa=ldmax[i] if i < len(ldmax) else 0.0,
-            onspeed_fast_aoa=onspeed_fast[i] if i < len(onspeed_fast) else 0.0,
-            onspeed_slow_aoa=onspeed_slow[i] if i < len(onspeed_slow) else 0.0,
-            stallwarn_aoa=sw,
-            alpha_0=0.0,
-            alpha_stall=sw + 1.5,
-            k_fit=0.0,
+            pot_value=int(f.get("potPosition", 0)),
+            ldmax_aoa=float(f.get("ldmaxAoa", 0.0)),
+            onspeed_fast_aoa=float(f.get("onSpeedFastAoa", 0.0)),
+            onspeed_slow_aoa=float(f.get("onSpeedSlowAoa", 0.0)),
+            stallwarn_aoa=stallwarn,
+            alpha_0=float(f.get("alpha0", 0.0)),
+            alpha_stall=alpha_stall,
+            k_fit=float(f.get("kFit", 0.0)),
         )
     return out
 

@@ -1,61 +1,76 @@
-"""Percent-lift calculation and IAS-from-AOA inversion.
+"""ALGORITHM CODE LIVES IN C++.
 
-Mirrors the C++ implementation in
-`software/Libraries/onspeed_core/src/aoa/PercentLift.cpp::ComputePercentLift`.
-The percent-lift convention here is the "honest single-linear envelope"
-formula:
+This module is a subprocess wrapper around the host_main CLI binary.
+The canonical implementation is in
+software/Libraries/onspeed_core/src/aoa/PercentLift.cpp, compiled to
+tools/regression/.pio/build/native/program by `pio run -e native` in
+tools/regression/.
 
-    percent_lift = (body_angle - alpha_0) / (alpha_stall - alpha_0) * 100
+Modifying this file does NOT change algorithm behavior. To change
+percent-lift math, edit the C++ in onspeed_core, rebuild host_main,
+then re-run the wrapper tests here to verify.
 
-clamped to [0, 99]. `alpha_0` is per-flap (from the calibration fit) and
-is typically negative on aircraft with positive wing incidence — see the
-body-angle admonition in `docs/site/docs/calibration/how-aoa-works.md`.
+GAPS requiring a new host_main subcommand (see PLAN_PYTHON_CONSOLIDATION.md):
+
+  - ias_from_aoa(): inverts the K/IAS² + alpha_0 lift equation. No
+    host_main subcommand exists for this function. The implementation
+    below keeps the Python math as a temporary shim. Step 0 of the
+    consolidation plan should add `host_main ias_from_aoa` before this
+    function is migrated.
 """
 
 from __future__ import annotations
 
 import math
+import subprocess
+from pathlib import Path
 
 from .config import FlapSetpoints
 
+# Locate the host_main binary built by `pio run -e native` in tools/regression/.
+_HOST_MAIN = (
+    Path(__file__).resolve().parents[2]
+    / "tools" / "regression" / ".pio" / "build" / "native" / "program"
+)
+
 
 def compute_percent_lift(aoa: float, fs: FlapSetpoints) -> float:
-    """Honest single-linear envelope fraction, clamped to [0.0, 99.9].
+    """Percent-of-stall lift fraction, clamped to [0.0, 99.9].
 
-    Mirrors `onspeed_core/aoa/PercentLift.cpp::ComputePercentLift` —
-    returns whole-percent units (e.g. 47.3) so callers don't have to
-    juggle a separate "tenths" scale.  Wire encoders (Frame builder
-    here, BuildDisplayFrame in C++) scale ×10 and truncate to int for
-    the `#1` wire's tenths field.
-
-    When `alpha_stall` is uncalibrated (≤ `stallwarn_aoa`), use the
-    synthetic ceiling `stallwarn * 100/90` so band edges still render
-    in roughly the right places on a not-yet-fitted config.
-
-    The 99.9 ceiling (rather than 99.0) is load-bearing for the wire
-    encoding: the encoder multiplies by 10 and truncates, and the
-    field saturates at 999 (never 1000) by convention.
+    Delegates to `host_main percent_lift`. Algorithm lives in
+    onspeed_core/aoa/PercentLift.cpp::ComputePercentLift.
 
     NaN input (the format-3 "no valid air data" sentinel from a v3 SD
-    log with `iasValid=false`) propagates as NaN so consumers can
-    render "no data" instead of zero.  Python's `min`/`max` drops NaN
-    asymmetrically depending on argument order, so the early return
-    guards against silent NaN coercion to 0.0.
+    log with iasValid=false) propagates as NaN. This guard runs in
+    Python before the subprocess call because the C++ CLI cannot
+    represent NaN on its command line — this is presentation-layer
+    handling, not algorithm code.
     """
     if math.isnan(aoa):
         return math.nan
-    alpha_stall = fs.alpha_stall
-    if alpha_stall <= fs.stallwarn_aoa:
-        alpha_stall = fs.stallwarn_aoa * 100.0 / 90.0
-    span = alpha_stall - fs.alpha_0
-    if span <= 0:
-        return 0.0
-    pct = (aoa - fs.alpha_0) / span * 100.0
-    return max(0.0, min(99.9, pct))
+
+    proc = subprocess.run(
+        [
+            str(_HOST_MAIN),
+            "percent_lift",
+            "--aoa",        f"{aoa:.6f}",
+            "--alpha-0",    f"{fs.alpha_0:.6f}",
+            "--alpha-stall", f"{fs.alpha_stall:.6f}",
+            "--stallwarn",  f"{fs.stallwarn_aoa:.6f}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return float(proc.stdout.strip())
 
 
 def ias_from_aoa(aoa: float, fs: FlapSetpoints, n: float = 1.0) -> float:
     """Invert `AOA = K/IAS² + alpha_0` to get IAS for a given body angle.
+
+    TEMPORARY SHIM — no host_main subcommand exists for this function.
+    See module docstring. This code will be replaced when Step 0 of
+    PLAN_PYTHON_CONSOLIDATION.md adds `host_main ias_from_aoa`.
 
     Multi-G version: `AOA - alpha_0` scales with `n`, so
 
