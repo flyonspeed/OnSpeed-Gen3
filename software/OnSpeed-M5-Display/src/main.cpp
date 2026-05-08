@@ -698,7 +698,7 @@ void loop()
                 if (IasIsValid)
                     {
                     gdraw.setCursor(5, 30);
-                    gdraw.print(int(displayIAS));
+                    gdraw.print((int)lroundf(displayIAS));
                     }
                 else
                     {
@@ -922,7 +922,7 @@ void displayAOA()
         if (IasIsValid)
             {
             gdraw.setCursor(7, NUM_Y);
-            gdraw.print(int(displayIAS));
+            gdraw.print((int)lroundf(displayIAS));
             }
         else
             {
@@ -1606,7 +1606,7 @@ void displayDecelGauge()
     if (IasIsValid)
         {
         gdraw.setCursor(7, DEC_NUM_Y);
-        gdraw.print(int(displayIAS));
+        gdraw.print((int)lroundf(displayIAS));
         }
     else
         {
