@@ -11,8 +11,7 @@ flight-data pipeline:
   that auto-detects V1 list-style configs and the new
   per-`<FLAP_POSITION>`-block format.
 - **`percent_lift.py`** — `compute_percent_lift()` (single-linear envelope
-  fraction matching `onspeed_core/aoa/PercentLift.cpp`) and
-  `ias_from_aoa()` (inverts `K/IAS² + alpha_0` for V2+ configs).
+  fraction matching `onspeed_core/aoa/PercentLift.cpp`).
 - **`log_replay.py`** — `scenario_from_log()` adapter that turns OnSpeed
   SD-log CSVs (old or new format) into `LiveSnapshot` ticks at a
   target rate, with body→ball lateral-G negation, EMA accel smoothing,
@@ -25,7 +24,7 @@ flight-data pipeline:
 | Caller | Imports |
 |--------|---------|
 | `tools/m5-replay/replay.py` | `frame.Frame`, `frame.FRAME_LEN`, `config.FlapSetpoints`, `config.load_flap_setpoints`, `config.setpoints_for_flap`, `percent_lift.compute_percent_lift` |
-| `tools/synth-record/` (post-PR 7) | all of the above + `percent_lift.ias_from_aoa`, `live_snapshot.LiveSnapshot`, `log_replay.scenario_from_log` |
+| `tools/synth-record/` (post-PR 7) | all of the above + `live_snapshot.LiveSnapshot`, `log_replay.scenario_from_log` |
 
 ## Path resolution
 

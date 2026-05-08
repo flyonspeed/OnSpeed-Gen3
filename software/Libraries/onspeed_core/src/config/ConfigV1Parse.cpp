@@ -302,10 +302,27 @@ V1ParseStatus ParseV1(std::string_view text, OnSpeedConfig& cfg)
             cfg.aFlaps[i].fAlpha0 = af.Items[i];
     }
     {
-        SuFloatArray af = ParseFloatCSV(FindTagValue(text, "SETPOINT_ALPHASTALL"),
-                                        iFlapsArraySize);
-        for (int i = 0; (i < af.Count) && (i < iFlapsArraySize); ++i)
-            cfg.aFlaps[i].fAlphaStall = af.Items[i];
+        // SETPOINT_ALPHASTALL is absent in pre-calibration V1 configs.
+        // When the tag is absent, populate fAlphaStall using the runtime
+        // fallback formula from PercentLift.cpp:43-45 so every consumer
+        // (firmware, host_main, Python) sees a populated value rather than
+        // the zero left by struct initialization.
+        //
+        // When the tag IS present, use the stored value verbatim — including
+        // zero, which someone might explicitly set.  The present/absent
+        // distinction is tracked by checking whether FindTagValue returned an
+        // empty view (tag missing) vs. a non-empty view (tag found).
+        const std::string_view alphaStallTag = FindTagValue(text, "SETPOINT_ALPHASTALL");
+        const bool hasAlphaStall = !alphaStallTag.empty();
+        if (hasAlphaStall) {
+            SuFloatArray af = ParseFloatCSV(alphaStallTag, iFlapsArraySize);
+            for (int i = 0; (i < af.Count) && (i < iFlapsArraySize); ++i)
+                cfg.aFlaps[i].fAlphaStall = af.Items[i];
+        } else {
+            // Tag absent: apply the firmware's fallback formula per flap.
+            for (int i = 0; i < iFlapsArraySize; ++i)
+                cfg.aFlaps[i].fAlphaStall = cfg.aFlaps[i].fSTALLWARNAOA * 100.0f / 90.0f;
+        }
     }
 
     // Per-flap AOA curve: AOA_CURVE_FLAPS0, AOA_CURVE_FLAPS1, ...

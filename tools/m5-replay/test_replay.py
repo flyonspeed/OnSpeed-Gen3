@@ -401,10 +401,13 @@ def test_csv_frame_stream_v3_at_rest_does_not_emit_ias_zero() -> None:
             f"v3 at-rest: NaN IAS must propagate as ias_valid=False, "
             f"got ias_valid={fr.ias_valid}"
         )
-        assert math.isnan(fr.percent_lift_pct), (
-            f"v3 at-rest: expected NaN percent_lift_pct (NaN AOA "
-            f"propagates through compute_percent_lift), got "
-            f"{fr.percent_lift_pct}"
+        # C++ contract: NaN AOA → compute_percent_lift returns 0.0
+        # (ComputePercentLift sees a non-finite fraction and clamps to 0.0f).
+        # Air-data validity is signalled via ias_valid / the 9999 wire
+        # sentinel, not via a NaN percent_lift value.
+        assert fr.percent_lift_pct == 0.0, (
+            f"v3 at-rest: expected percent_lift_pct == 0.0 (C++ NaN-AOA "
+            f"contract), got {fr.percent_lift_pct}"
         )
         # to_bytes() projects `ias_valid=False` to the 9999 wire
         # sentinel in the iasKt %04u field; the M5 parser detects that

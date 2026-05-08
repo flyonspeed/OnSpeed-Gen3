@@ -8,8 +8,7 @@ Provides:
                    handles both the V1 list-style and the new per-flap-block
                    `.cfg` formats.
 - `percent_lift` — `compute_percent_lift()` (single-linear envelope fraction
-                   matching `onspeed_core/aoa/PercentLift.cpp`) and
-                   `ias_from_aoa()` (inverts `K/IAS² + alpha_0` for V2+ configs).
+                   matching `onspeed_core/aoa/PercentLift.cpp`).
 - `log_replay`   — `scenario_from_log()` adapter that reads OnSpeed SD-log
                    CSVs (old or new format) and emits `LiveSnapshot` ticks
                    at a target rate.
@@ -20,7 +19,8 @@ Consumers:
 
 - `tools/m5-replay/replay.py` imports `Frame`, `FRAME_LEN`, `FlapSetpoints`,
   `load_flap_setpoints`, `setpoints_for_flap`, `compute_percent_lift`.
-- `tools/synth-record/` (post-PR 7) imports the same plus `ias_from_aoa`,
+- `tools/synth-record/` (post-PR 7) imports `Frame`, `FRAME_LEN`, `FlapSetpoints`,
+  `load_flap_setpoints`, `setpoints_for_flap`, `compute_percent_lift`,
   `LiveSnapshot`, and `scenario_from_log`.
 
 The wire format here matches the firmware on `master` (76-byte v4.22
