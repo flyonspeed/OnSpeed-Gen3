@@ -10,17 +10,24 @@
 // struct into the sketch globals and then calls
 // g_AudioPlay.UpdateTones(SnapshotActiveFlap()).
 //
-// Behavior is preserved bit-for-bit. No EMA rate correction, no ADC
-// synthesis — those are PRs 2 and 3.
+// Accel smoothing (Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
+// Raw IMU columns (imuLateralG, imuVerticalG, imuForwardG) are fed through
+// RateAdjustedAccelEma instances and the smoothed values are written to
+// accelLatCorr, accelVertCorr, accelFwdSmoothed.  Raw values still appear
+// in imuLateralG/VerticalG/ForwardG for task wrappers that need g_pIMU->*.
+// No ADC synthesis yet — that is Sub-task 3.
 
 #include <replay/LogReplayEngine.h>
 
+#include <filters/RateAdjustedAccelEma.h>
 #include <util/OnSpeedTypes.h>
 
 using onspeed::pressureCoeff;
 using onspeed::fpm2mps;
 using onspeed::AOACalculatorResult;
 using onspeed::config::OnSpeedConfig;
+using onspeed::filters::kAccelEmaTauSec;
+using onspeed::filters::RateAdjustedAccelEma;
 
 namespace onspeed::replay {
 
@@ -30,9 +37,11 @@ LogReplayEngine::LogReplayEngine(const OnSpeedConfig& cfg,
                                  int  logSampleRateHz,
                                  bool flapsRawAdcAvailable)
     : cfg_(cfg)
-    , logSampleRateHz_(logSampleRateHz)
     , flapsRawAdcAvailable_(flapsRawAdcAvailable)
     , aoaCalc_(cfg.iAoaSmoothing)
+    , accelLatEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
+    , accelVertEma_(static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
+    , accelFwdEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
 {
 }
 
@@ -41,6 +50,9 @@ LogReplayEngine::LogReplayEngine(const OnSpeedConfig& cfg,
 void LogReplayEngine::reset()
 {
     aoaCalc_.reset();
+    accelLatEma_.reset();
+    accelVertEma_.reset();
+    accelFwdEma_.reset();
 }
 
 // ============================================================================
@@ -104,10 +116,15 @@ ReplayStepResult LogReplayEngine::step(const onspeed::LogRow& row)
     out.rollDeg       = row.rollDeg;
     out.flightPathDeg = row.flightPathDeg;
 
-    // --- Corrected accel: g_AHRS.AccelLatCorr  = g_pIMU->Ay ---
-    //                      g_AHRS.AccelVertCorr = g_pIMU->Az ---
-    out.accelLatCorr  = row.imuLateralG;
-    out.accelVertCorr = row.imuVerticalG;
+    // --- Rate-adjusted-EMA smoothed accel: wire-shaped output ---
+    // Feeds raw IMU through the rate-adjusted EMA filters, producing the
+    // same continuous-time smoothing as the firmware's 208 Hz AHRS accel
+    // filter (kAccSmoothing=0.060899, tau≈0.076516 s), applied at the log
+    // rate.  Smoothed values go to the wire-facing fields.
+    // Raw values remain in imuLateralG/VerticalG/ForwardG for g_pIMU->* consumers.
+    out.accelLatCorr     = accelLatEma_ .update(row.imuLateralG);
+    out.accelVertCorr    = accelVertEma_.update(row.imuVerticalG);
+    out.accelFwdSmoothed = accelFwdEma_ .update(row.imuForwardG);
 
     // --- AOA calculation ---
     // Mirrors ReadLogLine() lines 269-273. Uses the resolved flap index to
