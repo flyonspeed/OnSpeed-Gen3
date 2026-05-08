@@ -720,11 +720,10 @@ int CmdReplay(int argc, const char* const* argv)
     onspeed::replay::LogReplayEngine engine(cfg, log_sample_rate_hz,
                                             flaps_raw_adc_available);
 
-    if (fmt == OutputFormat::Csv) {
-        std::printf("%s\n", kReplayEngineOutputHeader);
-    }
-
-    size_t row_count = 0;
+    // Read all rows first so that prepare() can run the two-pass synth ADC
+    // algorithm before any output is emitted. (When flapsRawAdcAvailable is
+    // true, prepare() is a no-op and this is just a buffering step.)
+    std::vector<onspeed::LogRow> rows;
     std::string line;
     while (std::getline(*in_stream, line)) {
         // Trim trailing CR so the tokenizer sees clean input on both
@@ -744,10 +743,27 @@ int CmdReplay(int argc, const char* const* argv)
         if (!onspeed::proto::log_csv::ParseRowByIndex(line, hdr_idx, row)) {
             std::fprintf(stderr,
                 "host_main replay: parse error at row %zu: %s\n",
-                row_count, line.c_str());
+                rows.size(), line.c_str());
             return 1;
         }
 
+        rows.push_back(row);
+    }
+
+    if (rows.empty()) {
+        std::fprintf(stderr, "host_main replay: no data rows\n");
+        return 1;
+    }
+
+    // prepare() synthesises the ADC sweep when the column is absent.
+    // When flapsRawAdcAvailable is true this is a no-op.
+    engine.prepare(rows);
+
+    if (fmt == OutputFormat::Csv) {
+        std::printf("%s\n", kReplayEngineOutputHeader);
+    }
+
+    for (const auto& row : rows) {
         const onspeed::replay::ReplayStepResult result = engine.step(row);
 
         if (fmt == OutputFormat::Csv) {
@@ -755,15 +771,9 @@ int CmdReplay(int argc, const char* const* argv)
         } else {
             EmitJsonlRow(result);
         }
-        ++row_count;
     }
 
-    if (row_count == 0) {
-        std::fprintf(stderr, "host_main replay: no data rows\n");
-        return 1;
-    }
-
-    std::fprintf(stderr, "host_main replay: %zu rows processed\n", row_count);
+    std::fprintf(stderr, "host_main replay: %zu rows processed\n", rows.size());
     return 0;
 }
 

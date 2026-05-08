@@ -16,18 +16,24 @@
 // include Arduino.h, FreeRTOS.h, millis(), xSemaphoreTake(), or any other
 // platform header. scripts/check_core_purity.sh enforces this.
 //
-// Behavior note (PR 1 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
-// This engine preserves CURRENT behavior exactly — the same AOA smoothing,
-// the same naive EMA rate (driven at log rate, not up-sampled to 208 Hz),
-// and no synthesized flapsRawADC for old logs. The two ingest bugs are fixed
-// in PRs 2 (rate-correct EMA) and 3 (synth ADC). This PR freezes today's
-// behavior with a characterization test suite so those follow-ups produce
-// clean diffs.
+// Flap-pot ADC synthesis (Sub-task 3 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
+// Old logs (pre-PR-#221) carry only the snapped detent integer (flapsPos),
+// not the raw flap-pot ADC. Without it the L/Dmax pip jumps at every detent
+// transition. When flapsRawAdcAvailable is false, prepare() synthesizes a
+// smoothstep sweep across each detent transition using two passes:
+//   Pass 1: fill every row with the current detent's nominal pot value.
+//   Pass 2: paint smoothstep windows (±kSynthHalfWindowSec centred on each
+//           transition tick) that interpolate from the previous pot value to
+//           the new pot value.
+// Math is a verbatim port of tools/web/lib/replay/logReplay.js::synthLeverSweep.
+// When flapsRawAdcAvailable is true, prepare() is a no-op and step() reads
+// the ADC value from the row directly.
 
 #ifndef ONSPEED_CORE_REPLAY_LOG_REPLAY_ENGINE_H
 #define ONSPEED_CORE_REPLAY_LOG_REPLAY_ENGINE_H
 
 #include <cstdint>
+#include <vector>
 
 #include <aoa/AOACalculator.h>
 #include <config/OnSpeedConfig.h>
@@ -94,18 +100,48 @@ struct ReplayStepResult {
 //
 // Constructor parameters:
 //   cfg                 — active OnSpeedConfig (aFlaps, iAoaSmoothing)
-//   logSampleRateHz     — sample rate of the log (50 or 208 Hz). Stored
-//                         for PRs 2/3; not yet used to correct EMA rate.
+//   logSampleRateHz     — sample rate of the log (50 or 208 Hz).
 //   flapsRawAdcAvailable— true when the log's header carries the
-//                         flapsRawADC column. Stored for PR 3; not yet
-//                         used to synthesize ADC when absent.
+//                         flapsRawADC column. When false, prepare() must
+//                         be called before the first step() to synthesize
+//                         ADC values for all rows.
+//
+// Workflow when flapsRawAdcAvailable is false (old logs):
+//   1. Construct the engine.
+//   2. Call prepare(rows) with the complete row sequence. This runs the
+//      two-pass synth and stores the result internally.
+//   3. Call step(rows[i]) for each i in order. step() reads the synth
+//      value from the pre-computed array using an internal row index.
+//
+// Workflow when flapsRawAdcAvailable is true (new logs):
+//   1. Construct the engine.
+//   2. prepare() is optional (a no-op).
+//   3. Call step(row) for each row. step() reads flapsRawAdc from the row.
 // ============================================================================
+
+// Half-window for the smoothstep sweep in seconds. Matches JS reference
+// (synthLeverSweep sweepWindowSec=4.0 → half = sweepWindowSec/2 = 2.0).
+// At 50 Hz this gives ±100 ticks on each side of the snap tick.
+static constexpr float kSynthHalfWindowSec = 2.0f;
 
 class LogReplayEngine {
 public:
     LogReplayEngine(const onspeed::config::OnSpeedConfig& cfg,
                     int  logSampleRateHz,
                     bool flapsRawAdcAvailable);
+
+    // Prepare the synth ADC table from the complete row sequence.
+    //
+    // When flapsRawAdcAvailable is false, this runs the two-pass synth
+    // (fill steady-state values then paint smoothstep transition windows)
+    // and stores the result. Subsequent step() calls read from this table
+    // using an internal row counter that is reset here.
+    //
+    // When flapsRawAdcAvailable is true, this is a no-op.
+    //
+    // Must be called before the first step() when the log lacks the column.
+    // Call reset() and then prepare() again to replay the same rows twice.
+    void prepare(const std::vector<onspeed::LogRow>& rows);
 
     // Process one CSV row: compute AOA, flap index, and all downstream
     // fields. Pure over engine state (only the AOA smoother has state).
@@ -117,28 +153,39 @@ public:
     // owns its own AOACalculator, reset per OpenReplayLog. See PR #470.)
     ReplayStepResult step(const onspeed::LogRow& row);
 
-    // Reset AOA smoother state. Call between independent replay sessions
-    // (e.g. different log files) to avoid stale EMA from a prior run
-    // contaminating the first rows.
+    // Reset AOA smoother state and synth row counter. Call between
+    // independent replay sessions (e.g. different log files) to avoid
+    // stale EMA from a prior run contaminating the first rows. If the
+    // new session also lacks flapsRawADC, call prepare() again after reset().
     void reset();
 
 private:
     const onspeed::config::OnSpeedConfig& cfg_;
 
-    // Stored for PRs 2 (rate-correct EMA) and 3 (synth ADC); not yet read
-    // by step(). The [[maybe_unused]] attribute silences -Wunused-private-field
-    // until those PRs add the consuming logic.
-    [[maybe_unused]] int  logSampleRateHz_;
-    [[maybe_unused]] bool flapsRawAdcAvailable_;
+    int  logSampleRateHz_;
+    bool flapsRawAdcAvailable_;
 
     // AOA smoothing filter — mirrors g_Sensors.AoaCalc in the live path.
     // State persists across step() calls within one replay session.
     onspeed::AOACalculator aoaCalc_;
 
+    // Pre-computed synthetic ADC values — one entry per row in the sequence
+    // passed to prepare(). Populated by prepare() when flapsRawAdcAvailable
+    // is false; empty when flapsRawAdcAvailable is true.
+    std::vector<uint16_t> synthAdc_;
+
+    // Index into synthAdc_ for the next step() call. Incremented by step().
+    // Reset to 0 by reset() and by prepare().
+    size_t synthAdcIdx_;
+
     // Resolve the aFlaps index for a given flap-position degree value.
     // Returns 0 (first entry) when no exact match is found, matching the
     // behavior of the sketch task wrapper's linear search with no match.
     int ResolveFlapIndex_(int flapPosDeg) const;
+
+    // Nominal pot position for a given flap-position degree value.
+    // Returns the first matching detent's iPotPosition, or 0 when not found.
+    int PotPositionForFlap_(int flapPosDeg) const;
 };
 
 }  // namespace onspeed::replay

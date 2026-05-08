@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include <config/OnSpeedConfig.h>
 #include <replay/LogReplayEngine.h>
@@ -384,6 +385,209 @@ void test_coeff_p_nonzero(void)
 }
 
 // ============================================================================
+// Synth ADC tests (Sub-task 3 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md)
+// ============================================================================
+
+// Build a row sequence of length N, all at the same flap position.
+std::vector<LogRow> makeRowSeq(int N, int flapPosDeg = 0)
+{
+    std::vector<LogRow> rows;
+    rows.reserve(static_cast<size_t>(N));
+    for (int i = 0; i < N; i++)
+    {
+        LogRow r = makeRow(0.5f, 0.1f, flapPosDeg);
+        rows.push_back(r);
+    }
+    return rows;
+}
+
+// --- Steady-state synth: all rows at one detent, no transitions. ---
+//
+// With flapsRawAdcAvailable=false, prepare() fills every row with the
+// detent's nominal pot value (1000 for detent 0 in makeTwoFlapConfig).
+// All step() calls should emit flapsRawAdc == 1000.
+void test_synth_steady_state(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, false);
+
+    const int N = 20;
+    auto rows = makeRowSeq(N, 0);   // all at detent 0 (pot=1000)
+    eng.prepare(rows);
+
+    for (int i = 0; i < N; i++)
+    {
+        ReplayStepResult res = eng.step(rows[static_cast<size_t>(i)]);
+        // Synth path: flapsRawAdcPresent stays false (original log lacked
+        // the column), but flapsRawAdc carries the synthesised value.
+        TEST_ASSERT_FALSE(res.flapsRawAdcPresent);
+        TEST_ASSERT_EQUAL_UINT16(1000, res.flapsRawAdc);
+    }
+}
+
+// --- Single transition: detent 0 → detent 30, mid-window values pinned. ---
+//
+// Config: detent 0 pot=1000, detent 30 pot=3000. Sample rate 50 Hz.
+// half = round(2.0 / (1/50)) = 100 ticks.
+// Snap tick i = 100 (rows 0..99 at detent 0, rows 100..N-1 at detent 30).
+//
+// Pinned values (smoothstep math, verified by hand):
+//   k = 0 (well before window) : at steady-state fill → 1000
+//   k = 100 (snap tick, centre): u=0.5, λ=0.5, val=2000
+//   k = 50 (quarter-window):     u=0.25, λ=0.15625, val≈1312.5
+//   k = 150 (three-quarter):     u=0.75, λ=0.84375, val≈2687.5
+//   k = 200 (post-window end):   steady-state fill → 3000
+void test_synth_single_transition(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    // pot positions: detent 0 → 1000, detent 30 → 3000 (from makeTwoFlapConfig)
+    LogReplayEngine eng(cfg, 50, false);
+
+    // Build: 100 rows at detent 0, 101 rows at detent 30 (snap at index 100).
+    const int snapIdx = 100;
+    const int N = 201;
+    std::vector<LogRow> rows;
+    rows.reserve(static_cast<size_t>(N));
+    for (int i = 0; i < N; i++)
+    {
+        LogRow r = makeRow(0.5f, 0.1f, (i < snapIdx) ? 0 : 30);
+        rows.push_back(r);
+    }
+    eng.prepare(rows);
+
+    // Step through all rows, collect flapsRawAdc.
+    std::vector<uint16_t> adcOut(static_cast<size_t>(N));
+    for (int i = 0; i < N; i++)
+        adcOut[static_cast<size_t>(i)] = eng.step(rows[static_cast<size_t>(i)]).flapsRawAdc;
+
+    // Pre-window steady-state: row 0, far before transition.
+    TEST_ASSERT_EQUAL_UINT16(1000, adcOut[0]);
+
+    // At the snap tick (centre of the window): u=0.5, λ=smoothstep(0.5)=0.5.
+    // val = (1-0.5)*1000 + 0.5*3000 = 2000.
+    TEST_ASSERT_EQUAL_UINT16(2000, adcOut[static_cast<size_t>(snapIdx)]);
+
+    // Quarter of the way through the window (k = snapIdx - half/2 = 50):
+    // signed = (50 - 100) / 100 = -0.5, u = 0.5 + 0.5*(-0.5) = 0.25.
+    // λ = smoothstep(0.25) = 3*0.0625 - 2*0.015625 = 0.15625.
+    // val = (1 - 0.15625)*1000 + 0.15625*3000 = 843.75 + 468.75 = 1312.5 → 1312.
+    TEST_ASSERT_EQUAL_UINT16(1312, adcOut[50]);
+
+    // Three-quarters of the way through (k = snapIdx + half/2 = 150):
+    // signed = (150 - 100) / 100 = 0.5, u = 0.5 + 0.5*0.5 = 0.75.
+    // λ = smoothstep(0.75) = 3*0.5625 - 2*0.421875 = 1.6875 - 0.84375 = 0.84375.
+    // val = (1 - 0.84375)*1000 + 0.84375*3000 = 156.25 + 2531.25 = 2687.5 → 2687.
+    TEST_ASSERT_EQUAL_UINT16(2687, adcOut[150]);
+
+    // Post-window steady-state: last row, well after transition.
+    TEST_ASSERT_EQUAL_UINT16(3000, adcOut[static_cast<size_t>(N - 1)]);
+}
+
+// --- Multiple consecutive transitions: 0 → 30 → 0, windows overlapping. ---
+//
+// Two flap deployments 50 ticks apart. The half-window is 100 ticks, so the
+// two smoothstep windows overlap. Pass 2 processes snap1 first (0→30 at i=50),
+// then snap2 (30→0 at i=100) overwrites the overlapping portion. Final values
+// reflect whichever snap's window wrote last.
+//
+// Pinned values (computed by tracing the algorithm):
+//   snap2 centre (k=100): u=0.5, λ=0.5, prevPot=3000, newPot=1000 → 2000.
+//   snap1 centre (k=50): snap2's window at k=50 is
+//     signed=(50-100)/100=-0.5, u=0.25, λ=0.15625,
+//     val=(1-0.15625)*3000+0.15625*1000 = 2531.25+156.25 = 2687.5 → 2687.
+//   (snap2 overwrites snap1's k=50 value because its window [0..149] covers k=50.)
+void test_synth_multiple_transitions(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, false);
+
+    // 50 rows at detent 0, 50 at detent 30, 50 at detent 0.
+    // snap1 at index 50 (0→30), snap2 at index 100 (30→0).
+    const int N = 150;
+    std::vector<LogRow> rows;
+    rows.reserve(static_cast<size_t>(N));
+    for (int i = 0; i < N; i++)
+    {
+        int deg = (i < 50) ? 0 : (i < 100) ? 30 : 0;
+        rows.push_back(makeRow(0.5f, 0.1f, deg));
+    }
+    eng.prepare(rows);
+
+    std::vector<uint16_t> adcOut(static_cast<size_t>(N));
+    for (int i = 0; i < N; i++)
+        adcOut[static_cast<size_t>(i)] = eng.step(rows[static_cast<size_t>(i)]).flapsRawAdc;
+
+    // snap2 centre (k=100): λ=0.5, val=2000.
+    TEST_ASSERT_EQUAL_UINT16(2000, adcOut[100]);
+
+    // snap1 centre (k=50): overwritten by snap2's window → 2687.
+    TEST_ASSERT_EQUAL_UINT16(2687, adcOut[50]);
+
+    // The two snaps produce monotonic-ish interpolation; no value outside
+    // the range [1000, 3000] should appear.
+    for (int i = 0; i < N; i++)
+    {
+        TEST_ASSERT_TRUE(adcOut[static_cast<size_t>(i)] >= 1000
+                         && adcOut[static_cast<size_t>(i)] <= 3000);
+    }
+}
+
+// --- Edge cases: single row and two-row sequences. ---
+//
+// prepare() on a single row (no transition possible) — must not crash.
+// prepare() on two rows with a transition — must not crash even though
+// the window extends beyond the sequence bounds.
+void test_synth_edge_cases(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+
+    // Single row
+    {
+        LogReplayEngine eng(cfg, 50, false);
+        auto rows = makeRowSeq(1, 0);
+        eng.prepare(rows);
+        ReplayStepResult res = eng.step(rows[0]);
+        TEST_ASSERT_EQUAL_UINT16(1000, res.flapsRawAdc);
+    }
+
+    // Two rows: row 0 at detent 0, row 1 at detent 30. Snap at index 1.
+    // Window extends well outside [0, 1] — clamp must prevent out-of-bounds.
+    {
+        LogReplayEngine eng(cfg, 50, false);
+        std::vector<LogRow> rows;
+        rows.push_back(makeRow(0.5f, 0.1f, 0));
+        rows.push_back(makeRow(0.5f, 0.1f, 30));
+        eng.prepare(rows);
+        // Must not crash; values should be bounded in [1000, 3000].
+        for (size_t i = 0; i < rows.size(); i++)
+        {
+            uint16_t adc = eng.step(rows[i]).flapsRawAdc;
+            TEST_ASSERT_TRUE(adc >= 1000 && adc <= 3000);
+        }
+    }
+}
+
+// --- When flapsRawAdcAvailable=true, prepare() is a no-op and real ADC  ---
+// --- is passed through from the row.                                      ---
+void test_prepare_noop_when_adc_available(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, true);
+
+    LogRow row = makeRow();
+    row.flapsRawAdcPresent = true;
+    row.flapsRawAdc        = 9999;
+
+    // prepare() with real ADC: a no-op, but must not crash.
+    std::vector<LogRow> rows = { row };
+    eng.prepare(rows);
+
+    ReplayStepResult res = eng.step(row);
+    TEST_ASSERT_TRUE(res.flapsRawAdcPresent);
+    TEST_ASSERT_EQUAL_UINT16(9999, res.flapsRawAdc);
+}
+
+// ============================================================================
 // main
 // ============================================================================
 
@@ -403,6 +607,11 @@ int main(int, char**)
     RUN_TEST(test_ias_invalid_propagates);
     RUN_TEST(test_kalman_vsi_conversion);
     RUN_TEST(test_coeff_p_nonzero);
+    RUN_TEST(test_synth_steady_state);
+    RUN_TEST(test_synth_single_transition);
+    RUN_TEST(test_synth_multiple_transitions);
+    RUN_TEST(test_synth_edge_cases);
+    RUN_TEST(test_prepare_noop_when_adc_available);
 
     return UNITY_END();
 }
