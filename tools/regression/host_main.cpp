@@ -5,12 +5,12 @@
 //
 // Subcommands
 // -----------
-//   replay  [--input PATH] [--config PATH] [--output-format csv|jsonl]
+//   replay  [--input PATH] [--output-format csv|jsonl]
 //     Stream sensor CSV through the AHRS + tone pipeline.  `--input -` reads
-//     stdin (default).  --config is a no-op today (pipeline uses compile-time
-//     thresholds); reserved for Step 2 expansion.  Output format csv (default)
-//     is the existing golden-compatible schema; jsonl emits one JSON object
-//     per row on stdout.
+//     stdin (default).  --config is reserved for Step 2 (per-flap threshold
+//     wiring) and is an error if passed now.  Output format csv (default) is
+//     the existing golden-compatible schema; jsonl emits one JSON object per
+//     row on stdout.
 //
 //   percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F
 //     Compute percent-of-stall (0..99.9) for a single AOA sample.
@@ -121,6 +121,13 @@ void JsonStr(const char* key, const std::string& val, bool last = false)
 // ---------------------------------------------------------------------------
 
 // Find the raw JSON value for `key`.  Returns empty string if not found.
+//
+// NOTE: This parser is for FLAT objects with NUMERIC or BOOLEAN values only.
+// `find("\"" + key + "\"")` does a substring search; if a future caller adds
+// string-typed fields to DisplayBuildInputs, the search can match key names
+// that appear INSIDE a string value.  DisplayBuildInputs has no string fields
+// today and must not gain any without revisiting this parser.  See PR #465
+// review (M3) for the full discussion.
 std::string JsonGetValue(const std::string& json, const std::string& key)
 {
     const std::string search = "\"" + key + "\"";
@@ -340,9 +347,20 @@ enum class OutputFormat { Csv, Jsonl };
 int CmdReplay(int argc, const char* const* argv)
 {
     const char* input_path  = ArgGet(argc, argv, "--input",  "-");
-    // --config is accepted but not yet wired to the pipeline
-    // (Step 2 will use it when the config drives per-flap thresholds).
-    // We accept it here so the Python wrapper can pass it without error.
+
+    // --config is reserved for Step 2 (per-flap threshold wiring).
+    // Refuse now rather than silently accept and ignore the value —
+    // a caller that passes --config and gets wrong output is harder
+    // to debug than an explicit error.
+    const char* config_path = ArgGet(argc, argv, "--config");
+    if (config_path != nullptr) {
+        std::fprintf(stderr,
+            "host_main replay: --config is reserved for Step 2 "
+            "(per PLAN_PYTHON_CONSOLIDATION.md). Not yet wired to "
+            "per-flap thresholds. Refusing to silently ignore.\n");
+        return 1;
+    }
+
     const char* fmt_str = ArgGet(argc, argv, "--output-format", "csv");
 
     OutputFormat fmt = OutputFormat::Csv;
@@ -691,8 +709,9 @@ int CmdHelp()
     std::printf(
         "Usage: host_main <subcommand> [flags]\n\n"
         "Subcommands:\n"
-        "  replay  --input PATH|'-' [--config PATH] [--output-format csv|jsonl]\n"
-        "    Stream sensor CSV through AHRS + tone pipeline.\n\n"
+        "  replay  --input PATH|'-' [--output-format csv|jsonl]\n"
+        "    Stream sensor CSV through AHRS + tone pipeline.\n"
+        "    (--config is reserved for Step 2; passing it now is an error.)\n\n"
         "  percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F\n"
         "    Compute percent-of-stall for a single AOA reading.\n\n"
         "  parse_config --in PATH\n"

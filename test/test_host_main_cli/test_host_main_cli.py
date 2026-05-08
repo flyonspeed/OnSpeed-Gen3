@@ -417,5 +417,44 @@ def test_replay_unknown_format_exits_nonzero():
     assert r.returncode != 0
 
 
+def test_replay_rejects_config_flag(tmp_path):
+    """--config is reserved for Step 2; must error rather than silently ignore."""
+    if not SHORT_REPLAY.exists():
+        pytest.skip(f"short_replay.csv not found: {SHORT_REPLAY}")
+    cfg = tmp_path / "x.cfg"
+    cfg.write_text("<CONFIG2></CONFIG2>")
+    r = run([
+        "replay",
+        "--input", str(SHORT_REPLAY),
+        "--config", str(cfg),
+    ])
+    assert r.returncode != 0, (
+        "replay --config should exit non-zero (reserved for Step 2)"
+    )
+    assert "Step 2" in r.stderr or "reserved" in r.stderr.lower(), (
+        f"expected 'Step 2' or 'reserved' in stderr, got: {r.stderr!r}"
+    )
+
+
+def test_build_frame_json_parser_flat_numeric_only():
+    """Pin the contract: JsonGetValue uses substring search, so the JSON input
+    for build_frame must not contain string-typed fields.  This test verifies
+    a minimal flat numeric object is parsed correctly; if a future PR adds
+    string fields to DisplayBuildInputs the parser must be revisited first.
+    See PR #465 review (M3)."""
+    # Happy path with the full set of numeric fields that build_frame accepts.
+    r = run([
+        "build_frame",
+        "--record",
+        '{"pitchDeg": 2.5, "rollDeg": -1.0, "iasKt": 90.0, "iasValid": true, '
+        '"paltFt": 3000.0, "percentLiftPct": 45.0}',
+    ])
+    assert r.returncode == 0
+    hex_out = r.stdout.strip()
+    assert len(hex_out) == 77 * 2, (
+        f"expected {77 * 2} hex chars, got {len(hex_out)}: {hex_out!r}"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
