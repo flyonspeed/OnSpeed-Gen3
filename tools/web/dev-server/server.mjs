@@ -138,6 +138,7 @@ const PAGES = [
   { id: 'upgrade',      path: '/upgrade',      title: 'Firmware Upgrade' },
   { id: 'logs',         path: '/logs',         title: 'Logs' },
   { id: 'sensorconfig', path: '/sensorconfig', title: 'Sensor Calibration' },
+  { id: 'replay',       path: '/replay',       title: 'Video Replay' },
 ];
 
 // Routes that 30x to a page rather than rendering one.  `/live` is

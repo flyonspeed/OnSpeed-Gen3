@@ -353,3 +353,219 @@ ul#liveview-nav-ul li.dropdown { display: inline-block; }
   color: var(--yellow, #fffd40);
   border-top: 1px solid var(--dark-grey, #6b6d54);
 }
+
+/* ---------- ReplayPage ---------------------------------------------------
+   Dev-server-only video overlay tool. Pilot loads a flight video and the
+   matching SD-log CSV; the page time-syncs them via a single takeoff
+   anchor and overlays the existing indexer SVG over the video frames.
+   Layout: toolbar at top, large video stage, controls strip + log
+   timeline at bottom.
+*/
+.replay-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.replay-toolbar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #1a2026;
+  border-radius: 6px;
+  color: #eee;
+}
+.replay-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.replay-file > span {
+  font-weight: 600;
+  color: #a8b3bd;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+.replay-file input[type="file"] {
+  font-size: 12px;
+  color: #e0e6eb;
+}
+.replay-error {
+  margin-left: auto;
+  color: #ff6680;
+  font-size: 13px;
+}
+.replay-stage {
+  /* Sized to the video. The stage is the bounding box for both the
+     <video> and the absolutely-positioned overlay; if it's taller
+     than the video element, the overlay pokes into the letterbox
+     bands. Letting the stage shrink-wrap to the <video>'s intrinsic
+     height keeps overlay-bottom == video-bottom regardless of the
+     source aspect ratio. */
+  position: relative;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  /* `display: flex; flex-direction: column` lets the stage track the
+     video's auto-height. Without it the absolute overlay forces the
+     stage to a height of 0 and the video appears outside the box. */
+  display: flex;
+  flex-direction: column;
+}
+.replay-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #000;
+}
+.replay-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 360px;
+  color: #6b7780;
+  font-style: italic;
+}
+.replay-overlay {
+  /* The overlay div doesn't lay out anything visible — the SVG it
+     contains is absolutely positioned within the stage. Keeping
+     this wrapper as a position:absolute / 0-size element avoids
+     the flex container interaction that was forcing the SVG to
+     stretch to the stage height. */
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.replay-overlay-frame {
+  /* Bottom-right anchor inside the video, lifted above the native
+     <video> controls bar so the overlay never sits under the
+     scrubber. We wrap the mode SVG in a div whose size we fully
+     control via CSS, then let the SVG fill the wrapper. SVGs
+     ignore `aspect-ratio` in many browsers because their intrinsic
+     size comes from `viewBox`; divs honor it reliably. */
+  position: absolute;
+  right: 12px;
+  bottom: 56px;       /* clears the video controls (≈ 40-48 px tall) */
+  width: 22%;
+  max-width: 280px;
+  aspect-ratio: 4 / 3;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
+}
+.replay-overlay-frame.paused {
+  /* Yellow border and a half-opaque "paused" badge tell the pilot
+     the overlay is frozen for re-sync.  See pauseIndexer/attachHere
+     in ReplayPage. */
+  outline: 3px solid #ffcc00;
+  outline-offset: 2px;
+}
+.replay-status-attention {
+  color: #ffcc00 !important;
+  font-weight: 600;
+}
+.replay-overlay-frame > svg {
+  /* Fill the wrapper. The SVG's preserveAspectRatio defaults to
+     "xMidYMid meet" so the 320x240 content scales to fit and
+     centers inside whatever box we hand it. */
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.replay-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: #1a2026;
+  border-radius: 6px;
+  color: #eee;
+}
+.replay-control-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.replay-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #a8b3bd;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+.replay-mode-btn,
+.replay-btn,
+.replay-btn-primary,
+.replay-btn-ghost {
+  border: 1px solid #2d3942;
+  background: #232c33;
+  color: #e0e6eb;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.replay-mode-btn:hover,
+.replay-btn:hover,
+.replay-btn-ghost:hover {
+  background: #2d3942;
+}
+.replay-mode-btn.active {
+  background: #0a84ff;
+  border-color: #0a84ff;
+  color: white;
+}
+.replay-btn-primary {
+  background: #0a84ff;
+  border-color: #0a84ff;
+  color: white;
+}
+.replay-btn-primary:hover { background: #006edc; }
+.replay-btn-primary:disabled,
+.replay-btn:disabled,
+.replay-btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.replay-btn-ghost {
+  background: transparent;
+  color: #a8b3bd;
+}
+.replay-spacer {
+  flex: 1 1 auto;
+}
+.replay-toggle {
+  font-size: 13px;
+  color: #a8b3bd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.replay-status {
+  font-size: 12px;
+  color: #a8b3bd;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.replay-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.replay-timeline.empty {
+  height: 88px;
+  background: #0e1418;
+  border-radius: 4px;
+}
+.replay-timeline-hint {
+  font-size: 11px;
+  color: #6b7780;
+  text-align: center;
+}
