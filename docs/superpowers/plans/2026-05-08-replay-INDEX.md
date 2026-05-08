@@ -10,9 +10,10 @@ If you're a fresh agent (or fresh-session Sam) picking up this work,
 |---|---|---|
 | 1 | `2026-05-08-video-overlay-AGENT-CONTEXT.md` | Orientation. Gotchas, anti-patterns, build commands, the unified architecture diagram. **Read in full before touching code.** |
 | 2 | `2026-05-08-python-consolidation.md` | Project A: migrate Python algorithm code to `host_main` subprocess wrappers. **Step 0 (host_main multi-subcommand CLI) is a prerequisite for the WASM project.** ~5-7 days, 7 small PRs. |
-| 3 | `2026-05-08-wasm-core.md` | Project B: compile `onspeed_core` to WebAssembly. Replay tool's JS UI loads the WASM module and calls into it for every algorithm — **zero hand-ports**. ~5-7 days, 5 small PRs. Lands after Python consolidation Step 0; then runs in parallel with Python Steps 1-7. |
-| 4 | `2026-05-08-video-overlay-replay.md` | Project C: the Replay tool roadmap. Layered architecture (Layer 0 engine → Layer 5 export). Lands AFTER projects A+B. |
-| 5 | `2026-05-08-cross-impl-drift-prevention.md` | What's left of drift-prevention after WASM lands: a tiny "WASM-vs-native parity check" CI step. Most of this doc is historical — explaining why we no longer need a streaming-goldens CI gate. |
+| 3 | `2026-05-08-firmware-log-replay-parity.md` | Project B-prereq: fix firmware LogReplay so SD-log replay produces flight-equivalent wire output. Two firmware-side fixes (rate-correct EMA at ingest, synth ADC when missing). ~2 days, 1-2 small PRs. **Must land before WASM Step 2.** |
+| 4 | `2026-05-08-wasm-core.md` | Project B: compile `onspeed_core` to WebAssembly. Replay tool's JS UI loads the WASM module and calls into it for every algorithm — **zero hand-ports**. ~5-7 days, 5 small PRs. Lands after Python consolidation Step 0; then runs in parallel with Python Steps 1-7. |
+| 5 | `2026-05-08-video-overlay-replay.md` | Project C: the Replay tool roadmap. Layered architecture (Layer 0 engine → Layer 5 export). Lands AFTER projects A+B. |
+| 6 | `2026-05-08-cross-impl-drift-prevention.md` | What's left of drift-prevention after WASM lands: a tiny "WASM-vs-native parity check" CI step. Most of this doc is historical — explaining why we no longer need a streaming-goldens CI gate. |
 
 ## The one-sentence story (post-foundation)
 
@@ -30,56 +31,44 @@ after Projects A + B land.
 ## The unified architecture
 
 ```
-                          ┌──────────────────────────────┐
-                          │   software/Libraries/        │
-                          │   onspeed_core/              │  ← THE SPEC
-                          │   (platform-free C++)        │
-                          └──────────────┬───────────────┘
-                                         │
-                  ┌──────────────────────┼──────────────────────┐
-                  │                      │                      │
-                  ▼                      ▼                      ▼
-          ┌──────────────┐      ┌─────────────────┐    ┌────────────────┐
-          │  Firmware    │      │  X-Plane plugin │    │   M5 simulator │
-          │  (V4P/V4B)   │      │  (Mac/Win/Linux)│    │  (WASM browser)│
-          │              │      │                 │    │                │
-          │ ESP32-S3,    │      │ Loads onspeed_  │    │ Emscripten-    │
-          │ FreeRTOS,    │      │ core directly,  │    │ compiled       │
-          │ real sensors │      │ feeds X-Plane   │    │ onspeed_core,  │
-          │              │      │ datarefs in     │    │ same renderer  │
-          └──────┬───────┘      └─────────────────┘    └────────────────┘
-                 │
-                 │ wire format (display-serial / WebSocket JSON)
-                 ▼
-          ┌──────────────┐
-          │ M5 hardware  │ ← multiple variants (Basic / Core2 /
-          │              │   huVVer-AVI). Same firmware, different boxes.
-          └──────────────┘
-
-          ┌─────────────────────┐
-          │  Replay tool (JS)   │ ← THE ONLY HAND-PORT
-          │                     │
-          │  Hand-port of       │  Browser tool, can't shell out.
-          │  onspeed_core algos │  Gated by streaming goldens vs C++.
-          │  in JavaScript      │
-          └──────────┬──────────┘
-                     │
-                     │ CI gate (diff against host_main output)
-                     ▼
-          ┌──────────────────┐
-          │  host_main CLI   │  Multi-subcommand binary that exposes
-          │  (subprocess)    │  every onspeed_core algorithm. Used by
-          │                  │  Python wrappers + JS regression tests.
-          └──────────────────┘
-                     ▲
-                     │ subprocess shells
-                     │
-          ┌──────────┴──────────┐
-          │  Python tools       │  Post-`PLAN_PYTHON_CONSOLIDATION.md`:
-          │  (synth-record,     │  thin wrappers, no algorithm code.
-          │   m5-replay, etc.)  │
-          └─────────────────────┘
+                              ┌──────────────────────────────┐
+                              │   software/Libraries/        │
+                              │   onspeed_core/              │  ← THE SPEC
+                              │   (platform-free C++)        │
+                              └──────────────┬───────────────┘
+                                             │
+        ┌────────────────┬───────────────────┼─────────────────────┬──────────────────┐
+        │                │                   │                     │                  │
+        ▼                ▼                   ▼                     ▼                  ▼
+  ┌──────────┐   ┌─────────────┐   ┌──────────────────┐   ┌──────────────┐   ┌────────────────┐
+  │ Firmware │   │ X-Plane     │   │ M5 simulator     │   │ host_main    │   │ onspeed_core   │
+  │ (V4P/V4B)│   │ plugin      │   │ (full-featured   │   │ CLI binary   │   │ .wasm          │
+  │          │   │ (Mac/Win/   │   │ WASM, browser)   │   │ (native)     │   │ (algorithm-only│
+  │ ESP32-S3 │   │  Linux)     │   │                  │   │              │   │  WASM, browser)│
+  │ native   │   │ native      │   │ Emscripten +     │   │ Python tools │   │                │
+  │ C++,     │   │ C++         │   │ M5GFX rendering  │   │ shell out    │   │                │
+  │ real     │   │             │   │                  │   │ to this      │   │                │
+  │ sensors  │   │             │   │                  │   │              │   │                │
+  └────┬─────┘   └─────────────┘   └──────────────────┘   └──────┬───────┘   └────────┬───────┘
+       │                                                          │                    │
+       │ wire format                                              │ subprocess         │ JS calls
+       │ (display-serial / WebSocket JSON)                        ▼                    ▼
+       ▼                                                  ┌──────────────┐    ┌────────────────┐
+  ┌──────────────┐                                        │ Python tools │    │  Replay tool   │
+  │ M5 hardware  │  multiple variants (Basic / Core2 /    │ (synth-      │    │  (browser)     │
+  │              │  huVVer-AVI). Same firmware, different │  record,     │    │                │
+  └──────────────┘  boxes.                                │  m5-replay,  │    │  Preact UI +   │
+                                                          │  etc.)       │    │  WASM-bound    │
+                                                          │ I/O glue     │    │  algorithms    │
+                                                          │ only         │    └────────────────┘
+                                                          └──────────────┘
 ```
+
+**No hand-ports anywhere.** Every consumer either compiles
+`onspeed_core` directly (firmware, X-Plane plugin, M5 simulator,
+host_main), shells out to a binary that does (Python tools), or
+loads a WASM build of it (Replay tool). Drift is impossible by
+construction.
 
 ## What's NOT in any of these plans (out of scope here)
 
@@ -99,13 +88,21 @@ after Projects A + B land.
         ┌───────┴────────┐
         │                │   (parallel after A.0 lands)
         ▼                ▼
-  ┌──────────────┐ ┌──────────────────┐
-  │ Project A:   │ │ Project B:       │
-  │ Python       │ │ WASM compile of  │
-  │ consolidation│ │ onspeed_core     │
-  │ (Steps 1-7)  │ │ (PLAN_WASM_CORE) │
-  │ ~4-6 days    │ │ ~5-7 days        │
-  └──────┬───────┘ └─────────┬────────┘
+  ┌──────────────┐ ┌──────────────────────────────┐
+  │ Project A:   │ │ Project B-prereq:            │
+  │ Python       │ │ Firmware LogReplay parity    │
+  │ consolidation│ │ (PLAN_FIRMWARE_LOG_REPLAY_   │
+  │ (Steps 1-7)  │ │  PARITY) ~2 days             │
+  │ ~4-6 days    │ └─────────┬────────────────────┘
+  │              │           │
+  │              │           ▼
+  │              │ ┌──────────────────────────────┐
+  │              │ │ Project B:                   │
+  │              │ │ WASM compile of onspeed_core │
+  │              │ │ (PLAN_WASM_CORE)             │
+  │              │ │ ~5-7 days                    │
+  │              │ └─────────┬────────────────────┘
+  └──────┬───────┘           │
          │                   │
          └────────┬──────────┘
                   │
@@ -125,6 +122,17 @@ after Projects A + B land.
 exposes the C++ API surface. A.1-7 wrap that surface from Python.
 B exposes the same surface to JS via WASM. Both share host_main
 as the binding target.
+
+**Why firmware LogReplay parity precedes WASM Step 2**: today the
+JS Replay tool patches over two firmware-side gaps (rate-coupling
+of the IMU EMA when log rate ≠ 208 Hz, and synthesizing a flap-pot
+ADC sweep when the log lacks the column). Both belong in firmware
+LogReplay. Once they land there, WASM Step 2's "delete the JS
+variable-dt EMA + synth sweep" is a clean delete; the WASM build
+inherits correct behavior. If we skipped the firmware fix, we'd be
+moving the JS hack into a WASM-bound replay-mode wrapper that
+diverges from what firmware LogReplay does on the same SD card —
+the opposite of "drift impossible by construction".
 
 **Why neither blocks Project C strictly**: Replay layer work
 (file-handle persistence, HUD widgets, drag-clip, export) doesn't

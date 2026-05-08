@@ -15,12 +15,12 @@ tools today; we can break interfaces freely during this consolidation.
 
 Algorithm code lives **once**: in `software/Libraries/onspeed_core/`.
 Every consumer — the firmware, the M5 WASM simulator, the X-Plane
-plugin, Python tools, the streaming-goldens CI harness — invokes
+plugin, Python tools, the snapshot-regression harness — invokes
 that code rather than carrying its own copy.
 
-The JS replay tool is the **single sanctioned hand-port** because
-browsers can't shell out to a binary. CI gates JS against the
-C++-generated streaming goldens.
+The JS Replay tool **also invokes that code**, via a WebAssembly
+build of `onspeed_core` (see `PLAN_WASM_CORE.md`). No hand-ports
+anywhere — drift is impossible by construction.
 
 ## Inventory — what's algorithm code vs I/O glue
 
@@ -42,18 +42,17 @@ C++-generated streaming goldens.
                 │  C++ onspeed_core (spec)   │
                 └────────────┬───────────────┘
                              │
-                ┌────────────┴────────────┐
-                │                         │
-                ▼                         ▼
-        ┌────────────┐          ┌──────────────────┐
-        │ host_main  │          │ Emscripten WASM  │ ← M5 simulator,
-        │  CLI       │          │ (browser)        │   X-Plane plugin
-        └─────┬──────┘          └──────────────────┘
-              │
+              ┌──────────────┼──────────────────┐
+              │              │                  │
+              ▼              ▼                  ▼
+        ┌──────────┐   ┌──────────────┐   ┌──────────────────┐
+        │host_main │   │ Emscripten   │   │ Emscripten WASM  │
+        │ CLI      │   │ WASM (full)  │   │ (algorithm-only) │
+        └─────┬────┘   │ M5 simulator │   │ Replay tool      │
+              │        └──────────────┘   │ (PLAN_WASM_CORE) │
+              │                           └──────────────────┘
               ├─► subprocess (Python wrappers — synth-record, m5-replay)
-              ├─► subprocess (CI regression harness)
-              ├─► subprocess (streaming-goldens generator)
-              └─► JS replay tool gates on its outputs (CI)
+              └─► subprocess (snapshot regression harness)
 ```
 
 ## Sequenced migration
@@ -173,20 +172,23 @@ algorithm code we just deleted. Decisions per file:
   percent-lift would be at this fake AOA," that's algorithm code.
   Either route through host_main or remove.
 
-### Step 6 — Streaming-goldens CI gate (1 day)
+### Step 6 — WASM-vs-native parity check (half-day)
 
 With Python now subprocess-based, drift between Python and C++ is
-literally impossible. The remaining drift surface:
-- JS replay vs C++ (the only hand-port left)
+literally impossible. With `PLAN_WASM_CORE.md` landed, drift between
+JS and C++ is also literally impossible (the Replay tool loads a
+WASM build of the same C++).
 
-Becomes the simplified version of `PLAN_DRIFT_PREVENTION.md`:
+The only place where drift could still creep in is the WASM compile
+step itself — different emcc versions, optimizer differences across
+CI runners, etc. The mitigation is a tiny CI step that runs the
+existing snapshot regression against BOTH the native host_main
+binary AND the WASM build, and asserts they produce the same
+output.
 
-1. CI: build host_main, run against committed input CSVs, compare
-   against committed golden CSVs (existing `run_snapshot.py` pattern,
-   extended to multiple input files).
-2. CI: run JS over the same inputs, diff against the goldens.
-
-Two CI jobs, same inputs, same tolerance model. Drift fails the PR.
+See `PLAN_DRIFT_PREVENTION.md` for the full design and dispatch
+prompt. It's `tools/regression/run_snapshot_wasm.py` plus one CI
+job. ~half-day.
 
 ### Step 7 — Documentation + removal of the deprecated paths
 
@@ -215,9 +217,10 @@ top of cleaner foundation.
    has one answer: read `onspeed_core/X.cpp`. The four other
    implementations either compile that source (M5 simulator) or call
    it (host_main, Python wrappers, regression harness).
-4. **JS becomes the only hand-port,** which is the right place to
-   spend test budget. The streaming-goldens CI gate is much more
-   valuable when only one consumer is gating.
+4. **There's no hand-port left to drift against.** Python wraps
+   host_main; the Replay tool loads the WASM build of onspeed_core
+   (`PLAN_WASM_CORE.md`); both are the same compiled C++. The only
+   CI gate we need is a tiny "WASM matches native" parity check.
 
 ## Dispatch prompts
 
@@ -378,35 +381,11 @@ COMMIT: "onspeed_py/tests: drop tests of behavior owned by C++".
 
 ### Step 6 prompt
 
-```
-Implement PLAN_PYTHON_CONSOLIDATION.md Step 6: streaming-goldens CI
-gate.
-
-This is the same as PLAN_DRIFT_PREVENTION.md (now becomes the JS-only
-gate, since Python is automatically correct via host_main wrapping).
-
-WORKTREE: a fresh worktree off origin/master with Steps 0-5 merged
-PLAN: docs/superpowers/plans/2026-05-08-cross-impl-drift-prevention.md
-      (read this for the full design)
-
-WHAT TO BUILD:
-  1. test/spec_fixtures/inputs/ — committed 208 Hz raw input CSVs
-     covering: rotation+climb, pattern lap, decel-to-stall, calm
-     cruise, full-flap landing.
-  2. test/spec_fixtures/goldens/ — generated by host_main from each
-     input, committed.
-  3. tools/regression/regenerate_golden.sh — one-line operation
-     that rebuilds host_main, runs against every input, overwrites
-     goldens.
-  4. CI: TWO jobs — C++ regression (snapshot) + JS regression
-     (compares JS replay against committed goldens).
-  5. Update .github/workflows/ci.yml to plumb both jobs.
-
-VERIFY: green CI. Modify a value in onspeed_core, run regen, confirm
-JS regression fails until JS is updated.
-
-COMMIT: "regression: streaming-goldens CI gate".
-```
+Step 6 ships as the dispatch in `PLAN_DRIFT_PREVENTION.md` — the
+WASM-vs-native parity check. See that doc's "Dispatch prompt —
+WASM-vs-native parity check" section. It's ~half-day work and
+depends on `PLAN_WASM_CORE.md` Step 0+1 having landed (so a WASM
+build exists to diff against native).
 
 ### Step 7 prompt
 
@@ -435,9 +414,13 @@ COMMIT: "onspeed_py: cleanup + docs (consolidation complete)".
 - **Removing `tools/regression/run_snapshot.py`**: it's already the
   good pattern. It stays.
 - **Removing the C++ host_main snapshot golden test**: it stays as
-  the bedrock of the streaming-goldens system.
+  the bedrock of behavior regression — and post-`PLAN_WASM_CORE.md`,
+  the same harness runs against the WASM build for the parity check.
 - **Migrating the JS replay**: JS can't shell out to a binary in
-  the browser. JS stays as the sanctioned hand-port; CI gates it
-  via streaming goldens.
+  the browser. The Replay tool's path off the JS hand-port is
+  through WebAssembly — see `PLAN_WASM_CORE.md`. That work is
+  sequenced after Step 0 (so host_main exposes the C++ API surface
+  that both the WASM bindings and Python wrappers target) but
+  otherwise independent of this plan.
 - **Touching `software/OnSpeed-XPlane-Plugin/`**: it already calls
   `onspeed_core` C++ directly. It's the model we want to replicate.
