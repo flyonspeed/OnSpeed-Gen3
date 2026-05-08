@@ -492,8 +492,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         snprintf(szAoa, sizeof(szAoa), "%.2f", fWifiAOA);
     else
         std::strcpy(szAoa, "null");
-    if (bIasValidForOutput && IsFiniteFloat(g_AHRS.DerivedAOA))
-        snprintf(szDerivedAoa, sizeof(szDerivedAoa), "%.2f", g_AHRS.DerivedAOA);
+    // Single read so the IsFiniteFloat check and the snprintf format the same value (TOCTOU-free).
+    const float fDerivedAoaSnap = g_AHRS.DerivedAOA;
+    if (bIasValidForOutput && IsFiniteFloat(fDerivedAoaSnap))
+        snprintf(szDerivedAoa, sizeof(szDerivedAoa), "%.2f", fDerivedAoaSnap);
     else
         std::strcpy(szDerivedAoa, "null");
     if (bIasValidForOutput)

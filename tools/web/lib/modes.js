@@ -15,13 +15,14 @@ import {
 // Format a numeric corner readout. PAlt and G are independent of AOA
 // validity and render unconditionally once data is on the wire — they
 // are sourced from the static-pressure sensor and the IMU, not the
-// pitot pressure that gates air-data validity.  IAS now ships as JSON
+// pitot pressure that gates air-data validity.  IAS ships as JSON
 // `null` when the producer's `bIasAlive` flag is false (issue #358);
 // `fmt` collapses null/undefined/NaN to '—', so the IAS corner dashes
 // on a powered-but-not-flying bench, then transitions to live values
-// once the pitot blows past 20 kt.  AOA still rides its `-100`
-// numeric sentinel for backwards compatibility — the wsClient gates
-// AOA-driven elements on `aoaIsValid` rather than dashing here.
+// once the pitot blows past 20 kt.  AOA emits JSON null when
+// bIasAlive is false (matches IAS / percentLift since #431 / #455);
+// the wsClient's typeof === 'number' guard rejects null and sets
+// aoaIsValid=false, so AOA-driven SVG elements hide regardless.
 //
 // Delegates to `fmt`/`fmtSigned` from core/format.js so values that
 // round to -0.0 render as 0.0 (or +0.0 in signed contexts).

@@ -127,7 +127,7 @@ The per-field tables below note source variations where they apply.
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
-| `IAS` | float | knots | Indicated airspeed. From the EFIS (`g_EfisSerial.suEfis.IAS`) **only** in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived `g_Sensors.IAS` — VN-300 itself does not provide IAS. |
+| `IAS` | float \| null | knots | Indicated airspeed. From the EFIS (`g_EfisSerial.suEfis.IAS`) **only** in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived `g_Sensors.IAS` — VN-300 itself does not provide IAS. Emits JSON `null` when `bIasAlive` is false (air data invalid). Consumers should check `typeof === 'number'` before using. |
 | `PAlt` | float | feet | Pressure altitude. From `g_AHRS.KalmanAlt` (Kalman-filtered, in metres) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode. |
 | `kalmanVSI` | float | feet/min | Vertical speed. **Despite the name**, this is `g_AHRS.KalmanVSI` in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's `-VelNedDown` (NED-down velocity, sign-inverted to make positive = climb). The non-VN-300 EFIS mode does not use the EFIS's own VSI here. |
 | `OAT` | float | °C | Outside air temperature. From the EFIS in any EFIS mode (including VN-300) via `g_EfisSerial.suEfis.OAT`; from `g_Sensors.OatC` if `OATSENSOR = true` in config; otherwise `0.0`. |
@@ -144,9 +144,9 @@ The per-field tables below note source variations where they apply.
 
 | Field | Type | Units | Notes |
 | --- | --- | --- | --- |
-| `AOA` | float | degrees | **Body angle**, not wing AOA. The fuselage-to-wind angle. See [How OnSpeed Measures AOA](../calibration/how-aoa-works.md) for the convention. Sentinel value `-100` is emitted when AOA is `NaN` or IAS is below the audio mute threshold (`MUTE_UNDER_IAS` in config); the LiveView gates on `AOA > -20` to render N/A in that state. |
-| `DerivedAOA` | float | degrees | Body angle derived from the AHRS (pitch and flight path), `g_AHRS.DerivedAOA`. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning. |
-| `percentLift` | float | 0.0–99.9 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift::ComputePercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0.0, 99.9]`. Emitted with one decimal of precision (e.g. `34.7`) so the LiveView indexer bar can advance at sub-pixel temporal smoothness off the 20 Hz cadence — same fidelity the M5 wire carries via its `%03u` tenths-of-a-percent field. Consumers expecting an integer can `Math.round` / `int()` at the readout site. Uses the **active-detent** flap calibration (matches what the audio path uses). |
+| `AOA` | float \| null | degrees | **Body angle**, not wing AOA. The fuselage-to-wind angle. See [How OnSpeed Measures AOA](../calibration/how-aoa-works.md) for the convention. Emits JSON `null` when `bIasAlive` is false (air data invalid). Consumers should check `typeof === 'number'` before using. |
+| `DerivedAOA` | float \| null | degrees | Body angle derived from the AHRS (pitch and flight path), `g_AHRS.DerivedAOA`. Useful for comparing pitot-derived AOA against attitude-derived AOA during tuning. Emits JSON `null` when `bIasAlive` is false (air data invalid). Consumers should check `typeof === 'number'` before using. |
+| `percentLift` | float \| null | 0.0–99.9 | Honest single-linear envelope fraction of the current body angle, computed by `onspeed_core/aoa/PercentLift::ComputePercentLift`: `(AOA − α₀) / (α_stall − α₀) × 100`, clamped to `[0.0, 99.9]`. Emitted with one decimal of precision (e.g. `34.7`) so the LiveView indexer bar can advance at sub-pixel temporal smoothness off the 20 Hz cadence — same fidelity the M5 wire carries via its `%03u` tenths-of-a-percent field. Consumers expecting an integer can `Math.round` / `int()` at the readout site. Uses the **active-detent** flap calibration (matches what the audio path uses). Emits JSON `null` when `bIasAlive` is false (air data invalid). Consumers should check `typeof === 'number'` before using. |
 | `coeffP` | float | dimensionless | Ratiometric pressure coefficient (the "CP3" form in the firmware): `P45 / Pfwd`, where `Pfwd` is the differential pitot pressure and `P45` is the differential AOA pressure from the angled-port probe. Returns `0.0` when `Pfwd ≤ 0` to avoid division-by-zero on the ground. The textbook-form Cp `(P_aoa − P_static) / q` is **not** what's emitted here — the firmware uses the ratiometric form because it stays well-behaved through the AOA-port pressure zero-crossing on Dynon-style probes. Implementation: `onspeed_core/util/OnSpeedTypes.h::pressureCoeff()`. |
 
 ### Indexer percent-lift anchors
@@ -181,12 +181,10 @@ Five fields driving the LiveView indexer's band edges and L/Dmax pip. The first 
 
 The producer never emits `nan`, `inf`, or other invalid JSON tokens. Every float passes through `SafeJsonFloat()` which substitutes a documented fallback when the source value is non-finite:
 
-| Field | Fallback when source is `NaN`/`Inf` | Why |
+| Field | Fallback when source is invalid | Why |
 | --- | --- | --- |
-| `AOA` | `-100` | LiveView gates on `AOA > -20` to render `N/A`; sentinel below that range keeps the bar hidden until real data arrives. |
-| `Pitch`, `Roll`, `IAS`, `kalmanVSI`, `flightPath`, `verticalGLoad`, `OAT` | `0.0` | Nothing-special fallback; consumers that care about validity should use the indirect signals (e.g. `IAS == 0` plus elapsed time without changes). |
-| `DerivedAOA`, `coeffP`, `PitchRate`, `DecelRate` | `0.0` | Same. |
-| `lateralGLoad`, `PAlt` | `0.0` | Same. |
+| `AOA`, `DerivedAOA`, `IAS`, `percentLift` | JSON `null` when `bIasAlive=false` | Air-data fields the producer can't honestly emit when the pitot-side validity flag (`bIasAlive`, hysteresis 20 kt rising / 15 kt falling) is false. Consumers `typeof === 'number'` before reading; null falls through to N/A renderings. |
+| `Pitch`, `Roll`, `kalmanVSI`, `flightPath`, `verticalGLoad`, `OAT`, `coeffP`, `PitchRate`, `DecelRate`, `lateralGLoad`, `PAlt` | `0.0f` fallback on NaN (still numeric) | 0 is a physically meaningful reading for these fields (level pitch, no roll, no climb, etc.), so the fallback won't be confused with real data the way a numeric AOA fallback would be. |
 
 There is no top-level "validity" flag; the protocol is best-effort 20 Hz. Consumers should detect staleness by tracking the elapsed time since the last frame.
 
@@ -203,8 +201,8 @@ ws.onmessage = (evt) => {
   const data = JSON.parse(evt.data);
   // Skip the {} truncation marker.
   if (data.AOA === undefined) return;
-  // -100 is the "AOA unavailable" sentinel — gate on > -20.
-  const aoa = (data.AOA > -20) ? data.AOA.toFixed(1) + "°" : "N/A";
+  // AOA emits null when air data is invalid; check typeof first.
+  const aoa = (typeof data.AOA === 'number') ? data.AOA.toFixed(1) + "°" : "N/A";
   console.log(`AOA=${aoa} pct=${data.percentLift}%`);
 };
 ```
@@ -225,7 +223,7 @@ This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift
 
 **Truncation handling.** If `snprintf` would overflow the 512-byte buffer, the producer emits the literal `{}`. A defensive consumer should check that an expected key exists (or do `if (data.AOA === undefined) skipFrame()`) rather than blindly indexing.
 
-**`AOA = -100` sentinel.** The `AOA` field reports `-100` when the OnSpeed pitot AOA is unavailable (NaN) or IAS is below the audio mute threshold. A consumer plotting AOA in real time will get a `-100` spike at low IAS unless it gates on `AOA > -20` (or any threshold above `-100`).
+**Null on invalid air data.** The `AOA`, `DerivedAOA`, `IAS`, and `percentLift` fields emit JSON `null` when `bIasAlive` is false (the canonical sensor-level air-data validity flag, hysteresis 20 kt rising / 15 kt falling, backed by the pitot deadband). A third-party consumer should always check `typeof data.AOA === 'number'` (or equivalent in its language) before calling `.toFixed()` or doing arithmetic — null fields fall through to N/A renderings rather than producing spikes or NaN propagation.
 
 **Per-field native rates.** A frame is a near-simultaneous snapshot of fields each filtered at their own native rate (gyro at AHRS rate, decel at the Savitzky-Golay window, flap index at 1 Hz, etc.). Two consecutive frames will not show identical values for slow-moving fields like `flapIndex` even when nothing changed — the snapshot is consistent, the underlying filters are not.
 

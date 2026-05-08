@@ -283,6 +283,46 @@ void test_format_string_uses_string_placeholders_for_invalid_aware_fields(void) 
         "DataServer.cpp must emit \"null\" string for invalid AOA / DerivedAOA / IAS / percentLift");
 }
 
+// /api/sample/aoa REST endpoint must mirror the WebSocket contract:
+// gate on bIasAlive (not iMuteAudioUnderIAS), emit JSON null when
+// air data is invalid (not the legacy -100 numeric sentinel).
+// Issues #358 / #455.
+void test_api_sample_aoa_uses_bIasAlive_and_emits_null(void) {
+    std::string root = FindRepoRoot();
+    std::string src  = ReadFile(root + "/software/sketch_common/src/web_server/ApiHandlers.cpp");
+    TEST_ASSERT_TRUE_MESSAGE(!src.empty(), "ApiHandlers.cpp not found");
+
+    // Locate HandleApiSampleAoa() so subsequent grep is body-scoped.
+    auto handlerPos = src.find("HandleApiSampleAoa");
+    TEST_ASSERT_TRUE_MESSAGE(handlerPos != std::string::npos,
+                             "HandleApiSampleAoa not found in ApiHandlers.cpp");
+    auto bodyEnd = src.find("HandleApiSampleFlapsRaw", handlerPos);
+    if (bodyEnd == std::string::npos) bodyEnd = src.size();
+    std::string body = src.substr(handlerPos, bodyEnd - handlerPos);
+
+    // The handler must reference bIasAlive.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("bIasAlive") != std::string::npos,
+        "HandleApiSampleAoa must gate on bIasAlive (issue #358)");
+
+    // The audio-mute threshold must NOT drive this endpoint's gate.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("iMuteAudioUnderIAS") == std::string::npos,
+        "iMuteAudioUnderIAS must not gate /api/sample/aoa (issue #358)");
+
+    // The legacy -100 numeric sentinel must be gone; the endpoint
+    // emits JSON null for invalid frames.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("-100") == std::string::npos,
+        "HandleApiSampleAoa must not reference -100 (issue #455, emit JSON null)");
+    // The C++ source has the JSON-escaped form `\"aoa\":null` inside an
+    // F() / String literal.  We search for the escaped pattern as it
+    // appears in the .cpp file.
+    TEST_ASSERT_TRUE_MESSAGE(
+        body.find("\\\"aoa\\\":null") != std::string::npos,
+        "HandleApiSampleAoa must emit {\"aoa\":null} for invalid air data (issue #455)");
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -293,6 +333,7 @@ int main(void) {
     RUN_TEST(test_no_aoa_numeric_sentinel_in_data_server);
     RUN_TEST(test_air_data_gate_uses_bIasAlive);
     RUN_TEST(test_format_string_uses_string_placeholders_for_invalid_aware_fields);
+    RUN_TEST(test_api_sample_aoa_uses_bIasAlive_and_emits_null);
 
     return UNITY_END();
 }
