@@ -8,6 +8,8 @@ on:
       - '.github/workflows/docs.yml'
       - 'software/OnSpeed-M5-Display/**'
       - 'scripts/build_m5_sim_for_docs.sh'
+      - 'software/Libraries/onspeed_core/**'
+      - 'tools/web/test/wasm-smoke.mjs'
   pull_request:
     branches: [master]
     paths:
@@ -15,6 +17,8 @@ on:
       - '.github/workflows/docs.yml'
       - 'software/OnSpeed-M5-Display/**'
       - 'scripts/build_m5_sim_for_docs.sh'
+      - 'software/Libraries/onspeed_core/**'
+      - 'tools/web/test/wasm-smoke.mjs'
   release:
     types: [published]
   workflow_dispatch:
@@ -42,6 +46,10 @@ jobs:
           actions-cache-folder: 'emsdk-cache'
       - name: Build M5 sim and copy to docs assets
         run: ./scripts/build_m5_sim_for_docs.sh
+      - name: Build onspeed_core WASM
+        run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
+      - name: Smoke test onspeed_core WASM
+        run: node tools/web/test/wasm-smoke.mjs
       - name: Build site (strict)
         working-directory: docs/site
         run: mkdocs build --strict
@@ -66,6 +74,10 @@ jobs:
           actions-cache-folder: 'emsdk-cache'
       - name: Build M5 sim and copy to docs assets
         run: ./scripts/build_m5_sim_for_docs.sh
+      - name: Build onspeed_core WASM
+        run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
+      - name: Smoke test onspeed_core WASM
+        run: node tools/web/test/wasm-smoke.mjs
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"
@@ -108,6 +120,10 @@ jobs:
           actions-cache-folder: 'emsdk-cache'
       - name: Build M5 sim and copy to docs assets
         run: ./scripts/build_m5_sim_for_docs.sh
+      - name: Build onspeed_core WASM
+        run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
+      - name: Smoke test onspeed_core WASM
+        run: node tools/web/test/wasm-smoke.mjs
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"
