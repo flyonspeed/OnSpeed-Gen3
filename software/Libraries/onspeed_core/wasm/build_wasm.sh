@@ -10,7 +10,6 @@
 #
 # Prerequisites:
 #   - emcc in PATH (Emscripten 4.0.21 or later)
-#   - python3 in PATH (for generate_buildinfo.py)
 #
 # This build is a strict subset of software/OnSpeed-M5-Display/sim/build_wasm.sh:
 # same onspeed_core sources, no M5GFX, no SDL2, no rendering.
@@ -26,15 +25,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
 ONSPEED_CORE_DIR="${REPO_ROOT}/software/Libraries/onspeed_core/src"
 TINYXML2_SRC="${REPO_ROOT}/software/Libraries/tinyxml2/tinyxml2.cpp"
-VERSION_DIR="${REPO_ROOT}/software/Libraries/version"
 OUT_DIR="${SCRIPT_DIR}/dist"
 mkdir -p "${OUT_DIR}"
-
-# Regenerate buildinfo.cpp so version string reflects current git state.
-if [[ -f "${REPO_ROOT}/scripts/generate_buildinfo.py" && -d "${VERSION_DIR}" ]]; then
-    python3 "${REPO_ROOT}/scripts/generate_buildinfo.py" \
-        --output "${VERSION_DIR}/buildinfo.cpp" 2>/dev/null || true
-fi
 
 # Collect all onspeed_core sources.
 SOURCES=()

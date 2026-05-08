@@ -74,11 +74,13 @@ if (belowAlpha0 !== 0.0) {
 console.log(`OK: aoa below alpha_0 clamps to 0.0`);
 
 // Sanity-check: above alpha_stall clamps to 99.9.
+// Use a tolerant comparison: WASM returns C++ float32 (~99.9000015259...),
+// which differs from the JS binary64 literal 99.9 at strict equality.
 const aboveStall = Module.compute_percent_lift(15.0, -3.72, 10.31, 8.24, true);
-if (aboveStall !== 99.9) {
-    console.error(`FAIL: aoa above alpha_stall should clamp to 99.9, got ${aboveStall}`);
+if (Math.abs(aboveStall - 99.9) > 0.01) {
+    console.error(`FAIL: aoa above alpha_stall should clamp to ~99.9, got ${aboveStall}`);
     process.exit(1);
 }
-console.log(`OK: aoa above alpha_stall clamps to 99.9`);
+console.log(`OK: aoa above alpha_stall clamps to ~99.9 (got ${aboveStall})`);
 
 console.log('\nAll wasm-smoke checks passed.');
