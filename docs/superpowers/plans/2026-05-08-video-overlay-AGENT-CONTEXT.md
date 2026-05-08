@@ -18,41 +18,52 @@ needs before touching code.
                           │   (platform-free C++)        │
                           └──────────────┬───────────────┘
                                          │
-                  ┌──────────────────────┼──────────────────────┐
-                  │                      │                      │
-                  ▼                      ▼                      ▼
-          ┌──────────────┐      ┌─────────────────┐    ┌────────────────┐
-          │  Firmware    │      │  X-Plane plugin │    │   M5 simulator │
-          │  (V4P/V4B)   │      │  (Mac/Win/Linux)│    │  (WASM browser)│
-          └──────┬───────┘      └─────────────────┘    └────────────────┘
-                 │
-                 │ wire format (display-serial / WebSocket JSON)
-                 ▼
-          ┌──────────────┐
-          │ M5 hardware  │ ← Basic / Core2 / huVVer-AVI
-          └──────────────┘
+        ┌──────────────┬──────────────┬──┴──┬───────────────┬──────────────┐
+        │              │              │     │               │              │
+        ▼              ▼              ▼     ▼               ▼              ▼
+   Firmware      X-Plane       M5 simulator host_main   onspeed_core   (future
+   (ESP32)       plugin        (full WASM,  CLI binary  .wasm          targets)
+                 (native C++)  with M5GFX)  (subprocess (algorithm-only
+                                             from Python) WASM, browser)
+        │
+        │ wire format
+        ▼
+   ┌──────────────┐
+   │ M5 hardware  │ ← Basic / Core2 / huVVer-AVI
+   └──────────────┘                              ┌──────────────────┐
+                                                 │ Replay tool (JS) │
+                                                 │  loads onspeed_  │
+                                                 │  core.wasm       │
+                                                 └──────────────────┘
 
-          ┌─────────────────────┐
-          │  Replay tool (JS)   │ ← THE ONLY HAND-PORT
-          └──────────┬──────────┘
-                     │ CI gate (streaming-goldens diff vs C++)
-                     ▼
-          ┌──────────────────┐    ← Multi-subcommand binary,
-          │  host_main CLI   │      exposes every onspeed_core
-          │                  │      algorithm. Python tools call
-          │                  │      it as subprocess wrappers.
-          └──────────────────┘
+   ┌──────────────────┐
+   │  Python tools    │ ← subprocess wrappers around host_main
+   │  (m5-replay,     │   (post-PLAN_PYTHON_CONSOLIDATION.md)
+   │   synth-record)  │
+   └──────────────────┘
 ```
 
-**Three of four deploy targets compile or link `onspeed_core`** —
-they cannot drift by construction. The fourth (Replay JS) is the
-only hand-port; it gates against host_main output via CI.
+**End state (after Project A + Project B land):** every consumer
+either compiles `onspeed_core`, links it, or loads a compiled
+artifact. **No hand-ports anywhere.** Drift impossible by
+construction.
 
-**Four deploy targets**: firmware on the airplane, X-Plane plugin
-(developers), M5 WASM simulator (docs site), Replay tool (Sam &
-Vac). Plus M5 hardware variants (Basic / Core2 / huVVer-AVI) which
-render the firmware's wire output but don't compute anything
-themselves.
+**Pre-WASM (today)**: the Replay tool has a JS hand-port at
+`tools/web/lib/replay/*.js`. That port is replaced by a WASM driver
+once `PLAN_WASM_CORE.md` lands.
+
+**Pre-Python-consolidation (today)**: the Python tools have their
+own algorithm code at `tools/onspeed_py/`. That code is replaced by
+host_main subprocess wrappers once `PLAN_PYTHON_CONSOLIDATION.md`
+lands.
+
+**Deploy targets:**
+- **Firmware** — native C++ on the ESP32. The real airplane.
+- **X-Plane plugin** — native C++ on Mac/Win/Linux. Developer tool.
+- **M5 simulator** — full WASM (with M5GFX rendering) on the docs site.
+- **host_main** — native CLI on the dev machine. Used by Python wrappers + CI.
+- **onspeed_core.wasm** — algorithm-only WASM in the browser. Used by Replay tool.
+- **M5 hardware variants** (Basic, Core2, huVVer-AVI) — render the firmware's wire output. No algorithm code on these boxes.
 
  The plans (`2026-05-08-video-overlay-replay.md`,
 `2026-05-08-cross-impl-drift-prevention.md`) cover *what* to build.
@@ -416,33 +427,43 @@ If you're stuck on a decision the plans don't answer:
 If you're picking up this work in a new session (Sam OR an agent),
 the open work items are, IN STRICT DEPENDENCY ORDER:
 
-0. **Python consolidation (DO FIRST).** See
-   `2026-05-08-python-consolidation.md`. Step 0 (extend host_main
-   into multi-subcommand CLI) → Step 1 (migrate percent_lift +
-   config to subprocess wrappers, proof of concept) → Steps 2-7.
-   Sam has confirmed only he is using these tools today; breaking
-   changes during migration are fine. ~5-7 days, 7 small PRs.
+**FOUNDATION (do these first, in parallel after host_main exists):**
 
-1. **Layer 0 streaming-goldens CI gate.** See PLAN_VIDEO_OVERLAY's
-   "Layer 0 — drift-prevention CI gate" dispatch. Lands AFTER
-   Python consolidation — once Python is just a subprocess
-   wrapper, the only remaining drift target is JS. Two CI jobs:
-   C++ produces goldens, JS diffs against them.
+0a. **Python consolidation Step 0**: extend host_main to a
+    multi-subcommand CLI. See `2026-05-08-python-consolidation.md`.
+    Required by both 0b and 0c. ~1-2 days.
+
+0b. **Python consolidation Steps 1-7** (parallel after 0a):
+    migrate Python algorithm code to host_main subprocess wrappers.
+    7 small PRs.
+
+0c. **WASM compile** (parallel after 0a): compile onspeed_core to
+    a browser-loadable WASM module. See `2026-05-08-wasm-core.md`.
+    5 small PRs. After this, the JS Replay tool has zero hand-port —
+    it loads the same compiled algorithms the firmware runs.
+
+1. **WASM-vs-native parity check** (after 0c lands): one CI step
+   that runs the existing snapshot regression against both the
+   native host_main and the WASM build. See
+   `PLAN_DRIFT_PREVENTION.md`. ~half-day.
+
+**REPLAY TOOL FEATURES (after foundation lands):**
 
 2. **Layer 1: file-handle persistence + sticky config + sync
    nudge + keyboard frame-by-frame + all 5 modes.** See
-   `PLAN_VIDEO_OVERLAY.md` Step 2 (now expanded). ~1 day.
-   No dependencies on Layer 0 — can be parallelized.
+   `PLAN_VIDEO_OVERLAY.md` Step 2 (expanded). ~1 day.
+   Independent of WASM/Python projects — could parallelize.
 
 3. **Layer 2: HUD widget gallery + catalog.** See PLAN Step 3.
-   Needs visual iteration with Sam — build the gallery page first
+   Visual iteration with Sam — build the gallery page first
    (`tools/web/widget-gallery.html`), then design widgets one at
    a time. OnSpeed-original styling, NOT G3X chrome.
 
 4. **Layer 3, 4, 5**: see PLAN. Each independent once Layer 2 ships.
 
 5. **Step 6.5 (deploy)**: build_static.sh + GitHub Actions hook
-   into docs deploy → dev.flyonspeed.org/replay.
+   into docs deploy → dev.flyonspeed.org/replay. Co-located with
+   the WASM build artifacts.
 
 6. **Step 7 (docs)**: user-facing replay.md, design spec,
    reference docs.

@@ -101,9 +101,15 @@ on top.
 │  File-handle persistence via File System Access API.             │
 │  ± 0.1 s / ± 1 s nudge buttons. Pause/Attach (existing).         │
 ├─────────────────────────────────────────────────────────────────┤
-│ Layer 0: REPLAY ENGINE     (BEDROCK — must match firmware)       │
-│  (log_row, cfg) → record. Body-angle / alpha_0 / EMA / lever     │
-│  sweep / data marks. Governed by spec fixtures + CI.             │
+│ Layer 0: REPLAY ENGINE                                           │
+│  POST-`PLAN_WASM_CORE.md`: a thin WASM driver. JS loads the      │
+│  compiled onspeed_core.wasm and calls into it for every          │
+│  algorithm. (log_row, cfg) → record runs in WASM. NO hand-port.  │
+│  Drift between firmware C++ and Replay JS is impossible by       │
+│  construction — they ARE the same code.                          │
+│                                                                   │
+│  PRE-WASM (today): JS hand-port at lib/replay/*.js. ~1500 lines  │
+│  re-implementing C++ algorithms. Works today; replaced by Step 0.│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -121,30 +127,46 @@ In dependency order. Each step is independently shippable. Each step
 has a recommended agent dispatch (see "Dispatch templates" at the
 bottom).
 
-### Step 0 — Python consolidation (NEW; do first)
+### Step 0 — Foundation projects (do these FIRST)
 
-**See `PLAN_PYTHON_CONSOLIDATION.md`.** Before any new layer work,
-audit Python tools and replace algorithm code with `host_main`
-subprocess wrappers. Reduces drift surface from "four
-implementations" to "two: C++ and JS" — the JS replay is the only
-sanctioned hand-port because browsers can't shell out.
+Two parallel projects must land before Replay tool layer work:
 
-**Why before everything else:** every layer below implicitly trusts
-Python tools (synth-record orchestrator, m5-replay, log_replay) to
-compute the same thing the firmware computes. Today that trust is
-on a handshake. Migrate to subprocess wrappers and the trust is
-mechanical.
+**Project A: Python Consolidation** (`PLAN_PYTHON_CONSOLIDATION.md`)
+- Migrate Python algorithm code to `host_main` subprocess wrappers.
+- ~5-7 days, 7 small PRs. Sam confirmed breaking changes are fine.
 
-**Effort:** ~5-7 days, 7 small PRs in dependency order. Sam has
-confirmed only he is using these tools today; breaking changes in
-the migration are fine.
+**Project B: WASM Compile of onspeed_core** (`PLAN_WASM_CORE.md`)
+- Compile `software/Libraries/onspeed_core/` to WebAssembly.
+- The Replay tool's JS layer loads the WASM module instead of
+  hand-porting algorithms. **Zero hand-ports. Drift impossible by
+  construction.**
+- ~5-7 days, 5 small PRs.
 
-### Step 1 — Harden Layer 0 (drift prevention scaffolding)
+Both projects share host_main as a dependency: Python consolidation
+builds the multi-subcommand CLI; WASM consolidation builds the same
+C++ API as a browser-loadable module. After Project A's Step 0
+(host_main multi-subcommand) lands, Project B can proceed in
+parallel.
 
-**Why next:** with Python now subprocess-based after Step 0 (drift
-impossible by construction), the streaming-goldens harness only
-needs to gate the **one remaining hand-port: JS replay.** Two CI
-jobs: C++ host_main produces goldens; JS diffs against them.
+**Why both before Replay layer work:**
+- Project A makes Python wrappers, not algorithm ports — drift
+  impossible.
+- Project B makes JS load real C++ via WASM — drift impossible.
+- After both: the architecture collapses. `onspeed_core` is the
+  single source of truth; every consumer compiles or links it.
+  The Replay tool's "Layer 0 engine" becomes a thin WASM driver,
+  not a 1500-line JS port.
+
+### Step 1 — (former drift-prevention work, now redundant)
+
+The streaming-goldens CI gate from earlier drafts of
+`PLAN_DRIFT_PREVENTION.md` is **no longer needed** after Project B
+lands — JS calls into WASM-compiled C++, so there's no JS port to
+gate. The only residual check is "WASM build matches native build"
+which is one tiny CI step (see PLAN_DRIFT_PREVENTION's "WASM-vs-
+native parity" dispatch prompt).
+
+**This step replaces the old Layer 0 drift-scaffolding step.**
 
 **What ships:**
 - `test/spec_fixtures/percent_lift/` directory with ~5 fixtures (clean detent, alpha_0 negative, alpha_stall fallback, NaN AOA, IAS-invalid).
