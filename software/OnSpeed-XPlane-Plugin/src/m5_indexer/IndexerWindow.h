@@ -50,8 +50,13 @@ struct PersistedState {
     bool visible      = false;
     int  mode         = 0;
     bool isPoppedOut  = false;
-    int  floatLeft = 100, floatTop = 600, floatWidth = 320, floatHeight = 240;
-    int  popLeft = 100, popTop = 100, popWidth = 320, popHeight = 240;
+    // Default window size is 320×276 — the indexer texture (320×240,
+    // 4:3) plus the 36-px MODE button strip below it.  Window-level
+    // aspect ratio is 320:276 (kWindowAspect in IndexerWindow.cpp);
+    // 320×240 (legacy default) would leave the texture cropped at the
+    // bottom by the button strip on first show.
+    int  floatLeft = 100, floatTop = 600, floatWidth = 320, floatHeight = 276;
+    int  popLeft = 100, popTop = 100, popWidth = 320, popHeight = 276;
 };
 
 // Apply persisted state.  MUST be called from a flight-loop callback,

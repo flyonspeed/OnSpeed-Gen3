@@ -40,6 +40,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -137,12 +138,9 @@ constexpr int kMinHeight = 120;
 constexpr int kSaneAbs    = 50000;
 constexpr int kMinVisible = 80;     // px/boxels of window kept on-screen
 
-// 4:3 aspect ratio of the M5 panel (320:240).  HandleClick aspect-locks
-// the window during user drag-resize: each drag tick computes a 4:3
-// geometry from the dragged-edge delta and writes it back via
-// XPLMSetWindowGeometry, so the window is never not-4:3 and DrawWindow's
-// letterbox math is a no-op.  Letterbox stays as defense-in-depth against
-// any path that bypasses the drag handler (e.g., persistence restores).
+// 4:3 aspect ratio of the M5 panel itself (320:240).  Used by
+// DrawWindow's textured-quad sizing so the indexer texture stays
+// unstretched at any window size.
 constexpr float kAspect = static_cast<float>(kWindowWidth) /
                           static_cast<float>(kWindowHeight);
 
@@ -176,6 +174,21 @@ constexpr int kCloseBtnInset    = 4;
 constexpr int kButtonStripHeight = 36;     // strip y-extent in boxels
 constexpr int kButtonWidth       = 80;     // pill width
 constexpr int kButtonHeight      = 24;     // pill height
+
+// Window-level aspect ratio, INCLUDING the bottom button strip.  The
+// indexer texture itself is 320:240 = 4:3, but the visible window also
+// hosts a 36-boxel-tall MODE button strip below the texture.  Locking
+// the *window* to 320:(240+36) = 320:276 makes the texture exactly fill
+// the available texture region above the strip — no internal letterbox
+// gap between the texture's bottom edge and the "Energy" button.
+//
+// Conceptually: this is what the user wants when they look at the
+// G1000 cockpit panel as a reference — the chrome (instrument bezel)
+// is part of the locked aspect, so the screen content fills the whole
+// window edge-to-edge with the instrument's "buttons" flush against it.
+constexpr int   kWindowExtraH    = kButtonStripHeight;
+constexpr float kWindowAspect    = static_cast<float>(kWindowWidth) /
+                                   static_cast<float>(kWindowHeight + kWindowExtraH);
 
 // Compute the MODE button rect for a given window geometry.  Centered
 // horizontally in the bottom strip.  Returns false if the window is
@@ -531,15 +544,19 @@ void EnforceAspect(int* l, int* t, int* r, int* b, DragKind kind)
     const int h = *t - *b;
     if (w <= 0 || h <= 0) return;
 
+    // Window aspect lock uses kWindowAspect (320:276), which accounts
+    // for the bottom MODE button strip — locking on kAspect (320:240)
+    // would leave a small letterbox gap between the texture and the
+    // button.
     auto recomputeFromWidth = [&](bool keepTop) {
         const int newH = static_cast<int>(static_cast<float>(*r - *l) /
-                                          kAspect + 0.5f);
+                                          kWindowAspect + 0.5f);
         if (keepTop) *b = *t - newH;
         else         *t = *b + newH;
     };
     auto recomputeFromHeight = [&](bool keepLeft) {
         const int newW = static_cast<int>(static_cast<float>(*t - *b) *
-                                          kAspect + 0.5f);
+                                          kWindowAspect + 0.5f);
         if (keepLeft) *r = *l + newW;
         else          *l = *r - newW;
     };
@@ -553,15 +570,15 @@ void EnforceAspect(int* l, int* t, int* r, int* b, DragKind kind)
         case DragKind::EdgeBottom:  recomputeFromHeight(/*keepLeft=*/true); break;
 
         // Corner drags: both axes move with the cursor.  Pick whichever
-        // axis is now further from 4:3 as the leader so the corner
-        // tracks the cursor more faithfully.  Anchor to the OPPOSITE
-        // corner so the dragged corner stays under the cursor.
+        // axis is now further from kWindowAspect as the leader so the
+        // corner tracks the cursor more faithfully.  Anchor to the
+        // OPPOSITE corner so the dragged corner stays under the cursor.
         case DragKind::CornerTL:
         case DragKind::CornerTR:
         case DragKind::CornerBL:
         case DragKind::CornerBR: {
             const float cur = static_cast<float>(w) / static_cast<float>(h);
-            const bool widthLeader = cur > kAspect;
+            const bool widthLeader = cur > kWindowAspect;
             const bool grabsTop    = (kind == DragKind::CornerTL ||
                                       kind == DragKind::CornerTR);
             const bool grabsLeft   = (kind == DragKind::CornerTL ||
@@ -571,14 +588,14 @@ void EnforceAspect(int* l, int* t, int* r, int* b, DragKind kind)
                 // un-grabbed top/bottom edge so the grabbed corner's
                 // vertical edge follows the cursor.
                 const int newH = static_cast<int>(static_cast<float>(w) /
-                                                  kAspect + 0.5f);
+                                                  kWindowAspect + 0.5f);
                 if (grabsTop) *t = *b + newH;
                 else          *b = *t - newH;
             } else {
                 // Height is the leader; width adjusts.  Anchor the
                 // un-grabbed left/right edge.
                 const int newW = static_cast<int>(static_cast<float>(h) *
-                                                  kAspect + 0.5f);
+                                                  kWindowAspect + 0.5f);
                 if (grabsLeft) *l = *r - newW;
                 else           *r = *l + newW;
             }
@@ -976,6 +993,55 @@ void Tick()
     const std::uint32_t now = static_cast<std::uint32_t>(SDL_GetTicks());
     if (s_lastTickMs != 0 && (now - s_lastTickMs) < kTickPeriodMs) return;
     s_lastTickMs = now;
+
+    // Pop-out aspect-lock fallback.  When the indexer is popped out to
+    // its own OS window, edge-resize is handled by the OS chrome (red /
+    // yellow / green dots on macOS) — xplm_MouseDrag never fires for
+    // those gestures, so HandleClick's aspect lock is bypassed.  Poll
+    // the OS-window geometry here at 20 Hz; once it stops changing
+    // (drag released), snap to kWindowAspect.  Same lazy-snap pattern
+    // mature UI toolkits use as their software fallback.
+    if (s_window && XPLMWindowIsPoppedOut(s_window)) {
+        static int  s_lastOsW = 0, s_lastOsH = 0;
+        static std::uint32_t s_lastOsChangeMs = 0;
+        static bool s_osSnapPending = false;
+        int oL, oT, oR, oB;
+        XPLMGetWindowGeometryOS(s_window, &oL, &oT, &oR, &oB);
+        const int osW = oR - oL;
+        const int osH = oB - oT;   // OS coords: y grows down, so h = bottom - top
+        if (osW != s_lastOsW || osH != s_lastOsH) {
+            s_lastOsW = osW;
+            s_lastOsH = osH;
+            s_lastOsChangeMs = now;
+            s_osSnapPending = true;
+        } else if (s_osSnapPending && (now - s_lastOsChangeMs) > 150) {
+            // Drag has stopped for >150 ms — apply the aspect snap.
+            const float cur = static_cast<float>(osW) /
+                              static_cast<float>(osH);
+            // Tolerance: 1% — avoids re-snapping when already locked.
+            if (std::fabs(cur - kWindowAspect) > 0.01f) {
+                int newW = osW;
+                int newH = osH;
+                if (cur > kWindowAspect) {
+                    // Too wide; keep width, recompute height.
+                    newH = static_cast<int>(static_cast<float>(osW) /
+                                            kWindowAspect + 0.5f);
+                } else {
+                    // Too tall; keep height, recompute width.
+                    newW = static_cast<int>(static_cast<float>(osH) *
+                                            kWindowAspect + 0.5f);
+                }
+                // Anchor top-left so the user's drag-target corner
+                // doesn't jump.  OS coords: y grows down.
+                XPLMSetWindowGeometryOS(s_window,
+                                        oL, oT,
+                                        oL + newW, oT + newH);
+                s_lastOsW = newW;
+                s_lastOsH = newH;
+            }
+            s_osSnapPending = false;
+        }
+    }
 
     // Skip wire-frame emit while the sim is paused.  X-Plane's flight
     // loop continues to fire during pause, so without this guard the
