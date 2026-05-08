@@ -20,7 +20,7 @@
 // Three RateAdjustedAccelEma instances (lateral, vertical, forward) are
 // constructed at the log sample rate with tau = kAccelEmaTauSec.  Per row,
 // raw imuLateralG / imuVerticalG / imuForwardG are fed through them.
-// Smoothed outputs are written to accelLatCorr / accelVertCorr /
+// Smoothed outputs are written to accelLatSmoothed / accelVertSmoothed /
 // accelFwdSmoothed in ReplayStepResult — mirroring the AHRS engine's
 // AccelLatFilter / AccelVertFilter / AccelFwdFilter.get() values that go
 // on the M5 wire.  Raw IMU fields (imuLateralG, imuVerticalG, imuForwardG)
@@ -86,8 +86,8 @@ struct ReplayStepResult {
     // Smoothed at log rate (50 or 208 Hz) with tau = kAccelEmaTauSec, matching
     // the AHRS engine's 208 Hz EMA in continuous-time behavior.
     // NOT the same as imuLateralG/VerticalG/ForwardG (those remain raw for g_pIMU->*).
-    float accelLatCorr      = 0.0f;  // smoothed lateral-G  → g_AHRS.AccelLatFilter.get()
-    float accelVertCorr     = 0.0f;  // smoothed vertical-G → g_AHRS.AccelVertFilter.get()
+    float accelLatSmoothed  = 0.0f;  // smoothed lateral-G  → g_AHRS.AccelLatFilter.get()
+    float accelVertSmoothed = 0.0f;  // smoothed vertical-G → g_AHRS.AccelVertFilter.get()
     float accelFwdSmoothed  = 0.0f;  // smoothed forward-G  → g_AHRS.AccelFwdFilter.get()
 
     // --- Data mark (fed to g_iDataMark) ---
@@ -101,8 +101,8 @@ struct ReplayStepResult {
 //   - AOA smoothing filter (AOACalculator, EMA over pressure coefficient).
 //   - Three RateAdjustedAccelEma instances (lateral, vertical, forward)
 //     that match the AHRS accel filter's continuous-time behavior at the
-//     log sample rate.  Output goes to ReplayStepResult::accelLatCorr,
-//     accelVertCorr, and accelFwdSmoothed — mirroring the firmware's
+//     log sample rate.  Output goes to ReplayStepResult::accelLatSmoothed,
+//     accelVertSmoothed, and accelFwdSmoothed — mirroring the firmware's
 //     AccelLatFilter / AccelVertFilter / AccelFwdFilter.get() values.
 //
 // Constructor parameters:

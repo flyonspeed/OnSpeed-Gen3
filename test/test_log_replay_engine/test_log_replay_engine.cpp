@@ -11,7 +11,7 @@
 // What is tested:
 //   - step() is deterministic: two fresh engines on identical input produce
 //     identical output.
-//   - Accel fields (accelLatCorr, accelVertCorr, accelFwdSmoothed) carry
+//   - Accel fields (accelLatSmoothed, accelVertSmoothed, accelFwdSmoothed) carry
 //     rate-adjusted-EMA smoothed values, NOT raw passthrough.  First call
 //     seeds at the raw value; subsequent calls blend.
 //   - Engine state (AOA EMA + accel EMA) accumulates: sequential steps on
@@ -206,7 +206,7 @@ void test_passthrough_fields(void)
 // Raw IMU: imuLateralG / imuVerticalG / imuForwardG feed g_pIMU->Ay/Az/Ax
 // and are never modified by the engine.
 //
-// Smoothed accel: accelLatCorr / accelVertCorr / accelFwdSmoothed are
+// Smoothed accel: accelLatSmoothed / accelVertSmoothed / accelFwdSmoothed are
 // rate-adjusted-EMA outputs (alpha ≈ 0.2300 at 50 Hz, tau ≈ 0.076516 s).
 // On the FIRST call to a fresh engine, each EMA seeds at the raw value
 // (returns input as-is — same as EMAFilter::update() contract).  After
@@ -238,11 +238,11 @@ void test_imu_passthrough(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.7f,   res.imuYawRateDps);
 
     // Smoothed accel: first call seeds at the raw value.
-    // accelLatCorr  → lateral  EMA seeds at imuLateralG  = -0.05
-    // accelVertCorr → vertical EMA seeds at imuVerticalG = 0.99
-    // accelFwdSmoothed → forward EMA seeds at imuForwardG = 0.11
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.05f, res.accelLatCorr);
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.99f, res.accelVertCorr);
+    // accelLatSmoothed  → lateral  EMA seeds at imuLateralG  = -0.05
+    // accelVertSmoothed → vertical EMA seeds at imuVerticalG = 0.99
+    // accelFwdSmoothed  → forward  EMA seeds at imuForwardG  = 0.11
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.05f, res.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.99f, res.accelVertSmoothed);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.11f, res.accelFwdSmoothed);
 }
 
@@ -279,7 +279,7 @@ void test_ema_accumulates(void)
 
 // Accel EMA accumulates with rate-adjusted smoothing.
 //
-// Verifies that accelLatCorr / accelVertCorr / accelFwdSmoothed use the
+// Verifies that accelLatSmoothed / accelVertSmoothed / accelFwdSmoothed use the
 // rate-adjusted-EMA filter (alpha ≈ 0.2300 at 50 Hz, tau ≈ 0.076516 s),
 // not raw passthrough, from the second step onward.
 //
@@ -293,8 +293,8 @@ void test_ema_accumulates(void)
 //   alpha = 1 - exp(-dt / tau) at dt=1/50 s, tau = kAccelEmaTauSec ≈ 0.076516 s
 //   alpha ≈ 0.23001423
 //
-//   accelLatCorr     = 0.23001423 * 0.10  + 0.76998577 * (-0.02) = 0.0076017
-//   accelVertCorr    = 0.23001423 * 0.90  + 0.76998577 * 1.02    = 0.9923983
+//   accelLatSmoothed  = 0.23001423 * 0.10  + 0.76998577 * (-0.02) = 0.0076017
+//   accelVertSmoothed = 0.23001423 * 0.90  + 0.76998577 * 1.02    = 0.9923983
 //   accelFwdSmoothed = 0.23001423 * 0.20  + 0.76998577 * 0.05   = 0.0845014
 //
 // Pinned to 4 decimal places (%.4f wire precision). Sub-task 3 (synth ADC)
@@ -310,8 +310,8 @@ void test_accel_ema_accumulates(void)
     ReplayStepResult r1 = eng.step(row1);
 
     // First step: EMA seeds at raw values (no blending yet).
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.02f, r1.accelLatCorr);
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  1.02f, r1.accelVertCorr);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.02f, r1.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  1.02f, r1.accelVertSmoothed);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.05f, r1.accelFwdSmoothed);
 
     // Raw IMU fields are always verbatim — not affected by EMA state.
@@ -328,11 +328,11 @@ void test_accel_ema_accumulates(void)
 
     // Pinned values: alpha ≈ 0.23001423 at 50 Hz, tau = kAccelEmaTauSec.
     //   seed values from row1: lat=-0.02, vert=1.02, fwd=0.05
-    //   accelLatCorr     = 0.23001 * 0.10  + 0.76999 * (-0.02) = 0.0076
-    //   accelVertCorr    = 0.23001 * 0.90  + 0.76999 * 1.02    = 0.9924
-    //   accelFwdSmoothed = 0.23001 * 0.20  + 0.76999 * 0.05    = 0.0845
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.0076f, r2.accelLatCorr);
-    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.9924f, r2.accelVertCorr);
+    //   accelLatSmoothed  = 0.23001 * 0.10  + 0.76999 * (-0.02) = 0.0076
+    //   accelVertSmoothed = 0.23001 * 0.90  + 0.76999 * 1.02    = 0.9924
+    //   accelFwdSmoothed  = 0.23001 * 0.20  + 0.76999 * 0.05    = 0.0845
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.0076f, r2.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.9924f, r2.accelVertSmoothed);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.0845f, r2.accelFwdSmoothed);
 
     // Raw IMU fields remain raw on step 2.
@@ -341,8 +341,8 @@ void test_accel_ema_accumulates(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.20f, r2.imuForwardG);
 
     // Smoothed values differ from raw (EMA blending is visible).
-    TEST_ASSERT_NOT_EQUAL(r2.imuLateralG,  r2.accelLatCorr);
-    TEST_ASSERT_NOT_EQUAL(r2.imuVerticalG, r2.accelVertCorr);
+    TEST_ASSERT_NOT_EQUAL(r2.imuLateralG,  r2.accelLatSmoothed);
+    TEST_ASSERT_NOT_EQUAL(r2.imuVerticalG, r2.accelVertSmoothed);
 }
 
 // reset() clears all EMA state (AOA + accel): step sequence after reset
@@ -379,8 +379,8 @@ void test_reset_clears_state(void)
     // After reset(), same input sequence produces same output as fresh engine.
     // Checks both AOA EMA and accel EMA state are cleared.
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.aoa,             warmed.aoa);
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelLatCorr,    warmed.accelLatCorr);
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelVertCorr,   warmed.accelVertCorr);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelLatSmoothed,  warmed.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelVertSmoothed, warmed.accelVertSmoothed);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelFwdSmoothed, warmed.accelFwdSmoothed);
 }
 

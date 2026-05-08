@@ -13,7 +13,7 @@
 // Accel smoothing (Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
 // Raw IMU columns (imuLateralG, imuVerticalG, imuForwardG) are fed through
 // RateAdjustedAccelEma instances and the smoothed values are written to
-// accelLatCorr, accelVertCorr, accelFwdSmoothed.  Raw values still appear
+// accelLatSmoothed, accelVertSmoothed, accelFwdSmoothed.  Raw values still appear
 // in imuLateralG/VerticalG/ForwardG for task wrappers that need g_pIMU->*.
 // No ADC synthesis yet — that is Sub-task 3.
 
@@ -122,8 +122,8 @@ ReplayStepResult LogReplayEngine::step(const onspeed::LogRow& row)
     // filter (kAccSmoothing=0.060899, tau≈0.076516 s), applied at the log
     // rate.  Smoothed values go to the wire-facing fields.
     // Raw values remain in imuLateralG/VerticalG/ForwardG for g_pIMU->* consumers.
-    out.accelLatCorr     = accelLatEma_ .update(row.imuLateralG);
-    out.accelVertCorr    = accelVertEma_.update(row.imuVerticalG);
+    out.accelLatSmoothed  = accelLatEma_ .update(row.imuLateralG);
+    out.accelVertSmoothed = accelVertEma_.update(row.imuVerticalG);
     out.accelFwdSmoothed = accelFwdEma_ .update(row.imuForwardG);
 
     // --- AOA calculation ---

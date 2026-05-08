@@ -508,11 +508,11 @@ int CmdAhrsTone(int argc, const char* const* argv)
 //   pitch_deg, roll_deg, flight_path_deg, kalman_vsi_mps,
 //   imu_fwd_g, imu_lat_g, imu_vert_g,       (raw IMU passthrough)
 //   imu_roll_dps, imu_pitch_dps, imu_yaw_dps,
-//   accel_lat_corr, accel_vert_corr, accel_fwd_smoothed,  (EMA-smoothed, wire-shaped)
+//   accel_lat_smoothed, accel_vert_smoothed, accel_fwd_smoothed,  (EMA-smoothed, wire-shaped)
 //   data_mark
 //
 // imu_lat_g / imu_vert_g / imu_fwd_g are raw passthrough (feed g_pIMU->*).
-// accel_lat_corr / accel_vert_corr / accel_fwd_smoothed are rate-adjusted-EMA
+// accel_lat_smoothed / accel_vert_smoothed / accel_fwd_smoothed are rate-adjusted-EMA
 // smoothed (Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md).
 // Column order is fixed here and in the golden fixture.
 //
@@ -528,7 +528,7 @@ int CmdAhrsTone(int argc, const char* const* argv)
 //
 // Column semantics (Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
 //   imu_lat_g / imu_vert_g / imu_fwd_g  — raw IMU passthrough (feeds g_pIMU->*)
-//   accel_lat_corr / accel_vert_corr / accel_fwd_smoothed  — rate-adjusted-EMA
+//   accel_lat_smoothed / accel_vert_smoothed / accel_fwd_smoothed  — rate-adjusted-EMA
 //     smoothed values, matching the M5 wire behavior (AccelLatFilter etc.)
 constexpr char kReplayEngineOutputHeader[] =
     "ias_kt,palt_ft,ias_valid,"
@@ -537,7 +537,7 @@ constexpr char kReplayEngineOutputHeader[] =
     "pitch_deg,roll_deg,flight_path_deg,kalman_vsi_mps,"
     "imu_fwd_g,imu_lat_g,imu_vert_g,"
     "imu_roll_dps,imu_pitch_dps,imu_yaw_dps,"
-    "accel_lat_corr,accel_vert_corr,accel_fwd_smoothed,"
+    "accel_lat_smoothed,accel_vert_smoothed,accel_fwd_smoothed,"
     "data_mark";
 
 // Emit one ReplayStepResult row in CSV format.
@@ -571,8 +571,8 @@ static void EmitCsvRow(const onspeed::replay::ReplayStepResult& r)
         static_cast<double>(r.imuRollRateDps),
         static_cast<double>(r.imuPitchRateDps),
         static_cast<double>(r.imuYawRateDps),
-        static_cast<double>(r.accelLatCorr),
-        static_cast<double>(r.accelVertCorr),
+        static_cast<double>(r.accelLatSmoothed),
+        static_cast<double>(r.accelVertSmoothed),
         static_cast<double>(r.accelFwdSmoothed),
         r.dataMark);
 }
@@ -600,8 +600,8 @@ static void EmitJsonlRow(const onspeed::replay::ReplayStepResult& r)
         "\"imu_roll_dps\":%.4f,"
         "\"imu_pitch_dps\":%.4f,"
         "\"imu_yaw_dps\":%.4f,"
-        "\"accel_lat_corr\":%.4f,"
-        "\"accel_vert_corr\":%.4f,"
+        "\"accel_lat_smoothed\":%.4f,"
+        "\"accel_vert_smoothed\":%.4f,"
         "\"accel_fwd_smoothed\":%.4f,"
         "\"data_mark\":%d"
         "}\n",
@@ -624,8 +624,8 @@ static void EmitJsonlRow(const onspeed::replay::ReplayStepResult& r)
         static_cast<double>(r.imuRollRateDps),
         static_cast<double>(r.imuPitchRateDps),
         static_cast<double>(r.imuYawRateDps),
-        static_cast<double>(r.accelLatCorr),
-        static_cast<double>(r.accelVertCorr),
+        static_cast<double>(r.accelLatSmoothed),
+        static_cast<double>(r.accelVertSmoothed),
         static_cast<double>(r.accelFwdSmoothed),
         r.dataMark);
 }
