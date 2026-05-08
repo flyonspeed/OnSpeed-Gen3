@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from onspeed_py.config import load_flap_setpoints
-from onspeed_py.percent_lift import compute_percent_lift, ias_from_aoa
+from onspeed_py.percent_lift import compute_percent_lift
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 
@@ -73,10 +73,3 @@ def test_new_compute_percent_lift_uses_alpha_0() -> None:
     assert abs(compute_percent_lift(fs.alpha_stall, fs) - 99.9) < 0.05
 
 
-def test_new_ias_from_aoa_works_when_kfit_calibrated() -> None:
-    """With a populated `k_fit`, `ias_from_aoa` returns a finite,
-    sane IAS for an in-band body angle."""
-    fs = load_flap_setpoints(FIX / "n720ak_config.cfg")[0]
-    # L/Dmax body angle should land at a typical RV-10 best-glide IAS.
-    ias = ias_from_aoa(fs.ldmax_aoa, fs)
-    assert 50.0 < ias < 200.0

@@ -482,6 +482,58 @@ void test_parse_v1_flaps_sorted_by_degrees(void)
 }
 
 // ============================================================================
+// V1 alpha_stall parse-time default (absent vs present SETPOINT_ALPHASTALL).
+// ============================================================================
+
+// V1 config that carries stallwarn but omits SETPOINT_ALPHASTALL — the
+// common case for Gen2-era pre-calibration configs.
+static constexpr const char* kNoAlphaStall = R"V1(<CONFIG>
+<FLAPDEGREES>0,16</FLAPDEGREES>
+<SETPOINT_STALLWARNAOA>16.48,14.40</SETPOINT_STALLWARNAOA>
+</CONFIG>)V1";
+
+// V1 config that explicitly carries SETPOINT_ALPHASTALL (post-calibration).
+static constexpr const char* kExplicitAlphaStall = R"V1(<CONFIG>
+<FLAPDEGREES>0,16</FLAPDEGREES>
+<SETPOINT_STALLWARNAOA>16.48,14.40</SETPOINT_STALLWARNAOA>
+<SETPOINT_ALPHASTALL>15.0,13.5</SETPOINT_ALPHASTALL>
+</CONFIG>)V1";
+
+void test_v1_alpha_stall_absent_tag_uses_stallwarn_formula(void)
+{
+    // When SETPOINT_ALPHASTALL is absent, each flap's fAlphaStall is populated
+    // at parse time with fSTALLWARNAOA * 100.0f / 90.0f — the same formula
+    // that PercentLift.cpp uses as its runtime fallback.
+    //
+    // For stallwarn=16.48: expected = 16.48 * 100.0 / 90.0 = 18.3111...
+    OnSpeedConfig cfg;
+    TEST_ASSERT_EQUAL(static_cast<int>(V1ParseStatus::Ok),
+                      static_cast<int>(ParseV1(kNoAlphaStall, cfg)));
+
+    TEST_ASSERT_EQUAL_size_t(2u, cfg.aFlaps.size());
+
+    // flap 0: stallwarn=16.48, expected alphaStall = 16.48 * 100/90 ≈ 18.311
+    const float expected0 = 16.48f * 100.0f / 90.0f;
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, expected0, cfg.aFlaps[0].fAlphaStall);
+
+    // flap 1: stallwarn=14.40, expected alphaStall = 14.40 * 100/90 = 16.000
+    const float expected1 = 14.40f * 100.0f / 90.0f;
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, expected1, cfg.aFlaps[1].fAlphaStall);
+}
+
+void test_v1_alpha_stall_explicit_tag_uses_stored_value(void)
+{
+    // When SETPOINT_ALPHASTALL is present, the stored values are used verbatim.
+    OnSpeedConfig cfg;
+    TEST_ASSERT_EQUAL(static_cast<int>(V1ParseStatus::Ok),
+                      static_cast<int>(ParseV1(kExplicitAlphaStall, cfg)));
+
+    TEST_ASSERT_EQUAL_size_t(2u, cfg.aFlaps.size());
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 15.0f, cfg.aFlaps[0].fAlphaStall);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 13.5f, cfg.aFlaps[1].fAlphaStall);
+}
+
+// ============================================================================
 // V1ParseStatusToString mapping.
 // ============================================================================
 
@@ -552,6 +604,9 @@ int main(int argc, char** argv)
 
     RUN_TEST(test_status_to_string);
     RUN_TEST(test_parse_v1_missing_tags_are_zero);
+
+    RUN_TEST(test_v1_alpha_stall_absent_tag_uses_stallwarn_formula);
+    RUN_TEST(test_v1_alpha_stall_explicit_tag_uses_stored_value);
 
     return UNITY_END();
 }

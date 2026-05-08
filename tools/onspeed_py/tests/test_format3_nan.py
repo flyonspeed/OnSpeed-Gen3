@@ -259,18 +259,21 @@ def _rv10_clean_setpoints() -> FlapSetpoints:
 
 
 def test_compute_percent_lift_nan_in_nan_out() -> None:
-    """NaN AOA propagates as NaN, not silently coerced to 0.0.
+    """C++ contract: NaN AOA returns 0.0 (defined in PercentLift.cpp:62-64).
 
-    Python's `min`/`max` drops NaN asymmetrically depending on argument
-    order — the explicit isnan guard at the top of compute_percent_lift
-    makes the propagation deterministic.  Consumers that read the
-    LiveSnapshot directly see "no data" via NaN; the wire-frame
-    boundary projects validity through `Frame.ias_valid`, which writes
-    the 9999 IAS-invalid sentinel for the M5 parser.
+    ComputePercentLift calls ComputeLiftFraction, which returns NaN for
+    non-finite AOA. ComputePercentLift then detects the non-finite fraction
+    and returns 0.0f. The Python wrapper passes NaN through to host_main
+    transparently (std::stof("nan") is valid C++) — no Python-only NaN
+    convention.
+
+    Air-data validity ("no valid air data") is signalled via
+    Frame.ias_valid, not via percent_lift values. Consumers gate on
+    ias_valid; the percent_lift field carries 0.0 when air data is absent.
     """
-    fs = _rv10_clean_setpoints()
-    pct = compute_percent_lift(math.nan, fs)
-    assert math.isnan(pct)
+    fs = FlapSetpoints(degrees=0, alpha_0=-3.72, alpha_stall=10.31, stallwarn_aoa=8.24)
+    pct = compute_percent_lift(float("nan"), fs)
+    assert pct == 0.0
 
 
 def test_compute_percent_lift_numeric_unchanged() -> None:

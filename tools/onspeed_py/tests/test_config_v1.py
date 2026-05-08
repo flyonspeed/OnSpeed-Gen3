@@ -43,10 +43,16 @@ def test_v1_alpha_0_defaults_to_zero() -> None:
         assert fs.alpha_0 == 0.0
 
 
-def test_v1_alpha_stall_defaults_to_stallwarn_plus_1_5() -> None:
+def test_v1_alpha_stall_defaults_to_stallwarn_x_100_div_90() -> None:
+    """V1 configs that omit SETPOINT_ALPHASTALL get fAlphaStall populated
+    by ConfigV1Parse.cpp at parse time using fSTALLWARNAOA * 100.0f / 90.0f.
+    This is the firmware's runtime fallback formula (PercentLift.cpp:43-45),
+    moved to parse-time so every consumer sees the same populated value.
+    """
     table = load_flap_setpoints(FIX / "vac_config.cfg")
     for fs in table.values():
-        assert fs.alpha_stall == pytest.approx(fs.stallwarn_aoa + 1.5)
+        expected = fs.stallwarn_aoa * 100.0 / 90.0
+        assert fs.alpha_stall == pytest.approx(expected, rel=1e-4)
 
 
 def test_v1_k_fit_defaults_to_zero() -> None:
