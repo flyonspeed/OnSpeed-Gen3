@@ -19,7 +19,7 @@
 import { html, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { getJson, postJson, ApiError } from '../shell/apiClient.js';
-import { makeEmaState, updateEma, setAlpha } from '../core/ema.js';
+import { makeEmaState, updateEma, setAlpha, resetEma } from '../core/ema.js';
 
 // Decel-gauge smoothing slider, ported from the Gen2 wizard's
 // `javascript_calibration.h` smoothingValue input (range 0.02–0.50,
@@ -235,7 +235,14 @@ function frameToSample(o) {
   // captured raw (no client-side smoothingAlpha — the legacy
   // smoothing was a UX nicety that distorted the saved samples; it
   // doesn't appear here).
+  //
+  // aoaIsValid mirrors wsClient.js's same-named derivation: the
+  // producer ships JSON null for AOA when air data is invalid; the
+  // typeof === 'number' guard rejects null and the > -20 threshold
+  // is belt-and-suspenders against any future numeric "no data"
+  // sentinel.  Used by FlyDecelStep to gate the display EMA.
   return {
+    aoaIsValid:   typeof o.AOA === 'number' && o.AOA > -20,
     iasKt:        Number(o.IAS) || 0,
     derivedAoaDeg: Number(o.DerivedAOA) || 0,
     coeffP:       Number(o.coeffP) || 0,
@@ -308,14 +315,32 @@ function FlyDecelStep({ params, samples, setSamples, onAnalyzed }) {
   // state lives in a useRef so it accumulates across renders without
   // re-allocating; setAlpha mutates the filter live as the slider
   // moves (no re-seeding — see lib/core/ema.js).
+  //
+  // Validity gating mirrors the M5's iasIsValid-edge SavGol reset
+  // (SerialRead.cpp after PR #486) and IndexerPage's useDecelEma:
+  // skip updates while invalid, reset on the false→true edge so the
+  // first valid post-transition sample seeds fresh.  Without the
+  // edge reset, the displayed needle would lag the firmware by
+  // ~25 frames (~1.25 s at α=0.04) after a taxi→takeoff cycle while
+  // the EMA relaxed toward the firmware's freshly-reset SavGol output.
+  // Recorded samples are not affected — `live.samples()` carries the
+  // raw wire value either way; this only stabilizes the live needle
+  // a pilot watches when timing the Record button.  Tracks #484.
   const decelEma = useRef(makeEmaState(DECEL_SLIDER_DEFAULT));
   const [decelSmoothed, setDecelSmoothed] = useState(0);
   const lastSampleRef = useRef(null);
+  const lastValidRef = useRef(false);
   useEffect(() => { setAlpha(decelEma.current, smoothingAlpha); }, [smoothingAlpha]);
   useEffect(() => {
     if (live.last === lastSampleRef.current) return;
     lastSampleRef.current = live.last;
     if (!live.last) return;
+    const valid = live.last.aoaIsValid !== false;
+    if (valid && !lastValidRef.current) {
+      resetEma(decelEma.current);
+    }
+    lastValidRef.current = valid;
+    if (!valid) return;
     const out = updateEma(decelEma.current, live.last.decelRateKtPerSec);
     if (out !== null) setDecelSmoothed(out);
   }, [live.last]);

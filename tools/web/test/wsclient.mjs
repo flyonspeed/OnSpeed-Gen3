@@ -74,6 +74,21 @@ eq(frameToRecord({ percentLift: null }).percentLift, 0,
 eq(frameToRecord({ percentLift: 47.3 }).percentLift, 47.3,
    'percentLift: numeric value preserved');
 
+// ---- decelRate: parseFloat(null) || 0 collapses null to 0 (intentional) ----
+//
+// Same pattern as percentLift: gate is at the render layer via aoaIsValid
+// (not on decelRate directly).  Mode 3's gauge pointer hides and the Kt/s
+// digit dashes regardless of the collapsed value.  The display EMA
+// (useDecelEma in IndexerPage, FlyDecelStep in CalWizardPage) skips
+// updates while invalid AND resets on the false→true edge so the
+// collapsed 0s never seed the EMA.  Pin the contract so a future
+// refactor that switches to pass-through-null doesn't silently change
+// EMA behavior.
+eq(frameToRecord({ DecelRate: null }).decelRate, 0,
+   'decelRate: parseFloat(null) || 0 → 0 (consumers gate on aoaIsValid)');
+eq(frameToRecord({ DecelRate: -0.35 }).decelRate, -0.35,
+   'decelRate: numeric value preserved');
+
 // ---- Report ---------------------------------------------------------
 
 console.log('wsClient frameToRecord:');

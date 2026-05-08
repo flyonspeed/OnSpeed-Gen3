@@ -18,7 +18,7 @@ import { fmt } from '../core/format.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from '../modes.js';
 import { useWebSocket } from '../ws/wsClient.js';
 import { PageShell } from '../shell/PageShell.js';
-import { makeEmaState, updateEma } from '../core/ema.js';
+import { makeEmaState, updateEma, resetEma } from '../core/ema.js';
 
 // EMA alpha for Mode 3's decel pointer / readout.  Matches the M5
 // firmware's `decelSmoothingAlpha` in SerialRead.cpp:28 (0.04 at 20 Hz
@@ -155,22 +155,37 @@ const G_HISTORY_STALENESS_SEC    = 3;  // useGHistory sampler gate
 // frame so the smoothed value is always current; Mode 3 reads it via
 // the `decelRateSmoothed` prop.  Bug #362.
 //
-// Skip the update when air data is invalid (rec.aoaIsValid === false).
-// wsClient maps the JSON's null-on-invalid DecelRate to 0; without this
-// guard the EMA would seed with zeros during taxi and lag for ~25 frames
-// on takeoff while it climbs out of "steady-state is 0".  Mirrors the
-// firmware-side SavGol reset on the bIasAlive edge (PR #482) at the EMA
-// layer.  See #484.
+// Validity gating mirrors the M5's iasIsValid-edge SavGol reset
+// (SerialRead.cpp::SerialProcess after PR #486):
+//
+//   - During invalid (rec.aoaIsValid === false): skip the update.
+//     wsClient maps the JSON's null-on-invalid DecelRate to 0; without
+//     this guard the EMA would seed with zeros during taxi.
+//   - On the false→true edge: reset the EMA state so the first valid
+//     post-transition sample seeds fresh.  Without this reset, the
+//     state holds the last pre-taxi smoothed value (e.g. -0.5 kt/s
+//     from the prior approach) and relaxes toward 0 over ~25 frames
+//     (~1.25s at α=0.04) while the firmware's freshly-reset SavGol
+//     ships ~0; pilot would see a stale negative reading on /indexer
+//     Mode 3 for ~1.25s after takeoff while the M5 hardware shows 0.
+//
+// Tracks #484; companion to PR #482 / PR #486.
 function useDecelEma(rec) {
   const stateRef = useRef(makeEmaState(DECEL_EMA_ALPHA));
   const lastRecRef = useRef(null);
+  const lastValidRef = useRef(false);
   const [smoothed, setSmoothed] = useState(null);
 
   useEffect(() => {
     if (rec === lastRecRef.current) return;
     lastRecRef.current = rec;
     if (rec == null) return;
-    if (rec.aoaIsValid === false) return;
+    const valid = rec.aoaIsValid !== false;
+    if (valid && !lastValidRef.current) {
+      resetEma(stateRef.current);
+    }
+    lastValidRef.current = valid;
+    if (!valid) return;
     const out = updateEma(stateRef.current, rec.decelRate);
     if (out !== null) setSmoothed(out);
   }, [rec]);
