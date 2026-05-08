@@ -29,19 +29,45 @@
 //               alpha0, alphaStall, kFit }, ...]
 //   }
 //
-// On parse error the returned object has an `error` string field.
+// On parse error, parseConfigXml throws ConfigParseError.
 
 import { getWasmCore } from './wasm_core.js';
 
-// Parse a V1 or V2 OnSpeed config XML string.
-//
-// xmlText — raw XML text from an .cfg file.  Both V1 (<CONFIG> root) and
-//           V2 (<CONFIG2> root) formats are supported.  The C++ parser
-//           auto-detects the format via IsV1Format().
-//
-// Returns a Promise resolving to the parsed config object.  On parse
-// error the object contains an `error` field with a description string.
+/**
+ * Thrown when parse_config returns an error object rather than a valid config.
+ * Callers must handle this — do not silently render empty UI on bad XML.
+ */
+export class ConfigParseError extends Error {
+    /**
+     * @param {string} message - Human-readable error description.
+     * @param {string} xmlSnippet - First 200 characters of the input for diagnostics.
+     */
+    constructor(message, xmlSnippet) {
+        super(message);
+        this.name = 'ConfigParseError';
+        this.xmlSnippet = xmlSnippet;
+    }
+}
+
+/**
+ * Parse a V1 or V2 OnSpeed config XML string.
+ *
+ * Both V1 (<CONFIG> root) and V2 (<CONFIG2> root) formats are supported.
+ * The C++ parser auto-detects the format via IsV1Format().
+ *
+ * @param {string} xmlText - Raw XML text from a .cfg file.
+ * @returns {Promise<object>} Parsed config object with flaps array,
+ *   alpha values, etc.
+ * @throws {ConfigParseError} If the XML cannot be parsed.
+ */
 export async function parseConfigXml(xmlText) {
     const w = await getWasmCore();
-    return w.parse_config(xmlText);
+    const result = w.parse_config(xmlText);
+    if (result && typeof result === 'object' && result.error) {
+        throw new ConfigParseError(
+            `Failed to parse OnSpeed config XML: ${result.error}`,
+            xmlText.slice(0, 200)
+        );
+    }
+    return result;
 }

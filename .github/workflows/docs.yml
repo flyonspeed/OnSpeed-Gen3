@@ -10,6 +10,7 @@ on:
       - 'scripts/build_m5_sim_for_docs.sh'
       - 'software/Libraries/onspeed_core/**'
       - 'tools/web/test/wasm-smoke.mjs'
+      - 'tools/web/lib/replay/**'
   pull_request:
     branches: [master]
     paths:
@@ -19,6 +20,7 @@ on:
       - 'scripts/build_m5_sim_for_docs.sh'
       - 'software/Libraries/onspeed_core/**'
       - 'tools/web/test/wasm-smoke.mjs'
+      - 'tools/web/lib/replay/**'
   release:
     types: [published]
   workflow_dispatch:

@@ -28,10 +28,16 @@ try {
     const mod = await import(wasmJsPath);
     OnSpeedCoreModule = mod.default;
 } catch (err) {
-    console.error(`SKIP: onspeed_core.js not found at ${wasmJsPath}`);
-    console.error('      Run bash software/Libraries/onspeed_core/wasm/build_wasm.sh first.');
+    if (process.env.ALLOW_MISSING_WASM === '1') {
+        console.warn(`SKIP: onspeed_core.js not found at ${wasmJsPath}`);
+        console.warn('      Set ALLOW_MISSING_WASM=1 suppressed this failure (local use only).');
+        console.warn(`      (${err.message})`);
+        process.exit(0);
+    }
+    console.error(`FAIL: onspeed_core.js not found at ${wasmJsPath}`);
+    console.error('      Build it first: bash software/Libraries/onspeed_core/wasm/build_wasm.sh');
     console.error(`      (${err.message})`);
-    process.exit(0);  // exit 0 — skip rather than fail on a missing artifact
+    process.exit(1);
 }
 
 const Module = await OnSpeedCoreModule();
@@ -204,6 +210,52 @@ if (anchorsClean.pipPctLift === anchorsFullFlap.pipPctLift) {
 console.log(
     `OK: pip slides: clean=${anchorsClean.pipPctLift}, ` +
     `full-flap=${anchorsFullFlap.pipPctLift}`);
+
+// Body-angle convention: alpha_0 is typically NEGATIVE for the real airplane
+// (RV-10 = -3.72°). The anchors path must preserve this — a regression that
+// floored alpha_0 at 0 or took std::abs() would silently corrupt every
+// percent-lift display in the Replay UI. Pin the contract here.
+//
+// Expected values computed from C++ with alpha_0=-3.72, alpha_stall=10.31:
+//   stallWarnPctLift: (8.24 - (-3.72)) / (10.31 - (-3.72)) × 100 ≈ 85.2 → 85
+{
+    const anchorsRV10 = Module.compute_anchors([
+        {
+            potPosition:    0,
+            degrees:        0,
+            ldmaxAoa:       6.5,
+            onSpeedFastAoa: 7.5,
+            onSpeedSlowAoa: 8.5,
+            stallWarnAoa:   8.24,
+            alpha0:         -3.72,
+            alphaStall:     10.31,
+            kFit:           0.0,
+        }
+    ], 0, 0);
+
+    console.log(`\n--- compute_anchors (RV-10 alpha_0=-3.72) ---`);
+    console.log(`    ${JSON.stringify(anchorsRV10)}`);
+
+    const checkInRange = (label, val) => {
+        if (typeof val !== 'number' || val < 0 || val > 99) {
+            console.error(`FAIL: anchors ${label} out of [0,99]: ${val}`);
+            process.exit(1);
+        }
+    };
+    checkInRange('tonesOnPctLift',     anchorsRV10.tonesOnPctLift);
+    checkInRange('onSpeedFastPctLift', anchorsRV10.onSpeedFastPctLift);
+    checkInRange('onSpeedSlowPctLift', anchorsRV10.onSpeedSlowPctLift);
+    checkInRange('stallWarnPctLift',   anchorsRV10.stallWarnPctLift);
+
+    // Pin exact integer values from C++ output. With alpha_0=-3.72,
+    // alpha_stall=10.31: if alpha_0 were wrongly floored at 0, these
+    // would all shift (e.g. stallWarnPctLift → 79 instead of 85).
+    assertEqual('anchorsRV10.tonesOnPctLift',     anchorsRV10.tonesOnPctLift,     72);
+    assertEqual('anchorsRV10.onSpeedFastPctLift', anchorsRV10.onSpeedFastPctLift, 79);
+    assertEqual('anchorsRV10.onSpeedSlowPctLift', anchorsRV10.onSpeedSlowPctLift, 87);
+    assertEqual('anchorsRV10.stallWarnPctLift',   anchorsRV10.stallWarnPctLift,   85);
+    console.log(`OK: compute_anchors with RV-10 alpha_0=-3.72 returns sensible anchors`);
+}
 
 // Empty flaps array must return all zeros (uncalibrated sentinel).
 const anchorsEmpty = Module.compute_anchors([], 0, 0);

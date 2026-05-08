@@ -116,12 +116,19 @@ static val compute_anchors(
         s.fAlphaStall     = f["alphaStall"].as<float>();
     }
 
-    // Clamp active_index defensively.
-    size_t activeIdx = 0;
-    if (active_index >= 0 &&
-        static_cast<size_t>(active_index) < entries.size()) {
-        activeIdx = static_cast<size_t>(active_index);
+    // Validate active_index. Negative or out-of-range values are programmer
+    // errors — a JS caller passing flaps.indexOf(notFound) // -1 should
+    // surface as an exception, not silently produce clean-detent anchors.
+    // The empty-array case is legitimate (uncalibrated); skip the check then.
+    if (!entries.empty() &&
+        (active_index < 0 ||
+         static_cast<size_t>(active_index) >= entries.size())) {
+        throw std::out_of_range(
+            "compute_anchors: active_index " +
+            std::to_string(active_index) + " out of range [0, " +
+            std::to_string(entries.size()) + ")");
     }
+    size_t activeIdx = entries.empty() ? 0 : static_cast<size_t>(active_index);
 
     // The anchor computation always uses iasValid=true: indexer geometry
     // must stay stable across the audio mute threshold; anchors don't gate
