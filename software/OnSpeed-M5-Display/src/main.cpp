@@ -37,6 +37,11 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // builds drop the -dev suffix and the +sha metadata.
 #include <buildinfo.h>
 
+// lroundf at the GaugeWidgets boundary; reaches us transitively today
+// via M5Unified/M5GFX, but this declaration is load-bearing enough to
+// not rely on transitive provenance.
+#include <cmath>
+
 //#define SERIALDATADEBUG   // show serial packet debug
 //#define DUMMY_SERIAL_DATA // dummy serial data for display test
 
@@ -1419,7 +1424,9 @@ void AiGraph (int16_t px0, int16_t py0, int16_t arcSize, int16_t arcWidth, int16
     Draw FlightPath marker
     */
 
-    // 120 -screen center
+    // 120 -screen center. Reads the parameter rather than the global Pitch
+    // so a future caller passing a smoothed/synthetic pitch (X-Plane plugin,
+    // unit test) gets the FPV consistent with the horizon it just drew.
     int fpY = 120-(flightPathAngle-pitch)*120/40; // 40 degrees of pitch per half screen height
     fpY = constrain(fpY,0,239);
     int fpX = 159; // screen center
