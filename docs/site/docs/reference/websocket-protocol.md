@@ -131,7 +131,7 @@ The per-field tables below note source variations where they apply.
 | `PAlt` | float | feet | Pressure altitude. From `g_AHRS.KalmanAlt` (Kalman-filtered, in metres) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode. |
 | `kalmanVSI` | float | feet/min | Vertical speed. **Despite the name**, this is `g_AHRS.KalmanVSI` in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's `-VelNedDown` (NED-down velocity, sign-inverted to make positive = climb). The non-VN-300 EFIS mode does not use the EFIS's own VSI here. |
 | `OAT` | float | °C | Outside air temperature. From the EFIS in any EFIS mode (including VN-300) via `g_EfisSerial.suEfis.OAT`; from `g_Sensors.OatC` if `OATSENSOR = true` in config; otherwise `0.0`. |
-| `DecelRate` | float | knots/s | Smoothed IAS-decel rate, `g_Sensors.fDecelRate` (Savitzky-Golay derivative of IAS). Negative = decelerating. Always from OnSpeed sensors. |
+| `DecelRate` | float | knots/s | IAS-decel rate, `g_Sensors.fDecelRate` — the raw output of a 15-tap Savitzky-Golay first-derivative filter on smoothed IAS, scaled to kt/s. **Not** additionally EMA-smoothed; consumers smooth per-surface. The M5 hardware decel gauge applies an EMA at α=0.04 (~1.25 s τ at 20 Hz; see `software/OnSpeed-M5-Display/src/SerialRead.cpp`); `/indexer` Mode 3 mirrors the same α=0.04 to track the M5 byte-equivalently in time; `/calwiz`'s decel step exposes a SMOOTH ↔ RESPONSIVE slider (α range 0.02–0.50, default 0.05) for the gauge needle only — recorded samples remain raw. Negative = decelerating. Always from OnSpeed sensors. |
 
 ### G-loads
 
