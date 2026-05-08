@@ -202,6 +202,77 @@ void test_sentinel_constants_match_data_server(void) {
                              "AOA sentinel -100 not found in DataServer.cpp");
 }
 
+// ----------------------------------------------------------------------------
+// Air-data validity gate — issue #358
+// ----------------------------------------------------------------------------
+
+// The producer-side gate must read bIasAlive (the canonical sensor-level
+// air-data validity flag), not iMuteAudioUnderIAS (an audio-UX threshold).
+// Reverting either gate would silently re-introduce the bug where pilots
+// see a 5 kt taxi reading on the LiveView.  Source grep is enough to
+// pin the contract — actually executing UpdateLiveDataJson() requires
+// Arduino + WiFi headers that this native test can't link against.
+void test_air_data_gate_uses_bIasAlive(void) {
+    std::string root = FindRepoRoot();
+    std::string src  = ReadFile(root + "/software/sketch_common/src/web_server/DataServer.cpp");
+    TEST_ASSERT_TRUE_MESSAGE(!src.empty(), "DataServer.cpp not found");
+
+    // Both the AOA gate and the percentLift gate must reference
+    // bIasAlive.  The exact spelling is `g_Sensors.bIasAlive`.
+    TEST_ASSERT_TRUE_MESSAGE(src.find("g_Sensors.bIasAlive") != std::string::npos,
+                             "DataServer.cpp must gate on g_Sensors.bIasAlive");
+
+    // The audio-mute threshold must NOT drive any display gate.
+    // It's allowed in Audio.cpp (the actual audio path), and may
+    // appear in source comments here for context, but the *code*
+    // form `g_Config.iMuteAudioUnderIAS` would indicate it's been
+    // wired back into the gate.  Pinning the dotted form catches
+    // exactly that.
+    TEST_ASSERT_TRUE_MESSAGE(
+        src.find("g_Config.iMuteAudioUnderIAS") == std::string::npos,
+        "g_Config.iMuteAudioUnderIAS must not gate any display value in DataServer.cpp (issue #358)");
+}
+
+// IAS and percentLift must use %s placeholders in the format string so
+// the producer can emit JSON `null` for those fields when bIasAlive is
+// false.  AOA stays %.2f (rides its -100 numeric sentinel; the
+// consumer's `o.AOA > -20` check would silently mis-classify a JSON
+// null as valid because JS coerces null → 0 in numeric comparison).
+void test_format_string_uses_string_placeholders_for_invalid_aware_fields(void) {
+    std::string root = FindRepoRoot();
+    std::string src  = ReadFile(root + "/software/sketch_common/src/web_server/DataServer.cpp");
+    TEST_ASSERT_TRUE_MESSAGE(!src.empty(), "DataServer.cpp not found");
+
+    auto begin = src.find("szFormat =");
+    TEST_ASSERT_TRUE_MESSAGE(begin != std::string::npos, "szFormat not found");
+    auto end = src.find(";", begin);
+    TEST_ASSERT_TRUE_MESSAGE(end != std::string::npos, "szFormat terminator not found");
+    std::string fmt = src.substr(begin, end - begin);
+
+    // IAS and percentLift use %s (so the value can be `null` when
+    // invalid).  Format-string substring search is robust to whitespace
+    // changes inside the literal because the key+colon+placeholder
+    // sequence is exact.
+    TEST_ASSERT_TRUE_MESSAGE(
+        fmt.find("\\\"IAS\\\":%s") != std::string::npos,
+        "IAS must use %s placeholder for null-when-invalid");
+    TEST_ASSERT_TRUE_MESSAGE(
+        fmt.find("\\\"percentLift\\\":%s") != std::string::npos,
+        "percentLift must use %s placeholder for null-when-invalid");
+
+    // AOA stays %.2f (numeric -100 sentinel preserved).
+    TEST_ASSERT_TRUE_MESSAGE(
+        fmt.find("\\\"AOA\\\":%.2f") != std::string::npos,
+        "AOA must stay %.2f (uses numeric sentinel, not null)");
+
+    // The producer-side branch that picks "null" vs the formatted
+    // value must exist.  Spot-checks the literal "null" appearing in
+    // a strcpy / strncpy / String literal.
+    TEST_ASSERT_TRUE_MESSAGE(
+        src.find("\"null\"") != std::string::npos,
+        "DataServer.cpp must emit \"null\" string for invalid IAS / percentLift");
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -210,6 +281,8 @@ int main(void) {
     RUN_TEST(test_replay_ndjson_has_documented_keys);
     RUN_TEST(test_livedata_mock_has_documented_keys);
     RUN_TEST(test_sentinel_constants_match_data_server);
+    RUN_TEST(test_air_data_gate_uses_bIasAlive);
+    RUN_TEST(test_format_string_uses_string_placeholders_for_invalid_aware_fields);
 
     return UNITY_END();
 }

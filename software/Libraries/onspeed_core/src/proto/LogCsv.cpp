@@ -5,6 +5,7 @@
 
 #include <proto/LogCsv.h>
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -105,12 +106,20 @@ struct CsvTokenizer {
 
 // Parse helpers — return true on success.
 //
-// Numeric helpers reject empty tokens: every column written by FormatRow
-// emits a non-empty string (`%lu`, `%i`, `%.Nf`), so an empty token on the
-// parse side means a corrupt row (e.g. a truncated SD write that left two
+// The default helpers reject empty tokens. Most columns are emitted as a
+// non-empty string by FormatRow (`%lu`, `%i`, `%.Nf`), so an empty token on
+// the parse side means a corrupt row (a truncated SD write that left two
 // adjacent commas). Returning false propagates through ParseRow and skips
-// the row entirely, which is what replay tools want — silently substituting
-// zero would feed a phantom IAS=0 / AOA=0 sample to AHRS and audio.
+// the row, which is what replay tools want — silently substituting zero
+// would feed a phantom IAS=0 / AOA=0 sample to AHRS and audio.
+//
+// The `AllowEmpty` variants below are the explicit exception: four columns
+// (IAS, AngleofAttack, DerivedAOA, efisPercentLift) are emitted empty when
+// the producer's `bIasAlive` gate is false, matching the M5 wire / JSON /
+// Dynon convention of distinguishing "no valid air data" from "real
+// reading of 0.0". The float variant decodes empty to NaN; the int
+// variant decodes empty to 0 with a separate validity flag, since the
+// integer column has no NaN sentinel.
 
 static bool ParseFloat(std::string_view tok, float& out)
 {
@@ -186,6 +195,59 @@ static bool ParseString(std::string_view tok, char* out, size_t outCap)
     return true;
 }
 
+// Empty-tolerant parse for the four `bIasAlive`-gated columns.
+// Empty token sets `out` to NaN and `outValid` to false; otherwise behaves
+// like ParseFloat and sets `outValid` to true on success.
+static bool ParseFloatAllowEmpty(std::string_view tok, float& out, bool& outValid)
+{
+    if (tok.empty()) {
+        out = std::nanf("");
+        outValid = false;
+        return true;
+    }
+    if (!ParseFloat(tok, out)) return false;
+    outValid = true;
+    return true;
+}
+
+// Empty-tolerant parse for the int `efisPercentLift` column.  Empty token
+// sets `out` to 0 and `outValid` to false; otherwise behaves like ParseInt
+// and sets `outValid` to true on success.
+static bool ParseIntAllowEmpty(std::string_view tok, int& out, bool& outValid)
+{
+    if (tok.empty()) {
+        out = 0;
+        outValid = false;
+        return true;
+    }
+    if (!ParseInt(tok, out)) return false;
+    outValid = true;
+    return true;
+}
+
+// Format helpers for the gated columns.  When `valid`, formats `val` with
+// `fmt`; when not, emits an empty cell.  `fmt` must include the leading
+// comma to match the existing FormatRow style (the comma-prefix scheme
+// keeps Appendf calls readable in column-group blocks).  The trampoline
+// passes its caller-supplied `fmt` through to Appendf, which is marked
+// printf-format; suppress the `-Wformat-nonliteral` complaint locally.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+static bool AppendFloatOrEmpty(char* buf, size_t cap, size_t* pLen,
+                               bool valid, const char* fmt, float val)
+{
+    return valid ? Appendf(buf, cap, pLen, fmt, val)
+                 : Appendf(buf, cap, pLen, ",");
+}
+
+static bool AppendIntOrEmpty(char* buf, size_t cap, size_t* pLen,
+                             bool valid, const char* fmt, int val)
+{
+    return valid ? Appendf(buf, cap, pLen, fmt, val)
+                 : Appendf(buf, cap, pLen, ",");
+}
+#pragma GCC diagnostic pop
+
 }   // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -255,14 +317,27 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     bool ok = true;
 
     // Core sensor columns — must match LogSensor::Write() exactly.
-    //   %lu,%i,%.2f,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i
+    // Columns 1..7 are always numeric; IAS and AngleofAttack go empty when
+    // `iasValid` is false (matches the M5 wire / JSON convention so offline
+    // analysis tools can distinguish "no air-data yet" from "real reading
+    // of 0.0").  flapsPos and DataMark stay numeric — they're meaningful
+    // at rest.
+    //   %lu,%i,%.2f,%i,%.2f,%.2f,%.2f
     ok &= Appendf(out, outCapacity, &len,
-        "%lu,%i,%.2f,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i",
+        "%lu,%i,%.2f,%i,%.2f,%.2f,%.2f",
         (unsigned long)row.timeStampMs,
         row.pfwdCounts, row.pfwdSmoothed,
         row.p45Counts,  row.p45Smoothed,
-        row.pStaticMbar, row.paltFt, row.iasKt,
-        row.angleOfAttackDeg,
+        row.pStaticMbar, row.paltFt);
+
+    // IAS (column 8) and AngleofAttack (column 9): empty when !iasValid.
+    ok &= AppendFloatOrEmpty(out, outCapacity, &len, row.iasValid,
+                             ",%.2f", row.iasKt);
+    ok &= AppendFloatOrEmpty(out, outCapacity, &len, row.iasValid,
+                             ",%.2f", row.angleOfAttackDeg);
+
+    //   ,%i,%i  (flapsPos, DataMark — always numeric)
+    ok &= Appendf(out, outCapacity, &len, ",%i,%i",
         row.flapsPos, row.dataMark);
 
     //   ,%.2f,%.2f  (OAT, TAS)
@@ -316,12 +391,21 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 row.vnDataAgeMs,        row.vnTimeUtc);
         } else {
             // Standard EFIS (Dynon, Garmin, MGL, etc.)
-            //   ,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%i,%lu
+            // efisPercentLift goes empty when !efisPercentLiftValid (mirrors
+            // the IAS gate; the EFIS-fed percent-lift is meaningless when
+            // the producer's air-data isn't alive).
+            //   ,%.2f,%.2f,%.2f,%.2f,%.2f
             ok &= Appendf(out, outCapacity, &len,
-                ",%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%i,%lu",
-                row.efisIasKt,         row.efisPitchDeg,      row.efisRollDeg,
-                row.efisLateralG,      row.efisVerticalG,
-                row.efisPercentLift,   row.efisPaltFt,        row.efisVsiFpm,
+                ",%.2f,%.2f,%.2f,%.2f,%.2f",
+                row.efisIasKt,    row.efisPitchDeg,  row.efisRollDeg,
+                row.efisLateralG, row.efisVerticalG);
+            ok &= AppendIntOrEmpty(out, outCapacity, &len,
+                                   row.efisPercentLiftValid,
+                                   ",%i", row.efisPercentLift);
+            //   ,%i,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%i,%lu
+            ok &= Appendf(out, outCapacity, &len,
+                ",%i,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%i,%lu",
+                row.efisPaltFt,        row.efisVsiFpm,
                 row.efisTasKt,         row.efisOatCelsius,
                 row.efisFuelRemaining, row.efisFuelFlow,      row.efisMap,
                 row.efisRpm,           row.efisPercentPower,  row.efisMagHeading,
@@ -329,15 +413,18 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
         }
     }
 
-    // Post-EFIS derived columns (always present)
+    // Post-EFIS derived columns (always present).  EarthVerticalG / FlightPath
+    // / VSI / Altitude / CoeffP stay numeric — they're derived from IMU,
+    // pressure altitude, and raw pressure ratios that are meaningful at rest.
+    // Only DerivedAOA is air-data-gated.
     ok &= Appendf(out, outCapacity, &len,
         ",%.2f,%.2f,%.2f,%.2f",
         row.earthVerticalG, row.flightPathDeg,
         row.vsiFpm, row.altitudeFt);
 
-    ok &= Appendf(out, outCapacity, &len,
-        ",%.4f,%.4f",
-        row.derivedAoaDeg, row.coeffP);
+    ok &= AppendFloatOrEmpty(out, outCapacity, &len, row.iasValid,
+                             ",%.4f", row.derivedAoaDeg);
+    ok &= Appendf(out, outCapacity, &len, ",%.4f", row.coeffP);
 
     // Tail-optional flapsRawADC.  Mirrors WriteHeader; rows from sessions
     // without the column omit it entirely.
@@ -360,8 +447,18 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
     if (!tok.next(field) || !ParseFloat(field, row.p45Smoothed))   return false;
     if (!tok.next(field) || !ParseFloat(field, row.pStaticMbar))   return false;
     if (!tok.next(field) || !ParseFloat(field, row.paltFt))        return false;
-    if (!tok.next(field) || !ParseFloat(field, row.iasKt))         return false;
-    if (!tok.next(field) || !ParseFloat(field, row.angleOfAttackDeg)) return false;
+    if (!tok.next(field) ||
+        !ParseFloatAllowEmpty(field, row.iasKt, row.iasValid))     return false;
+    {
+        // AngleofAttack shares the iasValid gate with IAS.  Both are emitted
+        // empty together by FormatRow; the parser must observe the same gate
+        // (and reject mixed-state rows where one cell is empty and the other
+        // numeric, which would mean a corrupt write).
+        bool aoaValid = false;
+        if (!tok.next(field) ||
+            !ParseFloatAllowEmpty(field, row.angleOfAttackDeg, aoaValid)) return false;
+        if (aoaValid != row.iasValid) return false;
+    }
     if (!tok.next(field) || !ParseInt(field, row.flapsPos))        return false;
     if (!tok.next(field) || !ParseInt(field, row.dataMark))        return false;
 
@@ -432,7 +529,9 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
             if (!tok.next(field) || !ParseFloat(field, row.efisRollDeg))       return false;
             if (!tok.next(field) || !ParseFloat(field, row.efisLateralG))      return false;
             if (!tok.next(field) || !ParseFloat(field, row.efisVerticalG))     return false;
-            if (!tok.next(field) || !ParseInt(field, row.efisPercentLift))     return false;
+            if (!tok.next(field) ||
+                !ParseIntAllowEmpty(field, row.efisPercentLift,
+                                    row.efisPercentLiftValid))         return false;
             if (!tok.next(field) || !ParseInt(field, row.efisPaltFt))          return false;
             if (!tok.next(field) || !ParseInt(field, row.efisVsiFpm))          return false;
             if (!tok.next(field) || !ParseFloat(field, row.efisTasKt))         return false;
@@ -453,7 +552,13 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
     if (!tok.next(field) || !ParseFloat(field, row.flightPathDeg))   return false;
     if (!tok.next(field) || !ParseFloat(field, row.vsiFpm))          return false;
     if (!tok.next(field) || !ParseFloat(field, row.altitudeFt))      return false;
-    if (!tok.next(field) || !ParseFloat(field, row.derivedAoaDeg))   return false;
+    {
+        // DerivedAOA shares the iasValid gate with IAS / AngleofAttack.
+        bool derivedValid = false;
+        if (!tok.next(field) ||
+            !ParseFloatAllowEmpty(field, row.derivedAoaDeg, derivedValid)) return false;
+        if (derivedValid != row.iasValid) return false;
+    }
     if (!tok.next(field) || !ParseFloat(field, row.coeffP))          return false;
 
     // Tail-optional flapsRawADC.  When the consumer flag is set, the column

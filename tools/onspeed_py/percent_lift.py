@@ -35,7 +35,15 @@ def compute_percent_lift(aoa: float, fs: FlapSetpoints) -> float:
     The 99.9 ceiling (rather than 99.0) is load-bearing for the wire
     encoding: the encoder multiplies by 10 and truncates, and the
     field saturates at 999 (never 1000) by convention.
+
+    NaN input (the format-3 "no valid air data" sentinel from a v3 SD
+    log with `iasValid=false`) propagates as NaN so consumers can
+    render "no data" instead of zero.  Python's `min`/`max` drops NaN
+    asymmetrically depending on argument order, so the early return
+    guards against silent NaN coercion to 0.0.
     """
+    if math.isnan(aoa):
+        return math.nan
     alpha_stall = fs.alpha_stall
     if alpha_stall <= fs.stallwarn_aoa:
         alpha_stall = fs.stallwarn_aoa * 100.0 / 90.0

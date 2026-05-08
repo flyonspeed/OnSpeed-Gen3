@@ -751,22 +751,164 @@ void test_empty_float_field_returns_false(void)
     TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
 }
 
-void test_empty_ias_field_returns_false(void)
+void test_empty_ias_aoa_only_returns_false(void)
 {
-    // The IAS column is the most flight-safety-relevant; an empty value
-    // here used to silently parse as IAS=0, which would feed AHRS comp
-    // and audio mute as if the aircraft were stopped.
+    // Format version 3 gates IAS, AngleofAttack, and DerivedAOA together.
+    // A row with only IAS+AoA empty (DerivedAOA still numeric) is a
+    // corrupt write and must be rejected — empty for one but not the
+    // other can't come from a consistent producer.
     LogRow original = MakeTestRow(false, false, false);
     size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
-    // iasKt is the 8th column (index 7): timeStamp, pfwdCounts,
-    // pfwdSmoothed, p45Counts, p45Smoothed, pStaticMbar, paltFt, iasKt.
+    // Blank only IAS (column 8) and AngleofAttack (column 9), leaving
+    // DerivedAOA numeric.
     std::string mutated(s_rowBuf, fmtLen);
     size_t pos = 0;
     for (int i = 0; i < 7; ++i) {
         pos = mutated.find(',', pos) + 1;
-        TEST_ASSERT_GREATER_THAN(0u, pos);   // find returned npos+1 == 0 on miss
+        TEST_ASSERT_GREATER_THAN(0u, pos);
+    }
+    size_t aoaEnd = mutated.find(',', mutated.find(',', pos) + 1);
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, aoaEnd);
+    mutated = mutated.substr(0, pos) + mutated.substr(aoaEnd);
+
+    LogRow r;
+    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+}
+
+// ============================================================================
+// Test: format-version-3 air-data validity gate
+//
+// FormatRow emits empty cells for IAS, AngleofAttack, DerivedAOA, and
+// efisPercentLift when the producer's iasValid (resp. efisPercentLiftValid)
+// flag is false.  ParseRow round-trips the empty state to NaN / 0 + flag.
+// This is the same convention as the M5 wire / WebSocket JSON in PR #431.
+// ============================================================================
+
+// FormatRow with iasValid=false produces empty cells at column 8/9
+// (IAS / AngleofAttack) and the DerivedAOA position.
+void test_invalid_ias_emits_empty_ias_and_aoa_cells(void)
+{
+    LogRow r = MakeTestRow(false, false, false);
+    r.iasValid = false;
+
+    size_t fmtLen = csv::FormatRow(r, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Walk to the boundary between paltFt (col 7) and flapsPos.  In a
+    // valid row the IAS and AngleofAttack values sit there; in an
+    // invalid row both cells are empty, leaving four consecutive commas
+    // ",," after paltFt and before flapsPos.
+    s_rowBuf[fmtLen] = '\0';
+    // After paltFt we expect ",,,<flapsPos>" — comma after paltFt, then
+    // empty IAS, empty AOA, comma before flapsPos.
+    // Walk past 7 commas to land at the start of IAS.
+    const char* p = s_rowBuf;
+    for (int i = 0; i < 7; ++i) {
+        p = strchr(p, ',');
+        TEST_ASSERT_NOT_NULL(p);
+        ++p;
+    }
+    // p points right after the 7th comma — start of IAS cell.
+    // Empty IAS + empty AOA = ",," (then the comma before flapsPos).
+    TEST_ASSERT_EQUAL_CHAR(',', p[0]);   // empty IAS, immediate comma
+    TEST_ASSERT_EQUAL_CHAR(',', p[1]);   // empty AOA, immediate comma
+    // The third character must NOT be a comma (flapsPos starts here).
+    TEST_ASSERT_NOT_EQUAL(',', p[2]);
+}
+
+// Round-trip: invalid producer state survives Format -> Parse.
+void test_invalid_ias_roundtrip(void)
+{
+    LogRow original = MakeTestRow(false, true, false);   // EFIS, no boom
+    original.iasValid             = false;
+    original.efisPercentLiftValid = false;
+
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    LogRow parsed;
+    parsed.efisEnabled = true;
+    parsed.efisIsVn300 = false;
+    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    TEST_ASSERT_TRUE(ok);
+
+    TEST_ASSERT_FALSE(parsed.iasValid);
+    TEST_ASSERT_FALSE(parsed.efisPercentLiftValid);
+    TEST_ASSERT_TRUE(std::isnan(parsed.iasKt));
+    TEST_ASSERT_TRUE(std::isnan(parsed.angleOfAttackDeg));
+    TEST_ASSERT_TRUE(std::isnan(parsed.derivedAoaDeg));
+    TEST_ASSERT_EQUAL_INT(0, parsed.efisPercentLift);
+    // CoeffP must remain numeric — it's a raw pressure ratio, not gated.
+    TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.coeffP, parsed.coeffP);
+}
+
+// Default LogRow (iasValid=true, efisPercentLiftValid=true) must produce
+// the same byte string as before format-version-3 — i.e. round-trips like
+// the existing fixture rows.
+void test_valid_default_emits_numeric_cells(void)
+{
+    LogRow r = MakeTestRow(false, true, false);
+    // r.iasValid and r.efisPercentLiftValid default to true.
+    AssertRoundTrip(r);
+}
+
+// efisPercentLift only: float gate stays open (iasValid=true), int gate
+// closed.  Catches a bug where a single boolean accidentally dual-gates.
+void test_efis_percent_lift_invalid_only(void)
+{
+    LogRow original = MakeTestRow(false, true, false);
+    original.iasValid             = true;
+    original.efisPercentLiftValid = false;
+
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    LogRow parsed;
+    parsed.efisEnabled = true;
+    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(parsed.iasValid);
+    TEST_ASSERT_FALSE(parsed.efisPercentLiftValid);
+    TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.iasKt, parsed.iasKt);
+    TEST_ASSERT_EQUAL_INT(0, parsed.efisPercentLift);
+}
+
+// VN-300 row carries no efisPercentLift column; iasValid still applies
+// to IAS/AngleofAttack/DerivedAOA.
+void test_invalid_ias_roundtrip_vn300(void)
+{
+    LogRow original = MakeTestRow(false, true, true);
+    original.iasValid = false;
+
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    LogRow parsed;
+    parsed.efisEnabled = true;
+    parsed.efisIsVn300 = true;
+    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(parsed.iasValid);
+    TEST_ASSERT_TRUE(std::isnan(parsed.iasKt));
+    TEST_ASSERT_TRUE(std::isnan(parsed.angleOfAttackDeg));
+    TEST_ASSERT_TRUE(std::isnan(parsed.derivedAoaDeg));
+}
+
+// An empty cell in a non-gated column (e.g. paltFt) must still reject —
+// the truncation-detection guarantee survives the format-3 exception.
+void test_empty_palt_field_still_rejected(void)
+{
+    LogRow original = MakeTestRow(false, false, false);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // paltFt is column 7 (index 6). Blank it.
+    std::string mutated(s_rowBuf, fmtLen);
+    size_t pos = 0;
+    for (int i = 0; i < 6; ++i) {
+        pos = mutated.find(',', pos) + 1;
     }
     size_t next = mutated.find(',', pos);
     TEST_ASSERT_NOT_EQUAL(std::string::npos, next);
@@ -984,7 +1126,15 @@ int main(int, char**)
     RUN_TEST(test_empty_timestamp_returns_false);
     RUN_TEST(test_empty_int_field_returns_false);
     RUN_TEST(test_empty_float_field_returns_false);
-    RUN_TEST(test_empty_ias_field_returns_false);
+    RUN_TEST(test_empty_ias_aoa_only_returns_false);
+    RUN_TEST(test_empty_palt_field_still_rejected);
+
+    // Format-version-3 air-data validity gate
+    RUN_TEST(test_invalid_ias_emits_empty_ias_and_aoa_cells);
+    RUN_TEST(test_invalid_ias_roundtrip);
+    RUN_TEST(test_valid_default_emits_numeric_cells);
+    RUN_TEST(test_efis_percent_lift_invalid_only);
+    RUN_TEST(test_invalid_ias_roundtrip_vn300);
     RUN_TEST(test_truncated_boom_section_returns_false);
     RUN_TEST(test_truncated_efis_section_returns_false);
     RUN_TEST(test_truncated_vn300_section_returns_false);

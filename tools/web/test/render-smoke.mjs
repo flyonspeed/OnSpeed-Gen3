@@ -182,6 +182,7 @@ const rebootMod  = await import(new URL('../lib/pages/RebootPage.js', import.met
 const formatMod  = await import(new URL('../lib/pages/FormatPage.js', import.meta.url));
 const upgradeMod = await import(new URL('../lib/pages/UpgradePage.js', import.meta.url));
 const sensorCalMod = await import(new URL('../lib/pages/SensorCalPage.js', import.meta.url));
+const modesMod   = await import(new URL('../lib/modes.js', import.meta.url));
 
 let passed = 0, failed = 0;
 const results = [];
@@ -518,6 +519,132 @@ test('CalWizardPage renders form-divs and flex-col layout classes', () => {
     (n.getAttribute && n.getAttribute('class') || '').split(/\s+/).includes('form-divs'));
   if (formDivs.length === 0)
     throw new Error('CalWizardPage has no class="form-divs" element — styling regression');
+});
+
+// Issue #358: when the producer ships JSON `null` for IAS (bIasAlive
+// false), the corner readouts must render an em-dash placeholder
+// instead of "0", "NaN", or "null".  Mirrors the M5 firmware's
+// "--" gating in main.cpp.
+function makeNullAirDataRecord() {
+  return {
+    aoaDeg: -100, aoaIsValid: false, derivedAoaDeg: 0,
+    pitchDeg: 0, rollDeg: 0,
+    verticalG: 1, lateralG: 0, pitchRate: 0,
+    iasKt: null, paltFt: 1000, oatC: null,
+    vsiFpm: 0, flightPathDeg: 0,
+    decelRate: 0,
+    percentLift: 0,
+    tonesOnPctLift: 30, onSpeedFastPctLift: 50, onSpeedSlowPctLift: 60,
+    stallWarnPctLift: 90, pipPctLift: 70,
+    flapsDeg: 0, flapsMinDeg: 0, flapsMaxDeg: 33,
+    gOnsetRate: 0, dataMark: 0,
+  };
+}
+
+function findTextNodes(root) {
+  return [...walk(root)].filter(n => n.localName === '#text' && n.data);
+}
+
+// Defense-in-depth: rendered text nodes must never contain "null",
+// "NaN", or "undefined" — those are signs that fmt() / a corner gate
+// missed a non-finite input and a JS coercion leaked through.
+function assertNoPlaceholderLeaks(texts) {
+  for (const t of texts) {
+    if (/null|nan|undefined/i.test(t))
+      throw new Error('rendered text contains placeholder leak: ' + JSON.stringify(t));
+  }
+}
+
+test('Mode0 renders em-dash for IAS when iasKt is null', () => {
+  const r = makeNullAirDataRecord();
+  const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  // fmt(null, 0) returns '—' (U+2014); the IAS readout shows it
+  // unmodified. Plain '-' would mean a number leaked through.
+  if (!texts.some(t => t === '—'))
+    throw new Error('expected an em-dash text node for null IAS, got: ' + texts.join('|'));
+  assertNoPlaceholderLeaks(texts);
+});
+
+// Walk a CornerReadout's <g data-widget="corner"> group and return its
+// two text children's `.data` strings as { label, value }. The
+// CornerReadout structure (svg/index.js:94-111) is fixed: first <text>
+// is the label, second <text> is the value.
+function readCorner(g) {
+  const texts = [...walk(g)].filter(n => n.localName === 'text');
+  const inner = (t) => {
+    // Preact renders ${value} as a single child #text node.
+    const child = (t.childNodes || []).find(c => c.localName === '#text');
+    return child ? child.data : '';
+  };
+  return { label: inner(texts[0]), value: inner(texts[1]) };
+}
+
+function findCornerByLabel(root, label) {
+  const groups = [...walk(root)].filter(n =>
+    n.localName === 'g' && n.getAttribute('data-widget') === 'corner');
+  return groups.map(readCorner).find(c => c.label === label);
+}
+
+// Mode 1 has TWO CornerReadouts that emit em-dashes: IAS on the left
+// (fmt(null, 0) → '—') and AOA on the right (the aoaIsValid ternary).
+// Each test fixture pins exactly one source: the other corner stays
+// numeric so the em-dash count is exactly 1, and the corner-by-label
+// lookup confirms the dash is in the expected position.
+test('Mode1 IAS-corner shows em-dash when iasKt is null (AOA stays numeric)', () => {
+  const r = { ...makeNullAirDataRecord(), iasKt: null,
+              aoaIsValid: true, percentLift: 42 };
+  const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  const dashCount = texts.filter(t => t === '—').length;
+  if (dashCount !== 1)
+    throw new Error(`expected exactly 1 em-dash in Mode1, got ${dashCount}: ${texts.join('|')}`);
+  const ias = findCornerByLabel(root, 'IAS');
+  if (!ias) throw new Error('Mode1 has no IAS corner');
+  if (ias.value !== '—')
+    throw new Error(`IAS corner value should be em-dash, got ${JSON.stringify(ias.value)}`);
+  const aoa = findCornerByLabel(root, 'AOA');
+  if (!aoa) throw new Error('Mode1 has no AOA corner');
+  if (aoa.value === '—')
+    throw new Error('AOA corner should render numeric percent-lift, got em-dash');
+  assertNoPlaceholderLeaks(texts);
+});
+
+test('Mode1 AOA-corner shows em-dash when aoaIsValid is false (IAS stays numeric)', () => {
+  const r = { ...makeNullAirDataRecord(), iasKt: 100,
+              aoaIsValid: false, aoaDeg: -100 };
+  const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  const dashCount = texts.filter(t => t === '—').length;
+  if (dashCount !== 1)
+    throw new Error(`expected exactly 1 em-dash in Mode1, got ${dashCount}: ${texts.join('|')}`);
+  const aoa = findCornerByLabel(root, 'AOA');
+  if (!aoa) throw new Error('Mode1 has no AOA corner');
+  if (aoa.value !== '—')
+    throw new Error(`AOA corner value should be em-dash, got ${JSON.stringify(aoa.value)}`);
+  const ias = findCornerByLabel(root, 'IAS');
+  if (!ias) throw new Error('Mode1 has no IAS corner');
+  if (ias.value === '—')
+    throw new Error('IAS corner should render the numeric IAS, got em-dash');
+  assertNoPlaceholderLeaks(texts);
+});
+
+test('Mode3 renders em-dash for IAS when iasKt is null', () => {
+  const r = makeNullAirDataRecord();
+  const root = renderInto(html`<${modesMod.Mode3} r=${r} stale=${false} />`);
+  const texts = findTextNodes(root).map(n => n.data);
+  if (!texts.some(t => t === '—'))
+    throw new Error('expected an em-dash text node for null IAS in Mode3, got: ' + texts.join('|'));
+  assertNoPlaceholderLeaks(texts);
+});
+
+test('Mode0 hides the percent-lift number when aoaIsValid is false', () => {
+  const r = makeNullAirDataRecord();
+  const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
+  const groups = [...walk(root)].filter(n =>
+    n.localName === 'g' && n.getAttribute('data-widget') === 'percent-lift-number');
+  if (groups.length !== 0)
+    throw new Error('PercentLiftNumber rendered when aoaIsValid was false');
 });
 
 await runTests();

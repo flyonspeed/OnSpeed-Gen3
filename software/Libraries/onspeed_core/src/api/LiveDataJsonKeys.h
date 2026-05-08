@@ -50,9 +50,13 @@ inline constexpr const char* kLiveDataJsonKeys[] = {
 inline constexpr size_t kLiveDataJsonKeyCount =
     sizeof(kLiveDataJsonKeys) / sizeof(kLiveDataJsonKeys[0]);
 
-// Sentinel emitted for AOA when the value is non-finite or below the
-// configured mute-audio IAS threshold.  Consumers (LiveView, Indexer)
-// render this as "no AOA" / hide the bar.
+// Sentinel emitted for AOA when the value is non-finite or air data
+// is invalid (sensor-level `bIasAlive` flag is false; see
+// onspeed_core/sensors/IasAlive.h).  Consumers (LiveView, Indexer)
+// render this as "no AOA" / hide the bar.  The numeric `-100` form
+// (rather than JSON `null`) is load-bearing for the wsClient's
+// `o.AOA > AOA_NA_SENTINEL` check — JS coerces `null > -20` to true,
+// which would silently mark invalid frames as valid.  See issue #358.
 inline constexpr float kAoaSentinel = -100.0f;
 
 // Sentinel emitted for the other float fields when the source is

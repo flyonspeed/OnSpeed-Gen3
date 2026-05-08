@@ -11,7 +11,7 @@
 //    0       2     magic               literal  —       "#1"
 //    2       4     pitchDeg            %+04d    ×10     signed, –999 to +999
 //    6       5     rollDeg             %+05d    ×10     signed, –9999 to +9999
-//   11       4     iasKt               %04u     ×10     unsigned, 0–9999
+//   11       4     iasKt               %04u     ×10     unsigned, 0–9999 (9999 = sentinel "air data not valid"; see iasValid below)
 //   15       6     paltFt              %+06d    ×1      signed, –99999 to +99999
 //   21       5     turnRateDps         %+05d    ×10     signed, –9999 to +9999
 //   26       3     lateralG            %+03d    ×100    signed, –99 to +99 (body-frame, +rightward)
@@ -33,6 +33,24 @@
 //   71       2     pipPctLift          %02u     ×1      unsigned, 0–99 (visual L/Dmax pip — aerodynamic reference, lerp clean→fullflap)
 //   73       2     checksum            ASCII hex        sum of bytes 0–72 & 0xFF
 //   75       2     terminator          CR LF    —       0x0D 0x0A
+//
+// Design intent — air-data validity (iasValid):
+//   Air-data-derived fields (iasKt, percentLift) ride on a single
+//   producer-side validity flag, `DisplayBuildInputs::iasValid`.  The
+//   producer derives this from `bIasAlive` — the sensor-level air-data
+//   validity flag (rising-edge 20 kt, falling-edge 15 kt, hysteresis;
+//   see onspeed_core/sensors/IasAlive.h).  When iasValid is false:
+//     * iasKt encodes as the wire sentinel `9999` (the maximum value
+//       of the %04u field; well above any operational airspeed).
+//     * percentLift encodes as `0` (which is also the "uncalibrated"
+//       value when no flap snapshot is available — the consumer must
+//       use `iasIsValid` to distinguish the two cases when rendering).
+//   Consumers (M5 SerialRead.cpp) detect the sentinel by checking
+//   `DisplayFrame::iasIsValid` and render dashes ("--") in place of
+//   IAS / percentLift digits.  This is independent of the audio mute
+//   threshold (`iMuteAudioUnderIAS`); the pilot's audio-mute knob
+//   controls when tones play, not whether displayed values are
+//   trustworthy.  See issue #358 for the rationale.
 //
 // Design intent — the percent-lift contract:
 //   Percent-lift is the honest single-linear envelope fraction:
@@ -95,6 +113,15 @@ namespace onspeed::proto {
 /// v4.23 is 77 (widens percentLift to 3 chars carrying tenths of a percent).
 inline constexpr size_t kDisplayFrameSizeBytes = 77;
 
+/// Sentinel emitted in the iasKt field when the producer's bIasAlive
+/// flag is false (i.e. air-data is not yet valid: pitot pressure inside
+/// the noise floor, or rising threshold not yet crossed).  Picked as
+/// the maximum of the %04u field — far above any operational airspeed
+/// (the wire's nominal range is 0..999.9 kt) — so a consumer that does
+/// not know about iasIsValid still produces an obviously bogus rather
+/// than a plausibly low IAS reading.
+inline constexpr uint16_t kIasInvalidWireSentinel = 9999;
+
 /// Length of the ASCII payload that the checksum covers (bytes 0–72 inclusive).
 inline constexpr size_t kDisplayFrameChecksumLen = 73;
 
@@ -132,7 +159,8 @@ inline constexpr int kDisplayFramePeriodMs = 50;
 struct DisplayBuildInputs {
     float pitchDeg           = 0.0f;  // smoothed pitch (deg)
     float rollDeg            = 0.0f;  // smoothed roll (deg)
-    float iasKt              = 0.0f;  // indicated airspeed (kt); 0 when below mute threshold
+    float iasKt              = 0.0f;  // indicated airspeed (kt); honored when iasValid=true, ignored when iasValid=false (encoder writes 9999 sentinel)
+    bool  iasValid           = true;  // when false: encoder emits the 9999 sentinel for iasKt and 0 for percentLift; consumers render "--"
     float paltFt             = 0.0f;  // pressure altitude (ft)
     float turnRateDps        = 0.0f;  // yaw rate (deg/s)
     float lateralG           = 0.0f;  // lateral acceleration (g); body-frame, positive = airframe accel rightward
@@ -164,7 +192,8 @@ struct DisplayBuildInputs {
 struct DisplayFrame {
     float pitchDeg           = 0.0f;
     float rollDeg            = 0.0f;
-    float iasKt              = 0.0f;
+    float iasKt              = 0.0f;  // raw decoded value; ignore when iasIsValid=false (sentinel was on the wire)
+    bool  iasIsValid         = true;  // false when the wire's iasKt field carried the 9999 sentinel — render "--" for iasKt and percentLift
     float paltFt             = 0.0f;
     float turnRateDps        = 0.0f;
     float lateralG           = 0.0f;  // body-frame (see BuildInputs convention)

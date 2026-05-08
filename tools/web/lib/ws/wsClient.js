@@ -52,7 +52,14 @@ function parseFloatOr0(v) {
 export function frameToRecord(o) {
   return {
     aoaDeg:        o.AOA,
-    aoaIsValid:    o.AOA > AOA_NA_SENTINEL,
+    // AOA is "valid" only when the producer ships a numeric value above
+    // the -100 sentinel.  The explicit `typeof === 'number'` guard
+    // matters because JS coerces `null > -20` to `true` (null → 0 in
+    // numeric comparisons), and the IAS / percentLift fields next to
+    // AOA are now `null`-when-invalid (issue #358) — so the producer
+    // could in principle drift to null for AOA too.  Defensive check
+    // keeps the consumer correct regardless.
+    aoaIsValid:    typeof o.AOA === 'number' && o.AOA > AOA_NA_SENTINEL,
     derivedAoaDeg: parseFloat(o.DerivedAOA),
     pitchDeg:      o.Pitch,
     rollDeg:       o.Roll,

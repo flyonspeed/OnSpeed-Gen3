@@ -420,6 +420,75 @@ void test_ias_high(void)
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 350.0f, f.iasKt);
 }
 
+// ----------------------------------------------------------------------------
+// iasValid sentinel — issue #358
+// ----------------------------------------------------------------------------
+
+// Producer marks air data invalid; encoder must emit the sentinel
+// regardless of the iasKt input value, and the parser must surface
+// iasIsValid=false.
+void test_ias_invalid_emits_sentinel(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.iasValid = false;
+    in.iasKt    = 42.0f;   // a real-looking value the encoder must override
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_FALSE(f.iasIsValid);
+    // Wire field should decode to the sentinel value (9999 / 10 = 999.9)
+    // — consumers that don't check iasIsValid see a value that is
+    // obviously bogus rather than plausibly low.
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 999.9f, f.iasKt);
+}
+
+// Default iasValid=true preserves the historical encode/decode
+// contract.  This pins the default-true invariant: a producer that
+// has not yet been updated to the iasValid contract still emits live
+// IAS values without sentinel collisions.
+void test_ias_valid_default_round_trips(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.iasKt = 75.0f;       // typical pattern speed
+    // iasValid defaults to true; do NOT set it
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_TRUE(f.iasIsValid);
+    TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 75.0f, f.iasKt);
+}
+
+// Wire byte-level pin: the iasKt field at offset 11 is exactly "9999"
+// when iasValid=false.  Catches drift if the sentinel constant is
+// changed in the header without updating the encoder.
+void test_ias_invalid_wire_bytes_at_offset_11(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.iasValid = false;
+    buildOk(in);
+    TEST_ASSERT_EQUAL('9', frameBuf[11]);
+    TEST_ASSERT_EQUAL('9', frameBuf[12]);
+    TEST_ASSERT_EQUAL('9', frameBuf[13]);
+    TEST_ASSERT_EQUAL('9', frameBuf[14]);
+}
+
+// A valid 999.9 kt reading (the wire's saturated maximum from the
+// %04u clamp at SafeScaledUInt) is *visually identical* to the
+// sentinel.  This is acceptable: 999.9 kt is unphysical for any
+// aircraft this firmware targets, so a saturating producer producing
+// this exact value would itself indicate a data fault.  The parser
+// reports iasIsValid=false in either case, which is the correct
+// answer.  This test pins that contract — no aircraft we ship to
+// flies above ~500 kt, but documenting it so a future reader doesn't
+// get tripped up by the apparent collision.
+void test_ias_at_saturation_reports_invalid(void)
+{
+    DisplayBuildInputs in = zeroInputs();
+    in.iasValid = true;
+    in.iasKt    = 1500.0f;   // way above field; clamps to 9999
+    buildOk(in);
+    DisplayFrame f = parseOk();
+    TEST_ASSERT_FALSE(f.iasIsValid);
+}
+
 void test_percent_lift_zero(void)
 {
     DisplayBuildInputs in = zeroInputs();
@@ -790,6 +859,10 @@ int main(int, char**)
     RUN_TEST(test_pitch_minus_90);
     RUN_TEST(test_ias_zero);
     RUN_TEST(test_ias_high);
+    RUN_TEST(test_ias_invalid_emits_sentinel);
+    RUN_TEST(test_ias_valid_default_round_trips);
+    RUN_TEST(test_ias_invalid_wire_bytes_at_offset_11);
+    RUN_TEST(test_ias_at_saturation_reports_invalid);
     RUN_TEST(test_percent_lift_zero);
     RUN_TEST(test_percent_lift_5_0);
     RUN_TEST(test_percent_lift_9_9);
