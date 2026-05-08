@@ -10,8 +10,12 @@
 // struct into the sketch globals and then calls
 // g_AudioPlay.UpdateTones(SnapshotActiveFlap()).
 //
-// Behavior is preserved bit-for-bit. No EMA rate correction, no ADC
-// synthesis — those are PRs 2 and 3.
+// Rate correction (PR 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
+// step() upsamples the AOA EMA from log rate to 208 Hz by calling
+// aoaCalc_.calculate() upsampleRatio_ times per input row, using linearly-
+// interpolated pfwdSmoothed/p45Smoothed between prevRow_ and the current row.
+// Wire output cadence is unchanged — one ReplayStepResult per call.
+// ADC synthesis for old logs is PR 3.
 
 #include <replay/LogReplayEngine.h>
 
@@ -30,9 +34,16 @@ LogReplayEngine::LogReplayEngine(const OnSpeedConfig& cfg,
                                  int  logSampleRateHz,
                                  bool flapsRawAdcAvailable)
     : cfg_(cfg)
-    , logSampleRateHz_(logSampleRateHz)
+    , upsampleRatio_([logSampleRateHz]() {
+        // 208 Hz target; clamp ratio to [1, 208] to guard against zero or
+        // out-of-range log rates (defensive, not reachable from valid headers).
+        if (logSampleRateHz <= 0 || logSampleRateHz > 208)
+            return 1;
+        return 208 / logSampleRateHz;
+    }())
     , flapsRawAdcAvailable_(flapsRawAdcAvailable)
     , aoaCalc_(cfg.iAoaSmoothing)
+    , prevRow_()                      // zero-initialized; used on first step()
 {
 }
 
@@ -41,6 +52,7 @@ LogReplayEngine::LogReplayEngine(const OnSpeedConfig& cfg,
 void LogReplayEngine::reset()
 {
     aoaCalc_.reset();
+    prevRow_ = onspeed::LogRow{};   // clear interpolation state
 }
 
 // ============================================================================
@@ -109,21 +121,38 @@ ReplayStepResult LogReplayEngine::step(const onspeed::LogRow& row)
     out.accelLatCorr  = row.imuLateralG;
     out.accelVertCorr = row.imuVerticalG;
 
-    // --- AOA calculation ---
-    // Mirrors ReadLogLine() lines 269-273. Uses the resolved flap index to
-    // select the calibration curve. aoaCalc_ holds smoothing state across
-    // calls just as g_Sensors.AoaCalc does in the live path.
+    // --- AOA calculation with 208 Hz EMA upsampling ---
+    // The firmware drives the AOA EMA at 208 Hz (IMU rate). Logs at 50 Hz
+    // carry one sample per 20 ms; driving the EMA once per row would apply
+    // 4× more weight per real second than flight, shrinking the effective τ.
+    // Fix: call aoaCalc_.calculate() upsampleRatio_ times per input row,
+    // with pfwdSmoothed and p45Smoothed linearly interpolated between
+    // prevRow_ and the current row. t = (k+1) / upsampleRatio_ so that the
+    // final sub-step always lands exactly on the current row's values.
+    // Wire output is the smoothed state after all sub-steps — one record
+    // per input row (output cadence unchanged).
     if (!cfg_.aFlaps.empty())
     {
         const onspeed::SuCalibrationCurve& curve =
             cfg_.aFlaps[out.flapsIndex].AoaCurve;
-        AOACalculatorResult result =
-            aoaCalc_.calculate(out.pfwdSmoothed, out.p45Smoothed, curve);
+
+        AOACalculatorResult result{};
+        for (int k = 0; k < upsampleRatio_; k++)
+        {
+            const float t = static_cast<float>(k + 1)
+                            / static_cast<float>(upsampleRatio_);
+            const float pfwdInterp = prevRow_.pfwdSmoothed
+                                     + t * (out.pfwdSmoothed - prevRow_.pfwdSmoothed);
+            const float p45Interp  = prevRow_.p45Smoothed
+                                     + t * (out.p45Smoothed  - prevRow_.p45Smoothed);
+            result = aoaCalc_.calculate(pfwdInterp, p45Interp, curve);
+        }
         out.aoa    = result.aoa;
         out.coeffP = result.coeffP;
     }
     // else: no flap config — aoa stays 0.0, coeffP from pressureCoeff above
 
+    prevRow_ = row;
     return out;
 }
 

@@ -16,13 +16,16 @@
 // include Arduino.h, FreeRTOS.h, millis(), xSemaphoreTake(), or any other
 // platform header. scripts/check_core_purity.sh enforces this.
 //
-// Behavior note (PR 1 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
-// This engine preserves CURRENT behavior exactly — the same AOA smoothing,
-// the same naive EMA rate (driven at log rate, not up-sampled to 208 Hz),
-// and no synthesized flapsRawADC for old logs. The two ingest bugs are fixed
-// in PRs 2 (rate-correct EMA) and 3 (synth ADC). This PR freezes today's
-// behavior with a characterization test suite so those follow-ups produce
-// clean diffs.
+// Rate-correction (PR 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
+// The firmware reads IMU at 208 Hz and applies AOA EMA with alpha=0.060899
+// (iAoaSmoothing=10 → alpha=0.1 in unit tests; flight builds use the fixed
+// alpha from Globals.h). When a 50 Hz log is replayed, feeding one raw row
+// per step would over-weight each sample 4× relative to flight. step() fixes
+// this by upsampling to 208 Hz before driving the EMA: for each input row, it
+// calls aoaCalc_.calculate() upsampleRatio_ times with linearly-interpolated
+// pressure values between prevRow_ and the current row. Wire output cadence
+// is unchanged — step() returns one ReplayStepResult per call. The
+// synthesized flapsRawADC for old logs is handled in PR 3.
 
 #ifndef ONSPEED_CORE_REPLAY_LOG_REPLAY_ENGINE_H
 #define ONSPEED_CORE_REPLAY_LOG_REPLAY_ENGINE_H
@@ -94,8 +97,9 @@ struct ReplayStepResult {
 //
 // Constructor parameters:
 //   cfg                 — active OnSpeedConfig (aFlaps, iAoaSmoothing)
-//   logSampleRateHz     — sample rate of the log (50 or 208 Hz). Stored
-//                         for PRs 2/3; not yet used to correct EMA rate.
+//   logSampleRateHz     — sample rate of the log (50 or 208 Hz). Used to
+//                         compute upsampleRatio_ = 208 / logSampleRateHz.
+//                         At 208 Hz, ratio is 1 (no upsampling).
 //   flapsRawAdcAvailable— true when the log's header carries the
 //                         flapsRawADC column. Stored for PR 3; not yet
 //                         used to synthesize ADC when absent.
@@ -125,15 +129,22 @@ public:
 private:
     const onspeed::config::OnSpeedConfig& cfg_;
 
-    // Stored for PRs 2 (rate-correct EMA) and 3 (synth ADC); not yet read
-    // by step(). The [[maybe_unused]] attribute silences -Wunused-private-field
-    // until those PRs add the consuming logic.
-    [[maybe_unused]] int  logSampleRateHz_;
+    // Upsampling ratio for the AOA EMA: 208 / logSampleRateHz, clamped to [1, 208].
+    // At 50 Hz log rate this is 4; at 208 Hz it is 1 (no upsampling).
+    int upsampleRatio_;
+
+    // Stored for PR 3 (synth ADC when column missing); not yet read by step().
     [[maybe_unused]] bool flapsRawAdcAvailable_;
 
     // AOA smoothing filter — mirrors g_Sensors.AoaCalc in the live path.
     // State persists across step() calls within one replay session.
     onspeed::AOACalculator aoaCalc_;
+
+    // Previous row's pressure values, used to interpolate the upsample
+    // sub-steps between prevRow_ and the current row. Zero-initialized on
+    // construction; on the first call, the EMA sees constant input (the
+    // current row repeated), which is fine for one sample.
+    onspeed::LogRow prevRow_;
 
     // Resolve the aFlaps index for a given flap-position degree value.
     // Returns 0 (first entry) when no exact match is found, matching the

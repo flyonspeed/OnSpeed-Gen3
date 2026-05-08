@@ -228,30 +228,69 @@ void test_imu_passthrough(void)
 // different AOA outputs.
 //
 // Fixture uses a linear polynomial curve (AOA = 30 * coeffP) so the EMA
-// produces nonzero values.  With iAoaSmoothing=10 (alpha=0.1):
-//   row1: pfwd=1.0, p45=0.1 -> coeffP=0.1 -> raw_aoa=3.0. EMA seeds at 3.0.
-//   row2: pfwd=1.0, p45=0.3 -> coeffP=0.3 -> raw_aoa=9.0. EMA blends:
-//         0.1*9.0 + 0.9*3.0 = 3.6.
+// produces nonzero values.  With iAoaSmoothing=10 (alpha=0.1), logSampleRateHz=50,
+// and upsampleRatio=4 (208/50), each input row drives the EMA 4 times:
 //
-// Pinned from a cold engine on the PR-1 commit. PR 2 (rate-correct EMA) will
-// change these values — that diff is intentional and expected.
+//   row1: pfwd=1.0, p45=0.1. prevRow=zero-default, so pfwd-interp ratio stays
+//         at p45/pfwd=0.1 for all 4 sub-steps (both scale linearly from 0).
+//         Sub-step k=0 seeds EMA at 3.0; k=1,2,3 blend 3.0 into 3.0 -> 3.0.
+//         r1.aoa = 3.0 (same as PR-1 baseline; seeding dominates).
+//
+//   row2: pfwd=1.0, p45=0.3. prevRow has pfwd=1.0, p45=0.1.
+//         Sub-steps linearly interpolate p45: 0.15, 0.20, 0.25, 0.30 ->
+//         raw_aoa: 4.5, 6.0, 7.5, 9.0. EMA starting at 3.0:
+//           k=0: 0.1*4.5 + 0.9*3.0     = 3.15
+//           k=1: 0.1*6.0 + 0.9*3.15    = 3.435
+//           k=2: 0.1*7.5 + 0.9*3.435   = 3.8415
+//           k=3: 0.1*9.0 + 0.9*3.8415  = 4.35735
+//         r2.aoa ≈ 4.35735 (vs PR-1 value of 3.6 — more lag, matching flight τ).
+//
+// Pinned post-rate-correction (PR 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md).
+// PR 1 baseline at 50 Hz was r2.aoa=3.6; with 208 Hz upsampling the EMA
+// effective τ matches flight, producing 4.35735.
 void test_ema_accumulates(void)
 {
     OnSpeedConfig cfg = makeLinearCurveConfig();
     LogReplayEngine eng(cfg, 50, false);
 
     // Step 1: coeffP=0.1 -> raw_aoa=3.0, EMA seeds at 3.0.
+    // upsampleRatio=4; all sub-steps produce coeffP=0.1 (ratio preserved from
+    // zero-initialized prevRow), so EMA stays at 3.0.
     LogRow row1 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.1f);
     ReplayStepResult r1 = eng.step(row1);
 
-    // Step 2: coeffP=0.3 -> raw_aoa=9.0, EMA blends with seeded 3.0.
+    // Step 2: coeffP=0.3 -> raw_aoa=9.0. EMA runs 4 sub-steps from 3.0.
     LogRow row2 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.3f);
     ReplayStepResult r2 = eng.step(row2);
 
-    // Pinned values for PR-1 behavior. PR 2 changes EMA rate -> visible diff.
+    // Pinned post-rate-correction. PR-1 baseline: r2.aoa=3.6 (50 Hz, 1 EMA step).
+    // Post-PR-2: r2.aoa=4.35735 (208 Hz upsampling, 4 EMA steps per row).
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f,    r1.aoa);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 4.35735f, r2.aoa);
+    TEST_ASSERT_NOT_EQUAL(r1.aoa, r2.aoa);  // sanity: EMA actually moved
+}
+
+// At logSampleRateHz=208 (no upsampling), upsampleRatio=1, so each row
+// drives the EMA exactly once — same behavior as PR-1 at any rate.
+// Verifies that 208 Hz log replay preserves the PR-1 baseline pinned values.
+void test_ema_accumulates_208hz(void)
+{
+    OnSpeedConfig cfg = makeLinearCurveConfig();
+    LogReplayEngine eng(cfg, 208, false);
+
+    // Same rows as test_ema_accumulates but at 208 Hz (ratio=1, no upsample).
+    // Row 1: EMA seeds at raw_aoa=3.0. One sub-step (t=1.0, full current row).
+    LogRow row1 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.1f);
+    ReplayStepResult r1 = eng.step(row1);
+
+    // Row 2: one EMA step from 3.0 with raw_aoa=9.0:
+    //   0.1*9.0 + 0.9*3.0 = 3.6  — PR-1 baseline value.
+    LogRow row2 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.3f);
+    ReplayStepResult r2 = eng.step(row2);
+
+    // Pinned: 208 Hz log, upsampleRatio=1. Matches PR-1 baseline exactly.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f, r1.aoa);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.6f, r2.aoa);
-    TEST_ASSERT_NOT_EQUAL(r1.aoa, r2.aoa);  // sanity: EMA actually moved
 }
 
 // reset() clears EMA state: step after reset == step on a fresh engine
@@ -395,6 +434,7 @@ int main(int, char**)
     RUN_TEST(test_passthrough_fields);
     RUN_TEST(test_imu_passthrough);
     RUN_TEST(test_ema_accumulates);
+    RUN_TEST(test_ema_accumulates_208hz);
     RUN_TEST(test_reset_clears_state);
     RUN_TEST(test_flaps_raw_adc_absent);
     RUN_TEST(test_flaps_raw_adc_present);
