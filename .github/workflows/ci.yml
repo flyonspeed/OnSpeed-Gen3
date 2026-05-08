@@ -522,6 +522,10 @@ jobs:
         working-directory: tools/m5-replay
         run: pio run -e native
 
+      - name: Build host_main native binary (onspeed_py wrappers depend on it)
+        working-directory: tools/regression
+        run: pio run -e native
+
       - name: Run m5-replay tests (Python builder + firmware-parser interop)
         working-directory: tools/m5-replay
         run: |
