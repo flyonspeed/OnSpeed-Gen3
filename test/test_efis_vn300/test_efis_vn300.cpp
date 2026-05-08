@@ -36,8 +36,8 @@
 //   [105..108] LinAccLat
 //   [109..112] LinAccVert
 //   [113..116] YawSigma
-//   [117..120] RollSigma
-//   [121..124] PitchSigma
+//   [117..120] PitchSigma
+//   [121..124] RollSigma
 //   [125..126] CRC-16
 
 #include <unity.h>
@@ -126,9 +126,9 @@ static void buildVn300Packet(uint8_t buf[127],
     writeFloat(buf, 101, 0.1f);
     writeFloat(buf, 105, 0.02f);
     writeFloat(buf, 109, 9.75f);
-    writeFloat(buf, 113, 0.5f);
-    writeFloat(buf, 117, 0.3f);
-    writeFloat(buf, 121, 0.4f);
+    writeFloat(buf, 113, 0.5f);   // YawSigma
+    writeFloat(buf, 117, 0.3f);   // PitchSigma per UM005 §5.8.8
+    writeFloat(buf, 121, 0.4f);   // RollSigma  per UM005 §5.8.8
 
     appendVnCrc(buf, 127);
 }
@@ -298,6 +298,23 @@ void test_vn300_gps_fix_in_data(void)
     TEST_ASSERT_EQUAL_UINT8(3, data->gpsFix);
 }
 
+// Regression for issue #454: YprU is laid out (yaw, pitch, roll) per
+// VectorNav UM005 §5.8.8. The fixture writes pitch-sigma=0.3 at offset
+// 117 and roll-sigma=0.4 at offset 121; the parser must decode them
+// into data.pitchSigma and data.rollSigma respectively.
+void test_vn300_yprU_axis_assignment(void)
+{
+    uint8_t buf[127];
+    buildVn300Packet(buf, 0.0f, 0.0f, 0.0f);
+    Vn300Parser parser;
+    feedAll(parser, buf, 127);
+    auto data = parser.TakeVn300Data();
+    TEST_ASSERT_TRUE(data.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, data->yawSigma);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.3f, data->pitchSigma);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.4f, data->rollSigma);
+}
+
 void test_vn300_est_alt_meters_in_data(void)
 {
     uint8_t buf[127];
@@ -329,6 +346,7 @@ int main(int, char**)
     RUN_TEST(test_vn300_take_frame_clears_pending);
     RUN_TEST(test_vn300_take_data_clears_pending);
     RUN_TEST(test_vn300_gps_fix_in_data);
+    RUN_TEST(test_vn300_yprU_axis_assignment);
     RUN_TEST(test_vn300_est_alt_meters_in_data);
     return UNITY_END();
 }

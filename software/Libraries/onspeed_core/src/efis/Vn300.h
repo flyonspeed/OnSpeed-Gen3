@@ -34,7 +34,7 @@
 //   GnssVelNed{North,East,Down} at 77/81/85
 //   {Yaw,Pitch,Roll} at 89/93/97
 //   LinAcc{Fwd,Lat,Vert} at 101/105/109
-//   {Yaw,Roll,Pitch}Sigma at 113/117/121
+//   {Yaw,Pitch,Roll}Sigma at 113/117/121
 //
 // Note: the EfisFrame type carries only pitch, roll, IAS, TAS, Palt, VSI,
 // OAT, AOA, heading, lateralG, and verticalG. The additional VN-300 fields
