@@ -137,12 +137,33 @@ constexpr int kMinHeight = 120;
 constexpr int kSaneAbs    = 50000;
 constexpr int kMinVisible = 80;     // px/boxels of window kept on-screen
 
-// 4:3 aspect ratio of the M5 panel (320:240).  DrawWindow letterboxes
-// the textured quad inside whatever window shape the user picks, so
-// the indexer texture stays unstretched at any window size — non-4:3
-// resizes get black bars on the long axis.
+// 4:3 aspect ratio of the M5 panel (320:240).  HandleClick aspect-locks
+// the window during user drag-resize: each drag tick computes a 4:3
+// geometry from the dragged-edge delta and writes it back via
+// XPLMSetWindowGeometry, so the window is never not-4:3 and DrawWindow's
+// letterbox math is a no-op.  Letterbox stays as defense-in-depth against
+// any path that bypasses the drag handler (e.g., persistence restores).
 constexpr float kAspect = static_cast<float>(kWindowWidth) /
                           static_cast<float>(kWindowHeight);
+
+// SelfDecoratedResizable mode: X-Plane draws no chrome and routes raw
+// MouseDown/MouseDrag/MouseUp events to the plugin's HandleClick.  The
+// plugin owns the resize pipeline; aspect lock is a delta-time clamp,
+// not a polling-and-snap.  imgui4xp's ImgWindow.cpp is the reference
+// pattern; we extend it with a single 4:3 coupling line.
+//
+// Resize-margin width: how close to an edge the cursor must be for a
+// MouseDown to count as a resize-grab.  imgui4xp uses 4px; we use 6px
+// for an easier hit target on a 320×240 native window.
+constexpr int kResizeMargin     = 6;
+// Top drag-strip height: clicks in the top kDragStripHeight boxels of
+// the window (excluding the resize margin near corners) move the window
+// without resizing.  Replaces the X-Plane-chrome titlebar drag handle
+// that we lose by switching to SelfDecoratedResizable.
+constexpr int kDragStripHeight  = 18;
+// Close-button rect inside the top drag strip, top-right corner.
+constexpr int kCloseBtnSize     = 14;
+constexpr int kCloseBtnInset    = 4;
 
 // M5-style mode button row at the bottom of the window.  The real
 // M5Stack has three hardware buttons (dim / select / bright) below
@@ -177,10 +198,40 @@ bool ComputeButtonRect(int winLeft, int winTop, int winRight, int winBottom,
     return true;
 }
 
+// Forward decl for the close-button rect helper used by both DrawWindow
+// (renders the "×") and HandleClick (hit-tests the same rect on click).
+// Definition lives below DrawWindow alongside the rest of the click
+// helpers; the forward decl keeps DrawWindow able to reference it.
+bool ComputeCloseRect(int wL, int wT, int wR, int wB,
+                      int* outL, int* outT, int* outR, int* outB);
+
 // Persisted indexer state.  Default values are the same as the
 // pre-sticky-persistence behavior so a fresh install (no .prf yet)
 // puts the window where the old code did.
 PersistedState s_persisted;
+
+// In-flight drag state.  Set on xplm_MouseDown when the cursor lands in
+// a resize margin or the top drag strip; consumed by xplm_MouseDrag to
+// apply the delta; cleared on xplm_MouseUp.  All MouseDrag events for a
+// gesture see the same `kind` value.
+enum class DragKind {
+    None,
+    Move,            // top-strip drag — translate the window, no resize
+    EdgeLeft,
+    EdgeRight,
+    EdgeTop,
+    EdgeBottom,
+    CornerTL,
+    CornerTR,
+    CornerBL,
+    CornerBR,
+};
+struct DragState {
+    DragKind kind = DragKind::None;
+    int      lastX = 0;   // last cursor X seen (X-Plane boxel coords)
+    int      lastY = 0;
+};
+DragState s_drag;
 
 // Dirty flag, flipped by MarkDirtyIfChanged when the live window
 // geometry diverges from s_persisted.  Polled by aoa_audio.cpp's
@@ -322,6 +373,35 @@ void DrawWindow(XPLMWindowID, void*)
                        xplmFont_Proportional);
     }
 
+    // Self-decorated chrome: a small close-button "×" in the top-right
+    // corner of the top drag strip.  We don't draw a visible drag-strip
+    // background — the texture's black bezel serves as the visual
+    // backdrop and the strip is invisible-but-clickable for window move.
+    // The close button is the only chrome the user sees; XPLMDrawString
+    // is GL-state-safe on Apple Silicon (raw glColor / glRect are not).
+    {
+        int cL, cT, cR, cB;
+        if (ComputeCloseRect(left, top, right, bottom,
+                             &cL, &cT, &cR, &cB)) {
+            // Translucent dark fill so the "×" is visible even against
+            // varying texture content underneath.  Matches the MODE
+            // button's visual idiom for consistency.
+            XPLMDrawTranslucentDarkBox(cL, cT, cR, cB);
+            float white[3] = { 1.0f, 1.0f, 1.0f };
+            int fontH = 10;
+            XPLMGetFontDimensions(xplmFont_Proportional,
+                                  nullptr, &fontH, nullptr);
+            const int descender = std::max(2, fontH / 4);
+            const char* x = "x";
+            const int textW = static_cast<int>(std::round(
+                XPLMMeasureString(xplmFont_Proportional, x, 1)));
+            const int textX = (cL + cR) / 2 - textW / 2;
+            const int textY = cB + (kCloseBtnSize - fontH) / 2 + descender;
+            XPLMDrawString(white, textX, textY, const_cast<char*>(x),
+                           nullptr, xplmFont_Proportional);
+        }
+    }
+
     static bool s_loggedOnce = false;
     if (!s_loggedOnce) {
         s_loggedOnce = true;
@@ -333,31 +413,228 @@ void DrawWindow(XPLMWindowID, void*)
     }
 }
 
-// Left-click on the indexer body cycles through display modes.  The
-// X-Plane RoundRectangle chrome reserves the titlebar for drag/move,
-// so clicks reach this handler only when the user clicked inside the
-// content area we paint into.  Fires on MouseDown so the mode change
-// is responsive — without waiting for MouseUp.
+// Compute the close-button "×" rect in the top-right corner of the top
+// drag strip.  Returns false if the window is too small to host a
+// usable strip.
+bool ComputeCloseRect(int wL, int wT, int wR, int /*wB*/,
+                      int* outL, int* outT, int* outR, int* outB)
+{
+    if ((wR - wL) < kCloseBtnSize + 2 * kCloseBtnInset) return false;
+    *outR = wR - kCloseBtnInset;
+    *outL = *outR - kCloseBtnSize;
+    *outT = wT - kCloseBtnInset;
+    *outB = *outT - kCloseBtnSize;
+    return true;
+}
+
+// Decide which kind of drag a MouseDown at (x, y) inside the window
+// (wL, wT, wR, wB) represents.  Resize-edge detection is tested first
+// (corners take precedence over single edges), then top-strip move,
+// then None (which lets the rest of the body click handling run —
+// e.g. MODE-button cycle).
+DragKind ClassifyMouseDown(int x, int y, int wL, int wT, int wR, int wB)
+{
+    const bool nearLeft   = (x - wL)      <= kResizeMargin;
+    const bool nearRight  = (wR - x)      <= kResizeMargin;
+    const bool nearTop    = (wT - y)      <= kResizeMargin;
+    const bool nearBottom = (y - wB)      <= kResizeMargin;
+
+    if (nearTop    && nearLeft)  return DragKind::CornerTL;
+    if (nearTop    && nearRight) return DragKind::CornerTR;
+    if (nearBottom && nearLeft)  return DragKind::CornerBL;
+    if (nearBottom && nearRight) return DragKind::CornerBR;
+    if (nearLeft)                return DragKind::EdgeLeft;
+    if (nearRight)               return DragKind::EdgeRight;
+    if (nearTop)                 return DragKind::EdgeTop;
+    if (nearBottom)              return DragKind::EdgeBottom;
+
+    // Top drag-strip lives just below the corner-resize zone — moves
+    // the window without resizing.  Excludes the close-button rect so
+    // a click on "×" goes through the body-click path and reaches the
+    // close-button hit test.
+    if (y >= wT - kDragStripHeight) {
+        int cL, cT, cR, cB;
+        if (ComputeCloseRect(wL, wT, wR, wB, &cL, &cT, &cR, &cB) &&
+            x >= cL && x <= cR && y >= cB && y <= cT) {
+            return DragKind::None;  // close-button click
+        }
+        return DragKind::Move;
+    }
+
+    return DragKind::None;
+}
+
+// Apply a 4:3 aspect lock to a candidate window rect produced by edge /
+// corner drag.  `leader` selects which axis is authoritative (the one
+// the user actually dragged); the other axis is derived.  Anchors to
+// the un-dragged edge so the dragged edge tracks the cursor.
+void EnforceAspect(int* l, int* t, int* r, int* b, DragKind kind)
+{
+    const int w = *r - *l;
+    const int h = *t - *b;
+    if (w <= 0 || h <= 0) return;
+
+    auto recomputeFromWidth = [&](bool keepTop) {
+        const int newH = static_cast<int>(static_cast<float>(*r - *l) /
+                                          kAspect + 0.5f);
+        if (keepTop) *b = *t - newH;
+        else         *t = *b + newH;
+    };
+    auto recomputeFromHeight = [&](bool keepLeft) {
+        const int newW = static_cast<int>(static_cast<float>(*t - *b) *
+                                          kAspect + 0.5f);
+        if (keepLeft) *r = *l + newW;
+        else          *l = *r - newW;
+    };
+
+    switch (kind) {
+        // Single-edge drags: the dragged axis is the leader.  Recompute
+        // the other axis, anchored to the un-dragged edge.
+        case DragKind::EdgeLeft:    recomputeFromWidth (/*keepTop=*/true);  break;
+        case DragKind::EdgeRight:   recomputeFromWidth (/*keepTop=*/true);  break;
+        case DragKind::EdgeTop:     recomputeFromHeight(/*keepLeft=*/true); break;
+        case DragKind::EdgeBottom:  recomputeFromHeight(/*keepLeft=*/true); break;
+
+        // Corner drags: both axes move with the cursor.  Pick whichever
+        // axis is now further from 4:3 as the leader so the corner
+        // tracks the cursor more faithfully.  Anchor to the OPPOSITE
+        // corner so the dragged corner stays under the cursor.
+        case DragKind::CornerTL:
+        case DragKind::CornerTR:
+        case DragKind::CornerBL:
+        case DragKind::CornerBR: {
+            const float cur = static_cast<float>(w) / static_cast<float>(h);
+            const bool widthLeader = cur > kAspect;
+            const bool grabsTop    = (kind == DragKind::CornerTL ||
+                                      kind == DragKind::CornerTR);
+            const bool grabsLeft   = (kind == DragKind::CornerTL ||
+                                      kind == DragKind::CornerBL);
+            if (widthLeader) {
+                // Width is the leader; height adjusts.  Anchor the
+                // un-grabbed top/bottom edge so the grabbed corner's
+                // vertical edge follows the cursor.
+                const int newH = static_cast<int>(static_cast<float>(w) /
+                                                  kAspect + 0.5f);
+                if (grabsTop) *t = *b + newH;
+                else          *b = *t - newH;
+            } else {
+                // Height is the leader; width adjusts.  Anchor the
+                // un-grabbed left/right edge.
+                const int newW = static_cast<int>(static_cast<float>(h) *
+                                                  kAspect + 0.5f);
+                if (grabsLeft) *l = *r - newW;
+                else           *r = *l + newW;
+            }
+            break;
+        }
+        default: break;
+    }
+}
+
+// Mouse handler.  In SelfDecoratedResizable mode X-Plane delivers raw
+// MouseDown / MouseDrag / MouseUp events to this callback.  Three
+// concerns:
+//
+//   1. Edge / corner drags resize the window with a 4:3 aspect lock —
+//      see EnforceAspect.  imgui4xp uses the same drag-recompute
+//      pattern (sparker256/imgui4xp) but with independent W/H clamps.
+//   2. Top-strip drags move the window.  Replaces the X-Plane chrome
+//      titlebar drag handle.
+//   3. MODE-button click and close-button click are body-click events
+//      (no drag intent recorded).
+//
+// MouseDown sets s_drag.kind; MouseDrag applies the delta; MouseUp
+// clears.  The minimum-size enforcement uses XPLMSetWindowResizingLimits
+// configured at window creation, which already rejects geometry below
+// kMinWidth × kMinHeight at the SDK level.
 int HandleClick(XPLMWindowID, int x, int y,
                 XPLMMouseStatus status, void* /*refcon*/)
 {
-    // Only the MODE button cycles modes — body clicks are pass-through
-    // so the user can drag-focus the window without cycling.  Compute
-    // the button rect against the live geometry and check if the click
-    // landed inside.
-    if (status != xplm_MouseDown) return 1;
     if (!s_window) return 1;
 
     int wL, wT, wR, wB;
     XPLMGetWindowGeometry(s_window, &wL, &wT, &wR, &wB);
-    int bL, bT, bR, bB;
-    if (!ComputeButtonRect(wL, wT, wR, wB, &bL, &bT, &bR, &bB)) return 1;
 
-    // X-Plane window coords: y grows up (top > bottom), x grows right.
-    if (x >= bL && x <= bR && y >= bB && y <= bT) {
-        const int next = (static_cast<int>(displayType) + 1) % 5;
-        displayType = static_cast<int16_t>(next);
+    if (status == xplm_MouseDown) {
+        s_drag.kind = ClassifyMouseDown(x, y, wL, wT, wR, wB);
+        s_drag.lastX = x;
+        s_drag.lastY = y;
+        if (s_drag.kind != DragKind::None) {
+            return 1;  // recorded a drag intent, no further processing
+        }
+
+        // Body click — close button takes priority over MODE button.
+        int cL, cT, cR, cB;
+        if (ComputeCloseRect(wL, wT, wR, wB, &cL, &cT, &cR, &cB) &&
+            x >= cL && x <= cR && y >= cB && y <= cT) {
+            Hide();
+            return 1;
+        }
+
+        int bL, bT, bR, bB;
+        if (ComputeButtonRect(wL, wT, wR, wB, &bL, &bT, &bR, &bB) &&
+            x >= bL && x <= bR && y >= bB && y <= bT) {
+            const int next = (static_cast<int>(displayType) + 1) % 5;
+            displayType = static_cast<int16_t>(next);
+        }
+        return 1;
     }
+
+    if (status == xplm_MouseDrag && s_drag.kind != DragKind::None) {
+        const int dx = x - s_drag.lastX;
+        const int dy = y - s_drag.lastY;
+        s_drag.lastX = x;
+        s_drag.lastY = y;
+        if (dx == 0 && dy == 0) return 1;
+
+        int newL = wL, newT = wT, newR = wR, newB = wB;
+
+        if (s_drag.kind == DragKind::Move) {
+            // Translate the whole rect by the cursor delta.
+            newL += dx;  newR += dx;
+            newT += dy;  newB += dy;
+        } else {
+            // Apply the delta to the grabbed edges.
+            if (s_drag.kind == DragKind::EdgeLeft   ||
+                s_drag.kind == DragKind::CornerTL   ||
+                s_drag.kind == DragKind::CornerBL)   newL += dx;
+            if (s_drag.kind == DragKind::EdgeRight  ||
+                s_drag.kind == DragKind::CornerTR   ||
+                s_drag.kind == DragKind::CornerBR)   newR += dx;
+            if (s_drag.kind == DragKind::EdgeTop    ||
+                s_drag.kind == DragKind::CornerTL   ||
+                s_drag.kind == DragKind::CornerTR)   newT += dy;
+            if (s_drag.kind == DragKind::EdgeBottom ||
+                s_drag.kind == DragKind::CornerBL   ||
+                s_drag.kind == DragKind::CornerBR)   newB += dy;
+
+            // Enforce minimum size before aspect lock so the aspect
+            // computation never sees a zero/negative dimension.
+            if (newR - newL < kMinWidth) {
+                if (s_drag.kind == DragKind::EdgeLeft  ||
+                    s_drag.kind == DragKind::CornerTL  ||
+                    s_drag.kind == DragKind::CornerBL) newL = newR - kMinWidth;
+                else                                   newR = newL + kMinWidth;
+            }
+            if (newT - newB < kMinHeight) {
+                if (s_drag.kind == DragKind::EdgeTop   ||
+                    s_drag.kind == DragKind::CornerTL  ||
+                    s_drag.kind == DragKind::CornerTR) newT = newB + kMinHeight;
+                else                                   newB = newT - kMinHeight;
+            }
+
+            EnforceAspect(&newL, &newT, &newR, &newB, s_drag.kind);
+        }
+
+        XPLMSetWindowGeometry(s_window, newL, newT, newR, newB);
+        return 1;
+    }
+
+    if (status == xplm_MouseUp) {
+        s_drag.kind = DragKind::None;
+        return 1;
+    }
+
     return 1;
 }
 void HandleKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
@@ -510,17 +787,33 @@ bool CreateXPlaneWindow()
     params.handleCursorFunc       = HandleCursor;
     params.handleMouseWheelFunc   = HandleWheel;
     params.refcon                 = nullptr;
-    // RoundRectangle gives us X-Plane's standard window chrome
-    // (titlebar with drag handle, close button, resizing).  The chrome
-    // also paints a solid bg fill behind our content — but since our
-    // texture is fully opaque (alpha=255 throughout) and exactly
-    // covers the content area, the bg fill is invisible underneath.
-    params.decorateAsFloatingWindow = xplm_WindowDecorationRoundRectangle;
+    // SelfDecoratedResizable: X-Plane draws no chrome and routes raw
+    // MouseDown / MouseDrag / MouseUp events to HandleClick.  The
+    // plugin owns the resize pipeline and aspect-locks each drag tick
+    // to 4:3 — see EnforceAspect.  We draw our own minimal chrome
+    // (1-px outline, top drag-strip, close button) in DrawWindow.
+    //
+    // The trade-off vs RoundRectangle: we lose X-Plane's stock
+    // titlebar / pop-out icon / red close-circle, but we gain pixel-
+    // perfect aspect-locked drag-resize.  imgui4xp uses the same mode
+    // for the same reason: plugin needs control over resize geometry.
+    params.decorateAsFloatingWindow = xplm_WindowDecorationSelfDecoratedResizable;
     params.layer                  = xplm_WindowLayerFloatingWindows;
     s_window = XPLMCreateWindowEx(&params);
     if (!s_window) return false;
 
     XPLMSetWindowTitle(s_window, "OnSpeed Indexer");
+
+    // Floor on resize: SDK rejects geometry below this, complementing
+    // the inline kMinWidth / kMinHeight clamp in HandleClick's drag
+    // path.  Defense in depth: the SDK guard catches any code path
+    // that calls SetWindowGeometry without going through the drag
+    // handler (e.g., persistence restoring a stale tiny rect).  Max
+    // bounds set to a comfortable upper that still aspect-locks fine.
+    XPLMSetWindowResizingLimits(s_window,
+                                kMinWidth, kMinHeight,
+                                4096,      4096);
+
     return true;
 }
 
