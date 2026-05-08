@@ -596,6 +596,7 @@ void LogSensor::Write()
             row.vnGnssVelNedDown   = g_EfisSerial.suVN300.GnssVelNedDown;
             row.vnGnssLat          = g_EfisSerial.suVN300.GnssLat;
             row.vnGnssLon          = g_EfisSerial.suVN300.GnssLon;
+            row.vnEstAltFt         = m2ft(static_cast<float>(g_EfisSerial.suVN300.EstAltMeters));
             row.vnGpsFix           = g_EfisSerial.suVN300.GPSFix;
             row.vnDataAgeMs        = efisAge;
             strncpy(row.vnTimeUtc, g_EfisSerial.suVN300.szTimeUTC,

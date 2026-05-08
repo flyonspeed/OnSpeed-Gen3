@@ -129,6 +129,7 @@ void Vn300Parser::Decode()
     data.angularRateYaw   = array2float(buf_, 16);
     data.gnssLat          = array2double(buf_, 20);
     data.gnssLon          = array2double(buf_, 28);
+    data.estAltMeters     = array2double(buf_, 36);
 
     data.velNedNorth      = array2float(buf_, 44);
     data.velNedEast       = array2float(buf_, 48);

@@ -116,6 +116,7 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     if (name == "vnGnssVelNedDown")   { out.idxVnGnssVelNedDown = ordinal; return true; }
     if (name == "vnGnssLat")          { out.idxVnGnssLat = ordinal; return true; }
     if (name == "vnGnssLon")          { out.idxVnGnssLon = ordinal; return true; }
+    if (name == "vnEstAltFt")         { out.idxVnEstAltFt = ordinal; return true; }
     if (name == "vnGPSFix")           { out.idxVnGpsFix = ordinal; return true; }
     if (name == "vnDataAge")          { out.idxVnDataAge = ordinal; return true; }
     if (name == "vnTimeUTC")          { out.idxVnTimeUtc = ordinal; return true; }
@@ -580,6 +581,11 @@ bool ParseRowByIndex(std::string_view line,
         if (!TakeFloat (tokens, tokenCount, idx.idxVnGnssVelNedDown,   row.vnGnssVelNedDown))   return false;
         if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLat,          row.vnGnssLat))          return false;
         if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLon,          row.vnGnssLon))          return false;
+        // vnEstAltFt is optional within the VN-300 group: older logs (format
+        // version 2 and earlier) lack it, so absence is not a schema error.
+        // TakeFloat returns true and leaves the destination untouched when
+        // idx == -1, which is the right behavior here.
+        if (!TakeFloat (tokens, tokenCount, idx.idxVnEstAltFt,         row.vnEstAltFt))         return false;
         if (!TakeInt   (tokens, tokenCount, idx.idxVnGpsFix,           row.vnGpsFix))           return false;
         if (!TakeInt   (tokens, tokenCount, idx.idxVnDataAge,          row.vnDataAgeMs))        return false;
         if (!TakeString(tokens, tokenCount, idx.idxVnTimeUtc,

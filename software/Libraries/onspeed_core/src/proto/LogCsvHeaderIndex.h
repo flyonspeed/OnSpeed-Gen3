@@ -108,6 +108,7 @@ struct HeaderIndex {
     int idxVnGnssVelNedDown    = -1;
     int idxVnGnssLat           = -1;
     int idxVnGnssLon           = -1;
+    int idxVnEstAltFt          = -1;
     int idxVnGpsFix            = -1;
     int idxVnDataAge           = -1;
     int idxVnTimeUtc           = -1;

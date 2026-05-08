@@ -94,6 +94,7 @@ public:
         byte    GPSFix;
         double  GnssLat;
         double  GnssLon;
+        double  EstAltMeters;   // INS-estimated altitude (Common.Position LLA)
         char    szTimeUTC[24];
     };
 

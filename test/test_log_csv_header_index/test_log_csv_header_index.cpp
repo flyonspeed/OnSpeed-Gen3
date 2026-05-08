@@ -38,7 +38,11 @@ constexpr const char* kEfisStandardGroup =
     "efisPalt,efisVSI,efisTAS,efisOAT,efisFuelRemaining,efisFuelFlow,"
     "efisMAP,efisRPM,efisPercentPower,efisMagHeading,efisAge,efisTime";
 
-constexpr const char* kVn300Group =
+// VN-300 group as written by format version 2 (no vnEstAltFt). Kept as the
+// "old log" reference so the version-tolerant parse path is exercised: a
+// header without vnEstAltFt must still set efisIsVn300 and ParseRowByIndex
+// must leave row.vnEstAltFt at its default.
+constexpr const char* kVn300GroupNoEstAlt =
     "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
     "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
     "vnAccelFwd,vnAccelLat,vnAccelVert,"
@@ -47,6 +51,19 @@ constexpr const char* kVn300Group =
     "vnYawSigma,vnRollSigma,vnPitchSigma,"
     "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
     "vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,vnTimeUTC";
+
+// Current VN-300 group (format version 3+). The vnEstAltFt column is
+// inserted right after vnGnssLon. This is what onspeed_core's WriteHeader
+// emits today; tests that exercise current writer / current reader use it.
+constexpr const char* kVn300Group =
+    "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
+    "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
+    "vnAccelFwd,vnAccelLat,vnAccelVert,"
+    "vnYaw,vnPitch,vnRoll,"
+    "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
+    "vnYawSigma,vnRollSigma,vnPitchSigma,"
+    "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
+    "vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,vnTimeUTC";
 
 constexpr const char* kDerivedTail =
     "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
@@ -213,6 +230,99 @@ void test_build_index_vn300_enabled(void)
     TEST_ASSERT_FALSE(idx.boomEnabled);
     TEST_ASSERT_TRUE(idx.efisEnabled);
     TEST_ASSERT_TRUE(idx.efisIsVn300);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, idx.idxVnEstAltFt);
+}
+
+void test_build_index_vn300_without_est_alt_ft_still_enables(void)
+{
+    // Format version 2 log: VN-300 header lacks vnEstAltFt. The version-
+    // tolerant index must still flag efisIsVn300 (the column is optional
+    // within the group) and idxVnEstAltFt stays -1 so ParseRowByIndex
+    // leaves the field at its default.
+    std::string hdr;
+    hdr.append(kCoreHead).append(",").append(kVn300GroupNoEstAlt).append(",").append(kDerivedTail);
+
+    HeaderIndex idx;
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
+    TEST_ASSERT_TRUE(idx.efisEnabled);
+    TEST_ASSERT_TRUE(idx.efisIsVn300);
+    TEST_ASSERT_EQUAL_INT(-1, idx.idxVnEstAltFt);
+
+    // End-to-end parse path: a v2 row (26 VN-300 fields, no altitude column)
+    // must parse without striding off-by-one, must leave row.vnEstAltFt at
+    // its default (0.0f), and must read row.vnGpsFix from the correct token.
+    static const char kRow[] =
+        "20000,110,1.60,210,2.60,1013.40,1500.0,92.0,3.80,5,0,12.0,94.5,"
+        "25.5,1.030,0.020,-0.040,4.000,-3.500,-1.000,2.500,-0.800,"
+        // VN-300 group, 26 fields (no vnEstAltFt):
+        "0.100,0.200,0.300,50.000,30.000,-1.500,0.050,0.010,1.020,"
+        "270.500,1.500,-2.000,0.040,0.005,0.010,0.500,0.300,0.400,"
+        "50.100,30.100,-1.400,37.123456,-122.456789,3,25,12:34:56,"
+        "1.030,1.500,300.0,1500.0,3.85,0.150";
+
+    onspeed::LogRow row{};
+    row.efisEnabled = idx.efisEnabled;
+    row.efisIsVn300 = idx.efisIsVn300;
+    TEST_ASSERT_TRUE(ParseRowByIndex(kRow, idx, row));
+
+    // The new column stayed at its default — TakeFloat is a no-op when idx<0.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, row.vnEstAltFt);
+    // Adjacent column read from the right token (no off-by-one stride).
+    TEST_ASSERT_EQUAL_INT(3, row.vnGpsFix);
+    // Sanity: another VN-300 field also reads correctly. vnGnssLat is double;
+    // Unity's float-precision assertions cast both sides to float, which is
+    // adequate for a no-stride-off-by-one check.
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 37.123456f, (float)row.vnGnssLat);
+}
+
+void test_parserowbyindex_vn300_est_alt_ft_at_noncanonical_position(void)
+{
+    // Synthesize a header that places vnEstAltFt at a non-canonical
+    // position (last column of the row) to prove BuildHeaderIndex resolves
+    // the column by name and ParseRowByIndex reads from the recorded
+    // ordinal, not a hard-coded position. Catches a future refactor that
+    // accidentally re-introduces position-based parsing.
+    static const char kHeader[] =
+        "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
+        "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
+        "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
+        // VN-300 group with vnEstAltFt removed from its canonical slot.
+        "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
+        "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
+        "vnAccelFwd,vnAccelLat,vnAccelVert,"
+        "vnYaw,vnPitch,vnRoll,"
+        "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
+        "vnYawSigma,vnRollSigma,vnPitchSigma,"
+        "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
+        "vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,vnTimeUTC,"
+        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP,"
+        // Re-attached at the very end as the last column.
+        "vnEstAltFt";
+    static const char kRow[] =
+        "20000,110,1.60,210,2.60,1013.40,1500.0,92.0,3.80,5,0,12.0,94.5,"
+        "25.5,1.030,0.020,-0.040,4.000,-3.500,-1.000,2.500,-0.800,"
+        "0.100,0.200,0.300,50.000,30.000,-1.500,0.050,0.010,1.020,"
+        "270.500,1.500,-2.000,0.040,0.005,0.010,0.500,0.300,0.400,"
+        "50.100,30.100,-1.400,37.123456,-122.456789,3,25,12:34:56,"
+        "1.030,1.500,300.0,1500.0,3.85,0.150,"
+        "4521.75";
+
+    HeaderIndex idx;
+    g_warnCount = 0; g_lastWarn = nullptr;
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx, CountingWarnSink));
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
+    TEST_ASSERT_TRUE(idx.efisIsVn300);
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, idx.idxVnEstAltFt);
+
+    onspeed::LogRow row{};
+    row.efisEnabled = idx.efisEnabled;
+    row.efisIsVn300 = idx.efisIsVn300;
+    TEST_ASSERT_TRUE(ParseRowByIndex(kRow, idx, row));
+    TEST_ASSERT_FLOAT_WITHIN(1e-2f, 4521.75f, row.vnEstAltFt);
 }
 
 void test_build_index_boom_partial_warns_no_enable(void)
@@ -477,6 +587,7 @@ void test_parserowbyindex_vn300_roundtrip(void)
     src.vnGnssVelNedDown   = -1.4f;
     src.vnGnssLat          = 37.123456;
     src.vnGnssLon          = -122.456789;
+    src.vnEstAltFt         = 4521.75f;
     src.vnGpsFix           = 3;
     src.vnDataAgeMs        = 25;
     std::strcpy(src.vnTimeUtc, "12:34:56");
@@ -506,6 +617,7 @@ void test_parserowbyindex_vn300_roundtrip(void)
     // assertions.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, (float)src.vnGnssLat, (float)dst.vnGnssLat);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, (float)src.vnGnssLon, (float)dst.vnGnssLon);
+    TEST_ASSERT_FLOAT_WITHIN(1e-2f, src.vnEstAltFt, dst.vnEstAltFt);
     TEST_ASSERT_EQUAL_INT(src.vnGpsFix,    dst.vnGpsFix);
     TEST_ASSERT_EQUAL_INT(src.vnDataAgeMs, dst.vnDataAgeMs);
     TEST_ASSERT_EQUAL_STRING(src.vnTimeUtc, dst.vnTimeUtc);
@@ -738,6 +850,7 @@ int main(int, char**)
     RUN_TEST(test_build_index_boom_enabled);
     RUN_TEST(test_build_index_efis_standard_enabled);
     RUN_TEST(test_build_index_vn300_enabled);
+    RUN_TEST(test_build_index_vn300_without_est_alt_ft_still_enables);
     RUN_TEST(test_build_index_boom_partial_warns_no_enable);
     RUN_TEST(test_parserowbyindex_canonical_roundtrip);
     RUN_TEST(test_parserowbyindex_empty_field_fails);
@@ -745,6 +858,7 @@ int main(int, char**)
     RUN_TEST(test_parserowbyindex_reordered_roundtrip);
     RUN_TEST(test_parserowbyindex_efis_roundtrip);
     RUN_TEST(test_parserowbyindex_vn300_roundtrip);
+    RUN_TEST(test_parserowbyindex_vn300_est_alt_ft_at_noncanonical_position);
     RUN_TEST(test_fixture_canonical_with_boom_and_efis);
     RUN_TEST(test_fixture_canonical_with_vn300);
     RUN_TEST(test_fixture_canonical_with_efis_only);
