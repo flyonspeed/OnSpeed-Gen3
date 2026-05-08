@@ -293,9 +293,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // body-angle setpoints (LDmax, OnSpeedFast/Slow/Warn, alpha_0,
     // alpha_stall) are gone — every consumer renders against the
     // percent anchors instead.
-    // AOA, DerivedAOA, IAS, and percentLift use %s placeholders (rather
-    // than %.2f / %.1f) so the producer can emit JSON `null` for those
-    // fields when air data is not valid (bIasAlive=false).  Consumer's
+    // AOA, DerivedAOA, IAS, percentLift, and DecelRate use %s placeholders
+    // (rather than %.2f / %.1f) so the producer can emit JSON `null` for
+    // those fields when air data is not valid (bIasAlive=false).  Consumer's
     // fmt() helper collapses null/undefined/NaN to '—'; the wsClient's
     // aoaIsValid check rejects null via `typeof === 'number'`.
     const char * szFormat =
@@ -304,7 +304,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"flapsMinDeg\":%i,\"flapsMaxDeg\":%i,"
         "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
-        "\"PitchRate\":%.2f,\"DecelRate\":%.2f,\"OAT\":%.2f,\"DerivedAOA\":%s,"
+        "\"PitchRate\":%.2f,\"DecelRate\":%s,\"OAT\":%.2f,\"DerivedAOA\":%s,"
         "\"gOnsetRate\":%.2f,"
         "\"percentLift\":%s,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
         "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
@@ -488,6 +488,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     char szDerivedAoa[16];
     char szIas[16];
     char szPctLift[16];
+    char szDecelRate[16];
     if (bIasValidForOutput && IsFiniteFloat(fWifiAOA))
         snprintf(szAoa, sizeof(szAoa), "%.2f", fWifiAOA);
     else
@@ -502,11 +503,13 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         {
         snprintf(szIas,     sizeof(szIas),     "%.2f", fWifiIAS);
         snprintf(szPctLift, sizeof(szPctLift), "%.1f", fJsonPercentLiftPct);
+        snprintf(szDecelRate, sizeof(szDecelRate), "%.2f", fDecelRate);
         }
     else
         {
-        std::strcpy(szIas,     "null");
-        std::strcpy(szPctLift, "null");
+        std::strcpy(szIas,        "null");
+        std::strcpy(szPctLift,    "null");
+        std::strcpy(szDecelRate,  "null");
         }
 
     // szFormat is a compile-time constant split across lines for readability.
@@ -532,7 +535,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiVSI,
         fWifiFlightpath,
         fPitchRate,
-        fDecelRate,
+        szDecelRate,
         fWifiOAT,
         szDerivedAoa,
         fGOnsetRate,

@@ -154,6 +154,13 @@ const G_HISTORY_STALENESS_SEC    = 3;  // useGHistory sampler gate
 // back without resetting the smoothing state).  Ingests on every WS
 // frame so the smoothed value is always current; Mode 3 reads it via
 // the `decelRateSmoothed` prop.  Bug #362.
+//
+// Skip the update when air data is invalid (rec.aoaIsValid === false).
+// wsClient maps the JSON's null-on-invalid DecelRate to 0; without this
+// guard the EMA would seed with zeros during taxi and lag for ~25 frames
+// on takeoff while it climbs out of "steady-state is 0".  Mirrors the
+// firmware-side SavGol reset on the bIasAlive edge (PR #482) at the EMA
+// layer.  See #484.
 function useDecelEma(rec) {
   const stateRef = useRef(makeEmaState(DECEL_EMA_ALPHA));
   const lastRecRef = useRef(null);
@@ -163,6 +170,7 @@ function useDecelEma(rec) {
     if (rec === lastRecRef.current) return;
     lastRecRef.current = rec;
     if (rec == null) return;
+    if (rec.aoaIsValid === false) return;
     const out = updateEma(stateRef.current, rec.decelRate);
     if (out !== null) setSmoothed(out);
   }, [rec]);
