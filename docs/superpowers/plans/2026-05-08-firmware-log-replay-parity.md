@@ -52,6 +52,67 @@ transitions (smoothstep windows centered on the snap tick — mirrors
 the firmware's flip-at-midpoint physics). This works but it's a
 patch outside the spec.
 
+## Where the fixes live — engine extraction
+
+`software/sketch_common/src/tasks/LogReplay.cpp` today is a FreeRTOS
+task that owns SD-card reads, button mocks, LED blink, and the
+per-row processing loop all in one file. It uses `Arduino.h`,
+`FreeRTOS.h`, and `millis()` — not platform-free. WASM Step 2 from
+`PLAN_WASM_CORE.md` cannot bind it as-is.
+
+**Precedent: `software/sketch_common/src/tasks/AHRS.cpp`.** That task
+is a thin wrapper around `software/Libraries/onspeed_core/src/ahrs/Ahrs.{h,cpp}`.
+The task owns FreeRTOS scheduling and the `g_pIMU` snapshot; the engine
+in `onspeed_core/ahrs/` owns Madgwick / EKF6 math. This is the model.
+
+**LogReplay needs the same split.** Both Fix 1 and Fix 2 (and the
+existing per-row work) belong in a new
+`software/Libraries/onspeed_core/src/replay/LogReplayEngine.{h,cpp}`.
+The engine surface is roughly:
+
+```cpp
+namespace onspeed::replay {
+
+struct LogRow {            // raw values from one CSV row
+  float ax, ay, az, gx, gy, gz;
+  float ias, palt, oat;
+  int   flapsRawAdc;       // -1 if column missing
+  int   flapDetentDeg;     // snapped detent from log
+  uint32_t timestampMs;
+  // ... etc.
+};
+
+struct WireRecord {        // what the M5 receives
+  // ... existing display-frame fields ...
+};
+
+class LogReplayEngine {
+public:
+  LogReplayEngine(const ConfigStruct& cfg, int logSampleRateHz,
+                  bool flapsRawAdcAvailable);
+  WireRecord step(const LogRow& row);  // pure function over engine state
+  // No millis(), no SD-card, no FreeRTOS.
+};
+
+}  // namespace onspeed::replay
+```
+
+`software/sketch_common/src/tasks/LogReplay.cpp` retains its
+FreeRTOS task scaffolding (queue draining, SD-card reads, button
+mocks, LED blink, USB-CDC writes) but delegates the per-row
+`(raw_row → wire_record)` work to `LogReplayEngine::step()`.
+
+`host_main replay` (PLAN_PYTHON_CONSOLIDATION Step 0) constructs a
+`LogReplayEngine` directly, drives it from a CSV reader, and writes
+JSONL to stdout — no FreeRTOS wrapper.
+
+The WASM build (PLAN_WASM_CORE Step 2) binds `LogReplayEngine`
+directly via embind. Same engine, three callers.
+
+`scripts/check_core_purity.sh` enforces that
+`onspeed_core/replay/LogReplayEngine` has no `Arduino.h`,
+`FreeRTOS.h`, or `millis()` references.
+
 ## What firmware LogReplay should do
 
 ### Fix 1 — Rate-correct EMA at ingest
@@ -164,15 +225,27 @@ firmware run literally the same code on the same SD log.
 
 ## Effort estimate
 
-~2 days, in 1-2 small PRs.
+~3-4 days, in 2-3 small PRs.
 
-- Day 1: Fix 1 (Option A — up-sample at ingest). Bench-test against a
-  known SD log + flight reference.
-- Day 2: Fix 2 (synthesize ADC when column is missing). Bench-test
-  with an old (pre-PR-#221) log to verify pip morphs smoothly.
+- Day 1-2: **Engine extraction.** Move the per-row pipeline from
+  `sketch_common/src/tasks/LogReplay.cpp` into
+  `onspeed_core/src/replay/LogReplayEngine.{h,cpp}`. No behavior
+  change. Existing firmware LogReplay still produces the same
+  (twitchy, jumpy) output as before — but now via an engine call.
+  Bench-test: SD log replay matches its prior behavior bit-for-bit.
+  This is the riskiest PR; gets its own commit so it's reviewable.
+- Day 3: Fix 1 (Option A — up-sample at ingest, inside the engine).
+  Bench-test against a known SD log + flight reference.
+- Day 4: Fix 2 (synthesize ADC when column is missing, inside the
+  engine). Bench-test with an old (pre-PR-#221) log to verify pip
+  morphs smoothly.
 
 If bench tests reveal Option A masks something, cut over to Option B
 (another 0.5-1 day; structural change to `EMAFilter`).
+
+**Independence**: Fix 1 and Fix 2 can ship as separate PRs after the
+engine extraction lands. Engine extraction is the load-bearing PR;
+Fix 1 and Fix 2 are mechanical edits inside it.
 
 ## Why this is the right move
 
@@ -189,44 +262,126 @@ If bench tests reveal Option A masks something, cut over to Option B
    loads SD logs (analysis, calibration replay, etc.) gets correct
    behavior automatically.
 
-## Dispatch prompt
+## Dispatch prompts
+
+### PR 1 — Engine extraction (no behavior change)
 
 ```
-Implement PLAN_FIRMWARE_LOG_REPLAY_PARITY.md: fix firmware LogReplay
-so SD-log replay produces wire output indistinguishable from the
-flight that wrote the log.
+Extract the LogReplay per-row pipeline into onspeed_core. Behavior
+must not change in this PR.
 
 WORKTREE: a fresh worktree off origin/master
 PLAN: docs/superpowers/plans/2026-05-08-firmware-log-replay-parity.md
+PRECEDENT: software/sketch_common/src/tasks/AHRS.cpp + software/
+           Libraries/onspeed_core/src/ahrs/Ahrs.{h,cpp}. AHRS is the
+           model: a thin task that delegates per-tick math to an
+           onspeed_core engine.
 COMPANION READING:
-  - software/OnSpeed-Gen3-ESP32/LogReplay.cpp/h (the mode itself)
-  - software/Libraries/onspeed_core/src/filters/EMAFilter.h
-  - software/OnSpeed-Gen3-ESP32/IMU330.cpp (how EMA is applied today)
-  - tools/web/lib/replay/logReplay.js (the JS patches we're closing)
+  - software/sketch_common/src/tasks/LogReplay.cpp/h (the task today)
+  - software/Libraries/onspeed_core/src/ahrs/Ahrs.{h,cpp} (precedent)
+  - software/sketch_common/src/tasks/AHRS.cpp (precedent task wrapper)
+  - tools/web/lib/replay/logReplay.js (current JS patches, for context)
 
 WHAT TO BUILD:
-  Fix 1 (rate-correct EMA at ingest):
-    - Read header sample rate from the log.
-    - If logHz < 208, up-sample to 208 Hz before feeding the EMA
-      (linear interp or hold-last between rows). Filter sees 208 Hz.
-    - If logHz == 208, no upsampling needed.
-    - Downstream wire output stays paced at its existing 20 Hz tick.
-  Fix 2 (synth ADC when column missing):
-    - Detect missing flapsRawADC column in log header.
-    - Two-pass synth (mirror tools/web/lib/replay/logReplay.js::synthLeverSweep):
-      1. Fill every row with current detent pot.
-      2. Paint smoothstep window around each detent transition.
-    - When the column IS present, ingest verbatim.
+  1. New software/Libraries/onspeed_core/src/replay/LogReplayEngine.{h,cpp}.
+     - Pure C++. No Arduino.h, no FreeRTOS.h, no millis(), no SD-card I/O.
+     - Constructor: takes ConfigStruct, log sample-rate hint,
+       flapsRawAdc-available bool.
+     - Method: WireRecord step(const LogRow& row).
+     - Holds whatever per-replay state is currently in LogReplay.cpp's
+       file-scope globals — EMA state, detent-tracker state, etc. —
+       as members.
+  2. Move the per-row processing code FROM sketch_common/src/tasks/
+     LogReplay.cpp INTO LogReplayEngine. Behavior preserved verbatim
+     (no rate fix yet, no ADC synth yet).
+  3. sketch_common/src/tasks/LogReplay.cpp retains its FreeRTOS task
+     scaffolding but constructs a LogReplayEngine and calls step()
+     per row. Test-pot mode + button mocks + LED blink stay where
+     they are.
+  4. tools/regression/host_main.cpp (or a new subcommand if
+     PLAN_PYTHON_CONSOLIDATION Step 0 has landed) gets a `replay`
+     subcommand that constructs a LogReplayEngine, reads CSV from
+     stdin or --input, writes JSONL to stdout. Used by future
+     regression fixtures.
+  5. Snapshot regression: extend tools/regression/run_snapshot.py
+     with a fixture covering LogReplay output. Output must bit-match
+     a committed golden generated from current behavior. (We're
+     freezing today's behavior so Fix 1/Fix 2 PRs can show diffs.)
 
 VERIFY:
-  - tools/regression/run_snapshot.py with a NEW 50-Hz fixture log and
-    a NEW 208-Hz fixture log. Both should produce wire output matching
-    a committed golden.
-  - Bench: LogReplay an SD log on real hardware, compare M5 readout
-    against an independent reference for that flight. No visible twitchiness
-    in slip ball; pip morphs smoothly through detent transitions.
+  - pio test -e native (existing tests still pass).
+  - ./scripts/check_core_purity.sh (LogReplayEngine has no platform
+    deps).
+  - pio run -e esp32s3-v4p (firmware still builds).
+  - Bench: SD log replay on real hardware produces same output as
+    before this PR. Slip ball is still twitchy; pip still jumps.
+    That's intentional — the bugs are preserved here, fixed in
+    PR 2/PR 3.
 
-COMMIT: "firmware: rate-correct LogReplay EMA + synth ADC sweep".
+COMMIT: "onspeed_core: extract LogReplayEngine (behavior unchanged)".
+```
+
+### PR 2 — Fix 1: rate-correct EMA at ingest
+
+```
+With LogReplayEngine extracted (PR 1 merged), fix the IMU EMA
+rate-coupling bug.
+
+WORKTREE: a fresh worktree off origin/master with PR 1 merged
+PLAN: docs/superpowers/plans/2026-05-08-firmware-log-replay-parity.md
+
+WHAT TO BUILD:
+  - Inside LogReplayEngine::step(), if logSampleRateHz < 208,
+    upsample to 208 Hz before feeding the IMU EMA. Linear interp
+    between current row and previous row's IMU values, or hold-last;
+    pick whichever is simpler given the existing engine state shape.
+  - At logSampleRateHz == 208, no upsampling needed.
+  - Wire output frequency to downstream stays unchanged — the engine
+    only emits one WireRecord per input row; upsampling is internal
+    to the EMA loop.
+
+VERIFY:
+  - tools/regression/run_snapshot.py with a 50 Hz fixture log:
+    output now differs from PR 1's golden in exactly the IMU-derived
+    fields (slip ball, pitch/roll). Regenerate the golden, commit it.
+    Run again, green.
+  - Bench: SD log replay shows slip ball matching flight smoothness.
+    (Compare against a flight where Sam has independent reference.)
+
+COMMIT: "replay: rate-correct LogReplay EMA at log ingest (Fix 1)".
+```
+
+### PR 3 — Fix 2: synth ADC when column missing
+
+```
+With LogReplayEngine + Fix 1 merged, address the missing-flapsRawADC
+case for old logs.
+
+WORKTREE: a fresh worktree off origin/master with PRs 1+2 merged
+PLAN: docs/superpowers/plans/2026-05-08-firmware-log-replay-parity.md
+COMPANION READING:
+  - tools/web/lib/replay/logReplay.js::synthLeverSweep
+    (the JS implementation we're porting)
+
+WHAT TO BUILD:
+  - In LogReplayEngine constructor, accept a flapsRawAdcAvailable
+    bool (already added in PR 1).
+  - When false, synthesize the ADC sweep across detent transitions:
+    1. First pass: fill every row with current detent's pot value.
+    2. Second pass: paint smoothstep window centered on each
+       transition tick (mirrors firmware's flip-at-midpoint physics).
+  - When true, ingest the column verbatim.
+  - FlapsDetector inside the engine consumes the synth ADC the
+    same as it consumes real ADC — no other code path knows.
+
+VERIFY:
+  - tools/regression/run_snapshot.py with a pre-PR-#221 fixture log
+    (no flapsRawADC column): L/Dmax pip output morphs smoothly.
+    Regenerate golden, commit it.
+  - Bench: SD log replay of an old log shows pip morphing across
+    detent transitions instead of jumping.
+
+COMMIT: "replay: synth flap-pot ADC when log lacks the column (Fix 2)".
 ```
 
 ## Coordination

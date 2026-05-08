@@ -10,7 +10,7 @@ If you're a fresh agent (or fresh-session Sam) picking up this work,
 |---|---|---|
 | 1 | `2026-05-08-video-overlay-AGENT-CONTEXT.md` | Orientation. Gotchas, anti-patterns, build commands, the unified architecture diagram. **Read in full before touching code.** |
 | 2 | `2026-05-08-python-consolidation.md` | Project A: migrate Python algorithm code to `host_main` subprocess wrappers. **Step 0 (host_main multi-subcommand CLI) is a prerequisite for the WASM project.** ~5-7 days, 7 small PRs. |
-| 3 | `2026-05-08-firmware-log-replay-parity.md` | Project B-prereq: fix firmware LogReplay so SD-log replay produces flight-equivalent wire output. Two firmware-side fixes (rate-correct EMA at ingest, synth ADC when missing). ~2 days, 1-2 small PRs. **Must land before WASM Step 2.** |
+| 3 | `2026-05-08-firmware-log-replay-parity.md` | Project B-prereq: extract LogReplay's per-row pipeline into a platform-free `onspeed_core/replay/LogReplayEngine` (mirrors the AHRS task/engine split), then fix two ingest bugs inside it (rate-correct EMA, synth ADC when missing). ~3-4 days, 3 small PRs. **Must land before WASM Step 2.** |
 | 4 | `2026-05-08-wasm-core.md` | Project B: compile `onspeed_core` to WebAssembly. Replay tool's JS UI loads the WASM module and calls into it for every algorithm — **zero hand-ports**. ~5-7 days, 5 small PRs. Lands after Python consolidation Step 0; then runs in parallel with Python Steps 1-7. |
 | 5 | `2026-05-08-video-overlay-replay.md` | Project C: the Replay tool roadmap. Layered architecture (Layer 0 engine → Layer 5 export). Lands AFTER projects A+B. |
 | 6 | `2026-05-08-cross-impl-drift-prevention.md` | What's left of drift-prevention after WASM lands: a tiny "WASM-vs-native parity check" CI step. Most of this doc is historical — explaining why we no longer need a streaming-goldens CI gate. |
@@ -92,8 +92,9 @@ construction.
   │ Project A:   │ │ Project B-prereq:            │
   │ Python       │ │ Firmware LogReplay parity    │
   │ consolidation│ │ (PLAN_FIRMWARE_LOG_REPLAY_   │
-  │ (Steps 1-7)  │ │  PARITY) ~2 days             │
-  │ ~4-6 days    │ └─────────┬────────────────────┘
+  │ (Steps 1-7)  │ │  PARITY) — engine extraction │
+  │ ~4-6 days    │ │  + 2 ingest fixes ~3-4 days  │
+  │              │ └─────────┬────────────────────┘
   │              │           │
   │              │           ▼
   │              │ ┌──────────────────────────────┐
