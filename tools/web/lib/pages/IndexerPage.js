@@ -18,6 +18,20 @@ import { fmt } from '../core/format.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from '../modes.js';
 import { useWebSocket } from '../ws/wsClient.js';
 import { PageShell } from '../shell/PageShell.js';
+import { makeEmaState, updateEma } from '../core/ema.js';
+
+// EMA alpha for Mode 3's decel pointer / readout.  Matches the M5
+// firmware's `decelSmoothingAlpha` in SerialRead.cpp:28 (0.04 at 20 Hz
+// ≈ 1.25 s τ).  Both surfaces poll at 20 Hz, so a literal alpha gives
+// a literal time-constant match — Mode 3 tracks the M5 hardware gauge
+// in time-constant during normal continuous operation.  Brief
+// disagreement after a WiFi reconnect is intrinsic: the M5 hard-resets
+// its local SavGol and EMA on >500 ms serial gaps to flush stale window
+// samples, while the JS side has no SavGol of its own (the firmware's
+// SavGol runs continuously through any WiFi outage), so the JS EMA
+// holds its last value rather than zeroing.  See issue #362 and the
+// spec at docs/superpowers/specs/2026-05-08-decel-rate-smoothing-design.md.
+const DECEL_EMA_ALPHA = 0.04;
 
 // localStorage throws in private-browsing Safari and when storage is
 // full.  Wrap reads + writes so the UI never crashes from storage
@@ -135,6 +149,27 @@ const ModeNav = ({ current, onChange }) => html`
 const STALENESS_THRESHOLD_SEC    = 3;  // StaleOverlay (covers the page when stale)
 const G_HISTORY_STALENESS_SEC    = 3;  // useGHistory sampler gate
 
+// Decel-rate EMA — kept in a useRef so it accumulates across renders
+// and across mode switches (the user can flip away from Mode 3 and
+// back without resetting the smoothing state).  Ingests on every WS
+// frame so the smoothed value is always current; Mode 3 reads it via
+// the `decelRateSmoothed` prop.  Bug #362.
+function useDecelEma(rec) {
+  const stateRef = useRef(makeEmaState(DECEL_EMA_ALPHA));
+  const lastRecRef = useRef(null);
+  const [smoothed, setSmoothed] = useState(null);
+
+  useEffect(() => {
+    if (rec === lastRecRef.current) return;
+    lastRecRef.current = rec;
+    if (rec == null) return;
+    const out = updateEma(stateRef.current, rec.decelRate);
+    if (out !== null) setSmoothed(out);
+  }, [rec]);
+
+  return smoothed;
+}
+
 // G-history ring buffer — kept in a useRef so it persists across
 // renders.
 function useGHistory(rec, ageSec) {
@@ -192,6 +227,7 @@ export function IndexerPage() {
   // StaleOverlay covers the panel and there's nothing to animate.
   const stale = ageSec >= STALENESS_THRESHOLD_SEC;
   const gHist = useGHistory(rec, ageSec);
+  const decelRateSmoothed = useDecelEma(rec);
 
   const setModeAndPersist = (m) => {
     setMode(m);
@@ -212,7 +248,8 @@ export function IndexerPage() {
         <main id="liveview-main">
           <div id="mode-container">
             <${ActiveMode} r=${rec || EMPTY_REC} stale=${stale}
-                           gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx} />
+                           gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx}
+                           decelRateSmoothed=${decelRateSmoothed} />
           </div>
           <${DataFields} rec=${rec} ageSec=${ageSec}
                          expanded=${dfExpanded} onToggle=${toggleDf} />

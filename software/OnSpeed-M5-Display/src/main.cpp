@@ -45,11 +45,11 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //#define SERIALDATADEBUG   // show serial packet debug
 //#define DUMMY_SERIAL_DATA // dummy serial data for display test
 
-// IAS_IN_MPH gates the IAS units readout (knots default, MPH if
-// defined).  Tracked for runtime promotion in issue #419 — once that
+// IAS_IN_MPH gates the IAS units readout (MPH default, knots if
+// undefined).  Tracked for runtime promotion in issue #419 — once that
 // lands, the `#define` goes away and pilots flip units at runtime.
-// Until then, uncomment to rebuild with MPH.
-//#define IAS_IN_MPH
+// Until then, comment out to rebuild with knots.
+#define IAS_IN_MPH
 
 #include <GaugeWidgets.h>
 #if defined(HUVVER)
@@ -698,7 +698,7 @@ void loop()
                 if (IasIsValid)
                     {
                     gdraw.setCursor(5, 30);
-                    gdraw.print(int(displayIAS));
+                    gdraw.print((int)lroundf(displayIAS));
                     }
                 else
                     {
@@ -922,7 +922,7 @@ void displayAOA()
         if (IasIsValid)
             {
             gdraw.setCursor(7, NUM_Y);
-            gdraw.print(int(displayIAS));
+            gdraw.print((int)lroundf(displayIAS));
             }
         else
             {
@@ -1606,7 +1606,7 @@ void displayDecelGauge()
     if (IasIsValid)
         {
         gdraw.setCursor(7, DEC_NUM_Y);
-        gdraw.print(int(displayIAS));
+        gdraw.print((int)lroundf(displayIAS));
         }
     else
         {
