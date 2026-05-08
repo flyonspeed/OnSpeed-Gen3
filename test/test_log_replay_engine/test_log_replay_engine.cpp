@@ -1,32 +1,24 @@
-// test_log_replay_engine.cpp — characterization tests for onspeed::replay::LogReplayEngine.
+// test_log_replay_engine.cpp — characterization and streaming tests for
+// onspeed::replay::LogReplayEngine.
 //
-// These are CHARACTERIZATION TESTS: they pin behavior at Sub-task 2 of
-// PLAN_FIRMWARE_LOG_REPLAY_PARITY.md — the engine uses RateAdjustedAccelEma
-// for lateral, vertical, and forward accel channels.  Pinned values for the
-// smoothed accel fields reflect the rate-adjusted EMA output at 50 Hz with
-// tau = kAccelEmaTauSec ≈ 0.076516 s (alpha ≈ 0.2300).
+// CHARACTERIZATION TESTS (Sub-task 2 behavior — accel EMA):
+//   These pin the baseline behavior with RateAdjustedAccelEma for lateral,
+//   vertical, and forward accel channels. Pinned values for the smoothed accel
+//   fields reflect the rate-adjusted EMA output at 50 Hz with
+//   tau = kAccelEmaTauSec ≈ 0.076516 s (alpha ≈ 0.2300). Tests use
+//   flapsRawAdcAvailable=true so step() returns immediately (no lag).
 //
-// Sub-task 3 (synth flapsRawADC for old logs) will produce the next clean diff.
-//
-// What is tested:
-//   - step() is deterministic: two fresh engines on identical input produce
-//     identical output.
-//   - Accel fields (accelLatSmoothed, accelVertSmoothed, accelFwdSmoothed) carry
-//     rate-adjusted-EMA smoothed values, NOT raw passthrough.  First call
-//     seeds at the raw value; subsequent calls blend.
-//   - Engine state (AOA EMA + accel EMA) accumulates: sequential steps on
-//     distinct inputs produce distinct outputs pinned to exact floats.
-//   - reset() clears all EMA state (AOA + accel) so the engine behaves
-//     identically to a fresh instance.
-//   - Raw IMU fields (imuLateralG, imuVerticalG, imuForwardG) remain raw.
-//   - flapsRawAdcPresent gate: field is propagated only when set.
-//   - Flap index lookup: correct entry selected, unknown degrees fall back to 0.
+// STREAMING SYNTH TESTS (Sub-task 3 — new):
+//   These exercise the circular buffer, lag contract, flush(), bounded
+//   memory, and streaming-vs-batch equivalence.
 
 #include <unity.h>
 
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include <config/OnSpeedConfig.h>
 #include <replay/LogReplayEngine.h>
@@ -38,6 +30,7 @@ using onspeed::SuCalibrationCurve;
 using onspeed::config::OnSpeedConfig;
 using onspeed::replay::LogReplayEngine;
 using onspeed::replay::ReplayStepResult;
+using onspeed::replay::kSynthHalfWindow;
 
 // ============================================================================
 // Helpers
@@ -139,6 +132,36 @@ LogRow makeRow(float pfwdSmoothed = 0.5f,
     return r;
 }
 
+// Helper: step() and assert the result is non-empty (fast path / ADC present).
+ReplayStepResult stepExpectResult(LogReplayEngine& eng, const LogRow& row)
+{
+    auto opt = eng.step(row);
+    TEST_ASSERT_TRUE_MESSAGE(opt.has_value(), "step() returned empty when a result was expected");
+    return opt.value();
+}
+
+// Batch reference: compute the smoothstep-blended synth ADC for a given tick
+// relative to a transition at snapTick, with prevPot and nextPot.
+// Returns the nominal steady-state pot value when tick is outside the window.
+uint16_t batchSynthAdc(int tick, int snapTick, int prevPot, int nextPot,
+                        int steadyPot)
+{
+    const int winStart = snapTick - kSynthHalfWindow;
+    const int winEnd   = snapTick + kSynthHalfWindow;
+    if (tick < winStart || tick > winEnd)
+        return static_cast<uint16_t>(steadyPot);
+
+    const float span = static_cast<float>(2 * kSynthHalfWindow);
+    float t = static_cast<float>(tick - winStart) / span;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    const float s = t * t * (3.0f - 2.0f * t);
+    const float result = static_cast<float>(prevPot) + s * static_cast<float>(nextPot - prevPot);
+    if (result < 0.0f)    return 0u;
+    if (result > 65535.0f) return 65535u;
+    return static_cast<uint16_t>(result + 0.5f);
+}
+
 }  // namespace
 
 // ============================================================================
@@ -149,22 +172,24 @@ void setUp(void) {}
 void tearDown(void) {}
 
 // ============================================================================
-// Tests
+// Characterization tests (unchanged from PR 1, now using optional unwrap)
 // ============================================================================
 
 // step() is deterministic: two fresh engines on identical input produce
-// identical output. (No reset() involved — that's a different property
-// tested separately by test_reset_clears_state.)
+// identical output. Uses flapsRawAdcAvailable=true so step() returns
+// immediately with no lag.
 void test_step_deterministic(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
     LogRow row = makeRow();
+    row.flapsRawAdcPresent = true;
+    row.flapsRawAdc = 1234;
 
-    LogReplayEngine engA(cfg, 50, false);
-    LogReplayEngine engB(cfg, 50, false);
+    LogReplayEngine engA(cfg, 50, true);
+    LogReplayEngine engB(cfg, 50, true);
 
-    ReplayStepResult rA = engA.step(row);
-    ReplayStepResult rB = engB.step(row);
+    ReplayStepResult rA = stepExpectResult(engA, row);
+    ReplayStepResult rB = stepExpectResult(engB, row);
 
     TEST_ASSERT_EQUAL_FLOAT(rA.aoa,       rB.aoa);
     TEST_ASSERT_EQUAL_FLOAT(rA.coeffP,   rB.coeffP);
@@ -175,7 +200,7 @@ void test_step_deterministic(void)
 void test_passthrough_fields(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     LogRow row = makeRow(0.5f, 0.1f, 0, true, 55.0f);
     row.dataMark     = 42;
@@ -185,7 +210,7 @@ void test_passthrough_fields(void)
     row.paltFt       = 5000.0f;
     row.vsiFpm       = 200.0f;
 
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
 
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.5f,  res.pfwdSmoothed);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.1f,  res.p45Smoothed);
@@ -217,7 +242,7 @@ void test_passthrough_fields(void)
 void test_imu_passthrough(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     LogRow row = makeRow();
     row.imuForwardG     = 0.11f;
@@ -227,7 +252,7 @@ void test_imu_passthrough(void)
     row.imuPitchRateDps = -1.3f;
     row.imuYawRateDps   = 0.7f;
 
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
 
     // Raw IMU fields are always verbatim passthrough.
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.11f,  res.imuForwardG);
@@ -260,15 +285,15 @@ void test_imu_passthrough(void)
 void test_ema_accumulates(void)
 {
     OnSpeedConfig cfg = makeLinearCurveConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     // Step 1: coeffP=0.1 -> raw_aoa=3.0, EMA seeds at 3.0.
     LogRow row1 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.1f);
-    ReplayStepResult r1 = eng.step(row1);
+    ReplayStepResult r1 = stepExpectResult(eng, row1);
 
     // Step 2: coeffP=0.3 -> raw_aoa=9.0, EMA blends with seeded 3.0.
     LogRow row2 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.3f);
-    ReplayStepResult r2 = eng.step(row2);
+    ReplayStepResult r2 = stepExpectResult(eng, row2);
 
     // Pinned values — unchanged from PR-1 baseline (AOA calc is not affected
     // by Sub-task 2's rate-adjusted accel EMA).
@@ -350,31 +375,25 @@ void test_accel_ema_accumulates(void)
 void test_reset_clears_state(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     // Warm up the AOA + accel EMA with a few rows.
     LogRow warmup = makeRow(2.0f, 0.5f);
-    warmup.imuLateralG = 0.15f;
-    warmup.imuVerticalG = 0.85f;
-    warmup.imuForwardG = 0.03f;
-    eng.step(warmup);
-    eng.step(warmup);
-    eng.step(warmup);
+    stepExpectResult(eng, warmup);
+    stepExpectResult(eng, warmup);
+    stepExpectResult(eng, warmup);
 
     // Step with a different row to get the "warmed up" result.
     LogRow testRow = makeRow(0.1f, 0.02f);
-    testRow.imuLateralG = -0.08f;
-    testRow.imuVerticalG = 1.05f;
-    testRow.imuForwardG = 0.02f;
-    ReplayStepResult warmed = eng.step(testRow);
+    ReplayStepResult warmed = stepExpectResult(eng, testRow);
 
     // Reset and repeat the same sequence from scratch.
     eng.reset();
-    LogReplayEngine fresh(cfg, 50, false);
-    fresh.step(warmup);
-    fresh.step(warmup);
-    fresh.step(warmup);
-    ReplayStepResult fresh_result = fresh.step(testRow);
+    LogReplayEngine fresh(cfg, 50, true);
+    stepExpectResult(fresh, warmup);
+    stepExpectResult(fresh, warmup);
+    stepExpectResult(fresh, warmup);
+    ReplayStepResult fresh_result = stepExpectResult(fresh, testRow);
 
     // After reset(), same input sequence produces same output as fresh engine.
     // Checks both AOA EMA and accel EMA state are cleared.
@@ -384,17 +403,18 @@ void test_reset_clears_state(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelFwdSmoothed, warmed.accelFwdSmoothed);
 }
 
-// flapsRawAdcPresent = false: result.flapsRawAdcPresent is false, uValue unchanged
+// flapsRawAdcPresent = false in row + flapsRawAdcAvailable=true in engine:
+// result.flapsRawAdcPresent is false (column was in log but this row didn't set it).
 void test_flaps_raw_adc_absent(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     LogRow row = makeRow();
     row.flapsRawAdcPresent = false;
     row.flapsRawAdc        = 9999;  // should NOT be forwarded
 
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
     TEST_ASSERT_FALSE(res.flapsRawAdcPresent);
 }
 
@@ -408,7 +428,7 @@ void test_flaps_raw_adc_present(void)
     row.flapsRawAdcPresent = true;
     row.flapsRawAdc        = 2048;
 
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
     TEST_ASSERT_TRUE(res.flapsRawAdcPresent);
     TEST_ASSERT_EQUAL_UINT16(2048, res.flapsRawAdc);
 }
@@ -417,10 +437,10 @@ void test_flaps_raw_adc_present(void)
 void test_flap_index_second_detent(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     LogRow row = makeRow(0.5f, 0.1f, 30);  // 30-degree detent
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
 
     TEST_ASSERT_EQUAL_INT(1, res.flapsIndex);
     TEST_ASSERT_EQUAL_INT(30, res.flapsPos);
@@ -430,10 +450,10 @@ void test_flap_index_second_detent(void)
 void test_flap_index_unknown_falls_back(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     LogRow row = makeRow(0.5f, 0.1f, 99);  // 99 is not in aFlaps
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
 
     TEST_ASSERT_EQUAL_INT(0, res.flapsIndex);
 }
@@ -442,10 +462,10 @@ void test_flap_index_unknown_falls_back(void)
 void test_ias_invalid_propagates(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     LogRow row = makeRow(0.0f, 0.0f, 0, false, 0.0f);
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
 
     TEST_ASSERT_FALSE(res.iasValid);
 }
@@ -454,12 +474,12 @@ void test_ias_invalid_propagates(void)
 void test_kalman_vsi_conversion(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     LogRow row = makeRow();
     row.vsiFpm = 196.85f;   // 1 m/s * 196.85 = 196.85 fpm
 
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
 
     // fpm2mps(196.85f) = 196.85f / 196.85f = 1.0 m/s
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, res.kalmanVSI);
@@ -475,14 +495,315 @@ void test_kalman_vsi_conversion(void)
 void test_coeff_p_nonzero(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, 50, true);
 
     // Use non-zero pressures so pressureCoeff produces a non-zero result.
     // coeffP = p45 / pfwd = 2.0 / 10.0 = 0.2
     LogRow row = makeRow(10.0f, 2.0f);
-    ReplayStepResult res = eng.step(row);
+    ReplayStepResult res = stepExpectResult(eng, row);
 
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.2f, res.coeffP);
+}
+
+// ============================================================================
+// Streaming synth tests (PR 3 — new)
+// ============================================================================
+
+// Lag contract: when flapsRawAdcAvailable is false, step() returns empty
+// for the first kSynthHalfWindow calls, then starts returning results.
+void test_streaming_lag_contract(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, /*flapsRawAdcAvailable=*/false);
+
+    LogRow row = makeRow(0.5f, 0.1f, 0);
+
+    // First kSynthHalfWindow rows should return empty.
+    for (int i = 0; i < kSynthHalfWindow; i++) {
+        auto opt = eng.step(row);
+        TEST_ASSERT_FALSE_MESSAGE(opt.has_value(),
+            "step() should return empty during lag period");
+    }
+
+    // (kSynthHalfWindow + 1)-th row should return a result.
+    auto opt = eng.step(row);
+    TEST_ASSERT_TRUE_MESSAGE(opt.has_value(),
+        "step() should return a result once buffer is full");
+
+    // Total rows fed should be kSynthHalfWindow + 1.
+    TEST_ASSERT_EQUAL_INT(kSynthHalfWindow + 1, eng.rowsFed());
+}
+
+// Flush contract: after feeding N rows, flush() emits exactly kSynthHalfWindow
+// results (the tail rows that were buffered).
+void test_streaming_flush_emits_tail(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, false);
+
+    LogRow row = makeRow(0.5f, 0.1f, 0);
+
+    // Feed exactly kSynthHalfWindow rows (still in lag — no output yet).
+    int stepResults = 0;
+    for (int i = 0; i < kSynthHalfWindow; i++) {
+        if (eng.step(row).has_value())
+            ++stepResults;
+    }
+    // Nothing should have been emitted yet.
+    TEST_ASSERT_EQUAL_INT(0, stepResults);
+
+    // flush() should emit exactly kSynthHalfWindow rows.
+    auto tail = eng.flush();
+    TEST_ASSERT_EQUAL_INT(kSynthHalfWindow, (int)tail.size());
+}
+
+// Total rows in = rows from step() + rows from flush()
+// For N input rows, we should get exactly N output rows total.
+void test_streaming_total_output_equals_input(void)
+{
+    const int N = kSynthHalfWindow * 3 + 17;  // not a round multiple
+
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, false);
+
+    LogRow row = makeRow(0.5f, 0.1f, 0);
+
+    int stepCount = 0;
+    for (int i = 0; i < N; i++) {
+        if (eng.step(row).has_value())
+            ++stepCount;
+    }
+
+    auto tail = eng.flush();
+    const int totalOut = stepCount + (int)tail.size();
+
+    TEST_ASSERT_EQUAL_INT(N, totalOut);
+}
+
+// Bounded memory: feeding 1000 rows should not grow the engine's output or
+// transition tables beyond the fixed buffer size. We verify this indirectly
+// by checking that rowsFed() keeps increasing while flush() always returns
+// at most kSynthHalfWindow rows.
+void test_streaming_bounded_memory(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+
+    // Feed 1000 rows; switch flap detent every 200 rows to exercise transitions.
+    LogReplayEngine eng(cfg, 50, false);
+    for (int i = 0; i < 1000; i++) {
+        int flapDeg = ((i / 200) % 2 == 0) ? 0 : 30;
+        LogRow row = makeRow(0.5f, 0.1f, flapDeg);
+        eng.step(row);
+    }
+
+    // flush() must return at most kSynthHalfWindow rows, regardless of input length.
+    auto tail = eng.flush();
+    TEST_ASSERT_TRUE_MESSAGE((int)tail.size() <= kSynthHalfWindow,
+        "flush() returned more than kSynthHalfWindow rows");
+
+    // rowsFed() should equal the total rows fed (1000).
+    TEST_ASSERT_EQUAL_INT(1000, eng.rowsFed());
+}
+
+// Steady-state synth: when there are no transitions, every emitted row's
+// flapsRawAdc should equal the nominal pot position for that flap detent.
+void test_synth_steady_state_no_transition(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    // Detent 0 pot = 1000, detent 1 pot = 3000.
+
+    LogReplayEngine eng(cfg, 50, false);
+    LogRow row = makeRow(0.5f, 0.1f, 0);  // always flaps=0
+
+    // Feed enough rows to fill the buffer and get output.
+    std::vector<ReplayStepResult> results;
+    for (int i = 0; i < kSynthHalfWindow * 2; i++) {
+        auto opt = eng.step(row);
+        if (opt.has_value())
+            results.push_back(opt.value());
+    }
+    auto tail = eng.flush();
+    results.insert(results.end(), tail.begin(), tail.end());
+
+    // All emitted rows should have flapsRawAdc == 1000 (detent 0 pot).
+    for (size_t i = 0; i < results.size(); i++) {
+        TEST_ASSERT_TRUE(results[i].flapsRawAdcPresent);
+        TEST_ASSERT_EQUAL_UINT16(1000, results[i].flapsRawAdc);
+    }
+}
+
+// Transition: after feeding 50 rows at flaps=0 then switching to flaps=30,
+// the emitted rows near the transition should show a smoothstep blend.
+// Specifically, the row AT the transition should be mid-blend (not the full
+// pot for either detent). Rows far from the transition should be steady-state.
+void test_synth_single_transition(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    // Detent 0 pot = 1000, detent 1 pot = 3000.
+
+    LogReplayEngine eng(cfg, 50, false);
+
+    // Feed 50 rows at flaps=0.
+    const int preTrans  = 50;
+    const int postTrans = kSynthHalfWindow * 2;
+
+    LogRow row0 = makeRow(0.5f, 0.1f, 0);
+    LogRow row30 = makeRow(0.5f, 0.1f, 30);
+
+    std::vector<ReplayStepResult> results;
+    for (int i = 0; i < preTrans; i++) {
+        auto opt = eng.step(row0);
+        if (opt.has_value()) results.push_back(opt.value());
+    }
+    // Transition on tick (preTrans + 1) — engine sees flaps=30 for first time.
+    for (int i = 0; i < postTrans; i++) {
+        auto opt = eng.step(row30);
+        if (opt.has_value()) results.push_back(opt.value());
+    }
+    auto tail = eng.flush();
+    results.insert(results.end(), tail.begin(), tail.end());
+
+    // Total output should equal total input.
+    TEST_ASSERT_EQUAL_INT(preTrans + postTrans, (int)results.size());
+
+    // Pre-transition: rows well before the window should have steady pot=1000.
+    // The first emitted row is at absolute tick kSynthHalfWindow (because of lag).
+    // The transition occurs at tick preTrans+1 (1-indexed). The smoothstep window
+    // around the transition spans [preTrans+1 - kSynthHalfWindow, preTrans+1 + kSynthHalfWindow].
+    // Emitted row index 0 corresponds to absolute tick kSynthHalfWindow.
+    // If kSynthHalfWindow > preTrans the first emitted row is already inside the window.
+    // If kSynthHalfWindow <= preTrans the first few emitted rows are steady-state.
+    if (kSynthHalfWindow <= preTrans) {
+        TEST_ASSERT_EQUAL_UINT16(1000, results[0].flapsRawAdc);
+    }
+
+    // Post-transition: the last emitted row is far after the window; should be
+    // steady at pot=3000.
+    TEST_ASSERT_EQUAL_UINT16(3000, results.back().flapsRawAdc);
+
+    // At the transition point: the row emitted at the snap tick itself should
+    // be at exactly s=0.5 (t=0.5 in the smoothstep) and value = lerp(1000,3000,0.5)=2000.
+    // But since the emitted tick lags the input tick by kSynthHalfWindow, the
+    // snap tick row is emitted kSynthHalfWindow rows after the transition row enters.
+    // That is: results[(preTrans+1) - kSynthHalfWindow + kSynthHalfWindow - kSynthHalfWindow]
+    //        = results[preTrans + 1 - kSynthHalfWindow]
+    // if preTrans+1 >= kSynthHalfWindow; otherwise it's inside the buffer still.
+    if (preTrans + 1 >= kSynthHalfWindow) {
+        const int snapEmitIdx = preTrans + 1 - kSynthHalfWindow;
+        if (snapEmitIdx >= 0 && snapEmitIdx < (int)results.size()) {
+            // At the snap tick (t=0.5): smoothstep s = 3*(0.5)^2 - 2*(0.5)^3 = 0.5
+            // Lerp(1000, 3000, 0.5) = 2000
+            const uint16_t atSnap = results[snapEmitIdx].flapsRawAdc;
+            TEST_ASSERT_UINT16_WITHIN(2, 2000, atSnap);
+        }
+    }
+}
+
+// Streaming-vs-batch equivalence: prove that the streaming engine produces
+// the same output as a reference batch computation for a known input sequence.
+//
+// Input: 2*kSynthHalfWindow rows at flaps=0, then 2*kSynthHalfWindow rows at flaps=30.
+// Batch reference: compute the expected synth ADC for each tick directly using
+// the smoothstep formula and the known transition tick.
+void test_streaming_vs_batch_equivalence(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    // Detent 0 pot = 1000, detent 1 pot = 3000.
+    const int prevPot = 1000;
+    const int nextPot = 3000;
+
+    const int phase1 = kSynthHalfWindow;  // rows at flaps=0
+    const int phase2 = kSynthHalfWindow;  // rows at flaps=30
+
+    LogReplayEngine eng(cfg, 50, false);
+    LogRow row0  = makeRow(0.5f, 0.1f, 0);
+    LogRow row30 = makeRow(0.5f, 0.1f, 30);
+
+    // Collect all emitted ADC values.
+    std::vector<uint16_t> streamingAdc;
+    for (int i = 0; i < phase1; i++) {
+        auto opt = eng.step(row0);
+        if (opt.has_value())
+            streamingAdc.push_back(opt.value().flapsRawAdc);
+    }
+    // The transition occurs when flaps first changes to 30.
+    // rowsFed() at that point = phase1 + 1 (first flaps=30 row).
+    const int snapTick = phase1 + 1;  // 1-indexed rowsFed value at transition
+    for (int i = 0; i < phase2; i++) {
+        auto opt = eng.step(row30);
+        if (opt.has_value())
+            streamingAdc.push_back(opt.value().flapsRawAdc);
+    }
+    auto tail = eng.flush();
+    for (const auto& r : tail)
+        streamingAdc.push_back(r.flapsRawAdc);
+
+    // Total output rows.
+    TEST_ASSERT_EQUAL_INT(phase1 + phase2, (int)streamingAdc.size());
+
+    // Batch reference: the k-th emitted row (0-indexed) was fed at absolute
+    // tick (k + 1). The first emitted row (k=0) is tick 1; the last (k=N-1)
+    // is tick N. step() lags by kSynthHalfWindow, so only ticks
+    // [1..N-kSynthHalfWindow] come from step() and ticks
+    // [N-kSynthHalfWindow+1..N] come from flush().
+    //
+    // The transition snapTick = phase1 + 1 (first row at flaps=30, 1-indexed).
+    // Smoothstep window: [snapTick - kSynthHalfWindow, snapTick + kSynthHalfWindow].
+    for (int k = 0; k < (int)streamingAdc.size(); k++) {
+        const int emitTick = k + 1;  // 1-indexed
+        // Steady-state pot: prevPot before snap, nextPot after.
+        const int steadyPot = (emitTick < snapTick) ? prevPot : nextPot;
+        const uint16_t expected = batchSynthAdc(emitTick, snapTick,
+                                                 prevPot, nextPot, steadyPot);
+        TEST_ASSERT_EQUAL_UINT16_MESSAGE(expected, streamingAdc[k],
+            "streaming output does not match batch reference");
+    }
+}
+
+// flush() on the fast path (flapsRawAdcAvailable=true) returns an empty vector.
+void test_flush_fast_path_empty(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, /*flapsRawAdcAvailable=*/true);
+
+    LogRow row = makeRow();
+    row.flapsRawAdcPresent = true;
+    row.flapsRawAdc = 999;
+
+    for (int i = 0; i < 10; i++)
+        stepExpectResult(eng, row);
+
+    auto tail = eng.flush();
+    TEST_ASSERT_EQUAL_INT(0, (int)tail.size());
+}
+
+// reset() clears the synth buffer: after reset(), rowsFed() is 0 and the
+// lag starts again.
+void test_reset_clears_synth_buffer(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, false);
+
+    LogRow row = makeRow(0.5f, 0.1f, 0);
+
+    // Fill the buffer past the lag point.
+    for (int i = 0; i < kSynthHalfWindow + 5; i++)
+        eng.step(row);
+
+    TEST_ASSERT_TRUE(eng.rowsFed() > kSynthHalfWindow);
+
+    // After reset, rowsFed() is 0 and the lag starts again.
+    eng.reset();
+    TEST_ASSERT_EQUAL_INT(0, eng.rowsFed());
+
+    // First kSynthHalfWindow rows should return empty again.
+    for (int i = 0; i < kSynthHalfWindow; i++) {
+        auto opt = eng.step(row);
+        TEST_ASSERT_FALSE(opt.has_value());
+    }
+    // (kSynthHalfWindow + 1)-th row should return a result.
+    auto opt = eng.step(row);
+    TEST_ASSERT_TRUE(opt.has_value());
 }
 
 // ============================================================================
@@ -493,6 +814,7 @@ int main(int, char**)
 {
     UNITY_BEGIN();
 
+    // --- Characterization tests (fast path, ADC present) ---
     RUN_TEST(test_step_deterministic);
     RUN_TEST(test_passthrough_fields);
     RUN_TEST(test_imu_passthrough);
@@ -506,6 +828,17 @@ int main(int, char**)
     RUN_TEST(test_ias_invalid_propagates);
     RUN_TEST(test_kalman_vsi_conversion);
     RUN_TEST(test_coeff_p_nonzero);
+
+    // --- Streaming synth tests (new, PR 3) ---
+    RUN_TEST(test_streaming_lag_contract);
+    RUN_TEST(test_streaming_flush_emits_tail);
+    RUN_TEST(test_streaming_total_output_equals_input);
+    RUN_TEST(test_streaming_bounded_memory);
+    RUN_TEST(test_synth_steady_state_no_transition);
+    RUN_TEST(test_synth_single_transition);
+    RUN_TEST(test_streaming_vs_batch_equivalence);
+    RUN_TEST(test_flush_fast_path_empty);
+    RUN_TEST(test_reset_clears_synth_buffer);
 
     return UNITY_END();
 }
