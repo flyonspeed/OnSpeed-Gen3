@@ -160,10 +160,10 @@ export const Mode2 = ({ r, stale }) => html`
 //
 // `decelRateSmoothed` is the EMA(α=0.04 @ 20 Hz) version of `r.decelRate`
 // computed by the parent (IndexerPage's useDecelEma hook).  Matches the
-// M5 firmware's `SmoothedDecelRate` (SerialRead.cpp:344) byte-for-byte
-// in time-constant — both surfaces poll at 20 Hz and use the same alpha.
-// Falls back to the raw `r.decelRate` for the very first frame, before
-// the EMA has seeded.  Bug #362.
+// M5 firmware's `SmoothedDecelRate` (SerialRead.cpp:344) in
+// time-constant during normal continuous operation — both surfaces poll
+// at 20 Hz and use the same alpha.  Falls back to the raw `r.decelRate`
+// for the very first frame, before the EMA has seeded.  Bug #362.
 export const Mode3 = ({ r, stale, decelRateSmoothed }) => {
   const flashFlag = flashFlagNow();
   const decelDisplay = decelRateSmoothed != null ? decelRateSmoothed : (r.decelRate || 0);

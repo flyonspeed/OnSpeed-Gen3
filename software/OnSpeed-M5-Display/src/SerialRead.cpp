@@ -25,7 +25,7 @@ using onspeed::proto::DisplayFrame;
 // are used as-received — the main firmware already smooths them at the
 // sensor layer (iAoaSmoothing, AccelLatFilter), so the display matches
 // what the audio tones react to.
-static const float decelSmoothingAlpha = 0.04f;  //1 = max smoothing, 0.01 no smoothing.
+static const float decelSmoothingAlpha = 0.04f;  // 0 = max smoothing, 1 = no smoothing (pass-through).
 
 // IAS derivative filter (Savitzky-Golay first derivative, window=15)
 static double iasDerivativeInput;

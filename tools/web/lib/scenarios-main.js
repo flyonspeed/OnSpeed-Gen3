@@ -10,7 +10,7 @@ import { html, render } from './vendor/preact-standalone.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from './modes.js';
 import * as G from './core/geometry.js';
 import { scenarios } from './scenarios.js';
-import { makeEmaState, updateEma } from './core/ema.js';
+import { makeEmaState, updateEma, resetEma } from './core/ema.js';
 
 let currentScenario = 'idle';
 let scenarioStart = performance.now();
@@ -75,6 +75,13 @@ document.querySelectorAll('#scenario-nav button[data-scenario]').forEach(btn => 
   btn.addEventListener('click', () => {
     currentScenario = btn.dataset.scenario;
     scenarioStart = performance.now();
+    // Each scenario should start from a clean filter state — otherwise
+    // the smoothed needle drifts in for ~1.25 s after a switch (e.g.
+    // stall → idle holds the needle near −2 kt/s while the new
+    // scenario emits 0).  Pilots opening the harness should see the
+    // reboot-fresh first-frame behavior, not residual state from the
+    // last selection.
+    resetEma(decelEma);
   });
 });
 

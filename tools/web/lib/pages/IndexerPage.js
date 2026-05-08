@@ -24,8 +24,13 @@ import { makeEmaState, updateEma } from '../core/ema.js';
 // firmware's `decelSmoothingAlpha` in SerialRead.cpp:28 (0.04 at 20 Hz
 // ≈ 1.25 s τ).  Both surfaces poll at 20 Hz, so a literal alpha gives
 // a literal time-constant match — Mode 3 tracks the M5 hardware gauge
-// byte-equivalently in time.  See issue #362 and the spec at
-// docs/superpowers/specs/2026-05-08-decel-rate-smoothing-design.md.
+// in time-constant during normal continuous operation.  Brief
+// disagreement after a WiFi reconnect is intrinsic: the M5 hard-resets
+// its local SavGol and EMA on >500 ms serial gaps to flush stale window
+// samples, while the JS side has no SavGol of its own (the firmware's
+// SavGol runs continuously through any WiFi outage), so the JS EMA
+// holds its last value rather than zeroing.  See issue #362 and the
+// spec at docs/superpowers/specs/2026-05-08-decel-rate-smoothing-design.md.
 const DECEL_EMA_ALPHA = 0.04;
 
 // localStorage throws in private-browsing Safari and when storage is
