@@ -1,18 +1,19 @@
 // Anchor auto-detection in an OnSpeed SD log.
 //
 // We need ONE clean tick the pilot can also spot in the video, so the
-// video and log clocks line up. Two events are clean candidates:
+// video and log clocks line up. The auto-detect provides a good
+// initial guess; the pilot fine-tunes via the nudge buttons or
+// Pause/Attach. Two candidate events:
 //
-//   1. **First crosswind turn** (preferred). The pilot rolls into a
-//      ~25-30° bank within seconds of clearing the runway. Both the
-//      video shows the wing dropping and the log's `Roll` column has
-//      a sharp step from ~0° to ~|25°|. This is what most pilots
-//      naturally use to sync — it's an unambiguous, easy-to-spot,
-//      mid-flight-volume event.
+//   1. **First rotation** (default). VSI-positive after IAS-alive —
+//      the unambiguous moment the wheels release. Happens within
+//      seconds of takeoff on every flight. Wide-spread enough to
+//      auto-detect reliably; close-enough-to-truth that nudging by
+//      a few seconds gets it dead-on.
 //
-//   2. **First rotation** (fallback). When the bank-detect fails
-//      (e.g. straight-out departure with no crosswind turn), walk
-//      back to the IAS-at-rotation point using the IAS+VSI heuristic.
+//   2. **First crosswind turn** (fallback). For log excerpts that
+//      start mid-flight or skip rotation. Sharp roll-step at IAS
+//      ≥ 30 kt is unambiguous in the video too.
 //
 // Returns a row index into the log, or -1 if neither stage matches.
 
@@ -99,21 +100,26 @@ export function detectRotation(log) {
   return rotationRow;
 }
 
-// Default detector: try the crosswind turn first (matches what
-// pilots naturally use to sync), then fall back to rotation.
-// Returns { row, kind } where kind is 'crosswind' | 'rotation' or
+// Default detector: rotation first (the unambiguous moment the
+// wheels release — VSI-positive after IAS-alive happens within
+// seconds of takeoff every flight). Crosswind turn is a fallback
+// for log excerpts that start mid-flight or otherwise don't
+// contain a rotation event. Pilots fine-tune the rotation guess
+// using the nudge buttons + Pause/Attach UI.
+//
+// Returns { row, kind } where kind is 'rotation' | 'crosswind' or
 // 'none' when no anchor was found.
 export function detectTakeoff(log) {
-  const cw = detectFirstCrosswindTurn(log);
-  if (cw >= 0) return cw;
-  return detectRotation(log);
+  const rot = detectRotation(log);
+  if (rot >= 0) return rot;
+  return detectFirstCrosswindTurn(log);
 }
 
 export function detectTakeoffWithKind(log) {
-  const cw = detectFirstCrosswindTurn(log);
-  if (cw >= 0) return { row: cw, kind: 'crosswind' };
   const rot = detectRotation(log);
   if (rot >= 0) return { row: rot, kind: 'rotation' };
+  const cw = detectFirstCrosswindTurn(log);
+  if (cw >= 0) return { row: cw, kind: 'crosswind' };
   return { row: -1, kind: 'none' };
 }
 

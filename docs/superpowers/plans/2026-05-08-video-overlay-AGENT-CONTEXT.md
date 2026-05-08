@@ -123,15 +123,23 @@ is **two-pass**:
 I shipped the single-pass version first and discovered the bug
 during real-flight verification. Don't simplify it back.
 
-### 5. The auto-detect anchor is the FIRST CROSSWIND TURN, not rotation
+### 5. Auto-detect prefers ROTATION; crosswind turn is the fallback
 
-Pilots naturally sync against the first bank into crosswind because
-both video (wing drop) and log (sharp roll-step) are unambiguous.
-Rotation is the fallback when no crosswind turn is detected.
+(Earlier versions of this doc said the opposite. That was wrong.)
 
-The detector lives in `lib/replay/syncDetect.js::detectFirstCrosswindTurn`:
-sustained `|roll| ≥ 20°` at `IAS ≥ 30 kt` for `0.5 s`. If absent,
-falls back to `detectRotation` (IAS+VSI heuristic).
+Rotation is the unambiguous moment the wheels release: VSI-positive
+after IAS-alive for ~1 s. It happens within seconds of takeoff every
+flight, regardless of departure direction or pattern shape, and
+auto-detects reliably. The pilot uses the **nudge buttons** + the
+**Pause/Attach UI** to fine-tune from rotation to a more precise
+event (often the first crosswind turn) — but rotation is the right
+*initial guess.*
+
+The detector lives in `lib/replay/syncDetect.js::detectRotation`:
+IAS ≥ 30 kt then sustained VSI > 200 fpm for 1 s; walk back to
+rotation IAS. Crosswind turn (`detectFirstCrosswindTurn`) is the
+fallback for log excerpts that start mid-flight or otherwise lack
+a rotation event.
 
 ### 6. Don't break `/indexer` when extracting widgets
 
@@ -301,3 +309,49 @@ If you're stuck on a decision the plans don't answer:
 4. If the question is genuinely unresolved, **stop and ask Sam**
    rather than guessing. He'd rather have a clarifying question
    than a confident wrong choice.
+
+---
+
+## Resumable from here — pickup notes for the next session
+
+If you're picking up this work in a new session (Sam OR an agent),
+the open work items are:
+
+1. **Layer 0 PR 1: extend host_main + start the streaming-goldens
+   harness.** See `PLAN_DRIFT_PREVENTION.md` "Dispatch prompt — Layer 0
+   PR 1." This is the bedrock; ship before any new algorithm work.
+
+2. **Layer 1: file-handle persistence + sync nudge buttons.** See
+   `PLAN_VIDEO_OVERLAY.md` Step 2. Half-day. No dependencies.
+
+3. **Layer 2: HUD widget gallery + catalog.** See PLAN Step 3. Needs
+   visual iteration with Sam — build the gallery page first
+   (`tools/web/widget-gallery.html`), then design widgets one at a
+   time. OnSpeed-original styling, NOT G3X chrome.
+
+4. **Layer 3, 4, 5**: see PLAN. Each independent once Layer 2 ships.
+
+### What's already-fixed-and-pushed but not yet user-tested
+
+- Auto-detect now prefers rotation (was crosswind-first; that was a
+  misread of Sam's intent). The status text says "log rotation at
+  NNN.NNs"; users fine-tune via nudge.
+
+### What I would have shipped next if context didn't get expensive
+
+- One-line rename: the `LogTimeline` "shift+click to override anchor"
+  semantics are now redundant with the planned nudge buttons. Could
+  drop shift-click. Defer until Layer 1 ships.
+- DataMark in the original log file we tested with had zero entries
+  (Sam never pressed the panel button). The synthetic `test_with_marks.csv`
+  has 3 marks for verification. Real-flight DataMark testing requires
+  a flight where Sam actively bumps the mark — schedule for next flight.
+
+### The single source of truth, in priority order
+
+1. **`PLAN_VIDEO_OVERLAY.md`** — what to build, in what order.
+2. **`PLAN_DRIFT_PREVENTION.md`** — how the four implementations stay in sync.
+3. **`AGENT_CONTEXT_VIDEO_OVERLAY.md`** (this file) — gotchas, anti-patterns, build commands.
+4. **CLAUDE.md** at the repo root — body-angle convention, worktree usage, banned phrasings, project-wide rules.
+5. **The code itself** — when the docs disagree with the code, the code is what runs; update the docs.
+
