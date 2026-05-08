@@ -34,6 +34,7 @@ import { parseLog, findRowAt } from '../replay/parseLog.js';
 import { parseConfig } from '../replay/config.js';
 import { buildReplay } from '../replay/logReplay.js';
 import { detectTakeoff, detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
+import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
 
 const MODES = [
   { id: 'energy',   label: 'Energy',     C: Mode0 },
@@ -87,6 +88,14 @@ export const ReplayPage = () => {
   // | 'none'. Used in the status text + timeline label so the pilot
   // knows what event they're syncing against.
   const [anchorKind, setAnchorKind] = useState('none');
+
+  // Export-to-WebM state. exporting=true while a recording is in
+  // progress; exportProgress reflects the % of the source video
+  // captured so far; exportHandle is the controller returned by
+  // exportOverlayedVideo (call .stop() to end early).
+  const [exporting, setExporting]     = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const exportHandleRef = useRef(null);
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -242,6 +251,54 @@ export const ReplayPage = () => {
 
   const clearSync = useCallback(() => setSync(null), []);
 
+  // Sync readiness (both anchors set). Hoisted up here from its
+  // earlier render-time computation site because the export
+  // callback below depends on it.
+  const syncReady = sync &&
+    Number.isFinite(sync.videoTakeoffSec) &&
+    Number.isFinite(sync.logTakeoffMs);
+
+  // ---------- Export flow ------------------------------------------
+  //
+  // Start at the current playhead, capture through end-of-video at
+  // 1080p with the indexer overlay rasterized into each frame.
+  // MediaRecorder writes WebM; YouTube accepts WebM uploads.
+  const startExport = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (!syncReady) return;
+    setExporting(true);
+    setExportProgress(0);
+    try {
+      const handle = await exportOverlayedVideo({
+        videoEl: v,
+        // The overlay frame is a single-child wrapper around the
+        // current mode SVG. Re-resolved per frame so mode switches
+        // and pause/scrub events take effect immediately.
+        getOverlaySvg: () => document.querySelector('.replay-overlay-frame > svg'),
+        outputWidth: 1920,
+        bitrate: 12_000_000,
+        onProgress: ({ videoSec }) => {
+          if (v.duration > 0) setExportProgress(videoSec / v.duration);
+        },
+      });
+      exportHandleRef.current = handle;
+      const blob = await handle.finished;
+      const filename = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '') +
+                       '_with_overlay.webm';
+      downloadBlob(blob, filename);
+    } catch (err) {
+      setParseErr('Export failed: ' + (err?.message || err));
+    } finally {
+      setExporting(false);
+      exportHandleRef.current = null;
+    }
+  }, [syncReady, videoFile]);
+
+  const stopExport = useCallback(() => {
+    if (exportHandleRef.current) exportHandleRef.current.stop();
+  }, []);
+
   // Re-sync flow:
   //   1. pauseIndexer() — freeze the indexer at the current
   //      video-mapped log time so it stops following video frames.
@@ -293,7 +350,8 @@ export const ReplayPage = () => {
   })();
 
   const ModeC = MODES.find(m => m.id === modeId)?.C ?? Mode0;
-  const syncReady = sync && Number.isFinite(sync.videoTakeoffSec) && Number.isFinite(sync.logTakeoffMs);
+  // syncReady is computed up at the top so the export callback can
+  // reference it; reuse here in the layout.
 
   // ---------- Layout -----------------------------------------------
 
@@ -354,6 +412,19 @@ export const ReplayPage = () => {
                      onChange=${e => setOverlayVisible(e.target.checked)} />
               Show overlay
             </label>
+            ${exporting
+              ? html`
+                  <span class="replay-status">
+                    exporting · ${Math.round(exportProgress * 100)}%
+                  </span>
+                  <button class="replay-btn-ghost" onClick=${stopExport}>
+                    Stop
+                  </button>`
+              : html`
+                  <button class="replay-btn-primary" onClick=${startExport}
+                          disabled=${!syncReady || !videoUrl}>
+                    Export WebM
+                  </button>`}
           </div>
 
           <div class="replay-control-row">
