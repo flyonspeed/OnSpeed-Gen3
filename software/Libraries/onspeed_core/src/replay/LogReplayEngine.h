@@ -109,8 +109,12 @@ public:
 
     // Process one CSV row: compute AOA, flap index, and all downstream
     // fields. Pure over engine state (only the AOA smoother has state).
-    // Calling step() for N rows produces the same result as ReadLogLine()
-    // running N times against the same rows in the same order.
+    // Calling step() for N rows on a freshly-constructed engine produces
+    // the same result as ReadLogLine() running N times against the same
+    // rows from a fresh AOACalculator state. (The pre-extraction code
+    // called g_Sensors.AoaCalc.calculate() directly — a boot-lifetime
+    // singleton whose EMA state could carry across replays. The engine
+    // owns its own AOACalculator, reset per OpenReplayLog. See PR #470.)
     ReplayStepResult step(const onspeed::LogRow& row);
 
     // Reset AOA smoother state. Call between independent replay sessions

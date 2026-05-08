@@ -7,8 +7,11 @@
 // the same inputs.
 //
 // What is tested:
-//   - step() produces deterministic output for a known input row.
-//   - Engine state (AOA EMA) accumulates correctly across calls.
+//   - step() is deterministic: two fresh engines on identical input produce
+//     identical output.
+//   - Engine state (AOA EMA) accumulates: two sequential steps on inputs with
+//     different pressures produce numerically distinct AOA values pinned to
+//     exact floats (so PR 2's rate-correct EMA produces a visible diff).
 //   - reset() clears EMA state — two step() calls after reset give the
 //     same result as the first two calls from a fresh engine.
 //   - flapsRawAdcPresent gate: field is propagated only when set.
@@ -26,6 +29,7 @@
 #include <util/OnSpeedTypes.h>
 
 using onspeed::LogRow;
+using onspeed::SuCalibrationCurve;
 using onspeed::config::OnSpeedConfig;
 using onspeed::replay::LogReplayEngine;
 using onspeed::replay::ReplayStepResult;
@@ -77,9 +81,30 @@ OnSpeedConfig makeTwoFlapConfig()
     return cfg;
 }
 
-// Build a minimal LogRow with sensor state. AOA curve uses zero coefficients
-// so the AOA result is predictable (effectively 0 pressure-coefficient
-// mapped through the zero polynomial).
+// Build a minimal OnSpeedConfig with a linear polynomial AOA curve on flap 0.
+// Curve: y = a1 * coeffP, with a1 = 30. Zero-poly defaults for the rest.
+// This lets test_ema_accumulates produce nonzero AOA values whose exact
+// numerics are pinned — PR 2's rate-correct EMA fix will diff cleanly against
+// these constants.
+OnSpeedConfig makeLinearCurveConfig()
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+
+    // Set flap 0's AOA curve to a simple linear polynomial: AOA = 30 * coeffP.
+    // SuCalibrationCurve coefficients are [a3, a2, a1, a0]; iCurveType 1 =
+    // polynomial evaluated via Horner's method.
+    SuCalibrationCurve curve;
+    curve.iCurveType   = 1;      // polynomial
+    curve.afCoeff[0]   = 0.0f;   // a3
+    curve.afCoeff[1]   = 0.0f;   // a2
+    curve.afCoeff[2]   = 30.0f;  // a1
+    curve.afCoeff[3]   = 0.0f;   // a0
+    cfg.aFlaps[0].AoaCurve = curve;
+
+    return cfg;
+}
+
+// Build a minimal LogRow with sensor state.
 LogRow makeRow(float pfwdSmoothed = 0.5f,
                float p45Smoothed  = 0.1f,
                int   flapsPosDeg  = 0,
@@ -122,20 +147,23 @@ void tearDown(void) {}
 // Tests
 // ============================================================================
 
-// step() returns deterministic output for a fixed input
+// step() is deterministic: two fresh engines on identical input produce
+// identical output. (No reset() involved — that's a different property
+// tested separately by test_reset_clears_state.)
 void test_step_deterministic(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
-
     LogRow row = makeRow();
-    ReplayStepResult r1 = eng.step(row);
-    eng.reset();
-    ReplayStepResult r2 = eng.step(row);
 
-    // After reset(), first step gives the same result as the very first step.
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, r1.aoa, r2.aoa);
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, r1.coeffP, r2.coeffP);
+    LogReplayEngine engA(cfg, 50, false);
+    LogReplayEngine engB(cfg, 50, false);
+
+    ReplayStepResult rA = engA.step(row);
+    ReplayStepResult rB = engB.step(row);
+
+    TEST_ASSERT_EQUAL_FLOAT(rA.aoa,       rB.aoa);
+    TEST_ASSERT_EQUAL_FLOAT(rA.coeffP,   rB.coeffP);
+    TEST_ASSERT_EQUAL_INT(rA.flapsIndex, rB.flapsIndex);
 }
 
 // Fields from the row are passed through to the result unchanged
@@ -196,25 +224,34 @@ void test_imu_passthrough(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, row.imuVerticalG, res.accelVertCorr);
 }
 
-// EMA state accumulates: two consecutive steps produce different AOA values
+// EMA state accumulates: two sequential steps on distinct inputs produce
+// different AOA outputs.
+//
+// Fixture uses a linear polynomial curve (AOA = 30 * coeffP) so the EMA
+// produces nonzero values.  With iAoaSmoothing=10 (alpha=0.1):
+//   row1: pfwd=1.0, p45=0.1 -> coeffP=0.1 -> raw_aoa=3.0. EMA seeds at 3.0.
+//   row2: pfwd=1.0, p45=0.3 -> coeffP=0.3 -> raw_aoa=9.0. EMA blends:
+//         0.1*9.0 + 0.9*3.0 = 3.6.
+//
+// Pinned from a cold engine on the PR-1 commit. PR 2 (rate-correct EMA) will
+// change these values — that diff is intentional and expected.
 void test_ema_accumulates(void)
 {
-    OnSpeedConfig cfg = makeTwoFlapConfig();
+    OnSpeedConfig cfg = makeLinearCurveConfig();
     LogReplayEngine eng(cfg, 50, false);
 
-    // First row: non-zero pressures to build EMA state
-    LogRow row1 = makeRow(1.0f, 0.3f);
+    // Step 1: coeffP=0.1 -> raw_aoa=3.0, EMA seeds at 3.0.
+    LogRow row1 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.1f);
     ReplayStepResult r1 = eng.step(row1);
 
-    // Second row: same pressures; EMA has accumulated from r1
-    LogRow row2 = makeRow(1.0f, 0.3f);
+    // Step 2: coeffP=0.3 -> raw_aoa=9.0, EMA blends with seeded 3.0.
+    LogRow row2 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.3f);
     ReplayStepResult r2 = eng.step(row2);
 
-    // With a 10-sample smoother, second result should converge toward first
-    // (they're heading toward the same stable value). They may or may not
-    // be exactly equal — but they should both be finite.
-    TEST_ASSERT_FALSE(std::isnan(r1.aoa));
-    TEST_ASSERT_FALSE(std::isnan(r2.aoa));
+    // Pinned values for PR-1 behavior. PR 2 changes EMA rate -> visible diff.
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f, r1.aoa);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.6f, r2.aoa);
+    TEST_ASSERT_NOT_EQUAL(r1.aoa, r2.aoa);  // sanity: EMA actually moved
 }
 
 // reset() clears EMA state: step after reset == step on a fresh engine
@@ -326,22 +363,24 @@ void test_kalman_vsi_conversion(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, res.kalmanVSI);
 }
 
-// coeffP is set from AOA calculation (non-zero pressures give non-zero coeffP)
+// coeffP is set from pressureCoeff(pfwd, p45) via AOACalculatorResult.
+//
+// With pfwd=10.0, p45=2.0: pressureCoeff = 2.0/10.0 = 0.2 exactly.
+// The AOACalculator propagates this through regardless of the curve type.
+//
+// Pinned to 1e-4f tolerance. PR 2 does not change this value (it only
+// changes the EMA rate for aoa, not the pressure-coefficient path).
 void test_coeff_p_nonzero(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
     LogReplayEngine eng(cfg, 50, false);
 
-    // Use non-zero pressures so pressureCoeff produces a non-zero result
+    // Use non-zero pressures so pressureCoeff produces a non-zero result.
+    // coeffP = p45 / pfwd = 2.0 / 10.0 = 0.2
     LogRow row = makeRow(10.0f, 2.0f);
     ReplayStepResult res = eng.step(row);
 
-    // pressureCoeff(10.0, 2.0) = 2.0 / 10.0 = 0.2
-    // After AOA calculation the coeffP field comes from AOACalculatorResult;
-    // with a zero polynomial curve the raw coeffP matches pressureCoeff.
-    TEST_ASSERT_FALSE(std::isnan(res.coeffP));
-    // Just verify it's in a plausible range — characterization, not physics
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.2f, res.coeffP);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.2f, res.coeffP);
 }
 
 // ============================================================================
