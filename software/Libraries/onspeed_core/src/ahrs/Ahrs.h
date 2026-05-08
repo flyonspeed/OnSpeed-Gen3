@@ -46,6 +46,13 @@
 
 namespace onspeed::ahrs {
 
+/// Firmware accelerometer EMA smoothing coefficient at IMU rate (208 Hz).
+/// Used inside Ahrs::Step()'s accelLatFilter_ / accelVertFilter_ /
+/// accelFwdFilter_.  Replay (RateAdjustedAccelEma) derives its τ from this
+/// constant; the two are kept in sync via static_assert in
+/// RateAdjustedAccelEma.h.
+inline constexpr float kAccSmoothing = 0.060899f;
+
 // AHRS algorithm choice.  Integer values match `Config::iAhrsAlgorithm`
 // in the sketch (0 = Madgwick, 1 = EKF6) so existing config files load
 // unchanged.

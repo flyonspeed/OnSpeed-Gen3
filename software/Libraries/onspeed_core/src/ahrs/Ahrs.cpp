@@ -14,7 +14,8 @@ namespace onspeed::ahrs {
 namespace {
 
 // Legacy constants (lifted verbatim from sketch's AHRS.cpp; do not retune).
-constexpr float kAccSmoothing      = 0.060899f;            // EMA alpha for accels
+// kAccSmoothing is the public constant ::onspeed::ahrs::kAccSmoothing (Ahrs.h);
+// it is referenced directly below without a local alias.
 constexpr float kIasSmoothing      = 0.0179f;              // EMA alpha for IAS-derived TAS
 constexpr float kIasTauFactor      = (1.0f / kIasSmoothing) - 1.0f;
 constexpr float kEkfGravityMps2    = 9.80665f;
