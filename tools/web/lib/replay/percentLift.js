@@ -31,7 +31,11 @@ import { getWasmCore } from './wasm_core.js';
 //               Returns 0.0 when false (matches firmware behaviour).
 //
 // Returns the percent-of-stall in [0.0, 99.9] as a Promise<float>.
-export async function computePercentLift(aoaDeg, flapCfg, iasValid) {
+//
+// (Declared as `async function` then exported separately because
+// build_web_bundle.py's regex grammar does not recognize the inline
+// form `export async function`.)
+async function computePercentLift(aoaDeg, flapCfg, iasValid) {
     const w = await getWasmCore();
     return w.compute_percent_lift(
         aoaDeg,
@@ -56,7 +60,9 @@ export async function computePercentLift(aoaDeg, flapCfg, iasValid) {
 //     onSpeedSlowPctLift, stallWarnPctLift, flapsDeg }
 // All fields are integers in [0, 99] except flapsDeg which is the
 // interpolated lever angle in degrees.
-export async function computeAnchors(allFlaps, activeIndex, rawAdc) {
+async function computeAnchors(allFlaps, activeIndex, rawAdc) {
     const w = await getWasmCore();
     return w.compute_anchors(allFlaps, activeIndex, rawAdc);
 }
+
+export { computePercentLift, computeAnchors };

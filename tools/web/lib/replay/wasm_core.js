@@ -24,7 +24,11 @@ let _initPromise = null;
 // Return the initialized WASM module instance.  Loads the module once on
 // first call; subsequent calls return the cached instance immediately.
 // Throws if the artifact is not available (build has not been run).
-export async function getWasmCore() {
+//
+// (Declared as `async function`, then exported separately, because
+// build_web_bundle.py's regex grammar does not recognize the inline form
+// `export async function`.  See PR #467 for context.)
+async function getWasmCore() {
     if (_module) return _module;
     if (!_initPromise) {
         _initPromise = (async () => {
@@ -39,3 +43,5 @@ export async function getWasmCore() {
     }
     return _initPromise;
 }
+
+export { getWasmCore };

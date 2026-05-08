@@ -59,8 +59,12 @@ export class ConfigParseError extends Error {
  * @returns {Promise<object>} Parsed config object with flaps array,
  *   alpha values, etc.
  * @throws {ConfigParseError} If the XML cannot be parsed.
+ *
+ * (Declared as `async function` then exported separately because
+ * build_web_bundle.py's regex grammar does not recognize the inline
+ * form `export async function`.)
  */
-export async function parseConfigXml(xmlText) {
+async function parseConfigXml(xmlText) {
     const w = await getWasmCore();
     const result = w.parse_config(xmlText);
     if (result && typeof result === 'object' && result.error) {
@@ -71,3 +75,5 @@ export async function parseConfigXml(xmlText) {
     }
     return result;
 }
+
+export { parseConfigXml };
