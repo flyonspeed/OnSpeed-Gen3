@@ -405,15 +405,29 @@ void SensorIO::Read()
     // in sensors/IasAlive.h.
     bIasAlive = onspeed::sensors::UpdateIasAlive(bIasAlive, IAS);
 
-	    // Take derivative of airspeed for deceleration calc.
-	    // Update once per display serial period to match tone buffer update rate.
-	    // C++ guarantees static locals are initialized on first function entry,
-	    // so millis() is called at runtime (not at static-init time).
-	    static unsigned long uLastDecelUpdateMs = millis();
+    // Take derivative of airspeed for deceleration calc.
+    // Update once per display serial period to match tone buffer update rate.
+    // Initialized to 0 (sentinel meaning "never updated") so the outage-reset
+    // guard below can distinguish first-tick from a long-since-last gap.
+    static unsigned long uLastDecelUpdateMs = 0;
     const unsigned long uNowMs = millis();
     const unsigned long uDecelDeltaMs = uNowMs - uLastDecelUpdateMs;
     if (uDecelDeltaMs >= kDisplaySerialPeriodMs)
     {
+        // Finding 036 (firmware-side mirror of OnSpeed-M5-Display/src/SerialRead.cpp).
+        // A decel-update cadence gap > 500 ms (task stall, long sensor-cal block,
+        // CPU overload that triggers the "SensorReadTask Late" path) leaves the
+        // SavGol window holding stale pre-gap IAS samples; differencing them
+        // against fresh post-gap samples produces a large spurious DecelRate
+        // spike for ~15 frames, which the WebSocket ships as DecelRate to
+        // /indexer.  Reset on the gap.  Guarded on uLastDecelUpdateMs != 0 so
+        // the boot-time delta does not trip it.
+        if (uLastDecelUpdateMs != 0 && uDecelDeltaMs > 500)
+        {
+            IasDerivative.reset();
+            fDecelRate = 0.0f;
+        }
+
         uLastDecelUpdateMs = uNowMs;
 
         fIasDerInput = IAS;
