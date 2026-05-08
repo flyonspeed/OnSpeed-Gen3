@@ -277,6 +277,26 @@ export const ReplayPage = () => {
   const exportRange = useCallback(async ({ startSec, endSec, label }) => {
     const v = videoRef.current;
     if (!v) return null;
+
+    // Clamp the window to the video's actual range. A data-mark
+    // whose log time maps to a negative video time (mark dropped
+    // before the camera started recording) or past the end (mark
+    // dropped after the camera stopped) would otherwise either
+    // produce a 0-byte file or hang. Refuse those windows loudly.
+    if (Number.isFinite(startSec)) {
+      if (startSec < 0 || startSec >= v.duration) {
+        setParseErr(`Export skipped: ${label || 'clip'} starts ` +
+                    `outside the video (${startSec.toFixed(1)} s; ` +
+                    `video is 0 to ${v.duration.toFixed(1)} s).`);
+        return null;
+      }
+    }
+    if (Number.isFinite(endSec) && Number.isFinite(startSec) && endSec <= startSec) {
+      setParseErr(`Export skipped: ${label || 'clip'} window is empty ` +
+                  `(start ${startSec.toFixed(1)} s, end ${endSec.toFixed(1)} s).`);
+      return null;
+    }
+
     setExporting(true);
     setExportProgress(0);
     setExportLabel(label || '');
@@ -505,8 +525,11 @@ export const ReplayPage = () => {
             ${exporting
               ? html`
                   <span class="replay-status">
-                    exporting · ${Math.round(exportProgress * 100)}%
+                    exporting${exportLabel ? ` · ${exportLabel}` : ''}
                   </span>
+                  <progress class="replay-progress"
+                            max="1" value=${exportProgress}></progress>
+                  <span class="replay-status">${Math.round(exportProgress * 100)}%</span>
                   <button class="replay-btn-ghost" onClick=${stopExport}>
                     Stop
                   </button>`
@@ -576,6 +599,7 @@ export const ReplayPage = () => {
                 marks=${marks}
                 sync=${sync}
                 disabled=${exporting || !syncReady}
+                videoDuration=${videoRef.current?.duration}
                 onJump=${jumpToMark}
                 onClip=${exportClipFromMark} />`}
 
@@ -726,8 +750,17 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
 // mapped video time (when sync is established), plus action buttons:
 //   - Jump:    seek the video to the mark's video time
 //   - Clip Ns: export an N-second WebM starting at the mark
-const DataMarkPanel = ({ marks, sync, disabled, onJump, onClip }) => {
+const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
+                         onJump, onClip }) => {
   if (!marks || marks.length === 0) return null;
+  // A mark is "in range" when its mapped video time falls within
+  // the loaded video. Common reasons a mark falls out of range:
+  //   - The mark was dropped before the camera started recording
+  //     (video time goes negative).
+  //   - The mark was dropped after the camera stopped (video time
+  //     past videoDuration).
+  // Out-of-range rows render with disabled action buttons and a
+  // "no video" hint instead of a video timestamp.
   return html`
     <div class="replay-marks">
       <div class="replay-marks-header">
@@ -737,19 +770,22 @@ const DataMarkPanel = ({ marks, sync, disabled, onJump, onClip }) => {
       <div class="replay-marks-list">
         ${marks.map(m => {
           const videoSec = logMsToVideoSec(m.logTimeMs, sync);
-          const tStr = Number.isFinite(videoSec)
+          const dur = Number.isFinite(videoDuration) ? videoDuration : Infinity;
+          const inRange = Number.isFinite(videoSec) &&
+                          videoSec >= 0 && videoSec < dur;
+          const tStr = inRange
             ? `video ${formatHms(videoSec)}`
-            : 'no sync';
+            : (Number.isFinite(videoSec) ? 'outside video' : 'no sync');
           return html`
             <div class="replay-mark-row">
               <span class="replay-mark-label">${m.label}</span>
               <span class="replay-mark-time">log ${formatHms(m.logTimeMs / 1000)} · ${tStr}</span>
               <span class="replay-spacer"></span>
-              <button class="replay-btn" disabled=${disabled || !Number.isFinite(videoSec)}
+              <button class="replay-btn" disabled=${disabled || !inRange}
                       onClick=${() => onJump(m.logTimeMs)}>Jump</button>
-              <button class="replay-btn" disabled=${disabled || !Number.isFinite(videoSec)}
+              <button class="replay-btn" disabled=${disabled || !inRange}
                       onClick=${() => onClip(m, 30)}>Clip 30 s</button>
-              <button class="replay-btn" disabled=${disabled || !Number.isFinite(videoSec)}
+              <button class="replay-btn" disabled=${disabled || !inRange}
                       onClick=${() => onClip(m, 60)}>Clip 60 s</button>
             </div>`;
         })}

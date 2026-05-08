@@ -625,3 +625,21 @@ ul#liveview-nav-ul li.dropdown { display: inline-block; }
   font-style: italic;
   padding: 4px 0;
 }
+
+.replay-progress {
+  flex: 0 1 200px;
+  height: 8px;
+}
+.replay-progress::-webkit-progress-bar {
+  background: #0e1418;
+  border-radius: 4px;
+  border: 1px solid #2d3942;
+}
+.replay-progress::-webkit-progress-value {
+  background: #0a84ff;
+  border-radius: 3px;
+}
+.replay-progress::-moz-progress-bar {
+  background: #0a84ff;
+  border-radius: 3px;
+}
