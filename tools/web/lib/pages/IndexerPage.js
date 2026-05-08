@@ -138,6 +138,17 @@ const ModeNav = ({ current, onChange }) => html`
               onClick=${() => onChange(m.id)}>${m.label}</button>`)}
   </nav>`;
 
+// Two thresholds, intentionally separate. They start equal at 3 s but the
+// design rationale differs: the overlay can react quickly to any wire gap
+// (issue #464 item 1 plans to drop it toward ~300 ms to match the M5's
+// 300 ms NO-DATA overlay), but the G-history sampler should only freeze on
+// a genuine multi-second outage so the strip chart doesn't stutter on
+// brief WiFi micro-gaps. Lowering one is not an automatic reason to lower
+// the other — name the decision points so #464 item 1's implementer sees
+// them as separate calls.
+const STALENESS_THRESHOLD_SEC    = 3;  // StaleOverlay (covers the page when stale)
+const G_HISTORY_STALENESS_SEC    = 3;  // useGHistory sampler gate
+
 // Decel-rate EMA — kept in a useRef so it accumulates across renders
 // and across mode switches (the user can flip away from Mode 3 and
 // back without resetting the smoothing state).  Ingests on every WS
@@ -161,7 +172,7 @@ function useDecelEma(rec) {
 
 // G-history ring buffer — kept in a useRef so it persists across
 // renders.
-function useGHistory(rec) {
+function useGHistory(rec, ageSec) {
   const buf = useRef(new Float32Array(G.MODE4_BUFFER_LEN));
   const writeIdx = useRef(0);
   const lastSampleMs = useRef(0);
@@ -172,8 +183,11 @@ function useGHistory(rec) {
   useEffect(() => { buf.current.fill(1.0); }, []);
 
   // Sample at 5 Hz (matches main.cpp:465's 200 ms gate).
+  // Skip the push when the record is absent or the feed is stale —
+  // mirrors the M5's serialDataFresh() gate on its own G-history loop.
   useEffect(() => {
     if (!rec) return;
+    if (ageSec >= G_HISTORY_STALENESS_SEC) return;
     const now = performance.now();
     if (now - lastSampleMs.current >= G.MODE4_SAMPLE_MS) {
       buf.current[writeIdx.current] = rec.verticalG ?? 1.0;
@@ -182,7 +196,7 @@ function useGHistory(rec) {
       tick.current++;
       force(tick.current);
     }
-  }, [rec]);
+  }, [rec, ageSec]);
 
   return { buf: buf.current, writeIdx: writeIdx.current };
 }
@@ -211,8 +225,8 @@ export function IndexerPage() {
   // times/sec on iPhone Safari, which is exactly the workload the
   // legacy WASM /indexer failed at.  When WS goes silent, the
   // StaleOverlay covers the panel and there's nothing to animate.
-  const stale = ageSec >= 3;
-  const gHist = useGHistory(rec);
+  const stale = ageSec >= STALENESS_THRESHOLD_SEC;
+  const gHist = useGHistory(rec, ageSec);
   const decelRateSmoothed = useDecelEma(rec);
 
   const setModeAndPersist = (m) => {
