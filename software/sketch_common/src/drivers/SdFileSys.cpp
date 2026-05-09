@@ -152,18 +152,22 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
     //    pStatusOut->println(" GBytes");
     //    }
 
-    // Pre-erase intentionally disabled. The puSD_Card->erase() loop here
-    // walked all card sectors in 256K-block chunks with no vTaskDelay or
-    // watchdog feed, which on an ESP32 SPI@10MHz / 64 GB card takes
-    // multiple minutes — long enough that a task-watchdog reset or
-    // brownout could leave the SD filesystem half-zeroed (corrupted
-    // dirent leftovers + post-format SaveConfigurationToFile()
-    // failure). The exFAT formatter does not need pre-erased sectors;
-    // it writes its own boot sector, FAT, and root cluster regardless.
-    // Callers that pass bErase=true now get a one-line warning so the
-    // intent is visible if anyone wires it up in the future.
-    if (bErase && pStatusOut != nullptr)
-        pStatusOut->println("Note: pre-erase requested but skipped (see SdFileSys::Format).");
+    // Pre-erase is intentionally a no-op. The puSD_Card->erase() loop
+    // (256K-block chunks, no vTaskDelay/watchdog feed) takes multiple
+    // minutes on a 64 GB card at SPI@10MHz — long enough for a
+    // task-watchdog or brownout reset to interrupt the format and leave
+    // the FS half-zeroed. The exFAT formatter writes its own boot sector,
+    // FAT, and root cluster regardless of whether the underlying flash was
+    // pre-erased; pre-erase is a TRIM hint, not a correctness requirement.
+    // bErase is kept for callers that might pass it explicitly, but the
+    // body does nothing.
+    if (bErase)
+        {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+            "Format: pre-erase requested but skipped (no-op; see SdFileSys::Format).");
+        if (pStatusOut != nullptr)
+            pStatusOut->println("Note: pre-erase requested but skipped (see SdFileSys::Format).");
+        }
 
     // Format the card
     // Format exFAT if larger than 32GB.
