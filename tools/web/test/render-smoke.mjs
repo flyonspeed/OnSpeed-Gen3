@@ -555,14 +555,16 @@ function assertNoPlaceholderLeaks(texts) {
   }
 }
 
-test('Mode0 renders em-dash for IAS when iasKt is null', () => {
+test('Mode0 renders three-dash placeholder for IAS when iasKt is null', () => {
   const r = makeNullAirDataRecord();
   const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
-  // fmt(null, 0) returns '—' (U+2014); the IAS readout shows it
-  // unmodified. Plain '-' would mean a number leaked through.
-  if (!texts.some(t => t === '—'))
-    throw new Error('expected an em-dash text node for null IAS, got: ' + texts.join('|'));
+  // IAS dashes are three ASCII hyphens — one per missing digit in the
+  // 3-digit IAS field — so the placeholder right-aligns to the "IAS"
+  // label above (CornerReadout measures the label and end-anchors the
+  // value text).  Mirrors the M5 firmware's snprintf("---").
+  if (!texts.some(t => t === '---'))
+    throw new Error('expected "---" text node for null IAS, got: ' + texts.join('|'));
   assertNoPlaceholderLeaks(texts);
 });
 
@@ -586,65 +588,72 @@ function findCornerByLabel(root, label) {
   return groups.map(readCorner).find(c => c.label === label);
 }
 
-// Mode 1 has TWO CornerReadouts that emit em-dashes: IAS on the left
-// (fmt(null, 0) → '—') and AOA on the right (the aoaIsValid ternary).
+// Mode 1 has two CornerReadouts that emit dash placeholders: IAS on
+// the left ("---", three ASCII hyphens for the 3-digit IAS field) and
+// AOA on the right ("--", two for the 2-digit percent-lift field).
 // Each test fixture pins exactly one source: the other corner stays
-// numeric so the em-dash count is exactly 1, and the corner-by-label
-// lookup confirms the dash is in the expected position.
-test('Mode1 IAS-corner shows em-dash when iasKt is null (AOA stays numeric)', () => {
+// numeric so the corner-by-label lookup confirms the dashes land in
+// the expected position.
+test('Mode1 IAS-corner shows "---" when iasKt is null (AOA stays numeric)', () => {
   const r = { ...makeNullAirDataRecord(), iasKt: null,
               aoaIsValid: true, percentLift: 42 };
   const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
-  const dashCount = texts.filter(t => t === '—').length;
-  if (dashCount !== 1)
-    throw new Error(`expected exactly 1 em-dash in Mode1, got ${dashCount}: ${texts.join('|')}`);
   const ias = findCornerByLabel(root, 'IAS');
   if (!ias) throw new Error('Mode1 has no IAS corner');
-  if (ias.value !== '—')
-    throw new Error(`IAS corner value should be em-dash, got ${JSON.stringify(ias.value)}`);
+  if (ias.value !== '---')
+    throw new Error(`IAS corner value should be "---", got ${JSON.stringify(ias.value)}`);
   const aoa = findCornerByLabel(root, 'AOA');
   if (!aoa) throw new Error('Mode1 has no AOA corner');
-  if (aoa.value === '—')
-    throw new Error('AOA corner should render numeric percent-lift, got em-dash');
+  if (aoa.value === '--' || aoa.value === '---')
+    throw new Error('AOA corner should render numeric percent-lift, got dashes');
   assertNoPlaceholderLeaks(texts);
 });
 
-test('Mode1 AOA-corner shows em-dash when aoaIsValid is false (IAS stays numeric)', () => {
+test('Mode1 AOA-corner shows "--" when aoaIsValid is false (IAS stays numeric)', () => {
   const r = { ...makeNullAirDataRecord(), iasKt: 100,
               aoaIsValid: false, aoaDeg: -100 };
   const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
-  const dashCount = texts.filter(t => t === '—').length;
-  if (dashCount !== 1)
-    throw new Error(`expected exactly 1 em-dash in Mode1, got ${dashCount}: ${texts.join('|')}`);
   const aoa = findCornerByLabel(root, 'AOA');
   if (!aoa) throw new Error('Mode1 has no AOA corner');
-  if (aoa.value !== '—')
-    throw new Error(`AOA corner value should be em-dash, got ${JSON.stringify(aoa.value)}`);
+  if (aoa.value !== '--')
+    throw new Error(`AOA corner value should be "--", got ${JSON.stringify(aoa.value)}`);
   const ias = findCornerByLabel(root, 'IAS');
   if (!ias) throw new Error('Mode1 has no IAS corner');
-  if (ias.value === '—')
-    throw new Error('IAS corner should render the numeric IAS, got em-dash');
+  if (ias.value === '---' || ias.value === '--')
+    throw new Error('IAS corner should render the numeric IAS, got dashes');
   assertNoPlaceholderLeaks(texts);
 });
 
-test('Mode3 renders em-dash for IAS when iasKt is null', () => {
+test('Mode3 renders "---" for IAS when iasKt is null', () => {
   const r = makeNullAirDataRecord();
   const root = renderInto(html`<${modesMod.Mode3} r=${r} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
-  if (!texts.some(t => t === '—'))
-    throw new Error('expected an em-dash text node for null IAS in Mode3, got: ' + texts.join('|'));
+  if (!texts.some(t => t === '---'))
+    throw new Error('expected "---" text node for null IAS in Mode3, got: ' + texts.join('|'));
   assertNoPlaceholderLeaks(texts);
 });
 
-test('Mode0 hides the percent-lift number when aoaIsValid is false', () => {
+test('Mode0 renders centered "--" placeholder for percent-lift when aoaIsValid is false', () => {
   const r = makeNullAirDataRecord();
   const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
   const groups = [...walk(root)].filter(n =>
     n.localName === 'g' && n.getAttribute('data-widget') === 'percent-lift-number');
-  if (groups.length !== 0)
-    throw new Error('PercentLiftNumber rendered when aoaIsValid was false');
+  if (groups.length !== 1)
+    throw new Error(`expected 1 percent-lift-number group, got ${groups.length}`);
+  // The component renders two <text> nodes (outline + fill); both should
+  // show the same dashes string.  text-anchor="middle" centers them on
+  // the chevron x — same convention as the M5 firmware's centering math.
+  const texts = [...walk(groups[0])].filter(n => n.localName === 'text');
+  for (const t of texts) {
+    const child = (t.childNodes || []).find(c => c.localName === '#text');
+    const data = child ? child.data : '';
+    if (data !== '--')
+      throw new Error(`PercentLiftNumber text should be "--", got ${JSON.stringify(data)}`);
+    if (t.getAttribute('text-anchor') !== 'middle')
+      throw new Error(`PercentLiftNumber should center the dashes (text-anchor=middle)`);
+  }
 });
 
 await runTests();

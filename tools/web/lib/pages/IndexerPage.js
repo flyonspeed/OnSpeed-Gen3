@@ -86,11 +86,21 @@ function readPersistedMode() {
   return 'energy';
 }
 
+// IAS and AOA mirror the SVG indexer's M5-style dashes — one dash per
+// missing digit in the field's natural width — so the data-fields
+// table reads the same as the gauges above when air data is invalid.
+// Other fields stay on `fmt`'s single em-dash since they're not
+// gated on bIasAlive (PAlt, G, Pitch, Roll come from independent
+// sensors).
+const fmtDegOrTwoDash = (v) => {
+  const s = fmt(v, 2);
+  return s === '—' ? '--' : s + '°';
+};
 const DATA_FIELDS = [
-  ['AOA',      r => r.aoaIsValid ? r.aoaDeg.toFixed(2) + '°' : 'N/A'],
-  ['Der AOA',  r => fmt(r.derivedAoaDeg, 2) + '°'],
+  ['AOA',      r => r.aoaIsValid ? r.aoaDeg.toFixed(2) + '°' : '--'],
+  ['Der AOA',  r => fmtDegOrTwoDash(r.derivedAoaDeg)],
   ['FltPath',  r => fmt(r.flightPathDeg, 1) + '°'],
-  ['IAS',      r => fmt(r.iasKt, 0) + ' kt'],
+  ['IAS',      r => (r.iasKt == null ? '---' : Math.round(r.iasKt) + ' kt')],
   ['PAlt',     r => fmt(r.paltFt, 0) + ' ft'],
   ['iVSI',     r => fmt(r.vsiFpm, 0) + ' fpm'],
   ['Vert G',   r => fmt(r.verticalG, 2) + ' G'],
@@ -200,9 +210,13 @@ function useGHistory(rec, ageSec) {
   const writeIdx = useRef(0);
   const lastSampleMs = useRef(0);
   const tick = useRef(0);
+  const hasSamples = useRef(false);
   const [, force] = useState(0);
 
-  // First-time init: fill with 1.0 G so the chart starts visually flat.
+  // First-time init: fill with 1.0 G so the chart starts visually flat
+  // once samples begin arriving.  GHistory is gated on `hasSamples` so
+  // nothing renders until the first WS frame lands; this seed only
+  // matters for the partial-fill window between sample 1 and sample N.
   useEffect(() => { buf.current.fill(1.0); }, []);
 
   // Sample at 5 Hz (matches main.cpp:465's 200 ms gate).
@@ -216,19 +230,23 @@ function useGHistory(rec, ageSec) {
       buf.current[writeIdx.current] = rec.verticalG ?? 1.0;
       writeIdx.current = (writeIdx.current + 1) % G.MODE4_BUFFER_LEN;
       lastSampleMs.current = now;
+      hasSamples.current = true;
       tick.current++;
       force(tick.current);
     }
   }, [rec, ageSec]);
 
-  return { buf: buf.current, writeIdx: writeIdx.current };
+  return { buf: buf.current, writeIdx: writeIdx.current,
+           hasSamples: hasSamples.current };
 }
 
 // Empty record used before the first WebSocket frame arrives.
 // aoaIsValid false makes the modes hide their variable elements.
+// iasKt null lets the IAS readout dash to '---' the same way it
+// would on a powered-but-not-flying bench (bIasAlive=false case).
 const EMPTY_REC = {
   aoaIsValid: false,
-  pitchDeg: 0, rollDeg: 0, iasKt: 0, paltFt: 0, vsiFpm: 0,
+  pitchDeg: 0, rollDeg: 0, iasKt: null, paltFt: 0, vsiFpm: 0,
   verticalG: 1, lateralG: 0, percentLift: 0, flightPathDeg: 0,
   flapsDeg: 0, flapsMinDeg: 0, flapsMaxDeg: 33,
   decelRate: 0, gOnsetRate: 0, dataMark: 0,
@@ -272,6 +290,7 @@ export function IndexerPage() {
           <div id="mode-container">
             <${ActiveMode} r=${rec || EMPTY_REC} stale=${stale}
                            gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx}
+                           gHasSamples=${gHist.hasSamples}
                            decelRateSmoothed=${decelRateSmoothed} />
           </div>
           <${DataFields} rec=${rec} ageSec=${ageSec}

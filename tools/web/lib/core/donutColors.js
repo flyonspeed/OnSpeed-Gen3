@@ -13,6 +13,18 @@ export function donutColors({ percentLift, anchors }) {
   const slow = anchors[4];
   const range = slow - fast;
 
+  // Degenerate band (no anchors yet, e.g. WebSocket connecting state
+  // where every wire field is 0): the [fast, slow] window collapses to
+  // a single point, and percentLift=0 ≥ 0 && ≤ 0 would otherwise paint
+  // every segment green.  Stay grey until real anchors arrive.
+  if (range <= 0) {
+    return {
+      topArc:    colors.TFT_DARKGREY,
+      bottomArc: colors.TFT_DARKGREY,
+      dot:       colors.TFT_DARKGREY,
+    };
+  }
+
   const bottomArc = (percentLift >= fast && percentLift <= fast + 0.75 * range)
     ? colors.TFT_GREEN : colors.TFT_DARKGREY;
   const topArc = (percentLift >= fast + 0.25 * range && percentLift <= slow)
