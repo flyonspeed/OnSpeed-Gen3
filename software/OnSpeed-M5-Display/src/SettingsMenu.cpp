@@ -1,8 +1,9 @@
 // software/OnSpeed-M5-Display/src/SettingsMenu.cpp
 //
-// Platform layer: drives the pure MenuModel from lib/MenuModel/ against
-// M5GFX rendering, the M5Unified Preferences NVS shim, and per-target
-// button polling. See SettingsMenu.h for lifecycle.
+// Platform layer for the in-flight Settings menu (issue #419). Drives the
+// pure MenuModel from lib/MenuModel/ against M5GFX rendering, the
+// M5Unified Preferences NVS shim, and per-target button polling. See
+// SettingsMenu.h for lifecycle.
 
 #include "SettingsMenu.h"
 #include "RenderConfig.h"

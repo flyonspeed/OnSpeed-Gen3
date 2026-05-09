@@ -108,7 +108,8 @@ mode. The menu closes automatically after 30 seconds of no input.
 
 Selecting **Speed Units** flips the IAS readout between knots (KTS) and
 miles per hour (MPH). The change takes effect immediately and persists
-across power cycles.
+across power cycles. A fresh display with no saved preference comes up
+on KTS.
 
 ## Display modes
 

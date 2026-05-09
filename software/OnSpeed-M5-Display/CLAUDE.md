@@ -252,8 +252,7 @@ No OnSpeed box required.
 ## Settings menu
 
 The display has an in-flight settings menu reachable from live mode.
-First setting is `Speed Units: KTS / MPH`, replacing the compile-time
-`IAS_IN_MPH` flag (issue #419).
+Today the menu carries one setting: `Speed Units: KTS / MPH`.
 
 **Entry gesture:**
 - M5 Basic / Core2: hold BtnB (round/middle) for ≥600 ms.
@@ -276,13 +275,12 @@ First setting is `Speed Units: KTS / MPH`, replacing the compile-time
 **Adding a setting:** extend `g_items[]` in `src/SettingsMenu.cpp`. For
 toggles, add a `bool` global, point the item at it, and check the
 `MenuModel::ActivateResult::kToggled` return in `pollMenuInput()` to
-persist it. The pure-logic state machine in `lib/MenuModel/` is
-unchanged — it dispatches based on `ItemType`.
+persist it. The pure-logic state machine in `lib/MenuModel/`
+dispatches based on `ItemType`.
 
 **Persistence:** `Preferences` namespace `"OnSpeed"`, key `SpeedMph`.
-Default `false` (KTS) on a fresh device — pilots flip via the menu and
-the choice persists across reboots. This replaces the compile-time
-`IAS_IN_MPH` flag with a runtime preference (see #419).
+Default `false` (KTS) on a fresh device. Pilots flip via the menu and
+the choice persists across reboots.
 
 **X-Plane plugin:** the menu is gated behind `#ifndef XPLANE_PLUGIN_BUILD`
 in both `main.cpp` and the include path. The plugin sees no SettingsMenu
