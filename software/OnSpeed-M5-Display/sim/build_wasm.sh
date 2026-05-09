@@ -24,8 +24,12 @@
 # Emscripten's `-sUSE_SDL=2` port reuses the SDL2 code path M5GFX's
 # Panel_sdl backend already relies on — the same firmware binary that
 # runs on the macOS/Linux native target also compiles straight to
-# WebAssembly. The `replay` target deliberately does not link SDL2;
-# its `lgfx::v1::millis/micros` symbols are provided by ReplayMain.cpp.
+# WebAssembly. All three targets pass `-sUSE_SDL=2` so M5GFX/M5Unified
+# headers (common.hpp, Speaker_Class.hpp, Mic_Class.hpp,
+# M5Unified.hpp) that transitively pull in fakesdl/SDL.h compile
+# cleanly. The `replay` target excludes the sdl/ platform sources and
+# provides its own `lgfx::v1::millis/micros` from ReplayMain.cpp, so
+# the SDL2 port is linked but never invoked at runtime.
 
 set -euo pipefail
 
@@ -209,15 +213,29 @@ CFLAGS=(
 )
 
 if [[ "${TARGET}" == "replay" ]]; then
-    # Replay target: no SDL, no canvas, no main(). Output is a JS
-    # loader + .wasm pair that JS imports. Drives setup/loop manually
-    # via replay_init/replay_loop and reads state-var accessors.
+    # Replay target: no canvas, no main(). Output is a JS loader + .wasm
+    # pair that JS imports. Drives setup/loop manually via
+    # replay_init/replay_loop and reads state-var accessors.
+    #
+    # SDL2 is linked (via -sUSE_SDL=2) so M5GFX/M5Unified headers that
+    # transitively include fakesdl/SDL.h compile cleanly. The replay
+    # build never calls into SDL at runtime — sdl/ platform sources are
+    # excluded above (SDL_EXCLUDE) and ReplayMain.cpp provides
+    # lgfx::v1::millis/micros — but the SDL port has to be enabled at
+    # the emcc layer for the M5 headers to resolve.
+    #
+    # ASYNCIFY mirrors the docs/live targets: M5Unified's setup paths
+    # call SDL helpers that may yield, and disabling asyncify changes
+    # codegen in subtle ways across the combined build.
     #
     # Bundle sizing: ALLOW_MEMORY_GROWTH so the firmware's gdraw sprite
     # (320 × 240 × 1 byte = 75 KB at 8bpp) plus PSRAM-style heap headroom
     # don't bound the working set. Initial 16 MB matches what M5Unified
     # expects on Core2 (the firmware never sees the difference).
     EM_FLAGS=(
+        -sUSE_SDL=2
+        -sASYNCIFY
+        -sASYNCIFY_STACK_SIZE=131072
         -sMODULARIZE=1
         -sEXPORT_ES6=0
         -sNO_EXIT_RUNTIME=1
