@@ -303,6 +303,14 @@ void setup()
     //
     auto cfg = M5.config();
     M5.begin(cfg);
+#if !defined(HUVVER)
+    // Override M5Unified's default 500 ms hold threshold so the
+    // long-press-to-enter-menu gesture (#419) feels the same on M5 and
+    // huVVer (HuvverButton uses 600 ms intrinsically).
+    M5.BtnA.setHoldThresh(600);
+    M5.BtnB.setHoldThresh(600);
+    M5.BtnC.setHoldThresh(600);
+#endif
     M5.Display.fillScreen(BLACK);
     M5.Display.setBrightness(50);
     // Mute the speaker (annoying hiss) on M5Stack Basic, where GPIO 25 is
