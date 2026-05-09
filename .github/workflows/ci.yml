@@ -845,6 +845,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pio-m5stack-
 
+      # `pio run -e native` builds M5GFX, whose `common.hpp` selects the
+      # SDL2 backend on POSIX hosts. Without libsdl2-dev installed, the
+      # platform switch falls through to the ESP-IDF branch and the build
+      # fails on `esp_log.h` / `heap_alloc_dma`. Mirrors the apt-cache
+      # step in the build-xplane-plugin job above.
+      - name: Install SDL2 + OpenAL (Linux)
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.0
+        with:
+          packages: libopenal-dev libsdl2-dev
+          version: 1.0
+
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
