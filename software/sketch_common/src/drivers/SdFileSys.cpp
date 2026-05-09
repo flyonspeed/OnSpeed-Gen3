@@ -142,6 +142,13 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase, float * pSizeGb)
 
     // SD card seems to be available
     uCardSectorCount = puSD_Card->sectorCount();
+    if (!uCardSectorCount)
+        {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "Get sector count failed.");
+        if (pStatusOut != nullptr)
+            pStatusOut->println("FORMAT ERROR: Could not read sector count.");
+        return false;
+        }
 
     // If the caller wants the card size, give it to them now — even if
     // the format itself fails later, the size we read from the card is
