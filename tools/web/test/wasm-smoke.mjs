@@ -762,7 +762,80 @@ assertEqual('frame[75] == CR (0x0D)', frameBytes[75], 0x0D);
 assertEqual('frame[76] == LF (0x0A)', frameBytes[76], 0x0A);
 
 // ---------------------------------------------------------------------------
+// tone_calc / tone_calc_muted
+//
+// Pure tone-decision logic from `onspeed_core/audio/ToneCalc.{h,cpp}` —
+// the same code the firmware runs to decide what tone the pilot hears.
+// Bound for the docs-site tone-sim replacement (#509) and a future
+// audio-synthesis PR.
+//
+// ToneThresholds order: { fLDMAXAOA, fONSPEEDFASTAOA, fONSPEEDSLOWAOA, fSTALLWARNAOA }
+// Boundary mapping (matches calculateTone / `software/Libraries/onspeed_core/src/audio/ToneCalc.cpp`):
+//   AOA <  ldmax        → enTone: None
+//   ldmax    <= AOA < fast  → Low solid (pulseFreq = 0)
+//   fast     <= AOA < slow  → Low solid (pulseFreq = 0)
+//   slow     <= AOA < warn  → High pulsed 1.5..6.2 PPS
+//   warn     <= AOA         → High stall warn 20 PPS
+// ---------------------------------------------------------------------------
+
+console.log('\n--- tone_calc ---');
+
+if (typeof Module.tone_calc !== 'function') {
+    console.error('FAIL: Module.tone_calc is not exported');
+    process.exit(1);
+}
+if (typeof Module.tone_calc_muted !== 'function') {
+    console.error('FAIL: Module.tone_calc_muted is not exported');
+    process.exit(1);
+}
+
+// Stall: AOA above stallWarn fires the 20 PPS pulsed stall warning.
+{
+    const r = Module.tone_calc(10.0, 5.0, 6.0, 7.0, 9.0);
+    assertEqual('tone_calc stall enTone',     r.enTone,    'High');
+    assertClose('tone_calc stall pulseFreq',  r.pulseFreq, 20.0, 0.001);
+}
+
+// Pulsed band: AOA between slow (7) and warn (9) — pulse rate 1.5..6.2 PPS.
+{
+    const r = Module.tone_calc(8.0, 5.0, 6.0, 7.0, 9.0);
+    assertEqual('tone_calc pulsed enTone', r.enTone, 'High');
+    if (r.pulseFreq < 1.5 || r.pulseFreq > 6.2) {
+        console.error(
+            `FAIL: tone_calc pulsed pulseFreq ${r.pulseFreq} outside [1.5..6.2]`);
+        process.exit(1);
+    }
+    console.log(`OK: tone_calc pulsed pulseFreq in band: ${r.pulseFreq.toFixed(2)}`);
+}
+
+// Solid low: AOA between ldmax (5) and slow (7) → low solid tone.
+{
+    const r = Module.tone_calc(6.5, 5.0, 6.0, 7.0, 9.0);
+    assertEqual('tone_calc solid-low enTone',    r.enTone,    'Low');
+    assertClose('tone_calc solid-low pulseFreq', r.pulseFreq, 0.0, 0.001);
+}
+
+// Below ldmax: silence.
+{
+    const r = Module.tone_calc(3.0, 5.0, 6.0, 7.0, 9.0);
+    assertEqual('tone_calc below-ldmax enTone', r.enTone, 'None');
+}
+
+// Muted variant — verifies the muteUnderIas gate.
+// AOA above stall warn but IAS above mute threshold → stall fires.
+{
+    const r = Module.tone_calc_muted(10.0, /*ias=*/80.0, /*stallWarn=*/9.0, /*mute=*/50);
+    assertEqual('tone_calc_muted above-mute enTone',    r.enTone,    'High');
+    assertClose('tone_calc_muted above-mute pulseFreq', r.pulseFreq, 20.0, 0.001);
+}
+// Same AOA but IAS below mute floor → silenced.
+{
+    const r = Module.tone_calc_muted(10.0, /*ias=*/30.0, /*stallWarn=*/9.0, /*mute=*/50);
+    assertEqual('tone_calc_muted below-mute enTone', r.enTone, 'None');
+}
+
+// ---------------------------------------------------------------------------
 // Done
 // ---------------------------------------------------------------------------
 
-console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine, build_display_frame)');
+console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine, build_display_frame, tone_calc)');

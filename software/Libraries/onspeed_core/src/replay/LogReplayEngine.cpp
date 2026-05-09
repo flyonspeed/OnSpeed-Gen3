@@ -68,6 +68,10 @@ LogReplayEngine::LogReplayEngine(const OnSpeedConfig& cfg,
     , accelLatEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
     , accelVertEma_(static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
     , accelFwdEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
+    // GOnsetFilter default tau (250 ms) matches the firmware's default
+    // for the AHRS-rate path; the M5 wire-rate path uses the same tau.
+    , gOnsetFilter_()
+    , dtSec_(1.0f / static_cast<float>(logSampleRateHz))
     , circBuf_(static_cast<size_t>(synthHalfWindowTicks_ + 1))
     , bufHead_(0)
     , bufSize_(0)
@@ -85,6 +89,7 @@ void LogReplayEngine::reset()
     accelLatEma_.reset();
     accelVertEma_.reset();
     accelFwdEma_.reset();
+    gOnsetFilter_.Reset();
     bufHead_        = 0;
     bufSize_        = 0;
     rowsFed_        = 0;
@@ -223,6 +228,25 @@ ReplayStepResult LogReplayEngine::ComputeBase_(const onspeed::LogRow& row)
     out.accelLatSmoothed  = accelLatEma_ .update(row.imuLateralG);
     out.accelVertSmoothed = accelVertEma_.update(row.imuVerticalG);
     out.accelFwdSmoothed = accelFwdEma_ .update(row.imuForwardG);
+
+    // --- G onset rate (g/s) ---
+    // Mirrors the firmware's GOnsetFilter on the smoothed vertical-G axis.
+    // Per-row dt is `1 / logSampleRateHz`. First sample seeds prev and
+    // returns 0 (no spurious derivative spike).
+    out.gOnsetRate = gOnsetFilter_.Update(out.accelVertSmoothed, dtSec_);
+
+    // --- Turn rate (deg/s) ---
+    // Same source as the IMU yaw axis; carried separately so the
+    // wireBridge assignment for `DisplayBuildInputs::turnRateDps`
+    // is a one-line copy.
+    out.turnRateDps = row.imuYawRateDps;
+
+    // --- OAT (°C) ---
+    // Round to int to match the wire field's resolution (signed ±99 in
+    // a %+03d field, see proto/DisplaySerial.h). Defaults to 0 when the
+    // log column is missing or the original flight had no OAT sensor —
+    // same wire byte the M5 receives in that case.
+    out.oatC = static_cast<int>(std::round(row.oatCelsius));
 
     // --- AOA calculation ---
     if (!cfg_.aFlaps.empty())

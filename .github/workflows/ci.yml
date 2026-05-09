@@ -892,6 +892,15 @@ jobs:
       - name: Run M5 replay WASM test
         run: node software/OnSpeed-M5-Display/test/test_replay_wasm.js
 
+      - name: Run wire-completeness test
+        # PR 1.5: drives the LogReplayEngine + BuildDisplayFrame pipeline
+        # against a frozen golden and asserts byte-for-byte match. Catches
+        # regressions in any newly-populated DisplayBuildInputs field
+        # (gOnsetRate, turnRateDps, oatC, iasValid) and any future wire
+        # schema change. Regenerate the golden after a legitimate change:
+        #   node ... test_replay_wire_completeness.js --update-golden
+        run: node software/OnSpeed-M5-Display/test/test_replay_wire_completeness.js
+
   static-analysis:
     name: Static Analysis (cppcheck)
     runs-on: ubuntu-latest

@@ -49,6 +49,7 @@
 
 #include <aoa/AOACalculator.h>
 #include <config/OnSpeedConfig.h>
+#include <filters/GOnsetFilter.h>
 #include <filters/RateAdjustedAccelEma.h>
 #include <types/LogRow.h>
 
@@ -64,6 +65,68 @@ namespace onspeed::replay {
 // Fields mirror the corresponding globals in sketch_common/src/Globals.h
 // and tasks/LogReplay.cpp's ReadLogLine() write sites so the task
 // wrapper body is a mechanical transcription.
+//
+// ============================================================================
+// DisplayBuildInputs field-completeness audit (PR 1.5)
+//
+// One row of replay produces one set of bytes on the wire. Each field of
+// `onspeed::proto::DisplayBuildInputs` falls into exactly one of four
+// buckets. The wire frame is correct iff every field is correctly fed,
+// regardless of which bucket carries it. If a field falls through the
+// cracks (engine doesn't fill, wireBridge doesn't fill), the wire
+// silently encodes a zero and the M5 silently shows "0" or a stale
+// anchor.
+//
+// | DisplayBuildInputs field | Source bucket           | Carrier                                         |
+// |--------------------------|-------------------------|-------------------------------------------------|
+// | pitchDeg                 | engine-populated        | `out.pitchDeg = row.pitchDeg`                   |
+// | rollDeg                  | engine-populated        | `out.rollDeg  = row.rollDeg`                    |
+// | iasKt                    | engine-populated        | `out.iasKt    = row.iasKt`                      |
+// | iasValid                 | engine-populated        | hysteretic via row.iasValid (LogCsv parser)     |
+// | paltFt                   | engine-populated        | `out.paltFt   = row.paltFt`                     |
+// | turnRateDps              | engine-populated        | from `row.imuYawRateDps`                        |
+// | lateralG                 | engine-populated        | `out.accelLatSmoothed` (via RateAdjustedAccelEma) |
+// | verticalG (×10)          | engine-populated        | `out.accelVertSmoothed` (via RateAdjustedAccelEma) |
+// | percentLiftPct           | wireBridge-supplied     | computed from `out.aoa` + cfg flap setpoints    |
+// | vsiFpm                   | engine-populated        | from `out.kalmanVSI` (m/s -> fpm) at PR-2 time  |
+// | oatC                     | engine-populated        | `out.oatC = round(row.oatCelsius)`              |
+// | flightPathDeg            | engine-populated        | `out.flightPathDeg = row.flightPathDeg`         |
+// | flapsDeg                 | wireBridge-supplied     | `cfg.aFlaps[out.flapsIndex].iDegrees`           |
+// | tonesOnPctLift           | wireBridge-supplied     | from cfg.aFlaps[flapsIndex] anchors (see PR 2)  |
+// | onSpeedFastPctLift       | wireBridge-supplied     | from cfg.aFlaps[flapsIndex] anchors (see PR 2)  |
+// | onSpeedSlowPctLift       | wireBridge-supplied     | from cfg.aFlaps[flapsIndex] anchors (see PR 2)  |
+// | stallWarnPctLift         | wireBridge-supplied     | from cfg.aFlaps[flapsIndex] anchors (see PR 2)  |
+// | flapsMinDeg              | wireBridge-supplied     | from cfg.aFlaps[].iDegrees min (see PR 2)       |
+// | flapsMaxDeg              | wireBridge-supplied     | from cfg.aFlaps[].iDegrees max (see PR 2)       |
+// | gOnsetRate               | engine-populated        | `out.gOnsetRate = gOnsetFilter_.Update(...)`    |
+// | spinRecoveryCue          | constant by design      | always 0 (reserved for future logic; #422)      |
+// | dataMark                 | engine-populated        | `out.dataMark = row.dataMark`                   |
+// | pipPctLift               | wireBridge-supplied     | from cfg.aFlaps[] interpolation (see PR 2)      |
+//
+// `flapsDeg` is wireBridge-supplied because the wire byte must reflect the
+// detent the engine *resolved* (stable, snapped to a config detent), not the
+// raw row.flapsPos (which on some logs can be transient between detents).
+// The carrier is `cfg.aFlaps[out.flapsIndex].iDegrees`, and the engine's
+// responsibility is to produce a correct `out.flapsIndex` (via
+// ResolveFlapIndex_). A sabotage that corrupts `out.flapsIndex` therefore
+// shifts `flapsDeg` AND every cfg.aFlaps[]-keyed anchor on the same frame
+// — which is what makes the wire-completeness test bite the engine for
+// flap-state correctness, not just sensor-axis pass-through.
+//
+// Fields written to wireBridge buckets are populated in PR 2's
+// `tools/web/lib/replay/wireBridge.js` from cfg + the engine's
+// flapsIndex/flapsRawAdc/aoa outputs. The engine deliberately does NOT
+// hold cfg-derived anchors — anchors are stable per (flapsIndex,
+// flapsRawAdc, cfg) state, not per row, so caching them client-side is
+// the simpler architecture.
+//
+// Anchor positions (tonesOnPctLift, onSpeedFastPctLift,
+// onSpeedSlowPctLift, stallWarnPctLift, pipPctLift, flapsMinDeg,
+// flapsMaxDeg) are NOT populated by this engine. They are
+// stable-per-flap-state values derived from
+// `OnSpeedConfig::aFlaps[flapsIndex] + flapsRawAdc`. PR 2's
+// wireBridge.js reads cfg directly and assigns these on each frame
+// build. See `computeAnchors()` in PR 2 for the contract.
 // ============================================================================
 
 struct ReplayStepResult {
@@ -105,6 +168,26 @@ struct ReplayStepResult {
     float accelLatSmoothed  = 0.0f;  // smoothed lateral-G  → g_AHRS.AccelLatFilter.get()
     float accelVertSmoothed = 0.0f;  // smoothed vertical-G → g_AHRS.AccelVertFilter.get()
     float accelFwdSmoothed  = 0.0f;  // smoothed forward-G  → g_AHRS.AccelFwdFilter.get()
+
+    // --- G onset rate (g/s) ---
+    // Low-pass-filtered first derivative of vertical G. Mirrors the
+    // firmware's GOnsetFilter (onspeed_core/filters/GOnsetFilter.{h,cpp})
+    // running on g_AHRS.AccelVertFilter.get().  Wire field is signed
+    // ±9.99 g/s with ×100 scaling (see proto/DisplaySerial.h).
+    float gOnsetRate = 0.0f;
+
+    // --- Yaw rate / turn rate (deg/s) ---
+    // Same source as imuYawRateDps; carried separately so the wireBridge
+    // assignment for `DisplayBuildInputs::turnRateDps` is a one-line
+    // pass-through rather than reaching into the IMU-axes group.
+    float turnRateDps = 0.0f;
+
+    // --- OAT (°C) ---
+    // Outside air temperature. Only meaningful when the original flight had
+    // an OAT sensor; the log column defaults to 0 when sensor was absent,
+    // which propagates through to the wire as 0 — the same wire byte the
+    // M5 receives on a no-OAT-sensor box. Engine rounds to int.
+    int oatC = 0;
 
     // --- Data mark (fed to g_iDataMark) ---
     int dataMark = 0;
@@ -253,6 +336,14 @@ private:
     onspeed::filters::RateAdjustedAccelEma accelLatEma_;
     onspeed::filters::RateAdjustedAccelEma accelVertEma_;
     onspeed::filters::RateAdjustedAccelEma accelFwdEma_;
+
+    // G-onset filter — mirrors the firmware's GOnsetFilter on the
+    // smoothed vertical-G axis. Per-row dt is `1 / logSampleRateHz`.
+    onspeed::GOnsetFilter gOnsetFilter_;
+
+    // dt per row — `1 / logSampleRateHz`. Cached so step() doesn't
+    // recompute the division every call.
+    float dtSec_;
 
     // -------------------------------------------------------------------------
     // Streaming synth state — used only when flapsRawAdcAvailable_ == false.
