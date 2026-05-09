@@ -453,7 +453,11 @@ responses are unchanged."
 
 ---
 
-## Task 5: Native test for the format-status JSON shape
+## Task 5: Native test for the format-status JSON shape — DEFERRED to issue #500
+
+Implementation revealed that the `[env:native]` test env links only `onspeed_core` (platform-independent C++ using `std::string`); the body builder lives in `ApiHandlers.cpp` and uses Arduino `String` + `F()`. Wiring it up for a native test requires either lifting the helper into `onspeed_core` (with a `std::string` reimplementation) or shimming Arduino String for the native env. Either is a real refactor for ~10 lines of string concatenation. Filed [issue #500](https://github.com/flyonspeed/OnSpeed-Gen3/issues/500). Wire-format coverage now relies on bench testing (Task 8) plus FormatPage's runtime JSON parsing in Task 6.
+
+The original Task 5 text follows for reference.
 
 **Files:**
 - Create: `test/test_format_status_json/test_format_status_json.cpp`
