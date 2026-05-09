@@ -47,6 +47,7 @@ static void ReplayHeaderWarn(const char* col)
 bool OpenReplayLog(String sLogFile);
 bool ReadLogLine();
 void RemoveSpaces(char * szLine);
+static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res);
 
 //-----------------------------------------------------------------------------
 // REPLAYLOGFILE data source routines
@@ -96,6 +97,21 @@ void LogReplayTask(void *pvParams)
         bReadStatus = ReadLogLine();
 
     } // end while read() is OK
+
+    // Drain the streaming synth buffer. For old logs (without flapsRawADC),
+    // step() lags output by kSynthHalfWindow rows; the tail rows accumulate
+    // in the engine's circular buffer until flush() is called here. Each
+    // flushed row is published to globals and drives one tone update.
+    // For logs that carry flapsRawADC the engine returns an empty vector.
+    if (s_pEngine)
+        {
+        for (const onspeed::replay::ReplayStepResult& res : s_pEngine->flush())
+            {
+            xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
+            PublishReplayResult(res);
+            g_AudioPlay.UpdateTones(SnapshotActiveFlap());
+            }
+        }
 
     g_Log.println("Finished replaying file.");
 
@@ -238,50 +254,66 @@ bool ReadLogLine()
         // its AOA smoother state persists across rows within this replay session.
         // TestPot and RangeSweep tasks do not use the engine — they generate
         // their own AOA directly and call UpdateTones themselves (see below).
-        const onspeed::replay::ReplayStepResult res =
+        //
+        // When the log lacks flapsRawADC (pre-PR-#221), step() returns empty
+        // for the first kSynthHalfWindow rows while the circular buffer fills
+        // (the streaming synth ADC lag). During this lag period we silently
+        // continue reading the next row without publishing globals. Wire output
+        // lags by ~2 sec on old-log replay — acceptable for bench replay.
+        const std::optional<onspeed::replay::ReplayStepResult> optRes =
             s_pEngine->step(row);
+        if (!optRes.has_value())
+            continue;   // still in lag period; read next row
+
+        const onspeed::replay::ReplayStepResult& res = optRes.value();
 
         // Publish the engine result to sketch globals — mirrors the write-back
-        // that was previously inline here. The engine's step() produces
-        // identical values to the old inline code; the sketch state is
-        // unchanged from the caller's perspective.
-        g_Sensors.PfwdSmoothed = res.pfwdSmoothed;
-        g_Sensors.P45Smoothed  = res.p45Smoothed;
-        g_Flaps.iPosition      = res.flapsPos;
-        // Older logs without flapsRawADC leave g_Flaps.uValue at whatever it
-        // was last sampled by the live ADC; only overwrite when the column
-        // was actually carried in the file.
-        if (res.flapsRawAdcPresent)
-            g_Flaps.uValue     = res.flapsRawAdc;
-
-        g_fCoeffP          = res.coeffP;
-        g_Flaps.iIndex     = res.flapsIndex;
-
-        g_Sensors.Palt     = res.paltFt;
-        g_Sensors.IAS      = res.iasKt;
-        g_Sensors.bIasAlive = res.iasValid;
-        g_iDataMark        = res.dataMark;
-        g_AHRS.KalmanVSI   = res.kalmanVSI;
-
-        g_pIMU->Ax = res.imuForwardG;
-        g_pIMU->Ay = res.imuLateralG;
-        g_pIMU->Az = res.imuVerticalG;
-        g_pIMU->Gx = res.imuRollRateDps;
-        g_pIMU->Gy = res.imuPitchRateDps;
-        g_pIMU->Gz = res.imuYawRateDps;
-
-        g_AHRS.SmoothedPitch = res.pitchDeg;
-        g_AHRS.SmoothedRoll  = res.rollDeg;
-        g_AHRS.FlightPath    = res.flightPathDeg;
-        g_Sensors.AOA        = res.aoa;
-
-        g_AHRS.AccelLatCorr  = res.accelLatSmoothed;
-        g_AHRS.AccelVertCorr = res.accelVertSmoothed;
+        // that was previously inline here.
+        PublishReplayResult(res);
 
         g_AudioPlay.UpdateTones(SnapshotActiveFlap());
 
         return true;
         } // end reading lines looking for a good one
+    }
+
+// ----------------------------------------------------------------------------
+// Publish one ReplayStepResult to sketch globals.  Called from ReadLogLine()
+// and from the flush() drain at end-of-file.
+// ----------------------------------------------------------------------------
+static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
+    {
+    g_Sensors.PfwdSmoothed = res.pfwdSmoothed;
+    g_Sensors.P45Smoothed  = res.p45Smoothed;
+    g_Flaps.iPosition      = res.flapsPos;
+    // When flapsRawAdcPresent is true the synth (or real) ADC value is valid;
+    // overwrite g_Flaps.uValue so DisplayPctAnchors sees the correct reading.
+    if (res.flapsRawAdcPresent)
+        g_Flaps.uValue     = res.flapsRawAdc;
+
+    g_fCoeffP          = res.coeffP;
+    g_Flaps.iIndex     = res.flapsIndex;
+
+    g_Sensors.Palt     = res.paltFt;
+    g_Sensors.IAS      = res.iasKt;
+    g_Sensors.bIasAlive = res.iasValid;
+    g_iDataMark        = res.dataMark;
+    g_AHRS.KalmanVSI   = res.kalmanVSI;
+
+    g_pIMU->Ax = res.imuForwardG;
+    g_pIMU->Ay = res.imuLateralG;
+    g_pIMU->Az = res.imuVerticalG;
+    g_pIMU->Gx = res.imuRollRateDps;
+    g_pIMU->Gy = res.imuPitchRateDps;
+    g_pIMU->Gz = res.imuYawRateDps;
+
+    g_AHRS.SmoothedPitch = res.pitchDeg;
+    g_AHRS.SmoothedRoll  = res.rollDeg;
+    g_AHRS.FlightPath    = res.flightPathDeg;
+    g_Sensors.AOA        = res.aoa;
+
+    g_AHRS.AccelLatCorr  = res.accelLatSmoothed;
+    g_AHRS.AccelVertCorr = res.accelVertSmoothed;
     }
 
 // ----------------------------------------------------------------------------

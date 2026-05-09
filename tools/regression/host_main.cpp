@@ -13,13 +13,15 @@
 //     stdin (default).  Output schema: see kAhrsToneOutputHeader (13 fields).
 //
 //   replay  [--input PATH] [--output-format csv|jsonl] [--log-rate 50|208]
+//              [--config PATH]
 //     Stream an OnSpeed SD log CSV through the LogReplayEngine pipeline.
 //     `--input -` reads stdin (default).  Input must be the real SD log
 //     format (timeStamp,Pfwd,PfwdSmoothed,...) — not the simplified AHRS
 //     fixture format.  BuildHeaderIndex maps columns by name so logs from
-//     different firmware versions are accepted.  --config is reserved for
-//     Step 2 (per PLAN_PYTHON_CONSOLIDATION.md) and is an error if passed
-//     now.  Output schema: see kReplayEngineOutputHeader (23 fields).
+//     different firmware versions are accepted.  --config loads a V1 or V2
+//     OnSpeed config file for synth flap-pot values and AOA curve; without
+//     it, LoadDefaults() is used (single uncalibrated detent, pot=0).
+//     Output schema: see kReplayEngineOutputHeader (23 fields).
 //     --log-rate {50|208}: log sample rate in Hz (default 50); rejected if
 //     any other value is supplied.
 //
@@ -516,12 +518,14 @@ int CmdAhrsTone(int argc, const char* const* argv)
 // smoothed (Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md).
 // Column order is fixed here and in the golden fixture.
 //
-// --config is reserved for Step 2 (per PLAN_PYTHON_CONSOLIDATION.md).
-// Passing it is an error — refused explicitly rather than silently ignored.
+// --config: optional path to a V1 or V2 OnSpeed config file. When supplied,
+// the engine uses the config's flap pot positions for synth ADC generation and
+// the AOA calibration curves for each detent. Without it, LoadDefaults() is
+// used (a single uncalibrated detent, pot=0).
 //
-// Sample rate: read from the log header if `iLogRate` is present; otherwise
-// defaults to 50 Hz (the firmware default for pre-version-2 logs).  Stored
-// in the engine for PRs 2/3; not yet used to correct EMA rate.
+// Sample rate: supplied via --log-rate {50|208} (default 50). The engine uses
+// it to size the synth lookahead window (kSynthHalfWindowSec × rate) and
+// (post-PR #490) to compute the rate-adjusted accel EMA's α.
 // ============================================================================
 
 // Output column header — stable order, matches ReplayStepResult field order.
@@ -634,18 +638,12 @@ int CmdReplay(int argc, const char* const* argv)
 {
     const char* input_path = ArgGet(argc, argv, "--input", "-");
 
-    // --config is reserved for Step 2 (per-flap threshold wiring).
-    // Refuse now rather than silently accept and ignore the value —
-    // a caller that passes --config and gets wrong output is harder
-    // to debug than an explicit error.
+    // --config: optional path to a V1 or V2 OnSpeed config file.
+    // When supplied, the engine uses the config's flap pot positions for
+    // synth ADC generation and the AOA calibration curves for each detent.
+    // Without --config, LoadDefaults() is used (a single uncalibrated
+    // detent, pot=0).
     const char* config_path = ArgGet(argc, argv, "--config");
-    if (config_path != nullptr) {
-        std::fprintf(stderr,
-            "host_main replay: --config is reserved for Step 2 "
-            "(per PLAN_PYTHON_CONSOLIDATION.md). Not yet wired to "
-            "per-flap thresholds. Refusing to silently ignore.\n");
-        return 1;
-    }
 
     const char* fmt_str = ArgGet(argc, argv, "--output-format", "csv");
 
@@ -694,8 +692,8 @@ int CmdReplay(int argc, const char* const* argv)
 
     // Log sample rate: supplied via --log-rate {50|208} (default 50 Hz).
     // 50 Hz is the firmware default; 208 Hz logs are produced when iLogRate
-    // is set to 208 in the config.  The engine stores this for PRs 2/3
-    // (rate-correct EMA, synth ADC) but does not yet use it to correct EMA.
+    // is set to 208 in the config.  The engine uses this to compute the
+    // rate-aware synth lookahead window (kSynthHalfWindowSec × rate).
     // A dedicated log-rate column in the log header would let this be auto-
     // detected; until that lands, the caller must supply --log-rate for 208 Hz
     // logs.
@@ -714,17 +712,16 @@ int CmdReplay(int argc, const char* const* argv)
     // flapsRawAdcAvailable: true when the header carries the optional column.
     const bool flaps_raw_adc_available = (hdr_idx.idxFlapsRawAdc >= 0);
 
-    // Build engine with default config (no --config yet — Step 2).
-    // LoadDefaults() installs the explicit "uncalibrated" config: a single
-    // flap detent with iAoaSmoothing=20 and ALL polynomial coefficients
-    // zeroed.  This means aoa_deg = 0.0 in the output for every row.
-    // coeffP, IAS, palt, pitch, roll, and IMU axes still vary realistically
-    // from the log data.  To regenerate the replay golden against a real
-    // calibration in the future, plumb --config through (deferred per PR
-    // #466 review) and ship a representative test config (e.g., RV-10:
-    // alpha_0=-3.72, alpha_stall=10.31, real polynomial fit).
+    // Build engine config. When --config is supplied, load the V1 or V2
+    // config file; otherwise use LoadDefaults() (a single uncalibrated
+    // detent with pot=0). The config is used for pot positions (synth ADC)
+    // and AOA curve evaluation.
     onspeed::config::OnSpeedConfig cfg;
-    cfg.LoadDefaults();
+    if (config_path != nullptr) {
+        if (!LoadConfig(config_path, cfg)) return 1;
+    } else {
+        cfg.LoadDefaults();
+    }
 
     onspeed::replay::LogReplayEngine engine(cfg, log_sample_rate_hz,
                                             flaps_raw_adc_available);
@@ -757,14 +754,37 @@ int CmdReplay(int argc, const char* const* argv)
             return 1;
         }
 
-        const onspeed::replay::ReplayStepResult result = engine.step(row);
+        const std::optional<onspeed::replay::ReplayStepResult> optResult =
+            engine.step(row);
+
+        // When flapsRawADC is absent from the log, step() returns empty for
+        // the first synthHalfWindowTicks_ rows (the streaming synth lag). Skip
+        // emission during the lag period; the rows are buffered internally
+        // and will be emitted by flush() below (or as later step() calls
+        // fill the window).
+        if (!optResult.has_value()) {
+            ++row_count;
+            continue;
+        }
 
         if (fmt == OutputFormat::Csv) {
-            EmitCsvRow(result);
+            EmitCsvRow(optResult.value());
         } else {
-            EmitJsonlRow(result);
+            EmitJsonlRow(optResult.value());
         }
         ++row_count;
+    }
+
+    // Drain the streaming synth buffer. For old logs (without flapsRawADC),
+    // step() lags output by synthHalfWindowTicks_ rows; the tail rows
+    // accumulate in the engine's circular buffer until flush() is called here.
+    // For logs that carry flapsRawADC, flush() returns an empty vector.
+    for (const onspeed::replay::ReplayStepResult& r : engine.flush()) {
+        if (fmt == OutputFormat::Csv) {
+            EmitCsvRow(r);
+        } else {
+            EmitJsonlRow(r);
+        }
     }
 
     if (row_count == 0) {
@@ -1009,11 +1029,11 @@ int CmdHelp()
         "    Stream simplified sensor CSV (ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz)\n"
         "    through AHRS + Madgwick + Kalman + ToneCalc pipeline.\n"
         "    Gates against fixtures/golden.csv — the bedrock regression test.\n\n"
-        "  replay  --input PATH|'-' [--output-format csv|jsonl] [--log-rate 50|208]\n"
+        "  replay  --input PATH|'-' [--config PATH] [--output-format csv|jsonl] [--log-rate 50|208]\n"
         "    Stream an OnSpeed SD log CSV through LogReplayEngine.\n"
         "    Input: real SD log format (timeStamp,Pfwd,...,DerivedAOA,CoeffP).\n"
-        "    --log-rate: log sample rate in Hz (50 or 208; default 50).\n"
-        "    (--config is reserved for Step 2; passing it now is an error.)\n\n"
+        "    --config: optional V1/V2 config file (pot positions for synth ADC).\n"
+        "    --log-rate: log sample rate in Hz (50 or 208; default 50).\n\n"
         "  percent_lift --aoa F --alpha-0 F --alpha-stall F --stallwarn F\n"
         "    Compute percent-of-stall for a single AOA reading.\n\n"
         "  parse_config --in PATH\n"

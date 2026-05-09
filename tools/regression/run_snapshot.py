@@ -76,6 +76,13 @@ AHRS_GOLDEN = FIXTURES / "golden.csv"
 ENGINE_INPUT  = FIXTURES / "replay_engine_input.csv"
 ENGINE_GOLDEN = FIXTURES / "replay_engine_golden.csv"
 
+# Synth ADC golden — streaming synth flapsRawADC for old logs (PR 3).
+# Input has no flapsRawADC column; the engine synthesises a smoothstep
+# sweep across the detent transition at row 51 (0→30 degrees).
+SYNTH_ADC_INPUT  = FIXTURES / "synth_adc_input.csv"
+SYNTH_ADC_GOLDEN = FIXTURES / "synth_adc_golden.csv"
+SYNTH_ADC_CONFIG = FIXTURES / "synth_adc_config.cfg"
+
 BUILD_DIR  = HERE / ".pio" / "build" / "native"
 EXECUTABLE = BUILD_DIR / "program"
 
@@ -130,6 +137,29 @@ def run_engine_replay(input_csv: Path) -> str:
     )
     if proc.returncode != 0:
         click.echo(f"Shim (replay) exited with {proc.returncode}:", err=True)
+        click.echo(proc.stderr, err=True)
+        sys.exit(1)
+    return proc.stdout
+
+
+def run_synth_adc(input_csv: Path, config: Path) -> str:
+    """Run `host_main replay` on a pre-PR-#221 log (no flapsRawADC column).
+
+    Uses --config to supply a two-detent config with meaningful pot positions
+    so the smoothstep synth produces visible transitions in the golden.
+    The engine detects the missing column and synthesises flapsRawADC via the
+    streaming bounded-window design (PR 3 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md).
+    """
+    proc = subprocess.run(
+        [str(EXECUTABLE), "replay",
+         "--input", str(input_csv),
+         "--config", str(config),
+         "--output-format", "csv"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        click.echo(f"Shim (synth_adc replay) exited with {proc.returncode}:", err=True)
         click.echo(proc.stderr, err=True)
         sys.exit(1)
     return proc.stdout
@@ -301,17 +331,32 @@ def main(
 
     engine_output = run_engine_replay(ENGINE_INPUT)
 
+    # --- Synth ADC golden ---
+    if not SYNTH_ADC_INPUT.exists():
+        click.echo(f"Synth ADC input CSV not found: {SYNTH_ADC_INPUT}", err=True)
+        sys.exit(3)
+    if not SYNTH_ADC_CONFIG.exists():
+        click.echo(f"Synth ADC config not found: {SYNTH_ADC_CONFIG}", err=True)
+        sys.exit(3)
+
+    synth_adc_output = run_synth_adc(SYNTH_ADC_INPUT, SYNTH_ADC_CONFIG)
+
     if update_golden:
         ENGINE_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
         ENGINE_GOLDEN.write_text(engine_output, encoding="utf-8")
         click.echo(f"Updated golden: {ENGINE_GOLDEN}")
+
+        SYNTH_ADC_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+        SYNTH_ADC_GOLDEN.write_text(synth_adc_output, encoding="utf-8")
+        click.echo(f"Updated golden: {SYNTH_ADC_GOLDEN}")
         sys.exit(0)
 
-    # Run both checks; collect results without short-circuiting.
-    ok_ahrs   = check_golden("ahrs_tone",     ahrs_tone_output, AHRS_GOLDEN,   rtol, atol)
-    ok_engine = check_golden("replay_engine", engine_output,    ENGINE_GOLDEN, rtol, atol)
+    # Run all three checks; collect results without short-circuiting.
+    ok_ahrs      = check_golden("ahrs_tone",     ahrs_tone_output, AHRS_GOLDEN,      rtol, atol)
+    ok_engine    = check_golden("replay_engine", engine_output,    ENGINE_GOLDEN,    rtol, atol)
+    ok_synth_adc = check_golden("synth_adc",     synth_adc_output, SYNTH_ADC_GOLDEN, rtol, atol)
 
-    sys.exit(0 if (ok_ahrs and ok_engine) else 2)
+    sys.exit(0 if (ok_ahrs and ok_engine and ok_synth_adc) else 2)
 
 
 if __name__ == "__main__":
