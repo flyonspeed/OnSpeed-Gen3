@@ -13,21 +13,24 @@
 // smoothstep sweep across detent transitions using a streaming circular
 // buffer. The invariants:
 //
-//   - circBuf_ holds at most kBufSize = kSynthHalfWindow+1 pre-computed
-//     results (AOA, pressure, all passthrough fields already filled in).
-//   - step() returns empty until kSynthHalfWindow rows have been fed (lag
-//     period). After that, each step() emits the oldest buffered result after
-//     applying the synth ADC value for that row's absolute tick.
-//   - A detent transition at absolute tick T means rows in [T-kSynthHalfWindow,
-//     T+kSynthHalfWindow] get a smoothstep blend. Since the emit point is always
-//     exactly kSynthHalfWindow ticks behind the write point, both edges of the
-//     transition window are guaranteed visible in the buffer when emission occurs.
+//   - circBuf_ holds at most synthHalfWindowTicks_+1 pre-computed results
+//     (AOA, pressure, all passthrough fields already filled in). The buffer
+//     is sized at construction from kSynthHalfWindowSec × logSampleRateHz:
+//       50 Hz  → 101 slots (~10 KB)   208 Hz → 417 slots (~42 KB)
+//   - step() returns empty until synthHalfWindowTicks_ rows have been fed
+//     (lag period). After that, each step() emits the oldest buffered result
+//     after applying the synth ADC value for that row's absolute tick.
+//   - A detent transition at absolute tick T means rows in
+//     [T-synthHalfWindowTicks_, T+synthHalfWindowTicks_] get a smoothstep
+//     blend. Since the emit point is always exactly synthHalfWindowTicks_
+//     ticks behind the write point, both edges of the transition window are
+//     guaranteed visible in the buffer when emission occurs.
 //   - flush() drains the remaining buffered rows after the input stream ends.
 //
 // Output bit-identical to a batch two-pass implementation: the smoothstep for
-// any emit tick depends only on transitions within ±kSynthHalfWindow of that
-// tick, which are always in the buffer. The streaming window is exactly
-// ±kSynthHalfWindow, so no wider context is ever needed.
+// any emit tick depends only on transitions within ±synthHalfWindowTicks_ of
+// that tick, which are always in the buffer. The streaming window is exactly
+// ±synthHalfWindowTicks_, so no wider context is ever needed.
 
 #include <replay/LogReplayEngine.h>
 
@@ -56,10 +59,16 @@ LogReplayEngine::LogReplayEngine(const OnSpeedConfig& cfg,
                                  bool flapsRawAdcAvailable)
     : cfg_(cfg)
     , flapsRawAdcAvailable_(flapsRawAdcAvailable)
+    // Compute at engine construct time. Per-instance, fixed for the lifetime
+    // of one replay session. Per Issue #492, one log file = one sample rate
+    // (firmware enforces); the rate doesn't change mid-stream.
+    , synthHalfWindowTicks_(static_cast<int>(kSynthHalfWindowSec *
+                                             static_cast<float>(logSampleRateHz)))
     , aoaCalc_(cfg.iAoaSmoothing)
     , accelLatEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
     , accelVertEma_(static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
     , accelFwdEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
+    , circBuf_(static_cast<size_t>(synthHalfWindowTicks_ + 1))
     , bufHead_(0)
     , bufSize_(0)
     , rowsFed_(0)
@@ -111,9 +120,9 @@ uint16_t LogReplayEngine::PotForFlapPos_(int flapPosDeg) const
 //
 // For each stored transition:
 //   - The transition centred at snapTick paints the range
-//     [snapTick - kSynthHalfWindow, snapTick + kSynthHalfWindow].
+//     [snapTick - synthHalfWindowTicks_, snapTick + synthHalfWindowTicks_].
 //   - If emitTick falls inside that range, compute:
-//       t = (emitTick - (snapTick - kSynthHalfWindow)) / (2 * kSynthHalfWindow)
+//       t = (emitTick - (snapTick - synthHalfWindowTicks_)) / (2 * synthHalfWindowTicks_)
 //       s = 3t^2 - 2t^3   (smoothstep)
 //       result = lerp(prevPot, nextPot, s)
 //   - If multiple transitions overlap (unusual), the LAST one wins
@@ -131,14 +140,14 @@ uint16_t LogReplayEngine::ComputeSynthAdc_(int emitTick, int flapPosDeg) const
     for (int i = 0; i < numTransitions_; i++)
     {
         const int snapTick  = transitions_[i].snapTick;
-        const int winStart  = snapTick - kSynthHalfWindow;
-        const int winEnd    = snapTick + kSynthHalfWindow;
+        const int winStart  = snapTick - synthHalfWindowTicks_;
+        const int winEnd    = snapTick + synthHalfWindowTicks_;
 
         if (emitTick < winStart || emitTick > winEnd)
             continue;
 
         // t in [0, 1] across the window
-        const float span = static_cast<float>(2 * kSynthHalfWindow);
+        const float span = static_cast<float>(2 * synthHalfWindowTicks_);
         float t = static_cast<float>(emitTick - winStart) / span;
         // Clamp to [0, 1] for safety
         if (t < 0.0f) t = 0.0f;
@@ -248,17 +257,17 @@ ReplayStepResult LogReplayEngine::EmitOldest_()
     res.flapsRawAdc        = ComputeSynthAdc_(emitTick, res.flapsPos);
 
     // Advance the circular buffer head.
-    bufHead_ = (bufHead_ + 1) % kBufSize;
+    bufHead_ = (bufHead_ + 1) % static_cast<int>(circBuf_.size());
     --bufSize_;
 
     // Evict transitions that are no longer reachable from the emit point.
-    // A transition at snapTick covers [snapTick - kSynthHalfWindow, snapTick +
-    // kSynthHalfWindow]. Once emitTick > snapTick + kSynthHalfWindow the
-    // transition is done; remove it.  We keep the array compact.
+    // A transition at snapTick covers [snapTick - synthHalfWindowTicks_, snapTick +
+    // synthHalfWindowTicks_]. Once emitTick > snapTick + synthHalfWindowTicks_
+    // the transition is done; remove it.  We keep the array compact.
     int keep = 0;
     for (int i = 0; i < numTransitions_; i++)
     {
-        if (emitTick <= transitions_[i].snapTick + kSynthHalfWindow)
+        if (emitTick <= transitions_[i].snapTick + synthHalfWindowTicks_)
             transitions_[keep++] = transitions_[i];
     }
     numTransitions_ = keep;
@@ -272,15 +281,16 @@ std::optional<ReplayStepResult>
 LogReplayEngine::PushAndMaybeEmit_(const ReplayStepResult& res)
 {
     // Write into the circular buffer at the next available slot.
-    const int writeIdx = (bufHead_ + bufSize_) % kBufSize;
+    const int capacity = static_cast<int>(circBuf_.size());
+    const int writeIdx = (bufHead_ + bufSize_) % capacity;
     circBuf_[writeIdx] = res;
     ++bufSize_;
 
     // If the buffer has exceeded its capacity (shouldn't happen by construction
-    // because we drain one entry whenever bufSize_ reaches kBufSize), cap it.
+    // because we drain one entry whenever bufSize_ reaches capacity), cap it.
     // Guarded below.
 
-    if (bufSize_ < kBufSize)
+    if (bufSize_ < capacity)
     {
         // Buffer not yet full — still in the lag period. No output yet.
         return std::nullopt;
@@ -318,7 +328,8 @@ LogReplayEngine::step(const onspeed::LogRow& row)
     {
         // Record the transition if there's room. If the table is full,
         // drop the oldest entry to make room (shouldn't happen in practice —
-        // at most one transition per 2*kSynthHalfWindow rows on a real flight).
+        // at most one transition per 2*synthHalfWindowTicks_ rows on a real
+        // flight).
         if (numTransitions_ >= kMaxTransitions)
         {
             // Evict the oldest (index 0) — shift left.

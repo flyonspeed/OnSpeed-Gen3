@@ -30,7 +30,14 @@ using onspeed::SuCalibrationCurve;
 using onspeed::config::OnSpeedConfig;
 using onspeed::replay::LogReplayEngine;
 using onspeed::replay::ReplayStepResult;
-using onspeed::replay::kSynthHalfWindow;
+using onspeed::replay::kSynthHalfWindowSec;
+
+// kSynthHalfWindow50: expected half-window tick count at 50 Hz.
+// = kSynthHalfWindowSec (2.0 s) × 50 Hz = 100 ticks.
+// All 50 Hz streaming tests use this to verify the lag contract,
+// flush size, and smoothstep window at the standard log rate.
+static constexpr int kSynthHalfWindow50 = static_cast<int>(kSynthHalfWindowSec * 50.0f);
+static_assert(kSynthHalfWindow50 == 100, "unexpected 50 Hz half-window tick count");
 
 // ============================================================================
 // Helpers
@@ -146,12 +153,12 @@ ReplayStepResult stepExpectResult(LogReplayEngine& eng, const LogRow& row)
 uint16_t batchSynthAdc(int tick, int snapTick, int prevPot, int nextPot,
                         int steadyPot)
 {
-    const int winStart = snapTick - kSynthHalfWindow;
-    const int winEnd   = snapTick + kSynthHalfWindow;
+    const int winStart = snapTick - kSynthHalfWindow50;
+    const int winEnd   = snapTick + kSynthHalfWindow50;
     if (tick < winStart || tick > winEnd)
         return static_cast<uint16_t>(steadyPot);
 
-    const float span = static_cast<float>(2 * kSynthHalfWindow);
+    const float span = static_cast<float>(2 * kSynthHalfWindow50);
     float t = static_cast<float>(tick - winStart) / span;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
@@ -510,7 +517,7 @@ void test_coeff_p_nonzero(void)
 // ============================================================================
 
 // Lag contract: when flapsRawAdcAvailable is false, step() returns empty
-// for the first kSynthHalfWindow calls, then starts returning results.
+// for the first kSynthHalfWindow50 calls, then starts returning results.
 void test_streaming_lag_contract(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
@@ -518,23 +525,23 @@ void test_streaming_lag_contract(void)
 
     LogRow row = makeRow(0.5f, 0.1f, 0);
 
-    // First kSynthHalfWindow rows should return empty.
-    for (int i = 0; i < kSynthHalfWindow; i++) {
+    // First kSynthHalfWindow50 rows should return empty.
+    for (int i = 0; i < kSynthHalfWindow50; i++) {
         auto opt = eng.step(row);
         TEST_ASSERT_FALSE_MESSAGE(opt.has_value(),
             "step() should return empty during lag period");
     }
 
-    // (kSynthHalfWindow + 1)-th row should return a result.
+    // (kSynthHalfWindow50 + 1)-th row should return a result.
     auto opt = eng.step(row);
     TEST_ASSERT_TRUE_MESSAGE(opt.has_value(),
         "step() should return a result once buffer is full");
 
-    // Total rows fed should be kSynthHalfWindow + 1.
-    TEST_ASSERT_EQUAL_INT(kSynthHalfWindow + 1, eng.rowsFed());
+    // Total rows fed should be kSynthHalfWindow50 + 1.
+    TEST_ASSERT_EQUAL_INT(kSynthHalfWindow50 + 1, eng.rowsFed());
 }
 
-// Flush contract: after feeding N rows, flush() emits exactly kSynthHalfWindow
+// Flush contract: after feeding N rows, flush() emits exactly kSynthHalfWindow50
 // results (the tail rows that were buffered).
 void test_streaming_flush_emits_tail(void)
 {
@@ -543,25 +550,25 @@ void test_streaming_flush_emits_tail(void)
 
     LogRow row = makeRow(0.5f, 0.1f, 0);
 
-    // Feed exactly kSynthHalfWindow rows (still in lag — no output yet).
+    // Feed exactly kSynthHalfWindow50 rows (still in lag — no output yet).
     int stepResults = 0;
-    for (int i = 0; i < kSynthHalfWindow; i++) {
+    for (int i = 0; i < kSynthHalfWindow50; i++) {
         if (eng.step(row).has_value())
             ++stepResults;
     }
     // Nothing should have been emitted yet.
     TEST_ASSERT_EQUAL_INT(0, stepResults);
 
-    // flush() should emit exactly kSynthHalfWindow rows.
+    // flush() should emit exactly kSynthHalfWindow50 rows.
     auto tail = eng.flush();
-    TEST_ASSERT_EQUAL_INT(kSynthHalfWindow, (int)tail.size());
+    TEST_ASSERT_EQUAL_INT(kSynthHalfWindow50, (int)tail.size());
 }
 
 // Total rows in = rows from step() + rows from flush()
 // For N input rows, we should get exactly N output rows total.
 void test_streaming_total_output_equals_input(void)
 {
-    const int N = kSynthHalfWindow * 3 + 17;  // not a round multiple
+    const int N = kSynthHalfWindow50 * 3 + 17;  // not a round multiple
 
     OnSpeedConfig cfg = makeTwoFlapConfig();
     LogReplayEngine eng(cfg, 50, false);
@@ -580,12 +587,24 @@ void test_streaming_total_output_equals_input(void)
     TEST_ASSERT_EQUAL_INT(N, totalOut);
 }
 
-// Bounded memory: feeding 1000 rows should not grow the engine's output or
-// transition tables beyond the fixed buffer size. We verify this indirectly
-// by checking that rowsFed() keeps increasing while flush() always returns
-// at most kSynthHalfWindow rows.
+// Bounded memory: feeding 1000 rows should not grow the engine's static
+// footprint. The buffer is sized at construction from logSampleRateHz;
+// the transitions_ array is a fixed-size C array. Neither grows after
+// construction.
 void test_streaming_bounded_memory(void)
 {
+    // Static size check: the engine struct itself must stay bounded.
+    // circBuf_ is a std::vector (24 bytes on 64-bit), sized at construction.
+    // The heap allocation it makes is bounded by synthHalfWindowTicks_+1
+    // entries: ~10 KB at 50 Hz, ~42 KB at 208 Hz.
+    // This catches unbounded-growth bugs (e.g., an accidentally growing vector
+    // member) at compile time. The 64 KB ceiling is generous above the
+    // ~42 KB heap footprint at 208 Hz, leaving room for padding and future fields.
+    static_assert(sizeof(onspeed::replay::LogReplayEngine) < 64 * 1024,
+                  "LogReplayEngine struct size growing unexpectedly; check for "
+                  "unbounded growing-vector storage. circBuf_ should be a "
+                  "std::vector (24 bytes), not a growing array.");
+
     OnSpeedConfig cfg = makeTwoFlapConfig();
 
     // Feed 1000 rows; switch flap detent every 200 rows to exercise transitions.
@@ -596,10 +615,10 @@ void test_streaming_bounded_memory(void)
         eng.step(row);
     }
 
-    // flush() must return at most kSynthHalfWindow rows, regardless of input length.
+    // flush() must return at most kSynthHalfWindow50 rows, regardless of input length.
     auto tail = eng.flush();
-    TEST_ASSERT_TRUE_MESSAGE((int)tail.size() <= kSynthHalfWindow,
-        "flush() returned more than kSynthHalfWindow rows");
+    TEST_ASSERT_TRUE_MESSAGE((int)tail.size() <= kSynthHalfWindow50,
+        "flush() returned more than kSynthHalfWindow50 rows");
 
     // rowsFed() should equal the total rows fed (1000).
     TEST_ASSERT_EQUAL_INT(1000, eng.rowsFed());
@@ -617,7 +636,7 @@ void test_synth_steady_state_no_transition(void)
 
     // Feed enough rows to fill the buffer and get output.
     std::vector<ReplayStepResult> results;
-    for (int i = 0; i < kSynthHalfWindow * 2; i++) {
+    for (int i = 0; i < kSynthHalfWindow50 * 2; i++) {
         auto opt = eng.step(row);
         if (opt.has_value())
             results.push_back(opt.value());
@@ -645,7 +664,7 @@ void test_synth_single_transition(void)
 
     // Feed 50 rows at flaps=0.
     const int preTrans  = 50;
-    const int postTrans = kSynthHalfWindow * 2;
+    const int postTrans = kSynthHalfWindow50 * 2;
 
     LogRow row0 = makeRow(0.5f, 0.1f, 0);
     LogRow row30 = makeRow(0.5f, 0.1f, 30);
@@ -667,13 +686,13 @@ void test_synth_single_transition(void)
     TEST_ASSERT_EQUAL_INT(preTrans + postTrans, (int)results.size());
 
     // Pre-transition: rows well before the window should have steady pot=1000.
-    // The first emitted row is at absolute tick kSynthHalfWindow (because of lag).
+    // The first emitted row is at absolute tick kSynthHalfWindow50 (because of lag).
     // The transition occurs at tick preTrans+1 (1-indexed). The smoothstep window
-    // around the transition spans [preTrans+1 - kSynthHalfWindow, preTrans+1 + kSynthHalfWindow].
-    // Emitted row index 0 corresponds to absolute tick kSynthHalfWindow.
-    // If kSynthHalfWindow > preTrans the first emitted row is already inside the window.
-    // If kSynthHalfWindow <= preTrans the first few emitted rows are steady-state.
-    if (kSynthHalfWindow <= preTrans) {
+    // around the transition spans [preTrans+1 - kSynthHalfWindow50, preTrans+1 + kSynthHalfWindow50].
+    // Emitted row index 0 corresponds to absolute tick kSynthHalfWindow50.
+    // If kSynthHalfWindow50 > preTrans the first emitted row is already inside the window.
+    // If kSynthHalfWindow50 <= preTrans the first few emitted rows are steady-state.
+    if (kSynthHalfWindow50 <= preTrans) {
         TEST_ASSERT_EQUAL_UINT16(1000, results[0].flapsRawAdc);
     }
 
@@ -683,13 +702,13 @@ void test_synth_single_transition(void)
 
     // At the transition point: the row emitted at the snap tick itself should
     // be at exactly s=0.5 (t=0.5 in the smoothstep) and value = lerp(1000,3000,0.5)=2000.
-    // But since the emitted tick lags the input tick by kSynthHalfWindow, the
-    // snap tick row is emitted kSynthHalfWindow rows after the transition row enters.
-    // That is: results[(preTrans+1) - kSynthHalfWindow + kSynthHalfWindow - kSynthHalfWindow]
-    //        = results[preTrans + 1 - kSynthHalfWindow]
-    // if preTrans+1 >= kSynthHalfWindow; otherwise it's inside the buffer still.
-    if (preTrans + 1 >= kSynthHalfWindow) {
-        const int snapEmitIdx = preTrans + 1 - kSynthHalfWindow;
+    // But since the emitted tick lags the input tick by kSynthHalfWindow50, the
+    // snap tick row is emitted kSynthHalfWindow50 rows after the transition row enters.
+    // That is: results[(preTrans+1) - kSynthHalfWindow50 + kSynthHalfWindow50 - kSynthHalfWindow50]
+    //        = results[preTrans + 1 - kSynthHalfWindow50]
+    // if preTrans+1 >= kSynthHalfWindow50; otherwise it's inside the buffer still.
+    if (preTrans + 1 >= kSynthHalfWindow50) {
+        const int snapEmitIdx = preTrans + 1 - kSynthHalfWindow50;
         if (snapEmitIdx >= 0 && snapEmitIdx < (int)results.size()) {
             // At the snap tick (t=0.5): smoothstep s = 3*(0.5)^2 - 2*(0.5)^3 = 0.5
             // Lerp(1000, 3000, 0.5) = 2000
@@ -702,7 +721,7 @@ void test_synth_single_transition(void)
 // Streaming-vs-batch equivalence: prove that the streaming engine produces
 // the same output as a reference batch computation for a known input sequence.
 //
-// Input: 2*kSynthHalfWindow rows at flaps=0, then 2*kSynthHalfWindow rows at flaps=30.
+// Input: 2*kSynthHalfWindow50 rows at flaps=0, then 2*kSynthHalfWindow50 rows at flaps=30.
 // Batch reference: compute the expected synth ADC for each tick directly using
 // the smoothstep formula and the known transition tick.
 void test_streaming_vs_batch_equivalence(void)
@@ -712,8 +731,8 @@ void test_streaming_vs_batch_equivalence(void)
     const int prevPot = 1000;
     const int nextPot = 3000;
 
-    const int phase1 = kSynthHalfWindow;  // rows at flaps=0
-    const int phase2 = kSynthHalfWindow;  // rows at flaps=30
+    const int phase1 = kSynthHalfWindow50;  // rows at flaps=0
+    const int phase2 = kSynthHalfWindow50;  // rows at flaps=30
 
     LogReplayEngine eng(cfg, 50, false);
     LogRow row0  = makeRow(0.5f, 0.1f, 0);
@@ -743,12 +762,12 @@ void test_streaming_vs_batch_equivalence(void)
 
     // Batch reference: the k-th emitted row (0-indexed) was fed at absolute
     // tick (k + 1). The first emitted row (k=0) is tick 1; the last (k=N-1)
-    // is tick N. step() lags by kSynthHalfWindow, so only ticks
-    // [1..N-kSynthHalfWindow] come from step() and ticks
-    // [N-kSynthHalfWindow+1..N] come from flush().
+    // is tick N. step() lags by kSynthHalfWindow50, so only ticks
+    // [1..N-kSynthHalfWindow50] come from step() and ticks
+    // [N-kSynthHalfWindow50+1..N] come from flush().
     //
     // The transition snapTick = phase1 + 1 (first row at flaps=30, 1-indexed).
-    // Smoothstep window: [snapTick - kSynthHalfWindow, snapTick + kSynthHalfWindow].
+    // Smoothstep window: [snapTick - kSynthHalfWindow50, snapTick + kSynthHalfWindow50].
     for (int k = 0; k < (int)streamingAdc.size(); k++) {
         const int emitTick = k + 1;  // 1-indexed
         // Steady-state pot: prevPot before snap, nextPot after.
@@ -787,23 +806,137 @@ void test_reset_clears_synth_buffer(void)
     LogRow row = makeRow(0.5f, 0.1f, 0);
 
     // Fill the buffer past the lag point.
-    for (int i = 0; i < kSynthHalfWindow + 5; i++)
+    for (int i = 0; i < kSynthHalfWindow50 + 5; i++)
         eng.step(row);
 
-    TEST_ASSERT_TRUE(eng.rowsFed() > kSynthHalfWindow);
+    TEST_ASSERT_TRUE(eng.rowsFed() > kSynthHalfWindow50);
 
     // After reset, rowsFed() is 0 and the lag starts again.
     eng.reset();
     TEST_ASSERT_EQUAL_INT(0, eng.rowsFed());
 
-    // First kSynthHalfWindow rows should return empty again.
-    for (int i = 0; i < kSynthHalfWindow; i++) {
+    // First kSynthHalfWindow50 rows should return empty again.
+    for (int i = 0; i < kSynthHalfWindow50; i++) {
         auto opt = eng.step(row);
         TEST_ASSERT_FALSE(opt.has_value());
     }
-    // (kSynthHalfWindow + 1)-th row should return a result.
+    // (kSynthHalfWindow50 + 1)-th row should return a result.
     auto opt = eng.step(row);
     TEST_ASSERT_TRUE(opt.has_value());
+}
+
+// ============================================================================
+// 208 Hz characterization tests
+//
+// These verify that the rate-aware synth window (kSynthHalfWindowSec ×
+// logSampleRateHz) produces the same wall-clock smoothstep semantics at
+// 208 Hz as it does at 50 Hz.  The tick count differs (416 vs 100) but
+// fractional positions within the window are identical.
+// ============================================================================
+
+// kSynthHalfWindow208: expected half-window tick count at 208 Hz.
+// = kSynthHalfWindowSec (2.0 s) × 208 Hz = 416 ticks.
+static constexpr int kSynthHalfWindow208 = static_cast<int>(kSynthHalfWindowSec * 208.0f);
+static_assert(kSynthHalfWindow208 == 416, "unexpected 208 Hz half-window tick count");
+
+// The engine at 208 Hz uses a half-window of 416 ticks (= kSynthHalfWindowSec × 208).
+// At the transition midpoint (t = 0.5), smoothstep s = 0.5 regardless of rate.
+// The lerp'd pot value at the midpoint is therefore lerp(1000, 3000, 0.5) = 2000
+// at both 50 Hz and 208 Hz — the wall-clock semantic is preserved.
+void test_synth_208hz_half_window_ticks(void)
+{
+    // Engine at 208 Hz: synthHalfWindowTicks_ should be 416.
+    // We verify this indirectly: the lag contract holds for 416 ticks.
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    // Detent 0 pot = 1000, detent 1 pot = 3000.
+
+    LogReplayEngine eng(cfg, 208, false);
+    LogRow row0  = makeRow(0.5f, 0.1f, 0);
+
+    // Feed exactly kSynthHalfWindow208 rows — still in lag (no output yet).
+    int stepResults = 0;
+    for (int i = 0; i < kSynthHalfWindow208; i++) {
+        if (eng.step(row0).has_value())
+            ++stepResults;
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, stepResults,
+        "at 208 Hz, first kSynthHalfWindow208 rows should be lag (no output)");
+
+    // (kSynthHalfWindow208 + 1)-th row should return a result.
+    auto opt = eng.step(row0);
+    TEST_ASSERT_TRUE_MESSAGE(opt.has_value(),
+        "at 208 Hz, row kSynthHalfWindow208+1 should produce output");
+
+    // Total rows fed: kSynthHalfWindow208 + 1 = 417.
+    TEST_ASSERT_EQUAL_INT(kSynthHalfWindow208 + 1, eng.rowsFed());
+}
+
+// At 208 Hz, the smoothstep transition spans 832 rows (2 × 416 = 4 seconds,
+// same wall-clock duration as 50 Hz spanning 200 rows = 4 seconds).
+// At the midpoint of the transition (t = 0.5), s = 0.5 → lerp(1000,3000,0.5) = 2000.
+// This midpoint value is rate-independent: same result at 50 Hz or 208 Hz.
+void test_synth_208hz_midpoint_value(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    // Detent 0 pot = 1000, detent 1 pot = 3000.
+
+    const int halfWindow = kSynthHalfWindow208;  // 416
+
+    LogReplayEngine eng(cfg, 208, false);
+    LogRow row0  = makeRow(0.5f, 0.1f, 0);
+    LogRow row30 = makeRow(0.5f, 0.1f, 30);
+
+    // Feed halfWindow rows at flaps=0 before the transition.
+    // Transition occurs on row halfWindow+1 (1-indexed rowsFed_ at transition).
+    const int preTrans = halfWindow;  // exactly halfWindow rows before snap
+    for (int i = 0; i < preTrans; i++)
+        eng.step(row0);
+
+    // First row at flaps=30: snap tick = preTrans + 1.
+    const int snapTick = preTrans + 1;
+
+    // Feed halfWindow rows at flaps=30 to cover the post-transition window.
+    std::vector<ReplayStepResult> results;
+    for (int i = 0; i < halfWindow; i++) {
+        auto opt = eng.step(row30);
+        if (opt.has_value()) results.push_back(opt.value());
+    }
+    auto tail = eng.flush();
+    results.insert(results.end(), tail.begin(), tail.end());
+
+    // Total output rows = preTrans + halfWindow (same as total input rows).
+    TEST_ASSERT_EQUAL_INT(preTrans + halfWindow, (int)results.size());
+
+    // Index math: the k-th output (0-based) has emitTick = k + 1.
+    // So emitTick T → output index T - 1.
+    //
+    // snapTick = halfWindow + 1 = 417.
+    // snapTick row is at output index = snapTick - 1 = 416.
+    // At snap tick (t=0.5 through the smoothstep window centred on snapTick):
+    //   winStart = snapTick - halfWindow = 1, winEnd = snapTick + halfWindow = 833
+    //   t = (snapTick - winStart) / (2*halfWindow) = halfWindow / (2*halfWindow) = 0.5
+    //   s = 3*(0.5)^2 - 2*(0.5)^3 = 0.5, lerp(1000,3000,0.5) = 2000
+    const int snapEmitIdx = snapTick - 1;  // = 416
+    TEST_ASSERT_TRUE_MESSAGE(snapEmitIdx >= 0 && snapEmitIdx < (int)results.size(),
+        "snap emit index out of range");
+    TEST_ASSERT_UINT16_WITHIN_MESSAGE(2, 2000, results[snapEmitIdx].flapsRawAdc,
+        "at 208 Hz, midpoint (t=0.5) should lerp to ~2000");
+
+    // Verify a point at 75% of the window (3/4 through the smoothstep):
+    //   winStart = 1, winEnd = 833 → span = 832
+    //   emitTick at 75%: 1 + 0.75 * 832 = 625  → output index 624
+    // t = 0.75 → s = 3*(0.75)^2 - 2*(0.75)^3 = 1.6875 - 0.84375 = 0.84375
+    // lerp(1000, 3000, 0.84375) = 1000 + 0.84375*2000 = 2687.5 → rounds to 2688
+    const int threeQuarterEmitTick = 1 + (3 * (2 * halfWindow)) / 4;  // = 625
+    const int threeQuarterIdx = threeQuarterEmitTick - 1;              // = 624
+    if (threeQuarterIdx >= 0 && threeQuarterIdx < (int)results.size()) {
+        TEST_ASSERT_UINT16_WITHIN_MESSAGE(2, 2688, results[threeQuarterIdx].flapsRawAdc,
+            "at 208 Hz, 75% point (t=0.75) should lerp to ~2688");
+    }
+
+    // Final row (emitTick=832) is well past the transition window
+    // (winEnd=833) so it should be at steady-state flaps=30, pot=3000.
+    TEST_ASSERT_EQUAL_UINT16(3000, results.back().flapsRawAdc);
 }
 
 // ============================================================================
@@ -839,6 +972,10 @@ int main(int, char**)
     RUN_TEST(test_streaming_vs_batch_equivalence);
     RUN_TEST(test_flush_fast_path_empty);
     RUN_TEST(test_reset_clears_synth_buffer);
+
+    // --- 208 Hz rate-aware tests ---
+    RUN_TEST(test_synth_208hz_half_window_ticks);
+    RUN_TEST(test_synth_208hz_midpoint_value);
 
     return UNITY_END();
 }

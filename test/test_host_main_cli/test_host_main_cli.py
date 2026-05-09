@@ -420,22 +420,76 @@ def test_replay_unknown_format_exits_nonzero():
     assert r.returncode != 0
 
 
-def test_replay_rejects_config_flag(tmp_path):
-    """--config is reserved for Step 2; must error rather than silently ignore."""
-    if not SHORT_REPLAY.exists():
-        pytest.skip(f"short_replay.csv not found: {SHORT_REPLAY}")
-    cfg = tmp_path / "x.cfg"
-    cfg.write_text("<CONFIG2></CONFIG2>")
+SYNTH_ADC_INPUT  = REPO_ROOT / "tools" / "regression" / "fixtures" / "synth_adc_input.csv"
+SYNTH_ADC_CONFIG = REPO_ROOT / "tools" / "regression" / "fixtures" / "synth_adc_config.cfg"
+
+
+def test_replay_accepts_config(tmp_path):
+    """`--config X.cfg` loads and uses the config (PR #466 deferral lifted).
+
+    Synth flap-pot output uses the per-detent pot values from the config
+    (1000 for flaps=0, 3000 for flaps=30) rather than LoadDefaults() zeros.
+    The input log has no flapsRawADC column, so the engine synthesises ADC
+    values via the streaming smoothstep path.
+
+    Contract pinned here:
+      - Command exits 0.
+      - Output rows contain non-zero flap_raw_adc values (proves the config
+        pot positions were loaded: defaults would be 0 for the second detent).
+      - flap_raw_adc values are not all identical across the transition
+        (proves the smoothstep is actually running).
+      - Steady-state rows at the end (well past the transition window) have
+        flap_raw_adc == 3000 (the flaps=30 nominal pot from the config).
+    """
+    if not SYNTH_ADC_INPUT.exists():
+        pytest.skip(f"synth_adc_input.csv not found: {SYNTH_ADC_INPUT}")
+    if not SYNTH_ADC_CONFIG.exists():
+        pytest.skip(f"synth_adc_config.cfg not found: {SYNTH_ADC_CONFIG}")
+
     r = run([
         "replay",
-        "--input", str(SHORT_REPLAY),
-        "--config", str(cfg),
+        "--input",  str(SYNTH_ADC_INPUT),
+        "--config", str(SYNTH_ADC_CONFIG),
     ])
-    assert r.returncode != 0, (
-        "replay --config should exit non-zero (reserved for Step 2)"
+    assert r.returncode == 0, (
+        f"replay --config should succeed; got rc={r.returncode}, "
+        f"stderr={r.stderr!r}"
     )
-    assert "Step 2" in r.stderr or "reserved" in r.stderr.lower(), (
-        f"expected 'Step 2' or 'reserved' in stderr, got: {r.stderr!r}"
+
+    lines = r.stdout.strip().splitlines()
+    assert len(lines) >= 2, "expected header + at least one data row"
+    header = lines[0].split(",")
+    adc_col = header.index("flaps_raw_adc")
+    adc_present_col = header.index("flaps_raw_adc_present")
+    flaps_pos_col = header.index("flaps_pos")
+
+    rows = [l.split(",") for l in lines[1:]]
+
+    # All rows should have flaps_raw_adc_present == 1 (synth path sets this).
+    for row in rows:
+        assert row[adc_present_col] == "1", (
+            f"expected flaps_raw_adc_present=1, got {row[adc_present_col]!r}"
+        )
+
+    # At least some rows should be non-zero (config pot=1000 for flaps=0).
+    adc_values = [int(row[adc_col]) for row in rows]
+    assert any(v > 0 for v in adc_values), (
+        "all flap_raw_adc values are 0 — config pot positions were not loaded"
+    )
+
+    # Values should vary across the detent transition (smoothstep is running).
+    assert len(set(adc_values)) > 1, (
+        "all flap_raw_adc values are identical — smoothstep transition not applied"
+    )
+
+    # Steady-state at the end (flaps=30 rows well past the transition window):
+    # the last row should be at the flaps=30 nominal pot = 3000.
+    assert rows[-1][flaps_pos_col] == "30", (
+        f"expected last row flaps_pos=30, got {rows[-1][flaps_pos_col]!r}"
+    )
+    last_adc = int(rows[-1][adc_col])
+    assert last_adc == 3000, (
+        f"expected steady-state flap_raw_adc=3000 at end, got {last_adc}"
     )
 
 

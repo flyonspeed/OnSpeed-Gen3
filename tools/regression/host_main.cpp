@@ -13,13 +13,15 @@
 //     stdin (default).  Output schema: see kAhrsToneOutputHeader (13 fields).
 //
 //   replay  [--input PATH] [--output-format csv|jsonl] [--log-rate 50|208]
+//              [--config PATH]
 //     Stream an OnSpeed SD log CSV through the LogReplayEngine pipeline.
 //     `--input -` reads stdin (default).  Input must be the real SD log
 //     format (timeStamp,Pfwd,PfwdSmoothed,...) — not the simplified AHRS
 //     fixture format.  BuildHeaderIndex maps columns by name so logs from
-//     different firmware versions are accepted.  --config is reserved for
-//     Step 2 (per PLAN_PYTHON_CONSOLIDATION.md) and is an error if passed
-//     now.  Output schema: see kReplayEngineOutputHeader (23 fields).
+//     different firmware versions are accepted.  --config loads a V1 or V2
+//     OnSpeed config file for synth flap-pot values and AOA curve; without
+//     it, LoadDefaults() is used (single uncalibrated detent, pot=0).
+//     Output schema: see kReplayEngineOutputHeader (23 fields).
 //     --log-rate {50|208}: log sample rate in Hz (default 50); rejected if
 //     any other value is supplied.
 //
@@ -516,8 +518,10 @@ int CmdAhrsTone(int argc, const char* const* argv)
 // smoothed (Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md).
 // Column order is fixed here and in the golden fixture.
 //
-// --config is reserved for Step 2 (per PLAN_PYTHON_CONSOLIDATION.md).
-// Passing it is an error — refused explicitly rather than silently ignored.
+// --config: optional path to a V1 or V2 OnSpeed config file. When supplied,
+// the engine uses the config's flap pot positions for synth ADC generation and
+// the AOA calibration curves for each detent. Without it, LoadDefaults() is
+// used (a single uncalibrated detent, pot=0).
 //
 // Sample rate: read from the log header if `iLogRate` is present; otherwise
 // defaults to 50 Hz (the firmware default for pre-version-2 logs).  Stored
@@ -636,11 +640,9 @@ int CmdReplay(int argc, const char* const* argv)
 
     // --config: optional path to a V1 or V2 OnSpeed config file.
     // When supplied, the engine uses the config's flap pot positions for
-    // synth ADC generation. Without --config, LoadDefaults() is used (a
-    // single uncalibrated detent, pot=0). Per-flap threshold wiring
-    // (AOA setpoints -> ReplayStepResult) is deferred to Step 2 per
-    // PLAN_PYTHON_CONSOLIDATION.md, but pot positions are consumed now
-    // by the streaming synth path (PR 3 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md).
+    // synth ADC generation and the AOA calibration curves for each detent.
+    // Without --config, LoadDefaults() is used (a single uncalibrated
+    // detent, pot=0).
     const char* config_path = ArgGet(argc, argv, "--config");
 
     const char* fmt_str = ArgGet(argc, argv, "--output-format", "csv");
@@ -690,8 +692,8 @@ int CmdReplay(int argc, const char* const* argv)
 
     // Log sample rate: supplied via --log-rate {50|208} (default 50 Hz).
     // 50 Hz is the firmware default; 208 Hz logs are produced when iLogRate
-    // is set to 208 in the config.  The engine stores this for PRs 2/3
-    // (rate-correct EMA, synth ADC) but does not yet use it to correct EMA.
+    // is set to 208 in the config.  The engine uses this to compute the
+    // rate-aware synth lookahead window (kSynthHalfWindowSec × rate).
     // A dedicated log-rate column in the log header would let this be auto-
     // detected; until that lands, the caller must supply --log-rate for 208 Hz
     // logs.
@@ -713,8 +715,7 @@ int CmdReplay(int argc, const char* const* argv)
     // Build engine config. When --config is supplied, load the V1 or V2
     // config file; otherwise use LoadDefaults() (a single uncalibrated
     // detent with pot=0). The config is used for pot positions (synth ADC)
-    // and AOA curve evaluation. Per-flap threshold wiring to ReplayStepResult
-    // output columns is deferred to Step 2 per PLAN_PYTHON_CONSOLIDATION.md.
+    // and AOA curve evaluation.
     onspeed::config::OnSpeedConfig cfg;
     if (config_path != nullptr) {
         if (!LoadConfig(config_path, cfg)) return 1;
@@ -757,7 +758,7 @@ int CmdReplay(int argc, const char* const* argv)
             engine.step(row);
 
         // When flapsRawADC is absent from the log, step() returns empty for
-        // the first kSynthHalfWindow rows (the streaming synth lag). Skip
+        // the first synthHalfWindowTicks_ rows (the streaming synth lag). Skip
         // emission during the lag period; the rows are buffered internally
         // and will be emitted by flush() below (or as later step() calls
         // fill the window).
@@ -775,8 +776,8 @@ int CmdReplay(int argc, const char* const* argv)
     }
 
     // Drain the streaming synth buffer. For old logs (without flapsRawADC),
-    // step() lags output by kSynthHalfWindow rows; the tail rows accumulate
-    // in the engine's circular buffer until flush() is called here.
+    // step() lags output by synthHalfWindowTicks_ rows; the tail rows
+    // accumulate in the engine's circular buffer until flush() is called here.
     // For logs that carry flapsRawADC, flush() returns an empty vector.
     for (const onspeed::replay::ReplayStepResult& r : engine.flush()) {
         if (fmt == OutputFormat::Csv) {
