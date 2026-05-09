@@ -34,6 +34,12 @@
 // them in that namespace so the linker resolves the mangled
 // `_ZN4lgfx2v16millisEv`-style symbols already exported by M5GFX's SDL
 // panel backend.
+//
+// Replay target (REPLAY_TARGET defined): the SDL panel is not linked, so
+// `lgfx::millis()` / `micros()` are provided by ReplayMain.cpp and read
+// from `g_replay_millis_us` — a virtual clock JS sets between ticks.
+// Mechanism is identical (forward into lgfx::v1); only the symbol's
+// definition differs.
 // -----------------------------------------------------------------------
 
 namespace lgfx { inline namespace v1
