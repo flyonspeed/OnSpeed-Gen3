@@ -94,8 +94,7 @@ export function FormatPage() {
           <p style=${{ color: 'red' }}>
             SD card format ERROR: ${error || 'unknown failure'}
           </p>
-          <p>Power-cycle the box and try again. If the problem persists, pop the
-             SD card and check it on a computer (or replace it).</p>
+          <p>Power-cycle the box and try again.</p>
           <p><a href="/">Home</a></p>`}
       </div>
     <//>`;

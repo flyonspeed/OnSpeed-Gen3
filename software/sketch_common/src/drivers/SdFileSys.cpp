@@ -119,7 +119,7 @@ bool SdFileSys::FileList(SuFileInfoList * psuFileInfoList)
 
 // Return an array of info about files on the SD disk
 
-bool SdFileSys::Format(Print * pStatusOut, bool bErase, float * pSizeGb)
+bool SdFileSys::Format(Print * pStatusOut, float * pSizeGb)
     {
     uint32_t        uCardSectorCount;
     uint8_t         auSectorBuffer[512];
@@ -165,22 +165,8 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase, float * pSizeGb)
     //    pStatusOut->println(" GBytes");
     //    }
 
-    // Pre-erase is intentionally a no-op. The puSD_Card->erase() loop
-    // (256K-block chunks, no vTaskDelay/watchdog feed) takes multiple
-    // minutes on a 64 GB card at SPI@10MHz — long enough for a
-    // task-watchdog or brownout reset to interrupt the format and leave
-    // the FS half-zeroed. The exFAT formatter writes its own boot sector,
-    // FAT, and root cluster regardless of whether the underlying flash was
-    // pre-erased; pre-erase is a TRIM hint, not a correctness requirement.
-    // bErase is kept for callers that might pass it explicitly, but the
-    // body does nothing.
-    if (bErase)
-        {
-        g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
-            "Format: pre-erase requested but skipped (no-op; see SdFileSys::Format).");
-        if (pStatusOut != nullptr)
-            pStatusOut->println("Note: pre-erase requested but skipped (see SdFileSys::Format).");
-        }
+    // The exFAT formatter writes its own boot sector, FAT, and root
+    // cluster from scratch, so no pre-erase is needed.
 
     // Format the card
     // Format exFAT if larger than 32GB.

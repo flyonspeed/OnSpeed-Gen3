@@ -213,7 +213,7 @@ void RunFormatInline(FormatJob& job) {
         if (bOrigSdLogging)
             g_LogSensor.Close();
 
-        ok = g_SdFileSys.Format(nullptr, /*bErase=*/false, &cardSizeGb);
+        ok = g_SdFileSys.Format(nullptr, &cardSizeGb);
 
         if (bOrigSdLogging) {
             g_Config.bSdLogging = true;
@@ -708,7 +708,7 @@ void HandleApiFormatStatus() {
         body += F(",\"cardSizeGb\":");
         body += szSize;
         if (!configSaved_local) {
-            body += F(",\"warning\":\"config not saved (visit configuration page to retry)\"");
+            body += F(",\"warning\":\"SD copy of configuration was not re-saved. Visit the configuration page to write it.\"");
         }
     }
     if (state == FormatState::Failed && err[0]) {
