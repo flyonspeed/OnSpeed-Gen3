@@ -138,16 +138,21 @@ const ModeNav = ({ current, onChange }) => html`
               onClick=${() => onChange(m.id)}>${m.label}</button>`)}
   </nav>`;
 
-// Two thresholds, intentionally separate. They start equal at 3 s but the
-// design rationale differs: the overlay can react quickly to any wire gap
-// (issue #464 item 1 plans to drop it toward ~300 ms to match the M5's
-// 300 ms NO-DATA overlay), but the G-history sampler should only freeze on
-// a genuine multi-second outage so the strip chart doesn't stutter on
-// brief WiFi micro-gaps. Lowering one is not an automatic reason to lower
-// the other — name the decision points so #464 item 1's implementer sees
-// them as separate calls.
-const STALENESS_THRESHOLD_SEC    = 3;  // StaleOverlay (covers the page when stale)
-const G_HISTORY_STALENESS_SEC    = 3;  // useGHistory sampler gate
+// Two thresholds, intentionally separate.
+//
+// STALENESS_THRESHOLD_SEC drives the StaleOverlay (red-X NO DATA cover).
+// Lowered to 0.3 s to match the M5 firmware's NO-DATA overlay at exactly
+// 300 ms (software/OnSpeed-M5-Display/src/SerialRead.cpp::kSerialDataFreshThresholdMs).
+// A pilot with a tablet next to the M5 in the panel sees the same "data dead"
+// warning at the same moment on both surfaces.  The age-timer text turns red
+// at >= 1 s as a softer "you might be losing data" tell that shows under the
+// overlay (see lines 116, 128 — kept at 1 s, not lowered).
+//
+// G_HISTORY_STALENESS_SEC stays at 3 s.  The G-history strip chart should
+// only freeze on a genuine multi-second outage; a 300 ms gate would stutter
+// the chart on every brief WiFi micro-gap.  See PR #478.
+const STALENESS_THRESHOLD_SEC    = 0.3;  // StaleOverlay (matches M5 NO-DATA)
+const G_HISTORY_STALENESS_SEC    = 3;    // useGHistory sampler gate
 
 // Decel-rate EMA — kept in a useRef so it accumulates across renders
 // and across mode switches (the user can flip away from Mode 3 and
