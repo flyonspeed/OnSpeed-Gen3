@@ -173,14 +173,19 @@ public:
 // switches, well below human perceptual threshold for press latency.
 class HuvverButton {
 private:
-    static constexpr uint32_t kDebounceMs = 50;
+    static constexpr uint32_t kDebounceMs  = 50;
+    static constexpr uint32_t kHoldMs      = 600;
 
     int      pin_;
-    bool     stable_         = false;  // committed (debounced) state
-    bool     prevStable_     = false;  // stable_ from previous poll, for wasPressed()
-    bool     candidate_      = false;  // current raw reading awaiting confirmation
-    uint32_t candidateSince_ = 0;      // millis() when candidate_ first read
-    uint32_t stableSince_    = 0;      // millis() when stable_ last transitioned, for pressedFor()
+    bool     stable_         = false;
+    bool     prevStable_     = false;
+    bool     candidate_      = false;
+    uint32_t candidateSince_ = 0;
+    uint32_t stableSince_    = 0;
+    // Per-gesture state for wasHold() / wasClicked():
+    bool     holdFired_      = false;  // wasHold() already returned true this gesture
+    bool     everHeld_       = false;  // gesture has crossed the hold threshold
+    bool     wasClickedFlag_ = false;  // latched on release-after-short-press; cleared by poll()
 
 public:
     explicit HuvverButton(int pin) : pin_(pin) {}
@@ -195,7 +200,8 @@ public:
     void poll() {
         const uint32_t now = millis();
 
-        prevStable_ = stable_;
+        prevStable_     = stable_;
+        wasClickedFlag_ = false;  // edge flags clear on each poll; latched again below if applicable
 
         // Active-low: GPIO LOW means button pressed.
         const bool reading = (digitalRead(pin_) == LOW);
@@ -208,13 +214,43 @@ public:
             // Candidate has held for the debounce window — commit.
             stable_      = reading;
             stableSince_ = now;
+            if (!stable_) {
+                // Falling edge of the press = release.
+                // Latch wasClicked() ONLY if the gesture was a short press
+                // (never crossed the hold threshold).
+                if (!everHeld_) wasClickedFlag_ = true;
+                // Clear per-gesture state for the next press.
+                holdFired_ = false;
+                everHeld_  = false;
+            }
         }
     }
 
     bool isPressed()  const { return stable_; }
+
+    // Press edge — true on exactly one poll after a press starts.
     bool wasPressed() const { return stable_ && !prevStable_; }
+
     bool pressedFor(uint32_t ms) const {
         return stable_ && (millis() - stableSince_) >= ms;
+    }
+
+    // Release after a short press (gesture < 600ms). Mutually exclusive with
+    // wasHold() on the same gesture. Latched by poll() and cleared by the
+    // next poll().
+    bool wasClicked() const { return wasClickedFlag_; }
+
+    // Edge-once: returns true exactly once when the press crosses kHoldMs.
+    // Subsequent polls during the same gesture return false. Mutating because
+    // it has to record that it fired — but the call site reads it like a
+    // method query, so we mark it mutable-via-mutable-fields.
+    bool wasHold() {
+        if (!stable_) return false;
+        if (holdFired_) return false;
+        if ((millis() - stableSince_) < kHoldMs) return false;
+        holdFired_ = true;
+        everHeld_  = true;  // suppress wasClicked() on this gesture's release
+        return true;
     }
 };
 
