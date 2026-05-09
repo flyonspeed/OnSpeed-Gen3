@@ -186,6 +186,8 @@ struct FormatJob {
     char         taskId[32]    = {};
     FormatState  state         = FormatState::Idle;
     char         error[64]     = {};
+    float        cardSizeGb    = 0.0f;   // populated from SdFileSys::Format()
+    bool         configSaved   = false;  // true iff post-format SaveConfigurationToFile() returned true
 };
 
 // Single in-flight job.  HandleApiFormat overwrites it on each new
@@ -200,8 +202,10 @@ void EnsureFormatMutex() {
 }
 
 void RunFormatInline(FormatJob& job) {
-    bool ok = false;
-    char err[64] = {};
+    bool  ok          = false;
+    bool  configSaved = false;
+    float cardSizeGb  = 0.0f;
+    char  err[64]     = {};
 
     if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000))) {
         bool bOrigSdLogging = g_Config.bSdLogging;
@@ -209,7 +213,7 @@ void RunFormatInline(FormatJob& job) {
         if (bOrigSdLogging)
             g_LogSensor.Close();
 
-        ok = g_SdFileSys.Format(nullptr);
+        ok = g_SdFileSys.Format(nullptr, /*bErase=*/false, &cardSizeGb);
 
         if (bOrigSdLogging) {
             g_Config.bSdLogging = true;
@@ -218,14 +222,20 @@ void RunFormatInline(FormatJob& job) {
 
         xSemaphoreGive(xWriteMutex);
 
-        // Put the configuration file back onto the card.  Mutex is
-        // taken inside SaveConfigurationToFile().
-        g_Config.SaveConfigurationToFile();
+        // Put the configuration file back onto the card. Mutex is taken
+        // inside SaveConfigurationToFile(). Capture the return so a
+        // silent failure is visible to the pilot — the spec covers why
+        // (Vac, 2026-05-08): post-format the config could be missing
+        // even when format itself reported success.
+        if (ok)
+            configSaved = g_Config.SaveConfigurationToFile();
     } else {
         std::snprintf(err, sizeof(err), "SD busy (xWriteMutex)");
     }
 
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+        job.cardSizeGb  = cardSizeGb;
+        job.configSaved = configSaved;
         if (ok) {
             job.state = FormatState::Done;
         } else {
