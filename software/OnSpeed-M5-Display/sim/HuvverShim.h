@@ -173,14 +173,20 @@ public:
 // switches, well below human perceptual threshold for press latency.
 class HuvverButton {
 private:
-    static constexpr uint32_t kDebounceMs = 50;
+    static constexpr uint32_t kDebounceMs  = 50;
+    static constexpr uint32_t kHoldMs      = 600;
 
     int      pin_;
-    bool     stable_         = false;  // committed (debounced) state
-    bool     prevStable_     = false;  // stable_ from previous poll, for wasPressed()
-    bool     candidate_      = false;  // current raw reading awaiting confirmation
-    uint32_t candidateSince_ = 0;      // millis() when candidate_ first read
-    uint32_t stableSince_    = 0;      // millis() when stable_ last transitioned, for pressedFor()
+    bool     stable_         = false;
+    bool     prevStable_     = false;
+    bool     candidate_      = false;
+    uint32_t candidateSince_ = 0;
+    uint32_t stableSince_    = 0;
+    // Per-gesture state for wasHold() / wasClicked():
+    bool     holdFired_          = false;  // gesture has crossed the hold threshold
+    bool     everHeld_           = false;  // suppress wasClicked() on this gesture's release
+    bool     wasClickedFlag_     = false;  // latched on release-after-short-press; cleared by poll()
+    bool     holdFiredThisPoll_  = false;  // latched the one poll where press first crosses kHoldMs
 
 public:
     explicit HuvverButton(int pin) : pin_(pin) {}
@@ -195,7 +201,9 @@ public:
     void poll() {
         const uint32_t now = millis();
 
-        prevStable_ = stable_;
+        prevStable_         = stable_;
+        wasClickedFlag_     = false;  // edge flags clear on each poll; latched again below if applicable
+        holdFiredThisPoll_  = false;
 
         // Active-low: GPIO LOW means button pressed.
         const bool reading = (digitalRead(pin_) == LOW);
@@ -208,14 +216,47 @@ public:
             // Candidate has held for the debounce window — commit.
             stable_      = reading;
             stableSince_ = now;
+            if (!stable_) {
+                // Falling edge of the press = release.
+                // Latch wasClicked() ONLY if the gesture was a short press
+                // (never crossed the hold threshold).
+                if (!everHeld_) wasClickedFlag_ = true;
+                // Clear per-gesture state for the next press.
+                holdFired_ = false;
+                everHeld_  = false;
+            }
+        }
+
+        // Detect the moment a press first crosses kHoldMs. Latches both the
+        // per-gesture flag (so wasClicked() is suppressed on the eventual
+        // release) and the per-poll edge (so wasHold() is true for exactly
+        // one poll cycle and idempotent within it).
+        if (stable_ && !holdFired_ && (now - stableSince_) >= kHoldMs) {
+            holdFired_         = true;
+            everHeld_          = true;
+            holdFiredThisPoll_ = true;
         }
     }
 
     bool isPressed()  const { return stable_; }
+
+    // Press edge — true on exactly one poll after a press starts.
     bool wasPressed() const { return stable_ && !prevStable_; }
+
     bool pressedFor(uint32_t ms) const {
         return stable_ && (millis() - stableSince_) >= ms;
     }
+
+    // Release after a short press (gesture < 600ms). Mutually exclusive with
+    // wasHold() on the same gesture. Latched by poll() and cleared by the
+    // next poll().
+    bool wasClicked() const { return wasClickedFlag_; }
+
+    // True on exactly one poll cycle — the cycle where a press first crosses
+    // kHoldMs. Idempotent: a second call in the same poll returns the same
+    // value. The per-poll latch is set and cleared inside poll(), so this
+    // method is a plain read with no side-effects.
+    bool wasHold() const { return holdFiredThisPoll_; }
 };
 
 // Mimics M5Unified's `M5_t::config_t` for `M5.config()` / `M5.begin(cfg)`.

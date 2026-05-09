@@ -219,10 +219,10 @@ Pin map (per HuvverShim.h, matching V.R. Little's `my_custom_setup.h`):
 
 | Role | Physical | GPIO | M5 alias |
 |---|---|---|---|
-| Menu (dim) | square, top-left | IO39 | `BtnA` |
-| Select (mode cycle) | round, top-right | IO36 | `BtnB` |
-| Forward (bright) | right triangle | IO34 | `BtnC` |
-| Back (unused) | left triangle | IO35 | `BtnD` |
+| Menu (long-hold to enter Settings) | square, top-left | IO39 | `BtnA` |
+| Select / mode cycle | round, top-right | IO36 | `BtnB` |
+| Brightness up | right triangle | IO34 | `BtnC` |
+| Brightness down | left triangle | IO35 | `BtnD` |
 
 The huVVer schematic mounts SW1–SW4 with internal-pull-up GPIOs, but
 3 of the 4 (39, 36, 34, 35) are ESP32 input-only pins where
@@ -248,3 +248,43 @@ issue first.**
 Use `tools/m5-replay/replay.py` at the repo root to stream SD-card CSV
 logs or scripted synthetic scenarios to the M5 via a USB-to-TTL dongle.
 No OnSpeed box required.
+
+## Settings menu
+
+The display has an in-flight settings menu reachable from live mode.
+Today the menu carries one setting: `Speed Units: KTS / MPH`.
+
+**Entry gesture:**
+- M5 Basic / Core2: hold BtnB (round/middle) for ≥600 ms.
+- huVVer-AVI: hold BtnA (☐ Menu, square top-left) for ≥600 ms.
+
+**Inside the menu:**
+- M5: BtnA = up, BtnC = down, BtnB = activate (or hold ≥600 ms to exit).
+- huVVer: ◀ (BtnD) = up, ▶ (BtnC) = down, ○ (BtnB) = activate, ☐ (BtnA) = back/exit.
+- 30-second idle timeout exits automatically.
+
+**File layout:**
+- `lib/MenuModel/MenuModel.{h,cpp}` — pure-logic state machine, no Arduino/M5GFX
+  deps. Unit-tested via `[env:m5-native-test]`.
+- `include/SettingsMenu.h` + `src/SettingsMenu.cpp` — platform glue. Render,
+  NVS read/write, per-target button polling. The static `MenuItem[]` array
+  lives in `SettingsMenu.cpp`.
+- `include/RenderConfig.h` — shared `XPLANE_PLUGIN_DEPTH` macro consumed
+  by both `main.cpp` and `SettingsMenu.cpp`.
+
+**Adding a setting:** extend `g_items[]` in `src/SettingsMenu.cpp`. For
+toggles, add a `bool` global, point the item at it, and check the
+`MenuModel::ActivateResult::kToggled` return in `pollMenuInput()` to
+persist it. The pure-logic state machine in `lib/MenuModel/`
+dispatches based on `ItemType`.
+
+**Persistence:** `Preferences` namespace `"OnSpeed"`, key `SpeedMph`.
+Default `false` (KTS) on a fresh device. Pilots flip via the menu and
+the choice persists across reboots.
+
+**X-Plane plugin:** the menu is gated behind `#ifndef XPLANE_PLUGIN_BUILD`
+in both `main.cpp` and the include path. The plugin sees no SettingsMenu
+symbols at preprocessing time — IAS displays in knots there (matches the
+X-Plane dataref source).
+
+**Tests:** `pio test -e m5-native-test --project-dir software/OnSpeed-M5-Display`.

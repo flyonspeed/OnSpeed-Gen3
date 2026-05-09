@@ -45,11 +45,6 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //#define SERIALDATADEBUG   // show serial packet debug
 //#define DUMMY_SERIAL_DATA // dummy serial data for display test
 
-// IAS_IN_MPH gates the IAS units readout (MPH default, knots if
-// undefined).  Tracked for runtime promotion in issue #419 — once that
-// lands, the `#define` goes away and pilots flip units at runtime.
-// Until then, comment out to rebuild with knots.
-#define IAS_IN_MPH
 
 #include <GaugeWidgets.h>
 #if defined(HUVVER)
@@ -74,6 +69,9 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 #include "SerialRead.h"
+#ifndef XPLANE_PLUGIN_BUILD
+#include "SettingsMenu.h"
+#endif
 #include <gauges/FlapWidgetMath.h>
 
 #include "../lib/assets/OnSpeedLogo.h"
@@ -92,13 +90,7 @@ bool        fwUpdateMode = false;
 #define TFT_GREY        0x7BEF
 #define TFT_LIGHT_GREY  0xAD55
 
-// Color depth for the off-screen sprite.  Defaults to 8bpp (palette
-// indexed) for the firmware builds where flash + RAM matter.  The
-// X-Plane plugin overrides to 16bpp via the build flag so its custom
-// Panel_FrameBufferBase subclass can read out RGB565 directly.
-#ifndef XPLANE_PLUGIN_DEPTH
-#define XPLANE_PLUGIN_DEPTH 8
-#endif
+#include "RenderConfig.h"
 
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;
@@ -303,6 +295,14 @@ void setup()
     //
     auto cfg = M5.config();
     M5.begin(cfg);
+#if !defined(HUVVER)
+    // Override M5Unified's default 500 ms hold threshold so the
+    // long-press-to-enter-menu gesture (#419) feels the same on M5 and
+    // huVVer (HuvverButton uses 600 ms intrinsically).
+    M5.BtnA.setHoldThresh(600);
+    M5.BtnB.setHoldThresh(600);
+    M5.BtnC.setHoldThresh(600);
+#endif
     M5.Display.fillScreen(BLACK);
     M5.Display.setBrightness(50);
     // Mute the speaker (annoying hiss) on M5Stack Basic, where GPIO 25 is
@@ -480,6 +480,10 @@ void setup()
     preferences.end();
     displayBrightness = constrain(displayBrightness, 1, 255);
     displayType       = constrain(displayType, 0, 4);
+
+#ifndef XPLANE_PLUGIN_BUILD
+    initSettingsMenu();   // reads SpeedMph from the same NVS namespace
+#endif
 #endif
 
 } // end setup()
@@ -521,18 +525,49 @@ void loop()
 
     SerialRead(); // get serial data
 
+    // ---- Settings menu gate (firmware-only path) ----
+    // The X-Plane plugin builds main.cpp without M5.begin() and without
+    // M5.update(); button state is uninitialized there, and the menu
+    // sources are intentionally not linked into the plugin. Gate the
+    // entire menu surface behind XPLANE_PLUGIN_BUILD so the plugin link
+    // sees no SettingsMenu symbols.
     //
-    // Change display brightness and display format using panel buttons.
-    //
-    // BtnC doubles brightness, BtnA halves it. constrain() below clamps to
-    // the [1, 255] range so no guards are needed on the actions themselves.
-    // Persist to NVS on each adjust so the pilot's chosen brightness
-    // survives power-cycles — same "OnSpeed" namespace the SerialPort
-    // detection uses (SerialRead.cpp).  M5Unified's NVS handles wear-
-    // leveling; button-press cadence is far below the rewrite limits.
+    // While the menu is up it owns the screen and consumes button
+    // events; skip live-mode handling for this iteration. SerialRead()
+    // above runs every iteration regardless so the UART RX FIFO keeps
+    // draining (1540 B/s into a 256 B FIFO; pausing it for the 30-second
+    // menu visit would overflow within ~200 ms).
+#ifndef XPLANE_PLUGIN_BUILD
+    if (isSettingsMenuActive())
+    {
+        tickSettingsMenu();
+        return;
+    }
+
+    // ---- Menu entry gesture ----
+    // M5: long-hold BtnB. huVVer: long-hold BtnA (☐ Menu key).
+    // wasHold() fires once at the moment the press passes ~600ms.
+#if defined(HUVVER)
+    if (M5.BtnA.wasHold()) { enterSettingsMenu(); return; }
+#else
+    if (M5.BtnB.wasHold()) { enterSettingsMenu(); return; }
+#endif
+#endif // XPLANE_PLUGIN_BUILD
+
+    // ---- Live-mode button handlers ----
+    // wasClicked() fires on release-after-short-press only; suppressed
+    // automatically when the press crossed the hold threshold (so the
+    // menu-entry hold above doesn't *also* cycle the mode here).
     const uint16_t prevBrightness = displayBrightness;
-    if (M5.BtnC.wasPressed()) displayBrightness *= 2;  // brightness up
-    if (M5.BtnA.wasPressed()) displayBrightness /= 2;  // brightness down
+#if defined(HUVVER)
+    // huVVer: ▶ (BtnC) doubles brightness; ◀ (BtnD) halves it.
+    if (M5.BtnC.wasClicked()) displayBrightness *= 2;
+    if (M5.BtnD.wasClicked()) displayBrightness /= 2;
+#else
+    // M5 Basic / Core2: BtnC doubles, BtnA halves.
+    if (M5.BtnC.wasClicked()) displayBrightness *= 2;
+    if (M5.BtnA.wasClicked()) displayBrightness /= 2;
+#endif
 
     displayBrightness = constrain(displayBrightness, 1, 255);
 
@@ -549,7 +584,7 @@ void loop()
     (void)prevBrightness;
 #endif
 
-    if (M5.BtnB.wasPressed())
+    if (M5.BtnB.wasClicked())
     {
         gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
         gdraw.createSprite(WIDTH, HEIGHT);
@@ -600,10 +635,10 @@ void loop()
         // update numbers at a slower rate so they are readable
         if (millis()-numbersUpdateTime>updateRateNumbers)
         {
-#ifdef IAS_IN_MPH
-            displayIAS         = IAS * 1.15078;
+#ifndef XPLANE_PLUGIN_BUILD
+            displayIAS         = g_speedInMph ? IAS * 1.15078f : IAS;
 #else
-            displayIAS         = IAS;
+            displayIAS         = IAS;   // X-Plane plugin: knots, matches dataref source
 #endif
             displayPalt        = Palt;
             displayPitch       = Pitch;

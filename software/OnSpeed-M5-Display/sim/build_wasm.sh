@@ -136,6 +136,8 @@ while IFS= read -r -d '' f; do ONSPEED_SOURCES+=("$f"); done < <(
 FW_SOURCES=(
     "${PROJECT_DIR}/src/main.cpp"
     "${PROJECT_DIR}/src/SerialRead.cpp"
+    "${PROJECT_DIR}/src/SettingsMenu.cpp"
+    "${PROJECT_DIR}/lib/MenuModel/MenuModel.cpp"
     "${PROJECT_DIR}/lib/GaugeWidgets/GaugeWidgets.cpp"
     "${SCRIPT_DIR}/SimMain.cpp"
     "${VERSION_DIR}/buildinfo.cpp"
@@ -145,6 +147,7 @@ INCLUDES=(
     -I"${PROJECT_DIR}/include"
     -I"${PROJECT_DIR}/src"
     -I"${PROJECT_DIR}/lib/GaugeWidgets"
+    -I"${PROJECT_DIR}/lib/MenuModel"
     -I"${M5U_DIR}/src"
     -I"${M5G_DIR}/src"
     -I"${ONSPEED_CORE_DIR}"

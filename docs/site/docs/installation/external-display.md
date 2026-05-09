@@ -66,7 +66,7 @@ buttons. Wiring, serial protocol, and mounting options are the same.
 | Button | Action |
 |--------|--------|
 | **Button A** (left) | Brightness down |
-| **Button B** (middle) | Cycle display mode (0 → 4, then wraps back to 0) |
+| **Button B** (middle) | Cycle display mode (short press) / open Settings menu (hold ~1 s) |
 | **Button C** (right) | Brightness up |
 
 On the Core2, these are capacitive touch zones below the screen (the
@@ -82,6 +82,34 @@ brightness and Mode 0 (Energy Display).
 If you hold **Button B during boot**, the M5 enters WiFi OTA update
 mode instead of running the display — for updating firmware without
 needing a USB cable.
+
+## Settings menu
+
+The display has a built-in settings menu for runtime preferences. The
+current setting is speed units (knots vs. miles per hour); more settings
+will appear in future firmware updates.
+
+### M5 Basic / Core2
+
+Hold the **middle button** for about a second during normal flight to
+open the menu. Use the **left** and **right** buttons to navigate the
+list, the **middle button** to change a value, and select **Exit** to
+return to flight mode. The menu closes automatically after 30 seconds
+of no input.
+
+### huVVer-AVI
+
+Hold the **square (☐) Menu button** for about a second to open the menu.
+Use **◀** and **▶** to navigate, the **round (○) Select button** to
+change a value, and the **square button** again to return to flight
+mode. The menu closes automatically after 30 seconds of no input.
+
+### Speed units
+
+Selecting **Speed Units** flips the IAS readout between knots (KTS) and
+miles per hour (MPH). The change takes effect immediately and persists
+across power cycles. A fresh display with no saved preference comes up
+on KTS.
 
 ## Display modes
 
