@@ -47,7 +47,7 @@ public:
 	bool Init();
     void Info();
     bool FileList(SuFileInfoList * psuFileInfoList);
-    bool Format(Print * pStatusOut = nullptr, bool bErase = false);
+    bool Format(Print * pStatusOut = nullptr, bool bErase = false, float * pSizeGb = nullptr);
 
     // Some convenience functions
     // Be sure these are wrapped in a semaphore before calling

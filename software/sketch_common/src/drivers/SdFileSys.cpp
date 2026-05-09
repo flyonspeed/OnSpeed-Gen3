@@ -119,7 +119,7 @@ bool SdFileSys::FileList(SuFileInfoList * psuFileInfoList)
 
 // Return an array of info about files on the SD disk
 
-bool SdFileSys::Format(Print * pStatusOut, bool bErase)
+bool SdFileSys::Format(Print * pStatusOut, bool bErase, float * pSizeGb)
     {
     uint32_t        uCardSectorCount;
     uint8_t         auSectorBuffer[512];
@@ -142,6 +142,12 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
 
     // SD card seems to be available
     uCardSectorCount = puSD_Card->sectorCount();
+
+    // If the caller wants the card size, give it to them now — even if
+    // the format itself fails later, the size we read from the card is
+    // still valid information.
+    if (pSizeGb != nullptr)
+        *pSizeGb = uCardSectorCount * 5.12e-7f;
 
     //if (pStatusOut != nullptr)
     //    {
