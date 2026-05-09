@@ -694,7 +694,75 @@ synthEngine.delete();
 console.log('OK: synth engine delete() completed without error');
 
 // ---------------------------------------------------------------------------
+// build_display_frame
+//
+// Encodes a `DisplayBuildInputs`-shaped JS object into the canonical 77-byte
+// v4.23 `#1` display-serial wire frame. The full integration test that pipes
+// these bytes into the M5 replay WASM lives in
+// software/OnSpeed-M5-Display/test/test_replay_wasm.js — that's where wire
+// drift between the firmware parser and the C++ frame builder gets caught.
+//
+// This smoke check guards a narrower contract: the binding compiles, returns
+// a Uint8Array of the documented length, with the documented magic bytes
+// at the start and the documented terminator at the end. A future change
+// that bumps frame size without bumping every consumer trips this assertion.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- build_display_frame ---');
+
+if (typeof Module.build_display_frame !== 'function') {
+    console.error('FAIL: Module.build_display_frame is not exported');
+    process.exit(1);
+}
+
+const frameBytes = Module.build_display_frame({
+    iasKt:              80,
+    iasValid:           true,
+    pitchDeg:           5.0,
+    rollDeg:            10.0,
+    paltFt:             3000,
+    lateralG:           0.04,
+    verticalG:          1.0,
+    percentLiftPct:     50.0,
+    vsiFpm:             400,
+    oatC:               20,
+    flightPathDeg:      3.0,
+    flapsDeg:           10,
+    tonesOnPctLift:     30,
+    onSpeedFastPctLift: 40,
+    onSpeedSlowPctLift: 50,
+    stallWarnPctLift:   80,
+    flapsMinDeg:        0,
+    flapsMaxDeg:        33,
+    gOnsetRate:         0.5,
+    spinRecoveryCue:    0,
+    dataMark:           7,
+    pipPctLift:         32,
+});
+
+if (!(frameBytes instanceof Uint8Array)) {
+    console.error(`FAIL: build_display_frame did not return Uint8Array (got ${frameBytes && frameBytes.constructor && frameBytes.constructor.name})`);
+    process.exit(1);
+}
+console.log(`OK: build_display_frame returned Uint8Array`);
+
+assertEqual('build_display_frame frame length', frameBytes.length, 77);
+
+// v4.23 frame magic: ASCII '#' (0x23) then '1' (0x31). The protocol
+// version sits in byte 1; bumping the wire contract means this byte
+// changes, and every consumer breaks at once — that's the desired
+// failure mode and what this assertion pins.
+assertEqual("frame[0] == '#' (0x23)", frameBytes[0], 0x23);
+assertEqual("frame[1] == '1' (0x31)", frameBytes[1], 0x31);
+
+// CRLF terminator. SerialRead's parser keys frame completion off the LF;
+// a bytestream missing the terminator pair would never complete a frame
+// and the M5 would silently fall back to NO-DATA on the panel.
+assertEqual('frame[75] == CR (0x0D)', frameBytes[75], 0x0D);
+assertEqual('frame[76] == LF (0x0A)', frameBytes[76], 0x0A);
+
+// ---------------------------------------------------------------------------
 // Done
 // ---------------------------------------------------------------------------
 
-console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine)');
+console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine, build_display_frame)');
