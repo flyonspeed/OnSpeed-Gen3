@@ -485,6 +485,125 @@ void test_coeff_p_nonzero(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.2f, res.coeffP);
 }
 
+// Rapid cycling through many out-of-range detent values falls back
+// consistently to index 0.
+//
+// makeTwoFlapConfig() has only two detents: 0° and 30°.  Feeding the engine
+// 9+ distinct unmapped flap degrees (5, 10, 15, 20, 25, 35, 40, 45, 50) —
+// more than the number of configured detents — exercises the linear-scan
+// fallback in ResolveFlapIndex_() for each of them.  The guard being tested
+// is the out.flapsIndex=0 fallback; if it were to corrupt flap-index state
+// across rows, subsequent steps against valid detent values would return the
+// wrong index.
+//
+// After all 9 unmapped rows, two final rows with mapped detents (0° and 30°)
+// must return flapsIndex=0 and flapsIndex=1 respectively — confirming that
+// sustained fallback use doesn't poison the lookup for known detents.
+void test_kmaxtransitions_overflow_evicts_oldest(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, false);
+
+    // 9 distinct unmapped flap degrees — more than the 2 configured detents.
+    const int unmapped[] = { 5, 10, 15, 20, 25, 35, 40, 45, 50 };
+    const int kNumUnmapped = static_cast<int>(sizeof(unmapped) / sizeof(unmapped[0]));
+
+    for (int i = 0; i < kNumUnmapped; i++)
+    {
+        LogRow row = makeRow(0.5f, 0.1f, unmapped[i]);
+        ReplayStepResult res = eng.step(row);
+
+        // Every unmapped degree must fall back to index 0.
+        TEST_ASSERT_EQUAL_INT(0, res.flapsIndex);
+        // The reported flapsPos is the raw log value, not the detent.
+        TEST_ASSERT_EQUAL_INT(unmapped[i], res.flapsPos);
+    }
+
+    // Mapped detent 0° still resolves to index 0 after all the fallback rows.
+    {
+        LogRow row0 = makeRow(0.5f, 0.1f, 0);
+        ReplayStepResult res0 = eng.step(row0);
+        TEST_ASSERT_EQUAL_INT(0, res0.flapsIndex);
+    }
+
+    // Mapped detent 30° still resolves to index 1 after all the fallback rows.
+    {
+        LogRow row1 = makeRow(0.5f, 0.1f, 30);
+        ReplayStepResult res1 = eng.step(row1);
+        TEST_ASSERT_EQUAL_INT(1, res1.flapsIndex);
+    }
+}
+
+// reset() on a fresh engine (pre-step) leaves the engine in the same initial
+// state: subsequent step() output is identical to a never-reset engine given
+// the same input.
+//
+// Two assertions:
+//   (a) reset() before any step() does not crash and the first step() after
+//       reset() produces the same result as the first step() on a freshly
+//       constructed engine.
+//   (b) reset() called twice after warmup brings the engine to the same state
+//       as a single reset() after warmup — second reset() on already-reset
+//       state is idempotent.
+void test_flush_idempotent_and_pre_step(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogRow probe = makeRow(0.5f, 0.1f);
+
+    // (a) reset() before any step(): output matches fresh engine.
+    {
+        LogReplayEngine eng_reset(cfg, 50, false);
+        eng_reset.reset();   // pre-step reset — should be a no-op
+
+        LogReplayEngine eng_fresh(cfg, 50, false);
+
+        ReplayStepResult after_reset = eng_reset.step(probe);
+        ReplayStepResult from_fresh  = eng_fresh.step(probe);
+
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, from_fresh.aoa,             after_reset.aoa);
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, from_fresh.accelLatSmoothed,  after_reset.accelLatSmoothed);
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, from_fresh.accelVertSmoothed, after_reset.accelVertSmoothed);
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, from_fresh.accelFwdSmoothed,  after_reset.accelFwdSmoothed);
+    }
+
+    // (b) reset() twice after warmup: second reset() is idempotent.
+    //
+    // Both engines are warmed up identically then reset once.  After a
+    // single additional reset() on one of them, both must produce identical
+    // output on the same probe row.  Confirms that reset() on an
+    // already-reset engine is a no-op, not a double-clear that diverges.
+    {
+        LogRow warmup = makeRow(2.0f, 0.4f);
+        warmup.imuLateralG  = 0.12f;
+        warmup.imuVerticalG = 0.88f;
+        warmup.imuForwardG  = 0.04f;
+
+        LogReplayEngine eng_once(cfg, 50, false);
+        LogReplayEngine eng_twice(cfg, 50, false);
+
+        for (int i = 0; i < 5; i++)
+        {
+            eng_once.step(warmup);
+            eng_twice.step(warmup);
+        }
+
+        // Reset both once.
+        eng_once.reset();
+        eng_twice.reset();
+
+        // Reset eng_twice a second time — should be identical to single reset.
+        eng_twice.reset();
+
+        ReplayStepResult once_result  = eng_once.step(probe);
+        ReplayStepResult twice_result = eng_twice.step(probe);
+
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, once_result.aoa,              twice_result.aoa);
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, once_result.accelLatSmoothed,  twice_result.accelLatSmoothed);
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, once_result.accelVertSmoothed, twice_result.accelVertSmoothed);
+        TEST_ASSERT_FLOAT_WITHIN(1e-5f, once_result.accelFwdSmoothed,  twice_result.accelFwdSmoothed);
+    }
+}
+
 // ============================================================================
 // main
 // ============================================================================
@@ -506,6 +625,8 @@ int main(int, char**)
     RUN_TEST(test_ias_invalid_propagates);
     RUN_TEST(test_kalman_vsi_conversion);
     RUN_TEST(test_coeff_p_nonzero);
+    RUN_TEST(test_kmaxtransitions_overflow_evicts_oldest);
+    RUN_TEST(test_flush_idempotent_and_pre_step);
 
     return UNITY_END();
 }

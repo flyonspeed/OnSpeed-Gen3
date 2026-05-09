@@ -459,5 +459,42 @@ def test_build_frame_json_parser_flat_numeric_only():
     )
 
 
+# ---------------------------------------------------------------------------
+# Subcommand: replay --log-rate validation
+# ---------------------------------------------------------------------------
+
+
+def test_replay_log_rate_cli_validation(tmp_path):
+    """--log-rate accepts only 50 and 208; rejects all other values."""
+    fixture = REPO_ROOT / "tools" / "regression" / "fixtures" / "replay_engine_input.csv"
+    if not fixture.exists():
+        pytest.skip(f"replay_engine_input.csv not found: {fixture}")
+
+    # Valid: 50
+    r50 = run(["replay", "--input", str(fixture), "--log-rate", "50"])
+    assert r50.returncode == 0, f"--log-rate 50 should be accepted: {r50.stderr}"
+
+    # Valid: 208
+    r208 = run(["replay", "--input", str(fixture), "--log-rate", "208"])
+    assert r208.returncode == 0, f"--log-rate 208 should be accepted: {r208.stderr}"
+
+    # Invalid: 100
+    r100 = run(["replay", "--input", str(fixture), "--log-rate", "100"])
+    assert r100.returncode != 0, "--log-rate 100 should be rejected"
+    assert "50" in r100.stderr or "208" in r100.stderr, (
+        f"error message should mention valid values: {r100.stderr!r}"
+    )
+
+    # Invalid: 0
+    r0 = run(["replay", "--input", str(fixture), "--log-rate", "0"])
+    assert r0.returncode != 0, "--log-rate 0 should be rejected"
+
+    # Invalid: negative (-1 is parsed by atoi as a valid int but rejected by
+    # the range check; ArgGet returns argv[i+1] verbatim so "-1" is the value)
+    r_neg = run(["replay", "--input", str(fixture), "--log-rate", "-1"])
+    # atoi("-1") = -1, which != 50 && != 208, so the check fires
+    assert r_neg.returncode != 0, "--log-rate -1 should be rejected"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
