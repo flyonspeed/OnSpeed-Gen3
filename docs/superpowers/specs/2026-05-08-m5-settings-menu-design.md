@@ -229,7 +229,7 @@ Three new files, split by platform-dependence:
   - `main.cpp:552` `BtnB.wasPressed() → wasClicked()` (mode cycle — both targets)
   - `main.cpp:535` brightness-halve: on M5 stays on `BtnA.wasClicked()`; on huVVer **moves to `BtnD.wasClicked()`** under `#ifdef HUVVER`. (BtnA on huVVer becomes the dedicated Menu key with long-press-to-enter.)
   - The boot-time `BtnB.isPressed()` (line 348) and the firmware-update-cancel `BtnC.wasPressed()` (line 510) stay as they are — both run before the menu exists.
-- Inside `loop()`, near the top (after `M5.update()` and before `SerialRead()`):
+- Inside `loop()`, after `M5.update()` and `SerialRead()`:
   ```cpp
   if (isSettingsMenuActive()) { tickSettingsMenu(); return; }
   #if defined(HUVVER)
@@ -238,10 +238,7 @@ Three new files, split by platform-dependence:
       if (M5.BtnB.wasHold()) { enterSettingsMenu(); return; }   // round/middle button
   #endif
   ```
-  Short-circuits everything below — including `SerialRead()` — while the menu is up. Live frames are dropped for the duration of the menu visit. This is acceptable because:
-  1. The menu fully covers the live render, so dropped frames aren't visible to the pilot anyway.
-  2. The wire is fire-and-forget UART at 20 Hz — the firmware doesn't expect acks. Old frames in the Serial2 RX buffer get overwritten by new ones; on menu exit, the next `SerialRead()` picks up the freshest frame as if no time had passed. The 256-byte ESP32 UART RX FIFO holds ~3 frames at 77 bytes; bounded loss, no hang.
-  3. Typical menu visit is < 5 seconds. The 30-second idle timeout caps it at a known maximum.
+  Short-circuits the live-mode render and the brightness/mode-cycle handlers while the menu is up. `SerialRead()` runs every iteration (above the gate) so the UART RX FIFO keeps draining — the OnSpeed wire pushes 77 B × 20 Hz ≈ 1540 B/s, the ESP32 RX FIFO is 256 B, and pausing the drain across a 30-second menu visit would overflow within ~200 ms. The newest frame is always one tick stale at most, so live-mode resumes cleanly on menu exit.
 - Delete the `#ifdef IAS_IN_MPH` gate; replace with `g_speedInMph ? IAS * 1.15078f : IAS`.
 
 ## Cross-target compatibility

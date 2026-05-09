@@ -4,7 +4,7 @@
 
 **Goal:** Add a runtime settings menu to the M5 / huVVer display that lets pilots toggle KTS / MPH at runtime, persisted to NVS — replacing the compile-time `IAS_IN_MPH` flag from issue #419.
 
-**Architecture:** Pure-logic `MenuModel` state machine in `lib/MenuModel/` (peer to `lib/GaugeWidgets/`), platform glue in `SettingsMenu.cpp`, called from `main.cpp` after `M5.update()`. Per-target button vocabularies via `#ifdef HUVVER`: M5 uses BtnB long-press to enter; huVVer uses Vern Little's TBX idiom (square=back/menu, round=select, triangles=navigate). Live serial + render are paused while menu is up.
+**Architecture:** Pure-logic `MenuModel` state machine in `lib/MenuModel/` (peer to `lib/GaugeWidgets/`), platform glue in `SettingsMenu.cpp`, called from `main.cpp` after `M5.update()` and `SerialRead()`. Per-target button vocabularies via `#ifdef HUVVER`: M5 uses BtnB long-press to enter; huVVer uses Vern Little's TBX idiom (square=back/menu, round=select, triangles=navigate). The live-mode render is suppressed while the menu is up; `SerialRead()` keeps draining the UART RX FIFO every iteration so frames don't back up.
 
 **Tech Stack:** PlatformIO (espressif32 + native), M5Unified + M5GFX, Unity test framework, ESP32 NVS via `Preferences`. C++17 (project default).
 
@@ -34,7 +34,7 @@
 ## Key Spec Facts To Remember
 
 1. **`SpeedMph` default is `true` (MPH)**, not `false`. Master currently has `#define IAS_IN_MPH` enabled, so the runtime default must preserve current behavior for existing pilots' first boot. The spec's earlier wording said "default false" — `true` is correct.
-2. **Live `SerialRead()` is paused** while the menu is active. Acceptable (full-screen menu hides the live render, RX FIFO holds ~3 frames, 30s timeout caps the visit).
+2. **The live-mode render is suppressed while the menu is active**, but `SerialRead()` keeps draining the UART RX FIFO every iteration. The OnSpeed wire pushes 77 B × 20 Hz ≈ 1540 B/s; the ESP32 RX FIFO is 256 B and would overflow within ~200 ms if `SerialRead` were paused. Order in `loop()`: `M5.update()` → `SerialRead()` → menu gate → live-mode handlers.
 3. **No "Saving..." banner.** Toggle flips persist immediately on press. Clean cut from menu to live mode on exit.
 4. **`MenuModel` is in the M5 sub-project**, NOT in `onspeed_core`. `onspeed_core` is for flight math; UI state is a separate concern.
 5. **Per-target buttons:**
@@ -556,7 +556,7 @@ public:
 
 - [ ] **Step 3: Verify the M5Unified equivalents in real hardware code**
 
-Confirm `wasHold()` is non-const in the shim (matches it being called from `loop()`). Confirm `wasClicked()` is `const` (matches the M5Unified surface — `bool wasClicked(void) const`).
+Confirm both `wasHold()` and `wasClicked()` in the shim are `const` (matches the M5Unified surface — `bool wasClicked(void) const`, `bool wasHold(void) const`).
 
 ```bash
 grep -n "wasClicked\|wasHold" software/OnSpeed-M5-Display/.pio/libdeps/m5stack-core-esp32/M5Unified/src/utility/Button_Class.hpp
@@ -568,7 +568,7 @@ Expected output (M5Unified):
 25:    bool wasHold(void)     const { return _currentState == state_hold; }
 ```
 
-Note: M5Unified's `wasHold()` is `const` because the underlying state machine fires it once per `update()`-cycle naturally. The huVVer shim makes `wasHold()` non-const because it needs to latch `holdFired_` itself; this is invisible to call sites (they call it the same way).
+Note: both `wasHold()` and `wasClicked()` are `const` reads against per-poll latch flags (`holdFiredThisPoll_`, `wasClickedFlag_`). The latching happens inside `poll()`, mirroring how M5Unified's state machine fires events from `setRawState`. This makes both methods idempotent within a poll cycle, matching M5Unified semantics so a future call site that reads either method twice (e.g., logging plus action) gets the same answer both times.
 
 - [ ] **Step 4: Compile-check the huVVer build**
 
@@ -610,9 +610,13 @@ Lays out the M5GFX-side surface that `main.cpp` will call into. Implementation i
 // platform glue: M5GFX render, NVS read/write, button polling, lifecycle.
 //
 // Lifecycle (called from main.cpp's loop()):
-//   1. After M5.update(), if isSettingsMenuActive() returns true, the
-//      caller should call tickSettingsMenu() and return early — the menu
-//      owns the screen and SerialRead is paused for the duration.
+//   1. After M5.update() and SerialRead(), if isSettingsMenuActive()
+//      returns true, the caller should call tickSettingsMenu() and return
+//      early — the menu owns the screen and the live-mode render is
+//      suppressed for the duration. SerialRead() runs every iteration
+//      regardless so the UART RX FIFO keeps draining (the OnSpeed wire
+//      pushes 77 B × 20 Hz ≈ 1540 B/s; the ESP32 RX FIFO is 256 B and
+//      would overflow inside ~200 ms otherwise).
 //   2. Otherwise, on the platform-specific entry gesture (BtnB long-hold
 //      on M5, BtnA long-hold on huVVer), call enterSettingsMenu().
 #pragma once
@@ -1097,11 +1101,16 @@ Replace the entire block (down to and including the `if (displayType > 4) displa
 ```cpp
     // ---- Settings menu gate (firmware-only path) ----
     // The X-Plane plugin builds main.cpp without M5.begin() and without
-    // M5.update(); button state is uninitialized there. Gate the menu
-    // behind the same XPLANE_PLUGIN_BUILD guard that the M5.update() call
-    // above uses. While the menu is up it owns the screen and consumes
-    // button events; skip live-mode handling and SerialRead() entirely
-    // for this iteration.
+    // M5.update(); button state is uninitialized there, and the menu
+    // sources are intentionally not linked into the plugin. Gate the
+    // entire menu surface behind XPLANE_PLUGIN_BUILD so the plugin link
+    // sees no SettingsMenu symbols.
+    //
+    // While the menu is up it owns the screen and consumes button
+    // events; skip live-mode handling for this iteration. SerialRead()
+    // above runs every iteration regardless so the UART RX FIFO keeps
+    // draining (1540 B/s into a 256 B FIFO; pausing it for the 30-second
+    // menu visit would overflow within ~200 ms).
 #ifndef XPLANE_PLUGIN_BUILD
     if (isSettingsMenuActive())
     {
