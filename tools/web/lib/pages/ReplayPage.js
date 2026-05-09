@@ -97,10 +97,13 @@ function videoToLogMs(videoSec, sync) {
 //   imuRollRateDps, imuPitchRateDps, imuYawRateDps,
 //   pitchDeg, rollDeg, flightPathDeg, vsiFpm, dataMark
 //
-// The columnar log doesn't carry the smoothed-pressure fields
-// (pfwdSmoothed, p45Smoothed — those are internal to the firmware's
-// SensorIO loop). Pass NaN; the engine's AOA calculator falls back
-// gracefully when pressure data is absent.
+// PfwdSmoothed and P45Smoothed are canonical always-present columns in
+// the OnSpeed log format (written by LogCsv.cpp since the original log
+// schema). parseLog.js reads them into typed arrays; we pass them through
+// here so the WASM AOA calculator receives real pressure data.
+// Pre-PR-#221 logs that lack these columns yield NaN; the engine
+// degenerates to aoa=a0 (polynomial constant term) on NaN inputs, which
+// is the same behavior as today — no regression on old logs.
 function rowObjAt(log, i) {
   const g = (arr) => (arr ? arr[i] : NaN);
   const gi = (arr) => (arr ? arr[i] : 0);
@@ -109,8 +112,8 @@ function rowObjAt(log, i) {
   // firmware's bIasAlive flag: valid when IAS is finite and > 0.
   const iasValid = Number.isFinite(iasKt) && iasKt > 0;
   return {
-    pfwdSmoothed:    NaN,                      // not in log; engine handles gracefully
-    p45Smoothed:     NaN,                      // not in log
+    pfwdSmoothed:    g(log.PfwdSmoothed),
+    p45Smoothed:     g(log.P45Smoothed),
     pStaticMbar:     g(log.PStatic),
     paltFt:          g(log.Palt),
     iasKt,
@@ -133,16 +136,27 @@ function rowObjAt(log, i) {
 }
 
 // Build the results array via a WASM LogReplayEngine pre-pass.
-// Returns { results, rowMap } where:
-//   results[i] is the ReplayStepResult for log row i (may be null for the
-//   synth lag rows at the start of old logs; flush() fills the tail).
-//   rowMap[i] = index into results[] for log row i.
+// Returns { results, buildRecord, length } where results[i] is the
+// ReplayStepResult for log row i.
 //
-// When flapsRawAdcAvailable=false, the synth circular buffer introduces a
-// half-window lag. The results array is aligned with the original log rows
-// via the flush() tail. Rows during the lag period map to their buffered
-// result via the reorder that flush() performs.
-async function buildResultsFromWasm(log, cfg) {
+// Row alignment:
+//   When hasPot=true: step() emits a result for every row; immediates[i]
+//   maps directly to log row i.
+//
+//   When hasPot=false: the synth circular buffer introduces a lag of
+//   synthHalfWindowTicks rows (100 at 50 Hz). step() returns null for
+//   the first `lag` calls while the buffer fills. After that, step() at
+//   position i returns the result for log row (i - lag). flush() returns
+//   the final `lag` results for the rows still in the buffer at EOF.
+//
+//   Reassembly:
+//     lag = first index in immediates that is non-null
+//     immediates[lag..N-1] → results[0..N-lag-1]
+//     tail[0..lag-1]       → results[N-lag..N-1]
+//
+// setReplayProgress(fraction) is called with values in [0,1] during the
+// pre-pass so the UI can display build progress on long logs.
+async function buildResultsFromWasm(log, cfg, setReplayProgress) {
   if (!log || !cfg) return null;
 
   const sampleRateHz    = detectLogSampleRate(log);
@@ -153,36 +167,49 @@ async function buildResultsFromWasm(log, cfg) {
 
   const engine = await LogReplayEngine.create(cfg, sampleRateHz, hasPot);
 
-  // Pre-pass: feed all rows into the engine.
-  // When hasPot=false, step() returns null during the first lag rows;
-  // flush() returns the tail. We collect in order and reassemble.
+  // Pre-pass: feed all rows through the engine in chunks so the UI can
+  // remain responsive on long logs (286 k rows × WASM-step ≈ 10 s).
+  // Each chunk yields to the event loop so progress paints between chunks.
   const immediates = [];   // results from step(), in order (may contain nulls)
-  for (let i = 0; i < N; i++) {
-    immediates.push(engine.step(rowObjAt(log, i)));
+  const CHUNK = 5000;
+  for (let start = 0; start < N; start += CHUNK) {
+    const end = Math.min(start + CHUNK, N);
+    for (let i = start; i < end; i++) {
+      immediates.push(engine.step(rowObjAt(log, i)));
+    }
+    if (setReplayProgress) setReplayProgress(end / N);
+    // Yield to the event loop so the progress text paints.
+    await new Promise(r => setTimeout(r, 0));
   }
+
   const tail = engine.flush();
   engine.delete();
 
   // Align results with original log row indices.
-  // When hasPot=true: step() always emits immediately → results[i] = immediates[i].
-  // When hasPot=false: the first half-window rows produce null from step();
-  // flush() returns the result for those rows, buffered at the back.
-  // The C++ synth buffer emits result for row (i - halfWindow) at step i,
-  // so immediates has N elements where the first `tail.length` are null,
-  // and the tail covers those missing rows (in the same order as the log).
+  //
+  // When hasPot=true (or lag=0): immediates[i] is already the result for
+  // row i; copy directly.
+  //
+  // When hasPot=false: immediates[0..lag-1] are null (lag period).
+  // immediates[lag..N-1] holds results for rows 0..N-lag-1 respectively.
+  // tail[0..lag-1] holds results for rows N-lag..N-1.
+  const lag = hasPot ? 0 : immediates.findIndex(r => r !== null);
+  const effectiveLag = lag < 0 ? 0 : lag;   // -1 means no nulls (hasPot path)
+
   const results = new Array(N).fill(null);
-  let lagCount = 0;
-  for (let i = 0; i < N; i++) {
-    if (immediates[i] !== null) {
-      results[i] = immediates[i];
-    } else {
-      lagCount++;
+
+  if (effectiveLag === 0) {
+    // Fast path (hasPot=true or no lag): 1:1 mapping.
+    for (let i = 0; i < N; i++) results[i] = immediates[i];
+  } else {
+    // Synth path: immediates[effectiveLag..N-1] → results[0..N-effectiveLag-1]
+    for (let i = effectiveLag; i < N; i++) {
+      results[i - effectiveLag] = immediates[i];
     }
-  }
-  // Flush tail covers the lag rows at the start of the log.
-  // tail[0] = result for log row 0, tail[1] = row 1, etc.
-  for (let j = 0; j < tail.length && j < N; j++) {
-    results[j] = tail[j];
+    // tail[0..tail.length-1] → results[N-tail.length..N-1]
+    for (let j = 0; j < tail.length; j++) {
+      results[N - tail.length + j] = tail[j];
+    }
   }
 
   // Build a closure that maps a log row index to a display record.
@@ -255,6 +282,9 @@ export const ReplayPage = () => {
   const [parseErr, setParseErr]   = useState(null);
   // Building replay pre-pass can take a moment on long logs.
   const [replayBuilding, setReplayBuilding] = useState(false);
+  // Pre-pass progress: 0.0–1.0. Updated in 5000-row chunks; drives a
+  // progress bar in the toolbar so the pilot sees movement on long logs.
+  const [replayProgress, setReplayProgress] = useState(0);
   // Anchor kind from detectTakeoffWithKind: 'crosswind' | 'rotation'
   // | 'none'. Used in the status text + timeline label so the pilot
   // knows what event they're syncing against.
@@ -339,14 +369,16 @@ export const ReplayPage = () => {
     if (!log) { setReplayCtx(null); return; }
     setReplayBuilding(true);
     setReplayCtx(null);
-    buildResultsFromWasm(log, cfg)
+    buildResultsFromWasm(log, cfg, setReplayProgress)
       .then(ctx => {
         setReplayCtx(ctx);
         setReplayBuilding(false);
+        setReplayProgress(0);
       })
       .catch(err => {
         setParseErr(`Replay engine error: ${err.message}`);
         setReplayBuilding(false);
+        setReplayProgress(0);
       });
   }, [log, cfg]);
 
@@ -677,7 +709,13 @@ export const ReplayPage = () => {
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
             </span>`}
-          ${replayBuilding && html`<span class="replay-status">building replay…</span>`}
+          ${replayBuilding && html`
+            <span class="replay-status">
+              building replay… ${replayProgress > 0
+                ? Math.round(replayProgress * 100) + '%'
+                : ''}
+            </span>
+            <progress class="replay-progress" max="1" value=${replayProgress}></progress>`}
           ${parseErr && html`<span class="replay-error">${parseErr}</span>`}
         </header>
 

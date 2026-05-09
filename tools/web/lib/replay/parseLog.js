@@ -19,6 +19,8 @@ const FLOAT_COLUMNS = [
   'Pitch', 'Roll',
   'EarthVerticalG', 'FlightPath', 'VSI', 'Altitude',
   'DerivedAOA', 'CoeffP',
+  // Pressure sensor columns — used by the WASM AOA calculator.
+  'Pfwd', 'PfwdSmoothed', 'P45', 'P45Smoothed',
   // EFIS group (when present)
   'efisIAS', 'efisPitch', 'efisRoll', 'efisLateralG', 'efisVerticalG',
   'efisPalt', 'efisVSI', 'efisTAS', 'efisOAT',
