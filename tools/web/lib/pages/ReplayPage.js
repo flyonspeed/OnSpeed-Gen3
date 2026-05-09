@@ -25,15 +25,29 @@
 //     requestVideoFrameCallback (falls back to RAF on Safari).
 //   - Sync state persists to localStorage keyed by a hash of the
 //     video+log filenames so a reload comes back to the same offset.
+//
+// Data pipeline (post-WASM Step 2):
+//   - parseLog() → columnar typed arrays (unchanged, used by timeline +
+//     sync detection + findRowAt).
+//   - parseConfigXml() → config object via WASM C++ parser.
+//   - LogReplayEngine.create() + pre-pass → results[] array indexed by
+//     original log row. Engine runs the same compiled C++ as the firmware,
+//     so accel smoothing / synth flap sweep / AOA computation are
+//     bit-identical.
+//   - computeAnchors() → percent-lift anchor positions for the indexer
+//     (pipPctLift, tonesOnPctLift, etc.), also via WASM.
+//   - Engine is deleted on new-log-load or component unmount.
 
 import { html, useState, useEffect, useRef, useCallback }
   from '../vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { Mode0, Mode1, Mode3 } from '../modes.js';
-import { parseLog, findRowAt } from '../replay/parseLog.js';
-import { parseConfig } from '../replay/config.js';
-import { buildReplay } from '../replay/logReplay.js';
-import { detectTakeoff, detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
+import { parseLog, findRowAt, hasFlapsRawAdc, detectLogSampleRate }
+  from '../replay/parseLog.js';
+import { parseConfigXml } from '../replay/config.js';
+import { LogReplayEngine } from '../replay/logReplay.js';
+import { computeAnchors } from '../replay/percentLift.js';
+import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
 import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 
@@ -72,6 +86,159 @@ function videoToLogMs(videoSec, sync) {
   return sync.logTakeoffMs + (videoSec - sync.videoTakeoffSec) * 1000;
 }
 
+// Build a plain JS row object from the columnar log at index i.
+// Maps log column names to the camelCase field names LogReplayEngine.step()
+// expects (defined in bindings.cpp's StepInputFromVal).
+//
+// Fields the engine reads:
+//   pfwdSmoothed, p45Smoothed, pStaticMbar, paltFt, iasKt, iasValid,
+//   flapsPos, flapsRawAdc, flapsRawAdcPresent,
+//   imuVerticalG, imuLateralG, imuForwardG,
+//   imuRollRateDps, imuPitchRateDps, imuYawRateDps,
+//   pitchDeg, rollDeg, flightPathDeg, vsiFpm, dataMark
+//
+// The columnar log doesn't carry the smoothed-pressure fields
+// (pfwdSmoothed, p45Smoothed — those are internal to the firmware's
+// SensorIO loop). Pass NaN; the engine's AOA calculator falls back
+// gracefully when pressure data is absent.
+function rowObjAt(log, i) {
+  const g = (arr) => (arr ? arr[i] : NaN);
+  const gi = (arr) => (arr ? arr[i] : 0);
+  const iasKt = g(log.IAS);
+  // iasValid: engine gates percent-lift at low IAS. Replicate the
+  // firmware's bIasAlive flag: valid when IAS is finite and > 0.
+  const iasValid = Number.isFinite(iasKt) && iasKt > 0;
+  return {
+    pfwdSmoothed:    NaN,                      // not in log; engine handles gracefully
+    p45Smoothed:     NaN,                      // not in log
+    pStaticMbar:     g(log.PStatic),
+    paltFt:          g(log.Palt),
+    iasKt,
+    iasValid,
+    flapsPos:        gi(log.flapsPos),
+    flapsRawAdc:     gi(log.flapsRawADC),
+    flapsRawAdcPresent: !!(log.flapsRawADC),
+    imuVerticalG:    g(log.VerticalG),
+    imuLateralG:     g(log.LateralG),
+    imuForwardG:     g(log.ForwardG),
+    imuRollRateDps:  g(log.RollRate),
+    imuPitchRateDps: g(log.PitchRate),
+    imuYawRateDps:   g(log.YawRate),
+    pitchDeg:        g(log.Pitch),
+    rollDeg:         g(log.Roll),
+    flightPathDeg:   g(log.FlightPath),
+    vsiFpm:          g(log.VSI),
+    dataMark:        gi(log.DataMark),
+  };
+}
+
+// Build the results array via a WASM LogReplayEngine pre-pass.
+// Returns { results, rowMap } where:
+//   results[i] is the ReplayStepResult for log row i (may be null for the
+//   synth lag rows at the start of old logs; flush() fills the tail).
+//   rowMap[i] = index into results[] for log row i.
+//
+// When flapsRawAdcAvailable=false, the synth circular buffer introduces a
+// half-window lag. The results array is aligned with the original log rows
+// via the flush() tail. Rows during the lag period map to their buffered
+// result via the reorder that flush() performs.
+async function buildResultsFromWasm(log, cfg) {
+  if (!log || !cfg) return null;
+
+  const sampleRateHz    = detectLogSampleRate(log);
+  const hasPot          = hasFlapsRawAdc(log);
+  const flapsMin        = cfg.flaps[0].degrees;
+  const flapsMax        = cfg.flaps[cfg.flaps.length - 1].degrees;
+  const N               = log.Length;
+
+  const engine = await LogReplayEngine.create(cfg, sampleRateHz, hasPot);
+
+  // Pre-pass: feed all rows into the engine.
+  // When hasPot=false, step() returns null during the first lag rows;
+  // flush() returns the tail. We collect in order and reassemble.
+  const immediates = [];   // results from step(), in order (may contain nulls)
+  for (let i = 0; i < N; i++) {
+    immediates.push(engine.step(rowObjAt(log, i)));
+  }
+  const tail = engine.flush();
+  engine.delete();
+
+  // Align results with original log row indices.
+  // When hasPot=true: step() always emits immediately → results[i] = immediates[i].
+  // When hasPot=false: the first half-window rows produce null from step();
+  // flush() returns the result for those rows, buffered at the back.
+  // The C++ synth buffer emits result for row (i - halfWindow) at step i,
+  // so immediates has N elements where the first `tail.length` are null,
+  // and the tail covers those missing rows (in the same order as the log).
+  const results = new Array(N).fill(null);
+  let lagCount = 0;
+  for (let i = 0; i < N; i++) {
+    if (immediates[i] !== null) {
+      results[i] = immediates[i];
+    } else {
+      lagCount++;
+    }
+  }
+  // Flush tail covers the lag rows at the start of the log.
+  // tail[0] = result for log row 0, tail[1] = row 1, etc.
+  for (let j = 0; j < tail.length && j < N; j++) {
+    results[j] = tail[j];
+  }
+
+  // Build a closure that maps a log row index to a display record.
+  // Computes anchors from the WASM engine result's flapsIndex + flapsRawAdc.
+  // Anchors are cheap to compute (single WASM call) and cached per flap index.
+  const anchorCache = new Map();
+
+  async function buildRecord(rowIdx) {
+    const r = results[rowIdx];
+    if (!r) return null;
+
+    // Get or compute anchor positions for the current flap index.
+    const cacheKey = `${r.flapsIndex}:${r.flapsRawAdc}`;
+    let anchors = anchorCache.get(cacheKey);
+    if (!anchors) {
+      anchors = await computeAnchors(cfg.flaps, r.flapsIndex, r.flapsRawAdc);
+      anchorCache.set(cacheKey, anchors);
+    }
+
+    const aoaDeg     = Number.isFinite(r.aoaDeg) ? r.aoaDeg : NaN;
+    const aoaIsValid = Number.isFinite(aoaDeg);
+
+    return {
+      aoaDeg,
+      aoaIsValid,
+      derivedAoaDeg:      aoaDeg,
+      pitchDeg:           r.pitchDeg,
+      rollDeg:            r.rollDeg,
+      flightPathDeg:      r.flightPathDeg,
+      iasKt:              r.iasKt,
+      paltFt:             r.paltFt,
+      vsiFpm:             r.kalmanVsiMps != null
+                            ? r.kalmanVsiMps * 196.85    // m/s → fpm
+                            : NaN,
+      // Smoothed accels from WASM (variable-dt rate-adjusted EMA, matches firmware).
+      lateralG:           r.accelLatSmoothed,
+      verticalG:          r.accelVertSmoothed,
+      // Percent lift from WASM (coeffP is in [0, 99.9]).
+      percentLift:        r.coeffP,
+      // Anchor positions for the indexer needle + pip.
+      tonesOnPctLift:         anchors.tonesOnPctLift,
+      onSpeedFastPctLift:     anchors.onSpeedFastPctLift,
+      onSpeedSlowPctLift:     anchors.onSpeedSlowPctLift,
+      stallWarnPctLift:       anchors.stallWarnPctLift,
+      pipPctLift:             anchors.pipPctLift,
+      flapsDeg:   anchors.flapsDeg,
+      flapsMinDeg: flapsMin,
+      flapsMaxDeg: flapsMax,
+      gOnsetRate:  0,         // not available in log replay
+      dataMark:    r.dataMark,
+    };
+  }
+
+  return { results, buildRecord, length: N };
+}
+
 export const ReplayPage = () => {
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl]   = useState(null);
@@ -79,16 +246,22 @@ export const ReplayPage = () => {
   const [logFilename, setLogFilename] = useState('');
   const [cfg, setCfg]             = useState(null);
   const [cfgFilename, setCfgFilename] = useState('');
-  const [replay, setReplay]       = useState(null);   // buildReplay() result
+  // replayCtx holds { results, buildRecord, length } from buildResultsFromWasm().
+  const [replayCtx, setReplayCtx] = useState(null);
   const [sync, setSync]           = useState(null);
   const [videoT, setVideoT]       = useState(0);
   const [modeId, setModeId]       = useState('energy');
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [parseErr, setParseErr]   = useState(null);
+  // Building replay pre-pass can take a moment on long logs.
+  const [replayBuilding, setReplayBuilding] = useState(false);
   // Anchor kind from detectTakeoffWithKind: 'crosswind' | 'rotation'
   // | 'none'. Used in the status text + timeline label so the pilot
   // knows what event they're syncing against.
   const [anchorKind, setAnchorKind] = useState('none');
+
+  // Current rendered record (produced async by buildRecord; null while pending).
+  const [rec, setRec] = useState(null);
 
   // Export-to-WebM state. exporting=true while a recording is in
   // progress; exportProgress reflects the % of the source video
@@ -149,8 +322,8 @@ export const ReplayPage = () => {
     setParseErr(null);
     try {
       const text = await f.text();
-      const parsed = parseConfig(text);
-      if (!parsed.flapsArray.length) throw new Error('no flap detents in config');
+      const parsed = await parseConfigXml(text);
+      if (!parsed.flaps || !parsed.flaps.length) throw new Error('no flap detents in config');
       setCfg(parsed);
       setCfgFilename(f.name);
     } catch (err) {
@@ -161,11 +334,20 @@ export const ReplayPage = () => {
 
   // Rebuild the replay pipeline whenever the log or config changes.
   // Doing this in an effect (not inline in render) keeps the
-  // expensive smooth-accels + lever-sweep precomputation from
-  // running every frame.
+  // expensive WASM pre-pass from running every frame.
   useEffect(() => {
-    if (!log) { setReplay(null); return; }
-    setReplay(buildReplay(log, cfg));
+    if (!log) { setReplayCtx(null); return; }
+    setReplayBuilding(true);
+    setReplayCtx(null);
+    buildResultsFromWasm(log, cfg)
+      .then(ctx => {
+        setReplayCtx(ctx);
+        setReplayBuilding(false);
+      })
+      .catch(err => {
+        setParseErr(`Replay engine error: ${err.message}`);
+        setReplayBuilding(false);
+      });
   }, [log, cfg]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
@@ -232,6 +414,37 @@ export const ReplayPage = () => {
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     };
   }, [videoUrl]);
+
+  // ---------- Async record resolution (video clock → display record) ---
+
+  // The record lookup is async (computeAnchors is async, cached in
+  // replayCtx.buildRecord). We resolve it on each videoT change.
+  useEffect(() => {
+    if (!log || !replayCtx) { setRec(null); return; }
+
+    let cancelled = false;
+
+    const resolveRec = async () => {
+      let rowIdx = -1;
+
+      if (Number.isFinite(pausedLogMs)) {
+        rowIdx = findRowAt(log, pausedLogMs);
+      } else if (sync &&
+                 Number.isFinite(sync.videoTakeoffSec) &&
+                 Number.isFinite(sync.logTakeoffMs)) {
+        const tMs = videoToLogMs(videoT, sync);
+        if (Number.isFinite(tMs)) rowIdx = findRowAt(log, tMs);
+      }
+
+      if (rowIdx < 0) { if (!cancelled) setRec(null); return; }
+
+      const record = await replayCtx.buildRecord(rowIdx);
+      if (!cancelled) setRec(record);
+    };
+
+    resolveRec();
+    return () => { cancelled = true; };
+  }, [log, replayCtx, sync, videoT, pausedLogMs]);
 
   // ---------- Anchor-mark handlers ---------------------------------
 
@@ -380,27 +593,6 @@ export const ReplayPage = () => {
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
-  // ---------- Compute current record from log ----------------------
-
-  const rec = (() => {
-    if (!log || !replay) return null;
-    // When the indexer is paused for re-sync, the overlay freezes at
-    // pausedLogMs and ignores the video clock. Pilot scrubs the video
-    // to the matching frame and clicks "Attach here".
-    if (Number.isFinite(pausedLogMs)) {
-      const rowIdx = findRowAt(log, pausedLogMs);
-      if (rowIdx < 0) return null;
-      return replay.recordAt(rowIdx);
-    }
-    if (!sync) return null;
-    if (!Number.isFinite(sync.videoTakeoffSec) || !Number.isFinite(sync.logTakeoffMs)) return null;
-    const tMs = videoToLogMs(videoT, sync);
-    if (!Number.isFinite(tMs)) return null;
-    const rowIdx = findRowAt(log, tMs);
-    if (rowIdx < 0) return null;
-    return replay.recordAt(rowIdx);
-  })();
-
   const ModeC = MODES.find(m => m.id === modeId)?.C ?? Mode0;
   // syncReady is computed up at the top so the export callback can
   // reference it; reuse here in the layout.
@@ -483,8 +675,9 @@ export const ReplayPage = () => {
           </label>
           ${cfg && html`
             <span class="replay-status">
-              ${cfg.flapsArray.length} flap detents loaded · ${cfgFilename}
+              ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
             </span>`}
+          ${replayBuilding && html`<span class="replay-status">building replay…</span>`}
           ${parseErr && html`<span class="replay-error">${parseErr}</span>`}
         </header>
 
