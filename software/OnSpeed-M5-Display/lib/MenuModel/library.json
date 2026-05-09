@@ -1,0 +1,8 @@
+{
+    "name": "MenuModel",
+    "version": "1.0.0",
+    "description": "Pure-logic 3/4-button menu state machine for the OnSpeed M5 display",
+    "build": {
+        "flags": ["-std=gnu++17"]
+    }
+}
