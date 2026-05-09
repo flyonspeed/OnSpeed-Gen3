@@ -222,6 +222,12 @@ public:
     // Production code does not need this — do not add non-test call sites.
     size_t bufferCapacity() const { return circBuf_.capacity(); }
 
+    // Test-only: expose the current transition count so overflow/eviction tests
+    // can assert the table never exceeds kMaxTransitions.
+    // Invariant: numTransitionsForTest() <= kMaxTransitions at all times.
+    // Production code does not need this — do not add non-test call sites.
+    int numTransitionsForTest() const { return numTransitions_; }
+
 private:
     const onspeed::config::OnSpeedConfig& cfg_;
     bool flapsRawAdcAvailable_;

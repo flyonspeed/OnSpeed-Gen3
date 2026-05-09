@@ -1010,23 +1010,35 @@ OnSpeedConfig makeThreeFlapConfig()
 // the oldest entry (index 0) is evicted by a shift-left before the new one is
 // recorded. No existing test reaches this code path.
 //
-// Approach: feed rows that alternate between three detents (A=0°, B=16°, C=33°)
-// within the lag period (first kSynthHalfWindow50 rows), generating 9 transitions
-// in ticks 2-10.
+// Why the previous test was coverage theater:
+//   All 9 transitions were crammed into ticks 2-10. Every transition window ends
+//   at snapTick+100 ≤ 110. EmitOldest_() prunes expired transitions before each
+//   emit, so by emitTick 111 the table is empty and ComputeSynthAdc_ returns
+//   steadyPot regardless of whether eviction was correct. Any shift-loop
+//   corruption was invisible.
 //
-//   Row 1  : flaps=A → sets lastFlapPosDeg_, no transition (first row)
-//   Row 2  : flaps=B → transition 1 (numTransitions=1)
-//   Row 3  : flaps=A → transition 2 (numTransitions=2)
+// Fixed approach — assert numTransitions_ count after overflow:
+//
+//   Feeding 9 rapid transitions with kMaxTransitions=8 must trigger eviction
+//   on the 9th. After eviction: shift left, decrement, then add new entry →
+//   numTransitions_ stays at 8. A no-op sabotage (shift loop removed) leaves
+//   numTransitions_ at 9 (and writes one entry out of bounds).
+//
+//   numTransitionsForTest() exposes numTransitions_ so the count can be pinned.
+//   This catches the "eviction is a no-op" sabotage that the bulldog confirmed
+//   passes the original test.
+//
+// Pattern:
+//   Row 1  : flaps=A → sets lastFlapPosDeg_, no transition
+//   Row 2  : flaps=B → transition 1  (numTransitions=1)
+//   Row 3  : flaps=A → transition 2  (numTransitions=2)
 //   ...
-//   Row 9  : flaps=B → transition 8 (numTransitions=8 == kMaxTransitions)
-//   Row 10 : flaps=A → eviction: oldest (transition 1, snapTick=2) is dropped;
-//                       shift left; transition 9 recorded (numTransitions stays 8).
+//   Row 9  : flaps=B → transition 8  (numTransitions=8 == kMaxTransitions)
+//   Row 10 : flaps=A → eviction fires: shift left, decrement, add transition 9
+//                       → numTransitions stays 8.
 //
-// After eviction, feed steady-state rows (flaps=A, pot=1000) to flush the buffer.
-// The key assertion: the eviction path does not corrupt the synth ADC for rows
-// emitted after the evicted transition's window. Rows at steady-state (flaps=A)
-// well after all transition windows should emit flapsRawAdc == 1000 (pot A).
-// A buffer-overwrite bug in the eviction shift loop would produce wrong pot values.
+// After the count pin, the existing steady-state tail check is retained as a
+// sanity assertion that the eviction path leaves ComputeSynthAdc_ functional.
 void test_kmaxtransitions_overflow_evicts_oldest(void)
 {
     OnSpeedConfig cfg = makeThreeFlapConfig();
@@ -1045,6 +1057,16 @@ void test_kmaxtransitions_overflow_evicts_oldest(void)
             "still in lag: first 10 rows should not produce output");
     }
 
+    // After 9 transitions with kMaxTransitions=8, the eviction path fires on
+    // the 9th transition. numTransitions_ must still be 8 — not 9.
+    // Sabotage: commenting out the shift loop + --numTransitions_ leaves the
+    // count at 9 (and writes one slot out of bounds). This assertion catches it.
+    //
+    // 8 == kMaxTransitions (private static constexpr in LogReplayEngine).
+    TEST_ASSERT_EQUAL_INT_MESSAGE(8, eng.numTransitionsForTest(),
+        "after 9th transition with kMaxTransitions=8, eviction must fire: "
+        "numTransitions_ must remain 8, not 9");
+
     // Phase 2: feed kSynthHalfWindow50 - 10 more rows at steady-state flaps=A=0°.
     // This fills the buffer up to the full lag point without emitting yet.
     for (int i = 0; i < kSynthHalfWindow50 - 10; i++) {
@@ -1055,8 +1077,8 @@ void test_kmaxtransitions_overflow_evicts_oldest(void)
     // Phase 3: feed kSynthHalfWindow50 + 50 more steady-state rows at flaps=A.
     // These rows are well past all transition windows (last transition was at
     // tick 10; all transition windows end at tick 10+100=110 at the latest).
-    // After tick 110+100=210 ticks from the last transition, emit ticks are
-    // all at steady-state A.
+    // After emitTick 110, all transitions are pruned and ComputeSynthAdc_
+    // returns steadyPot = pot A = 1000.
     std::vector<ReplayStepResult> results;
     for (int i = 0; i < kSynthHalfWindow50 + 50; i++) {
         auto opt = eng.step(makeRow(0.5f, 0.1f, 0));
@@ -1072,20 +1094,15 @@ void test_kmaxtransitions_overflow_evicts_oldest(void)
             "synth path must set flapsRawAdcPresent on every emitted row");
     }
 
-    // The final emitted rows (at the end of the results vector) are well past
-    // all transition windows. Their emitTick is far above the last transition's
-    // window endpoint (~110). At steady-state flaps=A=0°, the expected synth
-    // ADC is pot A = 1000.
-    //
-    // If the eviction shift-left corrupted transitions_[] (e.g., stale entries
-    // with wrong prevPot/nextPot), those rows could produce wrong pot values.
+    // Sanity: the final 50 emitted rows are well past all transition windows.
+    // At steady-state flaps=A=0°, synth ADC must be pot A = 1000.
     const int checkFromIdx = (int)results.size() - 50;
     TEST_ASSERT_TRUE_MESSAGE(checkFromIdx >= 0,
         "not enough output rows to check steady-state tail");
     for (int i = checkFromIdx; i < (int)results.size(); i++) {
         TEST_ASSERT_EQUAL_UINT16_MESSAGE(1000, results[i].flapsRawAdc,
-            "steady-state rows (well past all transition windows, flaps=A) "
-            "must emit pot A = 1000; eviction corruption would break this");
+            "steady-state rows (flaps=A, past all transition windows) "
+            "must emit pot A = 1000");
     }
 }
 
@@ -1120,9 +1137,13 @@ void test_flush_idempotent_and_pre_step(void)
             (void)eng.step(row);
         }
 
-        // First flush drains the tail (up to kSynthHalfWindow50 rows).
+        // First flush drains exactly synthHalfWindowTicks_ tail rows.
+        // At 50 Hz: kSynthHalfWindowSec (2 s) × 50 = 100 ticks.
+        // After 200 step()s the buffer is full and has emitted 100 rows
+        // via step(); the remaining 100 buffered rows are drained by flush().
         auto first_flush = eng.flush();
-        TEST_ASSERT_GREATER_THAN_size_t(0, first_flush.size());
+        TEST_ASSERT_EQUAL_size_t(
+            static_cast<size_t>(kSynthHalfWindow50), first_flush.size());
 
         // Second flush: buffer is empty; must return zero rows.
         auto second_flush = eng.flush();
