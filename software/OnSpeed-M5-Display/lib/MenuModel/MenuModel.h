@@ -52,8 +52,10 @@ public:
     int  itemCount() const    { return count_; }
     const MenuItem& itemAt(int idx) const { return items_[idx]; }
 
-    // Test/reset hook: clear the idle timer and the exit flag. Called by the
-    // platform layer when the menu is freshly entered.
+    // Reset entry-time state: cursor returns to the first item, idle
+    // timer to zero, exit flag cleared. Called by the platform layer
+    // when the menu is freshly entered so each visit starts predictably
+    // at the top of the list.
     void resetForEntry();
 
 private:

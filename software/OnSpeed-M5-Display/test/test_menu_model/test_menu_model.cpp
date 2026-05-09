@@ -113,14 +113,18 @@ void test_info_activation_is_noop(void) {
     TEST_ASSERT_EQUAL_INT(0, m.currentIndex());
 }
 
-// resetForEntry() clears the idle counter and the exit flag — ready to
-// re-use the model after a previous menu visit ended.
+// resetForEntry() clears all entry-time state: cursor returns to 0,
+// idle counter zeroed, exit flag cleared.
 void test_reset_for_entry_clears_state(void) {
     MenuModel m = make_model();
+    m.onDown();                             // cursor moves off 0
+    TEST_ASSERT_EQUAL_INT(1, m.currentIndex());
+
     m.tick(40'000);
     TEST_ASSERT_TRUE(m.wantsExit());
 
     m.resetForEntry();
+    TEST_ASSERT_EQUAL_INT(0, m.currentIndex());   // cursor reset
     TEST_ASSERT_FALSE(m.wantsExit());
 
     m.tick(20'000);

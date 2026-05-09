@@ -50,8 +50,9 @@ void MenuModel::tick(uint32_t elapsedMs) {
 }
 
 void MenuModel::resetForEntry() {
-    idleMs_    = 0;
-    wantsExit_ = false;
+    currentIndex_ = 0;
+    idleMs_       = 0;
+    wantsExit_    = false;
 }
 
 }  // namespace m5menu
