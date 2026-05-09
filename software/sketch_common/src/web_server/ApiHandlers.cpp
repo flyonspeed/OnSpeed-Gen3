@@ -669,13 +669,17 @@ void HandleApiFormatStatus() {
     }
     const String id = CfgServer.arg("id");
 
-    FormatState state = FormatState::Idle;
-    char err[64] = {};
-    char activeId[32] = {};
+    FormatState state             = FormatState::Idle;
+    char        err[64]           = {};
+    char        activeId[32]      = {};
+    float       cardSizeGb_local  = 0.0f;
+    bool        configSaved_local = false;
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
         std::snprintf(activeId, sizeof(activeId), "%s", g_FormatJob.taskId);
-        state = g_FormatJob.state;
+        state             = g_FormatJob.state;
         std::snprintf(err, sizeof(err), "%s", g_FormatJob.error);
+        cardSizeGb_local  = g_FormatJob.cardSizeGb;
+        configSaved_local = g_FormatJob.configSaved;
         xSemaphoreGive(g_FormatJobMutex);
     }
 
@@ -693,10 +697,20 @@ void HandleApiFormatStatus() {
     }
 
     String body;
-    body.reserve(96);
+    body.reserve(160);
     body  = F("{\"state\":\"");
     body += sState;
     body += F("\"");
+
+    if (state == FormatState::Done) {
+        char szSize[16];
+        std::snprintf(szSize, sizeof(szSize), "%.1f", cardSizeGb_local);
+        body += F(",\"cardSizeGb\":");
+        body += szSize;
+        if (!configSaved_local) {
+            body += F(",\"warning\":\"config not saved (visit configuration page to retry)\"");
+        }
+    }
     if (state == FormatState::Failed && err[0]) {
         body += F(",\"error\":\"");
         body += JsonEscape(err);
