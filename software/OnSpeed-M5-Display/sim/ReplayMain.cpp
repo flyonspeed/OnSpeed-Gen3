@@ -53,12 +53,6 @@
 void setup(void);
 void loop(void);
 
-// kModeNames[5] is `extern const char* const` in main.cpp (added when
-// the X-Plane plugin needed cross-TU access; same hook serves us). Read
-// here to validate the displayType range JS passes through
-// replay_set_displayType.
-extern const char* const kModeNames[5];
-
 // Firmware-side globals exposed via accessors. main.cpp declares them
 // as plain non-namespaced `int`/`float`; they pick up external linkage
 // because the firmware is one big TU graph rather than a header-only

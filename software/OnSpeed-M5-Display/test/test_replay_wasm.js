@@ -1,13 +1,21 @@
 // test_replay_wasm.js — Node.js test harness for the M5 firmware replay
 // WASM build (PR 1 of Project B2 PLAN_REPLAY_M5_WASM).
 //
-// Loads sim/build/wasm-replay/onspeed_m5.{js,wasm}, drives the firmware
-// through a known wire frame, and asserts that the state-var accessors
-// expose the values the firmware code computed. The point of this
-// harness is to prove the WASM build actually runs the firmware logic
-// (not the JS hand-port we're trying to replace) — sabotage checks in
-// the PR description verify the test fails when production code is
-// disabled.
+// Loads two WASM modules:
+//   1. onspeed_core.wasm (PR #496) — the canonical wire-frame builder.
+//      `Module.build_display_frame(inputs)` returns the exact 77-byte
+//      v4.23 #1-protocol frame the firmware would emit on the wire.
+//   2. onspeed_m5.wasm (this PR) — the M5-Display firmware compiled to
+//      WASM. JS feeds wire bytes via `_replay_inject_byte`, drives
+//      virtual time, and reads state-var accessors.
+//
+// Loading both WASM modules instead of hand-porting the frame builder
+// makes drift between firmware and test fixture impossible by
+// construction: a future wire-format change shows up in
+// onspeed_core/proto/DisplaySerial.cpp, the rebuild propagates the new
+// bytes through both the firmware (M5 WASM) and the test (onspeed_core
+// WASM), and any encode/decode mismatch surfaces as a parse failure
+// in the test rather than as a silent mismatch the test misses.
 //
 // Run:
 //   node software/OnSpeed-M5-Display/test/test_replay_wasm.js
@@ -24,106 +32,22 @@ const WASM_DIR = path.resolve(
   __dirname, '..', 'sim', 'build', 'wasm-replay');
 const MODULE_JS = path.join(WASM_DIR, 'onspeed_m5.js');
 
+// Output of software/Libraries/onspeed_core/wasm/build_wasm.sh.
+// SINGLE_FILE=1 build: the .js contains everything (WASM as base64).
+const CORE_JS = path.resolve(
+  __dirname, '..', '..', 'Libraries', 'onspeed_core', 'wasm', 'dist',
+  'onspeed_core.js');
+
 if (!fs.existsSync(MODULE_JS)) {
   console.error(`FATAL: ${MODULE_JS} not found.`);
   console.error(`Run \`bash sim/build_wasm.sh --target replay\` first.`);
   process.exit(2);
 }
-
-// ---------------------------------------------------------------------------
-// Frame builder — emits bytes byte-for-byte identical to
-// onspeed_core/proto/DisplaySerial.cpp::BuildDisplayFrame for v4.23.
-//
-// Hand-implemented in JS rather than calling into a second WASM module
-// so this test depends only on the M5 replay artifact (PR 1 scope).
-// PR 2 will route real frames through the onspeed_core WASM instead.
-//
-// Field offsets / scales / formats from
-// onspeed_core/src/proto/DisplaySerial.h.
-// ---------------------------------------------------------------------------
-
-function fmtSigned(value, width) {
-  // %+0Nd: leading + on positives, padded to N total chars including sign.
-  const v = Math.trunc(value);
-  const sign = v < 0 ? '-' : '+';
-  const mag = String(Math.abs(v)).padStart(width - 1, '0');
-  return sign + mag;
-}
-
-function fmtUnsigned(value, width) {
-  // %0Nu: zero-padded unsigned.
-  return String(Math.trunc(value)).padStart(width, '0');
-}
-
-function buildFrame(inputs) {
-  // Defaults match DisplayBuildInputs's in-class initializers.
-  const i = Object.assign({
-    pitchDeg:           0,
-    rollDeg:            0,
-    iasKt:              0,
-    iasValid:           true,
-    paltFt:             0,
-    turnRateDps:        0,
-    lateralG:           0,    // body-frame, +rightward
-    verticalG:          0,    // raw G value (we apply ×10 below)
-    percentLiftPct:     0,
-    vsiFpm:             0,    // raw fpm (we /10 below)
-    oatC:               0,
-    flightPathDeg:      0,
-    flapsDeg:           0,
-    tonesOnPctLift:     0,
-    onSpeedFastPctLift: 0,
-    onSpeedSlowPctLift: 0,
-    stallWarnPctLift:   0,
-    flapsMinDeg:        0,
-    flapsMaxDeg:        0,
-    gOnsetRate:         0,
-    spinRecoveryCue:    0,
-    dataMark:           0,
-    pipPctLift:         0,
-  }, inputs);
-
-  const iasWire = i.iasValid ? Math.round(i.iasKt * 10) : 9999;
-
-  let s = '#1';
-  s += fmtSigned(Math.round(i.pitchDeg * 10),     4);
-  s += fmtSigned(Math.round(i.rollDeg  * 10),     5);
-  s += fmtUnsigned(iasWire,                        4);
-  s += fmtSigned(Math.round(i.paltFt),            6);
-  s += fmtSigned(Math.round(i.turnRateDps * 10),  5);
-  s += fmtSigned(Math.round(i.lateralG  * 100),   3);
-  s += fmtSigned(Math.round(i.verticalG * 10),    3);
-  s += fmtUnsigned(
-    i.iasValid ? Math.round(i.percentLiftPct * 10) : 0, 3);
-  s += fmtSigned(Math.round(i.vsiFpm / 10),       4);
-  s += fmtSigned(Math.round(i.oatC),              3);
-  s += fmtSigned(Math.round(i.flightPathDeg * 10),4);
-  s += fmtSigned(Math.round(i.flapsDeg),          3);
-  s += fmtUnsigned(i.tonesOnPctLift,               2);
-  s += fmtUnsigned(i.onSpeedFastPctLift,           2);
-  s += fmtUnsigned(i.onSpeedSlowPctLift,           2);
-  s += fmtUnsigned(i.stallWarnPctLift,             2);
-  s += fmtSigned(i.flapsMinDeg,                    3);
-  s += fmtSigned(i.flapsMaxDeg,                    3);
-  s += fmtSigned(Math.round(i.gOnsetRate * 100),   4);
-  s += fmtSigned(i.spinRecoveryCue,                2);
-  s += fmtUnsigned(i.dataMark,                      2);
-  s += fmtUnsigned(i.pipPctLift,                    2);
-
-  if (s.length !== 73) {
-    throw new Error(`payload length is ${s.length}, expected 73`);
-  }
-
-  let cksum = 0;
-  for (let n = 0; n < s.length; n++) cksum = (cksum + s.charCodeAt(n)) & 0xFF;
-  const ckHex = cksum.toString(16).toUpperCase().padStart(2, '0');
-  s += ckHex;
-  s += '\r\n';
-
-  if (s.length !== 77) {
-    throw new Error(`frame length is ${s.length}, expected 77`);
-  }
-  return Buffer.from(s, 'binary');
+if (!fs.existsSync(CORE_JS)) {
+  console.error(`FATAL: ${CORE_JS} not found.`);
+  console.error(
+    `Run \`bash software/Libraries/onspeed_core/wasm/build_wasm.sh\` first.`);
+  process.exit(2);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,9 +80,32 @@ function assertEqExact(label, actual, expected) {
 }
 
 async function main() {
-  console.log(`Loading WASM module: ${MODULE_JS}`);
+  console.log(`Loading M5 WASM module: ${MODULE_JS}`);
   const factory = require(MODULE_JS);
   const Module = await factory();
+
+  // Load the onspeed_core WASM (PR #496). It's an ES module
+  // (EXPORT_ES6=1, SINGLE_FILE=1), so use dynamic import. URL form is
+  // required for absolute paths under file:// resolution on Node.
+  console.log(`Loading onspeed_core WASM: ${CORE_JS}`);
+  const coreUrl = require('url').pathToFileURL(CORE_JS).href;
+  const CoreFactory = (await import(coreUrl)).default;
+  const Core = await CoreFactory();
+  if (typeof Core.build_display_frame !== 'function') {
+    console.error(
+      'FATAL: onspeed_core WASM is missing the `build_display_frame` ' +
+      'export. Rebuild it: ' +
+      '`bash software/Libraries/onspeed_core/wasm/build_wasm.sh`.');
+    process.exit(2);
+  }
+
+  // buildFrame: thin wrapper around Core.build_display_frame, returning a
+  // Node Buffer. The C++ side runs the canonical BuildDisplayFrame, so
+  // these bytes are guaranteed byte-for-byte identical to what the
+  // firmware emits on the wire — no JS hand-port to drift.
+  function buildFrame(inputs) {
+    return Buffer.from(Core.build_display_frame(inputs));
+  }
 
   // Sanity: every accessor we expect must be exported.
   const accessors = [
@@ -220,11 +167,26 @@ async function main() {
   console.log(`\nStep 2: inject ${frame.length}-byte wire frame`);
   for (const b of frame) Module._replay_inject_byte(b);
 
-  // Step 3 — drive the 50 ms graphics tick at virtual time 50 ms. The
-  // firmware's loop() runs SerialRead (no-op for the replay path; bytes
-  // already injected via accumulator), advances loopTime past 50 ms,
-  // and reaches the per-frame render block.
-  console.log('\nStep 3: advance to t=50 ms, drive one graphics tick');
+  // Frame-parse-success assertion: SerialRead's accumulator runs the
+  // checksum + parse synchronously inside InjectSerialByte() on the
+  // final LF byte. On a successful parse, IAS is set to the decoded
+  // value (80 kt here); on rejection (bad magic, bad checksum, length
+  // mismatch) the accumulator resets and IAS stays at its prior value
+  // (0 from setup()). This assertion catches silent frame rejection
+  // directly — without it, a parser regression could pass the indirect
+  // Slip / displayIAS checks below by leaving stale defaults that
+  // happen to match the expected values.
+  console.log('\nAssertion: frame accepted by parser');
+  assertEqExact('IAS after frame parse', Module._replay_get_IAS(), 80);
+
+  // Step 3 — advance to t=50 ms. The firmware's loop() checks the 50 ms
+  // graphics tick: `millis() > loopTime+50` is strictly greater-than,
+  // so 50 > 0+50 is false — the render block does NOT fire here. Slip
+  // was already set during _replay_inject_byte above (SerialProcess
+  // runs synchronously on frame completion inside InjectSerialByte,
+  // not inside loop()). The Module._replay_loop call here just advances
+  // any state that does fire on the first tick at this time.
+  console.log('\nStep 3: advance to t=50 ms, run loop');
   Module._replay_set_time(50n);
   Module._replay_loop();
 
@@ -250,10 +212,15 @@ async function main() {
   // up the wire's IAS (80 kt). The IAS_IN_MPH define in main.cpp
   // multiplies by 1.15078 — verify with tolerance.
   console.log('\nAssertion 7: t=600 ms, displayIAS now snapshotted');
-  // Need to re-inject the frame so SerialRead has fresh bytes; the
-  // accumulator already consumed the previous frame on the LF byte.
-  // Without a fresh frame, serialDataFresh() may go false at t=600 ms
-  // (300 ms threshold from kSerialDataFreshThresholdMs).
+  // Re-inject the frame here: this updates serialMillis = current
+  // virtual time (200ms-ish, when the bytes complete), keeping
+  // serialDataFresh() returning true at t=600 ms (300 ms threshold).
+  // Note: even WITHOUT this re-injection, displayIAS WOULD update at
+  // t=600 ms — the numbers-snapshot block (main.cpp:601) runs BEFORE
+  // the !serialDataFresh() early-return (main.cpp:836). The
+  // re-injection keeps the test's mental model clean (no NO-DATA
+  // overlay would fire at this t), not because the assertion depends
+  // on it.
   for (const b of frame) Module._replay_inject_byte(b);
   Module._replay_set_time(600n);
   Module._replay_loop();
