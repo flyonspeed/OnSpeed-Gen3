@@ -16,6 +16,7 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -25,6 +26,7 @@
 #include <config/ConfigV1Parse.h>
 #include <config/ConfigXmlParse.h>
 #include <config/OnSpeedConfig.h>
+#include <proto/DisplaySerial.h>
 #include <replay/LogReplayEngine.h>
 #include <types/LogRow.h>
 
@@ -489,6 +491,88 @@ private:
     onspeed::replay::LogReplayEngine engine_;
 };
 
+// ---------------------------------------------------------------------------
+// build_display_frame
+//
+// Encodes a `DisplayBuildInputs`-shaped JS object into the 77-byte v4.23
+// `#1` display-serial wire frame. Returns the bytes as a JS Uint8Array.
+//
+// This is the single source of truth for the wire format on the JS side:
+// callers (the M5-replay-WASM Node test, future browser bridges) get the
+// exact bytes the firmware would emit for the same inputs, so any future
+// wire-format change shows up everywhere at once. No JS hand-port.
+//
+// Field names match `onspeed_core/proto/DisplaySerial.h::DisplayBuildInputs`.
+// Missing fields default to zero (matching the C++ in-class initializers),
+// matching the convention used by parse_config / step.
+// ---------------------------------------------------------------------------
+static val build_display_frame(val inputsVal)
+{
+    auto getFloat = [&](const char* key, float def) -> float {
+        val v = inputsVal[key];
+        return (v.typeOf().as<std::string>() == "number") ? v.as<float>() : def;
+    };
+    auto getInt = [&](const char* key, int def) -> int {
+        val v = inputsVal[key];
+        return (v.typeOf().as<std::string>() == "number") ? v.as<int>() : def;
+    };
+    auto getBool = [&](const char* key, bool def) -> bool {
+        val v = inputsVal[key];
+        return (v.typeOf().as<std::string>() == "boolean") ? v.as<bool>() : def;
+    };
+
+    onspeed::proto::DisplayBuildInputs in;
+    in.pitchDeg           = getFloat("pitchDeg",           0.0f);
+    in.rollDeg            = getFloat("rollDeg",            0.0f);
+    in.iasKt              = getFloat("iasKt",              0.0f);
+    in.iasValid           = getBool ("iasValid",           true);
+    in.paltFt             = getFloat("paltFt",             0.0f);
+    in.turnRateDps        = getFloat("turnRateDps",        0.0f);
+    in.lateralG           = getFloat("lateralG",           0.0f);
+    // Wire field is verticalG × 10 already rounded; JS callers pass the
+    // raw G value via "verticalG" and we apply the ×10 rounding here so
+    // the JS shape matches the firmware's input convention (raw G, not
+    // pre-scaled). Mirrors X-Plane plugin's DataRefAdapter.cpp:
+    // `in.verticalGScaled10 = std::round(vG * 10.0f);`
+    in.verticalGScaled10  = std::round(getFloat("verticalG", 0.0f) * 10.0f);
+    in.percentLiftPct     = getFloat("percentLiftPct",     0.0f);
+    // vsiFpm10 is the wire's pre-divided value (vsi_fpm/10). JS passes
+    // raw fpm via "vsiFpm" and we divide+floor here, mirroring the firmware
+    // producer in DisplaySerial.cpp:
+    //   inputs.vsiFpm10 = ClampInt((int)floorf(mps2fpm(KalmanVSI)/10.0f), ...);
+    in.vsiFpm10 = static_cast<int>(std::floor(getFloat("vsiFpm", 0.0f) / 10.0f));
+    in.oatC               = getInt  ("oatC",               0);
+    in.flightPathDeg      = getFloat("flightPathDeg",      0.0f);
+    in.flapsDeg           = getInt  ("flapsDeg",           0);
+    in.tonesOnPctLift     = getInt  ("tonesOnPctLift",     0);
+    in.onSpeedFastPctLift = getInt  ("onSpeedFastPctLift", 0);
+    in.onSpeedSlowPctLift = getInt  ("onSpeedSlowPctLift", 0);
+    in.stallWarnPctLift   = getInt  ("stallWarnPctLift",   0);
+    in.flapsMinDeg        = getInt  ("flapsMinDeg",        0);
+    in.flapsMaxDeg        = getInt  ("flapsMaxDeg",        0);
+    in.gOnsetRate         = getFloat("gOnsetRate",         0.0f);
+    in.spinRecoveryCue    = getInt  ("spinRecoveryCue",    0);
+    in.dataMark           = getInt  ("dataMark",           0);
+    in.pipPctLift         = getInt  ("pipPctLift",         0);
+
+    uint8_t buf[onspeed::proto::kDisplayFrameSizeBytes];
+    const size_t n = onspeed::proto::BuildDisplayFrame(in, buf, sizeof(buf));
+    if (n != onspeed::proto::kDisplayFrameSizeBytes) {
+        throw std::runtime_error(
+            "build_display_frame: BuildDisplayFrame returned " +
+            std::to_string(n) + " (expected " +
+            std::to_string(onspeed::proto::kDisplayFrameSizeBytes) + ")");
+    }
+
+    // Build a JS Uint8Array by constructing it from a typed_memory_view
+    // copy. Constructing `new Uint8Array(memoryView)` on the JS side
+    // copies the bytes into a fresh JS-owned ArrayBuffer, so the local
+    // stack-allocated `buf` going out of scope after this function
+    // returns is safe — the JS caller holds independent storage.
+    val Uint8Array = val::global("Uint8Array");
+    return Uint8Array.new_(typed_memory_view(n, buf));
+}
+
 EMSCRIPTEN_BINDINGS(onspeed_core_module) {
     // Step 0: single export to prove the pipeline.
     function("compute_percent_lift", &compute_percent_lift);
@@ -503,4 +587,8 @@ EMSCRIPTEN_BINDINGS(onspeed_core_module) {
         .function("step",  &LogReplayEngineHandle::step)
         .function("flush", &LogReplayEngineHandle::flush)
         .function("reset", &LogReplayEngineHandle::reset);
+
+    // Bulldog round-1 fix C1: expose the canonical wire-frame builder so
+    // the M5-replay-WASM Node test can drive frames without a JS hand-port.
+    function("build_display_frame", &build_display_frame);
 }

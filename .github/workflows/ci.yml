@@ -805,6 +805,93 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Otherwise, investigate — the change is a bug." >> $GITHUB_STEP_SUMMARY
 
+  m5-replay-wasm-test:
+    # Builds the onspeed_core WASM and the M5 replay WASM, then runs both
+    # Node tests against them. The replay test pipes a known wire frame
+    # built by `Core.build_display_frame()` through the replay-built M5
+    # firmware's parser, so any drift between the firmware's SerialRead
+    # parser and onspeed_core's BuildDisplayFrame becomes impossible by
+    # construction — but only if CI rebuilds and runs the test on every
+    # change to either side. This job exists to hold that contract.
+    name: M5 Replay WASM Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0          # generate_buildinfo.py needs git tags
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+          key: ${{ runner.os }}-pio-m5-replay-wasm-v1
+          restore-keys: |
+            ${{ runner.os }}-pio-m5stack-
+
+      # `pio run -e native` builds M5GFX, whose `common.hpp` selects the
+      # SDL2 backend on POSIX hosts. Without libsdl2-dev installed, the
+      # platform switch falls through to the ESP-IDF branch and the build
+      # fails on `esp_log.h` / `heap_alloc_dma`. Mirrors the apt-cache
+      # step in the build-xplane-plugin job above.
+      - name: Install SDL2 + OpenAL (Linux)
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.0
+        with:
+          packages: libopenal-dev libsdl2-dev
+          version: 1.0
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.21
+          actions-cache-folder: 'emsdk-cache'
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build M5 native env (populates .pio/libdeps for WASM build)
+        # The WASM build script (sim/build_wasm.sh) reuses M5GFX/M5Unified
+        # from .pio/libdeps/native/, populated by a one-time pio native
+        # build. Without this step the WASM compile errors on missing
+        # M5Unified / M5GFX headers.
+        working-directory: software/OnSpeed-M5-Display
+        run: pio run -e native
+
+      - name: Build onspeed_core WASM
+        run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
+
+      - name: Build M5 replay WASM
+        # build_wasm.sh resolves SCRIPT_DIR via BASH_SOURCE[0] and uses
+        # absolute paths thereafter, so it can run from any cwd. The
+        # script copies the built artifacts into
+        # tools/web/lib/replay/m5sim/ where the Node test expects them.
+        working-directory: software/OnSpeed-M5-Display/sim
+        run: bash build_wasm.sh --target replay
+
+      - name: Run wasm-smoke (covers build_display_frame round-trip)
+        run: node tools/web/test/wasm-smoke.mjs
+
+      - name: Run M5 replay WASM test
+        run: node software/OnSpeed-M5-Display/test/test_replay_wasm.js
+
   static-analysis:
     name: Static Analysis (cppcheck)
     runs-on: ubuntu-latest

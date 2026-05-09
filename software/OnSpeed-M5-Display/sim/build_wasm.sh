@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build_wasm.sh — build the M5 display simulator for the browser.
 #
-# Two targets:
+# Three targets:
 #
 #   ./build_wasm.sh                  (or --target docs)
 #       The docs-site embed. Drives the display from a synthetic AOA
@@ -12,10 +12,24 @@
 #       _InjectSerialByte so JS can pipe live #1-protocol frames in
 #       from the firmware's WebSocket. Output: sim/build/wasm-live/.
 #
+#   ./build_wasm.sh --target replay
+#       The replay-tool engine. Compiles the M5 firmware as a state
+#       machine driven by JS: virtual `millis()`/`micros()` instead of
+#       wall clock, no SDL2, no canvas — the firmware's gdraw sprite is
+#       allocated but never blitted. JS injects #1 wire bytes and reads
+#       state-var accessors (replay_get_displayIAS, replay_get_Slip,
+#       etc.). Output: sim/build/wasm-replay/onspeed_m5.{js,wasm} →
+#       copied to tools/web/lib/replay/m5sim/.
+#
 # Emscripten's `-sUSE_SDL=2` port reuses the SDL2 code path M5GFX's
 # Panel_sdl backend already relies on — the same firmware binary that
 # runs on the macOS/Linux native target also compiles straight to
-# WebAssembly.
+# WebAssembly. All three targets pass `-sUSE_SDL=2` so M5GFX/M5Unified
+# headers (common.hpp, Speaker_Class.hpp, Mic_Class.hpp,
+# M5Unified.hpp) that transitively pull in fakesdl/SDL.h compile
+# cleanly. The `replay` target excludes the sdl/ platform sources and
+# provides its own `lgfx::v1::millis/micros` from ReplayMain.cpp, so
+# the SDL2 port is linked but never invoked at runtime.
 
 set -euo pipefail
 
@@ -32,15 +46,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown arg: $1" >&2
-            echo "Usage: $0 [--target docs|live]" >&2
+            echo "Usage: $0 [--target docs|live|replay]" >&2
             exit 2
             ;;
     esac
 done
 
 case "${TARGET}" in
-    docs|live) ;;
-    *) echo "Invalid target: ${TARGET} (expected docs or live)" >&2; exit 2 ;;
+    docs|live|replay) ;;
+    *) echo "Invalid target: ${TARGET} (expected docs, live, or replay)" >&2; exit 2 ;;
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,6 +63,8 @@ REPO_ROOT="$(cd "${PROJECT_DIR}/../.." && pwd)"
 
 if [[ "${TARGET}" == "live" ]]; then
     OUT_DIR="${SCRIPT_DIR}/build/wasm-live"
+elif [[ "${TARGET}" == "replay" ]]; then
+    OUT_DIR="${SCRIPT_DIR}/build/wasm-replay"
 else
     OUT_DIR="${SCRIPT_DIR}/build/wasm"
 fi
@@ -79,6 +95,14 @@ VERSION_DIR="${REPO_ROOT}/software/Libraries/version"
 # isn't referenced, so the wide glob is fine. We split into C vs C++
 # buckets because emcc applies any single -std flag uniformly — mixing
 # -std=gnu++17 with .c files errors out.
+#
+# Replay target additionally excludes the sdl/ platform sources: that
+# build provides its own lgfx::millis/micros from ReplayMain.cpp and
+# does not link SDL2.
+SDL_EXCLUDE=()
+if [[ "${TARGET}" == "replay" ]]; then
+    SDL_EXCLUDE=(! -path '*/platforms/sdl/*')
+fi
 M5G_CXX_SOURCES=(
     "${M5G_DIR}/src/M5GFX.cpp"
 )
@@ -96,6 +120,7 @@ while IFS= read -r -d '' f; do M5G_CXX_SOURCES+=("$f"); done < <(
          ! -path '*/platforms/spresense/*' \
          ! -path '*/platforms/wiced/*' \
          ! -path '*/platforms/ra6m5/*' \
+         "${SDL_EXCLUDE[@]}" \
          -print0)
 while IFS= read -r -d '' f; do M5G_C_SOURCES+=("$f"); done < <(
     find "${M5G_DIR}/src/lgfx/v1" \
@@ -110,6 +135,7 @@ while IFS= read -r -d '' f; do M5G_C_SOURCES+=("$f"); done < <(
          ! -path '*/platforms/spresense/*' \
          ! -path '*/platforms/wiced/*' \
          ! -path '*/platforms/ra6m5/*' \
+         "${SDL_EXCLUDE[@]}" \
          -print0)
 while IFS= read -r -d '' f; do M5G_CXX_SOURCES+=("$f"); done < <(
     find "${M5G_DIR}/src/lgfx/Fonts" -name '*.cpp' -print0)
@@ -139,9 +165,16 @@ FW_SOURCES=(
     "${PROJECT_DIR}/src/SettingsMenu.cpp"
     "${PROJECT_DIR}/lib/MenuModel/MenuModel.cpp"
     "${PROJECT_DIR}/lib/GaugeWidgets/GaugeWidgets.cpp"
-    "${SCRIPT_DIR}/SimMain.cpp"
     "${VERSION_DIR}/buildinfo.cpp"
 )
+if [[ "${TARGET}" == "replay" ]]; then
+    FW_SOURCES+=(
+        "${SCRIPT_DIR}/ReplayMain.cpp"
+        "${SCRIPT_DIR}/ReplayStubs.cpp"
+    )
+else
+    FW_SOURCES+=("${SCRIPT_DIR}/SimMain.cpp")
+fi
 
 INCLUDES=(
     -I"${PROJECT_DIR}/include"
@@ -164,6 +197,10 @@ if [[ "${TARGET}" == "docs" ]]; then
     # Docs sim: synthetic AOA ramp baked into SerialRead.cpp.
     COMMON_FLAGS+=(-DDUMMY_SERIAL_DATA)
 fi
+if [[ "${TARGET}" == "replay" ]]; then
+    # Replay target: virtual time + accessor exports, no SDL.
+    COMMON_FLAGS+=(-DREPLAY_TARGET)
+fi
 
 CXXFLAGS=(
     "${COMMON_FLAGS[@]}"
@@ -175,16 +212,52 @@ CFLAGS=(
     -std=gnu11
 )
 
-EM_FLAGS=(
-    # SDL2 via Emscripten's built-in port (HTML5-canvas backed).
-    -sUSE_SDL=2
-    -sASYNCIFY
-    -sASYNCIFY_STACK_SIZE=131072
-    -sALLOW_MEMORY_GROWTH=1
-    -sINITIAL_MEMORY=67108864
-    -o "${OUT_DIR}/index.html"
-    --shell-file "${SCRIPT_DIR}/wasm_shell.html"
-)
+if [[ "${TARGET}" == "replay" ]]; then
+    # Replay target: no canvas, no main(). Output is a JS loader + .wasm
+    # pair that JS imports. Drives setup/loop manually via
+    # replay_init/replay_loop and reads state-var accessors.
+    #
+    # SDL2 is linked (via -sUSE_SDL=2) so M5GFX/M5Unified headers that
+    # transitively include fakesdl/SDL.h compile cleanly. The replay
+    # build never calls into SDL at runtime — sdl/ platform sources are
+    # excluded above (SDL_EXCLUDE) and ReplayMain.cpp provides
+    # lgfx::v1::millis/micros — but the SDL port has to be enabled at
+    # the emcc layer for the M5 headers to resolve.
+    #
+    # ASYNCIFY mirrors the docs/live targets: M5Unified's setup paths
+    # call SDL helpers that may yield, and disabling asyncify changes
+    # codegen in subtle ways across the combined build.
+    #
+    # Bundle sizing: ALLOW_MEMORY_GROWTH so the firmware's gdraw sprite
+    # (320 × 240 × 1 byte = 75 KB at 8bpp) plus PSRAM-style heap headroom
+    # don't bound the working set. Initial 16 MB matches what M5Unified
+    # expects on Core2 (the firmware never sees the difference).
+    EM_FLAGS=(
+        -sUSE_SDL=2
+        -sASYNCIFY
+        -sASYNCIFY_STACK_SIZE=131072
+        -sMODULARIZE=1
+        -sEXPORT_ES6=0
+        -sNO_EXIT_RUNTIME=1
+        -sALLOW_MEMORY_GROWTH=1
+        -sINITIAL_MEMORY=16777216
+        -sENVIRONMENT=node,web
+        -sEXPORTED_FUNCTIONS=_replay_init,_replay_set_time,_replay_loop,_replay_inject_byte,_replay_set_displayType,_replay_get_displayIAS,_replay_get_displayPalt,_replay_get_displayPitch,_replay_get_displayVerticalG,_replay_get_displayPercentLift,_replay_get_displayDecelRate,_replay_get_Slip,_replay_get_PercentLift,_replay_get_gOnsetRate,_replay_get_IAS,_replay_get_Palt,_replay_get_IasIsValid,_replay_get_displayType,_replay_get_iVSI,_replay_get_OAT,_replay_get_FlightPath,_replay_get_Pitch,_replay_get_Roll,_replay_get_TonesOnPctLift,_replay_get_OnSpeedFastPctLift,_replay_get_OnSpeedSlowPctLift,_replay_get_StallWarnPctLift,_replay_get_PipPctLift,_replay_get_FlapsMinDeg,_replay_get_FlapsMaxDeg,_replay_get_FlapPos,_replay_get_gHistoryIndex,_replay_get_gHistory_ptr,_replay_get_SpinRecoveryCue,_replay_get_DataMark,_malloc,_free
+        -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8,HEAPF32
+        -o "${OUT_DIR}/onspeed_m5.js"
+    )
+else
+    EM_FLAGS=(
+        # SDL2 via Emscripten's built-in port (HTML5-canvas backed).
+        -sUSE_SDL=2
+        -sASYNCIFY
+        -sASYNCIFY_STACK_SIZE=131072
+        -sALLOW_MEMORY_GROWTH=1
+        -sINITIAL_MEMORY=67108864
+        -o "${OUT_DIR}/index.html"
+        --shell-file "${SCRIPT_DIR}/wasm_shell.html"
+    )
+fi
 if [[ "${TARGET}" == "live" ]]; then
     # Live target: expose the byte-injection entry point so the JS
     # bridge can pipe #1-protocol bytes received over the firmware's
@@ -243,6 +316,24 @@ emcc \
 
 echo ""
 echo "[wasm] Build complete."
-echo "  Output: ${OUT_DIR}/index.html"
-echo "  Serve:  python3 -m http.server --directory ${OUT_DIR} 8080"
-echo "  Open:   http://localhost:8080/"
+if [[ "${TARGET}" == "replay" ]]; then
+    echo "  Output: ${OUT_DIR}/onspeed_m5.{js,wasm}"
+    if [[ -f "${OUT_DIR}/onspeed_m5.wasm" ]]; then
+        WASM_BYTES=$(wc -c < "${OUT_DIR}/onspeed_m5.wasm")
+        WASM_KB=$(( WASM_BYTES / 1024 ))
+        echo "  WASM size: ${WASM_KB} KB"
+    fi
+    # Copy artifacts to the replay tool's expected location so the JS
+    # `import` works without a separate copy step. PR 2 will wire JS
+    # consumers; PR 1 leaves the artifacts on disk for the Node test
+    # harness and any future browser bridge.
+    REPLAY_DEST="${REPO_ROOT}/tools/web/lib/replay/m5sim"
+    mkdir -p "${REPLAY_DEST}"
+    cp "${OUT_DIR}/onspeed_m5.js"   "${REPLAY_DEST}/"
+    cp "${OUT_DIR}/onspeed_m5.wasm" "${REPLAY_DEST}/"
+    echo "  Copied to: ${REPLAY_DEST}/onspeed_m5.{js,wasm}"
+else
+    echo "  Output: ${OUT_DIR}/index.html"
+    echo "  Serve:  python3 -m http.server --directory ${OUT_DIR} 8080"
+    echo "  Open:   http://localhost:8080/"
+fi

@@ -293,6 +293,14 @@ void setup()
     //
     // initialize the M5Stack object and clear display
     //
+    // Replay target: skip M5.begin / display init / DAC mute. The replay
+    // build never drives a real panel (everything renders into an
+    // in-memory sprite that JS never reads); calling M5.begin() pulls in
+    // RTC / IMU / Speaker init paths that have no SDL backend in this
+    // build configuration. JS drives the firmware via accessor exports,
+    // not button presses, so the BtnB hold-for-FW-update path below is
+    // also skipped.
+#if !defined(REPLAY_TARGET)
     auto cfg = M5.config();
     M5.begin(cfg);
 #if !defined(HUVVER)
@@ -316,6 +324,7 @@ void setup()
 #if !defined(ARDUINO_M5STACK_Core2) && !defined(HUVVER)
     dacWrite(25, 0);
 #endif
+#endif // !REPLAY_TARGET
 
     gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
     gdraw.createSprite(WIDTH, HEIGHT);
@@ -329,6 +338,11 @@ void setup()
 
     // duration of splash screen display, check for center button for fw upgrade
     uint64_t waitTime = millis();
+#if defined(REPLAY_TARGET)
+    // JS drives time and never holds BtnB; skip the entire 3 s splash
+    // wait so the first replay_loop() lands directly on the data path.
+    (void)waitTime;
+#else
     while (millis()-waitTime<3000)
     {
         M5.update();
@@ -445,6 +459,7 @@ void setup()
 #endif // ESP_PLATFORM
 
     } // end while splash screen
+#endif // !REPLAY_TARGET
 
     if (fwUpdateMode)
         return; // do not continue if firmware upgrade mode was selected.
@@ -495,7 +510,7 @@ void setup()
 
 void loop()
 {
-#ifndef XPLANE_PLUGIN_BUILD
+#if !defined(XPLANE_PLUGIN_BUILD) && !defined(REPLAY_TARGET)
     // M5.update() polls buttons / IMU / RTC / PMIC via the M5Unified
     // singleton.  In the X-Plane plugin context M5.begin() was never
     // called (we drive M5.Display.setPanel() directly without bringing
@@ -503,7 +518,9 @@ void loop()
     // calling update() pokes uninitialized hardware peripheral state.
     // Today this is harmless (M5Unified no-ops on Panel_NULL); guarded
     // for defense-in-depth against a future M5GFX version where the
-    // default device gets a less benign auto-init.
+    // default device gets a less benign auto-init. Also skipped on
+    // REPLAY_TARGET — JS drives modes directly through replay_set_*
+    // accessors and there's no hardware to poll.
     M5.update();
 #endif
 
@@ -537,7 +554,12 @@ void loop()
     // above runs every iteration regardless so the UART RX FIFO keeps
     // draining (1540 B/s into a 256 B FIFO; pausing it for the 30-second
     // menu visit would overflow within ~200 ms).
-#ifndef XPLANE_PLUGIN_BUILD
+    //
+    // Replay target: M5.begin() was never called, so the M5 button
+    // singletons sit on uninitialized hardware state. JS controls
+    // displayType through replay_set_displayType() instead — no buttons,
+    // no menu, no brightness-up/down. Skip the entire button block.
+#if !defined(XPLANE_PLUGIN_BUILD) && !defined(REPLAY_TARGET)
     if (isSettingsMenuActive())
     {
         tickSettingsMenu();
@@ -552,12 +574,13 @@ void loop()
 #else
     if (M5.BtnB.wasHold()) { enterSettingsMenu(); return; }
 #endif
-#endif // XPLANE_PLUGIN_BUILD
+#endif // !XPLANE_PLUGIN_BUILD && !REPLAY_TARGET
 
     // ---- Live-mode button handlers ----
     // wasClicked() fires on release-after-short-press only; suppressed
     // automatically when the press crossed the hold threshold (so the
     // menu-entry hold above doesn't *also* cycle the mode here).
+#if !defined(REPLAY_TARGET)
     const uint16_t prevBrightness = displayBrightness;
 #if defined(HUVVER)
     // huVVer: ▶ (BtnC) doubles brightness; ◀ (BtnD) halves it.
@@ -602,6 +625,7 @@ void loop()
         preferences.end();
 #endif
     }
+#endif // !REPLAY_TARGET
 
     // update G history buffer (finding 037: only when data is fresh —
     // otherwise the 60 s Mode 4 trace backfills with the frozen last-known
@@ -2054,5 +2078,7 @@ void displaySplashScreen()
     gdraw.setTextDatum(textdatum_t::baseline_left);
     gdraw.pushSprite(0, 0);
     gdraw.deleteSprite();
+#if !defined(REPLAY_TARGET)
     M5.update();
+#endif
 }
