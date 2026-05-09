@@ -280,8 +280,9 @@ persist it. The pure-logic state machine in `lib/MenuModel/` is
 unchanged — it dispatches based on `ItemType`.
 
 **Persistence:** `Preferences` namespace `"OnSpeed"`, key `SpeedMph`.
-Default `true` (MPH) on a fresh device, matching the previous build-time
-default that the deleted `IAS_IN_MPH` `#define` had.
+Default `false` (KTS) on a fresh device — pilots flip via the menu and
+the choice persists across reboots. This replaces the compile-time
+`IAS_IN_MPH` flag with a runtime preference (see #419).
 
 **X-Plane plugin:** the menu is gated behind `#ifndef XPLANE_PLUGIN_BUILD`
 in both `main.cpp` and the include path. The plugin sees no SettingsMenu

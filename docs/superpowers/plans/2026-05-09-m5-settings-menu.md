@@ -33,7 +33,7 @@
 
 ## Key Spec Facts To Remember
 
-1. **`SpeedMph` default is `true` (MPH)**, not `false`. Master currently has `#define IAS_IN_MPH` enabled, so the runtime default must preserve current behavior for existing pilots' first boot. The spec's earlier wording said "default false" — `true` is correct.
+1. **`SpeedMph` default is `false` (KTS)**. The compile-time `IAS_IN_MPH` defaulted to MPH on master, but the runtime preference flips the default — pilots flip via the menu and the choice persists.
 2. **The live-mode render is suppressed while the menu is active**, but `SerialRead()` keeps draining the UART RX FIFO every iteration. The OnSpeed wire pushes 77 B × 20 Hz ≈ 1540 B/s; the ESP32 RX FIFO is 256 B and would overflow within ~200 ms if `SerialRead` were paused. Order in `loop()`: `M5.update()` → `SerialRead()` → menu gate → live-mode handlers.
 3. **No "Saving..." banner.** Toggle flips persist immediately on press. Clean cut from menu to live mode on exit.
 4. **`MenuModel` is in the M5 sub-project**, NOT in `onspeed_core`. `onspeed_core` is for flight math; UI state is a separate concern.
@@ -623,8 +623,8 @@ Lays out the M5GFX-side surface that `main.cpp` will call into. Implementation i
 
 // Initialize from NVS. Call from setup() after M5.begin() and after the
 // existing brightness / displayType reads. Reads the persisted SpeedMph
-// preference; default true (preserves the current MPH-by-default behavior
-// that the deleted IAS_IN_MPH define had on master).
+// preference; default false (KTS) — pilots flip via the settings menu
+// and the choice persists across reboots.
 void initSettingsMenu();
 
 // Enter the menu: builds the items array, resets MenuModel state. Allocates
@@ -903,7 +903,7 @@ void pollMenuInput() {
 void initSettingsMenu() {
 #if defined(ESP_PLATFORM)
     preferences.begin("OnSpeed", true);   // read-only
-    g_speedInMph = preferences.getBool("SpeedMph", true);   // default MPH
+    g_speedInMph = preferences.getBool("SpeedMph", false);  // default KTS
     preferences.end();
 #endif
 }
@@ -1473,7 +1473,7 @@ This plan implements the spec at `docs/superpowers/specs/2026-05-08-m5-settings-
 | `wasClicked()` migration | T6 |
 | Item types (Toggle, Action, Info) | T1 (struct + dispatch), T2 (test coverage) |
 | Visual layout (title, items, footer, no banner) | T5 |
-| Persistence (`SpeedMph` key, default true) | T5 (read), T5 (write), T6 (init) |
+| Persistence (`SpeedMph` key, default false = KTS) | T5 (read), T5 (write), T6 (init) |
 | `MenuModel` in `lib/MenuModel/`, NOT `onspeed_core` | T1 |
 | `SettingsMenu.h/cpp` thin platform layer | T4, T5 |
 | huVVer `wasClicked` / `wasHold` shim | T3 |

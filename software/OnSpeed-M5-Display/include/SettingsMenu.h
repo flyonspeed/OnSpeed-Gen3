@@ -21,8 +21,8 @@
 
 // Initialize from NVS. Call from setup() after M5.begin() and after the
 // existing brightness / displayType reads. Reads the persisted SpeedMph
-// preference; default true (preserves the current MPH-by-default behavior
-// that the deleted IAS_IN_MPH define had on master).
+// preference; default false (KTS) — pilots flip via the settings menu
+// and the choice persists across reboots.
 void initSettingsMenu();
 
 // Enter the menu: builds the items array, resets MenuModel state. Allocates
@@ -37,7 +37,6 @@ void tickSettingsMenu();
 // True between enterSettingsMenu() and the tick that processes wantsExit().
 bool isSettingsMenuActive();
 
-// The runtime preference. Read by main.cpp's IAS-render block. Default true
-// (MPH) on a fresh device with no saved preference, matching the current
-// build's IAS_IN_MPH behavior.
+// The runtime preference. Read by main.cpp's IAS-render block. Default
+// false (KTS) on a fresh device with no saved preference.
 extern bool g_speedInMph;

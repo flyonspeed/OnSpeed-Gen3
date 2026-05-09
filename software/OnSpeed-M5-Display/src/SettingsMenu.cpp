@@ -35,9 +35,10 @@ using m5menu::ItemType;
 // Off-screen sprite shared with main.cpp. Defined in main.cpp at top scope.
 extern M5Canvas gdraw;
 
-// Public global — read by main.cpp's IAS render block. Default true (MPH)
-// to match the current IAS_IN_MPH build's behavior on first boot.
-bool g_speedInMph = true;
+// Public global — read by main.cpp's IAS render block. Default false
+// (KTS) — pilots flip via the settings menu and the choice persists in
+// NVS across reboots.
+bool g_speedInMph = false;
 
 namespace {
 
@@ -287,7 +288,7 @@ void pollMenuInput() {
 void initSettingsMenu() {
 #if defined(ESP_PLATFORM)
     preferences.begin("OnSpeed", true);   // read-only
-    g_speedInMph = preferences.getBool("SpeedMph", true);   // default MPH
+    g_speedInMph = preferences.getBool("SpeedMph", false);  // default KTS
     preferences.end();
 #endif
 }
