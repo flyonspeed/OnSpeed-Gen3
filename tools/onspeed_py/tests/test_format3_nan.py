@@ -6,7 +6,15 @@ NaN rather than coercing to 0.0, so an at-rest pre-takeoff segment in a
 v3 log doesn't render as IAS=0/AOA=0 in offline analysis.
 
 Companion to `test_log_csv_format_three_gate` on the firmware side
-(format emission).  Together these pin the producer/consumer contract.
+(format emission). Together these pin the producer/consumer contract.
+
+NaN propagation contract after Step 2 (host_main wrapper):
+  - `ias_valid=false` in C++ output → `LiveSnapshot.ias = NaN`,
+    `LiveSnapshot.aoa = NaN`.
+  - This matches the old Python behavior where empty IAS/AOA cells
+    propagated as NaN via `_ffloat(..., allow_empty=True)`.
+  - `_ffloat` helper is retained in log_replay.py for the lightweight
+    timestamp-scan path and is still tested here directly.
 """
 
 from __future__ import annotations
@@ -68,7 +76,7 @@ def test_ffloat_allow_empty_parses_numeric_normally() -> None:
 
 def test_ffloat_default_allow_empty_unchanged_for_existing_callers() -> None:
     """Sanity: callers that don't pass allow_empty get the original
-    default-on-empty behavior.  Pins back-compat for the non-gated
+    default-on-empty behavior. Pins back-compat for the non-gated
     column callsites.
     """
     row = {"Pitch": ""}
@@ -83,7 +91,7 @@ def test_ffloat_default_allow_empty_unchanged_for_existing_callers() -> None:
 
 def _v3_csv_at_rest(n_rows: int = 10) -> str:
     """Synthetic v3 log: empty IAS / AngleofAttack cells (the format-3
-    "no valid air data" convention), other columns populated.  Matches
+    "no valid air data" convention), other columns populated. Matches
     what `LogSensor::Write` emits when `bIasAlive` is false on a
     pre-takeoff segment.
     """
@@ -101,27 +109,13 @@ def _v3_csv_at_rest(n_rows: int = 10) -> str:
     return header + "".join(rows)
 
 
-def _v2_csv_in_flight(n_rows: int = 10) -> str:
-    """Synthetic v2 log: every cell numeric.  Pins that the gated path
-    parses identically to the original behavior on existing logs.
-    """
-    header = (
-        "timeStamp,IAS,AngleofAttack,Pitch,Roll,YawRate,VerticalG,LateralG,"
-        "flapsPos,DataMark,OAT,Palt,VSI,FlightPath\n"
-    )
-    rows = []
-    for i in range(n_rows):
-        ts = i * 20
-        rows.append(
-            f"{ts},73.1,8.0,2.0,0.0,0.0,1.0,0.0,0,0,15,2500,0,0\n"
-        )
-    return header + "".join(rows)
-
-
 def test_v3_at_rest_yields_nan_ias_and_aoa() -> None:
     """End-to-end: a v3 log with empty IAS/AOA cells produces
-    LiveSnapshot ticks where ias and aoa are NaN — not 0.0.  This is
-    the observable behavior format-3 was introduced to make possible.
+    LiveSnapshot ticks where ias and aoa are NaN — not 0.0.
+
+    C++ contract: when `ias_valid=false` (empty IAS cell), the wrapper
+    maps both `ias` and `aoa` to NaN, preserving the format-3 convention
+    that "no valid air data" is distinguishable from IAS=0/AOA=0.
     """
     csv_text = _v3_csv_at_rest(n_rows=10)
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
@@ -151,7 +145,7 @@ def test_v3_at_rest_yields_nan_ias_and_aoa() -> None:
 
 def test_v3_at_rest_does_not_emit_ias_zero_frames() -> None:
     """Replay-equivalent assertion: there are no IAS=0 frames in the
-    output for an at-rest input.  Defends against any future helper
+    output for an at-rest input. Defends against any future helper
     accidentally re-introducing the silent 0.0 fallback.
     """
     csv_text = _v3_csv_at_rest(n_rows=10)
@@ -171,19 +165,31 @@ def test_v3_at_rest_does_not_emit_ias_zero_frames() -> None:
     finally:
         log_path.unlink()
 
-    # No tick should report ias == 0.0 — it must be NaN.  A 0.0 here
-    # would mean the gate broke and "no valid air data" got coerced
-    # into a valid-looking sample.
+    # No tick should report ias == 0.0 — it must be NaN.
     bad = [s.ias for s in states if s.ias == 0.0]
     assert not bad, f"unexpected IAS=0 frames in v3 at-rest replay: {bad!r}"
 
 
-def test_v2_in_flight_parses_numeric_unchanged() -> None:
-    """v2 log (pre-format-3, all numeric) parses identically to the
-    original behavior.  Pins back-compat for the bulk of historical
-    log data.
+def test_v2_in_flight_ias_passes_through() -> None:
+    """v2 log (pre-format-3, all numeric) passes IAS through correctly.
+    Pins back-compat for the bulk of historical log data.
+
+    Note: AOA in the C++ wrapper comes from the pressure polynomial
+    (Pfwd/P45), not from the log's `AngleofAttack` column. When no
+    pressure columns are present (as in this old-format synthetic CSV),
+    AOA is clamped to the minimum (-20°). The old Python implementation
+    read `AngleofAttack` directly — the C++ contract is different.
+    See test_aoa_comes_from_pressure_not_log_column in test_log_replay.py.
     """
-    csv_text = _v2_csv_in_flight(n_rows=10)
+    header = (
+        "timeStamp,IAS,AngleofAttack,Pitch,Roll,YawRate,VerticalG,LateralG,"
+        "flapsPos,DataMark,OAT,Palt,VSI,FlightPath\n"
+    )
+    body = "".join(
+        f"{i*20},73.1,8.0,2.0,0.0,0.0,1.0,0.0,0,0,15,2500,0,0\n"
+        for i in range(10)
+    )
+    csv_text = header + body
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
         f.write(csv_text)
         log_path = Path(f.name)
@@ -202,14 +208,16 @@ def test_v2_in_flight_parses_numeric_unchanged() -> None:
 
     assert len(states) > 0
     for s in states:
+        # IAS passes through from the log column.
         assert s.ias == 73.1
-        assert s.aoa == 8.0
+        # IAS is valid, so ias is not NaN.
+        assert not math.isnan(s.ias)
 
 
-def test_derived_aoa_alias_also_propagates_nan() -> None:
-    """`DerivedAOA` is the post-PR-#353 column name and gets the same
-    air-data gate as `AngleofAttack`.  An empty `DerivedAOA` cell
-    propagates as NaN through the same alias resolution.
+def test_derived_aoa_alias_empty_yields_nan_ias_and_aoa() -> None:
+    """`DerivedAOA` is the post-PR-#353 column name. An empty `IAS` cell
+    alongside `DerivedAOA` produces `ias_valid=false` in the C++ engine,
+    which the wrapper maps to NaN for both ias and aoa.
     """
     header = (
         "timeStamp,IAS,DerivedAOA,Pitch,Roll,YawRate,VerticalG,LateralG,"
@@ -238,6 +246,7 @@ def test_derived_aoa_alias_also_propagates_nan() -> None:
 
     assert len(states) > 0
     for s in states:
+        assert math.isnan(s.ias)
         assert math.isnan(s.aoa)
 
 
