@@ -1,7 +1,7 @@
 ---
 date: 2026-05-09
 owner: Sam
-status: design — ready to dispatch PR 1
+status: design — PR 1 in flight (CI fix pending), PR 1.5 next
 supersedes_in_replay: PLAN_VIDEO_OVERLAY Layer 0+ rendering path
 relates_to:
   - 2026-05-08-replay-INDEX.md
@@ -31,6 +31,35 @@ WebSocket JSON today. Migrating it to consume the M5 firmware WASM
 via WebSocket bytes is conceptually correct but **not part of this
 plan**. If/when we revisit, fresh plan.
 
+## The two invariants of "show what the pilot saw"
+
+"What the pilot saw" depends on **two** things being correct, not
+one. We initially conflated them; the plan was a level too thin.
+
+**Invariant 1 — Rendering owned by the M5 firmware.** The 20 Hz
+graphics tick, the 2 Hz text snapshot, the SavGol-on-IAS decel
+computation, the slip-ball math, mode dispatch, gHistory ring
+buffer, IasIsValid edge handling — all of this lives in the M5
+firmware. Replay must run that exact source code, not a JS hand-port
+of it. **PR 1 closes this invariant** by compiling M5 firmware to
+WASM and exposing state-var accessors.
+
+**Invariant 2 — Wire bytes feeding the M5 are complete.** The M5
+firmware is a function from "wire frames" to "display state." If
+the wire frames it receives are missing fields (e.g., `gOnsetRate =
+0`, anchors all zero, `turnRateDps = 0`), the resulting display
+state is wrong even though the firmware itself is doing exactly
+what it does on real hardware. **PR 1.5 closes this invariant** via
+a `LogReplayEngine` field-completeness audit + golden-fixture test.
+
+Both must hold. PR 1 alone is not enough; the wire bytes the M5 sim
+parses must populate every meaningful `DisplayBuildInputs` field.
+We discovered this gap mid-flight when `gOnsetRate` (issue #508),
+`turnRateDps`, `oatC` came up as "stuck at zero" in replay despite
+the firmware being correct. Several of these were filed
+incrementally; PR 1.5 audits the whole struct in one pass with a
+golden-fixture test that prevents recurrence.
+
 ## The story in one paragraph
 
 The replay tool's overlay must paint **what the pilot saw on the M5
@@ -41,12 +70,14 @@ quantization, 2 Hz text snapshot, and locally-computed decel rate.
 Result: ball jitter, altitude flicker, text updating too fast, decel
 gauge stuck at zero. The fix is the architectural close-out we've been
 pointing at: **compile the M5-Display firmware itself to WASM and run
-it as the replay tool's state engine.** JS feeds wire frames in at
+it as the replay tool's state engine** (PR 1), AND **complete the
+`LogReplayEngine`'s coverage of every wire field** so the M5 sim
+receives accurate input (PR 1.5). JS feeds wire frames in at
 20 Hz; the M5 firmware code (literally the same source that flashes to
 the panel) decides what numbers to display, when to snapshot, what
 the ball position is. JS reads M5 state vars and renders SVG from
 them. Drift is impossible because the M5 firmware *is* the replay
-engine.
+engine — but ONLY if the wire bytes feeding it are complete.
 
 ## What's already built (this is mostly assembly, not invention)
 
@@ -270,6 +301,124 @@ under `software/OnSpeed-M5-Display/test/test_replay_wasm.js` that:
 - Flip `updateRateNumbers` from 500 to 50 in `main.cpp` — test #6 must fail (numbers snapshot too early).
 - If either sabotage doesn't fail the test, the test isn't actually exercising the production code — fix the test before merging.
 
+### PR 1.5 — `feat(replay): complete LogReplayEngine wire-field coverage` (~half-day)
+
+PR 1 closes Invariant 1 (rendering owned by M5 firmware). PR 1.5
+closes Invariant 2 (wire bytes feeding the M5 are complete). Without
+this, PR 2's trial run shows zero gauges for `gOnsetRate`,
+`turnRateDps`, `oatC`, etc., even though the firmware itself is
+correct.
+
+**Why this is its own PR.** During PR 1's design we treated
+`LogReplayEngine` as a finished artifact — "PRs #487/#490/#491
+landed it." That was wrong. The engine was scoped for *its* original
+use case (replay an SD log through algorithm code to verify
+behavior), not for *this* one (build complete wire frames for the M5
+firmware to consume). Several wire fields were never populated
+because nothing depended on them in the original use case. We
+discovered this via the `gOnsetRate` gauge symptom; rather than
+trickle one issue per missing field, we audit the entire
+`DisplayBuildInputs` struct in one PR with a golden-fixture test
+that prevents recurrence.
+
+#### Audit deliverable
+
+For each field in `software/Libraries/onspeed_core/src/proto/DisplaySerial.h::DisplayBuildInputs`,
+classify it into exactly one bucket:
+
+- **Engine-populated** (from log row or computed via filter at log
+  rate). Example: `lateralG` via `accelLatEma_`. PR 1.5 verifies these
+  are correct.
+- **Engine-populated but currently TODO'd to default zero.** Example:
+  `gOnsetRate`, `turnRateDps`, `oatC`. PR 1.5 implements these.
+- **wireBridge-supplied at PR-2 time** (from cfg + cached state).
+  Example: anchors (`tonesOnPctLift` etc.), `flapsMinDeg`/`flapsMaxDeg`.
+  PR 1.5 documents these in `LogReplayEngine.h` with a comment
+  pointing forward to PR 2.
+- **Constant by design.** Example: `spinRecoveryCue` (always 0
+  today, reserved for future use). PR 1.5 documents this.
+
+The classification lives in a comment block at the top of
+`LogReplayEngine.h`'s `ReplayStepResult` struct, table-formatted, so
+the next reader sees the complete map.
+
+#### Engine-side implementations needed (this PR)
+
+Concrete fields known missing today:
+
+- **`gOnsetRate`** (issue #508): instantiate `GOnsetFilter` (already in
+  `onspeed_core/filters/`), feed `accelVertSmoothed` + `dt`, write to
+  `out.gOnsetRate`. ~5 lines.
+- **`turnRateDps`**: from log column `YawRate` (already on `LogRow` as
+  `imuYawRateDps`). One-line copy.
+- **`oatC`**: from log column `OAT`. One-line copy. Comment that this
+  is only meaningful when the original flight had an OAT sensor.
+- **`iasValid`**: this is **NOT** a simple "IAS > 0" check. It's a
+  hysteretic state machine in
+  `software/Libraries/onspeed_core/src/sensors/IasAlive.h` with a
+  20 kt rising threshold and 15 kt falling threshold (5 kt
+  hysteresis to prevent chatter at the boundary). Once true, stays
+  true above 15 kt; once false, stays false below 20 kt. **State is
+  per-flight**, threaded across consecutive rows.
+
+  For replay, two cases:
+
+  **Case 1 (modern logs):** `iasValid` is already a column in the SD
+  log (`LogSensor.cpp:540` writes `row.iasValid = g_Sensors.bIasAlive`,
+  mirroring the producer's hysteretic state). Engine copies it
+  straight through: `out.iasValid = row.iasValid`. Zero drift; the
+  state was computed at flight time and persisted.
+
+  **Case 2 (pre-`iasValid`-column logs):** the column doesn't exist
+  in the row. Engine recomputes via
+  `onspeed::sensors::UpdateIasAlive(prev, row.iasKt)`, threading
+  `prev` across rows. Same C++ function the firmware uses — no
+  hand-port. Initial state defaults to false (matches firmware boot
+  state).
+
+  Engine maintains a `bool iasValidState_` member for case 2 if
+  applicable. PR 1.5 audit verifies which path each log fixture
+  takes.
+
+If the audit surfaces additional fields, add them here.
+
+#### Test deliverable: `test_replay_wire_completeness.js`
+
+A new Node test at
+`software/OnSpeed-M5-Display/test/test_replay_wire_completeness.js`
+that:
+
+1. Loads a small fixed-size log fixture (~5 rows, hand-crafted at
+   `software/OnSpeed-M5-Display/test/fixtures/wire_completeness_log.csv`).
+2. Drives those rows through `LogReplayEngine.step()`.
+3. For each `ReplayStepResult`, builds the corresponding
+   `DisplayBuildInputs` (using the same wireBridge logic PR 2 will
+   use, factored into a small helper).
+4. Calls `BuildDisplayFrame()` from onspeed_core WASM, gets 77 wire
+   bytes.
+5. Asserts every byte of the output matches a hand-crafted golden
+   byte array `wire_completeness_golden.bin`.
+
+When a future PR adds a new `DisplayBuildInputs` field (or changes a
+filter), the test fails and the maintainer must regenerate the
+golden, forcing a conscious "is this change correct?" review.
+
+The fixture log values are chosen to exercise non-zero values for
+every classifiable field so the golden actually catches missing
+fields (not just default zeros that pass through).
+
+**Sabotage check (mandatory):**
+- Zero out `out.gOnsetRate = ...` after the implementation. Test
+  must fail on the relevant byte position in the golden.
+- Zero out `out.turnRateDps = ...`. Same.
+- Add a placeholder field that's never populated. Test must fail.
+
+#### CI integration
+
+Wire the new test into the existing `m5-replay-wasm-test` CI job
+(landed in PR 1's CI fix). Same Emscripten setup, same build
+sequence; one extra `node` invocation at the end.
+
 ### PR 2 — `feat(replay): wire replay through M5 WASM sim, all five modes` (~2-3 days)
 
 Wire the M5 WASM sim into the replay UI for all five modes.
@@ -367,7 +516,7 @@ this PR doesn't help #492 but doesn't conflict with it either.
 
 ## Done definition
 
-After all three PRs land:
+After all four PRs land (PR 1 → PR 1.5 → PR 2 → PR 3):
 
 1. The replay tool overlays an indexer that, frame-for-frame, matches
    what the M5 panel showed during the recorded flight, with:
@@ -375,15 +524,43 @@ After all three PRs land:
    - Ball, bar, chevron that update at 20 Hz exactly.
    - Wire-quantized values (no per-row float jitter).
    - Decel rate computed by the M5's own SavGol-on-IAS.
+   - **Every wire-format field populated correctly** — no zero
+     placeholders, no missing gauges. Verified by the
+     `test_replay_wire_completeness` golden-fixture test.
 2. The replay tool contains zero rendering math beyond "read M5 state
    var, position SVG element". All math lives in `onspeed_core` or in
    M5 firmware, both compiled to WASM.
 3. The X-Plane plugin and the firmware itself remain untouched — they
    already use this code on their own paths.
-4. Issue #492 / #485 / #321 / #322 / #324 / #499 are unaffected (still
-   open, separately scoped).
+4. Issue #492 / #485 / #321 / #322 / #324 / #499 / #508 are tracked
+   separately (some closed by these PRs, others scope-orthogonal).
 5. No JS hand-port of any M5 or `onspeed_core` algorithm remains in
    `tools/web/`.
+
+## Lessons learned (added 2026-05-09 mid-flight)
+
+This plan was a level too thin in its first draft. We focused on
+"compile M5 firmware to WASM" (Invariant 1) and assumed
+`LogReplayEngine` was a finished artifact that produced complete
+wire frames. It wasn't — it was scoped for a different original use
+case. We discovered missing fields one by one (`gOnsetRate`,
+`turnRateDps`, `oatC`) when the symptoms surfaced, which felt like
+"so much could be wrong" even though the architectural fix was
+correct.
+
+**The plan should have included a wire-frame field-completeness
+audit as a load-bearing step from the start.** When a plan promises
+"replay shows what the pilot saw," the audit isn't optional — it's
+how you know the promise holds. Without it, every untested field is
+a latent zero waiting to surface as a "wait, why is X stuck?" bug at
+trial time.
+
+**Generalizable lesson for future plans:** when the deliverable is
+"X consumer reproduces what Y producer does, exactly," at least one
+PR in the sequence must be a structural completeness audit of the
+producer's output schema, with a golden-fixture test that fails on
+any new schema field that isn't classified. Otherwise the gap will
+ship.
 
 ## Dispatch prompts
 
@@ -434,6 +611,21 @@ WHEN COMPLETE:
 Bulldog review will run after you're done. They will check that the test ACTUALLY exercises the production code (sabotage results), not that it merely runs to completion.
 ```
 
-### PR 2 dispatch — written after PR 1 lands
+### PR 1.5 dispatch — written after PR 1 lands
+
+The PR 1.5 dispatch prompt is filled in once PR 1 merges. The agent
+will:
+1. Audit `DisplayBuildInputs` field-by-field, classifying each.
+2. Implement engine-side fields known missing today (`gOnsetRate`
+   per #508, `turnRateDps`, `oatC`, `iasValid`).
+3. Document wireBridge-supplied fields with a forward-pointing
+   comment.
+4. Build the `wire_completeness_log.csv` fixture + golden binary.
+5. Add `test_replay_wire_completeness.js` Node test.
+6. Wire into the existing `m5-replay-wasm-test` CI job.
+7. Run sabotage checks (zero out each newly-added field; test must
+   fail).
+
+### PR 2 dispatch — written after PR 1.5 lands
 
 ### PR 3 dispatch — written after PR 2 bakes
