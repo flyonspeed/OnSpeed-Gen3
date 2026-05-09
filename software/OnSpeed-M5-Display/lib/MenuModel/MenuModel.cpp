@@ -3,7 +3,7 @@
 
 namespace m5menu {
 
-MenuModel::MenuModel(MenuItem* items, int count)
+MenuModel::MenuModel(const MenuItem* items, int count)
     : items_(items), count_(count) {}
 
 void MenuModel::onUp() {

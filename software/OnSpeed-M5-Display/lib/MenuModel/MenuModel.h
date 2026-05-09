@@ -33,7 +33,7 @@ public:
 
     // items: pointer to caller-owned array (the M5 sub-project keeps the
     // canonical static array in SettingsMenu.cpp). count: number of items.
-    MenuModel(MenuItem* items, int count);
+    MenuModel(const MenuItem* items, int count);
 
     void onUp();      // wraps to last item from index 0
     void onDown();    // wraps to 0 from last item
@@ -57,7 +57,7 @@ public:
     void resetForEntry();
 
 private:
-    MenuItem* items_;
+    const MenuItem* items_;
     int       count_;
     int       currentIndex_   = 0;
     uint32_t  idleMs_         = 0;
