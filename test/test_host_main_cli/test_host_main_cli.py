@@ -513,5 +513,44 @@ def test_build_frame_json_parser_flat_numeric_only():
     )
 
 
+REPLAY_ENGINE_INPUT = REPO_ROOT / "tools" / "regression" / "fixtures" / "replay_engine_input.csv"
+
+
+def test_replay_log_rate_cli_validation():
+    """--log-rate accepts only 50 and 208; rejects everything else.
+
+    PR #476 added --log-rate {50|208} validation to the replay subcommand.
+    This test pins the contract so a future refactor that widens or removes
+    the validation doesn't slip past CI.
+    """
+    if not REPLAY_ENGINE_INPUT.exists():
+        pytest.skip(f"replay_engine_input.csv not found: {REPLAY_ENGINE_INPUT}")
+
+    # Valid: 50 Hz
+    r = run(["replay", "--input", str(REPLAY_ENGINE_INPUT), "--log-rate", "50"])
+    assert r.returncode == 0, (
+        f"--log-rate 50 should be accepted; rc={r.returncode}, stderr={r.stderr!r}"
+    )
+
+    # Valid: 208 Hz
+    r = run(["replay", "--input", str(REPLAY_ENGINE_INPUT), "--log-rate", "208"])
+    assert r.returncode == 0, (
+        f"--log-rate 208 should be accepted; rc={r.returncode}, stderr={r.stderr!r}"
+    )
+
+    # Invalid values: should be rejected with a non-zero exit code and a
+    # helpful error message mentioning the valid values (50 and/or 208).
+    for invalid in ["100", "0", "-1"]:
+        r = run(["replay", "--input", str(REPLAY_ENGINE_INPUT), "--log-rate", invalid])
+        assert r.returncode != 0, (
+            f"--log-rate {invalid!r} should be rejected (returncode was 0)"
+        )
+        combined = r.stderr.lower() + r.stdout.lower()
+        assert "log-rate" in combined or "50" in combined or "208" in combined, (
+            f"error message for --log-rate {invalid!r} should mention valid values; "
+            f"stderr={r.stderr!r}"
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
