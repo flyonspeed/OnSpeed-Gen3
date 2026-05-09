@@ -642,8 +642,10 @@ void HandleApiFormat() {
 
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
         std::snprintf(g_FormatJob.taskId, sizeof(g_FormatJob.taskId), "%s", taskId);
-        g_FormatJob.state    = FormatState::Running;
-        g_FormatJob.error[0] = '\0';
+        g_FormatJob.state       = FormatState::Running;
+        g_FormatJob.error[0]    = '\0';
+        g_FormatJob.cardSizeGb  = 0.0f;
+        g_FormatJob.configSaved = false;
         xSemaphoreGive(g_FormatJobMutex);
     }
 
