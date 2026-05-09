@@ -51,14 +51,38 @@ import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.j
 import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { reassembleResults } from '../replay/reassemble.js';
+import { M5Sim } from '../replay/m5sim.js';
+import { buildWireFrame } from '../replay/wireBridge.js';
+import { getWasmCore } from '../replay/wasm_core.js';
+import {
+  EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
+} from '../components/svg/m5modes/index.js';
 
+// Legacy 22-field-rec mode list. Three of the five modes have JS-side
+// renderers today; the other two (Indexer-only / Historic G) only
+// exist via the M5-accurate path. PR 3 deletes this entire list along
+// with the 22-field rec path.
 const MODES = [
   { id: 'energy',   label: 'Energy',     C: Mode0 },
   { id: 'attitude', label: 'Attitude',   C: Mode1 },
   { id: 'decel',    label: 'Decel',      C: Mode3 },
 ];
 
+// M5-accurate mode list. Indexed by displayType (0..4) so the int
+// returned by `m5sim.read().displayType` maps directly to the renderer.
+// The ordering matches the M5 firmware's `kModeNames` and the
+// IndexerPage's MODES — same five modes, same numbering.
+const M5_MODES = [
+  { id: 0, label: 'Energy',     C: EnergyMode   },
+  { id: 1, label: 'Attitude',   C: AttitudeMode },
+  { id: 2, label: 'Indexer',    C: IndexerMode  },
+  { id: 3, label: 'Decel',      C: DecelMode    },
+  { id: 4, label: 'Historic G', C: HistoricGMode },
+];
+
 const SYNC_LS_KEY = 'replay-sync-v1';
+const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
+const M5_ACCURATE_LS_KEY = 'replay-m5-accurate-v1';
 
 // Friendly label for the anchor type the auto-detector picked.
 // Pilots usually sync against the first crosswind turn (sharp bank
@@ -271,6 +295,31 @@ export const ReplayPage = () => {
   // Current rendered record (produced async by buildRecord; null while pending).
   const [rec, setRec] = useState(null);
 
+  // M5-accurate mode state. PR 2 ships the toggle off by default;
+  // PR 3 will flip the default and delete the legacy `rec` path. The
+  // toggle persists in localStorage so a pilot's preference survives a
+  // reload — once they confirm the M5-accurate path renders correctly
+  // for their data they don't have to re-toggle every session.
+  const [m5Accurate, setM5Accurate] = useState(() => {
+    return safeLsGet(M5_ACCURATE_LS_KEY) === '1';
+  });
+  const [m5ModeId, setM5ModeId] = useState(() => {
+    const s = safeLsGet(M5_MODE_LS_KEY);
+    const n = s == null ? 0 : parseInt(s, 10);
+    return Number.isFinite(n) && n >= 0 && n <= 4 ? n : 0;
+  });
+  // The latest frozen state object from M5Sim.read(). Updated each
+  // frame; the renderer reads it as a prop.
+  const [m5State, setM5State] = useState(null);
+  // Lazy-loaded sim instance. Created on first toggle-on, reused
+  // across frames. The Core WASM module is also lazy-loaded.
+  const m5SimRef = useRef(null);
+  const m5CoreRef = useRef(null);
+  // Track the previous virtual-time advance so backwards scrubs reset
+  // the sim (avoids the firmware's millis() comparisons getting stuck
+  // when the clock goes backwards).
+  const m5LastVirtualMsRef = useRef(0);
+
   // Export-to-WebM state. exporting=true while a recording is in
   // progress; exportProgress reflects the % of the source video
   // captured so far; exportHandle is the controller returned by
@@ -474,6 +523,128 @@ export const ReplayPage = () => {
     resolveRec();
     return () => { cancelled = true; };
   }, [log, replayCtx, sync, videoT, pausedLogMs]);
+
+  // ---------- M5-accurate sim init / teardown -------------------------
+
+  // Lazy-load the M5 sim and onspeed_core WASM the first time the
+  // M5-accurate toggle flips on. The sim survives subsequent toggles —
+  // there's no compelling reason to tear it down on toggle-off, and
+  // re-creating costs ~100 ms of WASM init. PR 3 will flip the default
+  // to ON and delete the toggle entirely.
+  useEffect(() => {
+    if (!m5Accurate) return;
+    if (m5SimRef.current && m5CoreRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const [sim, core] = await Promise.all([
+          M5Sim.create(),
+          getWasmCore(),
+        ]);
+        if (cancelled) {
+          // Race: toggle flipped off mid-load. Drop the partially-loaded
+          // sim — re-creating on next toggle-on is cheap.
+          sim.delete();
+          return;
+        }
+        m5SimRef.current = sim;
+        m5CoreRef.current = core;
+        // Hydrate displayType from the persisted choice so the first
+        // frame after init renders the right mode.
+        sim.setMode(m5ModeId);
+      } catch (err) {
+        if (!cancelled) setParseErr(`M5 sim load error: ${err.message}`);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [m5Accurate]);
+
+  // Persist the toggle.
+  useEffect(() => {
+    safeLsSet(M5_ACCURATE_LS_KEY, m5Accurate ? '1' : '0');
+  }, [m5Accurate]);
+
+  // Persist the mode.
+  useEffect(() => {
+    safeLsSet(M5_MODE_LS_KEY, String(m5ModeId));
+    if (m5SimRef.current) m5SimRef.current.setMode(m5ModeId);
+  }, [m5ModeId]);
+
+  // Per-frame M5 sim driver: build a wire frame for the current log
+  // row, inject, advance time, read state. Runs on each videoT change
+  // when m5Accurate is on and a sim is loaded.
+  //
+  // Time semantics:
+  //   - The virtual clock is driven by the video time. videoT is in
+  //     seconds since the video's start; the firmware's millis() needs
+  //     a non-negative monotonically-increasing-ish value. We pass
+  //     `videoT * 1000`.
+  //   - On a backwards scrub (or a forward jump > 5 s), we re-create
+  //     the sim from scratch. The firmware uses `millis() > loopTime
+  //     + 50`-style comparisons internally — running time backwards
+  //     can wedge those gates until the new time exceeds the prior
+  //     loopTime. Re-init resets all those gates.
+  //   - Forward scrubbing inside a 5 s window just advances time; the
+  //     firmware's 500 ms numbers cadence may take one extra video
+  //     frame to re-fire, which is fine for a visual indicator.
+  useEffect(() => {
+    if (!m5Accurate) { setM5State(null); return; }
+    const sim = m5SimRef.current;
+    const core = m5CoreRef.current;
+    if (!sim || !core || !log || !cfg || !replayCtx) return;
+    if (!sync ||
+        !Number.isFinite(sync.videoTakeoffSec) ||
+        !Number.isFinite(sync.logTakeoffMs)) return;
+
+    // Resolve the active log row. Same logic as the legacy rec path —
+    // pause-and-attach takes precedence, otherwise map video time
+    // through the sync anchor.
+    let rowIdx = -1;
+    if (Number.isFinite(pausedLogMs)) {
+      rowIdx = findRowAt(log, pausedLogMs);
+    } else {
+      const tMs = videoToLogMs(videoT, sync);
+      if (Number.isFinite(tMs)) rowIdx = findRowAt(log, tMs);
+    }
+    if (rowIdx < 0) return;
+
+    const stepResult = replayCtx.results[rowIdx];
+    if (!stepResult) return;
+
+    // Build the wire frame and inject. Always inject — at video frame
+    // rate (60 Hz) we're injecting 3× the firmware's wire rate, which
+    // is fine: SerialRead's accumulator parses each frame into the
+    // same globals every time.
+    const frameBytes = buildWireFrame(stepResult, cfg, core);
+    sim.injectBytes(frameBytes);
+
+    // Advance virtual time. Use a non-negative monotonic derivation:
+    // videoT * 1000, with a re-init guard for big jumps.
+    const virtMs = Math.max(0, videoT * 1000);
+    const last = m5LastVirtualMsRef.current;
+    if (virtMs < last - 100 || virtMs > last + 5000) {
+      // Big jump. Re-init the sim so its internal millis()
+      // comparisons reset.
+      sim.delete();
+      m5SimRef.current = null;
+      // Schedule a re-create on the next frame; setting this state
+      // re-runs the load-effect above. Using the toggle flag toggle
+      // would be invasive; just null the ref and let the next render
+      // re-load.
+      M5Sim.create().then(newSim => {
+        m5SimRef.current = newSim;
+        newSim.setMode(m5ModeId);
+        m5LastVirtualMsRef.current = 0;
+      });
+      return;
+    }
+    sim.advanceTo(virtMs);
+    m5LastVirtualMsRef.current = virtMs;
+
+    setM5State(sim.read());
+  }, [m5Accurate, log, cfg, replayCtx, sync, videoT, pausedLogMs, m5ModeId]);
 
   // ---------- Anchor-mark handlers ---------------------------------
 
@@ -727,7 +898,18 @@ export const ReplayPage = () => {
             />
           ` : html`<div class="replay-placeholder">Drop a flight video and an SD-log CSV to get started.</div>`}
 
-          ${overlayVisible && rec && html`
+          ${overlayVisible && m5Accurate && m5State && html`
+            <div class="replay-overlay">
+              <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
+                ${(() => {
+                  const M = M5_MODES.find(m => m.id === m5State.displayType);
+                  const C = M ? M.C : EnergyMode;
+                  return html`<${C} state=${m5State} stale=${false} />`;
+                })()}
+              </div>
+            </div>
+          `}
+          ${overlayVisible && !m5Accurate && rec && html`
             <div class="replay-overlay">
               <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
                 <${ModeC} r=${rec} stale=${false} />
@@ -739,12 +921,23 @@ export const ReplayPage = () => {
         <footer class="replay-controls">
           <div class="replay-control-row">
             <span class="replay-label">Mode</span>
-            ${MODES.map(m => html`
-              <button
-                class=${m.id === modeId ? 'replay-mode-btn active' : 'replay-mode-btn'}
-                onClick=${() => setModeId(m.id)}>${m.label}</button>
-            `)}
+            ${m5Accurate
+              ? M5_MODES.map(m => html`
+                  <button
+                    class=${m.id === m5ModeId ? 'replay-mode-btn active' : 'replay-mode-btn'}
+                    onClick=${() => setM5ModeId(m.id)}>${m.label}</button>
+                `)
+              : MODES.map(m => html`
+                  <button
+                    class=${m.id === modeId ? 'replay-mode-btn active' : 'replay-mode-btn'}
+                    onClick=${() => setModeId(m.id)}>${m.label}</button>
+                `)}
             <span class="replay-spacer"></span>
+            <label class="replay-toggle" title="Render via the M5 firmware compiled to WASM. PR 3 will make this the default.">
+              <input type="checkbox" checked=${m5Accurate}
+                     onChange=${e => setM5Accurate(e.target.checked)} />
+              M5-accurate mode
+            </label>
             <label class="replay-toggle">
               <input type="checkbox" checked=${overlayVisible}
                      onChange=${e => setOverlayVisible(e.target.checked)} />

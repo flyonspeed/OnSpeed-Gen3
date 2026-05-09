@@ -1,0 +1,4 @@
+{
+  "_comment": "Override the parent tools/web/package.json's \"type\": \"module\" so onspeed_m5.js (Emscripten-emitted CommonJS, EXPORT_ES6=0) loads correctly under Node's require/import resolver. Without this, Node resolves onspeed_m5.js as ESM and module.exports = Module is silently ignored — dynamic import returns an empty namespace and the smoke test sees no factory. See tools/web/lib/replay/m5sim/m5sim.js header for the loader path.",
+  "type": "commonjs"
+}

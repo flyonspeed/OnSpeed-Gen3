@@ -134,6 +134,12 @@ def _all_js_files():
             # bundler's regex grammar with `export async function`.)
             if rel_unix.startswith("replay/") or rel_unix == "pages/ReplayPage.js":
                 continue
+            # M5-accurate mode renderers — only imported by ReplayPage.
+            # Skip from the firmware bundle (it doesn't ship the
+            # /replay page) so we don't carry ~10 KB of dead code in
+            # PROGMEM.
+            if rel_unix.startswith("components/svg/m5modes/"):
+                continue
             out.append(os.path.join(root, name))
     return sorted(out)
 
