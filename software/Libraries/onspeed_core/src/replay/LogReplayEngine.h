@@ -91,7 +91,7 @@ namespace onspeed::replay {
 // | vsiFpm                   | engine-populated        | from `out.kalmanVSI` (m/s -> fpm) at PR-2 time  |
 // | oatC                     | engine-populated        | `out.oatC = round(row.oatCelsius)`              |
 // | flightPathDeg            | engine-populated        | `out.flightPathDeg = row.flightPathDeg`         |
-// | flapsDeg                 | engine-populated        | from `out.flapsPos`                             |
+// | flapsDeg                 | wireBridge-supplied     | `cfg.aFlaps[out.flapsIndex].iDegrees`           |
 // | tonesOnPctLift           | wireBridge-supplied     | from cfg.aFlaps[flapsIndex] anchors (see PR 2)  |
 // | onSpeedFastPctLift       | wireBridge-supplied     | from cfg.aFlaps[flapsIndex] anchors (see PR 2)  |
 // | onSpeedSlowPctLift       | wireBridge-supplied     | from cfg.aFlaps[flapsIndex] anchors (see PR 2)  |
@@ -102,6 +102,16 @@ namespace onspeed::replay {
 // | spinRecoveryCue          | constant by design      | always 0 (reserved for future logic; #422)      |
 // | dataMark                 | engine-populated        | `out.dataMark = row.dataMark`                   |
 // | pipPctLift               | wireBridge-supplied     | from cfg.aFlaps[] interpolation (see PR 2)      |
+//
+// `flapsDeg` is wireBridge-supplied because the wire byte must reflect the
+// detent the engine *resolved* (stable, snapped to a config detent), not the
+// raw row.flapsPos (which on some logs can be transient between detents).
+// The carrier is `cfg.aFlaps[out.flapsIndex].iDegrees`, and the engine's
+// responsibility is to produce a correct `out.flapsIndex` (via
+// ResolveFlapIndex_). A sabotage that corrupts `out.flapsIndex` therefore
+// shifts `flapsDeg` AND every cfg.aFlaps[]-keyed anchor on the same frame
+// — which is what makes the wire-completeness test bite the engine for
+// flap-state correctness, not just sensor-axis pass-through.
 //
 // Fields written to wireBridge buckets are populated in PR 2's
 // `tools/web/lib/replay/wireBridge.js` from cfg + the engine's

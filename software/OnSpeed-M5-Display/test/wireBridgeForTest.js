@@ -33,26 +33,41 @@ function computePercentLift(aoaDeg, alpha0, alphaStall, iasValid) {
   return pct;
 }
 
-// Build DisplayBuildInputs from one ReplayStepResult + an active flap entry.
+// Build DisplayBuildInputs from one ReplayStepResult + a cfg.aFlaps[] array.
 //
-// `flap` is a JS object matching the cfg.aFlaps[i] shape used by parse_config:
-//   { alpha0, alphaStall, ldmaxAoa, onSpeedFastAoa, onSpeedSlowAoa,
-//     stallWarnAoa, degrees }.
+// `flapsArray` is the cfg.aFlaps[] shape used by parse_config:
+//   [{ degrees, alpha0, alphaStall, ldmaxAoa, onSpeedFastAoa, onSpeedSlowAoa,
+//      stallWarnAoa, ... }, ...]
+//
+// The active entry is selected by `stepResult.flapsIndex` (engine-populated).
+// This is the field the audit table classifies as the carrier for `flapsDeg`
+// and all per-flap anchor lookups: the engine resolves the index from
+// row.flapsPos, the bridge follows `cfg.aFlaps[flapsIndex]` everywhere
+// downstream. A sabotage that corrupts `out.flapsIndex` therefore shifts
+// flapsDeg + every anchor on the same frame.
+//
 // `flapsMinDeg` / `flapsMaxDeg` are pre-computed from min/max of the
 // cfg.aFlaps[].degrees values; passed in to keep this helper pure.
 //
-// Anchor pcts are computed via `computePercentLift` against this active
+// Anchor pcts are computed via `computePercentLift` against the active
 // flap's alpha_0/alpha_stall. PR 2's wireBridge.js will instead call
 // the WASM `compute_anchors()` which handles the multi-detent
 // interpolation (bracket walk for `pipPctLift`, etc.).
 //
-// For the wire-completeness test (single-detent fixture), this simplified
-// per-flap evaluation is sufficient — the goal is to assert byte-for-byte
-// match against a golden, not to verify multi-detent anchor logic
-// (covered by `test_display_pct_anchors`).
-function buildDisplayInputs(stepResult, flap, flapsMinDeg, flapsMaxDeg) {
+// For the wire-completeness test, this simplified per-flap evaluation is
+// sufficient — the goal is to assert byte-for-byte match against a golden,
+// not to verify multi-detent anchor logic (covered by
+// `test_display_pct_anchors`).
+function buildDisplayInputs(stepResult, flapsArray, flapsMinDeg, flapsMaxDeg) {
   const r = stepResult;
   const iasValid = r.iasValid !== false;
+
+  // Select the active flap by the engine's resolved index. Out-of-range
+  // index falls back to the first entry (matches engine ResolveFlapIndex_
+  // when no detent matches).
+  let idx = (typeof r.flapsIndex === 'number') ? r.flapsIndex : 0;
+  if (idx < 0 || idx >= flapsArray.length) idx = 0;
+  const flap = flapsArray[idx];
 
   const percentLiftPct = computePercentLift(
     r.aoaDeg, flap.alpha0, flap.alphaStall, iasValid);
@@ -66,9 +81,10 @@ function buildDisplayInputs(stepResult, flap, flapsMinDeg, flapsMaxDeg) {
   const stallWarnPctLift   = Math.round(computePercentLift(
     flap.stallWarnAoa,    flap.alpha0, flap.alphaStall, true));
 
-  // Single-detent fixture: pip == tonesOn. Multi-detent interpolation
-  // is the wireBridge's job in PR 2; the wire-completeness test
-  // covers the byte-for-byte match against a hand-frozen golden.
+  // pip uses the active-flap tonesOn position. Multi-detent interpolation
+  // (sliding pip between detents during a flap transition) is PR 2's job
+  // — the wire-completeness test verifies the byte-for-byte contract for
+  // discrete detent frames, not the interpolation curve.
   const pipPctLift = tonesOnPctLift;
 
   return {

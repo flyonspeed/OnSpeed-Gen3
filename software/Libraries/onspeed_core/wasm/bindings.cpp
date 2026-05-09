@@ -604,7 +604,7 @@ static const char* ToneTypeStr(EnToneType t)
         case EnToneType::Low:  return "Low";
         case EnToneType::High: return "High";
     }
-    return "None";
+    __builtin_unreachable();
 }
 
 static val tone_calc(float aoaDeg,

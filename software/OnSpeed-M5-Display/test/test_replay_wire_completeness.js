@@ -83,8 +83,17 @@ function parseFixtureLog(csvPath) {
 }
 
 // ---------------------------------------------------------------------------
-// Test config — single flap detent with diverse anchor values so the
-// golden's anchor bytes vary independently of percentLift.
+// Test config — multiple flap detents with distinct anchor values, so a
+// sabotage that corrupts `out.flapsIndex` (e.g. always picks index 0)
+// shifts every per-flap anchor and `flapsDeg` on the wire.
+//
+// Detent 0 (clean):
+//   alpha_0 = -3.0, alpha_stall = 13.0  → span 16°
+//   For aoa = 5° → percentLift = (5-(-3))/16 * 100 = 50.0%
+//
+// Detent 20 (full flap): different alpha_0/alpha_stall and anchors so
+// when the fixture sits on this detent the wire bytes for `flapsDeg` and
+// the anchor bytes are demonstrably different from detent 0.
 // ---------------------------------------------------------------------------
 const TEST_CONFIG = {
   aoaSmoothing: 4,
@@ -95,23 +104,31 @@ const TEST_CONFIG = {
     {
       degrees:        0,
       potPosition:    2048,
-      // Pick alpha values so percentLift math gives interesting numbers.
-      // alpha_0 = -3.0, alpha_stall = 13.0  → span = 16°
-      // For aoa = 5° → percentLift = (5-(-3))/16 * 100 = 50.0%
       alpha0:         -3.0,
       alphaStall:     13.0,
-      ldmaxAoa:        2.0,    // → ~31% (rounds to 31 on the wire)
+      ldmaxAoa:        2.0,    // → ~31%
       onSpeedFastAoa:  4.0,    // → ~44%
       onSpeedSlowAoa:  6.0,    // → ~56%
       stallWarnAoa:   11.0,    // → ~88%
+      kFit:           0.0,
+    },
+    {
+      degrees:        20,
+      potPosition:    1024,
+      alpha0:         -2.0,
+      alphaStall:     11.0,
+      ldmaxAoa:        1.0,    // → ~23%
+      onSpeedFastAoa:  3.0,    // → ~38%
+      onSpeedSlowAoa:  5.0,    // → ~54%
+      stallWarnAoa:    9.5,    // → ~88%
       kFit:           0.0,
     }
   ],
 };
 
-const FLAP_FOR_BUILD = TEST_CONFIG.flaps[0];
-const FLAPS_MIN_DEG  = TEST_CONFIG.flaps[0].degrees;
-const FLAPS_MAX_DEG  = TEST_CONFIG.flaps[0].degrees;
+const FLAPS_ARRAY    = TEST_CONFIG.flaps;
+const FLAPS_MIN_DEG  = Math.min(...FLAPS_ARRAY.map(f => f.degrees));
+const FLAPS_MAX_DEG  = Math.max(...FLAPS_ARRAY.map(f => f.degrees));
 const SAMPLE_RATE_HZ = 50;          // 50 ms between fixture rows -> 20 Hz nominal,
                                     // but engine takes "log sample rate" — 50 Hz
                                     // is a real iLogRate value the firmware uses.
@@ -148,7 +165,7 @@ async function runPipeline() {
         continue;
       }
       const inputs = buildDisplayInputs(
-        stepResult, FLAP_FOR_BUILD, FLAPS_MIN_DEG, FLAPS_MAX_DEG);
+        stepResult, FLAPS_ARRAY, FLAPS_MIN_DEG, FLAPS_MAX_DEG);
       const frameBytes = Buffer.from(Core.build_display_frame(inputs));
       if (frameBytes.length !== 77) {
         throw new Error(
@@ -233,54 +250,11 @@ async function main() {
     process.exit(1);
   }
   console.log(`  PASS: ${actual.length} bytes match golden exactly`);
-
-  // ---------------------------------------------------------------------------
-  // Bonus: tone_calc smoke check (PR 1.5 deliverable)
-  // ---------------------------------------------------------------------------
-  console.log('\nBonus: tone_calc embind binding smoke check');
-  const coreUrl     = require('url').pathToFileURL(CORE_JS).href;
-  const CoreFactory = (await import(coreUrl)).default;
-  const Core        = await CoreFactory();
-
-  if (typeof Core.tone_calc !== 'function') {
-    console.error('FAIL: Core.tone_calc not exported. Rebuild WASM.');
-    process.exit(1);
-  }
-  if (typeof Core.tone_calc_muted !== 'function') {
-    console.error('FAIL: Core.tone_calc_muted not exported. Rebuild WASM.');
-    process.exit(1);
-  }
-
-  // AOA = 8.0 sits between OnSpeedSlow (7.0) and StallWarn (9.0):
-  //   the "high tone, pulsed 1.5..6.2 PPS interpolated" region.
-  // ToneThresholds order: { fLDMAXAOA, fONSPEEDFASTAOA, fONSPEEDSLOWAOA, fSTALLWARNAOA }
-  const r = Core.tone_calc(8.0, 5.0, 6.0, 7.0, 9.0);
-  if (r.enTone !== 'High') {
-    console.error(`FAIL: tone_calc enTone got "${r.enTone}", expected "High"`);
-    process.exit(1);
-  }
-  if (r.pulseFreq < 1.5 || r.pulseFreq > 6.2) {
-    console.error(
-      `FAIL: tone_calc pulseFreq ${r.pulseFreq} out of [1.5..6.2] band`);
-    process.exit(1);
-  }
-  console.log(`  PASS tone_calc(8.0, 5,6,7,9) -> ` +
-              `{ enTone: '${r.enTone}', pulseFreq: ${r.pulseFreq.toFixed(2)} }`);
-
-  // tone_calc_muted: with stallWarnAoa=10, muteUnderIas=30, IAS=80, AOA=12 —
-  // above stall, above mute floor — should fire stall warning at 20 PPS.
-  const m = Core.tone_calc_muted(12.0, 80.0, 10.0, 30);
-  if (m.enTone !== 'High' || Math.abs(m.pulseFreq - 20.0) > 0.001) {
-    console.error(
-      `FAIL: tone_calc_muted aoa=12 above stall got ` +
-      `{ enTone: '${m.enTone}', pulseFreq: ${m.pulseFreq} }, ` +
-      `expected { enTone: 'High', pulseFreq: 20 }`);
-    process.exit(1);
-  }
-  console.log(`  PASS tone_calc_muted(12.0, 80, 10, 30) -> ` +
-              `{ enTone: '${m.enTone}', pulseFreq: ${m.pulseFreq.toFixed(2)} }`);
-
   console.log('\nAll wire-completeness assertions passed.');
+  // tone_calc / tone_calc_muted smoke checks live in
+  // tools/web/test/wasm-smoke.mjs — the canonical home for new WASM
+  // exports. Keeping them there keeps this file focused on its named
+  // purpose and avoids a redundant second WASM module load per run.
 }
 
 main().catch(err => {
