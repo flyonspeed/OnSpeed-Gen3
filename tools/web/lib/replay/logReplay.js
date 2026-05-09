@@ -1,11 +1,18 @@
-// logReplay.js — thin JS wrapper around the WASM LogReplayEngine.
+// logReplay.js — thin async wrapper around the WASM-bound C++ LogReplayEngine.
 //
-// This file is the Step 2 replacement for the former JS hand-port.
-// The hand-port carried a variable-dt EMA loop (KACC_TAU_S=0.50) and a
-// synthLeverSweep function; both are gone.  The WASM-compiled C++ engine
-// (onspeed::replay::LogReplayEngine) handles rate-adjusted accel EMA and
-// synthesises flapsRawADC for pre-PR-#221 logs that lack the column.
-// JS replay output now bit-matches firmware-side replay output by construction.
+// Algorithm code lives in C++ at
+// software/Libraries/onspeed_core/src/replay/LogReplayEngine.{h,cpp}.
+// This wrapper marshals JS objects across the WASM boundary; it does NOT
+// implement any algorithm.
+//
+// Drift impossible by construction: this wrapper, the firmware-side replay
+// path, and host_main replay all invoke the same compiled C++.
+//
+// NOTE: at the time this PR ships, no caller in this repo's master branch
+// imports this module. The Replay UI lives on sam/video-overlay; its current
+// hand-ported logReplay.js (carrying KACC_TAU_S=0.50 and synthLeverSweep)
+// will be replaced with imports of this wrapper when that branch rebases
+// onto WASM master.
 //
 // Public API:
 //

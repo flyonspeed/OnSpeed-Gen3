@@ -311,12 +311,45 @@ static OnSpeedConfig ConfigFromVal(val cfgVal)
         return (v.typeOf().as<std::string>() == "number") ? v.as<float>() : def;
     };
 
+    auto getBool = [&](const char* key, bool def) -> bool {
+        val v = cfgVal[key];
+        return (v.typeOf().as<std::string>() == "boolean") ? v.as<bool>() : def;
+    };
+    auto getString = [&](const char* key, const std::string& def) -> std::string {
+        val v = cfgVal[key];
+        return (v.typeOf().as<std::string>() == "string") ? v.as<std::string>() : def;
+    };
+
     cfg.iAoaSmoothing       = getInt  ("aoaSmoothing",      cfg.iAoaSmoothing);
     cfg.iPressureSmoothing  = getInt  ("pressureSmoothing", cfg.iPressureSmoothing);
     cfg.iMuteAudioUnderIAS  = getInt  ("muteUnderIas",      cfg.iMuteAudioUnderIAS);
     cfg.fPitchBias          = getFloat("pitchBias",         cfg.fPitchBias);
     cfg.fRollBias           = getFloat("rollBias",          cfg.fRollBias);
+    cfg.fGxBias             = getFloat("gxBias",            cfg.fGxBias);
+    cfg.fGyBias             = getFloat("gyBias",            cfg.fGyBias);
+    cfg.fGzBias             = getFloat("gzBias",            cfg.fGzBias);
+    cfg.fPStaticBias        = getFloat("pstaticBias",       cfg.fPStaticBias);
+    cfg.fLoadLimitPositive  = getFloat("loadLimitPositive", cfg.fLoadLimitPositive);
+    cfg.fLoadLimitNegative  = getFloat("loadLimitNegative", cfg.fLoadLimitNegative);
+    cfg.fAcBestGlideIAS     = getFloat("acBestGlideIAS",   cfg.fAcBestGlideIAS);
+    cfg.fAcVfe              = getFloat("acVfe",             cfg.fAcVfe);
     cfg.iLogRate            = getInt  ("logRate",           cfg.iLogRate);
+    cfg.iAhrsAlgorithm      = getInt  ("iAhrsAlgorithm",   cfg.iAhrsAlgorithm);
+    cfg.iDefaultVolume      = getInt  ("defaultVolume",     cfg.iDefaultVolume);
+    cfg.iVno                = getInt  ("vno",               cfg.iVno);
+    cfg.iAcGrossWeight      = getInt  ("acGrossWeight",     cfg.iAcGrossWeight);
+    cfg.bVolumeControl      = getBool ("volumeControl",     cfg.bVolumeControl);
+    cfg.bAudio3D            = getBool ("audio3D",           cfg.bAudio3D);
+    cfg.bOverGWarning       = getBool ("overGWarning",      cfg.bOverGWarning);
+    cfg.bSdLogging          = getBool ("sdLogging",         cfg.bSdLogging);
+    cfg.bBoomConvertData    = getBool ("boomConvertData",   cfg.bBoomConvertData);
+    cfg.sEfisType           = getString("efisType",         cfg.sEfisType);
+    cfg.sSerialOutFormat    = getString("serialOutFormat",  cfg.sSerialOutFormat);
+    {
+        val v = cfgVal["dataSource"];
+        if (v.typeOf().as<std::string>() == "string")
+            cfg.suDataSrc.fromStrSet(v.as<std::string>());
+    }
 
     // Flaps array.
     val flapsArr = cfgVal["flaps"];

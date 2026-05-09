@@ -510,19 +510,76 @@ console.log('OK: delete() completed without error');
 
 console.log('\n--- LogReplayEngine (flapsRawAdcAvailable=false, synth path) ---');
 
-const synthEngine = new Module.LogReplayEngine(cfg, 50, false);
+// Use a two-flap config so the engine has real pot positions for both detents.
+// Detent 0 (clean):    potPosition=3908
+// Detent 33 (full):    potPosition=8
+// The smoothstep sweeps between these two values across the transition window.
+const synthCfgXml = `<CONFIG2>
+  <AOA_SMOOTHING>15</AOA_SMOOTHING>
+  <PRESSURE_SMOOTHING>15</PRESSURE_SMOOTHING>
+  <DATASOURCE>SENSORS</DATASOURCE>
+  <FLAP_POSITION>
+    <DEGREES>0</DEGREES>
+    <POT_VALUE>3908</POT_VALUE>
+    <LDMAXAOA>4.1</LDMAXAOA>
+    <ONSPEEDFASTAOA>4.08</ONSPEEDFASTAOA>
+    <ONSPEEDSLOWAOA>4.95</ONSPEEDSLOWAOA>
+    <STALLWARNAOA>7.98</STALLWARNAOA>
+    <STALLAOA>0</STALLAOA>
+    <MANAOA>0</MANAOA>
+    <ALPHA0>-3.72</ALPHA0>
+    <ALPHASTALL>10.31</ALPHASTALL>
+    <KFIT>0.0</KFIT>
+    <AOA_CURVE>
+      <TYPE>1</TYPE>
+      <X3>0</X3>
+      <X2>0</X2>
+      <X1>1</X1>
+      <X0>0</X0>
+    </AOA_CURVE>
+  </FLAP_POSITION>
+  <FLAP_POSITION>
+    <DEGREES>33</DEGREES>
+    <POT_VALUE>8</POT_VALUE>
+    <LDMAXAOA>-1.12</LDMAXAOA>
+    <ONSPEEDFASTAOA>3.79</ONSPEEDFASTAOA>
+    <ONSPEEDSLOWAOA>5.23</ONSPEEDSLOWAOA>
+    <STALLWARNAOA>9.24</STALLWARNAOA>
+    <STALLAOA>0</STALLAOA>
+    <MANAOA>0</MANAOA>
+    <ALPHA0>-3.72</ALPHA0>
+    <ALPHASTALL>10.31</ALPHASTALL>
+    <KFIT>0.0</KFIT>
+    <AOA_CURVE>
+      <TYPE>1</TYPE>
+      <X3>0</X3>
+      <X2>0</X2>
+      <X1>1</X1>
+      <X0>0</X0>
+    </AOA_CURVE>
+  </FLAP_POSITION>
+</CONFIG2>`;
+const synthCfg = Module.parse_config(synthCfgXml);
+if (synthCfg.error !== undefined) {
+    console.error(`FAIL: synth test parse_config error: ${synthCfg.error}`);
+    process.exit(1);
+}
+
+// Known pot values from the config above.
+const SYNTH_POT_DETENT0  = 3908;   // clean flap (flapsPos=0)
+const SYNTH_POT_DETENT33 = 8;      // full flap  (flapsPos=33)
+
+const synthEngine = new Module.LogReplayEngine(synthCfg, 50, false);
 assertDefined('synth engine instance', synthEngine);
 
-// Feed rows through the lag period.  At 50 Hz, synthHalfWindowTicks_=100.
-// The first 100 step() calls must return null; the 101st must be non-null.
-const synthRow = {
+// Base row template — reused for all synth steps.
+const synthRowBase = {
     pfwdSmoothed:       0.0,
     p45Smoothed:        0.0,
     pStaticMbar:        0.0,
     paltFt:             5000.0,
     iasKt:              10.0,
     iasValid:           true,
-    flapsPos:           0,
     flapsRawAdc:        0,
     flapsRawAdcPresent: false,
     imuVerticalG:       1.0,
@@ -538,36 +595,62 @@ const synthRow = {
     dataMark:           0,
 };
 
-// Feed 100 rows — all should return null (buffer filling).
+// Feed 50 rows at flapsPos=0 (lag period, buffer filling — all return null).
+// synthHalfWindowTicks_=100 at 50 Hz; we need ≥100 rows before emission starts.
 let nullCount = 0;
-for (let i = 0; i < 100; i++) {
-    const r = synthEngine.step(synthRow);
+for (let i = 0; i < 50; i++) {
+    const r = synthEngine.step(Object.assign({}, synthRowBase, { flapsPos: 0 }));
     if (r !== null) {
         console.error(`FAIL: step() row ${i + 1} returned non-null during lag period (expected null)`);
         process.exit(1);
     }
     nullCount++;
 }
+console.log(`OK: first 50 step() calls (flapsPos=0) returned null (lag period; ${nullCount} nulls)`);
+
+// Switch to flapsPos=33 for the next 100 rows.
+// The transition occurs at row 51 (absolute tick 51). Both edges of the
+// smoothstep window [51-100, 51+100] must be in the buffer when emission starts.
+// Rows 51-100 return null (still in lag period); rows 101+ emit.
+let postLagResult = null;
+for (let i = 0; i < 100; i++) {
+    const r = synthEngine.step(Object.assign({}, synthRowBase, { flapsPos: 33 }));
+    // Rows 51-100 still in lag (nullCount already 50, lag needs 100 total):
+    if (nullCount < 100) {
+        if (r !== null) {
+            console.error(`FAIL: step() row ${nullCount + 1} returned non-null during lag (expected null)`);
+            process.exit(1);
+        }
+        nullCount++;
+    } else {
+        // Row 101+ should be non-null.
+        if (postLagResult === null && r !== null) {
+            postLagResult = r;
+        }
+    }
+}
+
+if (nullCount !== 100) {
+    console.error(`FAIL: expected 100 nulls during lag, got ${nullCount}`);
+    process.exit(1);
+}
 console.log(`OK: first 100 step() calls returned null (lag period; ${nullCount} nulls)`);
 
-// Row 101 must be non-null (buffer is full; engine emits row 1's synth).
-const postLagResult = synthEngine.step(synthRow);
 if (postLagResult === null) {
-    console.error('FAIL: step() row 101 returned null (expected non-null after lag period)');
+    console.error('FAIL: step() returned null for all 100 post-lag rows (expected non-null after lag)');
     process.exit(1);
 }
 assertDefined('postLagResult.iasKt', postLagResult.iasKt);
-console.log(`OK: step() row 101 returns a non-null result (iasKt=${postLagResult.iasKt.toFixed(1)})`);
+console.log(`OK: step() returns a non-null result after lag period (iasKt=${postLagResult.iasKt.toFixed(1)})`);
 
-// flush() must return a JS Array of result objects (the remaining ~100 tail rows).
+// flush() must return a JS Array of result objects (the remaining tail rows).
 const synthFlushed = synthEngine.flush();
 if (!Array.isArray(synthFlushed)) {
     console.error(`FAIL: flush() (synth path) did not return an Array (got ${typeof synthFlushed})`);
     process.exit(1);
 }
-// With 101 rows fed and 1 emitted by step(), flush() should return the remaining 100 tail rows.
 if (synthFlushed.length === 0) {
-    console.error('FAIL: flush() returned empty array on synth path (expected ~100 tail rows)');
+    console.error('FAIL: flush() returned empty array on synth path (expected tail rows)');
     process.exit(1);
 }
 console.log(`OK: flush() returns ${synthFlushed.length} tail rows on synth path`);
@@ -583,6 +666,29 @@ if (firstFlushed.iasKt === undefined) {
     process.exit(1);
 }
 console.log(`OK: flushed results are well-formed objects (result[0].iasKt=${firstFlushed.iasKt.toFixed(1)})`);
+
+// Verify smoothstep paint: the transition (flapsPos 0→33) occurred at tick 51.
+// The smoothstep window spans ticks [51-100, 51+100] = [1..151].
+// The tail rows come from around tick ~101 onward, which is still inside the
+// transition window [1..151]. At least one tail row's flapsRawAdc must land
+// strictly between the two detent pot values (SYNTH_POT_DETENT33 < x < SYNTH_POT_DETENT0).
+const anyMidTransition = synthFlushed.some(r =>
+    r.flapsRawAdc > SYNTH_POT_DETENT33 &&
+    r.flapsRawAdc < SYNTH_POT_DETENT0
+);
+if (!anyMidTransition) {
+    const adcValues = synthFlushed.slice(0, 5).map(r => r.flapsRawAdc).join(', ');
+    console.error(
+        `FAIL: synth path did not paint any mid-transition flapsRawAdc values ` +
+        `(expected strictly between ${SYNTH_POT_DETENT33} and ${SYNTH_POT_DETENT0}); ` +
+        `first 5 tail values: [${adcValues}]`
+    );
+    process.exit(1);
+}
+console.log(
+    `OK: synth path painted at least one mid-transition flapsRawAdc value ` +
+    `(strictly between ${SYNTH_POT_DETENT33} and ${SYNTH_POT_DETENT0})`
+);
 
 synthEngine.delete();
 console.log('OK: synth engine delete() completed without error');
