@@ -209,25 +209,29 @@ async function main() {
   assertEqExact('displayIAS @t=200 ms', Module._replay_get_displayIAS(), 0);
 
   // Step 7 — at t=600 ms, the numbers snapshot fires. displayIAS picks
-  // up the wire's IAS (80 kt). The IAS_IN_MPH define in main.cpp
-  // multiplies by 1.15078 — verify with tolerance.
+  // up the wire's IAS (80 kt). The wire IAS field is in knots; main.cpp's
+  // snapshot block selects the units at runtime: `displayIAS = g_speedInMph
+  // ? IAS * 1.15078f : IAS`. Default on a fresh device is KTS
+  // (g_speedInMph == false), so displayIAS == IAS == 80 here. The replay
+  // target inherits the same logic — this test asserts the default
+  // (KTS) path; the MPH path is exercised through the runtime toggle in
+  // the firmware-side menu and is not driven from JS.
   console.log('\nAssertion 7: t=600 ms, displayIAS now snapshotted');
   // Re-inject the frame here: this updates serialMillis = current
   // virtual time (200ms-ish, when the bytes complete), keeping
   // serialDataFresh() returning true at t=600 ms (300 ms threshold).
   // Note: even WITHOUT this re-injection, displayIAS WOULD update at
-  // t=600 ms — the numbers-snapshot block (main.cpp:601) runs BEFORE
-  // the !serialDataFresh() early-return (main.cpp:836). The
-  // re-injection keeps the test's mental model clean (no NO-DATA
-  // overlay would fire at this t), not because the assertion depends
-  // on it.
+  // t=600 ms — the numbers-snapshot block runs BEFORE the
+  // !serialDataFresh() early-return. The re-injection keeps the test's
+  // mental model clean (no NO-DATA overlay would fire at this t), not
+  // because the assertion depends on it.
   for (const b of frame) Module._replay_inject_byte(b);
   Module._replay_set_time(600n);
   Module._replay_loop();
-  assertEq(
+  assertEqExact(
     'displayIAS @t=600 ms',
     Module._replay_get_displayIAS(),
-    80 * 1.15078, 0.5);
+    80);
 
   // Step 8 — cycle through every mode, verify the loop runs without
   // crashing and mode-specific accessors return non-error sentinels.
