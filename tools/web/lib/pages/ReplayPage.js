@@ -319,6 +319,11 @@ export const ReplayPage = () => {
   // the sim (avoids the firmware's millis() comparisons getting stuck
   // when the clock goes backwards).
   const m5LastVirtualMsRef = useRef(0);
+  // Mirror m5ModeId into a ref so the async re-init `.then()` callback
+  // (below) reads the current mode rather than the value captured by
+  // the effect closure at fire time. The effect that updates this ref
+  // runs on every m5ModeId change.
+  const m5ModeIdRef = useRef(m5ModeId);
 
   // Export-to-WebM state. exporting=true while a recording is in
   // progress; exportProgress reflects the % of the source video
@@ -572,6 +577,13 @@ export const ReplayPage = () => {
     if (m5SimRef.current) m5SimRef.current.setMode(m5ModeId);
   }, [m5ModeId]);
 
+  // Mirror m5ModeId into m5ModeIdRef so the async re-init .then()
+  // (in the per-frame effect below) reads the current mode rather
+  // than a stale closure value.
+  useEffect(() => {
+    m5ModeIdRef.current = m5ModeId;
+  }, [m5ModeId]);
+
   // Per-frame M5 sim driver: build a wire frame for the current log
   // row, inject, advance time, read state. Runs on each videoT change
   // when m5Accurate is on and a sim is loaded.
@@ -633,10 +645,24 @@ export const ReplayPage = () => {
       // re-runs the load-effect above. Using the toggle flag toggle
       // would be invasive; just null the ref and let the next render
       // re-load.
+      //
+      // Capture the target virtMs in the closure: the next frame's
+      // virtMs will reflect the actual video position (e.g., 1.5e6 ms
+      // into a 1500-second video). Resetting last to 0 here would
+      // make the next frame's diff blow past the +5000 ms threshold
+      // and trigger another re-init — infinite loop until the video
+      // sits at 0–5 s. Assign targetVirtMs after init resolves so the
+      // next frame's diff is bounded by frame cadence (~16 ms), not
+      // by absolute video time.
+      //
+      // Read m5ModeId via ref so the post-init mode reflects the
+      // current value, not whatever the effect closure captured at
+      // fire time.
+      const targetVirtMs = virtMs;
       M5Sim.create().then(newSim => {
         m5SimRef.current = newSim;
-        newSim.setMode(m5ModeId);
-        m5LastVirtualMsRef.current = 0;
+        newSim.setMode(m5ModeIdRef.current);
+        m5LastVirtualMsRef.current = targetVirtMs;
       });
       return;
     }

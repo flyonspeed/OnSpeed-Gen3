@@ -757,6 +757,34 @@ test('EnergyMode shows IAS dashes when IasIsValid is false', () => {
       'got: ' + texts.map(t => t.data).filter(s => s).join('|'));
 });
 
+test('EnergyMode G corner matches firmware %+1.1f format (always-signed)', () => {
+  // Mode 0's G readout uses snprintf("%+1.1f", displayVerticalG)
+  // (main.cpp:1026, inside displayAOA() under numericDisplay=true).
+  // The '+' flag in '%+1.1f' emits a leading '+' for non-negatives. The
+  // replay overlay must match — fmtSigned does this. AttitudeMode (Mode
+  // 1, main.cpp:799) is the one that uses '%1.1f' (no plus); it's tested
+  // separately and uses fmt(). This test guards against accidentally
+  // swapping the two formatters between the modes.
+  const checkAt = (g, expected) => {
+    const root = renderInto(
+      html`<${m5modesMod.EnergyMode}
+              state=${makeM5State({ displayVerticalG: g })}
+              stale=${false} />`);
+    const texts = [...walk(root)]
+      .filter(n => n.localName === '#text')
+      .map(n => n.data);
+    if (!texts.includes(expected)) {
+      throw new Error(
+        `EnergyMode G corner: expected text "${expected}" for ` +
+        `displayVerticalG=${g}, got: ${texts.filter(s => s).join('|')}`);
+    }
+  };
+  checkAt(1.0, '+1.0');    // positive: '+' from %+1.1f
+  checkAt(0.0, '+0.0');    // zero: '+' from %+1.1f
+  checkAt(-0.5, '-0.5');   // negative: '-' from value
+  checkAt(2.7, '+2.7');
+});
+
 test('EnergyMode slip ball cx responds to state.Slip', () => {
   // Find the slip ball <circle> for two distinct Slip values; their cx
   // attributes must differ. This catches a sabotage where SlipBall is
