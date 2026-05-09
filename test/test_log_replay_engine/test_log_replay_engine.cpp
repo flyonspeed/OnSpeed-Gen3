@@ -1,19 +1,24 @@
 // test_log_replay_engine.cpp — characterization tests for onspeed::replay::LogReplayEngine.
 //
-// These are CHARACTERIZATION TESTS: they pin the current (PR 1) behavior so
-// that PRs 2 (rate-correct EMA) and 3 (synth ADC) produce clean diffs.
-// They do not assert physical correctness — they assert that the engine
-// produces the same outputs as the original inline ReadLogLine() code for
-// the same inputs.
+// These are CHARACTERIZATION TESTS: they pin behavior at Sub-task 2 of
+// PLAN_FIRMWARE_LOG_REPLAY_PARITY.md — the engine uses RateAdjustedAccelEma
+// for lateral, vertical, and forward accel channels.  Pinned values for the
+// smoothed accel fields reflect the rate-adjusted EMA output at 50 Hz with
+// tau = kAccelEmaTauSec ≈ 0.076516 s (alpha ≈ 0.2300).
+//
+// Sub-task 3 (synth flapsRawADC for old logs) will produce the next clean diff.
 //
 // What is tested:
 //   - step() is deterministic: two fresh engines on identical input produce
 //     identical output.
-//   - Engine state (AOA EMA) accumulates: two sequential steps on inputs with
-//     different pressures produce numerically distinct AOA values pinned to
-//     exact floats (so PR 2's rate-correct EMA produces a visible diff).
-//   - reset() clears EMA state — two step() calls after reset give the
-//     same result as the first two calls from a fresh engine.
+//   - Accel fields (accelLatSmoothed, accelVertSmoothed, accelFwdSmoothed) carry
+//     rate-adjusted-EMA smoothed values, NOT raw passthrough.  First call
+//     seeds at the raw value; subsequent calls blend.
+//   - Engine state (AOA EMA + accel EMA) accumulates: sequential steps on
+//     distinct inputs produce distinct outputs pinned to exact floats.
+//   - reset() clears all EMA state (AOA + accel) so the engine behaves
+//     identically to a fresh instance.
+//   - Raw IMU fields (imuLateralG, imuVerticalG, imuForwardG) remain raw.
 //   - flapsRawAdcPresent gate: field is propagated only when set.
 //   - Flap index lookup: correct entry selected, unknown degrees fall back to 0.
 
@@ -195,7 +200,20 @@ void test_passthrough_fields(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 5000.0f, res.paltFt);
 }
 
-// IMU fields pass through unchanged
+// Raw IMU fields pass through unchanged; smoothed accel fields seed at raw on
+// first call.
+//
+// Raw IMU: imuLateralG / imuVerticalG / imuForwardG feed g_pIMU->Ay/Az/Ax
+// and are never modified by the engine.
+//
+// Smoothed accel: accelLatSmoothed / accelVertSmoothed / accelFwdSmoothed are
+// rate-adjusted-EMA outputs (alpha ≈ 0.2300 at 50 Hz, tau ≈ 0.076516 s).
+// On the FIRST call to a fresh engine, each EMA seeds at the raw value
+// (returns input as-is — same as EMAFilter::update() contract).  After
+// the first call, subsequent values blend against the seed.
+//
+// This test exercises the first-call (seed) case.  test_accel_ema_accumulates
+// exercises the multi-call blend case.
 void test_imu_passthrough(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
@@ -211,6 +229,7 @@ void test_imu_passthrough(void)
 
     ReplayStepResult res = eng.step(row);
 
+    // Raw IMU fields are always verbatim passthrough.
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.11f,  res.imuForwardG);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.05f, res.imuLateralG);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.99f,  res.imuVerticalG);
@@ -218,13 +237,16 @@ void test_imu_passthrough(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, -1.3f,  res.imuPitchRateDps);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.7f,   res.imuYawRateDps);
 
-    // AccelLatCorr == imuLateralG (body-frame Ay)
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, row.imuLateralG,  res.accelLatCorr);
-    // AccelVertCorr == imuVerticalG (body-frame Az)
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, row.imuVerticalG, res.accelVertCorr);
+    // Smoothed accel: first call seeds at the raw value.
+    // accelLatSmoothed  → lateral  EMA seeds at imuLateralG  = -0.05
+    // accelVertSmoothed → vertical EMA seeds at imuVerticalG = 0.99
+    // accelFwdSmoothed  → forward  EMA seeds at imuForwardG  = 0.11
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.05f, res.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.99f, res.accelVertSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.11f, res.accelFwdSmoothed);
 }
 
-// EMA state accumulates: two sequential steps on distinct inputs produce
+// AOA EMA accumulates: two sequential steps on distinct pressure inputs produce
 // different AOA outputs.
 //
 // Fixture uses a linear polynomial curve (AOA = 30 * coeffP) so the EMA
@@ -233,8 +255,8 @@ void test_imu_passthrough(void)
 //   row2: pfwd=1.0, p45=0.3 -> coeffP=0.3 -> raw_aoa=9.0. EMA blends:
 //         0.1*9.0 + 0.9*3.0 = 3.6.
 //
-// Pinned from a cold engine on the PR-1 commit. PR 2 (rate-correct EMA) will
-// change these values — that diff is intentional and expected.
+// These values are identical to the PR-1 baseline: the AOA EMA (alpha=0.1)
+// uses AOACalculator, which is not changed by Sub-task 2 (rate-adjusted accel EMA).
 void test_ema_accumulates(void)
 {
     OnSpeedConfig cfg = makeLinearCurveConfig();
@@ -248,29 +270,105 @@ void test_ema_accumulates(void)
     LogRow row2 = makeRow(/*pfwd=*/1.0f, /*p45=*/0.3f);
     ReplayStepResult r2 = eng.step(row2);
 
-    // Pinned values for PR-1 behavior. PR 2 changes EMA rate -> visible diff.
+    // Pinned values — unchanged from PR-1 baseline (AOA calc is not affected
+    // by Sub-task 2's rate-adjusted accel EMA).
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f, r1.aoa);
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.6f, r2.aoa);
     TEST_ASSERT_NOT_EQUAL(r1.aoa, r2.aoa);  // sanity: EMA actually moved
 }
 
-// reset() clears EMA state: step after reset == step on a fresh engine
+// Accel EMA accumulates with rate-adjusted smoothing.
+//
+// Verifies that accelLatSmoothed / accelVertSmoothed / accelFwdSmoothed use the
+// rate-adjusted-EMA filter (alpha ≈ 0.2300 at 50 Hz, tau ≈ 0.076516 s),
+// not raw passthrough, from the second step onward.
+//
+// Row 1 values (from makeRow defaults):
+//   imuLateralG = -0.02, imuVerticalG = 1.02, imuForwardG = 0.05
+//   EMA seeds at these values on the first call.
+//
+// Row 2 values (overridden):
+//   imuLateralG = 0.10, imuVerticalG = 0.90, imuForwardG = 0.20
+//   EMA blends: alpha * new + (1-alpha) * seed
+//   alpha = 1 - exp(-dt / tau) at dt=1/50 s, tau = kAccelEmaTauSec ≈ 0.076516 s
+//   alpha ≈ 0.23001423
+//
+//   accelLatSmoothed  = 0.23001423 * 0.10  + 0.76998577 * (-0.02) = 0.0076017
+//   accelVertSmoothed = 0.23001423 * 0.90  + 0.76998577 * 1.02    = 0.9923983
+//   accelFwdSmoothed = 0.23001423 * 0.20  + 0.76998577 * 0.05   = 0.0845014
+//
+// Pinned to 4 decimal places (%.4f wire precision). Sub-task 3 (synth ADC)
+// does not change these values.
+void test_accel_ema_accumulates(void)
+{
+    OnSpeedConfig cfg = makeTwoFlapConfig();
+    LogReplayEngine eng(cfg, 50, false);
+
+    // Step 1: seeds the accel EMA at the default makeRow() IMU values.
+    // imuLateralG=-0.02, imuVerticalG=1.02, imuForwardG=0.05
+    LogRow row1 = makeRow();
+    ReplayStepResult r1 = eng.step(row1);
+
+    // First step: EMA seeds at raw values (no blending yet).
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.02f, r1.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  1.02f, r1.accelVertSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.05f, r1.accelFwdSmoothed);
+
+    // Raw IMU fields are always verbatim — not affected by EMA state.
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.02f, r1.imuLateralG);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  1.02f, r1.imuVerticalG);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.05f, r1.imuForwardG);
+
+    // Step 2: different IMU values blend against the seeded EMA state.
+    LogRow row2 = makeRow();
+    row2.imuLateralG  =  0.10f;
+    row2.imuVerticalG =  0.90f;
+    row2.imuForwardG  =  0.20f;
+    ReplayStepResult r2 = eng.step(row2);
+
+    // Pinned values: alpha ≈ 0.23001423 at 50 Hz, tau = kAccelEmaTauSec.
+    //   seed values from row1: lat=-0.02, vert=1.02, fwd=0.05
+    //   accelLatSmoothed  = 0.23001 * 0.10  + 0.76999 * (-0.02) = 0.0076
+    //   accelVertSmoothed = 0.23001 * 0.90  + 0.76999 * 1.02    = 0.9924
+    //   accelFwdSmoothed  = 0.23001 * 0.20  + 0.76999 * 0.05    = 0.0845
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.0076f, r2.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.9924f, r2.accelVertSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f,  0.0845f, r2.accelFwdSmoothed);
+
+    // Raw IMU fields remain raw on step 2.
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.10f, r2.imuLateralG);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.90f, r2.imuVerticalG);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.20f, r2.imuForwardG);
+
+    // Smoothed values differ from raw (EMA blending is visible).
+    TEST_ASSERT_NOT_EQUAL(r2.imuLateralG,  r2.accelLatSmoothed);
+    TEST_ASSERT_NOT_EQUAL(r2.imuVerticalG, r2.accelVertSmoothed);
+}
+
+// reset() clears all EMA state (AOA + accel): step sequence after reset
+// produces identical output to the same sequence on a fresh engine.
 void test_reset_clears_state(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
     LogReplayEngine eng(cfg, 50, false);
 
-    // Warm up the EMA with a few rows
+    // Warm up the AOA + accel EMA with a few rows.
     LogRow warmup = makeRow(2.0f, 0.5f);
+    warmup.imuLateralG = 0.15f;
+    warmup.imuVerticalG = 0.85f;
+    warmup.imuForwardG = 0.03f;
     eng.step(warmup);
     eng.step(warmup);
     eng.step(warmup);
 
-    // Now do a step with a different row to get the "warmed up" result
+    // Step with a different row to get the "warmed up" result.
     LogRow testRow = makeRow(0.1f, 0.02f);
+    testRow.imuLateralG = -0.08f;
+    testRow.imuVerticalG = 1.05f;
+    testRow.imuForwardG = 0.02f;
     ReplayStepResult warmed = eng.step(testRow);
 
-    // Reset and repeat the same sequence from scratch
+    // Reset and repeat the same sequence from scratch.
     eng.reset();
     LogReplayEngine fresh(cfg, 50, false);
     fresh.step(warmup);
@@ -278,8 +376,12 @@ void test_reset_clears_state(void)
     fresh.step(warmup);
     ReplayStepResult fresh_result = fresh.step(testRow);
 
-    // After reset(), same input sequence produces same output as fresh engine
-    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.aoa, warmed.aoa);
+    // After reset(), same input sequence produces same output as fresh engine.
+    // Checks both AOA EMA and accel EMA state are cleared.
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.aoa,             warmed.aoa);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelLatSmoothed,  warmed.accelLatSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelVertSmoothed, warmed.accelVertSmoothed);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, fresh_result.accelFwdSmoothed, warmed.accelFwdSmoothed);
 }
 
 // flapsRawAdcPresent = false: result.flapsRawAdcPresent is false, uValue unchanged
@@ -395,6 +497,7 @@ int main(int, char**)
     RUN_TEST(test_passthrough_fields);
     RUN_TEST(test_imu_passthrough);
     RUN_TEST(test_ema_accumulates);
+    RUN_TEST(test_accel_ema_accumulates);
     RUN_TEST(test_reset_clears_state);
     RUN_TEST(test_flaps_raw_adc_absent);
     RUN_TEST(test_flaps_raw_adc_present);

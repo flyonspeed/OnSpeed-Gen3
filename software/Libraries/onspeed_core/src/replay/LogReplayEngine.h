@@ -16,13 +16,15 @@
 // include Arduino.h, FreeRTOS.h, millis(), xSemaphoreTake(), or any other
 // platform header. scripts/check_core_purity.sh enforces this.
 //
-// Behavior note (PR 1 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
-// This engine preserves CURRENT behavior exactly — the same AOA smoothing,
-// the same naive EMA rate (driven at log rate, not up-sampled to 208 Hz),
-// and no synthesized flapsRawADC for old logs. The two ingest bugs are fixed
-// in PRs 2 (rate-correct EMA) and 3 (synth ADC). This PR freezes today's
-// behavior with a characterization test suite so those follow-ups produce
-// clean diffs.
+// Accel smoothing (Sub-task 2 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md):
+// Three RateAdjustedAccelEma instances (lateral, vertical, forward) are
+// constructed at the log sample rate with tau = kAccelEmaTauSec.  Per row,
+// raw imuLateralG / imuVerticalG / imuForwardG are fed through them.
+// Smoothed outputs are written to accelLatSmoothed / accelVertSmoothed /
+// accelFwdSmoothed in ReplayStepResult — mirroring the AHRS engine's
+// AccelLatFilter / AccelVertFilter / AccelFwdFilter.get() values that go
+// on the M5 wire.  Raw IMU fields (imuLateralG, imuVerticalG, imuForwardG)
+// remain raw for downstream consumers that need g_pIMU->Ay/Az/Ax.
 
 #ifndef ONSPEED_CORE_REPLAY_LOG_REPLAY_ENGINE_H
 #define ONSPEED_CORE_REPLAY_LOG_REPLAY_ENGINE_H
@@ -31,6 +33,7 @@
 
 #include <aoa/AOACalculator.h>
 #include <config/OnSpeedConfig.h>
+#include <filters/RateAdjustedAccelEma.h>
 #include <types/LogRow.h>
 
 namespace onspeed::replay {
@@ -77,9 +80,15 @@ struct ReplayStepResult {
     float imuPitchRateDps  = 0.0f;   // Gy -> g_pIMU->Gy (un-negated raw)
     float imuYawRateDps    = 0.0f;   // Gz -> g_pIMU->Gz
 
-    // --- Corrected accel (fed to g_AHRS.AccelLatCorr, AccelVertCorr) ---
-    float accelLatCorr  = 0.0f;   // g_AHRS.AccelLatCorr  = g_pIMU->Ay
-    float accelVertCorr = 0.0f;   // g_AHRS.AccelVertCorr = g_pIMU->Az
+    // --- Rate-adjusted-EMA smoothed accel (wire-shaped output) ---
+    // These mirror the firmware's AccelLatFilter.get() / AccelVertFilter.get() /
+    // AccelFwdFilter.get() values that feed the M5 wire and the slip-ball display.
+    // Smoothed at log rate (50 or 208 Hz) with tau = kAccelEmaTauSec, matching
+    // the AHRS engine's 208 Hz EMA in continuous-time behavior.
+    // NOT the same as imuLateralG/VerticalG/ForwardG (those remain raw for g_pIMU->*).
+    float accelLatSmoothed  = 0.0f;  // smoothed lateral-G  → g_AHRS.AccelLatFilter.get()
+    float accelVertSmoothed = 0.0f;  // smoothed vertical-G → g_AHRS.AccelVertFilter.get()
+    float accelFwdSmoothed  = 0.0f;  // smoothed forward-G  → g_AHRS.AccelFwdFilter.get()
 
     // --- Data mark (fed to g_iDataMark) ---
     int dataMark = 0;
@@ -88,17 +97,22 @@ struct ReplayStepResult {
 // ============================================================================
 // LogReplayEngine
 //
-// Owns the per-row processing state: the AOA smoothing filter (an
-// AOACalculator whose EMA state persists across rows — mirrors the live
-// g_Sensors.AoaCalc instance).
+// Owns the per-row processing state:
+//   - AOA smoothing filter (AOACalculator, EMA over pressure coefficient).
+//   - Three RateAdjustedAccelEma instances (lateral, vertical, forward)
+//     that match the AHRS accel filter's continuous-time behavior at the
+//     log sample rate.  Output goes to ReplayStepResult::accelLatSmoothed,
+//     accelVertSmoothed, and accelFwdSmoothed — mirroring the firmware's
+//     AccelLatFilter / AccelVertFilter / AccelFwdFilter.get() values.
 //
 // Constructor parameters:
 //   cfg                 — active OnSpeedConfig (aFlaps, iAoaSmoothing)
-//   logSampleRateHz     — sample rate of the log (50 or 208 Hz). Stored
-//                         for PRs 2/3; not yet used to correct EMA rate.
+//   logSampleRateHz     — sample rate of the log (50 or 208 Hz).  Used to
+//                         construct the RateAdjustedAccelEma filters at
+//                         the correct rate.
 //   flapsRawAdcAvailable— true when the log's header carries the
-//                         flapsRawADC column. Stored for PR 3; not yet
-//                         used to synthesize ADC when absent.
+//                         flapsRawADC column. Stored for PR 3 (synth ADC);
+//                         not yet used to synthesize ADC when absent.
 // ============================================================================
 
 class LogReplayEngine {
@@ -125,15 +139,23 @@ public:
 private:
     const onspeed::config::OnSpeedConfig& cfg_;
 
-    // Stored for PRs 2 (rate-correct EMA) and 3 (synth ADC); not yet read
-    // by step(). The [[maybe_unused]] attribute silences -Wunused-private-field
-    // until those PRs add the consuming logic.
-    [[maybe_unused]] int  logSampleRateHz_;
+    // Stored for PR 3 (synth ADC); not yet read by step().
+    // The [[maybe_unused]] attribute silences -Wunused-private-field until
+    // that PR adds the consuming logic.
     [[maybe_unused]] bool flapsRawAdcAvailable_;
 
     // AOA smoothing filter — mirrors g_Sensors.AoaCalc in the live path.
     // State persists across step() calls within one replay session.
     onspeed::AOACalculator aoaCalc_;
+
+    // Rate-adjusted-EMA accel filters — mirror the AHRS engine's
+    // accelLatFilter_ / accelVertFilter_ / accelFwdFilter_ (alpha=0.060899
+    // at 208 Hz).  Constructed at logSampleRateHz with tau=kAccelEmaTauSec
+    // so the continuous-time frequency response matches the firmware's filter
+    // at any supported log rate (50 or 208 Hz).
+    onspeed::filters::RateAdjustedAccelEma accelLatEma_;
+    onspeed::filters::RateAdjustedAccelEma accelVertEma_;
+    onspeed::filters::RateAdjustedAccelEma accelFwdEma_;
 
     // Resolve the aFlaps index for a given flap-position degree value.
     // Returns 0 (first entry) when no exact match is found, matching the

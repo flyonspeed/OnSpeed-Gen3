@@ -275,8 +275,8 @@ bool ReadLogLine()
         g_AHRS.FlightPath    = res.flightPathDeg;
         g_Sensors.AOA        = res.aoa;
 
-        g_AHRS.AccelLatCorr  = res.accelLatCorr;
-        g_AHRS.AccelVertCorr = res.accelVertCorr;
+        g_AHRS.AccelLatCorr  = res.accelLatSmoothed;
+        g_AHRS.AccelVertCorr = res.accelVertSmoothed;
 
         g_AudioPlay.UpdateTones(SnapshotActiveFlap());
 
