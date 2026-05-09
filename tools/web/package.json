@@ -10,6 +10,6 @@
   "scripts": {
     "dev": "node dev-server/server.mjs --mock",
     "dev:proxy": "node dev-server/server.mjs --proxy http://192.168.0.1",
-    "test": "node test/geometry-invariants.mjs && node test/render-smoke.mjs && node test/api-schema.mjs && node test/aoaconfig-markers.mjs && node test/smoothedField.mjs && node test/ema.mjs && node test/wsclient.mjs && node test/wasm-smoke.mjs && node test/replay-row-identity.mjs"
+    "test": "node test/geometry-invariants.mjs && node test/render-smoke.mjs && node test/api-schema.mjs && node test/aoaconfig-markers.mjs && node test/smoothedField.mjs && node test/ema.mjs && node test/wsclient.mjs && node test/wasm-smoke.mjs && node test/replay-row-identity.mjs && node test/bundle-execution.mjs"
   }
 }

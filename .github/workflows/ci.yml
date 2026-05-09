@@ -120,6 +120,11 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Run web bundler
         run: python3 scripts/build_web_bundle.py
 
@@ -137,6 +142,15 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Execute bundled JS for every page
+        # Catches the class of bugs the bundler's regex grammar misses:
+        # entry.js references to symbols whose source files were
+        # excluded from the bundle, illegal redeclarations the
+        # duplicate-id guard didn't anchor, runtime errors during
+        # top-level evaluation.  Re-runs the bundler internally so the
+        # test is self-contained.
+        run: node tools/web/test/bundle-execution.mjs
 
   web-tests:
     # Pure-JS tests for the firmware web UI:
