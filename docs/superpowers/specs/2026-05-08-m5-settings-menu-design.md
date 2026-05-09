@@ -22,9 +22,16 @@ Two anchors, both from this hardware ecosystem:
 
 **M5ez** ([github.com/M5ez/M5ez](https://github.com/M5ez/M5ez)) — canonical M5Stack 3-button menu library. Default mapping: `BtnA = up, BtnB = select, BtnC = down`. Symmetric, easy to internalize.
 
-We adopt M5ez's symmetric A/B/C nav (matches the existing brightness-button symmetry) and the huVVer "long-press to enter" entry gesture.
+- **On M5** (3 buttons, no dedicated Menu key): we adopt M5ez's symmetric A/B/C nav, and use long-press BtnB to enter the menu — borrowed from huVVer-TBX's "hold MODE for 2s" idiom.
+- **On huVVer-AVI** (4 buttons): we adopt V.R. Little's TBX vocabulary directly — square = back/menu, round = select, ◀ ▶ = navigate. Long-press the dedicated Menu (☐) key to enter.
+
+The shared menu model behaves identically on both targets; only the entry / exit gesture and live-mode bindings differ by what hardware affords.
 
 ## Button mapping
+
+Three M5-Basic / Core2 buttons vs four huVVer-AVI buttons; the menu uses the same model on both, but the entry / exit gesture and live-mode bindings differ by what each hardware affords.
+
+### M5 Basic / Core2 (BtnA, BtnB, BtnC)
 
 Outside the menu (live mode) — **unchanged**:
 
@@ -35,14 +42,7 @@ Outside the menu (live mode) — **unchanged**:
 | BtnC | brightness double | (free) |
 | BtnB at boot | (firmware update — unchanged) | n/a |
 
-**Event semantics for mode-cycle vs hold-to-enter.** The current firmware uses `BtnB.wasPressed()` for the mode-cycle (`main.cpp:552`), which fires on the **press edge** — meaning a long-press would trigger one mode-cycle *and* the menu, 600 ms apart. To avoid this collision, this PR migrates the mode-cycle from `wasPressed()` to `wasClicked()`. M5Unified's `wasClicked()` fires on **release after a short press** and is guaranteed not to fire on a release that came after a hold (the internal `_press` state is set to 2 once held, and the click branch only triggers when `oldPress == 1`). So:
-
-- Short click of BtnB → release fires `wasClicked()` → mode cycles.
-- Long press of BtnB → at 600 ms held, `wasHold()` fires once → menu opens. Subsequent release fires neither `wasClicked()` nor anything else.
-
-For consistency, BtnA and BtnC migrate from `wasPressed()` to `wasClicked()` too. They have no long-press behavior today, so the migration is behavior-neutral now and protects against future long-press-on-A/C semantics. The huVVer `HuvverButton` class needs matching `wasClicked()` and `wasHold()` methods with the same suppress-release-after-hold semantics (implementation in §"Cross-target compatibility").
-
-Inside the menu — **M5ez-style** with dual-purpose BtnB:
+Inside the menu:
 
 | Button | Short press | Long press (≥ 600 ms) |
 |---|---|---|
@@ -50,12 +50,49 @@ Inside the menu — **M5ez-style** with dual-purpose BtnB:
 | BtnB | activate highlighted item | **save & exit menu** |
 | BtnC | move highlight down | (no-op) |
 
-Wraparound: up from item 0 wraps to last item; down from last wraps to 0.
+The M5 has no dedicated Menu key, so the entry / exit gesture is BtnB long-press. Symmetric with M5ez convention.
 
-**Exit semantics** — three ways out, all safe:
-1. Activate the explicit `Exit` menu item.
-2. Long-press BtnB anywhere in the menu (mirrors the entry gesture).
-3. 30-second idle timeout — any frame where `millis() - lastButtonMs > 30000` while in the menu auto-exits to live mode.
+### huVVer-AVI (BtnA = ☐ Menu, BtnB = ○ Select, BtnC = ▶ Fwd, BtnD = ◀ Back)
+
+Vern Little's TBX firmware ships on this exact hardware and defines a stable button vocabulary that some OnSpeed users already have in muscle memory: **square = back/menu, round = select, triangles = navigate**. We adopt that vocabulary directly so an OnSpeed-display-on-huVVer behaves the way the same hardware behaves under its stock firmware.
+
+Outside the menu (live mode):
+
+| Button | Short press | Long press (≥ 600 ms) |
+|---|---|---|
+| BtnA (☐ Menu) | (free, see below) | **enter Settings menu** |
+| BtnB (○ Select) | mode cycle 0 → 4 → 0 | (free) |
+| BtnC (▶ Fwd) | brightness double | (free) |
+| BtnD (◀ Back) | brightness halve | (free) |
+| BtnB at boot | (firmware update — unchanged) | n/a |
+
+This **promotes BtnD from "unused" to brightness-halve**, freeing BtnA to be the dedicated menu key. (Today on huVVer, BtnA halves brightness — that moves to BtnD where the back-arrow already iconographically suggests "decrease.") Short-press BtnA is left free for now; long-press is the menu entry. Mirrors V.R. Little's TBX where holding the square button has a system-level meaning.
+
+Inside the menu:
+
+| Button | Short press | Long press |
+|---|---|---|
+| BtnA (☐ Menu) | **back / exit menu** | (no-op) |
+| BtnB (○ Select) | activate highlighted item | (no-op) |
+| BtnC (▶ Fwd) | move highlight down | (no-op) |
+| BtnD (◀ Back) | move highlight up | (no-op) |
+
+Symmetric pair (◀ ▶) for navigation, dedicated back button — exactly the TBX idiom. No long-press needed inside the menu since BtnA is right there as a one-press exit. (The shared `MenuModel`'s `onBackOrLongPressExit()` is invoked on M5 from BtnB-hold and on huVVer from BtnA-click; same effect.)
+
+### Event semantics for mode-cycle vs hold-to-enter
+
+The current firmware uses `wasPressed()` for the live-mode buttons (`main.cpp:534/535/552`), which fires on the **press edge** — meaning a long-press would trigger the press-edge action *and* the menu, 600 ms apart. To avoid this collision, this PR migrates the live-mode handlers from `wasPressed()` to `wasClicked()`. M5Unified's `wasClicked()` fires on **release after a short press** and is guaranteed not to fire on a release that came after a hold (the internal `_press` state is set to 2 once held, and the click branch only triggers when `oldPress == 1`). So on M5:
+
+- Short click of BtnB → release fires `wasClicked()` → mode cycles.
+- Long press of BtnB → at 600 ms held, `wasHold()` fires once → menu opens. Subsequent release fires neither `wasClicked()` nor anything else.
+
+The migration applies to all three (M5) / four (huVVer) live-mode buttons for consistency. The huVVer `HuvverButton` class needs matching `wasClicked()` and `wasHold()` methods with the same suppress-release-after-hold semantics (implementation in §"Cross-target compatibility").
+
+Wraparound inside the menu: up from item 0 wraps to last item; down from last wraps to 0.
+
+**Exit semantics:**
+- **M5:** activate the `Exit` menu item, long-press BtnB anywhere, or 30-second idle timeout.
+- **huVVer:** press BtnA (☐ Menu) anywhere, activate the `Exit` menu item, or 30-second idle timeout.
 
 ## Item types
 
@@ -68,11 +105,13 @@ Three item kinds, each rendered as a single row in the list:
 +----------------------------------------+
 ```
 
-- **ToggleItem** — two values (e.g. `KTS / MPH`). BtnB-activate flips the value, persists immediately to NVS, stays on the menu. The new value is rendered live in the right-hand `[ ]` slot so the pilot sees the change instantly. No "edit mode," no confirmation dialog.
-- **ActionItem** — BtnB-activate runs a callback. Used for `Exit` today; `Restart` and `Factory Reset` are obvious follow-ups.
-- **InfoItem** — read-only readout (version string, IP address, etc.). BtnB-activate does nothing. Not used in the v1 menu but defined so the framework is complete.
+- **ToggleItem** — two values (e.g. `KTS / MPH`). Activate flips the value, persists immediately to NVS, stays on the menu. The new value is rendered live in the right-hand `[ ]` slot so the pilot sees the change instantly. No "edit mode," no confirmation dialog.
+- **ActionItem** — activate runs a callback. Used for `Exit` today; `Restart` and `Factory Reset` are obvious follow-ups.
+- **InfoItem** — read-only readout (version string, IP address, etc.). Activate does nothing. Not used in the v1 menu but defined so the framework is complete.
 
-A future `IntItem` (with a sub-edit mode where BtnB enters edit, BtnA/BtnC change value, BtnB exits edit) is intentionally **not** implemented in this PR. Scope discipline: we don't have a setting that needs it yet.
+(Throughout this section, "activate" = the select button — BtnB on M5, BtnB / ○ Select on huVVer.)
+
+A future `IntItem` (with a sub-edit mode where activate enters edit, the up / down navigation buttons change the value, and activate exits edit) is intentionally **not** implemented in this PR. Scope discipline: we don't have a setting that needs it yet.
 
 ## Visual layout
 
@@ -98,8 +137,11 @@ Avionics style — dark background, bright text, simple list. Reuses the FSS12 /
 
 - **Title bar:** `"OnSpeed Settings"` in `FSSB12` white, centered, `y=20`. Thin grey divider underneath at `y=38`.
 - **Item rows:** label left-anchored at `x=20`, current value right-anchored at `x=300`, `FSS12`. Highlighted item renders with a `>` prefix (visible without color) plus a thin cyan background band (color reinforcement for sighted-color pilots, redundancy for sunlit cockpits). 30-pixel row spacing fits up to 4 rows above the footer.
-- **Footer:** button hints `▲ UP   ● SELECT   ▼ DOWN`. Triangles and circle drawn from primitives (`gdraw.fillTriangle`, `gdraw.fillCircle`) — Free_Fonts may not carry those Unicode glyphs, and we don't want to hunt for fallbacks. Footer divider at `y=200`, hint text at `y=220`.
-- **Save flash:** on long-press-exit, a brief `Saving...` banner shows for ~300 ms before the menu deletes its sprite. (Toggle-flips already persist immediately, so this banner is symbolic, not load-bearing.)
+- **Footer:** button hints, drawn from primitives (`gdraw.fillTriangle`, `gdraw.fillCircle`, `gdraw.drawRect` for the square). Per-target text:
+  - M5: `▲ UP   ● SEL   ▼ DOWN` (BtnA, BtnB, BtnC).
+  - huVVer: `☐ BACK   ○ SEL   ◀ UP   ▶ DOWN` (BtnA, BtnB, BtnD, BtnC) — four hints fit; BtnD label sits on the left edge to mirror the physical button position.
+  - Footer divider at `y=200`, hint text at `y=220`. The footer is in v1 to aid discovery on a panel with no manual; we'll consider removing it once the bindings are settled.
+- **Exit transition:** on exit, the menu deletes its sprite and the next `loop()` iteration renders the live mode normally. No "Saving..." banner — toggle-flips already persisted on press, so the banner would be symbolic. Clean cut from menu to live mode.
 - **huVVer (240×320 portrait):** same layout, just rotated. List menus tolerate aspect-ratio change well; row spacing stays at 30 px and the footer drops to the bottom of the rotated frame.
 
 ## Persistence
@@ -142,9 +184,9 @@ displayIAS = g_speedInMph ? IAS * 1.15078f : IAS;
 
 ## Code organization
 
-Three new files split by platform-dependence (so the pure-logic core is unit-testable from the main firmware's native env):
+Three new files, split by platform-dependence:
 
-- `software/Libraries/onspeed_core/menu/MenuModel.h/.cpp` — pure-logic state machine, no M5GFX or Arduino deps. Already established `onspeed_core` pattern for code shared between firmware and the M5 sub-project. Public surface:
+- `software/OnSpeed-M5-Display/lib/MenuModel/MenuModel.h/.cpp` — pure-logic state machine. **Lives inside the M5 sub-project**, peer to `lib/GaugeWidgets/`, *not* in `onspeed_core`. Even though `MenuModel` happens to be platform-independent (no Arduino, no M5GFX, time injected via `tick(elapsedMs)`), it's a UI concern, not a flight-math concern. `onspeed_core` is for AOA / EKF / Kalman / Madgwick — code that defines aircraft behavior. A menu state machine doesn't belong there. Keeping it in the M5 sub-project also means the main firmware doesn't carry the dead weight (the sketch firmware has no menu and never will). Public surface:
   ```cpp
   enum class ItemType { Toggle, Action, Info };
   struct MenuItem {
@@ -162,35 +204,44 @@ Three new files split by platform-dependence (so the pure-logic core is unit-tes
       enum class ActivateResult { kStayed, kToggled, kExit, kAction };
       ActivateResult onActivate();
       void tick(uint32_t elapsedMs);          // for idle timeout
-      void onLongPressExit();                 // called by long-press shortcut
+      void onBackOrLongPressExit();           // BtnA on huVVer, BtnB-hold on M5
       bool wantsExit() const;
       int  currentIndex() const;
   };
   ```
 - `software/OnSpeed-M5-Display/include/SettingsMenu.h` — thin platform layer:
   ```cpp
-  void enterSettingsMenu();              // call when BtnB long-press detected
+  void enterSettingsMenu();              // call from loop() when entry gesture fires
   void tickSettingsMenu();               // call from loop() each iteration when active
   bool isSettingsMenuActive();
   extern bool g_speedInMph;              // read by main.cpp's IAS-render path
   ```
-- `software/OnSpeed-M5-Display/src/SettingsMenu.cpp` — wires `MenuModel` to M5GFX render + NVS read/write + button polling. The static `MenuItem[]` array and the toggle-flip / exit callbacks live here so they have access to `g_speedInMph` and `preferences`.
+- `software/OnSpeed-M5-Display/src/SettingsMenu.cpp` — wires `MenuModel` to M5GFX render + NVS read/write + button polling. The static `MenuItem[]` array and the toggle-flip / exit callbacks live here so they have access to `g_speedInMph` and `preferences`. Per-target button polling lives behind a single `#ifdef HUVVER` block (M5 polls BtnA/BtnB/BtnC, huVVer polls BtnA/BtnB/BtnC/BtnD with the assignments from §"Button mapping").
+
+`onspeed_core` stays untouched by this PR — no menu code lands there.
 
 `main.cpp` changes:
 
 - New include `"SettingsMenu.h"`.
 - Inside `setup()`, after the brightness read, add the `g_speedInMph` read.
-- Migrate the three live-mode button handlers from `wasPressed()` to `wasClicked()`:
-  - `main.cpp:534` `BtnC.wasPressed() → wasClicked()` (brightness up)
-  - `main.cpp:535` `BtnA.wasPressed() → wasClicked()` (brightness down)
-  - `main.cpp:552` `BtnB.wasPressed() → wasClicked()` (mode cycle)
+- Migrate live-mode button handlers from `wasPressed()` to `wasClicked()`:
+  - `main.cpp:534` `BtnC.wasPressed() → wasClicked()` (brightness up — both targets)
+  - `main.cpp:552` `BtnB.wasPressed() → wasClicked()` (mode cycle — both targets)
+  - `main.cpp:535` brightness-halve: on M5 stays on `BtnA.wasClicked()`; on huVVer **moves to `BtnD.wasClicked()`** under `#ifdef HUVVER`. (BtnA on huVVer becomes the dedicated Menu key with long-press-to-enter.)
   - The boot-time `BtnB.isPressed()` (line 348) and the firmware-update-cancel `BtnC.wasPressed()` (line 510) stay as they are — both run before the menu exists.
 - Inside `loop()`, near the top (after `M5.update()` and before `SerialRead()`):
   ```cpp
   if (isSettingsMenuActive()) { tickSettingsMenu(); return; }
-  if (M5.BtnB.wasHold()) { enterSettingsMenu(); return; }
+  #if defined(HUVVER)
+      if (M5.BtnA.wasHold()) { enterSettingsMenu(); return; }   // ☐ Menu key
+  #else
+      if (M5.BtnB.wasHold()) { enterSettingsMenu(); return; }   // round/middle button
+  #endif
   ```
-  Short-circuits the brightness handling and the mode-cycle while the menu is up. Live serial-data reads pause for the duration of the menu (the pilot is on the ground / parked anyway when configuring; the few seconds without IAS readout are acceptable).
+  Short-circuits everything below — including `SerialRead()` — while the menu is up. Live frames are dropped for the duration of the menu visit. This is acceptable because:
+  1. The menu fully covers the live render, so dropped frames aren't visible to the pilot anyway.
+  2. The wire is fire-and-forget UART at 20 Hz — the firmware doesn't expect acks. Old frames in the Serial2 RX buffer get overwritten by new ones; on menu exit, the next `SerialRead()` picks up the freshest frame as if no time had passed. The 256-byte ESP32 UART RX FIFO holds ~3 frames at 77 bytes; bounded loss, no hang.
+  3. Typical menu visit is < 5 seconds. The 30-second idle timeout caps it at a known maximum.
 - Delete the `#ifdef IAS_IN_MPH` gate; replace with `g_speedInMph ? IAS * 1.15078f : IAS`.
 
 ## Cross-target compatibility
@@ -207,34 +258,42 @@ Three new files split by platform-dependence (so the pure-logic core is unit-tes
 
 ## Testing
 
-**Unit tests** for the pure-logic `MenuModel` live in the main firmware's existing native-test tree at `OnSpeed-Gen3/test/test_menu_model/`, alongside the 12 existing test suites. `MenuModel` has no M5GFX dependency, so it links cleanly against the main firmware's `[env:native]` toolchain. To make `MenuModel` reachable from both targets, it lives at `software/Libraries/onspeed_core/menu/MenuModel.{h,cpp}` (header-only-friendly, no platform deps), and `OnSpeed-M5-Display/src/SettingsMenu.cpp` includes it. The platform-specific render and NVS code stay in the M5 sub-project where they belong.
+`MenuModel` is pure logic (no M5GFX, no Arduino, time injected via `tick(elapsedMs)`), so it can compile and run under the existing M5 native env (`[env:native]` in `OnSpeed-M5-Display/platformio.ini` — already set up for SDL2-based desktop builds). This PR adds a `test/` directory and a small native-test entry point to the M5 sub-project, mirroring the main firmware's `pio test -e native` pattern.
 
-Test coverage:
+**New test infrastructure** (first test suite for the M5 sub-project):
+
+- `software/OnSpeed-M5-Display/test/test_menu_model/test_menu_model.cpp` — Unity tests against `MenuModel`.
+- An `[env:m5-native-test]` env is added to `platformio.ini` that builds **only** the test source + `lib/MenuModel/` (excluding `src/main.cpp` and the SDL panel deps via `build_src_filter`). Run with `pio test -e m5-native-test --project-dir software/OnSpeed-M5-Display`. CI integration (`.github/workflows/ci.yml`) follows in a side change once this PR's tests are stable locally.
+
+**Test coverage:**
 
 - Cursor wraparound: up from index 0 lands at last index; down from last lands at 0.
 - Toggle activation flips the toggle value.
 - Exit-action activation sets `wantsExit() == true`.
 - Idle timeout: `tick(31'000)` after no input flips `wantsExit()`.
-- Long-press-during-menu sets `wantsExit()` immediately regardless of cursor position.
+- `onBackOrLongPressExit()` sets `wantsExit()` immediately regardless of cursor position.
 - Activating an `InfoItem` is a no-op (cursor stays, no exit, no toggle change).
 
-The M5 sub-project itself has no test tree today and gains none in this PR; its native SDL build serves as the integration-test surface (next paragraph).
+**Sim integration:** native SDL build (M5 mapping) runs end-to-end. SDL keys map Left / Down / Right → BtnA / BtnB / BtnC. Hold Down >600 ms to enter the menu, cycle items with Left / Right, flip the toggle with Down (short), long-press Down to exit. Confirm the IAS readout switches between knots and MPH digits live. The huVVer button vocabulary is not exercised in the sim today (would require adding a 4th key binding); huVVer behavior is verified on hardware.
 
-**Sim integration:** native SDL build runs end-to-end. Boot, hold the Down arrow >600 ms to enter, cycle items with Left / Right, flip the toggle with Down (short), long-press Down to exit. Confirm the IAS readout switches between knots and MPH digits live.
-
-**Hardware:** M5 Basic + huVVer-AVI bench test using the existing `tools/m5-replay/replay.py` to stream synthetic frames. Verify (a) the gesture works without conflicting with brightness or mode-cycle, (b) the toggle persists across power-cycle, (c) the idle timeout returns the pilot to live mode.
+**Hardware:**
+- **M5 Basic / Core2:** bench test using `tools/m5-replay/replay.py` to stream synthetic frames. Verify (a) BtnB long-press enters without firing a stray mode-cycle, (b) the toggle persists across power-cycle, (c) the 30 s idle timeout returns the pilot to live mode.
+- **huVVer-AVI:** same as above, but exercise the Vern-style button vocabulary — long-press BtnA (☐) to enter, ◀ ▶ to navigate, ○ to activate, BtnA short-press to back out. Verify the BtnD-now-halves-brightness change doesn't surprise pilots already running this firmware (note in release notes; only impacts huVVer users).
 
 ## Documentation
 
 - `software/OnSpeed-M5-Display/CLAUDE.md`:
-  - Add a "Settings menu" section describing the long-press-BtnB gesture, the current items list, and the recipe for adding a new item (extend the `MenuItem` array in `SettingsMenu.cpp`).
+  - Add a "Settings menu" section describing both gesture sets (M5 BtnB long-press; huVVer BtnA long-press), the current items list, the file layout (`lib/MenuModel/` for logic, `SettingsMenu.cpp` for platform glue), and the recipe for adding a new menu item.
+  - Update the existing huVVer button table to reflect BtnD's promotion from "unused" to brightness-halve.
 - `docs/site/docs/installation/external-display.md`:
-  - User-facing description: "Hold the middle button for ~1 second during normal flight to access settings. Use the left and right buttons to navigate, the middle button to change a value, and select 'Exit' to return to flight mode."
+  - Two short user-facing blurbs, one per target:
+    - **M5 Basic / Core2:** "Hold the middle button for ~1 second during normal flight to access settings. Use the left and right buttons to navigate, the middle button to change a value, and select 'Exit' to return to flight mode."
+    - **huVVer-AVI:** "Hold the square (☐) button for ~1 second to access settings. Use ◀ and ▶ to navigate, the round (○) button to change a value, and the square button again to return to flight mode."
 
 ## Out of scope
 
 - **`IntItem` with sub-edit mode.** No setting needs it yet; framework leaves a clean place for it.
-- **Hold-to-repeat scrolling** on BtnA / BtnC inside the menu. With ≤ 5 items planned, single-press scrolling is fine.
+- **Hold-to-repeat scrolling** on the navigation buttons inside the menu. With ≤ 5 items planned, single-press scrolling is fine.
 - **Mode-skip setting.** Some pilots may want to disable Mode 4 (G-history) from the cycle; that's a future menu item, not this PR.
 - **Touch input on Core2.** Core2 has a capacitive touch panel that the firmware already ignores everywhere else. Keeping that pattern.
 - **Vendoring M5ez or M5StackSAM.** The 2-item menu we need is ~150 LOC. M5ez is 6,000 LOC and pulls in WiFi / WebServer machinery the M5 firmware doesn't want in its bundle.
