@@ -25,6 +25,10 @@ const wasmJsPath = path.resolve(
     '../../../software/Libraries/onspeed_core/wasm/dist/onspeed_core.js'
 );
 
+// Import the production reassembleResults — test covers the same code
+// path the page uses. Sabotage in production propagates here.
+import { reassembleResults } from '../lib/replay/reassemble.js';
+
 let OnSpeedCoreModule;
 try {
     const mod = await import(wasmJsPath);
@@ -41,41 +45,6 @@ try {
 }
 
 const Module = await OnSpeedCoreModule();
-
-// ---------------------------------------------------------------------------
-// reassembleResults: the same logic used in ReplayPage.js::buildResultsFromWasm.
-//
-// immediates: Array of results from step() in order (may contain leading nulls
-//   for the synth path).
-// tail: Array from flush() (the final lag rows drained at EOF).
-// N: total row count.
-//
-// Returns results[0..N-1] where results[i] is the ReplayStepResult for
-// input row i.
-// ---------------------------------------------------------------------------
-function reassembleResults(immediates, tail, N) {
-    // Find the lag: how many leading nulls did step() produce?
-    let lag = immediates.findIndex(r => r !== null);
-    const effectiveLag = lag < 0 ? 0 : lag;
-
-    const results = new Array(N).fill(null);
-
-    if (effectiveLag === 0) {
-        // Fast path (flapsRawAdcAvailable=true or no lag): 1:1 mapping.
-        for (let i = 0; i < N; i++) results[i] = immediates[i];
-    } else {
-        // Synth path: immediates[effectiveLag..N-1] → results[0..N-effectiveLag-1]
-        for (let i = effectiveLag; i < N; i++) {
-            results[i - effectiveLag] = immediates[i];
-        }
-        // tail[0..tail.length-1] → results[N-tail.length..N-1]
-        for (let j = 0; j < tail.length; j++) {
-            results[N - tail.length + j] = tail[j];
-        }
-    }
-
-    return results;
-}
 
 // ---------------------------------------------------------------------------
 // Minimal valid V2 config (one flap detent).
@@ -113,13 +82,11 @@ if (cfg.error !== undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Build a synthetic 300-row log where each row's iasKt = row index (0..299).
+// Build a synthetic N-row log where each row's iasKt = row index.
 // This makes the passthrough field uniquely identify each row so misalignment
 // is immediately visible: if results[42].iasKt === 42.0, row 42 is correct.
 // ---------------------------------------------------------------------------
-const N = 300;
-
-function makeRow(i) {
+function makeRow(i, hasPot) {
     return {
         pfwdSmoothed:       0.0,
         p45Smoothed:        0.0,
@@ -129,7 +96,7 @@ function makeRow(i) {
         iasValid:           i > 0,
         flapsPos:           0,
         flapsRawAdc:        3908,
-        flapsRawAdcPresent: true,       // overridden per test below
+        flapsRawAdcPresent: hasPot,
         imuVerticalG:       1.0,
         imuLateralG:        0.0,
         imuForwardG:        0.0,
@@ -153,12 +120,12 @@ function makeRow(i) {
 console.log('\n--- row-identity: flapsRawAdcAvailable=true (fast path) ---');
 
 {
+    const N = 300;
     const engine = new Module.LogReplayEngine(cfg, 50, true);
 
     const immediates = [];
     for (let i = 0; i < N; i++) {
-        const row = makeRow(i);
-        immediates.push(engine.step(row));
+        immediates.push(engine.step(makeRow(i, true)));
     }
     const tail = engine.flush();
     engine.delete();
@@ -168,7 +135,7 @@ console.log('\n--- row-identity: flapsRawAdcAvailable=true (fast path) ---');
         process.exit(1);
     }
 
-    const results = reassembleResults(immediates, tail, N);
+    const results = reassembleResults(immediates, tail, N, /*hasPot=*/true);
 
     let mismatch = 0;
     for (let i = 0; i < N; i++) {
@@ -198,21 +165,15 @@ console.log('\n--- row-identity: flapsRawAdcAvailable=true (fast path) ---');
 // (should be results[1]), etc. — a 100-tick lag across the whole array.
 // ---------------------------------------------------------------------------
 
-console.log('\n--- row-identity: flapsRawAdcAvailable=false (synth path) ---');
+console.log('\n--- row-identity: flapsRawAdcAvailable=false (synth path, N=300) ---');
 
 {
-    const synthRows = [];
-    for (let i = 0; i < N; i++) {
-        const row = makeRow(i);
-        row.flapsRawAdcPresent = false;   // synth path
-        synthRows.push(row);
-    }
-
+    const N = 300;
     const engine = new Module.LogReplayEngine(cfg, 50, false);
 
     const immediates = [];
     for (let i = 0; i < N; i++) {
-        immediates.push(engine.step(synthRows[i]));
+        immediates.push(engine.step(makeRow(i, false)));
     }
     const tail = engine.flush();
     engine.delete();
@@ -233,7 +194,7 @@ console.log('\n--- row-identity: flapsRawAdcAvailable=false (synth path) ---');
     }
     console.log(`OK: synth path: flush() returned ${tail.length} tail rows`);
 
-    const results = reassembleResults(immediates, tail, N);
+    const results = reassembleResults(immediates, tail, N, /*hasPot=*/false);
 
     // Every slot must be non-null and carry the expected iasKt.
     let mismatch = 0;
@@ -250,6 +211,63 @@ console.log('\n--- row-identity: flapsRawAdcAvailable=false (synth path) ---');
     }
     if (mismatch > 0) process.exit(1);
     console.log(`OK: synth path: all ${N} rows align after reassembly (results[i].iasKt === i)`);
+}
+
+// ---------------------------------------------------------------------------
+// Test C: short log — N < synthHalfWindowTicks (synth path, N=50).
+//
+// When the log is shorter than the engine's half-window (100 rows at 50 Hz),
+// every step() call returns null (the buffer never fills). flush() returns
+// all N rows. After reassembly, results[i].iasKt must equal i.
+//
+// This is the bug introduced by round-1's fix-up: findIndex returned -1,
+// effectiveLag collapsed to 0, the fast-path copied all-null immediates,
+// and the non-empty tail was silently discarded → empty replay.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- row-identity: flapsRawAdcAvailable=false (synth path, N=50 < lag=100) ---');
+
+{
+    const N = 50;
+    const engine = new Module.LogReplayEngine(cfg, 50, false);
+
+    const immediates = [];
+    for (let i = 0; i < N; i++) {
+        immediates.push(engine.step(makeRow(i, false)));
+    }
+    const tail = engine.flush();
+    engine.delete();
+
+    // Sanity: ALL results from step() must be null (N < window).
+    if (immediates.some(r => r !== null)) {
+        console.error(`FAIL: short-log: expected all-null immediates for N=${N} < lag, got non-null`);
+        process.exit(1);
+    }
+    console.log(`OK: short-log: all ${N} step() results are null (N < synthHalfWindowTicks)`);
+
+    if (tail.length !== N) {
+        console.error(`FAIL: short-log: expected tail.length=${N}, got ${tail.length}`);
+        process.exit(1);
+    }
+    console.log(`OK: short-log: flush() returned ${tail.length} tail rows`);
+
+    const results = reassembleResults(immediates, tail, N, /*hasPot=*/false);
+
+    // Every slot must be non-null and carry the expected iasKt.
+    let mismatch = 0;
+    for (let i = 0; i < N; i++) {
+        if (results[i] === null) {
+            console.error(`FAIL: short-log results[${i}] is null after reassembly`);
+            process.exit(1);
+        }
+        if (Math.abs(results[i].iasKt - i) > 0.01) {
+            console.error(`FAIL: short-log row ${i}: results[${i}].iasKt=${results[i].iasKt.toFixed(2)}, expected ${i}`);
+            mismatch++;
+            if (mismatch >= 5) { console.error('  (stopping at 5 mismatches)'); break; }
+        }
+    }
+    if (mismatch > 0) process.exit(1);
+    console.log(`OK: short-log: all ${N} rows align after reassembly (results[i].iasKt === i)`);
 }
 
 console.log('\nAll replay-row-identity checks passed.');

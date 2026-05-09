@@ -50,6 +50,7 @@ import { computeAnchors } from '../replay/percentLift.js';
 import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
 import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
+import { reassembleResults } from '../replay/reassemble.js';
 
 const MODES = [
   { id: 'energy',   label: 'Energy',     C: Mode0 },
@@ -137,26 +138,17 @@ function rowObjAt(log, i) {
 
 // Build the results array via a WASM LogReplayEngine pre-pass.
 // Returns { results, buildRecord, length } where results[i] is the
-// ReplayStepResult for log row i.
+// ReplayStepResult for log row i, or null if cancelled.
 //
-// Row alignment:
-//   When hasPot=true: step() emits a result for every row; immediates[i]
-//   maps directly to log row i.
+// Row alignment is handled by reassembleResults() from lib/replay/reassemble.js.
+// See that module for the full semantics of the hasPot fast path vs the
+// synth-circular-buffer path (including the N < synthHalfWindowTicks case).
 //
-//   When hasPot=false: the synth circular buffer introduces a lag of
-//   synthHalfWindowTicks rows (100 at 50 Hz). step() returns null for
-//   the first `lag` calls while the buffer fills. After that, step() at
-//   position i returns the result for log row (i - lag). flush() returns
-//   the final `lag` results for the rows still in the buffer at EOF.
-//
-//   Reassembly:
-//     lag = first index in immediates that is non-null
-//     immediates[lag..N-1] → results[0..N-lag-1]
-//     tail[0..lag-1]       → results[N-lag..N-1]
-//
-// setReplayProgress(fraction) is called with values in [0,1] during the
-// pre-pass so the UI can display build progress on long logs.
-async function buildResultsFromWasm(log, cfg, setReplayProgress) {
+// onProgress(fraction) is called with values in [0,1] during the pre-pass.
+// isCancelled() is polled between chunks; returns true if the caller has
+// cancelled (new log upload, component unmount). Engine is always freed via
+// try/finally — no WASM heap leak on cancellation or error.
+async function buildResultsFromWasm(log, cfg, onProgress, isCancelled) {
   if (!log || !cfg) return null;
 
   const sampleRateHz    = detectLogSampleRate(log);
@@ -167,49 +159,35 @@ async function buildResultsFromWasm(log, cfg, setReplayProgress) {
 
   const engine = await LogReplayEngine.create(cfg, sampleRateHz, hasPot);
 
-  // Pre-pass: feed all rows through the engine in chunks so the UI can
-  // remain responsive on long logs (286 k rows × WASM-step ≈ 10 s).
-  // Each chunk yields to the event loop so progress paints between chunks.
-  const immediates = [];   // results from step(), in order (may contain nulls)
-  const CHUNK = 5000;
-  for (let start = 0; start < N; start += CHUNK) {
-    const end = Math.min(start + CHUNK, N);
-    for (let i = start; i < end; i++) {
-      immediates.push(engine.step(rowObjAt(log, i)));
+  let results;
+  try {
+    // Pre-pass: feed all rows through the engine in chunks so the UI can
+    // remain responsive on long logs (286 k rows × WASM-step ≈ 10 s).
+    // Each chunk yields to the event loop so progress paints between chunks.
+    const immediates = [];   // results from step(), in order (may contain nulls)
+    const CHUNK = 5000;
+    for (let start = 0; start < N; start += CHUNK) {
+      if (isCancelled && isCancelled()) return null;   // bail early on cancel
+      const end = Math.min(start + CHUNK, N);
+      for (let i = start; i < end; i++) {
+        immediates.push(engine.step(rowObjAt(log, i)));
+      }
+      if (onProgress) onProgress(end / N);
+      // Yield to the event loop so the progress text paints.
+      await new Promise(r => setTimeout(r, 0));
     }
-    if (setReplayProgress) setReplayProgress(end / N);
-    // Yield to the event loop so the progress text paints.
-    await new Promise(r => setTimeout(r, 0));
-  }
 
-  const tail = engine.flush();
-  engine.delete();
+    const tail = engine.flush();
 
-  // Align results with original log row indices.
-  //
-  // When hasPot=true (or lag=0): immediates[i] is already the result for
-  // row i; copy directly.
-  //
-  // When hasPot=false: immediates[0..lag-1] are null (lag period).
-  // immediates[lag..N-1] holds results for rows 0..N-lag-1 respectively.
-  // tail[0..lag-1] holds results for rows N-lag..N-1.
-  const lag = hasPot ? 0 : immediates.findIndex(r => r !== null);
-  const effectiveLag = lag < 0 ? 0 : lag;   // -1 means no nulls (hasPot path)
-
-  const results = new Array(N).fill(null);
-
-  if (effectiveLag === 0) {
-    // Fast path (hasPot=true or no lag): 1:1 mapping.
-    for (let i = 0; i < N; i++) results[i] = immediates[i];
-  } else {
-    // Synth path: immediates[effectiveLag..N-1] → results[0..N-effectiveLag-1]
-    for (let i = effectiveLag; i < N; i++) {
-      results[i - effectiveLag] = immediates[i];
-    }
-    // tail[0..tail.length-1] → results[N-tail.length..N-1]
-    for (let j = 0; j < tail.length; j++) {
-      results[N - tail.length + j] = tail[j];
-    }
+    // Align results with original log row indices.
+    // reassembleResults handles both paths:
+    //   hasPot=true  → 1:1 (fast path, no lag)
+    //   hasPot=false → synth path with lag, including N < lag case where
+    //                  every immediates[i] is null and tail holds all rows.
+    results = reassembleResults(immediates, tail, N, hasPot);
+  } finally {
+    // Always free the WASM engine — covers happy path, cancellation, and errors.
+    engine.delete();
   }
 
   // Build a closure that maps a log row index to a display record.
@@ -365,21 +343,40 @@ export const ReplayPage = () => {
   // Rebuild the replay pipeline whenever the log or config changes.
   // Doing this in an effect (not inline in render) keeps the
   // expensive WASM pre-pass from running every frame.
+  //
+  // Cancellation: if the user uploads a new log while a pre-pass is in
+  // flight (up to ~10 s on 286 k-row logs), the prior build is cancelled
+  // via the `cancelled` flag. The engine.delete() inside buildResultsFromWasm's
+  // try/finally runs regardless, so the WASM heap never leaks.
   useEffect(() => {
-    if (!log) { setReplayCtx(null); return; }
+    if (!log || !cfg) {
+      setReplayCtx(null);
+      setReplayBuilding(false);
+      return;
+    }
+
+    let cancelled = false;
     setReplayBuilding(true);
     setReplayCtx(null);
-    buildResultsFromWasm(log, cfg, setReplayProgress)
-      .then(ctx => {
-        setReplayCtx(ctx);
-        setReplayBuilding(false);
-        setReplayProgress(0);
-      })
-      .catch(err => {
-        setParseErr(`Replay engine error: ${err.message}`);
-        setReplayBuilding(false);
-        setReplayProgress(0);
-      });
+    setReplayProgress(0);
+
+    buildResultsFromWasm(
+      log, cfg,
+      (p) => { if (!cancelled) setReplayProgress(p); },
+      () => cancelled,
+    ).then(ctx => {
+      if (cancelled) return;   // discard results for superseded log
+      setReplayCtx(ctx);
+      setReplayBuilding(false);
+      setReplayProgress(0);
+    }).catch(err => {
+      if (cancelled) return;
+      setParseErr(`Replay engine error: ${err.message}`);
+      setReplayBuilding(false);
+      setReplayProgress(0);
+    });
+
+    return () => { cancelled = true; };
   }, [log, cfg]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
