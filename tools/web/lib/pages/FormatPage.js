@@ -24,6 +24,8 @@ export function FormatPage() {
   const [phase, setPhase] = useState('confirm');
   const [taskId, setTaskId] = useState(null);
   const [error, setError] = useState(null);
+  const [cardSizeGb, setCardSizeGb] = useState(null);
+  const [warning, setWarning] = useState(null);
 
   // Status-poll loop: query /api/format/status?id=… until it reports
   // a terminal state (done / failed) or the user navigates away.
@@ -36,6 +38,8 @@ export function FormatPage() {
         const s = await getJson('/api/format/status?id=' + encodeURIComponent(taskId));
         if (cancelled) return;
         if (s.state === 'done') {
+          if (typeof s.cardSizeGb === 'number') setCardSizeGb(s.cardSizeGb);
+          if (s.warning) setWarning(s.warning);
           setPhase('done');
           return;
         }
@@ -73,7 +77,8 @@ export function FormatPage() {
         ${phase === 'confirm' && html`
           <p style=${{ color: 'red' }}>
             Confirm that you want to format the internal SD card.
-            You will lose all the files currently on the card.
+            All log files and crash diagnostics will be erased.
+            Your configuration will be preserved.
           </p>
           ${error && html`<p style=${{ color: 'red' }}>${error}</p>`}
           <button type="button" class="button" onClick=${onConfirm}>Format SD Card</button>
@@ -82,11 +87,15 @@ export function FormatPage() {
           <p>Formatting SD card… please do not power-cycle.</p>`}
         ${phase === 'done' && html`
           <p>SD card has been formatted.</p>
+          ${cardSizeGb !== null && html`<p>New card size is: ${cardSizeGb.toFixed(1)} GB</p>`}
+          ${warning && html`<p style=${{ color: 'orange' }}>${warning}</p>`}
           <p><a href="/logs">Go to logs</a> | <a href="/">Home</a></p>`}
         ${phase === 'failed' && html`
           <p style=${{ color: 'red' }}>
             SD card format ERROR: ${error || 'unknown failure'}
           </p>
+          <p>Power-cycle the box and try again. If the problem persists, pop the
+             SD card and check it on a computer (or replace it).</p>
           <p><a href="/">Home</a></p>`}
       </div>
     <//>`;
