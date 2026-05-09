@@ -53,7 +53,7 @@ as NaN. When `ias_valid=true`, `ias` and `aoa` are taken from
 non-finite floats such as `ias_kt` when IAS is invalid. Standard
 JSON does not allow bare `nan`. The wrapper preprocesses each line
 before calling `json.loads`. Long-term fix: emit `null` in C++ and
-map `null` to `float('nan')` here. Tracked as a follow-up issue.
+map `null` to `float('nan')` here. Tracked in Issue #499.
 """
 
 from __future__ import annotations
@@ -63,12 +63,11 @@ import json
 import math
 import re
 import subprocess
-import tempfile
+import warnings
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator
 
 from ._host_main import require_host_main
-from .config import FlapSetpoints, load_flap_setpoints, setpoints_for_flap
 from .live_snapshot import LiveSnapshot
 
 # Column-name aliases. First name in each tuple is what we standardize
@@ -145,24 +144,31 @@ def _log_to_wire_lateral_g(body_frame_g: float) -> float:
 # JSONL parsing with nan-tolerance
 # ---------------------------------------------------------------------------
 
-_NAN_PATTERN = re.compile(r':\s*nan\b')
+# Match bare nan, -nan, NaN (any case), inf, -inf, INFINITY, etc.
+# libc printf() output varies by platform: Linux emits lowercase "nan",
+# macOS can emit "-nan" or mixed-case "NaN"; isinf() values may appear
+# as "inf" or "infinity".
+# See Issue #499 — once host_main emits null directly this regex can
+# simplify or be deleted.
+_NAN_INF_RE = re.compile(r':\s*-?(?i:nan|inf(?:inity)?)\b')
 
 
 def _parse_jsonl_with_nan(line: str) -> dict:
-    """Parse a JSONL row, tolerating C++-style `nan` values.
+    """Parse a JSONL row, tolerating C++-style non-finite float output.
 
-    The C++ host_main emits literal `nan` for non-finite floats (e.g.
-    `ias_kt` when IAS is invalid). Bare `nan` is not valid JSON.
-    Pre-process: replace `: nan` with `: null`, then map null → NaN
-    after parsing.
+    The C++ host_main emits literal `nan` (or platform variants: `-nan`,
+    `NaN`, `inf`, `-inf`) for non-finite floats — e.g. `ias_kt` when IAS
+    is invalid. None of these are valid JSON tokens.  Pre-process: replace
+    any such token with `null`, then map null → NaN after parsing.
 
-    Long-term fix: have host_main.cpp emit `null` instead of `nan` for
-    non-finite floats. This wrapper pre-processing keeps the Python side
-    self-contained until that C++ change lands.
+    Long-term fix: have host_main.cpp emit `null` instead of these tokens
+    for non-finite floats. Tracked in Issue #499. This wrapper
+    pre-processing keeps the Python side self-contained until that lands.
     """
-    # Replace `nan` literal (bare token after colon) with `null` so
-    # json.loads accepts it.
-    cleaned = _NAN_PATTERN.sub(': null', line)
+    # Replace non-finite float literals with `null` so json.loads accepts
+    # the line.  Replacement is ': null' (with a space) to preserve the
+    # JSON value slot after the colon.
+    cleaned = _NAN_INF_RE.sub(': null', line)
     obj = json.loads(cleaned)
     # Map null (None in Python) back to NaN for any field that could be
     # legitimately non-finite (currently only ias_kt).
@@ -277,6 +283,18 @@ def scenario_from_log(log_path: Path,
     supplied with any non-empty value. To override flap setpoints,
     write a modified config file and pass it as `cfg_path`.
     """
+    if fake_lever_sweep is False:
+        warnings.warn(
+            "fake_lever_sweep=False is silently ignored after the "
+            "Python Step 2 migration. The C++ LogReplayEngine "
+            "always synthesizes a flap-pot sweep when flapsRawADC "
+            "is absent from the log; pass-through is no longer a "
+            "supported mode. See PLAN_FIRMWARE_LOG_REPLAY_PARITY.md "
+            "Sub-task 3.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     if flap_overrides:
         raise NotImplementedError(
             "flap_overrides is not supported by the host_main wrapper. "

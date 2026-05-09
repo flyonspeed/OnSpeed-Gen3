@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import math
 import tempfile
+import warnings
 from pathlib import Path
+
+import pytest
 
 from onspeed_py.config import FlapSetpoints
 from onspeed_py.log_replay import _ffloat, scenario_from_log
@@ -123,14 +126,15 @@ def test_v3_at_rest_yields_nan_ias_and_aoa() -> None:
         log_path = Path(f.name)
 
     try:
-        states = list(scenario_from_log(
-            log_path=log_path,
-            cfg_path=FIX / "vac_config.cfg",
-            t_start_s=0.0,
-            t_end_s=0.2,
-            target_rate_hz=50.0,
-            fake_lever_sweep=False,
-        ))
+        with pytest.warns(DeprecationWarning, match="fake_lever_sweep=False"):
+            states = list(scenario_from_log(
+                log_path=log_path,
+                cfg_path=FIX / "vac_config.cfg",
+                t_start_s=0.0,
+                t_end_s=0.2,
+                target_rate_hz=50.0,
+                fake_lever_sweep=False,
+            ))
     finally:
         log_path.unlink()
 
@@ -154,14 +158,15 @@ def test_v3_at_rest_does_not_emit_ias_zero_frames() -> None:
         log_path = Path(f.name)
 
     try:
-        states = list(scenario_from_log(
-            log_path=log_path,
-            cfg_path=FIX / "vac_config.cfg",
-            t_start_s=0.0,
-            t_end_s=0.2,
-            target_rate_hz=50.0,
-            fake_lever_sweep=False,
-        ))
+        with pytest.warns(DeprecationWarning, match="fake_lever_sweep=False"):
+            states = list(scenario_from_log(
+                log_path=log_path,
+                cfg_path=FIX / "vac_config.cfg",
+                t_start_s=0.0,
+                t_end_s=0.2,
+                target_rate_hz=50.0,
+                fake_lever_sweep=False,
+            ))
     finally:
         log_path.unlink()
 
@@ -195,14 +200,15 @@ def test_v2_in_flight_ias_passes_through() -> None:
         log_path = Path(f.name)
 
     try:
-        states = list(scenario_from_log(
-            log_path=log_path,
-            cfg_path=FIX / "vac_config.cfg",
-            t_start_s=0.0,
-            t_end_s=0.2,
-            target_rate_hz=50.0,
-            fake_lever_sweep=False,
-        ))
+        with pytest.warns(DeprecationWarning, match="fake_lever_sweep=False"):
+            states = list(scenario_from_log(
+                log_path=log_path,
+                cfg_path=FIX / "vac_config.cfg",
+                t_start_s=0.0,
+                t_end_s=0.2,
+                target_rate_hz=50.0,
+                fake_lever_sweep=False,
+            ))
     finally:
         log_path.unlink()
 
@@ -233,14 +239,15 @@ def test_derived_aoa_alias_empty_yields_nan_ias_and_aoa() -> None:
         log_path = Path(f.name)
 
     try:
-        states = list(scenario_from_log(
-            log_path=log_path,
-            cfg_path=FIX / "vac_config.cfg",
-            t_start_s=0.0,
-            t_end_s=0.2,
-            target_rate_hz=50.0,
-            fake_lever_sweep=False,
-        ))
+        with pytest.warns(DeprecationWarning, match="fake_lever_sweep=False"):
+            states = list(scenario_from_log(
+                log_path=log_path,
+                cfg_path=FIX / "vac_config.cfg",
+                t_start_s=0.0,
+                t_end_s=0.2,
+                target_rate_hz=50.0,
+                fake_lever_sweep=False,
+            ))
     finally:
         log_path.unlink()
 
