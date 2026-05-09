@@ -5,7 +5,7 @@
 // drawn from the WebSocket. Layout constants come from the framework-
 // free helpers in ../../core/.
 
-import { html } from '../../vendor/preact-standalone.js';
+import { html, useRef, useLayoutEffect, useState } from '../../vendor/preact-standalone.js';
 import * as G from '../../core/geometry.js';
 import { colors } from '../../core/colors.js';
 import { mapPct2Display } from '../../core/pct2y.js';
@@ -14,6 +14,13 @@ import { donutColors } from '../../core/donutColors.js';
 import { slipFromLateralG } from '../../core/slipBall.js';
 import { flapWidgetFrac, flapTriangleTransform } from '../../core/flapWidget.js';
 import { fmt } from '../../core/format.js';
+
+// Three ASCII dashes mark a 3-digit field with no live data — IAS is
+// always a 3-digit display ("000" max), so one dash per missing digit.
+// The percent-lift number uses two dashes to match its 2-digit field.
+// Mirrors the M5 firmware's snprintf("---") / "--" choice.
+export const IAS_DASHES = '---';
+export const PCT_DASHES = '--';
 
 // SVG arc path helper — circle arc from start to end angle (radians).
 const arcPath = (cx, cy, r, startRad, endRad) => {
@@ -68,15 +75,21 @@ export const Indexer = ({ percentLift, anchors, flashFlag, aoaIsValid }) => {
 };
 
 export const PercentLiftNumber = ({ percent, aoaIsValid }) => {
-  if (!aoaIsValid) return null;
   // Truncate (NOT round) and clamp to [0, 99] so the digit stays in
   // lockstep with the chevron color comparisons, which use the raw
   // float percent against integer anchors (e.g. `percent >= tonesOn`
   // flips at exactly percent == 33, not at percent == 32.5).  Match
   // the M5 firmware's `displayPercentLift` snapshot in main.cpp.
   // The 99-clamp also keeps a saturated 99.9 from rendering as "100".
-  const truncated = Math.min(99, Math.max(0, Math.trunc(percent)));
-  const s = String(truncated).padStart(2, '0');
+  // When AOA validity is false, render two ASCII dashes centered on
+  // the same anchor — same convention as the M5 firmware in main.cpp.
+  let s;
+  if (!aoaIsValid) {
+    s = PCT_DASHES;
+  } else {
+    const truncated = Math.min(99, Math.max(0, Math.trunc(percent)));
+    s = String(truncated).padStart(2, '0');
+  }
   return html`
     <g data-widget="percent-lift-number">
       <text x=${G.PCT_LIFT_X} y=${G.PCT_LIFT_Y}
@@ -91,6 +104,13 @@ export const PercentLiftNumber = ({ percent, aoaIsValid }) => {
     </g>`;
 };
 
+// CornerReadout renders a label + value stacked vertically.  When
+// `value` is the dashes placeholder (`IAS_DASHES` / `PCT_DASHES`) and
+// `anchor` is "start" (left-side readout), the dashes right-align to
+// the right edge of the label above so the placeholder visually sits
+// under the label rather than the live-digit column.  Right-anchored
+// readouts already share the label's right edge by construction, so
+// no measurement is needed there.
 export const CornerReadout = ({ label, value,
                                  labelX, labelY, numX, numY,
                                  anchor = 'start',
@@ -98,17 +118,51 @@ export const CornerReadout = ({ label, value,
                                  numColor = colors.TFT_WHITE,
                                  labelFontSize = G.CORNER_LABEL_FONT_SIZE,
                                  numFontSize = G.CORNER_NUM_FONT_SIZE,
-                                 numBaseline = 'alphabetic' }) => html`
+                                 numBaseline = 'alphabetic' }) => {
+  const isDashes = (value === IAS_DASHES || value === PCT_DASHES);
+  const alignDashesToLabel = isDashes && anchor === 'start';
+
+  // Measure the label's rendered width so dashes can right-align to
+  // its right edge.  Re-measures whenever the label string or font
+  // size changes.  No-op for non-dashes paths.
+  const labelRef = useRef(null);
+  const [labelWidth, setLabelWidth] = useState(null);
+  useLayoutEffect(() => {
+    if (!alignDashesToLabel) return;
+    const el = labelRef.current;
+    if (el && typeof el.getComputedTextLength === 'function') {
+      setLabelWidth(el.getComputedTextLength());
+    }
+  }, [label, labelFontSize, alignDashesToLabel]);
+
+  // getComputedTextLength returns the advance width, which includes
+  // the trailing side-bearing past the visible right edge of the last
+  // glyph (e.g. the 'S' in "IAS").  Pull the right edge in by ~10% of
+  // the label font size so the rightmost dash visually lines up with
+  // the last glyph's stroke instead of the advance-width column.
+  const DASH_RIGHT_NUDGE_FRAC = 0.1;
+  const valueAnchor = alignDashesToLabel ? 'end' : anchor;
+  // Right-anchored dashes (e.g. Kt/s on Mode 3) sit one px past the
+  // live-digit column without an explicit nudge, since textWidth's
+  // trailing bearing puts the rightmost hyphen tip slightly outside
+  // the right anchor.  Pull in 1 px to land cleanly under the label.
+  const rightDashNudge = (isDashes && anchor === 'end') ? 1 : 0;
+  const valueX      = alignDashesToLabel && labelWidth != null
+                      ? labelX + labelWidth - DASH_RIGHT_NUDGE_FRAC * labelFontSize
+                      : numX - rightDashNudge;
+
+  return html`
   <g data-widget="corner">
-    <text x=${labelX} y=${labelY}
+    <text ref=${labelRef} x=${labelX} y=${labelY}
           font-family="Helvetica, Arial, sans-serif"
           font-size=${labelFontSize} fill=${labelColor}
           text-anchor=${anchor}>${label}</text>
-    <text x=${numX} y=${numY}
+    <text x=${valueX} y=${numY}
           font-family="Helvetica, Arial, sans-serif" font-weight="bold"
           font-size=${numFontSize} fill=${numColor}
-          text-anchor=${anchor} dominant-baseline=${numBaseline}>${value}</text>
+          text-anchor=${valueAnchor} dominant-baseline=${numBaseline}>${value}</text>
   </g>`;
+};
 
 // DataMark counter readout — top-left, modes 0 + 2. The wire field is
 // already mod-100 from the firmware (Switch.cpp long-press → offset 69
@@ -499,18 +553,23 @@ const _GHISTORY_CXS = (() => {
   return out;
 })();
 
-export const GHistory = ({ buf, writeIdx }) => {
+export const GHistory = ({ buf, writeIdx, hasSamples = true }) => {
   const dots = [];
   const N = G.MODE4_BUFFER_LEN;
-  let sampleIdx = writeIdx;
-  for (let i = 0; i < N; i++) {
-    const g = buf[sampleIdx];
-    let cy = G.MODE4_DOT_Y_OFFSET - g * G.MODE4_DOT_Y_SCALE;
-    if (cy < G.MODE4_DOT_Y_MIN) cy = G.MODE4_DOT_Y_MIN;
-    else if (cy > G.MODE4_DOT_Y_MAX) cy = G.MODE4_DOT_Y_MAX;
-    const fill = g >= 1 ? colors.TFT_GREEN : g >= 0 ? colors.TFT_YELLOW : colors.TFT_RED;
-    dots.push(html`<circle cx=${_GHISTORY_CXS[i]} cy=${cy} r=${G.MODE4_DOT_R} fill=${fill} />`);
-    sampleIdx = (sampleIdx + 1) % N;
+  // Suppress dots until at least one real sample has landed; otherwise
+  // the connecting state would render a 1.0 G baseline that looks like
+  // the airplane was already broadcasting before the WebSocket opened.
+  if (hasSamples) {
+    let sampleIdx = writeIdx;
+    for (let i = 0; i < N; i++) {
+      const g = buf[sampleIdx];
+      let cy = G.MODE4_DOT_Y_OFFSET - g * G.MODE4_DOT_Y_SCALE;
+      if (cy < G.MODE4_DOT_Y_MIN) cy = G.MODE4_DOT_Y_MIN;
+      else if (cy > G.MODE4_DOT_Y_MAX) cy = G.MODE4_DOT_Y_MAX;
+      const fill = g >= 1 ? colors.TFT_GREEN : g >= 0 ? colors.TFT_YELLOW : colors.TFT_RED;
+      dots.push(html`<circle cx=${_GHISTORY_CXS[i]} cy=${cy} r=${G.MODE4_DOT_R} fill=${fill} />`);
+      sampleIdx = (sampleIdx + 1) % N;
+    }
   }
   return html`
     <g data-widget="g-history">

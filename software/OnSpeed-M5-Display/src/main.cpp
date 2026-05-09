@@ -143,6 +143,21 @@ const uint16_t  HEIGHT              = 240; //Y
 constexpr int kVsiBarHeightPx     = 120;
 constexpr int kVsiBarFullScaleFpm = 600;
 
+// Trailing-side-bearing tuning for the IAS dashes placeholder.
+// textWidth("IAS") returns advance width — the visible right edge of
+// the 'S' glyph sits a few pixels inside that.  Right-anchoring the
+// FSSB18 "---" to the raw advance leaves the rightmost dash sitting
+// past the 'S' edge; pulling the anchor in by this many pixels lines
+// the dash visually under the 'S'.  Tuned on the SDL native sim;
+// hardware ILI9342C bitmap rendering may want re-tuning later.
+constexpr int kIasDashRightNudgePx = 2;
+
+// Same tuning for the Mode 3 Kt/s "--" placeholder, which is right-
+// anchored to DEC_RIGHT_X.  Smaller nudge because the live "+0.0"
+// digits already share that anchor — only the dash glyph's wider
+// trailing whitespace needs the visual nudge.
+constexpr int kKtsDashRightNudgePx = 1;
+
 // display variables
 uint64_t        loopTime            = millis();
 uint64_t        currentMillis;
@@ -692,9 +707,9 @@ void loop()
 
                 // IAS dashes when the producer's bIasAlive is false (the
                 // wire's iasKt sentinel was 9999); see proto/DisplaySerial.h
-                // and issue #358.  Dashes right-align to where a 3-digit
-                // IAS reading would end so the placeholder sits in the
-                // same visual column as live digits.
+                // and issue #358.  One dash per missing digit (3-digit IAS
+                // field), right-aligned to the right edge of the "IAS"
+                // label below so the placeholder stacks under the label.
                 if (IasIsValid)
                     {
                     gdraw.setCursor(5, 30);
@@ -702,9 +717,15 @@ void loop()
                     }
                 else
                     {
-                    const int iasRightX = 5 + (int)gdraw.textWidth("000");
-                    gdraw.setCursor(iasRightX - (int)gdraw.textWidth("--"), 30);
-                    gdraw.print("--");
+                    // Right-align "---" to the right edge of the "IAS"
+                    // label below.  Nudge constant is at file scope so
+                    // all three IAS-dashes sites share one tuning point.
+                    gdraw.setFont(FSS12);
+                    const int iasLabelRightX = 5 + (int)gdraw.textWidth("IAS")
+                                               - kIasDashRightNudgePx;
+                    gdraw.setFont(FSSB18);
+                    gdraw.setCursor(iasLabelRightX - (int)gdraw.textWidth("---"), 30);
+                    gdraw.print("---");
                     }
 
                 char PressAltStr[8];
@@ -879,12 +900,15 @@ void displayAOA()
         snprintf(PctLiftStr, sizeof(PctLiftStr), "%02d", displayPercentLift);
     else
         snprintf(PctLiftStr, sizeof(PctLiftStr), "--");
-    // Dashes right-align to where a 2-digit reading would end so the
-    // placeholder sits in the same visual column as live "%02d" digits.
-    // 3-digit live values shift -7 to keep the right edge in place.
+    // Live "%02d" digits left-anchored at PERCENT_X_POS share the
+    // chevron's centerline (PERCENT_X_POS + textWidth("00")/2 ≈ 160 =
+    // WIDTH/2).  Dashes center on the same line so the placeholder
+    // visually replaces the digits without shifting left.  3-digit
+    // live values shift -7 to keep the right edge in place.
+    constexpr int CHEVRON_CX = 160;
     int pctX;
     if (!IasIsValid)
-        pctX = (PERCENT_X_POS + (int)gdraw.textWidth("00")) - (int)gdraw.textWidth(PctLiftStr);
+        pctX = CHEVRON_CX - (int)gdraw.textWidth(PctLiftStr) / 2;
     else
         pctX = (displayPercentLift < 100) ? PERCENT_X_POS : PERCENT_X_POS - 7;
     gdraw.setTextColor (TFT_BLACK);
@@ -914,21 +938,27 @@ void displayAOA()
         gdraw.print("G");
 
         // ----- Numbers (IAS left, G right, same y) -----
-        // IAS dashes right-align to where a 3-digit reading would end
-        // so the placeholder sits in the same visual column as live
-        // digits — the G readout on the right is the visual reference.
-        gdraw.setFont(FSSB18);
+        // IAS dashes (one per missing digit, 3-digit field) right-align
+        // to the right edge of the "IAS" label above so the placeholder
+        // stacks neatly under the label.
         gdraw.setTextColor (TFT_WHITE);
         if (IasIsValid)
             {
+            gdraw.setFont(FSSB18);
             gdraw.setCursor(7, NUM_Y);
             gdraw.print((int)lroundf(displayIAS));
             }
         else
             {
-            const int iasRightX = 7 + (int)gdraw.textWidth("000");
-            gdraw.setCursor(iasRightX - (int)gdraw.textWidth("--"), NUM_Y);
-            gdraw.print("--");
+            // Right-align "---" to the right edge of the "IAS" label
+            // above.  Nudge constant is at file scope (shared with the
+            // other two IAS-dashes sites).
+            gdraw.setFont(FSS18);
+            const int iasLabelRightX = 5 + (int)gdraw.textWidth("IAS")
+                                       - kIasDashRightNudgePx;
+            gdraw.setFont(FSSB18);
+            gdraw.setCursor(iasLabelRightX - (int)gdraw.textWidth("---"), NUM_Y);
+            gdraw.print("---");
             }
 
         char GStr[6];
@@ -1167,13 +1197,23 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoaPct, boo
     int16_t     ArcRadius    = bullsEye + H / 16;
     uint16_t    LineWidth    = 8;
 
+    // Degenerate band: Array[3] == Array[4] (uncalibrated, or pre-
+    // first-frame state) collapses the OnSpeed window to a single
+    // point.  aoaPct=0 ≥ 0 && ≤ 0 would otherwise paint every donut
+    // segment green, falsely implying "in the OnSpeed band" when
+    // there's no band defined yet.  Force grey so the donut matches
+    // the JS indexer (donutColors at tools/web/lib/core/donutColors.js).
+    const bool donutBandValid = (OnspeedRange > 0.0f);
+
     // Bottom arc
-    if ((float)aoaPct >= (float)Array [3] && (float)aoaPct <= ((float)Array [4] - OnspeedRange * 0.25f)) Colour = TFT_GREEN;
+    if (donutBandValid &&
+        (float)aoaPct >= (float)Array [3] && (float)aoaPct <= ((float)Array [4] - OnspeedRange * 0.25f)) Colour = TFT_GREEN;
     else                                                                                                 Colour = TFT_DARKGREY;
     myGauges.drawArc(X0, Y0, ArcRadius, 0.0, PI, Colour, LineWidth);
 
     // Top arc
-    if ((float)aoaPct >= ((float)Array [3] + OnspeedRange * 0.25f) && (float)aoaPct <= (float)Array [4]) Colour = TFT_GREEN;
+    if (donutBandValid &&
+        (float)aoaPct >= ((float)Array [3] + OnspeedRange * 0.25f) && (float)aoaPct <= (float)Array [4]) Colour = TFT_GREEN;
     else                                                                                                 Colour = TFT_DARKGREY;
     myGauges.drawArc(X0, Y0, ArcRadius,  PI, PI, Colour, LineWidth);
 
@@ -1181,7 +1221,8 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoaPct, boo
     gdraw.fillRect (X0 - W / 3, Y0 - H / 48, 2 * W / 3, H / 24, TFT_BLACK);
 
     // Center dot
-    if ((float)aoaPct >= ((float)Array [3] + OnspeedRange * 0.25f) && (float)aoaPct <= ((float)Array [4] - OnspeedRange * 0.25f)) Colour = TFT_GREEN;
+    if (donutBandValid &&
+        (float)aoaPct >= ((float)Array [3] + OnspeedRange * 0.25f) && (float)aoaPct <= ((float)Array [4] - OnspeedRange * 0.25f)) Colour = TFT_GREEN;
     else                                                                                                                          Colour = TFT_DARKGREY;
     gdraw.fillCircle (X0, Y0, bullsEye + 2, Colour);
 
@@ -1604,20 +1645,27 @@ void displayDecelGauge()
     gdraw.print("Kt/s");
 
     // ----- Numbers -----
-    // IAS dashes right-align to where a 3-digit reading would end so
-    // the placeholder shares the live-digit column.
-    gdraw.setFont(FSSB18);
+    // IAS dashes (one per missing digit, 3-digit field) right-align to
+    // the right edge of the "IAS" label above so the placeholder
+    // stacks neatly under the label.
     gdraw.setTextColor (TFT_WHITE);
     if (IasIsValid)
         {
+        gdraw.setFont(FSSB18);
         gdraw.setCursor(7, DEC_NUM_Y);
         gdraw.print((int)lroundf(displayIAS));
         }
     else
         {
-        const int iasRightX = 7 + (int)gdraw.textWidth("000");
-        gdraw.setCursor(iasRightX - (int)gdraw.textWidth("--"), DEC_NUM_Y);
-        gdraw.print("--");
+        // Right-align "---" to the right edge of the "IAS" label
+        // above.  Nudge constant is at file scope (shared with the
+        // other two IAS-dashes sites).
+        gdraw.setFont(FSS18);
+        const int iasLabelRightX = 5 + (int)gdraw.textWidth("IAS")
+                                   - kIasDashRightNudgePx;
+        gdraw.setFont(FSSB18);
+        gdraw.setCursor(iasLabelRightX - (int)gdraw.textWidth("---"), DEC_NUM_Y);
+        gdraw.print("---");
         }
 
     if (IasIsValid)
@@ -1629,7 +1677,10 @@ void displayDecelGauge()
     }
     else
     {
-        gdraw.setCursor(DEC_RIGHT_X - (int)gdraw.textWidth("--"), DEC_NUM_Y);
+        // Kt/s dashes are right-anchored to DEC_RIGHT_X; nudge is at
+        // file scope, mirrors the JS indexer's 1-px shift.
+        gdraw.setCursor(DEC_RIGHT_X - (int)gdraw.textWidth("--")
+                                    - kKtsDashRightNudgePx, DEC_NUM_Y);
         gdraw.print("--");
     }
 }

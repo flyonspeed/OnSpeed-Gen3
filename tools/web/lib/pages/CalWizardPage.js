@@ -203,7 +203,15 @@ function useLiveSamples({ recording }) {
         const sample = frameToSample(frame);
         setLast(sample);
         lastFrameMs = Date.now();
-        if (recordingRef.current) samplesRef.current.push(sample);
+        // Only record samples with valid air data.  iasKt and
+        // decelRateKtPerSec are null when bIasAlive is false; pushing
+        // them into samplesRef would feed null arithmetic into
+        // analyzeDecel's IAS EMA (null * 0.98 = 0 in JS) and into
+        // regression.js's IAS-vs-AOA fit, which can produce
+        // Infinity/NaN coefficients that get saved to firmware.
+        if (recordingRef.current && sample.aoaIsValid) {
+          samplesRef.current.push(sample);
+        }
       };
     };
     const reconnect = () => {
@@ -240,16 +248,27 @@ function frameToSample(o) {
   // producer ships JSON null for AOA when air data is invalid; the
   // typeof === 'number' guard rejects null and the > -20 threshold
   // is belt-and-suspenders against any future numeric "no data"
-  // sentinel.  Used by FlyDecelStep to gate the display EMA.
+  // sentinel.  Used by FlyDecelStep to gate the display EMA, the
+  // gauge needle, and the IAS / DecelRate readouts (when invalid:
+  // dash placeholders + needle hidden, since "0.00 kts" while sitting
+  // on the ramp is misleading).
+  //
+  // IAS / DecelRate are preserved as null when the wire shipped null
+  // (the firmware emits null on bIasAlive false); coercing to 0 here
+  // would erase the invalid signal.  Downstream readers fall back to
+  // 0 when computing numeric outputs (no display dash), and check
+  // for null when rendering placeholders.
+  const iasKt = (typeof o.IAS === 'number') ? o.IAS : null;
+  const decelRateKtPerSec = (typeof o.DecelRate === 'number') ? o.DecelRate : null;
   return {
     aoaIsValid:   typeof o.AOA === 'number' && o.AOA > -20,
-    iasKt:        Number(o.IAS) || 0,
+    iasKt,
     derivedAoaDeg: Number(o.DerivedAOA) || 0,
     coeffP:       Number(o.coeffP) || 0,
     pitchDeg:     Number(o.Pitch) || 0,
     flightPathDeg: Number(o.flightPath) || 0,
     pitchRateDegPerSec: Number(o.PitchRate) || 0,
-    decelRateKtPerSec: Number(o.DecelRate) || 0,
+    decelRateKtPerSec,
     flapsPosDeg:  Number(o.flapsPos) || 0,
     flapIndex:    Number(o.flapIndex) || 0,
   };
@@ -267,8 +286,11 @@ function frameToSample(o) {
 // applies its own EMA tuned to its UI affordance — see issue #362
 // and docs/superpowers/specs/2026-05-08-decel-rate-smoothing-design.md.
 // ---------------------------------------------------------------------
-function DecelGaugeWizard({ decelRate }) {
+function DecelGaugeWizard({ decelRate, dataValid = true }) {
   // Needle Y = constrain(56 · decelRate + 38, −186, 150) (Gen2 formula).
+  // When air data is invalid the needle hides — sitting on the ramp
+  // with bIasAlive=false, an arrow pointing at "0" would imply the
+  // aircraft is holding zero deceleration, which is misleading.
   const dy = Math.max(-186, Math.min(150, 56 * (decelRate || 0) + 38));
   return html`
     <svg version="1.2" xmlns="http://www.w3.org/2000/svg"
@@ -291,11 +313,12 @@ function DecelGaugeWizard({ decelRate }) {
         <rect x="30" y="201" width="160" height="140"
               fill="rgb(255,0,0)" fill-opacity="0.8" />
       </g>
-      <g transform=${`translate(0, ${dy})`}>
-        <rect x="40" y="189" width="145" height="5" fill="black" />
-        <path transform="translate(33, 191.5)" d="M1,0 20,-5 20,5 Z"
-              stroke="black" stroke-width="2" fill="black" />
-      </g>
+      ${dataValid && html`
+        <g transform=${`translate(0, ${dy})`}>
+          <rect x="40" y="189" width="145" height="5" fill="black" />
+          <path transform="translate(33, 191.5)" d="M1,0 20,-5 20,5 Z"
+                stroke="black" stroke-width="2" fill="black" />
+        </g>`}
     </svg>`;
 }
 
@@ -374,8 +397,11 @@ function FlyDecelStep({ params, samples, setSamples, onAnalyzed }) {
     onAnalyzed(result);
   };
 
+  // Pre-frame defaults: render dashes (not "0.00 kts") so a still-
+  // connecting wizard doesn't imply zero airspeed sitting on the ramp.
   const last = live.last || {
-    iasKt: 0, decelRateKtPerSec: 0, flapsPosDeg: 0,
+    iasKt: null, decelRateKtPerSec: null, flapsPosDeg: 0,
+    aoaIsValid: false,
   };
 
   return html`
@@ -400,15 +426,16 @@ function FlyDecelStep({ params, samples, setSamples, onAnalyzed }) {
 
       <div class="cal-flydecel-row">
         <div class="cal-flydecel-gauge">
-          <${DecelGaugeWizard} decelRate=${decelSmoothed} />
+          <${DecelGaugeWizard} decelRate=${decelSmoothed}
+                               dataValid=${last.aoaIsValid !== false} />
         </div>
 
         <div class="cal-flydecel-readouts">
           <div>Flap Pos: ${last.flapsPosDeg ?? 0} deg</div>
           <br />
-          <div>IAS: ${(last.iasKt || 0).toFixed(2)} kts</div>
+          <div>IAS: ${last.iasKt == null ? '---' : last.iasKt.toFixed(2) + ' kts'}</div>
           <br />
-          <div>DecelRate: ${decelSmoothed.toFixed(1)} kts/s</div>
+          <div>DecelRate: ${last.aoaIsValid === false ? '--' : decelSmoothed.toFixed(1) + ' kts/s'}</div>
           <br />
           <div>Smoothing: ${smoothingAlpha.toFixed(2)}</div>
           <div class="cal-flydecel-slider">
@@ -444,6 +471,18 @@ function FlyDecelStep({ params, samples, setSamples, onAnalyzed }) {
 export function analyzeDecel(samples, params) {
   if (!samples || samples.length < 50) {
     return { ok: false, error: 'Not enough samples to analyze (need a full run).' };
+  }
+
+  // Reject any sample with null/non-finite iasKt or coeffP — null
+  // arithmetic in the EMAs below produces NaN/0 that would survive
+  // into the IAS-vs-AOA regression and yield Infinity/NaN setpoints.
+  // The live-samples gate already excludes invalid frames; this is
+  // belt-and-suspenders for any future caller (e.g. file replay).
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
+    if (!Number.isFinite(s.iasKt) || !Number.isFinite(s.coeffP)) {
+      return { ok: false, error: 'Invalid air data in recorded samples.' };
+    }
   }
 
   // Smoothed IAS / CP — same EMAs the legacy used.

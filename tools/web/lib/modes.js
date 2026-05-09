@@ -9,7 +9,7 @@ import { fmt, fmtSigned } from './core/format.js';
 import {
   Indexer, PercentLiftNumber, CornerReadout, DataMark, FlapCircle, SlipBall, EdgeTape,
   Horizon, PitchLadder, BankArc, AircraftSymbol, TopPointer, FlightPathMarker,
-  PitchReadout, DecelGauge, GHistory, StaleOverlay,
+  PitchReadout, DecelGauge, GHistory, StaleOverlay, IAS_DASHES, PCT_DASHES,
 } from './components/svg/index.js';
 
 // Format a numeric corner readout. PAlt and G are independent of AOA
@@ -17,17 +17,28 @@ import {
 // are sourced from the static-pressure sensor and the IMU, not the
 // pitot pressure that gates air-data validity.  IAS ships as JSON
 // `null` when the producer's `bIasAlive` flag is false (issue #358);
-// `fmt` collapses null/undefined/NaN to '—', so the IAS corner dashes
-// on a powered-but-not-flying bench, then transitions to live values
-// once the pitot blows past 20 kt.  AOA emits JSON null when
-// bIasAlive is false (matches IAS / percentLift since #431 / #455);
-// the wsClient's typeof === 'number' guard rejects null and sets
-// aoaIsValid=false, so AOA-driven SVG elements hide regardless.
+// `fmt` collapses null/undefined/NaN to '—', so most fields show a
+// single em-dash on a powered-but-not-flying bench.  AOA emits JSON
+// null when bIasAlive is false (matches IAS / percentLift since
+// #431 / #455); the wsClient's typeof === 'number' guard rejects null
+// and sets aoaIsValid=false, so AOA-driven SVG elements hide regardless.
 //
 // Delegates to `fmt`/`fmtSigned` from core/format.js so values that
 // round to -0.0 render as 0.0 (or +0.0 in signed contexts).
 const fmtNum = (v, digits = 0, signed = false) =>
   signed ? fmtSigned(v, digits) : fmt(v, digits);
+
+// IAS-specific placeholder: three ASCII dashes (one per missing digit
+// in the 3-digit IAS field).  CornerReadout right-aligns this to the
+// right edge of the "IAS" label so the placeholder stacks under the
+// label rather than under the live-digit column.  Mirrors the M5
+// firmware's snprintf("---") in src/main.cpp.
+const fmtIasKt = (v) => {
+  if (v === undefined || v === null || Number.isNaN(v)) return IAS_DASHES;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return IAS_DASHES;
+  return n.toFixed(0);
+};
 
 // Build the per-frame anchors array from a record.
 const anchorsFromRec = (r) => [
@@ -66,7 +77,7 @@ export const Mode0 = ({ r, stale, numericDisplay = true }) => {
                   flashFlag=${flashFlag} aoaIsValid=${aoaIsValid} />
       ${numericDisplay && html`
         <${CornerReadout} label="IAS"
-            value=${fmtNum(r.iasKt, 0)}
+            value=${fmtIasKt(r.iasKt)}
             labelX=${G.CORNER_LEFT_X} labelY=${G.CORNER_LABEL_Y}
             numX=${G.CORNER_LEFT_X + 2} numY=${G.CORNER_NUM_Y} />
         <${CornerReadout} label="G"
@@ -114,7 +125,7 @@ export const Mode1 = ({ r, stale }) => {
                    pipYs=${[G.MODE1_VSI_PIP_Y_TOP, G.MODE1_VSI_PIP_Y_MIDDLE, G.MODE1_VSI_PIP_Y_BOT]}
                    tickColor=${colors.TFT_BLACK} pipColor=${colors.TFT_BLACK} />
       <${CornerReadout} label="IAS"
-          value=${fmtNum(r.iasKt, 0)}
+          value=${fmtIasKt(r.iasKt)}
           labelX=${G.MODE1_CORNER_LEFT_X} labelY=${G.MODE1_CORNER_TOP_LABEL_Y}
           numX=${G.MODE1_CORNER_LEFT_NUM_X} numY=${G.MODE1_CORNER_TOP_NUM_Y}
           labelColor=${colors.TFT_GREY} numColor=${colors.TFT_BLACK}
@@ -139,7 +150,7 @@ export const Mode1 = ({ r, stale }) => {
           labelFontSize=${G.MODE1_CORNER_LABEL_FONT_SIZE}
           numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE} />
       <${CornerReadout} label="AOA"
-          value=${aoaIsValid ? String(Math.min(99, Math.max(0, Math.trunc(r.percentLift)))).padStart(2, '0') : '—'}
+          value=${aoaIsValid ? String(Math.min(99, Math.max(0, Math.trunc(r.percentLift)))).padStart(2, '0') : PCT_DASHES}
           labelX=${G.MODE1_CORNER_RIGHT_X} labelY=${G.MODE1_CORNER_BOT_LABEL_Y}
           numX=${G.MODE1_CORNER_BOT_RIGHT_NUM_X} numY=${G.MODE1_CORNER_BOT_NUM_Y}
           anchor="end" labelColor=${colors.TFT_LIGHTGREY} numColor=${colors.TFT_WHITE}
@@ -191,11 +202,11 @@ export const Mode3 = ({ r, stale, decelRateSmoothed }) => {
                    pipYs=${[G.MODE1_VSI_PIP_Y_TOP, G.MODE1_VSI_PIP_Y_MIDDLE, G.MODE1_VSI_PIP_Y_BOT]}
                    tickColor=${colors.TFT_LIGHTGREY} pipColor=${colors.TFT_LIGHTGREY} />
       <${CornerReadout} label="IAS"
-          value=${fmtNum(r.iasKt, 0)}
+          value=${fmtIasKt(r.iasKt)}
           labelX=${G.MODE3_CORNER_LEFT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
           numX=${G.MODE3_CORNER_LEFT_NUM_X} numY=${G.MODE3_CORNER_NUM_Y} />
       <${CornerReadout} label="Kt/s"
-          value=${aoaIsValid ? fmtNum(decelDisplay, 1, true) : '—'}
+          value=${aoaIsValid ? fmtNum(decelDisplay, 1, true) : PCT_DASHES}
           labelX=${G.MODE3_CORNER_RIGHT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
           numX=${G.MODE3_CORNER_RIGHT_X} numY=${G.MODE3_CORNER_NUM_Y} anchor="end" />
     <//>`;
@@ -207,7 +218,7 @@ export const Mode3 = ({ r, stale, decelRateSmoothed }) => {
 // because Preact tears down state on parent re-render; we don't want
 // the strip-chart history to reset every time we re-render. Parent
 // passes `buf` and `writeIdx` in.
-export const Mode4 = ({ r, stale, gBuf, gWriteIdx }) => html`
+export const Mode4 = ({ r, stale, gBuf, gWriteIdx, gHasSamples }) => html`
   <${Panel} stale=${stale}>
-    <${GHistory} buf=${gBuf} writeIdx=${gWriteIdx} />
+    <${GHistory} buf=${gBuf} writeIdx=${gWriteIdx} hasSamples=${gHasSamples} />
   <//>`;

@@ -50,6 +50,15 @@ function gOnsetSine(tMs, periodMs, amplitude) {
 }
 
 export const scenarios = {
+  // bIasAlive=false on the bench: the producer emits null for iasKt
+  // (and aoaIsValid=false propagates through the wsClient).  Drives
+  // the dashes-rendering paths in modes 0/1/2/3 — IAS dashes, AOA
+  // dashes, Decel-page IAS dashes, all in one fixture.  Matches the
+  // M5 sim's IasIsValid=false dummy path.
+  iasInvalid: (_t) => record({
+    iasKt: null, percentLift: 0, decelRate: null,
+    aoaIsValid: false,
+  }),
   idle: (_t) => record({ iasKt: 0, percentLift: 0, gOnsetRate: 0 }),
   cruise: (t) => record({
     iasKt: 130, paltFt: 4500, percentLift: 30, pitchDeg: 1.5,
