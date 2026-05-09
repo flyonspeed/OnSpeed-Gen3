@@ -360,7 +360,341 @@ if (badCfg.error === undefined) {
 console.log(`OK: parse_config(garbage) → error: "${badCfg.error}"`);
 
 // ---------------------------------------------------------------------------
+// Step 2: LogReplayEngine round-trip — flapsRawAdcAvailable=true
+//
+// When flapsRawAdcAvailable is true (log has flapsRawADC column), step()
+// returns a result immediately for every row — no lag period, no buffering.
+// flush() returns an empty array.
+//
+// The C++ engine tests (test_aoa_calculator, regression golden) cover
+// numeric correctness.  This smoke test verifies only that the WASM
+// binding compiles, the class is constructible, and the data moves
+// across the boundary without WASM memory errors.
+//
+// We use the same minimal V2 config constructed above (cfg / minimalV2Xml).
+// The config has alpha_stall=10.31 and iAoaSmoothing=15; with pfwdSmoothed
+// and p45Smoothed both at zero, the engine produces aoa=0 and coeffP=0.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- LogReplayEngine (flapsRawAdcAvailable=true) ---');
+
+// Construct engine with flapsRawAdcAvailable=true so step() returns
+// immediately (no lag period, no synth circular buffer).
+const engine = new Module.LogReplayEngine(cfg, 50, true);
+assertDefined('LogReplayEngine instance', engine);
+
+// Minimal log row — all zero / default.  The engine doesn't crash on
+// all-zero inputs (pressure sensors returning 0 in ground test).
+const minimalRow = {
+    pfwdSmoothed:       0.0,
+    p45Smoothed:        0.0,
+    pStaticMbar:        0.0,
+    paltFt:             5000.0,
+    iasKt:              10.0,
+    iasValid:           true,
+    flapsPos:           0,
+    flapsRawAdc:        2048,
+    flapsRawAdcPresent: true,
+    imuVerticalG:       1.0,
+    imuLateralG:        0.05,
+    imuForwardG:       -0.02,
+    imuRollRateDps:     0.0,
+    imuPitchRateDps:    0.0,
+    imuYawRateDps:      0.0,
+    pitchDeg:          -3.0,
+    rollDeg:            0.5,
+    flightPathDeg:      0.0,
+    vsiFpm:             0.0,
+    dataMark:           0,
+};
+
+const stepResult = engine.step(minimalRow);
+assertDefined('step() returns a result (flapsRawAdcAvailable=true)', stepResult);
+
+// step() must return a non-null object when flapsRawAdcAvailable=true.
+if (stepResult === null) {
+    console.error('FAIL: step() returned null with flapsRawAdcAvailable=true (no lag expected)');
+    process.exit(1);
+}
+
+// Verify field presence.
+for (const field of [
+    'iasKt', 'paltFt', 'iasValid', 'aoaDeg', 'coeffP',
+    'flapsPos', 'flapsIndex', 'flapsRawAdc', 'flapsRawAdcPresent',
+    'pitchDeg', 'rollDeg', 'flightPathDeg', 'kalmanVsiMps',
+    'imuForwardG', 'imuLateralG', 'imuVerticalG',
+    'imuRollRateDps', 'imuPitchRateDps', 'imuYawRateDps',
+    'accelLatSmoothed', 'accelVertSmoothed', 'accelFwdSmoothed',
+    'dataMark',
+]) {
+    if (stepResult[field] === undefined) {
+        console.error(`FAIL: step() result missing field: ${field}`);
+        process.exit(1);
+    }
+}
+console.log('OK: step() result has all expected fields');
+
+// Spot-check passthrough fields.
+assertClose('step().iasKt',    stepResult.iasKt,    10.0, 0.001);
+assertClose('step().paltFt',   stepResult.paltFt,  5000.0, 0.5);
+assertEqual('step().iasValid', stepResult.iasValid, true);
+assertEqual('step().flapsPos', stepResult.flapsPos, 0);
+
+// Smoothed accel must be a finite number (first call: seeded to input).
+if (!Number.isFinite(stepResult.accelLatSmoothed)) {
+    console.error(`FAIL: accelLatSmoothed is not finite: ${stepResult.accelLatSmoothed}`);
+    process.exit(1);
+}
+console.log(`OK: accelLatSmoothed is finite (${stepResult.accelLatSmoothed.toFixed(4)})`);
+
+// Second step: smoothed lateral must drift toward the new input.
+const row2 = Object.assign({}, minimalRow, { imuLateralG: 0.5 });
+const step2 = engine.step(row2);
+if (step2 === null) {
+    console.error('FAIL: second step() returned null with flapsRawAdcAvailable=true');
+    process.exit(1);
+}
+if (Math.abs(step2.accelLatSmoothed - stepResult.accelLatSmoothed) < 0.001) {
+    console.error('FAIL: accelLatSmoothed did not update on second step');
+    process.exit(1);
+}
+console.log(`OK: accelLatSmoothed updates across steps ` +
+    `(${stepResult.accelLatSmoothed.toFixed(4)} → ${step2.accelLatSmoothed.toFixed(4)})`);
+
+// flush() must return an empty array when flapsRawAdcAvailable=true
+// (no synth buffer; nothing was held back).
+const flushed = engine.flush();
+if (!Array.isArray(flushed)) {
+    console.error(`FAIL: flush() did not return an Array (got ${typeof flushed})`);
+    process.exit(1);
+}
+if (flushed.length !== 0) {
+    console.error(`FAIL: flush() returned ${flushed.length} items with flapsRawAdcAvailable=true (expected 0)`);
+    process.exit(1);
+}
+console.log(`OK: flush() returns empty Array when flapsRawAdcAvailable=true (length=${flushed.length})`);
+
+// reset() should not throw and should produce the same first-step result
+// as the original construction.
+engine.reset();
+const resetResult = engine.step(minimalRow);
+if (resetResult === null) {
+    console.error('FAIL: step() after reset() returned null with flapsRawAdcAvailable=true');
+    process.exit(1);
+}
+assertClose('after reset: accelLatSmoothed == first step (seeded to input)',
+    resetResult.accelLatSmoothed,
+    stepResult.accelLatSmoothed,
+    0.001);
+console.log('OK: reset() restores initial EMA state');
+
+// delete() must free WASM memory without crashing.
+engine.delete();
+console.log('OK: delete() completed without error');
+
+// ---------------------------------------------------------------------------
+// Step 2: LogReplayEngine synth path — flapsRawAdcAvailable=false
+//
+// When flapsRawAdcAvailable is false (pre-PR-#221 log, no flapsRawADC column),
+// the engine holds rows in a circular buffer of synthHalfWindowTicks_ rows
+// (kSynthHalfWindowSec=2s × 50Hz = 100 ticks at 50 Hz).
+//
+// Behaviour:
+//   - step() returns null for the first 100 rows (lag period, buffer filling).
+//   - After 100 rows, step() returns the synth result for the row 100 ticks back.
+//   - After the last row, flush() returns the remaining ~100 tail rows.
+//
+// This smoke verifies: null during lag, non-null after lag, flush() returns
+// the tail, and flush() is a JS Array of result objects.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- LogReplayEngine (flapsRawAdcAvailable=false, synth path) ---');
+
+// Use a two-flap config so the engine has real pot positions for both detents.
+// Detent 0 (clean):    potPosition=3908
+// Detent 33 (full):    potPosition=8
+// The smoothstep sweeps between these two values across the transition window.
+const synthCfgXml = `<CONFIG2>
+  <AOA_SMOOTHING>15</AOA_SMOOTHING>
+  <PRESSURE_SMOOTHING>15</PRESSURE_SMOOTHING>
+  <DATASOURCE>SENSORS</DATASOURCE>
+  <FLAP_POSITION>
+    <DEGREES>0</DEGREES>
+    <POT_VALUE>3908</POT_VALUE>
+    <LDMAXAOA>4.1</LDMAXAOA>
+    <ONSPEEDFASTAOA>4.08</ONSPEEDFASTAOA>
+    <ONSPEEDSLOWAOA>4.95</ONSPEEDSLOWAOA>
+    <STALLWARNAOA>7.98</STALLWARNAOA>
+    <STALLAOA>0</STALLAOA>
+    <MANAOA>0</MANAOA>
+    <ALPHA0>-3.72</ALPHA0>
+    <ALPHASTALL>10.31</ALPHASTALL>
+    <KFIT>0.0</KFIT>
+    <AOA_CURVE>
+      <TYPE>1</TYPE>
+      <X3>0</X3>
+      <X2>0</X2>
+      <X1>1</X1>
+      <X0>0</X0>
+    </AOA_CURVE>
+  </FLAP_POSITION>
+  <FLAP_POSITION>
+    <DEGREES>33</DEGREES>
+    <POT_VALUE>8</POT_VALUE>
+    <LDMAXAOA>-1.12</LDMAXAOA>
+    <ONSPEEDFASTAOA>3.79</ONSPEEDFASTAOA>
+    <ONSPEEDSLOWAOA>5.23</ONSPEEDSLOWAOA>
+    <STALLWARNAOA>9.24</STALLWARNAOA>
+    <STALLAOA>0</STALLAOA>
+    <MANAOA>0</MANAOA>
+    <ALPHA0>-3.72</ALPHA0>
+    <ALPHASTALL>10.31</ALPHASTALL>
+    <KFIT>0.0</KFIT>
+    <AOA_CURVE>
+      <TYPE>1</TYPE>
+      <X3>0</X3>
+      <X2>0</X2>
+      <X1>1</X1>
+      <X0>0</X0>
+    </AOA_CURVE>
+  </FLAP_POSITION>
+</CONFIG2>`;
+const synthCfg = Module.parse_config(synthCfgXml);
+if (synthCfg.error !== undefined) {
+    console.error(`FAIL: synth test parse_config error: ${synthCfg.error}`);
+    process.exit(1);
+}
+
+// Known pot values from the config above.
+const SYNTH_POT_DETENT0  = 3908;   // clean flap (flapsPos=0)
+const SYNTH_POT_DETENT33 = 8;      // full flap  (flapsPos=33)
+
+const synthEngine = new Module.LogReplayEngine(synthCfg, 50, false);
+assertDefined('synth engine instance', synthEngine);
+
+// Base row template — reused for all synth steps.
+const synthRowBase = {
+    pfwdSmoothed:       0.0,
+    p45Smoothed:        0.0,
+    pStaticMbar:        0.0,
+    paltFt:             5000.0,
+    iasKt:              10.0,
+    iasValid:           true,
+    flapsRawAdc:        0,
+    flapsRawAdcPresent: false,
+    imuVerticalG:       1.0,
+    imuLateralG:        0.05,
+    imuForwardG:       -0.02,
+    imuRollRateDps:     0.0,
+    imuPitchRateDps:    0.0,
+    imuYawRateDps:      0.0,
+    pitchDeg:          -3.0,
+    rollDeg:            0.5,
+    flightPathDeg:      0.0,
+    vsiFpm:             0.0,
+    dataMark:           0,
+};
+
+// Feed 50 rows at flapsPos=0 (lag period, buffer filling — all return null).
+// synthHalfWindowTicks_=100 at 50 Hz; we need ≥100 rows before emission starts.
+let nullCount = 0;
+for (let i = 0; i < 50; i++) {
+    const r = synthEngine.step(Object.assign({}, synthRowBase, { flapsPos: 0 }));
+    if (r !== null) {
+        console.error(`FAIL: step() row ${i + 1} returned non-null during lag period (expected null)`);
+        process.exit(1);
+    }
+    nullCount++;
+}
+console.log(`OK: first 50 step() calls (flapsPos=0) returned null (lag period; ${nullCount} nulls)`);
+
+// Switch to flapsPos=33 for the next 100 rows.
+// The transition occurs at row 51 (absolute tick 51). Both edges of the
+// smoothstep window [51-100, 51+100] must be in the buffer when emission starts.
+// Rows 51-100 return null (still in lag period); rows 101+ emit.
+let postLagResult = null;
+for (let i = 0; i < 100; i++) {
+    const r = synthEngine.step(Object.assign({}, synthRowBase, { flapsPos: 33 }));
+    // Rows 51-100 still in lag (nullCount already 50, lag needs 100 total):
+    if (nullCount < 100) {
+        if (r !== null) {
+            console.error(`FAIL: step() row ${nullCount + 1} returned non-null during lag (expected null)`);
+            process.exit(1);
+        }
+        nullCount++;
+    } else {
+        // Row 101+ should be non-null.
+        if (postLagResult === null && r !== null) {
+            postLagResult = r;
+        }
+    }
+}
+
+if (nullCount !== 100) {
+    console.error(`FAIL: expected 100 nulls during lag, got ${nullCount}`);
+    process.exit(1);
+}
+console.log(`OK: first 100 step() calls returned null (lag period; ${nullCount} nulls)`);
+
+if (postLagResult === null) {
+    console.error('FAIL: step() returned null for all 100 post-lag rows (expected non-null after lag)');
+    process.exit(1);
+}
+assertDefined('postLagResult.iasKt', postLagResult.iasKt);
+console.log(`OK: step() returns a non-null result after lag period (iasKt=${postLagResult.iasKt.toFixed(1)})`);
+
+// flush() must return a JS Array of result objects (the remaining tail rows).
+const synthFlushed = synthEngine.flush();
+if (!Array.isArray(synthFlushed)) {
+    console.error(`FAIL: flush() (synth path) did not return an Array (got ${typeof synthFlushed})`);
+    process.exit(1);
+}
+if (synthFlushed.length === 0) {
+    console.error('FAIL: flush() returned empty array on synth path (expected tail rows)');
+    process.exit(1);
+}
+console.log(`OK: flush() returns ${synthFlushed.length} tail rows on synth path`);
+
+// Each flushed result must be a non-null object with the expected field shape.
+const firstFlushed = synthFlushed[0];
+if (firstFlushed === null || typeof firstFlushed !== 'object') {
+    console.error(`FAIL: flushed result[0] is not an object (got ${typeof firstFlushed})`);
+    process.exit(1);
+}
+if (firstFlushed.iasKt === undefined) {
+    console.error('FAIL: flushed result[0] missing iasKt field');
+    process.exit(1);
+}
+console.log(`OK: flushed results are well-formed objects (result[0].iasKt=${firstFlushed.iasKt.toFixed(1)})`);
+
+// Verify smoothstep paint: the transition (flapsPos 0→33) occurred at tick 51.
+// The smoothstep window spans ticks [51-100, 51+100] = [1..151].
+// The tail rows come from around tick ~101 onward, which is still inside the
+// transition window [1..151]. At least one tail row's flapsRawAdc must land
+// strictly between the two detent pot values (SYNTH_POT_DETENT33 < x < SYNTH_POT_DETENT0).
+const anyMidTransition = synthFlushed.some(r =>
+    r.flapsRawAdc > SYNTH_POT_DETENT33 &&
+    r.flapsRawAdc < SYNTH_POT_DETENT0
+);
+if (!anyMidTransition) {
+    const adcValues = synthFlushed.slice(0, 5).map(r => r.flapsRawAdc).join(', ');
+    console.error(
+        `FAIL: synth path did not paint any mid-transition flapsRawAdc values ` +
+        `(expected strictly between ${SYNTH_POT_DETENT33} and ${SYNTH_POT_DETENT0}); ` +
+        `first 5 tail values: [${adcValues}]`
+    );
+    process.exit(1);
+}
+console.log(
+    `OK: synth path painted at least one mid-transition flapsRawAdc value ` +
+    `(strictly between ${SYNTH_POT_DETENT33} and ${SYNTH_POT_DETENT0})`
+);
+
+synthEngine.delete();
+console.log('OK: synth engine delete() completed without error');
+
+// ---------------------------------------------------------------------------
 // Done
 // ---------------------------------------------------------------------------
 
-console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config)');
+console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine)');
