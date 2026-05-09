@@ -152,25 +152,18 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
     //    pStatusOut->println(" GBytes");
     //    }
 
-    // Do optional erase. I'm not sure what the need for this is.
-    if (bErase)
-        {
-        uint32_t const  ERASE_SIZE  = 262144L;
-        uint32_t        uFirstBlock = 0;
-        uint32_t        uLastBlock;
-        do {
-            uLastBlock = uFirstBlock + ERASE_SIZE - 1;
-
-            if (uLastBlock >= uCardSectorCount)
-                uLastBlock = uCardSectorCount - 1;
-
-            if (!puSD_Card->erase(uFirstBlock, uLastBlock))
-                if (pStatusOut != nullptr)
-                    pStatusOut->println("Card erase failed");
-
-            uFirstBlock += ERASE_SIZE;
-            } while (uFirstBlock < uCardSectorCount);
-        } // end if erase card
+    // Pre-erase intentionally disabled. The puSD_Card->erase() loop here
+    // walked all card sectors in 256K-block chunks with no vTaskDelay or
+    // watchdog feed, which on an ESP32 SPI@10MHz / 64 GB card takes
+    // multiple minutes — long enough that a task-watchdog reset or
+    // brownout could leave the SD filesystem half-zeroed (corrupted
+    // dirent leftovers + post-format SaveConfigurationToFile()
+    // failure). The exFAT formatter does not need pre-erased sectors;
+    // it writes its own boot sector, FAT, and root cluster regardless.
+    // Callers that pass bErase=true now get a one-line warning so the
+    // intent is visible if anyone wires it up in the future.
+    if (bErase && pStatusOut != nullptr)
+        pStatusOut->println("Note: pre-erase requested but skipped (see SdFileSys::Format).");
 
     // Format the card
     // Format exFAT if larger than 32GB.
