@@ -76,6 +76,8 @@ OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "SerialRead.h"
 #include <gauges/FlapWidgetMath.h>
 
+#include "../lib/assets/OnSpeedLogo.h"
+
 #if defined(ESP_PLATFORM)
 Preferences preferences;
 
@@ -1923,20 +1925,48 @@ void handleIndex()
 
 void displaySplashScreen()
 {
-    // display splash screen and firmware upgrade option
-    gdraw.setFont(FSSB24);
-    gdraw.setTextColor (TFT_WHITE);
-    gdraw.setTextDatum(MC_DATUM);
-    gdraw.drawString("Fly OnSpeed",160,60);
+    // The splash uses a 16-bit RGB565 sprite (one-shot, freed at the
+    // bottom of the function) so the anti-aliased gauge bitmap renders
+    // with full grayscale fidelity. The live display reverts to the
+    // 8-bit palette sprite via setColorDepth(XPLANE_PLUGIN_DEPTH) on
+    // its next createSprite call. The bundled logo bitmap is the gauge
+    // mark only — the "FlyOnSpeed / ANGLE OF ATTACK" wordmark is drawn
+    // below it with M5GFX fonts (sharper than rasterizing the SVG
+    // glyphs at this size).
+    gdraw.deleteSprite();
+    gdraw.setColorDepth(16);
+    gdraw.createSprite(WIDTH, HEIGHT);
+    gdraw.fillSprite(TFT_BLACK);
 
+    constexpr int kLogoTopY = 0;
+    const int logoX = (WIDTH - kOnSpeedLogoWidth) / 2;
+    gdraw.pushImage(logoX, kLogoTopY,
+                    kOnSpeedLogoWidth, kOnSpeedLogoHeight,
+                    kOnSpeedLogo);
+
+    gdraw.setTextColor(TFT_WHITE);
+    gdraw.setTextDatum(MC_DATUM);
+
+    // MC_DATUM y-coords are vertical centers, so successive lines need a
+    // gap >= sum of half-heights. FSSB18 ~21px, FSS9 ~10px → at least
+    // ~16px between centers. Use 22px between wordmark/tagline and 25
+    // before the version line so the lower text block has visible
+    // separation from the wordmark.
+    constexpr int kWordmarkY = kLogoTopY + kOnSpeedLogoHeight + 10;
+    constexpr int kTaglineY  = kWordmarkY + 28;
+    gdraw.setFont(FSSB18);
+    gdraw.drawString("FlyOnSpeed", WIDTH / 2, kWordmarkY);
     gdraw.setFont(FSS9);
+    gdraw.drawString("ANGLE OF ATTACK", WIDTH / 2, kTaglineY);
+
     // Explicit .c_str(): the native-build drawString overload accepts a
     // bare C-string only. The ESP path had an implicit String->const char*
     // conversion through M5GFX's Arduino-flavored overloads.
     const String versionLine = String("Version: ") + BuildInfo::version;
-    gdraw.drawString(versionLine.c_str(), 160, 120);
-    gdraw.drawString("To upgrade press Center button",160,220);
-    gdraw.pushSprite (0, 0);
+    gdraw.drawString(versionLine.c_str(), WIDTH / 2, 205);
+    gdraw.drawString("To upgrade press Center button", WIDTH / 2, 228);
+    gdraw.setTextDatum(textdatum_t::baseline_left);
+    gdraw.pushSprite(0, 0);
     gdraw.deleteSprite();
     M5.update();
 }
