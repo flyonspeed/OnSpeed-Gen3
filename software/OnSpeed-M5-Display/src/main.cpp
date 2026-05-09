@@ -533,8 +533,10 @@ void loop()
     // sees no SettingsMenu symbols.
     //
     // While the menu is up it owns the screen and consumes button
-    // events; skip live-mode handling and SerialRead() entirely for this
-    // iteration.
+    // events; skip live-mode handling for this iteration. SerialRead()
+    // above runs every iteration regardless so the UART RX FIFO keeps
+    // draining (1540 B/s into a 256 B FIFO; pausing it for the 30-second
+    // menu visit would overflow within ~200 ms).
 #ifndef XPLANE_PLUGIN_BUILD
     if (isSettingsMenuActive())
     {

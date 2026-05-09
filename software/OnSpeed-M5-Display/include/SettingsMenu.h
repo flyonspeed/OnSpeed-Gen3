@@ -8,9 +8,13 @@
 // platform glue: M5GFX render, NVS read/write, button polling, lifecycle.
 //
 // Lifecycle (called from main.cpp's loop()):
-//   1. After M5.update(), if isSettingsMenuActive() returns true, the
-//      caller should call tickSettingsMenu() and return early — the menu
-//      owns the screen and SerialRead is paused for the duration.
+//   1. After M5.update() and SerialRead(), if isSettingsMenuActive()
+//      returns true, the caller should call tickSettingsMenu() and return
+//      early — the menu owns the screen and the live-mode render is
+//      suppressed for the duration. SerialRead() runs every iteration
+//      regardless so the UART RX FIFO keeps draining (the OnSpeed wire
+//      pushes 77 B × 20 Hz ≈ 1540 B/s; the ESP32 RX FIFO is 256 B and
+//      would overflow inside ~200 ms otherwise).
 //   2. Otherwise, on the platform-specific entry gesture (BtnB long-hold
 //      on M5, BtnA long-hold on huVVer), call enterSettingsMenu().
 #pragma once
