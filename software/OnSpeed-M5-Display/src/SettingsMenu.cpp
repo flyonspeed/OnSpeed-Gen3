@@ -119,8 +119,10 @@ void renderMenu() {
         const MenuItem& item = g_model.itemAt(i);
 
         if (i == g_model.currentIndex()) {
-            // Cyan band fills the row to the divider edges.
-            gdraw.fillRect(20, y - 18, 280, 24, kColorHighlight);
+            // Highlight band reaches near the right panel edge so the
+            // right-anchored value column ("[ MPH ]") sits inside the
+            // band rather than dangling past it.
+            gdraw.fillRect(15, y - 18, 305, 24, kColorHighlight);
             gdraw.setTextColor(TFT_BLACK);
         } else {
             gdraw.setTextColor(kColorBody);
@@ -140,7 +142,9 @@ void renderMenu() {
         }
         if (rhs) {
             int rhsW = gdraw.textWidth(rhs);
-            gdraw.setCursor(312 - rhsW, y);
+            // Right-anchor at x=308 so the value sits a few px inside
+            // the highlight band's right edge (kBandRight=320).
+            gdraw.setCursor(308 - rhsW, y);
             gdraw.print(rhs);
         }
     }
@@ -174,27 +178,74 @@ void renderMenu() {
         gdraw.drawRect(cx - s, cy - s, 2 * s + 1, 2 * s + 1, kColorFooterText);
     };
 
+    // Footer chunks. Direction is conveyed by triangle orientation, so
+    // ▲ ▼ ◀ ▶ are bare glyphs without "UP"/"DOWN" labels (those are
+    // noise once you can see the arrow). Only the abstract glyphs (●
+    // and ☐) carry text labels.
+    //
+    // Layout: each chunk's width is glyph + (iconTextGap + textWidth)
+    // when it has a label, or just the glyph otherwise. Chunks are
+    // distributed evenly across the 320-px panel via textWidth() so
+    // the FSS12 metrics drive the layout instead of magic numbers.
+    constexpr int kIconY        = kFooterY - 6;
+    constexpr int kIconRadius   = 6;
+    constexpr int kIconTextGap  = 6;
+    constexpr int kPanelW       = 320;
+
+    enum class Glyph { Square, TriUp, TriDown, TriLeft, TriRight, Circle };
+    struct Chunk { Glyph glyph; const char* label; };  // label==nullptr: glyph only
+
 #if defined(HUVVER)
-    // ☐ BACK    ◀ UP    ○ SEL    ▶ DOWN
-    constexpr int kIconY = kFooterY - 6;
-    drawSquare      ( 30, kIconY, 6);
-    gdraw.setCursor( 44, kFooterY); gdraw.print("BACK");
-    drawTriangleLeft( 110, kIconY, 6);
-    gdraw.setCursor(124, kFooterY); gdraw.print("UP");
-    drawCircle      (170, kIconY, 6);
-    gdraw.setCursor(184, kFooterY); gdraw.print("SEL");
-    drawTriangleRight(240, kIconY, 6);
-    gdraw.setCursor(254, kFooterY); gdraw.print("DOWN");
+    // ☐ BACK    ◀    ● SEL    ▶
+    static const Chunk kChunks[] = {
+        { Glyph::Square,    "BACK" },
+        { Glyph::TriLeft,   nullptr },
+        { Glyph::Circle,    "SEL"  },
+        { Glyph::TriRight,  nullptr },
+    };
 #else
-    // ▲ UP        ● SEL        ▼ DOWN
-    constexpr int kIconY = kFooterY - 6;
-    drawTriangleUp  ( 50, kIconY, 6);
-    gdraw.setCursor( 64, kFooterY); gdraw.print("UP");
-    drawCircle      (148, kIconY, 6);
-    gdraw.setCursor(162, kFooterY); gdraw.print("SEL");
-    drawTriangleDown(240, kIconY, 6);
-    gdraw.setCursor(254, kFooterY); gdraw.print("DOWN");
+    // ▲    ● SEL    ▼
+    static const Chunk kChunks[] = {
+        { Glyph::TriUp,    nullptr },
+        { Glyph::Circle,   "SEL"  },
+        { Glyph::TriDown,  nullptr },
+    };
 #endif
+    constexpr int kChunkCount = sizeof(kChunks) / sizeof(kChunks[0]);
+
+    // Sum chunk widths so we know how much horizontal room is left for
+    // the gaps between chunks.
+    int chunkW[kChunkCount];
+    int chunkSum = 0;
+    for (int i = 0; i < kChunkCount; ++i) {
+        chunkW[i] = kIconRadius * 2;
+        if (kChunks[i].label) {
+            chunkW[i] += kIconTextGap + gdraw.textWidth(kChunks[i].label);
+        }
+        chunkSum += chunkW[i];
+    }
+
+    // Distribute remaining horizontal space evenly: half a gap on each
+    // outer edge, full gap between chunks. (kChunkCount + 1 gap slots.)
+    int gap = (kPanelW - chunkSum) / (kChunkCount + 1);
+    if (gap < 4) gap = 4;
+    int x = gap;
+    for (int i = 0; i < kChunkCount; ++i) {
+        const int iconCx = x + kIconRadius;
+        switch (kChunks[i].glyph) {
+            case Glyph::Square:   drawSquare      (iconCx, kIconY, kIconRadius); break;
+            case Glyph::TriUp:    drawTriangleUp  (iconCx, kIconY, kIconRadius); break;
+            case Glyph::TriDown:  drawTriangleDown(iconCx, kIconY, kIconRadius); break;
+            case Glyph::TriLeft:  drawTriangleLeft(iconCx, kIconY, kIconRadius); break;
+            case Glyph::TriRight: drawTriangleRight(iconCx, kIconY, kIconRadius); break;
+            case Glyph::Circle:   drawCircle      (iconCx, kIconY, kIconRadius); break;
+        }
+        if (kChunks[i].label) {
+            gdraw.setCursor(x + (kIconRadius * 2) + kIconTextGap, kFooterY);
+            gdraw.print(kChunks[i].label);
+        }
+        x += chunkW[i] + gap;
+    }
 
     gdraw.pushSprite(0, 0);
     gdraw.deleteSprite();
