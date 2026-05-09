@@ -419,6 +419,38 @@ Wire the new test into the existing `m5-replay-wasm-test` CI job
 (landed in PR 1's CI fix). Same Emscripten setup, same build
 sequence; one extra `node` invocation at the end.
 
+#### Bonus deliverable: expose `calculateTone` via embind
+
+Replay's *other* eventual purpose (besides driving the M5 display)
+is driving audio tones — what the pilot heard, not just saw. The
+inputs `calculateTone()` needs are already in `ReplayStepResult`
+(`out.aoa`, `out.flapsIndex` + the cfg held by the engine), and
+`onspeed_core/audio/ToneCalc.{h,cpp}` is platform-free and already
+in `onspeed_core`. The only missing piece is an embind wrapper.
+
+Add to `software/Libraries/onspeed_core/wasm/bindings.cpp`:
+- `tone_calc(aoa, ldmaxAoa, fastAoa, slowAoa, stallWarnAoa)` →
+  returns `{ enTone: 'None'|'Low'|'High', pulseFreq, volumeMult }`.
+- `tone_calc_muted(aoa, ias, stallWarnAoa, muteUnderIas)` —
+  matching `calculateToneMuted` for the mute-button case.
+
+Both are direct passthroughs to the C++ functions. No drift seam.
+
+This unblocks:
+- **v0 visualization** (PR 2 if Sam wants it): a "current tone state"
+  widget on the replay overlay reads tone state per frame and shows
+  e.g. "STALL WARN · HIGH · 20 PPS" or "ON SPEED · LOW · solid". No
+  audio playback, just visualization. Adds a Layer-3 component but
+  no new state machine.
+- **Future audio synthesis PR** (post-v0, separate plan): wrap
+  `AudioMixer` in WASM, generate PCM, route to WebAudio. Out of
+  scope for v0 and PR 1.5.
+
+**Audio synthesis is explicitly NOT in v0 or PR 1.5.** What's in PR
+1.5 is the binding + a smoke test for `tone_calc` (5 lines in
+wasm-smoke.mjs). Synthesis is its own plan when you want tones in
+the browser/exported video.
+
 ### PR 2 — `feat(replay): wire replay through M5 WASM sim, all five modes` (~2-3 days)
 
 Wire the M5 WASM sim into the replay UI for all five modes.
@@ -470,7 +502,7 @@ change.
 ## Out of scope (deliberately, not deferred forever)
 
 - **Five-mode UI.** PR 2 wires Energy mode (default). Mode-cycling lives in `displayType`, can be set via accessor. UI to actually cycle is a Layer-1 feature for later. Decel mode in particular would be useful for Sam's flight-test workflow but it's a UI add, not a math add.
-- **Audio-tone replay.** ToneCalc lives in firmware too but isn't part of the M5 display sim. Routing the engine's `tonesOnPctLift` through ToneCalc to play tones in the browser is a fun separate plan.
+- **Audio-tone synthesis.** ToneCalc itself (the tone-selection state) IS exposed in PR 1.5 via embind, so replay can show "what tone the pilot heard" as a state readout. **Generating actual PCM audio** (`AudioMixer` wrap, WebAudio playback, muxing into exported MP4) is out of scope for v0 — separate plan when wanted. The drift-impossible architecture extends naturally to audio: `onspeed_core/audio/AudioMixer.cpp` is platform-free, same as `ToneCalc`, so a future audio PR is "wrap AudioMixer in embind, route output to WebAudio" — no algorithm hand-port.
 - **WebSocket-driven `/indexer` page.** Already uses an SVG hand-port. Migrating that to the M5 WASM sim is a separate plan; doesn't block this. (The unified architecture says it should happen eventually.)
 - **HUD output for FlySto / TronView.** Out of scope.
 - **DataMark detection workflow.** Existing UI keeps working; M5 surfaces `DataMark` as an accessor so the existing detection logic just reads it from M5 instead of the rec.
