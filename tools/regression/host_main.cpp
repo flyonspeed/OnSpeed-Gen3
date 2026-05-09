@@ -523,9 +523,9 @@ int CmdAhrsTone(int argc, const char* const* argv)
 // the AOA calibration curves for each detent. Without it, LoadDefaults() is
 // used (a single uncalibrated detent, pot=0).
 //
-// Sample rate: read from the log header if `iLogRate` is present; otherwise
-// defaults to 50 Hz (the firmware default for pre-version-2 logs).  Stored
-// in the engine for PRs 2/3; not yet used to correct EMA rate.
+// Sample rate: supplied via --log-rate {50|208} (default 50). The engine uses
+// it to size the synth lookahead window (kSynthHalfWindowSec × rate) and
+// (post-PR #490) to compute the rate-adjusted accel EMA's α.
 // ============================================================================
 
 // Output column header — stable order, matches ReplayStepResult field order.

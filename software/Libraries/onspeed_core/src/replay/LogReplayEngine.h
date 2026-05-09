@@ -216,6 +216,12 @@ public:
     // Useful for tests that verify the lag contract.
     int rowsFed() const { return rowsFed_; }
 
+    // Test-only: expose internal buffer capacity for memory-bound regression
+    // tests. Lets tests verify that circBuf_ never grows past its construction-
+    // time allocation without reaching into private members.
+    // Production code does not need this — do not add non-test call sites.
+    size_t bufferCapacity() const { return circBuf_.capacity(); }
+
 private:
     const onspeed::config::OnSpeedConfig& cfg_;
     bool flapsRawAdcAvailable_;

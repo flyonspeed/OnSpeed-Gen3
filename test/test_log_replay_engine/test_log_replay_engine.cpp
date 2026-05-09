@@ -149,16 +149,17 @@ ReplayStepResult stepExpectResult(LogReplayEngine& eng, const LogRow& row)
 
 // Batch reference: compute the smoothstep-blended synth ADC for a given tick
 // relative to a transition at snapTick, with prevPot and nextPot.
+// halfWindow is the per-engine synthHalfWindowTicks_ (rate-dependent).
 // Returns the nominal steady-state pot value when tick is outside the window.
 uint16_t batchSynthAdc(int tick, int snapTick, int prevPot, int nextPot,
-                        int steadyPot)
+                        int steadyPot, int halfWindow)
 {
-    const int winStart = snapTick - kSynthHalfWindow50;
-    const int winEnd   = snapTick + kSynthHalfWindow50;
+    const int winStart = snapTick - halfWindow;
+    const int winEnd   = snapTick + halfWindow;
     if (tick < winStart || tick > winEnd)
         return static_cast<uint16_t>(steadyPot);
 
-    const float span = static_cast<float>(2 * kSynthHalfWindow50);
+    const float span = static_cast<float>(2 * halfWindow);
     float t = static_cast<float>(tick - winStart) / span;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
@@ -334,12 +335,14 @@ void test_ema_accumulates(void)
 void test_accel_ema_accumulates(void)
 {
     OnSpeedConfig cfg = makeTwoFlapConfig();
-    LogReplayEngine eng(cfg, 50, false);
+    // flapsRawAdcAvailable=true: column present in log, step() returns immediately
+    // (no synth lag). The EMA smoothing under test is independent of the synth path.
+    LogReplayEngine eng(cfg, 50, true);
 
     // Step 1: seeds the accel EMA at the default makeRow() IMU values.
     // imuLateralG=-0.02, imuVerticalG=1.02, imuForwardG=0.05
     LogRow row1 = makeRow();
-    ReplayStepResult r1 = eng.step(row1);
+    ReplayStepResult r1 = stepExpectResult(eng, row1);
 
     // First step: EMA seeds at raw values (no blending yet).
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, -0.02f, r1.accelLatSmoothed);
@@ -356,7 +359,7 @@ void test_accel_ema_accumulates(void)
     row2.imuLateralG  =  0.10f;
     row2.imuVerticalG =  0.90f;
     row2.imuForwardG  =  0.20f;
-    ReplayStepResult r2 = eng.step(row2);
+    ReplayStepResult r2 = stepExpectResult(eng, row2);
 
     // Pinned values: alpha ≈ 0.23001423 at 50 Hz, tau = kAccelEmaTauSec.
     //   seed values from row1: lat=-0.02, vert=1.02, fwd=0.05
@@ -593,13 +596,11 @@ void test_streaming_total_output_equals_input(void)
 // construction.
 void test_streaming_bounded_memory(void)
 {
-    // Static size check: the engine struct itself must stay bounded.
-    // circBuf_ is a std::vector (24 bytes on 64-bit), sized at construction.
-    // The heap allocation it makes is bounded by synthHalfWindowTicks_+1
-    // entries: ~10 KB at 50 Hz, ~42 KB at 208 Hz.
-    // This catches unbounded-growth bugs (e.g., an accidentally growing vector
-    // member) at compile time. The 64 KB ceiling is generous above the
-    // ~42 KB heap footprint at 208 Hz, leaving room for padding and future fields.
+    // Static size check: catches inline-array regressions only. circBuf_ is a
+    // std::vector (24 bytes on 64-bit), so sizeof(LogReplayEngine) stays small
+    // regardless of how much heap the vector has reserved. Heap growth (e.g.,
+    // a push_back that escapes the constructor) is policed by the runtime check
+    // below.
     static_assert(sizeof(onspeed::replay::LogReplayEngine) < 64 * 1024,
                   "LogReplayEngine struct size growing unexpectedly; check for "
                   "unbounded growing-vector storage. circBuf_ should be a "
@@ -607,13 +608,25 @@ void test_streaming_bounded_memory(void)
 
     OnSpeedConfig cfg = makeTwoFlapConfig();
 
-    // Feed 1000 rows; switch flap detent every 200 rows to exercise transitions.
+    // Runtime capacity check: circBuf_ is sized at construction to
+    // synthHalfWindowTicks_ + 1 entries and must never grow. At 50 Hz,
+    // synthHalfWindowTicks_ = 100, so the expected capacity is 101.
     LogReplayEngine eng(cfg, 50, false);
+    const size_t initialCapacity = eng.bufferCapacity();
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        static_cast<size_t>(kSynthHalfWindow50 + 1), initialCapacity,
+        "circBuf_ capacity at 50 Hz should be synthHalfWindowTicks_+1 == 101");
+
+    // Feed 1000 rows; switch flap detent every 200 rows to exercise transitions.
     for (int i = 0; i < 1000; i++) {
         int flapDeg = ((i / 200) % 2 == 0) ? 0 : 30;
         LogRow row = makeRow(0.5f, 0.1f, flapDeg);
         eng.step(row);
     }
+
+    // Capacity must be unchanged — no heap growth permitted.
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(initialCapacity, eng.bufferCapacity(),
+        "circBuf_ capacity grew after construction; streaming bounded-memory guarantee violated");
 
     // flush() must return at most kSynthHalfWindow50 rows, regardless of input length.
     auto tail = eng.flush();
@@ -718,23 +731,29 @@ void test_synth_single_transition(void)
     }
 }
 
-// Streaming-vs-batch equivalence: prove that the streaming engine produces
-// the same output as a reference batch computation for a known input sequence.
+// run_streaming_vs_batch_equivalence_at — shared helper exercised at both
+// 50 Hz and 208 Hz by the two test functions below.
 //
-// Input: 2*kSynthHalfWindow50 rows at flaps=0, then 2*kSynthHalfWindow50 rows at flaps=30.
+// Proves that the streaming engine produces the same output as a reference
+// batch computation for a known input sequence at the given sample rate.
+//
+// Input: halfWindow rows at flaps=0, then halfWindow rows at flaps=30.
 // Batch reference: compute the expected synth ADC for each tick directly using
-// the smoothstep formula and the known transition tick.
-void test_streaming_vs_batch_equivalence(void)
+// the smoothstep formula and the known transition tick, parameterised by
+// halfWindow so the math is rate-independent.
+static void run_streaming_vs_batch_equivalence_at(int logSampleRateHz)
 {
+    const int halfWindow = static_cast<int>(kSynthHalfWindowSec * static_cast<float>(logSampleRateHz));
+
     OnSpeedConfig cfg = makeTwoFlapConfig();
     // Detent 0 pot = 1000, detent 1 pot = 3000.
     const int prevPot = 1000;
     const int nextPot = 3000;
 
-    const int phase1 = kSynthHalfWindow50;  // rows at flaps=0
-    const int phase2 = kSynthHalfWindow50;  // rows at flaps=30
+    const int phase1 = halfWindow;  // rows at flaps=0
+    const int phase2 = halfWindow;  // rows at flaps=30
 
-    LogReplayEngine eng(cfg, 50, false);
+    LogReplayEngine eng(cfg, logSampleRateHz, false);
     LogRow row0  = makeRow(0.5f, 0.1f, 0);
     LogRow row30 = makeRow(0.5f, 0.1f, 30);
 
@@ -762,21 +781,31 @@ void test_streaming_vs_batch_equivalence(void)
 
     // Batch reference: the k-th emitted row (0-indexed) was fed at absolute
     // tick (k + 1). The first emitted row (k=0) is tick 1; the last (k=N-1)
-    // is tick N. step() lags by kSynthHalfWindow50, so only ticks
-    // [1..N-kSynthHalfWindow50] come from step() and ticks
-    // [N-kSynthHalfWindow50+1..N] come from flush().
+    // is tick N. step() lags by halfWindow, so only ticks [1..N-halfWindow]
+    // come from step() and ticks [N-halfWindow+1..N] come from flush().
     //
     // The transition snapTick = phase1 + 1 (first row at flaps=30, 1-indexed).
-    // Smoothstep window: [snapTick - kSynthHalfWindow50, snapTick + kSynthHalfWindow50].
+    // Smoothstep window: [snapTick - halfWindow, snapTick + halfWindow].
     for (int k = 0; k < (int)streamingAdc.size(); k++) {
         const int emitTick = k + 1;  // 1-indexed
         // Steady-state pot: prevPot before snap, nextPot after.
         const int steadyPot = (emitTick < snapTick) ? prevPot : nextPot;
         const uint16_t expected = batchSynthAdc(emitTick, snapTick,
-                                                 prevPot, nextPot, steadyPot);
+                                                 prevPot, nextPot, steadyPot,
+                                                 halfWindow);
         TEST_ASSERT_EQUAL_UINT16_MESSAGE(expected, streamingAdc[k],
             "streaming output does not match batch reference");
     }
+}
+
+void test_streaming_vs_batch_equivalence_50hz(void)
+{
+    run_streaming_vs_batch_equivalence_at(50);
+}
+
+void test_streaming_vs_batch_equivalence_208hz(void)
+{
+    run_streaming_vs_batch_equivalence_at(208);
 }
 
 // flush() on the fast path (flapsRawAdcAvailable=true) returns an empty vector.
@@ -969,7 +998,8 @@ int main(int, char**)
     RUN_TEST(test_streaming_bounded_memory);
     RUN_TEST(test_synth_steady_state_no_transition);
     RUN_TEST(test_synth_single_transition);
-    RUN_TEST(test_streaming_vs_batch_equivalence);
+    RUN_TEST(test_streaming_vs_batch_equivalence_50hz);
+    RUN_TEST(test_streaming_vs_batch_equivalence_208hz);
     RUN_TEST(test_flush_fast_path_empty);
     RUN_TEST(test_reset_clears_synth_buffer);
 
