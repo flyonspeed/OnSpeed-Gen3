@@ -708,7 +708,7 @@ void HandleApiFormatStatus() {
         body += F(",\"cardSizeGb\":");
         body += szSize;
         if (!configSaved_local) {
-            body += F(",\"warning\":\"SD copy of configuration was not re-saved. Visit the configuration page to write it.\"");
+            body += F(",\"warning\":\"Configuration was not saved to the SD card. Open the configuration page and click Save.\"");
         }
     }
     if (state == FormatState::Failed && err[0]) {
