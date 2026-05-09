@@ -92,13 +92,7 @@ bool        fwUpdateMode = false;
 #define TFT_GREY        0x7BEF
 #define TFT_LIGHT_GREY  0xAD55
 
-// Color depth for the off-screen sprite.  Defaults to 8bpp (palette
-// indexed) for the firmware builds where flash + RAM matter.  The
-// X-Plane plugin overrides to 16bpp via the build flag so its custom
-// Panel_FrameBufferBase subclass can read out RGB565 directly.
-#ifndef XPLANE_PLUGIN_DEPTH
-#define XPLANE_PLUGIN_DEPTH 8
-#endif
+#include "RenderConfig.h"
 
 M5Canvas        gdraw(&M5.Display);
 Gauges          myGauges;

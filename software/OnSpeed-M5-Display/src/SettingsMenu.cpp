@@ -5,6 +5,7 @@
 // button polling. See SettingsMenu.h for lifecycle.
 
 #include "SettingsMenu.h"
+#include "RenderConfig.h"
 
 // Mirror main.cpp's include pattern: GaugeWidgets pulls in <M5GFX.h>
 // (where M5Canvas / fonts come from) regardless of target.
@@ -95,7 +96,7 @@ const char* toggleValueLabel(const MenuItem& item) {
 }
 
 void renderMenu() {
-    gdraw.setColorDepth(8);
+    gdraw.setColorDepth(XPLANE_PLUGIN_DEPTH);
     gdraw.createSprite(320, 240);
     gdraw.fillSprite(TFT_BLACK);
     gdraw.setTextDatum(textdatum_t::baseline_left);
@@ -203,9 +204,7 @@ void renderMenu() {
 // Input
 // ---------------------------------------------------------------------------
 //
-// Polls per-target buttons for menu navigation. Returns true if any input
-// was processed (used to decide whether render is needed this tick — but
-// we always render at the renderer cadence anyway).
+// Polls per-target buttons for menu navigation.
 void pollMenuInput() {
 #if defined(HUVVER)
     // huVVer: BtnA = back/exit, BtnB = activate, BtnC = down, BtnD = up
