@@ -23,6 +23,7 @@
 
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
+#include <audio/ToneCalc.h>
 #include <config/ConfigV1Parse.h>
 #include <config/ConfigXmlParse.h>
 #include <config/OnSpeedConfig.h>
@@ -409,6 +410,9 @@ static val StepResultToVal(const onspeed::replay::ReplayStepResult& r)
     out.set("accelLatSmoothed",   r.accelLatSmoothed);
     out.set("accelVertSmoothed",  r.accelVertSmoothed);
     out.set("accelFwdSmoothed",   r.accelFwdSmoothed);
+    out.set("gOnsetRate",         r.gOnsetRate);
+    out.set("turnRateDps",        r.turnRateDps);
+    out.set("oatC",               r.oatC);
     out.set("dataMark",           r.dataMark);
 
     return out;
@@ -460,6 +464,13 @@ public:
         row.rollDeg       = rowVal["rollDeg"].as<float>();
         row.flightPathDeg = rowVal["flightPathDeg"].as<float>();
         row.vsiFpm        = rowVal["vsiFpm"].as<float>();
+
+        // OAT — optional; defaults to 0 (no-OAT-sensor convention).
+        {
+            val v = rowVal["oatCelsius"];
+            row.oatCelsius = (v.typeOf().as<std::string>() == "number")
+                             ? v.as<float>() : 0.0f;
+        }
 
         // Data mark.
         row.dataMark = rowVal["dataMark"].as<int>();
@@ -573,6 +584,57 @@ static val build_display_frame(val inputsVal)
     return Uint8Array.new_(typed_memory_view(n, buf));
 }
 
+// ---------------------------------------------------------------------------
+// tone_calc / tone_calc_muted (PR 1.5)
+//
+// Pure tone-decision logic from `onspeed_core/audio/ToneCalc.{h,cpp}` —
+// the same code the firmware runs to decide what tone the pilot hears.
+// Inputs: current AOA (degrees) + the four per-flap thresholds. Returns
+// `{ enTone: 'None'|'Low'|'High', pulseFreq, volumeMult }`.
+//
+// Unblocks docs-site tone-sim replacement (#509) and a future audio-
+// synthesis PR. Audio synthesis itself is NOT in scope here — only the
+// tone-decision binding.
+// ---------------------------------------------------------------------------
+
+static const char* ToneTypeStr(EnToneType t)
+{
+    switch (t) {
+        case EnToneType::None: return "None";
+        case EnToneType::Low:  return "Low";
+        case EnToneType::High: return "High";
+    }
+    return "None";
+}
+
+static val tone_calc(float aoaDeg,
+                     float ldmaxAoa,
+                     float fastAoa,
+                     float slowAoa,
+                     float stallWarnAoa)
+{
+    ToneThresholds th{ldmaxAoa, fastAoa, slowAoa, stallWarnAoa};
+    ToneResult r = calculateTone(aoaDeg, th);
+    val out = val::object();
+    out.set("enTone",     std::string(ToneTypeStr(r.enTone)));
+    out.set("pulseFreq",  r.fPulseFreq);
+    out.set("volumeMult", r.fVolumeMult);
+    return out;
+}
+
+static val tone_calc_muted(float aoaDeg,
+                           float iasKt,
+                           float stallWarnAoa,
+                           int   muteUnderIas)
+{
+    ToneResult r = calculateToneMuted(aoaDeg, iasKt, stallWarnAoa, muteUnderIas);
+    val out = val::object();
+    out.set("enTone",     std::string(ToneTypeStr(r.enTone)));
+    out.set("pulseFreq",  r.fPulseFreq);
+    out.set("volumeMult", r.fVolumeMult);
+    return out;
+}
+
 EMSCRIPTEN_BINDINGS(onspeed_core_module) {
     // Step 0: single export to prove the pipeline.
     function("compute_percent_lift", &compute_percent_lift);
@@ -591,4 +653,10 @@ EMSCRIPTEN_BINDINGS(onspeed_core_module) {
     // Bulldog round-1 fix C1: expose the canonical wire-frame builder so
     // the M5-replay-WASM Node test can drive frames without a JS hand-port.
     function("build_display_frame", &build_display_frame);
+
+    // PR 1.5: expose ToneCalc decision logic so JS callers (docs-site
+    // tone-sim, future audio-synthesis PR) drive the same tone decisions
+    // the firmware does.  Pure passthrough — no drift seam.
+    function("tone_calc",       &tone_calc);
+    function("tone_calc_muted", &tone_calc_muted);
 }
