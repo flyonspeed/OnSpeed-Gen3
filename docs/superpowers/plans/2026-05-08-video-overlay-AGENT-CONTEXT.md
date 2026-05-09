@@ -18,52 +18,74 @@ needs before touching code.
                           │   (platform-free C++)        │
                           └──────────────┬───────────────┘
                                          │
-        ┌──────────────┬──────────────┬──┴──┬───────────────┬──────────────┐
-        │              │              │     │               │              │
-        ▼              ▼              ▼     ▼               ▼              ▼
-   Firmware      X-Plane       M5 simulator host_main   onspeed_core   (future
-   (ESP32)       plugin        (full WASM,  CLI binary  .wasm          targets)
-                 (native C++)  with M5GFX)  (subprocess (algorithm-only
-                                             from Python) WASM, browser)
-        │
-        │ wire format
-        ▼
-   ┌──────────────┐
-   │ M5 hardware  │ ← Basic / Core2 / huVVer-AVI
-   └──────────────┘                              ┌──────────────────┐
-                                                 │ Replay tool (JS) │
-                                                 │  loads onspeed_  │
-                                                 │  core.wasm       │
-                                                 └──────────────────┘
+        ┌──────────────┬──────────────┬──┴──┐
+        │              │              │     │
+        ▼              ▼              ▼     ▼
+   Firmware      X-Plane       host_main  onspeed_core.wasm
+   (ESP32)       plugin        CLI binary (algorithm artifact —
+                 (native C++)  (Python    Python via host_main,
+                               subprocess)  CI regression)
 
-   ┌──────────────────┐
-   │  Python tools    │ ← subprocess wrappers around host_main
-   │  (m5-replay,     │   (post-PLAN_PYTHON_CONSOLIDATION.md)
-   │   synth-record)  │
-   └──────────────────┘
+  Layer 2 (state machine over wire): software/OnSpeed-M5-Display
+
+                ┌───────────────────────────────────────────┐
+                │  M5-Display firmware                      │
+                │  imports onspeed_core (Layer 1).          │
+                │  adds time + state machine:               │
+                │  20 Hz graphics, 2 Hz numbers, Slip,      │
+                │  SmoothedDecelRate, gHistory, modes.      │
+                │  THE source of truth for "what the M5     │
+                │  pilot saw".                              │
+                └─────┬───────┬─────────┬──────────┬────────┘
+                      │       │         │          │
+   native build       │       │ Emscripten WASM    │ direct C++ link
+   ┌──────────────────┘       │         │          └──────────────────┐
+   ▼                          │         ▼                             ▼
+   M5 hardware /              │   Replay tool                   X-Plane plugin
+   huVVer-AVI /               │   (browser)                     (Mac/Win/Linux)
+   tools/m5-replay            │   feeds wire bytes,
+                              │   reads M5 state,
+                              │   paints SVG / 5 modes
+                              │
+                              ▼
+                       (out of scope: /indexer page —
+                       works fine over WebSocket JSON,
+                       could migrate later)
 ```
 
-**End state (after Project A + Project B land):** every consumer
-either compiles `onspeed_core`, links it, or loads a compiled
-artifact. **No hand-ports anywhere.** Drift impossible by
-construction.
+**End state (after Project A + B1 + B2 land):** every consumer
+either compiles `onspeed_core` directly, compiles M5 firmware
+directly (which links `onspeed_core`), shells out to host_main, or
+loads a WASM artifact. **No hand-ports anywhere.** Drift impossible
+by construction.
 
-**Pre-WASM (today)**: the Replay tool has a JS hand-port at
-`tools/web/lib/replay/*.js`. That port is replaced by a WASM driver
-once `PLAN_WASM_CORE.md` lands.
+**Pre-WASM (today)**: the Replay tool has TWO hand-ports —
+`tools/web/lib/replay/*.js` reimplements algorithm code (B1
+replaces this, partially landed via PR #496) AND it reimplements
+M5 state-machine logic in `slipBall.js`, `reassemble.js`, and the
+22-field `rec` builder in `ReplayPage.js` (B2 replaces this; see
+`2026-05-09-replay-m5-wasm.md`).
 
 **Pre-Python-consolidation (today)**: the Python tools have their
 own algorithm code at `tools/onspeed_py/`. That code is replaced by
 host_main subprocess wrappers once `PLAN_PYTHON_CONSOLIDATION.md`
 lands.
 
+**Carved out: the `/indexer` page.** Works today over WebSocket
+JSON. Conceptually a sibling Layer-2 consumer (could feed M5
+firmware WASM via WebSocket bytes), but **explicitly out of scope**
+for this plan set. It ships unchanged. If/when we revisit, fresh
+plan.
+
 **Deploy targets:**
-- **Firmware** — native C++ on the ESP32. The real airplane.
-- **X-Plane plugin** — native C++ on Mac/Win/Linux. Developer tool.
-- **M5 simulator** — full WASM (with M5GFX rendering) on the docs site.
-- **host_main** — native CLI on the dev machine. Used by Python wrappers + CI.
-- **onspeed_core.wasm** — algorithm-only WASM in the browser. Used by Replay tool.
-- **M5 hardware variants** (Basic, Core2, huVVer-AVI) — render the firmware's wire output. No algorithm code on these boxes.
+- **Firmware (Gen3)** — native C++ on the ESP32. Real airplane.
+- **X-Plane plugin** — native C++. Links both `onspeed_core` and M5 firmware source.
+- **M5 hardware variants** (Basic, Core2, huVVer-AVI) — native build of M5 firmware.
+- **`tools/m5-replay`** — Python harness driving M5 firmware via USB-TTL.
+- **Docs-site embedded sim** — full WASM build of M5 firmware (existing `--target docs` from `build_wasm.sh`).
+- **host_main** — native CLI binary. Used by Python wrappers + CI regression.
+- **onspeed_core.wasm** — algorithm artifact. Used by host_main consumers (Python via subprocess) and CI parity check. The Replay tool consumes `onspeed_core` transitively, through the M5 firmware WASM (B2).
+- **M5 firmware WASM** — full-firmware artifact (`--target replay`). Loaded by Replay tool. Same source that flashes to M5/huVVer hardware.
 
  The plans listed below cover *what* to build. This doc covers *what
 tripped me up while building it*, so future agents don't pay the same
@@ -78,7 +100,7 @@ The video-replay tool lives at `/replay` on the dev-server. It's
 **It is NOT in the firmware bundle.** The bundler skips it via a
 regex in `scripts/build_web_bundle.py`.
 
-Five plans govern this work (plus this doc, which is orientation —
+Six plans govern this work (plus this doc, which is orientation —
 not a plan):
 
 1. **`2026-05-08-python-consolidation.md`** (this directory) —
@@ -87,17 +109,22 @@ not a plan):
    Sequenced before any other layer work.
 2. **`2026-05-08-firmware-log-replay-parity.md`** (this directory) —
    fix firmware LogReplay so SD-log replay produces flight-equivalent
-   wire output. Two firmware-side fixes: rate-correct EMA at ingest,
-   synth ADC sweep when missing. **Must land before WASM Step 2.**
-3. **`2026-05-08-wasm-core.md`** (this directory) — compile
-   `onspeed_core` to WebAssembly. Replay tool's JS UI loads the WASM
-   module and calls into it for every algorithm. Replaces the JS
-   hand-port entirely. Lands after Python consolidation Step 0 and
-   firmware LogReplay parity.
-4. **`2026-05-08-video-overlay-replay.md`** (this directory) — the
+   wire output. **STATUS: merged** (PRs #487, #490, #491). Must
+   precede WASM Step 2 / Project B2.
+3. **`2026-05-08-wasm-core.md`** — Project B1: compile `onspeed_core`
+   (algorithm layer) to WebAssembly. Steps 0/1/2 merged; Steps 3-5
+   pending. Used by Python tools (via host_main) and CI regression.
+4. **`2026-05-09-replay-m5-wasm.md`** — Project B2: compile the
+   **M5-Display firmware** (state-machine layer over the wire) to
+   WebAssembly. Same source that flashes to M5/huVVer hardware. The
+   Replay tool feeds wire bytes in, reads display state vars out,
+   paints SVG from those values. **Required by C; pre-req
+   firmware-log-replay-parity is already merged.** STATUS: design,
+   PR 1 ready to dispatch.
+5. **`2026-05-08-video-overlay-replay.md`** (this directory) — the
    Replay tool roadmap. Layer 0–5 architecture, sequencing, dispatch
-   templates. Layer 1+ presumes Python consolidation + WASM are done.
-5. **`2026-05-08-cross-impl-drift-prevention.md`** (this directory) —
+   templates. Layer 1+ presumes Python consolidation + B1 + B2 are done.
+6. **`2026-05-08-cross-impl-drift-prevention.md`** (this directory) —
    one-paragraph summary plus a tiny WASM-vs-native parity CI step.
    Most of this doc is historical, explaining why we no longer need
    a streaming-goldens CI gate (the WASM compile collapses it).
