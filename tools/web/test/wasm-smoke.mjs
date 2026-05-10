@@ -359,6 +359,74 @@ if (badCfg.error === undefined) {
 }
 console.log(`OK: parse_config(garbage) → error: "${badCfg.error}"`);
 
+// AOA polynomial round-trip: parse_config emits aoaCurve, ConfigFromVal
+// reads it back. Skipping either side silently zeros the polynomial
+// coefficients and CurveCalc returns the constant term (0) for every
+// pressure input — engine AOA reads as 0 regardless of pfwd/p45.
+//
+// Lever: minimalV2Xml uses the identity polynomial (X1=1, others 0),
+// so aoa = coeffP = p45/pfwd. With pfwd=1, p45=2 the engine should
+// report aoa ≈ 2°. With the round-trip dropping coefficients, aoa
+// would be 0.
+{
+    assertDefined('flap0.aoaCurve',         flap0.aoaCurve);
+    assertDefined('flap0.aoaCurve.type',    flap0.aoaCurve.type);
+    assertDefined('flap0.aoaCurve.coeff',   flap0.aoaCurve.coeff);
+    assertEqual('flap0.aoaCurve.type',      flap0.aoaCurve.type, 1);
+    if (!Array.isArray(flap0.aoaCurve.coeff)) {
+        console.error(`FAIL: flap0.aoaCurve.coeff is not an array`);
+        process.exit(1);
+    }
+    // afCoeff layout is [a3, a2, a1, a0] per SuCalibrationCurve docs.
+    // X3=0, X2=0, X1=1, X0=0 → [0, 0, 1, 0]. Tolerate trailing zeros
+    // beyond MAX_CURVE_COEFF if the binding pads the array.
+    assertClose('aoaCurve.coeff[0] (X3)', flap0.aoaCurve.coeff[0], 0.0, 1e-6);
+    assertClose('aoaCurve.coeff[1] (X2)', flap0.aoaCurve.coeff[1], 0.0, 1e-6);
+    assertClose('aoaCurve.coeff[2] (X1)', flap0.aoaCurve.coeff[2], 1.0, 1e-6);
+    assertClose('aoaCurve.coeff[3] (X0)', flap0.aoaCurve.coeff[3], 0.0, 1e-6);
+
+    // End-to-end: drive an engine constructed from the round-tripped
+    // cfg and confirm aoa tracks the pressure inputs. Pre-fix this
+    // returned 0 on every step.
+    const aoaEngine = new Module.LogReplayEngine(cfg, 50, true);
+    const polyRow = Object.assign({}, {
+        pfwdSmoothed:       1.0,
+        p45Smoothed:        2.0,
+        pStaticMbar:        1013.25,
+        paltFt:             0.0,
+        iasKt:              80.0,
+        iasValid:           true,
+        flapsPos:           0,
+        flapsRawAdc:        3908,
+        flapsRawAdcPresent: true,
+        imuVerticalG:       1.0,
+        imuLateralG:        0.0,
+        imuForwardG:        0.0,
+        imuRollRateDps:     0.0,
+        imuPitchRateDps:    0.0,
+        imuYawRateDps:      0.0,
+        pitchDeg:           0.0,
+        rollDeg:            0.0,
+        flightPathDeg:      0.0,
+        vsiFpm:             0.0,
+        dataMark:           0,
+    });
+    const polyResult = aoaEngine.step(polyRow);
+    if (polyResult === null) {
+        console.error('FAIL: aoa-curve engine step() returned null');
+        process.exit(1);
+    }
+    // Identity curve: aoa = coeffP = p45/pfwd = 2.0. AOACalculator runs
+    // an EMA smoother on the first sample which seeds at the input —
+    // so the very first step should produce aoa ≈ 2.0.
+    assertClose('aoa-curve engine: aoa tracks coeffP (identity curve)',
+        polyResult.aoaDeg, 2.0, 0.05);
+    assertClose('aoa-curve engine: coeffP = p45/pfwd',
+        polyResult.coeffP, 2.0, 0.001);
+    aoaEngine.delete();
+    console.log('OK: aoaCurve round-trip drives engine to non-zero AOA');
+}
+
 // ---------------------------------------------------------------------------
 // Step 2: LogReplayEngine round-trip — flapsRawAdcAvailable=true
 //

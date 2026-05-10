@@ -120,6 +120,7 @@ const MIME = new Map([
   ['.ico',  'image/x-icon'],
   ['.txt',  'text/plain; charset=utf-8'],
   ['.map',  'application/json; charset=utf-8'],
+  ['.wasm', 'application/wasm'],
 ]);
 
 function mimeFor(filePath) {
