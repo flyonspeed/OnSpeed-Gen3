@@ -1,10 +1,20 @@
 # AGENT_CONTEXT — Video Replay Tool
 
-**Last updated:** 2026-05-08 — Sam.
+**Last updated:** 2026-05-09 — Sam.
 
 **START HERE if you've never seen this codebase before.** If you're
 looking for the index of plan documents and reading order, see
 `2026-05-08-replay-INDEX.md`.
+
+> **🛑 READ THE RETRO.** `2026-05-09-replay-retro.md` documents bugs
+> that survived the foundation PRs (#507, #511) and the trial-run
+> findings on PR #512. Architectural correction inside. The continue
+> prompt at `2026-05-09-replay-continue-prompt.md` is the runway for
+> the next agent. **Skipping the retro means re-making the same
+> JS-hand-port mistakes.** The "no hand-ports" goal in this doc was
+> defined too narrowly — it covered algorithm hand-ports but missed
+> data-shape hand-derivations (`rowObjAt`, `buildDisplayInputs`).
+> Both are equally drift-prone.
 
 This is the briefing every sub-agent working on the video-replay tool
 needs before touching code.

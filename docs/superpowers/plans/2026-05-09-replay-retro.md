@@ -337,9 +337,12 @@ If you're picking up the replay tool:
 - #508: gOnsetRate (closed by #511)
 - #509: docs-site tone-sim hand-port → onspeed_core ToneCalc
 - #510: M5 replay WASM SDL2 dead-code tradeoff
-- (NEW) Lift `LogReplayTask` into `onspeed_core`, eliminate
+- **#514**: Lift `LogReplayTask` into `onspeed_core`, eliminate
   rowObjAt + buildDisplayInputs. **Highest priority post-trial.**
-- (NEW) Cfg round-trip test
+- (NEW) Carve out merge-worthy fixes from PR #512 as a small PR
+  (cfg-bindings polynomial round-trip + cfg round-trip test, mode-id
+  refresh on pause, `.wasm` MIME, delete-Module workaround). Should
+  ship before #514.
 - (NEW) iasValid hysteresis fixture test
 - (NEW) End-to-end real-flight fixture (depends on #485)
 - (NEW) WebM export black-shadow bug (Phase 4.5)

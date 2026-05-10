@@ -13,15 +13,17 @@
 If you're a fresh agent (or fresh-session Sam) picking up this work,
 **read these documents in this order**:
 
-| # | Doc | Purpose |
-|---|---|---|
-| 1 | `2026-05-08-video-overlay-AGENT-CONTEXT.md` | Orientation. Gotchas, anti-patterns, build commands, the unified architecture diagram. **Read in full before touching code.** |
-| 2 | `2026-05-08-python-consolidation.md` | Project A: migrate Python algorithm code to `host_main` subprocess wrappers. **Step 0 (host_main multi-subcommand CLI) is a prerequisite for the WASM project.** ~5-7 days, 7 small PRs. |
-| 3 | `2026-05-08-firmware-log-replay-parity.md` | Project B-prereq: replay shows what the M5 saw. Build a rate-adjusted accel EMA so 50 Hz log data produces wire-equivalent output (firmware filter τ at the right rate); LogReplayEngine uses it; synth `flapsRawADC` for old logs. **No log schema change. No "presentation" smoothing.** ~2 days, 3 small PRs. Must land before WASM Step 2. Plan is v3 — see "What we got wrong, twice" for v1/v2 history (PR #475 closed without merge). |
-| 4 | `2026-05-08-wasm-core.md` | Project B1: compile `onspeed_core` (algorithm layer) to WebAssembly. Python tools and CI regression also consume it via host_main; the Replay tool consumes it transitively through the M5 firmware (B2). ~5-7 days, 5 small PRs. Lands after Python consolidation Step 0; then runs in parallel with Python Steps 1-7. |
-| 5 | `2026-05-09-replay-m5-wasm.md` | Project B2: compile the **M5-Display firmware** (state-machine layer over the wire) to WebAssembly. Same source that flashes to M5/huVVer hardware. Replay tool feeds wire bytes in, reads display-state vars out, paints SVG from those values. **Two invariants:** (1) M5 firmware owns rendering (PR 1: WASM build target). (2) `LogReplayEngine` produces complete wire frames (PR 1.5: field-completeness audit + golden test). ~4-6 days, 4 PRs (PR 1 → PR 1.5 → PR 2 → PR 3). Lands after B1; required by C. |
-| 6 | `2026-05-08-video-overlay-replay.md` | Project C: the Replay tool roadmap. Layered architecture (Layer 0 engine → Layer 5 export). Lands AFTER projects A + B1 + B2. |
-| 7 | `2026-05-08-cross-impl-drift-prevention.md` | What's left of drift-prevention after WASM lands: a tiny "WASM-vs-native parity check" CI step. Most of this doc is historical — explaining why we no longer need a streaming-goldens CI gate. |
+| # | Doc | Status | Purpose |
+|---|---|---|---|
+| 0 | `2026-05-09-replay-retro.md` | **READ FIRST** | Trial-run retro after PR #512. Bugs that survived foundation, why tests missed them, architectural correction (lift `LogReplayTask` into `onspeed_core`). |
+| 0a | `2026-05-09-replay-continue-prompt.md` | **READ SECOND** | Hand-off prompt to next agent. A/B-toggle plan. Cherry-pick instructions for shipping the merge-worthy fixes from PR #512 alone. |
+| 1 | `2026-05-08-video-overlay-AGENT-CONTEXT.md` | Active reference | Orientation, gotchas, two-layer architecture diagram. Note: "no hand-ports" is now read more strictly per retro (data-shape transformations also count). |
+| 2 | `2026-05-08-python-consolidation.md` | Steps 0-2 ✅; 3-7 deferred | Project A: migrate Python algorithm code to `host_main` subprocess wrappers. Steps 3-7 deferred for the `LogReplayTask` lift. |
+| 3 | `2026-05-08-firmware-log-replay-parity.md` | ✅ MERGED (#487/#490/#491) | Rate-adjusted accel EMA + synth flapsRawADC for old logs. Historical reference. |
+| 4 | `2026-05-08-wasm-core.md` | Steps 0-2 ✅ (#496); 3-5 deferred | Project B1: `onspeed_core` → WASM. Steps 3-5 deferred for the `LogReplayTask` lift. |
+| 5 | `2026-05-09-replay-m5-wasm.md` | PR 1 ✅ (#507), PR 1.5 ✅ (#511); PR 2 ⚠️ unmerged (#512), redirected per retro | Project B2: M5-Display firmware → WASM. The core foundation IS shipped; the UI integration approach in PR 2/3 is what got redirected. |
+| 6 | `2026-05-08-video-overlay-replay.md` | Layer 1+ ideas active; engine framing dead | Project C: Replay tool roadmap. Layer-1+ feature ideas (DataMark, ClipBuilder, export) still apply. The "in-browser engine port" framing is superseded by B1+B2. |
+| 7 | `2026-05-08-cross-impl-drift-prevention.md` | Historical | One-paragraph summary of the streaming-goldens CI step. Mostly resolved by B1+B2. |
 
 ## The one-sentence story (post-foundation)
 
@@ -135,95 +137,88 @@ machine in the middle, presentation on top.
 - Audio synthesis (separate `onspeed_core/audio/` subsystem).
 - Tone-decision logic (`ToneCalc`, governed by Vac's spec docs).
 
-## Project ordering — what to ship in what sequence
+## Project ordering — current state (2026-05-09)
 
 ```
   ┌─────────────────────────────────────┐
-  │  Project A.0: host_main CLI         │  ← FIRST (~1-2 days)
-  │  (PLAN_PYTHON_CONSOLIDATION Step 0) │     prerequisite for A + B1
-  └─────────────┬───────────────────────┘
-                │
-        ┌───────┴────────┐
-        │                │   (parallel after A.0 lands)
-        ▼                ▼
-  ┌──────────────┐ ┌──────────────────────────────┐
-  │ Project A:   │ │ Project B1-prereq:           │
-  │ Python       │ │ Firmware LogReplay parity    │
-  │ consolidation│ │ (PLAN_FIRMWARE_LOG_REPLAY_   │
-  │ (Steps 1-7)  │ │  PARITY v3) — rate-adjusted  │
-  │ ~4-6 days    │ │  accel EMA + synth ADC ~2d   │
-  │              │ │ STATUS: merged (PRs #487/    │
-  │              │ │  #490/#491)                  │
-  │              │ └─────────┬────────────────────┘
-  │              │           │
-  │              │           ▼
-  │              │ ┌──────────────────────────────┐
-  │              │ │ Project B1:                  │
-  │              │ │ WASM compile of onspeed_core │
-  │              │ │ (PLAN_WASM_CORE)             │
-  │              │ │ ~5-7 days                    │
-  │              │ │ STATUS: Steps 0/1/2 merged   │
-  │              │ │  (PRs #496 + earlier)        │
-  │              │ └─────────┬────────────────────┘
-  │              │           │
-  │              │           ▼
-  │              │ ┌──────────────────────────────┐
-  │              │ │ Project B2:                  │
-  │              │ │ WASM compile of M5-Display   │
-  │              │ │ firmware (state-machine      │
-  │              │ │ layer)                       │
-  │              │ │ (PLAN_REPLAY_M5_WASM)        │
-  │              │ │ ~3-5 days, 3 PRs             │
-  │              │ │ STATUS: this plan, design    │
-  │              │ └─────────┬────────────────────┘
-  └──────┬───────┘           │
-         │                   │
-         └────────┬──────────┘
-                  │
-                  ▼
-  ┌─────────────────────────────────────┐
-  │  Project C: Replay Tool             │  ← AFTER A + B1 + B2
-  │  (PLAN_VIDEO_OVERLAY.md, Layer 1+)  │     Layer 1 → Layer 5,
-  │                                     │     parallelizable
+  │  Project A.0: host_main CLI         │  ✅ MERGED
   └─────────────────────────────────────┘
-
-  Plus a tiny CI step (PLAN_DRIFT_PREVENTION.md): WASM-vs-native
-  parity check, ~half-day, lands once Project B1 Step 1 has bound
-  one function.
+                  │
+        ┌─────────┴────────┐
+        ▼                  ▼
+  ┌──────────────┐  ┌─────────────────────────────────┐
+  │ Project A:   │  │ B1-prereq: Firmware LogReplay   │
+  │ Python       │  │ parity (rate-adjusted accel EMA │
+  │ consolidation│  │ + synth flapsRawADC for old logs)│
+  │ Steps 0-2 ✅ │  │ ✅ MERGED (#487/#490/#491)      │
+  │ Steps 3-7    │  └─────────────┬───────────────────┘
+  │ deferred for │                │
+  │ LogReplayTask│                ▼
+  │ lift below   │  ┌─────────────────────────────────┐
+  │              │  │ Project B1: onspeed_core → WASM │
+  │              │  │ Steps 0/1/2 ✅ MERGED (#496)    │
+  │              │  │ Steps 3-5 deferred for          │
+  │              │  │ LogReplayTask lift below        │
+  │              │  └─────────────┬───────────────────┘
+  │              │                │
+  │              │                ▼
+  │              │  ┌─────────────────────────────────┐
+  │              │  │ Project B2: M5-Display fw → WASM│
+  │              │  │ PR 1 ✅ MERGED (#507)           │
+  │              │  │ PR 1.5 ✅ MERGED (#511)         │
+  │              │  │ PR 2 ⚠️ open (#512), redirected  │
+  │              │  │ per retro                       │
+  │              │  └─────────────┬───────────────────┘
+  └──────┬───────┘                │
+         └────────────┬───────────┘
+                      │
+                      ▼
+  ┌────────────────────────────────────────────────────┐
+  │  ▶ NEXT UP: lift LogReplayTask into onspeed_core   │
+  │                                                     │
+  │  Move sketch_common/src/tasks/LogReplay.cpp        │
+  │  Process_() into onspeed_core, expose via embind.  │
+  │  Replay tool routes through it instead of JS-side  │
+  │  rowObjAt + buildDisplayInputs hand-ports.         │
+  │                                                     │
+  │  Sam's approach: A/B-toggle in the replay UI so    │
+  │  the new C++ path can be visually compared with   │
+  │  the existing JS path on real flight data BEFORE   │
+  │  deleting the JS path. See retro + continue prompt.│
+  └────────────────────────────────────────────────────┘
+                      │
+                      ▼
+  ┌────────────────────────────────────────────────────┐
+  │  Project C: Replay Tool layer 1+                   │
+  │  (file-handle persistence, ClipBuilder polish,     │
+  │   MP4 export, etc.)                                │
+  └────────────────────────────────────────────────────┘
 ```
 
-**Why A and B1 are siblings**: A.0 (multi-subcommand host_main)
-exposes the C++ API surface. A.1-7 wrap that surface from Python.
-B1 exposes the same surface to JS via WASM. Both share host_main
-as the binding target.
+### What's left before "correct by construction"
 
-**Why firmware LogReplay parity precedes WASM Step 2**: today the
-JS Replay tool patches over two firmware-side gaps (rate-coupling
-of the IMU EMA when log rate ≠ 208 Hz, and synthesizing a flap-pot
-ADC sweep when the log lacks the column). Both belong in firmware
-LogReplay. Once they land there, WASM Step 2's "delete the JS
-variable-dt EMA + synth sweep" is a clean delete; the WASM build
-inherits correct behavior. If we skipped the firmware fix, we'd be
-moving the JS hack into a WASM-bound replay-mode wrapper that
-diverges from what firmware LogReplay does on the same SD card —
-the opposite of "drift impossible by construction".
+1. **Carve out merge-worthy fixes from PR #512 into a small PR**
+   (cfg-bindings AOA polynomial round-trip, mode-id refresh on
+   pause, `.wasm` MIME, delete-Module workaround). The polynomial
+   fix is critical — it's a real bug in `bindings.cpp::parseConfigVal`
+   that affects EVERY consumer. Add a cfg round-trip test so it
+   can't regress.
 
-**Why B2 follows B1**: B2 (M5 firmware WASM) compiles M5 source
-that already imports `onspeed_core` headers. The M5's display
-state machine is the *consumer* of the algorithm layer, not a
-parallel to it. B1 lands the algorithm WASM artifact; B2 lands
-the state-machine WASM artifact (which links B1's code).
-Symmetrically, B2 isn't strictly required for the algorithm
-artifact to be useful (Python tools and host_main don't need it);
-it IS required for the Replay tool to render "what the pilot
-saw" correctly.
+2. **`LogReplayTask` lift** (the architectural correction). Lift
+   `sketch_common/src/tasks/LogReplay.cpp::Process_()` into
+   `onspeed_core/src/replay/LogReplayTask.{h,cpp}`. Expose via
+   embind. Add A/B toggle in replay UI. Sam compares JS vs C++
+   paths on real flight data.
 
-**Why none blocks Project C strictly**: Replay layer work
-(file-handle persistence, HUD widgets, drag-clip, export) doesn't
-depend on the WASM drivers being in place. But landing Replay
-features without WASM drivers leaves JS hand-ports in place
-forever, so we sequence A + B1 + B2 → C to consolidate the
-foundation first.
+3. **Three new test types** (per retro): real-flight fixture,
+   cfg round-trip, hysteretic state-machine fixture.
+
+4. **Delete JS hand-ports** once C++ path is confirmed equivalent
+   or better.
+
+5. **Project C feature work** (file persistence, clip builder, MP4
+   export). Mostly independent of the foundation; can run
+   anytime.
 
 ## How to dispatch
 

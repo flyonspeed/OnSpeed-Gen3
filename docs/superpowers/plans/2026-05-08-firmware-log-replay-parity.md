@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-08 (v3 — supersedes prior premises; v1 had the wrong filter, v2 added unnecessary log columns).
 **Owner:** Sam
-**Status:** Proposed.
+**Status:** ✅ MERGED via PRs #487, #490, #491. Historical reference only.
 **Sequenced:** BEFORE `PLAN_WASM_CORE.md` Step 2 (the streaming-pipeline binding).
 **Companion to:** `PLAN_WASM_CORE.md`, `PLAN_VIDEO_OVERLAY.md`.
 

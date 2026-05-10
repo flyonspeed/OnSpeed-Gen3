@@ -2,7 +2,9 @@
 
 **Date:** 2026-05-08
 **Owner:** Sam
-**Status:** Proposed. **Sequenced before Layer 1+ of the video-overlay roadmap.**
+**Status:** Steps 0/1/2 ✅ merged (PR #498 was Step 2). Steps 3-7 pending
+but not blocking — the **`LogReplayTask` lift** (see retro) has higher
+priority than wrapping additional Python tools.
 **Breaking-changes-OK?** Yes — Sam has confirmed only he is using these
 tools today; we can break interfaces freely during this consolidation.
 

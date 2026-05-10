@@ -142,6 +142,8 @@ PR, leaving the symptom patches behind.
 
 #### Step 1 (REVISED per Sam): A/B comparison toggle in PR #512
 
+**Tracked as issue #514.**
+
 Sam's call (and a smart one): **before merging or closing PR #512,
 add the C++ LogReplayTask path alongside the JS pipeline as an
 A/B toggle.** This way we visually compare the two paths on real

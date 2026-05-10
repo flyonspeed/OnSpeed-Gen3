@@ -1,15 +1,24 @@
 ---
 date: 2026-05-09
 owner: Sam
-status: design — PR 1 in flight (CI fix pending), PR 1.5 next
+status: PR 1 + 1.5 merged; PR 2 (#512) UNMERGED — superseded by A/B-toggle approach in retro
 supersedes_in_replay: PLAN_VIDEO_OVERLAY Layer 0+ rendering path
+superseded_by_for_pr2: 2026-05-09-replay-retro.md (PR 2's UI-integration approach was redirected after trial-run findings)
 relates_to:
   - 2026-05-08-replay-INDEX.md
-  - 2026-05-08-video-overlay-replay.md
-  - 2026-05-08-firmware-log-replay-parity.md
+  - 2026-05-09-replay-retro.md
+  - 2026-05-09-replay-continue-prompt.md
 ---
 
 # Project B2 — M5 firmware compiled to WASM (state-machine layer)
+
+> **🛑 PR 2 onward is REDIRECTED. Read `2026-05-09-replay-retro.md` first.**
+> The post-trial-run retro identified that PR 2's "wire JS UI through M5
+> sim" approach left intact several JS-side data-shape hand-derivations
+> (`rowObjAt`, `buildDisplayInputs`, hand-coded iasValid rule) that are
+> drift seams. Real bugs shipped through them. The corrected approach is
+> in the retro: lift `LogReplayTask` into `onspeed_core` so JS becomes
+> pure glue. PR 1 and PR 1.5 (below) are still correct and merged.
 
 This plan is **Project B2** in the foundation set (see
 `2026-05-08-replay-INDEX.md` for sequencing). It compiles the
@@ -451,7 +460,16 @@ This unblocks:
 wasm-smoke.mjs). Synthesis is its own plan when you want tones in
 the browser/exported video.
 
-### PR 2 — `feat(replay): wire replay through M5 WASM sim, all five modes` (~2-3 days)
+### PR 2 — `feat(replay): wire replay through M5 WASM sim, all five modes` (~2-3 days) ⚠️ SUPERSEDED
+
+> **REDIRECTED — see `2026-05-09-replay-retro.md`.** This PR-2 approach
+> shipped (#512, unmerged) but the trial run exposed bugs in the JS-side
+> data-shape transformations it relied on. The replacement plan adds a
+> C++ `LogReplayTask` (lifted from `sketch_common`) as a parallel path,
+> with an A/B toggle in the UI so Sam can compare against the JS path
+> on real flight data. The retro and `2026-05-09-replay-continue-prompt.md`
+> are the canonical guidance for the next agent. The text below is the
+> original PR-2 design, kept for historical reference.
 
 Wire the M5 WASM sim into the replay UI for all five modes.
 
@@ -480,7 +498,13 @@ Wire the M5 WASM sim into the replay UI for all five modes.
 - Bypass `BuildDisplayFrame` and inject raw engine floats — Mode 0 ball should regain its current jitter (proving wire quantization is the fix).
 - Flip the SVG components to read from the legacy `rec` instead of M5 sim — same jitter visible.
 
-### PR 3 — `chore(replay): delete JS hand-port of M5 logic` (~half-day, after PR 2 bakes 2-3 days)
+### PR 3 — `chore(replay): delete JS hand-port of M5 logic` (~half-day, after PR 2 bakes 2-3 days) ⚠️ SUPERSEDED
+
+> **REDIRECTED — see retro.** Original framing was "delete JS hand-ports
+> of M5 firmware logic" — but the trial run revealed a different,
+> larger set of hand-ports (data-shape transformations in `rowObjAt`
+> and `wireBridge.js`, not just `slipFromLateralG`). The corrected
+> plan in the retro deletes those instead. Original text below.
 
 Once PR 2 is in master and Sam has confirmed all five modes look
 correct on real flight data:

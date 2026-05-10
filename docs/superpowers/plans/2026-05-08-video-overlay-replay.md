@@ -1,17 +1,26 @@
 # PLAN_VIDEO_OVERLAY.md — OnSpeed Video Replay Tool
 
+> **🛑 READ THE RETRO.** `2026-05-09-replay-retro.md` is the canonical
+> guidance. This plan's "faithful in-browser port" framing is dead —
+> the trial run identified it as a drift-seam pattern. Foundation
+> projects (B1 onspeed_core WASM, B2 M5 firmware WASM) replaced it
+> with C++ pipelines, and the upcoming `LogReplayTask` lift completes
+> the picture. **Layer 1+ feature ideas** (DataMark, ClipBuilder,
+> export, file-handle persistence) **still apply.** The
+> rendering-engine framing here doesn't.
+
 **Branch:** `sam/video-overlay` (pushed to `flyonspeed/OnSpeed-Gen3`).
-**Status:** Phase 1–4 + DataMark/Clip system shipped. Next chunk
-follows the layered architecture below.
+**Status:** Phase 1–4 + DataMark/Clip system shipped. Architecture
+since redirected through Projects B1 + B2; see retro.
 **Form factor:** static-build SPA shipped via the existing
 `dev.flyonspeed.org` MkDocs deploy → bookmark at `dev.flyonspeed.org/replay`.
 Electron deferred until SPA reveals a concrete need.
-**Date:** 2026-05-08.
+**Date:** 2026-05-08 (retro added 2026-05-09).
 **Owner:** Sam.
 
 This plan documents the OnSpeed video-replay/overlay tool and the
-sequenced roadmap to a complete pilot-facing analysis app. Read this
-first; everything below is the source of truth.
+sequenced roadmap to a complete pilot-facing analysis app. Read the
+retro first; this for layer-1+ feature inspiration only.
 
 ---
 
