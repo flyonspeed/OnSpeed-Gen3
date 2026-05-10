@@ -140,66 +140,76 @@ PR, leaving the symptom patches behind.
 
 ### What to do, in order
 
-#### Step 1: ship the merge-worthy fixes from #512 as a small PR
+#### Step 1 (REVISED per Sam): A/B comparison toggle in PR #512
 
-Create a new branch from current master. Cherry-pick (or hand-port)
-just these four:
-- `bindings.cpp` aoaCurve / kFit round-trip fix (delete the comment
-  "kFit and AoaCurve default to zero/identity from SuFlaps ctor" —
-  emit aoaCurve on export, read it on import).
-- `tools/web/lib/pages/ReplayPage.js`: in the `m5ModeId` effect,
-  after `m5SimRef.current.setMode(m5ModeId)`, also call
-  `setM5State(m5SimRef.current.read())` so the SVG re-renders the new
-  mode without waiting for a videoT change.
-- `tools/web/dev-server/server.mjs`: add `['.wasm', 'application/wasm']`
-  to the MIME map.
-- `tools/web/lib/replay/m5sim.js`: replace `delete globalThis.Module`
-  with `try { globalThis.Module = undefined; } catch (_) {}`.
+Sam's call (and a smart one): **before merging or closing PR #512,
+add the C++ LogReplayTask path alongside the JS pipeline as an
+A/B toggle.** This way we visually compare the two paths on real
+flight data BEFORE committing to deleting the JS hand-ports.
 
-Bulldog this PR (it's small and focused). Land it. Close PR #512 as
-superseded after the carve-out lands.
+The plan:
 
-The aoaCurve fix is critical — it's a real `bindings.cpp` bug that
-affects EVERY consumer of `parse_config()` round-tripped through
-`parseConfigVal`, not just the replay tool. The fix needs a test:
-add a cfg round-trip test that parses real XML, exports to JS, imports
-back via `parseConfigVal`, drives `LogReplayEngine.step()` with
-known-good pressure inputs, and asserts AOA matches the firmware's
-`AOACalculator`. This test is required as part of this PR — it would
-have caught the bug.
+1. **Lift LogReplayTask to onspeed_core** (full work item — same as
+   what was Step 2 below, but done as a PARALLEL path, not a replacement).
+   - `software/sketch_common/src/tasks/LogReplay.cpp::Process_()` is
+     the firmware's existing log-replay code. Lift the per-row
+     "CSV row → wire bytes" path into
+     `software/Libraries/onspeed_core/src/replay/LogReplayTask.{h,cpp}`.
+   - Wraps `LogReplayEngine` + `BuildDisplayFrame` + the iasValid
+     hysteretic state (UpdateIasAlive). Stateful per-replay-session.
+     Resettable.
+   - Expose via embind as `LogReplayTaskHandle.process_row(rowBytes, cfg)`
+     → 77-byte Uint8Array.
+   - CSV parsing already in `onspeed_core/src/proto/LogCsv.cpp`. Either
+     expose `parse_log_row` to JS, or have `process_row` accept a
+     pre-parsed `LogRow` struct and let JS keep using `parseLog.js` for
+     CSV bytes → row[] (CSV parsing isn't where the bugs are).
 
-#### Step 2: lift LogReplayTask into onspeed_core
+2. **Add a new UI toggle**: "Engine: JS pipeline | C++ LogReplayTask"
+   (third toggle, alongside "M5-accurate mode" and "Show overlay").
+   Default to JS pipeline (existing behavior unchanged unless you
+   click). When C++ is on, the per-frame effect routes through
+   `task.process_row()` instead of `rowObjAt + LogReplayEngine.step
+   + buildWireFrame`.
 
-This is the architectural correction. The plan goal: eliminate JS-side
-data-shape hand-derivations.
+3. **Keep both paths working**. The JS path keeps its hysteretic
+   iasValid, its PresentationSmoother, etc. Sam clicks back and forth
+   and visually compares.
 
-The firmware has `software/sketch_common/src/tasks/LogReplay.cpp`. Its
-`Process_()` function takes a CSV log row, calls `LogReplayEngine.step()`,
-populates engine globals, and ships a wire frame. Today this is in
-`sketch_common/` which the WASM build doesn't compile.
+4. **The merge-worthy fixes from current PR #512 stay**:
+   - `bindings.cpp` aoaCurve / kFit round-trip (real bug — affects
+     ALL consumers of `parseConfigVal`, not just replay).
+   - `ReplayPage.js` mode-id effect refresh.
+   - `dev-server/server.mjs` `.wasm` MIME entry.
+   - `m5sim.js` `delete window.Module` workaround.
 
-The lift:
-1. Move (or extract) the per-row "log row → wire bytes" path into
-   `software/Libraries/onspeed_core/src/replay/LogReplayTask.{h,cpp}`.
-   It wraps `LogReplayEngine` + `BuildDisplayFrame` + the iasValid
-   hysteretic state. Stateful (per-replay-session). Resettable.
-2. Expose via embind as `LogReplayTaskHandle` with `process_row(logRow, cfg)`
-   returning the wire-bytes Uint8Array.
-3. The CSV parsing already exists in `onspeed_core/src/proto/LogCsv.cpp`.
-   Expose `parse_log_row` to JS (or `parse_log` for whole-file at once).
-4. JS-side replay tool deletes `rowObjAt`, `wireBridge.js::buildDisplayInputs`,
-   the JS hysteretic iasValid, the JS PresentationSmoother. Each is
-   replaced by routing through the C++ LogReplayTask.
-5. `ReplayPage.js`'s per-frame effect simplifies to: pick log row N
-   for current videoT, call `task.process_row(rowBytes, cfg)`, inject
-   into m5sim, advance time, read state, render SVG.
+5. **Sam does an A/B trial run**:
+   - Loads files, syncs.
+   - Clicks JS path: see what it looks like.
+   - Clicks C++ path: see what it looks like.
+   - Reports back: identical / different-and-here's-what-changed.
 
-After this, the JS layer is glue ONLY: file pickers, video element,
-sync logic (videoT ↔ logTime anchor mapping), per-frame driver, SVG
-render. No data-shape transformations anywhere.
+#### After Step 1 reports back
 
-This is approximately 1-2 weeks of work depending on scope. Read the
-retro doc (`2026-05-09-replay-retro.md`) for the full justification.
+- **If C++ path looks correct** (AOA tracks, no flat values, smooth):
+  delete the JS-side hand-ports in a follow-up. Replace
+  `rowObjAt`/`buildDisplayInputs`/JS hysteretic iasValid/JS
+  PresentationSmoother with single-source C++ flow.
+- **If C++ and JS paths look identical** (both buggy or both
+  smooth): we have multiple bugs and need to dig further;
+  the lift was at minimum useful as ground truth.
+- **If C++ path looks WORSE**: there's something wrong with
+  the lift itself; investigate before deleting JS path.
+
+This A/B approach replaces "trust the test, delete the JS code"
+with "trust your eyes on real data." Lower risk; same end state.
+
+#### Step 2 (was Step 2 in original): trim out hand-ports
+
+After Step 1's A/B confirms the C++ path is correct, this becomes
+the "delete the JS path" PR. The JS-side replay tool deletes
+`rowObjAt`, `wireBridge.js::buildDisplayInputs`, the JS hysteretic
+iasValid, the JS PresentationSmoother. The toggle goes away.
 
 #### Step 3: add the three test types
 
