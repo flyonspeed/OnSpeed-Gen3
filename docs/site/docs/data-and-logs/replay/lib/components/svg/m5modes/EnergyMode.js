@@ -29,7 +29,7 @@ import {
   Indexer, PercentLiftNumber, CornerReadout, DataMark,
   FlapCircle, SlipBall, EdgeTape,
 } from '../index.js';
-import { m5FlashFlagNow, m5LateralGFromSlip, m5FmtIasKt } from './helpers.js';
+import { m5FlashFlagNow, m5FmtIasKt } from './helpers.js';
 
 // Build the per-frame anchors array the existing Indexer expects.
 //
@@ -81,7 +81,7 @@ export const EnergyMode = ({ state, stale = false, numericDisplay = true }) => {
             numX=${G.CORNER_RIGHT_X} numY=${G.CORNER_NUM_Y} anchor="end" />
         <${FlapCircle} flapPos=${state.FlapPos}
             flapsMin=${state.FlapsMinDeg} flapsMax=${state.FlapsMaxDeg} />`}
-      <${SlipBall} lateralG=${m5LateralGFromSlip(state.Slip)}
+      <${SlipBall} lateralG=${state.LateralG}
                    percentLift=${state.PercentLift}
                    stallWarn=${state.StallWarnPctLift}
                    flashFlag=${flashFlag} />

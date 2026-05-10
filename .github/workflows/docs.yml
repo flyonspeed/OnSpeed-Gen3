@@ -54,6 +54,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Run docs-site replay tests
+        run: npm test --prefix docs/site/tests
       - name: Build site (strict)
         working-directory: docs/site
         run: mkdocs build --strict
@@ -86,6 +88,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Run docs-site replay tests
+        run: npm test --prefix docs/site/tests
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"
@@ -136,6 +140,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Run docs-site replay tests
+        run: npm test --prefix docs/site/tests
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"

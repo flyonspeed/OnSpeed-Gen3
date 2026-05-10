@@ -23,17 +23,6 @@ import { IAS_DASHES } from '../index.js';
 export const m5FlashFlagNow = () =>
   (Math.floor(performance.now() / 250) % 2) === 1;
 
-// Inverse of slipFromLateralG: SlipBall expects lateralG in body-frame
-// G's, but the M5 firmware exposes Slip as a clamped integer. Recover
-// lateralG so the existing SlipBall component (which converts back via
-// slipFromLateralG) renders the same position.
-//
-// The forward formula is `slip = clamp(round(-lateralG * 850), ±99)`,
-// so the inverse is `lateralG ≈ -slip / 850`. This is exact for slips
-// inside [-99, 99] (no rounding error round-trips because both sides
-// hold the same integer).
-export const m5LateralGFromSlip = (slip) => -slip / 850;
-
 // IAS placeholder when invalid: 3 dashes, matching the firmware's
 // `snprintf("---")` for the 3-digit IAS field.
 export const m5FmtIasKt = (v, valid) => {

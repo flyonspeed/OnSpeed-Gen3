@@ -17,7 +17,7 @@ import { fmtSigned } from '../../../core/format.js';
 import {
   DecelGauge, SlipBall, EdgeTape, CornerReadout, PCT_DASHES,
 } from '../index.js';
-import { m5LateralGFromSlip, m5FmtIasKt } from './helpers.js';
+import { m5FmtIasKt } from './helpers.js';
 
 export const DecelMode = ({ state, stale = false }) => {
   const aoaIsValid = state.IasIsValid !== false;
@@ -27,7 +27,7 @@ export const DecelMode = ({ state, stale = false }) => {
          xmlns="http://www.w3.org/2000/svg"
          style="background: ${colors.TFT_BLACK}; width: 100%; height: 100%;">
       <${DecelGauge} decelRate=${decelDisplay} dataValid=${aoaIsValid} />
-      <${SlipBall} lateralG=${m5LateralGFromSlip(state.Slip)}
+      <${SlipBall} lateralG=${state.LateralG}
                    percentLift=${state.PercentLift}
                    stallWarn=${state.StallWarnPctLift}
                    flashFlag=${false}

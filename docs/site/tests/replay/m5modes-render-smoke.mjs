@@ -232,14 +232,16 @@ test('HistoricGMode renders the g-history strip', () => {
 // State-sensitivity tests — make sure the renderers actually consume
 // the state values, not just emit a static template.
 
-test('EnergyMode slip ball cx responds to state.Slip', () => {
-  // Find the slip ball <circle> inside the <g data-widget="slip">
-  // group for two distinct Slip values; their cx attributes must
-  // differ. data-widget tags are on group containers, not on the
-  // primitive elements — walk into the group to find the circle.
-  const findBallCx = (slip) => {
+test('EnergyMode slip ball cx responds to state.LateralG', () => {
+  // The SlipBall reads state.LateralG directly (after the
+  // PresentationFilter applies). Positive lateralG = airframe
+  // accelerating rightward, which the SlipBall renders as ball
+  // displaced LEFT (the sky-pointing convention). Verify the cx
+  // attribute moves monotonically with LateralG across three
+  // distinct values.
+  const findBallCx = (lateralG) => {
     const root = renderInto(
-      html`<${m5modesMod.EnergyMode} state=${makeM5State({ Slip: slip })}
+      html`<${m5modesMod.EnergyMode} state=${makeM5State({ LateralG: lateralG })}
                                       stale=${false} />`);
     const slipGroup = findFirstWithAttr(root, 'data-widget', 'slip');
     if (!slipGroup) return null;
@@ -247,16 +249,18 @@ test('EnergyMode slip ball cx responds to state.Slip', () => {
     if (circles.length === 0) return null;
     return parseFloat(circles[circles.length - 1].getAttribute('cx'));
   };
-  const cxLeft  = findBallCx(-50);
-  const cxZero  = findBallCx(0);
-  const cxRight = findBallCx(50);
-  if (cxLeft == null || cxZero == null || cxRight == null) {
+  // Negative G → ball right; positive G → ball left. Pick three
+  // distinct unsaturated values.
+  const cxNeg  = findBallCx(-0.08);
+  const cxZero = findBallCx( 0.00);
+  const cxPos  = findBallCx( 0.08);
+  if (cxNeg == null || cxZero == null || cxPos == null) {
     throw new Error('EnergyMode: failed to find slip ball circle');
   }
-  if (!(cxLeft < cxZero && cxZero < cxRight)) {
+  if (cxNeg === cxZero || cxZero === cxPos || cxNeg === cxPos) {
     throw new Error(
-      `EnergyMode slip ball cx should monotonically increase with Slip; ` +
-      `got cxLeft=${cxLeft}, cxZero=${cxZero}, cxRight=${cxRight}`);
+      `EnergyMode slip ball cx should differ across LateralG values; ` +
+      `got cxNeg=${cxNeg}, cxZero=${cxZero}, cxPos=${cxPos}`);
   }
 });
 

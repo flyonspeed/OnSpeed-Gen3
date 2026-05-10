@@ -558,10 +558,12 @@ export const ReplayPage = () => {
     };
 
     // Apply the render-side smoothing filter to a sim.read() snapshot
-    // and return a frozen object with replaced Slip / VerticalG. The
-    // input is the unclamped LateralG (now exposed by m5sim — Slip
-    // alone would saturate at ±99 ≈ ±0.116 g and the filter would
-    // operate on a quantized signal).
+    // and return a frozen object with replaced LateralG / VerticalG.
+    // SVG components consume these fields directly — Slip (the
+    // clamped firmware-display integer) stays untouched and is not
+    // used for slip-ball positioning anymore. Smoothing operates in
+    // continuous-G space at all magnitudes, so saturation past
+    // ±0.116g doesn't dead-zone the filter.
     const renderSmooth = (state) => {
       const filter = m5RenderFilterRef.current;
       if (!filter || !state) return state;
@@ -570,16 +572,8 @@ export const ReplayPage = () => {
                   ? (videoT - lastT) : (1 / 60);
       m5LastFilterVideoTRef.current = videoT;
       const smoothed = filter.apply(state.LateralG, state.VerticalG, dt);
-      // Re-encode smoothed lateralG to the Slip integer the SVG
-      // currently reads (helpers.js::m5LateralGFromSlip inverts this).
-      // Once the SVG components are updated to read LateralG directly
-      // we can stop the round-trip.
-      const smoothedSlip = Number.isFinite(smoothed.lateralG)
-        ? Math.max(-99, Math.min(99, Math.round(-smoothed.lateralG * 850)))
-        : state.Slip;
       return Object.freeze({
         ...state,
-        Slip:      smoothedSlip,
         LateralG:  Number.isFinite(smoothed.lateralG)
                      ? smoothed.lateralG : state.LateralG,
         VerticalG: Number.isFinite(smoothed.verticalG)

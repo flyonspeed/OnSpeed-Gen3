@@ -17,7 +17,7 @@ import {
   FlightPathMarker, PitchReadout, SlipBall, EdgeTape, CornerReadout,
   PCT_DASHES,
 } from '../index.js';
-import { m5LateralGFromSlip, m5FmtIasKt, m5FmtPalt } from './helpers.js';
+import { m5FmtIasKt, m5FmtPalt } from './helpers.js';
 
 export const AttitudeMode = ({ state, stale = false }) => {
   const aoaIsValid = state.IasIsValid !== false;
@@ -33,7 +33,7 @@ export const AttitudeMode = ({ state, stale = false }) => {
       <${FlightPathMarker} pitchDeg=${state.Pitch}
                            flightPathDeg=${state.FlightPath} />
       <${PitchReadout} pitchDeg=${state.displayPitch} />
-      <${SlipBall} lateralG=${m5LateralGFromSlip(state.Slip)}
+      <${SlipBall} lateralG=${state.LateralG}
                    percentLift=${state.PercentLift}
                    stallWarn=${state.StallWarnPctLift}
                    flashFlag=${false}
