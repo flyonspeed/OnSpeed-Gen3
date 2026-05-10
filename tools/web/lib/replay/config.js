@@ -26,8 +26,13 @@
 //     acBestGlideIAS, acVfe,
 //     flaps: [{ degrees, potPosition, ldmaxAoa, onSpeedFastAoa,
 //               onSpeedSlowAoa, stallWarnAoa, stallAoa, manAoa,
-//               alpha0, alphaStall, kFit }, ...]
+//               alpha0, alphaStall, kFit,
+//               aoaCurve: { type, coeff: [a3, a2, a1, a0] } }, ...]
 //   }
+//
+// aoaCurve is required for non-zero engine AOA. SuFlaps's default ctor
+// leaves AoaCurve all-zero, so a hand-rolled cfg that omits aoaCurve
+// will pin engine AOA to 0 — see bindings.cpp ConfigFromVal.
 //
 // On parse error, parseConfigXml throws ConfigParseError.
 

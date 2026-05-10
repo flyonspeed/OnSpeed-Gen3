@@ -246,6 +246,18 @@ static val parse_config(const std::string& xml_text)
         flap.set("alpha0",        f.fAlpha0);
         flap.set("alphaStall",    f.fAlphaStall);
         flap.set("kFit",          f.fKFit);
+        // AOA polynomial curve. Without it, ConfigFromVal restores the
+        // SuFlaps default (all-zero coefficients) and CurveCalc returns
+        // the constant term (0) for every input, so engine AOA reads as
+        // 0 regardless of pressures.
+        val aoaCurve = val::object();
+        aoaCurve.set("type", static_cast<int>(f.AoaCurve.iCurveType));
+        val aoaCoeffs = val::array();
+        for (size_t k = 0; k < onspeed::MAX_CURVE_COEFF; ++k) {
+            aoaCoeffs.set(static_cast<int>(k), f.AoaCurve.afCoeff[k]);
+        }
+        aoaCurve.set("coeff", aoaCoeffs);
+        flap.set("aoaCurve",      aoaCurve);
         flapsArr.set(fi, flap);
     }
     out.set("flaps", flapsArr);
@@ -373,7 +385,33 @@ static OnSpeedConfig ConfigFromVal(val cfgVal)
             s.fSTALLWARNAOA   = f["stallWarnAoa"].as<float>();
             s.fAlpha0         = f["alpha0"].as<float>();
             s.fAlphaStall     = f["alphaStall"].as<float>();
-            // kFit and AoaCurve default to zero/identity from SuFlaps ctor.
+
+            val kFitVal = f["kFit"];
+            if (!kFitVal.isUndefined() && !kFitVal.isNull()) {
+                s.fKFit = kFitVal.as<float>();
+            }
+
+            // Required for non-zero engine AOA. SuFlaps' default ctor
+            // leaves AoaCurve coefficients all-zero, so a missing
+            // aoaCurve here silently zeros AOA across the engine.
+            val curveVal = f["aoaCurve"];
+            if (!curveVal.isUndefined() && !curveVal.isNull()) {
+                val typeVal = curveVal["type"];
+                if (!typeVal.isUndefined() && !typeVal.isNull()) {
+                    s.AoaCurve.iCurveType =
+                        static_cast<uint8_t>(typeVal.as<int>());
+                }
+                val coeffVal = curveVal["coeff"];
+                if (!coeffVal.isUndefined() && !coeffVal.isNull()) {
+                    const int n = coeffVal["length"].as<int>();
+                    for (int k = 0;
+                         k < n && k < static_cast<int>(onspeed::MAX_CURVE_COEFF);
+                         ++k)
+                    {
+                        s.AoaCurve.afCoeff[k] = coeffVal[k].as<float>();
+                    }
+                }
+            }
         }
     }
 
