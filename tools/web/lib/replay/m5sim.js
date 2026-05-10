@@ -82,7 +82,10 @@ function loadFactoryViaScriptTag(url) {
       // Defensive: clear so a second load isn't shadowed by the
       // first. Emscripten reuses the global, so a second module
       // could otherwise inherit unrelated state.
-      delete globalThis.Module;
+      // Use assign-to-undefined rather than `delete` because some
+      // Emscripten output sets Module as a non-configurable own
+      // property on window, and `delete` throws in strict mode.
+      try { globalThis.Module = undefined; } catch (_) { /* ignore */ }
       resolve(factory);
     };
     script.onerror = () => reject(new Error(

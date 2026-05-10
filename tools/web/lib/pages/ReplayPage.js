@@ -574,7 +574,13 @@ export const ReplayPage = () => {
   // Persist the mode.
   useEffect(() => {
     safeLsSet(M5_MODE_LS_KEY, String(m5ModeId));
-    if (m5SimRef.current) m5SimRef.current.setMode(m5ModeId);
+    if (m5SimRef.current) {
+      m5SimRef.current.setMode(m5ModeId);
+      // Refresh React state immediately so the SVG re-renders the new
+      // mode without waiting for a videoT tick. Important on pause:
+      // no per-frame effect runs to refresh state otherwise.
+      setM5State(m5SimRef.current.read());
+    }
   }, [m5ModeId]);
 
   // Mirror m5ModeId into m5ModeIdRef so the async re-init .then()
