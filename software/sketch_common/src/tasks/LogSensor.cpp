@@ -175,6 +175,26 @@ void LogSensorCommitTask(void *pvParams)
             g_Log.printf(MsgLog::EnDisk, MsgLog::EnDebug, "Write buf %d bytes  Ring waiting %d\n", uBufUsed, uxItemsWaiting);
             }
 
+        // Surface the "file never opened" case directly. Without this,
+        // a pilot whose Open() failed at boot (dead SD, full card,
+        // mount error) sees one Open-error log on boot and then only
+        // generic ring-buffer-full drops once the staging buffer
+        // saturates ~1 s later. This warning names the actual cause.
+        if (uBufUsed > 0 && !m_hLogFile.isOpen())
+            {
+            static unsigned long uLastNoFileWarnMs = 0;
+            unsigned long uNow = millis();
+            if ((uNow - uLastNoFileWarnMs) > 5000)
+                {
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning, "Log file is not open; discarding queued log data");
+                uLastNoFileWarnMs = uNow;
+                }
+            // Drop staged bytes so the staging buffer doesn't lock at
+            // full and the drain loop above can keep recycling ring
+            // slots (preventing producer-side ring overflow drops).
+            uBufUsed = 0;
+            }
+
         // Write 512-byte-aligned chunks to disk
         bool bDidSync = false;
         if (uBufUsed > 0 && m_hLogFile.isOpen())
@@ -342,15 +362,14 @@ void LogSensor::Open()
         else
         {
             g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "SensorFile opening error.");
-            // Clear base name so ActiveBaseName() doesn't advertise a
-            // session that never really started. Otherwise the web UI
-            // would block deletion of a nonexistent "log_NNN.csv".
+            // Empty base name keeps ActiveBaseName() from advertising
+            // a session that never really started; the web UI would
+            // otherwise block deletion of a nonexistent "log_NNN.csv".
             //
-            // Do NOT mutate g_Config.bSdLogging here. A transient SD
-            // open failure should not silently override the user's saved
-            // intent in config.cfg — that mutation persists to disk on
-            // the next save and turns a one-shot SD glitch into a
-            // permanently-disabled logger. The next session retries.
+            // bSdLogging is intentionally not mutated here: the user's
+            // saved config is the source of truth for whether logging
+            // is wanted. A transient SD failure should leave the user's
+            // intent intact and let the next session retry.
             m_szBaseName[0] = '\0';
         }
     } // end if sensor data and SD disk available
@@ -672,15 +691,15 @@ void LogSensor::Write()
     szLogLine[lineLen + 1] = '\0';
     lineLen += 1;
 
-    // Send to the ring buffer for writing
+    // Send to the ring buffer for writing.
+    //
+    // Defense-in-depth: Write() is only called from SensorReadTask and
+    // ImuReadTask, both pinned to Core 1 and created after setup()
+    // allocates the ring buffer, so a null handle here means a
+    // regression. Warn (rate-limited) and drop the line; never mutate
+    // g_Config.bSdLogging — see the matching note in Open() above.
     if (xLoggingRingBuffer == nullptr)
         {
-        // Defensive: with the Write call now living in SensorReadTask /
-        // ImuReadTask (both created after the ring buffer allocation in
-        // setup), this branch should be unreachable in steady state.
-        // Keep the warn for any future regression. Do NOT mutate
-        // g_Config.bSdLogging — see the matching note in Open()'s
-        // failure path above.
         static unsigned long uLastWarnMs = 0;
         unsigned long uNow = millis();
         if ((uNow - uLastWarnMs) > 2000)

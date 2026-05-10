@@ -226,10 +226,11 @@ void setup()
     xLoggingRingBuffer = xRingbufferCreate(60000, RINGBUF_TYPE_BYTEBUF);    // 3+ sec of data buffering (measured ~14 KB/s)
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
-        {
-        g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xLoggingRingBuffer is NULL; disabling SD logging");
-        g_Config.bSdLogging = false;
-        }
+        g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xLoggingRingBuffer is NULL; SD logging disabled this session");
+    // bSdLogging is intentionally not mutated on alloc failure — the
+    // user's saved config is the source of truth. bLoggingRingBufferOk
+    // gates Open() and writer-task creation below; Write()'s null-ring
+    // path warns and returns. Next boot retries the allocation.
 
     // Get the right set of tasks running for the selected mode
     if      (g_Config.suDataSrc.enSrc == SuDataSource::EnSensors)

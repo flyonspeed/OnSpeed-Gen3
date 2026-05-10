@@ -146,11 +146,10 @@ void SensorReadTask(void *pvParams)
 
         g_Sensors.Read();
 
-        // 50 Hz log write. Fired from the task loop so any future
-        // bring-up `g_Sensors.Read()` from setup() can't trip the
-        // null-ringbuffer path in LogSensor::Write() before the
-        // ring buffer is allocated. Mirrors the 208 Hz Write call
-        // in ImuReadTask.
+        // 50 Hz log write. The 208 Hz path mirrors this in ImuReadTask.
+        // Both writes live in the task loops (not in driver primitives)
+        // so the bring-up sensor reads in setup() — which run before the
+        // logging ring buffer is allocated — cannot enter Write().
         if (g_Config.iLogRate != 208)
             g_LogSensor.Write();
     }
@@ -230,10 +229,11 @@ void ImuReadTask(void *pvParams)
         g_AHRS.Process(fDtSeconds);
         xSemaphoreGive(xAhrsMutex);
 
-        // 208 Hz log write. Fired from the task loop, not from
-        // IMU330::Read(), so the bring-up `g_pIMU->Read()` in setup()
-        // (which runs before the logging ring buffer is allocated)
-        // can't trip the null-ringbuffer path in LogSensor::Write().
+        // 208 Hz log write. The 50 Hz path mirrors this in
+        // SensorReadTask. Both writes live in the task loops (not in
+        // driver primitives) so the bring-up sensor reads in setup()
+        // — which run before the logging ring buffer is allocated —
+        // cannot enter Write().
         if (g_Config.iLogRate == 208)
             g_LogSensor.Write();
     }
