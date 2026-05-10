@@ -52,8 +52,9 @@ import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { reassembleResults } from '../replay/reassemble.js';
 import { M5Sim } from '../replay/m5sim.js';
-import { buildWireFrame, PresentationSmoother } from '../replay/wireBridge.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
+import { PresentationFilter, PRESENTATION_PRESETS }
+  from '../replay/presentationFilter.js';
 import { getWasmCore } from '../replay/wasm_core.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
@@ -84,11 +85,10 @@ const M5_MODES = [
 const SYNC_LS_KEY = 'replay-sync-v1';
 const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 const M5_ACCURATE_LS_KEY = 'replay-m5-accurate-v1';
-// Engine selection for the M5-accurate path. 'js' = legacy
-// rowObjAt + buildWireFrame (drift-prone, has the symptom-patch
-// PresentationSmoother + JS hysteretic iasValid threading).
-// 'cpp' = single-source LogReplayTask (issue #514).
-const M5_ENGINE_LS_KEY = 'replay-m5-engine-v1';
+// Render-side presentation smoothing preset. NOT a firmware mirror —
+// purely a viewing aid for 50 Hz log replay where IMU aliasing is
+// visible on the slip ball. See presentationFilter.js for rationale.
+const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
 
 // Friendly label for the anchor type the auto-detector picked.
 // Pilots usually sync against the first crosswind turn (sharp bank
@@ -336,21 +336,18 @@ export const ReplayPage = () => {
     const n = s == null ? 0 : parseInt(s, 10);
     return Number.isFinite(n) && n >= 0 && n <= 4 ? n : 0;
   });
-  // A/B engine selector. 'js' = legacy rowObjAt + buildWireFrame.
-  // 'cpp' = single-source LogReplayTask (issue #514). The C++ path
-  // closes the JS hand-derivation seams in rowObjAt and
-  // buildDisplayInputs by construction. Default 'js' so existing
-  // behavior is unchanged unless the toggle is on.
-  const [m5EngineMode, setM5EngineMode] = useState(() => {
-    const s = safeLsGet(M5_ENGINE_LS_KEY);
-    return s === 'cpp' ? 'cpp' : 'js';
+  // Render-side smoothing preset. 'off' = byte-faithful (the wire
+  // values from the C++ task drive the SVG directly). The other
+  // presets attenuate ball jitter that 50 Hz log aliasing introduces;
+  // see presentationFilter.js for rationale.
+  const [m5SmoothPreset, setM5SmoothPreset] = useState(() => {
+    const s = safeLsGet(M5_SMOOTH_LS_KEY);
+    return PRESENTATION_PRESETS.find(p => p.id === s) ? s : 'off';
   });
-  // Pre-computed wire frames per log row, populated when m5EngineMode
-  // is 'cpp'. Shape: { frames: Uint8Array[], engineResults: object[] },
-  // both arrays length=log.Length and aligned with original row index.
-  // engineResults stores the C++ engine's ReplayStepResult per row so
-  // ?debug=1 can compare it directly to the JS engine's output.
-  // null while off or building.
+  // Pre-computed wire frames per log row from the C++ LogReplayTask.
+  // Shape: { frames: Uint8Array[], engineResults: object[] }.
+  // engineResults is kept around for ?debug=1; not consumed by the
+  // production rendering path (the firmware sim reads bytes only).
   const [cppWireFrames, setCppWireFrames] = useState(null);
   const [cppBuilding, setCppBuilding] = useState(false);
   const [cppProgress, setCppProgress] = useState(0);
@@ -371,21 +368,14 @@ export const ReplayPage = () => {
   // runs on every m5ModeId change.
   const m5ModeIdRef = useRef(m5ModeId);
 
-  // Gen2-compatible presentation smoother for the wire path. 50 Hz
-  // SD logs contain aliased IMU vibration noise that the live firmware
-  // (running at 208 Hz on real sensors) silently filtered out before it
-  // hit the wire. Without a presentation-smoothing pass, replay shows
-  // ±30 SVG units of ball jitter and a vibrating gOnset bar — none of
-  // which the pilot saw. Gen2 firmware ALWAYS applied this smoothing
-  // (see DisplaySerial.ino:25 / OnSpeedTeensy_AHRS.ino:261 in the Gen2
-  // repo), and Vac's filmed flight replays were watched through it.
-  // We restore it here for replay only — wire format itself is
-  // unchanged, and a future 208 Hz log replay can disable the smoother
-  // to remain bit-for-bit faithful to the firmware path.
-  //
-  // Created at 20 Hz wire rate with Gen2 default τ. Reset on backward
-  // scrub and on first sim load (alongside the M5 sim re-init).
-  const m5PresentationSmootherRef = useRef(null);
+  // Render-side presentation filter (NOT a firmware mirror).
+  // Applies after sim.read(); attenuates 50 Hz log aliasing before
+  // SVG renderers consume state.LateralG / state.VerticalG. τ is
+  // driven by m5SmoothPreset.
+  const m5RenderFilterRef = useRef(null);
+  // Last-frame timestamp for the render filter's continuous-time α
+  // computation. videoT in seconds.
+  const m5LastFilterVideoTRef = useRef(null);
 
   // Export-to-WebM state. exporting=true while a recording is in
   // progress; exportProgress reflects the % of the source video
@@ -617,10 +607,18 @@ export const ReplayPage = () => {
         }
         m5SimRef.current = sim;
         m5CoreRef.current = core;
-        // Initialize presentation smoother at the wire rate the per-
-        // frame effect ticks at (20 Hz). See PresentationSmoother for
-        // rationale; default τ matches Gen2 firmware.
-        m5PresentationSmootherRef.current = new PresentationSmoother(20.0);
+        // Initialize the render-side filter. τ is set from the
+        // current preset; an effect below keeps it in sync as the
+        // user changes the smoothing dropdown.
+        const filter = new PresentationFilter();
+        const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
+                       || PRESENTATION_PRESETS[0];
+        filter.setTau({
+          lateralSec:  preset.lateralSec,
+          verticalSec: preset.verticalSec,
+        });
+        m5RenderFilterRef.current = filter;
+        m5LastFilterVideoTRef.current = null;
         // Hydrate displayType from the persisted choice so the first
         // frame after init renders the right mode.
         sim.setMode(m5ModeId);
@@ -637,10 +635,23 @@ export const ReplayPage = () => {
     safeLsSet(M5_ACCURATE_LS_KEY, m5Accurate ? '1' : '0');
   }, [m5Accurate]);
 
-  // Persist the engine selector.
+  // Persist the smoothing preset; also retune the live filter when
+  // the user changes it. Reset filter state so the next frame seeds
+  // fresh — a step-change in τ otherwise looks like a glitch in the
+  // first frame after the change.
   useEffect(() => {
-    safeLsSet(M5_ENGINE_LS_KEY, m5EngineMode);
-  }, [m5EngineMode]);
+    safeLsSet(M5_SMOOTH_LS_KEY, m5SmoothPreset);
+    if (m5RenderFilterRef.current) {
+      const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
+                     || PRESENTATION_PRESETS[0];
+      m5RenderFilterRef.current.setTau({
+        lateralSec:  preset.lateralSec,
+        verticalSec: preset.verticalSec,
+      });
+      m5RenderFilterRef.current.reset();
+      m5LastFilterVideoTRef.current = null;
+    }
+  }, [m5SmoothPreset]);
 
   // C++-engine pre-pass. Runs once per (log, cfg) pair while
   // M5-accurate is on, and survives mode toggle JS↔C++ — clicking
@@ -756,7 +767,7 @@ export const ReplayPage = () => {
     const sim = m5SimRef.current;
     const core = m5CoreRef.current;
     if (!sim || !core || !log || !cfg || !replayCtx) return;
-    if (m5EngineMode === 'cpp' && !cppWireFrames) return;   // wait for C++ pre-pass
+    if (!cppWireFrames) return;   // wait for C++ pre-pass
     if (!sync ||
         !Number.isFinite(sync.videoTakeoffSec) ||
         !Number.isFinite(sync.logTakeoffMs)) return;
@@ -767,45 +778,67 @@ export const ReplayPage = () => {
     const last = m5LastVirtualMsRef.current;
     const jump = targetVirtMs - last;
 
-    // Helper: inject the wire frame for the log row mapped from a
-    // virtual timestamp. Branches on m5EngineMode:
-    //   'cpp' — pre-computed Uint8Array from cppWireFrames[rowIdx]
-    //           (single-source LogReplayTask pipeline; no JS hand-port).
-    //   'js'  — legacy on-the-fly buildWireFrame from replayCtx.results.
+    // Helper: inject the pre-computed wire frame for the log row
+    // mapped from a virtual timestamp. Single-source path: bytes come
+    // from the C++ LogReplayTask pre-pass.
     const injectAt = (virtMs) => {
       const tickLogMs = Number.isFinite(pausedLogMs)
         ? pausedLogMs
         : sync.logTakeoffMs + (virtMs / 1000 - sync.videoTakeoffSec) * 1000;
       const rowIdx = findRowAt(log, tickLogMs);
       if (rowIdx < 0) return;
-      if (m5EngineMode === 'cpp') {
-        if (!cppWireFrames) return;            // pre-pass not done yet
-        const frameBytes = cppWireFrames.frames[rowIdx];
-        if (!frameBytes) return;               // synth-path lag for this row
-        sim.injectBytes(frameBytes);
-        return;
-      }
-      const stepResult = replayCtx.results[rowIdx];
-      if (!stepResult) return;
-      const frameBytes = buildWireFrame(
-        stepResult, cfg, core, m5PresentationSmootherRef.current);
+      const frameBytes = cppWireFrames.frames[rowIdx];
+      if (!frameBytes) return;               // synth-path lag for this row
       sim.injectBytes(frameBytes);
     };
 
+    // Apply the render-side smoothing filter to a sim.read() snapshot
+    // and return a frozen object with replaced LateralG / VerticalG.
+    // The firmware sim's m5State.IasIsValid / Slip / etc. all pass
+    // through unchanged.
+    const renderSmooth = (state) => {
+      const filter = m5RenderFilterRef.current;
+      if (!filter || !state) return state;
+      const lastT = m5LastFilterVideoTRef.current;
+      const dt = (Number.isFinite(lastT) && videoT > lastT)
+                  ? (videoT - lastT) : (1 / 60);
+      m5LastFilterVideoTRef.current = videoT;
+      // Reconstruct LateralG from the wire's signed Slip int.
+      // m5sim exposes Slip directly; the SlipBall component reads
+      // both fields and maps Slip back to a G-value via the same
+      // formula the firmware encoder used. We filter that G-value
+      // and write it back into a new state object so SlipBall sees
+      // the smoothed input. VerticalG is exposed directly.
+      const latG  = (state.Slip != null) ? -state.Slip * 0.04 / 34 : NaN;
+      const vertG = state.VerticalG;
+      const smoothed = filter.apply(latG, vertG, dt);
+      // Map smoothed lateralG back to the Slip integer the SVG reads.
+      const smoothedSlip = Number.isFinite(smoothed.lateralG)
+        ? Math.round(-smoothed.lateralG * 34 / 0.04)
+        : state.Slip;
+      // state from sim.read() is Object.frozen — make a shallow copy.
+      return Object.freeze({
+        ...state,
+        Slip:      smoothedSlip,
+        VerticalG: Number.isFinite(smoothed.verticalG)
+                     ? smoothed.verticalG : state.VerticalG,
+      });
+    };
+
     // Large jump (in either direction): snap. Don't replay history —
-    // that produces a multi-second visual scramble at first sync and
-    // every scrub. Reset the presentation smoother so it tracks from
-    // the new vicinity instead of carrying long-τ state across the
-    // jump. The next 5-10 normal ticks fill the M5's render gates and
-    // settle the displayed state.
+    // it would produce a multi-second visual scramble at first sync
+    // and every scrub. Reset the render filter so it seeds fresh at
+    // the new position instead of carrying long-τ state across the
+    // jump.
     if (jump < 0 || jump > M5_LARGE_JUMP_MS) {
-      if (m5PresentationSmootherRef.current) {
-        m5PresentationSmootherRef.current.reset();
+      if (m5RenderFilterRef.current) {
+        m5RenderFilterRef.current.reset();
+        m5LastFilterVideoTRef.current = null;
       }
       injectAt(targetVirtMs);
       sim.advanceTo(targetVirtMs);
       m5LastVirtualMsRef.current = targetVirtMs;
-      setM5State(sim.read());
+      setM5State(renderSmooth(sim.read()));
       return;
     }
 
@@ -824,7 +857,7 @@ export const ReplayPage = () => {
     m5LastVirtualMsRef.current = curMs;
 
     if (ticks > 0) {
-      setM5State(sim.read());
+      setM5State(renderSmooth(sim.read()));
     }
 
     // --- Diagnostic logging (?debug=1) -----------------------------
@@ -865,15 +898,7 @@ export const ReplayPage = () => {
         const r = (rowIdx >= 0 && replayCtx?.results)
           ? replayCtx.results[rowIdx] : null;
 
-        // JS-arm wire frame (build now, doesn't affect sim).
-        let jsFrame = null;
-        if (r) {
-          try {
-            const bytes = buildWireFrame(r, cfg, core, null);   // null smoother = raw
-            jsFrame = safeDecode(bytes);
-          } catch (_) { /* ignore */ }
-        }
-        // C++-arm wire frame (lookup; null if not built or in lag).
+        // Production wire frame from the C++ task pre-pass.
         const cppFrame = (cppWireFrames && rowIdx >= 0)
           ? safeDecode(cppWireFrames.frames[rowIdx]) : null;
         // C++ engine's ReplayStepResult for this row — independent
@@ -956,19 +981,18 @@ export const ReplayPage = () => {
         console.log('REPLAY_DBG ' + JSON.stringify({
           videoT: fnum(videoT, 2),
           rowIdx,
-          engineMode: m5EngineMode,
           mode: m5ModeId,
+          smooth: m5SmoothPreset,
           raw,
           engRes,
           cppEng: cppEngSlice,
-          jsFrame: sliceFrame(jsFrame),
           cppFrame: sliceFrame(cppFrame),
           m5: m5Slice,
         }));
       }
     }
   }, [m5Accurate, log, cfg, replayCtx, sync, videoT, pausedLogMs, m5ModeId,
-      m5EngineMode, cppWireFrames, debugMode]);
+      m5SmoothPreset, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------
 
@@ -1264,24 +1288,19 @@ export const ReplayPage = () => {
             </label>
             ${m5Accurate ? html`
               <span class="replay-toggle"
-                    title="A/B between JS and C++ wire pipelines. C++ uses the single-source LogReplayTask (issue #514) and closes the rowObjAt + buildDisplayInputs hand-derivation seams.">
-                Engine:
-                <label style="margin-left:0.4em;">
-                  <input type="radio" name="m5-engine" value="js"
-                         checked=${m5EngineMode === 'js'}
-                         onChange=${() => setM5EngineMode('js')} />
-                  JS
-                </label>
-                <label style="margin-left:0.4em;">
-                  <input type="radio" name="m5-engine" value="cpp"
-                         checked=${m5EngineMode === 'cpp'}
-                         onChange=${() => setM5EngineMode('cpp')} />
-                  C++ ${cppBuilding
-                    ? html`<small>(building ${Math.round(cppProgress * 100)}%)</small>`
-                    : (m5EngineMode === 'cpp' && cppWireFrames
-                        ? html`<small>(ready)</small>`
-                        : '')}
-                </label>
+                    title="Render-side smoothing for the slip ball. Not firmware-faithful — a viewing aid for 50 Hz logs whose IMU samples carry aliased noise the airplane never showed at 208 Hz.">
+                Smooth:
+                ${PRESENTATION_PRESETS.map(p => html`
+                  <label style="margin-left:0.4em;">
+                    <input type="radio" name="m5-smooth" value=${p.id}
+                           checked=${m5SmoothPreset === p.id}
+                           onChange=${() => setM5SmoothPreset(p.id)} />
+                    ${p.label}
+                  </label>
+                `)}
+                ${cppBuilding
+                  ? html`<small>(pre-pass ${Math.round(cppProgress * 100)}%)</small>`
+                  : ''}
               </span>
             ` : ''}
             <label class="replay-toggle">
