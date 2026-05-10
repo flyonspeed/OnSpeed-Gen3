@@ -29,6 +29,14 @@ software/OnSpeed-M5-Display/.logo-build/
 # ./scripts/build_m5_sim_for_docs.sh); committed copies would drift.
 docs/site/docs/assets/sim/
 
+# Replay-tool WASM artifacts copied into the docs site by
+# `docs/site/scripts/sync_wasm.sh` (run by CI before mkdocs build,
+# or locally after running the WASM build scripts).
+docs/site/docs/assets/wasm/onspeed_core.js
+docs/site/docs/assets/wasm/m5/onspeed_m5.js
+docs/site/docs/assets/wasm/m5/onspeed_m5.wasm
+docs/site/docs/assets/wasm/m5/onspeed_m5.wasm.map
+
 # auto-generated on each build by PlatformIO / Arduino IDE
 software/Libraries/version/buildinfo.cpp
 lib/version/buildinfo.cpp

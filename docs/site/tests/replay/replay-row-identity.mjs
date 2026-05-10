@@ -1,6 +1,6 @@
 // replay-row-identity.mjs — verifies that the synth-path row reassembly
-// in buildResultsFromWasm (ReplayPage.js) aligns results[i] with the
-// correct input row i.
+// in buildWireFramesFromTask (lib/replay/buildWireFrames.js) aligns
+// results[i] with the correct input row i.
 //
 // Bug caught: the original reassembly stored immediates[i] at results[i],
 // which placed each row's result 100 ticks late (lag period). The tail
@@ -20,14 +20,16 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// docs/site/tests/replay/ → up 4 → repo root → software/...
 const wasmJsPath = path.resolve(
     __dirname,
-    '../../../software/Libraries/onspeed_core/wasm/dist/onspeed_core.js'
+    '../../../../software/Libraries/onspeed_core/wasm/dist/onspeed_core.js'
 );
 
-// Import the production reassembleResults — test covers the same code
-// path the page uses. Sabotage in production propagates here.
-import { reassembleResults } from '../lib/replay/reassemble.js';
+// Import the production reassembleResults from the relocated tree.
+// docs/site/tests/replay/ → up 2 → docs/site/ → docs/data-and-logs/replay/lib/replay/
+import { reassembleResults }
+  from '../../docs/data-and-logs/replay/lib/replay/reassemble.js';
 
 let OnSpeedCoreModule;
 try {

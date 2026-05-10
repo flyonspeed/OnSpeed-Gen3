@@ -1,0 +1,4 @@
+{
+  "_comment": "Override mkdocs/docs-tree default so Node's createRequire treats onspeed_m5.js as CJS. Emscripten emits this file with EXPORT_ES6=0 so module.exports = factory.",
+  "type": "commonjs"
+}

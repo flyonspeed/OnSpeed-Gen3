@@ -53,7 +53,24 @@
 // keeps both fetches against the same origin.
 // ---------------------------------------------------------------------
 
-const M5SIM_BASE = '/lib/replay/m5sim';
+// URL for onspeed_m5.js: served by MkDocs from
+// docs/site/docs/assets/wasm/m5/onspeed_m5.js. The .js + .wasm live
+// in a subdir alongside a package.json that pins CommonJS resolution
+// — Emscripten emits with EXPORT_ES6=0 so Node-side createRequire
+// loaders (e.g. the m5sim-smoke test) need a CJS-typed package
+// boundary.
+//
+// This module file lives at data-and-logs/replay/lib/replay/m5sim.js
+// (4 levels deep), so the shared assets/wasm/m5/ root is reached via
+// four ".." segments + assets/wasm/m5/.
+//
+// Compute the URL against import.meta.url so the resolved href has
+// the docs-site origin baked in — necessary because the loader
+// injects a <script src=...> tag that must be an absolute URL or
+// origin-relative path (script src does NOT resolve relative to the
+// importing module the way ESM import() does).
+const M5SIM_URL = new URL(
+  '../../../../assets/wasm/m5/onspeed_m5.js', import.meta.url).href;
 
 let _factoryPromise = null;
 
@@ -89,15 +106,17 @@ function loadFactoryViaScriptTag(url) {
       resolve(factory);
     };
     script.onerror = () => reject(new Error(
-      `M5Sim: failed to load ${url} — is the dev-server serving ` +
-      `tools/web/lib/replay/m5sim/onspeed_m5.js?`));
+      `M5Sim: failed to load ${url} — was the docs-site build hook ` +
+      `(docs/site/hooks/copy_wasm.py) run? It copies onspeed_m5.{js,wasm} ` +
+      `from software/OnSpeed-M5-Display/sim/build/wasm-replay/ into ` +
+      `docs/site/docs/assets/wasm/.`));
     document.head.appendChild(script);
   });
 }
 
 async function loadFactory() {
   if (_factoryPromise) return _factoryPromise;
-  _factoryPromise = loadFactoryViaScriptTag(`${M5SIM_BASE}/onspeed_m5.js`);
+  _factoryPromise = loadFactoryViaScriptTag(M5SIM_URL);
   return _factoryPromise;
 }
 
@@ -214,6 +233,12 @@ export class M5Sim {
       displayPercentLift:   m._replay_get_displayPercentLift(),
       displayDecelRate:     m._replay_get_displayDecelRate(),
       Slip:                 m._replay_get_Slip(),
+      // Unclamped lateralG / verticalG floats — Slip is constrained
+      // to ±99 (≈ ±0.116 g), so any rendering pipeline that wants to
+      // smooth in continuous space must read these instead of
+      // reconstructing from Slip.
+      LateralG:             m._replay_get_LateralG(),
+      VerticalG:            m._replay_get_VerticalG(),
       PercentLift:          m._replay_get_PercentLift(),
       gOnsetRate:           m._replay_get_gOnsetRate(),
       IAS:                  m._replay_get_IAS(),

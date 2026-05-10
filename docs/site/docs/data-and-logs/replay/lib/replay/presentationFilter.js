@@ -3,29 +3,38 @@
 //
 // Scope and intent
 // ----------------
-// This is a VIEWING AID, not a firmware mirror. The replay tool's
-// production wire path (LogReplayTask) is byte-faithful to what the M5
-// would have received in flight. But for 50 Hz SD logs (the OnSpeed
-// default), the IMU samples in the log carry aliased noise above 25 Hz
-// that the firmware's 208 Hz AHRS-side EMA never saw — so the replay-
-// computed `lateralG` jitter on the slip ball is structurally LOUDER
-// than what the pilot saw on the M5 panel.
+// What the airplane M5 actually shows in flight is
+//   EMA(raw IMU @ 208 Hz, τ=76.5ms continuous-time)
+// where the EMA RUNS at IMU rate. Each output sample is a weighted
+// average over ~12 raw samples (~60 ms of integration).
 //
-// There is no information-theoretic recovery from a 50 Hz log to "what
-// the airplane showed at 60 Hz panel rate, with a 76.5 ms continuous-
-// time AHRS EMA running at 208 Hz". You can only attenuate the residual
-// — at the cost of either (a) hiding real low-frequency slip cues or
-// (b) introducing display lag.
+// What a 50 Hz SD log captures is ONE raw IMU sample every 20 ms — so
+// the log loses ~75% of the smoothing work the AHRS did in flight.
+// Replay then runs a rate-adjusted 50 Hz EMA with the same continuous-
+// time τ; mathematically this recovers the LOW-frequency content of
+// the original signal but cannot recover the HIGH-frequency averaging
+// that 208 Hz oversampling provided. Result: replay's slip ball is
+// structurally NOISIER than what the pilot saw, even with the engine's
+// AHRS-equivalent EMA active.
 //
-// This module provides a small, opt-in render-side smoother. The user
-// chooses τ from a small set of presets:
-//   - off    : no smoothing, byte-faithful to the wire (for 208 Hz logs).
-//   - 200 ms : minimal additional damping; still responsive.
-//   - 500 ms : visibly damped; ~3× the firmware's 76.5 ms AHRS τ.
-//   - 1000 ms: heavy; matches Gen2's vertical-G presentation default.
-// The 2.5 s lateral default of Gen2's firmware is intentionally NOT
-// offered as a preset — at that τ the ball is so unresponsive it
-// hides slip cues that matter for stall avoidance.
+// Tuning: the right τ was found empirically by σ-matching against
+// the airplane's primary EFIS (Dynon SkyView ADAHRS) over Sam's
+// 286k-row RV-10 flight log. Method:
+//   1. Take the engine's accelLatSmoothed (post-rate-adjusted-EMA).
+//   2. Sweep τ from 0.1 s to 30 s through a presentation EMA.
+//   3. Compute σ of the smoothed signal over the in-flight portion
+//      of the log; find the τ that matches the EFIS reference σ.
+// The EFIS slip indicator is what the pilot accepts as "the right
+// reading," so its variance is the visual target. RMS error against
+// the EFIS is a misleading metric here — it monotonically improves
+// with longer τ because the bias-free RMS includes uncorrelated
+// noise that any heavy-enough filter can suppress at the cost of
+// also suppressing real slip information.
+//
+// Tuning script: tools/replay-tuning/tune_presentation_tau.mjs.
+// Different aircraft / IMU mountings produce different vibration
+// spectra and thus different best-τ values; the script can be re-run
+// per aircraft to validate or re-tune.
 //
 // What this is NOT
 // ----------------
@@ -131,9 +140,35 @@ export class PresentationFilter {
 }
 
 // Preset τ values offered in the UI. Off is encoded as 0.
+//
+// The 'efis-match' default was tuned offline against Sam's Dynon-
+// equipped RV-10 flight log via tools/replay-tuning/tune_presentation_tau.mjs.
+// At 50 Hz log replay:
+//   - lateral τ = 0.75 s brings σ from 0.043 g (engine direct) down to
+//     0.024 g, matching Dynon ADAHRS's σ = 0.025 g over 4+ hours of
+//     Sam's flight log.
+//   - vertical τ = 0.1 s brings σ from 0.111 g to 0.095 g, matching
+//     Dynon's 0.100 g.
+// These are aircraft-specific (different IMU mounting / different
+// vibration spectrum will shift the right τ); the presets cover a
+// range so users can pick what looks right for their data.
+//
+// Validation method: σ-match against the airplane's primary EFIS.
+// The pilot looks at the EFIS slip indicator and accepts it as the
+// "right" reading; matching its variance reproduces what the pilot
+// saw without false damping that would hide real slip cues.
 export const PRESENTATION_PRESETS = [
-  { id: 'off',  label: 'Off',     lateralSec: 0,    verticalSec: 0 },
-  { id: '200',  label: '200 ms',  lateralSec: 0.2,  verticalSec: 0.2 },
-  { id: '500',  label: '500 ms',  lateralSec: 0.5,  verticalSec: 0.5 },
-  { id: '1000', label: '1 s',     lateralSec: 1.0,  verticalSec: 1.0 },
+  { id: 'off',         label: 'Off',                 lateralSec: 0,    verticalSec: 0 },
+  { id: 'efis-match',  label: 'EFIS-match',          lateralSec: 0.75, verticalSec: 0.1 },
+  { id: 'medium',      label: 'Medium',              lateralSec: 1.5,  verticalSec: 0.5 },
+  { id: 'heavy',       label: 'Heavy',               lateralSec: 3.0,  verticalSec: 1.0 },
 ];
+
+// Default preset id chosen at log load. The replay tool detects log
+// rate (50 Hz vs 208 Hz) and picks accordingly: 50 Hz logs default to
+// 'efis-match' (the σ-tuned compensation for missing 208 Hz averaging),
+// 208 Hz logs default to 'off' (byte-faithful — the firmware-rate
+// AHRS EMA does enough smoothing on its own).
+export function defaultPresetForLogRate(logSampleRateHz) {
+  return (logSampleRateHz >= 200) ? 'off' : 'efis-match';
+}

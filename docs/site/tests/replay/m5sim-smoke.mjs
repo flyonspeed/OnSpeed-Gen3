@@ -26,20 +26,28 @@ import { createRequire } from 'node:module';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const REPO_ROOT  = path.resolve(__dirname, '..', '..', '..');
+// docs/site/tests/replay/ → up 4 → repo root.
+const REPO_ROOT  = path.resolve(__dirname, '..', '..', '..', '..');
 
-// Path to the WASM .js. Loaded via createRequire (CJS) because the
-// build emits with EXPORT_ES6=0; m5sim/package.json overrides the
-// parent's "type": "module" so this works.
+// Path to the M5 WASM .js. Loaded via createRequire (CJS) because the
+// build emits with EXPORT_ES6=0; the sibling package.json under
+// assets/wasm/m5/ pins type=commonjs so this works.
 const WASM_DIR = path.join(
-  REPO_ROOT, 'tools', 'web', 'lib', 'replay', 'm5sim');
+  REPO_ROOT, 'docs', 'site', 'docs', 'assets', 'wasm', 'm5');
 const MODULE_JS = path.join(WASM_DIR, 'onspeed_m5.js');
 
 // Path to onspeed_core (for build_display_frame in the wire-frame
-// fixture). SINGLE_FILE so it's just a .js.
-const CORE_JS = path.join(
-  REPO_ROOT, 'software', 'Libraries', 'onspeed_core', 'wasm', 'dist',
-  'onspeed_core.js');
+// fixture). The canonical build output lives in the onspeed_core
+// dist; the docs-site copy at assets/wasm/onspeed_core.js is also
+// fine — pick whichever exists.
+const CORE_JS_CANDIDATES = [
+  path.join(REPO_ROOT, 'software', 'Libraries', 'onspeed_core', 'wasm',
+            'dist', 'onspeed_core.js'),
+  path.join(REPO_ROOT, 'docs', 'site', 'docs', 'assets', 'wasm',
+            'onspeed_core.js'),
+];
+const CORE_JS = CORE_JS_CANDIDATES.find(p => fs.existsSync(p))
+                || CORE_JS_CANDIDATES[0];
 
 if (!fs.existsSync(MODULE_JS)) {
   console.error(`FATAL: ${MODULE_JS} not found.`);
@@ -103,9 +111,10 @@ async function main() {
     process.exit(2);
   }
 
-  // Import M5Sim from the production wrapper.
+  // Import M5Sim from the production wrapper (relocated to docs site).
   const m5simUrl = pathToFileURL(
-    path.join(REPO_ROOT, 'tools', 'web', 'lib', 'replay', 'm5sim.js')).href;
+    path.join(REPO_ROOT, 'docs', 'site', 'docs', 'data-and-logs',
+              'replay', 'lib', 'replay', 'm5sim.js')).href;
   const { M5Sim } = await import(m5simUrl);
 
   // ------------------------------------------------------------------

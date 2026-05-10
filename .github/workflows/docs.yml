@@ -10,7 +10,6 @@ on:
       - 'scripts/build_m5_sim_for_docs.sh'
       - 'software/Libraries/onspeed_core/**'
       - 'tools/web/test/wasm-smoke.mjs'
-      - 'tools/web/lib/replay/**'
   pull_request:
     branches: [master]
     paths:
@@ -20,7 +19,6 @@ on:
       - 'scripts/build_m5_sim_for_docs.sh'
       - 'software/Libraries/onspeed_core/**'
       - 'tools/web/test/wasm-smoke.mjs'
-      - 'tools/web/lib/replay/**'
   release:
     types: [published]
   workflow_dispatch:
@@ -46,12 +44,16 @@ jobs:
         with:
           version: 4.0.21
           actions-cache-folder: 'emsdk-cache'
-      - name: Build M5 sim and copy to docs assets
+      - name: Build M5 docs sim (synthetic ramp) and copy to docs assets
         run: ./scripts/build_m5_sim_for_docs.sh
+      - name: Build M5 replay sim (consumes wire frames from replay tool)
+        run: bash software/OnSpeed-M5-Display/sim/build_wasm.sh --target replay
       - name: Build onspeed_core WASM
         run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
       - name: Smoke test onspeed_core WASM
         run: node tools/web/test/wasm-smoke.mjs
+      - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
+        run: bash docs/site/scripts/sync_wasm.sh
       - name: Build site (strict)
         working-directory: docs/site
         run: mkdocs build --strict
@@ -74,12 +76,16 @@ jobs:
         with:
           version: 4.0.21
           actions-cache-folder: 'emsdk-cache'
-      - name: Build M5 sim and copy to docs assets
+      - name: Build M5 docs sim (synthetic ramp) and copy to docs assets
         run: ./scripts/build_m5_sim_for_docs.sh
+      - name: Build M5 replay sim (consumes wire frames from replay tool)
+        run: bash software/OnSpeed-M5-Display/sim/build_wasm.sh --target replay
       - name: Build onspeed_core WASM
         run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
       - name: Smoke test onspeed_core WASM
         run: node tools/web/test/wasm-smoke.mjs
+      - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
+        run: bash docs/site/scripts/sync_wasm.sh
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"
@@ -120,12 +126,16 @@ jobs:
         with:
           version: 4.0.21
           actions-cache-folder: 'emsdk-cache'
-      - name: Build M5 sim and copy to docs assets
+      - name: Build M5 docs sim (synthetic ramp) and copy to docs assets
         run: ./scripts/build_m5_sim_for_docs.sh
+      - name: Build M5 replay sim (consumes wire frames from replay tool)
+        run: bash software/OnSpeed-M5-Display/sim/build_wasm.sh --target replay
       - name: Build onspeed_core WASM
         run: bash software/Libraries/onspeed_core/wasm/build_wasm.sh
       - name: Smoke test onspeed_core WASM
         run: node tools/web/test/wasm-smoke.mjs
+      - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
+        run: bash docs/site/scripts/sync_wasm.sh
       - name: Configure git
         run: |
           git config --global user.name "Docs Deploy Bot"

@@ -1,0 +1,13 @@
+{
+  "name": "onspeed-docs-tests",
+  "version": "0.1.0",
+  "description": "Node tests for code that ships in the docs-site (replay tool, future tone-sim, etc.). Run with `npm test` from this directory.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node replay/replay-row-identity.mjs && node replay/m5modes-render-smoke.mjs && node replay/m5sim-smoke.mjs"
+  }
+}
