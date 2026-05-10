@@ -16,10 +16,13 @@
 //     wire-derived and update with each frame; the indexer maps
 //     PercentLift through these anchors.
 //
-// Slip is provided as an integer ±99; the existing SlipBall component
-// expects `lateralG` in body-frame G's. We convert back via the inverse
-// of slipFromLateralG (slip = -lateralG * 850) so we don't have to
-// fork the SlipBall component for M5-accurate mode.
+// SlipBall accepts body-frame lateralG directly (positive = airframe
+// accelerating rightward). state.LateralG flows from the wire frame
+// via m5sim.read() and is optionally smoothed by renderSmooth() before
+// reaching here. SlipBall internally maps lateralG to a clamped slip
+// integer for ball positioning — clamping at the rendering site means
+// the upstream PresentationFilter can smooth in continuous-G space at
+// all magnitudes without a saturation dead-zone.
 
 import { html } from '../../../vendor/preact-standalone.js';
 import * as G from '../../../core/geometry.js';
