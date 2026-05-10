@@ -29,6 +29,7 @@
 #include <config/OnSpeedConfig.h>
 #include <proto/DisplaySerial.h>
 #include <replay/LogReplayEngine.h>
+#include <replay/LogReplayTask.h>
 #include <types/LogRow.h>
 
 using namespace emscripten;
@@ -456,6 +457,60 @@ static val StepResultToVal(const onspeed::replay::ReplayStepResult& r)
     return out;
 }
 
+// Translate a JS row object into a LogRow. Shared by LogReplayEngineHandle
+// and LogReplayTaskHandle so both bindings see the same field shape; a
+// future field added to the LogRow contract changes one place.
+static onspeed::LogRow LogRowFromVal(val rowVal)
+{
+    onspeed::LogRow row;
+
+    // Pressure fields.
+    row.pfwdSmoothed = rowVal["pfwdSmoothed"].as<float>();
+    row.p45Smoothed  = rowVal["p45Smoothed"].as<float>();
+    row.pStaticMbar  = rowVal["pStaticMbar"].as<float>();
+    row.paltFt       = rowVal["paltFt"].as<float>();
+    row.iasKt        = rowVal["iasKt"].as<float>();
+
+    // IAS validity. LogReplayTaskHandle ignores this and re-derives it
+    // hysteretically; LogReplayEngineHandle propagates it directly.
+    row.iasValid     = rowVal["iasValid"].as<bool>();
+
+    // Flap state.
+    row.flapsPos             = rowVal["flapsPos"].as<int>();
+    val rawAdc = rowVal["flapsRawAdc"];
+    val rawAdcPresent = rowVal["flapsRawAdcPresent"];
+    row.flapsRawAdcPresent   = !rawAdcPresent.isUndefined() && !rawAdcPresent.isNull()
+                               && rawAdcPresent.as<bool>();
+    if (row.flapsRawAdcPresent && !rawAdc.isUndefined() && !rawAdc.isNull())
+        row.flapsRawAdc = static_cast<uint16_t>(rawAdc.as<int>());
+
+    // IMU axes.
+    row.imuVerticalG    = rowVal["imuVerticalG"].as<float>();
+    row.imuLateralG     = rowVal["imuLateralG"].as<float>();
+    row.imuForwardG     = rowVal["imuForwardG"].as<float>();
+    row.imuRollRateDps  = rowVal["imuRollRateDps"].as<float>();
+    row.imuPitchRateDps = rowVal["imuPitchRateDps"].as<float>();
+    row.imuYawRateDps   = rowVal["imuYawRateDps"].as<float>();
+
+    // AHRS.
+    row.pitchDeg      = rowVal["pitchDeg"].as<float>();
+    row.rollDeg       = rowVal["rollDeg"].as<float>();
+    row.flightPathDeg = rowVal["flightPathDeg"].as<float>();
+    row.vsiFpm        = rowVal["vsiFpm"].as<float>();
+
+    // OAT — optional; defaults to 0 (no-OAT-sensor convention).
+    {
+        val v = rowVal["oatCelsius"];
+        row.oatCelsius = (v.typeOf().as<std::string>() == "number")
+                         ? v.as<float>() : 0.0f;
+    }
+
+    // Data mark.
+    row.dataMark = rowVal["dataMark"].as<int>();
+
+    return row;
+}
+
 class LogReplayEngineHandle {
 public:
     LogReplayEngineHandle(val cfgVal, int logSampleRateHz, bool flapsRawAdcAvailable)
@@ -468,51 +523,7 @@ public:
     // object with all ReplayStepResult fields.
     val step(val rowVal)
     {
-        onspeed::LogRow row;
-
-        // Pressure fields.
-        row.pfwdSmoothed = rowVal["pfwdSmoothed"].as<float>();
-        row.p45Smoothed  = rowVal["p45Smoothed"].as<float>();
-        row.pStaticMbar  = rowVal["pStaticMbar"].as<float>();
-        row.paltFt       = rowVal["paltFt"].as<float>();
-        row.iasKt        = rowVal["iasKt"].as<float>();
-
-        // IAS validity.
-        row.iasValid     = rowVal["iasValid"].as<bool>();
-
-        // Flap state.
-        row.flapsPos             = rowVal["flapsPos"].as<int>();
-        val rawAdc = rowVal["flapsRawAdc"];
-        val rawAdcPresent = rowVal["flapsRawAdcPresent"];
-        row.flapsRawAdcPresent   = !rawAdcPresent.isUndefined() && !rawAdcPresent.isNull()
-                                   && rawAdcPresent.as<bool>();
-        if (row.flapsRawAdcPresent && !rawAdc.isUndefined() && !rawAdc.isNull())
-            row.flapsRawAdc = static_cast<uint16_t>(rawAdc.as<int>());
-
-        // IMU axes.
-        row.imuVerticalG    = rowVal["imuVerticalG"].as<float>();
-        row.imuLateralG     = rowVal["imuLateralG"].as<float>();
-        row.imuForwardG     = rowVal["imuForwardG"].as<float>();
-        row.imuRollRateDps  = rowVal["imuRollRateDps"].as<float>();
-        row.imuPitchRateDps = rowVal["imuPitchRateDps"].as<float>();
-        row.imuYawRateDps   = rowVal["imuYawRateDps"].as<float>();
-
-        // AHRS.
-        row.pitchDeg      = rowVal["pitchDeg"].as<float>();
-        row.rollDeg       = rowVal["rollDeg"].as<float>();
-        row.flightPathDeg = rowVal["flightPathDeg"].as<float>();
-        row.vsiFpm        = rowVal["vsiFpm"].as<float>();
-
-        // OAT — optional; defaults to 0 (no-OAT-sensor convention).
-        {
-            val v = rowVal["oatCelsius"];
-            row.oatCelsius = (v.typeOf().as<std::string>() == "number")
-                             ? v.as<float>() : 0.0f;
-        }
-
-        // Data mark.
-        row.dataMark = rowVal["dataMark"].as<int>();
-
+        const onspeed::LogRow row = LogRowFromVal(rowVal);
         std::optional<onspeed::replay::ReplayStepResult> result = engine_.step(row);
         if (!result.has_value()) return val::null();
         return StepResultToVal(*result);
@@ -538,6 +549,64 @@ private:
     // cfg_ must outlive engine_ because engine_ holds a const reference.
     OnSpeedConfig cfg_;
     onspeed::replay::LogReplayEngine engine_;
+};
+
+// ---------------------------------------------------------------------------
+// LogReplayTaskHandle (issue #514)
+//
+// Wraps onspeed::replay::LogReplayTask, the C++-side single-source
+// pipeline that takes a LogRow and produces 77-byte wire bytes ready
+// for the M5 firmware sim. Eliminates the JS-side rowObjAt /
+// buildDisplayInputs hand-derivations: the JS layer becomes pure glue
+// (file pickers, time control, render).
+//
+// Public surface mirrors LogReplayEngineHandle for symmetry:
+//   new Module.LogReplayTask(cfgVal, logSampleRateHz, flapsRawAdcAvailable)
+//   task.processRow(rowVal)  -> Uint8Array (77 bytes) or zero-length
+//                                array during synth-path lag
+//   task.flush()             -> Array<Uint8Array> tail
+//   task.reset()
+//   task.delete()
+// ---------------------------------------------------------------------------
+class LogReplayTaskHandle {
+public:
+    LogReplayTaskHandle(val cfgVal, int logSampleRateHz, bool flapsRawAdcAvailable)
+        : task_(ConfigFromVal(cfgVal), logSampleRateHz, flapsRawAdcAvailable)
+    {}
+
+    // Process one row and return the wire bytes. Empty Uint8Array on
+    // synth-path lag (engine returns nullopt for the first
+    // kSynthHalfWindowTicks rows on pre-flapsRawADC logs).
+    val processRow(val rowVal)
+    {
+        const onspeed::LogRow row = LogRowFromVal(rowVal);
+        const std::vector<uint8_t> bytes = task_.processRow(row);
+        val Uint8Array = val::global("Uint8Array");
+        if (bytes.empty()) {
+            return Uint8Array.new_(0);
+        }
+        return Uint8Array.new_(typed_memory_view(bytes.size(), bytes.data()));
+    }
+
+    // Drain trailing rows held in the synth circular buffer. Returns a
+    // JS Array of Uint8Array frames in arrival order. Empty array on
+    // modern logs (flapsRawAdcAvailable=true).
+    val flush()
+    {
+        const std::vector<std::vector<uint8_t>> tail = task_.flush();
+        val Uint8Array = val::global("Uint8Array");
+        val arr = val::array();
+        for (size_t i = 0; i < tail.size(); ++i) {
+            arr.set(i, Uint8Array.new_(typed_memory_view(
+                tail[i].size(), tail[i].data())));
+        }
+        return arr;
+    }
+
+    void reset() { task_.reset(); }
+
+private:
+    onspeed::replay::LogReplayTask task_;
 };
 
 // ---------------------------------------------------------------------------
@@ -687,6 +756,16 @@ EMSCRIPTEN_BINDINGS(onspeed_core_module) {
         .function("step",  &LogReplayEngineHandle::step)
         .function("flush", &LogReplayEngineHandle::flush)
         .function("reset", &LogReplayEngineHandle::reset);
+
+    // Issue #514: single-source CSV-row → wire-bytes pipeline. Wraps
+    // the engine + iasAlive hysteresis + DisplayBuildInputs fill +
+    // BuildDisplayFrame in one C++ entry point so the JS replay tool
+    // gets bit-identical wire output to the firmware path.
+    class_<LogReplayTaskHandle>("LogReplayTask")
+        .constructor<val, int, bool>()
+        .function("processRow", &LogReplayTaskHandle::processRow)
+        .function("flush",      &LogReplayTaskHandle::flush)
+        .function("reset",      &LogReplayTaskHandle::reset);
 
     // Bulldog round-1 fix C1: expose the canonical wire-frame builder so
     // the M5-replay-WASM Node test can drive frames without a JS hand-port.
