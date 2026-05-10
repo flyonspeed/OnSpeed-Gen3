@@ -89,7 +89,8 @@ std::vector<uint8_t> LogReplayTask::processRow(const LogRow& row)
 
     const std::optional<ReplayStepResult> opt = engine_.step(gatedRow);
     if (!opt.has_value()) return {};        // synth-path lag period
-    return EncodeFrame_(opt.value());
+    lastStep_ = opt.value();
+    return EncodeFrame_(lastStep_);
 }
 
 std::vector<std::vector<uint8_t>> LogReplayTask::flush()

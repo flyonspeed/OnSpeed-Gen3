@@ -119,10 +119,18 @@ public:
     // scrub or replay re-init.
     void reset();
 
+    // Read-only access to the most recent ReplayStepResult emitted by
+    // the engine, useful for diagnostics that want to compare the C++
+    // engine output against the wire frame the same processRow call
+    // produced. Valid only after a processRow that returned non-empty
+    // (or after a flush row was drained); undefined otherwise.
+    const ReplayStepResult& lastStep() const { return lastStep_; }
+
 private:
     ::onspeed::config::OnSpeedConfig cfg_;   // owned copy for anchors / pct-lift
     LogReplayEngine                  engine_;
     bool                             iasAlive_ = false;
+    ReplayStepResult                 lastStep_{};
 
     // Encode one ReplayStepResult into a 77-byte wire frame. Pulls
     // anchors and percent-lift from the cfg + step result. Pure

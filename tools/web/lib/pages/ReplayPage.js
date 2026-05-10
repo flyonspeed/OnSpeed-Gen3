@@ -876,14 +876,36 @@ export const ReplayPage = () => {
 
         const m5 = m5SimRef.current && typeof m5SimRef.current.read === 'function'
           ? m5SimRef.current.read() : null;
+        // Field names mirror m5sim.read() output (see m5sim.js:200-247).
+        // displayXxx are the firmware's 2 Hz number snapshots (what the
+        // SVG actually shows in the corner numerics); the bare names
+        // are wire-rate live values driving chevrons/ball.
         const m5Slice = m5 ? {
-          IAS: fnum(m5.IAS, 1), Palt: fnum(m5.Palt, 0),
-          Pitch: fnum(m5.Pitch, 1), Roll: fnum(m5.Roll, 1),
-          aoaIsValid: m5.aoaIsValid,
-          percentLift: fnum(m5.percentLift, 1),
-          pipPctLift: m5.pipPctLift,
-          tonesOnPctLift: m5.tonesOnPctLift,
-          flapsDeg: m5.flapsDeg,
+          // What the SVG number-text renders (these are stuck if the
+          // firmware's render gate isn't firing).
+          dIAS:    fnum(m5.displayIAS, 1),
+          dPalt:   fnum(m5.displayPalt, 0),
+          dPitch:  fnum(m5.displayPitch, 1),
+          dPctL:   fnum(m5.displayPercentLift, 1),
+          dVertG:  fnum(m5.displayVerticalG, 2),
+          // Wire-rate live values.
+          IAS:     fnum(m5.IAS, 1),
+          Palt:    fnum(m5.Palt, 0),
+          Pitch:   fnum(m5.Pitch, 1),
+          Roll:    fnum(m5.Roll, 1),
+          PctL:    fnum(m5.PercentLift, 1),
+          IasV:    m5.IasIsValid,
+          // Anchors (drive indexer chevrons / pip).
+          TOn:     m5.TonesOnPctLift,
+          Pip:     m5.PipPctLift,
+          Fast:    m5.OnSpeedFastPctLift,
+          Slow:    m5.OnSpeedSlowPctLift,
+          Warn:    m5.StallWarnPctLift,
+          FPos:    m5.FlapPos,
+          FMin:    m5.FlapsMinDeg,
+          FMax:    m5.FlapsMaxDeg,
+          Slip:    m5.Slip,
+          gOR:     fnum(m5.gOnsetRate, 2),
         } : null;
 
         // Raw log row (a slice of the columnar arrays at rowIdx).
