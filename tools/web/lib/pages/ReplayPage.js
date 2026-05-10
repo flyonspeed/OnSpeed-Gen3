@@ -52,7 +52,8 @@ import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { reassembleResults } from '../replay/reassemble.js';
 import { M5Sim } from '../replay/m5sim.js';
-import { buildWireFrame } from '../replay/wireBridge.js';
+import { buildWireFrame, PresentationSmoother } from '../replay/wireBridge.js';
+import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
 import { getWasmCore } from '../replay/wasm_core.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
@@ -83,6 +84,11 @@ const M5_MODES = [
 const SYNC_LS_KEY = 'replay-sync-v1';
 const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 const M5_ACCURATE_LS_KEY = 'replay-m5-accurate-v1';
+// Engine selection for the M5-accurate path. 'js' = legacy
+// rowObjAt + buildWireFrame (drift-prone, has the symptom-patch
+// PresentationSmoother + JS hysteretic iasValid threading).
+// 'cpp' = single-source LogReplayTask (issue #514).
+const M5_ENGINE_LS_KEY = 'replay-m5-engine-v1';
 
 // Friendly label for the anchor type the auto-detector picked.
 // Pilots usually sync against the first crosswind turn (sharp bank
@@ -129,13 +135,28 @@ function videoToLogMs(videoSec, sync) {
 // Pre-PR-#221 logs that lack these columns yield NaN; the engine
 // degenerates to aoa=a0 (polynomial constant term) on NaN inputs, which
 // is the same behavior as today — no regression on old logs.
-function rowObjAt(log, i) {
+// Hysteretic IAS-alive state machine. Mirrors
+// software/Libraries/onspeed_core/src/sensors/IasAlive.h:
+//   rising threshold:  20 kt
+//   falling threshold: 15 kt
+// Thread `prev` across consecutive rows so the engine's iasValid
+// reflects the same hysteretic gating the firmware uses live. Used by
+// rowObjAt's caller in the pre-pass loop. Pre-PR-#XXX logs lack the
+// `iasValid` column, so we compute it; modern logs that DO carry the
+// column should pass it through directly (TODO).
+const IAS_ALIVE_RISING_KT  = 20.0;
+const IAS_ALIVE_FALLING_KT = 15.0;
+function updateIasAlive(prev, iasKt) {
+  if (!Number.isFinite(iasKt)) return prev;
+  if (!prev && iasKt >= IAS_ALIVE_RISING_KT)  return true;
+  if ( prev && iasKt <  IAS_ALIVE_FALLING_KT) return false;
+  return prev;
+}
+
+function rowObjAt(log, i, iasValid) {
   const g = (arr) => (arr ? arr[i] : NaN);
   const gi = (arr) => (arr ? arr[i] : 0);
   const iasKt = g(log.IAS);
-  // iasValid: engine gates percent-lift at low IAS. Replicate the
-  // firmware's bIasAlive flag: valid when IAS is finite and > 0.
-  const iasValid = Number.isFinite(iasKt) && iasKt > 0;
   return {
     pfwdSmoothed:    g(log.PfwdSmoothed),
     p45Smoothed:     g(log.P45Smoothed),
@@ -188,13 +209,20 @@ async function buildResultsFromWasm(log, cfg, onProgress, isCancelled) {
     // Pre-pass: feed all rows through the engine in chunks so the UI can
     // remain responsive on long logs (286 k rows × WASM-step ≈ 10 s).
     // Each chunk yields to the event loop so progress paints between chunks.
+    //
+    // iasValid is computed here via the hysteretic state machine
+    // (see updateIasAlive at the top of this file). Threading state
+    // across the row loop matches the firmware's per-tick state.
     const immediates = [];   // results from step(), in order (may contain nulls)
+    let iasValid = false;
     const CHUNK = 5000;
     for (let start = 0; start < N; start += CHUNK) {
       if (isCancelled && isCancelled()) return null;   // bail early on cancel
       const end = Math.min(start + CHUNK, N);
       for (let i = start; i < end; i++) {
-        immediates.push(engine.step(rowObjAt(log, i)));
+        const iasKt = log.IAS ? log.IAS[i] : NaN;
+        iasValid = updateIasAlive(iasValid, iasKt);
+        immediates.push(engine.step(rowObjAt(log, i, iasValid)));
       }
       if (onProgress) onProgress(end / N);
       // Yield to the event loop so the progress text paints.
@@ -308,6 +336,21 @@ export const ReplayPage = () => {
     const n = s == null ? 0 : parseInt(s, 10);
     return Number.isFinite(n) && n >= 0 && n <= 4 ? n : 0;
   });
+  // A/B engine selector. 'js' = legacy rowObjAt + buildWireFrame.
+  // 'cpp' = single-source LogReplayTask (issue #514). The C++ path
+  // closes the JS hand-derivation seams in rowObjAt and
+  // buildDisplayInputs by construction. Default 'js' so existing
+  // behavior is unchanged unless the toggle is on.
+  const [m5EngineMode, setM5EngineMode] = useState(() => {
+    const s = safeLsGet(M5_ENGINE_LS_KEY);
+    return s === 'cpp' ? 'cpp' : 'js';
+  });
+  // Pre-computed wire frames per log row, populated when m5EngineMode
+  // is 'cpp'. Same shape as replayCtx.results[] but already encoded to
+  // 77-byte Uint8Arrays. null when off or while building.
+  const [cppWireFrames, setCppWireFrames] = useState(null);
+  const [cppBuilding, setCppBuilding] = useState(false);
+  const [cppProgress, setCppProgress] = useState(0);
   // The latest frozen state object from M5Sim.read(). Updated each
   // frame; the renderer reads it as a prop.
   const [m5State, setM5State] = useState(null);
@@ -324,6 +367,22 @@ export const ReplayPage = () => {
   // the effect closure at fire time. The effect that updates this ref
   // runs on every m5ModeId change.
   const m5ModeIdRef = useRef(m5ModeId);
+
+  // Gen2-compatible presentation smoother for the wire path. 50 Hz
+  // SD logs contain aliased IMU vibration noise that the live firmware
+  // (running at 208 Hz on real sensors) silently filtered out before it
+  // hit the wire. Without a presentation-smoothing pass, replay shows
+  // ±30 SVG units of ball jitter and a vibrating gOnset bar — none of
+  // which the pilot saw. Gen2 firmware ALWAYS applied this smoothing
+  // (see DisplaySerial.ino:25 / OnSpeedTeensy_AHRS.ino:261 in the Gen2
+  // repo), and Vac's filmed flight replays were watched through it.
+  // We restore it here for replay only — wire format itself is
+  // unchanged, and a future 208 Hz log replay can disable the smoother
+  // to remain bit-for-bit faithful to the firmware path.
+  //
+  // Created at 20 Hz wire rate with Gen2 default τ. Reset on backward
+  // scrub and on first sim load (alongside the M5 sim re-init).
+  const m5PresentationSmootherRef = useRef(null);
 
   // Export-to-WebM state. exporting=true while a recording is in
   // progress; exportProgress reflects the % of the source video
@@ -555,6 +614,10 @@ export const ReplayPage = () => {
         }
         m5SimRef.current = sim;
         m5CoreRef.current = core;
+        // Initialize presentation smoother at the wire rate the per-
+        // frame effect ticks at (20 Hz). See PresentationSmoother for
+        // rationale; default τ matches Gen2 firmware.
+        m5PresentationSmootherRef.current = new PresentationSmoother(20.0);
         // Hydrate displayType from the persisted choice so the first
         // frame after init renders the right mode.
         sim.setMode(m5ModeId);
@@ -570,6 +633,43 @@ export const ReplayPage = () => {
   useEffect(() => {
     safeLsSet(M5_ACCURATE_LS_KEY, m5Accurate ? '1' : '0');
   }, [m5Accurate]);
+
+  // Persist the engine selector.
+  useEffect(() => {
+    safeLsSet(M5_ENGINE_LS_KEY, m5EngineMode);
+  }, [m5EngineMode]);
+
+  // C++-engine pre-pass. Runs whenever the toggle is on and the
+  // log+cfg are loaded. Same chunked yield-to-event-loop pattern as
+  // the JS engine pre-pass in buildResultsFromWasm; cancellation on
+  // log/cfg change so a new file doesn't see stale frames.
+  useEffect(() => {
+    if (!log || !cfg || m5EngineMode !== 'cpp' || !m5Accurate) {
+      setCppWireFrames(null);
+      setCppBuilding(false);
+      return;
+    }
+    let cancelled = false;
+    setCppBuilding(true);
+    setCppWireFrames(null);
+    setCppProgress(0);
+    buildWireFramesFromTask(
+      log, cfg,
+      (p) => { if (!cancelled) setCppProgress(p); },
+      () => cancelled,
+    ).then(frames => {
+      if (cancelled) return;
+      setCppWireFrames(frames);
+      setCppBuilding(false);
+      setCppProgress(0);
+    }).catch(err => {
+      if (cancelled) return;
+      console.error('LogReplayTask pre-pass failed:', err);
+      setCppBuilding(false);
+      setCppProgress(0);
+    });
+    return () => { cancelled = true; };
+  }, [log, cfg, m5EngineMode, m5Accurate]);
 
   // Persist the mode.
   useEffect(() => {
@@ -590,93 +690,130 @@ export const ReplayPage = () => {
     m5ModeIdRef.current = m5ModeId;
   }, [m5ModeId]);
 
-  // Per-frame M5 sim driver: build a wire frame for the current log
-  // row, inject, advance time, read state. Runs on each videoT change
-  // when m5Accurate is on and a sim is loaded.
+  // Per-frame M5 sim driver: tick the M5 firmware's virtual clock at
+  // its native 20 Hz wire cadence, injecting a wire frame and calling
+  // loop() once per 50 ms tick. Multiple ticks may fire per video
+  // frame (60 fps video → ~3 ticks per frame at 1× playback).
   //
-  // Time semantics:
-  //   - The virtual clock is driven by the video time. videoT is in
-  //     seconds since the video's start; the firmware's millis() needs
-  //     a non-negative monotonically-increasing-ish value. We pass
-  //     `videoT * 1000`.
-  //   - On a backwards scrub (or a forward jump > 5 s), we re-create
-  //     the sim from scratch. The firmware uses `millis() > loopTime
-  //     + 50`-style comparisons internally — running time backwards
-  //     can wedge those gates until the new time exceeds the prior
-  //     loopTime. Re-init resets all those gates.
-  //   - Forward scrubbing inside a 5 s window just advances time; the
-  //     firmware's 500 ms numbers cadence may take one extra video
-  //     frame to re-fire, which is fine for a visual indicator.
+  // Why 50 ms ticks instead of "advance virtMs to videoT*1000 in one
+  // step": the M5's internal render-rate gate is `millis() > loopTime
+  // + 50`. If we slam virtMs from t=1500.000 to t=1500.016 in one
+  // call, the firmware's gates fire once on a single advanceTo and
+  // see `Slip` from one specific log row — but every frame we'd inject
+  // a wire frame from a NEW log row. SerialRead computes Slip
+  // synchronously on each byte injection (not gated by millis), so
+  // Slip would update at video-frame rate (60 Hz) while the M5 hardware
+  // updates it at 20 Hz. That's why the ball jittered.
+  //
+  // The fix: drive virtual time in 50 ms steps, injecting one wire
+  // frame per step, calling loop() per step. The firmware sees its
+  // own native 20 Hz cadence. gHistory fills naturally as we step
+  // forward through time; the 2 Hz numbers snapshot fires every 10
+  // ticks; the wire-rate Slip computation runs once per tick.
+  //
+  // Tick the M5 firmware's virtual clock at its native 20 Hz wire
+  // cadence: each tick injects one wire frame and advances time across
+  // the 50 ms boundary. Per-video-frame this is 1-2 ticks at 60 fps,
+  // matching what the M5 hardware sees on real wire.
+  //
+  // We deliberately render React state only on tick boundaries, so the
+  // SVG refreshes at 20 Hz max regardless of video framerate. This is
+  // what keeps the slip ball from jittering: the firmware's `Slip =
+  // int(-LateralG * 34/0.04)` runs synchronously per inject, but the
+  // visible state only refreshes when a tick fires.
+  //
+  // Backward scrubs: snap last to target so the M5's gates don't wedge
+  // on a backward-running clock. gHistory + filter state will be
+  // partially stale after a backward scrub (the firmware retains the
+  // pre-scrub history); for v0 this is acceptable. A future fix
+  // re-warms by replaying ~60 s forward, but the catch-up burst was
+  // visually disruptive enough that we strip it for now.
+  // Tick at the M5's wire cadence (20 Hz) when we're catching up to
+  // continuous play. On large jumps (first sync, scrub forward, scrub
+  // backward), SNAP virtual time to target without replaying history:
+  // inject one wire frame for the target log row, advance time, render.
+  // Filter state (gHistory, EMAs) is partially stale after a snap, but
+  // visible state matches the new video position immediately.
+  const M5_TICK_MS = 50;
+  const M5_LARGE_JUMP_MS = 5000;   // > this triggers a snap, not a tick chain.
+
   useEffect(() => {
     if (!m5Accurate) { setM5State(null); return; }
     const sim = m5SimRef.current;
     const core = m5CoreRef.current;
     if (!sim || !core || !log || !cfg || !replayCtx) return;
+    if (m5EngineMode === 'cpp' && !cppWireFrames) return;   // wait for C++ pre-pass
     if (!sync ||
         !Number.isFinite(sync.videoTakeoffSec) ||
         !Number.isFinite(sync.logTakeoffMs)) return;
 
-    // Resolve the active log row. Same logic as the legacy rec path —
-    // pause-and-attach takes precedence, otherwise map video time
-    // through the sync anchor.
-    let rowIdx = -1;
-    if (Number.isFinite(pausedLogMs)) {
-      rowIdx = findRowAt(log, pausedLogMs);
-    } else {
-      const tMs = videoToLogMs(videoT, sync);
-      if (Number.isFinite(tMs)) rowIdx = findRowAt(log, tMs);
-    }
-    if (rowIdx < 0) return;
-
-    const stepResult = replayCtx.results[rowIdx];
-    if (!stepResult) return;
-
-    // Build the wire frame and inject. Always inject — at video frame
-    // rate (60 Hz) we're injecting 3× the firmware's wire rate, which
-    // is fine: SerialRead's accumulator parses each frame into the
-    // same globals every time.
-    const frameBytes = buildWireFrame(stepResult, cfg, core);
-    sim.injectBytes(frameBytes);
-
-    // Advance virtual time. Use a non-negative monotonic derivation:
-    // videoT * 1000, with a re-init guard for big jumps.
-    const virtMs = Math.max(0, videoT * 1000);
+    const targetVirtMs = Number.isFinite(pausedLogMs)
+      ? Math.max(0, pausedLogMs)
+      : Math.max(0, videoT * 1000);
     const last = m5LastVirtualMsRef.current;
-    if (virtMs < last - 100 || virtMs > last + 5000) {
-      // Big jump. Re-init the sim so its internal millis()
-      // comparisons reset.
-      sim.delete();
-      m5SimRef.current = null;
-      // Schedule a re-create on the next frame; setting this state
-      // re-runs the load-effect above. Using the toggle flag toggle
-      // would be invasive; just null the ref and let the next render
-      // re-load.
-      //
-      // Capture the target virtMs in the closure: the next frame's
-      // virtMs will reflect the actual video position (e.g., 1.5e6 ms
-      // into a 1500-second video). Resetting last to 0 here would
-      // make the next frame's diff blow past the +5000 ms threshold
-      // and trigger another re-init — infinite loop until the video
-      // sits at 0–5 s. Assign targetVirtMs after init resolves so the
-      // next frame's diff is bounded by frame cadence (~16 ms), not
-      // by absolute video time.
-      //
-      // Read m5ModeId via ref so the post-init mode reflects the
-      // current value, not whatever the effect closure captured at
-      // fire time.
-      const targetVirtMs = virtMs;
-      M5Sim.create().then(newSim => {
-        m5SimRef.current = newSim;
-        newSim.setMode(m5ModeIdRef.current);
-        m5LastVirtualMsRef.current = targetVirtMs;
-      });
+    const jump = targetVirtMs - last;
+
+    // Helper: inject the wire frame for the log row mapped from a
+    // virtual timestamp. Branches on m5EngineMode:
+    //   'cpp' — pre-computed Uint8Array from cppWireFrames[rowIdx]
+    //           (single-source LogReplayTask pipeline; no JS hand-port).
+    //   'js'  — legacy on-the-fly buildWireFrame from replayCtx.results.
+    const injectAt = (virtMs) => {
+      const tickLogMs = Number.isFinite(pausedLogMs)
+        ? pausedLogMs
+        : sync.logTakeoffMs + (virtMs / 1000 - sync.videoTakeoffSec) * 1000;
+      const rowIdx = findRowAt(log, tickLogMs);
+      if (rowIdx < 0) return;
+      if (m5EngineMode === 'cpp') {
+        if (!cppWireFrames) return;            // pre-pass not done yet
+        const frameBytes = cppWireFrames[rowIdx];
+        if (!frameBytes) return;               // synth-path lag for this row
+        sim.injectBytes(frameBytes);
+        return;
+      }
+      const stepResult = replayCtx.results[rowIdx];
+      if (!stepResult) return;
+      const frameBytes = buildWireFrame(
+        stepResult, cfg, core, m5PresentationSmootherRef.current);
+      sim.injectBytes(frameBytes);
+    };
+
+    // Large jump (in either direction): snap. Don't replay history —
+    // that produces a multi-second visual scramble at first sync and
+    // every scrub. Reset the presentation smoother so it tracks from
+    // the new vicinity instead of carrying long-τ state across the
+    // jump. The next 5-10 normal ticks fill the M5's render gates and
+    // settle the displayed state.
+    if (jump < 0 || jump > M5_LARGE_JUMP_MS) {
+      if (m5PresentationSmootherRef.current) {
+        m5PresentationSmootherRef.current.reset();
+      }
+      injectAt(targetVirtMs);
+      sim.advanceTo(targetVirtMs);
+      m5LastVirtualMsRef.current = targetVirtMs;
+      setM5State(sim.read());
       return;
     }
-    sim.advanceTo(virtMs);
-    m5LastVirtualMsRef.current = virtMs;
 
-    setM5State(sim.read());
-  }, [m5Accurate, log, cfg, replayCtx, sync, videoT, pausedLogMs, m5ModeId]);
+    // Normal-play catch-up: tick forward in 50 ms steps (M5's wire
+    // cadence). Sub-tick sub-jumps (< 50 ms) skip and wait for the next
+    // videoT change to cross the boundary; this keeps SVG renders at
+    // 20 Hz max instead of video framerate.
+    let curMs = last;
+    let ticks = 0;
+    while (curMs + M5_TICK_MS <= targetVirtMs) {
+      curMs += M5_TICK_MS;
+      injectAt(curMs);
+      sim.advanceTo(curMs);
+      ticks++;
+    }
+    m5LastVirtualMsRef.current = curMs;
+
+    if (ticks > 0) {
+      setM5State(sim.read());
+    }
+  }, [m5Accurate, log, cfg, replayCtx, sync, videoT, pausedLogMs, m5ModeId,
+      m5EngineMode, cppWireFrames]);
 
   // ---------- Anchor-mark handlers ---------------------------------
 
@@ -970,6 +1107,28 @@ export const ReplayPage = () => {
                      onChange=${e => setM5Accurate(e.target.checked)} />
               M5-accurate mode
             </label>
+            ${m5Accurate ? html`
+              <span class="replay-toggle"
+                    title="A/B between JS and C++ wire pipelines. C++ uses the single-source LogReplayTask (issue #514) and closes the rowObjAt + buildDisplayInputs hand-derivation seams.">
+                Engine:
+                <label style="margin-left:0.4em;">
+                  <input type="radio" name="m5-engine" value="js"
+                         checked=${m5EngineMode === 'js'}
+                         onChange=${() => setM5EngineMode('js')} />
+                  JS
+                </label>
+                <label style="margin-left:0.4em;">
+                  <input type="radio" name="m5-engine" value="cpp"
+                         checked=${m5EngineMode === 'cpp'}
+                         onChange=${() => setM5EngineMode('cpp')} />
+                  C++ ${cppBuilding
+                    ? html`<small>(building ${Math.round(cppProgress * 100)}%)</small>`
+                    : (m5EngineMode === 'cpp' && cppWireFrames
+                        ? html`<small>(ready)</small>`
+                        : '')}
+                </label>
+              </span>
+            ` : ''}
             <label class="replay-toggle">
               <input type="checkbox" checked=${overlayVisible}
                      onChange=${e => setOverlayVisible(e.target.checked)} />
