@@ -126,6 +126,16 @@ public:
     // (or after a flush row was drained); undefined otherwise.
     const ReplayStepResult& lastStep() const { return lastStep_; }
 
+    // Diagnostic accessor: cfg.aFlaps as the task internally sees it.
+    // Returns iDegrees of every detent, in storage order. Used to
+    // verify the cfg round-trip preserved flap order.
+    std::vector<int> cfgFlapsDegrees() const {
+        std::vector<int> out;
+        out.reserve(cfg_.aFlaps.size());
+        for (const auto& f : cfg_.aFlaps) out.push_back(f.iDegrees);
+        return out;
+    }
+
 private:
     ::onspeed::config::OnSpeedConfig cfg_;   // owned copy for anchors / pct-lift
     LogReplayEngine                  engine_;

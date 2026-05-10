@@ -346,8 +346,11 @@ export const ReplayPage = () => {
     return s === 'cpp' ? 'cpp' : 'js';
   });
   // Pre-computed wire frames per log row, populated when m5EngineMode
-  // is 'cpp'. Same shape as replayCtx.results[] but already encoded to
-  // 77-byte Uint8Arrays. null when off or while building.
+  // is 'cpp'. Shape: { frames: Uint8Array[], engineResults: object[] },
+  // both arrays length=log.Length and aligned with original row index.
+  // engineResults stores the C++ engine's ReplayStepResult per row so
+  // ?debug=1 can compare it directly to the JS engine's output.
+  // null while off or building.
   const [cppWireFrames, setCppWireFrames] = useState(null);
   const [cppBuilding, setCppBuilding] = useState(false);
   const [cppProgress, setCppProgress] = useState(0);
@@ -777,7 +780,7 @@ export const ReplayPage = () => {
       if (rowIdx < 0) return;
       if (m5EngineMode === 'cpp') {
         if (!cppWireFrames) return;            // pre-pass not done yet
-        const frameBytes = cppWireFrames[rowIdx];
+        const frameBytes = cppWireFrames.frames[rowIdx];
         if (!frameBytes) return;               // synth-path lag for this row
         sim.injectBytes(frameBytes);
         return;
@@ -872,7 +875,22 @@ export const ReplayPage = () => {
         }
         // C++-arm wire frame (lookup; null if not built or in lag).
         const cppFrame = (cppWireFrames && rowIdx >= 0)
-          ? safeDecode(cppWireFrames[rowIdx]) : null;
+          ? safeDecode(cppWireFrames.frames[rowIdx]) : null;
+        // C++ engine's ReplayStepResult for this row — independent
+        // of which engine arm is currently driving the visible sim.
+        const cppEng = (cppWireFrames && rowIdx >= 0)
+          ? cppWireFrames.engineResults[rowIdx] : null;
+        const cppEngSlice = cppEng ? {
+          aoa:    fnum(cppEng.aoaDeg, 2),
+          coeffP: fnum(cppEng.coeffP, 3),
+          iasV:   cppEng.iasValid,
+          flapsPos: cppEng.flapsPos,        // <- what the engine received
+          flapsIdx: cppEng.flapsIndex,      // <- what ResolveFlapIndex_ returned
+          accelLatSm: fnum(cppEng.accelLatSmoothed, 3),
+          accelVertSm: fnum(cppEng.accelVertSmoothed, 2),
+          gOnsetRate: fnum(cppEng.gOnsetRate, 2),
+          flapsRawAdc: cppEng.flapsRawAdc,
+        } : null;
 
         const m5 = m5SimRef.current && typeof m5SimRef.current.read === 'function'
           ? m5SimRef.current.read() : null;
@@ -942,6 +960,7 @@ export const ReplayPage = () => {
           mode: m5ModeId,
           raw,
           engRes,
+          cppEng: cppEngSlice,
           jsFrame: sliceFrame(jsFrame),
           cppFrame: sliceFrame(cppFrame),
           m5: m5Slice,

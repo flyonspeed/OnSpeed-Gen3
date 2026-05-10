@@ -605,6 +605,24 @@ public:
 
     void reset() { task_.reset(); }
 
+    // Diagnostic accessor: return the engine's most recent
+    // ReplayStepResult as a plain JS object. Used by ?debug=1 in the
+    // replay tool to compare the C++ engine's aoa to the JS engine's
+    // aoaDeg side by side.
+    val lastStep() const {
+        return StepResultToVal(task_.lastStep());
+    }
+
+    // Diagnostic: cfg.aFlaps[*].iDegrees in storage order, as a JS
+    // Array<number>. Used to verify the cfg round-trip preserved
+    // flap detent ordering.
+    val cfgFlapsDegrees() const {
+        const std::vector<int> v = task_.cfgFlapsDegrees();
+        val arr = val::array();
+        for (size_t i = 0; i < v.size(); ++i) arr.set(i, v[i]);
+        return arr;
+    }
+
 private:
     onspeed::replay::LogReplayTask task_;
 };
@@ -814,9 +832,11 @@ EMSCRIPTEN_BINDINGS(onspeed_core_module) {
     // gets bit-identical wire output to the firmware path.
     class_<LogReplayTaskHandle>("LogReplayTask")
         .constructor<val, int, bool>()
-        .function("processRow", &LogReplayTaskHandle::processRow)
-        .function("flush",      &LogReplayTaskHandle::flush)
-        .function("reset",      &LogReplayTaskHandle::reset);
+        .function("processRow",        &LogReplayTaskHandle::processRow)
+        .function("flush",             &LogReplayTaskHandle::flush)
+        .function("reset",             &LogReplayTaskHandle::reset)
+        .function("lastStep",          &LogReplayTaskHandle::lastStep)
+        .function("cfgFlapsDegrees",   &LogReplayTaskHandle::cfgFlapsDegrees);
 
     // Bulldog round-1 fix C1: expose the canonical wire-frame builder so
     // the M5-replay-WASM Node test can drive frames without a JS hand-port.

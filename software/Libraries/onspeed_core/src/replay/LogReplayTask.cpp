@@ -67,7 +67,14 @@ LogReplayTask::LogReplayTask(const ::onspeed::config::OnSpeedConfig& cfg,
                              int                                     logSampleRateHz,
                              bool                                    flapsRawAdcAvailable)
   : cfg_(cfg)
-  , engine_(cfg, logSampleRateHz, flapsRawAdcAvailable)
+  // Bind the engine to OUR member cfg_, not the constructor parameter.
+  // LogReplayEngine stores its cfg by const-reference; binding to the
+  // parameter would leave the engine with a dangling reference once
+  // the constructor returned, producing garbage flapsIndex / AOA on
+  // every step. Member-init order in the class declaration is cfg_
+  // before engine_, so cfg_ is fully constructed by the time
+  // engine_'s constructor binds the reference.
+  , engine_(cfg_, logSampleRateHz, flapsRawAdcAvailable)
 {
 }
 

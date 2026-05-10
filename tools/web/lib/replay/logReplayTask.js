@@ -59,6 +59,22 @@ export class LogReplayTask {
     this._handle.reset();
   }
 
+  // Diagnostic accessor: the engine's most recent ReplayStepResult as
+  // a plain JS object. Valid only after a processRow that returned a
+  // non-empty Uint8Array (during synth lag the engine has no result
+  // to report; older calls' state is whatever the default-constructed
+  // ReplayStepResult held — do not rely on the values then).
+  lastStep() {
+    return this._handle.lastStep();
+  }
+
+  // Diagnostic: the iDegrees of every flap detent in the C++ task's
+  // cfg, in storage order. Verifies the cfg round-trip preserved
+  // detent ordering.
+  cfgFlapsDegrees() {
+    return this._handle.cfgFlapsDegrees();
+  }
+
   // Free the WASM-side handle. Required to release WASM heap memory
   // when the task is no longer needed.
   delete() {
