@@ -139,10 +139,6 @@ void IMU330::Read()
     g_Log.printf(MsgLog::EnIMU, MsgLog::EnDebug,
         "Ax %.3f, Ay %.3f, Az %.3f, Gx %.4f, Gy %.4f, Gz %.4f, Temp %.2fC\n",
         Ax, Ay, Az, Gx, Gy, Gz, fTempC);
-
-    if (g_Config.iLogRate == 208)
-        g_LogSensor.Write();
-
     }
 
 // ----------------------------------------------------------------------------
