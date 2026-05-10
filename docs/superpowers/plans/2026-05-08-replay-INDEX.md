@@ -1,7 +1,14 @@
 # INDEX — Replay Tool Plan Set
 
-**Date:** 2026-05-08
+**Date:** 2026-05-08 (retro added 2026-05-09)
 **Owner:** Sam.
+
+> **🛑 READ THE RETRO FIRST**: `2026-05-09-replay-retro.md`.
+> The post-PR-#512 trial run exposed real bugs that survived the foundation
+> PRs (#507, #511, #512). The retro documents what failed and the
+> architectural correction needed (lift `LogReplayTask` into onspeed_core,
+> kill JS-side hand-derivations of engine/wire input shapes, add real-flight
+> fixture tests). Skipping it means repeating the same mistakes.
 
 If you're a fresh agent (or fresh-session Sam) picking up this work,
 **read these documents in this order**:
