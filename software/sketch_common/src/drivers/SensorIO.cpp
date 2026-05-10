@@ -146,6 +146,13 @@ void SensorReadTask(void *pvParams)
 
         g_Sensors.Read();
 
+        // 50 Hz log write. Fired from the task loop so any future
+        // bring-up `g_Sensors.Read()` from setup() can't trip the
+        // null-ringbuffer path in LogSensor::Write() before the
+        // ring buffer is allocated. Mirrors the 208 Hz Write call
+        // in ImuReadTask.
+        if (g_Config.iLogRate != 208)
+            g_LogSensor.Write();
     }
 
 } // end SensorReadTask
@@ -222,6 +229,13 @@ void ImuReadTask(void *pvParams)
         xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
         g_AHRS.Process(fDtSeconds);
         xSemaphoreGive(xAhrsMutex);
+
+        // 208 Hz log write. Fired from the task loop, not from
+        // IMU330::Read(), so the bring-up `g_pIMU->Read()` in setup()
+        // (which runs before the logging ring buffer is allocated)
+        // can't trip the null-ringbuffer path in LogSensor::Write().
+        if (g_Config.iLogRate == 208)
+            g_LogSensor.Write();
     }
 }
 
@@ -455,8 +469,6 @@ void SensorIO::Read()
         fDecelRate = IasDerivative.Compute() * fDecelSampleHz;
     }
 
-    if (g_Config.iLogRate != 208)
-        g_LogSensor.Write();
     g_AudioPlay.UpdateTones(snap);
 
     if (g_Log.Test(MsgLog::EnSensors, MsgLog::EnDebug) == true)

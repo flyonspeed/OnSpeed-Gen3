@@ -341,11 +341,16 @@ void LogSensor::Open()
 
         else
         {
-            g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "SensorFile opening error. Logging disabled.");
-            g_Config.bSdLogging = false;
+            g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "SensorFile opening error.");
             // Clear base name so ActiveBaseName() doesn't advertise a
             // session that never really started. Otherwise the web UI
             // would block deletion of a nonexistent "log_NNN.csv".
+            //
+            // Do NOT mutate g_Config.bSdLogging here. A transient SD
+            // open failure should not silently override the user's saved
+            // intent in config.cfg — that mutation persists to disk on
+            // the next save and turns a one-shot SD glitch into a
+            // permanently-disabled logger. The next session retries.
             m_szBaseName[0] = '\0';
         }
     } // end if sensor data and SD disk available
@@ -670,6 +675,12 @@ void LogSensor::Write()
     // Send to the ring buffer for writing
     if (xLoggingRingBuffer == nullptr)
         {
+        // Defensive: with the Write call now living in SensorReadTask /
+        // ImuReadTask (both created after the ring buffer allocation in
+        // setup), this branch should be unreachable in steady state.
+        // Keep the warn for any future regression. Do NOT mutate
+        // g_Config.bSdLogging — see the matching note in Open()'s
+        // failure path above.
         static unsigned long uLastWarnMs = 0;
         unsigned long uNow = millis();
         if ((uNow - uLastWarnMs) > 2000)
@@ -677,7 +688,6 @@ void LogSensor::Write()
             g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "Logging ring buffer not allocated; dropping log line");
             uLastWarnMs = uNow;
             }
-        g_Config.bSdLogging = false;
         return;
         }
 
