@@ -639,12 +639,13 @@ export const ReplayPage = () => {
     safeLsSet(M5_ENGINE_LS_KEY, m5EngineMode);
   }, [m5EngineMode]);
 
-  // C++-engine pre-pass. Runs whenever the toggle is on and the
-  // log+cfg are loaded. Same chunked yield-to-event-loop pattern as
-  // the JS engine pre-pass in buildResultsFromWasm; cancellation on
-  // log/cfg change so a new file doesn't see stale frames.
+  // C++-engine pre-pass. Runs once per (log, cfg) pair while
+  // M5-accurate is on, and survives mode toggle JS↔C++ — clicking
+  // back to C++ reuses the cached frames, no rebuild. Invalidate
+  // only when log or cfg changes. Skipping when M5-accurate is off
+  // saves the cost on JS-only legacy-rec sessions.
   useEffect(() => {
-    if (!log || !cfg || m5EngineMode !== 'cpp' || !m5Accurate) {
+    if (!log || !cfg || !m5Accurate) {
       setCppWireFrames(null);
       setCppBuilding(false);
       return;
@@ -669,7 +670,7 @@ export const ReplayPage = () => {
       setCppProgress(0);
     });
     return () => { cancelled = true; };
-  }, [log, cfg, m5EngineMode, m5Accurate]);
+  }, [log, cfg, m5Accurate]);
 
   // Persist the mode.
   useEffect(() => {
@@ -736,6 +737,16 @@ export const ReplayPage = () => {
   // visible state matches the new video position immediately.
   const M5_TICK_MS = 50;
   const M5_LARGE_JUMP_MS = 5000;   // > this triggers a snap, not a tick chain.
+
+  // ---------- Diagnostic mode --------------------------------------
+  //
+  // ?debug=1 turns on JSON-line logging once per ~500 ms with the
+  // raw log values, both pipelines' wire-encoded frames (decoded
+  // via parse_display_frame), and the M5 sim's read() snapshot.
+  // Lets the user copy a few lines to compare paths.
+  const debugMode = (typeof window !== 'undefined') &&
+                    new URLSearchParams(window.location.search).get('debug') === '1';
+  const debugLastLogMsRef = useRef(0);
 
   useEffect(() => {
     if (!m5Accurate) { setM5State(null); return; }
@@ -812,8 +823,111 @@ export const ReplayPage = () => {
     if (ticks > 0) {
       setM5State(sim.read());
     }
+
+    // --- Diagnostic logging (?debug=1) -----------------------------
+    if (debugMode && core && typeof core.parse_display_frame === 'function') {
+      const now = performance.now();
+      if (now - debugLastLogMsRef.current >= 500) {
+        debugLastLogMsRef.current = now;
+        const logMs = Number.isFinite(pausedLogMs)
+          ? pausedLogMs
+          : sync.logTakeoffMs + (videoT - sync.videoTakeoffSec) * 1000;
+        const rowIdx = findRowAt(log, logMs);
+        const fnum = (n, k = 2) => Number.isFinite(n) ? +n.toFixed(k) : null;
+        const safeDecode = (bytes) => {
+          if (!bytes || bytes.length === 0) return null;
+          try { return core.parse_display_frame(bytes); }
+          catch (_) { return null; }
+        };
+        const sliceFrame = (f) => f && {
+          ias:    fnum(f.iasKt, 1),
+          iasV:   f.iasIsValid,
+          alt:    fnum(f.paltFt, 0),
+          pct:    fnum(f.percentLiftPct, 1),
+          pip:    f.pipPctLift,
+          tonesOn:f.tonesOnPctLift,
+          fast:   f.onSpeedFastPctLift,
+          slow:   f.onSpeedSlowPctLift,
+          warn:   f.stallWarnPctLift,
+          flapsDeg: f.flapsDeg,
+          fmin:   f.flapsMinDeg,
+          fmax:   f.flapsMaxDeg,
+          pitch:  fnum(f.pitchDeg, 1),
+          roll:   fnum(f.rollDeg, 1),
+          latG:   fnum(f.lateralG, 3),
+          vertG:  fnum(f.verticalG, 2),
+          gOnset: fnum(f.gOnsetRate, 2),
+          fpa:    fnum(f.flightPathDeg, 1),
+        };
+        const r = (rowIdx >= 0 && replayCtx?.results)
+          ? replayCtx.results[rowIdx] : null;
+
+        // JS-arm wire frame (build now, doesn't affect sim).
+        let jsFrame = null;
+        if (r) {
+          try {
+            const bytes = buildWireFrame(r, cfg, core, null);   // null smoother = raw
+            jsFrame = safeDecode(bytes);
+          } catch (_) { /* ignore */ }
+        }
+        // C++-arm wire frame (lookup; null if not built or in lag).
+        const cppFrame = (cppWireFrames && rowIdx >= 0)
+          ? safeDecode(cppWireFrames[rowIdx]) : null;
+
+        const m5 = m5SimRef.current && typeof m5SimRef.current.read === 'function'
+          ? m5SimRef.current.read() : null;
+        const m5Slice = m5 ? {
+          IAS: fnum(m5.IAS, 1), Palt: fnum(m5.Palt, 0),
+          Pitch: fnum(m5.Pitch, 1), Roll: fnum(m5.Roll, 1),
+          aoaIsValid: m5.aoaIsValid,
+          percentLift: fnum(m5.percentLift, 1),
+          pipPctLift: m5.pipPctLift,
+          tonesOnPctLift: m5.tonesOnPctLift,
+          flapsDeg: m5.flapsDeg,
+        } : null;
+
+        // Raw log row (a slice of the columnar arrays at rowIdx).
+        const raw = (rowIdx >= 0) ? {
+          IAS:        fnum(log.IAS?.[rowIdx], 1),
+          Palt:       fnum(log.Palt?.[rowIdx], 0),
+          PfwdSm:     fnum(log.PfwdSmoothed?.[rowIdx], 3),
+          P45Sm:      fnum(log.P45Smoothed?.[rowIdx], 3),
+          flapsPos:   log.flapsPos?.[rowIdx],
+          flapsRawAdc:log.flapsRawADC?.[rowIdx],
+          Pitch:      fnum(log.Pitch?.[rowIdx], 1),
+          Roll:       fnum(log.Roll?.[rowIdx], 1),
+          LateralG:   fnum(log.LateralG?.[rowIdx], 3),
+          VerticalG:  fnum(log.VerticalG?.[rowIdx], 2),
+          AOA:        fnum(log.AngleofAttack?.[rowIdx], 2),
+        } : null;
+
+        // Engine result for this row (JS arm's pre-passed engine state).
+        const engRes = r ? {
+          aoaDeg: fnum(r.aoaDeg, 2),
+          coeffP: fnum(r.coeffP, 3),
+          iasValid: r.iasValid,
+          flapsIndex: r.flapsIndex,
+          accelLatSm: fnum(r.accelLatSmoothed, 3),
+          accelVertSm: fnum(r.accelVertSmoothed, 2),
+          gOnsetRate: fnum(r.gOnsetRate, 2),
+        } : null;
+
+        // eslint-disable-next-line no-console
+        console.log('REPLAY_DBG ' + JSON.stringify({
+          videoT: fnum(videoT, 2),
+          rowIdx,
+          engineMode: m5EngineMode,
+          mode: m5ModeId,
+          raw,
+          engRes,
+          jsFrame: sliceFrame(jsFrame),
+          cppFrame: sliceFrame(cppFrame),
+          m5: m5Slice,
+        }));
+      }
+    }
   }, [m5Accurate, log, cfg, replayCtx, sync, videoT, pausedLogMs, m5ModeId,
-      m5EngineMode, cppWireFrames]);
+      m5EngineMode, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------
 

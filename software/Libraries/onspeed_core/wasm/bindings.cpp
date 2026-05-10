@@ -692,6 +692,57 @@ static val build_display_frame(val inputsVal)
 }
 
 // ---------------------------------------------------------------------------
+// parse_display_frame
+//
+// Inverse of build_display_frame. Decodes a 77-byte v4.23 #1 frame
+// back into the DisplayFrame struct as a plain JS object. Returns
+// null on malformed bytes (wrong length, wrong magic, bad CRC,
+// wrong terminator).
+//
+// Used by the replay tool's diagnostic mode to verify wire-encoded
+// values match what the engine and task pipelines intended to emit.
+// ---------------------------------------------------------------------------
+static val parse_display_frame(val bytesVal)
+{
+    // Accept Uint8Array or Array of bytes.
+    const int n = bytesVal["length"].as<int>();
+    std::vector<uint8_t> buf(static_cast<size_t>(n));
+    for (int i = 0; i < n; ++i) {
+        buf[static_cast<size_t>(i)] =
+            static_cast<uint8_t>(bytesVal[i].as<int>());
+    }
+    auto opt = onspeed::proto::ParseDisplayFrame(buf.data(), buf.size());
+    if (!opt.has_value()) return val::null();
+    const onspeed::proto::DisplayFrame& f = opt.value();
+
+    val out = val::object();
+    out.set("pitchDeg",            f.pitchDeg);
+    out.set("rollDeg",             f.rollDeg);
+    out.set("iasKt",               f.iasKt);
+    out.set("iasIsValid",          f.iasIsValid);
+    out.set("paltFt",              f.paltFt);
+    out.set("turnRateDps",         f.turnRateDps);
+    out.set("lateralG",            f.lateralG);
+    out.set("verticalG",           f.verticalG);
+    out.set("percentLiftPct",      f.percentLiftPct);
+    out.set("vsiFpm",              f.vsiFpm);
+    out.set("oatC",                f.oatC);
+    out.set("flightPathDeg",       f.flightPathDeg);
+    out.set("flapsDeg",            f.flapsDeg);
+    out.set("tonesOnPctLift",      f.tonesOnPctLift);
+    out.set("onSpeedFastPctLift",  f.onSpeedFastPctLift);
+    out.set("onSpeedSlowPctLift",  f.onSpeedSlowPctLift);
+    out.set("stallWarnPctLift",    f.stallWarnPctLift);
+    out.set("flapsMinDeg",         f.flapsMinDeg);
+    out.set("flapsMaxDeg",         f.flapsMaxDeg);
+    out.set("gOnsetRate",          f.gOnsetRate);
+    out.set("spinRecoveryCue",     f.spinRecoveryCue);
+    out.set("dataMark",            f.dataMark);
+    out.set("pipPctLift",          f.pipPctLift);
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // tone_calc / tone_calc_muted (PR 1.5)
 //
 // Pure tone-decision logic from `onspeed_core/audio/ToneCalc.{h,cpp}` —
@@ -770,6 +821,11 @@ EMSCRIPTEN_BINDINGS(onspeed_core_module) {
     // Bulldog round-1 fix C1: expose the canonical wire-frame builder so
     // the M5-replay-WASM Node test can drive frames without a JS hand-port.
     function("build_display_frame", &build_display_frame);
+
+    // Inverse of build_display_frame, for the replay tool's diagnostic
+    // mode. Returns the parsed DisplayFrame as a JS object, or null on
+    // malformed input.
+    function("parse_display_frame", &parse_display_frame);
 
     // PR 1.5: expose ToneCalc decision logic so JS callers (docs-site
     // tone-sim, future audio-synthesis PR) drive the same tone decisions
