@@ -189,9 +189,21 @@ function buildContext(pageId) {
     },
     navigator: { userAgent: 'node-bundle-test' },
     WebSocket: StubWebSocket,
-    requestAnimationFrame: (fn) => setTimeout(fn, 0),
-    cancelAnimationFrame:  (id) => clearTimeout(id),
-    setTimeout, clearTimeout, setInterval, clearInterval,
+    // Fake timers — record-only. The bundle's reconnect-on-close
+    // WebSocket client and Preact's render scheduler both queue
+    // timers/RAFs at top-level eval; if those used Node's real
+    // setTimeout, runInContext returns promptly but Node's event
+    // loop blocks process exit (and the next-page eval) until every
+    // timer drains. With ~7 pages × infinite reconnect retry, the
+    // wall-clock cost is multiple minutes for a test that should be
+    // checking only "does top-level eval throw?".
+    requestAnimationFrame: () => 0,
+    cancelAnimationFrame:  () => {},
+    setTimeout:  () => 0,
+    clearTimeout: () => {},
+    setInterval: () => 0,
+    clearInterval: () => {},
+    queueMicrotask: () => {},
     console,
     addEventListener() {}, removeEventListener() {},
     fetch: () => Promise.reject(new Error('fetch stubbed out')),
