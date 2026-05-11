@@ -176,6 +176,14 @@ EMSCRIPTEN_KEEPALIVE float replay_get_displayVerticalG(void)   { return displayV
 EMSCRIPTEN_KEEPALIVE int   replay_get_displayPercentLift(void) { return displayPercentLift;}
 EMSCRIPTEN_KEEPALIVE float replay_get_displayDecelRate(void)   { return displayDecelRate;  }
 EMSCRIPTEN_KEEPALIVE int   replay_get_Slip(void)               { return Slip;              }
+// Unclamped LateralG / VerticalG from SerialRead.  These are the
+// floats the firmware wrote from the wire frame BEFORE the Slip int
+// clamp (Slip is constrained to ±99, which clamps lateralG at
+// ~0.116g).  Used by the replay tool's render-side presentation
+// filter so smoothing happens in continuous lateralG space rather
+// than in saturated Slip-int space.
+EMSCRIPTEN_KEEPALIVE float replay_get_LateralG(void)            { return LateralG;          }
+EMSCRIPTEN_KEEPALIVE float replay_get_VerticalG(void)           { return VerticalG;         }
 EMSCRIPTEN_KEEPALIVE float replay_get_PercentLift(void)        { return PercentLift;       }
 EMSCRIPTEN_KEEPALIVE float replay_get_gOnsetRate(void)         { return gOnsetRate;        }
 EMSCRIPTEN_KEEPALIVE float replay_get_IAS(void)                { return IAS;               }

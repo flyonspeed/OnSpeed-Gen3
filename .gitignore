@@ -12,8 +12,15 @@ software/OnSpeed-Gen3-ESP32/OnSpeed_Gen3-ESP32.vcxproj.filters
 software/OnSpeed-M5-Display/sim/build/
 
 # M5 firmware → WASM replay artifact, copied alongside the JS replay
-# tool by `build_wasm.sh --target replay`. Generated, not committed.
-tools/web/lib/replay/m5sim/
+# tool by `build_wasm.sh --target replay`. Build outputs only — the
+# directory itself contains a checked-in `package.json` that overrides
+# the parent tools/web/ "type": "module" so Node loads the Emscripten-
+# emitted CommonJS .js correctly. Excluding the directory wholesale
+# (`tools/web/lib/replay/m5sim/`) would have hidden that file too —
+# Git's `!path` rules can't re-include files inside an ignored parent.
+tools/web/lib/replay/m5sim/onspeed_m5.js
+tools/web/lib/replay/m5sim/onspeed_m5.wasm
+tools/web/lib/replay/m5sim/onspeed_m5.wasm.map
 
 # M5 display logo intermediate renders (regenerate via scripts/gen_logo_header.py)
 software/OnSpeed-M5-Display/.logo-build/
@@ -21,6 +28,14 @@ software/OnSpeed-M5-Display/.logo-build/
 # M5 display sim copied into the docs site by CI (or locally by
 # ./scripts/build_m5_sim_for_docs.sh); committed copies would drift.
 docs/site/docs/assets/sim/
+
+# Replay-tool WASM artifacts copied into the docs site by
+# `docs/site/scripts/sync_wasm.sh` (run by CI before mkdocs build,
+# or locally after running the WASM build scripts).
+docs/site/docs/assets/wasm/onspeed_core.js
+docs/site/docs/assets/wasm/m5/onspeed_m5.js
+docs/site/docs/assets/wasm/m5/onspeed_m5.wasm
+docs/site/docs/assets/wasm/m5/onspeed_m5.wasm.map
 
 # auto-generated on each build by PlatformIO / Arduino IDE
 software/Libraries/version/buildinfo.cpp

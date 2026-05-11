@@ -903,7 +903,104 @@ if (typeof Module.tone_calc_muted !== 'function') {
 }
 
 // ---------------------------------------------------------------------------
+// LogReplayTask (issue #514)
+//
+// Single-source CSV-row → wire-bytes pipeline. Validates the binding
+// surface and the iasAlive hysteresis (Bug 1 from the trial-run retro):
+// pass a row with row.iasValid=true at 5 kt; the task must emit
+// iasValid=false on the wire because UpdateIasAlive says no.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- LogReplayTask ---');
+
+if (typeof Module.LogReplayTask !== 'function') {
+    console.error('FAIL: Module.LogReplayTask is not exported');
+    process.exit(1);
+}
+
+{
+    // Use the same minimal cfg as LogReplayEngine: one flap, identity
+    // polynomial, alpha_0=-3.72, alpha_stall=10.31.
+    const taskCfg = Module.parse_config(minimalV2Xml);
+    const task = new Module.LogReplayTask(taskCfg, 50, /*flapsRawAdcAvailable=*/true);
+    assertDefined('LogReplayTask instance', task);
+
+    // Row at 80 kt → iasAlive crosses rising threshold → iasValid=true.
+    const taskRow = Object.assign({}, minimalRow, {
+        pfwdSmoothed:    1.0,
+        p45Smoothed:     2.0,
+        iasKt:           80.0,
+        iasValid:        false,    // adversarial: task ignores this
+        flapsRawAdc:     3908,
+    });
+    const bytes1 = task.processRow(taskRow);
+    if (!(bytes1 instanceof Uint8Array)) {
+        console.error('FAIL: processRow did not return Uint8Array ' +
+            `(got ${bytes1 && bytes1.constructor && bytes1.constructor.name})`);
+        process.exit(1);
+    }
+    assertEqual('LogReplayTask processRow frame length', bytes1.length, 77);
+    assertEqual('frame[0] == # (0x23)', bytes1[0], 0x23);
+    assertEqual('frame[1] == 1 (0x31)', bytes1[1], 0x31);
+    assertEqual('frame[75] == CR (0x0D)', bytes1[75], 0x0D);
+    assertEqual('frame[76] == LF (0x0A)', bytes1[76], 0x0A);
+
+    // Adversarial test: row.iasValid=true at 5 kt — task must override
+    // and emit iasValid=false based on UpdateIasAlive's rising-threshold
+    // gate (20 kt). After resetting and feeding 5 kt, the wire iasKt
+    // field should be the 9999 sentinel (1-byte position 6..9 in the
+    // frame: see DisplaySerial.cpp wire layout). A simpler check: the
+    // task started at iasAlive=false; 5 kt does not cross 20 kt; reset
+    // the task to ensure no leftover state, then feed 5 kt.
+    task.reset();
+    const lowIasRow = Object.assign({}, taskRow, {
+        iasKt:    5.0,
+        iasValid: true,     // ignored — task derives hysteretically
+    });
+    const bytes2 = task.processRow(lowIasRow);
+    assertEqual('low-IAS frame still length 77', bytes2.length, 77);
+
+    // The wire encodes iasValid=false as iasKt=9999 sentinel at bytes
+    // 6..9 (4-digit IAS field after the 2-byte magic + 4-byte timestamp
+    // skip — NB: actual offset depends on the wire layout). Rather than
+    // hard-code byte offsets, decode the frame back via parse_config-
+    // adjacent helpers... we don't have ParseDisplayFrame in the JS
+    // binding. Lighter assertion: the bytes at the IAS slot should
+    // contain "9999" sentinel as ASCII. The task-layer behavior is
+    // separately tested in test_log_replay_task.cpp via ParseDisplayFrame.
+    //
+    // Smoke check: scan the frame for the literal "9999" substring.
+    let sawSentinel = false;
+    for (let i = 0; i + 4 <= bytes2.length; i++) {
+        if (bytes2[i]   === 0x39 && bytes2[i+1] === 0x39 &&
+            bytes2[i+2] === 0x39 && bytes2[i+3] === 0x39) {
+            sawSentinel = true;
+            break;
+        }
+    }
+    if (!sawSentinel) {
+        console.error('FAIL: low-IAS frame does not contain "9999" sentinel; ' +
+            'task may not be applying UpdateIasAlive correctly');
+        process.exit(1);
+    }
+    console.log('OK: LogReplayTask emits iasValid=false on low-IAS row ' +
+        '(adversarial input row.iasValid=true honored hysteretically)');
+
+    // flush() returns an empty Array on flapsRawAdcAvailable=true.
+    const flushed = task.flush();
+    if (!Array.isArray(flushed) || flushed.length !== 0) {
+        console.error(`FAIL: task.flush() expected empty Array, got ` +
+            `${Array.isArray(flushed) ? `length=${flushed.length}` : typeof flushed}`);
+        process.exit(1);
+    }
+    console.log('OK: task.flush() empty when flapsRawAdcAvailable=true');
+
+    task.delete();
+    console.log('OK: task.delete() completed without error');
+}
+
+// ---------------------------------------------------------------------------
 // Done
 // ---------------------------------------------------------------------------
 
-console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine, build_display_frame, tone_calc)');
+console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine, build_display_frame, tone_calc, LogReplayTask)');

@@ -18,12 +18,8 @@ import { SensorCalPage } from './pages/SensorCalPage.js';
 // `scripts/build_web_bundle.py`'s PAGES table).  Adding a page means
 // adding a stub there AND a row here.
 //
-// `replay` is intentionally absent: the Video Replay tool lives under
-// lib/replay/ and lib/pages/ReplayPage.js, both excluded from the
-// firmware bundle by `scripts/build_web_bundle.py` (it is a
-// dev-server / offline-analysis tool).  Importing ReplayPage here
-// would resolve to an undefined identifier in the concatenated
-// bundle and abort the entire script before any page mounts.
+// The Replay tool used to live here as a dynamic-import branch; it now
+// lives on the docs site at /data-and-logs/replay/ instead.
 const PAGES = {
   indexer:      IndexerPage,
   calwiz:       CalWizardPage,

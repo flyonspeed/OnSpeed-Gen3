@@ -28,7 +28,17 @@
 const path = require('path');
 const fs   = require('fs');
 
-const { buildDisplayInputs } = require('./wireBridgeForTest.js');
+// Issue #514 / PR after PR #512: this test now drives Core.LogReplayTask
+// directly — the single C++ entry point that takes a parsed LogRow and
+// returns the 77-byte wire frame. Pre-#514 we routed through a JS
+// `buildDisplayInputs` hand-port in `tools/web/lib/replay/wireBridge.js`,
+// which silently set `pipPctLift = tonesOnPctLift` instead of the
+// firmware's interpolated value (Sam's 2026-05-10 trial run found this).
+// LogReplayTask matches the firmware's DisplaySerial.cpp fill-pass, so
+// the golden bytes here are now the firmware's canonical output.
+//
+// Driving the production C++ path keeps this test as a "wire format
+// drift" guard against future LogReplayTask / BuildDisplayFrame changes.
 
 const FIXTURE_DIR  = path.resolve(__dirname, 'fixtures');
 const FIXTURE_LOG  = path.join(FIXTURE_DIR, 'wire_completeness_log.csv');
@@ -126,9 +136,6 @@ const TEST_CONFIG = {
   ],
 };
 
-const FLAPS_ARRAY    = TEST_CONFIG.flaps;
-const FLAPS_MIN_DEG  = Math.min(...FLAPS_ARRAY.map(f => f.degrees));
-const FLAPS_MAX_DEG  = Math.max(...FLAPS_ARRAY.map(f => f.degrees));
 const SAMPLE_RATE_HZ = 50;          // 50 ms between fixture rows -> 20 Hz nominal,
                                     // but engine takes "log sample rate" — 50 Hz
                                     // is a real iLogRate value the firmware uses.
@@ -152,30 +159,35 @@ async function runPipeline() {
       + 'rebuild via wasm/build_wasm.sh');
   }
 
-  const engine = new Core.LogReplayEngine(
+  // Drive the production single-source pipeline: LogReplayTask takes
+  // a LogRow and emits 77 wire bytes that mirror what the firmware's
+  // DisplaySerial.cpp fill-pass would produce. No JS-side hand-port.
+  if (typeof Core.LogReplayTask !== 'function') {
+    throw new Error(
+      'onspeed_core WASM is missing LogReplayTask — '
+      + 'rebuild via wasm/build_wasm.sh');
+  }
+
+  const task = new Core.LogReplayTask(
     TEST_CONFIG, SAMPLE_RATE_HZ, /*flapsRawAdcAvailable=*/true);
   try {
     const rows  = parseFixtureLog(FIXTURE_LOG);
     const wireFrames = [];
     for (const row of rows) {
-      const stepResult = engine.step(row);
-      if (stepResult === null || stepResult === undefined) {
-        // Synth-path lag wouldn't fire here (flapsRawAdcAvailable=true)
-        // — skipping for safety.
+      const bytes = task.processRow(row);
+      if (bytes.length === 0) {
+        // Synth-path lag wouldn't fire here (flapsRawAdcAvailable=true).
         continue;
       }
-      const inputs = buildDisplayInputs(
-        stepResult, FLAPS_ARRAY, FLAPS_MIN_DEG, FLAPS_MAX_DEG);
-      const frameBytes = Buffer.from(Core.build_display_frame(inputs));
-      if (frameBytes.length !== 77) {
+      if (bytes.length !== 77) {
         throw new Error(
-          `Frame length ${frameBytes.length}, expected 77 — wire format drift?`);
+          `Frame length ${bytes.length}, expected 77 — wire format drift?`);
       }
-      wireFrames.push(frameBytes);
+      wireFrames.push(Buffer.from(bytes));
     }
     return Buffer.concat(wireFrames);
   } finally {
-    engine.delete();
+    task.delete();
   }
 }
 

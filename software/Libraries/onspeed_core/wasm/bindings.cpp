@@ -29,6 +29,7 @@
 #include <config/OnSpeedConfig.h>
 #include <proto/DisplaySerial.h>
 #include <replay/LogReplayEngine.h>
+#include <replay/LogReplayTask.h>
 #include <types/LogRow.h>
 
 using namespace emscripten;
@@ -456,6 +457,60 @@ static val StepResultToVal(const onspeed::replay::ReplayStepResult& r)
     return out;
 }
 
+// Translate a JS row object into a LogRow. Shared by LogReplayEngineHandle
+// and LogReplayTaskHandle so both bindings see the same field shape; a
+// future field added to the LogRow contract changes one place.
+static onspeed::LogRow LogRowFromVal(val rowVal)
+{
+    onspeed::LogRow row;
+
+    // Pressure fields.
+    row.pfwdSmoothed = rowVal["pfwdSmoothed"].as<float>();
+    row.p45Smoothed  = rowVal["p45Smoothed"].as<float>();
+    row.pStaticMbar  = rowVal["pStaticMbar"].as<float>();
+    row.paltFt       = rowVal["paltFt"].as<float>();
+    row.iasKt        = rowVal["iasKt"].as<float>();
+
+    // IAS validity. LogReplayTaskHandle ignores this and re-derives it
+    // hysteretically; LogReplayEngineHandle propagates it directly.
+    row.iasValid     = rowVal["iasValid"].as<bool>();
+
+    // Flap state.
+    row.flapsPos             = rowVal["flapsPos"].as<int>();
+    val rawAdc = rowVal["flapsRawAdc"];
+    val rawAdcPresent = rowVal["flapsRawAdcPresent"];
+    row.flapsRawAdcPresent   = !rawAdcPresent.isUndefined() && !rawAdcPresent.isNull()
+                               && rawAdcPresent.as<bool>();
+    if (row.flapsRawAdcPresent && !rawAdc.isUndefined() && !rawAdc.isNull())
+        row.flapsRawAdc = static_cast<uint16_t>(rawAdc.as<int>());
+
+    // IMU axes.
+    row.imuVerticalG    = rowVal["imuVerticalG"].as<float>();
+    row.imuLateralG     = rowVal["imuLateralG"].as<float>();
+    row.imuForwardG     = rowVal["imuForwardG"].as<float>();
+    row.imuRollRateDps  = rowVal["imuRollRateDps"].as<float>();
+    row.imuPitchRateDps = rowVal["imuPitchRateDps"].as<float>();
+    row.imuYawRateDps   = rowVal["imuYawRateDps"].as<float>();
+
+    // AHRS.
+    row.pitchDeg      = rowVal["pitchDeg"].as<float>();
+    row.rollDeg       = rowVal["rollDeg"].as<float>();
+    row.flightPathDeg = rowVal["flightPathDeg"].as<float>();
+    row.vsiFpm        = rowVal["vsiFpm"].as<float>();
+
+    // OAT — optional; defaults to 0 (no-OAT-sensor convention).
+    {
+        val v = rowVal["oatCelsius"];
+        row.oatCelsius = (v.typeOf().as<std::string>() == "number")
+                         ? v.as<float>() : 0.0f;
+    }
+
+    // Data mark.
+    row.dataMark = rowVal["dataMark"].as<int>();
+
+    return row;
+}
+
 class LogReplayEngineHandle {
 public:
     LogReplayEngineHandle(val cfgVal, int logSampleRateHz, bool flapsRawAdcAvailable)
@@ -468,51 +523,7 @@ public:
     // object with all ReplayStepResult fields.
     val step(val rowVal)
     {
-        onspeed::LogRow row;
-
-        // Pressure fields.
-        row.pfwdSmoothed = rowVal["pfwdSmoothed"].as<float>();
-        row.p45Smoothed  = rowVal["p45Smoothed"].as<float>();
-        row.pStaticMbar  = rowVal["pStaticMbar"].as<float>();
-        row.paltFt       = rowVal["paltFt"].as<float>();
-        row.iasKt        = rowVal["iasKt"].as<float>();
-
-        // IAS validity.
-        row.iasValid     = rowVal["iasValid"].as<bool>();
-
-        // Flap state.
-        row.flapsPos             = rowVal["flapsPos"].as<int>();
-        val rawAdc = rowVal["flapsRawAdc"];
-        val rawAdcPresent = rowVal["flapsRawAdcPresent"];
-        row.flapsRawAdcPresent   = !rawAdcPresent.isUndefined() && !rawAdcPresent.isNull()
-                                   && rawAdcPresent.as<bool>();
-        if (row.flapsRawAdcPresent && !rawAdc.isUndefined() && !rawAdc.isNull())
-            row.flapsRawAdc = static_cast<uint16_t>(rawAdc.as<int>());
-
-        // IMU axes.
-        row.imuVerticalG    = rowVal["imuVerticalG"].as<float>();
-        row.imuLateralG     = rowVal["imuLateralG"].as<float>();
-        row.imuForwardG     = rowVal["imuForwardG"].as<float>();
-        row.imuRollRateDps  = rowVal["imuRollRateDps"].as<float>();
-        row.imuPitchRateDps = rowVal["imuPitchRateDps"].as<float>();
-        row.imuYawRateDps   = rowVal["imuYawRateDps"].as<float>();
-
-        // AHRS.
-        row.pitchDeg      = rowVal["pitchDeg"].as<float>();
-        row.rollDeg       = rowVal["rollDeg"].as<float>();
-        row.flightPathDeg = rowVal["flightPathDeg"].as<float>();
-        row.vsiFpm        = rowVal["vsiFpm"].as<float>();
-
-        // OAT — optional; defaults to 0 (no-OAT-sensor convention).
-        {
-            val v = rowVal["oatCelsius"];
-            row.oatCelsius = (v.typeOf().as<std::string>() == "number")
-                             ? v.as<float>() : 0.0f;
-        }
-
-        // Data mark.
-        row.dataMark = rowVal["dataMark"].as<int>();
-
+        const onspeed::LogRow row = LogRowFromVal(rowVal);
         std::optional<onspeed::replay::ReplayStepResult> result = engine_.step(row);
         if (!result.has_value()) return val::null();
         return StepResultToVal(*result);
@@ -538,6 +549,82 @@ private:
     // cfg_ must outlive engine_ because engine_ holds a const reference.
     OnSpeedConfig cfg_;
     onspeed::replay::LogReplayEngine engine_;
+};
+
+// ---------------------------------------------------------------------------
+// LogReplayTaskHandle (issue #514)
+//
+// Wraps onspeed::replay::LogReplayTask, the C++-side single-source
+// pipeline that takes a LogRow and produces 77-byte wire bytes ready
+// for the M5 firmware sim. Eliminates the JS-side rowObjAt /
+// buildDisplayInputs hand-derivations: the JS layer becomes pure glue
+// (file pickers, time control, render).
+//
+// Public surface mirrors LogReplayEngineHandle for symmetry:
+//   new Module.LogReplayTask(cfgVal, logSampleRateHz, flapsRawAdcAvailable)
+//   task.processRow(rowVal)  -> Uint8Array (77 bytes) or zero-length
+//                                array during synth-path lag
+//   task.flush()             -> Array<Uint8Array> tail
+//   task.reset()
+//   task.delete()
+// ---------------------------------------------------------------------------
+class LogReplayTaskHandle {
+public:
+    LogReplayTaskHandle(val cfgVal, int logSampleRateHz, bool flapsRawAdcAvailable)
+        : task_(ConfigFromVal(cfgVal), logSampleRateHz, flapsRawAdcAvailable)
+    {}
+
+    // Process one row and return the wire bytes. Empty Uint8Array on
+    // synth-path lag (engine returns nullopt for the first
+    // kSynthHalfWindowTicks rows on pre-flapsRawADC logs).
+    val processRow(val rowVal)
+    {
+        const onspeed::LogRow row = LogRowFromVal(rowVal);
+        const std::vector<uint8_t> bytes = task_.processRow(row);
+        val Uint8Array = val::global("Uint8Array");
+        if (bytes.empty()) {
+            return Uint8Array.new_(0);
+        }
+        return Uint8Array.new_(typed_memory_view(bytes.size(), bytes.data()));
+    }
+
+    // Drain trailing rows held in the synth circular buffer. Returns a
+    // JS Array of Uint8Array frames in arrival order. Empty array on
+    // modern logs (flapsRawAdcAvailable=true).
+    val flush()
+    {
+        const std::vector<std::vector<uint8_t>> tail = task_.flush();
+        val Uint8Array = val::global("Uint8Array");
+        val arr = val::array();
+        for (size_t i = 0; i < tail.size(); ++i) {
+            arr.set(i, Uint8Array.new_(typed_memory_view(
+                tail[i].size(), tail[i].data())));
+        }
+        return arr;
+    }
+
+    void reset() { task_.reset(); }
+
+    // Diagnostic accessor: return the engine's most recent
+    // ReplayStepResult as a plain JS object. Used by ?debug=1 in the
+    // replay tool to compare the C++ engine's aoa to the JS engine's
+    // aoaDeg side by side.
+    val lastStep() const {
+        return StepResultToVal(task_.lastStep());
+    }
+
+    // Diagnostic: cfg.aFlaps[*].iDegrees in storage order, as a JS
+    // Array<number>. Used to verify the cfg round-trip preserved
+    // flap detent ordering.
+    val cfgFlapsDegrees() const {
+        const std::vector<int> v = task_.cfgFlapsDegrees();
+        val arr = val::array();
+        for (size_t i = 0; i < v.size(); ++i) arr.set(i, v[i]);
+        return arr;
+    }
+
+private:
+    onspeed::replay::LogReplayTask task_;
 };
 
 // ---------------------------------------------------------------------------
@@ -623,6 +710,57 @@ static val build_display_frame(val inputsVal)
 }
 
 // ---------------------------------------------------------------------------
+// parse_display_frame
+//
+// Inverse of build_display_frame. Decodes a 77-byte v4.23 #1 frame
+// back into the DisplayFrame struct as a plain JS object. Returns
+// null on malformed bytes (wrong length, wrong magic, bad CRC,
+// wrong terminator).
+//
+// Used by the replay tool's diagnostic mode to verify wire-encoded
+// values match what the engine and task pipelines intended to emit.
+// ---------------------------------------------------------------------------
+static val parse_display_frame(val bytesVal)
+{
+    // Accept Uint8Array or Array of bytes.
+    const int n = bytesVal["length"].as<int>();
+    std::vector<uint8_t> buf(static_cast<size_t>(n));
+    for (int i = 0; i < n; ++i) {
+        buf[static_cast<size_t>(i)] =
+            static_cast<uint8_t>(bytesVal[i].as<int>());
+    }
+    auto opt = onspeed::proto::ParseDisplayFrame(buf.data(), buf.size());
+    if (!opt.has_value()) return val::null();
+    const onspeed::proto::DisplayFrame& f = opt.value();
+
+    val out = val::object();
+    out.set("pitchDeg",            f.pitchDeg);
+    out.set("rollDeg",             f.rollDeg);
+    out.set("iasKt",               f.iasKt);
+    out.set("iasIsValid",          f.iasIsValid);
+    out.set("paltFt",              f.paltFt);
+    out.set("turnRateDps",         f.turnRateDps);
+    out.set("lateralG",            f.lateralG);
+    out.set("verticalG",           f.verticalG);
+    out.set("percentLiftPct",      f.percentLiftPct);
+    out.set("vsiFpm",              f.vsiFpm);
+    out.set("oatC",                f.oatC);
+    out.set("flightPathDeg",       f.flightPathDeg);
+    out.set("flapsDeg",            f.flapsDeg);
+    out.set("tonesOnPctLift",      f.tonesOnPctLift);
+    out.set("onSpeedFastPctLift",  f.onSpeedFastPctLift);
+    out.set("onSpeedSlowPctLift",  f.onSpeedSlowPctLift);
+    out.set("stallWarnPctLift",    f.stallWarnPctLift);
+    out.set("flapsMinDeg",         f.flapsMinDeg);
+    out.set("flapsMaxDeg",         f.flapsMaxDeg);
+    out.set("gOnsetRate",          f.gOnsetRate);
+    out.set("spinRecoveryCue",     f.spinRecoveryCue);
+    out.set("dataMark",            f.dataMark);
+    out.set("pipPctLift",          f.pipPctLift);
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // tone_calc / tone_calc_muted (PR 1.5)
 //
 // Pure tone-decision logic from `onspeed_core/audio/ToneCalc.{h,cpp}` —
@@ -688,9 +826,26 @@ EMSCRIPTEN_BINDINGS(onspeed_core_module) {
         .function("flush", &LogReplayEngineHandle::flush)
         .function("reset", &LogReplayEngineHandle::reset);
 
+    // Issue #514: single-source CSV-row → wire-bytes pipeline. Wraps
+    // the engine + iasAlive hysteresis + DisplayBuildInputs fill +
+    // BuildDisplayFrame in one C++ entry point so the JS replay tool
+    // gets bit-identical wire output to the firmware path.
+    class_<LogReplayTaskHandle>("LogReplayTask")
+        .constructor<val, int, bool>()
+        .function("processRow",        &LogReplayTaskHandle::processRow)
+        .function("flush",             &LogReplayTaskHandle::flush)
+        .function("reset",             &LogReplayTaskHandle::reset)
+        .function("lastStep",          &LogReplayTaskHandle::lastStep)
+        .function("cfgFlapsDegrees",   &LogReplayTaskHandle::cfgFlapsDegrees);
+
     // Bulldog round-1 fix C1: expose the canonical wire-frame builder so
     // the M5-replay-WASM Node test can drive frames without a JS hand-port.
     function("build_display_frame", &build_display_frame);
+
+    // Inverse of build_display_frame, for the replay tool's diagnostic
+    // mode. Returns the parsed DisplayFrame as a JS object, or null on
+    // malformed input.
+    function("parse_display_frame", &parse_display_frame);
 
     // PR 1.5: expose ToneCalc decision logic so JS callers (docs-site
     // tone-sim, future audio-synthesis PR) drive the same tone decisions

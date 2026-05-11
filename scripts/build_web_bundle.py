@@ -125,15 +125,6 @@ def _all_js_files():
             rel_unix = rel.replace(os.sep, "/")
             if rel_unix in {"scenarios.js", "scenarios-main.js"}:
                 continue
-            # The /replay page is dev-server only — a video-overlay
-            # offline-analysis tool that has no place on the airplane's
-            # WiFi captive portal. Skip its modules from the firmware
-            # bundle. The dev-server still serves them as raw ES files.
-            # (Originally added in 59d1b5b, somehow dropped in a later
-            # commit. PR #467 surfaced this when a WASM wrapper hit the
-            # bundler's regex grammar with `export async function`.)
-            if rel_unix.startswith("replay/") or rel_unix == "pages/ReplayPage.js":
-                continue
             out.append(os.path.join(root, name))
     return sorted(out)
 
