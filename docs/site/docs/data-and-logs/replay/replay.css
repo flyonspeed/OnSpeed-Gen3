@@ -3,6 +3,35 @@
  * on the firmware-bundle's shell chrome.
  */
 
+/* Avionics palette tokens, scoped to the replay tool so they don't
+ * leak into the Material theme's own custom-property graph. The SVG
+ * components in packages/ui-core/ reference these as `var(--panel-bg)`,
+ * `var(--white)`, etc. via the `colors` map in core/colors.js. Without
+ * this block the variables are unset and SVG fills resolve to
+ * `transparent`, producing the "outlines only" rendering bug.
+ *
+ * Values match tools/web/lib/shell/PageShell.css :root so the docs-site
+ * replay overlay looks identical to the live `/indexer` page.
+ */
+.replay-page {
+  --bg: #111;
+  --ink: #eee;
+  --panel-bg: #000;
+  --white: #ffffff;
+  --green: #00ff3a;
+  --yellow: #fffd40;
+  --red: #ff0018;
+  --grey: #888;
+  --dark-grey: #6b6d54;
+  --light-grey: #aaa;
+  --sky: #00fffe;
+  --ground: #954511;
+  --magenta: #ff00ff;
+  --orange: #ff8800;
+  --blue: #0000ff;
+  --font-numeric: 'B612', 'Helvetica Neue', Arial, sans-serif;
+}
+
 /* ---------- ReplayPage ---------------------------------------------------
    Dev-server-only video overlay tool. Pilot loads a flight video and the
    matching SD-log CSV; the page time-syncs them via a single takeoff
