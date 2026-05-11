@@ -8,7 +8,9 @@ on:
       - '.github/workflows/docs.yml'
       - 'software/OnSpeed-M5-Display/**'
       - 'scripts/build_m5_sim_for_docs.sh'
+      - 'scripts/build_web_bundle.py'
       - 'software/Libraries/onspeed_core/**'
+      - 'packages/ui-core/**'
       - 'tools/web/test/wasm-smoke.mjs'
   pull_request:
     branches: [master]
@@ -17,7 +19,9 @@ on:
       - '.github/workflows/docs.yml'
       - 'software/OnSpeed-M5-Display/**'
       - 'scripts/build_m5_sim_for_docs.sh'
+      - 'scripts/build_web_bundle.py'
       - 'software/Libraries/onspeed_core/**'
+      - 'packages/ui-core/**'
       - 'tools/web/test/wasm-smoke.mjs'
   release:
     types: [published]
@@ -54,6 +58,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Build docs-site replay bundle
+        run: python3 scripts/build_web_bundle.py --target replay
       - name: Run docs-site replay tests
         run: npm test --prefix docs/site/tests
       - name: Build site (strict)
@@ -88,6 +94,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Build docs-site replay bundle
+        run: python3 scripts/build_web_bundle.py --target replay
       - name: Run docs-site replay tests
         run: npm test --prefix docs/site/tests
       - name: Configure git
@@ -140,6 +148,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Build docs-site replay bundle
+        run: python3 scripts/build_web_bundle.py --target replay
       - name: Run docs-site replay tests
         run: npm test --prefix docs/site/tests
       - name: Configure git
