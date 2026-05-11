@@ -39,36 +39,45 @@
  * @returns {Object} M5State (see state-shape.js).
  */
 export function wsRecordToState(r, snapshot, gRing) {
-  // Per-flap percent-lift integer for the corner readout. Truncate
-  // toward zero (the firmware uses (int)x), clamp to [0, 99] to match
-  // the M5's 2-digit display field. Pass null through when the
-  // snapshot is missing OR when air data is invalid; the formatter
-  // (PercentLiftNumber) treats null as "show dashes."
+  // Each display* field prefers the 500 ms snapshot (matching the M5
+  // panel's text-readout cadence); when the snapshot hasn't fired yet
+  // (first ~500 ms after page load or scenario switch), fall back to
+  // the live value from r. This avoids the "00 flash" bug where the
+  // AOA corner showed "00" instead of the correct value during the
+  // gap between the first valid WS frame and the first snapshot tick
+  // — bulldog catch on PR-C round 1, see commit 7/8.
+  //
+  // Final fallbacks: null for IAS- and percent-lift-derived fields (so
+  // the formatter renders dashes); 0 for non-air-data fields (palt,
+  // pitch, verticalG come from independent sensors and stay numeric
+  // even when air data is invalid).
   const liveSnap = snapshot || {};
   const ring = gRing || {};
   const aoaValid = r.aoaIsValid !== false;
-  const pctLiftSnap = (!aoaValid || !Number.isFinite(liveSnap.percentLift))
+  const snapOrLive = (snapVal, liveVal, dflt) => {
+    if (Number.isFinite(snapVal)) return snapVal;
+    if (Number.isFinite(liveVal)) return liveVal;
+    return dflt;
+  };
+  const pctLiftSnap = !aoaValid
     ? null
-    : Math.trunc(Math.max(0, Math.min(99, liveSnap.percentLift)));
+    : Number.isFinite(liveSnap.percentLift)
+      ? Math.trunc(Math.max(0, Math.min(99, liveSnap.percentLift)))
+      : Number.isFinite(r.percentLift)
+        ? Math.trunc(Math.max(0, Math.min(99, r.percentLift)))
+        : null;
 
   return {
     // ----- Validity gate -----
     IasIsValid: aoaValid,
 
-    // ----- 500 ms snapshot fields -----
-    // For IAS, propagate null when the snapshot is missing — the
-    // formatter (m5FmtIasKt) renders null/NaN as IAS_DASHES, matching
-    // the firmware's snprintf("---") gate. Non-air-data display
-    // fields (palt, pitch, verticalG) keep their last numeric snapshot
-    // because they come from independent sensors (Kalman alt, AHRS,
-    // IMU) that aren't gated on bIasAlive.
-    displayIAS:         Number.isFinite(liveSnap.iasKt) ? liveSnap.iasKt : null,
-    displayPalt:        Number.isFinite(liveSnap.paltFt) ? liveSnap.paltFt : 0,
-    displayPitch:       Number.isFinite(liveSnap.pitchDeg) ? liveSnap.pitchDeg : 0,
-    displayVerticalG:   Number.isFinite(liveSnap.verticalG) ? liveSnap.verticalG : 0,
+    // ----- 500 ms snapshot fields (snap → live → fallback) -----
+    displayIAS:         snapOrLive(liveSnap.iasKt,             r.iasKt,        null),
+    displayPalt:        snapOrLive(liveSnap.paltFt,            r.paltFt,       0),
+    displayPitch:       snapOrLive(liveSnap.pitchDeg,          r.pitchDeg,     0),
+    displayVerticalG:   snapOrLive(liveSnap.verticalG,         r.verticalG,    0),
     displayPercentLift: pctLiftSnap,
-    displayDecelRate:   Number.isFinite(liveSnap.decelRateSmoothed)
-                          ? liveSnap.decelRateSmoothed : 0,
+    displayDecelRate:   snapOrLive(liveSnap.decelRateSmoothed, r.decelRate,    0),
 
     // ----- Every-frame fields -----
     PercentLift: r.percentLift ?? 0,

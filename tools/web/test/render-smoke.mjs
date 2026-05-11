@@ -662,6 +662,49 @@ test('DecelMode renders "---" for IAS when iasKt is null', () => {
   assertNoPlaceholderLeaks(texts);
 });
 
+// Regression test for the "00 flash" bug found by bulldog round 1 of
+// PR-C: when the 500 ms display snapshot hasn't fired yet but a valid
+// WS frame has arrived (the first ~450 ms of any page load), the
+// adapter MUST fall back to r.percentLift / r.iasKt so corner readouts
+// show real values, not "00" or "0".
+test('adapter falls back to r.* when snapshot is null (no "00 flash")', () => {
+  // Valid WS frame, real percent-lift, but no snapshot yet (the
+  // useDisplaySnapshot interval hasn't ticked).
+  const r = {
+    ...makeNullAirDataRecord(),
+    aoaIsValid: true,
+    iasKt:       95,
+    paltFt:      5000,
+    pitchDeg:    3.5,
+    verticalG:   1.0,
+    percentLift: 47.7,
+    decelRate:   -0.2,
+  };
+  // Snapshot is null — useDisplaySnapshot returns null until first tick.
+  const state = wsRecordToState(r, null,
+    { buf: new Float32Array(300).fill(1.0), writeIdx: 0, hasSamples: false });
+
+  // displayIAS should fall back to r.iasKt = 95, not null.
+  if (state.displayIAS !== 95)
+    throw new Error(`displayIAS should fall back to r.iasKt=95, got ${state.displayIAS}`);
+  // displayPercentLift should fall back to truncated r.percentLift = 47, not null.
+  if (state.displayPercentLift !== 47)
+    throw new Error(`displayPercentLift should fall back to trunc(r.percentLift)=47, got ${state.displayPercentLift}`);
+  // displayPalt / displayPitch / displayVerticalG fall back to r.*.
+  if (state.displayPalt !== 5000)
+    throw new Error(`displayPalt should fall back to r.paltFt=5000, got ${state.displayPalt}`);
+  if (state.displayPitch !== 3.5)
+    throw new Error(`displayPitch should fall back to r.pitchDeg=3.5, got ${state.displayPitch}`);
+  if (state.displayVerticalG !== 1.0)
+    throw new Error(`displayVerticalG should fall back to r.verticalG=1.0, got ${state.displayVerticalG}`);
+  // displayDecelRate falls back to r.decelRate.
+  if (state.displayDecelRate !== -0.2)
+    throw new Error(`displayDecelRate should fall back to r.decelRate=-0.2, got ${state.displayDecelRate}`);
+  // IasIsValid stays true (matches r.aoaIsValid).
+  if (state.IasIsValid !== true)
+    throw new Error(`IasIsValid should be true, got ${state.IasIsValid}`);
+});
+
 test('EnergyMode renders centered "--" placeholder for percent-lift when aoaIsValid is false', () => {
   const r = makeNullAirDataRecord();
   const root = renderInto(html`<${m5modesMod.EnergyMode} state=${stateFrom(r)} stale=${false} />`);
