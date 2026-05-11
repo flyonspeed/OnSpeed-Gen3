@@ -2,7 +2,11 @@
 //
 // Sibling file replay.md embeds:
 //   <div id="replay-app"></div>
-//   <script type="module" src="replay/replay-entry.js"></script>
+//   <script type="module" src="replay-entry.js"></script>
+//
+// The bare filenames matter: replay.md is rendered at URL
+// /data-and-logs/replay/ (MkDocs use_directory_urls), and the assets
+// are siblings of the rendered page, not nested one level deeper.
 //
 // This module imports ReplayPage from the relocated lib/ tree and
 // renders it into the mount point. No firmware-bundle entry.js
