@@ -36,9 +36,8 @@ import { m5FlashFlagNow, m5FmtIasKt } from './helpers.js';
 
 // Build the per-frame anchors array the existing Indexer expects.
 //
-// Layout (from modes.js::anchorsFromRec): [0, 0, tonesOn, fastOnSpd,
-// slowOnSpd, 0, pip, stallWarn]. PR 2 reads each from the M5 sim
-// state.
+// Layout: [0, 0, tonesOn, fastOnSpd, slowOnSpd, 0, pip, stallWarn].
+// Mirrors the M5 firmware's main.cpp anchor packing for displayAOA().
 const anchorsFromState = (state) => [
   0, 0,
   state.TonesOnPctLift,

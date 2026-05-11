@@ -98,5 +98,3 @@
 // `Slip` is explicitly NOT part of the canonical shape. SlipBall reads
 // LateralG directly and clamps internally. Keeping Slip out prevents
 // re-introducing the saturation-loses-smoothing bug from PR #512.
-
-export {};

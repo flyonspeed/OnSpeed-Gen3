@@ -95,16 +95,8 @@ EXCLUDE_BUNDLE = {
 #     the M5 build script runs locally; they're .gitignore'd but still
 #     on disk, and we don't want to pull them into the firmware PROGMEM
 #     bundle.
-#   - packages/ui-core/components/svg/m5modes/    — the M5-state-shaped
-#     renderers. Used by the docs-site replay page today, and (per
-#     issue #523 PR-C) being adopted by the firmware-served /indexer
-#     page. While the migration is in progress modes.js is still the
-#     indexer's renderer; m5modes is dead code in the firmware bundle
-#     until IndexerPage switches over. Once modes.js is deleted and
-#     IndexerPage imports from m5modes, drop this exclusion.
 EXCLUDE_DIRS = {
     "tools/web/lib/replay",
-    "packages/ui-core/components/svg/m5modes",
 }
 
 # The vendored Preact bundle: emitted FIRST, IIFE-wrapped (its
@@ -760,8 +752,17 @@ def main():
     # of `0x..,` text), so the threshold is roughly 6× the actual flash
     # footprint.  The link-time bytes are the gzip lengths printed
     # above (`static_app_js_len`, `static_app_css_len`); those drive
-    # real flash usage and stay well under 100 KB.
-    PROGMEM_BUDGET = 640 * 1024
+    # real flash usage and stay well under 200 KB.
+    #
+    # 800 KB cap = ~133 KB of actual flash. We have 22 MB of partition,
+    # so this is a "did something accidentally double the bundle?"
+    # tripwire, not a hardware constraint. Bumped from 640 KB in PR-C
+    # because m5modes/ + the wsRecordToState adapter + useDisplaySnapshot
+    # hook pushed us into ~590 KB of gzip-as-text, well under 200 KB of
+    # actual flash. If you find yourself bumping this again, ask whether
+    # the new consumer should also live in /static/ as a separate URL
+    # (see #525 for the bundler-extension proposal).
+    PROGMEM_BUDGET = 800 * 1024
     if js_size + css_size + stubs_sz > PROGMEM_BUDGET:
         raise SystemExit(
             f"build_web_bundle: outputs exceed {PROGMEM_BUDGET // 1024} KB "

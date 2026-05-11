@@ -41,19 +41,28 @@
 export function wsRecordToState(r, snapshot, gRing) {
   // Per-flap percent-lift integer for the corner readout. Truncate
   // toward zero (the firmware uses (int)x), clamp to [0, 99] to match
-  // the M5's 2-digit display field.
+  // the M5's 2-digit display field. Pass null through when the
+  // snapshot is missing OR when air data is invalid; the formatter
+  // (PercentLiftNumber) treats null as "show dashes."
   const liveSnap = snapshot || {};
   const ring = gRing || {};
-  const pctLiftSnap = Number.isFinite(liveSnap.percentLift)
-    ? Math.trunc(Math.max(0, Math.min(99, liveSnap.percentLift)))
-    : 0;
+  const aoaValid = r.aoaIsValid !== false;
+  const pctLiftSnap = (!aoaValid || !Number.isFinite(liveSnap.percentLift))
+    ? null
+    : Math.trunc(Math.max(0, Math.min(99, liveSnap.percentLift)));
 
   return {
     // ----- Validity gate -----
-    IasIsValid: r.aoaIsValid !== false,
+    IasIsValid: aoaValid,
 
     // ----- 500 ms snapshot fields -----
-    displayIAS:         Number.isFinite(liveSnap.iasKt) ? liveSnap.iasKt : 0,
+    // For IAS, propagate null when the snapshot is missing — the
+    // formatter (m5FmtIasKt) renders null/NaN as IAS_DASHES, matching
+    // the firmware's snprintf("---") gate. Non-air-data display
+    // fields (palt, pitch, verticalG) keep their last numeric snapshot
+    // because they come from independent sensors (Kalman alt, AHRS,
+    // IMU) that aren't gated on bIasAlive.
+    displayIAS:         Number.isFinite(liveSnap.iasKt) ? liveSnap.iasKt : null,
     displayPalt:        Number.isFinite(liveSnap.paltFt) ? liveSnap.paltFt : 0,
     displayPitch:       Number.isFinite(liveSnap.pitchDeg) ? liveSnap.pitchDeg : 0,
     displayVerticalG:   Number.isFinite(liveSnap.verticalG) ? liveSnap.verticalG : 0,

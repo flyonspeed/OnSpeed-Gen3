@@ -182,7 +182,10 @@ const rebootMod  = await import(new URL('../lib/pages/RebootPage.js', import.met
 const formatMod  = await import(new URL('../lib/pages/FormatPage.js', import.meta.url));
 const upgradeMod = await import(new URL('../lib/pages/UpgradePage.js', import.meta.url));
 const sensorCalMod = await import(new URL('../lib/pages/SensorCalPage.js', import.meta.url));
-const modesMod   = await import(new URL('../lib/modes.js', import.meta.url));
+const m5modesMod = await import(
+  new URL('../../../packages/ui-core/components/svg/m5modes/index.js', import.meta.url));
+const { wsRecordToState } = await import(
+  new URL('../../../packages/ui-core/adapters/wsRecordToState.js', import.meta.url));
 
 let passed = 0, failed = 0;
 const results = [];
@@ -555,9 +558,26 @@ function assertNoPlaceholderLeaks(texts) {
   }
 }
 
-test('Mode0 renders three-dash placeholder for IAS when iasKt is null', () => {
+// Build an M5State from a WebSocket record via the same adapter
+// IndexerPage uses. snapshot mirrors what useDisplaySnapshot would
+// latch from this rec; gRing is a fresh 1.0G ring (M5 setup default).
+// The display* fields that drive corner dash rendering come from the
+// snapshot, so the snapshot must reflect the same iasKt/percentLift
+// the test fixture sets in r.
+function stateFrom(r) {
+  return wsRecordToState(r, {
+    iasKt:             r.iasKt,
+    paltFt:            r.paltFt,
+    pitchDeg:          r.pitchDeg,
+    verticalG:         r.verticalG,
+    percentLift:       r.percentLift,
+    decelRateSmoothed: r.decelRate,
+  }, { buf: new Float32Array(300).fill(1.0), writeIdx: 0, hasSamples: false });
+}
+
+test('EnergyMode renders three-dash placeholder for IAS when iasKt is null', () => {
   const r = makeNullAirDataRecord();
-  const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
+  const root = renderInto(html`<${m5modesMod.EnergyMode} state=${stateFrom(r)} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
   // IAS dashes are three ASCII hyphens — one per missing digit in the
   // 3-digit IAS field — so the placeholder right-aligns to the "IAS"
@@ -594,50 +614,57 @@ function findCornerByLabel(root, label) {
 // Each test fixture pins exactly one source: the other corner stays
 // numeric so the corner-by-label lookup confirms the dashes land in
 // the expected position.
-test('Mode1 IAS-corner shows "---" when iasKt is null (AOA stays numeric)', () => {
+test('AttitudeMode IAS-corner shows "---" when iasKt is null (AOA stays numeric)', () => {
   const r = { ...makeNullAirDataRecord(), iasKt: null,
               aoaIsValid: true, percentLift: 42 };
-  const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
+  const root = renderInto(html`<${m5modesMod.AttitudeMode} state=${stateFrom(r)} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
   const ias = findCornerByLabel(root, 'IAS');
-  if (!ias) throw new Error('Mode1 has no IAS corner');
+  if (!ias) throw new Error('AttitudeMode has no IAS corner');
   if (ias.value !== '---')
     throw new Error(`IAS corner value should be "---", got ${JSON.stringify(ias.value)}`);
   const aoa = findCornerByLabel(root, 'AOA');
-  if (!aoa) throw new Error('Mode1 has no AOA corner');
+  if (!aoa) throw new Error('AttitudeMode has no AOA corner');
   if (aoa.value === '--' || aoa.value === '---')
     throw new Error('AOA corner should render numeric percent-lift, got dashes');
   assertNoPlaceholderLeaks(texts);
 });
 
-test('Mode1 AOA-corner shows "--" when aoaIsValid is false (IAS stays numeric)', () => {
+test('AttitudeMode AOA-corner shows "--" when aoaIsValid is false', () => {
+  // When air data is invalid the M5 firmware gates BOTH IAS and AOA
+  // corners on bIasAlive: snprintf("---") for IAS, snprintf("--")
+  // for AOA. The pre-PR-#523 modes.js path gated IAS on the value
+  // alone (not the validity flag), which let a stale-but-numeric IAS
+  // render alongside dashed AOA. The m5modes/ path used by both
+  // /indexer and /replay matches the firmware: when !aoaIsValid
+  // both corners go to dashes regardless of whether iasKt is finite.
   const r = { ...makeNullAirDataRecord(), iasKt: 100,
               aoaIsValid: false, aoaDeg: -100 };
-  const root = renderInto(html`<${modesMod.Mode1} r=${r} stale=${false} />`);
+  const root = renderInto(html`<${m5modesMod.AttitudeMode} state=${stateFrom(r)} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
   const aoa = findCornerByLabel(root, 'AOA');
-  if (!aoa) throw new Error('Mode1 has no AOA corner');
+  if (!aoa) throw new Error('AttitudeMode has no AOA corner');
   if (aoa.value !== '--')
     throw new Error(`AOA corner value should be "--", got ${JSON.stringify(aoa.value)}`);
   const ias = findCornerByLabel(root, 'IAS');
-  if (!ias) throw new Error('Mode1 has no IAS corner');
-  if (ias.value === '---' || ias.value === '--')
-    throw new Error('IAS corner should render the numeric IAS, got dashes');
+  if (!ias) throw new Error('AttitudeMode has no IAS corner');
+  if (ias.value !== '---')
+    throw new Error(`IAS corner should also be "---" when !aoaIsValid (firmware-aligned), got ${JSON.stringify(ias.value)}`);
   assertNoPlaceholderLeaks(texts);
 });
 
-test('Mode3 renders "---" for IAS when iasKt is null', () => {
+test('DecelMode renders "---" for IAS when iasKt is null', () => {
   const r = makeNullAirDataRecord();
-  const root = renderInto(html`<${modesMod.Mode3} r=${r} stale=${false} />`);
+  const root = renderInto(html`<${m5modesMod.DecelMode} state=${stateFrom(r)} stale=${false} />`);
   const texts = findTextNodes(root).map(n => n.data);
   if (!texts.some(t => t === '---'))
-    throw new Error('expected "---" text node for null IAS in Mode3, got: ' + texts.join('|'));
+    throw new Error('expected "---" text node for null IAS in DecelMode, got: ' + texts.join('|'));
   assertNoPlaceholderLeaks(texts);
 });
 
-test('Mode0 renders centered "--" placeholder for percent-lift when aoaIsValid is false', () => {
+test('EnergyMode renders centered "--" placeholder for percent-lift when aoaIsValid is false', () => {
   const r = makeNullAirDataRecord();
-  const root = renderInto(html`<${modesMod.Mode0} r=${r} stale=${false} />`);
+  const root = renderInto(html`<${m5modesMod.EnergyMode} state=${stateFrom(r)} stale=${false} />`);
   const groups = [...walk(root)].filter(n =>
     n.localName === 'g' && n.getAttribute('data-widget') === 'percent-lift-number');
   if (groups.length !== 1)
