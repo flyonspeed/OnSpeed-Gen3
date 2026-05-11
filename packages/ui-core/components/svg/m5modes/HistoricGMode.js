@@ -18,10 +18,10 @@
 // index — the next slot it will overwrite, equivalently the oldest
 // sample in the visualization.
 
-import { html } from '../../../../../../../../../packages/ui-core/vendor/preact-standalone.js';
-import * as G from '../../../../../../../../../packages/ui-core/core/geometry.js';
-import { colors } from '../../../../../../../../../packages/ui-core/core/colors.js';
-import { GHistory } from '../../../../../../../../../packages/ui-core/components/svg/index.js';
+import { html } from '../../../vendor/preact-standalone.js';
+import * as G from '../../../core/geometry.js';
+import { colors } from '../../../core/colors.js';
+import { GHistory } from '../index.js';
 
 // "Has samples" gate matches the live IndexerPage's logic — the M5
 // firmware initializes its ring with 1.0 G in setup(), so the buffer

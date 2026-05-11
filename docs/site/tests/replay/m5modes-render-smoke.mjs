@@ -1,8 +1,11 @@
 // m5modes-render-smoke.mjs — render the M5-mode SVG components into
 // a mock DOM and assert each one emits its expected data-widget tags.
 //
-// The m5modes live with the docs-site replay tool now; this test
-// lives next to them under docs/site/tests/replay/. Same harness
+// m5modes live in packages/ui-core/components/svg/m5modes/ and are
+// shared between the docs-site replay tool and the firmware-served
+// /indexer page. This test lives under docs/site/tests/replay/ for
+// historical reasons (it predates the relocation and the consumers
+// it primarily validates are the docs-site replay path). Same harness
 // pattern as the firmware-bundle render-smoke (tools/web/test/), but
 // scoped to just the m5modes — keeps the preact instance shared with
 // the components under test (mixing two preact instances breaks
@@ -120,8 +123,6 @@ function findFirstWithAttr(root, name, value) {
 // Imports + harness — preact instance is the one m5modes also use,
 // because m5modes/index.js transitively imports the same file.
 // ---------------------------------------------------------------------
-const REPLAY_LIB = path.resolve(__dirname,
-  '../../docs/data-and-logs/replay/lib');
 const UI_CORE = path.resolve(__dirname,
   '../../../../packages/ui-core');
 
@@ -130,7 +131,7 @@ const preact = await import(
 const { html, render } = preact;
 
 const m5modesMod = await import(
-  new URL(`${REPLAY_LIB}/components/svg/m5modes/index.js`, import.meta.url));
+  new URL(`${UI_CORE}/components/svg/m5modes/index.js`, import.meta.url));
 
 function renderInto(vnode) {
   const root = new MockNode('svg-root');

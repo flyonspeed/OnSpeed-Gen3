@@ -90,12 +90,21 @@ EXCLUDE_BUNDLE = {
 }
 
 # Directories under the source trees that the bundler must not walk:
-#   - tools/web/lib/replay/     — left over from pre-PR-#512 replay tool.
-#     Build artifacts (M5 WASM) land here when the M5 build script runs
-#     locally; they're .gitignore'd but still on disk, and we don't
-#     want to pull them into the firmware PROGMEM bundle.
+#   - tools/web/lib/replay/                       — left over from
+#     pre-PR-#512 replay tool. Build artifacts (M5 WASM) land here when
+#     the M5 build script runs locally; they're .gitignore'd but still
+#     on disk, and we don't want to pull them into the firmware PROGMEM
+#     bundle.
+#   - packages/ui-core/components/svg/m5modes/    — the M5-state-shaped
+#     renderers. Used by the docs-site replay page today, and (per
+#     issue #523 PR-C) being adopted by the firmware-served /indexer
+#     page. While the migration is in progress modes.js is still the
+#     indexer's renderer; m5modes is dead code in the firmware bundle
+#     until IndexerPage switches over. Once modes.js is deleted and
+#     IndexerPage imports from m5modes, drop this exclusion.
 EXCLUDE_DIRS = {
     "tools/web/lib/replay",
+    "packages/ui-core/components/svg/m5modes",
 }
 
 # The vendored Preact bundle: emitted FIRST, IIFE-wrapped (its

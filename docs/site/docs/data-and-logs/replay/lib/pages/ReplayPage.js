@@ -54,7 +54,7 @@ import { PresentationFilter, PRESENTATION_PRESETS, defaultPresetForLogRate }
 import { getWasmCore } from '../replay/wasm_core.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
-} from '../components/svg/m5modes/index.js';
+} from '../../../../../../../packages/ui-core/components/svg/m5modes/index.js';
 
 // Mode list indexed by displayType (0..4). The int returned by
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
