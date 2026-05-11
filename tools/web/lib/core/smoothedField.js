@@ -43,7 +43,7 @@
 //   without triggering a re-render of the consuming component beyond
 //   the state change refresh already causes.
 
-import { useState, useRef, useEffect } from '../vendor/preact-standalone.js';
+import { useState, useRef, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 
 // Pure ring-buffer helper exposed for unit testing without dragging
 // Preact into the test environment.  The hook below wraps this with

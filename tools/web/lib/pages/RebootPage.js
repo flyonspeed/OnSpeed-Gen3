@@ -7,7 +7,7 @@
 //                 indicator until either the device responds (we
 //                 redirect to "/") or the user gives up.
 
-import { html, useState, useEffect } from '../vendor/preact-standalone.js';
+import { html, useState, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { postJson } from '../shell/apiClient.js';
 

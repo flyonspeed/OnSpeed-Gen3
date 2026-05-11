@@ -4,7 +4,7 @@
 // `start()` looks up the matching page component and renders it inside
 // PageShell.
 
-import { html, render } from './vendor/preact-standalone.js';
+import { html, render } from '../../../packages/ui-core/vendor/preact-standalone.js';
 import { IndexerPage } from './pages/IndexerPage.js';
 import { CalWizardPage } from './pages/CalWizardPage.js';
 import { IndexPage } from './pages/IndexPage.js';

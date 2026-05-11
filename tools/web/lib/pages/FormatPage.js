@@ -11,7 +11,7 @@
 // future PR can move it to a real background task without breaking
 // this client.
 
-import { html, useState, useEffect } from '../vendor/preact-standalone.js';
+import { html, useState, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { getJson, postJson, ApiError } from '../shell/apiClient.js';
 

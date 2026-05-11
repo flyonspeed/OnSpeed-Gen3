@@ -28,7 +28,7 @@
 // serves the PNG file directly from `public/`.  PageShell reads either
 // source.
 
-import { html, useState, useEffect } from '../vendor/preact-standalone.js';
+import { html, useState, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { NAV, navIdForPath } from './nav.js';
 
 function resolveLogoSrc() {

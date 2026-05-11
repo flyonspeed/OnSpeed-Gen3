@@ -8,15 +8,15 @@
 // and gating choice in here corresponds to a line over there. The
 // rendering math itself lives in the SVG primitives in ../index.js.
 
-import { html } from '../../../vendor/preact-standalone.js';
-import * as G from '../../../core/geometry.js';
-import { colors } from '../../../core/colors.js';
-import { fmt } from '../../../core/format.js';
+import { html } from '../../../../../../../../../packages/ui-core/vendor/preact-standalone.js';
+import * as G from '../../../../../../../../../packages/ui-core/core/geometry.js';
+import { colors } from '../../../../../../../../../packages/ui-core/core/colors.js';
+import { fmt } from '../../../../../../../../../packages/ui-core/core/format.js';
 import {
   Horizon, PitchLadder, BankArc, AircraftSymbol, TopPointer,
   FlightPathMarker, PitchReadout, SlipBall, EdgeTape, CornerReadout,
   PCT_DASHES,
-} from '../index.js';
+} from '../../../../../../../../../packages/ui-core/components/svg/index.js';
 import { m5FmtIasKt, m5FmtPalt } from './helpers.js';
 
 export const AttitudeMode = ({ state, stale = false }) => {

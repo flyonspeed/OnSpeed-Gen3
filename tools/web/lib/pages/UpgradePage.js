@@ -11,7 +11,7 @@
 // device to come back; a separate /reboot poll could chain here
 // later if desired.
 
-import { html, useState } from '../vendor/preact-standalone.js';
+import { html, useState } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 
 export function UpgradePage() {

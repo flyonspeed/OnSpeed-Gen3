@@ -7,12 +7,16 @@ has no Internet dependency.
 
 ## Files
 
-| File | Source | Size | License |
-|---|---|---:|---|
-| `preact-standalone.js` | https://unpkg.com/htm/preact/standalone.module.js | ~14 KB | MIT |
-| `chartist.js` | https://github.com/gionkunz/chartist-js v0.11.4 | ~40 KB | WTFPL or MIT |
-| `chartist.css` | https://github.com/gionkunz/chartist-js v0.11.4 | ~11 KB | WTFPL or MIT |
-| `regression.js` | https://github.com/Tom-Alexander/regression-js v2.0.1 | ~4 KB | MIT |
+| File | Location | Source | Size | License |
+|---|---|---|---:|---|
+| `preact-standalone.js` | `packages/ui-core/vendor/` | https://unpkg.com/htm/preact/standalone.module.js | ~14 KB | MIT |
+| `chartist.js` | `tools/web/lib/vendor/` | https://github.com/gionkunz/chartist-js v0.11.4 | ~40 KB | WTFPL or MIT |
+| `chartist.css` | `tools/web/lib/vendor/` | https://github.com/gionkunz/chartist-js v0.11.4 | ~11 KB | WTFPL or MIT |
+| `regression.js` | `tools/web/lib/vendor/` | https://github.com/Tom-Alexander/regression-js v2.0.1 | ~4 KB | MIT |
+
+Preact lives under `packages/ui-core/` because both the firmware-served pages
+and the docs-site replay page consume it; chartist and regression are
+firmware-page-specific (cal-wizard review chart).
 
 The chartist and regression sources are the same minified bundles
 the legacy firmware served at `/js/chartist.js` and `/js/regression.js`
@@ -46,7 +50,7 @@ OnSpeed AP, NOT the public Internet. A CDN-loaded Preact would 404.
 
 ```bash
 curl -sL https://unpkg.com/htm/preact/standalone.module.js \
-  -o tools/web/lib/vendor/preact-standalone.js
+  -o packages/ui-core/vendor/preact-standalone.js
 
 # Re-add the leading vendor comment block (preserves dep + license note).
 # Then verify:

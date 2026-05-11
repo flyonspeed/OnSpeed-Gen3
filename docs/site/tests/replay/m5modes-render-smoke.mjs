@@ -122,9 +122,11 @@ function findFirstWithAttr(root, name, value) {
 // ---------------------------------------------------------------------
 const REPLAY_LIB = path.resolve(__dirname,
   '../../docs/data-and-logs/replay/lib');
+const UI_CORE = path.resolve(__dirname,
+  '../../../../packages/ui-core');
 
 const preact = await import(
-  new URL(`${REPLAY_LIB}/vendor/preact-standalone.js`, import.meta.url));
+  new URL(`${UI_CORE}/vendor/preact-standalone.js`, import.meta.url));
 const { html, render } = preact;
 
 const m5modesMod = await import(
