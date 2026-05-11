@@ -15,15 +15,21 @@ If you're a fresh agent (or fresh-session Sam) picking up this work,
 
 | # | Doc | Status | Purpose |
 |---|---|---|---|
-| 0 | `2026-05-09-replay-retro.md` | **READ FIRST** | Trial-run retro after PR #512. Bugs that survived foundation, why tests missed them, architectural correction (lift `LogReplayTask` into `onspeed_core`). |
-| 0a | `2026-05-09-replay-continue-prompt.md` | **READ SECOND** | Hand-off prompt to next agent. A/B-toggle plan. Cherry-pick instructions for shipping the merge-worthy fixes from PR #512 alone. |
+| 0 | `2026-05-09-replay-retro.md` | **READ FIRST** | Trial-run retro after PR #512. Bugs that survived foundation, why tests missed them, architectural correction (lift `LogReplayTask` into `onspeed_core`). Now mostly historical — PR #512 shipped the redirected design. Still required reading for shape-of-mistake context. |
+| 0a | `2026-05-09-replay-continue-prompt.md` | Historical | Hand-off prompt that bridged the redirect. PR #512 merged 2026-05-10 with the LogReplayTask lift applied. |
 | 1 | `2026-05-08-video-overlay-AGENT-CONTEXT.md` | Active reference | Orientation, gotchas, two-layer architecture diagram. Note: "no hand-ports" is now read more strictly per retro (data-shape transformations also count). |
 | 2 | `2026-05-08-python-consolidation.md` | Steps 0-2 ✅; 3-7 deferred | Project A: migrate Python algorithm code to `host_main` subprocess wrappers. Steps 3-7 deferred for the `LogReplayTask` lift. |
 | 3 | `2026-05-08-firmware-log-replay-parity.md` | ✅ MERGED (#487/#490/#491) | Rate-adjusted accel EMA + synth flapsRawADC for old logs. Historical reference. |
 | 4 | `2026-05-08-wasm-core.md` | Steps 0-2 ✅ (#496); 3-5 deferred | Project B1: `onspeed_core` → WASM. Steps 3-5 deferred for the `LogReplayTask` lift. |
-| 5 | `2026-05-09-replay-m5-wasm.md` | PR 1 ✅ (#507), PR 1.5 ✅ (#511); PR 2 ⚠️ unmerged (#512), redirected per retro | Project B2: M5-Display firmware → WASM. The core foundation IS shipped; the UI integration approach in PR 2/3 is what got redirected. |
+| 5 | `2026-05-09-replay-m5-wasm.md` | ✅ MERGED — PR 1 (#507), PR 1.5 (#511), PR 2 (#512, 2026-05-10) | Project B2: M5-Display firmware → WASM, used end-to-end by the docs-site replay page at `/data-and-logs/replay/`. Foundation complete. |
 | 6 | `2026-05-08-video-overlay-replay.md` | Layer 1+ ideas active; engine framing dead | Project C: Replay tool roadmap. Layer-1+ feature ideas (DataMark, ClipBuilder, export) still apply. The "in-browser engine port" framing is superseded by B1+B2. |
 | 7 | `2026-05-08-cross-impl-drift-prevention.md` | Historical | One-paragraph summary of the streaming-goldens CI step. Mostly resolved by B1+B2. |
+
+**Status snapshot (2026-05-11):** Foundation projects (A, B1, B2) all
+shipped. Next phase: see "Project ordering — current state" below.
+Open follow-ups from PR #512: **#523** (umbrella for shared `ui-core/`
++ adapter pattern; PR-A first), **#521** (SD log captures wire-quantized
+fields; firmware-side companion).
 
 ## The one-sentence story (post-foundation)
 
@@ -39,6 +45,59 @@ If you're a fresh agent (or fresh-session Sam) picking up this work,
 This is the elevator pitch. Everything in the seven plans is in
 service of this story. The architecture **collapses beautifully**
 after Projects A + B1 + B2 land.
+
+## Design principle: lift, don't copy
+
+The C++ no-hand-ports rule has a JS-side counterpart that deserves
+the same discipline. Web pages (`/indexer`, `/replay`, future log
+analyzer, future calibration explorer) share rendering, helpers,
+and the canonical state shape. They differ **only** in their input
+source.
+
+The shape we're building toward:
+
+```
+  ui-core/        ← shared UI: components, modes, geometry,
+                    helpers, presentation filter. Pure functions
+                    of M5State.
+  adapters/       ← one adapter file per input source. Each
+                    produces an M5State from its source format
+                    (WebSocket record, SD log + cfg, mock fixture).
+  pages/          ← compose `data source → adapter → ui-core`.
+                    Nothing else.
+```
+
+The rules that hold this together:
+
+- **One canonical state shape (`M5State`)** matches the M5
+  firmware's native vocabulary. All adapters produce this shape;
+  all renderers consume it.
+- **No duplicate helpers.** If two pages need the same formatter,
+  geometry constant, or smoothing filter, it lives in `ui-core/`
+  exactly once. The next person who needs it imports it.
+- **No parallel renderer families.** If a new page needs a
+  slightly different field, extend `M5State` (or its adapters) —
+  never fork a renderer.
+- **Adapters are small and pure.** One function per input source.
+  No UI code in adapters; no input-format knowledge in `ui-core/`.
+- **"Library" is conceptual, not packaging.** Shared files in the
+  repo imported by relative path. No npm package, no version pin,
+  no separate test suite from consumers.
+
+Why this matters: drift between `/indexer` and `/replay` is the
+JS-side version of the same hand-port problem the C++ side
+already solved. Two near-duplicate `mapPct2Display` functions,
+two parallel mode-renderer families, two helpers files with
+slightly different signatures — these grow by accident and rot
+in place.
+
+PR #512 surfaced exactly this drift mid-development. Issue **#523**
+is the umbrella for consolidating; PR-A (mechanical `ui-core/`
+extraction) is the first concrete step. Sibling issue **#521**
+tracks the parallel firmware-side concern: SD logs capture
+wire-quantized display values for fields like `Slip`, so offline
+consumers can't recover the source signal. PR #221 (`flapsRawADC`)
+is the proven template for fixing that family of fields.
 
 ## The unified architecture (two layers)
 
@@ -137,88 +196,71 @@ machine in the middle, presentation on top.
 - Audio synthesis (separate `onspeed_core/audio/` subsystem).
 - Tone-decision logic (`ToneCalc`, governed by Vac's spec docs).
 
-## Project ordering — current state (2026-05-09)
+## Project ordering — current state (2026-05-11)
+
+**Foundation complete.** Projects A, B1, and B2 all shipped between
+late-April and 2026-05-10. The replay tool consumes the C++ pipeline
+end-to-end via WASM, no hand-ports.
 
 ```
   ┌─────────────────────────────────────┐
   │  Project A.0: host_main CLI         │  ✅ MERGED
+  ├─────────────────────────────────────┤
+  │  Project A: Python consolidation    │  ✅ Steps 0-2 (#498)
+  │                                     │     Steps 3-7 deferred
+  ├─────────────────────────────────────┤
+  │  B1-prereq: LogReplay parity        │  ✅ MERGED (#487/#490/#491)
+  │  (rate-adjusted accel EMA +         │
+  │  synth flapsRawADC)                 │
+  ├─────────────────────────────────────┤
+  │  Project B1: onspeed_core → WASM    │  ✅ Steps 0-2 (#496);
+  │                                     │     LogReplayTask lift (#512)
+  ├─────────────────────────────────────┤
+  │  Project B2: M5-Display fw → WASM   │  ✅ PR 1 (#507), PR 1.5 (#511),
+  │  /data-and-logs/replay/ on docs     │     PR 2 (#512, 2026-05-10)
   └─────────────────────────────────────┘
-                  │
-        ┌─────────┴────────┐
-        ▼                  ▼
-  ┌──────────────┐  ┌─────────────────────────────────┐
-  │ Project A:   │  │ B1-prereq: Firmware LogReplay   │
-  │ Python       │  │ parity (rate-adjusted accel EMA │
-  │ consolidation│  │ + synth flapsRawADC for old logs)│
-  │ Steps 0-2 ✅ │  │ ✅ MERGED (#487/#490/#491)      │
-  │ Steps 3-7    │  └─────────────┬───────────────────┘
-  │ deferred for │                │
-  │ LogReplayTask│                ▼
-  │ lift below   │  ┌─────────────────────────────────┐
-  │              │  │ Project B1: onspeed_core → WASM │
-  │              │  │ Steps 0/1/2 ✅ MERGED (#496)    │
-  │              │  │ Steps 3-5 deferred for          │
-  │              │  │ LogReplayTask lift below        │
-  │              │  └─────────────┬───────────────────┘
-  │              │                │
-  │              │                ▼
-  │              │  ┌─────────────────────────────────┐
-  │              │  │ Project B2: M5-Display fw → WASM│
-  │              │  │ PR 1 ✅ MERGED (#507)           │
-  │              │  │ PR 1.5 ✅ MERGED (#511)         │
-  │              │  │ PR 2 ⚠️ open (#512), redirected  │
-  │              │  │ per retro                       │
-  │              │  └─────────────┬───────────────────┘
-  └──────┬───────┘                │
-         └────────────┬───────────┘
-                      │
-                      ▼
+```
+
+### What PR #512 surfaced — the next phase of work
+
+PR #512 was the first project to consume the foundation end-to-end.
+Trial against real flight data exposed two follow-up tracks, both
+filed and ready to schedule:
+
+```
   ┌────────────────────────────────────────────────────┐
-  │  ▶ NEXT UP: lift LogReplayTask into onspeed_core   │
-  │                                                     │
-  │  Move sketch_common/src/tasks/LogReplay.cpp        │
-  │  Process_() into onspeed_core, expose via embind.  │
-  │  Replay tool routes through it instead of JS-side  │
-  │  rowObjAt + buildDisplayInputs hand-ports.         │
-  │                                                     │
-  │  Sam's approach: A/B-toggle in the replay UI so    │
-  │  the new C++ path can be visually compared with   │
-  │  the existing JS path on real flight data BEFORE   │
-  │  deleting the JS path. See retro + continue prompt.│
+  │  Issue #523 — Shared JS UI library + adapters     │
+  │  (the "lift, don't copy" principle in code)       │
+  ├────────────────────────────────────────────────────┤
+  │  PR-A  ▶ NEXT: extract ui-core/ (mechanical)      │
+  │  PR-B  formalize canonical M5State                │
+  │  PR-C  IndexerPage adopts M5State via adapter;    │
+  │        delete tools/web/lib/modes.js              │
+  │  PR-D  pattern documented for future pages        │
   └────────────────────────────────────────────────────┘
-                      │
-                      ▼
+
   ┌────────────────────────────────────────────────────┐
-  │  Project C: Replay Tool layer 1+                   │
-  │  (file-handle persistence, ClipBuilder polish,     │
-  │   MP4 export, etc.)                                │
+  │  Issue #521 — SD log captures wire-quantized      │
+  │  values; offline smoothing can't recover signal.  │
+  │  Firmware-side companion track.                    │
+  │  PR #221 (flapsRawADC) is the proven template.    │
   └────────────────────────────────────────────────────┘
 ```
 
-### What's left before "correct by construction"
+### What's next
 
-1. **Carve out merge-worthy fixes from PR #512 into a small PR**
-   (cfg-bindings AOA polynomial round-trip, mode-id refresh on
-   pause, `.wasm` MIME, delete-Module workaround). The polynomial
-   fix is critical — it's a real bug in `bindings.cpp::parseConfigVal`
-   that affects EVERY consumer. Add a cfg round-trip test so it
-   can't regress.
+**Sequence #523 PR-A before resuming Project C feature work.** PR-A
+is mechanical (~1 day), zero behavior change, prevents the next
+Project C step from forking another helper. PR-B and PR-C can run
+in parallel with Project C.
 
-2. **`LogReplayTask` lift** (the architectural correction). Lift
-   `sketch_common/src/tasks/LogReplay.cpp::Process_()` into
-   `onspeed_core/src/replay/LogReplayTask.{h,cpp}`. Expose via
-   embind. Add A/B toggle in replay UI. Sam compares JS vs C++
-   paths on real flight data.
+**Schedule #521 against firmware-side rhythm.** Doesn't block
+Project C. Lands when the firmware team is ready for a log-schema
+bump (proven shape per PR #221).
 
-3. **Three new test types** (per retro): real-flight fixture,
-   cfg round-trip, hysteretic state-machine fixture.
-
-4. **Delete JS hand-ports** once C++ path is confirmed equivalent
-   or better.
-
-5. **Project C feature work** (file persistence, clip builder, MP4
-   export). Mostly independent of the foundation; can run
-   anytime.
+**Project C** (PLAN_VIDEO_OVERLAY Layers 1-5: sync persistence,
+HUD widgets, drag-clip, MP4 export, docs) resumes after PR-A.
+Each Project C PR consumes `ui-core/` rather than forking helpers.
 
 ## How to dispatch
 
