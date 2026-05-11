@@ -93,14 +93,8 @@ tools/web/
 │   └── scenarios.html                 the offline harness (separate from firmware)
 ├── lib/
 │   ├── entry.js                       bundle entry; selects page from data-page attr
-│   ├── modes.js                       the 5 indexer SVG modes (Mode0..Mode4)
 │   ├── scenarios.js                   synthetic data generators for the offline harness
-│   ├── scenarios-main.js              entry for public/scenarios.html
-│   ├── components/svg/index.js        Preact SVG components (Indexer, Horizon, etc.)
-│   ├── core/                          framework-free math + tokens
-│   │   ├── colors.js, geometry.js, pct2y.js,
-│   │   ├── donutColors.js, chevronColors.js,
-│   │   ├── slipBall.js, flapWidget.js
+│   ├── scenarios-main.js              entry for public/scenarios.html (uses m5modes via wsRecordToState)
 │   ├── pages/
 │   │   ├── IndexerPage.js             /indexer
 │   │   └── LivePage.js                /live
@@ -110,7 +104,16 @@ tools/web/
 │   │   ├── nav.js                     single-source-of-truth nav manifest
 │   │   └── apiClient.js               fetch wrapper with proxy/mock/firmware base
 │   ├── ws/wsClient.js                 useWebSocket hook + frameToRecord
-│   └── vendor/preact-standalone.js    Preact + htm bundle (vendored)
+│   └── vendor/                        firmware-only vendored libs (chartist, regression)
+│
+│ Shared UI library used by both /indexer and the docs-site replay tool:
+│   packages/ui-core/                  — see packages/ui-core/README.md
+│     ├── components/svg/index.js      shared SVG primitives (Indexer, SlipBall, etc.)
+│     ├── components/svg/m5modes/      five M5-mode renderers (state-driven)
+│     ├── core/                        geometry, colors, format, pct2y, etc.
+│     ├── adapters/wsRecordToState.js  WebSocket record → canonical M5State
+│     ├── state-shape.js               M5State JSDoc typedef
+│     └── vendor/preact-standalone.js  Preact + htm bundle (vendored)
 ├── dev-server/
 │   ├── server.mjs                     the dev server (mock / proxy / static)
 │   ├── capture.mjs                    record device WS frames -> NDJSON

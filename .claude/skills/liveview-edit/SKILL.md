@@ -138,7 +138,7 @@ M5GFX uses `setCursor(x, y)` (alphabetic baseline) and datums like `middle_cente
 
 ### When two modes share rendering
 
-If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mode 2 both call `displayAOA()` with `numericDisplay = true/false`), mirror the structure — one mode component with the option, plus a thin wrapper for the alternate. Mode 2 in `lib/modes.js` is `<Mode0 r=${r} stale=${stale} numericDisplay=${false} />`.
+If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mode 2 both call `displayAOA()` with `numericDisplay = true/false`), mirror the structure — one mode component with the option, plus a thin wrapper for the alternate. `packages/ui-core/components/svg/m5modes/IndexerMode.js` is `<${EnergyMode} state=${state} stale=${stale} numericDisplay=${false} />`.
 
 ## When NOT to touch the LiveView
 
@@ -153,7 +153,8 @@ If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mo
 - `packages/ui-core/core/colors.js` — TFT_* color tokens → CSS variables
 - `packages/ui-core/core/geometry.js` — every layout constant for all 5 modes
 - `packages/ui-core/components/svg/index.js` — reusable Preact SVG components (shared between firmware pages and docs-site replay)
-- `tools/web/lib/modes.js` — five mode compositions for the live firmware indexer (consumes WebSocket record shape; planned consolidation under issue #523)
+- `packages/ui-core/components/svg/m5modes/` — five mode compositions (EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode). Consumed by both the live firmware `/indexer` page (via `wsRecordToState`) and the docs-site `/data-and-logs/replay/` (via `M5Sim.read()`). Both routes produce a canonical `M5State` (see `packages/ui-core/state-shape.js`) that the renderers consume.
+- `packages/ui-core/adapters/wsRecordToState.js` — adapter that converts a `wsClient.frameToRecord()` record into M5State for the live `/indexer` page
 - `tools/web/lib/pages/IndexerPage.js` — top-level component for `/indexer`
 - `tools/web/lib/pages/LivePage.js` — top-level component for `/live`
 - `tools/web/lib/shell/PageShell.js` — global nav + footer chrome

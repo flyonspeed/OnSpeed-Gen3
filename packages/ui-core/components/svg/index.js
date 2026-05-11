@@ -1,9 +1,12 @@
 // Shared Preact components for OnSpeed LiveView.
 //
-// Each component is a pure function of props. The five mode files
-// (lib/modes.js) compose these components against a single record `r`
-// drawn from the WebSocket. Layout constants come from the framework-
-// free helpers in ../../core/.
+// Each component is a pure function of props. The five mode files in
+// m5modes/ compose these components against a canonical M5State (see
+// packages/ui-core/state-shape.js). Both the live firmware /indexer
+// page and the docs-site /data-and-logs/replay/ render through the
+// same m5modes/ family — see adapters/wsRecordToState.js for the
+// live-page input shape conversion. Layout constants come from the
+// framework-free helpers in ../../core/.
 
 import { html, useRef, useLayoutEffect, useState } from '../../vendor/preact-standalone.js';
 import * as G from '../../core/geometry.js';

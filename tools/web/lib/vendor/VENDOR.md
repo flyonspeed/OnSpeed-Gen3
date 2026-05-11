@@ -102,8 +102,8 @@ Other lightweight reactive frameworks were considered:
   five-mode UI.
 
 If a future maintainer wants to swap the framework, the components in
-`lib/modes.js`, `lib/components/svg/`, `lib/pages/`, and `lib/shell/`
-are the files that depend on `html` and `render`. Replace those
-imports + adjust the JSX-equivalent template syntax; everything else
-(geometry, colors, math helpers, scenarios, WebSocket client) is
-framework-free.
+`packages/ui-core/components/svg/` (including `m5modes/`),
+`tools/web/lib/pages/`, and `tools/web/lib/shell/` are the files that
+depend on `html` and `render`. Replace those imports + adjust the
+JSX-equivalent template syntax; everything else (geometry, colors,
+math helpers, scenarios, WebSocket client) is framework-free.
