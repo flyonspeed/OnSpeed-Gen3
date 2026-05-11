@@ -2,9 +2,11 @@
 // Display, Attitude, Indexer, Decel Display, Historic G) backed by
 // the live WebSocket feed.
 //
-// Modes are pure functions of the WebSocket record from
-// `useWebSocket()`.  Mode selection persists to localStorage so a
-// reload comes back to the last view.
+// Renderer family: packages/ui-core/components/svg/m5modes/. Same
+// renderers the docs-site replay tool uses. Page-side adapter
+// (wsRecordToState) converts the WebSocket record into the
+// canonical M5State the renderers consume. Mode selection persists
+// to localStorage so a reload comes back to the last view.
 //
 // This file is the canonical source of mode names. The C++ M5
 // firmware (software/OnSpeed-M5-Display/src/main.cpp), the X-Plane
@@ -15,7 +17,10 @@
 import { html, useState, useEffect, useRef } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import * as G from '../../../../packages/ui-core/core/geometry.js';
 import { fmt } from '../../../../packages/ui-core/core/format.js';
-import { Mode0, Mode1, Mode2, Mode3, Mode4 } from '../modes.js';
+import {
+  EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
+} from '../../../../packages/ui-core/components/svg/m5modes/index.js';
+import { wsRecordToState } from '../../../../packages/ui-core/adapters/wsRecordToState.js';
 import { useWebSocket } from '../ws/wsClient.js';
 import { PageShell } from '../shell/PageShell.js';
 import { makeEmaState, updateEma, resetEma } from '../core/ema.js';
@@ -47,11 +52,11 @@ function safeLsSet(key, value) {
 // 225345). Mode 0 is the energy-management primary page; Mode 3 is
 // the deceleration display — these were swapped in older code.
 const MODES = [
-  { id: 'energy',   label: 'Energy',     C: Mode0 },
-  { id: 'attitude', label: 'Attitude',   C: Mode1 },
-  { id: 'indexer',  label: 'Indexer',    C: Mode2 },
-  { id: 'decel',    label: 'Decel',      C: Mode3 },
-  { id: 'historic', label: 'Historic G', C: Mode4 },
+  { id: 'energy',   label: 'Energy',     C: EnergyMode },
+  { id: 'attitude', label: 'Attitude',   C: AttitudeMode },
+  { id: 'indexer',  label: 'Indexer',    C: IndexerMode },
+  { id: 'decel',    label: 'Decel',      C: DecelMode },
+  { id: 'historic', label: 'Historic G', C: HistoricGMode },
 ];
 
 // Migrate legacy `liveview-mode` localStorage values written by the
@@ -240,6 +245,46 @@ function useGHistory(rec, ageSec) {
            hasSamples: hasSamples.current };
 }
 
+// useDisplaySnapshot — latches a handful of fields at the M5 panel's
+// text-readout cadence (500 ms by default). Matches main.cpp's
+// `updateRateNumbers = 500` block: the hardware M5 refreshes IAS / G /
+// percent-lift / etc. corner numerals every half-second so the pilot
+// can read them; the indexer chevrons + slip ball still animate at
+// the wire rate.
+//
+// The hook is given the live `rec` (20 Hz) plus the already-EMA-
+// smoothed decel rate (via useDecelEma above). On each interval it
+// snapshots the fields the adapter will route into the display*
+// state slots. Returns null until the first interval fires, then a
+// frozen { iasKt, paltFt, pitchDeg, verticalG, percentLift,
+// decelRateSmoothed } object.
+function useDisplaySnapshot(rec, decelRateSmoothed, intervalMs = 500) {
+  const recRef = useRef(rec);
+  const decelRef = useRef(decelRateSmoothed);
+  // Keep refs current without re-firing the interval — the interval
+  // reads the latest values from the refs.
+  recRef.current = rec;
+  decelRef.current = decelRateSmoothed;
+
+  const [snap, setSnap] = useState(null);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const r = recRef.current;
+      if (!r) return;
+      setSnap(Object.freeze({
+        iasKt:             r.iasKt,
+        paltFt:            r.paltFt,
+        pitchDeg:          r.pitchDeg,
+        verticalG:         r.verticalG,
+        percentLift:       r.percentLift,
+        decelRateSmoothed: decelRef.current,
+      }));
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return snap;
+}
+
 // Empty record used before the first WebSocket frame arrives.
 // aoaIsValid false makes the modes hide their variable elements.
 // iasKt null lets the IAS readout dash to '---' the same way it
@@ -269,6 +314,14 @@ export function IndexerPage() {
   const stale = ageSec >= STALENESS_THRESHOLD_SEC;
   const gHist = useGHistory(rec, ageSec);
   const decelRateSmoothed = useDecelEma(rec);
+  const displaySnap = useDisplaySnapshot(rec, decelRateSmoothed, 500);
+
+  // Build the canonical M5State for this frame. Pre-WS-frame we feed
+  // EMPTY_REC so the adapter still produces a valid state — corner
+  // readouts dash, indexer chevrons sit at percent=0, slip ball
+  // centered. The 500 ms snapshot starts as null until the first
+  // interval fires; the adapter renders dashes during that window.
+  const state = wsRecordToState(rec || EMPTY_REC, displaySnap, gHist);
 
   const setModeAndPersist = (m) => {
     setMode(m);
@@ -280,7 +333,7 @@ export function IndexerPage() {
     safeLsSet('liveview-datafields-expanded', next ? '1' : '0');
   };
 
-  const ActiveMode = MODES.find(m => m.id === mode)?.C ?? Mode0;
+  const ActiveMode = MODES.find(m => m.id === mode)?.C ?? EnergyMode;
   return html`
     <${PageShell} active="indexer">
       <div id="indexer-app">
@@ -288,10 +341,7 @@ export function IndexerPage() {
         <${ModeNav} current=${mode} onChange=${setModeAndPersist} />
         <main id="liveview-main">
           <div id="mode-container">
-            <${ActiveMode} r=${rec || EMPTY_REC} stale=${stale}
-                           gBuf=${gHist.buf} gWriteIdx=${gHist.writeIdx}
-                           gHasSamples=${gHist.hasSamples}
-                           decelRateSmoothed=${decelRateSmoothed} />
+            <${ActiveMode} state=${state} stale=${stale} />
           </div>
           <${DataFields} rec=${rec} ageSec=${ageSec}
                          expanded=${dfExpanded} onToggle=${toggleDf} />

@@ -1,5 +1,13 @@
 # DecelRate consumer-side smoothing — design
 
+> **Historical note (2026-05-11)**: this spec describes the pre-PR-#523-PR-C
+> state. References to `tools/web/lib/modes.js` describe a file that no
+> longer exists — its Mode 3 renderer is now
+> `packages/ui-core/components/svg/m5modes/DecelMode.js` and the EMA
+> is applied via `IndexerPage::useDecelEma` then routed through the
+> 500 ms `useDisplaySnapshot` snapshot. The smoothing behavior
+> described here is preserved; the file layout differs.
+
 Issue: [#362](https://github.com/flyonspeed/OnSpeed-Gen3/issues/362) — M5 wire + JSON DecelRate algorithms diverge by one EMA pass.
 
 ## Problem

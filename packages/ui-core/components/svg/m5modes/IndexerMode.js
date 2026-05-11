@@ -8,7 +8,7 @@
 // Composes EnergyMode with the gate flipped — same renderer, fewer
 // elements painted. Matches the C++ pattern.
 
-import { html } from '../../../../../../../../../packages/ui-core/vendor/preact-standalone.js';
+import { html } from '../../../vendor/preact-standalone.js';
 import { EnergyMode } from './EnergyMode.js';
 
 export const IndexerMode = ({ state, stale = false }) => html`
