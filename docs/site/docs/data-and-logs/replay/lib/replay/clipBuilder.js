@@ -1,0 +1,326 @@
+// ClipBuilder — clip-list UI for the replay tool.
+//
+// Renders the clip list, the in/out marker controls, and per-clip
+// editing (label rename, scrub-to-clip, in/out adjust, delete, export).
+// The page above owns the clips array; this module is presentational
+// glue.
+//
+// Each clip is shaped { startMs, endMs, label? } in log-time
+// milliseconds — the same wire shape Stream A persists.
+//
+// The page injects two callbacks for the export pipeline:
+//   onExportMp4(clip):    kicks off an MP4 export, returns a handle
+//                         with `progress` (0..1) and `cancel()`.
+//   exportingClipIdx:     number | null — index of the clip currently
+//                         being exported (so its row can show progress
+//                         in place of the Export button).
+//
+// The component itself doesn't manage that state — it only renders
+// what the parent hands it. Keeps the rendering pure: same props,
+// same DOM, no internal effects.
+
+import { html, useState } from '../../../../packages/ui-core/vendor/preact-standalone.js';
+
+// Map a log timestamp (ms) to a video time (seconds). Inlined here
+// rather than imported from dataMarks so the module has no replay
+// dependencies (testability + reuse).
+function logMsToVideoSec(logMs, sync) {
+  if (!sync) return null;
+  if (!Number.isFinite(sync.logTakeoffMs) ||
+      !Number.isFinite(sync.videoTakeoffSec)) return null;
+  return sync.videoTakeoffSec + (logMs - sync.logTakeoffMs) / 1000;
+}
+
+// Format a duration in seconds as H:MM:SS or M:SS.
+function formatHms(sec) {
+  if (!Number.isFinite(sec)) return '—';
+  const total = Math.max(0, Math.floor(sec));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+// Default label for a new clip. Pads the index so a sort order on
+// label is stable; pilots usually rename anyway.
+export function defaultClipLabel(index) {
+  return `clip ${String(index + 1).padStart(2, '0')}`;
+}
+
+// Build a clip from a video time + sync, with a configurable duration
+// window. Used by both quick-add buttons (30s/60s windows) and the
+// mark-in/mark-out flow (no duration; caller passes both ends).
+export function buildClipFromPlayhead(videoSec, durationSec, sync, label) {
+  if (!sync) return null;
+  if (!Number.isFinite(sync.logTakeoffMs) ||
+      !Number.isFinite(sync.videoTakeoffSec)) return null;
+  if (!Number.isFinite(videoSec)) return null;
+  const startMs = sync.logTakeoffMs + (videoSec - sync.videoTakeoffSec) * 1000;
+  const endMs   = startMs + durationSec * 1000;
+  return { startMs, endMs, label: label || '' };
+}
+
+// Build a clip from explicit in/out video times. Used by the mark-in /
+// mark-out flow. Returns null if either is missing or in <= out.
+export function buildClipFromMarkers(inVideoSec, outVideoSec, sync, label) {
+  if (!sync) return null;
+  if (!Number.isFinite(sync.logTakeoffMs) ||
+      !Number.isFinite(sync.videoTakeoffSec)) return null;
+  if (!Number.isFinite(inVideoSec) || !Number.isFinite(outVideoSec)) return null;
+  if (outVideoSec <= inVideoSec) return null;
+  const startMs = sync.logTakeoffMs + (inVideoSec  - sync.videoTakeoffSec) * 1000;
+  const endMs   = sync.logTakeoffMs + (outVideoSec - sync.videoTakeoffSec) * 1000;
+  return { startMs, endMs, label: label || '' };
+}
+
+// Mutate one clip in the list immutably, copying everything else.
+// Exported so tests can hit it directly.
+export function updateClipAt(clips, index, patch) {
+  return clips.map((c, i) => (i === index ? { ...c, ...patch } : c));
+}
+
+// Remove a clip by index. Exported for tests.
+export function removeClipAt(clips, index) {
+  return clips.filter((_, i) => i !== index);
+}
+
+// Clip in/out adjustment: clamp the new value so endMs > startMs by
+// at least 100ms. Returns the validated patch, or null if the change
+// would produce an invalid window.
+//
+// Reason for the 100ms floor: a clip with start == end produces an
+// empty export, and the encoder errors out late in the pipeline. Catch
+// it at the edit site so the pilot sees feedback immediately.
+export function validateClipEdit(clip, patch) {
+  const next = { ...clip, ...patch };
+  if (!Number.isFinite(next.startMs) || !Number.isFinite(next.endMs)) return null;
+  if (next.endMs - next.startMs < 100) return null;
+  return next;
+}
+
+// ---- Component ----------------------------------------------------
+
+export const ClipBuilder = ({
+  clips,
+  setClips,
+  sync,
+  syncReady,
+  videoEl,                // for scrub-to-clip
+  exportingClipIdx,       // index of the clip currently being exported
+  exportProgress,         // 0..1 progress of that export
+  exportLabel,            // label of the exporting clip (for status)
+  disabled,
+  // Callbacks bubbling up to ReplayPage:
+  onAddQuick,             // (durationSec)
+  onExport,               // (clip)        — single-clip export
+  onExportAll,            // ()            — sequential all-clips export
+  onCancel,               // ()            — cancel the running export
+  onScrubTo,              // (videoSec)    — seek the live video
+  // Mark-in/mark-out flow:
+  pendingInVideoSec,      // currently-marked in-point, or null
+  onMarkIn,               // ()
+  onMarkOut,              // ()
+  onCancelMark,           // ()            — discard pendingIn
+  mp4Available,           // boolean — feature-detect result
+  mp4UnavailableTooltip,  // string — shown on hover when grayed out
+}) => {
+  const cancelMarkBtn = pendingInVideoSec != null
+    ? html`
+        <button class="replay-btn-ghost" onClick=${onCancelMark} disabled=${disabled}>
+          Cancel mark-in
+        </button>`
+    : null;
+
+  // Helper: render the "Export" button or, for the currently-exporting
+  // clip, an inline progress widget with cancel.
+  const renderExportControls = (clip, i) => {
+    if (exportingClipIdx === i) {
+      return html`
+        <div class="replay-clip-progress" role="status">
+          <progress class="replay-progress"
+                    max="1" value=${exportProgress ?? 0}></progress>
+          <span class="replay-clip-progress-pct">
+            ${Math.round((exportProgress ?? 0) * 100)}%
+          </span>
+          <button class="replay-btn-ghost" onClick=${onCancel}>Cancel</button>
+        </div>`;
+    }
+    // Disable Export when (a) globally disabled, (b) some other clip
+    // is exporting (sequence has to drain), (c) sync isn't ready,
+    // (d) MP4 isn't supported in this browser.
+    const exportDisabled = disabled || exportingClipIdx != null ||
+                           !syncReady || !mp4Available;
+    return html`
+      <button class="replay-btn"
+              disabled=${exportDisabled}
+              title=${mp4Available ? '' : (mp4UnavailableTooltip || '')}
+              onClick=${() => onExport(clip, i)}>
+        Export MP4
+      </button>`;
+  };
+
+  return html`
+    <div class="replay-clips">
+      <div class="replay-clips-header">
+        <span class="replay-label">Clips</span>
+        <span class="replay-status">${clips.length}</span>
+        <span class="replay-spacer"></span>
+
+        <button class="replay-btn"
+                disabled=${disabled || !syncReady}
+                onClick=${() => onAddQuick(30)}>
+          + 30 s clip from playhead
+        </button>
+        <button class="replay-btn"
+                disabled=${disabled || !syncReady}
+                onClick=${() => onAddQuick(60)}>
+          + 60 s clip from playhead
+        </button>
+
+        ${pendingInVideoSec == null
+          ? html`
+              <button class="replay-btn"
+                      disabled=${disabled || !syncReady}
+                      onClick=${onMarkIn}>
+                Mark clip in
+              </button>`
+          : html`
+              <span class="replay-status replay-status-attention">
+                in @ ${formatHms(pendingInVideoSec)} — scrub and click Mark
+                clip out
+              </span>
+              <button class="replay-btn-primary"
+                      disabled=${disabled || !syncReady}
+                      onClick=${onMarkOut}>
+                Mark clip out
+              </button>
+              ${cancelMarkBtn}`}
+
+        ${clips.length > 0 && html`
+          <button class="replay-btn-primary"
+                  disabled=${disabled || !mp4Available ||
+                             exportingClipIdx != null || !syncReady}
+                  title=${mp4Available ? '' : (mp4UnavailableTooltip || '')}
+                  onClick=${onExportAll}>
+            Export all
+          </button>`}
+      </div>
+
+      ${clips.length === 0
+        ? html`<div class="replay-clips-empty">
+            no clips yet — scrub to a moment, click "+ 30 s" / "+ 60 s" or
+            "Mark clip in" → "Mark clip out".
+          </div>`
+        : html`<div class="replay-clips-list">
+            ${clips.map((c, i) => html`
+              <${ClipRow}
+                clip=${c}
+                index=${i}
+                sync=${sync}
+                videoEl=${videoEl}
+                disabled=${disabled}
+                isExporting=${exportingClipIdx === i}
+                onScrubTo=${onScrubTo}
+                onPatch=${(patch) => {
+                  const next = validateClipEdit(c, patch);
+                  if (next) setClips(updateClipAt(clips, i, next));
+                }}
+                onRemove=${() => setClips(removeClipAt(clips, i))}
+                renderExport=${() => renderExportControls(c, i)} />
+            `)}
+          </div>`}
+    </div>`;
+};
+
+// ---- Single-row component ----------------------------------------
+//
+// Each clip row shows: editable label, formatted in/out times,
+// duration, scrub buttons, set-in-here/set-out-here buttons, export
+// button (or progress widget), delete button.
+const ClipRow = ({
+  clip, index, sync, videoEl, disabled,
+  isExporting,
+  onScrubTo, onPatch, onRemove, renderExport,
+}) => {
+  const [labelDraft, setLabelDraft] = useState(clip.label || '');
+
+  const startSec = logMsToVideoSec(clip.startMs, sync);
+  const endSec   = logMsToVideoSec(clip.endMs,   sync);
+  const spanSec  = (clip.endMs - clip.startMs) / 1000;
+
+  // Snap the start/end to the current playhead. Useful for tightening
+  // a clip after rough-marking it: scrub to where you actually want
+  // it to start/end, click "Set in here" / "Set out here".
+  const setInHere = () => {
+    const v = videoEl?.current || null;
+    if (!v || !sync) return;
+    const newStartMs = sync.logTakeoffMs +
+                       (v.currentTime - sync.videoTakeoffSec) * 1000;
+    onPatch({ startMs: newStartMs });
+  };
+  const setOutHere = () => {
+    const v = videoEl?.current || null;
+    if (!v || !sync) return;
+    const newEndMs = sync.logTakeoffMs +
+                     (v.currentTime - sync.videoTakeoffSec) * 1000;
+    onPatch({ endMs: newEndMs });
+  };
+
+  // Commit the label draft on blur or Enter. Avoids a per-keystroke
+  // setState dispatch into the parent clips array.
+  const commitLabel = () => {
+    if ((clip.label || '') !== labelDraft) {
+      onPatch({ label: labelDraft });
+    }
+  };
+
+  return html`
+    <div class=${'replay-clip-row' + (isExporting ? ' is-exporting' : '')}>
+      <input class="replay-clip-label-input"
+             type="text"
+             value=${labelDraft}
+             placeholder=${`clip ${String(index + 1).padStart(2, '0')}`}
+             disabled=${disabled || isExporting}
+             onInput=${(e) => setLabelDraft(e.target.value)}
+             onBlur=${commitLabel}
+             onKeyDown=${(e) => {
+               if (e.key === 'Enter') { e.preventDefault(); commitLabel(); }
+               if (e.key === 'Escape') { setLabelDraft(clip.label || ''); }
+             }} />
+
+      <span class="replay-mark-time">
+        ${Number.isFinite(startSec) ? formatHms(startSec) : '—'}
+        → ${Number.isFinite(endSec) ? formatHms(endSec) : '—'}
+        · ${spanSec.toFixed(1)} s
+      </span>
+
+      <span class="replay-spacer"></span>
+
+      <button class="replay-btn-ghost"
+              disabled=${disabled || isExporting || !Number.isFinite(startSec)}
+              title="Seek video to this clip's start"
+              onClick=${() => Number.isFinite(startSec) && onScrubTo(startSec)}>
+        Scrub
+      </button>
+      <button class="replay-btn-ghost"
+              disabled=${disabled || isExporting}
+              title="Move this clip's start to the current playhead"
+              onClick=${setInHere}>
+        Set in here
+      </button>
+      <button class="replay-btn-ghost"
+              disabled=${disabled || isExporting}
+              title="Move this clip's end to the current playhead"
+              onClick=${setOutHere}>
+        Set out here
+      </button>
+
+      ${renderExport()}
+
+      <button class="replay-btn-ghost"
+              disabled=${disabled || isExporting}
+              title="Delete this clip"
+              onClick=${onRemove}>×</button>
+    </div>`;
+};
