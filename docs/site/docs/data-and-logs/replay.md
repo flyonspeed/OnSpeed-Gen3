@@ -18,5 +18,5 @@ the panel showed in the cockpit.
      JS/CSS and renders into this div. -->
 <div id="replay-app"></div>
 
-<link rel="stylesheet" href="replay/replay.css" />
-<script type="module" src="replay/replay-entry.js"></script>
+<link rel="stylesheet" href="replay.css" />
+<script type="module" src="replay-entry.js"></script>
