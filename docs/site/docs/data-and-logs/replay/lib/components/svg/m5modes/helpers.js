@@ -1,18 +1,16 @@
-// helpers.js — shared formatters/utilities for M5-accurate mode renderers.
+// helpers.js — formatters shared across the M5-mode SVG renderers.
 //
-// PR 2 of Project B2. Each mode component (Energy/Attitude/Indexer/
-// Decel/HistoricG) needs the same handful of small helpers — IAS
-// dashes, padded altitude, slip↔lateralG inverse, flash cadence. These
-// live here rather than per-component so the bundler doesn't see
-// duplicate top-level identifiers across the m5modes/ files.
+// Each mode component (Energy/Attitude/Indexer/Decel/HistoricG) needs
+// the same handful of small helpers — IAS dashes, padded altitude,
+// flash cadence. These live here rather than per-component so the
+// bundler doesn't see duplicate top-level identifiers across the
+// m5modes/ files.
 //
-// The legacy `lib/modes.js` file declares its own copies of these
-// helpers for the legacy 22-field-rec path. Once PR 3 deletes that
-// path, these helpers are the canonical home and modes.js can import
-// from here. PR 2 keeps both copies temporarily — the legacy ones use
-// `r.iasKt` plumbing, ours use `state.displayIAS` plumbing, and the
-// shape difference makes a single shared signature unwieldy until
-// the legacy path is gone.
+// The live `/indexer` page has its own near-duplicate helpers in
+// `tools/web/lib/modes.js` because the two pages consume different
+// input vocabularies (state.displayIAS here vs r.iasKt there).
+// Consolidation under one canonical `M5State` shape is tracked in
+// issue #523 (PR-B + PR-C).
 
 import { IAS_DASHES } from '../../../../../../../../../packages/ui-core/components/svg/index.js';
 

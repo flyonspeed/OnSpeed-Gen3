@@ -25,7 +25,7 @@ The M5 source is the source of truth for layout/coordinates/colors. The LiveView
 When changing layout — pixel positions, font sizes, colors — first read:
 1. The relevant `case N:` block in `software/OnSpeed-M5-Display/src/main.cpp` (the truth on real hardware).
 2. The corresponding helper (`AiGraph()`, `displayDecelGauge()`, `pitchGraph()`, etc.).
-3. The component's existing JS at `tools/web/lib/components/svg/index.js` (one file with all reusable components) — most have inline citations like `// main.cpp:1437-1493` for the line range they mirror.
+3. The component's existing JS at `packages/ui-core/components/svg/index.js` (one file with all reusable components, shared between the firmware-served pages and the docs-site replay) — most have inline citations like `// main.cpp:1437-1493` for the line range they mirror.
 
 ## Edit one surface, then propagate
 
@@ -142,22 +142,22 @@ If the M5 dispatches two modes through one C++ function with a flag (Mode 0 + Mo
 
 ## When NOT to touch the LiveView
 
-- **Don't edit the generated headers directly.** They say `AUTO-GENERATED` at the top. Your changes will be overwritten on the next build. Edit source under `tools/web/lib/`, regenerate.
+- **Don't edit the generated headers directly.** They say `AUTO-GENERATED` at the top. Your changes will be overwritten on the next build. Edit source under `tools/web/lib/` or `packages/ui-core/`, regenerate.
 - **Don't add a light theme.** The avionics palette is dark-only by design — saturated colors lose semantic contrast on light. Mode 1's sky/ground horizon especially breaks.
-- **Don't add module-level `import` from outside the source tree.** The build script bundles `tools/web/lib/**/*.js` only. Outside-tree imports break the bundler.
+- **Don't add module-level `import` from outside the bundled trees.** The build script bundles `tools/web/lib/**/*.js` and `packages/ui-core/**/*.js`. Imports from anywhere else break the bundler.
 - **Don't add `export default`.** The bundler doesn't support default exports. Use named exports.
 
 ## Files to know
 
 - `tools/web/README.md` — full source docs (how to iterate, how to test, file layout)
-- `tools/web/lib/core/colors.js` — TFT_* color tokens → CSS variables
-- `tools/web/lib/core/geometry.js` — every layout constant for all 5 modes
-- `tools/web/lib/components/svg/index.js` — reusable Preact SVG components
-- `tools/web/lib/modes.js` — five mode compositions
+- `packages/ui-core/core/colors.js` — TFT_* color tokens → CSS variables
+- `packages/ui-core/core/geometry.js` — every layout constant for all 5 modes
+- `packages/ui-core/components/svg/index.js` — reusable Preact SVG components (shared between firmware pages and docs-site replay)
+- `tools/web/lib/modes.js` — five mode compositions for the live firmware indexer (consumes WebSocket record shape; planned consolidation under issue #523)
 - `tools/web/lib/pages/IndexerPage.js` — top-level component for `/indexer`
 - `tools/web/lib/pages/LivePage.js` — top-level component for `/live`
 - `tools/web/lib/shell/PageShell.js` — global nav + footer chrome
-- `tools/web/lib/vendor/preact-standalone.js` — vendored Preact + htm (MIT)
+- `packages/ui-core/vendor/preact-standalone.js` — vendored Preact + htm (MIT)
 - `tools/web/legacy-pages/` — server-rendered `/aoaconfig` and `/sensorconfig` templates + per-page JS
 - `tools/web/test/` — Node 20+ test suites (geometry, render-smoke, api-schema, css-coverage, aoaconfig-markers, format)
 - `scripts/build_web_bundle.py` — bundler. Read its top docstring for transformation rules.

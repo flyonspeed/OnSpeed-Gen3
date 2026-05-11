@@ -1,6 +1,6 @@
 // VENDORED — not hand-edited. Refresh via:
 //   curl -sL https://cdn.jsdelivr.net/npm/htm@3/preact/standalone.module.js \
-//     -o tools/web/lib/vendor/preact-standalone.js
+//     -o packages/ui-core/vendor/preact-standalone.js
 //
 // Bundle: htm/preact/standalone (Preact + htm packaged for ES modules,
 // no JSX compile step required — uses tagged template literals).

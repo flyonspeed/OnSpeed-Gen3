@@ -133,7 +133,7 @@ const uint16_t  HEIGHT              = 240; //Y
 // bar fills at ±600 fpm — fine-grained for the gentle-cruise band
 // pilots typically reference in normal flight.  Saturates beyond,
 // which is intentional: the IAS / FPA readouts cover larger excursions.
-// Mirror constant in tools/web/lib/core/geometry.js (MODE1_VSI_*).
+// Mirror constant in packages/ui-core/core/geometry.js (MODE1_VSI_*).
 constexpr int kVsiBarHeightPx     = 120;
 constexpr int kVsiBarFullScaleFpm = 600;
 
@@ -1263,7 +1263,7 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoaPct, boo
     // point.  aoaPct=0 ≥ 0 && ≤ 0 would otherwise paint every donut
     // segment green, falsely implying "in the OnSpeed band" when
     // there's no band defined yet.  Force grey so the donut matches
-    // the JS indexer (donutColors at tools/web/lib/core/donutColors.js).
+    // the JS indexer (donutColors at packages/ui-core/core/donutColors.js).
     const bool donutBandValid = (OnspeedRange > 0.0f);
 
     // Bottom arc
@@ -1295,7 +1295,7 @@ void drawAOA(uint16_t X0, uint16_t Y0, uint16_t W, uint16_t H, float aoaPct, boo
     anchors (Array[i]) compare via implicit float-int promotion —
     exact for integer-valued floats in the [0, 99] range we work in.
     */
-    // Match tools/web/lib/components/svg/index.js: hide bar when air data invalid.
+    // Match packages/ui-core/components/svg/index.js: hide bar when air data invalid.
     if (IasIsValid)
     {
         int indexY = mapPct2Display(aoaPct, Array);
