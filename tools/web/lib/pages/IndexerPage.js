@@ -12,9 +12,9 @@
 // site (docs/site/docs/) all mirror the names from the MODES table
 // below. Keep them in sync when changing names.
 
-import { html, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
-import * as G from '../core/geometry.js';
-import { fmt } from '../core/format.js';
+import { html, useState, useEffect, useRef } from '../../../../packages/ui-core/vendor/preact-standalone.js';
+import * as G from '../../../../packages/ui-core/core/geometry.js';
+import { fmt } from '../../../../packages/ui-core/core/format.js';
 import { Mode0, Mode1, Mode2, Mode3, Mode4 } from '../modes.js';
 import { useWebSocket } from '../ws/wsClient.js';
 import { PageShell } from '../shell/PageShell.js';

@@ -2,15 +2,15 @@
 // pure function of `r` (the WebSocket record) plus a `stale` flag for
 // the M5-style stale-data overlay.
 
-import { html } from './vendor/preact-standalone.js';
-import * as G from './core/geometry.js';
-import { colors } from './core/colors.js';
-import { fmt, fmtSigned } from './core/format.js';
+import { html } from '../../../packages/ui-core/vendor/preact-standalone.js';
+import * as G from '../../../packages/ui-core/core/geometry.js';
+import { colors } from '../../../packages/ui-core/core/colors.js';
+import { fmt, fmtSigned } from '../../../packages/ui-core/core/format.js';
 import {
   Indexer, PercentLiftNumber, CornerReadout, DataMark, FlapCircle, SlipBall, EdgeTape,
   Horizon, PitchLadder, BankArc, AircraftSymbol, TopPointer, FlightPathMarker,
   PitchReadout, DecelGauge, GHistory, StaleOverlay, IAS_DASHES, PCT_DASHES,
-} from './components/svg/index.js';
+} from '../../../packages/ui-core/components/svg/index.js';
 
 // Format a numeric corner readout. PAlt and G are independent of AOA
 // validity and render unconditionally once data is on the wire — they

@@ -1,0 +1,7 @@
+{
+  "name": "@onspeed/ui-core",
+  "version": "0.1.0",
+  "description": "Shared OnSpeed web UI primitives: SVG components, M5 panel geometry, color/format helpers, smoothing filters. Pure functions of a canonical M5State; no data sources, no fetches.",
+  "type": "module",
+  "private": true
+}

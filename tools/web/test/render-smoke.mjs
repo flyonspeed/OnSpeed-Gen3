@@ -170,7 +170,7 @@ function findFirstWithAttr(root, name, value) {
 // ---------------------------------------------------------------------
 // Imports + tests
 // ---------------------------------------------------------------------
-const preact = await import(new URL('../lib/vendor/preact-standalone.js', import.meta.url));
+const preact = await import(new URL('../../../packages/ui-core/vendor/preact-standalone.js', import.meta.url));
 const { html, render } = preact;
 
 const indexerMod = await import(new URL('../lib/pages/IndexerPage.js', import.meta.url));

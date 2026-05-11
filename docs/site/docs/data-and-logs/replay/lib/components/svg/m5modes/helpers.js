@@ -14,7 +14,7 @@
 // shape difference makes a single shared signature unwieldy until
 // the legacy path is gone.
 
-import { IAS_DASHES } from '../index.js';
+import { IAS_DASHES } from '../../../../../../../../../packages/ui-core/components/svg/index.js';
 
 // 4 Hz visual flash (same cadence the M5 firmware uses for indexer
 // color toggles). Reads the wall clock — the M5 panel does too — so

@@ -12,7 +12,7 @@
 // renders it into the mount point. No firmware-bundle entry.js
 // chrome — the MkDocs page provides its own header / nav.
 
-import { html, render } from './lib/vendor/preact-standalone.js';
+import { html, render } from '../../../../../packages/ui-core/vendor/preact-standalone.js';
 import { ReplayPage } from './lib/pages/ReplayPage.js';
 
 function start() {

@@ -7,13 +7,13 @@
 //
 // Exit code 0 = all pass, non-zero = some failed.
 
-import * as G from '../lib/core/geometry.js';
-import { chevronColors } from '../lib/core/chevronColors.js';
-import { colors } from '../lib/core/colors.js';
-import { donutColors } from '../lib/core/donutColors.js';
-import { mapPct2Display } from '../lib/core/pct2y.js';
-import { flapWidgetFrac, flapTriangleTransform } from '../lib/core/flapWidget.js';
-import { slipFromLateralG, slipBall } from '../lib/core/slipBall.js';
+import * as G from '../../../packages/ui-core/core/geometry.js';
+import { chevronColors } from '../../../packages/ui-core/core/chevronColors.js';
+import { colors } from '../../../packages/ui-core/core/colors.js';
+import { donutColors } from '../../../packages/ui-core/core/donutColors.js';
+import { mapPct2Display } from '../../../packages/ui-core/core/pct2y.js';
+import { flapWidgetFrac, flapTriangleTransform } from '../../../packages/ui-core/core/flapWidget.js';
+import { slipFromLateralG, slipBall } from '../../../packages/ui-core/core/slipBall.js';
 
 let failed = 0;
 let passed = 0;

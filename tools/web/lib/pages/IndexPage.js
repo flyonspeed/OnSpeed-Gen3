@@ -3,7 +3,7 @@
 // of static HTML embedded in the C++ handler; this Preact replacement
 // is the same content rendered through the shared shell.
 
-import { html } from '../vendor/preact-standalone.js';
+import { html } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 
 export function IndexPage() {

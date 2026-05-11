@@ -42,7 +42,7 @@
 // The smoothing logic lives in `lib/core/smoothedField.js` so future
 // pages (e.g. an offline log analyzer) can use the same hook.
 
-import { html, useState, useEffect } from '../vendor/preact-standalone.js';
+import { html, useState, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { getJson, ApiError } from '../shell/apiClient.js';
 import { useSmoothedField } from '../core/smoothedField.js';

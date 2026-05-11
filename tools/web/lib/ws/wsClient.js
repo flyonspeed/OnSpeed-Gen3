@@ -6,7 +6,7 @@
 // only consumes JSON).  Maps the firmware's JSON schema to a record
 // shape the page components consume.
 
-import { useEffect, useState } from '../vendor/preact-standalone.js';
+import { useEffect, useState } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 
 const STALE_RECONNECT_MS = 3000;
 const AGE_TICK_MS = 500;

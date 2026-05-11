@@ -39,7 +39,7 @@
 //   - Engine is deleted on new-log-load or component unmount.
 
 import { html, useState, useEffect, useRef, useCallback }
-  from '../vendor/preact-standalone.js';
+  from '../../../../../../../packages/ui-core/vendor/preact-standalone.js';
 import { parseLog, findRowAt, detectLogSampleRate }
   from '../replay/parseLog.js';
 import { parseConfigXml } from '../replay/config.js';

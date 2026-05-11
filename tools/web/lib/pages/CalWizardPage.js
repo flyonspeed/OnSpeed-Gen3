@@ -16,7 +16,7 @@
 // (test/test_calwiz_save_diff/) pins firmware-side equality; the JS
 // here pins client-side parity by reusing the same helper math.
 
-import { html, useState, useEffect, useRef } from '../vendor/preact-standalone.js';
+import { html, useState, useEffect, useRef } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { getJson, postJson, ApiError } from '../shell/apiClient.js';
 import { makeEmaState, updateEma, setAlpha, resetEma } from '../core/ema.js';

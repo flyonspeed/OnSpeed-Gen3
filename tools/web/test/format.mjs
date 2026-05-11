@@ -7,7 +7,7 @@
 //
 // Exit code 0 = all pass, non-zero = some failed.
 
-import { fmt, fmtSigned } from '../lib/core/format.js';
+import { fmt, fmtSigned } from '../../../packages/ui-core/core/format.js';
 
 let failed = 0;
 let passed = 0;

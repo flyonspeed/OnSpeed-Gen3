@@ -14,7 +14,7 @@
 // labeled "(active)" — the API's IsActiveLogFile() check guards
 // the actual delete, but reflecting it in the UI prevents confusion.
 
-import { html, useState, useEffect } from '../vendor/preact-standalone.js';
+import { html, useState, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
 import { getJson, postJson, ApiError } from '../shell/apiClient.js';
 
