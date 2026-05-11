@@ -240,6 +240,46 @@ function useGHistory(rec, ageSec) {
            hasSamples: hasSamples.current };
 }
 
+// useDisplaySnapshot — latches a handful of fields at the M5 panel's
+// text-readout cadence (500 ms by default). Matches main.cpp's
+// `updateRateNumbers = 500` block: the hardware M5 refreshes IAS / G /
+// percent-lift / etc. corner numerals every half-second so the pilot
+// can read them; the indexer chevrons + slip ball still animate at
+// the wire rate.
+//
+// The hook is given the live `rec` (20 Hz) plus the already-EMA-
+// smoothed decel rate (via useDecelEma above). On each interval it
+// snapshots the fields the adapter will route into the display*
+// state slots. Returns null until the first interval fires, then a
+// frozen { iasKt, paltFt, pitchDeg, verticalG, percentLift,
+// decelRateSmoothed } object.
+function useDisplaySnapshot(rec, decelRateSmoothed, intervalMs = 500) {
+  const recRef = useRef(rec);
+  const decelRef = useRef(decelRateSmoothed);
+  // Keep refs current without re-firing the interval — the interval
+  // reads the latest values from the refs.
+  recRef.current = rec;
+  decelRef.current = decelRateSmoothed;
+
+  const [snap, setSnap] = useState(null);
+  useEffect(() => {
+    const id = setInterval(() => {
+      const r = recRef.current;
+      if (!r) return;
+      setSnap(Object.freeze({
+        iasKt:             r.iasKt,
+        paltFt:            r.paltFt,
+        pitchDeg:          r.pitchDeg,
+        verticalG:         r.verticalG,
+        percentLift:       r.percentLift,
+        decelRateSmoothed: decelRef.current,
+      }));
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return snap;
+}
+
 // Empty record used before the first WebSocket frame arrives.
 // aoaIsValid false makes the modes hide their variable elements.
 // iasKt null lets the IAS readout dash to '---' the same way it
