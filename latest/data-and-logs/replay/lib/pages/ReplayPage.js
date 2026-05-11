@@ -38,8 +38,11 @@
 //     (pipPctLift, tonesOnPctLift, etc.), also via WASM.
 //   - Engine is deleted on new-log-load or component unmount.
 
+// URL-space relative path: see replay-entry.js header for why this is
+// 4 `..` and not 7 (production deploys under /latest/; longer walks
+// escape that prefix and 404).
 import { html, useState, useEffect, useRef, useCallback }
-  from '../../../../../../../packages/ui-core/vendor/preact-standalone.js';
+  from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { parseLog, findRowAt, detectLogSampleRate }
   from '../replay/parseLog.js';
 import { parseConfigXml } from '../replay/config.js';
@@ -54,7 +57,7 @@ import { PresentationFilter, PRESENTATION_PRESETS, defaultPresetForLogRate }
 import { getWasmCore } from '../replay/wasm_core.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
-} from '../components/svg/m5modes/index.js';
+} from '../../../../packages/ui-core/components/svg/m5modes/index.js';
 
 // Mode list indexed by displayType (0..4). The int returned by
 // `m5sim.read().displayType` maps directly to the renderer. Ordering

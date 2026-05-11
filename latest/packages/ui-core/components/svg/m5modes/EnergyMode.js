@@ -24,21 +24,20 @@
 // the upstream PresentationFilter can smooth in continuous-G space at
 // all magnitudes without a saturation dead-zone.
 
-import { html } from '../../../../../../../../../packages/ui-core/vendor/preact-standalone.js';
-import * as G from '../../../../../../../../../packages/ui-core/core/geometry.js';
-import { colors } from '../../../../../../../../../packages/ui-core/core/colors.js';
-import { fmtSigned } from '../../../../../../../../../packages/ui-core/core/format.js';
+import { html } from '../../../vendor/preact-standalone.js';
+import * as G from '../../../core/geometry.js';
+import { colors } from '../../../core/colors.js';
+import { fmtSigned } from '../../../core/format.js';
 import {
   Indexer, PercentLiftNumber, CornerReadout, DataMark,
   FlapCircle, SlipBall, EdgeTape,
-} from '../../../../../../../../../packages/ui-core/components/svg/index.js';
+} from '../index.js';
 import { m5FlashFlagNow, m5FmtIasKt } from './helpers.js';
 
 // Build the per-frame anchors array the existing Indexer expects.
 //
-// Layout (from modes.js::anchorsFromRec): [0, 0, tonesOn, fastOnSpd,
-// slowOnSpd, 0, pip, stallWarn]. PR 2 reads each from the M5 sim
-// state.
+// Layout: [0, 0, tonesOn, fastOnSpd, slowOnSpd, 0, pip, stallWarn].
+// Mirrors the M5 firmware's main.cpp anchor packing for displayAOA().
 const anchorsFromState = (state) => [
   0, 0,
   state.TonesOnPctLift,
