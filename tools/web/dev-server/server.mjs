@@ -1,25 +1,36 @@
 // OnSpeed dev server.  Zero npm deps.  Three modes:
 //
 //   --mock                 (default if no flag given that picks another mode)
-//     Serves tools/web/lib/ + tools/web/public/ + a synthesized
-//     <meta name="onspeed-mode" content="mock"> on every HTML page.
-//     /api/* is answered from dev-server/mocks/*.json.
-//     A WebSocket server on the same port at path /ws replays a
-//     recorded NDJSON file from dev-server/replay/ (default
-//     replay/cruise.ndjson) or a synthetic scenario from
-//     lib/scenarios.js when --scenario <name> is passed.
+//     Serves the firmware's actual PROGMEM bundle — runs
+//     `scripts/build_web_bundle.py`, parses the generated
+//     `static_app_js.h`/`static_app_css.h`/`html_stubs.h`, and serves
+//     them at the SAME URLs the firmware uses
+//     (`/static/app-<etag>.{js,css}` plus per-page stubs).  Auto-rebuilds
+//     when source files change — the next page reload picks up the new
+//     bundle.  Adds a synthesized `<meta name="onspeed-mode" content="mock">`
+//     on every HTML page.  /api/* is answered from dev-server/mocks/*.json.
+//     A WebSocket server on the same port at path /ws replays a recorded
+//     NDJSON file from dev-server/replay/ (default cruise.ndjson) or a
+//     synthetic scenario from lib/scenarios.js when --scenario <name> is
+//     passed.
 //
 //   --proxy <url>
-//     Static files served as in mock mode, but /api/* is forwarded
-//     to <url>.  WebSocket is NOT proxied — JS connects directly to
-//     the device via the meta tag's URL.  Inserts
-//     <meta name="onspeed-mode" content="proxy <url>"> and a
-//     companion <meta name="onspeed-ws" content="ws://<host>:81">.
+//     Pages served as in mock mode (same bundle), but /api/* is forwarded
+//     to <url>.  WebSocket is NOT proxied — JS connects directly to the
+//     device via the meta tag's URL.  Inserts
+//     <meta name="onspeed-mode" content="proxy <url>"> and a companion
+//     <meta name="onspeed-ws" content="ws://<host>:81">.
 //
 //   default (no mode flag)
-//     Static-only.  /api/* returns 503 with a "no backend
-//     configured" body.  WebSocket is unreachable.  Useful for
-//     offline UI iteration that doesn't depend on data.
+//     Static-only.  Pages still serve the bundle.  /api/* returns 503 with
+//     a "no backend configured" body.  WebSocket is unreachable.  Useful
+//     for offline UI iteration that doesn't depend on data.
+//
+// Why the bundle and not raw source: serving raw source files exposes a
+// different URL surface (browser ES-module imports vs single PROGMEM blob)
+// than the firmware does.  Path-resolution bugs that would break in the
+// box but work via raw-source serving can hide indefinitely.  Serving the
+// bundle catches them on first reload.
 //
 // Usage:
 //   node tools/web/dev-server/server.mjs --mock
@@ -34,6 +45,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,6 +53,7 @@ const __dirname  = path.dirname(__filename);
 const REPO_ROOT  = path.resolve(__dirname, '..', '..', '..');
 const WEB_DIR    = path.resolve(__dirname, '..');
 const LIB_DIR    = path.join(WEB_DIR, 'lib');
+const UI_CORE_DIR = path.join(REPO_ROOT, 'packages', 'ui-core');
 const PUBLIC_DIR = path.join(WEB_DIR, 'public');
 const LEGACY_DIR = path.join(WEB_DIR, 'legacy-pages');
 const MOCKS_DIR  = path.join(__dirname, 'mocks');
@@ -49,6 +62,15 @@ const REPLAY_DIR = path.join(__dirname, 'replay');
 // Served at /static/onspeed_core/ so wasm_core.js can import it.
 const WASM_DIST_DIR = path.resolve(
     REPO_ROOT, 'software', 'Libraries', 'onspeed_core', 'wasm', 'dist');
+
+// Generated PROGMEM headers (produced by scripts/build_web_bundle.py).
+// The dev server parses these and serves the same byte content the
+// firmware would, at the same URLs.
+const BUNDLER         = path.join(REPO_ROOT, 'scripts', 'build_web_bundle.py');
+const GEN_DIR         = path.join(REPO_ROOT, 'software', 'OnSpeed-Gen3-ESP32', 'Web');
+const HEADER_JS_H     = path.join(GEN_DIR, 'static_app_js.h');
+const HEADER_CSS_H    = path.join(GEN_DIR, 'static_app_css.h');
+const HEADER_STUBS_H  = path.join(GEN_DIR, 'html_stubs.h');
 
 // ---------------------------------------------------------------------
 // CLI parsing
@@ -128,7 +150,184 @@ function mimeFor(filePath) {
 }
 
 // ---------------------------------------------------------------------
-// Page registry — must mirror PAGES in build_web_bundle.py
+// Bundle loader — runs scripts/build_web_bundle.py and parses the
+// generated PROGMEM headers into a structure we can serve over HTTP.
+//
+// The dev server gives the browser exactly what the firmware would: a
+// single gzipped JS blob, a single gzipped CSS blob, and per-page HTML
+// stubs that reference them at /static/app-<etag>.{js,css}.
+//
+// Re-parses on every change to JS/CSS sources (watched via fs.watch
+// elsewhere in this file).
+// ---------------------------------------------------------------------
+
+// Cached bundle artifacts. Each call to runBundlerAndLoad() refreshes
+// these atomically.
+let bundleState = {
+  jsGz: Buffer.alloc(0),
+  cssGz: Buffer.alloc(0),
+  jsEtag: '',
+  cssEtag: '',
+  jsContentType: 'application/javascript',
+  cssContentType: 'text/css',
+  stubs: new Map(),  // page-id → raw HTML stub string
+  loaded: false,
+  loadError: null,
+};
+
+function runBundler() {
+  const t0 = Date.now();
+  const res = spawnSync('python3', [BUNDLER], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const dtMs = Date.now() - t0;
+  if (res.status !== 0) {
+    const stderr = (res.stderr || '').trim();
+    const stdout = (res.stdout || '').trim();
+    throw new Error(
+      `build_web_bundle.py exited with status ${res.status} (${dtMs} ms)\n` +
+      `stdout: ${stdout}\nstderr: ${stderr}`);
+  }
+  return { dtMs, stdout: (res.stdout || '').trim() };
+}
+
+// Parse `static_app_js.h` / `static_app_css.h`.  Each file has:
+//   static const size_t static_app_<kind>_len = NNNNN;
+//   static const char   static_app_<kind>_etag[] = "abc123";
+//   static const char   static_app_<kind>_content_type[] = "...";
+//   static const uint8_t static_app_<kind>[] PROGMEM = { 0x.., ... };
+function parseStaticHeader(headerPath, kind) {
+  const txt = fs.readFileSync(headerPath, 'utf8');
+  const etagMatch = txt.match(
+    new RegExp(`static_app_${kind}_etag\\[\\]\\s*=\\s*"([^"]+)"`));
+  if (!etagMatch) {
+    throw new Error(`parseStaticHeader: no etag in ${headerPath}`);
+  }
+  const ctMatch = txt.match(
+    new RegExp(`static_app_${kind}_content_type\\[\\]\\s*=\\s*"([^"]+)"`));
+  if (!ctMatch) {
+    throw new Error(`parseStaticHeader: no content_type in ${headerPath}`);
+  }
+  const arrayStart = txt.indexOf('PROGMEM = {');
+  if (arrayStart < 0) {
+    throw new Error(`parseStaticHeader: no PROGMEM array in ${headerPath}`);
+  }
+  const arrayBlock = txt.slice(arrayStart);
+  const arrayEnd = arrayBlock.indexOf('};');
+  if (arrayEnd < 0) {
+    throw new Error(`parseStaticHeader: unterminated PROGMEM array in ${headerPath}`);
+  }
+  const bytesStr = arrayBlock.slice(0, arrayEnd);
+  const matches = bytesStr.matchAll(/0x([0-9a-fA-F]{2})/g);
+  const bytes = [];
+  for (const m of matches) bytes.push(parseInt(m[1], 16));
+  return {
+    etag: etagMatch[1],
+    contentType: ctMatch[1],
+    bytes: Buffer.from(bytes),
+  };
+}
+
+// Parse html_stubs.h into a Map<pageId, htmlStub>.  Each stub is a
+// raw-string literal: `static const char htmlStub_<id>[] PROGMEM = R"=====(...)=====";`
+function parseStubsHeader(headerPath) {
+  const txt = fs.readFileSync(headerPath, 'utf8');
+  const stubs = new Map();
+  const stubRe = /htmlStub_(\w+)\[\][^=]*=\s*R"=====\(([\s\S]*?)\)=====";/g;
+  for (const m of txt.matchAll(stubRe)) {
+    stubs.set(m[1], m[2]);
+  }
+  if (stubs.size === 0) {
+    throw new Error(`parseStubsHeader: no stubs found in ${headerPath}`);
+  }
+  return stubs;
+}
+
+function runBundlerAndLoad() {
+  try {
+    const { dtMs } = runBundler();
+    const js = parseStaticHeader(HEADER_JS_H, 'js');
+    const css = parseStaticHeader(HEADER_CSS_H, 'css');
+    const stubs = parseStubsHeader(HEADER_STUBS_H);
+    bundleState = {
+      jsGz: js.bytes,
+      cssGz: css.bytes,
+      jsEtag: js.etag,
+      cssEtag: css.etag,
+      jsContentType: js.contentType,
+      cssContentType: css.contentType,
+      stubs,
+      loaded: true,
+      loadError: null,
+    };
+    console.log(
+      `[dev-server] bundle reloaded (js=${js.bytes.length}B etag=${js.etag}, ` +
+      `css=${css.bytes.length}B etag=${css.etag}, stubs=${stubs.size}, ${dtMs} ms)`);
+  } catch (err) {
+    bundleState.loaded = false;
+    bundleState.loadError = err;
+    console.error(`[dev-server] bundle load FAILED: ${err.message}`);
+  }
+}
+
+// Watch JS/CSS/bundler-script changes.  Debounce to coalesce flurries
+// (editor save → multiple inotify events).
+function watchAndReload() {
+  let timer = null;
+  const trigger = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      runBundlerAndLoad();
+    }, 150);
+  };
+  const watchDir = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    try {
+      fs.watch(dir, { recursive: true }, (evt, name) => {
+        if (!name) return;
+        // Only trigger on JS / CSS / bundler-script changes.  Ignore
+        // node_modules, .git, build artifacts.
+        if (/\.(js|mjs|css)$/.test(name) || name.endsWith('build_web_bundle.py')) {
+          trigger();
+        }
+      });
+    } catch (e) {
+      console.warn(`[dev-server] fs.watch(${dir}) failed: ${e.message}`);
+    }
+  };
+  watchDir(LIB_DIR);
+  watchDir(UI_CORE_DIR);
+  watchDir(path.dirname(BUNDLER));
+}
+
+// Splice dev-mode <meta> tags into a firmware stub so the bundle
+// can find the WebSocket / logo / version.  Mirrors what the firmware
+// does for {{onspeedVersion}}; the dev-mode/ws/logo metas are
+// additions the firmware never emits.
+function adaptStubForDev(stubHtml, page, args, host) {
+  const modeMeta = args.mode === 'mock'
+    ? '<meta name="onspeed-mode" content="mock">'
+    : args.mode === 'proxy'
+      ? `<meta name="onspeed-mode" content="proxy ${args.proxy}">`
+      : '';
+  const wsMeta = args.mode === 'proxy' && args.proxy
+    ? `<meta name="onspeed-ws" content="${proxyToWs(args.proxy)}">`
+    : args.mode === 'mock'
+      ? `<meta name="onspeed-ws" content="ws://${host}/ws">`
+      : '';
+  const logoMeta = '<meta name="onspeed-logo" content="/onspeed-logo.png">';
+  const injects = [modeMeta, wsMeta, logoMeta].filter(Boolean).join('\n');
+  // The firmware stub already carries <meta name="onspeed-version"> with
+  // a {{onspeedVersion}} placeholder.  Substitute "dev" the way the
+  // firmware's ServePageStub() substitutes BuildInfo::version.
+  let out = stubHtml.replace(/\{\{onspeedVersion\}\}/g, 'dev');
+  // Inject the dev metas right before </head>.
+  out = out.replace('</head>', `${injects}\n</head>`);
+  return out;
+}
 // ---------------------------------------------------------------------
 const PAGES = [
   { id: 'indexer',      path: '/indexer',      title: 'Indexer' },
@@ -148,53 +347,13 @@ const REDIRECTS = [
   { from: '/live', to: '/indexer' },
 ];
 
+// Build the page HTML for a given page id, using the firmware's actual
+// stub (parsed from html_stubs.h) plus dev-mode meta-tag injections.
+// Returns null if the bundle hasn't loaded or no stub exists for that id.
 function pageStubHtml(page, args, host) {
-  const modeMeta = args.mode === 'mock'
-    ? '<meta name="onspeed-mode" content="mock">'
-    : args.mode === 'proxy'
-      ? `<meta name="onspeed-mode" content="proxy ${args.proxy}">`
-      : '';
-  // For mock mode, use the same hostname the browser used to reach us
-  // (Host header).  Lets a phone on the same WiFi connect via the
-  // Mac's LAN IP and still resolve the WebSocket without hard-coding
-  // localhost.
-  const wsMeta = args.mode === 'proxy' && args.proxy
-    ? `<meta name="onspeed-ws" content="${proxyToWs(args.proxy)}">`
-    : args.mode === 'mock'
-      ? `<meta name="onspeed-ws" content="ws://${host}/ws">`
-      : '';
-  // Tell PageShell where the logo lives.  The bundler emits an
-  // `ONSPEED_LOGO_DATA_URL` global; the dev server serves the PNG
-  // directly from public/ and points at it via this meta tag.
-  const logoMeta = '<meta name="onspeed-logo" content="/onspeed-logo.png">';
-  // Mirror the firmware's `<meta name="onspeed-version">` substitution
-  // so PageShell renders the version banner from first paint.  The
-  // firmware injects BuildInfo::version via String::replace; the dev
-  // server uses a literal "dev" tag.
-  const versionMeta = '<meta name="onspeed-version" content="dev">';
-  // The dev server serves the JS modules straight out of lib/.  No
-  // bundling — the browser pulls each file via ES module imports.
-  // Edits are visible on reload without a build step.
-  return [
-    '<!DOCTYPE html>',
-    '<html lang="en">',
-    '<head>',
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>OnSpeed — ${page.title} (dev)</title>`,
-    modeMeta,
-    wsMeta,
-    logoMeta,
-    versionMeta,
-    '<link rel="stylesheet" href="/lib/shell/PageShell.css">',
-    '<link rel="stylesheet" href="/lib/shell/legacy-forms.css">',
-    '</head>',
-    '<body>',
-    `<div id="app" data-page="${page.id}"></div>`,
-    '<script type="module" src="/lib/entry.js"></script>',
-    '</body>',
-    '</html>',
-  ].filter(Boolean).join('\n');
+  const stub = bundleState.stubs.get(page.id);
+  if (!stub) return null;
+  return adaptStubForDev(stub, page, args, host);
 }
 
 function proxyToWs(httpUrl) {
@@ -459,6 +618,11 @@ function main() {
               (args.proxy ? ` proxy=${args.proxy}` : '') +
               (args.replay ? ` replay=${args.replay}` : '') +
               (args.scenario ? ` scenario=${args.scenario}` : ''));
+
+  // Build the firmware bundle once at startup so the first request can
+  // serve real artifacts; then watch source trees to refresh on save.
+  runBundlerAndLoad();
+  watchAndReload();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -838,12 +1002,70 @@ async function route(req, res, args) {
 
   // Page stubs.  Pass the request Host so the WS meta tag uses the
   // same hostname the browser used to reach us (works for LAN IPs).
+  // The HTML is the firmware's actual per-page stub (parsed from
+  // html_stubs.h) with dev-mode meta tags spliced into <head>.
   for (const page of PAGES) {
     if (pathname === page.path) {
       const host = req.headers.host || `localhost:${args.port}`;
       const html = pageStubHtml(page, args, host);
+      if (html === null) {
+        const why = bundleState.loadError
+          ? `Bundle failed to build: ${bundleState.loadError.message}`
+          : `No stub for page id "${page.id}"; bundle still loading?`;
+        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(why);
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(html);
+      return;
+    }
+  }
+
+  // Bundled JS + CSS.  Served at the same URLs the firmware would use:
+  //   /static/app-<etag>.js
+  //   /static/app-<etag>.css
+  // The bytes are pre-gzipped (parsed from static_app_<kind>.h), so we
+  // emit them with Content-Encoding: gzip.  Etag mismatch returns 404
+  // (firmware behavior is to ignore the etag and serve the latest; we
+  // could mimic that, but a 404 on stale bundle URLs makes drift
+  // visible immediately).
+  if (pathname.startsWith('/static/app-')) {
+    if (!bundleState.loaded) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(bundleState.loadError
+        ? `Bundle failed to build: ${bundleState.loadError.message}`
+        : 'Bundle still loading');
+      return;
+    }
+    const jsMatch  = pathname.match(/^\/static\/app-([0-9a-f]+)\.js$/);
+    const cssMatch = pathname.match(/^\/static\/app-([0-9a-f]+)\.css$/);
+    if (jsMatch) {
+      if (jsMatch[1] !== bundleState.jsEtag) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end(`Stale JS bundle etag ${jsMatch[1]}; current is ${bundleState.jsEtag}`);
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type':     bundleState.jsContentType,
+        'Content-Encoding': 'gzip',
+        'Cache-Control':    'no-store',
+      });
+      res.end(bundleState.jsGz);
+      return;
+    }
+    if (cssMatch) {
+      if (cssMatch[1] !== bundleState.cssEtag) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end(`Stale CSS bundle etag ${cssMatch[1]}; current is ${bundleState.cssEtag}`);
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type':     bundleState.cssContentType,
+        'Content-Encoding': 'gzip',
+        'Cache-Control':    'no-store',
+      });
+      res.end(bundleState.cssGz);
       return;
     }
   }
@@ -869,10 +1091,17 @@ async function route(req, res, args) {
     return;
   }
 
-  // Static assets under /lib/ → tools/web/lib
+  // The /lib/ raw-source route was removed when the dev server switched
+  // to serving the firmware's bundled artifacts.  Any leftover /lib/*
+  // requests would indicate a stale tab against an old dev-server
+  // build — answer with a 410 Gone so the failure is loud.
   if (pathname.startsWith('/lib/')) {
-    const f = safeJoin(LIB_DIR, pathname.slice('/lib/'.length));
-    if (f && await serveFile(f, res)) return;
+    res.writeHead(410, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(
+      `/lib/ source serving has been removed.  The dev server now serves\n` +
+      `the firmware's bundled artifacts at /static/app-<etag>.{js,css}.\n` +
+      `Reload the page (the new stub references the bundled URLs directly).\n`);
+    return;
   }
 
   // The "home" page is registered above with path "/"; if we get here,

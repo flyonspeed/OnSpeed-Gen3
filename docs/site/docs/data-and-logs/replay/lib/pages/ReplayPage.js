@@ -70,7 +70,6 @@ const M5_MODES = [
 
 const SYNC_LS_KEY = 'replay-sync-v1';
 const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
-const M5_ACCURATE_LS_KEY = 'replay-m5-accurate-v1';
 // Render-side presentation smoothing preset. NOT a firmware mirror —
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
 // visible on the slip ball. See presentationFilter.js for rationale.
@@ -120,13 +119,6 @@ export const ReplayPage = () => {
   // knows what event they're syncing against.
   const [anchorKind, setAnchorKind] = useState('none');
 
-  // M5-accurate mode state. The toggle persists in localStorage so a
-  // pilot's preference survives a
-  // reload — once they confirm the M5-accurate path renders correctly
-  // for their data they don't have to re-toggle every session.
-  const [m5Accurate, setM5Accurate] = useState(() => {
-    return safeLsGet(M5_ACCURATE_LS_KEY) === '1';
-  });
   const [m5ModeId, setM5ModeId] = useState(() => {
     const s = safeLsGet(M5_MODE_LS_KEY);
     const n = s == null ? 0 : parseInt(s, 10);
@@ -183,12 +175,12 @@ export const ReplayPage = () => {
   // computation. videoT in seconds.
   const m5LastFilterVideoTRef = useRef(null);
   // Bump to force a sim re-init. The init effect's dep is
-  // [m5Accurate, m5SimReinitNonce]; incrementing here drops the
-  // current sim and rebuilds. Needed after backward virtual-time
-  // jumps because the firmware's millis()-gated state (loopTime,
-  // numbersUpdateTime, gHistory cursor) latches HIGH values that
-  // won't fire again until virtual time exceeds them — leaving
-  // displayIAS / displayPalt / displayPercentLift stuck.
+  // Bumping m5SimReinitNonce drops the current sim and rebuilds it.
+  // Needed after backward virtual-time jumps because the firmware's
+  // millis()-gated state (loopTime, numbersUpdateTime, gHistory cursor)
+  // latches HIGH values that won't fire again until virtual time
+  // exceeds them — leaving displayIAS / displayPalt /
+  // displayPercentLift stuck at the last-seen-future values.
   const [m5SimReinitNonce, setM5SimReinitNonce] = useState(0);
 
   // Export-to-WebM state. exporting=true while a recording is in
@@ -325,17 +317,14 @@ export const ReplayPage = () => {
     };
   }, [videoUrl]);
 
-  // ---------- M5-accurate sim init / teardown -------------------------
+  // ---------- M5 sim init / teardown -----------------------------------
 
-  // Lazy-load the M5 sim and onspeed_core WASM the first time the
-  // M5-accurate toggle flips on. The sim survives subsequent toggles —
-  // there's no compelling reason to tear it down on toggle-off, and
-  // re-creating costs ~100 ms of WASM init. PR 3 will flip the default
-  // to ON and delete the toggle entirely.
+  // Lazy-load the M5 sim and onspeed_core WASM on mount. The sim
+  // survives across renders; it's torn down + recreated when the
+  // reinit-nonce bumps (used by backward-scrub recovery — firmware
+  // millis-gated state otherwise latches at values from the prior
+  // playhead position).
   useEffect(() => {
-    if (!m5Accurate) return;
-    // Tear down any existing sim so a bumped reinit-nonce gets a
-    // fresh firmware-globals state. Cheap (~100 ms WASM init).
     if (m5SimRef.current) {
       try { m5SimRef.current.delete(); } catch (_) {}
       m5SimRef.current = null;
@@ -351,8 +340,7 @@ export const ReplayPage = () => {
           getWasmCore(),
         ]);
         if (cancelled) {
-          // Race: toggle flipped off mid-load. Drop the partially-loaded
-          // sim — re-creating on next toggle-on is cheap.
+          // Race: component unmounted mid-load.
           sim.delete();
           return;
         }
@@ -381,12 +369,7 @@ export const ReplayPage = () => {
     })();
 
     return () => { cancelled = true; };
-  }, [m5Accurate, m5SimReinitNonce]);
-
-  // Persist the toggle.
-  useEffect(() => {
-    safeLsSet(M5_ACCURATE_LS_KEY, m5Accurate ? '1' : '0');
-  }, [m5Accurate]);
+  }, [m5SimReinitNonce]);
 
   // Pick a rate-appropriate default smoothing preset once the log
   // loads, IF the user hasn't set one (m5SmoothPreset === null on a
@@ -424,7 +407,7 @@ export const ReplayPage = () => {
   // only when log or cfg changes. Skipping when M5-accurate is off
   // saves the cost on JS-only legacy-rec sessions.
   useEffect(() => {
-    if (!log || !cfg || !m5Accurate) {
+    if (!log || !cfg) {
       setCppWireFrames(null);
       setCppBuilding(false);
       return;
@@ -449,7 +432,7 @@ export const ReplayPage = () => {
       setCppProgress(0);
     });
     return () => { cancelled = true; };
-  }, [log, cfg, m5Accurate]);
+  }, [log, cfg]);
 
   // Persist the mode.
   useEffect(() => {
@@ -528,10 +511,9 @@ export const ReplayPage = () => {
   const debugLastLogMsRef = useRef(0);
 
   useEffect(() => {
-    if (!m5Accurate) { setM5State(null); return; }
     const sim = m5SimRef.current;
     const core = m5CoreRef.current;
-    if (!sim || !core || !log || !cfg) return;
+    if (!sim || !core || !log || !cfg) { setM5State(null); return; }
     if (!cppWireFrames) return;   // wait for C++ pre-pass
     if (!sync ||
         !Number.isFinite(sync.videoTakeoffSec) ||
@@ -785,7 +767,7 @@ export const ReplayPage = () => {
         }));
       }
     }
-  }, [m5Accurate, log, cfg, sync, videoT, pausedLogMs, m5ModeId,
+  }, [log, cfg, sync, videoT, pausedLogMs, m5ModeId,
       m5SmoothPreset, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------
@@ -1038,7 +1020,7 @@ export const ReplayPage = () => {
             />
           ` : html`<div class="replay-placeholder">Drop a flight video and an SD-log CSV to get started.</div>`}
 
-          ${overlayVisible && m5Accurate && m5State && html`
+          ${overlayVisible && m5State && html`
             <div class="replay-overlay">
               <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
                 ${(() => {
