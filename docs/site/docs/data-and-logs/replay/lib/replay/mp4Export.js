@@ -796,6 +796,19 @@ export async function exportClipAsMp4({
   const decoder = new VideoDecoder({
     output: (frame) => {
       if (decoderError) { frame.close(); return; }
+      // Drop decode-context frames (pre-window keyframe + leading
+      // B/P frames before clampedStart). Their job — providing
+      // decode state for forward-dependent in-window frames — is
+      // done as soon as the decoder consumed them. Keeping them in
+      // the frameQueue would let waitForFrameAtOrBefore pick a
+      // pre-window frame for the first output slot (target ts = 0)
+      // and produce a "video starts at takeoff, not at clip start"
+      // bug. Their `timestamp` is negative (anchored at the first
+      // output packet's cts via toOutTsUs).
+      if (frame.timestamp < 0) {
+        frame.close();
+        return;
+      }
       insertFrame(frame);
     },
     error: (e) => { decoderError = e; },
