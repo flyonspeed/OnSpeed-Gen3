@@ -56,6 +56,7 @@ import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLa
   from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { reassembleResults } from '../replay/reassemble.js';
+import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
 import { PresentationFilter, PRESENTATION_PRESETS, defaultPresetForLogRate }
@@ -104,7 +105,9 @@ const EXPORT_AVIONICS_VARS = Object.freeze({
   '--font-numeric': "'B612', 'Helvetica Neue', Arial, sans-serif",
 });
 
-const SYNC_LS_KEY = 'replay-sync-v1';
+// Sync + clips persistence lives in replay/persistence.js
+// (content-keyed by log digest). These are simpler prefs keyed by
+// a fixed string.
 const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 // Render-side presentation smoothing preset. NOT a firmware mirror —
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
@@ -124,13 +127,6 @@ function anchorKindLabel(kind) {
 function safeLsGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function safeLsSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
 
-// Hash a string to a stable short key for localStorage. djb2.
-function hashKey(s) {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return h.toString(16);
-}
-
 // Convert a video time (seconds) to a log timestamp (ms since
 // power-on) using the takeoff anchor.
 function videoToLogMs(videoSec, sync) {
@@ -143,8 +139,13 @@ export const ReplayPage = () => {
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl]   = useState(null);
   const [log, setLog]             = useState(null);
+  // Raw File handle, separate from logFilename. Used to compute the
+  // content-keyed digest for sync + clip persistence (see
+  // useReplayPersistence in ../replay/persistence.js).
+  const [logFile, setLogFile]     = useState(null);
   const [logFilename, setLogFilename] = useState('');
   const [cfg, setCfg]             = useState(null);
+  const [cfgFile, setCfgFile]     = useState(null);
   const [cfgFilename, setCfgFilename] = useState('');
   const [sync, setSync]           = useState(null);
   const [videoT, setVideoT]       = useState(0);
@@ -232,6 +233,13 @@ export const ReplayPage = () => {
   // The ClipBuilder UI displays them as a stack of editable rows;
   // "Export all" iterates and produces one MP4 per entry.
   const [clips, setClips] = useState([]);
+
+  // Persistence: stores sync + clips per log-content digest in
+  // localStorage so a reload restores both when the pilot re-picks
+  // the same log. Also drives the "last session" banner that
+  // suggests re-picking the prior session's files. See
+  // replay/persistence.js for the storage contract.
+  const persistence = useReplayPersistence({ logFile });
 
   // Mark-in flow: when the pilot clicks "Mark clip in" we stash the
   // current video time; the next "Mark clip out" click completes the
@@ -324,6 +332,7 @@ export const ReplayPage = () => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoFile(f);
     setVideoUrl(URL.createObjectURL(f));
+    persistence.notifyFilePicked('video', f);
   };
 
   const onLogPick = async (e) => {
@@ -335,7 +344,9 @@ export const ReplayPage = () => {
       const parsed = parseLog(text);
       if (parsed.Length === 0) throw new Error('no rows');
       setLog(parsed);
+      setLogFile(f);
       setLogFilename(f.name);
+      persistence.notifyFilePicked('log', f);
     } catch (err) {
       setParseErr(`Could not parse log: ${err.message}`);
       setLog(null);
@@ -351,7 +362,9 @@ export const ReplayPage = () => {
       const parsed = await parseConfigXml(text);
       if (!parsed.flaps || !parsed.flaps.length) throw new Error('no flap detents in config');
       setCfg(parsed);
+      setCfgFile(f);
       setCfgFilename(f.name);
+      persistence.notifyFilePicked('cfg', f);
     } catch (err) {
       setParseErr(`Could not parse config: ${err.message}`);
       setCfg(null);
@@ -360,19 +373,19 @@ export const ReplayPage = () => {
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
+  // Auto-detect takeoff + restore persisted sync.
+  // Guards on persistence.digestReady so we don't auto-detect when a
+  // stored sync for this exact log is already in localStorage. The
+  // digest is async (10 KB read + SHA-256); during that gap we don't
+  // touch sync, which avoids racing the auto-detector against the
+  // restored value.
   useEffect(() => {
     if (!log) return;
-    // Try to restore prior sync state before auto-detecting.
-    const key = hashKey((videoFile?.name || '') + '|' + logFilename);
-    const saved = safeLsGet(SYNC_LS_KEY + ':' + key);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Number.isFinite(parsed.logTakeoffMs) && Number.isFinite(parsed.videoTakeoffSec)) {
-          setSync(parsed);
-          return;
-        }
-      } catch {}
+    if (!persistence.digestReady) return;
+    if (persistence.storedSync) {
+      setSync(persistence.storedSync);
+      setAnchorKind(persistence.storedSync.anchorKind || 'none');
+      return;
     }
     const { row: tRow, kind } = detectTakeoffWithKind(log);
     setAnchorKind(kind);
@@ -382,15 +395,27 @@ export const ReplayPage = () => {
       // is null (overlay shows nothing).
       setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null });
     }
-  }, [log, videoFile, logFilename]);
+  }, [log, persistence.digestReady, persistence.storedSync]);
 
-  // Persist sync state (only when both anchors are set).
+  // Persist sync on every change. persistence.storeSync rejects
+  // partial sync (one anchor null), so no gate needed here.
   useEffect(() => {
-    if (!sync || !Number.isFinite(sync.videoTakeoffSec) || !Number.isFinite(sync.logTakeoffMs)) return;
-    if (!videoFile || !logFilename) return;
-    const key = hashKey(videoFile.name + '|' + logFilename);
-    safeLsSet(SYNC_LS_KEY + ':' + key, JSON.stringify(sync));
-  }, [sync, videoFile, logFilename]);
+    persistence.storeSync(sync);
+  }, [sync, persistence.storeSync]);
+
+  // Restore persisted clips when the log digest resolves. Only seed
+  // if the in-memory clip list is empty — never clobber clips the
+  // user added before the digest came back.
+  useEffect(() => {
+    if (!persistence.digestReady) return;
+    if (!persistence.storedClips || !persistence.storedClips.length) return;
+    setClips(prev => prev.length === 0 ? persistence.storedClips : prev);
+  }, [persistence.digestReady, persistence.storedClips]);
+
+  // Persist clips on every change.
+  useEffect(() => {
+    persistence.storeClips(clips);
+  }, [clips, persistence.storeClips]);
 
   // ---------- Video clock ------------------------------------------
 
@@ -1430,6 +1455,8 @@ export const ReplayPage = () => {
 
   return html`
       <div class="replay-page">
+        <${RecentFilesBanner} info=${persistence.bannerInfo}
+                              onDismiss=${persistence.dismissBanner} />
         <header class="replay-toolbar">
           <label class="replay-file">
             <span>Video</span>

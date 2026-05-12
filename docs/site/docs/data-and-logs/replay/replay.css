@@ -316,6 +316,42 @@
   padding: 4px 0;
 }
 
+.replay-recent-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: #2a2418;
+  border: 1px solid var(--yellow, #fffd40);
+  border-radius: 4px;
+  color: var(--ink, #eee);
+  font-size: 12px;
+}
+.replay-recent-text {
+  flex: 1 1 auto;
+  color: #d8c97a;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.replay-recent-dismiss {
+  flex: 0 0 auto;
+  border: 1px solid #4a3f1f;
+  background: transparent;
+  color: #d8c97a;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 3px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.replay-recent-dismiss:hover {
+  background: #4a3f1f;
+  color: var(--yellow, #fffd40);
+}
+
 .replay-overlay-modes {
   display: flex;
   flex-wrap: wrap;
