@@ -34,6 +34,7 @@ platformio.ini's shared [env] block.
 import base64
 import gzip
 import hashlib
+import json
 import os
 import re
 import sys
@@ -122,6 +123,24 @@ PAGES = [
     ("sensorconfig", "Sensor Calibration", "sensorconfig"),
 ]
 
+# Replay-bundle target.
+# Source: docs/site/docs/data-and-logs/replay/ + packages/ui-core/
+# Output: replay-bundle.js next to replay.md (sibling-relative, no .. walks).
+REPLAY_DIR     = os.path.join(REPO_ROOT, "docs", "site", "docs",
+                               "data-and-logs", "replay")
+REPLAY_ENTRY   = os.path.join(REPLAY_DIR, "replay-entry.js")
+REPLAY_OUTPUT  = os.path.join(REPLAY_DIR, "replay-bundle.js")
+
+# Path alias: replay source files import packages/ui-core/ via a virtual
+# docs/site/docs/packages/ path (the PR-#524 symlink that this PR makes
+# unnecessary). Map the virtual path to the real location so the bundler
+# can resolve imports without requiring the symlink at build time.
+_REPLAY_VIRTUAL_PACKAGES = os.path.join(
+    REPO_ROOT, "docs", "site", "docs", "packages")
+_REPLAY_ALIAS_MAP = {
+    _REPLAY_VIRTUAL_PACKAGES: os.path.join(REPO_ROOT, "packages"),
+}
+
 
 # ---------------------------------------------------------------------
 # Source enumeration + topological sort.
@@ -168,7 +187,7 @@ _RE_NAMESPACE_IMPORT = re.compile(
 )
 
 _RE_EXPORTED_NAME = re.compile(
-    r"^export\s+(?:const|let|var|function|class)\s+(\w+)",
+    r"^export\s+(?:async\s+)?(?:const|let|var|function|class)\s+(\w+)",
     re.MULTILINE,
 )
 
@@ -220,6 +239,26 @@ def _strip_imports(text):
     return _RE_IMPORT.sub("", text)
 
 
+def _resolve_with_alias(base_dir, spec, alias_map):
+    """Resolve an import spec relative to base_dir, then apply alias_map.
+
+    alias_map maps a virtual filesystem path prefix to its real
+    location. The replay bundle uses this so imports written against
+    `docs/site/docs/packages/ui-core/...` (the PR-#524 symlink) resolve
+    to the real `packages/ui-core/...` directory without requiring the
+    symlink to exist on disk at build time.
+    """
+    raw = os.path.normpath(os.path.join(base_dir, spec))
+    for virtual, real in alias_map.items():
+        v_prefix = virtual if virtual.endswith(os.sep) else virtual + os.sep
+        r_prefix = real   if real.endswith(os.sep)   else real   + os.sep
+        if raw == virtual:
+            return real
+        if raw.startswith(v_prefix):
+            return r_prefix + raw[len(v_prefix):]
+    return raw
+
+
 def _assert_supported_forms(text, src_path):
     if re.search(r"^export\s+default\b", text, re.MULTILINE):
         raise SystemExit(
@@ -228,11 +267,6 @@ def _assert_supported_forms(text, src_path):
     if re.search(r"^import\s+['\"]", text, re.MULTILINE):
         raise SystemExit(
             f"build_web_bundle: {src_path}: side-effect import not supported."
-        )
-    if re.search(r"^export\s+async\b", text, re.MULTILINE):
-        raise SystemExit(
-            f"build_web_bundle: {src_path}: `export async function` not "
-            f"supported. Declare async then export separately."
         )
     for m in re.finditer(r"^export\s+(?:const|let|var)\s+(.+?);", text,
                          re.MULTILINE | re.DOTALL):
@@ -255,7 +289,7 @@ def _assert_supported_forms(text, src_path):
 
 def _strip_exports(text):
     """Drop the `export` keyword from declarations."""
-    text = re.sub(r"^export\s+(const|let|var|function|class)\s+",
+    text = re.sub(r"^export\s+((?:async\s+)?function|const|let|var|class)\s+",
                   r"\1 ", text, flags=re.MULTILINE)
 
     def _rewrite_export_block(m):
@@ -722,10 +756,281 @@ def _needs_rebuild():
 
 
 # ---------------------------------------------------------------------
+# Replay-bundle target.
+#
+# Bundles docs/site/docs/data-and-logs/replay/replay-entry.js plus the
+# subset of packages/ui-core/ it reaches into a single self-contained
+# `replay-bundle.js` that sits next to replay.md. The deployed page
+# loads it with `<script src="replay-bundle.js"></script>` — a
+# sibling-relative URL that survives mike's per-version /latest/ path
+# prefix without counting `..`s by hand.
+#
+# Different from the firmware bundle in three places:
+#   1. Reachability-based file enumeration. Only files transitively
+#      reached from replay-entry.js end up in the output, so the
+#      bundle doesn't inherit the firmware's PageShell / nav / etc.
+#   2. Alias-aware import resolution (_resolve_with_alias) for the
+#      docs/site/docs/packages → packages symlink.
+#   3. `import.meta.url` rewrite: modules in the source tree compute
+#      WASM artifact URLs via `new URL(rel, import.meta.url)`. After
+#      bundling, every module's `import.meta.url` would resolve to the
+#      bundle's URL, not the original file's URL — so the offsets
+#      would be wrong. The rewrite replaces each `import.meta.url`
+#      with `(__replayBundleBase + 'lib/replay/m5sim.js')` (or
+#      whichever module the line came from), where __replayBundleBase
+#      is computed from `document.currentScript.src` at bundle load
+#      time.
+# ---------------------------------------------------------------------
+
+_REPLAY_BUNDLE_PREAMBLE = """\
+// ===== OnSpeed docs-site replay bundle =====
+// AUTO-GENERATED by `python3 scripts/build_web_bundle.py --target replay`.
+// DO NOT EDIT. Source: docs/site/docs/data-and-logs/replay/ +
+// packages/ui-core/. Run the build script to regenerate.
+(function () {
+// __replayBundleBase: URL of the directory containing replay-bundle.js.
+// Reconstructs import.meta.url for WASM loader modules so their
+// `new URL(relPath, import.meta.url)` calls resolve correctly post-bundle.
+var __replayBundleBase = (function () {
+  try {
+    var s = document.currentScript && document.currentScript.src;
+    if (s) return s.substring(0, s.lastIndexOf('/') + 1);
+  } catch (_) {}
+  return location.href.replace(/\\/[^\\/]*$/, '/');
+})();
+"""
+
+_REPLAY_BUNDLE_POSTAMBLE = "\n})(); // end OnSpeed replay bundle\n"
+
+
+def _replay_js_files():
+    """Every JS file reachable from replay-entry.js.
+
+    BFS through imports starting at the entry, resolving via
+    `_resolve_with_alias` so the docs/site/docs/packages virtual
+    prefix maps to the real packages/ tree. Returns the resolved
+    absolute paths.
+    """
+    if not os.path.exists(REPLAY_ENTRY):
+        raise SystemExit(
+            f"build_web_bundle: missing replay entry {REPLAY_ENTRY}")
+    seen = set()
+    queue = [REPLAY_ENTRY]
+    while queue:
+        path = queue.pop(0)
+        if path in seen:
+            continue
+        if not os.path.exists(path):
+            raise SystemExit(
+                f"build_web_bundle: replay import not found: {path}")
+        seen.add(path)
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        base = os.path.dirname(path)
+        for spec in _imports_in(text):
+            for m in _RE_NAMESPACE_IMPORT.finditer(text):
+                pass  # handled below via _imports_in (same spec set)
+            resolved = _resolve_with_alias(base, spec, _REPLAY_ALIAS_MAP)
+            queue.append(resolved)
+        # Namespace imports are matched by _RE_IMPORT too (the regex is
+        # generic over `from '...'`), so they're already in the spec
+        # list above.
+    return sorted(seen)
+
+
+def _topo_sort_replay(files):
+    """Topo-sort replay files. Like _topo_sort but alias-aware."""
+    files_set = set(files)
+    by_path = {}
+    for path in files:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        deps = []
+        base = os.path.dirname(path)
+        for spec in _imports_in(text):
+            resolved = _resolve_with_alias(base, spec, _REPLAY_ALIAS_MAP)
+            if resolved in files_set:
+                deps.append(resolved)
+        by_path[path] = {"text": text, "deps": deps}
+
+    visited, visiting, ordered = set(), set(), []
+
+    def visit(p):
+        if p in visited:
+            return
+        if p in visiting:
+            raise SystemExit(
+                f"build_web_bundle: replay import cycle through {p}")
+        visiting.add(p)
+        for dep in by_path[p]["deps"]:
+            if dep in by_path:
+                visit(dep)
+        visiting.discard(p)
+        visited.add(p)
+        ordered.append(p)
+
+    for p in sorted(files):
+        visit(p)
+
+    return ordered, by_path
+
+
+# What the deployed replay tree looks like (sibling of replay.md):
+#   data-and-logs/replay/
+#     replay-bundle.js
+#     lib/replay/m5sim.js          (source)
+#     lib/replay/wasm_core.js       (source)
+#     ...
+# For modules that lived under packages/ui-core/ in source, the deploy
+# layout pretends they're at packages/ui-core/... — same as the
+# pre-bundle symlink. The rewrite below produces URLs in that
+# coordinate space.
+def _deployed_rel_for(abs_path):
+    """Where does abs_path live in the deployed replay tree?
+
+    Returns a path string like 'lib/replay/m5sim.js' or
+    'packages/ui-core/components/svg/m5modes/index.js'. Used to
+    reconstruct `import.meta.url` (which the original module would
+    have computed against its own source location).
+    """
+    replay_prefix = REPLAY_DIR + os.sep
+    packages_prefix = os.path.join(REPO_ROOT, "packages") + os.sep
+    if abs_path.startswith(replay_prefix):
+        rel = abs_path[len(replay_prefix):]
+        return rel.replace(os.sep, "/")
+    if abs_path.startswith(packages_prefix):
+        rel = "packages/" + abs_path[len(packages_prefix):]
+        return rel.replace(os.sep, "/")
+    # Fallback: relative to REPO_ROOT. Shouldn't happen for the
+    # reachable set, but keeps the rewrite safe.
+    return os.path.relpath(abs_path, REPO_ROOT).replace(os.sep, "/")
+
+
+_RE_IMPORT_META_URL = re.compile(r"\bimport\.meta\.url\b")
+
+
+def _rewrite_import_meta_url(text, abs_path):
+    """Replace each `import.meta.url` with a quoted absolute URL.
+
+    The replacement is `(__replayBundleBase + '<deployedRel>')` where
+    deployedRel is the path of this source file in the deployed
+    tree (relative to the bundle's own URL directory). At runtime,
+    __replayBundleBase resolves to the directory containing
+    replay-bundle.js — sibling-relative paths like
+    `new URL('../../../../assets/wasm/m5/onspeed_m5.js', that)`
+    therefore resolve to the same URL the un-bundled source would
+    have produced.
+    """
+    deployed_rel = _deployed_rel_for(abs_path)
+    replacement = "(__replayBundleBase + " + json.dumps(deployed_rel) + ")"
+    return _RE_IMPORT_META_URL.sub(replacement, text)
+
+
+def _transform_replay_module(text, abs_path):
+    _assert_supported_forms(text, abs_path)
+    text = _strip_exports(_strip_imports(text))
+    text = _rewrite_import_meta_url(text, abs_path)
+    return text
+
+
+def _bundle_replay_js():
+    files = _replay_js_files()
+    ordered, by_path = _topo_sort_replay(files)
+
+    chunks = [_REPLAY_BUNDLE_PREAMBLE]
+
+    # Namespace imports across the bundle, same pattern as the
+    # firmware bundler. After each exporter module's body we emit
+    # `const X = { ... };` aliases so `import * as X from './...'`
+    # references resolve.
+    namespace_targets = {}
+    for path, info in by_path.items():
+        for m in _RE_NAMESPACE_IMPORT.finditer(info["text"]):
+            alias_name = m.group(1)
+            spec = _resolve_with_alias(os.path.dirname(path), m.group(2),
+                                        _REPLAY_ALIAS_MAP)
+            namespace_targets.setdefault(spec, set()).add(alias_name)
+
+    for path in ordered:
+        rel = os.path.relpath(path, REPO_ROOT)
+        chunks.append(f"// === {rel} ===")
+        if path == PREACT_BUNDLE:
+            chunks.append(_transform_preact_bundle(by_path[path]["text"]))
+        else:
+            chunks.append(_transform_replay_module(by_path[path]["text"], path))
+        if path in namespace_targets:
+            names = _exported_names(by_path[path]["text"])
+            if names:
+                obj_body = ", ".join(names)
+                for alias in sorted(namespace_targets[path]):
+                    chunks.append(f"const {alias} = {{ {obj_body} }};")
+
+    chunks.append(_REPLAY_BUNDLE_POSTAMBLE)
+    return "\n".join(chunks)
+
+
+def _emit_replay_bundle(js_text):
+    os.makedirs(REPLAY_DIR, exist_ok=True)
+    with open(REPLAY_OUTPUT, "w", encoding="utf-8") as f:
+        f.write(js_text)
+    size = os.path.getsize(REPLAY_OUTPUT)
+    print(f"build_web_bundle: replay-bundle.js={size:,}")
+
+
+def _walk_replay_inputs():
+    yield SCRIPT_PATH
+    for root, _dirs, files in os.walk(REPLAY_DIR):
+        for name in files:
+            # Skip the output itself to avoid a self-triggering loop.
+            p = os.path.join(root, name)
+            if p == REPLAY_OUTPUT:
+                continue
+            yield p
+    if os.path.exists(UI_CORE_DIR):
+        for root, _dirs, files in os.walk(UI_CORE_DIR):
+            for name in files:
+                yield os.path.join(root, name)
+
+
+def _needs_rebuild_replay():
+    if not os.path.exists(REPLAY_OUTPUT):
+        return True
+    out_mtime = os.path.getmtime(REPLAY_OUTPUT)
+    for p in _walk_replay_inputs():
+        try:
+            if os.path.getmtime(p) > out_mtime:
+                return True
+        except FileNotFoundError:
+            continue
+    return False
+
+
+# ---------------------------------------------------------------------
 # Main.
 # ---------------------------------------------------------------------
 
+def _parse_target():
+    target = "firmware"
+    args = sys.argv[1:]
+    for i, a in enumerate(args):
+        if a == "--target" and i + 1 < len(args):
+            target = args[i + 1]
+    if target not in ("firmware", "replay"):
+        raise SystemExit(
+            f"build_web_bundle: unknown --target {target!r}; "
+            f"use 'firmware' or 'replay'.")
+    return target
+
+
 def main():
+    target = _parse_target()
+    if target == "replay":
+        if not _needs_rebuild_replay():
+            return
+        js = _bundle_replay_js()
+        _emit_replay_bundle(js)
+        return
+
     if not _needs_rebuild():
         return
 
