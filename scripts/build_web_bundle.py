@@ -339,15 +339,18 @@ def _unique_ns_name(spec):
 
 
 def _apply_ns_rename(text, ns_rename):
-    """Rewrite `<alias>.<member>` and bare `<alias>` references to use
-    the path-derived unique name. Word-boundary regex; only triggers
-    when the consumer file actually imported the alias as a namespace,
-    so unrelated identifiers in vendored chunks are untouched.
+    """Rewrite `<alias>.<member>` references to use the path-derived
+    unique name. Only matches alias usage as a property accessor
+    (followed by `.`), so identical letters appearing inside string
+    literals (e.g. `label="G"`), JSX text content, or other unrelated
+    identifiers are not corrupted. Bare-alias references (e.g. passing
+    the entire namespace object as a value) are not supported by this
+    bundler; if a consumer needs that, refactor to a named import.
     """
     for alias, unique in ns_rename.items():
         if alias == unique:
             continue
-        pat = re.compile(r"\b" + re.escape(alias) + r"\b")
+        pat = re.compile(r"\b" + re.escape(alias) + r"(?=\.)")
         text = pat.sub(unique, text)
     return text
 
