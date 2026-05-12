@@ -74,6 +74,33 @@ const M5_MODES = [
   { id: 4, label: 'Historic G', C: HistoricGMode },
 ];
 
+// Avionics palette tokens used by the offscreen export render
+// (mirrors :root in replay.css). Set both on the hidden mount
+// node (so the live offscreen render resolves them) AND on each
+// rendered <svg> element before XMLSerializer round-trips it
+// through an <img> for the MP4 export — once the SVG is parsed
+// as an isolated document inside an <img>, the mount-div is no
+// longer a CSS ancestor and var() lookups against the page's
+// .replay-page scope return empty.
+const EXPORT_AVIONICS_VARS = Object.freeze({
+  '--bg':           '#111',
+  '--ink':          '#eee',
+  '--panel-bg':     '#000',
+  '--white':        '#ffffff',
+  '--green':        '#00ff3a',
+  '--yellow':       '#fffd40',
+  '--red':          '#ff0018',
+  '--grey':         '#888',
+  '--dark-grey':    '#6b6d54',
+  '--light-grey':   '#aaa',
+  '--sky':          '#00fffe',
+  '--ground':       '#954511',
+  '--magenta':      '#ff00ff',
+  '--orange':       '#ff8800',
+  '--blue':         '#0000ff',
+  '--font-numeric': "'B612', 'Helvetica Neue', Arial, sans-serif",
+});
+
 const SYNC_LS_KEY = 'replay-sync-v1';
 const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 // Render-side presentation smoothing preset. NOT a firmware mirror —
@@ -1058,26 +1085,7 @@ export const ReplayPage = () => {
     const div = document.createElement('div');
     div.setAttribute('data-replay-export-overlay', '');
     div.style.cssText = 'position:absolute;left:-99999px;top:0;width:640px;height:480px;visibility:hidden;pointer-events:none;';
-    // Avionics palette tokens (mirrors :root in replay.css).
-    const styleProps = {
-      '--bg':         '#111',
-      '--ink':        '#eee',
-      '--panel-bg':   '#000',
-      '--white':      '#ffffff',
-      '--green':      '#00ff3a',
-      '--yellow':     '#fffd40',
-      '--red':        '#ff0018',
-      '--grey':       '#888',
-      '--dark-grey':  '#6b6d54',
-      '--light-grey': '#aaa',
-      '--sky':        '#00fffe',
-      '--ground':     '#954511',
-      '--magenta':    '#ff00ff',
-      '--orange':     '#ff8800',
-      '--blue':       '#0000ff',
-      '--font-numeric': "'B612', 'Helvetica Neue', Arial, sans-serif",
-    };
-    for (const [k, v] of Object.entries(styleProps)) {
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
       div.style.setProperty(k, v);
     }
     document.body.appendChild(div);
@@ -1098,7 +1106,21 @@ export const ReplayPage = () => {
     // which is much cheaper than a fresh mount per frame.
     render(html`<${C} state=${m5State} stale=${false} />`, mount);
     const svg = mount.querySelector('svg');
-    return svg || null;
+    if (!svg) return null;
+    // Inline the avionics palette onto the SVG element itself.
+    // The mount-div carries the same vars so the live offscreen
+    // render resolves them, but the export pipeline serializes
+    // the SVG via XMLSerializer and loads it into an <img>. That
+    // <img> parses the SVG as an isolated document where the
+    // mount-div is no longer a CSS ancestor, so any var() in the
+    // SVG's own style attribute (e.g. `background: var(--panel-bg)`
+    // on the <svg> root) resolves to nothing → transparent
+    // background. Setting the vars on the SVG element makes them
+    // available within the isolated document.
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      svg.style.setProperty(k, v);
+    }
+    return svg;
   }, []);
 
   // Export one clip as MP4. Returns a Blob promise; the page also
