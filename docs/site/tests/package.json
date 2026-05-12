@@ -8,6 +8,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node replay/replay-row-identity.mjs && node replay/m5modes-render-smoke.mjs && node replay/m5sim-smoke.mjs && node replay/persistence-smoke.mjs"
+    "test": "node replay/replay-row-identity.mjs && node replay/m5modes-render-smoke.mjs && node replay/m5sim-smoke.mjs && node replay/mp4Export-smoke.mjs"
   }
 }

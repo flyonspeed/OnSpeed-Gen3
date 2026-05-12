@@ -316,12 +316,6 @@
   padding: 4px 0;
 }
 
-/* ---------- Replay: recent-files banner ----------------------------
-   Dismissible hint bar rendered as the first child of the toolbar.
-   Tells the pilot "you reloaded — re-pick these files to restore
-   sync and clips". Yellow accent matches the existing "paused"
-   sync-attention color elsewhere in the page so the banner reads
-   as a one-off action prompt, not an error. */
 .replay-recent-banner {
   display: flex;
   align-items: center;
@@ -358,6 +352,31 @@
   color: var(--yellow, #fffd40);
 }
 
+.replay-overlay-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 8px;
+  font-size: 12px;
+  color: #a8b3bd;
+}
+.replay-overlay-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-overlay-mode-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.replay-overlay-mode-toggle input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
 .replay-progress {
   flex: 0 1 200px;
   height: 8px;
@@ -374,4 +393,51 @@
 .replay-progress::-moz-progress-bar {
   background: #0a84ff;
   border-radius: 3px;
+}
+
+/* ---------- Replay: Clip-row editable label + inline progress ----------
+ * The ClipBuilder component renders per-clip rows with:
+ *   - editable label input (commits on blur/Enter)
+ *   - scrub/set-in/set-out/delete buttons
+ *   - inline progress bar (replaces the Export button while encoding)
+ * Styling keeps the row compact and the label input recognisable so the
+ * pilot doesn't have to hunt for the rename surface.
+ */
+.replay-clip-label-input {
+  background: #0e1418;
+  border: 1px solid #2d3942;
+  color: #7dd3fc;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  min-width: 90px;
+  max-width: 160px;
+}
+.replay-clip-label-input:focus {
+  outline: none;
+  border-color: #0a84ff;
+  background: #111a22;
+}
+.replay-clip-label-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.replay-clip-row.is-exporting {
+  outline: 1px dashed #0a84ff;
+  outline-offset: -1px;
+}
+.replay-clip-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+}
+.replay-clip-progress-pct {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #a8b3bd;
+  min-width: 32px;
+  text-align: right;
 }

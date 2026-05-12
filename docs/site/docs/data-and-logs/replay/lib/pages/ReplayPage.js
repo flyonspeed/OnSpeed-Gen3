@@ -23,9 +23,8 @@
 //     (video_t_sec - video_takeoff_sec) * 1000.
 //   - The overlay re-renders on every video frame via
 //     requestVideoFrameCallback (falls back to RAF on Safari).
-//   - Sync state + clip list persist to localStorage keyed by a
-//     SHA-256 prefix of the log file's first 10 KB; a reload that
-//     re-picks the same log restores both. See replay/persistence.js.
+//   - Sync state persists to localStorage keyed by a hash of the
+//     video+log filenames so a reload comes back to the same offset.
 //
 // Data pipeline (post-WASM Step 2):
 //   - parseLog() → columnar typed arrays (unchanged, used by timeline +
@@ -42,22 +41,27 @@
 // URL-space relative path: see replay-entry.js header for why this is
 // 4 `..` and not 7 (production deploys under /latest/; longer walks
 // escape that prefix and 404).
-import { html, useState, useEffect, useRef, useCallback }
+import { html, useState, useEffect, useRef, useCallback, render }
   from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { parseLog, findRowAt, detectLogSampleRate }
   from '../replay/parseLog.js';
 import { parseConfigXml } from '../replay/config.js';
 import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
 import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
+import {
+  exportClipAsMp4, isMp4ExportSupported,
+  exportOverlayOnly, isOverlayExportSupported, OVERLAY_MODE_ORDER,
+} from '../replay/mp4Export.js';
+import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLabel }
+  from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { reassembleResults } from '../replay/reassemble.js';
+import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
 import { PresentationFilter, PRESENTATION_PRESETS, defaultPresetForLogRate }
   from '../replay/presentationFilter.js';
 import { getWasmCore } from '../replay/wasm_core.js';
-import { useReplayPersistence, RecentFilesBanner }
-  from '../replay/persistence.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
 } from '../../../../packages/ui-core/components/svg/m5modes/index.js';
@@ -74,6 +78,36 @@ const M5_MODES = [
   { id: 4, label: 'Historic G', C: HistoricGMode },
 ];
 
+// Avionics palette tokens used by the offscreen export render
+// (mirrors :root in replay.css). Set both on the hidden mount
+// node (so the live offscreen render resolves them) AND on each
+// rendered <svg> element before XMLSerializer round-trips it
+// through an <img> for the MP4 export — once the SVG is parsed
+// as an isolated document inside an <img>, the mount-div is no
+// longer a CSS ancestor and var() lookups against the page's
+// .replay-page scope return empty.
+const EXPORT_AVIONICS_VARS = Object.freeze({
+  '--bg':           '#111',
+  '--ink':          '#eee',
+  '--panel-bg':     '#000',
+  '--white':        '#ffffff',
+  '--green':        '#00ff3a',
+  '--yellow':       '#fffd40',
+  '--red':          '#ff0018',
+  '--grey':         '#888',
+  '--dark-grey':    '#6b6d54',
+  '--light-grey':   '#aaa',
+  '--sky':          '#00fffe',
+  '--ground':       '#954511',
+  '--magenta':      '#ff00ff',
+  '--orange':       '#ff8800',
+  '--blue':         '#0000ff',
+  '--font-numeric': "'B612', 'Helvetica Neue', Arial, sans-serif",
+});
+
+// Sync + clips persistence lives in replay/persistence.js
+// (content-keyed by log digest). These are simpler prefs keyed by
+// a fixed string.
 const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 // Render-side presentation smoothing preset. NOT a firmware mirror —
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
@@ -90,12 +124,6 @@ function anchorKindLabel(kind) {
   return 'anchor';
 }
 
-// Local copies of the safe-LS wrappers. The persistence module owns
-// its own copy of the same 2-line utility; sharing them through a
-// third module isn't worth the indirection given the duplication
-// cost. ReplayPage uses these for the small M5_MODE / M5_SMOOTH
-// keys; persistence.js uses its own for the sync/clips/recent-files
-// keys.
 function safeLsGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function safeLsSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
 
@@ -111,9 +139,9 @@ export const ReplayPage = () => {
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl]   = useState(null);
   const [log, setLog]             = useState(null);
-  // logFile / cfgFile are the raw File objects (separate from the
-  // parsed log/cfg objects). Persistence keys off logFile content,
-  // not the parsed log struct.
+  // Raw File handle, separate from logFilename. Used to compute the
+  // content-keyed digest for sync + clip persistence (see
+  // useReplayPersistence in ../replay/persistence.js).
   const [logFile, setLogFile]     = useState(null);
   const [logFilename, setLogFilename] = useState('');
   const [cfg, setCfg]             = useState(null);
@@ -203,8 +231,76 @@ export const ReplayPage = () => {
 
   // Manual clip list. Each entry is { startMs, endMs, label }.
   // The ClipBuilder UI displays them as a stack of editable rows;
-  // "Export all" iterates and produces one WebM per entry.
+  // "Export all" iterates and produces one MP4 per entry.
   const [clips, setClips] = useState([]);
+
+  // Persistence: stores sync + clips per log-content digest in
+  // localStorage so a reload restores both when the pilot re-picks
+  // the same log. Also drives the "last session" banner that
+  // suggests re-picking the prior session's files. See
+  // replay/persistence.js for the storage contract.
+  const persistence = useReplayPersistence({ logFile });
+
+  // Mark-in flow: when the pilot clicks "Mark clip in" we stash the
+  // current video time; the next "Mark clip out" click completes the
+  // clip. Cleared on cancel / completion.
+  const [pendingInVideoSec, setPendingInVideoSec] = useState(null);
+
+  // MP4-export state. exportingClipIdx is the index of the currently-
+  // exporting clip (so its row in the ClipBuilder can show progress
+  // in place of the Export button); null when idle. The AbortController
+  // lets the Cancel button stop the encoder cleanly.
+  const [exportingClipIdx, setExportingClipIdx] = useState(null);
+  const [mp4ExportProgress, setMp4ExportProgress] = useState(0);
+  const [mp4ExportLabel, setMp4ExportLabel] = useState('');
+  const mp4AbortRef = useRef(null);
+  // Feature-detect WebCodecs once at mount. Capture as a state value
+  // so we re-render the gate the first time the env settles.
+  const [mp4Available] = useState(() => isMp4ExportSupported());
+
+  // Overlay-only export state. Tracks the batch (5-mode pass) progress
+  // — totalFrames is per-mode, modesDone counts modes finalized so
+  // the UI can show "indexer 47% · attitude pending · ..." in a
+  // single status line. Separate from mp4ExportProgress so the two
+  // export paths don't contend over the same progress widget.
+  const [overlayExporting, setOverlayExporting] = useState(false);
+  const [overlayCurrentMode, setOverlayCurrentMode] = useState(null);
+  const [overlayProgress, setOverlayProgress] = useState(0);
+  const overlayAbortRef = useRef(null);
+  const [overlayAvailable] = useState(() => isOverlayExportSupported());
+
+  // Which M5 modes to include in the overlay export. The default is
+  // ['indexer'] — the most-used mode and the one Vac asks for first.
+  // Pilots tick additional modes via checkboxes in the ClipBuilder UI.
+  // Persisted across reloads via localStorage so the choice sticks.
+  const [selectedOverlayModes, setSelectedOverlayModes] = useState(() => {
+    const s = safeLsGet('replay-overlay-modes-v1');
+    if (!s) return ['indexer'];
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed) && parsed.every(m => OVERLAY_MODE_ORDER.includes(m))) {
+        return parsed.length > 0 ? parsed : ['indexer'];
+      }
+    } catch { /* fall through to default */ }
+    return ['indexer'];
+  });
+  useEffect(() => {
+    safeLsSet('replay-overlay-modes-v1', JSON.stringify(selectedOverlayModes));
+  }, [selectedOverlayModes]);
+
+  // Overlay size — fraction of source video width, or 'native' for the
+  // M5's 320×240 pixel grid. NLEs (especially iMovie) handle drag-on-
+  // top sanely when the overlay is already at a useful display size;
+  // 0.2 (20% of a 4K width = 768×576) is the iMovie sweet spot.
+  // Persisted so the choice sticks.
+  const [overlaySize, setOverlaySize] = useState(() => {
+    const s = safeLsGet('replay-overlay-size-v1');
+    const valid = ['native', '0.2', '0.3', '0.5'];
+    return valid.includes(s) ? s : '0.2';
+  });
+  useEffect(() => {
+    safeLsSet('replay-overlay-size-v1', overlaySize);
+  }, [overlaySize]);
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -218,13 +314,15 @@ export const ReplayPage = () => {
   const videoRef    = useRef(null);
   const containerRef = useRef(null);
   const rafIdRef    = useRef(null);
-
-  // Persistence: stores sync + clips per log-content digest in
-  // localStorage so a reload restores both when the pilot re-picks
-  // the same log. Also drives the "last session" banner that
-  // suggests re-picking the prior session's files. See
-  // replay/persistence.js for the storage contract.
-  const persistence = useReplayPersistence({ logFile });
+  // Tracks whether an MP4 export is in progress. The live-preview
+  // rVFC chain reads this each tick and suspends its self-
+  // re-registration loop while true: the export pipeline registers
+  // its own rVFC against the same <video> element, and on a paused
+  // video only one composite fires per seek — letting the live tick
+  // grab it would steal the frame the export is waiting for.
+  // Resumed on the next videoUrl-effect run by the explicit kick at
+  // the end of `exportClipMp4`.
+  const mp4ExportingRef = useRef(false);
 
   // ---------- File loaders -----------------------------------------
 
@@ -245,9 +343,23 @@ export const ReplayPage = () => {
       const text = await f.text();
       const parsed = parseLog(text);
       if (parsed.Length === 0) throw new Error('no rows');
+      // Synchronously detach the persistence hook from the prior
+      // log's digest before any state-driven persist effect fires.
+      // Without this the persist-on-change effects for clips/sync
+      // (which run after the same render that batches the resets
+      // below) would write the new []/null state into the PRIOR
+      // log's localStorage key, since the storeClips/storeSync
+      // callbacks captured the old logDigest. beginLogSwap clears
+      // the synchronous ref those writers consult.
+      persistence.beginLogSwap();
       setLog(parsed);
       setLogFile(f);
       setLogFilename(f.name);
+      setClips([]);
+      setSync(null);
+      setAnchorKind('none');
+      setPausedLogMs(null);
+      setPendingInVideoSec(null);
       persistence.notifyFilePicked('log', f);
     } catch (err) {
       setParseErr(`Could not parse log: ${err.message}`);
@@ -294,17 +406,21 @@ export const ReplayPage = () => {
     if (tRow >= 0) {
       // Auto-detected anchor; pair it with whatever the pilot's
       // first "mark video anchor" press will be. Until then, sync
-      // is null (overlay shows nothing).
-      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null });
+      // is null (overlay shows nothing). Carry anchorKind inside the
+      // sync object so it round-trips through localStorage (the
+      // persistence layer only stores fields it sees on sync).
+      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null, anchorKind: kind });
     }
   }, [log, persistence.digestReady, persistence.storedSync]);
 
-  // Persist sync state to the log-content-keyed localStorage entry.
-  // persistence.storeSync rejects partial sync (one anchor null), so
-  // we don't bother gating here.
+  // Persist sync on every change. Gated on digestReady so writes
+  // don't fire while the digest is being recomputed between log
+  // swaps (in that window storeSync's logDigest still refers to the
+  // PREVIOUS log, so a write would corrupt the prior log's sync key).
   useEffect(() => {
+    if (!persistence.digestReady) return;
     persistence.storeSync(sync);
-  }, [sync, persistence.storeSync]);
+  }, [sync, persistence.digestReady, persistence.storeSync]);
 
   // Restore persisted clips when the log digest resolves. Only seed
   // if the in-memory clip list is empty — never clobber clips the
@@ -315,10 +431,14 @@ export const ReplayPage = () => {
     setClips(prev => prev.length === 0 ? persistence.storedClips : prev);
   }, [persistence.digestReady, persistence.storedClips]);
 
-  // Persist clips on every change.
+  // Persist clips on every change. Gated on digestReady — see the
+  // matching note on the sync persist effect above. Without this
+  // gate, picking a new log corrupts the previous log's clips key
+  // before the new digest resolves.
   useEffect(() => {
+    if (!persistence.digestReady) return;
     persistence.storeClips(clips);
-  }, [clips, persistence.storeClips]);
+  }, [clips, persistence.digestReady, persistence.storeClips]);
 
   // ---------- Video clock ------------------------------------------
 
@@ -327,6 +447,10 @@ export const ReplayPage = () => {
   // video, gives us the true video time). Safari + older browsers
   // fall back to RAF, which is close enough for live preview — for
   // export-quality we'll switch to Remotion (Phase 5).
+  // Bumping this nonce restarts the live-preview rVFC chain. We use
+  // it to resume the chain after an MP4 export finishes — the chain
+  // self-suspends mid-export (see comment on mp4ExportingRef).
+  const [livePreviewNonce, setLivePreviewNonce] = useState(0);
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -335,6 +459,11 @@ export const ReplayPage = () => {
 
     const tick = (now, meta) => {
       if (cancelled) return;
+      // Suspend during MP4 export: the export pipeline drives the
+      // same video element with its own rVFC, and competing callbacks
+      // on a paused video starve the export. Re-armed by bumping
+      // livePreviewNonce when the export completes.
+      if (mp4ExportingRef.current) return;
       // meta?.mediaTime is the canonical video time when rvfc fires;
       // fall back to currentTime for the RAF path.
       const t = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : v.currentTime;
@@ -349,7 +478,7 @@ export const ReplayPage = () => {
       cancelled = true;
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     };
-  }, [videoUrl]);
+  }, [videoUrl, livePreviewNonce]);
 
   // ---------- M5 sim init / teardown -----------------------------------
 
@@ -395,8 +524,13 @@ export const ReplayPage = () => {
         m5RenderFilterRef.current = filter;
         m5LastFilterVideoTRef.current = null;
         // Hydrate displayType from the persisted choice so the first
-        // frame after init renders the right mode.
-        sim.setMode(m5ModeId);
+        // frame after init renders the right mode. Read from the ref
+        // so the async then-callback sees the CURRENT mode rather
+        // than the value captured at effect-fire time — the mode can
+        // change while the WASM module loads (toggle pressed during
+        // a sim-reinit-nonce bump), and using a stale closure value
+        // would render the wrong mode for the first frame.
+        sim.setMode(m5ModeIdRef.current);
       } catch (err) {
         if (!cancelled) setParseErr(`M5 sim load error: ${err.message}`);
       }
@@ -812,8 +946,9 @@ export const ReplayPage = () => {
     setSync(prev => ({
       logTakeoffMs:    prev?.logTakeoffMs ?? null,
       videoTakeoffSec: v.currentTime,
+      anchorKind:      prev?.anchorKind ?? anchorKind,
     }));
-  }, []);
+  }, [anchorKind]);
 
   const reMarkLogTakeoff = useCallback(() => {
     if (!log) return;
@@ -823,6 +958,7 @@ export const ReplayPage = () => {
       setSync(prev => ({
         logTakeoffMs:    log.timeStamp[tRow],
         videoTakeoffSec: prev?.videoTakeoffSec ?? null,
+        anchorKind:      kind,
       }));
     }
   }, [log]);
@@ -945,9 +1081,10 @@ export const ReplayPage = () => {
     setSync({
       logTakeoffMs:    pausedLogMs,
       videoTakeoffSec: v.currentTime,
+      anchorKind,
     });
     setPausedLogMs(null);
-  }, [pausedLogMs]);
+  }, [pausedLogMs, anchorKind]);
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
@@ -986,39 +1123,382 @@ export const ReplayPage = () => {
   const addClipFromPlayhead = (durationSec = 30) => {
     const v = videoRef.current;
     if (!v) return;
-    const startVideoSec = v.currentTime;
-    if (!sync) return;
-    const startMs = sync.logTakeoffMs + (startVideoSec - sync.videoTakeoffSec) * 1000;
-    const endMs   = startMs + durationSec * 1000;
-    const label   = `clip ${String(clips.length + 1).padStart(2, '0')}`;
-    setClips(prev => [...prev, { startMs, endMs, label }]);
+    const label = defaultClipLabel(clips.length);
+    const clip = buildClipFromPlayhead(v.currentTime, durationSec, sync, label);
+    if (clip) setClips(prev => [...prev, clip]);
   };
 
-  // Export every clip in the list as N separate WebMs in sequence.
-  const exportAllClips = async () => {
-    for (let i = 0; i < clips.length; i++) {
-      const c = clips[i];
-      const startSec = logMsToVideoSec(c.startMs, sync);
-      const endSec   = logMsToVideoSec(c.endMs,   sync);
-      if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) continue;
-      // Sequential await: each MediaRecorder run produces its own
-      // Blob and download before the next one starts.
-      // eslint-disable-next-line no-await-in-loop
-      await exportClip({
-        startSec, endSec,
-        label: c.label,
-        filenameSuffix: c.label.replace(/[^a-z0-9_-]/gi, '_'),
-      });
+  // Mark-in / mark-out flow. The first click stashes the current
+  // video time as the pending in-point. The second click reads the
+  // current video time as the out-point and appends a clip.
+  const markClipIn = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    setPendingInVideoSec(v.currentTime);
+  }, []);
+
+  const markClipOut = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || pendingInVideoSec == null) return;
+    const label = defaultClipLabel(clips.length);
+    const clip = buildClipFromMarkers(pendingInVideoSec, v.currentTime, sync, label);
+    if (clip) {
+      setClips(prev => [...prev, clip]);
+      setPendingInVideoSec(null);
     }
-  };
+  }, [pendingInVideoSec, clips, sync]);
+
+  const cancelClipMark = useCallback(() => setPendingInVideoSec(null), []);
+
+  // Scrub the live video to a particular time (in seconds). Used by
+  // ClipBuilder rows.
+  const scrubVideoTo = useCallback((videoSec) => {
+    const v = videoRef.current;
+    if (!v || !Number.isFinite(videoSec)) return;
+    v.currentTime = Math.max(0, Math.min(v.duration || videoSec, videoSec));
+  }, []);
+
+  // Render the export's current-frame overlay SVG.
+  //
+  // The export driver in mp4Export.js runs its own M5Sim independent
+  // of the page's live sim — the page's live sim is pinned to whatever
+  // playhead position the pilot left it at, while the export needs a
+  // deterministic per-frame state derived from the clip-start virtual
+  // time. So the export passes in the per-frame m5State and asks us
+  // to produce an SVG element from it.
+  //
+  // We render through Preact into a hidden mount node whose SVG child
+  // we then hand back. The render is synchronous (Preact-standalone
+  // rAF-batches by default; we toggle a synchronous mode by mounting
+  // into a detached node with no scheduler). The mount survives
+  // across export-frames so the SVG element identity is stable and
+  // the XMLSerializer round-trip stays cheap.
+  // Hidden offscreen mount where the export pipeline renders the
+  // per-frame overlay SVG. Created once on mount; torn down on
+  // unmount.
+  //
+  // The avionics CSS variables (--panel-bg, --white, --green, ...)
+  // are inline-set on the mount node so the SVG components in
+  // packages/ui-core/ resolve them the same way they do inside
+  // .replay-page. Without this, every fill resolves to transparent
+  // and the burned-in overlay looks like a wireframe.
+  const exportOverlayMountRef = useRef(null);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const div = document.createElement('div');
+    div.setAttribute('data-replay-export-overlay', '');
+    div.style.cssText = 'position:absolute;left:-99999px;top:0;width:640px;height:480px;visibility:hidden;pointer-events:none;';
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      div.style.setProperty(k, v);
+    }
+    document.body.appendChild(div);
+    exportOverlayMountRef.current = div;
+    return () => {
+      if (div.parentNode) div.parentNode.removeChild(div);
+      exportOverlayMountRef.current = null;
+    };
+  }, []);
+
+  // renderOverlaySvg signature: (m5State, displayTypeOverride?) → SVGElement.
+  // The override path is used by the overlay-only export, which iterates
+  // all five modes per frame; it spreads m5State with displayType
+  // overridden so the SVG renders THAT mode regardless of which mode
+  // the live sim is in. Without an override, m5State.displayType wins
+  // (the source-composite export path).
+  const renderOverlayForExport = useCallback((m5State, displayTypeOverride) => {
+    const mount = exportOverlayMountRef.current;
+    if (!mount || !m5State) return null;
+    const targetMode = Number.isFinite(displayTypeOverride)
+      ? displayTypeOverride : m5State.displayType;
+    const M = M5_MODES.find(m => m.id === targetMode) || M5_MODES[0];
+    const C = M.C;
+    // For the mode-override path the SVG component still reads
+    // state.displayType (some modes branch on it internally), so
+    // synthesize a state with the override stamped on.
+    const stateForRender = (targetMode === m5State.displayType)
+      ? m5State
+      : Object.freeze({ ...m5State, displayType: targetMode });
+    m5State = stateForRender;
+    // Render synchronously via Preact's render into our detached
+    // mount. Subsequent calls reuse the same DOM tree (diff path),
+    // which is much cheaper than a fresh mount per frame.
+    render(html`<${C} state=${m5State} stale=${false} />`, mount);
+    const svg = mount.querySelector('svg');
+    if (!svg) return null;
+    // Inline the avionics palette onto the SVG element itself.
+    // The mount-div carries the same vars so the live offscreen
+    // render resolves them, but the export pipeline serializes
+    // the SVG via XMLSerializer and loads it into an <img>. That
+    // <img> parses the SVG as an isolated document where the
+    // mount-div is no longer a CSS ancestor, so any var() in the
+    // SVG's own style attribute (e.g. `background: var(--panel-bg)`
+    // on the <svg> root) resolves to nothing → transparent
+    // background. Setting the vars on the SVG element makes them
+    // available within the isolated document.
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      svg.style.setProperty(k, v);
+    }
+    return svg;
+  }, []);
+
+  // Export one clip as MP4. Returns a Blob promise; the page also
+  // wires progress + abort state.
+  const exportClipMp4 = useCallback(async (clip, idx) => {
+    const v = videoRef.current;
+    if (!v) return null;
+    if (!syncReady) {
+      setParseErr('Export failed: sync anchor not set.');
+      return null;
+    }
+    if (!cppWireFrames) {
+      setParseErr('Export failed: replay engine pre-pass not complete yet.');
+      return null;
+    }
+    if (!mp4Available) {
+      setParseErr('Export requires Chrome or Edge desktop. WebCodecs ' +
+                  'support is incomplete in Safari / Firefox.');
+      return null;
+    }
+    const controller = new AbortController();
+    mp4AbortRef.current = controller;
+    setExportingClipIdx(idx);
+    setMp4ExportProgress(0);
+    setMp4ExportLabel(clip.label || `clip ${idx + 1}`);
+    setParseErr(null);
+    // Suspend the live-preview rVFC chain. See mp4ExportingRef comment;
+    // resumed in the finally{} below by bumping livePreviewNonce.
+    mp4ExportingRef.current = true;
+
+    // Mirror the live preview's render-side smoothing in the export.
+    // Without this the slip ball jitters at 50 Hz log replay aliasing —
+    // looks structurally different from what the pilot sees on the
+    // live page. See presentationFilter.js for the τ rationale.
+    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
+                   || null;
+    const presentationTau = preset
+      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+      : null;
+
+    try {
+      const blob = await exportClipAsMp4({
+        videoEl:        v,
+        clip,
+        sync,
+        log,
+        cppWireFrames,
+        renderOverlaySvg: renderOverlayForExport,
+        // Source file for AAC audio decode. Without it the MP4 is silent.
+        sourceFile:    videoFile,
+        // Match the live preview's slip-ball smoothing.
+        presentationTau,
+        // Match the live preview's M5 mode (Energy/Attitude/Indexer/...).
+        // Without this the fresh export-sim defaults to mode 0 (Energy)
+        // regardless of what the page is showing.
+        displayMode:   m5ModeId,
+        // outputWidth omitted: export defaults to source resolution +
+        // source framerate + source codec family for a "source video
+        // with overlay added" result.
+        onProgress: ({ frame, totalFrames }) => {
+          if (totalFrames > 0) setMp4ExportProgress(frame / totalFrames);
+        },
+        signal: controller.signal,
+      });
+      return blob;
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        // Cancel is a normal exit; surface a short status, not a
+        // red banner.
+        setParseErr(null);
+      } else {
+        setParseErr('MP4 export failed: ' + (err?.message || err));
+      }
+      return null;
+    } finally {
+      mp4AbortRef.current = null;
+      setExportingClipIdx(null);
+      setMp4ExportProgress(0);
+      setMp4ExportLabel('');
+      // Resume the live-preview rVFC chain.
+      mp4ExportingRef.current = false;
+      setLivePreviewNonce(n => n + 1);
+    }
+  }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
+      videoFile, m5SmoothPreset, m5ModeId]);
+
+  const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
+    const blob = await exportClipMp4(clip, idx);
+    if (!blob) return;
+    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+    const suffix = (clip.label || `clip${idx + 1}`).replace(/[^a-z0-9_-]/gi, '_');
+    downloadBlob(blob, `${base}_${suffix}.mp4`);
+  }, [exportClipMp4, videoFile]);
+
+  // Track batch-cancel separately from per-export cancel so a Cancel
+  // click during "Export all" stops the whole sequence, not just the
+  // current clip.
+  const batchCancelledRef = useRef(false);
+  const exportAllClipsMp4 = useCallback(async () => {
+    batchCancelledRef.current = false;
+    for (let i = 0; i < clips.length; i++) {
+      if (batchCancelledRef.current) break;
+      // eslint-disable-next-line no-await-in-loop
+      const blob = await exportClipMp4(clips[i], i);
+      if (blob) {
+        const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+        const suffix = (clips[i].label || `clip${i + 1}`)
+                         .replace(/[^a-z0-9_-]/gi, '_');
+        downloadBlob(blob, `${base}_${suffix}.mp4`);
+      } else if (batchCancelledRef.current) {
+        // Cancelled mid-clip — fall through and exit the loop.
+        break;
+      }
+      // If the export returned null for any other reason (parse error,
+      // engine pre-pass not ready), bail out of the batch rather than
+      // bombarding the user with serialised error banners.
+      if (!blob && !batchCancelledRef.current) break;
+    }
+    batchCancelledRef.current = false;
+  }, [clips, exportClipMp4, videoFile]);
+
+  const cancelMp4Export = useCallback(() => {
+    // Mark batch-cancelled so a running "Export all" stops after the
+    // current clip aborts. Single-clip exports also abort cleanly.
+    batchCancelledRef.current = true;
+    if (mp4AbortRef.current) mp4AbortRef.current.abort();
+  }, []);
+
+  // Export overlay-only MP4s — one per M5 mode, NLE-ready with a
+  // chroma-key background. Single pass through the sim, parallel
+  // encoders. Pilots composite onto GoPro footage in iMovie / Final
+  // Cut / Premiere by adding a chroma-key effect.
+  const exportOverlaysForClip = useCallback(async (clip, idx) => {
+    if (!syncReady) {
+      setParseErr('Overlay export failed: sync anchor not set.');
+      return null;
+    }
+    if (!cppWireFrames) {
+      setParseErr('Overlay export failed: replay engine pre-pass not complete yet.');
+      return null;
+    }
+    if (!overlayAvailable) {
+      setParseErr('Overlay export requires Chrome or Edge desktop. WebCodecs ' +
+                  'support is incomplete in Safari / Firefox.');
+      return null;
+    }
+    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset) || null;
+    const presentationTau = preset
+      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+      : null;
+
+    // Resolve output dimensions. 'native' = M5 panel pixel grid
+    // (320×240, the export module's default when outputWidth is null).
+    // Numeric fractions = that proportion of the source video's width,
+    // preserving the M5 panel's 4:3 aspect. Falls back to native if
+    // the source resolution isn't known yet.
+    const v = videoRef.current;
+    const srcW = v && v.videoWidth > 0 ? v.videoWidth : 0;
+    let overlayW = null;
+    let overlayH = null;
+    if (overlaySize !== 'native' && srcW > 0) {
+      const frac = parseFloat(overlaySize);
+      if (Number.isFinite(frac) && frac > 0) {
+        // Round to multiples of 2 for the encoder; keep 4:3 aspect
+        // (M5 panel is 320×240 = 4:3).
+        overlayW = Math.max(2, Math.round(srcW * frac / 2) * 2);
+        overlayH = Math.max(2, Math.round(overlayW * 3 / 4 / 2) * 2);
+      }
+    }
+
+    const controller = new AbortController();
+    overlayAbortRef.current = controller;
+    setOverlayExporting(true);
+    setOverlayCurrentMode(null);
+    setOverlayProgress(0);
+    setParseErr(null);
+
+    try {
+      // Native-dimensions export: output is the M5 panel as a video at
+      // its native 320×240 pixel grid against the M5's own black panel
+      // background. Vac drops the file into his NLE, positions and
+      // scales the M5 widget wherever he wants on top of his footage.
+      // No chroma key, no padding, no transparency — the output is
+      // just "what the M5 displays" frame-by-frame.
+      //
+      // Mode picker: selectedOverlayModes filters the export to only
+      // the modes the user checked. Falls back to indexer-only if none
+      // are selected (defensive — UI shouldn't allow that state).
+      const requestedModes = selectedOverlayModes && selectedOverlayModes.length > 0
+        ? selectedOverlayModes
+        : ['indexer'];
+      const blobs = await exportOverlayOnly({
+        clip,
+        sync,
+        log,
+        cppWireFrames,
+        renderOverlaySvg: renderOverlayForExport,
+        modes:           requestedModes,
+        presentationTau,
+        // null/null falls through to M5 native 320×240; numeric values
+        // pre-scale the overlay to a fraction of source-video width so
+        // NLEs that auto-scale drop-on-top layers (iMovie's biggest
+        // gotcha) put the overlay at a sensible size automatically.
+        outputWidth:  overlayW,
+        outputHeight: overlayH,
+        // framerate, bitrate, background default to sensible values
+        // (30fps, ~150 kbps@native scaling up with resolution, #000).
+        onProgress: ({ mode, frame, totalFrames, modeCount }) => {
+          // Aggregate report (no `mode`): multi-mode batch — show a
+          // count label, not a per-mode name flickering 5 times/frame.
+          // Per-mode report: single-mode export, label = the mode.
+          if (mode !== undefined) {
+            setOverlayCurrentMode(mode);
+          } else if (modeCount > 0) {
+            setOverlayCurrentMode(
+              modeCount === 1
+                ? (requestedModes[0] || 'overlay')
+                : `${modeCount} modes`);
+          }
+          if (totalFrames > 0) setOverlayProgress(frame / totalFrames);
+        },
+        signal: controller.signal,
+      });
+      // Trigger one download per mode. Filename pattern:
+      //   <video-basename>_<clip-label>_<mode>.mp4
+      const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+      const suffix = (clip.label || `clip${(idx ?? 0) + 1}`)
+                       .replace(/[^a-z0-9_-]/gi, '_');
+      for (const [modeId, blob] of blobs) {
+        downloadBlob(blob, `${base}_${suffix}_${modeId}.mp4`);
+      }
+      return blobs;
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        setParseErr(null);
+      } else {
+        setParseErr('Overlay export failed: ' + (err?.message || err));
+      }
+      return null;
+    } finally {
+      overlayAbortRef.current = null;
+      setOverlayExporting(false);
+      setOverlayCurrentMode(null);
+      setOverlayProgress(0);
+    }
+  }, [syncReady, sync, log, cppWireFrames, overlayAvailable,
+      renderOverlayForExport, videoFile, m5SmoothPreset,
+      selectedOverlayModes, overlaySize]);
+
+  const cancelOverlayExport = useCallback(() => {
+    if (overlayAbortRef.current) overlayAbortRef.current.abort();
+  }, []);
 
   // ---------- Layout -----------------------------------------------
 
   return html`
       <div class="replay-page">
+        <${RecentFilesBanner} info=${persistence.bannerInfo}
+                              onDismiss=${persistence.dismissBanner} />
         <header class="replay-toolbar">
-          <${RecentFilesBanner} info=${persistence.bannerInfo}
-                                 onDismiss=${persistence.dismissBanner} />
           <label class="replay-file">
             <span>Video</span>
             <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
@@ -1109,11 +1589,24 @@ export const ReplayPage = () => {
                   <button class="replay-btn-ghost" onClick=${stopExport}>
                     Stop
                   </button>`
-              : html`
-                  <button class="replay-btn-primary" onClick=${startFullExport}
-                          disabled=${!syncReady || !videoUrl}>
-                    Export WebM
-                  </button>`}
+              : exportingClipIdx != null
+                ? html`
+                    <span class="replay-status">
+                      MP4 export${mp4ExportLabel ? ` · ${mp4ExportLabel}` : ''}
+                    </span>
+                    <progress class="replay-progress"
+                              max="1" value=${mp4ExportProgress}></progress>
+                    <span class="replay-status">
+                      ${Math.round(mp4ExportProgress * 100)}%
+                    </span>
+                    <button class="replay-btn-ghost" onClick=${cancelMp4Export}>
+                      Cancel
+                    </button>`
+                : html`
+                    <button class="replay-btn" onClick=${startFullExport}
+                            disabled=${!syncReady || !videoUrl}>
+                      Export WebM (legacy)
+                    </button>`}
           </div>
 
           <div class="replay-control-row">
@@ -1164,6 +1657,7 @@ export const ReplayPage = () => {
                           onLogTakeoffPick=${(tMs) => setSync(prev => ({
                             logTakeoffMs: tMs,
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
+                            anchorKind:      prev?.anchorKind ?? anchorKind,
                           }))}
                           onSeekVideo=${(tSec) => {
                             const v = videoRef.current;
@@ -1179,19 +1673,39 @@ export const ReplayPage = () => {
                 onJump=${jumpToMark}
                 onClip=${exportClipFromMark} />`}
 
-          <${ClipBuilderPanel}
+          <${ClipBuilder}
               clips=${clips}
+              setClips=${setClips}
               sync=${sync}
-              disabled=${exporting || !syncReady}
-              onAdd=${addClipFromPlayhead}
-              onRemove=${(i) => setClips(prev => prev.filter((_, j) => j !== i))}
-              onExport=${(c) => exportClip({
-                startSec: logMsToVideoSec(c.startMs, sync),
-                endSec:   logMsToVideoSec(c.endMs, sync),
-                label: c.label,
-                filenameSuffix: c.label.replace(/[^a-z0-9_-]/gi, '_'),
-              })}
-              onExportAll=${exportAllClips} />
+              syncReady=${syncReady}
+              videoEl=${videoRef}
+              disabled=${exporting}
+              exportingClipIdx=${exportingClipIdx}
+              exportProgress=${mp4ExportProgress}
+              exportLabel=${mp4ExportLabel}
+              mp4Available=${mp4Available}
+              mp4UnavailableTooltip=${'Export requires Chrome or Edge ' +
+                'desktop. WebCodecs support is incomplete in Safari/Firefox.'}
+              pendingInVideoSec=${pendingInVideoSec}
+              onMarkIn=${markClipIn}
+              onMarkOut=${markClipOut}
+              onCancelMark=${cancelClipMark}
+              onAddQuick=${addClipFromPlayhead}
+              onScrubTo=${scrubVideoTo}
+              onExport=${exportClipMp4AndDownload}
+              onExportAll=${exportAllClipsMp4}
+              onCancel=${cancelMp4Export}
+              onExportOverlays=${exportOverlaysForClip}
+              onCancelOverlays=${cancelOverlayExport}
+              overlayExporting=${overlayExporting}
+              overlayCurrentMode=${overlayCurrentMode}
+              overlayProgress=${overlayProgress}
+              overlayAvailable=${overlayAvailable}
+              selectedOverlayModes=${selectedOverlayModes}
+              onChangeOverlayModes=${setSelectedOverlayModes}
+              overlayModeOrder=${OVERLAY_MODE_ORDER}
+              overlaySize=${overlaySize}
+              onChangeOverlaySize=${setOverlaySize} />
         </footer>
       </div>`;
 };
@@ -1365,54 +1879,6 @@ const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
             </div>`;
         })}
       </div>
-    </div>`;
-};
-
-// ---------- ClipBuilderPanel ---------------------------------------
-
-// User-defined clip ranges. Each row stores a {startMs, endMs,
-// label} tuple in log-time; we display + edit in seconds. The
-// expected workflow: scrub the video to a clip start, click "Add
-// 30 s clip", then optionally drag the right edge in the timeline
-// (future) or click Edit to type new times.
-const ClipBuilderPanel = ({ clips, sync, disabled, onAdd, onRemove, onExport, onExportAll }) => {
-  return html`
-    <div class="replay-clips">
-      <div class="replay-clips-header">
-        <span class="replay-label">Clips</span>
-        <span class="replay-status">${clips.length}</span>
-        <span class="replay-spacer"></span>
-        <button class="replay-btn" disabled=${disabled || !sync}
-                onClick=${() => onAdd(30)}>+ 30 s clip from playhead</button>
-        <button class="replay-btn" disabled=${disabled || !sync}
-                onClick=${() => onAdd(60)}>+ 60 s clip from playhead</button>
-        ${clips.length > 0 && html`
-          <button class="replay-btn-primary" disabled=${disabled}
-                  onClick=${onExportAll}>Export all clips</button>`}
-      </div>
-      ${clips.length === 0
-        ? html`<div class="replay-clips-empty">no clips yet — scrub video, click "+ 30 s clip"</div>`
-        : html`<div class="replay-clips-list">
-            ${clips.map((c, i) => {
-              const startSec = logMsToVideoSec(c.startMs, sync);
-              const endSec   = logMsToVideoSec(c.endMs,   sync);
-              const span = (c.endMs - c.startMs) / 1000;
-              return html`
-                <div class="replay-clip-row">
-                  <span class="replay-mark-label">${c.label}</span>
-                  <span class="replay-mark-time">
-                    ${Number.isFinite(startSec) ? formatHms(startSec) : '—'}
-                    → ${Number.isFinite(endSec) ? formatHms(endSec) : '—'}
-                    · ${span.toFixed(1)} s
-                  </span>
-                  <span class="replay-spacer"></span>
-                  <button class="replay-btn" disabled=${disabled}
-                          onClick=${() => onExport(c)}>Export</button>
-                  <button class="replay-btn-ghost" disabled=${disabled}
-                          onClick=${() => onRemove(i)}>×</button>
-                </div>`;
-            })}
-          </div>`}
     </div>`;
 };
 
