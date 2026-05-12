@@ -261,6 +261,25 @@ export const ReplayPage = () => {
   const overlayAbortRef = useRef(null);
   const [overlayAvailable] = useState(() => isOverlayExportSupported());
 
+  // Which M5 modes to include in the overlay export. The default is
+  // ['indexer'] — the most-used mode and the one Vac asks for first.
+  // Pilots tick additional modes via checkboxes in the ClipBuilder UI.
+  // Persisted across reloads via localStorage so the choice sticks.
+  const [selectedOverlayModes, setSelectedOverlayModes] = useState(() => {
+    const s = safeLsGet('replay-overlay-modes-v1');
+    if (!s) return ['indexer'];
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed) && parsed.every(m => OVERLAY_MODE_ORDER.includes(m))) {
+        return parsed.length > 0 ? parsed : ['indexer'];
+      }
+    } catch { /* fall through to default */ }
+    return ['indexer'];
+  });
+  useEffect(() => {
+    safeLsSet('replay-overlay-modes-v1', JSON.stringify(selectedOverlayModes));
+  }, [selectedOverlayModes]);
+
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
   // playing/scrubbing freely. When they click "Attach here" we
@@ -1292,11 +1311,6 @@ export const ReplayPage = () => {
                   'support is incomplete in Safari / Firefox.');
       return null;
     }
-    const v = videoRef.current;
-    const sourceVideoInfo = (v && v.videoWidth > 0 && v.videoHeight > 0)
-      ? { width: v.videoWidth, height: v.videoHeight, frameRate: 30 }
-      : null;
-
     const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset) || null;
     const presentationTau = preset
       ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
@@ -1310,26 +1324,29 @@ export const ReplayPage = () => {
     setParseErr(null);
 
     try {
+      // Native-dimensions export: output is the M5 panel as a video at
+      // its native 320×240 pixel grid against the M5's own black panel
+      // background. Vac drops the file into his NLE, positions and
+      // scales the M5 widget wherever he wants on top of his footage.
+      // No chroma key, no padding, no transparency — the output is
+      // just "what the M5 displays" frame-by-frame.
+      //
+      // Mode picker: selectedOverlayModes filters the export to only
+      // the modes the user checked. Falls back to indexer-only if none
+      // are selected (defensive — UI shouldn't allow that state).
+      const requestedModes = selectedOverlayModes && selectedOverlayModes.length > 0
+        ? selectedOverlayModes
+        : ['indexer'];
       const blobs = await exportOverlayOnly({
         clip,
         sync,
         log,
         cppWireFrames,
         renderOverlaySvg: renderOverlayForExport,
-        modes: OVERLAY_MODE_ORDER.slice(), // all five
-        sourceVideoInfo,
+        modes:           requestedModes,
         presentationTau,
-        backgroundMode: 'chroma',
-        // Default purple; sits well outside the M5 avionics palette
-        // so chroma-key tolerance keys cleanly without nibbling the
-        // green chevrons or blue/cyan indicators. See mp4Export.js
-        // OVERLAY_DEFAULT_CHROMA comment for the palette rationale.
-        chromaColor:    '#A020F0',
-        // Keep dims modest — 1080p is the NLE sweet spot. Pilots can
-        // bump up later if they ask for it.
-        outputWidth:  1920,
-        outputHeight: 1080,
-        framerate:    30,
+        // Dimensions, framerate, bitrate, background all default to
+        // sensible values (M5 native 320×240, 30fps, ~150 kbps, #000).
         onProgress: ({ mode, frame, totalFrames }) => {
           setOverlayCurrentMode(mode);
           if (totalFrames > 0) setOverlayProgress(frame / totalFrames);
@@ -1570,7 +1587,10 @@ export const ReplayPage = () => {
               overlayExporting=${overlayExporting}
               overlayCurrentMode=${overlayCurrentMode}
               overlayProgress=${overlayProgress}
-              overlayAvailable=${overlayAvailable} />
+              overlayAvailable=${overlayAvailable}
+              selectedOverlayModes=${selectedOverlayModes}
+              onChangeOverlayModes=${setSelectedOverlayModes}
+              overlayModeOrder=${OVERLAY_MODE_ORDER} />
         </footer>
       </div>`;
 };

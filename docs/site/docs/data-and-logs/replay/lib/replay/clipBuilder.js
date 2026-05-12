@@ -125,12 +125,15 @@ export const ClipBuilder = ({
   mp4Available,           // boolean — feature-detect result
   mp4UnavailableTooltip,  // string — shown on hover when grayed out
   // Overlay-only export — runs alongside the composite path:
-  onExportOverlays,       // (clip, idx)  — render 5-mode overlay MP4 batch
+  onExportOverlays,       // (clip, idx)  — render selected-modes overlay MP4 batch
   onCancelOverlays,       // ()            — cancel overlay export
   overlayExporting,       // boolean — true while any overlay batch is running
   overlayCurrentMode,     // string | null — id of the mode currently being encoded
   overlayProgress,        // 0..1 — progress within the current mode
   overlayAvailable,       // boolean — feature-detect result for overlay path
+  selectedOverlayModes,   // string[] — modes the user picked (default: ['indexer'])
+  onChangeOverlayModes,   // (string[]) — replaces the selection list
+  overlayModeOrder,       // string[]  — canonical mode list for the checkboxes
 }) => {
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
@@ -167,9 +170,10 @@ export const ClipBuilder = ({
       </button>`;
   };
 
-  // Overlay-only export: same per-row button. The export renders
-  // five MP4 files (one per M5 mode) against a chroma-key background
-  // ready to drop into iMovie / Final Cut.
+  // Overlay-only export: button + per-mode checkbox row. Each MP4 is
+  // 320×240 (native M5 panel size) against the panel's own black
+  // background — drop it into iMovie / Final Cut, scale and position
+  // on top of the source footage.
   const renderOverlayControls = (clip, i) => {
     if (overlayExporting && overlayCurrentMode) {
       return html`
@@ -185,18 +189,51 @@ export const ClipBuilder = ({
           <button class="replay-btn-ghost" onClick=${onCancelOverlays}>Cancel</button>
         </div>`;
     }
+    const selectedCount = (selectedOverlayModes || []).length;
     const overlayDisabled = disabled || exportingClipIdx != null ||
-                            !syncReady || !overlayAvailable || overlayExporting;
+                            !syncReady || !overlayAvailable || overlayExporting ||
+                            selectedCount === 0;
     if (!onExportOverlays) return null;
     return html`
       <button class="replay-btn"
               disabled=${overlayDisabled}
               title=${overlayAvailable
-                ? 'Render 5 overlay-only MP4s (one per mode) with chroma-key background'
+                ? `Render ${selectedCount} overlay MP4${selectedCount === 1 ? '' : 's'} at 320×240, M5 panel as the background (no chroma).`
                 : (mp4UnavailableTooltip || '')}
               onClick=${() => onExportOverlays(clip, i)}>
-        Overlays · NLE
+        Overlays · NLE${selectedCount > 1 ? ` (${selectedCount})` : ''}
       </button>`;
+  };
+
+  // Mode-picker checkbox row. Lets the user toggle which M5 modes the
+  // overlay-export batch should include. Shown once at the top of the
+  // clip list (not per-row) — the selection applies to all overlay
+  // exports until changed.
+  const toggleMode = (m) => {
+    if (!onChangeOverlayModes || !Array.isArray(selectedOverlayModes)) return;
+    const has = selectedOverlayModes.includes(m);
+    const next = has
+      ? selectedOverlayModes.filter(x => x !== m)
+      : [...selectedOverlayModes, m];
+    // Keep canonical order so the export output is deterministic.
+    const order = overlayModeOrder || [];
+    next.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    onChangeOverlayModes(next);
+  };
+  const renderOverlayModePicker = () => {
+    if (!overlayAvailable || !onExportOverlays || !overlayModeOrder) return null;
+    return html`
+      <div class="replay-overlay-modes" role="group" aria-label="Overlay modes">
+        <span class="replay-label">Overlay modes</span>
+        ${overlayModeOrder.map(m => html`
+          <label class="replay-overlay-mode-toggle">
+            <input type="checkbox"
+                   checked=${(selectedOverlayModes || []).includes(m)}
+                   disabled=${overlayExporting}
+                   onChange=${() => toggleMode(m)} />
+            ${m}
+          </label>`)}
+      </div>`;
   };
 
   return html`
@@ -245,6 +282,8 @@ export const ClipBuilder = ({
             Export all
           </button>`}
       </div>
+
+      ${renderOverlayModePicker()}
 
       ${clips.length === 0
         ? html`<div class="replay-clips-empty">

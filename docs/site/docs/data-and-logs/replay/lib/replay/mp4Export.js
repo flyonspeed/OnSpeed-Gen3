@@ -39,6 +39,8 @@
 
 import { Muxer, ArrayBufferTarget } from '../vendor/mp4-muxer.js';
 import { createFile, DataStream } from '../vendor/mp4box.js';
+import { M5_PANEL_W, M5_PANEL_H }
+  from '../../../../packages/ui-core/core/geometry.js';
 import { M5Sim } from './m5sim.js';
 import { findRowAt } from './parseLog.js';
 import { PresentationFilter } from './presentationFilter.js';
@@ -1186,20 +1188,6 @@ export const OVERLAY_MODE_ORDER = Object.freeze([
   'historic-g', // 4
 ]);
 
-// Default chroma-key color. Purple #A020F0 — picked because it does
-// NOT appear in the M5 avionics palette (which uses black, white,
-// red, yellow, green-with-yellow-tint #00ff3a, cyan-sky #00fffe,
-// brown-ground #954511, magenta #ff00ff for flight-path marker,
-// orange #ff8800, and blue #0000ff). Industry-standard chroma-green
-// (#00ff00) and chroma-blue (#0000ff) both collide with palette
-// entries — NLE chroma-key tolerance keys out the M5's green
-// chevrons / blue indicators along with the background. Purple has
-// no palette neighbour, so a default tolerance keys cleanly.
-//
-// Pilots can override via the UI if their overlay context needs a
-// different background.
-const OVERLAY_DEFAULT_CHROMA = '#A020F0';
-
 // Feature gate. Overlay-only export only needs VideoEncoder +
 // OffscreenCanvas — no VideoDecoder (no source video to demux).
 export function isOverlayExportSupported() {
@@ -1229,36 +1217,29 @@ async function pickOverlayEncoderConfig({ width, height, bitrate, framerate }) {
   throw new Error(`No supported H.264 encoder config at ${w}x${h}.`);
 }
 
-// Composite an overlay SVG image onto a chroma-keyed canvas. The
-// overlay fills the canvas (the NLE compositor places it wherever
-// the editor wants — there's no "bottom-right of the source video"
-// layout decision baked into the file).
+// Composite the overlay SVG into the entire canvas. In native-dimensions
+// mode (default), the canvas IS the M5 panel — same 320×240 pixel grid
+// the hardware draws to, same black background that the avionics SVG
+// renders against. There's no padding, no chroma key, no "video to
+// composite onto" — the output IS the M5 panel as a video.
 //
-// Aspect-preserving: the overlay SVG has its own intrinsic aspect
-// (the M5 modes are 4:3 by tradition; the canvas is whatever the
-// caller picks). We draw the overlay centered, scaled to fill the
-// shorter dimension, so a 1080p canvas with a 4:3 SVG paints the
-// overlay at 1440×1080 centered — extra width is chroma.
-function compositeOverlayOnly(ctx, overlayImg, chromaColor, W, H, intrinsicAspect) {
-  ctx.fillStyle = chromaColor;
+// Vac drops this into his NLE on top of his GoPro footage, scales /
+// positions to taste. iMovie, Final Cut, Premiere, Resolve all treat
+// the black panel correctly — it sits over the underlying video like
+// a real cockpit instrument.
+//
+// `background` is the canvas fill before the overlay draws. Default
+// '#000' matches the M5's --panel-bg. Set to a chroma color if the
+// caller wants the legacy chroma-key fallback.
+function compositeOverlayNative(ctx, overlayImg, background, W, H) {
+  ctx.fillStyle = background;
   ctx.fillRect(0, 0, W, H);
   if (!overlayImg) return;
-  // Aspect 4:3 by default; caller can override if the SVG declares
-  // a different aspect.
-  const aspect = (intrinsicAspect && intrinsicAspect > 0) ? intrinsicAspect : (4 / 3);
-  let dw, dh;
-  if (W / H > aspect) {
-    // Canvas wider than overlay aspect — overlay limited by height.
-    dh = H;
-    dw = H * aspect;
-  } else {
-    // Canvas taller than overlay aspect — overlay limited by width.
-    dw = W;
-    dh = W / aspect;
-  }
-  const dx = (W - dw) / 2;
-  const dy = (H - dh) / 2;
-  ctx.drawImage(overlayImg, dx, dy, dw, dh);
+  // Overlay SVG viewBox is 0 0 M5_PANEL_W M5_PANEL_H (320×240). When
+  // canvas dims match the panel exactly, this draws at 1:1; when the
+  // canvas is scaled (e.g. user opted into 1080p), the SVG scales
+  // proportionally — the aspect matches, so no letterboxing.
+  ctx.drawImage(overlayImg, 0, 0, W, H);
 }
 
 // One encoder + muxer + canvas, scoped to a single mode. The frame
@@ -1334,14 +1315,19 @@ function newTimingsBag() {
 //                       videoEl.videoWidth/etc. from the page, or null.
 //   presentationTau:    same shape as exportClipAsMp4 — mirror live
 //                       preview's slip-ball smoothing.
-//   backgroundMode:     'chroma' (default) | 'transparent'. Chroma
-//                       writes the chromaColor as the canvas background;
-//                       transparent only works if an alpha-capable
-//                       codec is available (probed at runtime, falls
-//                       back to chroma with a console.warn).
-//   chromaColor:        CSS color string. Default '#00ff00'.
-//   outputWidth/Height: explicit output dims. Default = sourceVideoInfo
-//                       dims (or 1920×1080 if no source info given).
+//   background:         CSS color string for the canvas background.
+//                       Default '#000' — matches the M5's own panel
+//                       background. The output IS the M5 panel as a
+//                       video; Vac composites it on top of his footage
+//                       in his NLE. Pass a chroma color (e.g.
+//                       '#00ff00') if you specifically want chroma-key.
+//   outputWidth/Height: explicit output dims. Default = M5 panel native
+//                       dimensions (320×240). The avionics SVG renders
+//                       to exactly this pixel grid (it's the M5
+//                       hardware's screen size), so the default is
+//                       lossless 1:1 — no upscale, no downscale.
+//                       Override to render bigger (e.g. 1920×1440)
+//                       for callers that want pre-scaled output.
 //   framerate:          override the encode frame rate. Default = 30.
 //   bitrate:            override the encoder bitrate. null = compute
 //                       from output dims + fps via computeBitrate.
@@ -1361,8 +1347,7 @@ export async function exportOverlayOnly({
   modes             = null,
   sourceVideoInfo   = null,
   presentationTau   = null,
-  backgroundMode    = 'chroma',
-  chromaColor       = OVERLAY_DEFAULT_CHROMA,
+  background        = '#000',
   outputWidth       = null,
   outputHeight      = null,
   framerate         = null,
@@ -1403,14 +1388,14 @@ export async function exportOverlayOnly({
     throw new Error('exportOverlayOnly: at least one mode required.');
   }
 
-  // Resolve output dims + framerate. The export is video-only and
-  // not bound to a source frame timeline, so we pick a regular CFR
-  // and stamp frames at integer-rate microsecond offsets.
-  const srcW   = sourceVideoInfo?.width;
-  const srcH   = sourceVideoInfo?.height;
+  // Resolve output dims + framerate. The default is the M5 panel's
+  // native pixel grid (320×240) — same as the M5 hardware screen, same
+  // as the avionics SVG viewBox. Rendered at 1:1, the output IS the
+  // M5 panel as a video. Caller can override (e.g. for 1080p prescaled
+  // output) but most workflows want native: Vac scales in the NLE.
   const srcFps = sourceVideoInfo?.frameRate;
-  let W = outputWidth  || srcW || 1920;
-  let H = outputHeight || srcH || 1080;
+  let W = outputWidth  || M5_PANEL_W;
+  let H = outputHeight || M5_PANEL_H;
   W = Math.max(2, Math.floor(W / 2) * 2);
   H = Math.max(2, Math.floor(H / 2) * 2);
   const fps = (Number.isFinite(framerate) && framerate > 0)
@@ -1428,23 +1413,6 @@ export async function exportOverlayOnly({
   if (!Number.isFinite(clipDurSec) || clipDurSec <= 0) {
     throw new Error('exportOverlayOnly: clip has zero or invalid duration.');
   }
-
-  // Background mode resolution. 'transparent' requires an alpha-
-  // capable codec; H.264 (the only Chromium WebCodecs encode codec)
-  // doesn't carry alpha. We honour the request only if a future
-  // browser exposes one; otherwise log + fall back to chroma.
-  let effectiveBackground = backgroundMode;
-  if (backgroundMode === 'transparent') {
-    // No public WebCodecs codec carries alpha in Chromium as of
-    // 2026. Probing every imaginable VP9-alpha config wastes time;
-    // we'd rather warn loudly and produce a usable chroma file.
-    console.warn(
-      'exportOverlayOnly: transparent background not supported by ' +
-      'available encoders; falling back to chroma key.');
-    effectiveBackground = 'chroma';
-  }
-  const effectiveChroma = (effectiveBackground === 'chroma')
-    ? chromaColor : '#000000';
 
   // ----------- Sim + presentation filter (shared across modes) -----
   const sim = await M5Sim.create();
@@ -1566,7 +1534,7 @@ export async function exportOverlayOnly({
         aggregateTimings.renderMs += performance.now() - tR;
 
         const tC = performance.now();
-        compositeOverlayOnly(enc.ctx, overlayImg, effectiveChroma, W, H, 4 / 3);
+        compositeOverlayNative(enc.ctx, overlayImg, background, W, H);
         const outFrame = new VideoFrame(enc.canvas, {
           timestamp: tsUs, duration: dtUs,
         });

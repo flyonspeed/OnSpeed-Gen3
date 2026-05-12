@@ -316,6 +316,31 @@
   padding: 4px 0;
 }
 
+.replay-overlay-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 8px;
+  font-size: 12px;
+  color: #a8b3bd;
+}
+.replay-overlay-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-overlay-mode-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.replay-overlay-mode-toggle input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
 .replay-progress {
   flex: 0 1 200px;
   height: 8px;
