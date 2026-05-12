@@ -47,16 +47,26 @@ import { parseLog, findRowAt, detectLogSampleRate }
   from '../replay/parseLog.js';
 import { parseConfigXml } from '../replay/config.js';
 import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
-import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
+// downloadBlob lives in mp4Export.js (used by composite + overlay-only
+// MP4 exports). The legacy WebM path was removed 2026-05-12 — see PR #533
+// description for the rationale (MP4 export is source-faithful and
+// audio-passthrough; WebM was a Phase-4 stopgap before the WebCodecs work
+// landed).
 import {
   exportClipAsMp4, isMp4ExportSupported,
   exportOverlayOnly, isOverlayExportSupported, OVERLAY_MODE_ORDER,
+  downloadBlob,
 } from '../replay/mp4Export.js';
 import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLabel }
   from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { reassembleResults } from '../replay/reassemble.js';
 import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
+import {
+  isFileHandleApiSupported, pickFile, storeHandles, clearHandles,
+  requestPermissionForHandles, signatureFromFiles, useFileHandleResume,
+  ReplayResumeBanner,
+} from '../replay/fileHandles.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
 import { PresentationFilter, PRESENTATION_PRESETS, defaultPresetForLogRate }
@@ -220,14 +230,6 @@ export const ReplayPage = () => {
   // displayPercentLift stuck at the last-seen-future values.
   const [m5SimReinitNonce, setM5SimReinitNonce] = useState(0);
 
-  // Export-to-WebM state. exporting=true while a recording is in
-  // progress; exportProgress reflects the % of the source video
-  // captured so far; exportHandle is the controller returned by
-  // exportOverlayedVideo (call .stop() to end early).
-  const [exporting, setExporting]     = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [exportLabel, setExportLabel] = useState('');
-  const exportHandleRef = useRef(null);
 
   // Manual clip list. Each entry is { startMs, endMs, label }.
   // The ClipBuilder UI displays them as a stack of editable rows;
@@ -240,6 +242,56 @@ export const ReplayPage = () => {
   // suggests re-picking the prior session's files. See
   // replay/persistence.js for the storage contract.
   const persistence = useReplayPersistence({ logFile });
+
+  // File handles for FileSystemAccess-supported browsers (Chrome /
+  // Edge desktop). Held in refs because they're not Preact state —
+  // we only consult them when writing to IDB on a new full set, or
+  // when the resume banner re-grants permission and reads files.
+  // Falsy on Firefox / Safari (those fall through to <input>).
+  const videoHandleRef = useRef(null);
+  const logHandleRef = useRef(null);
+  const cfgHandleRef = useRef(null);
+
+  // Resume-on-reload state. Reads IDB for handles matching the
+  // previously-recorded recent-files signature. resumeReady fires
+  // only when the FSA API is supported AND a matching record exists.
+  const fileHandleResume = useFileHandleResume({
+    recentFilesSig: persistence.recentFilesSig,
+  });
+
+  // Live mirrors of the three File objects. Used by persistHandles
+  // (which fires inside a state-setter and can't see the latest React
+  // state). Updated alongside setVideoFile/setLogFile/setCfgFile.
+  const videoFileRef = useRef(null);
+  const logFileRef = useRef(null);
+  const cfgFileRef = useRef(null);
+
+  // Persist the current handle bundle whenever both video + log
+  // handles exist. Mirrors persistence.notifyFilePicked's video+log
+  // gating. The cfg handle is optional (null if pilot hasn't picked
+  // one). Signature key derives from the live file metadata so
+  // the next reload's resume lookup matches.
+  //
+  // Reads from refs (not React state) so it sees writes from the
+  // current event handler synchronously — state-setter timing would
+  // otherwise miss the just-picked file.
+  const persistHandlesIfReady = useCallback(() => {
+    if (!isFileHandleApiSupported()) return;
+    const v = videoHandleRef.current;
+    const l = logHandleRef.current;
+    if (!v || !l) return;
+    const sig = signatureFromFiles({
+      video: videoFileRef.current,
+      log: logFileRef.current,
+      cfg: cfgFileRef.current,
+    });
+    if (!sig) return;
+    storeHandles(sig, {
+      video: v,
+      log: l,
+      cfg: cfgHandleRef.current || null,
+    }).catch(() => { /* best-effort, surfaced via console only */ });
+  }, []);
 
   // Mark-in flow: when the pilot clicks "Mark clip in" we stash the
   // current video time; the next "Mark clip out" click completes the
@@ -302,6 +354,16 @@ export const ReplayPage = () => {
     safeLsSet('replay-overlay-size-v1', overlaySize);
   }, [overlaySize]);
 
+  // "Standard" MP4 clip layout: render BOTH the ADI (bottom-left) and
+  // Energy (bottom-right) panels burned into the source video. When
+  // off, the export uses the live preview's single mode in the
+  // bottom-right corner (legacy behavior).
+  const [standardClipOverlay, setStandardClipOverlay] = useState(() =>
+    safeLsGet('replay-standard-clip-overlay-v1') === '1');
+  useEffect(() => {
+    safeLsSet('replay-standard-clip-overlay-v1', standardClipOverlay ? '1' : '0');
+  }, [standardClipOverlay]);
+
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
   // playing/scrubbing freely. When they click "Attach here" we
@@ -325,19 +387,26 @@ export const ReplayPage = () => {
   const mp4ExportingRef = useRef(false);
 
   // ---------- File loaders -----------------------------------------
+  //
+  // Each slot has an `apply*File(file, handle)` helper that does the
+  // state mutations + persistence-notify work. The handle is optional
+  // (null on Firefox/Safari, or in the <input> fallback path). The
+  // helpers are called from three places:
+  //   1. `<input type="file">` onChange events  (handle = null)
+  //   2. FSA `showOpenFilePicker` buttons       (handle = FSFileHandle)
+  //   3. Resume-banner re-grant path            (handle from IDB)
 
-  const onVideoPick = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyVideoFile = useCallback((f, handle) => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoFile(f);
     setVideoUrl(URL.createObjectURL(f));
+    videoFileRef.current = f;
     persistence.notifyFilePicked('video', f);
-  };
+    videoHandleRef.current = handle || null;
+    if (handle) persistHandlesIfReady();
+  }, [videoUrl, persistence, persistHandlesIfReady]);
 
-  const onLogPick = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyLogFile = useCallback(async (f, handle) => {
     setParseErr(null);
     try {
       const text = await f.text();
@@ -360,16 +429,21 @@ export const ReplayPage = () => {
       setAnchorKind('none');
       setPausedLogMs(null);
       setPendingInVideoSec(null);
+      logFileRef.current = f;
       persistence.notifyFilePicked('log', f);
+      if (handle) {
+        logHandleRef.current = handle;
+        persistHandlesIfReady();
+      }
+      return true;
     } catch (err) {
       setParseErr(`Could not parse log: ${err.message}`);
       setLog(null);
+      return false;
     }
-  };
+  }, [persistence, persistHandlesIfReady]);
 
-  const onCfgPick = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyCfgFile = useCallback(async (f, handle) => {
     setParseErr(null);
     try {
       const text = await f.text();
@@ -378,12 +452,114 @@ export const ReplayPage = () => {
       setCfg(parsed);
       setCfgFile(f);
       setCfgFilename(f.name);
+      cfgFileRef.current = f;
       persistence.notifyFilePicked('cfg', f);
+      if (handle) {
+        cfgHandleRef.current = handle;
+        persistHandlesIfReady();
+      }
+      return true;
     } catch (err) {
       setParseErr(`Could not parse config: ${err.message}`);
       setCfg(null);
+      return false;
     }
+  }, [persistence, persistHandlesIfReady]);
+
+  // <input type="file"> onChange handlers — used on Firefox / Safari
+  // and as a fallback if the FSA picker fails. The handle ref stays
+  // null in this path so no IDB write happens; resume banner won't
+  // appear next reload (correct behavior on unsupported browsers).
+  const onVideoPick = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    applyVideoFile(f, null);
   };
+
+  const onLogPick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    await applyLogFile(f);
+  };
+
+  const onCfgPick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    await applyCfgFile(f, null);
+  };
+
+  // FSA picker handlers — used on Chrome / Edge. Each opens the OS
+  // file dialog via showOpenFilePicker, retrieves a FileSystemFileHandle
+  // for re-grant on next reload, then delegates to the same apply*
+  // helpers the <input> path uses.
+  const fsaSupported = useState(() => isFileHandleApiSupported())[0];
+
+  const pickVideoViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('video');
+      if (r) applyVideoFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open video: ${err.message}`);
+    }
+  }, [applyVideoFile]);
+
+  const pickLogViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('log');
+      if (r) await applyLogFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open log: ${err.message}`);
+    }
+  }, [applyLogFile]);
+
+  const pickCfgViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('cfg');
+      if (r) await applyCfgFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open config: ${err.message}`);
+    }
+  }, [applyCfgFile]);
+
+  // Resume-banner click handler. MUST run the permission request
+  // synchronously in the same user-gesture tick — no awaits before
+  // requestPermissionForHandles or browsers reject the prompt.
+  // After grant, getFile() each handle and re-feed the apply* helpers.
+  const onResumeClick = useCallback(async () => {
+    const handles = fileHandleResume.availableHandles;
+    if (!handles) return;
+    // Permission request first — same gesture. Browsers batch the
+    // prompts when called sequentially in this tick.
+    const granted = await requestPermissionForHandles(handles);
+    if (!granted) {
+      // Collapse the banner so the pilot only sees one signal — the
+      // error message. Leaving the banner up alongside the error
+      // reads as "Resume failed but click here to try again" when in
+      // fact the browser already denied without a prompt and another
+      // click won't help.
+      fileHandleResume.dismiss();
+      setParseErr('Permission denied for one or more files. Pick them manually.');
+      return;
+    }
+    try {
+      // Read the three files in parallel.
+      const [vFile, lFile, cFile] = await Promise.all([
+        handles.video.getFile(),
+        handles.log.getFile(),
+        handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
+      ]);
+      applyVideoFile(vFile, handles.video);
+      const logOk = await applyLogFile(lFile, handles.log);
+      if (cFile && logOk) await applyCfgFile(cFile, handles.cfg);
+      fileHandleResume.markUsed();
+    } catch (err) {
+      setParseErr(`Resume failed: ${err.message}`);
+    }
+  }, [fileHandleResume, applyVideoFile, applyLogFile, applyCfgFile]);
+
+  const onResumeDismiss = useCallback(() => {
+    fileHandleResume.dismiss();
+  }, [fileHandleResume]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
@@ -972,92 +1148,6 @@ export const ReplayPage = () => {
     Number.isFinite(sync.videoTakeoffSec) &&
     Number.isFinite(sync.logTakeoffMs);
 
-  // ---------- Export flow ------------------------------------------
-  //
-  // The general export takes a [startSec, endSec] window. Phase-4's
-  // "export the whole thing from playhead" becomes a special case
-  // (startSec = playhead, endSec = null → duration). DataMarks and
-  // ClipBuilder rows call this with explicit windows.
-  //
-  // Returns the finished Blob (or null on error). Caller decides
-  // whether to download it directly or queue it.
-  const exportRange = useCallback(async ({ startSec, endSec, label }) => {
-    const v = videoRef.current;
-    if (!v) return null;
-
-    // Clamp the window to the video's actual range. A data-mark
-    // whose log time maps to a negative video time (mark dropped
-    // before the camera started recording) or past the end (mark
-    // dropped after the camera stopped) would otherwise either
-    // produce a 0-byte file or hang. Refuse those windows loudly.
-    if (Number.isFinite(startSec)) {
-      if (startSec < 0 || startSec >= v.duration) {
-        setParseErr(`Export skipped: ${label || 'clip'} starts ` +
-                    `outside the video (${startSec.toFixed(1)} s; ` +
-                    `video is 0 to ${v.duration.toFixed(1)} s).`);
-        return null;
-      }
-    }
-    if (Number.isFinite(endSec) && Number.isFinite(startSec) && endSec <= startSec) {
-      setParseErr(`Export skipped: ${label || 'clip'} window is empty ` +
-                  `(start ${startSec.toFixed(1)} s, end ${endSec.toFixed(1)} s).`);
-      return null;
-    }
-
-    setExporting(true);
-    setExportProgress(0);
-    setExportLabel(label || '');
-    try {
-      const handle = await exportOverlayedVideo({
-        videoEl: v,
-        getOverlaySvg: () => document.querySelector('.replay-overlay-frame > svg'),
-        startSec, endSec,
-        outputWidth: 1920,
-        bitrate: 12_000_000,
-        onProgress: ({ videoSec, startSec: s, endSec: e }) => {
-          if (e > s) setExportProgress((videoSec - s) / (e - s));
-        },
-      });
-      exportHandleRef.current = handle;
-      return await handle.finished;
-    } catch (err) {
-      setParseErr('Export failed: ' + (err?.message || err));
-      return null;
-    } finally {
-      setExporting(false);
-      setExportLabel('');
-      exportHandleRef.current = null;
-    }
-  }, []);
-
-  // Phase-4 button: export the whole video from current playhead.
-  const startFullExport = useCallback(async () => {
-    const v = videoRef.current;
-    if (!v || !syncReady) return;
-    const blob = await exportRange({
-      startSec: v.currentTime,
-      endSec:   null,
-      label:    'full export',
-    });
-    if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
-    downloadBlob(blob, `${base}_with_overlay.webm`);
-  }, [syncReady, videoFile, exportRange]);
-
-  // DataMark / ClipBuilder export: single window with a custom
-  // filename suffix. Used by the "Clip 30s" buttons and the
-  // ClipBuilder list's per-row Export.
-  const exportClip = useCallback(async ({ startSec, endSec, label, filenameSuffix }) => {
-    const blob = await exportRange({ startSec, endSec, label });
-    if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
-    downloadBlob(blob, `${base}_${filenameSuffix}.webm`);
-  }, [exportRange, videoFile]);
-
-  const stopExport = useCallback(() => {
-    if (exportHandleRef.current) exportHandleRef.current.stop();
-  }, []);
-
   // Re-sync flow:
   //   1. pauseIndexer() — freeze the indexer at the current
   //      video-mapped log time so it stops following video frames.
@@ -1104,18 +1194,18 @@ export const ReplayPage = () => {
     if (Number.isFinite(tSec)) v.currentTime = Math.max(0, tSec);
   };
 
-  // Export an N-second clip starting at a mark's video time.
-  const exportClipFromMark = (mark, durationSec) => {
+  // Add an N-second clip starting at a DataMark. Same behavior as
+  // "+ N s clip from playhead" — the clip lands in the clip list,
+  // pilot edits / exports per-row from there. Does NOT auto-export
+  // (the legacy WebM path used to; that was wrong + WebM is gone).
+  const addClipFromMark = (mark, durationSec) => {
+    const v = videoRef.current;
+    if (!v) return;
     const startSec = logMsToVideoSec(mark.logTimeMs, sync);
     if (!Number.isFinite(startSec)) return;
-    const endSec = Math.min(videoRef.current?.duration || startSec + durationSec,
-                            startSec + durationSec);
-    return exportClip({
-      startSec,
-      endSec,
-      label: `mark ${mark.label}`,
-      filenameSuffix: `mark${mark.label}_${durationSec}s`,
-    });
+    const label = `mark ${mark.label} +${durationSec}s`;
+    const clip = buildClipFromPlayhead(startSec, durationSec, sync, label);
+    if (clip) setClips(prev => [...prev, clip]);
   };
 
   // Add the current playhead as a clip start, with a default
@@ -1295,6 +1385,9 @@ export const ReplayPage = () => {
         // Without this the fresh export-sim defaults to mode 0 (Energy)
         // regardless of what the page is showing.
         displayMode:   m5ModeId,
+        // Standard layout: ADI bottom-left + Energy bottom-right.
+        // Ignores displayMode when true.
+        standardOverlay: standardClipOverlay,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -1323,7 +1416,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, m5SmoothPreset, m5ModeId]);
+      videoFile, m5SmoothPreset, m5ModeId, standardClipOverlay]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -1492,25 +1585,96 @@ export const ReplayPage = () => {
     if (overlayAbortRef.current) overlayAbortRef.current.abort();
   }, []);
 
+  // Export the overlay for the ENTIRE log, no source video. Useful when:
+  //   (a) the GoPro started recording mid-flight and the pilot wants
+  //       overlay coverage of the boot-up / taxi / pre-roll log time;
+  //   (b) the pilot wants one big overlay MP4 to drop on his original
+  //       source footage in iMovie/FCP without having to mark a clip.
+  // Synthesizes a full-log clip {startMs, endMs} and calls the existing
+  // overlay-only path. No source video is read (overlay path doesn't
+  // touch source). Output is 320×240 (native) by default; the size
+  // selector still applies if the user picked a fraction-of-source.
+  const exportFullLogOverlay = useCallback(async () => {
+    if (!log || !cppWireFrames) {
+      setParseErr('Full overlay export needs a loaded log + completed replay engine pre-pass.');
+      return null;
+    }
+    if (!overlayAvailable) {
+      setParseErr('Overlay export requires Chrome or Edge desktop. WebCodecs ' +
+                  'support is incomplete in Safari / Firefox.');
+      return null;
+    }
+    // Build a synthetic clip spanning the entire log. The overlay-only
+    // path reads clip.startMs and clip.endMs in log-time; no sync
+    // anchor is consulted, so this works even when sync is null.
+    const startMs = log.timeStamp[0];
+    const endMs   = log.timeStamp[log.timeStamp.length - 1];
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      setParseErr('Full overlay export skipped: log has no usable timestamp range.');
+      return null;
+    }
+    const clip = {
+      startMs,
+      endMs,
+      label: 'full-log',
+    };
+    // Reuse the per-clip overlay export. exportOverlaysForClip already
+    // handles cancel, progress, mode selection, size selector — we just
+    // hand it a clip with a longer window.
+    return await exportOverlaysForClip(clip, null);
+  }, [log, cppWireFrames, overlayAvailable, exportOverlaysForClip]);
+
   // ---------- Layout -----------------------------------------------
 
   return html`
       <div class="replay-page">
-        <${RecentFilesBanner} info=${persistence.bannerInfo}
-                              onDismiss=${persistence.dismissBanner} />
+        ${fileHandleResume.resumeReady
+          ? html`<${ReplayResumeBanner}
+                    info=${persistence.rawBannerInfo}
+                    onResume=${onResumeClick}
+                    onDismiss=${onResumeDismiss} />`
+          : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
+                                       onDismiss=${persistence.dismissBanner} />`}
         <header class="replay-toolbar">
-          <label class="replay-file">
-            <span>Video</span>
-            <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
-          </label>
-          <label class="replay-file">
-            <span>Log</span>
-            <input type="file" accept=".csv,text/csv" onChange=${onLogPick} />
-          </label>
-          <label class="replay-file">
-            <span>Config</span>
-            <input type="file" accept=".cfg,.xml,text/xml" onChange=${onCfgPick} />
-          </label>
+          ${fsaSupported ? html`
+            <label class="replay-file">
+              <span>Video</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickVideoViaFsa}
+                      title=${videoFile ? videoFile.name : 'Open video'}>
+                ${videoFile ? videoFile.name : 'Open video…'}
+              </button>
+            </label>
+            <label class="replay-file">
+              <span>Log</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickLogViaFsa}
+                      title=${logFilename || 'Open log'}>
+                ${logFilename || 'Open log…'}
+              </button>
+            </label>
+            <label class="replay-file">
+              <span>Config</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickCfgViaFsa}
+                      title=${cfgFilename || 'Open config'}>
+                ${cfgFilename || 'Open config…'}
+              </button>
+            </label>
+          ` : html`
+            <label class="replay-file">
+              <span>Video</span>
+              <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
+            </label>
+            <label class="replay-file">
+              <span>Log</span>
+              <input type="file" accept=".csv,text/csv" onChange=${onLogPick} />
+            </label>
+            <label class="replay-file">
+              <span>Config</span>
+              <input type="file" accept=".cfg,.xml,text/xml" onChange=${onCfgPick} />
+            </label>
+          `}
           ${cfg && html`
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
@@ -1578,35 +1742,25 @@ export const ReplayPage = () => {
                      onChange=${e => setOverlayVisible(e.target.checked)} />
               Show overlay
             </label>
-            ${exporting
+            ${exportingClipIdx != null
               ? html`
                   <span class="replay-status">
-                    exporting${exportLabel ? ` · ${exportLabel}` : ''}
+                    MP4 export${mp4ExportLabel ? ` · ${mp4ExportLabel}` : ''}
                   </span>
                   <progress class="replay-progress"
-                            max="1" value=${exportProgress}></progress>
-                  <span class="replay-status">${Math.round(exportProgress * 100)}%</span>
-                  <button class="replay-btn-ghost" onClick=${stopExport}>
-                    Stop
+                            max="1" value=${mp4ExportProgress}></progress>
+                  <span class="replay-status">
+                    ${Math.round(mp4ExportProgress * 100)}%
+                  </span>
+                  <button class="replay-btn-ghost" onClick=${cancelMp4Export}>
+                    Cancel
                   </button>`
-              : exportingClipIdx != null
-                ? html`
-                    <span class="replay-status">
-                      MP4 export${mp4ExportLabel ? ` · ${mp4ExportLabel}` : ''}
-                    </span>
-                    <progress class="replay-progress"
-                              max="1" value=${mp4ExportProgress}></progress>
-                    <span class="replay-status">
-                      ${Math.round(mp4ExportProgress * 100)}%
-                    </span>
-                    <button class="replay-btn-ghost" onClick=${cancelMp4Export}>
-                      Cancel
-                    </button>`
-                : html`
-                    <button class="replay-btn" onClick=${startFullExport}
-                            disabled=${!syncReady || !videoUrl}>
-                      Export WebM (legacy)
-                    </button>`}
+              : html`
+                  <button class="replay-btn" onClick=${exportFullLogOverlay}
+                          disabled=${!log || !cppWireFrames || overlayExporting}
+                          title="Render the overlay for the entire log (no source video). Drop on top of your GoPro footage in iMovie / Final Cut.">
+                    Full overlay export
+                  </button>`}
           </div>
 
           <div class="replay-control-row">
@@ -1668,10 +1822,10 @@ export const ReplayPage = () => {
             <${DataMarkPanel}
                 marks=${marks}
                 sync=${sync}
-                disabled=${exporting || !syncReady}
+                disabled=${exportingClipIdx != null || !syncReady}
                 videoDuration=${videoRef.current?.duration}
                 onJump=${jumpToMark}
-                onClip=${exportClipFromMark} />`}
+                onClip=${addClipFromMark} />`}
 
           <${ClipBuilder}
               clips=${clips}
@@ -1679,7 +1833,7 @@ export const ReplayPage = () => {
               sync=${sync}
               syncReady=${syncReady}
               videoEl=${videoRef}
-              disabled=${exporting}
+              disabled=${exportingClipIdx != null}
               exportingClipIdx=${exportingClipIdx}
               exportProgress=${mp4ExportProgress}
               exportLabel=${mp4ExportLabel}
@@ -1705,7 +1859,9 @@ export const ReplayPage = () => {
               onChangeOverlayModes=${setSelectedOverlayModes}
               overlayModeOrder=${OVERLAY_MODE_ORDER}
               overlaySize=${overlaySize}
-              onChangeOverlaySize=${setOverlaySize} />
+              onChangeOverlaySize=${setOverlaySize}
+              standardClipOverlay=${standardClipOverlay}
+              onChangeStandardClipOverlay=${setStandardClipOverlay} />
         </footer>
       </div>`;
 };

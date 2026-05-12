@@ -512,275 +512,6 @@ function downsampleForPlot(log, targetPoints = 2000) {
   return out;
 }
 
-// === docs/site/docs/data-and-logs/replay/lib/replay/exportRecord.js ===
-// Export a synced video + indexer overlay to a downloadable WebM.
-//
-// We compose by drawing each video frame to an offscreen canvas at
-// the chosen export resolution, rasterizing the current overlay SVG
-// over the video pixels, and feeding the canvas through a
-// MediaRecorder. Output is WebM (Chrome/Firefox encode it natively;
-// YouTube accepts WebM uploads directly so the pilot doesn't need
-// to re-encode).
-//
-// Why WebM and not MP4: MediaRecorder in browsers can write
-// WebM/VP9 reliably across Chrome/Edge/Firefox. MP4/H.264 is
-// supported in Safari only and is blocked by policy in Chrome (no
-// AVC encode). For Vac's workflow a WebM upload to YouTube works
-// fine; if a true MP4 is needed later, a single ffmpeg-wasm pass
-// can transcode the output, or the publish-quality Remotion path
-// (Phase 5) renders to MP4 server-side.
-//
-// Frame timing: we drive the render off `requestVideoFrameCallback`
-// when available (Chrome, Edge) so each captured frame matches a
-// real video frame. The fallback is RAF-paced, which can dropped
-// frames during 4K decode but is fine for 1080p output.
-//
-// Caller passes a `renderOverlay(ctx, scale)` function that
-// rasterizes the current overlay onto the canvas. We give the
-// caller the scaled canvas dimensions so they can position the
-// overlay correctly.
-
-const DEFAULT_BITRATE = 12_000_000;   // 12 Mbps; YouTube's recommended 1080p upload bitrate is ~8-12
-
-// Pick a MediaRecorder MIME the current browser supports.
-function pickMime() {
-  const candidates = [
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ];
-  for (const m of candidates) {
-    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) {
-      return m;
-    }
-  }
-  return 'video/webm';
-}
-
-// Rasterize an SVG element to an Image via a data URL. Asynchronous;
-// returns a promise resolving to a loaded HTMLImageElement.
-//
-// XMLSerializer + data URL is the canonical, taint-safe path. The
-// resulting image can be drawImage()d onto a canvas and the canvas
-// stays "clean" (no SecurityError on captureStream).
-function svgToImage(svgEl) {
-  const xml = new XMLSerializer().serializeToString(svgEl);
-  const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
-    img.src = url;
-  });
-}
-
-// Export config:
-//   {
-//     videoEl:        HTMLVideoElement (the source <video>),
-//     getOverlaySvg:  () -> SVGElement | null  (current frame's
-//                     mode SVG; called per video frame so the
-//                     overlay state is current),
-//     startSec:       optional float (seconds). If set, video seeks
-//                     here before recording starts. Defaults to
-//                     the videoEl's current playhead.
-//     endSec:         optional float (seconds). If set, recording
-//                     stops when video crosses this time. Defaults
-//                     to videoEl.duration (i.e. record to the end).
-//     overlayInset:   { right, bottom, widthPct } — px from the
-//                     edges in canvas-space, percentage of canvas
-//                     width for the overlay box.
-//     outputWidth:    int (e.g. 1920); output canvas width.
-//                     Height derived from video aspect ratio.
-//     bitrate:        int bits/sec (default 12 Mbps)
-//     onProgress:     ({ encodedSec, videoSec, startSec, endSec }) => void
-//   }
-//
-// Returns: { stop() -> Promise<Blob>, finished: Promise<Blob> }.
-async function exportOverlayedVideo(opts) {
-  const {
-    videoEl, getOverlaySvg,
-    startSec = null,
-    endSec   = null,
-    overlayInset = { right: 24, bottom: 110, widthPct: 0.22 },
-    outputWidth = 1920,
-    bitrate = DEFAULT_BITRATE,
-    onProgress = null,
-  } = opts;
-
-  if (!videoEl) throw new Error('exportOverlayedVideo: no video element');
-  if (!videoEl.videoWidth || !videoEl.videoHeight) {
-    throw new Error('exportOverlayedVideo: video metadata not loaded yet');
-  }
-
-  // Compute output resolution preserving aspect.
-  const aspect = videoEl.videoHeight / videoEl.videoWidth;
-  const W = outputWidth;
-  const H = Math.round(W * aspect);
-
-  // Offscreen canvas. We use a real DOM canvas (not OffscreenCanvas)
-  // because MediaRecorder + captureStream is more interoperable on
-  // a regular canvas across the browsers we care about.
-  const canvas = document.createElement('canvas');
-  canvas.width  = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-
-  const stream = canvas.captureStream(0);   // 0 = manual frame advance
-  const track  = stream.getVideoTracks()[0];
-
-  // Add the audio track from the video element. The video has its
-  // own audio that we want preserved in the export.
-  let audioStream = null;
-  if (videoEl.captureStream) {
-    try {
-      audioStream = videoEl.captureStream();
-      const audioTrack = audioStream.getAudioTracks()[0];
-      if (audioTrack) stream.addTrack(audioTrack);
-    } catch (e) {
-      console.warn('exportOverlayedVideo: audio capture failed:', e);
-    }
-  }
-
-  const mimeType = pickMime();
-  const recorder = new MediaRecorder(stream, {
-    mimeType,
-    videoBitsPerSecond: bitrate,
-  });
-
-  const chunks = [];
-  recorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
-  };
-
-  // Async frame driver. Plays the video at native speed, captures
-  // a canvas frame each time the video paints. Stop when we hit
-  // the end-of-window (or duration) or the caller calls stop().
-  let stopped = false;
-  const effectiveEnd = Number.isFinite(endSec) ? endSec : videoEl.duration;
-  let lastVideoTime = videoEl.currentTime;
-
-  function rasterizeOverlay(scaleX, scaleY) {
-    const svg = getOverlaySvg && getOverlaySvg();
-    if (!svg) return Promise.resolve(null);
-    return svgToImage(svg);
-  }
-
-  async function captureFrame() {
-    // 1. video pixels
-    ctx.drawImage(videoEl, 0, 0, W, H);
-
-    // 2. overlay
-    try {
-      const img = await rasterizeOverlay(W / videoEl.videoWidth, H / videoEl.videoHeight);
-      if (img) {
-        const ow = Math.round(W * overlayInset.widthPct);
-        const oh = Math.round(ow * 3 / 4);    // 4:3 indexer aspect
-        const ox = W - overlayInset.right * (W / videoEl.clientWidth || 1) - ow;
-        const oy = H - overlayInset.bottom * (H / videoEl.clientHeight || 1) - oh;
-        ctx.drawImage(img, ox, oy, ow, oh);
-      }
-    } catch (e) {
-      console.warn('overlay raster failed:', e);
-    }
-
-    // 3. push the frame to the MediaRecorder track
-    if (track.requestFrame) track.requestFrame();
-  }
-
-  function tick(_now, meta) {
-    if (stopped) return;
-    captureFrame().then(() => {
-      if (onProgress) {
-        onProgress({
-          encodedSec: videoEl.currentTime - lastVideoTime,
-          videoSec:   videoEl.currentTime,
-          startSec:   Number.isFinite(startSec) ? startSec : 0,
-          endSec:     effectiveEnd,
-        });
-      }
-      // Stop at end of clip window (or end of video, or natural end).
-      if (videoEl.currentTime >= effectiveEnd - 0.02 ||
-          videoEl.currentTime >= videoEl.duration - 0.05 ||
-          videoEl.ended) {
-        finish();
-        return;
-      }
-      if (videoEl.requestVideoFrameCallback) {
-        videoEl.requestVideoFrameCallback(tick);
-      } else {
-        requestAnimationFrame(() => tick(performance.now()));
-      }
-    });
-  }
-
-  let finishResolve, finishReject;
-  const finished = new Promise((resolve, reject) => {
-    finishResolve = resolve;
-    finishReject = reject;
-  });
-
-  function finish() {
-    if (stopped) return;
-    stopped = true;
-    try {
-      recorder.stop();
-      videoEl.pause();
-    } catch (e) { /* ignore */ }
-  }
-
-  recorder.onstop = () => {
-    const blob = new Blob(chunks, { type: mimeType });
-    finishResolve(blob);
-  };
-  recorder.onerror = (e) => finishReject(e?.error || e);
-
-  // Seek to the clip start (if provided) and wait for the seek
-  // to settle before kicking the recorder. Without the wait,
-  // MediaRecorder captures the pre-seek frame as its first frame.
-  if (Number.isFinite(startSec) && Math.abs(videoEl.currentTime - startSec) > 0.05) {
-    await new Promise(resolve => {
-      const onSeeked = () => {
-        videoEl.removeEventListener('seeked', onSeeked);
-        resolve();
-      };
-      videoEl.addEventListener('seeked', onSeeked, { once: true });
-      videoEl.currentTime = startSec;
-    });
-  }
-  lastVideoTime = videoEl.currentTime;
-
-  recorder.start(1000);   // 1 s slice for ondataavailable
-  if (videoEl.requestVideoFrameCallback) {
-    videoEl.requestVideoFrameCallback(tick);
-  } else {
-    requestAnimationFrame(() => tick(performance.now()));
-  }
-  try {
-    await videoEl.play();
-  } catch (e) {
-    finish();
-    throw new Error('Could not start video playback: ' + (e?.message || e));
-  }
-
-  return {
-    stop: () => { finish(); return finished; },
-    finished,
-  };
-}
-
-// Trigger a browser download for a Blob.
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
 // === docs/site/docs/data-and-logs/replay/lib/vendor/mediabunny.min.mjs ===
 /*!
  * Copyright (c) 2026-present, Vanilagy and contributors
@@ -1549,7 +1280,7 @@ const GONSET_PIP_Y_TOP    = 118;
 const GONSET_PIP_Y_MIDDLE = 119;
 const GONSET_PIP_Y_BOT    = 120;
 
-const G = { M5_PANEL_W, M5_PANEL_H, INDEXER_WIDTH, INDEXER_HEIGHT, INDEXER_X, INDEXER_Y, INDEXER_CX, INDEXER_CY, INDEXER_BOX_RADIUS, CHEVRON_HALF_W, CHEVRON_HALF_H, CHEVRON_ROTATION_RAD, CHEVRON_TOP_LEFT_CX, CHEVRON_TOP_LEFT_CY, CHEVRON_TOP_RIGHT_CX, CHEVRON_TOP_RIGHT_CY, CHEVRON_BOTTOM_LEFT_CX, CHEVRON_BOTTOM_LEFT_CY, CHEVRON_BOTTOM_RIGHT_CX, CHEVRON_BOTTOM_RIGHT_CY, DONUT_BULLSEYE_R, DONUT_BLACK_R, DONUT_ARC_R, DONUT_ARC_LINEWIDTH, DONUT_GAP_X, DONUT_GAP_Y, DONUT_GAP_W, DONUT_GAP_H, DONUT_DOT_R, INDEX_BAR_X, INDEX_BAR_W, INDEX_BAR_H, PIP_LEFT_CX, PIP_RIGHT_CX, PIP_HALO_R, PIP_INNER_R, PCT_LIFT_X, PCT_LIFT_Y, PCT_LIFT_FONT_SIZE, PCT_LIFT_OUTLINE_PX, CORNER_RIGHT_X, CORNER_LABEL_Y, CORNER_NUM_Y, CORNER_LEFT_X, CORNER_LABEL_FONT_SIZE, CORNER_NUM_FONT_SIZE, DATAMARK_X, DATAMARK_Y, DATAMARK_FONT_SIZE, FLAP_CX, FLAP_CY, FLAP_R, FLAP_TRIANGLE_TIP_R, FLAP_STOP_R, FLAP_LABEL_FONT_SIZE, FLAP_ARC_DEG, FLAP_ARC_RAD, SLIP_X, SLIP_Y, SLIP_W, SLIP_H, SLIP_CENTER_X, SLIP_CENTER_Y, SLIP_BALL_R, SLIP_BALL_X_RANGE, MODE1_HORIZON_CX, MODE1_HORIZON_CY, MODE1_PITCH_HEIGHT_SCALE, MODE1_LADDER_STEP_DEG, MODE1_LADDER_SHORT_HALF_W, MODE1_LADDER_LONG_HALF_W, MODE1_LADDER_SHORT_RANGE, MODE1_LADDER_LONG_RANGE, MODE1_LADDER_LABEL_OFFSET, MODE1_LADDER_FONT_SIZE, MODE1_AIRCRAFT_ARC_SIZE, MODE1_AIRCRAFT_INNER_HALF_W, MODE1_AIRCRAFT_OUTER_HALF_W, MODE1_AIRCRAFT_WING_HALF_LEN, MODE1_AIRCRAFT_DROOP_DY, MODE1_AIRCRAFT_CENTER_R, MODE1_AIRCRAFT_BAR_THICKNESS, MODE1_FPV_CX, MODE1_FPV_RING_RADII, MODE1_FPV_WING_INNER, MODE1_FPV_WING_OUTER, MODE1_FPV_BAR_THICKNESS, MODE1_PITCH_READOUT_X, MODE1_PITCH_READOUT_Y, MODE1_PITCH_READOUT_W, MODE1_PITCH_READOUT_H, MODE1_PITCH_READOUT_RADIUS, MODE1_PITCH_READOUT_TEXT_X, MODE1_PITCH_READOUT_TEXT_Y, MODE1_PITCH_READOUT_DEG_CX, MODE1_PITCH_READOUT_DEG_CY, MODE1_PITCH_READOUT_DEG_R, MODE1_PITCH_READOUT_FONT_SIZE, MODE1_CORNER_LEFT_X, MODE1_CORNER_LEFT_NUM_X, MODE1_CORNER_RIGHT_X, MODE1_CORNER_TOP_RIGHT_NUM_X, MODE1_CORNER_BOT_RIGHT_NUM_X, MODE1_CORNER_TOP_LABEL_Y, MODE1_CORNER_BOT_LABEL_Y, MODE1_CORNER_TOP_NUM_Y, MODE1_CORNER_BOT_NUM_Y, MODE1_CORNER_LABEL_FONT_SIZE, MODE1_CORNER_NUM_FONT_SIZE, MODE1_SLIP_X, MODE1_SLIP_Y, MODE1_SLIP_W, MODE1_SLIP_H, MODE1_VSI_BAR_X, MODE1_VSI_BAR_W, MODE1_VSI_HEIGHT_MAX, MODE1_VSI_FULL_SCALE_FPM, MODE1_VSI_HEIGHT_SCALE, MODE1_VSI_ZERO_Y, MODE1_VSI_TICK_X1, MODE1_VSI_TICK_X2, MODE1_VSI_TICK_FIRST_Y, MODE1_VSI_TICK_LAST_Y, MODE1_VSI_TICK_STEP, MODE1_VSI_PIP_X1, MODE1_VSI_PIP_X2, MODE1_VSI_PIP_Y_TOP, MODE1_VSI_PIP_Y_MIDDLE, MODE1_VSI_PIP_Y_BOT, MODE3_GAUGE_X, MODE3_GAUGE_Y, MODE3_GAUGE_W, MODE3_GAUGE_H, MODE3_GAUGE_RADIUS, MODE3_GAUGE_GREEN_X, MODE3_GAUGE_GREEN_Y, MODE3_GAUGE_GREEN_W, MODE3_GAUGE_GREEN_H, MODE3_POINTER_W, MODE3_POINTER_H, MODE3_POINTER_X, MODE3_DECEL_SCALE, MODE3_DECEL_OFFSET, MODE3_POINTER_HALF_H, MODE3_POINTER_Y_MIN, MODE3_POINTER_Y_MAX, MODE3_GAUGE_LABEL_X, MODE3_GAUGE_LABELS, MODE3_PIP_X1, MODE3_PIP_X2, MODE3_GAUGE_LABEL_FONT_SIZE, MODE3_SLIP_X, MODE3_SLIP_Y, MODE3_SLIP_W, MODE3_SLIP_H, MODE3_CORNER_LEFT_X, MODE3_CORNER_LEFT_NUM_X, MODE3_CORNER_RIGHT_X, MODE3_CORNER_LABEL_Y, MODE3_CORNER_NUM_Y, MODE4_BUFFER_LEN, MODE4_SAMPLE_MS, MODE4_TRACE_X_MIN, MODE4_TRACE_X_MAX, MODE4_AXIS_X, MODE4_ONE_G_Y, MODE4_AXIS_Y_TOP, MODE4_AXIS_Y_BOT, MODE4_GRIDLINE_YS, MODE4_PIP_LABEL_X, MODE4_PIP_LABELS, MODE4_PIP_FONT_SIZE, MODE4_HEADER_TEXT, MODE4_HEADER_X, MODE4_HEADER_Y, MODE4_HEADER_FONT_SIZE, MODE4_DOT_Y_OFFSET, MODE4_DOT_Y_SCALE, MODE4_DOT_Y_MIN, MODE4_DOT_Y_MAX, MODE4_DOT_R, GONSET_BAR_X, GONSET_BAR_W, GONSET_HEIGHT_SCALE, GONSET_HEIGHT_MAX, GONSET_ZERO_Y, GONSET_TICK_X1, GONSET_TICK_X2, GONSET_TICK_FIRST_Y, GONSET_TICK_STEP, GONSET_TICK_LAST_Y, GONSET_PIP_X1, GONSET_PIP_X2, GONSET_PIP_Y_TOP, GONSET_PIP_Y_MIDDLE, GONSET_PIP_Y_BOT };
+const __NS_packages_ui_core_core_geometry = { M5_PANEL_W, M5_PANEL_H, INDEXER_WIDTH, INDEXER_HEIGHT, INDEXER_X, INDEXER_Y, INDEXER_CX, INDEXER_CY, INDEXER_BOX_RADIUS, CHEVRON_HALF_W, CHEVRON_HALF_H, CHEVRON_ROTATION_RAD, CHEVRON_TOP_LEFT_CX, CHEVRON_TOP_LEFT_CY, CHEVRON_TOP_RIGHT_CX, CHEVRON_TOP_RIGHT_CY, CHEVRON_BOTTOM_LEFT_CX, CHEVRON_BOTTOM_LEFT_CY, CHEVRON_BOTTOM_RIGHT_CX, CHEVRON_BOTTOM_RIGHT_CY, DONUT_BULLSEYE_R, DONUT_BLACK_R, DONUT_ARC_R, DONUT_ARC_LINEWIDTH, DONUT_GAP_X, DONUT_GAP_Y, DONUT_GAP_W, DONUT_GAP_H, DONUT_DOT_R, INDEX_BAR_X, INDEX_BAR_W, INDEX_BAR_H, PIP_LEFT_CX, PIP_RIGHT_CX, PIP_HALO_R, PIP_INNER_R, PCT_LIFT_X, PCT_LIFT_Y, PCT_LIFT_FONT_SIZE, PCT_LIFT_OUTLINE_PX, CORNER_RIGHT_X, CORNER_LABEL_Y, CORNER_NUM_Y, CORNER_LEFT_X, CORNER_LABEL_FONT_SIZE, CORNER_NUM_FONT_SIZE, DATAMARK_X, DATAMARK_Y, DATAMARK_FONT_SIZE, FLAP_CX, FLAP_CY, FLAP_R, FLAP_TRIANGLE_TIP_R, FLAP_STOP_R, FLAP_LABEL_FONT_SIZE, FLAP_ARC_DEG, FLAP_ARC_RAD, SLIP_X, SLIP_Y, SLIP_W, SLIP_H, SLIP_CENTER_X, SLIP_CENTER_Y, SLIP_BALL_R, SLIP_BALL_X_RANGE, MODE1_HORIZON_CX, MODE1_HORIZON_CY, MODE1_PITCH_HEIGHT_SCALE, MODE1_LADDER_STEP_DEG, MODE1_LADDER_SHORT_HALF_W, MODE1_LADDER_LONG_HALF_W, MODE1_LADDER_SHORT_RANGE, MODE1_LADDER_LONG_RANGE, MODE1_LADDER_LABEL_OFFSET, MODE1_LADDER_FONT_SIZE, MODE1_AIRCRAFT_ARC_SIZE, MODE1_AIRCRAFT_INNER_HALF_W, MODE1_AIRCRAFT_OUTER_HALF_W, MODE1_AIRCRAFT_WING_HALF_LEN, MODE1_AIRCRAFT_DROOP_DY, MODE1_AIRCRAFT_CENTER_R, MODE1_AIRCRAFT_BAR_THICKNESS, MODE1_FPV_CX, MODE1_FPV_RING_RADII, MODE1_FPV_WING_INNER, MODE1_FPV_WING_OUTER, MODE1_FPV_BAR_THICKNESS, MODE1_PITCH_READOUT_X, MODE1_PITCH_READOUT_Y, MODE1_PITCH_READOUT_W, MODE1_PITCH_READOUT_H, MODE1_PITCH_READOUT_RADIUS, MODE1_PITCH_READOUT_TEXT_X, MODE1_PITCH_READOUT_TEXT_Y, MODE1_PITCH_READOUT_DEG_CX, MODE1_PITCH_READOUT_DEG_CY, MODE1_PITCH_READOUT_DEG_R, MODE1_PITCH_READOUT_FONT_SIZE, MODE1_CORNER_LEFT_X, MODE1_CORNER_LEFT_NUM_X, MODE1_CORNER_RIGHT_X, MODE1_CORNER_TOP_RIGHT_NUM_X, MODE1_CORNER_BOT_RIGHT_NUM_X, MODE1_CORNER_TOP_LABEL_Y, MODE1_CORNER_BOT_LABEL_Y, MODE1_CORNER_TOP_NUM_Y, MODE1_CORNER_BOT_NUM_Y, MODE1_CORNER_LABEL_FONT_SIZE, MODE1_CORNER_NUM_FONT_SIZE, MODE1_SLIP_X, MODE1_SLIP_Y, MODE1_SLIP_W, MODE1_SLIP_H, MODE1_VSI_BAR_X, MODE1_VSI_BAR_W, MODE1_VSI_HEIGHT_MAX, MODE1_VSI_FULL_SCALE_FPM, MODE1_VSI_HEIGHT_SCALE, MODE1_VSI_ZERO_Y, MODE1_VSI_TICK_X1, MODE1_VSI_TICK_X2, MODE1_VSI_TICK_FIRST_Y, MODE1_VSI_TICK_LAST_Y, MODE1_VSI_TICK_STEP, MODE1_VSI_PIP_X1, MODE1_VSI_PIP_X2, MODE1_VSI_PIP_Y_TOP, MODE1_VSI_PIP_Y_MIDDLE, MODE1_VSI_PIP_Y_BOT, MODE3_GAUGE_X, MODE3_GAUGE_Y, MODE3_GAUGE_W, MODE3_GAUGE_H, MODE3_GAUGE_RADIUS, MODE3_GAUGE_GREEN_X, MODE3_GAUGE_GREEN_Y, MODE3_GAUGE_GREEN_W, MODE3_GAUGE_GREEN_H, MODE3_POINTER_W, MODE3_POINTER_H, MODE3_POINTER_X, MODE3_DECEL_SCALE, MODE3_DECEL_OFFSET, MODE3_POINTER_HALF_H, MODE3_POINTER_Y_MIN, MODE3_POINTER_Y_MAX, MODE3_GAUGE_LABEL_X, MODE3_GAUGE_LABELS, MODE3_PIP_X1, MODE3_PIP_X2, MODE3_GAUGE_LABEL_FONT_SIZE, MODE3_SLIP_X, MODE3_SLIP_Y, MODE3_SLIP_W, MODE3_SLIP_H, MODE3_CORNER_LEFT_X, MODE3_CORNER_LEFT_NUM_X, MODE3_CORNER_RIGHT_X, MODE3_CORNER_LABEL_Y, MODE3_CORNER_NUM_Y, MODE4_BUFFER_LEN, MODE4_SAMPLE_MS, MODE4_TRACE_X_MIN, MODE4_TRACE_X_MAX, MODE4_AXIS_X, MODE4_ONE_G_Y, MODE4_AXIS_Y_TOP, MODE4_AXIS_Y_BOT, MODE4_GRIDLINE_YS, MODE4_PIP_LABEL_X, MODE4_PIP_LABELS, MODE4_PIP_FONT_SIZE, MODE4_HEADER_TEXT, MODE4_HEADER_X, MODE4_HEADER_Y, MODE4_HEADER_FONT_SIZE, MODE4_DOT_Y_OFFSET, MODE4_DOT_Y_SCALE, MODE4_DOT_Y_MIN, MODE4_DOT_Y_MAX, MODE4_DOT_R, GONSET_BAR_X, GONSET_BAR_W, GONSET_HEIGHT_SCALE, GONSET_HEIGHT_MAX, GONSET_ZERO_Y, GONSET_TICK_X1, GONSET_TICK_X2, GONSET_TICK_FIRST_Y, GONSET_TICK_STEP, GONSET_TICK_LAST_Y, GONSET_PIP_X1, GONSET_PIP_X2, GONSET_PIP_Y_TOP, GONSET_PIP_Y_MIDDLE, GONSET_PIP_Y_BOT };
 // === docs/site/docs/data-and-logs/replay/lib/replay/m5sim.js ===
 // m5sim.js — JS wrapper around the M5-Display firmware compiled to WASM.
 //
@@ -2162,15 +1893,32 @@ function svgToImage(svgEl) {
   });
 }
 
+// Bottom-corner overlay placement. position='right' is the default
+// single-overlay layout (the live page's .replay-overlay-frame
+// position). position='left' mirrors X across the centerline for the
+// "standard" two-panel export — same width, same Y, same margins, just
+// pinned to the opposite edge. Returns { x, y, w, h } in canvas pixels.
+function overlayPlacement(W, H, position) {
+  const w = Math.round(W * 0.22);
+  const h = Math.round(w * 3 / 4);
+  const y = H - Math.round(H * 0.030) - h;
+  const x = position === 'left'
+    ? Math.round(W * 0.012)
+    : W - Math.round(W * 0.012) - w;
+  return { x, y, w, h };
+}
+
 // Composite one frame: video frame first (rotated to upright orientation
 // if the source has a display-matrix rotation, e.g. GoPro -180°), then
-// the overlay PNG in bottom-right. The overlay is always drawn AFTER
-// the rotation so it sits upright on screen regardless of source
+// each overlay drawn at its requested corner. Overlays are always drawn
+// AFTER the rotation so they sit upright on screen regardless of source
 // orientation. Mirrors the live page's .replay-overlay-frame layout.
 // `videoSrc` can be any drawImage-compatible source (VideoFrame,
 // HTMLVideoElement, ImageBitmap, etc). `rotationDeg` is the angle to
 // rotate the source pixels by — 0 / 90 / 180 / 270 (or -90 / -180).
-function compositeFrame(ctx, videoSrc, overlayImg, W, H, rotationDeg = 0) {
+// `overlays` is an array of { img, position } entries; falsy `img`
+// entries are skipped. Empty array = source-only frame.
+function compositeFrame(ctx, videoSrc, overlays, W, H, rotationDeg = 0) {
   if (videoSrc) {
     const r = ((rotationDeg % 360) + 360) % 360;
     if (r === 0) {
@@ -2188,18 +1936,17 @@ function compositeFrame(ctx, videoSrc, overlayImg, W, H, rotationDeg = 0) {
       ctx.restore();
     }
   }
-  if (overlayImg) {
-    const ow = Math.round(W * 0.22);
-    const oh = Math.round(ow * 3 / 4);
-    const ox = W - Math.round(W * 0.012) - ow;
-    const oy = H - Math.round(H * 0.030) - oh;
-    ctx.save();
-    ctx.shadowColor   = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur    = Math.round(W * 0.006);
-    ctx.shadowOffsetY = Math.round(W * 0.0015);
-    ctx.drawImage(overlayImg, ox, oy, ow, oh);
-    ctx.restore();
+  if (!overlays || overlays.length === 0) return;
+  ctx.save();
+  ctx.shadowColor   = 'rgba(0,0,0,0.7)';
+  ctx.shadowBlur    = Math.round(W * 0.006);
+  ctx.shadowOffsetY = Math.round(W * 0.0015);
+  for (const ov of overlays) {
+    if (!ov || !ov.img) continue;
+    const { x, y, w, h } = overlayPlacement(W, H, ov.position);
+    ctx.drawImage(ov.img, x, y, w, h);
   }
+  ctx.restore();
 }
 
 // Derive the source video's display rotation from its tkhd matrix.
@@ -2501,6 +2248,11 @@ async function exportClipAsMp4({
   // export — the page should pass the live preview's current mode so
   // the export matches what the pilot sees on screen.
   displayMode     = 0,
+  // "Standard" layout: render BOTH Attitude (ADI, displayType 1) and
+  // Energy (displayType 0) burned into the source frame — ADI in the
+  // bottom-left, Energy in the bottom-right (same Y, X mirrored across
+  // the source centerline). When true, `displayMode` is ignored.
+  standardOverlay = false,
   outputWidth     = null,
   bitrate         = null,
   framerate       = null,
@@ -2967,20 +2719,35 @@ async function exportClipAsMp4({
         });
       }
 
-      let overlayImg = null;
-      try {
-        const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State) : null;
-        if (svgEl) {
-          // eslint-disable-next-line no-await-in-loop
-          overlayImg = await svgToImage(svgEl);
+      // Build the per-frame overlay list. Standard layout: ADI on
+      // the left, Energy on the right (same Y, mirrored X). Single
+      // mode: one overlay pinned to the right corner (legacy layout).
+      // Two separate svgToImage calls — each mode reads its own
+      // displayType branches inside the SVG, so a single render with
+      // an overridden state object isn't equivalent.
+      const overlays = [];
+      const renderOne = async (displayType, position) => {
+        try {
+          const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
+          if (svgEl) {
+            // eslint-disable-next-line no-await-in-loop
+            const img = await svgToImage(svgEl);
+            if (img) overlays.push({ img, position });
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('overlay raster failed for frame', i, e);
         }
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('overlay raster failed for frame', i, e);
+      };
+      if (standardOverlay) {
+        await renderOne(1, 'left');   // ADI / Attitude
+        await renderOne(0, 'right');  // Energy
+      } else {
+        await renderOne(undefined, 'right'); // single mode, sim's displayType wins
       }
 
-      if (frame) compositeFrame(ctx, frame, overlayImg, W, H, videoInfo.rotationDeg);
-      else if (overlayImg) compositeFrame(ctx, null, overlayImg, W, H, 0);
+      if (frame) compositeFrame(ctx, frame, overlays, W, H, videoInfo.rotationDeg);
+      else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);
 
       // Close the source VideoFrame as soon as we've drawn it. Holds
       // GPU/system memory; leaving it for GC triggers WebCodecs'
@@ -3768,6 +3535,10 @@ const ClipBuilder = ({
   overlayModeOrder,       // string[]  — canonical mode list for the checkboxes
   overlaySize,            // 'native' | '0.2' | '0.3' | '0.5'
   onChangeOverlaySize,    // (string) — updates the size selection
+  // Burn-in MP4 (composite) layout toggle. true = ADI bottom-left +
+  // Energy bottom-right; false = single mode in bottom-right (legacy).
+  standardClipOverlay,
+  onChangeStandardClipOverlay,
 }) => {
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
@@ -3929,6 +3700,15 @@ const ClipBuilder = ({
                   onClick=${onExportAll}>
             Export all
           </button>`}
+        ${onChangeStandardClipOverlay && html`
+          <label class="replay-overlay-mode-toggle"
+                 title="Burn BOTH ADI (bottom-left) and Energy (bottom-right) into the source video. When off, the live preview's single mode burns in the bottom-right.">
+            <input type="checkbox"
+                   checked=${!!standardClipOverlay}
+                   disabled=${exportingClipIdx != null}
+                   onChange=${(e) => onChangeStandardClipOverlay(e.target.checked)} />
+            Standard (ADI + Energy)
+          </label>`}
       </div>
 
       ${renderOverlayModePicker()}
@@ -4360,10 +4140,26 @@ function useReplayPersistence({ logFile }) {
     safeLsSet(clipsKey(digest), JSON.stringify(clips));
   }, [logDigest]);
 
+  // Stable string signature of the currently-known recent-files set.
+  // Empty until at least video+log metadata is present. Consumed by the
+  // file-handle persistence layer (fileHandles.js) to key its IDB
+  // record so it can detect whether stored handles match the active
+  // session's metadata. Mirrors the JSON-stringified RECENT_FILES_KEY
+  // value exactly.
+  const recentFilesSig = bannerInfo
+    ? JSON.stringify({
+        video: bannerInfo.video,
+        log:   bannerInfo.log,
+        cfg:   bannerInfo.cfg || null,
+      })
+    : '';
+
   return {
     digestReady,
     logDigest,
     bannerInfo: bannerDismissed ? null : bannerInfo,
+    rawBannerInfo: bannerInfo,
+    recentFilesSig,
     dismissBanner,
     notifyFilePicked,
     beginLogSwap,
@@ -4390,6 +4186,361 @@ function RecentFilesBanner({ info, onDismiss }) {
       <button class="replay-recent-dismiss"
               type="button"
               onClick=${onDismiss}>×</button>
+    </div>
+  `;
+}
+
+// === docs/site/docs/data-and-logs/replay/lib/replay/fileHandles.js ===
+// fileHandles.js — File System Access API integration for the replay
+// tool. Persists FileSystemFileHandle objects in IndexedDB so a page
+// reload can offer "Resume last session?" with a single permission
+// re-grant covering all three files.
+//
+// Background: the replay page takes three file inputs (video, log,
+// config). Sync state and clip lists already persist across reloads
+// via persistence.js (content-keyed by log SHA-256). But the file
+// inputs themselves cannot be auto-restored — browsers do not give
+// pages programmatic access to previously selected <input type="file">
+// results, for security reasons.
+//
+// The File System Access API gives the page a FileSystemFileHandle
+// that can be stored in IndexedDB and re-grant'd in a single user-
+// gesture click. Chrome and Edge desktop ship this API; Firefox and
+// Safari do not. On unsupported browsers, callers should fall through
+// to the existing <input type="file"> flow.
+//
+// Permissions: handle.requestPermission({mode:'read'}) MUST be called
+// inside a user-gesture handler (button click). Browsers batch the
+// permission prompts when multiple handles are requested in the same
+// gesture, so one click can grant read access to all three files.
+//
+// Storage schema (IndexedDB):
+//   database  'replay-fsa'
+//   store     'handles-v1'
+//   key       'current'
+//   value     { signature: string, handles: { video, log, cfg } }
+//
+// The signature is the JSON-stringified recent-files metadata
+// ({video, log, cfg} from persistence.js's RECENT_FILES_KEY). On
+// reload, we compare the stored signature against the current
+// recent-files signature; if it matches, the handles are still
+// relevant. The store name carries the schema version (`handles-v1`)
+// so a future bump can ignore old data cleanly.
+
+
+const DB_NAME = 'replay-fsa';
+const STORE_NAME = 'handles-v1';
+const DB_VERSION = 1;
+const RECORD_KEY = 'current';
+
+// ---------------------------------------------------------------------
+// Pure helpers (testable in Node)
+// ---------------------------------------------------------------------
+
+// Returns true iff the browser supports File System Access showOpenFilePicker.
+// Chrome/Edge desktop ship it. Firefox/Safari do not.
+function isFileHandleApiSupported() {
+  return typeof globalThis !== 'undefined' &&
+         typeof globalThis.window !== 'undefined' &&
+         typeof globalThis.window.showOpenFilePicker === 'function';
+}
+
+// Accept-list per slot. Mirrors the existing <input> accept attrs:
+//   video: video/*,.mp4,.mov,.webm
+//   log:   .csv,text/csv
+//   cfg:   .cfg,.xml,text/xml
+//
+// showOpenFilePicker's types[] takes a {description, accept: {mime: [exts]}}
+// shape; the OS dialog filters on this.
+function pickerOptionsForSlot(slot) {
+  if (slot === 'video') {
+    return {
+      multiple: false,
+      types: [{
+        description: 'Flight video',
+        accept: { 'video/*': ['.mp4', '.mov', '.webm'] },
+      }],
+    };
+  }
+  if (slot === 'log') {
+    return {
+      multiple: false,
+      types: [{
+        description: 'OnSpeed SD log',
+        accept: { 'text/csv': ['.csv'] },
+      }],
+    };
+  }
+  if (slot === 'cfg') {
+    return {
+      multiple: false,
+      types: [{
+        description: 'OnSpeed config XML',
+        accept: { 'text/xml': ['.cfg', '.xml'] },
+      }],
+    };
+  }
+  throw new Error(`fileHandles: unknown slot ${slot}`);
+}
+
+// Compute the signature for a recent-files info object. Same shape as
+// persistence.js's RECENT_FILES_KEY value, so the signature matches
+// what that module writes.
+function recentFilesSignature(info) {
+  if (!info || !info.video || !info.log) return '';
+  return JSON.stringify({
+    video: info.video,
+    log: info.log,
+    cfg: info.cfg || null,
+  });
+}
+
+// Pull {name, size, lastModified} from a File-like object. Mirrors
+// persistence.js's fileMetadata so the same metadata shape feeds both
+// the recent-files banner and the signature used to key IDB.
+function metaOf(file) {
+  if (!file || typeof file !== 'object') return null;
+  const { name, size, lastModified } = file;
+  if (typeof name !== 'string') return null;
+  return { name, size: Number(size), lastModified: Number(lastModified) };
+}
+
+// Build a signature from raw File objects (whatever live state
+// ReplayPage holds for the three slots). Returns '' if video+log are
+// not both present.
+function signatureFromFiles({ video, log, cfg }) {
+  const v = metaOf(video);
+  const l = metaOf(log);
+  const c = metaOf(cfg);
+  if (!v || !l) return '';
+  return JSON.stringify({ video: v, log: l, cfg: c });
+}
+
+// ---------------------------------------------------------------------
+// IndexedDB plumbing
+// ---------------------------------------------------------------------
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB not available'));
+      return;
+    }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IDB open failed'));
+  });
+}
+
+function withStore(mode, fn) {
+  return openDb().then(db => new Promise((resolve, reject) => {
+    let result;
+    const tx = db.transaction(STORE_NAME, mode);
+    const store = tx.objectStore(STORE_NAME);
+    Promise.resolve(fn(store)).then(r => { result = r; }, reject);
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error('IDB tx aborted')); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('IDB tx error')); };
+  }));
+}
+
+function reqToPromise(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IDB request failed'));
+  });
+}
+
+// ---------------------------------------------------------------------
+// Public IDB API
+// ---------------------------------------------------------------------
+
+// Store the full bundle keyed by signature. Overwrites any prior record.
+// signature: string (recent-files signature, may be empty if not all
+// three files have metadata yet — caller decides whether to call).
+// handles: { video?, log?, cfg? } — slots present in this bundle.
+async function storeHandles(signature, handles) {
+  if (typeof signature !== 'string') return;
+  await withStore('readwrite', store => reqToPromise(
+    store.put({ signature, handles }, RECORD_KEY)
+  ));
+}
+
+// Read the current record. Returns null if missing or mismatched.
+// If expectedSignature is provided and non-empty, returns null when the
+// stored signature differs (the bundle belongs to a different session).
+async function loadHandles(expectedSignature) {
+  let record;
+  try {
+    record = await withStore('readonly', store => reqToPromise(store.get(RECORD_KEY)));
+  } catch {
+    return null;
+  }
+  if (!record || !record.handles) return null;
+  if (typeof expectedSignature === 'string' && expectedSignature.length > 0 &&
+      record.signature !== expectedSignature) {
+    return null;
+  }
+  return record.handles;
+}
+
+async function clearHandles() {
+  try {
+    await withStore('readwrite', store => reqToPromise(store.delete(RECORD_KEY)));
+  } catch {
+    // best-effort; missing is fine
+  }
+}
+
+// ---------------------------------------------------------------------
+// Permission helper. Must be called from a user-gesture handler.
+// ---------------------------------------------------------------------
+
+async function requestPermissionForHandles(handles) {
+  if (!handles) return false;
+  const slots = ['video', 'log', 'cfg'];
+  // The synchronous `.map()` dispatches all three `requestPermission()`
+  // calls in the same JS turn, BEFORE any `await` runs. Chrome's
+  // user-activation token survives synchronous dispatch and the
+  // resulting microtask chain, so all three prompts read as
+  // "user-triggered" and the browser batches them into one combined
+  // dialog. `Promise.all` here only collects the results — it does
+  // NOT guarantee the batching; that comes from the sync dispatch in
+  // the `.map()` body. If a future Chrome change tightens this
+  // (e.g. user-activation only survives one async hop), the prompts
+  // would degrade to "first ok, rest denied" — observable in dev
+  // before it bites a pilot.
+  const results = await Promise.all(slots.map(slot => {
+    const h = handles[slot];
+    if (!h) return 'granted'; // missing slot (e.g. cfg) is fine
+    if (typeof h.requestPermission !== 'function') return 'denied';
+    return h.requestPermission({ mode: 'read' }).catch(() => 'denied');
+  }));
+  return results.every(r => r === 'granted');
+}
+
+// ---------------------------------------------------------------------
+// showOpenFilePicker wrapper. Returns {file, handle} or null on cancel.
+// ---------------------------------------------------------------------
+
+async function pickFile(slot) {
+  if (!isFileHandleApiSupported()) return null;
+  let handle;
+  try {
+    const [h] = await window.showOpenFilePicker(pickerOptionsForSlot(slot));
+    handle = h;
+  } catch (err) {
+    // User cancelled the picker; AbortError is the standard signal.
+    if (err && err.name === 'AbortError') return null;
+    throw err;
+  }
+  if (!handle) return null;
+  const file = await handle.getFile();
+  return { file, handle };
+}
+
+// ---------------------------------------------------------------------
+// Preact hook: useFileHandleResume
+//
+// Reads IDB on mount + whenever recentFilesSig changes. Exposes:
+//   supported       — boolean, FSA available
+//   availableHandles — { video, log, cfg } | null (matched signature)
+//   resumeReady     — true iff video + log handles both present
+//                     (cfg is optional, mirrors persistence.js)
+//   dismissed       — pilot dismissed the resume offer this session
+//   dismiss()       — hide the resume offer + clear IDB record
+//   markUsed()      — call after a successful resume so future
+//                     renders don't keep offering the same resume
+//
+// The hook re-queries IDB whenever the recentFilesSig changes (so a
+// fresh session triggers a fresh lookup).
+// ---------------------------------------------------------------------
+
+function useFileHandleResume({ recentFilesSig }) {
+  const [supported] = useState(() => isFileHandleApiSupported());
+  const [availableHandles, setAvailableHandles] = useState(null);
+  const [dismissed, setDismissed] = useState(false);
+  const [used, setUsed] = useState(false);
+
+  useEffect(() => {
+    if (!supported) return;
+    if (!recentFilesSig) {
+      setAvailableHandles(null);
+      return;
+    }
+    let cancelled = false;
+    loadHandles(recentFilesSig).then(h => {
+      if (cancelled) return;
+      setAvailableHandles(h);
+    }).catch(() => {
+      if (!cancelled) setAvailableHandles(null);
+    });
+    return () => { cancelled = true; };
+  }, [supported, recentFilesSig]);
+
+  const dismiss = useCallback(() => {
+    setDismissed(true);
+    clearHandles();
+  }, []);
+
+  const markUsed = useCallback(() => {
+    setUsed(true);
+  }, []);
+
+  const resumeReady = !!(availableHandles &&
+                         availableHandles.video &&
+                         availableHandles.log) &&
+                      !dismissed &&
+                      !used;
+
+  return {
+    supported,
+    availableHandles,
+    resumeReady,
+    dismiss,
+    markUsed,
+  };
+}
+
+// ---------------------------------------------------------------------
+// ReplayResumeBanner — renders the "Resume last session?" UI when the
+// hook signals resumeReady. The Resume button click is the user-gesture
+// site that triggers requestPermissionForHandles.
+//
+// Props:
+//   info       — banner metadata (filenames + sizes, from persistence)
+//   onResume() — handler invoked synchronously inside the Resume
+//                click. Caller must call requestPermissionForHandles
+//                inside the same handler (no awaits before it) to
+//                preserve the user-gesture token.
+//   onDismiss() — handler for the dismiss (×) button.
+// ---------------------------------------------------------------------
+
+function ReplayResumeBanner({ info, onResume, onDismiss }) {
+  if (!info) return null;
+  const parts = [];
+  if (info.video && info.video.name) parts.push(info.video.name);
+  if (info.log   && info.log.name)   parts.push(info.log.name);
+  if (info.cfg   && info.cfg.name)   parts.push(info.cfg.name);
+  const label = parts.join(' + ') || 'previous session files';
+  return html`
+    <div class="replay-recent-banner">
+      <span class="replay-recent-text">
+        Resume last session: ${label}?
+      </span>
+      <button class="replay-recent-resume"
+              type="button"
+              onClick=${onResume}>Resume</button>
+      <button class="replay-recent-dismiss"
+              type="button"
+              onClick=${onDismiss}
+              title="Dismiss">×</button>
     </div>
   `;
 }
@@ -4855,8 +5006,8 @@ const arcPath = (cx, cy, r, startRad, endRad) => {
 
 // Chevron half — rotated rect.
 const Chevron = ({ cx, cy, signRad, fill }) => html`
-  <rect x=${cx - G.CHEVRON_HALF_W} y=${cy - G.CHEVRON_HALF_H}
-        width=${G.CHEVRON_HALF_W * 2} height=${G.CHEVRON_HALF_H * 2}
+  <rect x=${cx - __NS_packages_ui_core_core_geometry.CHEVRON_HALF_W} y=${cy - __NS_packages_ui_core_core_geometry.CHEVRON_HALF_H}
+        width=${__NS_packages_ui_core_core_geometry.CHEVRON_HALF_W * 2} height=${__NS_packages_ui_core_core_geometry.CHEVRON_HALF_H * 2}
         transform="rotate(${signRad * 180 / Math.PI} ${cx} ${cy})"
         fill=${fill} shape-rendering="crispEdges" />`;
 
@@ -4869,31 +5020,31 @@ const Indexer = ({ percentLift, anchors, flashFlag, aoaIsValid }) => {
   const ldmaxY = mapPct2Display(anchors[6], anchors);
   return html`
     <g data-widget="indexer">
-      <rect x=${G.INDEXER_X} y=${G.INDEXER_Y}
-            width=${G.INDEXER_WIDTH} height=${G.INDEXER_HEIGHT}
-            rx=${G.INDEXER_BOX_RADIUS}
+      <rect x=${__NS_packages_ui_core_core_geometry.INDEXER_X} y=${__NS_packages_ui_core_core_geometry.INDEXER_Y}
+            width=${__NS_packages_ui_core_core_geometry.INDEXER_WIDTH} height=${__NS_packages_ui_core_core_geometry.INDEXER_HEIGHT}
+            rx=${__NS_packages_ui_core_core_geometry.INDEXER_BOX_RADIUS}
             fill="none" stroke=${colors.TFT_DARKGREY} stroke-width="2" />
-      <${Chevron} cx=${G.CHEVRON_TOP_LEFT_CX}     cy=${G.CHEVRON_TOP_LEFT_CY}    signRad=${-G.CHEVRON_ROTATION_RAD} fill=${c.top} />
-      <${Chevron} cx=${G.CHEVRON_TOP_RIGHT_CX}    cy=${G.CHEVRON_TOP_RIGHT_CY}   signRad=${G.CHEVRON_ROTATION_RAD}  fill=${c.top} />
-      <${Chevron} cx=${G.CHEVRON_BOTTOM_LEFT_CX}  cy=${G.CHEVRON_BOTTOM_LEFT_CY} signRad=${G.CHEVRON_ROTATION_RAD}  fill=${c.bottom} />
-      <${Chevron} cx=${G.CHEVRON_BOTTOM_RIGHT_CX} cy=${G.CHEVRON_BOTTOM_RIGHT_CY} signRad=${-G.CHEVRON_ROTATION_RAD} fill=${c.bottom} />
-      <circle cx=${G.INDEXER_CX} cy=${G.INDEXER_CY} r=${G.DONUT_BLACK_R} fill=${colors.TFT_BLACK} />
-      <path d=${arcPath(G.INDEXER_CX, G.INDEXER_CY, G.DONUT_ARC_R, 0, Math.PI)}
-            fill="none" stroke=${d.bottomArc} stroke-width=${G.DONUT_ARC_LINEWIDTH} />
-      <path d=${arcPath(G.INDEXER_CX, G.INDEXER_CY, G.DONUT_ARC_R, Math.PI, 2 * Math.PI)}
-            fill="none" stroke=${d.topArc} stroke-width=${G.DONUT_ARC_LINEWIDTH} />
-      <rect x=${G.DONUT_GAP_X} y=${G.DONUT_GAP_Y}
-            width=${G.DONUT_GAP_W} height=${G.DONUT_GAP_H} fill=${colors.TFT_BLACK} />
-      <circle cx=${G.INDEXER_CX} cy=${G.INDEXER_CY} r=${G.DONUT_DOT_R} fill=${d.dot} />
+      <${Chevron} cx=${__NS_packages_ui_core_core_geometry.CHEVRON_TOP_LEFT_CX}     cy=${__NS_packages_ui_core_core_geometry.CHEVRON_TOP_LEFT_CY}    signRad=${-__NS_packages_ui_core_core_geometry.CHEVRON_ROTATION_RAD} fill=${c.top} />
+      <${Chevron} cx=${__NS_packages_ui_core_core_geometry.CHEVRON_TOP_RIGHT_CX}    cy=${__NS_packages_ui_core_core_geometry.CHEVRON_TOP_RIGHT_CY}   signRad=${__NS_packages_ui_core_core_geometry.CHEVRON_ROTATION_RAD}  fill=${c.top} />
+      <${Chevron} cx=${__NS_packages_ui_core_core_geometry.CHEVRON_BOTTOM_LEFT_CX}  cy=${__NS_packages_ui_core_core_geometry.CHEVRON_BOTTOM_LEFT_CY} signRad=${__NS_packages_ui_core_core_geometry.CHEVRON_ROTATION_RAD}  fill=${c.bottom} />
+      <${Chevron} cx=${__NS_packages_ui_core_core_geometry.CHEVRON_BOTTOM_RIGHT_CX} cy=${__NS_packages_ui_core_core_geometry.CHEVRON_BOTTOM_RIGHT_CY} signRad=${-__NS_packages_ui_core_core_geometry.CHEVRON_ROTATION_RAD} fill=${c.bottom} />
+      <circle cx=${__NS_packages_ui_core_core_geometry.INDEXER_CX} cy=${__NS_packages_ui_core_core_geometry.INDEXER_CY} r=${__NS_packages_ui_core_core_geometry.DONUT_BLACK_R} fill=${colors.TFT_BLACK} />
+      <path d=${arcPath(__NS_packages_ui_core_core_geometry.INDEXER_CX, __NS_packages_ui_core_core_geometry.INDEXER_CY, __NS_packages_ui_core_core_geometry.DONUT_ARC_R, 0, Math.PI)}
+            fill="none" stroke=${d.bottomArc} stroke-width=${__NS_packages_ui_core_core_geometry.DONUT_ARC_LINEWIDTH} />
+      <path d=${arcPath(__NS_packages_ui_core_core_geometry.INDEXER_CX, __NS_packages_ui_core_core_geometry.INDEXER_CY, __NS_packages_ui_core_core_geometry.DONUT_ARC_R, Math.PI, 2 * Math.PI)}
+            fill="none" stroke=${d.topArc} stroke-width=${__NS_packages_ui_core_core_geometry.DONUT_ARC_LINEWIDTH} />
+      <rect x=${__NS_packages_ui_core_core_geometry.DONUT_GAP_X} y=${__NS_packages_ui_core_core_geometry.DONUT_GAP_Y}
+            width=${__NS_packages_ui_core_core_geometry.DONUT_GAP_W} height=${__NS_packages_ui_core_core_geometry.DONUT_GAP_H} fill=${colors.TFT_BLACK} />
+      <circle cx=${__NS_packages_ui_core_core_geometry.INDEXER_CX} cy=${__NS_packages_ui_core_core_geometry.INDEXER_CY} r=${__NS_packages_ui_core_core_geometry.DONUT_DOT_R} fill=${d.dot} />
       ${aoaIsValid && html`
-        <rect x=${G.INDEX_BAR_X} y=${indexY}
-              width=${G.INDEX_BAR_W} height=${G.INDEX_BAR_H}
+        <rect x=${__NS_packages_ui_core_core_geometry.INDEX_BAR_X} y=${indexY}
+              width=${__NS_packages_ui_core_core_geometry.INDEX_BAR_W} height=${__NS_packages_ui_core_core_geometry.INDEX_BAR_H}
               fill=${colors.TFT_WHITE} stroke=${colors.TFT_BLACK}
               stroke-width="1" shape-rendering="crispEdges" />`}
-      <circle cx=${G.PIP_LEFT_CX}  cy=${ldmaxY} r=${G.PIP_HALO_R}  fill=${colors.TFT_BLACK} />
-      <circle cx=${G.PIP_LEFT_CX}  cy=${ldmaxY} r=${G.PIP_INNER_R} fill=${colors.TFT_WHITE} />
-      <circle cx=${G.PIP_RIGHT_CX} cy=${ldmaxY} r=${G.PIP_HALO_R}  fill=${colors.TFT_BLACK} />
-      <circle cx=${G.PIP_RIGHT_CX} cy=${ldmaxY} r=${G.PIP_INNER_R} fill=${colors.TFT_WHITE} />
+      <circle cx=${__NS_packages_ui_core_core_geometry.PIP_LEFT_CX}  cy=${ldmaxY} r=${__NS_packages_ui_core_core_geometry.PIP_HALO_R}  fill=${colors.TFT_BLACK} />
+      <circle cx=${__NS_packages_ui_core_core_geometry.PIP_LEFT_CX}  cy=${ldmaxY} r=${__NS_packages_ui_core_core_geometry.PIP_INNER_R} fill=${colors.TFT_WHITE} />
+      <circle cx=${__NS_packages_ui_core_core_geometry.PIP_RIGHT_CX} cy=${ldmaxY} r=${__NS_packages_ui_core_core_geometry.PIP_HALO_R}  fill=${colors.TFT_BLACK} />
+      <circle cx=${__NS_packages_ui_core_core_geometry.PIP_RIGHT_CX} cy=${ldmaxY} r=${__NS_packages_ui_core_core_geometry.PIP_INNER_R} fill=${colors.TFT_WHITE} />
     </g>`;
 };
 
@@ -4915,14 +5066,14 @@ const PercentLiftNumber = ({ percent, aoaIsValid }) => {
   }
   return html`
     <g data-widget="percent-lift-number">
-      <text x=${G.PCT_LIFT_X} y=${G.PCT_LIFT_Y}
+      <text x=${__NS_packages_ui_core_core_geometry.PCT_LIFT_X} y=${__NS_packages_ui_core_core_geometry.PCT_LIFT_Y}
             font-family="Helvetica, Arial, sans-serif" font-weight="bold"
-            font-size=${G.PCT_LIFT_FONT_SIZE} fill="none"
-            stroke=${colors.TFT_BLACK} stroke-width=${G.PCT_LIFT_OUTLINE_PX * 2}
+            font-size=${__NS_packages_ui_core_core_geometry.PCT_LIFT_FONT_SIZE} fill="none"
+            stroke=${colors.TFT_BLACK} stroke-width=${__NS_packages_ui_core_core_geometry.PCT_LIFT_OUTLINE_PX * 2}
             stroke-linejoin="round" text-anchor="middle">${s}</text>
-      <text x=${G.PCT_LIFT_X} y=${G.PCT_LIFT_Y}
+      <text x=${__NS_packages_ui_core_core_geometry.PCT_LIFT_X} y=${__NS_packages_ui_core_core_geometry.PCT_LIFT_Y}
             font-family="Helvetica, Arial, sans-serif" font-weight="bold"
-            font-size=${G.PCT_LIFT_FONT_SIZE} fill=${colors.TFT_WHITE}
+            font-size=${__NS_packages_ui_core_core_geometry.PCT_LIFT_FONT_SIZE} fill=${colors.TFT_WHITE}
             text-anchor="middle">${s}</text>
     </g>`;
 };
@@ -4939,8 +5090,8 @@ const CornerReadout = ({ label, value,
                                  anchor = 'start',
                                  labelColor = colors.TFT_GREEN,
                                  numColor = colors.TFT_WHITE,
-                                 labelFontSize = G.CORNER_LABEL_FONT_SIZE,
-                                 numFontSize = G.CORNER_NUM_FONT_SIZE,
+                                 labelFontSize = __NS_packages_ui_core_core_geometry.CORNER_LABEL_FONT_SIZE,
+                                 numFontSize = __NS_packages_ui_core_core_geometry.CORNER_NUM_FONT_SIZE,
                                  numBaseline = 'alphabetic' }) => {
   const isDashes = (value === IAS_DASHES || value === PCT_DASHES);
   const alignDashesToLabel = isDashes && anchor === 'start';
@@ -4995,34 +5146,34 @@ const DataMark = ({ value }) => {
   const v = (value == null || Number.isNaN(value)) ? 0 : value;
   const padded = String(v).padStart(2, '0');
   return html`
-    <text x=${G.DATAMARK_X} y=${G.DATAMARK_Y}
+    <text x=${__NS_packages_ui_core_core_geometry.DATAMARK_X} y=${__NS_packages_ui_core_core_geometry.DATAMARK_Y}
           font-family="Helvetica, Arial, sans-serif"
-          font-size=${G.DATAMARK_FONT_SIZE}
+          font-size=${__NS_packages_ui_core_core_geometry.DATAMARK_FONT_SIZE}
           fill=${colors.TFT_WHITE}>${padded}</text>`;
 };
 
 const FlapCircle = ({ flapPos, flapsMin, flapsMax }) => {
   const frac = flapWidgetFrac(flapPos, flapsMin, flapsMax);
   const a = flapTriangleTransform(frac) * Math.PI / 180;
-  const apexX = G.FLAP_CX + Math.cos(a) * G.FLAP_TRIANGLE_TIP_R;
-  const apexY = G.FLAP_CY + Math.sin(a) * G.FLAP_TRIANGLE_TIP_R;
-  const topX  = G.FLAP_CX + Math.sin(a) * G.FLAP_R;
-  const topY  = G.FLAP_CY - Math.cos(a) * G.FLAP_R;
-  const botX  = G.FLAP_CX - Math.sin(a) * G.FLAP_R;
-  const botY  = G.FLAP_CY + Math.cos(a) * G.FLAP_R;
+  const apexX = __NS_packages_ui_core_core_geometry.FLAP_CX + Math.cos(a) * __NS_packages_ui_core_core_geometry.FLAP_TRIANGLE_TIP_R;
+  const apexY = __NS_packages_ui_core_core_geometry.FLAP_CY + Math.sin(a) * __NS_packages_ui_core_core_geometry.FLAP_TRIANGLE_TIP_R;
+  const topX  = __NS_packages_ui_core_core_geometry.FLAP_CX + Math.sin(a) * __NS_packages_ui_core_core_geometry.FLAP_R;
+  const topY  = __NS_packages_ui_core_core_geometry.FLAP_CY - Math.cos(a) * __NS_packages_ui_core_core_geometry.FLAP_R;
+  const botX  = __NS_packages_ui_core_core_geometry.FLAP_CX - Math.sin(a) * __NS_packages_ui_core_core_geometry.FLAP_R;
+  const botY  = __NS_packages_ui_core_core_geometry.FLAP_CY + Math.cos(a) * __NS_packages_ui_core_core_geometry.FLAP_R;
   return html`
     <g data-widget="flap-circle">
-      <circle cx=${G.FLAP_CX} cy=${G.FLAP_CY} r=${G.FLAP_R} fill=${colors.TFT_DARKGREY} />
+      <circle cx=${__NS_packages_ui_core_core_geometry.FLAP_CX} cy=${__NS_packages_ui_core_core_geometry.FLAP_CY} r=${__NS_packages_ui_core_core_geometry.FLAP_R} fill=${colors.TFT_DARKGREY} />
       <path fill=${colors.TFT_DARKGREY} shape-rendering="crispEdges"
             d="M ${topX} ${topY} L ${apexX} ${apexY} L ${botX} ${botY} Z" />
-      <circle cx=${G.FLAP_CX + G.FLAP_STOP_R} cy=${G.FLAP_CY}
+      <circle cx=${__NS_packages_ui_core_core_geometry.FLAP_CX + __NS_packages_ui_core_core_geometry.FLAP_STOP_R} cy=${__NS_packages_ui_core_core_geometry.FLAP_CY}
               r="1" fill=${colors.TFT_WHITE} />
-      <circle cx=${G.FLAP_CX + Math.cos(G.FLAP_ARC_RAD) * G.FLAP_STOP_R}
-              cy=${G.FLAP_CY + Math.sin(G.FLAP_ARC_RAD) * G.FLAP_STOP_R}
+      <circle cx=${__NS_packages_ui_core_core_geometry.FLAP_CX + Math.cos(__NS_packages_ui_core_core_geometry.FLAP_ARC_RAD) * __NS_packages_ui_core_core_geometry.FLAP_STOP_R}
+              cy=${__NS_packages_ui_core_core_geometry.FLAP_CY + Math.sin(__NS_packages_ui_core_core_geometry.FLAP_ARC_RAD) * __NS_packages_ui_core_core_geometry.FLAP_STOP_R}
               r="1" fill=${colors.TFT_WHITE} />
-      <text x=${G.FLAP_CX} y=${G.FLAP_CY}
+      <text x=${__NS_packages_ui_core_core_geometry.FLAP_CX} y=${__NS_packages_ui_core_core_geometry.FLAP_CY}
             font-family="Helvetica, Arial, sans-serif"
-            font-size=${G.FLAP_LABEL_FONT_SIZE} fill=${colors.TFT_WHITE}
+            font-size=${__NS_packages_ui_core_core_geometry.FLAP_LABEL_FONT_SIZE} fill=${colors.TFT_WHITE}
             text-anchor="middle" dominant-baseline="central">${flapPos ?? '—'}</text>
     </g>`;
 };
@@ -5048,8 +5199,8 @@ const SLIP_FRAME_INNER_OFFSET = 7;  // inner-edge offset from h/2
 const SLIP_FRAME_RIGHT_GAP = 2;     // right-side white-bar gap from h/2
 
 const SlipBall = ({ lateralG, percentLift, stallWarn, flashFlag,
-                            x = G.SLIP_X, y = G.SLIP_Y,
-                            width = G.SLIP_W, height = G.SLIP_H }) => {
+                            x = __NS_packages_ui_core_core_geometry.SLIP_X, y = __NS_packages_ui_core_core_geometry.SLIP_Y,
+                            width = __NS_packages_ui_core_core_geometry.SLIP_W, height = __NS_packages_ui_core_core_geometry.SLIP_H }) => {
   const slip = slipFromLateralG(lateralG);
   // Per drawSlip() main.cpp:1064-1071: ball.cx = centerX +
   // slip * (W - H - 1) / 99 / 2. Range gates and color follow the
@@ -5080,17 +5231,17 @@ const SlipBall = ({ lateralG, percentLift, stallWarn, flashFlag,
 // Used by Mode 0 (gOnset, yellow) and Modes 1/3 (VSI, white).
 const EdgeTape = ({
   value,
-  barX = G.GONSET_BAR_X, barW = G.GONSET_BAR_W,
+  barX = __NS_packages_ui_core_core_geometry.GONSET_BAR_X, barW = __NS_packages_ui_core_core_geometry.GONSET_BAR_W,
   barColor = colors.TFT_YELLOW,
-  zeroY = G.GONSET_ZERO_Y,
-  heightScale = G.GONSET_HEIGHT_SCALE,
-  heightMax = G.GONSET_HEIGHT_MAX,
-  tickX1 = G.GONSET_TICK_X1, tickX2 = G.GONSET_TICK_X2,
-  tickFirstY = G.GONSET_TICK_FIRST_Y,
-  tickLastY = G.GONSET_TICK_LAST_Y,
-  tickStep = G.GONSET_TICK_STEP,
-  pipX1 = G.GONSET_PIP_X1, pipX2 = G.GONSET_PIP_X2,
-  pipYs = [G.GONSET_PIP_Y_TOP, G.GONSET_PIP_Y_MIDDLE, G.GONSET_PIP_Y_BOT],
+  zeroY = __NS_packages_ui_core_core_geometry.GONSET_ZERO_Y,
+  heightScale = __NS_packages_ui_core_core_geometry.GONSET_HEIGHT_SCALE,
+  heightMax = __NS_packages_ui_core_core_geometry.GONSET_HEIGHT_MAX,
+  tickX1 = __NS_packages_ui_core_core_geometry.GONSET_TICK_X1, tickX2 = __NS_packages_ui_core_core_geometry.GONSET_TICK_X2,
+  tickFirstY = __NS_packages_ui_core_core_geometry.GONSET_TICK_FIRST_Y,
+  tickLastY = __NS_packages_ui_core_core_geometry.GONSET_TICK_LAST_Y,
+  tickStep = __NS_packages_ui_core_core_geometry.GONSET_TICK_STEP,
+  pipX1 = __NS_packages_ui_core_core_geometry.GONSET_PIP_X1, pipX2 = __NS_packages_ui_core_core_geometry.GONSET_PIP_X2,
+  pipYs = [__NS_packages_ui_core_core_geometry.GONSET_PIP_Y_TOP, __NS_packages_ui_core_core_geometry.GONSET_PIP_Y_MIDDLE, __NS_packages_ui_core_core_geometry.GONSET_PIP_Y_BOT],
   tickColor = colors.TFT_GREY, pipColor = colors.TFT_GREY,
 }) => {
   const h = Math.min(heightMax, Math.abs(value * heightScale));
@@ -5115,12 +5266,12 @@ const EdgeTape = ({
 // ground is a wide rotated polygon whose top edge is the horizon line.
 const HALF_PI = Math.PI / 2;
 const Horizon = ({ pitchDeg, rollDeg }) => {
-  const cx = G.MODE1_HORIZON_CX, cy = G.MODE1_HORIZON_CY;
-  const panelW = G.M5_PANEL_W, panelH = G.M5_PANEL_H;
+  const cx = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CX, cy = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CY;
+  const panelW = __NS_packages_ui_core_core_geometry.M5_PANEL_W, panelH = __NS_packages_ui_core_core_geometry.M5_PANEL_H;
   const r = rollDeg * Math.PI / 180;
   const sinR = Math.sin(r), cosR = Math.cos(r);
-  const pxc = cx + pitchDeg * G.MODE1_PITCH_HEIGHT_SCALE * sinR;
-  const pyc = cy + pitchDeg * G.MODE1_PITCH_HEIGHT_SCALE * cosR;
+  const pxc = cx + pitchDeg * __NS_packages_ui_core_core_geometry.MODE1_PITCH_HEIGHT_SCALE * sinR;
+  const pyc = cy + pitchDeg * __NS_packages_ui_core_core_geometry.MODE1_PITCH_HEIGHT_SCALE * cosR;
   const xRot = 2 * panelW * cosR, yRot = 2 * panelW * sinR;
   const px1 = pxc - xRot, py1 = pyc + yRot;
   const px2 = pxc + xRot, py2 = pyc - yRot;
@@ -5147,8 +5298,8 @@ const Horizon = ({ pitchDeg, rollDeg }) => {
 // half-width 0.20×g_arcSize plus numeric labels offset along the
 // rolled axis.
 const PitchLadder = ({ pitchDeg, rollDeg }) => {
-  const cx = G.MODE1_HORIZON_CX, cy = G.MODE1_HORIZON_CY;
-  const pitchScale = G.MODE1_PITCH_HEIGHT_SCALE;
+  const cx = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CX, cy = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CY;
+  const pitchScale = __NS_packages_ui_core_core_geometry.MODE1_PITCH_HEIGHT_SCALE;
   const r = rollDeg * Math.PI / 180;
   const sinR = Math.sin(r), cosR = Math.cos(r);
   const pxc = cx + pitchDeg * pitchScale * sinR;
@@ -5164,21 +5315,21 @@ const PitchLadder = ({ pitchDeg, rollDeg }) => {
   const label = (i) => {
     const ax = pxc - i * pitchScale * sinR;
     const ay = pyc - i * pitchScale * cosR;
-    const lx = ax + (G.MODE1_LADDER_LONG_HALF_W + G.MODE1_LADDER_LABEL_OFFSET) * cosR;
-    const ly = ay - (G.MODE1_LADDER_LONG_HALF_W + G.MODE1_LADDER_LABEL_OFFSET) * sinR;
+    const lx = ax + (__NS_packages_ui_core_core_geometry.MODE1_LADDER_LONG_HALF_W + __NS_packages_ui_core_core_geometry.MODE1_LADDER_LABEL_OFFSET) * cosR;
+    const ly = ay - (__NS_packages_ui_core_core_geometry.MODE1_LADDER_LONG_HALF_W + __NS_packages_ui_core_core_geometry.MODE1_LADDER_LABEL_OFFSET) * sinR;
     return html`<text x=${lx} y=${ly}
                        font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
-                       font-size=${G.MODE1_LADDER_FONT_SIZE} fill=${colors.TFT_BLACK}
+                       font-size=${__NS_packages_ui_core_core_geometry.MODE1_LADDER_FONT_SIZE} fill=${colors.TFT_BLACK}
                        text-anchor="start" dominant-baseline="central">${i}°</text>`;
   };
 
   const shorts = [];
-  for (let i = -G.MODE1_LADDER_SHORT_RANGE; i <= G.MODE1_LADDER_SHORT_RANGE; i += G.MODE1_LADDER_STEP_DEG) {
-    shorts.push(tick(i, G.MODE1_LADDER_SHORT_HALF_W));
+  for (let i = -__NS_packages_ui_core_core_geometry.MODE1_LADDER_SHORT_RANGE; i <= __NS_packages_ui_core_core_geometry.MODE1_LADDER_SHORT_RANGE; i += __NS_packages_ui_core_core_geometry.MODE1_LADDER_STEP_DEG) {
+    shorts.push(tick(i, __NS_packages_ui_core_core_geometry.MODE1_LADDER_SHORT_HALF_W));
   }
   const longs = [];
-  for (let i = -G.MODE1_LADDER_LONG_RANGE; i <= G.MODE1_LADDER_LONG_RANGE; i += G.MODE1_LADDER_STEP_DEG) {
-    longs.push(tick(i, G.MODE1_LADDER_LONG_HALF_W));
+  for (let i = -__NS_packages_ui_core_core_geometry.MODE1_LADDER_LONG_RANGE; i <= __NS_packages_ui_core_core_geometry.MODE1_LADDER_LONG_RANGE; i += __NS_packages_ui_core_core_geometry.MODE1_LADDER_STEP_DEG) {
+    longs.push(tick(i, __NS_packages_ui_core_core_geometry.MODE1_LADDER_LONG_HALF_W));
     longs.push(label(i));
   }
   return html`<g data-widget="pitch-ladder">${shorts}${longs}</g>`;
@@ -5187,7 +5338,7 @@ const PitchLadder = ({ pitchDeg, rollDeg }) => {
 // Mode 1 bank arc — long bars at every 30°, short bars at ±10°/±20°,
 // dots at ±45°, yellow ARROW_OUT pointer at top (rotates with -roll).
 const BankArc = ({ rollDeg }) => {
-  const cx = G.MODE1_HORIZON_CX, cy = G.MODE1_HORIZON_CY;
+  const cx = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CX, cy = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CY;
   const ARC_R = 115, ARC_W = 15;
   const LONG_INNER = ARC_R - 1.25 * ARC_W, LONG_OUTER = ARC_R + 0.25 * ARC_W, LONG_THICK = 0.25 * ARC_W;
   const SHORT_INNER = ARC_R - 0.875 * ARC_W, SHORT_OUTER = ARC_R - 0.125 * ARC_W, SHORT_THICK = 0.24 * ARC_W;
@@ -5246,11 +5397,11 @@ const BankArc = ({ rollDeg }) => {
 // dy=-2..+2, black at dy=±3. Wing-tip end-caps are 6-px-tall black
 // vertical lines. Center is a 6-px yellow circle with 1-px black ring.
 const AircraftSymbol = () => {
-  const cx = G.MODE1_HORIZON_CX, cy = G.MODE1_HORIZON_CY;
-  const inner = G.MODE1_AIRCRAFT_INNER_HALF_W;
-  const outer = G.MODE1_AIRCRAFT_OUTER_HALF_W;
-  const droop = G.MODE1_AIRCRAFT_DROOP_DY;
-  const r = G.MODE1_AIRCRAFT_CENTER_R;
+  const cx = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CX, cy = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CY;
+  const inner = __NS_packages_ui_core_core_geometry.MODE1_AIRCRAFT_INNER_HALF_W;
+  const outer = __NS_packages_ui_core_core_geometry.MODE1_AIRCRAFT_OUTER_HALF_W;
+  const droop = __NS_packages_ui_core_core_geometry.MODE1_AIRCRAFT_DROOP_DY;
+  const r = __NS_packages_ui_core_core_geometry.MODE1_AIRCRAFT_CENTER_R;
   const px1 = cx - outer, px2 = cx - inner, px3 = cx + inner, px4 = cx + outer;
   const px5 = cx, py5 = cy + droop;
   const rows = [
@@ -5280,7 +5431,7 @@ const AircraftSymbol = () => {
 
 // Mode 1 static "this is up" yellow triangle.
 const TopPointer = () => {
-  const cx = G.MODE1_HORIZON_CX, cy = G.MODE1_HORIZON_CY;
+  const cx = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CX, cy = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CY;
   const ARC_SIZE = 100, ARC_WIDTH = 15;
   const tipX = cx, tipY = cy - ARC_SIZE + ARC_WIDTH / 2;
   const baseLX = cx - ARC_WIDTH / 2, baseRX = cx + ARC_WIDTH / 2;
@@ -5294,13 +5445,13 @@ const TopPointer = () => {
 // Mode 1 flight-path marker — magenta concentric rings + perpendicular wing
 // bars + top tick. Vertical-only translation by (flightPath - pitch) × scale.
 const FlightPathMarker = ({ pitchDeg, flightPathDeg }) => {
-  const cx = G.MODE1_FPV_CX;
-  const cy = G.MODE1_HORIZON_CY - (flightPathDeg - pitchDeg) * G.MODE1_PITCH_HEIGHT_SCALE;
-  const inner = G.MODE1_FPV_WING_INNER, outer = G.MODE1_FPV_WING_OUTER;
-  const bar = G.MODE1_FPV_BAR_THICKNESS;
+  const cx = __NS_packages_ui_core_core_geometry.MODE1_FPV_CX;
+  const cy = __NS_packages_ui_core_core_geometry.MODE1_HORIZON_CY - (flightPathDeg - pitchDeg) * __NS_packages_ui_core_core_geometry.MODE1_PITCH_HEIGHT_SCALE;
+  const inner = __NS_packages_ui_core_core_geometry.MODE1_FPV_WING_INNER, outer = __NS_packages_ui_core_core_geometry.MODE1_FPV_WING_OUTER;
+  const bar = __NS_packages_ui_core_core_geometry.MODE1_FPV_BAR_THICKNESS;
   return html`
     <g data-widget="fpv">
-      ${G.MODE1_FPV_RING_RADII.map(r => html`
+      ${__NS_packages_ui_core_core_geometry.MODE1_FPV_RING_RADII.map(r => html`
         <circle cx=${cx} cy=${cy} r=${r} fill="none"
                 stroke=${colors.TFT_MAGENTA} stroke-width="1" />`)}
       <line x1=${cx + inner} y1=${cy} x2=${cx + outer} y2=${cy}
@@ -5317,48 +5468,48 @@ const PitchReadout = ({ pitchDeg, dataValid = true }) => {
   const txt = dataValid ? fmt(pitchDeg, 1) : '—';
   return html`
     <g data-widget="pitch-readout">
-      <rect x=${G.MODE1_PITCH_READOUT_X} y=${G.MODE1_PITCH_READOUT_Y}
-            width=${G.MODE1_PITCH_READOUT_W} height=${G.MODE1_PITCH_READOUT_H}
-            rx=${G.MODE1_PITCH_READOUT_RADIUS} ry=${G.MODE1_PITCH_READOUT_RADIUS}
+      <rect x=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_X} y=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_Y}
+            width=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_W} height=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_H}
+            rx=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_RADIUS} ry=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_RADIUS}
             fill=${colors.TFT_DARKGREY} />
-      <text x=${G.MODE1_PITCH_READOUT_TEXT_X} y=${G.MODE1_PITCH_READOUT_TEXT_Y}
+      <text x=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_TEXT_X} y=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_TEXT_Y}
             font-family="Helvetica, Arial, sans-serif" font-weight="bold"
-            font-size=${G.MODE1_PITCH_READOUT_FONT_SIZE} fill=${colors.TFT_WHITE}
+            font-size=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_FONT_SIZE} fill=${colors.TFT_WHITE}
             text-anchor="middle" dominant-baseline="central">${txt}</text>
-      <circle cx=${G.MODE1_PITCH_READOUT_DEG_CX} cy=${G.MODE1_PITCH_READOUT_DEG_CY}
-              r=${G.MODE1_PITCH_READOUT_DEG_R} fill="none"
+      <circle cx=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_DEG_CX} cy=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_DEG_CY}
+              r=${__NS_packages_ui_core_core_geometry.MODE1_PITCH_READOUT_DEG_R} fill="none"
               stroke=${colors.TFT_WHITE} stroke-width="1" />
     </g>`;
 };
 
 // Mode 3 (Energy) decel gauge — vertical band gauge with sliding pointer.
 const DecelGauge = ({ decelRate, dataValid = true }) => {
-  const labels = G.MODE3_GAUGE_LABELS;
-  let pointerY = G.MODE3_DECEL_SCALE * (decelRate || 0) + G.MODE3_DECEL_OFFSET - G.MODE3_POINTER_HALF_H;
-  pointerY = Math.max(G.MODE3_POINTER_Y_MIN, Math.min(G.MODE3_POINTER_Y_MAX, pointerY));
+  const labels = __NS_packages_ui_core_core_geometry.MODE3_GAUGE_LABELS;
+  let pointerY = __NS_packages_ui_core_core_geometry.MODE3_DECEL_SCALE * (decelRate || 0) + __NS_packages_ui_core_core_geometry.MODE3_DECEL_OFFSET - __NS_packages_ui_core_core_geometry.MODE3_POINTER_HALF_H;
+  pointerY = Math.max(__NS_packages_ui_core_core_geometry.MODE3_POINTER_Y_MIN, Math.min(__NS_packages_ui_core_core_geometry.MODE3_POINTER_Y_MAX, pointerY));
   return html`
     <g data-widget="decel-gauge">
-      <rect x=${G.MODE3_GAUGE_X} y=${G.MODE3_GAUGE_Y}
-            width=${G.MODE3_GAUGE_W} height=${G.MODE3_GAUGE_H}
-            rx=${G.MODE3_GAUGE_RADIUS} ry=${G.MODE3_GAUGE_RADIUS}
+      <rect x=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_X} y=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_Y}
+            width=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_W} height=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_H}
+            rx=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_RADIUS} ry=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_RADIUS}
             fill=${colors.TFT_RED} />
-      <rect x=${G.MODE3_GAUGE_GREEN_X} y=${G.MODE3_GAUGE_GREEN_Y}
-            width=${G.MODE3_GAUGE_GREEN_W} height=${G.MODE3_GAUGE_GREEN_H}
+      <rect x=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_GREEN_X} y=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_GREEN_Y}
+            width=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_GREEN_W} height=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_GREEN_H}
             fill=${colors.TFT_GREEN} />
-      <rect x=${G.MODE3_GAUGE_X} y=${G.MODE3_GAUGE_Y}
-            width=${G.MODE3_GAUGE_W} height=${G.MODE3_GAUGE_H}
-            rx=${G.MODE3_GAUGE_RADIUS} ry=${G.MODE3_GAUGE_RADIUS}
+      <rect x=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_X} y=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_Y}
+            width=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_W} height=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_H}
+            rx=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_RADIUS} ry=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_RADIUS}
             fill="none" stroke=${colors.TFT_LIGHTGREY} stroke-width="1" />
       ${dataValid && html`
-        <rect x=${G.MODE3_POINTER_X} y=${pointerY}
-              width=${G.MODE3_POINTER_W} height=${G.MODE3_POINTER_H}
+        <rect x=${__NS_packages_ui_core_core_geometry.MODE3_POINTER_X} y=${pointerY}
+              width=${__NS_packages_ui_core_core_geometry.MODE3_POINTER_W} height=${__NS_packages_ui_core_core_geometry.MODE3_POINTER_H}
               fill=${colors.TFT_WHITE} stroke=${colors.TFT_BLACK} stroke-width="1" />`}
       ${labels.map(l => html`
-        <text x=${G.MODE3_GAUGE_LABEL_X} y=${l.y}
+        <text x=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_LABEL_X} y=${l.y}
               font-family="Helvetica, Arial, sans-serif"
-              font-size=${G.MODE3_GAUGE_LABEL_FONT_SIZE} fill=${colors.TFT_WHITE}
+              font-size=${__NS_packages_ui_core_core_geometry.MODE3_GAUGE_LABEL_FONT_SIZE} fill=${colors.TFT_WHITE}
               text-anchor="end" dominant-baseline="central">${l.text}</text>
-        <line x1=${G.MODE3_PIP_X1} y1=${l.y} x2=${G.MODE3_PIP_X2} y2=${l.y}
+        <line x1=${__NS_packages_ui_core_core_geometry.MODE3_PIP_X1} y1=${l.y} x2=${__NS_packages_ui_core_core_geometry.MODE3_PIP_X2} y2=${l.y}
               stroke=${colors.TFT_LIGHTGREY} stroke-width="1" />`)}
     </g>`;
 };
@@ -5369,16 +5520,16 @@ const DecelGauge = ({ decelRate, dataValid = true }) => {
 // cx values for the 300 strip-chart dots are static (one column per
 // pixel from x=319 down to x=20). Compute once, reuse every render.
 const _GHISTORY_CXS = (() => {
-  const out = new Array(G.MODE4_BUFFER_LEN);
-  for (let i = 0; i < G.MODE4_BUFFER_LEN; i++) {
-    out[i] = G.MODE4_TRACE_X_MAX - i;
+  const out = new Array(__NS_packages_ui_core_core_geometry.MODE4_BUFFER_LEN);
+  for (let i = 0; i < __NS_packages_ui_core_core_geometry.MODE4_BUFFER_LEN; i++) {
+    out[i] = __NS_packages_ui_core_core_geometry.MODE4_TRACE_X_MAX - i;
   }
   return out;
 })();
 
 const GHistory = ({ buf, writeIdx, hasSamples = true }) => {
   const dots = [];
-  const N = G.MODE4_BUFFER_LEN;
+  const N = __NS_packages_ui_core_core_geometry.MODE4_BUFFER_LEN;
   // Suppress dots until at least one real sample has landed; otherwise
   // the connecting state would render a 1.0 G baseline that looks like
   // the airplane was already broadcasting before the WebSocket opened.
@@ -5386,35 +5537,35 @@ const GHistory = ({ buf, writeIdx, hasSamples = true }) => {
     let sampleIdx = writeIdx;
     for (let i = 0; i < N; i++) {
       const g = buf[sampleIdx];
-      let cy = G.MODE4_DOT_Y_OFFSET - g * G.MODE4_DOT_Y_SCALE;
-      if (cy < G.MODE4_DOT_Y_MIN) cy = G.MODE4_DOT_Y_MIN;
-      else if (cy > G.MODE4_DOT_Y_MAX) cy = G.MODE4_DOT_Y_MAX;
+      let cy = __NS_packages_ui_core_core_geometry.MODE4_DOT_Y_OFFSET - g * __NS_packages_ui_core_core_geometry.MODE4_DOT_Y_SCALE;
+      if (cy < __NS_packages_ui_core_core_geometry.MODE4_DOT_Y_MIN) cy = __NS_packages_ui_core_core_geometry.MODE4_DOT_Y_MIN;
+      else if (cy > __NS_packages_ui_core_core_geometry.MODE4_DOT_Y_MAX) cy = __NS_packages_ui_core_core_geometry.MODE4_DOT_Y_MAX;
       const fill = g >= 1 ? colors.TFT_GREEN : g >= 0 ? colors.TFT_YELLOW : colors.TFT_RED;
-      dots.push(html`<circle cx=${_GHISTORY_CXS[i]} cy=${cy} r=${G.MODE4_DOT_R} fill=${fill} />`);
+      dots.push(html`<circle cx=${_GHISTORY_CXS[i]} cy=${cy} r=${__NS_packages_ui_core_core_geometry.MODE4_DOT_R} fill=${fill} />`);
       sampleIdx = (sampleIdx + 1) % N;
     }
   }
   return html`
     <g data-widget="g-history">
-      ${G.MODE4_GRIDLINE_YS.map(y => html`
-        <line x1=${G.MODE4_AXIS_X} y1=${y} x2=${G.MODE4_TRACE_X_MAX} y2=${y}
+      ${__NS_packages_ui_core_core_geometry.MODE4_GRIDLINE_YS.map(y => html`
+        <line x1=${__NS_packages_ui_core_core_geometry.MODE4_AXIS_X} y1=${y} x2=${__NS_packages_ui_core_core_geometry.MODE4_TRACE_X_MAX} y2=${y}
               stroke=${colors.TFT_GREY} stroke-width="1" />`)}
-      <line x1=${G.MODE4_AXIS_X} y1=${G.MODE4_ONE_G_Y}
-            x2=${G.MODE4_TRACE_X_MAX} y2=${G.MODE4_ONE_G_Y}
+      <line x1=${__NS_packages_ui_core_core_geometry.MODE4_AXIS_X} y1=${__NS_packages_ui_core_core_geometry.MODE4_ONE_G_Y}
+            x2=${__NS_packages_ui_core_core_geometry.MODE4_TRACE_X_MAX} y2=${__NS_packages_ui_core_core_geometry.MODE4_ONE_G_Y}
             stroke=${colors.TFT_WHITE} stroke-width="1" />
-      <line x1=${G.MODE4_AXIS_X} y1=${G.MODE4_AXIS_Y_TOP}
-            x2=${G.MODE4_AXIS_X} y2=${G.MODE4_AXIS_Y_BOT}
+      <line x1=${__NS_packages_ui_core_core_geometry.MODE4_AXIS_X} y1=${__NS_packages_ui_core_core_geometry.MODE4_AXIS_Y_TOP}
+            x2=${__NS_packages_ui_core_core_geometry.MODE4_AXIS_X} y2=${__NS_packages_ui_core_core_geometry.MODE4_AXIS_Y_BOT}
             stroke=${colors.TFT_WHITE} stroke-width="1" />
-      ${G.MODE4_PIP_LABELS.map(p => html`
-        <text x=${G.MODE4_PIP_LABEL_X} y=${p.y}
+      ${__NS_packages_ui_core_core_geometry.MODE4_PIP_LABELS.map(p => html`
+        <text x=${__NS_packages_ui_core_core_geometry.MODE4_PIP_LABEL_X} y=${p.y}
               font-family="Helvetica, Arial, sans-serif"
-              font-size=${G.MODE4_PIP_FONT_SIZE} fill=${colors.TFT_WHITE}
+              font-size=${__NS_packages_ui_core_core_geometry.MODE4_PIP_FONT_SIZE} fill=${colors.TFT_WHITE}
               text-anchor="end" dominant-baseline="central">${p.text}</text>`)}
-      <text x=${G.MODE4_HEADER_X} y=${G.MODE4_HEADER_Y}
+      <text x=${__NS_packages_ui_core_core_geometry.MODE4_HEADER_X} y=${__NS_packages_ui_core_core_geometry.MODE4_HEADER_Y}
             font-family="Helvetica, Arial, sans-serif"
-            font-size=${G.MODE4_HEADER_FONT_SIZE} fill=${colors.TFT_WHITE}
+            font-size=${__NS_packages_ui_core_core_geometry.MODE4_HEADER_FONT_SIZE} fill=${colors.TFT_WHITE}
             text-anchor="middle" dominant-baseline="hanging">
-        ${G.MODE4_HEADER_TEXT}</text>
+        ${__NS_packages_ui_core_core_geometry.MODE4_HEADER_TEXT}</text>
       ${dots}
     </g>`;
 };
@@ -5560,7 +5711,7 @@ const EnergyMode = ({ state, stale = false, numericDisplay = true }) => {
   // PercentLiftNumber accepts a percent that it truncates internally.
 
   return html`
-    <svg viewBox="0 0 ${G.M5_PANEL_W} ${G.M5_PANEL_H}"
+    <svg viewBox="0 0 ${__NS_packages_ui_core_core_geometry.M5_PANEL_W} ${__NS_packages_ui_core_core_geometry.M5_PANEL_H}"
          xmlns="http://www.w3.org/2000/svg"
          style="background: ${colors.TFT_BLACK}; width: 100%; height: 100%;">
       <${Indexer} percentLift=${state.PercentLift} anchors=${anchors}
@@ -5568,12 +5719,12 @@ const EnergyMode = ({ state, stale = false, numericDisplay = true }) => {
       ${numericDisplay && html`
         <${CornerReadout} label="IAS"
             value=${m5FmtIasKt(state.displayIAS, aoaIsValid)}
-            labelX=${G.CORNER_LEFT_X} labelY=${G.CORNER_LABEL_Y}
-            numX=${G.CORNER_LEFT_X + 2} numY=${G.CORNER_NUM_Y} />
+            labelX=${__NS_packages_ui_core_core_geometry.CORNER_LEFT_X} labelY=${__NS_packages_ui_core_core_geometry.CORNER_LABEL_Y}
+            numX=${__NS_packages_ui_core_core_geometry.CORNER_LEFT_X + 2} numY=${__NS_packages_ui_core_core_geometry.CORNER_NUM_Y} />
         <${CornerReadout} label="G"
             value=${fmtSigned(state.displayVerticalG, 1)}
-            labelX=${G.CORNER_RIGHT_X} labelY=${G.CORNER_LABEL_Y}
-            numX=${G.CORNER_RIGHT_X} numY=${G.CORNER_NUM_Y} anchor="end" />
+            labelX=${__NS_packages_ui_core_core_geometry.CORNER_RIGHT_X} labelY=${__NS_packages_ui_core_core_geometry.CORNER_LABEL_Y}
+            numX=${__NS_packages_ui_core_core_geometry.CORNER_RIGHT_X} numY=${__NS_packages_ui_core_core_geometry.CORNER_NUM_Y} anchor="end" />
         <${FlapCircle} flapPos=${state.FlapPos}
             flapsMin=${state.FlapsMinDeg} flapsMax=${state.FlapsMaxDeg} />`}
       <${SlipBall} lateralG=${state.LateralG}
@@ -5607,7 +5758,7 @@ const EnergyMode = ({ state, stale = false, numericDisplay = true }) => {
 const AttitudeMode = ({ state, stale = false }) => {
   const aoaIsValid = state.IasIsValid !== false;
   return html`
-    <svg viewBox="0 0 ${G.M5_PANEL_W} ${G.M5_PANEL_H}"
+    <svg viewBox="0 0 ${__NS_packages_ui_core_core_geometry.M5_PANEL_W} ${__NS_packages_ui_core_core_geometry.M5_PANEL_H}"
          xmlns="http://www.w3.org/2000/svg"
          style="background: ${colors.TFT_BLACK}; width: 100%; height: 100%;">
       <${Horizon}     pitchDeg=${state.Pitch} rollDeg=${state.Roll} />
@@ -5622,53 +5773,53 @@ const AttitudeMode = ({ state, stale = false }) => {
                    percentLift=${state.PercentLift}
                    stallWarn=${state.StallWarnPctLift}
                    flashFlag=${false}
-                   x=${G.MODE1_SLIP_X} y=${G.MODE1_SLIP_Y}
-                   width=${G.MODE1_SLIP_W} height=${G.MODE1_SLIP_H} />
+                   x=${__NS_packages_ui_core_core_geometry.MODE1_SLIP_X} y=${__NS_packages_ui_core_core_geometry.MODE1_SLIP_Y}
+                   width=${__NS_packages_ui_core_core_geometry.MODE1_SLIP_W} height=${__NS_packages_ui_core_core_geometry.MODE1_SLIP_H} />
       <${EdgeTape} value=${state.iVSI}
-                   barX=${G.MODE1_VSI_BAR_X} barW=${G.MODE1_VSI_BAR_W}
+                   barX=${__NS_packages_ui_core_core_geometry.MODE1_VSI_BAR_X} barW=${__NS_packages_ui_core_core_geometry.MODE1_VSI_BAR_W}
                    barColor=${colors.TFT_WHITE}
-                   zeroY=${G.MODE1_VSI_ZERO_Y}
-                   heightScale=${G.MODE1_VSI_HEIGHT_SCALE}
-                   heightMax=${G.MODE1_VSI_HEIGHT_MAX}
-                   tickX1=${G.MODE1_VSI_TICK_X1} tickX2=${G.MODE1_VSI_TICK_X2}
-                   tickFirstY=${G.MODE1_VSI_TICK_FIRST_Y}
-                   tickLastY=${G.MODE1_VSI_TICK_LAST_Y}
-                   tickStep=${G.MODE1_VSI_TICK_STEP}
-                   pipX1=${G.MODE1_VSI_PIP_X1} pipX2=${G.MODE1_VSI_PIP_X2}
-                   pipYs=${[G.MODE1_VSI_PIP_Y_TOP, G.MODE1_VSI_PIP_Y_MIDDLE, G.MODE1_VSI_PIP_Y_BOT]}
+                   zeroY=${__NS_packages_ui_core_core_geometry.MODE1_VSI_ZERO_Y}
+                   heightScale=${__NS_packages_ui_core_core_geometry.MODE1_VSI_HEIGHT_SCALE}
+                   heightMax=${__NS_packages_ui_core_core_geometry.MODE1_VSI_HEIGHT_MAX}
+                   tickX1=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_X1} tickX2=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_X2}
+                   tickFirstY=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_FIRST_Y}
+                   tickLastY=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_LAST_Y}
+                   tickStep=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_STEP}
+                   pipX1=${__NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_X1} pipX2=${__NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_X2}
+                   pipYs=${[__NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_Y_TOP, __NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_Y_MIDDLE, __NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_Y_BOT]}
                    tickColor=${colors.TFT_BLACK} pipColor=${colors.TFT_BLACK} />
       <${CornerReadout} label="IAS"
           value=${m5FmtIasKt(state.displayIAS, aoaIsValid)}
-          labelX=${G.MODE1_CORNER_LEFT_X} labelY=${G.MODE1_CORNER_TOP_LABEL_Y}
-          numX=${G.MODE1_CORNER_LEFT_NUM_X} numY=${G.MODE1_CORNER_TOP_NUM_Y}
+          labelX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LEFT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_TOP_LABEL_Y}
+          numX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LEFT_NUM_X} numY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_TOP_NUM_Y}
           labelColor=${colors.TFT_GREY} numColor=${colors.TFT_BLACK}
-          labelFontSize=${G.MODE1_CORNER_LABEL_FONT_SIZE}
-          numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE}
+          labelFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LABEL_FONT_SIZE}
+          numFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_NUM_FONT_SIZE}
           numBaseline="central" />
       <${CornerReadout} label="PALT"
           value=${m5FmtPalt(state.displayPalt)}
-          labelX=${G.MODE1_CORNER_RIGHT_X} labelY=${G.MODE1_CORNER_TOP_LABEL_Y}
-          numX=${G.MODE1_CORNER_TOP_RIGHT_NUM_X} numY=${G.MODE1_CORNER_TOP_NUM_Y}
+          labelX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_RIGHT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_TOP_LABEL_Y}
+          numX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_TOP_RIGHT_NUM_X} numY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_TOP_NUM_Y}
           anchor="end" labelColor=${colors.TFT_GREY} numColor=${colors.TFT_BLACK}
-          labelFontSize=${G.MODE1_CORNER_LABEL_FONT_SIZE}
-          numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE}
+          labelFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LABEL_FONT_SIZE}
+          numFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_NUM_FONT_SIZE}
           numBaseline="central" />
       <${CornerReadout} label="G"
           value=${fmt(state.displayVerticalG, 1)}
-          labelX=${G.MODE1_CORNER_LEFT_X} labelY=${G.MODE1_CORNER_BOT_LABEL_Y}
-          numX=${G.MODE1_CORNER_LEFT_NUM_X} numY=${G.MODE1_CORNER_BOT_NUM_Y}
+          labelX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LEFT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_LABEL_Y}
+          numX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LEFT_NUM_X} numY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_NUM_Y}
           labelColor=${colors.TFT_LIGHTGREY} numColor=${colors.TFT_WHITE}
-          labelFontSize=${G.MODE1_CORNER_LABEL_FONT_SIZE}
-          numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE} />
+          labelFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LABEL_FONT_SIZE}
+          numFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_NUM_FONT_SIZE} />
       <${CornerReadout} label="AOA"
           value=${aoaIsValid
                     ? String(Math.min(99, Math.max(0, state.displayPercentLift))).padStart(2, '0')
                     : PCT_DASHES}
-          labelX=${G.MODE1_CORNER_RIGHT_X} labelY=${G.MODE1_CORNER_BOT_LABEL_Y}
-          numX=${G.MODE1_CORNER_BOT_RIGHT_NUM_X} numY=${G.MODE1_CORNER_BOT_NUM_Y}
+          labelX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_RIGHT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_LABEL_Y}
+          numX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_RIGHT_NUM_X} numY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_NUM_Y}
           anchor="end" labelColor=${colors.TFT_LIGHTGREY} numColor=${colors.TFT_WHITE}
-          labelFontSize=${G.MODE1_CORNER_LABEL_FONT_SIZE}
-          numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE} />
+          labelFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LABEL_FONT_SIZE}
+          numFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_NUM_FONT_SIZE} />
     </svg>`;
 };
 
@@ -5711,7 +5862,7 @@ const DecelMode = ({ state, stale = false }) => {
   const aoaIsValid = state.IasIsValid !== false;
   const decelDisplay = state.displayDecelRate;
   return html`
-    <svg viewBox="0 0 ${G.M5_PANEL_W} ${G.M5_PANEL_H}"
+    <svg viewBox="0 0 ${__NS_packages_ui_core_core_geometry.M5_PANEL_W} ${__NS_packages_ui_core_core_geometry.M5_PANEL_H}"
          xmlns="http://www.w3.org/2000/svg"
          style="background: ${colors.TFT_BLACK}; width: 100%; height: 100%;">
       <${DecelGauge} decelRate=${decelDisplay} dataValid=${aoaIsValid} />
@@ -5719,29 +5870,29 @@ const DecelMode = ({ state, stale = false }) => {
                    percentLift=${state.PercentLift}
                    stallWarn=${state.StallWarnPctLift}
                    flashFlag=${false}
-                   x=${G.MODE3_SLIP_X} y=${G.MODE3_SLIP_Y}
-                   width=${G.MODE3_SLIP_W} height=${G.MODE3_SLIP_H} />
+                   x=${__NS_packages_ui_core_core_geometry.MODE3_SLIP_X} y=${__NS_packages_ui_core_core_geometry.MODE3_SLIP_Y}
+                   width=${__NS_packages_ui_core_core_geometry.MODE3_SLIP_W} height=${__NS_packages_ui_core_core_geometry.MODE3_SLIP_H} />
       <${EdgeTape} value=${state.iVSI}
-                   barX=${G.MODE1_VSI_BAR_X} barW=${G.MODE1_VSI_BAR_W}
+                   barX=${__NS_packages_ui_core_core_geometry.MODE1_VSI_BAR_X} barW=${__NS_packages_ui_core_core_geometry.MODE1_VSI_BAR_W}
                    barColor=${colors.TFT_WHITE}
-                   zeroY=${G.MODE1_VSI_ZERO_Y}
-                   heightScale=${G.MODE1_VSI_HEIGHT_SCALE}
-                   heightMax=${G.MODE1_VSI_HEIGHT_MAX}
-                   tickX1=${G.MODE1_VSI_TICK_X1} tickX2=${G.MODE1_VSI_TICK_X2}
-                   tickFirstY=${G.MODE1_VSI_TICK_FIRST_Y}
-                   tickLastY=${G.MODE1_VSI_TICK_LAST_Y}
-                   tickStep=${G.MODE1_VSI_TICK_STEP}
-                   pipX1=${G.MODE1_VSI_PIP_X1} pipX2=${G.MODE1_VSI_PIP_X2}
-                   pipYs=${[G.MODE1_VSI_PIP_Y_TOP, G.MODE1_VSI_PIP_Y_MIDDLE, G.MODE1_VSI_PIP_Y_BOT]}
+                   zeroY=${__NS_packages_ui_core_core_geometry.MODE1_VSI_ZERO_Y}
+                   heightScale=${__NS_packages_ui_core_core_geometry.MODE1_VSI_HEIGHT_SCALE}
+                   heightMax=${__NS_packages_ui_core_core_geometry.MODE1_VSI_HEIGHT_MAX}
+                   tickX1=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_X1} tickX2=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_X2}
+                   tickFirstY=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_FIRST_Y}
+                   tickLastY=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_LAST_Y}
+                   tickStep=${__NS_packages_ui_core_core_geometry.MODE1_VSI_TICK_STEP}
+                   pipX1=${__NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_X1} pipX2=${__NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_X2}
+                   pipYs=${[__NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_Y_TOP, __NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_Y_MIDDLE, __NS_packages_ui_core_core_geometry.MODE1_VSI_PIP_Y_BOT]}
                    tickColor=${colors.TFT_LIGHTGREY} pipColor=${colors.TFT_LIGHTGREY} />
       <${CornerReadout} label="IAS"
           value=${m5FmtIasKt(state.displayIAS, aoaIsValid)}
-          labelX=${G.MODE3_CORNER_LEFT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
-          numX=${G.MODE3_CORNER_LEFT_NUM_X} numY=${G.MODE3_CORNER_NUM_Y} />
+          labelX=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_LEFT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_LABEL_Y}
+          numX=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_LEFT_NUM_X} numY=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_NUM_Y} />
       <${CornerReadout} label="Kt/s"
           value=${aoaIsValid ? fmtSigned(decelDisplay, 1) : PCT_DASHES}
-          labelX=${G.MODE3_CORNER_RIGHT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
-          numX=${G.MODE3_CORNER_RIGHT_X} numY=${G.MODE3_CORNER_NUM_Y} anchor="end" />
+          labelX=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_RIGHT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_LABEL_Y}
+          numX=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_RIGHT_X} numY=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_NUM_Y} anchor="end" />
     </svg>`;
 };
 
@@ -5780,7 +5931,7 @@ const DecelMode = ({ state, stale = false }) => {
 // off (e.g. a panel of the very first frame post-init when the buffer
 // is all 1.0 G defaults — visually misleading).
 const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
-  <svg viewBox="0 0 ${G.M5_PANEL_W} ${G.M5_PANEL_H}"
+  <svg viewBox="0 0 ${__NS_packages_ui_core_core_geometry.M5_PANEL_W} ${__NS_packages_ui_core_core_geometry.M5_PANEL_H}"
        xmlns="http://www.w3.org/2000/svg"
        style="background: ${colors.TFT_BLACK}; width: 100%; height: 100%;">
     <${GHistory} buf=${state.gHistory} writeIdx=${state.gHistoryIndex}
@@ -5860,6 +6011,11 @@ const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
 
 
 
+// downloadBlob lives in mp4Export.js (used by composite + overlay-only
+// MP4 exports). The legacy WebM path was removed 2026-05-12 — see PR #533
+// description for the rationale (MP4 export is source-faithful and
+// audio-passthrough; WebM was a Phase-4 stopgap before the WebCodecs work
+// landed).
 
 
 
@@ -6025,14 +6181,6 @@ const ReplayPage = () => {
   // displayPercentLift stuck at the last-seen-future values.
   const [m5SimReinitNonce, setM5SimReinitNonce] = useState(0);
 
-  // Export-to-WebM state. exporting=true while a recording is in
-  // progress; exportProgress reflects the % of the source video
-  // captured so far; exportHandle is the controller returned by
-  // exportOverlayedVideo (call .stop() to end early).
-  const [exporting, setExporting]     = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [exportLabel, setExportLabel] = useState('');
-  const exportHandleRef = useRef(null);
 
   // Manual clip list. Each entry is { startMs, endMs, label }.
   // The ClipBuilder UI displays them as a stack of editable rows;
@@ -6045,6 +6193,56 @@ const ReplayPage = () => {
   // suggests re-picking the prior session's files. See
   // replay/persistence.js for the storage contract.
   const persistence = useReplayPersistence({ logFile });
+
+  // File handles for FileSystemAccess-supported browsers (Chrome /
+  // Edge desktop). Held in refs because they're not Preact state —
+  // we only consult them when writing to IDB on a new full set, or
+  // when the resume banner re-grants permission and reads files.
+  // Falsy on Firefox / Safari (those fall through to <input>).
+  const videoHandleRef = useRef(null);
+  const logHandleRef = useRef(null);
+  const cfgHandleRef = useRef(null);
+
+  // Resume-on-reload state. Reads IDB for handles matching the
+  // previously-recorded recent-files signature. resumeReady fires
+  // only when the FSA API is supported AND a matching record exists.
+  const fileHandleResume = useFileHandleResume({
+    recentFilesSig: persistence.recentFilesSig,
+  });
+
+  // Live mirrors of the three File objects. Used by persistHandles
+  // (which fires inside a state-setter and can't see the latest React
+  // state). Updated alongside setVideoFile/setLogFile/setCfgFile.
+  const videoFileRef = useRef(null);
+  const logFileRef = useRef(null);
+  const cfgFileRef = useRef(null);
+
+  // Persist the current handle bundle whenever both video + log
+  // handles exist. Mirrors persistence.notifyFilePicked's video+log
+  // gating. The cfg handle is optional (null if pilot hasn't picked
+  // one). Signature key derives from the live file metadata so
+  // the next reload's resume lookup matches.
+  //
+  // Reads from refs (not React state) so it sees writes from the
+  // current event handler synchronously — state-setter timing would
+  // otherwise miss the just-picked file.
+  const persistHandlesIfReady = useCallback(() => {
+    if (!isFileHandleApiSupported()) return;
+    const v = videoHandleRef.current;
+    const l = logHandleRef.current;
+    if (!v || !l) return;
+    const sig = signatureFromFiles({
+      video: videoFileRef.current,
+      log: logFileRef.current,
+      cfg: cfgFileRef.current,
+    });
+    if (!sig) return;
+    storeHandles(sig, {
+      video: v,
+      log: l,
+      cfg: cfgHandleRef.current || null,
+    }).catch(() => { /* best-effort, surfaced via console only */ });
+  }, []);
 
   // Mark-in flow: when the pilot clicks "Mark clip in" we stash the
   // current video time; the next "Mark clip out" click completes the
@@ -6107,6 +6305,16 @@ const ReplayPage = () => {
     safeLsSet('replay-overlay-size-v1', overlaySize);
   }, [overlaySize]);
 
+  // "Standard" MP4 clip layout: render BOTH the ADI (bottom-left) and
+  // Energy (bottom-right) panels burned into the source video. When
+  // off, the export uses the live preview's single mode in the
+  // bottom-right corner (legacy behavior).
+  const [standardClipOverlay, setStandardClipOverlay] = useState(() =>
+    safeLsGet('replay-standard-clip-overlay-v1') === '1');
+  useEffect(() => {
+    safeLsSet('replay-standard-clip-overlay-v1', standardClipOverlay ? '1' : '0');
+  }, [standardClipOverlay]);
+
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
   // playing/scrubbing freely. When they click "Attach here" we
@@ -6130,19 +6338,26 @@ const ReplayPage = () => {
   const mp4ExportingRef = useRef(false);
 
   // ---------- File loaders -----------------------------------------
+  //
+  // Each slot has an `apply*File(file, handle)` helper that does the
+  // state mutations + persistence-notify work. The handle is optional
+  // (null on Firefox/Safari, or in the <input> fallback path). The
+  // helpers are called from three places:
+  //   1. `<input type="file">` onChange events  (handle = null)
+  //   2. FSA `showOpenFilePicker` buttons       (handle = FSFileHandle)
+  //   3. Resume-banner re-grant path            (handle from IDB)
 
-  const onVideoPick = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyVideoFile = useCallback((f, handle) => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoFile(f);
     setVideoUrl(URL.createObjectURL(f));
+    videoFileRef.current = f;
     persistence.notifyFilePicked('video', f);
-  };
+    videoHandleRef.current = handle || null;
+    if (handle) persistHandlesIfReady();
+  }, [videoUrl, persistence, persistHandlesIfReady]);
 
-  const onLogPick = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyLogFile = useCallback(async (f, handle) => {
     setParseErr(null);
     try {
       const text = await f.text();
@@ -6165,16 +6380,21 @@ const ReplayPage = () => {
       setAnchorKind('none');
       setPausedLogMs(null);
       setPendingInVideoSec(null);
+      logFileRef.current = f;
       persistence.notifyFilePicked('log', f);
+      if (handle) {
+        logHandleRef.current = handle;
+        persistHandlesIfReady();
+      }
+      return true;
     } catch (err) {
       setParseErr(`Could not parse log: ${err.message}`);
       setLog(null);
+      return false;
     }
-  };
+  }, [persistence, persistHandlesIfReady]);
 
-  const onCfgPick = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyCfgFile = useCallback(async (f, handle) => {
     setParseErr(null);
     try {
       const text = await f.text();
@@ -6183,12 +6403,114 @@ const ReplayPage = () => {
       setCfg(parsed);
       setCfgFile(f);
       setCfgFilename(f.name);
+      cfgFileRef.current = f;
       persistence.notifyFilePicked('cfg', f);
+      if (handle) {
+        cfgHandleRef.current = handle;
+        persistHandlesIfReady();
+      }
+      return true;
     } catch (err) {
       setParseErr(`Could not parse config: ${err.message}`);
       setCfg(null);
+      return false;
     }
+  }, [persistence, persistHandlesIfReady]);
+
+  // <input type="file"> onChange handlers — used on Firefox / Safari
+  // and as a fallback if the FSA picker fails. The handle ref stays
+  // null in this path so no IDB write happens; resume banner won't
+  // appear next reload (correct behavior on unsupported browsers).
+  const onVideoPick = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    applyVideoFile(f, null);
   };
+
+  const onLogPick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    await applyLogFile(f);
+  };
+
+  const onCfgPick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    await applyCfgFile(f, null);
+  };
+
+  // FSA picker handlers — used on Chrome / Edge. Each opens the OS
+  // file dialog via showOpenFilePicker, retrieves a FileSystemFileHandle
+  // for re-grant on next reload, then delegates to the same apply*
+  // helpers the <input> path uses.
+  const fsaSupported = useState(() => isFileHandleApiSupported())[0];
+
+  const pickVideoViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('video');
+      if (r) applyVideoFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open video: ${err.message}`);
+    }
+  }, [applyVideoFile]);
+
+  const pickLogViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('log');
+      if (r) await applyLogFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open log: ${err.message}`);
+    }
+  }, [applyLogFile]);
+
+  const pickCfgViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('cfg');
+      if (r) await applyCfgFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open config: ${err.message}`);
+    }
+  }, [applyCfgFile]);
+
+  // Resume-banner click handler. MUST run the permission request
+  // synchronously in the same user-gesture tick — no awaits before
+  // requestPermissionForHandles or browsers reject the prompt.
+  // After grant, getFile() each handle and re-feed the apply* helpers.
+  const onResumeClick = useCallback(async () => {
+    const handles = fileHandleResume.availableHandles;
+    if (!handles) return;
+    // Permission request first — same gesture. Browsers batch the
+    // prompts when called sequentially in this tick.
+    const granted = await requestPermissionForHandles(handles);
+    if (!granted) {
+      // Collapse the banner so the pilot only sees one signal — the
+      // error message. Leaving the banner up alongside the error
+      // reads as "Resume failed but click here to try again" when in
+      // fact the browser already denied without a prompt and another
+      // click won't help.
+      fileHandleResume.dismiss();
+      setParseErr('Permission denied for one or more files. Pick them manually.');
+      return;
+    }
+    try {
+      // Read the three files in parallel.
+      const [vFile, lFile, cFile] = await Promise.all([
+        handles.video.getFile(),
+        handles.log.getFile(),
+        handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
+      ]);
+      applyVideoFile(vFile, handles.video);
+      const logOk = await applyLogFile(lFile, handles.log);
+      if (cFile && logOk) await applyCfgFile(cFile, handles.cfg);
+      fileHandleResume.markUsed();
+    } catch (err) {
+      setParseErr(`Resume failed: ${err.message}`);
+    }
+  }, [fileHandleResume, applyVideoFile, applyLogFile, applyCfgFile]);
+
+  const onResumeDismiss = useCallback(() => {
+    fileHandleResume.dismiss();
+  }, [fileHandleResume]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
@@ -6777,92 +7099,6 @@ const ReplayPage = () => {
     Number.isFinite(sync.videoTakeoffSec) &&
     Number.isFinite(sync.logTakeoffMs);
 
-  // ---------- Export flow ------------------------------------------
-  //
-  // The general export takes a [startSec, endSec] window. Phase-4's
-  // "export the whole thing from playhead" becomes a special case
-  // (startSec = playhead, endSec = null → duration). DataMarks and
-  // ClipBuilder rows call this with explicit windows.
-  //
-  // Returns the finished Blob (or null on error). Caller decides
-  // whether to download it directly or queue it.
-  const exportRange = useCallback(async ({ startSec, endSec, label }) => {
-    const v = videoRef.current;
-    if (!v) return null;
-
-    // Clamp the window to the video's actual range. A data-mark
-    // whose log time maps to a negative video time (mark dropped
-    // before the camera started recording) or past the end (mark
-    // dropped after the camera stopped) would otherwise either
-    // produce a 0-byte file or hang. Refuse those windows loudly.
-    if (Number.isFinite(startSec)) {
-      if (startSec < 0 || startSec >= v.duration) {
-        setParseErr(`Export skipped: ${label || 'clip'} starts ` +
-                    `outside the video (${startSec.toFixed(1)} s; ` +
-                    `video is 0 to ${v.duration.toFixed(1)} s).`);
-        return null;
-      }
-    }
-    if (Number.isFinite(endSec) && Number.isFinite(startSec) && endSec <= startSec) {
-      setParseErr(`Export skipped: ${label || 'clip'} window is empty ` +
-                  `(start ${startSec.toFixed(1)} s, end ${endSec.toFixed(1)} s).`);
-      return null;
-    }
-
-    setExporting(true);
-    setExportProgress(0);
-    setExportLabel(label || '');
-    try {
-      const handle = await exportOverlayedVideo({
-        videoEl: v,
-        getOverlaySvg: () => document.querySelector('.replay-overlay-frame > svg'),
-        startSec, endSec,
-        outputWidth: 1920,
-        bitrate: 12_000_000,
-        onProgress: ({ videoSec, startSec: s, endSec: e }) => {
-          if (e > s) setExportProgress((videoSec - s) / (e - s));
-        },
-      });
-      exportHandleRef.current = handle;
-      return await handle.finished;
-    } catch (err) {
-      setParseErr('Export failed: ' + (err?.message || err));
-      return null;
-    } finally {
-      setExporting(false);
-      setExportLabel('');
-      exportHandleRef.current = null;
-    }
-  }, []);
-
-  // Phase-4 button: export the whole video from current playhead.
-  const startFullExport = useCallback(async () => {
-    const v = videoRef.current;
-    if (!v || !syncReady) return;
-    const blob = await exportRange({
-      startSec: v.currentTime,
-      endSec:   null,
-      label:    'full export',
-    });
-    if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
-    downloadBlob(blob, `${base}_with_overlay.webm`);
-  }, [syncReady, videoFile, exportRange]);
-
-  // DataMark / ClipBuilder export: single window with a custom
-  // filename suffix. Used by the "Clip 30s" buttons and the
-  // ClipBuilder list's per-row Export.
-  const exportClip = useCallback(async ({ startSec, endSec, label, filenameSuffix }) => {
-    const blob = await exportRange({ startSec, endSec, label });
-    if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
-    downloadBlob(blob, `${base}_${filenameSuffix}.webm`);
-  }, [exportRange, videoFile]);
-
-  const stopExport = useCallback(() => {
-    if (exportHandleRef.current) exportHandleRef.current.stop();
-  }, []);
-
   // Re-sync flow:
   //   1. pauseIndexer() — freeze the indexer at the current
   //      video-mapped log time so it stops following video frames.
@@ -6909,18 +7145,18 @@ const ReplayPage = () => {
     if (Number.isFinite(tSec)) v.currentTime = Math.max(0, tSec);
   };
 
-  // Export an N-second clip starting at a mark's video time.
-  const exportClipFromMark = (mark, durationSec) => {
+  // Add an N-second clip starting at a DataMark. Same behavior as
+  // "+ N s clip from playhead" — the clip lands in the clip list,
+  // pilot edits / exports per-row from there. Does NOT auto-export
+  // (the legacy WebM path used to; that was wrong + WebM is gone).
+  const addClipFromMark = (mark, durationSec) => {
+    const v = videoRef.current;
+    if (!v) return;
     const startSec = logMsToVideoSec(mark.logTimeMs, sync);
     if (!Number.isFinite(startSec)) return;
-    const endSec = Math.min(videoRef.current?.duration || startSec + durationSec,
-                            startSec + durationSec);
-    return exportClip({
-      startSec,
-      endSec,
-      label: `mark ${mark.label}`,
-      filenameSuffix: `mark${mark.label}_${durationSec}s`,
-    });
+    const label = `mark ${mark.label} +${durationSec}s`;
+    const clip = buildClipFromPlayhead(startSec, durationSec, sync, label);
+    if (clip) setClips(prev => [...prev, clip]);
   };
 
   // Add the current playhead as a clip start, with a default
@@ -7100,6 +7336,9 @@ const ReplayPage = () => {
         // Without this the fresh export-sim defaults to mode 0 (Energy)
         // regardless of what the page is showing.
         displayMode:   m5ModeId,
+        // Standard layout: ADI bottom-left + Energy bottom-right.
+        // Ignores displayMode when true.
+        standardOverlay: standardClipOverlay,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -7128,7 +7367,7 @@ const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, m5SmoothPreset, m5ModeId]);
+      videoFile, m5SmoothPreset, m5ModeId, standardClipOverlay]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -7297,25 +7536,96 @@ const ReplayPage = () => {
     if (overlayAbortRef.current) overlayAbortRef.current.abort();
   }, []);
 
+  // Export the overlay for the ENTIRE log, no source video. Useful when:
+  //   (a) the GoPro started recording mid-flight and the pilot wants
+  //       overlay coverage of the boot-up / taxi / pre-roll log time;
+  //   (b) the pilot wants one big overlay MP4 to drop on his original
+  //       source footage in iMovie/FCP without having to mark a clip.
+  // Synthesizes a full-log clip {startMs, endMs} and calls the existing
+  // overlay-only path. No source video is read (overlay path doesn't
+  // touch source). Output is 320×240 (native) by default; the size
+  // selector still applies if the user picked a fraction-of-source.
+  const exportFullLogOverlay = useCallback(async () => {
+    if (!log || !cppWireFrames) {
+      setParseErr('Full overlay export needs a loaded log + completed replay engine pre-pass.');
+      return null;
+    }
+    if (!overlayAvailable) {
+      setParseErr('Overlay export requires Chrome or Edge desktop. WebCodecs ' +
+                  'support is incomplete in Safari / Firefox.');
+      return null;
+    }
+    // Build a synthetic clip spanning the entire log. The overlay-only
+    // path reads clip.startMs and clip.endMs in log-time; no sync
+    // anchor is consulted, so this works even when sync is null.
+    const startMs = log.timeStamp[0];
+    const endMs   = log.timeStamp[log.timeStamp.length - 1];
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      setParseErr('Full overlay export skipped: log has no usable timestamp range.');
+      return null;
+    }
+    const clip = {
+      startMs,
+      endMs,
+      label: 'full-log',
+    };
+    // Reuse the per-clip overlay export. exportOverlaysForClip already
+    // handles cancel, progress, mode selection, size selector — we just
+    // hand it a clip with a longer window.
+    return await exportOverlaysForClip(clip, null);
+  }, [log, cppWireFrames, overlayAvailable, exportOverlaysForClip]);
+
   // ---------- Layout -----------------------------------------------
 
   return html`
       <div class="replay-page">
-        <${RecentFilesBanner} info=${persistence.bannerInfo}
-                              onDismiss=${persistence.dismissBanner} />
+        ${fileHandleResume.resumeReady
+          ? html`<${ReplayResumeBanner}
+                    info=${persistence.rawBannerInfo}
+                    onResume=${onResumeClick}
+                    onDismiss=${onResumeDismiss} />`
+          : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
+                                       onDismiss=${persistence.dismissBanner} />`}
         <header class="replay-toolbar">
-          <label class="replay-file">
-            <span>Video</span>
-            <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
-          </label>
-          <label class="replay-file">
-            <span>Log</span>
-            <input type="file" accept=".csv,text/csv" onChange=${onLogPick} />
-          </label>
-          <label class="replay-file">
-            <span>Config</span>
-            <input type="file" accept=".cfg,.xml,text/xml" onChange=${onCfgPick} />
-          </label>
+          ${fsaSupported ? html`
+            <label class="replay-file">
+              <span>Video</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickVideoViaFsa}
+                      title=${videoFile ? videoFile.name : 'Open video'}>
+                ${videoFile ? videoFile.name : 'Open video…'}
+              </button>
+            </label>
+            <label class="replay-file">
+              <span>Log</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickLogViaFsa}
+                      title=${logFilename || 'Open log'}>
+                ${logFilename || 'Open log…'}
+              </button>
+            </label>
+            <label class="replay-file">
+              <span>Config</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickCfgViaFsa}
+                      title=${cfgFilename || 'Open config'}>
+                ${cfgFilename || 'Open config…'}
+              </button>
+            </label>
+          ` : html`
+            <label class="replay-file">
+              <span>Video</span>
+              <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
+            </label>
+            <label class="replay-file">
+              <span>Log</span>
+              <input type="file" accept=".csv,text/csv" onChange=${onLogPick} />
+            </label>
+            <label class="replay-file">
+              <span>Config</span>
+              <input type="file" accept=".cfg,.xml,text/xml" onChange=${onCfgPick} />
+            </label>
+          `}
           ${cfg && html`
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
@@ -7383,35 +7693,25 @@ const ReplayPage = () => {
                      onChange=${e => setOverlayVisible(e.target.checked)} />
               Show overlay
             </label>
-            ${exporting
+            ${exportingClipIdx != null
               ? html`
                   <span class="replay-status">
-                    exporting${exportLabel ? ` · ${exportLabel}` : ''}
+                    MP4 export${mp4ExportLabel ? ` · ${mp4ExportLabel}` : ''}
                   </span>
                   <progress class="replay-progress"
-                            max="1" value=${exportProgress}></progress>
-                  <span class="replay-status">${Math.round(exportProgress * 100)}%</span>
-                  <button class="replay-btn-ghost" onClick=${stopExport}>
-                    Stop
+                            max="1" value=${mp4ExportProgress}></progress>
+                  <span class="replay-status">
+                    ${Math.round(mp4ExportProgress * 100)}%
+                  </span>
+                  <button class="replay-btn-ghost" onClick=${cancelMp4Export}>
+                    Cancel
                   </button>`
-              : exportingClipIdx != null
-                ? html`
-                    <span class="replay-status">
-                      MP4 export${mp4ExportLabel ? ` · ${mp4ExportLabel}` : ''}
-                    </span>
-                    <progress class="replay-progress"
-                              max="1" value=${mp4ExportProgress}></progress>
-                    <span class="replay-status">
-                      ${Math.round(mp4ExportProgress * 100)}%
-                    </span>
-                    <button class="replay-btn-ghost" onClick=${cancelMp4Export}>
-                      Cancel
-                    </button>`
-                : html`
-                    <button class="replay-btn" onClick=${startFullExport}
-                            disabled=${!syncReady || !videoUrl}>
-                      Export WebM (legacy)
-                    </button>`}
+              : html`
+                  <button class="replay-btn" onClick=${exportFullLogOverlay}
+                          disabled=${!log || !cppWireFrames || overlayExporting}
+                          title="Render the overlay for the entire log (no source video). Drop on top of your GoPro footage in iMovie / Final Cut.">
+                    Full overlay export
+                  </button>`}
           </div>
 
           <div class="replay-control-row">
@@ -7473,10 +7773,10 @@ const ReplayPage = () => {
             <${DataMarkPanel}
                 marks=${marks}
                 sync=${sync}
-                disabled=${exporting || !syncReady}
+                disabled=${exportingClipIdx != null || !syncReady}
                 videoDuration=${videoRef.current?.duration}
                 onJump=${jumpToMark}
-                onClip=${exportClipFromMark} />`}
+                onClip=${addClipFromMark} />`}
 
           <${ClipBuilder}
               clips=${clips}
@@ -7484,7 +7784,7 @@ const ReplayPage = () => {
               sync=${sync}
               syncReady=${syncReady}
               videoEl=${videoRef}
-              disabled=${exporting}
+              disabled=${exportingClipIdx != null}
               exportingClipIdx=${exportingClipIdx}
               exportProgress=${mp4ExportProgress}
               exportLabel=${mp4ExportLabel}
@@ -7510,7 +7810,9 @@ const ReplayPage = () => {
               onChangeOverlayModes=${setSelectedOverlayModes}
               overlayModeOrder=${OVERLAY_MODE_ORDER}
               overlaySize=${overlaySize}
-              onChangeOverlaySize=${setOverlaySize} />
+              onChangeOverlaySize=${setOverlaySize}
+              standardClipOverlay=${standardClipOverlay}
+              onChangeStandardClipOverlay=${setStandardClipOverlay} />
         </footer>
       </div>`;
 };

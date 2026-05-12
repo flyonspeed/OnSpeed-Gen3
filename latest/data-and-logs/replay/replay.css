@@ -351,6 +351,47 @@
   background: #4a3f1f;
   color: var(--yellow, #fffd40);
 }
+.replay-recent-resume {
+  flex: 0 0 auto;
+  border: 1px solid var(--yellow, #fffd40);
+  background: #4a3f1f;
+  color: var(--yellow, #fffd40);
+  padding: 4px 12px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.replay-recent-resume:hover {
+  background: var(--yellow, #fffd40);
+  color: #1a1410;
+}
+
+/* File-picker buttons (FSA path). Render in place of the native
+   <input type="file"> on browsers with showOpenFilePicker. Sized to
+   match the input's intrinsic flex behavior so the toolbar row holds
+   its shape across both code paths. */
+.replay-file-btn {
+  font-size: 12px;
+  color: #e0e6eb;
+  background: #2a3340;
+  border: 1px solid #3a4654;
+  border-radius: 3px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.replay-file-btn:hover {
+  background: #3a4654;
+  color: var(--white, #fff);
+}
 
 .replay-overlay-modes {
   display: flex;
