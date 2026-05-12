@@ -343,9 +343,23 @@ export const ReplayPage = () => {
       const text = await f.text();
       const parsed = parseLog(text);
       if (parsed.Length === 0) throw new Error('no rows');
+      // Synchronously detach the persistence hook from the prior
+      // log's digest before any state-driven persist effect fires.
+      // Without this the persist-on-change effects for clips/sync
+      // (which run after the same render that batches the resets
+      // below) would write the new []/null state into the PRIOR
+      // log's localStorage key, since the storeClips/storeSync
+      // callbacks captured the old logDigest. beginLogSwap clears
+      // the synchronous ref those writers consult.
+      persistence.beginLogSwap();
       setLog(parsed);
       setLogFile(f);
       setLogFilename(f.name);
+      setClips([]);
+      setSync(null);
+      setAnchorKind('none');
+      setPausedLogMs(null);
+      setPendingInVideoSec(null);
       persistence.notifyFilePicked('log', f);
     } catch (err) {
       setParseErr(`Could not parse log: ${err.message}`);
@@ -392,16 +406,21 @@ export const ReplayPage = () => {
     if (tRow >= 0) {
       // Auto-detected anchor; pair it with whatever the pilot's
       // first "mark video anchor" press will be. Until then, sync
-      // is null (overlay shows nothing).
-      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null });
+      // is null (overlay shows nothing). Carry anchorKind inside the
+      // sync object so it round-trips through localStorage (the
+      // persistence layer only stores fields it sees on sync).
+      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null, anchorKind: kind });
     }
   }, [log, persistence.digestReady, persistence.storedSync]);
 
-  // Persist sync on every change. persistence.storeSync rejects
-  // partial sync (one anchor null), so no gate needed here.
+  // Persist sync on every change. Gated on digestReady so writes
+  // don't fire while the digest is being recomputed between log
+  // swaps (in that window storeSync's logDigest still refers to the
+  // PREVIOUS log, so a write would corrupt the prior log's sync key).
   useEffect(() => {
+    if (!persistence.digestReady) return;
     persistence.storeSync(sync);
-  }, [sync, persistence.storeSync]);
+  }, [sync, persistence.digestReady, persistence.storeSync]);
 
   // Restore persisted clips when the log digest resolves. Only seed
   // if the in-memory clip list is empty — never clobber clips the
@@ -412,10 +431,14 @@ export const ReplayPage = () => {
     setClips(prev => prev.length === 0 ? persistence.storedClips : prev);
   }, [persistence.digestReady, persistence.storedClips]);
 
-  // Persist clips on every change.
+  // Persist clips on every change. Gated on digestReady — see the
+  // matching note on the sync persist effect above. Without this
+  // gate, picking a new log corrupts the previous log's clips key
+  // before the new digest resolves.
   useEffect(() => {
+    if (!persistence.digestReady) return;
     persistence.storeClips(clips);
-  }, [clips, persistence.storeClips]);
+  }, [clips, persistence.digestReady, persistence.storeClips]);
 
   // ---------- Video clock ------------------------------------------
 
@@ -501,8 +524,13 @@ export const ReplayPage = () => {
         m5RenderFilterRef.current = filter;
         m5LastFilterVideoTRef.current = null;
         // Hydrate displayType from the persisted choice so the first
-        // frame after init renders the right mode.
-        sim.setMode(m5ModeId);
+        // frame after init renders the right mode. Read from the ref
+        // so the async then-callback sees the CURRENT mode rather
+        // than the value captured at effect-fire time — the mode can
+        // change while the WASM module loads (toggle pressed during
+        // a sim-reinit-nonce bump), and using a stale closure value
+        // would render the wrong mode for the first frame.
+        sim.setMode(m5ModeIdRef.current);
       } catch (err) {
         if (!cancelled) setParseErr(`M5 sim load error: ${err.message}`);
       }
@@ -918,8 +946,9 @@ export const ReplayPage = () => {
     setSync(prev => ({
       logTakeoffMs:    prev?.logTakeoffMs ?? null,
       videoTakeoffSec: v.currentTime,
+      anchorKind:      prev?.anchorKind ?? anchorKind,
     }));
-  }, []);
+  }, [anchorKind]);
 
   const reMarkLogTakeoff = useCallback(() => {
     if (!log) return;
@@ -929,6 +958,7 @@ export const ReplayPage = () => {
       setSync(prev => ({
         logTakeoffMs:    log.timeStamp[tRow],
         videoTakeoffSec: prev?.videoTakeoffSec ?? null,
+        anchorKind:      kind,
       }));
     }
   }, [log]);
@@ -1051,9 +1081,10 @@ export const ReplayPage = () => {
     setSync({
       logTakeoffMs:    pausedLogMs,
       videoTakeoffSec: v.currentTime,
+      anchorKind,
     });
     setPausedLogMs(null);
-  }, [pausedLogMs]);
+  }, [pausedLogMs, anchorKind]);
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
@@ -1626,6 +1657,7 @@ export const ReplayPage = () => {
                           onLogTakeoffPick=${(tMs) => setSync(prev => ({
                             logTakeoffMs: tMs,
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
+                            anchorKind:      prev?.anchorKind ?? anchorKind,
                           }))}
                           onSeekVideo=${(tSec) => {
                             const v = videoRef.current;

@@ -393,7 +393,19 @@ async function feedAacPacketsToOutput({
   // packet at-or-before the window start is a valid decoder anchor
   // AND a usable mux input. We include any packet whose time range
   // overlaps the window.
-  const firstPacket = await sink.getPacket(clampedStart);
+  let firstPacket = await sink.getPacket(clampedStart);
+  if (!firstPacket && clampedStart < 1.0) {
+    // Edge case: clip starts at t=0 (or near it) but the AAC track's
+    // first packet is at a small positive offset (typical: ~0.046s).
+    // getPacket(0) returns null in that case. Walk forward to find
+    // the actual first audio packet rather than producing a silent
+    // export.
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const p of sink.packets()) {
+      firstPacket = p;
+      break;
+    }
+  }
   if (!firstPacket) {
     return { added: 0, skipped: true, reason: 'no audio packets at-or-before window start' };
   }
@@ -665,6 +677,11 @@ export async function exportClipAsMp4({
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target: new BufferTarget(),
   });
+  // Set true once output.finalize() resolves. The finally-block uses
+  // this to decide whether to call output.cancel() on teardown: cancel
+  // logs a benign "already finalized" warning post-finalize, so we
+  // only cancel when we're bailing out mid-stream.
+  let outputFinalized = false;
 
   const videoPacketSource = new EncodedVideoPacketSource(outputCodecFamily);
   output.addVideoTrack(videoPacketSource, {
@@ -881,6 +898,13 @@ export async function exportClipAsMp4({
         data:      p.data,
       });
       decoder.decode(chunk);
+      // Release the encoded bytes reference now that the decoder has
+      // consumed (and internally copied) them. The descriptor's
+      // remaining {type,timestamp,duration,output} fields are still
+      // needed for slot-matching; only `data` is heavy. For a 30s
+      // clip at 50 Mbps that's ~900 packets × ~180 KB ≈ 150 MB of
+      // pinned encoded-bytes that this null-out releases.
+      selectedPackets[i].data = null;
     }
     await decoder.flush();
   })();
@@ -1011,6 +1035,7 @@ export async function exportClipAsMp4({
     encoder.close();
 
     await output.finalize();
+    outputFinalized = true;
 
     const buffer = output.target.buffer;
     if (!buffer) throw new Error('Output produced no buffer.');
@@ -1021,6 +1046,14 @@ export async function exportClipAsMp4({
     frameQueue.length = 0;
     try { decoder.state !== 'closed' && decoder.close(); } catch (_) {}
     try { encoder.state !== 'closed' && encoder.close(); } catch (_) {}
+    // If we exit before finalize() completes, ask Mediabunny to tear
+    // down the Output (closes encoders/writer, frees internal state).
+    // Skip on the happy path — calling cancel() after finalize() logs
+    // a benign "already finalized" warning. Wrapped in try/catch so a
+    // teardown error can't shadow the real exception.
+    if (!outputFinalized) {
+      try { await output.cancel(); } catch (_) {}
+    }
     try { sim.delete(); } catch (_) {}
   }
 }
@@ -1227,6 +1260,10 @@ class OverlayModeEncoder {
     this.encoder.configure(encConfig);
     this.framesEncoded = 0;
     this.started = false;
+    // Set true once output.finalize() resolves. Used by closeOnError
+    // to skip cancel() on already-finalized outputs (which would log
+    // a benign but noisy "already finalized" warning).
+    this.finalized = false;
   }
 
   async start() {
@@ -1240,13 +1277,20 @@ class OverlayModeEncoder {
     if (this.error) throw this.error;
     this.encoder.close();
     await this.output.finalize();
+    this.finalized = true;
     const buffer = this.output.target.buffer;
     if (!buffer) throw new Error(`Output for "${this.modeId}" produced no buffer.`);
     return new Blob([buffer], { type: 'video/mp4' });
   }
 
-  closeOnError() {
+  async closeOnError() {
     try { if (this.encoder.state !== 'closed') this.encoder.close(); } catch (_) {}
+    // Only cancel the Output if we're bailing out before finalize.
+    // Post-finalize cancel() logs a benign warning. Wrapped so a
+    // teardown error can't shadow the original failure.
+    if (!this.finalized) {
+      try { await this.output.cancel(); } catch (_) {}
+    }
   }
 }
 
@@ -1555,8 +1599,15 @@ export async function exportOverlayOnly({
     blobs.__timings = aggregateTimings;
     return blobs;
   } finally {
-    // Best-effort teardown.
-    for (const enc of modeEncoders.values()) enc.closeOnError();
+    // Best-effort teardown. closeOnError is async (it awaits
+    // output.cancel()), so we await all of them in parallel before
+    // tearing the sim down. Wrapping in a single catch so one
+    // encoder's failure doesn't prevent the others from cleaning up.
+    try {
+      await Promise.all(
+        Array.from(modeEncoders.values()).map(enc => enc.closeOnError()),
+      );
+    } catch (_) {}
     try { sim.delete(); } catch (_) {}
   }
 }
