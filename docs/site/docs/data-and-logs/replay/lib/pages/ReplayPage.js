@@ -57,6 +57,11 @@ import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLa
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { reassembleResults } from '../replay/reassemble.js';
 import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
+import {
+  isFileHandleApiSupported, pickFile, storeHandles, clearHandles,
+  requestPermissionForHandles, signatureFromFiles, useFileHandleResume,
+  ReplayResumeBanner,
+} from '../replay/fileHandles.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
 import { PresentationFilter, PRESENTATION_PRESETS, defaultPresetForLogRate }
@@ -241,6 +246,56 @@ export const ReplayPage = () => {
   // replay/persistence.js for the storage contract.
   const persistence = useReplayPersistence({ logFile });
 
+  // File handles for FileSystemAccess-supported browsers (Chrome /
+  // Edge desktop). Held in refs because they're not Preact state —
+  // we only consult them when writing to IDB on a new full set, or
+  // when the resume banner re-grants permission and reads files.
+  // Falsy on Firefox / Safari (those fall through to <input>).
+  const videoHandleRef = useRef(null);
+  const logHandleRef = useRef(null);
+  const cfgHandleRef = useRef(null);
+
+  // Resume-on-reload state. Reads IDB for handles matching the
+  // previously-recorded recent-files signature. resumeReady fires
+  // only when the FSA API is supported AND a matching record exists.
+  const fileHandleResume = useFileHandleResume({
+    recentFilesSig: persistence.recentFilesSig,
+  });
+
+  // Live mirrors of the three File objects. Used by persistHandles
+  // (which fires inside a state-setter and can't see the latest React
+  // state). Updated alongside setVideoFile/setLogFile/setCfgFile.
+  const videoFileRef = useRef(null);
+  const logFileRef = useRef(null);
+  const cfgFileRef = useRef(null);
+
+  // Persist the current handle bundle whenever both video + log
+  // handles exist. Mirrors persistence.notifyFilePicked's video+log
+  // gating. The cfg handle is optional (null if pilot hasn't picked
+  // one). Signature key derives from the live file metadata so
+  // the next reload's resume lookup matches.
+  //
+  // Reads from refs (not React state) so it sees writes from the
+  // current event handler synchronously — state-setter timing would
+  // otherwise miss the just-picked file.
+  const persistHandlesIfReady = useCallback(() => {
+    if (!isFileHandleApiSupported()) return;
+    const v = videoHandleRef.current;
+    const l = logHandleRef.current;
+    if (!v || !l) return;
+    const sig = signatureFromFiles({
+      video: videoFileRef.current,
+      log: logFileRef.current,
+      cfg: cfgFileRef.current,
+    });
+    if (!sig) return;
+    storeHandles(sig, {
+      video: v,
+      log: l,
+      cfg: cfgHandleRef.current || null,
+    }).catch(() => { /* best-effort, surfaced via console only */ });
+  }, []);
+
   // Mark-in flow: when the pilot clicks "Mark clip in" we stash the
   // current video time; the next "Mark clip out" click completes the
   // clip. Cleared on cancel / completion.
@@ -325,19 +380,26 @@ export const ReplayPage = () => {
   const mp4ExportingRef = useRef(false);
 
   // ---------- File loaders -----------------------------------------
+  //
+  // Each slot has an `apply*File(file, handle)` helper that does the
+  // state mutations + persistence-notify work. The handle is optional
+  // (null on Firefox/Safari, or in the <input> fallback path). The
+  // helpers are called from three places:
+  //   1. `<input type="file">` onChange events  (handle = null)
+  //   2. FSA `showOpenFilePicker` buttons       (handle = FSFileHandle)
+  //   3. Resume-banner re-grant path            (handle from IDB)
 
-  const onVideoPick = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyVideoFile = useCallback((f, handle) => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoFile(f);
     setVideoUrl(URL.createObjectURL(f));
+    videoFileRef.current = f;
     persistence.notifyFilePicked('video', f);
-  };
+    videoHandleRef.current = handle || null;
+    if (handle) persistHandlesIfReady();
+  }, [videoUrl, persistence, persistHandlesIfReady]);
 
-  const onLogPick = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyLogFile = useCallback(async (f, handle) => {
     setParseErr(null);
     try {
       const text = await f.text();
@@ -360,16 +422,21 @@ export const ReplayPage = () => {
       setAnchorKind('none');
       setPausedLogMs(null);
       setPendingInVideoSec(null);
+      logFileRef.current = f;
       persistence.notifyFilePicked('log', f);
+      if (handle) {
+        logHandleRef.current = handle;
+        persistHandlesIfReady();
+      }
+      return true;
     } catch (err) {
       setParseErr(`Could not parse log: ${err.message}`);
       setLog(null);
+      return false;
     }
-  };
+  }, [persistence, persistHandlesIfReady]);
 
-  const onCfgPick = async (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  const applyCfgFile = useCallback(async (f, handle) => {
     setParseErr(null);
     try {
       const text = await f.text();
@@ -378,12 +445,108 @@ export const ReplayPage = () => {
       setCfg(parsed);
       setCfgFile(f);
       setCfgFilename(f.name);
+      cfgFileRef.current = f;
       persistence.notifyFilePicked('cfg', f);
+      if (handle) {
+        cfgHandleRef.current = handle;
+        persistHandlesIfReady();
+      }
+      return true;
     } catch (err) {
       setParseErr(`Could not parse config: ${err.message}`);
       setCfg(null);
+      return false;
     }
+  }, [persistence, persistHandlesIfReady]);
+
+  // <input type="file"> onChange handlers — used on Firefox / Safari
+  // and as a fallback if the FSA picker fails. The handle ref stays
+  // null in this path so no IDB write happens; resume banner won't
+  // appear next reload (correct behavior on unsupported browsers).
+  const onVideoPick = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    applyVideoFile(f, null);
   };
+
+  const onLogPick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    await applyLogFile(f);
+  };
+
+  const onCfgPick = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    await applyCfgFile(f, null);
+  };
+
+  // FSA picker handlers — used on Chrome / Edge. Each opens the OS
+  // file dialog via showOpenFilePicker, retrieves a FileSystemFileHandle
+  // for re-grant on next reload, then delegates to the same apply*
+  // helpers the <input> path uses.
+  const fsaSupported = useState(() => isFileHandleApiSupported())[0];
+
+  const pickVideoViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('video');
+      if (r) applyVideoFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open video: ${err.message}`);
+    }
+  }, [applyVideoFile]);
+
+  const pickLogViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('log');
+      if (r) await applyLogFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open log: ${err.message}`);
+    }
+  }, [applyLogFile]);
+
+  const pickCfgViaFsa = useCallback(async () => {
+    try {
+      const r = await pickFile('cfg');
+      if (r) await applyCfgFile(r.file, r.handle);
+    } catch (err) {
+      setParseErr(`Could not open config: ${err.message}`);
+    }
+  }, [applyCfgFile]);
+
+  // Resume-banner click handler. MUST run the permission request
+  // synchronously in the same user-gesture tick — no awaits before
+  // requestPermissionForHandles or browsers reject the prompt.
+  // After grant, getFile() each handle and re-feed the apply* helpers.
+  const onResumeClick = useCallback(async () => {
+    const handles = fileHandleResume.availableHandles;
+    if (!handles) return;
+    // Permission request first — same gesture. Browsers batch the
+    // prompts when called sequentially in this tick.
+    const granted = await requestPermissionForHandles(handles);
+    if (!granted) {
+      setParseErr('Permission denied for one or more files. Pick them manually.');
+      return;
+    }
+    try {
+      // Read the three files in parallel.
+      const [vFile, lFile, cFile] = await Promise.all([
+        handles.video.getFile(),
+        handles.log.getFile(),
+        handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
+      ]);
+      applyVideoFile(vFile, handles.video);
+      const logOk = await applyLogFile(lFile, handles.log);
+      if (cFile && logOk) await applyCfgFile(cFile, handles.cfg);
+      fileHandleResume.markUsed();
+    } catch (err) {
+      setParseErr(`Resume failed: ${err.message}`);
+    }
+  }, [fileHandleResume, applyVideoFile, applyLogFile, applyCfgFile]);
+
+  const onResumeDismiss = useCallback(() => {
+    fileHandleResume.dismiss();
+  }, [fileHandleResume]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
@@ -1496,21 +1659,53 @@ export const ReplayPage = () => {
 
   return html`
       <div class="replay-page">
-        <${RecentFilesBanner} info=${persistence.bannerInfo}
-                              onDismiss=${persistence.dismissBanner} />
+        ${fileHandleResume.resumeReady
+          ? html`<${ReplayResumeBanner}
+                    info=${persistence.rawBannerInfo}
+                    onResume=${onResumeClick}
+                    onDismiss=${onResumeDismiss} />`
+          : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
+                                       onDismiss=${persistence.dismissBanner} />`}
         <header class="replay-toolbar">
-          <label class="replay-file">
-            <span>Video</span>
-            <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
-          </label>
-          <label class="replay-file">
-            <span>Log</span>
-            <input type="file" accept=".csv,text/csv" onChange=${onLogPick} />
-          </label>
-          <label class="replay-file">
-            <span>Config</span>
-            <input type="file" accept=".cfg,.xml,text/xml" onChange=${onCfgPick} />
-          </label>
+          ${fsaSupported ? html`
+            <label class="replay-file">
+              <span>Video</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickVideoViaFsa}
+                      title=${videoFile ? videoFile.name : 'Open video'}>
+                ${videoFile ? videoFile.name : 'Open video…'}
+              </button>
+            </label>
+            <label class="replay-file">
+              <span>Log</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickLogViaFsa}
+                      title=${logFilename || 'Open log'}>
+                ${logFilename || 'Open log…'}
+              </button>
+            </label>
+            <label class="replay-file">
+              <span>Config</span>
+              <button class="replay-file-btn" type="button"
+                      onClick=${pickCfgViaFsa}
+                      title=${cfgFilename || 'Open config'}>
+                ${cfgFilename || 'Open config…'}
+              </button>
+            </label>
+          ` : html`
+            <label class="replay-file">
+              <span>Video</span>
+              <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
+            </label>
+            <label class="replay-file">
+              <span>Log</span>
+              <input type="file" accept=".csv,text/csv" onChange=${onLogPick} />
+            </label>
+            <label class="replay-file">
+              <span>Config</span>
+              <input type="file" accept=".cfg,.xml,text/xml" onChange=${onCfgPick} />
+            </label>
+          `}
           ${cfg && html`
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
