@@ -1,6 +1,32 @@
 
 #include "src/Globals.h"
 
+#include <cstdio>
+
+// ----------------------------------------------------------------------------
+// Internal helpers
+// ----------------------------------------------------------------------------
+
+namespace {
+
+// Max characters for one formatted module+level log line. Larger than
+// the typical line length so a vsnprintf truncation rarely happens;
+// truncation is harmless (NUL-terminated, output reflects what fit).
+constexpr size_t kFormattedMax = 256;
+
+const char *LevelPrefix(MsgLog::EnLevel enLevel)
+    {
+    switch (enLevel)
+        {
+        case MsgLog::EnError:   return "ERROR   ";
+        case MsgLog::EnWarning: return "WARNING ";
+        case MsgLog::EnDebug:   return "DEBUG   ";
+        default:                return "        ";
+        }
+    }
+
+}  // namespace
+
 // ----------------------------------------------------------------------------
 
 MsgLog::MsgLog()
@@ -74,21 +100,32 @@ const char * MsgLog::szLevelName(EnLevel enLevel)
 
 // ----------------------------------------------------------------------------
 
+// Build "<level> <module> - <body>[\n]" into a stack buffer, write
+// to Serial, and (if the module/level passes the SD threshold)
+// forward the same bytes to g_DebugLog. The dual-sink ordering is
+// intentional: a slow SD layer can't backpressure the Serial print
+// because we format once and the debug push is non-blocking.
 void MsgLog::print(EnModule enModule, EnLevel enLevel, const char * szLogMsg)
     {
-    if (enLevel >= asuModule[enModule].enLevel)
-        {
-        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
-            {
-            if      (enLevel == EnError)   Serial.print("ERROR   ");
-            else if (enLevel == EnWarning) Serial.print("WARNING ");
-            else if (enLevel == EnDebug)   Serial.print("DEBUG   ");
-            else                           Serial.print("        ");
-            Serial.printf("%s - ", asuModule[enModule].szDescription);
-            Serial.print(szLogMsg);
+    if (enLevel < asuModule[enModule].enLevel)
+        return;
 
-            xSemaphoreGive(xSerialLogMutex);
-            }
+    char   szBuf[kFormattedMax];
+    int    n = snprintf(szBuf, sizeof(szBuf), "%s%s - %s",
+                        LevelPrefix(enLevel),
+                        asuModule[enModule].szDescription,
+                        szLogMsg);
+    if (n < 0) return;
+    if (static_cast<size_t>(n) >= sizeof(szBuf))
+        n = static_cast<int>(sizeof(szBuf) - 1);
+
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
+        {
+        Serial.write(reinterpret_cast<const uint8_t *>(szBuf),
+                     static_cast<size_t>(n));
+        if (enLevel >= m_enSdThreshold)
+            g_DebugLog.Write(szBuf, static_cast<size_t>(n));
+        xSemaphoreGive(xSerialLogMutex);
         }
     }
 
@@ -96,19 +133,30 @@ void MsgLog::print(EnModule enModule, EnLevel enLevel, const char * szLogMsg)
 
 void MsgLog::println(EnModule enModule, EnLevel enLevel, const char * szLogMsg)
     {
-    if (enLevel >= asuModule[enModule].enLevel)
-        {
-        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
-            {
-            if      (enLevel == EnError)   Serial.print("ERROR   ");
-            else if (enLevel == EnWarning) Serial.print("WARNING ");
-            else if (enLevel == EnDebug)   Serial.print("DEBUG   ");
-            else                           Serial.print("        ");
-            Serial.printf("%s - ", asuModule[enModule].szDescription);
-            Serial.println(szLogMsg);
+    if (enLevel < asuModule[enModule].enLevel)
+        return;
 
-            xSemaphoreGive(xSerialLogMutex);
-            }
+    char   szBuf[kFormattedMax];
+    int    n = snprintf(szBuf, sizeof(szBuf), "%s%s - %s\n",
+                        LevelPrefix(enLevel),
+                        asuModule[enModule].szDescription,
+                        szLogMsg);
+    if (n < 0) return;
+    if (static_cast<size_t>(n) >= sizeof(szBuf))
+        {
+        // Truncated: ensure the buffer still ends with '\n' so the
+        // .dbg file stays line-delimited even on overlong inputs.
+        n = static_cast<int>(sizeof(szBuf) - 1);
+        szBuf[n - 1] = '\n';
+        }
+
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
+        {
+        Serial.write(reinterpret_cast<const uint8_t *>(szBuf),
+                     static_cast<size_t>(n));
+        if (enLevel >= m_enSdThreshold)
+            g_DebugLog.Write(szBuf, static_cast<size_t>(n));
+        xSemaphoreGive(xSerialLogMutex);
         }
     }
 
@@ -116,24 +164,34 @@ void MsgLog::println(EnModule enModule, EnLevel enLevel, const char * szLogMsg)
 
 void MsgLog::printf(EnModule enModule, EnLevel enLevel, const char * szFmt, ...)
     {
-    if (enLevel >= asuModule[enModule].enLevel)
+    if (enLevel < asuModule[enModule].enLevel)
+        return;
+
+    char    szBuf[kFormattedMax];
+    int     nHdr = snprintf(szBuf, sizeof(szBuf), "%s%s - ",
+                            LevelPrefix(enLevel),
+                            asuModule[enModule].szDescription);
+    if (nHdr < 0) return;
+    if (static_cast<size_t>(nHdr) >= sizeof(szBuf))
+        nHdr = static_cast<int>(sizeof(szBuf) - 1);
+
+    va_list args;
+    va_start(args, szFmt);
+    int nBody = vsnprintf(szBuf + nHdr, sizeof(szBuf) - nHdr, szFmt, args);
+    va_end(args);
+    if (nBody < 0) nBody = 0;
+
+    int n = nHdr + nBody;
+    if (static_cast<size_t>(n) >= sizeof(szBuf))
+        n = static_cast<int>(sizeof(szBuf) - 1);
+
+    if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
         {
-        if (xSemaphoreTake(xSerialLogMutex, pdMS_TO_TICKS(100)))
-            {
-            va_list args;
-            va_start(args, szFmt);
-
-            if      (enLevel == EnError)   Serial.print("ERROR   ");
-            else if (enLevel == EnWarning) Serial.print("WARNING ");
-            else if (enLevel == EnDebug)   Serial.print("DEBUG   ");
-            else                           Serial.print("        ");
-            Serial.printf("%s - ", asuModule[enModule].szDescription);
-            Serial.vprintf(szFmt, args);
-
-            va_end(args);
-
-            xSemaphoreGive(xSerialLogMutex);
-            }
+        Serial.write(reinterpret_cast<const uint8_t *>(szBuf),
+                     static_cast<size_t>(n));
+        if (enLevel >= m_enSdThreshold)
+            g_DebugLog.Write(szBuf, static_cast<size_t>(n));
+        xSemaphoreGive(xSerialLogMutex);
         }
     }
 

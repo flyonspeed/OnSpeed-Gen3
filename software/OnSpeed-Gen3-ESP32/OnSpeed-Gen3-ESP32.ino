@@ -75,10 +75,11 @@ void setup()
     Serial.println(BuildInfo::version);
 
     // Setup FreeRTOS semaphores and error logging
-    xWriteMutex     = xSemaphoreCreateMutex();
-    xSensorMutex    = xSemaphoreCreateMutex();
-    xAhrsMutex      = xSemaphoreCreateMutex();
-    xSerialLogMutex = xSemaphoreCreateMutex();
+    xWriteMutex      = xSemaphoreCreateMutex();
+    xSensorMutex     = xSemaphoreCreateMutex();
+    xAhrsMutex       = xSemaphoreCreateMutex();
+    xSerialLogMutex  = xSemaphoreCreateMutex();
+    xDebugWriteMutex = xSemaphoreCreateMutex();
 
     // Boot diagnostics: read reset reason and boot count from NVS and print
     // a summary. Runs after semaphore creation (uses g_Log, which takes
@@ -223,10 +224,26 @@ void setup()
 
     // Setup FreeRTOS tasks
     // --------------------
-    xLoggingRingBuffer = xRingbufferCreate(60000, RINGBUF_TYPE_BYTEBUF);    // 3+ sec of data buffering (measured ~14 KB/s)
+    // Data-path ring buffer: at 208 Hz / ~80 KB/s, 256 KB is ~3.2 s of
+    // headroom — enough to absorb the "300+ ms, occasionally several
+    // seconds" wear-leveling pauses documented in LogSensorCommitTask.
+    // Allocated in PSRAM so it doesn't eat internal DRAM (the V4P
+    // board has 8 MB SPIRAM via BOARD_HAS_PSRAM).
+    xLoggingRingBuffer = xRingbufferCreateWithCaps(
+        262144, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
         g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xLoggingRingBuffer is NULL; SD logging disabled this session");
+
+    // Debug-log ring: 16 KB in PSRAM. Sized for Warning/Error volume
+    // plus the 0.1-1 Hz PERF tick; not meant to absorb verbose Debug
+    // output, which is gated by the SD threshold in MsgLog.
+    xDebugRingBuffer = xRingbufferCreateWithCaps(
+        16384, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (xDebugRingBuffer == NULL)
+        g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xDebugRingBuffer is NULL; SD debug log disabled");
+    else
+        xTaskCreatePinnedToCore(DebugLogCommitTask, "Write Debug",   3500, NULL, 1, &xTaskDebugLog,    0);
     // bSdLogging is intentionally not mutated on alloc failure — the
     // user's saved config is the source of truth. bLoggingRingBufferOk
     // gates Open() and writer-task creation below; Write()'s null-ring

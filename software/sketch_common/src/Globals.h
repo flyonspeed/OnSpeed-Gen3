@@ -74,6 +74,7 @@
 #include "src/drivers/SdFileSys.h"
 #include "src/drivers/SensorIO.h"
 #include "src/tasks/LogSensor.h"
+#include "src/tasks/DebugLog.h"
 #include "src/tasks/LogReplay.h"
 #include "src/tasks/AHRS.h"
 #include "src/io/ConsoleSerial.h"
@@ -102,13 +103,18 @@ EXTERN_INIT(TaskHandle_t             xTaskHousekeeping,  NULL)
 EXTERN_INIT(TaskHandle_t             xTaskLogReplay,     NULL)
 EXTERN_INIT(TaskHandle_t             xTaskTestPot,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskRangeSweep,    NULL)
+EXTERN_INIT(TaskHandle_t             xTaskDebugLog,      NULL)
 
 EXTERN RingbufHandle_t          xLoggingRingBuffer;
+EXTERN RingbufHandle_t          xDebugRingBuffer;
 
 EXTERN SemaphoreHandle_t        xWriteMutex;
 EXTERN SemaphoreHandle_t        xSensorMutex;
 EXTERN SemaphoreHandle_t        xAhrsMutex;
 EXTERN SemaphoreHandle_t        xSerialLogMutex;
+// Separate from xWriteMutex on purpose: the very SD stalls we want to
+// log about hold xWriteMutex, so debug-side writes must use their own.
+EXTERN SemaphoreHandle_t        xDebugWriteMutex;
 
 // Right now there is only one scheduled task, reading sensors. Once it starts
 // I want it to always be on the same integer multiple of ticks so it doesn't
@@ -135,6 +141,7 @@ EXTERN HscPressureSensor      * g_pStatic;  // Static pressure
 
 EXTERN  SensorIO                g_Sensors;
 EXTERN  LogSensor               g_LogSensor;
+EXTERN  DebugLog                g_DebugLog;
 
 EXTERN_CLASS(AHRS               g_AHRS, kGyroSmoothing)
 
