@@ -114,9 +114,65 @@ function loadFactoryViaScriptTag(url) {
   });
 }
 
+// Module-worker path: workers have no `document` so we can't use a
+// <script> tag. fetch the Emscripten UMD source, eval it inside a
+// `Function` body that captures the `var Module=...` assignment, and
+// return the factory.
+//
+// Emscripten emits the WASM artifact with `EXPORT_ES6=0` (UMD: top-
+// level `var Module=...`, then a tail that assigns module.exports /
+// AMD define when those globals exist). Inside `new Function(...)`
+// the `var Module` becomes function-scoped, so the trailing `return
+// Module` expression captures it correctly. The Emscripten file's
+// own UMD detection (`typeof exports==="object"`) sees neither
+// `exports` nor `module` in the Function-body scope and falls
+// through harmlessly.
+//
+// `locateFile` is set on the factory's options arg so the bundled
+// WASM binary loads from the same directory as the .js source.
+async function loadFactoryViaFetchEval(url) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(
+      `M5Sim: failed to fetch ${url} (HTTP ${res.status}). Was the ` +
+      `docs-site build hook (sync_wasm.sh) run?`);
+  }
+  const src = await res.text();
+  // eslint-disable-next-line no-new-func
+  const rawFactory = new Function(`${src}\nreturn Module;`)();
+  if (typeof rawFactory !== 'function') {
+    throw new Error(
+      `M5Sim: ${url} did not produce a Module factory (got ${typeof rawFactory}).`);
+  }
+  // Emscripten's `locateFile` resolves .wasm via `currentScript.src` —
+  // but `new Function(...)` has no `currentScript`. Without override,
+  // the factory fetches "onspeed_m5.wasm" against the worker's own
+  // URL (`/data-and-logs/replay/lib/replay/`), 404. Wrap the factory
+  // so callers get a `locateFile` that returns the right URL.
+  const baseUrl = new URL('.', url).href;
+  return function wrappedFactory(moduleArg = {}) {
+    return rawFactory({
+      ...moduleArg,
+      locateFile: (path, prefix) =>
+        // Caller-provided locateFile wins; otherwise resolve relative
+        // to the m5sim.js URL we fetched.
+        moduleArg.locateFile
+          ? moduleArg.locateFile(path, prefix)
+          : new URL(path, baseUrl).href,
+    });
+  };
+}
+
 async function loadFactory() {
   if (_factoryPromise) return _factoryPromise;
-  _factoryPromise = loadFactoryViaScriptTag(M5SIM_URL);
+  // Picks the right loader for the current global. Main thread has
+  // `document` → <script>-tag path; classic/module Workers have no
+  // `document` → fetch+eval path.
+  if (typeof document !== 'undefined') {
+    _factoryPromise = loadFactoryViaScriptTag(M5SIM_URL);
+  } else {
+    _factoryPromise = loadFactoryViaFetchEval(M5SIM_URL);
+  }
   return _factoryPromise;
 }
 
@@ -161,6 +217,22 @@ export class M5Sim {
     Module._replay_set_time(0n);
     Module._replay_init();
     return new M5Sim(Module);
+  }
+
+  /**
+   * Load + boot from an explicit URL. The default loader picks
+   * <script>-tag (main thread) vs. fetch+eval (Worker) based on
+   * `typeof document`. Use this overload to bypass that detection
+   * — e.g. a test harness that wants to load from a fixture URL.
+   *
+   * @param {string} url Absolute or origin-relative URL to onspeed_m5.js.
+   * @returns {Promise<M5Sim>}
+   */
+  static async fromFactoryUrl(url) {
+    const factory = (typeof document !== 'undefined')
+      ? await loadFactoryViaScriptTag(url)
+      : await loadFactoryViaFetchEval(url);
+    return M5Sim.fromFactory(factory);
   }
 
   /**
