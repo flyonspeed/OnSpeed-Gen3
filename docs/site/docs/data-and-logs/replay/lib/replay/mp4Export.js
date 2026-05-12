@@ -2,19 +2,23 @@
 //
 // Pipeline (one clip at a time):
 //
-//   Video — play-rate harvest:
-//     1. Seek <video> to clip start, set playbackRate, call play().
-//     2. Each requestVideoFrameCallback fires with the just-painted
-//        frame's mediaTime. Map mediaTime → output frame index → log
-//        row → wire frame → sim tick.
-//     3. Read sim state, run it through PresentationFilter (matches
-//        the live preview's slip-ball smoothing), render overlay SVG.
-//     4. Composite to OffscreenCanvas, build a VideoFrame, encode.
-//     5. When video mediaTime crosses clip end, pause + flush.
+//   Video — mp4box demux + VideoDecoder:
+//     1. Probe the source File with mp4box.js (head + tail moov probe,
+//        same pattern as audio). Pull the video track's codec config
+//        (avcC or hvcC) and per-sample byte-range table.
+//     2. Filter samples to [clampedStart, clampedEnd], extended
+//        backwards to the previous keyframe (decode dependency).
+//     3. For each sample: File.slice() → EncodedVideoChunk →
+//        VideoDecoder.decode(). Output frames land in a queue, sorted
+//        by timestamp (cts → display order).
+//     4. For each output slot N (0 to totalFrames-1), pick the decoded
+//        frame whose cts is just-at-or-before slot N's target mediaTime.
+//        Drive sim to that virtual time, render overlay SVG, composite
+//        VideoFrame + overlay onto OffscreenCanvas, encode.
 //
 //   Audio — mp4box demux, no re-encode:
-//     1. Probe the source File with mp4box.js, feeding it chunks via
-//        File.slice() + appendBuffer until onReady fires (moov parsed).
+//     1. Same mp4box file instance — moov already parsed during the
+//        video probe.
 //     2. Walk the AAC track's sample table for samples in
 //        [clampedStart, clampedEnd] — each has byte offset + size + cts.
 //     3. For each sample: File.slice(offset, offset+size).arrayBuffer()
@@ -25,33 +29,29 @@
 //   Both video chunks and demuxed audio bytes feed the same Muxer;
 //   finalize() interleaves them.
 //
-// Why mp4box + slice (not File.arrayBuffer + decodeAudioData): a 17 GB
-// flight video OOM-crashes the browser when fully loaded. mp4box only
-// needs the moov box (a few MB), and each AAC sample is fetched via a
-// targeted File.slice that reads only that sample's bytes from disk.
-//
-// Faster-than-realtime: at playbackRate=4, rVFC fires at the source
-// video's native frame rate (60 fps) regardless of playback speed,
-// each carrying a mediaTime advanced 4× faster than wall clock. A 30 s
-// clip encodes in ~7-8 s on M-series Macs, ~12-15 s on a 2020 MBP.
-// Compare to the v1 seek-per-frame loop's 60-85 s.
+// Why mp4box + slice (not File.arrayBuffer + HTMLVideoElement.play): a
+// 17 GB flight video OOM-crashes the browser when fully loaded, and
+// HTMLVideoElement playback is capped at ~4× by browser decoder
+// throttling regardless of `playbackRate`. mp4box reads only the moov
+// box (a few MB) and we fetch each sample's bytes on demand via
+// targeted File.slice — VideoDecoder runs as fast as the hardware
+// decoder will go (~10-50× realtime on M-series).
 
 import { Muxer, ArrayBufferTarget } from '../vendor/mp4-muxer.js';
-import { createFile } from '../vendor/mp4box.js';
+import { createFile, DataStream } from '../vendor/mp4box.js';
 import { M5Sim } from './m5sim.js';
 import { findRowAt } from './parseLog.js';
 import { PresentationFilter } from './presentationFilter.js';
 
-// Browser feature gate. WebCodecs is Chrome/Edge desktop and partial
-// Safari. We check for VideoEncoder, OffscreenCanvas (compositor
-// target), and rVFC (frame harvest). Audio is demuxed not encoded,
-// so AudioEncoder is no longer required.
+// Browser feature gate. Both VideoEncoder AND VideoDecoder are now
+// required — the export demuxes the source via mp4box.js, decodes
+// frames with VideoDecoder, composites the overlay, and re-encodes
+// with VideoEncoder. OffscreenCanvas is the compositor target.
 export function isMp4ExportSupported() {
   if (typeof window === 'undefined') return false;
   if (!('VideoEncoder' in window)) return false;
+  if (!('VideoDecoder' in window)) return false;
   if (!('OffscreenCanvas' in window)) return false;
-  if (typeof HTMLVideoElement === 'undefined') return false;
-  if (!('requestVideoFrameCallback' in HTMLVideoElement.prototype)) return false;
   return true;
 }
 
@@ -72,7 +72,6 @@ export function isMp4AudioExportSupported() {
 // quality" range for 1080p30.
 const DEFAULT_BITRATE_BPS = 5_000_000;
 const DEFAULT_FRAMERATE   = 30;
-const DEFAULT_PLAYRATE    = 4;        // 4× source playback during encode
 
 async function pickEncoderConfig({ width, height, bitrate, framerate }) {
   const w = Math.max(2, Math.floor(width  / 2) * 2);
@@ -108,44 +107,12 @@ function svgToImage(svgEl) {
   });
 }
 
-// One-shot seek + wait for the next painted frame. Used only for the
-// pre-play positioning (we play() through the clip range, not seek per
-// frame). Registers rVFC BEFORE setting currentTime so the seek-induced
-// composite fires the callback even on paused video.
-function seekVideoAndAwaitFrame(videoEl, targetSec, signal = null) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let timeoutId = null;
-    const finish = (value, err) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId !== null) clearTimeout(timeoutId);
-      videoEl.removeEventListener('seeked', onSeeked);
-      videoEl.removeEventListener('error',  onError);
-      if (signal) signal.removeEventListener('abort', onAbort);
-      if (err) reject(err); else resolve(value);
-    };
-    const onSeeked = () => {};
-    const onError  = (e) => finish(null, new Error('Video seek failed: ' + (e?.message || e)));
-    const onAbort  = () => finish(null, new DOMException('aborted', 'AbortError'));
-    if (signal) {
-      if (signal.aborted) { reject(new DOMException('aborted', 'AbortError')); return; }
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-    videoEl.addEventListener('seeked', onSeeked, { once: true });
-    videoEl.addEventListener('error',  onError,  { once: true });
-    videoEl.requestVideoFrameCallback((_now, meta) => {
-      finish(meta?.mediaTime ?? videoEl.currentTime);
-    });
-    videoEl.currentTime = Math.max(0, targetSec);
-    timeoutId = setTimeout(() => finish(videoEl.currentTime), 100);
-  });
-}
-
-// Composite one frame: video first, overlay PNG in bottom-right.
-// Mirrors the live page's .replay-overlay-frame layout.
-function compositeFrame(ctx, videoEl, overlayImg, W, H) {
-  ctx.drawImage(videoEl, 0, 0, W, H);
+// Composite one frame: video frame first, overlay PNG in bottom-right.
+// Mirrors the live page's .replay-overlay-frame layout. `videoSrc` can
+// be any drawImage-compatible source (VideoFrame, HTMLVideoElement,
+// ImageBitmap, etc).
+function compositeFrame(ctx, videoSrc, overlayImg, W, H) {
+  if (videoSrc) ctx.drawImage(videoSrc, 0, 0, W, H);
   if (overlayImg) {
     const ow = Math.round(W * 0.22);
     const oh = Math.round(ow * 3 / 4);
@@ -202,8 +169,8 @@ function driveSimToVirtMs(sim, state, targetVirtMs, log, sync, cppWireFrames) {
 }
 
 // ---------------------------------------------------------------------
-// Audio demux helpers — feed mp4box just enough of the source file to
-// parse moov, then pull individual AAC sample byte ranges via slice().
+// mp4box demux helpers — parse moov, walk per-sample tables for
+// audio + video tracks.
 // ---------------------------------------------------------------------
 
 // Constants tuned to the moov-discovery problem.
@@ -229,15 +196,14 @@ async function feedRangeUntilReady(isoFile, file, start, end, readyRef, signal) 
   return readyRef.ready;
 }
 
-// Probe the source file's audio track via mp4box. Returns:
-//   { isoFile, audioTrack, sampleRate, channelCount, codec, dsi }
-// or null if no AAC track is found or the moov can't be parsed.
+// Probe the source file's moov via mp4box. Returns the parsed isoFile
+// + info, or null if the moov can't be located within head + tail.
 //
 // "fast-start" MP4s (GoPro, most phones) have moov near the start;
 // "slow-start" MP4s (some editors) have it at the end. We try head
 // first (cheap), fall back to tail. We never read the middle (mdat)
 // during probe — sample bytes are fetched on demand later.
-async function probeAacAudioTrack(file, signal) {
+async function probeSourceFile(file, signal) {
   if (!file || typeof file.slice !== 'function') return null;
   let isoFile;
   try {
@@ -265,11 +231,15 @@ async function probeAacAudioTrack(file, signal) {
   }
 
   if (!ok || !readyRef.info) {
-    console.warn('mp4box: moov not found within head+tail probe; no audio mux.');
+    console.warn('mp4box: moov not found within head+tail probe.');
     return null;
   }
+  return { isoFile, info: readyRef.info };
+}
 
-  const audioTracks = readyRef.info.audioTracks || [];
+// Extract AAC track info + AudioSpecificConfig. Returns null if no AAC.
+function extractAacTrack(isoFile, info) {
+  const audioTracks = info.audioTracks || [];
   if (audioTracks.length === 0) {
     console.warn('mp4box: source has no audio tracks; emitting silent MP4.');
     return null;
@@ -310,15 +280,77 @@ async function probeAacAudioTrack(file, signal) {
     return null;
   }
 
-  return { isoFile, audioTrack, sampleRate, channelCount, codec: audioTrack.codec, dsi };
+  return { audioTrack, sampleRate, channelCount, codec: audioTrack.codec, dsi };
+}
+
+// Serialize an avcC or hvcC box to a Uint8Array using its own `write`
+// method, then strip the 8-byte box header. The remaining bytes are
+// the AVCDecoderConfigurationRecord / HEVCDecoderConfigurationRecord
+// — exactly what VideoDecoder.configure() expects as `description`.
+function extractDecoderConfigDescription(box) {
+  if (!box || typeof box.write !== 'function') return null;
+  const ds = new DataStream();
+  ds.endianness = DataStream.BIG_ENDIAN;
+  try {
+    box.write(ds);
+  } catch (e) {
+    console.warn('mp4box: failed to serialize codec config box:', e?.message || e);
+    return null;
+  }
+  const buf = new Uint8Array(ds.buffer);
+  if (buf.length < 8) return null;
+  // Standard box header: 4-byte size + 4-byte type = 8 bytes. avcC
+  // and hvcC bodies are well under 4 GB, so no 64-bit largesize.
+  return buf.subarray(8);
+}
+
+// Extract H.264/H.265 video track info + decoder config record.
+// Returns null if no video track or codec isn't a supported flavor.
+function extractVideoTrack(isoFile, info) {
+  const videoTracks = info.videoTracks || [];
+  if (videoTracks.length === 0) {
+    console.warn('mp4box: source has no video tracks.');
+    return null;
+  }
+  const videoTrack = videoTracks[0];
+  const codec = videoTrack.codec || '';
+  const isH264 = codec.startsWith('avc1') || codec.startsWith('avc3');
+  const isHevc = codec.startsWith('hvc1') || codec.startsWith('hev1');
+  if (!isH264 && !isHevc) {
+    console.warn(`mp4box: unsupported video codec "${codec}".`);
+    return null;
+  }
+  const width  = videoTrack.video?.width  || videoTrack.track_width;
+  const height = videoTrack.video?.height || videoTrack.track_height;
+  if (!width || !height) {
+    console.warn('mp4box: video track missing width/height.');
+    return null;
+  }
+
+  // Pull the decoder config record from avcC/hvcC.
+  let description = null;
+  try {
+    const trak    = isoFile.getTrackById(videoTrack.id);
+    const stsdEnt = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
+    const cfgBox  = isH264 ? stsdEnt?.avcC : stsdEnt?.hvcC;
+    description   = extractDecoderConfigDescription(cfgBox);
+  } catch (e) {
+    console.warn('mp4box: decoder config extraction failed:', e?.message || e);
+  }
+  if (!description || description.length === 0) {
+    console.warn('mp4box: missing decoder config record.');
+    return null;
+  }
+
+  return { videoTrack, codec, width, height, isH264, isHevc, description };
 }
 
 // Feed AAC samples for [clampedStart, clampedEnd] from `file` straight
 // into the muxer, no re-encode. Returns { added, skipped, reason }.
 async function feedAacSamplesToMuxer({
-  muxer, file, probe, clampedStart, clampedEnd, signal,
+  muxer, file, isoFile, audioInfo, clampedStart, clampedEnd, signal,
 }) {
-  const { isoFile, audioTrack, dsi } = probe;
+  const { audioTrack, dsi } = audioInfo;
   const timescale = audioTrack.timescale;
   if (!timescale) return { added: 0, skipped: true, reason: 'no timescale' };
 
@@ -373,22 +405,62 @@ async function feedAacSamplesToMuxer({
   return { added, skipped: false };
 }
 
+// Select the slice of the video sample table needed to decode the
+// clip window. Includes:
+//   - Every sync sample at or before clampedStart (the closest such
+//     keyframe anchors the decode chain).
+//   - Every sample between that anchor and the last sample with
+//     cts < clampedEnd.
+// Each returned sample carries `output: true` if its cts falls in the
+// window (its decoded frame will be composited + encoded), or
+// `output: false` if it's needed only to advance the decoder context.
+function selectVideoSamples(samples, timescale, clampedStart, clampedEnd) {
+  if (!samples || samples.length === 0) return [];
+  const startTicks = Math.floor(clampedStart * timescale);
+  const endTicks   = Math.ceil (clampedEnd   * timescale);
+
+  // Find the latest sync sample with cts <= startTicks. If none,
+  // start from sample 0 (which is normally a sync sample anyway).
+  let anchorIdx = 0;
+  for (let i = 0; i < samples.length; i++) {
+    if (samples[i].cts > startTicks) break;
+    if (samples[i].is_sync) anchorIdx = i;
+  }
+
+  const out = [];
+  for (let i = anchorIdx; i < samples.length; i++) {
+    const s = samples[i];
+    if (s.cts >= endTicks) break;
+    const inWindow = (s.cts + s.duration > startTicks) && (s.cts < endTicks);
+    out.push({
+      offset:   s.offset,
+      size:     s.size,
+      cts:      s.cts,
+      dts:      s.dts,
+      duration: s.duration,
+      isSync:   !!s.is_sync,
+      output:   inWindow,
+    });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------
 // Public API.
 // ---------------------------------------------------------------------
 //
-// Options (new in v2):
-//   sourceFile:        File | Blob — the original video file. Its AAC
-//                      track is demuxed via mp4box.js (no in-memory
-//                      copy of the file) and remuxed into the output.
-//                      If omitted, MP4 is exported silent.
+// Options (v3 — VideoDecoder pipeline):
+//   sourceFile:        File | Blob — REQUIRED. The original video file.
+//                      Both video and audio tracks are demuxed via
+//                      mp4box.js. No in-memory copy of the file is
+//                      created; we File.slice() per-sample.
+//   videoEl:           HTMLVideoElement — used ONLY for videoWidth /
+//                      videoHeight / duration reads. We never call
+//                      play() / seek() on it during export.
 //   presentationTau:   { lateralSec, verticalSec } | null — render-side
 //                      smoothing applied to state.LateralG/VerticalG
 //                      before SVG render. Mirrors the live preview's
 //                      PresentationFilter; null = no smoothing.
-//   playbackRate:      4 by default; controls source-video play speed
-//                      during harvest. Higher = faster encode but more
-//                      sensitive to decoder hiccups.
 //
 // Returns: Promise<Blob>  — an MP4 ready to download.
 export async function exportClipAsMp4({
@@ -403,14 +475,13 @@ export async function exportClipAsMp4({
   outputWidth     = 1920,
   bitrate         = DEFAULT_BITRATE_BPS,
   framerate       = DEFAULT_FRAMERATE,
-  playbackRate    = DEFAULT_PLAYRATE,
   onProgress      = null,
   signal          = null,
 }) {
   if (!isMp4ExportSupported()) {
     throw new Error(
-      'MP4 export requires Chrome or Edge desktop. WebCodecs support ' +
-      'is incomplete in Safari / Firefox.');
+      'MP4 export requires Chrome or Edge desktop. WebCodecs ' +
+      '(VideoEncoder + VideoDecoder) is incomplete in Safari / Firefox.');
   }
   if (!videoEl)        throw new Error('exportClipAsMp4: videoEl required');
   if (!clip)           throw new Error('exportClipAsMp4: clip required');
@@ -427,6 +498,12 @@ export async function exportClipAsMp4({
   }
   if (!videoEl.videoWidth || !videoEl.videoHeight) {
     throw new Error('exportClipAsMp4: video metadata not loaded yet');
+  }
+  if (!sourceFile || typeof sourceFile.slice !== 'function') {
+    throw new Error(
+      'exportClipAsMp4: sourceFile (File/Blob) is required. The export ' +
+      'demuxes the source via mp4box.js; without it the input video ' +
+      'cannot be decoded.');
   }
 
   // Map clip times to video seconds.
@@ -471,31 +548,36 @@ export async function exportClipAsMp4({
     });
   }
 
-  // ---------- Audio probe (mp4box demux) ------------------------------
+  // ---------- Demux probe (audio + video share one moov parse) -------
   // Parse just the source file's moov box (reading only the first
   // ~64 MB, falling back to the last 64 MB for non-fast-start files).
-  // This gives us sample_rate, channel_count, and the AAC
-  // AudioSpecificConfig — everything the muxer needs to declare its
-  // audio track. Actual sample bytes are pulled later, one frame at
-  // a time, via File.slice(). No multi-GB ArrayBuffer ever exists.
-  let audioProbe   = null;
-  let muxerAudioCfg = null;
-  if (sourceFile && isMp4AudioExportSupported()) {
-    try {
-      audioProbe = await probeAacAudioTrack(sourceFile, signal);
-      if (audioProbe) {
-        muxerAudioCfg = {
-          codec: 'aac',
-          sampleRate:       audioProbe.sampleRate,
-          numberOfChannels: audioProbe.channelCount,
-        };
-      }
-    } catch (e) {
-      if (e?.name === 'AbortError') throw e;
-      // eslint-disable-next-line no-console
-      console.warn('audio probe skipped:', e?.message || e);
-    }
+  // From the parsed moov we pull:
+  //   - audio track info + AudioSpecificConfig (for raw AAC mux)
+  //   - video track info + AVCDecoderConfigurationRecord (for decode)
+  // Actual sample bytes are pulled later, one frame at a time, via
+  // File.slice(). No multi-GB ArrayBuffer ever exists.
+  const probe = await probeSourceFile(sourceFile, signal);
+  if (!probe) {
+    sim.delete();
+    throw new Error(
+      'mp4box could not parse the source file moov box. The file may ' +
+      'be truncated, not an ISO BMFF MP4, or have moov beyond head+tail probe.');
   }
+  const videoInfo = extractVideoTrack(probe.isoFile, probe.info);
+  if (!videoInfo) {
+    sim.delete();
+    throw new Error(
+      'No supported video track in source file. Expected H.264 (avc1/avc3) ' +
+      'or HEVC (hvc1/hev1). HEVC requires Chrome with hardware HEVC support.');
+  }
+
+  // Audio is optional. If it fails we still produce a silent MP4.
+  const audioInfo   = extractAacTrack(probe.isoFile, probe.info);
+  const muxerAudioCfg = audioInfo ? {
+    codec: 'aac',
+    sampleRate:       audioInfo.sampleRate,
+    numberOfChannels: audioInfo.channelCount,
+  } : null;
 
   const target = new ArrayBufferTarget();
   const muxer  = new Muxer({
@@ -520,178 +602,274 @@ export async function exportClipAsMp4({
   });
   encoder.configure(encConfig);
 
-  // Snapshot user-facing video state for restoration.
-  const origRate     = videoEl.playbackRate;
-  const origMuted    = videoEl.muted;
-  const origPaused   = videoEl.paused;
-  const origCurrentT = videoEl.currentTime;
-
   // ---------- Spawn AAC demux in the background ----------------------
   // Pull each AAC sample's bytes via File.slice() and feed straight
   // into the muxer. No decode + re-encode. Runs in parallel with the
-  // video harvest; both feed the same muxer.
+  // video decode/encode; both feed the same muxer.
   let audioPromise = null;
-  if (audioProbe && muxerAudioCfg) {
+  if (audioInfo && muxerAudioCfg) {
     audioPromise = feedAacSamplesToMuxer({
       muxer,
       file: sourceFile,
-      probe: audioProbe,
+      isoFile: probe.isoFile,
+      audioInfo,
       clampedStart,
       clampedEnd,
       signal,
     });
   }
 
-  // ---------- Video harvest loop -------------------------------------
-  // Strategy: play() at playbackRate=N. Each rVFC callback fires once
-  // per painted frame with mediaTime. We map mediaTime → output frame
-  // slot (rounded to the nearest 1/framerate). The first time we see
-  // each output slot, we encode that frame. Subsequent rVFC for the
-  // same slot are dropped (source video at 60fps × 4× playback = 60
-  // mediaTime-frames/sec, which we downsample to 30 output frames/sec
-  // by slot dedup).
+  // ---------- Video decode → composite → encode pipeline -------------
   //
-  // Slot-based dedup is more robust than "encode every rVFC" because
-  // playback rate isn't always honored exactly and rVFC can fire
-  // late-but-bunched.
+  // Strategy:
+  //   1. Walk the sample table, find the keyframe at-or-before
+  //      clampedStart, enumerate samples through clampedEnd.
+  //   2. Feed each sample's encoded bytes to a VideoDecoder. Output
+  //      frames arrive in decode order (which can differ from display
+  //      order for B-frame streams).
+  //   3. Hold each output frame in a sorted-by-timestamp queue.
+  //   4. For each output slot N at clampedStart + N/framerate, pop
+  //      the frame whose cts is the largest <= slot target.
+  //   5. Drive sim, render overlay, composite, encode.
   //
-  // Termination: when mediaTime ≥ clampedEnd, pause and break the harvest.
-  const keyframeInterval = Math.max(1, framerate);
-  videoEl.pause();
-  videoEl.muted = true;       // we mux audio separately
-  await seekVideoAndAwaitFrame(videoEl, clampedStart, signal);
+  // The decoder runs concurrently with composite+encode via a small
+  // ring of pending frames. We back-pressure the demux feed when the
+  // decode queue gets large.
 
-  const harvested = new Set();   // output-slot indices already encoded
-  let nextEncodeSlot = 0;
-  let lastEncodedFrame = -1;
+  const videoTimescale = videoInfo.videoTrack.timescale;
+  if (!videoTimescale) {
+    sim.delete();
+    throw new Error('Video track has no timescale.');
+  }
+  const videoSamples = probe.isoFile.getTrackSamplesInfo(videoInfo.videoTrack.id);
+  if (!videoSamples || videoSamples.length === 0) {
+    sim.delete();
+    throw new Error('Video track has no samples.');
+  }
+  const selectedSamples = selectVideoSamples(
+    videoSamples, videoTimescale, clampedStart, clampedEnd);
+  if (selectedSamples.length === 0) {
+    sim.delete();
+    throw new Error('No video samples overlap the clip window.');
+  }
 
-  const harvestDone = new Promise((resolveHarvest, rejectHarvest) => {
-    let stopped = false;
-    const stopHarvest = (err) => {
-      if (stopped) return;
-      stopped = true;
-      try { videoEl.pause(); } catch (_) {}
-      if (err) rejectHarvest(err); else resolveHarvest();
-    };
+  // Frame queue: sorted by timestamp (display order). Decoder may
+  // emit out of order on B-frame streams; consumer pops in order.
+  const frameQueue = [];
+  let decoderError = null;
 
-    const onAbort = () => stopHarvest(new DOMException('aborted', 'AbortError'));
-    if (signal) {
-      if (signal.aborted) { stopHarvest(new DOMException('aborted', 'AbortError')); return; }
-      signal.addEventListener('abort', onAbort, { once: true });
+  // Insert keeping sorted-ascending-by-timestamp. Most production
+  // flight footage is IPP (no B-frames) so this is amortized O(1)
+  // at the tail; even for IBP it's at most a small constant shuffle.
+  function insertFrame(frame) {
+    const ts = frame.timestamp;
+    // Binary search for insert position.
+    let lo = 0, hi = frameQueue.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (frameQueue[mid].timestamp <= ts) lo = mid + 1;
+      else hi = mid;
     }
+    frameQueue.splice(lo, 0, frame);
+  }
 
-    const onFrame = async (_now, meta) => {
-      if (stopped) return;
-      try {
-        const mediaTime = meta?.mediaTime ?? videoEl.currentTime;
-
-        // Reached or past clip end? Stop.
-        if (mediaTime >= clampedEnd) {
-          stopHarvest(null);
-          return;
-        }
-
-        // Encoder back-pressure.
-        while (encoder.encodeQueueSize > 4) {
-          if (signal?.aborted) { stopHarvest(new DOMException('aborted','AbortError')); return; }
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise(r => setTimeout(r, 0));
-        }
-        if (encoderError) { stopHarvest(encoderError); return; }
-
-        // Map mediaTime to an output slot index. We're emitting at
-        // framerate fps starting at clampedStart, so slot N has
-        // mediaTime ≈ clampedStart + N/framerate.
-        const slot = Math.floor((mediaTime - clampedStart) * framerate);
-        if (slot < 0)            { videoEl.requestVideoFrameCallback(onFrame); return; }
-        if (slot >= totalFrames) { stopHarvest(null); return; }
-        if (harvested.has(slot)) { videoEl.requestVideoFrameCallback(onFrame); return; }
-
-        // Fill any skipped slots first (rare — happens if playback
-        // rate is too high and rVFC bunches). Re-use the current
-        // painted pixels for the gap fillers, which is what the
-        // pilot saw too at that mediaTime.
-        for (let s = lastEncodedFrame + 1; s <= slot; s++) {
-          if (harvested.has(s)) continue;
-          // Drive sim to this slot's virtual time.
-          const slotMediaTime = clampedStart + s / framerate;
-          const targetVirtMs = Math.max(0, slotMediaTime * 1000);
-          driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
-
-          let rawState = sim.read();
-          let m5State  = rawState;
-          if (presFilter && rawState) {
-            const dt = 1 / framerate;
-            const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dt);
-            m5State = Object.freeze({
-              ...rawState,
-              LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
-              VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
-            });
-          }
-
-          let overlayImg = null;
-          try {
-            const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State) : null;
-            if (svgEl) {
-              // eslint-disable-next-line no-await-in-loop
-              overlayImg = await svgToImage(svgEl);
-            }
-          } catch (e) {
-            // eslint-disable-next-line no-console
-            console.warn('overlay raster failed for slot', s, e);
-          }
-
-          compositeFrame(ctx, videoEl, overlayImg, W, H);
-
-          const tsUs    = Math.round(s * 1_000_000 / framerate);
-          const durUs   = Math.round(    1_000_000 / framerate);
-          const vframe  = new VideoFrame(canvas, { timestamp: tsUs, duration: durUs });
-          const isKey   = (s % keyframeInterval) === 0 || s === 0;
-          encoder.encode(vframe, { keyFrame: isKey });
-          vframe.close();
-
-          harvested.add(s);
-          lastEncodedFrame = s;
-          nextEncodeSlot = s + 1;
-          if (onProgress) {
-            onProgress({
-              frame: harvested.size,
-              totalFrames,
-              encodedSec: (s + 1) / framerate,
-              totalSec,
-            });
-          }
-        }
-
-        // Re-arm rVFC for the next painted frame.
-        if (nextEncodeSlot < totalFrames && !stopped) {
-          videoEl.requestVideoFrameCallback(onFrame);
-        } else {
-          stopHarvest(null);
-        }
-      } catch (e) {
-        stopHarvest(e);
-      }
-    };
-
-    // Configure playback rate AFTER seek-settle, then play() + arm rVFC.
-    videoEl.playbackRate = playbackRate;
-    videoEl.requestVideoFrameCallback(onFrame);
-    videoEl.play().catch((e) => stopHarvest(e));
+  const decoder = new VideoDecoder({
+    output: (frame) => {
+      if (decoderError) { frame.close(); return; }
+      insertFrame(frame);
+    },
+    error: (e) => { decoderError = e; },
   });
 
+  // Try to configure. If it fails we surface a clear error — most
+  // common cause is HEVC on a non-HEVC-capable Chrome.
+  const decoderCfg = {
+    codec:        videoInfo.codec,
+    description:  videoInfo.description,
+    codedWidth:   videoInfo.width,
+    codedHeight:  videoInfo.height,
+  };
   try {
-    await harvestDone;
-    if (encoderError) throw encoderError;
+    const support = await VideoDecoder.isConfigSupported(decoderCfg);
+    if (!support.supported) {
+      sim.delete();
+      const what = videoInfo.isHevc ? 'HEVC (h.265)' : `codec "${videoInfo.codec}"`;
+      throw new Error(
+        `Browser cannot decode ${what}. Try Chrome ≥107 with hardware ` +
+        `HEVC support, or transcode the source to H.264 first.`);
+    }
+  } catch (e) {
+    if (e?.message?.startsWith('Browser cannot decode')) throw e;
+    sim.delete();
+    throw new Error(`VideoDecoder.isConfigSupported failed: ${e?.message || e}`);
+  }
+  decoder.configure(decoderCfg);
 
-    // Wait for audio encode (if any). Audio failure shouldn't kill the
-    // export; we fall back to silent in that case.
+  // Anchor video timestamps at the first sample's cts so the muxer
+  // sees a t=0-origin timeline. Use cts, not dts, because we sort
+  // output frames by cts (display order).
+  const firstWindowCts = selectedSamples.find(s => s.output)?.cts ??
+                         selectedSamples[0].cts;
+
+  // ---------- Demux feed task ---------------------------------------
+  // Walks selectedSamples, pulls bytes via File.slice, builds
+  // EncodedVideoChunks, feeds the decoder. Back-pressures when the
+  // decoder is saturated.
+  const feedDone = (async () => {
+    for (let i = 0; i < selectedSamples.length; i++) {
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+      if (decoderError) throw decoderError;
+
+      // Back-pressure on both the decode pipeline (un-started
+      // decodes) and the already-decoded frame buffer (each
+      // VideoFrame holds GPU/system memory). Cap total in-flight at
+      // ~64 frames to keep memory bounded.
+      while (decoder.decodeQueueSize + frameQueue.length > 64) {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(r => setTimeout(r, 1));
+      }
+
+      const s = selectedSamples[i];
+      // eslint-disable-next-line no-await-in-loop
+      const ab = await sourceFile.slice(s.offset, s.offset + s.size).arrayBuffer();
+      const bytes = new Uint8Array(ab);
+
+      // Timestamp space: microseconds, anchored at firstWindowCts.
+      // Decode-only samples (before the window) get negative ts; that's
+      // fine — VideoDecoder accepts any int64, and we filter on cts
+      // later when matching to output slots.
+      const tsUs  = Math.round((s.cts - firstWindowCts) * 1_000_000 / videoTimescale);
+      const durUs = Math.max(1,
+        Math.round(s.duration * 1_000_000 / videoTimescale));
+
+      const chunk = new EncodedVideoChunk({
+        type:      s.isSync ? 'key' : 'delta',
+        timestamp: tsUs,
+        duration:  durUs,
+        data:      bytes,
+      });
+      decoder.decode(chunk);
+    }
+    await decoder.flush();
+  })();
+
+  // ---------- Output slot loop --------------------------------------
+  // Walks slots 0..totalFrames-1. For each slot, waits for a decoded
+  // frame whose timestamp is >= slot target time (or until feed is
+  // done and queue can't yield one). The largest frame with
+  // timestamp <= target is the "current" frame for that slot.
+  //
+  // Frames stay in queue until consumed (so a single decoded frame
+  // can serve multiple slots if the source frame rate is lower than
+  // output frame rate, e.g. 24 fps → 30 fps duplicates some).
+  let feedError = null;
+  feedDone.catch((e) => { feedError = e; });
+
+  let slotsEncoded = 0;
+  try {
+    for (let slot = 0; slot < totalFrames; slot++) {
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+      if (decoderError) throw decoderError;
+      if (feedError && !(feedError.name === 'AbortError')) throw feedError;
+      if (encoderError) throw encoderError;
+
+      const slotMediaTime = clampedStart + slot / framerate;
+      // Convert to the same timestamp space as decoded frames:
+      // microseconds, anchored at firstWindowCts/timescale.
+      // Frame ts = (sample.cts - firstWindowCts) * 1e6 / timescale
+      //         = (sample_mediaTime - firstWindow_mediaTime) * 1e6.
+      const firstWindowSec = firstWindowCts / videoTimescale;
+      const slotTsUs = Math.round((slotMediaTime - firstWindowSec) * 1_000_000);
+
+      // Wait until either:
+      //   - The queue has a frame with timestamp > slotTsUs (so we
+      //     know the largest <= slotTsUs is finalized), OR
+      //   - The feed is fully drained (no more frames can arrive).
+      // eslint-disable-next-line no-await-in-loop
+      let frame = await waitForFrameAtOrBefore(
+        frameQueue, slotTsUs, feedDone, signal);
+
+      if (!frame) {
+        // Drained queue with nothing usable — should not happen if
+        // selectedSamples was constructed correctly. Fall back to
+        // black + overlay (don't fail the export for a single slot).
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // Drive sim to this slot's virtual time.
+      const targetVirtMs = Math.max(0, slotMediaTime * 1000);
+      driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
+
+      let rawState = sim.read();
+      let m5State  = rawState;
+      if (presFilter && rawState) {
+        const dt = 1 / framerate;
+        const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dt);
+        m5State = Object.freeze({
+          ...rawState,
+          LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
+          VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
+        });
+      }
+
+      let overlayImg = null;
+      try {
+        const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State) : null;
+        if (svgEl) {
+          // eslint-disable-next-line no-await-in-loop
+          overlayImg = await svgToImage(svgEl);
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('overlay raster failed for slot', slot, e);
+      }
+
+      if (frame) compositeFrame(ctx, frame, overlayImg, W, H);
+      else if (overlayImg) compositeFrame(ctx, null, overlayImg, W, H);
+
+      // Encoder back-pressure.
+      while (encoder.encodeQueueSize > 4) {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(r => setTimeout(r, 0));
+      }
+      if (encoderError) throw encoderError;
+
+      const outTsUs  = Math.round(slot * 1_000_000 / framerate);
+      const outDurUs = Math.round(       1_000_000 / framerate);
+      const isKey    = (slot % Math.max(1, framerate)) === 0 || slot === 0;
+      const outFrame = new VideoFrame(canvas, { timestamp: outTsUs, duration: outDurUs });
+      encoder.encode(outFrame, { keyFrame: isKey });
+      outFrame.close();
+
+      slotsEncoded++;
+      if (onProgress) {
+        onProgress({
+          frame:      slotsEncoded,
+          totalFrames,
+          encodedSec: slotsEncoded / framerate,
+          totalSec,
+        });
+      }
+    }
+
+    // Drain any remaining decoder feed work + audio.
+    try { await feedDone; }
+    catch (e) {
+      if (e?.name === 'AbortError') throw e;
+      // Decode errors after we've already collected enough frames
+      // are non-fatal — the slot loop already finished.
+      console.warn('video demux feed finished with:', e?.message || e);
+    }
+
     if (audioPromise) {
       try { await audioPromise; }
       catch (e) {
+        if (e?.name === 'AbortError') throw e;
         // eslint-disable-next-line no-console
-        console.warn('audio encode failed, exporting silent:', e);
+        console.warn('audio mux failed, exporting silent:', e);
       }
     }
 
@@ -703,16 +881,60 @@ export async function exportClipAsMp4({
     if (!target.buffer) throw new Error('Muxer produced no output.');
     return new Blob([target.buffer], { type: 'video/mp4' });
   } finally {
-    try { videoEl.pause(); } catch (_) {}
+    // Close any decoded frames left in queue.
+    for (const f of frameQueue) { try { f.close(); } catch (_) {} }
+    frameQueue.length = 0;
+    try { decoder.state !== 'closed' && decoder.close(); } catch (_) {}
     try { encoder.state !== 'closed' && encoder.close(); } catch (_) {}
     try { sim.delete(); } catch (_) {}
-    videoEl.playbackRate = origRate;
-    videoEl.muted        = origMuted;
-    // Restore playhead to where the pilot left it.
-    try { videoEl.currentTime = origCurrentT; } catch (_) {}
-    if (!origPaused) {
-      try { await videoEl.play(); } catch (_) {}
+  }
+}
+
+// Wait for the queue to contain a frame whose timestamp is the
+// largest <= targetTsUs, AND for that frame's successor (or feed
+// drain) to be observed so we know the choice is final. Returns the
+// chosen frame (popped from the queue) or null if no frame can serve
+// the target (feed drained, nothing at-or-before target).
+//
+// Frames with timestamp < targetTsUs but not the chosen one are
+// closed and discarded — they're earlier than the current slot and
+// can't serve later slots either (slots only advance forward).
+async function waitForFrameAtOrBefore(frameQueue, targetTsUs, feedDone, signal) {
+  let feedFinished = false;
+  feedDone.then(() => { feedFinished = true; }, () => { feedFinished = true; });
+
+  while (true) {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+
+    // Find the chosen frame: largest timestamp <= targetTsUs.
+    // We can finalize the choice when:
+    //   (a) the queue has a frame with timestamp > targetTsUs
+    //       (proving no later-arriving in-order frame can beat the
+    //       current best), OR
+    //   (b) the feed has fully drained (no more frames can arrive).
+    let chosenIdx = -1;
+    let hasFuture = false;
+    for (let i = 0; i < frameQueue.length; i++) {
+      const ts = frameQueue[i].timestamp;
+      if (ts <= targetTsUs) chosenIdx = i;
+      else { hasFuture = true; break; }
     }
+
+    if (hasFuture || feedFinished) {
+      if (chosenIdx < 0) return null;
+      const chosen = frameQueue[chosenIdx];
+      // Close + drop frames strictly before chosen — they're now
+      // unreachable (slots only advance forward).
+      for (let i = 0; i < chosenIdx; i++) {
+        try { frameQueue[i].close(); } catch (_) {}
+      }
+      frameQueue.splice(0, chosenIdx + 1);
+      return chosen;
+    }
+
+    // Queue currently empty or only has candidates <= target;
+    // wait for more frames.
+    await new Promise(r => setTimeout(r, 1));
   }
 }
 
@@ -754,7 +976,6 @@ export const MP4_EXPORT_INTERNAL = Object.freeze({
   M5_LARGE_JUMP_MS,
   DEFAULT_BITRATE_BPS,
   DEFAULT_FRAMERATE,
-  DEFAULT_PLAYRATE,
   MP4BOX_HEAD_BYTES,
   MP4BOX_TAIL_BYTES,
   MP4BOX_CHUNK_BYTES,
