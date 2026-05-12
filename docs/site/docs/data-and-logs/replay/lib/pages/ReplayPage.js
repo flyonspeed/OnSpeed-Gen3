@@ -1235,6 +1235,10 @@ export const ReplayPage = () => {
         sourceFile:    videoFile,
         // Match the live preview's slip-ball smoothing.
         presentationTau,
+        // Match the live preview's M5 mode (Energy/Attitude/Indexer/...).
+        // Without this the fresh export-sim defaults to mode 0 (Energy)
+        // regardless of what the page is showing.
+        displayMode:   m5ModeId,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -1263,7 +1267,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, m5SmoothPreset]);
+      videoFile, m5SmoothPreset, m5ModeId]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);

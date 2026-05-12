@@ -588,6 +588,12 @@ export async function exportClipAsMp4({
   renderOverlaySvg,
   sourceFile      = null,
   presentationTau = null,
+  // Which M5 mode the burned-in overlay should render. Integer 0-4
+  // matching the firmware's kModeNames / M5_MODES. Default 0 (Energy)
+  // matches a fresh M5Sim's default but is almost always wrong for
+  // export — the page should pass the live preview's current mode so
+  // the export matches what the pilot sees on screen.
+  displayMode     = 0,
   outputWidth     = null,
   bitrate         = null,
   framerate       = null,
@@ -641,6 +647,12 @@ export async function exportClipAsMp4({
 
   const sim = await M5Sim.create();
   if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
+  // Set the display mode on the fresh sim so state.displayType matches
+  // the live preview's mode. Without this, every export rendered the
+  // sim's default mode (0 = Energy) regardless of what the page showed.
+  if (Number.isFinite(displayMode)) {
+    try { sim.setMode(displayMode); } catch (_) { /* sim may not yet support */ }
+  }
   const simState = { lastVirtMs: 0, lastBoundaryMs: 0 };
 
   // PresentationFilter — same as live preview's render-side smoothing.
