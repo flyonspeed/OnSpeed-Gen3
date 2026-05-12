@@ -1091,6 +1091,466 @@ export function expectedFrameCount(clipDurationSec, frameRate) {
   return Math.max(1, Math.round(clipDurationSec * frameRate));
 }
 
+// ---------------------------------------------------------------------
+// Overlay-only export: render JUST the M5 mode panel against a
+// chroma-key background (no source video involved). Optimised to
+// render N modes in one pass — shared sim + presentation filter,
+// parallel encoders. Output is one MP4 per mode, ready to drop into
+// an NLE for chroma-key compositing over GoPro footage.
+// ---------------------------------------------------------------------
+
+// Mode-id string → M5Sim displayType int. The five modes the M5
+// firmware supports; matches M5_MODES in ReplayPage.js.
+export const OVERLAY_MODE_IDS = Object.freeze({
+  'energy':     0,
+  'attitude':   1,
+  'indexer':    2,
+  'decel':      3,
+  'historic-g': 4,
+});
+
+// Order the UI lists modes in (also the order the M5 firmware
+// rotates through). Used for a stable per-pass iteration order and
+// for "all 5" UI default.
+export const OVERLAY_MODE_ORDER = Object.freeze([
+  'indexer',    // 2 — the most-shipped mode; first so it renders quickest
+  'attitude',   // 1
+  'energy',     // 0
+  'decel',      // 3
+  'historic-g', // 4
+]);
+
+// Default chroma-key color. Purple #A020F0 — picked because it does
+// NOT appear in the M5 avionics palette (which uses black, white,
+// red, yellow, green-with-yellow-tint #00ff3a, cyan-sky #00fffe,
+// brown-ground #954511, magenta #ff00ff for flight-path marker,
+// orange #ff8800, and blue #0000ff). Industry-standard chroma-green
+// (#00ff00) and chroma-blue (#0000ff) both collide with palette
+// entries — NLE chroma-key tolerance keys out the M5's green
+// chevrons / blue indicators along with the background. Purple has
+// no palette neighbour, so a default tolerance keys cleanly.
+//
+// Pilots can override via the UI if their overlay context needs a
+// different background.
+const OVERLAY_DEFAULT_CHROMA = '#A020F0';
+
+// Feature gate. Overlay-only export only needs VideoEncoder +
+// OffscreenCanvas — no VideoDecoder (no source video to demux).
+export function isOverlayExportSupported() {
+  if (typeof window === 'undefined') return false;
+  if (!('VideoEncoder' in window)) return false;
+  if (!('OffscreenCanvas' in window)) return false;
+  return true;
+}
+
+// Pick an H.264 encoder config for overlay-only output. Simpler than
+// the source-faithful pipeline: no source codec to match, so we go
+// straight to H.264 High profile (broadest NLE compat).
+async function pickOverlayEncoderConfig({ width, height, bitrate, framerate }) {
+  const w = Math.max(2, Math.floor(width  / 2) * 2);
+  const h = Math.max(2, Math.floor(height / 2) * 2);
+  const candidates = [
+    { codec: 'avc1.640033', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+    { codec: 'avc1.640028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+    { codec: 'avc1.42E028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+  ];
+  for (const cfg of candidates) {
+    try {
+      const r = await VideoEncoder.isConfigSupported(cfg);
+      if (r.supported) return r.config;
+    } catch (_) { /* try next */ }
+  }
+  throw new Error(`No supported H.264 encoder config at ${w}x${h}.`);
+}
+
+// Composite an overlay SVG image onto a chroma-keyed canvas. The
+// overlay fills the canvas (the NLE compositor places it wherever
+// the editor wants — there's no "bottom-right of the source video"
+// layout decision baked into the file).
+//
+// Aspect-preserving: the overlay SVG has its own intrinsic aspect
+// (the M5 modes are 4:3 by tradition; the canvas is whatever the
+// caller picks). We draw the overlay centered, scaled to fill the
+// shorter dimension, so a 1080p canvas with a 4:3 SVG paints the
+// overlay at 1440×1080 centered — extra width is chroma.
+function compositeOverlayOnly(ctx, overlayImg, chromaColor, W, H, intrinsicAspect) {
+  ctx.fillStyle = chromaColor;
+  ctx.fillRect(0, 0, W, H);
+  if (!overlayImg) return;
+  // Aspect 4:3 by default; caller can override if the SVG declares
+  // a different aspect.
+  const aspect = (intrinsicAspect && intrinsicAspect > 0) ? intrinsicAspect : (4 / 3);
+  let dw, dh;
+  if (W / H > aspect) {
+    // Canvas wider than overlay aspect — overlay limited by height.
+    dh = H;
+    dw = H * aspect;
+  } else {
+    // Canvas taller than overlay aspect — overlay limited by width.
+    dw = W;
+    dh = W / aspect;
+  }
+  const dx = (W - dw) / 2;
+  const dy = (H - dh) / 2;
+  ctx.drawImage(overlayImg, dx, dy, dw, dh);
+}
+
+// One encoder + muxer + canvas, scoped to a single mode. The frame
+// loop instantiates one of these per mode requested. Each has its
+// own VideoEncoder back-pressure queue; sharing a single encoder
+// across modes would serialise the per-mode encode work pointlessly.
+class OverlayModeEncoder {
+  constructor({ modeId, encConfig, W, H, framerate }) {
+    this.modeId = modeId;
+    this.W = W;
+    this.H = H;
+    this.canvas = new OffscreenCanvas(W, H);
+    this.ctx    = this.canvas.getContext('2d');
+    this.target = new ArrayBufferTarget();
+    this.muxer  = new Muxer({
+      target: this.target,
+      fastStart: 'in-memory',
+      video: { codec: 'avc', width: W, height: H, frameRate: framerate },
+      firstTimestampBehavior: 'offset',
+    });
+    this.error = null;
+    this.encoder = new VideoEncoder({
+      output: (chunk, meta) => {
+        try { this.muxer.addVideoChunk(chunk, meta); }
+        catch (e) { this.error = e; }
+      },
+      error: (e) => { this.error = e; },
+    });
+    this.encoder.configure(encConfig);
+    this.framesEncoded = 0;
+  }
+
+  async finalize() {
+    if (this.error) throw this.error;
+    await this.encoder.flush();
+    if (this.error) throw this.error;
+    this.encoder.close();
+    this.muxer.finalize();
+    if (!this.target.buffer) throw new Error(`Muxer for "${this.modeId}" produced no output.`);
+    return new Blob([this.target.buffer], { type: 'video/mp4' });
+  }
+
+  closeOnError() {
+    try { if (this.encoder.state !== 'closed') this.encoder.close(); } catch (_) {}
+  }
+}
+
+// Per-frame timing instrumentation. The caller-facing onProgress
+// callback exposes aggregated counts; this object accumulates totals
+// for the final report.
+function newTimingsBag() {
+  return { simMs: 0, renderMs: 0, encodeMs: 0, frames: 0 };
+}
+
+// Public API: render overlay-only MP4s for one or more modes.
+//
+// Options:
+//   clip:               { startMs, endMs, label? } — required.
+//   sync:               { logTakeoffMs, videoTakeoffSec } — required.
+//   log:                parsed log — required.
+//   cppWireFrames:      pre-pass output { frames: Uint8Array[] } — required.
+//   renderOverlaySvg:   (m5State, displayTypeOverride?) → SVGElement.
+//                       The override lets us render a different mode
+//                       per encoder while reusing one sim state. The
+//                       ReplayPage callback is backwards-compatible:
+//                       if it ignores the override, only m5State.displayType
+//                       is used (existing source-faithful path).
+//   modes:              string[] of mode-id strings from OVERLAY_MODE_IDS.
+//                       Defaults to all five in OVERLAY_MODE_ORDER.
+//   sourceVideoInfo:    { width, height, frameRate } | null — used as
+//                       the default output res/fps if outputWidth /
+//                       outputHeight / framerate are omitted. Pass
+//                       videoEl.videoWidth/etc. from the page, or null.
+//   presentationTau:    same shape as exportClipAsMp4 — mirror live
+//                       preview's slip-ball smoothing.
+//   backgroundMode:     'chroma' (default) | 'transparent'. Chroma
+//                       writes the chromaColor as the canvas background;
+//                       transparent only works if an alpha-capable
+//                       codec is available (probed at runtime, falls
+//                       back to chroma with a console.warn).
+//   chromaColor:        CSS color string. Default '#00ff00'.
+//   outputWidth/Height: explicit output dims. Default = sourceVideoInfo
+//                       dims (or 1920×1080 if no source info given).
+//   framerate:          override the encode frame rate. Default = 30.
+//   bitrate:            override the encoder bitrate. null = compute
+//                       from output dims + fps via computeBitrate.
+//   durationSec:        clip duration in seconds. Default = computed
+//                       from clip.startMs/endMs.
+//   onProgress:         ({ mode, frame, totalFrames, encodedSec, totalSec })
+//                       → void. Called once per (mode, frame).
+//   signal:             AbortSignal | null.
+//
+// Returns: Promise<Map<modeId, Blob>>.
+export async function exportOverlayOnly({
+  clip,
+  sync,
+  log,
+  cppWireFrames,
+  renderOverlaySvg,
+  modes             = null,
+  sourceVideoInfo   = null,
+  presentationTau   = null,
+  backgroundMode    = 'chroma',
+  chromaColor       = OVERLAY_DEFAULT_CHROMA,
+  outputWidth       = null,
+  outputHeight      = null,
+  framerate         = null,
+  bitrate           = null,
+  durationSec       = null,
+  onProgress        = null,
+  signal            = null,
+} = {}) {
+  if (!isOverlayExportSupported()) {
+    throw new Error(
+      'Overlay-only export requires Chrome or Edge desktop. WebCodecs ' +
+      'VideoEncoder + OffscreenCanvas needed.');
+  }
+  if (!clip) throw new Error('exportOverlayOnly: clip required');
+  if (!sync || !Number.isFinite(sync.logTakeoffMs) ||
+      !Number.isFinite(sync.videoTakeoffSec)) {
+    throw new Error('exportOverlayOnly: complete sync anchor required.');
+  }
+  if (!log) throw new Error('exportOverlayOnly: log required');
+  if (!cppWireFrames || !cppWireFrames.frames) {
+    throw new Error('exportOverlayOnly: cppWireFrames required.');
+  }
+  if (!renderOverlaySvg) {
+    throw new Error('exportOverlayOnly: renderOverlaySvg callback required.');
+  }
+
+  // Resolve mode list. Each entry is an { id, displayType } pair.
+  const requested = (modes && modes.length > 0) ? modes : OVERLAY_MODE_ORDER;
+  const modeList = [];
+  for (const m of requested) {
+    if (!(m in OVERLAY_MODE_IDS)) {
+      throw new Error(`exportOverlayOnly: unknown mode id "${m}". ` +
+        `Known: ${Object.keys(OVERLAY_MODE_IDS).join(', ')}.`);
+    }
+    modeList.push({ id: m, displayType: OVERLAY_MODE_IDS[m] });
+  }
+  if (modeList.length === 0) {
+    throw new Error('exportOverlayOnly: at least one mode required.');
+  }
+
+  // Resolve output dims + framerate. The export is video-only and
+  // not bound to a source frame timeline, so we pick a regular CFR
+  // and stamp frames at integer-rate microsecond offsets.
+  const srcW   = sourceVideoInfo?.width;
+  const srcH   = sourceVideoInfo?.height;
+  const srcFps = sourceVideoInfo?.frameRate;
+  let W = outputWidth  || srcW || 1920;
+  let H = outputHeight || srcH || 1080;
+  W = Math.max(2, Math.floor(W / 2) * 2);
+  H = Math.max(2, Math.floor(H / 2) * 2);
+  const fps = (Number.isFinite(framerate) && framerate > 0)
+    ? framerate
+    : (Number.isFinite(srcFps) && srcFps > 0 ? srcFps : DEFAULT_FRAMERATE);
+  const muxerFps = Math.max(1, Math.round(fps));
+  const resolvedBitrate = (Number.isFinite(bitrate) && bitrate > 0)
+    ? bitrate
+    : computeBitrate(W, H, fps);
+
+  // Clip duration.
+  const clipDurSec = (Number.isFinite(durationSec) && durationSec > 0)
+    ? durationSec
+    : (clip.endMs - clip.startMs) / 1000;
+  if (!Number.isFinite(clipDurSec) || clipDurSec <= 0) {
+    throw new Error('exportOverlayOnly: clip has zero or invalid duration.');
+  }
+
+  // Background mode resolution. 'transparent' requires an alpha-
+  // capable codec; H.264 (the only Chromium WebCodecs encode codec)
+  // doesn't carry alpha. We honour the request only if a future
+  // browser exposes one; otherwise log + fall back to chroma.
+  let effectiveBackground = backgroundMode;
+  if (backgroundMode === 'transparent') {
+    // No public WebCodecs codec carries alpha in Chromium as of
+    // 2026. Probing every imaginable VP9-alpha config wastes time;
+    // we'd rather warn loudly and produce a usable chroma file.
+    console.warn(
+      'exportOverlayOnly: transparent background not supported by ' +
+      'available encoders; falling back to chroma key.');
+    effectiveBackground = 'chroma';
+  }
+  const effectiveChroma = (effectiveBackground === 'chroma')
+    ? chromaColor : '#000000';
+
+  // ----------- Sim + presentation filter (shared across modes) -----
+  const sim = await M5Sim.create();
+  if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
+  const simState = { lastVirtMs: 0, lastBoundaryMs: 0 };
+  let presFilter = null;
+  if (presentationTau &&
+      (presentationTau.lateralSec > 0 || presentationTau.verticalSec > 0)) {
+    presFilter = new PresentationFilter();
+    presFilter.setTau({
+      lateralSec:  presentationTau.lateralSec  || 0,
+      verticalSec: presentationTau.verticalSec || 0,
+    });
+  }
+
+  // ----------- Per-mode encoder set --------------------------------
+  // Pick the encoder config ONCE (same dims for all modes) then
+  // clone it into one encoder + muxer per mode. mp4-muxer's Muxer
+  // and WebCodecs' VideoEncoder are both independent instances, so
+  // running N in parallel is safe.
+  const encConfig = await pickOverlayEncoderConfig({
+    width: W, height: H, bitrate: resolvedBitrate, framerate: fps,
+  });
+
+  const modeEncoders = new Map(); // modeId → OverlayModeEncoder
+  try {
+    for (const m of modeList) {
+      modeEncoders.set(m.id, new OverlayModeEncoder({
+        modeId: m.id, encConfig, W, H, framerate: muxerFps,
+      }));
+    }
+
+    // ----------- Frame loop ---------------------------------------
+    // Walk output slots at CFR (1/fps spacing). Per slot: drive sim
+    // once, smooth once, then for each mode render the SVG and
+    // encode. svgToImage is the dominant per-frame cost — it does a
+    // round-trip through a Blob URL + <img> decode for every mode.
+    const totalFrames = Math.max(1, Math.round(clipDurSec * fps));
+    const dtUs = Math.round(1_000_000 / fps);
+    const dtSec = 1 / fps;
+    const keyframeStride = Math.max(1, Math.round(fps));
+
+    // Sim virtual time anchor: clip.startMs in log-time. We use the
+    // log timeline directly (not video time) — the overlay only
+    // cares about log values, no video sample alignment to honour.
+    // Pre-pass build keeps state.lastVirtMs at clip-start as the
+    // sim's t=0.
+    const simStartVirtMs = 0;
+    simState.lastVirtMs    = simStartVirtMs;
+    simState.lastBoundaryMs = 0;
+
+    // For each frame slot, virtual ms = (frame / fps) * 1000.
+    // driveSimToVirtMs converts this back to a log row via
+    // sync — but the sync.videoTakeoffSec is in VIDEO time, and we
+    // don't have video here. We build a synthetic sync that maps
+    // virtMs directly to log time anchored at clip.startMs.
+    const syntheticSync = {
+      logTakeoffMs:    clip.startMs,
+      videoTakeoffSec: 0,
+    };
+
+    const aggregateTimings = newTimingsBag();
+    let lastReportedAt = performance.now();
+
+    for (let f = 0; f < totalFrames; f++) {
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+
+      // Check per-mode encoder errors before doing more work.
+      for (const enc of modeEncoders.values()) {
+        if (enc.error) throw enc.error;
+      }
+
+      const virtMs = (f / fps) * 1000;
+      const tsUs   = f * dtUs;
+      const isKey  = (f % keyframeStride) === 0;
+
+      // -------- Sim drive (once per frame, all modes share) -------
+      const t0 = performance.now();
+      driveSimToVirtMs(sim, simState, virtMs, log, syntheticSync, cppWireFrames);
+      let rawState = sim.read();
+      let m5State  = rawState;
+      if (presFilter && rawState) {
+        const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dtSec);
+        m5State = Object.freeze({
+          ...rawState,
+          LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
+          VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
+        });
+      }
+      aggregateTimings.simMs += performance.now() - t0;
+
+      // -------- Per-mode SVG render → composite → encode ---------
+      for (const m of modeList) {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        const enc = modeEncoders.get(m.id);
+        if (enc.error) throw enc.error;
+
+        // Encoder back-pressure (per-mode queue).
+        while (enc.encoder.encodeQueueSize > 4) {
+          if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise(r => setTimeout(r, 0));
+        }
+
+        // Render: override displayType so the SVG renders THIS
+        // mode regardless of which mode the live sim is in.
+        const tR = performance.now();
+        let overlayImg = null;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const svgEl = renderOverlaySvg(m5State, m.displayType);
+          if (svgEl) {
+            // eslint-disable-next-line no-await-in-loop
+            overlayImg = await svgToImage(svgEl);
+          }
+        } catch (e) {
+          console.warn(`overlay raster failed for ${m.id} frame ${f}:`, e);
+        }
+        aggregateTimings.renderMs += performance.now() - tR;
+
+        const tC = performance.now();
+        compositeOverlayOnly(enc.ctx, overlayImg, effectiveChroma, W, H, 4 / 3);
+        const outFrame = new VideoFrame(enc.canvas, {
+          timestamp: tsUs, duration: dtUs,
+        });
+        enc.encoder.encode(outFrame, { keyFrame: isKey });
+        outFrame.close();
+        aggregateTimings.encodeMs += performance.now() - tC;
+        enc.framesEncoded++;
+
+        if (onProgress) {
+          onProgress({
+            mode:       m.id,
+            frame:      f + 1,
+            totalFrames,
+            encodedSec: (tsUs + dtUs) / 1_000_000,
+            totalSec:   clipDurSec,
+          });
+        }
+      }
+      aggregateTimings.frames++;
+
+      // Yield to the event loop periodically so the page doesn't
+      // freeze. Every ~250 ms of wall-clock work; cheaper than once
+      // per frame.
+      const now = performance.now();
+      if (now - lastReportedAt > 250) {
+        lastReportedAt = now;
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    // ----------- Finalize all encoders + collect blobs -------------
+    const blobs = new Map();
+    for (const [id, enc] of modeEncoders) {
+      // eslint-disable-next-line no-await-in-loop
+      const blob = await enc.finalize();
+      blobs.set(id, blob);
+    }
+
+    // Stash timings on the returned map for the report. Maps allow
+    // an extra symbol-keyed property; we attach via a plain field.
+    blobs.__timings = aggregateTimings;
+    return blobs;
+  } finally {
+    // Best-effort teardown.
+    for (const enc of modeEncoders.values()) enc.closeOnError();
+    try { sim.delete(); } catch (_) {}
+  }
+}
+
 export const MP4_EXPORT_INTERNAL = Object.freeze({
   M5_TICK_MS,
   M5_LARGE_JUMP_MS,

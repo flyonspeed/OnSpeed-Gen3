@@ -113,7 +113,7 @@ export const ClipBuilder = ({
   disabled,
   // Callbacks bubbling up to ReplayPage:
   onAddQuick,             // (durationSec)
-  onExport,               // (clip)        — single-clip export
+  onExport,               // (clip)        — single-clip export (composite)
   onExportAll,            // ()            — sequential all-clips export
   onCancel,               // ()            — cancel the running export
   onScrubTo,              // (videoSec)    — seek the live video
@@ -124,6 +124,13 @@ export const ClipBuilder = ({
   onCancelMark,           // ()            — discard pendingIn
   mp4Available,           // boolean — feature-detect result
   mp4UnavailableTooltip,  // string — shown on hover when grayed out
+  // Overlay-only export — runs alongside the composite path:
+  onExportOverlays,       // (clip, idx)  — render 5-mode overlay MP4 batch
+  onCancelOverlays,       // ()            — cancel overlay export
+  overlayExporting,       // boolean — true while any overlay batch is running
+  overlayCurrentMode,     // string | null — id of the mode currently being encoded
+  overlayProgress,        // 0..1 — progress within the current mode
+  overlayAvailable,       // boolean — feature-detect result for overlay path
 }) => {
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
@@ -150,13 +157,45 @@ export const ClipBuilder = ({
     // is exporting (sequence has to drain), (c) sync isn't ready,
     // (d) MP4 isn't supported in this browser.
     const exportDisabled = disabled || exportingClipIdx != null ||
-                           !syncReady || !mp4Available;
+                           !syncReady || !mp4Available || overlayExporting;
     return html`
       <button class="replay-btn"
               disabled=${exportDisabled}
               title=${mp4Available ? '' : (mp4UnavailableTooltip || '')}
               onClick=${() => onExport(clip, i)}>
         Export MP4
+      </button>`;
+  };
+
+  // Overlay-only export: same per-row button. The export renders
+  // five MP4 files (one per M5 mode) against a chroma-key background
+  // ready to drop into iMovie / Final Cut.
+  const renderOverlayControls = (clip, i) => {
+    if (overlayExporting && overlayCurrentMode) {
+      return html`
+        <div class="replay-clip-progress" role="status">
+          <span class="replay-clip-progress-pct">
+            ${overlayCurrentMode}
+          </span>
+          <progress class="replay-progress"
+                    max="1" value=${overlayProgress ?? 0}></progress>
+          <span class="replay-clip-progress-pct">
+            ${Math.round((overlayProgress ?? 0) * 100)}%
+          </span>
+          <button class="replay-btn-ghost" onClick=${onCancelOverlays}>Cancel</button>
+        </div>`;
+    }
+    const overlayDisabled = disabled || exportingClipIdx != null ||
+                            !syncReady || !overlayAvailable || overlayExporting;
+    if (!onExportOverlays) return null;
+    return html`
+      <button class="replay-btn"
+              disabled=${overlayDisabled}
+              title=${overlayAvailable
+                ? 'Render 5 overlay-only MP4s (one per mode) with chroma-key background'
+                : (mp4UnavailableTooltip || '')}
+              onClick=${() => onExportOverlays(clip, i)}>
+        Overlays · NLE
       </button>`;
   };
 
@@ -227,7 +266,8 @@ export const ClipBuilder = ({
                   if (next) setClips(updateClipAt(clips, i, next));
                 }}
                 onRemove=${() => setClips(removeClipAt(clips, i))}
-                renderExport=${() => renderExportControls(c, i)} />
+                renderExport=${() => renderExportControls(c, i)}
+                renderOverlayExport=${() => renderOverlayControls(c, i)} />
             `)}
           </div>`}
     </div>`;
@@ -241,7 +281,7 @@ export const ClipBuilder = ({
 const ClipRow = ({
   clip, index, sync, videoEl, disabled,
   isExporting,
-  onScrubTo, onPatch, onRemove, renderExport,
+  onScrubTo, onPatch, onRemove, renderExport, renderOverlayExport,
 }) => {
   const [labelDraft, setLabelDraft] = useState(clip.label || '');
 
@@ -317,6 +357,7 @@ const ClipRow = ({
       </button>
 
       ${renderExport()}
+      ${renderOverlayExport ? renderOverlayExport() : null}
 
       <button class="replay-btn-ghost"
               disabled=${disabled || isExporting}

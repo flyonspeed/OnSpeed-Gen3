@@ -48,7 +48,10 @@ import { parseLog, findRowAt, detectLogSampleRate }
 import { parseConfigXml } from '../replay/config.js';
 import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
 import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
-import { exportClipAsMp4, isMp4ExportSupported } from '../replay/mp4Export.js';
+import {
+  exportClipAsMp4, isMp4ExportSupported,
+  exportOverlayOnly, isOverlayExportSupported, OVERLAY_MODE_ORDER,
+} from '../replay/mp4Export.js';
 import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLabel }
   from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
@@ -246,6 +249,17 @@ export const ReplayPage = () => {
   // Feature-detect WebCodecs once at mount. Capture as a state value
   // so we re-render the gate the first time the env settles.
   const [mp4Available] = useState(() => isMp4ExportSupported());
+
+  // Overlay-only export state. Tracks the batch (5-mode pass) progress
+  // — totalFrames is per-mode, modesDone counts modes finalized so
+  // the UI can show "indexer 47% · attitude pending · ..." in a
+  // single status line. Separate from mp4ExportProgress so the two
+  // export paths don't contend over the same progress widget.
+  const [overlayExporting, setOverlayExporting] = useState(false);
+  const [overlayCurrentMode, setOverlayCurrentMode] = useState(null);
+  const [overlayProgress, setOverlayProgress] = useState(0);
+  const overlayAbortRef = useRef(null);
+  const [overlayAvailable] = useState(() => isOverlayExportSupported());
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -1096,11 +1110,26 @@ export const ReplayPage = () => {
     };
   }, []);
 
-  const renderOverlayForExport = useCallback((m5State) => {
+  // renderOverlaySvg signature: (m5State, displayTypeOverride?) → SVGElement.
+  // The override path is used by the overlay-only export, which iterates
+  // all five modes per frame; it spreads m5State with displayType
+  // overridden so the SVG renders THAT mode regardless of which mode
+  // the live sim is in. Without an override, m5State.displayType wins
+  // (the source-composite export path).
+  const renderOverlayForExport = useCallback((m5State, displayTypeOverride) => {
     const mount = exportOverlayMountRef.current;
     if (!mount || !m5State) return null;
-    const M = M5_MODES.find(m => m.id === m5State.displayType) || M5_MODES[0];
+    const targetMode = Number.isFinite(displayTypeOverride)
+      ? displayTypeOverride : m5State.displayType;
+    const M = M5_MODES.find(m => m.id === targetMode) || M5_MODES[0];
     const C = M.C;
+    // For the mode-override path the SVG component still reads
+    // state.displayType (some modes branch on it internally), so
+    // synthesize a state with the override stamped on.
+    const stateForRender = (targetMode === m5State.displayType)
+      ? m5State
+      : Object.freeze({ ...m5State, displayType: targetMode });
+    m5State = stateForRender;
     // Render synchronously via Preact's render into our detached
     // mount. Subsequent calls reuse the same DOM tree (diff path),
     // which is much cheaper than a fresh mount per frame.
@@ -1243,6 +1272,97 @@ export const ReplayPage = () => {
     // current clip aborts. Single-clip exports also abort cleanly.
     batchCancelledRef.current = true;
     if (mp4AbortRef.current) mp4AbortRef.current.abort();
+  }, []);
+
+  // Export overlay-only MP4s — one per M5 mode, NLE-ready with a
+  // chroma-key background. Single pass through the sim, parallel
+  // encoders. Pilots composite onto GoPro footage in iMovie / Final
+  // Cut / Premiere by adding a chroma-key effect.
+  const exportOverlaysForClip = useCallback(async (clip, idx) => {
+    if (!syncReady) {
+      setParseErr('Overlay export failed: sync anchor not set.');
+      return null;
+    }
+    if (!cppWireFrames) {
+      setParseErr('Overlay export failed: replay engine pre-pass not complete yet.');
+      return null;
+    }
+    if (!overlayAvailable) {
+      setParseErr('Overlay export requires Chrome or Edge desktop. WebCodecs ' +
+                  'support is incomplete in Safari / Firefox.');
+      return null;
+    }
+    const v = videoRef.current;
+    const sourceVideoInfo = (v && v.videoWidth > 0 && v.videoHeight > 0)
+      ? { width: v.videoWidth, height: v.videoHeight, frameRate: 30 }
+      : null;
+
+    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset) || null;
+    const presentationTau = preset
+      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+      : null;
+
+    const controller = new AbortController();
+    overlayAbortRef.current = controller;
+    setOverlayExporting(true);
+    setOverlayCurrentMode(null);
+    setOverlayProgress(0);
+    setParseErr(null);
+
+    try {
+      const blobs = await exportOverlayOnly({
+        clip,
+        sync,
+        log,
+        cppWireFrames,
+        renderOverlaySvg: renderOverlayForExport,
+        modes: OVERLAY_MODE_ORDER.slice(), // all five
+        sourceVideoInfo,
+        presentationTau,
+        backgroundMode: 'chroma',
+        // Default purple; sits well outside the M5 avionics palette
+        // so chroma-key tolerance keys cleanly without nibbling the
+        // green chevrons or blue/cyan indicators. See mp4Export.js
+        // OVERLAY_DEFAULT_CHROMA comment for the palette rationale.
+        chromaColor:    '#A020F0',
+        // Keep dims modest — 1080p is the NLE sweet spot. Pilots can
+        // bump up later if they ask for it.
+        outputWidth:  1920,
+        outputHeight: 1080,
+        framerate:    30,
+        onProgress: ({ mode, frame, totalFrames }) => {
+          setOverlayCurrentMode(mode);
+          if (totalFrames > 0) setOverlayProgress(frame / totalFrames);
+        },
+        signal: controller.signal,
+      });
+      // Trigger one download per mode. Filename pattern:
+      //   <video-basename>_<clip-label>_<mode>.mp4
+      const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+      const suffix = (clip.label || `clip${(idx ?? 0) + 1}`)
+                       .replace(/[^a-z0-9_-]/gi, '_');
+      for (const [modeId, blob] of blobs) {
+        downloadBlob(blob, `${base}_${suffix}_${modeId}.mp4`);
+      }
+      return blobs;
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        setParseErr(null);
+      } else {
+        setParseErr('Overlay export failed: ' + (err?.message || err));
+      }
+      return null;
+    } finally {
+      overlayAbortRef.current = null;
+      setOverlayExporting(false);
+      setOverlayCurrentMode(null);
+      setOverlayProgress(0);
+    }
+  }, [syncReady, sync, log, cppWireFrames, overlayAvailable,
+      renderOverlayForExport, videoFile, m5SmoothPreset]);
+
+  const cancelOverlayExport = useCallback(() => {
+    if (overlayAbortRef.current) overlayAbortRef.current.abort();
   }, []);
 
   // ---------- Layout -----------------------------------------------
@@ -1444,7 +1564,13 @@ export const ReplayPage = () => {
               onScrubTo=${scrubVideoTo}
               onExport=${exportClipMp4AndDownload}
               onExportAll=${exportAllClipsMp4}
-              onCancel=${cancelMp4Export} />
+              onCancel=${cancelMp4Export}
+              onExportOverlays=${exportOverlaysForClip}
+              onCancelOverlays=${cancelOverlayExport}
+              overlayExporting=${overlayExporting}
+              overlayCurrentMode=${overlayCurrentMode}
+              overlayProgress=${overlayProgress}
+              overlayAvailable=${overlayAvailable} />
         </footer>
       </div>`;
 };

@@ -23,6 +23,9 @@ import {
   clipToVideoWindow,
   expectedFrameCount,
   isMp4ExportSupported,
+  isOverlayExportSupported,
+  OVERLAY_MODE_IDS,
+  OVERLAY_MODE_ORDER,
 } from '../../docs/data-and-logs/replay/lib/replay/mp4Export.js';
 
 import {
@@ -123,6 +126,39 @@ console.log('\n--- isMp4ExportSupported (no window) ---');
 
 assertFalse(isMp4ExportSupported(),
             'Node environment has no window → returns false');
+
+// ---------------------------------------------------------------------
+// isOverlayExportSupported (Node = no window)
+// ---------------------------------------------------------------------
+console.log('\n--- isOverlayExportSupported (no window) ---');
+
+assertFalse(isOverlayExportSupported(),
+            'Node environment has no window → returns false');
+
+// ---------------------------------------------------------------------
+// OVERLAY_MODE_IDS / OVERLAY_MODE_ORDER
+// ---------------------------------------------------------------------
+console.log('\n--- Overlay mode tables ---');
+
+// Every UI-facing mode id maps to the same M5Sim displayType the
+// IndexerPage / M5_MODES list uses (Energy=0, Attitude=1, Indexer=2,
+// Decel=3, Historic-G=4). Locks the protocol.
+assertEq(OVERLAY_MODE_IDS['energy'],     0, 'energy → displayType 0');
+assertEq(OVERLAY_MODE_IDS['attitude'],   1, 'attitude → displayType 1');
+assertEq(OVERLAY_MODE_IDS['indexer'],    2, 'indexer → displayType 2');
+assertEq(OVERLAY_MODE_IDS['decel'],      3, 'decel → displayType 3');
+assertEq(OVERLAY_MODE_IDS['historic-g'], 4, 'historic-g → displayType 4');
+
+assertEq(OVERLAY_MODE_ORDER.length, 5,
+         'OVERLAY_MODE_ORDER lists all five modes');
+assertTrue(OVERLAY_MODE_ORDER.every(id => id in OVERLAY_MODE_IDS),
+           'every OVERLAY_MODE_ORDER entry has a displayType mapping');
+
+// OVERLAY_MODE_IDS is frozen — locking the wire protocol.
+assertTrue(Object.isFrozen(OVERLAY_MODE_IDS),
+           'OVERLAY_MODE_IDS is frozen');
+assertTrue(Object.isFrozen(OVERLAY_MODE_ORDER),
+           'OVERLAY_MODE_ORDER is frozen');
 
 // ---------------------------------------------------------------------
 // buildClipFromPlayhead
