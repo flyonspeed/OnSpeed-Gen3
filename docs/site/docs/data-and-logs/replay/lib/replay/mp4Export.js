@@ -66,21 +66,58 @@ export function isMp4AudioExportSupported() {
   return true;
 }
 
-// Default encoder parameters. Tuned for social-media MP4s — pilots
-// upload to YouTube/Instagram/Twitter where 1080p H.264 is the lowest
-// common denominator. 5 Mbps is well within YouTube's "good upload
-// quality" range for 1080p30.
-const DEFAULT_BITRATE_BPS = 5_000_000;
-const DEFAULT_FRAMERATE   = 30;
+// Fallback encoder parameters used only when the source's own framerate
+// or codec can't be discovered. The export defaults to "match source"
+// — same resolution, framerate, codec family, and a bitrate scaled to
+// the source's pixel rate.
+const DEFAULT_FRAMERATE = 30;
 
-async function pickEncoderConfig({ width, height, bitrate, framerate }) {
+// Bitrate target as a function of pixel count + framerate. YouTube's
+// "good upload quality" recommendations: 1080p30 ≈ 8 Mbps, 1440p30 ≈
+// 16 Mbps, 2160p30 ≈ 35-45 Mbps. Scale linearly with pixel rate. For
+// 4K and up, bump the bits-per-pixel slightly because compression
+// efficiency drops at very high resolutions.
+export function computeBitrate(width, height, framerate) {
+  const w = Number.isFinite(width)     && width     > 0 ? width     : 1920;
+  const h = Number.isFinite(height)    && height    > 0 ? height    : 1080;
+  const f = Number.isFinite(framerate) && framerate > 0 ? framerate : 30;
+  const pixelsPerSec = w * h * f;
+  const bitsPerPixel = (w >= 2560) ? 0.15 : 0.13;
+  return Math.round(pixelsPerSec * bitsPerPixel);
+}
+
+// Pick a VideoEncoder config. When the source is HEVC, probe HEVC
+// Main candidates first so the output codec family matches the source
+// (avoids transcoding a 4K HEVC to a 1080p AVC by accident). Falls
+// back to H.264 High profile, then Baseline as a last resort.
+async function pickEncoderConfig({ width, height, bitrate, framerate, sourceCodec }) {
   const w = Math.max(2, Math.floor(width  / 2) * 2);
   const h = Math.max(2, Math.floor(height / 2) * 2);
-  const candidates = [
-    { codec: 'avc1.42E01F', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
-    { codec: 'avc1.42E028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
-    { codec: 'avc1.640028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+  const isHevc = !!sourceCodec && /^(hev1|hvc1)\./i.test(sourceCodec);
+
+  // HEVC candidates (in level order — try 4K-capable first if the
+  // source is 4K, otherwise lower levels suffice). L153 = up to 4K60,
+  // L150 = up to 4K30, L120 = up to 1080p60.
+  const hevcCandidates = [
+    { codec: 'hev1.1.6.L153.B0', width: w, height: h, bitrate, framerate, hevc: { format: 'hevc' } },
+    { codec: 'hev1.1.6.L150.B0', width: w, height: h, bitrate, framerate, hevc: { format: 'hevc' } },
+    { codec: 'hev1.1.6.L120.B0', width: w, height: h, bitrate, framerate, hevc: { format: 'hevc' } },
   ];
+
+  // H.264 High profile candidates: avc1.640033 = High @ Level 5.1 (4K),
+  // avc1.640028 = High @ Level 4.0 (1080p). Baseline (avc1.42E028) is
+  // kept as a last-resort fallback for environments without High
+  // encode support.
+  const avcCandidates = [
+    { codec: 'avc1.640033', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+    { codec: 'avc1.640028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+    { codec: 'avc1.42E028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+  ];
+
+  const candidates = isHevc
+    ? [...hevcCandidates, ...avcCandidates]
+    : [...avcCandidates];
+
   for (const cfg of candidates) {
     try {
       const r = await VideoEncoder.isConfigSupported(cfg);
@@ -88,8 +125,9 @@ async function pickEncoderConfig({ width, height, bitrate, framerate }) {
     } catch (_) { /* try next */ }
   }
   throw new Error(
-    'No supported H.264 encoder config. Tried Baseline 3.1/4.0 and High 4.0. ' +
-    'Your browser has WebCodecs but no AVC encode path.');
+    `No supported video encoder config at ${w}x${h}. Tried ` +
+    `${isHevc ? 'HEVC Main + H.264 High/Baseline' : 'H.264 High/Baseline'}. ` +
+    `Your browser has WebCodecs but no usable encode path.`);
 }
 
 // Rasterize an SVG element to an HTMLImageElement via a Blob URL.
@@ -449,7 +487,7 @@ function selectVideoSamples(samples, timescale, clampedStart, clampedEnd) {
 // Public API.
 // ---------------------------------------------------------------------
 //
-// Options (v3 — VideoDecoder pipeline):
+// Options (v4 — source-faithful):
 //   sourceFile:        File | Blob — REQUIRED. The original video file.
 //                      Both video and audio tracks are demuxed via
 //                      mp4box.js. No in-memory copy of the file is
@@ -461,6 +499,16 @@ function selectVideoSamples(samples, timescale, clampedStart, clampedEnd) {
 //                      smoothing applied to state.LateralG/VerticalG
 //                      before SVG render. Mirrors the live preview's
 //                      PresentationFilter; null = no smoothing.
+//   outputWidth:       int | null — override the output width to
+//                      downscale. null = match source width (default,
+//                      source-faithful).
+//   bitrate:           int | null — override the encoder target bitrate
+//                      in bits/sec. null = compute from output
+//                      resolution + framerate using computeBitrate.
+//   framerate:         number | null — override the output framerate
+//                      (passed to the encoder + muxer as a hint). null
+//                      = match source framerate exactly from the per-
+//                      sample duration table.
 //
 // Returns: Promise<Blob>  — an MP4 ready to download.
 export async function exportClipAsMp4({
@@ -472,9 +520,9 @@ export async function exportClipAsMp4({
   renderOverlaySvg,
   sourceFile      = null,
   presentationTau = null,
-  outputWidth     = 1920,
-  bitrate         = DEFAULT_BITRATE_BPS,
-  framerate       = DEFAULT_FRAMERATE,
+  outputWidth     = null,
+  bitrate         = null,
+  framerate       = null,
   onProgress      = null,
   signal          = null,
 }) {
@@ -522,15 +570,6 @@ export async function exportClipAsMp4({
     throw new Error('exportClipAsMp4: clip falls outside the loaded video.');
   }
   const totalSec    = clampedEnd - clampedStart;
-  const totalFrames = Math.max(1, Math.round(totalSec * framerate));
-
-  // Aspect-preserving output size.
-  const aspect = videoEl.videoHeight / videoEl.videoWidth;
-  const W = Math.max(2, Math.floor(outputWidth / 2) * 2);
-  const H = Math.max(2, Math.floor(W * aspect    / 2) * 2);
-
-  const canvas = new OffscreenCanvas(W, H);
-  const ctx    = canvas.getContext('2d');
 
   const sim = await M5Sim.create();
   if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
@@ -579,19 +618,92 @@ export async function exportClipAsMp4({
     numberOfChannels: audioInfo.channelCount,
   } : null;
 
+  // -------- Resolve source-faithful output parameters ---------------
+  // Resolution: default to source dims; if outputWidth is given,
+  // downscale aspect-preserving. Round both axes to even numbers
+  // (encoder requirement).
+  const srcW = videoInfo.width;
+  const srcH = videoInfo.height;
+  const W = outputWidth
+    ? Math.max(2, Math.floor(outputWidth / 2) * 2)
+    : Math.max(2, Math.floor(srcW / 2) * 2);
+  const H = outputWidth
+    ? Math.max(2, Math.floor(W * srcH / srcW / 2) * 2)
+    : Math.max(2, Math.floor(srcH / 2) * 2);
+
+  // Framerate: derive from the source sample table (per-sample
+  // duration in timescale units → fps). For constant-rate video this
+  // is exact (e.g., 30000/1001 for 29.97 fps). When the caller
+  // overrides framerate, use that instead.
+  const videoSamplesAll = probe.isoFile.getTrackSamplesInfo(
+    videoInfo.videoTrack.id);
+  if (!videoSamplesAll || videoSamplesAll.length === 0) {
+    sim.delete();
+    throw new Error('Video track has no samples.');
+  }
+  const videoTimescale = videoInfo.videoTrack.timescale;
+  if (!videoTimescale) {
+    sim.delete();
+    throw new Error('Video track has no timescale.');
+  }
+  let resolvedFps;
+  if (Number.isFinite(framerate) && framerate > 0) {
+    resolvedFps = framerate;
+  } else {
+    // Use the first sample's duration. mp4box already exposes
+    // per-sample durations in track timescale units. For CFR video
+    // every sample has identical duration; this yields the exact
+    // rational fps (e.g., 30000/1001 ≈ 29.97003).
+    const sampleDur = videoSamplesAll[0]?.duration;
+    if (sampleDur && sampleDur > 0) {
+      resolvedFps = videoTimescale / sampleDur;
+    } else if (videoInfo.videoTrack.nb_samples > 0 &&
+               videoInfo.videoTrack.duration > 0) {
+      // Fallback: average rate from track duration.
+      resolvedFps = (videoInfo.videoTrack.nb_samples * videoTimescale) /
+                    videoInfo.videoTrack.duration;
+    } else {
+      resolvedFps = DEFAULT_FRAMERATE;
+    }
+  }
+
+  // Bitrate: scale to pixel rate unless caller overrides.
+  const resolvedBitrate = (Number.isFinite(bitrate) && bitrate > 0)
+    ? bitrate
+    : computeBitrate(W, H, resolvedFps);
+
+  const canvas = new OffscreenCanvas(W, H);
+  const ctx    = canvas.getContext('2d');
+
+  // -------- Pick encoder + muxer codec family -----------------------
+  // Probe HEVC first when the source is HEVC. The encoder config
+  // result tells us which family won (avc vs hevc); muxer config
+  // mirrors it. If HEVC encode fails we fall through to H.264 — the
+  // caller learns this from the result codec string.
+  const encConfig = await pickEncoderConfig({
+    width: W, height: H,
+    bitrate: resolvedBitrate,
+    framerate: resolvedFps,
+    sourceCodec: videoInfo.codec,
+  });
+  const outputCodecFamily = /^hev1\.|^hvc1\./i.test(encConfig.codec) ? 'hevc' : 'avc';
+
+  // mp4-muxer expects an integer frameRate (it's a hint for the track
+  // header). The actual per-frame timing comes from each VideoFrame's
+  // timestamp + duration in microseconds, which we set per-sample from
+  // the source's exact cts — so 29.97 stays 29.97 regardless of the
+  // header value. Round to the nearest integer for the muxer.
+  const muxerFrameRate = Math.max(1, Math.round(resolvedFps));
+
   const target = new ArrayBufferTarget();
   const muxer  = new Muxer({
     target,
     fastStart: 'in-memory',
-    video: { codec: 'avc', width: W, height: H, frameRate: framerate },
+    video: { codec: outputCodecFamily, width: W, height: H, frameRate: muxerFrameRate },
     ...(muxerAudioCfg ? { audio: muxerAudioCfg } : {}),
     firstTimestampBehavior: 'offset',
   });
 
-  // Pick video encoder config, attach encoder.
-  const encConfig = await pickEncoderConfig({
-    width: W, height: H, bitrate, framerate,
-  });
   let encoderError = null;
   const encoder = new VideoEncoder({
     output: (chunk, meta) => {
@@ -621,37 +733,37 @@ export async function exportClipAsMp4({
 
   // ---------- Video decode → composite → encode pipeline -------------
   //
-  // Strategy:
+  // Strategy (source-faithful):
   //   1. Walk the sample table, find the keyframe at-or-before
-  //      clampedStart, enumerate samples through clampedEnd.
+  //      clampedStart, enumerate samples through clampedEnd. Samples
+  //      whose cts falls inside the clip window are flagged `output:
+  //      true`; samples earlier than the window (the decode context
+  //      back to the anchor keyframe) are flagged `output: false`.
   //   2. Feed each sample's encoded bytes to a VideoDecoder. Output
   //      frames arrive in decode order (which can differ from display
   //      order for B-frame streams).
   //   3. Hold each output frame in a sorted-by-timestamp queue.
-  //   4. For each output slot N at clampedStart + N/framerate, pop
-  //      the frame whose cts is the largest <= slot target.
-  //   5. Drive sim, render overlay, composite, encode.
+  //   4. Walk the output-flagged samples in cts order. For each
+  //      output sample: drive sim to that sample's mediaTime, pop
+  //      the matching decoded frame, composite overlay, encode the
+  //      composite VideoFrame with the source sample's exact
+  //      (timestamp, duration) in microseconds.
   //
-  // The decoder runs concurrently with composite+encode via a small
-  // ring of pending frames. We back-pressure the demux feed when the
-  // decode queue gets large.
-
-  const videoTimescale = videoInfo.videoTrack.timescale;
-  if (!videoTimescale) {
-    sim.delete();
-    throw new Error('Video track has no timescale.');
-  }
-  const videoSamples = probe.isoFile.getTrackSamplesInfo(videoInfo.videoTrack.id);
-  if (!videoSamples || videoSamples.length === 0) {
-    sim.delete();
-    throw new Error('Video track has no samples.');
-  }
+  // This produces exactly one output frame per source frame in the
+  // window — output framerate matches source framerate exactly, no
+  // slot dedup or rounding.
   const selectedSamples = selectVideoSamples(
-    videoSamples, videoTimescale, clampedStart, clampedEnd);
+    videoSamplesAll, videoTimescale, clampedStart, clampedEnd);
   if (selectedSamples.length === 0) {
     sim.delete();
     throw new Error('No video samples overlap the clip window.');
   }
+  const outputSamples = selectedSamples.filter(s => s.output);
+  if (outputSamples.length === 0) {
+    sim.delete();
+    throw new Error('No video samples overlap the clip window.');
+  }
+  const totalFrames = outputSamples.length;
 
   // Frame queue: sorted by timestamp (display order). Decoder may
   // emit out of order on B-frame streams; consumer pops in order.
@@ -754,59 +866,65 @@ export async function exportClipAsMp4({
     await decoder.flush();
   })();
 
-  // ---------- Output slot loop --------------------------------------
-  // Walks slots 0..totalFrames-1. For each slot, waits for a decoded
-  // frame whose timestamp is >= slot target time (or until feed is
-  // done and queue can't yield one). The largest frame with
-  // timestamp <= target is the "current" frame for that slot.
+  // ---------- Output-sample-driven encode loop ----------------------
+  // Walks `outputSamples` (every source sample in the clip window) in
+  // cts order. For each output sample:
+  //   - target timestamp is the sample's own cts (us, anchored at
+  //     firstWindowCts), so output framerate matches source exactly.
+  //   - drive sim to that mediaTime, render overlay
+  //   - pop the decoded frame whose ts matches, composite, encode.
   //
-  // Frames stay in queue until consumed (so a single decoded frame
-  // can serve multiple slots if the source frame rate is lower than
-  // output frame rate, e.g. 24 fps → 30 fps duplicates some).
+  // Output frame ts/duration come straight from the source sample —
+  // no slot rounding, so 29.97 fps source produces 29.97 fps output.
   let feedError = null;
   feedDone.catch((e) => { feedError = e; });
 
+  // Keyframe cadence in output frames. ~1 keyframe per second.
+  const keyframeStride = Math.max(1, Math.round(resolvedFps));
+
+  // Per-sample target ts in microseconds, anchored at firstWindowCts.
+  function sampleTsUs(s) {
+    return Math.round((s.cts - firstWindowCts) * 1_000_000 / videoTimescale);
+  }
+
+  // Match a decoded frame to an output sample by timestamp. Decoder
+  // emits frames at the same per-sample ts the feeder used; the
+  // frameQueue is sorted by ts. Look for the largest ts ≤ targetTs
+  // (the at-or-before is required because the encoder's coded ts may
+  // round-trip with ±1 us drift through ffmpeg internals).
   let slotsEncoded = 0;
   try {
-    for (let slot = 0; slot < totalFrames; slot++) {
+    for (let i = 0; i < outputSamples.length; i++) {
       if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
       if (decoderError) throw decoderError;
       if (feedError && !(feedError.name === 'AbortError')) throw feedError;
       if (encoderError) throw encoderError;
 
-      const slotMediaTime = clampedStart + slot / framerate;
-      // Convert to the same timestamp space as decoded frames:
-      // microseconds, anchored at firstWindowCts/timescale.
-      // Frame ts = (sample.cts - firstWindowCts) * 1e6 / timescale
-      //         = (sample_mediaTime - firstWindow_mediaTime) * 1e6.
-      const firstWindowSec = firstWindowCts / videoTimescale;
-      const slotTsUs = Math.round((slotMediaTime - firstWindowSec) * 1_000_000);
+      const s = outputSamples[i];
+      const sampleMediaTime = s.cts / videoTimescale;   // seconds
+      const targetTsUs      = sampleTsUs(s);
 
-      // Wait until either:
-      //   - The queue has a frame with timestamp > slotTsUs (so we
-      //     know the largest <= slotTsUs is finalized), OR
-      //   - The feed is fully drained (no more frames can arrive).
       // eslint-disable-next-line no-await-in-loop
       let frame = await waitForFrameAtOrBefore(
-        frameQueue, slotTsUs, feedDone, signal);
+        frameQueue, targetTsUs, feedDone, signal);
 
       if (!frame) {
         // Drained queue with nothing usable — should not happen if
         // selectedSamples was constructed correctly. Fall back to
-        // black + overlay (don't fail the export for a single slot).
+        // black + overlay (don't fail the export for a single frame).
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, W, H);
       }
 
-      // Drive sim to this slot's virtual time.
-      const targetVirtMs = Math.max(0, slotMediaTime * 1000);
+      // Drive sim to this frame's virtual time (mediaTime in ms).
+      const targetVirtMs = Math.max(0, sampleMediaTime * 1000);
       driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
 
       let rawState = sim.read();
       let m5State  = rawState;
       if (presFilter && rawState) {
-        const dt = 1 / framerate;
-        const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dt);
+        const dtSec = s.duration / videoTimescale;
+        const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dtSec);
         m5State = Object.freeze({
           ...rawState,
           LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
@@ -823,7 +941,7 @@ export async function exportClipAsMp4({
         }
       } catch (e) {
         // eslint-disable-next-line no-console
-        console.warn('overlay raster failed for slot', slot, e);
+        console.warn('overlay raster failed for frame', i, e);
       }
 
       if (frame) compositeFrame(ctx, frame, overlayImg, W, H);
@@ -837,9 +955,11 @@ export async function exportClipAsMp4({
       }
       if (encoderError) throw encoderError;
 
-      const outTsUs  = Math.round(slot * 1_000_000 / framerate);
-      const outDurUs = Math.round(       1_000_000 / framerate);
-      const isKey    = (slot % Math.max(1, framerate)) === 0 || slot === 0;
+      // Output frame inherits source sample's exact ts + duration.
+      const outTsUs  = targetTsUs;
+      const outDurUs = Math.max(1,
+        Math.round(s.duration * 1_000_000 / videoTimescale));
+      const isKey    = (i % keyframeStride) === 0 || i === 0;
       const outFrame = new VideoFrame(canvas, { timestamp: outTsUs, duration: outDurUs });
       encoder.encode(outFrame, { keyFrame: isKey });
       outFrame.close();
@@ -849,7 +969,7 @@ export async function exportClipAsMp4({
         onProgress({
           frame:      slotsEncoded,
           totalFrames,
-          encodedSec: slotsEncoded / framerate,
+          encodedSec: (outTsUs + outDurUs) / 1_000_000,
           totalSec,
         });
       }
@@ -974,7 +1094,6 @@ export function expectedFrameCount(clipDurationSec, frameRate) {
 export const MP4_EXPORT_INTERNAL = Object.freeze({
   M5_TICK_MS,
   M5_LARGE_JUMP_MS,
-  DEFAULT_BITRATE_BPS,
   DEFAULT_FRAMERATE,
   MP4BOX_HEAD_BYTES,
   MP4BOX_TAIL_BYTES,

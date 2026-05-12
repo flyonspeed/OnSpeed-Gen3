@@ -1173,7 +1173,9 @@ export const ReplayPage = () => {
         sourceFile:    videoFile,
         // Match the live preview's slip-ball smoothing.
         presentationTau,
-        outputWidth:   Math.min(1920, v.videoWidth || 1920),
+        // outputWidth omitted: export defaults to source resolution +
+        // source framerate + source codec family for a "source video
+        // with overlay added" result.
         onProgress: ({ frame, totalFrames }) => {
           if (totalFrames > 0) setMp4ExportProgress(frame / totalFrames);
         },
