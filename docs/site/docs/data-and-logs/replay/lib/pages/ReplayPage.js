@@ -1151,6 +1151,16 @@ export const ReplayPage = () => {
     // resumed in the finally{} below by bumping livePreviewNonce.
     mp4ExportingRef.current = true;
 
+    // Mirror the live preview's render-side smoothing in the export.
+    // Without this the slip ball jitters at 50 Hz log replay aliasing —
+    // looks structurally different from what the pilot sees on the
+    // live page. See presentationFilter.js for the τ rationale.
+    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
+                   || null;
+    const presentationTau = preset
+      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+      : null;
+
     try {
       const blob = await exportClipAsMp4({
         videoEl:        v,
@@ -1159,6 +1169,10 @@ export const ReplayPage = () => {
         log,
         cppWireFrames,
         renderOverlaySvg: renderOverlayForExport,
+        // Source file for AAC audio decode. Without it the MP4 is silent.
+        sourceFile:    videoFile,
+        // Match the live preview's slip-ball smoothing.
+        presentationTau,
         outputWidth:   Math.min(1920, v.videoWidth || 1920),
         onProgress: ({ frame, totalFrames }) => {
           if (totalFrames > 0) setMp4ExportProgress(frame / totalFrames);
@@ -1184,7 +1198,8 @@ export const ReplayPage = () => {
       mp4ExportingRef.current = false;
       setLivePreviewNonce(n => n + 1);
     }
-  }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport]);
+  }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
+      videoFile, m5SmoothPreset]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);

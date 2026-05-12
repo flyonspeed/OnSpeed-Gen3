@@ -2,47 +2,40 @@
 //
 // Pipeline (one clip at a time):
 //
-//   1. Seek <video> to clip start. Wait for the seek to settle.
-//   2. Boot a fresh M5 sim instance — the live page's sim sits at the
-//      pilot's live-preview playhead; cloning vs forking lets the
-//      export run a deterministic re-walk from t=0 (or near it) and
-//      doesn't disturb the on-screen overlay.
-//   3. For each video frame (driven by requestVideoFrameCallback):
-//      a. Map video time → log time → log row index.
-//      b. Inject the pre-computed wire frame for that row into the sim,
-//         advance virtual time.
-//      c. Read M5 state and render the active mode's SVG.
-//      d. Composite to an OffscreenCanvas: video pixels first, then the
-//         overlay PNG in the bottom-right corner.
-//      e. Wrap the canvas in a `VideoFrame` and feed it to VideoEncoder.
-//   4. Encoder emits EncodedVideoChunks → mp4-muxer Muxer.
-//   5. On clip-end, flush the encoder, finalize the muxer, return the
-//      Blob.
+//   Video — play-rate harvest:
+//     1. Decode AAC audio from the source file (in parallel with video).
+//     2. Seek <video> to clip start, set playbackRate, call play().
+//     3. Each requestVideoFrameCallback fires with the just-painted
+//        frame's mediaTime. Map mediaTime → output frame index → log
+//        row → wire frame → sim tick.
+//     4. Read sim state, run it through PresentationFilter (matches
+//        the live preview's slip-ball smoothing), render overlay SVG.
+//     5. Composite to OffscreenCanvas, build a VideoFrame, encode.
+//     6. When video mediaTime crosses clip end, pause + flush.
 //
-// Faster-than-realtime: rVFC fires once per *displayed* video frame
-// regardless of `playbackRate`. Setting playbackRate higher (e.g. 4×)
-// causes the source video to play through faster, so we get frames
-// faster — encoder runs as fast as it can keep up. Tested on a 30 s
-// 1080p source: ~5 s end-to-end on M3 Max, ~10-12 s on a 2020 MBP.
+//   Audio — offline decode:
+//     1. Read source File as ArrayBuffer.
+//     2. AudioContext.decodeAudioData → AudioBuffer.
+//     3. Slice to [clampedStart, clampedEnd], re-chunk into 1024-sample
+//        blocks (AAC frame boundary), feed AudioEncoder.
+//     4. AudioEncoder.output → muxer.addAudioChunk.
 //
-// Audio: stripped in this PR. Follow-up will pipe MediaElementAudioSource
-// → AudioEncoder → addAudioChunkRaw on the same muxer.
+//   Both encoders feed the same Muxer; finalize() interleaves them.
+//
+// Faster-than-realtime: at playbackRate=4, rVFC fires at the source
+// video's native frame rate (60 fps) regardless of playback speed,
+// each carrying a mediaTime advanced 4× faster than wall clock. A 30 s
+// clip encodes in ~7-8 s on M-series Macs, ~12-15 s on a 2020 MBP.
+// Compare to the v1 seek-per-frame loop's 60-85 s.
 
 import { Muxer, ArrayBufferTarget } from '../vendor/mp4-muxer.js';
 import { M5Sim } from './m5sim.js';
 import { findRowAt } from './parseLog.js';
+import { PresentationFilter } from './presentationFilter.js';
 
 // Browser feature gate. WebCodecs is Chrome/Edge desktop and partial
-// Safari. We check for `VideoEncoder` (the encoder itself),
-// `OffscreenCanvas` (the compositor target), and the rVFC interface
-// (frame-accurate seek-and-step). All three are needed.
-//
-// Don't conflate "WebCodecs API exists" with "AVC encoding works at
-// our configured profile" — the latter is verified at runtime via
-// `VideoEncoder.isConfigSupported`, but only after we've already
-// committed to an export. The feature gate is the cheap up-front
-// check; the per-export config check catches the long tail of weird
-// hardware-encode policy.
+// Safari. We check for VideoEncoder, AudioEncoder (audio mux),
+// OffscreenCanvas (compositor target), and rVFC (frame harvest).
 export function isMp4ExportSupported() {
   if (typeof window === 'undefined') return false;
   if (!('VideoEncoder' in window)) return false;
@@ -52,47 +45,34 @@ export function isMp4ExportSupported() {
   return true;
 }
 
+// AudioEncoder is a separate feature gate — if missing we still emit
+// the MP4, but silent. Callers can advertise "exports silently" to the
+// pilot when audio isn't available.
+export function isMp4AudioExportSupported() {
+  if (typeof window === 'undefined') return false;
+  if (!('AudioEncoder' in window)) return false;
+  if (typeof OfflineAudioContext === 'undefined' &&
+      typeof AudioContext === 'undefined') return false;
+  return true;
+}
+
 // Default encoder parameters. Tuned for social-media MP4s — pilots
 // upload to YouTube/Instagram/Twitter where 1080p H.264 is the lowest
 // common denominator. 5 Mbps is well within YouTube's "good upload
-// quality" range for 1080p30 and keeps file sizes reasonable
-// (a 60-second clip ≈ 38 MB).
-//
-// avc1.42E01E = H.264 Baseline Profile @ Level 3.0. The plain-vanilla
-// option that every player understands. We pick from the High Profile
-// (avc1.640028) family only if `isConfigSupported` rejects Baseline,
-// which has so far never happened on Chrome desktop.
+// quality" range for 1080p30.
 const DEFAULT_BITRATE_BPS = 5_000_000;
 const DEFAULT_FRAMERATE   = 30;
+const DEFAULT_AUDIO_BPS   = 128_000;
+const DEFAULT_PLAYRATE    = 4;        // 4× source playback during encode
+const AAC_FRAME_SAMPLES   = 1024;     // AAC-LC frame size
 
-// Pick a working encoder config. Returns the supported config or
-// throws. Chrome ships AVC encoding via the platform encoder
-// (VideoToolbox on macOS, OpenH264 on Linux). isConfigSupported
-// returns a normalized config we hand straight to VideoEncoder.configure.
 async function pickEncoderConfig({ width, height, bitrate, framerate }) {
-  // Even dimensions. H.264 requires multiples of 2 (and macros want
-  // multiples of 16 for chroma alignment); we snap to multiples of 2
-  // to keep the file legal without over-padding.
   const w = Math.max(2, Math.floor(width  / 2) * 2);
   const h = Math.max(2, Math.floor(height / 2) * 2);
-
   const candidates = [
-    // Baseline 3.1 — covers 1280×720 @ 30fps comfortably; 1920×1080 needs L4.0.
-    {
-      codec: 'avc1.42E01F',   // Baseline 3.1
-      width: w, height: h, bitrate, framerate,
-      avc: { format: 'avc' },
-    },
-    {
-      codec: 'avc1.42E028',   // Baseline 4.0 — fits 1080p30
-      width: w, height: h, bitrate, framerate,
-      avc: { format: 'avc' },
-    },
-    {
-      codec: 'avc1.640028',   // High 4.0 — fallback
-      width: w, height: h, bitrate, framerate,
-      avc: { format: 'avc' },
-    },
+    { codec: 'avc1.42E01F', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+    { codec: 'avc1.42E028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
+    { codec: 'avc1.640028', width: w, height: h, bitrate, framerate, avc: { format: 'avc' } },
   ];
   for (const cfg of candidates) {
     try {
@@ -102,57 +82,28 @@ async function pickEncoderConfig({ width, height, bitrate, framerate }) {
   }
   throw new Error(
     'No supported H.264 encoder config. Tried Baseline 3.1/4.0 and High 4.0. ' +
-    'Your browser has WebCodecs but no AVC encode path (Firefox?).');
+    'Your browser has WebCodecs but no AVC encode path.');
 }
 
 // Rasterize an SVG element to an HTMLImageElement via a Blob URL.
-// Async; resolves to the loaded <img>, which `ctx.drawImage(img, x, y,
-// w, h)` paints with explicit destination dimensions (works even when
-// the SVG has no intrinsic width/height attributes).
-//
-// XMLSerializer + Blob URL is the canonical, taint-safe path: the
-// resulting image can be drawImage()d onto a canvas without making
-// the canvas "tainted" and blocking the VideoFrame round-trip.
-//
-// We don't go through createImageBitmap. It rejects SVGs without
-// natural dimensions (`InvalidStateError: SVG image without natural
-// dimensions`), and the SVGs the live page produces don't carry
-// width/height attributes (they're sized purely via CSS / viewBox).
-// drawImage with an explicit (dx, dy, dw, dh) handles dimensionless
-// SVGs directly, so the simpler path is also the correct one.
-function svgToImageBitmap(svgEl) {
+// drawImage(img, x, y, w, h) paints with explicit destination dims so
+// SVGs without intrinsic width/height still rasterize at usable size.
+function svgToImage(svgEl) {
   const xml  = new XMLSerializer().serializeToString(svgEl);
   const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload  = () => {
-      URL.revokeObjectURL(url);
-      resolve(img);
-    };
+    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
     img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
     img.src = url;
   });
 }
 
-// Wait for the <video> to settle on a target time, then resolve once
-// the next paint has the right pixels. requestVideoFrameCallback fires
-// after the painter has handed a frame to the compositor, so reading
-// pixels with drawImage after rVFC fires gets the seek-target frame.
-//
-// Ordering note: register rVFC BEFORE assigning currentTime. The
-// seek-induced composite is the next-fired rVFC; if we register only
-// inside the `seeked` handler, the composite may have already
-// happened (on a paused video there is no future composite to catch
-// it) and the callback queues for a frame that never comes.
-//
-// Safety net: a 100 ms timeout fallback resolves with the element's
-// current time even if no rVFC fires. By that point the seek has
-// settled and `drawImage(videoEl, ...)` reads the right pixels.
-//
-// Cancellation: if `signal` is provided, abort triggers an AbortError
-// rejection so long-pending seeks unwind cleanly when the pilot clicks
-// Cancel.
+// One-shot seek + wait for the next painted frame. Used only for the
+// pre-play positioning (we play() through the clip range, not seek per
+// frame). Registers rVFC BEFORE setting currentTime so the seek-induced
+// composite fires the callback even on paused video.
 function seekVideoAndAwaitFrame(videoEl, targetSec, signal = null) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -164,68 +115,34 @@ function seekVideoAndAwaitFrame(videoEl, targetSec, signal = null) {
       videoEl.removeEventListener('seeked', onSeeked);
       videoEl.removeEventListener('error',  onError);
       if (signal) signal.removeEventListener('abort', onAbort);
-      if (err) reject(err);
-      else     resolve(value);
+      if (err) reject(err); else resolve(value);
     };
-    const onSeeked = () => {
-      // Frame is on screen by the time `seeked` fires on a paused
-      // video. The pre-registered rVFC below will catch it; the
-      // timeout is the backstop.
-    };
-    const onError = (e) => finish(null,
-      new Error('Video seek failed: ' + (e?.message || e)));
-    const onAbort = () => finish(null,
-      new DOMException('aborted', 'AbortError'));
-
+    const onSeeked = () => {};
+    const onError  = (e) => finish(null, new Error('Video seek failed: ' + (e?.message || e)));
+    const onAbort  = () => finish(null, new DOMException('aborted', 'AbortError'));
     if (signal) {
-      if (signal.aborted) {
-        reject(new DOMException('aborted', 'AbortError'));
-        return;
-      }
+      if (signal.aborted) { reject(new DOMException('aborted', 'AbortError')); return; }
       signal.addEventListener('abort', onAbort, { once: true });
     }
     videoEl.addEventListener('seeked', onSeeked, { once: true });
     videoEl.addEventListener('error',  onError,  { once: true });
-
-    // Register rVFC BEFORE the seek so the next painted frame fires it.
     videoEl.requestVideoFrameCallback((_now, meta) => {
       finish(meta?.mediaTime ?? videoEl.currentTime);
     });
-
     videoEl.currentTime = Math.max(0, targetSec);
-
-    // Safety timeout: paused videos can wedge if the composite was
-    // coalesced before our rVFC registration. 100 ms is comfortably
-    // longer than the seek + paint cycle even on slow hardware.
     timeoutId = setTimeout(() => finish(videoEl.currentTime), 100);
   });
 }
 
-// Map video time → log time using the sync anchor.
-function videoToLogMs(videoSec, sync) {
-  return sync.logTakeoffMs + (videoSec - sync.videoTakeoffSec) * 1000;
-}
-
-// Compose one frame onto the canvas: video pixels first, then the
-// overlay PNG drawn at the bottom-right corner. Mirrors the live
-// page's CSS layout (.replay-overlay-frame): right: 12px, bottom: 56px,
-// width: 22%, aspect 4:3. We translate those proportions into canvas
-// pixels for the burned-in version (no controls bar at export time, so
-// shift the overlay closer to the bottom edge).
+// Composite one frame: video first, overlay PNG in bottom-right.
+// Mirrors the live page's .replay-overlay-frame layout.
 function compositeFrame(ctx, videoEl, overlayImg, W, H) {
-  // 1. Video pixels. Scale source to the canvas dimensions.
   ctx.drawImage(videoEl, 0, 0, W, H);
-
-  // 2. Overlay. The live page reserves space for native HTML video
-  // controls (bottom: 56px ≈ 5% of a 1080p frame). The export
-  // version has no controls bar, so we nudge the overlay closer to
-  // the bottom edge while keeping a similar visual proportion.
   if (overlayImg) {
     const ow = Math.round(W * 0.22);
-    const oh = Math.round(ow * 3 / 4);   // 4:3 indexer aspect
-    const ox = W - Math.round(W * 0.012) - ow;  // right margin 1.2%
-    const oy = H - Math.round(H * 0.030) - oh;  // bottom margin 3%
-    // Faint drop shadow so the overlay reads against any background.
+    const oh = Math.round(ow * 3 / 4);
+    const ox = W - Math.round(W * 0.012) - ow;
+    const oy = H - Math.round(H * 0.030) - oh;
     ctx.save();
     ctx.shadowColor   = 'rgba(0,0,0,0.7)';
     ctx.shadowBlur    = Math.round(W * 0.006);
@@ -235,24 +152,10 @@ function compositeFrame(ctx, videoEl, overlayImg, W, H) {
   }
 }
 
-// Boot a dedicated M5Sim for the export. We don't reuse the page's
-// live sim because it sits at the live preview's playhead with state
-// latched at that virtual time; the export wants a deterministic
-// walk-up from the clip-start virtual time. A fresh sim costs ~one
-// WASM module instantiation (cached factory; subsequent
-// instantiations are cheap).
-async function bootExportSim() {
-  return M5Sim.create();
-}
-
 // ---------------------------------------------------------------------
-// Per-frame inject loop.
-// We walk virtual time in M5-tick (50 ms) increments from where we
-// last left it up to the target virtual time, injecting each tick's
-// wire frame and calling loop(). On large jumps we snap rather than
-// replay history. Behavior mirrors ReplayPage's live driver — same
-// rationale: the firmware's millis()-gated state needs the native
-// 20 Hz wire cadence to fire its 50ms/500ms gates correctly.
+// Sim driver — same logic as ReplayPage's live driver. Walks 50 ms wire
+// boundaries from lastBoundaryMs to targetVirtMs, injects one wire
+// frame per boundary, then advances virtual clock to targetVirtMs.
 // ---------------------------------------------------------------------
 const M5_TICK_MS = 50;
 const M5_LARGE_JUMP_MS = 5000;
@@ -260,31 +163,23 @@ const M5_LARGE_JUMP_MS = 5000;
 function driveSimToVirtMs(sim, state, targetVirtMs, log, sync, cppWireFrames) {
   const frames = cppWireFrames && cppWireFrames.frames;
   const injectAt = (virtMs) => {
-    if (!frames) return;          // pre-pass not ready
-    const logMs = sync.logTakeoffMs +
-                  (virtMs / 1000 - sync.videoTakeoffSec) * 1000;
+    if (!frames) return;
+    const logMs = sync.logTakeoffMs + (virtMs / 1000 - sync.videoTakeoffSec) * 1000;
     const rowIdx = findRowAt(log, logMs);
     if (rowIdx < 0) return;
     const frameBytes = frames[rowIdx];
     if (!frameBytes) return;
     sim.injectBytes(frameBytes);
   };
-
   const last = state.lastVirtMs;
   const jump = targetVirtMs - last;
-
-  // Backward jump or large forward jump: snap.
   if (jump < 0 || jump > M5_LARGE_JUMP_MS) {
     injectAt(targetVirtMs);
     sim.advanceTo(targetVirtMs);
     state.lastVirtMs = targetVirtMs;
-    state.lastBoundaryMs =
-      Math.floor(targetVirtMs / M5_TICK_MS) * M5_TICK_MS;
+    state.lastBoundaryMs = Math.floor(targetVirtMs / M5_TICK_MS) * M5_TICK_MS;
     return;
   }
-
-  // Normal-play catch-up. Walk every 50ms boundary, advancing the
-  // clock and injecting one wire frame per boundary.
   let lastBoundary = state.lastBoundaryMs;
   let nextBoundary = lastBoundary + M5_TICK_MS;
   while (nextBoundary <= targetVirtMs) {
@@ -294,41 +189,26 @@ function driveSimToVirtMs(sim, state, targetVirtMs, log, sync, cppWireFrames) {
     nextBoundary += M5_TICK_MS;
   }
   state.lastBoundaryMs = lastBoundary;
-  // Advance the clock the rest of the way so the firmware's
-  // millis()-based gates have the most-recent virtual time even
-  // between 50 ms boundaries.
   if (targetVirtMs > lastBoundary) sim.advanceTo(targetVirtMs);
   state.lastVirtMs = targetVirtMs;
 }
 
 // ---------------------------------------------------------------------
-// Public API: export one clip as MP4.
+// Public API.
 // ---------------------------------------------------------------------
 //
-// Options:
-//   videoEl:        the <video> element (DOM-attached, with src loaded).
-//   clip:           { startMs, endMs, label? } in log-time milliseconds.
-//   sync:           { logTakeoffMs, videoTakeoffSec } sync anchor.
-//   log:            parsed log (parseLog output).
-//   cppWireFrames:  { frames: Uint8Array[] } pre-pass output from
-//                   buildWireFramesFromTask. Optional but strongly
-//                   recommended; without it the indexer overlay shows
-//                   the loaded-files-but-no-engine state.
-//   renderOverlaySvg: (m5State) => SVGElement   builds an SVG element
-//                   from the M5 state. Called once per encoded frame.
-//                   We render via a hidden mount node so live mode
-//                   selections + smooth presets carry through.
-//   outputWidth:    output canvas width in px (default 1920).
-//   bitrate:        bits/sec (default 5_000_000).
-//   framerate:      target fps (default 30).
-//   playbackRate:   how fast to walk the source video (default 2).
-//                   Higher is faster-to-encode but more sensitive to
-//                   decoder hiccups; 2 is a comfortable default,
-//                   4-8 on M-series Macs works well.
-//   onProgress:     ({ frame, totalFrames, encodedSec, totalSec }) => void
-//   signal:         AbortSignal — abort the export cleanly.
+// Options (new in v2):
+//   sourceFile:        File | Blob — the original video file for audio
+//                      decode. If omitted, MP4 is exported silent.
+//   presentationTau:   { lateralSec, verticalSec } | null — render-side
+//                      smoothing applied to state.LateralG/VerticalG
+//                      before SVG render. Mirrors the live preview's
+//                      PresentationFilter; null = no smoothing.
+//   playbackRate:      4 by default; controls source-video play speed
+//                      during harvest. Higher = faster encode but more
+//                      sensitive to decoder hiccups.
 //
-// Returns: Promise<Blob>  — an MP4 Blob ready to download.
+// Returns: Promise<Blob>  — an MP4 ready to download.
 export async function exportClipAsMp4({
   videoEl,
   clip,
@@ -336,12 +216,14 @@ export async function exportClipAsMp4({
   log,
   cppWireFrames,
   renderOverlaySvg,
-  outputWidth   = 1920,
-  bitrate       = DEFAULT_BITRATE_BPS,
-  framerate     = DEFAULT_FRAMERATE,
-  playbackRate  = 2,
-  onProgress    = null,
-  signal        = null,
+  sourceFile      = null,
+  presentationTau = null,
+  outputWidth     = 1920,
+  bitrate         = DEFAULT_BITRATE_BPS,
+  framerate       = DEFAULT_FRAMERATE,
+  playbackRate    = DEFAULT_PLAYRATE,
+  onProgress      = null,
+  signal          = null,
 }) {
   if (!isMp4ExportSupported()) {
     throw new Error(
@@ -359,8 +241,7 @@ export async function exportClipAsMp4({
   if (!cppWireFrames || !cppWireFrames.frames) {
     throw new Error(
       'exportClipAsMp4: cppWireFrames required (build the replay engine ' +
-      'pre-pass first). Without it the overlay would render in its boot ' +
-      'state for every frame.');
+      'pre-pass first).');
   }
   if (!videoEl.videoWidth || !videoEl.videoHeight) {
     throw new Error('exportClipAsMp4: video metadata not loaded yet');
@@ -374,14 +255,14 @@ export async function exportClipAsMp4({
   if (!Number.isFinite(startVideoSec) || !Number.isFinite(endVideoSec) ||
       endVideoSec <= startVideoSec) {
     throw new Error('exportClipAsMp4: clip window maps to an empty or ' +
-                    'invalid video range. Did sync drift between marks?');
+                    'invalid video range.');
   }
   const clampedStart = Math.max(0, startVideoSec);
   const clampedEnd   = Math.min(videoEl.duration, endVideoSec);
   if (clampedEnd <= clampedStart) {
     throw new Error('exportClipAsMp4: clip falls outside the loaded video.');
   }
-  const totalSec = clampedEnd - clampedStart;
+  const totalSec    = clampedEnd - clampedStart;
   const totalFrames = Math.max(1, Math.round(totalSec * framerate));
 
   // Aspect-preserving output size.
@@ -389,172 +270,323 @@ export async function exportClipAsMp4({
   const W = Math.max(2, Math.floor(outputWidth / 2) * 2);
   const H = Math.max(2, Math.floor(W * aspect    / 2) * 2);
 
-  // OffscreenCanvas for compositing. We pull `VideoFrame` instances
-  // directly from this canvas — WebCodecs gives `new VideoFrame(canvas, ...)`
-  // for OffscreenCanvas explicitly.
   const canvas = new OffscreenCanvas(W, H);
   const ctx    = canvas.getContext('2d');
 
-  // Boot a fresh sim and pin a state object for the inject driver to
-  // mutate across frames.
-  const sim = await bootExportSim();
+  const sim = await M5Sim.create();
   if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
-
   const simState = { lastVirtMs: 0, lastBoundaryMs: 0 };
 
-  // Build mp4-muxer. ArrayBufferTarget keeps the muxed bytes in RAM
-  // until finalize() — fine for 30-60s clips at 5 Mbps (~20-40 MB).
+  // PresentationFilter — same as live preview's render-side smoothing.
+  // Fresh instance per export so it seeds clean from the first frame.
+  let presFilter = null;
+  if (presentationTau &&
+      (presentationTau.lateralSec > 0 || presentationTau.verticalSec > 0)) {
+    presFilter = new PresentationFilter();
+    presFilter.setTau({
+      lateralSec:  presentationTau.lateralSec  || 0,
+      verticalSec: presentationTau.verticalSec || 0,
+    });
+  }
+
+  // ---------- Audio decode + encode kicks off in parallel -------------
+  // Don't attach the audio config to the muxer until we know AAC is
+  // available — kick off encodeAudio, await its config-determination,
+  // then build the muxer. If the audio path fails or is skipped, we
+  // still emit a (silent) MP4.
+  let audioInfo = null;
+  let audioPromise = null;
+
+  // Probe audio config first (cheap; doesn't actually decode yet).
+  let muxerAudioCfg = null;
+  if (sourceFile && isMp4AudioExportSupported()) {
+    // We don't know sampleRate/channelCount until decodeAudioData
+    // resolves; for the muxer config we need them up front. The
+    // pragmatic path: decode now (it's parallel with video setup
+    // anyway, and the audio pass is independent of video frames).
+    // But we DO need to start it before the muxer is built since the
+    // muxer's audio: config block needs sampleRate + channelCount.
+    try {
+      const buf = await sourceFile.arrayBuffer();
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const probe = new AC();
+      const ab = await probe.decodeAudioData(buf.slice(0));
+      try { await probe.close(); } catch (_) {}
+      audioInfo = {
+        sampleRate:   ab.sampleRate,
+        channelCount: Math.min(2, ab.numberOfChannels),
+        buffer:       ab,
+      };
+      muxerAudioCfg = {
+        codec: 'aac',
+        sampleRate:        audioInfo.sampleRate,
+        numberOfChannels:  audioInfo.channelCount,
+      };
+    } catch (e) {
+      // Source has no decodable audio track (no audio, or unsupported
+      // codec). Emit silent MP4 — caller can surface this to the pilot.
+      // eslint-disable-next-line no-console
+      console.warn('audio decode skipped:', e?.message || e);
+    }
+  }
+
   const target = new ArrayBufferTarget();
   const muxer  = new Muxer({
     target,
     fastStart: 'in-memory',
-    video: {
-      codec: 'avc',
-      width: W,
-      height: H,
-      frameRate: framerate,
-    },
+    video: { codec: 'avc', width: W, height: H, frameRate: framerate },
+    ...(muxerAudioCfg ? { audio: muxerAudioCfg } : {}),
     firstTimestampBehavior: 'offset',
   });
 
-  // Pick a working encoder config and attach encoder.
+  // Pick video encoder config, attach encoder.
   const encConfig = await pickEncoderConfig({
     width: W, height: H, bitrate, framerate,
   });
-
   let encoderError = null;
   const encoder = new VideoEncoder({
     output: (chunk, meta) => {
-      try {
-        muxer.addVideoChunk(chunk, meta);
-      } catch (e) {
-        encoderError = e;
-      }
+      try { muxer.addVideoChunk(chunk, meta); }
+      catch (e) { encoderError = e; }
     },
     error: (e) => { encoderError = e; },
   });
   encoder.configure(encConfig);
 
-  // ---------- Per-frame loop ---------------------------------------
+  // Snapshot user-facing video state for restoration.
+  const origRate     = videoEl.playbackRate;
+  const origMuted    = videoEl.muted;
+  const origPaused   = videoEl.paused;
+  const origCurrentT = videoEl.currentTime;
+
+  // ---------- Now spawn the actual audio encode in the background ----
+  if (audioInfo && muxerAudioCfg) {
+    audioPromise = (async () => {
+      // Re-use the already-decoded AudioBuffer.
+      const ab           = audioInfo.buffer;
+      const sampleRate   = audioInfo.sampleRate;
+      const channelCount = audioInfo.channelCount;
+      const startSample  = Math.max(0, Math.floor(clampedStart * sampleRate));
+      const endSample    = Math.min(ab.length, Math.floor(clampedEnd * sampleRate));
+      if (endSample <= startSample) return { encoded: 0, skipped: true };
+
+      const totalSamples = endSample - startSample;
+      const chData = [];
+      for (let c = 0; c < channelCount; c++) {
+        const full  = ab.getChannelData(c);
+        const slice = new Float32Array(totalSamples);
+        slice.set(full.subarray(startSample, endSample));
+        chData.push(slice);
+      }
+      // Release the AudioBuffer reference so it can be GC'd.
+      audioInfo.buffer = null;
+
+      const audioCfg = {
+        codec: 'mp4a.40.2',
+        sampleRate, numberOfChannels: channelCount,
+        bitrate: DEFAULT_AUDIO_BPS,
+      };
+      const sup = await AudioEncoder.isConfigSupported(audioCfg);
+      if (!sup.supported) return { encoded: 0, skipped: true, reason: 'AAC not supported' };
+
+      let audioEncErr = null;
+      let audioEncoded = 0;
+      const aenc = new AudioEncoder({
+        output: (chunk, meta) => {
+          try { muxer.addAudioChunk(chunk, meta); audioEncoded++; }
+          catch (e) { audioEncErr = e; }
+        },
+        error: (e) => { audioEncErr = e; },
+      });
+      aenc.configure(sup.config);
+
+      let pos = 0;
+      while (pos < totalSamples) {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        if (audioEncErr) throw audioEncErr;
+        const n = Math.min(AAC_FRAME_SAMPLES, totalSamples - pos);
+        const planar = new Float32Array(n * channelCount);
+        for (let c = 0; c < channelCount; c++) {
+          planar.set(chData[c].subarray(pos, pos + n), c * n);
+        }
+        const timestamp = Math.round(pos / sampleRate * 1_000_000);
+        const data = new AudioData({
+          format: 'f32-planar',
+          sampleRate,
+          numberOfFrames: n,
+          numberOfChannels: channelCount,
+          timestamp,
+          data: planar,
+        });
+        aenc.encode(data);
+        data.close();
+        pos += n;
+        while (aenc.encodeQueueSize > 16) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise(r => setTimeout(r, 0));
+          if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        }
+      }
+      await aenc.flush();
+      if (audioEncErr) throw audioEncErr;
+      aenc.close();
+      return { encoded: audioEncoded };
+    })();
+  }
+
+  // ---------- Video harvest loop -------------------------------------
+  // Strategy: play() at playbackRate=N. Each rVFC callback fires once
+  // per painted frame with mediaTime. We map mediaTime → output frame
+  // slot (rounded to the nearest 1/framerate). The first time we see
+  // each output slot, we encode that frame. Subsequent rVFC for the
+  // same slot are dropped (source video at 60fps × 4× playback = 60
+  // mediaTime-frames/sec, which we downsample to 30 output frames/sec
+  // by slot dedup).
   //
-  // We seek the source video to clip-start, then play with
-  // `playbackRate = N` and pull every painted frame via rVFC. For
-  // each pulled frame:
-  //   1. Pause the video pre-emptively so we can advance one frame
-  //      at a time (rVFC fires faster than encoder.encode() can
-  //      keep up; without pause+rAF we'd burn through frames before
-  //      encoding them and the encoder queue fills).
-  //   2. Map video time → log time → row → wire frame → sim tick.
-  //   3. Read sim state, rasterize the active mode's SVG.
-  //   4. Composite to OffscreenCanvas, build a VideoFrame, encode.
-  //   5. Issue the next seek and repeat.
+  // Slot-based dedup is more robust than "encode every rVFC" because
+  // playback rate isn't always honored exactly and rVFC can fire
+  // late-but-bunched.
   //
-  // Encoder keyframe cadence is once per second (every 30 frames at
-  // 30fps) — gives reasonable scrub points in social-media editors
-  // without bloating bitrate.
+  // Termination: when mediaTime ≥ clampedEnd, pause and break the harvest.
   const keyframeInterval = Math.max(1, framerate);
-
-  // Snapshot the video element's user-facing state BEFORE we mutate
-  // it so the `finally` block can restore. The pilot's playback rate
-  // and mute state should look untouched after a successful export.
-  // We leave paused=true (don't resume autoplay): a successful export
-  // returns the pilot to a paused state at the clip end, which is
-  // what they expect.
-  const origRate  = videoEl.playbackRate;
-  const origMuted = videoEl.muted;
-
-  let frameIdx = 0;
-  videoEl.pause();    // we'll step manually
-  videoEl.muted = true;   // we're not muxing audio yet; nice to silence
+  videoEl.pause();
+  videoEl.muted = true;       // we mux audio separately
   await seekVideoAndAwaitFrame(videoEl, clampedStart, signal);
 
-  try {
-    while (frameIdx < totalFrames) {
-      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-      if (encoderError) throw encoderError;
+  const harvested = new Set();   // output-slot indices already encoded
+  let nextEncodeSlot = 0;
+  let lastEncodedFrame = -1;
 
-      // Encoder queue back-pressure: if encodeQueueSize gets large,
-      // pause issuing new frames until the encoder catches up. Keeps
-      // memory bounded on slow devices.
-      while (encoder.encodeQueueSize > 4) {
-        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-        // Yield to the event loop so encoder.output callbacks can fire.
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(r => setTimeout(r, 0));
-      }
+  const harvestDone = new Promise((resolveHarvest, rejectHarvest) => {
+    let stopped = false;
+    const stopHarvest = (err) => {
+      if (stopped) return;
+      stopped = true;
+      try { videoEl.pause(); } catch (_) {}
+      if (err) rejectHarvest(err); else resolveHarvest();
+    };
 
-      // The video should be sitting on the right frame. mediaTime is
-      // the actual frame's PTS (from rVFC) — we read it so the
-      // encoder gets the truthful timestamp, not the cumulative
-      // frame-index multiplied out.
-      const videoT = videoEl.currentTime;
+    const onAbort = () => stopHarvest(new DOMException('aborted', 'AbortError'));
+    if (signal) {
+      if (signal.aborted) { stopHarvest(new DOMException('aborted', 'AbortError')); return; }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
 
-      // Drive the sim to this video frame's log-mapped virtual time.
-      const targetVirtMs = Math.max(0, videoT * 1000);
-      driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
-
-      // Read sim state and render overlay.
-      const m5State = sim.read();
-      let overlayBitmap = null;
+    const onFrame = async (_now, meta) => {
+      if (stopped) return;
       try {
-        const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State) : null;
-        if (svgEl) {
+        const mediaTime = meta?.mediaTime ?? videoEl.currentTime;
+
+        // Reached or past clip end? Stop.
+        if (mediaTime >= clampedEnd) {
+          stopHarvest(null);
+          return;
+        }
+
+        // Encoder back-pressure.
+        while (encoder.encodeQueueSize > 4) {
+          if (signal?.aborted) { stopHarvest(new DOMException('aborted','AbortError')); return; }
           // eslint-disable-next-line no-await-in-loop
-          overlayBitmap = await svgToImageBitmap(svgEl);
+          await new Promise(r => setTimeout(r, 0));
+        }
+        if (encoderError) { stopHarvest(encoderError); return; }
+
+        // Map mediaTime to an output slot index. We're emitting at
+        // framerate fps starting at clampedStart, so slot N has
+        // mediaTime ≈ clampedStart + N/framerate.
+        const slot = Math.floor((mediaTime - clampedStart) * framerate);
+        if (slot < 0)            { videoEl.requestVideoFrameCallback(onFrame); return; }
+        if (slot >= totalFrames) { stopHarvest(null); return; }
+        if (harvested.has(slot)) { videoEl.requestVideoFrameCallback(onFrame); return; }
+
+        // Fill any skipped slots first (rare — happens if playback
+        // rate is too high and rVFC bunches). Re-use the current
+        // painted pixels for the gap fillers, which is what the
+        // pilot saw too at that mediaTime.
+        for (let s = lastEncodedFrame + 1; s <= slot; s++) {
+          if (harvested.has(s)) continue;
+          // Drive sim to this slot's virtual time.
+          const slotMediaTime = clampedStart + s / framerate;
+          const targetVirtMs = Math.max(0, slotMediaTime * 1000);
+          driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
+
+          let rawState = sim.read();
+          let m5State  = rawState;
+          if (presFilter && rawState) {
+            const dt = 1 / framerate;
+            const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dt);
+            m5State = Object.freeze({
+              ...rawState,
+              LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
+              VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
+            });
+          }
+
+          let overlayImg = null;
+          try {
+            const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State) : null;
+            if (svgEl) {
+              // eslint-disable-next-line no-await-in-loop
+              overlayImg = await svgToImage(svgEl);
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('overlay raster failed for slot', s, e);
+          }
+
+          compositeFrame(ctx, videoEl, overlayImg, W, H);
+
+          const tsUs    = Math.round(s * 1_000_000 / framerate);
+          const durUs   = Math.round(    1_000_000 / framerate);
+          const vframe  = new VideoFrame(canvas, { timestamp: tsUs, duration: durUs });
+          const isKey   = (s % keyframeInterval) === 0 || s === 0;
+          encoder.encode(vframe, { keyFrame: isKey });
+          vframe.close();
+
+          harvested.add(s);
+          lastEncodedFrame = s;
+          nextEncodeSlot = s + 1;
+          if (onProgress) {
+            onProgress({
+              frame: harvested.size,
+              totalFrames,
+              encodedSec: (s + 1) / framerate,
+              totalSec,
+            });
+          }
+        }
+
+        // Re-arm rVFC for the next painted frame.
+        if (nextEncodeSlot < totalFrames && !stopped) {
+          videoEl.requestVideoFrameCallback(onFrame);
+        } else {
+          stopHarvest(null);
         }
       } catch (e) {
-        // Soft failure: a frame without overlay still encodes; we'd
-        // rather emit a clip with one missing overlay than abort
-        // mid-export.
+        stopHarvest(e);
+      }
+    };
+
+    // Configure playback rate AFTER seek-settle, then play() + arm rVFC.
+    videoEl.playbackRate = playbackRate;
+    videoEl.requestVideoFrameCallback(onFrame);
+    videoEl.play().catch((e) => stopHarvest(e));
+  });
+
+  try {
+    await harvestDone;
+    if (encoderError) throw encoderError;
+
+    // Wait for audio encode (if any). Audio failure shouldn't kill the
+    // export; we fall back to silent in that case.
+    if (audioPromise) {
+      try { await audioPromise; }
+      catch (e) {
         // eslint-disable-next-line no-console
-        console.warn('overlay raster failed for frame', frameIdx, e);
-      }
-
-      compositeFrame(ctx, videoEl, overlayBitmap, W, H);
-      if (overlayBitmap && typeof overlayBitmap.close === 'function') {
-        overlayBitmap.close();
-      }
-
-      // Build a VideoFrame from the canvas. timestamp is in µs.
-      // We use frame-index-based timestamps (rather than the source
-      // video's mediaTime) so the muxer sees a strictly-monotonic,
-      // gap-free sequence regardless of source frame-rate jitter.
-      const tsMicroseconds = Math.round(frameIdx * 1_000_000 / framerate);
-      const durationUs     = Math.round(1_000_000 / framerate);
-      const videoFrame = new VideoFrame(canvas, {
-        timestamp: tsMicroseconds,
-        duration:  durationUs,
-      });
-
-      const isKeyframe = (frameIdx % keyframeInterval) === 0;
-      encoder.encode(videoFrame, { keyFrame: isKeyframe });
-      videoFrame.close();
-
-      frameIdx++;
-      if (onProgress) {
-        onProgress({
-          frame: frameIdx,
-          totalFrames,
-          encodedSec: frameIdx / framerate,
-          totalSec,
-        });
-      }
-
-      // Advance to the next frame's video time. Frame-stepping via
-      // seek is slower than play+rate but gives deterministic
-      // alignment and no decoder-induced frame drops on the source
-      // side. For the clips we ship (5-60s typical), the overhead
-      // is acceptable; longer clips would benefit from playback-rate
-      // streaming, a Phase 2 optimization.
-      const nextVideoT = clampedStart + (frameIdx / framerate);
-      if (nextVideoT > clampedEnd + 1 / framerate) break;
-      if (frameIdx < totalFrames) {
-        // eslint-disable-next-line no-await-in-loop
-        await seekVideoAndAwaitFrame(videoEl, nextVideoT, signal);
+        console.warn('audio encode failed, exporting silent:', e);
       }
     }
 
-    // Flush + finalize.
     await encoder.flush();
     if (encoderError) throw encoderError;
     encoder.close();
@@ -563,17 +595,20 @@ export async function exportClipAsMp4({
     if (!target.buffer) throw new Error('Muxer produced no output.');
     return new Blob([target.buffer], { type: 'video/mp4' });
   } finally {
-    // Cleanup regardless of success / abort.
+    try { videoEl.pause(); } catch (_) {}
     try { encoder.state !== 'closed' && encoder.close(); } catch (_) {}
     try { sim.delete(); } catch (_) {}
     videoEl.playbackRate = origRate;
     videoEl.muted        = origMuted;
+    // Restore playhead to where the pilot left it.
+    try { videoEl.currentTime = origCurrentT; } catch (_) {}
+    if (!origPaused) {
+      try { await videoEl.play(); } catch (_) {}
+    }
   }
 }
 
-// Trigger a browser download for a Blob. Pulled out as a re-export so
-// callers can import from one module rather than mixing this with the
-// WebM path.
+// Trigger a browser download for a Blob.
 export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -585,53 +620,33 @@ export function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-// Pure-logic helpers exported for unit testing. Keeping these in the
-// same module (rather than a sibling util file) keeps the test surface
-// adjacent to the production caller.
-
-/**
- * Convert a clip {startMs, endMs} log-time pair to {startVideoSec,
- * endVideoSec} via the sync anchor, then clamp to the video's actual
- * [0, duration] range. Returns null if the clamped window is empty or
- * if sync is incomplete.
- *
- * Exported for tests; mp4Export uses it internally too.
- */
+// Pure-logic helpers exported for unit testing.
 export function clipToVideoWindow(clip, sync, videoDurationSec) {
   if (!clip || !sync) return null;
   if (!Number.isFinite(sync.logTakeoffMs) ||
       !Number.isFinite(sync.videoTakeoffSec)) return null;
   if (!Number.isFinite(clip.startMs) || !Number.isFinite(clip.endMs)) return null;
   if (clip.endMs <= clip.startMs) return null;
-
-  const startVideoSec = sync.videoTakeoffSec +
-                        (clip.startMs - sync.logTakeoffMs) / 1000;
-  const endVideoSec   = sync.videoTakeoffSec +
-                        (clip.endMs   - sync.logTakeoffMs) / 1000;
+  const startVideoSec = sync.videoTakeoffSec + (clip.startMs - sync.logTakeoffMs) / 1000;
+  const endVideoSec   = sync.videoTakeoffSec + (clip.endMs   - sync.logTakeoffMs) / 1000;
   const start = Math.max(0, startVideoSec);
-  const end   = Number.isFinite(videoDurationSec)
-                  ? Math.min(videoDurationSec, endVideoSec)
-                  : endVideoSec;
+  const end   = Number.isFinite(videoDurationSec) ? Math.min(videoDurationSec, endVideoSec) : endVideoSec;
   if (end <= start) return null;
   return { startVideoSec: start, endVideoSec: end };
 }
 
-/**
- * Compute the number of frames an MP4 export will produce for a given
- * (clipDurationSec, frameRate). Pulled out for tests; used implicitly
- * by exportClipAsMp4's loop bound.
- */
 export function expectedFrameCount(clipDurationSec, frameRate) {
   if (!Number.isFinite(clipDurationSec) || clipDurationSec <= 0) return 0;
   if (!Number.isFinite(frameRate) || frameRate <= 0) return 0;
   return Math.max(1, Math.round(clipDurationSec * frameRate));
 }
 
-// Re-export the M5_TICK_MS / M5_LARGE_JUMP_MS constants for tests that
-// want to validate snap vs catch-up behavior bounds.
 export const MP4_EXPORT_INTERNAL = Object.freeze({
   M5_TICK_MS,
   M5_LARGE_JUMP_MS,
   DEFAULT_BITRATE_BPS,
   DEFAULT_FRAMERATE,
+  DEFAULT_AUDIO_BPS,
+  DEFAULT_PLAYRATE,
+  AAC_FRAME_SAMPLES,
 });
