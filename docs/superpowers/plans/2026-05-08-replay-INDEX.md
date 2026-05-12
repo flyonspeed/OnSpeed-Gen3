@@ -25,8 +25,10 @@ If you're a fresh agent (or fresh-session Sam) picking up this work,
 | 6 | `2026-05-08-video-overlay-replay.md` | Layer 1+ ideas active; engine framing dead | Project C: Replay tool roadmap. Layer-1+ feature ideas (DataMark, ClipBuilder, export) still apply. The "in-browser engine port" framing is superseded by B1+B2. |
 | 7 | `2026-05-08-cross-impl-drift-prevention.md` | Historical | One-paragraph summary of the streaming-goldens CI step. Mostly resolved by B1+B2. |
 
-**Status snapshot (2026-05-11):** Foundation projects (A, B1, B2) all
-shipped. Next phase: see "Project ordering — current state" below.
+**Status snapshot (2026-05-12):** Foundation projects (A, B1, B2) all
+shipped. Project C Layers 0/1/4/5 shipped 2026-05-12 via a merge cascade
+of PRs #527 / #529 / #532. Next phase: see "Project ordering — current
+state" and "Status snapshot (2026-05-12)" at the bottom of this doc.
 Open follow-ups from PR #512: **#523** (umbrella for shared `ui-core/`
 + adapter pattern; PR-A first), **#521** (SD log captures wire-quantized
 fields; firmware-side companion).
@@ -274,3 +276,72 @@ references the relevant plan from a fresh checkout.
 Ask Sam. "I'm not sure whether this is Project A's job or
 Project C's" beats picking wrong. Same for any architecture call
 not covered above.
+
+---
+
+## Status snapshot (2026-05-12)
+
+**Project A (Python consolidation)**: Steps 0-2 shipped. Steps 3-7
+remain deferred for the LogReplayTask lift; no change since the
+2026-05-09 retro.
+
+**Project B (WASM core + LogReplayEngine)**: SHIPPED. WASM core
+builds; LogReplayTask is the canonical replay engine; replay tool
+consumes it. Engine-vs-task parity native test guards drift.
+
+**Project C (Video Overlay Replay tool)**: Layers 0/1/4/5 SHIPPED.
+Layer 2 (HUD widgets gallery) and Layer 3 (HUD chrome) still pending —
+not blocked on anything; lower priority than Round 4 because the
+indexer-corner overlay covers Vac's primary use case.
+
+PRs that landed Layers 0/1/4/5:
+
+- **PR #512** — Layer 0 engine + WASM pipeline (LogReplayTask lift)
+- **PR #524** — PR-A: shared `ui-core/` extraction
+- **PR #526** — PR-C: live indexer adopts `M5State` via adapter
+- **PR #527** (merged 2026-05-12) — sync + clip persistence across
+  reload, content-keyed by SHA-256 prefix of the log file
+- **PR #529** (merged 2026-05-12) — `--target replay` mode in
+  `scripts/build_web_bundle.py`; single `replay-bundle.js` served by
+  the docs page instead of fan-out of relative-path imports
+- **PR #532** (merged 2026-05-12) — composite MP4 export
+  (source-faithful 4K HEVC + AAC passthrough + rotation handling),
+  overlay-only export (5 modes + size selector: native 320×240 /
+  20% / 30% / 50% of source), Mediabunny migration
+
+### Round 4a (Mediabunny + worker)
+
+- **Mediabunny migration**: SHIPPED in PR #532. Deprecated
+  `mp4-muxer` and memory-hungry `mp4box.js` both removed; single
+  MPL-2.0 dep with streaming reads handles demux + mux.
+- **Worker-thread the export loop**: RETREATED. The worker branch
+  (`feature/replay-worker`, tagged `replay-pre-worker-retreat` at
+  the mediabunny tip) got 17 s vs 40 s wall clock plus a responsive
+  UI, but every SVG-to-bitmap call failed with `InvalidStateError`.
+  Root cause: Chrome's `createImageBitmap(svgBlob)` does not accept
+  `image/svg+xml` despite the spec. Tracked as issue **#62**.
+  Revisit after the SVG-rasterization architecture is redesigned
+  (likely render SVG to `ImageBitmap` on the main thread, transfer
+  to worker).
+
+### Round 4b (ergonomics) — queued
+
+In rough sequencing order:
+
+1. **#72 — FileSystemFileHandle persistence** (next ship after this
+   doc update). Three-pick-on-every-reload behavior is "bananas" per
+   Sam 2026-05-12. Plan doc:
+   `2026-05-12-filesystem-handle-persistence.md`.
+2. **#63 — Frame-step keyboard scrub** (←/→ source-frame, NLE keymap)
+3. **#64 — Multi-GoPro chapter ingest** (folder picker, auto-concat
+   virtual file; builds on the directory picker from #72)
+4. **#65 — Multi-anchor sync** (piecewise-linear for clock drift over
+   long flights; uses frame-step for fine alignment)
+5. **#69 — Clip timeline visualization + nudge UX** (render clip
+   spans on the timeline, drag handles on endpoints)
+6. **#71 — Bulldog deferred follow-ups** (rotation 90°/270° pixel
+   swap; comment sweep across `mp4Export.js` + `ReplayPage.js`;
+   helper dedup)
+
+See `2026-05-08-video-overlay-replay.md` "Round 4 — what shipped
+2026-05-12" for full detail on what landed and what's next.

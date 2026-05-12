@@ -836,3 +836,106 @@ e773041d  replay: data-mark navigation + clip builder + clip export
 d0f03d44  replay: WebM export of video + indexer overlay (phase 4)
 59d1b5ba  replay: video-overlay tool with synced indexer (phase 1+2+3)
 ```
+
+---
+
+## Round 4 — what shipped 2026-05-12
+
+Three replay PRs merged in cascade to master on 2026-05-12, retiring
+the WebCodecs export work and the deprecated demux/mux infrastructure
+in one pass:
+
+### What shipped today
+
+**Composite MP4 export** (the headline feature):
+- Source-faithful encoder: matches source resolution, framerate (exact
+  rational cts), codec family (HEVC source → HEVC output, H.264 → H.264),
+  High profile. No silent down-conversion.
+- 4K HEVC sources export at native resolution with audio.
+- AAC audio passthrough via Mediabunny's raw-packet path —
+  bit-perfect, no re-encode.
+- Source rotation matrix honored: GoPro's `tkhd` rotation respected at
+  composite time, output pixels upright (180° validated on Vac's
+  footage; 90°/270° pixel-dimension swap deferred to #71).
+- PresentationFilter applied during export so slip-ball smoothing
+  matches live preview.
+
+**Overlay-only MP4 export** (the second output path):
+- 5-mode picker (per-mode checkboxes; Energy / Attitude / Indexer /
+  Decel / Historic G) — single export pass renders one or many modes.
+- Size selector: native M5 dimensions (320×240), or 20% / 30% / 50%
+  of source width. Black panel background, no chroma key. Output IS
+  the M5 panel as a video; pilots drag-on-top in any NLE.
+
+**Sync + clip persistence across reload** (PR #527):
+- Content-keyed by SHA-256 prefix of the log file. Same log file →
+  same sync state and clip list across reloads, even across browser
+  restarts.
+- Stored in IndexedDB.
+
+**Bundled replay tool** (PR #529):
+- `scripts/build_web_bundle.py` grew a `--target replay` mode that
+  emits a single `replay-bundle.js` for the docs-site replay page.
+- Page no longer fans out per-file relative-path imports; one bundle
+  drops in, matches how the firmware serves its own bundle.
+
+**Mediabunny migration** (part of PR #532):
+- `mp4-muxer` (deprecated by its own author) gone.
+- `mp4box.js` (OOMs on >500 MB reads, no streaming reads) gone.
+- Single MPL-2.0 dep (same author as `mp4-muxer`) handles both demux
+  and mux with streaming reads.
+- Unblocks: non-fast-start file correctness; future 90-min full-flight
+  exports without the head/tail probe budget.
+
+### Bulldog round outcomes
+
+Bulldog review on 2026-05-12 raised 27 issues across `mp4Export.js` and
+`ReplayPage.js`. BLOCKERs plus selected HIGHs fixed in commit
+`eee2b807` (cross-log persistence corruption + memory leaks + AAC
+t=0 edge case). Deferred items tracked as **#71**:
+- 90°/270° rotation pixel-dimension swap (Vac uses GoPro 180° which
+  works; 90°/270° currently produces wrong-aspect output)
+- Stale-comment sweep across `mp4Export.js` + `ReplayPage.js`
+- Helper dedup between the composite and overlay-only paths
+
+### Worker-thread retreat
+
+`feature/replay-worker` (commit `1b383bcd`) moved the
+decode/composite/encode loop into a Web Worker. Measured wins: 17 s
+vs 40 s wall clock + responsive UI throughout. But every
+SVG-to-bitmap call failed with `InvalidStateError` because Chrome's
+`createImageBitmap(svgBlob)` does not accept `image/svg+xml` despite
+the spec saying it should.
+
+Retreated to mediabunny tip with tag `replay-pre-worker-retreat` at
+commit `b842c8ba`. Worker code preserved on its branch as WIP.
+Revisit after redesigning SVG rasterization: most likely render SVG
+to `ImageBitmap` on the main thread and `transfer()` the bitmap into
+the worker. Tracked as issue **#62**.
+
+### What's next (Round 4b — ergonomics)
+
+The user-facing friction surfaced 2026-05-12 by Sam ("re-picking 3
+files on every reload is bananas") moves these features to the front
+of the queue:
+
+1. **#72 — FileSystemFileHandle persistence** — NEXT. Plan doc:
+   `2026-05-12-filesystem-handle-persistence.md`. Stores
+   `FileSystemFileHandle` per slot in IndexedDB; one click + single
+   permission dialog re-grants all three files on reload.
+2. **#63 — Frame-step keyboard scrub** — NLE keymap (←/→ one source
+   frame, Shift+←/→ ±1 s, J/K/L transport, `,`/`.` alias). Frame
+   rate read from mp4box probe (accuracy matters for sync). Foundation
+   for #65.
+3. **#64 — Multi-GoPro chapter ingest** — auto-concat
+   `GH010001.MP4` + `GH020001.MP4` etc into a virtual file. Builds on
+   the directory picker from #72.
+4. **#65 — Multi-anchor sync** — piecewise-linear sync for clock drift
+   over long flights and across chapter boundaries.
+5. **#69 — Clip timeline visualization + nudge UX** — render clip
+   spans on the IAS timeline; drag handles on endpoints to nudge.
+6. **#71 — Bulldog deferred follow-ups** (above).
+
+This section supersedes the prior "Round 4" planning text — Mediabunny
+landed, the worker retreated, and Round 4b sequencing is anchored on
+file-handle persistence as the user-felt next step.
