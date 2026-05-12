@@ -280,6 +280,20 @@ export const ReplayPage = () => {
     safeLsSet('replay-overlay-modes-v1', JSON.stringify(selectedOverlayModes));
   }, [selectedOverlayModes]);
 
+  // Overlay size — fraction of source video width, or 'native' for the
+  // M5's 320×240 pixel grid. NLEs (especially iMovie) handle drag-on-
+  // top sanely when the overlay is already at a useful display size;
+  // 0.2 (20% of a 4K width = 768×576) is the iMovie sweet spot.
+  // Persisted so the choice sticks.
+  const [overlaySize, setOverlaySize] = useState(() => {
+    const s = safeLsGet('replay-overlay-size-v1');
+    const valid = ['native', '0.2', '0.3', '0.5'];
+    return valid.includes(s) ? s : '0.2';
+  });
+  useEffect(() => {
+    safeLsSet('replay-overlay-size-v1', overlaySize);
+  }, [overlaySize]);
+
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
   // playing/scrubbing freely. When they click "Attach here" we
@@ -1316,6 +1330,25 @@ export const ReplayPage = () => {
       ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
       : null;
 
+    // Resolve output dimensions. 'native' = M5 panel pixel grid
+    // (320×240, the export module's default when outputWidth is null).
+    // Numeric fractions = that proportion of the source video's width,
+    // preserving the M5 panel's 4:3 aspect. Falls back to native if
+    // the source resolution isn't known yet.
+    const v = videoRef.current;
+    const srcW = v && v.videoWidth > 0 ? v.videoWidth : 0;
+    let overlayW = null;
+    let overlayH = null;
+    if (overlaySize !== 'native' && srcW > 0) {
+      const frac = parseFloat(overlaySize);
+      if (Number.isFinite(frac) && frac > 0) {
+        // Round to multiples of 2 for the encoder; keep 4:3 aspect
+        // (M5 panel is 320×240 = 4:3).
+        overlayW = Math.max(2, Math.round(srcW * frac / 2) * 2);
+        overlayH = Math.max(2, Math.round(overlayW * 3 / 4 / 2) * 2);
+      }
+    }
+
     const controller = new AbortController();
     overlayAbortRef.current = controller;
     setOverlayExporting(true);
@@ -1345,8 +1378,14 @@ export const ReplayPage = () => {
         renderOverlaySvg: renderOverlayForExport,
         modes:           requestedModes,
         presentationTau,
-        // Dimensions, framerate, bitrate, background all default to
-        // sensible values (M5 native 320×240, 30fps, ~150 kbps, #000).
+        // null/null falls through to M5 native 320×240; numeric values
+        // pre-scale the overlay to a fraction of source-video width so
+        // NLEs that auto-scale drop-on-top layers (iMovie's biggest
+        // gotcha) put the overlay at a sensible size automatically.
+        outputWidth:  overlayW,
+        outputHeight: overlayH,
+        // framerate, bitrate, background default to sensible values
+        // (30fps, ~150 kbps@native scaling up with resolution, #000).
         onProgress: ({ mode, frame, totalFrames }) => {
           setOverlayCurrentMode(mode);
           if (totalFrames > 0) setOverlayProgress(frame / totalFrames);
@@ -1376,7 +1415,8 @@ export const ReplayPage = () => {
       setOverlayProgress(0);
     }
   }, [syncReady, sync, log, cppWireFrames, overlayAvailable,
-      renderOverlayForExport, videoFile, m5SmoothPreset]);
+      renderOverlayForExport, videoFile, m5SmoothPreset,
+      selectedOverlayModes, overlaySize]);
 
   const cancelOverlayExport = useCallback(() => {
     if (overlayAbortRef.current) overlayAbortRef.current.abort();
@@ -1590,7 +1630,9 @@ export const ReplayPage = () => {
               overlayAvailable=${overlayAvailable}
               selectedOverlayModes=${selectedOverlayModes}
               onChangeOverlayModes=${setSelectedOverlayModes}
-              overlayModeOrder=${OVERLAY_MODE_ORDER} />
+              overlayModeOrder=${OVERLAY_MODE_ORDER}
+              overlaySize=${overlaySize}
+              onChangeOverlaySize=${setOverlaySize} />
         </footer>
       </div>`;
 };

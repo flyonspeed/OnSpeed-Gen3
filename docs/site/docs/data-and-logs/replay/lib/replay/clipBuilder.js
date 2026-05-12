@@ -134,6 +134,8 @@ export const ClipBuilder = ({
   selectedOverlayModes,   // string[] — modes the user picked (default: ['indexer'])
   onChangeOverlayModes,   // (string[]) — replaces the selection list
   overlayModeOrder,       // string[]  — canonical mode list for the checkboxes
+  overlaySize,            // 'native' | '0.2' | '0.3' | '0.5'
+  onChangeOverlaySize,    // (string) — updates the size selection
 }) => {
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
@@ -233,6 +235,20 @@ export const ClipBuilder = ({
                    onChange=${() => toggleMode(m)} />
             ${m}
           </label>`)}
+        ${onChangeOverlaySize ? html`
+          <span class="replay-spacer"></span>
+          <label class="replay-overlay-mode-toggle">
+            Size:
+            <select class="replay-overlay-size-select"
+                    value=${overlaySize || '0.2'}
+                    disabled=${overlayExporting}
+                    onChange=${(e) => onChangeOverlaySize(e.target.value)}>
+              <option value="native">Native (320×240)</option>
+              <option value="0.2">20% of source</option>
+              <option value="0.3">30% of source</option>
+              <option value="0.5">50% of source</option>
+            </select>
+          </label>` : null}
       </div>`;
   };
 
