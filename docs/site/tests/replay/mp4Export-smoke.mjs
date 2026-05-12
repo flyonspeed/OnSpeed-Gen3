@@ -30,6 +30,10 @@ import {
 } from '../../docs/data-and-logs/replay/lib/replay/mp4Export.js';
 
 import {
+  selectChaptersForClip,
+} from '../../docs/data-and-logs/replay/lib/replay/chapters.js';
+
+import {
   buildClipFromPlayhead,
   buildClipFromMarkers,
   validateClipEdit,
@@ -335,6 +339,100 @@ assertEq(
 // Missing / undersized matrix.
 assertEq(rotationFromTkhdMatrix(null), 0, 'null matrix → 0°');
 assertEq(rotationFromTkhdMatrix([1, 0]), 0, 'undersized matrix → 0°');
+
+// ---------------------------------------------------------------------
+// Multi-chapter segment math — the export pipeline iterates segments
+// from selectChaptersForClip. Tests below mirror the way exportClipAsMp4
+// calls into chapters.js + clipToVideoWindow with a timeline.
+// ---------------------------------------------------------------------
+console.log('\n--- multi-chapter segment math ---');
+
+// Build a 3-chapter timeline: durations 100s, 200s, 150s. Each
+// chapter is its own File-like stub since selectChaptersForClip
+// only reads {file, startSec, endSec}.
+const chapterFiles = [
+  { name: 'GOPR0314.MP4', size: 100_000_000 },
+  { name: 'GP010314.MP4', size: 200_000_000 },
+  { name: 'GP020314.MP4', size: 150_000_000 },
+];
+const timeline = {
+  chapters: [
+    { file: chapterFiles[0], chapterIndex: 0, durationSec: 100, startSec: 0,   endSec: 100 },
+    { file: chapterFiles[1], chapterIndex: 1, durationSec: 200, startSec: 100, endSec: 300 },
+    { file: chapterFiles[2], chapterIndex: 2, durationSec: 150, startSec: 300, endSec: 450 },
+  ],
+  totalDurationSec: 450,
+};
+
+// clipToVideoWindow with multi-chapter durationSec=totalDurationSec.
+// The mapping is unchanged from single-file (mp4Export uses
+// timeline.totalDurationSec as the clamp source).
+assertEq(
+  clipToVideoWindow({ startMs: 12_000, endMs: 15_000 }, sync, timeline.totalDurationSec),
+  { startVideoSec: 4, endVideoSec: 7 },
+  'multi-chapter: clipToVideoWindow with totalDurationSec'
+);
+
+// Cross-chapter clip: log 10s..200s → video 2s..192s with
+// sync.logTakeoffMs=10000, sync.videoTakeoffSec=2.
+// Spans chapter 0 ([0,100)) and chapter 1 ([100,300)).
+{
+  const clip = { startMs: 10_000, endMs: 200_000 };
+  const window = clipToVideoWindow(clip, sync, timeline.totalDurationSec);
+  assertEq(
+    window,
+    { startVideoSec: 2, endVideoSec: 192 },
+    'cross-chapter: clipToVideoWindow returns global window'
+  );
+  const segs = selectChaptersForClip(timeline, window.startVideoSec, window.endVideoSec);
+  assertEq(segs.length, 2, 'cross-chapter: 2 segments selected');
+  assertEq(segs[0].chapterIndex, 0, 'cross-chapter: first seg is chapter 0');
+  assertEq(segs[1].chapterIndex, 1, 'cross-chapter: second seg is chapter 1');
+  // Chapter 0 plays from local 2s up to its end (local 100s)
+  assertEq(segs[0].localStartSec, 2,   'cross-chapter: seg 0 localStart=2');
+  assertEq(segs[0].localEndSec,   100, 'cross-chapter: seg 0 localEnd=100 (chapter end)');
+  // Chapter 1 plays from local 0 to local 92s (global 192s - 100s = 92s)
+  assertEq(segs[1].localStartSec, 0,   'cross-chapter: seg 1 localStart=0');
+  assertEq(segs[1].localEndSec,   92,  'cross-chapter: seg 1 localEnd=92');
+  // Cumulative output-time across both segments equals the clip span.
+  const seg0DurOut = segs[0].localEndSec - segs[0].localStartSec; // 98
+  const seg1DurOut = segs[1].localEndSec - segs[1].localStartSec; // 92
+  assertEq(seg0DurOut + seg1DurOut, window.endVideoSec - window.startVideoSec,
+           'cross-chapter: cumulative output equals clip span (190s)');
+}
+
+// Spans all three chapters.
+{
+  const segs = selectChaptersForClip(timeline, 50, 400);
+  assertEq(segs.length, 3, 'span-3: 3 segments');
+  assertEq(
+    segs.map(s => [s.localStartSec, s.localEndSec]),
+    [[50, 100], [0, 200], [0, 100]],
+    'span-3: per-segment local bounds'
+  );
+  assertEq(
+    segs.map(s => [s.globalStartSec, s.globalEndSec]),
+    [[50, 100], [100, 300], [300, 400]],
+    'span-3: per-segment global bounds align with chapters'
+  );
+}
+
+// Sanity check: within-chapter export math
+// — segmentOffsetSec for seg 0 is 0 (first segment)
+// — seg 1's offset equals seg 0's encoded duration
+// This locks the offset math the per-segment encode loop uses.
+{
+  const segs = selectChaptersForClip(timeline, 90, 210);
+  // seg 0: chapter 0, local [90, 100), encoded duration 10
+  // seg 1: chapter 1, local [0, 110), encoded duration 110
+  const seg0Dur = segs[0].localEndSec - segs[0].localStartSec;
+  const seg1Dur = segs[1].localEndSec - segs[1].localStartSec;
+  assertEq(seg0Dur, 10,  'segment-offset math: seg 0 duration 10');
+  assertEq(seg1Dur, 110, 'segment-offset math: seg 1 duration 110');
+  // Output cumulative offset at start of seg 1 equals seg 0's duration.
+  // Total clip span = seg 0 dur + seg 1 dur = 120 = 210 - 90.
+  assertEq(seg0Dur + seg1Dur, 120, 'segment-offset math: cumulative = total span');
+}
 
 // ---------------------------------------------------------------------
 // Summary

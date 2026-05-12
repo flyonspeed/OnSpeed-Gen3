@@ -75,6 +75,10 @@ import { getWasmCore } from '../replay/wasm_core.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
 } from '../../../../packages/ui-core/components/svg/m5modes/index.js';
+import {
+  detectGoProChapterPattern, groupChapterSiblings, buildChapterTimeline,
+  globalToLocal, describeChapterPick,
+} from '../replay/chapters.js';
 
 // Mode list indexed by displayType (0..4). The int returned by
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
@@ -146,8 +150,19 @@ function videoToLogMs(videoSec, sync) {
 
 
 export const ReplayPage = () => {
-  const [videoFile, setVideoFile] = useState(null);
+  // Chapter-aware state. For non-GoPro single picks, videoFiles is
+  // `[file]` and videoTimeline is null — the page falls back to its
+  // legacy single-file behaviour (videoEl.duration drives all the
+  // time math). For a GoPro multi-chapter pick, videoFiles is the
+  // sorted chapter list and videoTimeline carries the {chapters,
+  // totalDurationSec} that lets `globalSec` be computed across the
+  // whole recording. `videoFile` (singular) is the active chapter
+  // displayed in the <video> element — derived below.
+  const [videoFiles, setVideoFiles] = useState([]);
+  const [videoTimeline, setVideoTimeline] = useState(null);
+  const [activeChapterIndex, setActiveChapterIndex] = useState(0);
   const [videoUrl, setVideoUrl]   = useState(null);
+  const videoFile = videoFiles[activeChapterIndex] || null;
   const [log, setLog]             = useState(null);
   // Raw File handle, separate from logFilename. Used to compute the
   // content-keyed digest for sync + clip persistence (see
@@ -376,6 +391,16 @@ export const ReplayPage = () => {
   const videoRef    = useRef(null);
   const containerRef = useRef(null);
   const rafIdRef    = useRef(null);
+  // Live mirrors of videoTimeline + activeChapterIndex consumed by the
+  // rVFC tick (the tick captures these via ref so a chapter swap mid-
+  // tick is observed immediately, not after the next render).
+  const videoTimelineRef = useRef(null);
+  const activeChapterIndexRef = useRef(0);
+  // While a chapter is being swapped (URL change + loadedmetadata
+  // round-trip), we want to seek to a specific local time once the
+  // new source is loaded. Pending swap target lives here; the
+  // loadedmetadata handler reads and clears it.
+  const pendingChapterSeekRef = useRef(null);
   // Tracks whether an MP4 export is in progress. The live-preview
   // rVFC chain reads this each tick and suspends its self-
   // re-registration loop while true: the export pipeline registers
@@ -396,15 +421,72 @@ export const ReplayPage = () => {
   //   2. FSA `showOpenFilePicker` buttons       (handle = FSFileHandle)
   //   3. Resume-banner re-grant path            (handle from IDB)
 
-  const applyVideoFile = useCallback((f, handle) => {
+  // Apply a video pick. Accepts either a single File (legacy) or an
+  // array of Files (multi-chapter). When `files.length > 1` we group
+  // GoPro siblings, build the timeline, and start playback at chapter
+  // 0. If grouping produces zero matches we fall back to treating the
+  // first file as a single standalone video.
+  //
+  // The `handle` argument is the FSA handle for the user-picked file
+  // (single chapter). For multi-chapter picks the caller passes a
+  // `chapterHandles` array via the third slot — currently unused for
+  // resume because IDB store schema only knows about one file per
+  // slot; revisit when multi-chapter resume gets prioritised.
+  const applyVideoFiles = useCallback(async (filesArg, handle, chapterHandles) => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
-    setVideoFile(f);
-    setVideoUrl(URL.createObjectURL(f));
-    videoFileRef.current = f;
-    persistence.notifyFilePicked('video', f);
-    videoHandleRef.current = handle || null;
-    if (handle) persistHandlesIfReady();
+    const filesIn = Array.isArray(filesArg) ? filesArg : (filesArg ? [filesArg] : []);
+    if (filesIn.length === 0) {
+      setVideoFiles([]);
+      setVideoTimeline(null);
+      setActiveChapterIndex(0);
+      setVideoUrl(null);
+      videoFileRef.current = null;
+      videoHandleRef.current = null;
+      return;
+    }
+    let chaptersList = [];
+    if (filesIn.length > 1) {
+      chaptersList = groupChapterSiblings(filesIn);
+    }
+    let timeline = null;
+    let activeFiles = filesIn;
+    if (chaptersList.length > 1) {
+      try {
+        timeline = await buildChapterTimeline(chaptersList);
+        activeFiles = timeline.chapters.map(c => c.file);
+      } catch (err) {
+        // Probe failure (corrupt chapter, codec issue). Fall back to
+        // single-chapter behaviour with the first file; pilot can
+        // re-pick if they want multi-chapter.
+        setParseErr(`Multi-chapter pick failed: ${err.message}. Loaded first file only.`);
+        timeline = null;
+        activeFiles = [filesIn[0]];
+      }
+    }
+    setVideoFiles(activeFiles);
+    setVideoTimeline(timeline);
+    setActiveChapterIndex(0);
+    const first = activeFiles[0];
+    // For non-chapter picks, set videoUrl directly here — the chapter
+    // swap effect short-circuits on null timeline. For multi-chapter
+    // picks, clear videoUrl first; the chapter-swap effect creates
+    // the URL for the active chapter once the new timeline lands.
+    if (!timeline) {
+      setVideoUrl(URL.createObjectURL(first));
+    } else {
+      setVideoUrl(null);
+    }
+    videoFileRef.current = first;
+    persistence.notifyFilePicked('video', first);
+    videoHandleRef.current = handle || (chapterHandles && chapterHandles[0]) || null;
+    if (handle || chapterHandles) persistHandlesIfReady();
   }, [videoUrl, persistence, persistHandlesIfReady]);
+
+  // Compat wrapper for the existing single-file callsites (resume
+  // banner, etc.). Equivalent to applyVideoFiles([f], handle).
+  const applyVideoFile = useCallback((f, handle) => {
+    applyVideoFiles(f ? [f] : [], handle, null);
+  }, [applyVideoFiles]);
 
   const applyLogFile = useCallback(async (f, handle) => {
     setParseErr(null);
@@ -471,9 +553,10 @@ export const ReplayPage = () => {
   // null in this path so no IDB write happens; resume banner won't
   // appear next reload (correct behavior on unsupported browsers).
   const onVideoPick = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    applyVideoFile(f, null);
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    applyVideoFiles(files, null, null);
   };
 
   const onLogPick = async (e) => {
@@ -494,14 +577,77 @@ export const ReplayPage = () => {
   // helpers the <input> path uses.
   const fsaSupported = useState(() => isFileHandleApiSupported())[0];
 
+  // Pick a video via the File System Access picker. When the pilot
+  // picks a GoPro first-chapter file (GOPR####.MP4), immediately
+  // open the directory picker so we can pull in the sibling
+  // continuation chapters (GP01...GP09####.MP4) into one virtual
+  // timeline.
+  //
+  // If the directory pick is denied or unavailable (or no siblings
+  // match), the single chapter the pilot picked still works
+  // standalone — same as a non-GoPro pick. A banner explains the
+  // fallback path.
   const pickVideoViaFsa = useCallback(async () => {
     try {
       const r = await pickFile('video');
-      if (r) applyVideoFile(r.file, r.handle);
+      if (!r) return;
+      const pattern = detectGoProChapterPattern(r.file?.name || '');
+      if (!pattern || typeof window === 'undefined' ||
+          typeof window.showDirectoryPicker !== 'function') {
+        applyVideoFile(r.file, r.handle);
+        return;
+      }
+      // Try the directory picker. The pilot may dismiss it; treat
+      // dismissal the same as "use just this chapter".
+      let dirHandle;
+      try {
+        dirHandle = await window.showDirectoryPicker();
+      } catch (dirErr) {
+        if (dirErr && dirErr.name === 'AbortError') {
+          applyVideoFile(r.file, r.handle);
+          setParseErr(
+            `Picked ${r.file.name} only. Re-pick using the multi-select ` +
+            `flow to load all chapters together.`);
+          return;
+        }
+        throw dirErr;
+      }
+      // Walk the directory and collect every GoPro chapter sibling
+      // matching the same seq as the picked file.
+      const siblings = [];
+      const siblingHandles = [];
+      for await (const [name, entry] of dirHandle.entries()) {
+        if (entry.kind !== 'file') continue;
+        const m = detectGoProChapterPattern(name);
+        if (!m || m.seq !== pattern.seq) continue;
+        try {
+          const f = await entry.getFile();
+          siblings.push(f);
+          siblingHandles.push(entry);
+        } catch (_) { /* unreadable file: skip */ }
+      }
+      if (siblings.length <= 1) {
+        // Directory had no extra chapters — fall back to single-file.
+        applyVideoFile(r.file, r.handle);
+        return;
+      }
+      // Sort siblings + handles together by chapterIndex so the
+      // resulting list stays aligned. The grouping in
+      // applyVideoFiles will re-sort by chapterIndex too, but doing
+      // it here keeps the handle indices in lockstep.
+      const indexed = siblings.map((f, i) => ({
+        file: f,
+        handle: siblingHandles[i],
+        idx: detectGoProChapterPattern(f.name).chapterIndex,
+      }));
+      indexed.sort((a, b) => a.idx - b.idx);
+      const sortedFiles = indexed.map(x => x.file);
+      const sortedHandles = indexed.map(x => x.handle);
+      await applyVideoFiles(sortedFiles, sortedHandles[0], sortedHandles);
     } catch (err) {
       setParseErr(`Could not open video: ${err.message}`);
     }
-  }, [applyVideoFile]);
+  }, [applyVideoFile, applyVideoFiles]);
 
   const pickLogViaFsa = useCallback(async () => {
     try {
@@ -616,6 +762,102 @@ export const ReplayPage = () => {
     persistence.storeClips(clips);
   }, [clips, persistence.digestReady, persistence.storeClips]);
 
+  // ---------- Chapter timeline refs + swap effect ------------------
+
+  // Mirror videoTimeline + activeChapterIndex into refs so the rVFC
+  // tick reads the latest values without effect re-runs.
+  useEffect(() => {
+    videoTimelineRef.current = videoTimeline;
+  }, [videoTimeline]);
+  useEffect(() => {
+    activeChapterIndexRef.current = activeChapterIndex;
+  }, [activeChapterIndex]);
+
+  // Swap the <video> src when the active chapter changes. Revokes
+  // the previous object URL, creates a fresh one for the new chapter,
+  // and on `loadedmetadata` resumes playback at local-time 0 (or at
+  // a stored seek target from a cross-chapter scrub). videoFileRef
+  // and persistence stay anchored to chapter 0 (the "primary" file)
+  // so log digests / banners don't churn on chapter swaps.
+  //
+  // Pre-condition: videoTimeline is non-null. For non-chapter pickups
+  // applyVideoFiles sets videoUrl directly and this effect doesn't
+  // fire because videoTimeline stays null.
+  useEffect(() => {
+    if (!videoTimeline) return;
+    const chapter = videoTimeline.chapters[activeChapterIndex];
+    if (!chapter) return;
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    const url = URL.createObjectURL(chapter.file);
+    setVideoUrl(url);
+    // No state-write of videoFile — keep the active <video>-element
+    // file accessible via videoFiles[activeChapterIndex] (above).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoTimeline, activeChapterIndex]);
+
+  // When the <video> element's source completes loading, if a
+  // chapter-swap requested a specific local-time seek, apply it now.
+  // Otherwise the new chapter starts at local-time 0 — matching the
+  // auto-advance flow on chapter rollover.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onMeta = () => {
+      const pending = pendingChapterSeekRef.current;
+      if (pending != null && Number.isFinite(pending)) {
+        v.currentTime = Math.max(0, pending);
+        pendingChapterSeekRef.current = null;
+      }
+    };
+    v.addEventListener('loadedmetadata', onMeta);
+    return () => v.removeEventListener('loadedmetadata', onMeta);
+  }, [videoUrl]);
+
+  // Seek the live video to a global timeline-second. Handles cross-
+  // chapter scrubs by swapping the active chapter then queueing a
+  // local-time seek for the loadedmetadata handler above. For single-
+  // chapter / legacy playback, falls back to a direct currentTime
+  // assign.
+  const seekToGlobalSec = useCallback((globalSec) => {
+    const v = videoRef.current;
+    if (!v || !Number.isFinite(globalSec)) return;
+    const tl = videoTimelineRef.current;
+    if (!tl) {
+      v.currentTime = Math.max(0, globalSec);
+      return;
+    }
+    const { chapterIndex, localSec } = globalToLocal(tl, globalSec);
+    if (chapterIndex === activeChapterIndexRef.current) {
+      v.currentTime = Math.max(0, localSec);
+    } else {
+      pendingChapterSeekRef.current = localSec;
+      activeChapterIndexRef.current = chapterIndex;
+      setActiveChapterIndex(chapterIndex);
+    }
+  }, []);
+
+  // Convert the active <video> element's local currentTime to a
+  // global-timeline second. Used by every callsite that previously
+  // read videoRef.current.currentTime — anything that records a
+  // "where is the playhead now" answer must use globalSec.
+  const currentGlobalSec = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return 0;
+    const tl = videoTimelineRef.current;
+    const idx = activeChapterIndexRef.current;
+    if (tl && tl.chapters[idx]) {
+      return tl.chapters[idx].startSec + v.currentTime;
+    }
+    return v.currentTime;
+  }, []);
+
+  // Toolbar label for the video pick. Single-chapter (or non-chapter
+  // pick): just the filename. Multi-chapter: "GOPR0314.MP4 + 3 chapters
+  // (Hh Mm Ss)".
+  const videoChapterLabel = videoTimeline
+    ? describeChapterPick(videoTimeline, videoFiles[0]?.name || '')
+    : (videoFile ? videoFile.name : '');
+
   // ---------- Video clock ------------------------------------------
 
   // Drive a render-tick on every video frame. requestVideoFrameCallback
@@ -640,10 +882,36 @@ export const ReplayPage = () => {
       // on a paused video starve the export. Re-armed by bumping
       // livePreviewNonce when the export completes.
       if (mp4ExportingRef.current) return;
-      // meta?.mediaTime is the canonical video time when rvfc fires;
-      // fall back to currentTime for the RAF path.
-      const t = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : v.currentTime;
-      setVideoT(t);
+      // meta?.mediaTime is the canonical local video time (within
+      // the active chapter) when rVFC fires; fall back to currentTime
+      // for the RAF path. For non-chapter playback (no timeline),
+      // global time equals local time.
+      const local = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : v.currentTime;
+      const tl = videoTimelineRef.current;
+      const idx = activeChapterIndexRef.current;
+      // Auto-advance at chapter boundary: when local time reaches
+      // the active chapter's duration and the video is playing,
+      // queue a swap to the next chapter. The swap effect (below)
+      // handles the actual src change. We skip the videoT update
+      // for this tick — a stale rVFC callback firing one more time
+      // on the old <video> element would otherwise produce a brief
+      // global-time spike at the boundary.
+      let advanced = false;
+      if (tl && tl.chapters[idx] && !v.paused) {
+        const chapter = tl.chapters[idx];
+        if (local >= chapter.durationSec - 0.05 &&
+            idx < tl.chapters.length - 1) {
+          activeChapterIndexRef.current = idx + 1;
+          setActiveChapterIndex(idx + 1);
+          advanced = true;
+        }
+      }
+      if (!advanced) {
+        const globalT = tl && tl.chapters[idx]
+          ? tl.chapters[idx].startSec + local
+          : local;
+        setVideoT(globalT);
+      }
       if (useRvfc) v.requestVideoFrameCallback(tick);
       else rafIdRef.current = requestAnimationFrame(() => tick(performance.now()));
     };
@@ -1119,12 +1387,16 @@ export const ReplayPage = () => {
   const markVideoTakeoff = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    // Anchor at the GLOBAL timeline position (chapter offset +
+    // currentTime). For single-file playback this collapses to
+    // currentTime — backward-compatible with persisted sync from
+    // before multi-chapter landed.
     setSync(prev => ({
       logTakeoffMs:    prev?.logTakeoffMs ?? null,
-      videoTakeoffSec: v.currentTime,
+      videoTakeoffSec: currentGlobalSec(),
       anchorKind:      prev?.anchorKind ?? anchorKind,
     }));
-  }, [anchorKind]);
+  }, [anchorKind, currentGlobalSec]);
 
   const reMarkLogTakeoff = useCallback(() => {
     if (!log) return;
@@ -1170,11 +1442,11 @@ export const ReplayPage = () => {
     if (!v || !Number.isFinite(pausedLogMs)) return;
     setSync({
       logTakeoffMs:    pausedLogMs,
-      videoTakeoffSec: v.currentTime,
+      videoTakeoffSec: currentGlobalSec(),
       anchorKind,
     });
     setPausedLogMs(null);
-  }, [pausedLogMs, anchorKind]);
+  }, [pausedLogMs, anchorKind, currentGlobalSec]);
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
@@ -1188,10 +1460,8 @@ export const ReplayPage = () => {
 
   // Helper for the data-mark panel: jump video to a mark.
   const jumpToMark = (markLogMs) => {
-    const v = videoRef.current;
-    if (!v) return;
     const tSec = logMsToVideoSec(markLogMs, sync);
-    if (Number.isFinite(tSec)) v.currentTime = Math.max(0, tSec);
+    if (Number.isFinite(tSec)) seekToGlobalSec(tSec);
   };
 
   // Add an N-second clip starting at a DataMark. Same behavior as
@@ -1214,39 +1484,38 @@ export const ReplayPage = () => {
     const v = videoRef.current;
     if (!v) return;
     const label = defaultClipLabel(clips.length);
-    const clip = buildClipFromPlayhead(v.currentTime, durationSec, sync, label);
+    const clip = buildClipFromPlayhead(currentGlobalSec(), durationSec, sync, label);
     if (clip) setClips(prev => [...prev, clip]);
   };
 
   // Mark-in / mark-out flow. The first click stashes the current
-  // video time as the pending in-point. The second click reads the
-  // current video time as the out-point and appends a clip.
+  // global video time as the pending in-point. The second click
+  // reads the global video time as the out-point and appends a clip.
   const markClipIn = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    setPendingInVideoSec(v.currentTime);
-  }, []);
+    setPendingInVideoSec(currentGlobalSec());
+  }, [currentGlobalSec]);
 
   const markClipOut = useCallback(() => {
     const v = videoRef.current;
     if (!v || pendingInVideoSec == null) return;
     const label = defaultClipLabel(clips.length);
-    const clip = buildClipFromMarkers(pendingInVideoSec, v.currentTime, sync, label);
+    const clip = buildClipFromMarkers(pendingInVideoSec, currentGlobalSec(), sync, label);
     if (clip) {
       setClips(prev => [...prev, clip]);
       setPendingInVideoSec(null);
     }
-  }, [pendingInVideoSec, clips, sync]);
+  }, [pendingInVideoSec, clips, sync, currentGlobalSec]);
 
   const cancelClipMark = useCallback(() => setPendingInVideoSec(null), []);
 
-  // Scrub the live video to a particular time (in seconds). Used by
-  // ClipBuilder rows.
-  const scrubVideoTo = useCallback((videoSec) => {
-    const v = videoRef.current;
-    if (!v || !Number.isFinite(videoSec)) return;
-    v.currentTime = Math.max(0, Math.min(v.duration || videoSec, videoSec));
-  }, []);
+  // Scrub the live video to a particular global timeline second.
+  // Cross-chapter scrubs swap the active chapter automatically.
+  const scrubVideoTo = useCallback((globalSec) => {
+    if (!Number.isFinite(globalSec)) return;
+    seekToGlobalSec(globalSec);
+  }, [seekToGlobalSec]);
 
   // Render the export's current-frame overlay SVG.
   //
@@ -1377,7 +1646,10 @@ export const ReplayPage = () => {
         log,
         cppWireFrames,
         renderOverlaySvg: renderOverlayForExport,
-        // Source file for AAC audio decode. Without it the MP4 is silent.
+        // Multi-chapter takes priority: when a chapter timeline is set,
+        // the exporter stitches across boundaries into one MP4. Source
+        // file alone still works for legacy single-file picks.
+        videoTimeline:  videoTimeline,
         sourceFile:    videoFile,
         // Match the live preview's slip-ball smoothing.
         presentationTau,
@@ -1416,15 +1688,15 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, m5SmoothPreset, m5ModeId, standardClipOverlay]);
+      videoFile, videoTimeline, m5SmoothPreset, m5ModeId, standardClipOverlay]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
     if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+    const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
     const suffix = (clip.label || `clip${idx + 1}`).replace(/[^a-z0-9_-]/gi, '_');
     downloadBlob(blob, `${base}_${suffix}.mp4`);
-  }, [exportClipMp4, videoFile]);
+  }, [exportClipMp4, videoFiles]);
 
   // Track batch-cancel separately from per-export cancel so a Cancel
   // click during "Export all" stops the whole sequence, not just the
@@ -1437,7 +1709,7 @@ export const ReplayPage = () => {
       // eslint-disable-next-line no-await-in-loop
       const blob = await exportClipMp4(clips[i], i);
       if (blob) {
-        const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+        const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
         const suffix = (clips[i].label || `clip${i + 1}`)
                          .replace(/[^a-z0-9_-]/gi, '_');
         downloadBlob(blob, `${base}_${suffix}.mp4`);
@@ -1451,7 +1723,7 @@ export const ReplayPage = () => {
       if (!blob && !batchCancelledRef.current) break;
     }
     batchCancelledRef.current = false;
-  }, [clips, exportClipMp4, videoFile]);
+  }, [clips, exportClipMp4, videoFiles]);
 
   const cancelMp4Export = useCallback(() => {
     // Mark batch-cancelled so a running "Export all" stops after the
@@ -1557,7 +1829,7 @@ export const ReplayPage = () => {
       });
       // Trigger one download per mode. Filename pattern:
       //   <video-basename>_<clip-label>_<mode>.mp4
-      const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+      const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
       const suffix = (clip.label || `clip${(idx ?? 0) + 1}`)
                        .replace(/[^a-z0-9_-]/gi, '_');
       for (const [modeId, blob] of blobs) {
@@ -1578,7 +1850,7 @@ export const ReplayPage = () => {
       setOverlayProgress(0);
     }
   }, [syncReady, sync, log, cppWireFrames, overlayAvailable,
-      renderOverlayForExport, videoFile, m5SmoothPreset,
+      renderOverlayForExport, videoFiles, m5SmoothPreset,
       selectedOverlayModes, overlaySize]);
 
   const cancelOverlayExport = useCallback(() => {
@@ -1641,8 +1913,8 @@ export const ReplayPage = () => {
               <span>Video</span>
               <button class="replay-file-btn" type="button"
                       onClick=${pickVideoViaFsa}
-                      title=${videoFile ? videoFile.name : 'Open video'}>
-                ${videoFile ? videoFile.name : 'Open video…'}
+                      title=${videoChapterLabel || 'Open video'}>
+                ${videoChapterLabel || 'Open video…'}
               </button>
             </label>
             <label class="replay-file">
@@ -1664,7 +1936,9 @@ export const ReplayPage = () => {
           ` : html`
             <label class="replay-file">
               <span>Video</span>
-              <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
+              <input type="file" accept="video/*,.mp4,.mov,.webm"
+                     multiple
+                     onChange=${onVideoPick} />
             </label>
             <label class="replay-file">
               <span>Log</span>
@@ -1813,17 +2087,14 @@ export const ReplayPage = () => {
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
                             anchorKind:      prev?.anchorKind ?? anchorKind,
                           }))}
-                          onSeekVideo=${(tSec) => {
-                            const v = videoRef.current;
-                            if (v) v.currentTime = Math.max(0, tSec);
-                          }} />
+                          onSeekVideo=${(tSec) => seekToGlobalSec(tSec)} />
 
           ${marks.length > 0 && html`
             <${DataMarkPanel}
                 marks=${marks}
                 sync=${sync}
                 disabled=${exportingClipIdx != null || !syncReady}
-                videoDuration=${videoRef.current?.duration}
+                videoDuration=${videoTimeline?.totalDurationSec ?? videoRef.current?.duration}
                 onJump=${jumpToMark}
                 onClip=${addClipFromMark} />`}
 
@@ -1861,7 +2132,8 @@ export const ReplayPage = () => {
               overlaySize=${overlaySize}
               onChangeOverlaySize=${setOverlaySize}
               standardClipOverlay=${standardClipOverlay}
-              onChangeStandardClipOverlay=${setStandardClipOverlay} />
+              onChangeStandardClipOverlay=${setStandardClipOverlay}
+              getCurrentVideoSec=${currentGlobalSec} />
         </footer>
       </div>`;
 };

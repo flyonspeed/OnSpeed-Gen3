@@ -140,6 +140,9 @@ export const ClipBuilder = ({
   // Energy bottom-right; false = single mode in bottom-right (legacy).
   standardClipOverlay,
   onChangeStandardClipOverlay,
+  // Forwarded to each row so Set-in-here / Set-out-here resolve to a
+  // global timeline-second across multi-chapter playback.
+  getCurrentVideoSec,
 }) => {
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
@@ -335,7 +338,8 @@ export const ClipBuilder = ({
                 }}
                 onRemove=${() => setClips(removeClipAt(clips, i))}
                 renderExport=${() => renderExportControls(c, i)}
-                renderOverlayExport=${() => renderOverlayControls(c, i)} />
+                renderOverlayExport=${() => renderOverlayControls(c, i)}
+                getCurrentVideoSec=${getCurrentVideoSec} />
             `)}
           </div>`}
     </div>`;
@@ -350,6 +354,10 @@ const ClipRow = ({
   clip, index, sync, videoEl, disabled,
   isExporting,
   onScrubTo, onPatch, onRemove, renderExport, renderOverlayExport,
+  // Multi-chapter playback wants the global timeline-second, not the
+  // raw videoEl.currentTime. Function-style prop so each click reads
+  // a fresh value rather than a render-time snapshot.
+  getCurrentVideoSec,
 }) => {
   const [labelDraft, setLabelDraft] = useState(clip.label || '');
 
@@ -360,18 +368,32 @@ const ClipRow = ({
   // Snap the start/end to the current playhead. Useful for tightening
   // a clip after rough-marking it: scrub to where you actually want
   // it to start/end, click "Set in here" / "Set out here".
-  const setInHere = () => {
+  //
+  // For multi-chapter timelines `getCurrentVideoSec` returns the global
+  // timeline second; for single-file playback it falls back to
+  // videoEl.currentTime via the default below.
+  const readCurrentSec = () => {
+    if (typeof getCurrentVideoSec === 'function') {
+      const t = getCurrentVideoSec();
+      if (Number.isFinite(t)) return t;
+    }
     const v = videoEl?.current || null;
-    if (!v || !sync) return;
+    return v ? v.currentTime : null;
+  };
+  const setInHere = () => {
+    if (!sync) return;
+    const t = readCurrentSec();
+    if (!Number.isFinite(t)) return;
     const newStartMs = sync.logTakeoffMs +
-                       (v.currentTime - sync.videoTakeoffSec) * 1000;
+                       (t - sync.videoTakeoffSec) * 1000;
     onPatch({ startMs: newStartMs });
   };
   const setOutHere = () => {
-    const v = videoEl?.current || null;
-    if (!v || !sync) return;
+    if (!sync) return;
+    const t = readCurrentSec();
+    if (!Number.isFinite(t)) return;
     const newEndMs = sync.logTakeoffMs +
-                     (v.currentTime - sync.videoTakeoffSec) * 1000;
+                     (t - sync.videoTakeoffSec) * 1000;
     onPatch({ endMs: newEndMs });
   };
 

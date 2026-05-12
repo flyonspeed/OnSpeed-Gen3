@@ -55,6 +55,7 @@ import { M5_PANEL_W, M5_PANEL_H }
 import { M5Sim } from './m5sim.js';
 import { findRowAt } from './parseLog.js';
 import { PresentationFilter } from './presentationFilter.js';
+import { selectChaptersForClip } from './chapters.js';
 
 // Browser feature gate. Both VideoEncoder AND VideoDecoder are now
 // required — the export demuxes the source via Mediabunny, decodes
@@ -473,14 +474,84 @@ async function feedAacPacketsToOutput({
   return { added, skipped: false };
 }
 
+// Per-segment variant: re-anchor packets at `outOffsetSec` (where this
+// segment lives on the output's audio timeline) and skip the
+// decoderConfig meta if a previous segment already sent it. Returns
+// { added, addedSec, skipped, reason } where addedSec is the audio
+// duration written for this segment so callers can advance their
+// cumulative offset.
+async function feedAacSegmentToOutput({
+  audioSource, audioInfo, clampedStart, clampedEnd,
+  outOffsetSec, metaAlreadySent, signal,
+}) {
+  const sink = new EncodedPacketSink(audioInfo.track);
+  let firstPacket = await sink.getPacket(clampedStart);
+  if (!firstPacket && clampedStart < 1.0) {
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const p of sink.packets()) {
+      firstPacket = p;
+      break;
+    }
+  }
+  if (!firstPacket) {
+    return { added: 0, addedSec: 0, skipped: true, reason: 'no audio packets at-or-before segment start' };
+  }
+  let firstTs = null;
+  let lastTs = 0;
+  let lastDur = 0;
+  let added = 0;
+  let metaSent = !!metaAlreadySent;
+  for await (const packet of sink.packets(firstPacket)) {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    if (packet.timestamp >= clampedEnd) break;
+    if (packet.timestamp + packet.duration <= clampedStart) continue;
+    if (firstTs === null) firstTs = packet.timestamp;
+    const outTs = outOffsetSec + (packet.timestamp - firstTs);
+    const reTimed = new EncodedPacket(
+      packet.data,
+      packet.type,
+      outTs,
+      packet.duration,
+    );
+    const meta = metaSent ? undefined : {
+      decoderConfig: {
+        codec:            audioInfo.codecParameterString,
+        sampleRate:       audioInfo.sampleRate,
+        numberOfChannels: audioInfo.channelCount,
+        description:      audioInfo.description,
+      },
+    };
+    // eslint-disable-next-line no-await-in-loop
+    await audioSource.add(reTimed, meta);
+    metaSent = true;
+    added++;
+    lastTs = outTs;
+    lastDur = packet.duration;
+  }
+  if (added === 0) {
+    return { added: 0, addedSec: 0, skipped: true, reason: 'no audio packets overlap segment window' };
+  }
+  const addedSec = (lastTs + lastDur) - outOffsetSec;
+  return { added, addedSec, skipped: false };
+}
+
 // ---------------------------------------------------------------------
 // Public API.
 // ---------------------------------------------------------------------
 //
-// Options (v4 — source-faithful):
-//   sourceFile:        File | Blob — REQUIRED. The original video file.
-//                      Mediabunny streams reads from it; no in-memory
-//                      copy is created.
+// Options (v5 — source-faithful, multi-chapter aware):
+//   videoTimeline:     Timeline | null — preferred for GoPro multi-chapter
+//                      recordings. Shape: `{ chapters: [{file, startSec,
+//                      endSec, ...}], totalDurationSec }`. When provided,
+//                      the export stitches across chapter boundaries into
+//                      one output MP4 with continuous timestamps.
+//                      Codec config + framerate + dimensions are taken
+//                      from the FIRST chapter only — chapters are assumed
+//                      to share encoder configuration (GoPro guarantees
+//                      this for siblings within one recording).
+//   sourceFile:        File | Blob — legacy single-file path. Ignored when
+//                      videoTimeline is provided. If neither is given the
+//                      export aborts.
 //   videoEl:           HTMLVideoElement — used ONLY for videoWidth /
 //                      videoHeight / duration reads. We never call
 //                      play() / seek() on it during export.
@@ -508,6 +579,7 @@ export async function exportClipAsMp4({
   cppWireFrames,
   renderOverlaySvg,
   sourceFile      = null,
+  videoTimeline   = null,
   presentationTau = null,
   // Which M5 mode the burned-in overlay should render. Integer 0-4
   // matching the firmware's kModeNames / M5_MODES. Default 0 (Energy)
@@ -547,29 +619,58 @@ export async function exportClipAsMp4({
   if (!videoEl.videoWidth || !videoEl.videoHeight) {
     throw new Error('exportClipAsMp4: video metadata not loaded yet');
   }
-  if (!sourceFile || typeof sourceFile.slice !== 'function') {
+  // Either a multi-chapter timeline OR a single legacy sourceFile is
+  // accepted. Both paths flow through the same per-segment loop below;
+  // single-chapter is a one-segment degenerate case.
+  if (!videoTimeline &&
+      (!sourceFile || typeof sourceFile.slice !== 'function')) {
     throw new Error(
-      'exportClipAsMp4: sourceFile (File/Blob) is required. The export ' +
-      'demuxes the source via Mediabunny; without it the input video ' +
-      'cannot be decoded.');
+      'exportClipAsMp4: pass either videoTimeline (multi-chapter) or ' +
+      'sourceFile (legacy single-file). Mediabunny demuxes from these; ' +
+      'without one the input video cannot be decoded.');
   }
+  // Build the unified timeline used for segment selection. Single-file
+  // becomes a synthetic 1-chapter timeline covering [0, videoEl.duration).
+  const resolvedTimeline = videoTimeline && Array.isArray(videoTimeline.chapters) &&
+                           videoTimeline.chapters.length > 0
+    ? videoTimeline
+    : {
+        chapters: [{
+          file:           sourceFile,
+          chapterIndex:   0,
+          durationSec:    videoEl.duration,
+          startSec:       0,
+          endSec:         videoEl.duration,
+        }],
+        totalDurationSec: videoEl.duration,
+      };
 
-  // Map clip times to video seconds.
-  const startVideoSec = sync.videoTakeoffSec +
-                        (clip.startMs - sync.logTakeoffMs) / 1000;
-  const endVideoSec   = sync.videoTakeoffSec +
-                        (clip.endMs   - sync.logTakeoffMs) / 1000;
-  if (!Number.isFinite(startVideoSec) || !Number.isFinite(endVideoSec) ||
-      endVideoSec <= startVideoSec) {
+  // Map clip times to global video seconds (offset across all chapters).
+  const startGlobalSec = sync.videoTakeoffSec +
+                         (clip.startMs - sync.logTakeoffMs) / 1000;
+  const endGlobalSec   = sync.videoTakeoffSec +
+                         (clip.endMs   - sync.logTakeoffMs) / 1000;
+  if (!Number.isFinite(startGlobalSec) || !Number.isFinite(endGlobalSec) ||
+      endGlobalSec <= startGlobalSec) {
     throw new Error('exportClipAsMp4: clip window maps to an empty or ' +
                     'invalid video range.');
   }
-  const clampedStart = Math.max(0, startVideoSec);
-  const clampedEnd   = Math.min(videoEl.duration, endVideoSec);
+  const clampedStart = Math.max(0, startGlobalSec);
+  const clampedEnd   = Math.min(resolvedTimeline.totalDurationSec, endGlobalSec);
   if (clampedEnd <= clampedStart) {
     throw new Error('exportClipAsMp4: clip falls outside the loaded video.');
   }
   const totalSec    = clampedEnd - clampedStart;
+
+  // Slice the timeline into per-chapter segments overlapping the clip
+  // window. Each segment is one open-then-close Input cycle below.
+  // Single-chapter timeline reduces to one segment with localStartSec=
+  // clampedStart, localEndSec=clampedEnd.
+  const segments = selectChaptersForClip(
+    resolvedTimeline, clampedStart, clampedEnd);
+  if (segments.length === 0) {
+    throw new Error('exportClipAsMp4: no chapter segments overlap clip window.');
+  }
 
   const sim = await M5Sim.create();
   if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
@@ -593,15 +694,16 @@ export async function exportClipAsMp4({
     });
   }
 
-  // ---------- Demux probe (audio + video share one Input) -----------
-  // Mediabunny opens the source with streaming reads — no head/tail
-  // budget, no in-memory copy. Both track lookups go through the same
-  // Input instance.
-  const input = openInput(sourceFile);
-
+  // ---------- Probe FIRST segment for codec/fps/dims ----------------
+  // Encoder configuration is taken from chapter 0. Subsequent chapters
+  // are assumed to share the same encode parameters — GoPro always
+  // ships matching siblings within one recording. A future hardening
+  // pass could re-probe per segment and warn on mismatches.
+  const firstSegment = segments[0];
+  const probeInput = openInput(firstSegment.file);
   let videoInfo;
   try {
-    videoInfo = await readVideoTrackInfo(input);
+    videoInfo = await readVideoTrackInfo(probeInput);
   } catch (e) {
     sim.delete();
     throw new Error(`mediabunny: failed to open source video track: ${e?.message || e}`);
@@ -612,11 +714,9 @@ export async function exportClipAsMp4({
       'No supported video track in source file. Expected H.264 (avc1/avc3) ' +
       'or HEVC (hvc1/hev1). HEVC requires Chrome with hardware HEVC support.');
   }
+  const probeAudioInfo = await readAudioTrackInfo(probeInput);
+  const hasAudio = !!probeAudioInfo;
 
-  // Audio is optional. If it fails we still produce a silent MP4.
-  const audioInfo = await readAudioTrackInfo(input);
-
-  // -------- Resolve source-faithful output parameters ---------------
   // Resolution: default to source dims; if outputWidth is given,
   // downscale aspect-preserving. Round both axes to even numbers
   // (encoder requirement).
@@ -629,47 +729,30 @@ export async function exportClipAsMp4({
     ? Math.max(2, Math.floor(W * srcH / srcW / 2) * 2)
     : Math.max(2, Math.floor(srcH / 2) * 2);
 
-  // Framerate: derive from the source's first packet duration. For
-  // CFR video this is exact (e.g., 0.0333666... = 30000/1001 for
-  // 29.97 fps). Mediabunny normalizes packet timing to floating-point
-  // seconds; 1/duration recovers fps with enough precision for the
-  // muxer's frameRate hint and the encoder config.
-  const videoSink = new EncodedPacketSink(videoInfo.track);
-
-  // Find the keyframe at-or-before clampedStart — this anchors the
-  // decode chain. If none exists (clampedStart is before the first
-  // key), pull the first packet of the track (which is always a key
-  // in well-formed MP4).
-  const anchorKey =
-    (await videoSink.getKeyPacket(clampedStart)) ||
-    (await videoSink.getPacket(0));
-  if (!anchorKey) {
+  // Framerate: probe via the first chapter's anchor keyframe duration.
+  const probeVideoSink = new EncodedPacketSink(videoInfo.track);
+  const probeAnchor =
+    (await probeVideoSink.getKeyPacket(firstSegment.localStartSec)) ||
+    (await probeVideoSink.getPacket(0));
+  if (!probeAnchor) {
     sim.delete();
     throw new Error('Video track has no packets.');
   }
-
-  // First packet duration → exact fps for CFR video.
   let resolvedFps;
   if (Number.isFinite(framerate) && framerate > 0) {
     resolvedFps = framerate;
-  } else if (anchorKey.duration > 0) {
-    resolvedFps = 1 / anchorKey.duration;
+  } else if (probeAnchor.duration > 0) {
+    resolvedFps = 1 / probeAnchor.duration;
   } else {
     resolvedFps = DEFAULT_FRAMERATE;
   }
-
-  // Bitrate: scale to pixel rate unless caller overrides.
   const resolvedBitrate = (Number.isFinite(bitrate) && bitrate > 0)
     ? bitrate
     : computeBitrate(W, H, resolvedFps);
-
   const canvas = new OffscreenCanvas(W, H);
   const ctx    = canvas.getContext('2d');
 
   // -------- Pick encoder config + output codec family ---------------
-  // Probe HEVC first when the source is HEVC. The encoder config
-  // result tells us which family won (avc vs hevc); the Mediabunny
-  // packet source mirrors it.
   const encConfig = await pickEncoderConfig({
     width: W, height: H,
     bitrate: resolvedBitrate,
@@ -677,31 +760,22 @@ export async function exportClipAsMp4({
     sourceCodec: videoInfo.codec,
   });
   const outputCodecFamily = /^hev1\.|^hvc1\./i.test(encConfig.codec) ? 'hevc' : 'avc';
-
-  // Mediabunny's frameRate option is a hint passed to the track
-  // header. Actual per-frame timing comes from each EncodedPacket's
-  // timestamp + duration in seconds — so 29.97 stays 29.97 regardless
-  // of the header value. Round to the nearest integer for the muxer.
   const muxerFrameRate = Math.max(1, Math.round(resolvedFps));
 
   // -------- Build Mediabunny Output ---------------------------------
-  // Single Output for video + (optional) audio. Both share one
-  // BufferTarget; finalize() resolves to ArrayBuffer.
+  // Single Output for video + (optional) audio across ALL chapter
+  // segments. Output timestamps are anchored at the clip's global
+  // start, so segment boundaries appear as monotone-continuous frames
+  // in the muxed timeline (no gap or overlap).
   //
   // Rotation: we rotate pixels at composite time (compositeFrame) so
   // the output frames are upright. Pass rotation: 0 so the muxer
   // writes an identity tkhd matrix — players don't apply any
-  // additional rotation. (Honoring the source matrix at composite-
-  // time is required because we draw the overlay AFTER the rotation,
-  // and we want the overlay to sit upright on screen.)
+  // additional rotation.
   const output = new Output({
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target: new BufferTarget(),
   });
-  // Set true once output.finalize() resolves. The finally-block uses
-  // this to decide whether to call output.cancel() on teardown: cancel
-  // logs a benign "already finalized" warning post-finalize, so we
-  // only cancel when we're bailing out mid-stream.
   let outputFinalized = false;
 
   const videoPacketSource = new EncodedVideoPacketSource(outputCodecFamily);
@@ -709,9 +783,8 @@ export async function exportClipAsMp4({
     rotation:  0,
     frameRate: muxerFrameRate,
   });
-
   let audioPacketSource = null;
-  if (audioInfo) {
+  if (hasAudio) {
     audioPacketSource = new EncodedAudioPacketSource('aac');
     output.addAudioTrack(audioPacketSource);
   }
@@ -721,18 +794,10 @@ export async function exportClipAsMp4({
   let firstVideoMetaSent = false;
   const encoder = new VideoEncoder({
     output: (chunk, meta) => {
-      // Wrap the EncodedVideoChunk as a Mediabunny EncodedPacket and
-      // push to the video source. First chunk carries decoderConfig
-      // (codec, codedWidth, codedHeight, description) — the muxer
-      // needs the AVCDecoderConfigurationRecord / HEVCDecoderConfigurationRecord
-      // bytes in description to write the correct avcC / hvcC box.
       try {
         const packet = EncodedPacket.fromEncodedChunk(chunk);
         const m = firstVideoMetaSent ? undefined : meta;
         firstVideoMetaSent = true;
-        // Don't await — VideoEncoder.output is a sync callback. The
-        // packet source queues internally; back-pressure is handled
-        // via encoder.encodeQueueSize in the main loop.
         videoPacketSource.add(packet, m).catch((e) => {
           encoderError = e;
         });
@@ -744,116 +809,8 @@ export async function exportClipAsMp4({
   });
   encoder.configure(encConfig);
 
-  // ---------- Spawn AAC demux in the background ----------------------
-  // Pull each AAC packet via Mediabunny's EncodedPacketSink and push
-  // straight into the output's audio source. No decode + re-encode.
-  // Runs in parallel with the video decode/encode; both feed the
-  // same Output.
-  let audioPromise = null;
-  if (audioInfo && audioPacketSource) {
-    audioPromise = feedAacPacketsToOutput({
-      audioSource: audioPacketSource,
-      audioInfo,
-      clampedStart,
-      clampedEnd,
-      signal,
-    });
-  }
-
-  // ---------- Video decode → composite → encode pipeline -------------
-  //
-  // Strategy (source-faithful):
-  //   1. Walk packets in decode order starting from the keyframe at-
-  //      or-before clampedStart. Stop when packet.timestamp >=
-  //      clampedEnd. Packets whose timestamp falls inside the clip
-  //      window are flagged `output: true`; earlier packets (the
-  //      decode context back to the anchor keyframe) are flagged
-  //      `output: false`.
-  //   2. Feed each packet's encoded bytes to a VideoDecoder. Output
-  //      frames arrive in decode order (which can differ from display
-  //      order for B-frame streams).
-  //   3. Hold each output frame in a sorted-by-timestamp queue.
-  //   4. Walk the output-flagged packets in cts order. For each
-  //      output packet: drive sim to that packet's mediaTime, pop
-  //      the matching decoded frame, composite overlay, encode the
-  //      composite VideoFrame with the source packet's exact
-  //      (timestamp, duration) in microseconds.
-
-  // Collect the selected packet sequence (in decode order). This
-  // materializes lightweight {data, type, timestamp, duration, output}
-  // descriptors — the raw Uint8Array stays in memory only between
-  // demux and decoder.decode().
-  const selectedPackets = [];
-  for await (const packet of videoSink.packets(anchorKey)) {
-    if (signal?.aborted) {
-      sim.delete();
-      throw new DOMException('aborted', 'AbortError');
-    }
-    if (packet.timestamp >= clampedEnd) break;
-    const inWindow = (packet.timestamp + packet.duration > clampedStart) &&
-                     (packet.timestamp < clampedEnd);
-    selectedPackets.push({
-      data:      packet.data,
-      type:      packet.type,
-      timestamp: packet.timestamp,     // seconds
-      duration:  packet.duration,      // seconds
-      output:    inWindow,
-    });
-  }
-  if (selectedPackets.length === 0) {
-    sim.delete();
-    throw new Error('No video samples overlap the clip window.');
-  }
-  const outputSamples = selectedPackets.filter(p => p.output);
-  if (outputSamples.length === 0) {
-    sim.delete();
-    throw new Error('No video samples overlap the clip window.');
-  }
-  const totalFrames = outputSamples.length;
-
-  // Frame queue: sorted by timestamp (display order). Decoder may
-  // emit out of order on B-frame streams; consumer pops in order.
-  const frameQueue = [];
-  let decoderError = null;
-
-  // Insert keeping sorted-ascending-by-timestamp. Most production
-  // flight footage is IPP (no B-frames) so this is amortized O(1)
-  // at the tail; even for IBP it's at most a small constant shuffle.
-  function insertFrame(frame) {
-    const ts = frame.timestamp;
-    // Binary search for insert position.
-    let lo = 0, hi = frameQueue.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (frameQueue[mid].timestamp <= ts) lo = mid + 1;
-      else hi = mid;
-    }
-    frameQueue.splice(lo, 0, frame);
-  }
-
-  const decoder = new VideoDecoder({
-    output: (frame) => {
-      if (decoderError) { frame.close(); return; }
-      // Drop decode-context frames (pre-window keyframe + leading
-      // B/P frames before clampedStart). Their job — providing
-      // decode state for forward-dependent in-window frames — is
-      // done as soon as the decoder consumed them. Keeping them in
-      // the frameQueue would let waitForFrameAtOrBefore pick a
-      // pre-window frame for the first output slot (target ts = 0)
-      // and produce a "video starts at takeoff, not at clip start"
-      // bug. Their `timestamp` is negative (anchored at the first
-      // output packet's cts via toOutTsUs).
-      if (frame.timestamp < 0) {
-        frame.close();
-        return;
-      }
-      insertFrame(frame);
-    },
-    error: (e) => { decoderError = e; },
-  });
-
-  // Try to configure. If it fails we surface a clear error — most
-  // common cause is HEVC on a non-HEVC-capable Chrome.
+  // Pre-check decoder support once (chapters share codec config, so a
+  // single probe answers for all of them).
   const decoderCfg = {
     codec:        videoInfo.codecParameterString,
     description:  videoInfo.description,
@@ -875,195 +832,299 @@ export async function exportClipAsMp4({
     sim.delete();
     throw new Error(`VideoDecoder.isConfigSupported failed: ${e?.message || e}`);
   }
-  decoder.configure(decoderCfg);
 
-  // Anchor video timestamps at the first output sample's cts so the
-  // muxer sees a t=0-origin timeline. Use cts (presentation), not
-  // decode order, because we sort output frames by cts.
-  const firstWindowTs = outputSamples[0].timestamp;
-
-  // Convert a source-time (seconds) to output-time (microseconds),
-  // anchored at firstWindowTs. Decode-only packets (before the
-  // window) get negative ts; that's fine — VideoDecoder accepts any
-  // int64, and we filter on cts later when matching to output slots.
-  function toOutTsUs(srcSec) {
-    return Math.round((srcSec - firstWindowTs) * 1_000_000);
-  }
-  function toOutDurUs(srcDurSec) {
-    return Math.max(1, Math.round(srcDurSec * 1_000_000));
-  }
-
-  // ---------- Demux feed task ---------------------------------------
-  // Walks selectedPackets and feeds the decoder. Back-pressures when
-  // the decoder is saturated.
-  const feedDone = (async () => {
-    for (let i = 0; i < selectedPackets.length; i++) {
-      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-      if (decoderError) throw decoderError;
-
-      // Back-pressure on both the decode pipeline (un-started
-      // decodes) and the already-decoded frame buffer (each
-      // VideoFrame holds GPU/system memory). Cap total in-flight at
-      // ~64 frames to keep memory bounded.
-      while (decoder.decodeQueueSize + frameQueue.length > 64) {
-        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(r => setTimeout(r, 1));
-      }
-
-      const p = selectedPackets[i];
-      const chunk = new EncodedVideoChunk({
-        type:      p.type,                        // 'key' | 'delta'
-        timestamp: toOutTsUs(p.timestamp),
-        duration:  toOutDurUs(p.duration),
-        data:      p.data,
-      });
-      decoder.decode(chunk);
-      // Release the encoded bytes reference now that the decoder has
-      // consumed (and internally copied) them. The descriptor's
-      // remaining {type,timestamp,duration,output} fields are still
-      // needed for slot-matching; only `data` is heavy. For a 30s
-      // clip at 50 Mbps that's ~900 packets × ~180 KB ≈ 150 MB of
-      // pinned encoded-bytes that this null-out releases.
-      selectedPackets[i].data = null;
-    }
-    await decoder.flush();
-  })();
-
-  // ---------- Output-sample-driven encode loop ----------------------
-  // Walks `outputSamples` (every source packet in the clip window) in
-  // cts order. For each output sample:
-  //   - target timestamp is the sample's own cts (us, anchored at
-  //     firstWindowTs), so output framerate matches source exactly.
-  //   - drive sim to that mediaTime, render overlay
-  //   - pop the decoded frame whose ts matches, composite, encode.
-  let feedError = null;
-  feedDone.catch((e) => { feedError = e; });
-
-  // Keyframe cadence in output frames. ~1 keyframe per second.
+  // Cumulative output offset (seconds) anchored at clip-start. Each
+  // segment writes packets with output ts = segmentOutOffsetSec +
+  // (sampleLocalCts - segment.localStartSec). For a within-window
+  // sample at the clip's first segment, segmentOutOffsetSec is 0 and
+  // out-ts walks 0..N. For segment 2, segmentOutOffsetSec equals the
+  // first segment's encoded duration, so timestamps stay monotone.
+  let cumulativeOutSec = 0;
+  // Total output frame count across all segments; computed as we
+  // discover output samples per segment. Used for the progress callback
+  // — onProgress fires per-frame; totalFrames is an upper bound we
+  // refine as we go (segment 1 we know, later segments we update).
+  let totalFrames = 0;
+  let slotsEncoded = 0;
+  // Keyframe cadence in output frames. Each segment starts with its
+  // own keyframe naturally (decode anchor), but we also force a keyframe
+  // every ~1 second to keep seeking responsive in the output.
   const keyframeStride = Math.max(1, Math.round(resolvedFps));
 
-  // Match a decoded frame to an output sample by timestamp. Decoder
-  // emits frames at the same per-sample ts the feeder used; the
-  // frameQueue is sorted by ts. Look for the largest ts ≤ targetTs.
-  let slotsEncoded = 0;
+  // Audio cumulative offset. We re-anchor each segment's first AAC
+  // packet to cumulativeOutSec at the time the segment runs.
+  let audioCumulativeOutSec = 0;
+  // Track audio meta state across segments — only the first push needs
+  // decoderConfig.
+  let audioMetaSent = false;
+
   try {
-    for (let i = 0; i < outputSamples.length; i++) {
+    // -------- Per-segment loop --------------------------------------
+    // Each iteration: open a fresh Input (one chapter file), set up a
+    // fresh VideoDecoder, demux video packets [localStart, localEnd],
+    // decode + composite + encode. Audio packets within the same
+    // window get re-anchored and pushed to the shared output's audio
+    // source.
+    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-      if (decoderError) throw decoderError;
-      if (feedError && !(feedError.name === 'AbortError')) throw feedError;
-      if (encoderError) throw encoderError;
+      const seg = segments[segIdx];
 
-      const s = outputSamples[i];
-      const sampleMediaTime = s.timestamp;            // seconds
-      const targetTsUs      = toOutTsUs(s.timestamp);
+      // Reuse the already-open probe input for segment 0 (first
+      // chapter), open a fresh Input for every later chapter.
+      const segInput = (segIdx === 0)
+        ? probeInput
+        : openInput(seg.file);
+      const segVideoInfo = (segIdx === 0)
+        ? videoInfo
+        : await readVideoTrackInfo(segInput);
+      if (!segVideoInfo) {
+        throw new Error(`Chapter ${seg.chapterIndex}: no decodable video track.`);
+      }
+      const segAudioInfo = (segIdx === 0)
+        ? probeAudioInfo
+        : (hasAudio ? await readAudioTrackInfo(segInput) : null);
 
-      // eslint-disable-next-line no-await-in-loop
-      let frame = await waitForFrameAtOrBefore(
-        frameQueue, targetTsUs, feedDone, signal);
-
-      if (!frame) {
-        // Drained queue with nothing usable — should not happen if
-        // selectedPackets was constructed correctly. Fall back to
-        // black + overlay (don't fail the export for a single frame).
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, W, H);
+      const segVideoSink = new EncodedPacketSink(segVideoInfo.track);
+      const anchorKey =
+        (await segVideoSink.getKeyPacket(seg.localStartSec)) ||
+        (await segVideoSink.getPacket(0));
+      if (!anchorKey) {
+        throw new Error(`Chapter ${seg.chapterIndex}: video track has no packets.`);
       }
 
-      // Drive sim to this frame's virtual time (mediaTime in ms).
-      const targetVirtMs = Math.max(0, sampleMediaTime * 1000);
-      driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
-
-      let rawState = sim.read();
-      let m5State  = rawState;
-      if (presFilter && rawState) {
-        const dtSec = s.duration;
-        const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dtSec);
-        m5State = Object.freeze({
-          ...rawState,
-          LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
-          VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
-        });
-      }
-
-      // Build the per-frame overlay list. Standard layout: ADI on
-      // the left, Energy on the right (same Y, mirrored X). Single
-      // mode: one overlay pinned to the right corner (legacy layout).
-      // Two separate svgToImage calls — each mode reads its own
-      // displayType branches inside the SVG, so a single render with
-      // an overridden state object isn't equivalent.
-      const overlays = [];
-      const renderOne = async (displayType, position) => {
-        try {
-          const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
-          if (svgEl) {
-            // eslint-disable-next-line no-await-in-loop
-            const img = await svgToImage(svgEl);
-            if (img) overlays.push({ img, position });
-          }
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('overlay raster failed for frame', i, e);
-        }
-      };
-      if (standardOverlay) {
-        await renderOne(1, 'left');   // ADI / Attitude
-        await renderOne(0, 'right');  // Energy
-      } else {
-        await renderOne(undefined, 'right'); // single mode, sim's displayType wins
-      }
-
-      if (frame) compositeFrame(ctx, frame, overlays, W, H, videoInfo.rotationDeg);
-      else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);
-
-      // Close the source VideoFrame as soon as we've drawn it. Holds
-      // GPU/system memory; leaving it for GC triggers WebCodecs'
-      // "VideoFrame garbage collected without being closed" warning.
-      if (frame) { try { frame.close(); } catch (_) {} }
-
-      // Encoder back-pressure.
-      while (encoder.encodeQueueSize > 4) {
+      // Collect packets for this segment's [localStart, localEnd) range.
+      const segPackets = [];
+      for await (const packet of segVideoSink.packets(anchorKey)) {
         if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(r => setTimeout(r, 0));
-      }
-      if (encoderError) throw encoderError;
-
-      // Output frame inherits source sample's exact ts + duration.
-      const outTsUs  = targetTsUs;
-      const outDurUs = toOutDurUs(s.duration);
-      const isKey    = (i % keyframeStride) === 0 || i === 0;
-      const outFrame = new VideoFrame(canvas, { timestamp: outTsUs, duration: outDurUs });
-      encoder.encode(outFrame, { keyFrame: isKey });
-      outFrame.close();
-
-      slotsEncoded++;
-      if (onProgress) {
-        onProgress({
-          frame:      slotsEncoded,
-          totalFrames,
-          encodedSec: (outTsUs + outDurUs) / 1_000_000,
-          totalSec,
+        if (packet.timestamp >= seg.localEndSec) break;
+        const inWindow =
+          (packet.timestamp + packet.duration > seg.localStartSec) &&
+          (packet.timestamp < seg.localEndSec);
+        segPackets.push({
+          data:      packet.data,
+          type:      packet.type,
+          timestamp: packet.timestamp,
+          duration:  packet.duration,
+          output:    inWindow,
         });
       }
-    }
+      if (segPackets.length === 0) {
+        // No samples in this segment's window; skip cleanly. Can happen
+        // if the clip ends almost exactly at a chapter boundary.
+        continue;
+      }
+      const segOutputSamples = segPackets.filter(p => p.output);
+      if (segOutputSamples.length === 0) continue;
+      totalFrames += segOutputSamples.length;
 
-    // Drain any remaining decoder feed work + audio.
-    try { await feedDone; }
-    catch (e) {
-      if (e?.name === 'AbortError') throw e;
-      // Decode errors after we've already collected enough frames
-      // are non-fatal — the slot loop already finished.
-      console.warn('video demux feed finished with:', e?.message || e);
-    }
+      // Frame queue + decoder per segment. Fresh state for each chapter
+      // — codec config stays the same across chapters by assumption,
+      // but a new decoder avoids any internal-state contamination from
+      // the previous chapter's trailing frames.
+      const frameQueue = [];
+      let decoderError = null;
+      const insertFrame = (frame) => {
+        const ts = frame.timestamp;
+        let lo = 0, hi = frameQueue.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (frameQueue[mid].timestamp <= ts) lo = mid + 1;
+          else hi = mid;
+        }
+        frameQueue.splice(lo, 0, frame);
+      };
+      const decoder = new VideoDecoder({
+        output: (frame) => {
+          if (decoderError) { frame.close(); return; }
+          // Drop decode-context frames (negative ts) — they exist only
+          // to seed the decoder back to the segment's first in-window
+          // sample.
+          if (frame.timestamp < 0) {
+            frame.close();
+            return;
+          }
+          insertFrame(frame);
+        },
+        error: (e) => { decoderError = e; },
+      });
+      decoder.configure(decoderCfg);
 
-    if (audioPromise) {
-      try { await audioPromise; }
+      // Anchor video timestamps at this segment's first output sample's
+      // cts. Combined with cumulativeOutSec, the muxer sees a monotone
+      // t=0-origin timeline across segments.
+      const firstWindowLocalTs = segOutputSamples[0].timestamp;
+      const toOutTsUs = (srcSec) =>
+        Math.round(
+          (cumulativeOutSec + (srcSec - firstWindowLocalTs)) * 1_000_000
+        );
+      const toOutDurUs = (srcDurSec) =>
+        Math.max(1, Math.round(srcDurSec * 1_000_000));
+
+      let feedError = null;
+      const feedDone = (async () => {
+        for (let i = 0; i < segPackets.length; i++) {
+          if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+          if (decoderError) throw decoderError;
+          while (decoder.decodeQueueSize + frameQueue.length > 64) {
+            if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise(r => setTimeout(r, 1));
+          }
+          const p = segPackets[i];
+          const chunk = new EncodedVideoChunk({
+            type:      p.type,
+            timestamp: toOutTsUs(p.timestamp),
+            duration:  toOutDurUs(p.duration),
+            data:      p.data,
+          });
+          decoder.decode(chunk);
+          segPackets[i].data = null;
+        }
+        await decoder.flush();
+      })();
+      feedDone.catch((e) => { feedError = e; });
+
+      // Audio for this segment: re-anchor at the first muxed packet's
+      // local ts, offset by audioCumulativeOutSec so the output audio
+      // timeline stays monotone across segment boundaries.
+      let audioPromise = null;
+      if (hasAudio && segAudioInfo && audioPacketSource) {
+        audioPromise = feedAacSegmentToOutput({
+          audioSource:    audioPacketSource,
+          audioInfo:      segAudioInfo,
+          clampedStart:   seg.localStartSec,
+          clampedEnd:     seg.localEndSec,
+          outOffsetSec:   audioCumulativeOutSec,
+          metaAlreadySent: audioMetaSent,
+          signal,
+        }).then((res) => {
+          if (res && !res.skipped) {
+            audioMetaSent = true;
+            audioCumulativeOutSec += res.addedSec;
+          }
+          return res;
+        });
+      }
+
+      // Encode loop for this segment's output samples.
+      let segEncodedSec = 0;
+      for (let i = 0; i < segOutputSamples.length; i++) {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        if (decoderError) throw decoderError;
+        if (feedError && !(feedError.name === 'AbortError')) throw feedError;
+        if (encoderError) throw encoderError;
+
+        const s = segOutputSamples[i];
+        const sampleLocalCts = s.timestamp;             // seconds in this chapter
+        const sampleGlobalSec =
+          seg.globalStartSec + (sampleLocalCts - seg.localStartSec);
+        const targetTsUs = toOutTsUs(sampleLocalCts);
+
+        // eslint-disable-next-line no-await-in-loop
+        let frame = await waitForFrameAtOrBefore(
+          frameQueue, targetTsUs, feedDone, signal);
+
+        if (!frame) {
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // Drive sim from the GLOBAL video time of this sample, mapped
+        // back to log time via the same sync anchor used everywhere.
+        const targetVirtMs = Math.max(0, sampleGlobalSec * 1000);
+        driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
+        let rawState = sim.read();
+        let m5State  = rawState;
+        if (presFilter && rawState) {
+          const dtSec = s.duration;
+          const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dtSec);
+          m5State = Object.freeze({
+            ...rawState,
+            LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
+            VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
+          });
+        }
+
+        const overlays = [];
+        const renderOne = async (displayType, position) => {
+          try {
+            const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
+            if (svgEl) {
+              // eslint-disable-next-line no-await-in-loop
+              const img = await svgToImage(svgEl);
+              if (img) overlays.push({ img, position });
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('overlay raster failed for frame', i, e);
+          }
+        };
+        if (standardOverlay) {
+          await renderOne(1, 'left');   // ADI / Attitude
+          await renderOne(0, 'right');  // Energy
+        } else {
+          await renderOne(undefined, 'right');
+        }
+
+        if (frame) compositeFrame(ctx, frame, overlays, W, H, segVideoInfo.rotationDeg);
+        else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);
+
+        if (frame) { try { frame.close(); } catch (_) {} }
+
+        while (encoder.encodeQueueSize > 4) {
+          if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise(r => setTimeout(r, 0));
+        }
+        if (encoderError) throw encoderError;
+
+        const outTsUs  = targetTsUs;
+        const outDurUs = toOutDurUs(s.duration);
+        // Force keyframe at every segment boundary (i === 0 here) AND
+        // at the keyframeStride cadence. The decoder restart-per-segment
+        // can't reuse old reference frames, so a key at the boundary
+        // also matches what the encoder would have done naturally.
+        const isKey = (i === 0) || (slotsEncoded % keyframeStride === 0);
+        const outFrame = new VideoFrame(canvas, { timestamp: outTsUs, duration: outDurUs });
+        encoder.encode(outFrame, { keyFrame: isKey });
+        outFrame.close();
+
+        slotsEncoded++;
+        segEncodedSec = (sampleLocalCts - firstWindowLocalTs) + s.duration;
+        if (onProgress) {
+          onProgress({
+            frame:      slotsEncoded,
+            totalFrames,
+            encodedSec: cumulativeOutSec + segEncodedSec,
+            totalSec,
+          });
+        }
+      }
+
+      try { await feedDone; }
       catch (e) {
         if (e?.name === 'AbortError') throw e;
-        // eslint-disable-next-line no-console
-        console.warn('audio mux failed, exporting silent:', e);
+        console.warn('video demux feed finished with:', e?.message || e);
       }
+      if (audioPromise) {
+        try { await audioPromise; }
+        catch (e) {
+          if (e?.name === 'AbortError') throw e;
+          // eslint-disable-next-line no-console
+          console.warn(`audio mux failed for chapter ${seg.chapterIndex}, exporting silent for this segment:`, e);
+        }
+      }
+
+      // Close per-segment decoder + drop any leftover frames.
+      for (const f of frameQueue) { try { f.close(); } catch (_) {} }
+      frameQueue.length = 0;
+      try { decoder.state !== 'closed' && decoder.close(); } catch (_) {}
+
+      cumulativeOutSec += segEncodedSec;
+    }
+
+    if (slotsEncoded === 0) {
+      throw new Error('No video samples overlap the clip window.');
     }
 
     await encoder.flush();
@@ -1077,16 +1138,7 @@ export async function exportClipAsMp4({
     if (!buffer) throw new Error('Output produced no buffer.');
     return new Blob([buffer], { type: 'video/mp4' });
   } finally {
-    // Close any decoded frames left in queue.
-    for (const f of frameQueue) { try { f.close(); } catch (_) {} }
-    frameQueue.length = 0;
-    try { decoder.state !== 'closed' && decoder.close(); } catch (_) {}
     try { encoder.state !== 'closed' && encoder.close(); } catch (_) {}
-    // If we exit before finalize() completes, ask Mediabunny to tear
-    // down the Output (closes encoders/writer, frees internal state).
-    // Skip on the happy path — calling cancel() after finalize() logs
-    // a benign "already finalized" warning. Wrapped in try/catch so a
-    // teardown error can't shadow the real exception.
     if (!outputFinalized) {
       try { await output.cancel(); } catch (_) {}
     }
