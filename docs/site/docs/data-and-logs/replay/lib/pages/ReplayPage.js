@@ -232,6 +232,15 @@ export const ReplayPage = () => {
   const videoRef    = useRef(null);
   const containerRef = useRef(null);
   const rafIdRef    = useRef(null);
+  // Tracks whether an MP4 export is in progress. The live-preview
+  // rVFC chain reads this each tick and suspends its self-
+  // re-registration loop while true: the export pipeline registers
+  // its own rVFC against the same <video> element, and on a paused
+  // video only one composite fires per seek — letting the live tick
+  // grab it would steal the frame the export is waiting for.
+  // Resumed on the next videoUrl-effect run by the explicit kick at
+  // the end of `exportClipMp4`.
+  const mp4ExportingRef = useRef(false);
 
   // ---------- File loaders -----------------------------------------
 
@@ -316,6 +325,10 @@ export const ReplayPage = () => {
   // video, gives us the true video time). Safari + older browsers
   // fall back to RAF, which is close enough for live preview — for
   // export-quality we'll switch to Remotion (Phase 5).
+  // Bumping this nonce restarts the live-preview rVFC chain. We use
+  // it to resume the chain after an MP4 export finishes — the chain
+  // self-suspends mid-export (see comment on mp4ExportingRef).
+  const [livePreviewNonce, setLivePreviewNonce] = useState(0);
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -324,6 +337,11 @@ export const ReplayPage = () => {
 
     const tick = (now, meta) => {
       if (cancelled) return;
+      // Suspend during MP4 export: the export pipeline drives the
+      // same video element with its own rVFC, and competing callbacks
+      // on a paused video starve the export. Re-armed by bumping
+      // livePreviewNonce when the export completes.
+      if (mp4ExportingRef.current) return;
       // meta?.mediaTime is the canonical video time when rvfc fires;
       // fall back to currentTime for the RAF path.
       const t = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : v.currentTime;
@@ -338,7 +356,7 @@ export const ReplayPage = () => {
       cancelled = true;
       if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     };
-  }, [videoUrl]);
+  }, [videoUrl, livePreviewNonce]);
 
   // ---------- M5 sim init / teardown -----------------------------------
 
@@ -1107,6 +1125,9 @@ export const ReplayPage = () => {
     setMp4ExportProgress(0);
     setMp4ExportLabel(clip.label || `clip ${idx + 1}`);
     setParseErr(null);
+    // Suspend the live-preview rVFC chain. See mp4ExportingRef comment;
+    // resumed in the finally{} below by bumping livePreviewNonce.
+    mp4ExportingRef.current = true;
 
     try {
       const blob = await exportClipAsMp4({
@@ -1137,6 +1158,9 @@ export const ReplayPage = () => {
       setExportingClipIdx(null);
       setMp4ExportProgress(0);
       setMp4ExportLabel('');
+      // Resume the live-preview rVFC chain.
+      mp4ExportingRef.current = false;
+      setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport]);
 

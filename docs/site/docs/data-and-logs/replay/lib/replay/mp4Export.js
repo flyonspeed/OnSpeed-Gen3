@@ -105,34 +105,30 @@ async function pickEncoderConfig({ width, height, bitrate, framerate }) {
     'Your browser has WebCodecs but no AVC encode path (Firefox?).');
 }
 
-// Rasterize an SVG element to an Image via a data URL. Async; returns
-// a promise resolving to an HTMLImageElement.
+// Rasterize an SVG element to an HTMLImageElement via a Blob URL.
+// Async; resolves to the loaded <img>, which `ctx.drawImage(img, x, y,
+// w, h)` paints with explicit destination dimensions (works even when
+// the SVG has no intrinsic width/height attributes).
 //
 // XMLSerializer + Blob URL is the canonical, taint-safe path: the
 // resulting image can be drawImage()d onto a canvas without making
 // the canvas "tainted" and blocking the VideoFrame round-trip.
+//
+// We don't go through createImageBitmap. It rejects SVGs without
+// natural dimensions (`InvalidStateError: SVG image without natural
+// dimensions`), and the SVGs the live page produces don't carry
+// width/height attributes (they're sized purely via CSS / viewBox).
+// drawImage with an explicit (dx, dy, dw, dh) handles dimensionless
+// SVGs directly, so the simpler path is also the correct one.
 function svgToImageBitmap(svgEl) {
   const xml  = new XMLSerializer().serializeToString(svgEl);
-  // Inline width/height attributes on the cloned-out SVG XML so
-  // browsers without a viewBox-based intrinsic size still rasterize
-  // at a usable resolution. We aim for 2× the eventual draw size
-  // so the bitmap stays crisp even at output-1080p.
   const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
   const url  = URL.createObjectURL(blob);
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload  = () => {
       URL.revokeObjectURL(url);
-      // Prefer createImageBitmap (decoded off the main thread, then
-      // composited into the OffscreenCanvas as a single drawImage).
-      // Fall back to the raw <img> if the browser refuses (rare).
-      if (typeof createImageBitmap === 'function') {
-        createImageBitmap(img)
-          .then(resolve)
-          .catch(() => resolve(img));
-      } else {
-        resolve(img);
-      }
+      resolve(img);
     };
     img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
     img.src = url;
@@ -140,28 +136,68 @@ function svgToImageBitmap(svgEl) {
 }
 
 // Wait for the <video> to settle on a target time, then resolve once
-// the next paint has the right pixels. requestVideoFrameCallback
-// fires after the actual frame is painted, so we can read pixels off
-// it without race conditions.
-function seekVideoAndAwaitFrame(videoEl, targetSec) {
+// the next paint has the right pixels. requestVideoFrameCallback fires
+// after the painter has handed a frame to the compositor, so reading
+// pixels with drawImage after rVFC fires gets the seek-target frame.
+//
+// Ordering note: register rVFC BEFORE assigning currentTime. The
+// seek-induced composite is the next-fired rVFC; if we register only
+// inside the `seeked` handler, the composite may have already
+// happened (on a paused video there is no future composite to catch
+// it) and the callback queues for a frame that never comes.
+//
+// Safety net: a 100 ms timeout fallback resolves with the element's
+// current time even if no rVFC fires. By that point the seek has
+// settled and `drawImage(videoEl, ...)` reads the right pixels.
+//
+// Cancellation: if `signal` is provided, abort triggers an AbortError
+// rejection so long-pending seeks unwind cleanly when the pilot clicks
+// Cancel.
+function seekVideoAndAwaitFrame(videoEl, targetSec, signal = null) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId = null;
+    const finish = (value, err) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      videoEl.removeEventListener('seeked', onSeeked);
+      videoEl.removeEventListener('error',  onError);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      if (err) reject(err);
+      else     resolve(value);
+    };
     const onSeeked = () => {
-      videoEl.removeEventListener('seeked', onSeeked);
-      videoEl.removeEventListener('error', onError);
-      // Wait one more rVFC cycle so the frame at currentTime is
-      // actually rasterized in the source video element.
-      videoEl.requestVideoFrameCallback((_now, meta) => {
-        resolve(meta?.mediaTime ?? videoEl.currentTime);
-      });
+      // Frame is on screen by the time `seeked` fires on a paused
+      // video. The pre-registered rVFC below will catch it; the
+      // timeout is the backstop.
     };
-    const onError = (e) => {
-      videoEl.removeEventListener('seeked', onSeeked);
-      videoEl.removeEventListener('error', onError);
-      reject(new Error('Video seek failed: ' + (e?.message || e)));
-    };
+    const onError = (e) => finish(null,
+      new Error('Video seek failed: ' + (e?.message || e)));
+    const onAbort = () => finish(null,
+      new DOMException('aborted', 'AbortError'));
+
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('aborted', 'AbortError'));
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     videoEl.addEventListener('seeked', onSeeked, { once: true });
-    videoEl.addEventListener('error', onError,   { once: true });
+    videoEl.addEventListener('error',  onError,  { once: true });
+
+    // Register rVFC BEFORE the seek so the next painted frame fires it.
+    videoEl.requestVideoFrameCallback((_now, meta) => {
+      finish(meta?.mediaTime ?? videoEl.currentTime);
+    });
+
     videoEl.currentTime = Math.max(0, targetSec);
+
+    // Safety timeout: paused videos can wedge if the composite was
+    // coalesced before our rVFC registration. 100 ms is comfortably
+    // longer than the seek + paint cycle even on slow hardware.
+    timeoutId = setTimeout(() => finish(videoEl.currentTime), 100);
   });
 }
 
@@ -430,7 +466,7 @@ export async function exportClipAsMp4({
   let frameIdx = 0;
   videoEl.pause();    // we'll step manually
   videoEl.muted = true;   // we're not muxing audio yet; nice to silence
-  await seekVideoAndAwaitFrame(videoEl, clampedStart);
+  await seekVideoAndAwaitFrame(videoEl, clampedStart, signal);
 
   try {
     while (frameIdx < totalFrames) {
@@ -514,7 +550,7 @@ export async function exportClipAsMp4({
       if (nextVideoT > clampedEnd + 1 / framerate) break;
       if (frameIdx < totalFrames) {
         // eslint-disable-next-line no-await-in-loop
-        await seekVideoAndAwaitFrame(videoEl, nextVideoT);
+        await seekVideoAndAwaitFrame(videoEl, nextVideoT, signal);
       }
     }
 
