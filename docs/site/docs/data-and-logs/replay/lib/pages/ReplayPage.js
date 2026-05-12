@@ -1415,8 +1415,18 @@ export const ReplayPage = () => {
         outputHeight: overlayH,
         // framerate, bitrate, background default to sensible values
         // (30fps, ~150 kbps@native scaling up with resolution, #000).
-        onProgress: ({ mode, frame, totalFrames }) => {
-          setOverlayCurrentMode(mode);
+        onProgress: ({ mode, frame, totalFrames, modeCount }) => {
+          // Aggregate report (no `mode`): multi-mode batch — show a
+          // count label, not a per-mode name flickering 5 times/frame.
+          // Per-mode report: single-mode export, label = the mode.
+          if (mode !== undefined) {
+            setOverlayCurrentMode(mode);
+          } else if (modeCount > 0) {
+            setOverlayCurrentMode(
+              modeCount === 1
+                ? (requestedModes[0] || 'overlay')
+                : `${modeCount} modes`);
+          }
           if (totalFrames > 0) setOverlayProgress(frame / totalFrames);
         },
         signal: controller.signal,

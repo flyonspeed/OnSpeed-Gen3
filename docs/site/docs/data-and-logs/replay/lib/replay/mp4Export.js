@@ -1124,13 +1124,14 @@ export const OVERLAY_MODE_IDS = Object.freeze({
   'historic-g': 4,
 });
 
-// Order the UI lists modes in (also the order the M5 firmware
-// rotates through). Used for a stable per-pass iteration order and
-// for "all 5" UI default.
+// Order the UI lists modes in — matches the M5 firmware's BtnB-cycle
+// order (kModeNames[5]) and the live page's mode-selector radio row.
+// Pilots already have muscle memory for "Energy first" from the
+// hardware display, so matching that here keeps the workflow obvious.
 export const OVERLAY_MODE_ORDER = Object.freeze([
-  'indexer',    // 2 — the most-shipped mode; first so it renders quickest
-  'attitude',   // 1
   'energy',     // 0
+  'attitude',   // 1
+  'indexer',    // 2
   'decel',      // 3
   'historic-g', // 4
 ]);
@@ -1508,15 +1509,25 @@ export async function exportOverlayOnly({
         aggregateTimings.encodeMs += performance.now() - tC;
         enc.framesEncoded++;
 
-        if (onProgress) {
-          onProgress({
-            mode:       m.id,
-            frame:      f + 1,
-            totalFrames,
-            encodedSec: (tsUs + dtUs) / 1_000_000,
-            totalSec:   clipDurSec,
-          });
-        }
+      }
+
+      // Report progress once per frame (not once per mode). Aggregate
+      // across modes so the bar advances smoothly instead of flashing
+      // 5 times per frame. `framesEncoded` counts encoded *output*
+      // slots (one per frame, regardless of how many modes are
+      // simultaneously encoding). `totalFrames` is also per-mode, so
+      // the ratio is the same for every mode — no mode-switch flicker.
+      if (onProgress) {
+        onProgress({
+          // No `mode` field: this is a multi-mode aggregate report.
+          // The page-side label can show "exporting N modes" instead
+          // of cycling through individual mode IDs.
+          frame:      f + 1,
+          totalFrames,
+          modeCount:  modeList.length,
+          encodedSec: ((f + 1) * dtUs) / 1_000_000,
+          totalSec:   clipDurSec,
+        });
       }
       aggregateTimings.frames++;
 
