@@ -145,12 +145,32 @@ function svgToImage(svgEl) {
   });
 }
 
-// Composite one frame: video frame first, overlay PNG in bottom-right.
-// Mirrors the live page's .replay-overlay-frame layout. `videoSrc` can
-// be any drawImage-compatible source (VideoFrame, HTMLVideoElement,
-// ImageBitmap, etc).
-function compositeFrame(ctx, videoSrc, overlayImg, W, H) {
-  if (videoSrc) ctx.drawImage(videoSrc, 0, 0, W, H);
+// Composite one frame: video frame first (rotated to upright orientation
+// if the source has a display-matrix rotation, e.g. GoPro -180°), then
+// the overlay PNG in bottom-right. The overlay is always drawn AFTER
+// the rotation so it sits upright on screen regardless of source
+// orientation. Mirrors the live page's .replay-overlay-frame layout.
+// `videoSrc` can be any drawImage-compatible source (VideoFrame,
+// HTMLVideoElement, ImageBitmap, etc). `rotationDeg` is the angle to
+// rotate the source pixels by — 0 / 90 / 180 / 270 (or -90 / -180).
+function compositeFrame(ctx, videoSrc, overlayImg, W, H, rotationDeg = 0) {
+  if (videoSrc) {
+    const r = ((rotationDeg % 360) + 360) % 360;
+    if (r === 0) {
+      ctx.drawImage(videoSrc, 0, 0, W, H);
+    } else {
+      ctx.save();
+      // Rotate around the canvas center so the rotated image fills the
+      // same WxH bounds. For 90/270 the source's natural aspect would
+      // be sideways; we still target WxH so the encoder gets a normal
+      // landscape frame. (For literal sideways video we'd want to
+      // swap W/H at the encoder, but that's a future concern.)
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(r * Math.PI / 180);
+      ctx.drawImage(videoSrc, -W / 2, -H / 2, W, H);
+      ctx.restore();
+    }
+  }
   if (overlayImg) {
     const ow = Math.round(W * 0.22);
     const oh = Math.round(ow * 3 / 4);
@@ -163,6 +183,41 @@ function compositeFrame(ctx, videoSrc, overlayImg, W, H) {
     ctx.drawImage(overlayImg, ox, oy, ow, oh);
     ctx.restore();
   }
+}
+
+// Derive the source video's display rotation from its tkhd matrix.
+// mp4 tkhd matrices are 9-element fixed-point arrays in row-major
+// order: [a, b, u, c, d, v, x, y, w]. For rotation θ the 2x2 (a,b,c,d)
+// block holds [cosθ, sinθ, -sinθ, cosθ] in 16.16 fixed-point — so
+// dividing by 65536 recovers the float values. We probe the standard
+// orientations (0/90/180/270) and return the matching angle, or 0 if
+// the matrix is identity / unrecognized.
+//
+// Matrix values may already be unpacked floats (mp4box does this in
+// newer versions) or raw int32 fixed-point. Normalize before reading.
+function rotationFromTkhdMatrix(matrix) {
+  if (!matrix || matrix.length < 9) return 0;
+  // Detect fixed-point vs already-unpacked floats. At a 90°/270°
+  // rotation the (0,0) entry is 0, so we sniff the largest magnitude
+  // across the 2x2 rotation block (entries 0,1,3,4) — at least one of
+  // those is ±1 in float form, ±65536 in fixed-point.
+  const maxMag = Math.max(
+    Math.abs(matrix[0] || 0),
+    Math.abs(matrix[1] || 0),
+    Math.abs(matrix[3] || 0),
+    Math.abs(matrix[4] || 0),
+  );
+  const scale = maxMag > 2 ? 1 / 65536 : 1;
+  const a = matrix[0] * scale;
+  const b = matrix[1] * scale;
+  // c = matrix[3] * scale, d = matrix[4] * scale — not needed since
+  // a/b alone disambiguate the four cardinal rotations.
+  const eps = 0.01;
+  if (Math.abs(a - 1) < eps && Math.abs(b)     < eps) return 0;
+  if (Math.abs(a)     < eps && Math.abs(b - 1) < eps) return 90;
+  if (Math.abs(a + 1) < eps && Math.abs(b)     < eps) return 180;
+  if (Math.abs(a)     < eps && Math.abs(b + 1) < eps) return 270;
+  return 0;
 }
 
 // ---------------------------------------------------------------------
@@ -380,7 +435,18 @@ function extractVideoTrack(isoFile, info) {
     return null;
   }
 
-  return { videoTrack, codec, width, height, isH264, isHevc, description };
+  // Source display rotation (e.g., GoPro records sensor-up and stores
+  // a tkhd matrix that rotates 180° on playback). mp4-muxer doesn't
+  // carry rotation metadata through to the output, so we rotate pixels
+  // at composite time to keep the output upright.
+  let rotationDeg = 0;
+  try {
+    const trak = isoFile.getTrackById(videoTrack.id);
+    const m    = trak?.tkhd?.matrix || videoTrack.matrix;
+    rotationDeg = rotationFromTkhdMatrix(m);
+  } catch (_) { /* identity rotation */ }
+
+  return { videoTrack, codec, width, height, isH264, isHevc, description, rotationDeg };
 }
 
 // Feed AAC samples for [clampedStart, clampedEnd] from `file` straight
@@ -944,8 +1010,8 @@ export async function exportClipAsMp4({
         console.warn('overlay raster failed for frame', i, e);
       }
 
-      if (frame) compositeFrame(ctx, frame, overlayImg, W, H);
-      else if (overlayImg) compositeFrame(ctx, null, overlayImg, W, H);
+      if (frame) compositeFrame(ctx, frame, overlayImg, W, H, videoInfo.rotationDeg);
+      else if (overlayImg) compositeFrame(ctx, null, overlayImg, W, H, 0);
 
       // Encoder back-pressure.
       while (encoder.encodeQueueSize > 4) {
@@ -1550,6 +1616,12 @@ export async function exportOverlayOnly({
     try { sim.delete(); } catch (_) {}
   }
 }
+
+// Exported for tests + diagnostics. The rotation helper in particular
+// is non-trivial enough (fixed-point vs float, sign-disambiguation
+// across four cardinal angles) that round-tripping a few canonical
+// matrices belongs in the test suite.
+export { rotationFromTkhdMatrix };
 
 export const MP4_EXPORT_INTERNAL = Object.freeze({
   M5_TICK_MS,

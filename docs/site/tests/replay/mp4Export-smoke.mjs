@@ -26,6 +26,7 @@ import {
   isOverlayExportSupported,
   OVERLAY_MODE_IDS,
   OVERLAY_MODE_ORDER,
+  rotationFromTkhdMatrix,
 } from '../../docs/data-and-logs/replay/lib/replay/mp4Export.js';
 
 import {
@@ -286,6 +287,53 @@ console.log('\n--- defaultClipLabel ---');
 assertEq(defaultClipLabel(0), 'clip 01', 'index 0 → "clip 01"');
 assertEq(defaultClipLabel(9), 'clip 10', 'index 9 → "clip 10"');
 assertEq(defaultClipLabel(99), 'clip 100', 'index 99 → "clip 100"');
+
+// ---------------------------------------------------------------------
+// rotationFromTkhdMatrix — recover display rotation from tkhd matrix.
+// Canonical matrices in 16.16 fixed-point. GoPro -180° is the case
+// that triggered this code path.
+// ---------------------------------------------------------------------
+console.log('\n--- rotationFromTkhdMatrix ---');
+
+// Identity (no rotation): a=1, b=0.
+assertEq(
+  rotationFromTkhdMatrix([65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824]),
+  0,
+  'identity matrix → 0°'
+);
+
+// 90° clockwise: a=0, b=1.
+assertEq(
+  rotationFromTkhdMatrix([0, 65536, 0, -65536, 0, 0, 0, 0, 1073741824]),
+  90,
+  '90° rotation matrix → 90°'
+);
+
+// 180°: a=-1, b=0. This is GoPro's case (also expressed as rotation=-180
+// in ffprobe — same orientation, different sign convention).
+assertEq(
+  rotationFromTkhdMatrix([-65536, 0, 0, 0, -65536, 0, 0, 0, 1073741824]),
+  180,
+  '180° rotation matrix → 180° (GoPro upside-down case)'
+);
+
+// 270° (a.k.a. -90°): a=0, b=-1.
+assertEq(
+  rotationFromTkhdMatrix([0, -65536, 0, 65536, 0, 0, 0, 0, 1073741824]),
+  270,
+  '270° rotation matrix → 270°'
+);
+
+// Already-float matrix (newer mp4box versions unpack on parse).
+assertEq(
+  rotationFromTkhdMatrix([-1, 0, 0, 0, -1, 0, 0, 0, 1]),
+  180,
+  'float-unpacked 180° matrix → 180°'
+);
+
+// Missing / undersized matrix.
+assertEq(rotationFromTkhdMatrix(null), 0, 'null matrix → 0°');
+assertEq(rotationFromTkhdMatrix([1, 0]), 0, 'undersized matrix → 0°');
 
 // ---------------------------------------------------------------------
 // Summary
