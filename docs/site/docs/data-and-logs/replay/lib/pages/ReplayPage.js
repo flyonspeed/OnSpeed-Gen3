@@ -354,6 +354,16 @@ export const ReplayPage = () => {
     safeLsSet('replay-overlay-size-v1', overlaySize);
   }, [overlaySize]);
 
+  // "Standard" MP4 clip layout: render BOTH the ADI (bottom-left) and
+  // Energy (bottom-right) panels burned into the source video. When
+  // off, the export uses the live preview's single mode in the
+  // bottom-right corner (legacy behavior).
+  const [standardClipOverlay, setStandardClipOverlay] = useState(() =>
+    safeLsGet('replay-standard-clip-overlay-v1') === '1');
+  useEffect(() => {
+    safeLsSet('replay-standard-clip-overlay-v1', standardClipOverlay ? '1' : '0');
+  }, [standardClipOverlay]);
+
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
   // playing/scrubbing freely. When they click "Attach here" we
@@ -1369,6 +1379,9 @@ export const ReplayPage = () => {
         // Without this the fresh export-sim defaults to mode 0 (Energy)
         // regardless of what the page is showing.
         displayMode:   m5ModeId,
+        // Standard layout: ADI bottom-left + Energy bottom-right.
+        // Ignores displayMode when true.
+        standardOverlay: standardClipOverlay,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -1397,7 +1410,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, m5SmoothPreset, m5ModeId]);
+      videoFile, m5SmoothPreset, m5ModeId, standardClipOverlay]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -1840,7 +1853,9 @@ export const ReplayPage = () => {
               onChangeOverlayModes=${setSelectedOverlayModes}
               overlayModeOrder=${OVERLAY_MODE_ORDER}
               overlaySize=${overlaySize}
-              onChangeOverlaySize=${setOverlaySize} />
+              onChangeOverlaySize=${setOverlaySize}
+              standardClipOverlay=${standardClipOverlay}
+              onChangeStandardClipOverlay=${setStandardClipOverlay} />
         </footer>
       </div>`;
 };
