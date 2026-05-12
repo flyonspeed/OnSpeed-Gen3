@@ -211,6 +211,17 @@ export async function clearHandles() {
 // Permission helper. Must be called from a user-gesture handler.
 // ---------------------------------------------------------------------
 
+// Extract the FileSystemHandle that needs read permission from a slot
+// value. For the `video` slot the value is either a FileSystemFileHandle
+// (single-chapter session) or a `{kind:'multi-chapter', directoryHandle,
+// chapterNames}` envelope — in the latter case the directory handle is
+// the permission target (granting it implicitly grants every file inside).
+function permissionTarget(slotValue) {
+  if (!slotValue) return null;
+  if (slotValue.kind === 'multi-chapter') return slotValue.directoryHandle || null;
+  return slotValue;
+}
+
 export async function requestPermissionForHandles(handles) {
   if (!handles) return false;
   const slots = ['video', 'log', 'cfg'];
@@ -226,12 +237,43 @@ export async function requestPermissionForHandles(handles) {
   // would degrade to "first ok, rest denied" — observable in dev
   // before it bites a pilot.
   const results = await Promise.all(slots.map(slot => {
-    const h = handles[slot];
-    if (!h) return 'granted'; // missing slot (e.g. cfg) is fine
-    if (typeof h.requestPermission !== 'function') return 'denied';
-    return h.requestPermission({ mode: 'read' }).catch(() => 'denied');
+    const target = permissionTarget(handles[slot]);
+    if (!target) return 'granted'; // missing slot (e.g. cfg) is fine
+    if (typeof target.requestPermission !== 'function') return 'denied';
+    return target.requestPermission({ mode: 'read' }).catch(() => 'denied');
   }));
   return results.every(r => r === 'granted');
+}
+
+// Walk a stored multi-chapter envelope: re-open the directory handle's
+// entries, match against the persisted chapter-name list, return the
+// ordered file + handle arrays. Permission must already be granted on
+// `directoryHandle` (caller is the post-Resume click path).
+//
+// If a chapter's file is missing (renamed, moved, deleted) it's
+// dropped from the result; the caller can detect a partial recovery
+// by comparing `result.files.length` to `envelope.chapterNames.length`.
+export async function expandMultiChapterHandle(envelope) {
+  if (!envelope || envelope.kind !== 'multi-chapter') return null;
+  const { directoryHandle, chapterNames } = envelope;
+  if (!directoryHandle || !Array.isArray(chapterNames)) return null;
+  const found = new Map(); // name → { file, handle }
+  for await (const [name, entry] of directoryHandle.entries()) {
+    if (entry.kind !== 'file') continue;
+    if (!chapterNames.includes(name)) continue;
+    try {
+      const file = await entry.getFile();
+      found.set(name, { file, handle: entry });
+    } catch (_) { /* unreadable: skip */ }
+  }
+  const ordered = chapterNames
+    .map(n => found.get(n))
+    .filter(Boolean);
+  return {
+    files:    ordered.map(x => x.file),
+    handles:  ordered.map(x => x.handle),
+    directoryHandle,
+  };
 }
 
 // ---------------------------------------------------------------------

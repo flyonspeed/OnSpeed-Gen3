@@ -193,6 +193,8 @@ const {
   storeHandles,
   loadHandles,
   clearHandles,
+  expandMultiChapterHandle,
+  requestPermissionForHandles,
 } = fh;
 
 // ---------------------------------------------------------------------
@@ -343,6 +345,118 @@ await test('storeHandles is a no-op when signature is not a string', async () =>
   const loaded = await loadHandles('123');
   // Should be null — store rejected the non-string.
   assertEqual(loaded, null);
+});
+
+// ---------------------------------------------------------------------
+// Multi-chapter envelope: permission target + directory expansion
+// ---------------------------------------------------------------------
+
+// Stub directory + file handles. The shape mimics the FSA spec just
+// enough to exercise expandMultiChapterHandle and the
+// permissionTarget branch in requestPermissionForHandles.
+function makeFakeDirHandle(entries, requestPermissionImpl = null) {
+  return {
+    kind: 'directory',
+    requestPermission: requestPermissionImpl ||
+      (() => Promise.resolve('granted')),
+    async *entries() {
+      for (const [name, entry] of entries) yield [name, entry];
+    },
+  };
+}
+
+function makeFakeFileHandle(name, contents = 'x') {
+  return {
+    kind: 'file',
+    name,
+    getFile: () => Promise.resolve(new (class FakeFile {
+      constructor() { this.name = name; this.size = contents.length; }
+    })()),
+  };
+}
+
+await test('expandMultiChapterHandle returns ordered files matching chapterNames', async () => {
+  // Directory contains 3 chapters + 1 unrelated file. Walk order is
+  // deliberately not sorted; expansion should re-order by chapterNames.
+  const entries = [
+    ['noise.txt',     makeFakeFileHandle('noise.txt')],
+    ['GP020314.MP4',  makeFakeFileHandle('GP020314.MP4')],
+    ['GOPR0314.MP4',  makeFakeFileHandle('GOPR0314.MP4')],
+    ['GP010314.MP4',  makeFakeFileHandle('GP010314.MP4')],
+  ];
+  const dir = makeFakeDirHandle(entries);
+  const envelope = {
+    kind: 'multi-chapter',
+    directoryHandle: dir,
+    chapterNames: ['GOPR0314.MP4', 'GP010314.MP4', 'GP020314.MP4'],
+  };
+  const expanded = await expandMultiChapterHandle(envelope);
+  if (!expanded) throw new Error('expected expansion result');
+  assertEqual(expanded.files.length, 3);
+  assertEqual(expanded.files[0].name, 'GOPR0314.MP4');
+  assertEqual(expanded.files[1].name, 'GP010314.MP4');
+  assertEqual(expanded.files[2].name, 'GP020314.MP4');
+  assertEqual(expanded.handles.length, 3);
+  assertEqual(expanded.directoryHandle, dir);
+});
+
+await test('expandMultiChapterHandle drops missing chapters silently', async () => {
+  // Directory only has chapter 0 + chapter 2 (chapter 1 was deleted).
+  const entries = [
+    ['GOPR0314.MP4',  makeFakeFileHandle('GOPR0314.MP4')],
+    ['GP020314.MP4',  makeFakeFileHandle('GP020314.MP4')],
+  ];
+  const dir = makeFakeDirHandle(entries);
+  const envelope = {
+    kind: 'multi-chapter',
+    directoryHandle: dir,
+    chapterNames: ['GOPR0314.MP4', 'GP010314.MP4', 'GP020314.MP4'],
+  };
+  const expanded = await expandMultiChapterHandle(envelope);
+  if (!expanded) throw new Error('expected expansion result');
+  assertEqual(expanded.files.length, 2);
+  assertEqual(expanded.files[0].name, 'GOPR0314.MP4');
+  assertEqual(expanded.files[1].name, 'GP020314.MP4');
+});
+
+await test('expandMultiChapterHandle returns null for non-envelope input', async () => {
+  assertEqual(await expandMultiChapterHandle(null), null);
+  assertEqual(await expandMultiChapterHandle({ kind: 'single' }), null);
+  assertEqual(await expandMultiChapterHandle({ kind: 'multi-chapter' }), null);
+});
+
+await test('requestPermissionForHandles uses directoryHandle for multi-chapter envelope', async () => {
+  let dirAsked = 0;
+  let logAsked = 0;
+  const dir = makeFakeDirHandle([], () => { dirAsked++; return Promise.resolve('granted'); });
+  const log = {
+    requestPermission: () => { logAsked++; return Promise.resolve('granted'); },
+  };
+  const envelope = {
+    kind: 'multi-chapter',
+    directoryHandle: dir,
+    chapterNames: ['a.mp4', 'b.mp4'],
+  };
+  const granted = await requestPermissionForHandles({
+    video: envelope,
+    log,
+    cfg: null,
+  });
+  assertEqual(granted, true);
+  // The directory got asked once, NOT once per chapter.
+  assertEqual(dirAsked, 1);
+  assertEqual(logAsked, 1);
+});
+
+await test('requestPermissionForHandles falls back to single video handle when not envelope', async () => {
+  let vidAsked = 0;
+  const vid = {
+    requestPermission: () => { vidAsked++; return Promise.resolve('granted'); },
+  };
+  const log = { requestPermission: () => Promise.resolve('granted') };
+  const granted = await requestPermissionForHandles({ video: vid, log, cfg: null });
+  assertEqual(granted, true);
+  assertEqual(vidAsked, 1);
 });
 
 // ---------------------------------------------------------------------

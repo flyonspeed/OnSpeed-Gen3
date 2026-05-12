@@ -65,7 +65,7 @@ import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.j
 import {
   isFileHandleApiSupported, pickFile, storeHandles, clearHandles,
   requestPermissionForHandles, signatureFromFiles, useFileHandleResume,
-  ReplayResumeBanner,
+  expandMultiChapterHandle, ReplayResumeBanner,
 } from '../replay/fileHandles.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
@@ -429,10 +429,12 @@ export const ReplayPage = () => {
   //
   // The `handle` argument is the FSA handle for the user-picked file
   // (single chapter). For multi-chapter picks the caller passes a
-  // `chapterHandles` array via the third slot — currently unused for
-  // resume because IDB store schema only knows about one file per
-  // slot; revisit when multi-chapter resume gets prioritised.
-  const applyVideoFiles = useCallback(async (filesArg, handle, chapterHandles) => {
+  // `chapterHandles` array via the third slot and the parent
+  // `directoryHandle` via the fourth. The directory handle is what
+  // gets persisted to IDB for multi-chapter resume — re-walking the
+  // directory recovers the chapter set in one permission prompt
+  // (instead of three prompts per chapter).
+  const applyVideoFiles = useCallback(async (filesArg, handle, chapterHandles, directoryHandle) => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     const filesIn = Array.isArray(filesArg) ? filesArg : (filesArg ? [filesArg] : []);
     if (filesIn.length === 0) {
@@ -478,8 +480,21 @@ export const ReplayPage = () => {
     }
     videoFileRef.current = first;
     persistence.notifyFilePicked('video', first);
-    videoHandleRef.current = handle || (chapterHandles && chapterHandles[0]) || null;
-    if (handle || chapterHandles) persistHandlesIfReady();
+    // Multi-chapter sessions store the directory handle + the ordered
+    // chapter filename list so Resume can re-walk the directory with a
+    // single permission prompt. Single-chapter sessions store the bare
+    // file handle (existing PR #533 shape).
+    if (timeline && directoryHandle && chapterHandles && chapterHandles.length > 1) {
+      videoHandleRef.current = {
+        kind: 'multi-chapter',
+        directoryHandle,
+        chapterNames: activeFiles.map(f => f.name),
+      };
+    } else {
+      videoHandleRef.current = handle ||
+        (chapterHandles && chapterHandles[0]) || null;
+    }
+    if (handle || chapterHandles || directoryHandle) persistHandlesIfReady();
   }, [videoUrl, persistence, persistHandlesIfReady]);
 
   // Compat wrapper for the existing single-file callsites (resume
@@ -643,7 +658,7 @@ export const ReplayPage = () => {
       indexed.sort((a, b) => a.idx - b.idx);
       const sortedFiles = indexed.map(x => x.file);
       const sortedHandles = indexed.map(x => x.handle);
-      await applyVideoFiles(sortedFiles, sortedHandles[0], sortedHandles);
+      await applyVideoFiles(sortedFiles, sortedHandles[0], sortedHandles, dirHandle);
     } catch (err) {
       setParseErr(`Could not open video: ${err.message}`);
     }
@@ -688,20 +703,36 @@ export const ReplayPage = () => {
       return;
     }
     try {
-      // Read the three files in parallel.
-      const [vFile, lFile, cFile] = await Promise.all([
-        handles.video.getFile(),
+      const isMultiChapter = handles.video && handles.video.kind === 'multi-chapter';
+      // Log + cfg are always single-file handles; video may be either.
+      const [lFile, cFile] = await Promise.all([
         handles.log.getFile(),
         handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
       ]);
-      applyVideoFile(vFile, handles.video);
+      if (isMultiChapter) {
+        const expanded = await expandMultiChapterHandle(handles.video);
+        if (!expanded || expanded.files.length === 0) {
+          throw new Error('multi-chapter directory is empty or chapters moved');
+        }
+        if (expanded.files.length < handles.video.chapterNames.length) {
+          setParseErr(
+            `Resumed with ${expanded.files.length} of ` +
+            `${handles.video.chapterNames.length} chapters — some files moved ` +
+            `or were renamed.`);
+        }
+        await applyVideoFiles(
+          expanded.files, expanded.handles[0], expanded.handles, expanded.directoryHandle);
+      } else {
+        const vFile = await handles.video.getFile();
+        applyVideoFile(vFile, handles.video);
+      }
       const logOk = await applyLogFile(lFile, handles.log);
       if (cFile && logOk) await applyCfgFile(cFile, handles.cfg);
       fileHandleResume.markUsed();
     } catch (err) {
       setParseErr(`Resume failed: ${err.message}`);
     }
-  }, [fileHandleResume, applyVideoFile, applyLogFile, applyCfgFile]);
+  }, [fileHandleResume, applyVideoFile, applyVideoFiles, applyLogFile, applyCfgFile]);
 
   const onResumeDismiss = useCallback(() => {
     fileHandleResume.dismiss();
