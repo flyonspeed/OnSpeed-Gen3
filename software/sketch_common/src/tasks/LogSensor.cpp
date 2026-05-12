@@ -40,10 +40,10 @@ static const uint64_t kPerfSyncUsTrip  = 100000;    // 100 ms
 static const uint32_t kPerfRingPctTrip = 50;        // 50 %
 static const uint32_t kPerfHeartbeatMs = 10000;     // 10 s
 
-// Total ring capacity for the percent-full math. Must match the
-// allocation in OnSpeed-Gen3-ESP32.ino. (vRingbufferGetInfo does not
-// expose the configured capacity, only free bytes.)
-static const size_t   kPerfRingCapacity = 262144;
+// Ring capacity for the percent-full math comes from Globals.h via
+// kLoggingRingBufferBytes — same constant used by xRingbufferCreateWithCaps
+// in setup(). (vRingbufferGetInfo exposes free bytes but not configured
+// capacity, so we need it from somewhere.)
 
 // Log file handle, keep it local in scope
 static FsFile       m_hLogFile;
@@ -342,10 +342,10 @@ void LogSensorCommitTask(void *pvParams)
             {
             UBaseType_t uxFree = 0, uxRead = 0, uxWrite = 0, uxAcquire = 0, uxWaiting = 0;
             vRingbufferGetInfo(xLoggingRingBuffer, &uxFree, &uxRead, &uxWrite, &uxAcquire, &uxWaiting);
-            const size_t uUsed = (uxFree < kPerfRingCapacity)
-                               ? (kPerfRingCapacity - uxFree)
+            const size_t uUsed = (uxFree < kLoggingRingBufferBytes)
+                               ? (kLoggingRingBufferBytes - uxFree)
                                : 0;
-            uRingPct = static_cast<uint32_t>((uint64_t(uUsed) * 100) / kPerfRingCapacity);
+            uRingPct = static_cast<uint32_t>((uint64_t(uUsed) * 100) / kLoggingRingBufferBytes);
             }
 
         const unsigned long uNowPerfMs = millis();
@@ -363,11 +363,12 @@ void LogSensorCommitTask(void *pvParams)
             const size_t uHeapK  = esp_get_free_heap_size() / 1024;
             const size_t uPsramK = ESP.getFreePsram()        / 1024;
             g_Log.printf(MsgLog::EnDisk, MsgLog::EnWarning,
-                "PERF write_max=%lluus sync_max=%lluus ring=%lu%%/256K "
+                "PERF write_max=%lluus sync_max=%lluus ring=%lu%%/%uK "
                 "drops=%lu dbg_drops=%lu short=%lu heap=%uK psram=%uK%s\n",
                 (unsigned long long)uPerfWriteMaxUs,
                 (unsigned long long)uPerfSyncMaxUs,
                 (unsigned long)uRingPct,
+                (unsigned)(kLoggingRingBufferBytes / 1024),
                 (unsigned long)uPerfRingDrops,
                 (unsigned long)uPerfDbgDrops,
                 (unsigned long)uPerfShortWrites,
@@ -682,6 +683,7 @@ void LogSensor::Close()
         // disk-full or name collisions, so the .csv stays at its old name
         // if the meta rename can't succeed (rather than leaving an
         // orphaned pair). Collision check still covers both up front.
+        bool bRenamedTrio = false;
         if (!g_SdFileSys.exists(newCsvName) && !g_SdFileSys.exists(newMetaName)) {
             bool okMeta = g_SdFileSys.rename(oldMetaName, newMetaName);
             if (okMeta) {
@@ -692,6 +694,8 @@ void LogSensor::Close()
                     g_SdFileSys.rename(newMetaName, oldMetaName);
                     g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
                                   "Log csv rename failed; meta rolled back");
+                } else {
+                    bRenamedTrio = true;
                 }
             } else {
                 g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
@@ -699,11 +703,11 @@ void LogSensor::Close()
             }
         }
 
-        // Rename the .dbg file to match. Independent of meta/csv
-        // rename success: a misnamed .dbg next to a renamed .csv
-        // is a worse outcome than no rename at all, but if both
-        // CSV and meta renames succeeded we want the dbg to follow.
-        if (xDebugWriteMutex != NULL &&
+        // Rename the .dbg file to match — only if both CSV and meta
+        // succeeded. Otherwise we'd leave a dated .dbg next to an
+        // undated .csv/.meta pair, which is worse than no rename.
+        if (bRenamedTrio &&
+            xDebugWriteMutex != NULL &&
             xSemaphoreTake(xDebugWriteMutex, pdMS_TO_TICKS(1000)))
             {
             g_DebugLog.RenameWithPrefix(datePrefix);

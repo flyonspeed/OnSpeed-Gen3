@@ -42,7 +42,11 @@ void DebugLog::Open(const char *szBaseName)
     char szFilename[32];
     snprintf(szFilename, sizeof(szFilename), "%s.dbg", szBaseName);
 
-    m_hDebugFile = g_SdFileSys.open(szFilename, O_RDWR | O_CREAT | O_APPEND);
+    // O_TRUNC matches LogSensor::Open(): each paired (.csv, .dbg) is a
+    // fresh session at a never-before-used basename, so we never want
+    // to append to a stale .dbg if iMaxFileNum happens to land on a
+    // basename whose .dbg file was left behind from a crashed boot.
+    m_hDebugFile = g_SdFileSys.open(szFilename, O_RDWR | O_CREAT | O_TRUNC);
     if (!m_hDebugFile.isOpen())
         {
         Serial.printf("DebugLog: open(%s) failed; SD debug disabled\n", szFilename);

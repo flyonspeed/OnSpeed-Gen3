@@ -230,7 +230,7 @@ void setup()
     // Allocated in PSRAM so it doesn't eat internal DRAM (the V4P
     // board has 8 MB SPIRAM via BOARD_HAS_PSRAM).
     xLoggingRingBuffer = xRingbufferCreateWithCaps(
-        262144, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        kLoggingRingBufferBytes, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
         g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xLoggingRingBuffer is NULL; SD logging disabled this session");
@@ -239,7 +239,7 @@ void setup()
     // plus the 0.1-1 Hz PERF tick; not meant to absorb verbose Debug
     // output, which is gated by the SD threshold in MsgLog.
     xDebugRingBuffer = xRingbufferCreateWithCaps(
-        16384, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        kDebugRingBufferBytes, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (xDebugRingBuffer == NULL)
         g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xDebugRingBuffer is NULL; SD debug log disabled");
     else

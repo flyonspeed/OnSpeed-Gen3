@@ -105,6 +105,13 @@ EXTERN_INIT(TaskHandle_t             xTaskTestPot,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskRangeSweep,    NULL)
 EXTERN_INIT(TaskHandle_t             xTaskDebugLog,      NULL)
 
+// Capacity of the data ring buffer. Allocated by xRingbufferCreateWithCaps()
+// in setup() and used by LogSensorCommitTask's PERF tick to compute the
+// percent-full gauge (vRingbufferGetInfo exposes free bytes but not the
+// configured capacity).  Single source of truth for both sites.
+constexpr size_t kLoggingRingBufferBytes = 262144;
+constexpr size_t kDebugRingBufferBytes   = 16384;
+
 EXTERN RingbufHandle_t          xLoggingRingBuffer;
 EXTERN RingbufHandle_t          xDebugRingBuffer;
 
