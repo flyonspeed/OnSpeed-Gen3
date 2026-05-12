@@ -532,6 +532,12 @@ export const ReplayPage = () => {
     // prompts when called sequentially in this tick.
     const granted = await requestPermissionForHandles(handles);
     if (!granted) {
+      // Collapse the banner so the pilot only sees one signal — the
+      // error message. Leaving the banner up alongside the error
+      // reads as "Resume failed but click here to try again" when in
+      // fact the browser already denied without a prompt and another
+      // click won't help.
+      fileHandleResume.dismiss();
       setParseErr('Permission denied for one or more files. Pick them manually.');
       return;
     }

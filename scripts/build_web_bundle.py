@@ -313,7 +313,7 @@ def _transform_module(text, src_path, ns_rename=None):
     _assert_supported_forms(text, src_path)
     text = _strip_exports(_strip_imports(text))
     if ns_rename:
-        text = _apply_ns_rename(text, ns_rename)
+        text = _apply_ns_rename(text, ns_rename, src_path)
     return text
 
 
@@ -338,7 +338,7 @@ def _unique_ns_name(spec):
     return "__NS_" + sanitized
 
 
-def _apply_ns_rename(text, ns_rename):
+def _apply_ns_rename(text, ns_rename, rel_path=""):
     """Rewrite `<alias>.<member>` references to use the path-derived
     unique name. Only matches alias usage as a property accessor
     (followed by `.`), so identical letters appearing inside string
@@ -346,6 +346,12 @@ def _apply_ns_rename(text, ns_rename):
     identifiers are not corrupted. Bare-alias references (e.g. passing
     the entire namespace object as a value) are not supported by this
     bundler; if a consumer needs that, refactor to a named import.
+
+    Corruption-detection is done at the bundle level via
+    `_assert_no_namespace_token_in_string_literals` (called once on
+    the final concatenated output). Source-level scanning is brittle
+    because JS comments + strings interact in ways a simple regex
+    can't tokenize without becoming a parser.
     """
     for alias, unique in ns_rename.items():
         if alias == unique:
@@ -353,6 +359,31 @@ def _apply_ns_rename(text, ns_rename):
         pat = re.compile(r"\b" + re.escape(alias) + r"(?=\.)")
         text = pat.sub(unique, text)
     return text
+
+
+# Conservative post-bundle assertion: the `__NS_` prefix is generated
+# only by our rename pass, so it should never appear immediately
+# inside a quote character in the output. A `"__NS_…"` or `'__NS_…'`
+# substring means the rename pass slipped into a string literal —
+# either because the alias appeared as `"G.foo"` literal text or
+# because the source-format detection is broken. Either way, this
+# assertion catches it before the bundle ships.
+_RE_NS_IN_QUOTED = re.compile(r"""(['"])(?P<body>__NS_[A-Za-z0-9_]+)""")
+
+
+def _assert_no_namespace_token_in_string_literals(bundled_js):
+    m = _RE_NS_IN_QUOTED.search(bundled_js)
+    if not m:
+        return
+    # Show ~80 chars of context so the failure points at the offending site.
+    start = max(0, m.start() - 40)
+    end   = min(len(bundled_js), m.end() + 40)
+    snippet = bundled_js[start:end]
+    raise SystemExit(
+        f"build_web_bundle: namespace-rename token {m.group('body')!r} "
+        f"appears immediately after a quote character — the rename pass "
+        f"corrupted a string literal. Context: …{snippet!r}…"
+    )
 
 
 def _exported_names(text):
@@ -471,6 +502,7 @@ def _bundle_js():
 
     bundled = "\n".join(chunks)
     _assert_no_duplicate_top_level_identifiers(bundled)
+    _assert_no_namespace_token_in_string_literals(bundled)
     return bundled
 
 
@@ -986,7 +1018,7 @@ def _transform_replay_module(text, abs_path, ns_rename=None):
     text = _strip_exports(_strip_imports(text))
     text = _rewrite_import_meta_url(text, abs_path)
     if ns_rename:
-        text = _apply_ns_rename(text, ns_rename)
+        text = _apply_ns_rename(text, ns_rename, abs_path)
     return text
 
 
@@ -1031,6 +1063,7 @@ def _bundle_replay_js():
     chunks.append(_REPLAY_BUNDLE_POSTAMBLE)
     bundled = "\n".join(chunks)
     _assert_no_duplicate_top_level_identifiers(bundled)
+    _assert_no_namespace_token_in_string_literals(bundled)
     return bundled
 
 

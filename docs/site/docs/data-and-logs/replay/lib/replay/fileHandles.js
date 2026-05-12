@@ -214,9 +214,17 @@ export async function clearHandles() {
 export async function requestPermissionForHandles(handles) {
   if (!handles) return false;
   const slots = ['video', 'log', 'cfg'];
-  // Fire all requestPermission calls in the same microtask tick so the
-  // browser batches the prompts. Returns true iff every present handle
-  // grants read access.
+  // The synchronous `.map()` dispatches all three `requestPermission()`
+  // calls in the same JS turn, BEFORE any `await` runs. Chrome's
+  // user-activation token survives synchronous dispatch and the
+  // resulting microtask chain, so all three prompts read as
+  // "user-triggered" and the browser batches them into one combined
+  // dialog. `Promise.all` here only collects the results — it does
+  // NOT guarantee the batching; that comes from the sync dispatch in
+  // the `.map()` body. If a future Chrome change tightens this
+  // (e.g. user-activation only survives one async hop), the prompts
+  // would degrade to "first ok, rest denied" — observable in dev
+  // before it bites a pilot.
   const results = await Promise.all(slots.map(slot => {
     const h = handles[slot];
     if (!h) return 'granted'; // missing slot (e.g. cfg) is fine
