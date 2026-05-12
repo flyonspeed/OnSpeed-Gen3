@@ -196,10 +196,26 @@ export function useReplayPersistence({ logFile }) {
     safeLsSet(clipsKey(digest), JSON.stringify(clips));
   }, [logDigest]);
 
+  // Stable string signature of the currently-known recent-files set.
+  // Empty until at least video+log metadata is present. Consumed by the
+  // file-handle persistence layer (fileHandles.js) to key its IDB
+  // record so it can detect whether stored handles match the active
+  // session's metadata. Mirrors the JSON-stringified RECENT_FILES_KEY
+  // value exactly.
+  const recentFilesSig = bannerInfo
+    ? JSON.stringify({
+        video: bannerInfo.video,
+        log:   bannerInfo.log,
+        cfg:   bannerInfo.cfg || null,
+      })
+    : '';
+
   return {
     digestReady,
     logDigest,
     bannerInfo: bannerDismissed ? null : bannerInfo,
+    rawBannerInfo: bannerInfo,
+    recentFilesSig,
     dismissBanner,
     notifyFilePicked,
     beginLogSwap,

@@ -309,9 +309,81 @@ def _strip_exports(text):
     return text
 
 
-def _transform_module(text, src_path):
+def _transform_module(text, src_path, ns_rename=None):
     _assert_supported_forms(text, src_path)
-    return _strip_exports(_strip_imports(text))
+    text = _strip_exports(_strip_imports(text))
+    if ns_rename:
+        text = _apply_ns_rename(text, ns_rename, src_path)
+    return text
+
+
+def _unique_ns_name(spec):
+    """Build a unique top-level identifier for a namespace-import target.
+
+    `spec` is the resolved absolute path of the exporter module. The
+    identifier is `__NS_` + path relative to REPO_ROOT with non-word
+    characters squashed to underscores and a `.js` suffix dropped. The
+    bundler emits `const <unique> = { ... };` per exporter and
+    rewrites `<alias>.<member>` references in each consumer to
+    `<unique>.<member>`. Path-derived names avoid collisions with
+    vendored bundles (e.g. mediabunny declares a top-level `G`).
+    """
+    try:
+        rel = os.path.relpath(spec, REPO_ROOT)
+    except ValueError:
+        rel = spec
+    if rel.endswith(".js"):
+        rel = rel[:-3]
+    sanitized = re.sub(r"[^A-Za-z0-9_]", "_", rel)
+    return "__NS_" + sanitized
+
+
+def _apply_ns_rename(text, ns_rename, rel_path=""):
+    """Rewrite `<alias>.<member>` references to use the path-derived
+    unique name. Only matches alias usage as a property accessor
+    (followed by `.`), so identical letters appearing inside string
+    literals (e.g. `label="G"`), JSX text content, or other unrelated
+    identifiers are not corrupted. Bare-alias references (e.g. passing
+    the entire namespace object as a value) are not supported by this
+    bundler; if a consumer needs that, refactor to a named import.
+
+    Corruption-detection is done at the bundle level via
+    `_assert_no_namespace_token_in_string_literals` (called once on
+    the final concatenated output). Source-level scanning is brittle
+    because JS comments + strings interact in ways a simple regex
+    can't tokenize without becoming a parser.
+    """
+    for alias, unique in ns_rename.items():
+        if alias == unique:
+            continue
+        pat = re.compile(r"\b" + re.escape(alias) + r"(?=\.)")
+        text = pat.sub(unique, text)
+    return text
+
+
+# Conservative post-bundle assertion: the `__NS_` prefix is generated
+# only by our rename pass, so it should never appear immediately
+# inside a quote character in the output. A `"__NS_…"` or `'__NS_…'`
+# substring means the rename pass slipped into a string literal —
+# either because the alias appeared as `"G.foo"` literal text or
+# because the source-format detection is broken. Either way, this
+# assertion catches it before the bundle ships.
+_RE_NS_IN_QUOTED = re.compile(r"""(['"])(?P<body>__NS_[A-Za-z0-9_]+)""")
+
+
+def _assert_no_namespace_token_in_string_literals(bundled_js):
+    m = _RE_NS_IN_QUOTED.search(bundled_js)
+    if not m:
+        return
+    # Show ~80 chars of context so the failure points at the offending site.
+    start = max(0, m.start() - 40)
+    end   = min(len(bundled_js), m.end() + 40)
+    snippet = bundled_js[start:end]
+    raise SystemExit(
+        f"build_web_bundle: namespace-rename token {m.group('body')!r} "
+        f"appears immediately after a quote character — the rename pass "
+        f"corrupted a string literal. Context: …{snippet!r}…"
+    )
 
 
 def _exported_names(text):
@@ -379,15 +451,21 @@ def _bundle_js():
 
     ordered, by_path = _topo_sort(files)
 
-    # Find every namespace-import target across the bundle.  After
-    # each exporter module's body, emit `const X = { ... };` aliases
-    # so `import * as X from './<exporter>'` references resolve.
-    namespace_targets = {}
+    # Find every namespace-import target across the bundle. After each
+    # exporter module's body, emit `const __NS_<path> = { ... };` and
+    # rewrite consumer references from `<alias>.<member>` to
+    # `__NS_<path>.<member>`. Path-derived unique names avoid
+    # collisions with vendored top-level declarations (e.g. minified
+    # bundles that happen to use a short identifier as the alias).
+    namespace_targets = {}  # exporter_path -> set(unique_names)
+    module_ns_rename = {}   # consumer_path -> {alias: unique}
     for path, info in by_path.items():
         for m in _RE_NAMESPACE_IMPORT.finditer(info["text"]):
             alias_name = m.group(1)
             spec = os.path.normpath(os.path.join(os.path.dirname(path), m.group(2)))
-            namespace_targets.setdefault(spec, set()).add(alias_name)
+            unique = _unique_ns_name(spec)
+            namespace_targets.setdefault(spec, set()).add(unique)
+            module_ns_rename.setdefault(path, {})[alias_name] = unique
 
     chunks = ["// ===== OnSpeed web app bundle ====="]
     # Inline the OnSpeed PNG logo as a data URL the chrome can read at
@@ -404,13 +482,14 @@ def _bundle_js():
             chunks.append(_transform_preact_bundle(by_path[path]["text"]))
         else:
             chunks.append(_transform_module(by_path[path]["text"],
-                                            os.path.relpath(path, REPO_ROOT)))
+                                            os.path.relpath(path, REPO_ROOT),
+                                            ns_rename=module_ns_rename.get(path)))
         if path in namespace_targets:
             names = _exported_names(by_path[path]["text"])
             if names:
                 obj_body = ", ".join(names)
-                for alias in sorted(namespace_targets[path]):
-                    chunks.append(f"const {alias} = {{ {obj_body} }};")
+                for unique in sorted(namespace_targets[path]):
+                    chunks.append(f"const {unique} = {{ {obj_body} }};")
 
     chunks.append("// === bundle entry point ===")
     chunks.append("if (typeof start === 'function') {")
@@ -423,26 +502,34 @@ def _bundle_js():
 
     bundled = "\n".join(chunks)
     _assert_no_duplicate_top_level_identifiers(bundled)
+    _assert_no_namespace_token_in_string_literals(bundled)
     return bundled
 
 
 _RE_TOP_LEVEL_DECL = re.compile(
-    r"^(?:const|let|var|function|class|async\s+function)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+    r"^(?:const|let|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)",
     re.MULTILINE,
 )
 
 
 def _assert_no_duplicate_top_level_identifiers(bundled_js):
-    """Fail loudly if two pages declare the same top-level identifier.
+    """Fail loudly if two modules declare the same top-level lexical
+    identifier (`const`, `let`, `class`).
 
-    The bundler concatenates every `lib/**/*.js` module into a single
-    global script tag.  Module-scope `const X = …` declarations from
-    two different files end up in the same lexical scope and the
-    browser raises `Uncaught SyntaxError: Identifier 'X' has already
-    been declared`.  The page never mounts.
+    The bundler concatenates every JS module into a single script tag.
+    Module-scope `const X = …` declarations from two different files
+    end up in the same lexical scope and the browser raises
+    `Uncaught SyntaxError: Identifier 'X' has already been declared`.
+    The page never mounts.
+
+    `function` and `var` declarations are intentionally excluded: both
+    are redeclarable at the same scope, so duplicates parse and
+    execute (the last one wins). The bundler relies on this for
+    locally-scoped helpers (`safeLsGet`, `formatHms`, etc.) that
+    happen to share names across modules without sharing identity.
 
     Catch it here, at build time, with a clear message naming the
-    duplicates.  The fix is to rename one (or factor the constant into
+    duplicates. The fix is to rename one (or factor the constant into
     a shared helper module).
     """
     counts = {}
@@ -926,10 +1013,12 @@ def _rewrite_import_meta_url(text, abs_path):
     return _RE_IMPORT_META_URL.sub(replacement, text)
 
 
-def _transform_replay_module(text, abs_path):
+def _transform_replay_module(text, abs_path, ns_rename=None):
     _assert_supported_forms(text, abs_path)
     text = _strip_exports(_strip_imports(text))
     text = _rewrite_import_meta_url(text, abs_path)
+    if ns_rename:
+        text = _apply_ns_rename(text, ns_rename, abs_path)
     return text
 
 
@@ -939,17 +1028,21 @@ def _bundle_replay_js():
 
     chunks = [_REPLAY_BUNDLE_PREAMBLE]
 
-    # Namespace imports across the bundle, same pattern as the
-    # firmware bundler. After each exporter module's body we emit
-    # `const X = { ... };` aliases so `import * as X from './...'`
-    # references resolve.
-    namespace_targets = {}
+    # Namespace imports across the bundle. After each exporter
+    # module's body we emit `const __NS_<path> = { ... };` and rewrite
+    # consumer references. Path-derived unique names dodge collisions
+    # with vendored bundles (mediabunny declares a top-level `G`,
+    # which is the alias five m5modes/ files use for geometry.js).
+    namespace_targets = {}  # exporter_path -> set(unique_names)
+    module_ns_rename = {}   # consumer_path -> {alias: unique}
     for path, info in by_path.items():
         for m in _RE_NAMESPACE_IMPORT.finditer(info["text"]):
             alias_name = m.group(1)
             spec = _resolve_with_alias(os.path.dirname(path), m.group(2),
                                         _REPLAY_ALIAS_MAP)
-            namespace_targets.setdefault(spec, set()).add(alias_name)
+            unique = _unique_ns_name(spec)
+            namespace_targets.setdefault(spec, set()).add(unique)
+            module_ns_rename.setdefault(path, {})[alias_name] = unique
 
     for path in ordered:
         rel = os.path.relpath(path, REPO_ROOT)
@@ -957,16 +1050,21 @@ def _bundle_replay_js():
         if path == PREACT_BUNDLE:
             chunks.append(_transform_preact_bundle(by_path[path]["text"]))
         else:
-            chunks.append(_transform_replay_module(by_path[path]["text"], path))
+            chunks.append(_transform_replay_module(
+                by_path[path]["text"], path,
+                ns_rename=module_ns_rename.get(path)))
         if path in namespace_targets:
             names = _exported_names(by_path[path]["text"])
             if names:
                 obj_body = ", ".join(names)
-                for alias in sorted(namespace_targets[path]):
-                    chunks.append(f"const {alias} = {{ {obj_body} }};")
+                for unique in sorted(namespace_targets[path]):
+                    chunks.append(f"const {unique} = {{ {obj_body} }};")
 
     chunks.append(_REPLAY_BUNDLE_POSTAMBLE)
-    return "\n".join(chunks)
+    bundled = "\n".join(chunks)
+    _assert_no_duplicate_top_level_identifiers(bundled)
+    _assert_no_namespace_token_in_string_literals(bundled)
+    return bundled
 
 
 def _emit_replay_bundle(js_text):

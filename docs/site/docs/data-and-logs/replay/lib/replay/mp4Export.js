@@ -160,15 +160,32 @@ function svgToImage(svgEl) {
   });
 }
 
+// Bottom-corner overlay placement. position='right' is the default
+// single-overlay layout (the live page's .replay-overlay-frame
+// position). position='left' mirrors X across the centerline for the
+// "standard" two-panel export — same width, same Y, same margins, just
+// pinned to the opposite edge. Returns { x, y, w, h } in canvas pixels.
+function overlayPlacement(W, H, position) {
+  const w = Math.round(W * 0.22);
+  const h = Math.round(w * 3 / 4);
+  const y = H - Math.round(H * 0.030) - h;
+  const x = position === 'left'
+    ? Math.round(W * 0.012)
+    : W - Math.round(W * 0.012) - w;
+  return { x, y, w, h };
+}
+
 // Composite one frame: video frame first (rotated to upright orientation
 // if the source has a display-matrix rotation, e.g. GoPro -180°), then
-// the overlay PNG in bottom-right. The overlay is always drawn AFTER
-// the rotation so it sits upright on screen regardless of source
+// each overlay drawn at its requested corner. Overlays are always drawn
+// AFTER the rotation so they sit upright on screen regardless of source
 // orientation. Mirrors the live page's .replay-overlay-frame layout.
 // `videoSrc` can be any drawImage-compatible source (VideoFrame,
 // HTMLVideoElement, ImageBitmap, etc). `rotationDeg` is the angle to
 // rotate the source pixels by — 0 / 90 / 180 / 270 (or -90 / -180).
-function compositeFrame(ctx, videoSrc, overlayImg, W, H, rotationDeg = 0) {
+// `overlays` is an array of { img, position } entries; falsy `img`
+// entries are skipped. Empty array = source-only frame.
+function compositeFrame(ctx, videoSrc, overlays, W, H, rotationDeg = 0) {
   if (videoSrc) {
     const r = ((rotationDeg % 360) + 360) % 360;
     if (r === 0) {
@@ -186,18 +203,17 @@ function compositeFrame(ctx, videoSrc, overlayImg, W, H, rotationDeg = 0) {
       ctx.restore();
     }
   }
-  if (overlayImg) {
-    const ow = Math.round(W * 0.22);
-    const oh = Math.round(ow * 3 / 4);
-    const ox = W - Math.round(W * 0.012) - ow;
-    const oy = H - Math.round(H * 0.030) - oh;
-    ctx.save();
-    ctx.shadowColor   = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur    = Math.round(W * 0.006);
-    ctx.shadowOffsetY = Math.round(W * 0.0015);
-    ctx.drawImage(overlayImg, ox, oy, ow, oh);
-    ctx.restore();
+  if (!overlays || overlays.length === 0) return;
+  ctx.save();
+  ctx.shadowColor   = 'rgba(0,0,0,0.7)';
+  ctx.shadowBlur    = Math.round(W * 0.006);
+  ctx.shadowOffsetY = Math.round(W * 0.0015);
+  for (const ov of overlays) {
+    if (!ov || !ov.img) continue;
+    const { x, y, w, h } = overlayPlacement(W, H, ov.position);
+    ctx.drawImage(ov.img, x, y, w, h);
   }
+  ctx.restore();
 }
 
 // Derive the source video's display rotation from its tkhd matrix.
@@ -499,6 +515,11 @@ export async function exportClipAsMp4({
   // export — the page should pass the live preview's current mode so
   // the export matches what the pilot sees on screen.
   displayMode     = 0,
+  // "Standard" layout: render BOTH Attitude (ADI, displayType 1) and
+  // Energy (displayType 0) burned into the source frame — ADI in the
+  // bottom-left, Energy in the bottom-right (same Y, X mirrored across
+  // the source centerline). When true, `displayMode` is ignored.
+  standardOverlay = false,
   outputWidth     = null,
   bitrate         = null,
   framerate       = null,
@@ -965,20 +986,35 @@ export async function exportClipAsMp4({
         });
       }
 
-      let overlayImg = null;
-      try {
-        const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State) : null;
-        if (svgEl) {
-          // eslint-disable-next-line no-await-in-loop
-          overlayImg = await svgToImage(svgEl);
+      // Build the per-frame overlay list. Standard layout: ADI on
+      // the left, Energy on the right (same Y, mirrored X). Single
+      // mode: one overlay pinned to the right corner (legacy layout).
+      // Two separate svgToImage calls — each mode reads its own
+      // displayType branches inside the SVG, so a single render with
+      // an overridden state object isn't equivalent.
+      const overlays = [];
+      const renderOne = async (displayType, position) => {
+        try {
+          const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
+          if (svgEl) {
+            // eslint-disable-next-line no-await-in-loop
+            const img = await svgToImage(svgEl);
+            if (img) overlays.push({ img, position });
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('overlay raster failed for frame', i, e);
         }
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('overlay raster failed for frame', i, e);
+      };
+      if (standardOverlay) {
+        await renderOne(1, 'left');   // ADI / Attitude
+        await renderOne(0, 'right');  // Energy
+      } else {
+        await renderOne(undefined, 'right'); // single mode, sim's displayType wins
       }
 
-      if (frame) compositeFrame(ctx, frame, overlayImg, W, H, videoInfo.rotationDeg);
-      else if (overlayImg) compositeFrame(ctx, null, overlayImg, W, H, 0);
+      if (frame) compositeFrame(ctx, frame, overlays, W, H, videoInfo.rotationDeg);
+      else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);
 
       // Close the source VideoFrame as soon as we've drawn it. Holds
       // GPU/system memory; leaving it for GC triggers WebCodecs'
