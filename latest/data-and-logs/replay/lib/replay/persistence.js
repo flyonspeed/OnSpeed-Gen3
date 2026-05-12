@@ -32,6 +32,11 @@ function safeLsGet(key) { try { return localStorage.getItem(key); } catch { retu
 function safeLsSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
 
 const RECENT_FILES_KEY = 'replay-recent-files-v1';
+// Stores the JSON-stringified bannerInfo that was most recently
+// dismissed. Persisted across reloads so a dismissed "last session"
+// banner stays dismissed for THAT session's file set; a fresh
+// session (different file names) gets a fresh banner.
+const BANNER_DISMISSED_KEY = 'replay-banner-dismissed-v1';
 
 function syncKey(digest)  { return `replay-sync-${digest}-v1`;  }
 function clipsKey(digest) { return `replay-clips-${digest}-v1`; }
@@ -94,8 +99,21 @@ export function useReplayPersistence({ logFile }) {
   const [storedSync, setStoredSync]         = useState(null);
   const [storedClips, setStoredClips]       = useState(null);
   const [bannerInfo, setBannerInfo]         = useState(null);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  // Read the dismissed-signature on mount. The signature is a
+  // JSON-stringified bannerInfo; we treat the banner as dismissed
+  // only when the current bannerInfo matches the stored signature.
+  // A fresh session with a different file set produces a different
+  // signature and re-surfaces the banner.
+  const [dismissedSig, setDismissedSig]     = useState(() => safeLsGet(BANNER_DISMISSED_KEY) || '');
   const pickedFilesRef = useRef({ video: null, log: null, cfg: null });
+  // Synchronous mirror of logDigest. storeSync / storeClips read this
+  // ref instead of the React state, so they see the digest go to null
+  // the instant a new logFile is provided — not on the next render
+  // after the persistence hook's logFile-effect commits state. Without
+  // this, the persist effects in ReplayPage can fire one extra time
+  // with the previous log's digest still bound, corrupting the prior
+  // log's localStorage keys with the new log's (reset) state.
+  const logDigestRef = useRef(null);
 
   useEffect(() => {
     const raw = safeLsGet(RECENT_FILES_KEY);
@@ -107,6 +125,7 @@ export function useReplayPersistence({ logFile }) {
   }, []);
 
   useEffect(() => {
+    logDigestRef.current = null;
     setLogDigest(null);
     setDigestReady(false);
     setStoredSync(null);
@@ -115,6 +134,7 @@ export function useReplayPersistence({ logFile }) {
     let cancelled = false;
     computeLogDigest(logFile).then(digest => {
       if (cancelled) return;
+      logDigestRef.current = digest;
       setLogDigest(digest);
       setDigestReady(true);
       setStoredSync(loadStoredSync(digest));
@@ -123,7 +143,14 @@ export function useReplayPersistence({ logFile }) {
     return () => { cancelled = true; };
   }, [logFile]);
 
-  const dismissBanner = useCallback(() => { setBannerDismissed(true); }, []);
+  const bannerSig = bannerInfo ? JSON.stringify(bannerInfo) : '';
+  const bannerDismissed = bannerSig !== '' && bannerSig === dismissedSig;
+
+  const dismissBanner = useCallback(() => {
+    if (!bannerSig) return;
+    safeLsSet(BANNER_DISMISSED_KEY, bannerSig);
+    setDismissedSig(bannerSig);
+  }, [bannerSig]);
 
   const notifyFilePicked = useCallback((slot, file) => {
     pickedFilesRef.current = {
@@ -136,18 +163,37 @@ export function useReplayPersistence({ logFile }) {
     }
   }, []);
 
+  // Synchronous hook a page-level handler calls just before swapping
+  // logFile. Clears logDigestRef so any persist-on-change effects
+  // that fire during the same React render — with the OLD logDigest
+  // state still bound — see ref=null and refuse to write. Without
+  // this, ReplayPage's setClips([]) + setLogFile(f) batch causes the
+  // clips persist-effect to write [] to the PREVIOUS log's
+  // localStorage key before the digest recomputes.
+  const beginLogSwap = useCallback(() => {
+    logDigestRef.current = null;
+  }, []);
+
+  // Both writers read the synchronous ref so they reflect the most
+  // recent logFile prop — not whichever logDigest state-value the
+  // useCallback closure last captured. storeSync stayed bound to
+  // logDigest as the React-state dep so consumers still get a stable
+  // identity per-log, but the actual digest used for the write comes
+  // from the ref.
   const storeSync = useCallback((sync) => {
-    if (!logDigest) return;
+    const digest = logDigestRef.current;
+    if (!digest) return;
     if (!sync ||
         !Number.isFinite(sync.videoTakeoffSec) ||
         !Number.isFinite(sync.logTakeoffMs)) return;
-    safeLsSet(syncKey(logDigest), JSON.stringify(sync));
+    safeLsSet(syncKey(digest), JSON.stringify(sync));
   }, [logDigest]);
 
   const storeClips = useCallback((clips) => {
-    if (!logDigest) return;
+    const digest = logDigestRef.current;
+    if (!digest) return;
     if (!Array.isArray(clips)) return;
-    safeLsSet(clipsKey(logDigest), JSON.stringify(clips));
+    safeLsSet(clipsKey(digest), JSON.stringify(clips));
   }, [logDigest]);
 
   return {
@@ -156,6 +202,7 @@ export function useReplayPersistence({ logFile }) {
     bannerInfo: bannerDismissed ? null : bannerInfo,
     dismissBanner,
     notifyFilePicked,
+    beginLogSwap,
     storedSync,
     storedClips,
     storeSync,
