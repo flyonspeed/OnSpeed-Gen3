@@ -47,10 +47,15 @@ import { parseLog, findRowAt, detectLogSampleRate }
   from '../replay/parseLog.js';
 import { parseConfigXml } from '../replay/config.js';
 import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
-import { exportOverlayedVideo, downloadBlob } from '../replay/exportRecord.js';
+// downloadBlob lives in mp4Export.js (used by composite + overlay-only
+// MP4 exports). The legacy WebM path was removed 2026-05-12 — see PR #533
+// description for the rationale (MP4 export is source-faithful and
+// audio-passthrough; WebM was a Phase-4 stopgap before the WebCodecs work
+// landed).
 import {
   exportClipAsMp4, isMp4ExportSupported,
   exportOverlayOnly, isOverlayExportSupported, OVERLAY_MODE_ORDER,
+  downloadBlob,
 } from '../replay/mp4Export.js';
 import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLabel }
   from '../replay/clipBuilder.js';
@@ -225,14 +230,6 @@ export const ReplayPage = () => {
   // displayPercentLift stuck at the last-seen-future values.
   const [m5SimReinitNonce, setM5SimReinitNonce] = useState(0);
 
-  // Export-to-WebM state. exporting=true while a recording is in
-  // progress; exportProgress reflects the % of the source video
-  // captured so far; exportHandle is the controller returned by
-  // exportOverlayedVideo (call .stop() to end early).
-  const [exporting, setExporting]     = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [exportLabel, setExportLabel] = useState('');
-  const exportHandleRef = useRef(null);
 
   // Manual clip list. Each entry is { startMs, endMs, label }.
   // The ClipBuilder UI displays them as a stack of editable rows;
@@ -1135,92 +1132,6 @@ export const ReplayPage = () => {
     Number.isFinite(sync.videoTakeoffSec) &&
     Number.isFinite(sync.logTakeoffMs);
 
-  // ---------- Export flow ------------------------------------------
-  //
-  // The general export takes a [startSec, endSec] window. Phase-4's
-  // "export the whole thing from playhead" becomes a special case
-  // (startSec = playhead, endSec = null → duration). DataMarks and
-  // ClipBuilder rows call this with explicit windows.
-  //
-  // Returns the finished Blob (or null on error). Caller decides
-  // whether to download it directly or queue it.
-  const exportRange = useCallback(async ({ startSec, endSec, label }) => {
-    const v = videoRef.current;
-    if (!v) return null;
-
-    // Clamp the window to the video's actual range. A data-mark
-    // whose log time maps to a negative video time (mark dropped
-    // before the camera started recording) or past the end (mark
-    // dropped after the camera stopped) would otherwise either
-    // produce a 0-byte file or hang. Refuse those windows loudly.
-    if (Number.isFinite(startSec)) {
-      if (startSec < 0 || startSec >= v.duration) {
-        setParseErr(`Export skipped: ${label || 'clip'} starts ` +
-                    `outside the video (${startSec.toFixed(1)} s; ` +
-                    `video is 0 to ${v.duration.toFixed(1)} s).`);
-        return null;
-      }
-    }
-    if (Number.isFinite(endSec) && Number.isFinite(startSec) && endSec <= startSec) {
-      setParseErr(`Export skipped: ${label || 'clip'} window is empty ` +
-                  `(start ${startSec.toFixed(1)} s, end ${endSec.toFixed(1)} s).`);
-      return null;
-    }
-
-    setExporting(true);
-    setExportProgress(0);
-    setExportLabel(label || '');
-    try {
-      const handle = await exportOverlayedVideo({
-        videoEl: v,
-        getOverlaySvg: () => document.querySelector('.replay-overlay-frame > svg'),
-        startSec, endSec,
-        outputWidth: 1920,
-        bitrate: 12_000_000,
-        onProgress: ({ videoSec, startSec: s, endSec: e }) => {
-          if (e > s) setExportProgress((videoSec - s) / (e - s));
-        },
-      });
-      exportHandleRef.current = handle;
-      return await handle.finished;
-    } catch (err) {
-      setParseErr('Export failed: ' + (err?.message || err));
-      return null;
-    } finally {
-      setExporting(false);
-      setExportLabel('');
-      exportHandleRef.current = null;
-    }
-  }, []);
-
-  // Phase-4 button: export the whole video from current playhead.
-  const startFullExport = useCallback(async () => {
-    const v = videoRef.current;
-    if (!v || !syncReady) return;
-    const blob = await exportRange({
-      startSec: v.currentTime,
-      endSec:   null,
-      label:    'full export',
-    });
-    if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
-    downloadBlob(blob, `${base}_with_overlay.webm`);
-  }, [syncReady, videoFile, exportRange]);
-
-  // DataMark / ClipBuilder export: single window with a custom
-  // filename suffix. Used by the "Clip 30s" buttons and the
-  // ClipBuilder list's per-row Export.
-  const exportClip = useCallback(async ({ startSec, endSec, label, filenameSuffix }) => {
-    const blob = await exportRange({ startSec, endSec, label });
-    if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
-    downloadBlob(blob, `${base}_${filenameSuffix}.webm`);
-  }, [exportRange, videoFile]);
-
-  const stopExport = useCallback(() => {
-    if (exportHandleRef.current) exportHandleRef.current.stop();
-  }, []);
-
   // Re-sync flow:
   //   1. pauseIndexer() — freeze the indexer at the current
   //      video-mapped log time so it stops following video frames.
@@ -1267,18 +1178,18 @@ export const ReplayPage = () => {
     if (Number.isFinite(tSec)) v.currentTime = Math.max(0, tSec);
   };
 
-  // Export an N-second clip starting at a mark's video time.
-  const exportClipFromMark = (mark, durationSec) => {
+  // Add an N-second clip starting at a DataMark. Same behavior as
+  // "+ N s clip from playhead" — the clip lands in the clip list,
+  // pilot edits / exports per-row from there. Does NOT auto-export
+  // (the legacy WebM path used to; that was wrong + WebM is gone).
+  const addClipFromMark = (mark, durationSec) => {
+    const v = videoRef.current;
+    if (!v) return;
     const startSec = logMsToVideoSec(mark.logTimeMs, sync);
     if (!Number.isFinite(startSec)) return;
-    const endSec = Math.min(videoRef.current?.duration || startSec + durationSec,
-                            startSec + durationSec);
-    return exportClip({
-      startSec,
-      endSec,
-      label: `mark ${mark.label}`,
-      filenameSuffix: `mark${mark.label}_${durationSec}s`,
-    });
+    const label = `mark ${mark.label} +${durationSec}s`;
+    const clip = buildClipFromPlayhead(startSec, durationSec, sync, label);
+    if (clip) setClips(prev => [...prev, clip]);
   };
 
   // Add the current playhead as a clip start, with a default
@@ -1655,6 +1566,45 @@ export const ReplayPage = () => {
     if (overlayAbortRef.current) overlayAbortRef.current.abort();
   }, []);
 
+  // Export the overlay for the ENTIRE log, no source video. Useful when:
+  //   (a) the GoPro started recording mid-flight and the pilot wants
+  //       overlay coverage of the boot-up / taxi / pre-roll log time;
+  //   (b) the pilot wants one big overlay MP4 to drop on his original
+  //       source footage in iMovie/FCP without having to mark a clip.
+  // Synthesizes a full-log clip {startMs, endMs} and calls the existing
+  // overlay-only path. No source video is read (overlay path doesn't
+  // touch source). Output is 320×240 (native) by default; the size
+  // selector still applies if the user picked a fraction-of-source.
+  const exportFullLogOverlay = useCallback(async () => {
+    if (!log || !cppWireFrames) {
+      setParseErr('Full overlay export needs a loaded log + completed replay engine pre-pass.');
+      return null;
+    }
+    if (!overlayAvailable) {
+      setParseErr('Overlay export requires Chrome or Edge desktop. WebCodecs ' +
+                  'support is incomplete in Safari / Firefox.');
+      return null;
+    }
+    // Build a synthetic clip spanning the entire log. The overlay-only
+    // path reads clip.startMs and clip.endMs in log-time; no sync
+    // anchor is consulted, so this works even when sync is null.
+    const startMs = log.timeStamp[0];
+    const endMs   = log.timeStamp[log.timeStamp.length - 1];
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      setParseErr('Full overlay export skipped: log has no usable timestamp range.');
+      return null;
+    }
+    const clip = {
+      startMs,
+      endMs,
+      label: 'full-log',
+    };
+    // Reuse the per-clip overlay export. exportOverlaysForClip already
+    // handles cancel, progress, mode selection, size selector — we just
+    // hand it a clip with a longer window.
+    return await exportOverlaysForClip(clip, null);
+  }, [log, cppWireFrames, overlayAvailable, exportOverlaysForClip]);
+
   // ---------- Layout -----------------------------------------------
 
   return html`
@@ -1773,35 +1723,25 @@ export const ReplayPage = () => {
                      onChange=${e => setOverlayVisible(e.target.checked)} />
               Show overlay
             </label>
-            ${exporting
+            ${exportingClipIdx != null
               ? html`
                   <span class="replay-status">
-                    exporting${exportLabel ? ` · ${exportLabel}` : ''}
+                    MP4 export${mp4ExportLabel ? ` · ${mp4ExportLabel}` : ''}
                   </span>
                   <progress class="replay-progress"
-                            max="1" value=${exportProgress}></progress>
-                  <span class="replay-status">${Math.round(exportProgress * 100)}%</span>
-                  <button class="replay-btn-ghost" onClick=${stopExport}>
-                    Stop
+                            max="1" value=${mp4ExportProgress}></progress>
+                  <span class="replay-status">
+                    ${Math.round(mp4ExportProgress * 100)}%
+                  </span>
+                  <button class="replay-btn-ghost" onClick=${cancelMp4Export}>
+                    Cancel
                   </button>`
-              : exportingClipIdx != null
-                ? html`
-                    <span class="replay-status">
-                      MP4 export${mp4ExportLabel ? ` · ${mp4ExportLabel}` : ''}
-                    </span>
-                    <progress class="replay-progress"
-                              max="1" value=${mp4ExportProgress}></progress>
-                    <span class="replay-status">
-                      ${Math.round(mp4ExportProgress * 100)}%
-                    </span>
-                    <button class="replay-btn-ghost" onClick=${cancelMp4Export}>
-                      Cancel
-                    </button>`
-                : html`
-                    <button class="replay-btn" onClick=${startFullExport}
-                            disabled=${!syncReady || !videoUrl}>
-                      Export WebM (legacy)
-                    </button>`}
+              : html`
+                  <button class="replay-btn" onClick=${exportFullLogOverlay}
+                          disabled=${!log || !cppWireFrames || overlayExporting}
+                          title="Render the overlay for the entire log (no source video). Drop on top of your GoPro footage in iMovie / Final Cut.">
+                    Full overlay export
+                  </button>`}
           </div>
 
           <div class="replay-control-row">
@@ -1863,10 +1803,10 @@ export const ReplayPage = () => {
             <${DataMarkPanel}
                 marks=${marks}
                 sync=${sync}
-                disabled=${exporting || !syncReady}
+                disabled=${exportingClipIdx != null || !syncReady}
                 videoDuration=${videoRef.current?.duration}
                 onJump=${jumpToMark}
-                onClip=${exportClipFromMark} />`}
+                onClip=${addClipFromMark} />`}
 
           <${ClipBuilder}
               clips=${clips}
@@ -1874,7 +1814,7 @@ export const ReplayPage = () => {
               sync=${sync}
               syncReady=${syncReady}
               videoEl=${videoRef}
-              disabled=${exporting}
+              disabled=${exportingClipIdx != null}
               exportingClipIdx=${exportingClipIdx}
               exportProgress=${mp4ExportProgress}
               exportLabel=${mp4ExportLabel}
