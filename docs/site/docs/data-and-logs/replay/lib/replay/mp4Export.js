@@ -3,24 +3,32 @@
 // Pipeline (one clip at a time):
 //
 //   Video — play-rate harvest:
-//     1. Decode AAC audio from the source file (in parallel with video).
-//     2. Seek <video> to clip start, set playbackRate, call play().
-//     3. Each requestVideoFrameCallback fires with the just-painted
+//     1. Seek <video> to clip start, set playbackRate, call play().
+//     2. Each requestVideoFrameCallback fires with the just-painted
 //        frame's mediaTime. Map mediaTime → output frame index → log
 //        row → wire frame → sim tick.
-//     4. Read sim state, run it through PresentationFilter (matches
+//     3. Read sim state, run it through PresentationFilter (matches
 //        the live preview's slip-ball smoothing), render overlay SVG.
-//     5. Composite to OffscreenCanvas, build a VideoFrame, encode.
-//     6. When video mediaTime crosses clip end, pause + flush.
+//     4. Composite to OffscreenCanvas, build a VideoFrame, encode.
+//     5. When video mediaTime crosses clip end, pause + flush.
 //
-//   Audio — offline decode:
-//     1. Read source File as ArrayBuffer.
-//     2. AudioContext.decodeAudioData → AudioBuffer.
-//     3. Slice to [clampedStart, clampedEnd], re-chunk into 1024-sample
-//        blocks (AAC frame boundary), feed AudioEncoder.
-//     4. AudioEncoder.output → muxer.addAudioChunk.
+//   Audio — mp4box demux, no re-encode:
+//     1. Probe the source File with mp4box.js, feeding it chunks via
+//        File.slice() + appendBuffer until onReady fires (moov parsed).
+//     2. Walk the AAC track's sample table for samples in
+//        [clampedStart, clampedEnd] — each has byte offset + size + cts.
+//     3. For each sample: File.slice(offset, offset+size).arrayBuffer()
+//        to pull just that AAC frame's bytes (typically <1 KB each).
+//     4. Feed to muxer.addAudioChunkRaw() — no decode + re-encode round
+//        trip. First call carries the AudioSpecificConfig in meta.
 //
-//   Both encoders feed the same Muxer; finalize() interleaves them.
+//   Both video chunks and demuxed audio bytes feed the same Muxer;
+//   finalize() interleaves them.
+//
+// Why mp4box + slice (not File.arrayBuffer + decodeAudioData): a 17 GB
+// flight video OOM-crashes the browser when fully loaded. mp4box only
+// needs the moov box (a few MB), and each AAC sample is fetched via a
+// targeted File.slice that reads only that sample's bytes from disk.
 //
 // Faster-than-realtime: at playbackRate=4, rVFC fires at the source
 // video's native frame rate (60 fps) regardless of playback speed,
@@ -29,13 +37,15 @@
 // Compare to the v1 seek-per-frame loop's 60-85 s.
 
 import { Muxer, ArrayBufferTarget } from '../vendor/mp4-muxer.js';
+import { createFile } from '../vendor/mp4box.js';
 import { M5Sim } from './m5sim.js';
 import { findRowAt } from './parseLog.js';
 import { PresentationFilter } from './presentationFilter.js';
 
 // Browser feature gate. WebCodecs is Chrome/Edge desktop and partial
-// Safari. We check for VideoEncoder, AudioEncoder (audio mux),
-// OffscreenCanvas (compositor target), and rVFC (frame harvest).
+// Safari. We check for VideoEncoder, OffscreenCanvas (compositor
+// target), and rVFC (frame harvest). Audio is demuxed not encoded,
+// so AudioEncoder is no longer required.
 export function isMp4ExportSupported() {
   if (typeof window === 'undefined') return false;
   if (!('VideoEncoder' in window)) return false;
@@ -45,14 +55,14 @@ export function isMp4ExportSupported() {
   return true;
 }
 
-// AudioEncoder is a separate feature gate — if missing we still emit
-// the MP4, but silent. Callers can advertise "exports silently" to the
-// pilot when audio isn't available.
+// Audio export needs nothing beyond File.slice() (universally
+// supported where MP4 export itself runs). Kept as a separate gate so
+// the UI can advertise "exports with audio" without parsing the file.
+// Note: actual audio output still falls back to silent if the source
+// has no AAC track or mp4box can't parse the moov.
 export function isMp4AudioExportSupported() {
   if (typeof window === 'undefined') return false;
-  if (!('AudioEncoder' in window)) return false;
-  if (typeof OfflineAudioContext === 'undefined' &&
-      typeof AudioContext === 'undefined') return false;
+  if (typeof Blob === 'undefined' || !Blob.prototype.slice) return false;
   return true;
 }
 
@@ -62,9 +72,7 @@ export function isMp4AudioExportSupported() {
 // quality" range for 1080p30.
 const DEFAULT_BITRATE_BPS = 5_000_000;
 const DEFAULT_FRAMERATE   = 30;
-const DEFAULT_AUDIO_BPS   = 128_000;
 const DEFAULT_PLAYRATE    = 4;        // 4× source playback during encode
-const AAC_FRAME_SAMPLES   = 1024;     // AAC-LC frame size
 
 async function pickEncoderConfig({ width, height, bitrate, framerate }) {
   const w = Math.max(2, Math.floor(width  / 2) * 2);
@@ -194,12 +202,186 @@ function driveSimToVirtMs(sim, state, targetVirtMs, log, sync, cppWireFrames) {
 }
 
 // ---------------------------------------------------------------------
+// Audio demux helpers — feed mp4box just enough of the source file to
+// parse moov, then pull individual AAC sample byte ranges via slice().
+// ---------------------------------------------------------------------
+
+// Constants tuned to the moov-discovery problem.
+const MP4BOX_HEAD_BYTES   = 64 * 1024 * 1024;  // Try first 64 MB for fast-start moov.
+const MP4BOX_TAIL_BYTES   = 64 * 1024 * 1024;  // If moov isn't there, try last 64 MB.
+const MP4BOX_CHUNK_BYTES  =  4 * 1024 * 1024;  // 4 MB per appendBuffer call.
+
+// Feed mp4box chunks of `file` from [start, end) until either
+// `isoFile.onReady` has fired or we run out of bytes. Returns true if
+// onReady fired. The chunks are not retained — mp4box buffers them
+// internally only for the parser's working set.
+async function feedRangeUntilReady(isoFile, file, start, end, readyRef, signal) {
+  let pos = start;
+  while (pos < end) {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    const sliceEnd = Math.min(end, pos + MP4BOX_CHUNK_BYTES);
+    const ab = await file.slice(pos, sliceEnd).arrayBuffer();
+    ab.fileStart = pos;
+    isoFile.appendBuffer(ab);
+    pos = sliceEnd;
+    if (readyRef.ready) return true;
+  }
+  return readyRef.ready;
+}
+
+// Probe the source file's audio track via mp4box. Returns:
+//   { isoFile, audioTrack, sampleRate, channelCount, codec, dsi }
+// or null if no AAC track is found or the moov can't be parsed.
+//
+// "fast-start" MP4s (GoPro, most phones) have moov near the start;
+// "slow-start" MP4s (some editors) have it at the end. We try head
+// first (cheap), fall back to tail. We never read the middle (mdat)
+// during probe — sample bytes are fetched on demand later.
+async function probeAacAudioTrack(file, signal) {
+  if (!file || typeof file.slice !== 'function') return null;
+  let isoFile;
+  try {
+    isoFile = createFile();
+  } catch (e) {
+    console.warn('mp4box createFile failed:', e?.message || e);
+    return null;
+  }
+  const readyRef = { ready: false, info: null };
+  isoFile.onReady = (info) => { readyRef.ready = true; readyRef.info = info; };
+  isoFile.onError = (msg) => { console.warn('mp4box parse error:', msg); };
+
+  const fileSize = file.size;
+
+  // Try fast-start (head).
+  const headEnd = Math.min(fileSize, MP4BOX_HEAD_BYTES);
+  let ok = await feedRangeUntilReady(isoFile, file, 0, headEnd, readyRef, signal);
+
+  // If moov is at the tail, try the last 64 MB. mp4box uses
+  // fileStart offsets, so it can stitch tail bytes against the head
+  // it's already seen.
+  if (!ok && fileSize > headEnd) {
+    const tailStart = Math.max(headEnd, fileSize - MP4BOX_TAIL_BYTES);
+    ok = await feedRangeUntilReady(isoFile, file, tailStart, fileSize, readyRef, signal);
+  }
+
+  if (!ok || !readyRef.info) {
+    console.warn('mp4box: moov not found within head+tail probe; no audio mux.');
+    return null;
+  }
+
+  const audioTracks = readyRef.info.audioTracks || [];
+  if (audioTracks.length === 0) {
+    console.warn('mp4box: source has no audio tracks; emitting silent MP4.');
+    return null;
+  }
+  const audioTrack = audioTracks[0];
+  // Codec string looks like "mp4a.40.2" (AAC-LC) or "mp4a.40.5" (HE-AAC), etc.
+  if (!audioTrack.codec || !audioTrack.codec.startsWith('mp4a')) {
+    console.warn(`mp4box: audio codec "${audioTrack.codec}" is not AAC; emitting silent MP4.`);
+    return null;
+  }
+  const sampleRate   = audioTrack.audio?.sample_rate;
+  const channelCount = audioTrack.audio?.channel_count;
+  if (!sampleRate || !channelCount) {
+    console.warn('mp4box: audio track missing sample_rate/channel_count; emitting silent MP4.');
+    return null;
+  }
+
+  // Extract the AAC AudioSpecificConfig from the esds box. This goes
+  // into EncodedAudioChunk.decoderConfig.description (passed to the
+  // muxer via meta on the first addAudioChunkRaw call).
+  let dsi = null;
+  try {
+    const trak    = isoFile.getTrackById(audioTrack.id);
+    const stsdEnt = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
+    const esds    = stsdEnt?.esds;
+    // DecoderConfigDescrTag=4, DecSpecificInfoTag=5.
+    const dcd     = esds?.esd?.findDescriptor?.(4);
+    const dsiDesc = dcd?.findDescriptor?.(5);
+    if (dsiDesc && dsiDesc.data) {
+      // dsiDesc.data is typically Uint8Array; copy to a stable buffer.
+      dsi = new Uint8Array(dsiDesc.data);
+    }
+  } catch (e) {
+    console.warn('mp4box: AudioSpecificConfig extraction failed:', e?.message || e);
+  }
+  if (!dsi || dsi.length === 0) {
+    console.warn('mp4box: missing AudioSpecificConfig; emitting silent MP4.');
+    return null;
+  }
+
+  return { isoFile, audioTrack, sampleRate, channelCount, codec: audioTrack.codec, dsi };
+}
+
+// Feed AAC samples for [clampedStart, clampedEnd] from `file` straight
+// into the muxer, no re-encode. Returns { added, skipped, reason }.
+async function feedAacSamplesToMuxer({
+  muxer, file, probe, clampedStart, clampedEnd, signal,
+}) {
+  const { isoFile, audioTrack, dsi } = probe;
+  const timescale = audioTrack.timescale;
+  if (!timescale) return { added: 0, skipped: true, reason: 'no timescale' };
+
+  const samples = isoFile.getTrackSamplesInfo(audioTrack.id);
+  if (!samples || samples.length === 0) {
+    return { added: 0, skipped: true, reason: 'no samples in track' };
+  }
+
+  // Pick samples whose presentation time falls in the clip window.
+  // We include any sample that overlaps the window; partial-frame
+  // trimming is left to the muxer/decoder (AAC frames are 1024-sample
+  // atoms — trimming inside would require re-encoding).
+  const startTicks = Math.floor(clampedStart * timescale);
+  const endTicks   = Math.ceil (clampedEnd   * timescale);
+
+  // Binary-search style scan: samples are in dts order. We just walk
+  // since the sample list is dense and contiguous.
+  const inRange = [];
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i];
+    if (s.cts + s.duration <= startTicks) continue;
+    if (s.cts >= endTicks)                break;
+    inRange.push(s);
+  }
+  if (inRange.length === 0) {
+    return { added: 0, skipped: true, reason: 'no samples overlap window' };
+  }
+
+  // The output MP4's audio timeline starts at t=0 (the muxer's
+  // firstTimestampBehavior is 'offset', so we anchor against the
+  // first muxed sample's source cts).
+  const firstCts = inRange[0].cts;
+  let added = 0;
+  let metaSent = false;
+
+  for (let i = 0; i < inRange.length; i++) {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    const s   = inRange[i];
+    const ab  = await file.slice(s.offset, s.offset + s.size).arrayBuffer();
+    const buf = new Uint8Array(ab);
+
+    const tsUs  = Math.round((s.cts - firstCts) * 1_000_000 / timescale);
+    const durUs = Math.round( s.duration         * 1_000_000 / timescale);
+
+    // All AAC frames are independent (no inter-frame prediction in
+    // AAC-LC), so every sample is a 'key' from a seeking standpoint.
+    const meta = metaSent ? undefined : { decoderConfig: { description: dsi } };
+    muxer.addAudioChunkRaw(buf, 'key', tsUs, durUs, meta);
+    metaSent = true;
+    added++;
+  }
+  return { added, skipped: false };
+}
+
+// ---------------------------------------------------------------------
 // Public API.
 // ---------------------------------------------------------------------
 //
 // Options (new in v2):
-//   sourceFile:        File | Blob — the original video file for audio
-//                      decode. If omitted, MP4 is exported silent.
+//   sourceFile:        File | Blob — the original video file. Its AAC
+//                      track is demuxed via mp4box.js (no in-memory
+//                      copy of the file) and remuxed into the output.
+//                      If omitted, MP4 is exported silent.
 //   presentationTau:   { lateralSec, verticalSec } | null — render-side
 //                      smoothing applied to state.LateralG/VerticalG
 //                      before SVG render. Mirrors the live preview's
@@ -289,44 +471,29 @@ export async function exportClipAsMp4({
     });
   }
 
-  // ---------- Audio decode + encode kicks off in parallel -------------
-  // Don't attach the audio config to the muxer until we know AAC is
-  // available — kick off encodeAudio, await its config-determination,
-  // then build the muxer. If the audio path fails or is skipped, we
-  // still emit a (silent) MP4.
-  let audioInfo = null;
-  let audioPromise = null;
-
-  // Probe audio config first (cheap; doesn't actually decode yet).
+  // ---------- Audio probe (mp4box demux) ------------------------------
+  // Parse just the source file's moov box (reading only the first
+  // ~64 MB, falling back to the last 64 MB for non-fast-start files).
+  // This gives us sample_rate, channel_count, and the AAC
+  // AudioSpecificConfig — everything the muxer needs to declare its
+  // audio track. Actual sample bytes are pulled later, one frame at
+  // a time, via File.slice(). No multi-GB ArrayBuffer ever exists.
+  let audioProbe   = null;
   let muxerAudioCfg = null;
   if (sourceFile && isMp4AudioExportSupported()) {
-    // We don't know sampleRate/channelCount until decodeAudioData
-    // resolves; for the muxer config we need them up front. The
-    // pragmatic path: decode now (it's parallel with video setup
-    // anyway, and the audio pass is independent of video frames).
-    // But we DO need to start it before the muxer is built since the
-    // muxer's audio: config block needs sampleRate + channelCount.
     try {
-      const buf = await sourceFile.arrayBuffer();
-      const AC = window.AudioContext || window.webkitAudioContext;
-      const probe = new AC();
-      const ab = await probe.decodeAudioData(buf.slice(0));
-      try { await probe.close(); } catch (_) {}
-      audioInfo = {
-        sampleRate:   ab.sampleRate,
-        channelCount: Math.min(2, ab.numberOfChannels),
-        buffer:       ab,
-      };
-      muxerAudioCfg = {
-        codec: 'aac',
-        sampleRate:        audioInfo.sampleRate,
-        numberOfChannels:  audioInfo.channelCount,
-      };
+      audioProbe = await probeAacAudioTrack(sourceFile, signal);
+      if (audioProbe) {
+        muxerAudioCfg = {
+          codec: 'aac',
+          sampleRate:       audioProbe.sampleRate,
+          numberOfChannels: audioProbe.channelCount,
+        };
+      }
     } catch (e) {
-      // Source has no decodable audio track (no audio, or unsupported
-      // codec). Emit silent MP4 — caller can surface this to the pilot.
+      if (e?.name === 'AbortError') throw e;
       // eslint-disable-next-line no-console
-      console.warn('audio decode skipped:', e?.message || e);
+      console.warn('audio probe skipped:', e?.message || e);
     }
   }
 
@@ -359,79 +526,20 @@ export async function exportClipAsMp4({
   const origPaused   = videoEl.paused;
   const origCurrentT = videoEl.currentTime;
 
-  // ---------- Now spawn the actual audio encode in the background ----
-  if (audioInfo && muxerAudioCfg) {
-    audioPromise = (async () => {
-      // Re-use the already-decoded AudioBuffer.
-      const ab           = audioInfo.buffer;
-      const sampleRate   = audioInfo.sampleRate;
-      const channelCount = audioInfo.channelCount;
-      const startSample  = Math.max(0, Math.floor(clampedStart * sampleRate));
-      const endSample    = Math.min(ab.length, Math.floor(clampedEnd * sampleRate));
-      if (endSample <= startSample) return { encoded: 0, skipped: true };
-
-      const totalSamples = endSample - startSample;
-      const chData = [];
-      for (let c = 0; c < channelCount; c++) {
-        const full  = ab.getChannelData(c);
-        const slice = new Float32Array(totalSamples);
-        slice.set(full.subarray(startSample, endSample));
-        chData.push(slice);
-      }
-      // Release the AudioBuffer reference so it can be GC'd.
-      audioInfo.buffer = null;
-
-      const audioCfg = {
-        codec: 'mp4a.40.2',
-        sampleRate, numberOfChannels: channelCount,
-        bitrate: DEFAULT_AUDIO_BPS,
-      };
-      const sup = await AudioEncoder.isConfigSupported(audioCfg);
-      if (!sup.supported) return { encoded: 0, skipped: true, reason: 'AAC not supported' };
-
-      let audioEncErr = null;
-      let audioEncoded = 0;
-      const aenc = new AudioEncoder({
-        output: (chunk, meta) => {
-          try { muxer.addAudioChunk(chunk, meta); audioEncoded++; }
-          catch (e) { audioEncErr = e; }
-        },
-        error: (e) => { audioEncErr = e; },
-      });
-      aenc.configure(sup.config);
-
-      let pos = 0;
-      while (pos < totalSamples) {
-        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-        if (audioEncErr) throw audioEncErr;
-        const n = Math.min(AAC_FRAME_SAMPLES, totalSamples - pos);
-        const planar = new Float32Array(n * channelCount);
-        for (let c = 0; c < channelCount; c++) {
-          planar.set(chData[c].subarray(pos, pos + n), c * n);
-        }
-        const timestamp = Math.round(pos / sampleRate * 1_000_000);
-        const data = new AudioData({
-          format: 'f32-planar',
-          sampleRate,
-          numberOfFrames: n,
-          numberOfChannels: channelCount,
-          timestamp,
-          data: planar,
-        });
-        aenc.encode(data);
-        data.close();
-        pos += n;
-        while (aenc.encodeQueueSize > 16) {
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise(r => setTimeout(r, 0));
-          if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-        }
-      }
-      await aenc.flush();
-      if (audioEncErr) throw audioEncErr;
-      aenc.close();
-      return { encoded: audioEncoded };
-    })();
+  // ---------- Spawn AAC demux in the background ----------------------
+  // Pull each AAC sample's bytes via File.slice() and feed straight
+  // into the muxer. No decode + re-encode. Runs in parallel with the
+  // video harvest; both feed the same muxer.
+  let audioPromise = null;
+  if (audioProbe && muxerAudioCfg) {
+    audioPromise = feedAacSamplesToMuxer({
+      muxer,
+      file: sourceFile,
+      probe: audioProbe,
+      clampedStart,
+      clampedEnd,
+      signal,
+    });
   }
 
   // ---------- Video harvest loop -------------------------------------
@@ -646,7 +754,8 @@ export const MP4_EXPORT_INTERNAL = Object.freeze({
   M5_LARGE_JUMP_MS,
   DEFAULT_BITRATE_BPS,
   DEFAULT_FRAMERATE,
-  DEFAULT_AUDIO_BPS,
   DEFAULT_PLAYRATE,
-  AAC_FRAME_SAMPLES,
+  MP4BOX_HEAD_BYTES,
+  MP4BOX_TAIL_BYTES,
+  MP4BOX_CHUNK_BYTES,
 });
