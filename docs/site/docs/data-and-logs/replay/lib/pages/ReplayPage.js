@@ -295,6 +295,13 @@ export const ReplayPage = () => {
     const v = videoHandleRef.current;
     const l = logHandleRef.current;
     if (!v || !l) return;
+    // Multi-chapter sessions: `videoFileRef.current` is chapter 0,
+    // so the IDB key uses chapter 0's {name, size, lastModified}.
+    // Two unrelated GoPro sessions whose chapter 0 has identical
+    // metadata would overwrite each other; same limitation as the
+    // single-chapter path (and same as the legacy file-input flow).
+    // The Resume banner's persistence-key surface keeps the same
+    // shape so this stays in lockstep with the recent-files banner.
     const sig = signatureFromFiles({
       video: videoFileRef.current,
       log: logFileRef.current,
@@ -710,6 +717,11 @@ export const ReplayPage = () => {
         handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
       ]);
       if (isMultiChapter) {
+        // requestPermissionForHandles already granted read on the
+        // directory handle above. Subsequent entries() iteration and
+        // entry.getFile() reads on an already-granted directory do
+        // NOT need a fresh user-gesture token, so awaiting the walk
+        // here is safe even though it crosses several async hops.
         const expanded = await expandMultiChapterHandle(handles.video);
         if (!expanded || expanded.files.length === 0) {
           throw new Error('multi-chapter directory is empty or chapters moved');

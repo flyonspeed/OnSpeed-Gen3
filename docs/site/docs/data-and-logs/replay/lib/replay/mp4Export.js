@@ -699,8 +699,18 @@ export async function exportClipAsMp4({
   // are assumed to share the same encode parameters — GoPro always
   // ships matching siblings within one recording. A future hardening
   // pass could re-probe per segment and warn on mismatches.
+  //
+  // The probe Input is discarded immediately after the probe finishes
+  // — the segment loop opens a fresh Input per segment including
+  // segment 0. Reusing the probe Input on segment 0 would alias the
+  // track cursor with the probe's EncodedPacketSink walks; safer to
+  // pay the open cost twice for chapter 0 than to risk a subtle
+  // first-segment seek/anchor corruption.
   const firstSegment = segments[0];
   const probeInput = openInput(firstSegment.file);
+  // Inputs we'll close in `finally`. Probe is added immediately; each
+  // segment Input gets pushed as it's opened.
+  const openedInputs = [probeInput];
   let videoInfo;
   try {
     videoInfo = await readVideoTrackInfo(probeInput);
@@ -869,20 +879,19 @@ export async function exportClipAsMp4({
       if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
       const seg = segments[segIdx];
 
-      // Reuse the already-open probe input for segment 0 (first
-      // chapter), open a fresh Input for every later chapter.
-      const segInput = (segIdx === 0)
-        ? probeInput
-        : openInput(seg.file);
-      const segVideoInfo = (segIdx === 0)
-        ? videoInfo
-        : await readVideoTrackInfo(segInput);
+      // Fresh Input per segment, including segment 0 — the probe
+      // Input is already in `openedInputs` for `finally`-time close.
+      // Independent Inputs give each EncodedPacketSink its own track
+      // cursor, avoiding any aliasing with the probe walk.
+      const segInput = openInput(seg.file);
+      openedInputs.push(segInput);
+      const segVideoInfo = await readVideoTrackInfo(segInput);
       if (!segVideoInfo) {
         throw new Error(`Chapter ${seg.chapterIndex}: no decodable video track.`);
       }
-      const segAudioInfo = (segIdx === 0)
-        ? probeAudioInfo
-        : (hasAudio ? await readAudioTrackInfo(segInput) : null);
+      const segAudioInfo = hasAudio
+        ? await readAudioTrackInfo(segInput)
+        : null;
 
       const segVideoSink = new EncodedPacketSink(segVideoInfo.track);
       const anchorKey =
@@ -936,9 +945,13 @@ export async function exportClipAsMp4({
       const decoder = new VideoDecoder({
         output: (frame) => {
           if (decoderError) { frame.close(); return; }
-          // Drop decode-context frames (negative ts) — they exist only
-          // to seed the decoder back to the segment's first in-window
-          // sample.
+          // Drop decode-context frames whose timestamp falls before
+          // the segment's clip window. For segment 0 these often have
+          // a negative timestamp (pre-zero seed frames). For later
+          // segments timestamps are positive but still below the
+          // window start (the prior chapter's tail-anchor decoding
+          // catches us up). Either way, they exist only to warm the
+          // decoder and never reach the output.
           if (frame.timestamp < 0) {
             frame.close();
             return;
@@ -1141,6 +1154,12 @@ export async function exportClipAsMp4({
     try { encoder.state !== 'closed' && encoder.close(); } catch (_) {}
     if (!outputFinalized) {
       try { await output.cancel(); } catch (_) {}
+    }
+    // Close every Mediabunny Input we opened. Each wraps a BlobSource
+    // with internal byte-range caches; leaving them for GC could
+    // hold MBs of ArrayBuffer per chapter across a 4-chapter export.
+    for (const inp of openedInputs) {
+      try { inp.close?.(); } catch (_) {}
     }
     try { sim.delete(); } catch (_) {}
   }

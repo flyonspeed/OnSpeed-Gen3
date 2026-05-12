@@ -30,17 +30,21 @@
 // ReplayPage.js itself, where it can wire into the existing rVFC chain
 // and videoRef.
 
-// GoPro chapter filename pattern. Optional leading prefix (e.g. the
-// `chapter01-` rename Playwright/manual tests use) is stripped before
-// matching. The core token is:
+// GoPro chapter filename pattern. The core token is:
 //   - GOPR####.MP4   (first chapter, chapterIndex 0)
 //   - GP0N####.MP4   (continuation, chapterIndex = N, 1..9)
+//
+// The leading prefix MUST be either nothing or one of `-` / `_` (covers
+// the `chapter01-GOPR0314.MP4` symlink fixtures and any reasonable
+// renaming convention). Free-text prefixes like "My flight " are
+// rejected — they shouldn't be detected as a chapter regardless of
+// what the file actually contains.
 //
 // Case-sensitive on the prefix and extension to match GoPro's actual
 // filenames; if a future GoPro tool ships lowercase variants, loosen
 // then (and add a test case).
-const GOPRO_FIRST_RE = /(?:^|[^A-Za-z0-9])(GOPR)(\d{4})\.MP4$/;
-const GOPRO_CONT_RE  = /(?:^|[^A-Za-z0-9])(GP)0([1-9])(\d{4})\.MP4$/;
+const GOPRO_FIRST_RE = /(?:^|[-_])(GOPR)(\d{4})\.MP4$/;
+const GOPRO_CONT_RE  = /(?:^|[-_])(GP)0([1-9])(\d{4})\.MP4$/;
 
 // Parse a GoPro chapter filename. Returns
 //   { prefix: 'GOPR' | 'GP', seq: '0314', chapterIndex: 0..9 } | null

@@ -216,6 +216,14 @@ export async function clearHandles() {
 // (single-chapter session) or a `{kind:'multi-chapter', directoryHandle,
 // chapterNames}` envelope — in the latter case the directory handle is
 // the permission target (granting it implicitly grants every file inside).
+//
+// Discriminator note: the FSA spec defines `.kind` on FileSystemHandle
+// as `'file' | 'directory'`. Our envelope adds the synthetic value
+// `'multi-chapter'` to the same field — the three values are disjoint
+// today, but if the spec ever adds a new handle kind that string-equals
+// our envelope marker, this branch would misclassify. Cheap to defend:
+// rename the envelope discriminator (e.g. `envelopeKind`) only if/when
+// that becomes a concrete risk.
 function permissionTarget(slotValue) {
   if (!slotValue) return null;
   if (slotValue.kind === 'multi-chapter') return slotValue.directoryHandle || null;

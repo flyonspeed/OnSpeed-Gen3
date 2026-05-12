@@ -103,6 +103,25 @@ assertEq(
   null,
   'GP100314.MP4 (chapter 10 — out of GoPro spec) → null'
 );
+// Negative discrimination: free-text prefixes (space, etc.) must not
+// match. The allowed delimiters before the GoPro token are only `-`
+// and `_`. Bulldog flagged this as a false-positive risk if a pilot
+// names a flight log "My flight GOPR0314.MP4".
+assertEq(
+  detectGoProChapterPattern('My flight GOPR0314.MP4'),
+  null,
+  'free-text prefix with space → null'
+);
+assertEq(
+  detectGoProChapterPattern('flight.GOPR0314.MP4'),
+  null,
+  'free-text prefix with `.` → null'
+);
+assertEq(
+  detectGoProChapterPattern('_GOPR0314.MP4'),
+  { prefix: 'GOPR', seq: '0314', chapterIndex: 0 },
+  'underscore prefix still matches'
+);
 
 // ---------------------------------------------------------------------
 // groupChapterSiblings
