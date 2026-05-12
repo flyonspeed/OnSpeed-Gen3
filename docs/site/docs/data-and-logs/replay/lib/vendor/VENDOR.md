@@ -1,14 +1,15 @@
 # Vendored dependencies — replay tool
 
 The OnSpeed docs-site replay tool exports MP4 clips with the M5 indicator
-burned in. Two third-party libraries are vendored here:
+burned in. One third-party library is vendored here:
 
-- `mp4-muxer.js` — writes the WebCodecs-encoded video + AAC audio into
-  a well-formed MP4 (write side).
-- `mp4box.js` — parses the source video's MP4 boxes to demux its AAC
-  audio track without copying the whole file into memory (read side).
+- `mediabunny.min.mjs` — reads (demuxes) the source MP4 to pull out the
+  AAC audio packets and H.264/HEVC video packets, then writes (muxes)
+  the WebCodecs-encoded composited video and pass-through audio into a
+  new MP4. Both demux and mux in a single library by the same author
+  who wrote the (now-deprecated) `mp4-muxer` library.
 
-The bundles are committed verbatim so the docs-site build has no Internet
+The bundle is committed verbatim so the docs-site build has no Internet
 dependency at runtime (Pilots load `/data-and-logs/replay/` from a
 locally-served mkdocs build or the deployed GitHub Pages site — both
 serve the vendor files from the same origin).
@@ -17,76 +18,59 @@ serve the vendor files from the same origin).
 
 | File | Source | Version | Size | License |
 |---|---|---|---:|---|
-| `mp4-muxer.js` | https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.mjs | 5.2.2 | ~42 KB | MIT |
-| `mp4box.js`    | https://cdn.jsdelivr.net/npm/mp4box@2.3.0/dist/mp4box.all.min.js | 2.3.0 | ~190 KB | BSD-3-Clause |
+| `mediabunny.min.mjs` | https://cdn.jsdelivr.net/npm/mediabunny@1.44.2/dist/bundles/mediabunny.min.mjs | 1.44.2 | ~592 KB | MPL-2.0 |
 
-## What `mp4-muxer` provides
+## What `mediabunny` provides
 
-`mp4-muxer` consumes encoded video chunks from `VideoEncoder` (and
-optionally audio chunks from `AudioEncoder`, or raw AAC samples
-demuxed from a source file) and writes them into a well-formed
-ISO BMFF (MP4) container.
-
-API surface used by `replay/mp4Export.js`:
-
-- `Muxer` — the encoder-output sink. Accepts encoded `Uint8Array`
-  chunks via `addVideoChunkRaw(data, type, timestampUs, durationUs,
-  meta)` and `addAudioChunkRaw(data, type, timestampUs, durationUs,
-  meta)`. `meta.decoderConfig.description` carries the AVC config
-  blob from the first `VideoEncoder.output` callback (video) and the
-  AAC AudioSpecificConfig from the source's `esds` box (audio).
-- `ArrayBufferTarget` — in-memory output. After `muxer.finalize()`,
-  `target.buffer` holds the complete MP4 as an `ArrayBuffer` for the
-  download.
-
-## What `mp4box.js` provides
-
-`mp4box.js` is the canonical JS MP4 box parser (GPAC project). The
-replay export uses it as a **demuxer**, not a muxer. We feed only the
-moov box (the first few MB of the source file) via `File.slice()` +
-`mp4boxFile.appendBuffer(ab)`, where each appended ArrayBuffer's
-`fileStart` property tells mp4box where its bytes sit in the original
-file. Once `onReady` fires with parsed track info, we walk
-`getTrackSamplesInfo(audioTrackId)` to learn every audio sample's
-`{ offset, size, cts, duration }` and pull just those byte ranges via
-`File.slice(offset, offset+size).arrayBuffer()` — never materializing
-the whole file in memory.
+Mediabunny is a one-library replacement for the previous mp4box.js
+(demux) + mp4-muxer (mux) split. It supports streaming reads natively,
+which removes the bounded head/tail probe budget the mp4box.js path
+needed for moov discovery — moov-in-the-middle files now work
+correctly.
 
 API surface used by `replay/mp4Export.js`:
 
-- `createFile()` — constructs an `ISOFile` parser.
-- `isoFile.onReady = (info) => …` — fires after moov is parsed; info
-  has `audioTracks[].id / .codec / .timescale / .audio.{sample_rate,
-  channel_count}`.
-- `isoFile.appendBuffer(ab)` — `ab.fileStart` set to its byte offset
-  in the source File.
-- `isoFile.getTrackSamplesInfo(track_id)` — per-sample
-  `{ offset, size, cts, dts, duration }`.
-- `isoFile.getTrackById(id).mdia.minf.stbl.stsd.entries[0].esds.esd`
-  — drill-through path to the AAC DecoderSpecificInfo (AudioSpecific
-  Config bytes) for `EncodedAudioChunk.decoderConfig.description`.
+**Reading (demux):**
 
-## Why this split (mp4-muxer for write, mp4box for read)
+- `Input` + `BlobSource(file)` — open a `File` / `Blob` for streaming
+  reads. No multi-GB ArrayBuffer materialization.
+- `input.getPrimaryVideoTrack()` / `getPrimaryAudioTrack()` — pick out
+  the tracks.
+- `track.getCodec()`, `getCodecParameterString()`, `getCodedWidth()`,
+  `getCodedHeight()`, `getRotation()`, `computePacketStats()`,
+  `getDecoderConfig()` — track metadata.
+- `EncodedPacketSink(track)` + `sink.packets()` async iterator — walk
+  encoded packets, each with `.data: Uint8Array`, `.type: 'key' |
+  'delta'`, `.timestamp` (seconds), `.duration` (seconds).
 
-WebCodecs ships in Chrome/Edge and gives the browser an H.264 encoder.
-But `VideoEncoder` emits raw H.264 NAL units, not an MP4. The browser
-provides no container muxer of its own. Options considered:
+**Writing (mux):**
 
-- **mp4-muxer** (chosen for write): pure JS, no deps, ~42 KB minified,
-  MIT, active. Built specifically for the WebCodecs → MP4 path. Used by
-  Remotion's web renderer and several browser-side video editors.
-- **mp4box.js as muxer**: ~190 KB minified. Full-featured but its muxer
-  path is less polished than mp4-muxer's; we stick with mp4-muxer for
-  the write side.
-- **mux.js** (HLS.js project): designed for fMP4 streaming over MSE,
-  not file-on-disk; output is segmented in a way that confuses
-  desktop players.
+- `Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+  target: new BufferTarget() })` — in-memory MP4 writer.
+- `EncodedVideoPacketSource('avc' | 'hevc')` — sink for encoded
+  video packets (from `VideoEncoder.output` callbacks, wrapped as
+  `EncodedPacket`). The first `.add(packet, meta)` call carries
+  `meta.decoderConfig.{codec, codedWidth, codedHeight, description}`.
+- `EncodedAudioPacketSource('aac')` — sink for AAC packets pulled
+  through unchanged from the source's encoded packets. First
+  `.add(packet, meta)` call carries `meta.decoderConfig.{codec,
+  numberOfChannels, sampleRate, description}` (the
+  AudioSpecificConfig from the source).
+- `output.addVideoTrack(source, { rotation, frameRate })` /
+  `addAudioTrack(source)` — add tracks to the output.
+- `output.start()` / `output.finalize()` — lifecycle.
+- `output.target.buffer: ArrayBuffer` after finalize — wrap in a Blob.
 
-For the **read** side (extracting source-file audio samples), mp4-muxer
-isn't a demuxer at all, and the browser has no MP4 parser exposed to JS.
-mp4box.js is the only mature option. It's a ~190 KB cost we accept to
-avoid `File.arrayBuffer()` on multi-GB flight videos, which OOM-crashes
-the export.
+## Why mediabunny (single library for read + write)
+
+Mediabunny is written by the same author as `mp4-muxer`; its
+in-repo deprecation banner points at mediabunny as the successor.
+It also covers the demux side, replacing `mp4box.js` and removing
+the head/tail moov probe budget that the previous split required
+to keep heap usage bounded — non-fast-start MP4s with moov in the
+middle are read correctly via streaming. One vendor file (~592 KB
+minified) replaces the previous two (~232 KB combined) with a single
+library and a fix for the moov-in-the-middle case.
 
 ## Browser support
 
@@ -98,94 +82,112 @@ in window && 'requestVideoFrameCallback' in HTMLVideoElement.prototype`
 and grays out the Export MP4 button outside Chrome/Edge desktop with
 a tooltip noting the limitation.
 
-## Refresh procedure — mp4-muxer
+## Refresh procedure
 
 ```bash
 python3 -c "import urllib.request; urllib.request.urlretrieve(
-  'https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.mjs',
-  'docs/site/docs/data-and-logs/replay/lib/vendor/mp4-muxer.js')"
+  'https://cdn.jsdelivr.net/npm/mediabunny@1.44.2/dist/bundles/mediabunny.min.mjs',
+  'docs/site/docs/data-and-logs/replay/lib/vendor/mediabunny.min.mjs')"
 
-# Re-add the leading vendor banner block (preserves source URL + license).
 # Bump the version in this file's table.
 # Run tests:
-cd docs/site/tests && npm test
+cd docs/site && node tests/replay/mp4Export-smoke.mjs
 ```
 
-The maintainer recently deprecated `mp4-muxer` in favor of `mediabunny`
-(a successor with a broader scope). For our write-only WebCodecs → MP4
-need, `mp4-muxer` 5.2.2 remains correct and small; migrating to
-mediabunny would be a discretionary refresh, not a forced one.
+## License
 
-## Refresh procedure — mp4box.js
-
-```bash
-python3 -c "import urllib.request; urllib.request.urlretrieve(
-  'https://cdn.jsdelivr.net/npm/mp4box@2.3.0/dist/mp4box.all.min.js',
-  'docs/site/docs/data-and-logs/replay/lib/vendor/mp4box.js')"
-
-# Strip the trailing `//# sourceMappingURL=...` comment (points to a
-# jsdelivr-host path that won't resolve from our origin).
-# Re-add the leading vendor banner block.
-# Bump the version in this file's table.
-```
-
-mp4box.js 2.x is the modern ESM rewrite; 0.5.x and 1.x are the older
-UMD bundles. We're on 2.3.0 (ESM, named exports) so the `import { … }`
-in `mp4Export.js` works with no shim.
-
-## Licenses
-
-### mp4-muxer — MIT
+### Mediabunny — MPL-2.0
 
 ```
-MIT License
+Mozilla Public License Version 2.0
+==================================
 
-Copyright (c) 2023 Vanilagy
+1. Definitions
+--------------
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1.1. "Contributor"
+    means each individual or legal entity that creates, contributes to
+    the creation of, or owns Covered Software.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1.2. "Contributor Version"
+    means the combination of the Contributions of others (if any) used
+    by a Contributor and that particular Contributor's Contribution.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+1.3. "Contribution"
+    means Covered Software of a particular Contributor.
+
+1.4. "Covered Software"
+    means Source Code Form to which the initial Contributor has attached
+    the notice in Exhibit A, the Executable Form of such Source Code
+    Form, and Modifications of such Source Code Form, in each case
+    including portions thereof.
+
+1.5. "Incompatible With Secondary Licenses"
+    means
+
+    (a) that the initial Contributor has attached the notice described
+        in Exhibit B to the Covered Software; or
+
+    (b) that the Covered Software was made available under the terms of
+        version 1.1 or earlier of the License, but not also under the
+        terms of a Secondary License.
+
+1.6. "Executable Form"
+    means any form of the work other than Source Code Form.
+
+1.7. "Larger Work"
+    means a work that combines Covered Software with other material, in
+    a separate file or files, that is not Covered Software.
+
+1.8. "License"
+    means this document.
+
+1.9. "Licensable"
+    means having the right to grant, to the maximum extent possible,
+    whether at the time of the initial grant or subsequently, any and
+    all of the rights conveyed by this License.
+
+1.10. "Modifications"
+    means any of the following:
+
+    (a) any file in Source Code Form that results from an addition to,
+        deletion from, or modification of the contents of Covered
+        Software; or
+
+    (b) any new file in Source Code Form that contains any Covered
+        Software.
+
+1.11. "Patent Claims" of a Contributor
+    means any patent claim(s), including without limitation, method,
+    process, and apparatus claims, in any patent Licensable by such
+    Contributor that would be infringed, but for the grant of the
+    License, by the making, using, selling, offering for sale, having
+    made, import, or transfer of either its Contributions or its
+    Contributor Version.
+
+1.12. "Secondary License"
+    means either the GNU General Public License, Version 2.0, the GNU
+    Lesser General Public License, Version 2.1, the GNU Affero General
+    Public License, Version 3.0, or any later versions of those
+    licenses.
+
+1.13. "Source Code Form"
+    means the form of the work preferred for making modifications.
+
+1.14. "You" (or "Your")
+    means an individual or a legal entity exercising rights under this
+    License. For legal entities, "You" includes any entity that
+    controls, is controlled by, or is under common control with You. For
+    purposes of this definition, "control" means (a) the power, direct
+    or indirect, to cause the direction or management of such entity,
+    whether by contract or otherwise, or (b) ownership of more than
+    fifty percent (50%) of the outstanding shares or beneficial
+    ownership of such entity.
+
+Full license text: https://www.mozilla.org/en-US/MPL/2.0/
+
+Copyright (c) 2026-present, Vanilagy and contributors
 ```
 
-### mp4box.js — BSD-3-Clause
-
-```
-Copyright (c) 2012. Telecom ParisTech/TSI/MM/GPAC Cyril Concolato
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-    * Redistributions of source code must retain the above copyright
-      notice, this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
-      documentation and/or other materials provided with the distribution.
-    * Neither the name of the copyright holder nor the
-      names of its contributors may be used to endorse or promote products
-      derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
+The full MPL-2.0 license header is preserved at the top of
+`mediabunny.min.mjs`.

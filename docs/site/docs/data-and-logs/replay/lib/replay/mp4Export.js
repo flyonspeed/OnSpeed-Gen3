@@ -2,43 +2,54 @@
 //
 // Pipeline (one clip at a time):
 //
-//   Video — mp4box demux + VideoDecoder:
-//     1. Probe the source File with mp4box.js (head + tail moov probe,
-//        same pattern as audio). Pull the video track's codec config
-//        (avcC or hvcC) and per-sample byte-range table.
-//     2. Filter samples to [clampedStart, clampedEnd], extended
-//        backwards to the previous keyframe (decode dependency).
-//     3. For each sample: File.slice() → EncodedVideoChunk →
-//        VideoDecoder.decode(). Output frames land in a queue, sorted
-//        by timestamp (cts → display order).
-//     4. For each output slot N (0 to totalFrames-1), pick the decoded
-//        frame whose cts is just-at-or-before slot N's target mediaTime.
-//        Drive sim to that virtual time, render overlay SVG, composite
-//        VideoFrame + overlay onto OffscreenCanvas, encode.
+//   Video — Mediabunny demux + VideoDecoder:
+//     1. Open the source File with `new Input({ source: new BlobSource(file),
+//        formats: ALL_FORMATS })`. Mediabunny streams reads natively
+//        — no head/tail probe budget; the moov can sit anywhere in
+//        the file.
+//     2. From the primary video track, pull codec config (avcC or
+//        hvcC bytes, via getDecoderConfig()) and rotation
+//        (getRotation()).
+//     3. Find the keyframe at-or-before clampedStart via
+//        `videoSink.getKeyPacket(clampedStart)`, then walk forward
+//        with `videoSink.packets(startPacket)` (decode order).
+//        Packets with cts in [clampedStart, clampedEnd] are flagged
+//        `output: true`; earlier packets (the decode dependency
+//        chain back to the anchor key) are flagged `output: false`.
+//     4. For each packet: wrap as `EncodedVideoChunk` →
+//        `VideoDecoder.decode()`. Output frames land in a queue,
+//        sorted by timestamp (cts → display order).
+//     5. For each output sample (in cts order): drive sim to that
+//        sample's mediaTime, render overlay SVG, composite
+//        VideoFrame + overlay onto OffscreenCanvas, encode with the
+//        source's exact (timestamp, duration).
 //
-//   Audio — mp4box demux, no re-encode:
-//     1. Same mp4box file instance — moov already parsed during the
-//        video probe.
-//     2. Walk the AAC track's sample table for samples in
-//        [clampedStart, clampedEnd] — each has byte offset + size + cts.
-//     3. For each sample: File.slice(offset, offset+size).arrayBuffer()
-//        to pull just that AAC frame's bytes (typically <1 KB each).
-//     4. Feed to muxer.addAudioChunkRaw() — no decode + re-encode round
-//        trip. First call carries the AudioSpecificConfig in meta.
+//   Audio — Mediabunny demux, no re-encode:
+//     1. Same Input — both tracks share one underlying source.
+//     2. Find the audio packet at-or-before clampedStart, walk
+//        forward via `audioSink.packets()` until ts >= clampedEnd.
+//     3. For each packet: build a Mediabunny `EncodedPacket` with
+//        timestamp re-anchored at the first muxed packet's source ts
+//        (so the output MP4 starts at t=0), push to the audio
+//        EncodedAudioPacketSource. First push carries the
+//        AudioSpecificConfig DSI in meta.decoderConfig.description.
 //
-//   Both video chunks and demuxed audio bytes feed the same Muxer;
-//   finalize() interleaves them.
-//
-// Why mp4box + slice (not File.arrayBuffer + HTMLVideoElement.play): a
-// 17 GB flight video OOM-crashes the browser when fully loaded, and
-// HTMLVideoElement playback is capped at ~4× by browser decoder
-// throttling regardless of `playbackRate`. mp4box reads only the moov
-// box (a few MB) and we fetch each sample's bytes on demand via
-// targeted File.slice — VideoDecoder runs as fast as the hardware
-// decoder will go (~10-50× realtime on M-series).
+//   Both video and audio share a single Mediabunny Output. After
+//   `finalize()`, `output.target.buffer` is the complete MP4 as an
+//   ArrayBuffer.
 
-import { Muxer, ArrayBufferTarget } from '../vendor/mp4-muxer.js';
-import { createFile, DataStream } from '../vendor/mp4box.js';
+import {
+  ALL_FORMATS,
+  BlobSource,
+  BufferTarget,
+  EncodedAudioPacketSource,
+  EncodedPacket,
+  EncodedPacketSink,
+  EncodedVideoPacketSource,
+  Input,
+  Mp4OutputFormat,
+  Output,
+} from '../vendor/mediabunny.min.mjs';
 import { M5_PANEL_W, M5_PANEL_H }
   from '../../../../packages/ui-core/core/geometry.js';
 import { M5Sim } from './m5sim.js';
@@ -46,7 +57,7 @@ import { findRowAt } from './parseLog.js';
 import { PresentationFilter } from './presentationFilter.js';
 
 // Browser feature gate. Both VideoEncoder AND VideoDecoder are now
-// required — the export demuxes the source via mp4box.js, decodes
+// required — the export demuxes the source via Mediabunny, decodes
 // frames with VideoDecoder, composites the overlay, and re-encodes
 // with VideoEncoder. OffscreenCanvas is the compositor target.
 export function isMp4ExportSupported() {
@@ -57,11 +68,11 @@ export function isMp4ExportSupported() {
   return true;
 }
 
-// Audio export needs nothing beyond File.slice() (universally
-// supported where MP4 export itself runs). Kept as a separate gate so
-// the UI can advertise "exports with audio" without parsing the file.
-// Note: actual audio output still falls back to silent if the source
-// has no AAC track or mp4box can't parse the moov.
+// Audio export needs nothing beyond Blob.slice() (universally
+// supported where MP4 export itself runs). Kept as a separate gate
+// so the UI can advertise "exports with audio" without parsing the
+// file. Note: actual audio output still falls back to silent if the
+// source has no AAC track or Mediabunny can't parse the container.
 export function isMp4AudioExportSupported() {
   if (typeof window === 'undefined') return false;
   if (typeof Blob === 'undefined' || !Blob.prototype.slice) return false;
@@ -95,7 +106,9 @@ export function computeBitrate(width, height, framerate) {
 async function pickEncoderConfig({ width, height, bitrate, framerate, sourceCodec }) {
   const w = Math.max(2, Math.floor(width  / 2) * 2);
   const h = Math.max(2, Math.floor(height / 2) * 2);
-  const isHevc = !!sourceCodec && /^(hev1|hvc1)\./i.test(sourceCodec);
+  // Mediabunny's getCodec() returns the codec family name ('hevc', 'avc',
+  // 'vp9', etc) — not a full parameter string. Match that family here.
+  const isHevc = sourceCodec === 'hevc';
 
   // HEVC candidates (in level order — try 4K-capable first if the
   // source is 4K, otherwise lower levels suffice). L153 = up to 4K60,
@@ -195,8 +208,16 @@ function compositeFrame(ctx, videoSrc, overlayImg, W, H, rotationDeg = 0) {
 // orientations (0/90/180/270) and return the matching angle, or 0 if
 // the matrix is identity / unrecognized.
 //
-// Matrix values may already be unpacked floats (mp4box does this in
-// newer versions) or raw int32 fixed-point. Normalize before reading.
+// The live export path reads rotation directly via Mediabunny's
+// `track.getRotation()` (which returns 0/90/180/270 having already
+// inspected the matrix internally). This helper is retained for
+// diagnostics and tests — round-tripping canonical matrices locks
+// the algebra against regressions in either path.
+//
+// Matrix values arrive either as raw int32 16.16 fixed-point (the
+// ISO BMFF wire format) or as already-unpacked floats (some
+// upstream parsers do the conversion eagerly). Normalize before
+// reading.
 function rotationFromTkhdMatrix(matrix) {
   if (!matrix || matrix.length < 9) return 0;
   // Detect fixed-point vs already-unpacked floats. At a 90°/270°
@@ -264,291 +285,164 @@ function driveSimToVirtMs(sim, state, targetVirtMs, log, sync, cppWireFrames) {
 }
 
 // ---------------------------------------------------------------------
-// mp4box demux helpers — parse moov, walk per-sample tables for
-// audio + video tracks.
+// Mediabunny demux helpers — open the source, pick out primary tracks,
+// pull decoder configs + rotation.
 // ---------------------------------------------------------------------
 
-// Constants tuned to the moov-discovery problem.
-const MP4BOX_HEAD_BYTES   = 64 * 1024 * 1024;  // Try first 64 MB for fast-start moov.
-const MP4BOX_TAIL_BYTES   = 64 * 1024 * 1024;  // If moov isn't there, try last 64 MB.
-const MP4BOX_CHUNK_BYTES  =  4 * 1024 * 1024;  // 4 MB per appendBuffer call.
-
-// Feed mp4box chunks of `file` from [start, end) until either
-// `isoFile.onReady` has fired or we run out of bytes. Returns true if
-// onReady fired. The chunks are not retained — mp4box buffers them
-// internally only for the parser's working set.
-async function feedRangeUntilReady(isoFile, file, start, end, readyRef, signal) {
-  let pos = start;
-  while (pos < end) {
-    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-    const sliceEnd = Math.min(end, pos + MP4BOX_CHUNK_BYTES);
-    const ab = await file.slice(pos, sliceEnd).arrayBuffer();
-    ab.fileStart = pos;
-    isoFile.appendBuffer(ab);
-    pos = sliceEnd;
-    if (readyRef.ready) return true;
-  }
-  return readyRef.ready;
+// Open `file` (File | Blob) as a Mediabunny Input. ALL_FORMATS lets
+// the library sniff the container — we only ship MP4 today but the
+// docs-site replay page may grow MOV / MKV support later, and the
+// extra format detectors weigh nothing at runtime.
+function openInput(file) {
+  return new Input({
+    source: new BlobSource(file),
+    formats: ALL_FORMATS,
+  });
 }
 
-// Probe the source file's moov via mp4box. Returns the parsed isoFile
-// + info, or null if the moov can't be located within head + tail.
-//
-// "fast-start" MP4s (GoPro, most phones) have moov near the start;
-// "slow-start" MP4s (some editors) have it at the end. We try head
-// first (cheap), fall back to tail. We never read the middle (mdat)
-// during probe — sample bytes are fetched on demand later.
-async function probeSourceFile(file, signal) {
-  if (!file || typeof file.slice !== 'function') return null;
-  let isoFile;
-  try {
-    isoFile = createFile();
-  } catch (e) {
-    console.warn('mp4box createFile failed:', e?.message || e);
+// Pull the primary video track + its decoder config + rotation +
+// (estimated) framerate from the first packet's duration. Returns
+// null if the source has no decodable video.
+async function readVideoTrackInfo(input) {
+  const track = await input.getPrimaryVideoTrack();
+  if (!track) {
+    console.warn('mediabunny: source has no video track.');
     return null;
   }
-  const readyRef = { ready: false, info: null };
-  isoFile.onReady = (info) => { readyRef.ready = true; readyRef.info = info; };
-  isoFile.onError = (msg) => { console.warn('mp4box parse error:', msg); };
-
-  const fileSize = file.size;
-
-  // Try fast-start (head).
-  const headEnd = Math.min(fileSize, MP4BOX_HEAD_BYTES);
-  let ok = await feedRangeUntilReady(isoFile, file, 0, headEnd, readyRef, signal);
-
-  // If moov is at the tail, try the last 64 MB. mp4box uses
-  // fileStart offsets, so it can stitch tail bytes against the head
-  // it's already seen.
-  if (!ok && fileSize > headEnd) {
-    const tailStart = Math.max(headEnd, fileSize - MP4BOX_TAIL_BYTES);
-    ok = await feedRangeUntilReady(isoFile, file, tailStart, fileSize, readyRef, signal);
-  }
-
-  if (!ok || !readyRef.info) {
-    console.warn('mp4box: moov not found within head+tail probe.');
+  const codec = await track.getCodec();           // 'avc' | 'hevc' | ...
+  if (codec !== 'avc' && codec !== 'hevc') {
+    console.warn(`mediabunny: unsupported video codec "${codec}".`);
     return null;
   }
-  return { isoFile, info: readyRef.info };
-}
-
-// Extract AAC track info + AudioSpecificConfig. Returns null if no AAC.
-function extractAacTrack(isoFile, info) {
-  const audioTracks = info.audioTracks || [];
-  if (audioTracks.length === 0) {
-    console.warn('mp4box: source has no audio tracks; emitting silent MP4.');
+  const decoderCfg = await track.getDecoderConfig();
+  if (!decoderCfg || !decoderCfg.description) {
+    console.warn('mediabunny: video track missing decoder config.');
     return null;
   }
-  const audioTrack = audioTracks[0];
-  // Codec string looks like "mp4a.40.2" (AAC-LC) or "mp4a.40.5" (HE-AAC), etc.
-  if (!audioTrack.codec || !audioTrack.codec.startsWith('mp4a')) {
-    console.warn(`mp4box: audio codec "${audioTrack.codec}" is not AAC; emitting silent MP4.`);
-    return null;
-  }
-  const sampleRate   = audioTrack.audio?.sample_rate;
-  const channelCount = audioTrack.audio?.channel_count;
-  if (!sampleRate || !channelCount) {
-    console.warn('mp4box: audio track missing sample_rate/channel_count; emitting silent MP4.');
-    return null;
-  }
-
-  // Extract the AAC AudioSpecificConfig from the esds box. This goes
-  // into EncodedAudioChunk.decoderConfig.description (passed to the
-  // muxer via meta on the first addAudioChunkRaw call).
-  let dsi = null;
-  try {
-    const trak    = isoFile.getTrackById(audioTrack.id);
-    const stsdEnt = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
-    const esds    = stsdEnt?.esds;
-    // DecoderConfigDescrTag=4, DecSpecificInfoTag=5.
-    const dcd     = esds?.esd?.findDescriptor?.(4);
-    const dsiDesc = dcd?.findDescriptor?.(5);
-    if (dsiDesc && dsiDesc.data) {
-      // dsiDesc.data is typically Uint8Array; copy to a stable buffer.
-      dsi = new Uint8Array(dsiDesc.data);
-    }
-  } catch (e) {
-    console.warn('mp4box: AudioSpecificConfig extraction failed:', e?.message || e);
-  }
-  if (!dsi || dsi.length === 0) {
-    console.warn('mp4box: missing AudioSpecificConfig; emitting silent MP4.');
-    return null;
-  }
-
-  return { audioTrack, sampleRate, channelCount, codec: audioTrack.codec, dsi };
-}
-
-// Serialize an avcC or hvcC box to a Uint8Array using its own `write`
-// method, then strip the 8-byte box header. The remaining bytes are
-// the AVCDecoderConfigurationRecord / HEVCDecoderConfigurationRecord
-// — exactly what VideoDecoder.configure() expects as `description`.
-function extractDecoderConfigDescription(box) {
-  if (!box || typeof box.write !== 'function') return null;
-  const ds = new DataStream();
-  ds.endianness = DataStream.BIG_ENDIAN;
-  try {
-    box.write(ds);
-  } catch (e) {
-    console.warn('mp4box: failed to serialize codec config box:', e?.message || e);
-    return null;
-  }
-  const buf = new Uint8Array(ds.buffer);
-  if (buf.length < 8) return null;
-  // Standard box header: 4-byte size + 4-byte type = 8 bytes. avcC
-  // and hvcC bodies are well under 4 GB, so no 64-bit largesize.
-  return buf.subarray(8);
-}
-
-// Extract H.264/H.265 video track info + decoder config record.
-// Returns null if no video track or codec isn't a supported flavor.
-function extractVideoTrack(isoFile, info) {
-  const videoTracks = info.videoTracks || [];
-  if (videoTracks.length === 0) {
-    console.warn('mp4box: source has no video tracks.');
-    return null;
-  }
-  const videoTrack = videoTracks[0];
-  const codec = videoTrack.codec || '';
-  const isH264 = codec.startsWith('avc1') || codec.startsWith('avc3');
-  const isHevc = codec.startsWith('hvc1') || codec.startsWith('hev1');
-  if (!isH264 && !isHevc) {
-    console.warn(`mp4box: unsupported video codec "${codec}".`);
-    return null;
-  }
-  const width  = videoTrack.video?.width  || videoTrack.track_width;
-  const height = videoTrack.video?.height || videoTrack.track_height;
+  const width  = await track.getCodedWidth();
+  const height = await track.getCodedHeight();
   if (!width || !height) {
-    console.warn('mp4box: video track missing width/height.');
+    console.warn('mediabunny: video track missing width/height.');
     return null;
   }
+  const rotationDeg = await track.getRotation();   // 0 | 90 | 180 | 270
 
-  // Pull the decoder config record from avcC/hvcC.
-  let description = null;
-  try {
-    const trak    = isoFile.getTrackById(videoTrack.id);
-    const stsdEnt = trak?.mdia?.minf?.stbl?.stsd?.entries?.[0];
-    const cfgBox  = isH264 ? stsdEnt?.avcC : stsdEnt?.hvcC;
-    description   = extractDecoderConfigDescription(cfgBox);
-  } catch (e) {
-    console.warn('mp4box: decoder config extraction failed:', e?.message || e);
-  }
-  if (!description || description.length === 0) {
-    console.warn('mp4box: missing decoder config record.');
-    return null;
-  }
-
-  // Source display rotation (e.g., GoPro records sensor-up and stores
-  // a tkhd matrix that rotates 180° on playback). mp4-muxer doesn't
-  // carry rotation metadata through to the output, so we rotate pixels
-  // at composite time to keep the output upright.
-  let rotationDeg = 0;
-  try {
-    const trak = isoFile.getTrackById(videoTrack.id);
-    const m    = trak?.tkhd?.matrix || videoTrack.matrix;
-    rotationDeg = rotationFromTkhdMatrix(m);
-  } catch (_) { /* identity rotation */ }
-
-  return { videoTrack, codec, width, height, isH264, isHevc, description, rotationDeg };
+  return {
+    track,
+    codec,                                          // 'avc' | 'hevc'
+    codecParameterString: decoderCfg.codec,         // e.g. 'avc1.640033'
+    width,
+    height,
+    description: new Uint8Array(decoderCfg.description),
+    rotationDeg: rotationDeg || 0,
+    decoderCfg,
+  };
 }
 
-// Feed AAC samples for [clampedStart, clampedEnd] from `file` straight
-// into the muxer, no re-encode. Returns { added, skipped, reason }.
-async function feedAacSamplesToMuxer({
-  muxer, file, isoFile, audioInfo, clampedStart, clampedEnd, signal,
+// Pull the primary audio track if it's AAC. Returns null if no AAC
+// track — caller falls back to silent MP4.
+async function readAudioTrackInfo(input) {
+  const track = await input.getPrimaryAudioTrack();
+  if (!track) {
+    console.warn('mediabunny: source has no audio track; emitting silent MP4.');
+    return null;
+  }
+  const codec = await track.getCodec();
+  if (codec !== 'aac') {
+    console.warn(`mediabunny: audio codec "${codec}" is not AAC; emitting silent MP4.`);
+    return null;
+  }
+  const decoderCfg = await track.getDecoderConfig();
+  if (!decoderCfg) {
+    console.warn('mediabunny: AAC track has no decoder config; emitting silent MP4.');
+    return null;
+  }
+  if (!decoderCfg.description) {
+    console.warn('mediabunny: AAC track missing AudioSpecificConfig; emitting silent MP4.');
+    return null;
+  }
+  const sampleRate = await track.getSampleRate();
+  const channelCount = await track.getNumberOfChannels();
+  if (!sampleRate || !channelCount) {
+    console.warn('mediabunny: AAC track missing sample_rate/channel_count; emitting silent MP4.');
+    return null;
+  }
+  return {
+    track,
+    codec,                                            // 'aac'
+    codecParameterString: decoderCfg.codec,           // 'mp4a.40.2' etc.
+    sampleRate,
+    channelCount,
+    description: new Uint8Array(decoderCfg.description),
+  };
+}
+
+// Pull every AAC packet whose presentation time overlaps [clampedStart,
+// clampedEnd] and push it through `audioSource` unchanged. Returns
+// { added, skipped, reason }.
+//
+// First push carries decoderConfig (codec, channels, sampleRate,
+// description). Subsequent pushes have no meta.
+async function feedAacPacketsToOutput({
+  audioSource, videoTrack: _vt, audioInfo, clampedStart, clampedEnd, signal,
 }) {
-  const { audioTrack, dsi } = audioInfo;
-  const timescale = audioTrack.timescale;
-  if (!timescale) return { added: 0, skipped: true, reason: 'no timescale' };
+  const sink = new EncodedPacketSink(audioInfo.track);
 
-  const samples = isoFile.getTrackSamplesInfo(audioTrack.id);
-  if (!samples || samples.length === 0) {
-    return { added: 0, skipped: true, reason: 'no samples in track' };
+  // Find the first packet at-or-before clampedStart. AAC has no
+  // inter-frame prediction (each ADTS frame is independent), so any
+  // packet at-or-before the window start is a valid decoder anchor
+  // AND a usable mux input. We include any packet whose time range
+  // overlaps the window.
+  const firstPacket = await sink.getPacket(clampedStart);
+  if (!firstPacket) {
+    return { added: 0, skipped: true, reason: 'no audio packets at-or-before window start' };
   }
 
-  // Pick samples whose presentation time falls in the clip window.
-  // We include any sample that overlaps the window; partial-frame
-  // trimming is left to the muxer/decoder (AAC frames are 1024-sample
-  // atoms — trimming inside would require re-encoding).
-  const startTicks = Math.floor(clampedStart * timescale);
-  const endTicks   = Math.ceil (clampedEnd   * timescale);
-
-  // Binary-search style scan: samples are in dts order. We just walk
-  // since the sample list is dense and contiguous.
-  const inRange = [];
-  for (let i = 0; i < samples.length; i++) {
-    const s = samples[i];
-    if (s.cts + s.duration <= startTicks) continue;
-    if (s.cts >= endTicks)                break;
-    inRange.push(s);
-  }
-  if (inRange.length === 0) {
-    return { added: 0, skipped: true, reason: 'no samples overlap window' };
-  }
-
-  // The output MP4's audio timeline starts at t=0 (the muxer's
-  // firstTimestampBehavior is 'offset', so we anchor against the
-  // first muxed sample's source cts).
-  const firstCts = inRange[0].cts;
+  // Iterate forward. Anchor output timestamps at the first muxed
+  // packet's source timestamp so the output MP4's audio timeline
+  // starts at t=0.
+  let firstTs = null;
   let added = 0;
   let metaSent = false;
 
-  for (let i = 0; i < inRange.length; i++) {
+  for await (const packet of sink.packets(firstPacket)) {
     if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-    const s   = inRange[i];
-    const ab  = await file.slice(s.offset, s.offset + s.size).arrayBuffer();
-    const buf = new Uint8Array(ab);
+    // Stop at-or-after clampedEnd. Use packet.timestamp (cts) — AAC
+    // packets are short (1024 / sampleRate ≈ 23ms at 44.1kHz) so
+    // including a few past the end if any straddle the boundary is
+    // cheap and avoids cutting mid-frame.
+    if (packet.timestamp >= clampedEnd) break;
+    // Skip packets entirely before the window. AAC packets are
+    // independently decodable, so we don't need pre-window decode
+    // context (unlike video).
+    if (packet.timestamp + packet.duration <= clampedStart) continue;
 
-    const tsUs  = Math.round((s.cts - firstCts) * 1_000_000 / timescale);
-    const durUs = Math.round( s.duration         * 1_000_000 / timescale);
+    if (firstTs === null) firstTs = packet.timestamp;
+    const reTimed = new EncodedPacket(
+      packet.data,
+      packet.type,                           // always 'key' for AAC
+      packet.timestamp - firstTs,            // re-anchor at t=0
+      packet.duration,
+    );
 
-    // All AAC frames are independent (no inter-frame prediction in
-    // AAC-LC), so every sample is a 'key' from a seeking standpoint.
-    const meta = metaSent ? undefined : { decoderConfig: { description: dsi } };
-    muxer.addAudioChunkRaw(buf, 'key', tsUs, durUs, meta);
+    const meta = metaSent ? undefined : {
+      decoderConfig: {
+        codec:            audioInfo.codecParameterString,
+        sampleRate:       audioInfo.sampleRate,
+        numberOfChannels: audioInfo.channelCount,
+        description:      audioInfo.description,
+      },
+    };
+    // eslint-disable-next-line no-await-in-loop
+    await audioSource.add(reTimed, meta);
     metaSent = true;
     added++;
   }
+
+  if (added === 0) {
+    return { added: 0, skipped: true, reason: 'no audio packets overlap window' };
+  }
   return { added, skipped: false };
-}
-
-// Select the slice of the video sample table needed to decode the
-// clip window. Includes:
-//   - Every sync sample at or before clampedStart (the closest such
-//     keyframe anchors the decode chain).
-//   - Every sample between that anchor and the last sample with
-//     cts < clampedEnd.
-// Each returned sample carries `output: true` if its cts falls in the
-// window (its decoded frame will be composited + encoded), or
-// `output: false` if it's needed only to advance the decoder context.
-function selectVideoSamples(samples, timescale, clampedStart, clampedEnd) {
-  if (!samples || samples.length === 0) return [];
-  const startTicks = Math.floor(clampedStart * timescale);
-  const endTicks   = Math.ceil (clampedEnd   * timescale);
-
-  // Find the latest sync sample with cts <= startTicks. If none,
-  // start from sample 0 (which is normally a sync sample anyway).
-  let anchorIdx = 0;
-  for (let i = 0; i < samples.length; i++) {
-    if (samples[i].cts > startTicks) break;
-    if (samples[i].is_sync) anchorIdx = i;
-  }
-
-  const out = [];
-  for (let i = anchorIdx; i < samples.length; i++) {
-    const s = samples[i];
-    if (s.cts >= endTicks) break;
-    const inWindow = (s.cts + s.duration > startTicks) && (s.cts < endTicks);
-    out.push({
-      offset:   s.offset,
-      size:     s.size,
-      cts:      s.cts,
-      dts:      s.dts,
-      duration: s.duration,
-      isSync:   !!s.is_sync,
-      output:   inWindow,
-    });
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------
@@ -557,9 +451,8 @@ function selectVideoSamples(samples, timescale, clampedStart, clampedEnd) {
 //
 // Options (v4 — source-faithful):
 //   sourceFile:        File | Blob — REQUIRED. The original video file.
-//                      Both video and audio tracks are demuxed via
-//                      mp4box.js. No in-memory copy of the file is
-//                      created; we File.slice() per-sample.
+//                      Mediabunny streams reads from it; no in-memory
+//                      copy is created.
 //   videoEl:           HTMLVideoElement — used ONLY for videoWidth /
 //                      videoHeight / duration reads. We never call
 //                      play() / seek() on it during export.
@@ -575,8 +468,8 @@ function selectVideoSamples(samples, timescale, clampedStart, clampedEnd) {
 //                      resolution + framerate using computeBitrate.
 //   framerate:         number | null — override the output framerate
 //                      (passed to the encoder + muxer as a hint). null
-//                      = match source framerate exactly from the per-
-//                      sample duration table.
+//                      = match source framerate exactly from the first
+//                      packet's duration.
 //
 // Returns: Promise<Blob>  — an MP4 ready to download.
 export async function exportClipAsMp4({
@@ -624,7 +517,7 @@ export async function exportClipAsMp4({
   if (!sourceFile || typeof sourceFile.slice !== 'function') {
     throw new Error(
       'exportClipAsMp4: sourceFile (File/Blob) is required. The export ' +
-      'demuxes the source via mp4box.js; without it the input video ' +
+      'demuxes the source via Mediabunny; without it the input video ' +
       'cannot be decoded.');
   }
 
@@ -667,22 +560,19 @@ export async function exportClipAsMp4({
     });
   }
 
-  // ---------- Demux probe (audio + video share one moov parse) -------
-  // Parse just the source file's moov box (reading only the first
-  // ~64 MB, falling back to the last 64 MB for non-fast-start files).
-  // From the parsed moov we pull:
-  //   - audio track info + AudioSpecificConfig (for raw AAC mux)
-  //   - video track info + AVCDecoderConfigurationRecord (for decode)
-  // Actual sample bytes are pulled later, one frame at a time, via
-  // File.slice(). No multi-GB ArrayBuffer ever exists.
-  const probe = await probeSourceFile(sourceFile, signal);
-  if (!probe) {
+  // ---------- Demux probe (audio + video share one Input) -----------
+  // Mediabunny opens the source with streaming reads — no head/tail
+  // budget, no in-memory copy. Both track lookups go through the same
+  // Input instance.
+  const input = openInput(sourceFile);
+
+  let videoInfo;
+  try {
+    videoInfo = await readVideoTrackInfo(input);
+  } catch (e) {
     sim.delete();
-    throw new Error(
-      'mp4box could not parse the source file moov box. The file may ' +
-      'be truncated, not an ISO BMFF MP4, or have moov beyond head+tail probe.');
+    throw new Error(`mediabunny: failed to open source video track: ${e?.message || e}`);
   }
-  const videoInfo = extractVideoTrack(probe.isoFile, probe.info);
   if (!videoInfo) {
     sim.delete();
     throw new Error(
@@ -691,12 +581,7 @@ export async function exportClipAsMp4({
   }
 
   // Audio is optional. If it fails we still produce a silent MP4.
-  const audioInfo   = extractAacTrack(probe.isoFile, probe.info);
-  const muxerAudioCfg = audioInfo ? {
-    codec: 'aac',
-    sampleRate:       audioInfo.sampleRate,
-    numberOfChannels: audioInfo.channelCount,
-  } : null;
+  const audioInfo = await readAudioTrackInfo(input);
 
   // -------- Resolve source-faithful output parameters ---------------
   // Resolution: default to source dims; if outputWidth is given,
@@ -711,40 +596,33 @@ export async function exportClipAsMp4({
     ? Math.max(2, Math.floor(W * srcH / srcW / 2) * 2)
     : Math.max(2, Math.floor(srcH / 2) * 2);
 
-  // Framerate: derive from the source sample table (per-sample
-  // duration in timescale units → fps). For constant-rate video this
-  // is exact (e.g., 30000/1001 for 29.97 fps). When the caller
-  // overrides framerate, use that instead.
-  const videoSamplesAll = probe.isoFile.getTrackSamplesInfo(
-    videoInfo.videoTrack.id);
-  if (!videoSamplesAll || videoSamplesAll.length === 0) {
+  // Framerate: derive from the source's first packet duration. For
+  // CFR video this is exact (e.g., 0.0333666... = 30000/1001 for
+  // 29.97 fps). Mediabunny normalizes packet timing to floating-point
+  // seconds; 1/duration recovers fps with enough precision for the
+  // muxer's frameRate hint and the encoder config.
+  const videoSink = new EncodedPacketSink(videoInfo.track);
+
+  // Find the keyframe at-or-before clampedStart — this anchors the
+  // decode chain. If none exists (clampedStart is before the first
+  // key), pull the first packet of the track (which is always a key
+  // in well-formed MP4).
+  const anchorKey =
+    (await videoSink.getKeyPacket(clampedStart)) ||
+    (await videoSink.getPacket(0));
+  if (!anchorKey) {
     sim.delete();
-    throw new Error('Video track has no samples.');
+    throw new Error('Video track has no packets.');
   }
-  const videoTimescale = videoInfo.videoTrack.timescale;
-  if (!videoTimescale) {
-    sim.delete();
-    throw new Error('Video track has no timescale.');
-  }
+
+  // First packet duration → exact fps for CFR video.
   let resolvedFps;
   if (Number.isFinite(framerate) && framerate > 0) {
     resolvedFps = framerate;
+  } else if (anchorKey.duration > 0) {
+    resolvedFps = 1 / anchorKey.duration;
   } else {
-    // Use the first sample's duration. mp4box already exposes
-    // per-sample durations in track timescale units. For CFR video
-    // every sample has identical duration; this yields the exact
-    // rational fps (e.g., 30000/1001 ≈ 29.97003).
-    const sampleDur = videoSamplesAll[0]?.duration;
-    if (sampleDur && sampleDur > 0) {
-      resolvedFps = videoTimescale / sampleDur;
-    } else if (videoInfo.videoTrack.nb_samples > 0 &&
-               videoInfo.videoTrack.duration > 0) {
-      // Fallback: average rate from track duration.
-      resolvedFps = (videoInfo.videoTrack.nb_samples * videoTimescale) /
-                    videoInfo.videoTrack.duration;
-    } else {
-      resolvedFps = DEFAULT_FRAMERATE;
-    }
+    resolvedFps = DEFAULT_FRAMERATE;
   }
 
   // Bitrate: scale to pixel rate unless caller overrides.
@@ -755,11 +633,10 @@ export async function exportClipAsMp4({
   const canvas = new OffscreenCanvas(W, H);
   const ctx    = canvas.getContext('2d');
 
-  // -------- Pick encoder + muxer codec family -----------------------
+  // -------- Pick encoder config + output codec family ---------------
   // Probe HEVC first when the source is HEVC. The encoder config
-  // result tells us which family won (avc vs hevc); muxer config
-  // mirrors it. If HEVC encode fails we fall through to H.264 — the
-  // caller learns this from the result codec string.
+  // result tells us which family won (avc vs hevc); the Mediabunny
+  // packet source mirrors it.
   const encConfig = await pickEncoderConfig({
     width: W, height: H,
     bitrate: resolvedBitrate,
@@ -768,42 +645,76 @@ export async function exportClipAsMp4({
   });
   const outputCodecFamily = /^hev1\.|^hvc1\./i.test(encConfig.codec) ? 'hevc' : 'avc';
 
-  // mp4-muxer expects an integer frameRate (it's a hint for the track
-  // header). The actual per-frame timing comes from each VideoFrame's
-  // timestamp + duration in microseconds, which we set per-sample from
-  // the source's exact cts — so 29.97 stays 29.97 regardless of the
-  // header value. Round to the nearest integer for the muxer.
+  // Mediabunny's frameRate option is a hint passed to the track
+  // header. Actual per-frame timing comes from each EncodedPacket's
+  // timestamp + duration in seconds — so 29.97 stays 29.97 regardless
+  // of the header value. Round to the nearest integer for the muxer.
   const muxerFrameRate = Math.max(1, Math.round(resolvedFps));
 
-  const target = new ArrayBufferTarget();
-  const muxer  = new Muxer({
-    target,
-    fastStart: 'in-memory',
-    video: { codec: outputCodecFamily, width: W, height: H, frameRate: muxerFrameRate },
-    ...(muxerAudioCfg ? { audio: muxerAudioCfg } : {}),
-    firstTimestampBehavior: 'offset',
+  // -------- Build Mediabunny Output ---------------------------------
+  // Single Output for video + (optional) audio. Both share one
+  // BufferTarget; finalize() resolves to ArrayBuffer.
+  //
+  // Rotation: we rotate pixels at composite time (compositeFrame) so
+  // the output frames are upright. Pass rotation: 0 so the muxer
+  // writes an identity tkhd matrix — players don't apply any
+  // additional rotation. (Honoring the source matrix at composite-
+  // time is required because we draw the overlay AFTER the rotation,
+  // and we want the overlay to sit upright on screen.)
+  const output = new Output({
+    format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+    target: new BufferTarget(),
   });
 
+  const videoPacketSource = new EncodedVideoPacketSource(outputCodecFamily);
+  output.addVideoTrack(videoPacketSource, {
+    rotation:  0,
+    frameRate: muxerFrameRate,
+  });
+
+  let audioPacketSource = null;
+  if (audioInfo) {
+    audioPacketSource = new EncodedAudioPacketSource('aac');
+    output.addAudioTrack(audioPacketSource);
+  }
+  await output.start();
+
   let encoderError = null;
+  let firstVideoMetaSent = false;
   const encoder = new VideoEncoder({
     output: (chunk, meta) => {
-      try { muxer.addVideoChunk(chunk, meta); }
-      catch (e) { encoderError = e; }
+      // Wrap the EncodedVideoChunk as a Mediabunny EncodedPacket and
+      // push to the video source. First chunk carries decoderConfig
+      // (codec, codedWidth, codedHeight, description) — the muxer
+      // needs the AVCDecoderConfigurationRecord / HEVCDecoderConfigurationRecord
+      // bytes in description to write the correct avcC / hvcC box.
+      try {
+        const packet = EncodedPacket.fromEncodedChunk(chunk);
+        const m = firstVideoMetaSent ? undefined : meta;
+        firstVideoMetaSent = true;
+        // Don't await — VideoEncoder.output is a sync callback. The
+        // packet source queues internally; back-pressure is handled
+        // via encoder.encodeQueueSize in the main loop.
+        videoPacketSource.add(packet, m).catch((e) => {
+          encoderError = e;
+        });
+      } catch (e) {
+        encoderError = e;
+      }
     },
     error: (e) => { encoderError = e; },
   });
   encoder.configure(encConfig);
 
   // ---------- Spawn AAC demux in the background ----------------------
-  // Pull each AAC sample's bytes via File.slice() and feed straight
-  // into the muxer. No decode + re-encode. Runs in parallel with the
-  // video decode/encode; both feed the same muxer.
+  // Pull each AAC packet via Mediabunny's EncodedPacketSink and push
+  // straight into the output's audio source. No decode + re-encode.
+  // Runs in parallel with the video decode/encode; both feed the
+  // same Output.
   let audioPromise = null;
-  if (audioInfo && muxerAudioCfg) {
-    audioPromise = feedAacSamplesToMuxer({
-      muxer,
-      file: sourceFile,
-      isoFile: probe.isoFile,
+  if (audioInfo && audioPacketSource) {
+    audioPromise = feedAacPacketsToOutput({
+      audioSource: audioPacketSource,
       audioInfo,
       clampedStart,
       clampedEnd,
@@ -814,31 +725,48 @@ export async function exportClipAsMp4({
   // ---------- Video decode → composite → encode pipeline -------------
   //
   // Strategy (source-faithful):
-  //   1. Walk the sample table, find the keyframe at-or-before
-  //      clampedStart, enumerate samples through clampedEnd. Samples
-  //      whose cts falls inside the clip window are flagged `output:
-  //      true`; samples earlier than the window (the decode context
-  //      back to the anchor keyframe) are flagged `output: false`.
-  //   2. Feed each sample's encoded bytes to a VideoDecoder. Output
+  //   1. Walk packets in decode order starting from the keyframe at-
+  //      or-before clampedStart. Stop when packet.timestamp >=
+  //      clampedEnd. Packets whose timestamp falls inside the clip
+  //      window are flagged `output: true`; earlier packets (the
+  //      decode context back to the anchor keyframe) are flagged
+  //      `output: false`.
+  //   2. Feed each packet's encoded bytes to a VideoDecoder. Output
   //      frames arrive in decode order (which can differ from display
   //      order for B-frame streams).
   //   3. Hold each output frame in a sorted-by-timestamp queue.
-  //   4. Walk the output-flagged samples in cts order. For each
-  //      output sample: drive sim to that sample's mediaTime, pop
+  //   4. Walk the output-flagged packets in cts order. For each
+  //      output packet: drive sim to that packet's mediaTime, pop
   //      the matching decoded frame, composite overlay, encode the
-  //      composite VideoFrame with the source sample's exact
+  //      composite VideoFrame with the source packet's exact
   //      (timestamp, duration) in microseconds.
-  //
-  // This produces exactly one output frame per source frame in the
-  // window — output framerate matches source framerate exactly, no
-  // slot dedup or rounding.
-  const selectedSamples = selectVideoSamples(
-    videoSamplesAll, videoTimescale, clampedStart, clampedEnd);
-  if (selectedSamples.length === 0) {
+
+  // Collect the selected packet sequence (in decode order). This
+  // materializes lightweight {data, type, timestamp, duration, output}
+  // descriptors — the raw Uint8Array stays in memory only between
+  // demux and decoder.decode().
+  const selectedPackets = [];
+  for await (const packet of videoSink.packets(anchorKey)) {
+    if (signal?.aborted) {
+      sim.delete();
+      throw new DOMException('aborted', 'AbortError');
+    }
+    if (packet.timestamp >= clampedEnd) break;
+    const inWindow = (packet.timestamp + packet.duration > clampedStart) &&
+                     (packet.timestamp < clampedEnd);
+    selectedPackets.push({
+      data:      packet.data,
+      type:      packet.type,
+      timestamp: packet.timestamp,     // seconds
+      duration:  packet.duration,      // seconds
+      output:    inWindow,
+    });
+  }
+  if (selectedPackets.length === 0) {
     sim.delete();
     throw new Error('No video samples overlap the clip window.');
   }
-  const outputSamples = selectedSamples.filter(s => s.output);
+  const outputSamples = selectedPackets.filter(p => p.output);
   if (outputSamples.length === 0) {
     sim.delete();
     throw new Error('No video samples overlap the clip window.');
@@ -876,7 +804,7 @@ export async function exportClipAsMp4({
   // Try to configure. If it fails we surface a clear error — most
   // common cause is HEVC on a non-HEVC-capable Chrome.
   const decoderCfg = {
-    codec:        videoInfo.codec,
+    codec:        videoInfo.codecParameterString,
     description:  videoInfo.description,
     codedWidth:   videoInfo.width,
     codedHeight:  videoInfo.height,
@@ -885,7 +813,8 @@ export async function exportClipAsMp4({
     const support = await VideoDecoder.isConfigSupported(decoderCfg);
     if (!support.supported) {
       sim.delete();
-      const what = videoInfo.isHevc ? 'HEVC (h.265)' : `codec "${videoInfo.codec}"`;
+      const what = videoInfo.codec === 'hevc' ? 'HEVC (h.265)' :
+                   `codec "${videoInfo.codecParameterString}"`;
       throw new Error(
         `Browser cannot decode ${what}. Try Chrome ≥107 with hardware ` +
         `HEVC support, or transcode the source to H.264 first.`);
@@ -897,18 +826,27 @@ export async function exportClipAsMp4({
   }
   decoder.configure(decoderCfg);
 
-  // Anchor video timestamps at the first sample's cts so the muxer
-  // sees a t=0-origin timeline. Use cts, not dts, because we sort
-  // output frames by cts (display order).
-  const firstWindowCts = selectedSamples.find(s => s.output)?.cts ??
-                         selectedSamples[0].cts;
+  // Anchor video timestamps at the first output sample's cts so the
+  // muxer sees a t=0-origin timeline. Use cts (presentation), not
+  // decode order, because we sort output frames by cts.
+  const firstWindowTs = outputSamples[0].timestamp;
+
+  // Convert a source-time (seconds) to output-time (microseconds),
+  // anchored at firstWindowTs. Decode-only packets (before the
+  // window) get negative ts; that's fine — VideoDecoder accepts any
+  // int64, and we filter on cts later when matching to output slots.
+  function toOutTsUs(srcSec) {
+    return Math.round((srcSec - firstWindowTs) * 1_000_000);
+  }
+  function toOutDurUs(srcDurSec) {
+    return Math.max(1, Math.round(srcDurSec * 1_000_000));
+  }
 
   // ---------- Demux feed task ---------------------------------------
-  // Walks selectedSamples, pulls bytes via File.slice, builds
-  // EncodedVideoChunks, feeds the decoder. Back-pressures when the
-  // decoder is saturated.
+  // Walks selectedPackets and feeds the decoder. Back-pressures when
+  // the decoder is saturated.
   const feedDone = (async () => {
-    for (let i = 0; i < selectedSamples.length; i++) {
+    for (let i = 0; i < selectedPackets.length; i++) {
       if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
       if (decoderError) throw decoderError;
 
@@ -922,24 +860,12 @@ export async function exportClipAsMp4({
         await new Promise(r => setTimeout(r, 1));
       }
 
-      const s = selectedSamples[i];
-      // eslint-disable-next-line no-await-in-loop
-      const ab = await sourceFile.slice(s.offset, s.offset + s.size).arrayBuffer();
-      const bytes = new Uint8Array(ab);
-
-      // Timestamp space: microseconds, anchored at firstWindowCts.
-      // Decode-only samples (before the window) get negative ts; that's
-      // fine — VideoDecoder accepts any int64, and we filter on cts
-      // later when matching to output slots.
-      const tsUs  = Math.round((s.cts - firstWindowCts) * 1_000_000 / videoTimescale);
-      const durUs = Math.max(1,
-        Math.round(s.duration * 1_000_000 / videoTimescale));
-
+      const p = selectedPackets[i];
       const chunk = new EncodedVideoChunk({
-        type:      s.isSync ? 'key' : 'delta',
-        timestamp: tsUs,
-        duration:  durUs,
-        data:      bytes,
+        type:      p.type,                        // 'key' | 'delta'
+        timestamp: toOutTsUs(p.timestamp),
+        duration:  toOutDurUs(p.duration),
+        data:      p.data,
       });
       decoder.decode(chunk);
     }
@@ -947,31 +873,21 @@ export async function exportClipAsMp4({
   })();
 
   // ---------- Output-sample-driven encode loop ----------------------
-  // Walks `outputSamples` (every source sample in the clip window) in
+  // Walks `outputSamples` (every source packet in the clip window) in
   // cts order. For each output sample:
   //   - target timestamp is the sample's own cts (us, anchored at
-  //     firstWindowCts), so output framerate matches source exactly.
+  //     firstWindowTs), so output framerate matches source exactly.
   //   - drive sim to that mediaTime, render overlay
   //   - pop the decoded frame whose ts matches, composite, encode.
-  //
-  // Output frame ts/duration come straight from the source sample —
-  // no slot rounding, so 29.97 fps source produces 29.97 fps output.
   let feedError = null;
   feedDone.catch((e) => { feedError = e; });
 
   // Keyframe cadence in output frames. ~1 keyframe per second.
   const keyframeStride = Math.max(1, Math.round(resolvedFps));
 
-  // Per-sample target ts in microseconds, anchored at firstWindowCts.
-  function sampleTsUs(s) {
-    return Math.round((s.cts - firstWindowCts) * 1_000_000 / videoTimescale);
-  }
-
   // Match a decoded frame to an output sample by timestamp. Decoder
   // emits frames at the same per-sample ts the feeder used; the
-  // frameQueue is sorted by ts. Look for the largest ts ≤ targetTs
-  // (the at-or-before is required because the encoder's coded ts may
-  // round-trip with ±1 us drift through ffmpeg internals).
+  // frameQueue is sorted by ts. Look for the largest ts ≤ targetTs.
   let slotsEncoded = 0;
   try {
     for (let i = 0; i < outputSamples.length; i++) {
@@ -981,8 +897,8 @@ export async function exportClipAsMp4({
       if (encoderError) throw encoderError;
 
       const s = outputSamples[i];
-      const sampleMediaTime = s.cts / videoTimescale;   // seconds
-      const targetTsUs      = sampleTsUs(s);
+      const sampleMediaTime = s.timestamp;            // seconds
+      const targetTsUs      = toOutTsUs(s.timestamp);
 
       // eslint-disable-next-line no-await-in-loop
       let frame = await waitForFrameAtOrBefore(
@@ -990,7 +906,7 @@ export async function exportClipAsMp4({
 
       if (!frame) {
         // Drained queue with nothing usable — should not happen if
-        // selectedSamples was constructed correctly. Fall back to
+        // selectedPackets was constructed correctly. Fall back to
         // black + overlay (don't fail the export for a single frame).
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, W, H);
@@ -1003,7 +919,7 @@ export async function exportClipAsMp4({
       let rawState = sim.read();
       let m5State  = rawState;
       if (presFilter && rawState) {
-        const dtSec = s.duration / videoTimescale;
+        const dtSec = s.duration;
         const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dtSec);
         m5State = Object.freeze({
           ...rawState,
@@ -1027,6 +943,11 @@ export async function exportClipAsMp4({
       if (frame) compositeFrame(ctx, frame, overlayImg, W, H, videoInfo.rotationDeg);
       else if (overlayImg) compositeFrame(ctx, null, overlayImg, W, H, 0);
 
+      // Close the source VideoFrame as soon as we've drawn it. Holds
+      // GPU/system memory; leaving it for GC triggers WebCodecs'
+      // "VideoFrame garbage collected without being closed" warning.
+      if (frame) { try { frame.close(); } catch (_) {} }
+
       // Encoder back-pressure.
       while (encoder.encodeQueueSize > 4) {
         if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
@@ -1037,8 +958,7 @@ export async function exportClipAsMp4({
 
       // Output frame inherits source sample's exact ts + duration.
       const outTsUs  = targetTsUs;
-      const outDurUs = Math.max(1,
-        Math.round(s.duration * 1_000_000 / videoTimescale));
+      const outDurUs = toOutDurUs(s.duration);
       const isKey    = (i % keyframeStride) === 0 || i === 0;
       const outFrame = new VideoFrame(canvas, { timestamp: outTsUs, duration: outDurUs });
       encoder.encode(outFrame, { keyFrame: isKey });
@@ -1076,10 +996,12 @@ export async function exportClipAsMp4({
     await encoder.flush();
     if (encoderError) throw encoderError;
     encoder.close();
-    muxer.finalize();
 
-    if (!target.buffer) throw new Error('Muxer produced no output.');
-    return new Blob([target.buffer], { type: 'video/mp4' });
+    await output.finalize();
+
+    const buffer = output.target.buffer;
+    if (!buffer) throw new Error('Output produced no buffer.');
+    return new Blob([buffer], { type: 'video/mp4' });
   } finally {
     // Close any decoded frames left in queue.
     for (const f of frameQueue) { try { f.close(); } catch (_) {} }
@@ -1254,10 +1176,11 @@ function compositeOverlayNative(ctx, overlayImg, background, W, H) {
   ctx.drawImage(overlayImg, 0, 0, W, H);
 }
 
-// One encoder + muxer + canvas, scoped to a single mode. The frame
-// loop instantiates one of these per mode requested. Each has its
-// own VideoEncoder back-pressure queue; sharing a single encoder
-// across modes would serialise the per-mode encode work pointlessly.
+// One encoder + Mediabunny output + canvas, scoped to a single mode.
+// The frame loop instantiates one of these per mode requested. Each
+// has its own VideoEncoder back-pressure queue; sharing a single
+// encoder across modes would serialise the per-mode encode work
+// pointlessly.
 class OverlayModeEncoder {
   constructor({ modeId, encConfig, W, H, framerate }) {
     this.modeId = modeId;
@@ -1265,23 +1188,36 @@ class OverlayModeEncoder {
     this.H = H;
     this.canvas = new OffscreenCanvas(W, H);
     this.ctx    = this.canvas.getContext('2d');
-    this.target = new ArrayBufferTarget();
-    this.muxer  = new Muxer({
-      target: this.target,
-      fastStart: 'in-memory',
-      video: { codec: 'avc', width: W, height: H, frameRate: framerate },
-      firstTimestampBehavior: 'offset',
+    this.output = new Output({
+      format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
+      target: new BufferTarget(),
+    });
+    this.videoSource = new EncodedVideoPacketSource('avc');
+    this.output.addVideoTrack(this.videoSource, {
+      rotation:  0,
+      frameRate: framerate,
     });
     this.error = null;
+    let firstMetaSent = false;
     this.encoder = new VideoEncoder({
       output: (chunk, meta) => {
-        try { this.muxer.addVideoChunk(chunk, meta); }
-        catch (e) { this.error = e; }
+        try {
+          const packet = EncodedPacket.fromEncodedChunk(chunk);
+          const m = firstMetaSent ? undefined : meta;
+          firstMetaSent = true;
+          this.videoSource.add(packet, m).catch((e) => { this.error = e; });
+        } catch (e) { this.error = e; }
       },
       error: (e) => { this.error = e; },
     });
     this.encoder.configure(encConfig);
     this.framesEncoded = 0;
+    this.started = false;
+  }
+
+  async start() {
+    await this.output.start();
+    this.started = true;
   }
 
   async finalize() {
@@ -1289,9 +1225,10 @@ class OverlayModeEncoder {
     await this.encoder.flush();
     if (this.error) throw this.error;
     this.encoder.close();
-    this.muxer.finalize();
-    if (!this.target.buffer) throw new Error(`Muxer for "${this.modeId}" produced no output.`);
-    return new Blob([this.target.buffer], { type: 'video/mp4' });
+    await this.output.finalize();
+    const buffer = this.output.target.buffer;
+    if (!buffer) throw new Error(`Output for "${this.modeId}" produced no buffer.`);
+    return new Blob([buffer], { type: 'video/mp4' });
   }
 
   closeOnError() {
@@ -1442,7 +1379,7 @@ export async function exportOverlayOnly({
 
   // ----------- Per-mode encoder set --------------------------------
   // Pick the encoder config ONCE (same dims for all modes) then
-  // clone it into one encoder + muxer per mode. mp4-muxer's Muxer
+  // clone it into one encoder + Output per mode. Mediabunny's Output
   // and WebCodecs' VideoEncoder are both independent instances, so
   // running N in parallel is safe.
   const encConfig = await pickOverlayEncoderConfig({
@@ -1452,9 +1389,12 @@ export async function exportOverlayOnly({
   const modeEncoders = new Map(); // modeId → OverlayModeEncoder
   try {
     for (const m of modeList) {
-      modeEncoders.set(m.id, new OverlayModeEncoder({
+      const me = new OverlayModeEncoder({
         modeId: m.id, encConfig, W, H, framerate: muxerFps,
-      }));
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await me.start();
+      modeEncoders.set(m.id, me);
     }
 
     // ----------- Frame loop ---------------------------------------
@@ -1600,14 +1540,14 @@ export async function exportOverlayOnly({
 // Exported for tests + diagnostics. The rotation helper in particular
 // is non-trivial enough (fixed-point vs float, sign-disambiguation
 // across four cardinal angles) that round-tripping a few canonical
-// matrices belongs in the test suite.
+// matrices belongs in the test suite. Mediabunny exposes the result
+// directly via `track.getRotation()` in production code, but the
+// helper round-trips the same algebra against canonical matrices in
+// the smoke tests to lock the rotation semantics.
 export { rotationFromTkhdMatrix };
 
 export const MP4_EXPORT_INTERNAL = Object.freeze({
   M5_TICK_MS,
   M5_LARGE_JUMP_MS,
   DEFAULT_FRAMERATE,
-  MP4BOX_HEAD_BYTES,
-  MP4BOX_TAIL_BYTES,
-  MP4BOX_CHUNK_BYTES,
 });

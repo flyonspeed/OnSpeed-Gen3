@@ -324,7 +324,8 @@ assertEq(
   '270° rotation matrix → 270°'
 );
 
-// Already-float matrix (newer mp4box versions unpack on parse).
+// Already-float matrix (some upstream parsers unpack 16.16 → float
+// on parse, so the helper must accept either shape).
 assertEq(
   rotationFromTkhdMatrix([-1, 0, 0, 0, -1, 0, 0, 0, 1]),
   180,
