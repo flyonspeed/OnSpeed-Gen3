@@ -28,4 +28,4 @@ the panel showed in the cockpit.
 <div id="replay-app"></div>
 
 <link rel="stylesheet" href="replay.css" />
-<script type="module" src="replay-entry.js"></script>
+<script src="replay-bundle.js"></script>

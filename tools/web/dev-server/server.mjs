@@ -72,6 +72,15 @@ const HEADER_JS_H     = path.join(GEN_DIR, 'static_app_js.h');
 const HEADER_CSS_H    = path.join(GEN_DIR, 'static_app_css.h');
 const HEADER_STUBS_H  = path.join(GEN_DIR, 'html_stubs.h');
 
+// Docs-site replay bundle (produced by `--target replay`). The dev
+// server rebuilds this whenever the replay source tree changes so an
+// MkDocs serve session running alongside picks up edits without a
+// manual rebuild step.
+const REPLAY_SRC_DIR  = path.join(REPO_ROOT, 'docs', 'site', 'docs',
+                                   'data-and-logs', 'replay');
+const REPLAY_BUNDLE   = path.join(REPLAY_SRC_DIR, 'replay-bundle.js');
+const REPLAY_BUNDLE_URL = '/data-and-logs/replay/replay-bundle.js';
+
 // ---------------------------------------------------------------------
 // CLI parsing
 // ---------------------------------------------------------------------
@@ -193,6 +202,31 @@ function runBundler() {
   return { dtMs, stdout: (res.stdout || '').trim() };
 }
 
+// Build the docs-site replay bundle. Standalone from runBundler() so a
+// failure in one doesn't take down the other; the firmware UI is
+// usable even when the replay tool has a parse error and vice versa.
+function runReplayBundler() {
+  const t0 = Date.now();
+  const res = spawnSync('python3', [BUNDLER, '--target', 'replay'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const dtMs = Date.now() - t0;
+  if (res.status !== 0) {
+    const stderr = (res.stderr || '').trim();
+    const stdout = (res.stdout || '').trim();
+    console.error(
+      `[dev-server] replay bundle FAILED (status ${res.status}, ${dtMs} ms)\n` +
+      `stdout: ${stdout}\nstderr: ${stderr}`);
+    return;
+  }
+  const out = (res.stdout || '').trim();
+  console.log(
+    `[dev-server] replay bundle reloaded (${dtMs} ms)` +
+    (out ? `: ${out}` : ''));
+}
+
 // Parse `static_app_js.h` / `static_app_css.h`.  Each file has:
 //   static const size_t static_app_<kind>_len = NNNNN;
 //   static const char   static_app_<kind>_etag[] = "abc123";
@@ -275,21 +309,31 @@ function runBundlerAndLoad() {
 // Watch JS/CSS/bundler-script changes.  Debounce to coalesce flurries
 // (editor save → multiple inotify events).
 function watchAndReload() {
-  let timer = null;
-  const trigger = () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
+  let firmwareTimer = null;
+  let replayTimer = null;
+  const triggerFirmware = () => {
+    if (firmwareTimer) clearTimeout(firmwareTimer);
+    firmwareTimer = setTimeout(() => {
+      firmwareTimer = null;
       runBundlerAndLoad();
     }, 150);
   };
-  const watchDir = (dir) => {
+  const triggerReplay = () => {
+    if (replayTimer) clearTimeout(replayTimer);
+    replayTimer = setTimeout(() => {
+      replayTimer = null;
+      runReplayBundler();
+    }, 150);
+  };
+  const watchDir = (dir, trigger) => {
     if (!fs.existsSync(dir)) return;
     try {
       fs.watch(dir, { recursive: true }, (evt, name) => {
         if (!name) return;
         // Only trigger on JS / CSS / bundler-script changes.  Ignore
         // node_modules, .git, build artifacts.
+        // Skip the replay bundle output itself or we get a self-loop.
+        if (name.endsWith('replay-bundle.js')) return;
         if (/\.(js|mjs|css)$/.test(name) || name.endsWith('build_web_bundle.py')) {
           trigger();
         }
@@ -298,9 +342,15 @@ function watchAndReload() {
       console.warn(`[dev-server] fs.watch(${dir}) failed: ${e.message}`);
     }
   };
-  watchDir(LIB_DIR);
-  watchDir(UI_CORE_DIR);
-  watchDir(path.dirname(BUNDLER));
+  // Firmware bundle inputs.
+  watchDir(LIB_DIR, triggerFirmware);
+  watchDir(UI_CORE_DIR, triggerFirmware);
+  watchDir(path.dirname(BUNDLER), triggerFirmware);
+  // Replay bundle inputs. ui-core/ feeds both bundles, so a change
+  // there triggers both rebuilds.
+  watchDir(REPLAY_SRC_DIR, triggerReplay);
+  watchDir(UI_CORE_DIR, triggerReplay);
+  watchDir(path.dirname(BUNDLER), triggerReplay);
 }
 
 // Splice dev-mode <meta> tags into a firmware stub so the bundle
@@ -622,6 +672,10 @@ function main() {
   // Build the firmware bundle once at startup so the first request can
   // serve real artifacts; then watch source trees to refresh on save.
   runBundlerAndLoad();
+  // Build the docs-site replay bundle so an MkDocs serve running
+  // alongside this dev server can fetch /data-and-logs/replay/replay-bundle.js
+  // (also served via the route below for parallel-with-MkDocs setups).
+  runReplayBundler();
   watchAndReload();
 
   const server = http.createServer(async (req, res) => {
@@ -1073,6 +1127,19 @@ async function route(req, res, args) {
   // Synthetic-scenarios harness.
   if (pathname === '/scenarios.html' || pathname === '/scenarios') {
     if (await serveFile(path.join(PUBLIC_DIR, 'scenarios.html'), res)) return;
+  }
+
+  // Docs-site replay bundle.  An MkDocs serve session running on its
+  // own port (typically :8000) loads this URL via a same-origin
+  // sibling path; when developing the replay tool against this dev
+  // server, the bundle has to be reachable here too.  Served from the
+  // file the bundler writes — re-built on source changes via
+  // watchAndReload().
+  if (pathname === REPLAY_BUNDLE_URL) {
+    if (await serveFile(REPLAY_BUNDLE, res)) return;
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('replay-bundle.js not built yet — wait for the next rebuild.');
+    return;
   }
 
   // WASM artifact under /static/onspeed_core/ → wasm/dist/
