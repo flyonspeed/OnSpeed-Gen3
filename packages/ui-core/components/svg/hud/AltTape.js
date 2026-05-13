@@ -122,11 +122,12 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
   // the box (closest to the arrow tab); sliding tens strip anchored to
   // their RIGHT. Both vertically aligned via explicit boxDy so the
   // glyph centers land on cy regardless of browser baseline handling.
-  // Box width 110 → hundreds at +14, tens at +56 leaves a ~6 px reading
-  // slot between "40" (anchor start, ~36 px wide) and the sliding "80"
-  // (~36 px wide). Reads as one altitude number, not two columns.
-  const hundredsX = H.HUD_ALT_BOX_LEFT + 14;
-  const tensX     = H.HUD_ALT_BOX_LEFT + 56;
+  // Tightened from earlier +14/+56 so "4080" reads as a single
+  // altitude number, not two separate columns. Hundreds at +10 leaves
+  // the leftmost digit clear of the rounded corner; tens at +50 sits
+  // tight against "40" with just enough gap for the sliding column.
+  const hundredsX = H.HUD_ALT_BOX_LEFT + 10;
+  const tensX     = H.HUD_ALT_BOX_LEFT + 50;
 
   return html`
     <g data-widget="hud-alt-tape">
@@ -134,15 +135,30 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
         <clipPath id=${clipId}>
           <path d=${boxPath} />
         </clipPath>
+        <!-- Tick clip is the tick-area portion of the backing only,
+             not the full backing (which includes the baro endcap
+             below). Otherwise tick lines bleed into the endcap. -->
         <clipPath id=${tickClipId}>
           <rect x=${H.HUD_ALT_BACKING_X}
                 y=${H.HUD_ALT_BACKING_Y}
                 width=${H.HUD_ALT_BACKING_W}
-                height=${H.HUD_ALT_BACKING_H} />
+                height=${H.HUD_ALT_HALF_H * 2} />
+        </clipPath>
+        <!-- Endcap clip — same outer rounded rect as the backing,
+             so the darker baro overlay shares the backing's bottom
+             corner radii without protruding past them. -->
+        <clipPath id="hud-alt-backing-clip">
+          <rect x=${H.HUD_ALT_BACKING_X}
+                y=${H.HUD_ALT_BACKING_Y}
+                width=${H.HUD_ALT_BACKING_W}
+                height=${H.HUD_ALT_BACKING_H}
+                rx=${H.HUD_ALT_BACKING_RX}
+                ry=${H.HUD_ALT_BACKING_RX} />
         </clipPath>
       </defs>
 
-      <!-- Semi-transparent dark backing for legibility on busy video -->
+      <!-- Semi-transparent dark backing for legibility on busy video.
+           Extends past the tick area to host the baro endcap below. -->
       <rect x=${H.HUD_ALT_BACKING_X}
             y=${H.HUD_ALT_BACKING_Y}
             width=${H.HUD_ALT_BACKING_W}
@@ -151,26 +167,28 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
             ry=${H.HUD_ALT_BACKING_RX}
             fill=${H.HUD_ALT_BACKING_FILL} />
 
+      <!-- Baro endcap: slightly-darker overlay rect at the bottom of
+           the backing strip, clipped to the backing's rounded outline
+           so the endcap shares the backing's bottom corner radii. -->
+      <g clip-path="url(#hud-alt-backing-clip)">
+        <rect x=${H.HUD_ALT_BARO_ENDCAP_X}
+              y=${H.HUD_ALT_BARO_ENDCAP_Y}
+              width=${H.HUD_ALT_BARO_ENDCAP_W}
+              height=${H.HUD_ALT_BARO_ENDCAP_H}
+              fill=${H.HUD_ALT_BARO_ENDCAP_FILL} />
+      </g>
+
       <!-- ticks + labels (drawn first so the box sits on top, clipped
            to the visible window so off-screen ticks don't render) -->
       <g clip-path="url(#${tickClipId})">
         ${ticks}
       </g>
 
-      <!-- "29.92in" baro pill centered horizontally on the ALT readout
-           box, just below the tape bottom. Dark fill + white text. -->
-      <rect x=${H.HUD_ALT_BARO_CX - H.HUD_ALT_BARO_PILL_W / 2}
-            y=${H.HUD_ALT_BARO_CY - H.HUD_ALT_BARO_PILL_H / 2}
-            width=${H.HUD_ALT_BARO_PILL_W}
-            height=${H.HUD_ALT_BARO_PILL_H}
-            rx=${H.HUD_ALT_BARO_PILL_RX}
-            ry=${H.HUD_ALT_BARO_PILL_RX}
-            fill=${H.HUD_ALT_BARO_PILL_FILL}
-            stroke="var(--white)" stroke-width="1" />
+      <!-- "29.92in" baro readout, cyan, centered in the endcap. -->
       <text x=${H.HUD_ALT_BARO_CX} y=${H.HUD_ALT_BARO_CY + baroDy}
             font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
             font-size=${H.HUD_ALT_BARO_FONT_SIZE}
-            fill="var(--white)"
+            fill=${H.HUD_ALT_BARO_COLOR}
             text-anchor="middle">29.92in</text>
 
       <!-- Garmin readout box -->

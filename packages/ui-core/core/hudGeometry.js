@@ -132,10 +132,13 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // readout sit on the RIGHT of the spine in the open frame.
 export const HUD_VVI_X               = 1786;
 // VVI centerline matches the ALT tape so the two right-side gauges
-// share a horizontal axis. Bar HALF_H is 80% of the ALT tape's
-// half-height so the VVI reads as a paired secondary gauge.
+// share a horizontal axis. Bar HALF_H is 65% of the ALT tape's
+// half-height (220 * 0.65) so the VVI reads as a smaller sibling
+// gauge. Literal kept here (rather than `HUD_ALT_HALF_H * 0.65`) to
+// avoid a circular reference — HUD_ALT_CY references HUD_VVI_CY,
+// and JS export bindings can't be forward-declared cleanly.
 export const HUD_VVI_CY              = 480;
-export const HUD_VVI_HALF_H          = 176;          // 0.80 * 220
+export const HUD_VVI_HALF_H          = 143;          // 0.65 * 220
 export const HUD_VVI_FULL_SCALE_FPM  = 2000;
 export const HUD_VVI_BAR_THRESHOLD   = 50;
 export const HUD_VVI_THRESHOLD       = 100;
@@ -157,7 +160,9 @@ export const HUD_VVI_VALUE_FONT_SIZE = 30;
 // right-side gauges pair visually. Tape sits outboard of the VVI.
 
 export const HUD_ALT_CY              = HUD_VVI_CY;   // 480
-export const HUD_ALT_HALF_H          = HUD_VVI_HALF_H; // 220
+// ALT is the source-of-truth for the right-side tape height; VVI bar
+// derives its HALF_H from this as a fraction (see HUD_VVI_HALF_H below).
+export const HUD_ALT_HALF_H          = 220;
 // X is the LEFT edge of the tick lines. Short ticks extend to
 // HUD_ALT_X + HUD_ALT_TICK_SHORT; long ticks to HUD_ALT_X + HUD_ALT_TICK_LONG.
 // Pulled 200 px inboard from the original 1820 so the readout box body
@@ -210,29 +215,44 @@ export const HUD_ALT_BOX_TOP         = HUD_ALT_CY - HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_BOTTOM      = HUD_ALT_CY + HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_FONT_SIZE   = 30;
 export const HUD_ALT_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
-// "29.92in" baro pill — sits just below the tape bottom, horizontally
-// centered on the ALT readout box (matches FlySto layout where the
-// baro setting reads as a small dark pill below the altitude tape).
-export const HUD_ALT_BARO_CX         = (HUD_ALT_BOX_LEFT + HUD_ALT_BOX_RIGHT) / 2;
-export const HUD_ALT_BARO_CY         = HUD_ALT_CY + HUD_ALT_HALF_H + 24;
-export const HUD_ALT_BARO_FONT_SIZE  = 20;
-export const HUD_ALT_BARO_PILL_W     = 96;
-export const HUD_ALT_BARO_PILL_H     = 28;
-export const HUD_ALT_BARO_PILL_RX    = 12;
-export const HUD_ALT_BARO_PILL_FILL  = 'rgba(46, 46, 46, 0.85)';
-
 // Semi-transparent dark backing strip drawn BEHIND the ticks so the
 // labels stay legible over busy GoPro frames. Spans the full vertical
-// extent of the tape; width covers the tick column + numeric labels
-// (worst case: 5-digit label like "12340" at HUD_ALT_LABEL_FONT_SIZE=22
-// is ~70 px wide). Backing left sits 4 px LEFT of HUD_ALT_X for a
-// little air around the tick stems.
+// extent of the tape PLUS a baro endcap region at the bottom that
+// holds the "29.92in" baro setting (matches FlySto's tape design,
+// where the baro reads inside a slightly-darker bottom section of
+// the same rounded backing strip — not a free-floating pill).
+// Width covers the tick column + numeric labels (worst case: 5-digit
+// label like "12340" at HUD_ALT_LABEL_FONT_SIZE=22 is ~70 px wide).
+// Backing left sits 4 px LEFT of HUD_ALT_X for a little air around
+// the tick stems.
 export const HUD_ALT_BACKING_X       = HUD_ALT_X - 4;
 export const HUD_ALT_BACKING_W       = HUD_ALT_TICK_LONG + HUD_ALT_LABEL_OFFSET_X + 80 + 4;
 export const HUD_ALT_BACKING_Y       = HUD_ALT_CY - HUD_ALT_HALF_H;
-export const HUD_ALT_BACKING_H       = HUD_ALT_HALF_H * 2;
+// Baro endcap height — the extra vertical extent appended to the
+// backing strip's bottom for the "29.92in" readout. The TICK area
+// remains HUD_ALT_HALF_H * 2 tall; the baro section adds underneath.
+export const HUD_ALT_BARO_ENDCAP_H   = 44;
+export const HUD_ALT_BACKING_H       = HUD_ALT_HALF_H * 2 + HUD_ALT_BARO_ENDCAP_H;
 export const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.10)';
 export const HUD_ALT_BACKING_RX      = 8;
+// Baro endcap geometry. Sits at the bottom of the backing strip,
+// width matches the backing, height = HUD_ALT_BARO_ENDCAP_H. Top
+// edge aligns with the bottom of the tick area (HUD_ALT_CY +
+// HUD_ALT_HALF_H). Renders as a slightly-darker overlay rect on
+// top of the backing strip so the endcap reads as an integrated
+// section, not a separate floating element. Tick area (above) +
+// baro endcap (below) share the backing's rounded corners.
+export const HUD_ALT_BARO_ENDCAP_X   = HUD_ALT_BACKING_X;
+export const HUD_ALT_BARO_ENDCAP_Y   = HUD_ALT_CY + HUD_ALT_HALF_H;
+export const HUD_ALT_BARO_ENDCAP_W   = HUD_ALT_BACKING_W;
+export const HUD_ALT_BARO_ENDCAP_FILL = 'rgba(0, 0, 0, 0.18)';
+// "29.92in" text — centered horizontally in the endcap, cyan to
+// match FlySto's baro readout color (the only non-monochrome bit
+// of the tape stack).
+export const HUD_ALT_BARO_CX         = HUD_ALT_BACKING_X + HUD_ALT_BACKING_W / 2;
+export const HUD_ALT_BARO_CY         = HUD_ALT_BARO_ENDCAP_Y + HUD_ALT_BARO_ENDCAP_H / 2;
+export const HUD_ALT_BARO_FONT_SIZE  = 20;
+export const HUD_ALT_BARO_COLOR      = '#5eddef';
 
 // ---------------------------------------------------------------------
 // IAS tape (left side, mirror of ALT)
