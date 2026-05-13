@@ -109,27 +109,32 @@ export const HUD_BANK_ARC_COLOR     = 'var(--white)';
 export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 
 // ---------------------------------------------------------------------
-// VVI trend bar (right side, inboard of the ALT tape)
+// VVI trend bar (right side, adjacent to the ALT tape's label column)
 // ---------------------------------------------------------------------
 // Centerline at HUD_VVI_CY shared with the ALT tape; bar extends up
 // for climb and down for descent. Ticks at +/-1000 and +/-2000 fpm.
 // Numeric label when |VVI| exceeds HUD_VVI_THRESHOLD; bar hidden below
-// HUD_VVI_BAR_THRESHOLD so the gauge sits still at idle. The VVI sits
-// inboard of the ALT tape; the value label renders to the RIGHT of the
-// bar (the ALT readout box sits ON the tape column further outboard,
-// so there's clear space immediately right of the VVI for the numeric).
+// HUD_VVI_BAR_THRESHOLD so the gauge sits still at idle. Ticks point
+// LEFT (toward the ALT tape's label column); the numeric readout sits
+// on the RIGHT of the bar (open frame space).
 
-// VVI sits OUTBOARD of the ALT tape on the far right edge, nestled
-// against the ALT box. Numeric readout is on the RIGHT side of the
-// bar (anchor="start" at cx+16) — the ALT readout box is to the
-// LEFT of the VVI, the open frame space is to the right.
-export const HUD_VVI_X               = 1800;
+// VVI sits IMMEDIATELY ADJACENT to the right edge of the ALT tape's
+// label column. Ticks point LEFT (toward the ALT tape's labels);
+// numeric labels and the value readout sit on the RIGHT of the bar.
+// Slightly shorter than the ALT tape so the visual hierarchy is:
+// ALT tape (tallest, primary) > VVI bar (secondary, attached).
+//
+// Position calc:
+//   HUD_ALT_X (left of ticks) = 1620
+//   long tick out = 14, label gap = 8, label width ~40 px for "5400"
+//   → labels end around x = 1620 + 14 + 8 + 40 = 1682
+//   small gap = 6 → HUD_VVI_X = 1688
+export const HUD_VVI_X               = 1688;
 // VVI centerline matches the ALT tape so the two right-side gauges
-// share a horizontal axis. With HUD_VVI_HALF_H = 220 a centerline at
-// y = 480 puts the bar bottom at y = 700, ~30 px clear of the
-// bottom-right inset slot (top at y ≈ 731 per overlayPlacement).
+// share a horizontal axis. Bar HALF_H slightly shorter than the ALT
+// tape so the VVI reads as a paired secondary gauge.
 export const HUD_VVI_CY              = 480;
-export const HUD_VVI_HALF_H          = 220;
+export const HUD_VVI_HALF_H          = 200;
 export const HUD_VVI_FULL_SCALE_FPM  = 2000;
 export const HUD_VVI_BAR_THRESHOLD   = 50;
 export const HUD_VVI_THRESHOLD       = 100;
@@ -181,8 +186,13 @@ export const HUD_ALT_TENS_SLIDE_PX   = HUD_ALT_PX_PER_20_FT * 2;     // 30, mirr
 // FlySto reference: tape-rect x=1288 w=86 (right 1374), ALT-box-rect
 // x=1286 w=102 (right 1388). Box left ≈ tape left; box extends ~14 px
 // past tape right; arrow tip at x=886 = 2 px past tape left at x=888.
-export const HUD_ALT_BOX_W           = 130;
-export const HUD_ALT_BOX_H           = 56;
+// ALT shows up to 5 digits (e.g. "12340"). Stationary "hundreds"
+// holds up to 3 digits ("123") and the sliding "tens" holds 2
+// digits ("40"). Body width 110 keeps a tight ~8 px gap between
+// the digit columns. Body height 60 leaves room for the arrow tab
+// without colliding with the rounded corners.
+export const HUD_ALT_BOX_W           = 110;
+export const HUD_ALT_BOX_H           = 60;
 export const HUD_ALT_BOX_ARROW_W     = 8;    // arrow-tab depth (notch into tick column)
 // Box rendering anchors:
 //   - Box body left wall at HUD_ALT_X + 6 (6 px right of left tick stem).
@@ -196,12 +206,16 @@ export const HUD_ALT_BOX_TOP         = HUD_ALT_CY - HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_BOTTOM      = HUD_ALT_CY + HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_FONT_SIZE   = 30;
 export const HUD_ALT_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
-// "29.92in" baro static text — just below the tape bottom, centered
-// horizontally on the ALT readout box (matches FlySto layout where
-// the baro setting sits aligned with the box's horizontal extent).
-export const HUD_ALT_BARO_X          = (HUD_ALT_BOX_LEFT + HUD_ALT_BOX_RIGHT) / 2;
-export const HUD_ALT_BARO_Y          = HUD_ALT_CY + HUD_ALT_HALF_H + 24;
-export const HUD_ALT_BARO_FONT_SIZE  = 22;
+// "29.92in" baro pill — sits just below the tape bottom, horizontally
+// centered on the ALT readout box (matches FlySto layout where the
+// baro setting reads as a small dark pill below the altitude tape).
+export const HUD_ALT_BARO_CX         = (HUD_ALT_BOX_LEFT + HUD_ALT_BOX_RIGHT) / 2;
+export const HUD_ALT_BARO_CY         = HUD_ALT_CY + HUD_ALT_HALF_H + 24;
+export const HUD_ALT_BARO_FONT_SIZE  = 20;
+export const HUD_ALT_BARO_PILL_W     = 96;
+export const HUD_ALT_BARO_PILL_H     = 28;
+export const HUD_ALT_BARO_PILL_RX    = 12;
+export const HUD_ALT_BARO_PILL_FILL  = 'rgba(46, 46, 46, 0.85)';
 
 // Semi-transparent dark backing strip drawn BEHIND the ticks so the
 // labels stay legible over busy GoPro frames. Spans the full vertical
@@ -213,7 +227,7 @@ export const HUD_ALT_BACKING_X       = HUD_ALT_X - 4;
 export const HUD_ALT_BACKING_W       = HUD_ALT_TICK_LONG + HUD_ALT_LABEL_OFFSET_X + 80 + 4;
 export const HUD_ALT_BACKING_Y       = HUD_ALT_CY - HUD_ALT_HALF_H;
 export const HUD_ALT_BACKING_H       = HUD_ALT_HALF_H * 2;
-export const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.18)';
+export const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.10)';
 export const HUD_ALT_BACKING_RX      = 8;
 
 // ---------------------------------------------------------------------
@@ -259,8 +273,12 @@ export const HUD_IAS_LABEL_OFFSET_X  = 8;    // gap from end of long tick to lab
 // RIGHT side notches RIGHT into the tick column, tip landing ~2 px
 // PAST the rightmost tick stem (inboard toward the ADI center).
 // Mirror of ALT box geometry across HUD_CX.
-export const HUD_IAS_BOX_W           = 130;
-export const HUD_IAS_BOX_H           = 56;
+// IAS shows 3 digits max (e.g. "139"). Box body width 90 fits the
+// stationary tens + sliding ones with ~10 px gap between digit
+// columns and modest padding inside the rounded corners. Body height
+// 60 keeps a 12-px tab notch comfortably between the rounded corners.
+export const HUD_IAS_BOX_W           = 90;
+export const HUD_IAS_BOX_H           = 60;
 export const HUD_IAS_BOX_ARROW_W     = 8;
 // Box rendering anchors (mirror of ALT):
 //   - Box body right wall at HUD_IAS_X - 6 (6 px left of right tick
@@ -291,7 +309,7 @@ export const HUD_IAS_BACKING_W       = HUD_IAS_TICK_LONG + HUD_IAS_LABEL_OFFSET_
 export const HUD_IAS_BACKING_X       = HUD_IAS_X + 4 - HUD_IAS_BACKING_W;
 export const HUD_IAS_BACKING_Y       = HUD_IAS_CY - HUD_IAS_HALF_H;
 export const HUD_IAS_BACKING_H       = HUD_IAS_HALF_H * 2;
-export const HUD_IAS_BACKING_FILL    = 'rgba(0, 0, 0, 0.18)';
+export const HUD_IAS_BACKING_FILL    = 'rgba(0, 0, 0, 0.10)';
 export const HUD_IAS_BACKING_RX      = 8;
 
 // ---------------------------------------------------------------------
@@ -304,3 +322,17 @@ export const HUD_SLIP_W = 480;
 export const HUD_SLIP_H = 60;
 export const HUD_SLIP_X = HUD_CX - HUD_SLIP_W / 2;
 export const HUD_SLIP_Y = HUD_H - 120;
+
+// ---------------------------------------------------------------------
+// Text baseline helper
+// ---------------------------------------------------------------------
+// SVG `dominant-baseline="central"` is interpreted inconsistently
+// across browsers and fonts — Safari and Chrome sometimes land glyphs
+// 6-8 px off-center, which made the ALT/IAS slide strips look smeared
+// (two digits stacked, both partially clipped by the box outline).
+// Compute an explicit y offset from font metrics instead: the glyph
+// center sits roughly `fontSize * 0.35` BELOW the SVG y coordinate
+// when using the default `alphabetic` baseline. Anchoring with
+// `y = cy + hudGlyphOffset(fontSize)` and no dominant-baseline
+// attribute renders deterministically across browsers.
+export const hudGlyphOffset = (fontSize) => fontSize * 0.35;
