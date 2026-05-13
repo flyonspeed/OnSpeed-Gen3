@@ -64,9 +64,10 @@ const pad2 = (n) => String(n).padStart(2, '0');
 // tau (alpha ≈ 0.2 at 20 Hz) tames the noise without lagging behind
 // real climb/descent.
 let _altEmaState = null;
-// Heavier smoothing — alpha 0.08 at 20 Hz ≈ 600 ms tau. Pilots want
-// the tens digit to slide smoothly, not click between frames.
-const ALT_EMA_ALPHA = 0.08;
+// Heavy smoothing — alpha 0.04 at 20 Hz ≈ 1.2 s tau. The tens
+// digit needs to slide smoothly, and pressure-altitude noise +
+// firmware Kalman bias dominate at shorter taus.
+const ALT_EMA_ALPHA = 0.04;
 function smoothAlt(raw) {
   if (!Number.isFinite(raw)) return _altEmaState ?? 0;
   if (_altEmaState == null || Math.abs(raw - _altEmaState) > 200) {

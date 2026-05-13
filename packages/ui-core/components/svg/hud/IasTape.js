@@ -51,8 +51,24 @@ function buildIasBoxPath() {
   ].join(' ');
 }
 
+// Module-level EMA state for smoothing the IAS readout. Raw 20 Hz
+// IAS has visible jitter from dynamic pressure noise; without
+// smoothing the ones digit clicks between frames. Same heavy tau
+// as ALT (~1.2 s) so the two tapes feel equally responsive.
+let _iasEmaState = null;
+const IAS_EMA_ALPHA = 0.04;
+function smoothIas(raw) {
+  if (!Number.isFinite(raw)) return _iasEmaState ?? 0;
+  if (_iasEmaState == null || Math.abs(raw - _iasEmaState) > 30) {
+    _iasEmaState = raw;
+  } else {
+    _iasEmaState += (raw - _iasEmaState) * IAS_EMA_ALPHA;
+  }
+  return _iasEmaState;
+}
+
 export const HudIasTape = ({ iasKt = 0 }) => {
-  const ias = Number.isFinite(iasKt) ? Math.max(0, iasKt) : 0;
+  const ias = smoothIas(Number.isFinite(iasKt) ? Math.max(0, iasKt) : 0);
   const cy = H.HUD_IAS_CY;
   // Explicit y offset from font metrics — see H.hudGlyphOffset for
   // why we avoid `dominant-baseline="central"`.
