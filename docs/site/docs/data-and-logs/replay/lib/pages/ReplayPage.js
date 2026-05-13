@@ -2016,6 +2016,12 @@ export const ReplayPage = () => {
 
         <div class="replay-stage" ref=${containerRef}>
           ${videoUrl ? html`
+            ${videoTimeline && videoTimeline.chapters.length > 1 && html`
+              <div class="replay-global-clock"
+                   title="Flight time across the full multi-chapter timeline. The native <video> controls below show the chapter-local time; the data-marks panel uses this global clock.">
+                Flight ${formatHms(videoT)} / ${formatHms(videoTimeline.totalDurationSec)}
+                · Chapter ${activeChapterIndex + 1}/${videoTimeline.chapters.length}
+              </div>`}
             <video
               ref=${videoRef}
               src=${videoUrl}

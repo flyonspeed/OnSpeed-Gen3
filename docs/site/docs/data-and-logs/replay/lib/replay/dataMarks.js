@@ -14,16 +14,17 @@
 // can show a stable identifier the pilot can talk about even after
 // the absolute DataMark value wraps.
 
-// DataMark per firmware spec is an integer 0..99. Real-world SD logs
-// can have garbage rows from partial writes / power glitches where
-// columns are misaligned and the DataMark cell ends up holding a
-// timestamp, a fractional Pfwd reading, etc. (e.g. 8158, 17:55:19.87,
-// 285.40 observed on the RV-4 2026-05-11 flight). Anything outside
-// [0, 99] AND not an integer is parser noise — drop it before
-// looking at transitions, otherwise every noise row produces a
-// phantom "outside video" entry in the panel.
+// DataMark per firmware (Switch.cpp:61) is `g_iDataMark = g_iDataMark + 1`,
+// a monotonically-incrementing `int`. The M5 wire and panel display
+// mod-100 (`%02d`) so two digits of room is fine on screen, but the
+// underlying counter can go much higher on long flights. Cap at a
+// generous integer ceiling to filter the misaligned-CSV signature
+// (values like 8158, 17:55:19.87, 285.40 observed on the RV-4
+// 2026-05-11 flight) without rejecting legitimate ≥ 100 presses.
+// 9999 is a safe upper limit: well above any realistic press count,
+// well below the torn-row values we've seen.
 function isValidMark(v) {
-  return Number.isInteger(v) && v >= 0 && v <= 99;
+  return Number.isInteger(v) && v >= 0 && v <= 9999;
 }
 
 // Firmware writes DataMark as a monotonically incrementing counter:

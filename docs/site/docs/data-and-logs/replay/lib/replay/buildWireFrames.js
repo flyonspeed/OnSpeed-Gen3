@@ -22,17 +22,19 @@ import { detectLogSampleRate, hasFlapsRawAdc } from './parseLog.js';
 function rowAt(log, i) {
   const g  = (arr) => (arr ? arr[i] : NaN);
   const gi = (arr) => (arr ? arr[i] : 0);
-  // DataMark per firmware spec is integer 0..99. Some real-world SD
-  // logs contain misaligned CSV rows where the DataMark cell holds a
-  // timestamp, pressure reading, etc. Those values were leaking into
-  // the wire frame and producing garbage overlay digits (e.g. "7"
-  // when the panel said pilot was on press 18). Treat out-of-range
-  // values as "no press" so the firmware's downstream gates and the
-  // overlay's printf("%02d", DataMark) both stay sane.
+  // DataMark per firmware (Switch.cpp:61) is a monotonically-
+  // incrementing int that the M5 wire/panel display mod-100. Some
+  // real-world SD logs contain misaligned CSV rows where the
+  // DataMark cell holds a timestamp, pressure reading, etc. Those
+  // values were leaking into the wire frame and producing garbage
+  // overlay digits. Cap at 9999 to filter the torn-row signature
+  // without rejecting legitimate high-counter presses on long flights
+  // (the firmware-side `% 100` will still reduce ≥100 values to a
+  // two-digit display).
   const gMark = (arr) => {
     if (!arr) return 0;
     const v = arr[i];
-    if (Number.isInteger(v) && v >= 0 && v <= 99) return v;
+    if (Number.isInteger(v) && v >= 0 && v <= 9999) return v;
     return 0;
   };
   return {

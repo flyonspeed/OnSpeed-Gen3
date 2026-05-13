@@ -93,15 +93,17 @@ function makeLogWithHolds({ events, holdMs = 400, stepMs = 5 }) {
   );
 }
 
-// Garbage rows (8158, 285) mixed into otherwise-clean event sequence
-// must be ignored.
+// Garbage rows from misaligned CSV (timestamp-like values landing in
+// the DataMark column) must be ignored. Use values clearly outside
+// the legitimate counter range (>9999) — actual torn-row values seen
+// on the RV-4 log were in the millions (timestamps in ms).
 {
-  const log = makeLogWithHolds({ events: [[0, 0], [1000, 8158], [2000, 0], [3000, 5], [4000, 285], [5000, 0], [6000, 7]] });
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 1276130], [2000, 0], [3000, 5], [4000, 4206976], [5000, 0], [6000, 7]] });
   const marks = findDataMarks(log);
   assertEq(
     marks.map(m => m.value),
     [5, 7],
-    'garbage values 8158/285 filtered, real presses kept'
+    'multi-million garbage values (torn timestamps) filtered, real presses kept'
   );
 }
 
@@ -133,14 +135,29 @@ assertEq(findDataMarks(null), [], 'null log → empty array');
   );
 }
 
-// Boundary: 99 valid, 100 noise.
+// Boundary: 9999 valid, 10000+ rejected. Firmware-side counter can
+// grow beyond 99 on long flights (panel displays mod-100, but the
+// underlying counter keeps incrementing). 9999 is the conservative
+// ceiling; values larger than that are torn-row signature.
 {
-  const log = makeLogWithHolds({ events: [[0, 0], [1000, 99], [2000, 0], [3000, 100]] });
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 9999], [2000, 0], [3000, 10000]] });
   const marks = findDataMarks(log);
   assertEq(
     marks.map(m => ({ value: m.value, label: m.label })),
-    [{ value: 99, label: '99' }],
-    'value 99 ok, 100 rejected'
+    [{ value: 9999, label: '9999' }],
+    'value 9999 accepted (high-counter), 10000 rejected (torn-row)'
+  );
+}
+
+// High-counter (>= 100) is a real press: pilot has been bumping the
+// counter for a long flight. Label is the firmware value as-written.
+{
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 137]] });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => ({ value: m.value, label: m.label })),
+    [{ value: 137, label: '137' }],
+    '3-digit firmware counter value: real press, label = "137"'
   );
 }
 

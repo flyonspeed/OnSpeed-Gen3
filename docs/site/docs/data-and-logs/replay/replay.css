@@ -113,6 +113,14 @@
   height: auto;
   background: #000;
 }
+.replay-global-clock {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: #cfd6dd;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
 .replay-placeholder {
   display: flex;
   align-items: center;
