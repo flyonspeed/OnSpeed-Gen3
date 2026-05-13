@@ -523,6 +523,16 @@ const ClipRow = ({
   const contained = marks ? marksWithinClip(clip, marks) : [];
   const hasNotes = !!(annotation && (annotation.label || annotation.notes));
 
+  // Per-button predicates for the four nudge controls. Each simulates
+  // the patch through validateClipEdit and reports whether the floor
+  // (100 ms minimum span) would still hold. When false, the button
+  // greys out instead of silently no-op'ing on click.
+  const canNudge = (patch) => validateClipEdit(clip, patch) != null;
+  const canStartMinus1s   = canNudge({ startMs: clip.startMs - 1000 });
+  const canStartMinus100  = canNudge({ startMs: clip.startMs - 100 });
+  const canEndPlus100     = canNudge({ endMs:   clip.endMs   + 100 });
+  const canEndPlus1s      = canNudge({ endMs:   clip.endMs   + 1000 });
+
   const rowClass = 'replay-clip-row' +
     (isExporting ? ' is-exporting' : '') +
     (expanded ? ' is-expanded' : '') +
@@ -567,13 +577,13 @@ const ClipRow = ({
           Scrub
         </button>
         <button class="replay-btn-nudge"
-                disabled=${disabled || isExporting}
+                disabled=${disabled || isExporting || !canStartMinus1s}
                 title="Nudge clip start −1 second"
                 onClick=${() => onPatch({ startMs: clip.startMs - 1000 })}>
           −1s
         </button>
         <button class="replay-btn-nudge"
-                disabled=${disabled || isExporting}
+                disabled=${disabled || isExporting || !canStartMinus100}
                 title="Nudge clip start −100 ms"
                 onClick=${() => onPatch({ startMs: clip.startMs - 100 })}>
           −100ms
@@ -591,13 +601,13 @@ const ClipRow = ({
           Set out here
         </button>
         <button class="replay-btn-nudge"
-                disabled=${disabled || isExporting}
+                disabled=${disabled || isExporting || !canEndPlus100}
                 title="Nudge clip end +100 ms"
                 onClick=${() => onPatch({ endMs: clip.endMs + 100 })}>
           +100ms
         </button>
         <button class="replay-btn-nudge"
-                disabled=${disabled || isExporting}
+                disabled=${disabled || isExporting || !canEndPlus1s}
                 title="Nudge clip end +1 second"
                 onClick=${() => onPatch({ endMs: clip.endMs + 1000 })}>
           +1s

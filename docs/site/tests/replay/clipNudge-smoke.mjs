@@ -97,6 +97,47 @@ const clip = { id: 'x', startMs: 5000, endMs: 15000, label: 'test' };
   assertEq(bad, null, 'NaN startMs patch: rejected (null)');
 }
 
+// --- Per-button disabled predicates (UX guard against silent no-op) ---
+//
+// ClipRow simulates each nudge through validateClipEdit and disables
+// the button when the result is null. These assertions lock in the
+// current invariants so a future change to validateClipEdit (e.g.,
+// adding a log-bounds clamp) gets caught by the test rather than
+// silently flipping the disabled state.
+const canNudge = (c, patch) => validateClipEdit(c, patch) != null;
+
+// Normal clip: all four nudge predicates pass.
+{
+  const c = { id: 'n', startMs: 5000, endMs: 15000, label: '' };
+  assertEq(canNudge(c, { startMs: c.startMs - 1000 }), true,
+    'normal clip: −1s start nudge predicate is true');
+  assertEq(canNudge(c, { startMs: c.startMs - 100 }), true,
+    'normal clip: −100ms start nudge predicate is true');
+  assertEq(canNudge(c, { endMs:   c.endMs   + 100 }), true,
+    'normal clip: +100ms end nudge predicate is true');
+  assertEq(canNudge(c, { endMs:   c.endMs   + 1000 }), true,
+    'normal clip: +1s end nudge predicate is true');
+}
+
+// Boundary: 101 ms wide clip. All four expanding nudges still pass
+// (the 100 ms floor is a SPAN floor, and expanding never approaches it).
+{
+  const tight = { id: 't', startMs: 5000, endMs: 5101, label: '' };
+  assertEq(canNudge(tight, { startMs: tight.startMs - 100 }), true,
+    '101 ms clip: −100ms start nudge predicate is true (span grows to 201 ms)');
+  assertEq(canNudge(tight, { endMs:   tight.endMs   + 100 }), true,
+    '101 ms clip: +100ms end nudge predicate is true (span grows to 201 ms)');
+}
+
+// Contracting patch on a small clip: the predicate flips to false.
+// This guards the path used by Set in here / Set out here when the
+// playhead is too close to the opposite edge.
+{
+  const c = { id: 's', startMs: 5000, endMs: 5050, label: '' };
+  assertEq(canNudge(c, { startMs: 5000, endMs: 5050 }), false,
+    'sub-floor clip (50 ms span): predicate correctly returns false');
+}
+
 for (const [tag, msg] of results) console.log(tag, msg);
 console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

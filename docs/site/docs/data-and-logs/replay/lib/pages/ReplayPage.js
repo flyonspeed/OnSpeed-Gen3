@@ -2524,11 +2524,15 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
                        marks = [],
                        clips = [], clipAnnotations = {}, markAnnotations = {},
                        onLogTakeoffPick, onSeekVideo }) => {
-  const W = 1100, H = 80;
+  const W = 1100;
   const PAD = 4;
   // Top lane reserved for clip spans; mark ticks shift down by this
-  // amount so the two layers don't overlap.
+  // amount so the two layers don't overlap. The total SVG height is the
+  // original 80 px IAS chart plus the clip lane stacked on top, so the
+  // clip rects (y=0..14) sit above the IAS trace rather than sharing a
+  // canvas with it.
   const CLIP_LANE_H = 16;
+  const H = 80 + CLIP_LANE_H;
 
   if (!log) return html`<div class="replay-timeline empty"></div>`;
 
