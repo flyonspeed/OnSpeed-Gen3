@@ -79,6 +79,15 @@ you saved come back automatically — they're keyed off a hash of the
 log's first 10 KB, so two flights with different content but the same
 filename don't collide.
 
+On Chrome / Edge desktop the page also remembers the file handles
+themselves. Reload within the same browser session and the video, log,
+and config re-open without a click — a "Resuming…" pill appears in the
+toolbar while the files load. If the browser has expired the read
+grant (typical after a browser restart, or after enough time has
+passed), a Resume banner appears and one click re-grants permission
+for all three files. Firefox and Safari fall back to the file-picker
+each session.
+
 ## Sync
 
 Pick a video and a log; the tool auto-detects takeoff in the log and
