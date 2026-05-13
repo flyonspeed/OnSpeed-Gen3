@@ -147,14 +147,14 @@ const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
 // is an opt-in design-tuning phase).
 const HUD_SHOW_LS_KEY = 'replay-show-hud-v1';
 
-// Friendly label for the anchor type the auto-detector picked.
-// Pilots usually sync against the first crosswind turn (sharp bank
-// step in roll, easy to spot in the video); rotation is the
-// fallback when no clear bank is detected.
-function anchorKindLabel(kind) {
-  if (kind === 'crosswind') return 'crosswind turn';
-  if (kind === 'rotation')  return 'rotation';
-  return 'anchor';
+// The label shown on the timeline for the log↔video sync point.
+// The auto-detector picks the position (rotation, crosswind, etc.)
+// but the user just wants to know "this is the sync anchor" —
+// surfacing the detector's guess at WHAT KIND of moment it picked
+// added noise without information. The `kind` arg is kept on the
+// signature so call sites don't need to change.
+function anchorKindLabel(_kind) {
+  return 'sync';
 }
 
 function safeLsGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
@@ -2532,6 +2532,12 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
   // clip rects (y=0..14) sit above the IAS trace rather than sharing a
   // canvas with it.
   const CLIP_LANE_H = 16;
+  // Hide a mark's text label when its left neighbor is within this
+  // many pixels — on long flights with many marks the labels mash
+  // together (e.g. "0708090910 11 12") and become unreadable. The
+  // tick line and <title> tooltip still render in both cases, so
+  // hovering surfaces the label.
+  const MIN_LABEL_PX = 28;
   const H = 80 + CLIP_LANE_H;
 
   if (!log) return html`<div class="replay-timeline empty"></div>`;
@@ -2623,24 +2629,37 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
               </text>
             </g>`;
         })}
-        ${marks.map(m => {
-          if (m.logTimeMs < tMin || m.logTimeMs > tMax) return null;
-          const x = xOf(m.logTimeMs).toFixed(1);
-          const ann = markAnnotations
-            ? markAnnotations[String(m.value) + ':' + String(m.logTimeMs)]
-            : null;
-          const titleText = m.label + (ann && ann.name ? ' — ' + ann.name : '');
-          return html`
-            <line x1=${x} y1=${CLIP_LANE_H} x2=${x} y2=${H}
-                  stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55">
-              <title>${titleText}</title>
-            </line>
-            <text x=${(parseFloat(x) + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
-                  fill="#7dd3fc" font-size="10" font-family="monospace">
-              ${m.label}
-              <title>${titleText}</title>
-            </text>`;
-        })}
+        ${(() => {
+          // Sort by time and pre-compute showLabel so we can decide
+          // per-mark whether its <text> would crowd a left neighbor.
+          // .map() alone can't carry state across iterations cleanly.
+          const sorted = marks
+            .filter(m => m.logTimeMs >= tMin && m.logTimeMs <= tMax)
+            .slice()
+            .sort((a, b) => a.logTimeMs - b.logTimeMs);
+          let lastShownX = -Infinity;
+          return sorted.map(m => {
+            const xNum = xOf(m.logTimeMs);
+            const x = xNum.toFixed(1);
+            const ann = markAnnotations
+              ? markAnnotations[String(m.value) + ':' + String(m.logTimeMs)]
+              : null;
+            const titleText = m.label + (ann && ann.name ? ' — ' + ann.name : '');
+            const showLabel = xNum - lastShownX >= MIN_LABEL_PX;
+            if (showLabel) lastShownX = xNum;
+            return html`
+              <line x1=${x} y1=${CLIP_LANE_H} x2=${x} y2=${H}
+                    stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55">
+                <title>${titleText}</title>
+              </line>
+              ${showLabel && html`
+                <text x=${(xNum + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
+                      fill="#7dd3fc" font-size="10" font-family="monospace">
+                  ${m.label}
+                  <title>${titleText}</title>
+                </text>`}`;
+          });
+        })()}
         ${sync && Number.isFinite(sync.logTakeoffMs) && html`
           <line x1=${xOf(sync.logTakeoffMs).toFixed(1)} y1="0"
                 x2=${xOf(sync.logTakeoffMs).toFixed(1)} y2=${H}
