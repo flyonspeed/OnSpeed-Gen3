@@ -125,12 +125,15 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // ALT tape (tallest, primary) > VVI bar (secondary, attached).
 //
 // Position calc:
-//   ALT box body right edge = HUD_ALT_BOX_RIGHT = 1736
-//   Gap from box right to VVI spine = 50 → HUD_VVI_X = 1786
-// The VVI spine sits clear of the ALT box body; ticks point LEFT
-// (toward the ALT tape's labels) and the scale numerals + value
-// readout sit on the RIGHT of the spine in the open frame.
-export const HUD_VVI_X               = 1786;
+//   ALT box body right edge = HUD_ALT_BOX_RIGHT = 1736. VVI spine at
+//   1758 leaves a 22-px gap between box right and bar — tight enough
+//   to read as a paired right-side gauge, wide enough that the VVI's
+//   scale numerals (at cx+6=1764) don't collide with the box body.
+// The VVI spine sits flush against the ALT readout box's right wall;
+// ticks point LEFT (toward the ALT tape's label column behind the
+// box) and the scale numerals + value readout sit on the RIGHT of
+// the spine in the open frame.
+export const HUD_VVI_X               = 1758;
 // VVI centerline matches the ALT tape so the two right-side gauges
 // share a horizontal axis. Bar HALF_H is 65% of the ALT tape's
 // half-height (220 * 0.65) so the VVI reads as a smaller sibling
@@ -202,15 +205,15 @@ export const HUD_ALT_TENS_SLIDE_PX   = 60;
 // without colliding with the rounded corners.
 export const HUD_ALT_BOX_W           = 110;
 export const HUD_ALT_BOX_H           = 60;
-export const HUD_ALT_BOX_ARROW_W     = 8;    // arrow-tab depth (notch into tick column)
+export const HUD_ALT_BOX_ARROW_W     = 6;    // arrow-tab depth (notch into tick column)
 // Box rendering anchors:
 //   - Box body left wall at HUD_ALT_X + 6 (6 px right of left tick stem).
-//   - Arrow tip at HUD_ALT_X - 2 (2 px left of left tick stem),
-//     at HUD_ALT_CY.
+//   - Arrow tip 6 px LEFT of the box body's left wall (lands just past
+//     the tick column's left edge) at HUD_ALT_CY.
 //   - Box extends HUD_ALT_BOX_W to the right of the left wall.
 export const HUD_ALT_BOX_LEFT        = HUD_ALT_X + 6;
 export const HUD_ALT_BOX_RIGHT       = HUD_ALT_BOX_LEFT + HUD_ALT_BOX_W;
-export const HUD_ALT_BOX_ARROW_TIP_X = HUD_ALT_X - 2;
+export const HUD_ALT_BOX_ARROW_TIP_X = HUD_ALT_BOX_LEFT - HUD_ALT_BOX_ARROW_W;
 export const HUD_ALT_BOX_TOP         = HUD_ALT_CY - HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_BOTTOM      = HUD_ALT_CY + HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_FONT_SIZE   = 30;
@@ -231,7 +234,9 @@ export const HUD_ALT_BACKING_Y       = HUD_ALT_CY - HUD_ALT_HALF_H;
 // Baro endcap height — the extra vertical extent appended to the
 // backing strip's bottom for the "29.92in" readout. The TICK area
 // remains HUD_ALT_HALF_H * 2 tall; the baro section adds underneath.
-export const HUD_ALT_BARO_ENDCAP_H   = 44;
+// 30 px leaves room for a 20-px-tall cyan baro readout with a few
+// px of air above/below, without crowding the lowest tape tick.
+export const HUD_ALT_BARO_ENDCAP_H   = 30;
 export const HUD_ALT_BACKING_H       = HUD_ALT_HALF_H * 2 + HUD_ALT_BARO_ENDCAP_H;
 export const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.10)';
 export const HUD_ALT_BACKING_RX      = 8;

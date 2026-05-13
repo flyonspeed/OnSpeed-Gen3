@@ -28,9 +28,8 @@ import * as H from '../../../core/hudGeometry.js';
 //                botL ───────────────── botR
 //
 // Corner radius `r` is small (4 px) to match FlySto's box. `tabHalf`
-// (12 px) is chosen large enough that the arrow notch reads clearly
-// even with a 2-px stroke; small tabs (7 px) were swallowed by the
-// stroke + rounded corners and looked like a plain rectangle.
+// (8 px) sits comfortably inside the box's rounded corners so the
+// notch reads as an arrow rather than overflowing the corner radius.
 function buildBoxPath() {
   const L = H.HUD_ALT_BOX_LEFT;
   const R = H.HUD_ALT_BOX_RIGHT;
@@ -38,7 +37,7 @@ function buildBoxPath() {
   const B = H.HUD_ALT_BOX_BOTTOM;
   const cy = H.HUD_ALT_CY;
   const tip = H.HUD_ALT_BOX_ARROW_TIP_X;
-  const tabHalf = 12;
+  const tabHalf = 8;
   const r = 4;
   return [
     `M ${L + r} ${T}`,
@@ -118,16 +117,21 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
   const clipId = 'hud-alt-readout-clip';
   const tickClipId = 'hud-alt-tick-clip';
 
-  // Stationary thousands+hundreds digits anchored on the LEFT half of
-  // the box (closest to the arrow tab); sliding tens strip anchored to
-  // their RIGHT. Both vertically aligned via explicit boxDy so the
-  // glyph centers land on cy regardless of browser baseline handling.
-  // Tightened from earlier +14/+56 so "4080" reads as a single
-  // altitude number, not two separate columns. Hundreds at +10 leaves
-  // the leftmost digit clear of the rounded corner; tens at +50 sits
-  // tight against "40" with just enough gap for the sliding column.
-  const hundredsX = H.HUD_ALT_BOX_LEFT + 10;
-  const tensX     = H.HUD_ALT_BOX_LEFT + 50;
+  // Stationary thousands+hundreds digits anchored at the LEFT edge of
+  // the box (closest to the arrow tab); sliding tens strip sits
+  // IMMEDIATELY to their right, with its X position computed from the
+  // pixel width of the stationary text. This keeps the readout
+  // tightly packed for every digit count:
+  //   alt=120   → "1" + "20"   ([1][20])
+  //   alt=4080  → "40" + "80"  ([40][80])
+  //   alt=12340 → "123" + "40" ([123][40])
+  // SVG can't measure rendered text width without DOM access, so we
+  // estimate via char count × monospace digit width. B612 at font-size
+  // 30 renders a digit roughly 0.6em wide.
+  const ALT_CHAR_W = H.HUD_ALT_BOX_FONT_SIZE * 0.55;
+  const hundredsStr = String(hundreds);
+  const hundredsX = H.HUD_ALT_BOX_LEFT + 10;                       // left pad
+  const tensX     = hundredsX + hundredsStr.length * ALT_CHAR_W;   // tight pack
 
   return html`
     <g data-widget="hud-alt-tape">

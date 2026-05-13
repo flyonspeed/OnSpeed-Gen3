@@ -21,8 +21,10 @@ import * as H from '../../../core/hudGeometry.js';
 // Box outline path + clip path share the exact same geometry so the
 // sliding ones digits never spill past the rounded corners. The arrow
 // tab sits on the RIGHT side and points RIGHT into the tape's tick
-// column. `tabHalf` (12 px) matches the ALT tape so the two readout
-// boxes share the same arrow-notch profile.
+// column. `tabHalf` (14 px) sits proportional to the box height so
+// the arrow reads as a clear pointer; bumped slightly higher than
+// ALT's 8-px tab because IAS's narrower box body needs a beefier
+// notch for visual balance.
 function buildBoxPath() {
   const L = H.HUD_IAS_BOX_LEFT;
   const R = H.HUD_IAS_BOX_RIGHT;
@@ -30,7 +32,7 @@ function buildBoxPath() {
   const B = H.HUD_IAS_BOX_BOTTOM;
   const cy = H.HUD_IAS_CY;
   const tip = H.HUD_IAS_BOX_ARROW_TIP_X;
-  const tabHalf = 12;
+  const tabHalf = 14;
   const r = 4;
   return [
     `M ${L + r} ${T}`,
@@ -103,15 +105,20 @@ export const HudIasTape = ({ iasKt = 0 }) => {
   const clipId = 'hud-ias-readout-clip';
   const tickClipId = 'hud-ias-tick-clip';
 
-  // Stationary tens digits on the LEFT half of the box (outboard,
-  // farthest from the right-side arrow tab); sliding ones strip on
-  // the RIGHT half (closest to the arrow tab). Box width 70 →
-  // tens at +12, ones at +48 leaves a small but visible reading
-  // slot between "13" (anchor start, ~24 px wide at font-size 30)
-  // and the sliding "8" (~14 px wide), so "138" reads as one
-  // airspeed without the ones digit crowding the tens.
-  const tensX = H.HUD_IAS_BOX_LEFT + 12;
-  const onesX = H.HUD_IAS_BOX_LEFT + 48;
+  // Readout is RIGHT-aligned within the box (the arrow tab points
+  // RIGHT into the tape). The sliding ones digit anchors at
+  // BOX_RIGHT − rightPad − ONE_CHAR_W (start-anchored 1-char column);
+  // the stationary tens digits sit IMMEDIATELY to its LEFT, with X
+  // computed from their pixel width so packing stays tight regardless
+  // of digit count:
+  //   ias=85  → "8" + "5"   ([8][5])
+  //   ias=138 → "13" + "8"  ([13][8])
+  //   ias=199 → "19" + "9"  ([19][9])
+  // Estimate text width via char count × monospace digit width.
+  const IAS_CHAR_W = H.HUD_IAS_BOX_FONT_SIZE * 0.55;
+  const tensStr = String(tens);
+  const onesX = H.HUD_IAS_BOX_RIGHT - 10 - IAS_CHAR_W;             // right pad
+  const tensX = onesX - tensStr.length * IAS_CHAR_W;               // tight pack
 
   return html`
     <g data-widget="hud-ias-tape">
