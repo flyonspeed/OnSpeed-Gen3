@@ -28,11 +28,25 @@ export const HudOverlay = ({ state }) => {
   const aoaIsValid = state.IasIsValid !== false;
   const iasValue = aoaIsValid ? Math.max(0, state.displayIAS || 0) : 0;
   const altValue = Math.max(0, state.displayPalt || 0);
+  // Inline drop-shadow filter so the rasterized export gets the same
+  // legibility halo as the live page. replay.css applies a filter via
+  // a class selector, but the export path serializes the SVG to a
+  // blob URL and parses it in isolation — page CSS doesn't follow.
+  // Inlining the filter into the SVG itself works for both surfaces.
   return html`
     <svg viewBox="0 0 ${H.HUD_W} ${H.HUD_H}"
          xmlns="http://www.w3.org/2000/svg"
          preserveAspectRatio="xMidYMid meet"
          class="hud-svg">
+      <defs>
+        <filter id="hud-shadow" x="-2%" y="-2%" width="104%" height="104%">
+          <feDropShadow dx="0" dy="0" stdDeviation="1.5"
+                        flood-color="black" flood-opacity="0.85" />
+          <feDropShadow dx="0" dy="0" stdDeviation="3"
+                        flood-color="black" flood-opacity="0.6" />
+        </filter>
+      </defs>
+      <g filter="url(#hud-shadow)">
       <${HudPitchLadder} pitchDeg=${state.Pitch ?? 0}
                           rollDeg=${state.Roll ?? 0} />
       <${HudBankArc}     rollDeg=${state.Roll ?? 0} />
@@ -79,6 +93,7 @@ export const HudOverlay = ({ state }) => {
                     flashFlag=${false}
                     x=${H.HUD_SLIP_X} y=${H.HUD_SLIP_Y}
                     width=${H.HUD_SLIP_W} height=${H.HUD_SLIP_H} />
-      <${HudGReadout} verticalG=${state.VerticalG ?? 1} />
+      <${HudGReadout} verticalG=${state.VerticalG != null ? state.VerticalG : null} />
+      </g>
     </svg>`;
 };

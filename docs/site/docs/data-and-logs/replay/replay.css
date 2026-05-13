@@ -172,12 +172,10 @@
   display: block;
   width: 100%;
   height: 100%;
-  /* Black drop-shadow halo improves legibility on bright sky /
-     overexposed GoPro footage. Lines-only HUDs disappear on bright
-     backgrounds without contrast help; per PLAN_HUD_OVERLAY.md
-     "Open questions", this is the first cut and may be tuned. */
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.85))
-          drop-shadow(0 0 4px rgba(0, 0, 0, 0.6));
+  /* Drop-shadow halo is rendered inline via an SVG <filter> element
+     in HudOverlay so both the live page and the MP4 export raster
+     get the same legibility treatment. (CSS class filters don't
+     follow the SVG into the export blob's isolated document.) */
 }
 .replay-overlay-frame {
   /* Bottom-right anchor inside the video, lifted above the native

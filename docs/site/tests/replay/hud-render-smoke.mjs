@@ -312,6 +312,24 @@ test('VSI numeric only renders above HUD_VSI_THRESHOLD', () => {
   }
 });
 
+test('G readout hidden when state.VerticalG is missing', () => {
+  // Don't pretend "1.0 G" when the channel is absent — pilots
+  // reviewing a burn will compare against their panel G-meter and
+  // a static 1.0 readout during a 2 G pull is misleading. Issue
+  // surfaced in bulldog review of commit 768f6498.
+  const stateNoG = Object.freeze({
+    displayIAS: 80, displayPalt: 3000,
+    Pitch: 0, Roll: 0, FlightPath: 0,
+    iVSI: 0, PercentLift: 50, StallWarnPctLift: 80,
+    IasIsValid: true,
+    // VerticalG intentionally omitted.
+  });
+  const root = renderInto(html`<${HudOverlay} state=${stateNoG} />`);
+  if (findFirstWithAttr(root, 'data-widget', 'hud-g')) {
+    throw new Error('hud-g should render nothing when VerticalG is missing');
+  }
+});
+
 test('G readout renders state.VerticalG with one decimal', () => {
   const root = renderInto(
     html`<${HudOverlay} state=${makeState({ VerticalG: 2.4 })} />`);

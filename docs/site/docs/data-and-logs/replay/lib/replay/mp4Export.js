@@ -208,16 +208,27 @@ function compositeFrame(ctx, videoSrc, overlays, W, H, rotationDeg = 0) {
     }
   }
   if (!overlays || overlays.length === 0) return;
-  ctx.save();
-  ctx.shadowColor   = 'rgba(0,0,0,0.7)';
-  ctx.shadowBlur    = Math.round(W * 0.006);
-  ctx.shadowOffsetY = Math.round(W * 0.0015);
+  // The corner-panel canvas shadow is sized for a ~22%-of-frame
+  // panel — its blur radius (W * 0.006) is calibrated against the
+  // panel's own line weight. Applied to a fullframe HUD it halos
+  // every tick and label as if they were the edge of a small image,
+  // producing a fringed look that pilots find distracting at 4K.
+  // The HUD widget legibility instead comes from the SVG's own
+  // styling; we draw fullframe overlays without the canvas shadow.
   for (const ov of overlays) {
     if (!ov || !ov.img) continue;
     const { x, y, w, h } = overlayPlacement(W, H, ov.position);
-    ctx.drawImage(ov.img, x, y, w, h);
+    if (ov.position === 'fullframe') {
+      ctx.drawImage(ov.img, x, y, w, h);
+    } else {
+      ctx.save();
+      ctx.shadowColor   = 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur    = Math.round(W * 0.006);
+      ctx.shadowOffsetY = Math.round(W * 0.0015);
+      ctx.drawImage(ov.img, x, y, w, h);
+      ctx.restore();
+    }
   }
-  ctx.restore();
 }
 
 // Derive the source video's display rotation from its tkhd matrix.
