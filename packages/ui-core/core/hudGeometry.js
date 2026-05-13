@@ -26,15 +26,15 @@ export const HUD_CY = HUD_H / 2;  // 540
 // doesn't carry efisMagHeading.
 
 export const HUD_TOP_Y               = 40;
-export const HUD_TOP_BOX_W           = 260;
-export const HUD_TOP_BOX_H           = 80;
+export const HUD_TOP_BOX_W           = 140;
+export const HUD_TOP_BOX_H           = 90;
 export const HUD_TOP_LABEL_FONT_SIZE = 24;
 export const HUD_TOP_VALUE_FONT_SIZE = 44;
 export const HUD_TOP_LABEL_PAD_X     = 18;
 export const HUD_TOP_VALUE_PAD_X     = 18;
-export const HUD_TOP_LEFT_X          = 60;                          // IAS
+export const HUD_TOP_LEFT_X          = 20;                          // IAS — pinned to frame
 export const HUD_TOP_CENTER_X        = HUD_CX - HUD_TOP_BOX_W / 2;  // MH
-export const HUD_TOP_RIGHT_X         = HUD_W - 60 - HUD_TOP_BOX_W;  // PALT
+export const HUD_TOP_RIGHT_X         = HUD_W - 20 - HUD_TOP_BOX_W;  // PALT — pinned to frame
 
 // ---------------------------------------------------------------------
 // Pitch ladder (yellow ticks at +/-10/+/-20/+/-30, white horizon line)
@@ -45,7 +45,7 @@ export const HUD_TOP_RIGHT_X         = HUD_W - 60 - HUD_TOP_BOX_W;  // PALT
 // rotates with -roll and translates with pitch — classic ADI.
 
 export const HUD_PITCH_PX_PER_DEG     = 18;
-export const HUD_HORIZON_HALF_W       = 540;  // shorter than full frame
+export const HUD_HORIZON_HALF_W       = 400;  // shorter than full frame; horizon stops well before the IAS/PALT corner boxes
 export const HUD_PITCH_TICK_HALF_W    = 110;
 export const HUD_HORIZON_STROKE       = 4;
 export const HUD_PITCH_TICK_STROKE    = 4;
@@ -118,8 +118,14 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // HUD_VVI_BAR_THRESHOLD fpm so the gauge sits still at idle.
 
 export const HUD_VVI_X               = HUD_W - 200;
-export const HUD_VVI_CY              = HUD_CY;
-export const HUD_VVI_HALF_H          = 380;
+// VVI centerline shifted up so the LOWER end of the bar clears the
+// bottom-right inset slot. Per overlayPlacement the inset's top edge
+// sits at roughly y = H − 0.030*H − 0.165*W ≈ 1080 − 32 − 317 ≈ 731.
+// With HUD_VVI_HALF_H = 220 a centerline at y = 480 puts the bottom
+// of the bar at y = 700, ~30 px clear of the inset. If the inset size
+// changes (overlayPlacement), revisit this so the bar still clears.
+export const HUD_VVI_CY              = 480;
+export const HUD_VVI_HALF_H          = 220;
 export const HUD_VVI_FULL_SCALE_FPM  = 2000;
 export const HUD_VVI_BAR_THRESHOLD   = 50;
 export const HUD_VVI_THRESHOLD       = 100;

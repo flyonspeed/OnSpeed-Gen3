@@ -2025,6 +2025,38 @@ export const ReplayPage = () => {
     downloadBlob(blob, `${base}_${suffix}.mp4`);
   }, [exportClipMp4, videoFiles]);
 
+  // Export the entire loaded video (single or multi-chapter) as a single
+  // MP4 with the current HUD + inset configuration. Synthesises a clip
+  // spanning [0, totalDuration] in video seconds, maps that back into
+  // clip startMs/endMs via the live sync anchor, and reuses
+  // exportClipMp4 — the same composite path used for per-clip exports.
+  const exportSortieMp4 = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || !syncReady || !sync || !log || !cppWireFrames || !mp4Available) {
+      return;
+    }
+    const duration = videoTimeline?.totalDurationSec ?? v.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    // videoSec -> logMs: logMs = sync.logTakeoffMs + (videoSec - sync.videoTakeoffSec) * 1000
+    const startMs = sync.logTakeoffMs - sync.videoTakeoffSec * 1000;
+    const endMs   = sync.logTakeoffMs + (duration - sync.videoTakeoffSec) * 1000;
+    const sortieClip = {
+      id:      'sortie',
+      label:   'sortie',
+      startMs,
+      endMs,
+    };
+    // Sentinel idx -1 marks this as the sortie export so existing
+    // per-clip UI keyed on `exportingClipIdx === i` ignores it. The
+    // toolbar reads exportingClipIdx != null for the cancel/progress
+    // panel which is what we want.
+    const blob = await exportClipMp4(sortieClip, -1);
+    if (!blob) return;
+    const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
+    downloadBlob(blob, `${base}_sortie.mp4`);
+  }, [exportClipMp4, syncReady, sync, log, cppWireFrames, mp4Available,
+      videoTimeline, videoFiles]);
+
   // Track batch-cancel separately from per-export cancel so a Cancel
   // click during "Export all" stops the whole sequence, not just the
   // current clip.
@@ -2531,6 +2563,7 @@ export const ReplayPage = () => {
               onScrubTo=${scrubVideoTo}
               onExport=${exportClipMp4AndDownload}
               onExportAll=${exportAllClipsMp4}
+              onExportSortie=${exportSortieMp4}
               onCancel=${cancelMp4Export}
               onExportOverlays=${exportOverlaysForClip}
               onCancelOverlays=${cancelOverlayExport}

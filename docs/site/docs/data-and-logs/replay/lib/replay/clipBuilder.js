@@ -159,6 +159,7 @@ export const ClipBuilder = ({
   onAddQuick,             // (durationSec)
   onExport,               // (clip)        — single-clip export (composite)
   onExportAll,            // ()            — sequential all-clips export
+  onExportSortie,         // ()            — full-video sortie export
   onCancel,               // ()            — cancel the running export
   onScrubTo,              // (videoSec)    — seek the live video
   // Mark-in/mark-out flow:
@@ -368,6 +369,17 @@ export const ClipBuilder = ({
                   title=${mp4Available ? '' : (mp4UnavailableTooltip || '')}
                   onClick=${onExportAll}>
             Export all
+          </button>`}
+
+        ${onExportSortie && html`
+          <button class="replay-btn"
+                  disabled=${disabled || !mp4Available ||
+                             exportingClipIdx != null || !syncReady}
+                  title=${mp4Available
+                    ? 'Export the entire loaded video as a single MP4 with the current HUD + inset configuration.'
+                    : (mp4UnavailableTooltip || '')}
+                  onClick=${onExportSortie}>
+            Export sortie
           </button>`}
       </div>
 
