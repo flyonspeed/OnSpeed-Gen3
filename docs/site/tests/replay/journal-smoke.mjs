@@ -153,6 +153,7 @@ const {
   upsertMark,
   upsertClipAnnotation,
   loadMarkAnnotations,
+  loadClipAnnotations,
 } = journal;
 
 // ---------------------------------------------------------------------
@@ -263,6 +264,30 @@ await test('clip annotations are independent of marks', async () => {
   assertEqual(r2.clips.length, 2);
   assertEqual(r2.clips[0].label, 'clip1');
   assertEqual(r2.marks[0].notes, 'updated');
+});
+
+await test('loadClipAnnotations returns overlay map keyed by clip id', async () => {
+  await upsertClipAnnotation('hash-I', 'clip-A', { label: 'go-around', notes: 'demo' });
+  await upsertClipAnnotation('hash-I', 'clip-B', { notes: 'turn 2' });
+  const ann = await loadClipAnnotations('hash-I');
+  assertEqual(ann['clip-A'].label, 'go-around');
+  assertEqual(ann['clip-A'].notes, 'demo');
+  assertEqual(ann['clip-B'].label, '');
+  assertEqual(ann['clip-B'].notes, 'turn 2');
+});
+
+await test('loadClipAnnotations returns empty object for unknown hash', async () => {
+  const ann = await loadClipAnnotations('nope-clip');
+  if (typeof ann !== 'object' || ann === null) throw new Error('expected object');
+  assertEqual(Object.keys(ann).length, 0);
+});
+
+await test('upsertClipAnnotation ignores invalid ids', async () => {
+  await upsertClipAnnotation('hash-J', '', { label: 'x' });
+  await upsertClipAnnotation('hash-J', null, { label: 'x' });
+  await upsertClipAnnotation('hash-J', 42, { label: 'x' });
+  const ann = await loadClipAnnotations('hash-J');
+  assertEqual(Object.keys(ann).length, 0);
 });
 
 // ---------------------------------------------------------------------
