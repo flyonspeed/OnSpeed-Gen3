@@ -57,7 +57,8 @@ import {
   exportOverlayOnly, isOverlayExportSupported, OVERLAY_MODE_ORDER,
   downloadBlob,
 } from '../replay/mp4Export.js';
-import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLabel }
+import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers,
+         buildClipFromMarkToNextMark, defaultClipLabel, newClipId }
   from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { useReplayJournal } from '../replay/journal.js';
@@ -859,10 +860,20 @@ export const ReplayPage = () => {
   // Restore persisted clips when the log digest resolves. Only seed
   // if the in-memory clip list is empty — never clobber clips the
   // user added before the digest came back.
+  //
+  // Clips persisted before Phase 3 lack `id`; backfill one so the
+  // journal-annotation layer has a stable key to address them. The
+  // backfilled id is fresh on each load (no UUID is recoverable from
+  // a label/timestamps alone), which is fine — annotations will simply
+  // start empty for legacy clips, matching the existing behavior.
   useEffect(() => {
     if (!persistence.digestReady) return;
     if (!persistence.storedClips || !persistence.storedClips.length) return;
-    setClips(prev => prev.length === 0 ? persistence.storedClips : prev);
+    setClips(prev => {
+      if (prev.length !== 0) return prev;
+      return persistence.storedClips.map(c =>
+        c && typeof c.id === 'string' && c.id ? c : { ...c, id: newClipId() });
+    });
   }, [persistence.digestReady, persistence.storedClips]);
 
   // Persist clips on every change. Gated on digestReady — see the
@@ -1680,6 +1691,17 @@ export const ReplayPage = () => {
     if (clip) setClips(prev => [...prev, clip]);
   };
 
+  // Add a clip spanning this DataMark to the next one. Uses log times
+  // directly — no sync round-trip needed. The DataMark panel computes
+  // `nextMark` from the sorted marks array, so the caller knows up
+  // front whether a next-mark exists (button is disabled otherwise).
+  const addClipFromMarkToNextMark = (thisMark, nextMark) => {
+    if (!thisMark || !nextMark) return;
+    const label = `mark ${thisMark.label} → mark ${nextMark.label}`;
+    const clip = buildClipFromMarkToNextMark(thisMark, nextMark, label);
+    if (clip) setClips(prev => [...prev, clip]);
+  };
+
   // Add the current playhead as a clip start, with a default
   // 30-second window. Pilot can edit either edge in the row.
   const addClipFromPlayhead = (durationSec = 30) => {
@@ -2336,6 +2358,7 @@ export const ReplayPage = () => {
                 markAnnotations=${journal.markAnnotations}
                 onJump=${jumpToMark}
                 onClip=${addClipFromMark}
+                onClipToNext=${addClipFromMarkToNextMark}
                 onPatchAnnotation=${journal.upsertMarkAnnotation} />`}
 
           <${ClipBuilder}
@@ -2371,7 +2394,12 @@ export const ReplayPage = () => {
               overlayModeOrder=${OVERLAY_MODE_ORDER}
               overlaySize=${overlaySize}
               onChangeOverlaySize=${setOverlaySize}
-              getCurrentVideoSec=${currentGlobalSec} />
+              getCurrentVideoSec=${currentGlobalSec}
+              clipAnnotations=${journal.clipAnnotations}
+              onPatchClipAnnotation=${journal.upsertClipAnnotation}
+              marks=${marks}
+              markAnnotations=${journal.markAnnotations}
+              onJumpToMark=${jumpToMark} />
         </footer>
       </div>`;
 };

@@ -19,7 +19,28 @@
 // what the parent hands it. Keeps the rendering pure: same props,
 // same DOM, no internal effects.
 
-import { html, useState } from '../../../../packages/ui-core/vendor/preact-standalone.js';
+import { html, useState, useEffect, useRef }
+  from '../../../../packages/ui-core/vendor/preact-standalone.js';
+import { marksWithinClip } from './clipContains.js';
+
+// Debounce window for IDB writes from clip notes — matches the value
+// used in DataMarkPanel. Long enough that a typing burst flushes once;
+// short enough that a glance-away-and-back finds the row saved.
+const CLIP_SAVE_DEBOUNCE_MS = 500;
+
+// Stable per-clip identity for journal annotations. UUID-v4 via the
+// platform crypto API where available; falls back to a high-entropy
+// pseudo-random string for the (rare) test/node-runtime where it
+// isn't. Tests don't actually round-trip the value through the journal
+// layer, so the fallback only needs to be sortably-unique.
+export function newClipId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const t = Date.now().toString(36);
+  const r = Math.random().toString(36).slice(2, 10);
+  return `clip-${t}-${r}`;
+}
 
 // Map a log timestamp (ms) to a video time (seconds). Inlined here
 // rather than imported from dataMarks so the module has no replay
@@ -58,7 +79,7 @@ export function buildClipFromPlayhead(videoSec, durationSec, sync, label) {
   if (!Number.isFinite(videoSec)) return null;
   const startMs = sync.logTakeoffMs + (videoSec - sync.videoTakeoffSec) * 1000;
   const endMs   = startMs + durationSec * 1000;
-  return { startMs, endMs, label: label || '' };
+  return { id: newClipId(), startMs, endMs, label: label || '' };
 }
 
 // Build a clip from explicit in/out video times. Used by the mark-in /
@@ -71,7 +92,20 @@ export function buildClipFromMarkers(inVideoSec, outVideoSec, sync, label) {
   if (outVideoSec <= inVideoSec) return null;
   const startMs = sync.logTakeoffMs + (inVideoSec  - sync.videoTakeoffSec) * 1000;
   const endMs   = sync.logTakeoffMs + (outVideoSec - sync.videoTakeoffSec) * 1000;
-  return { startMs, endMs, label: label || '' };
+  return { id: newClipId(), startMs, endMs, label: label || '' };
+}
+
+// Build a clip spanning two DataMarks. Used by the per-DataMark
+// "Clip → next" button. Caller supplies both marks; we copy the log
+// times directly (no sync round-trip needed — DataMark logTimeMs is
+// already in the log timeline).
+export function buildClipFromMarkToNextMark(thisMark, nextMark, label) {
+  if (!thisMark || !nextMark) return null;
+  const startMs = thisMark.logTimeMs;
+  const endMs   = nextMark.logTimeMs;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  if (endMs <= startMs) return null;
+  return { id: newClipId(), startMs, endMs, label: label || '' };
 }
 
 // Mutate one clip in the list immutably, copying everything else.
@@ -139,6 +173,18 @@ export const ClipBuilder = ({
   // Forwarded to each row so Set-in-here / Set-out-here resolve to a
   // global timeline-second across multi-chapter playback.
   getCurrentVideoSec,
+  // Journal annotations for clips — { [id]: { label, notes, updatedAt } }.
+  // The journal layer is the source of truth for clip label + notes;
+  // the in-memory clip carries startMs/endMs + id. Optional: when
+  // omitted, rows still render with just the in-memory label.
+  clipAnnotations,
+  onPatchClipAnnotation,  // (id, patch) — emits to useReplayJournal.upsertClipAnnotation
+  // DataMarks (sorted by logTimeMs) for the "Contains:" inline list
+  // shown in expanded clip rows. Mark name overlay lets each entry
+  // render its pilot-given name when one exists.
+  marks,
+  markAnnotations,
+  onJumpToMark,           // (logTimeMs) — seek the live video to a mark
 }) => {
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
@@ -318,6 +364,11 @@ export const ClipBuilder = ({
                 videoEl=${videoEl}
                 disabled=${disabled}
                 isExporting=${exportingClipIdx === i}
+                annotation=${c.id && clipAnnotations ? clipAnnotations[c.id] : null}
+                marks=${marks}
+                markAnnotations=${markAnnotations}
+                onJumpToMark=${onJumpToMark}
+                onPatchAnnotation=${onPatchClipAnnotation}
                 onScrubTo=${onScrubTo}
                 onPatch=${(patch) => {
                   const next = validateClipEdit(c, patch);
@@ -336,17 +387,70 @@ export const ClipBuilder = ({
 //
 // Each clip row shows: editable label, formatted in/out times,
 // duration, scrub buttons, set-in-here/set-out-here buttons, export
-// button (or progress widget), delete button.
+// button (or progress widget), delete button. Expanding the row
+// reveals a Notes textarea + an inline "Contains:" line listing the
+// DataMarks whose logTimeMs falls inside the clip range.
 const ClipRow = ({
   clip, index, sync, videoEl, disabled,
   isExporting,
+  annotation,             // { label, notes, updatedAt } from journal, or null
+  marks,                  // sorted DataMarks for the "Contains:" inline list
+  markAnnotations,        // mark-name overlay map (keyed by value:logTimeMs)
+  onJumpToMark,           // (logTimeMs) — seek the video to a mark
+  onPatchAnnotation,      // (id, patch) — emits to journal upsert
   onScrubTo, onPatch, onRemove, renderExport, renderOverlayExport,
   // Multi-chapter playback wants the global timeline-second, not the
   // raw videoEl.currentTime. Function-style prop so each click reads
   // a fresh value rather than a render-time snapshot.
   getCurrentVideoSec,
 }) => {
-  const [labelDraft, setLabelDraft] = useState(clip.label || '');
+  // Display label: journal annotation wins over the in-memory clip's
+  // initial label. Edits feed BOTH: the in-memory clip (so existing
+  // localStorage persistence + MP4 export filenames see fresh labels)
+  // AND the journal (the cross-session source of truth).
+  const effectiveLabel = annotation?.label != null && annotation.label !== ''
+    ? annotation.label
+    : (clip.label || '');
+  const [labelDraft, setLabelDraft] = useState(effectiveLabel);
+  const [notesDraft, setNotesDraft] = useState(annotation?.notes || '');
+  const [expanded, setExpanded] = useState(false);
+  const debounceRef = useRef(null);
+
+  // Reseed local state when the underlying annotation row changes from
+  // outside (a fresh log load swaps the whole clipAnnotations map).
+  // Guarded on updatedAt so an in-flight edit isn't clobbered by the
+  // local-state echo of the same change.
+  useEffect(() => {
+    setLabelDraft(effectiveLabel);
+    setNotesDraft(annotation?.notes || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [annotation?.updatedAt, clip.id]);
+
+  // Flush any pending debounce on unmount so the last keystroke
+  // doesn't get stuck in a timer.
+  useEffect(() => () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+  }, []);
+
+  const scheduleSaveAnnotation = (patch) => {
+    if (!clip.id || typeof onPatchAnnotation !== 'function') return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      onPatchAnnotation(clip.id, patch);
+    }, CLIP_SAVE_DEBOUNCE_MS);
+  };
+  const flushNowAnnotation = (patch) => {
+    if (!clip.id || typeof onPatchAnnotation !== 'function') return;
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    onPatchAnnotation(clip.id, patch);
+  };
 
   const startSec = logMsToVideoSec(clip.startMs, sync);
   const endSec   = logMsToVideoSec(clip.endMs,   sync);
@@ -384,61 +488,116 @@ const ClipRow = ({
     onPatch({ endMs: newEndMs });
   };
 
-  // Commit the label draft on blur or Enter. Avoids a per-keystroke
-  // setState dispatch into the parent clips array.
+  // Commit the label draft on blur or Enter. Writes to both the
+  // in-memory clip (export filenames + localStorage) and the journal
+  // annotation (cross-session truth).
   const commitLabel = () => {
-    if ((clip.label || '') !== labelDraft) {
-      onPatch({ label: labelDraft });
-    }
+    if ((effectiveLabel || '') === labelDraft) return;
+    onPatch({ label: labelDraft });
+    flushNowAnnotation({ label: labelDraft });
   };
 
+  const contained = marks ? marksWithinClip(clip, marks) : [];
+  const hasNotes = !!(annotation && (annotation.label || annotation.notes));
+
+  const rowClass = 'replay-clip-row' +
+    (isExporting ? ' is-exporting' : '') +
+    (expanded ? ' is-expanded' : '') +
+    (hasNotes ? ' replay-clip-has-notes' : '');
+
   return html`
-    <div class=${'replay-clip-row' + (isExporting ? ' is-exporting' : '')}>
-      <input class="replay-clip-label-input"
-             type="text"
-             value=${labelDraft}
-             placeholder=${`clip ${String(index + 1).padStart(2, '0')}`}
-             disabled=${disabled || isExporting}
-             onInput=${(e) => setLabelDraft(e.target.value)}
-             onBlur=${commitLabel}
-             onKeyDown=${(e) => {
-               if (e.key === 'Enter') { e.preventDefault(); commitLabel(); }
-               if (e.key === 'Escape') { setLabelDraft(clip.label || ''); }
-             }} />
+    <div class=${rowClass}>
+      <div class="replay-clip-row-head">
+        <span class="replay-mark-disclosure"
+              onClick=${() => setExpanded(e => !e)}
+              role="button"
+              aria-label=${expanded ? 'Collapse' : 'Expand'}>
+          ${expanded ? '▾' : '▸'}
+        </span>
+        <input class="replay-clip-label-input"
+               type="text"
+               value=${labelDraft}
+               placeholder=${`clip ${String(index + 1).padStart(2, '0')}`}
+               disabled=${disabled || isExporting}
+               onInput=${(e) => setLabelDraft(e.target.value)}
+               onBlur=${commitLabel}
+               onKeyDown=${(e) => {
+                 if (e.key === 'Enter') { e.preventDefault(); commitLabel(); }
+                 if (e.key === 'Escape') { setLabelDraft(effectiveLabel); }
+               }} />
+        ${hasNotes
+          ? html`<span class="replay-mark-dot" aria-label="has notes">•</span>`
+          : null}
 
-      <span class="replay-mark-time">
-        ${Number.isFinite(startSec) ? formatHms(startSec) : '—'}
-        → ${Number.isFinite(endSec) ? formatHms(endSec) : '—'}
-        · ${spanSec.toFixed(1)} s
-      </span>
+        <span class="replay-mark-time">
+          ${Number.isFinite(startSec) ? formatHms(startSec) : '—'}
+          → ${Number.isFinite(endSec) ? formatHms(endSec) : '—'}
+          · ${spanSec.toFixed(1)} s
+        </span>
 
-      <span class="replay-spacer"></span>
+        <span class="replay-spacer"></span>
 
-      <button class="replay-btn-ghost"
-              disabled=${disabled || isExporting || !Number.isFinite(startSec)}
-              title="Seek video to this clip's start"
-              onClick=${() => Number.isFinite(startSec) && onScrubTo(startSec)}>
-        Scrub
-      </button>
-      <button class="replay-btn-ghost"
-              disabled=${disabled || isExporting}
-              title="Move this clip's start to the current playhead"
-              onClick=${setInHere}>
-        Set in here
-      </button>
-      <button class="replay-btn-ghost"
-              disabled=${disabled || isExporting}
-              title="Move this clip's end to the current playhead"
-              onClick=${setOutHere}>
-        Set out here
-      </button>
+        <button class="replay-btn-ghost"
+                disabled=${disabled || isExporting || !Number.isFinite(startSec)}
+                title="Seek video to this clip's start"
+                onClick=${() => Number.isFinite(startSec) && onScrubTo(startSec)}>
+          Scrub
+        </button>
+        <button class="replay-btn-ghost"
+                disabled=${disabled || isExporting}
+                title="Move this clip's start to the current playhead"
+                onClick=${setInHere}>
+          Set in here
+        </button>
+        <button class="replay-btn-ghost"
+                disabled=${disabled || isExporting}
+                title="Move this clip's end to the current playhead"
+                onClick=${setOutHere}>
+          Set out here
+        </button>
 
-      ${renderExport()}
-      ${renderOverlayExport ? renderOverlayExport() : null}
+        ${renderExport()}
+        ${renderOverlayExport ? renderOverlayExport() : null}
 
-      <button class="replay-btn-ghost"
-              disabled=${disabled || isExporting}
-              title="Delete this clip"
-              onClick=${onRemove}>×</button>
+        <button class="replay-btn-ghost"
+                disabled=${disabled || isExporting}
+                title="Delete this clip"
+                onClick=${onRemove}>×</button>
+      </div>
+      ${expanded && html`
+        <div class="replay-clip-expanded">
+          ${contained.length > 0 && html`
+            <div class="replay-clip-contains">
+              <span class="replay-clip-contains-label">Contains</span>
+              ${contained.map((m, i) => {
+                const ann = markAnnotations
+                  ? markAnnotations[String(m.value) + ':' + String(m.logTimeMs)]
+                  : null;
+                const display = ann?.name
+                  ? `${ann.name} (mark ${m.label})`
+                  : `mark ${m.label}`;
+                return html`
+                  ${i > 0 ? html`<span class="replay-clip-contains-sep">·</span>` : null}
+                  <button class="replay-clip-contains-link"
+                          onClick=${() => onJumpToMark && onJumpToMark(m.logTimeMs)}
+                          title="Jump video to this mark">
+                    ${display}
+                  </button>`;
+              })}
+            </div>`}
+          <label class="replay-mark-field">
+            <span>Notes</span>
+            <textarea rows="3"
+                      value=${notesDraft}
+                      placeholder="What happened in this clip…"
+                      disabled=${!clip.id}
+                      onInput=${e => {
+                        const v = e.target.value;
+                        setNotesDraft(v);
+                        scheduleSaveAnnotation({ notes: v });
+                      }}
+                      onBlur=${() => flushNowAnnotation({ notes: notesDraft })}></textarea>
+          </label>
+        </div>`}
     </div>`;
 };

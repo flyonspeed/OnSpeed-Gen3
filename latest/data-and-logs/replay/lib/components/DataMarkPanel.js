@@ -40,7 +40,7 @@ function formatHms(sec) {
 }
 
 function MarkRow({ mark, annotation, sync, disabled, videoDuration,
-                   onJump, onClip, onPatch }) {
+                   nextMark, onJump, onClip, onClipToNext, onPatch }) {
   const [expanded, setExpanded] = useState(false);
   // Local edit state: typed-but-not-yet-saved values. Reseeds from
   // the annotation overlay whenever the underlying overlay changes
@@ -124,6 +124,14 @@ function MarkRow({ mark, annotation, sync, disabled, videoDuration,
                 onClick=${e => { e.stopPropagation(); onClip(mark, 30); }}>Clip 30 s</button>
         <button class="replay-btn" disabled=${disabled || !inRange}
                 onClick=${e => { e.stopPropagation(); onClip(mark, 60); }}>Clip 60 s</button>
+        <button class="replay-btn"
+                disabled=${disabled || !nextMark}
+                title=${nextMark
+                  ? `Clip from this mark to mark ${nextMark.label}`
+                  : 'no next mark'}
+                onClick=${e => { e.stopPropagation(); onClipToNext && onClipToNext(mark, nextMark); }}>
+          Clip → next
+        </button>
       </div>
       ${expanded && html`
         <div class="replay-mark-expanded">
@@ -157,7 +165,8 @@ function MarkRow({ mark, annotation, sync, disabled, videoDuration,
 
 export const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
                                 markAnnotations,
-                                onJump, onClip, onPatchAnnotation }) => {
+                                onJump, onClip, onClipToNext,
+                                onPatchAnnotation }) => {
   if (!marks || marks.length === 0) return null;
   return html`
     <div class="replay-marks">
@@ -166,15 +175,17 @@ export const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
         <span class="replay-status">${marks.length}</span>
       </div>
       <div class="replay-marks-list">
-        ${marks.map(m => html`<${MarkRow}
+        ${marks.map((m, i) => html`<${MarkRow}
               key=${markKey(m.value, m.logTimeMs)}
               mark=${m}
               annotation=${markAnnotations ? markAnnotations[markKey(m.value, m.logTimeMs)] : null}
               sync=${sync}
               disabled=${disabled}
               videoDuration=${videoDuration}
+              nextMark=${i + 1 < marks.length ? marks[i + 1] : null}
               onJump=${onJump}
               onClip=${onClip}
+              onClipToNext=${onClipToNext}
               onPatch=${onPatchAnnotation} />`)}
       </div>
     </div>`;

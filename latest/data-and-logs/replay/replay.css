@@ -359,7 +359,8 @@
   border-radius: 3px;
   font-size: 13px;
 }
-.replay-mark-row {
+.replay-mark-row,
+.replay-clip-row {
   /* Row stacks: head (always visible) + expanded editor (toggled).
      Switching to a column lets the editor sit under the head while
      the head retains its horizontal flex layout via .row-head. */
@@ -367,7 +368,8 @@
   align-items: stretch;
   gap: 6px;
 }
-.replay-mark-row.is-expanded {
+.replay-mark-row.is-expanded,
+.replay-clip-row.is-expanded {
   background: #2a343c;
   outline: 1px solid #3a4654;
 }
@@ -377,6 +379,19 @@
   gap: 8px;
   cursor: pointer;
   user-select: none;
+}
+.replay-clip-row-head {
+  /* Clip-row head is horizontally flex like the mark-row head, but
+     the disclosure triangle is the only click-to-toggle surface — the
+     label input and buttons handle their own clicks. So no cursor:
+     pointer at the head level. */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.replay-clip-row-head .replay-mark-disclosure {
+  cursor: pointer;
 }
 .replay-mark-disclosure {
   color: #7dd3fc;
@@ -455,6 +470,46 @@
   font-size: 12px;
   font-style: italic;
   padding: 4px 0;
+}
+/* Expanded clip-row layout mirrors .replay-mark-expanded so the two
+   journal surfaces feel like one family. */
+.replay-clip-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 22px 4px;
+}
+.replay-clip-contains {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: #a8b3bd;
+}
+.replay-clip-contains-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a8b3bd;
+}
+.replay-clip-contains-sep {
+  color: #4a5662;
+}
+.replay-clip-contains-link {
+  /* Clickable mark name. Renders as a quiet button — same color as
+     the mark label in the data-marks panel, underline on hover so the
+     pilot reads it as a hyperlink. */
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  color: #7dd3fc;
+  cursor: pointer;
+}
+.replay-clip-contains-link:hover {
+  text-decoration: underline;
 }
 
 .replay-recent-banner {
