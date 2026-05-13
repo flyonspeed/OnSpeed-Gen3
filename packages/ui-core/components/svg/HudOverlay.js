@@ -1,13 +1,8 @@
 // HudOverlay.js — full-frame HUD as a pure render layer.
 //
-// The HUD reuses the M5 attitude indicator components (HorizonLine,
-// PitchLadder, BankArc, AircraftSymbol, FlightPathMarker) scaled up
-// to the 1920x1080 reference frame. The inset's horizon center
-// (MODE1_HORIZON_CX, MODE1_HORIZON_CY) is mapped to the HUD center
-// (HUD_CX, HUD_CY) at 3x via a single nested <g transform>, so the
-// inset's geometry is one source of truth across the inset and HUD.
-//
-// Around the central ADI:
+// FlySto-style attitude indicator rendered directly at 1920x1080:
+// pitch ladder + bank arc + flight-path marker, no airspeed/altimeter
+// tapes. Around the central ADI:
 //   - Three top boxed readouts (IAS / MH / PALT). MH is only rendered
 //     when the caller passes a finite magneticHeading prop (logs that
 //     don't carry efisMagHeading get no MH box).
@@ -15,21 +10,21 @@
 //   - The existing SlipBall at bottom-center.
 //
 // `pitchOffsetDeg` is a per-flight camera-misalignment compensator —
-// it adds to pitch for the horizon line + pitch ladder ONLY. The FPM
-// stays on raw pitch because the camera offset doesn't change the
-// airframe's actual flight-path-vs-airframe relationship; it only
-// shifts where the rendered horizon needs to land to match the
-// cockpit's visible horizon. State shape: the canonical M5State from
+// it adds to pitch for the pitch ladder ONLY. The FPM stays on raw
+// pitch because the camera offset doesn't change the airframe's
+// actual flight-path-vs-airframe relationship; it only shifts where
+// the rendered horizon needs to land to match the cockpit's visible
+// horizon. State shape: the canonical M5State from
 // packages/ui-core/state-shape.js.
 
 import { html } from '../../vendor/preact-standalone.js';
 import * as H from '../../core/hudGeometry.js';
-import * as G from '../../core/geometry.js';
-import {
-  HorizonLine, PitchLadder, BankArc, AircraftSymbol, FlightPathMarker, SlipBall,
-} from './index.js';
+import { SlipBall } from './index.js';
 import { HudTopReadout } from './hud/TopReadout.js';
 import { HudVviTrend } from './hud/VviTrend.js';
+import { HudPitchLadder } from './hud/PitchLadder.js';
+import { HudBankArc } from './hud/BankArc.js';
+import { HudFpm } from './hud/Fpm.js';
 
 // MH is rendered as a zero-padded 3-digit value (0..359) so a magnetic
 // heading of 7° reads "007" — same convention as a panel HSI.
@@ -45,13 +40,6 @@ export const HudOverlay = ({ state, pitchOffsetDeg = 0, magneticHeading = null }
   const roll  = Number.isFinite(state.Roll)  ? state.Roll  : 0;
   const fpDeg = Number.isFinite(state.FlightPath) ? state.FlightPath : pitch;
   const showMh = Number.isFinite(magneticHeading);
-
-  // Scale-and-recenter the inset's ADI: map the inset's
-  // (MODE1_HORIZON_CX, MODE1_HORIZON_CY) origin to the HUD center at
-  // 3x. The compose order is: translate to HUD center, scale, then
-  // translate the inset origin back to (0, 0).
-  const scaleTransform =
-    `translate(${H.HUD_CX} ${H.HUD_CY}) scale(3) translate(${-G.MODE1_HORIZON_CX} ${-G.MODE1_HORIZON_CY})`;
 
   // Inline drop-shadow filter so the rasterized MP4 export gets the
   // same legibility halo as the live page. replay.css applies a CSS
@@ -81,14 +69,9 @@ export const HudOverlay = ({ state, pitchOffsetDeg = 0, magneticHeading = null }
         <${HudTopReadout} label="PALT" value=${altValue}
                           x=${H.HUD_TOP_RIGHT_X}  y=${H.HUD_TOP_Y} />
 
-        <g transform=${scaleTransform}
-           style="vector-effect: non-scaling-stroke">
-          <${HorizonLine}        pitchDeg=${pitch + offset} rollDeg=${roll} />
-          <${PitchLadder}        pitchDeg=${pitch + offset} rollDeg=${roll} />
-          <${BankArc}            rollDeg=${roll} />
-          <${AircraftSymbol} />
-          <${FlightPathMarker}   pitchDeg=${pitch} flightPathDeg=${fpDeg} />
-        </g>
+        <${HudPitchLadder} pitchDeg=${pitch + offset} rollDeg=${roll} />
+        <${HudBankArc}     rollDeg=${roll} />
+        <${HudFpm}         pitchDeg=${pitch} flightPathDeg=${fpDeg} />
 
         <${HudVviTrend} vsiFpm=${state.iVSI ?? 0} />
 
