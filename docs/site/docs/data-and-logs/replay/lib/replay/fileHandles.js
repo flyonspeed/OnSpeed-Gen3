@@ -271,6 +271,26 @@ export async function queryPermissionForHandles(handles) {
   return results.every(r => r === 'granted');
 }
 
+// Same as queryPermissionForHandles but returns a per-slot breakdown.
+// Used by the ?debug=1 diagnostic path so the pilot can see which slot
+// is blocking auto-resume (e.g. cfg granted but video stuck on 'prompt'
+// because the directory handle came from a different gesture).
+export async function queryPermissionPerSlot(handles) {
+  if (!handles) return [];
+  const slots = ['video', 'log', 'cfg'];
+  return Promise.all(slots.map(async slot => {
+    const target = permissionTarget(handles[slot]);
+    if (!target) return { slot, present: false, result: 'granted' };
+    if (typeof target.queryPermission !== 'function') {
+      return { slot, present: true, result: 'unsupported' };
+    }
+    let result = 'prompt';
+    try { result = await target.queryPermission({ mode: 'read' }); }
+    catch (e) { result = 'error:' + (e && e.name); }
+    return { slot, present: true, result };
+  }));
+}
+
 // Walk a stored multi-chapter envelope: re-open the directory handle's
 // entries, match against the persisted chapter-name list, return the
 // ordered file + handle arrays. Permission must already be granted on
@@ -352,8 +372,20 @@ export function useFileHandleResume({ recentFilesSig }) {
   const [used, setUsed] = useState(false);
 
   useEffect(() => {
-    if (!supported) return;
+    const debug = typeof window !== 'undefined' &&
+                  new URLSearchParams(window.location.search).get('debug') === '1';
+    if (!supported) {
+      if (debug) console.log('fileHandles autoResume diag', {
+        stage: 'unsupported',
+        note: 'File System Access API not available in this browser',
+      });
+      return;
+    }
     if (!recentFilesSig) {
+      if (debug) console.log('fileHandles autoResume diag', {
+        stage: 'no-sig',
+        note: 'no recent-files signature yet — open a log to establish one',
+      });
       setAvailableHandles(null);
       setPermGranted(false);
       return;
@@ -362,22 +394,53 @@ export function useFileHandleResume({ recentFilesSig }) {
     loadHandles(recentFilesSig).then(async h => {
       if (cancelled) return;
       setAvailableHandles(h);
-      if (!h) { setPermGranted(false); return; }
+      if (!h) {
+        if (debug) console.log('fileHandles autoResume diag', {
+          stage: 'no-handles',
+          sig: recentFilesSig,
+          note: 'no stored handles for this log signature — open files manually first',
+        });
+        setPermGranted(false);
+        return;
+      }
       // queryPermission does not require a user gesture, so it is safe
       // to call here from the mount-time effect.
       let ok = false;
-      try { ok = await queryPermissionForHandles(h); }
-      catch { ok = false; }
+      try {
+        if (debug) {
+          const perSlot = await queryPermissionPerSlot(h);
+          ok = perSlot.every(s => s.result === 'granted');
+          // eslint-disable-next-line no-console
+          console.log('fileHandles autoResume diag', {
+            stage: 'queried', sig: recentFilesSig, perSlot, ok,
+          });
+        } else {
+          ok = await queryPermissionForHandles(h);
+        }
+      } catch (e) {
+        if (debug) console.log('fileHandles autoResume diag', {
+          stage: 'query-error', err: String(e),
+        });
+        ok = false;
+      }
       if (!cancelled) setPermGranted(ok);
-    }).catch(() => {
+    }).catch((e) => {
+      if (debug) console.log('fileHandles autoResume diag', {
+        stage: 'load-error', err: String(e),
+      });
       if (!cancelled) { setAvailableHandles(null); setPermGranted(false); }
     });
     return () => { cancelled = true; };
   }, [supported, recentFilesSig]);
 
+  // Dismiss hides the resume UI for the rest of this session. We
+  // intentionally do NOT clearHandles() here — file handles are the
+  // auto-resume backbone, and the recent-files banner that triggers
+  // this dismiss is a separate concern (visual decluttering). Wiping
+  // handles on dismiss strands users who dismiss the banner once and
+  // then never see their files come back automatically.
   const dismiss = useCallback(() => {
     setDismissed(true);
-    clearHandles();
   }, []);
 
   const markUsed = useCallback(() => {

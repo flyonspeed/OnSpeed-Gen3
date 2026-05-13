@@ -28,6 +28,16 @@ import { marksWithinClip } from './clipContains.js';
 // short enough that a glance-away-and-back finds the row saved.
 const CLIP_SAVE_DEBOUNCE_MS = 500;
 
+const CLIP_COLLAPSE_KEY = 'replay-clips-collapsed-v1';
+
+function readClipCollapsed() {
+  try { return localStorage.getItem(CLIP_COLLAPSE_KEY) === '1'; }
+  catch { return false; }
+}
+function writeClipCollapsed(v) {
+  try { localStorage.setItem(CLIP_COLLAPSE_KEY, v ? '1' : '0'); } catch {}
+}
+
 // Stable per-clip identity for journal annotations. UUID-v4 via the
 // platform crypto API where available; falls back to a high-entropy
 // pseudo-random string for the (rare) test/node-runtime where it
@@ -186,6 +196,10 @@ export const ClipBuilder = ({
   markAnnotations,
   onJumpToMark,           // (logTimeMs) — seek the live video to a mark
 }) => {
+  const [collapsed, setCollapsed] = useState(readClipCollapsed());
+  const toggleCollapsed = () => {
+    setCollapsed(c => { writeClipCollapsed(!c); return !c; });
+  };
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
         <button class="replay-btn-ghost" onClick=${onCancelMark} disabled=${disabled}>
@@ -302,9 +316,18 @@ export const ClipBuilder = ({
   };
 
   return html`
-    <div class="replay-clips">
+    <div class="replay-clips${collapsed ? ' is-collapsed' : ''}">
       <div class="replay-clips-header">
-        <span class="replay-label">Clips</span>
+        <span class="replay-section-disclosure"
+              role="button"
+              tabindex="0"
+              title=${collapsed ? 'Expand clips' : 'Collapse clips'}
+              onClick=${toggleCollapsed}
+              onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(); }}}>
+          ${collapsed ? '▸' : '▾'}
+        </span>
+        <span class="replay-label replay-clips-label-clickable"
+              onClick=${toggleCollapsed}>Clips</span>
         <span class="replay-status">${clips.length}</span>
         <span class="replay-spacer"></span>
 
@@ -348,9 +371,9 @@ export const ClipBuilder = ({
           </button>`}
       </div>
 
-      ${renderOverlayModePicker()}
+      ${collapsed ? null : renderOverlayModePicker()}
 
-      ${clips.length === 0
+      ${collapsed ? null : (clips.length === 0
         ? html`<div class="replay-clips-empty">
             no clips yet — scrub to a moment, click "+ 30 s" / "+ 60 s" or
             "Mark clip in" → "Mark clip out".
@@ -379,7 +402,7 @@ export const ClipBuilder = ({
                 renderOverlayExport=${() => renderOverlayControls(c, i)}
                 getCurrentVideoSec=${getCurrentVideoSec} />
             `)}
-          </div>`}
+          </div>`)}
     </div>`;
 };
 

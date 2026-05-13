@@ -336,6 +336,26 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+/* DataMarkPanel collapses on header click — show pointer over the
+   whole bar; ClipBuilder only collapses on the disclosure/label
+   because the bar carries action buttons that should still respond
+   when expanded. */
+.replay-section-header {
+  cursor: pointer;
+  user-select: none;
+}
+.replay-section-disclosure {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  color: #8aa;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-clips-label-clickable {
+  cursor: pointer;
+  user-select: none;
+}
 .replay-marks-list,
 .replay-clips-list {
   display: flex;
