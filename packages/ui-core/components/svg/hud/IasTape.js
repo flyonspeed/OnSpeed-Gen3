@@ -127,6 +127,12 @@ export const HudIasTape = ({ iasKt = 0 }) => {
 
   const boxPath = buildBoxPath();
   const clipId = 'hud-ias-readout-clip';
+  // Clip the tick column to the visible vertical window so the ±15 ticks
+  // (spanning ±562 px at 37.5 px per 5 kt) don't bleed past the
+  // HUD_IAS_HALF_H = ±220 frame and make the tape appear taller than
+  // the ALT tape. Without this clip the IAS rendered 31 ticks past its
+  // visible window.
+  const tickClipId = 'hud-ias-tick-clip';
 
   // Stationary tens digits anchored on the LEFT half of the box
   // (closest to the outer edge, farthest from the right-side arrow
@@ -144,10 +150,28 @@ export const HudIasTape = ({ iasKt = 0 }) => {
         <clipPath id=${clipId}>
           <path d=${boxPath} />
         </clipPath>
+        <clipPath id=${tickClipId}>
+          <rect x=${H.HUD_IAS_BACKING_X}
+                y=${H.HUD_IAS_BACKING_Y}
+                width=${H.HUD_IAS_BACKING_W}
+                height=${H.HUD_IAS_BACKING_H} />
+        </clipPath>
       </defs>
 
-      <!-- ticks + labels (drawn first so the box sits on top) -->
-      ${ticks}
+      <!-- Semi-transparent dark backing for legibility on busy video -->
+      <rect x=${H.HUD_IAS_BACKING_X}
+            y=${H.HUD_IAS_BACKING_Y}
+            width=${H.HUD_IAS_BACKING_W}
+            height=${H.HUD_IAS_BACKING_H}
+            rx=${H.HUD_IAS_BACKING_RX}
+            ry=${H.HUD_IAS_BACKING_RX}
+            fill=${H.HUD_IAS_BACKING_FILL} />
+
+      <!-- ticks + labels (drawn first so the box sits on top, clipped
+           to the visible window so off-screen ticks don't render) -->
+      <g clip-path="url(#${tickClipId})">
+        ${ticks}
+      </g>
 
       <!-- Garmin readout box -->
       <path d=${boxPath}

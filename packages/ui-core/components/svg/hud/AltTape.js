@@ -122,6 +122,11 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
 
   const boxPath = buildBoxPath();
   const clipId = 'hud-alt-readout-clip';
+  // Clip the tick column to the visible vertical window so the ±15 ticks
+  // (spanning ±225 px) don't bleed past the HUD_ALT_HALF_H = ±220 frame.
+  // Uses the same x-extent as the backing strip plus a generous label
+  // overrun so wider numeric labels (e.g. "12340") stay visible.
+  const tickClipId = 'hud-alt-tick-clip';
 
   // Stationary thousands+hundreds digits anchored on the LEFT half of
   // the box (closest to the arrow tab); sliding tens strip anchored to
@@ -137,10 +142,28 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
         <clipPath id=${clipId}>
           <path d=${boxPath} />
         </clipPath>
+        <clipPath id=${tickClipId}>
+          <rect x=${H.HUD_ALT_BACKING_X}
+                y=${H.HUD_ALT_BACKING_Y}
+                width=${H.HUD_ALT_BACKING_W}
+                height=${H.HUD_ALT_BACKING_H} />
+        </clipPath>
       </defs>
 
-      <!-- ticks + labels (drawn first so the box sits on top) -->
-      ${ticks}
+      <!-- Semi-transparent dark backing for legibility on busy video -->
+      <rect x=${H.HUD_ALT_BACKING_X}
+            y=${H.HUD_ALT_BACKING_Y}
+            width=${H.HUD_ALT_BACKING_W}
+            height=${H.HUD_ALT_BACKING_H}
+            rx=${H.HUD_ALT_BACKING_RX}
+            ry=${H.HUD_ALT_BACKING_RX}
+            fill=${H.HUD_ALT_BACKING_FILL} />
+
+      <!-- ticks + labels (drawn first so the box sits on top, clipped
+           to the visible window so off-screen ticks don't render) -->
+      <g clip-path="url(#${tickClipId})">
+        ${ticks}
+      </g>
 
       <!-- Static "29.92in" baro below the tape -->
       <text x=${H.HUD_ALT_X + H.HUD_ALT_TICK_LONG / 2} y=${H.HUD_ALT_BARO_Y}

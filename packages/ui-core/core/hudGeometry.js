@@ -119,7 +119,10 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // bar (the ALT readout box sits ON the tape column further outboard,
 // so there's clear space immediately right of the VVI for the numeric).
 
-export const HUD_VVI_X               = 1620;
+// VVI sits OUTBOARD of the ALT tape on the far right edge. Numeric
+// readout is flipped to the LEFT side of the bar (anchor="end" at
+// cx-16) so it doesn't run off-frame past x=1920.
+export const HUD_VVI_X               = 1820;
 // VVI centerline matches the ALT tape so the two right-side gauges
 // share a horizontal axis. With HUD_VVI_HALF_H = 220 a centerline at
 // y = 480 puts the bar bottom at y = 700, ~30 px clear of the
@@ -150,7 +153,10 @@ export const HUD_ALT_CY              = HUD_VVI_CY;   // 480
 export const HUD_ALT_HALF_H          = HUD_VVI_HALF_H; // 220
 // X is the LEFT edge of the tick lines. Short ticks extend to
 // HUD_ALT_X + HUD_ALT_TICK_SHORT; long ticks to HUD_ALT_X + HUD_ALT_TICK_LONG.
-export const HUD_ALT_X               = 1820;
+// Pulled 200 px inboard from the original 1820 so the readout box body
+// (extending HUD_ALT_BOX_W = 130 to the right) fits inside the 1920-wide
+// viewBox: box right = 1620 + 6 + 130 = 1756, comfortably on-frame.
+export const HUD_ALT_X               = 1620;
 export const HUD_ALT_TICK_SHORT      = 14;   // every 20 ft
 export const HUD_ALT_TICK_LONG       = 28;   // every 100 ft
 export const HUD_ALT_TICK_STROKE     = 2;
@@ -193,6 +199,19 @@ export const HUD_ALT_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
 export const HUD_ALT_BARO_Y          = HUD_ALT_CY + HUD_ALT_HALF_H + 38;
 export const HUD_ALT_BARO_FONT_SIZE  = 22;
 
+// Semi-transparent dark backing strip drawn BEHIND the ticks so the
+// labels stay legible over busy GoPro frames. Spans the full vertical
+// extent of the tape; width covers the tick column + numeric labels
+// (worst case: 5-digit label like "12340" at HUD_ALT_LABEL_FONT_SIZE=22
+// is ~70 px wide). Backing left sits 4 px LEFT of HUD_ALT_X for a
+// little air around the tick stems.
+export const HUD_ALT_BACKING_X       = HUD_ALT_X - 4;
+export const HUD_ALT_BACKING_W       = HUD_ALT_TICK_LONG + HUD_ALT_LABEL_OFFSET_X + 80 + 4;
+export const HUD_ALT_BACKING_Y       = HUD_ALT_CY - HUD_ALT_HALF_H;
+export const HUD_ALT_BACKING_H       = HUD_ALT_HALF_H * 2;
+export const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.35)';
+export const HUD_ALT_BACKING_RX      = 4;
+
 // ---------------------------------------------------------------------
 // IAS tape (left side, mirror of ALT)
 // ---------------------------------------------------------------------
@@ -216,8 +235,10 @@ export const HUD_IAS_CY              = HUD_ALT_CY;     // 480 — shared centerl
 export const HUD_IAS_HALF_H          = HUD_ALT_HALF_H; // 220
 // X is the RIGHT (inboard) edge of the tick column — ticks extend
 // LEFTWARD from this anchor toward the outboard side, labels further
-// left. Mirror of HUD_ALT_X = 1820 about HUD_CX = 960: 100.
-export const HUD_IAS_X               = 100;
+// left. Pulled 200 px inboard from the original 100 to mirror the
+// ALT tape's inboard move, keeping the two tapes closer to the pitch
+// ladder. Mirror of HUD_ALT_X = 1620 about HUD_CX = 960: 300.
+export const HUD_IAS_X               = 300;
 export const HUD_IAS_TICK_SHORT      = 14;   // every 5 kt
 export const HUD_IAS_TICK_LONG       = 28;   // every 10 kt
 export const HUD_IAS_TICK_STROKE     = 2;
@@ -256,6 +277,18 @@ export const HUD_IAS_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
 // (7.5 px/kt) so the spinning ones digit reads as motion, not as
 // imperceptible drift.
 export const HUD_IAS_ONES_SLIDE_PX   = HUD_IAS_BOX_FONT_SIZE;       // 30
+
+// Semi-transparent dark backing strip behind the IAS ticks. Mirror
+// of the ALT backing across HUD_CX, with labels rendered to the LEFT
+// of the ticks (text-anchor="end" at HUD_IAS_X - HUD_IAS_TICK_LONG -
+// HUD_IAS_LABEL_OFFSET_X). Width covers the label column + tick stems
+// + a few px of air on either side.
+export const HUD_IAS_BACKING_W       = HUD_IAS_TICK_LONG + HUD_IAS_LABEL_OFFSET_X + 80 + 4;
+export const HUD_IAS_BACKING_X       = HUD_IAS_X + 4 - HUD_IAS_BACKING_W;
+export const HUD_IAS_BACKING_Y       = HUD_IAS_CY - HUD_IAS_HALF_H;
+export const HUD_IAS_BACKING_H       = HUD_IAS_HALF_H * 2;
+export const HUD_IAS_BACKING_FILL    = 'rgba(0, 0, 0, 0.35)';
+export const HUD_IAS_BACKING_RX      = 4;
 
 // ---------------------------------------------------------------------
 // Slip ball (bottom center)
