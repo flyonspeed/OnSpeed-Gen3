@@ -560,6 +560,16 @@ function useReplayJournal({ logHash }) {
 // finds the row saved.
 const SAVE_DEBOUNCE_MS = 500;
 
+const COLLAPSE_KEY = 'replay-marks-collapsed-v1';
+
+function readCollapsed() {
+  try { return localStorage.getItem(COLLAPSE_KEY) === '1'; }
+  catch { return false; }
+}
+function writeCollapsed(v) {
+  try { localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0'); } catch {}
+}
+
 // First-N chars of notes to use as hover-tooltip preview when the row
 // is collapsed. Mirrors a "first paragraph" feel without parsing.
 const NOTES_PREVIEW_LEN = 80;
@@ -706,26 +716,37 @@ const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
                                 onJump, onClip, onClipToNext,
                                 onPatchAnnotation }) => {
   if (!marks || marks.length === 0) return null;
+  const [collapsed, setCollapsed] = useState(readCollapsed());
+  const toggleCollapsed = () => {
+    setCollapsed(c => { writeCollapsed(!c); return !c; });
+  };
   return html`
-    <div class="replay-marks">
-      <div class="replay-marks-header">
+    <div class="replay-marks${collapsed ? ' is-collapsed' : ''}">
+      <div class="replay-marks-header replay-section-header"
+           role="button"
+           tabIndex="0"
+           onClick=${toggleCollapsed}
+           onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(); }}}
+           title=${collapsed ? 'Expand data marks' : 'Collapse data marks'}>
+        <span class="replay-section-disclosure">${collapsed ? '▸' : '▾'}</span>
         <span class="replay-label">Data marks</span>
         <span class="replay-status">${marks.length}</span>
       </div>
-      <div class="replay-marks-list">
-        ${marks.map((m, i) => html`<${MarkRow}
-              key=${markKey(m.value, m.logTimeMs)}
-              mark=${m}
-              annotation=${markAnnotations ? markAnnotations[markKey(m.value, m.logTimeMs)] : null}
-              sync=${sync}
-              disabled=${disabled}
-              videoDuration=${videoDuration}
-              nextMark=${i + 1 < marks.length ? marks[i + 1] : null}
-              onJump=${onJump}
-              onClip=${onClip}
-              onClipToNext=${onClipToNext}
-              onPatch=${onPatchAnnotation} />`)}
-      </div>
+      ${collapsed ? null : html`
+        <div class="replay-marks-list">
+          ${marks.map((m, i) => html`<${MarkRow}
+                key=${markKey(m.value, m.logTimeMs)}
+                mark=${m}
+                annotation=${markAnnotations ? markAnnotations[markKey(m.value, m.logTimeMs)] : null}
+                sync=${sync}
+                disabled=${disabled}
+                videoDuration=${videoDuration}
+                nextMark=${i + 1 < marks.length ? marks[i + 1] : null}
+                onJump=${onJump}
+                onClip=${onClip}
+                onClipToNext=${onClipToNext}
+                onPatch=${onPatchAnnotation} />`)}
+        </div>`}
     </div>`;
 };
 
@@ -4541,6 +4562,16 @@ function marksWithinClip(clip, marks) {
 // short enough that a glance-away-and-back finds the row saved.
 const CLIP_SAVE_DEBOUNCE_MS = 500;
 
+const CLIP_COLLAPSE_KEY = 'replay-clips-collapsed-v1';
+
+function readClipCollapsed() {
+  try { return localStorage.getItem(CLIP_COLLAPSE_KEY) === '1'; }
+  catch { return false; }
+}
+function writeClipCollapsed(v) {
+  try { localStorage.setItem(CLIP_COLLAPSE_KEY, v ? '1' : '0'); } catch {}
+}
+
 // Stable per-clip identity for journal annotations. UUID-v4 via the
 // platform crypto API where available; falls back to a high-entropy
 // pseudo-random string for the (rare) test/node-runtime where it
@@ -4699,6 +4730,10 @@ const ClipBuilder = ({
   markAnnotations,
   onJumpToMark,           // (logTimeMs) — seek the live video to a mark
 }) => {
+  const [collapsed, setCollapsed] = useState(readClipCollapsed());
+  const toggleCollapsed = () => {
+    setCollapsed(c => { writeClipCollapsed(!c); return !c; });
+  };
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
         <button class="replay-btn-ghost" onClick=${onCancelMark} disabled=${disabled}>
@@ -4815,9 +4850,18 @@ const ClipBuilder = ({
   };
 
   return html`
-    <div class="replay-clips">
+    <div class="replay-clips${collapsed ? ' is-collapsed' : ''}">
       <div class="replay-clips-header">
-        <span class="replay-label">Clips</span>
+        <span class="replay-section-disclosure"
+              role="button"
+              tabindex="0"
+              title=${collapsed ? 'Expand clips' : 'Collapse clips'}
+              onClick=${toggleCollapsed}
+              onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(); }}}>
+          ${collapsed ? '▸' : '▾'}
+        </span>
+        <span class="replay-label replay-clips-label-clickable"
+              onClick=${toggleCollapsed}>Clips</span>
         <span class="replay-status">${clips.length}</span>
         <span class="replay-spacer"></span>
 
@@ -4861,9 +4905,9 @@ const ClipBuilder = ({
           </button>`}
       </div>
 
-      ${renderOverlayModePicker()}
+      ${collapsed ? null : renderOverlayModePicker()}
 
-      ${clips.length === 0
+      ${collapsed ? null : (clips.length === 0
         ? html`<div class="replay-clips-empty">
             no clips yet — scrub to a moment, click "+ 30 s" / "+ 60 s" or
             "Mark clip in" → "Mark clip out".
@@ -4892,7 +4936,7 @@ const ClipBuilder = ({
                 renderOverlayExport=${() => renderOverlayControls(c, i)}
                 getCurrentVideoSec=${getCurrentVideoSec} />
             `)}
-          </div>`}
+          </div>`)}
     </div>`;
 };
 
@@ -5680,6 +5724,26 @@ async function queryPermissionForHandles(handles) {
   return results.every(r => r === 'granted');
 }
 
+// Same as queryPermissionForHandles but returns a per-slot breakdown.
+// Used by the ?debug=1 diagnostic path so the pilot can see which slot
+// is blocking auto-resume (e.g. cfg granted but video stuck on 'prompt'
+// because the directory handle came from a different gesture).
+async function queryPermissionPerSlot(handles) {
+  if (!handles) return [];
+  const slots = ['video', 'log', 'cfg'];
+  return Promise.all(slots.map(async slot => {
+    const target = permissionTarget(handles[slot]);
+    if (!target) return { slot, present: false, result: 'granted' };
+    if (typeof target.queryPermission !== 'function') {
+      return { slot, present: true, result: 'unsupported' };
+    }
+    let result = 'prompt';
+    try { result = await target.queryPermission({ mode: 'read' }); }
+    catch (e) { result = 'error:' + (e && e.name); }
+    return { slot, present: true, result };
+  }));
+}
+
 // Walk a stored multi-chapter envelope: re-open the directory handle's
 // entries, match against the persisted chapter-name list, return the
 // ordered file + handle arrays. Permission must already be granted on
@@ -5761,8 +5825,20 @@ function useFileHandleResume({ recentFilesSig }) {
   const [used, setUsed] = useState(false);
 
   useEffect(() => {
-    if (!supported) return;
+    const debug = typeof window !== 'undefined' &&
+                  new URLSearchParams(window.location.search).get('debug') === '1';
+    if (!supported) {
+      if (debug) console.log('fileHandles autoResume diag', {
+        stage: 'unsupported',
+        note: 'File System Access API not available in this browser',
+      });
+      return;
+    }
     if (!recentFilesSig) {
+      if (debug) console.log('fileHandles autoResume diag', {
+        stage: 'no-sig',
+        note: 'no recent-files signature yet — open a log to establish one',
+      });
       setAvailableHandles(null);
       setPermGranted(false);
       return;
@@ -5771,22 +5847,53 @@ function useFileHandleResume({ recentFilesSig }) {
     loadHandles(recentFilesSig).then(async h => {
       if (cancelled) return;
       setAvailableHandles(h);
-      if (!h) { setPermGranted(false); return; }
+      if (!h) {
+        if (debug) console.log('fileHandles autoResume diag', {
+          stage: 'no-handles',
+          sig: recentFilesSig,
+          note: 'no stored handles for this log signature — open files manually first',
+        });
+        setPermGranted(false);
+        return;
+      }
       // queryPermission does not require a user gesture, so it is safe
       // to call here from the mount-time effect.
       let ok = false;
-      try { ok = await queryPermissionForHandles(h); }
-      catch { ok = false; }
+      try {
+        if (debug) {
+          const perSlot = await queryPermissionPerSlot(h);
+          ok = perSlot.every(s => s.result === 'granted');
+          // eslint-disable-next-line no-console
+          console.log('fileHandles autoResume diag', {
+            stage: 'queried', sig: recentFilesSig, perSlot, ok,
+          });
+        } else {
+          ok = await queryPermissionForHandles(h);
+        }
+      } catch (e) {
+        if (debug) console.log('fileHandles autoResume diag', {
+          stage: 'query-error', err: String(e),
+        });
+        ok = false;
+      }
       if (!cancelled) setPermGranted(ok);
-    }).catch(() => {
+    }).catch((e) => {
+      if (debug) console.log('fileHandles autoResume diag', {
+        stage: 'load-error', err: String(e),
+      });
       if (!cancelled) { setAvailableHandles(null); setPermGranted(false); }
     });
     return () => { cancelled = true; };
   }, [supported, recentFilesSig]);
 
+  // Dismiss hides the resume UI for the rest of this session. We
+  // intentionally do NOT clearHandles() here — file handles are the
+  // auto-resume backbone, and the recent-files banner that triggers
+  // this dismiss is a separate concern (visual decluttering). Wiping
+  // handles on dismiss strands users who dismiss the banner once and
+  // then never see their files come back automatically.
   const dismiss = useCallback(() => {
     setDismissed(true);
-    clearHandles();
   }, []);
 
   const markUsed = useCallback(() => {
@@ -8071,17 +8178,23 @@ const ReplayPage = () => {
   // recent-files banner; we also suppress auto-resume in that case via
   // the `persistence.bannerInfo` gate so the page stays as the pilot
   // left it (manual re-pick).
+  // Auto-resume gates only on autoResumeReady (handles present AND
+  // queryPermission returned 'granted' on all of them). The
+  // recent-files banner dismissal is a separate signal — pilots
+  // dismiss the banner to declutter the page, NOT to opt out of
+  // silent reload. Treating them as one gate strands users who
+  // dismissed the banner once and then never see their files
+  // come back automatically.
   const autoResumedSigRef = useRef('');
   useEffect(() => {
     if (!fileHandleResume.autoResumeReady) return;
-    if (!persistence.bannerInfo) return; // pilot dismissed the recent-files banner
     const handles = fileHandleResume.availableHandles;
     if (!handles) return;
     if (autoResumedSigRef.current === persistence.recentFilesSig) return;
     autoResumedSigRef.current = persistence.recentFilesSig;
     performResumeLoad(handles);
   }, [fileHandleResume.autoResumeReady, fileHandleResume.availableHandles,
-      persistence.bannerInfo, persistence.recentFilesSig, performResumeLoad]);
+      persistence.recentFilesSig, performResumeLoad]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
@@ -8303,8 +8416,15 @@ const ReplayPage = () => {
       const target = Math.max(0, Math.min(max, cur + dtSec));
       seekToGlobalSec(target);
     };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    // Capture phase so we intercept arrow keys BEFORE the native <video
+    // controls> sees them — otherwise the browser's built-in 5-second
+    // seek-by-arrow eats the keystroke and we never get a chance to
+    // frame-step. The input-passthrough check above still lets typing
+    // in <input>/<textarea>/[contenteditable] reach the native handler
+    // unchanged. Pilots can click anywhere — including the video —
+    // and the arrow keys still frame-step rather than 5-second-skip.
+    document.addEventListener('keydown', onKey, { capture: true });
+    return () => document.removeEventListener('keydown', onKey, { capture: true });
   }, [seekToGlobalSec, currentGlobalSec]);
 
   // Toolbar label for the video pick. Single-chapter (or non-chapter
@@ -8958,9 +9078,21 @@ const ReplayPage = () => {
   // directly — no sync round-trip needed. The DataMark panel computes
   // `nextMark` from the sorted marks array, so the caller knows up
   // front whether a next-mark exists (button is disabled otherwise).
+  //
+  // Label preference: if the pilot has annotated either mark with a
+  // name, use the names (so "Slow flight → first stall" beats
+  // "mark 17 → mark 18"). Falls back to the firmware values when no
+  // names are set. The clip's name field is editable after creation,
+  // so this is just a smart default.
   const addClipFromMarkToNextMark = (thisMark, nextMark) => {
     if (!thisMark || !nextMark) return;
-    const label = `mark ${thisMark.label} → mark ${nextMark.label}`;
+    const annA = journal.markAnnotations?.[markKey(thisMark.value, thisMark.logTimeMs)];
+    const annB = journal.markAnnotations?.[markKey(nextMark.value, nextMark.logTimeMs)];
+    const nameA = (annA?.name || '').trim();
+    const nameB = (annB?.name || '').trim();
+    const labelA = nameA || `mark ${thisMark.label}`;
+    const labelB = nameB || `mark ${nextMark.label}`;
+    const label = `${labelA} → ${labelB}`;
     const clip = buildClipFromMarkToNextMark(thisMark, nextMark, label);
     if (clip) setClips(prev => [...prev, clip]);
   };
@@ -9387,13 +9519,15 @@ const ReplayPage = () => {
 
   return html`
       <div class="replay-page">
-        ${fileHandleResume.resumeReady
-          ? html`<${ReplayResumeBanner}
-                    info=${persistence.rawBannerInfo}
-                    onResume=${onResumeClick}
-                    onDismiss=${onResumeDismiss} />`
-          : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
-                                       onDismiss=${persistence.dismissBanner} />`}
+        ${resuming
+          ? null
+          : (fileHandleResume.resumeReady
+              ? html`<${ReplayResumeBanner}
+                        info=${persistence.rawBannerInfo}
+                        onResume=${onResumeClick}
+                        onDismiss=${onResumeDismiss} />`
+              : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
+                                           onDismiss=${persistence.dismissBanner} />`)}
         <header class="replay-toolbar">
           ${fsaSupported ? html`
             <label class="replay-file">
