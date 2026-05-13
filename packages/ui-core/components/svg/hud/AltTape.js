@@ -30,14 +30,14 @@ import * as H from '../../../core/hudGeometry.js';
 // Corner radius `r` is small (4 px) to match FlySto's box. `tabHalf`
 // (8 px) sits comfortably inside the box's rounded corners so the
 // notch reads as an arrow rather than overflowing the corner radius.
-function buildBoxPath() {
+function buildAltBoxPath() {
   const L = H.HUD_ALT_BOX_LEFT;
   const R = H.HUD_ALT_BOX_RIGHT;
   const T = H.HUD_ALT_BOX_TOP;
   const B = H.HUD_ALT_BOX_BOTTOM;
   const cy = H.HUD_ALT_CY;
   const tip = H.HUD_ALT_BOX_ARROW_TIP_X;
-  const tabHalf = 8;
+  const tabHalf = 12;
   const r = 4;
   return [
     `M ${L + r} ${T}`,
@@ -58,8 +58,28 @@ function buildBoxPath() {
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
+// Module-level EMA state for smoothing the altitude readout. The raw
+// 20 Hz Palt has ±1-2 ft of pressure-sensor noise per sample; without
+// smoothing the slide fraction jitters visibly between frames. 200 ms
+// tau (alpha ≈ 0.2 at 20 Hz) tames the noise without lagging behind
+// real climb/descent.
+let _altEmaState = null;
+// Heavier smoothing — alpha 0.08 at 20 Hz ≈ 600 ms tau. Pilots want
+// the tens digit to slide smoothly, not click between frames.
+const ALT_EMA_ALPHA = 0.08;
+function smoothAlt(raw) {
+  if (!Number.isFinite(raw)) return _altEmaState ?? 0;
+  if (_altEmaState == null || Math.abs(raw - _altEmaState) > 200) {
+    // First call, or huge jump (log seek). Snap to raw.
+    _altEmaState = raw;
+  } else {
+    _altEmaState += (raw - _altEmaState) * ALT_EMA_ALPHA;
+  }
+  return _altEmaState;
+}
+
 export const HudAltTape = ({ altitudeFt = 0 }) => {
-  const alt = Number.isFinite(altitudeFt) ? altitudeFt : 0;
+  const alt = smoothAlt(Number.isFinite(altitudeFt) ? altitudeFt : 0);
   const cy = H.HUD_ALT_CY;
   // Explicit y offset from font metrics — see H.hudGlyphOffset for
   // why we avoid `dominant-baseline="central"`.
@@ -113,7 +133,7 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
   const tensDown = (((nearest20Below - 20) % 100) + 100) % 100;
   const stripDy = frac * H.HUD_ALT_TENS_SLIDE_PX;
 
-  const boxPath = buildBoxPath();
+  const boxPath = buildAltBoxPath();
   const clipId = 'hud-alt-readout-clip';
   const tickClipId = 'hud-alt-tick-clip';
 

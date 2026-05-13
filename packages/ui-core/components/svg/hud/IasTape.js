@@ -25,7 +25,7 @@ import * as H from '../../../core/hudGeometry.js';
 // the arrow reads as a clear pointer; bumped slightly higher than
 // ALT's 8-px tab because IAS's narrower box body needs a beefier
 // notch for visual balance.
-function buildBoxPath() {
+function buildIasBoxPath() {
   const L = H.HUD_IAS_BOX_LEFT;
   const R = H.HUD_IAS_BOX_RIGHT;
   const T = H.HUD_IAS_BOX_TOP;
@@ -101,7 +101,7 @@ export const HudIasTape = ({ iasKt = 0 }) => {
   const onesDown = (((nearest1Below - 1) % 10) + 10) % 10;
   const stripDy = frac1 * H.HUD_IAS_ONES_SLIDE_PX;
 
-  const boxPath = buildBoxPath();
+  const boxPath = buildIasBoxPath();
   const clipId = 'hud-ias-readout-clip';
   const tickClipId = 'hud-ias-tick-clip';
 

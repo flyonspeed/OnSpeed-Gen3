@@ -154,6 +154,10 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
+  /* M5 inset slots sit ABOVE the HUD (z-index 2) and the video
+     (z-index 1) — the HUD is full-frame, so the corner inset must
+     stack on top to remain visible. */
+  z-index: 3;
 }
 .replay-hud {
   /* Full-frame HUD layer. Renders BEFORE .replay-overlay in the DOM
@@ -167,6 +171,17 @@
   /* Carve out the native <video> controls strip (≈ 40-48 px tall)
      so the slip ball / FPM tail aren't covered by the scrubber. */
   bottom: 48px;
+  /* Explicit z-index so the HUD stays ABOVE the <video> in stacking
+     order regardless of DOM source position. Native <video> creates
+     its own stacking context in some browsers (Chrome's hardware-
+     accelerated video layer) and can win over absolutely-positioned
+     siblings even with DOM order in our favor. */
+  z-index: 2;
+}
+.replay-video {
+  /* Keep video at z-index 1 so the HUD reliably stacks above. */
+  position: relative;
+  z-index: 1;
 }
 .replay-hud > svg.hud-svg {
   display: block;

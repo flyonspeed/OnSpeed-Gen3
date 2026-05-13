@@ -203,9 +203,9 @@ export const HUD_ALT_TENS_SLIDE_PX   = 60;
 // digits ("40"). Body width 110 keeps a tight ~8 px gap between
 // the digit columns. Body height 60 leaves room for the arrow tab
 // without colliding with the rounded corners.
-export const HUD_ALT_BOX_W           = 110;
+export const HUD_ALT_BOX_W           = 80;
 export const HUD_ALT_BOX_H           = 60;
-export const HUD_ALT_BOX_ARROW_W     = 6;    // arrow-tab depth (notch into tick column)
+export const HUD_ALT_BOX_ARROW_W     = 10;   // arrow-tab depth (notch into tick column)
 // Box rendering anchors:
 //   - Box body left wall at HUD_ALT_X + 6 (6 px right of left tick stem).
 //   - Arrow tip 6 px LEFT of the box body's left wall (lands just past
