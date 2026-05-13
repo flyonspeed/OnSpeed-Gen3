@@ -80,6 +80,8 @@ import { getWasmCore } from '../replay/wasm_core.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
 } from '../../../../packages/ui-core/components/svg/m5modes/index.js';
+import { HudOverlay }
+  from '../../../../packages/ui-core/components/svg/HudOverlay.js';
 import {
   detectGoProChapterPattern, groupChapterSiblings, buildChapterTimeline,
   globalToLocal, describeChapterPick,
@@ -140,6 +142,10 @@ const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
 // visible on the slip ball. See presentationFilter.js for rationale.
 const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
+// Full-frame HUD layer toggle. Independent of the M5 panel — both
+// can be on at the same time. Default OFF (PLAN_HUD_OVERLAY.md PR-1
+// is an opt-in design-tuning phase).
+const HUD_SHOW_LS_KEY = 'replay-show-hud-v1';
 
 // Friendly label for the anchor type the auto-detector picked.
 // Pilots usually sync against the first crosswind turn (sharp bank
@@ -188,6 +194,14 @@ export const ReplayPage = () => {
   const [sync, setSync]           = useState(null);
   const [videoT, setVideoT]       = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
+  // HUD layer toggle. Persisted to localStorage so a reload remembers
+  // the pilot's preference. Default false: PR-1 is design-tuning, and
+  // pilots who don't want the HUD shouldn't see it on first load.
+  const [showHud, setShowHud] = useState(() => {
+    return safeLsGet(HUD_SHOW_LS_KEY) === '1';
+  });
+  useEffect(() => { safeLsSet(HUD_SHOW_LS_KEY, showHud ? '1' : '0'); },
+            [showHud]);
   const [parseErr, setParseErr]   = useState(null);
   // True while the resume path is mid-load (auto-resume on mount, or
   // banner click). Surfaces a "Resuming…" status pill so the page
@@ -1807,6 +1821,27 @@ export const ReplayPage = () => {
     };
   }, []);
 
+  // Separate mount for the full-frame HUD overlay during export. The
+  // HUD's SVG is 1920x1080 (vs. the 320x240 mode-panel SVG), so we
+  // can't reuse the same offscreen div without growing it to HUD
+  // dimensions and having that cost on every export render.
+  const exportHudMountRef = useRef(null);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const div = document.createElement('div');
+    div.setAttribute('data-replay-export-hud', '');
+    div.style.cssText = 'position:absolute;left:-99999px;top:0;width:1920px;height:1080px;visibility:hidden;pointer-events:none;';
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      div.style.setProperty(k, v);
+    }
+    document.body.appendChild(div);
+    exportHudMountRef.current = div;
+    return () => {
+      if (div.parentNode) div.parentNode.removeChild(div);
+      exportHudMountRef.current = null;
+    };
+  }, []);
+
   // renderOverlaySvg signature: (m5State, displayTypeOverride?) → SVGElement.
   // The override path is used by the overlay-only export, which iterates
   // all five modes per frame; it spreads m5State with displayType
@@ -1843,6 +1878,23 @@ export const ReplayPage = () => {
     // on the <svg> root) resolves to nothing → transparent
     // background. Setting the vars on the SVG element makes them
     // available within the isolated document.
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      svg.style.setProperty(k, v);
+    }
+    return svg;
+  }, []);
+
+  // renderHudSvg signature: (m5State) → SVGElement.
+  // Mirrors renderOverlayForExport but renders the full-frame HUD
+  // overlay (HudOverlay) instead of the mode-specific M5 panel.
+  // When `showHud` is false this is left null and the export path
+  // skips HUD rendering entirely.
+  const renderHudForExport = useCallback((m5State) => {
+    const mount = exportHudMountRef.current;
+    if (!mount || !m5State) return null;
+    render(html`<${HudOverlay} state=${m5State} />`, mount);
+    const svg = mount.querySelector('svg');
+    if (!svg) return null;
     for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
       svg.style.setProperty(k, v);
     }
@@ -1893,6 +1945,10 @@ export const ReplayPage = () => {
         log,
         cppWireFrames,
         renderOverlaySvg: renderOverlayForExport,
+        // HUD overlay — only rasterized into the export when the
+        // toolbar's Show HUD toggle is on. When off, the export
+        // path skips HUD rendering entirely.
+        renderHudSvg: showHud ? renderHudForExport : null,
         // Multi-chapter takes priority: when a chapter timeline is set,
         // the exporter stitches across boundaries into one MP4. Source
         // file alone still works for legacy single-file picks.
@@ -1938,6 +1994,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
+      renderHudForExport, showHud,
       videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
@@ -2243,6 +2300,11 @@ export const ReplayPage = () => {
                  rel="noopener">How does this work?</a>
             </div>`}
 
+          ${showHud && m5State && html`
+              <div class="replay-hud">
+                <${HudOverlay} state=${m5State} />
+              </div>`}
+
           ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
             ? html`
                 <div class="replay-overlay">
@@ -2302,6 +2364,12 @@ export const ReplayPage = () => {
               <input type="checkbox" checked=${overlayVisible}
                      onChange=${e => setOverlayVisible(e.target.checked)} />
               Show overlay
+            </label>
+            <label class="replay-toggle"
+                   title="Full-frame HUD: horizon, pitch ladder, bank arc, IAS/ALT tapes, FPM, slip ball. Independent of the M5 panel — both can be on.">
+              <input type="checkbox" checked=${showHud}
+                     onChange=${e => setShowHud(e.target.checked)} />
+              Show HUD
             </label>
             ${exportingClipIdx != null
               ? html`

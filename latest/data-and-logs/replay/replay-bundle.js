@@ -2930,12 +2930,15 @@ function svgToImage(svgEl) {
   });
 }
 
-// Bottom-corner overlay placement. position='right' is the default
-// single-overlay layout (the live page's .replay-overlay-frame
-// position). position='left' mirrors X across the centerline for the
-// "standard" two-panel export — same width, same Y, same margins, just
-// pinned to the opposite edge. Returns { x, y, w, h } in canvas pixels.
+// Overlay placement. position='right' is the default single-panel
+// corner (the live page's .replay-overlay-frame position).
+// position='left' mirrors X across the centerline for the "standard"
+// two-panel export — same width, same Y, same margins, just pinned
+// to the opposite edge. position='fullframe' covers the entire
+// output canvas, for the full-frame HUD. Returns { x, y, w, h } in
+// canvas pixels.
 function overlayPlacement(W, H, position) {
+  if (position === 'fullframe') return { x: 0, y: 0, w: W, h: H };
   const w = Math.round(W * 0.22);
   const h = Math.round(w * 3 / 4);
   const y = H - Math.round(H * 0.030) - h;
@@ -2974,16 +2977,27 @@ function compositeFrame(ctx, videoSrc, overlays, W, H, rotationDeg = 0) {
     }
   }
   if (!overlays || overlays.length === 0) return;
-  ctx.save();
-  ctx.shadowColor   = 'rgba(0,0,0,0.7)';
-  ctx.shadowBlur    = Math.round(W * 0.006);
-  ctx.shadowOffsetY = Math.round(W * 0.0015);
+  // The corner-panel canvas shadow is sized for a ~22%-of-frame
+  // panel — its blur radius (W * 0.006) is calibrated against the
+  // panel's own line weight. Applied to a fullframe HUD it halos
+  // every tick and label as if they were the edge of a small image,
+  // producing a fringed look that pilots find distracting at 4K.
+  // The HUD widget legibility instead comes from the SVG's own
+  // styling; we draw fullframe overlays without the canvas shadow.
   for (const ov of overlays) {
     if (!ov || !ov.img) continue;
     const { x, y, w, h } = overlayPlacement(W, H, ov.position);
-    ctx.drawImage(ov.img, x, y, w, h);
+    if (ov.position === 'fullframe') {
+      ctx.drawImage(ov.img, x, y, w, h);
+    } else {
+      ctx.save();
+      ctx.shadowColor   = 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur    = Math.round(W * 0.006);
+      ctx.shadowOffsetY = Math.round(W * 0.0015);
+      ctx.drawImage(ov.img, x, y, w, h);
+      ctx.restore();
+    }
   }
-  ctx.restore();
 }
 
 // Derive the source video's display rotation from its tkhd matrix.
@@ -3347,6 +3361,12 @@ async function exportClipAsMp4({
   log,
   cppWireFrames,
   renderOverlaySvg,
+  // Optional: full-frame HUD overlay rendered UNDER the corner panels.
+  // (m5State) → SVGElement. When provided, every output frame
+  // composites the HUD across the entire canvas before the corner
+  // panels are drawn — so the inset / standard pair sit on top of
+  // the HUD widgets in the same way as the live preview.
+  renderHudSvg    = null,
   sourceFile      = null,
   videoTimeline   = null,
   presentationTau = null,
@@ -3828,6 +3848,21 @@ async function exportClipAsMp4({
         }
 
         const overlays = [];
+        // HUD goes first so corner panels composite on top of it in
+        // the canvas drawImage order.
+        if (renderHudSvg) {
+          try {
+            const hudSvg = renderHudSvg(m5State);
+            if (hudSvg) {
+              // eslint-disable-next-line no-await-in-loop
+              const hudImg = await svgToImage(hudSvg);
+              if (hudImg) overlays.push({ img: hudImg, position: 'fullframe' });
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('HUD raster failed for frame', i, e);
+          }
+        }
         const renderOne = async (displayType, position) => {
           try {
             const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
@@ -7388,6 +7423,572 @@ const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
 
 
 
+// === packages/ui-core/core/hudGeometry.js ===
+// hudGeometry.js — layout constants for the full-frame HUD overlay.
+//
+// FlySto-style visual language: yellow pitch ladder + FPM, white bank
+// arc + tapes, monochrome tape ticks (no colored speed bands — those
+// require Vne/Vno/Vfe wiring we don't have yet). Reference frame is
+// 1920x1080 (16:9); SVG scales via preserveAspectRatio="xMidYMid meet"
+// so the elements stay anchored to the cockpit view across aspect
+// ratios.
+//
+// Scope intentionally narrower than a full EFIS:
+//   - Pitch ladder + bank arc (artificial horizon)
+//   - Airspeed tape (left)
+//   - Altimeter tape with numeric VSI (right)
+//   - Slip ball + G readout (bottom)
+// No heading tape, no TAS/GS/wind block, no OAT/ISA/AGL stack.
+
+// ---------------------------------------------------------------------
+// Reference frame
+// ---------------------------------------------------------------------
+
+const HUD_W = 1920;
+const HUD_H = 1080;
+const HUD_CX = HUD_W / 2;  // 960
+const HUD_CY = HUD_H / 2;  // 540
+
+// ---------------------------------------------------------------------
+// Pitch ladder (FlySto yellow)
+// ---------------------------------------------------------------------
+// Short yellow tick bars at ±10°, ±20°, ±30° straddling the horizon
+// center, plus the horizon line itself. No continuous extension to
+// frame edges, no sky/ground fill, no dashed marks. The whole ladder
+// rotates with -roll and translates with pitch — classic ADI.
+
+const HUD_PITCH_PX_PER_DEG = 18;
+const HUD_HORIZON_HALF_W   = 540;  // shorter than full frame
+const HUD_PITCH_TICK_HALF_W = 110;
+const HUD_HORIZON_STROKE   = 4;
+const HUD_PITCH_TICK_STROKE = 4;
+const HUD_PITCH_LABEL_OFFSET = 28;
+const HUD_PITCH_LABEL_FONT_SIZE = 28;
+
+// ---------------------------------------------------------------------
+// Bank indicator arc (FlySto white)
+// ---------------------------------------------------------------------
+// White arc with sparse minor ticks every 10°, more pronounced ticks
+// at ±30° and ±45°. Stationary yellow triangle pointer at top; the
+// arc itself rotates by -roll so the ticks slide under the pointer.
+// No 60° tick (FlySto stops at 45°).
+
+const HUD_BANK_CX        = HUD_CX;
+const HUD_BANK_CY        = HUD_CY;
+const HUD_BANK_R         = 460;
+const HUD_BANK_TICK_LONG  = 28;   // ±30, ±45
+const HUD_BANK_TICK_SHORT = 14;   // ±10, ±20
+const HUD_BANK_STROKE    = 4;
+const HUD_BANK_POINTER_H = 28;
+const HUD_BANK_POINTER_HALF_W = 16;
+const HUD_BANK_TICKS = Object.freeze([
+  { deg: -45, long: true  },
+  { deg: -30, long: true  },
+  { deg: -20, long: false },
+  { deg: -10, long: false },
+  { deg:   0, long: true  },
+  { deg:  10, long: false },
+  { deg:  20, long: false },
+  { deg:  30, long: true  },
+  { deg:  45, long: true  },
+]);
+
+// ---------------------------------------------------------------------
+// IAS tape (left edge) — FlySto inline labels, monochrome
+// ---------------------------------------------------------------------
+// Translucent strip with ticks + inline numeric labels every 20 kt.
+// The current value sits in a center-line readout box. No boxed digit
+// over the tape ticks (FlySto integrates the label into the tape
+// itself). No colored Vne/Vno/Vfe bands — we don't have those wired.
+
+const HUD_IAS_X            = 60;
+const HUD_IAS_W            = 160;
+const HUD_IAS_TAPE_H       = 720;
+const HUD_IAS_CY           = HUD_CY;
+const HUD_IAS_PX_PER_UNIT  = 8;
+const HUD_IAS_TICK_EVERY   = 10;
+const HUD_IAS_LABEL_EVERY  = 20;
+const HUD_IAS_TICK_LEN_MAJOR = 22;
+const HUD_IAS_TICK_LEN_MINOR = 12;
+const HUD_IAS_LABEL_FONT_SIZE = 30;
+const HUD_IAS_BOX_H        = 60;
+const HUD_IAS_BOX_FONT_SIZE = 44;
+const HUD_IAS_BOX_PAD_X    = 12;
+
+// ---------------------------------------------------------------------
+// ALT tape + numeric VSI (right edge)
+// ---------------------------------------------------------------------
+// Mirror of IAS tape. VSI is a numeric readout floating next to the
+// altimeter centerline (FlySto style: "-600"), not a chevron.
+
+const HUD_ALT_X            = HUD_W - 60 - 160;
+const HUD_ALT_W            = 160;
+const HUD_ALT_TAPE_H       = 720;
+const HUD_ALT_CY           = HUD_CY;
+const HUD_ALT_PX_PER_UNIT  = 0.16;
+const HUD_ALT_TICK_EVERY   = 100;
+const HUD_ALT_LABEL_EVERY  = 200;
+const HUD_ALT_TICK_LEN_MAJOR = 22;
+const HUD_ALT_TICK_LEN_MINOR = 12;
+const HUD_ALT_LABEL_FONT_SIZE = 30;
+const HUD_ALT_BOX_H        = 60;
+const HUD_ALT_BOX_FONT_SIZE = 40;
+const HUD_ALT_BOX_PAD_X    = 12;
+
+// VSI numeric readout — sits just outside the ALT tape, vertically
+// centered. Color shifts subtly (gray-white for zero, brighter when
+// |VSI| is large enough to matter). We render only when |VSI| crosses
+// a small threshold so the box doesn't churn at idle.
+const HUD_VSI_X            = HUD_W - 30;      // anchored at right margin
+const HUD_VSI_Y            = HUD_CY;          // tape centerline
+const HUD_VSI_FONT_SIZE    = 36;
+const HUD_VSI_THRESHOLD    = 100;             // fpm — hide below this
+
+// ---------------------------------------------------------------------
+// Flight-path marker (FlySto yellow, vertical-only)
+// ---------------------------------------------------------------------
+// Yellow circle + horizontal "wings" + top fin. Vertical position
+// tracks (FlightPath - Pitch) × pixels-per-degree, MATCHING the
+// existing AI inset's FlightPathMarker math exactly. Horizontal
+// position is FIXED at HUD center.
+//
+// LATERAL FPM MOTION — DEFERRED. A "real" HUD FPM slides horizontally
+// with the yaw-rate / ground-track delta from heading. OnSpeed does
+// not currently expose yaw rate, and a previous LateralG-based
+// approximation produced jumpy motion that didn't match the AI
+// inset's behavior. Tracked in #542; revisit after a wire-format
+// bump adds yaw rate or ground track.
+
+const HUD_FPM_CX           = HUD_CX;
+const HUD_FPM_CY           = HUD_CY;
+const HUD_FPM_R            = 22;
+const HUD_FPM_WING_INNER   = 22;
+const HUD_FPM_WING_OUTER   = 56;
+const HUD_FPM_TOP_TICK     = 22;
+const HUD_FPM_STROKE       = 4;
+
+// ---------------------------------------------------------------------
+// Slip ball (bottom center)
+// ---------------------------------------------------------------------
+// Reuses the existing SlipBall component. The HUD just supplies a
+// frame-scaled position + size.
+
+const HUD_SLIP_W           = 480;
+const HUD_SLIP_H           = 60;
+const HUD_SLIP_X           = HUD_CX - HUD_SLIP_W / 2;
+const HUD_SLIP_Y           = HUD_H - 120;
+
+// ---------------------------------------------------------------------
+// G readout (bottom-right of slip ball)
+// ---------------------------------------------------------------------
+// Single numeric value "X.X G" rendered next to the slip ball.
+// Reads state.VerticalG (the load-factor channel). One-decimal
+// precision matches what you'd glance at on a panel G-meter.
+
+const HUD_G_X              = HUD_SLIP_X + HUD_SLIP_W + 36;
+const HUD_G_Y              = HUD_SLIP_Y + HUD_SLIP_H / 2;
+const HUD_G_FONT_SIZE      = 40;
+
+// ---------------------------------------------------------------------
+// Stroke / color defaults
+// ---------------------------------------------------------------------
+// FlySto palette: yellow for the airplane-fixed elements (FPM, pitch
+// ladder, bank pointer), white for the world-fixed scales (bank arc,
+// tapes). A black drop-shadow halo is applied via CSS in replay.css
+// so white-on-bright-sky stays legible.
+
+const HUD_LINE_COLOR        = 'var(--white)';
+const HUD_HORIZON_COLOR     = 'var(--white)';
+const HUD_PITCH_COLOR       = 'var(--yellow)';
+const HUD_FPM_COLOR         = 'var(--yellow)';
+const HUD_BANK_ARC_COLOR    = 'var(--white)';
+const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
+const HUD_VSI_COLOR         = 'var(--white)';
+const HUD_BOX_FILL          = 'rgba(0, 0, 0, 0.72)';
+
+const __NS_packages_ui_core_core_hudGeometry = { HUD_W, HUD_H, HUD_CX, HUD_CY, HUD_PITCH_PX_PER_DEG, HUD_HORIZON_HALF_W, HUD_PITCH_TICK_HALF_W, HUD_HORIZON_STROKE, HUD_PITCH_TICK_STROKE, HUD_PITCH_LABEL_OFFSET, HUD_PITCH_LABEL_FONT_SIZE, HUD_BANK_CX, HUD_BANK_CY, HUD_BANK_R, HUD_BANK_TICK_LONG, HUD_BANK_TICK_SHORT, HUD_BANK_STROKE, HUD_BANK_POINTER_H, HUD_BANK_POINTER_HALF_W, HUD_BANK_TICKS, HUD_IAS_X, HUD_IAS_W, HUD_IAS_TAPE_H, HUD_IAS_CY, HUD_IAS_PX_PER_UNIT, HUD_IAS_TICK_EVERY, HUD_IAS_LABEL_EVERY, HUD_IAS_TICK_LEN_MAJOR, HUD_IAS_TICK_LEN_MINOR, HUD_IAS_LABEL_FONT_SIZE, HUD_IAS_BOX_H, HUD_IAS_BOX_FONT_SIZE, HUD_IAS_BOX_PAD_X, HUD_ALT_X, HUD_ALT_W, HUD_ALT_TAPE_H, HUD_ALT_CY, HUD_ALT_PX_PER_UNIT, HUD_ALT_TICK_EVERY, HUD_ALT_LABEL_EVERY, HUD_ALT_TICK_LEN_MAJOR, HUD_ALT_TICK_LEN_MINOR, HUD_ALT_LABEL_FONT_SIZE, HUD_ALT_BOX_H, HUD_ALT_BOX_FONT_SIZE, HUD_ALT_BOX_PAD_X, HUD_VSI_X, HUD_VSI_Y, HUD_VSI_FONT_SIZE, HUD_VSI_THRESHOLD, HUD_FPM_CX, HUD_FPM_CY, HUD_FPM_R, HUD_FPM_WING_INNER, HUD_FPM_WING_OUTER, HUD_FPM_TOP_TICK, HUD_FPM_STROKE, HUD_SLIP_W, HUD_SLIP_H, HUD_SLIP_X, HUD_SLIP_Y, HUD_G_X, HUD_G_Y, HUD_G_FONT_SIZE, HUD_LINE_COLOR, HUD_HORIZON_COLOR, HUD_PITCH_COLOR, HUD_FPM_COLOR, HUD_BANK_ARC_COLOR, HUD_BANK_POINTER_COLOR, HUD_VSI_COLOR, HUD_BOX_FILL };
+// === packages/ui-core/components/svg/hud/PitchLadder.js ===
+// PitchLadder.js — FlySto-style pitch ladder.
+//
+// White horizon line spanning the central two-thirds of the frame,
+// plus yellow short tick bars at ±10°, ±20°, ±30°, each with its
+// absolute-value label at both ends. No dashed marks, no sky/ground
+// fill, no full-frame horizon extension. The group is rotated by
+// -roll and translated by `pitch × px-per-degree` around the HUD
+// center — classic ADI.
+
+
+
+const pitchLine = (i) => {
+  const y = i * __NS_packages_ui_core_core_hudGeometry.HUD_PITCH_PX_PER_DEG;
+  if (i === 0) {
+    return html`
+      <line x1=${__NS_packages_ui_core_core_hudGeometry.HUD_CX - __NS_packages_ui_core_core_hudGeometry.HUD_HORIZON_HALF_W} y1=${__NS_packages_ui_core_core_hudGeometry.HUD_CY + y}
+            x2=${__NS_packages_ui_core_core_hudGeometry.HUD_CX + __NS_packages_ui_core_core_hudGeometry.HUD_HORIZON_HALF_W} y2=${__NS_packages_ui_core_core_hudGeometry.HUD_CY + y}
+            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_HORIZON_COLOR} stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_HORIZON_STROKE}
+            shape-rendering="crispEdges" />`;
+  }
+  const absI = Math.abs(i);
+  const half = __NS_packages_ui_core_core_hudGeometry.HUD_PITCH_TICK_HALF_W;
+  return html`
+    <g>
+      <line x1=${__NS_packages_ui_core_core_hudGeometry.HUD_CX - half} y1=${__NS_packages_ui_core_core_hudGeometry.HUD_CY + y}
+            x2=${__NS_packages_ui_core_core_hudGeometry.HUD_CX + half} y2=${__NS_packages_ui_core_core_hudGeometry.HUD_CY + y}
+            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_PITCH_COLOR} stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_PITCH_TICK_STROKE}
+            shape-rendering="crispEdges" />
+      <text x=${__NS_packages_ui_core_core_hudGeometry.HUD_CX + half + __NS_packages_ui_core_core_hudGeometry.HUD_PITCH_LABEL_OFFSET} y=${__NS_packages_ui_core_core_hudGeometry.HUD_CY + y}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_PITCH_LABEL_FONT_SIZE}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_PITCH_COLOR}
+            text-anchor="start" dominant-baseline="central">${absI}</text>
+      <text x=${__NS_packages_ui_core_core_hudGeometry.HUD_CX - half - __NS_packages_ui_core_core_hudGeometry.HUD_PITCH_LABEL_OFFSET} y=${__NS_packages_ui_core_core_hudGeometry.HUD_CY + y}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_PITCH_LABEL_FONT_SIZE}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_PITCH_COLOR}
+            text-anchor="end" dominant-baseline="central">${absI}</text>
+    </g>`;
+};
+
+const HudPitchLadder = ({ pitchDeg = 0, rollDeg = 0 }) => {
+  const transY = pitchDeg * __NS_packages_ui_core_core_hudGeometry.HUD_PITCH_PX_PER_DEG;
+  return html`
+    <g data-widget="hud-pitch-ladder"
+       transform="rotate(${-rollDeg} ${__NS_packages_ui_core_core_hudGeometry.HUD_CX} ${__NS_packages_ui_core_core_hudGeometry.HUD_CY}) translate(0 ${transY})">
+      ${pitchLine(0)}
+      ${pitchLine(-30)}
+      ${pitchLine(-20)}
+      ${pitchLine(-10)}
+      ${pitchLine(10)}
+      ${pitchLine(20)}
+      ${pitchLine(30)}
+    </g>`;
+};
+
+// === packages/ui-core/components/svg/hud/BankArc.js ===
+// BankArc.js — top-of-frame bank indicator.
+//
+// FlySto style: white arc with sparse ticks (10° minor, 30° and 45°
+// major). No 60° tick — FlySto caps the scale at 45°. Stationary
+// yellow triangle pointer at the 12 o'clock position; the arc rotates
+// by -roll so the ticks slide under the pointer.
+
+
+
+// Single radial tick. Drawn at angle `deg` measured from "up" (12
+// o'clock, where deg=0). long=true → thicker, deeper tick.
+const tickFor = (deg, long) => {
+  // SVG rotates clockwise; positive bank = right wing low, which we
+  // render as the ticks rotating clockwise under the pointer. Treat
+  // 0° as straight up.
+  const rad = (deg - 90) * Math.PI / 180;
+  const r1 = __NS_packages_ui_core_core_hudGeometry.HUD_BANK_R;
+  const r2 = __NS_packages_ui_core_core_hudGeometry.HUD_BANK_R - (long ? __NS_packages_ui_core_core_hudGeometry.HUD_BANK_TICK_LONG : __NS_packages_ui_core_core_hudGeometry.HUD_BANK_TICK_SHORT);
+  const cosA = Math.cos(rad);
+  const sinA = Math.sin(rad);
+  return html`
+    <line x1=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CX + r1 * cosA} y1=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CY + r1 * sinA}
+          x2=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CX + r2 * cosA} y2=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CY + r2 * sinA}
+          stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_ARC_COLOR} stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_STROKE}
+          shape-rendering="crispEdges" />`;
+};
+
+const HudBankArc = ({ rollDeg = 0 }) => {
+  // Stationary downward-pointing pointer at 12 o'clock: tip touches
+  // the arc, base sits __NS_packages_ui_core_core_hudGeometry.HUD_BANK_POINTER_H above the arc.
+  const tipY = __NS_packages_ui_core_core_hudGeometry.HUD_BANK_CY - __NS_packages_ui_core_core_hudGeometry.HUD_BANK_R;
+  const baseY = tipY - __NS_packages_ui_core_core_hudGeometry.HUD_BANK_POINTER_H;
+  return html`
+    <g data-widget="hud-bank-arc">
+      <g transform="rotate(${-rollDeg} ${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CX} ${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CY})">
+        ${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_TICKS.map(t => tickFor(t.deg, t.long))}
+      </g>
+      <polygon points="${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CX},${tipY}
+                       ${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CX - __NS_packages_ui_core_core_hudGeometry.HUD_BANK_POINTER_HALF_W},${baseY}
+                       ${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_CX + __NS_packages_ui_core_core_hudGeometry.HUD_BANK_POINTER_HALF_W},${baseY}"
+               fill=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_POINTER_COLOR}
+               stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_BANK_POINTER_COLOR} stroke-width="2"
+               stroke-linejoin="miter" />
+    </g>`;
+};
+
+// === packages/ui-core/components/svg/hud/Tape.js ===
+// Tape.js — vertical scrolling numeric strip for IAS / ALT.
+//
+// The visible strip is centered vertically on the HUD. The current
+// value sits in a highlighted center box; ticks and labels scroll
+// behind it so the currently-indicated value always reads correctly
+// in the center box.
+
+
+
+// One tick + (optionally) one label. Drawn at `value` units; SVG-y is
+// translated by `-(value - currentValue) × pxPerUnit` so currentValue
+// always renders at the centerline.
+const tickRow = (props) => {
+  const {
+    side, value, currentValue, pxPerUnit, cy,
+    tickX, tickLenMajor, tickLenMinor,
+    labelEvery, labelX, labelAnchor, labelFontSize,
+  } = props;
+  const dy = -(value - currentValue) * pxPerUnit;
+  const isMajor = value % labelEvery === 0;
+  const tickLen = isMajor ? tickLenMajor : tickLenMinor;
+  // Side decides which way the tick pokes out of the tape.
+  const tx1 = side === 'left' ? tickX : tickX - tickLen;
+  const tx2 = side === 'left' ? tickX + tickLen : tickX;
+  return html`
+    <g transform="translate(0 ${dy})">
+      <line x1=${tx1} y1=${cy} x2=${tx2} y2=${cy}
+            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR} stroke-width="3"
+            shape-rendering="crispEdges" />
+      ${isMajor && html`
+        <text x=${labelX} y=${cy}
+              font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+              font-size=${labelFontSize}
+              fill=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR}
+              text-anchor=${labelAnchor} dominant-baseline="central">${value}</text>`}
+    </g>`;
+};
+
+// `side` = 'left' (IAS) or 'right' (ALT). The tape area is clipped to
+// the visible window so off-strip ticks don't bleed past the edges.
+const HudTape = ({
+  side, value = 0, valid = true,
+  tapeX, tapeW, tapeH, cy,
+  pxPerUnit, tickEvery, labelEvery,
+  tickLenMajor, tickLenMinor, labelFontSize,
+  boxH, boxFontSize, boxPadX, formatLabel,
+  clipId,
+}) => {
+  const fmt = formatLabel || ((v) => String(v));
+  // Range of values to draw: enough above + below the current value
+  // to fill the visible window with a margin. Snap to multiples of
+  // tickEvery.
+  const v0 = Math.round(value);
+  const halfRangeUnits = Math.ceil((tapeH / 2) / pxPerUnit) + tickEvery;
+  const minVal = Math.floor((v0 - halfRangeUnits) / tickEvery) * tickEvery;
+  const maxVal = Math.ceil((v0 + halfRangeUnits) / tickEvery) * tickEvery;
+  const ticks = [];
+  for (let v = minVal; v <= maxVal; v += tickEvery) {
+    if (v < 0) continue;  // Negative IAS/ALT doesn't render — pilot-visible math.
+    ticks.push(tickRow({
+      side,
+      value: v,
+      currentValue: value,
+      pxPerUnit,
+      cy,
+      tickX: side === 'left' ? tapeX + tapeW : tapeX,
+      tickLenMajor, tickLenMinor,
+      labelEvery,
+      labelX: side === 'left' ? tapeX + tapeW - tickLenMajor - 8 : tapeX + tickLenMajor + 8,
+      labelAnchor: side === 'left' ? 'end' : 'start',
+      labelFontSize,
+    }));
+  }
+
+  // Center highlight box — black background, current value in white.
+  const boxX = side === 'left' ? tapeX : tapeX;
+  const boxY = cy - boxH / 2;
+  const boxText = valid ? fmt(value) : '---';
+
+  return html`
+    <g data-widget=${`hud-tape-${side}`}>
+      <defs>
+        <clipPath id=${clipId}>
+          <rect x=${tapeX} y=${cy - tapeH / 2} width=${tapeW} height=${tapeH} />
+        </clipPath>
+      </defs>
+      <g clip-path="url(#${clipId})">
+        ${ticks}
+      </g>
+      <rect x=${boxX - 2} y=${boxY}
+            width=${tapeW + 4} height=${boxH}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_BOX_FILL}
+            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR} stroke-width="2" />
+      <text x=${boxX + tapeW / 2} y=${cy}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-weight="bold"
+            font-size=${boxFontSize}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR}
+            text-anchor="middle" dominant-baseline="central">${boxText}</text>
+    </g>`;
+};
+
+// VSI numeric readout — FlySto style: a signed number floating just
+// outside the altimeter centerline. Renders only when |VSI| exceeds
+// HUD_VSI_THRESHOLD fpm so the readout doesn't churn at idle.
+const HudVsiReadout = ({ vsiFpm = 0 }) => {
+  if (!Number.isFinite(vsiFpm)) return null;
+  if (Math.abs(vsiFpm) < __NS_packages_ui_core_core_hudGeometry.HUD_VSI_THRESHOLD) return null;
+  const rounded = Math.round(vsiFpm / 10) * 10;  // tens of fpm
+  const sign = rounded > 0 ? '+' : '';
+  return html`
+    <g data-widget="hud-vsi">
+      <text x=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_X} y=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_Y}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-weight="bold"
+            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_FONT_SIZE}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_COLOR}
+            text-anchor="end" dominant-baseline="central">${sign}${rounded}</text>
+    </g>`;
+};
+
+// G-load readout — "X.X G" rendered near the slip ball. Reads the
+// vertical-G (load factor) channel. Negative G clamped at -1 for
+// the display; positive unconstrained.
+const HudGReadout = ({ verticalG = 1 }) => {
+  if (!Number.isFinite(verticalG)) return null;
+  const g = Math.max(-9.9, Math.min(9.9, verticalG));
+  return html`
+    <g data-widget="hud-g">
+      <text x=${__NS_packages_ui_core_core_hudGeometry.HUD_G_X} y=${__NS_packages_ui_core_core_hudGeometry.HUD_G_Y}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-weight="bold"
+            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_G_FONT_SIZE}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR}
+            text-anchor="start" dominant-baseline="central">${g.toFixed(1)} G</text>
+    </g>`;
+};
+
+// === packages/ui-core/components/svg/hud/Fpm.js ===
+// Fpm.js — Flight-Path Marker for the HUD.
+//
+// Yellow glyph: circle + horizontal wing stalks + top fin. Vertical
+// position is the only motion — `(FlightPath - Pitch) × pixels-per-
+// degree`, matching the AI inset's FlightPathMarker math exactly so
+// the two FPMs move together at every instant.
+//
+// LATERAL FPM MOTION — DEFERRED (issue #542).
+// A "real" HUD FPM slides horizontally with the yaw-rate / ground-
+// track delta from heading. OnSpeed does not currently expose yaw
+// rate, and a previous spike that drove lateral motion from LateralG
+// (sideslip approximation) produced jumpy motion that didn't match
+// the AI inset's behavior. Revisit after the wire format gains yaw
+// rate or ground track.
+
+
+
+const HudFpm = ({ pitchDeg = 0, flightPathDeg = 0 }) => {
+  const dy = (flightPathDeg - pitchDeg) * __NS_packages_ui_core_core_hudGeometry.HUD_PITCH_PX_PER_DEG;
+  const cx = __NS_packages_ui_core_core_hudGeometry.HUD_FPM_CX;
+  const cy = __NS_packages_ui_core_core_hudGeometry.HUD_FPM_CY + dy;
+  return html`
+    <g data-widget="hud-fpm">
+      <circle cx=${cx} cy=${cy} r=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_R}
+              fill="none" stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_COLOR}
+              stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_STROKE} />
+      <line x1=${cx - __NS_packages_ui_core_core_hudGeometry.HUD_FPM_WING_INNER} y1=${cy}
+            x2=${cx - __NS_packages_ui_core_core_hudGeometry.HUD_FPM_WING_OUTER} y2=${cy}
+            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_COLOR} stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_STROKE} />
+      <line x1=${cx + __NS_packages_ui_core_core_hudGeometry.HUD_FPM_WING_INNER} y1=${cy}
+            x2=${cx + __NS_packages_ui_core_core_hudGeometry.HUD_FPM_WING_OUTER} y2=${cy}
+            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_COLOR} stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_STROKE} />
+      <line x1=${cx} y1=${cy - __NS_packages_ui_core_core_hudGeometry.HUD_FPM_R}
+            x2=${cx} y2=${cy - __NS_packages_ui_core_core_hudGeometry.HUD_FPM_R - __NS_packages_ui_core_core_hudGeometry.HUD_FPM_TOP_TICK}
+            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_COLOR} stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_FPM_STROKE} />
+    </g>`;
+};
+
+// === packages/ui-core/components/svg/HudOverlay.js ===
+// HudOverlay.js — full-frame HUD as a pure render layer.
+//
+// FlySto-style primary flight overlay layered over the source video.
+// No sky/ground fill — the GoPro footage is the horizon. Lines,
+// ticks, tapes, FPM, slip ball, and a single G-load readout are
+// drawn on top.
+//
+// Scope intentionally narrow (matches the four widgets pilots
+// requested for v1): pitch ladder + bank arc, IAS tape, ALT tape +
+// numeric VSI, slip ball + G readout. No heading tape, no
+// TAS/GS/wind block, no OAT/ISA/AGL stack.
+//
+// State shape: the canonical M5State from packages/ui-core/state-shape.js.
+// The replay page applies its PresentationSmoother to LateralG /
+// VerticalG before passing state in, so the slip ball + G readout
+// match what the M5 inset renders at the same instant.
+
+
+
+
+
+
+
+
+const HudOverlay = ({ state }) => {
+  if (!state) return null;
+  const aoaIsValid = state.IasIsValid !== false;
+  const iasValue = aoaIsValid ? Math.max(0, state.displayIAS || 0) : 0;
+  const altValue = Math.max(0, state.displayPalt || 0);
+  // Inline drop-shadow filter so the rasterized export gets the same
+  // legibility halo as the live page. replay.css applies a filter via
+  // a class selector, but the export path serializes the SVG to a
+  // blob URL and parses it in isolation — page CSS doesn't follow.
+  // Inlining the filter into the SVG itself works for both surfaces.
+  return html`
+    <svg viewBox="0 0 ${__NS_packages_ui_core_core_hudGeometry.HUD_W} ${__NS_packages_ui_core_core_hudGeometry.HUD_H}"
+         xmlns="http://www.w3.org/2000/svg"
+         preserveAspectRatio="xMidYMid meet"
+         class="hud-svg">
+      <defs>
+        <filter id="hud-shadow" x="-2%" y="-2%" width="104%" height="104%">
+          <feDropShadow dx="0" dy="0" stdDeviation="1.5"
+                        flood-color="black" flood-opacity="0.85" />
+          <feDropShadow dx="0" dy="0" stdDeviation="3"
+                        flood-color="black" flood-opacity="0.6" />
+        </filter>
+      </defs>
+      <g filter="url(#hud-shadow)">
+      <${HudPitchLadder} pitchDeg=${state.Pitch ?? 0}
+                          rollDeg=${state.Roll ?? 0} />
+      <${HudBankArc}     rollDeg=${state.Roll ?? 0} />
+      <${HudFpm} pitchDeg=${state.Pitch ?? 0}
+                  flightPathDeg=${state.FlightPath ?? 0} />
+      <${HudTape}
+        side="left"
+        value=${iasValue}
+        valid=${aoaIsValid}
+        tapeX=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_X} tapeW=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_W} tapeH=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TAPE_H}
+        cy=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_CY}
+        pxPerUnit=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_PX_PER_UNIT}
+        tickEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_EVERY}
+        labelEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_LABEL_EVERY}
+        tickLenMajor=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_LEN_MAJOR}
+        tickLenMinor=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_LEN_MINOR}
+        labelFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_LABEL_FONT_SIZE}
+        boxH=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_H}
+        boxFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE}
+        boxPadX=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_PAD_X}
+        formatLabel=${(v) => String(Math.round(v))}
+        clipId="hud-tape-clip-ias" />
+      <${HudTape}
+        side="right"
+        value=${altValue}
+        valid=${true}
+        tapeX=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_X} tapeW=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_W} tapeH=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TAPE_H}
+        cy=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_CY}
+        pxPerUnit=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_PX_PER_UNIT}
+        tickEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_EVERY}
+        labelEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_LABEL_EVERY}
+        tickLenMajor=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_LEN_MAJOR}
+        tickLenMinor=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_LEN_MINOR}
+        labelFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_LABEL_FONT_SIZE}
+        boxH=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_H}
+        boxFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE}
+        boxPadX=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_PAD_X}
+        formatLabel=${(v) => String(Math.round(v))}
+        clipId="hud-tape-clip-alt" />
+      <${HudVsiReadout} vsiFpm=${state.iVSI ?? 0} />
+      <${SlipBall} lateralG=${state.LateralG ?? 0}
+                    percentLift=${state.PercentLift ?? 0}
+                    stallWarn=${state.StallWarnPctLift ?? 100}
+                    flashFlag=${false}
+                    x=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_X} y=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_Y}
+                    width=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_W} height=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_H} />
+      <${HudGReadout} verticalG=${state.VerticalG != null ? state.VerticalG : null} />
+      </g>
+    </svg>`;
+};
+
 // === docs/site/docs/data-and-logs/replay/lib/pages/ReplayPage.js ===
 // Replay / video-overlay page (/replay).
 //
@@ -7441,6 +8042,7 @@ const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
 // description for the rationale (MP4 export is source-faithful and
 // audio-passthrough; WebM was a Phase-4 stopgap before the WebCodecs work
 // landed).
+
 
 
 
@@ -7510,6 +8112,10 @@ const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
 // visible on the slip ball. See presentationFilter.js for rationale.
 const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
+// Full-frame HUD layer toggle. Independent of the M5 panel — both
+// can be on at the same time. Default OFF (PLAN_HUD_OVERLAY.md PR-1
+// is an opt-in design-tuning phase).
+const HUD_SHOW_LS_KEY = 'replay-show-hud-v1';
 
 // Friendly label for the anchor type the auto-detector picked.
 // Pilots usually sync against the first crosswind turn (sharp bank
@@ -7558,6 +8164,14 @@ const ReplayPage = () => {
   const [sync, setSync]           = useState(null);
   const [videoT, setVideoT]       = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
+  // HUD layer toggle. Persisted to localStorage so a reload remembers
+  // the pilot's preference. Default false: PR-1 is design-tuning, and
+  // pilots who don't want the HUD shouldn't see it on first load.
+  const [showHud, setShowHud] = useState(() => {
+    return safeLsGet(HUD_SHOW_LS_KEY) === '1';
+  });
+  useEffect(() => { safeLsSet(HUD_SHOW_LS_KEY, showHud ? '1' : '0'); },
+            [showHud]);
   const [parseErr, setParseErr]   = useState(null);
   // True while the resume path is mid-load (auto-resume on mount, or
   // banner click). Surfaces a "Resuming…" status pill so the page
@@ -9177,6 +9791,27 @@ const ReplayPage = () => {
     };
   }, []);
 
+  // Separate mount for the full-frame HUD overlay during export. The
+  // HUD's SVG is 1920x1080 (vs. the 320x240 mode-panel SVG), so we
+  // can't reuse the same offscreen div without growing it to HUD
+  // dimensions and having that cost on every export render.
+  const exportHudMountRef = useRef(null);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const div = document.createElement('div');
+    div.setAttribute('data-replay-export-hud', '');
+    div.style.cssText = 'position:absolute;left:-99999px;top:0;width:1920px;height:1080px;visibility:hidden;pointer-events:none;';
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      div.style.setProperty(k, v);
+    }
+    document.body.appendChild(div);
+    exportHudMountRef.current = div;
+    return () => {
+      if (div.parentNode) div.parentNode.removeChild(div);
+      exportHudMountRef.current = null;
+    };
+  }, []);
+
   // renderOverlaySvg signature: (m5State, displayTypeOverride?) → SVGElement.
   // The override path is used by the overlay-only export, which iterates
   // all five modes per frame; it spreads m5State with displayType
@@ -9213,6 +9848,23 @@ const ReplayPage = () => {
     // on the <svg> root) resolves to nothing → transparent
     // background. Setting the vars on the SVG element makes them
     // available within the isolated document.
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      svg.style.setProperty(k, v);
+    }
+    return svg;
+  }, []);
+
+  // renderHudSvg signature: (m5State) → SVGElement.
+  // Mirrors renderOverlayForExport but renders the full-frame HUD
+  // overlay (HudOverlay) instead of the mode-specific M5 panel.
+  // When `showHud` is false this is left null and the export path
+  // skips HUD rendering entirely.
+  const renderHudForExport = useCallback((m5State) => {
+    const mount = exportHudMountRef.current;
+    if (!mount || !m5State) return null;
+    render(html`<${HudOverlay} state=${m5State} />`, mount);
+    const svg = mount.querySelector('svg');
+    if (!svg) return null;
     for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
       svg.style.setProperty(k, v);
     }
@@ -9263,6 +9915,10 @@ const ReplayPage = () => {
         log,
         cppWireFrames,
         renderOverlaySvg: renderOverlayForExport,
+        // HUD overlay — only rasterized into the export when the
+        // toolbar's Show HUD toggle is on. When off, the export
+        // path skips HUD rendering entirely.
+        renderHudSvg: showHud ? renderHudForExport : null,
         // Multi-chapter takes priority: when a chapter timeline is set,
         // the exporter stitches across boundaries into one MP4. Source
         // file alone still works for legacy single-file picks.
@@ -9308,6 +9964,7 @@ const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
+      renderHudForExport, showHud,
       videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
@@ -9613,6 +10270,11 @@ const ReplayPage = () => {
                  rel="noopener">How does this work?</a>
             </div>`}
 
+          ${showHud && m5State && html`
+              <div class="replay-hud">
+                <${HudOverlay} state=${m5State} />
+              </div>`}
+
           ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
             ? html`
                 <div class="replay-overlay">
@@ -9672,6 +10334,12 @@ const ReplayPage = () => {
               <input type="checkbox" checked=${overlayVisible}
                      onChange=${e => setOverlayVisible(e.target.checked)} />
               Show overlay
+            </label>
+            <label class="replay-toggle"
+                   title="Full-frame HUD: horizon, pitch ladder, bank arc, IAS/ALT tapes, FPM, slip ball. Independent of the M5 panel — both can be on.">
+              <input type="checkbox" checked=${showHud}
+                     onChange=${e => setShowHud(e.target.checked)} />
+              Show HUD
             </label>
             ${exportingClipIdx != null
               ? html`
