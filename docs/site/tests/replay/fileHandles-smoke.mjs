@@ -195,6 +195,7 @@ const {
   clearHandles,
   expandMultiChapterHandle,
   requestPermissionForHandles,
+  queryPermissionForHandles,
 } = fh;
 
 // ---------------------------------------------------------------------
@@ -457,6 +458,77 @@ await test('requestPermissionForHandles falls back to single video handle when n
   const granted = await requestPermissionForHandles({ video: vid, log, cfg: null });
   assertEqual(granted, true);
   assertEqual(vidAsked, 1);
+});
+
+// ---------------------------------------------------------------------
+// queryPermissionForHandles — non-prompting probe used by auto-resume
+// ---------------------------------------------------------------------
+
+await test('queryPermissionForHandles returns true when every present handle reports granted', async () => {
+  let videoAsked = 0;
+  let logAsked = 0;
+  const vid = { queryPermission: () => { videoAsked++; return Promise.resolve('granted'); } };
+  const log = { queryPermission: () => { logAsked++; return Promise.resolve('granted'); } };
+  const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
+  assertEqual(ok, true);
+  assertEqual(videoAsked, 1);
+  assertEqual(logAsked, 1);
+});
+
+await test('queryPermissionForHandles returns false when any handle reports prompt', async () => {
+  const vid = { queryPermission: () => Promise.resolve('granted') };
+  const log = { queryPermission: () => Promise.resolve('prompt') };
+  const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
+  assertEqual(ok, false);
+});
+
+await test('queryPermissionForHandles returns false when any handle reports denied', async () => {
+  const vid = { queryPermission: () => Promise.resolve('granted') };
+  const log = { queryPermission: () => Promise.resolve('denied') };
+  const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
+  assertEqual(ok, false);
+});
+
+await test('queryPermissionForHandles treats missing cfg slot as granted', async () => {
+  const vid = { queryPermission: () => Promise.resolve('granted') };
+  const log = { queryPermission: () => Promise.resolve('granted') };
+  const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
+  assertEqual(ok, true);
+});
+
+await test('queryPermissionForHandles returns false when queryPermission is missing on a handle', async () => {
+  const vid = { /* no queryPermission */ };
+  const log = { queryPermission: () => Promise.resolve('granted') };
+  const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
+  assertEqual(ok, false);
+});
+
+await test('queryPermissionForHandles uses directoryHandle for multi-chapter envelope', async () => {
+  let dirAsked = 0;
+  const dir = {
+    kind: 'directory',
+    queryPermission: () => { dirAsked++; return Promise.resolve('granted'); },
+  };
+  const log = { queryPermission: () => Promise.resolve('granted') };
+  const envelope = {
+    kind: 'multi-chapter',
+    directoryHandle: dir,
+    chapterNames: ['a.mp4', 'b.mp4'],
+  };
+  const ok = await queryPermissionForHandles({ video: envelope, log, cfg: null });
+  assertEqual(ok, true);
+  assertEqual(dirAsked, 1);
+});
+
+await test('queryPermissionForHandles returns false on null handles bundle', async () => {
+  assertEqual(await queryPermissionForHandles(null), false);
+});
+
+await test('queryPermissionForHandles treats rejection as prompt (not granted)', async () => {
+  const vid = { queryPermission: () => Promise.reject(new Error('boom')) };
+  const log = { queryPermission: () => Promise.resolve('granted') };
+  const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
+  assertEqual(ok, false);
 });
 
 // ---------------------------------------------------------------------

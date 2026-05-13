@@ -188,6 +188,10 @@ export const ReplayPage = () => {
   const [videoT, setVideoT]       = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [parseErr, setParseErr]   = useState(null);
+  // True while the resume path is mid-load (auto-resume on mount, or
+  // banner click). Surfaces a "Resuming…" status pill so the page
+  // doesn't look blank during the three getFile()/parse calls.
+  const [resuming, setResuming]   = useState(false);
   // Anchor kind from detectTakeoffWithKind: 'crosswind' | 'rotation'
   // | 'none'. Used in the status text + timeline label so the pilot
   // knows what event they're syncing against.
@@ -718,26 +722,15 @@ export const ReplayPage = () => {
     }
   }, [applyCfgFile]);
 
-  // Resume-banner click handler. MUST run the permission request
-  // synchronously in the same user-gesture tick — no awaits before
-  // requestPermissionForHandles or browsers reject the prompt.
-  // After grant, getFile() each handle and re-feed the apply* helpers.
-  const onResumeClick = useCallback(async () => {
-    const handles = fileHandleResume.availableHandles;
-    if (!handles) return;
-    // Permission request first — same gesture. Browsers batch the
-    // prompts when called sequentially in this tick.
-    const granted = await requestPermissionForHandles(handles);
-    if (!granted) {
-      // Collapse the banner so the pilot only sees one signal — the
-      // error message. Leaving the banner up alongside the error
-      // reads as "Resume failed but click here to try again" when in
-      // fact the browser already denied without a prompt and another
-      // click won't help.
-      fileHandleResume.dismiss();
-      setParseErr('Permission denied for one or more files. Pick them manually.');
-      return;
-    }
+  // Shared resume load body. Reads the three files via the (already-
+  // granted) FSA handles and re-feeds them through the apply* helpers.
+  // Called by both onResumeClick (user-gesture banner click, runs
+  // requestPermissionForHandles first) and the auto-resume effect (page
+  // load, queryPermission already reported 'granted'). `getFile()` may
+  // still fail if a file was deleted between sessions — the catch
+  // surfaces the error and leaves the banner up for a manual retry.
+  const performResumeLoad = useCallback(async (handles) => {
+    setResuming(true);
     try {
       const isMultiChapter = handles.video && handles.video.kind === 'multi-chapter';
       // Log + cfg are always single-file handles; video may be either.
@@ -746,11 +739,12 @@ export const ReplayPage = () => {
         handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
       ]);
       if (isMultiChapter) {
-        // requestPermissionForHandles already granted read on the
-        // directory handle above. Subsequent entries() iteration and
-        // entry.getFile() reads on an already-granted directory do
-        // NOT need a fresh user-gesture token, so awaiting the walk
-        // here is safe even though it crosses several async hops.
+        // Permission on the directory handle was already granted (by
+        // requestPermissionForHandles or queryPermissionForHandles).
+        // Subsequent entries() iteration and entry.getFile() reads on
+        // an already-granted directory do NOT need a fresh user-gesture
+        // token, so awaiting the walk here is safe even though it
+        // crosses several async hops.
         const expanded = await expandMultiChapterHandle(handles.video);
         if (!expanded || expanded.files.length === 0) {
           throw new Error('multi-chapter directory is empty or chapters moved');
@@ -772,12 +766,58 @@ export const ReplayPage = () => {
       fileHandleResume.markUsed();
     } catch (err) {
       setParseErr(`Resume failed: ${err.message}`);
+    } finally {
+      setResuming(false);
     }
   }, [fileHandleResume, applyVideoFile, applyVideoFiles, applyLogFile, applyCfgFile]);
+
+  // Resume-banner click handler. MUST run the permission request
+  // synchronously in the same user-gesture tick — no awaits before
+  // requestPermissionForHandles or browsers reject the prompt.
+  // After grant, getFile() each handle and re-feed the apply* helpers.
+  const onResumeClick = useCallback(async () => {
+    const handles = fileHandleResume.availableHandles;
+    if (!handles) return;
+    // Permission request first — same gesture. Browsers batch the
+    // prompts when called sequentially in this tick.
+    const granted = await requestPermissionForHandles(handles);
+    if (!granted) {
+      // Collapse the banner so the pilot only sees one signal — the
+      // error message. Leaving the banner up alongside the error
+      // reads as "Resume failed but click here to try again" when in
+      // fact the browser already denied without a prompt and another
+      // click won't help.
+      fileHandleResume.dismiss();
+      setParseErr('Permission denied for one or more files. Pick them manually.');
+      return;
+    }
+    await performResumeLoad(handles);
+  }, [fileHandleResume, performResumeLoad]);
 
   const onResumeDismiss = useCallback(() => {
     fileHandleResume.dismiss();
   }, [fileHandleResume]);
+
+  // Auto-resume: when the hook reports queryPermission is still
+  // 'granted' on every stored handle (typical within-browser-session
+  // reload), skip the banner click and load the files at mount. The ref
+  // pins this to fire exactly once per (signature, handles) pair so a
+  // re-render after markUsed() doesn't retrigger the load. Pilots who
+  // dismissed the recent-files banner last session won't see the
+  // recent-files banner; we also suppress auto-resume in that case via
+  // the `persistence.bannerInfo` gate so the page stays as the pilot
+  // left it (manual re-pick).
+  const autoResumedSigRef = useRef('');
+  useEffect(() => {
+    if (!fileHandleResume.autoResumeReady) return;
+    if (!persistence.bannerInfo) return; // pilot dismissed the recent-files banner
+    const handles = fileHandleResume.availableHandles;
+    if (!handles) return;
+    if (autoResumedSigRef.current === persistence.recentFilesSig) return;
+    autoResumedSigRef.current = persistence.recentFilesSig;
+    performResumeLoad(handles);
+  }, [fileHandleResume.autoResumeReady, fileHandleResume.availableHandles,
+      persistence.bannerInfo, persistence.recentFilesSig, performResumeLoad]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
@@ -2111,6 +2151,8 @@ export const ReplayPage = () => {
               <input type="file" accept=".cfg,.xml,text/xml" onChange=${onCfgPick} />
             </label>
           `}
+          ${resuming && html`
+            <span class="replay-status">Resuming…</span>`}
           ${cfg && html`
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
