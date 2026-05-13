@@ -253,6 +253,24 @@ export async function requestPermissionForHandles(handles) {
   return results.every(r => r === 'granted');
 }
 
+// Non-prompting permission probe. `queryPermission` reports the current
+// state without surfacing a dialog, so it is safe to call outside a
+// user-gesture context (page load, mount-time effect). Returns true iff
+// every present slot's queryPermission resolves to 'granted' — the
+// signal the auto-resume path needs to skip the banner click. A 'prompt'
+// or 'denied' result on any slot falls back to the banner-required path.
+export async function queryPermissionForHandles(handles) {
+  if (!handles) return false;
+  const slots = ['video', 'log', 'cfg'];
+  const results = await Promise.all(slots.map(slot => {
+    const target = permissionTarget(handles[slot]);
+    if (!target) return 'granted';
+    if (typeof target.queryPermission !== 'function') return 'prompt';
+    return target.queryPermission({ mode: 'read' }).catch(() => 'prompt');
+  }));
+  return results.every(r => r === 'granted');
+}
+
 // Walk a stored multi-chapter envelope: re-open the directory handle's
 // entries, match against the persisted chapter-name list, return the
 // ordered file + handle arrays. Permission must already be granted on
@@ -312,6 +330,9 @@ export async function pickFile(slot) {
 //   availableHandles — { video, log, cfg } | null (matched signature)
 //   resumeReady     — true iff video + log handles both present
 //                     (cfg is optional, mirrors persistence.js)
+//   autoResumeReady — true iff resumeReady AND every present handle's
+//                     queryPermission returned 'granted'. Lets the page
+//                     skip the banner click and load files at mount.
 //   dismissed       — pilot dismissed the resume offer this session
 //   dismiss()       — hide the resume offer + clear IDB record
 //   markUsed()      — call after a successful resume so future
@@ -324,6 +345,9 @@ export async function pickFile(slot) {
 export function useFileHandleResume({ recentFilesSig }) {
   const [supported] = useState(() => isFileHandleApiSupported());
   const [availableHandles, setAvailableHandles] = useState(null);
+  // Set only when queryPermission reports 'granted' on every present
+  // slot. Reset to false alongside availableHandles on signature change.
+  const [permGranted, setPermGranted] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [used, setUsed] = useState(false);
 
@@ -331,14 +355,22 @@ export function useFileHandleResume({ recentFilesSig }) {
     if (!supported) return;
     if (!recentFilesSig) {
       setAvailableHandles(null);
+      setPermGranted(false);
       return;
     }
     let cancelled = false;
-    loadHandles(recentFilesSig).then(h => {
+    loadHandles(recentFilesSig).then(async h => {
       if (cancelled) return;
       setAvailableHandles(h);
+      if (!h) { setPermGranted(false); return; }
+      // queryPermission does not require a user gesture, so it is safe
+      // to call here from the mount-time effect.
+      let ok = false;
+      try { ok = await queryPermissionForHandles(h); }
+      catch { ok = false; }
+      if (!cancelled) setPermGranted(ok);
     }).catch(() => {
-      if (!cancelled) setAvailableHandles(null);
+      if (!cancelled) { setAvailableHandles(null); setPermGranted(false); }
     });
     return () => { cancelled = true; };
   }, [supported, recentFilesSig]);
@@ -358,10 +390,13 @@ export function useFileHandleResume({ recentFilesSig }) {
                       !dismissed &&
                       !used;
 
+  const autoResumeReady = resumeReady && permGranted;
+
   return {
     supported,
     availableHandles,
     resumeReady,
+    autoResumeReady,
     dismiss,
     markUsed,
   };
