@@ -3723,9 +3723,38 @@ EFIS in flight. The other channels (AOA, pitch, IAS) are unchanged.</p>
 <p>Both are stored browser-side, keyed by the log's content hash.
 Re-load the same log months later, your names and notes come back.</p>
 <h2 id="keyboard-shortcuts">Keyboard shortcuts<a class="headerlink" href="#keyboard-shortcuts" title="Permanent link">&para;</a></h2>
-<p>None today. Frame-step (← / →) and play/pause (Space) are tracked
-in issue #63.</p>
-<!-- TODO: frame-step keybindings — issue #63 -->
+<p>The page listens for these keys regardless of which element has focus
+(typing in an <code>&lt;input&gt;</code> / <code>&lt;textarea&gt;</code> / <code>[contenteditable]</code> passes
+through normally, so notes and labels are unaffected):</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Space</code></td>
+<td>Play / pause</td>
+</tr>
+<tr>
+<td><code>←</code> or <code>,</code></td>
+<td>Step back one frame</td>
+</tr>
+<tr>
+<td><code>→</code> or <code>.</code></td>
+<td>Step forward one frame</td>
+</tr>
+<tr>
+<td><code>Shift + ←</code> / <code>→</code></td>
+<td>Step ten frames</td>
+</tr>
+</tbody>
+</table>
+<p>Frame size is read from the active video. When the rate can't be
+detected the tool assumes 30 fps. Stepping while playing pauses
+first — single frames don't survive an active play loop.</p>
 
 
 

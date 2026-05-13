@@ -7912,6 +7912,76 @@ const ReplayPage = () => {
     return v.currentTime;
   }, []);
 
+  // Frame-step keyboard scrub (closes #63). Pilots routinely click off
+  // the <video> element (timeline plot, clip rows, notes textarea) and
+  // lose the browser's native Space-to-play binding; this handler runs
+  // at the document level so the keys work regardless of focus. Typed
+  // input in <input>/<textarea>/[contenteditable] passes through —
+  // arrow keys / space in the smoothing slider, clip labels, and
+  // DataMark notes textarea keep their normal behavior.
+  //
+  // Step size derives from the active video's frame rate, detected
+  // from rVFC mediaTime deltas (see fps detection in the rVFC tick
+  // above). Defaults to 30 fps when unknown (paused-on-load, RAF
+  // fallback, or pre-warmup) — matches the GoPro Hero default. Seeks
+  // route through `seekToGlobalSec` so cross-chapter back-steps swap
+  // to the previous chapter's tail correctly.
+  //
+  // Bindings:
+  //   Space           toggle play/pause
+  //   ←  / ,          back one frame
+  //   →  / .          forward one frame
+  //   Shift+←/Shift+→ back/forward ten frames
+  //
+  // Test plan (manual, no unit test — handler touches DOM + refs):
+  //   1. Load any video, click the timeline plot, press ←/→: video
+  //      steps one frame.
+  //   2. Press Space: toggles play/pause.
+  //   3. Click into DataMark notes textarea, press ←: caret moves
+  //      left, video does NOT seek.
+  //   4. Press Shift+→ ten times in a row while playing: video pauses
+  //      first, then jumps ~100 frames.
+  //   5. On a multi-chapter pick, scrub to local-time ~0.05 s on
+  //      chapter 2 and press ←: chapter swaps to chapter 1's tail.
+  useEffect(() => {
+    const onKey = (e) => {
+      // Don't hijack typing in inputs / textareas / contenteditable.
+      if (e.target && typeof e.target.closest === 'function' &&
+          e.target.closest('input, textarea, [contenteditable]')) {
+        return;
+      }
+      const v = videoRef.current;
+      if (!v) return;
+      // Use e.code (not e.key) so Shift+, doesn't shift the binding
+      // from `,` (Comma) to `<` (Less).
+      const code = e.code;
+      if (code === 'Space') {
+        e.preventDefault();
+        if (v.paused) v.play().catch(() => {});
+        else v.pause();
+        return;
+      }
+      let direction = 0;
+      if (code === 'ArrowLeft' || code === 'Comma') direction = -1;
+      else if (code === 'ArrowRight' || code === 'Period') direction = 1;
+      else return;
+      e.preventDefault();
+      // Pause on first step. A play loop swallows seeks otherwise.
+      if (!v.paused) v.pause();
+      const fps = v._detectedFps && Number.isFinite(v._detectedFps) && v._detectedFps > 0
+        ? v._detectedFps : 30;
+      const frames = e.shiftKey ? 10 : 1;
+      const dtSec = (direction * frames) / fps;
+      const tl = videoTimelineRef.current;
+      const cur = currentGlobalSec();
+      const max = tl ? tl.totalDurationSec : (Number.isFinite(v.duration) ? v.duration : Infinity);
+      const target = Math.max(0, Math.min(max, cur + dtSec));
+      seekToGlobalSec(target);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [seekToGlobalSec, currentGlobalSec]);
+
   // Toolbar label for the video pick. Single-chapter (or non-chapter
   // pick): just the filename. Multi-chapter: "GOPR0314.MP4 + 3 chapters
   // (Hh Mm Ss)".
@@ -7935,6 +8005,14 @@ const ReplayPage = () => {
     if (!v) return;
     let cancelled = false;
     const useRvfc = typeof v.requestVideoFrameCallback === 'function';
+    // rVFC fps detection: track mediaTime deltas between consecutive
+    // frame callbacks while the video is playing. After ~10 samples
+    // settle on the median delta and stash 1/dt as `_detectedFps` on
+    // the element for the frame-step keybindings to read. Falls back
+    // to 30 fps if the video never plays / RAF path.
+    const fpsSamples = [];
+    v._detectedFps = null;
+    v._lastMediaTimeForFps = null;
 
     const tick = (now, meta) => {
       if (cancelled) return;
@@ -7948,6 +8026,22 @@ const ReplayPage = () => {
       // for the RAF path. For non-chapter playback (no timeline),
       // global time equals local time.
       const local = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : v.currentTime;
+      // Sample frame rate from rVFC metadata. Only valid while
+      // playing and against the *previous* media time we observed;
+      // a seek discontinuity shows up as a large delta and is
+      // discarded by the [0.005, 0.1] band.
+      if (meta && Number.isFinite(meta.mediaTime) && v._lastMediaTimeForFps != null) {
+        const dt = meta.mediaTime - v._lastMediaTimeForFps;
+        if (dt > 0.005 && dt < 0.1) {
+          fpsSamples.push(dt);
+          if (fpsSamples.length >= 10 && v._detectedFps == null) {
+            const sorted = fpsSamples.slice().sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            v._detectedFps = 1 / median;
+          }
+        }
+      }
+      if (meta && Number.isFinite(meta.mediaTime)) v._lastMediaTimeForFps = meta.mediaTime;
       const tl = videoTimelineRef.current;
       const idx = activeChapterIndexRef.current;
       // Auto-advance at chapter boundary: when local time reaches
