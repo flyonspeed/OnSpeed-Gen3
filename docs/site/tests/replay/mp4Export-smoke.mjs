@@ -165,15 +165,30 @@ assertTrue(Object.isFrozen(OVERLAY_MODE_IDS),
 assertTrue(Object.isFrozen(OVERLAY_MODE_ORDER),
            'OVERLAY_MODE_ORDER is frozen');
 
+// Strip the freshly-minted UUID `id` field so deep-equality assertions
+// against builder output stay readable. Identity tested separately
+// below.
+function stripId(clip) {
+  if (!clip) return clip;
+  const { id: _id, ...rest } = clip;
+  return rest;
+}
+
 // ---------------------------------------------------------------------
 // buildClipFromPlayhead
 // ---------------------------------------------------------------------
 console.log('\n--- buildClipFromPlayhead ---');
 
 assertEq(
-  buildClipFromPlayhead(5, 30, sync, 'first clip'),
+  stripId(buildClipFromPlayhead(5, 30, sync, 'first clip')),
   { startMs: 13_000, endMs: 43_000, label: 'first clip' },
   'video 5s + 30s duration → log 13000-43000ms'
+);
+
+assertTrue(
+  typeof buildClipFromPlayhead(5, 30, sync, 'first clip').id === 'string'
+    && buildClipFromPlayhead(5, 30, sync, 'first clip').id.length > 0,
+  'buildClipFromPlayhead assigns a non-empty string id'
 );
 
 assertEq(
@@ -194,7 +209,7 @@ assertEq(
 console.log('\n--- buildClipFromMarkers ---');
 
 assertEq(
-  buildClipFromMarkers(5, 10, sync, 'marked clip'),
+  stripId(buildClipFromMarkers(5, 10, sync, 'marked clip')),
   { startMs: 13_000, endMs: 18_000, label: 'marked clip' },
   'video [5s, 10s] → log [13000, 18000]ms'
 );

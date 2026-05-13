@@ -276,22 +276,43 @@ export async function loadMarkAnnotations(logHash) {
   return out;
 }
 
+// Return the clip-annotation overlay map keyed by clip `id`, with
+// payload `{ label, notes, updatedAt }`. Empty object if the record
+// doesn't exist or has no clips. Mirrors loadMarkAnnotations.
+export async function loadClipAnnotations(logHash) {
+  const record = await loadJournal(logHash);
+  if (!record || !Array.isArray(record.clips)) return {};
+  const out = {};
+  for (const c of record.clips) {
+    if (!c || typeof c.id !== 'string' || !c.id) continue;
+    out[c.id] = {
+      label: c.label || '',
+      notes: c.notes || '',
+      updatedAt: c.updatedAt || 0,
+    };
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------
 // Preact hook: useReplayJournal
 //
 // Watches the current log digest (computed externally — pass it in
-// from useReplayPersistence). On hash change, loads the mark-annotation
-// overlay into state. Returns { markAnnotations, upsertMarkAnnotation }
+// from useReplayPersistence). On hash change, loads the mark- and
+// clip-annotation overlays into state. Returns
+//   { markAnnotations, upsertMarkAnnotation,
+//     clipAnnotations, upsertClipAnnotation }
 // for the rest of the page to consume.
 //
 // The local-state mirror is what the UI renders. IDB writes happen in
-// the background; the callback updates local state synchronously so
+// the background; the callbacks update local state synchronously so
 // keystrokes feel instant.
 // ---------------------------------------------------------------------
 
 export function useReplayJournal({ logHash }) {
   const [markAnnotations, setMarkAnnotations] = useState({});
-  // Synchronous mirror of logHash so the updater callback writes to
+  const [clipAnnotations, setClipAnnotations] = useState({});
+  // Synchronous mirror of logHash so the updater callbacks write to
   // the correct record even when called between an IDB-load promise
   // resolving and Preact committing the new state.
   //
@@ -303,17 +324,21 @@ export function useReplayJournal({ logHash }) {
   // it. Real-world hit rate is vanishingly small (mark keys collide
   // across separate flights only by coincidence); proper fix is to
   // capture the logHash at edit-time into the debounce closure rather
-  // than reading the ref at flush-time.
+  // than reading the ref at flush-time. Clip IDs are UUIDs so the
+  // analogous collision is essentially impossible for clips.
   const logHashRef = useRef(null);
 
   useEffect(() => {
     logHashRef.current = logHash || null;
     setMarkAnnotations({});
+    setClipAnnotations({});
     if (!logHash) return;
     let cancelled = false;
     loadMarkAnnotations(logHash).then(ann => {
-      if (cancelled) return;
-      setMarkAnnotations(ann);
+      if (!cancelled) setMarkAnnotations(ann);
+    });
+    loadClipAnnotations(logHash).then(ann => {
+      if (!cancelled) setClipAnnotations(ann);
     });
     return () => { cancelled = true; };
   }, [logHash]);
@@ -333,5 +358,22 @@ export function useReplayJournal({ logHash }) {
     upsertMark(hash, { value: mark.value, logTimeMs: mark.logTimeMs }, patch);
   }, []);
 
-  return { markAnnotations, upsertMarkAnnotation };
+  const upsertClipAnnotationCb = useCallback((id, patch) => {
+    const hash = logHashRef.current;
+    if (!hash || !id || typeof id !== 'string') return;
+    setClipAnnotations(prev => ({
+      ...prev,
+      [id]: {
+        label: patch.label != null ? patch.label : (prev[id]?.label || ''),
+        notes: patch.notes != null ? patch.notes : (prev[id]?.notes || ''),
+        updatedAt: Date.now(),
+      },
+    }));
+    upsertClipAnnotation(hash, id, patch);
+  }, []);
+
+  return {
+    markAnnotations, upsertMarkAnnotation,
+    clipAnnotations, upsertClipAnnotation: upsertClipAnnotationCb,
+  };
 }
