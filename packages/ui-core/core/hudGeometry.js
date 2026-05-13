@@ -133,7 +133,7 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // ticks point LEFT (toward the ALT tape's label column behind the
 // box) and the scale numerals + value readout sit on the RIGHT of
 // the spine in the open frame.
-export const HUD_VVI_X               = 1758;
+export const HUD_VVI_X               = 1742;
 // VVI centerline matches the ALT tape so the two right-side gauges
 // share a horizontal axis. Bar HALF_H is 65% of the ALT tape's
 // half-height (220 * 0.65) so the VVI reads as a smaller sibling
@@ -229,7 +229,8 @@ export const HUD_ALT_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
 // Backing left sits 4 px LEFT of HUD_ALT_X for a little air around
 // the tick stems.
 export const HUD_ALT_BACKING_X       = HUD_ALT_X - 4;
-export const HUD_ALT_BACKING_W       = HUD_ALT_TICK_LONG + HUD_ALT_LABEL_OFFSET_X + 80 + 4;
+// Label width: 5-digit "12340" at font-size 22 monospace ≈ 60 px.
+export const HUD_ALT_BACKING_W       = HUD_ALT_TICK_LONG + HUD_ALT_LABEL_OFFSET_X + 60 + 4;
 export const HUD_ALT_BACKING_Y       = HUD_ALT_CY - HUD_ALT_HALF_H;
 // Baro endcap height — the extra vertical extent appended to the
 // backing strip's bottom for the "29.92in" readout. The TICK area
@@ -335,7 +336,9 @@ export const HUD_IAS_ONES_SLIDE_PX   = 60;
 // of the ticks (text-anchor="end" at HUD_IAS_X - HUD_IAS_TICK_LONG -
 // HUD_IAS_LABEL_OFFSET_X). Width covers the label column + tick stems
 // + a few px of air on either side.
-export const HUD_IAS_BACKING_W       = HUD_IAS_TICK_LONG + HUD_IAS_LABEL_OFFSET_X + 80 + 4;
+// Label width: 3-digit IAS at font-size 22 monospace ≈ 40 px wide.
+// Add a little air on either side.
+export const HUD_IAS_BACKING_W       = HUD_IAS_TICK_LONG + HUD_IAS_LABEL_OFFSET_X + 44 + 4;
 export const HUD_IAS_BACKING_X       = HUD_IAS_X + 4 - HUD_IAS_BACKING_W;
 export const HUD_IAS_BACKING_Y       = HUD_IAS_CY - HUD_IAS_HALF_H;
 export const HUD_IAS_BACKING_H       = HUD_IAS_HALF_H * 2;
