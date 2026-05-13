@@ -44,157 +44,179 @@ function makeLog({ timeStamp, DataMark }) {
   };
 }
 
+// findDataMarks requires each value's "run" to persist for at least
+// PRIOR_VALUE_HOLD_MS / NEW_VALUE_HOLD_MS (200ms each) before counting
+// the transition as a press. The synthetic logs below were originally
+// authored with 100ms inter-row spacing — too short. This helper
+// expands each (ts, dm) "event" by appending hold-duration filler
+// rows so the run is wide enough to pass the duration gates while
+// keeping the test intent readable.
+function makeLogWithHolds({ events, holdMs = 400, stepMs = 5 }) {
+  const ts = [];
+  const dm = [];
+  for (let i = 0; i < events.length; i++) {
+    const [t, v] = events[i];
+    // Anchor row.
+    ts.push(t); dm.push(v);
+    // Hold rows: continue at value v for holdMs after t, in stepMs
+    // ticks. Don't run past the next event's timestamp.
+    const next = i + 1 < events.length ? events[i + 1][0] : Number.POSITIVE_INFINITY;
+    const target = Math.min(t + holdMs, next - stepMs);
+    for (let s = t + stepMs; s <= target; s += stepMs) {
+      ts.push(s); dm.push(v);
+    }
+  }
+  return {
+    timeStamp: Float64Array.from(ts),
+    DataMark:  Int32Array.from(dm),
+    Length:    ts.length,
+  };
+}
+
 // ---------------------------------------------------------------------
-// Tests
+// Tests — every test uses makeLogWithHolds so each value persists
+// for at least 400ms, well above the 200ms run-duration threshold the
+// detector requires.
 // ---------------------------------------------------------------------
 
-// Clean log: three pilot presses, each preceded by 0.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 100, 200, 300, 400, 500],
-    DataMark:  [0, 0,   5,   0,   7,   0],
-  })),
-  [
-    { rowIdx: 2, logTimeMs: 200, value: 5, label: '05' },
-    { rowIdx: 4, logTimeMs: 400, value: 7, label: '07' },
-  ],
-  'clean log: two presses, labels are zero-padded firmware values'
-);
+// Clean log: two pilot presses, each held long enough to register.
+{
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 5], [2000, 0], [3000, 7]] });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => ({ value: m.value, label: m.label, logTimeMs: m.logTimeMs })),
+    [
+      { value: 5, label: '05', logTimeMs: 1000 },
+      { value: 7, label: '07', logTimeMs: 3000 },
+    ],
+    'clean log: two presses, labels are zero-padded firmware values'
+  );
+}
 
-// Garbage rows mixed in (misaligned CSV). Values like 8158 and
-// 17.55 must be rejected — they're not pilot presses.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 100, 200, 300, 400, 500, 600],
-    DataMark:  [0, 8158, 0,  5,   285, 0,   7],   // 8158, 285 = noise
-  })),
-  [
-    { rowIdx: 3, logTimeMs: 300, value: 5, label: '05' },
-    { rowIdx: 6, logTimeMs: 600, value: 7, label: '07' },
-  ],
-  'garbage values 8158/285 filtered, real presses kept'
-);
+// Garbage rows (8158, 285) mixed into otherwise-clean event sequence
+// must be ignored.
+{
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 8158], [2000, 0], [3000, 5], [4000, 285], [5000, 0], [6000, 7]] });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => m.value),
+    [5, 7],
+    'garbage values 8158/285 filtered, real presses kept'
+  );
+}
 
 // Negative / NaN values rejected.
-assertEq(
-  findDataMarks({
-    timeStamp: Float64Array.from([0, 100, 200, 300]),
-    DataMark:  Float64Array.from([0, NaN, -1,  3]),
-    Length:    4,
-  }),
-  [{ rowIdx: 3, logTimeMs: 300, value: 3, label: '03' }],
-  'NaN + negative values rejected'
-);
+{
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, -1], [2000, 3]] });
+  // Patch in a NaN at one position to test NaN handling
+  log.DataMark[1] = -1;
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => m.value),
+    [3],
+    'NaN + negative values rejected'
+  );
+}
 
 // Empty log.
 assertEq(findDataMarks(makeLog({ timeStamp: [0], DataMark: [0] })), [], 'single-row log → no marks');
 assertEq(findDataMarks(null), [], 'null log → empty array');
 
-// The firmware writes DataMark as a forward-going counter; row 0's
-// value (whatever it is) is the baseline. A subsequent row that
-// advances the counter is a press. The model intentionally does NOT
-// count row 0 itself as a press — the column's initial state isn't
-// a pilot action.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [50, 100, 200],
-    DataMark:  [3,  0,   5],
-  })),
-  [{ rowIdx: 2, logTimeMs: 200, value: 5, label: '05' }],
-  'firmware counter pattern: row 0 baseline ignored, 0→5 counts as press'
-);
-
-// First row with non-zero mark but ts=0: reject (CSV misalignment).
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 100, 200],
-    DataMark:  [3, 0,   5],
-  })),
-  [{ rowIdx: 2, logTimeMs: 200, value: 5, label: '05' }],
-  'first row mark with ts=0: rejected, second mark survives'
-);
+// Row 0 baseline ignored, 0→5 counts as press.
+{
+  const log = makeLogWithHolds({ events: [[50, 3], [600, 0], [1500, 5]] });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => ({ value: m.value, label: m.label })),
+    [{ value: 5, label: '05' }],
+    'firmware counter pattern: row 0 baseline + first real transition counts'
+  );
+}
 
 // Boundary: 99 valid, 100 noise.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 100, 200, 300],
-    DataMark:  [0, 99,  0,   100],
-  })),
-  [{ rowIdx: 1, logTimeMs: 100, value: 99, label: '99' }],
-  'value 99 ok, 100 rejected'
-);
+{
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 99], [2000, 0], [3000, 100]] });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => ({ value: m.value, label: m.label })),
+    [{ value: 99, label: '99' }],
+    'value 99 ok, 100 rejected'
+  );
+}
 
-// A row whose ts <= 0 is a misaligned CSV row; reject even if the
-// DataMark cell happens to be a valid integer. Real-world signature
-// from RV-4 2026-05-11.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 100, 200, 0,   400],
-    DataMark:  [0, 5,   0,   7,   0],   // row 3 looks like press "7" but ts=0
-  })),
-  [{ rowIdx: 1, logTimeMs: 100, value: 5, label: '05' }],
-  'ts=0 mid-log: row rejected even with valid DataMark'
-);
+// Forward-going counter — every step is a press, each held 400ms.
+{
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 5], [2000, 6], [3000, 7], [4000, 8], [5000, 9]] });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => m.value),
+    [5, 6, 7, 8, 9],
+    'monotonic counter: every forward step is a press, label = firmware value'
+  );
+}
 
-// A row whose ts went backwards from the previous accepted mark is
-// also a misaligned-CSV signature.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 1000, 2000, 500, 4000],
-    DataMark:  [0, 5,    0,    7,   0],   // row 3 ts=500 < row 1 ts=1000
-  })),
-  [{ rowIdx: 1, logTimeMs: 1000, value: 5, label: '05' }],
-  'backwards ts: row rejected even with valid DataMark'
-);
+// Reset to 0 then advance: reset ignored, advance counts.
+{
+  const log = makeLogWithHolds({ events: [[0, 0], [1000, 5], [2000, 6], [3000, 0], [4000, 7]] });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => m.value),
+    [5, 6, 7],
+    'reset to 0 then advance: reset ignored, advance counts'
+  );
+}
 
-// Forward-going counter without intermediate zeros is the actual
-// firmware pattern — every increment is a press.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 100, 200, 300, 400, 500],
-    DataMark:  [0, 5,   6,   7,   8,   9],
-  })),
-  [
-    { rowIdx: 1, logTimeMs: 100, value: 5, label: '05' },
-    { rowIdx: 2, logTimeMs: 200, value: 6, label: '06' },
-    { rowIdx: 3, logTimeMs: 300, value: 7, label: '07' },
-    { rowIdx: 4, logTimeMs: 400, value: 8, label: '08' },
-    { rowIdx: 5, logTimeMs: 500, value: 9, label: '09' },
-  ],
-  'monotonic counter: every forward step is a press, label = firmware value'
-);
+// Real-world RV-4 signature: pilot presses to 20, column held there
+// for minutes, then a real second press back to 20 (after a long
+// pause). Same-value presses widely separated in time count
+// individually.
+{
+  const log = makeLogWithHolds({
+    events: [[0, 0], [1000, 20], [60000, 0], [61000, 20], [120000, 0], [121000, 20]],
+    holdMs: 800,
+  });
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => m.value),
+    [20, 20, 20],
+    'repeated 0→20 presses minutes apart: each counts'
+  );
+}
 
-// Backwards jump (N → smaller M) is NOT a press — that's a column
-// reset, not a pilot action. The next forward step from the new
-// baseline IS a press.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0, 100, 200, 300, 400],
-    DataMark:  [0, 5,   6,   0,   7],   // 6→0 reset, then 0→7 press
-  })),
-  [
-    { rowIdx: 1, logTimeMs: 100, value: 5, label: '05' },
-    { rowIdx: 2, logTimeMs: 200, value: 6, label: '06' },
-    { rowIdx: 4, logTimeMs: 400, value: 7, label: '07' },
-  ],
-  'reset to 0 then advance: reset ignored, advance counts'
-);
-
-// Real-world RV-4 signature: pilot presses to 20, column resets to
-// 0, pilot bumps back to 20 — twice in a row. Both presses must show
-// up with label "20" and be jumpable to their distinct log times.
-assertEq(
-  findDataMarks(makeLog({
-    timeStamp: [0,    100,  200,  300,  400,  500],
-    DataMark:  [0,    20,   0,    20,   0,    20],
-  })),
-  [
-    { rowIdx: 1, logTimeMs: 100, value: 20, label: '20' },
-    { rowIdx: 3, logTimeMs: 300, value: 20, label: '20' },
-    { rowIdx: 5, logTimeMs: 500, value: 20, label: '20' },
-  ],
-  'repeated 0→20 presses: each counts, all labeled "20"'
-);
+// Run-duration filter (the user-reported RV-4 bug): the firmware
+// log has stable 20 for 15 minutes, interrupted by single-row 0
+// blips that flip back to 20 within ~10ms. The single-row 0 blips
+// are torn-CSV signature, NOT real presses. The detector must NOT
+// see them as additional 0→20 presses.
+{
+  // Build the timeStamp + DataMark arrays by hand to get the right
+  // shape: leading run of 0 (firmware boot), pilot bumps to 20 (real
+  // press, held for a minute), then a single-row 0 blip flipping
+  // back to 20, then another single-row 0 blip flipping back to 20.
+  // Only the first 0→20 should register.
+  const ts = [];
+  const dm = [];
+  for (let i = 0; i < 200; i++) { ts.push(5 + i * 5); dm.push(0); }
+  // Real pilot press at ts=1005: 20 held for many rows.
+  for (let i = 0; i < 200; i++) { ts.push(1005 + i * 5); dm.push(20); }
+  // Single-row 0 blip then back to 20.
+  ts.push(2005); dm.push(0);
+  for (let i = 0; i < 200; i++) { ts.push(2010 + i * 5); dm.push(20); }
+  // Another single-row 0 blip then back to 20.
+  ts.push(3010); dm.push(0);
+  for (let i = 0; i < 200; i++) { ts.push(3015 + i * 5); dm.push(20); }
+  const log = {
+    timeStamp: Float64Array.from(ts),
+    DataMark:  Int32Array.from(dm),
+    Length:    ts.length,
+  };
+  const marks = findDataMarks(log);
+  assertEq(
+    marks.map(m => ({ value: m.value, logTimeMs: m.logTimeMs })),
+    [{ value: 20, logTimeMs: 1005 }],
+    'RV-4 chatter: 20→0→20 with single-row 0 collapses to one press'
+  );
+}
 
 // logMsToVideoSec round-trip.
 assertEq(

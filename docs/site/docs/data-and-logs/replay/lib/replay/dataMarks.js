@@ -43,45 +43,69 @@ function isValidMark(v) {
 // value can be 0 (cold start / re-arm) OR a smaller non-zero (the
 // counter continuing). Resets (N → 0) and same-value rows are not
 // presses.
+//
+// Reject chatter: the firmware occasionally writes brief single-row
+// blips of "0" between two stable "N" runs (torn-row signature or
+// per-frame write race). A real pilot press has the column stable
+// at the prior value for at least PRIOR_VALUE_HOLD_MS before the
+// transition, and the new value stable for at least NEW_VALUE_HOLD_MS
+// after. Anything shorter is a flicker. On the RV-4 log, the real
+// 0→20 press held 20 for 928 seconds; the noise ones held 2 seconds
+// AFTER a previous-value-0 that lasted only ~10 ms.
+const PRIOR_VALUE_HOLD_MS = 200;
+const NEW_VALUE_HOLD_MS   = 200;
+
 export function findDataMarks(log) {
   if (!log || !log.DataMark || !log.timeStamp) return [];
   const N = log.Length;
   if (N < 2) return [];
 
-  const out = [];
-  let prev = isValidMark(log.DataMark[0]) ? log.DataMark[0] : 0;
-  for (let i = 1; i < N; i++) {
+  // Compress the (filtered) rows into runs of consecutive same-value
+  // entries: [{ value, startTs, endTs, startRow }, ...]. Skips rows
+  // with invalid DataMark or invalid timeStamp at parse boundary.
+  // A run's "duration" is endTs - startTs.
+  const runs = [];
+  for (let i = 0; i < N; i++) {
     const v = log.DataMark[i];
-    if (!isValidMark(v)) continue;
-    if (v === prev) continue;
     const ts = log.timeStamp[i];
-    const tsOk = Number.isFinite(ts) && ts > 0 &&
-                 (out.length === 0 || ts > out[out.length - 1].logTimeMs);
-    // A press is a forward-going transition into a positive value.
-    // The previous value may be 0 (the counter just reset / first
-    // press after boot) or any smaller value (the counter continuing
-    // forward, e.g. 5 → 6).
-    const isPress = v > 0 && (prev === 0 || v > prev) && tsOk;
-    if (isPress) {
-      out.push({
-        rowIdx:    i,
-        logTimeMs: ts,
-        value:     v,
-        // `label` is what the panel shows. Always the firmware-written
-        // DataMark value — same number the pilot saw on their device
-        // and the same number the burned-in overlay renders. Multiple
-        // panel rows may share the same value when the firmware
-        // counter resets and the pilot bumps back to the same number;
-        // distinguish them by their log/video times in the same row.
-        label:     String(v).padStart(2, '0'),
-      });
+    if (!isValidMark(v) || !Number.isFinite(ts) || ts <= 0) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.value === v) {
+      last.endTs = ts;
+    } else {
+      runs.push({ value: v, startTs: ts, endTs: ts, startRow: i });
     }
-    prev = v;
   }
-  // Sort by log time ascending so the panel reads chronologically
-  // regardless of CSV iteration order. With the parse-level filters
-  // this should already be near-sorted, but a stable explicit sort
-  // makes any future torn-row recovery work safe by construction.
+  // A real press is a forward-going transition between two runs that
+  // each persist long enough to be a true state — not single-row
+  // blips. The 200ms thresholds are well above the firmware's log
+  // cadence (5-50ms) and well below any real pilot's press interval.
+  const out = [];
+  for (let r = 1; r < runs.length; r++) {
+    const cur  = runs[r];
+    const prev = runs[r - 1];
+    const isForward = cur.value > 0 && (prev.value === 0 || cur.value > prev.value);
+    if (!isForward) continue;
+    const prevHeld = prev.endTs - prev.startTs;
+    const curHeld  = cur.endTs  - cur.startTs;
+    if (prevHeld < PRIOR_VALUE_HOLD_MS) continue;
+    if (curHeld  < NEW_VALUE_HOLD_MS)   continue;
+    out.push({
+      rowIdx:    cur.startRow,
+      logTimeMs: cur.startTs,
+      value:     cur.value,
+      // `label` is what the panel shows. Always the firmware-written
+      // DataMark value — same number the pilot saw on their device
+      // and the same number the burned-in overlay renders. Multiple
+      // panel rows may share the same value when the firmware counter
+      // resets and the pilot bumps back to the same number minutes
+      // later; distinguish them by their log/video times.
+      label:     String(cur.value).padStart(2, '0'),
+    });
+  }
+  // Sort by log time ascending. With the run-compression above the
+  // output is already in time order; the explicit sort guards against
+  // any future torn-row recovery that might re-introduce reordering.
   out.sort((a, b) => a.logTimeMs - b.logTimeMs);
   return out;
 }
