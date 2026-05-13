@@ -73,7 +73,15 @@ export function parseLog(text) {
     if (!line) continue;
     const tokens = line.split(',');
 
-    const t = parseFloat(tokens[idx.timeStamp]);
+    // Require pure-numeric syntax. `parseFloat("17:55:19.87")` returns
+    // 17 silently, which means a misaligned CSV row where a time-of-
+    // day cell slid into the timeStamp column would parse as a tiny
+    // valid timestamp. The row would then sort with the very-early-
+    // flight rows and contaminate downstream logic (DataMark panel,
+    // sync detection, etc.). Skip the whole row instead.
+    const tsTok = tokens[idx.timeStamp];
+    if (tsTok == null || !/^-?\d+(?:\.\d+)?$/.test(tsTok)) continue;
+    const t = parseFloat(tsTok);
     if (!Number.isFinite(t)) continue;       // skip malformed rows
     out.timeStamp[row] = t;
 
@@ -94,8 +102,18 @@ export function parseLog(text) {
       if (tok == null || tok === '') {
         out[k][row] = -1;
       } else {
-        const v = parseInt(tok, 10);
-        out[k][row] = Number.isFinite(v) ? v : -1;
+        // parseInt is too permissive: `parseInt("8158.00", 10) === 8158`
+        // and `parseInt("17:55:19", 10) === 17`. Both let garbage rows
+        // from misaligned CSV slip into int columns. Require the token
+        // to be a pure non-negative integer literal (optional leading
+        // `-` allowed).
+        const intLike = /^-?\d+$/.test(tok);
+        if (intLike) {
+          const v = parseInt(tok, 10);
+          out[k][row] = Number.isFinite(v) ? v : -1;
+        } else {
+          out[k][row] = -1;
+        }
       }
     }
     row++;

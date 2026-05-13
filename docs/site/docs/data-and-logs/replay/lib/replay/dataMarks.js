@@ -78,6 +78,11 @@ export function findDataMarks(log) {
     }
     prev = v;
   }
+  // Sort by log time ascending so the panel reads chronologically
+  // regardless of CSV iteration order. With the parse-level filters
+  // this should already be near-sorted, but a stable explicit sort
+  // makes any future torn-row recovery work safe by construction.
+  out.sort((a, b) => a.logTimeMs - b.logTimeMs);
   return out;
 }
 
