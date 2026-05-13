@@ -1996,6 +1996,10 @@ export const ReplayPage = () => {
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
             </span>`}
+          ${videoTimeline && videoTimeline.chapters.length > 1 && html`
+            <span class="replay-status">
+              Chapter ${activeChapterIndex + 1} of ${videoTimeline.chapters.length}
+            </span>`}
           ${cppBuilding && html`
             <span class="replay-status">
               building replay… ${cppProgress > 0

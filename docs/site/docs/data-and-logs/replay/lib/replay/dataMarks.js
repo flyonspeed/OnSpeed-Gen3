@@ -14,6 +14,18 @@
 // can show a stable identifier the pilot can talk about even after
 // the absolute DataMark value wraps.
 
+// DataMark per firmware spec is an integer 0..99. Real-world SD logs
+// can have garbage rows from partial writes / power glitches where
+// columns are misaligned and the DataMark cell ends up holding a
+// timestamp, a fractional Pfwd reading, etc. (e.g. 8158, 17:55:19.87,
+// 285.40 observed on the RV-4 2026-05-11 flight). Anything outside
+// [0, 99] AND not an integer is parser noise — drop it before
+// looking at transitions, otherwise every noise row produces a
+// phantom "outside video" entry in the panel.
+function isValidMark(v) {
+  return Number.isInteger(v) && v >= 0 && v <= 99;
+}
+
 export function findDataMarks(log) {
   if (!log || !log.DataMark || !log.timeStamp) return [];
   const N = log.Length;
@@ -24,7 +36,7 @@ export function findDataMarks(log) {
   // transition. The first row's mark is included only if it's
   // non-zero (otherwise every flight starts with a "mark 0" the
   // pilot didn't actually press).
-  let prev = log.DataMark[0];
+  let prev = isValidMark(log.DataMark[0]) ? log.DataMark[0] : 0;
   if (prev > 0) {
     out.push({
       rowIdx:    0,
@@ -35,7 +47,8 @@ export function findDataMarks(log) {
   }
   for (let i = 1; i < N; i++) {
     const v = log.DataMark[i];
-    if (v !== prev && v >= 0) {
+    if (!isValidMark(v)) continue;
+    if (v !== prev) {
       // Skip the immediate post-power-up "mark = 0" zero-edge that
       // happens when the column initializes; only count transitions
       // whose new value is non-zero (i.e. an actual button press).

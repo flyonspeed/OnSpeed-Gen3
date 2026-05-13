@@ -22,6 +22,19 @@ import { detectLogSampleRate, hasFlapsRawAdc } from './parseLog.js';
 function rowAt(log, i) {
   const g  = (arr) => (arr ? arr[i] : NaN);
   const gi = (arr) => (arr ? arr[i] : 0);
+  // DataMark per firmware spec is integer 0..99. Some real-world SD
+  // logs contain misaligned CSV rows where the DataMark cell holds a
+  // timestamp, pressure reading, etc. Those values were leaking into
+  // the wire frame and producing garbage overlay digits (e.g. "7"
+  // when the panel said pilot was on press 18). Treat out-of-range
+  // values as "no press" so the firmware's downstream gates and the
+  // overlay's printf("%02d", DataMark) both stay sane.
+  const gMark = (arr) => {
+    if (!arr) return 0;
+    const v = arr[i];
+    if (Number.isInteger(v) && v >= 0 && v <= 99) return v;
+    return 0;
+  };
   return {
     pfwdSmoothed:    g(log.PfwdSmoothed),
     p45Smoothed:     g(log.P45Smoothed),
@@ -42,7 +55,7 @@ function rowAt(log, i) {
     rollDeg:         g(log.Roll),
     flightPathDeg:   g(log.FlightPath),
     vsiFpm:          g(log.VSI),
-    dataMark:        gi(log.DataMark),
+    dataMark:        gMark(log.DataMark),
     oatCelsius:      g(log.OAT),
   };
 }
