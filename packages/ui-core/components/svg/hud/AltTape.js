@@ -165,8 +165,9 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
         ${ticks}
       </g>
 
-      <!-- Static "29.92in" baro below the tape -->
-      <text x=${H.HUD_ALT_X + H.HUD_ALT_TICK_LONG / 2} y=${H.HUD_ALT_BARO_Y}
+      <!-- Static "29.92in" baro below the tape, centered on the
+           ALT readout box (not the tick column) -->
+      <text x=${H.HUD_ALT_BARO_X} y=${H.HUD_ALT_BARO_Y}
             font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
             font-size=${H.HUD_ALT_BARO_FONT_SIZE}
             fill="var(--white)"

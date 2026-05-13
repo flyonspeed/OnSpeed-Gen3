@@ -27,13 +27,13 @@ export const HUD_CY = HUD_H / 2;  // 540
 // 612x792 (portrait, aspect 0.773). Sized to match the visual weight
 // of the other top-edge elements without crowding the pitch ladder.
 
-// Logo is rendered into a square frame; the source paths occupy a
-// roughly square sub-region of the original portrait viewBox, and we
-// crop to that region in OnSpeedLogo.js.
+// Logo PNG dimensions are 1972×2132 (aspect ~0.925). Render width is
+// fixed; height scales by the source aspect so the mark + wordmark sit
+// proportionally without horizontal stretch.
 export const HUD_LOGO_X    = 40;
 export const HUD_LOGO_Y    = 40;
 export const HUD_LOGO_W    = 180;
-export const HUD_LOGO_H    = 180;
+export const HUD_LOGO_H    = HUD_LOGO_W * (2132 / 1972);
 
 // ---------------------------------------------------------------------
 // Pitch ladder (yellow ticks at +/-10/+/-20/+/-30, white horizon line)
@@ -119,10 +119,11 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // bar (the ALT readout box sits ON the tape column further outboard,
 // so there's clear space immediately right of the VVI for the numeric).
 
-// VVI sits OUTBOARD of the ALT tape on the far right edge. Numeric
-// readout is flipped to the LEFT side of the bar (anchor="end" at
-// cx-16) so it doesn't run off-frame past x=1920.
-export const HUD_VVI_X               = 1820;
+// VVI sits OUTBOARD of the ALT tape on the far right edge, nestled
+// against the ALT box. Numeric readout is on the RIGHT side of the
+// bar (anchor="start" at cx+16) — the ALT readout box is to the
+// LEFT of the VVI, the open frame space is to the right.
+export const HUD_VVI_X               = 1800;
 // VVI centerline matches the ALT tape so the two right-side gauges
 // share a horizontal axis. With HUD_VVI_HALF_H = 220 a centerline at
 // y = 480 puts the bar bottom at y = 700, ~30 px clear of the
@@ -157,8 +158,8 @@ export const HUD_ALT_HALF_H          = HUD_VVI_HALF_H; // 220
 // (extending HUD_ALT_BOX_W = 130 to the right) fits inside the 1920-wide
 // viewBox: box right = 1620 + 6 + 130 = 1756, comfortably on-frame.
 export const HUD_ALT_X               = 1620;
-export const HUD_ALT_TICK_SHORT      = 14;   // every 20 ft
-export const HUD_ALT_TICK_LONG       = 28;   // every 100 ft
+export const HUD_ALT_TICK_SHORT      = 7;    // every 20 ft
+export const HUD_ALT_TICK_LONG       = 14;   // every 100 ft
 export const HUD_ALT_TICK_STROKE     = 2;
 // 75 px per 100 ft → 15 px per 20 ft. 30 ticks (-300..+300 ft from
 // current altitude) span 450 px, slightly more than HUD_ALT_HALF_H*2;
@@ -195,8 +196,11 @@ export const HUD_ALT_BOX_TOP         = HUD_ALT_CY - HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_BOTTOM      = HUD_ALT_CY + HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_FONT_SIZE   = 30;
 export const HUD_ALT_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
-// "29.92in" baro static text — below the bottom of the tape.
-export const HUD_ALT_BARO_Y          = HUD_ALT_CY + HUD_ALT_HALF_H + 38;
+// "29.92in" baro static text — just below the tape bottom, centered
+// horizontally on the ALT readout box (matches FlySto layout where
+// the baro setting sits aligned with the box's horizontal extent).
+export const HUD_ALT_BARO_X          = (HUD_ALT_BOX_LEFT + HUD_ALT_BOX_RIGHT) / 2;
+export const HUD_ALT_BARO_Y          = HUD_ALT_CY + HUD_ALT_HALF_H + 24;
 export const HUD_ALT_BARO_FONT_SIZE  = 22;
 
 // Semi-transparent dark backing strip drawn BEHIND the ticks so the
@@ -209,8 +213,8 @@ export const HUD_ALT_BACKING_X       = HUD_ALT_X - 4;
 export const HUD_ALT_BACKING_W       = HUD_ALT_TICK_LONG + HUD_ALT_LABEL_OFFSET_X + 80 + 4;
 export const HUD_ALT_BACKING_Y       = HUD_ALT_CY - HUD_ALT_HALF_H;
 export const HUD_ALT_BACKING_H       = HUD_ALT_HALF_H * 2;
-export const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.35)';
-export const HUD_ALT_BACKING_RX      = 4;
+export const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.18)';
+export const HUD_ALT_BACKING_RX      = 8;
 
 // ---------------------------------------------------------------------
 // IAS tape (left side, mirror of ALT)
@@ -239,8 +243,8 @@ export const HUD_IAS_HALF_H          = HUD_ALT_HALF_H; // 220
 // ALT tape's inboard move, keeping the two tapes closer to the pitch
 // ladder. Mirror of HUD_ALT_X = 1620 about HUD_CX = 960: 300.
 export const HUD_IAS_X               = 300;
-export const HUD_IAS_TICK_SHORT      = 14;   // every 5 kt
-export const HUD_IAS_TICK_LONG       = 28;   // every 10 kt
+export const HUD_IAS_TICK_SHORT      = 7;    // every 5 kt
+export const HUD_IAS_TICK_LONG       = 14;   // every 10 kt
 export const HUD_IAS_TICK_STROKE     = 2;
 // 75 px per 10 kt → 37.5 px per 5 kt. Matches ALT's 75-px-per-100-ft
 // density so the two tapes' tick spacing reads as one visual unit.
@@ -287,8 +291,8 @@ export const HUD_IAS_BACKING_W       = HUD_IAS_TICK_LONG + HUD_IAS_LABEL_OFFSET_
 export const HUD_IAS_BACKING_X       = HUD_IAS_X + 4 - HUD_IAS_BACKING_W;
 export const HUD_IAS_BACKING_Y       = HUD_IAS_CY - HUD_IAS_HALF_H;
 export const HUD_IAS_BACKING_H       = HUD_IAS_HALF_H * 2;
-export const HUD_IAS_BACKING_FILL    = 'rgba(0, 0, 0, 0.35)';
-export const HUD_IAS_BACKING_RX      = 4;
+export const HUD_IAS_BACKING_FILL    = 'rgba(0, 0, 0, 0.18)';
+export const HUD_IAS_BACKING_RX      = 8;
 
 // ---------------------------------------------------------------------
 // Slip ball (bottom center)
