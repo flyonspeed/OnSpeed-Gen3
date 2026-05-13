@@ -41,12 +41,8 @@ export function markKey(value, logTimeMs) {
 // IndexedDB plumbing — mirrors fileHandles.js's pattern.
 // ---------------------------------------------------------------------
 
-function openDb() {
+function _openJournalDbFresh() {
   return new Promise((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') {
-      reject(new Error('IndexedDB not available'));
-      return;
-    }
     const req = indexedDB.open(JOURNAL_DB_NAME, JOURNAL_DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -59,8 +55,32 @@ function openDb() {
   });
 }
 
-function withStore(mode, fn) {
-  return openDb().then(db => new Promise((resolve, reject) => {
+function _openJournalDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB not available'));
+      return;
+    }
+    _openJournalDbFresh().then(db => {
+      // Defensive recovery: if the DB exists but the store doesn't
+      // (a stale dev-build state from before this fix), nuke the DB
+      // and recreate. The data we'd be wiping was never reachable
+      // anyway — no upsert ever succeeded if the store was missing.
+      if (db.objectStoreNames.contains(JOURNAL_STORE_NAME)) {
+        resolve(db);
+        return;
+      }
+      db.close();
+      const del = indexedDB.deleteDatabase(JOURNAL_DB_NAME);
+      del.onsuccess = () => _openJournalDbFresh().then(resolve, reject);
+      del.onerror = () => reject(del.error || new Error('IDB delete failed'));
+      del.onblocked = () => reject(new Error('IDB delete blocked — close other tabs'));
+    }, reject);
+  });
+}
+
+function _withJournalStore(mode, fn) {
+  return _openJournalDb().then(db => new Promise((resolve, reject) => {
     let result;
     const tx = db.transaction(JOURNAL_STORE_NAME, mode);
     const store = tx.objectStore(JOURNAL_STORE_NAME);
@@ -71,7 +91,29 @@ function withStore(mode, fn) {
   }));
 }
 
-function reqToPromise(req) {
+// Variant of _withJournalStore for read-modify-write callbacks that must chain
+// multiple IDB requests inside one transaction. The callback returns a
+// Promise that resolves when ALL requests have settled — but it must
+// chain those requests via IDB event callbacks (NOT `await`), because
+// `await` allows a microtask to drain, which auto-commits the IDB
+// transaction. See upsertMark / upsertClipAnnotation for the pattern.
+function _withJournalStoreCallback(mode, fn) {
+  return _openJournalDb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(JOURNAL_STORE_NAME, mode);
+    const store = tx.objectStore(JOURNAL_STORE_NAME);
+    let callbackError = null;
+    fn(store).then(() => {}, (err) => { callbackError = err; });
+    tx.oncomplete = () => {
+      db.close();
+      if (callbackError) reject(callbackError);
+      else resolve();
+    };
+    tx.onabort = () => { db.close(); reject(callbackError || tx.error || new Error('IDB tx aborted')); };
+    tx.onerror = () => { db.close(); reject(callbackError || tx.error || new Error('IDB tx error')); };
+  }));
+}
+
+function _journalReqToPromise(req) {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error('IDB request failed'));
@@ -97,8 +139,8 @@ function emptyRecord(logHash) {
 export async function loadJournal(logHash) {
   if (!logHash || typeof logHash !== 'string') return null;
   try {
-    const record = await withStore('readonly', store =>
-      reqToPromise(store.get(logHash)));
+    const record = await _withJournalStore('readonly', store =>
+      _journalReqToPromise(store.get(logHash)));
     return record || null;
   } catch (err) {
     console.warn('journal: loadJournal failed', err);
@@ -109,37 +151,51 @@ export async function loadJournal(logHash) {
 // Upsert a mark by (value, logTimeMs). Patch is { name?, notes? };
 // fields not present in patch are left unchanged. Creates the record
 // + the mark row if either is missing.
+//
+// IDB-transaction note: the read-modify-write happens inside a single
+// `readwrite` transaction. We must NOT `await` between the get's
+// success and the put's request — IDB transactions auto-commit (and
+// close) as soon as the microtask queue is empty between operations.
+// Chaining via the get's onsuccess callback keeps the same transaction
+// alive across both requests.
 export async function upsertMark(logHash, key, patch) {
   if (!logHash || !key || typeof key !== 'object') return;
   const { value, logTimeMs } = key;
   if (!Number.isFinite(value) || !Number.isFinite(logTimeMs)) return;
   const now = Date.now();
   try {
-    await withStore('readwrite', async store => {
-      const existing = await reqToPromise(store.get(logHash));
-      const record = existing || emptyRecord(logHash);
-      record.lastUsed = now;
-      const target = markKey(value, logTimeMs);
-      const idx = record.marks.findIndex(
-        m => markKey(m.value, m.logTimeMs) === target);
-      if (idx >= 0) {
-        const prior = record.marks[idx];
-        record.marks[idx] = {
-          ...prior,
-          ...patch,
-          value, logTimeMs,
-          updatedAt: now,
-        };
-      } else {
-        record.marks.push({
-          value, logTimeMs,
-          ...patch,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-      await reqToPromise(store.put(record));
-    });
+    await _withJournalStoreCallback('readwrite', (store) => new Promise((resolve, reject) => {
+      const getReq = store.get(logHash);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = () => {
+        const existing = getReq.result;
+        const record = existing || emptyRecord(logHash);
+        record.lastUsed = now;
+        if (!Array.isArray(record.marks)) record.marks = [];
+        const target = markKey(value, logTimeMs);
+        const idx = record.marks.findIndex(
+          m => markKey(m.value, m.logTimeMs) === target);
+        if (idx >= 0) {
+          const prior = record.marks[idx];
+          record.marks[idx] = {
+            ...prior,
+            ...patch,
+            value, logTimeMs,
+            updatedAt: now,
+          };
+        } else {
+          record.marks.push({
+            value, logTimeMs,
+            ...patch,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        const putReq = store.put(record);
+        putReq.onerror = () => reject(putReq.error);
+        putReq.onsuccess = () => resolve();
+      };
+    }));
   } catch (err) {
     console.warn('journal: upsertMark failed', err);
   }
@@ -152,28 +208,35 @@ export async function upsertClipAnnotation(logHash, id, patch) {
   if (!logHash || !id || typeof id !== 'string') return;
   const now = Date.now();
   try {
-    await withStore('readwrite', async store => {
-      const existing = await reqToPromise(store.get(logHash));
-      const record = existing || emptyRecord(logHash);
-      record.lastUsed = now;
-      const idx = record.clips.findIndex(c => c.id === id);
-      if (idx >= 0) {
-        record.clips[idx] = {
-          ...record.clips[idx],
-          ...patch,
-          id,
-          updatedAt: now,
-        };
-      } else {
-        record.clips.push({
-          id,
-          ...patch,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-      await reqToPromise(store.put(record));
-    });
+    await _withJournalStoreCallback('readwrite', (store) => new Promise((resolve, reject) => {
+      const getReq = store.get(logHash);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = () => {
+        const existing = getReq.result;
+        const record = existing || emptyRecord(logHash);
+        record.lastUsed = now;
+        if (!Array.isArray(record.clips)) record.clips = [];
+        const idx = record.clips.findIndex(c => c.id === id);
+        if (idx >= 0) {
+          record.clips[idx] = {
+            ...record.clips[idx],
+            ...patch,
+            id,
+            updatedAt: now,
+          };
+        } else {
+          record.clips.push({
+            id,
+            ...patch,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        const putReq = store.put(record);
+        putReq.onerror = () => reject(putReq.error);
+        putReq.onsuccess = () => resolve();
+      };
+    }));
   } catch (err) {
     console.warn('journal: upsertClipAnnotation failed', err);
   }

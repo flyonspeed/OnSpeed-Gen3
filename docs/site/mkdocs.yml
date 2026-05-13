@@ -41,6 +41,9 @@ theme:
 plugins:
   - search
 
+hooks:
+  - hooks/cache_bust_replay_bundle.py
+
 markdown_extensions:
   - admonition
   - pymdownx.details
