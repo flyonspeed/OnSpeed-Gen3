@@ -194,6 +194,70 @@ export const HUD_ALT_BARO_Y          = HUD_ALT_CY + HUD_ALT_HALF_H + 38;
 export const HUD_ALT_BARO_FONT_SIZE  = 22;
 
 // ---------------------------------------------------------------------
+// IAS tape (left side, mirror of ALT)
+// ---------------------------------------------------------------------
+// FlySto-style airspeed tape on the LEFT side of the HUD, mirroring the
+// ALT tape's structure across the vertical centerline. Vertical stack
+// of horizontal tick lines (every 5 kt) with numeric labels every 10
+// kt. The tape scrolls vertically so the current IAS sits on the
+// centerline. A Garmin-style readout box anchored on the tape's RIGHT
+// edge shows the current IAS — stationary hundreds+tens digits beside
+// a sliding ones digit clipped to the box.
+//
+// Monochrome: white ticks + white labels. Color bands (Vne/Vno/Vfe)
+// are deferred until the config plumbing exists to pull per-aircraft
+// V-speeds; the live page has no source for them today.
+//
+// Geometry mirrors the ALT side around HUD_CX so the two tapes appear
+// paired. The OnSpeed logo (y=40..220) sits above the tape (y=260..700),
+// and the bottom-left inset slot (top ≈ y=731) sits below the tape.
+
+export const HUD_IAS_CY              = HUD_ALT_CY;     // 480 — shared centerline
+export const HUD_IAS_HALF_H          = HUD_ALT_HALF_H; // 220
+// X is the RIGHT (inboard) edge of the tick column — ticks extend
+// LEFTWARD from this anchor toward the outboard side, labels further
+// left. Mirror of HUD_ALT_X = 1820 about HUD_CX = 960: 100.
+export const HUD_IAS_X               = 100;
+export const HUD_IAS_TICK_SHORT      = 14;   // every 5 kt
+export const HUD_IAS_TICK_LONG       = 28;   // every 10 kt
+export const HUD_IAS_TICK_STROKE     = 2;
+// 75 px per 10 kt → 37.5 px per 5 kt. Matches ALT's 75-px-per-100-ft
+// density so the two tapes' tick spacing reads as one visual unit.
+export const HUD_IAS_PX_PER_10_KT    = 75;
+export const HUD_IAS_PX_PER_5_KT     = HUD_IAS_PX_PER_10_KT / 2;   // 37.5
+export const HUD_IAS_PX_PER_KT       = HUD_IAS_PX_PER_10_KT / 10;  // 7.5
+export const HUD_IAS_LABEL_FONT_SIZE = 22;
+export const HUD_IAS_LABEL_OFFSET_X  = 8;    // gap from end of long tick to label
+
+// Garmin-style readout box CENTERED ON the tape's tick column, body
+// extending LEFT (outboard) past the labels. Arrow tab on the box's
+// RIGHT side notches RIGHT into the tick column, tip landing ~2 px
+// PAST the rightmost tick stem (inboard toward the ADI center).
+// Mirror of ALT box geometry across HUD_CX.
+export const HUD_IAS_BOX_W           = 130;
+export const HUD_IAS_BOX_H           = 56;
+export const HUD_IAS_BOX_ARROW_W     = 8;
+// Box rendering anchors (mirror of ALT):
+//   - Box body right wall at HUD_IAS_X - 6 (6 px left of right tick
+//     stem) — body sits on the OUTBOARD side, away from frame center.
+//   - Arrow tip at HUD_IAS_X + 2 (2 px right of right tick stem) at
+//     HUD_IAS_CY.
+//   - Box extends HUD_IAS_BOX_W to the LEFT of the right wall.
+export const HUD_IAS_BOX_RIGHT       = HUD_IAS_X - 6;
+export const HUD_IAS_BOX_LEFT        = HUD_IAS_BOX_RIGHT - HUD_IAS_BOX_W;
+export const HUD_IAS_BOX_ARROW_TIP_X = HUD_IAS_X + 2;
+export const HUD_IAS_BOX_TOP         = HUD_IAS_CY - HUD_IAS_BOX_H / 2;
+export const HUD_IAS_BOX_BOTTOM      = HUD_IAS_CY + HUD_IAS_BOX_H / 2;
+export const HUD_IAS_BOX_FONT_SIZE   = 30;
+export const HUD_IAS_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
+// Ones-digit slide-per-knot. Set equal to the box font size so each
+// 1-kt step is a visible ~one-font-height jog, with the digit fully
+// replacing the next over a 1-kt change. Larger than the tape pitch
+// (7.5 px/kt) so the spinning ones digit reads as motion, not as
+// imperceptible drift.
+export const HUD_IAS_ONES_SLIDE_PX   = HUD_IAS_BOX_FONT_SIZE;       // 30
+
+// ---------------------------------------------------------------------
 // Slip ball (bottom center)
 // ---------------------------------------------------------------------
 // Reuses the existing SlipBall component. The HUD just supplies a

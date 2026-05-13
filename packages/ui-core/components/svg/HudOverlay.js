@@ -22,6 +22,7 @@ import * as H from '../../core/hudGeometry.js';
 import { SlipBall } from './index.js';
 import { HudVviTrend } from './hud/VviTrend.js';
 import { HudAltTape } from './hud/AltTape.js';
+import { HudIasTape } from './hud/IasTape.js';
 import { HudPitchLadder } from './hud/PitchLadder.js';
 import { HudBankArc } from './hud/BankArc.js';
 import { HudFpm } from './hud/Fpm.js';
@@ -63,6 +64,7 @@ export const HudOverlay = ({ state, pitchOffsetDeg = 0 }) => {
 
         <${HudVviTrend} vsiFpm=${state.iVSI ?? 0} />
         <${HudAltTape}  altitudeFt=${altValue} />
+        <${HudIasTape}  iasKt=${state.displayIAS ?? 0} />
 
         <${SlipBall} lateralG=${state.LateralG ?? 0}
                      percentLift=${state.PercentLift ?? 0}

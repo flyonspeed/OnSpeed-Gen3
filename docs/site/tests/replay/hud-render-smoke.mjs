@@ -179,18 +179,35 @@ function makeState(overrides = {}) {
 // Tests
 // ---------------------------------------------------------------------
 
-test('HudOverlay renders logo, ALT tape, ADI widgets, slip ball, VVI', () => {
+test('HudOverlay renders logo, ALT tape, IAS tape, ADI widgets, slip ball, VVI', () => {
   // VVI threshold is 100 fpm; bump iVSI so the widget renders.
   const root = renderInto(
     html`<${HudOverlay} state=${makeState({ iVSI: 800 })} />`);
   const required = [
     'hud-onspeed-logo',
     'hud-pitch-ladder', 'hud-bank-arc', 'hud-fpm',
-    'slip', 'hud-vvi', 'hud-alt-tape',
+    'slip', 'hud-vvi', 'hud-alt-tape', 'hud-ias-tape',
   ];
   for (const widget of required) {
     if (!findFirstWithAttr(root, 'data-widget', widget))
       throw new Error(`HudOverlay missing data-widget="${widget}"`);
+  }
+});
+
+test('IAS tape shows stationary tens digit derived from displayIAS', () => {
+  // For displayIAS=113 the stationary "hundreds+tens" digits in the
+  // Garmin box are floor(113/10) = "11"; sliding ones = "3".
+  const root = renderInto(
+    html`<${HudOverlay} state=${makeState({ displayIAS: 113 })} />`);
+  const tape = findFirstWithAttr(root, 'data-widget', 'hud-ias-tape');
+  if (!tape) throw new Error('hud-ias-tape not found');
+  const texts = findAllByLocalName(tape, 'text');
+  const joined = texts.flatMap(t => t.childNodes.map(c => c.data || '')).join('|');
+  if (!joined.includes('11')) {
+    throw new Error(`IAS tape should show tens "11"; got ${joined}`);
+  }
+  if (!joined.includes('3')) {
+    throw new Error(`IAS tape should show onesCurr "3"; got ${joined}`);
   }
 });
 
