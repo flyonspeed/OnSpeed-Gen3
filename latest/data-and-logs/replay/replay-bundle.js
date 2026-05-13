@@ -112,7 +112,15 @@ function parseLog(text) {
     if (!line) continue;
     const tokens = line.split(',');
 
-    const t = parseFloat(tokens[idx.timeStamp]);
+    // Require pure-numeric syntax. `parseFloat("17:55:19.87")` returns
+    // 17 silently, which means a misaligned CSV row where a time-of-
+    // day cell slid into the timeStamp column would parse as a tiny
+    // valid timestamp. The row would then sort with the very-early-
+    // flight rows and contaminate downstream logic (DataMark panel,
+    // sync detection, etc.). Skip the whole row instead.
+    const tsTok = tokens[idx.timeStamp];
+    if (tsTok == null || !/^-?\d+(?:\.\d+)?$/.test(tsTok)) continue;
+    const t = parseFloat(tsTok);
     if (!Number.isFinite(t)) continue;       // skip malformed rows
     out.timeStamp[row] = t;
 
@@ -133,8 +141,18 @@ function parseLog(text) {
       if (tok == null || tok === '') {
         out[k][row] = -1;
       } else {
-        const v = parseInt(tok, 10);
-        out[k][row] = Number.isFinite(v) ? v : -1;
+        // parseInt is too permissive: `parseInt("8158.00", 10) === 8158`
+        // and `parseInt("17:55:19", 10) === 17`. Both let garbage rows
+        // from misaligned CSV slip into int columns. Require the token
+        // to be a pure non-negative integer literal (optional leading
+        // `-` allowed).
+        const intLike = /^-?\d+$/.test(tok);
+        if (intLike) {
+          const v = parseInt(tok, 10);
+          out[k][row] = Number.isFinite(v) ? v : -1;
+        } else {
+          out[k][row] = -1;
+        }
       }
     }
     row++;
@@ -1723,24 +1741,328 @@ class PresentationFilter {
 // vibration spectrum will shift the right τ); the presets cover a
 // range so users can pick what looks right for their data.
 //
-// Validation method: σ-match against the airplane's primary EFIS.
-// The pilot looks at the EFIS slip indicator and accepts it as the
-// "right" reading; matching its variance reproduces what the pilot
-// saw without false damping that would hide real slip cues.
-const PRESENTATION_PRESETS = [
-  { id: 'off',         label: 'Off',                 lateralSec: 0,    verticalSec: 0 },
-  { id: 'efis-match',  label: 'EFIS-match',          lateralSec: 0.75, verticalSec: 0.1 },
-  { id: 'medium',      label: 'Medium',              lateralSec: 1.5,  verticalSec: 0.5 },
-  { id: 'heavy',       label: 'Heavy',               lateralSec: 3.0,  verticalSec: 1.0 },
-];
+// Slider semantics: the UI exposes a single lateral τ value the pilot
+// dials in by eye against their own EFIS-display memory. Vertical-G
+// smoothing is left at 0 (verticalGScaled10 already comes off the
+// wire integer-quantized, so additional smoothing isn't observable
+// at the M5 panel and risks false damping on the corner readout).
+//
+// Slider range 0..3.0 s. Reference points:
+//   0.00  Off — byte-faithful, what the firmware/M5 actually computed.
+//   0.25  Light — VN-300 territory; livelier ball.
+//   0.75  Medium — Dynon SkyView σ-match (Sam's RV-10 reference).
+//   3.00  Heavy — useful for cinematic exports, not faithful.
+const PRESENTATION_LATERAL_TAU_MIN = 0;
+const PRESENTATION_LATERAL_TAU_MAX = 3.0;
+const PRESENTATION_LATERAL_TAU_STEP = 0.05;
 
-// Default preset id chosen at log load. The replay tool detects log
-// rate (50 Hz vs 208 Hz) and picks accordingly: 50 Hz logs default to
-// 'efis-match' (the σ-tuned compensation for missing 208 Hz averaging),
-// 208 Hz logs default to 'off' (byte-faithful — the firmware-rate
-// AHRS EMA does enough smoothing on its own).
-function defaultPresetForLogRate(logSampleRateHz) {
-  return (logSampleRateHz >= 200) ? 'off' : 'efis-match';
+// Default lateral τ chosen at log load. Sub-200 Hz logs (Dynon at 50 Hz)
+// inherit a Dynon-shaped default; 208 Hz logs default to 0 (off) since
+// the firmware-rate AHRS EMA already runs at ~76 ms internally.
+function defaultLateralTauForLogRate(logSampleRateHz) {
+  return (logSampleRateHz >= 200) ? 0 : 0.75;
+}
+
+// === docs/site/docs/data-and-logs/replay/lib/replay/chapters.js ===
+// chapters.js — GoPro multi-chapter ingest for the replay tool.
+//
+// GoPro cameras split long recordings into chapter files. The first
+// chapter is named GOPR####.MP4; each continuation is GP0N####.MP4
+// where N is the chapter index (1-9) and #### is a 4-digit sequence
+// number that stays constant across siblings.
+//
+// Example: a 50-minute recording named #0314 produces
+//   GOPR0314.MP4   (chapter 0)
+//   GP010314.MP4   (chapter 1)
+//   GP020314.MP4   (chapter 2)
+//   GP030314.MP4   (chapter 3)
+//
+// This module:
+//   1. Parses GoPro chapter filenames (detectGoProChapterPattern).
+//   2. Groups a flat list of files into the largest chapter cluster
+//      sharing the same sequence number (groupChapterSiblings).
+//   3. Builds a virtual single-timeline from a chapter array
+//      (buildChapterTimeline) by probing each file's duration with a
+//      temporary <video> element.
+//   4. Maps a global timeline second to a (chapter, local-sec) pair
+//      and back (globalToLocal / localToGlobal).
+//   5. Selects the chapter segments overlapping a global time window,
+//      with local-time bounds per segment, for the cross-chapter clip
+//      export (selectChaptersForClip).
+//
+// Pure functions only — no React imports, no DOM coupling outside the
+// duration probe (which is gated behind a Promise so Node-side smoke
+// tests can stub it). The chapter-swap playback hook lives in
+// ReplayPage.js itself, where it can wire into the existing rVFC chain
+// and videoRef.
+
+// GoPro chapter filename pattern. The core token is:
+//   - GOPR####.MP4   (first chapter, chapterIndex 0)
+//   - GP0N####.MP4   (continuation, chapterIndex = N, 1..9)
+//
+// The leading prefix MUST be either nothing or one of `-` / `_` (covers
+// the `chapter01-GOPR0314.MP4` symlink fixtures and any reasonable
+// renaming convention). Free-text prefixes like "My flight " are
+// rejected — they shouldn't be detected as a chapter regardless of
+// what the file actually contains.
+//
+// Case-sensitive on the prefix and extension to match GoPro's actual
+// filenames; if a future GoPro tool ships lowercase variants, loosen
+// then (and add a test case).
+const GOPRO_FIRST_RE = /(?:^|[-_])(GOPR)(\d{4})\.MP4$/;
+const GOPRO_CONT_RE  = /(?:^|[-_])(GP)0([1-9])(\d{4})\.MP4$/;
+
+// Parse a GoPro chapter filename. Returns
+//   { prefix: 'GOPR' | 'GP', seq: '0314', chapterIndex: 0..9 } | null
+// for non-matches. The leading-folder/garbage tolerance is intentional
+// — Playwright mirror-symlinks chapters as `chapter01-GOPR0314.MP4` so
+// the test path needs to work too.
+function detectGoProChapterPattern(filename) {
+  if (typeof filename !== 'string' || filename.length === 0) return null;
+  // GP0N first: the continuation pattern is more specific (GP0 prefix
+  // + non-zero digit). GOPR after, since GP01...09 followed by 4 digits
+  // shouldn't be mis-detected as GOPR.
+  const cont = filename.match(GOPRO_CONT_RE);
+  if (cont) {
+    return {
+      prefix: 'GP',
+      seq: cont[3],
+      chapterIndex: parseInt(cont[2], 10),
+    };
+  }
+  const first = filename.match(GOPRO_FIRST_RE);
+  if (first) {
+    return {
+      prefix: 'GOPR',
+      seq: first[2],
+      chapterIndex: 0,
+    };
+  }
+  return null;
+}
+
+// Given a flat array of File-like objects (anything with a `.name`),
+// find the largest cluster of GoPro chapters that share the same `seq`,
+// sort by chapterIndex, and return [{file, chapterIndex}, ...].
+//
+// If no two files share a seq, returns a single-element array containing
+// the first GoPro-matching file in input order — single chapter is a
+// degenerate case of multi-chapter, handled the same way downstream.
+//
+// If NO file matches the GoPro pattern, returns an empty array. The
+// caller (ReplayPage) treats the empty result as "this isn't a chapter
+// pick — use the file as a standalone video" and the legacy path runs.
+function groupChapterSiblings(files) {
+  if (!Array.isArray(files) || files.length === 0) return [];
+  const bySeq = new Map();
+  for (const file of files) {
+    const m = detectGoProChapterPattern(file?.name || '');
+    if (!m) continue;
+    if (!bySeq.has(m.seq)) bySeq.set(m.seq, []);
+    bySeq.get(m.seq).push({ file, chapterIndex: m.chapterIndex });
+  }
+  if (bySeq.size === 0) return [];
+
+  // Pick the largest cluster. Ties broken by first-seen order in the
+  // input — Map iteration preserves insertion order so the first seq
+  // that hit max size wins.
+  let best = null;
+  let bestSize = 0;
+  for (const cluster of bySeq.values()) {
+    if (cluster.length > bestSize) {
+      best = cluster;
+      bestSize = cluster.length;
+    }
+  }
+  // Deduplicate chapterIndex within the cluster. If the user picks the
+  // same chapter twice (e.g. two filesystem entries pointing at the
+  // same recording), keep the first occurrence — sort is stable but
+  // the duplicate would make timeline math undefined.
+  const seenIdx = new Set();
+  const deduped = [];
+  for (const c of best) {
+    if (seenIdx.has(c.chapterIndex)) continue;
+    seenIdx.add(c.chapterIndex);
+    deduped.push(c);
+  }
+  deduped.sort((a, b) => a.chapterIndex - b.chapterIndex);
+  return deduped;
+}
+
+// Probe one File's duration by mounting it in a temporary off-DOM
+// <video> element. Returns Promise<number> (seconds). Rejects if
+// metadata fails to load (corrupt file, unsupported codec).
+//
+// Exported so the chapter-build path can be Node-tested by replacing
+// this function with a stub. In the browser, called transparently by
+// buildChapterTimeline.
+function probeFileDurationSec(file) {
+  if (typeof document === 'undefined' || typeof URL === 'undefined') {
+    return Promise.reject(new Error('chapters: probeFileDurationSec requires a DOM environment'));
+  }
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.muted = true;
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      v.removeAttribute('src');
+      try { v.load(); } catch (_) { /* best-effort */ }
+    };
+    v.onloadedmetadata = () => {
+      const dur = v.duration;
+      cleanup();
+      if (Number.isFinite(dur) && dur > 0) resolve(dur);
+      else reject(new Error(`chapters: invalid duration ${dur} for ${file?.name}`));
+    };
+    v.onerror = () => {
+      cleanup();
+      reject(new Error(`chapters: failed to probe ${file?.name}`));
+    };
+    v.src = url;
+  });
+}
+
+// Build the chapter timeline given a sorted chapter list. Each entry's
+// duration is probed via the supplied probeDuration function (defaults
+// to probeFileDurationSec; tests pass a stub).
+//
+// Returned shape:
+//   { chapters: [{file, durationSec, startSec, endSec, chapterIndex}],
+//     totalDurationSec,
+//     signature }
+//
+// startSec / endSec are global-timeline seconds; signature is a stable
+// hash of (name, size) pairs used for persistence keying so a re-pick
+// of the same chapter cluster restores sync + clips.
+async function buildChapterTimeline(chapters, { probeDuration = probeFileDurationSec } = {}) {
+  if (!Array.isArray(chapters) || chapters.length === 0) {
+    throw new Error('chapters: buildChapterTimeline requires at least one chapter');
+  }
+  const durations = await Promise.all(chapters.map(c => probeDuration(c.file)));
+  let cursor = 0;
+  const built = chapters.map((c, i) => {
+    const durationSec = durations[i];
+    const startSec = cursor;
+    const endSec   = cursor + durationSec;
+    cursor = endSec;
+    return {
+      file: c.file,
+      chapterIndex: c.chapterIndex,
+      durationSec,
+      startSec,
+      endSec,
+    };
+  });
+  const sigParts = built.map(c => `${c.file?.name || '?'}:${c.file?.size || 0}`);
+  return {
+    chapters: built,
+    totalDurationSec: cursor,
+    signature: sigParts.join('|'),
+  };
+}
+
+// Map a global second to (chapterIndex, localSec). Past-the-end times
+// clamp to the last chapter's end. Negative or pre-start clamp to
+// chapter 0 localSec=0. Binary search; O(log N) chapters.
+function globalToLocal(timeline, globalSec) {
+  if (!timeline || !Array.isArray(timeline.chapters) || timeline.chapters.length === 0) {
+    return { chapterIndex: 0, localSec: 0 };
+  }
+  const chapters = timeline.chapters;
+  if (!Number.isFinite(globalSec) || globalSec <= 0) {
+    return { chapterIndex: 0, localSec: 0 };
+  }
+  if (globalSec >= timeline.totalDurationSec) {
+    const last = chapters[chapters.length - 1];
+    return { chapterIndex: chapters.length - 1, localSec: last.durationSec };
+  }
+  // Binary search for the chapter whose [startSec, endSec) covers globalSec.
+  let lo = 0;
+  let hi = chapters.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (chapters[mid].endSec <= globalSec) lo = mid + 1;
+    else hi = mid;
+  }
+  const c = chapters[lo];
+  return { chapterIndex: lo, localSec: Math.max(0, globalSec - c.startSec) };
+}
+
+// Inverse of globalToLocal. Out-of-range chapterIndex clamps; invalid
+// localSec falls back to 0.
+function localToGlobal(timeline, chapterIndex, localSec) {
+  if (!timeline || !Array.isArray(timeline.chapters) || timeline.chapters.length === 0) {
+    return 0;
+  }
+  const chapters = timeline.chapters;
+  const idx = Math.max(0, Math.min(chapters.length - 1, chapterIndex | 0));
+  const c = chapters[idx];
+  const local = Number.isFinite(localSec) ? Math.max(0, Math.min(c.durationSec, localSec)) : 0;
+  return c.startSec + local;
+}
+
+// Pick the chapter segments that overlap a global time window. Used by
+// the cross-chapter clip export to iterate "open chapter N from local A
+// to local B" pairs.
+//
+// Returns [{
+//   file, chapterIndex,
+//   localStartSec,        // sec inside this chapter file
+//   localEndSec,
+//   globalStartSec,       // sec in the virtual timeline
+//   globalEndSec,
+// }, ...] — possibly empty if [startGlobalSec, endGlobalSec) doesn't
+// overlap the timeline.
+function selectChaptersForClip(timeline, startGlobalSec, endGlobalSec) {
+  if (!timeline || !Array.isArray(timeline.chapters)) return [];
+  if (!Number.isFinite(startGlobalSec) || !Number.isFinite(endGlobalSec)) return [];
+  if (endGlobalSec <= startGlobalSec) return [];
+  const segs = [];
+  for (const c of timeline.chapters) {
+    const segStart = Math.max(c.startSec, startGlobalSec);
+    const segEnd   = Math.min(c.endSec,   endGlobalSec);
+    if (segEnd <= segStart) continue;
+    segs.push({
+      file:           c.file,
+      chapterIndex:   c.chapterIndex,
+      localStartSec:  segStart - c.startSec,
+      localEndSec:    segEnd   - c.startSec,
+      globalStartSec: segStart,
+      globalEndSec:   segEnd,
+    });
+  }
+  return segs;
+}
+
+// Friendly status-line text for the toolbar.
+//   ("foo.mp4")                 — single chapter (or non-GoPro pick)
+//   ("foo.mp4 + 3 chapters")    — multi-chapter cluster, 4 files total
+//   (with optional " (51m 23s)" suffix when total duration is known)
+function describeChapterPick(timeline, primaryName) {
+  if (!timeline || !Array.isArray(timeline.chapters) || timeline.chapters.length === 0) {
+    return primaryName || '';
+  }
+  const n = timeline.chapters.length;
+  const head = primaryName || (timeline.chapters[0].file?.name || '');
+  if (n <= 1) return head;
+  const extra = n - 1;
+  let label = `${head} + ${extra} chapter${extra === 1 ? '' : 's'}`;
+  if (Number.isFinite(timeline.totalDurationSec) && timeline.totalDurationSec > 0) {
+    label += ` (${formatDurationShort(timeline.totalDurationSec)})`;
+  }
+  return label;
+}
+
+// Compact H:MM:SS / M:SS for the toolbar status line.
+function formatDurationShort(sec) {
+  const total = Math.floor(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  return `${m}m ${s}s`;
 }
 
 // === docs/site/docs/data-and-logs/replay/lib/replay/mp4Export.js ===
@@ -1783,6 +2105,7 @@ function defaultPresetForLogRate(logSampleRateHz) {
 //   Both video and audio share a single Mediabunny Output. After
 //   `finalize()`, `output.target.buffer` is the complete MP4 as an
 //   ArrayBuffer.
+
 
 
 
@@ -2206,14 +2529,84 @@ async function feedAacPacketsToOutput({
   return { added, skipped: false };
 }
 
+// Per-segment variant: re-anchor packets at `outOffsetSec` (where this
+// segment lives on the output's audio timeline) and skip the
+// decoderConfig meta if a previous segment already sent it. Returns
+// { added, addedSec, skipped, reason } where addedSec is the audio
+// duration written for this segment so callers can advance their
+// cumulative offset.
+async function feedAacSegmentToOutput({
+  audioSource, audioInfo, clampedStart, clampedEnd,
+  outOffsetSec, metaAlreadySent, signal,
+}) {
+  const sink = new EncodedPacketSink(audioInfo.track);
+  let firstPacket = await sink.getPacket(clampedStart);
+  if (!firstPacket && clampedStart < 1.0) {
+    // eslint-disable-next-line no-restricted-syntax
+    for await (const p of sink.packets()) {
+      firstPacket = p;
+      break;
+    }
+  }
+  if (!firstPacket) {
+    return { added: 0, addedSec: 0, skipped: true, reason: 'no audio packets at-or-before segment start' };
+  }
+  let firstTs = null;
+  let lastTs = 0;
+  let lastDur = 0;
+  let added = 0;
+  let metaSent = !!metaAlreadySent;
+  for await (const packet of sink.packets(firstPacket)) {
+    if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+    if (packet.timestamp >= clampedEnd) break;
+    if (packet.timestamp + packet.duration <= clampedStart) continue;
+    if (firstTs === null) firstTs = packet.timestamp;
+    const outTs = outOffsetSec + (packet.timestamp - firstTs);
+    const reTimed = new EncodedPacket(
+      packet.data,
+      packet.type,
+      outTs,
+      packet.duration,
+    );
+    const meta = metaSent ? undefined : {
+      decoderConfig: {
+        codec:            audioInfo.codecParameterString,
+        sampleRate:       audioInfo.sampleRate,
+        numberOfChannels: audioInfo.channelCount,
+        description:      audioInfo.description,
+      },
+    };
+    // eslint-disable-next-line no-await-in-loop
+    await audioSource.add(reTimed, meta);
+    metaSent = true;
+    added++;
+    lastTs = outTs;
+    lastDur = packet.duration;
+  }
+  if (added === 0) {
+    return { added: 0, addedSec: 0, skipped: true, reason: 'no audio packets overlap segment window' };
+  }
+  const addedSec = (lastTs + lastDur) - outOffsetSec;
+  return { added, addedSec, skipped: false };
+}
+
 // ---------------------------------------------------------------------
 // Public API.
 // ---------------------------------------------------------------------
 //
-// Options (v4 — source-faithful):
-//   sourceFile:        File | Blob — REQUIRED. The original video file.
-//                      Mediabunny streams reads from it; no in-memory
-//                      copy is created.
+// Options (v5 — source-faithful, multi-chapter aware):
+//   videoTimeline:     Timeline | null — preferred for GoPro multi-chapter
+//                      recordings. Shape: `{ chapters: [{file, startSec,
+//                      endSec, ...}], totalDurationSec }`. When provided,
+//                      the export stitches across chapter boundaries into
+//                      one output MP4 with continuous timestamps.
+//                      Codec config + framerate + dimensions are taken
+//                      from the FIRST chapter only — chapters are assumed
+//                      to share encoder configuration (GoPro guarantees
+//                      this for siblings within one recording).
+//   sourceFile:        File | Blob — legacy single-file path. Ignored when
+//                      videoTimeline is provided. If neither is given the
+//                      export aborts.
 //   videoEl:           HTMLVideoElement — used ONLY for videoWidth /
 //                      videoHeight / duration reads. We never call
 //                      play() / seek() on it during export.
@@ -2241,6 +2634,7 @@ async function exportClipAsMp4({
   cppWireFrames,
   renderOverlaySvg,
   sourceFile      = null,
+  videoTimeline   = null,
   presentationTau = null,
   // Which M5 mode the burned-in overlay should render. Integer 0-4
   // matching the firmware's kModeNames / M5_MODES. Default 0 (Energy)
@@ -2280,29 +2674,58 @@ async function exportClipAsMp4({
   if (!videoEl.videoWidth || !videoEl.videoHeight) {
     throw new Error('exportClipAsMp4: video metadata not loaded yet');
   }
-  if (!sourceFile || typeof sourceFile.slice !== 'function') {
+  // Either a multi-chapter timeline OR a single legacy sourceFile is
+  // accepted. Both paths flow through the same per-segment loop below;
+  // single-chapter is a one-segment degenerate case.
+  if (!videoTimeline &&
+      (!sourceFile || typeof sourceFile.slice !== 'function')) {
     throw new Error(
-      'exportClipAsMp4: sourceFile (File/Blob) is required. The export ' +
-      'demuxes the source via Mediabunny; without it the input video ' +
-      'cannot be decoded.');
+      'exportClipAsMp4: pass either videoTimeline (multi-chapter) or ' +
+      'sourceFile (legacy single-file). Mediabunny demuxes from these; ' +
+      'without one the input video cannot be decoded.');
   }
+  // Build the unified timeline used for segment selection. Single-file
+  // becomes a synthetic 1-chapter timeline covering [0, videoEl.duration).
+  const resolvedTimeline = videoTimeline && Array.isArray(videoTimeline.chapters) &&
+                           videoTimeline.chapters.length > 0
+    ? videoTimeline
+    : {
+        chapters: [{
+          file:           sourceFile,
+          chapterIndex:   0,
+          durationSec:    videoEl.duration,
+          startSec:       0,
+          endSec:         videoEl.duration,
+        }],
+        totalDurationSec: videoEl.duration,
+      };
 
-  // Map clip times to video seconds.
-  const startVideoSec = sync.videoTakeoffSec +
-                        (clip.startMs - sync.logTakeoffMs) / 1000;
-  const endVideoSec   = sync.videoTakeoffSec +
-                        (clip.endMs   - sync.logTakeoffMs) / 1000;
-  if (!Number.isFinite(startVideoSec) || !Number.isFinite(endVideoSec) ||
-      endVideoSec <= startVideoSec) {
+  // Map clip times to global video seconds (offset across all chapters).
+  const startGlobalSec = sync.videoTakeoffSec +
+                         (clip.startMs - sync.logTakeoffMs) / 1000;
+  const endGlobalSec   = sync.videoTakeoffSec +
+                         (clip.endMs   - sync.logTakeoffMs) / 1000;
+  if (!Number.isFinite(startGlobalSec) || !Number.isFinite(endGlobalSec) ||
+      endGlobalSec <= startGlobalSec) {
     throw new Error('exportClipAsMp4: clip window maps to an empty or ' +
                     'invalid video range.');
   }
-  const clampedStart = Math.max(0, startVideoSec);
-  const clampedEnd   = Math.min(videoEl.duration, endVideoSec);
+  const clampedStart = Math.max(0, startGlobalSec);
+  const clampedEnd   = Math.min(resolvedTimeline.totalDurationSec, endGlobalSec);
   if (clampedEnd <= clampedStart) {
     throw new Error('exportClipAsMp4: clip falls outside the loaded video.');
   }
   const totalSec    = clampedEnd - clampedStart;
+
+  // Slice the timeline into per-chapter segments overlapping the clip
+  // window. Each segment is one open-then-close Input cycle below.
+  // Single-chapter timeline reduces to one segment with localStartSec=
+  // clampedStart, localEndSec=clampedEnd.
+  const segments = selectChaptersForClip(
+    resolvedTimeline, clampedStart, clampedEnd);
+  if (segments.length === 0) {
+    throw new Error('exportClipAsMp4: no chapter segments overlap clip window.');
+  }
 
   const sim = await M5Sim.create();
   if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
@@ -2326,15 +2749,26 @@ async function exportClipAsMp4({
     });
   }
 
-  // ---------- Demux probe (audio + video share one Input) -----------
-  // Mediabunny opens the source with streaming reads — no head/tail
-  // budget, no in-memory copy. Both track lookups go through the same
-  // Input instance.
-  const input = openInput(sourceFile);
-
+  // ---------- Probe FIRST segment for codec/fps/dims ----------------
+  // Encoder configuration is taken from chapter 0. Subsequent chapters
+  // are assumed to share the same encode parameters — GoPro always
+  // ships matching siblings within one recording. A future hardening
+  // pass could re-probe per segment and warn on mismatches.
+  //
+  // The probe Input is discarded immediately after the probe finishes
+  // — the segment loop opens a fresh Input per segment including
+  // segment 0. Reusing the probe Input on segment 0 would alias the
+  // track cursor with the probe's EncodedPacketSink walks; safer to
+  // pay the open cost twice for chapter 0 than to risk a subtle
+  // first-segment seek/anchor corruption.
+  const firstSegment = segments[0];
+  const probeInput = openInput(firstSegment.file);
+  // Inputs we'll close in `finally`. Probe is added immediately; each
+  // segment Input gets pushed as it's opened.
+  const openedInputs = [probeInput];
   let videoInfo;
   try {
-    videoInfo = await readVideoTrackInfo(input);
+    videoInfo = await readVideoTrackInfo(probeInput);
   } catch (e) {
     sim.delete();
     throw new Error(`mediabunny: failed to open source video track: ${e?.message || e}`);
@@ -2345,11 +2779,9 @@ async function exportClipAsMp4({
       'No supported video track in source file. Expected H.264 (avc1/avc3) ' +
       'or HEVC (hvc1/hev1). HEVC requires Chrome with hardware HEVC support.');
   }
+  const probeAudioInfo = await readAudioTrackInfo(probeInput);
+  const hasAudio = !!probeAudioInfo;
 
-  // Audio is optional. If it fails we still produce a silent MP4.
-  const audioInfo = await readAudioTrackInfo(input);
-
-  // -------- Resolve source-faithful output parameters ---------------
   // Resolution: default to source dims; if outputWidth is given,
   // downscale aspect-preserving. Round both axes to even numbers
   // (encoder requirement).
@@ -2362,47 +2794,30 @@ async function exportClipAsMp4({
     ? Math.max(2, Math.floor(W * srcH / srcW / 2) * 2)
     : Math.max(2, Math.floor(srcH / 2) * 2);
 
-  // Framerate: derive from the source's first packet duration. For
-  // CFR video this is exact (e.g., 0.0333666... = 30000/1001 for
-  // 29.97 fps). Mediabunny normalizes packet timing to floating-point
-  // seconds; 1/duration recovers fps with enough precision for the
-  // muxer's frameRate hint and the encoder config.
-  const videoSink = new EncodedPacketSink(videoInfo.track);
-
-  // Find the keyframe at-or-before clampedStart — this anchors the
-  // decode chain. If none exists (clampedStart is before the first
-  // key), pull the first packet of the track (which is always a key
-  // in well-formed MP4).
-  const anchorKey =
-    (await videoSink.getKeyPacket(clampedStart)) ||
-    (await videoSink.getPacket(0));
-  if (!anchorKey) {
+  // Framerate: probe via the first chapter's anchor keyframe duration.
+  const probeVideoSink = new EncodedPacketSink(videoInfo.track);
+  const probeAnchor =
+    (await probeVideoSink.getKeyPacket(firstSegment.localStartSec)) ||
+    (await probeVideoSink.getPacket(0));
+  if (!probeAnchor) {
     sim.delete();
     throw new Error('Video track has no packets.');
   }
-
-  // First packet duration → exact fps for CFR video.
   let resolvedFps;
   if (Number.isFinite(framerate) && framerate > 0) {
     resolvedFps = framerate;
-  } else if (anchorKey.duration > 0) {
-    resolvedFps = 1 / anchorKey.duration;
+  } else if (probeAnchor.duration > 0) {
+    resolvedFps = 1 / probeAnchor.duration;
   } else {
     resolvedFps = DEFAULT_FRAMERATE;
   }
-
-  // Bitrate: scale to pixel rate unless caller overrides.
   const resolvedBitrate = (Number.isFinite(bitrate) && bitrate > 0)
     ? bitrate
     : computeBitrate(W, H, resolvedFps);
-
   const canvas = new OffscreenCanvas(W, H);
   const ctx    = canvas.getContext('2d');
 
   // -------- Pick encoder config + output codec family ---------------
-  // Probe HEVC first when the source is HEVC. The encoder config
-  // result tells us which family won (avc vs hevc); the Mediabunny
-  // packet source mirrors it.
   const encConfig = await pickEncoderConfig({
     width: W, height: H,
     bitrate: resolvedBitrate,
@@ -2410,31 +2825,22 @@ async function exportClipAsMp4({
     sourceCodec: videoInfo.codec,
   });
   const outputCodecFamily = /^hev1\.|^hvc1\./i.test(encConfig.codec) ? 'hevc' : 'avc';
-
-  // Mediabunny's frameRate option is a hint passed to the track
-  // header. Actual per-frame timing comes from each EncodedPacket's
-  // timestamp + duration in seconds — so 29.97 stays 29.97 regardless
-  // of the header value. Round to the nearest integer for the muxer.
   const muxerFrameRate = Math.max(1, Math.round(resolvedFps));
 
   // -------- Build Mediabunny Output ---------------------------------
-  // Single Output for video + (optional) audio. Both share one
-  // BufferTarget; finalize() resolves to ArrayBuffer.
+  // Single Output for video + (optional) audio across ALL chapter
+  // segments. Output timestamps are anchored at the clip's global
+  // start, so segment boundaries appear as monotone-continuous frames
+  // in the muxed timeline (no gap or overlap).
   //
   // Rotation: we rotate pixels at composite time (compositeFrame) so
   // the output frames are upright. Pass rotation: 0 so the muxer
   // writes an identity tkhd matrix — players don't apply any
-  // additional rotation. (Honoring the source matrix at composite-
-  // time is required because we draw the overlay AFTER the rotation,
-  // and we want the overlay to sit upright on screen.)
+  // additional rotation.
   const output = new Output({
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target: new BufferTarget(),
   });
-  // Set true once output.finalize() resolves. The finally-block uses
-  // this to decide whether to call output.cancel() on teardown: cancel
-  // logs a benign "already finalized" warning post-finalize, so we
-  // only cancel when we're bailing out mid-stream.
   let outputFinalized = false;
 
   const videoPacketSource = new EncodedVideoPacketSource(outputCodecFamily);
@@ -2442,9 +2848,8 @@ async function exportClipAsMp4({
     rotation:  0,
     frameRate: muxerFrameRate,
   });
-
   let audioPacketSource = null;
-  if (audioInfo) {
+  if (hasAudio) {
     audioPacketSource = new EncodedAudioPacketSource('aac');
     output.addAudioTrack(audioPacketSource);
   }
@@ -2454,18 +2859,10 @@ async function exportClipAsMp4({
   let firstVideoMetaSent = false;
   const encoder = new VideoEncoder({
     output: (chunk, meta) => {
-      // Wrap the EncodedVideoChunk as a Mediabunny EncodedPacket and
-      // push to the video source. First chunk carries decoderConfig
-      // (codec, codedWidth, codedHeight, description) — the muxer
-      // needs the AVCDecoderConfigurationRecord / HEVCDecoderConfigurationRecord
-      // bytes in description to write the correct avcC / hvcC box.
       try {
         const packet = EncodedPacket.fromEncodedChunk(chunk);
         const m = firstVideoMetaSent ? undefined : meta;
         firstVideoMetaSent = true;
-        // Don't await — VideoEncoder.output is a sync callback. The
-        // packet source queues internally; back-pressure is handled
-        // via encoder.encodeQueueSize in the main loop.
         videoPacketSource.add(packet, m).catch((e) => {
           encoderError = e;
         });
@@ -2477,116 +2874,8 @@ async function exportClipAsMp4({
   });
   encoder.configure(encConfig);
 
-  // ---------- Spawn AAC demux in the background ----------------------
-  // Pull each AAC packet via Mediabunny's EncodedPacketSink and push
-  // straight into the output's audio source. No decode + re-encode.
-  // Runs in parallel with the video decode/encode; both feed the
-  // same Output.
-  let audioPromise = null;
-  if (audioInfo && audioPacketSource) {
-    audioPromise = feedAacPacketsToOutput({
-      audioSource: audioPacketSource,
-      audioInfo,
-      clampedStart,
-      clampedEnd,
-      signal,
-    });
-  }
-
-  // ---------- Video decode → composite → encode pipeline -------------
-  //
-  // Strategy (source-faithful):
-  //   1. Walk packets in decode order starting from the keyframe at-
-  //      or-before clampedStart. Stop when packet.timestamp >=
-  //      clampedEnd. Packets whose timestamp falls inside the clip
-  //      window are flagged `output: true`; earlier packets (the
-  //      decode context back to the anchor keyframe) are flagged
-  //      `output: false`.
-  //   2. Feed each packet's encoded bytes to a VideoDecoder. Output
-  //      frames arrive in decode order (which can differ from display
-  //      order for B-frame streams).
-  //   3. Hold each output frame in a sorted-by-timestamp queue.
-  //   4. Walk the output-flagged packets in cts order. For each
-  //      output packet: drive sim to that packet's mediaTime, pop
-  //      the matching decoded frame, composite overlay, encode the
-  //      composite VideoFrame with the source packet's exact
-  //      (timestamp, duration) in microseconds.
-
-  // Collect the selected packet sequence (in decode order). This
-  // materializes lightweight {data, type, timestamp, duration, output}
-  // descriptors — the raw Uint8Array stays in memory only between
-  // demux and decoder.decode().
-  const selectedPackets = [];
-  for await (const packet of videoSink.packets(anchorKey)) {
-    if (signal?.aborted) {
-      sim.delete();
-      throw new DOMException('aborted', 'AbortError');
-    }
-    if (packet.timestamp >= clampedEnd) break;
-    const inWindow = (packet.timestamp + packet.duration > clampedStart) &&
-                     (packet.timestamp < clampedEnd);
-    selectedPackets.push({
-      data:      packet.data,
-      type:      packet.type,
-      timestamp: packet.timestamp,     // seconds
-      duration:  packet.duration,      // seconds
-      output:    inWindow,
-    });
-  }
-  if (selectedPackets.length === 0) {
-    sim.delete();
-    throw new Error('No video samples overlap the clip window.');
-  }
-  const outputSamples = selectedPackets.filter(p => p.output);
-  if (outputSamples.length === 0) {
-    sim.delete();
-    throw new Error('No video samples overlap the clip window.');
-  }
-  const totalFrames = outputSamples.length;
-
-  // Frame queue: sorted by timestamp (display order). Decoder may
-  // emit out of order on B-frame streams; consumer pops in order.
-  const frameQueue = [];
-  let decoderError = null;
-
-  // Insert keeping sorted-ascending-by-timestamp. Most production
-  // flight footage is IPP (no B-frames) so this is amortized O(1)
-  // at the tail; even for IBP it's at most a small constant shuffle.
-  function insertFrame(frame) {
-    const ts = frame.timestamp;
-    // Binary search for insert position.
-    let lo = 0, hi = frameQueue.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (frameQueue[mid].timestamp <= ts) lo = mid + 1;
-      else hi = mid;
-    }
-    frameQueue.splice(lo, 0, frame);
-  }
-
-  const decoder = new VideoDecoder({
-    output: (frame) => {
-      if (decoderError) { frame.close(); return; }
-      // Drop decode-context frames (pre-window keyframe + leading
-      // B/P frames before clampedStart). Their job — providing
-      // decode state for forward-dependent in-window frames — is
-      // done as soon as the decoder consumed them. Keeping them in
-      // the frameQueue would let waitForFrameAtOrBefore pick a
-      // pre-window frame for the first output slot (target ts = 0)
-      // and produce a "video starts at takeoff, not at clip start"
-      // bug. Their `timestamp` is negative (anchored at the first
-      // output packet's cts via toOutTsUs).
-      if (frame.timestamp < 0) {
-        frame.close();
-        return;
-      }
-      insertFrame(frame);
-    },
-    error: (e) => { decoderError = e; },
-  });
-
-  // Try to configure. If it fails we surface a clear error — most
-  // common cause is HEVC on a non-HEVC-capable Chrome.
+  // Pre-check decoder support once (chapters share codec config, so a
+  // single probe answers for all of them).
   const decoderCfg = {
     codec:        videoInfo.codecParameterString,
     description:  videoInfo.description,
@@ -2608,195 +2897,302 @@ async function exportClipAsMp4({
     sim.delete();
     throw new Error(`VideoDecoder.isConfigSupported failed: ${e?.message || e}`);
   }
-  decoder.configure(decoderCfg);
 
-  // Anchor video timestamps at the first output sample's cts so the
-  // muxer sees a t=0-origin timeline. Use cts (presentation), not
-  // decode order, because we sort output frames by cts.
-  const firstWindowTs = outputSamples[0].timestamp;
-
-  // Convert a source-time (seconds) to output-time (microseconds),
-  // anchored at firstWindowTs. Decode-only packets (before the
-  // window) get negative ts; that's fine — VideoDecoder accepts any
-  // int64, and we filter on cts later when matching to output slots.
-  function toOutTsUs(srcSec) {
-    return Math.round((srcSec - firstWindowTs) * 1_000_000);
-  }
-  function toOutDurUs(srcDurSec) {
-    return Math.max(1, Math.round(srcDurSec * 1_000_000));
-  }
-
-  // ---------- Demux feed task ---------------------------------------
-  // Walks selectedPackets and feeds the decoder. Back-pressures when
-  // the decoder is saturated.
-  const feedDone = (async () => {
-    for (let i = 0; i < selectedPackets.length; i++) {
-      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-      if (decoderError) throw decoderError;
-
-      // Back-pressure on both the decode pipeline (un-started
-      // decodes) and the already-decoded frame buffer (each
-      // VideoFrame holds GPU/system memory). Cap total in-flight at
-      // ~64 frames to keep memory bounded.
-      while (decoder.decodeQueueSize + frameQueue.length > 64) {
-        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(r => setTimeout(r, 1));
-      }
-
-      const p = selectedPackets[i];
-      const chunk = new EncodedVideoChunk({
-        type:      p.type,                        // 'key' | 'delta'
-        timestamp: toOutTsUs(p.timestamp),
-        duration:  toOutDurUs(p.duration),
-        data:      p.data,
-      });
-      decoder.decode(chunk);
-      // Release the encoded bytes reference now that the decoder has
-      // consumed (and internally copied) them. The descriptor's
-      // remaining {type,timestamp,duration,output} fields are still
-      // needed for slot-matching; only `data` is heavy. For a 30s
-      // clip at 50 Mbps that's ~900 packets × ~180 KB ≈ 150 MB of
-      // pinned encoded-bytes that this null-out releases.
-      selectedPackets[i].data = null;
-    }
-    await decoder.flush();
-  })();
-
-  // ---------- Output-sample-driven encode loop ----------------------
-  // Walks `outputSamples` (every source packet in the clip window) in
-  // cts order. For each output sample:
-  //   - target timestamp is the sample's own cts (us, anchored at
-  //     firstWindowTs), so output framerate matches source exactly.
-  //   - drive sim to that mediaTime, render overlay
-  //   - pop the decoded frame whose ts matches, composite, encode.
-  let feedError = null;
-  feedDone.catch((e) => { feedError = e; });
-
-  // Keyframe cadence in output frames. ~1 keyframe per second.
+  // Cumulative output offset (seconds) anchored at clip-start. Each
+  // segment writes packets with output ts = segmentOutOffsetSec +
+  // (sampleLocalCts - segment.localStartSec). For a within-window
+  // sample at the clip's first segment, segmentOutOffsetSec is 0 and
+  // out-ts walks 0..N. For segment 2, segmentOutOffsetSec equals the
+  // first segment's encoded duration, so timestamps stay monotone.
+  let cumulativeOutSec = 0;
+  // Total output frame count across all segments; computed as we
+  // discover output samples per segment. Used for the progress callback
+  // — onProgress fires per-frame; totalFrames is an upper bound we
+  // refine as we go (segment 1 we know, later segments we update).
+  let totalFrames = 0;
+  let slotsEncoded = 0;
+  // Keyframe cadence in output frames. Each segment starts with its
+  // own keyframe naturally (decode anchor), but we also force a keyframe
+  // every ~1 second to keep seeking responsive in the output.
   const keyframeStride = Math.max(1, Math.round(resolvedFps));
 
-  // Match a decoded frame to an output sample by timestamp. Decoder
-  // emits frames at the same per-sample ts the feeder used; the
-  // frameQueue is sorted by ts. Look for the largest ts ≤ targetTs.
-  let slotsEncoded = 0;
+  // Audio cumulative offset. We re-anchor each segment's first AAC
+  // packet to cumulativeOutSec at the time the segment runs.
+  let audioCumulativeOutSec = 0;
+  // Track audio meta state across segments — only the first push needs
+  // decoderConfig.
+  let audioMetaSent = false;
+
   try {
-    for (let i = 0; i < outputSamples.length; i++) {
+    // -------- Per-segment loop --------------------------------------
+    // Each iteration: open a fresh Input (one chapter file), set up a
+    // fresh VideoDecoder, demux video packets [localStart, localEnd],
+    // decode + composite + encode. Audio packets within the same
+    // window get re-anchored and pushed to the shared output's audio
+    // source.
+    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
       if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-      if (decoderError) throw decoderError;
-      if (feedError && !(feedError.name === 'AbortError')) throw feedError;
-      if (encoderError) throw encoderError;
+      const seg = segments[segIdx];
 
-      const s = outputSamples[i];
-      const sampleMediaTime = s.timestamp;            // seconds
-      const targetTsUs      = toOutTsUs(s.timestamp);
+      // Fresh Input per segment, including segment 0 — the probe
+      // Input is already in `openedInputs` for `finally`-time close.
+      // Independent Inputs give each EncodedPacketSink its own track
+      // cursor, avoiding any aliasing with the probe walk.
+      const segInput = openInput(seg.file);
+      openedInputs.push(segInput);
+      const segVideoInfo = await readVideoTrackInfo(segInput);
+      if (!segVideoInfo) {
+        throw new Error(`Chapter ${seg.chapterIndex}: no decodable video track.`);
+      }
+      const segAudioInfo = hasAudio
+        ? await readAudioTrackInfo(segInput)
+        : null;
 
-      // eslint-disable-next-line no-await-in-loop
-      let frame = await waitForFrameAtOrBefore(
-        frameQueue, targetTsUs, feedDone, signal);
-
-      if (!frame) {
-        // Drained queue with nothing usable — should not happen if
-        // selectedPackets was constructed correctly. Fall back to
-        // black + overlay (don't fail the export for a single frame).
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, W, H);
+      const segVideoSink = new EncodedPacketSink(segVideoInfo.track);
+      const anchorKey =
+        (await segVideoSink.getKeyPacket(seg.localStartSec)) ||
+        (await segVideoSink.getPacket(0));
+      if (!anchorKey) {
+        throw new Error(`Chapter ${seg.chapterIndex}: video track has no packets.`);
       }
 
-      // Drive sim to this frame's virtual time (mediaTime in ms).
-      const targetVirtMs = Math.max(0, sampleMediaTime * 1000);
-      driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
-
-      let rawState = sim.read();
-      let m5State  = rawState;
-      if (presFilter && rawState) {
-        const dtSec = s.duration;
-        const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dtSec);
-        m5State = Object.freeze({
-          ...rawState,
-          LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
-          VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
-        });
-      }
-
-      // Build the per-frame overlay list. Standard layout: ADI on
-      // the left, Energy on the right (same Y, mirrored X). Single
-      // mode: one overlay pinned to the right corner (legacy layout).
-      // Two separate svgToImage calls — each mode reads its own
-      // displayType branches inside the SVG, so a single render with
-      // an overridden state object isn't equivalent.
-      const overlays = [];
-      const renderOne = async (displayType, position) => {
-        try {
-          const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
-          if (svgEl) {
-            // eslint-disable-next-line no-await-in-loop
-            const img = await svgToImage(svgEl);
-            if (img) overlays.push({ img, position });
-          }
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('overlay raster failed for frame', i, e);
-        }
-      };
-      if (standardOverlay) {
-        await renderOne(1, 'left');   // ADI / Attitude
-        await renderOne(0, 'right');  // Energy
-      } else {
-        await renderOne(undefined, 'right'); // single mode, sim's displayType wins
-      }
-
-      if (frame) compositeFrame(ctx, frame, overlays, W, H, videoInfo.rotationDeg);
-      else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);
-
-      // Close the source VideoFrame as soon as we've drawn it. Holds
-      // GPU/system memory; leaving it for GC triggers WebCodecs'
-      // "VideoFrame garbage collected without being closed" warning.
-      if (frame) { try { frame.close(); } catch (_) {} }
-
-      // Encoder back-pressure.
-      while (encoder.encodeQueueSize > 4) {
+      // Collect packets for this segment's [localStart, localEnd) range.
+      const segPackets = [];
+      for await (const packet of segVideoSink.packets(anchorKey)) {
         if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise(r => setTimeout(r, 0));
-      }
-      if (encoderError) throw encoderError;
-
-      // Output frame inherits source sample's exact ts + duration.
-      const outTsUs  = targetTsUs;
-      const outDurUs = toOutDurUs(s.duration);
-      const isKey    = (i % keyframeStride) === 0 || i === 0;
-      const outFrame = new VideoFrame(canvas, { timestamp: outTsUs, duration: outDurUs });
-      encoder.encode(outFrame, { keyFrame: isKey });
-      outFrame.close();
-
-      slotsEncoded++;
-      if (onProgress) {
-        onProgress({
-          frame:      slotsEncoded,
-          totalFrames,
-          encodedSec: (outTsUs + outDurUs) / 1_000_000,
-          totalSec,
+        if (packet.timestamp >= seg.localEndSec) break;
+        const inWindow =
+          (packet.timestamp + packet.duration > seg.localStartSec) &&
+          (packet.timestamp < seg.localEndSec);
+        segPackets.push({
+          data:      packet.data,
+          type:      packet.type,
+          timestamp: packet.timestamp,
+          duration:  packet.duration,
+          output:    inWindow,
         });
       }
-    }
+      if (segPackets.length === 0) {
+        // No samples in this segment's window; skip cleanly. Can happen
+        // if the clip ends almost exactly at a chapter boundary.
+        continue;
+      }
+      const segOutputSamples = segPackets.filter(p => p.output);
+      if (segOutputSamples.length === 0) continue;
+      totalFrames += segOutputSamples.length;
 
-    // Drain any remaining decoder feed work + audio.
-    try { await feedDone; }
-    catch (e) {
-      if (e?.name === 'AbortError') throw e;
-      // Decode errors after we've already collected enough frames
-      // are non-fatal — the slot loop already finished.
-      console.warn('video demux feed finished with:', e?.message || e);
-    }
+      // Frame queue + decoder per segment. Fresh state for each chapter
+      // — codec config stays the same across chapters by assumption,
+      // but a new decoder avoids any internal-state contamination from
+      // the previous chapter's trailing frames.
+      const frameQueue = [];
+      let decoderError = null;
+      const insertFrame = (frame) => {
+        const ts = frame.timestamp;
+        let lo = 0, hi = frameQueue.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (frameQueue[mid].timestamp <= ts) lo = mid + 1;
+          else hi = mid;
+        }
+        frameQueue.splice(lo, 0, frame);
+      };
+      const decoder = new VideoDecoder({
+        output: (frame) => {
+          if (decoderError) { frame.close(); return; }
+          // Drop decode-context frames whose timestamp falls before
+          // the segment's clip window. For segment 0 these often have
+          // a negative timestamp (pre-zero seed frames). For later
+          // segments timestamps are positive but still below the
+          // window start (the prior chapter's tail-anchor decoding
+          // catches us up). Either way, they exist only to warm the
+          // decoder and never reach the output.
+          if (frame.timestamp < 0) {
+            frame.close();
+            return;
+          }
+          insertFrame(frame);
+        },
+        error: (e) => { decoderError = e; },
+      });
+      decoder.configure(decoderCfg);
 
-    if (audioPromise) {
-      try { await audioPromise; }
+      // Anchor video timestamps at this segment's first output sample's
+      // cts. Combined with cumulativeOutSec, the muxer sees a monotone
+      // t=0-origin timeline across segments.
+      const firstWindowLocalTs = segOutputSamples[0].timestamp;
+      const toOutTsUs = (srcSec) =>
+        Math.round(
+          (cumulativeOutSec + (srcSec - firstWindowLocalTs)) * 1_000_000
+        );
+      const toOutDurUs = (srcDurSec) =>
+        Math.max(1, Math.round(srcDurSec * 1_000_000));
+
+      let feedError = null;
+      const feedDone = (async () => {
+        for (let i = 0; i < segPackets.length; i++) {
+          if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+          if (decoderError) throw decoderError;
+          while (decoder.decodeQueueSize + frameQueue.length > 64) {
+            if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise(r => setTimeout(r, 1));
+          }
+          const p = segPackets[i];
+          const chunk = new EncodedVideoChunk({
+            type:      p.type,
+            timestamp: toOutTsUs(p.timestamp),
+            duration:  toOutDurUs(p.duration),
+            data:      p.data,
+          });
+          decoder.decode(chunk);
+          segPackets[i].data = null;
+        }
+        await decoder.flush();
+      })();
+      feedDone.catch((e) => { feedError = e; });
+
+      // Audio for this segment: re-anchor at the first muxed packet's
+      // local ts, offset by audioCumulativeOutSec so the output audio
+      // timeline stays monotone across segment boundaries.
+      let audioPromise = null;
+      if (hasAudio && segAudioInfo && audioPacketSource) {
+        audioPromise = feedAacSegmentToOutput({
+          audioSource:    audioPacketSource,
+          audioInfo:      segAudioInfo,
+          clampedStart:   seg.localStartSec,
+          clampedEnd:     seg.localEndSec,
+          outOffsetSec:   audioCumulativeOutSec,
+          metaAlreadySent: audioMetaSent,
+          signal,
+        }).then((res) => {
+          if (res && !res.skipped) {
+            audioMetaSent = true;
+            audioCumulativeOutSec += res.addedSec;
+          }
+          return res;
+        });
+      }
+
+      // Encode loop for this segment's output samples.
+      let segEncodedSec = 0;
+      for (let i = 0; i < segOutputSamples.length; i++) {
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+        if (decoderError) throw decoderError;
+        if (feedError && !(feedError.name === 'AbortError')) throw feedError;
+        if (encoderError) throw encoderError;
+
+        const s = segOutputSamples[i];
+        const sampleLocalCts = s.timestamp;             // seconds in this chapter
+        const sampleGlobalSec =
+          seg.globalStartSec + (sampleLocalCts - seg.localStartSec);
+        const targetTsUs = toOutTsUs(sampleLocalCts);
+
+        // eslint-disable-next-line no-await-in-loop
+        let frame = await waitForFrameAtOrBefore(
+          frameQueue, targetTsUs, feedDone, signal);
+
+        if (!frame) {
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // Drive sim from the GLOBAL video time of this sample, mapped
+        // back to log time via the same sync anchor used everywhere.
+        const targetVirtMs = Math.max(0, sampleGlobalSec * 1000);
+        driveSimToVirtMs(sim, simState, targetVirtMs, log, sync, cppWireFrames);
+        let rawState = sim.read();
+        let m5State  = rawState;
+        if (presFilter && rawState) {
+          const dtSec = s.duration;
+          const smoothed = presFilter.apply(rawState.LateralG, rawState.VerticalG, dtSec);
+          m5State = Object.freeze({
+            ...rawState,
+            LateralG:  Number.isFinite(smoothed.lateralG)  ? smoothed.lateralG  : rawState.LateralG,
+            VerticalG: Number.isFinite(smoothed.verticalG) ? smoothed.verticalG : rawState.VerticalG,
+          });
+        }
+
+        const overlays = [];
+        const renderOne = async (displayType, position) => {
+          try {
+            const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
+            if (svgEl) {
+              // eslint-disable-next-line no-await-in-loop
+              const img = await svgToImage(svgEl);
+              if (img) overlays.push({ img, position });
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('overlay raster failed for frame', i, e);
+          }
+        };
+        if (standardOverlay) {
+          await renderOne(1, 'left');   // ADI / Attitude
+          await renderOne(0, 'right');  // Energy
+        } else {
+          await renderOne(undefined, 'right');
+        }
+
+        if (frame) compositeFrame(ctx, frame, overlays, W, H, segVideoInfo.rotationDeg);
+        else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);
+
+        if (frame) { try { frame.close(); } catch (_) {} }
+
+        while (encoder.encodeQueueSize > 4) {
+          if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise(r => setTimeout(r, 0));
+        }
+        if (encoderError) throw encoderError;
+
+        const outTsUs  = targetTsUs;
+        const outDurUs = toOutDurUs(s.duration);
+        // Force keyframe at every segment boundary (i === 0 here) AND
+        // at the keyframeStride cadence. The decoder restart-per-segment
+        // can't reuse old reference frames, so a key at the boundary
+        // also matches what the encoder would have done naturally.
+        const isKey = (i === 0) || (slotsEncoded % keyframeStride === 0);
+        const outFrame = new VideoFrame(canvas, { timestamp: outTsUs, duration: outDurUs });
+        encoder.encode(outFrame, { keyFrame: isKey });
+        outFrame.close();
+
+        slotsEncoded++;
+        segEncodedSec = (sampleLocalCts - firstWindowLocalTs) + s.duration;
+        if (onProgress) {
+          onProgress({
+            frame:      slotsEncoded,
+            totalFrames,
+            encodedSec: cumulativeOutSec + segEncodedSec,
+            totalSec,
+          });
+        }
+      }
+
+      try { await feedDone; }
       catch (e) {
         if (e?.name === 'AbortError') throw e;
-        // eslint-disable-next-line no-console
-        console.warn('audio mux failed, exporting silent:', e);
+        console.warn('video demux feed finished with:', e?.message || e);
       }
+      if (audioPromise) {
+        try { await audioPromise; }
+        catch (e) {
+          if (e?.name === 'AbortError') throw e;
+          // eslint-disable-next-line no-console
+          console.warn(`audio mux failed for chapter ${seg.chapterIndex}, exporting silent for this segment:`, e);
+        }
+      }
+
+      // Close per-segment decoder + drop any leftover frames.
+      for (const f of frameQueue) { try { f.close(); } catch (_) {} }
+      frameQueue.length = 0;
+      try { decoder.state !== 'closed' && decoder.close(); } catch (_) {}
+
+      cumulativeOutSec += segEncodedSec;
+    }
+
+    if (slotsEncoded === 0) {
+      throw new Error('No video samples overlap the clip window.');
     }
 
     await encoder.flush();
@@ -2810,18 +3206,15 @@ async function exportClipAsMp4({
     if (!buffer) throw new Error('Output produced no buffer.');
     return new Blob([buffer], { type: 'video/mp4' });
   } finally {
-    // Close any decoded frames left in queue.
-    for (const f of frameQueue) { try { f.close(); } catch (_) {} }
-    frameQueue.length = 0;
-    try { decoder.state !== 'closed' && decoder.close(); } catch (_) {}
     try { encoder.state !== 'closed' && encoder.close(); } catch (_) {}
-    // If we exit before finalize() completes, ask Mediabunny to tear
-    // down the Output (closes encoders/writer, frees internal state).
-    // Skip on the happy path — calling cancel() after finalize() logs
-    // a benign "already finalized" warning. Wrapped in try/catch so a
-    // teardown error can't shadow the real exception.
     if (!outputFinalized) {
       try { await output.cancel(); } catch (_) {}
+    }
+    // Close every Mediabunny Input we opened. Each wraps a BlobSource
+    // with internal byte-range caches; leaving them for GC could
+    // hold MBs of ArrayBuffer per chapter across a 4-chapter export.
+    for (const inp of openedInputs) {
+      try { inp.close?.(); } catch (_) {}
     }
     try { sim.delete(); } catch (_) {}
   }
@@ -3539,6 +3932,9 @@ const ClipBuilder = ({
   // Energy bottom-right; false = single mode in bottom-right (legacy).
   standardClipOverlay,
   onChangeStandardClipOverlay,
+  // Forwarded to each row so Set-in-here / Set-out-here resolve to a
+  // global timeline-second across multi-chapter playback.
+  getCurrentVideoSec,
 }) => {
   const cancelMarkBtn = pendingInVideoSec != null
     ? html`
@@ -3734,7 +4130,8 @@ const ClipBuilder = ({
                 }}
                 onRemove=${() => setClips(removeClipAt(clips, i))}
                 renderExport=${() => renderExportControls(c, i)}
-                renderOverlayExport=${() => renderOverlayControls(c, i)} />
+                renderOverlayExport=${() => renderOverlayControls(c, i)}
+                getCurrentVideoSec=${getCurrentVideoSec} />
             `)}
           </div>`}
     </div>`;
@@ -3749,6 +4146,10 @@ const ClipRow = ({
   clip, index, sync, videoEl, disabled,
   isExporting,
   onScrubTo, onPatch, onRemove, renderExport, renderOverlayExport,
+  // Multi-chapter playback wants the global timeline-second, not the
+  // raw videoEl.currentTime. Function-style prop so each click reads
+  // a fresh value rather than a render-time snapshot.
+  getCurrentVideoSec,
 }) => {
   const [labelDraft, setLabelDraft] = useState(clip.label || '');
 
@@ -3759,18 +4160,32 @@ const ClipRow = ({
   // Snap the start/end to the current playhead. Useful for tightening
   // a clip after rough-marking it: scrub to where you actually want
   // it to start/end, click "Set in here" / "Set out here".
-  const setInHere = () => {
+  //
+  // For multi-chapter timelines `getCurrentVideoSec` returns the global
+  // timeline second; for single-file playback it falls back to
+  // videoEl.currentTime via the default below.
+  const readCurrentSec = () => {
+    if (typeof getCurrentVideoSec === 'function') {
+      const t = getCurrentVideoSec();
+      if (Number.isFinite(t)) return t;
+    }
     const v = videoEl?.current || null;
-    if (!v || !sync) return;
+    return v ? v.currentTime : null;
+  };
+  const setInHere = () => {
+    if (!sync) return;
+    const t = readCurrentSec();
+    if (!Number.isFinite(t)) return;
     const newStartMs = sync.logTakeoffMs +
-                       (v.currentTime - sync.videoTakeoffSec) * 1000;
+                       (t - sync.videoTakeoffSec) * 1000;
     onPatch({ startMs: newStartMs });
   };
   const setOutHere = () => {
-    const v = videoEl?.current || null;
-    if (!v || !sync) return;
+    if (!sync) return;
+    const t = readCurrentSec();
+    if (!Number.isFinite(t)) return;
     const newEndMs = sync.logTakeoffMs +
-                     (v.currentTime - sync.videoTakeoffSec) * 1000;
+                     (t - sync.videoTakeoffSec) * 1000;
     onPatch({ endMs: newEndMs });
   };
 
@@ -3850,42 +4265,100 @@ const ClipRow = ({
 // can show a stable identifier the pilot can talk about even after
 // the absolute DataMark value wraps.
 
+// DataMark per firmware (Switch.cpp:61) is `g_iDataMark = g_iDataMark + 1`,
+// a monotonically-incrementing `int`. The M5 wire and panel display
+// mod-100 (`%02d`) so two digits of room is fine on screen, but the
+// underlying counter can go much higher on long flights. Cap at a
+// generous integer ceiling to filter the misaligned-CSV signature
+// (values like 8158, 17:55:19.87, 285.40 observed on the RV-4
+// 2026-05-11 flight) without rejecting legitimate ≥ 100 presses.
+// 9999 is a safe upper limit: well above any realistic press count,
+// well below the torn-row values we've seen.
+function isValidMark(v) {
+  return Number.isInteger(v) && v >= 0 && v <= 9999;
+}
+
+// Firmware writes DataMark as a monotonically incrementing counter:
+// 0 → 1 → 2 → 3 → ... Each pilot press bumps the column by one. The
+// real-world write pattern observed on RV-4 2026-05-11:
+//   0 (boot) → 1 (first press) → 2 → 3 → ... → 20 → ...
+// with occasional resets to 0 after a long idle period (then the
+// counter continues from where it left off, e.g. 0 → 20 → 21 → ...).
+//
+// Garbage rows from misaligned CSV either (a) hold a value outside
+// [0..99] (filtered by isValidMark), or (b) hold a valid-by-luck
+// integer but have ts = 0 / ts going backwards. The ts sanity check
+// catches the second class.
+//
+// A "press" is a row where the column transitions from a smaller
+// non-negative value to a strictly-larger one (1..99). The previous
+// value can be 0 (cold start / re-arm) OR a smaller non-zero (the
+// counter continuing). Resets (N → 0) and same-value rows are not
+// presses.
+//
+// Reject chatter: the firmware occasionally writes brief single-row
+// blips of "0" between two stable "N" runs (torn-row signature or
+// per-frame write race). A real pilot press has the column stable
+// at the prior value for at least PRIOR_VALUE_HOLD_MS before the
+// transition, and the new value stable for at least NEW_VALUE_HOLD_MS
+// after. Anything shorter is a flicker. On the RV-4 log, the real
+// 0→20 press held 20 for 928 seconds; the noise ones held 2 seconds
+// AFTER a previous-value-0 that lasted only ~10 ms.
+const PRIOR_VALUE_HOLD_MS = 200;
+const NEW_VALUE_HOLD_MS   = 200;
+
 function findDataMarks(log) {
   if (!log || !log.DataMark || !log.timeStamp) return [];
   const N = log.Length;
   if (N < 2) return [];
 
-  const out = [];
-  // Treat anything different from the previous logged value as a
-  // transition. The first row's mark is included only if it's
-  // non-zero (otherwise every flight starts with a "mark 0" the
-  // pilot didn't actually press).
-  let prev = log.DataMark[0];
-  if (prev > 0) {
-    out.push({
-      rowIdx:    0,
-      logTimeMs: log.timeStamp[0],
-      value:     prev,
-      label:     '01',
-    });
-  }
-  for (let i = 1; i < N; i++) {
+  // Compress the (filtered) rows into runs of consecutive same-value
+  // entries: [{ value, startTs, endTs, startRow }, ...]. Skips rows
+  // with invalid DataMark or invalid timeStamp at parse boundary.
+  // A run's "duration" is endTs - startTs.
+  const runs = [];
+  for (let i = 0; i < N; i++) {
     const v = log.DataMark[i];
-    if (v !== prev && v >= 0) {
-      // Skip the immediate post-power-up "mark = 0" zero-edge that
-      // happens when the column initializes; only count transitions
-      // whose new value is non-zero (i.e. an actual button press).
-      if (v > 0) {
-        out.push({
-          rowIdx:    i,
-          logTimeMs: log.timeStamp[i],
-          value:     v,
-          label:     String(out.length + 1).padStart(2, '0'),
-        });
-      }
-      prev = v;
+    const ts = log.timeStamp[i];
+    if (!isValidMark(v) || !Number.isFinite(ts) || ts <= 0) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.value === v) {
+      last.endTs = ts;
+    } else {
+      runs.push({ value: v, startTs: ts, endTs: ts, startRow: i });
     }
   }
+  // A real press is a forward-going transition between two runs that
+  // each persist long enough to be a true state — not single-row
+  // blips. The 200ms thresholds are well above the firmware's log
+  // cadence (5-50ms) and well below any real pilot's press interval.
+  const out = [];
+  for (let r = 1; r < runs.length; r++) {
+    const cur  = runs[r];
+    const prev = runs[r - 1];
+    const isForward = cur.value > 0 && (prev.value === 0 || cur.value > prev.value);
+    if (!isForward) continue;
+    const prevHeld = prev.endTs - prev.startTs;
+    const curHeld  = cur.endTs  - cur.startTs;
+    if (prevHeld < PRIOR_VALUE_HOLD_MS) continue;
+    if (curHeld  < NEW_VALUE_HOLD_MS)   continue;
+    out.push({
+      rowIdx:    cur.startRow,
+      logTimeMs: cur.startTs,
+      value:     cur.value,
+      // `label` is what the panel shows. Always the firmware-written
+      // DataMark value — same number the pilot saw on their device
+      // and the same number the burned-in overlay renders. Multiple
+      // panel rows may share the same value when the firmware counter
+      // resets and the pilot bumps back to the same number minutes
+      // later; distinguish them by their log/video times.
+      label:     String(cur.value).padStart(2, '0'),
+    });
+  }
+  // Sort by log time ascending. With the run-compression above the
+  // output is already in time order; the explicit sort guards against
+  // any future torn-row recovery that might re-introduce reordering.
+  out.sort((a, b) => a.logTimeMs - b.logTimeMs);
   return out;
 }
 
@@ -4402,6 +4875,25 @@ async function clearHandles() {
 // Permission helper. Must be called from a user-gesture handler.
 // ---------------------------------------------------------------------
 
+// Extract the FileSystemHandle that needs read permission from a slot
+// value. For the `video` slot the value is either a FileSystemFileHandle
+// (single-chapter session) or a `{kind:'multi-chapter', directoryHandle,
+// chapterNames}` envelope — in the latter case the directory handle is
+// the permission target (granting it implicitly grants every file inside).
+//
+// Discriminator note: the FSA spec defines `.kind` on FileSystemHandle
+// as `'file' | 'directory'`. Our envelope adds the synthetic value
+// `'multi-chapter'` to the same field — the three values are disjoint
+// today, but if the spec ever adds a new handle kind that string-equals
+// our envelope marker, this branch would misclassify. Cheap to defend:
+// rename the envelope discriminator (e.g. `envelopeKind`) only if/when
+// that becomes a concrete risk.
+function permissionTarget(slotValue) {
+  if (!slotValue) return null;
+  if (slotValue.kind === 'multi-chapter') return slotValue.directoryHandle || null;
+  return slotValue;
+}
+
 async function requestPermissionForHandles(handles) {
   if (!handles) return false;
   const slots = ['video', 'log', 'cfg'];
@@ -4417,12 +4909,43 @@ async function requestPermissionForHandles(handles) {
   // would degrade to "first ok, rest denied" — observable in dev
   // before it bites a pilot.
   const results = await Promise.all(slots.map(slot => {
-    const h = handles[slot];
-    if (!h) return 'granted'; // missing slot (e.g. cfg) is fine
-    if (typeof h.requestPermission !== 'function') return 'denied';
-    return h.requestPermission({ mode: 'read' }).catch(() => 'denied');
+    const target = permissionTarget(handles[slot]);
+    if (!target) return 'granted'; // missing slot (e.g. cfg) is fine
+    if (typeof target.requestPermission !== 'function') return 'denied';
+    return target.requestPermission({ mode: 'read' }).catch(() => 'denied');
   }));
   return results.every(r => r === 'granted');
+}
+
+// Walk a stored multi-chapter envelope: re-open the directory handle's
+// entries, match against the persisted chapter-name list, return the
+// ordered file + handle arrays. Permission must already be granted on
+// `directoryHandle` (caller is the post-Resume click path).
+//
+// If a chapter's file is missing (renamed, moved, deleted) it's
+// dropped from the result; the caller can detect a partial recovery
+// by comparing `result.files.length` to `envelope.chapterNames.length`.
+async function expandMultiChapterHandle(envelope) {
+  if (!envelope || envelope.kind !== 'multi-chapter') return null;
+  const { directoryHandle, chapterNames } = envelope;
+  if (!directoryHandle || !Array.isArray(chapterNames)) return null;
+  const found = new Map(); // name → { file, handle }
+  for await (const [name, entry] of directoryHandle.entries()) {
+    if (entry.kind !== 'file') continue;
+    if (!chapterNames.includes(name)) continue;
+    try {
+      const file = await entry.getFile();
+      found.set(name, { file, handle: entry });
+    } catch (_) { /* unreadable: skip */ }
+  }
+  const ordered = chapterNames
+    .map(n => found.get(n))
+    .filter(Boolean);
+  return {
+    files:    ordered.map(x => x.file),
+    handles:  ordered.map(x => x.handle),
+    directoryHandle,
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -4656,6 +5179,21 @@ class LogReplayTask {
 function rowAt(log, i) {
   const g  = (arr) => (arr ? arr[i] : NaN);
   const gi = (arr) => (arr ? arr[i] : 0);
+  // DataMark per firmware (Switch.cpp:61) is a monotonically-
+  // incrementing int that the M5 wire/panel display mod-100. Some
+  // real-world SD logs contain misaligned CSV rows where the
+  // DataMark cell holds a timestamp, pressure reading, etc. Those
+  // values were leaking into the wire frame and producing garbage
+  // overlay digits. Cap at 9999 to filter the torn-row signature
+  // without rejecting legitimate high-counter presses on long flights
+  // (the firmware-side `% 100` will still reduce ≥100 values to a
+  // two-digit display).
+  const gMark = (arr) => {
+    if (!arr) return 0;
+    const v = arr[i];
+    if (Number.isInteger(v) && v >= 0 && v <= 9999) return v;
+    return 0;
+  };
   return {
     pfwdSmoothed:    g(log.PfwdSmoothed),
     p45Smoothed:     g(log.P45Smoothed),
@@ -4676,7 +5214,7 @@ function rowAt(log, i) {
     rollDeg:         g(log.Roll),
     flightPathDeg:   g(log.FlightPath),
     vsiFpm:          g(log.VSI),
-    dataMark:        gi(log.DataMark),
+    dataMark:        gMark(log.DataMark),
     oatCelsius:      g(log.OAT),
   };
 }
@@ -6027,6 +6565,7 @@ const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
 
 
 
+
 // Mode list indexed by displayType (0..4). The int returned by
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
 // matches the M5 firmware's `kModeNames` and the IndexerPage's MODES
@@ -6097,8 +6636,19 @@ function videoToLogMs(videoSec, sync) {
 
 
 const ReplayPage = () => {
-  const [videoFile, setVideoFile] = useState(null);
+  // Chapter-aware state. For non-GoPro single picks, videoFiles is
+  // `[file]` and videoTimeline is null — the page falls back to its
+  // legacy single-file behaviour (videoEl.duration drives all the
+  // time math). For a GoPro multi-chapter pick, videoFiles is the
+  // sorted chapter list and videoTimeline carries the {chapters,
+  // totalDurationSec} that lets `globalSec` be computed across the
+  // whole recording. `videoFile` (singular) is the active chapter
+  // displayed in the <video> element — derived below.
+  const [videoFiles, setVideoFiles] = useState([]);
+  const [videoTimeline, setVideoTimeline] = useState(null);
+  const [activeChapterIndex, setActiveChapterIndex] = useState(0);
   const [videoUrl, setVideoUrl]   = useState(null);
+  const videoFile = videoFiles[activeChapterIndex] || null;
   const [log, setLog]             = useState(null);
   // Raw File handle, separate from logFilename. Used to compute the
   // content-keyed digest for sync + clip persistence (see
@@ -6130,9 +6680,18 @@ const ReplayPage = () => {
   // Initial value: a previously-saved user choice if any, else null
   // (the load-time effect below picks a rate-appropriate default
   // once the log loads).
-  const [m5SmoothPreset, setM5SmoothPreset] = useState(() => {
+  // Lateral τ (slip ball smoothing) as a free-form number in seconds.
+  // `null` = pilot hasn't picked one yet; the load-time effect below
+  // chooses a rate-appropriate default once the log lands.
+  const [m5SmoothLateralTau, setM5SmoothLateralTau] = useState(() => {
     const s = safeLsGet(M5_SMOOTH_LS_KEY);
-    return PRESENTATION_PRESETS.find(p => p.id === s) ? s : null;
+    const v = parseFloat(s);
+    if (Number.isFinite(v) &&
+        v >= PRESENTATION_LATERAL_TAU_MIN &&
+        v <= PRESENTATION_LATERAL_TAU_MAX) {
+      return v;
+    }
+    return null;
   });
   // Pre-computed wire frames per log row from the C++ LogReplayTask.
   // Shape: { frames: Uint8Array[], engineResults: object[] }.
@@ -6167,7 +6726,7 @@ const ReplayPage = () => {
   // Render-side presentation filter (NOT a firmware mirror).
   // Applies after sim.read(); attenuates 50 Hz log aliasing before
   // SVG renderers consume state.LateralG / state.VerticalG. τ is
-  // driven by m5SmoothPreset.
+  // driven by m5SmoothLateralTau (lateral) — vertical stays 0.
   const m5RenderFilterRef = useRef(null);
   // Last-frame timestamp for the render filter's continuous-time α
   // computation. videoT in seconds.
@@ -6231,6 +6790,13 @@ const ReplayPage = () => {
     const v = videoHandleRef.current;
     const l = logHandleRef.current;
     if (!v || !l) return;
+    // Multi-chapter sessions: `videoFileRef.current` is chapter 0,
+    // so the IDB key uses chapter 0's {name, size, lastModified}.
+    // Two unrelated GoPro sessions whose chapter 0 has identical
+    // metadata would overwrite each other; same limitation as the
+    // single-chapter path (and same as the legacy file-input flow).
+    // The Resume banner's persistence-key surface keeps the same
+    // shape so this stays in lockstep with the recent-files banner.
     const sig = signatureFromFiles({
       video: videoFileRef.current,
       log: logFileRef.current,
@@ -6327,6 +6893,16 @@ const ReplayPage = () => {
   const videoRef    = useRef(null);
   const containerRef = useRef(null);
   const rafIdRef    = useRef(null);
+  // Live mirrors of videoTimeline + activeChapterIndex consumed by the
+  // rVFC tick (the tick captures these via ref so a chapter swap mid-
+  // tick is observed immediately, not after the next render).
+  const videoTimelineRef = useRef(null);
+  const activeChapterIndexRef = useRef(0);
+  // While a chapter is being swapped (URL change + loadedmetadata
+  // round-trip), we want to seek to a specific local time once the
+  // new source is loaded. Pending swap target lives here; the
+  // loadedmetadata handler reads and clears it.
+  const pendingChapterSeekRef = useRef(null);
   // Tracks whether an MP4 export is in progress. The live-preview
   // rVFC chain reads this each tick and suspends its self-
   // re-registration loop while true: the export pipeline registers
@@ -6347,15 +6923,87 @@ const ReplayPage = () => {
   //   2. FSA `showOpenFilePicker` buttons       (handle = FSFileHandle)
   //   3. Resume-banner re-grant path            (handle from IDB)
 
-  const applyVideoFile = useCallback((f, handle) => {
+  // Apply a video pick. Accepts either a single File (legacy) or an
+  // array of Files (multi-chapter). When `files.length > 1` we group
+  // GoPro siblings, build the timeline, and start playback at chapter
+  // 0. If grouping produces zero matches we fall back to treating the
+  // first file as a single standalone video.
+  //
+  // The `handle` argument is the FSA handle for the user-picked file
+  // (single chapter). For multi-chapter picks the caller passes a
+  // `chapterHandles` array via the third slot and the parent
+  // `directoryHandle` via the fourth. The directory handle is what
+  // gets persisted to IDB for multi-chapter resume — re-walking the
+  // directory recovers the chapter set in one permission prompt
+  // (instead of three prompts per chapter).
+  const applyVideoFiles = useCallback(async (filesArg, handle, chapterHandles, directoryHandle) => {
     if (videoUrl) URL.revokeObjectURL(videoUrl);
-    setVideoFile(f);
-    setVideoUrl(URL.createObjectURL(f));
-    videoFileRef.current = f;
-    persistence.notifyFilePicked('video', f);
-    videoHandleRef.current = handle || null;
-    if (handle) persistHandlesIfReady();
+    const filesIn = Array.isArray(filesArg) ? filesArg : (filesArg ? [filesArg] : []);
+    if (filesIn.length === 0) {
+      setVideoFiles([]);
+      setVideoTimeline(null);
+      setActiveChapterIndex(0);
+      setVideoUrl(null);
+      videoFileRef.current = null;
+      videoHandleRef.current = null;
+      return;
+    }
+    let chaptersList = [];
+    if (filesIn.length > 1) {
+      chaptersList = groupChapterSiblings(filesIn);
+    }
+    let timeline = null;
+    let activeFiles = filesIn;
+    if (chaptersList.length > 1) {
+      try {
+        timeline = await buildChapterTimeline(chaptersList);
+        activeFiles = timeline.chapters.map(c => c.file);
+      } catch (err) {
+        // Probe failure (corrupt chapter, codec issue). Fall back to
+        // single-chapter behaviour with the first file; pilot can
+        // re-pick if they want multi-chapter.
+        setParseErr(`Multi-chapter pick failed: ${err.message}. Loaded first file only.`);
+        timeline = null;
+        activeFiles = [filesIn[0]];
+      }
+    }
+    setVideoFiles(activeFiles);
+    setVideoTimeline(timeline);
+    setActiveChapterIndex(0);
+    const first = activeFiles[0];
+    // For non-chapter picks, set videoUrl directly here — the chapter
+    // swap effect short-circuits on null timeline. For multi-chapter
+    // picks, clear videoUrl first; the chapter-swap effect creates
+    // the URL for the active chapter once the new timeline lands.
+    if (!timeline) {
+      setVideoUrl(URL.createObjectURL(first));
+    } else {
+      setVideoUrl(null);
+    }
+    videoFileRef.current = first;
+    persistence.notifyFilePicked('video', first);
+    // Multi-chapter sessions store the directory handle + the ordered
+    // chapter filename list so Resume can re-walk the directory with a
+    // single permission prompt. Single-chapter sessions store the bare
+    // file handle (existing PR #533 shape).
+    if (timeline && directoryHandle && chapterHandles && chapterHandles.length > 1) {
+      videoHandleRef.current = {
+        kind: 'multi-chapter',
+        directoryHandle,
+        chapterNames: activeFiles.map(f => f.name),
+      };
+    } else {
+      videoHandleRef.current = handle ||
+        (chapterHandles && chapterHandles[0]) || null;
+    }
+    if (handle || chapterHandles || directoryHandle) persistHandlesIfReady();
   }, [videoUrl, persistence, persistHandlesIfReady]);
+
+  // Compat wrapper for the existing single-file callsites (resume
+  // banner, etc.). Equivalent to applyVideoFiles([f], handle).
+  const applyVideoFile = useCallback((f, handle) => {
+    applyVideoFiles(f ? [f] : [], handle, null);
+  }, [applyVideoFiles]);
 
   const applyLogFile = useCallback(async (f, handle) => {
     setParseErr(null);
@@ -6422,9 +7070,10 @@ const ReplayPage = () => {
   // null in this path so no IDB write happens; resume banner won't
   // appear next reload (correct behavior on unsupported browsers).
   const onVideoPick = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    applyVideoFile(f, null);
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    applyVideoFiles(files, null, null);
   };
 
   const onLogPick = async (e) => {
@@ -6445,14 +7094,77 @@ const ReplayPage = () => {
   // helpers the <input> path uses.
   const fsaSupported = useState(() => isFileHandleApiSupported())[0];
 
+  // Pick a video via the File System Access picker. When the pilot
+  // picks a GoPro first-chapter file (GOPR####.MP4), immediately
+  // open the directory picker so we can pull in the sibling
+  // continuation chapters (GP01...GP09####.MP4) into one virtual
+  // timeline.
+  //
+  // If the directory pick is denied or unavailable (or no siblings
+  // match), the single chapter the pilot picked still works
+  // standalone — same as a non-GoPro pick. A banner explains the
+  // fallback path.
   const pickVideoViaFsa = useCallback(async () => {
     try {
       const r = await pickFile('video');
-      if (r) applyVideoFile(r.file, r.handle);
+      if (!r) return;
+      const pattern = detectGoProChapterPattern(r.file?.name || '');
+      if (!pattern || typeof window === 'undefined' ||
+          typeof window.showDirectoryPicker !== 'function') {
+        applyVideoFile(r.file, r.handle);
+        return;
+      }
+      // Try the directory picker. The pilot may dismiss it; treat
+      // dismissal the same as "use just this chapter".
+      let dirHandle;
+      try {
+        dirHandle = await window.showDirectoryPicker();
+      } catch (dirErr) {
+        if (dirErr && dirErr.name === 'AbortError') {
+          applyVideoFile(r.file, r.handle);
+          setParseErr(
+            `Picked ${r.file.name} only. Re-pick using the multi-select ` +
+            `flow to load all chapters together.`);
+          return;
+        }
+        throw dirErr;
+      }
+      // Walk the directory and collect every GoPro chapter sibling
+      // matching the same seq as the picked file.
+      const siblings = [];
+      const siblingHandles = [];
+      for await (const [name, entry] of dirHandle.entries()) {
+        if (entry.kind !== 'file') continue;
+        const m = detectGoProChapterPattern(name);
+        if (!m || m.seq !== pattern.seq) continue;
+        try {
+          const f = await entry.getFile();
+          siblings.push(f);
+          siblingHandles.push(entry);
+        } catch (_) { /* unreadable file: skip */ }
+      }
+      if (siblings.length <= 1) {
+        // Directory had no extra chapters — fall back to single-file.
+        applyVideoFile(r.file, r.handle);
+        return;
+      }
+      // Sort siblings + handles together by chapterIndex so the
+      // resulting list stays aligned. The grouping in
+      // applyVideoFiles will re-sort by chapterIndex too, but doing
+      // it here keeps the handle indices in lockstep.
+      const indexed = siblings.map((f, i) => ({
+        file: f,
+        handle: siblingHandles[i],
+        idx: detectGoProChapterPattern(f.name).chapterIndex,
+      }));
+      indexed.sort((a, b) => a.idx - b.idx);
+      const sortedFiles = indexed.map(x => x.file);
+      const sortedHandles = indexed.map(x => x.handle);
+      await applyVideoFiles(sortedFiles, sortedHandles[0], sortedHandles, dirHandle);
     } catch (err) {
       setParseErr(`Could not open video: ${err.message}`);
     }
-  }, [applyVideoFile]);
+  }, [applyVideoFile, applyVideoFiles]);
 
   const pickLogViaFsa = useCallback(async () => {
     try {
@@ -6493,20 +7205,41 @@ const ReplayPage = () => {
       return;
     }
     try {
-      // Read the three files in parallel.
-      const [vFile, lFile, cFile] = await Promise.all([
-        handles.video.getFile(),
+      const isMultiChapter = handles.video && handles.video.kind === 'multi-chapter';
+      // Log + cfg are always single-file handles; video may be either.
+      const [lFile, cFile] = await Promise.all([
         handles.log.getFile(),
         handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
       ]);
-      applyVideoFile(vFile, handles.video);
+      if (isMultiChapter) {
+        // requestPermissionForHandles already granted read on the
+        // directory handle above. Subsequent entries() iteration and
+        // entry.getFile() reads on an already-granted directory do
+        // NOT need a fresh user-gesture token, so awaiting the walk
+        // here is safe even though it crosses several async hops.
+        const expanded = await expandMultiChapterHandle(handles.video);
+        if (!expanded || expanded.files.length === 0) {
+          throw new Error('multi-chapter directory is empty or chapters moved');
+        }
+        if (expanded.files.length < handles.video.chapterNames.length) {
+          setParseErr(
+            `Resumed with ${expanded.files.length} of ` +
+            `${handles.video.chapterNames.length} chapters — some files moved ` +
+            `or were renamed.`);
+        }
+        await applyVideoFiles(
+          expanded.files, expanded.handles[0], expanded.handles, expanded.directoryHandle);
+      } else {
+        const vFile = await handles.video.getFile();
+        applyVideoFile(vFile, handles.video);
+      }
       const logOk = await applyLogFile(lFile, handles.log);
       if (cFile && logOk) await applyCfgFile(cFile, handles.cfg);
       fileHandleResume.markUsed();
     } catch (err) {
       setParseErr(`Resume failed: ${err.message}`);
     }
-  }, [fileHandleResume, applyVideoFile, applyLogFile, applyCfgFile]);
+  }, [fileHandleResume, applyVideoFile, applyVideoFiles, applyLogFile, applyCfgFile]);
 
   const onResumeDismiss = useCallback(() => {
     fileHandleResume.dismiss();
@@ -6567,6 +7300,102 @@ const ReplayPage = () => {
     persistence.storeClips(clips);
   }, [clips, persistence.digestReady, persistence.storeClips]);
 
+  // ---------- Chapter timeline refs + swap effect ------------------
+
+  // Mirror videoTimeline + activeChapterIndex into refs so the rVFC
+  // tick reads the latest values without effect re-runs.
+  useEffect(() => {
+    videoTimelineRef.current = videoTimeline;
+  }, [videoTimeline]);
+  useEffect(() => {
+    activeChapterIndexRef.current = activeChapterIndex;
+  }, [activeChapterIndex]);
+
+  // Swap the <video> src when the active chapter changes. Revokes
+  // the previous object URL, creates a fresh one for the new chapter,
+  // and on `loadedmetadata` resumes playback at local-time 0 (or at
+  // a stored seek target from a cross-chapter scrub). videoFileRef
+  // and persistence stay anchored to chapter 0 (the "primary" file)
+  // so log digests / banners don't churn on chapter swaps.
+  //
+  // Pre-condition: videoTimeline is non-null. For non-chapter pickups
+  // applyVideoFiles sets videoUrl directly and this effect doesn't
+  // fire because videoTimeline stays null.
+  useEffect(() => {
+    if (!videoTimeline) return;
+    const chapter = videoTimeline.chapters[activeChapterIndex];
+    if (!chapter) return;
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    const url = URL.createObjectURL(chapter.file);
+    setVideoUrl(url);
+    // No state-write of videoFile — keep the active <video>-element
+    // file accessible via videoFiles[activeChapterIndex] (above).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoTimeline, activeChapterIndex]);
+
+  // When the <video> element's source completes loading, if a
+  // chapter-swap requested a specific local-time seek, apply it now.
+  // Otherwise the new chapter starts at local-time 0 — matching the
+  // auto-advance flow on chapter rollover.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onMeta = () => {
+      const pending = pendingChapterSeekRef.current;
+      if (pending != null && Number.isFinite(pending)) {
+        v.currentTime = Math.max(0, pending);
+        pendingChapterSeekRef.current = null;
+      }
+    };
+    v.addEventListener('loadedmetadata', onMeta);
+    return () => v.removeEventListener('loadedmetadata', onMeta);
+  }, [videoUrl]);
+
+  // Seek the live video to a global timeline-second. Handles cross-
+  // chapter scrubs by swapping the active chapter then queueing a
+  // local-time seek for the loadedmetadata handler above. For single-
+  // chapter / legacy playback, falls back to a direct currentTime
+  // assign.
+  const seekToGlobalSec = useCallback((globalSec) => {
+    const v = videoRef.current;
+    if (!v || !Number.isFinite(globalSec)) return;
+    const tl = videoTimelineRef.current;
+    if (!tl) {
+      v.currentTime = Math.max(0, globalSec);
+      return;
+    }
+    const { chapterIndex, localSec } = globalToLocal(tl, globalSec);
+    if (chapterIndex === activeChapterIndexRef.current) {
+      v.currentTime = Math.max(0, localSec);
+    } else {
+      pendingChapterSeekRef.current = localSec;
+      activeChapterIndexRef.current = chapterIndex;
+      setActiveChapterIndex(chapterIndex);
+    }
+  }, []);
+
+  // Convert the active <video> element's local currentTime to a
+  // global-timeline second. Used by every callsite that previously
+  // read videoRef.current.currentTime — anything that records a
+  // "where is the playhead now" answer must use globalSec.
+  const currentGlobalSec = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return 0;
+    const tl = videoTimelineRef.current;
+    const idx = activeChapterIndexRef.current;
+    if (tl && tl.chapters[idx]) {
+      return tl.chapters[idx].startSec + v.currentTime;
+    }
+    return v.currentTime;
+  }, []);
+
+  // Toolbar label for the video pick. Single-chapter (or non-chapter
+  // pick): just the filename. Multi-chapter: "GOPR0314.MP4 + 3 chapters
+  // (Hh Mm Ss)".
+  const videoChapterLabel = videoTimeline
+    ? describeChapterPick(videoTimeline, videoFiles[0]?.name || '')
+    : (videoFile ? videoFile.name : '');
+
   // ---------- Video clock ------------------------------------------
 
   // Drive a render-tick on every video frame. requestVideoFrameCallback
@@ -6591,10 +7420,36 @@ const ReplayPage = () => {
       // on a paused video starve the export. Re-armed by bumping
       // livePreviewNonce when the export completes.
       if (mp4ExportingRef.current) return;
-      // meta?.mediaTime is the canonical video time when rvfc fires;
-      // fall back to currentTime for the RAF path.
-      const t = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : v.currentTime;
-      setVideoT(t);
+      // meta?.mediaTime is the canonical local video time (within
+      // the active chapter) when rVFC fires; fall back to currentTime
+      // for the RAF path. For non-chapter playback (no timeline),
+      // global time equals local time.
+      const local = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : v.currentTime;
+      const tl = videoTimelineRef.current;
+      const idx = activeChapterIndexRef.current;
+      // Auto-advance at chapter boundary: when local time reaches
+      // the active chapter's duration and the video is playing,
+      // queue a swap to the next chapter. The swap effect (below)
+      // handles the actual src change. We skip the videoT update
+      // for this tick — a stale rVFC callback firing one more time
+      // on the old <video> element would otherwise produce a brief
+      // global-time spike at the boundary.
+      let advanced = false;
+      if (tl && tl.chapters[idx] && !v.paused) {
+        const chapter = tl.chapters[idx];
+        if (local >= chapter.durationSec - 0.05 &&
+            idx < tl.chapters.length - 1) {
+          activeChapterIndexRef.current = idx + 1;
+          setActiveChapterIndex(idx + 1);
+          advanced = true;
+        }
+      }
+      if (!advanced) {
+        const globalT = tl && tl.chapters[idx]
+          ? tl.chapters[idx].startSec + local
+          : local;
+        setVideoT(globalT);
+      }
       if (useRvfc) v.requestVideoFrameCallback(tick);
       else rafIdRef.current = requestAnimationFrame(() => tick(performance.now()));
     };
@@ -6637,15 +7492,13 @@ const ReplayPage = () => {
         m5SimRef.current = sim;
         m5CoreRef.current = core;
         // Initialize the render-side filter. The ?-effect below
-        // retunes it as the smooth preset settles (rate-aware
-        // default + user changes).
+        // retunes it as the slider settles (rate-aware default +
+        // user drag).
         const filter = new PresentationFilter();
-        if (m5SmoothPreset) {
-          const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
-                         || PRESENTATION_PRESETS[0];
+        if (Number.isFinite(m5SmoothLateralTau)) {
           filter.setTau({
-            lateralSec:  preset.lateralSec,
-            verticalSec: preset.verticalSec,
+            lateralSec:  m5SmoothLateralTau,
+            verticalSec: 0,
           });
         }
         m5RenderFilterRef.current = filter;
@@ -6666,35 +7519,33 @@ const ReplayPage = () => {
     return () => { cancelled = true; };
   }, [m5SimReinitNonce]);
 
-  // Pick a rate-appropriate default smoothing preset once the log
-  // loads, IF the user hasn't set one (m5SmoothPreset === null on a
-  // fresh session with no LS value). 50 Hz logs default to the Gen2
-  // 2.5 s preset (compensates for the missing 208 Hz averaging the
-  // log doesn't capture). 208 Hz logs default to Off.
+  // Pick a rate-appropriate default lateral τ once the log loads, IF
+  // the user hasn't set one (m5SmoothLateralTau === null on a fresh
+  // session with no LS value). 50 Hz logs default to ~0.75 s
+  // (compensates for missing 208 Hz averaging); 208 Hz logs default
+  // to 0 (firmware EMA already runs at ~76 ms).
   useEffect(() => {
-    if (m5SmoothPreset !== null || !log) return;
+    if (m5SmoothLateralTau !== null || !log) return;
     const sampleRateHz = detectLogSampleRate(log);
-    setM5SmoothPreset(defaultPresetForLogRate(sampleRateHz));
-  }, [log, m5SmoothPreset]);
+    setM5SmoothLateralTau(defaultLateralTauForLogRate(sampleRateHz));
+  }, [log, m5SmoothLateralTau]);
 
-  // Persist the smoothing preset; also retune the live filter when
-  // the user changes it. Reset filter state so the next frame seeds
-  // fresh — a step-change in τ otherwise looks like a glitch in the
-  // first frame after the change.
+  // Persist the slider value; also retune the live filter when the
+  // user drags it. Reset filter state so the next frame seeds fresh —
+  // a step-change in τ otherwise looks like a glitch in the first
+  // frame after the change.
   useEffect(() => {
-    if (m5SmoothPreset === null) return;        // wait for default-pick
-    safeLsSet(M5_SMOOTH_LS_KEY, m5SmoothPreset);
+    if (m5SmoothLateralTau === null) return;     // wait for default-pick
+    safeLsSet(M5_SMOOTH_LS_KEY, String(m5SmoothLateralTau));
     if (m5RenderFilterRef.current) {
-      const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
-                     || PRESENTATION_PRESETS[0];
       m5RenderFilterRef.current.setTau({
-        lateralSec:  preset.lateralSec,
-        verticalSec: preset.verticalSec,
+        lateralSec:  m5SmoothLateralTau,
+        verticalSec: 0,
       });
       m5RenderFilterRef.current.reset();
       m5LastFilterVideoTRef.current = null;
     }
-  }, [m5SmoothPreset]);
+  }, [m5SmoothLateralTau]);
 
   // C++-engine pre-pass. Runs once per (log, cfg) pair while
   // M5-accurate is on, and survives mode toggle JS↔C++ — clicking
@@ -7054,7 +7905,7 @@ const ReplayPage = () => {
           videoT: fnum(videoT, 2),
           rowIdx,
           mode: m5ModeId,
-          smooth: m5SmoothPreset,
+          smoothLateralTau: m5SmoothLateralTau,
           raw,
           cppEng: cppEngSlice,
           cppFrame: sliceFrame(cppFrame),
@@ -7063,19 +7914,23 @@ const ReplayPage = () => {
       }
     }
   }, [log, cfg, sync, videoT, pausedLogMs, m5ModeId,
-      m5SmoothPreset, cppWireFrames, debugMode]);
+      m5SmoothLateralTau, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------
 
   const markVideoTakeoff = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    // Anchor at the GLOBAL timeline position (chapter offset +
+    // currentTime). For single-file playback this collapses to
+    // currentTime — backward-compatible with persisted sync from
+    // before multi-chapter landed.
     setSync(prev => ({
       logTakeoffMs:    prev?.logTakeoffMs ?? null,
-      videoTakeoffSec: v.currentTime,
+      videoTakeoffSec: currentGlobalSec(),
       anchorKind:      prev?.anchorKind ?? anchorKind,
     }));
-  }, [anchorKind]);
+  }, [anchorKind, currentGlobalSec]);
 
   const reMarkLogTakeoff = useCallback(() => {
     if (!log) return;
@@ -7121,11 +7976,11 @@ const ReplayPage = () => {
     if (!v || !Number.isFinite(pausedLogMs)) return;
     setSync({
       logTakeoffMs:    pausedLogMs,
-      videoTakeoffSec: v.currentTime,
+      videoTakeoffSec: currentGlobalSec(),
       anchorKind,
     });
     setPausedLogMs(null);
-  }, [pausedLogMs, anchorKind]);
+  }, [pausedLogMs, anchorKind, currentGlobalSec]);
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
@@ -7139,10 +7994,8 @@ const ReplayPage = () => {
 
   // Helper for the data-mark panel: jump video to a mark.
   const jumpToMark = (markLogMs) => {
-    const v = videoRef.current;
-    if (!v) return;
     const tSec = logMsToVideoSec(markLogMs, sync);
-    if (Number.isFinite(tSec)) v.currentTime = Math.max(0, tSec);
+    if (Number.isFinite(tSec)) seekToGlobalSec(tSec);
   };
 
   // Add an N-second clip starting at a DataMark. Same behavior as
@@ -7165,39 +8018,38 @@ const ReplayPage = () => {
     const v = videoRef.current;
     if (!v) return;
     const label = defaultClipLabel(clips.length);
-    const clip = buildClipFromPlayhead(v.currentTime, durationSec, sync, label);
+    const clip = buildClipFromPlayhead(currentGlobalSec(), durationSec, sync, label);
     if (clip) setClips(prev => [...prev, clip]);
   };
 
   // Mark-in / mark-out flow. The first click stashes the current
-  // video time as the pending in-point. The second click reads the
-  // current video time as the out-point and appends a clip.
+  // global video time as the pending in-point. The second click
+  // reads the global video time as the out-point and appends a clip.
   const markClipIn = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    setPendingInVideoSec(v.currentTime);
-  }, []);
+    setPendingInVideoSec(currentGlobalSec());
+  }, [currentGlobalSec]);
 
   const markClipOut = useCallback(() => {
     const v = videoRef.current;
     if (!v || pendingInVideoSec == null) return;
     const label = defaultClipLabel(clips.length);
-    const clip = buildClipFromMarkers(pendingInVideoSec, v.currentTime, sync, label);
+    const clip = buildClipFromMarkers(pendingInVideoSec, currentGlobalSec(), sync, label);
     if (clip) {
       setClips(prev => [...prev, clip]);
       setPendingInVideoSec(null);
     }
-  }, [pendingInVideoSec, clips, sync]);
+  }, [pendingInVideoSec, clips, sync, currentGlobalSec]);
 
   const cancelClipMark = useCallback(() => setPendingInVideoSec(null), []);
 
-  // Scrub the live video to a particular time (in seconds). Used by
-  // ClipBuilder rows.
-  const scrubVideoTo = useCallback((videoSec) => {
-    const v = videoRef.current;
-    if (!v || !Number.isFinite(videoSec)) return;
-    v.currentTime = Math.max(0, Math.min(v.duration || videoSec, videoSec));
-  }, []);
+  // Scrub the live video to a particular global timeline second.
+  // Cross-chapter scrubs swap the active chapter automatically.
+  const scrubVideoTo = useCallback((globalSec) => {
+    if (!Number.isFinite(globalSec)) return;
+    seekToGlobalSec(globalSec);
+  }, [seekToGlobalSec]);
 
   // Render the export's current-frame overlay SVG.
   //
@@ -7314,10 +8166,8 @@ const ReplayPage = () => {
     // Without this the slip ball jitters at 50 Hz log replay aliasing —
     // looks structurally different from what the pilot sees on the
     // live page. See presentationFilter.js for the τ rationale.
-    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
-                   || null;
-    const presentationTau = preset
-      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+    const presentationTau = Number.isFinite(m5SmoothLateralTau) && m5SmoothLateralTau > 0
+      ? { lateralSec: m5SmoothLateralTau, verticalSec: 0 }
       : null;
 
     try {
@@ -7328,7 +8178,10 @@ const ReplayPage = () => {
         log,
         cppWireFrames,
         renderOverlaySvg: renderOverlayForExport,
-        // Source file for AAC audio decode. Without it the MP4 is silent.
+        // Multi-chapter takes priority: when a chapter timeline is set,
+        // the exporter stitches across boundaries into one MP4. Source
+        // file alone still works for legacy single-file picks.
+        videoTimeline:  videoTimeline,
         sourceFile:    videoFile,
         // Match the live preview's slip-ball smoothing.
         presentationTau,
@@ -7367,15 +8220,15 @@ const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, m5SmoothPreset, m5ModeId, standardClipOverlay]);
+      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId, standardClipOverlay]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
     if (!blob) return;
-    const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+    const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
     const suffix = (clip.label || `clip${idx + 1}`).replace(/[^a-z0-9_-]/gi, '_');
     downloadBlob(blob, `${base}_${suffix}.mp4`);
-  }, [exportClipMp4, videoFile]);
+  }, [exportClipMp4, videoFiles]);
 
   // Track batch-cancel separately from per-export cancel so a Cancel
   // click during "Export all" stops the whole sequence, not just the
@@ -7388,7 +8241,7 @@ const ReplayPage = () => {
       // eslint-disable-next-line no-await-in-loop
       const blob = await exportClipMp4(clips[i], i);
       if (blob) {
-        const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+        const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
         const suffix = (clips[i].label || `clip${i + 1}`)
                          .replace(/[^a-z0-9_-]/gi, '_');
         downloadBlob(blob, `${base}_${suffix}.mp4`);
@@ -7402,7 +8255,7 @@ const ReplayPage = () => {
       if (!blob && !batchCancelledRef.current) break;
     }
     batchCancelledRef.current = false;
-  }, [clips, exportClipMp4, videoFile]);
+  }, [clips, exportClipMp4, videoFiles]);
 
   const cancelMp4Export = useCallback(() => {
     // Mark batch-cancelled so a running "Export all" stops after the
@@ -7429,9 +8282,8 @@ const ReplayPage = () => {
                   'support is incomplete in Safari / Firefox.');
       return null;
     }
-    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset) || null;
-    const presentationTau = preset
-      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+    const presentationTau = Number.isFinite(m5SmoothLateralTau) && m5SmoothLateralTau > 0
+      ? { lateralSec: m5SmoothLateralTau, verticalSec: 0 }
       : null;
 
     // Resolve output dimensions. 'native' = M5 panel pixel grid
@@ -7508,7 +8360,7 @@ const ReplayPage = () => {
       });
       // Trigger one download per mode. Filename pattern:
       //   <video-basename>_<clip-label>_<mode>.mp4
-      const base = (videoFile?.name || 'flight').replace(/\.[^.]+$/, '');
+      const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
       const suffix = (clip.label || `clip${(idx ?? 0) + 1}`)
                        .replace(/[^a-z0-9_-]/gi, '_');
       for (const [modeId, blob] of blobs) {
@@ -7529,7 +8381,7 @@ const ReplayPage = () => {
       setOverlayProgress(0);
     }
   }, [syncReady, sync, log, cppWireFrames, overlayAvailable,
-      renderOverlayForExport, videoFile, m5SmoothPreset,
+      renderOverlayForExport, videoFiles, m5SmoothLateralTau,
       selectedOverlayModes, overlaySize]);
 
   const cancelOverlayExport = useCallback(() => {
@@ -7592,8 +8444,8 @@ const ReplayPage = () => {
               <span>Video</span>
               <button class="replay-file-btn" type="button"
                       onClick=${pickVideoViaFsa}
-                      title=${videoFile ? videoFile.name : 'Open video'}>
-                ${videoFile ? videoFile.name : 'Open video…'}
+                      title=${videoChapterLabel || 'Open video'}>
+                ${videoChapterLabel || 'Open video…'}
               </button>
             </label>
             <label class="replay-file">
@@ -7615,7 +8467,9 @@ const ReplayPage = () => {
           ` : html`
             <label class="replay-file">
               <span>Video</span>
-              <input type="file" accept="video/*,.mp4,.mov,.webm" onChange=${onVideoPick} />
+              <input type="file" accept="video/*,.mp4,.mov,.webm"
+                     multiple
+                     onChange=${onVideoPick} />
             </label>
             <label class="replay-file">
               <span>Log</span>
@@ -7630,6 +8484,10 @@ const ReplayPage = () => {
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
             </span>`}
+          ${videoTimeline && videoTimeline.chapters.length > 1 && html`
+            <span class="replay-status">
+              Chapter ${activeChapterIndex + 1} of ${videoTimeline.chapters.length}
+            </span>`}
           ${cppBuilding && html`
             <span class="replay-status">
               building replay… ${cppProgress > 0
@@ -7642,6 +8500,12 @@ const ReplayPage = () => {
 
         <div class="replay-stage" ref=${containerRef}>
           ${videoUrl ? html`
+            ${videoTimeline && videoTimeline.chapters.length > 1 && html`
+              <div class="replay-global-clock"
+                   title="Flight time across the full multi-chapter timeline. The native <video> controls below show the chapter-local time; the data-marks panel uses this global clock.">
+                Flight ${formatHms(videoT)} / ${formatHms(videoTimeline.totalDurationSec)}
+                · Chapter ${activeChapterIndex + 1}/${videoTimeline.chapters.length}
+              </div>`}
             <video
               ref=${videoRef}
               src=${videoUrl}
@@ -7674,18 +8538,20 @@ const ReplayPage = () => {
               `)}
             <span class="replay-spacer"></span>
             <span class="replay-toggle"
-                  title="Render-side smoothing for the slip ball. Not firmware-faithful — a viewing aid for 50 Hz logs whose IMU samples carry aliased noise the airplane never showed at 208 Hz.">
-              Smooth:
-              ${PRESENTATION_PRESETS.map(p => html`
-                <label style="margin-left:0.4em;">
-                  <input type="radio" name="m5-smooth" value=${p.id}
-                         checked=${m5SmoothPreset === p.id}
-                         onChange=${() => setM5SmoothPreset(p.id)} />
-                  ${p.label}
-                </label>
-              `)}
+                  title="Render-side smoothing for the slip ball. Lateral-G EMA time constant in seconds. 0 = firmware-faithful (lively at 208 Hz). Dial up until the ball looks like what you remember seeing on your EFIS in flight. ~0.25 s = VN-300 territory, ~0.75 s = Dynon SkyView.">
+              Ball smoothing:
+              <input type="range"
+                     min=${PRESENTATION_LATERAL_TAU_MIN}
+                     max=${PRESENTATION_LATERAL_TAU_MAX}
+                     step=${PRESENTATION_LATERAL_TAU_STEP}
+                     value=${m5SmoothLateralTau ?? 0}
+                     style="margin-left:0.4em; vertical-align:middle; width:140px;"
+                     onInput=${e => setM5SmoothLateralTau(parseFloat(e.target.value))} />
+              <small style="margin-left:0.4em; font-variant-numeric:tabular-nums;">
+                ${(m5SmoothLateralTau ?? 0).toFixed(2)} s
+              </small>
               ${cppBuilding
-                ? html`<small>(pre-pass ${Math.round(cppProgress * 100)}%)</small>`
+                ? html`<small style="margin-left:0.4em;">(pre-pass ${Math.round(cppProgress * 100)}%)</small>`
                 : ''}
             </span>
             <label class="replay-toggle">
@@ -7764,17 +8630,14 @@ const ReplayPage = () => {
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
                             anchorKind:      prev?.anchorKind ?? anchorKind,
                           }))}
-                          onSeekVideo=${(tSec) => {
-                            const v = videoRef.current;
-                            if (v) v.currentTime = Math.max(0, tSec);
-                          }} />
+                          onSeekVideo=${(tSec) => seekToGlobalSec(tSec)} />
 
           ${marks.length > 0 && html`
             <${DataMarkPanel}
                 marks=${marks}
                 sync=${sync}
                 disabled=${exportingClipIdx != null || !syncReady}
-                videoDuration=${videoRef.current?.duration}
+                videoDuration=${videoTimeline?.totalDurationSec ?? videoRef.current?.duration}
                 onJump=${jumpToMark}
                 onClip=${addClipFromMark} />`}
 
@@ -7812,7 +8675,8 @@ const ReplayPage = () => {
               overlaySize=${overlaySize}
               onChangeOverlaySize=${setOverlaySize}
               standardClipOverlay=${standardClipOverlay}
-              onChangeStandardClipOverlay=${setStandardClipOverlay} />
+              onChangeStandardClipOverlay=${setStandardClipOverlay}
+              getCurrentVideoSec=${currentGlobalSec} />
         </footer>
       </div>`;
 };

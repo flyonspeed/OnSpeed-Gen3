@@ -153,22 +153,24 @@ export class PresentationFilter {
 // vibration spectrum will shift the right τ); the presets cover a
 // range so users can pick what looks right for their data.
 //
-// Validation method: σ-match against the airplane's primary EFIS.
-// The pilot looks at the EFIS slip indicator and accepts it as the
-// "right" reading; matching its variance reproduces what the pilot
-// saw without false damping that would hide real slip cues.
-export const PRESENTATION_PRESETS = [
-  { id: 'off',         label: 'Off',                 lateralSec: 0,    verticalSec: 0 },
-  { id: 'efis-match',  label: 'EFIS-match',          lateralSec: 0.75, verticalSec: 0.1 },
-  { id: 'medium',      label: 'Medium',              lateralSec: 1.5,  verticalSec: 0.5 },
-  { id: 'heavy',       label: 'Heavy',               lateralSec: 3.0,  verticalSec: 1.0 },
-];
+// Slider semantics: the UI exposes a single lateral τ value the pilot
+// dials in by eye against their own EFIS-display memory. Vertical-G
+// smoothing is left at 0 (verticalGScaled10 already comes off the
+// wire integer-quantized, so additional smoothing isn't observable
+// at the M5 panel and risks false damping on the corner readout).
+//
+// Slider range 0..3.0 s. Reference points:
+//   0.00  Off — byte-faithful, what the firmware/M5 actually computed.
+//   0.25  Light — VN-300 territory; livelier ball.
+//   0.75  Medium — Dynon SkyView σ-match (Sam's RV-10 reference).
+//   3.00  Heavy — useful for cinematic exports, not faithful.
+export const PRESENTATION_LATERAL_TAU_MIN = 0;
+export const PRESENTATION_LATERAL_TAU_MAX = 3.0;
+export const PRESENTATION_LATERAL_TAU_STEP = 0.05;
 
-// Default preset id chosen at log load. The replay tool detects log
-// rate (50 Hz vs 208 Hz) and picks accordingly: 50 Hz logs default to
-// 'efis-match' (the σ-tuned compensation for missing 208 Hz averaging),
-// 208 Hz logs default to 'off' (byte-faithful — the firmware-rate
-// AHRS EMA does enough smoothing on its own).
-export function defaultPresetForLogRate(logSampleRateHz) {
-  return (logSampleRateHz >= 200) ? 'off' : 'efis-match';
+// Default lateral τ chosen at log load. Sub-200 Hz logs (Dynon at 50 Hz)
+// inherit a Dynon-shaped default; 208 Hz logs default to 0 (off) since
+// the firmware-rate AHRS EMA already runs at ~76 ms internally.
+export function defaultLateralTauForLogRate(logSampleRateHz) {
+  return (logSampleRateHz >= 200) ? 0 : 0.75;
 }
