@@ -123,11 +123,25 @@
 }
 .replay-placeholder {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   height: 360px;
   color: #6b7780;
   font-style: italic;
+}
+.replay-help-link {
+  color: #7dd3fc;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  font-style: normal;
+  font-size: 13px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.replay-help-link:hover {
+  color: #b0e3ff;
+  border-bottom-color: #7dd3fc;
 }
 .replay-overlay {
   /* The overlay div doesn't lay out anything visible — the SVG it
@@ -162,6 +176,40 @@
      in ReplayPage. */
   outline: 3px solid #ffcc00;
   outline-offset: 2px;
+}
+.replay-overlay-frame.standard {
+  /* Standard layout: two panels at opposite corners (ADI bottom-left,
+     Energy bottom-right) mirroring the export's compositeFrame
+     placement. The .standard frame is a full-width transparent
+     container; the two .replay-overlay-half children are
+     absolutely-positioned anchors. We override the single-panel
+     bottom-right styling completely. */
+  right: 0;
+  left: 0;
+  bottom: 56px;
+  width: 100%;
+  max-width: none;
+  aspect-ratio: auto;
+  height: auto;
+  display: block;
+  background: transparent;
+  filter: none;
+  pointer-events: none;
+}
+.replay-overlay-half {
+  position: absolute;
+  bottom: 0;
+  width: 22%;
+  max-width: 280px;
+  aspect-ratio: 4 / 3;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
+}
+.replay-overlay-half.left  { left: 12px; }
+.replay-overlay-half.right { right: 12px; }
+.replay-overlay-half > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .replay-status-attention {
   color: #ffcc00 !important;
@@ -293,7 +341,12 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 220px;
+  /* Viewport-relative so narrow windows still get a usable list.
+     Pilots with many marks need to scroll a lot; cap at 60vh so the
+     panel doesn't push the rest of the page off-screen on tall
+     windows. */
+  max-height: 60vh;
+  min-height: 220px;
   overflow-y: auto;
 }
 .replay-mark-row,
@@ -306,16 +359,96 @@
   border-radius: 3px;
   font-size: 13px;
 }
+.replay-mark-row {
+  /* Row stacks: head (always visible) + expanded editor (toggled).
+     Switching to a column lets the editor sit under the head while
+     the head retains its horizontal flex layout via .row-head. */
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.replay-mark-row.is-expanded {
+  background: #2a343c;
+  outline: 1px solid #3a4654;
+}
+.replay-mark-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-mark-disclosure {
+  color: #7dd3fc;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
 .replay-mark-label {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-weight: 600;
   color: #7dd3fc;
   min-width: 30px;
 }
+.replay-mark-name {
+  color: #e0e6eb;
+  font-size: 12px;
+  /* Truncate when the row is narrow; the full name is in the expanded
+     editor. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.replay-mark-dot {
+  color: #7dd3fc;
+  font-size: 16px;
+  line-height: 1;
+  /* Sit between label and name so the eye lands on annotated marks
+     without scanning for the disclosure triangle. */
+  margin-left: -2px;
+}
 .replay-mark-time {
   color: #a8b3bd;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
+}
+.replay-mark-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 22px 4px;
+}
+.replay-mark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.replay-mark-field > span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a8b3bd;
+}
+.replay-mark-field input[type="text"],
+.replay-mark-field textarea {
+  background: #0e1418;
+  border: 1px solid #2d3942;
+  color: #e0e6eb;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  resize: vertical;
+}
+.replay-mark-field input[type="text"]:focus,
+.replay-mark-field textarea:focus {
+  outline: none;
+  border-color: #0a84ff;
+  background: #111a22;
 }
 .replay-clips-empty {
   color: #6b7780;

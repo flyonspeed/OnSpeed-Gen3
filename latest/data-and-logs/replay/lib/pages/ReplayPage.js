@@ -60,6 +60,8 @@ import {
 import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLabel }
   from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
+import { useReplayJournal } from '../replay/journal.js';
+import { DataMarkPanel } from '../components/DataMarkPanel.js';
 import { reassembleResults } from '../replay/reassemble.js';
 import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
 import {
@@ -86,12 +88,20 @@ import {
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
 // matches the M5 firmware's `kModeNames` and the IndexerPage's MODES
 // — same five modes, same numbering.
+// Mode 5 is a JS-only synthetic: a Standard layout that renders
+// Attitude (left) + Energy (right) side-by-side. The firmware doesn't
+// know about it — when picked, the M5 sim still runs whichever
+// firmware mode it's in; the preview ignores `state.displayType` and
+// uses both component renderers explicitly. Mirrored on the export
+// side by `standardOverlay`, which is now derived from this mode.
+const MODE_STANDARD = 5;
 const M5_MODES = [
   { id: 0, label: 'Energy',     C: EnergyMode   },
   { id: 1, label: 'Attitude',   C: AttitudeMode },
   { id: 2, label: 'Indexer',    C: IndexerMode  },
   { id: 3, label: 'Decel',      C: DecelMode    },
   { id: 4, label: 'Historic G', C: HistoricGMode },
+  { id: MODE_STANDARD, label: 'Standard', C: null /* special-cased in render */ },
 ];
 
 // Avionics palette tokens used by the offscreen export render
@@ -186,7 +196,10 @@ export const ReplayPage = () => {
   const [m5ModeId, setM5ModeId] = useState(() => {
     const s = safeLsGet(M5_MODE_LS_KEY);
     const n = s == null ? 0 : parseInt(s, 10);
-    return Number.isFinite(n) && n >= 0 && n <= 4 ? n : 0;
+    // Valid mode ids are 0..4 (firmware modes) and MODE_STANDARD (5,
+    // JS-only side-by-side layout). Anything else falls back to 0.
+    const validIds = M5_MODES.map(m => m.id);
+    return Number.isFinite(n) && validIds.includes(n) ? n : 0;
   });
   // Render-side smoothing preset. 'off' = byte-faithful (wire values
   // drive the SVG directly). The other presets emulate the missing
@@ -268,6 +281,12 @@ export const ReplayPage = () => {
   // suggests re-picking the prior session's files. See
   // replay/persistence.js for the storage contract.
   const persistence = useReplayPersistence({ logFile });
+
+  // Per-log annotation overlay (DataMark names + notes). Keyed by the
+  // same log-content digest as sync/clip persistence. Additive on top
+  // of the parser-derived `marks` array — the journal layer never
+  // creates marks, only annotates them.
+  const journal = useReplayJournal({ logHash: persistence.logDigest });
 
   // File handles for FileSystemAccess-supported browsers (Chrome /
   // Edge desktop). Held in refs because they're not Preact state —
@@ -387,15 +406,14 @@ export const ReplayPage = () => {
     safeLsSet('replay-overlay-size-v1', overlaySize);
   }, [overlaySize]);
 
-  // "Standard" MP4 clip layout: render BOTH the ADI (bottom-left) and
-  // Energy (bottom-right) panels burned into the source video. When
-  // off, the export uses the live preview's single mode in the
-  // bottom-right corner (legacy behavior).
-  const [standardClipOverlay, setStandardClipOverlay] = useState(() =>
-    safeLsGet('replay-standard-clip-overlay-v1') === '1');
-  useEffect(() => {
-    safeLsSet('replay-standard-clip-overlay-v1', standardClipOverlay ? '1' : '0');
-  }, [standardClipOverlay]);
+  // Standard (ADI + Energy) layout used to be a checkbox in the
+  // ClipBuilder; the state lived here with LS persistence. It moved
+  // to the top mode picker as MODE_STANDARD, and the export derives
+  // its standardOverlay value from `m5ModeId === MODE_STANDARD`. The
+  // dead `replay-standard-clip-overlay-v1` LS key from the prior shape
+  // is intentionally left in place — clearing it here would risk
+  // touching localStorage during render, and the key is dormant. A
+  // future tidy can prune it via a one-shot migration.
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -1707,7 +1725,10 @@ export const ReplayPage = () => {
         displayMode:   m5ModeId,
         // Standard layout: ADI bottom-left + Energy bottom-right.
         // Ignores displayMode when true.
-        standardOverlay: standardClipOverlay,
+        // Standard layout is now derived from the mode picker, not a
+        // separate checkbox. When the pilot picks Standard, export
+        // renders ADI + Energy side-by-side.
+        standardOverlay: m5ModeId === MODE_STANDARD,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -1736,7 +1757,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId, standardClipOverlay]);
+      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -2029,19 +2050,41 @@ export const ReplayPage = () => {
               playsInline
               class="replay-video"
             />
-          ` : html`<div class="replay-placeholder">Drop a flight video and an SD-log CSV to get started.</div>`}
+          ` : html`<div class="replay-placeholder">
+              <span>Drop a flight video and an SD-log CSV to get started.</span>
+              <a class="replay-help-link"
+                 href="./getting-started/"
+                 target="_blank"
+                 rel="noopener">How does this work?</a>
+            </div>`}
 
-          ${overlayVisible && m5State && html`
-            <div class="replay-overlay">
-              <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
-                ${(() => {
-                  const M = M5_MODES.find(m => m.id === m5State.displayType);
-                  const C = M ? M.C : EnergyMode;
-                  return html`<${C} state=${m5State} stale=${false} />`;
-                })()}
-              </div>
-            </div>
-          `}
+          ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
+            ? html`
+                <div class="replay-overlay">
+                  <div class="replay-overlay-frame standard ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
+                    <div class="replay-overlay-half left">
+                      <${AttitudeMode} state=${{ ...m5State, displayType: 1 }} stale=${false} />
+                    </div>
+                    <div class="replay-overlay-half right">
+                      <${EnergyMode}   state=${{ ...m5State, displayType: 0 }} stale=${false} />
+                    </div>
+                  </div>
+                </div>`
+            : html`
+                <div class="replay-overlay">
+                  <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
+                    ${(() => {
+                      // Pick by the pilot's mode selection (not the sim's
+                      // displayType). The sim's displayType is updated by the
+                      // mode dispatch elsewhere so they normally agree; this
+                      // path stays correct during the brief window between a
+                      // mode-button click and the sim acknowledging it.
+                      const M = M5_MODES.find(m => m.id === m5ModeId);
+                      const C = (M && M.C) ? M.C : EnergyMode;
+                      return html`<${C} state=${m5State} stale=${false} />`;
+                    })()}
+                  </div>
+                </div>`)}
         </div>
 
         <footer class="replay-controls">
@@ -2054,7 +2097,7 @@ export const ReplayPage = () => {
               `)}
             <span class="replay-spacer"></span>
             <span class="replay-toggle"
-                  title="Render-side smoothing for the slip ball. Lateral-G EMA time constant in seconds. 0 = firmware-faithful (lively at 208 Hz). Dial up until the ball looks like what you remember seeing on your EFIS in flight. ~0.25 s = VN-300 territory, ~0.75 s = Dynon SkyView.">
+                  title="Slip-ball EMA time constant (s). 0 = firmware-faithful, ~0.25 = VN-300, ~0.75 = SkyView.">
               Ball smoothing:
               <input type="range"
                      min=${PRESENTATION_LATERAL_TAU_MIN}
@@ -2154,8 +2197,10 @@ export const ReplayPage = () => {
                 sync=${sync}
                 disabled=${exportingClipIdx != null || !syncReady}
                 videoDuration=${videoTimeline?.totalDurationSec ?? videoRef.current?.duration}
+                markAnnotations=${journal.markAnnotations}
                 onJump=${jumpToMark}
-                onClip=${addClipFromMark} />`}
+                onClip=${addClipFromMark}
+                onPatchAnnotation=${journal.upsertMarkAnnotation} />`}
 
           <${ClipBuilder}
               clips=${clips}
@@ -2190,8 +2235,6 @@ export const ReplayPage = () => {
               overlayModeOrder=${OVERLAY_MODE_ORDER}
               overlaySize=${overlaySize}
               onChangeOverlaySize=${setOverlaySize}
-              standardClipOverlay=${standardClipOverlay}
-              onChangeStandardClipOverlay=${setStandardClipOverlay}
               getCurrentVideoSec=${currentGlobalSec} />
         </footer>
       </div>`;
@@ -2316,56 +2359,6 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
       <div class="replay-timeline-hint">${syncReady
         ? 'click to seek the video · shift+click to override the log-takeoff anchor'
         : 'click anywhere on the IAS trace to set the log-takeoff anchor'}</div>
-    </div>`;
-};
-
-// ---------- DataMarkPanel ------------------------------------------
-
-// Lists every DataMark transition the pilot dropped during the
-// flight. Each row shows the mark's ordinal label + log time + the
-// mapped video time (when sync is established), plus action buttons:
-//   - Jump:    seek the video to the mark's video time
-//   - Clip Ns: export an N-second WebM starting at the mark
-const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
-                         onJump, onClip }) => {
-  if (!marks || marks.length === 0) return null;
-  // A mark is "in range" when its mapped video time falls within
-  // the loaded video. Common reasons a mark falls out of range:
-  //   - The mark was dropped before the camera started recording
-  //     (video time goes negative).
-  //   - The mark was dropped after the camera stopped (video time
-  //     past videoDuration).
-  // Out-of-range rows render with disabled action buttons and a
-  // "no video" hint instead of a video timestamp.
-  return html`
-    <div class="replay-marks">
-      <div class="replay-marks-header">
-        <span class="replay-label">Data marks</span>
-        <span class="replay-status">${marks.length}</span>
-      </div>
-      <div class="replay-marks-list">
-        ${marks.map(m => {
-          const videoSec = logMsToVideoSec(m.logTimeMs, sync);
-          const dur = Number.isFinite(videoDuration) ? videoDuration : Infinity;
-          const inRange = Number.isFinite(videoSec) &&
-                          videoSec >= 0 && videoSec < dur;
-          const tStr = inRange
-            ? `video ${formatHms(videoSec)}`
-            : (Number.isFinite(videoSec) ? 'outside video' : 'no sync');
-          return html`
-            <div class="replay-mark-row">
-              <span class="replay-mark-label">${m.label}</span>
-              <span class="replay-mark-time">log ${formatHms(m.logTimeMs / 1000)} · ${tStr}</span>
-              <span class="replay-spacer"></span>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onJump(m.logTimeMs)}>Jump</button>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onClip(m, 30)}>Clip 30 s</button>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onClip(m, 60)}>Clip 60 s</button>
-            </div>`;
-        })}
-      </div>
     </div>`;
 };
 

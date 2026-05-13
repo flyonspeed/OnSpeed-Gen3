@@ -136,10 +136,6 @@ export const ClipBuilder = ({
   overlayModeOrder,       // string[]  — canonical mode list for the checkboxes
   overlaySize,            // 'native' | '0.2' | '0.3' | '0.5'
   onChangeOverlaySize,    // (string) — updates the size selection
-  // Burn-in MP4 (composite) layout toggle. true = ADI bottom-left +
-  // Energy bottom-right; false = single mode in bottom-right (legacy).
-  standardClipOverlay,
-  onChangeStandardClipOverlay,
   // Forwarded to each row so Set-in-here / Set-out-here resolve to a
   // global timeline-second across multi-chapter playback.
   getCurrentVideoSec,
@@ -304,15 +300,6 @@ export const ClipBuilder = ({
                   onClick=${onExportAll}>
             Export all
           </button>`}
-        ${onChangeStandardClipOverlay && html`
-          <label class="replay-overlay-mode-toggle"
-                 title="Burn BOTH ADI (bottom-left) and Energy (bottom-right) into the source video. When off, the live preview's single mode burns in the bottom-right.">
-            <input type="checkbox"
-                   checked=${!!standardClipOverlay}
-                   disabled=${exportingClipIdx != null}
-                   onChange=${(e) => onChangeStandardClipOverlay(e.target.checked)} />
-            Standard (ADI + Energy)
-          </label>`}
       </div>
 
       ${renderOverlayModePicker()}

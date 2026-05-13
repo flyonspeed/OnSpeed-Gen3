@@ -36,6 +36,646 @@ var e,n,_,t,o,r,u,l={},i=[],c=/acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]
 })();
 const { h, html, render, Component, createContext, useState, useReducer, useEffect, useLayoutEffect, useRef, useImperativeHandle, useMemo, useCallback, useContext, useDebugValue, useErrorBoundary } = __preact;
 
+// === docs/site/docs/data-and-logs/replay/lib/replay/dataMarks.js ===
+// DataMark detection for OnSpeed SD logs.
+//
+// The DataMark CSV column is an integer 0..99 that wraps. Pilots
+// bump it from the panel during flight to flag interesting moments
+// ("nailed an OnSpeed approach", "stall warn just chirped", ...).
+// Each bump is a transition in the column — we don't care about
+// the absolute value, only the rising edge from the previous row's
+// value to a new value.
+//
+// Returns an array of:
+//   { rowIdx, logTimeMs, value, label }
+//
+// where label is a 1-based ordinal ("01", "02", ...) so the panel
+// can show a stable identifier the pilot can talk about even after
+// the absolute DataMark value wraps.
+
+// DataMark per firmware (Switch.cpp:61) is `g_iDataMark = g_iDataMark + 1`,
+// a monotonically-incrementing `int`. The M5 wire and panel display
+// mod-100 (`%02d`) so two digits of room is fine on screen, but the
+// underlying counter can go much higher on long flights. Cap at a
+// generous integer ceiling to filter the misaligned-CSV signature
+// (values like 8158, 17:55:19.87, 285.40 observed on the RV-4
+// 2026-05-11 flight) without rejecting legitimate ≥ 100 presses.
+// 9999 is a safe upper limit: well above any realistic press count,
+// well below the torn-row values we've seen.
+function isValidMark(v) {
+  return Number.isInteger(v) && v >= 0 && v <= 9999;
+}
+
+// Firmware writes DataMark as a monotonically incrementing counter:
+// 0 → 1 → 2 → 3 → ... Each pilot press bumps the column by one. The
+// real-world write pattern observed on RV-4 2026-05-11:
+//   0 (boot) → 1 (first press) → 2 → 3 → ... → 20 → ...
+// with occasional resets to 0 after a long idle period (then the
+// counter continues from where it left off, e.g. 0 → 20 → 21 → ...).
+//
+// Garbage rows from misaligned CSV either (a) hold a value outside
+// [0..99] (filtered by isValidMark), or (b) hold a valid-by-luck
+// integer but have ts = 0 / ts going backwards. The ts sanity check
+// catches the second class.
+//
+// A "press" is a row where the column transitions from a smaller
+// non-negative value to a strictly-larger one (1..99). The previous
+// value can be 0 (cold start / re-arm) OR a smaller non-zero (the
+// counter continuing). Resets (N → 0) and same-value rows are not
+// presses.
+//
+// Reject chatter: the firmware occasionally writes brief single-row
+// blips of "0" between two stable "N" runs (torn-row signature or
+// per-frame write race). A real pilot press has the column stable
+// at the prior value for at least PRIOR_VALUE_HOLD_MS before the
+// transition, and the new value stable for at least NEW_VALUE_HOLD_MS
+// after. Anything shorter is a flicker. On the RV-4 log, the real
+// 0→20 press held 20 for 928 seconds; the noise ones held 2 seconds
+// AFTER a previous-value-0 that lasted only ~10 ms.
+const PRIOR_VALUE_HOLD_MS = 200;
+const NEW_VALUE_HOLD_MS   = 200;
+
+function findDataMarks(log) {
+  if (!log || !log.DataMark || !log.timeStamp) return [];
+  const N = log.Length;
+  if (N < 2) return [];
+
+  // Compress the (filtered) rows into runs of consecutive same-value
+  // entries: [{ value, startTs, endTs, startRow }, ...]. Skips rows
+  // with invalid DataMark or invalid timeStamp at parse boundary.
+  // A run's "duration" is endTs - startTs.
+  const runs = [];
+  for (let i = 0; i < N; i++) {
+    const v = log.DataMark[i];
+    const ts = log.timeStamp[i];
+    if (!isValidMark(v) || !Number.isFinite(ts) || ts <= 0) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.value === v) {
+      last.endTs = ts;
+    } else {
+      runs.push({ value: v, startTs: ts, endTs: ts, startRow: i });
+    }
+  }
+  // A real press is a forward-going transition between two runs that
+  // each persist long enough to be a true state — not single-row
+  // blips. The 200ms thresholds are well above the firmware's log
+  // cadence (5-50ms) and well below any real pilot's press interval.
+  const out = [];
+  for (let r = 1; r < runs.length; r++) {
+    const cur  = runs[r];
+    const prev = runs[r - 1];
+    const isForward = cur.value > 0 && (prev.value === 0 || cur.value > prev.value);
+    if (!isForward) continue;
+    const prevHeld = prev.endTs - prev.startTs;
+    const curHeld  = cur.endTs  - cur.startTs;
+    if (prevHeld < PRIOR_VALUE_HOLD_MS) continue;
+    if (curHeld  < NEW_VALUE_HOLD_MS)   continue;
+    out.push({
+      rowIdx:    cur.startRow,
+      logTimeMs: cur.startTs,
+      value:     cur.value,
+      // `label` is what the panel shows. Always the firmware-written
+      // DataMark value — same number the pilot saw on their device
+      // and the same number the burned-in overlay renders. Multiple
+      // panel rows may share the same value when the firmware counter
+      // resets and the pilot bumps back to the same number minutes
+      // later; distinguish them by their log/video times.
+      label:     String(cur.value).padStart(2, '0'),
+    });
+  }
+  // Sort by log time ascending. With the run-compression above the
+  // output is already in time order; the explicit sort guards against
+  // any future torn-row recovery that might re-introduce reordering.
+  out.sort((a, b) => a.logTimeMs - b.logTimeMs);
+  return out;
+}
+
+// Map a log timestamp (ms) to a video time (seconds) using the
+// current sync. Returns null if sync is incomplete.
+function logMsToVideoSec(logMs, sync) {
+  if (!sync) return null;
+  if (!Number.isFinite(sync.logTakeoffMs) || !Number.isFinite(sync.videoTakeoffSec)) return null;
+  return sync.videoTakeoffSec + (logMs - sync.logTakeoffMs) / 1000;
+}
+
+// === docs/site/docs/data-and-logs/replay/lib/replay/journal.js ===
+// journal.js — per-log annotation store for the replay tool.
+//
+// IDB store `journal-v1` keyed by the log's content hash (the same
+// SHA-256-prefix-of-first-10KB digest persistence.js uses for sync +
+// clip persistence). One record per log:
+//
+//   {
+//     logHash:    string,
+//     logName:    string,
+//     videoName?: string,
+//     lastUsed:   number,
+//     marks: [{ value, logTimeMs, name?, notes?, createdAt, updatedAt }, ...],
+//     clips: [{ id, startLogMs, endLogMs, label?, notes?, createdAt, updatedAt }, ...],
+//   }
+//
+// Marks are addressed by the (value, logTimeMs) tuple via
+// `markKey(value, logTimeMs) === value + ':' + logTimeMs`. The marks
+// the parser surfaces are the source of truth for which keys exist;
+// the journal layer only carries pilot-authored overlay fields.
+//
+// All operations are best-effort: caller errors are caught and logged
+// to console, never propagated. Mirrors the storeHandles / loadHandles
+// pattern in fileHandles.js.
+
+
+const JOURNAL_DB_NAME = 'replay-journal';
+const JOURNAL_STORE_NAME = 'journal-v1';
+const JOURNAL_DB_VERSION = 1;
+
+// ---------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------
+
+function markKey(value, logTimeMs) {
+  return String(value) + ':' + String(logTimeMs);
+}
+
+// ---------------------------------------------------------------------
+// IndexedDB plumbing — mirrors fileHandles.js's pattern.
+// ---------------------------------------------------------------------
+
+function _openJournalDbFresh() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(JOURNAL_DB_NAME, JOURNAL_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(JOURNAL_STORE_NAME)) {
+        db.createObjectStore(JOURNAL_STORE_NAME, { keyPath: 'logHash' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IDB open failed'));
+  });
+}
+
+function _openJournalDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB not available'));
+      return;
+    }
+    _openJournalDbFresh().then(db => {
+      // Defensive recovery: if the DB exists but the store doesn't
+      // (a stale dev-build state from before this fix), nuke the DB
+      // and recreate. The data we'd be wiping was never reachable
+      // anyway — no upsert ever succeeded if the store was missing.
+      if (db.objectStoreNames.contains(JOURNAL_STORE_NAME)) {
+        resolve(db);
+        return;
+      }
+      db.close();
+      const del = indexedDB.deleteDatabase(JOURNAL_DB_NAME);
+      del.onsuccess = () => _openJournalDbFresh().then(resolve, reject);
+      del.onerror = () => reject(del.error || new Error('IDB delete failed'));
+      del.onblocked = () => reject(new Error('IDB delete blocked — close other tabs'));
+    }, reject);
+  });
+}
+
+function _withJournalStore(mode, fn) {
+  return _openJournalDb().then(db => new Promise((resolve, reject) => {
+    let result;
+    const tx = db.transaction(JOURNAL_STORE_NAME, mode);
+    const store = tx.objectStore(JOURNAL_STORE_NAME);
+    Promise.resolve(fn(store)).then(r => { result = r; }, reject);
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error('IDB tx aborted')); };
+    tx.onerror = () => { db.close(); reject(tx.error || new Error('IDB tx error')); };
+  }));
+}
+
+// Variant of _withJournalStore for read-modify-write callbacks that must chain
+// multiple IDB requests inside one transaction. The callback returns a
+// Promise that resolves when ALL requests have settled — but it must
+// chain those requests via IDB event callbacks (NOT `await`), because
+// `await` allows a microtask to drain, which auto-commits the IDB
+// transaction. See upsertMark / upsertClipAnnotation for the pattern.
+function _withJournalStoreCallback(mode, fn) {
+  return _openJournalDb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(JOURNAL_STORE_NAME, mode);
+    const store = tx.objectStore(JOURNAL_STORE_NAME);
+    let callbackError = null;
+    fn(store).then(() => {}, (err) => { callbackError = err; });
+    tx.oncomplete = () => {
+      db.close();
+      if (callbackError) reject(callbackError);
+      else resolve();
+    };
+    tx.onabort = () => { db.close(); reject(callbackError || tx.error || new Error('IDB tx aborted')); };
+    tx.onerror = () => { db.close(); reject(callbackError || tx.error || new Error('IDB tx error')); };
+  }));
+}
+
+function _journalReqToPromise(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IDB request failed'));
+  });
+}
+
+function emptyRecord(logHash) {
+  return {
+    logHash,
+    logName: '',
+    lastUsed: Date.now(),
+    marks: [],
+    clips: [],
+  };
+}
+
+// ---------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------
+
+// Load the full journal record for a log hash. Returns null if none
+// exists or IDB is unavailable.
+async function loadJournal(logHash) {
+  if (!logHash || typeof logHash !== 'string') return null;
+  try {
+    const record = await _withJournalStore('readonly', store =>
+      _journalReqToPromise(store.get(logHash)));
+    return record || null;
+  } catch (err) {
+    console.warn('journal: loadJournal failed', err);
+    return null;
+  }
+}
+
+// Upsert a mark by (value, logTimeMs). Patch is { name?, notes? };
+// fields not present in patch are left unchanged. Creates the record
+// + the mark row if either is missing.
+//
+// IDB-transaction note: the read-modify-write happens inside a single
+// `readwrite` transaction. We must NOT `await` between the get's
+// success and the put's request — IDB transactions auto-commit (and
+// close) as soon as the microtask queue is empty between operations.
+// Chaining via the get's onsuccess callback keeps the same transaction
+// alive across both requests.
+async function upsertMark(logHash, key, patch) {
+  if (!logHash || !key || typeof key !== 'object') return;
+  const { value, logTimeMs } = key;
+  if (!Number.isFinite(value) || !Number.isFinite(logTimeMs)) return;
+  const now = Date.now();
+  try {
+    await _withJournalStoreCallback('readwrite', (store) => new Promise((resolve, reject) => {
+      const getReq = store.get(logHash);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = () => {
+        // Wrap the body so a synchronous throw (corrupt record shape,
+        // unstructured-cloneable value, etc.) doesn't leak as an
+        // unhandled exception while the transaction silently auto-
+        // commits with no pending requests. The outer try/catch on the
+        // await wouldn't see the throw without this — the Promise
+        // would just never resolve or reject and tx.oncomplete would
+        // fire with success.
+        try {
+          const existing = getReq.result;
+          const record = existing || emptyRecord(logHash);
+          record.lastUsed = now;
+          if (!Array.isArray(record.marks)) record.marks = [];
+          const target = markKey(value, logTimeMs);
+          const idx = record.marks.findIndex(
+            m => markKey(m.value, m.logTimeMs) === target);
+          if (idx >= 0) {
+            const prior = record.marks[idx];
+            record.marks[idx] = {
+              ...prior,
+              ...patch,
+              value, logTimeMs,
+              updatedAt: now,
+            };
+          } else {
+            record.marks.push({
+              value, logTimeMs,
+              ...patch,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+          const putReq = store.put(record);
+          putReq.onerror = () => reject(putReq.error);
+          putReq.onsuccess = () => resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+    }));
+  } catch (err) {
+    console.warn('journal: upsertMark failed', err);
+  }
+}
+
+// Upsert a clip annotation by id. Patch is { label?, notes?,
+// startLogMs?, endLogMs? }; missing fields are left unchanged. Creates
+// the record + clip row if either is missing.
+async function upsertClipAnnotation(logHash, id, patch) {
+  if (!logHash || !id || typeof id !== 'string') return;
+  const now = Date.now();
+  try {
+    await _withJournalStoreCallback('readwrite', (store) => new Promise((resolve, reject) => {
+      const getReq = store.get(logHash);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = () => {
+        // See upsertMark for the rationale on this try/catch.
+        try {
+          const existing = getReq.result;
+          const record = existing || emptyRecord(logHash);
+          record.lastUsed = now;
+          if (!Array.isArray(record.clips)) record.clips = [];
+          const idx = record.clips.findIndex(c => c.id === id);
+          if (idx >= 0) {
+            record.clips[idx] = {
+              ...record.clips[idx],
+              ...patch,
+              id,
+              updatedAt: now,
+            };
+          } else {
+            record.clips.push({
+              id,
+              ...patch,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+          const putReq = store.put(record);
+          putReq.onerror = () => reject(putReq.error);
+          putReq.onsuccess = () => resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+    }));
+  } catch (err) {
+    console.warn('journal: upsertClipAnnotation failed', err);
+  }
+}
+
+// Return the mark-annotation overlay map keyed by `value:logTimeMs`,
+// with payload `{ name, notes, updatedAt }`. Empty object if the
+// record doesn't exist or has no marks.
+async function loadMarkAnnotations(logHash) {
+  const record = await loadJournal(logHash);
+  if (!record || !Array.isArray(record.marks)) return {};
+  const out = {};
+  for (const m of record.marks) {
+    if (!Number.isFinite(m.value) || !Number.isFinite(m.logTimeMs)) continue;
+    out[markKey(m.value, m.logTimeMs)] = {
+      name: m.name || '',
+      notes: m.notes || '',
+      updatedAt: m.updatedAt || 0,
+    };
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------
+// Preact hook: useReplayJournal
+//
+// Watches the current log digest (computed externally — pass it in
+// from useReplayPersistence). On hash change, loads the mark-annotation
+// overlay into state. Returns { markAnnotations, upsertMarkAnnotation }
+// for the rest of the page to consume.
+//
+// The local-state mirror is what the UI renders. IDB writes happen in
+// the background; the callback updates local state synchronously so
+// keystrokes feel instant.
+// ---------------------------------------------------------------------
+
+function useReplayJournal({ logHash }) {
+  const [markAnnotations, setMarkAnnotations] = useState({});
+  // Synchronous mirror of logHash so the updater callback writes to
+  // the correct record even when called between an IDB-load promise
+  // resolving and Preact committing the new state.
+  //
+  // Known narrow race (deferred): if a pilot edits a mark's name, then
+  // swaps logs before the 500ms debounce fires, AND the new log
+  // happens to contain a mark with the same (value, logTimeMs) key,
+  // the stale debounced write lands under the new log's record. The
+  // unmount path on DataMarkPanel cancels the timer but doesn't flush
+  // it. Real-world hit rate is vanishingly small (mark keys collide
+  // across separate flights only by coincidence); proper fix is to
+  // capture the logHash at edit-time into the debounce closure rather
+  // than reading the ref at flush-time.
+  const logHashRef = useRef(null);
+
+  useEffect(() => {
+    logHashRef.current = logHash || null;
+    setMarkAnnotations({});
+    if (!logHash) return;
+    let cancelled = false;
+    loadMarkAnnotations(logHash).then(ann => {
+      if (cancelled) return;
+      setMarkAnnotations(ann);
+    });
+    return () => { cancelled = true; };
+  }, [logHash]);
+
+  const upsertMarkAnnotation = useCallback((mark, patch) => {
+    const hash = logHashRef.current;
+    if (!hash || !mark) return;
+    const key = markKey(mark.value, mark.logTimeMs);
+    setMarkAnnotations(prev => ({
+      ...prev,
+      [key]: {
+        name:  patch.name  != null ? patch.name  : (prev[key]?.name  || ''),
+        notes: patch.notes != null ? patch.notes : (prev[key]?.notes || ''),
+        updatedAt: Date.now(),
+      },
+    }));
+    upsertMark(hash, { value: mark.value, logTimeMs: mark.logTimeMs }, patch);
+  }, []);
+
+  return { markAnnotations, upsertMarkAnnotation };
+}
+
+// === docs/site/docs/data-and-logs/replay/lib/components/DataMarkPanel.js ===
+// DataMarkPanel — the per-flight Data Marks list.
+//
+// Each row corresponds to one DataMark transition the parser found in
+// the log. The pilot can:
+//   - Jump the video to the mark
+//   - Spin up a 30 s / 60 s clip starting at the mark
+//   - Expand the row to add a name + notes (persisted to IDB via the
+//     journal layer)
+//
+// The annotation overlay is supplied by `markAnnotations` (map keyed
+// by `value:logTimeMs`) and patched via `upsertMarkAnnotation(mark,
+// patch)`. The parent (ReplayPage) owns the journal hook; this
+// component is dumb about persistence — it just emits patches.
+
+
+
+
+// Debounce window for IDB writes: long enough that a normal typing
+// burst flushes only once, short enough that a glance away and back
+// finds the row saved.
+const SAVE_DEBOUNCE_MS = 500;
+
+// First-N chars of notes to use as hover-tooltip preview when the row
+// is collapsed. Mirrors a "first paragraph" feel without parsing.
+const NOTES_PREVIEW_LEN = 80;
+
+// Format a duration in seconds as H:MM:SS or M:SS. Duplicate of the
+// helper in ReplayPage.js — small enough that keeping a local copy
+// is cheaper than the import dance.
+function formatHms(sec) {
+  if (!Number.isFinite(sec)) return '—';
+  const total = Math.floor(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function MarkRow({ mark, annotation, sync, disabled, videoDuration,
+                   onJump, onClip, onPatch }) {
+  const [expanded, setExpanded] = useState(false);
+  // Local edit state: typed-but-not-yet-saved values. Reseeds from
+  // the annotation overlay whenever the underlying overlay changes
+  // (i.e. journal load on log swap).
+  const [name,  setName]  = useState(annotation?.name  || '');
+  const [notes, setNotes] = useState(annotation?.notes || '');
+  const debounceRef = useRef(null);
+
+  // Reseed local state when the overlay changes from outside (a fresh
+  // log load, or a future cross-tab sync). Skip the reseed if the user
+  // is mid-edit on this row — we don't want to clobber unsaved typing.
+  useEffect(() => {
+    setName(annotation?.name  || '');
+    setNotes(annotation?.notes || '');
+    // Intentional: only run when the underlying annotation row changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [annotation?.updatedAt]);
+
+  // Flush any pending debounce when the row collapses or unmounts so
+  // the last keystroke never gets stuck in a timer.
+  useEffect(() => () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+  }, []);
+
+  const scheduleSave = (patch) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      onPatch(mark, patch);
+    }, SAVE_DEBOUNCE_MS);
+  };
+
+  const flushNow = (patch) => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    onPatch(mark, patch);
+  };
+
+  const videoSec = logMsToVideoSec(mark.logTimeMs, sync);
+  const dur = Number.isFinite(videoDuration) ? videoDuration : Infinity;
+  const inRange = Number.isFinite(videoSec) &&
+                  videoSec >= 0 && videoSec < dur;
+  const tStr = inRange
+    ? `video ${formatHms(videoSec)}`
+    : (Number.isFinite(videoSec) ? 'outside video' : 'no sync');
+
+  const hasNotes = !!(annotation && (annotation.name || annotation.notes));
+  const notesPreview = annotation?.notes
+    ? annotation.notes.slice(0, NOTES_PREVIEW_LEN) +
+      (annotation.notes.length > NOTES_PREVIEW_LEN ? '…' : '')
+    : '';
+  const tooltip = notesPreview || (annotation?.name || '');
+
+  const rowClass = 'replay-mark-row' +
+    (hasNotes ? ' replay-mark-has-notes' : '') +
+    (expanded ? ' is-expanded' : '');
+
+  return html`
+    <div class=${rowClass}>
+      <div class="replay-mark-row-head"
+           title=${tooltip}
+           onClick=${() => setExpanded(e => !e)}>
+        <span class="replay-mark-disclosure">${expanded ? '▾' : '▸'}</span>
+        <span class="replay-mark-label">${mark.label}</span>
+        ${hasNotes
+          ? html`<span class="replay-mark-dot" aria-label="has notes">•</span>`
+          : null}
+        ${annotation?.name
+          ? html`<span class="replay-mark-name">${annotation.name}</span>`
+          : null}
+        <span class="replay-mark-time">log ${formatHms(mark.logTimeMs / 1000)} · ${tStr}</span>
+        <span class="replay-spacer"></span>
+        <button class="replay-btn" disabled=${disabled || !inRange}
+                onClick=${e => { e.stopPropagation(); onJump(mark.logTimeMs); }}>Jump</button>
+        <button class="replay-btn" disabled=${disabled || !inRange}
+                onClick=${e => { e.stopPropagation(); onClip(mark, 30); }}>Clip 30 s</button>
+        <button class="replay-btn" disabled=${disabled || !inRange}
+                onClick=${e => { e.stopPropagation(); onClip(mark, 60); }}>Clip 60 s</button>
+      </div>
+      ${expanded && html`
+        <div class="replay-mark-expanded">
+          <label class="replay-mark-field">
+            <span>Name</span>
+            <input type="text"
+                   value=${name}
+                   placeholder="e.g. Slow flight at 65 kt"
+                   onInput=${e => {
+                     const v = e.target.value;
+                     setName(v);
+                     scheduleSave({ name: v });
+                   }}
+                   onBlur=${() => flushNow({ name })} />
+          </label>
+          <label class="replay-mark-field">
+            <span>Notes</span>
+            <textarea rows="3"
+                      value=${notes}
+                      placeholder="What happened, what to look for…"
+                      onInput=${e => {
+                        const v = e.target.value;
+                        setNotes(v);
+                        scheduleSave({ notes: v });
+                      }}
+                      onBlur=${() => flushNow({ notes })}></textarea>
+          </label>
+        </div>`}
+    </div>`;
+}
+
+const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
+                                markAnnotations,
+                                onJump, onClip, onPatchAnnotation }) => {
+  if (!marks || marks.length === 0) return null;
+  return html`
+    <div class="replay-marks">
+      <div class="replay-marks-header">
+        <span class="replay-label">Data marks</span>
+        <span class="replay-status">${marks.length}</span>
+      </div>
+      <div class="replay-marks-list">
+        ${marks.map(m => html`<${MarkRow}
+              key=${markKey(m.value, m.logTimeMs)}
+              mark=${m}
+              annotation=${markAnnotations ? markAnnotations[markKey(m.value, m.logTimeMs)] : null}
+              sync=${sync}
+              disabled=${disabled}
+              videoDuration=${videoDuration}
+              onJump=${onJump}
+              onClip=${onClip}
+              onPatch=${onPatchAnnotation} />`)}
+      </div>
+    </div>`;
+};
+
 // === docs/site/docs/data-and-logs/replay/lib/replay/parseLog.js ===
 // CSV log parser for OnSpeed SD-card logs, plus WASM engine helpers.
 //
@@ -3928,10 +4568,6 @@ const ClipBuilder = ({
   overlayModeOrder,       // string[]  — canonical mode list for the checkboxes
   overlaySize,            // 'native' | '0.2' | '0.3' | '0.5'
   onChangeOverlaySize,    // (string) — updates the size selection
-  // Burn-in MP4 (composite) layout toggle. true = ADI bottom-left +
-  // Energy bottom-right; false = single mode in bottom-right (legacy).
-  standardClipOverlay,
-  onChangeStandardClipOverlay,
   // Forwarded to each row so Set-in-here / Set-out-here resolve to a
   // global timeline-second across multi-chapter playback.
   getCurrentVideoSec,
@@ -4096,15 +4732,6 @@ const ClipBuilder = ({
                   onClick=${onExportAll}>
             Export all
           </button>`}
-        ${onChangeStandardClipOverlay && html`
-          <label class="replay-overlay-mode-toggle"
-                 title="Burn BOTH ADI (bottom-left) and Energy (bottom-right) into the source video. When off, the live preview's single mode burns in the bottom-right.">
-            <input type="checkbox"
-                   checked=${!!standardClipOverlay}
-                   disabled=${exportingClipIdx != null}
-                   onChange=${(e) => onChangeStandardClipOverlay(e.target.checked)} />
-            Standard (ADI + Energy)
-          </label>`}
       </div>
 
       ${renderOverlayModePicker()}
@@ -4247,128 +4874,6 @@ const ClipRow = ({
               onClick=${onRemove}>×</button>
     </div>`;
 };
-
-// === docs/site/docs/data-and-logs/replay/lib/replay/dataMarks.js ===
-// DataMark detection for OnSpeed SD logs.
-//
-// The DataMark CSV column is an integer 0..99 that wraps. Pilots
-// bump it from the panel during flight to flag interesting moments
-// ("nailed an OnSpeed approach", "stall warn just chirped", ...).
-// Each bump is a transition in the column — we don't care about
-// the absolute value, only the rising edge from the previous row's
-// value to a new value.
-//
-// Returns an array of:
-//   { rowIdx, logTimeMs, value, label }
-//
-// where label is a 1-based ordinal ("01", "02", ...) so the panel
-// can show a stable identifier the pilot can talk about even after
-// the absolute DataMark value wraps.
-
-// DataMark per firmware (Switch.cpp:61) is `g_iDataMark = g_iDataMark + 1`,
-// a monotonically-incrementing `int`. The M5 wire and panel display
-// mod-100 (`%02d`) so two digits of room is fine on screen, but the
-// underlying counter can go much higher on long flights. Cap at a
-// generous integer ceiling to filter the misaligned-CSV signature
-// (values like 8158, 17:55:19.87, 285.40 observed on the RV-4
-// 2026-05-11 flight) without rejecting legitimate ≥ 100 presses.
-// 9999 is a safe upper limit: well above any realistic press count,
-// well below the torn-row values we've seen.
-function isValidMark(v) {
-  return Number.isInteger(v) && v >= 0 && v <= 9999;
-}
-
-// Firmware writes DataMark as a monotonically incrementing counter:
-// 0 → 1 → 2 → 3 → ... Each pilot press bumps the column by one. The
-// real-world write pattern observed on RV-4 2026-05-11:
-//   0 (boot) → 1 (first press) → 2 → 3 → ... → 20 → ...
-// with occasional resets to 0 after a long idle period (then the
-// counter continues from where it left off, e.g. 0 → 20 → 21 → ...).
-//
-// Garbage rows from misaligned CSV either (a) hold a value outside
-// [0..99] (filtered by isValidMark), or (b) hold a valid-by-luck
-// integer but have ts = 0 / ts going backwards. The ts sanity check
-// catches the second class.
-//
-// A "press" is a row where the column transitions from a smaller
-// non-negative value to a strictly-larger one (1..99). The previous
-// value can be 0 (cold start / re-arm) OR a smaller non-zero (the
-// counter continuing). Resets (N → 0) and same-value rows are not
-// presses.
-//
-// Reject chatter: the firmware occasionally writes brief single-row
-// blips of "0" between two stable "N" runs (torn-row signature or
-// per-frame write race). A real pilot press has the column stable
-// at the prior value for at least PRIOR_VALUE_HOLD_MS before the
-// transition, and the new value stable for at least NEW_VALUE_HOLD_MS
-// after. Anything shorter is a flicker. On the RV-4 log, the real
-// 0→20 press held 20 for 928 seconds; the noise ones held 2 seconds
-// AFTER a previous-value-0 that lasted only ~10 ms.
-const PRIOR_VALUE_HOLD_MS = 200;
-const NEW_VALUE_HOLD_MS   = 200;
-
-function findDataMarks(log) {
-  if (!log || !log.DataMark || !log.timeStamp) return [];
-  const N = log.Length;
-  if (N < 2) return [];
-
-  // Compress the (filtered) rows into runs of consecutive same-value
-  // entries: [{ value, startTs, endTs, startRow }, ...]. Skips rows
-  // with invalid DataMark or invalid timeStamp at parse boundary.
-  // A run's "duration" is endTs - startTs.
-  const runs = [];
-  for (let i = 0; i < N; i++) {
-    const v = log.DataMark[i];
-    const ts = log.timeStamp[i];
-    if (!isValidMark(v) || !Number.isFinite(ts) || ts <= 0) continue;
-    const last = runs[runs.length - 1];
-    if (last && last.value === v) {
-      last.endTs = ts;
-    } else {
-      runs.push({ value: v, startTs: ts, endTs: ts, startRow: i });
-    }
-  }
-  // A real press is a forward-going transition between two runs that
-  // each persist long enough to be a true state — not single-row
-  // blips. The 200ms thresholds are well above the firmware's log
-  // cadence (5-50ms) and well below any real pilot's press interval.
-  const out = [];
-  for (let r = 1; r < runs.length; r++) {
-    const cur  = runs[r];
-    const prev = runs[r - 1];
-    const isForward = cur.value > 0 && (prev.value === 0 || cur.value > prev.value);
-    if (!isForward) continue;
-    const prevHeld = prev.endTs - prev.startTs;
-    const curHeld  = cur.endTs  - cur.startTs;
-    if (prevHeld < PRIOR_VALUE_HOLD_MS) continue;
-    if (curHeld  < NEW_VALUE_HOLD_MS)   continue;
-    out.push({
-      rowIdx:    cur.startRow,
-      logTimeMs: cur.startTs,
-      value:     cur.value,
-      // `label` is what the panel shows. Always the firmware-written
-      // DataMark value — same number the pilot saw on their device
-      // and the same number the burned-in overlay renders. Multiple
-      // panel rows may share the same value when the firmware counter
-      // resets and the pilot bumps back to the same number minutes
-      // later; distinguish them by their log/video times.
-      label:     String(cur.value).padStart(2, '0'),
-    });
-  }
-  // Sort by log time ascending. With the run-compression above the
-  // output is already in time order; the explicit sort guards against
-  // any future torn-row recovery that might re-introduce reordering.
-  out.sort((a, b) => a.logTimeMs - b.logTimeMs);
-  return out;
-}
-
-// Map a log timestamp (ms) to a video time (seconds) using the
-// current sync. Returns null if sync is incomplete.
-function logMsToVideoSec(logMs, sync) {
-  if (!sync) return null;
-  if (!Number.isFinite(sync.logTakeoffMs) || !Number.isFinite(sync.videoTakeoffSec)) return null;
-  return sync.videoTakeoffSec + (logMs - sync.logTakeoffMs) / 1000;
-}
 
 // === docs/site/docs/data-and-logs/replay/lib/replay/reassemble.js ===
 // Reassemble engine output (immediates + tail) into row-aligned results.
@@ -6566,16 +7071,26 @@ const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
 
 
 
+
+
 // Mode list indexed by displayType (0..4). The int returned by
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
 // matches the M5 firmware's `kModeNames` and the IndexerPage's MODES
 // — same five modes, same numbering.
+// Mode 5 is a JS-only synthetic: a Standard layout that renders
+// Attitude (left) + Energy (right) side-by-side. The firmware doesn't
+// know about it — when picked, the M5 sim still runs whichever
+// firmware mode it's in; the preview ignores `state.displayType` and
+// uses both component renderers explicitly. Mirrored on the export
+// side by `standardOverlay`, which is now derived from this mode.
+const MODE_STANDARD = 5;
 const M5_MODES = [
   { id: 0, label: 'Energy',     C: EnergyMode   },
   { id: 1, label: 'Attitude',   C: AttitudeMode },
   { id: 2, label: 'Indexer',    C: IndexerMode  },
   { id: 3, label: 'Decel',      C: DecelMode    },
   { id: 4, label: 'Historic G', C: HistoricGMode },
+  { id: MODE_STANDARD, label: 'Standard', C: null /* special-cased in render */ },
 ];
 
 // Avionics palette tokens used by the offscreen export render
@@ -6670,7 +7185,10 @@ const ReplayPage = () => {
   const [m5ModeId, setM5ModeId] = useState(() => {
     const s = safeLsGet(M5_MODE_LS_KEY);
     const n = s == null ? 0 : parseInt(s, 10);
-    return Number.isFinite(n) && n >= 0 && n <= 4 ? n : 0;
+    // Valid mode ids are 0..4 (firmware modes) and MODE_STANDARD (5,
+    // JS-only side-by-side layout). Anything else falls back to 0.
+    const validIds = M5_MODES.map(m => m.id);
+    return Number.isFinite(n) && validIds.includes(n) ? n : 0;
   });
   // Render-side smoothing preset. 'off' = byte-faithful (wire values
   // drive the SVG directly). The other presets emulate the missing
@@ -6752,6 +7270,12 @@ const ReplayPage = () => {
   // suggests re-picking the prior session's files. See
   // replay/persistence.js for the storage contract.
   const persistence = useReplayPersistence({ logFile });
+
+  // Per-log annotation overlay (DataMark names + notes). Keyed by the
+  // same log-content digest as sync/clip persistence. Additive on top
+  // of the parser-derived `marks` array — the journal layer never
+  // creates marks, only annotates them.
+  const journal = useReplayJournal({ logHash: persistence.logDigest });
 
   // File handles for FileSystemAccess-supported browsers (Chrome /
   // Edge desktop). Held in refs because they're not Preact state —
@@ -6871,15 +7395,14 @@ const ReplayPage = () => {
     safeLsSet('replay-overlay-size-v1', overlaySize);
   }, [overlaySize]);
 
-  // "Standard" MP4 clip layout: render BOTH the ADI (bottom-left) and
-  // Energy (bottom-right) panels burned into the source video. When
-  // off, the export uses the live preview's single mode in the
-  // bottom-right corner (legacy behavior).
-  const [standardClipOverlay, setStandardClipOverlay] = useState(() =>
-    safeLsGet('replay-standard-clip-overlay-v1') === '1');
-  useEffect(() => {
-    safeLsSet('replay-standard-clip-overlay-v1', standardClipOverlay ? '1' : '0');
-  }, [standardClipOverlay]);
+  // Standard (ADI + Energy) layout used to be a checkbox in the
+  // ClipBuilder; the state lived here with LS persistence. It moved
+  // to the top mode picker as MODE_STANDARD, and the export derives
+  // its standardOverlay value from `m5ModeId === MODE_STANDARD`. The
+  // dead `replay-standard-clip-overlay-v1` LS key from the prior shape
+  // is intentionally left in place — clearing it here would risk
+  // touching localStorage during render, and the key is dormant. A
+  // future tidy can prune it via a one-shot migration.
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -8191,7 +8714,10 @@ const ReplayPage = () => {
         displayMode:   m5ModeId,
         // Standard layout: ADI bottom-left + Energy bottom-right.
         // Ignores displayMode when true.
-        standardOverlay: standardClipOverlay,
+        // Standard layout is now derived from the mode picker, not a
+        // separate checkbox. When the pilot picks Standard, export
+        // renders ADI + Energy side-by-side.
+        standardOverlay: m5ModeId === MODE_STANDARD,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -8220,7 +8746,7 @@ const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId, standardClipOverlay]);
+      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -8513,19 +9039,41 @@ const ReplayPage = () => {
               playsInline
               class="replay-video"
             />
-          ` : html`<div class="replay-placeholder">Drop a flight video and an SD-log CSV to get started.</div>`}
+          ` : html`<div class="replay-placeholder">
+              <span>Drop a flight video and an SD-log CSV to get started.</span>
+              <a class="replay-help-link"
+                 href="./getting-started/"
+                 target="_blank"
+                 rel="noopener">How does this work?</a>
+            </div>`}
 
-          ${overlayVisible && m5State && html`
-            <div class="replay-overlay">
-              <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
-                ${(() => {
-                  const M = M5_MODES.find(m => m.id === m5State.displayType);
-                  const C = M ? M.C : EnergyMode;
-                  return html`<${C} state=${m5State} stale=${false} />`;
-                })()}
-              </div>
-            </div>
-          `}
+          ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
+            ? html`
+                <div class="replay-overlay">
+                  <div class="replay-overlay-frame standard ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
+                    <div class="replay-overlay-half left">
+                      <${AttitudeMode} state=${{ ...m5State, displayType: 1 }} stale=${false} />
+                    </div>
+                    <div class="replay-overlay-half right">
+                      <${EnergyMode}   state=${{ ...m5State, displayType: 0 }} stale=${false} />
+                    </div>
+                  </div>
+                </div>`
+            : html`
+                <div class="replay-overlay">
+                  <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
+                    ${(() => {
+                      // Pick by the pilot's mode selection (not the sim's
+                      // displayType). The sim's displayType is updated by the
+                      // mode dispatch elsewhere so they normally agree; this
+                      // path stays correct during the brief window between a
+                      // mode-button click and the sim acknowledging it.
+                      const M = M5_MODES.find(m => m.id === m5ModeId);
+                      const C = (M && M.C) ? M.C : EnergyMode;
+                      return html`<${C} state=${m5State} stale=${false} />`;
+                    })()}
+                  </div>
+                </div>`)}
         </div>
 
         <footer class="replay-controls">
@@ -8538,7 +9086,7 @@ const ReplayPage = () => {
               `)}
             <span class="replay-spacer"></span>
             <span class="replay-toggle"
-                  title="Render-side smoothing for the slip ball. Lateral-G EMA time constant in seconds. 0 = firmware-faithful (lively at 208 Hz). Dial up until the ball looks like what you remember seeing on your EFIS in flight. ~0.25 s = VN-300 territory, ~0.75 s = Dynon SkyView.">
+                  title="Slip-ball EMA time constant (s). 0 = firmware-faithful, ~0.25 = VN-300, ~0.75 = SkyView.">
               Ball smoothing:
               <input type="range"
                      min=${PRESENTATION_LATERAL_TAU_MIN}
@@ -8638,8 +9186,10 @@ const ReplayPage = () => {
                 sync=${sync}
                 disabled=${exportingClipIdx != null || !syncReady}
                 videoDuration=${videoTimeline?.totalDurationSec ?? videoRef.current?.duration}
+                markAnnotations=${journal.markAnnotations}
                 onJump=${jumpToMark}
-                onClip=${addClipFromMark} />`}
+                onClip=${addClipFromMark}
+                onPatchAnnotation=${journal.upsertMarkAnnotation} />`}
 
           <${ClipBuilder}
               clips=${clips}
@@ -8674,8 +9224,6 @@ const ReplayPage = () => {
               overlayModeOrder=${OVERLAY_MODE_ORDER}
               overlaySize=${overlaySize}
               onChangeOverlaySize=${setOverlaySize}
-              standardClipOverlay=${standardClipOverlay}
-              onChangeStandardClipOverlay=${setStandardClipOverlay}
               getCurrentVideoSec=${currentGlobalSec} />
         </footer>
       </div>`;
@@ -8800,56 +9348,6 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
       <div class="replay-timeline-hint">${syncReady
         ? 'click to seek the video · shift+click to override the log-takeoff anchor'
         : 'click anywhere on the IAS trace to set the log-takeoff anchor'}</div>
-    </div>`;
-};
-
-// ---------- DataMarkPanel ------------------------------------------
-
-// Lists every DataMark transition the pilot dropped during the
-// flight. Each row shows the mark's ordinal label + log time + the
-// mapped video time (when sync is established), plus action buttons:
-//   - Jump:    seek the video to the mark's video time
-//   - Clip Ns: export an N-second WebM starting at the mark
-const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
-                         onJump, onClip }) => {
-  if (!marks || marks.length === 0) return null;
-  // A mark is "in range" when its mapped video time falls within
-  // the loaded video. Common reasons a mark falls out of range:
-  //   - The mark was dropped before the camera started recording
-  //     (video time goes negative).
-  //   - The mark was dropped after the camera stopped (video time
-  //     past videoDuration).
-  // Out-of-range rows render with disabled action buttons and a
-  // "no video" hint instead of a video timestamp.
-  return html`
-    <div class="replay-marks">
-      <div class="replay-marks-header">
-        <span class="replay-label">Data marks</span>
-        <span class="replay-status">${marks.length}</span>
-      </div>
-      <div class="replay-marks-list">
-        ${marks.map(m => {
-          const videoSec = logMsToVideoSec(m.logTimeMs, sync);
-          const dur = Number.isFinite(videoDuration) ? videoDuration : Infinity;
-          const inRange = Number.isFinite(videoSec) &&
-                          videoSec >= 0 && videoSec < dur;
-          const tStr = inRange
-            ? `video ${formatHms(videoSec)}`
-            : (Number.isFinite(videoSec) ? 'outside video' : 'no sync');
-          return html`
-            <div class="replay-mark-row">
-              <span class="replay-mark-label">${m.label}</span>
-              <span class="replay-mark-time">log ${formatHms(m.logTimeMs / 1000)} · ${tStr}</span>
-              <span class="replay-spacer"></span>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onJump(m.logTimeMs)}>Jump</button>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onClip(m, 30)}>Clip 30 s</button>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onClip(m, 60)}>Clip 60 s</button>
-            </div>`;
-        })}
-      </div>
     </div>`;
 };
 
