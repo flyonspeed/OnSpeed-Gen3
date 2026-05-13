@@ -1365,7 +1365,15 @@ export const ReplayPage = () => {
   useEffect(() => {
     const sim = m5SimRef.current;
     const core = m5CoreRef.current;
-    if (!sim || !core || !log || !cfg) { setM5State(null); return; }
+    // Don't clear m5State here (issue #540). Aggressive backward scrubs
+    // bump m5SimReinitNonce, which sets m5SimRef.current = null while
+    // the WASM reloads (~50–100 ms). Calling setM5State(null) in that
+    // window unmounts the overlay via the `m5State && ...` render gate
+    // and produces visible flicker on rapid scrub reversals. Initial
+    // mount sets m5State = null directly, so first-load gating is
+    // unaffected; here we hold the last-good state until the new sim
+    // is ready to render fresh data.
+    if (!sim || !core || !log || !cfg) return;
     if (!cppWireFrames) return;   // wait for C++ pre-pass
     if (!sync ||
         !Number.isFinite(sync.videoTakeoffSec) ||
