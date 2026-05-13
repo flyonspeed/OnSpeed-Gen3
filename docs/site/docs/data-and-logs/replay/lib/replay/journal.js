@@ -168,32 +168,43 @@ export async function upsertMark(logHash, key, patch) {
       const getReq = store.get(logHash);
       getReq.onerror = () => reject(getReq.error);
       getReq.onsuccess = () => {
-        const existing = getReq.result;
-        const record = existing || emptyRecord(logHash);
-        record.lastUsed = now;
-        if (!Array.isArray(record.marks)) record.marks = [];
-        const target = markKey(value, logTimeMs);
-        const idx = record.marks.findIndex(
-          m => markKey(m.value, m.logTimeMs) === target);
-        if (idx >= 0) {
-          const prior = record.marks[idx];
-          record.marks[idx] = {
-            ...prior,
-            ...patch,
-            value, logTimeMs,
-            updatedAt: now,
-          };
-        } else {
-          record.marks.push({
-            value, logTimeMs,
-            ...patch,
-            createdAt: now,
-            updatedAt: now,
-          });
+        // Wrap the body so a synchronous throw (corrupt record shape,
+        // unstructured-cloneable value, etc.) doesn't leak as an
+        // unhandled exception while the transaction silently auto-
+        // commits with no pending requests. The outer try/catch on the
+        // await wouldn't see the throw without this — the Promise
+        // would just never resolve or reject and tx.oncomplete would
+        // fire with success.
+        try {
+          const existing = getReq.result;
+          const record = existing || emptyRecord(logHash);
+          record.lastUsed = now;
+          if (!Array.isArray(record.marks)) record.marks = [];
+          const target = markKey(value, logTimeMs);
+          const idx = record.marks.findIndex(
+            m => markKey(m.value, m.logTimeMs) === target);
+          if (idx >= 0) {
+            const prior = record.marks[idx];
+            record.marks[idx] = {
+              ...prior,
+              ...patch,
+              value, logTimeMs,
+              updatedAt: now,
+            };
+          } else {
+            record.marks.push({
+              value, logTimeMs,
+              ...patch,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+          const putReq = store.put(record);
+          putReq.onerror = () => reject(putReq.error);
+          putReq.onsuccess = () => resolve();
+        } catch (err) {
+          reject(err);
         }
-        const putReq = store.put(record);
-        putReq.onerror = () => reject(putReq.error);
-        putReq.onsuccess = () => resolve();
       };
     }));
   } catch (err) {
@@ -212,29 +223,34 @@ export async function upsertClipAnnotation(logHash, id, patch) {
       const getReq = store.get(logHash);
       getReq.onerror = () => reject(getReq.error);
       getReq.onsuccess = () => {
-        const existing = getReq.result;
-        const record = existing || emptyRecord(logHash);
-        record.lastUsed = now;
-        if (!Array.isArray(record.clips)) record.clips = [];
-        const idx = record.clips.findIndex(c => c.id === id);
-        if (idx >= 0) {
-          record.clips[idx] = {
-            ...record.clips[idx],
-            ...patch,
-            id,
-            updatedAt: now,
-          };
-        } else {
-          record.clips.push({
-            id,
-            ...patch,
-            createdAt: now,
-            updatedAt: now,
-          });
+        // See upsertMark for the rationale on this try/catch.
+        try {
+          const existing = getReq.result;
+          const record = existing || emptyRecord(logHash);
+          record.lastUsed = now;
+          if (!Array.isArray(record.clips)) record.clips = [];
+          const idx = record.clips.findIndex(c => c.id === id);
+          if (idx >= 0) {
+            record.clips[idx] = {
+              ...record.clips[idx],
+              ...patch,
+              id,
+              updatedAt: now,
+            };
+          } else {
+            record.clips.push({
+              id,
+              ...patch,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+          const putReq = store.put(record);
+          putReq.onerror = () => reject(putReq.error);
+          putReq.onsuccess = () => resolve();
+        } catch (err) {
+          reject(err);
         }
-        const putReq = store.put(record);
-        putReq.onerror = () => reject(putReq.error);
-        putReq.onsuccess = () => resolve();
       };
     }));
   } catch (err) {
@@ -278,6 +294,16 @@ export function useReplayJournal({ logHash }) {
   // Synchronous mirror of logHash so the updater callback writes to
   // the correct record even when called between an IDB-load promise
   // resolving and Preact committing the new state.
+  //
+  // Known narrow race (deferred): if a pilot edits a mark's name, then
+  // swaps logs before the 500ms debounce fires, AND the new log
+  // happens to contain a mark with the same (value, logTimeMs) key,
+  // the stale debounced write lands under the new log's record. The
+  // unmount path on DataMarkPanel cancels the timer but doesn't flush
+  // it. Real-world hit rate is vanishingly small (mark keys collide
+  // across separate flights only by coincidence); proper fix is to
+  // capture the logHash at edit-time into the debounce closure rather
+  // than reading the ref at flush-time.
   const logHashRef = useRef(null);
 
   useEffect(() => {

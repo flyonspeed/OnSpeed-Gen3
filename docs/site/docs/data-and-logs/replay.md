@@ -3,7 +3,7 @@ title: Video Replay Tool
 description: Overlay a synced OnSpeed indicator onto cockpit video from your SD log
 ---
 
-[New here? See **Getting Started**.](/data-and-logs/replay/getting-started/){ .replay-help-link }
+[New here? See **Getting Started**.](replay/getting-started.md){ .replay-help-link }
 
 <!-- Mount point for the replay app. The replay.html template loads the
      JS/CSS and renders into this div. -->

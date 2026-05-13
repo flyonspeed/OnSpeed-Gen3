@@ -136,10 +136,6 @@ export const ClipBuilder = ({
   overlayModeOrder,       // string[]  — canonical mode list for the checkboxes
   overlaySize,            // 'native' | '0.2' | '0.3' | '0.5'
   onChangeOverlaySize,    // (string) — updates the size selection
-  // Burn-in MP4 (composite) layout toggle. true = ADI bottom-left +
-  // Energy bottom-right; false = single mode in bottom-right (legacy).
-  standardClipOverlay,
-  onChangeStandardClipOverlay,
   // Forwarded to each row so Set-in-here / Set-out-here resolve to a
   // global timeline-second across multi-chapter playback.
   getCurrentVideoSec,

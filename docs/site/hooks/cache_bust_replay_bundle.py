@@ -53,22 +53,38 @@ _hashes = {}
 
 
 def on_files(files, config):
-    """Compute fresh content hashes once per build, and force-copy the
-    replay assets from docs/ to site/ so autoreload doesn't serve a
-    stale built copy.
+    """Compute fresh content hashes once per build. The hashes are
+    consumed by `on_page_markdown` to substitute `?v=<hash>` into the
+    rendered URLs.
+
+    Force-copying the assets from docs/ to site/ used to live here but
+    has moved to `on_post_build` — mkdocs's own `copy_static_files()`
+    step runs AFTER `on_files`, so any write we do here gets clobbered
+    by mkdocs's internal Files copy. Doing the force-copy in
+    `on_post_build` (after mkdocs is done writing) is the correct hook
+    point for keeping the served file in lockstep with `docs/`.
+    """
+    docs = _docs_dir(config)
+    for name in REPLAY_ASSETS:
+        src = os.path.join(docs, REPLAY_ASSETS_DIR_REL, name)
+        _hashes[name] = _hash_file(src)
+    return files
+
+
+def on_post_build(config):
+    """Mirror the replay assets from docs/ to site_dir AFTER mkdocs's
+    own copy step has run. mkdocs's incremental autoreload may skip
+    non-markdown files, leaving stale built copies — this hook makes
+    sure the served file matches the source on disk byte-for-byte.
     """
     docs = _docs_dir(config)
     site = _site_dir(config)
     for name in REPLAY_ASSETS:
         src = os.path.join(docs, REPLAY_ASSETS_DIR_REL, name)
-        _hashes[name] = _hash_file(src)
-        # Mirror into site_dir. mkdocs would otherwise skip this for
-        # non-markdown files during autoreload.
         dst = os.path.join(site, REPLAY_ASSETS_DIR_REL, name)
         if os.path.exists(src):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
-    return files
 
 
 def on_page_markdown(markdown, page, config, files):

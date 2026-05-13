@@ -196,7 +196,10 @@ export const ReplayPage = () => {
   const [m5ModeId, setM5ModeId] = useState(() => {
     const s = safeLsGet(M5_MODE_LS_KEY);
     const n = s == null ? 0 : parseInt(s, 10);
-    return Number.isFinite(n) && n >= 0 && n <= 4 ? n : 0;
+    // Valid mode ids are 0..4 (firmware modes) and MODE_STANDARD (5,
+    // JS-only side-by-side layout). Anything else falls back to 0.
+    const validIds = M5_MODES.map(m => m.id);
+    return Number.isFinite(n) && validIds.includes(n) ? n : 0;
   });
   // Render-side smoothing preset. 'off' = byte-faithful (wire values
   // drive the SVG directly). The other presets emulate the missing
@@ -403,15 +406,14 @@ export const ReplayPage = () => {
     safeLsSet('replay-overlay-size-v1', overlaySize);
   }, [overlaySize]);
 
-  // "Standard" MP4 clip layout: render BOTH the ADI (bottom-left) and
-  // Energy (bottom-right) panels burned into the source video. When
-  // off, the export uses the live preview's single mode in the
-  // bottom-right corner (legacy behavior).
-  const [standardClipOverlay, setStandardClipOverlay] = useState(() =>
-    safeLsGet('replay-standard-clip-overlay-v1') === '1');
-  useEffect(() => {
-    safeLsSet('replay-standard-clip-overlay-v1', standardClipOverlay ? '1' : '0');
-  }, [standardClipOverlay]);
+  // Standard (ADI + Energy) layout used to be a checkbox in the
+  // ClipBuilder; the state lived here with LS persistence. It moved
+  // to the top mode picker as MODE_STANDARD, and the export derives
+  // its standardOverlay value from `m5ModeId === MODE_STANDARD`. The
+  // dead `replay-standard-clip-overlay-v1` LS key from the prior shape
+  // is intentionally left in place — clearing it here would risk
+  // touching localStorage during render, and the key is dormant. A
+  // future tidy can prune it via a one-shot migration.
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -1755,7 +1757,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId, standardClipOverlay]);
+      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -2233,8 +2235,6 @@ export const ReplayPage = () => {
               overlayModeOrder=${OVERLAY_MODE_ORDER}
               overlaySize=${overlaySize}
               onChangeOverlaySize=${setOverlaySize}
-              standardClipOverlay=${standardClipOverlay}
-              onChangeStandardClipOverlay=${setStandardClipOverlay}
               getCurrentVideoSec=${currentGlobalSec} />
         </footer>
       </div>`;
