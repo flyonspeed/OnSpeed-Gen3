@@ -7,7 +7,7 @@
 // Three localStorage namespaces:
 //
 //   replay-sync-<digest>-v1
-//     { videoTakeoffSec, logTakeoffMs, anchorKind }
+//     { videoTakeoffSec, logTakeoffMs }
 //
 //   replay-clips-<digest>-v1
 //     [{ startMs, endMs, label }, ...]

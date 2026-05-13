@@ -562,21 +562,27 @@ const ClipRow = ({
 
         <button class="replay-btn-ghost"
                 disabled=${disabled || isExporting || !Number.isFinite(startSec)}
-                title="Seek video to this clip's start"
+                title="Jump to clip start"
                 onClick=${() => Number.isFinite(startSec) && onScrubTo(startSec)}>
-          Scrub
+          In
+        </button>
+        <button class="replay-btn-ghost"
+                disabled=${disabled || isExporting || !Number.isFinite(endSec)}
+                title="Jump to clip end"
+                onClick=${() => Number.isFinite(endSec) && onScrubTo(endSec)}>
+          Out
         </button>
         <button class="replay-btn-ghost"
                 disabled=${disabled || isExporting}
                 title="Move this clip's start to the current playhead"
                 onClick=${setInHere}>
-          Set in here
+          Set in
         </button>
         <button class="replay-btn-ghost"
                 disabled=${disabled || isExporting}
                 title="Move this clip's end to the current playhead"
                 onClick=${setOutHere}>
-          Set out here
+          Set out
         </button>
 
         ${renderExport()}

@@ -337,6 +337,35 @@
   color: #6b7780;
   text-align: center;
 }
+.replay-timeline-clip {
+  fill: rgba(10, 132, 255, 0.25);
+  stroke: #0a84ff;
+  stroke-width: 1;
+  rx: 2;
+}
+.replay-timeline-clip-label {
+  font-size: 9px;
+  fill: #7dd3fc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+.replay-btn-nudge {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: transparent;
+  border: 1px solid #444;
+  color: #ccc;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.replay-btn-nudge:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.replay-btn-nudge:hover:not(:disabled) {
+  background: #2a2a2a;
+}
 
 /* ---------- Replay: DataMark + Clip panels --------------------------- */
 
