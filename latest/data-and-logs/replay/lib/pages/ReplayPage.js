@@ -46,7 +46,7 @@ import { html, useState, useEffect, useRef, useCallback, render }
 import { parseLog, findRowAt, detectLogSampleRate }
   from '../replay/parseLog.js';
 import { parseConfigXml } from '../replay/config.js';
-import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
+import { detectRotation, downsampleForPlot } from '../replay/syncDetect.js';
 // downloadBlob lives in mp4Export.js (used by composite + overlay-only
 // MP4 exports). The legacy WebM path was removed 2026-05-12 — see PR #533
 // description for the rationale (MP4 export is source-faithful and
@@ -147,16 +147,6 @@ const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
 // is an opt-in design-tuning phase).
 const HUD_SHOW_LS_KEY = 'replay-show-hud-v1';
 
-// Friendly label for the anchor type the auto-detector picked.
-// Pilots usually sync against the first crosswind turn (sharp bank
-// step in roll, easy to spot in the video); rotation is the
-// fallback when no clear bank is detected.
-function anchorKindLabel(kind) {
-  if (kind === 'crosswind') return 'crosswind turn';
-  if (kind === 'rotation')  return 'rotation';
-  return 'anchor';
-}
-
 function safeLsGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function safeLsSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
 
@@ -207,10 +197,6 @@ export const ReplayPage = () => {
   // banner click). Surfaces a "Resuming…" status pill so the page
   // doesn't look blank during the three getFile()/parse calls.
   const [resuming, setResuming]   = useState(false);
-  // Anchor kind from detectTakeoffWithKind: 'crosswind' | 'rotation'
-  // | 'none'. Used in the status text + timeline label so the pilot
-  // knows what event they're syncing against.
-  const [anchorKind, setAnchorKind] = useState('none');
 
   const [m5ModeId, setM5ModeId] = useState(() => {
     const s = safeLsGet(M5_MODE_LS_KEY);
@@ -578,7 +564,6 @@ export const ReplayPage = () => {
       setLogFilename(f.name);
       setClips([]);
       setSync(null);
-      setAnchorKind('none');
       setPausedLogMs(null);
       setPendingInVideoSec(null);
       logFileRef.current = f;
@@ -853,18 +838,14 @@ export const ReplayPage = () => {
     if (!persistence.digestReady) return;
     if (persistence.storedSync) {
       setSync(persistence.storedSync);
-      setAnchorKind(persistence.storedSync.anchorKind || 'none');
       return;
     }
-    const { row: tRow, kind } = detectTakeoffWithKind(log);
-    setAnchorKind(kind);
+    const tRow = detectRotation(log);
     if (tRow >= 0) {
       // Auto-detected anchor; pair it with whatever the pilot's
       // first "mark video anchor" press will be. Until then, sync
-      // is null (overlay shows nothing). Carry anchorKind inside the
-      // sync object so it round-trips through localStorage (the
-      // persistence layer only stores fields it sees on sync).
-      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null, anchorKind: kind });
+      // is null (overlay shows nothing).
+      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null });
     }
   }, [log, persistence.digestReady, persistence.storedSync]);
 
@@ -1642,19 +1623,16 @@ export const ReplayPage = () => {
     setSync(prev => ({
       logTakeoffMs:    prev?.logTakeoffMs ?? null,
       videoTakeoffSec: currentGlobalSec(),
-      anchorKind:      prev?.anchorKind ?? anchorKind,
     }));
-  }, [anchorKind, currentGlobalSec]);
+  }, [currentGlobalSec]);
 
   const reMarkLogTakeoff = useCallback(() => {
     if (!log) return;
-    const { row: tRow, kind } = detectTakeoffWithKind(log);
-    setAnchorKind(kind);
+    const tRow = detectRotation(log);
     if (tRow >= 0) {
       setSync(prev => ({
         logTakeoffMs:    log.timeStamp[tRow],
         videoTakeoffSec: prev?.videoTakeoffSec ?? null,
-        anchorKind:      kind,
       }));
     }
   }, [log]);
@@ -1691,10 +1669,9 @@ export const ReplayPage = () => {
     setSync({
       logTakeoffMs:    pausedLogMs,
       videoTakeoffSec: currentGlobalSec(),
-      anchorKind,
     });
     setPausedLogMs(null);
-  }, [pausedLogMs, anchorKind, currentGlobalSec]);
+  }, [pausedLogMs, currentGlobalSec]);
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
@@ -2415,10 +2392,9 @@ export const ReplayPage = () => {
               ${Number.isFinite(pausedLogMs)
                 ? `indexer paused at log ${(pausedLogMs / 1000).toFixed(2)}s · scrub video and click Attach`
                 : syncReady
-                  ? `synced · video ${sync.videoTakeoffSec.toFixed(2)}s ↔ log ${(sync.logTakeoffMs / 1000).toFixed(2)}s ` +
-                    `(${anchorKindLabel(anchorKind)})`
+                  ? `synced · video ${sync.videoTakeoffSec.toFixed(2)}s ↔ log ${(sync.logTakeoffMs / 1000).toFixed(2)}s (sync)`
                   : sync
-                    ? `log ${anchorKindLabel(anchorKind)} at ${(sync.logTakeoffMs / 1000).toFixed(2)}s — set video anchor`
+                    ? `log sync at ${(sync.logTakeoffMs / 1000).toFixed(2)}s — set video anchor`
                     : 'load files to begin'}
             </span>
           </div>
@@ -2443,12 +2419,14 @@ export const ReplayPage = () => {
 
           <${LogTimeline} log=${log} sync=${sync}
                           videoT=${videoT}
-                          anchorLabel=${anchorKindLabel(anchorKind)}
+                          anchorLabel="sync"
                           marks=${marks}
+                          clips=${clips}
+                          clipAnnotations=${journal.clipAnnotations}
+                          markAnnotations=${journal.markAnnotations}
                           onLogTakeoffPick=${(tMs) => setSync(prev => ({
                             logTakeoffMs: tMs,
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
-                            anchorKind:      prev?.anchorKind ?? anchorKind,
                           }))}
                           onSeekVideo=${(tSec) => seekToGlobalSec(tSec)} />
 
@@ -2525,11 +2503,29 @@ export const ReplayPage = () => {
 //   - When sync isn't ready yet (no video-takeoff anchor set),
 //     plain click falls back to the shift-click behavior so the
 //     timeline is still useful for first-time setup.
+//
+// TODO(timeline-zoom): pilots want to zoom into a slice of the IAS
+// stripchart with a minimap overview, video-editor style. Deferred to
+// a follow-up PR — see local-plans/ when started.
 const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
                        marks = [],
+                       clips = [], clipAnnotations = {}, markAnnotations = {},
                        onLogTakeoffPick, onSeekVideo }) => {
-  const W = 1100, H = 80;
+  const W = 1100;
   const PAD = 4;
+  // Top lane reserved for clip spans; mark ticks shift down by this
+  // amount so the two layers don't overlap. The total SVG height is the
+  // original 80 px IAS chart plus the clip lane stacked on top, so the
+  // clip rects (y=0..14) sit above the IAS trace rather than sharing a
+  // canvas with it.
+  const CLIP_LANE_H = 16;
+  // Hide a mark's text label when its left neighbor is within this
+  // many pixels — on long flights with many marks the labels mash
+  // together (e.g. "0708090910 11 12") and become unreadable. The
+  // tick line and <title> tooltip still render in both cases, so
+  // hovering surfaces the label.
+  const MIN_LABEL_PX = 28;
+  const H = 80 + CLIP_LANE_H;
 
   if (!log) return html`<div class="replay-timeline empty"></div>`;
 
@@ -2599,17 +2595,58 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
            style="width: 100%; height: ${H}px; cursor: crosshair;">
         <rect x="0" y="0" width=${W} height=${H} fill="#0e1418" />
         <path d=${d} fill="none" stroke="#5cd6ff" stroke-width="1" />
-        ${marks.map(m => {
-          if (m.logTimeMs < tMin || m.logTimeMs > tMax) return null;
-          const x = xOf(m.logTimeMs).toFixed(1);
+        ${clips.map(c => {
+          if (!Number.isFinite(c.startMs) || !Number.isFinite(c.endMs)) return null;
+          if (c.endMs < tMin || c.startMs > tMax) return null;
+          const x0 = xOf(Math.max(c.startMs, tMin));
+          const x1 = xOf(Math.min(c.endMs, tMax));
+          const w  = Math.max(1, x1 - x0);
+          const ann = c.id ? clipAnnotations[c.id] : null;
+          const label = (ann && ann.label) ? ann.label : (c.label || '');
           return html`
-            <line x1=${x} y1="0" x2=${x} y2=${H}
-                  stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55" />
-            <text x=${(parseFloat(x) + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
-                  fill="#7dd3fc" font-size="10" font-family="monospace">
-              ${m.label}
-            </text>`;
+            <g>
+              <rect class="replay-timeline-clip"
+                    x=${x0.toFixed(1)} y="0"
+                    width=${w.toFixed(1)} height="14">
+                <title>${label}</title>
+              </rect>
+              <text class="replay-timeline-clip-label"
+                    x=${(x0 + 3).toFixed(1)} y="10">
+                ${label}
+              </text>
+            </g>`;
         })}
+        ${(() => {
+          // Sort by time and pre-compute showLabel so we can decide
+          // per-mark whether its <text> would crowd a left neighbor.
+          // .map() alone can't carry state across iterations cleanly.
+          const sorted = marks
+            .filter(m => m.logTimeMs >= tMin && m.logTimeMs <= tMax)
+            .slice()
+            .sort((a, b) => a.logTimeMs - b.logTimeMs);
+          let lastShownX = -Infinity;
+          return sorted.map(m => {
+            const xNum = xOf(m.logTimeMs);
+            const x = xNum.toFixed(1);
+            const ann = markAnnotations
+              ? markAnnotations[String(m.value) + ':' + String(m.logTimeMs)]
+              : null;
+            const titleText = m.label + (ann && ann.name ? ' — ' + ann.name : '');
+            const showLabel = xNum - lastShownX >= MIN_LABEL_PX;
+            if (showLabel) lastShownX = xNum;
+            return html`
+              <line x1=${x} y1=${CLIP_LANE_H} x2=${x} y2=${H}
+                    stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55">
+                <title>${titleText}</title>
+              </line>
+              ${showLabel && html`
+                <text x=${(xNum + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
+                      fill="#7dd3fc" font-size="10" font-family="monospace">
+                  ${m.label}
+                  <title>${titleText}</title>
+                </text>`}`;
+          });
+        })()}
         ${sync && Number.isFinite(sync.logTakeoffMs) && html`
           <line x1=${xOf(sync.logTakeoffMs).toFixed(1)} y1="0"
                 x2=${xOf(sync.logTakeoffMs).toFixed(1)} y2=${H}

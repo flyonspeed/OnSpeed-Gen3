@@ -1100,55 +1100,16 @@ async function parseConfigXml(xmlText) {
 // We need ONE clean tick the pilot can also spot in the video, so the
 // video and log clocks line up. The auto-detect provides a good
 // initial guess; the pilot fine-tunes via the nudge buttons or
-// Pause/Attach. Two candidate events:
+// Pause/Attach.
 //
-//   1. **First rotation** (default). VSI-positive after IAS-alive —
-//      the unambiguous moment the wheels release. Happens within
-//      seconds of takeoff on every flight. Wide-spread enough to
-//      auto-detect reliably; close-enough-to-truth that nudging by
-//      a few seconds gets it dead-on.
+// Detection target: **first rotation**. VSI-positive after IAS-alive —
+// the unambiguous moment the wheels release. Happens within seconds of
+// takeoff on every flight. Wide-spread enough to auto-detect reliably;
+// close-enough-to-truth that nudging by a few seconds gets it dead-on.
 //
-//   2. **First crosswind turn** (fallback). For log excerpts that
-//      start mid-flight or skip rotation. Sharp roll-step at IAS
-//      ≥ 30 kt is unambiguous in the video too.
-//
-// Returns a row index into the log, or -1 if neither stage matches.
+// Returns a row index into the log, or -1 if no rotation found.
 
-const CROSSWIND_BANK_DEG = 20;     // first |roll| ≥ this counts as a turn
-const CROSSWIND_SUSTAIN_ROWS = 25; // ~ 0.5 s at 50 Hz; keeps brief bumps from triggering
-
-// Detect the first crosswind turn — first row where |roll| stays
-// ≥ CROSSWIND_BANK_DEG for at least CROSSWIND_SUSTAIN_ROWS rows.
-// Returns the row index of the *first* row of the sustained-bank
-// run (the moment the airplane started turning), or -1.
-//
-// We require IAS to also be alive (≥ 30 kt) before counting bank,
-// so a ground-handling roll (e.g. taxi over a bumpy ramp) doesn't
-// false-trigger.
-function detectFirstCrosswindTurn(log) {
-  const N = log.Length;
-  if (N < 50 || !log.Roll || !log.IAS || !log.timeStamp) return -1;
-
-  let sustained = 0;
-  let runStart  = -1;
-  for (let i = 0; i < N; i++) {
-    const r = log.Roll[i];
-    const v = log.IAS[i];
-    if (Number.isFinite(r) && Number.isFinite(v)
-        && v >= 30
-        && Math.abs(r) >= CROSSWIND_BANK_DEG) {
-      if (sustained === 0) runStart = i;
-      sustained++;
-      if (sustained >= CROSSWIND_SUSTAIN_ROWS) return runStart;
-    } else {
-      sustained = 0;
-      runStart = -1;
-    }
-  }
-  return -1;
-}
-
-// Fallback: detect rotation via IAS+VSI heuristic.
+// Detect rotation via IAS+VSI heuristic.
 //   1. Find the first row where IAS >= 30 kt (well above pitot deadband).
 //   2. From there, scan forward for the first sustained VSI > 200 fpm
 //      with VSI staying positive for at least 1 s.
@@ -1195,29 +1156,6 @@ function detectRotation(log) {
   }
 
   return rotationRow;
-}
-
-// Default detector: rotation first (the unambiguous moment the
-// wheels release — VSI-positive after IAS-alive happens within
-// seconds of takeoff every flight). Crosswind turn is a fallback
-// for log excerpts that start mid-flight or otherwise don't
-// contain a rotation event. Pilots fine-tune the rotation guess
-// using the nudge buttons + Pause/Attach UI.
-//
-// Returns { row, kind } where kind is 'rotation' | 'crosswind' or
-// 'none' when no anchor was found.
-function detectTakeoff(log) {
-  const rot = detectRotation(log);
-  if (rot >= 0) return rot;
-  return detectFirstCrosswindTurn(log);
-}
-
-function detectTakeoffWithKind(log) {
-  const rot = detectRotation(log);
-  if (rot >= 0) return { row: rot, kind: 'rotation' };
-  const cw = detectFirstCrosswindTurn(log);
-  if (cw >= 0) return { row: cw, kind: 'crosswind' };
-  return { row: -1, kind: 'none' };
 }
 
 // Build a "downsampled-for-plotting" view of the log. For a 30-min
@@ -5131,21 +5069,27 @@ const ClipRow = ({
 
         <button class="replay-btn-ghost"
                 disabled=${disabled || isExporting || !Number.isFinite(startSec)}
-                title="Seek video to this clip's start"
+                title="Jump to clip start"
                 onClick=${() => Number.isFinite(startSec) && onScrubTo(startSec)}>
-          Scrub
+          In
+        </button>
+        <button class="replay-btn-ghost"
+                disabled=${disabled || isExporting || !Number.isFinite(endSec)}
+                title="Jump to clip end"
+                onClick=${() => Number.isFinite(endSec) && onScrubTo(endSec)}>
+          Out
         </button>
         <button class="replay-btn-ghost"
                 disabled=${disabled || isExporting}
                 title="Move this clip's start to the current playhead"
                 onClick=${setInHere}>
-          Set in here
+          Set in
         </button>
         <button class="replay-btn-ghost"
                 disabled=${disabled || isExporting}
                 title="Move this clip's end to the current playhead"
                 onClick=${setOutHere}>
-          Set out here
+          Set out
         </button>
 
         ${renderExport()}
@@ -5250,7 +5194,7 @@ function reassembleResults(immediates, tail, N, hasPot) {
 // Three localStorage namespaces:
 //
 //   replay-sync-<digest>-v1
-//     { videoTakeoffSec, logTakeoffMs, anchorKind }
+//     { videoTakeoffSec, logTakeoffMs }
 //
 //   replay-clips-<digest>-v1
 //     [{ startMs, endMs, label }, ...]
@@ -8117,16 +8061,6 @@ const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
 // is an opt-in design-tuning phase).
 const HUD_SHOW_LS_KEY = 'replay-show-hud-v1';
 
-// Friendly label for the anchor type the auto-detector picked.
-// Pilots usually sync against the first crosswind turn (sharp bank
-// step in roll, easy to spot in the video); rotation is the
-// fallback when no clear bank is detected.
-function anchorKindLabel(kind) {
-  if (kind === 'crosswind') return 'crosswind turn';
-  if (kind === 'rotation')  return 'rotation';
-  return 'anchor';
-}
-
 function safeLsGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function safeLsSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
 
@@ -8177,10 +8111,6 @@ const ReplayPage = () => {
   // banner click). Surfaces a "Resuming…" status pill so the page
   // doesn't look blank during the three getFile()/parse calls.
   const [resuming, setResuming]   = useState(false);
-  // Anchor kind from detectTakeoffWithKind: 'crosswind' | 'rotation'
-  // | 'none'. Used in the status text + timeline label so the pilot
-  // knows what event they're syncing against.
-  const [anchorKind, setAnchorKind] = useState('none');
 
   const [m5ModeId, setM5ModeId] = useState(() => {
     const s = safeLsGet(M5_MODE_LS_KEY);
@@ -8548,7 +8478,6 @@ const ReplayPage = () => {
       setLogFilename(f.name);
       setClips([]);
       setSync(null);
-      setAnchorKind('none');
       setPausedLogMs(null);
       setPendingInVideoSec(null);
       logFileRef.current = f;
@@ -8823,18 +8752,14 @@ const ReplayPage = () => {
     if (!persistence.digestReady) return;
     if (persistence.storedSync) {
       setSync(persistence.storedSync);
-      setAnchorKind(persistence.storedSync.anchorKind || 'none');
       return;
     }
-    const { row: tRow, kind } = detectTakeoffWithKind(log);
-    setAnchorKind(kind);
+    const tRow = detectRotation(log);
     if (tRow >= 0) {
       // Auto-detected anchor; pair it with whatever the pilot's
       // first "mark video anchor" press will be. Until then, sync
-      // is null (overlay shows nothing). Carry anchorKind inside the
-      // sync object so it round-trips through localStorage (the
-      // persistence layer only stores fields it sees on sync).
-      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null, anchorKind: kind });
+      // is null (overlay shows nothing).
+      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null });
     }
   }, [log, persistence.digestReady, persistence.storedSync]);
 
@@ -9612,19 +9537,16 @@ const ReplayPage = () => {
     setSync(prev => ({
       logTakeoffMs:    prev?.logTakeoffMs ?? null,
       videoTakeoffSec: currentGlobalSec(),
-      anchorKind:      prev?.anchorKind ?? anchorKind,
     }));
-  }, [anchorKind, currentGlobalSec]);
+  }, [currentGlobalSec]);
 
   const reMarkLogTakeoff = useCallback(() => {
     if (!log) return;
-    const { row: tRow, kind } = detectTakeoffWithKind(log);
-    setAnchorKind(kind);
+    const tRow = detectRotation(log);
     if (tRow >= 0) {
       setSync(prev => ({
         logTakeoffMs:    log.timeStamp[tRow],
         videoTakeoffSec: prev?.videoTakeoffSec ?? null,
-        anchorKind:      kind,
       }));
     }
   }, [log]);
@@ -9661,10 +9583,9 @@ const ReplayPage = () => {
     setSync({
       logTakeoffMs:    pausedLogMs,
       videoTakeoffSec: currentGlobalSec(),
-      anchorKind,
     });
     setPausedLogMs(null);
-  }, [pausedLogMs, anchorKind, currentGlobalSec]);
+  }, [pausedLogMs, currentGlobalSec]);
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
@@ -10385,10 +10306,9 @@ const ReplayPage = () => {
               ${Number.isFinite(pausedLogMs)
                 ? `indexer paused at log ${(pausedLogMs / 1000).toFixed(2)}s · scrub video and click Attach`
                 : syncReady
-                  ? `synced · video ${sync.videoTakeoffSec.toFixed(2)}s ↔ log ${(sync.logTakeoffMs / 1000).toFixed(2)}s ` +
-                    `(${anchorKindLabel(anchorKind)})`
+                  ? `synced · video ${sync.videoTakeoffSec.toFixed(2)}s ↔ log ${(sync.logTakeoffMs / 1000).toFixed(2)}s (sync)`
                   : sync
-                    ? `log ${anchorKindLabel(anchorKind)} at ${(sync.logTakeoffMs / 1000).toFixed(2)}s — set video anchor`
+                    ? `log sync at ${(sync.logTakeoffMs / 1000).toFixed(2)}s — set video anchor`
                     : 'load files to begin'}
             </span>
           </div>
@@ -10413,12 +10333,14 @@ const ReplayPage = () => {
 
           <${LogTimeline} log=${log} sync=${sync}
                           videoT=${videoT}
-                          anchorLabel=${anchorKindLabel(anchorKind)}
+                          anchorLabel="sync"
                           marks=${marks}
+                          clips=${clips}
+                          clipAnnotations=${journal.clipAnnotations}
+                          markAnnotations=${journal.markAnnotations}
                           onLogTakeoffPick=${(tMs) => setSync(prev => ({
                             logTakeoffMs: tMs,
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
-                            anchorKind:      prev?.anchorKind ?? anchorKind,
                           }))}
                           onSeekVideo=${(tSec) => seekToGlobalSec(tSec)} />
 
@@ -10495,11 +10417,29 @@ const ReplayPage = () => {
 //   - When sync isn't ready yet (no video-takeoff anchor set),
 //     plain click falls back to the shift-click behavior so the
 //     timeline is still useful for first-time setup.
+//
+// TODO(timeline-zoom): pilots want to zoom into a slice of the IAS
+// stripchart with a minimap overview, video-editor style. Deferred to
+// a follow-up PR — see local-plans/ when started.
 const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
                        marks = [],
+                       clips = [], clipAnnotations = {}, markAnnotations = {},
                        onLogTakeoffPick, onSeekVideo }) => {
-  const W = 1100, H = 80;
+  const W = 1100;
   const PAD = 4;
+  // Top lane reserved for clip spans; mark ticks shift down by this
+  // amount so the two layers don't overlap. The total SVG height is the
+  // original 80 px IAS chart plus the clip lane stacked on top, so the
+  // clip rects (y=0..14) sit above the IAS trace rather than sharing a
+  // canvas with it.
+  const CLIP_LANE_H = 16;
+  // Hide a mark's text label when its left neighbor is within this
+  // many pixels — on long flights with many marks the labels mash
+  // together (e.g. "0708090910 11 12") and become unreadable. The
+  // tick line and <title> tooltip still render in both cases, so
+  // hovering surfaces the label.
+  const MIN_LABEL_PX = 28;
+  const H = 80 + CLIP_LANE_H;
 
   if (!log) return html`<div class="replay-timeline empty"></div>`;
 
@@ -10569,17 +10509,58 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
            style="width: 100%; height: ${H}px; cursor: crosshair;">
         <rect x="0" y="0" width=${W} height=${H} fill="#0e1418" />
         <path d=${d} fill="none" stroke="#5cd6ff" stroke-width="1" />
-        ${marks.map(m => {
-          if (m.logTimeMs < tMin || m.logTimeMs > tMax) return null;
-          const x = xOf(m.logTimeMs).toFixed(1);
+        ${clips.map(c => {
+          if (!Number.isFinite(c.startMs) || !Number.isFinite(c.endMs)) return null;
+          if (c.endMs < tMin || c.startMs > tMax) return null;
+          const x0 = xOf(Math.max(c.startMs, tMin));
+          const x1 = xOf(Math.min(c.endMs, tMax));
+          const w  = Math.max(1, x1 - x0);
+          const ann = c.id ? clipAnnotations[c.id] : null;
+          const label = (ann && ann.label) ? ann.label : (c.label || '');
           return html`
-            <line x1=${x} y1="0" x2=${x} y2=${H}
-                  stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55" />
-            <text x=${(parseFloat(x) + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
-                  fill="#7dd3fc" font-size="10" font-family="monospace">
-              ${m.label}
-            </text>`;
+            <g>
+              <rect class="replay-timeline-clip"
+                    x=${x0.toFixed(1)} y="0"
+                    width=${w.toFixed(1)} height="14">
+                <title>${label}</title>
+              </rect>
+              <text class="replay-timeline-clip-label"
+                    x=${(x0 + 3).toFixed(1)} y="10">
+                ${label}
+              </text>
+            </g>`;
         })}
+        ${(() => {
+          // Sort by time and pre-compute showLabel so we can decide
+          // per-mark whether its <text> would crowd a left neighbor.
+          // .map() alone can't carry state across iterations cleanly.
+          const sorted = marks
+            .filter(m => m.logTimeMs >= tMin && m.logTimeMs <= tMax)
+            .slice()
+            .sort((a, b) => a.logTimeMs - b.logTimeMs);
+          let lastShownX = -Infinity;
+          return sorted.map(m => {
+            const xNum = xOf(m.logTimeMs);
+            const x = xNum.toFixed(1);
+            const ann = markAnnotations
+              ? markAnnotations[String(m.value) + ':' + String(m.logTimeMs)]
+              : null;
+            const titleText = m.label + (ann && ann.name ? ' — ' + ann.name : '');
+            const showLabel = xNum - lastShownX >= MIN_LABEL_PX;
+            if (showLabel) lastShownX = xNum;
+            return html`
+              <line x1=${x} y1=${CLIP_LANE_H} x2=${x} y2=${H}
+                    stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55">
+                <title>${titleText}</title>
+              </line>
+              ${showLabel && html`
+                <text x=${(xNum + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
+                      fill="#7dd3fc" font-size="10" font-family="monospace">
+                  ${m.label}
+                  <title>${titleText}</title>
+                </text>`}`;
+          });
+        })()}
         ${sync && Number.isFinite(sync.logTakeoffMs) && html`
           <line x1=${xOf(sync.logTakeoffMs).toFixed(1)} y1="0"
                 x2=${xOf(sync.logTakeoffMs).toFixed(1)} y2=${H}

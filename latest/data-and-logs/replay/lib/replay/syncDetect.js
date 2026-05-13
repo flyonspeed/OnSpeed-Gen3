@@ -3,55 +3,16 @@
 // We need ONE clean tick the pilot can also spot in the video, so the
 // video and log clocks line up. The auto-detect provides a good
 // initial guess; the pilot fine-tunes via the nudge buttons or
-// Pause/Attach. Two candidate events:
+// Pause/Attach.
 //
-//   1. **First rotation** (default). VSI-positive after IAS-alive —
-//      the unambiguous moment the wheels release. Happens within
-//      seconds of takeoff on every flight. Wide-spread enough to
-//      auto-detect reliably; close-enough-to-truth that nudging by
-//      a few seconds gets it dead-on.
+// Detection target: **first rotation**. VSI-positive after IAS-alive —
+// the unambiguous moment the wheels release. Happens within seconds of
+// takeoff on every flight. Wide-spread enough to auto-detect reliably;
+// close-enough-to-truth that nudging by a few seconds gets it dead-on.
 //
-//   2. **First crosswind turn** (fallback). For log excerpts that
-//      start mid-flight or skip rotation. Sharp roll-step at IAS
-//      ≥ 30 kt is unambiguous in the video too.
-//
-// Returns a row index into the log, or -1 if neither stage matches.
+// Returns a row index into the log, or -1 if no rotation found.
 
-const CROSSWIND_BANK_DEG = 20;     // first |roll| ≥ this counts as a turn
-const CROSSWIND_SUSTAIN_ROWS = 25; // ~ 0.5 s at 50 Hz; keeps brief bumps from triggering
-
-// Detect the first crosswind turn — first row where |roll| stays
-// ≥ CROSSWIND_BANK_DEG for at least CROSSWIND_SUSTAIN_ROWS rows.
-// Returns the row index of the *first* row of the sustained-bank
-// run (the moment the airplane started turning), or -1.
-//
-// We require IAS to also be alive (≥ 30 kt) before counting bank,
-// so a ground-handling roll (e.g. taxi over a bumpy ramp) doesn't
-// false-trigger.
-export function detectFirstCrosswindTurn(log) {
-  const N = log.Length;
-  if (N < 50 || !log.Roll || !log.IAS || !log.timeStamp) return -1;
-
-  let sustained = 0;
-  let runStart  = -1;
-  for (let i = 0; i < N; i++) {
-    const r = log.Roll[i];
-    const v = log.IAS[i];
-    if (Number.isFinite(r) && Number.isFinite(v)
-        && v >= 30
-        && Math.abs(r) >= CROSSWIND_BANK_DEG) {
-      if (sustained === 0) runStart = i;
-      sustained++;
-      if (sustained >= CROSSWIND_SUSTAIN_ROWS) return runStart;
-    } else {
-      sustained = 0;
-      runStart = -1;
-    }
-  }
-  return -1;
-}
-
-// Fallback: detect rotation via IAS+VSI heuristic.
+// Detect rotation via IAS+VSI heuristic.
 //   1. Find the first row where IAS >= 30 kt (well above pitot deadband).
 //   2. From there, scan forward for the first sustained VSI > 200 fpm
 //      with VSI staying positive for at least 1 s.
@@ -98,29 +59,6 @@ export function detectRotation(log) {
   }
 
   return rotationRow;
-}
-
-// Default detector: rotation first (the unambiguous moment the
-// wheels release — VSI-positive after IAS-alive happens within
-// seconds of takeoff every flight). Crosswind turn is a fallback
-// for log excerpts that start mid-flight or otherwise don't
-// contain a rotation event. Pilots fine-tune the rotation guess
-// using the nudge buttons + Pause/Attach UI.
-//
-// Returns { row, kind } where kind is 'rotation' | 'crosswind' or
-// 'none' when no anchor was found.
-export function detectTakeoff(log) {
-  const rot = detectRotation(log);
-  if (rot >= 0) return rot;
-  return detectFirstCrosswindTurn(log);
-}
-
-export function detectTakeoffWithKind(log) {
-  const rot = detectRotation(log);
-  if (rot >= 0) return { row: rot, kind: 'rotation' };
-  const cw = detectFirstCrosswindTurn(log);
-  if (cw >= 0) return { row: cw, kind: 'crosswind' };
-  return { row: -1, kind: 'none' };
 }
 
 // Build a "downsampled-for-plotting" view of the log. For a 30-min
