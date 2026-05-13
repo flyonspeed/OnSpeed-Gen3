@@ -161,8 +161,8 @@ function test(name, fn) {
 // Minimal M5State subset that HudOverlay reads.
 function makeState(overrides = {}) {
   return Object.freeze({
-    displayIAS:         80,
-    displayPalt:      3000,
+    IAS:         80,
+    Palt:      3000,
     Pitch:               0,
     Roll:                0,
     FlightPath:          0,
@@ -194,11 +194,11 @@ test('HudOverlay renders logo, ALT tape, IAS tape, ADI widgets, slip ball, VVI',
   }
 });
 
-test('IAS tape shows stationary tens digit derived from displayIAS', () => {
-  // For displayIAS=113 the stationary "hundreds+tens" digits in the
+test('IAS tape shows stationary tens digit derived from IAS', () => {
+  // For IAS=113 the stationary "hundreds+tens" digits in the
   // Garmin box are floor(113/10) = "11"; sliding ones = "3".
   const root = renderInto(
-    html`<${HudOverlay} state=${makeState({ displayIAS: 113 })} />`);
+    html`<${HudOverlay} state=${makeState({ IAS: 113 })} />`);
   const tape = findFirstWithAttr(root, 'data-widget', 'hud-ias-tape');
   if (!tape) throw new Error('hud-ias-tape not found');
   const texts = findAllByLocalName(tape, 'text');
@@ -259,11 +259,11 @@ test('FPM stays on raw pitch (pitchOffsetDeg does not move it)', () => {
   }
 });
 
-test('ALT tape shows hundreds digit derived from displayPalt', () => {
-  // For displayPalt=6143 the hundreds digit shown in the Garmin box
+test('ALT tape shows hundreds digit derived from Palt', () => {
+  // For Palt=6143 the hundreds digit shown in the Garmin box
   // is floor(6143/100) = "61".
   const root = renderInto(
-    html`<${HudOverlay} state=${makeState({ displayPalt: 6143 })} />`);
+    html`<${HudOverlay} state=${makeState({ Palt: 6143 })} />`);
   const tape = findFirstWithAttr(root, 'data-widget', 'hud-alt-tape');
   if (!tape) throw new Error('hud-alt-tape not found');
   const texts = findAllByLocalName(tape, 'text');
@@ -280,7 +280,7 @@ test('ALT tape shows hundreds digit derived from displayPalt', () => {
 
 test('ALT tape baro reads "29.92in"', () => {
   const root = renderInto(
-    html`<${HudOverlay} state=${makeState({ displayPalt: 3000 })} />`);
+    html`<${HudOverlay} state=${makeState({ Palt: 3000 })} />`);
   const tape = findFirstWithAttr(root, 'data-widget', 'hud-alt-tape');
   if (!tape) throw new Error('hud-alt-tape not found');
   const texts = findAllByLocalName(tape, 'text');
@@ -310,9 +310,9 @@ test('VVI numeric only renders above HUD_VVI_THRESHOLD', () => {
 test('Snapshot: canonical states yield distinct ladder transforms', () => {
   const scenarios = [
     { name: 'level',       state: makeState() },
-    { name: 'left30Climb', state: makeState({ Roll: -30, Pitch: 12, FlightPath: 15, displayIAS: 95 }) },
-    { name: 'slippedTurn', state: makeState({ Roll:  20, Pitch:  3, FlightPath:  1, LateralG: -0.12, displayIAS: 75 }) },
-    { name: 'highPitch',   state: makeState({ Pitch: 25, FlightPath: 18, displayIAS: 60, iVSI: -1200 }) },
+    { name: 'left30Climb', state: makeState({ Roll: -30, Pitch: 12, FlightPath: 15, IAS: 95 }) },
+    { name: 'slippedTurn', state: makeState({ Roll:  20, Pitch:  3, FlightPath:  1, LateralG: -0.12, IAS: 75 }) },
+    { name: 'highPitch',   state: makeState({ Pitch: 25, FlightPath: 18, IAS: 60, iVSI: -1200 }) },
   ];
   const out = {};
   for (const { name, state } of scenarios) {

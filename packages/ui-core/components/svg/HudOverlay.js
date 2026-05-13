@@ -30,7 +30,11 @@ import { HudOnSpeedLogo } from './hud/OnSpeedLogo.js';
 
 export const HudOverlay = ({ state, pitchOffsetDeg = 0 }) => {
   if (!state) return null;
-  const altValue = Math.max(0, Math.round(state.displayPalt || 0));
+  // Tapes read the 20 Hz raw IAS / Palt fields rather than the 500 ms
+  // displayIAS / displayPalt snapshots. The tape's scrolling visual
+  // requires sub-second updates to look smooth; the throttled display
+  // fields exist for M5 text readouts where 2 Hz prevents flicker.
+  const altValue = Math.max(0, Math.round(state.Palt || 0));
   const offset = Number.isFinite(pitchOffsetDeg) ? pitchOffsetDeg : 0;
   const pitch = Number.isFinite(state.Pitch) ? state.Pitch : 0;
   const roll  = Number.isFinite(state.Roll)  ? state.Roll  : 0;
@@ -64,7 +68,7 @@ export const HudOverlay = ({ state, pitchOffsetDeg = 0 }) => {
 
         <${HudVviTrend} vsiFpm=${state.iVSI ?? 0} />
         <${HudAltTape}  altitudeFt=${altValue} />
-        <${HudIasTape}  iasKt=${state.displayIAS ?? 0} />
+        <${HudIasTape}  iasKt=${state.IAS ?? 0} />
 
         <${SlipBall} lateralG=${state.LateralG ?? 0}
                      percentLift=${state.PercentLift ?? 0}
