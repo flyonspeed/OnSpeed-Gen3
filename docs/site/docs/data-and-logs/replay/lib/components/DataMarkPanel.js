@@ -22,6 +22,16 @@ import { markKey } from '../replay/journal.js';
 // finds the row saved.
 const SAVE_DEBOUNCE_MS = 500;
 
+const COLLAPSE_KEY = 'replay-marks-collapsed-v1';
+
+function readCollapsed() {
+  try { return localStorage.getItem(COLLAPSE_KEY) === '1'; }
+  catch { return false; }
+}
+function writeCollapsed(v) {
+  try { localStorage.setItem(COLLAPSE_KEY, v ? '1' : '0'); } catch {}
+}
+
 // First-N chars of notes to use as hover-tooltip preview when the row
 // is collapsed. Mirrors a "first paragraph" feel without parsing.
 const NOTES_PREVIEW_LEN = 80;
@@ -168,25 +178,33 @@ export const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
                                 onJump, onClip, onClipToNext,
                                 onPatchAnnotation }) => {
   if (!marks || marks.length === 0) return null;
+  const [collapsed, setCollapsed] = useState(readCollapsed());
+  const toggleCollapsed = () => {
+    setCollapsed(c => { writeCollapsed(!c); return !c; });
+  };
   return html`
-    <div class="replay-marks">
-      <div class="replay-marks-header">
+    <div class="replay-marks${collapsed ? ' is-collapsed' : ''}">
+      <div class="replay-marks-header replay-section-header"
+           onClick=${toggleCollapsed}
+           title=${collapsed ? 'Expand data marks' : 'Collapse data marks'}>
+        <span class="replay-section-disclosure">${collapsed ? '▸' : '▾'}</span>
         <span class="replay-label">Data marks</span>
         <span class="replay-status">${marks.length}</span>
       </div>
-      <div class="replay-marks-list">
-        ${marks.map((m, i) => html`<${MarkRow}
-              key=${markKey(m.value, m.logTimeMs)}
-              mark=${m}
-              annotation=${markAnnotations ? markAnnotations[markKey(m.value, m.logTimeMs)] : null}
-              sync=${sync}
-              disabled=${disabled}
-              videoDuration=${videoDuration}
-              nextMark=${i + 1 < marks.length ? marks[i + 1] : null}
-              onJump=${onJump}
-              onClip=${onClip}
-              onClipToNext=${onClipToNext}
-              onPatch=${onPatchAnnotation} />`)}
-      </div>
+      ${collapsed ? null : html`
+        <div class="replay-marks-list">
+          ${marks.map((m, i) => html`<${MarkRow}
+                key=${markKey(m.value, m.logTimeMs)}
+                mark=${m}
+                annotation=${markAnnotations ? markAnnotations[markKey(m.value, m.logTimeMs)] : null}
+                sync=${sync}
+                disabled=${disabled}
+                videoDuration=${videoDuration}
+                nextMark=${i + 1 < marks.length ? marks[i + 1] : null}
+                onJump=${onJump}
+                onClip=${onClip}
+                onClipToNext=${onClipToNext}
+                onPatch=${onPatchAnnotation} />`)}
+        </div>`}
     </div>`;
 };

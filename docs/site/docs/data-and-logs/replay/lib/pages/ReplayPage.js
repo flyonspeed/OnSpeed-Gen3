@@ -61,7 +61,7 @@ import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers,
          buildClipFromMarkToNextMark, defaultClipLabel, newClipId }
   from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
-import { useReplayJournal } from '../replay/journal.js';
+import { useReplayJournal, markKey } from '../replay/journal.js';
 import { DataMarkPanel } from '../components/DataMarkPanel.js';
 import { reassembleResults } from '../replay/reassemble.js';
 import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
@@ -808,17 +808,23 @@ export const ReplayPage = () => {
   // recent-files banner; we also suppress auto-resume in that case via
   // the `persistence.bannerInfo` gate so the page stays as the pilot
   // left it (manual re-pick).
+  // Auto-resume gates only on autoResumeReady (handles present AND
+  // queryPermission returned 'granted' on all of them). The
+  // recent-files banner dismissal is a separate signal — pilots
+  // dismiss the banner to declutter the page, NOT to opt out of
+  // silent reload. Treating them as one gate strands users who
+  // dismissed the banner once and then never see their files
+  // come back automatically.
   const autoResumedSigRef = useRef('');
   useEffect(() => {
     if (!fileHandleResume.autoResumeReady) return;
-    if (!persistence.bannerInfo) return; // pilot dismissed the recent-files banner
     const handles = fileHandleResume.availableHandles;
     if (!handles) return;
     if (autoResumedSigRef.current === persistence.recentFilesSig) return;
     autoResumedSigRef.current = persistence.recentFilesSig;
     performResumeLoad(handles);
   }, [fileHandleResume.autoResumeReady, fileHandleResume.availableHandles,
-      persistence.bannerInfo, persistence.recentFilesSig, performResumeLoad]);
+      persistence.recentFilesSig, performResumeLoad]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
@@ -1040,8 +1046,15 @@ export const ReplayPage = () => {
       const target = Math.max(0, Math.min(max, cur + dtSec));
       seekToGlobalSec(target);
     };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    // Capture phase so we intercept arrow keys BEFORE the native <video
+    // controls> sees them — otherwise the browser's built-in 5-second
+    // seek-by-arrow eats the keystroke and we never get a chance to
+    // frame-step. The input-passthrough check above still lets typing
+    // in <input>/<textarea>/[contenteditable] reach the native handler
+    // unchanged. Pilots can click anywhere — including the video —
+    // and the arrow keys still frame-step rather than 5-second-skip.
+    document.addEventListener('keydown', onKey, { capture: true });
+    return () => document.removeEventListener('keydown', onKey, { capture: true });
   }, [seekToGlobalSec, currentGlobalSec]);
 
   // Toolbar label for the video pick. Single-chapter (or non-chapter
@@ -1695,9 +1708,21 @@ export const ReplayPage = () => {
   // directly — no sync round-trip needed. The DataMark panel computes
   // `nextMark` from the sorted marks array, so the caller knows up
   // front whether a next-mark exists (button is disabled otherwise).
+  //
+  // Label preference: if the pilot has annotated either mark with a
+  // name, use the names (so "Slow flight → first stall" beats
+  // "mark 17 → mark 18"). Falls back to the firmware values when no
+  // names are set. The clip's name field is editable after creation,
+  // so this is just a smart default.
   const addClipFromMarkToNextMark = (thisMark, nextMark) => {
     if (!thisMark || !nextMark) return;
-    const label = `mark ${thisMark.label} → mark ${nextMark.label}`;
+    const annA = journal.markAnnotations?.[markKey(thisMark.value, thisMark.logTimeMs)];
+    const annB = journal.markAnnotations?.[markKey(nextMark.value, nextMark.logTimeMs)];
+    const nameA = (annA?.name || '').trim();
+    const nameB = (annB?.name || '').trim();
+    const labelA = nameA || `mark ${thisMark.label}`;
+    const labelB = nameB || `mark ${nextMark.label}`;
+    const label = `${labelA} → ${labelB}`;
     const clip = buildClipFromMarkToNextMark(thisMark, nextMark, label);
     if (clip) setClips(prev => [...prev, clip]);
   };
@@ -2124,13 +2149,15 @@ export const ReplayPage = () => {
 
   return html`
       <div class="replay-page">
-        ${fileHandleResume.resumeReady
-          ? html`<${ReplayResumeBanner}
-                    info=${persistence.rawBannerInfo}
-                    onResume=${onResumeClick}
-                    onDismiss=${onResumeDismiss} />`
-          : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
-                                       onDismiss=${persistence.dismissBanner} />`}
+        ${resuming
+          ? null
+          : (fileHandleResume.resumeReady
+              ? html`<${ReplayResumeBanner}
+                        info=${persistence.rawBannerInfo}
+                        onResume=${onResumeClick}
+                        onDismiss=${onResumeDismiss} />`
+              : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
+                                           onDismiss=${persistence.dismissBanner} />`)}
         <header class="replay-toolbar">
           ${fsaSupported ? html`
             <label class="replay-file">
