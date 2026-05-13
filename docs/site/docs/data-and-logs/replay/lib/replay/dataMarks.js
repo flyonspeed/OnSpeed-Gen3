@@ -67,7 +67,13 @@ export function findDataMarks(log) {
         rowIdx:    i,
         logTimeMs: ts,
         value:     v,
-        label:     String(out.length + 1).padStart(2, '0'),
+        // `label` is what the panel shows. Always the firmware-written
+        // DataMark value — same number the pilot saw on their device
+        // and the same number the burned-in overlay renders. Multiple
+        // panel rows may share the same value when the firmware
+        // counter resets and the pilot bumps back to the same number;
+        // distinguish them by their log/video times in the same row.
+        label:     String(v).padStart(2, '0'),
       });
     }
     prev = v;

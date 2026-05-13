@@ -55,10 +55,10 @@ assertEq(
     DataMark:  [0, 0,   5,   0,   7,   0],
   })),
   [
-    { rowIdx: 2, logTimeMs: 200, value: 5, label: '01' },
-    { rowIdx: 4, logTimeMs: 400, value: 7, label: '02' },
+    { rowIdx: 2, logTimeMs: 200, value: 5, label: '05' },
+    { rowIdx: 4, logTimeMs: 400, value: 7, label: '07' },
   ],
-  'clean log: two presses detected with ordinal labels'
+  'clean log: two presses, labels are zero-padded firmware values'
 );
 
 // Garbage rows mixed in (misaligned CSV). Values like 8158 and
@@ -69,8 +69,8 @@ assertEq(
     DataMark:  [0, 8158, 0,  5,   285, 0,   7],   // 8158, 285 = noise
   })),
   [
-    { rowIdx: 3, logTimeMs: 300, value: 5, label: '01' },
-    { rowIdx: 6, logTimeMs: 600, value: 7, label: '02' },
+    { rowIdx: 3, logTimeMs: 300, value: 5, label: '05' },
+    { rowIdx: 6, logTimeMs: 600, value: 7, label: '07' },
   ],
   'garbage values 8158/285 filtered, real presses kept'
 );
@@ -82,7 +82,7 @@ assertEq(
     DataMark:  Float64Array.from([0, NaN, -1,  3]),
     Length:    4,
   }),
-  [{ rowIdx: 3, logTimeMs: 300, value: 3, label: '01' }],
+  [{ rowIdx: 3, logTimeMs: 300, value: 3, label: '03' }],
   'NaN + negative values rejected'
 );
 
@@ -100,7 +100,7 @@ assertEq(
     timeStamp: [50, 100, 200],
     DataMark:  [3,  0,   5],
   })),
-  [{ rowIdx: 2, logTimeMs: 200, value: 5, label: '01' }],
+  [{ rowIdx: 2, logTimeMs: 200, value: 5, label: '05' }],
   'firmware counter pattern: row 0 baseline ignored, 0→5 counts as press'
 );
 
@@ -110,8 +110,8 @@ assertEq(
     timeStamp: [0, 100, 200],
     DataMark:  [3, 0,   5],
   })),
-  [{ rowIdx: 2, logTimeMs: 200, value: 5, label: '01' }],
-  'first row mark with ts=0: rejected, second mark relabeled to 01'
+  [{ rowIdx: 2, logTimeMs: 200, value: 5, label: '05' }],
+  'first row mark with ts=0: rejected, second mark survives'
 );
 
 // Boundary: 99 valid, 100 noise.
@@ -120,7 +120,7 @@ assertEq(
     timeStamp: [0, 100, 200, 300],
     DataMark:  [0, 99,  0,   100],
   })),
-  [{ rowIdx: 1, logTimeMs: 100, value: 99, label: '01' }],
+  [{ rowIdx: 1, logTimeMs: 100, value: 99, label: '99' }],
   'value 99 ok, 100 rejected'
 );
 
@@ -132,7 +132,7 @@ assertEq(
     timeStamp: [0, 100, 200, 0,   400],
     DataMark:  [0, 5,   0,   7,   0],   // row 3 looks like press "7" but ts=0
   })),
-  [{ rowIdx: 1, logTimeMs: 100, value: 5, label: '01' }],
+  [{ rowIdx: 1, logTimeMs: 100, value: 5, label: '05' }],
   'ts=0 mid-log: row rejected even with valid DataMark'
 );
 
@@ -143,7 +143,7 @@ assertEq(
     timeStamp: [0, 1000, 2000, 500, 4000],
     DataMark:  [0, 5,    0,    7,   0],   // row 3 ts=500 < row 1 ts=1000
   })),
-  [{ rowIdx: 1, logTimeMs: 1000, value: 5, label: '01' }],
+  [{ rowIdx: 1, logTimeMs: 1000, value: 5, label: '05' }],
   'backwards ts: row rejected even with valid DataMark'
 );
 
@@ -155,13 +155,13 @@ assertEq(
     DataMark:  [0, 5,   6,   7,   8,   9],
   })),
   [
-    { rowIdx: 1, logTimeMs: 100, value: 5, label: '01' },
-    { rowIdx: 2, logTimeMs: 200, value: 6, label: '02' },
-    { rowIdx: 3, logTimeMs: 300, value: 7, label: '03' },
-    { rowIdx: 4, logTimeMs: 400, value: 8, label: '04' },
-    { rowIdx: 5, logTimeMs: 500, value: 9, label: '05' },
+    { rowIdx: 1, logTimeMs: 100, value: 5, label: '05' },
+    { rowIdx: 2, logTimeMs: 200, value: 6, label: '06' },
+    { rowIdx: 3, logTimeMs: 300, value: 7, label: '07' },
+    { rowIdx: 4, logTimeMs: 400, value: 8, label: '08' },
+    { rowIdx: 5, logTimeMs: 500, value: 9, label: '09' },
   ],
-  'monotonic counter: every forward step is a press'
+  'monotonic counter: every forward step is a press, label = firmware value'
 );
 
 // Backwards jump (N → smaller M) is NOT a press — that's a column
@@ -173,11 +173,27 @@ assertEq(
     DataMark:  [0, 5,   6,   0,   7],   // 6→0 reset, then 0→7 press
   })),
   [
-    { rowIdx: 1, logTimeMs: 100, value: 5, label: '01' },
-    { rowIdx: 2, logTimeMs: 200, value: 6, label: '02' },
-    { rowIdx: 4, logTimeMs: 400, value: 7, label: '03' },
+    { rowIdx: 1, logTimeMs: 100, value: 5, label: '05' },
+    { rowIdx: 2, logTimeMs: 200, value: 6, label: '06' },
+    { rowIdx: 4, logTimeMs: 400, value: 7, label: '07' },
   ],
   'reset to 0 then advance: reset ignored, advance counts'
+);
+
+// Real-world RV-4 signature: pilot presses to 20, column resets to
+// 0, pilot bumps back to 20 — twice in a row. Both presses must show
+// up with label "20" and be jumpable to their distinct log times.
+assertEq(
+  findDataMarks(makeLog({
+    timeStamp: [0,    100,  200,  300,  400,  500],
+    DataMark:  [0,    20,   0,    20,   0,    20],
+  })),
+  [
+    { rowIdx: 1, logTimeMs: 100, value: 20, label: '20' },
+    { rowIdx: 3, logTimeMs: 300, value: 20, label: '20' },
+    { rowIdx: 5, logTimeMs: 500, value: 20, label: '20' },
+  ],
+  'repeated 0→20 presses: each counts, all labeled "20"'
 );
 
 // logMsToVideoSec round-trip.
