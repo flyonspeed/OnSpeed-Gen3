@@ -130,6 +130,17 @@ Re-load the same log months later, your names and notes come back.
 
 ## Keyboard shortcuts
 
-None today. Frame-step (← / →) and play/pause (Space) are tracked
-in issue #63.
-<!-- TODO: frame-step keybindings — issue #63 -->
+The page listens for these keys regardless of which element has focus
+(typing in an `<input>` / `<textarea>` / `[contenteditable]` passes
+through normally, so notes and labels are unaffected):
+
+| Key                  | Action                       |
+|----------------------|------------------------------|
+| `Space`              | Play / pause                 |
+| `←` or `,`           | Step back one frame          |
+| `→` or `.`           | Step forward one frame       |
+| `Shift + ←` / `→`    | Step ten frames              |
+
+Frame size is read from the active video. When the rate can't be
+detected the tool assumes 30 fps. Stepping while playing pauses
+first — single frames don't survive an active play loop.
