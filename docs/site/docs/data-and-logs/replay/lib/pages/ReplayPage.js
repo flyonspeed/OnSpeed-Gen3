@@ -1899,31 +1899,23 @@ export const ReplayPage = () => {
     return svg;
   }, []);
 
-  // renderHudSvg signature: (m5State, rowIdx?) → SVGElement.
+  // renderHudSvg signature: (m5State) → SVGElement.
   // Mirrors renderOverlayForExport but renders the full-frame HUD
   // overlay (HudOverlay) instead of the mode-specific M5 panel.
-  // The rowIdx (optional) lets the HUD pull `efisMagHeading` from
-  // the parsed log so the export shows the same MH the live preview
-  // does. When `showHud` is false this is left null and the export
-  // path skips HUD rendering entirely.
-  const renderHudForExport = useCallback((m5State, rowIdx) => {
+  // When `showHud` is false this is left null and the export path
+  // skips HUD rendering entirely.
+  const renderHudForExport = useCallback((m5State) => {
     const mount = exportHudMountRef.current;
     if (!mount || !m5State) return null;
-    let mh = null;
-    if (log && Number.isFinite(rowIdx) && rowIdx >= 0 && log.efisMagHeading) {
-      const v = log.efisMagHeading[rowIdx];
-      if (Number.isFinite(v) && v >= 0) mh = v;
-    }
     render(html`<${HudOverlay} state=${m5State}
-                                pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0}
-                                magneticHeading=${mh} />`, mount);
+                                pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0} />`, mount);
     const svg = mount.querySelector('svg');
     if (!svg) return null;
     for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
       svg.style.setProperty(k, v);
     }
     return svg;
-  }, [log, journal.hudPitchOffsetDeg]);
+  }, [journal.hudPitchOffsetDeg]);
 
   // Export one clip as MP4. Returns a Blob promise; the page also
   // wires progress + abort state.
@@ -2352,24 +2344,11 @@ export const ReplayPage = () => {
                  rel="noopener">How does this work?</a>
             </div>`}
 
-          ${showHud && m5State && (() => {
-            // Resolve the current log row from the same video↔log
-            // mapping the indexer uses, so the live HUD's MH box
-            // reads the same efisMagHeading the export does.
-            const tMs = Number.isFinite(pausedLogMs)
-              ? pausedLogMs
-              : (syncReady ? videoToLogMs(videoT, sync) : null);
-            const liveRow = (log && Number.isFinite(tMs))
-              ? findRowAt(log, tMs) : -1;
-            const liveMh = (liveRow >= 0 && log && log.efisMagHeading)
-              ? log.efisMagHeading[liveRow] : null;
-            return html`
-              <div class="replay-hud">
-                <${HudOverlay} state=${m5State}
-                                pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0}
-                                magneticHeading=${Number.isFinite(liveMh) && liveMh >= 0 ? liveMh : null} />
-              </div>`;
-          })()}
+          ${showHud && m5State && html`
+            <div class="replay-hud">
+              <${HudOverlay} state=${m5State}
+                              pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0} />
+            </div>`}
 
           ${overlayVisible && m5State && (() => {
             // Render one panel per active slot. Each slot may carry a

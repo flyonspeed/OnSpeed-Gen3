@@ -1,12 +1,12 @@
 // HudOverlay.js — full-frame HUD as a pure render layer.
 //
 // FlySto-style attitude indicator rendered directly at 1920x1080:
-// pitch ladder + bank arc + flight-path marker, no airspeed/altimeter
-// tapes. Around the central ADI:
-//   - Three top boxed readouts (IAS / MH / PALT). MH is only rendered
-//     when the caller passes a finite magneticHeading prop (logs that
-//     don't carry efisMagHeading get no MH box).
-//   - A right-side VVI trend bar (HudVviTrend).
+// pitch ladder + bank arc + flight-path marker. Around the central
+// ADI:
+//   - OnSpeed logo top-left.
+//   - Right-side VVI trend bar (HudVviTrend).
+//   - Right-side FlySto-style ALT tape with a Garmin readout box
+//     anchored on the tape centerline (HudAltTape).
 //   - The existing SlipBall at bottom-center.
 //
 // `pitchOffsetDeg` is a per-flight camera-misalignment compensator —
@@ -20,26 +20,20 @@
 import { html } from '../../vendor/preact-standalone.js';
 import * as H from '../../core/hudGeometry.js';
 import { SlipBall } from './index.js';
-import { HudTopReadout } from './hud/TopReadout.js';
 import { HudVviTrend } from './hud/VviTrend.js';
+import { HudAltTape } from './hud/AltTape.js';
 import { HudPitchLadder } from './hud/PitchLadder.js';
 import { HudBankArc } from './hud/BankArc.js';
 import { HudFpm } from './hud/Fpm.js';
+import { HudOnSpeedLogo } from './hud/OnSpeedLogo.js';
 
-// MH is rendered as a zero-padded 3-digit value (0..359) so a magnetic
-// heading of 7° reads "007" — same convention as a panel HSI.
-const pad3 = (n) => String(((Math.round(n) % 360) + 360) % 360).padStart(3, '0');
-
-export const HudOverlay = ({ state, pitchOffsetDeg = 0, magneticHeading = null }) => {
+export const HudOverlay = ({ state, pitchOffsetDeg = 0 }) => {
   if (!state) return null;
-  const aoaIsValid = state.IasIsValid !== false;
-  const iasValue = aoaIsValid ? Math.max(0, Math.round(state.displayIAS || 0)) : '---';
   const altValue = Math.max(0, Math.round(state.displayPalt || 0));
   const offset = Number.isFinite(pitchOffsetDeg) ? pitchOffsetDeg : 0;
   const pitch = Number.isFinite(state.Pitch) ? state.Pitch : 0;
   const roll  = Number.isFinite(state.Roll)  ? state.Roll  : 0;
   const fpDeg = Number.isFinite(state.FlightPath) ? state.FlightPath : pitch;
-  const showMh = Number.isFinite(magneticHeading);
 
   // Inline drop-shadow filter so the rasterized MP4 export gets the
   // same legibility halo as the live page. replay.css applies a CSS
@@ -61,19 +55,14 @@ export const HudOverlay = ({ state, pitchOffsetDeg = 0, magneticHeading = null }
         </filter>
       </defs>
       <g filter="url(#hud-shadow)">
-        <${HudTopReadout} label="IAS"  value=${iasValue}
-                          x=${H.HUD_TOP_LEFT_X}   y=${H.HUD_TOP_Y} />
-        ${showMh && html`
-          <${HudTopReadout} label="MH" value=${pad3(magneticHeading)}
-                            x=${H.HUD_TOP_CENTER_X} y=${H.HUD_TOP_Y} />`}
-        <${HudTopReadout} label="PALT" value=${altValue}
-                          x=${H.HUD_TOP_RIGHT_X}  y=${H.HUD_TOP_Y} />
+        <${HudOnSpeedLogo} />
 
         <${HudPitchLadder} pitchDeg=${pitch + offset} rollDeg=${roll} />
         <${HudBankArc}     rollDeg=${roll} />
         <${HudFpm}         pitchDeg=${pitch} flightPathDeg=${fpDeg} />
 
         <${HudVviTrend} vsiFpm=${state.iVSI ?? 0} />
+        <${HudAltTape}  altitudeFt=${altValue} />
 
         <${SlipBall} lateralG=${state.LateralG ?? 0}
                      percentLift=${state.PercentLift ?? 0}

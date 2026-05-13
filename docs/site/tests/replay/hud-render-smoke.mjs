@@ -3,11 +3,10 @@
 // move as expected. Lifts the mock-DOM + harness pattern from
 // m5modes-render-smoke.mjs.
 //
-// The HUD composes three dedicated widgets (HudPitchLadder, HudBankArc,
-// HudFpm) on top of the top readouts + VVI trend + slip ball. These
-// tests assert each widget renders, that pitchOffsetDeg shifts the
-// pitch ladder but NOT the FPM, and that the optional MH box obeys
-// the magneticHeading prop.
+// The HUD composes the OnSpeed logo, pitch ladder, bank arc, FPM,
+// VVI trend, ALT tape, and slip ball. These tests assert each widget
+// renders, that pitchOffsetDeg shifts the pitch ladder but NOT the
+// FPM, and that the ALT tape responds to altitude changes.
 //
 // Run:
 //   node docs/site/tests/replay/hud-render-smoke.mjs
@@ -180,14 +179,14 @@ function makeState(overrides = {}) {
 // Tests
 // ---------------------------------------------------------------------
 
-test('HudOverlay renders top readouts, ADI widgets, slip ball, VVI', () => {
+test('HudOverlay renders logo, ALT tape, ADI widgets, slip ball, VVI', () => {
   // VVI threshold is 100 fpm; bump iVSI so the widget renders.
   const root = renderInto(
     html`<${HudOverlay} state=${makeState({ iVSI: 800 })} />`);
   const required = [
-    'hud-top-ias', 'hud-top-palt',
+    'hud-onspeed-logo',
     'hud-pitch-ladder', 'hud-bank-arc', 'hud-fpm',
-    'slip', 'hud-vvi',
+    'slip', 'hud-vvi', 'hud-alt-tape',
   ];
   for (const widget of required) {
     if (!findFirstWithAttr(root, 'data-widget', widget))
@@ -197,30 +196,10 @@ test('HudOverlay renders top readouts, ADI widgets, slip ball, VVI', () => {
 
 test('HudOverlay returns null for missing state', () => {
   const root = renderInto(html`<${HudOverlay} state=${null} />`);
-  if (findFirstWithAttr(root, 'data-widget', 'hud-top-ias'))
+  if (findFirstWithAttr(root, 'data-widget', 'hud-alt-tape'))
     throw new Error('HudOverlay should render nothing when state is null');
-});
-
-test('MH box renders when magneticHeading is provided', () => {
-  const withMh = renderInto(
-    html`<${HudOverlay} state=${makeState()} magneticHeading=${137} />`);
-  if (!findFirstWithAttr(withMh, 'data-widget', 'hud-top-mh')) {
-    throw new Error('hud-top-mh missing when magneticHeading set');
-  }
-  // Zero-padded to three digits.
-  const mh = findFirstWithAttr(withMh, 'data-widget', 'hud-top-mh');
-  const texts = findAllByLocalName(mh, 'text');
-  const joined = texts.flatMap(t => t.childNodes.map(c => c.data || '')).join('|');
-  if (!joined.includes('137')) {
-    throw new Error(`MH box should display "137"; got ${joined}`);
-  }
-});
-
-test('MH box hidden when magneticHeading is null', () => {
-  const noMh = renderInto(html`<${HudOverlay} state=${makeState()} />`);
-  if (findFirstWithAttr(noMh, 'data-widget', 'hud-top-mh')) {
-    throw new Error('hud-top-mh should not render without magneticHeading');
-  }
+  if (findFirstWithAttr(root, 'data-widget', 'hud-onspeed-logo'))
+    throw new Error('HudOverlay should render nothing when state is null');
 });
 
 test('pitchOffsetDeg shifts the pitch ladder transform', () => {
@@ -263,26 +242,34 @@ test('FPM stays on raw pitch (pitchOffsetDeg does not move it)', () => {
   }
 });
 
-test('IAS value renders in the IAS box', () => {
+test('ALT tape shows hundreds digit derived from displayPalt', () => {
+  // For displayPalt=6143 the hundreds digit shown in the Garmin box
+  // is floor(6143/100) = "61".
   const root = renderInto(
-    html`<${HudOverlay} state=${makeState({ displayIAS: 87 })} />`);
-  const ias = findFirstWithAttr(root, 'data-widget', 'hud-top-ias');
-  if (!ias) throw new Error('hud-top-ias missing');
-  const texts = findAllByLocalName(ias, 'text');
+    html`<${HudOverlay} state=${makeState({ displayPalt: 6143 })} />`);
+  const tape = findFirstWithAttr(root, 'data-widget', 'hud-alt-tape');
+  if (!tape) throw new Error('hud-alt-tape not found');
+  const texts = findAllByLocalName(tape, 'text');
   const joined = texts.flatMap(t => t.childNodes.map(c => c.data || '')).join('|');
-  if (!joined.includes('87')) {
-    throw new Error(`IAS box value "87" not found; got ${joined}`);
+  if (!joined.includes('61')) {
+    throw new Error(`ALT tape should show hundreds "61"; got ${joined}`);
+  }
+  // Tens (rounded down to nearest 20): 6143 → nearest20Below=6140,
+  // tensCurr = 40 → "40".
+  if (!joined.includes('40')) {
+    throw new Error(`ALT tape should show tensCurr "40"; got ${joined}`);
   }
 });
 
-test('IAS shows dashes when IasIsValid is false', () => {
+test('ALT tape baro reads "29.92in"', () => {
   const root = renderInto(
-    html`<${HudOverlay} state=${makeState({ IasIsValid: false })} />`);
-  const ias = findFirstWithAttr(root, 'data-widget', 'hud-top-ias');
-  const texts = findAllByLocalName(ias, 'text');
+    html`<${HudOverlay} state=${makeState({ displayPalt: 3000 })} />`);
+  const tape = findFirstWithAttr(root, 'data-widget', 'hud-alt-tape');
+  if (!tape) throw new Error('hud-alt-tape not found');
+  const texts = findAllByLocalName(tape, 'text');
   const joined = texts.flatMap(t => t.childNodes.map(c => c.data || '')).join('|');
-  if (!joined.includes('---')) {
-    throw new Error('IAS box should show "---" when IasIsValid is false');
+  if (!joined.includes('29.92in')) {
+    throw new Error(`ALT tape should show "29.92in"; got ${joined}`);
   }
 });
 

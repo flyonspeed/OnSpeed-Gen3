@@ -1,10 +1,12 @@
 // hudGeometry.js — layout constants for the full-frame HUD overlay.
 //
 // FlySto-style attitude indicator (pitch ladder + bank arc + FPM)
-// rendered directly at 1920x1080, plus three top boxed readouts
-// (IAS / MH / PALT), a right-side VVI trend bar, and the slip ball
-// at bottom center. No airspeed/altimeter tapes — the top readouts
-// carry those values.
+// rendered directly at 1920x1080. Around the central ADI:
+//   - OnSpeed logo top-left
+//   - Right-side VVI trend bar
+//   - Right-side ALT tape with Garmin-style readout box, centered on
+//     the VVI centerline so the two right-side gauges sit paired
+//   - SlipBall at bottom-center
 //
 // SVG scales via preserveAspectRatio="xMidYMid meet" so the elements
 // stay anchored to the cockpit view across aspect ratios.
@@ -19,22 +21,19 @@ export const HUD_CX = HUD_W / 2;  // 960
 export const HUD_CY = HUD_H / 2;  // 540
 
 // ---------------------------------------------------------------------
-// Top readouts (IAS / MH / PALT)
+// OnSpeed logo (top-left)
 // ---------------------------------------------------------------------
-// Three boxed text boxes along the top. Black-fill rounded rect with
-// white border; label small + value large. MH is hidden when the log
-// doesn't carry efisMagHeading.
+// White-stroked rendering of the OnSpeed mark. Source viewBox is
+// 612x792 (portrait, aspect 0.773). Sized to match the visual weight
+// of the other top-edge elements without crowding the pitch ladder.
 
-export const HUD_TOP_Y               = 40;
-export const HUD_TOP_BOX_W           = 140;
-export const HUD_TOP_BOX_H           = 90;
-export const HUD_TOP_LABEL_FONT_SIZE = 24;
-export const HUD_TOP_VALUE_FONT_SIZE = 44;
-export const HUD_TOP_LABEL_PAD_X     = 18;
-export const HUD_TOP_VALUE_PAD_X     = 18;
-export const HUD_TOP_LEFT_X          = 20;                          // IAS — pinned to frame
-export const HUD_TOP_CENTER_X        = HUD_CX - HUD_TOP_BOX_W / 2;  // MH
-export const HUD_TOP_RIGHT_X         = HUD_W - 20 - HUD_TOP_BOX_W;  // PALT — pinned to frame
+// Logo is rendered into a square frame; the source paths occupy a
+// roughly square sub-region of the original portrait viewBox, and we
+// crop to that region in OnSpeedLogo.js.
+export const HUD_LOGO_X    = 40;
+export const HUD_LOGO_Y    = 40;
+export const HUD_LOGO_W    = 180;
+export const HUD_LOGO_H    = 180;
 
 // ---------------------------------------------------------------------
 // Pitch ladder (yellow ticks at +/-10/+/-20/+/-30, white horizon line)
@@ -45,7 +44,7 @@ export const HUD_TOP_RIGHT_X         = HUD_W - 20 - HUD_TOP_BOX_W;  // PALT — 
 // rotates with -roll and translates with pitch — classic ADI.
 
 export const HUD_PITCH_PX_PER_DEG     = 18;
-export const HUD_HORIZON_HALF_W       = 400;  // shorter than full frame; horizon stops well before the IAS/PALT corner boxes
+export const HUD_HORIZON_HALF_W       = 400;  // shorter than full frame; horizon stops well before the right-side gauges
 export const HUD_PITCH_TICK_HALF_W    = 110;
 export const HUD_HORIZON_STROKE       = 4;
 export const HUD_PITCH_TICK_STROKE    = 4;
@@ -110,20 +109,20 @@ export const HUD_BANK_ARC_COLOR     = 'var(--white)';
 export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 
 // ---------------------------------------------------------------------
-// VVI trend bar (right side)
+// VVI trend bar (right side, inboard of the ALT tape)
 // ---------------------------------------------------------------------
-// Centerline at HUD vertical center; bar extends up for climb and down
-// for descent. Ticks at +/-1000 and +/-2000 fpm. Numeric label when
-// |VVI| exceeds HUD_VVI_THRESHOLD fpm; bar hidden below
-// HUD_VVI_BAR_THRESHOLD fpm so the gauge sits still at idle.
+// Centerline at HUD_VVI_CY shared with the ALT tape; bar extends up
+// for climb and down for descent. Ticks at +/-1000 and +/-2000 fpm.
+// Numeric label when |VVI| exceeds HUD_VVI_THRESHOLD; bar hidden below
+// HUD_VVI_BAR_THRESHOLD so the gauge sits still at idle. The VVI sits
+// inboard of the ALT tape; the value label renders to the LEFT of the
+// bar so it doesn't collide with the tape.
 
-export const HUD_VVI_X               = HUD_W - 200;
-// VVI centerline shifted up so the LOWER end of the bar clears the
-// bottom-right inset slot. Per overlayPlacement the inset's top edge
-// sits at roughly y = H − 0.030*H − 0.165*W ≈ 1080 − 32 − 317 ≈ 731.
-// With HUD_VVI_HALF_H = 220 a centerline at y = 480 puts the bottom
-// of the bar at y = 700, ~30 px clear of the inset. If the inset size
-// changes (overlayPlacement), revisit this so the bar still clears.
+export const HUD_VVI_X               = 1620;
+// VVI centerline matches the ALT tape so the two right-side gauges
+// share a horizontal axis. With HUD_VVI_HALF_H = 220 a centerline at
+// y = 480 puts the bar bottom at y = 700, ~30 px clear of the
+// bottom-right inset slot (top at y ≈ 731 per overlayPlacement).
 export const HUD_VVI_CY              = 480;
 export const HUD_VVI_HALF_H          = 220;
 export const HUD_VVI_FULL_SCALE_FPM  = 2000;
@@ -131,6 +130,57 @@ export const HUD_VVI_BAR_THRESHOLD   = 50;
 export const HUD_VVI_THRESHOLD       = 100;
 export const HUD_VVI_TICK_FONT_SIZE  = 20;
 export const HUD_VVI_VALUE_FONT_SIZE = 36;
+
+// ---------------------------------------------------------------------
+// ALT tape (right side, outboard of the VVI)
+// ---------------------------------------------------------------------
+// FlySto-style altimeter: a vertical stack of horizontal tick lines
+// (every 20 ft) with numeric labels at every 100 ft. The tape scrolls
+// vertically so the current altitude sits on the centerline. A Garmin-
+// style readout box anchored on the left edge of the tape shows the
+// current altitude — stationary thousands+hundreds digits beside a
+// sliding tens strip clipped to the box. Below the tape, a static
+// "29.92in" baro setting (the log doesn't carry baro).
+//
+// Geometry chosen to match the VVI centerline + half-height so the two
+// right-side gauges pair visually. Tape sits outboard of the VVI.
+
+export const HUD_ALT_CY              = HUD_VVI_CY;   // 480
+export const HUD_ALT_HALF_H          = HUD_VVI_HALF_H; // 220
+// X is the LEFT edge of the tick lines. Short ticks extend to
+// HUD_ALT_X + HUD_ALT_TICK_SHORT; long ticks to HUD_ALT_X + HUD_ALT_TICK_LONG.
+export const HUD_ALT_X               = 1820;
+export const HUD_ALT_TICK_SHORT      = 14;   // every 20 ft
+export const HUD_ALT_TICK_LONG       = 28;   // every 100 ft
+export const HUD_ALT_TICK_STROKE     = 2;
+// 75 px per 100 ft → 15 px per 20 ft. 30 ticks (-300..+300 ft from
+// current altitude) span 450 px, slightly more than HUD_ALT_HALF_H*2;
+// extra ticks scroll off the top/bottom edges.
+export const HUD_ALT_PX_PER_100_FT   = 75;
+export const HUD_ALT_PX_PER_20_FT    = HUD_ALT_PX_PER_100_FT / 5;   // 15
+export const HUD_ALT_LABEL_FONT_SIZE = 22;
+export const HUD_ALT_LABEL_OFFSET_X  = 8;    // gap from end of long tick to label
+// Tens-strip slide per 20 ft of altitude change. Matches the slide
+// rate FlySto uses (proportional to the tape's 100-ft pitch).
+export const HUD_ALT_TENS_SLIDE_PX   = HUD_ALT_PX_PER_20_FT * 2;     // 30, mirrors FlySto's 30.7
+// Garmin-style readout box, immediately LEFT of the tape's left edge.
+// Arrow tab points RIGHT into the tape's centerline.
+export const HUD_ALT_BOX_W           = 130;
+export const HUD_ALT_BOX_H           = 56;
+export const HUD_ALT_BOX_ARROW_W     = 12;   // arrow-tab depth
+// Box rendering anchors:
+//   - The arrow tip touches HUD_ALT_X at HUD_ALT_CY.
+//   - The box body extends left from (HUD_ALT_X - HUD_ALT_BOX_ARROW_W)
+//     by HUD_ALT_BOX_W.
+export const HUD_ALT_BOX_RIGHT       = HUD_ALT_X - HUD_ALT_BOX_ARROW_W;
+export const HUD_ALT_BOX_LEFT        = HUD_ALT_BOX_RIGHT - HUD_ALT_BOX_W;
+export const HUD_ALT_BOX_TOP         = HUD_ALT_CY - HUD_ALT_BOX_H / 2;
+export const HUD_ALT_BOX_BOTTOM      = HUD_ALT_CY + HUD_ALT_BOX_H / 2;
+export const HUD_ALT_BOX_FONT_SIZE   = 30;
+export const HUD_ALT_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
+// "29.92in" baro static text — below the bottom of the tape.
+export const HUD_ALT_BARO_Y          = HUD_ALT_CY + HUD_ALT_HALF_H + 38;
+export const HUD_ALT_BARO_FONT_SIZE  = 22;
 
 // ---------------------------------------------------------------------
 // Slip ball (bottom center)
@@ -142,10 +192,3 @@ export const HUD_SLIP_W = 480;
 export const HUD_SLIP_H = 60;
 export const HUD_SLIP_X = HUD_CX - HUD_SLIP_W / 2;
 export const HUD_SLIP_Y = HUD_H - 120;
-
-// ---------------------------------------------------------------------
-// Top-readout box fill
-// ---------------------------------------------------------------------
-// Black box fill and white outline for the top readouts.
-
-export const HUD_BOX_FILL = 'rgba(0, 0, 0, 0.72)';
