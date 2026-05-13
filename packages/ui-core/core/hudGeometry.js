@@ -115,8 +115,9 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // for climb and down for descent. Ticks at +/-1000 and +/-2000 fpm.
 // Numeric label when |VVI| exceeds HUD_VVI_THRESHOLD; bar hidden below
 // HUD_VVI_BAR_THRESHOLD so the gauge sits still at idle. The VVI sits
-// inboard of the ALT tape; the value label renders to the LEFT of the
-// bar so it doesn't collide with the tape.
+// inboard of the ALT tape; the value label renders to the RIGHT of the
+// bar (the ALT readout box sits ON the tape column further outboard,
+// so there's clear space immediately right of the VVI for the numeric).
 
 export const HUD_VVI_X               = 1620;
 // VVI centerline matches the ALT tape so the two right-side gauges
@@ -163,17 +164,27 @@ export const HUD_ALT_LABEL_OFFSET_X  = 8;    // gap from end of long tick to lab
 // Tens-strip slide per 20 ft of altitude change. Matches the slide
 // rate FlySto uses (proportional to the tape's 100-ft pitch).
 export const HUD_ALT_TENS_SLIDE_PX   = HUD_ALT_PX_PER_20_FT * 2;     // 30, mirrors FlySto's 30.7
-// Garmin-style readout box, immediately LEFT of the tape's left edge.
-// Arrow tab points RIGHT into the tape's centerline.
+// Garmin-style readout box, CENTERED ON the tape's tick column. The
+// box body's left wall sits ~6 px right of the tape's left tick stem;
+// an arrow tab notches LEFT from the box left wall, with the tip
+// landing ~2 px LEFT of the tape's left tick stem (notching INTO the
+// tick column toward the tape's centerline). The box extends well
+// past the tape's right edge so the digits clear the tick labels.
+//
+// FlySto reference: tape-rect x=1288 w=86 (right 1374), ALT-box-rect
+// x=1286 w=102 (right 1388). Box left ≈ tape left; box extends ~14 px
+// past tape right; arrow tip at x=886 = 2 px past tape left at x=888.
 export const HUD_ALT_BOX_W           = 130;
 export const HUD_ALT_BOX_H           = 56;
-export const HUD_ALT_BOX_ARROW_W     = 12;   // arrow-tab depth
+export const HUD_ALT_BOX_ARROW_W     = 8;    // arrow-tab depth (notch into tick column)
 // Box rendering anchors:
-//   - The arrow tip touches HUD_ALT_X at HUD_ALT_CY.
-//   - The box body extends left from (HUD_ALT_X - HUD_ALT_BOX_ARROW_W)
-//     by HUD_ALT_BOX_W.
-export const HUD_ALT_BOX_RIGHT       = HUD_ALT_X - HUD_ALT_BOX_ARROW_W;
-export const HUD_ALT_BOX_LEFT        = HUD_ALT_BOX_RIGHT - HUD_ALT_BOX_W;
+//   - Box body left wall at HUD_ALT_X + 6 (6 px right of left tick stem).
+//   - Arrow tip at HUD_ALT_X - 2 (2 px left of left tick stem),
+//     at HUD_ALT_CY.
+//   - Box extends HUD_ALT_BOX_W to the right of the left wall.
+export const HUD_ALT_BOX_LEFT        = HUD_ALT_X + 6;
+export const HUD_ALT_BOX_RIGHT       = HUD_ALT_BOX_LEFT + HUD_ALT_BOX_W;
+export const HUD_ALT_BOX_ARROW_TIP_X = HUD_ALT_X - 2;
 export const HUD_ALT_BOX_TOP         = HUD_ALT_CY - HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_BOTTOM      = HUD_ALT_CY + HUD_ALT_BOX_H / 2;
 export const HUD_ALT_BOX_FONT_SIZE   = 30;

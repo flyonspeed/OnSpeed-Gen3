@@ -43,11 +43,11 @@ export const HudVviTrend = ({ vsiFpm = 0 }) => {
               stroke="var(--yellow)" stroke-width="8"
               stroke-linecap="butt" />`}
       ${Math.abs(vsiFpm) >= H.HUD_VVI_THRESHOLD && html`
-        <text x=${cx - 16} y=${barY2}
+        <text x=${cx + 50} y=${barY2}
               font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
               font-weight="bold"
               font-size=${H.HUD_VVI_VALUE_FONT_SIZE}
               fill="var(--white)"
-              text-anchor="end" dominant-baseline="central">${(vsiFpm > 0 ? '+' : '') + Math.round(vsiFpm / 10) * 10}</text>`}
+              text-anchor="start" dominant-baseline="central">${(vsiFpm > 0 ? '+' : '') + Math.round(vsiFpm / 10) * 10}</text>`}
     </g>`;
 };

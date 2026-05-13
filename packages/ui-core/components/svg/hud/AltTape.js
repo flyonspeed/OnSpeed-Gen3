@@ -2,10 +2,12 @@
 //
 // Vertical stack of horizontal tick marks (every 20 ft) labeled every
 // 100 ft, scrolling so the current altitude sits on the centerline.
-// To the left, a Garmin-style readout box: stationary
-// thousands+hundreds digits alongside a sliding tens strip clipped
-// to the box. Below the tape, a static "29.92in" baro setting (the
-// log doesn't carry baro).
+// CENTERED ON the tape (overlapping the tick column), a Garmin-style
+// readout box: stationary thousands+hundreds digits alongside a sliding
+// tens strip clipped to the box. The arrow tab on the box's LEFT side
+// notches LEFT into the tick column, tip landing 2 px past the left
+// tick stem. Below the tape, a static "29.92in" baro setting (the log
+// doesn't carry baro).
 //
 // Geometry comes from hudGeometry.js (HUD_ALT_*). The clipPath id is
 // hardcoded to "hud-alt-readout-clip" — only one HudAltTape per SVG.
@@ -15,15 +17,15 @@ import * as H from '../../../core/hudGeometry.js';
 
 // Box outline path + clip path share the exact same geometry so the
 // sliding tens digits never spill past the rounded corners. The arrow
-// tab sits on the right side and points into the tape's centerline.
+// tab sits on the LEFT side and points LEFT into the tape's tick
+// column (the tape's centerline runs through the column where the box
+// left wall sits, so the arrow tip notches inboard toward the ticks).
 //
-//   topL ────────────── topR
-//    │                    │
-//    │             tabTopR │
-//    │                     ↘ tip @ HUD_ALT_X, HUD_ALT_CY
-//    │             tabBotR ↗
-//    │                    │
-//   botL ────────────── botR
+//                topL ───────────────── topR
+//   tabTopL  ↙    │                       │
+//   tip @ tipX  ◂ │                       │
+//   tabBotL  ↖    │                       │
+//                botL ───────────────── botR
 //
 // Corner radius `r` is small (4 px) to match FlySto's box.
 function buildBoxPath() {
@@ -32,23 +34,24 @@ function buildBoxPath() {
   const T = H.HUD_ALT_BOX_TOP;
   const B = H.HUD_ALT_BOX_BOTTOM;
   const cy = H.HUD_ALT_CY;
-  const tip = H.HUD_ALT_X;
+  const tip = H.HUD_ALT_BOX_ARROW_TIP_X;
   // Arrow tab spans 7 px above and below the centerline at the box's
-  // right edge — small triangular notch.
+  // left edge — small triangular notch toward the tape ticks.
   const tabHalf = 7;
   const r = 4;
   return [
-    `M ${L} ${T + r}`,
-    `A ${r} ${r} 0 0 1 ${L + r} ${T}`,
+    `M ${L + r} ${T}`,
     `L ${R - r} ${T}`,
     `A ${r} ${r} 0 0 1 ${R} ${T + r}`,
-    `L ${R} ${cy - tabHalf}`,
-    `L ${tip} ${cy}`,
-    `L ${R} ${cy + tabHalf}`,
     `L ${R} ${B - r}`,
     `A ${r} ${r} 0 0 1 ${R - r} ${B}`,
     `L ${L + r} ${B}`,
     `A ${r} ${r} 0 0 1 ${L} ${B - r}`,
+    `L ${L} ${cy + tabHalf}`,
+    `L ${tip} ${cy}`,
+    `L ${L} ${cy - tabHalf}`,
+    `L ${L} ${T + r}`,
+    `A ${r} ${r} 0 0 1 ${L + r} ${T}`,
     'Z',
   ].join(' ');
 }
@@ -120,11 +123,13 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
   const boxPath = buildBoxPath();
   const clipId = 'hud-alt-readout-clip';
 
-  // Hundreds digits anchored on the left half of the box; tens strip
-  // anchored on the right half. Both vertically centered on
-  // HUD_ALT_CY.
-  const hundredsX = H.HUD_ALT_BOX_LEFT + 14;
-  const tensX     = H.HUD_ALT_BOX_RIGHT - 22;
+  // Stationary thousands+hundreds digits anchored on the LEFT half of
+  // the box (closest to the arrow tab); sliding tens strip anchored to
+  // their RIGHT. Both vertically centered on HUD_ALT_CY. Offsets
+  // mirror FlySto's box-internal layout: stationary digits at ~24 px
+  // right of left wall, sliding tens at ~62 px right of left wall.
+  const hundredsX = H.HUD_ALT_BOX_LEFT + 24;
+  const tensX     = H.HUD_ALT_BOX_LEFT + 62;
 
   return html`
     <g data-widget="hud-alt-tape">
