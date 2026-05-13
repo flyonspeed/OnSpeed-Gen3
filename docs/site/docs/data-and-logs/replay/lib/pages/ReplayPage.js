@@ -69,7 +69,9 @@ import {
 } from '../replay/fileHandles.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
-import { PresentationFilter, PRESENTATION_PRESETS, defaultPresetForLogRate }
+import { PresentationFilter,
+         PRESENTATION_LATERAL_TAU_MIN, PRESENTATION_LATERAL_TAU_MAX,
+         PRESENTATION_LATERAL_TAU_STEP, defaultLateralTauForLogRate }
   from '../replay/presentationFilter.js';
 import { getWasmCore } from '../replay/wasm_core.js';
 import {
@@ -194,9 +196,18 @@ export const ReplayPage = () => {
   // Initial value: a previously-saved user choice if any, else null
   // (the load-time effect below picks a rate-appropriate default
   // once the log loads).
-  const [m5SmoothPreset, setM5SmoothPreset] = useState(() => {
+  // Lateral τ (slip ball smoothing) as a free-form number in seconds.
+  // `null` = pilot hasn't picked one yet; the load-time effect below
+  // chooses a rate-appropriate default once the log lands.
+  const [m5SmoothLateralTau, setM5SmoothLateralTau] = useState(() => {
     const s = safeLsGet(M5_SMOOTH_LS_KEY);
-    return PRESENTATION_PRESETS.find(p => p.id === s) ? s : null;
+    const v = parseFloat(s);
+    if (Number.isFinite(v) &&
+        v >= PRESENTATION_LATERAL_TAU_MIN &&
+        v <= PRESENTATION_LATERAL_TAU_MAX) {
+      return v;
+    }
+    return null;
   });
   // Pre-computed wire frames per log row from the C++ LogReplayTask.
   // Shape: { frames: Uint8Array[], engineResults: object[] }.
@@ -231,7 +242,7 @@ export const ReplayPage = () => {
   // Render-side presentation filter (NOT a firmware mirror).
   // Applies after sim.read(); attenuates 50 Hz log aliasing before
   // SVG renderers consume state.LateralG / state.VerticalG. τ is
-  // driven by m5SmoothPreset.
+  // driven by m5SmoothLateralTau (lateral) — vertical stays 0.
   const m5RenderFilterRef = useRef(null);
   // Last-frame timestamp for the render filter's continuous-time α
   // computation. videoT in seconds.
@@ -997,15 +1008,13 @@ export const ReplayPage = () => {
         m5SimRef.current = sim;
         m5CoreRef.current = core;
         // Initialize the render-side filter. The ?-effect below
-        // retunes it as the smooth preset settles (rate-aware
-        // default + user changes).
+        // retunes it as the slider settles (rate-aware default +
+        // user drag).
         const filter = new PresentationFilter();
-        if (m5SmoothPreset) {
-          const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
-                         || PRESENTATION_PRESETS[0];
+        if (Number.isFinite(m5SmoothLateralTau)) {
           filter.setTau({
-            lateralSec:  preset.lateralSec,
-            verticalSec: preset.verticalSec,
+            lateralSec:  m5SmoothLateralTau,
+            verticalSec: 0,
           });
         }
         m5RenderFilterRef.current = filter;
@@ -1026,35 +1035,33 @@ export const ReplayPage = () => {
     return () => { cancelled = true; };
   }, [m5SimReinitNonce]);
 
-  // Pick a rate-appropriate default smoothing preset once the log
-  // loads, IF the user hasn't set one (m5SmoothPreset === null on a
-  // fresh session with no LS value). 50 Hz logs default to the Gen2
-  // 2.5 s preset (compensates for the missing 208 Hz averaging the
-  // log doesn't capture). 208 Hz logs default to Off.
+  // Pick a rate-appropriate default lateral τ once the log loads, IF
+  // the user hasn't set one (m5SmoothLateralTau === null on a fresh
+  // session with no LS value). 50 Hz logs default to ~0.75 s
+  // (compensates for missing 208 Hz averaging); 208 Hz logs default
+  // to 0 (firmware EMA already runs at ~76 ms).
   useEffect(() => {
-    if (m5SmoothPreset !== null || !log) return;
+    if (m5SmoothLateralTau !== null || !log) return;
     const sampleRateHz = detectLogSampleRate(log);
-    setM5SmoothPreset(defaultPresetForLogRate(sampleRateHz));
-  }, [log, m5SmoothPreset]);
+    setM5SmoothLateralTau(defaultLateralTauForLogRate(sampleRateHz));
+  }, [log, m5SmoothLateralTau]);
 
-  // Persist the smoothing preset; also retune the live filter when
-  // the user changes it. Reset filter state so the next frame seeds
-  // fresh — a step-change in τ otherwise looks like a glitch in the
-  // first frame after the change.
+  // Persist the slider value; also retune the live filter when the
+  // user drags it. Reset filter state so the next frame seeds fresh —
+  // a step-change in τ otherwise looks like a glitch in the first
+  // frame after the change.
   useEffect(() => {
-    if (m5SmoothPreset === null) return;        // wait for default-pick
-    safeLsSet(M5_SMOOTH_LS_KEY, m5SmoothPreset);
+    if (m5SmoothLateralTau === null) return;     // wait for default-pick
+    safeLsSet(M5_SMOOTH_LS_KEY, String(m5SmoothLateralTau));
     if (m5RenderFilterRef.current) {
-      const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
-                     || PRESENTATION_PRESETS[0];
       m5RenderFilterRef.current.setTau({
-        lateralSec:  preset.lateralSec,
-        verticalSec: preset.verticalSec,
+        lateralSec:  m5SmoothLateralTau,
+        verticalSec: 0,
       });
       m5RenderFilterRef.current.reset();
       m5LastFilterVideoTRef.current = null;
     }
-  }, [m5SmoothPreset]);
+  }, [m5SmoothLateralTau]);
 
   // C++-engine pre-pass. Runs once per (log, cfg) pair while
   // M5-accurate is on, and survives mode toggle JS↔C++ — clicking
@@ -1414,7 +1421,7 @@ export const ReplayPage = () => {
           videoT: fnum(videoT, 2),
           rowIdx,
           mode: m5ModeId,
-          smooth: m5SmoothPreset,
+          smoothLateralTau: m5SmoothLateralTau,
           raw,
           cppEng: cppEngSlice,
           cppFrame: sliceFrame(cppFrame),
@@ -1423,7 +1430,7 @@ export const ReplayPage = () => {
       }
     }
   }, [log, cfg, sync, videoT, pausedLogMs, m5ModeId,
-      m5SmoothPreset, cppWireFrames, debugMode]);
+      m5SmoothLateralTau, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------
 
@@ -1675,10 +1682,8 @@ export const ReplayPage = () => {
     // Without this the slip ball jitters at 50 Hz log replay aliasing —
     // looks structurally different from what the pilot sees on the
     // live page. See presentationFilter.js for the τ rationale.
-    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset)
-                   || null;
-    const presentationTau = preset
-      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+    const presentationTau = Number.isFinite(m5SmoothLateralTau) && m5SmoothLateralTau > 0
+      ? { lateralSec: m5SmoothLateralTau, verticalSec: 0 }
       : null;
 
     try {
@@ -1731,7 +1736,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
-      videoFile, videoTimeline, m5SmoothPreset, m5ModeId, standardClipOverlay]);
+      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId, standardClipOverlay]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -1793,9 +1798,8 @@ export const ReplayPage = () => {
                   'support is incomplete in Safari / Firefox.');
       return null;
     }
-    const preset = PRESENTATION_PRESETS.find(p => p.id === m5SmoothPreset) || null;
-    const presentationTau = preset
-      ? { lateralSec: preset.lateralSec, verticalSec: preset.verticalSec }
+    const presentationTau = Number.isFinite(m5SmoothLateralTau) && m5SmoothLateralTau > 0
+      ? { lateralSec: m5SmoothLateralTau, verticalSec: 0 }
       : null;
 
     // Resolve output dimensions. 'native' = M5 panel pixel grid
@@ -1893,7 +1897,7 @@ export const ReplayPage = () => {
       setOverlayProgress(0);
     }
   }, [syncReady, sync, log, cppWireFrames, overlayAvailable,
-      renderOverlayForExport, videoFiles, m5SmoothPreset,
+      renderOverlayForExport, videoFiles, m5SmoothLateralTau,
       selectedOverlayModes, overlaySize]);
 
   const cancelOverlayExport = useCallback(() => {
@@ -2044,18 +2048,20 @@ export const ReplayPage = () => {
               `)}
             <span class="replay-spacer"></span>
             <span class="replay-toggle"
-                  title="Render-side smoothing for the slip ball. Not firmware-faithful — a viewing aid for 50 Hz logs whose IMU samples carry aliased noise the airplane never showed at 208 Hz.">
-              Smooth:
-              ${PRESENTATION_PRESETS.map(p => html`
-                <label style="margin-left:0.4em;">
-                  <input type="radio" name="m5-smooth" value=${p.id}
-                         checked=${m5SmoothPreset === p.id}
-                         onChange=${() => setM5SmoothPreset(p.id)} />
-                  ${p.label}
-                </label>
-              `)}
+                  title="Render-side smoothing for the slip ball. Lateral-G EMA time constant in seconds. 0 = firmware-faithful (lively at 208 Hz). Dial up until the ball looks like what you remember seeing on your EFIS in flight. ~0.25 s = VN-300 territory, ~0.75 s = Dynon SkyView.">
+              Ball smoothing:
+              <input type="range"
+                     min=${PRESENTATION_LATERAL_TAU_MIN}
+                     max=${PRESENTATION_LATERAL_TAU_MAX}
+                     step=${PRESENTATION_LATERAL_TAU_STEP}
+                     value=${m5SmoothLateralTau ?? 0}
+                     style="margin-left:0.4em; vertical-align:middle; width:140px;"
+                     onInput=${e => setM5SmoothLateralTau(parseFloat(e.target.value))} />
+              <small style="margin-left:0.4em; font-variant-numeric:tabular-nums;">
+                ${(m5SmoothLateralTau ?? 0).toFixed(2)} s
+              </small>
               ${cppBuilding
-                ? html`<small>(pre-pass ${Math.round(cppProgress * 100)}%)</small>`
+                ? html`<small style="margin-left:0.4em;">(pre-pass ${Math.round(cppProgress * 100)}%)</small>`
                 : ''}
             </span>
             <label class="replay-toggle">
