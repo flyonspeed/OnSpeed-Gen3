@@ -1,14 +1,18 @@
 // hudGeometry.js — layout constants for the full-frame HUD overlay.
 //
-// The HUD's reference frame is 1920x1080 (16:9). The SVG scales via
-// preserveAspectRatio="xMidYMid meet" so it covers any source-video
-// aspect; letterboxed footage gets letterboxed HUD too, which keeps
-// the elements visually anchored to the cockpit view rather than the
-// black bars.
+// FlySto-style visual language: yellow pitch ladder + FPM, white bank
+// arc + tapes, monochrome tape ticks (no colored speed bands — those
+// require Vne/Vno/Vfe wiring we don't have yet). Reference frame is
+// 1920x1080 (16:9); SVG scales via preserveAspectRatio="xMidYMid meet"
+// so the elements stay anchored to the cockpit view across aspect
+// ratios.
 //
-// All numeric tunables live here so iteration is one-source-of-truth
-// (per PLAN_HUD_OVERLAY.md "Element geometry sketch"). Edit a number
-// here, see the change in the live preview.
+// Scope intentionally narrower than a full EFIS:
+//   - Pitch ladder + bank arc (artificial horizon)
+//   - Airspeed tape (left)
+//   - Altimeter tape with numeric VSI (right)
+//   - Slip ball + G readout (bottom)
+// No heading tape, no TAS/GS/wind block, no OAT/ISA/AGL stack.
 
 // ---------------------------------------------------------------------
 // Reference frame
@@ -20,55 +24,39 @@ export const HUD_CX = HUD_W / 2;  // 960
 export const HUD_CY = HUD_H / 2;  // 540
 
 // ---------------------------------------------------------------------
-// Pitch ladder
+// Pitch ladder (FlySto yellow)
 // ---------------------------------------------------------------------
-// Horizontal pitch lines drawn around HUD center, rotated by roll and
-// translated vertically by pitch. The ladder rotates with the airframe
-// (per the plan's "Open questions" item — looks like a real ADI).
-//
-// Pixels-per-degree of pitch was chosen so that ±30 degrees fills
-// roughly the center vertical third of the frame; finer than this and
-// the ladder looks cluttered, coarser and the rate of motion looks
-// sluggish vs. the actual horizon in the footage.
+// Short yellow tick bars at ±10°, ±20°, ±30° straddling the horizon
+// center, plus the horizon line itself. No continuous extension to
+// frame edges, no sky/ground fill, no dashed marks. The whole ladder
+// rotates with -roll and translates with pitch — classic ADI.
 
 export const HUD_PITCH_PX_PER_DEG = 18;
-// Horizon line spans the full HUD width through the center, so when
-// rotated/translated it still covers everywhere we'd want to see it.
-export const HUD_HORIZON_HALF_W   = HUD_W;
-// Pitch ladder half-widths by tick value (degrees).
-// ±10° / ±20° are solid short ticks; ±30° is dashed.
-export const HUD_PITCH_TICK_HALF_W_SHORT  = 90;
-export const HUD_PITCH_TICK_HALF_W_LONG   = 150;
-export const HUD_PITCH_TICK_HALF_W_DASHED = 180;
-// Pitch ladder line stroke widths.
+export const HUD_HORIZON_HALF_W   = 540;  // shorter than full frame
+export const HUD_PITCH_TICK_HALF_W = 110;
 export const HUD_HORIZON_STROKE   = 4;
-export const HUD_PITCH_TICK_STROKE = 3;
-// Pitch label offset past the right end of the tick.
+export const HUD_PITCH_TICK_STROKE = 4;
 export const HUD_PITCH_LABEL_OFFSET = 28;
 export const HUD_PITCH_LABEL_FONT_SIZE = 28;
 
 // ---------------------------------------------------------------------
-// Bank indicator arc
+// Bank indicator arc (FlySto white)
 // ---------------------------------------------------------------------
-// Top of frame. A static reference arc with tick marks at fixed bank
-// angles, and a stationary triangular pointer at the 12 o'clock
-// position. The arc rotates with -roll (so the ticks slide under the
-// pointer as the aircraft banks).
+// White arc with sparse minor ticks every 10°, more pronounced ticks
+// at ±30° and ±45°. Stationary yellow triangle pointer at top; the
+// arc itself rotates by -roll so the ticks slide under the pointer.
+// No 60° tick (FlySto stops at 45°).
 
 export const HUD_BANK_CX        = HUD_CX;
-export const HUD_BANK_CY        = HUD_CY;     // arc is part of the same hub as the pitch ladder
-export const HUD_BANK_R         = 460;        // radius from center
-export const HUD_BANK_TICK_LONG  = 28;        // tick mark inward length (±30/±60)
-export const HUD_BANK_TICK_SHORT = 18;        // tick mark inward length (±10/±20/±45)
+export const HUD_BANK_CY        = HUD_CY;
+export const HUD_BANK_R         = 460;
+export const HUD_BANK_TICK_LONG  = 28;   // ±30, ±45
+export const HUD_BANK_TICK_SHORT = 14;   // ±10, ±20
 export const HUD_BANK_STROKE    = 4;
-// Pointer triangle (stationary at top).
 export const HUD_BANK_POINTER_H = 28;
 export const HUD_BANK_POINTER_HALF_W = 16;
-// Tick angles in degrees, measured from "up" (negative bank = left wing
-// low in body frame). The arc itself rotates by -roll.
 export const HUD_BANK_TICKS = Object.freeze([
-  { deg: -60, long: true  },
-  { deg: -45, long: false },
+  { deg: -45, long: true  },
   { deg: -30, long: true  },
   { deg: -20, long: false },
   { deg: -10, long: false },
@@ -76,70 +64,74 @@ export const HUD_BANK_TICKS = Object.freeze([
   { deg:  10, long: false },
   { deg:  20, long: false },
   { deg:  30, long: true  },
-  { deg:  45, long: false },
-  { deg:  60, long: true  },
+  { deg:  45, long: true  },
 ]);
 
 // ---------------------------------------------------------------------
-// IAS tape (left edge)
+// IAS tape (left edge) — FlySto inline labels, monochrome
 // ---------------------------------------------------------------------
-// Scrolling numeric strip. The tape's vertical center is fixed at the
-// HUD center; the strip of numbers scrolls behind it so the current
-// IAS value lines up with the highlighted center box.
+// Translucent strip with ticks + inline numeric labels every 20 kt.
+// The current value sits in a center-line readout box. No boxed digit
+// over the tape ticks (FlySto integrates the label into the tape
+// itself). No colored Vne/Vno/Vfe bands — we don't have those wired.
 
-export const HUD_IAS_X            = 60;    // left edge of tape
+export const HUD_IAS_X            = 60;
 export const HUD_IAS_W            = 160;
-export const HUD_IAS_TAPE_H       = 720;   // total visible height of the strip
+export const HUD_IAS_TAPE_H       = 720;
 export const HUD_IAS_CY           = HUD_CY;
-export const HUD_IAS_PX_PER_UNIT  = 8;     // px per knot
-export const HUD_IAS_TICK_EVERY   = 10;    // major tick every 10 kt
-export const HUD_IAS_LABEL_EVERY  = 20;    // label every 20 kt
+export const HUD_IAS_PX_PER_UNIT  = 8;
+export const HUD_IAS_TICK_EVERY   = 10;
+export const HUD_IAS_LABEL_EVERY  = 20;
 export const HUD_IAS_TICK_LEN_MAJOR = 22;
 export const HUD_IAS_TICK_LEN_MINOR = 12;
 export const HUD_IAS_LABEL_FONT_SIZE = 30;
-// Highlight box dimensions (covers the centerline tick row).
 export const HUD_IAS_BOX_H        = 60;
 export const HUD_IAS_BOX_FONT_SIZE = 44;
 export const HUD_IAS_BOX_PAD_X    = 12;
 
 // ---------------------------------------------------------------------
-// ALT tape + VSI chevron (right edge)
+// ALT tape + numeric VSI (right edge)
 // ---------------------------------------------------------------------
-// Same shape as IAS tape but mirrored. The VSI chevron sits beside the
-// tape and grows up/down with vertical speed.
+// Mirror of IAS tape. VSI is a numeric readout floating next to the
+// altimeter centerline (FlySto style: "-600"), not a chevron.
 
-export const HUD_ALT_X            = HUD_W - 60 - 160;  // right edge minus margin + width
+export const HUD_ALT_X            = HUD_W - 60 - 160;
 export const HUD_ALT_W            = 160;
 export const HUD_ALT_TAPE_H       = 720;
 export const HUD_ALT_CY           = HUD_CY;
-export const HUD_ALT_PX_PER_UNIT  = 0.16;     // 100 ft = 16 px (denser than IAS)
-export const HUD_ALT_TICK_EVERY   = 100;      // major tick every 100 ft
-export const HUD_ALT_LABEL_EVERY  = 200;      // label every 200 ft
+export const HUD_ALT_PX_PER_UNIT  = 0.16;
+export const HUD_ALT_TICK_EVERY   = 100;
+export const HUD_ALT_LABEL_EVERY  = 200;
 export const HUD_ALT_TICK_LEN_MAJOR = 22;
 export const HUD_ALT_TICK_LEN_MINOR = 12;
 export const HUD_ALT_LABEL_FONT_SIZE = 30;
-// Highlight box covers the centerline.
 export const HUD_ALT_BOX_H        = 60;
 export const HUD_ALT_BOX_FONT_SIZE = 40;
 export const HUD_ALT_BOX_PAD_X    = 12;
-// VSI chevron — to the right of the ALT tape (outside the frame edge
-// would be ideal but we keep it inside so it can't be clipped).
-export const HUD_VSI_CHEVRON_X    = HUD_W - 40;
-export const HUD_VSI_FULL_SCALE_FPM = 2000;   // chevron saturates at this VSI
-export const HUD_VSI_MAX_LEN_PX   = HUD_ALT_TAPE_H / 2; // chevron can extend at most to the tape edge
-export const HUD_VSI_STROKE       = 5;
+
+// VSI numeric readout — sits just outside the ALT tape, vertically
+// centered. Color shifts subtly (gray-white for zero, brighter when
+// |VSI| is large enough to matter). We render only when |VSI| crosses
+// a small threshold so the box doesn't churn at idle.
+export const HUD_VSI_X            = HUD_W - 30;      // anchored at right margin
+export const HUD_VSI_Y            = HUD_CY;          // tape centerline
+export const HUD_VSI_FONT_SIZE    = 36;
+export const HUD_VSI_THRESHOLD    = 100;             // fpm — hide below this
 
 // ---------------------------------------------------------------------
-// Flight-path marker
+// Flight-path marker (FlySto yellow, vertical-only)
 // ---------------------------------------------------------------------
-// Magenta circle at the FPM location: vertical offset from horizon =
-// (FlightPath - Pitch) × pixels-per-degree. Horizontal offset is from
-// the sideslip approximation (LateralG) — see PLAN_HUD_OVERLAY.md
-// "FPM lateral motion approximation". In coordinated flight LateralG
-// is ~0 so the FPM stays centered (the right behavior visually for a
-// HUD, even though a real FPM would slide with yaw rate). In a
-// skid/slip LateralG is non-zero and the FPM slides — the case
-// OnSpeed pilots care about.
+// Yellow circle + horizontal "wings" + top fin. Vertical position
+// tracks (FlightPath - Pitch) × pixels-per-degree, MATCHING the
+// existing AI inset's FlightPathMarker math exactly. Horizontal
+// position is FIXED at HUD center.
+//
+// LATERAL FPM MOTION — DEFERRED. A "real" HUD FPM slides horizontally
+// with the yaw-rate / ground-track delta from heading. OnSpeed does
+// not currently expose yaw rate, and a previous LateralG-based
+// approximation produced jumpy motion that didn't match the AI
+// inset's behavior. Tracked in #542; revisit after a wire-format
+// bump adds yaw rate or ground track.
 
 export const HUD_FPM_CX           = HUD_CX;
 export const HUD_FPM_CY           = HUD_CY;
@@ -148,13 +140,6 @@ export const HUD_FPM_WING_INNER   = 22;
 export const HUD_FPM_WING_OUTER   = 56;
 export const HUD_FPM_TOP_TICK     = 22;
 export const HUD_FPM_STROKE       = 4;
-// Pixels per g of lateral-G displacement. Calibrated against
-// LateralG=0.1 producing ~80 px of lateral slide (a noticeable but
-// not screen-edge shift at the levels OnSpeed cares about — uncoordinated
-// flight commonly sits in the 0.05–0.15 g band).
-export const HUD_FPM_LAT_PX_PER_G = 800;
-// Clamp the lateral slide so a saturated value stays inside the frame.
-export const HUD_FPM_LAT_MAX_PX   = 360;
 
 // ---------------------------------------------------------------------
 // Slip ball (bottom center)
@@ -165,18 +150,32 @@ export const HUD_FPM_LAT_MAX_PX   = 360;
 export const HUD_SLIP_W           = 480;
 export const HUD_SLIP_H           = 60;
 export const HUD_SLIP_X           = HUD_CX - HUD_SLIP_W / 2;
-export const HUD_SLIP_Y           = HUD_H - 120;  // anchored above the bottom margin
+export const HUD_SLIP_Y           = HUD_H - 120;
 
 // ---------------------------------------------------------------------
-// Stroke / glyph defaults
+// G readout (bottom-right of slip ball)
 // ---------------------------------------------------------------------
-// The HUD draws lines-only over the GoPro footage; there is no sky/
-// ground fill. White lines on bright sky are fragile (per plan "Open
-// questions"); we paint a black drop-shadow halo on the SVG via CSS
-// rather than per-element here.
+// Single numeric value "X.X G" rendered next to the slip ball.
+// Reads state.VerticalG (the load-factor channel). One-decimal
+// precision matches what you'd glance at on a panel G-meter.
 
-export const HUD_LINE_COLOR       = 'var(--white)';
-export const HUD_HORIZON_COLOR    = 'var(--white)';
-export const HUD_FPM_COLOR        = 'var(--magenta)';
+export const HUD_G_X              = HUD_SLIP_X + HUD_SLIP_W + 36;
+export const HUD_G_Y              = HUD_SLIP_Y + HUD_SLIP_H / 2;
+export const HUD_G_FONT_SIZE      = 40;
+
+// ---------------------------------------------------------------------
+// Stroke / color defaults
+// ---------------------------------------------------------------------
+// FlySto palette: yellow for the airplane-fixed elements (FPM, pitch
+// ladder, bank pointer), white for the world-fixed scales (bank arc,
+// tapes). A black drop-shadow halo is applied via CSS in replay.css
+// so white-on-bright-sky stays legible.
+
+export const HUD_LINE_COLOR        = 'var(--white)';
+export const HUD_HORIZON_COLOR     = 'var(--white)';
+export const HUD_PITCH_COLOR       = 'var(--yellow)';
+export const HUD_FPM_COLOR         = 'var(--yellow)';
+export const HUD_BANK_ARC_COLOR    = 'var(--white)';
 export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
-export const HUD_BOX_FILL         = 'rgba(0, 0, 0, 0.72)';
+export const HUD_VSI_COLOR         = 'var(--white)';
+export const HUD_BOX_FILL          = 'rgba(0, 0, 0, 0.72)';

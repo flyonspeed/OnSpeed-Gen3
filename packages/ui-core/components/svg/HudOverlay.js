@@ -1,26 +1,26 @@
 // HudOverlay.js — full-frame HUD as a pure render layer.
 //
-// Layers a line-only OnSpeed-flavored primary flight display over
-// the source video. No sky/ground fill — the GoPro footage IS the
-// horizon. Lines, ticks, tapes, and the FPM are drawn on top.
+// FlySto-style primary flight overlay layered over the source video.
+// No sky/ground fill — the GoPro footage is the horizon. Lines,
+// ticks, tapes, FPM, slip ball, and a single G-load readout are
+// drawn on top.
 //
-// Per PLAN_HUD_OVERLAY.md:
-//   - viewBox 1920x1080; SVG scales to fit the video frame via CSS.
-//   - All numeric tunables live in core/hudGeometry.js.
-//   - Reuses the existing SlipBall component for the bottom-center
-//     slip indicator (same wire-frame field as the M5 panel uses).
+// Scope intentionally narrow (matches the four widgets pilots
+// requested for v1): pitch ladder + bank arc, IAS tape, ALT tape +
+// numeric VSI, slip ball + G readout. No heading tape, no
+// TAS/GS/wind block, no OAT/ISA/AGL stack.
 //
 // State shape: the canonical M5State from packages/ui-core/state-shape.js.
-// Same input the m5modes/ renderers consume; the replay page feeds it
-// from M5Sim.read() (replay) — when this lands on the live page (out
-// of scope for PR-1) it will read the same shape from wsRecordToState().
+// The replay page applies its PresentationSmoother to LateralG /
+// VerticalG before passing state in, so the slip ball + G readout
+// match what the M5 inset renders at the same instant.
 
 import { html } from '../../vendor/preact-standalone.js';
 import * as H from '../../core/hudGeometry.js';
 import { SlipBall } from './index.js';
 import { HudPitchLadder } from './hud/PitchLadder.js';
 import { HudBankArc } from './hud/BankArc.js';
-import { HudTape, HudVsiChevron } from './hud/Tape.js';
+import { HudTape, HudVsiReadout, HudGReadout } from './hud/Tape.js';
 import { HudFpm } from './hud/Fpm.js';
 
 export const HudOverlay = ({ state }) => {
@@ -37,8 +37,7 @@ export const HudOverlay = ({ state }) => {
                           rollDeg=${state.Roll ?? 0} />
       <${HudBankArc}     rollDeg=${state.Roll ?? 0} />
       <${HudFpm} pitchDeg=${state.Pitch ?? 0}
-                  flightPathDeg=${state.FlightPath ?? 0}
-                  lateralG=${state.LateralG ?? 0} />
+                  flightPathDeg=${state.FlightPath ?? 0} />
       <${HudTape}
         side="left"
         value=${iasValue}
@@ -73,12 +72,13 @@ export const HudOverlay = ({ state }) => {
         boxPadX=${H.HUD_ALT_BOX_PAD_X}
         formatLabel=${(v) => String(Math.round(v))}
         clipId="hud-tape-clip-alt" />
-      <${HudVsiChevron} vsiFpm=${state.iVSI ?? 0} />
+      <${HudVsiReadout} vsiFpm=${state.iVSI ?? 0} />
       <${SlipBall} lateralG=${state.LateralG ?? 0}
                     percentLift=${state.PercentLift ?? 0}
                     stallWarn=${state.StallWarnPctLift ?? 100}
                     flashFlag=${false}
                     x=${H.HUD_SLIP_X} y=${H.HUD_SLIP_Y}
                     width=${H.HUD_SLIP_W} height=${H.HUD_SLIP_H} />
+      <${HudGReadout} verticalG=${state.VerticalG ?? 1} />
     </svg>`;
 };

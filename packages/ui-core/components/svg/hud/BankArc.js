@@ -1,10 +1,9 @@
 // BankArc.js — top-of-frame bank indicator.
 //
-// A static reference arc at the top of the HUD with tick marks at
-// ±10°/±20°/±30°/±45°/±60° and a stationary downward triangle pointer
-// at the 12-o'clock position. The arc itself (with its ticks) rotates
-// by -roll, so the ticks slide under the stationary pointer to show
-// current bank angle.
+// FlySto style: white arc with sparse ticks (10° minor, 30° and 45°
+// major). No 60° tick — FlySto caps the scale at 45°. Stationary
+// yellow triangle pointer at the 12 o'clock position; the arc rotates
+// by -roll so the ticks slide under the pointer.
 
 import { html } from '../../../vendor/preact-standalone.js';
 import * as H from '../../../core/hudGeometry.js';
@@ -23,7 +22,7 @@ const tickFor = (deg, long) => {
   return html`
     <line x1=${H.HUD_BANK_CX + r1 * cosA} y1=${H.HUD_BANK_CY + r1 * sinA}
           x2=${H.HUD_BANK_CX + r2 * cosA} y2=${H.HUD_BANK_CY + r2 * sinA}
-          stroke=${H.HUD_LINE_COLOR} stroke-width=${H.HUD_BANK_STROKE}
+          stroke=${H.HUD_BANK_ARC_COLOR} stroke-width=${H.HUD_BANK_STROKE}
           shape-rendering="crispEdges" />`;
 };
 
@@ -41,7 +40,7 @@ export const HudBankArc = ({ rollDeg = 0 }) => {
                        ${H.HUD_BANK_CX - H.HUD_BANK_POINTER_HALF_W},${baseY}
                        ${H.HUD_BANK_CX + H.HUD_BANK_POINTER_HALF_W},${baseY}"
                fill=${H.HUD_BANK_POINTER_COLOR}
-               stroke=${H.HUD_LINE_COLOR} stroke-width="2"
+               stroke=${H.HUD_BANK_POINTER_COLOR} stroke-width="2"
                stroke-linejoin="miter" />
     </g>`;
 };

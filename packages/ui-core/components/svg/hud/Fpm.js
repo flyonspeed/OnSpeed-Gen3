@@ -1,52 +1,24 @@
 // Fpm.js — Flight-Path Marker for the HUD.
 //
-// A small magenta circle with three radial wings (left, right, top
-// tick) that floats at the position the airplane is actually flying
-// toward. Position math:
+// Yellow glyph: circle + horizontal wing stalks + top fin. Vertical
+// position is the only motion — `(FlightPath - Pitch) × pixels-per-
+// degree`, matching the AI inset's FlightPathMarker math exactly so
+// the two FPMs move together at every instant.
 //
-//   y_offset_px = (FlightPath - Pitch) * pixels-per-degree
-//
-//                 (positive FlightPath is climb; subtracting pitch
-//                 puts the marker BELOW the horizon when descending
-//                 and ABOVE when climbing)
-//
-//   x_offset_px = -LateralG * lateral-px-per-g       (clamped)
-//
-// FPM lateral motion approximation
-// --------------------------------
-// A real HUD's FPM slides horizontally with YAW RATE (ground-track
-// delta from heading). The OnSpeed wire frame ships pitch, roll, and
-// sideslip (LateralG) but NOT yaw rate. We approximate lateral
-// motion from LateralG:
-//
-//   • In COORDINATED flight LateralG ≈ 0 → the FPM stays centered.
-//     Wrong for a turning aircraft (which would have a real FPM
-//     sliding with the turn), but visually plausible since the
-//     turning airframe in the GoPro footage suggests the motion.
-//
-//   • In SKIDS / SLIPS LateralG is non-zero → the FPM slides toward
-//     the down-slip side. RIGHT for the case OnSpeed pilots care
-//     about most — uncoordinated flight (slipping turns, base-to-
-//     final overshoots, cross-controlled stalls) is the danger
-//     pattern.
-//
-// Document the limitation in code so future readers don't think this
-// is a bug. A future wire-format bump that adds yaw rate would
-// replace this with the proper ground-track FPM math.
+// LATERAL FPM MOTION — DEFERRED (issue #542).
+// A "real" HUD FPM slides horizontally with the yaw-rate / ground-
+// track delta from heading. OnSpeed does not currently expose yaw
+// rate, and a previous spike that drove lateral motion from LateralG
+// (sideslip approximation) produced jumpy motion that didn't match
+// the AI inset's behavior. Revisit after the wire format gains yaw
+// rate or ground track.
 
 import { html } from '../../../vendor/preact-standalone.js';
 import * as H from '../../../core/hudGeometry.js';
 
-export const HudFpm = ({ pitchDeg = 0, flightPathDeg = 0, lateralG = 0 }) => {
+export const HudFpm = ({ pitchDeg = 0, flightPathDeg = 0 }) => {
   const dy = (flightPathDeg - pitchDeg) * H.HUD_PITCH_PX_PER_DEG;
-  // Lateral slide is OPPOSITE the body-frame lateral G: positive
-  // LateralG = airframe accelerating right = sideslip pushes the
-  // velocity vector LEFT relative to the nose, so the FPM slides LEFT.
-  // (Same sign convention as slipBall: negate the wire value.)
-  const dxRaw = -lateralG * H.HUD_FPM_LAT_PX_PER_G;
-  const dx = Math.max(-H.HUD_FPM_LAT_MAX_PX,
-                       Math.min(H.HUD_FPM_LAT_MAX_PX, dxRaw));
-  const cx = H.HUD_FPM_CX + dx;
+  const cx = H.HUD_FPM_CX;
   const cy = H.HUD_FPM_CY + dy;
   return html`
     <g data-widget="hud-fpm">

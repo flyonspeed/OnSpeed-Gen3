@@ -198,11 +198,11 @@ test('Pitch ladder rotation transform tracks state.Roll', () => {
   }
 });
 
-test('FPM lateral position responds to LateralG (sideslip approximation)', () => {
-  // Per the FPM lateral motion approximation: in coordinated flight
-  // LateralG ≈ 0 → FPM centered; in a slip LateralG is non-zero and
-  // the FPM slides toward the down-slip side. Verify the FPM ring
-  // center moves monotonically across three distinct LateralG values.
+test('FPM has NO lateral motion (issue #542)', () => {
+  // Vertical-only FPM: matches the AI inset's FlightPathMarker math.
+  // Lateral FPM motion requires yaw rate / ground track, which the
+  // wire format does not yet expose. Verify cx is constant across
+  // a range of LateralG values.
   const findRingCx = (lateralG) => {
     const root = renderInto(
       html`<${HudOverlay} state=${makeState({ LateralG: lateralG })} />`);
@@ -211,22 +211,15 @@ test('FPM lateral position responds to LateralG (sideslip approximation)', () =>
     const circles = findAllByLocalName(fpm, 'circle');
     return circles.length ? parseFloat(circles[0].getAttribute('cx')) : null;
   };
-  const cxNeg  = findRingCx(-0.10);
+  const cxNeg  = findRingCx(-0.50);
   const cxZero = findRingCx( 0.00);
-  const cxPos  = findRingCx( 0.10);
+  const cxPos  = findRingCx( 0.50);
   if (cxNeg == null || cxZero == null || cxPos == null) {
     throw new Error('FPM ring circle not found');
   }
-  if (cxNeg === cxZero || cxZero === cxPos || cxNeg === cxPos) {
+  if (cxNeg !== cxZero || cxZero !== cxPos) {
     throw new Error(
-      `FPM cx should differ across LateralG values; ` +
-      `got cxNeg=${cxNeg}, cxZero=${cxZero}, cxPos=${cxPos}`);
-  }
-  // LateralG negative (slip-induced ball-frame leftward) → FPM should
-  // slide RIGHT relative to center. Verify the sign.
-  if (!(cxNeg > cxZero && cxZero > cxPos)) {
-    throw new Error(
-      `FPM lateral sign wrong: negative LateralG should put FPM right of center; ` +
+      `FPM cx should be constant (issue #542); ` +
       `got cxNeg=${cxNeg}, cxZero=${cxZero}, cxPos=${cxPos}`);
   }
 });
@@ -303,14 +296,36 @@ test('IAS tape renders dashes when IasIsValid is false', () => {
   if (!hasDashes) throw new Error('IAS dashes not rendered when invalid');
 });
 
-test('VSI chevron only renders when |iVSI| produces visible length', () => {
+test('VSI numeric only renders above HUD_VSI_THRESHOLD', () => {
+  // FlySto-style numeric VSI: hidden at idle, visible when climb/
+  // descent is meaningful (|vsi| >= HUD_VSI_THRESHOLD fpm).
   const renderAt = (vsi) => renderInto(
     html`<${HudOverlay} state=${makeState({ iVSI: vsi })} />`);
   if (findFirstWithAttr(renderAt(0), 'data-widget', 'hud-vsi')) {
-    throw new Error('VSI chevron should NOT render at iVSI=0');
+    throw new Error('VSI should NOT render at iVSI=0');
+  }
+  if (findFirstWithAttr(renderAt(50), 'data-widget', 'hud-vsi')) {
+    throw new Error('VSI should NOT render at iVSI=50 (below threshold)');
   }
   if (!findFirstWithAttr(renderAt(1500), 'data-widget', 'hud-vsi')) {
-    throw new Error('VSI chevron should render at iVSI=1500');
+    throw new Error('VSI should render at iVSI=1500');
+  }
+});
+
+test('G readout renders state.VerticalG with one decimal', () => {
+  const root = renderInto(
+    html`<${HudOverlay} state=${makeState({ VerticalG: 2.4 })} />`);
+  const g = findFirstWithAttr(root, 'data-widget', 'hud-g');
+  if (!g) throw new Error('hud-g widget missing');
+  const texts = findAllByLocalName(g, 'text');
+  // Preact may split the template into multiple text nodes (e.g.
+  // "2.4" and " G"). Concatenate every text node's data and look
+  // for the joined string anywhere inside.
+  const joined = texts
+    .flatMap(t => t.childNodes.map(c => c.data || ''))
+    .join('');
+  if (!joined.includes('2.4') || !joined.includes('G')) {
+    throw new Error(`G readout missing "2.4" or "G"; joined=${joined}`);
   }
 });
 

@@ -101,25 +101,38 @@ export const HudTape = ({
     </g>`;
 };
 
-// VSI chevron — vertical bar to the right of the ALT tape. Up chevron
-// for climb, down for descent; length proportional to |VSI|, clamped.
-export const HudVsiChevron = ({ vsiFpm = 0 }) => {
-  const sign = vsiFpm >= 0 ? -1 : 1;   // SVG up = negative y
-  const mag = Math.min(Math.abs(vsiFpm) / H.HUD_VSI_FULL_SCALE_FPM, 1);
-  const len = mag * H.HUD_VSI_MAX_LEN_PX;
-  const x = H.HUD_VSI_CHEVRON_X;
-  const y0 = H.HUD_ALT_CY;
-  const y1 = y0 + sign * len;
-  if (len < 4) return null;
+// VSI numeric readout — FlySto style: a signed number floating just
+// outside the altimeter centerline. Renders only when |VSI| exceeds
+// HUD_VSI_THRESHOLD fpm so the readout doesn't churn at idle.
+export const HudVsiReadout = ({ vsiFpm = 0 }) => {
+  if (!Number.isFinite(vsiFpm)) return null;
+  if (Math.abs(vsiFpm) < H.HUD_VSI_THRESHOLD) return null;
+  const rounded = Math.round(vsiFpm / 10) * 10;  // tens of fpm
+  const sign = rounded > 0 ? '+' : '';
   return html`
     <g data-widget="hud-vsi">
-      <line x1=${x} y1=${y0} x2=${x} y2=${y1}
-            stroke=${H.HUD_LINE_COLOR} stroke-width=${H.HUD_VSI_STROKE}
-            shape-rendering="crispEdges" />
-      <polyline points="${x - 10},${y1 - sign * 12}
-                        ${x},${y1}
-                        ${x + 10},${y1 - sign * 12}"
-                fill="none" stroke=${H.HUD_LINE_COLOR}
-                stroke-width=${H.HUD_VSI_STROKE} stroke-linejoin="miter" />
+      <text x=${H.HUD_VSI_X} y=${H.HUD_VSI_Y}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-weight="bold"
+            font-size=${H.HUD_VSI_FONT_SIZE}
+            fill=${H.HUD_VSI_COLOR}
+            text-anchor="end" dominant-baseline="central">${sign}${rounded}</text>
+    </g>`;
+};
+
+// G-load readout — "X.X G" rendered near the slip ball. Reads the
+// vertical-G (load factor) channel. Negative G clamped at -1 for
+// the display; positive unconstrained.
+export const HudGReadout = ({ verticalG = 1 }) => {
+  if (!Number.isFinite(verticalG)) return null;
+  const g = Math.max(-9.9, Math.min(9.9, verticalG));
+  return html`
+    <g data-widget="hud-g">
+      <text x=${H.HUD_G_X} y=${H.HUD_G_Y}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-weight="bold"
+            font-size=${H.HUD_G_FONT_SIZE}
+            fill=${H.HUD_LINE_COLOR}
+            text-anchor="start" dominant-baseline="central">${g.toFixed(1)} G</text>
     </g>`;
 };
