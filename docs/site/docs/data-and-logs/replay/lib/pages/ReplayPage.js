@@ -88,12 +88,20 @@ import {
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
 // matches the M5 firmware's `kModeNames` and the IndexerPage's MODES
 // — same five modes, same numbering.
+// Mode 5 is a JS-only synthetic: a Standard layout that renders
+// Attitude (left) + Energy (right) side-by-side. The firmware doesn't
+// know about it — when picked, the M5 sim still runs whichever
+// firmware mode it's in; the preview ignores `state.displayType` and
+// uses both component renderers explicitly. Mirrored on the export
+// side by `standardOverlay`, which is now derived from this mode.
+const MODE_STANDARD = 5;
 const M5_MODES = [
   { id: 0, label: 'Energy',     C: EnergyMode   },
   { id: 1, label: 'Attitude',   C: AttitudeMode },
   { id: 2, label: 'Indexer',    C: IndexerMode  },
   { id: 3, label: 'Decel',      C: DecelMode    },
   { id: 4, label: 'Historic G', C: HistoricGMode },
+  { id: MODE_STANDARD, label: 'Standard', C: null /* special-cased in render */ },
 ];
 
 // Avionics palette tokens used by the offscreen export render
@@ -1715,7 +1723,10 @@ export const ReplayPage = () => {
         displayMode:   m5ModeId,
         // Standard layout: ADI bottom-left + Energy bottom-right.
         // Ignores displayMode when true.
-        standardOverlay: standardClipOverlay,
+        // Standard layout is now derived from the mode picker, not a
+        // separate checkbox. When the pilot picks Standard, export
+        // renders ADI + Energy side-by-side.
+        standardOverlay: m5ModeId === MODE_STANDARD,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -2040,22 +2051,38 @@ export const ReplayPage = () => {
           ` : html`<div class="replay-placeholder">
               <span>Drop a flight video and an SD-log CSV to get started.</span>
               <a class="replay-help-link"
-                 href="./replay/getting-started/"
+                 href="./getting-started/"
                  target="_blank"
                  rel="noopener">How does this work?</a>
             </div>`}
 
-          ${overlayVisible && m5State && html`
-            <div class="replay-overlay">
-              <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
-                ${(() => {
-                  const M = M5_MODES.find(m => m.id === m5State.displayType);
-                  const C = M ? M.C : EnergyMode;
-                  return html`<${C} state=${m5State} stale=${false} />`;
-                })()}
-              </div>
-            </div>
-          `}
+          ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
+            ? html`
+                <div class="replay-overlay">
+                  <div class="replay-overlay-frame standard ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
+                    <div class="replay-overlay-half left">
+                      <${AttitudeMode} state=${{ ...m5State, displayType: 1 }} stale=${false} />
+                    </div>
+                    <div class="replay-overlay-half right">
+                      <${EnergyMode}   state=${{ ...m5State, displayType: 0 }} stale=${false} />
+                    </div>
+                  </div>
+                </div>`
+            : html`
+                <div class="replay-overlay">
+                  <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
+                    ${(() => {
+                      // Pick by the pilot's mode selection (not the sim's
+                      // displayType). The sim's displayType is updated by the
+                      // mode dispatch elsewhere so they normally agree; this
+                      // path stays correct during the brief window between a
+                      // mode-button click and the sim acknowledging it.
+                      const M = M5_MODES.find(m => m.id === m5ModeId);
+                      const C = (M && M.C) ? M.C : EnergyMode;
+                      return html`<${C} state=${m5State} stale=${false} />`;
+                    })()}
+                  </div>
+                </div>`)}
         </div>
 
         <footer class="replay-controls">

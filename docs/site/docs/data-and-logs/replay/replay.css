@@ -177,6 +177,40 @@
   outline: 3px solid #ffcc00;
   outline-offset: 2px;
 }
+.replay-overlay-frame.standard {
+  /* Standard layout: two panels at opposite corners (ADI bottom-left,
+     Energy bottom-right) mirroring the export's compositeFrame
+     placement. The .standard frame is a full-width transparent
+     container; the two .replay-overlay-half children are
+     absolutely-positioned anchors. We override the single-panel
+     bottom-right styling completely. */
+  right: 0;
+  left: 0;
+  bottom: 56px;
+  width: 100%;
+  max-width: none;
+  aspect-ratio: auto;
+  height: auto;
+  display: block;
+  background: transparent;
+  filter: none;
+  pointer-events: none;
+}
+.replay-overlay-half {
+  position: absolute;
+  bottom: 0;
+  width: 22%;
+  max-width: 280px;
+  aspect-ratio: 4 / 3;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
+}
+.replay-overlay-half.left  { left: 12px; }
+.replay-overlay-half.right { right: 12px; }
+.replay-overlay-half > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 .replay-status-attention {
   color: #ffcc00 !important;
   font-weight: 600;
@@ -307,7 +341,12 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 220px;
+  /* Viewport-relative so narrow windows still get a usable list.
+     Pilots with many marks need to scroll a lot; cap at 60vh so the
+     panel doesn't push the rest of the page off-screen on tall
+     windows. */
+  max-height: 60vh;
+  min-height: 220px;
   overflow-y: auto;
 }
 .replay-mark-row,
