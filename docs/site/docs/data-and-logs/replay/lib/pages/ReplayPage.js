@@ -1821,6 +1821,27 @@ export const ReplayPage = () => {
     };
   }, []);
 
+  // Separate mount for the full-frame HUD overlay during export. The
+  // HUD's SVG is 1920x1080 (vs. the 320x240 mode-panel SVG), so we
+  // can't reuse the same offscreen div without growing it to HUD
+  // dimensions and having that cost on every export render.
+  const exportHudMountRef = useRef(null);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const div = document.createElement('div');
+    div.setAttribute('data-replay-export-hud', '');
+    div.style.cssText = 'position:absolute;left:-99999px;top:0;width:1920px;height:1080px;visibility:hidden;pointer-events:none;';
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      div.style.setProperty(k, v);
+    }
+    document.body.appendChild(div);
+    exportHudMountRef.current = div;
+    return () => {
+      if (div.parentNode) div.parentNode.removeChild(div);
+      exportHudMountRef.current = null;
+    };
+  }, []);
+
   // renderOverlaySvg signature: (m5State, displayTypeOverride?) → SVGElement.
   // The override path is used by the overlay-only export, which iterates
   // all five modes per frame; it spreads m5State with displayType
@@ -1857,6 +1878,23 @@ export const ReplayPage = () => {
     // on the <svg> root) resolves to nothing → transparent
     // background. Setting the vars on the SVG element makes them
     // available within the isolated document.
+    for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
+      svg.style.setProperty(k, v);
+    }
+    return svg;
+  }, []);
+
+  // renderHudSvg signature: (m5State) → SVGElement.
+  // Mirrors renderOverlayForExport but renders the full-frame HUD
+  // overlay (HudOverlay) instead of the mode-specific M5 panel.
+  // When `showHud` is false this is left null and the export path
+  // skips HUD rendering entirely.
+  const renderHudForExport = useCallback((m5State) => {
+    const mount = exportHudMountRef.current;
+    if (!mount || !m5State) return null;
+    render(html`<${HudOverlay} state=${m5State} />`, mount);
+    const svg = mount.querySelector('svg');
+    if (!svg) return null;
     for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
       svg.style.setProperty(k, v);
     }
@@ -1907,6 +1945,10 @@ export const ReplayPage = () => {
         log,
         cppWireFrames,
         renderOverlaySvg: renderOverlayForExport,
+        // HUD overlay — only rasterized into the export when the
+        // toolbar's Show HUD toggle is on. When off, the export
+        // path skips HUD rendering entirely.
+        renderHudSvg: showHud ? renderHudForExport : null,
         // Multi-chapter takes priority: when a chapter timeline is set,
         // the exporter stitches across boundaries into one MP4. Source
         // file alone still works for legacy single-file picks.
@@ -1952,6 +1994,7 @@ export const ReplayPage = () => {
       setLivePreviewNonce(n => n + 1);
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
+      renderHudForExport, showHud,
       videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {

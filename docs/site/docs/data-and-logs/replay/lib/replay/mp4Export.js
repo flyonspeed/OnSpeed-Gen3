@@ -161,12 +161,15 @@ function svgToImage(svgEl) {
   });
 }
 
-// Bottom-corner overlay placement. position='right' is the default
-// single-overlay layout (the live page's .replay-overlay-frame
-// position). position='left' mirrors X across the centerline for the
-// "standard" two-panel export — same width, same Y, same margins, just
-// pinned to the opposite edge. Returns { x, y, w, h } in canvas pixels.
+// Overlay placement. position='right' is the default single-panel
+// corner (the live page's .replay-overlay-frame position).
+// position='left' mirrors X across the centerline for the "standard"
+// two-panel export — same width, same Y, same margins, just pinned
+// to the opposite edge. position='fullframe' covers the entire
+// output canvas, for the full-frame HUD. Returns { x, y, w, h } in
+// canvas pixels.
 function overlayPlacement(W, H, position) {
+  if (position === 'fullframe') return { x: 0, y: 0, w: W, h: H };
   const w = Math.round(W * 0.22);
   const h = Math.round(w * 3 / 4);
   const y = H - Math.round(H * 0.030) - h;
@@ -578,6 +581,12 @@ export async function exportClipAsMp4({
   log,
   cppWireFrames,
   renderOverlaySvg,
+  // Optional: full-frame HUD overlay rendered UNDER the corner panels.
+  // (m5State) → SVGElement. When provided, every output frame
+  // composites the HUD across the entire canvas before the corner
+  // panels are drawn — so the inset / standard pair sit on top of
+  // the HUD widgets in the same way as the live preview.
+  renderHudSvg    = null,
   sourceFile      = null,
   videoTimeline   = null,
   presentationTau = null,
@@ -1059,6 +1068,21 @@ export async function exportClipAsMp4({
         }
 
         const overlays = [];
+        // HUD goes first so corner panels composite on top of it in
+        // the canvas drawImage order.
+        if (renderHudSvg) {
+          try {
+            const hudSvg = renderHudSvg(m5State);
+            if (hudSvg) {
+              // eslint-disable-next-line no-await-in-loop
+              const hudImg = await svgToImage(hudSvg);
+              if (hudImg) overlays.push({ img: hudImg, position: 'fullframe' });
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('HUD raster failed for frame', i, e);
+          }
+        }
         const renderOne = async (displayType, position) => {
           try {
             const svgEl = renderOverlaySvg ? renderOverlaySvg(m5State, displayType) : null;
