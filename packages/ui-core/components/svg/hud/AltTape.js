@@ -12,7 +12,7 @@
 // Geometry comes from hudGeometry.js (HUD_ALT_*). The clipPath id is
 // hardcoded to "hud-alt-readout-clip" — only one HudAltTape per SVG.
 
-import { html } from '../../../vendor/preact-standalone.js';
+import { html, useRef } from '../../../vendor/preact-standalone.js';
 import * as H from '../../../core/hudGeometry.js';
 
 // Box outline path + clip path share the exact same geometry so the
@@ -56,31 +56,34 @@ function buildAltBoxPath() {
   ].join(' ');
 }
 
-const pad2 = (n) => String(n).padStart(2, '0');
+const altPad2 = (n) => String(n).padStart(2, '0');
 
-// Module-level EMA state for smoothing the altitude readout. The raw
-// 20 Hz Palt has ±1-2 ft of pressure-sensor noise per sample; without
-// smoothing the slide fraction jitters visibly between frames. 200 ms
-// tau (alpha ≈ 0.2 at 20 Hz) tames the noise without lagging behind
-// real climb/descent.
-let _altEmaState = null;
-// Heavy smoothing — alpha 0.04 at 20 Hz ≈ 1.2 s tau. The tens
-// digit needs to slide smoothly, and pressure-altitude noise +
-// firmware Kalman bias dominate at shorter taus.
+// EMA smoothing alpha at 20 Hz ≈ 1.2 s tau. The tens digit needs to
+// slide smoothly; pressure-altitude noise + firmware Kalman bias
+// dominate at shorter taus.
 const ALT_EMA_ALPHA = 0.04;
-function smoothAlt(raw) {
-  if (!Number.isFinite(raw)) return _altEmaState ?? 0;
-  if (_altEmaState == null || Math.abs(raw - _altEmaState) > 200) {
-    // First call, or huge jump (log seek). Snap to raw.
-    _altEmaState = raw;
-  } else {
-    _altEmaState += (raw - _altEmaState) * ALT_EMA_ALPHA;
-  }
-  return _altEmaState;
-}
+// Big-jump snap threshold (ft). Beyond this delta we assume a log
+// seek or fresh flight load and reset the EMA to the raw value
+// rather than crossfading from the prior state — otherwise the
+// tape spends a full tau crossing the gap.
+const ALT_SNAP_FT = 200;
 
 export const HudAltTape = ({ altitudeFt = 0 }) => {
-  const alt = smoothAlt(Number.isFinite(altitudeFt) ? altitudeFt : 0);
+  // Per-instance EMA state via useRef. Previously this lived at
+  // module scope, which silently coupled the live preview's HUD
+  // and the offscreen export-mount HUD: each render of either
+  // mutated the same accumulator, so the first ~30 frames of every
+  // export burned in altitudes drifting from the live-preview's
+  // last EMA state instead of starting fresh from the clip. See
+  // bulldog review on PR #548.
+  const emaRef = useRef(null);
+  const raw = Number.isFinite(altitudeFt) ? altitudeFt : 0;
+  if (emaRef.current == null || Math.abs(raw - emaRef.current) > ALT_SNAP_FT) {
+    emaRef.current = raw;
+  } else {
+    emaRef.current += (raw - emaRef.current) * ALT_EMA_ALPHA;
+  }
+  const alt = emaRef.current;
   const cy = H.HUD_ALT_CY;
   // Explicit y offset from font metrics — see H.hudGlyphOffset for
   // why we avoid `dominant-baseline="central"`.
@@ -239,19 +242,19 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
                 font-weight="bold"
                 font-size=${H.HUD_ALT_BOX_FONT_SIZE}
                 fill="var(--white)"
-                text-anchor="start">${pad2(tensUp)}</text>
+                text-anchor="start">${altPad2(tensUp)}</text>
           <text x=${tensX} y=${cy + boxDy}
                 font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
                 font-weight="bold"
                 font-size=${H.HUD_ALT_BOX_FONT_SIZE}
                 fill="var(--white)"
-                text-anchor="start">${pad2(tensCurr)}</text>
+                text-anchor="start">${altPad2(tensCurr)}</text>
           <text x=${tensX} y=${cy + H.HUD_ALT_TENS_SLIDE_PX + boxDy}
                 font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
                 font-weight="bold"
                 font-size=${H.HUD_ALT_BOX_FONT_SIZE}
                 fill="var(--white)"
-                text-anchor="start">${pad2(tensDown)}</text>
+                text-anchor="start">${altPad2(tensDown)}</text>
         </g>
       </g>
     </g>`;

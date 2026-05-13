@@ -15,7 +15,7 @@
 // Geometry comes from hudGeometry.js (HUD_IAS_*). The clipPath id is
 // hardcoded to "hud-ias-readout-clip" — only one HudIasTape per SVG.
 
-import { html } from '../../../vendor/preact-standalone.js';
+import { html, useRef } from '../../../vendor/preact-standalone.js';
 import * as H from '../../../core/hudGeometry.js';
 
 // Box outline path + clip path share the exact same geometry so the
@@ -51,24 +51,25 @@ function buildIasBoxPath() {
   ].join(' ');
 }
 
-// Module-level EMA state for smoothing the IAS readout. Raw 20 Hz
-// IAS has visible jitter from dynamic pressure noise; without
-// smoothing the ones digit clicks between frames. Same heavy tau
-// as ALT (~1.2 s) so the two tapes feel equally responsive.
-let _iasEmaState = null;
+// EMA smoothing alpha ≈ 1.2 s tau at 20 Hz — matches ALT so the two
+// tapes feel equally responsive. Raw 20 Hz IAS has visible jitter
+// from dynamic-pressure noise; without smoothing the ones digit
+// clicks between frames.
 const IAS_EMA_ALPHA = 0.04;
-function smoothIas(raw) {
-  if (!Number.isFinite(raw)) return _iasEmaState ?? 0;
-  if (_iasEmaState == null || Math.abs(raw - _iasEmaState) > 30) {
-    _iasEmaState = raw;
-  } else {
-    _iasEmaState += (raw - _iasEmaState) * IAS_EMA_ALPHA;
-  }
-  return _iasEmaState;
-}
+const IAS_SNAP_KT = 30;
 
 export const HudIasTape = ({ iasKt = 0 }) => {
-  const ias = smoothIas(Number.isFinite(iasKt) ? Math.max(0, iasKt) : 0);
+  // Per-instance EMA state via useRef. See the matching note in
+  // AltTape.js: module-scoped EMA was silently shared between the
+  // live preview and the offscreen export mount.
+  const emaRef = useRef(null);
+  const raw = Number.isFinite(iasKt) ? Math.max(0, iasKt) : 0;
+  if (emaRef.current == null || Math.abs(raw - emaRef.current) > IAS_SNAP_KT) {
+    emaRef.current = raw;
+  } else {
+    emaRef.current += (raw - emaRef.current) * IAS_EMA_ALPHA;
+  }
+  const ias = emaRef.current;
   const cy = H.HUD_IAS_CY;
   // Explicit y offset from font metrics — see H.hudGlyphOffset for
   // why we avoid `dominant-baseline="central"`.
