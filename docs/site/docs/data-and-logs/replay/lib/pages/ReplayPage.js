@@ -2437,6 +2437,9 @@ export const ReplayPage = () => {
                           videoT=${videoT}
                           anchorLabel=${anchorKindLabel(anchorKind)}
                           marks=${marks}
+                          clips=${clips}
+                          clipAnnotations=${journal.clipAnnotations}
+                          markAnnotations=${journal.markAnnotations}
                           onLogTakeoffPick=${(tMs) => setSync(prev => ({
                             logTakeoffMs: tMs,
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
@@ -2519,9 +2522,13 @@ export const ReplayPage = () => {
 //     timeline is still useful for first-time setup.
 const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
                        marks = [],
+                       clips = [], clipAnnotations = {}, markAnnotations = {},
                        onLogTakeoffPick, onSeekVideo }) => {
   const W = 1100, H = 80;
   const PAD = 4;
+  // Top lane reserved for clip spans; mark ticks shift down by this
+  // amount so the two layers don't overlap.
+  const CLIP_LANE_H = 16;
 
   if (!log) return html`<div class="replay-timeline empty"></div>`;
 
@@ -2591,15 +2598,43 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
            style="width: 100%; height: ${H}px; cursor: crosshair;">
         <rect x="0" y="0" width=${W} height=${H} fill="#0e1418" />
         <path d=${d} fill="none" stroke="#5cd6ff" stroke-width="1" />
+        ${clips.map(c => {
+          if (!Number.isFinite(c.startMs) || !Number.isFinite(c.endMs)) return null;
+          if (c.endMs < tMin || c.startMs > tMax) return null;
+          const x0 = xOf(Math.max(c.startMs, tMin));
+          const x1 = xOf(Math.min(c.endMs, tMax));
+          const w  = Math.max(1, x1 - x0);
+          const ann = c.id ? clipAnnotations[c.id] : null;
+          const label = (ann && ann.label) ? ann.label : (c.label || '');
+          return html`
+            <g>
+              <rect class="replay-timeline-clip"
+                    x=${x0.toFixed(1)} y="0"
+                    width=${w.toFixed(1)} height="14">
+                <title>${label}</title>
+              </rect>
+              <text class="replay-timeline-clip-label"
+                    x=${(x0 + 3).toFixed(1)} y="10">
+                ${label}
+              </text>
+            </g>`;
+        })}
         ${marks.map(m => {
           if (m.logTimeMs < tMin || m.logTimeMs > tMax) return null;
           const x = xOf(m.logTimeMs).toFixed(1);
+          const ann = markAnnotations
+            ? markAnnotations[String(m.value) + ':' + String(m.logTimeMs)]
+            : null;
+          const titleText = m.label + (ann && ann.name ? ' — ' + ann.name : '');
           return html`
-            <line x1=${x} y1="0" x2=${x} y2=${H}
-                  stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55" />
+            <line x1=${x} y1=${CLIP_LANE_H} x2=${x} y2=${H}
+                  stroke="#7dd3fc" stroke-width="1" stroke-opacity="0.55">
+              <title>${titleText}</title>
+            </line>
             <text x=${(parseFloat(x) + 2).toFixed(1)} y=${(H - 4).toFixed(1)}
                   fill="#7dd3fc" font-size="10" font-family="monospace">
               ${m.label}
+              <title>${titleText}</title>
             </text>`;
         })}
         ${sync && Number.isFinite(sync.logTakeoffMs) && html`

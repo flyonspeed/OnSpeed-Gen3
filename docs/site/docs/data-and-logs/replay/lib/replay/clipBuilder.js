@@ -566,6 +566,18 @@ const ClipRow = ({
                 onClick=${() => Number.isFinite(startSec) && onScrubTo(startSec)}>
           Scrub
         </button>
+        <button class="replay-btn-nudge"
+                disabled=${disabled || isExporting}
+                title="Nudge clip start −1 second"
+                onClick=${() => onPatch({ startMs: clip.startMs - 1000 })}>
+          −1s
+        </button>
+        <button class="replay-btn-nudge"
+                disabled=${disabled || isExporting}
+                title="Nudge clip start −100 ms"
+                onClick=${() => onPatch({ startMs: clip.startMs - 100 })}>
+          −100ms
+        </button>
         <button class="replay-btn-ghost"
                 disabled=${disabled || isExporting}
                 title="Move this clip's start to the current playhead"
@@ -577,6 +589,18 @@ const ClipRow = ({
                 title="Move this clip's end to the current playhead"
                 onClick=${setOutHere}>
           Set out here
+        </button>
+        <button class="replay-btn-nudge"
+                disabled=${disabled || isExporting}
+                title="Nudge clip end +100 ms"
+                onClick=${() => onPatch({ endMs: clip.endMs + 100 })}>
+          +100ms
+        </button>
+        <button class="replay-btn-nudge"
+                disabled=${disabled || isExporting}
+                title="Nudge clip end +1 second"
+                onClick=${() => onPatch({ endMs: clip.endMs + 1000 })}>
+          +1s
         </button>
 
         ${renderExport()}
