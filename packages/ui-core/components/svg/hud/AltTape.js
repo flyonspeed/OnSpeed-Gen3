@@ -122,12 +122,11 @@ export const HudAltTape = ({ altitudeFt = 0 }) => {
   // the box (closest to the arrow tab); sliding tens strip anchored to
   // their RIGHT. Both vertically aligned via explicit boxDy so the
   // glyph centers land on cy regardless of browser baseline handling.
-  // Box width 110 → hundreds at +18, tens at +60 leaves ~52 px for
-  // "123" (3 digits at font-size 30 = ~54 px) and ~42 px for "40"
-  // (2 digits = ~36 px). Tight but clean, no overlap with the arrow
-  // tab on the left or the right wall.
-  const hundredsX = H.HUD_ALT_BOX_LEFT + 18;
-  const tensX     = H.HUD_ALT_BOX_LEFT + 60;
+  // Box width 110 → hundreds at +14, tens at +56 leaves a ~6 px reading
+  // slot between "40" (anchor start, ~36 px wide) and the sliding "80"
+  // (~36 px wide). Reads as one altitude number, not two columns.
+  const hundredsX = H.HUD_ALT_BOX_LEFT + 14;
+  const tensX     = H.HUD_ALT_BOX_LEFT + 56;
 
   return html`
     <g data-widget="hud-alt-tape">

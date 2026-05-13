@@ -105,13 +105,12 @@ export const HudIasTape = ({ iasKt = 0 }) => {
 
   // Stationary tens digits on the LEFT half of the box (outboard,
   // farthest from the right-side arrow tab); sliding ones strip on
-  // the RIGHT half (closest to the arrow tab). Box width 90 →
-  // tens at +14, ones at +52: leaves ~38 px for "11" (~36 px at
-  // font-size 30, fits) and ~30 px for the ones digit (~18 px,
-  // fits). The smaller gap reads as one airspeed number, not two
-  // separate readouts.
-  const tensX = H.HUD_IAS_BOX_LEFT + 14;
-  const onesX = H.HUD_IAS_BOX_LEFT + 52;
+  // the RIGHT half (closest to the arrow tab). Box width 70 →
+  // tens at +12, ones at +42 leaves a ~6 px reading slot between
+  // "13" (anchor start, ~24 px wide at font-size 30) and "8"
+  // (anchor start, ~14 px wide). Reads as a single airspeed.
+  const tensX = H.HUD_IAS_BOX_LEFT + 12;
+  const onesX = H.HUD_IAS_BOX_LEFT + 42;
 
   return html`
     <g data-widget="hud-ias-tape">

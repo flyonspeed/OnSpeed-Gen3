@@ -125,21 +125,22 @@ export const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
 // ALT tape (tallest, primary) > VVI bar (secondary, attached).
 //
 // Position calc:
-//   HUD_ALT_X (left of ticks) = 1620
-//   long tick out = 14, label gap = 8, label width ~40 px for "5400"
-//   → labels end around x = 1620 + 14 + 8 + 40 = 1682
-//   small gap = 6 → HUD_VVI_X = 1688
-export const HUD_VVI_X               = 1688;
+//   ALT box body right edge = HUD_ALT_BOX_RIGHT = 1736
+//   Gap from box right to VVI spine = 50 → HUD_VVI_X = 1786
+// The VVI spine sits clear of the ALT box body; ticks point LEFT
+// (toward the ALT tape's labels) and the scale numerals + value
+// readout sit on the RIGHT of the spine in the open frame.
+export const HUD_VVI_X               = 1786;
 // VVI centerline matches the ALT tape so the two right-side gauges
-// share a horizontal axis. Bar HALF_H slightly shorter than the ALT
-// tape so the VVI reads as a paired secondary gauge.
+// share a horizontal axis. Bar HALF_H is 80% of the ALT tape's
+// half-height so the VVI reads as a paired secondary gauge.
 export const HUD_VVI_CY              = 480;
-export const HUD_VVI_HALF_H          = 200;
+export const HUD_VVI_HALF_H          = 176;          // 0.80 * 220
 export const HUD_VVI_FULL_SCALE_FPM  = 2000;
 export const HUD_VVI_BAR_THRESHOLD   = 50;
 export const HUD_VVI_THRESHOLD       = 100;
 export const HUD_VVI_TICK_FONT_SIZE  = 20;
-export const HUD_VVI_VALUE_FONT_SIZE = 36;
+export const HUD_VVI_VALUE_FONT_SIZE = 30;
 
 // ---------------------------------------------------------------------
 // ALT tape (right side, outboard of the VVI)
@@ -173,9 +174,12 @@ export const HUD_ALT_PX_PER_100_FT   = 75;
 export const HUD_ALT_PX_PER_20_FT    = HUD_ALT_PX_PER_100_FT / 5;   // 15
 export const HUD_ALT_LABEL_FONT_SIZE = 22;
 export const HUD_ALT_LABEL_OFFSET_X  = 8;    // gap from end of long tick to label
-// Tens-strip slide per 20 ft of altitude change. Matches the slide
-// rate FlySto uses (proportional to the tape's 100-ft pitch).
-export const HUD_ALT_TENS_SLIDE_PX   = HUD_ALT_PX_PER_20_FT * 2;     // 30, mirrors FlySto's 30.7
+// Tens-strip slide per 20 ft of altitude change. Sized to the box
+// HEIGHT so the up/down digits sit fully outside the box body when
+// the strip is stationary on a tens-multiple. A shorter slide would
+// leave the up/down digits half-visible at the top/bottom of the
+// box even at frac=0 (only the curr digit should be visible then).
+export const HUD_ALT_TENS_SLIDE_PX   = 60;
 // Garmin-style readout box, CENTERED ON the tape's tick column. The
 // box body's left wall sits ~6 px right of the tape's left tick stem;
 // an arrow tab notches LEFT from the box left wall, with the tip
@@ -273,11 +277,12 @@ export const HUD_IAS_LABEL_OFFSET_X  = 8;    // gap from end of long tick to lab
 // RIGHT side notches RIGHT into the tick column, tip landing ~2 px
 // PAST the rightmost tick stem (inboard toward the ADI center).
 // Mirror of ALT box geometry across HUD_CX.
-// IAS shows 3 digits max (e.g. "139"). Box body width 90 fits the
-// stationary tens + sliding ones with ~10 px gap between digit
-// columns and modest padding inside the rounded corners. Body height
-// 60 keeps a 12-px tab notch comfortably between the rounded corners.
-export const HUD_IAS_BOX_W           = 90;
+// IAS shows 3 digits max (e.g. "139"). Box body width 70 is tight
+// to the digits: stationary tens at left edge + sliding ones to its
+// right with only a thin reading-slot gap, so "138" reads as one
+// number, not two columns. Body height 60 keeps a 12-px tab notch
+// comfortably between the rounded corners.
+export const HUD_IAS_BOX_W           = 70;
 export const HUD_IAS_BOX_H           = 60;
 export const HUD_IAS_BOX_ARROW_W     = 8;
 // Box rendering anchors (mirror of ALT):
@@ -293,12 +298,12 @@ export const HUD_IAS_BOX_TOP         = HUD_IAS_CY - HUD_IAS_BOX_H / 2;
 export const HUD_IAS_BOX_BOTTOM      = HUD_IAS_CY + HUD_IAS_BOX_H / 2;
 export const HUD_IAS_BOX_FONT_SIZE   = 30;
 export const HUD_IAS_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
-// Ones-digit slide-per-knot. Set equal to the box font size so each
-// 1-kt step is a visible ~one-font-height jog, with the digit fully
-// replacing the next over a 1-kt change. Larger than the tape pitch
-// (7.5 px/kt) so the spinning ones digit reads as motion, not as
-// imperceptible drift.
-export const HUD_IAS_ONES_SLIDE_PX   = HUD_IAS_BOX_FONT_SIZE;       // 30
+// Ones-digit slide-per-knot. Sized to the box HEIGHT so the up/down
+// digits sit fully outside the box body when the strip is stationary
+// on an integer knot — only the curr digit shows at frac=0. A shorter
+// slide leaves the up/down digits half-clipped at the top/bottom of
+// the box even at rest.
+export const HUD_IAS_ONES_SLIDE_PX   = 60;
 
 // Semi-transparent dark backing strip behind the IAS ticks. Mirror
 // of the ALT backing across HUD_CX, with labels rendered to the LEFT
