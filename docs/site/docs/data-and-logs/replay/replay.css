@@ -155,6 +155,28 @@
   height: 100%;
   pointer-events: none;
 }
+.replay-hud {
+  /* Full-frame HUD layer. Renders BEFORE .replay-overlay in the DOM
+     so the M5 panel (corner-anchored, opaque) paints on top in any
+     overlap area — see PLAN_HUD_OVERLAY.md "Layering model". The HUD
+     SVG fills the stage; preserveAspectRatio in the SVG keeps the
+     content centered if the stage aspect differs from 16:9. */
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Carve out the native <video> controls strip (≈ 40-48 px tall)
+     so the slip ball / FPM tail aren't covered by the scrubber. */
+  bottom: 48px;
+}
+.replay-hud > svg.hud-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Drop-shadow halo is rendered inline via an SVG <filter> element
+     in HudOverlay so both the live page and the MP4 export raster
+     get the same legibility treatment. (CSS class filters don't
+     follow the SVG into the export blob's isolated document.) */
+}
 .replay-overlay-frame {
   /* Bottom-right anchor inside the video, lifted above the native
      <video> controls bar so the overlay never sits under the
