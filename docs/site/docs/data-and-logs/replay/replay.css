@@ -123,11 +123,25 @@
 }
 .replay-placeholder {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   height: 360px;
   color: #6b7780;
   font-style: italic;
+}
+.replay-help-link {
+  color: #7dd3fc;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  font-style: normal;
+  font-size: 13px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.replay-help-link:hover {
+  color: #b0e3ff;
+  border-bottom-color: #7dd3fc;
 }
 .replay-overlay {
   /* The overlay div doesn't lay out anything visible — the SVG it

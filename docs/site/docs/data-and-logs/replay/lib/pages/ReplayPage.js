@@ -2029,7 +2029,13 @@ export const ReplayPage = () => {
               playsInline
               class="replay-video"
             />
-          ` : html`<div class="replay-placeholder">Drop a flight video and an SD-log CSV to get started.</div>`}
+          ` : html`<div class="replay-placeholder">
+              <span>Drop a flight video and an SD-log CSV to get started.</span>
+              <a class="replay-help-link"
+                 href="./replay/getting-started/"
+                 target="_blank"
+                 rel="noopener">How does this work?</a>
+            </div>`}
 
           ${overlayVisible && m5State && html`
             <div class="replay-overlay">
@@ -2054,7 +2060,7 @@ export const ReplayPage = () => {
               `)}
             <span class="replay-spacer"></span>
             <span class="replay-toggle"
-                  title="Render-side smoothing for the slip ball. Lateral-G EMA time constant in seconds. 0 = firmware-faithful (lively at 208 Hz). Dial up until the ball looks like what you remember seeing on your EFIS in flight. ~0.25 s = VN-300 territory, ~0.75 s = Dynon SkyView.">
+                  title="Slip-ball EMA time constant (s). 0 = firmware-faithful, ~0.25 = VN-300, ~0.75 = SkyView.">
               Ball smoothing:
               <input type="range"
                      min=${PRESENTATION_LATERAL_TAU_MIN}

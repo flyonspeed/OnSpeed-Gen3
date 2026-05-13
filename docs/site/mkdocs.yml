@@ -162,7 +162,9 @@ nav:
     - data-and-logs/index.md
     - Understanding Logs: data-and-logs/log-format.md
     - Downloading Logs: data-and-logs/downloading.md
-    - Video Replay Tool: data-and-logs/replay.md
+    - Video Replay Tool:
+      - data-and-logs/replay.md
+      - Getting Started: data-and-logs/replay/getting-started.md
   - Troubleshooting:
     - troubleshooting/index.md
     - No Audio: troubleshooting/no-audio.md
