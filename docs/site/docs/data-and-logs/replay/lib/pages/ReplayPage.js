@@ -80,6 +80,8 @@ import { getWasmCore } from '../replay/wasm_core.js';
 import {
   EnergyMode, AttitudeMode, IndexerMode, DecelMode, HistoricGMode,
 } from '../../../../packages/ui-core/components/svg/m5modes/index.js';
+import { HudOverlay }
+  from '../../../../packages/ui-core/components/svg/HudOverlay.js';
 import {
   detectGoProChapterPattern, groupChapterSiblings, buildChapterTimeline,
   globalToLocal, describeChapterPick,
@@ -140,6 +142,10 @@ const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
 // visible on the slip ball. See presentationFilter.js for rationale.
 const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
+// Full-frame HUD layer toggle. Independent of the M5 panel — both
+// can be on at the same time. Default OFF (PLAN_HUD_OVERLAY.md PR-1
+// is an opt-in design-tuning phase).
+const HUD_SHOW_LS_KEY = 'replay-show-hud-v1';
 
 // Friendly label for the anchor type the auto-detector picked.
 // Pilots usually sync against the first crosswind turn (sharp bank
@@ -188,6 +194,14 @@ export const ReplayPage = () => {
   const [sync, setSync]           = useState(null);
   const [videoT, setVideoT]       = useState(0);
   const [overlayVisible, setOverlayVisible] = useState(true);
+  // HUD layer toggle. Persisted to localStorage so a reload remembers
+  // the pilot's preference. Default false: PR-1 is design-tuning, and
+  // pilots who don't want the HUD shouldn't see it on first load.
+  const [showHud, setShowHud] = useState(() => {
+    return safeLsGet(HUD_SHOW_LS_KEY) === '1';
+  });
+  useEffect(() => { safeLsSet(HUD_SHOW_LS_KEY, showHud ? '1' : '0'); },
+            [showHud]);
   const [parseErr, setParseErr]   = useState(null);
   // True while the resume path is mid-load (auto-resume on mount, or
   // banner click). Surfaces a "Resuming…" status pill so the page
@@ -2243,6 +2257,11 @@ export const ReplayPage = () => {
                  rel="noopener">How does this work?</a>
             </div>`}
 
+          ${showHud && m5State && html`
+              <div class="replay-hud">
+                <${HudOverlay} state=${m5State} />
+              </div>`}
+
           ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
             ? html`
                 <div class="replay-overlay">
@@ -2302,6 +2321,12 @@ export const ReplayPage = () => {
               <input type="checkbox" checked=${overlayVisible}
                      onChange=${e => setOverlayVisible(e.target.checked)} />
               Show overlay
+            </label>
+            <label class="replay-toggle"
+                   title="Full-frame HUD: horizon, pitch ladder, bank arc, IAS/ALT tapes, FPM, slip ball. Independent of the M5 panel — both can be on.">
+              <input type="checkbox" checked=${showHud}
+                     onChange=${e => setShowHud(e.target.checked)} />
+              Show HUD
             </label>
             ${exportingClipIdx != null
               ? html`
