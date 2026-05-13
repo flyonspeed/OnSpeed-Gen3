@@ -26,21 +26,28 @@ function isValidMark(v) {
   return Number.isInteger(v) && v >= 0 && v <= 99;
 }
 
+// A real pilot press follows the pattern 0 → N → 0 in the column
+// (the firmware writes the new value for one frame's worth then
+// resets). A direct N → M transition with no intervening 0 is a
+// signature of two adjacent corrupted rows landing both-valid by
+// coincidence, not two consecutive presses; drop the second one.
+//
+// And: a row whose timeStamp is 0 (or earlier than the previous row's
+// timestamp) is a misaligned-CSV row where the time cell got pushed
+// out — the DataMark cell may parse as a valid integer by luck, but
+// the row isn't a real pilot press.
 export function findDataMarks(log) {
   if (!log || !log.DataMark || !log.timeStamp) return [];
   const N = log.Length;
   if (N < 2) return [];
 
   const out = [];
-  // Treat anything different from the previous logged value as a
-  // transition. The first row's mark is included only if it's
-  // non-zero (otherwise every flight starts with a "mark 0" the
-  // pilot didn't actually press).
   let prev = isValidMark(log.DataMark[0]) ? log.DataMark[0] : 0;
-  if (prev > 0) {
+  let prevTimestamp = log.timeStamp[0];
+  if (prev > 0 && Number.isFinite(prevTimestamp) && prevTimestamp > 0) {
     out.push({
       rowIdx:    0,
-      logTimeMs: log.timeStamp[0],
+      logTimeMs: prevTimestamp,
       value:     prev,
       label:     '01',
     });
@@ -49,13 +56,21 @@ export function findDataMarks(log) {
     const v = log.DataMark[i];
     if (!isValidMark(v)) continue;
     if (v !== prev) {
-      // Skip the immediate post-power-up "mark = 0" zero-edge that
-      // happens when the column initializes; only count transitions
-      // whose new value is non-zero (i.e. an actual button press).
-      if (v > 0) {
+      // Sanity: real presses sit on a row whose timeStamp is positive
+      // and monotonically ahead of the prior accepted mark. Rows with
+      // ts <= 0 OR ts < the previous accepted mark's ts are noise.
+      const ts = log.timeStamp[i];
+      const tsOk = Number.isFinite(ts) && ts > 0 &&
+                   (out.length === 0 || ts > out[out.length - 1].logTimeMs);
+      // Real-press pattern: the column must have been at 0 just
+      // before this transition. A direct N → M (both non-zero) is
+      // two corrupted-but-in-range rows back-to-back, not two
+      // separate presses.
+      const cameFromZero = prev === 0;
+      if (v > 0 && tsOk && cameFromZero) {
         out.push({
           rowIdx:    i,
-          logTimeMs: log.timeStamp[i],
+          logTimeMs: ts,
           value:     v,
           label:     String(out.length + 1).padStart(2, '0'),
         });
