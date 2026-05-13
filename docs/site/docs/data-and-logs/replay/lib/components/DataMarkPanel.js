@@ -185,7 +185,10 @@ export const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
   return html`
     <div class="replay-marks${collapsed ? ' is-collapsed' : ''}">
       <div class="replay-marks-header replay-section-header"
+           role="button"
+           tabIndex="0"
            onClick=${toggleCollapsed}
+           onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed(); }}}
            title=${collapsed ? 'Expand data marks' : 'Collapse data marks'}>
         <span class="replay-section-disclosure">${collapsed ? '▸' : '▾'}</span>
         <span class="replay-label">Data marks</span>
