@@ -564,7 +564,6 @@ export const ReplayPage = () => {
       setLogFilename(f.name);
       setClips([]);
       setSync(null);
-      setAnchorKind('none');
       setPausedLogMs(null);
       setPendingInVideoSec(null);
       logFileRef.current = f;
