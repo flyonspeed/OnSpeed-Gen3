@@ -46,7 +46,7 @@ import { html, useState, useEffect, useRef, useCallback, render }
 import { parseLog, findRowAt, detectLogSampleRate }
   from '../replay/parseLog.js';
 import { parseConfigXml } from '../replay/config.js';
-import { detectTakeoffWithKind, downsampleForPlot } from '../replay/syncDetect.js';
+import { detectRotation, downsampleForPlot } from '../replay/syncDetect.js';
 // downloadBlob lives in mp4Export.js (used by composite + overlay-only
 // MP4 exports). The legacy WebM path was removed 2026-05-12 — see PR #533
 // description for the rationale (MP4 export is source-faithful and
@@ -147,16 +147,6 @@ const M5_SMOOTH_LS_KEY = 'replay-m5-smooth-v1';
 // is an opt-in design-tuning phase).
 const HUD_SHOW_LS_KEY = 'replay-show-hud-v1';
 
-// The label shown on the timeline for the log↔video sync point.
-// The auto-detector picks the position (rotation, crosswind, etc.)
-// but the user just wants to know "this is the sync anchor" —
-// surfacing the detector's guess at WHAT KIND of moment it picked
-// added noise without information. The `kind` arg is kept on the
-// signature so call sites don't need to change.
-function anchorKindLabel(_kind) {
-  return 'sync';
-}
-
 function safeLsGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function safeLsSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
 
@@ -207,10 +197,6 @@ export const ReplayPage = () => {
   // banner click). Surfaces a "Resuming…" status pill so the page
   // doesn't look blank during the three getFile()/parse calls.
   const [resuming, setResuming]   = useState(false);
-  // Anchor kind from detectTakeoffWithKind: 'crosswind' | 'rotation'
-  // | 'none'. Used in the status text + timeline label so the pilot
-  // knows what event they're syncing against.
-  const [anchorKind, setAnchorKind] = useState('none');
 
   const [m5ModeId, setM5ModeId] = useState(() => {
     const s = safeLsGet(M5_MODE_LS_KEY);
@@ -853,18 +839,14 @@ export const ReplayPage = () => {
     if (!persistence.digestReady) return;
     if (persistence.storedSync) {
       setSync(persistence.storedSync);
-      setAnchorKind(persistence.storedSync.anchorKind || 'none');
       return;
     }
-    const { row: tRow, kind } = detectTakeoffWithKind(log);
-    setAnchorKind(kind);
+    const tRow = detectRotation(log);
     if (tRow >= 0) {
       // Auto-detected anchor; pair it with whatever the pilot's
       // first "mark video anchor" press will be. Until then, sync
-      // is null (overlay shows nothing). Carry anchorKind inside the
-      // sync object so it round-trips through localStorage (the
-      // persistence layer only stores fields it sees on sync).
-      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null, anchorKind: kind });
+      // is null (overlay shows nothing).
+      setSync(prev => prev ?? { logTakeoffMs: log.timeStamp[tRow], videoTakeoffSec: null });
     }
   }, [log, persistence.digestReady, persistence.storedSync]);
 
@@ -1634,19 +1616,16 @@ export const ReplayPage = () => {
     setSync(prev => ({
       logTakeoffMs:    prev?.logTakeoffMs ?? null,
       videoTakeoffSec: currentGlobalSec(),
-      anchorKind:      prev?.anchorKind ?? anchorKind,
     }));
-  }, [anchorKind, currentGlobalSec]);
+  }, [currentGlobalSec]);
 
   const reMarkLogTakeoff = useCallback(() => {
     if (!log) return;
-    const { row: tRow, kind } = detectTakeoffWithKind(log);
-    setAnchorKind(kind);
+    const tRow = detectRotation(log);
     if (tRow >= 0) {
       setSync(prev => ({
         logTakeoffMs:    log.timeStamp[tRow],
         videoTakeoffSec: prev?.videoTakeoffSec ?? null,
-        anchorKind:      kind,
       }));
     }
   }, [log]);
@@ -1683,10 +1662,9 @@ export const ReplayPage = () => {
     setSync({
       logTakeoffMs:    pausedLogMs,
       videoTakeoffSec: currentGlobalSec(),
-      anchorKind,
     });
     setPausedLogMs(null);
-  }, [pausedLogMs, anchorKind, currentGlobalSec]);
+  }, [pausedLogMs, currentGlobalSec]);
 
   const cancelPause = useCallback(() => setPausedLogMs(null), []);
 
@@ -2407,10 +2385,9 @@ export const ReplayPage = () => {
               ${Number.isFinite(pausedLogMs)
                 ? `indexer paused at log ${(pausedLogMs / 1000).toFixed(2)}s · scrub video and click Attach`
                 : syncReady
-                  ? `synced · video ${sync.videoTakeoffSec.toFixed(2)}s ↔ log ${(sync.logTakeoffMs / 1000).toFixed(2)}s ` +
-                    `(${anchorKindLabel(anchorKind)})`
+                  ? `synced · video ${sync.videoTakeoffSec.toFixed(2)}s ↔ log ${(sync.logTakeoffMs / 1000).toFixed(2)}s (sync)`
                   : sync
-                    ? `log ${anchorKindLabel(anchorKind)} at ${(sync.logTakeoffMs / 1000).toFixed(2)}s — set video anchor`
+                    ? `log sync at ${(sync.logTakeoffMs / 1000).toFixed(2)}s — set video anchor`
                     : 'load files to begin'}
             </span>
           </div>
@@ -2435,7 +2412,7 @@ export const ReplayPage = () => {
 
           <${LogTimeline} log=${log} sync=${sync}
                           videoT=${videoT}
-                          anchorLabel=${anchorKindLabel(anchorKind)}
+                          anchorLabel="sync"
                           marks=${marks}
                           clips=${clips}
                           clipAnnotations=${journal.clipAnnotations}
@@ -2443,7 +2420,6 @@ export const ReplayPage = () => {
                           onLogTakeoffPick=${(tMs) => setSync(prev => ({
                             logTakeoffMs: tMs,
                             videoTakeoffSec: prev?.videoTakeoffSec ?? null,
-                            anchorKind:      prev?.anchorKind ?? anchorKind,
                           }))}
                           onSeekVideo=${(tSec) => seekToGlobalSec(tSec)} />
 
@@ -2520,6 +2496,10 @@ export const ReplayPage = () => {
 //   - When sync isn't ready yet (no video-takeoff anchor set),
 //     plain click falls back to the shift-click behavior so the
 //     timeline is still useful for first-time setup.
+//
+// TODO(timeline-zoom): pilots want to zoom into a slice of the IAS
+// stripchart with a minimap overview, video-editor style. Deferred to
+// a follow-up PR — see local-plans/ when started.
 const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
                        marks = [],
                        clips = [], clipAnnotations = {}, markAnnotations = {},
