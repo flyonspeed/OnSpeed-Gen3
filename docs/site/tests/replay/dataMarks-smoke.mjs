@@ -90,20 +90,18 @@ assertEq(
 assertEq(findDataMarks(makeLog({ timeStamp: [0], DataMark: [0] })), [], 'single-row log → no marks');
 assertEq(findDataMarks(null), [], 'null log → empty array');
 
-// First row with a real mark must be included — but only when ts > 0.
-// (A row-0 with ts=0 is the misaligned-CSV signature; pilots can't
-// physically press DataMark on the first sample of a fresh log
-// because the firmware hasn't completed init yet anyway.)
+// The firmware writes DataMark as a forward-going counter; row 0's
+// value (whatever it is) is the baseline. A subsequent row that
+// advances the counter is a press. The model intentionally does NOT
+// count row 0 itself as a press — the column's initial state isn't
+// a pilot action.
 assertEq(
   findDataMarks(makeLog({
     timeStamp: [50, 100, 200],
     DataMark:  [3,  0,   5],
   })),
-  [
-    { rowIdx: 0, logTimeMs: 50,  value: 3, label: '01' },
-    { rowIdx: 2, logTimeMs: 200, value: 5, label: '02' },
-  ],
-  'first row with non-zero mark + positive ts counts as mark 01'
+  [{ rowIdx: 2, logTimeMs: 200, value: 5, label: '01' }],
+  'firmware counter pattern: row 0 baseline ignored, 0→5 counts as press'
 );
 
 // First row with non-zero mark but ts=0: reject (CSV misalignment).
@@ -149,19 +147,37 @@ assertEq(
   'backwards ts: row rejected even with valid DataMark'
 );
 
-// Direct N→M transition with no intervening 0 is two corrupted rows
-// landing both-valid by coincidence, not two presses. Reject the
-// second.
+// Forward-going counter without intermediate zeros is the actual
+// firmware pattern — every increment is a press.
 assertEq(
   findDataMarks(makeLog({
     timeStamp: [0, 100, 200, 300, 400, 500],
-    DataMark:  [0, 5,   6,   0,   7,   0],   // 5→6 with no 0 between
+    DataMark:  [0, 5,   6,   7,   8,   9],
   })),
   [
     { rowIdx: 1, logTimeMs: 100, value: 5, label: '01' },
-    { rowIdx: 4, logTimeMs: 400, value: 7, label: '02' },
+    { rowIdx: 2, logTimeMs: 200, value: 6, label: '02' },
+    { rowIdx: 3, logTimeMs: 300, value: 7, label: '03' },
+    { rowIdx: 4, logTimeMs: 400, value: 8, label: '04' },
+    { rowIdx: 5, logTimeMs: 500, value: 9, label: '05' },
   ],
-  'direct N→M (no zero between): second value rejected'
+  'monotonic counter: every forward step is a press'
+);
+
+// Backwards jump (N → smaller M) is NOT a press — that's a column
+// reset, not a pilot action. The next forward step from the new
+// baseline IS a press.
+assertEq(
+  findDataMarks(makeLog({
+    timeStamp: [0, 100, 200, 300, 400],
+    DataMark:  [0, 5,   6,   0,   7],   // 6→0 reset, then 0→7 press
+  })),
+  [
+    { rowIdx: 1, logTimeMs: 100, value: 5, label: '01' },
+    { rowIdx: 2, logTimeMs: 200, value: 6, label: '02' },
+    { rowIdx: 4, logTimeMs: 400, value: 7, label: '03' },
+  ],
+  'reset to 0 then advance: reset ignored, advance counts'
 );
 
 // logMsToVideoSec round-trip.

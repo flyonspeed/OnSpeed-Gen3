@@ -26,16 +26,23 @@ function isValidMark(v) {
   return Number.isInteger(v) && v >= 0 && v <= 99;
 }
 
-// A real pilot press follows the pattern 0 → N → 0 in the column
-// (the firmware writes the new value for one frame's worth then
-// resets). A direct N → M transition with no intervening 0 is a
-// signature of two adjacent corrupted rows landing both-valid by
-// coincidence, not two consecutive presses; drop the second one.
+// Firmware writes DataMark as a monotonically incrementing counter:
+// 0 → 1 → 2 → 3 → ... Each pilot press bumps the column by one. The
+// real-world write pattern observed on RV-4 2026-05-11:
+//   0 (boot) → 1 (first press) → 2 → 3 → ... → 20 → ...
+// with occasional resets to 0 after a long idle period (then the
+// counter continues from where it left off, e.g. 0 → 20 → 21 → ...).
 //
-// And: a row whose timeStamp is 0 (or earlier than the previous row's
-// timestamp) is a misaligned-CSV row where the time cell got pushed
-// out — the DataMark cell may parse as a valid integer by luck, but
-// the row isn't a real pilot press.
+// Garbage rows from misaligned CSV either (a) hold a value outside
+// [0..99] (filtered by isValidMark), or (b) hold a valid-by-luck
+// integer but have ts = 0 / ts going backwards. The ts sanity check
+// catches the second class.
+//
+// A "press" is a row where the column transitions from a smaller
+// non-negative value to a strictly-larger one (1..99). The previous
+// value can be 0 (cold start / re-arm) OR a smaller non-zero (the
+// counter continuing). Resets (N → 0) and same-value rows are not
+// presses.
 export function findDataMarks(log) {
   if (!log || !log.DataMark || !log.timeStamp) return [];
   const N = log.Length;
@@ -43,40 +50,27 @@ export function findDataMarks(log) {
 
   const out = [];
   let prev = isValidMark(log.DataMark[0]) ? log.DataMark[0] : 0;
-  let prevTimestamp = log.timeStamp[0];
-  if (prev > 0 && Number.isFinite(prevTimestamp) && prevTimestamp > 0) {
-    out.push({
-      rowIdx:    0,
-      logTimeMs: prevTimestamp,
-      value:     prev,
-      label:     '01',
-    });
-  }
   for (let i = 1; i < N; i++) {
     const v = log.DataMark[i];
     if (!isValidMark(v)) continue;
-    if (v !== prev) {
-      // Sanity: real presses sit on a row whose timeStamp is positive
-      // and monotonically ahead of the prior accepted mark. Rows with
-      // ts <= 0 OR ts < the previous accepted mark's ts are noise.
-      const ts = log.timeStamp[i];
-      const tsOk = Number.isFinite(ts) && ts > 0 &&
-                   (out.length === 0 || ts > out[out.length - 1].logTimeMs);
-      // Real-press pattern: the column must have been at 0 just
-      // before this transition. A direct N → M (both non-zero) is
-      // two corrupted-but-in-range rows back-to-back, not two
-      // separate presses.
-      const cameFromZero = prev === 0;
-      if (v > 0 && tsOk && cameFromZero) {
-        out.push({
-          rowIdx:    i,
-          logTimeMs: ts,
-          value:     v,
-          label:     String(out.length + 1).padStart(2, '0'),
-        });
-      }
-      prev = v;
+    if (v === prev) continue;
+    const ts = log.timeStamp[i];
+    const tsOk = Number.isFinite(ts) && ts > 0 &&
+                 (out.length === 0 || ts > out[out.length - 1].logTimeMs);
+    // A press is a forward-going transition into a positive value.
+    // The previous value may be 0 (the counter just reset / first
+    // press after boot) or any smaller value (the counter continuing
+    // forward, e.g. 5 → 6).
+    const isPress = v > 0 && (prev === 0 || v > prev) && tsOk;
+    if (isPress) {
+      out.push({
+        rowIdx:    i,
+        logTimeMs: ts,
+        value:     v,
+        label:     String(out.length + 1).padStart(2, '0'),
+      });
     }
+    prev = v;
   }
   return out;
 }
