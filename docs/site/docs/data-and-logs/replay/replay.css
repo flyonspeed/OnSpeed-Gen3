@@ -320,16 +320,96 @@
   border-radius: 3px;
   font-size: 13px;
 }
+.replay-mark-row {
+  /* Row stacks: head (always visible) + expanded editor (toggled).
+     Switching to a column lets the editor sit under the head while
+     the head retains its horizontal flex layout via .row-head. */
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.replay-mark-row.is-expanded {
+  background: #2a343c;
+  outline: 1px solid #3a4654;
+}
+.replay-mark-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-mark-disclosure {
+  color: #7dd3fc;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
 .replay-mark-label {
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-weight: 600;
   color: #7dd3fc;
   min-width: 30px;
 }
+.replay-mark-name {
+  color: #e0e6eb;
+  font-size: 12px;
+  /* Truncate when the row is narrow; the full name is in the expanded
+     editor. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.replay-mark-dot {
+  color: #7dd3fc;
+  font-size: 16px;
+  line-height: 1;
+  /* Sit between label and name so the eye lands on annotated marks
+     without scanning for the disclosure triangle. */
+  margin-left: -2px;
+}
 .replay-mark-time {
   color: #a8b3bd;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12px;
+}
+.replay-mark-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 22px 4px;
+}
+.replay-mark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.replay-mark-field > span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a8b3bd;
+}
+.replay-mark-field input[type="text"],
+.replay-mark-field textarea {
+  background: #0e1418;
+  border: 1px solid #2d3942;
+  color: #e0e6eb;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  resize: vertical;
+}
+.replay-mark-field input[type="text"]:focus,
+.replay-mark-field textarea:focus {
+  outline: none;
+  border-color: #0a84ff;
+  background: #111a22;
 }
 .replay-clips-empty {
   color: #6b7780;

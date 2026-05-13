@@ -60,6 +60,8 @@ import {
 import { ClipBuilder, buildClipFromPlayhead, buildClipFromMarkers, defaultClipLabel }
   from '../replay/clipBuilder.js';
 import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
+import { useReplayJournal } from '../replay/journal.js';
+import { DataMarkPanel } from '../components/DataMarkPanel.js';
 import { reassembleResults } from '../replay/reassemble.js';
 import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
 import {
@@ -268,6 +270,12 @@ export const ReplayPage = () => {
   // suggests re-picking the prior session's files. See
   // replay/persistence.js for the storage contract.
   const persistence = useReplayPersistence({ logFile });
+
+  // Per-log annotation overlay (DataMark names + notes). Keyed by the
+  // same log-content digest as sync/clip persistence. Additive on top
+  // of the parser-derived `marks` array — the journal layer never
+  // creates marks, only annotates them.
+  const journal = useReplayJournal({ logHash: persistence.logDigest });
 
   // File handles for FileSystemAccess-supported browsers (Chrome /
   // Edge desktop). Held in refs because they're not Preact state —
@@ -2160,8 +2168,10 @@ export const ReplayPage = () => {
                 sync=${sync}
                 disabled=${exportingClipIdx != null || !syncReady}
                 videoDuration=${videoTimeline?.totalDurationSec ?? videoRef.current?.duration}
+                markAnnotations=${journal.markAnnotations}
                 onJump=${jumpToMark}
-                onClip=${addClipFromMark} />`}
+                onClip=${addClipFromMark}
+                onPatchAnnotation=${journal.upsertMarkAnnotation} />`}
 
           <${ClipBuilder}
               clips=${clips}
@@ -2322,56 +2332,6 @@ const LogTimeline = ({ log, sync, videoT, anchorLabel = 'anchor',
       <div class="replay-timeline-hint">${syncReady
         ? 'click to seek the video · shift+click to override the log-takeoff anchor'
         : 'click anywhere on the IAS trace to set the log-takeoff anchor'}</div>
-    </div>`;
-};
-
-// ---------- DataMarkPanel ------------------------------------------
-
-// Lists every DataMark transition the pilot dropped during the
-// flight. Each row shows the mark's ordinal label + log time + the
-// mapped video time (when sync is established), plus action buttons:
-//   - Jump:    seek the video to the mark's video time
-//   - Clip Ns: export an N-second WebM starting at the mark
-const DataMarkPanel = ({ marks, sync, disabled, videoDuration,
-                         onJump, onClip }) => {
-  if (!marks || marks.length === 0) return null;
-  // A mark is "in range" when its mapped video time falls within
-  // the loaded video. Common reasons a mark falls out of range:
-  //   - The mark was dropped before the camera started recording
-  //     (video time goes negative).
-  //   - The mark was dropped after the camera stopped (video time
-  //     past videoDuration).
-  // Out-of-range rows render with disabled action buttons and a
-  // "no video" hint instead of a video timestamp.
-  return html`
-    <div class="replay-marks">
-      <div class="replay-marks-header">
-        <span class="replay-label">Data marks</span>
-        <span class="replay-status">${marks.length}</span>
-      </div>
-      <div class="replay-marks-list">
-        ${marks.map(m => {
-          const videoSec = logMsToVideoSec(m.logTimeMs, sync);
-          const dur = Number.isFinite(videoDuration) ? videoDuration : Infinity;
-          const inRange = Number.isFinite(videoSec) &&
-                          videoSec >= 0 && videoSec < dur;
-          const tStr = inRange
-            ? `video ${formatHms(videoSec)}`
-            : (Number.isFinite(videoSec) ? 'outside video' : 'no sync');
-          return html`
-            <div class="replay-mark-row">
-              <span class="replay-mark-label">${m.label}</span>
-              <span class="replay-mark-time">log ${formatHms(m.logTimeMs / 1000)} · ${tStr}</span>
-              <span class="replay-spacer"></span>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onJump(m.logTimeMs)}>Jump</button>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onClip(m, 30)}>Clip 30 s</button>
-              <button class="replay-btn" disabled=${disabled || !inRange}
-                      onClick=${() => onClip(m, 60)}>Clip 60 s</button>
-            </div>`;
-        })}
-      </div>
     </div>`;
 };
 
