@@ -9,6 +9,7 @@
 //     logName:    string,
 //     videoName?: string,
 //     lastUsed:   number,
+//     hudPitchOffsetDeg?: number,   // HUD pitch ladder offset, per-flight
 //     marks: [{ value, logTimeMs, name?, notes?, createdAt, updatedAt }, ...],
 //     clips: [{ id, startLogMs, endLogMs, label?, notes?, createdAt, updatedAt }, ...],
 //   }
@@ -276,6 +277,46 @@ export async function loadMarkAnnotations(logHash) {
   return out;
 }
 
+// Upsert the per-log HUD pitch-ladder offset (degrees). One scalar
+// per log, used by HudOverlay to compensate for camera-mount
+// misalignment. Best-effort like the other upserters; transient IDB
+// failures don't propagate.
+export async function upsertHudPitchOffset(logHash, valueDeg) {
+  if (!logHash || typeof logHash !== 'string') return;
+  if (!Number.isFinite(valueDeg)) return;
+  const now = Date.now();
+  try {
+    await _withJournalStoreCallback('readwrite', (store) => new Promise((resolve, reject) => {
+      const getReq = store.get(logHash);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = () => {
+        try {
+          const existing = getReq.result;
+          const record = existing || emptyRecord(logHash);
+          record.lastUsed = now;
+          record.hudPitchOffsetDeg = valueDeg;
+          const putReq = store.put(record);
+          putReq.onerror = () => reject(putReq.error);
+          putReq.onsuccess = () => resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+    }));
+  } catch (err) {
+    console.warn('journal: upsertHudPitchOffset failed', err);
+  }
+}
+
+// Read the per-log HUD pitch-ladder offset. Returns null if missing
+// or out of range.
+export async function loadHudPitchOffset(logHash) {
+  const record = await loadJournal(logHash);
+  if (!record) return null;
+  const v = record.hudPitchOffsetDeg;
+  return Number.isFinite(v) ? v : null;
+}
+
 // Return the clip-annotation overlay map keyed by clip `id`, with
 // payload `{ label, notes, updatedAt }`. Empty object if the record
 // doesn't exist or has no clips. Mirrors loadMarkAnnotations.
@@ -309,9 +350,20 @@ export async function loadClipAnnotations(logHash) {
 // keystrokes feel instant.
 // ---------------------------------------------------------------------
 
+// Debounce interval for HUD pitch-offset writes — matches the 500 ms
+// debounce used for mark/clip annotations elsewhere. The slider fires
+// onInput at every step, so without this each drag would issue dozens
+// of IDB writes.
+const HUD_PITCH_OFFSET_DEBOUNCE_MS = 500;
+
 export function useReplayJournal({ logHash }) {
   const [markAnnotations, setMarkAnnotations] = useState({});
   const [clipAnnotations, setClipAnnotations] = useState({});
+  // HUD pitch-ladder offset, per-flight. null while waiting for the
+  // load to complete, then a number once seeded.
+  const [hudPitchOffsetDeg, setHudPitchOffsetDegLocal] = useState(0);
+  // Debounce IDB persistence so dragging the slider doesn't slam IDB.
+  const hudPitchOffsetTimerRef = useRef(null);
   // Synchronous mirror of logHash so the updater callbacks write to
   // the correct record even when called between an IDB-load promise
   // resolving and Preact committing the new state.
@@ -332,6 +384,13 @@ export function useReplayJournal({ logHash }) {
     logHashRef.current = logHash || null;
     setMarkAnnotations({});
     setClipAnnotations({});
+    setHudPitchOffsetDegLocal(0);
+    // Cancel any pending pitch-offset write from the prior log so it
+    // doesn't land under the new log's record once we swap.
+    if (hudPitchOffsetTimerRef.current) {
+      clearTimeout(hudPitchOffsetTimerRef.current);
+      hudPitchOffsetTimerRef.current = null;
+    }
     if (!logHash) return;
     let cancelled = false;
     loadMarkAnnotations(logHash).then(ann => {
@@ -339,6 +398,9 @@ export function useReplayJournal({ logHash }) {
     });
     loadClipAnnotations(logHash).then(ann => {
       if (!cancelled) setClipAnnotations(ann);
+    });
+    loadHudPitchOffset(logHash).then(v => {
+      if (!cancelled && Number.isFinite(v)) setHudPitchOffsetDegLocal(v);
     });
     return () => { cancelled = true; };
   }, [logHash]);
@@ -372,8 +434,23 @@ export function useReplayJournal({ logHash }) {
     upsertClipAnnotation(hash, id, patch);
   }, []);
 
+  const setHudPitchOffsetDeg = useCallback((v) => {
+    if (!Number.isFinite(v)) return;
+    setHudPitchOffsetDegLocal(v);
+    const hash = logHashRef.current;
+    if (!hash) return;
+    if (hudPitchOffsetTimerRef.current) {
+      clearTimeout(hudPitchOffsetTimerRef.current);
+    }
+    hudPitchOffsetTimerRef.current = setTimeout(() => {
+      hudPitchOffsetTimerRef.current = null;
+      upsertHudPitchOffset(hash, v);
+    }, HUD_PITCH_OFFSET_DEBOUNCE_MS);
+  }, []);
+
   return {
     markAnnotations, upsertMarkAnnotation,
     clipAnnotations, upsertClipAnnotation: upsertClipAnnotationCb,
+    hudPitchOffsetDeg, setHudPitchOffsetDeg,
   };
 }

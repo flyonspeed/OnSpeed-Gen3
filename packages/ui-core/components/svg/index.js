@@ -321,6 +321,28 @@ export const Horizon = ({ pitchDeg, rollDeg }) => {
     </g>`;
 };
 
+// HorizonLine — just the horizon line itself (no sky/ground polygon).
+// Same pitch+roll math as Horizon, but the line floats over whatever
+// is underneath (the GoPro video, in the HUD's case). Used by
+// HudOverlay's scaled-up ADI so the rendered horizon sits on top of
+// the cockpit footage rather than masking it.
+export const HorizonLine = ({ pitchDeg, rollDeg }) => {
+  const cx = G.MODE1_HORIZON_CX, cy = G.MODE1_HORIZON_CY;
+  const panelW = G.M5_PANEL_W;
+  const r = rollDeg * Math.PI / 180;
+  const sinR = Math.sin(r), cosR = Math.cos(r);
+  const pxc = cx + pitchDeg * G.MODE1_PITCH_HEIGHT_SCALE * sinR;
+  const pyc = cy + pitchDeg * G.MODE1_PITCH_HEIGHT_SCALE * cosR;
+  const xRot = 2 * panelW * cosR, yRot = 2 * panelW * sinR;
+  const px1 = pxc - xRot, py1 = pyc + yRot;
+  const px2 = pxc + xRot, py2 = pyc - yRot;
+  return html`
+    <g data-widget="horizon-line">
+      <line x1=${px1} y1=${py1} x2=${px2} y2=${py2}
+            stroke="var(--white)" stroke-width="2" />
+    </g>`;
+};
+
 // Mode 1 pitch ladder — tick marks every 10° from -90..+90 plus numeric
 // labels on the long ticks. Mirrors pitchGraph() at main.cpp:1284-1345.
 // Two passes: short ticks at half-width 0.10×g_arcSize, long ticks at
