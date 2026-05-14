@@ -573,6 +573,11 @@ async function feedAacSegmentToOutput({
 //                      smoothing applied to state.LateralG/VerticalG
 //                      before SVG render. Mirrors the live preview's
 //                      PresentationFilter; null = no smoothing.
+//   leftMode:          int | null — M5 mode id (0..4) to composite at
+//                      the bottom-left of the source frame, or null
+//                      to skip the left slot. Default null.
+//   rightMode:         int | null — same shape as leftMode, for the
+//                      bottom-right slot. Default null.
 //   outputWidth:       int | null — override the output width to
 //                      downscale. null = match source width (default,
 //                      source-faithful).
@@ -593,25 +598,24 @@ export async function exportClipAsMp4({
   cppWireFrames,
   renderOverlaySvg,
   // Optional: full-frame HUD overlay rendered UNDER the corner panels.
-  // (m5State) → SVGElement. When provided, every output frame
-  // composites the HUD across the entire canvas before the corner
-  // panels are drawn — so the inset / standard pair sit on top of
-  // the HUD widgets in the same way as the live preview.
+  // (m5State, rowIdx) → SVGElement. rowIdx is the parsed-log row that
+  // m5State corresponds to (or -1 if the video time maps outside the
+  // log). The HUD callback uses it to read per-row fields the m5State
+  // doesn't carry, e.g. log.efisMagHeading[rowIdx]. When provided,
+  // every output frame composites the HUD across the entire canvas
+  // before the corner panels are drawn — so the inset slots sit on
+  // top of the HUD widgets in the same way as the live preview.
   renderHudSvg    = null,
   sourceFile      = null,
   videoTimeline   = null,
   presentationTau = null,
-  // Which M5 mode the burned-in overlay should render. Integer 0-4
-  // matching the firmware's kModeNames / M5_MODES. Default 0 (Energy)
-  // matches a fresh M5Sim's default but is almost always wrong for
-  // export — the page should pass the live preview's current mode so
-  // the export matches what the pilot sees on screen.
-  displayMode     = 0,
-  // "Standard" layout: render BOTH Attitude (ADI, displayType 1) and
-  // Energy (displayType 0) burned into the source frame — ADI in the
-  // bottom-left, Energy in the bottom-right (same Y, X mirrored across
-  // the source centerline). When true, `displayMode` is ignored.
-  standardOverlay = false,
+  // Two independent inset slots — each is null (slot off) or an M5
+  // mode id (0..4) matching the firmware's kModeNames / M5_MODES.
+  // Slot `leftMode` composites at the bottom-left corner of the
+  // source frame; `rightMode` at the bottom-right. Pass both, one,
+  // or neither.
+  leftMode        = null,
+  rightMode       = null,
   outputWidth     = null,
   bitrate         = null,
   framerate       = null,
@@ -694,11 +698,15 @@ export async function exportClipAsMp4({
 
   const sim = await M5Sim.create();
   if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
-  // Set the display mode on the fresh sim so state.displayType matches
-  // the live preview's mode. Without this, every export rendered the
-  // sim's default mode (0 = Energy) regardless of what the page showed.
-  if (Number.isFinite(displayMode)) {
-    try { sim.setMode(displayMode); } catch (_) { /* sim may not yet support */ }
+  // Pick a sim mode that one of the slots is using so state.displayType
+  // is meaningful. Right-side slot wins when both are set; if neither
+  // is set we leave the sim on its default (0 = Energy). The slot
+  // rendering below overrides displayType per-panel when needed.
+  const simSeedMode = Number.isFinite(rightMode) ? rightMode
+                    : Number.isFinite(leftMode)  ? leftMode
+                    : null;
+  if (simSeedMode != null) {
+    try { sim.setMode(simSeedMode); } catch (_) { /* sim may not yet support */ }
   }
   const simState = { lastVirtMs: 0, lastBoundaryMs: 0 };
 
@@ -1080,10 +1088,16 @@ export async function exportClipAsMp4({
 
         const overlays = [];
         // HUD goes first so corner panels composite on top of it in
-        // the canvas drawImage order.
+        // the canvas drawImage order. Pass the current log row to the
+        // HUD callback so it can pull efisMagHeading (and any other
+        // per-row fields a future revision wants) without re-mapping
+        // video time → log time.
         if (renderHudSvg) {
           try {
-            const hudSvg = renderHudSvg(m5State);
+            const hudLogMs = sync.logTakeoffMs +
+              (sampleGlobalSec - sync.videoTakeoffSec) * 1000;
+            const hudRowIdx = findRowAt(log, hudLogMs);
+            const hudSvg = renderHudSvg(m5State, hudRowIdx);
             if (hudSvg) {
               // eslint-disable-next-line no-await-in-loop
               const hudImg = await svgToImage(hudSvg);
@@ -1107,12 +1121,8 @@ export async function exportClipAsMp4({
             console.warn('overlay raster failed for frame', i, e);
           }
         };
-        if (standardOverlay) {
-          await renderOne(1, 'left');   // ADI / Attitude
-          await renderOne(0, 'right');  // Energy
-        } else {
-          await renderOne(undefined, 'right');
-        }
+        if (Number.isFinite(leftMode))  await renderOne(leftMode,  'left');
+        if (Number.isFinite(rightMode)) await renderOne(rightMode, 'right');
 
         if (frame) compositeFrame(ctx, frame, overlays, W, H, segVideoInfo.rotationDeg);
         else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);

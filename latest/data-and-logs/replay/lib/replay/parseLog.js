@@ -28,6 +28,9 @@ const FLOAT_COLUMNS = [
 
 const INT_COLUMNS = [
   'flapsPos', 'DataMark', 'efisPercentLift', 'flapsRawADC',
+  // efisMagHeading lets the HUD render an MH readout from the EFIS feed
+  // when the log carries it. Logs without this column don't get an MH box.
+  'efisMagHeading',
 ];
 
 // Parse a CSV. Returns:

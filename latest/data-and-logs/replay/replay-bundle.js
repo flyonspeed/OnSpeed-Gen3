@@ -170,6 +170,7 @@ function logMsToVideoSec(logMs, sync) {
 //     logName:    string,
 //     videoName?: string,
 //     lastUsed:   number,
+//     hudPitchOffsetDeg?: number,   // HUD pitch ladder offset, per-flight
 //     marks: [{ value, logTimeMs, name?, notes?, createdAt, updatedAt }, ...],
 //     clips: [{ id, startLogMs, endLogMs, label?, notes?, createdAt, updatedAt }, ...],
 //   }
@@ -435,6 +436,46 @@ async function loadMarkAnnotations(logHash) {
   return out;
 }
 
+// Upsert the per-log HUD pitch-ladder offset (degrees). One scalar
+// per log, used by HudOverlay to compensate for camera-mount
+// misalignment. Best-effort like the other upserters; transient IDB
+// failures don't propagate.
+async function upsertHudPitchOffset(logHash, valueDeg) {
+  if (!logHash || typeof logHash !== 'string') return;
+  if (!Number.isFinite(valueDeg)) return;
+  const now = Date.now();
+  try {
+    await _withJournalStoreCallback('readwrite', (store) => new Promise((resolve, reject) => {
+      const getReq = store.get(logHash);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = () => {
+        try {
+          const existing = getReq.result;
+          const record = existing || emptyRecord(logHash);
+          record.lastUsed = now;
+          record.hudPitchOffsetDeg = valueDeg;
+          const putReq = store.put(record);
+          putReq.onerror = () => reject(putReq.error);
+          putReq.onsuccess = () => resolve();
+        } catch (err) {
+          reject(err);
+        }
+      };
+    }));
+  } catch (err) {
+    console.warn('journal: upsertHudPitchOffset failed', err);
+  }
+}
+
+// Read the per-log HUD pitch-ladder offset. Returns null if missing
+// or out of range.
+async function loadHudPitchOffset(logHash) {
+  const record = await loadJournal(logHash);
+  if (!record) return null;
+  const v = record.hudPitchOffsetDeg;
+  return Number.isFinite(v) ? v : null;
+}
+
 // Return the clip-annotation overlay map keyed by clip `id`, with
 // payload `{ label, notes, updatedAt }`. Empty object if the record
 // doesn't exist or has no clips. Mirrors loadMarkAnnotations.
@@ -468,9 +509,20 @@ async function loadClipAnnotations(logHash) {
 // keystrokes feel instant.
 // ---------------------------------------------------------------------
 
+// Debounce interval for HUD pitch-offset writes — matches the 500 ms
+// debounce used for mark/clip annotations elsewhere. The slider fires
+// onInput at every step, so without this each drag would issue dozens
+// of IDB writes.
+const HUD_PITCH_OFFSET_DEBOUNCE_MS = 500;
+
 function useReplayJournal({ logHash }) {
   const [markAnnotations, setMarkAnnotations] = useState({});
   const [clipAnnotations, setClipAnnotations] = useState({});
+  // HUD pitch-ladder offset, per-flight. null while waiting for the
+  // load to complete, then a number once seeded.
+  const [hudPitchOffsetDeg, setHudPitchOffsetDegLocal] = useState(0);
+  // Debounce IDB persistence so dragging the slider doesn't slam IDB.
+  const hudPitchOffsetTimerRef = useRef(null);
   // Synchronous mirror of logHash so the updater callbacks write to
   // the correct record even when called between an IDB-load promise
   // resolving and Preact committing the new state.
@@ -491,6 +543,13 @@ function useReplayJournal({ logHash }) {
     logHashRef.current = logHash || null;
     setMarkAnnotations({});
     setClipAnnotations({});
+    setHudPitchOffsetDegLocal(0);
+    // Cancel any pending pitch-offset write from the prior log so it
+    // doesn't land under the new log's record once we swap.
+    if (hudPitchOffsetTimerRef.current) {
+      clearTimeout(hudPitchOffsetTimerRef.current);
+      hudPitchOffsetTimerRef.current = null;
+    }
     if (!logHash) return;
     let cancelled = false;
     loadMarkAnnotations(logHash).then(ann => {
@@ -498,6 +557,9 @@ function useReplayJournal({ logHash }) {
     });
     loadClipAnnotations(logHash).then(ann => {
       if (!cancelled) setClipAnnotations(ann);
+    });
+    loadHudPitchOffset(logHash).then(v => {
+      if (!cancelled && Number.isFinite(v)) setHudPitchOffsetDegLocal(v);
     });
     return () => { cancelled = true; };
   }, [logHash]);
@@ -531,9 +593,24 @@ function useReplayJournal({ logHash }) {
     upsertClipAnnotation(hash, id, patch);
   }, []);
 
+  const setHudPitchOffsetDeg = useCallback((v) => {
+    if (!Number.isFinite(v)) return;
+    setHudPitchOffsetDegLocal(v);
+    const hash = logHashRef.current;
+    if (!hash) return;
+    if (hudPitchOffsetTimerRef.current) {
+      clearTimeout(hudPitchOffsetTimerRef.current);
+    }
+    hudPitchOffsetTimerRef.current = setTimeout(() => {
+      hudPitchOffsetTimerRef.current = null;
+      upsertHudPitchOffset(hash, v);
+    }, HUD_PITCH_OFFSET_DEBOUNCE_MS);
+  }, []);
+
   return {
     markAnnotations, upsertMarkAnnotation,
     clipAnnotations, upsertClipAnnotation: upsertClipAnnotationCb,
+    hudPitchOffsetDeg, setHudPitchOffsetDeg,
   };
 }
 
@@ -781,6 +858,9 @@ const FLOAT_COLUMNS = [
 
 const INT_COLUMNS = [
   'flapsPos', 'DataMark', 'efisPercentLift', 'flapsRawADC',
+  // efisMagHeading lets the HUD render an MH readout from the EFIS feed
+  // when the log carries it. Logs without this column don't get an MH box.
+  'efisMagHeading',
 ];
 
 // Parse a CSV. Returns:
@@ -3280,6 +3360,11 @@ async function feedAacSegmentToOutput({
 //                      smoothing applied to state.LateralG/VerticalG
 //                      before SVG render. Mirrors the live preview's
 //                      PresentationFilter; null = no smoothing.
+//   leftMode:          int | null — M5 mode id (0..4) to composite at
+//                      the bottom-left of the source frame, or null
+//                      to skip the left slot. Default null.
+//   rightMode:         int | null — same shape as leftMode, for the
+//                      bottom-right slot. Default null.
 //   outputWidth:       int | null — override the output width to
 //                      downscale. null = match source width (default,
 //                      source-faithful).
@@ -3300,25 +3385,24 @@ async function exportClipAsMp4({
   cppWireFrames,
   renderOverlaySvg,
   // Optional: full-frame HUD overlay rendered UNDER the corner panels.
-  // (m5State) → SVGElement. When provided, every output frame
-  // composites the HUD across the entire canvas before the corner
-  // panels are drawn — so the inset / standard pair sit on top of
-  // the HUD widgets in the same way as the live preview.
+  // (m5State, rowIdx) → SVGElement. rowIdx is the parsed-log row that
+  // m5State corresponds to (or -1 if the video time maps outside the
+  // log). The HUD callback uses it to read per-row fields the m5State
+  // doesn't carry, e.g. log.efisMagHeading[rowIdx]. When provided,
+  // every output frame composites the HUD across the entire canvas
+  // before the corner panels are drawn — so the inset slots sit on
+  // top of the HUD widgets in the same way as the live preview.
   renderHudSvg    = null,
   sourceFile      = null,
   videoTimeline   = null,
   presentationTau = null,
-  // Which M5 mode the burned-in overlay should render. Integer 0-4
-  // matching the firmware's kModeNames / M5_MODES. Default 0 (Energy)
-  // matches a fresh M5Sim's default but is almost always wrong for
-  // export — the page should pass the live preview's current mode so
-  // the export matches what the pilot sees on screen.
-  displayMode     = 0,
-  // "Standard" layout: render BOTH Attitude (ADI, displayType 1) and
-  // Energy (displayType 0) burned into the source frame — ADI in the
-  // bottom-left, Energy in the bottom-right (same Y, X mirrored across
-  // the source centerline). When true, `displayMode` is ignored.
-  standardOverlay = false,
+  // Two independent inset slots — each is null (slot off) or an M5
+  // mode id (0..4) matching the firmware's kModeNames / M5_MODES.
+  // Slot `leftMode` composites at the bottom-left corner of the
+  // source frame; `rightMode` at the bottom-right. Pass both, one,
+  // or neither.
+  leftMode        = null,
+  rightMode       = null,
   outputWidth     = null,
   bitrate         = null,
   framerate       = null,
@@ -3401,11 +3485,15 @@ async function exportClipAsMp4({
 
   const sim = await M5Sim.create();
   if (signal?.aborted) { sim.delete(); throw new DOMException('aborted', 'AbortError'); }
-  // Set the display mode on the fresh sim so state.displayType matches
-  // the live preview's mode. Without this, every export rendered the
-  // sim's default mode (0 = Energy) regardless of what the page showed.
-  if (Number.isFinite(displayMode)) {
-    try { sim.setMode(displayMode); } catch (_) { /* sim may not yet support */ }
+  // Pick a sim mode that one of the slots is using so state.displayType
+  // is meaningful. Right-side slot wins when both are set; if neither
+  // is set we leave the sim on its default (0 = Energy). The slot
+  // rendering below overrides displayType per-panel when needed.
+  const simSeedMode = Number.isFinite(rightMode) ? rightMode
+                    : Number.isFinite(leftMode)  ? leftMode
+                    : null;
+  if (simSeedMode != null) {
+    try { sim.setMode(simSeedMode); } catch (_) { /* sim may not yet support */ }
   }
   const simState = { lastVirtMs: 0, lastBoundaryMs: 0 };
 
@@ -3787,10 +3875,16 @@ async function exportClipAsMp4({
 
         const overlays = [];
         // HUD goes first so corner panels composite on top of it in
-        // the canvas drawImage order.
+        // the canvas drawImage order. Pass the current log row to the
+        // HUD callback so it can pull efisMagHeading (and any other
+        // per-row fields a future revision wants) without re-mapping
+        // video time → log time.
         if (renderHudSvg) {
           try {
-            const hudSvg = renderHudSvg(m5State);
+            const hudLogMs = sync.logTakeoffMs +
+              (sampleGlobalSec - sync.videoTakeoffSec) * 1000;
+            const hudRowIdx = findRowAt(log, hudLogMs);
+            const hudSvg = renderHudSvg(m5State, hudRowIdx);
             if (hudSvg) {
               // eslint-disable-next-line no-await-in-loop
               const hudImg = await svgToImage(hudSvg);
@@ -3814,12 +3908,8 @@ async function exportClipAsMp4({
             console.warn('overlay raster failed for frame', i, e);
           }
         };
-        if (standardOverlay) {
-          await renderOne(1, 'left');   // ADI / Attitude
-          await renderOne(0, 'right');  // Energy
-        } else {
-          await renderOne(undefined, 'right');
-        }
+        if (Number.isFinite(leftMode))  await renderOne(leftMode,  'left');
+        if (Number.isFinite(rightMode)) await renderOne(rightMode, 'right');
 
         if (frame) compositeFrame(ctx, frame, overlays, W, H, segVideoInfo.rotationDeg);
         else if (overlays.length > 0) compositeFrame(ctx, null, overlays, W, H, 0);
@@ -4666,6 +4756,7 @@ const ClipBuilder = ({
   onAddQuick,             // (durationSec)
   onExport,               // (clip)        — single-clip export (composite)
   onExportAll,            // ()            — sequential all-clips export
+  onExportSortie,         // ()            — full-video sortie export
   onCancel,               // ()            — cancel the running export
   onScrubTo,              // (videoSec)    — seek the live video
   // Mark-in/mark-out flow:
@@ -4875,6 +4966,17 @@ const ClipBuilder = ({
                   title=${mp4Available ? '' : (mp4UnavailableTooltip || '')}
                   onClick=${onExportAll}>
             Export all
+          </button>`}
+
+        ${onExportSortie && html`
+          <button class="replay-btn"
+                  disabled=${disabled || !mp4Available ||
+                             exportingClipIdx != null || !syncReady}
+                  title=${mp4Available
+                    ? 'Export the entire loaded video as a single MP4 with the current HUD + inset configuration.'
+                    : (mp4UnavailableTooltip || '')}
+                  onClick=${onExportSortie}>
+            Export sortie
           </button>`}
       </div>
 
@@ -7370,19 +7472,16 @@ const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
 // === packages/ui-core/core/hudGeometry.js ===
 // hudGeometry.js — layout constants for the full-frame HUD overlay.
 //
-// FlySto-style visual language: yellow pitch ladder + FPM, white bank
-// arc + tapes, monochrome tape ticks (no colored speed bands — those
-// require Vne/Vno/Vfe wiring we don't have yet). Reference frame is
-// 1920x1080 (16:9); SVG scales via preserveAspectRatio="xMidYMid meet"
-// so the elements stay anchored to the cockpit view across aspect
-// ratios.
+// FlySto-style attitude indicator (pitch ladder + bank arc + FPM)
+// rendered directly at 1920x1080. Around the central ADI:
+//   - OnSpeed logo top-left
+//   - Right-side VVI trend bar
+//   - Right-side ALT tape with Garmin-style readout box, centered on
+//     the VVI centerline so the two right-side gauges sit paired
+//   - SlipBall at bottom-center
 //
-// Scope intentionally narrower than a full EFIS:
-//   - Pitch ladder + bank arc (artificial horizon)
-//   - Airspeed tape (left)
-//   - Altimeter tape with numeric VSI (right)
-//   - Slip ball + G readout (bottom)
-// No heading tape, no TAS/GS/wind block, no OAT/ISA/AGL stack.
+// SVG scales via preserveAspectRatio="xMidYMid meet" so the elements
+// stay anchored to the cockpit view across aspect ratios.
 
 // ---------------------------------------------------------------------
 // Reference frame
@@ -7394,36 +7493,51 @@ const HUD_CX = HUD_W / 2;  // 960
 const HUD_CY = HUD_H / 2;  // 540
 
 // ---------------------------------------------------------------------
-// Pitch ladder (FlySto yellow)
+// OnSpeed logo (top-left)
 // ---------------------------------------------------------------------
-// Short yellow tick bars at ±10°, ±20°, ±30° straddling the horizon
-// center, plus the horizon line itself. No continuous extension to
-// frame edges, no sky/ground fill, no dashed marks. The whole ladder
+// White-stroked rendering of the OnSpeed mark. Source viewBox is
+// 612x792 (portrait, aspect 0.773). Sized to match the visual weight
+// of the other top-edge elements without crowding the pitch ladder.
+
+// Logo PNG dimensions are 1972×2132 (aspect ~0.925). Render width is
+// fixed; height scales by the source aspect so the mark + wordmark sit
+// proportionally without horizontal stretch.
+const HUD_LOGO_X    = 40;
+const HUD_LOGO_Y    = 40;
+const HUD_LOGO_W    = 180;
+const HUD_LOGO_H    = HUD_LOGO_W * (2132 / 1972);
+
+// ---------------------------------------------------------------------
+// Pitch ladder (yellow ticks at +/-10/+/-20/+/-30, white horizon line)
+// ---------------------------------------------------------------------
+// Short yellow tick bars at +/-10, +/-20, +/-30 degrees straddling the
+// horizon center, plus the horizon line itself. No continuous extension
+// to frame edges, no sky/ground fill, no dashed marks. The whole ladder
 // rotates with -roll and translates with pitch — classic ADI.
 
-const HUD_PITCH_PX_PER_DEG = 18;
-const HUD_HORIZON_HALF_W   = 540;  // shorter than full frame
-const HUD_PITCH_TICK_HALF_W = 110;
-const HUD_HORIZON_STROKE   = 4;
-const HUD_PITCH_TICK_STROKE = 4;
-const HUD_PITCH_LABEL_OFFSET = 28;
+const HUD_PITCH_PX_PER_DEG     = 18;
+const HUD_HORIZON_HALF_W       = 400;  // shorter than full frame; horizon stops well before the right-side gauges
+const HUD_PITCH_TICK_HALF_W    = 110;
+const HUD_HORIZON_STROKE       = 4;
+const HUD_PITCH_TICK_STROKE    = 4;
+const HUD_PITCH_LABEL_OFFSET   = 28;
 const HUD_PITCH_LABEL_FONT_SIZE = 28;
 
 // ---------------------------------------------------------------------
-// Bank indicator arc (FlySto white)
+// Bank indicator arc (white, ticks at +/-10/+/-20/+/-30/+/-45)
 // ---------------------------------------------------------------------
-// White arc with sparse minor ticks every 10°, more pronounced ticks
-// at ±30° and ±45°. Stationary yellow triangle pointer at top; the
-// arc itself rotates by -roll so the ticks slide under the pointer.
-// No 60° tick (FlySto stops at 45°).
+// White arc with sparse minor ticks every 10 degrees, more pronounced
+// ticks at +/-30 and +/-45. Stationary yellow triangle pointer at top;
+// the arc itself rotates by -roll so the ticks slide under the pointer.
+// No 60-degree tick (FlySto stops at 45).
 
-const HUD_BANK_CX        = HUD_CX;
-const HUD_BANK_CY        = HUD_CY;
-const HUD_BANK_R         = 460;
-const HUD_BANK_TICK_LONG  = 28;   // ±30, ±45
-const HUD_BANK_TICK_SHORT = 14;   // ±10, ±20
-const HUD_BANK_STROKE    = 4;
-const HUD_BANK_POINTER_H = 28;
+const HUD_BANK_CX             = HUD_CX;
+const HUD_BANK_CY             = HUD_CY;
+const HUD_BANK_R              = 460;
+const HUD_BANK_TICK_LONG      = 28;   // +/-30, +/-45
+const HUD_BANK_TICK_SHORT     = 14;   // +/-10, +/-20
+const HUD_BANK_STROKE         = 4;
+const HUD_BANK_POINTER_H      = 28;
 const HUD_BANK_POINTER_HALF_W = 16;
 const HUD_BANK_TICKS = Object.freeze([
   { deg: -45, long: true  },
@@ -7438,70 +7552,13 @@ const HUD_BANK_TICKS = Object.freeze([
 ]);
 
 // ---------------------------------------------------------------------
-// IAS tape (left edge) — FlySto inline labels, monochrome
+// Flight-path marker (yellow, vertical-only; lateral motion deferred #542)
 // ---------------------------------------------------------------------
-// Translucent strip with ticks + inline numeric labels every 20 kt.
-// The current value sits in a center-line readout box. No boxed digit
-// over the tape ticks (FlySto integrates the label into the tape
-// itself). No colored Vne/Vno/Vfe bands — we don't have those wired.
-
-const HUD_IAS_X            = 60;
-const HUD_IAS_W            = 160;
-const HUD_IAS_TAPE_H       = 720;
-const HUD_IAS_CY           = HUD_CY;
-const HUD_IAS_PX_PER_UNIT  = 8;
-const HUD_IAS_TICK_EVERY   = 10;
-const HUD_IAS_LABEL_EVERY  = 20;
-const HUD_IAS_TICK_LEN_MAJOR = 22;
-const HUD_IAS_TICK_LEN_MINOR = 12;
-const HUD_IAS_LABEL_FONT_SIZE = 30;
-const HUD_IAS_BOX_H        = 60;
-const HUD_IAS_BOX_FONT_SIZE = 44;
-const HUD_IAS_BOX_PAD_X    = 12;
-
-// ---------------------------------------------------------------------
-// ALT tape + numeric VSI (right edge)
-// ---------------------------------------------------------------------
-// Mirror of IAS tape. VSI is a numeric readout floating next to the
-// altimeter centerline (FlySto style: "-600"), not a chevron.
-
-const HUD_ALT_X            = HUD_W - 60 - 160;
-const HUD_ALT_W            = 160;
-const HUD_ALT_TAPE_H       = 720;
-const HUD_ALT_CY           = HUD_CY;
-const HUD_ALT_PX_PER_UNIT  = 0.16;
-const HUD_ALT_TICK_EVERY   = 100;
-const HUD_ALT_LABEL_EVERY  = 200;
-const HUD_ALT_TICK_LEN_MAJOR = 22;
-const HUD_ALT_TICK_LEN_MINOR = 12;
-const HUD_ALT_LABEL_FONT_SIZE = 30;
-const HUD_ALT_BOX_H        = 60;
-const HUD_ALT_BOX_FONT_SIZE = 40;
-const HUD_ALT_BOX_PAD_X    = 12;
-
-// VSI numeric readout — sits just outside the ALT tape, vertically
-// centered. Color shifts subtly (gray-white for zero, brighter when
-// |VSI| is large enough to matter). We render only when |VSI| crosses
-// a small threshold so the box doesn't churn at idle.
-const HUD_VSI_X            = HUD_W - 30;      // anchored at right margin
-const HUD_VSI_Y            = HUD_CY;          // tape centerline
-const HUD_VSI_FONT_SIZE    = 36;
-const HUD_VSI_THRESHOLD    = 100;             // fpm — hide below this
-
-// ---------------------------------------------------------------------
-// Flight-path marker (FlySto yellow, vertical-only)
-// ---------------------------------------------------------------------
-// Yellow circle + horizontal "wings" + top fin. Vertical position
-// tracks (FlightPath - Pitch) × pixels-per-degree, MATCHING the
-// existing AI inset's FlightPathMarker math exactly. Horizontal
-// position is FIXED at HUD center.
-//
-// LATERAL FPM MOTION — DEFERRED. A "real" HUD FPM slides horizontally
-// with the yaw-rate / ground-track delta from heading. OnSpeed does
-// not currently expose yaw rate, and a previous LateralG-based
-// approximation produced jumpy motion that didn't match the AI
-// inset's behavior. Tracked in #542; revisit after a wire-format
-// bump adds yaw rate or ground track.
+// Yellow circle + horizontal wings + top fin. Vertical position tracks
+// (FlightPath - Pitch) * pixels-per-degree, matching the AI inset's
+// FlightPathMarker math exactly. Horizontal position is FIXED at HUD
+// center — lateral FPM motion needs yaw rate / ground track we don't
+// have yet (#542).
 
 const HUD_FPM_CX           = HUD_CX;
 const HUD_FPM_CY           = HUD_CY;
@@ -7512,45 +7569,819 @@ const HUD_FPM_TOP_TICK     = 22;
 const HUD_FPM_STROKE       = 4;
 
 // ---------------------------------------------------------------------
+// Pitch / bank / FPM colors
+// ---------------------------------------------------------------------
+// Yellow for airplane-fixed elements (pitch ticks, FPM, bank pointer),
+// white for world-fixed scales (horizon line, bank arc).
+
+const HUD_HORIZON_COLOR      = 'var(--white)';
+const HUD_PITCH_COLOR        = 'var(--yellow)';
+const HUD_FPM_COLOR          = 'var(--yellow)';
+const HUD_BANK_ARC_COLOR     = 'var(--white)';
+const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
+
+// ---------------------------------------------------------------------
+// VVI trend bar (right side, adjacent to the ALT tape's label column)
+// ---------------------------------------------------------------------
+// Centerline at HUD_VVI_CY shared with the ALT tape; bar extends up
+// for climb and down for descent. Ticks at +/-1000 and +/-2000 fpm.
+// Numeric label when |VVI| exceeds HUD_VVI_THRESHOLD; bar hidden below
+// HUD_VVI_BAR_THRESHOLD so the gauge sits still at idle. Ticks point
+// LEFT (toward the ALT tape's label column); the numeric readout sits
+// on the RIGHT of the bar (open frame space).
+
+// VVI sits IMMEDIATELY ADJACENT to the right edge of the ALT tape's
+// label column. Ticks point LEFT (toward the ALT tape's labels);
+// numeric labels and the value readout sit on the RIGHT of the bar.
+// Slightly shorter than the ALT tape so the visual hierarchy is:
+// ALT tape (tallest, primary) > VVI bar (secondary, attached).
+//
+// Position calc:
+//   ALT box body right edge = HUD_ALT_BOX_RIGHT = 1736. VVI spine at
+//   1758 leaves a 22-px gap between box right and bar — tight enough
+//   to read as a paired right-side gauge, wide enough that the VVI's
+//   scale numerals (at cx+6=1764) don't collide with the box body.
+// The VVI spine sits flush against the ALT readout box's right wall;
+// ticks point LEFT (toward the ALT tape's label column behind the
+// box) and the scale numerals + value readout sit on the RIGHT of
+// the spine in the open frame.
+const HUD_VVI_X               = 1742;
+// VVI centerline matches the ALT tape so the two right-side gauges
+// share a horizontal axis. Bar HALF_H is 65% of the ALT tape's
+// half-height (220 * 0.65) so the VVI reads as a smaller sibling
+// gauge. Literal kept here (rather than `HUD_ALT_HALF_H * 0.65`) to
+// avoid a circular reference — HUD_ALT_CY references HUD_VVI_CY,
+// and JS export bindings can't be forward-declared cleanly.
+const HUD_VVI_CY              = 480;
+const HUD_VVI_HALF_H          = 143;          // 0.65 * 220
+const HUD_VVI_FULL_SCALE_FPM  = 2000;
+const HUD_VVI_BAR_THRESHOLD   = 50;
+const HUD_VVI_THRESHOLD       = 100;
+const HUD_VVI_TICK_FONT_SIZE  = 20;
+const HUD_VVI_VALUE_FONT_SIZE = 30;
+
+// ---------------------------------------------------------------------
+// ALT tape (right side, outboard of the VVI)
+// ---------------------------------------------------------------------
+// FlySto-style altimeter: a vertical stack of horizontal tick lines
+// (every 20 ft) with numeric labels at every 100 ft. The tape scrolls
+// vertically so the current altitude sits on the centerline. A Garmin-
+// style readout box anchored on the left edge of the tape shows the
+// current altitude — stationary thousands+hundreds digits beside a
+// sliding tens strip clipped to the box. Below the tape, a static
+// "29.92in" baro setting (the log doesn't carry baro).
+//
+// Geometry chosen to match the VVI centerline + half-height so the two
+// right-side gauges pair visually. Tape sits outboard of the VVI.
+
+const HUD_ALT_CY              = HUD_VVI_CY;   // 480
+// ALT is the source-of-truth for the right-side tape height; VVI bar
+// derives its HALF_H from this as a fraction (see HUD_VVI_HALF_H below).
+const HUD_ALT_HALF_H          = 220;
+// X is the LEFT edge of the tick lines. Short ticks extend to
+// HUD_ALT_X + HUD_ALT_TICK_SHORT; long ticks to HUD_ALT_X + HUD_ALT_TICK_LONG.
+// Pulled 200 px inboard from the original 1820 so the readout box body
+// (extending HUD_ALT_BOX_W = 130 to the right) fits inside the 1920-wide
+// viewBox: box right = 1620 + 6 + 130 = 1756, comfortably on-frame.
+const HUD_ALT_X               = 1620;
+const HUD_ALT_TICK_SHORT      = 7;    // every 20 ft
+const HUD_ALT_TICK_LONG       = 14;   // every 100 ft
+const HUD_ALT_TICK_STROKE     = 2;
+// 75 px per 100 ft → 15 px per 20 ft. 30 ticks (-300..+300 ft from
+// current altitude) span 450 px, slightly more than HUD_ALT_HALF_H*2;
+// extra ticks scroll off the top/bottom edges.
+const HUD_ALT_PX_PER_100_FT   = 75;
+const HUD_ALT_PX_PER_20_FT    = HUD_ALT_PX_PER_100_FT / 5;   // 15
+const HUD_ALT_LABEL_FONT_SIZE = 22;
+const HUD_ALT_LABEL_OFFSET_X  = 8;    // gap from end of long tick to label
+// Tens-strip slide per 20 ft of altitude change. Sized to the box
+// HEIGHT so the up/down digits sit fully outside the box body when
+// the strip is stationary on a tens-multiple. A shorter slide would
+// leave the up/down digits half-visible at the top/bottom of the
+// box even at frac=0 (only the curr digit should be visible then).
+const HUD_ALT_TENS_SLIDE_PX   = 60;
+// Garmin-style readout box, CENTERED ON the tape's tick column. The
+// box body's left wall sits ~6 px right of the tape's left tick stem;
+// an arrow tab notches LEFT from the box left wall, with the tip
+// landing ~2 px LEFT of the tape's left tick stem (notching INTO the
+// tick column toward the tape's centerline). The box extends well
+// past the tape's right edge so the digits clear the tick labels.
+//
+// FlySto reference: tape-rect x=1288 w=86 (right 1374), ALT-box-rect
+// x=1286 w=102 (right 1388). Box left ≈ tape left; box extends ~14 px
+// past tape right; arrow tip at x=886 = 2 px past tape left at x=888.
+// ALT shows up to 5 digits (e.g. "12340"). Stationary "hundreds"
+// holds up to 3 digits ("123") and the sliding "tens" holds 2
+// digits ("40"). Body width 110 keeps a tight ~8 px gap between
+// the digit columns. Body height 60 leaves room for the arrow tab
+// without colliding with the rounded corners.
+const HUD_ALT_BOX_W           = 80;
+const HUD_ALT_BOX_H           = 60;
+const HUD_ALT_BOX_ARROW_W     = 10;   // arrow-tab depth (notch into tick column)
+// Box rendering anchors:
+//   - Box body left wall at HUD_ALT_X + 6 (6 px right of left tick stem).
+//   - Arrow tip 6 px LEFT of the box body's left wall (lands just past
+//     the tick column's left edge) at HUD_ALT_CY.
+//   - Box extends HUD_ALT_BOX_W to the right of the left wall.
+const HUD_ALT_BOX_LEFT        = HUD_ALT_X + 6;
+const HUD_ALT_BOX_RIGHT       = HUD_ALT_BOX_LEFT + HUD_ALT_BOX_W;
+const HUD_ALT_BOX_ARROW_TIP_X = HUD_ALT_BOX_LEFT - HUD_ALT_BOX_ARROW_W;
+const HUD_ALT_BOX_TOP         = HUD_ALT_CY - HUD_ALT_BOX_H / 2;
+const HUD_ALT_BOX_BOTTOM      = HUD_ALT_CY + HUD_ALT_BOX_H / 2;
+const HUD_ALT_BOX_FONT_SIZE   = 30;
+const HUD_ALT_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
+// Semi-transparent dark backing strip drawn BEHIND the ticks so the
+// labels stay legible over busy GoPro frames. Spans the full vertical
+// extent of the tape PLUS a baro endcap region at the bottom that
+// holds the "29.92in" baro setting (matches FlySto's tape design,
+// where the baro reads inside a slightly-darker bottom section of
+// the same rounded backing strip — not a free-floating pill).
+// Width covers the tick column + numeric labels (worst case: 5-digit
+// label like "12340" at HUD_ALT_LABEL_FONT_SIZE=22 is ~70 px wide).
+// Backing left sits 4 px LEFT of HUD_ALT_X for a little air around
+// the tick stems.
+const HUD_ALT_BACKING_X       = HUD_ALT_X - 4;
+// Label width: 5-digit "12340" at font-size 22 monospace ≈ 60 px.
+const HUD_ALT_BACKING_W       = HUD_ALT_TICK_LONG + HUD_ALT_LABEL_OFFSET_X + 60 + 4;
+const HUD_ALT_BACKING_Y       = HUD_ALT_CY - HUD_ALT_HALF_H;
+// Baro endcap height — the extra vertical extent appended to the
+// backing strip's bottom for the "29.92in" readout. The TICK area
+// remains HUD_ALT_HALF_H * 2 tall; the baro section adds underneath.
+// 30 px leaves room for a 20-px-tall cyan baro readout with a few
+// px of air above/below, without crowding the lowest tape tick.
+const HUD_ALT_BARO_ENDCAP_H   = 30;
+const HUD_ALT_BACKING_H       = HUD_ALT_HALF_H * 2 + HUD_ALT_BARO_ENDCAP_H;
+const HUD_ALT_BACKING_FILL    = 'rgba(0, 0, 0, 0.10)';
+const HUD_ALT_BACKING_RX      = 8;
+// Baro endcap geometry. Sits at the bottom of the backing strip,
+// width matches the backing, height = HUD_ALT_BARO_ENDCAP_H. Top
+// edge aligns with the bottom of the tick area (HUD_ALT_CY +
+// HUD_ALT_HALF_H). Renders as a slightly-darker overlay rect on
+// top of the backing strip so the endcap reads as an integrated
+// section, not a separate floating element. Tick area (above) +
+// baro endcap (below) share the backing's rounded corners.
+const HUD_ALT_BARO_ENDCAP_X   = HUD_ALT_BACKING_X;
+const HUD_ALT_BARO_ENDCAP_Y   = HUD_ALT_CY + HUD_ALT_HALF_H;
+const HUD_ALT_BARO_ENDCAP_W   = HUD_ALT_BACKING_W;
+const HUD_ALT_BARO_ENDCAP_FILL = 'rgba(0, 0, 0, 0.18)';
+// "29.92in" text — centered horizontally in the endcap, cyan to
+// match FlySto's baro readout color (the only non-monochrome bit
+// of the tape stack).
+const HUD_ALT_BARO_CX         = HUD_ALT_BACKING_X + HUD_ALT_BACKING_W / 2;
+const HUD_ALT_BARO_CY         = HUD_ALT_BARO_ENDCAP_Y + HUD_ALT_BARO_ENDCAP_H / 2;
+const HUD_ALT_BARO_FONT_SIZE  = 20;
+const HUD_ALT_BARO_COLOR      = '#5eddef';
+
+// ---------------------------------------------------------------------
+// IAS tape (left side, mirror of ALT)
+// ---------------------------------------------------------------------
+// FlySto-style airspeed tape on the LEFT side of the HUD, mirroring the
+// ALT tape's structure across the vertical centerline. Vertical stack
+// of horizontal tick lines (every 5 kt) with numeric labels every 10
+// kt. The tape scrolls vertically so the current IAS sits on the
+// centerline. A Garmin-style readout box anchored on the tape's RIGHT
+// edge shows the current IAS — stationary hundreds+tens digits beside
+// a sliding ones digit clipped to the box.
+//
+// Monochrome: white ticks + white labels. Color bands (Vne/Vno/Vfe)
+// are deferred until the config plumbing exists to pull per-aircraft
+// V-speeds; the live page has no source for them today.
+//
+// Geometry mirrors the ALT side around HUD_CX so the two tapes appear
+// paired. The OnSpeed logo (y=40..220) sits above the tape (y=260..700),
+// and the bottom-left inset slot (top ≈ y=731) sits below the tape.
+
+const HUD_IAS_CY              = HUD_ALT_CY;     // 480 — shared centerline
+const HUD_IAS_HALF_H          = HUD_ALT_HALF_H; // 220
+// X is the RIGHT (inboard) edge of the tick column — ticks extend
+// LEFTWARD from this anchor toward the outboard side, labels further
+// left. Pulled 200 px inboard from the original 100 to mirror the
+// ALT tape's inboard move, keeping the two tapes closer to the pitch
+// ladder. Mirror of HUD_ALT_X = 1620 about HUD_CX = 960: 300.
+const HUD_IAS_X               = 300;
+const HUD_IAS_TICK_SHORT      = 7;    // every 5 kt
+const HUD_IAS_TICK_LONG       = 14;   // every 10 kt
+const HUD_IAS_TICK_STROKE     = 2;
+// 75 px per 10 kt → 37.5 px per 5 kt. Matches ALT's 75-px-per-100-ft
+// density so the two tapes' tick spacing reads as one visual unit.
+const HUD_IAS_PX_PER_10_KT    = 75;
+const HUD_IAS_PX_PER_5_KT     = HUD_IAS_PX_PER_10_KT / 2;   // 37.5
+const HUD_IAS_PX_PER_KT       = HUD_IAS_PX_PER_10_KT / 10;  // 7.5
+const HUD_IAS_LABEL_FONT_SIZE = 22;
+const HUD_IAS_LABEL_OFFSET_X  = 8;    // gap from end of long tick to label
+
+// Garmin-style readout box CENTERED ON the tape's tick column, body
+// extending LEFT (outboard) past the labels. Arrow tab on the box's
+// RIGHT side notches RIGHT into the tick column, tip landing ~2 px
+// PAST the rightmost tick stem (inboard toward the ADI center).
+// Mirror of ALT box geometry across HUD_CX.
+// IAS shows 3 digits max (e.g. "139"). Box body width 70 is tight
+// to the digits: stationary tens at left edge + sliding ones to its
+// right with only a thin reading-slot gap, so "138" reads as one
+// number, not two columns. Body height 60 keeps a 12-px tab notch
+// comfortably between the rounded corners.
+const HUD_IAS_BOX_W           = 70;
+const HUD_IAS_BOX_H           = 60;
+const HUD_IAS_BOX_ARROW_W     = 8;
+// Box rendering anchors (mirror of ALT):
+//   - Box body right wall at HUD_IAS_X - 6 (6 px left of right tick
+//     stem) — body sits on the OUTBOARD side, away from frame center.
+//   - Arrow tip at HUD_IAS_X + 2 (2 px right of right tick stem) at
+//     HUD_IAS_CY.
+//   - Box extends HUD_IAS_BOX_W to the LEFT of the right wall.
+const HUD_IAS_BOX_RIGHT       = HUD_IAS_X - 6;
+const HUD_IAS_BOX_LEFT        = HUD_IAS_BOX_RIGHT - HUD_IAS_BOX_W;
+const HUD_IAS_BOX_ARROW_TIP_X = HUD_IAS_X + 2;
+const HUD_IAS_BOX_TOP         = HUD_IAS_CY - HUD_IAS_BOX_H / 2;
+const HUD_IAS_BOX_BOTTOM      = HUD_IAS_CY + HUD_IAS_BOX_H / 2;
+const HUD_IAS_BOX_FONT_SIZE   = 30;
+const HUD_IAS_BOX_FILL        = 'rgba(46, 46, 46, 0.85)';
+// Ones-digit slide-per-knot. Sized to the box HEIGHT so the up/down
+// digits sit fully outside the box body when the strip is stationary
+// on an integer knot — only the curr digit shows at frac=0. A shorter
+// slide leaves the up/down digits half-clipped at the top/bottom of
+// the box even at rest.
+const HUD_IAS_ONES_SLIDE_PX   = 60;
+
+// Semi-transparent dark backing strip behind the IAS ticks. Mirror
+// of the ALT backing across HUD_CX, with labels rendered to the LEFT
+// of the ticks (text-anchor="end" at HUD_IAS_X - HUD_IAS_TICK_LONG -
+// HUD_IAS_LABEL_OFFSET_X). Width covers the label column + tick stems
+// + a few px of air on either side.
+// Label width: 3-digit IAS at font-size 22 monospace ≈ 40 px wide.
+// Add a little air on either side.
+const HUD_IAS_BACKING_W       = HUD_IAS_TICK_LONG + HUD_IAS_LABEL_OFFSET_X + 44 + 4;
+const HUD_IAS_BACKING_X       = HUD_IAS_X + 4 - HUD_IAS_BACKING_W;
+const HUD_IAS_BACKING_Y       = HUD_IAS_CY - HUD_IAS_HALF_H;
+const HUD_IAS_BACKING_H       = HUD_IAS_HALF_H * 2;
+const HUD_IAS_BACKING_FILL    = 'rgba(0, 0, 0, 0.10)';
+const HUD_IAS_BACKING_RX      = 8;
+
+// ---------------------------------------------------------------------
 // Slip ball (bottom center)
 // ---------------------------------------------------------------------
 // Reuses the existing SlipBall component. The HUD just supplies a
 // frame-scaled position + size.
 
-const HUD_SLIP_W           = 480;
-const HUD_SLIP_H           = 60;
-const HUD_SLIP_X           = HUD_CX - HUD_SLIP_W / 2;
-const HUD_SLIP_Y           = HUD_H - 120;
+const HUD_SLIP_W = 480;
+const HUD_SLIP_H = 60;
+const HUD_SLIP_X = HUD_CX - HUD_SLIP_W / 2;
+const HUD_SLIP_Y = HUD_H - 120;
 
 // ---------------------------------------------------------------------
-// G readout (bottom-right of slip ball)
+// Text baseline helper
 // ---------------------------------------------------------------------
-// Single numeric value "X.X G" rendered next to the slip ball.
-// Reads state.VerticalG (the load-factor channel). One-decimal
-// precision matches what you'd glance at on a panel G-meter.
+// SVG `dominant-baseline="central"` is interpreted inconsistently
+// across browsers and fonts — Safari and Chrome sometimes land glyphs
+// 6-8 px off-center, which made the ALT/IAS slide strips look smeared
+// (two digits stacked, both partially clipped by the box outline).
+// Compute an explicit y offset from font metrics instead: the glyph
+// center sits roughly `fontSize * 0.35` BELOW the SVG y coordinate
+// when using the default `alphabetic` baseline. Anchoring with
+// `y = cy + hudGlyphOffset(fontSize)` and no dominant-baseline
+// attribute renders deterministically across browsers.
+const hudGlyphOffset = (fontSize) => fontSize * 0.35;
 
-const HUD_G_X              = HUD_SLIP_X + HUD_SLIP_W + 36;
-const HUD_G_Y              = HUD_SLIP_Y + HUD_SLIP_H / 2;
-const HUD_G_FONT_SIZE      = 40;
+const __NS_packages_ui_core_core_hudGeometry = { HUD_W, HUD_H, HUD_CX, HUD_CY, HUD_LOGO_X, HUD_LOGO_Y, HUD_LOGO_W, HUD_LOGO_H, HUD_PITCH_PX_PER_DEG, HUD_HORIZON_HALF_W, HUD_PITCH_TICK_HALF_W, HUD_HORIZON_STROKE, HUD_PITCH_TICK_STROKE, HUD_PITCH_LABEL_OFFSET, HUD_PITCH_LABEL_FONT_SIZE, HUD_BANK_CX, HUD_BANK_CY, HUD_BANK_R, HUD_BANK_TICK_LONG, HUD_BANK_TICK_SHORT, HUD_BANK_STROKE, HUD_BANK_POINTER_H, HUD_BANK_POINTER_HALF_W, HUD_BANK_TICKS, HUD_FPM_CX, HUD_FPM_CY, HUD_FPM_R, HUD_FPM_WING_INNER, HUD_FPM_WING_OUTER, HUD_FPM_TOP_TICK, HUD_FPM_STROKE, HUD_HORIZON_COLOR, HUD_PITCH_COLOR, HUD_FPM_COLOR, HUD_BANK_ARC_COLOR, HUD_BANK_POINTER_COLOR, HUD_VVI_X, HUD_VVI_CY, HUD_VVI_HALF_H, HUD_VVI_FULL_SCALE_FPM, HUD_VVI_BAR_THRESHOLD, HUD_VVI_THRESHOLD, HUD_VVI_TICK_FONT_SIZE, HUD_VVI_VALUE_FONT_SIZE, HUD_ALT_CY, HUD_ALT_HALF_H, HUD_ALT_X, HUD_ALT_TICK_SHORT, HUD_ALT_TICK_LONG, HUD_ALT_TICK_STROKE, HUD_ALT_PX_PER_100_FT, HUD_ALT_PX_PER_20_FT, HUD_ALT_LABEL_FONT_SIZE, HUD_ALT_LABEL_OFFSET_X, HUD_ALT_TENS_SLIDE_PX, HUD_ALT_BOX_W, HUD_ALT_BOX_H, HUD_ALT_BOX_ARROW_W, HUD_ALT_BOX_LEFT, HUD_ALT_BOX_RIGHT, HUD_ALT_BOX_ARROW_TIP_X, HUD_ALT_BOX_TOP, HUD_ALT_BOX_BOTTOM, HUD_ALT_BOX_FONT_SIZE, HUD_ALT_BOX_FILL, HUD_ALT_BACKING_X, HUD_ALT_BACKING_W, HUD_ALT_BACKING_Y, HUD_ALT_BARO_ENDCAP_H, HUD_ALT_BACKING_H, HUD_ALT_BACKING_FILL, HUD_ALT_BACKING_RX, HUD_ALT_BARO_ENDCAP_X, HUD_ALT_BARO_ENDCAP_Y, HUD_ALT_BARO_ENDCAP_W, HUD_ALT_BARO_ENDCAP_FILL, HUD_ALT_BARO_CX, HUD_ALT_BARO_CY, HUD_ALT_BARO_FONT_SIZE, HUD_ALT_BARO_COLOR, HUD_IAS_CY, HUD_IAS_HALF_H, HUD_IAS_X, HUD_IAS_TICK_SHORT, HUD_IAS_TICK_LONG, HUD_IAS_TICK_STROKE, HUD_IAS_PX_PER_10_KT, HUD_IAS_PX_PER_5_KT, HUD_IAS_PX_PER_KT, HUD_IAS_LABEL_FONT_SIZE, HUD_IAS_LABEL_OFFSET_X, HUD_IAS_BOX_W, HUD_IAS_BOX_H, HUD_IAS_BOX_ARROW_W, HUD_IAS_BOX_RIGHT, HUD_IAS_BOX_LEFT, HUD_IAS_BOX_ARROW_TIP_X, HUD_IAS_BOX_TOP, HUD_IAS_BOX_BOTTOM, HUD_IAS_BOX_FONT_SIZE, HUD_IAS_BOX_FILL, HUD_IAS_ONES_SLIDE_PX, HUD_IAS_BACKING_W, HUD_IAS_BACKING_X, HUD_IAS_BACKING_Y, HUD_IAS_BACKING_H, HUD_IAS_BACKING_FILL, HUD_IAS_BACKING_RX, HUD_SLIP_W, HUD_SLIP_H, HUD_SLIP_X, HUD_SLIP_Y, hudGlyphOffset };
+// === packages/ui-core/components/svg/hud/VviTrend.js ===
+// HudVviTrend — FlySto-style vertical climb/descent trend bar
+// attached to the right edge of the ALT tape.
+//
+// Vertical line at HUD_VVI_X with tick marks pointing LEFT (toward
+// the ALT tape's label column). Numeric scale labels at +/-1000 and
+// +/-2000 fpm sit on the RIGHT of the bar. A yellow fill bar grows
+// from the centerline UP for climb / DOWN for descent, height
+// proportional to |vsiFpm| (clamped at +/-HUD_VVI_FULL_SCALE_FPM).
+// When |vsiFpm| exceeds HUD_VVI_THRESHOLD a numeric readout (rounded
+// to 10 fpm) appears next to the bar's leading edge.
 
-// ---------------------------------------------------------------------
-// Stroke / color defaults
-// ---------------------------------------------------------------------
-// FlySto palette: yellow for the airplane-fixed elements (FPM, pitch
-// ladder, bank pointer), white for the world-fixed scales (bank arc,
-// tapes). A black drop-shadow halo is applied via CSS in replay.css
-// so white-on-bright-sky stays legible.
 
-const HUD_LINE_COLOR        = 'var(--white)';
-const HUD_HORIZON_COLOR     = 'var(--white)';
-const HUD_PITCH_COLOR       = 'var(--yellow)';
-const HUD_FPM_COLOR         = 'var(--yellow)';
-const HUD_BANK_ARC_COLOR    = 'var(--white)';
-const HUD_BANK_POINTER_COLOR = 'var(--yellow)';
-const HUD_VSI_COLOR         = 'var(--white)';
-const HUD_BOX_FILL          = 'rgba(0, 0, 0, 0.72)';
 
-const __NS_packages_ui_core_core_hudGeometry = { HUD_W, HUD_H, HUD_CX, HUD_CY, HUD_PITCH_PX_PER_DEG, HUD_HORIZON_HALF_W, HUD_PITCH_TICK_HALF_W, HUD_HORIZON_STROKE, HUD_PITCH_TICK_STROKE, HUD_PITCH_LABEL_OFFSET, HUD_PITCH_LABEL_FONT_SIZE, HUD_BANK_CX, HUD_BANK_CY, HUD_BANK_R, HUD_BANK_TICK_LONG, HUD_BANK_TICK_SHORT, HUD_BANK_STROKE, HUD_BANK_POINTER_H, HUD_BANK_POINTER_HALF_W, HUD_BANK_TICKS, HUD_IAS_X, HUD_IAS_W, HUD_IAS_TAPE_H, HUD_IAS_CY, HUD_IAS_PX_PER_UNIT, HUD_IAS_TICK_EVERY, HUD_IAS_LABEL_EVERY, HUD_IAS_TICK_LEN_MAJOR, HUD_IAS_TICK_LEN_MINOR, HUD_IAS_LABEL_FONT_SIZE, HUD_IAS_BOX_H, HUD_IAS_BOX_FONT_SIZE, HUD_IAS_BOX_PAD_X, HUD_ALT_X, HUD_ALT_W, HUD_ALT_TAPE_H, HUD_ALT_CY, HUD_ALT_PX_PER_UNIT, HUD_ALT_TICK_EVERY, HUD_ALT_LABEL_EVERY, HUD_ALT_TICK_LEN_MAJOR, HUD_ALT_TICK_LEN_MINOR, HUD_ALT_LABEL_FONT_SIZE, HUD_ALT_BOX_H, HUD_ALT_BOX_FONT_SIZE, HUD_ALT_BOX_PAD_X, HUD_VSI_X, HUD_VSI_Y, HUD_VSI_FONT_SIZE, HUD_VSI_THRESHOLD, HUD_FPM_CX, HUD_FPM_CY, HUD_FPM_R, HUD_FPM_WING_INNER, HUD_FPM_WING_OUTER, HUD_FPM_TOP_TICK, HUD_FPM_STROKE, HUD_SLIP_W, HUD_SLIP_H, HUD_SLIP_X, HUD_SLIP_Y, HUD_G_X, HUD_G_Y, HUD_G_FONT_SIZE, HUD_LINE_COLOR, HUD_HORIZON_COLOR, HUD_PITCH_COLOR, HUD_FPM_COLOR, HUD_BANK_ARC_COLOR, HUD_BANK_POINTER_COLOR, HUD_VSI_COLOR, HUD_BOX_FILL };
+const TICKS_FPM = [-2000, -1000, 1000, 2000];
+
+const HudVviTrend = ({ vsiFpm = 0 }) => {
+  if (!Number.isFinite(vsiFpm)) return null;
+  const clamped = Math.max(-__NS_packages_ui_core_core_hudGeometry.HUD_VVI_FULL_SCALE_FPM,
+                            Math.min(__NS_packages_ui_core_core_hudGeometry.HUD_VVI_FULL_SCALE_FPM, vsiFpm));
+  const cx = __NS_packages_ui_core_core_hudGeometry.HUD_VVI_X;
+  const cy = __NS_packages_ui_core_core_hudGeometry.HUD_VVI_CY;
+  const halfH = __NS_packages_ui_core_core_hudGeometry.HUD_VVI_HALF_H;
+  // Explicit y offset from font metrics — see __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset.
+  const tickDy = __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset(__NS_packages_ui_core_core_hudGeometry.HUD_VVI_TICK_FONT_SIZE);
+  const valueDy = __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset(__NS_packages_ui_core_core_hudGeometry.HUD_VVI_VALUE_FONT_SIZE);
+  // y grows downward; positive fpm (climb) places the bar above center.
+  const yForFpm = (fpm) => cy - (fpm / __NS_packages_ui_core_core_hudGeometry.HUD_VVI_FULL_SCALE_FPM) * halfH;
+  const barY1 = cy;
+  const barY2 = yForFpm(clamped);
+  return html`
+    <g data-widget="hud-vvi">
+      <!-- Vertical spine -->
+      <line x1=${cx} y1=${cy - halfH} x2=${cx} y2=${cy + halfH}
+            stroke="var(--white)" stroke-width="2"
+            shape-rendering="crispEdges" />
+      <!-- Centerline (zero fpm). Slightly longer than the other ticks
+           and extends only LEFT (matching FlySto: ticks read on the
+           ALT-tape-facing side, scale numerals on the open side). -->
+      <line x1=${cx - 14} y1=${cy} x2=${cx} y2=${cy}
+            stroke="var(--white)" stroke-width="3" />
+      ${TICKS_FPM.map(t => html`
+        <line x1=${cx - 10} y1=${yForFpm(t)} x2=${cx} y2=${yForFpm(t)}
+              stroke="var(--white)" stroke-width="2"
+              shape-rendering="crispEdges" />
+        <text x=${cx + 6} y=${yForFpm(t) + tickDy}
+              font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+              font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_VVI_TICK_FONT_SIZE}
+              fill="var(--white)"
+              text-anchor="start">${Math.abs(t / 1000)}</text>`)}
+      <!-- Yellow fill bar, growing from centerline. Above-threshold
+           rendering keeps the gauge still at idle. -->
+      ${Math.abs(vsiFpm) >= __NS_packages_ui_core_core_hudGeometry.HUD_VVI_BAR_THRESHOLD && html`
+        <rect x=${cx - 6}
+              y=${Math.min(barY1, barY2)}
+              width="6"
+              height=${Math.abs(barY2 - barY1)}
+              fill="var(--yellow)" />`}
+      <!-- Numeric readout (rounded to 10 fpm) next to the bar's
+           leading edge, on the right side. -->
+      ${Math.abs(vsiFpm) >= __NS_packages_ui_core_core_hudGeometry.HUD_VVI_THRESHOLD && html`
+        <text x=${cx + 24} y=${barY2 + valueDy}
+              font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+              font-weight="bold"
+              font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_VVI_VALUE_FONT_SIZE}
+              fill="var(--white)"
+              text-anchor="start">${(vsiFpm > 0 ? '+' : '') + Math.round(vsiFpm / 10) * 10}</text>`}
+    </g>`;
+};
+
+// === packages/ui-core/components/svg/hud/AltTape.js ===
+// AltTape.js — FlySto-style altimeter tape with Garmin-style readout box.
+//
+// Vertical stack of horizontal tick marks (every 20 ft) labeled every
+// 100 ft, scrolling so the current altitude sits on the centerline.
+// CENTERED ON the tape (overlapping the tick column), a Garmin-style
+// readout box: stationary thousands+hundreds digits alongside a sliding
+// tens strip clipped to the box. The arrow tab on the box's LEFT side
+// notches LEFT into the tick column, tip landing past the left tick
+// stem. Below the tape, a "29.92in" baro pill (the log doesn't carry
+// baro).
+//
+// Geometry comes from hudGeometry.js (HUD_ALT_*). The clipPath id is
+// hardcoded to "hud-alt-readout-clip" — only one HudAltTape per SVG.
+
+
+
+// Box outline path + clip path share the exact same geometry so the
+// sliding tens digits never spill past the rounded corners. The arrow
+// tab sits on the LEFT side and points LEFT into the tape's tick
+// column (the tape's centerline runs through the column where the box
+// left wall sits, so the arrow tip notches inboard toward the ticks).
+//
+//                topL ───────────────── topR
+//   tabTopL  ↙    │                       │
+//   tip @ tipX  ◂ │                       │
+//   tabBotL  ↖    │                       │
+//                botL ───────────────── botR
+//
+// Corner radius `r` is small (4 px) to match FlySto's box. `tabHalf`
+// (8 px) sits comfortably inside the box's rounded corners so the
+// notch reads as an arrow rather than overflowing the corner radius.
+function buildAltBoxPath() {
+  const L = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_LEFT;
+  const R = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_RIGHT;
+  const T = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_TOP;
+  const B = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_BOTTOM;
+  const cy = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_CY;
+  const tip = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_ARROW_TIP_X;
+  const tabHalf = 12;
+  const r = 4;
+  return [
+    `M ${L + r} ${T}`,
+    `L ${R - r} ${T}`,
+    `A ${r} ${r} 0 0 1 ${R} ${T + r}`,
+    `L ${R} ${B - r}`,
+    `A ${r} ${r} 0 0 1 ${R - r} ${B}`,
+    `L ${L + r} ${B}`,
+    `A ${r} ${r} 0 0 1 ${L} ${B - r}`,
+    `L ${L} ${cy + tabHalf}`,
+    `L ${tip} ${cy}`,
+    `L ${L} ${cy - tabHalf}`,
+    `L ${L} ${T + r}`,
+    `A ${r} ${r} 0 0 1 ${L + r} ${T}`,
+    'Z',
+  ].join(' ');
+}
+
+const altPad2 = (n) => String(n).padStart(2, '0');
+
+// EMA smoothing alpha at 20 Hz ≈ 1.2 s tau. The tens digit needs to
+// slide smoothly; pressure-altitude noise + firmware Kalman bias
+// dominate at shorter taus.
+const ALT_EMA_ALPHA = 0.04;
+// Big-jump snap threshold (ft). Beyond this delta we assume a log
+// seek or fresh flight load and reset the EMA to the raw value
+// rather than crossfading from the prior state — otherwise the
+// tape spends a full tau crossing the gap.
+const ALT_SNAP_FT = 200;
+
+const HudAltTape = ({ altitudeFt = 0 }) => {
+  // Per-instance EMA state via useRef. Previously this lived at
+  // module scope, which silently coupled the live preview's HUD
+  // and the offscreen export-mount HUD: each render of either
+  // mutated the same accumulator, so the first ~30 frames of every
+  // export burned in altitudes drifting from the live-preview's
+  // last EMA state instead of starting fresh from the clip. See
+  // bulldog review on PR #548.
+  const emaRef = useRef(null);
+  const raw = Number.isFinite(altitudeFt) ? altitudeFt : 0;
+  if (emaRef.current == null || Math.abs(raw - emaRef.current) > ALT_SNAP_FT) {
+    emaRef.current = raw;
+  } else {
+    emaRef.current += (raw - emaRef.current) * ALT_EMA_ALPHA;
+  }
+  const alt = emaRef.current;
+  const cy = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_CY;
+  // Explicit y offset from font metrics — see __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset for
+  // why we avoid `dominant-baseline="central"`.
+  const labelDy = __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset(__NS_packages_ui_core_core_hudGeometry.HUD_ALT_LABEL_FONT_SIZE);
+  const boxDy   = __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset(__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE);
+  const baroDy  = __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset(__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_FONT_SIZE);
+
+  // Scroll offset: positive frac → tape needs to shift downward so the
+  // tick at nearest20Below stays aligned. fracPx is how many px of
+  // tape have scrolled past the centerline since the last 20-ft mark.
+  const nearest20Below = Math.floor(alt / 20) * 20;
+  const frac = (alt - nearest20Below) / 20;                  // 0..1
+  const fracPx = frac * __NS_packages_ui_core_core_hudGeometry.HUD_ALT_PX_PER_20_FT;
+  // Render 30 ticks straddling the centerline (-300..+300 ft from
+  // nearest20Below). Each tick i is at altitude nearest20Below + i*20,
+  // and its y is HUD_ALT_CY - i*HUD_ALT_PX_PER_20_FT + fracPx.
+  const ticks = [];
+  for (let i = -15; i <= 15; i++) {
+    const tickAlt = nearest20Below + i * 20;
+    const y = cy - i * __NS_packages_ui_core_core_hudGeometry.HUD_ALT_PX_PER_20_FT + fracPx;
+    const isMajor = tickAlt % 100 === 0;
+    const tickEnd = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_X + (isMajor ? __NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_LONG : __NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_SHORT);
+    ticks.push(html`
+      <line x1=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_X} y1=${y}
+            x2=${tickEnd} y2=${y}
+            stroke="var(--white)"
+            stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_STROKE}
+            stroke-linecap="round" />`);
+    if (isMajor) {
+      const labelX = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_X + __NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_LONG + __NS_packages_ui_core_core_hudGeometry.HUD_ALT_LABEL_OFFSET_X;
+      ticks.push(html`
+        <text x=${labelX} y=${y + labelDy}
+              font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+              font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_LABEL_FONT_SIZE}
+              fill="var(--white)"
+              text-anchor="start">${tickAlt}</text>`);
+    }
+  }
+
+  // Readout box digits:
+  //   - Stationary "hundreds" digits: floor(alt / 100). For 6143 →
+  //     "61"; for 12340 → "123".
+  //   - Sliding tens strip: three two-digit numbers (curr, up20, down20)
+  //     stacked vertically. The strip translates downward by
+  //     frac*HUD_ALT_TENS_SLIDE_PX as alt advances within a 20-ft
+  //     window — at frac=1 the "up" digit (currently above center)
+  //     reaches center and becomes the new current.
+  const hundreds = Math.floor(alt / 100);
+  const tensCurr = ((nearest20Below % 100) + 100) % 100;
+  const tensUp   = (((nearest20Below + 20) % 100) + 100) % 100;
+  const tensDown = (((nearest20Below - 20) % 100) + 100) % 100;
+  const stripDy = frac * __NS_packages_ui_core_core_hudGeometry.HUD_ALT_TENS_SLIDE_PX;
+
+  const boxPath = buildAltBoxPath();
+  const clipId = 'hud-alt-readout-clip';
+  const tickClipId = 'hud-alt-tick-clip';
+
+  // Stationary thousands+hundreds digits anchored at the LEFT edge of
+  // the box (closest to the arrow tab); sliding tens strip sits
+  // IMMEDIATELY to their right, with its X position computed from the
+  // pixel width of the stationary text. This keeps the readout
+  // tightly packed for every digit count:
+  //   alt=120   → "1" + "20"   ([1][20])
+  //   alt=4080  → "40" + "80"  ([40][80])
+  //   alt=12340 → "123" + "40" ([123][40])
+  // SVG can't measure rendered text width without DOM access, so we
+  // estimate via char count × monospace digit width. B612 at font-size
+  // 30 renders a digit roughly 0.6em wide.
+  const ALT_CHAR_W = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE * 0.55;
+  const hundredsStr = String(hundreds);
+  const hundredsX = __NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_LEFT + 10;                       // left pad
+  const tensX     = hundredsX + hundredsStr.length * ALT_CHAR_W;   // tight pack
+
+  return html`
+    <g data-widget="hud-alt-tape">
+      <defs>
+        <clipPath id=${clipId}>
+          <path d=${boxPath} />
+        </clipPath>
+        <!-- Tick clip is the tick-area portion of the backing only,
+             not the full backing (which includes the baro endcap
+             below). Otherwise tick lines bleed into the endcap. -->
+        <clipPath id=${tickClipId}>
+          <rect x=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_X}
+                y=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_Y}
+                width=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_W}
+                height=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_HALF_H * 2} />
+        </clipPath>
+        <!-- Endcap clip — same outer rounded rect as the backing,
+             so the darker baro overlay shares the backing's bottom
+             corner radii without protruding past them. -->
+        <clipPath id="hud-alt-backing-clip">
+          <rect x=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_X}
+                y=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_Y}
+                width=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_W}
+                height=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_H}
+                rx=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_RX}
+                ry=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_RX} />
+        </clipPath>
+      </defs>
+
+      <!-- Semi-transparent dark backing for legibility on busy video.
+           Extends past the tick area to host the baro endcap below. -->
+      <rect x=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_X}
+            y=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_Y}
+            width=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_W}
+            height=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_H}
+            rx=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_RX}
+            ry=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_RX}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BACKING_FILL} />
+
+      <!-- Baro endcap: slightly-darker overlay rect at the bottom of
+           the backing strip, clipped to the backing's rounded outline
+           so the endcap shares the backing's bottom corner radii. -->
+      <g clip-path="url(#hud-alt-backing-clip)">
+        <rect x=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_ENDCAP_X}
+              y=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_ENDCAP_Y}
+              width=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_ENDCAP_W}
+              height=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_ENDCAP_H}
+              fill=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_ENDCAP_FILL} />
+      </g>
+
+      <!-- ticks + labels (drawn first so the box sits on top, clipped
+           to the visible window so off-screen ticks don't render) -->
+      <g clip-path="url(#${tickClipId})">
+        ${ticks}
+      </g>
+
+      <!-- "29.92in" baro readout, cyan, centered in the endcap. -->
+      <text x=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_CX} y=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_CY + baroDy}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_FONT_SIZE}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BARO_COLOR}
+            text-anchor="middle">29.92in</text>
+
+      <!-- Garmin readout box -->
+      <path d=${boxPath}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FILL}
+            stroke="var(--white)" stroke-width="2" />
+
+      <!-- Stationary hundreds digits -->
+      <text x=${hundredsX} y=${cy + boxDy}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-weight="bold"
+            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE}
+            fill="var(--white)"
+            text-anchor="start">${hundreds}</text>
+
+      <!-- Sliding tens strip, clipped to the box outline. Strip's
+           three digits stack 30 px apart; only the digit nearest the
+           box centerline is fully visible at any time. -->
+      <g clip-path="url(#${clipId})">
+        <g transform="translate(0 ${stripDy})">
+          <text x=${tensX} y=${cy - __NS_packages_ui_core_core_hudGeometry.HUD_ALT_TENS_SLIDE_PX + boxDy}
+                font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+                font-weight="bold"
+                font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE}
+                fill="var(--white)"
+                text-anchor="start">${altPad2(tensUp)}</text>
+          <text x=${tensX} y=${cy + boxDy}
+                font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+                font-weight="bold"
+                font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE}
+                fill="var(--white)"
+                text-anchor="start">${altPad2(tensCurr)}</text>
+          <text x=${tensX} y=${cy + __NS_packages_ui_core_core_hudGeometry.HUD_ALT_TENS_SLIDE_PX + boxDy}
+                font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+                font-weight="bold"
+                font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE}
+                fill="var(--white)"
+                text-anchor="start">${altPad2(tensDown)}</text>
+        </g>
+      </g>
+    </g>`;
+};
+
+// === packages/ui-core/components/svg/hud/IasTape.js ===
+// IasTape.js — FlySto-style airspeed tape with Garmin-style readout box.
+//
+// Mirror of AltTape on the left side of the HUD. Vertical stack of
+// horizontal tick marks (every 5 kt) labeled every 10 kt, scrolling
+// so the current IAS sits on the centerline. CENTERED ON the tape
+// (overlapping the tick column), a Garmin-style readout box:
+// stationary hundreds+tens digits alongside a sliding ones digit
+// clipped to the box. The arrow tab on the box's RIGHT side notches
+// RIGHT into the tick column, tip landing past the right tick stem.
+//
+// Monochrome — no Vne/Vno/Vfe color bands. Per-aircraft V-speed
+// plumbing doesn't exist on the live page today; the bands wait
+// until config flows through.
+//
+// Geometry comes from hudGeometry.js (HUD_IAS_*). The clipPath id is
+// hardcoded to "hud-ias-readout-clip" — only one HudIasTape per SVG.
+
+
+
+// Box outline path + clip path share the exact same geometry so the
+// sliding ones digits never spill past the rounded corners. The arrow
+// tab sits on the RIGHT side and points RIGHT into the tape's tick
+// column. `tabHalf` (14 px) sits proportional to the box height so
+// the arrow reads as a clear pointer; bumped slightly higher than
+// ALT's 8-px tab because IAS's narrower box body needs a beefier
+// notch for visual balance.
+function buildIasBoxPath() {
+  const L = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_LEFT;
+  const R = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_RIGHT;
+  const T = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_TOP;
+  const B = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_BOTTOM;
+  const cy = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_CY;
+  const tip = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_ARROW_TIP_X;
+  const tabHalf = 14;
+  const r = 4;
+  return [
+    `M ${L + r} ${T}`,
+    `L ${R - r} ${T}`,
+    `A ${r} ${r} 0 0 1 ${R} ${T + r}`,
+    `L ${R} ${cy - tabHalf}`,
+    `L ${tip} ${cy}`,
+    `L ${R} ${cy + tabHalf}`,
+    `L ${R} ${B - r}`,
+    `A ${r} ${r} 0 0 1 ${R - r} ${B}`,
+    `L ${L + r} ${B}`,
+    `A ${r} ${r} 0 0 1 ${L} ${B - r}`,
+    `L ${L} ${T + r}`,
+    `A ${r} ${r} 0 0 1 ${L + r} ${T}`,
+    'Z',
+  ].join(' ');
+}
+
+// EMA smoothing alpha ≈ 1.2 s tau at 20 Hz — matches ALT so the two
+// tapes feel equally responsive. Raw 20 Hz IAS has visible jitter
+// from dynamic-pressure noise; without smoothing the ones digit
+// clicks between frames.
+const IAS_EMA_ALPHA = 0.04;
+const IAS_SNAP_KT = 30;
+
+const HudIasTape = ({ iasKt = 0 }) => {
+  // Per-instance EMA state via useRef. See the matching note in
+  // AltTape.js: module-scoped EMA was silently shared between the
+  // live preview and the offscreen export mount.
+  const emaRef = useRef(null);
+  const raw = Number.isFinite(iasKt) ? Math.max(0, iasKt) : 0;
+  if (emaRef.current == null || Math.abs(raw - emaRef.current) > IAS_SNAP_KT) {
+    emaRef.current = raw;
+  } else {
+    emaRef.current += (raw - emaRef.current) * IAS_EMA_ALPHA;
+  }
+  const ias = emaRef.current;
+  const cy = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_CY;
+  // Explicit y offset from font metrics — see __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset for
+  // why we avoid `dominant-baseline="central"`.
+  const labelDy = __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset(__NS_packages_ui_core_core_hudGeometry.HUD_IAS_LABEL_FONT_SIZE);
+  const boxDy   = __NS_packages_ui_core_core_hudGeometry.hudGlyphOffset(__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE);
+
+  // Scroll offset: positive frac → tape needs to shift downward so
+  // the tick at nearest5Below stays aligned.
+  const nearest5Below = Math.floor(ias / 5) * 5;
+  const frac = (ias - nearest5Below) / 5;                    // 0..1
+  const fracPx = frac * __NS_packages_ui_core_core_hudGeometry.HUD_IAS_PX_PER_5_KT;
+  const ticks = [];
+  for (let i = -15; i <= 15; i++) {
+    const tickIas = nearest5Below + i * 5;
+    if (tickIas < 0) continue;
+    const y = cy - i * __NS_packages_ui_core_core_hudGeometry.HUD_IAS_PX_PER_5_KT + fracPx;
+    const isMajor = tickIas % 10 === 0;
+    const tickEnd = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_X - (isMajor ? __NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_LONG : __NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_SHORT);
+    ticks.push(html`
+      <line x1=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_X} y1=${y}
+            x2=${tickEnd} y2=${y}
+            stroke="var(--white)"
+            stroke-width=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_STROKE}
+            stroke-linecap="round" />`);
+    if (isMajor) {
+      const labelX = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_X - __NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_LONG - __NS_packages_ui_core_core_hudGeometry.HUD_IAS_LABEL_OFFSET_X;
+      ticks.push(html`
+        <text x=${labelX} y=${y + labelDy}
+              font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+              font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_LABEL_FONT_SIZE}
+              fill="var(--white)"
+              text-anchor="end">${tickIas}</text>`);
+    }
+  }
+
+  // Readout box digits:
+  //   - Stationary tens digits: floor(ias / 10). For 113 → "11";
+  //     for 95 → "9"; for 7 → "0".
+  //   - Sliding ones strip: three single-digit numbers (curr, up1,
+  //     down1) stacked vertically. Slide phase frac1 = ias - floor(ias).
+  const nearest1Below = Math.floor(ias);
+  const frac1 = ias - nearest1Below;                          // 0..1
+  const tens = Math.floor(nearest1Below / 10);
+  const onesCurr = ((nearest1Below % 10) + 10) % 10;
+  const onesUp   = (((nearest1Below + 1) % 10) + 10) % 10;
+  const onesDown = (((nearest1Below - 1) % 10) + 10) % 10;
+  const stripDy = frac1 * __NS_packages_ui_core_core_hudGeometry.HUD_IAS_ONES_SLIDE_PX;
+
+  const boxPath = buildIasBoxPath();
+  const clipId = 'hud-ias-readout-clip';
+  const tickClipId = 'hud-ias-tick-clip';
+
+  // Readout is RIGHT-aligned within the box (the arrow tab points
+  // RIGHT into the tape). The sliding ones digit anchors at
+  // BOX_RIGHT − rightPad − ONE_CHAR_W (start-anchored 1-char column);
+  // the stationary tens digits sit IMMEDIATELY to its LEFT, with X
+  // computed from their pixel width so packing stays tight regardless
+  // of digit count:
+  //   ias=85  → "8" + "5"   ([8][5])
+  //   ias=138 → "13" + "8"  ([13][8])
+  //   ias=199 → "19" + "9"  ([19][9])
+  // Estimate text width via char count × monospace digit width.
+  const IAS_CHAR_W = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE * 0.55;
+  const tensStr = String(tens);
+  const onesX = __NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_RIGHT - 10 - IAS_CHAR_W;             // right pad
+  const tensX = onesX - tensStr.length * IAS_CHAR_W;               // tight pack
+
+  return html`
+    <g data-widget="hud-ias-tape">
+      <defs>
+        <clipPath id=${clipId}>
+          <path d=${boxPath} />
+        </clipPath>
+        <clipPath id=${tickClipId}>
+          <rect x=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_X}
+                y=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_Y}
+                width=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_W}
+                height=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_H} />
+        </clipPath>
+      </defs>
+
+      <!-- Semi-transparent dark backing for legibility on busy video -->
+      <rect x=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_X}
+            y=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_Y}
+            width=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_W}
+            height=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_H}
+            rx=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_RX}
+            ry=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_RX}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BACKING_FILL} />
+
+      <!-- ticks + labels (drawn first so the box sits on top, clipped
+           to the visible window so off-screen ticks don't render) -->
+      <g clip-path="url(#${tickClipId})">
+        ${ticks}
+      </g>
+
+      <!-- Garmin readout box -->
+      <path d=${boxPath}
+            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FILL}
+            stroke="var(--white)" stroke-width="2" />
+
+      <!-- Stationary tens digits -->
+      <text x=${tensX} y=${cy + boxDy}
+            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+            font-weight="bold"
+            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE}
+            fill="var(--white)"
+            text-anchor="start">${tens}</text>
+
+      <!-- Sliding ones strip, clipped to the box outline -->
+      <g clip-path="url(#${clipId})">
+        <g transform="translate(0 ${stripDy})">
+          <text x=${onesX} y=${cy - __NS_packages_ui_core_core_hudGeometry.HUD_IAS_ONES_SLIDE_PX + boxDy}
+                font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+                font-weight="bold"
+                font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE}
+                fill="var(--white)"
+                text-anchor="start">${onesUp}</text>
+          <text x=${onesX} y=${cy + boxDy}
+                font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+                font-weight="bold"
+                font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE}
+                fill="var(--white)"
+                text-anchor="start">${onesCurr}</text>
+          <text x=${onesX} y=${cy + __NS_packages_ui_core_core_hudGeometry.HUD_IAS_ONES_SLIDE_PX + boxDy}
+                font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
+                font-weight="bold"
+                font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE}
+                fill="var(--white)"
+                text-anchor="start">${onesDown}</text>
+        </g>
+      </g>
+    </g>`;
+};
+
 // === packages/ui-core/components/svg/hud/PitchLadder.js ===
 // PitchLadder.js — FlySto-style pitch ladder.
 //
@@ -7655,145 +8486,6 @@ const HudBankArc = ({ rollDeg = 0 }) => {
     </g>`;
 };
 
-// === packages/ui-core/components/svg/hud/Tape.js ===
-// Tape.js — vertical scrolling numeric strip for IAS / ALT.
-//
-// The visible strip is centered vertically on the HUD. The current
-// value sits in a highlighted center box; ticks and labels scroll
-// behind it so the currently-indicated value always reads correctly
-// in the center box.
-
-
-
-// One tick + (optionally) one label. Drawn at `value` units; SVG-y is
-// translated by `-(value - currentValue) × pxPerUnit` so currentValue
-// always renders at the centerline.
-const tickRow = (props) => {
-  const {
-    side, value, currentValue, pxPerUnit, cy,
-    tickX, tickLenMajor, tickLenMinor,
-    labelEvery, labelX, labelAnchor, labelFontSize,
-  } = props;
-  const dy = -(value - currentValue) * pxPerUnit;
-  const isMajor = value % labelEvery === 0;
-  const tickLen = isMajor ? tickLenMajor : tickLenMinor;
-  // Side decides which way the tick pokes out of the tape.
-  const tx1 = side === 'left' ? tickX : tickX - tickLen;
-  const tx2 = side === 'left' ? tickX + tickLen : tickX;
-  return html`
-    <g transform="translate(0 ${dy})">
-      <line x1=${tx1} y1=${cy} x2=${tx2} y2=${cy}
-            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR} stroke-width="3"
-            shape-rendering="crispEdges" />
-      ${isMajor && html`
-        <text x=${labelX} y=${cy}
-              font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
-              font-size=${labelFontSize}
-              fill=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR}
-              text-anchor=${labelAnchor} dominant-baseline="central">${value}</text>`}
-    </g>`;
-};
-
-// `side` = 'left' (IAS) or 'right' (ALT). The tape area is clipped to
-// the visible window so off-strip ticks don't bleed past the edges.
-const HudTape = ({
-  side, value = 0, valid = true,
-  tapeX, tapeW, tapeH, cy,
-  pxPerUnit, tickEvery, labelEvery,
-  tickLenMajor, tickLenMinor, labelFontSize,
-  boxH, boxFontSize, boxPadX, formatLabel,
-  clipId,
-}) => {
-  const fmt = formatLabel || ((v) => String(v));
-  // Range of values to draw: enough above + below the current value
-  // to fill the visible window with a margin. Snap to multiples of
-  // tickEvery.
-  const v0 = Math.round(value);
-  const halfRangeUnits = Math.ceil((tapeH / 2) / pxPerUnit) + tickEvery;
-  const minVal = Math.floor((v0 - halfRangeUnits) / tickEvery) * tickEvery;
-  const maxVal = Math.ceil((v0 + halfRangeUnits) / tickEvery) * tickEvery;
-  const ticks = [];
-  for (let v = minVal; v <= maxVal; v += tickEvery) {
-    if (v < 0) continue;  // Negative IAS/ALT doesn't render — pilot-visible math.
-    ticks.push(tickRow({
-      side,
-      value: v,
-      currentValue: value,
-      pxPerUnit,
-      cy,
-      tickX: side === 'left' ? tapeX + tapeW : tapeX,
-      tickLenMajor, tickLenMinor,
-      labelEvery,
-      labelX: side === 'left' ? tapeX + tapeW - tickLenMajor - 8 : tapeX + tickLenMajor + 8,
-      labelAnchor: side === 'left' ? 'end' : 'start',
-      labelFontSize,
-    }));
-  }
-
-  // Center highlight box — black background, current value in white.
-  const boxX = side === 'left' ? tapeX : tapeX;
-  const boxY = cy - boxH / 2;
-  const boxText = valid ? fmt(value) : '---';
-
-  return html`
-    <g data-widget=${`hud-tape-${side}`}>
-      <defs>
-        <clipPath id=${clipId}>
-          <rect x=${tapeX} y=${cy - tapeH / 2} width=${tapeW} height=${tapeH} />
-        </clipPath>
-      </defs>
-      <g clip-path="url(#${clipId})">
-        ${ticks}
-      </g>
-      <rect x=${boxX - 2} y=${boxY}
-            width=${tapeW + 4} height=${boxH}
-            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_BOX_FILL}
-            stroke=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR} stroke-width="2" />
-      <text x=${boxX + tapeW / 2} y=${cy}
-            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
-            font-weight="bold"
-            font-size=${boxFontSize}
-            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR}
-            text-anchor="middle" dominant-baseline="central">${boxText}</text>
-    </g>`;
-};
-
-// VSI numeric readout — FlySto style: a signed number floating just
-// outside the altimeter centerline. Renders only when |VSI| exceeds
-// HUD_VSI_THRESHOLD fpm so the readout doesn't churn at idle.
-const HudVsiReadout = ({ vsiFpm = 0 }) => {
-  if (!Number.isFinite(vsiFpm)) return null;
-  if (Math.abs(vsiFpm) < __NS_packages_ui_core_core_hudGeometry.HUD_VSI_THRESHOLD) return null;
-  const rounded = Math.round(vsiFpm / 10) * 10;  // tens of fpm
-  const sign = rounded > 0 ? '+' : '';
-  return html`
-    <g data-widget="hud-vsi">
-      <text x=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_X} y=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_Y}
-            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
-            font-weight="bold"
-            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_FONT_SIZE}
-            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_VSI_COLOR}
-            text-anchor="end" dominant-baseline="central">${sign}${rounded}</text>
-    </g>`;
-};
-
-// G-load readout — "X.X G" rendered near the slip ball. Reads the
-// vertical-G (load factor) channel. Negative G clamped at -1 for
-// the display; positive unconstrained.
-const HudGReadout = ({ verticalG = 1 }) => {
-  if (!Number.isFinite(verticalG)) return null;
-  const g = Math.max(-9.9, Math.min(9.9, verticalG));
-  return html`
-    <g data-widget="hud-g">
-      <text x=${__NS_packages_ui_core_core_hudGeometry.HUD_G_X} y=${__NS_packages_ui_core_core_hudGeometry.HUD_G_Y}
-            font-family="'B612', 'Helvetica Neue', Arial, sans-serif"
-            font-weight="bold"
-            font-size=${__NS_packages_ui_core_core_hudGeometry.HUD_G_FONT_SIZE}
-            fill=${__NS_packages_ui_core_core_hudGeometry.HUD_LINE_COLOR}
-            text-anchor="start" dominant-baseline="central">${g.toFixed(1)} G</text>
-    </g>`;
-};
-
 // === packages/ui-core/components/svg/hud/Fpm.js ===
 // Fpm.js — Flight-Path Marker for the HUD.
 //
@@ -7833,23 +8525,57 @@ const HudFpm = ({ pitchDeg = 0, flightPathDeg = 0 }) => {
     </g>`;
 };
 
+// === packages/ui-core/components/svg/hud/OnSpeedLogo.js ===
+// OnSpeedLogo.js — OnSpeed logo for the HUD top-left.
+//
+// The PNG is inlined as a base64 data URI so it works in every
+// rendering context without URL resolution:
+//   - Live page: same-origin, but data URIs sidestep cache games.
+//   - MP4 export: the SVG gets serialized to a blob URL and parsed
+//     in isolation. Relative href= attributes fail there because
+//     the blob's base URL has nothing to resolve against. Data URIs
+//     are self-contained and load fine.
+// Trade-off: ~73 KB of base64 added to the bundle. PNG is pre-
+// shrunk to 200 px wide (renders at ~180 px max anyway).
+//
+// To update the logo: replace assets/FlyOnSpeed_Logo.png, then run
+// scripts/build_logo_b64.py (or repeat the inlining manually).
+
+
+
+const LOGO_DATA_URI = 'data:image/png;base64,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zLMMT7KsLqHN/L+Iv4aj7adMy8/plUQz3UPbQDvJKuELxHxNpv/DeEAdfnfblWfJ/MxsH7DHJzx9hbxtvyOIuAJol6tOP/neL7IRt8jp2u3HCew+St8P8lvmfqj0OXGzbDu06Q+qrKLa9cKL7QqcJ+DoG+JnYePN3yW05X+tp+nfPnQKe9aIk+F91Btmq/48I89n1AlDGaW9b9RxgzZv8bBlI7bxl/buMFY6tS8NH+fDnx36fYUsc6gTlQ9PxrHnPWM1hz5iC/WxVLFI6FvkF8r1CGmep87S5jnKuVq5fX1T04cd/mvgh93OXip09tDrqjM029Bp3FM6y39Bd6MTqLPMZuobh2brW0Ob4rbIss6epltfB/Wu1AF0BuscY8tje32F/8v8IEFnMc+gSURbbWMrsS+qK52iHbahbc7IVSoH7d3KWWuZZmgbLdRzy6aZqGR0LOQkh2q7bCrPfuND8rrs4a9sm+NiXK3PfvWKaXK0n45X7a99rWOlH2qLTNQqrg6TqHH2qYocbddy+lTXLMp1JARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARCIARC4P8j8BeX7tFWOLSPZgAAAABJRU5ErkJggg==';
+
+const HudOnSpeedLogo = () => {
+  return html`
+    <image data-widget="hud-onspeed-logo"
+           href=${LOGO_DATA_URI}
+           xlink:href=${LOGO_DATA_URI}
+           x=${__NS_packages_ui_core_core_hudGeometry.HUD_LOGO_X}
+           y=${__NS_packages_ui_core_core_hudGeometry.HUD_LOGO_Y}
+           width=${__NS_packages_ui_core_core_hudGeometry.HUD_LOGO_W}
+           height=${__NS_packages_ui_core_core_hudGeometry.HUD_LOGO_H}
+           preserveAspectRatio="xMidYMid meet" />`;
+};
+
 // === packages/ui-core/components/svg/HudOverlay.js ===
 // HudOverlay.js — full-frame HUD as a pure render layer.
 //
-// FlySto-style primary flight overlay layered over the source video.
-// No sky/ground fill — the GoPro footage is the horizon. Lines,
-// ticks, tapes, FPM, slip ball, and a single G-load readout are
-// drawn on top.
+// FlySto-style attitude indicator rendered directly at 1920x1080:
+// pitch ladder + bank arc + flight-path marker. Around the central
+// ADI:
+//   - OnSpeed logo top-left.
+//   - Right-side VVI trend bar (HudVviTrend).
+//   - Right-side FlySto-style ALT tape with a Garmin readout box
+//     anchored on the tape centerline (HudAltTape).
+//   - The existing SlipBall at bottom-center.
 //
-// Scope intentionally narrow (matches the four widgets pilots
-// requested for v1): pitch ladder + bank arc, IAS tape, ALT tape +
-// numeric VSI, slip ball + G readout. No heading tape, no
-// TAS/GS/wind block, no OAT/ISA/AGL stack.
-//
-// State shape: the canonical M5State from packages/ui-core/state-shape.js.
-// The replay page applies its PresentationSmoother to LateralG /
-// VerticalG before passing state in, so the slip ball + G readout
-// match what the M5 inset renders at the same instant.
+// `pitchOffsetDeg` is a per-flight camera-misalignment compensator —
+// it adds to pitch for the pitch ladder ONLY. The FPM stays on raw
+// pitch because the camera offset doesn't change the airframe's
+// actual flight-path-vs-airframe relationship; it only shifts where
+// the rendered horizon needs to land to match the cockpit's visible
+// horizon. State shape: the canonical M5State from
+// packages/ui-core/state-shape.js.
 
 
 
@@ -7858,16 +8584,27 @@ const HudFpm = ({ pitchDeg = 0, flightPathDeg = 0 }) => {
 
 
 
-const HudOverlay = ({ state }) => {
+
+
+
+const HudOverlay = ({ state, pitchOffsetDeg = 0 }) => {
   if (!state) return null;
-  const aoaIsValid = state.IasIsValid !== false;
-  const iasValue = aoaIsValid ? Math.max(0, state.displayIAS || 0) : 0;
-  const altValue = Math.max(0, state.displayPalt || 0);
-  // Inline drop-shadow filter so the rasterized export gets the same
-  // legibility halo as the live page. replay.css applies a filter via
-  // a class selector, but the export path serializes the SVG to a
-  // blob URL and parses it in isolation — page CSS doesn't follow.
-  // Inlining the filter into the SVG itself works for both surfaces.
+  // Tapes read the 20 Hz raw IAS / Palt fields rather than the 500 ms
+  // displayIAS / displayPalt snapshots. The tape's scrolling visual
+  // requires sub-second updates to look smooth; the throttled display
+  // fields exist for M5 text readouts where 2 Hz prevents flicker.
+  const altValue = Math.max(0, Math.round(state.Palt || 0));
+  const offset = Number.isFinite(pitchOffsetDeg) ? pitchOffsetDeg : 0;
+  const pitch = Number.isFinite(state.Pitch) ? state.Pitch : 0;
+  const roll  = Number.isFinite(state.Roll)  ? state.Roll  : 0;
+  const fpDeg = Number.isFinite(state.FlightPath) ? state.FlightPath : pitch;
+
+  // Inline drop-shadow filter so the rasterized MP4 export gets the
+  // same legibility halo as the live page. replay.css applies a CSS
+  // filter via a class selector, but the export path serializes the
+  // SVG to a blob URL and parses it in isolation — page CSS doesn't
+  // follow. Inlining the filter into the SVG itself works on both
+  // surfaces.
   return html`
     <svg viewBox="0 0 ${__NS_packages_ui_core_core_hudGeometry.HUD_W} ${__NS_packages_ui_core_core_hudGeometry.HUD_H}"
          xmlns="http://www.w3.org/2000/svg"
@@ -7882,53 +8619,22 @@ const HudOverlay = ({ state }) => {
         </filter>
       </defs>
       <g filter="url(#hud-shadow)">
-      <${HudPitchLadder} pitchDeg=${state.Pitch ?? 0}
-                          rollDeg=${state.Roll ?? 0} />
-      <${HudBankArc}     rollDeg=${state.Roll ?? 0} />
-      <${HudFpm} pitchDeg=${state.Pitch ?? 0}
-                  flightPathDeg=${state.FlightPath ?? 0} />
-      <${HudTape}
-        side="left"
-        value=${iasValue}
-        valid=${aoaIsValid}
-        tapeX=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_X} tapeW=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_W} tapeH=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TAPE_H}
-        cy=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_CY}
-        pxPerUnit=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_PX_PER_UNIT}
-        tickEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_EVERY}
-        labelEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_LABEL_EVERY}
-        tickLenMajor=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_LEN_MAJOR}
-        tickLenMinor=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_TICK_LEN_MINOR}
-        labelFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_LABEL_FONT_SIZE}
-        boxH=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_H}
-        boxFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_FONT_SIZE}
-        boxPadX=${__NS_packages_ui_core_core_hudGeometry.HUD_IAS_BOX_PAD_X}
-        formatLabel=${(v) => String(Math.round(v))}
-        clipId="hud-tape-clip-ias" />
-      <${HudTape}
-        side="right"
-        value=${altValue}
-        valid=${true}
-        tapeX=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_X} tapeW=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_W} tapeH=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TAPE_H}
-        cy=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_CY}
-        pxPerUnit=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_PX_PER_UNIT}
-        tickEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_EVERY}
-        labelEvery=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_LABEL_EVERY}
-        tickLenMajor=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_LEN_MAJOR}
-        tickLenMinor=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_TICK_LEN_MINOR}
-        labelFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_LABEL_FONT_SIZE}
-        boxH=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_H}
-        boxFontSize=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_FONT_SIZE}
-        boxPadX=${__NS_packages_ui_core_core_hudGeometry.HUD_ALT_BOX_PAD_X}
-        formatLabel=${(v) => String(Math.round(v))}
-        clipId="hud-tape-clip-alt" />
-      <${HudVsiReadout} vsiFpm=${state.iVSI ?? 0} />
-      <${SlipBall} lateralG=${state.LateralG ?? 0}
-                    percentLift=${state.PercentLift ?? 0}
-                    stallWarn=${state.StallWarnPctLift ?? 100}
-                    flashFlag=${false}
-                    x=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_X} y=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_Y}
-                    width=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_W} height=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_H} />
-      <${HudGReadout} verticalG=${state.VerticalG != null ? state.VerticalG : null} />
+        <${HudOnSpeedLogo} />
+
+        <${HudPitchLadder} pitchDeg=${pitch + offset} rollDeg=${roll} />
+        <${HudBankArc}     rollDeg=${roll} />
+        <${HudFpm}         pitchDeg=${pitch} flightPathDeg=${fpDeg} />
+
+        <${HudVviTrend} vsiFpm=${state.iVSI ?? 0} />
+        <${HudAltTape}  altitudeFt=${altValue} />
+        <${HudIasTape}  iasKt=${state.IAS ?? 0} />
+
+        <${SlipBall} lateralG=${state.LateralG ?? 0}
+                     percentLift=${state.PercentLift ?? 0}
+                     stallWarn=${state.StallWarnPctLift ?? 100}
+                     flashFlag=${false}
+                     x=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_X} y=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_Y}
+                     width=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_W} height=${__NS_packages_ui_core_core_hudGeometry.HUD_SLIP_H} />
       </g>
     </svg>`;
 };
@@ -8004,21 +8710,16 @@ const HudOverlay = ({ state }) => {
 // Mode list indexed by displayType (0..4). The int returned by
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
 // matches the M5 firmware's `kModeNames` and the IndexerPage's MODES
-// — same five modes, same numbering.
-// Mode 5 is a JS-only synthetic: a Standard layout that renders
-// Attitude (left) + Energy (right) side-by-side. The firmware doesn't
-// know about it — when picked, the M5 sim still runs whichever
-// firmware mode it's in; the preview ignores `state.displayType` and
-// uses both component renderers explicitly. Mirrored on the export
-// side by `standardOverlay`, which is now derived from this mode.
-const MODE_STANDARD = 5;
+// — same five modes, same numbering. The page exposes TWO independent
+// inset slots (Left + Right); each slot can be off or any of these
+// modes. The MP4 export drives the slots via `leftMode` / `rightMode`
+// parameters on exportClipAsMp4.
 const M5_MODES = [
   { id: 0, label: 'Energy',     C: EnergyMode   },
   { id: 1, label: 'Attitude',   C: AttitudeMode },
   { id: 2, label: 'Indexer',    C: IndexerMode  },
   { id: 3, label: 'Decel',      C: DecelMode    },
   { id: 4, label: 'Historic G', C: HistoricGMode },
-  { id: MODE_STANDARD, label: 'Standard', C: null /* special-cased in render */ },
 ];
 
 // Avionics palette tokens used by the offscreen export render
@@ -8051,7 +8752,12 @@ const EXPORT_AVIONICS_VARS = Object.freeze({
 // Sync + clips persistence lives in replay/persistence.js
 // (content-keyed by log digest). These are simpler prefs keyed by
 // a fixed string.
-const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
+//
+// Independent left + right inset slots replace the old single-mode +
+// "Standard" preset. Each slot persists independently: empty string =
+// slot off, "0".."4" = the corresponding M5 mode.
+const LEFT_INSET_LS_KEY  = 'replay-inset-left-v1';
+const RIGHT_INSET_LS_KEY = 'replay-inset-right-v1';
 // Render-side presentation smoothing preset. NOT a firmware mirror —
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
 // visible on the slip ball. See presentationFilter.js for rationale.
@@ -8112,14 +8818,38 @@ const ReplayPage = () => {
   // doesn't look blank during the three getFile()/parse calls.
   const [resuming, setResuming]   = useState(false);
 
-  const [m5ModeId, setM5ModeId] = useState(() => {
-    const s = safeLsGet(M5_MODE_LS_KEY);
-    const n = s == null ? 0 : parseInt(s, 10);
-    // Valid mode ids are 0..4 (firmware modes) and MODE_STANDARD (5,
-    // JS-only side-by-side layout). Anything else falls back to 0.
+  // Two independent inset slots. Each slot's value is null (off) or an
+  // M5 mode id (0..4). Persisted via per-slot LS keys: empty string =
+  // off, decimal digit = mode id. Default: left off, right Energy.
+  const parseSlot = (raw, fallback) => {
+    if (raw === null || raw === undefined) return fallback;
+    if (raw === '') return null;
+    const n = parseInt(raw, 10);
     const validIds = M5_MODES.map(m => m.id);
-    return Number.isFinite(n) && validIds.includes(n) ? n : 0;
-  });
+    return Number.isFinite(n) && validIds.includes(n) ? n : fallback;
+  };
+  const [leftInsetMode, setLeftInsetModeRaw]   = useState(() =>
+    parseSlot(safeLsGet(LEFT_INSET_LS_KEY), null));
+  const [rightInsetMode, setRightInsetModeRaw] = useState(() =>
+    parseSlot(safeLsGet(RIGHT_INSET_LS_KEY), 0));
+  const setLeftInsetMode = useCallback((m) => {
+    setLeftInsetModeRaw(m);
+    safeLsSet(LEFT_INSET_LS_KEY, m == null ? '' : String(m));
+  }, []);
+  const setRightInsetMode = useCallback((m) => {
+    setRightInsetModeRaw(m);
+    safeLsSet(RIGHT_INSET_LS_KEY, m == null ? '' : String(m));
+  }, []);
+  // The sim itself runs in exactly one mode at a time (its internal
+  // mode controls displayType + which datapoints get computed). When
+  // both slots are off, default to Energy so the sim still ticks; when
+  // either slot wants a mode, mirror that to the sim. The right slot
+  // wins when both are set, since it's the historical primary (mode
+  // picker default). The sim's displayType is overridden per-render
+  // when the active slot mode differs from the sim's mode.
+  const activeSimMode = rightInsetMode != null ? rightInsetMode
+                      : leftInsetMode  != null ? leftInsetMode
+                      : 0;
   // Render-side smoothing preset. 'off' = byte-faithful (wire values
   // drive the SVG directly). The other presets emulate the missing
   // 208 Hz averaging that 50 Hz log replay can't reproduce; see
@@ -8165,11 +8895,11 @@ const ReplayPage = () => {
   // any single frame's delta is sub-50ms (at 60 fps it always is).
   // Reset to 0 on sim init / backward scrub / preset change.
   const m5LastInjectBoundaryMsRef = useRef(0);
-  // Mirror m5ModeId into a ref so the async re-init `.then()` callback
-  // (below) reads the current mode rather than the value captured by
-  // the effect closure at fire time. The effect that updates this ref
-  // runs on every m5ModeId change.
-  const m5ModeIdRef = useRef(m5ModeId);
+  // Mirror activeSimMode into a ref so the async re-init `.then()`
+  // callback (below) reads the current mode rather than the value
+  // captured by the effect closure at fire time. The effect that
+  // updates this ref runs on every slot-mode change.
+  const m5ModeIdRef = useRef(activeSimMode);
 
   // Render-side presentation filter (NOT a firmware mirror).
   // Applies after sim.read(); attenuates 50 Hz log aliasing before
@@ -8326,13 +9056,15 @@ const ReplayPage = () => {
   }, [overlaySize]);
 
   // Standard (ADI + Energy) layout used to be a checkbox in the
-  // ClipBuilder; the state lived here with LS persistence. It moved
-  // to the top mode picker as MODE_STANDARD, and the export derives
-  // its standardOverlay value from `m5ModeId === MODE_STANDARD`. The
-  // dead `replay-standard-clip-overlay-v1` LS key from the prior shape
-  // is intentionally left in place — clearing it here would risk
-  // touching localStorage during render, and the key is dormant. A
-  // future tidy can prune it via a one-shot migration.
+  // ClipBuilder, then a single MODE_STANDARD entry in the mode picker.
+  // It's now expressed as two independent inset slots (Left + Right) —
+  // each can be off or any M5 mode. The export composes the same way:
+  // leftMode/rightMode params on exportClipAsMp4. The dead
+  // `replay-standard-clip-overlay-v1` and `replay-m5-mode-v1` LS keys
+  // from the prior shapes are intentionally left in place — clearing
+  // them here would risk touching localStorage during render, and the
+  // keys are dormant. A future tidy can prune them via a one-shot
+  // migration.
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -9181,24 +9913,25 @@ const ReplayPage = () => {
     return () => { cancelled = true; };
   }, [log, cfg]);
 
-  // Persist the mode.
+  // Drive the sim's internal mode from whichever slot is active. The
+  // sim has one displayType at a time; slot rendering overrides it
+  // per-panel where the slot mode differs from activeSimMode.
   useEffect(() => {
-    safeLsSet(M5_MODE_LS_KEY, String(m5ModeId));
     if (m5SimRef.current) {
-      m5SimRef.current.setMode(m5ModeId);
+      m5SimRef.current.setMode(activeSimMode);
       // Refresh React state immediately so the SVG re-renders the new
       // mode without waiting for a videoT tick. Important on pause:
       // no per-frame effect runs to refresh state otherwise.
       setM5State(m5SimRef.current.read());
     }
-  }, [m5ModeId]);
+  }, [activeSimMode]);
 
-  // Mirror m5ModeId into m5ModeIdRef so the async re-init .then()
+  // Mirror activeSimMode into m5ModeIdRef so the async re-init .then()
   // (in the per-frame effect below) reads the current mode rather
   // than a stale closure value.
   useEffect(() => {
-    m5ModeIdRef.current = m5ModeId;
-  }, [m5ModeId]);
+    m5ModeIdRef.current = activeSimMode;
+  }, [activeSimMode]);
 
   // Per-frame M5 sim driver: tick the M5 firmware's virtual clock at
   // its native 20 Hz wire cadence, injecting a wire frame and calling
@@ -9513,7 +10246,9 @@ const ReplayPage = () => {
         console.log('REPLAY_DBG ' + JSON.stringify({
           videoT: fnum(videoT, 2),
           rowIdx,
-          mode: m5ModeId,
+          mode: activeSimMode,
+          leftSlot: leftInsetMode,
+          rightSlot: rightInsetMode,
           smoothLateralTau: m5SmoothLateralTau,
           raw,
           cppEng: cppEngSlice,
@@ -9522,7 +10257,8 @@ const ReplayPage = () => {
         }));
       }
     }
-  }, [log, cfg, sync, videoT, pausedLogMs, m5ModeId,
+  }, [log, cfg, sync, videoT, pausedLogMs, activeSimMode,
+      leftInsetMode, rightInsetMode,
       m5SmoothLateralTau, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------
@@ -9791,14 +10527,15 @@ const ReplayPage = () => {
   const renderHudForExport = useCallback((m5State) => {
     const mount = exportHudMountRef.current;
     if (!mount || !m5State) return null;
-    render(html`<${HudOverlay} state=${m5State} />`, mount);
+    render(html`<${HudOverlay} state=${m5State}
+                                pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0} />`, mount);
     const svg = mount.querySelector('svg');
     if (!svg) return null;
     for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
       svg.style.setProperty(k, v);
     }
     return svg;
-  }, []);
+  }, [journal.hudPitchOffsetDeg]);
 
   // Export one clip as MP4. Returns a Blob promise; the page also
   // wires progress + abort state.
@@ -9855,16 +10592,11 @@ const ReplayPage = () => {
         sourceFile:    videoFile,
         // Match the live preview's slip-ball smoothing.
         presentationTau,
-        // Match the live preview's M5 mode (Energy/Attitude/Indexer/...).
-        // Without this the fresh export-sim defaults to mode 0 (Energy)
-        // regardless of what the page is showing.
-        displayMode:   m5ModeId,
-        // Standard layout: ADI bottom-left + Energy bottom-right.
-        // Ignores displayMode when true.
-        // Standard layout is now derived from the mode picker, not a
-        // separate checkbox. When the pilot picks Standard, export
-        // renders ADI + Energy side-by-side.
-        standardOverlay: m5ModeId === MODE_STANDARD,
+        // Two independent inset slots. Each can be null (slot off) or
+        // an M5 mode id (0..4). The export renders whichever slots are
+        // set, mirroring the live preview's slot layout.
+        leftMode:  leftInsetMode,
+        rightMode: rightInsetMode,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -9894,7 +10626,8 @@ const ReplayPage = () => {
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
       renderHudForExport, showHud,
-      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
+      videoFile, videoTimeline, m5SmoothLateralTau,
+      leftInsetMode, rightInsetMode]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -9903,6 +10636,38 @@ const ReplayPage = () => {
     const suffix = (clip.label || `clip${idx + 1}`).replace(/[^a-z0-9_-]/gi, '_');
     downloadBlob(blob, `${base}_${suffix}.mp4`);
   }, [exportClipMp4, videoFiles]);
+
+  // Export the entire loaded video (single or multi-chapter) as a single
+  // MP4 with the current HUD + inset configuration. Synthesises a clip
+  // spanning [0, totalDuration] in video seconds, maps that back into
+  // clip startMs/endMs via the live sync anchor, and reuses
+  // exportClipMp4 — the same composite path used for per-clip exports.
+  const exportSortieMp4 = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || !syncReady || !sync || !log || !cppWireFrames || !mp4Available) {
+      return;
+    }
+    const duration = videoTimeline?.totalDurationSec ?? v.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    // videoSec -> logMs: logMs = sync.logTakeoffMs + (videoSec - sync.videoTakeoffSec) * 1000
+    const startMs = sync.logTakeoffMs - sync.videoTakeoffSec * 1000;
+    const endMs   = sync.logTakeoffMs + (duration - sync.videoTakeoffSec) * 1000;
+    const sortieClip = {
+      id:      'sortie',
+      label:   'sortie',
+      startMs,
+      endMs,
+    };
+    // Sentinel idx -1 marks this as the sortie export so existing
+    // per-clip UI keyed on `exportingClipIdx === i` ignores it. The
+    // toolbar reads exportingClipIdx != null for the cancel/progress
+    // panel which is what we want.
+    const blob = await exportClipMp4(sortieClip, -1);
+    if (!blob) return;
+    const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
+    downloadBlob(blob, `${base}_sortie.mp4`);
+  }, [exportClipMp4, syncReady, sync, log, cppWireFrames, mp4Available,
+      videoTimeline, videoFiles]);
 
   // Track batch-cancel separately from per-export cancel so a Cancel
   // click during "Export all" stops the whole sequence, not just the
@@ -10200,47 +10965,58 @@ const ReplayPage = () => {
             </div>`}
 
           ${showHud && m5State && html`
-              <div class="replay-hud">
-                <${HudOverlay} state=${m5State} />
-              </div>`}
+            <div class="replay-hud">
+              <${HudOverlay} state=${m5State}
+                              pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0} />
+            </div>`}
 
-          ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
-            ? html`
-                <div class="replay-overlay">
-                  <div class="replay-overlay-frame standard ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
-                    <div class="replay-overlay-half left">
-                      <${AttitudeMode} state=${{ ...m5State, displayType: 1 }} stale=${false} />
-                    </div>
-                    <div class="replay-overlay-half right">
-                      <${EnergyMode}   state=${{ ...m5State, displayType: 0 }} stale=${false} />
-                    </div>
-                  </div>
-                </div>`
-            : html`
-                <div class="replay-overlay">
-                  <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
-                    ${(() => {
-                      // Pick by the pilot's mode selection (not the sim's
-                      // displayType). The sim's displayType is updated by the
-                      // mode dispatch elsewhere so they normally agree; this
-                      // path stays correct during the brief window between a
-                      // mode-button click and the sim acknowledging it.
-                      const M = M5_MODES.find(m => m.id === m5ModeId);
-                      const C = (M && M.C) ? M.C : EnergyMode;
-                      return html`<${C} state=${m5State} stale=${false} />`;
-                    })()}
-                  </div>
-                </div>`)}
+          ${overlayVisible && m5State && (() => {
+            // Render one panel per active slot. Each slot may carry a
+            // different mode from the sim's current displayType, so
+            // stamp displayType into the state copy for the slot's
+            // component (matches the export-side rendering convention).
+            const slotPanel = (modeId, side) => {
+              if (modeId == null) return null;
+              const M = M5_MODES.find(m => m.id === modeId);
+              const C = (M && M.C) ? M.C : EnergyMode;
+              const stateForSlot = (modeId === m5State.displayType)
+                ? m5State
+                : { ...m5State, displayType: modeId };
+              const pausedCls = Number.isFinite(pausedLogMs) ? 'paused' : '';
+              return html`
+                <div class=${`replay-overlay-frame replay-overlay-${side} ${pausedCls}`}>
+                  <${C} state=${stateForSlot} stale=${false} />
+                </div>`;
+            };
+            const left  = slotPanel(leftInsetMode,  'left');
+            const right = slotPanel(rightInsetMode, 'right');
+            if (!left && !right) return null;
+            return html`
+              <div class="replay-overlay">
+                ${left}
+                ${right}
+              </div>`;
+          })()}
         </div>
 
         <footer class="replay-controls">
           <div class="replay-control-row">
-            <span class="replay-label">Mode</span>
-            ${M5_MODES.map(m => html`
-                <button
-                  class=${m.id === m5ModeId ? 'replay-mode-btn active' : 'replay-mode-btn'}
-                  onClick=${() => setM5ModeId(m.id)}>${m.label}</button>
-              `)}
+            <label class="replay-inset-select">
+              Left
+              <select value=${leftInsetMode == null ? '' : String(leftInsetMode)}
+                      onChange=${e => setLeftInsetMode(e.target.value === '' ? null : Number(e.target.value))}>
+                <option value="">Off</option>
+                ${M5_MODES.map(m => html`<option value=${String(m.id)}>${m.label}</option>`)}
+              </select>
+            </label>
+            <label class="replay-inset-select">
+              Right
+              <select value=${rightInsetMode == null ? '' : String(rightInsetMode)}
+                      onChange=${e => setRightInsetMode(e.target.value === '' ? null : Number(e.target.value))}>
+                <option value="">Off</option>
+                ${M5_MODES.map(m => html`<option value=${String(m.id)}>${m.label}</option>`)}
+              </select>
+            </label>
             <span class="replay-spacer"></span>
             <span class="replay-toggle"
                   title="Slip-ball EMA time constant (s). 0 = firmware-faithful, ~0.25 = VN-300, ~0.75 = SkyView.">
@@ -10265,11 +11041,20 @@ const ReplayPage = () => {
               Show overlay
             </label>
             <label class="replay-toggle"
-                   title="Full-frame HUD: horizon, pitch ladder, bank arc, IAS/ALT tapes, FPM, slip ball. Independent of the M5 panel — both can be on.">
+                   title="Full-frame HUD: scaled-up attitude indicator + IAS/MH/PALT boxes + VVI trend + slip ball. Independent of the M5 inset slots — they can all be on.">
               <input type="checkbox" checked=${showHud}
                      onChange=${e => setShowHud(e.target.checked)} />
               Show HUD
             </label>
+            ${showHud && html`
+              <label class="replay-pitch-offset"
+                     title="Per-flight HUD pitch-ladder offset to compensate for camera mount misalignment. Persisted per-log.">
+                HUD pitch offset
+                <input type="range" min="-20" max="20" step="0.1"
+                       value=${journal.hudPitchOffsetDeg ?? 0}
+                       onInput=${e => journal.setHudPitchOffsetDeg(parseFloat(e.target.value))} />
+                <span>${(journal.hudPitchOffsetDeg ?? 0).toFixed(1)}°</span>
+              </label>`}
             ${exportingClipIdx != null
               ? html`
                   <span class="replay-status">
@@ -10377,6 +11162,7 @@ const ReplayPage = () => {
               onScrubTo=${scrubVideoTo}
               onExport=${exportClipMp4AndDownload}
               onExportAll=${exportAllClipsMp4}
+              onExportSortie=${exportSortieMp4}
               onCancel=${cancelMp4Export}
               onExportOverlays=${exportOverlaysForClip}
               onCancelOverlays=${cancelOverlayExport}
