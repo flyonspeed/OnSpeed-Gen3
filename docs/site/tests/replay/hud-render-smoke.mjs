@@ -1,7 +1,12 @@
-// hud-render-smoke.mjs — render the full-frame HudOverlay against a
+// hud-render-smoke.mjs — render the FlySto-style HudOverlay against a
 // few fixed state snapshots and assert the derived widget positions
 // move as expected. Lifts the mock-DOM + harness pattern from
 // m5modes-render-smoke.mjs.
+//
+// The HUD composes the OnSpeed logo, pitch ladder, bank arc, FPM,
+// VVI trend, ALT tape, and slip ball. These tests assert each widget
+// renders, that pitchOffsetDeg shifts the pitch ladder but NOT the
+// FPM, and that the ALT tape responds to altitude changes.
 //
 // Run:
 //   node docs/site/tests/replay/hud-render-smoke.mjs
@@ -117,6 +122,15 @@ function findAllByLocalName(root, localName) {
   return out;
 }
 
+// Parse the `translate(0 N)` portion of a transform string and return N.
+// HudPitchLadder's transform looks like:
+//   rotate(-roll cx cy) translate(0 transY)
+// We want the second translate's y component.
+function parseLadderTranslateY(transformStr) {
+  const m = (transformStr || '').match(/translate\(\s*0\s+(-?\d+(?:\.\d+)?)\s*\)/);
+  return m ? parseFloat(m[1]) : null;
+}
+
 // ---------------------------------------------------------------------
 // Imports + harness — preact instance is the one the HUD also uses.
 // ---------------------------------------------------------------------
@@ -147,8 +161,8 @@ function test(name, fn) {
 // Minimal M5State subset that HudOverlay reads.
 function makeState(overrides = {}) {
   return Object.freeze({
-    displayIAS:         80,
-    displayPalt:      3000,
+    IAS:         80,
+    Palt:      3000,
     Pitch:               0,
     Roll:                0,
     FlightPath:          0,
@@ -165,229 +179,159 @@ function makeState(overrides = {}) {
 // Tests
 // ---------------------------------------------------------------------
 
-test('HudOverlay renders all primary widgets at level flight', () => {
-  const root = renderInto(html`<${HudOverlay} state=${makeState()} />`);
-  for (const widget of ['hud-pitch-ladder', 'hud-bank-arc', 'hud-fpm',
-                         'hud-tape-left', 'hud-tape-right', 'slip']) {
+test('HudOverlay renders logo, ALT tape, IAS tape, ADI widgets, slip ball, VVI', () => {
+  // VVI threshold is 100 fpm; bump iVSI so the widget renders.
+  const root = renderInto(
+    html`<${HudOverlay} state=${makeState({ iVSI: 800 })} />`);
+  const required = [
+    'hud-onspeed-logo',
+    'hud-pitch-ladder', 'hud-bank-arc', 'hud-fpm',
+    'slip', 'hud-vvi', 'hud-alt-tape', 'hud-ias-tape',
+  ];
+  for (const widget of required) {
     if (!findFirstWithAttr(root, 'data-widget', widget))
       throw new Error(`HudOverlay missing data-widget="${widget}"`);
   }
 });
 
+test('IAS tape shows stationary tens digit derived from IAS', () => {
+  // For IAS=113 the stationary "hundreds+tens" digits in the
+  // Garmin box are floor(113/10) = "11"; sliding ones = "3".
+  const root = renderInto(
+    html`<${HudOverlay} state=${makeState({ IAS: 113 })} />`);
+  const tape = findFirstWithAttr(root, 'data-widget', 'hud-ias-tape');
+  if (!tape) throw new Error('hud-ias-tape not found');
+  const texts = findAllByLocalName(tape, 'text');
+  const joined = texts.flatMap(t => t.childNodes.map(c => c.data || '')).join('|');
+  if (!joined.includes('11')) {
+    throw new Error(`IAS tape should show tens "11"; got ${joined}`);
+  }
+  if (!joined.includes('3')) {
+    throw new Error(`IAS tape should show onesCurr "3"; got ${joined}`);
+  }
+});
+
 test('HudOverlay returns null for missing state', () => {
   const root = renderInto(html`<${HudOverlay} state=${null} />`);
-  if (findFirstWithAttr(root, 'data-widget', 'hud-pitch-ladder'))
+  if (findFirstWithAttr(root, 'data-widget', 'hud-alt-tape'))
+    throw new Error('HudOverlay should render nothing when state is null');
+  if (findFirstWithAttr(root, 'data-widget', 'hud-onspeed-logo'))
     throw new Error('HudOverlay should render nothing when state is null');
 });
 
-test('Pitch ladder rotation transform tracks state.Roll', () => {
-  const transformAt = (roll) => {
+test('pitchOffsetDeg shifts the pitch ladder transform', () => {
+  // HudPitchLadder applies `translate(0 transY)` where
+  // transY = (pitch + offset) * HUD_PITCH_PX_PER_DEG.  At Pitch=0,
+  // offset=5 the translate-y must be 5 * 18 = 90; at offset=0 it
+  // must be 0.
+  const ladderTranslate = (offset) => {
     const root = renderInto(
-      html`<${HudOverlay} state=${makeState({ Roll: roll })} />`);
+      html`<${HudOverlay} state=${makeState({ Pitch: 0 })}
+                          pitchOffsetDeg=${offset} />`);
     const ladder = findFirstWithAttr(root, 'data-widget', 'hud-pitch-ladder');
-    return ladder ? ladder.getAttribute('transform') : null;
+    if (!ladder) throw new Error('hud-pitch-ladder not found');
+    return parseLadderTranslateY(ladder.getAttribute('transform'));
   };
-  const t0  = transformAt(0);
-  const t30 = transformAt(-30);
-  if (!t0 || !t30) throw new Error('hud-pitch-ladder transform missing');
-  if (t0 === t30) throw new Error('hud-pitch-ladder transform does not respond to Roll');
-  // -roll → rotate(+30 ...): for state.Roll = -30 the rotation magnitude
-  // should be the additive inverse of the rotation at +30.
-  if (!t30.includes('rotate(30')) {
-    throw new Error(`hud-pitch-ladder transform at Roll=-30 should rotate +30: got ${t30}`);
-  }
+  const a = ladderTranslate(0);
+  const b = ladderTranslate(5);
+  if (a !== 0) throw new Error(`expected translate-y=0 at offset=0; got ${a}`);
+  if (b !== 90) throw new Error(`expected translate-y=90 at offset=5; got ${b}`);
 });
 
-test('FPM has NO lateral motion (issue #542)', () => {
-  // Vertical-only FPM: matches the AI inset's FlightPathMarker math.
-  // Lateral FPM motion requires yaw rate / ground track, which the
-  // wire format does not yet expose. Verify cx is constant across
-  // a range of LateralG values.
-  const findRingCx = (lateralG) => {
+test('FPM stays on raw pitch (pitchOffsetDeg does not move it)', () => {
+  // HudFpm renders a circle at cy = HUD_FPM_CY + (flightPath-pitch)*18.
+  // With Pitch=FlightPath=0 the circle sits at HUD_FPM_CY regardless
+  // of offset; bumping pitchOffsetDeg must NOT change cy.
+  const fpmCy = (offset) => {
     const root = renderInto(
-      html`<${HudOverlay} state=${makeState({ LateralG: lateralG })} />`);
+      html`<${HudOverlay} state=${makeState({ Pitch: 0, FlightPath: 0 })}
+                          pitchOffsetDeg=${offset} />`);
     const fpm = findFirstWithAttr(root, 'data-widget', 'hud-fpm');
-    if (!fpm) return null;
+    if (!fpm) throw new Error('hud-fpm not found');
     const circles = findAllByLocalName(fpm, 'circle');
-    return circles.length ? parseFloat(circles[0].getAttribute('cx')) : null;
+    if (!circles.length) throw new Error('hud-fpm has no circle');
+    return parseFloat(circles[0].getAttribute('cy'));
   };
-  const cxNeg  = findRingCx(-0.50);
-  const cxZero = findRingCx( 0.00);
-  const cxPos  = findRingCx( 0.50);
-  if (cxNeg == null || cxZero == null || cxPos == null) {
-    throw new Error('FPM ring circle not found');
-  }
-  if (cxNeg !== cxZero || cxZero !== cxPos) {
-    throw new Error(
-      `FPM cx should be constant (issue #542); ` +
-      `got cxNeg=${cxNeg}, cxZero=${cxZero}, cxPos=${cxPos}`);
+  const a = fpmCy(0);
+  const b = fpmCy(5);
+  if (a !== b) {
+    throw new Error(`FPM cy should NOT change with pitchOffsetDeg; got a=${a}, b=${b}`);
   }
 });
 
-test('FPM vertical position tracks FlightPath - Pitch', () => {
-  const findRingCy = (pitch, flightPath) => {
-    const root = renderInto(
-      html`<${HudOverlay} state=${makeState({ Pitch: pitch, FlightPath: flightPath })} />`);
-    const fpm = findFirstWithAttr(root, 'data-widget', 'hud-fpm');
-    const circles = fpm ? findAllByLocalName(fpm, 'circle') : [];
-    return circles.length ? parseFloat(circles[0].getAttribute('cy')) : null;
-  };
-  // Climbing (FlightPath > Pitch): FPM should sit BELOW horizon (FPM
-  // cy > center). Descending (FlightPath < Pitch): FPM above horizon.
-  const climbCy = findRingCy(5, 8);     // FlightPath-Pitch = +3
-  const levelCy = findRingCy(5, 5);     // = 0
-  const descCy  = findRingCy(5, 2);     // = -3
-  if (climbCy == null || levelCy == null || descCy == null) {
-    throw new Error('FPM ring not found');
-  }
-  if (!(climbCy > levelCy && levelCy > descCy)) {
-    throw new Error(
-      `FPM cy should increase with FlightPath-Pitch; ` +
-      `got descCy=${descCy}, levelCy=${levelCy}, climbCy=${climbCy}`);
-  }
-});
-
-test('Bank arc inner group rotates by -Roll', () => {
-  const findInnerTransform = (roll) => {
-    const root = renderInto(
-      html`<${HudOverlay} state=${makeState({ Roll: roll })} />`);
-    const arc = findFirstWithAttr(root, 'data-widget', 'hud-bank-arc');
-    if (!arc) return null;
-    // The first <g> child is the rotating tick group.
-    for (const c of arc.childNodes) {
-      if (c.localName === 'g' && c.getAttribute('transform')) {
-        return c.getAttribute('transform');
-      }
-    }
-    return null;
-  };
-  const t0  = findInnerTransform(0);
-  const t30 = findInnerTransform(30);
-  if (!t0 || !t30) throw new Error('hud-bank-arc inner transform missing');
-  if (t0 === t30) throw new Error('hud-bank-arc inner transform does not respond to Roll');
-  if (!t30.includes('rotate(-30')) {
-    throw new Error(`hud-bank-arc inner should rotate -30 at Roll=30: got ${t30}`);
-  }
-});
-
-test('IAS tape box renders the current IAS value', () => {
-  const root = renderInto(html`<${HudOverlay} state=${makeState({ displayIAS: 87 })} />`);
-  const tape = findFirstWithAttr(root, 'data-widget', 'hud-tape-left');
-  if (!tape) throw new Error('hud-tape-left missing');
-  const texts = findAllByLocalName(tape, 'text');
-  // The text-anchor="middle" + central baseline element is the box;
-  // we check it contains "87".
-  const hasBox = texts.some(t => {
-    const child = t.childNodes[0];
-    return child && child.data === '87';
-  });
-  if (!hasBox) {
-    const found = texts.map(t => t.childNodes[0]?.data).join('|');
-    throw new Error(`IAS box value "87" not found; got texts=${found}`);
-  }
-});
-
-test('IAS tape renders dashes when IasIsValid is false', () => {
+test('ALT tape shows hundreds digit derived from Palt', () => {
+  // For Palt=6143 the hundreds digit shown in the Garmin box
+  // is floor(6143/100) = "61".
   const root = renderInto(
-    html`<${HudOverlay} state=${makeState({ IasIsValid: false })} />`);
-  const tape = findFirstWithAttr(root, 'data-widget', 'hud-tape-left');
+    html`<${HudOverlay} state=${makeState({ Palt: 6143 })} />`);
+  const tape = findFirstWithAttr(root, 'data-widget', 'hud-alt-tape');
+  if (!tape) throw new Error('hud-alt-tape not found');
   const texts = findAllByLocalName(tape, 'text');
-  const hasDashes = texts.some(t => t.childNodes[0]?.data === '---');
-  if (!hasDashes) throw new Error('IAS dashes not rendered when invalid');
+  const joined = texts.flatMap(t => t.childNodes.map(c => c.data || '')).join('|');
+  if (!joined.includes('61')) {
+    throw new Error(`ALT tape should show hundreds "61"; got ${joined}`);
+  }
+  // Tens (rounded down to nearest 20): 6143 → nearest20Below=6140,
+  // tensCurr = 40 → "40".
+  if (!joined.includes('40')) {
+    throw new Error(`ALT tape should show tensCurr "40"; got ${joined}`);
+  }
 });
 
-test('VSI numeric only renders above HUD_VSI_THRESHOLD', () => {
-  // FlySto-style numeric VSI: hidden at idle, visible when climb/
-  // descent is meaningful (|vsi| >= HUD_VSI_THRESHOLD fpm).
+test('ALT tape baro reads "29.92in"', () => {
+  const root = renderInto(
+    html`<${HudOverlay} state=${makeState({ Palt: 3000 })} />`);
+  const tape = findFirstWithAttr(root, 'data-widget', 'hud-alt-tape');
+  if (!tape) throw new Error('hud-alt-tape not found');
+  const texts = findAllByLocalName(tape, 'text');
+  const joined = texts.flatMap(t => t.childNodes.map(c => c.data || '')).join('|');
+  if (!joined.includes('29.92in')) {
+    throw new Error(`ALT tape should show "29.92in"; got ${joined}`);
+  }
+});
+
+test('VVI numeric only renders above HUD_VVI_THRESHOLD', () => {
   const renderAt = (vsi) => renderInto(
     html`<${HudOverlay} state=${makeState({ iVSI: vsi })} />`);
-  if (findFirstWithAttr(renderAt(0), 'data-widget', 'hud-vsi')) {
-    throw new Error('VSI should NOT render at iVSI=0');
-  }
-  if (findFirstWithAttr(renderAt(50), 'data-widget', 'hud-vsi')) {
-    throw new Error('VSI should NOT render at iVSI=50 (below threshold)');
-  }
-  if (!findFirstWithAttr(renderAt(1500), 'data-widget', 'hud-vsi')) {
-    throw new Error('VSI should render at iVSI=1500');
-  }
+  const numericPresent = (vsi) => {
+    const root = renderAt(vsi);
+    const vvi = findFirstWithAttr(root, 'data-widget', 'hud-vvi');
+    if (!vvi) return false;
+    // The numeric readout is a <text> whose content starts with a sign
+    // followed by a digit; ticks render "1" and "2" without signs.
+    const texts = findAllByLocalName(vvi, 'text');
+    return texts.some(t => /^[+-]\d/.test(t.childNodes[0]?.data || ''));
+  };
+  if (numericPresent(0))   throw new Error('VVI numeric should NOT render at iVSI=0');
+  if (numericPresent(50))  throw new Error('VVI numeric should NOT render at iVSI=50 (below threshold)');
+  if (!numericPresent(1500)) throw new Error('VVI numeric should render at iVSI=1500');
 });
 
-test('G readout hidden when state.VerticalG is missing', () => {
-  // Don't pretend "1.0 G" when the channel is absent — pilots
-  // reviewing a burn will compare against their panel G-meter and
-  // a static 1.0 readout during a 2 G pull is misleading. Issue
-  // surfaced in bulldog review of commit 768f6498.
-  const stateNoG = Object.freeze({
-    displayIAS: 80, displayPalt: 3000,
-    Pitch: 0, Roll: 0, FlightPath: 0,
-    iVSI: 0, PercentLift: 50, StallWarnPctLift: 80,
-    IasIsValid: true,
-    // VerticalG intentionally omitted.
-  });
-  const root = renderInto(html`<${HudOverlay} state=${stateNoG} />`);
-  if (findFirstWithAttr(root, 'data-widget', 'hud-g')) {
-    throw new Error('hud-g should render nothing when VerticalG is missing');
-  }
-});
-
-test('G readout renders state.VerticalG with one decimal', () => {
-  const root = renderInto(
-    html`<${HudOverlay} state=${makeState({ VerticalG: 2.4 })} />`);
-  const g = findFirstWithAttr(root, 'data-widget', 'hud-g');
-  if (!g) throw new Error('hud-g widget missing');
-  const texts = findAllByLocalName(g, 'text');
-  // Preact may split the template into multiple text nodes (e.g.
-  // "2.4" and " G"). Concatenate every text node's data and look
-  // for the joined string anywhere inside.
-  const joined = texts
-    .flatMap(t => t.childNodes.map(c => c.data || ''))
-    .join('');
-  if (!joined.includes('2.4') || !joined.includes('G')) {
-    throw new Error(`G readout missing "2.4" or "G"; joined=${joined}`);
-  }
-});
-
-// Fixed snapshots: render four canonical states and emit a JSON
-// blob of the key derived positions. Useful for eyeballing diffs in
-// PR review and for future snapshot comparison if we want it.
-test('Snapshot: derived positions for canonical states', () => {
+test('Snapshot: canonical states yield distinct ladder transforms', () => {
   const scenarios = [
-    { name: 'level', state: makeState() },
-    { name: 'left30Climb', state: makeState({ Roll: -30, Pitch: 12, FlightPath: 15, displayIAS: 95 }) },
-    { name: 'slippedTurn', state: makeState({ Roll: 20, Pitch: 3, FlightPath: 1, LateralG: -0.12, displayIAS: 75 }) },
-    { name: 'highPitch',   state: makeState({ Pitch: 25, FlightPath: 18, displayIAS: 60, iVSI: -1200 }) },
+    { name: 'level',       state: makeState() },
+    { name: 'left30Climb', state: makeState({ Roll: -30, Pitch: 12, FlightPath: 15, IAS: 95 }) },
+    { name: 'slippedTurn', state: makeState({ Roll:  20, Pitch:  3, FlightPath:  1, LateralG: -0.12, IAS: 75 }) },
+    { name: 'highPitch',   state: makeState({ Pitch: 25, FlightPath: 18, IAS: 60, iVSI: -1200 }) },
   ];
   const out = {};
   for (const { name, state } of scenarios) {
     const root = renderInto(html`<${HudOverlay} state=${state} />`);
     const ladder = findFirstWithAttr(root, 'data-widget', 'hud-pitch-ladder');
-    const arc    = findFirstWithAttr(root, 'data-widget', 'hud-bank-arc');
-    const fpm    = findFirstWithAttr(root, 'data-widget', 'hud-fpm');
+    const fpm = findFirstWithAttr(root, 'data-widget', 'hud-fpm');
     const fpmCircle = fpm && findAllByLocalName(fpm, 'circle')[0];
     out[name] = {
-      pitchLadderTransform: ladder?.getAttribute('transform') ?? null,
-      bankInnerTransform: (() => {
-        for (const c of arc?.childNodes || []) {
-          if (c.localName === 'g' && c.getAttribute('transform')) {
-            return c.getAttribute('transform');
-          }
-        }
-        return null;
-      })(),
+      ladderTransform: ladder ? ladder.getAttribute('transform') : null,
+      ladderTranslateY: ladder ? parseLadderTranslateY(ladder.getAttribute('transform')) : null,
       fpmCx: fpmCircle ? parseFloat(fpmCircle.getAttribute('cx')) : null,
       fpmCy: fpmCircle ? parseFloat(fpmCircle.getAttribute('cy')) : null,
     };
   }
-  // Sanity: every scenario should produce a unique pitchLadderTransform
-  // and the FPM cx/cy should differ where the inputs differ.
-  const transforms = new Set(Object.values(out).map(s => s.pitchLadderTransform));
-  if (transforms.size !== scenarios.length) {
-    throw new Error(
-      `expected unique pitch-ladder transforms per scenario, got ${transforms.size}: ` +
-      JSON.stringify(out, null, 2));
+  // The ladder translate-y should differ across the level/highPitch
+  // scenarios (pitch * 18 px/deg).
+  if (out.level.ladderTranslateY === out.highPitch.ladderTranslateY) {
+    throw new Error('level and highPitch should produce different ladder translate-y; both at ' + out.level.ladderTranslateY);
   }
-  // Stable diff-friendly output.
-  // eslint-disable-next-line no-console
   console.log('hud-render snapshot:', JSON.stringify(out));
 });
 

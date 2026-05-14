@@ -154,6 +154,10 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
+  /* M5 inset slots sit ABOVE the HUD (z-index 2) and the video
+     (z-index 1) — the HUD is full-frame, so the corner inset must
+     stack on top to remain visible. */
+  z-index: 3;
 }
 .replay-hud {
   /* Full-frame HUD layer. Renders BEFORE .replay-overlay in the DOM
@@ -167,6 +171,17 @@
   /* Carve out the native <video> controls strip (≈ 40-48 px tall)
      so the slip ball / FPM tail aren't covered by the scrubber. */
   bottom: 48px;
+  /* Explicit z-index so the HUD stays ABOVE the <video> in stacking
+     order regardless of DOM source position. Native <video> creates
+     its own stacking context in some browsers (Chrome's hardware-
+     accelerated video layer) and can win over absolutely-positioned
+     siblings even with DOM order in our favor. */
+  z-index: 2;
+}
+.replay-video {
+  /* Keep video at z-index 1 so the HUD reliably stacks above. */
+  position: relative;
+  z-index: 1;
 }
 .replay-hud > svg.hud-svg {
   display: block;
@@ -178,60 +193,27 @@
      follow the SVG into the export blob's isolated document.) */
 }
 .replay-overlay-frame {
-  /* Bottom-right anchor inside the video, lifted above the native
-     <video> controls bar so the overlay never sits under the
-     scrubber. We wrap the mode SVG in a div whose size we fully
-     control via CSS, then let the SVG fill the wrapper. SVGs
-     ignore `aspect-ratio` in many browsers because their intrinsic
-     size comes from `viewBox`; divs honor it reliably. */
+  /* One inset slot. Two slots (left + right) are rendered as siblings
+     inside .replay-overlay. Each pins to a bottom corner above the
+     native <video> controls bar so the overlay never sits under the
+     scrubber. The SVG fills the wrapper; divs honor `aspect-ratio`
+     reliably while SVGs do not (their intrinsic size comes from
+     `viewBox`). The left/right corner is picked by the
+     .replay-overlay-left / .replay-overlay-right modifier. */
   position: absolute;
-  right: 12px;
   bottom: 56px;       /* clears the video controls (≈ 40-48 px tall) */
   width: 22%;
   max-width: 280px;
   aspect-ratio: 4 / 3;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
 }
+.replay-overlay-frame.replay-overlay-left  { left:  12px; }
+.replay-overlay-frame.replay-overlay-right { right: 12px; }
 .replay-overlay-frame.paused {
-  /* Yellow border and a half-opaque "paused" badge tell the pilot
-     the overlay is frozen for re-sync.  See pauseIndexer/attachHere
-     in ReplayPage. */
+  /* Yellow border tells the pilot the overlay is frozen for re-sync.
+     See pauseIndexer/attachHere in ReplayPage. */
   outline: 3px solid #ffcc00;
   outline-offset: 2px;
-}
-.replay-overlay-frame.standard {
-  /* Standard layout: two panels at opposite corners (ADI bottom-left,
-     Energy bottom-right) mirroring the export's compositeFrame
-     placement. The .standard frame is a full-width transparent
-     container; the two .replay-overlay-half children are
-     absolutely-positioned anchors. We override the single-panel
-     bottom-right styling completely. */
-  right: 0;
-  left: 0;
-  bottom: 56px;
-  width: 100%;
-  max-width: none;
-  aspect-ratio: auto;
-  height: auto;
-  display: block;
-  background: transparent;
-  filter: none;
-  pointer-events: none;
-}
-.replay-overlay-half {
-  position: absolute;
-  bottom: 0;
-  width: 22%;
-  max-width: 280px;
-  aspect-ratio: 4 / 3;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
-}
-.replay-overlay-half.left  { left: 12px; }
-.replay-overlay-half.right { right: 12px; }
-.replay-overlay-half > svg {
-  display: block;
-  width: 100%;
-  height: 100%;
 }
 .replay-status-attention {
   color: #ffcc00 !important;
@@ -316,6 +298,38 @@
   align-items: center;
   gap: 6px;
   cursor: pointer;
+}
+.replay-inset-select {
+  font-size: 13px;
+  color: #a8b3bd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.replay-inset-select select {
+  background: #232c33;
+  color: #e0e6eb;
+  border: 1px solid #2d3942;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.replay-pitch-offset {
+  font-size: 13px;
+  color: #a8b3bd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.replay-pitch-offset input[type="range"] {
+  width: 160px;
+  vertical-align: middle;
+}
+.replay-pitch-offset span {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  min-width: 4em;
+  text-align: right;
 }
 .replay-status {
   font-size: 12px;

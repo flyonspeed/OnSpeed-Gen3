@@ -90,21 +90,16 @@ import {
 // Mode list indexed by displayType (0..4). The int returned by
 // `m5sim.read().displayType` maps directly to the renderer. Ordering
 // matches the M5 firmware's `kModeNames` and the IndexerPage's MODES
-// — same five modes, same numbering.
-// Mode 5 is a JS-only synthetic: a Standard layout that renders
-// Attitude (left) + Energy (right) side-by-side. The firmware doesn't
-// know about it — when picked, the M5 sim still runs whichever
-// firmware mode it's in; the preview ignores `state.displayType` and
-// uses both component renderers explicitly. Mirrored on the export
-// side by `standardOverlay`, which is now derived from this mode.
-const MODE_STANDARD = 5;
+// — same five modes, same numbering. The page exposes TWO independent
+// inset slots (Left + Right); each slot can be off or any of these
+// modes. The MP4 export drives the slots via `leftMode` / `rightMode`
+// parameters on exportClipAsMp4.
 const M5_MODES = [
   { id: 0, label: 'Energy',     C: EnergyMode   },
   { id: 1, label: 'Attitude',   C: AttitudeMode },
   { id: 2, label: 'Indexer',    C: IndexerMode  },
   { id: 3, label: 'Decel',      C: DecelMode    },
   { id: 4, label: 'Historic G', C: HistoricGMode },
-  { id: MODE_STANDARD, label: 'Standard', C: null /* special-cased in render */ },
 ];
 
 // Avionics palette tokens used by the offscreen export render
@@ -137,7 +132,12 @@ const EXPORT_AVIONICS_VARS = Object.freeze({
 // Sync + clips persistence lives in replay/persistence.js
 // (content-keyed by log digest). These are simpler prefs keyed by
 // a fixed string.
-const M5_MODE_LS_KEY = 'replay-m5-mode-v1';
+//
+// Independent left + right inset slots replace the old single-mode +
+// "Standard" preset. Each slot persists independently: empty string =
+// slot off, "0".."4" = the corresponding M5 mode.
+const LEFT_INSET_LS_KEY  = 'replay-inset-left-v1';
+const RIGHT_INSET_LS_KEY = 'replay-inset-right-v1';
 // Render-side presentation smoothing preset. NOT a firmware mirror —
 // purely a viewing aid for 50 Hz log replay where IMU aliasing is
 // visible on the slip ball. See presentationFilter.js for rationale.
@@ -198,14 +198,38 @@ export const ReplayPage = () => {
   // doesn't look blank during the three getFile()/parse calls.
   const [resuming, setResuming]   = useState(false);
 
-  const [m5ModeId, setM5ModeId] = useState(() => {
-    const s = safeLsGet(M5_MODE_LS_KEY);
-    const n = s == null ? 0 : parseInt(s, 10);
-    // Valid mode ids are 0..4 (firmware modes) and MODE_STANDARD (5,
-    // JS-only side-by-side layout). Anything else falls back to 0.
+  // Two independent inset slots. Each slot's value is null (off) or an
+  // M5 mode id (0..4). Persisted via per-slot LS keys: empty string =
+  // off, decimal digit = mode id. Default: left off, right Energy.
+  const parseSlot = (raw, fallback) => {
+    if (raw === null || raw === undefined) return fallback;
+    if (raw === '') return null;
+    const n = parseInt(raw, 10);
     const validIds = M5_MODES.map(m => m.id);
-    return Number.isFinite(n) && validIds.includes(n) ? n : 0;
-  });
+    return Number.isFinite(n) && validIds.includes(n) ? n : fallback;
+  };
+  const [leftInsetMode, setLeftInsetModeRaw]   = useState(() =>
+    parseSlot(safeLsGet(LEFT_INSET_LS_KEY), null));
+  const [rightInsetMode, setRightInsetModeRaw] = useState(() =>
+    parseSlot(safeLsGet(RIGHT_INSET_LS_KEY), 0));
+  const setLeftInsetMode = useCallback((m) => {
+    setLeftInsetModeRaw(m);
+    safeLsSet(LEFT_INSET_LS_KEY, m == null ? '' : String(m));
+  }, []);
+  const setRightInsetMode = useCallback((m) => {
+    setRightInsetModeRaw(m);
+    safeLsSet(RIGHT_INSET_LS_KEY, m == null ? '' : String(m));
+  }, []);
+  // The sim itself runs in exactly one mode at a time (its internal
+  // mode controls displayType + which datapoints get computed). When
+  // both slots are off, default to Energy so the sim still ticks; when
+  // either slot wants a mode, mirror that to the sim. The right slot
+  // wins when both are set, since it's the historical primary (mode
+  // picker default). The sim's displayType is overridden per-render
+  // when the active slot mode differs from the sim's mode.
+  const activeSimMode = rightInsetMode != null ? rightInsetMode
+                      : leftInsetMode  != null ? leftInsetMode
+                      : 0;
   // Render-side smoothing preset. 'off' = byte-faithful (wire values
   // drive the SVG directly). The other presets emulate the missing
   // 208 Hz averaging that 50 Hz log replay can't reproduce; see
@@ -251,11 +275,11 @@ export const ReplayPage = () => {
   // any single frame's delta is sub-50ms (at 60 fps it always is).
   // Reset to 0 on sim init / backward scrub / preset change.
   const m5LastInjectBoundaryMsRef = useRef(0);
-  // Mirror m5ModeId into a ref so the async re-init `.then()` callback
-  // (below) reads the current mode rather than the value captured by
-  // the effect closure at fire time. The effect that updates this ref
-  // runs on every m5ModeId change.
-  const m5ModeIdRef = useRef(m5ModeId);
+  // Mirror activeSimMode into a ref so the async re-init `.then()`
+  // callback (below) reads the current mode rather than the value
+  // captured by the effect closure at fire time. The effect that
+  // updates this ref runs on every slot-mode change.
+  const m5ModeIdRef = useRef(activeSimMode);
 
   // Render-side presentation filter (NOT a firmware mirror).
   // Applies after sim.read(); attenuates 50 Hz log aliasing before
@@ -412,13 +436,15 @@ export const ReplayPage = () => {
   }, [overlaySize]);
 
   // Standard (ADI + Energy) layout used to be a checkbox in the
-  // ClipBuilder; the state lived here with LS persistence. It moved
-  // to the top mode picker as MODE_STANDARD, and the export derives
-  // its standardOverlay value from `m5ModeId === MODE_STANDARD`. The
-  // dead `replay-standard-clip-overlay-v1` LS key from the prior shape
-  // is intentionally left in place — clearing it here would risk
-  // touching localStorage during render, and the key is dormant. A
-  // future tidy can prune it via a one-shot migration.
+  // ClipBuilder, then a single MODE_STANDARD entry in the mode picker.
+  // It's now expressed as two independent inset slots (Left + Right) —
+  // each can be off or any M5 mode. The export composes the same way:
+  // leftMode/rightMode params on exportClipAsMp4. The dead
+  // `replay-standard-clip-overlay-v1` and `replay-m5-mode-v1` LS keys
+  // from the prior shapes are intentionally left in place — clearing
+  // them here would risk touching localStorage during render, and the
+  // keys are dormant. A future tidy can prune them via a one-shot
+  // migration.
 
   // Re-sync flow state. When the pilot clicks "Pause indexer" the
   // overlay's log-time freezes at `pausedLogMs`; the video keeps
@@ -1267,24 +1293,25 @@ export const ReplayPage = () => {
     return () => { cancelled = true; };
   }, [log, cfg]);
 
-  // Persist the mode.
+  // Drive the sim's internal mode from whichever slot is active. The
+  // sim has one displayType at a time; slot rendering overrides it
+  // per-panel where the slot mode differs from activeSimMode.
   useEffect(() => {
-    safeLsSet(M5_MODE_LS_KEY, String(m5ModeId));
     if (m5SimRef.current) {
-      m5SimRef.current.setMode(m5ModeId);
+      m5SimRef.current.setMode(activeSimMode);
       // Refresh React state immediately so the SVG re-renders the new
       // mode without waiting for a videoT tick. Important on pause:
       // no per-frame effect runs to refresh state otherwise.
       setM5State(m5SimRef.current.read());
     }
-  }, [m5ModeId]);
+  }, [activeSimMode]);
 
-  // Mirror m5ModeId into m5ModeIdRef so the async re-init .then()
+  // Mirror activeSimMode into m5ModeIdRef so the async re-init .then()
   // (in the per-frame effect below) reads the current mode rather
   // than a stale closure value.
   useEffect(() => {
-    m5ModeIdRef.current = m5ModeId;
-  }, [m5ModeId]);
+    m5ModeIdRef.current = activeSimMode;
+  }, [activeSimMode]);
 
   // Per-frame M5 sim driver: tick the M5 firmware's virtual clock at
   // its native 20 Hz wire cadence, injecting a wire frame and calling
@@ -1599,7 +1626,9 @@ export const ReplayPage = () => {
         console.log('REPLAY_DBG ' + JSON.stringify({
           videoT: fnum(videoT, 2),
           rowIdx,
-          mode: m5ModeId,
+          mode: activeSimMode,
+          leftSlot: leftInsetMode,
+          rightSlot: rightInsetMode,
           smoothLateralTau: m5SmoothLateralTau,
           raw,
           cppEng: cppEngSlice,
@@ -1608,7 +1637,8 @@ export const ReplayPage = () => {
         }));
       }
     }
-  }, [log, cfg, sync, videoT, pausedLogMs, m5ModeId,
+  }, [log, cfg, sync, videoT, pausedLogMs, activeSimMode,
+      leftInsetMode, rightInsetMode,
       m5SmoothLateralTau, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------
@@ -1877,14 +1907,15 @@ export const ReplayPage = () => {
   const renderHudForExport = useCallback((m5State) => {
     const mount = exportHudMountRef.current;
     if (!mount || !m5State) return null;
-    render(html`<${HudOverlay} state=${m5State} />`, mount);
+    render(html`<${HudOverlay} state=${m5State}
+                                pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0} />`, mount);
     const svg = mount.querySelector('svg');
     if (!svg) return null;
     for (const [k, v] of Object.entries(EXPORT_AVIONICS_VARS)) {
       svg.style.setProperty(k, v);
     }
     return svg;
-  }, []);
+  }, [journal.hudPitchOffsetDeg]);
 
   // Export one clip as MP4. Returns a Blob promise; the page also
   // wires progress + abort state.
@@ -1941,16 +1972,11 @@ export const ReplayPage = () => {
         sourceFile:    videoFile,
         // Match the live preview's slip-ball smoothing.
         presentationTau,
-        // Match the live preview's M5 mode (Energy/Attitude/Indexer/...).
-        // Without this the fresh export-sim defaults to mode 0 (Energy)
-        // regardless of what the page is showing.
-        displayMode:   m5ModeId,
-        // Standard layout: ADI bottom-left + Energy bottom-right.
-        // Ignores displayMode when true.
-        // Standard layout is now derived from the mode picker, not a
-        // separate checkbox. When the pilot picks Standard, export
-        // renders ADI + Energy side-by-side.
-        standardOverlay: m5ModeId === MODE_STANDARD,
+        // Two independent inset slots. Each can be null (slot off) or
+        // an M5 mode id (0..4). The export renders whichever slots are
+        // set, mirroring the live preview's slot layout.
+        leftMode:  leftInsetMode,
+        rightMode: rightInsetMode,
         // outputWidth omitted: export defaults to source resolution +
         // source framerate + source codec family for a "source video
         // with overlay added" result.
@@ -1980,7 +2006,8 @@ export const ReplayPage = () => {
     }
   }, [syncReady, sync, log, cppWireFrames, mp4Available, renderOverlayForExport,
       renderHudForExport, showHud,
-      videoFile, videoTimeline, m5SmoothLateralTau, m5ModeId]);
+      videoFile, videoTimeline, m5SmoothLateralTau,
+      leftInsetMode, rightInsetMode]);
 
   const exportClipMp4AndDownload = useCallback(async (clip, idx) => {
     const blob = await exportClipMp4(clip, idx);
@@ -1989,6 +2016,38 @@ export const ReplayPage = () => {
     const suffix = (clip.label || `clip${idx + 1}`).replace(/[^a-z0-9_-]/gi, '_');
     downloadBlob(blob, `${base}_${suffix}.mp4`);
   }, [exportClipMp4, videoFiles]);
+
+  // Export the entire loaded video (single or multi-chapter) as a single
+  // MP4 with the current HUD + inset configuration. Synthesises a clip
+  // spanning [0, totalDuration] in video seconds, maps that back into
+  // clip startMs/endMs via the live sync anchor, and reuses
+  // exportClipMp4 — the same composite path used for per-clip exports.
+  const exportSortieMp4 = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || !syncReady || !sync || !log || !cppWireFrames || !mp4Available) {
+      return;
+    }
+    const duration = videoTimeline?.totalDurationSec ?? v.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    // videoSec -> logMs: logMs = sync.logTakeoffMs + (videoSec - sync.videoTakeoffSec) * 1000
+    const startMs = sync.logTakeoffMs - sync.videoTakeoffSec * 1000;
+    const endMs   = sync.logTakeoffMs + (duration - sync.videoTakeoffSec) * 1000;
+    const sortieClip = {
+      id:      'sortie',
+      label:   'sortie',
+      startMs,
+      endMs,
+    };
+    // Sentinel idx -1 marks this as the sortie export so existing
+    // per-clip UI keyed on `exportingClipIdx === i` ignores it. The
+    // toolbar reads exportingClipIdx != null for the cancel/progress
+    // panel which is what we want.
+    const blob = await exportClipMp4(sortieClip, -1);
+    if (!blob) return;
+    const base = (videoFiles[0]?.name || 'flight').replace(/\.[^.]+$/, '');
+    downloadBlob(blob, `${base}_sortie.mp4`);
+  }, [exportClipMp4, syncReady, sync, log, cppWireFrames, mp4Available,
+      videoTimeline, videoFiles]);
 
   // Track batch-cancel separately from per-export cancel so a Cancel
   // click during "Export all" stops the whole sequence, not just the
@@ -2286,47 +2345,58 @@ export const ReplayPage = () => {
             </div>`}
 
           ${showHud && m5State && html`
-              <div class="replay-hud">
-                <${HudOverlay} state=${m5State} />
-              </div>`}
+            <div class="replay-hud">
+              <${HudOverlay} state=${m5State}
+                              pitchOffsetDeg=${journal.hudPitchOffsetDeg ?? 0} />
+            </div>`}
 
-          ${overlayVisible && m5State && (m5ModeId === MODE_STANDARD
-            ? html`
-                <div class="replay-overlay">
-                  <div class="replay-overlay-frame standard ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
-                    <div class="replay-overlay-half left">
-                      <${AttitudeMode} state=${{ ...m5State, displayType: 1 }} stale=${false} />
-                    </div>
-                    <div class="replay-overlay-half right">
-                      <${EnergyMode}   state=${{ ...m5State, displayType: 0 }} stale=${false} />
-                    </div>
-                  </div>
-                </div>`
-            : html`
-                <div class="replay-overlay">
-                  <div class="replay-overlay-frame ${Number.isFinite(pausedLogMs) ? 'paused' : ''}">
-                    ${(() => {
-                      // Pick by the pilot's mode selection (not the sim's
-                      // displayType). The sim's displayType is updated by the
-                      // mode dispatch elsewhere so they normally agree; this
-                      // path stays correct during the brief window between a
-                      // mode-button click and the sim acknowledging it.
-                      const M = M5_MODES.find(m => m.id === m5ModeId);
-                      const C = (M && M.C) ? M.C : EnergyMode;
-                      return html`<${C} state=${m5State} stale=${false} />`;
-                    })()}
-                  </div>
-                </div>`)}
+          ${overlayVisible && m5State && (() => {
+            // Render one panel per active slot. Each slot may carry a
+            // different mode from the sim's current displayType, so
+            // stamp displayType into the state copy for the slot's
+            // component (matches the export-side rendering convention).
+            const slotPanel = (modeId, side) => {
+              if (modeId == null) return null;
+              const M = M5_MODES.find(m => m.id === modeId);
+              const C = (M && M.C) ? M.C : EnergyMode;
+              const stateForSlot = (modeId === m5State.displayType)
+                ? m5State
+                : { ...m5State, displayType: modeId };
+              const pausedCls = Number.isFinite(pausedLogMs) ? 'paused' : '';
+              return html`
+                <div class=${`replay-overlay-frame replay-overlay-${side} ${pausedCls}`}>
+                  <${C} state=${stateForSlot} stale=${false} />
+                </div>`;
+            };
+            const left  = slotPanel(leftInsetMode,  'left');
+            const right = slotPanel(rightInsetMode, 'right');
+            if (!left && !right) return null;
+            return html`
+              <div class="replay-overlay">
+                ${left}
+                ${right}
+              </div>`;
+          })()}
         </div>
 
         <footer class="replay-controls">
           <div class="replay-control-row">
-            <span class="replay-label">Mode</span>
-            ${M5_MODES.map(m => html`
-                <button
-                  class=${m.id === m5ModeId ? 'replay-mode-btn active' : 'replay-mode-btn'}
-                  onClick=${() => setM5ModeId(m.id)}>${m.label}</button>
-              `)}
+            <label class="replay-inset-select">
+              Left
+              <select value=${leftInsetMode == null ? '' : String(leftInsetMode)}
+                      onChange=${e => setLeftInsetMode(e.target.value === '' ? null : Number(e.target.value))}>
+                <option value="">Off</option>
+                ${M5_MODES.map(m => html`<option value=${String(m.id)}>${m.label}</option>`)}
+              </select>
+            </label>
+            <label class="replay-inset-select">
+              Right
+              <select value=${rightInsetMode == null ? '' : String(rightInsetMode)}
+                      onChange=${e => setRightInsetMode(e.target.value === '' ? null : Number(e.target.value))}>
+                <option value="">Off</option>
+                ${M5_MODES.map(m => html`<option value=${String(m.id)}>${m.label}</option>`)}
+              </select>
+            </label>
             <span class="replay-spacer"></span>
             <span class="replay-toggle"
                   title="Slip-ball EMA time constant (s). 0 = firmware-faithful, ~0.25 = VN-300, ~0.75 = SkyView.">
@@ -2351,11 +2421,20 @@ export const ReplayPage = () => {
               Show overlay
             </label>
             <label class="replay-toggle"
-                   title="Full-frame HUD: horizon, pitch ladder, bank arc, IAS/ALT tapes, FPM, slip ball. Independent of the M5 panel — both can be on.">
+                   title="Full-frame HUD: scaled-up attitude indicator + IAS/MH/PALT boxes + VVI trend + slip ball. Independent of the M5 inset slots — they can all be on.">
               <input type="checkbox" checked=${showHud}
                      onChange=${e => setShowHud(e.target.checked)} />
               Show HUD
             </label>
+            ${showHud && html`
+              <label class="replay-pitch-offset"
+                     title="Per-flight HUD pitch-ladder offset to compensate for camera mount misalignment. Persisted per-log.">
+                HUD pitch offset
+                <input type="range" min="-20" max="20" step="0.1"
+                       value=${journal.hudPitchOffsetDeg ?? 0}
+                       onInput=${e => journal.setHudPitchOffsetDeg(parseFloat(e.target.value))} />
+                <span>${(journal.hudPitchOffsetDeg ?? 0).toFixed(1)}°</span>
+              </label>`}
             ${exportingClipIdx != null
               ? html`
                   <span class="replay-status">
@@ -2463,6 +2542,7 @@ export const ReplayPage = () => {
               onScrubTo=${scrubVideoTo}
               onExport=${exportClipMp4AndDownload}
               onExportAll=${exportAllClipsMp4}
+              onExportSortie=${exportSortieMp4}
               onCancel=${cancelMp4Export}
               onExportOverlays=${exportOverlaysForClip}
               onCancelOverlays=${cancelOverlayExport}
