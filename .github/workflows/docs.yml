@@ -9,6 +9,8 @@ on:
       - 'software/OnSpeed-M5-Display/**'
       - 'scripts/build_m5_sim_for_docs.sh'
       - 'scripts/build_web_bundle.py'
+      - 'scripts/build_replay.mjs'
+      - 'package.json'
       - 'software/Libraries/onspeed_core/**'
       - 'packages/ui-core/**'
       - 'tools/web/test/wasm-smoke.mjs'
@@ -20,6 +22,8 @@ on:
       - 'software/OnSpeed-M5-Display/**'
       - 'scripts/build_m5_sim_for_docs.sh'
       - 'scripts/build_web_bundle.py'
+      - 'scripts/build_replay.mjs'
+      - 'package.json'
       - 'software/Libraries/onspeed_core/**'
       - 'packages/ui-core/**'
       - 'tools/web/test/wasm-smoke.mjs'
@@ -44,6 +48,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install "mkdocs>=1.6,<2" mkdocs-material platformio
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: 4.0.21
@@ -58,6 +65,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Install Node tooling for replay bundle (esbuild)
+        run: npm install --no-audit --no-fund
       - name: Build docs-site replay bundle
         run: python3 scripts/build_web_bundle.py --target replay
       - name: Run docs-site replay tests
@@ -80,6 +89,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike platformio
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: 4.0.21
@@ -94,6 +106,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Install Node tooling for replay bundle (esbuild)
+        run: npm install --no-audit --no-fund
       - name: Build docs-site replay bundle
         run: python3 scripts/build_web_bundle.py --target replay
       - name: Run docs-site replay tests
@@ -134,6 +148,9 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install "mkdocs>=1.6,<2" mkdocs-material mike platformio
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: 4.0.21
@@ -148,6 +165,8 @@ jobs:
         run: node tools/web/test/wasm-smoke.mjs
       - name: Sync replay WASM artifacts to docs/site/docs/assets/wasm/
         run: bash docs/site/scripts/sync_wasm.sh
+      - name: Install Node tooling for replay bundle (esbuild)
+        run: npm install --no-audit --no-fund
       - name: Build docs-site replay bundle
         run: python3 scripts/build_web_bundle.py --target replay
       - name: Run docs-site replay tests

@@ -1,0 +1,12 @@
+{
+  "name": "onspeed-replay",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Build tooling for the OnSpeed replay tool's docs-site bundle. The replay bundle is built via esbuild; firmware bundle remains Python.",
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "scripts": {
+    "build:replay": "node scripts/build_replay.mjs"
+  }
+}

@@ -60,17 +60,22 @@
 // loaders (e.g. the m5sim-smoke test) need a CJS-typed package
 // boundary.
 //
-// This module file lives at data-and-logs/replay/lib/replay/m5sim.js
-// (4 levels deep), so the shared assets/wasm/m5/ root is reached via
-// four ".." segments + assets/wasm/m5/.
-//
-// Compute the URL against import.meta.url so the resolved href has
-// the docs-site origin baked in — necessary because the loader
-// injects a <script src=...> tag that must be an absolute URL or
-// origin-relative path (script src does NOT resolve relative to the
-// importing module the way ESM import() does).
-const M5SIM_URL = new URL(
-  '../../../../assets/wasm/m5/onspeed_m5.js', import.meta.url).href;
+// In the bundled docs-site deployment:
+//   replay-bundle.js   → data-and-logs/replay/replay-bundle.js
+//   onspeed_m5.js      → assets/wasm/m5/onspeed_m5.js
+// so the WASM lives at __replayBundleBase + '../../assets/wasm/m5/…'.
+// scripts/build_replay.mjs seeds `window.__replayBundleBase` from
+// `document.currentScript.src` in the bundle preamble. We prefer
+// reading it from there rather than `import.meta.url` because under
+// esbuild's IIFE output, import.meta is empty (the bundle itself isn't
+// a module). The Node smoke test imports this file as ESM, so the
+// fallback to import.meta.url keeps that path working unchanged.
+const M5SIM_URL = (typeof window !== 'undefined'
+                   && window.__replayBundleBase)
+  ? new URL('../../assets/wasm/m5/onspeed_m5.js',
+            window.__replayBundleBase).href
+  : new URL('../../../../assets/wasm/m5/onspeed_m5.js',
+            import.meta.url).href;
 
 let _factoryPromise = null;
 
