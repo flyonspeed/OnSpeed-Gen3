@@ -87,6 +87,14 @@ static uint32_t      s_uShortWriteCount = 0;
 static uint32_t      s_uDrainOverflowCount = 0;
 static uint32_t      s_uDrainOverflowBytes = 0;
 
+// Count producer-side samples dropped because g_bPause was true.
+// HandleDownload and the bulk-delete handlers set g_bPause to keep
+// the ring from filling during multi-second SD-mutex holds; every
+// IMU sample that fires while paused increments this counter.
+// Surfaced in PERF so pilots see "you lost N samples loading /logs"
+// instead of finding silent gaps in the CSV post-flight.
+static uint32_t      s_uPausedDropCount = 0;
+
 // Staging buffer: accumulate log lines and write in 512-byte-aligned
 // chunks so SdFat can pass full sectors straight to multi-block SPI.
 // Accessed from LogSensorCommitTask and LogSensor::Close(); both code
@@ -395,6 +403,7 @@ void LogSensorCommitTask(void *pvParams)
         static uint32_t      uPerfImuMaxLateUs = 0;
         static uint32_t      uPerfOverflowCnt  = 0;
         static uint32_t      uPerfOverflowB    = 0;
+        static uint32_t      uPerfPausedDrops  = 0;
         static unsigned long uPerfLastEmitMs   = 0;
 
         if (uWriteDur > uPerfWriteMaxUs) uPerfWriteMaxUs = uWriteDur;
@@ -414,6 +423,7 @@ void LogSensorCommitTask(void *pvParams)
         }
         uPerfOverflowCnt += __atomic_exchange_n(&s_uDrainOverflowCount, 0u, __ATOMIC_RELAXED);
         uPerfOverflowB   += __atomic_exchange_n(&s_uDrainOverflowBytes, 0u, __ATOMIC_RELAXED);
+        uPerfPausedDrops += __atomic_exchange_n(&s_uPausedDropCount,    0u, __ATOMIC_RELAXED);
 
         uint32_t uRingPct = 0;
         if (xLoggingRingBuffer != nullptr)
@@ -434,6 +444,7 @@ void LogSensorCommitTask(void *pvParams)
                              || (uPerfShortWrites > 0)
                              || (uPerfImuLate     > 0)
                              || (uPerfOverflowCnt > 0)
+                             || (uPerfPausedDrops > 0)
                              || (uPerfWriteMaxUs  > kPerfWriteUsTrip)
                              || (uPerfSyncMaxUs   > kPerfSyncUsTrip);
 
@@ -445,7 +456,7 @@ void LogSensorCommitTask(void *pvParams)
                 "PERF write_max=%lluus sync_max=%lluus ring=%lu%%/%uK "
                 "drops=%lu dbg_drops=%lu short=%lu "
                 "imu_late=%lu imu_lateMaxUs=%lu "
-                "overflow=%lu overflow_bytes=%lu "
+                "overflow=%lu overflow_bytes=%lu paused_drops=%lu "
                 "heap=%uK psram=%uK%s\n",
                 (unsigned long long)uPerfWriteMaxUs,
                 (unsigned long long)uPerfSyncMaxUs,
@@ -458,6 +469,7 @@ void LogSensorCommitTask(void *pvParams)
                 (unsigned long)uPerfImuMaxLateUs,
                 (unsigned long)uPerfOverflowCnt,
                 (unsigned long)uPerfOverflowB,
+                (unsigned long)uPerfPausedDrops,
                 (unsigned)uHeapK,
                 (unsigned)uPsramK,
                 bHeartbeat && !bTripped ? " hb" : "");
@@ -470,6 +482,7 @@ void LogSensorCommitTask(void *pvParams)
             uPerfImuMaxLateUs = 0;
             uPerfOverflowCnt  = 0;
             uPerfOverflowB    = 0;
+            uPerfPausedDrops  = 0;
             uPerfLastEmitMs   = uNowPerfMs;
             }
 
@@ -807,10 +820,16 @@ void LogSensor::Write()
 {
     static char szLogLine[onspeed::proto::log_csv::kRowMaxBytes + 2]; // +2 for "\n\0"
 
-    // Used during SD file downloads (and other future pause cases).
-    // Avoid queuing data while the writer task is paused.
+    // g_bPause is held by HandleDownload and the bulk-delete handlers,
+    // which sit on xWriteMutex for many seconds; pausing the producer
+    // there prevents the ring from overflowing during that window.
+    // Each dropped sample bumps s_uPausedDropCount so the loss is
+    // visible in PERF telemetry instead of silently disappearing.
     if (g_bPause)
+        {
+        __atomic_fetch_add(&s_uPausedDropCount, 1u, __ATOMIC_RELAXED);
         return;
+        }
 
     if (!g_Config.bSdLogging)
         return;
