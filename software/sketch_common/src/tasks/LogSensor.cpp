@@ -728,6 +728,13 @@ void LogSensor::Close()
     // buffer just before Close() fires (web LOG DISABLE, FORMAT, etc.)
     // loses the parked row silently — the drain loop wouldn't run again
     // to place it at the front of szWriteBuf.
+    //
+    // Two flushes: the first drains any sub-sector residual left by the
+    // last writer iteration (so szWriteBuf has room for a full row), the
+    // second writes the carryover. Without the leading flush, a 2 KB
+    // carryover row + 1-511 bytes of residual would overflow WRITE_BUF_SIZE
+    // and the bounds check would silently drop the carryover.
+    FlushStagingBufferLocked();
     if (uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
         {
         memcpy(szWriteBuf + uBufUsed, szCarryoverBuf, uCarryoverLen);

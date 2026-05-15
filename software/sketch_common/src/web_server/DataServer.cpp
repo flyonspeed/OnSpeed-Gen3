@@ -82,14 +82,19 @@ void DataServerInit()
     DataServer.onEvent(DataServerEvent);
 
     // Enable WS-level heartbeat so the server detects dead peers in
-    // ~30 s instead of waiting for lwIP TCP keepalive (default ~2 h
+    // ~20 s instead of waiting for lwIP TCP keepalive (default ~2 h
     // when unconfigured). Without this, an iOS Safari tab that drops
     // the foreground socket (screen sleep, app background) leaves a
     // zombie client slot occupied; broadcasts keep flowing into the
     // dead lwIP send buffer until it fills, starving the live clients.
     //
     // Values: pingInterval=15s, pongTimeout=3s, missedPongsBeforeDrop=2.
-    // Total time-to-detect-dead-peer: 15s × 2 + 3s = ~33 s.
+    // Timing: first ping at t=15s, pong timeout at t≈18s (count=1); the
+    // arduinoWebSockets impl rewinds lastPing to force an immediate
+    // re-ping after a miss (WebSockets.cpp::handleHBTimeout), so the
+    // second timeout fires at t≈21s (count=2 -> disconnect). Net:
+    // dead-peer detection in ~21 s rather than ~33 s, which is fine —
+    // more aggressive cleanup is the desired direction.
     DataServer.enableHeartbeat(15000, 3000, 2);
     }
 
