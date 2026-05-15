@@ -24,7 +24,9 @@
 //   [56..59] AccelFwd
 //   [60..63] AccelLat
 //   [64..67] AccelVert
-//   [68..75] TimeUTC (8 bytes; [71]=Hour,[72]=Min,[73]=Sec)
+//   [68..75] TimeUTC (8 bytes; [68]=Year-2000,[69]=Month,[70]=Day,
+//                              [71]=Hour,[72]=Min,[73]=Sec,
+//                              [74..75]=Ms u16 LE per UM005 GpsGroup.UTC)
 //   [76]    GPSFix
 //   [77..80] GnssVelNedNorth
 //   [81..84] GnssVelNedEast
@@ -116,6 +118,9 @@ static void buildVn300Packet(uint8_t buf[127],
     buf[71] = 12;   // Hour
     buf[72] = 34;   // Min
     buf[73] = 56;   // Sec
+    // Ms at [74..75] as u16 little-endian. 789 = 0x0315.
+    buf[74] = 0x15;
+    buf[75] = 0x03;
     buf[76] = 3;    // GPSFix
     writeFloat(buf, 77, 50.0f);
     writeFloat(buf, 81, 5.0f);
@@ -329,6 +334,37 @@ void test_vn300_est_alt_meters_in_data(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-3, 1378.265, data->estAltMeters);
 }
 
+// TimeUTC formatting: parser reads bytes 74-75 as u16 LE ms and emits
+// "HH:MM:SS.mmm" with zero-padded fields. Buffer fits the formatted string
+// with room to spare (24-byte szTimeUTC vs 12-byte payload + null).
+void test_vn300_time_utc_includes_ms(void)
+{
+    uint8_t buf[127];
+    buildVn300Packet(buf, 0.0f, 0.0f, 0.0f);   // sets hour/min/sec/ms above
+    Vn300Parser parser;
+    feedAll(parser, buf, 127);
+    auto data = parser.TakeVn300Data();
+    TEST_ASSERT_TRUE(data.has_value());
+    TEST_ASSERT_EQUAL_STRING("12:34:56.789", data->szTimeUTC);
+}
+
+void test_vn300_time_utc_zero_pads_single_digits(void)
+{
+    uint8_t buf[127];
+    buildVn300Packet(buf, 0.0f, 0.0f, 0.0f);
+    buf[71] = 1;     // Hour
+    buf[72] = 2;     // Min
+    buf[73] = 3;     // Sec
+    buf[74] = 0x04;  // Ms = 4
+    buf[75] = 0x00;
+    appendVnCrc(buf, 127);
+    Vn300Parser parser;
+    feedAll(parser, buf, 127);
+    auto data = parser.TakeVn300Data();
+    TEST_ASSERT_TRUE(data.has_value());
+    TEST_ASSERT_EQUAL_STRING("01:02:03.004", data->szTimeUTC);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -348,5 +384,7 @@ int main(int, char**)
     RUN_TEST(test_vn300_gps_fix_in_data);
     RUN_TEST(test_vn300_yprU_axis_assignment);
     RUN_TEST(test_vn300_est_alt_meters_in_data);
+    RUN_TEST(test_vn300_time_utc_includes_ms);
+    RUN_TEST(test_vn300_time_utc_zero_pads_single_digits);
     return UNITY_END();
 }

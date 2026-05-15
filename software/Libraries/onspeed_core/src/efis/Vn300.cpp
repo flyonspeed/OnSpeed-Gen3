@@ -1,12 +1,8 @@
 // Vn300.cpp
 //
-// Ported verbatim from EfisSerial.cpp (EnVN300 branch). No algorithmic
-// changes — characterisation first.
-//
-// NOTE: The original firmware uses millis() for the fractional second in
-// szTimeUTC. This parser cannot call millis() (onspeed_core must be
-// platform-free). The szTimeUTC field is populated with whole seconds only;
-// consumers that need sub-second precision must supply their own timestamp.
+// VectorNav VN-300 binary parser. szTimeUTC is formatted as
+// "HH:MM:SS.mmm" from GPS time fields (hour/min/sec at bytes 71/72/73
+// and ms u16 LE at bytes 74/75 per UM005 GpsGroup.UTC).
 
 #include <efis/Vn300.h>
 
@@ -139,14 +135,13 @@ void Vn300Parser::Decode()
     data.accelLat         = array2float(buf_, 60);
     data.accelVert        = array2float(buf_, 64);
 
-    // GPS time
-    uint8_t vnHour = buf_[71];
-    uint8_t vnMin  = buf_[72];
-    uint8_t vnSec  = buf_[73];
-    // NOTE: fractional seconds from millis() are omitted here (not
-    // platform-free). Consumers needing sub-second resolution must augment.
+    // GPS time. Ms is a little-endian u16 at bytes 74..75 (UM005 GpsGroup.UTC).
+    uint8_t  vnHour = buf_[71];
+    uint8_t  vnMin  = buf_[72];
+    uint8_t  vnSec  = buf_[73];
+    uint16_t vnMs   = static_cast<uint16_t>(buf_[74] | (buf_[75] << 8));
     snprintf(data.szTimeUTC, sizeof(data.szTimeUTC),
-             "%u:%u:%u", vnHour, vnMin, vnSec);
+             "%02u:%02u:%02u.%03u", vnHour, vnMin, vnSec, vnMs);
 
     data.gpsFix            = buf_[76];
     data.gnssVelNedNorth   = array2float(buf_, 77);
