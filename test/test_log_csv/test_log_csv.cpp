@@ -49,6 +49,7 @@ static LogRow MakeTestRow(bool boom = false, bool efis = false, bool vn300 = fal
     }
 
     r.timeStampMs       = 123456u;
+    r.timeStampUs       = 123456789012ull;  // ~123 sec since boot, full 64-bit range exercise
     r.pfwdCounts        = 42;
     r.pfwdSmoothed      = 42.50f;
     r.p45Counts         = 17;
@@ -162,6 +163,7 @@ static void AssertRoundTrip(const LogRow& original)
 
     // Core fields
     TEST_ASSERT_EQUAL_UINT32(original.timeStampMs, parsed.timeStampMs);
+    TEST_ASSERT_EQUAL_UINT64(original.timeStampUs, parsed.timeStampUs);
     TEST_ASSERT_EQUAL_INT(original.pfwdCounts, parsed.pfwdCounts);
     TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.pfwdSmoothed, parsed.pfwdSmoothed);
     TEST_ASSERT_EQUAL_INT(original.p45Counts, parsed.p45Counts);
@@ -290,6 +292,7 @@ void test_header_core_columns_present(void)
 
     // Spot-check a selection of required column names
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "timeStamp"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "timeStampUs"));
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "PfwdSmoothed"));
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "P45Smoothed"));
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "Palt"));
@@ -451,10 +454,11 @@ void test_pitch_rate_sign_flip_in_format_row(void)
     r.imuPitchRateDps = 0.654321f;
     csv::FormatRow(r, s_rowBuf, sizeof(s_rowBuf));
 
-    // The formatted row has fields separated by commas.  PitchRate is column 19
-    // (1-indexed), so count 18 commas from the start and check the value after.
+    // The formatted row has fields separated by commas. PitchRate is column 20
+    // (1-indexed) — was column 19 before the timeStampUs insertion at
+    // position 2 (issue #551). Count 19 commas from the start.
     const char* p = s_rowBuf;
-    for (int i = 0; i < 18; ++i) {
+    for (int i = 0; i < 19; ++i) {
         p = strchr(p, ',');
         TEST_ASSERT_NOT_NULL(p);
         ++p;
@@ -502,6 +506,7 @@ void test_large_timestamp(void)
 {
     LogRow r;
     r.timeStampMs = 0xFFFFFFFEu;   // near uint32 max
+    r.timeStampUs = 0xFFFFFFFFFFFFFFFEull;  // near uint64 max
     size_t fmtLen = csv::FormatRow(r, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
@@ -509,6 +514,7 @@ void test_large_timestamp(void)
     bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFEu, parsed.timeStampMs);
+    TEST_ASSERT_EQUAL_UINT64(0xFFFFFFFFFFFFFFFEull, parsed.timeStampUs);
 }
 
 void test_empty_vn300_utc_string(void)
@@ -806,9 +812,10 @@ void test_invalid_ias_emits_empty_ias_and_aoa_cells(void)
     s_rowBuf[fmtLen] = '\0';
     // After paltFt we expect ",,,<flapsPos>" — comma after paltFt, then
     // empty IAS, empty AOA, comma before flapsPos.
-    // Walk past 7 commas to land at the start of IAS.
+    // Walk past 8 commas to land at the start of IAS — was 7 before the
+    // timeStampUs insertion at position 2 (issue #551).
     const char* p = s_rowBuf;
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 8; ++i) {
         p = strchr(p, ',');
         TEST_ASSERT_NOT_NULL(p);
         ++p;
@@ -968,12 +975,15 @@ void test_trailing_crlf_tolerated(void)
 // ============================================================================
 
 // Sample rows (5 data lines from the real log, efis non-VN300, no boom).
+// Fixture rows regenerated for the `timeStampUs` column (issue #551).
+// The synthetic µs values here are `timeStampMs * 1000` for each row;
+// real-firmware rows will have independent µs from esp_timer_get_time().
 static const char* kFixtureRows[] = {
-    "2094,0,0.00,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,0.00,11.57,1.017090,0.009033,-0.049561,0.054282,-0.307396,-0.183381,1.09,-0.32,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2092,2,0.02,0.00,0.00,5235.73,1.0939,0.0000",
-    "2115,2,0.50,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,3.45,11.57,1.019531,0.009766,-0.048584,0.091666,-0.157860,-0.101136,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2113,2,0.02,0.00,0.00,5235.54,1.1150,4.0000",
-    "2134,2,1.00,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,3.45,11.57,1.019531,0.011475,-0.049561,0.061758,-0.217675,0.063353,1.14,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2132,2,0.02,0.00,0.00,5240.78,1.1434,2.0000",
-    "2153,2,1.25,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,4.45,11.57,1.026855,0.009277,-0.052002,0.039328,-0.210198,0.025969,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2152,2,0.03,0.00,0.00,5242.81,1.1152,1.6000",
-    "2174,2,1.40,5,2.00,834.76,5234.33,4.03,-20.00,0,0,0.00,4.45,11.57,1.025635,0.009033,-0.052734,0.001944,-0.180291,0.085784,1.09,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2172,2,0.03,0.00,0.00,5240.60,1.0866,1.4286",
+    "2094,2094000,0,0.00,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,0.00,11.57,1.017090,0.009033,-0.049561,0.054282,-0.307396,-0.183381,1.09,-0.32,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2092,2,0.02,0.00,0.00,5235.73,1.0939,0.0000",
+    "2115,2115000,2,0.50,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,3.45,11.57,1.019531,0.009766,-0.048584,0.091666,-0.157860,-0.101136,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2113,2,0.02,0.00,0.00,5235.54,1.1150,4.0000",
+    "2134,2134000,2,1.00,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,3.45,11.57,1.019531,0.011475,-0.049561,0.061758,-0.217675,0.063353,1.14,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2132,2,0.02,0.00,0.00,5240.78,1.1434,2.0000",
+    "2153,2153000,2,1.25,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,4.45,11.57,1.026855,0.009277,-0.052002,0.039328,-0.210198,0.025969,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2152,2,0.03,0.00,0.00,5242.81,1.1152,1.6000",
+    "2174,2174000,2,1.40,5,2.00,834.76,5234.33,4.03,-20.00,0,0,0.00,4.45,11.57,1.025635,0.009033,-0.052734,0.001944,-0.180291,0.085784,1.09,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2172,2,0.03,0.00,0.00,5240.60,1.0866,1.4286",
 };
 
 static constexpr int kFixtureRowCount = 5;

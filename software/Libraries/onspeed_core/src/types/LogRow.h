@@ -31,6 +31,18 @@ struct LogRow {
     // Wall-clock millisecond timestamp from the sketch (millis()).
     uint32_t timeStampMs = 0;
 
+    // Microsecond-resolution timestamp from esp_timer_get_time() (64-bit
+    // µs since boot, no rollover for ~292,000 years). Emitted as CSV
+    // column `timeStampUs` immediately after `timeStamp`. The two are
+    // assigned side-by-side in the producer and refer to the same sample
+    // instant (offset is a few ns).
+    //
+    // Optional on parse: logs from before the column was added leave
+    // this at 0 and HeaderIndex::idxTimeStampUs stays -1. Downstream
+    // tooling that wants µs precision should check idxTimeStampUs first
+    // and fall back to timeStampMs * 1000 for older logs.
+    uint64_t timeStampUs = 0;
+
     // Raw forward (pitot) pressure counts and smoothed value.
     int   pfwdCounts    = 0;
     float pfwdSmoothed  = 0.0f;

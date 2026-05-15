@@ -100,12 +100,39 @@ void test_build_index_canonical_minimum_required(void)
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_INT(0, g_warnCount);
     TEST_ASSERT_EQUAL_INT(0,  idx.idxTimeStampMs);
+    // Old log without timeStampUs column: idxTimeStampUs stays -1 and
+    // ParseRowByIndex leaves row.timeStampUs at 0.
+    TEST_ASSERT_EQUAL_INT(-1, idx.idxTimeStampUs);
     TEST_ASSERT_EQUAL_INT(7,  idx.idxIasKt);
     TEST_ASSERT_EQUAL_INT(9,  idx.idxFlapsPos);
     TEST_ASSERT_EQUAL_INT(28, idx.totalColumns);
     TEST_ASSERT_FALSE(idx.boomEnabled);
     TEST_ASSERT_FALSE(idx.efisEnabled);
     TEST_ASSERT_FALSE(idx.efisIsVn300);
+}
+
+void test_build_index_with_timestampus_column(void)
+{
+    // New log shape: timeStampUs adjacent to timeStamp. Verify the
+    // index picks it up at the correct ordinal and the rest of the
+    // canonical columns shift right by one.
+    static const char kHeader[] =
+        "timeStamp,timeStampUs,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
+        "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
+        "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
+        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
+
+    HeaderIndex idx;
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(kHeader, idx, CountingWarnSink);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_INT(0, g_warnCount);
+    TEST_ASSERT_EQUAL_INT(0,  idx.idxTimeStampMs);
+    TEST_ASSERT_EQUAL_INT(1,  idx.idxTimeStampUs);
+    TEST_ASSERT_EQUAL_INT(8,  idx.idxIasKt);       // shifted right by one
+    TEST_ASSERT_EQUAL_INT(10, idx.idxFlapsPos);    // shifted right by one
+    TEST_ASSERT_EQUAL_INT(29, idx.totalColumns);   // one more than minimum
 }
 
 void test_build_index_reordered_columns(void)
@@ -352,6 +379,7 @@ void test_parserowbyindex_canonical_roundtrip(void)
     // and the row back through the index path, and check every field.
     onspeed::LogRow src{};
     src.timeStampMs        = 12345;
+    src.timeStampUs        = 12345678ull;
     src.pfwdCounts         = 100;
     src.pfwdSmoothed       = 1.5f;
     src.p45Counts          = 200;
@@ -401,10 +429,37 @@ void test_parserowbyindex_canonical_roundtrip(void)
     TEST_ASSERT_TRUE(ok);
 
     TEST_ASSERT_EQUAL_UINT32(src.timeStampMs, dst.timeStampMs);
+    TEST_ASSERT_EQUAL_UINT64(src.timeStampUs, dst.timeStampUs);
     TEST_ASSERT_EQUAL_INT(src.flapsPos, dst.flapsPos);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, src.iasKt, dst.iasKt);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, src.imuPitchRateDps, dst.imuPitchRateDps);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, src.coeffP, dst.coeffP);
+}
+
+void test_parserowbyindex_old_log_without_timestampus(void)
+{
+    // Backward-compat: old log shape (no timeStampUs column) parses
+    // cleanly and leaves row.timeStampUs at default (0). Consumers fall
+    // back to row.timeStampMs * 1000 for those logs.
+    static const char kHeader[] =
+        "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
+        "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
+        "imuTemp,VerticalG,LateralG,ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
+        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
+    static const char kRow[] =
+        "12345,100,1.50,200,2.50,1013.25,1234.00,87.50,4.20,10,3,15.00,90.10,"
+        "25.00,1.02,0.01,-0.03,5.00,-7.50,-2.00,3.50,-1.20,"
+        "1.00,2.00,250.00,1300.00,4.3000,0.1230";
+
+    HeaderIndex idx;
+    TEST_ASSERT_TRUE(BuildHeaderIndex(kHeader, idx));
+    TEST_ASSERT_EQUAL_INT(-1, idx.idxTimeStampUs);
+
+    onspeed::LogRow dst{};
+    bool ok = ParseRowByIndex(kRow, idx, dst);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_EQUAL_UINT32(12345u, dst.timeStampMs);
+    TEST_ASSERT_EQUAL_UINT64(0ull, dst.timeStampUs);  // absent → 0
 }
 
 void test_parserowbyindex_empty_field_fails(void)
@@ -843,6 +898,7 @@ int main(int, char**)
 {
     UNITY_BEGIN();
     RUN_TEST(test_build_index_canonical_minimum_required);
+    RUN_TEST(test_build_index_with_timestampus_column);
     RUN_TEST(test_build_index_reordered_columns);
     RUN_TEST(test_build_index_extra_unknown_columns);
     RUN_TEST(test_build_index_missing_required_flapspos);
@@ -853,6 +909,7 @@ int main(int, char**)
     RUN_TEST(test_build_index_vn300_without_est_alt_ft_still_enables);
     RUN_TEST(test_build_index_boom_partial_warns_no_enable);
     RUN_TEST(test_parserowbyindex_canonical_roundtrip);
+    RUN_TEST(test_parserowbyindex_old_log_without_timestampus);
     RUN_TEST(test_parserowbyindex_empty_field_fails);
     RUN_TEST(test_parserowbyindex_invalid_ias_round_trip);
     RUN_TEST(test_parserowbyindex_reordered_roundtrip);

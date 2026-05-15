@@ -4,6 +4,7 @@
 #endif
 #include "SdFat.h"
 
+#include <esp_timer.h>          // esp_timer_get_time() — 64-bit µs since boot
 #include "src/Globals.h"
 #include <buildinfo.h>
 #include <log/ConsumeAlignedWrite.h>
@@ -815,7 +816,12 @@ void LogSensor::Write()
         return;
 
     // --- Snapshot sensor state into a LogRow ---
-    unsigned long uTimeStamp = millis();
+    // Snapshot both timestamps back-to-back so they refer to the same
+    // sample instant (offset is a few ns). esp_timer_get_time() returns
+    // 64-bit µs since boot — no rollover at flight timescales (vs
+    // micros() which wraps every ~71 min).
+    unsigned long uTimeStamp   = millis();
+    uint64_t      uTimeStampUs = (uint64_t)esp_timer_get_time();
 
     onspeed::LogRow row;
     row.boomEnabled = g_Config.bReadBoom;
@@ -825,6 +831,7 @@ void LogSensor::Write()
     row.flapsRawAdcPresent = true;
 
     row.timeStampMs      = (uint32_t)uTimeStamp;
+    row.timeStampUs      = uTimeStampUs;
     row.pfwdCounts       = g_Sensors.iPfwd;
     row.pfwdSmoothed     = g_Sensors.PfwdSmoothed;
     row.p45Counts        = g_Sensors.iP45;

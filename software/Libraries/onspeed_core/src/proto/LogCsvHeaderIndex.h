@@ -33,6 +33,13 @@ struct HeaderIndex {
 
     // Always-present core columns (BuildHeaderIndex requires all of these).
     int idxTimeStampMs    = -1;
+
+    // Optional µs-resolution timestamp (issue #551). Older logs lack
+    // this column; in that case the ordinal stays -1, ParseRowByIndex
+    // leaves row.timeStampUs at 0, and consumers should fall back to
+    // row.timeStampMs * 1000 for absolute timing on those logs.
+    int idxTimeStampUs    = -1;
+
     int idxPfwd           = -1;
     int idxPfwdSmoothed   = -1;
     int idxP45            = -1;

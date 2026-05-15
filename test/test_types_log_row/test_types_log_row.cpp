@@ -12,6 +12,7 @@ void test_default_initializes_numeric_fields_to_zero(void)
 {
     LogRow r;
     TEST_ASSERT_EQUAL_UINT32(0u,   r.timeStampMs);
+    TEST_ASSERT_EQUAL_UINT64(0ull, r.timeStampUs);
     TEST_ASSERT_EQUAL_INT(0,       r.pfwdCounts);
     TEST_ASSERT_EQUAL_FLOAT(0.0f,  r.pfwdSmoothed);
     TEST_ASSERT_EQUAL_FLOAT(0.0f,  r.iasKt);
