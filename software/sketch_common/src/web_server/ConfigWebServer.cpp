@@ -1076,9 +1076,32 @@ void HandleConfigSave()
     //serialOutPort
 //    if (CfgServer.hasArg("serialOutPort")) g_Config.sSerialOutPort=CfgServer.arg("serialOutPort");
 
-    // sdLogging
-    if (CfgServer.hasArg("sdLogging") && CfgServer.arg("sdLogging")=="1") g_Config.bSdLogging=true;
-    else                                                                  g_Config.bSdLogging=false;
+    // sdLogging — also fire LogSensor::Open() / Close() so the change
+    // takes effect immediately without a reboot. (Issue #550: previously
+    // this just set the flag; producer task started queuing, but no log
+    // file was open, so every line was discarded until reboot.)
+    {
+        const bool bWasSdLogging = g_Config.bSdLogging;
+        const bool bNewSdLogging = (CfgServer.hasArg("sdLogging") &&
+                                    CfgServer.arg("sdLogging") == "1");
+        g_Config.bSdLogging = bNewSdLogging;
+
+        if (bWasSdLogging != bNewSdLogging &&
+            g_Config.suDataSrc.enSrc == SuDataSource::EnSensors)
+        {
+            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
+            {
+                if (bNewSdLogging) g_LogSensor.Open();
+                else               g_LogSensor.Close();
+                xSemaphoreGive(xWriteMutex);
+            }
+            else
+            {
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
+                    "sdLogging toggle: xWriteMutex busy; reboot to take effect");
+            }
+        }
+    }
 
     // Logging rate
     if (CfgServer.hasArg("logRate")) { int v = CfgServer.arg("logRate").toInt(); g_Config.iLogRate = (v == 208) ? 208 : 50; }

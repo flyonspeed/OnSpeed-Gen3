@@ -103,7 +103,6 @@ EXTERN_INIT(TaskHandle_t             xTaskHousekeeping,  NULL)
 EXTERN_INIT(TaskHandle_t             xTaskLogReplay,     NULL)
 EXTERN_INIT(TaskHandle_t             xTaskTestPot,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskRangeSweep,    NULL)
-EXTERN_INIT(TaskHandle_t             xTaskDebugLog,      NULL)
 
 // Capacity of the data ring buffer. Allocated by xRingbufferCreateWithCaps()
 // in setup() and used by LogSensorCommitTask's PERF tick to compute the
@@ -119,9 +118,6 @@ EXTERN SemaphoreHandle_t        xWriteMutex;
 EXTERN SemaphoreHandle_t        xSensorMutex;
 EXTERN SemaphoreHandle_t        xAhrsMutex;
 EXTERN SemaphoreHandle_t        xSerialLogMutex;
-// Separate from xWriteMutex on purpose: the very SD stalls we want to
-// log about hold xWriteMutex, so debug-side writes must use their own.
-EXTERN SemaphoreHandle_t        xDebugWriteMutex;
 
 // Right now there is only one scheduled task, reading sensors. Once it starts
 // I want it to always be on the same integer multiple of ticks so it doesn't

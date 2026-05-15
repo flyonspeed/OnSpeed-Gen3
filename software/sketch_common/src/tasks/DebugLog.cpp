@@ -13,7 +13,11 @@
 // bound power-yank loss to ~5 s.
 static const uint32_t  kDebugSyncIntervalMs = 5000;
 
-// Local module state. All access serialized through xDebugWriteMutex.
+// Local module state. All access serialised through xWriteMutex —
+// SdFat's volume cache is shared with the CSV writer, so even though
+// the dbg file and CSV file are different files, concurrent writes
+// would corrupt each other's data. The producer-side ring (non-blocking
+// xRingbufferSend) is what isolates flight-critical tasks from SD stalls.
 static FsFile          m_hDebugFile;
 
 static const size_t    kDebugSector    = 512;
@@ -28,7 +32,7 @@ volatile uint32_t       g_uDebugRingDrops = 0;
 
 void DebugLog::Open(const char *szBaseName)
 {
-    // Caller holds xDebugWriteMutex.
+    // Caller holds xWriteMutex.
 
     if (m_bOpen)
         Close();
@@ -64,7 +68,7 @@ void DebugLog::Open(const char *szBaseName)
 
 void DebugLog::Close()
 {
-    // Caller holds xDebugWriteMutex.
+    // Caller holds xWriteMutex.
 
     if (!m_bOpen)
         return;
@@ -91,7 +95,7 @@ void DebugLog::Close()
 
 void DebugLog::RenameWithPrefix(const char *szDatePrefix)
 {
-    // Caller holds xDebugWriteMutex.
+    // Caller holds xWriteMutex.
 
     if (m_szBaseName[0] == '\0' || szDatePrefix == nullptr)
         return;
@@ -132,97 +136,70 @@ bool DebugLog::Write(const char *szLine, size_t uLen)
 
 // ===========================================================================
 
-// FreeRTOS task: drain the debug ring, write 512-byte-aligned chunks
-// to the .dbg file under xDebugWriteMutex, sync periodically.
+// Drain the debug ring into the .dbg file. Caller must already hold
+// xWriteMutex (typically because they just finished a CSV write/sync
+// cycle and are about to release the mutex anyway). Non-blocking on
+// the ring receive — returns immediately if nothing is queued.
 //
-// Runs at lower priority than LogSensorCommitTask and pinned to Core
-// 0 so it never competes with flight-critical sampling on Core 1.
-
-void DebugLogCommitTask(void *pvParams)
+// This used to be a separate task (DebugLogCommitTask), but two writer
+// tasks competing for one mutex starved each other under steady load.
+// Folding the dbg drain into the data writer's existing critical
+// section eliminates the contention; the dbg cost per data-writer
+// iteration is small (a few memcpys, occasional 512-byte SD write).
+void DebugLog::DrainLocked()
 {
-    (void)pvParams;
+    if (xDebugRingBuffer == nullptr || !m_bOpen) return;
 
-    static TickType_t xLastSyncTime = xTaskGetTickCount();
-    static char      *pchIn;
-    static size_t     iLen;
+    static TickType_t xLastDebugSyncTime = xTaskGetTickCount();
+    char      *pchIn;
+    size_t     iLen;
+    bool       bGotData = false;
 
+    // Non-blocking drain of whatever's currently queued.
     while (true)
         {
-        if (xDebugRingBuffer == nullptr)
+        pchIn = (char *)xRingbufferReceive(xDebugRingBuffer, &iLen, 0);
+        if (pchIn == nullptr) break;
+
+        if (m_uDebugBufUsed + iLen > kDebugBufSize)
             {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-            }
-
-        // If the box is in pause mode (web download / listing), idle
-        // the same way LogSensorCommitTask does.
-        if (g_bPause)
-            {
-            pchIn = (char *)xRingbufferReceive(xDebugRingBuffer, &iLen, pdMS_TO_TICKS(100));
-            if (pchIn != nullptr)
-                vRingbufferReturnItem(xDebugRingBuffer, pchIn);
-            continue;
-            }
-
-        if (!xSemaphoreTake(xDebugWriteMutex, pdMS_TO_TICKS(1000)))
-            continue;
-
-        // Drain available items into the staging buffer.
-        bool       bGotData = false;
-        TickType_t xWait    = pdMS_TO_TICKS(100);
-
-        while (true)
-            {
-            pchIn = (char *)xRingbufferReceive(xDebugRingBuffer, &iLen, xWait);
-            xWait = 0;
-            if (pchIn == nullptr)
-                break;
-
-            if (m_uDebugBufUsed + iLen > kDebugBufSize)
-                {
-                vRingbufferReturnItem(xDebugRingBuffer, pchIn);
-                break;
-                }
-
-            memcpy(m_szDebugBuf + m_uDebugBufUsed, pchIn, iLen);
-            m_uDebugBufUsed += iLen;
             vRingbufferReturnItem(xDebugRingBuffer, pchIn);
-            bGotData = true;
+            break;
             }
+        memcpy(m_szDebugBuf + m_uDebugBufUsed, pchIn, iLen);
+        m_uDebugBufUsed += iLen;
+        vRingbufferReturnItem(xDebugRingBuffer, pchIn);
+        bGotData = true;
+        }
 
-        // Flush 512-byte-aligned chunks; retain residual for next round.
-        if (bGotData && m_hDebugFile.isOpen())
+    // Flush 512-byte-aligned chunks; residual stays in the buffer.
+    if (bGotData && m_hDebugFile.isOpen())
+        {
+        size_t uAligned = (m_uDebugBufUsed / kDebugSector) * kDebugSector;
+        if (uAligned > 0)
             {
-            size_t uAligned = (m_uDebugBufUsed / kDebugSector) * kDebugSector;
-            if (uAligned > 0)
+            const size_t uActual = m_hDebugFile.write(m_szDebugBuf, uAligned);
+            onspeed::log::ConsumeAlignedWrite(
+                uAligned, uActual,
+                m_szDebugBuf, kDebugBufSize, &m_uDebugBufUsed);
+            }
+        }
+
+    // Periodic sync (also flushes any partial-sector residual).
+    if ((xTaskGetTickCount() - xLastDebugSyncTime) > pdMS_TO_TICKS(kDebugSyncIntervalMs))
+        {
+        if (m_hDebugFile.isOpen())
+            {
+            if (m_uDebugBufUsed > 0)
                 {
-                const size_t uActual = m_hDebugFile.write(m_szDebugBuf, uAligned);
-                // Short-write retry: helper leaves the unwritten head
-                // at the front so the next iteration picks it up.
+                const size_t uRequested = m_uDebugBufUsed;
+                const size_t uActual    = m_hDebugFile.write(m_szDebugBuf, uRequested);
                 onspeed::log::ConsumeAlignedWrite(
-                    uAligned, uActual,
+                    uRequested, uActual,
                     m_szDebugBuf, kDebugBufSize, &m_uDebugBufUsed);
                 }
+            m_hDebugFile.sync();
             }
-
-        if ((xTaskGetTickCount() - xLastSyncTime) > pdMS_TO_TICKS(kDebugSyncIntervalMs))
-            {
-            if (m_hDebugFile.isOpen())
-                {
-                // Flush partial sector before sync.
-                if (m_uDebugBufUsed > 0)
-                    {
-                    const size_t uRequested = m_uDebugBufUsed;
-                    const size_t uActual    = m_hDebugFile.write(m_szDebugBuf, uRequested);
-                    onspeed::log::ConsumeAlignedWrite(
-                        uRequested, uActual,
-                        m_szDebugBuf, kDebugBufSize, &m_uDebugBufUsed);
-                    }
-                m_hDebugFile.sync();
-                }
-            xLastSyncTime = xTaskGetTickCount();
-            }
-
-        xSemaphoreGive(xDebugWriteMutex);
+        xLastDebugSyncTime = xTaskGetTickCount();
         }
 }

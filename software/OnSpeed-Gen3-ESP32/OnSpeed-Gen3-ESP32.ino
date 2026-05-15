@@ -79,7 +79,6 @@ void setup()
     xSensorMutex     = xSemaphoreCreateMutex();
     xAhrsMutex       = xSemaphoreCreateMutex();
     xSerialLogMutex  = xSemaphoreCreateMutex();
-    xDebugWriteMutex = xSemaphoreCreateMutex();
 
     // Boot diagnostics: read reset reason and boot count from NVS and print
     // a summary. Runs after semaphore creation (uses g_Log, which takes
@@ -229,21 +228,35 @@ void setup()
     // seconds" wear-leveling pauses documented in LogSensorCommitTask.
     // Allocated in PSRAM so it doesn't eat internal DRAM (the V4P
     // board has 8 MB SPIRAM via BOARD_HAS_PSRAM).
+    //
+    // RINGBUF_TYPE_NOSPLIT is load-bearing: each xRingbufferReceive
+    // returns exactly ONE item (one log row, ≤ kRowMaxBytes). The
+    // drain loop in LogSensorCommitTask relies on this to bound the
+    // "row doesn't fit in staging buffer" case to one row, which the
+    // carryover slot then rescues. Switching to BYTEBUF here would
+    // reintroduce silent data loss whenever a card stall fills the
+    // ring with several KB of queued rows (Receive returns all of
+    // them, drain can only fit some, the rest are freed back to the
+    // ring's free pool with no way to un-receive).
+    //
+    // Cost: ~24-byte per-item header overhead. At ~200 byte rows
+    // that's 12 %, leaving ~230 KB usable.
     xLoggingRingBuffer = xRingbufferCreateWithCaps(
-        kLoggingRingBufferBytes, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        kLoggingRingBufferBytes, RINGBUF_TYPE_NOSPLIT, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     const bool bLoggingRingBufferOk = (xLoggingRingBuffer != NULL);
     if (!bLoggingRingBufferOk)
         g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xLoggingRingBuffer is NULL; SD logging disabled this session");
 
     // Debug-log ring: 16 KB in PSRAM. Sized for Warning/Error volume
     // plus the 0.1-1 Hz PERF tick; not meant to absorb verbose Debug
-    // output, which is gated by the SD threshold in MsgLog.
+    // output, which is gated by the SD threshold in MsgLog. Drained
+    // by LogSensorCommitTask under the same xWriteMutex window — no
+    // separate writer task (would starve the data writer for the
+    // mutex, since SdFat's volume cache is shared).
     xDebugRingBuffer = xRingbufferCreateWithCaps(
-        kDebugRingBufferBytes, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        kDebugRingBufferBytes, RINGBUF_TYPE_NOSPLIT, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (xDebugRingBuffer == NULL)
         g_Log.println(MsgLog::EnMain, MsgLog::EnError, "xDebugRingBuffer is NULL; SD debug log disabled");
-    else
-        xTaskCreatePinnedToCore(DebugLogCommitTask, "Write Debug",   3500, NULL, 1, &xTaskDebugLog,    0);
     // bSdLogging is intentionally not mutated on alloc failure — the
     // user's saved config is the source of truth. bLoggingRingBufferOk
     // gates Open() and writer-task creation below; Write()'s null-ring
@@ -263,7 +276,11 @@ void setup()
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
         xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
         if (bLoggingRingBufferOk)
-            xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 1, &xTaskWriteLog,     1);
+            // Writer pinned to Core 0 to keep the SD-bus work (writes,
+            // syncs, sidecar refresh) off Core 1 where the 208 Hz IMU
+            // task lives. Core 0 already hosts WiFi and the web server;
+            // xWriteMutex serializes SD access across cores correctly.
+            xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 1, &xTaskWriteLog,     0);
         if (g_Config.iLogRate == 208)
             Serial.printf("Logging at %iHz\n", int(g_AHRS.fImuSampleRate));
         else

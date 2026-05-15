@@ -159,6 +159,17 @@ void SensorReadTask(void *pvParams)
 
 // ----------------------------------------------------------------------------
 
+// PERF instrumentation for IMU lateness. The IMU read task is scheduled
+// at uBasePeriodUs intervals (4807 us @ 208Hz). When something on this
+// core (sync, write, mutex contention) prevents the task from running
+// on schedule, iLateUs accumulates and the task surrenders the missed
+// sample by resetting uNextWakeUs = micros().
+//
+// These counters let us see post-flight how often the surrender path
+// fires and how badly. Read by LogSensor's PERF tick via __atomic_*.
+volatile uint32_t g_uImuLateResets = 0;     // count of schedule-resets in window
+volatile uint32_t g_uImuMaxLateUs  = 0;     // worst lateness observed in window
+
 // FreeRTOS task for reading IMU + updating AHRS at kImuSampleRateHz
 
 void ImuReadTask(void *pvParams)
@@ -194,8 +205,30 @@ void ImuReadTask(void *pvParams)
         if (iWaitUs > 0)
             delayMicroseconds(uint32_t(iWaitUs));
 
-        // If this task is running late, log it (rate-limited).
+        // Track lateness on every iteration so the noise floor is
+        // visible in PERF, not just the >1ms outliers. uImuMaxLateUs
+        // captures the worst sub-iteration delay since last emit,
+        // regardless of whether it tripped the reset threshold.
         const int32_t iLateUs = int32_t(micros() - uNextWakeUs);
+        if (iLateUs > 0)
+        {
+            const uint32_t uLate = (uint32_t)iLateUs;
+            uint32_t uPrev = __atomic_load_n(&g_uImuMaxLateUs, __ATOMIC_RELAXED);
+            while (uLate > uPrev &&
+                   !__atomic_compare_exchange_n(&g_uImuMaxLateUs, &uPrev, uLate,
+                                                false, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+                {}
+
+            // Also count any non-trivial lateness (>100 us = ~2% of
+            // the IMU period) so we can see how often Core 1 has
+            // sub-millisecond hiccups, not just the >1ms outliers.
+            if (iLateUs > 100)
+                __atomic_fetch_add(&g_uImuLateResets, 1u, __ATOMIC_RELAXED);
+        }
+
+        // Reset the schedule on real lateness (>1 ms). Smaller hiccups
+        // let the task naturally catch up via the iWaitUs > 0 check
+        // above — next iteration just fires immediately.
         if (iLateUs > 1000)
         {
             const unsigned long uNowMs = millis();
