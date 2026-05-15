@@ -20,7 +20,7 @@ using onspeed::mps2kts;
 #define SYNC_INTERVAL_MS            5000                // How often to sync the log file to disk
 #define SIDECAR_REFRESH_MS          30000               // How often to refresh the .meta sidecar mid-flight
 
-// Peformance variables for debugging
+// Performance variables for debugging
 volatile uint64_t   uWriteMax;
 volatile uint64_t   uSyncMax;
 
@@ -723,6 +723,17 @@ void LogSensor::WriteSidecarLocked()
 
 void LogSensor::Close()
 {
+    // Drain any row stranded in the carryover slot from the last drain
+    // iteration. Without this, a card stall that fills the staging
+    // buffer just before Close() fires (web LOG DISABLE, FORMAT, etc.)
+    // loses the parked row silently — the drain loop wouldn't run again
+    // to place it at the front of szWriteBuf.
+    if (uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
+        {
+        memcpy(szWriteBuf + uBufUsed, szCarryoverBuf, uCarryoverLen);
+        uBufUsed += uCarryoverLen;
+        uCarryoverLen = 0;
+        }
     FlushStagingBufferLocked();
     m_hLogFile.close();
 
@@ -840,7 +851,10 @@ void LogSensor::Write()
     // 64-bit µs since boot — no rollover at flight timescales (vs
     // micros() which wraps every ~71 min).
     unsigned long uTimeStamp   = millis();
-    uint64_t      uTimeStampUs = (uint64_t)esp_timer_get_time();
+    // esp_timer_get_time() returns int64_t but is monotonic-from-boot
+    // (always non-negative); cast to uint64_t is safe and matches the
+    // CSV column type.
+    uint64_t      uTimeStampUs = static_cast<uint64_t>(esp_timer_get_time());
 
     onspeed::LogRow row;
     row.boomEnabled = g_Config.bReadBoom;

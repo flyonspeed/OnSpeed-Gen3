@@ -5,8 +5,8 @@
 // in PR 2.3 to produce the actual comma-delimited line.
 //
 // Column order matches the CSV header written by LogSensor::Open():
-//   timeStamp, Pfwd, PfwdSmoothed, P45, P45Smoothed, PStatic, Palt, IAS,
-//   AngleofAttack, flapsPos, DataMark, OAT, TAS,
+//   timeStamp, timeStampUs, Pfwd, PfwdSmoothed, P45, P45Smoothed,
+//   PStatic, Palt, IAS, AngleofAttack, flapsPos, DataMark, OAT, TAS,
 //   imuTemp, VerticalG, LateralG, ForwardG, RollRate, PitchRate, YawRate,
 //   Pitch, Roll,
 //   [boom columns if boom enabled],
