@@ -15,7 +15,7 @@ import * as G from '../../../core/geometry.js';
 import { colors } from '../../../core/colors.js';
 import { fmtSigned } from '../../../core/format.js';
 import {
-  DecelGauge, SlipBall, EdgeTape, CornerReadout, PCT_DASHES,
+  DecelGauge, SlipBall, EdgeTape, CornerReadout, PCT_DASHES, StaleOverlay,
 } from '../index.js';
 import { m5FmtIasKt } from './helpers.js';
 
@@ -54,5 +54,6 @@ export const DecelMode = ({ state, stale = false }) => {
           value=${aoaIsValid ? fmtSigned(decelDisplay, 1) : PCT_DASHES}
           labelX=${G.MODE3_CORNER_RIGHT_X} labelY=${G.MODE3_CORNER_LABEL_Y}
           numX=${G.MODE3_CORNER_RIGHT_X} numY=${G.MODE3_CORNER_NUM_Y} anchor="end" />
+      <${StaleOverlay} stale=${stale} />
     </svg>`;
 };

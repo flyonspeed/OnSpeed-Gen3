@@ -7241,6 +7241,7 @@ const EnergyMode = ({ state, stale = false, numericDisplay = true }) => {
       <${PercentLiftNumber} percent=${state.displayPercentLift}
                             aoaIsValid=${aoaIsValid} />
       <${DataMark} value=${state.DataMark} />
+      <${StaleOverlay} stale=${stale} />
     </svg>`;
 };
 
@@ -7323,9 +7324,11 @@ const AttitudeMode = ({ state, stale = false }) => {
                     : PCT_DASHES}
           labelX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_RIGHT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_LABEL_Y}
           numX=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_RIGHT_NUM_X} numY=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_BOT_NUM_Y}
+
           anchor="end" labelColor=${colors.TFT_LIGHTGREY} numColor=${colors.TFT_WHITE}
           labelFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_LABEL_FONT_SIZE}
           numFontSize=${__NS_packages_ui_core_core_geometry.MODE1_CORNER_NUM_FONT_SIZE} />
+      <${StaleOverlay} stale=${stale} />
     </svg>`;
 };
 
@@ -7399,6 +7402,7 @@ const DecelMode = ({ state, stale = false }) => {
           value=${aoaIsValid ? fmtSigned(decelDisplay, 1) : PCT_DASHES}
           labelX=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_RIGHT_X} labelY=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_LABEL_Y}
           numX=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_RIGHT_X} numY=${__NS_packages_ui_core_core_geometry.MODE3_CORNER_NUM_Y} anchor="end" />
+      <${StaleOverlay} stale=${stale} />
     </svg>`;
 };
 
@@ -7442,6 +7446,7 @@ const HistoricGMode = ({ state, stale = false, hasSamples = true }) => html`
        style="background: ${colors.TFT_BLACK}; width: 100%; height: 100%;">
     <${GHistory} buf=${state.gHistory} writeIdx=${state.gHistoryIndex}
                  hasSamples=${hasSamples} />
+    <${StaleOverlay} stale=${stale} />
   </svg>`;
 
 // === packages/ui-core/components/svg/m5modes/index.js ===

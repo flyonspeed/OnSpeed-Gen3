@@ -21,7 +21,7 @@
 import { html } from '../../../vendor/preact-standalone.js';
 import * as G from '../../../core/geometry.js';
 import { colors } from '../../../core/colors.js';
-import { GHistory } from '../index.js';
+import { GHistory, StaleOverlay } from '../index.js';
 
 // "Has samples" gate matches the live IndexerPage's logic — the M5
 // firmware initializes its ring with 1.0 G in setup(), so the buffer
@@ -38,4 +38,5 @@ export const HistoricGMode = ({ state, stale = false, hasSamples = true }) => ht
        style="background: ${colors.TFT_BLACK}; width: 100%; height: 100%;">
     <${GHistory} buf=${state.gHistory} writeIdx=${state.gHistoryIndex}
                  hasSamples=${hasSamples} />
+    <${StaleOverlay} stale=${stale} />
   </svg>`;
