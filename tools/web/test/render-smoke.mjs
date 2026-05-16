@@ -726,6 +726,63 @@ test('EnergyMode renders centered "--" placeholder for percent-lift when aoaIsVa
   }
 });
 
+// StaleOverlay mount tests: every mode must paint the red-X "NO DATA"
+// overlay when stale=true.  A copy-paste typo in the mount (e.g.,
+// `stale=${false}` instead of `stale=${stale}`) would be invisible
+// without these assertions because the normal-data path render-smoke
+// tests above always pass stale=false.
+//
+// We verify two things per mode: (a) the overlay group is present when
+// stale=true, and (b) it is absent when stale=false (guards against a
+// future change that accidentally mounts it unconditionally).
+function expectOverlay(root, stale, mode) {
+  const got = findFirstWithAttr(root, 'data-widget', 'stale-overlay');
+  if (stale && !got)
+    throw new Error(`${mode}: expected stale-overlay group when stale=true`);
+  if (!stale && got)
+    throw new Error(`${mode}: stale-overlay should NOT be mounted when stale=false`);
+}
+
+test('EnergyMode mounts StaleOverlay when stale=true', () => {
+  const r = makeNullAirDataRecord();
+  const rootStale = renderInto(html`<${m5modesMod.EnergyMode} state=${stateFrom(r)} stale=${true} />`);
+  expectOverlay(rootStale, true, 'EnergyMode');
+  const rootFresh = renderInto(html`<${m5modesMod.EnergyMode} state=${stateFrom(r)} stale=${false} />`);
+  expectOverlay(rootFresh, false, 'EnergyMode');
+});
+
+test('IndexerMode mounts StaleOverlay when stale=true (via EnergyMode delegation)', () => {
+  const r = makeNullAirDataRecord();
+  const rootStale = renderInto(html`<${m5modesMod.IndexerMode} state=${stateFrom(r)} stale=${true} />`);
+  expectOverlay(rootStale, true, 'IndexerMode');
+  const rootFresh = renderInto(html`<${m5modesMod.IndexerMode} state=${stateFrom(r)} stale=${false} />`);
+  expectOverlay(rootFresh, false, 'IndexerMode');
+});
+
+test('AttitudeMode mounts StaleOverlay when stale=true', () => {
+  const r = makeNullAirDataRecord();
+  const rootStale = renderInto(html`<${m5modesMod.AttitudeMode} state=${stateFrom(r)} stale=${true} />`);
+  expectOverlay(rootStale, true, 'AttitudeMode');
+  const rootFresh = renderInto(html`<${m5modesMod.AttitudeMode} state=${stateFrom(r)} stale=${false} />`);
+  expectOverlay(rootFresh, false, 'AttitudeMode');
+});
+
+test('DecelMode mounts StaleOverlay when stale=true', () => {
+  const r = makeNullAirDataRecord();
+  const rootStale = renderInto(html`<${m5modesMod.DecelMode} state=${stateFrom(r)} stale=${true} />`);
+  expectOverlay(rootStale, true, 'DecelMode');
+  const rootFresh = renderInto(html`<${m5modesMod.DecelMode} state=${stateFrom(r)} stale=${false} />`);
+  expectOverlay(rootFresh, false, 'DecelMode');
+});
+
+test('HistoricGMode mounts StaleOverlay when stale=true', () => {
+  const r = makeNullAirDataRecord();
+  const rootStale = renderInto(html`<${m5modesMod.HistoricGMode} state=${stateFrom(r)} stale=${true} />`);
+  expectOverlay(rootStale, true, 'HistoricGMode');
+  const rootFresh = renderInto(html`<${m5modesMod.HistoricGMode} state=${stateFrom(r)} stale=${false} />`);
+  expectOverlay(rootFresh, false, 'HistoricGMode');
+});
+
 await runTests();
 for (const [tag, msg] of results) console.log(tag, msg);
 console.log(`${passed} passed, ${failed} failed`);

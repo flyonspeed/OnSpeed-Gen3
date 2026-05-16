@@ -30,7 +30,7 @@ import { colors } from '../../../core/colors.js';
 import { fmtSigned } from '../../../core/format.js';
 import {
   Indexer, PercentLiftNumber, CornerReadout, DataMark,
-  FlapCircle, SlipBall, EdgeTape,
+  FlapCircle, SlipBall, EdgeTape, StaleOverlay,
 } from '../index.js';
 import { m5FlashFlagNow, m5FmtIasKt } from './helpers.js';
 
@@ -91,5 +91,6 @@ export const EnergyMode = ({ state, stale = false, numericDisplay = true }) => {
       <${PercentLiftNumber} percent=${state.displayPercentLift}
                             aoaIsValid=${aoaIsValid} />
       <${DataMark} value=${state.DataMark} />
+      <${StaleOverlay} stale=${stale} />
     </svg>`;
 };

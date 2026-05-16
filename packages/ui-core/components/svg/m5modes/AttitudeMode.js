@@ -15,7 +15,7 @@ import { fmt } from '../../../core/format.js';
 import {
   Horizon, PitchLadder, BankArc, AircraftSymbol, TopPointer,
   FlightPathMarker, PitchReadout, SlipBall, EdgeTape, CornerReadout,
-  PCT_DASHES,
+  PCT_DASHES, StaleOverlay,
 } from '../index.js';
 import { m5FmtIasKt, m5FmtPalt } from './helpers.js';
 
@@ -81,8 +81,10 @@ export const AttitudeMode = ({ state, stale = false }) => {
                     : PCT_DASHES}
           labelX=${G.MODE1_CORNER_RIGHT_X} labelY=${G.MODE1_CORNER_BOT_LABEL_Y}
           numX=${G.MODE1_CORNER_BOT_RIGHT_NUM_X} numY=${G.MODE1_CORNER_BOT_NUM_Y}
+
           anchor="end" labelColor=${colors.TFT_LIGHTGREY} numColor=${colors.TFT_WHITE}
           labelFontSize=${G.MODE1_CORNER_LABEL_FONT_SIZE}
           numFontSize=${G.MODE1_CORNER_NUM_FONT_SIZE} />
+      <${StaleOverlay} stale=${stale} />
     </svg>`;
 };
