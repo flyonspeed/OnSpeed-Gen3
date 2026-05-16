@@ -16,7 +16,7 @@
 
 import { html, useState, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
-import { getJson, postJson, ApiError } from '../shell/apiClient.js';
+import { getJsonWithRetry, postJson, ApiError } from '../shell/apiClient.js';
 
 function formatBytes(n) {
   if (n < 1024) return n + ' B';
@@ -68,15 +68,34 @@ export function LogsPage() {
   const [deleteErrors, setDeleteErrors] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [busyDeleting, setBusyDeleting] = useState(false);
+  // While we're auto-retrying a 503 (SD writer holding mutex), show the
+  // pilot what's happening so they're not refreshing in a panic.
+  const [retryStatus, setRetryStatus] = useState(null);
 
   const reload = async () => {
     setError(null);
+    setRetryStatus(null);
     try {
-      const d = await getJson('/api/logs');
+      const d = await getJsonWithRetry('/api/logs', {
+        maxAttempts: 4,
+        onAttempt: (attempt, lastError) => {
+          // First attempt: no message. Subsequent attempts: explain
+          // why we're waiting.
+          if (attempt > 1) {
+            setRetryStatus(`SD card busy, retrying (attempt ${attempt} of 4)…`);
+          }
+        },
+      });
+      setRetryStatus(null);
       setData(d);
       setSelected(new Set());
     } catch (e) {
-      setError((e instanceof ApiError) ? e.message : String(e));
+      setRetryStatus(null);
+      if (e instanceof ApiError && e.status === 503) {
+        setError('SD card is too busy right now. The flight log writer is monopolizing the card. Wait a few seconds and try again.');
+      } else {
+        setError((e instanceof ApiError) ? e.message : String(e));
+      }
     }
   };
 
@@ -156,10 +175,12 @@ export function LogsPage() {
   return html`
     <${PageShell} active="logs">
       <div style=${{ padding: '12px' }}>
-        ${error && html`<p style=${{ color: 'red' }}>SD card busy or unreachable: ${error}</p>`}
+        ${error && html`<p style=${{ color: 'red' }}>${error}</p>`}
+        ${retryStatus && html`
+          <p style=${{ color: '#b08000' }}>${retryStatus}</p>`}
         ${deleteErrors.length > 0 && html`
           <p style=${{ color: 'red' }}>${deleteErrorSummary()}</p>`}
-        ${!data && !error && html`<p>Loading…</p>`}
+        ${!data && !error && !retryStatus && html`<p>Loading…</p>`}
         ${data && html`
           <h2>Logs</h2>
           <p>${logs.length} log${logs.length === 1 ? '' : 's'},

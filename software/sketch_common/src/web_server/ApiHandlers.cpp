@@ -207,30 +207,63 @@ void RunFormatInline(FormatJob& job) {
     float cardSizeGb  = 0.0f;
     char  err[64]     = {};
 
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000))) {
+    // Format is a stop-the-world operation. Two-step pause:
+    //   1. Set g_bPause so the producer (SensorReadTask / ImuReadTask)
+    //      stops queuing rows immediately. This drains the inflight
+    //      pressure on xWriteMutex.
+    //   2. Take xWriteMutex with a long timeout — at this point the
+    //      writer task should be able to drain quickly and release.
+    //      Format runs to completion under the mutex.
+    // After: re-open the log file, reset g_bPause, save config.
+    g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: pausing producer + draining ring");
+    bool bPrevPause = g_bPause;
+    g_bPause = true;
+
+    // Give the writer task one drain cycle to flush the ring before we
+    // try to take the mutex. The writer's drain loop waits up to 100 ms
+    // on the first xRingbufferReceive, so 200 ms is plenty.
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    // Long mutex timeout (10 sec). With g_bPause set, the writer is
+    // idle once it finishes its current drain cycle; no producer is
+    // adding work. 10 sec is generous — typical wait is < 100 ms.
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(10000))) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: mutex acquired, closing log file");
         bool bOrigSdLogging = g_Config.bSdLogging;
         g_Config.bSdLogging = false;
         if (bOrigSdLogging)
             g_LogSensor.Close();
 
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: running SD format");
         ok = g_SdFileSys.Format(nullptr, &cardSizeGb);
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "Format: complete ok=%d cardSizeGb=%.2f\n", (int)ok, cardSizeGb);
 
         if (bOrigSdLogging) {
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: re-opening log file for new flight");
             g_Config.bSdLogging = true;
             g_LogSensor.Open();
         }
 
         xSemaphoreGive(xWriteMutex);
 
+        // Restore pause flag BEFORE saving config so the producer
+        // starts queuing into the freshly opened file.
+        g_bPause = bPrevPause;
+
         // Put the configuration file back onto the card. Mutex is taken
         // inside SaveConfigurationToFile(). Capture the return so a
         // silent failure is visible to the pilot — the spec covers why
         // (Vac, 2026-05-08): post-format the config could be missing
         // even when format itself reported success.
-        if (ok)
+        if (ok) {
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: saving config to fresh card");
             configSaved = g_Config.SaveConfigurationToFile();
+        }
     } else {
-        std::snprintf(err, sizeof(err), "SD busy (xWriteMutex)");
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError, "Format: xWriteMutex timeout after 10s; abandoning");
+        g_bPause = bPrevPause;
+        std::snprintf(err, sizeof(err), "SD busy (xWriteMutex) after 10s");
     }
 
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
@@ -442,7 +475,14 @@ void HandleApiLogs() {
     std::vector<Entry> entries;
     entries.reserve(32);
 
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000))) {
+    // Wait up to 5 seconds for the writer mutex. Typical wait is <100 ms
+    // even under load; 5s covers the worst case of a card-side stall
+    // (write_max can hit 100+ ms; sidecar refresh holds for ~150 ms).
+    // Going beyond 5s would block the browser too long; the browser
+    // gets a 503 with Retry-After=1 so it can retry once the writer
+    // releases.
+    static const TickType_t kLogsListMutexWaitTicks = pdMS_TO_TICKS(5000);
+    if (xSemaphoreTake(xWriteMutex, kLogsListMutexWaitTicks)) {
         const char* szActiveBase = g_LogSensor.ActiveBaseName();
         if (szActiveBase && szActiveBase[0] != '\0') {
             sActiveCsvName  = szActiveBase;
@@ -482,7 +522,14 @@ void HandleApiLogs() {
         }
         xSemaphoreGive(xWriteMutex);
     } else {
-        SendError(503, "logs", "SD busy (xWriteMutex)");
+        // Writer task is genuinely busy. Emit a one-shot warning into
+        // the dbg log so post-flight forensics show WHEN this fires;
+        // the page can retry in 1 sec.
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "/api/logs: mutex timeout after %lu ms\n",
+                     (unsigned long)(kLogsListMutexWaitTicks * portTICK_PERIOD_MS));
+        CfgServer.sendHeader("Retry-After", "1");
+        SendError(503, "logs", "SD busy, retry shortly");
         return;
     }
 

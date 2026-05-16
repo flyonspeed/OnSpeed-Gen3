@@ -66,40 +66,75 @@ static void ApplyPostParseSideEffects(FOSConfig& cfg)
 // Main config functions
 // ----------------------------------------------------------------------------
 
-// Find and load a valid configuration. First load default compiled in values.
-// Then try loading a configuration stored in flash. Lastly, load a configuration
-// file from the SD card.
-
+// Find and load a valid configuration.
+//
+// Source-of-truth contract: SD card is authoritative. Flash is the
+// backup that only matters when the SD card has no config file (fresh
+// card, or post-format). The pilot edits via the web UI which writes
+// SD first then mirrors to flash on success; the LittleFS copy never
+// holds state that the SD card hasn't also accepted.
+//
+// Load order:
+//   1. Compiled-in defaults (always run first so every field is
+//      initialized to a known sane value).
+//   2. SD card (if config file exists and load succeeds).
+//   3. Flash (ONLY if SD didn't provide a config — file missing or
+//      load failed).
+//
+// The previous order (flash first, then SD overwrites) meant that
+// a transient SD load failure (mutex timeout, malformed field at row
+// N) left fields 1..N-1 sourced from SD and N..end from flash —
+// silent mixed-state. The new order keeps the box on a single
+// coherent config source.
+//
+// Partial-parse caveat: today, LoadConfigurationFile parses
+// field-by-field; a malformed value mid-file leaves the partial
+// state already loaded. A future improvement would parse into a
+// staging struct and commit only on success, giving full transaction
+// semantics. For now, a loud warning is emitted if the SD load
+// returns false, and the pilot can re-save from the web UI.
 void FOSConfig::LoadConfig()
 {
-    bool    bStatus = false;
+    bool    bSdLoaded    = false;
+    bool    bFlashLoaded = false;
 
-    // Load default config
+    // Load default config first so every field has a known value
+    // even if every persistent source fails.
     LoadDefaultConfiguration();
 
-#ifdef SUPPORT_LITTLEFS
-    // Load configuration from flash
-    bStatus = LoadConfigurationFileFromFlash(szDefaultConfigFilename);
-    if (bStatus)
-        bConfigLoaded = true;
-#endif
-
-    // Load configuration from SD card
+    // Try SD card first — it's the source of truth.
     if (g_SdFileSys.bSdAvailable && g_SdFileSys.exists(szDefaultConfigFilename))
         {
-        // Load config from file
-        g_Log.printf("Loading %s configuration\n", szDefaultConfigFilename);
-        bStatus = LoadConfigurationFile(szDefaultConfigFilename);
-        if (bStatus)
-            bConfigLoaded = true;
+        g_Log.printf("Loading %s configuration from SD\n", szDefaultConfigFilename);
+        bSdLoaded = LoadConfigurationFile(szDefaultConfigFilename);
+        if (!bSdLoaded)
+            g_Log.println(MsgLog::EnConfig, MsgLog::EnError,
+                "SD config file exists but failed to load (mutex timeout or "
+                "parse error); falling back to flash backup. Re-save from the "
+                "web UI to refresh SD.");
         }
 
+#ifdef SUPPORT_LITTLEFS
+    // Flash backup — only if SD didn't provide a config.
+    if (!bSdLoaded)
+        {
+        bFlashLoaded = LoadConfigurationFileFromFlash(szDefaultConfigFilename);
+        if (bFlashLoaded)
+            g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+                "Loaded configuration from flash backup (SD config "
+                "missing or failed to load).");
+        }
+#endif
+
+    bConfigLoaded = (bSdLoaded || bFlashLoaded);
+
     // Log what happened
-    if (bConfigLoaded)
-        g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Configuration loaded.");
+    if (bSdLoaded)
+        g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Configuration loaded from SD.");
+    else if (bFlashLoaded)
+        g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Configuration loaded from flash.");
     else
         g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Default configuration loaded.");
-
 }
 
 // ----------------------------------------------------------------------------
@@ -114,8 +149,21 @@ bool FOSConfig::LoadConfigurationFile(char* szFilename)
     // If config file exists on SD card load it
     FsFile  hConfigFile;
 
-    if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
+    // 5s timeout — matches the other SD-mutex takers. At boot this
+    // path normally runs uncontended (writer task starts after
+    // LoadConfig() returns), so the wait is almost never measurable.
+    // But if we ever do lose the race, the consequence is "boot
+    // silently falls back to whatever LittleFS has," which can leave
+    // the box running with stale config without any pilot-visible
+    // signal. Failing slow is preferable to failing silent.
+    if (!xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
+        {
+        g_Log.println(MsgLog::EnConfig, MsgLog::EnError,
+            "LoadConfigurationFile: xWriteMutex timeout — "
+            "SD config NOT loaded; falling back to flash/defaults. "
+            "Reboot or save config to recover.");
         return false;
+        }
 
     hConfigFile = g_SdFileSys.open(szFilename, O_READ);
     if (!hConfigFile)
@@ -144,11 +192,12 @@ bool FOSConfig::LoadConfigurationFile(char* szFilename)
 
 bool FOSConfig::SaveConfigurationToFile()
 {
-#ifdef SUPPORT_LITTLEFS
-    // Save it to flash also
-    SaveConfigurationToFlash(szDefaultConfigFilename);
-#endif
-
+    // Outer wrapper now just defers to the named-file save below.
+    // Flash mirror is written by that path AFTER the SD save succeeds —
+    // ensures flash never holds a newer state than SD. Previously,
+    // flash was written unconditionally first, so a failed SD save
+    // (or a partial-form save that wrote garbage to SD) left flash
+    // and SD in different states. Now they're always in lockstep.
     return SaveConfigurationToFile(szDefaultConfigFilename);
 }
 
@@ -160,34 +209,62 @@ bool FOSConfig::SaveConfigurationToFile(char* szFilename)
     bool    bStatus = false;
     String  sConfig;
 
-#ifdef SUPPORT_LITTLEFS
-    // Save it to flash also
-    SaveConfigurationToFlash(szFilename);
-#endif
-
     // Convert the configuration to XML
     sConfig = ConfigurationToString();
 
-    // Save XML string to config file
+    // Save XML string to config file. Retry the mutex-take up to 4
+    // times with backoff. At 208 Hz the writer is frequently holding
+    // xWriteMutex (sync, write, sidecar) and any single 1-sec wait
+    // can lose the race. Each retry waits 1 sec and tries fresh —
+    // total worst-case is ~5 sec, which is acceptable for a user-
+    // initiated config save. Keeps the producer running throughout
+    // (no g_bPause needed — paused_drops would silently lose IMU
+    // samples and we've worked hard to make sure that doesn't happen).
     FsFile  hConfigFile;
-
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
+    static const int kMaxAttempts = 4;
+    int attempt = 0;
+    while (attempt < kMaxAttempts && !bStatus)
         {
-        hConfigFile = g_SdFileSys.open(szFilename, O_WRITE | O_CREAT | O_TRUNC);
-        if (hConfigFile)
+        attempt++;
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
             {
-            hConfigFile.print(sConfig);
-            hConfigFile.close();
-            bStatus = true;
+            hConfigFile = g_SdFileSys.open(szFilename, O_WRITE | O_CREAT | O_TRUNC);
+            if (hConfigFile)
+                {
+                hConfigFile.print(sConfig);
+                hConfigFile.close();
+                bStatus = true;
+                }
+            xSemaphoreGive(xWriteMutex);
             }
-
-        xSemaphoreGive(xWriteMutex);
+        else if (attempt < kMaxAttempts)
+            {
+            // Yield to the writer for a short bit before retrying so
+            // the next take has a real chance of winning the race.
+            g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
+                         "Config save: xWriteMutex busy, retry %d/%d\n",
+                         attempt, kMaxAttempts);
+            vTaskDelay(pdMS_TO_TICKS(250));
+            }
         }
 
     if (bStatus == false)
-        g_Log.println(MsgLog::EnConfig, MsgLog::EnError, "Could not save config file");
+        g_Log.println(MsgLog::EnConfig, MsgLog::EnError,
+                      "Could not save config file (xWriteMutex timeout after retries)");
     else
-        g_Log.println(MsgLog::EnConfig, MsgLog::EnDebug, "Saved config file to SD card");
+        g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
+                     "Saved config file to SD card (attempt %d/%d)\n",
+                     attempt, kMaxAttempts);
+
+#ifdef SUPPORT_LITTLEFS
+    // Mirror to flash ONLY on SD-save success. If SD failed, flash
+    // keeps the previous successfully-saved version so that on next
+    // boot we recover the last good state rather than an in-memory
+    // snapshot that never made it to SD. This is the "SD is the
+    // source of truth, flash is its backup" contract.
+    if (bStatus)
+        SaveConfigurationToFlash(szFilename);
+#endif
 
     return bStatus;
     }
