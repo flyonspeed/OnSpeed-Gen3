@@ -177,6 +177,20 @@ static bool ParseUint32(std::string_view tok, uint32_t& out)
     return true;
 }
 
+static bool ParseUint64(std::string_view tok, uint64_t& out)
+{
+    if (tok.empty()) return false;
+    char buf[32];
+    size_t n = tok.size() < sizeof(buf) - 1 ? tok.size() : sizeof(buf) - 1;
+    memcpy(buf, tok.data(), n);
+    buf[n] = '\0';
+    char* end = nullptr;
+    unsigned long long v = strtoull(buf, &end, 10);
+    if (end == buf) return false;
+    out = (uint64_t)v;
+    return true;
+}
+
 static bool ParseUint16(std::string_view tok, uint16_t& out)
 {
     uint32_t v32 = 0;
@@ -264,9 +278,12 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
     size_t len = 0;
     bool ok = true;
 
-    // Always-present columns
+    // Always-present columns. timeStampUs sits adjacent to timeStamp so
+    // both timestamps for a row are co-located in the schema; downstream
+    // tooling reads by name (HeaderIndex), not ordinal, so the inserted
+    // position is schema-safe.
     ok &= Appendf(out, outCapacity, &len,
-        "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,"
+        "timeStamp,timeStampUs,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,"
         "IAS,AngleofAttack,flapsPos,DataMark");
     ok &= Appendf(out, outCapacity, &len, ",OAT,TAS");
     ok &= Appendf(out, outCapacity, &len,
@@ -317,15 +334,17 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     bool ok = true;
 
     // Core sensor columns — must match LogSensor::Write() exactly.
-    // Columns 1..7 are always numeric; IAS and AngleofAttack go empty when
-    // `iasValid` is false (matches the M5 wire / JSON convention so offline
-    // analysis tools can distinguish "no air-data yet" from "real reading
-    // of 0.0").  flapsPos and DataMark stay numeric — they're meaningful
-    // at rest.
-    //   %lu,%i,%.2f,%i,%.2f,%.2f,%.2f
+    // Column 1 is timeStamp (ms). Column 2 is timeStampUs (µs).
+    // Columns 3..8 are always numeric; IAS and AngleofAttack go empty
+    // when `iasValid` is false (matches the M5 wire / JSON convention so
+    // offline analysis tools can distinguish "no air-data yet" from
+    // "real reading of 0.0"). flapsPos and DataMark stay numeric —
+    // they're meaningful at rest.
+    //   %lu,%llu,%i,%.2f,%i,%.2f,%.2f,%.2f
     ok &= Appendf(out, outCapacity, &len,
-        "%lu,%i,%.2f,%i,%.2f,%.2f,%.2f",
+        "%lu,%llu,%i,%.2f,%i,%.2f,%.2f,%.2f",
         (unsigned long)row.timeStampMs,
+        (unsigned long long)row.timeStampUs,
         row.pfwdCounts, row.pfwdSmoothed,
         row.p45Counts,  row.p45Smoothed,
         row.pStaticMbar, row.paltFt);
@@ -441,6 +460,7 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
 
     // Core sensor columns
     if (!tok.next(field) || !ParseUint32(field, row.timeStampMs))  return false;
+    if (!tok.next(field) || !ParseUint64(field, row.timeStampUs))  return false;
     if (!tok.next(field) || !ParseInt(field, row.pfwdCounts))      return false;
     if (!tok.next(field) || !ParseFloat(field, row.pfwdSmoothed))  return false;
     if (!tok.next(field) || !ParseInt(field, row.p45Counts))       return false;

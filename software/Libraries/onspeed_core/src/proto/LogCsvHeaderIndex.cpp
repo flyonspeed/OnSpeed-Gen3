@@ -31,6 +31,7 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
 {
     // Always-present core columns.
     if (name == "timeStamp")        { out.idxTimeStampMs = ordinal; return true; }
+    if (name == "timeStampUs")      { out.idxTimeStampUs = ordinal; return true; }
     if (name == "Pfwd")             { out.idxPfwd = ordinal; return true; }
     if (name == "PfwdSmoothed")     { out.idxPfwdSmoothed = ordinal; return true; }
     if (name == "P45")              { out.idxP45 = ordinal; return true; }
@@ -405,6 +406,20 @@ bool ParseUint16Tok(std::string_view tok, uint16_t& out)
     return true;
 }
 
+bool ParseUint64Tok(std::string_view tok, uint64_t& out)
+{
+    if (tok.empty()) return false;
+    char buf[32];
+    if (tok.size() >= sizeof(buf)) return false;
+    std::memcpy(buf, tok.data(), tok.size());
+    buf[tok.size()] = '\0';
+    char* end = nullptr;
+    unsigned long long v = std::strtoull(buf, &end, 10);
+    if (end == buf) return false;
+    out = (uint64_t)v;
+    return true;
+}
+
 // Convenience: pull a field by index. Returns false on missing token,
 // empty token, or numeric parse failure (consistent with LogCsv::ParseRow).
 // If the column is absent in the log (idx == -1), leaves the destination
@@ -435,6 +450,12 @@ bool TakeUint32(const std::string_view* tokens, int tokenCount, int idx, uint32_
     if (idx < 0) return true;
     if (idx >= tokenCount) return false;
     return ParseUint32Tok(tokens[idx], out);
+}
+bool TakeUint64(const std::string_view* tokens, int tokenCount, int idx, uint64_t& out)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    return ParseUint64Tok(tokens[idx], out);
 }
 bool TakeUint16(const std::string_view* tokens, int tokenCount, int idx, uint16_t& out)
 {
@@ -506,6 +527,10 @@ bool ParseRowByIndex(std::string_view line,
 
     // Always-present core columns.
     if (!TakeUint32(tokens, tokenCount, idx.idxTimeStampMs,  row.timeStampMs))     return false;
+    // Optional µs timestamp (issue #551). If absent, TakeUint64 returns
+    // true and row.timeStampUs stays at 0; consumers fall back to
+    // row.timeStampMs * 1000 for older logs.
+    if (!TakeUint64(tokens, tokenCount, idx.idxTimeStampUs,  row.timeStampUs))     return false;
     if (!TakeInt   (tokens, tokenCount, idx.idxPfwd,         row.pfwdCounts))      return false;
     if (!TakeFloat (tokens, tokenCount, idx.idxPfwdSmoothed, row.pfwdSmoothed))    return false;
     if (!TakeInt   (tokens, tokenCount, idx.idxP45,          row.p45Counts))       return false;

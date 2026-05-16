@@ -98,6 +98,20 @@ EXCLUDE_BUNDLE = {
 #     bundle.
 EXCLUDE_DIRS = {
     "tools/web/lib/replay",
+    # HUD overlay components are consumed only by the docs-site replay
+    # tool (HudOverlay.js + hud/*.js + hudGeometry.js). They live in
+    # packages/ui-core/ for shared rendering but no firmware page
+    # imports them. Including them in the firmware bundle adds 124 KB
+    # of unused code (most of it the OnSpeedLogo base64 PNG).
+    "packages/ui-core/components/svg/hud",
+}
+
+# Specific files (not directories) to exclude from the firmware bundle.
+# Same rationale as EXCLUDE_DIRS but for individual files alongside
+# in-bundle siblings.
+EXCLUDE_FILES = {
+    "packages/ui-core/components/svg/HudOverlay.js",
+    "packages/ui-core/core/hudGeometry.js",
 }
 
 # The vendored Preact bundle: emitted FIRST, IIFE-wrapped (its
@@ -157,6 +171,7 @@ def _all_js_files():
     """
     out = []
     excluded_abs = {os.path.join(REPO_ROOT, p) for p in EXCLUDE_DIRS}
+    excluded_files_abs = {os.path.join(REPO_ROOT, p) for p in EXCLUDE_FILES}
     for source_dir in (LIB_DIR, UI_CORE_DIR):
         if not os.path.isdir(source_dir):
             continue
@@ -168,11 +183,14 @@ def _all_js_files():
             for name in files:
                 if not name.endswith(".js"):
                     continue
-                rel = os.path.relpath(os.path.join(root, name), source_dir)
+                abs_path = os.path.join(root, name)
+                if abs_path in excluded_files_abs:
+                    continue
+                rel = os.path.relpath(abs_path, source_dir)
                 rel_unix = rel.replace(os.sep, "/")
                 if source_dir == LIB_DIR and rel_unix in {"scenarios.js", "scenarios-main.js"}:
                     continue
-                out.append(os.path.join(root, name))
+                out.append(abs_path)
     return sorted(out)
 
 

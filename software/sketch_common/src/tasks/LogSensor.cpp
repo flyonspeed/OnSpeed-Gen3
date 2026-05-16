@@ -4,8 +4,10 @@
 #endif
 #include "SdFat.h"
 
+#include <esp_timer.h>          // esp_timer_get_time() — 64-bit µs since boot
 #include "src/Globals.h"
 #include <buildinfo.h>
+#include <log/ConsumeAlignedWrite.h>
 #include <log/LogMetaBuilder.h>
 #include <log/LogMetaFile.h>
 #include <proto/LogCsv.h>
@@ -18,9 +20,49 @@ using onspeed::mps2kts;
 #define SYNC_INTERVAL_MS            5000                // How often to sync the log file to disk
 #define SIDECAR_REFRESH_MS          30000               // How often to refresh the .meta sidecar mid-flight
 
-// Peformance variables for debugging
+// Performance variables for debugging
 volatile uint64_t   uWriteMax;
 volatile uint64_t   uSyncMax;
+
+// Producer-side drop counter from DebugLog (defined in DebugLog.cpp).
+// Pulled into the PERF tick alongside our local s_uRingDropCount.
+extern volatile uint32_t g_uDebugRingDrops;
+
+// IMU lateness counters from SensorIO.cpp. PERF reports both per-window:
+//   - imu_late: count of late-reset events (each = surrendered samples)
+//   - imu_lateMaxUs: worst single lateness observed in this window
+// On a healthy box these are near zero. Non-zero indicates Core 1
+// contention preventing the IMU task from running on schedule.
+extern volatile uint32_t g_uImuLateResets;
+extern volatile uint32_t g_uImuMaxLateUs;
+
+// PERF tick thresholds. Emit an event-driven line if any of:
+//   - any data ring drops happened this window
+//   - any debug ring drops happened this window
+//   - any short-writes happened this window
+//   - the worst write in this window exceeded this many microseconds
+//   - the worst sync in this window exceeded this many microseconds
+//   - the ring depth exceeded this fraction of capacity
+// ...and always emit a heartbeat once per kPerfHeartbeatMs regardless.
+//
+// Trip thresholds tuned from bench observation (V4P, Extreme Pro card):
+//   - Ring naturally oscillates 50-90% under the 5 sec sync cycle, so a
+//     ring% trip alone fires every loop iteration in normal operation.
+//     The ring% reading is informative in the emitted line, but isn't
+//     itself a trigger — drops and write/sync timing are the real
+//     signals that something is going wrong.
+//   - Per-write times sit ~1-2 ms in normal operation; bumps over 50 ms
+//     indicate SD wear-leveling pauses worth recording.
+//   - Sync times are 5 sec apart and typically take 5-20 ms; bumps over
+//     100 ms indicate the sync hit a slow path.
+static const uint64_t kPerfWriteUsTrip = 50000;     // 50 ms
+static const uint64_t kPerfSyncUsTrip  = 100000;    // 100 ms
+static const uint32_t kPerfHeartbeatMs = 10000;     // 10 s
+
+// Ring capacity for the percent-full math comes from Globals.h via
+// kLoggingRingBufferBytes — same constant used by xRingbufferCreateWithCaps
+// in setup(). (vRingbufferGetInfo exposes free bytes but not configured
+// capacity, so we need it from somewhere.)
 
 // Log file handle, keep it local in scope
 static FsFile       m_hLogFile;
@@ -28,6 +70,30 @@ static FsFile       m_hLogFile;
 // Count log lines dropped because the logging ring buffer is full. Keep this
 // non-blocking so SD-card stalls can't backpressure critical tasks.
 static uint32_t      s_uRingDropCount = 0;
+
+// Count short writes from SdFat (write() returned less than requested).
+// Reported through the periodic PERF tick so post-flight forensics can
+// tell whether the ring drops we see are from sustained SD pressure or
+// from the SD layer itself rejecting writes.
+static uint32_t      s_uShortWriteCount = 0;
+
+// Count drain-overflow rescues: when a Receive returns a row that
+// won't fit alongside what's already in the staging buffer, the row
+// is parked in szCarryoverBuf and emitted at the front of the next
+// iteration. These counters track how often that path fires and
+// how many bytes flowed through it. With NOSPLIT bounding Receive
+// to one row, every overflow rescue is a single ≤ kRowMaxBytes copy
+// and no data is lost.
+static uint32_t      s_uDrainOverflowCount = 0;
+static uint32_t      s_uDrainOverflowBytes = 0;
+
+// Count producer-side samples dropped because g_bPause was true.
+// HandleDownload and the bulk-delete handlers set g_bPause to keep
+// the ring from filling during multi-second SD-mutex holds; every
+// IMU sample that fires while paused increments this counter.
+// Surfaced in PERF so pilots see "you lost N samples loading /logs"
+// instead of finding silent gaps in the CSV post-flight.
+static uint32_t      s_uPausedDropCount = 0;
 
 // Staging buffer: accumulate log lines and write in 512-byte-aligned
 // chunks so SdFat can pass full sectors straight to multi-block SPI.
@@ -38,14 +104,69 @@ static const size_t  WRITE_BUF_SIZE = SECTOR_SIZE * 4;    // 2048 bytes
 static char          szWriteBuf[WRITE_BUF_SIZE];
 static size_t        uBufUsed       = 0;
 
+// Carryover slot: when xRingbufferReceive returns more bytes than fit
+// in the staging buffer right now, we can't "un-receive" them (the ring
+// has already consumed them). Park them here and place them at the
+// front of the staging buffer on the next iteration after we've
+// written the current contents to disk. Sized for one full row.
+static char          szCarryoverBuf[onspeed::proto::log_csv::kRowMaxBytes];
+static size_t        uCarryoverLen  = 0;
+
+// Rate-limited warning for short writes: emits at most once per 2 s
+// so a sustained problem doesn't flood the dbg ring. Returns the
+// previous-window count if a warning should fire this call (0 if not).
+static uint32_t MaybeReportShortWrite(unsigned long uNowMs)
+    {
+    static unsigned long uLastWarnMs = 0;
+    static uint32_t      uPendingShort = 0;
+
+    uPendingShort++;
+    if ((uNowMs - uLastWarnMs) > 2000)
+        {
+        const uint32_t uReport = uPendingShort;
+        uPendingShort = 0;
+        uLastWarnMs = uNowMs;
+        return uReport;
+        }
+    return 0;
+    }
+
+// Wrap the staging-buffer flush so the four SD-write sites in this file
+// share the same short-write handling: capture the count actually
+// written, retry the unwritten head next round, bump counters / warn
+// rather than silently shifting past lost bytes.
+static bool ConsumeWriteAndMaybeWarn(size_t uRequested, size_t uActual)
+    {
+    bool bOk = onspeed::log::ConsumeAlignedWrite(
+        uRequested, uActual, szWriteBuf, WRITE_BUF_SIZE, &uBufUsed);
+    if (!bOk)
+        {
+        __atomic_fetch_add(&s_uShortWriteCount, 1u, __ATOMIC_RELAXED);
+        const uint32_t uReport = MaybeReportShortWrite(millis());
+        if (uReport > 0)
+            g_Log.printf(MsgLog::EnDisk, MsgLog::EnWarning,
+                "SD short write x%lu (requested=%u actual=%u)\n",
+                (unsigned long)uReport,
+                (unsigned)uRequested,
+                (unsigned)uActual);
+        }
+    return bOk;
+    }
+
 // Write any remaining bytes in the staging buffer to the log file.
 // Caller must hold xWriteMutex and ensure m_hLogFile.isOpen().
+//
+// On a short write, the unwritten head remains at the front of
+// szWriteBuf and uBufUsed reflects the residual. Callers running
+// inside the writer loop pick this up next iteration; Close() takes
+// the residual as best-effort loss (file is about to close anyway).
 static void FlushStagingBufferLocked()
     {
     if (uBufUsed > 0 && m_hLogFile.isOpen())
         {
-        m_hLogFile.write(szWriteBuf, uBufUsed);
-        uBufUsed = 0;
+        const size_t uRequested = uBufUsed;
+        const size_t uActual    = m_hLogFile.write(szWriteBuf, uRequested);
+        ConsumeWriteAndMaybeWarn(uRequested, uActual);
         }
     }
 
@@ -70,25 +191,12 @@ void LogSensorCommitTask(void *pvParams)
     static TickType_t     xLastSidecarTime = xTaskGetTickCount();
     static uint64_t       uWriteStart, uWriteEnd, uWriteDur;
     static uint64_t       uSyncStart,  uSyncEnd,  uSyncDur;
-    static uint32_t       uPendingDrops = 0;
-    static unsigned long  uLastDropWarnMs = 0;
 
     while (true)
     {
-        // Report (rate-limited) if the producer is dropping lines due to SD stalls.
-        uPendingDrops += __atomic_exchange_n(&s_uRingDropCount, 0u, __ATOMIC_RELAXED);
-        if (uPendingDrops > 0)
-            {
-            unsigned long uNow = millis();
-            if ((uNow - uLastDropWarnMs) > 2000)
-                {
-                g_Log.printf(MsgLog::EnDisk, MsgLog::EnWarning,
-                    "Logging ring buffer full; dropped %lu log lines\n",
-                    (unsigned long)uPendingDrops);
-                uPendingDrops = 0;
-                uLastDropWarnMs = uNow;
-                }
-            }
+        // Ring-drop reporting moved into the PERF tick at the end of
+        // this loop body — same counter, single emit path, with full
+        // context (write/sync max, ring depth, short writes, heap).
 
         if (xLoggingRingBuffer == nullptr)
             {
@@ -139,18 +247,48 @@ void LogSensorCommitTask(void *pvParams)
         bool bGotData = false;
         TickType_t xWait = pdMS_TO_TICKS(100);
 
+        // Place any carryover from the previous iteration first. This is
+        // a row that we received but couldn't fit in the staging buffer
+        // last time around; the SD write at the end of the loop drained
+        // most of the buffer, so it should fit now.
+        if (uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
+            {
+            memcpy(szWriteBuf + uBufUsed, szCarryoverBuf, uCarryoverLen);
+            uBufUsed += uCarryoverLen;
+            uCarryoverLen = 0;
+            bGotData = true;
+            }
+
         while (true)
             {
+            // If we already have carryover, don't receive more — first
+            // write out what's staged so the carryover has room next round.
+            if (uCarryoverLen > 0) break;
+
             pchIn = (char *)xRingbufferReceive(xLoggingRingBuffer, &iPrintLen, xWait);
             xWait = 0;     // subsequent receives are non-blocking
 
             if (pchIn == NULL)
                 break;
 
-            // If the next item won't fit, stop draining and write what we
-            // have. We'll pick up this item on the next iteration.
+            // If the received item won't fit in the staging buffer, park
+            // it in the carryover slot. We CAN'T return-without-copy
+            // because the ring has already advanced past these bytes —
+            // vRingbufferReturnItem frees them but doesn't put them back
+            // into the readable stream. Copying to carryover preserves
+            // the row for the next iteration.
             if (uBufUsed + iPrintLen > WRITE_BUF_SIZE)
                 {
+                __atomic_fetch_add(&s_uDrainOverflowCount, 1u,           __ATOMIC_RELAXED);
+                __atomic_fetch_add(&s_uDrainOverflowBytes, (uint32_t)iPrintLen, __ATOMIC_RELAXED);
+                if (iPrintLen <= sizeof(szCarryoverBuf))
+                    {
+                    memcpy(szCarryoverBuf, pchIn, iPrintLen);
+                    uCarryoverLen = iPrintLen;
+                    }
+                // If the row is larger than the carryover buffer it's
+                // a row-format bug (rows shouldn't exceed kRowMaxBytes);
+                // s_uDrainOverflowCount already counted it. Drop it.
                 vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
                 pchIn = NULL;
                 break;
@@ -202,21 +340,21 @@ void LogSensorCommitTask(void *pvParams)
             // Write full sectors. Any remainder stays in the buffer for
             // the next batch, keeping writes 512-byte-aligned.
             size_t uAligned   = (uBufUsed / SECTOR_SIZE) * SECTOR_SIZE;
-            size_t uRemainder = uBufUsed - uAligned;
 
             if (uAligned > 0)
                 {
                 uWriteStart = micros();
-                m_hLogFile.write(szWriteBuf, uAligned);
+                const size_t uActual = m_hLogFile.write(szWriteBuf, uAligned);
                 uWriteEnd   = micros();
                 uWriteDur   = uWriteEnd - uWriteStart;
                 uWriteMax   = uWriteDur > uWriteMax ? uWriteDur : uWriteMax;
-                }
 
-            // Shift remainder to front of buffer
-            if (uRemainder > 0)
-                memmove(szWriteBuf, szWriteBuf + uAligned, uRemainder);
-            uBufUsed = uRemainder;
+                // ConsumeAlignedWrite leaves the unwritten head (if any)
+                // at the front of szWriteBuf and shifts the post-flush
+                // tail behind it, so a short write is retried next round
+                // instead of silently disappearing from the CSV stream.
+                ConsumeWriteAndMaybeWarn(uAligned, uActual);
+                }
 
             // Sync periodically. This is a blocking call, so we don't want to do it too often.
             // Flush any remaining partial sector before sync so the data is on disk.
@@ -243,6 +381,115 @@ void LogSensorCommitTask(void *pvParams)
             g_LogSensor.WriteSidecarLocked();
             xLastSidecarTime = xTaskGetTickCount();
         }
+
+        // -------------------------------------------------------------
+        // PERF tick: event-driven snapshot of the data-path counters.
+        //
+        // Tracks the worst write/sync duration since the last emit, the
+        // since-last-emit ring-drop / short-write / dbg-drop counts,
+        // and the current ring depth. Emits a single Warning-level line
+        // whenever any threshold is tripped or every kPerfHeartbeatMs
+        // as a heartbeat. The same line flows through g_Log to Serial
+        // and (via MsgLog dual-sink) to log_NNN.dbg, so post-flight we
+        // can correlate gaps in the CSV with the trigger event that
+        // produced them.
+        // -------------------------------------------------------------
+        static uint64_t      uPerfWriteMaxUs   = 0;
+        static uint64_t      uPerfSyncMaxUs    = 0;
+        static uint32_t      uPerfRingDrops    = 0;
+        static uint32_t      uPerfDbgDrops     = 0;
+        static uint32_t      uPerfShortWrites  = 0;
+        static uint32_t      uPerfImuLate      = 0;
+        static uint32_t      uPerfImuMaxLateUs = 0;
+        static uint32_t      uPerfOverflowCnt  = 0;
+        static uint32_t      uPerfOverflowB    = 0;
+        static uint32_t      uPerfPausedDrops  = 0;
+        static unsigned long uPerfLastEmitMs   = 0;
+
+        if (uWriteDur > uPerfWriteMaxUs) uPerfWriteMaxUs = uWriteDur;
+        if (uSyncDur  > uPerfSyncMaxUs)  uPerfSyncMaxUs  = uSyncDur;
+        // Reset per-iteration durations so a quiet iteration after a
+        // big one doesn't re-charge the same number into the next
+        // PERF window.
+        uWriteDur = 0;
+        uSyncDur  = 0;
+        uPerfRingDrops   += __atomic_exchange_n(&s_uRingDropCount,    0u, __ATOMIC_RELAXED);
+        uPerfDbgDrops    += __atomic_exchange_n(&g_uDebugRingDrops,   0u, __ATOMIC_RELAXED);
+        uPerfShortWrites += __atomic_exchange_n(&s_uShortWriteCount,  0u, __ATOMIC_RELAXED);
+        uPerfImuLate     += __atomic_exchange_n(&g_uImuLateResets,    0u, __ATOMIC_RELAXED);
+        {
+            const uint32_t uImuMax = __atomic_exchange_n(&g_uImuMaxLateUs, 0u, __ATOMIC_RELAXED);
+            if (uImuMax > uPerfImuMaxLateUs) uPerfImuMaxLateUs = uImuMax;
+        }
+        uPerfOverflowCnt += __atomic_exchange_n(&s_uDrainOverflowCount, 0u, __ATOMIC_RELAXED);
+        uPerfOverflowB   += __atomic_exchange_n(&s_uDrainOverflowBytes, 0u, __ATOMIC_RELAXED);
+        uPerfPausedDrops += __atomic_exchange_n(&s_uPausedDropCount,    0u, __ATOMIC_RELAXED);
+
+        uint32_t uRingPct = 0;
+        if (xLoggingRingBuffer != nullptr)
+            {
+            UBaseType_t uxFree = 0, uxRead = 0, uxWrite = 0, uxAcquire = 0, uxWaiting = 0;
+            vRingbufferGetInfo(xLoggingRingBuffer, &uxFree, &uxRead, &uxWrite, &uxAcquire, &uxWaiting);
+            const size_t uUsed = (uxFree < kLoggingRingBufferBytes)
+                               ? (kLoggingRingBufferBytes - uxFree)
+                               : 0;
+            uRingPct = static_cast<uint32_t>((uint64_t(uUsed) * 100) / kLoggingRingBufferBytes);
+            }
+
+        const unsigned long uNowPerfMs = millis();
+        const bool bHeartbeat = (uPerfLastEmitMs == 0) ||
+                                ((uNowPerfMs - uPerfLastEmitMs) >= kPerfHeartbeatMs);
+        const bool bTripped   = (uPerfRingDrops   > 0)
+                             || (uPerfDbgDrops    > 0)
+                             || (uPerfShortWrites > 0)
+                             || (uPerfImuLate     > 0)
+                             || (uPerfOverflowCnt > 0)
+                             || (uPerfPausedDrops > 0)
+                             || (uPerfWriteMaxUs  > kPerfWriteUsTrip)
+                             || (uPerfSyncMaxUs   > kPerfSyncUsTrip);
+
+        if (bHeartbeat || bTripped)
+            {
+            const size_t uHeapK  = esp_get_free_heap_size() / 1024;
+            const size_t uPsramK = ESP.getFreePsram()        / 1024;
+            g_Log.printf(MsgLog::EnDisk, MsgLog::EnWarning,
+                "PERF write_max=%lluus sync_max=%lluus ring=%lu%%/%uK "
+                "drops=%lu dbg_drops=%lu short=%lu "
+                "imu_late=%lu imu_lateMaxUs=%lu "
+                "overflow=%lu overflow_bytes=%lu paused_drops=%lu "
+                "heap=%uK psram=%uK%s\n",
+                (unsigned long long)uPerfWriteMaxUs,
+                (unsigned long long)uPerfSyncMaxUs,
+                (unsigned long)uRingPct,
+                (unsigned)(kLoggingRingBufferBytes / 1024),
+                (unsigned long)uPerfRingDrops,
+                (unsigned long)uPerfDbgDrops,
+                (unsigned long)uPerfShortWrites,
+                (unsigned long)uPerfImuLate,
+                (unsigned long)uPerfImuMaxLateUs,
+                (unsigned long)uPerfOverflowCnt,
+                (unsigned long)uPerfOverflowB,
+                (unsigned long)uPerfPausedDrops,
+                (unsigned)uHeapK,
+                (unsigned)uPsramK,
+                bHeartbeat && !bTripped ? " hb" : "");
+            uPerfWriteMaxUs   = 0;
+            uPerfSyncMaxUs    = 0;
+            uPerfRingDrops    = 0;
+            uPerfDbgDrops     = 0;
+            uPerfShortWrites  = 0;
+            uPerfImuLate      = 0;
+            uPerfImuMaxLateUs = 0;
+            uPerfOverflowCnt  = 0;
+            uPerfOverflowB    = 0;
+            uPerfPausedDrops  = 0;
+            uPerfLastEmitMs   = uNowPerfMs;
+            }
+
+        // Drain the dbg ring under our existing xWriteMutex window —
+        // SdFat's volume cache is shared, so dbg writes can't run on
+        // a separate task without corrupting each other's data.
+        g_DebugLog.DrainLocked();
 
         xSemaphoreGive(xWriteMutex);
 
@@ -328,8 +575,16 @@ void LogSensor::Open()
             static char szHeader[onspeed::proto::log_csv::kHeaderMaxBytes];
             size_t hdrLen = onspeed::proto::log_csv::WriteHeader(headerRow, szHeader, sizeof(szHeader));
             if (hdrLen > 0)
-                m_hLogFile.write(szHeader, hdrLen);
-            m_hLogFile.write("\n", 1);
+                {
+                const size_t uActual = m_hLogFile.write(szHeader, hdrLen);
+                if (uActual != hdrLen)
+                    g_Log.printf(MsgLog::EnDisk, MsgLog::EnError,
+                        "SD header short write (requested=%u actual=%u)\n",
+                        (unsigned)hdrLen, (unsigned)uActual);
+                }
+            if (m_hLogFile.write("\n", 1) != 1)
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                    "SD header newline short write");
 
             m_hLogFile.sync();
 
@@ -351,6 +606,14 @@ void LogSensor::Open()
                                 BuildInfo::gitShortSha,
                                 onspeed::proto::log_csv::kFormatVersion,
                                 etype);
+
+            // Paired .dbg file for warnings/errors/PERF lines. We're
+            // already inside xWriteMutex (caller's contract), and the
+            // SdFat volume requires all file ops on this card to be
+            // serialised through it — so just open the .dbg here.
+            // If the open fails, Write() no-ops and the rest of the
+            // system continues unaffected.
+            g_DebugLog.Open(m_szBaseName);
 
             // No initial sidecar write — the first refresh fires 30 s into
             // the session from LogSensorCommitTask. A power-yank inside
@@ -420,9 +683,21 @@ void LogSensor::WriteSidecarLocked()
                       "Sidecar meta tmp open failed");
         return;
     }
-    f.write(buf, n);
+    const size_t uActual = f.write(buf, n);
+    if (uActual != n)
+        g_Log.printf(MsgLog::EnDisk, MsgLog::EnWarning,
+            "Sidecar short write (requested=%u actual=%u); skipping rename\n",
+            (unsigned)n, (unsigned)uActual);
     f.sync();
     f.close();
+
+    // If the .meta.tmp write was short, the atomic-rename promise is
+    // gone (a half-meta file would be worse than the previous one).
+    // Drop the tmp and leave the prior .meta in place.
+    if (uActual != n) {
+        g_SdFileSys.remove(tmpPath);
+        return;
+    }
 
     // Rename atomically over the prior .meta. Remove any stale .meta
     // first because some FAT implementations refuse rename-onto-existing.
@@ -448,8 +723,30 @@ void LogSensor::WriteSidecarLocked()
 
 void LogSensor::Close()
 {
+    // Drain any row stranded in the carryover slot from the last drain
+    // iteration. Without this, a card stall that fills the staging
+    // buffer just before Close() fires (web LOG DISABLE, FORMAT, etc.)
+    // loses the parked row silently — the drain loop wouldn't run again
+    // to place it at the front of szWriteBuf.
+    //
+    // Two flushes: the first drains any sub-sector residual left by the
+    // last writer iteration (so szWriteBuf has room for a full row), the
+    // second writes the carryover. Without the leading flush, a 2 KB
+    // carryover row + 1-511 bytes of residual would overflow WRITE_BUF_SIZE
+    // and the bounds check would silently drop the carryover.
+    FlushStagingBufferLocked();
+    if (uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
+        {
+        memcpy(szWriteBuf + uBufUsed, szCarryoverBuf, uCarryoverLen);
+        uBufUsed += uCarryoverLen;
+        uCarryoverLen = 0;
+        }
     FlushStagingBufferLocked();
     m_hLogFile.close();
+
+    // Close the paired .dbg file. Caller already holds xWriteMutex,
+    // which is what serialises all SD ops on the shared volume.
+    g_DebugLog.Close();
 
     // Nothing to serialise if we never opened a file in this session.
     if (m_szBaseName[0] == '\0') return;
@@ -502,6 +799,7 @@ void LogSensor::Close()
         // disk-full or name collisions, so the .csv stays at its old name
         // if the meta rename can't succeed (rather than leaving an
         // orphaned pair). Collision check still covers both up front.
+        bool bRenamedTrio = false;
         if (!g_SdFileSys.exists(newCsvName) && !g_SdFileSys.exists(newMetaName)) {
             bool okMeta = g_SdFileSys.rename(oldMetaName, newMetaName);
             if (okMeta) {
@@ -512,12 +810,21 @@ void LogSensor::Close()
                     g_SdFileSys.rename(newMetaName, oldMetaName);
                     g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
                                   "Log csv rename failed; meta rolled back");
+                } else {
+                    bRenamedTrio = true;
                 }
             } else {
                 g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
                               "Log meta rename failed; skipping csv rename");
             }
         }
+
+        // Rename the .dbg file to match — only if both CSV and meta
+        // succeeded. Otherwise we'd leave a dated .dbg next to an
+        // undated .csv/.meta pair, which is worse than no rename.
+        // Caller already holds xWriteMutex for SD serialisation.
+        if (bRenamedTrio)
+            g_DebugLog.RenameWithPrefix(datePrefix);
     }
 
     m_szBaseName[0] = '\0';
@@ -531,16 +838,30 @@ void LogSensor::Write()
 {
     static char szLogLine[onspeed::proto::log_csv::kRowMaxBytes + 2]; // +2 for "\n\0"
 
-    // Used during SD file downloads (and other future pause cases).
-    // Avoid queuing data while the writer task is paused.
+    // g_bPause is held by HandleDownload and the bulk-delete handlers,
+    // which sit on xWriteMutex for many seconds; pausing the producer
+    // there prevents the ring from overflowing during that window.
+    // Each dropped sample bumps s_uPausedDropCount so the loss is
+    // visible in PERF telemetry instead of silently disappearing.
     if (g_bPause)
+        {
+        __atomic_fetch_add(&s_uPausedDropCount, 1u, __ATOMIC_RELAXED);
         return;
+        }
 
     if (!g_Config.bSdLogging)
         return;
 
     // --- Snapshot sensor state into a LogRow ---
-    unsigned long uTimeStamp = millis();
+    // Snapshot both timestamps back-to-back so they refer to the same
+    // sample instant (offset is a few ns). esp_timer_get_time() returns
+    // 64-bit µs since boot — no rollover at flight timescales (vs
+    // micros() which wraps every ~71 min).
+    unsigned long uTimeStamp   = millis();
+    // esp_timer_get_time() returns int64_t but is monotonic-from-boot
+    // (always non-negative); cast to uint64_t is safe and matches the
+    // CSV column type.
+    uint64_t      uTimeStampUs = static_cast<uint64_t>(esp_timer_get_time());
 
     onspeed::LogRow row;
     row.boomEnabled = g_Config.bReadBoom;
@@ -550,6 +871,7 @@ void LogSensor::Write()
     row.flapsRawAdcPresent = true;
 
     row.timeStampMs      = (uint32_t)uTimeStamp;
+    row.timeStampUs      = uTimeStampUs;
     row.pfwdCounts       = g_Sensors.iPfwd;
     row.pfwdSmoothed     = g_Sensors.PfwdSmoothed;
     row.p45Counts        = g_Sensors.iP45;

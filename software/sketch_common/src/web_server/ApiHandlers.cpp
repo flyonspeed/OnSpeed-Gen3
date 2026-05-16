@@ -410,13 +410,13 @@ void HandleApiVnoChimeTest() {
 // ============================================================================
 
 void HandleApiLogs() {
-    // Pause logging while listing files + reading sidecars to reduce
-    // SD contention.  Same guard the legacy HandleLogs uses.
-    struct PauseGuard {
-        bool bPrevPause;
-        PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
-        ~PauseGuard() { g_bPause = bPrevPause; }
-    } pauseGuard;
+    // No PauseGuard: file-list typically completes in <500ms; the
+    // 230 KB usable ring (~2.9 sec at 80 KB/s) absorbs the queued rows
+    // while xWriteMutex is held by the listing path below. Pausing the
+    // producer here used to drop every IMU sample during the listing
+    // window — visible to pilots who loaded /logs mid-flight as
+    // ~10-25 ms CSV gaps. Download / bulk-delete handlers keep their
+    // guards (multi-second mutex holds would overflow the ring).
 
     SdFileSys::SuFileInfoList suFileList;
     String sActiveCsvName;

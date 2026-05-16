@@ -57,6 +57,13 @@ public:
     bool Test(EnModule enModule, EnLevel enLevel);
     const char * szLevelName(EnLevel enLevel);
 
+    // Threshold for routing module/level lines into the on-box .dbg
+    // file. Default EnWarning, matching the intent that .dbg captures
+    // post-flight forensics (warnings, errors, the PERF tick) without
+    // doubling SD bandwidth with Debug chatter.
+    void    SetSdThreshold(EnLevel enLevel) { m_enSdThreshold = enLevel; }
+    EnLevel GetSdThreshold() const          { return m_enSdThreshold; }
+
     void print(EnModule enModule, EnLevel enLevel, const char * szLogMsg);
     void println(EnModule enModule, EnLevel enLevel, const char * szLogMsg);
     void printf(EnModule enModule, EnLevel enLevel, const char * szFmt, ...);
@@ -66,5 +73,8 @@ public:
     size_t  printf(const char * szFmt, ...);
 
     void    flush();
+
+private:
+    EnLevel m_enSdThreshold = EnWarning;
     };
 

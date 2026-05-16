@@ -74,6 +74,7 @@
 #include "src/drivers/SdFileSys.h"
 #include "src/drivers/SensorIO.h"
 #include "src/tasks/LogSensor.h"
+#include "src/tasks/DebugLog.h"
 #include "src/tasks/LogReplay.h"
 #include "src/tasks/AHRS.h"
 #include "src/io/ConsoleSerial.h"
@@ -103,7 +104,15 @@ EXTERN_INIT(TaskHandle_t             xTaskLogReplay,     NULL)
 EXTERN_INIT(TaskHandle_t             xTaskTestPot,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskRangeSweep,    NULL)
 
+// Capacity of the data ring buffer. Allocated by xRingbufferCreateWithCaps()
+// in setup() and used by LogSensorCommitTask's PERF tick to compute the
+// percent-full gauge (vRingbufferGetInfo exposes free bytes but not the
+// configured capacity).  Single source of truth for both sites.
+constexpr size_t kLoggingRingBufferBytes = 262144;
+constexpr size_t kDebugRingBufferBytes   = 16384;
+
 EXTERN RingbufHandle_t          xLoggingRingBuffer;
+EXTERN RingbufHandle_t          xDebugRingBuffer;
 
 EXTERN SemaphoreHandle_t        xWriteMutex;
 EXTERN SemaphoreHandle_t        xSensorMutex;
@@ -135,6 +144,7 @@ EXTERN HscPressureSensor      * g_pStatic;  // Static pressure
 
 EXTERN  SensorIO                g_Sensors;
 EXTERN  LogSensor               g_LogSensor;
+EXTERN  DebugLog                g_DebugLog;
 
 EXTERN_CLASS(AHRS               g_AHRS, kGyroSmoothing)
 
