@@ -9,6 +9,30 @@ OnSpeed records flight data to CSV files on the microSD card at **50 Hz** by def
 - **Naming**: `log_NNN.csv` (sequential numbering). When a VN-300 EFIS provides a UTC timestamp, the file is renamed to `YYYY-MM-DD_NNN.csv` at close so the date travels with the file. Dynon, Garmin, and no-EFIS logs keep `log_NNN.csv`.
 - **Size**: A 1-hour flight produces approximately 50–100 MB of data
 
+### Log rotation on config change
+
+A log file is internally consistent: the columns advertised in its header match every row in the file, and the row cadence (50 vs 208 Hz) stays constant from first row to last. To preserve that invariant, the firmware **closes the active log and opens a new one** if any of these settings change while logging is on:
+
+| Setting changed | Why rotation happens |
+|---|---|
+| `Log Rate` (50 ↔ 208 Hz) | Row cadence changes; mixed cadence in one file confuses replay tools |
+| `Read Boom` toggle | Boom columns appear/disappear in the row |
+| `Read EFIS Data` toggle | EFIS columns appear/disappear in the row |
+| EFIS type (e.g. Dynon ↔ VN-300) | EFIS column set differs (VN-300 has its own column block) |
+
+When rotation fires, the success page shows: "The active log file was rotated because the change affects column set or sample cadence; subsequent rows go into a fresh `log_NNN.csv`." The closed file gets its sidecar `.meta` written and (if a VN-300 UTC date is available) is renamed to `YYYY-MM-DD_NNN.csv`. The new file gets the next sequence number and a fresh header.
+
+**For post-flight analysis**: one flight that included a mid-flight config change produces multiple `log_NNN.csv` files. Each is a coherent segment with its own header. Stitch them together by timestamp (the `timeStamp` column is `millis()` since power-on, so it's continuous across files until reboot).
+
+Changes that do NOT trigger rotation (the column set and cadence stay the same):
+
+- Flap calibration adjustments (alpha_0, AOA setpoints, polynomial coefficients)
+- AHRS algorithm choice (Madgwick ↔ EKF6)
+- Audio settings, volume curves
+- Aircraft Vno / Vfe / G-limit values
+
+Column values (e.g. `DerivedAOA`) may shift subtly mid-file in those cases — downstream analysis tooling typically handles that gracefully.
+
 ### Metadata sidecar
 
 Each `log_NNN.csv` is written alongside a `log_NNN.meta` plain-text sidecar. The firmware refreshes the sidecar every 30 seconds while the log is open and rewrites it once at close, so a flight that ends with a power yank still leaves a usable sidecar (worst case: the last 30 s of metadata is missing). The first 30 seconds of any flight are an exception — a power yank in that window leaves no sidecar at all, and the `/logs` page renders em-dashes for that flight rather than a misleading zero-valued line. One `key=value` per line:

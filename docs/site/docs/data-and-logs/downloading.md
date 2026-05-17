@@ -11,8 +11,12 @@ Log data is downloaded from the OnSpeed controller via WiFi.
 
 The metadata columns come from a small `.meta` sidecar file written next to each `log_NNN.csv` when the log closes. Older logs without a sidecar render with em-dashes for the metadata columns but still download and delete normally.
 
-!!! note "Logging pauses during download"
-    SD card logging is temporarily paused while a file is being downloaded to prevent conflicts. It resumes automatically after the download completes.
+!!! warning "Logging pauses during download — don't download mid-flight"
+    SD card logging is temporarily paused while a file is being downloaded so the SD writer mutex isn't fighting the download stream. It resumes automatically when the download completes, but every IMU sample that fires during the pause is lost (counted as `paused_drops` in the dbg-log PERF telemetry — typically ~5–20 samples per small file, more for larger downloads).
+
+    On the ground that's harmless. **In flight, avoid downloading.** Pull logs after the flight when the box is on the ground. The same applies to bulk-delete operations.
+
+    The `/logs` page itself does NOT pause logging — only file downloads do. Reloading `/logs` to check the active log size is safe at any time. If the SD is briefly too busy to list, the page shows "SD card busy, retrying (attempt N of 4)..." and recovers within a few seconds.
 
 ### Download Speed
 
