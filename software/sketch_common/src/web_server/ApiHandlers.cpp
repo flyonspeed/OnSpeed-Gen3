@@ -651,7 +651,7 @@ void HandleApiLogsDeleteBulk() {
             if (IsActiveLogFile(f)) {
                 xSemaphoreGive(xWriteMutex);
                 appendErrorItem(errors, firstError, f, "active log");
-                vTaskDelay(1);
+                vTaskDelay(pdMS_TO_TICKS(1));
                 continue;
             }
             g_SdFileSys.remove(f.c_str());
@@ -665,7 +665,7 @@ void HandleApiLogsDeleteBulk() {
         } else {
             appendErrorItem(errors, firstError, f, "SD busy");
         }
-        vTaskDelay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     String response;

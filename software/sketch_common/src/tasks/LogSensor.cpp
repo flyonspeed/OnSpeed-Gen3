@@ -493,16 +493,16 @@ void LogSensorCommitTask(void *pvParams)
 
         xSemaphoreGive(xWriteMutex);
 
-        // Yield one tick after each mutex release. The writer's loop
-        // body is tight enough that re-acquiring the mutex immediately
-        // can starve any other waiter (config-save, /api/logs, format).
+        // Yield 1 ms after each mutex release. The writer's loop body
+        // is tight enough that re-acquiring the mutex immediately can
+        // starve any other waiter (config-save, /api/logs, format).
         // FreeRTOS doesn't queue mutex takers by arrival order; a tight
         // release/re-acquire pattern wins almost every coin flip
-        // against a waiter that started later. One tick (1 ms) is
-        // enough for an equal-priority waiter to be scheduled and
-        // claim the mutex, while costing almost nothing at the ring
-        // level (1 ms * 80 KB/s = 80 bytes of pending data).
-        vTaskDelay(1);
+        // against a waiter that started later. 1 ms is enough for an
+        // equal-priority waiter to be scheduled and claim the mutex,
+        // while costing almost nothing at the ring level (1 ms * 80
+        // KB/s = 80 bytes of pending data).
+        vTaskDelay(pdMS_TO_TICKS(1));
 
         // Never block SD access while waiting on serial output.
         if (bDidSync)

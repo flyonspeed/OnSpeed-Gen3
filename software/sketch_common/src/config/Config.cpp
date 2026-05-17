@@ -223,6 +223,11 @@ bool FOSConfig::SaveConfigurationToFile(char* szFilename)
     FsFile  hConfigFile;
     static const int kMaxAttempts = 4;
     int attempt = 0;
+    // Distinguish mutex-busy (retry helps) from filesystem-open-failed
+    // (retry won't help — FS full, card unmounted, permissions weirdness).
+    // For FS failures we break out early with a precise error rather than
+    // burning all 4 retries and emitting a misleading "mutex timeout".
+    bool bFsOpenFailed = false;
     while (attempt < kMaxAttempts && !bStatus)
         {
         attempt++;
@@ -234,8 +239,16 @@ bool FOSConfig::SaveConfigurationToFile(char* szFilename)
                 hConfigFile.print(sConfig);
                 hConfigFile.close();
                 bStatus = true;
+                xSemaphoreGive(xWriteMutex);
                 }
-            xSemaphoreGive(xWriteMutex);
+            else
+                {
+                // Mutex acquired but file open failed — not a contention
+                // issue. Break out and report accurately.
+                xSemaphoreGive(xWriteMutex);
+                bFsOpenFailed = true;
+                break;
+                }
             }
         else if (attempt < kMaxAttempts)
             {
@@ -249,8 +262,16 @@ bool FOSConfig::SaveConfigurationToFile(char* szFilename)
         }
 
     if (bStatus == false)
-        g_Log.println(MsgLog::EnConfig, MsgLog::EnError,
-                      "Could not save config file (xWriteMutex timeout after retries)");
+        {
+        if (bFsOpenFailed)
+            g_Log.printf(MsgLog::EnConfig, MsgLog::EnError,
+                         "Could not save config file '%s' (SD open() failed — "
+                         "card full, FS error, or card removed?)\n",
+                         szFilename);
+        else
+            g_Log.println(MsgLog::EnConfig, MsgLog::EnError,
+                          "Could not save config file (xWriteMutex timeout after retries)");
+        }
     else
         g_Log.printf(MsgLog::EnConfig, MsgLog::EnWarning,
                      "Saved config file to SD card (attempt %d/%d)\n",
