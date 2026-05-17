@@ -175,6 +175,9 @@ nav:
     - Erratic Tones: troubleshooting/erratic-tones.md
     - WiFi Issues: troubleshooting/wifi.md
     - Console Commands: troubleshooting/console-commands.md
+  - Contributing:
+    - contributing/index.md
+    - Bench Testing: contributing/bench-testing.md
   - Reference:
     - reference/index.md
     - Configuration Parameters: reference/config-parameters.md
