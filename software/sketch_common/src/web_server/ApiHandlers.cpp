@@ -21,6 +21,7 @@
 #include <WiFiClient.h>
 #include <WebServer.h>
 #include <buildinfo.h>
+#include <esp_task_wdt.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -199,6 +200,31 @@ SemaphoreHandle_t g_FormatJobMutex = nullptr;
 void EnsureFormatMutex() {
     if (g_FormatJobMutex == nullptr)
         g_FormatJobMutex = xSemaphoreCreateMutex();
+}
+
+void RunFormatInline(FormatJob& job);
+
+// One-shot FreeRTOS task entry: runs RunFormatInline against the global
+// job, then deletes itself. Pinned to Core 0 so it shares the connectivity
+// core with the web server it serves and never contends with the flight
+// loop on Core 1. The producer is paused via g_bPause inside
+// RunFormatInline. IDLE0 is removed from the TWDT for the duration of
+// the format call (SdFat.format() saturates Core 0 for several seconds
+// on large cards), then restored. We don't add the Format task itself
+// to the TWDT — SdFat doesn't call esp_task_wdt_reset() from this task's
+// context (calls land on SdFat-internal worker tasks instead), so a TWDT
+// registration here would just trigger the WDT from the inside.
+// Returning the HTTP response from the API handler before this task runs
+// lets the browser poll /api/format/status without the synchronous wedge
+// that previously crashed the box on TWDT timeout.
+static void FormatTaskEntry(void* /*pArg*/) {
+    TaskHandle_t hIdle0 = xTaskGetIdleTaskHandleForCPU(0);
+    if (hIdle0 != nullptr)
+        esp_task_wdt_delete(hIdle0);
+    RunFormatInline(g_FormatJob);
+    if (hIdle0 != nullptr)
+        esp_task_wdt_add(hIdle0);
+    vTaskDelete(nullptr);
 }
 
 void RunFormatInline(FormatJob& job) {
@@ -703,9 +729,25 @@ void HandleApiFormat() {
     body += F("\"}");
     SendJson(200, body);
 
-    // Run the format inline (legacy semantics).  The HTTP response is
-    // already on the wire; the client will poll /api/format/status.
-    RunFormatInline(g_FormatJob);
+    // Spawn a one-shot task on Core 0 to run the format. Returning from
+    // this handler immediately frees the WiFi/web server thread so the
+    // browser's /api/format/status polling stays responsive while
+    // SdFat.format() works. Stack 8 KB is generous; SdFat's format path
+    // is shallow but allocates some scratch space.
+    TaskHandle_t hFormatTask = nullptr;
+    BaseType_t   res         = xTaskCreatePinnedToCore(
+        FormatTaskEntry, "Format", 8192, nullptr,
+        tskIDLE_PRIORITY + 1, &hFormatTask, 0);
+    if (res != pdPASS) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "Format: failed to spawn worker task");
+        if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+            g_FormatJob.state = FormatState::Failed;
+            std::snprintf(g_FormatJob.error, sizeof(g_FormatJob.error),
+                          "failed to spawn format task");
+            xSemaphoreGive(g_FormatJobMutex);
+        }
+    }
 }
 
 void HandleApiFormatStatus() {
