@@ -3664,7 +3664,8 @@
 <ul>
 <li>Static assets (CSS, JavaScript) are cached using <strong>ETags</strong> based on the firmware version. After a firmware update, your browser will automatically fetch new assets.</li>
 <li>The web server runs on ESP32 Core 0 (the connectivity core), so it doesn't interfere with flight-critical tasks on Core 1.</li>
-<li>Large file downloads from the <code>/logs</code> page will pause SD card logging during the transfer to avoid conflicts.</li>
+<li>File downloads from the <code>/logs</code> page pause SD card logging during the transfer (see <a href="../../data-and-logs/downloading/">Downloading Logs</a>). Listing logs and reloading the page does NOT pause logging.</li>
+<li>Under sustained SD activity at 208 Hz, web requests that need the SD writer's mutex (config save, file listing, format) may briefly contend with the writer. The pages auto-retry with backoff and show "SD card busy, retrying..." status if a retry takes more than a second. Saving config tells you on the result page if it failed to persist to SD (rare red warning banner) so a silent in-memory-only save can't happen.</li>
 </ul>
 <h2 id="wifi-range">WiFi Range<a class="headerlink" href="#wifi-range" title="Permanent link">&para;</a></h2>
 <p>The ESP32-S3's WiFi range is limited — typically 10–30 feet in open air, less through aircraft structure. For configuration and log download:</p>

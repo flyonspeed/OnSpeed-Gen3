@@ -3567,7 +3567,7 @@
 
 
 <h1 id="backup-restore">Backup &amp; Restore<a class="headerlink" href="#backup-restore" title="Permanent link">&para;</a></h1>
-<p>Your OnSpeed configuration is stored as an XML file (<code>config.cfg</code>) on the SD card and in flash memory. You can download, upload, and manually edit this file.</p>
+<p>Your OnSpeed configuration is stored as an XML file (<code>onspeed2.cfg</code>) on the SD card and in flash memory. You can download, upload, and manually edit this file.</p>
 <h2 id="downloading-a-backup">Downloading a Backup<a class="headerlink" href="#downloading-a-backup" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Connect to OnSpeed WiFi</li>
@@ -3632,14 +3632,20 @@
 <p>On startup, the firmware loads configuration in this order:</p>
 <ol>
 <li><strong>Compiled defaults</strong> (from <code>OnSpeedConfig::LoadDefaults()</code> in <code>onspeed_core</code>)</li>
-<li><strong>Flash memory</strong> (LittleFS) — overwrites defaults</li>
-<li><strong>SD card</strong> (<code>config.cfg</code>) — overwrites flash</li>
+<li><strong>SD card</strong> (<code>onspeed2.cfg</code>) — if present and load succeeds, becomes the active config</li>
+<li><strong>Flash memory</strong> (LittleFS backup) — only consulted if the SD card has no config file (or the SD load failed)</li>
 </ol>
-<p>This means the SD card config takes priority. If you need to factory-reset, you can either:</p>
+<p>The SD card is the authoritative source. The flash copy is a backup that the firmware writes after every successful SD save, so the two are normally identical. The flash copy only matters if the SD card has no <code>onspeed2.cfg</code> (fresh card, post-format, or card swapped in from another box) — in that case the firmware boots from the flash backup so you keep your last saved settings.</p>
+<p>If the SD has a config file but loading it fails (a rare transient at boot), the firmware emits a loud warning on the serial console and falls back to the flash backup rather than failing silent. Re-save from the web UI to refresh the SD copy.</p>
+<p>If you need to factory-reset:</p>
 <ul>
 <li>Use the <strong>Load Defaults</strong> button on the web interface (resets to compiled defaults)</li>
-<li>Delete the <code>config.cfg</code> file from the SD card</li>
+<li>Delete the <code>onspeed2.cfg</code> file from the SD card (next boot loads from flash backup, or compiled defaults if flash is also empty)</li>
 </ul>
+<div class="admonition note">
+<p class="admonition-title">Config save can fail visibly</p>
+<p>The web UI's config save retries up to 4 times if the SD writer is busy. If all retries fail, the page shows a <strong>red WARNING banner</strong> saying the change was applied in memory but did NOT persist to SD. Wait a few seconds and click Save again; the writer's hot moment will have passed. Previous firmware silently dropped the SD write without telling the pilot.</p>
+</div>
 
 
 

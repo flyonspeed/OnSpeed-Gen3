@@ -3603,9 +3603,11 @@
 <li>Click a filename to download it</li>
 </ol>
 <p>The metadata columns come from a small <code>.meta</code> sidecar file written next to each <code>log_NNN.csv</code> when the log closes. Older logs without a sidecar render with em-dashes for the metadata columns but still download and delete normally.</p>
-<div class="admonition note">
-<p class="admonition-title">Logging pauses during download</p>
-<p>SD card logging is temporarily paused while a file is being downloaded to prevent conflicts. It resumes automatically after the download completes.</p>
+<div class="admonition warning">
+<p class="admonition-title">Logging pauses during download — don't download mid-flight</p>
+<p>SD card logging is temporarily paused while a file is being downloaded so the SD writer mutex isn't fighting the download stream. It resumes automatically when the download completes, but every IMU sample that fires during the pause is lost (counted as <code>paused_drops</code> in the dbg-log PERF telemetry — typically ~5–20 samples per small file, more for larger downloads).</p>
+<p>On the ground that's harmless. <strong>In flight, avoid downloading.</strong> Pull logs after the flight when the box is on the ground. The same applies to bulk-delete operations.</p>
+<p>The <code>/logs</code> page itself does NOT pause logging — only file downloads do. Reloading <code>/logs</code> to check the active log size is safe at any time. If the SD is briefly too busy to list, the page shows "SD card busy, retrying (attempt N of 4)..." and recovers within a few seconds.</p>
 </div>
 <h3 id="download-speed">Download Speed<a class="headerlink" href="#download-speed" title="Permanent link">&para;</a></h3>
 <p>WiFi transfers are not fast — the ESP32's WiFi bandwidth is limited. A large log file (50–100 MB) may take several minutes to download. Stay close to the controller for the best signal.</p>
