@@ -50,7 +50,8 @@ The altitude readout is labeled `PAlt` — every altitude OnSpeed computes is pr
 
 - Static assets (CSS, JavaScript) are cached using **ETags** based on the firmware version. After a firmware update, your browser will automatically fetch new assets.
 - The web server runs on ESP32 Core 0 (the connectivity core), so it doesn't interfere with flight-critical tasks on Core 1.
-- Large file downloads from the `/logs` page will pause SD card logging during the transfer to avoid conflicts.
+- File downloads from the `/logs` page pause SD card logging during the transfer (see [Downloading Logs](../data-and-logs/downloading.md)). Listing logs and reloading the page does NOT pause logging.
+- Under sustained SD activity at 208 Hz, web requests that need the SD writer's mutex (config save, file listing, format) may briefly contend with the writer. The pages auto-retry with backoff and show "SD card busy, retrying..." status if a retry takes more than a second. Saving config tells you on the result page if it failed to persist to SD (rare red warning banner) so a silent in-memory-only save can't happen.
 
 ## WiFi Range
 

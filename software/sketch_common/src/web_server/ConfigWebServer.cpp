@@ -624,9 +624,12 @@ void HandleConfig()
     sBody = sBefore + sFlapsRendered + sAfter;
 
     // -- 2. Replay-log file picker datalist.  Built from the SD card's
-    // current file listing under xWriteMutex.
+    // current file listing under xWriteMutex. 2s timeout — under load
+    // the writer can hold the mutex for ~100 ms at a time; 100 ms is
+    // not enough for a reliable take. If still busy after 2s, render
+    // an empty datalist rather than failing the whole config page.
     String sReplayOptions;
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
         {
         SdFileSys::SuFileInfoList suFileList;
         if (g_SdFileSys.FileList(&suFileList))
@@ -843,6 +846,45 @@ void HandleConfigSave()
     bool    rebootRequired  = false;
     String  errorMessage    = "";
 
+    // Snapshot the fields that affect the active log file's HEADER
+    // (column set) or row CADENCE. If any of them change as a result
+    // of this save AND sdLogging stays continuously on, we must rotate
+    // the log file at the end of this handler — otherwise the existing
+    // file's header would lie about its columns (or the rows would
+    // change cadence inside a single file, which downstream tooling
+    // doesn't handle).
+    //
+    // Fields included:
+    //   bReadBoom        → boom columns appear/disappear
+    //   bReadEfisData    → EFIS columns appear/disappear
+    //   sEfisType        → VN-300 vs standard EFIS = different column set
+    //   iLogRate         → row cadence (50 Hz vs 208 Hz)
+    //
+    // Not included (intentional — would thrash file rotation):
+    //   flap calibration tweaks (alpha_0, fit coefficients, etc.) —
+    //     these change column SEMANTICS but not the schema; downstream
+    //     analysis tolerates mid-file drift better than mid-file
+    //     header lies.
+    //   iAhrsAlgorithm — same reason; DerivedAOA recomputes but stays
+    //     in the same column.
+    struct LogFileFingerprint {
+        bool   bSdLogging;
+        bool   bReadBoom;
+        bool   bReadEfisData;
+        String sEfisType;
+        int    iLogRate;
+    };
+    auto snapshotFingerprint = []() {
+        return LogFileFingerprint{
+            g_Config.bSdLogging,
+            g_Config.bReadBoom,
+            g_Config.bReadEfisData,
+            String(g_Config.sEfisType.c_str()),
+            g_Config.iLogRate,
+        };
+    };
+    const LogFileFingerprint fpBefore = snapshotFingerprint();
+
     if (CfgServer.hasArg("aoaSmoothing"))
         {
         if (g_Config.iAoaSmoothing != CfgServer.arg("aoaSmoothing").toInt())
@@ -870,6 +912,15 @@ void HandleConfigSave()
         g_Config.sReplayLogFileName = CfgServer.arg("logFileName").c_str();
 
 #if 1
+    // Partial-form safety: if the submitted form has NO flapDegrees{i}
+    // fields at all (not even flapDegrees0), the request is a partial
+    // submit (a script or browser plugin sending a subset of fields, or
+    // a JSON API caller). In that case leave the in-memory flap config
+    // alone — DO NOT replace it with an empty vector. The "user cleared
+    // every flap row" case still works because the legacy aoaconfig page
+    // submits at least flapDegrees0 with a delete marker.
+    if (CfgServer.hasArg("flapDegrees0"))
+    {
     // Build the new flap vector locally first.  Building locally and
     // swapping under `xAhrsMutex` means concurrent flight-path readers on
     // Core 1 (SensorIO::Read AOA snapshot, Audio.cpp::UpdateTones,
@@ -956,6 +1007,7 @@ void HandleConfigSave()
             "All flap positions were deleted; restoring a zeroed default. "
             "Calibrate before flying.");
         }
+    } // end if (hasArg("flapDegrees0"))
 #endif
 
     // Read boom enabled/disabled
@@ -1089,7 +1141,13 @@ void HandleConfigSave()
         if (bWasSdLogging != bNewSdLogging &&
             g_Config.suDataSrc.enSrc == SuDataSource::EnSensors)
         {
-            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000)))
+            // 5s timeout matches the /api/logs path. Writer holds the
+            // mutex for ~100ms at a time at 208 Hz; 1s was racy under
+            // sustained load. If we still can't get it, revert the in-
+            // memory flag so the user's flag-state matches the actual
+            // file-handle state (otherwise the box appears to be
+            // logging-enabled but no file is open).
+            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
             {
                 if (bNewSdLogging) g_LogSensor.Open();
                 else               g_LogSensor.Close();
@@ -1097,8 +1155,9 @@ void HandleConfigSave()
             }
             else
             {
-                g_Log.println(MsgLog::EnDisk, MsgLog::EnWarning,
-                    "sdLogging toggle: xWriteMutex busy; reboot to take effect");
+                g_Config.bSdLogging = bWasSdLogging;   // revert; keep state consistent
+                g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                    "sdLogging toggle: xWriteMutex busy after 5s; reverted");
             }
         }
     }
@@ -1188,8 +1247,50 @@ void HandleConfigSave()
         sConfig.reserve(1024);
         sPage += pageHeader;
 
-        // Save configuration. Maybe specify a config file name someday. Default for now.
-        g_Config.SaveConfigurationToFile();
+        // Rotate the log file if any header/cadence-affecting field
+        // changed during this save AND sdLogging was on continuously.
+        // The sdLogging-toggle path above already handles the
+        // false→true and true→false cases by calling Open()/Close()
+        // directly, so we only need to handle the "stayed on but
+        // schema changed" case.
+        //
+        // Without this, a pilot who toggles "Read Boom" mid-flight
+        // would end up with a CSV whose header says "no boom columns"
+        // but whose tail rows have boom columns (or vice versa) —
+        // every downstream parser fails to read the file.
+        bool bLogRotated = false;
+        const LogFileFingerprint fpAfter = snapshotFingerprint();
+        const bool bSchemaChanged =
+            (fpBefore.bReadBoom     != fpAfter.bReadBoom)     ||
+            (fpBefore.bReadEfisData != fpAfter.bReadEfisData) ||
+            (fpBefore.sEfisType     != fpAfter.sEfisType)     ||
+            (fpBefore.iLogRate      != fpAfter.iLogRate);
+        if (fpBefore.bSdLogging && fpAfter.bSdLogging && bSchemaChanged &&
+            g_Config.suDataSrc.enSrc == SuDataSource::EnSensors)
+            {
+            if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
+                {
+                g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+                    "Config change affects log schema/cadence; rotating log file");
+                g_LogSensor.Close();
+                g_LogSensor.Open();
+                xSemaphoreGive(xWriteMutex);
+                bLogRotated = true;
+                }
+            else
+                {
+                g_Log.println(MsgLog::EnConfig, MsgLog::EnError,
+                    "Config change affects log schema but xWriteMutex busy; "
+                    "active log file now has inconsistent header. Manually "
+                    "rotate by toggling sdLogging off and on, or reboot.");
+                }
+            }
+
+        // Save configuration. SaveConfigurationToFile retries up to
+        // 4 times if xWriteMutex is busy; if all retries fail, surface
+        // the failure to the pilot so they know the change is in
+        // memory only (not persisted across reboots).
+        const bool bConfigSaved = g_Config.SaveConfigurationToFile();
 
         // Warn if any flap position has out-of-order AOA setpoints
         for (size_t i = 0; i < g_Config.aFlaps.size(); i++)
@@ -1207,7 +1308,16 @@ void HandleConfigSave()
                 }
             }
 
-        sPage += "<br><br>Configuration saved.";
+        if (bConfigSaved)
+            sPage += "<br><br>Configuration saved.";
+        else
+            sPage += "<br><br><b style=\"color: red\">WARNING: Could not write config to SD card "
+                     "(the SD writer was busy across all retries). Your changes are active in "
+                     "memory but will NOT survive a reboot. Try the save again in a few seconds, "
+                     "or reboot to revert.</b>";
+        if (bLogRotated)
+            sPage += "<br><br>The active log file was rotated because the change affects column "
+                     "set or sample cadence; subsequent rows go into a fresh log_NNN.csv.";
         if (rebootRequired)
             sPage += R"#(<br><br>Some of the changes require a system reboot to take effect.<br><br><br><a href="reboot?confirm=yes" class="button">Reboot Now</a>)#";
         sPage += pageFooter;
@@ -1637,7 +1747,9 @@ void HandleDelete()
     else
         {
         bool bWasActive = false;
-        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
+        // 2s timeout — single-file delete is fast on success but the
+        // writer can hold the mutex for ~100ms; 100ms was racy.
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
             {
             // Check active-file guard under the same mutex as the remove,
             // so check+skip is atomic relative to LogSensor::Open/Close.
@@ -1905,10 +2017,19 @@ void HandleDownload()
             break;
         }
 
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
+    // 5s timeout on the close — if it fails the FsFile destructor will
+    // close on scope exit anyway, but that bypasses xWriteMutex which
+    // can corrupt SdFat's volume cache (concurrent file ops without
+    // the mutex). Long timeout is fine here; download is already done.
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
         {
         file.close();
         xSemaphoreGive(xWriteMutex);
+        }
+    else
+        {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                      "HandleDownload close: xWriteMutex timeout; fd may leak");
         }
 
     } // end HandleDownload()

@@ -119,7 +119,7 @@ bool SdFileSys::FileList(SuFileInfoList * psuFileInfoList)
 
 // Return an array of info about files on the SD disk
 
-bool SdFileSys::Format(Print * pStatusOut, bool bErase)
+bool SdFileSys::Format(Print * pStatusOut, float * pSizeGb)
     {
     uint32_t        uCardSectorCount;
     uint8_t         auSectorBuffer[512];
@@ -142,6 +142,19 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
 
     // SD card seems to be available
     uCardSectorCount = puSD_Card->sectorCount();
+    if (!uCardSectorCount)
+        {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "Get sector count failed.");
+        if (pStatusOut != nullptr)
+            pStatusOut->println("FORMAT ERROR: Could not read sector count.");
+        return false;
+        }
+
+    // If the caller wants the card size, give it to them now — even if
+    // the format itself fails later, the size we read from the card is
+    // still valid information.
+    if (pSizeGb != nullptr)
+        *pSizeGb = uCardSectorCount * 5.12e-7f;
 
     //if (pStatusOut != nullptr)
     //    {
@@ -152,25 +165,8 @@ bool SdFileSys::Format(Print * pStatusOut, bool bErase)
     //    pStatusOut->println(" GBytes");
     //    }
 
-    // Do optional erase. I'm not sure what the need for this is.
-    if (bErase)
-        {
-        uint32_t const  ERASE_SIZE  = 262144L;
-        uint32_t        uFirstBlock = 0;
-        uint32_t        uLastBlock;
-        do {
-            uLastBlock = uFirstBlock + ERASE_SIZE - 1;
-
-            if (uLastBlock >= uCardSectorCount)
-                uLastBlock = uCardSectorCount - 1;
-
-            if (!puSD_Card->erase(uFirstBlock, uLastBlock))
-                if (pStatusOut != nullptr)
-                    pStatusOut->println("Card erase failed");
-
-            uFirstBlock += ERASE_SIZE;
-            } while (uFirstBlock < uCardSectorCount);
-        } // end if erase card
+    // The exFAT formatter writes its own boot sector, FAT, and root
+    // cluster from scratch, so no pre-erase is needed.
 
     // Format the card
     // Format exFAT if larger than 32GB.

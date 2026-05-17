@@ -21,6 +21,7 @@
 #include <WiFiClient.h>
 #include <WebServer.h>
 #include <buildinfo.h>
+#include <esp_task_wdt.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -186,6 +187,8 @@ struct FormatJob {
     char         taskId[32]    = {};
     FormatState  state         = FormatState::Idle;
     char         error[64]     = {};
+    float        cardSizeGb    = 0.0f;   // populated from SdFileSys::Format()
+    bool         configSaved   = false;  // true iff post-format SaveConfigurationToFile() returned true
 };
 
 // Single in-flight job.  HandleApiFormat overwrites it on each new
@@ -199,33 +202,99 @@ void EnsureFormatMutex() {
         g_FormatJobMutex = xSemaphoreCreateMutex();
 }
 
-void RunFormatInline(FormatJob& job) {
-    bool ok = false;
-    char err[64] = {};
+void RunFormatInline(FormatJob& job);
 
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000))) {
+// One-shot FreeRTOS task entry: runs RunFormatInline against the global
+// job, then deletes itself. Pinned to Core 0 so it shares the connectivity
+// core with the web server it serves and never contends with the flight
+// loop on Core 1. The producer is paused via g_bPause inside
+// RunFormatInline. IDLE0 is removed from the TWDT for the duration of
+// the format call (SdFat.format() saturates Core 0 for several seconds
+// on large cards), then restored. We don't add the Format task itself
+// to the TWDT — SdFat doesn't call esp_task_wdt_reset() from this task's
+// context (calls land on SdFat-internal worker tasks instead), so a TWDT
+// registration here would just trigger the WDT from the inside.
+// Returning the HTTP response from the API handler before this task runs
+// lets the browser poll /api/format/status without the synchronous wedge
+// that previously crashed the box on TWDT timeout.
+static void FormatTaskEntry(void* /*pArg*/) {
+    TaskHandle_t hIdle0 = xTaskGetIdleTaskHandleForCPU(0);
+    if (hIdle0 != nullptr)
+        esp_task_wdt_delete(hIdle0);
+    RunFormatInline(g_FormatJob);
+    if (hIdle0 != nullptr)
+        esp_task_wdt_add(hIdle0);
+    vTaskDelete(nullptr);
+}
+
+void RunFormatInline(FormatJob& job) {
+    bool  ok          = false;
+    bool  configSaved = false;
+    float cardSizeGb  = 0.0f;
+    char  err[64]     = {};
+
+    // Format is a stop-the-world operation. Two-step pause:
+    //   1. Set g_bPause so the producer (SensorReadTask / ImuReadTask)
+    //      stops queuing rows immediately. This drains the inflight
+    //      pressure on xWriteMutex.
+    //   2. Take xWriteMutex with a long timeout — at this point the
+    //      writer task should be able to drain quickly and release.
+    //      Format runs to completion under the mutex.
+    // After: re-open the log file, reset g_bPause, save config.
+    g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: pausing producer + draining ring");
+    bool bPrevPause = g_bPause;
+    g_bPause = true;
+
+    // Give the writer task one drain cycle to flush the ring before we
+    // try to take the mutex. The writer's drain loop waits up to 100 ms
+    // on the first xRingbufferReceive, so 200 ms is plenty.
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    // Long mutex timeout (10 sec). With g_bPause set, the writer is
+    // idle once it finishes its current drain cycle; no producer is
+    // adding work. 10 sec is generous — typical wait is < 100 ms.
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(10000))) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: mutex acquired, closing log file");
         bool bOrigSdLogging = g_Config.bSdLogging;
         g_Config.bSdLogging = false;
         if (bOrigSdLogging)
             g_LogSensor.Close();
 
-        ok = g_SdFileSys.Format(nullptr);
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: running SD format");
+        ok = g_SdFileSys.Format(nullptr, &cardSizeGb);
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "Format: complete ok=%d cardSizeGb=%.2f\n", (int)ok, cardSizeGb);
 
         if (bOrigSdLogging) {
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: re-opening log file for new flight");
             g_Config.bSdLogging = true;
             g_LogSensor.Open();
         }
 
         xSemaphoreGive(xWriteMutex);
 
-        // Put the configuration file back onto the card.  Mutex is
-        // taken inside SaveConfigurationToFile().
-        g_Config.SaveConfigurationToFile();
+        // Restore pause flag BEFORE saving config so the producer
+        // starts queuing into the freshly opened file.
+        g_bPause = bPrevPause;
+
+        // Put the configuration file back onto the card. Mutex is taken
+        // inside SaveConfigurationToFile(). Capture the return so a
+        // silent failure is visible to the pilot — the spec covers why
+        // (Vac, 2026-05-08): post-format the config could be missing
+        // even when format itself reported success.
+        if (ok) {
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning, "Format: saving config to fresh card");
+            configSaved = g_Config.SaveConfigurationToFile();
+        }
     } else {
-        std::snprintf(err, sizeof(err), "SD busy (xWriteMutex)");
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError, "Format: xWriteMutex timeout after 10s; abandoning");
+        g_bPause = bPrevPause;
+        std::snprintf(err, sizeof(err), "SD busy (xWriteMutex) after 10s");
     }
 
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+        job.cardSizeGb  = cardSizeGb;
+        job.configSaved = configSaved;
         if (ok) {
             job.state = FormatState::Done;
         } else {
@@ -432,7 +501,14 @@ void HandleApiLogs() {
     std::vector<Entry> entries;
     entries.reserve(32);
 
-    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000))) {
+    // Wait up to 5 seconds for the writer mutex. Typical wait is <100 ms
+    // even under load; 5s covers the worst case of a card-side stall
+    // (write_max can hit 100+ ms; sidecar refresh holds for ~150 ms).
+    // Going beyond 5s would block the browser too long; the browser
+    // gets a 503 with Retry-After=1 so it can retry once the writer
+    // releases.
+    static const TickType_t kLogsListMutexWaitTicks = pdMS_TO_TICKS(5000);
+    if (xSemaphoreTake(xWriteMutex, kLogsListMutexWaitTicks)) {
         const char* szActiveBase = g_LogSensor.ActiveBaseName();
         if (szActiveBase && szActiveBase[0] != '\0') {
             sActiveCsvName  = szActiveBase;
@@ -472,7 +548,14 @@ void HandleApiLogs() {
         }
         xSemaphoreGive(xWriteMutex);
     } else {
-        SendError(503, "logs", "SD busy (xWriteMutex)");
+        // Writer task is genuinely busy. Emit a one-shot warning into
+        // the dbg log so post-flight forensics show WHEN this fires;
+        // the page can retry in 1 sec.
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "/api/logs: mutex timeout after %lu ms\n",
+                     (unsigned long)(kLogsListMutexWaitTicks * portTICK_PERIOD_MS));
+        CfgServer.sendHeader("Retry-After", "1");
+        SendError(503, "logs", "SD busy, retry shortly");
         return;
     }
 
@@ -594,7 +677,7 @@ void HandleApiLogsDeleteBulk() {
             if (IsActiveLogFile(f)) {
                 xSemaphoreGive(xWriteMutex);
                 appendErrorItem(errors, firstError, f, "active log");
-                vTaskDelay(1);
+                vTaskDelay(pdMS_TO_TICKS(1));
                 continue;
             }
             g_SdFileSys.remove(f.c_str());
@@ -608,7 +691,7 @@ void HandleApiLogsDeleteBulk() {
         } else {
             appendErrorItem(errors, firstError, f, "SD busy");
         }
-        vTaskDelay(1);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     String response;
@@ -632,8 +715,10 @@ void HandleApiFormat() {
 
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
         std::snprintf(g_FormatJob.taskId, sizeof(g_FormatJob.taskId), "%s", taskId);
-        g_FormatJob.state    = FormatState::Running;
-        g_FormatJob.error[0] = '\0';
+        g_FormatJob.state       = FormatState::Running;
+        g_FormatJob.error[0]    = '\0';
+        g_FormatJob.cardSizeGb  = 0.0f;
+        g_FormatJob.configSaved = false;
         xSemaphoreGive(g_FormatJobMutex);
     }
 
@@ -644,9 +729,25 @@ void HandleApiFormat() {
     body += F("\"}");
     SendJson(200, body);
 
-    // Run the format inline (legacy semantics).  The HTTP response is
-    // already on the wire; the client will poll /api/format/status.
-    RunFormatInline(g_FormatJob);
+    // Spawn a one-shot task on Core 0 to run the format. Returning from
+    // this handler immediately frees the WiFi/web server thread so the
+    // browser's /api/format/status polling stays responsive while
+    // SdFat.format() works. Stack 8 KB is generous; SdFat's format path
+    // is shallow but allocates some scratch space.
+    TaskHandle_t hFormatTask = nullptr;
+    BaseType_t   res         = xTaskCreatePinnedToCore(
+        FormatTaskEntry, "Format", 8192, nullptr,
+        tskIDLE_PRIORITY + 1, &hFormatTask, 0);
+    if (res != pdPASS) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "Format: failed to spawn worker task");
+        if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+            g_FormatJob.state = FormatState::Failed;
+            std::snprintf(g_FormatJob.error, sizeof(g_FormatJob.error),
+                          "failed to spawn format task");
+            xSemaphoreGive(g_FormatJobMutex);
+        }
+    }
 }
 
 void HandleApiFormatStatus() {
@@ -657,13 +758,17 @@ void HandleApiFormatStatus() {
     }
     const String id = CfgServer.arg("id");
 
-    FormatState state = FormatState::Idle;
-    char err[64] = {};
-    char activeId[32] = {};
+    FormatState state             = FormatState::Idle;
+    char        err[64]           = {};
+    char        activeId[32]      = {};
+    float       cardSizeGb_local  = 0.0f;
+    bool        configSaved_local = false;
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
         std::snprintf(activeId, sizeof(activeId), "%s", g_FormatJob.taskId);
-        state = g_FormatJob.state;
+        state             = g_FormatJob.state;
         std::snprintf(err, sizeof(err), "%s", g_FormatJob.error);
+        cardSizeGb_local  = g_FormatJob.cardSizeGb;
+        configSaved_local = g_FormatJob.configSaved;
         xSemaphoreGive(g_FormatJobMutex);
     }
 
@@ -681,10 +786,20 @@ void HandleApiFormatStatus() {
     }
 
     String body;
-    body.reserve(96);
+    body.reserve(160);
     body  = F("{\"state\":\"");
     body += sState;
     body += F("\"");
+
+    if (state == FormatState::Done) {
+        char szSize[16];
+        std::snprintf(szSize, sizeof(szSize), "%.1f", cardSizeGb_local);
+        body += F(",\"cardSizeGb\":");
+        body += szSize;
+        if (!configSaved_local) {
+            body += F(",\"warning\":\"Configuration was not saved to the SD card. Open the configuration page and click Save.\"");
+        }
+    }
     if (state == FormatState::Failed && err[0]) {
         body += F(",\"error\":\"");
         body += JsonEscape(err);

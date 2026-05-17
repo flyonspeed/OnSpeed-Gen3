@@ -1,6 +1,6 @@
 # Backup & Restore
 
-Your OnSpeed configuration is stored as an XML file (`config.cfg`) on the SD card and in flash memory. You can download, upload, and manually edit this file.
+Your OnSpeed configuration is stored as an XML file (`onspeed2.cfg`) on the SD card and in flash memory. You can download, upload, and manually edit this file.
 
 ## Downloading a Backup
 
@@ -70,10 +70,17 @@ You can edit the config file with any text editor. This is useful for:
 On startup, the firmware loads configuration in this order:
 
 1. **Compiled defaults** (from `OnSpeedConfig::LoadDefaults()` in `onspeed_core`)
-2. **Flash memory** (LittleFS) — overwrites defaults
-3. **SD card** (`config.cfg`) — overwrites flash
+2. **SD card** (`onspeed2.cfg`) — if present and load succeeds, becomes the active config
+3. **Flash memory** (LittleFS backup) — only consulted if the SD card has no config file (or the SD load failed)
 
-This means the SD card config takes priority. If you need to factory-reset, you can either:
+The SD card is the authoritative source. The flash copy is a backup that the firmware writes after every successful SD save, so the two are normally identical. The flash copy only matters if the SD card has no `onspeed2.cfg` (fresh card, post-format, or card swapped in from another box) — in that case the firmware boots from the flash backup so you keep your last saved settings.
+
+If the SD has a config file but loading it fails (a rare transient at boot), the firmware emits a loud warning on the serial console and falls back to the flash backup rather than failing silent. Re-save from the web UI to refresh the SD copy.
+
+If you need to factory-reset:
 
 - Use the **Load Defaults** button on the web interface (resets to compiled defaults)
-- Delete the `config.cfg` file from the SD card
+- Delete the `onspeed2.cfg` file from the SD card (next boot loads from flash backup, or compiled defaults if flash is also empty)
+
+!!! note "Config save can fail visibly"
+    The web UI's config save retries up to 4 times if the SD writer is busy. If all retries fail, the page shows a **red WARNING banner** saying the change was applied in memory but did NOT persist to SD. Wait a few seconds and click Save again; the writer's hot moment will have passed. Previous firmware silently dropped the SD write without telling the pilot.

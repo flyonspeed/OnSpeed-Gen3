@@ -199,9 +199,11 @@ if (formatStatus) {
   ok('state' in formatStatus, '/api/format/status: has state');
   ok(['running', 'done', 'failed', 'idle'].includes(formatStatus.state),
      '/api/format/status: state in {running, done, failed, idle}');
-  // progress and error are optional
+  // cardSizeGb is emitted on done.  warning is emitted on done iff the
+  // post-format SD config save returned false.  error is emitted on
+  // failed iff the firmware captured a reason string.  All optional.
   for (const k of Object.keys(formatStatus)) {
-    ok(['state', 'progress', 'error'].includes(k),
+    ok(['state', 'cardSizeGb', 'warning', 'error'].includes(k),
        `/api/format/status: only documented keys (saw ${k})`);
   }
 }
