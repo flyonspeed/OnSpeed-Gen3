@@ -723,6 +723,102 @@ void test_updateTas_soft_degrade_when_oat_present_but_ias_zero(void)
     TEST_ASSERT_TRUE(std::isfinite(ahrs.tasMps()));
 }
 
+// ============================================================================
+// Step() validity-bit population
+// ============================================================================
+//
+// Ahrs::Step affirms the per-channel bits the producer can stand behind
+// on every IMU tick.  These tests guard the bit-setting transitions
+// against future refactors.
+
+void test_step_sets_kPitch_kRoll_under_normal_conditions(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs ahrs(cfg);
+    AhrsInputs seed = levelSeed();
+    ahrs.Init(seed, /*seedPaltFt*/ 0.0f);
+    AhrsInputs in = levelSeed();
+    in.iasUpdateTimestampUs = 1'000'000u;
+    ahrs.Step(in, kDt);
+    TEST_ASSERT_TRUE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kPitch));
+    TEST_ASSERT_TRUE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kRoll));
+}
+
+void test_step_sets_kIas_when_iasAlive_true(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs ahrs(cfg);
+    AhrsInputs seed = levelSeed();
+    ahrs.Init(seed, /*seedPaltFt*/ 0.0f);
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt        = 80.0f;
+    in.sensors.iasAlive     = true;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    ahrs.Step(in, kDt);
+    TEST_ASSERT_TRUE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kIas));
+}
+
+void test_step_clears_kIas_when_iasAlive_false(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs ahrs(cfg);
+    AhrsInputs seed = levelSeed();
+    ahrs.Init(seed, /*seedPaltFt*/ 0.0f);
+    AhrsInputs in = levelSeed();
+    in.sensors.iasAlive     = false;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    ahrs.Step(in, kDt);
+    TEST_ASSERT_FALSE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kIas));
+}
+
+void test_step_kDerivedAoa_requires_kTas_and_kVsi(void)
+{
+    // No OAT source → kOatSat clear → kTas clear in updateTas_.
+    // kDerivedAoa must also be clear even though DerivedAOA the float
+    // may be finite.  This pins the documented dependency cascade.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    Ahrs ahrs(cfg);
+    AhrsInputs seed = levelSeed();
+    ahrs.Init(seed, /*seedPaltFt*/ 0.0f);
+    AhrsInputs in = levelSeed();
+    in.useInternalOat       = false;
+    in.useEfisOat           = false;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    ahrs.Step(in, kDt);
+    TEST_ASSERT_FALSE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kTas));
+    TEST_ASSERT_FALSE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kDerivedAoa));
+}
+
+void test_step_kDensityAlt_requires_kOatSat_and_kPalt(void)
+{
+    // Full chain: OAT + IAS + Palt → kOatSat set → kDensityAlt set.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    cfg.oatRecoveryFactor = 0.75f;
+    Ahrs ahrs(cfg);
+    AhrsInputs seed = levelSeed();
+    ahrs.Init(seed, /*seedPaltFt*/ 0.0f);
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt        = 100.0f;
+    in.sensors.iasAlive     = true;
+    in.sensors.paltFt       = 5000.0f;
+    in.sensors.oatCelsius   = 10.0f;
+    in.useInternalOat       = true;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    ahrs.Step(in, kDt);
+    TEST_ASSERT_TRUE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kOatSat));
+    TEST_ASSERT_TRUE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kPalt));
+    TEST_ASSERT_TRUE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kDensityAlt));
+}
+
 // EKF6 alpha-covariance reset on the IAS=25 kt transition (Ahrs.cpp:354-357).
 // When the aircraft accelerates through 25 kt in EKF6 mode, the filter's
 // alpha covariance is reset so it re-learns alpha from real gamma
@@ -1132,6 +1228,11 @@ int main(void)
     RUN_TEST(test_updateTas_clears_kOatSat_when_no_oat);
     RUN_TEST(test_updateTas_k_zero_matches_uncorrected_tas);
     RUN_TEST(test_updateTas_soft_degrade_when_oat_present_but_ias_zero);
+    RUN_TEST(test_step_sets_kPitch_kRoll_under_normal_conditions);
+    RUN_TEST(test_step_sets_kIas_when_iasAlive_true);
+    RUN_TEST(test_step_clears_kIas_when_iasAlive_false);
+    RUN_TEST(test_step_kDerivedAoa_requires_kTas_and_kVsi);
+    RUN_TEST(test_step_kDensityAlt_requires_kOatSat_and_kPalt);
 
     RUN_TEST(test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing);
 

@@ -550,9 +550,12 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
                std::isfinite(in.sensors.paltFt));
     setOrClear(AirDataValid::kIas,         in.sensors.iasAlive);
     setOrClear(AirDataValid::kVsi,         std::isfinite(kalmanVsiMps_));
+    // DerivedAOA = pitch − flightPath where flightPath = asin(VSI/TAS).
+    // Both TAS and VSI must be trusted for the result to be honest.
     setOrClear(AirDataValid::kDerivedAoa,
                std::isfinite(DerivedAOA) &&
-               outputs_.valid.has(AirDataValid::kTas));
+               outputs_.valid.has(AirDataValid::kTas) &&
+               outputs_.valid.has(AirDataValid::kVsi));
     // kDensityAlt mirrors kOatSat + kPalt: density-alt is only honest
     // when both SAT and Palt are trusted.
     setOrClear(AirDataValid::kDensityAlt,

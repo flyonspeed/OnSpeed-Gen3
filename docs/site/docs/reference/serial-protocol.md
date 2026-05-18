@@ -127,7 +127,7 @@ a boundary) as "render dashes" rather than a real reading.
 | 3 | `0x0008` | Palt | Yes |
 | 4 | `0x0010` | TAS | Yes |
 | 5 | `0x0020` | Density altitude | Yes (set iff `kOatSat` + `kPalt`) |
-| 6 | `0x0040` | DerivedAOA | Yes (set iff `kTas` + value finite) |
+| 6 | `0x0040` | DerivedAOA | Yes (set iff `kTas` + `kVsi` + value finite) |
 | 7 | `0x0080` | VSI | Yes |
 | 8 | `0x0100` | Pitch | Yes |
 | 9 | `0x0200` | Roll | Yes |
