@@ -14,6 +14,7 @@
 
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
+#include <efis/OatSelect.h>
 
 using onspeed::rad2deg;
 using onspeed::kts2mps;
@@ -268,13 +269,18 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiIAS = g_Sensors.IAS;
     } // end internal cal source
 
-    // OAT: prefer EFIS data, fall back to internal sensor
-    if (g_Config.bCalSourceEfis)
-        fWifiOAT = g_EfisSerial.suEfis.OAT;
-    else if (g_Config.bOatSensor)
-        fWifiOAT = g_Sensors.OatC;
-    else
-        fWifiOAT = 0.0f;
+    // OAT source selection — shared with the M5 display-serial path so
+    // both surfaces report the same value.  See
+    // onspeed_core/efis/OatSelect.h for the decision rule and the
+    // gates that lock the EFIS branch out when the EFIS feed is
+    // disabled or stale.
+    fWifiOAT = onspeed::efis::SelectDisplayOatC(
+        g_Config.bCalSourceEfis,
+        g_Config.bReadEfisData,
+        g_EfisSerial.IsDataFresh(2000),
+        g_Config.bOatSensor,
+        g_EfisSerial.suEfis.OAT,
+        g_Sensors.OatC);
 
 #else   // Dummy data
     static float fWifiAOA = 0.0;

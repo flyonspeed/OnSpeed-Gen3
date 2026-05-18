@@ -7,6 +7,7 @@
 #include "../web_server/DataServer.h"
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
+#include <efis/OatSelect.h>
 #include <proto/DisplaySerial.h>
 
 using onspeed::m2ft;
@@ -348,7 +349,21 @@ void DisplaySerial::Write()
         // The per-field scale factors, clamps, and sign conventions are
         // documented there.
 
-        const int iOATc = g_Config.bOatSensor ? int(g_Sensors.OatC) : 0;
+        // OAT source selection — shared with the WebSocket JSON path so
+        // both surfaces report the same value.  See
+        // onspeed_core/efis/OatSelect.h for the decision rule and the
+        // gates that lock the EFIS branch out when the EFIS feed is
+        // disabled or stale.
+        const float fOatC = onspeed::efis::SelectDisplayOatC(
+            g_Config.bCalSourceEfis,
+            g_Config.bReadEfisData,
+            g_EfisSerial.IsDataFresh(2000),
+            g_Config.bOatSensor,
+            g_EfisSerial.suEfis.OAT,
+            g_Sensors.OatC);
+        // Proto's BuildFrame clamps to [-99, +99] before emitting the
+        // %+03d field.
+        const int iOATc = static_cast<int>(fOatC);
 
         DisplayBuildInputs inputs;
         inputs.pitchDeg           = g_AHRS.SmoothedPitch;
