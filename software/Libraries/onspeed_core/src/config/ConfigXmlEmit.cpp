@@ -139,6 +139,9 @@ std::string EmitXml(const OnSpeedConfig& cfg)
     AddBool  (root, "SERIALEFISDATA",  cfg.bReadEfisData);
     AddString(root, "EFISTYPE",        cfg.sEfisType.c_str());
     AddBool  (root, "OATSENSOR",       cfg.bOatSensor);
+    // OAT probe recovery factor (paired with OATSENSOR; consumed by
+    // Ahrs::updateTas_ for ram-rise SAT correction).
+    AddFloat (root, "OAT_RECOVERY_FACTOR", cfg.fOatRecoveryFactor);
 
     AddString(root, "SERIALOUTFORMAT", cfg.sSerialOutFormat.c_str());
     AddString(root, "CALWIZ_SOURCE",   cfg.sCalSource.c_str());

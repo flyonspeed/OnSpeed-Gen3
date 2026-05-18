@@ -42,6 +42,10 @@ struct SensorBiasesInputs {
     float pitchBiasDeg      = 0.0f;
     float rollBiasDeg       = 0.0f;
 
+    // OAT probe recovery factor; pure config (no live counterpart).
+    // Reported as biases.oatRecoveryFactor in the JSON body.
+    float oatRecoveryFactor = 0.75f;
+
     // Live readings — IMU pitch/roll from raw accel without bias, and
     // the AHRS-corrected (current installed bias applied) values that
     // the legacy panel calls "Calculated True AC Pitch/Roll".
@@ -74,8 +78,9 @@ struct SensorBiasesInputs {
 //       "gxDegPerSec":  <float>,
 //       "gyDegPerSec":  <float>,
 //       "gzDegPerSec":  <float>,
-//       "pitchDeg":     <float>,
-//       "rollDeg":      <float>
+//       "pitchDeg":          <float>,
+//       "rollDeg":           <float>,
+//       "oatRecoveryFactor": <float>
 //     },
 //     "live": {
 //       "imuPitchDeg":  <float>,

@@ -273,6 +273,7 @@ static bool ConfigsEqual(const OnSpeedConfig& a, const OnSpeedConfig& b)
     if (std::fabs(a.fGzBias      - b.fGzBias)      > 1e-5f) return false;
     if (std::fabs(a.fPitchBias   - b.fPitchBias)   > 1e-5f) return false;
     if (std::fabs(a.fRollBias    - b.fRollBias)    > 1e-5f) return false;
+    if (std::fabs(a.fOatRecoveryFactor - b.fOatRecoveryFactor) > 1e-5f) return false;
 
     if (a.iAhrsAlgorithm     != b.iAhrsAlgorithm)     return false;
 
@@ -671,6 +672,7 @@ void test_bias_block_roundtrip(void)
     a.fGzBias = 0.03f;
     a.fPitchBias = 1.5f;
     a.fRollBias  = -2.5f;
+    a.fOatRecoveryFactor = 0.5f;
 
     std::string xml = EmitXml(a);
     OnSpeedConfig b;
@@ -685,6 +687,7 @@ void test_bias_block_roundtrip(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.03f,  b.fGzBias);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f,  1.5f,   b.fPitchBias);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, -2.5f,   b.fRollBias);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f,  0.5f,   b.fOatRecoveryFactor);
 }
 
 void test_aircraft_block_roundtrip(void)

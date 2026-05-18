@@ -393,6 +393,20 @@ V1ParseStatus ParseV1(std::string_view text, OnSpeedConfig& cfg)
     cfg.bReadEfisData = ToBoolean(FindTagValue(text, "SERIALEFISDATA"));
     cfg.bOatSensor    = ToBoolean(FindTagValue(text, "OATSENSOR"));
 
+    // OAT probe recovery factor.  Legacy V1 files predate this tag, so
+    // an absent tag must inherit the LoadDefaults() value (0.75) — not
+    // be overwritten with ToFloat("") = 0.0 (which would disable the
+    // SAT correction).  Out-of-range values clamp back to the default.
+    {
+        const std::string_view svOatRf = FindTagValue(text, "OAT_RECOVERY_FACTOR");
+        if (!svOatRf.empty()) {
+            cfg.fOatRecoveryFactor = ToFloat(svOatRf);
+            if (cfg.fOatRecoveryFactor < 0.0f || cfg.fOatRecoveryFactor > 1.0f) {
+                cfg.fOatRecoveryFactor = 0.75f;
+            }
+        }
+    }
+
     cfg.sSerialOutFormat  = std::string(FindTagValue(text, "SERIALOUTFORMAT"));
     cfg.enSerialOutFormat = OnSpeedConfig::ParseSerialFmt(cfg.sSerialOutFormat);
 

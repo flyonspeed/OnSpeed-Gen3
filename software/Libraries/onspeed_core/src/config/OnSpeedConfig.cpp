@@ -125,6 +125,10 @@ bool OnSpeedConfig::LoadDefaults()
     fPitchBias          = 0.0f;
     fRollBias           = 0.0f;
 
+    // OAT probe recovery factor for ram-rise SAT correction.
+    // 0.75 matches the bare/exposed thermistor typical of GA installs.
+    fOatRecoveryFactor  = 0.75f;
+
     // AHRS algorithm: 0=Madgwick (default), 1=EKF6
     iAhrsAlgorithm      = 0;
 

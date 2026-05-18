@@ -1062,6 +1062,7 @@ void HandleApiSensorsBiases() {
     in.gzBias         = g_Config.fGzBias;
     in.pitchBiasDeg   = g_Config.fPitchBias;
     in.rollBiasDeg    = g_Config.fRollBias;
+    in.oatRecoveryFactor = g_Config.fOatRecoveryFactor;
 
     // EFIS source classification.  Mirrors the freshness + sentinel
     // check in ConfigWebServer.cpp's HandleSensorConfig: pitch and roll

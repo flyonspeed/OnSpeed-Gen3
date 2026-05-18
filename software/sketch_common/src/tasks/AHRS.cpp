@@ -43,6 +43,7 @@ onspeed::ahrs::AhrsConfig AHRS::MakeCfg_() const
     onspeed::ahrs::AhrsConfig cfg;
     cfg.pitchBiasDeg     = g_Config.fPitchBias;
     cfg.rollBiasDeg      = g_Config.fRollBias;
+    cfg.oatRecoveryFactor = g_Config.fOatRecoveryFactor;
     cfg.algorithm        = AlgorithmFromConfig(g_Config.iAhrsAlgorithm);
     cfg.gyroSmoothingWindow = iGyroSmoothing_;
     cfg.imuSampleRateHz  = fImuSampleRate;
@@ -132,6 +133,7 @@ AHRS::AHRS(int gyroSmoothing)
           /* gyroSmoothingWindow */   gyroSmoothing,
           /* imuSampleRateHz     */   kImuSampleRateHz,
           /* pressureSampleRateHz */  static_cast<float>(kPressureSampleRateHz),
+          /* oatRecoveryFactor   */   0.75f,
       })
     , iGyroSmoothing_(gyroSmoothing)
     , gOnsetFilter_(0.25f)  // 250 ms tau — same as legacy DisplaySerial

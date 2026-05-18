@@ -189,6 +189,15 @@ public:
     float   fPitchBias;
     float   fRollBias;
 
+    // Probe recovery factor for ram-rise SAT correction; range [0..1].
+    // 0    = correction disabled (TAS uses raw TAT).
+    // 0.75 = bare/exposed thermistor GA install (default).
+    // 1.0  = ideal TAT (total air temperature) probe.
+    // Out-of-range values clamp back to the default at every parse
+    // boundary so a corrupted config can't silently disable the SAT
+    // correction in Ahrs::updateTas_.
+    float   fOatRecoveryFactor;
+
     // AHRS algorithm selection: 0=Madgwick (default), 1=EKF6
     int     iAhrsAlgorithm;
 

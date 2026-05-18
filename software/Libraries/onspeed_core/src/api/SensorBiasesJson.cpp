@@ -54,6 +54,8 @@ std::string SerializeSensorBiases(const SensorBiasesInputs& in) {
     AppendFloat(out, in.pitchBiasDeg);
     out += ",\"rollDeg\":";
     AppendFloat(out, in.rollBiasDeg);
+    out += ",\"oatRecoveryFactor\":";
+    AppendFloat(out, in.oatRecoveryFactor);
 
     out += "},\"live\":{";
     out += "\"imuPitchDeg\":";
