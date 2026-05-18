@@ -214,22 +214,18 @@ struct FormatJob {
 // while the prior worker is still Running, so the taskId slot is stable
 // for the duration of a job.
 FormatJob g_FormatJob;
-SemaphoreHandle_t g_FormatJobMutex = nullptr;
 
-// Race-safe lazy init via a portMUX critical section. Two callers on
-// different cores observing nullptr would otherwise both allocate and
-// leak one of the mutexes. Critical section covers only the pointer
-// check + alloc; the SD work itself runs without it. CfgWebServerInit()
-// also primes this at startup, which is the common case; this guards
-// the pathological "first call before CfgWebServerInit ran" path.
-void EnsureFormatMutex() {
-    static portMUX_TYPE s_initMux = portMUX_INITIALIZER_UNLOCKED;
-    if (g_FormatJobMutex != nullptr) return;
-    portENTER_CRITICAL(&s_initMux);
-    if (g_FormatJobMutex == nullptr)
-        g_FormatJobMutex = xSemaphoreCreateMutex();
-    portEXIT_CRITICAL(&s_initMux);
-}
+// Static-allocated mutex storage so creation happens at C++ static-init
+// time with no dynamic allocation and no race window. Avoids the
+// portENTER_CRITICAL + xSemaphoreCreateMutex pattern that violates the
+// ESP-IDF rule against calling FreeRTOS APIs inside a critical section.
+StaticSemaphore_t g_FormatJobMutexBuf;
+SemaphoreHandle_t g_FormatJobMutex = xSemaphoreCreateMutexStatic(&g_FormatJobMutexBuf);
+
+// Retained as a no-op so existing call sites compile unchanged; the
+// mutex is guaranteed live by static-init time, which on this SDK
+// completes before any FreeRTOS task spins up.
+void EnsureFormatMutex() {}
 
 void RunFormatInline(FormatJob& job);
 
@@ -348,27 +344,25 @@ void RunFormatInline(FormatJob& job) {
 // the /api/format handler uses. Both paths share one in-flight job — the
 // last caller wins the taskId slot; the prior taskId becomes invalid.
 
-bool StartFormatAsync(char* taskIdOut, size_t taskIdOutLen) {
+StartFormatResult StartFormatAsync(char* taskIdOut, size_t taskIdOutLen) {
     if (taskIdOut == nullptr || taskIdOutLen == 0)
-        return false;
+        return StartFormatResult::SpawnFailed;
     taskIdOut[0] = '\0';
-
-    EnsureFormatMutex();
 
     char taskId[32];
     std::snprintf(taskId, sizeof(taskId), "format-%lu",
                   static_cast<unsigned long>(millis()));
 
     // Reject if a worker is already running. Two workers would both take
-    // xWriteMutex serially and format the card twice — annoying, and the
-    // second caller's taskId would clobber the first, hiding the first
-    // worker's result from its poller. One in-flight job at a time.
+    // xWriteMutex serially and format the card twice; the second
+    // caller's taskId would clobber the first, hiding the first worker's
+    // result from its poller. One in-flight job at a time.
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
         if (g_FormatJob.state == FormatState::Running) {
             xSemaphoreGive(g_FormatJobMutex);
             g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning,
                           "Format: rejecting concurrent request; worker already running");
-            return false;
+            return StartFormatResult::AlreadyRunning;
         }
         std::snprintf(g_FormatJob.taskId, sizeof(g_FormatJob.taskId), "%s", taskId);
         g_FormatJob.state       = FormatState::Running;
@@ -379,7 +373,7 @@ bool StartFormatAsync(char* taskIdOut, size_t taskIdOutLen) {
     } else {
         g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
                       "Format: g_FormatJobMutex timeout claiming job slot");
-        return false;
+        return StartFormatResult::SpawnFailed;
     }
 
     // Spawn a one-shot task on Core 0 to run the format. Stack 8 KB is
@@ -399,11 +393,11 @@ bool StartFormatAsync(char* taskIdOut, size_t taskIdOutLen) {
                           "failed to spawn format task");
             xSemaphoreGive(g_FormatJobMutex);
         }
-        return false;
+        return StartFormatResult::SpawnFailed;
     }
 
     std::snprintf(taskIdOut, taskIdOutLen, "%s", taskId);
-    return true;
+    return StartFormatResult::Started;
 }
 
 FormatJobSnapshot GetFormatJobSnapshot() {
@@ -826,12 +820,18 @@ void HandleApiLogsDeleteBulk() {
 
 void HandleApiFormat() {
     char taskId[32] = {};
-    if (!StartFormatAsync(taskId, sizeof(taskId))) {
-        // Two cases reject inside StartFormatAsync: a concurrent worker
-        // is already running, or the worker task failed to spawn. 503
-        // signals "ask again later" rather than 200 with an empty
-        // taskId (which the client would then poll into a 404).
-        SendError(503, "format", "format busy or failed to start");
+    StartFormatResult res = StartFormatAsync(taskId, sizeof(taskId));
+    if (res == StartFormatResult::AlreadyRunning) {
+        // 409 Conflict: client should wait for the in-flight job to
+        // finish (polling its taskId via /api/format/status) rather
+        // than retry blindly.
+        SendError(409, "format", "format already in progress");
+        return;
+    }
+    if (res == StartFormatResult::SpawnFailed) {
+        // 503 Service Unavailable: transient resource issue (heap,
+        // mutex timeout). A retry may succeed.
+        SendError(503, "format", "failed to start format task");
         return;
     }
 

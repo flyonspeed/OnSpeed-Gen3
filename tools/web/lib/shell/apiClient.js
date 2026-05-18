@@ -45,7 +45,13 @@ async function parseError(response) {
   let body = null;
   try { body = await response.json(); }
   catch { body = { message: response.statusText }; }
-  const message = body?.message || response.statusText || `HTTP ${response.status}`;
+  // Firmware SendError() shape is {"ok":false,"errors":[{"path":"...","message":"..."}]}
+  // — surface the first error's message when no top-level message is set,
+  // so pages get a useful string instead of "Service Unavailable".
+  const message = body?.message
+    || body?.errors?.[0]?.message
+    || response.statusText
+    || `HTTP ${response.status}`;
   throw new ApiError(response.status, message, body?.errors);
 }
 

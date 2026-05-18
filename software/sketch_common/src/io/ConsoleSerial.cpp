@@ -367,9 +367,16 @@ void ConsoleSerialIO::Read()
             else if (strncasecmp(szCmdToken, "FORMAT", 6) == 0)
                 {
                 char taskId[32] = {};
-                if (!onspeed::api::StartFormatAsync(taskId, sizeof(taskId)))
+                onspeed::api::StartFormatResult res =
+                    onspeed::api::StartFormatAsync(taskId, sizeof(taskId));
+                if (res == onspeed::api::StartFormatResult::AlreadyRunning)
                     {
                     g_Log.println(MsgLog::EnMain, MsgLog::EnWarning,
+                                  "FORMAT - busy: a format is already in progress");
+                    }
+                else if (res == onspeed::api::StartFormatResult::SpawnFailed)
+                    {
+                    g_Log.println(MsgLog::EnMain, MsgLog::EnError,
                                   "FORMAT - failed to spawn worker task");
                     }
                 else

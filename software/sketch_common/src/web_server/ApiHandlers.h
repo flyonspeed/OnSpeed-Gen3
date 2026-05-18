@@ -34,13 +34,20 @@ struct FormatJobSnapshot {
     bool           configSaved   = false;
 };
 
+// Result of attempting to spawn the SD-format worker.
+enum class StartFormatResult : int {
+    Started        = 0,  // worker spawned; poll GetFormatJobSnapshot() for progress
+    AlreadyRunning = 1,  // a prior format is still in flight; retry once it completes
+    SpawnFailed    = 2,  // xTaskCreatePinnedToCore returned an error (out of heap, etc.)
+};
+
 // Stamp a fresh taskId into the global FormatJob, mark it Running, and
-// spawn the worker task. Returns true on success. On failure, the
-// FormatJob is left in Failed state with an error string. The caller's
-// out-buffer receives a NUL-terminated taskId string when this returns
-// true (or an empty string on failure). Pass a buffer of at least
-// 32 bytes.
-bool StartFormatAsync(char* taskIdOut, size_t taskIdOutLen);
+// spawn the worker task. On Started, the caller's out-buffer receives a
+// NUL-terminated taskId string. On any non-Started result, the out-buffer
+// is set to an empty string and the FormatJob is left untouched
+// (AlreadyRunning) or in Failed state (SpawnFailed). Pass a buffer of at
+// least 32 bytes.
+StartFormatResult StartFormatAsync(char* taskIdOut, size_t taskIdOutLen);
 
 // Atomic snapshot of the current FormatJob state. Callers poll this to
 // observe progress without holding the job mutex across their own work.
