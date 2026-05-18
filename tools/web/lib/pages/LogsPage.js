@@ -1,18 +1,15 @@
-// LogsPage (/logs): SD log file listing.  Backed by /api/logs (which
-// also classifies files into log .csv/.log + non-log "other" files
-// based on the extension; LogsPage mirrors that split visually).
+// LogsPage (/logs): per-flight cards listing SD log sessions, plus
+// stacked sections for non-log files and crash dumps. Backed by
+// /api/logs.
 //
-// Per-row controls:
-//   - Checkbox per non-active row → bulk delete via /api/logs/delete-bulk.
-//   - Direct download links to /download?file=… for browser-native
-//     streaming (no JSON wrapper — the legacy /download path is
-//     intact and serves the file as Content-Type: text/csv).
-//   - Trash icon per row → individual delete via the bulk endpoint
-//     with a single-name body.
+// One row per flight (the .csv). Paired sidecars (.dbg writer log,
+// .meta schema JSON) hang off the same card as inline download links;
+// they are NOT separate rows. Deleting a card deletes the trio atomically
+// via the firmware's bulk-delete handler.
 //
-// Active-log row is rendered without checkbox or trash icon and
-// labeled "(active)" — the API's IsActiveLogFile() check guards
-// the actual delete, but reflecting it in the UI prevents confusion.
+// Active session: download links stay enabled; checkbox and trash icon
+// hidden. The firmware's IsActiveLogFile() guard refuses sidecar deletes
+// of the active session even if the UI ever requests them.
 
 import { html, useState, useEffect } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 import { PageShell } from '../shell/PageShell.js';
@@ -21,22 +18,37 @@ import { getJsonWithRetry, postJson, ApiError } from '../shell/apiClient.js';
 function formatBytes(n) {
   if (n < 1024) return n + ' B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-  return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  const mb = n / (1024 * 1024);
+  // Two decimals under 10 MB, one under 100, integer above. Avoids
+  // "170.17 MB" reading too precise on a phone screen.
+  if (mb < 10)  return mb.toFixed(2) + ' MB';
+  if (mb < 100) return mb.toFixed(1) + ' MB';
+  return Math.round(mb) + ' MB';
 }
 
 function formatDuration(ms) {
-  if (!ms || ms <= 0) return '—';
+  if (!ms || ms <= 0) return null;
   const total = Math.round(ms / 1000);
   const m = Math.floor(total / 60);
   const s = total % 60;
   return m + ':' + String(s).padStart(2, '0');
 }
 
+// "2026-04-30T18:32:11Z" -> "Apr 30, 18:32 UTC". GPS-fix-derived; null on
+// most cards because not all installs have GPS time wired to the EFIS.
+// Falls back to EFIS time-of-day ("HH:MM:SS") when only that is set.
 function formatStart(meta) {
-  if (!meta) return '—';
-  if (meta.utcStart) return meta.utcStart;
-  if (meta.timeOfDayStart) return meta.timeOfDayStart;
-  return '—';
+  if (!meta) return null;
+  if (meta.utcStart) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(meta.utcStart);
+    if (m) {
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${months[+m[2]-1]} ${+m[3]}, ${m[4]}:${m[5]} UTC`;
+    }
+    return meta.utcStart;
+  }
+  if (meta.timeOfDayStart) return meta.timeOfDayStart + ' local';
+  return null;
 }
 
 function isLogFile(name) {
@@ -44,11 +56,9 @@ function isLogFile(name) {
   return lower.endsWith('.csv') || lower.endsWith('.log');
 }
 
-// Inline trash icon (Feather "trash-2" geometry).  Inherits color from
-// the enclosing button's text color via `currentColor`, so a `.greybutton`
-// renders it black and a future variant doesn't need a separate asset.
+// Inline trash icon (Feather "trash-2").
 const TrashIcon = () => html`
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
        viewBox="0 0 24 24" fill="none" stroke="currentColor"
        stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
        aria-hidden="true">
@@ -59,18 +69,120 @@ const TrashIcon = () => html`
     <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
   </svg>`;
 
+// Inline download icon.
+const DlIcon = () => html`
+  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11"
+       viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+       aria-hidden="true" style=${{ marginRight: '3px', verticalAlign: '-1px' }}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+    <polyline points="7 10 12 15 17 10"></polyline>
+    <line x1="12" y1="15" x2="12" y2="3"></line>
+  </svg>`;
+
+// Render a single labeled stat ("Duration: 30:42").
+const Stat = ({ label, value }) => html`
+  <div class="log-card-stat">
+    <span class="log-card-stat-label">${label}</span>
+    <span class="log-card-stat-value">${value}</span>
+  </div>`;
+
+// Per-flight card. One log session = one card. CSV download is the
+// primary pill; .dbg / .meta pills appear when those sidecars exist.
+// Active row hides the trash icon and checkbox but keeps download
+// affordances so a pilot can grab the in-progress logs mid-flight.
+const LogCard = ({ file, active, selected, busyDeleting, onToggle, onDelete }) => {
+  const meta = file.meta;
+  const baseName = file.name.replace(/\.[^.]+$/, '');
+  const startStr = formatStart(meta);
+  const durStr = formatDuration(meta && meta.durationMs);
+  const iasStr = (meta && meta.maxIasKt > 0) ? meta.maxIasKt.toFixed(0) + ' kt' : null;
+  const altStr = (meta && meta.maxPaltFt > 0) ? meta.maxPaltFt.toFixed(0) + ' ft' : null;
+  return html`
+    <div class="log-card ${active ? 'log-card-active' : ''}">
+      <div class="log-card-left">
+        <div class="log-card-header">
+          ${!active && html`
+            <input type="checkbox" class="log-card-check"
+                   checked=${selected}
+                   onChange=${onToggle} />`}
+          <div class="log-card-name">
+            ${file.name}
+            ${active && html`<span class="log-card-active-badge">active</span>`}
+          </div>
+        </div>
+        ${startStr && html`
+          <div class="log-card-when">${startStr}</div>`}
+        <div class="log-card-stats">
+          ${durStr && html`<${Stat} label="Dur" value=${durStr} />`}
+          ${iasStr && html`<${Stat} label="IAS" value=${iasStr} />`}
+          ${altStr && html`<${Stat} label="Alt" value=${altStr} />`}
+          <${Stat} label="Size" value=${formatBytes(file.size)} />
+        </div>
+      </div>
+      <div class="log-card-right">
+        <div class="log-card-downloads">
+          <a class="dl-pill dl-pill-primary"
+             href=${'/download?file=' + encodeURIComponent(file.name)}>
+            <${DlIcon} />csv
+          </a>
+          ${file.hasDbg && html`
+            <a class="dl-pill"
+               href=${'/download?file=' + encodeURIComponent(baseName + '.dbg')}>
+              <${DlIcon} />dbg
+            </a>`}
+          ${file.hasMeta && html`
+            <a class="dl-pill"
+               href=${'/download?file=' + encodeURIComponent(baseName + '.meta')}>
+              <${DlIcon} />meta
+            </a>`}
+        </div>
+        ${active
+          ? html`<span class="log-card-trash-spacer" aria-hidden="true"></span>`
+          : html`<button type="button" class="log-card-trash greybutton"
+                         disabled=${busyDeleting}
+                         onClick=${onDelete}
+                         title="Delete ${file.name} and its sidecars">
+                   <${TrashIcon} />
+                 </button>`}
+      </div>
+    </div>`;
+};
+
+// Coredump row inside the (collapsible) Diagnostics section. Each card
+// surfaces what the filename already encodes: which boot, which firmware,
+// which task crashed.
+const CoredumpCard = ({ dump }) => html`
+  <div class="log-card log-card-diag">
+    <div class="log-card-left">
+      <div class="log-card-header">
+        <div class="log-card-name">
+          boot #${dump.boot} · ${dump.task}
+        </div>
+      </div>
+      <div class="log-card-stats">
+        <${Stat} label="Fw"   value=${dump.firmware} />
+        <${Stat} label="Size" value=${formatBytes(dump.size)} />
+      </div>
+    </div>
+    <div class="log-card-right">
+      <div class="log-card-downloads">
+        <a class="dl-pill dl-pill-primary"
+           href=${'/download?file=' + encodeURIComponent('/coredumps/' + dump.name)}>
+          <${DlIcon} />coredump
+        </a>
+      </div>
+    </div>
+  </div>`;
+
 export function LogsPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  // Per-file delete failures from /api/logs/delete-bulk's `errors` array.
-  // Surfaced separately from the load-error banner so a single-file failure
-  // (active log, SD busy) is visible even though the surviving files reload.
   const [deleteErrors, setDeleteErrors] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [busyDeleting, setBusyDeleting] = useState(false);
-  // While we're auto-retrying a 503 (SD writer holding mutex), show the
-  // pilot what's happening so they're not refreshing in a panic.
   const [retryStatus, setRetryStatus] = useState(null);
+  const [diagOpen, setDiagOpen] = useState(false);
 
   const reload = async () => {
     setError(null);
@@ -78,9 +190,7 @@ export function LogsPage() {
     try {
       const d = await getJsonWithRetry('/api/logs', {
         maxAttempts: 4,
-        onAttempt: (attempt, lastError) => {
-          // First attempt: no message. Subsequent attempts: explain
-          // why we're waiting.
+        onAttempt: (attempt) => {
           if (attempt > 1) {
             setRetryStatus(`SD card busy, retrying (attempt ${attempt} of 4)…`);
           }
@@ -101,9 +211,6 @@ export function LogsPage() {
 
   useEffect(() => { reload(); }, []);
 
-  // Run a delete-bulk POST and refresh the listing.  Per-file failures
-  // arrive in the response body's `errors` array (each
-  // `{name, reason}`); store them so the page renders the banner.
   const runDelete = async (names) => {
     setBusyDeleting(true);
     setDeleteErrors([]);
@@ -128,36 +235,38 @@ export function LogsPage() {
     });
   };
 
-  const allSelectableNames = data
-    ? data.files
-        .filter(f => f.name !== data.activeLog && isLogFile(f.name))
-        .map(f => f.name)
-    : [];
-  const allChecked = allSelectableNames.length > 0 &&
-                     allSelectableNames.every(n => selected.has(n));
-  const someChecked = allSelectableNames.some(n => selected.has(n));
+  // Logs and other-files split. Sidecars (.dbg/.meta) and coredumps are
+  // surfaced through hasDbg/hasMeta and coredumps[] respectively, so they
+  // don't show up here even if the firmware (transitionally) returns them.
+  const logs   = data ? data.files.filter(f => isLogFile(f.name)) : [];
+  const others = data ? data.files.filter(f => !isLogFile(f.name)
+                                            && !f.name.toLowerCase().endsWith('.dbg')
+                                            && !f.name.toLowerCase().endsWith('.meta')) : [];
+  const coredumps = data && Array.isArray(data.coredumps) ? data.coredumps : [];
+
+  const logsTotal   = logs.reduce((a, f) => a + (f.size || 0), 0);
+  const othersTotal = others.reduce((a, f) => a + (f.size || 0), 0);
+
+  const selectableNames = logs.filter(f => f.name !== data?.activeLog).map(f => f.name);
+  const allChecked = selectableNames.length > 0 &&
+                     selectableNames.every(n => selected.has(n));
+  const someChecked = selectableNames.some(n => selected.has(n));
 
   const toggleAll = () => {
-    setSelected(prev => {
-      if (allChecked) return new Set();
-      return new Set(allSelectableNames);
-    });
+    setSelected(prev => allChecked ? new Set() : new Set(selectableNames));
   };
 
   const deleteSelected = async () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`Delete ${selected.size} file(s)?`)) return;
+    if (!window.confirm(`Delete ${selected.size} flight log(s) and their sidecars?`)) return;
     await runDelete([...selected]);
   };
 
   const deleteOne = (name) => async () => {
-    if (!window.confirm(`Delete ${name}?`)) return;
+    if (!window.confirm(`Delete ${name} and its sidecars?`)) return;
     await runDelete([name]);
   };
 
-  // Compact summary like "Could not delete 2 file(s): activelog.csv
-  // (active log), other.csv (SD busy)".  The reasons come straight
-  // from the server.
   const deleteErrorSummary = () => {
     if (deleteErrors.length === 0) return '';
     const items = deleteErrors
@@ -166,105 +275,113 @@ export function LogsPage() {
     return `Could not delete ${deleteErrors.length} file(s): ${items}`;
   };
 
-  // Split into logs + other files (config backups, boot_log.txt, etc.).
-  const logs   = data ? data.files.filter(f => isLogFile(f.name)) : [];
-  const others = data ? data.files.filter(f => !isLogFile(f.name)) : [];
-  const logsTotal   = logs.reduce((a, f) => a + (f.size || 0), 0);
-  const othersTotal = others.reduce((a, f) => a + (f.size || 0), 0);
-
   return html`
     <${PageShell} active="logs">
-      <div style=${{ padding: '12px' }}>
-        ${error && html`<p style=${{ color: 'red' }}>${error}</p>`}
-        ${retryStatus && html`
-          <p style=${{ color: '#b08000' }}>${retryStatus}</p>`}
+      <div class="logs-page">
+        ${error && html`<p class="banner banner-err">${error}</p>`}
+        ${retryStatus && html`<p class="banner banner-warn">${retryStatus}</p>`}
         ${deleteErrors.length > 0 && html`
-          <p style=${{ color: 'red' }}>${deleteErrorSummary()}</p>`}
+          <p class="banner banner-err">${deleteErrorSummary()}</p>`}
         ${!data && !error && !retryStatus && html`<p>Loading…</p>`}
         ${data && html`
-          <h2>Logs</h2>
-          <p>${logs.length} log${logs.length === 1 ? '' : 's'},
-             ${formatBytes(logsTotal)} total</p>
-
-          <table>
-            <thead>
-              <tr>
-                <th><input type="checkbox" title="Select all"
-                           checked=${allChecked}
-                           ref=${(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
-                           onChange=${toggleAll} /></th>
-                <th style=${{ textAlign: 'left' }}>Name</th>
-                <th style=${{ textAlign: 'left' }}>Start</th>
-                <th style=${{ textAlign: 'left' }}>Duration</th>
-                <th style=${{ textAlign: 'right' }}>Max IAS</th>
-                <th style=${{ textAlign: 'right' }}>Max PAlt</th>
-                <th style=${{ textAlign: 'right' }}>Size</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${logs.map(f => {
-                const active = f.name === data.activeLog;
-                const meta = f.meta;
-                return html`
-                  <tr>
-                    <td>${active
-                          ? ''
-                          : html`<input type="checkbox" checked=${selected.has(f.name)}
-                                        onChange=${toggle(f.name)} />`}
-                    </td>
-                    <td>
-                      <a href=${'/download?file=' + encodeURIComponent(f.name)}>${f.name}</a>
-                      ${active && html` <span style=${{ color: '#888' }}>(active)</span>`}
-                    </td>
-                    <td>${meta ? formatStart(meta) : '—'}</td>
-                    <td>${meta ? formatDuration(meta.durationMs) : '—'}</td>
-                    <td style=${{ textAlign: 'right' }}>${meta ? meta.maxIasKt.toFixed(0) + ' kt' : '—'}</td>
-                    <td style=${{ textAlign: 'right' }}>${meta ? meta.maxPaltFt.toFixed(0) + ' ft' : '—'}</td>
-                    <td style=${{ textAlign: 'right' }}>${formatBytes(f.size)}</td>
-                    <td>${active
-                          ? ''
-                          : html`<button type="button" class="greybutton"
-                                         style=${{ padding: '4px 10px', fontWeight: 'bold' }}
-                                         disabled=${busyDeleting}
-                                         onClick=${deleteOne(f.name)}><${TrashIcon} /></button>`}
-                    </td>
-                  </tr>`;
-              })}
-            </tbody>
-          </table>
-          <p>
-            <button type="button" class="redbutton"
-                    style=${{ padding: '8px 16px' }}
-                    disabled=${selected.size === 0 || busyDeleting}
-                    onClick=${deleteSelected}>
-              Delete selected (${selected.size})
-            </button>
-            ${' '}
-            <button type="button" class="greybutton"
-                    style=${{ padding: '8px 16px' }}
-                    onClick=${reload}>Refresh</button>
-          </p>
+          <section class="logs-section">
+            <header class="logs-section-head">
+              <h2>Flight logs</h2>
+              <div class="logs-section-meta">
+                ${logs.length} flight${logs.length === 1 ? '' : 's'} ·
+                ${formatBytes(logsTotal)} total
+              </div>
+            </header>
+            ${logs.length > 1 && html`
+              <div class="logs-bulk">
+                <label class="bulk-check">
+                  <input type="checkbox"
+                         checked=${allChecked}
+                         ref=${(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                         onChange=${toggleAll} />
+                  Select all (excluding active)
+                </label>
+                <div class="bulk-actions">
+                  <button type="button" class="redbutton"
+                          disabled=${selected.size === 0 || busyDeleting}
+                          onClick=${deleteSelected}>
+                    Delete selected (${selected.size})
+                  </button>
+                  <button type="button" class="greybutton"
+                          onClick=${reload}>Refresh</button>
+                </div>
+              </div>`}
+            <div class="log-cards">
+              ${logs.map(f => html`
+                <${LogCard}
+                  file=${f}
+                  active=${f.name === data.activeLog}
+                  selected=${selected.has(f.name)}
+                  busyDeleting=${busyDeleting}
+                  onToggle=${toggle(f.name)}
+                  onDelete=${deleteOne(f.name)} />`)}
+            </div>
+          </section>
 
           ${others.length > 0 && html`
-            <h2>Other files</h2>
-            <p>${others.length} file${others.length === 1 ? '' : 's'},
-               ${formatBytes(othersTotal)} total</p>
-            <table>
-              <tbody>
+            <section class="logs-section">
+              <header class="logs-section-head">
+                <h2>Other files</h2>
+                <div class="logs-section-meta">
+                  ${others.length} file${others.length === 1 ? '' : 's'} ·
+                  ${formatBytes(othersTotal)} total
+                </div>
+              </header>
+              <div class="log-cards">
                 ${others.map(f => html`
-                  <tr>
-                    <td><a href=${'/download?file=' + encodeURIComponent(f.name)}>${f.name}</a></td>
-                    <td style=${{ textAlign: 'right', paddingLeft: '20px' }}>
-                      ${formatBytes(f.size)}
-                    </td>
-                    <td><button type="button" class="greybutton"
-                                style=${{ padding: '4px 10px', fontWeight: 'bold' }}
-                                disabled=${busyDeleting}
-                                onClick=${deleteOne(f.name)}><${TrashIcon} /></button></td>
-                  </tr>`)}
-              </tbody>
-            </table>`}`}
+                  <div class="log-card">
+                    <div class="log-card-left">
+                      <div class="log-card-header">
+                        <div class="log-card-name">${f.name}</div>
+                      </div>
+                      <div class="log-card-stats">
+                        <${Stat} label="Size" value=${formatBytes(f.size)} />
+                      </div>
+                    </div>
+                    <div class="log-card-right">
+                      <div class="log-card-downloads">
+                        <a class="dl-pill dl-pill-primary"
+                           href=${'/download?file=' + encodeURIComponent(f.name)}>
+                          <${DlIcon} />download
+                        </a>
+                      </div>
+                      <button type="button" class="log-card-trash greybutton"
+                              disabled=${busyDeleting}
+                              onClick=${deleteOne(f.name)}
+                              title="Delete ${f.name}">
+                        <${TrashIcon} />
+                      </button>
+                    </div>
+                  </div>`)}
+              </div>
+            </section>`}
+
+          <section class="logs-section">
+            <header class="logs-section-head logs-section-collapsible"
+                    onClick=${() => setDiagOpen(o => !o)}>
+              <h2>
+                <span class="logs-disclosure">${diagOpen ? '▾' : '▸'}</span>
+                Diagnostics
+                <span class="logs-count-badge">${coredumps.length}</span>
+              </h2>
+              <div class="logs-section-meta">
+                ${coredumps.length === 0
+                  ? 'No crash dumps'
+                  : `${coredumps.length} crash dump${coredumps.length === 1 ? '' : 's'}`}
+              </div>
+            </header>
+            ${diagOpen && coredumps.length > 0 && html`
+              <div class="log-cards">
+                ${coredumps.map(d => html`<${CoredumpCard} dump=${d} />`)}
+              </div>`}
+            ${diagOpen && coredumps.length === 0 && html`
+              <p class="logs-empty">The box has not panicked since the last format.</p>`}
+          </section>`}
       </div>
     <//>`;
 }

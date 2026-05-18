@@ -26,7 +26,11 @@ public:
 
     struct SuFileInfo
         {
-        char        szFileName[25];
+        // Holds either a root-level CSV/.dbg/.meta or a longer
+        // /coredumps/coredump_NNNN_<version>_<task>.bin path (up to 128
+        // bytes total: kCoredumpDir + the worst-case version + task
+        // suffix BootDiagnostics emits).
+        char        szFileName[128];
         uint64_t    uFileSize;
         };
 
@@ -47,6 +51,14 @@ public:
 	bool Init();
     void Info();
     bool FileList(SuFileInfoList * psuFileInfoList);
+
+    // List files (not directories) in a specific path. Returns true even
+    // if the path doesn't exist (the result is just an empty vector) so
+    // callers can defer "does this directory exist" decisions to the
+    // emptiness of the result. Filenames returned are the basename only,
+    // not the full path.
+    bool DirList(const char * szPath, SuFileInfoList * psuFileInfoList);
+
     bool Format(Print * pStatusOut = nullptr, float * pSizeGb = nullptr);
 
     // Some convenience functions
