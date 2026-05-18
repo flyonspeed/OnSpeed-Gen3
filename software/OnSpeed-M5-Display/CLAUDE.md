@@ -154,6 +154,17 @@ the Savitzky-Golay IAS derivative by that dt. Do not hardcode a rate
 here — the main firmware can change its send rate and this code should
 remain correct without edits.
 
+At boot, `serialSetup()` auto-detects the source: USB-CDC (probed
+first if the host is sending bytes), then three Serial2 variants
+(TTL non-inverted, RS-232 inverted, sim-demo pin). The Settings
+menu's `Data Source` row offers sticky control for pilots who want
+to lock the choice: AUTO (default, runs the auto-detect), UART
+(probes only Serial2 — useful if a docked laptop might sneak bytes
+onto the USB endpoint), USB (skips the probe and forces USB-CDC).
+The runtime late-binding that used to flip selectedPort to 4
+mid-session when "#1" appeared on Serial has been removed; explicit
+menu choice replaces it.
+
 ## Build
 
 ```bash
@@ -252,7 +263,12 @@ No OnSpeed box required.
 ## Settings menu
 
 The display has an in-flight settings menu reachable from live mode.
-Today the menu carries one setting: `Speed Units: KTS / MPH`.
+Today the menu carries two settings:
+
+- `Speed Units: KTS / MPH` — display unit for IAS readouts.
+- `Data Source: AUTO / UART / USB` — controls boot-time serial-port
+  selection. AUTO runs the historical auto-detect. UART probes only
+  Serial2. USB skips the probe and forces selectedPort=4 (USB-CDC).
 
 **Entry gesture:**
 - M5 Basic / Core2: hold BtnB (round/middle) for ≥600 ms.
@@ -272,15 +288,20 @@ Today the menu carries one setting: `Speed Units: KTS / MPH`.
 - `include/RenderConfig.h` — shared `XPLANE_PLUGIN_DEPTH` macro consumed
   by both `main.cpp` and `SettingsMenu.cpp`.
 
-**Adding a setting:** extend `g_items[]` in `src/SettingsMenu.cpp`. For
-toggles, add a `bool` global, point the item at it, and check the
-`MenuModel::ActivateResult::kToggled` return in `pollMenuInput()` to
-persist it. The pure-logic state machine in `lib/MenuModel/`
-dispatches based on `ItemType`.
+**Adding a setting:** extend `g_items[]` in `src/SettingsMenu.cpp`.
+For toggles, add a `bool` global, point the item at it. For choice
+rows, add an `int` global plus a `const char* const[]` of labels and
+the count, and wire `ItemType::Choice` with the three trailing fields.
+Either way, add a `persistFoo()` helper and dispatch to it from
+`persistActiveRow()` on `kToggled` — the active row is identified by
+matching its toggleValue / choiceValue pointer against the known
+globals. The pure-logic state machine in `lib/MenuModel/` dispatches
+based on `ItemType`.
 
-**Persistence:** `Preferences` namespace `"OnSpeed"`, key `SpeedMph`.
-Default `false` (KTS) on a fresh device. Pilots flip via the menu and
-the choice persists across reboots.
+**Persistence:** `Preferences` namespace `"OnSpeed"`, keys `SpeedMph`
+(bool, default `false` = KTS) and `DataSource` (uint, default `0` =
+AUTO). Pilots flip via the menu and the choice persists across
+reboots.
 
 **X-Plane plugin:** the menu is gated behind `#ifndef XPLANE_PLUGIN_BUILD`
 in both `main.cpp` and the include path. The plugin sees no SettingsMenu

@@ -56,11 +56,11 @@ After flash + reboot, the M5 cycles through three states:
    window.
 
 If you launch X-Plane and start streaming before the probe ends, the
-firmware switches into USB-CDC mode immediately. If you're slow and
-hit the "No Serial" splash, that's fine too — the firmware also
-late-binds at runtime: any time bytes start arriving on USB-CDC with
-the `#1` frame-start signature, the M5 switches into USB-CDC mode and
-starts displaying without needing a reboot.
+firmware switches into USB-CDC mode immediately. If you missed the
+boot probe window (M5 booted before X-Plane was streaming), reboot
+the M5 with X-Plane already streaming. To skip the probe entirely
+on future boots, set **Data Source: USB** in the settings menu
+(hold BtnB 600 ms to enter).
 
 ## Step 3 — Pick the port in X-Plane
 
@@ -104,6 +104,31 @@ The plugin emits frames at 20 Hz — same rate the firmware emits in
 the airplane.  The display behaves accordingly: smooth chevron
 sweeps during AOA changes, ball-and-pitch reactivity matching what
 you'd see in real flight.
+
+## Locking the data source
+
+The M5 firmware exposes a **Data Source** setting in the settings menu
+(hold BtnB 600 ms on Basic / Core2, or BtnA 600 ms on huVVer-AVI, to
+enter the menu; click BtnB to cycle the value). Three options:
+
+- **AUTO** (default) — runs the boot-time auto-detect: USB-CDC for
+  ~2 s if traffic is present, then the three Port C UART variants.
+  The setting that worked on the last successful boot is cached, so
+  subsequent boots skip the probe. This is the right choice for a
+  pilot who flies the same airframe and may also occasionally tether
+  to the sim.
+- **UART** — probes only Serial2 (Port C). Useful in an installed
+  panel-mount setup where a docked laptop or accessory might
+  occasionally write bytes to the M5's USB endpoint; UART prevents
+  any USB-CDC bytes from being interpreted as flight data.
+- **USB** — skips probing and forces USB-CDC. Useful for a
+  dedicated sim-tethered M5 that should come up listening on
+  USB-CDC every boot, with no UART probe delay.
+
+The choice persists in NVS (`OnSpeed` namespace, key `DataSource`)
+and survives power cycles. AUTO is the right default for almost
+every pilot; UART and USB are escape hatches for installations where
+auto-detect picks the wrong source.
 
 ## Reconnecting after a disconnect
 
