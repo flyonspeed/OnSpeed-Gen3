@@ -141,15 +141,20 @@ static bool IsSafeLogFilename(const String& s)
     return true;
     }
 
-// Returns true if `sFilename` is the currently-active log file (the CSV
-// that LogSensor has open for writing). Deleting it would orphan the
-// write handle and silently lose data, so delete handlers skip it.
+// Returns true if `sFilename` is part of the currently-active log
+// session — the .csv row stream, the paired .dbg writer log, or the
+// .meta schema sidecar. Deleting any of the three while LogSensor still
+// has the session open orphans the file handles and silently loses the
+// matching forensic record. See ApiHandlers.cpp IsActiveLogFile() for
+// the equivalent guard on the JSON delete path.
 static bool IsActiveLogFile(const String& sFilename)
     {
     const char* szActiveBase = g_LogSensor.ActiveBaseName();
     if (!szActiveBase || szActiveBase[0] == '\0') return false;
-    String sActive = String(szActiveBase) + ".csv";
-    return sFilename.equalsIgnoreCase(sActive);
+    const String sBase = String(szActiveBase);
+    return sFilename.equalsIgnoreCase(sBase + ".csv")
+        || sFilename.equalsIgnoreCase(sBase + ".dbg")
+        || sFilename.equalsIgnoreCase(sBase + ".meta");
     }
 
 // Maximum number of flap positions accepted from a config-save POST.

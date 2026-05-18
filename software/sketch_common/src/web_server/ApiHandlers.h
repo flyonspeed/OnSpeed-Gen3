@@ -11,7 +11,41 @@
 #ifndef ONSPEED_API_HANDLERS_H
 #define ONSPEED_API_HANDLERS_H
 
+#include <stddef.h>
+
 namespace onspeed::api {
+
+// SD-format job state, used by both the /api/format async path and the
+// serial console FORMAT command. The serial console polls this between
+// vTaskDelay() sleeps so the console task itself stays out of WDT
+// trouble while the worker task formats the card on Core 0.
+enum class FormatJobState : int {
+    Idle    = 0,
+    Running = 1,
+    Done    = 2,
+    Failed  = 3,
+};
+
+struct FormatJobSnapshot {
+    FormatJobState state         = FormatJobState::Idle;
+    char           taskId[32]    = {};
+    char           error[64]     = {};
+    float          cardSizeGb    = 0.0f;
+    bool           configSaved   = false;
+};
+
+// Stamp a fresh taskId into the global FormatJob, mark it Running, and
+// spawn the worker task. Returns true on success. On failure, the
+// FormatJob is left in Failed state with an error string. The caller's
+// out-buffer receives a NUL-terminated taskId string when this returns
+// true (or an empty string on failure). Pass a buffer of at least
+// 32 bytes.
+bool StartFormatAsync(char* taskIdOut, size_t taskIdOutLen);
+
+// Atomic snapshot of the current FormatJob state. Callers poll this to
+// observe progress without holding the job mutex across their own work.
+FormatJobSnapshot GetFormatJobSnapshot();
+
 
 // One-shot sample endpoints (replace /getvalue?name=...).
 void HandleApiSampleAoa();
