@@ -138,19 +138,21 @@ So the Python side has the snapshot frame already, and is being designed against
 
 The reason this hasn't bitten is that we have one source at a time (compile-time selection: `EnSensors` / `EnReplay` / `EnTestPot` / `EnRangeSweep`). The minute we want a second simultaneously — say, "live sensors with synthetic AOA injection for cal-wizard rehearsal" — we have to invent the abstraction anyway.
 
-### 4. The cal wizard recomputes DerivedAOA client-side and is wrong under EKF6 *(fixed in code in v4.22; issue ticket stale)*
+### 4. The cal wizard recomputes DerivedAOA client-side and is wrong under EKF6 *(closed: issue #366, PR #373)*
 
-**v4.22 update.** PR #373 (`f077f7d`) ported the cal wizard from the legacy form-and-PROGMEM-JS pattern to a Preact page. The new wizard at `tools/web/lib/pages/CalWizardPage.js:222` reads:
+PR #373 (`f077f7d`) ported the cal wizard from the legacy form-and-PROGMEM-JS pattern to a Preact page. The new wizard at `tools/web/lib/pages/CalWizardPage.js:266` reads:
 
 ```js
 derivedAoaDeg: Number(o.DerivedAOA) || 0,
 ```
 
-— i.e., it consumes the firmware's authoritative `DerivedAOA` directly off the wire, the seam this doc said it should use. `OnSpeed.DerivedAOA` reflects whichever AHRS is active (Madgwick `SmoothedPitch − FlightPath` or EKF6 `state.alpha_deg()`), so the wizard now fits against the same signal the runtime audio path consumes. The PR also added `software/Libraries/onspeed_core/src/api/CalwizSave.{h,cpp}` (pure mutation logic) and `test_calwiz_save_diff` (byte-identical state vs. legacy path), so the save round-trip is differentially tested.
+— i.e., it consumes the firmware's authoritative `DerivedAOA` directly off the wire, the seam this doc said it should use. `OnSpeed.DerivedAOA` reflects whichever AHRS is active (Madgwick `SmoothedPitch − FlightPath` or EKF6 `state.alpha_deg()`), so the wizard fits against the same signal the runtime audio path consumes. The CP→AOA polynomial regression and the IAS→AOA fit (lines 518 and 527 respectively) both read this wire-sourced value. The wizard's `pitchDeg`/`flightPathDeg` reads are only used for the auto-stop trigger (`pitchDeg < 0 && |pitchRate| > 5`), not for any regression. The legacy `software/OnSpeed-Gen3-ESP32/Web/javascript_calibration.h` file has been deleted; only the Preact page remains.
 
-**Issue #366 is functionally closed in code as of v4.22 but the GitHub ticket is still open** — bookkeeping debt, not a real bug surface. Worth closing the ticket and citing PR #373 + `CalWizardPage.js:222` in the close.
+PR #373 also added `software/Libraries/onspeed_core/src/api/CalwizSave.{h,cpp}` (pure mutation logic) and `test_calwiz_save_diff` (byte-identical state vs. legacy path), so the save round-trip is differentially tested.
 
-The discipline lesson stands: *a downstream consumer must not reinvent an upstream computation* — the seam is the wire frame. The cal wizard has now graduated from violating this rule to embodying it, and the differential test pins the contract so it can't regress.
+Issue #366 closed 2026-05-17.
+
+The discipline lesson stands: *a downstream consumer must not reinvent an upstream computation* — the seam is the wire frame. The cal wizard has graduated from violating this rule to embodying it, and the differential test pins the contract so it can't regress.
 
 ### 5. The audio path reads `g_Config` directly *(still tangled in firmware; partly extracted in v4.22)*
 
@@ -507,5 +509,3 @@ What's *not* the next priority, and why:
 - **MAVLink emit (#4)** is tempting because it unlocks the most external compatibility, but doing it before step 1 means the MAVLink emitter has to read 25 globals directly — duplicating DataServer's tangling rather than fixing it.
 - **OAT / boom re-injection in LogReplay (#3)** is small and worth doing soon, but it's not the architectural bottleneck.
 - **Parallel estimators (#7)** is the largest leverage for the OnSpeed mission long term, but it depends on `LiveDataFrame` (or a sibling `AoaEstimates` struct routed the same way) to land first without re-inventing the snapshot pattern.
-
-Recommend pairing step 1 with **closing issue #366** (the cal wizard EKF6 ticket — fixed in code in v4.22, ticket still open) as a small bookkeeping cleanup. The audit's §4 has aged; the ticket should reflect that.
