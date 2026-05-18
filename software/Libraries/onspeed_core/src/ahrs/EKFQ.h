@@ -5,10 +5,11 @@
  * @file EKFQ.h
  * @brief 11-state Quaternion EKF: attitude + sideslip + vertical channel.
  *
- * Replaces the old 6-state Euler EKF entirely. Has been validated against
- * VN-300 truth on 79 minutes of testbed flight (`log_007_fixed.csv`), with
- * Optuna-tuned defaults (study `ekfq_v15` / `ekfq_v16` against the
- * cruise-AOA loss).
+ * Fuses IMU + baro + a weak β=0 prior + weak gyro-bias priors into a
+ * quaternion-based attitude estimate with an integrated vertical
+ * channel (z, vz, b_az) and a sideslip state β. Defaults are tuned
+ * against VN-300 truth (Optuna studies `ekfq_v15` / `ekfq_v16` over a
+ * 79-minute testbed flight log with a cruise-AOA loss profile).
  *
  * @section state_vector State Vector (11 states)
  *

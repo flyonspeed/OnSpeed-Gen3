@@ -53,17 +53,14 @@ namespace onspeed::ahrs {
 /// RateAdjustedAccelEma.h.
 inline constexpr float kAccSmoothing = 0.060899f;
 
-// AHRS algorithm choice. Two options:
-//   0 = Madgwick (existing) — paired with the standalone altitude
-//       KalmanFilter for VSI/altitude.
-//   1 = EKFQ    — 11-state quaternion EKF (attitude + sideslip +
-//       integrated z/vz/b_az). When selected, EKFQ's vertical channel
-//       publishes altitude/VSI directly and the standalone KalmanFilter
-//       is bypassed.
-//
-// The integer value of EKFQ stays 1 (same as the old EKF6 slot) so
-// config files that selected "EKF6" continue to select an EKF — they
-// just get the better-tuned EKFQ instead.
+// AHRS algorithm choice (integer values are the wire format stored in
+// the config file's <AHRS_ALGORITHM> tag):
+//   0 = Madgwick — paired with the standalone altitude KalmanFilter for
+//       VSI / altitude.
+//   1 = EKFQ — 11-state quaternion EKF (attitude + sideslip + integrated
+//       z / vz / b_az). When selected the standalone KalmanFilter is
+//       bypassed; EKFQ's vertical channel publishes altitude and VSI
+//       directly.
 enum class Algorithm : int { Madgwick = 0, Ekfq = 1 };
 
 // Constructor-time AHRS configuration. Values that change rarely (or
@@ -82,9 +79,16 @@ struct AhrsConfig {
     onspeed::EKFQ::Config ekfqConfig = onspeed::EKFQ::Config::defaults();
     // Signal-chain overrides for the EKFQ — when this algorithm is
     // selected, these replace the legacy Madgwick-tuned constants.
+    //
+    // Note: the IAS-alive rising-edge threshold lives outside this
+    // struct because iasAlive is computed UPSTREAM of Ahrs (in
+    // SensorIO). The sketch's SensorIO reads `g_Config.fEkfqIasAliveKt`
+    // directly when the active algorithm is EKFQ; routing it through
+    // AhrsConfig would leave the field unread inside Ahrs and create
+    // exactly the kind of silently-dead parameter the first code-review
+    // pass already caught us shipping.
     float ekfqAccelEmaAlpha   = 0.052324843677354384f; ///< Overrides kAccSmoothing
     float ekfqCompFadeTauSec  = 2.531734433346506f;    ///< Overrides 0.5 s
-    float ekfqIasAliveKt      = 33.66929039144636f;    ///< Overrides 25 kt
     float ekfqTasdotEmaAlpha  = 0.20081238948995161f;  ///< TAS-derivative EMA
 };
 

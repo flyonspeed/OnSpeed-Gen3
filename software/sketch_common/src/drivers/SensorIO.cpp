@@ -9,6 +9,7 @@
 #include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
+#include <ahrs/Ahrs.h>             // for onspeed::ahrs::Algorithm enum
 #include <sensors/IasAlive.h>
 #include <sensors/PressureConvert.h>
 #include <sensors/OatConvert.h>
@@ -420,10 +421,15 @@ void SensorIO::Read()
     // in sensors/IasAlive.h.
     {
         const bool bWasIasAlive = bIasAlive;
-        // EKFQ mode swaps in its Optuna-tuned rising-edge threshold and
-        // a matching 5-kt-hysteresis falling edge. Madgwick mode keeps
-        // the legacy 20 kt / 15 kt thresholds from IasAlive.h.
-        if (g_Config.iAhrsAlgorithm == 1) {
+        // EKFQ mode swaps in the Optuna-tuned rising-edge threshold
+        // (fEkfqIasAliveKt). The 5-kt hysteresis gap on the falling
+        // edge is a firmware-side design choice — it mirrors the 20 kt
+        // / 15 kt pair the legacy Madgwick path uses, not anything the
+        // Python tuning pipeline produced. Madgwick mode keeps the
+        // legacy thresholds from IasAlive.h.
+        constexpr int kEkfqAlgoInt =
+            static_cast<int>(onspeed::ahrs::Algorithm::Ekfq);
+        if (g_Config.iAhrsAlgorithm == kEkfqAlgoInt) {
             const float rising  = g_Config.fEkfqIasAliveKt;
             const float falling = std::max(0.0f, rising - 5.0f);
             bIasAlive = onspeed::sensors::UpdateIasAlive(

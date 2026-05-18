@@ -29,8 +29,13 @@ namespace {
 
 onspeed::ahrs::Algorithm AlgorithmFromConfig(int iAhrsAlgorithm)
 {
-    // 0 = Madgwick (default), 1 = EKFQ.
-    if (iAhrsAlgorithm == 1) return onspeed::ahrs::Algorithm::Ekfq;
+    // Map config integer → enum. Anything that doesn't match a known
+    // enum value falls back to Madgwick (matches the legacy
+    // "iAhrsAlgorithm == 1 ? EKF : Madgwick" wire format).
+    if (iAhrsAlgorithm ==
+        static_cast<int>(onspeed::ahrs::Algorithm::Ekfq)) {
+        return onspeed::ahrs::Algorithm::Ekfq;
+    }
     return onspeed::ahrs::Algorithm::Madgwick;
 }
 
@@ -81,10 +86,12 @@ onspeed::ahrs::AhrsConfig AHRS::MakeCfg_() const
     cfg.imuSampleRateHz  = fImuSampleRate;
     cfg.pressureSampleRateHz = static_cast<float>(kPressureSampleRateHz);
     // EKFQ-specific tuning (only consulted when algorithm == Ekfq).
+    // The IAS-alive threshold isn't in this list because iasAlive is
+    // produced upstream of Ahrs (in SensorIO), which reads
+    // g_Config.fEkfqIasAliveKt directly.
     cfg.ekfqConfig          = EkfqConfigFromConfig();
     cfg.ekfqAccelEmaAlpha   = g_Config.fEkfqAccelEmaAlpha;
     cfg.ekfqCompFadeTauSec  = g_Config.fEkfqCompFadeTauSec;
-    cfg.ekfqIasAliveKt      = g_Config.fEkfqIasAliveKt;
     cfg.ekfqTasdotEmaAlpha  = g_Config.fEkfqTasdotEmaAlpha;
     return cfg;
 }
