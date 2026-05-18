@@ -29,7 +29,7 @@
 //     altitude that would come from a separate GPSGROUP_POSLLA selector
 //   VelNed{North,East,Down} at 44/48/52
 //   Accel{Fwd,Lat,Vert} at 56/60/64
-//   GPS time bytes at 71..73 (Hour, Min, Sec)
+//   GPS time bytes at 71..73 (Hour, Min, Sec) and 74..75 (Ms, u16 LE)
 //   GPSFix at 76
 //   GnssVelNed{North,East,Down} at 77/81/85
 //   {Yaw,Pitch,Roll} at 89/93/97

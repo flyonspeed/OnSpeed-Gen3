@@ -232,15 +232,6 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
     suVN300.EstAltMeters     = data.estAltMeters;
     suVN300.GPSFix           = data.gpsFix;
 
-    // Copy the time string
     strncpy(suVN300.szTimeUTC, data.szTimeUTC, sizeof(suVN300.szTimeUTC) - 1);
     suVN300.szTimeUTC[sizeof(suVN300.szTimeUTC) - 1] = '\0';
-
-    // Append the fractional seconds computed from millis() (original firmware
-    // behaviour; this is the one place millis() is needed for VN-300 time).
-    int iFrac = static_cast<int>(millis() / 10) % 100;
-    // Find where the null terminator is and append ".XX".
-    size_t len = strnlen(suVN300.szTimeUTC, sizeof(suVN300.szTimeUTC) - 4);
-    snprintf(suVN300.szTimeUTC + len, sizeof(suVN300.szTimeUTC) - len,
-             ".%02d", iFrac);
 }
