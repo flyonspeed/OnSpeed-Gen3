@@ -129,12 +129,7 @@ const LogCard = ({ file, active, selected, busyDeleting, onToggle, onDelete }) =
           ${file.hasDbg && html`
             <a class="dl-pill"
                href=${'/download?file=' + encodeURIComponent(baseName + '.dbg')}>
-              <${DlIcon} />dbg
-            </a>`}
-          ${file.hasMeta && html`
-            <a class="dl-pill"
-               href=${'/download?file=' + encodeURIComponent(baseName + '.meta')}>
-              <${DlIcon} />meta
+              <${DlIcon} />dbg log
             </a>`}
         </div>
         ${active
