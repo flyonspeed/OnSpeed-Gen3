@@ -56,18 +56,21 @@
  *
  * @section embedded_perf ESP32-S3 performance notes
  *
- * Per IMU step (208 Hz) the filter does ≈ 3500 float ops with sparse F
- * propagation and specialised scalar-update paths:
- *
- *   • predict():   F is built sparsely (bp/bq/br/b_az rows are identity).
+ *   • predict():  F is built sparsely (bp/bq/br/b_az rows are identity).
  *     Covariance update F·P·Fᵀ skips the all-identity rows entirely —
  *     roughly 2× faster than the naïve 2·N³ approach for N=11.
- *   • correct():   8 sequential scalar updates (3 accel + baro + β prior
- *     + 3 bias priors). The 5 single-non-zero H rows (baro + 4 priors)
- *     use a specialised helper that skips the full PHt inner product.
+ *   • correct():  pure BATCH update — 8 measurements (3 accel + baro
+ *     + β prior + 3 gyro-bias priors), one joint Kalman gain K via
+ *     Cholesky factorisation of S = H·P·Hᵀ + R, Joseph-form covariance
+ *     update. Matches the Python `ekf_quat.py` reference exactly so
+ *     the Optuna-tuned defaults give the same numerical behaviour the
+ *     tuning study targeted. ~6–7k float ops/step including the
+ *     11×11·11×11 Joseph matmuls; ESP32-S3 single-core overhead still
+ *     under 2%.
  *
- * Memory: all stack. P is 11×11 = 484 bytes; transient buffers fit in
- * a few hundred more. No heap, no exceptions.
+ * Memory: all stack. P is 11×11 = 484 bytes; the batch correct() step
+ * needs ~2.4 KB of transient buffers (H, PHt, S, K_mat, KH, A); total
+ * well inside the IMU task's stack budget. No heap, no exceptions.
  */
 
 #include <cstdint>

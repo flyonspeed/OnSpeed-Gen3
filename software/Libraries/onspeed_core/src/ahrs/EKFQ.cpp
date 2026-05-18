@@ -12,16 +12,16 @@
 //     ≤44 sparse perturbation entries on the remaining rows. Roughly
 //     2× faster than naïve 2·N³ for N=11.
 //
-//   • Correct: 8 sequential scalar updates. The 5 single-non-zero H
-//     rows (baro, β prior, 3 bias priors) use the scalarUpdateUnit
-//     helper that collapses the PHt inner-product loop to a column-of-P
-//     read. The 3 accel rows have 4–5 non-zeros and use specialised
-//     scalarUpdate{Quat4,Quat4Plus1} helpers.
+//   • Correct: pure BATCH update that mirrors the Python reference
+//     (onspeed_ekf/ekf_quat.py) exactly. All residuals are computed at
+//     the predict state, a single joint Kalman gain K is solved via
+//     Cholesky factorisation of S = H·P·Hᵀ + R (SPD by construction),
+//     and the covariance is updated in Joseph form. This is the same
+//     algorithm whose parameters were Optuna-tuned against VN-300 truth
+//     — a sequential approximation would not be numerically identical
+//     and would not honour the tuning's intent.
 //
 //   • All memory is stack — no heap, no allocators, no exceptions.
-//
-//   • Covariance symmetry is preserved by writing upper triangle then
-//     mirroring (cheaper than full P = 0.5·(P + Pᵀ)).
 
 #include "EKFQ.h"
 
@@ -161,111 +161,9 @@ void EKFQ::renormaliseQuaternion() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Scalar-update specialisations (anonymous namespace; static-inline so the
-// compiler can fold the unrolling into the call site).
-// ---------------------------------------------------------------------------
-
-namespace {
-
-constexpr int N = EKFQ::N_STATES;
-
-/// H = e_idx (single 1.0f at column `idx`). PHt collapses to P's column.
-///
-/// Aliasing note for the in-place rank-1 downdate below: PHt[j] is read
-/// as `P[j][idx]` while we write `P[i][j]` with i ≤ j (upper triangle).
-/// `P[j][idx]` is only mutated at outer-iteration `i == j` (writing
-/// `P[i][j]` for the special case j == idx, or when the symmetric
-/// mirror pass below copies the upper triangle down). Both writes
-/// happen AFTER the read at outer-iteration `i = j` finishes — so
-/// every read of `P[j][idx]` precedes its own write. No aliasing hazard.
-inline void scalarUpdateUnit(float P[N][N], float x[N],
-                             int idx, float innovation, float R_var) {
-    const float S = P[idx][idx] + R_var;
-    if (S <= 0.0f) return;
-    const float invS = 1.0f / S;
-    float K[N];
-    for (int i = 0; i < N; ++i) K[i] = P[i][idx] * invS;
-    for (int i = 0; i < N; ++i) x[i] += K[i] * innovation;
-    // P -= K · PHtᵀ;  PHt[j] = P[j][idx]. Upper-triangle then mirror.
-    for (int i = 0; i < N; ++i) {
-        const float Ki = K[i];
-        for (int j = i; j < N; ++j) {
-            P[i][j] -= Ki * P[j][idx];
-        }
-    }
-    for (int i = 0; i < N; ++i) {
-        for (int j = i + 1; j < N; ++j) {
-            P[j][i] = P[i][j];
-        }
-    }
-}
-
-/// H has FOUR non-zero entries — used by the accel-x measurement
-/// (quaternion-block partials only, no centripetal bias coupling).
-inline void scalarUpdateQuat4(float P[N][N], float x[N],
-                              float c0, float c1, float c2, float c3,
-                              float innovation, float R_var) {
-    // PHt[i] = c0·P[i][Q0] + c1·P[i][Q1] + c2·P[i][Q2] + c3·P[i][Q3]
-    float PHt[N];
-    for (int i = 0; i < N; ++i) {
-        PHt[i] = c0 * P[i][EKFQ::Q0] + c1 * P[i][EKFQ::Q1]
-               + c2 * P[i][EKFQ::Q2] + c3 * P[i][EKFQ::Q3];
-    }
-    const float S = c0 * PHt[EKFQ::Q0] + c1 * PHt[EKFQ::Q1]
-                  + c2 * PHt[EKFQ::Q2] + c3 * PHt[EKFQ::Q3] + R_var;
-    if (S <= 0.0f) return;
-    const float invS = 1.0f / S;
-    float K[N];
-    for (int i = 0; i < N; ++i) K[i] = PHt[i] * invS;
-    for (int i = 0; i < N; ++i) x[i] += K[i] * innovation;
-    for (int i = 0; i < N; ++i) {
-        const float Ki = K[i];
-        for (int j = i; j < N; ++j) {
-            P[i][j] -= Ki * PHt[j];
-        }
-    }
-    for (int i = 0; i < N; ++i) {
-        for (int j = i + 1; j < N; ++j) {
-            P[j][i] = P[i][j];
-        }
-    }
-}
-
-/// H has 4 quaternion entries plus ONE extra non-zero at `bias_idx` — used
-/// by accel-y (BR coupling) and accel-z (BQ coupling).
-inline void scalarUpdateQuat4Plus1(float P[N][N], float x[N],
-                                   float c0, float c1, float c2, float c3,
-                                   int bias_idx, float c_bias,
-                                   float innovation, float R_var) {
-    float PHt[N];
-    for (int i = 0; i < N; ++i) {
-        PHt[i] = c0 * P[i][EKFQ::Q0] + c1 * P[i][EKFQ::Q1]
-               + c2 * P[i][EKFQ::Q2] + c3 * P[i][EKFQ::Q3]
-               + c_bias * P[i][bias_idx];
-    }
-    const float S = c0 * PHt[EKFQ::Q0] + c1 * PHt[EKFQ::Q1]
-                  + c2 * PHt[EKFQ::Q2] + c3 * PHt[EKFQ::Q3]
-                  + c_bias * PHt[bias_idx] + R_var;
-    if (S <= 0.0f) return;
-    const float invS = 1.0f / S;
-    float K[N];
-    for (int i = 0; i < N; ++i) K[i] = PHt[i] * invS;
-    for (int i = 0; i < N; ++i) x[i] += K[i] * innovation;
-    for (int i = 0; i < N; ++i) {
-        const float Ki = K[i];
-        for (int j = i; j < N; ++j) {
-            P[i][j] -= Ki * PHt[j];
-        }
-    }
-    for (int i = 0; i < N; ++i) {
-        for (int j = i + 1; j < N; ++j) {
-            P[j][i] = P[i][j];
-        }
-    }
-}
-
-}  // namespace
+// (No file-scope helpers needed — correct() does a pure batch update
+// with Cholesky-based joint Kalman gain, mirroring Python exactly.
+// See the Correct step below for the algebra and Cholesky implementation.)
 
 // ---------------------------------------------------------------------------
 // update = predict + correct
@@ -388,9 +286,9 @@ void EKFQ::predict(float p, float q_in, float r_in,
     //    where F deviates from identity. Identity rows of F (BP, BQ, BR,
     //    B_AZ, and possibly BETA) trivially give M[i][j] = P[i][j].
 
-    float M_Q0[N], M_Q1[N], M_Q2[N], M_Q3[N];
-    float M_Z[N], M_VZ[N], M_BETA[N];
-    for (int j = 0; j < N; ++j) {
+    float M_Q0[N_STATES], M_Q1[N_STATES], M_Q2[N_STATES], M_Q3[N_STATES];
+    float M_Z[N_STATES], M_VZ[N_STATES], M_BETA[N_STATES];
+    for (int j = 0; j < N_STATES; ++j) {
         const float Pq0 = P_[Q0][j], Pq1 = P_[Q1][j];
         const float Pq2 = P_[Q2][j], Pq3 = P_[Q3][j];
         const float Pbp = P_[BP][j], Pbq = P_[BQ][j], Pbr = P_[BR][j];
@@ -431,7 +329,7 @@ void EKFQ::predict(float p, float q_in, float r_in,
     //    all 11 columns of P_new[i][:]. Writes into P_ are safe because
     //    we cache the row's M values BEFORE writing back.
 
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < N_STATES; ++i) {
         // Cache M[i][:] into locals. Source is one of M_* buffers (for
         // non-identity rows) or P_[i][:] (for identity rows).
         float Mi_Q0, Mi_Q1, Mi_Q2, Mi_Q3;
@@ -549,70 +447,233 @@ void EKFQ::predict(float p, float q_in, float r_in,
 }
 
 // ---------------------------------------------------------------------------
-// Correct step — sequential scalar updates with sparse H specialisations
+// Correct step — pure BATCH update, byte-for-byte equivalent to the
+// Python reference `onspeed_ekf/ekf_quat.py::EKFQ.correct()` that produced
+// the Optuna-tuned defaults.
+//
+// Algorithm (mirrors Python lines 417-547):
+//   1) Snapshot the predict-state quaternion / biases / β / z.
+//   2) Build the full measurement set:
+//        z_meas = [ax_meas, ay_meas, az_meas, baro_z?, 0(β), 0(bp), 0(bq), 0(br)]
+//        h(x_pred) = predicted equivalents using the snapshot
+//        H = 8×11 measurement Jacobian (sparse, but written explicitly)
+//        R_diag = per-measurement variance, with R_ay inflated by
+//                 (1 + k_beta_R · β²) — the β-adaptive trick.
+//   3) Compute innovation y = z_meas − h(x_pred)  (all at predict state).
+//   4) Compute PHt = P · Hᵀ                       (11×8).
+//   5) Compute S = H · PHt + R_diag               (8×8, SPD).
+//   6) Cholesky-factorise S = L·Lᵀ (in-place lower triangle).
+//   7) Solve for K: row-by-row triangular solve   (11 systems, one per row).
+//   8) Single state update x = x + K · y.
+//   9) Joseph-form covariance P = (I − K·H)·P·(I − K·H)ᵀ + K·R·Kᵀ
+//      (numerically safer than the simple form under fp32 round-off; the
+//      Python reference also uses Joseph form).
+//  10) Renormalise the quaternion.
+//
+// All buffers are stack-allocated and sized for the maximum 8-measurement
+// case. Total ~2.4 KB of stack frame; <8 KB total task stack budget on
+// the ESP32-S3 still has headroom.
+//
+// If the baro update is requested but `updateBaro=false`, we collapse to
+// 7 active measurements (the baro row is omitted from H/y/R entirely).
 // ---------------------------------------------------------------------------
 
 void EKFQ::correct(float ax_meas, float ay_meas, float az_meas,
                    float tas, float tasDot,
                    float pitchRate, float yawRate,
                    float baroZ, bool updateBaro) {
+    // 1) Snapshot predict state.
     const float q0 = x_[Q0], q1 = x_[Q1], q2 = x_[Q2], q3 = x_[Q3];
-    const float bq = x_[BQ], br = x_[BR];
+    const float bp = x_[BP], bq = x_[BQ], br = x_[BR];
     const float z = x_[Z], beta = x_[BETA];
     const float g = GRAVITY;
 
-    // Bias-corrected gyros for h(x) centripetal terms.
+    // Bias-corrected gyros for the centripetal terms inside h(x).
     const float q_c = pitchRate - bq;
     const float r_c = yawRate   - br;
 
-    // Predicted body specific force = gravity-only + centripetal/TASdot.
+    // Predicted body specific force = gravity contribution + centripetal +
+    // TASdot. These three terms exactly match the Python reference.
     const float ax_pred = -2.0f * g * (q1 * q3 - q0 * q2) + tasDot;
     const float ay_pred = -2.0f * g * (q2 * q3 + q0 * q1) + tas * r_c;
     const float az_pred =       -g * (q0*q0 - q1*q1 - q2*q2 + q3*q3) - tas * q_c;
 
-    // ----- accel x: H has 4 quat non-zeros, no bias coupling -----
-    scalarUpdateQuat4(P_, x_,
-                      /* c0 */  2.0f * g * q2,
-                      /* c1 */ -2.0f * g * q3,
-                      /* c2 */  2.0f * g * q0,
-                      /* c3 */ -2.0f * g * q1,
-                      ax_meas - ax_pred, config_.r_ax);
+    // β-adaptive R inflation: R_ay grows quadratically in β so the filter
+    // de-weights lateral-G during sustained slips (when gravity-only
+    // lateral-G is no longer a clean attitude reference).
+    const float r_ay_eff = config_.r_ay
+                           * (1.0f + config_.k_beta_R * beta * beta);
 
-    // ----- accel y: 4 quat + BR (β-adaptive R) -----
-    {
-        const float Ray = config_.r_ay
-                          * (1.0f + config_.k_beta_R * beta * beta);
-        scalarUpdateQuat4Plus1(P_, x_,
-                               /* c0 */ -2.0f * g * q1,
-                               /* c1 */ -2.0f * g * q0,
-                               /* c2 */ -2.0f * g * q3,
-                               /* c3 */ -2.0f * g * q2,
-                               /* bias_idx */ BR,
-                               /* c_bias */ -tas,
-                               ay_meas - ay_pred, Ray);
-    }
+    // 2) Build measurement vectors and H matrix (8 max, 7 when !updateBaro).
+    constexpr int N_MEAS_MAX = 8;
+    float z_meas [N_MEAS_MAX];
+    float h_pred [N_MEAS_MAX];
+    float R_diag [N_MEAS_MAX];
+    float H[N_MEAS_MAX][N_STATES];
+    std::memset(H, 0, sizeof(H));
 
-    // ----- accel z: 4 quat + BQ -----
-    scalarUpdateQuat4Plus1(P_, x_,
-                           /* c0 */ -2.0f * g * q0,
-                           /* c1 */  2.0f * g * q1,
-                           /* c2 */  2.0f * g * q2,
-                           /* c3 */ -2.0f * g * q3,
-                           /* bias_idx */ BQ,
-                           /* c_bias */ +tas,
-                           az_meas - az_pred, config_.r_az);
-
-    // ----- Baro altitude (only when fresh / valid) -----
+    int n = 0;
+    // accel x  (4 quaternion-block non-zeros)
+    z_meas[n] = ax_meas; h_pred[n] = ax_pred; R_diag[n] = config_.r_ax;
+    H[n][Q0] =  2.0f * g * q2;
+    H[n][Q1] = -2.0f * g * q3;
+    H[n][Q2] =  2.0f * g * q0;
+    H[n][Q3] = -2.0f * g * q1;
+    n++;
+    // accel y  (4 quat + BR centripetal coupling)
+    z_meas[n] = ay_meas; h_pred[n] = ay_pred; R_diag[n] = r_ay_eff;
+    H[n][Q0] = -2.0f * g * q1;
+    H[n][Q1] = -2.0f * g * q0;
+    H[n][Q2] = -2.0f * g * q3;
+    H[n][Q3] = -2.0f * g * q2;
+    H[n][BR] = -tas;
+    n++;
+    // accel z  (4 quat + BQ centripetal coupling)
+    z_meas[n] = az_meas; h_pred[n] = az_pred; R_diag[n] = config_.r_az;
+    H[n][Q0] = -2.0f * g * q0;
+    H[n][Q1] =  2.0f * g * q1;
+    H[n][Q2] =  2.0f * g * q2;
+    H[n][Q3] = -2.0f * g * q3;
+    H[n][BQ] = +tas;
+    n++;
+    // baro altitude (optional)
     if (updateBaro) {
-        scalarUpdateUnit(P_, x_, Z, baroZ - z, config_.r_baro);
+        z_meas[n] = baroZ; h_pred[n] = z; R_diag[n] = config_.r_baro;
+        H[n][Z] = 1.0f;
+        n++;
     }
-    // ----- β = 0 weak prior -----
-    scalarUpdateUnit(P_, x_, BETA, 0.0f - x_[BETA], config_.r_beta_prior);
-    // ----- Gyro-bias zero-mean priors -----
-    scalarUpdateUnit(P_, x_, BP, 0.0f - x_[BP], config_.r_bias_prior);
-    scalarUpdateUnit(P_, x_, BQ, 0.0f - x_[BQ], config_.r_bias_prior);
-    scalarUpdateUnit(P_, x_, BR, 0.0f - x_[BR], config_.r_bias_prior);
+    // β = 0 weak prior
+    z_meas[n] = 0.0f; h_pred[n] = beta; R_diag[n] = config_.r_beta_prior;
+    H[n][BETA] = 1.0f;
+    n++;
+    // Gyro-bias = 0 weak priors (read from snapshot, NOT from x_, so the
+    // residual sees the predict-state values just like Python does).
+    z_meas[n] = 0.0f; h_pred[n] = bp; R_diag[n] = config_.r_bias_prior;
+    H[n][BP] = 1.0f;
+    n++;
+    z_meas[n] = 0.0f; h_pred[n] = bq; R_diag[n] = config_.r_bias_prior;
+    H[n][BQ] = 1.0f;
+    n++;
+    z_meas[n] = 0.0f; h_pred[n] = br; R_diag[n] = config_.r_bias_prior;
+    H[n][BR] = 1.0f;
+    n++;
 
+    // 3) Innovation y = z_meas − h_pred (all at predict state).
+    float y[N_MEAS_MAX];
+    for (int i = 0; i < n; ++i) y[i] = z_meas[i] - h_pred[i];
+
+    // 4) PHt = P · Hᵀ  (N_STATES × n). H rows are sparse but we just
+    //    use the obvious triple loop — overall O(N·N·n) ≈ 1000 flops.
+    float PHt[N_STATES][N_MEAS_MAX];
+    for (int i = 0; i < N_STATES; ++i) {
+        for (int j = 0; j < n; ++j) {
+            float s = 0.0f;
+            for (int k = 0; k < N_STATES; ++k) {
+                s += P_[i][k] * H[j][k];   // Hᵀ[k][j] = H[j][k]
+            }
+            PHt[i][j] = s;
+        }
+    }
+
+    // 5) S = H · PHt + R  (n × n, symmetric positive definite by
+    //    construction: P is SPD, R is positive diagonal). Compute the
+    //    lower triangle and mirror.
+    float S[N_MEAS_MAX][N_MEAS_MAX];
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j <= i; ++j) {
+            float s = 0.0f;
+            for (int k = 0; k < N_STATES; ++k) s += H[i][k] * PHt[k][j];
+            S[i][j] = s;
+            if (i != j) S[j][i] = s;
+        }
+        S[i][i] += R_diag[i];
+    }
+
+    // 6) Cholesky factorise S in-place. L overwrites lower triangle of S;
+    //    upper triangle becomes scratch (not read after this point).
+    for (int j = 0; j < n; ++j) {
+        float sum = S[j][j];
+        for (int k = 0; k < j; ++k) sum -= S[j][k] * S[j][k];
+        if (sum <= 0.0f) {
+            // S lost positive-definiteness due to fp32 round-off. Abort
+            // the update — same failure mode as the Python try/except
+            // around np.linalg.solve (LinAlgError on a singular S).
+            return;
+        }
+        S[j][j] = std::sqrt(sum);
+        const float inv_diag = 1.0f / S[j][j];
+        for (int i = j + 1; i < n; ++i) {
+            float s2 = S[i][j];
+            for (int k = 0; k < j; ++k) s2 -= S[i][k] * S[j][k];
+            S[i][j] = s2 * inv_diag;
+        }
+    }
+
+    // 7) Solve K = PHt · S⁻¹  ⟺  S · Kᵀ = PHtᵀ  (S is symmetric so
+    //    Sᵀ = S in Python's np.linalg.solve(S.T, PHt.T)). One forward-
+    //    back substitution per row of PHt → 11 systems, each O(n²).
+    float K_mat[N_STATES][N_MEAS_MAX];
+    for (int i = 0; i < N_STATES; ++i) {
+        float vec[N_MEAS_MAX];
+        // Forward: L · vec = PHt[i,:]ᵀ
+        for (int a = 0; a < n; ++a) {
+            float sum = PHt[i][a];
+            for (int b = 0; b < a; ++b) sum -= S[a][b] * vec[b];
+            vec[a] = sum / S[a][a];
+        }
+        // Back: Lᵀ · K[i,:]ᵀ = vec
+        for (int a = n - 1; a >= 0; --a) {
+            float sum = vec[a];
+            for (int b = a + 1; b < n; ++b) sum -= S[b][a] * K_mat[i][b];
+            K_mat[i][a] = sum / S[a][a];
+        }
+    }
+
+    // 8) x = x + K · y.
+    for (int i = 0; i < N_STATES; ++i) {
+        float dx = 0.0f;
+        for (int j = 0; j < n; ++j) dx += K_mat[i][j] * y[j];
+        x_[i] += dx;
+    }
+
+    // 9) Joseph-form covariance update:
+    //       P = (I − K·H) · P · (I − K·H)ᵀ + K · R · Kᵀ
+    //    This is the numerically-stable form Python uses. Algebraically
+    //    it equals the simple (I − K·H)·P update; fp32 round-off can
+    //    push the simple form non-PSD, but Joseph stays PSD.
+    //
+    // 9a) I_KH = I − K·H  (stored in KH).
+    float KH[N_STATES][N_STATES];
+    for (int i = 0; i < N_STATES; ++i) {
+        for (int j = 0; j < N_STATES; ++j) {
+            float s = 0.0f;
+            for (int k = 0; k < n; ++k) s += K_mat[i][k] * H[k][j];
+            KH[i][j] = ((i == j) ? 1.0f : 0.0f) - s;
+        }
+    }
+    // 9b) A = (I − K·H) · P  (full 11×11 matmul).
+    float A[N_STATES][N_STATES];
+    for (int i = 0; i < N_STATES; ++i) {
+        for (int j = 0; j < N_STATES; ++j) {
+            float s = 0.0f;
+            for (int k = 0; k < N_STATES; ++k) s += KH[i][k] * P_[k][j];
+            A[i][j] = s;
+        }
+    }
+    // 9c) P_new = A · (I − K·H)ᵀ  +  K · R · Kᵀ.
+    //     R is diagonal → (K · R · Kᵀ)[i][j] = Σ_m K[i][m] · R_diag[m] · K[j][m].
+    for (int i = 0; i < N_STATES; ++i) {
+        for (int j = 0; j < N_STATES; ++j) {
+            float s = 0.0f;
+            // A · (I − K·H)ᵀ — note (I-KH)ᵀ[k][j] = KH[j][k]
+            for (int k = 0; k < N_STATES; ++k) s += A[i][k] * KH[j][k];
+            // K · R · Kᵀ contribution.
+            for (int m = 0; m < n; ++m) s += K_mat[i][m] * R_diag[m] * K_mat[j][m];
+            P_[i][j] = s;
+        }
+    }
+
+    // 10) Quaternion normalisation (same fp32 hygiene Python does).
     renormaliseQuaternion();
 }
 

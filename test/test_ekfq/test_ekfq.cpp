@@ -75,11 +75,20 @@ void test_ekfq_level_flight(void) {
 }
 
 void test_ekfq_pitched_static(void) {
+    // Body-frame SPECIFIC FORCE (what an accel reads when stationary)
+    // for an aircraft pitched +θ nose-up in NED-body convention:
+    //   f_x = +g·sin(θ)   (gravity reaction pushes the proof mass forward)
+    //   f_y =  0
+    //   f_z = -g·cos(θ)   (gravity reaction along body-Z, level reads -g)
+    //
+    // EKFQ::predict / correct expect specific force (not gravity-in-body).
+    // EKFQ.cpp's ax_pred = -2g(q1·q3 - q0·q2) for a pitch-only quaternion
+    // gives +g·sin(θ); the measurement must match in sign for convergence.
     EKFQ ekfq;
     const float theta_rad = 10.0f * DEG2RAD;
     ekfq.init(0.0f, theta_rad, 100.0f);
     EKFQ::Measurements m = {};
-    m.ax = -G * std::sin(theta_rad);
+    m.ax = +G * std::sin(theta_rad);
     m.ay = 0.0f;
     m.az = -G * std::cos(theta_rad);
     m.p = m.q = m.r = 0.0f;
