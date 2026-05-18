@@ -1,10 +1,11 @@
 // test_log_csv.cpp — unit tests for onspeed::proto::log_csv
 //
 // Tests cover:
-//   - Round-trip: LogRow -> FormatRow -> ParseRow -> all fields equal original
+//   - Round-trip: LogRow -> FormatRow + WriteHeader -> ParseRowByIndex
+//     -> all fields equal original
 //   - Header: every expected column name present
 //   - Edge values: extreme integers, zero floats, empty VN-300 UTC string
-//   - Fixture rows from a real flight log (ParseRow -> FormatRow -> byte-identical)
+//   - Fixture rows from a real flight log (Parse -> FormatRow -> byte-identical)
 //   - Malformed input returns false
 //   - Issue #182: PitchRate sign flip is in FormatRow (not in the LogRow)
 
@@ -16,6 +17,7 @@
 #include <string_view>
 
 #include <proto/LogCsv.h>
+#include <proto/LogCsvHeaderIndex.h>
 #include <types/LogRow.h>
 
 using onspeed::LogRow;
@@ -29,6 +31,36 @@ namespace csv = onspeed::proto::log_csv;
 static char s_hdrBuf[csv::kHeaderMaxBytes];
 static char s_rowBuf[csv::kRowMaxBytes];
 static char s_rowBuf2[csv::kRowMaxBytes];
+
+// Parse `rowLine` using a header built explicitly. Returns true on success.
+// Use this when the test deliberately mismatches header schema and row body
+// (truncation tests, mutated rows, fixture-row replay).
+static bool ParseRowViaIndex(std::string_view headerLine,
+                             std::string_view rowLine,
+                             LogRow& row)
+{
+    csv::HeaderIndex idx;
+    if (!csv::BuildHeaderIndex(headerLine, idx, nullptr))
+        return false;
+    row.boomEnabled = idx.boomEnabled;
+    row.efisEnabled = idx.efisEnabled;
+    row.efisIsVn300 = idx.efisIsVn300;
+    // ParseRowByIndex sets row.flapsRawAdcPresent itself based on idx.idxFlapsRawAdc.
+    return csv::ParseRowByIndex(rowLine, idx, row);
+}
+
+// Convenience: build a header from `schema`, then parse `rowLine` against it.
+// Use this when the row was just produced by FormatRow(schema, ...) — i.e.
+// the matched-schema case, which is the bulk of the round-trip and edge tests.
+static bool ParseRowAgainstSchema(const LogRow& schema,
+                                  std::string_view rowLine,
+                                  LogRow& row)
+{
+    size_t hdrLen = csv::WriteHeader(schema, s_hdrBuf, sizeof(s_hdrBuf));
+    if (hdrLen == 0)
+        return false;
+    return ParseRowViaIndex(std::string_view(s_hdrBuf, hdrLen), rowLine, row);
+}
 
 // Tolerance for float round-trip via %.2f / %.6f / %.4f
 static constexpr float kTolLow  = 0.005f;    // for %.2f columns
@@ -143,22 +175,22 @@ static LogRow MakeTestRow(bool boom = false, bool efis = false, bool vn300 = fal
     return r;
 }
 
-// Check that a round-trip (Format -> Parse) reproduces the original row.
-// Returns true if all assertions pass (using Unity test macros internally).
+// Check that a round-trip (FormatRow + WriteHeader -> ParseRowByIndex)
+// reproduces the original row. Uses Unity test macros internally.
 static void AssertRoundTrip(const LogRow& original)
 {
+    // Write header (drives BuildHeaderIndex below)
+    size_t hdrLen = csv::WriteHeader(original, s_hdrBuf, sizeof(s_hdrBuf));
+    TEST_ASSERT_GREATER_THAN(0u, hdrLen);
+
     // Format
     size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
-    // Parse back into a fresh row with the same feature flags
+    // Parse back via the index-based reader.
     LogRow parsed;
-    parsed.boomEnabled = original.boomEnabled;
-    parsed.efisEnabled        = original.efisEnabled;
-    parsed.efisIsVn300        = original.efisIsVn300;
-    parsed.flapsRawAdcPresent = original.flapsRawAdcPresent;
-
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowViaIndex(std::string_view(s_hdrBuf, hdrLen),
+                               std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
 
     // Core fields
@@ -472,14 +504,14 @@ void test_pitch_rate_roundtrip_preserves_raw_value(void)
 {
     // LogRow.imuPitchRateDps = -0.654321 (raw).
     // FormatRow emits -(-0.654321) = +0.654321 in the CSV.
-    // ParseRow reads +0.654321 from CSV and stores -0.654321 back into LogRow.
+    // Parse reads +0.654321 from CSV and stores -0.654321 back into LogRow.
     LogRow original;
     original.imuPitchRateDps = -0.654321f;
     size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
     LogRow parsed;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowAgainstSchema(original, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_FLOAT_WITHIN(kTolHigh, -0.654321f, parsed.imuPitchRateDps);
 }
@@ -495,7 +527,7 @@ void test_zero_row_formats_and_parses(void)
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
     LogRow parsed;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowAgainstSchema(r, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_UINT32(0u, parsed.timeStampMs);
     TEST_ASSERT_FLOAT_WITHIN(kTolLow, 0.0f, parsed.iasKt);
@@ -511,7 +543,7 @@ void test_large_timestamp(void)
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
     LogRow parsed;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowAgainstSchema(r, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFEu, parsed.timeStampMs);
     TEST_ASSERT_EQUAL_UINT64(0xFFFFFFFFFFFFFFFEull, parsed.timeStampUs);
@@ -527,9 +559,7 @@ void test_empty_vn300_utc_string(void)
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
     LogRow parsed;
-    parsed.efisEnabled = true;
-    parsed.efisIsVn300 = true;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowAgainstSchema(r, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_STRING("", parsed.vnTimeUtc);
 }
@@ -555,15 +585,17 @@ void test_vn300_utc_with_comma_refuses_to_format(void)
 
 void test_empty_line_returns_false(void)
 {
+    LogRow schema;   // core-only header
     LogRow r;
-    TEST_ASSERT_FALSE(csv::ParseRow("", r));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(schema, "", r));
 }
 
 void test_too_few_columns_returns_false(void)
 {
-    // Provide only a timestamp — far fewer than the required 46+ columns.
+    // Provide only a timestamp — far fewer than the required 40+ columns.
+    LogRow schema;
     LogRow r;
-    TEST_ASSERT_FALSE(csv::ParseRow("12345,1,1.00", r));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(schema, "12345,1,1.00", r));
 }
 
 // Issue #195: tests for truncated boom / VN-300 / EFIS sections.
@@ -601,7 +633,7 @@ void test_truncated_boom_section_returns_false(void)
 {
     // Boom section has 6 columns: static, dynamic, alpha, beta, ias, age.
     // Format a complete boom row, drop the last 3 boom fields, and
-    // verify ParseRow rejects.
+    // verify the parser rejects.
     LogRow original = MakeTestRow(true, false, false);
     size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
@@ -615,8 +647,7 @@ void test_truncated_boom_section_returns_false(void)
     std::string truncated = DropLastFields(s_rowBuf, fmtLen, 6 + 3);
 
     LogRow parsed;
-    parsed.boomEnabled = true;
-    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, truncated, parsed));
 }
 
 void test_truncated_efis_section_returns_false(void)
@@ -631,9 +662,7 @@ void test_truncated_efis_section_returns_false(void)
     std::string truncated = DropLastFields(s_rowBuf, fmtLen, 6 + 5);
 
     LogRow parsed;
-    parsed.efisEnabled = true;
-    parsed.efisIsVn300 = false;
-    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, truncated, parsed));
 }
 
 void test_truncated_vn300_section_returns_false(void)
@@ -648,40 +677,15 @@ void test_truncated_vn300_section_returns_false(void)
     std::string truncated = DropLastFields(s_rowBuf, fmtLen, 6 + 10);
 
     LogRow parsed;
-    parsed.efisEnabled = true;
-    parsed.efisIsVn300 = true;
-    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, truncated, parsed));
 }
 
-void test_efis_flag_set_but_no_efis_columns_returns_false(void)
-{
-    // Producer wrote a no-EFIS row (33 core + 4 derived + 2 aoa = 39
-    // columns).  Receiver expects EFIS columns but they're absent.
-    LogRow producer;
-    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
-    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
-
-    LogRow consumer;
-    consumer.efisEnabled = true;
-    consumer.efisIsVn300 = false;
-    TEST_ASSERT_FALSE(csv::ParseRow(std::string_view(s_rowBuf, fmtLen),
-                                    consumer));
-}
-
-void test_vn300_flag_set_but_only_efis_columns_returns_false(void)
-{
-    // Producer wrote a non-VN300 EFIS row.  Receiver expects VN-300
-    // columns (26 of them) but only finds 18 EFIS columns.
-    LogRow producer = MakeTestRow(false, true, false);
-    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
-    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
-
-    LogRow consumer;
-    consumer.efisEnabled = true;
-    consumer.efisIsVn300 = true;
-    TEST_ASSERT_FALSE(csv::ParseRow(std::string_view(s_rowBuf, fmtLen),
-                                    consumer));
-}
+// (Removed: test_efis_flag_set_but_no_efis_columns_returns_false and
+// test_vn300_flag_set_but_only_efis_columns_returns_false. Those tested
+// the legacy positional contract where the consumer's pre-set feature
+// flags drove parsing. The index-based reader takes its schema from the
+// header line itself, so a producer/consumer "flag mismatch" is no longer
+// a possible failure mode — the header IS the contract.)
 
 void test_row_truncated_mid_field_returns_false(void)
 {
@@ -697,10 +701,7 @@ void test_row_truncated_mid_field_returns_false(void)
     std::string truncated = TruncateBy(s_rowBuf, fmtLen, fmtLen / 2);
 
     LogRow parsed;
-    parsed.boomEnabled = true;
-    parsed.efisEnabled = true;
-    parsed.efisIsVn300 = true;
-    TEST_ASSERT_FALSE(csv::ParseRow(truncated, parsed));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, truncated, parsed));
 }
 
 // Issue #193: a truncated SD write that produces two adjacent commas in
@@ -709,7 +710,7 @@ void test_row_truncated_mid_field_returns_false(void)
 
 void test_empty_timestamp_returns_false(void)
 {
-    // First column (timeStampMs / ParseUint32) blanked: ",pfwdCounts,..."
+    // First column (timeStampMs) blanked: ",pfwdCounts,..."
     // Build a row that's well-formed except for an empty timestamp.
     LogRow original = MakeTestRow(false, false, false);
     size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
@@ -722,12 +723,12 @@ void test_empty_timestamp_returns_false(void)
     mutated = "," + mutated.substr(firstComma + 1);
 
     LogRow r;
-    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, mutated, r));
 }
 
 void test_empty_int_field_returns_false(void)
 {
-    // Second column is pfwdCounts (ParseInt). Blank it.
+    // Second column is pfwdCounts (int). Blank it.
     LogRow original = MakeTestRow(false, false, false);
     size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
@@ -739,12 +740,12 @@ void test_empty_int_field_returns_false(void)
     mutated = mutated.substr(0, c1 + 1) + mutated.substr(c2);
 
     LogRow r;
-    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, mutated, r));
 }
 
 void test_empty_float_field_returns_false(void)
 {
-    // Third column is pfwdSmoothed (ParseFloat). Blank it.
+    // Third column is pfwdSmoothed (float). Blank it.
     LogRow original = MakeTestRow(false, false, false);
     size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
@@ -757,7 +758,7 @@ void test_empty_float_field_returns_false(void)
     mutated = mutated.substr(0, c2 + 1) + mutated.substr(c3);
 
     LogRow r;
-    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, mutated, r));
 }
 
 void test_empty_ias_aoa_only_returns_false(void)
@@ -783,7 +784,7 @@ void test_empty_ias_aoa_only_returns_false(void)
     mutated = mutated.substr(0, pos) + mutated.substr(aoaEnd);
 
     LogRow r;
-    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, mutated, r));
 }
 
 // ============================================================================
@@ -839,9 +840,7 @@ void test_invalid_ias_roundtrip(void)
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
     LogRow parsed;
-    parsed.efisEnabled = true;
-    parsed.efisIsVn300 = false;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowAgainstSchema(original, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
 
     TEST_ASSERT_FALSE(parsed.iasValid);
@@ -876,8 +875,7 @@ void test_efis_percent_lift_invalid_only(void)
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
     LogRow parsed;
-    parsed.efisEnabled = true;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowAgainstSchema(original, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_TRUE(parsed.iasValid);
     TEST_ASSERT_FALSE(parsed.efisPercentLiftValid);
@@ -896,9 +894,7 @@ void test_invalid_ias_roundtrip_vn300(void)
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
     LogRow parsed;
-    parsed.efisEnabled = true;
-    parsed.efisIsVn300 = true;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), parsed);
+    bool ok = ParseRowAgainstSchema(original, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_FALSE(parsed.iasValid);
     TEST_ASSERT_TRUE(std::isnan(parsed.iasKt));
@@ -925,7 +921,7 @@ void test_empty_palt_field_still_rejected(void)
     mutated = mutated.substr(0, pos) + mutated.substr(next);
 
     LogRow r;
-    TEST_ASSERT_FALSE(csv::ParseRow(mutated, r));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(original, mutated, r));
 }
 
 void test_trailing_newline_tolerated(void)
@@ -940,7 +936,7 @@ void test_trailing_newline_tolerated(void)
     withNewline += '\n';
 
     LogRow parsed;
-    bool ok = csv::ParseRow(withNewline, parsed);
+    bool ok = ParseRowAgainstSchema(original, withNewline, parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_UINT32(original.timeStampMs, parsed.timeStampMs);
     TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.derivedAoaDeg, parsed.derivedAoaDeg);
@@ -956,7 +952,7 @@ void test_trailing_crlf_tolerated(void)
     withCrLf += "\r\n";
 
     LogRow parsed;
-    bool ok = csv::ParseRow(withCrLf, parsed);
+    bool ok = ParseRowAgainstSchema(original, withCrLf, parsed);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_UINT32(original.timeStampMs, parsed.timeStampMs);
 }
@@ -993,37 +989,25 @@ static constexpr int kFixtureRowCount = 5;
 // flapsRawAdc field.
 void test_old_log_without_flaps_raw_adc_defaults_to_zero(void)
 {
-    // Format a row WITHOUT the column, then parse it back without the flag.
+    // Format a row WITHOUT the column (older firmware). The header from
+    // that same schema also omits the column. Parsing should succeed and
+    // leave flapsRawAdc at its zero default with the presence flag clear.
     LogRow producer = MakeTestRow(false, true, false, /*flapsRawAdc=*/false);
     size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
-    // The emitted row must not contain the column's value as a trailing field.
-    // (Equivalently: byte-identical to a row produced before this PR.)
-    LogRow consumer;
-    consumer.efisEnabled        = true;
-    consumer.efisIsVn300        = false;
-    consumer.flapsRawAdcPresent = false;
-    bool ok = csv::ParseRow(std::string_view(s_rowBuf, fmtLen), consumer);
+    LogRow parsed;
+    bool ok = ParseRowAgainstSchema(producer, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_UINT16(0u, consumer.flapsRawAdc);
+    TEST_ASSERT_FALSE(parsed.flapsRawAdcPresent);
+    TEST_ASSERT_EQUAL_UINT16(0u, parsed.flapsRawAdc);
 }
 
-// Consumer flag set but column actually absent: row must be rejected.
-// Catches a future bug where the producer drops the column without the
-// consumer noticing.
-void test_flaps_raw_adc_flag_set_but_column_absent_returns_false(void)
-{
-    LogRow producer = MakeTestRow(false, true, false, /*flapsRawAdc=*/false);
-    size_t fmtLen = csv::FormatRow(producer, s_rowBuf, sizeof(s_rowBuf));
-    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
-
-    LogRow consumer;
-    consumer.efisEnabled        = true;
-    consumer.efisIsVn300        = false;
-    consumer.flapsRawAdcPresent = true;
-    TEST_ASSERT_FALSE(csv::ParseRow(std::string_view(s_rowBuf, fmtLen), consumer));
-}
+// (Removed: test_flaps_raw_adc_flag_set_but_column_absent_returns_false.
+// That tested the dead positional contract — the consumer pre-setting
+// flapsRawAdcPresent. In the index-based world, presence is driven by
+// the header line itself, not by consumer expectation, so a "consumer
+// flag set but column absent" mismatch is no longer a possible state.)
 
 // Out-of-range token (>0xFFFF) must fail uint16 parse.
 void test_flaps_raw_adc_overflow_returns_false(void)
@@ -1039,21 +1023,26 @@ void test_flaps_raw_adc_overflow_returns_false(void)
     mutated = mutated.substr(0, lastComma + 1) + "70000";
 
     LogRow consumer;
-    consumer.flapsRawAdcPresent = true;
-    TEST_ASSERT_FALSE(csv::ParseRow(mutated, consumer));
+    TEST_ASSERT_FALSE(ParseRowAgainstSchema(producer, mutated, consumer));
 }
 
 // For each fixture row: parse it, re-format it, and assert byte-identical output.
 void test_fixture_row_parse_format_identical(void)
 {
+    // The fixture rows below were captured from a flight log with EFIS
+    // (non-VN300) enabled, no boom, no flapsRawADC.  Build a matching
+    // header so BuildHeaderIndex sees the same column set the producer
+    // wrote.
+    LogRow schema;
+    schema.efisEnabled = true;
+    schema.efisIsVn300 = false;
+
     for (int i = 0; i < kFixtureRowCount; ++i) {
         const char* fixtureRow = kFixtureRows[i];
 
-        // Parse the fixture row.
+        // Parse the fixture row against the schema's header.
         LogRow parsed;
-        parsed.efisEnabled = true;
-        parsed.efisIsVn300 = false;
-        bool ok = csv::ParseRow(fixtureRow, parsed);
+        bool ok = ParseRowAgainstSchema(schema, fixtureRow, parsed);
         TEST_ASSERT_TRUE_MESSAGE(ok, fixtureRow);
 
         // Re-format and compare byte-for-byte.
@@ -1120,7 +1109,6 @@ int main(int, char**)
 
     // Old-log compat for tail-optional flapsRawADC
     RUN_TEST(test_old_log_without_flaps_raw_adc_defaults_to_zero);
-    RUN_TEST(test_flaps_raw_adc_flag_set_but_column_absent_returns_false);
     RUN_TEST(test_flaps_raw_adc_overflow_returns_false);
 
     // Issue #182: sign flip
@@ -1151,8 +1139,6 @@ int main(int, char**)
     RUN_TEST(test_truncated_boom_section_returns_false);
     RUN_TEST(test_truncated_efis_section_returns_false);
     RUN_TEST(test_truncated_vn300_section_returns_false);
-    RUN_TEST(test_efis_flag_set_but_no_efis_columns_returns_false);
-    RUN_TEST(test_vn300_flag_set_but_only_efis_columns_returns_false);
     RUN_TEST(test_row_truncated_mid_field_returns_false);
     RUN_TEST(test_trailing_newline_tolerated);
     RUN_TEST(test_trailing_crlf_tolerated);

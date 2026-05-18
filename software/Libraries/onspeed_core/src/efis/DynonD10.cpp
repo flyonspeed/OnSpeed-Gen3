@@ -4,6 +4,7 @@
 // changes — characterisation first.
 
 #include <efis/DynonD10.h>
+#include <util/OnSpeedTypes.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -120,7 +121,7 @@ void DynonD10Parser::Decode()
 
     EfisFrame out;
 
-    out.iasKt    = parseFieldFloat(buf_, 20, 4, nullptr, 0.0f, 10.0f) * 1.94384f; // m/s to kts
+    out.iasKt    = onspeed::mps2kts(parseFieldFloat(buf_, 20, 4, nullptr, 0.0f, 10.0f));
     out.pitchDeg = parseFieldFloat(buf_,  8, 4, nullptr, 0.0f, 10.0f);
     out.rollDeg  = parseFieldFloat(buf_, 12, 5, nullptr, 0.0f, 10.0f);
     out.lateralG = parseFieldFloat(buf_, 33, 3, nullptr, 0.0f, 100.0f);
@@ -135,8 +136,8 @@ void DynonD10Parser::Decode()
     long statusBitInt = strtol(szStatus, nullptr, 16);
     if (statusBitInt & 0x1)
     {
-        // altitude in metres (× 3.28084 to feet), VSI feet/sec (× 60 to fpm)
-        out.paltFt = parseFieldFloat(buf_, 24, 5, nullptr, 0.0f, 1.0f) * 3.28084f;
+        // altitude (m → ft), VSI feet/sec (× 60 to fpm)
+        out.paltFt = onspeed::m2ft(parseFieldFloat(buf_, 24, 5, nullptr, 0.0f, 1.0f));
         out.vsiFpm = parseFieldFloat(buf_, 29, 4, nullptr, 0.0f, 10.0f) * 60.0f;
     }
 

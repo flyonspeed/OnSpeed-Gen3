@@ -18,6 +18,7 @@ namespace {
 // it is referenced directly below without a local alias.
 constexpr float kIasSmoothing      = 0.0179f;              // EMA alpha for IAS-derived TAS
 constexpr float kIasTauFactor      = (1.0f / kIasSmoothing) - 1.0f;
+// Same value as onspeed::g2mps(1.0f); aliased here for readable inline use.
 constexpr float kEkfGravityMps2    = 9.80665f;
 constexpr float kKalZVariance      = 0.79078f;
 // Time constant (seconds) for the iasAlive rising-edge fade-in applied to

@@ -1,16 +1,11 @@
 // WindTriangle.cpp
 
 #include <aero/WindTriangle.h>
+#include <util/OnSpeedTypes.h>
 
 #include <cmath>
 
 namespace onspeed::aero {
-
-namespace {
-constexpr float kPiF = 3.14159265358979323846f;
-constexpr float kDegToRad = kPiF / 180.0f;
-constexpr float kRadToDeg = 180.0f / kPiF;
-}
 
 std::optional<WindNed> ComputeWind(
     float gnssVelNedNorthMps,
@@ -31,8 +26,8 @@ std::optional<WindNed> ComputeWind(
     if (tasMps < kWindMinTasMps)
         return std::nullopt;
 
-    const float yawRad   = yawDeg   * kDegToRad;
-    const float pitchRad = pitchDeg * kDegToRad;
+    const float yawRad   = onspeed::deg2rad(yawDeg);
+    const float pitchRad = onspeed::deg2rad(pitchDeg);
     const float cosTheta = std::cos(pitchRad);
     const float sinTheta = std::sin(pitchRad);
     const float cosPsi   = std::cos(yawRad);
@@ -52,7 +47,7 @@ std::optional<WindNed> ComputeWind(
     const float speed = std::sqrt(wN * wN + wE * wE);
 
     // "From" direction: negate the going-to vector and convert to compass.
-    float dirDeg = std::atan2(-wE, -wN) * kRadToDeg;
+    float dirDeg = onspeed::rad2deg(std::atan2(-wE, -wN));
     if (dirDeg < 0.0f) dirDeg += 360.0f;
     if (dirDeg >= 360.0f) dirDeg -= 360.0f;   // exact-360 wraps to 0
 

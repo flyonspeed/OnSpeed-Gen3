@@ -5,6 +5,7 @@
 // from the original to preserve bit-for-bit output during the extraction.
 
 #include <sensors/PressureConvert.h>
+#include <util/OnSpeedTypes.h>
 #include <cmath>
 
 namespace onspeed::sensors {
@@ -35,17 +36,14 @@ float PitotPsiToIasKt(float dpPsi)
     if (dpPsi <= 0.0f)
         return 0.0f;
 
-    // Convert PSI to Pascals.
-    // 1 PSI = 6894.757 Pa = 68.94757 mbar * 100 Pa/mbar
-    // This matches the existing SensorIO.cpp path:
-    //   PfwdPascal = psi2mb(PfwdPSI) * 100
-    // where psi2mb = 68.94757 (from OnSpeedTypes.h).
-    const float dpPa = dpPsi * 6894.757f;
+    // Convert PSI to Pascals via psi2mb (= 68.94757 mbar/psi from
+    // OnSpeedTypes.h) * 100 Pa/mbar.  Matches SensorIO.cpp's path.
+    const float dpPa = onspeed::psi2mb(dpPsi) * 100.0f;
 
     // Incompressible pitot equation: IAS = sqrt(2 * dp / rho0)
-    // rho0 = 1.225 kg/m^3 (ISA sea-level standard air density)
-    // Result is m/s; multiply by 1.94384 to convert to knots.
-    return sqrtf(2.0f * dpPa / 1.225f) * 1.94384f;
+    // rho0 = 1.225 kg/m^3 (ISA sea-level standard air density).
+    // sqrt result is m/s; convert to knots via mps2kts (1.94384).
+    return onspeed::mps2kts(sqrtf(2.0f * dpPa / 1.225f));
 }
 
 float StaticMbarToPaltFt(float staticMbar)
