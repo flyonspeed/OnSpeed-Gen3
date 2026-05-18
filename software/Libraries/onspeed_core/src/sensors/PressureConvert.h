@@ -70,9 +70,9 @@ std::optional<float> CountsToPsi(uint16_t counts, HscRange range);
 //   a0  = 340.2941 m/s (ISA sea-level speed of sound)
 //
 // At low Mach this is numerically identical to the incompressible pitot
-// equation sqrt(2 * qc / rho0); it diverges above ~M 0.3 (~200 KIAS at
-// sea level), where the incompressible form reads roughly 1 kt high and
-// grows with airspeed.
+// equation sqrt(2 * qc / rho0); the two diverge with airspeed. At sea
+// level the incompressible form reads ~0.06 kt high at 60 kt, ~1 kt
+// high at 150 kt, ~2.3 kt high at 200 kt, and ~4.5 kt high at 250 kt.
 //
 // The result is technically calibrated airspeed (CAS); the OnSpeed codebase
 // conflates IAS and CAS consistently because no installed position-error

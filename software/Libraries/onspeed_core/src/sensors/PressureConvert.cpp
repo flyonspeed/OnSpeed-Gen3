@@ -42,18 +42,20 @@ float PitotPsiToIasKt(float dpPsi)
     //
     // Inversion of the isentropic subsonic pitot relation
     //   qc / P0 = (1 + 0.2 * (V / a0)^2)^(7/2) - 1
-    // for a perfect gas with gamma = 1.4. Matches the incompressible form
-    // sqrt(2 * qc / rho0) to within a fraction of a knot below M 0.3, and
-    // tracks the ASTM/ICAO calibrated-airspeed definition at higher Mach.
+    // for a perfect gas with gamma = 1.4. The exponent 2/7 is (gamma-1)/gamma
+    // and the multiplier 5 is 2/(gamma-1). Numerically identical to the
+    // incompressible form sqrt(2 * qc / rho0) below ~M 0.3; diverges with
+    // airspeed above that (see header for the error table).
     //
-    // P0 = 101325 Pa  (ISA sea-level static pressure)
-    // a0 = 340.2941 m/s (ISA sea-level speed of sound)
-    constexpr float kP0Pa  = 101325.0f;
-    constexpr float kA0Mps = 340.2941f;
+    // P0 = 101325 Pa     (ISA sea-level static pressure)
+    // a0 = 340.2941 m/s  (ISA sea-level speed of sound)
+    constexpr float kP0Pa       = 101325.0f;
+    constexpr float kA0Mps      = 340.2941f;
+    constexpr float kCasExponent = 2.0f / 7.0f;
 
     // Convert PSI to Pa via psi2mb (= 68.94757 mbar/psi) * 100 Pa/mbar.
     const float qcPa    = onspeed::psi2mb(dpPsi) * 100.0f;
-    const float bracket = powf(qcPa / kP0Pa + 1.0f, 2.0f / 7.0f) - 1.0f;
+    const float bracket = powf(qcPa / kP0Pa + 1.0f, kCasExponent) - 1.0f;
     return onspeed::mps2kts(kA0Mps * sqrtf(5.0f * bracket));
 }
 
