@@ -4,7 +4,7 @@ This document is a **contract** for how OnSpeed firmware should be structured as
 
 It is not a reorganization plan. Migration sequencing belongs in its own document; this one defines what we are reorganizing toward.
 
-> **Last reconciled with master:** 2026-05-06, against tip `c429013` (post-v4.22.1). Major releases v4.21 (audio engine port, percent-lift honesty, EKF6 correctness) and v4.22 (Web UI rewrite, X-Plane indexer window, wire v4.23) have shipped since the original draft. See **"What's already moving in this direction"** below for the running scoreboard, and **"Next priority"** at the bottom for the leverage call.
+> **Last reconciled with master:** 2026-05-18, against tip `54679f65` (post-v4.22.1; no v4.23 release tag yet, though wire v4.23 has been in production since v4.22). Major releases v4.21 (audio engine port, percent-lift honesty, EKF6 correctness) and v4.22 (Web UI rewrite, X-Plane indexer window, wire v4.23) shipped before the May 6 reconciliation; the 12 days since brought substantial post-release reliability work (silent-data-loss fixes, bench protocol, M5 renderer unification) without a new release tag yet. See **"What's already moving in this direction"** below for the running scoreboard, and **"Next priority"** at the bottom for the leverage call.
 
 ## The model
 
@@ -116,6 +116,8 @@ These are concrete. Each one is a place where the next person adding a data sour
 
 **Net:** the bug class is foreclosed. The architectural unification (one struct, many encoders) is not. Step 1 of the plan (LiveDataFrame snapshot) is still the right next move; step 2 (the schema layer) is now *partially done*, with the cheaper half delivered.
 
+**2026-05-18 update — the JS side now ships the pattern.** PR #526 ("one renderer family for /indexer and /replay") deleted `tools/web/lib/modes.js` and converged both pages onto `packages/ui-core/components/svg/m5modes/` via a canonical `M5State` struct declared in `packages/ui-core/state-shape.js`. Two adapters — `wsRecordToState.js` (live, WebSocket → M5State) and `m5sim → M5State` (replay) — produce the same shape; one renderer family consumes it. This is exactly the "canonical struct + per-source adapter + one consumer" pattern this doc has been advocating, *already in production on the web side*. The C++ side hasn't caught up — DataServer still emits hand-written JSON read by the WebSocket adapter — but the architectural lesson is now demonstrated by code, not just argued for in a doc.
+
 ### 2. `DataServer.cpp` reads 25 unique global fields directly
 
 `DataServer.cpp` (the `UpdateLiveDataJson` body) reads 25 distinct field accesses across `g_AHRS.*`, `g_Sensors.*`, `g_Config.*`, `g_EfisSerial.suVN300.*`, `g_EfisSerial.suEfis.*`, `g_Flaps.*`, `g_fCoeffP`, `g_iDataMark`.
@@ -133,6 +135,8 @@ Firmware: `LogReplay.cpp:224-269` reads a `LogRow` and assigns 15+ global fields
 > `LiveSnapshot` is the input shape that orchestrators (synth-record scenarios, log-replay adapters, future analysis tools) feed to the display + audio pipeline. … shaped to match the eventual `LiveDataFrame` struct from `docs/ARCHITECTURE_DECOUPLING.md` §1. When that struct lands in `onspeed_core/proto/`, this Python class becomes a thin wrapper around its codec.
 
 So the Python side has the snapshot frame already, and is being designed against this doc directly. The C++ port has not landed.
+
+**2026-05-18 update — replay tooling now demonstrates the multi-adapter pattern.** PRs #543/#544/#545/#548 turned the docs-site `/data-and-logs/replay/` page into a full FlySto-style HUD with MP4 export, clip timelines, and dual inset slots. It consumes `LogRow` data through an `M5Sim → M5State` adapter and renders through the same `m5modes/` family the live `/indexer` page now uses (per §1's 2026-05-18 update). So *one renderer, two adapters, two data sources* is a working pattern on the web/replay side. Firmware-side LogReplay is unchanged; the OAT and boom re-injection gaps still exist. But the replay tool's shape proves the destination is reachable: when firmware LogReplay produces `LiveDataFrame` (step #1 of the plan), it inherits the same downstream renderer for free.
 
 **What honoring rule 1 would look like:** there is a single function `ApplyDataSourceFrame(const SourceFrame&)` that distributes incoming data to wherever it needs to go. Every adapter (real-sensor reader, LogReplay, simulator bridge, X-Plane bridge if we ever embed it) produces a `SourceFrame` and calls this function. New source = new adapter, no edits to the distributor.
 
@@ -205,9 +209,20 @@ This section tracks landed work that pulls in the model's direction. It's intent
 
 **v4.22.1 (May 6, 2026)** — V4B EFIS RX pin fix (#428).
 
-**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. Schema discipline at the WS layer (#369), wire-version discipline at the M5 layer (#386), and an external-facing protocol reference (#345) all landed together. The X-Plane plugin became a complete frontend (#394–#420). The cal wizard moved off the legacy path (#373). The Python tooling formalized the shape this doc proposed (#380).
+**Post-release work (May 6 → May 18, 2026) — no new release tag yet, but substantial architectural and reliability work:**
 
-What did *not* land in this window: the C++ `LiveDataFrame` snapshot in DataServer (§2), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). Those are still the next moves.
+- **PR #526** *One renderer family for `/indexer` and `/replay`.* Deleted `tools/web/lib/modes.js`. Both pages now render through `packages/ui-core/components/svg/m5modes/`, each with its own adapter producing a canonical `M5State` (`packages/ui-core/state-shape.js`). Live: `wsRecordToState(record, snapshot, gRing)`. Replay: `M5Sim.read() → M5State`. **This is the canonical-shape-plus-adapters-plus-one-renderer pattern this doc has been advocating, in production on the web side.**
+- **PR #530** *Silent data-loss closed in the SD writer.* Three independent paths fixed: short-write data loss (`m_hLogFile.write()` return value honored at all sites via `onspeed::log::ConsumeAlignedWrite`), BYTEBUF drain-loop overflow (switch to `RINGBUF_TYPE_NOSPLIT` + 24-byte carryover), producer-side pause during `/api/logs` (removed `PauseGuard`). Adds `paused_drops` / `overflow_bytes` / `imu_lateMaxUs` instrumentation and microsecond-resolution `timeStampUs` log column. Bench: Vac's 2.07% missing-rows rate → 0%. **The kind of cross-task concurrency bug the LiveDataFrame snapshot discipline is designed to prevent.**
+- **PR #501** *`/format` reliable, xWriteMutex fairness, silent config-save failures visible.* 64 GB card format used to leave no `onspeed2.cfg` because of a long-blocking no-yield loop pre-erasing 256 K blocks at 10 MHz, triggering brownout mid-format. Post-format save is now visible via `cardSizeGb` field in `/api/format/status` and an orange warning when save returns false.
+- **PR #543/#544/#545/#548** *Replay tooling matures into a full data pipeline.* FlySto-style HUD with pitch ladder / IAS-ALT tapes / slip ball / G readout, burned into MP4 export, clip timeline visualization, hold-last-good m5State during sim re-init, dual inset slots for left/right M5 modes. All consume `LogRow` through the canonical `M5State` adapter and render through the shared `m5modes/` family from PR #526.
+- **PR #559** *Bench stress-test protocol formalized.* `tools/bench/stress_web_handlers.py`, plus public docs at `docs/site/docs/contributing/bench-testing.md`. This is the protocol that found PR #530 and #501's bugs. CI-automated half (self-hosted runner with USB V4P) tracked in #553.
+- **PR #355** WebSocket double-cleanup heap-poisoning panic on client disconnect — closed.
+- **PR #493/#555** Indexer StaleOverlay actually renders when feed goes stale; threshold dropped 3 s → 0.3 s.
+- **Issue #366 closed (2026-05-17)** — the cal wizard EKF6 bug from §4 of this doc is closed. PR #373 fixed it in code in v4.22; the ticket bookkeeping caught up after the May 6 reconciliation noted the gap.
+
+**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. The 12 days since v4.22.1 fixed the reliability around the surfaces, and the web side started ratifying the canonical-shape pattern this doc has been pointing at. Schema discipline at the WS layer (#369), wire-version discipline at the M5 layer (#386), an external-facing protocol reference (#345), the X-Plane plugin as a complete frontend (#394–#420), the cal wizard ported off the legacy path (#373), the Python tooling formalizing the shape (#380), the JS side actually shipping the canonical-shape pattern (#526), and the snapshot-discipline payoff getting demonstrated in reverse via PR #530's silent-data-loss fixes — all converging toward step 1.
+
+What still has *not* landed: the C++ `LiveDataFrame` snapshot in DataServer (§2), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). **The case for step 1 is stronger than it was on May 6.** The Python side committed to the shape, the JS side now ships an equivalent of it, and PR #530 shows the cost of getting cross-task concurrency wrong by other means.
 
 ## Data sources: what's complete, what's missing
 
@@ -391,11 +406,15 @@ The view collapses the four existing ad-hoc fusion sites (DataServer's `bCalSour
 **Why the rate-aware composition matters:**
 Today's implicit cross-rate merge is "every sink at 20 Hz reads the most recent value of each upstream signal regardless of that signal's own rate." Three sinks implement this independently. The composed `LiveDataFrame` makes the merge structural (each sub-stream carries its own timestamp; the snapshot tick is separate) and named (one `BuildLiveDataFrame()` function, mutex policy localized). Consumers that don't care about freshness ignore the timestamps; consumers that do care (cal wizard's sample-pairing, future replay correctness, parallel-estimator agreement checks) reach into the relevant sub-struct.
 
-**v4.22 starting state (helpful prior work):**
-- `tools/onspeed_py/live_snapshot.py` already declares this struct on the Python side, designed against this doc by name. The C++ port mirrors the shape; the Python class becomes a thin codec wrapper afterward.
-- `software/Libraries/onspeed_core/src/api/LiveDataJsonKeys.h` (PR #369) already pins the wire-side field-name list. Defining `LiveDataFrame` with the same names completes the contract on the producer side.
-- `DisplayBuildInputs` in `proto/DisplaySerial.h` is the precursor flat shape; the M5 wire encoder migrates to take `LiveDataFrame` (or a flattened projection of it). The X-Plane plugin already exercises this through `DataRefAdapter::BuildInputsFromDatarefs()` — the projection pattern is proven.
-- `Snapshot()` methods on `g_pIMU` and `g_Sensors` already exist and return POD copies. Extending the pattern to `g_AHRS`, `g_Flaps`, `g_EfisSerial`, `g_BoomSerial` is mechanical (~10 lines each).
+**Starting state as of 2026-05-18 — the pattern is ratified everywhere except C++:**
+- **Python side** (`tools/onspeed_py/live_snapshot.py`, PR #380): declares `LiveSnapshot` explicitly, citing this doc by name. Shape is settled — names, units, comments.
+- **JS side** (`packages/ui-core/state-shape.js`, PR #526, shipped post-v4.22.1): declares `M5State` as the canonical struct produced by every adapter (live `wsRecordToState`, replay `M5Sim → state`) and consumed by the unified `m5modes/` renderer family. Includes the cadence convention (`display*` fields = 500 ms snapshot, others = 20 Hz wire frame) and validity gating (`IasIsValid`). **This is the design pattern the doc has been advocating, shipped on the web side.**
+- **Wire schema** (`software/Libraries/onspeed_core/src/api/LiveDataJsonKeys.h`, PR #369): name-level field-set pin, exercised in 5 native tests + ~129 JS invariants.
+- **Sibling shape**: `DisplayBuildInputs` in `proto/DisplaySerial.h` is the precursor flat shape; the M5 wire encoder migrates to take `LiveDataFrame` (or a flattened projection of it). The X-Plane plugin already exercises the projection pattern through `DataRefAdapter::BuildInputsFromDatarefs()`.
+- **Snapshot methods**: `Snapshot()` on `g_pIMU` and `g_Sensors` already exist and return POD copies. Extending the pattern to `g_AHRS`, `g_Flaps`, `g_EfisSerial`, `g_BoomSerial` is mechanical (~10 lines each).
+- **Existence proof for the snapshot-discipline payoff**: PR #530 (post-v4.22.1) closed three silent-data-loss paths in the SD writer — exactly the kind of cross-task concurrency bug the snapshot pattern prevents. The discipline isn't speculative; it's already paying for itself in adjacent reliability work.
+
+The C++ side is now the *only* remaining place where the shape isn't ratified. The Python and JS sides both committed; the firmware is the lagging piece.
 
 **Performance check (verified, not hand-waved):**
 - Memory: ~320 bytes per frame, 0.06% of SRAM. Holding a ring of 4 frames for derivative work is 1.3 KB.
@@ -495,17 +514,25 @@ Each step is independently reviewable and shippable. None require a top-down rew
 
 The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it, and reaches for an existing protocol before inventing one.
 
-## Next priority (as of 2026-05-06)
+## Next priority (as of 2026-05-18)
 
-If only one of these landed in the next release window, **step 1 — the C++ `LiveDataFrame` snapshot in `onspeed_core/proto/`** — is the highest-leverage move, and the cheapest it has ever been.
+Same headline as the May 6 read: **step 1 — the C++ `LiveDataFrame` snapshot in `onspeed_core/proto/`** — is the single highest-leverage move. The case has gotten stronger since the last reconciliation, not weaker.
 
-Why now:
-- The Python side (`tools/onspeed_py/live_snapshot.py`, PR #380) already designed the struct's shape, against this doc by name. The naming, units, and field set are settled.
-- The schema-pin half of the contract (PR #369's `LiveDataJsonKeys.h`) is in place. A `LiveDataFrame` whose field names match `kLiveDataJsonKeys[]` finishes the producer-side closure.
-- `DisplayBuildInputs` is already a sibling shape and is exercised cross-platform (firmware, X-Plane plugin, M5 sketch). Subsuming or aligning with it costs little.
+What changed in the 12 days since May 6:
+- **The JS side ratified the pattern** (PR #526). `packages/ui-core/state-shape.js`'s `M5State` is the canonical struct; `wsRecordToState` and `m5sim→state` are the per-source adapters; `m5modes/` is the unified renderer family. Two adapters, one shape, one renderer — in production on the web side. The C++ side is the only remaining place where the shape isn't ratified.
+- **PR #530 demonstrated the cost of getting cross-task concurrency wrong by other means.** Three silent-data-loss paths in the SD writer, each one a kind of bug the snapshot pattern prevents structurally. 2.07% missing-rows in Vac's flight log → 0% after fix.
+- **The replay tooling matured into a full data pipeline** (#543/#544/#545/#548) consuming `LogRow` through the same `M5State`-shaped adapter that drives the live page. The "one renderer, many sources" payoff is already real on the web side; the firmware side inherits it when LogReplay produces `LiveDataFrame`.
+- **PR #559 formalized the bench protocol** that catches concurrency bugs before they ship. The instrumentation it relies on (microsecond timestamps, paused-drops counter, overflow-bytes counter) is exactly what `LiveDataFrame`'s per-stream timestamps make universally observable.
+
+Why still step 1:
+- The Python (`LiveSnapshot`, PR #380) and JS (`M5State`, PR #526) sides have both committed to the canonical-shape pattern. Naming, units, fields, validity gating, cadence conventions are settled.
+- The schema-pin half of the contract (PR #369's `LiveDataJsonKeys.h`) is in place.
+- `DisplayBuildInputs` is a working sibling shape, cross-platform-exercised.
 - Every downstream step (#4 MAVLink emit, #5 indexer-as-generic-HUD, #7 `AoaEstimates` parallel estimators, #10 BLE GATT) takes a `LiveDataFrame` as input. Without it, each of those steps re-invents its own snapshot.
 
 What's *not* the next priority, and why:
 - **MAVLink emit (#4)** is tempting because it unlocks the most external compatibility, but doing it before step 1 means the MAVLink emitter has to read 25 globals directly — duplicating DataServer's tangling rather than fixing it.
-- **OAT / boom re-injection in LogReplay (#3)** is small and worth doing soon, but it's not the architectural bottleneck.
+- **OAT / boom re-injection in LogReplay (#3)** is small and worth doing soon, but it's not the architectural bottleneck. **Caveat:** when step 1 lands and firmware LogReplay produces a `LiveDataFrame`, the OAT/boom gap closes mechanically — re-injection becomes "set `frame.sensors.oatCelsius = row.oatCelsius`" inside the snapshot adapter, not a separate refactor.
 - **Parallel estimators (#7)** is the largest leverage for the OnSpeed mission long term, but it depends on `LiveDataFrame` (or a sibling `AoaEstimates` struct routed the same way) to land first without re-inventing the snapshot pattern.
+
+**Honest framing:** the work is now overdue. Two adjacent communities (Python tooling, web UI) have shipped the pattern; the firmware is the lagging piece. Every PR that adds a new sink, fixes a concurrency bug in the existing sinks, or extends the wire format pays a tax for the missing struct. The longer we wait, the more sinks will have been written against the unstructured globals — making the eventual migration more expensive, not less.
