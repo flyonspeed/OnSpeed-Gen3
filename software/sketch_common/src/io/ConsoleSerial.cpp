@@ -15,6 +15,8 @@
 
 #include "src/util/Helpers.h"
 
+#include "src/web_server/ApiHandlers.h"
+
 
 std::string Base64_Decode(std::string sEncodedString);
 
@@ -356,37 +358,64 @@ void ConsoleSerialIO::Read()
 
             // FORMAT
             // ------
+            // Spawn the async format worker (ApiHandlers::StartFormatAsync)
+            // so SdFat.format() runs on a dedicated Core 0 task that
+            // manages its own TWDT exclusion, then poll the job snapshot
+            // from here with vTaskDelay() between reads. The vTaskDelay
+            // yields loopTask cleanly; the worker handles its own watchdog
+            // concerns. See #556.
             else if (strncasecmp(szCmdToken, "FORMAT", 6) == 0)
                 {
-
-                if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(100)))
+                char taskId[32] = {};
+                onspeed::api::StartFormatResult res =
+                    onspeed::api::StartFormatAsync(taskId, sizeof(taskId));
+                if (res == onspeed::api::StartFormatResult::AlreadyRunning)
                     {
-                    bool bOrigSdLogging = g_Config.bSdLogging;
-
-                    g_Config.bSdLogging = false; // turn off sdLogging
-                    if (bOrigSdLogging)
-                        {
-                        g_LogSensor.Close();
-                        }
-
-                    // Format the SD card
-                    g_SdFileSys.Format(pSerial);
-
-                    if (bOrigSdLogging)
-                        {
-                        // Reinitialize card
-                        g_Config.bSdLogging = true; // if logging was on before FORMAT turn it back on
-                        g_LogSensor.Open();
-                        }
-
-                    xSemaphoreGive(xWriteMutex);
-
-                    // Put the configuration file back onto the card
-                    // Semaphore is handled in the function call
-                    g_Config.SaveConfigurationToFile();
+                    g_Log.println(MsgLog::EnMain, MsgLog::EnWarning,
+                                  "FORMAT - busy: a format is already in progress");
+                    }
+                else if (res == onspeed::api::StartFormatResult::SpawnFailed)
+                    {
+                    g_Log.println(MsgLog::EnMain, MsgLog::EnError,
+                                  "FORMAT - failed to spawn worker task");
                     }
                 else
-                    g_Log.println(MsgLog::EnMain, MsgLog::EnWarning, "FORMAT - xWriteMutex fail");
+                    {
+                    g_Log.printf(MsgLog::EnMain, MsgLog::EnDebug,
+                                 "FORMAT - worker spawned (id=%s); waiting...\n", taskId);
+
+                    // Poll every 500 ms. Format on a 32 GB card runs in a
+                    // few seconds; on much larger cards it can take 30+ s.
+                    // Cap waiting at 60 s so a stuck job doesn't wedge the
+                    // console forever — the worker task keeps running and
+                    // its result will appear in the next /api/format/status
+                    // poll, but the console returns to the prompt.
+                    const TickType_t kPollTicks = pdMS_TO_TICKS(500);
+                    const int        kMaxPolls  = 120;  // 60 s
+                    int polls = 0;
+                    onspeed::api::FormatJobSnapshot snap;
+                    while (polls < kMaxPolls)
+                        {
+                        vTaskDelay(kPollTicks);
+                        polls++;
+                        snap = onspeed::api::GetFormatJobSnapshot();
+                        if (snap.state == onspeed::api::FormatJobState::Done ||
+                            snap.state == onspeed::api::FormatJobState::Failed)
+                            break;
+                        }
+
+                    if (snap.state == onspeed::api::FormatJobState::Done)
+                        g_Log.printf(MsgLog::EnMain, MsgLog::EnWarning,
+                                     "FORMAT - done cardSizeGb=%.2f configSaved=%d\n",
+                                     snap.cardSizeGb, (int)snap.configSaved);
+                    else if (snap.state == onspeed::api::FormatJobState::Failed)
+                        g_Log.printf(MsgLog::EnMain, MsgLog::EnError,
+                                     "FORMAT - failed: %s\n",
+                                     snap.error[0] ? snap.error : "(no detail)");
+                    else
+                        g_Log.println(MsgLog::EnMain, MsgLog::EnWarning,
+                                      "FORMAT - still running after 60s; check status later");
+                    }
 
                 } // end if FORMAT
 

@@ -11,7 +11,48 @@
 #ifndef ONSPEED_API_HANDLERS_H
 #define ONSPEED_API_HANDLERS_H
 
+#include <stddef.h>
+
 namespace onspeed::api {
+
+// SD-format job state, used by both the /api/format async path and the
+// serial console FORMAT command. The serial console polls this between
+// vTaskDelay() sleeps so the console task itself stays out of WDT
+// trouble while the worker task formats the card on Core 0.
+enum class FormatJobState : int {
+    Idle    = 0,
+    Running = 1,
+    Done    = 2,
+    Failed  = 3,
+};
+
+struct FormatJobSnapshot {
+    FormatJobState state         = FormatJobState::Idle;
+    char           taskId[32]    = {};
+    char           error[64]     = {};
+    float          cardSizeGb    = 0.0f;
+    bool           configSaved   = false;
+};
+
+// Result of attempting to spawn the SD-format worker.
+enum class StartFormatResult : int {
+    Started        = 0,  // worker spawned; poll GetFormatJobSnapshot() for progress
+    AlreadyRunning = 1,  // a prior format is still in flight; retry once it completes
+    SpawnFailed    = 2,  // xTaskCreatePinnedToCore returned an error (out of heap, etc.)
+};
+
+// Stamp a fresh taskId into the global FormatJob, mark it Running, and
+// spawn the worker task. On Started, the caller's out-buffer receives a
+// NUL-terminated taskId string. On any non-Started result, the out-buffer
+// is set to an empty string and the FormatJob is left untouched
+// (AlreadyRunning) or in Failed state (SpawnFailed). Pass a buffer of at
+// least 32 bytes.
+StartFormatResult StartFormatAsync(char* taskIdOut, size_t taskIdOutLen);
+
+// Atomic snapshot of the current FormatJob state. Callers poll this to
+// observe progress without holding the job mutex across their own work.
+FormatJobSnapshot GetFormatJobSnapshot();
+
 
 // One-shot sample endpoints (replace /getvalue?name=...).
 void HandleApiSampleAoa();

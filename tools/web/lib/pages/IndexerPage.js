@@ -156,17 +156,19 @@ const ModeNav = ({ current, onChange }) => html`
 // Two thresholds, intentionally separate.
 //
 // STALENESS_THRESHOLD_SEC drives the StaleOverlay (red-X NO DATA cover).
-// Lowered to 0.3 s to match the M5 firmware's NO-DATA overlay at exactly
-// 300 ms (software/OnSpeed-M5-Display/src/SerialRead.cpp::kSerialDataFreshThresholdMs).
-// A pilot with a tablet next to the M5 in the panel sees the same "data dead"
-// warning at the same moment on both surfaces.  The age-timer text turns red
-// at >= 1 s as a softer "you might be losing data" tell that shows under the
-// overlay (see lines 116, 128 — kept at 1 s, not lowered).
+// Set to 1.5 s.  WiFi has fundamentally different latency characteristics
+// from the M5's wired serial link: a brief mutex hold during a config save,
+// a TCP retransmit, or a few dropped UDP-ish WebSocket frames all show up
+// as 200–400 ms gaps in normal operation.  At 0.3 s the overlay flickered
+// in and out often enough that pilots learned to ignore it, which made it
+// useless when data was genuinely dead.  1.5 s rides out those micro-gaps
+// while still catching a real outage well before the pilot notices.  The
+// age-timer text still turns red at >= 1 s as a softer "starting to lag"
+// tell (see lines 131, 143).
 //
 // G_HISTORY_STALENESS_SEC stays at 3 s.  The G-history strip chart should
-// only freeze on a genuine multi-second outage; a 300 ms gate would stutter
-// the chart on every brief WiFi micro-gap.  See PR #478.
-const STALENESS_THRESHOLD_SEC    = 0.3;  // StaleOverlay (matches M5 NO-DATA)
+// only freeze on a genuine multi-second outage.  See PR #478.
+const STALENESS_THRESHOLD_SEC    = 1.5;  // StaleOverlay (WiFi-tolerant)
 const G_HISTORY_STALENESS_SEC    = 3;    // useGHistory sampler gate
 
 // Decel-rate EMA — kept in a useRef so it accumulates across renders

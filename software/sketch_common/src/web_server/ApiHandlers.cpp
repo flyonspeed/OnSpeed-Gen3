@@ -116,11 +116,21 @@ bool IsSafeLogFilename(const String& s) {
     return true;
 }
 
+// The active log session writes three paired files: <base>.csv (the row
+// stream), <base>.dbg (PERF + warning/error log from the writer task),
+// and <base>.meta (column schema + cadence JSON). Deleting any of them
+// while LogSensor still has the session open orphans the matching file
+// handles and silently loses the forensic record paired with the CSV.
+// The .dbg in particular is the only post-flight signal for ring drops,
+// short writes, and mutex contention — historically more than one bug
+// has been diagnosed only because the .dbg survived.
 bool IsActiveLogFile(const String& sFilename) {
     const char* szActiveBase = g_LogSensor.ActiveBaseName();
     if (!szActiveBase || szActiveBase[0] == '\0') return false;
-    String sActive = String(szActiveBase) + ".csv";
-    return sFilename.equalsIgnoreCase(sActive);
+    const String sBase = String(szActiveBase);
+    return sFilename.equalsIgnoreCase(sBase + ".csv")
+        || sFilename.equalsIgnoreCase(sBase + ".dbg")
+        || sFilename.equalsIgnoreCase(sBase + ".meta");
 }
 
 bool TryReadLogMeta(const char* sCsvName, ::onspeed::log::LogMeta* out) {
@@ -183,6 +193,15 @@ enum class FormatState : uint8_t {
     Failed  = 3,
 };
 
+// Lock the private FormatState ordinals to the public FormatJobState
+// ordinals. GetFormatJobSnapshot() casts between them; if anyone adds
+// a state to one without the other these asserts will catch it at
+// compile time before the cast silently mis-translates.
+static_assert(static_cast<int>(FormatState::Idle)    == static_cast<int>(FormatJobState::Idle),    "FormatState::Idle must equal FormatJobState::Idle");
+static_assert(static_cast<int>(FormatState::Running) == static_cast<int>(FormatJobState::Running), "FormatState::Running must equal FormatJobState::Running");
+static_assert(static_cast<int>(FormatState::Done)    == static_cast<int>(FormatJobState::Done),    "FormatState::Done must equal FormatJobState::Done");
+static_assert(static_cast<int>(FormatState::Failed)  == static_cast<int>(FormatJobState::Failed),  "FormatState::Failed must equal FormatJobState::Failed");
+
 struct FormatJob {
     char         taskId[32]    = {};
     FormatState  state         = FormatState::Idle;
@@ -191,16 +210,22 @@ struct FormatJob {
     bool         configSaved   = false;  // true iff post-format SaveConfigurationToFile() returned true
 };
 
-// Single in-flight job.  HandleApiFormat overwrites it on each new
-// trigger; the prior taskId becomes invalid (status returns "unknown
-// task").
+// Single in-flight job. StartFormatAsync() refuses a concurrent request
+// while the prior worker is still Running, so the taskId slot is stable
+// for the duration of a job.
 FormatJob g_FormatJob;
-SemaphoreHandle_t g_FormatJobMutex = nullptr;
 
-void EnsureFormatMutex() {
-    if (g_FormatJobMutex == nullptr)
-        g_FormatJobMutex = xSemaphoreCreateMutex();
-}
+// Static-allocated mutex storage so creation happens at C++ static-init
+// time with no dynamic allocation and no race window. Avoids the
+// portENTER_CRITICAL + xSemaphoreCreateMutex pattern that violates the
+// ESP-IDF rule against calling FreeRTOS APIs inside a critical section.
+StaticSemaphore_t g_FormatJobMutexBuf;
+SemaphoreHandle_t g_FormatJobMutex = xSemaphoreCreateMutexStatic(&g_FormatJobMutexBuf);
+
+// Retained as a no-op so existing call sites compile unchanged; the
+// mutex is guaranteed live by static-init time, which on this SDK
+// completes before any FreeRTOS task spins up.
+void EnsureFormatMutex() {}
 
 void RunFormatInline(FormatJob& job);
 
@@ -210,13 +235,13 @@ void RunFormatInline(FormatJob& job);
 // loop on Core 1. The producer is paused via g_bPause inside
 // RunFormatInline. IDLE0 is removed from the TWDT for the duration of
 // the format call (SdFat.format() saturates Core 0 for several seconds
-// on large cards), then restored. We don't add the Format task itself
+// on large cards), then restored. The Format task itself is not added
 // to the TWDT — SdFat doesn't call esp_task_wdt_reset() from this task's
-// context (calls land on SdFat-internal worker tasks instead), so a TWDT
-// registration here would just trigger the WDT from the inside.
-// Returning the HTTP response from the API handler before this task runs
-// lets the browser poll /api/format/status without the synchronous wedge
-// that previously crashed the box on TWDT timeout.
+// context (calls land on SdFat-internal worker tasks instead), so a
+// TWDT registration here would just trigger the WDT from the inside.
+// HTTP callers return the response from the API handler before this
+// task runs and then poll /api/format/status; serial callers spawn the
+// task and poll GetFormatJobSnapshot() with vTaskDelay between reads.
 static void FormatTaskEntry(void* /*pArg*/) {
     TaskHandle_t hIdle0 = xTaskGetIdleTaskHandleForCPU(0);
     if (hIdle0 != nullptr)
@@ -309,6 +334,85 @@ void RunFormatInline(FormatJob& job) {
 }
 
 }  // namespace
+
+// ============================================================================
+// Public format-job API (header-declared)
+// ============================================================================
+//
+// Wraps the anonymous-namespace FormatJob / FormatState / EnsureFormatMutex
+// state so the serial console FORMAT path can spawn the same async worker
+// the /api/format handler uses. Both paths share one in-flight job — the
+// last caller wins the taskId slot; the prior taskId becomes invalid.
+
+StartFormatResult StartFormatAsync(char* taskIdOut, size_t taskIdOutLen) {
+    if (taskIdOut == nullptr || taskIdOutLen == 0)
+        return StartFormatResult::SpawnFailed;
+    taskIdOut[0] = '\0';
+
+    char taskId[32];
+    std::snprintf(taskId, sizeof(taskId), "format-%lu",
+                  static_cast<unsigned long>(millis()));
+
+    // Reject if a worker is already running. Two workers would both take
+    // xWriteMutex serially and format the card twice; the second
+    // caller's taskId would clobber the first, hiding the first worker's
+    // result from its poller. One in-flight job at a time.
+    if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+        if (g_FormatJob.state == FormatState::Running) {
+            xSemaphoreGive(g_FormatJobMutex);
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning,
+                          "Format: rejecting concurrent request; worker already running");
+            return StartFormatResult::AlreadyRunning;
+        }
+        std::snprintf(g_FormatJob.taskId, sizeof(g_FormatJob.taskId), "%s", taskId);
+        g_FormatJob.state       = FormatState::Running;
+        g_FormatJob.error[0]    = '\0';
+        g_FormatJob.cardSizeGb  = 0.0f;
+        g_FormatJob.configSaved = false;
+        xSemaphoreGive(g_FormatJobMutex);
+    } else {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "Format: g_FormatJobMutex timeout claiming job slot");
+        return StartFormatResult::SpawnFailed;
+    }
+
+    // Spawn a one-shot task on Core 0 to run the format. Stack 8 KB is
+    // generous; SdFat's format path is shallow but allocates some scratch
+    // space. See FormatTaskEntry comment for why IDLE0 is temporarily
+    // removed from the TWDT inside the worker.
+    TaskHandle_t hFormatTask = nullptr;
+    BaseType_t   res         = xTaskCreatePinnedToCore(
+        FormatTaskEntry, "Format", 8192, nullptr,
+        tskIDLE_PRIORITY + 1, &hFormatTask, 0);
+    if (res != pdPASS) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "Format: failed to spawn worker task");
+        if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+            g_FormatJob.state = FormatState::Failed;
+            std::snprintf(g_FormatJob.error, sizeof(g_FormatJob.error),
+                          "failed to spawn format task");
+            xSemaphoreGive(g_FormatJobMutex);
+        }
+        return StartFormatResult::SpawnFailed;
+    }
+
+    std::snprintf(taskIdOut, taskIdOutLen, "%s", taskId);
+    return StartFormatResult::Started;
+}
+
+FormatJobSnapshot GetFormatJobSnapshot() {
+    FormatJobSnapshot snap;
+    EnsureFormatMutex();
+    if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+        std::snprintf(snap.taskId, sizeof(snap.taskId), "%s", g_FormatJob.taskId);
+        std::snprintf(snap.error,  sizeof(snap.error),  "%s", g_FormatJob.error);
+        snap.state       = static_cast<FormatJobState>(g_FormatJob.state);
+        snap.cardSizeGb  = g_FormatJob.cardSizeGb;
+        snap.configSaved = g_FormatJob.configSaved;
+        xSemaphoreGive(g_FormatJobMutex);
+    }
+    return snap;
+}
 
 // ============================================================================
 // Sample endpoints
@@ -681,10 +785,16 @@ void HandleApiLogsDeleteBulk() {
                 continue;
             }
             g_SdFileSys.remove(f.c_str());
+            // Paired sidecars (.meta schema, .dbg writer log) share the
+            // base name. Remove unconditionally — SdFat's remove() on a
+            // missing file is a near no-op.
             int iDot = f.lastIndexOf('.');
             if (iDot > 0) {
-                String sMeta = f.substring(0, iDot) + ".meta";
+                String sBase = f.substring(0, iDot);
+                String sMeta = sBase + ".meta";
+                String sDbg  = sBase + ".dbg";
                 g_SdFileSys.remove(sMeta.c_str());
+                g_SdFileSys.remove(sDbg.c_str());
             }
             xSemaphoreGive(xWriteMutex);
             appendItem(deleted, firstDeleted, f);
@@ -709,17 +819,20 @@ void HandleApiLogsDeleteBulk() {
 // ============================================================================
 
 void HandleApiFormat() {
-    EnsureFormatMutex();
-    char taskId[32];
-    std::snprintf(taskId, sizeof(taskId), "format-%lu", static_cast<unsigned long>(millis()));
-
-    if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
-        std::snprintf(g_FormatJob.taskId, sizeof(g_FormatJob.taskId), "%s", taskId);
-        g_FormatJob.state       = FormatState::Running;
-        g_FormatJob.error[0]    = '\0';
-        g_FormatJob.cardSizeGb  = 0.0f;
-        g_FormatJob.configSaved = false;
-        xSemaphoreGive(g_FormatJobMutex);
+    char taskId[32] = {};
+    StartFormatResult res = StartFormatAsync(taskId, sizeof(taskId));
+    if (res == StartFormatResult::AlreadyRunning) {
+        // 409 Conflict: client should wait for the in-flight job to
+        // finish (polling its taskId via /api/format/status) rather
+        // than retry blindly.
+        SendError(409, "format", "format already in progress");
+        return;
+    }
+    if (res == StartFormatResult::SpawnFailed) {
+        // 503 Service Unavailable: transient resource issue (heap,
+        // mutex timeout). A retry may succeed.
+        SendError(503, "format", "failed to start format task");
+        return;
     }
 
     String body;
@@ -728,26 +841,6 @@ void HandleApiFormat() {
     body += taskId;
     body += F("\"}");
     SendJson(200, body);
-
-    // Spawn a one-shot task on Core 0 to run the format. Returning from
-    // this handler immediately frees the WiFi/web server thread so the
-    // browser's /api/format/status polling stays responsive while
-    // SdFat.format() works. Stack 8 KB is generous; SdFat's format path
-    // is shallow but allocates some scratch space.
-    TaskHandle_t hFormatTask = nullptr;
-    BaseType_t   res         = xTaskCreatePinnedToCore(
-        FormatTaskEntry, "Format", 8192, nullptr,
-        tskIDLE_PRIORITY + 1, &hFormatTask, 0);
-    if (res != pdPASS) {
-        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
-                      "Format: failed to spawn worker task");
-        if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
-            g_FormatJob.state = FormatState::Failed;
-            std::snprintf(g_FormatJob.error, sizeof(g_FormatJob.error),
-                          "failed to spawn format task");
-            xSemaphoreGive(g_FormatJobMutex);
-        }
-    }
 }
 
 void HandleApiFormatStatus() {

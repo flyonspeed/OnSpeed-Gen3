@@ -141,15 +141,20 @@ static bool IsSafeLogFilename(const String& s)
     return true;
     }
 
-// Returns true if `sFilename` is the currently-active log file (the CSV
-// that LogSensor has open for writing). Deleting it would orphan the
-// write handle and silently lose data, so delete handlers skip it.
+// Returns true if `sFilename` is part of the currently-active log
+// session — the .csv row stream, the paired .dbg writer log, or the
+// .meta schema sidecar. Deleting any of the three while LogSensor still
+// has the session open orphans the file handles and silently loses the
+// matching forensic record. See ApiHandlers.cpp IsActiveLogFile() for
+// the equivalent guard on the JSON delete path.
 static bool IsActiveLogFile(const String& sFilename)
     {
     const char* szActiveBase = g_LogSensor.ActiveBaseName();
     if (!szActiveBase || szActiveBase[0] == '\0') return false;
-    String sActive = String(szActiveBase) + ".csv";
-    return sFilename.equalsIgnoreCase(sActive);
+    const String sBase = String(szActiveBase);
+    return sFilename.equalsIgnoreCase(sBase + ".csv")
+        || sFilename.equalsIgnoreCase(sBase + ".dbg")
+        || sFilename.equalsIgnoreCase(sBase + ".meta");
     }
 
 // Maximum number of flap positions accepted from a config-save POST.
@@ -1760,14 +1765,18 @@ void HandleDelete()
             else
                 {
                 g_SdFileSys.remove(sFilename.c_str());
-                // Also remove matching sidecar if it exists. Best-effort:
-                // absent sidecar is fine.
+                // Also remove matching sidecars (.meta schema, .dbg
+                // writer log). Best-effort: absent sidecar is fine.
                 int iDot = sFilename.lastIndexOf('.');
                 if (iDot > 0)
                     {
-                    String sMeta = sFilename.substring(0, iDot) + ".meta";
+                    String sBase = sFilename.substring(0, iDot);
+                    String sMeta = sBase + ".meta";
+                    String sDbg  = sBase + ".dbg";
                     if (g_SdFileSys.exists(sMeta.c_str()))
                         g_SdFileSys.remove(sMeta.c_str());
+                    if (g_SdFileSys.exists(sDbg.c_str()))
+                        g_SdFileSys.remove(sDbg.c_str());
                     }
                 }
             xSemaphoreGive(xWriteMutex);
@@ -1872,10 +1881,11 @@ void HandleDeleteBulk()
         } pauseGuard;
 
     // Delete each file one at a time, yielding between iterations. For
-    // each csv we attempt to remove the matching .meta unconditionally —
-    // SdFat's remove() on a missing file is a near no-op (single directory
-    // probe) and we avoid any snapshot-staleness concerns if a new sidecar
-    // lands between enumeration and delete.
+    // each csv we attempt to remove the matching sidecars (.meta schema
+    // and .dbg writer log) unconditionally — SdFat's remove() on a
+    // missing file is a near no-op (single directory probe) and we avoid
+    // any snapshot-staleness concerns if a new sidecar lands between
+    // enumeration and delete.
     //
     // The active-file guard is inside the mutex so the check and remove
     // are atomic w.r.t. LogSensor::Open/Close. If a log that was inactive
@@ -1893,9 +1903,11 @@ void HandleDeleteBulk()
                 int iDot = f.lastIndexOf('.');
                 if (iDot > 0)
                     {
-                    String sMeta = f.substring(0, iDot) + ".meta";
-                    // Ignore return value — absent sidecar is fine.
+                    String sBase = f.substring(0, iDot);
+                    String sMeta = sBase + ".meta";
+                    String sDbg  = sBase + ".dbg";
                     g_SdFileSys.remove(sMeta.c_str());
+                    g_SdFileSys.remove(sDbg.c_str());
                     }
                 }
             xSemaphoreGive(xWriteMutex);
