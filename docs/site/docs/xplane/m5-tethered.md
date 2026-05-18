@@ -117,10 +117,15 @@ enter the menu; click BtnB to cycle the value). Three options:
   subsequent boots skip the probe. This is the right choice for a
   pilot who flies the same airframe and may also occasionally tether
   to the sim.
-- **UART** — probes only Serial2 (Port C). Useful in an installed
-  panel-mount setup where a docked laptop or accessory might
-  occasionally write bytes to the M5's USB endpoint; UART prevents
-  any USB-CDC bytes from being interpreted as flight data.
+- **UART** — probes only Serial2 (Port C), covering both TTL
+  (idle-low, v2 OnSpeed and most USB-to-TTL dongles) and RS-232
+  (idle-high, v3 OnSpeed via the power board). The firmware tries
+  each polarity in turn and caches whichever one produced `#1`
+  frames; pilots don't need to know which their installation uses.
+  Useful in an installed panel-mount setup where a docked laptop or
+  accessory might occasionally write bytes to the M5's USB endpoint
+  — UART prevents any USB-CDC bytes from being interpreted as
+  flight data.
 - **USB** — skips probing and forces USB-CDC. Useful for a
   dedicated sim-tethered M5 that should come up listening on
   USB-CDC every boot, with no UART probe delay.
