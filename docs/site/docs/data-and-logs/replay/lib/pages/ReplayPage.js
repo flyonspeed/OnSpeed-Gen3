@@ -1530,6 +1530,7 @@ export const ReplayPage = () => {
         const sliceFrame = (f) => f && {
           ias:    fnum(f.iasKt, 1),
           iasV:   f.iasIsValid,
+          validity:   typeof f.validity === 'number' ? f.validity : 0,
           alt:    fnum(f.paltFt, 0),
           pct:    fnum(f.percentLiftPct, 1),
           pip:    f.pipPctLift,

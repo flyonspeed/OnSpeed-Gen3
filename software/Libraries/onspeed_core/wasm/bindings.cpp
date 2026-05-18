@@ -635,7 +635,7 @@ private:
 // ---------------------------------------------------------------------------
 // build_display_frame
 //
-// Encodes a `DisplayBuildInputs`-shaped JS object into the 77-byte v4.23
+// Encodes a `DisplayBuildInputs`-shaped JS object into the 83-byte v4.24
 // `#1` display-serial wire frame. Returns the bytes as a JS Uint8Array.
 //
 // This is the single source of truth for the wire format on the JS side:
@@ -667,6 +667,7 @@ static val build_display_frame(val inputsVal)
     in.rollDeg            = getFloat("rollDeg",            0.0f);
     in.iasKt              = getFloat("iasKt",              0.0f);
     in.iasValid           = getBool ("iasValid",           true);
+    in.valid.bits         = static_cast<uint32_t>(getInt("validity",      0));
     in.paltFt             = getFloat("paltFt",             0.0f);
     in.turnRateDps        = getFloat("turnRateDps",        0.0f);
     in.lateralG           = getFloat("lateralG",           0.0f);
@@ -717,10 +718,16 @@ static val build_display_frame(val inputsVal)
 // ---------------------------------------------------------------------------
 // parse_display_frame
 //
-// Inverse of build_display_frame. Decodes a 77-byte v4.23 #1 frame
+// Inverse of build_display_frame. Decodes an 83-byte v4.24 #1 frame
 // back into the DisplayFrame struct as a plain JS object. Returns
-// null on malformed bytes (wrong length, wrong magic, bad CRC,
-// wrong terminator).
+// null on malformed bytes (wrong length, wrong magic, bad wireVersion,
+// bad CRC-8, wrong terminator).
+//
+// The returned object includes `validity` — a uint16 with one bit per
+// channel (matches onspeed::types::AirDataValid).  Consumers can mask
+// against AirDataValid::Bit values (kIas=0x04, kOatRaw=0x01, etc.) to
+// detect which channels the producer marked trustworthy.  iasIsValid
+// is retained for legacy consumers; it equals `(validity & kIas) != 0`.
 //
 // Used by the replay tool's diagnostic mode to verify wire-encoded
 // values match what the engine and task pipelines intended to emit.
@@ -743,6 +750,11 @@ static val parse_display_frame(val bytesVal)
     out.set("rollDeg",             f.rollDeg);
     out.set("iasKt",               f.iasKt);
     out.set("iasIsValid",          f.iasIsValid);
+    // Low 16 bits of AirDataValid; emitted as a JS Number so callers
+    // can mask with the same bit constants as the C++ enum (kIas=0x04,
+    // kOatRaw=0x01, etc.).
+    out.set("validity",
+            static_cast<unsigned>(f.valid.bits & 0xFFFFu));
     out.set("paltFt",              f.paltFt);
     out.set("turnRateDps",         f.turnRateDps);
     out.set("lateralG",            f.lateralG);

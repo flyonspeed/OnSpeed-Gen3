@@ -764,8 +764,8 @@ console.log('OK: synth engine delete() completed without error');
 // ---------------------------------------------------------------------------
 // build_display_frame
 //
-// Encodes a `DisplayBuildInputs`-shaped JS object into the canonical 77-byte
-// v4.23 `#1` display-serial wire frame. The full integration test that pipes
+// Encodes a `DisplayBuildInputs`-shaped JS object into the canonical 83-byte
+// v4.24 `#1` display-serial wire frame. The full integration test that pipes
 // these bytes into the M5 replay WASM lives in
 // software/OnSpeed-M5-Display/test/test_replay_wasm.js — that's where wire
 // drift between the firmware parser and the C++ frame builder gets caught.
@@ -814,7 +814,7 @@ if (!(frameBytes instanceof Uint8Array)) {
 }
 console.log(`OK: build_display_frame returned Uint8Array`);
 
-assertEqual('build_display_frame frame length', frameBytes.length, 77);
+assertEqual('build_display_frame frame length', frameBytes.length, 83);
 
 // v4.23 frame magic: ASCII '#' (0x23) then '1' (0x31). The protocol
 // version sits in byte 1; bumping the wire contract means this byte
@@ -826,8 +826,8 @@ assertEqual("frame[1] == '1' (0x31)", frameBytes[1], 0x31);
 // CRLF terminator. SerialRead's parser keys frame completion off the LF;
 // a bytestream missing the terminator pair would never complete a frame
 // and the M5 would silently fall back to NO-DATA on the panel.
-assertEqual('frame[75] == CR (0x0D)', frameBytes[75], 0x0D);
-assertEqual('frame[76] == LF (0x0A)', frameBytes[76], 0x0A);
+assertEqual('frame[81] == CR (0x0D)', frameBytes[81], 0x0D);
+assertEqual('frame[82] == LF (0x0A)', frameBytes[82], 0x0A);
 
 // ---------------------------------------------------------------------------
 // tone_calc / tone_calc_muted
@@ -939,11 +939,11 @@ if (typeof Module.LogReplayTask !== 'function') {
             `(got ${bytes1 && bytes1.constructor && bytes1.constructor.name})`);
         process.exit(1);
     }
-    assertEqual('LogReplayTask processRow frame length', bytes1.length, 77);
+    assertEqual('LogReplayTask processRow frame length', bytes1.length, 83);
     assertEqual('frame[0] == # (0x23)', bytes1[0], 0x23);
     assertEqual('frame[1] == 1 (0x31)', bytes1[1], 0x31);
-    assertEqual('frame[75] == CR (0x0D)', bytes1[75], 0x0D);
-    assertEqual('frame[76] == LF (0x0A)', bytes1[76], 0x0A);
+    assertEqual('frame[81] == CR (0x0D)', bytes1[81], 0x0D);
+    assertEqual('frame[82] == LF (0x0A)', bytes1[82], 0x0A);
 
     // Adversarial test: row.iasValid=true at 5 kt — task must override
     // and emit iasValid=false based on UpdateIasAlive's rising-threshold
@@ -958,7 +958,7 @@ if (typeof Module.LogReplayTask !== 'function') {
         iasValid: true,     // ignored — task derives hysteretically
     });
     const bytes2 = task.processRow(lowIasRow);
-    assertEqual('low-IAS frame still length 77', bytes2.length, 77);
+    assertEqual('low-IAS frame still length 83', bytes2.length, 83);
 
     // The wire encodes iasValid=false as iasKt=9999 sentinel at bytes
     // 6..9 (4-digit IAS field after the 2-byte magic + 4-byte timestamp
@@ -1003,4 +1003,4 @@ if (typeof Module.LogReplayTask !== 'function') {
 // Done
 // ---------------------------------------------------------------------------
 
-console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine, build_display_frame, tone_calc, LogReplayTask)');
+console.log('\nAll wasm-smoke checks passed. (compute_percent_lift, compute_anchors, parse_config, LogReplayEngine, build_display_frame, parse_display_frame, tone_calc, LogReplayTask)');
