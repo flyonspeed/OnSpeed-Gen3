@@ -1,56 +1,68 @@
 // proto/DisplaySerial.h — OnSpeed `#1` display-serial protocol.
 //
-// This is the single source of truth for the wire format of the 77-byte ASCII
+// This is the single source of truth for the wire format of the 83-byte ASCII
 // frame exchanged between the Gen3 main firmware (producer) and the M5Stack
-// secondary display firmware (consumer). (v4.23 size; was 76 bytes in v4.22.)
+// secondary display firmware (consumer). (v4.24 size; was 77 bytes in v4.23.)
 //
-// Frame format (77 bytes total, v4.23):
+// Frame format (83 bytes total, v4.24):
 //
 //   Offset  Width  Field               Format   Scale   Notes
 //   ------  -----  ------------------  -------  ------  ----------------------
 //    0       2     magic               literal  —       "#1"
-//    2       4     pitchDeg            %+04d    ×10     signed, –999 to +999
-//    6       5     rollDeg             %+05d    ×10     signed, –9999 to +9999
-//   11       4     iasKt               %04u     ×10     unsigned, 0–9999 (9999 = sentinel "air data not valid"; see iasValid below)
-//   15       6     paltFt              %+06d    ×1      signed, –99999 to +99999
-//   21       5     turnRateDps         %+05d    ×10     signed, –9999 to +9999
-//   26       3     lateralG            %+03d    ×100    signed, –99 to +99 (body-frame, +rightward)
-//   29       3     verticalG           %+03d    ×10     signed, –99 to +99
-//   32       3     percentLift         %03u     ×10     unsigned, 0–999 (wire-tenths of a percent; consumers see whole-percent float, `473` = 47.3%)
-//   35       4     vsiFpm10            %+04d    ×1      vsi_fpm/10, –999 to +999
-//   39       3     oatC                %+03d    ×1      signed, –99 to +99
-//   42       4     flightPathDeg       %+04d    ×10     signed, –999 to +999
-//   46       3     flapsDeg            %+03d    ×1      signed, –99 to +99
-//   49       2     tonesOnPctLift      %02u     ×1      unsigned, 0–99 (active-detent L/Dmax — operational audio gate, snapped per detent)
-//   51       2     onSpeedFastPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedFast body angle through the percent-lift formula)
-//   53       2     onSpeedSlowPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedSlow body angle through the percent-lift formula)
-//   55       2     stallWarnPctLift    %02u     ×1      unsigned, 0–99 (StallWarn body angle through the percent-lift formula)
-//   57       3     flapsMinDeg         %+03d    ×1      signed, –99 to +99 (min configured flap deg)
-//   60       3     flapsMaxDeg         %+03d    ×1      signed, –99 to +99 (max configured flap deg)
-//   63       4     gOnsetRate          %+04d    ×100    signed, –999 to +999
-//   67       2     spinRecoveryCue     %+02d    ×1      signed, –9 to +9
-//   69       2     dataMark            %02u     ×1      unsigned, 0–99
-//   71       2     pipPctLift          %02u     ×1      unsigned, 0–99 (visual L/Dmax pip — aerodynamic reference, lerp clean→fullflap)
-//   73       2     checksum            ASCII hex        sum of bytes 0–72 & 0xFF
-//   75       2     terminator          CR LF    —       0x0D 0x0A
+//    2       2     wireVersion         %02u     —       "24" at v4.24
+//    4       4     pitchDeg            %+04d    ×10     signed, –999 to +999
+//    8       5     rollDeg             %+05d    ×10     signed, –9999 to +9999
+//   13       4     iasKt               %04u     ×10     unsigned, 0–9999 (9999 = sentinel "air data not valid"; see validity contract below)
+//   17       6     paltFt              %+06d    ×1      signed, –99999 to +99999
+//   23       5     turnRateDps         %+05d    ×10     signed, –9999 to +9999
+//   28       3     lateralG            %+03d    ×100    signed, –99 to +99 (body-frame, +rightward)
+//   31       3     verticalG           %+03d    ×10     signed, –99 to +99
+//   34       3     percentLift         %03u     ×10     unsigned, 0–999 (wire-tenths of a percent; consumers see whole-percent float, `473` = 47.3%)
+//   37       4     vsiFpm10            %+04d    ×1      vsi_fpm/10, –999 to +999
+//   41       3     oatC                %+03d    ×1      signed, –99 to +99
+//   44       4     flightPathDeg       %+04d    ×10     signed, –999 to +999
+//   48       3     flapsDeg            %+03d    ×1      signed, –99 to +99
+//   51       2     tonesOnPctLift      %02u     ×1      unsigned, 0–99 (active-detent L/Dmax — operational audio gate, snapped per detent)
+//   53       2     onSpeedFastPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedFast body angle through the percent-lift formula)
+//   55       2     onSpeedSlowPctLift  %02u     ×1      unsigned, 0–99 (OnSpeedSlow body angle through the percent-lift formula)
+//   57       2     stallWarnPctLift    %02u     ×1      unsigned, 0–99 (StallWarn body angle through the percent-lift formula)
+//   59       3     flapsMinDeg         %+03d    ×1      signed, –99 to +99 (min configured flap deg)
+//   62       3     flapsMaxDeg         %+03d    ×1      signed, –99 to +99 (max configured flap deg)
+//   65       4     gOnsetRate          %+04d    ×100    signed, –999 to +999
+//   69       2     spinRecoveryCue     %+02d    ×1      signed, –9 to +9
+//   71       2     dataMark            %02u     ×1      unsigned, 0–99
+//   73       2     pipPctLift          %02u     ×1      unsigned, 0–99 (visual L/Dmax pip — aerodynamic reference, lerp clean→fullflap)
+//   75       4     validFlags          %04X     —       low 16 bits of AirDataValid (per-channel validity bitmap)
+//   79       2     checksum            ASCII hex        CRC-8 of bytes 0–78 (poly 0x07, SMBus)
+//   81       2     terminator          CR LF    —       0x0D 0x0A
 //
-// Design intent — air-data validity (iasValid):
-//   Air-data-derived fields (iasKt, percentLift) ride on a single
-//   producer-side validity flag, `DisplayBuildInputs::iasValid`.  The
-//   producer derives this from `bIasAlive` — the sensor-level air-data
-//   validity flag (rising-edge 20 kt, falling-edge 15 kt, hysteresis;
-//   see onspeed_core/sensors/IasAlive.h).  When iasValid is false:
+// Wire-version detection (v4.23 vs v4.24+):
+//   v4.23 frames start "#1+0..." (magic + signed pitch ASCII char).
+//   v4.24 frames start "#124+0..." (magic + 2-digit wire version).
+//   The byte at offset 4 distinguishes: digit '0'..'9' = v4.24+,
+//   sign char '+'/'-' = v4.23 legacy.  ParseDisplayFrame validates
+//   the version field; consumers reading both legacies dispatch on
+//   byte 4 themselves.
+//
+// Design intent — air-data validity (validFlags + iasIsValid):
+//   Per-channel validity rides on `validFlags` (low 16 bits of
+//   `onspeed::types::AirDataValid`).  Producers populate
+//   `DisplayBuildInputs::valid` from upstream filters; consumers read
+//   `DisplayFrame::valid` (or the convenience bool `iasIsValid`,
+//   derived from `valid.has(AirDataValid::kIas)`).  When the IAS bit
+//   is clear:
 //     * iasKt encodes as the wire sentinel `9999` (the maximum value
 //       of the %04u field; well above any operational airspeed).
 //     * percentLift encodes as `0` (which is also the "uncalibrated"
 //       value when no flap snapshot is available — the consumer must
-//       use `iasIsValid` to distinguish the two cases when rendering).
-//   Consumers (M5 SerialRead.cpp) detect the sentinel by checking
-//   `DisplayFrame::iasIsValid` and render dashes ("--") in place of
-//   IAS / percentLift digits.  This is independent of the audio mute
-//   threshold (`iMuteAudioUnderIAS`); the pilot's audio-mute knob
-//   controls when tones play, not whether displayed values are
-//   trustworthy.  See issue #358 for the rationale.
+//       use the validity bit to distinguish the two cases when
+//       rendering).
+//   Consumers (M5 SerialRead.cpp) render dashes ("--") in place of
+//   IAS / percentLift digits when the bit is clear.  This is
+//   independent of the audio mute threshold (`iMuteAudioUnderIAS`);
+//   the pilot's audio-mute knob controls when tones play, not whether
+//   displayed values are trustworthy.  See issue #358 for the
+//   rationale.
 //
 // Design intent — the percent-lift contract:
 //   Percent-lift is the honest single-linear envelope fraction:
@@ -106,24 +118,30 @@
 #include <cstdint>
 #include <optional>
 
+#include <proto/Crc8.h>
+#include <types/AirDataValid.h>
+
 namespace onspeed::proto {
 
 /// Total length of a complete #1 frame in bytes (including CRLF terminator).
-/// v4.21 was 74 bytes; v4.22 was 76 (added pipPctLift at offset 70);
-/// v4.23 is 77 (widens percentLift to 3 chars carrying tenths of a percent).
-inline constexpr size_t kDisplayFrameSizeBytes = 77;
+/// v4.24: payload bytes 0..78 (79 bytes total) + 2 hex CRC-8 + CRLF = 83 bytes.
+/// (v4.21 was 74, v4.22 was 76, v4.23 was 77.)
+inline constexpr size_t kDisplayFrameSizeBytes = 83;
 
-/// Sentinel emitted in the iasKt field when the producer's bIasAlive
-/// flag is false (i.e. air-data is not yet valid: pitot pressure inside
+/// Length of the ASCII payload that the CRC-8 covers (bytes 0..78 inclusive).
+inline constexpr size_t kDisplayFrameChecksumLen = 79;
+
+/// Wire-format version field value emitted at offset 2 (width 2, "%02u").
+inline constexpr unsigned kWireVersion = 24;
+
+/// Sentinel emitted in the iasKt field when the producer's IAS validity
+/// bit is clear (i.e. air-data is not yet valid: pitot pressure inside
 /// the noise floor, or rising threshold not yet crossed).  Picked as
 /// the maximum of the %04u field — far above any operational airspeed
-/// (the wire's nominal range is 0..999.9 kt) — so a consumer that does
-/// not know about iasIsValid still produces an obviously bogus rather
-/// than a plausibly low IAS reading.
+/// (the wire's nominal range is 0..999.9 kt) — so a legacy consumer
+/// that does not check the validFlags field still sees an obviously
+/// bogus value rather than a plausibly low IAS reading.
 inline constexpr uint16_t kIasInvalidWireSentinel = 9999;
-
-/// Length of the ASCII payload that the checksum covers (bytes 0–72 inclusive).
-inline constexpr size_t kDisplayFrameChecksumLen = 73;
 
 /// Nominal period between frames (milliseconds). Matches
 /// kDisplaySerialPeriodMs in the Gen3 firmware's HardwareMap.h.
@@ -157,8 +175,24 @@ inline constexpr int kDisplayFramePeriodMs = 50;
 struct DisplayBuildInputs {
     float pitchDeg           = 0.0f;  // smoothed pitch (deg)
     float rollDeg            = 0.0f;  // smoothed roll (deg)
-    float iasKt              = 0.0f;  // indicated airspeed (kt); honored when iasValid=true, ignored when iasValid=false (encoder writes 9999 sentinel)
-    bool  iasValid           = true;  // when false: encoder emits the 9999 sentinel for iasKt and 0 for percentLift; consumers render "--"
+    float iasKt              = 0.0f;  // indicated airspeed (kt); honored when valid.has(kIas) is true, ignored otherwise (encoder writes 9999 sentinel)
+
+    // Per-channel validity bitmap.  Encoder emits the low 16 bits as
+    // the wire's validFlags field.  Air-data fields with their bit
+    // clear are encoded as their in-band sentinels (IAS=9999,
+    // percentLift=0, OAT clamped) — the consumer should prefer the
+    // bit over the sentinel for "render dashes" decisions.
+    onspeed::types::AirDataValid valid;
+
+    // Legacy IAS-validity bool retained as a bridge for producers
+    // that have not migrated to the validFlags model.  When
+    // `valid.bits == 0` (default-constructed), the encoder reads
+    // `iasValid` to decide between live IAS and the 9999 sentinel.
+    // Any non-zero `valid.bits` means the producer is on the new
+    // path; the encoder ignores this bool entirely in that case.
+    [[deprecated("set valid.bits via AirDataValid::set(kIas) instead")]]
+    bool iasValid = true;
+
     float paltFt             = 0.0f;  // pressure altitude (ft)
     float turnRateDps        = 0.0f;  // yaw rate (deg/s)
     float lateralG           = 0.0f;  // lateral acceleration (g); body-frame, positive = airframe accel rightward
@@ -191,7 +225,14 @@ struct DisplayFrame {
     float pitchDeg           = 0.0f;
     float rollDeg            = 0.0f;
     float iasKt              = 0.0f;  // raw decoded value; ignore when iasIsValid=false (sentinel was on the wire)
-    bool  iasIsValid         = true;  // false when the wire's iasKt field carried the 9999 sentinel — render "--" for iasKt and percentLift
+
+    // Per-channel validity bitmap parsed from the wire's validFlags
+    // field.  Consumers check `valid.has(...)` to gate trust per
+    // channel; the convenience bool `iasIsValid` mirrors
+    // `valid.has(AirDataValid::kIas)`.
+    onspeed::types::AirDataValid valid;
+    bool  iasIsValid         = true;  // derived from valid.has(AirDataValid::kIas)
+
     float paltFt             = 0.0f;
     float turnRateDps        = 0.0f;
     float lateralG           = 0.0f;  // body-frame (see BuildInputs convention)
@@ -237,7 +278,8 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
 // Returns std::nullopt if:
 //   - len < kDisplayFrameSizeBytes
 //   - magic bytes are not "#1"
-//   - checksum does not match
+//   - wireVersion field is not "24"
+//   - CRC-8 does not match
 //   - any numeric field fails to parse
 // ============================================================================
 

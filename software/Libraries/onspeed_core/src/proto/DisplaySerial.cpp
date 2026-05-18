@@ -5,7 +5,9 @@
 // only be defined in one place.
 
 #include <proto/DisplaySerial.h>
-#include <util/Crc.h>
+
+#include <proto/Crc8.h>
+#include <types/AirDataValid.h>
 
 #include <cmath>
 #include <cstdio>
@@ -74,16 +76,47 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     const int      iPitch10    = SafeScaledInt(in.pitchDeg,       10.0f,  -999,   999);
     const int      iRoll10     = SafeScaledInt(in.rollDeg,        10.0f, -9999,  9999);
 
-    // iasKt: when the producer marks air-data invalid, write the
-    // sentinel kIasInvalidWireSentinel (9999) instead of the live
-    // value.  A live SafeScaledUInt would clamp a near-stall taxi to 0
-    // and a hangar wind gust to a small but nonzero number — neither
+    // iasKt: when the IAS validity bit is clear, write the sentinel
+    // kIasInvalidWireSentinel (9999) instead of the live value.  A
+    // live SafeScaledUInt would clamp a near-stall taxi to 0 and a
+    // hangar wind gust to a small but nonzero number — neither
     // distinguishable from "data not valid" — so the encoder controls
-    // the bit pattern explicitly here.  See iasValid contract in
+    // the bit pattern explicitly here.  See the validity contract in
     // DisplaySerial.h.
-    const unsigned uIas10      = in.iasValid
+    //
+    // Legacy bridge: a producer that has not migrated to AirDataValid
+    // leaves `valid.bits == 0` and toggles the deprecated `iasValid`
+    // bool.  When `valid.bits` is non-zero, the producer is on the new
+    // path and only the kIas bit matters.
+#if defined(__GNUC__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    const bool iasIsValid =
+        in.valid.has(onspeed::types::AirDataValid::kIas) ||
+        (in.valid.bits == 0 && in.iasValid);
+#if defined(__GNUC__)
+#  pragma GCC diagnostic pop
+#endif
+    const unsigned uIas10      = iasIsValid
         ? SafeScaledUInt(in.iasKt, 10.0f, 0, 9999)
         : static_cast<unsigned>(kIasInvalidWireSentinel);
+
+    // Effective validity bits to emit.  Start from the producer's
+    // `valid.bits`, then mirror the legacy-bridge decision into the
+    // kIas bit so the wire is self-consistent: a frame that carries
+    // a live (non-sentinel) IAS always carries the kIas bit set,
+    // regardless of which API path (new `valid.set(kIas)` or legacy
+    // `iasValid=true`) the producer used.  The 9999 sentinel never
+    // co-occurs with a set kIas bit.
+    uint32_t effectiveValid = in.valid.bits;
+    if (iasIsValid) {
+        effectiveValid |=
+            static_cast<uint32_t>(onspeed::types::AirDataValid::kIas);
+    } else {
+        effectiveValid &=
+            ~static_cast<uint32_t>(onspeed::types::AirDataValid::kIas);
+    }
     const int      iPaltFt     = SafeScaledInt(in.paltFt,          1.0f, -99999, 99999);
     const int      iYaw10      = SafeScaledInt(in.turnRateDps,    10.0f, -9999,  9999);
     const int      iLatG100    = SafeScaledInt(in.lateralG,      100.0f,   -99,    99);
@@ -97,14 +130,8 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     // M5's index bar can advance at sub-pixel temporal smoothness off the
     // 20 Hz frame cadence.  Producers fill `percentLiftPct` as a whole-
     // percent float (e.g. 47.3); we encode `int(pct × 10)` here via
-    // SafeScaledInt's truncation toward zero.  Wire output agrees with
-    // v4.23 master to within ±1 in the wire-tenths field at IEEE 754
-    // precision boundaries (the new pipeline uses one extra `*10`
-    // float multiply that wasn't there before; ~282 of ~10⁹ representable
-    // float fractions differ by 1 ULP at the truncation step — see
-    // test_byte_equivalence_with_v423 for the exact characterization).
-    // 0.1% on the wire is invisible to pilot and audio path.  Clamp
-    // at 999 — the formula's saturation convention never emits 1000
+    // SafeScaledInt's truncation toward zero.  Clamp at 999 — the
+    // formula's saturation convention never emits 1000
     // (PercentLift.cpp clamps at 99.9).
     const int      iPctLiftRaw = SafeScaledInt(in.percentLiftPct, 10.0f, 0, 999);
     const unsigned uPctLift    = ClampUInt(static_cast<unsigned>(iPctLiftRaw), 0, 999);
@@ -135,32 +162,32 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     // kDisplayFrameChecksumLen-byte invariant at runtime.
     char staging[200];
 
+    // Width math (kDisplayFrameChecksumLen = 79):
+    //   "#1" + wireVersion %02u                          = 4 bytes  ( cum  4)
+    //   pitch +04 + roll +05 + ias 04 + palt +06 + turn +05 + latG +03
+    //                                                    = 27 bytes ( cum 31)
+    //   vertG +03 + pct 03 + vsi +04 + oat +03 + fpa +04 + flaps +03
+    //                                                    = 20 bytes ( cum 51)
+    //   tonesOn 02 + fast 02 + slow 02 + warn 02 + fMin +03 + fMax +03
+    //                                                    = 14 bytes ( cum 65)
+    //   onset +04 + spinCue +02 + dataMark 02 + pipPct 02
+    //                                                    = 10 bytes ( cum 75)
+    //   validFlags %04X                                  =  4 bytes ( cum 79)
     const int iChars = std::snprintf(
         staging,
         sizeof(staging),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%03u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
-        iPitch10,
-        iRoll10,
-        uIas10,
-        iPaltFt,
-        iYaw10,
-        iLatG100,
-        iVertG10,
-        uPctLift,
-        iVsi10,
-        iOatC,
-        iFpa10,
-        iFlapsDeg,
-        uTonesOnPct,
-        uFastPct,
-        uSlowPct,
-        uWarnPct,
-        iFlapsMin,
-        iFlapsMax,
-        iOnset100,
-        iSpinCue,
-        uDataMark2,
-        uPipPct);
+        "#1%02u"
+        "%+04i%+05i%04u%+06i%+05i%+03i"
+        "%+03i%03u%+04i%+03i%+04i%+03i"
+        "%02u%02u%02u%02u%+03i%+03i"
+        "%+04i%+02i%02u%02u"
+        "%04X",
+        kWireVersion,
+        iPitch10, iRoll10, uIas10, iPaltFt, iYaw10, iLatG100,
+        iVertG10, uPctLift, iVsi10, iOatC, iFpa10, iFlapsDeg,
+        uTonesOnPct, uFastPct, uSlowPct, uWarnPct, iFlapsMin, iFlapsMax,
+        iOnset100, iSpinCue, uDataMark2, uPipPct,
+        static_cast<unsigned>(effectiveValid & 0xFFFFu));
 
     if (iChars != static_cast<int>(kDisplayFrameChecksumLen))
         return 0;
@@ -168,8 +195,8 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
     // Copy the kDisplayFrameChecksumLen-byte payload into the output buffer.
     std::memcpy(out, staging, kDisplayFrameChecksumLen);
 
-    // Append the 2-byte ASCII hex checksum.
-    const uint8_t crc = util::Checksum8(out, kDisplayFrameChecksumLen);
+    // Append the 2-byte ASCII hex CRC-8 (poly 0x07, SMBus).
+    const uint8_t crc = Crc8(out, kDisplayFrameChecksumLen);
     std::snprintf(reinterpret_cast<char*>(out + kDisplayFrameChecksumLen), 3,
                   "%02X", crc);
 
@@ -195,9 +222,22 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     if (buf[0] != '#' || buf[1] != '1')
         return std::nullopt;
 
+    // Wire-version check. Offset 2..3 carries "%02u"; reject anything
+    // that doesn't match kWireVersion exactly.  A v4.23 frame carries
+    // a sign char ('+'/'-') at byte 2, which fails the digit check.
+    {
+        const char v0 = static_cast<char>(buf[2]);
+        const char v1 = static_cast<char>(buf[3]);
+        if (v0 < '0' || v0 > '9' || v1 < '0' || v1 > '9')
+            return std::nullopt;
+        const unsigned wireVer = static_cast<unsigned>((v0 - '0') * 10 + (v1 - '0'));
+        if (wireVer != kWireVersion)
+            return std::nullopt;
+    }
+
     // Checksum check. Two uppercase hex digits live at the end of the
     // payload, immediately before the CRLF terminator.
-    const uint8_t expected = util::Checksum8(buf, kDisplayFrameChecksumLen);
+    const uint8_t expected = Crc8(buf, kDisplayFrameChecksumLen);
 
     // Parse the two hex characters.
     char hexStr[3] = {
@@ -242,6 +282,18 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
         return true;
     };
 
+    auto extractHex = [&](size_t start, size_t width, unsigned* out) -> bool {
+        char tmp[8];
+        if (width >= sizeof(tmp)) return false;
+        std::memcpy(tmp, payload + start, width);
+        tmp[width] = '\0';
+        char* ep = nullptr;
+        unsigned long v = std::strtoul(tmp, &ep, 16);
+        if (ep != tmp + width) return false;
+        *out = static_cast<unsigned>(v);
+        return true;
+    };
+
     int      iPitch10      = 0;
     int      iRoll10       = 0;
     unsigned uIas10        = 0;
@@ -264,43 +316,52 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     int      iSpinCue      = 0;
     unsigned uDataMark     = 0;
     unsigned uPipPct       = 0;
+    unsigned uValidFlags   = 0;
 
-    if (!extractInt( 2, 4, &iPitch10))      return std::nullopt;
-    if (!extractInt( 6, 5, &iRoll10))       return std::nullopt;
-    if (!extractUInt(11, 4, &uIas10))       return std::nullopt;
-    if (!extractInt(15, 6, &iPaltFt))       return std::nullopt;
-    if (!extractInt(21, 5, &iYaw10))        return std::nullopt;
-    if (!extractInt(26, 3, &iLatG100))      return std::nullopt;
-    if (!extractInt(29, 3, &iVertG10))      return std::nullopt;
-    // percentLift widened to %03u (tenths of a percent, 0..999) at v4.23;
-    // every subsequent offset shifts +1.  We divide by 10 to surface the
-    // value as whole-percent float (e.g. 47.3) for consumers.
-    if (!extractUInt(32, 3, &uPctLift))     return std::nullopt;
-    if (!extractInt(35, 4, &iVsi10))        return std::nullopt;
-    if (!extractInt(39, 3, &iOatC))         return std::nullopt;
-    if (!extractInt(42, 4, &iFpa10))        return std::nullopt;
-    if (!extractInt(46, 3, &iFlapsDeg))     return std::nullopt;
-    if (!extractUInt(49, 2, &uTonesOnPct))  return std::nullopt;
-    if (!extractUInt(51, 2, &uFastPct))     return std::nullopt;
-    if (!extractUInt(53, 2, &uSlowPct))     return std::nullopt;
-    if (!extractUInt(55, 2, &uWarnPct))     return std::nullopt;
-    if (!extractInt(57, 3, &iFlapsMin))     return std::nullopt;
-    if (!extractInt(60, 3, &iFlapsMax))     return std::nullopt;
-    if (!extractInt(63, 4, &iOnset100))     return std::nullopt;
-    if (!extractInt(67, 2, &iSpinCue))      return std::nullopt;
-    if (!extractUInt(69, 2, &uDataMark))    return std::nullopt;
-    if (!extractUInt(71, 2, &uPipPct))      return std::nullopt;
+    // Offsets shifted +2 from v4.23 because wireVersion was inserted
+    // at offset 2 (width 2).  percentLift carries tenths of a percent
+    // (0..999) — surfaced to consumers as whole-percent float
+    // (e.g. 47.3) by dividing by 10 below.
+    if (!extractInt(  4, 4, &iPitch10))     return std::nullopt;
+    if (!extractInt(  8, 5, &iRoll10))      return std::nullopt;
+    if (!extractUInt(13, 4, &uIas10))       return std::nullopt;
+    if (!extractInt( 17, 6, &iPaltFt))      return std::nullopt;
+    if (!extractInt( 23, 5, &iYaw10))       return std::nullopt;
+    if (!extractInt( 28, 3, &iLatG100))     return std::nullopt;
+    if (!extractInt( 31, 3, &iVertG10))     return std::nullopt;
+    if (!extractUInt(34, 3, &uPctLift))     return std::nullopt;
+    if (!extractInt( 37, 4, &iVsi10))       return std::nullopt;
+    if (!extractInt( 41, 3, &iOatC))        return std::nullopt;
+    if (!extractInt( 44, 4, &iFpa10))       return std::nullopt;
+    if (!extractInt( 48, 3, &iFlapsDeg))    return std::nullopt;
+    if (!extractUInt(51, 2, &uTonesOnPct))  return std::nullopt;
+    if (!extractUInt(53, 2, &uFastPct))     return std::nullopt;
+    if (!extractUInt(55, 2, &uSlowPct))     return std::nullopt;
+    if (!extractUInt(57, 2, &uWarnPct))     return std::nullopt;
+    if (!extractInt( 59, 3, &iFlapsMin))    return std::nullopt;
+    if (!extractInt( 62, 3, &iFlapsMax))    return std::nullopt;
+    if (!extractInt( 65, 4, &iOnset100))    return std::nullopt;
+    if (!extractInt( 69, 2, &iSpinCue))     return std::nullopt;
+    if (!extractUInt(71, 2, &uDataMark))    return std::nullopt;
+    if (!extractUInt(73, 2, &uPipPct))      return std::nullopt;
+    if (!extractHex( 75, 4, &uValidFlags))  return std::nullopt;
 
     DisplayFrame f;
     f.pitchDeg           = static_cast<float>(iPitch10)  / 10.0f;
     f.rollDeg            = static_cast<float>(iRoll10)   / 10.0f;
-    // iasKt: detect the kIasInvalidWireSentinel and surface it as
-    // iasIsValid=false rather than as a 999.9 kt reading.  The raw
-    // iasKt field is left set to whatever the wire carried so a
-    // diagnostic consumer can still see it; the contract is
-    // "consumers must check iasIsValid before trusting iasKt".
+    // iasKt: the raw decoded value is preserved (a diagnostic
+    // consumer can still see it) but iasIsValid is the contract.
+    // We mark IAS invalid when either (a) the producer cleared the
+    // kIas bit, or (b) the wire carries the legacy sentinel — the
+    // latter handles the case of a producer that saturated the
+    // %04u clamp to 9999 without setting the validity bit, which
+    // matches the v4.23 semantics ("treat saturating values as
+    // invalid").
+    f.valid.bits         = uValidFlags;
     f.iasKt              = static_cast<float>(uIas10)    / 10.0f;
-    f.iasIsValid         = (uIas10 != kIasInvalidWireSentinel);
+    f.iasIsValid         =
+        f.valid.has(onspeed::types::AirDataValid::kIas) &&
+        (uIas10 != kIasInvalidWireSentinel);
     f.paltFt             = static_cast<float>(iPaltFt);
     f.turnRateDps        = static_cast<float>(iYaw10)    / 10.0f;
     f.lateralG           = static_cast<float>(iLatG100)  / 100.0f;

@@ -12,6 +12,7 @@
 #include <aoa/PercentLift.h>
 #include <proto/DisplaySerial.h>
 #include <sensors/IasAlive.h>
+#include <types/AirDataValid.h>
 #include <util/OnSpeedTypes.h>            // mps2fpm
 
 namespace onspeed::replay {
@@ -153,7 +154,21 @@ std::vector<uint8_t> LogReplayTask::EncodeFrame_(
     in.pitchDeg           = r.pitchDeg;
     in.rollDeg            = r.rollDeg;
     in.iasKt              = r.iasKt;
-    in.iasValid           = r.iasValid;
+    // Producer is on the new path: drive the kIas bit directly.  Mirror
+    // the same decision into the legacy `iasValid` bool so the encoder's
+    // legacy bridge stays consistent with the bit even when downstream
+    // callers inspect `in.iasValid` directly.
+#if defined(__GNUC__)
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    in.iasValid = r.iasValid;
+#if defined(__GNUC__)
+#  pragma GCC diagnostic pop
+#endif
+    if (r.iasValid) {
+        in.valid.set(onspeed::types::AirDataValid::kIas);
+    }
     in.paltFt             = r.paltFt;
     in.turnRateDps        = r.turnRateDps;
     // Body-frame, positive = airframe accel rightward. Smoothed by the

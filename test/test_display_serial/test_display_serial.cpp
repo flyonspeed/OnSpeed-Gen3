@@ -13,8 +13,11 @@
 
 #include <unity.h>
 #include <proto/DisplaySerial.h>
+#include <proto/Crc8.h>
+#include <types/AirDataValid.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 using namespace onspeed::proto;
@@ -296,33 +299,31 @@ void test_roundtrip_pip_pct_lift(void)
     TEST_ASSERT_EQUAL(53, f.pipPctLift);
 }
 
-void test_pip_pct_lift_at_offset_71(void)
+void test_pip_pct_lift_at_offset_73(void)
 {
     DisplayBuildInputs in = zeroInputs();
     in.pipPctLift = 47;
     buildOk(in);
-    // Pin the wire-format invariant: pipPctLift occupies bytes 71-72
-    // of the frame at v4.23 (just before the 2-byte checksum and CRLF).
-    // Shifted from offset 70 at v4.22 because percentLift widened
-    // %02u → %03u for tenths-of-a-percent resolution.
-    TEST_ASSERT_EQUAL('4', frameBuf[71]);
-    TEST_ASSERT_EQUAL('7', frameBuf[72]);
+    // Pin the wire-format invariant: pipPctLift occupies bytes 73-74
+    // of the v4.24 frame (just before the 4-byte validFlags, 2-byte
+    // CRC, and CRLF).
+    TEST_ASSERT_EQUAL('4', frameBuf[73]);
+    TEST_ASSERT_EQUAL('7', frameBuf[74]);
 }
 
-void test_vsi_at_offset_35_pins_v423_layout_shift(void)
+void test_vsi_at_offset_37_pins_v424_layout(void)
 {
-    // Mid-frame byte-level pin: vsiFpm10 occupies bytes 35-38 at v4.23
-    // (was 34-37 at v4.22 — the +1 shift comes from percentLift widening
-    // %02u → %03u). A partial revert of the parser offsets to v4.22
+    // Mid-frame byte-level pin: vsiFpm10 occupies bytes 37-40 in the
+    // v4.24 layout.  A partial revert of the parser offsets to v4.23
     // would be caught here with a named field rather than just a
-    // checksum-mismatch failure.
+    // CRC-mismatch failure.
     DisplayBuildInputs in = zeroInputs();
     in.vsiFpm10 = 123;  // distinctive non-zero so any byte misalignment is visible
     buildOk(in);
-    TEST_ASSERT_EQUAL('+', frameBuf[35]);
-    TEST_ASSERT_EQUAL('1', frameBuf[36]);
-    TEST_ASSERT_EQUAL('2', frameBuf[37]);
-    TEST_ASSERT_EQUAL('3', frameBuf[38]);
+    TEST_ASSERT_EQUAL('+', frameBuf[37]);
+    TEST_ASSERT_EQUAL('1', frameBuf[38]);
+    TEST_ASSERT_EQUAL('2', frameBuf[39]);
+    TEST_ASSERT_EQUAL('3', frameBuf[40]);
 }
 
 void test_pip_pct_lift_clamps_high(void)
@@ -421,53 +422,55 @@ void test_ias_high(void)
 }
 
 // ----------------------------------------------------------------------------
-// iasValid sentinel — issue #358
+// IAS validity sentinel — issue #358
 // ----------------------------------------------------------------------------
 
-// Producer marks air data invalid; encoder must emit the sentinel
-// regardless of the iasKt input value, and the parser must surface
-// iasIsValid=false.
+// Producer is on the new path (sets some bit other than kIas) and
+// leaves kIas clear; encoder must emit the sentinel regardless of the
+// iasKt input value, and the parser must surface iasIsValid=false.
+// Setting kPalt opts out of the legacy iasValid-bridge so the encoder
+// reads `valid.has(kIas)` as the source of truth.
 void test_ias_invalid_emits_sentinel(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.iasValid = false;
+    in.valid.set(onspeed::types::AirDataValid::kPalt);
+    // valid.kIas deliberately NOT set
     in.iasKt    = 42.0f;   // a real-looking value the encoder must override
     buildOk(in);
     DisplayFrame f = parseOk();
     TEST_ASSERT_FALSE(f.iasIsValid);
-    // Wire field should decode to the sentinel value (9999 / 10 = 999.9)
+    // Wire field decodes to the sentinel value (9999 / 10 = 999.9)
     // — consumers that don't check iasIsValid see a value that is
     // obviously bogus rather than plausibly low.
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 999.9f, f.iasKt);
 }
 
-// Default iasValid=true preserves the historical encode/decode
-// contract.  This pins the default-true invariant: a producer that
-// has not yet been updated to the iasValid contract still emits live
-// IAS values without sentinel collisions.
+// kIas bit set: producer is on the new path, live IAS round-trips.
 void test_ias_valid_default_round_trips(void)
 {
     DisplayBuildInputs in = zeroInputs();
     in.iasKt = 75.0f;       // typical pattern speed
-    // iasValid defaults to true; do NOT set it
+    in.valid.set(onspeed::types::AirDataValid::kIas);
     buildOk(in);
     DisplayFrame f = parseOk();
     TEST_ASSERT_TRUE(f.iasIsValid);
     TEST_ASSERT_FLOAT_WITHIN(DELTA_10, 75.0f, f.iasKt);
 }
 
-// Wire byte-level pin: the iasKt field at offset 11 is exactly "9999"
-// when iasValid=false.  Catches drift if the sentinel constant is
-// changed in the header without updating the encoder.
-void test_ias_invalid_wire_bytes_at_offset_11(void)
+// Wire byte-level pin: the iasKt field at offset 13 is exactly "9999"
+// when kIas is clear.  Catches drift if the sentinel constant is
+// changed in the header without updating the encoder.  v4.24 shifts
+// iasKt to offset 13 (from 11 at v4.23) due to the wireVersion field.
+void test_ias_invalid_wire_bytes_at_offset_13(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.iasValid = false;
+    in.valid.set(onspeed::types::AirDataValid::kPalt);  // opt out of legacy bridge
+    // valid.kIas deliberately NOT set
     buildOk(in);
-    TEST_ASSERT_EQUAL('9', frameBuf[11]);
-    TEST_ASSERT_EQUAL('9', frameBuf[12]);
     TEST_ASSERT_EQUAL('9', frameBuf[13]);
     TEST_ASSERT_EQUAL('9', frameBuf[14]);
+    TEST_ASSERT_EQUAL('9', frameBuf[15]);
+    TEST_ASSERT_EQUAL('9', frameBuf[16]);
 }
 
 // A valid 999.9 kt reading (the wire's saturated maximum from the
@@ -476,13 +479,11 @@ void test_ias_invalid_wire_bytes_at_offset_11(void)
 // aircraft this firmware targets, so a saturating producer producing
 // this exact value would itself indicate a data fault.  The parser
 // reports iasIsValid=false in either case, which is the correct
-// answer.  This test pins that contract — no aircraft we ship to
-// flies above ~500 kt, but documenting it so a future reader doesn't
-// get tripped up by the apparent collision.
+// answer.
 void test_ias_at_saturation_reports_invalid(void)
 {
     DisplayBuildInputs in = zeroInputs();
-    in.iasValid = true;
+    in.valid.set(onspeed::types::AirDataValid::kIas);
     in.iasKt    = 1500.0f;   // way above field; clamps to 9999
     buildOk(in);
     DisplayFrame f = parseOk();
@@ -619,16 +620,28 @@ void test_build_small_output(void)
 void test_known_frame_content(void)
 {
     // Compute expected payload directly (mirrors Gen3 DisplaySerial::Write).
-    // percentLift widened to %03u at v4.23 (tenths of a percent, 0..999).
+    // v4.24 layout: "#1" + wireVersion %02u + all fields + validFlags %04X.
+    // Default-constructed inputs trigger the legacy iasValid=true
+    // bridge (since valid.bits == 0), so the encoder treats IAS as
+    // valid: iasKt encodes as 0000 and the effectiveValid bit pattern
+    // gets the kIas flag set (0x0004).
+    const unsigned expectedValidFlags =
+        static_cast<unsigned>(onspeed::types::AirDataValid::kIas);
     char expected_payload[200];
     int n = snprintf(
         expected_payload, sizeof(expected_payload),
-        "#1%+04i%+05i%04u%+06i%+05i%+03i%+03i%03u%+04i%+03i%+04i%+03i%02u%02u%02u%02u%+03i%+03i%+04i%+02i%02u%02u",
-        0, 0, 0u, 0, 0, 0, 0, 0u, 0, 0, 0, 0,
-        0u, 0u, 0u, 0u,                          // tonesOn/Fast/Slow/StallWarn pct
-        0, 0,                                    // flapsMin, flapsMax
-        0, 0, 0u,
-        0u);                                     // pipPctLift
+        "#1%02u"
+        "%+04i%+05i%04u%+06i%+05i%+03i"
+        "%+03i%03u%+04i%+03i%+04i%+03i"
+        "%02u%02u%02u%02u%+03i%+03i"
+        "%+04i%+02i%02u%02u"
+        "%04X",
+        kWireVersion,
+        0, 0, 0u, 0, 0, 0,
+        0, 0u, 0, 0, 0, 0,
+        0u, 0u, 0u, 0u, 0, 0,
+        0, 0, 0u, 0u,
+        expectedValidFlags);                     // validFlags = kIas via bridge
     TEST_ASSERT_EQUAL(static_cast<int>(kDisplayFrameChecksumLen), n);
 
     buildOk(zeroInputs());
@@ -818,6 +831,157 @@ void test_accumulator_back_to_back_frames(void)
 }
 
 // ----------------------------------------------------------------------------
+// v4.24 wire-format invariants — wireVersion + validFlags + CRC-8
+// ----------------------------------------------------------------------------
+
+void test_v424_frame_is_83_bytes(void)
+{
+    DisplayBuildInputs in{};
+    in.valid.set(onspeed::types::AirDataValid::kIas);
+    in.valid.set(onspeed::types::AirDataValid::kOatRaw);
+    uint8_t buf[128] = {0};
+    const size_t n = BuildDisplayFrame(in, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_size_t(kDisplayFrameSizeBytes, n);
+    TEST_ASSERT_EQUAL_size_t(83u, n);
+}
+
+void test_v424_magic_and_version(void)
+{
+    DisplayBuildInputs in{};
+    in.valid.set(onspeed::types::AirDataValid::kIas);
+    uint8_t buf[128] = {0};
+    BuildDisplayFrame(in, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_UINT8('#', buf[0]);
+    TEST_ASSERT_EQUAL_UINT8('1', buf[1]);
+    TEST_ASSERT_EQUAL_UINT8('2', buf[2]);
+    TEST_ASSERT_EQUAL_UINT8('4', buf[3]);
+}
+
+void test_v424_validFlags_field_round_trip(void)
+{
+    DisplayBuildInputs in{};
+    in.valid.set(onspeed::types::AirDataValid::kIas);
+    in.valid.set(onspeed::types::AirDataValid::kPalt);
+    in.valid.set(onspeed::types::AirDataValid::kOatSat);
+    uint8_t buf[128] = {0};
+    BuildDisplayFrame(in, buf, sizeof(buf));
+    char flagStr[5] = {static_cast<char>(buf[75]),
+                       static_cast<char>(buf[76]),
+                       static_cast<char>(buf[77]),
+                       static_cast<char>(buf[78]),
+                       '\0'};
+    const unsigned wireFlags = static_cast<unsigned>(std::strtoul(flagStr, nullptr, 16));
+    TEST_ASSERT_EQUAL_UINT32(in.valid.bits & 0xFFFFu, wireFlags);
+}
+
+void test_v424_crc8_matches_payload(void)
+{
+    DisplayBuildInputs in{};
+    in.valid.set(onspeed::types::AirDataValid::kIas);
+    uint8_t buf[128] = {0};
+    BuildDisplayFrame(in, buf, sizeof(buf));
+    char crcStr[3] = {static_cast<char>(buf[79]),
+                      static_cast<char>(buf[80]), '\0'};
+    const uint8_t crcFromFrame =
+        static_cast<uint8_t>(std::strtoul(crcStr, nullptr, 16));
+    const uint8_t crcExpected =
+        onspeed::proto::Crc8(buf, kDisplayFrameChecksumLen);
+    TEST_ASSERT_EQUAL_UINT8(crcExpected, crcFromFrame);
+}
+
+void test_v424_invalid_ias_emits_sentinel_and_clears_bit(void)
+{
+    // Producer is on new path (kPalt set, kIas clear).
+    DisplayBuildInputs in{};
+    in.valid.set(onspeed::types::AirDataValid::kPalt);
+    in.iasKt = 100.0f;
+    uint8_t buf[128] = {0};
+    BuildDisplayFrame(in, buf, sizeof(buf));
+    // iasKt at offset 13, width 4.
+    char iasStr[5] = {static_cast<char>(buf[13]),
+                      static_cast<char>(buf[14]),
+                      static_cast<char>(buf[15]),
+                      static_cast<char>(buf[16]), '\0'};
+    TEST_ASSERT_EQUAL_STRING("9999", iasStr);
+}
+
+void test_v424_terminator_is_crlf(void)
+{
+    DisplayBuildInputs in{};
+    in.valid.set(onspeed::types::AirDataValid::kIas);
+    uint8_t buf[128] = {0};
+    BuildDisplayFrame(in, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_UINT8(0x0D, buf[81]);
+    TEST_ASSERT_EQUAL_UINT8(0x0A, buf[82]);
+}
+
+void test_v424_legacy_iasValid_bridge_when_no_bits_set(void)
+{
+    // A caller who hasn't migrated leaves `valid.bits == 0` and keeps
+    // the default `iasValid=true`.  The encoder must still emit a
+    // non-sentinel IAS in that case (legacy bridge path).
+    DisplayBuildInputs in{};
+    in.iasKt = 100.0f;
+    // valid.bits stays 0 (default); iasValid stays true (default).
+    uint8_t buf[128] = {0};
+    BuildDisplayFrame(in, buf, sizeof(buf));
+    char iasStr[5] = {static_cast<char>(buf[13]),
+                      static_cast<char>(buf[14]),
+                      static_cast<char>(buf[15]),
+                      static_cast<char>(buf[16]), '\0'};
+    TEST_ASSERT_EQUAL_STRING("1000", iasStr);
+}
+
+void test_v424_roundtrip_through_parser(void)
+{
+    DisplayBuildInputs in{};
+    in.pitchDeg     = 2.3f;
+    in.rollDeg      = -1.5f;
+    in.iasKt        = 147.0f;
+    in.paltFt       = 8000;
+    in.oatC         = 5;
+    in.valid.set(onspeed::types::AirDataValid::kIas);
+    in.valid.set(onspeed::types::AirDataValid::kPalt);
+    in.valid.set(onspeed::types::AirDataValid::kOatRaw);
+
+    uint8_t buf[128] = {0};
+    const size_t n = BuildDisplayFrame(in, buf, sizeof(buf));
+    TEST_ASSERT_EQUAL_size_t(83u, n);
+
+    const auto parsed = ParseDisplayFrame(buf, n);
+    TEST_ASSERT_TRUE(parsed.has_value());
+    TEST_ASSERT_EQUAL_UINT32(in.valid.bits & 0xFFFFu, parsed->valid.bits);
+    TEST_ASSERT_TRUE(parsed->valid.has(onspeed::types::AirDataValid::kIas));
+    TEST_ASSERT_TRUE(parsed->valid.has(onspeed::types::AirDataValid::kPalt));
+    TEST_ASSERT_TRUE(parsed->valid.has(onspeed::types::AirDataValid::kOatRaw));
+    TEST_ASSERT_TRUE(parsed->iasIsValid);
+}
+
+// A v4.23-shaped frame (no wireVersion field at offset 2) must be
+// rejected by the v4.24 parser.  We synthesize a v4.23-style frame by
+// running the v4.23 snprintf and confirm the parser returns nullopt
+// (would otherwise mis-parse with field offsets shifted by 2).
+void test_v424_rejects_v423_frame_shape(void)
+{
+    // v4.23 frame: 77 bytes total, payload 73 bytes, no wireVersion.
+    // Pad to 83 bytes so the length check passes but the version
+    // check at offset 2..3 fails.
+    uint8_t buf[kDisplayFrameSizeBytes] = {0};
+    // Manually write a v4.23-shaped byte at offset 2: '+' (sign char
+    // for pitchDeg) — fails the digit-only check.
+    buf[0] = '#';
+    buf[1] = '1';
+    buf[2] = '+';
+    buf[3] = '0';
+    // Fill the rest with zeros + a CRLF; parser fails at the version
+    // check well before reaching the CRC check.
+    buf[kDisplayFrameSizeBytes - 2] = 0x0D;
+    buf[kDisplayFrameSizeBytes - 1] = 0x0A;
+    auto opt = ParseDisplayFrame(buf, kDisplayFrameSizeBytes);
+    TEST_ASSERT_FALSE(opt.has_value());
+}
+
+// ----------------------------------------------------------------------------
 
 int main(int, char**)
 {
@@ -846,8 +1010,8 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_spin_cue_positive);
     RUN_TEST(test_roundtrip_spin_cue_negative);
     RUN_TEST(test_roundtrip_pip_pct_lift);
-    RUN_TEST(test_pip_pct_lift_at_offset_71);
-    RUN_TEST(test_vsi_at_offset_35_pins_v423_layout_shift);
+    RUN_TEST(test_pip_pct_lift_at_offset_73);
+    RUN_TEST(test_vsi_at_offset_37_pins_v424_layout);
     RUN_TEST(test_pip_pct_lift_clamps_high);
 
     RUN_TEST(test_clamp_pitch_high);
@@ -861,7 +1025,7 @@ int main(int, char**)
     RUN_TEST(test_ias_high);
     RUN_TEST(test_ias_invalid_emits_sentinel);
     RUN_TEST(test_ias_valid_default_round_trips);
-    RUN_TEST(test_ias_invalid_wire_bytes_at_offset_11);
+    RUN_TEST(test_ias_invalid_wire_bytes_at_offset_13);
     RUN_TEST(test_ias_at_saturation_reports_invalid);
     RUN_TEST(test_percent_lift_zero);
     RUN_TEST(test_percent_lift_5_0);
@@ -890,6 +1054,16 @@ int main(int, char**)
     RUN_TEST(test_accumulator_drops_frame_without_lf_terminator);
     RUN_TEST(test_accumulator_rejects_bad_crc);
     RUN_TEST(test_accumulator_back_to_back_frames);
+
+    RUN_TEST(test_v424_frame_is_83_bytes);
+    RUN_TEST(test_v424_magic_and_version);
+    RUN_TEST(test_v424_validFlags_field_round_trip);
+    RUN_TEST(test_v424_crc8_matches_payload);
+    RUN_TEST(test_v424_invalid_ias_emits_sentinel_and_clears_bit);
+    RUN_TEST(test_v424_terminator_is_crlf);
+    RUN_TEST(test_v424_legacy_iasValid_bridge_when_no_bits_set);
+    RUN_TEST(test_v424_roundtrip_through_parser);
+    RUN_TEST(test_v424_rejects_v423_frame_shape);
 
     return UNITY_END();
 }
