@@ -209,6 +209,18 @@ static bool ParseString(std::string_view tok, char* out, size_t outCap)
     return true;
 }
 
+// Empty-tolerant parse for columns that may be blank in v5+ logs (e.g. wind
+// columns when TAS is below threshold or GPS fix is absent). Empty token
+// sets `out` to NaN; non-empty must parse cleanly.
+static bool ParseFloatOrNan(std::string_view tok, float& out)
+{
+    if (tok.empty()) {
+        out = std::nanf("");
+        return true;
+    }
+    return ParseFloat(tok, out);
+}
+
 // Empty-tolerant parse for the four `bIasAlive`-gated columns.
 // Empty token sets `out` to NaN and `outValid` to false; otherwise behaves
 // like ParseFloat and sets `outValid` to true on success.
@@ -303,6 +315,7 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 ",vnLinAccFwd,vnLinAccLat,vnLinAccVert"
                 ",vnYawSigma,vnRollSigma,vnPitchSigma"
                 ",vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown"
+                ",vnWindSpd,vnWindDir,vnWindVertical"
                 ",vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,vnTimeUTC");
         } else {
             ok &= Appendf(out, outCapacity, &len,
@@ -394,18 +407,27 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
             // risk.  Refuse to emit the row rather than silently corrupt.
             if (memchr(row.vnTimeUtc, ',', strnlen(row.vnTimeUtc, sizeof(row.vnTimeUtc))) != nullptr)
                 return 0;
-            // VN-300 format
+            // VN-300 format.  Wind columns emit as empty cells when NaN
+            // (no GPS fix, TAS below threshold, or NaN attitude).
             ok &= Appendf(out, outCapacity, &len,
                 ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f"
                 ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f"
-                ",%.2f,%.2f,%.2f,%.6f,%.6f,%.2f,%i,%i,%s",
+                ",%.2f,%.2f,%.2f",
                 row.vnAngularRateRoll,  row.vnAngularRatePitch, row.vnAngularRateYaw,
                 row.vnVelNedNorth,      row.vnVelNedEast,       row.vnVelNedDown,
                 row.vnAccelFwd,         row.vnAccelLat,         row.vnAccelVert,
                 row.vnYawDeg,           row.vnPitchDeg,         row.vnRollDeg,
                 row.vnLinAccFwd,        row.vnLinAccLat,        row.vnLinAccVert,
                 row.vnYawSigma,         row.vnRollSigma,        row.vnPitchSigma,
-                row.vnGnssVelNedNorth,  row.vnGnssVelNedEast,   row.vnGnssVelNedDown,
+                row.vnGnssVelNedNorth,  row.vnGnssVelNedEast,   row.vnGnssVelNedDown);
+            ok &= AppendFloatOrEmpty(out, outCapacity, &len,
+                std::isfinite(row.vnWindSpd),      ",%.2f", row.vnWindSpd);
+            ok &= AppendFloatOrEmpty(out, outCapacity, &len,
+                std::isfinite(row.vnWindDir),     ",%.1f", row.vnWindDir);
+            ok &= AppendFloatOrEmpty(out, outCapacity, &len,
+                std::isfinite(row.vnWindVertical), ",%.2f", row.vnWindVertical);
+            ok &= Appendf(out, outCapacity, &len,
+                ",%.6f,%.6f,%.2f,%i,%i,%s",
                 row.vnGnssLat,          row.vnGnssLon,          row.vnEstAltFt,
                 row.vnGpsFix,           row.vnDataAgeMs,        row.vnTimeUtc);
         } else {
@@ -537,6 +559,10 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
             if (!tok.next(field) || !ParseFloat(field, row.vnGnssVelNedNorth))  return false;
             if (!tok.next(field) || !ParseFloat(field, row.vnGnssVelNedEast))   return false;
             if (!tok.next(field) || !ParseFloat(field, row.vnGnssVelNedDown))   return false;
+            // Wind columns may be blank (NaN-emit); ParseFloatOrNan tolerates.
+            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindSpd))      return false;
+            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindDir))     return false;
+            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindVertical)) return false;
             if (!tok.next(field) || !ParseDouble(field, row.vnGnssLat))         return false;
             if (!tok.next(field) || !ParseDouble(field, row.vnGnssLon))         return false;
             if (!tok.next(field) || !ParseFloat(field, row.vnEstAltFt))         return false;

@@ -113,6 +113,10 @@ struct HeaderIndex {
     int idxVnGnssVelNedNorth   = -1;
     int idxVnGnssVelNedEast    = -1;
     int idxVnGnssVelNedDown    = -1;
+    // Optional within VN-300 group (format version 5+).
+    int idxVnWindSpd         = -1;
+    int idxVnWindDir        = -1;
+    int idxVnWindVertical    = -1;
     int idxVnGnssLat           = -1;
     int idxVnGnssLon           = -1;
     int idxVnEstAltFt          = -1;

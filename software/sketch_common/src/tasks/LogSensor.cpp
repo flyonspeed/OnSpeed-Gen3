@@ -951,6 +951,9 @@ void LogSensor::Write()
             row.vnGnssVelNedNorth  = g_EfisSerial.suVN300.GnssVelNedNorth;
             row.vnGnssVelNedEast   = g_EfisSerial.suVN300.GnssVelNedEast;
             row.vnGnssVelNedDown   = g_EfisSerial.suVN300.GnssVelNedDown;
+            row.vnWindSpd          = g_EfisSerial.suVN300.WindSpd;
+            row.vnWindDir          = g_EfisSerial.suVN300.WindDir;
+            row.vnWindVertical     = g_EfisSerial.suVN300.WindVertical;
             row.vnGnssLat          = g_EfisSerial.suVN300.GnssLat;
             row.vnGnssLon          = g_EfisSerial.suVN300.GnssLon;
             row.vnEstAltFt         = m2ft(static_cast<float>(g_EfisSerial.suVN300.EstAltMeters));

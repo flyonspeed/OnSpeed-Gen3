@@ -28,6 +28,7 @@
 //   vnLinAccFwd, vnLinAccLat, vnLinAccVert,
 //   vnYawSigma, vnRollSigma, vnPitchSigma,
 //   vnGnssVelNedNorth, vnGnssVelNedEast, vnGnssVelNedDown,
+//   vnWindSpd, vnWindDir, vnWindVertical,
 //   vnGnssLat, vnGnssLon, vnEstAltFt, vnGPSFix, vnDataAge, vnTimeUTC,
 //
 //   [if EFIS enabled and type != VN-300]
@@ -82,7 +83,11 @@ namespace onspeed::proto::log_csv {
 // Version 4: added `vnEstAltFt` to the VN-300 column group (INS-estimated
 // altitude in feet, sourced from the wire's Common.Position LLA). The
 // header-index parser tolerates the column's absence in older logs.
-inline constexpr int kFormatVersion = 4;
+// Version 5: added `vnWindSpd`, `vnWindDir`, `vnWindVertical` to the
+// VN-300 column group (wind triangle derived from GnssVelNed + VN-300 yaw +
+// ownship TAS).  All three columns are optional within the VN-300 group;
+// the header-index parser tolerates absence in older logs.
+inline constexpr int kFormatVersion = 5;
 
 // Conservative upper bounds for the two output buffers.
 // Both are sized to accommodate the VN-300 variant, which is the widest row.
@@ -118,8 +123,20 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity);
 //
 // Parses a single CSV data line (not the header) into `row`.  The parser
 // is header-agnostic: it expects columns in the exact order produced by
-// FormatRow, and uses the presence flags already set on `row` (boomEnabled,
-// efisEnabled, efisIsVn300) to decide how many optional columns to consume.
+// FormatRow at THIS revision of LogCsv.h, and uses the presence flags
+// already set on `row` (boomEnabled, efisEnabled, efisIsVn300) to decide
+// how many optional columns to consume.
+//
+// IMPORTANT: ParseRow is for SYMMETRIC callers only — the writer and reader
+// must share this exact LogCsv.h revision (i.e. the column set + order must
+// match).  This is fine for the round-trip unit tests (test_log_csv) but
+// NOT safe against older logs from earlier firmware versions: a v4-format
+// VN-300 log fed through this parser will silently mis-align columns
+// because v5 inserts three wind columns after vnGnssVelNedDown.
+//
+// For real-log readers (LogReplay, regression harness, tools), use
+// ParseRowByIndex in LogCsvHeaderIndex.h — that path is header-driven and
+// tolerates absent optional columns.
 //
 // Returns true on success, false on malformed input (too few fields, etc.).
 // Tolerates trailing CR/LF and empty trailing fields.

@@ -2,6 +2,8 @@
 #include "src/Globals.h"
 #include "src/io/EfisSerialPort.h"
 
+#include <aero/WindTriangle.h>
+
 #include <cmath>
 
 // ---------------------------------------------------------------------------
@@ -69,6 +71,9 @@ EfisSerialPort::EfisSerialPort()
     suVN300.GnssLon          = 0.00;
     suVN300.EstAltMeters     = 0.00;
     suVN300.szTimeUTC[0]     = '\0';
+    suVN300.WindSpd        = std::nanf("");
+    suVN300.WindDir       = std::nanf("");
+    suVN300.WindVertical   = std::nanf("");
 
     uTimestamp = millis();
 }
@@ -234,4 +239,30 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
 
     strncpy(suVN300.szTimeUTC, data.szTimeUTC, sizeof(suVN300.szTimeUTC) - 1);
     suVN300.szTimeUTC[sizeof(suVN300.szTimeUTC) - 1] = '\0';
+
+    // Wind triangle.  Snapshot TAS without a mutex: aligned 32-bit float
+    // DRAM loads are atomic on Xtensa LX7, so no torn-read is possible for
+    // this single scalar.  Do NOT extend this reasoning to multi-word reads
+    // (struct snapshots, double) — those are not atomic and would need the
+    // xAhrsMutex.  Gate on GPS fix; without it, GnssVelNed is noise.
+    constexpr float kKtPerMps = 1.943844f;
+    const float ownshipTasMps = g_AHRS.fTAS;
+    if (data.gpsFix > 0) {
+        auto wind = onspeed::aero::ComputeWind(
+            data.gnssVelNedNorth, data.gnssVelNedEast, data.gnssVelNedDown,
+            data.yaw, data.pitch, ownshipTasMps);
+        if (wind) {
+            suVN300.WindSpd      = wind->windSpeedMps    * kKtPerMps;
+            suVN300.WindDir     = wind->windDirDeg;
+            suVN300.WindVertical = wind->windVerticalMps * kKtPerMps;
+        } else {
+            suVN300.WindSpd      = std::nanf("");
+            suVN300.WindDir     = std::nanf("");
+            suVN300.WindVertical = std::nanf("");
+        }
+    } else {
+        suVN300.WindSpd      = std::nanf("");
+        suVN300.WindDir     = std::nanf("");
+        suVN300.WindVertical = std::nanf("");
+    }
 }
