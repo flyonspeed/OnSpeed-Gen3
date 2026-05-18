@@ -53,9 +53,11 @@ namespace {
 // ---------------------------------------------------------------------------
 MenuItem g_items[] = {
     { "Speed Units", ItemType::Toggle, &g_speedInMph, "KTS", "MPH",
-      nullptr, nullptr },
+      nullptr, nullptr,
+      nullptr, 0, nullptr },
     { "Exit",        ItemType::Action, nullptr, nullptr, nullptr,
-      nullptr, nullptr },
+      nullptr, nullptr,
+      nullptr, 0, nullptr },
 };
 constexpr int kItemCount = sizeof(g_items) / sizeof(g_items[0]);
 

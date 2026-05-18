@@ -18,9 +18,11 @@ void tearDown(void) {}
 static bool g_test_toggle = false;
 static MenuItem g_test_items[] = {
     { "Speed Units", ItemType::Toggle, &g_test_toggle, "KTS", "MPH",
-      nullptr, nullptr },
+      nullptr, nullptr,
+      nullptr, 0, nullptr },
     { "Exit",        ItemType::Action, nullptr, nullptr, nullptr,
-      nullptr /* null callback = Exit */, nullptr },
+      nullptr /* null callback = Exit */, nullptr,
+      nullptr, 0, nullptr },
 };
 
 static MenuModel make_model() {
@@ -101,9 +103,11 @@ void test_info_activation_is_noop(void) {
     auto info_getter = []() -> const char* { return k_info_value; };
     static MenuItem info_items[] = {
         { "Version", ItemType::Info, nullptr, nullptr, nullptr, nullptr,
-          info_getter },
+          info_getter,
+          nullptr, 0, nullptr },
         { "Exit",    ItemType::Action, nullptr, nullptr, nullptr, nullptr,
-          nullptr },
+          nullptr,
+          nullptr, 0, nullptr },
     };
     MenuModel m(info_items, 2);
 
@@ -131,6 +135,106 @@ void test_reset_for_entry_clears_state(void) {
     TEST_ASSERT_FALSE(m.wantsExit());   // idle reset, still under 30s
 }
 
+// Activating a Choice item cycles through its options modulo choiceCount.
+// With choiceCount = 3, four activates produce 1, 2, 0, 1.
+void test_activate_cyclesThroughChoices(void) {
+    static int choice = 0;
+    static const char* const labels[] = { "A", "B", "C" };
+    static MenuItem items[] = {
+        { "Mode", ItemType::Choice, nullptr, nullptr, nullptr, nullptr, nullptr,
+          &choice, 3, labels },
+    };
+    MenuModel m(items, 1);
+
+    auto r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kToggled);
+    TEST_ASSERT_EQUAL_INT(1, choice);
+
+    r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kToggled);
+    TEST_ASSERT_EQUAL_INT(2, choice);
+
+    r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kToggled);
+    TEST_ASSERT_EQUAL_INT(0, choice);
+
+    r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kToggled);
+    TEST_ASSERT_EQUAL_INT(1, choice);
+}
+
+// A Choice item with a single option still reports kToggled (the caller
+// cares only that the value may have changed and should be persisted),
+// but the value stays at 0.
+void test_choiceWithSingleOption(void) {
+    static int choice = 0;
+    static const char* const labels[] = { "Only" };
+    static MenuItem items[] = {
+        { "Mode", ItemType::Choice, nullptr, nullptr, nullptr, nullptr, nullptr,
+          &choice, 1, labels },
+    };
+    MenuModel m(items, 1);
+
+    auto r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kToggled);
+    TEST_ASSERT_EQUAL_INT(0, choice);
+}
+
+// A Choice item with a null choiceValue pointer is a no-op: returns the
+// "did nothing" sentinel, matches the convention used for null
+// toggleValue / null getInfoValue.
+void test_choiceWithNullPointer(void) {
+    static const char* const labels[] = { "A", "B" };
+    static MenuItem items[] = {
+        { "Mode", ItemType::Choice, nullptr, nullptr, nullptr, nullptr, nullptr,
+          nullptr, 2, labels },
+    };
+    MenuModel m(items, 1);
+
+    auto r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kStayed);
+}
+
+// Navigation works correctly across an array mixing all item types:
+// Toggle flips a bool, Choice cycles its int, Action with null callback
+// sets wantsExit().
+void test_mixedItemsArray(void) {
+    static bool mixed_toggle = false;
+    static int  mixed_choice = 0;
+    static const char* const mixed_labels[] = { "X", "Y", "Z" };
+    static MenuItem mixed_items[] = {
+        { "Toggle", ItemType::Toggle, &mixed_toggle, "OFF", "ON",
+          nullptr, nullptr,
+          nullptr, 0, nullptr },
+        { "Choice", ItemType::Choice, nullptr, nullptr, nullptr,
+          nullptr, nullptr,
+          &mixed_choice, 3, mixed_labels },
+        { "Exit",   ItemType::Action, nullptr, nullptr, nullptr,
+          nullptr, nullptr,
+          nullptr, 0, nullptr },
+    };
+    MenuModel m(mixed_items, 3);
+
+    // Index 0: Toggle. Activate flips bool, returns kToggled.
+    auto r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kToggled);
+    TEST_ASSERT_TRUE(mixed_toggle);
+
+    // Down to index 1: Choice. Activate cycles int.
+    m.onDown();
+    TEST_ASSERT_EQUAL_INT(1, m.currentIndex());
+    r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kToggled);
+    TEST_ASSERT_EQUAL_INT(1, mixed_choice);
+
+    // Down to index 2: Exit action. Activate sets wantsExit, returns kExit.
+    m.onDown();
+    TEST_ASSERT_EQUAL_INT(2, m.currentIndex());
+    r = m.onActivate();
+    TEST_ASSERT_TRUE(r == MenuModel::ActivateResult::kExit);
+    TEST_ASSERT_TRUE(m.wantsExit());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_cursor_wraps_both_directions);
@@ -141,5 +245,9 @@ int main(int, char**) {
     RUN_TEST(test_back_or_longpress_exits_immediately);
     RUN_TEST(test_info_activation_is_noop);
     RUN_TEST(test_reset_for_entry_clears_state);
+    RUN_TEST(test_activate_cyclesThroughChoices);
+    RUN_TEST(test_choiceWithSingleOption);
+    RUN_TEST(test_choiceWithNullPointer);
+    RUN_TEST(test_mixedItemsArray);
     return UNITY_END();
 }
