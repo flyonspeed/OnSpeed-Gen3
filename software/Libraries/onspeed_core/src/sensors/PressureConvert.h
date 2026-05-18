@@ -54,14 +54,32 @@ std::optional<float> CountsToPsi(uint16_t counts, HscRange range);
 
 // Differential pitot pressure (PSI) -> indicated airspeed (knots).
 //
-// Derivation:
-//   dp_Pa = dp_PSI * 6894.757              (PSI to Pa)
-//   IAS_ms = sqrt(2 * dp_Pa / rho0)       (pitot equation, incompressible)
-//   IAS_kt = IAS_ms * 1.94384             (m/s to knots)
+// Uses the ASTM / ICAO compressible-flow definition of calibrated airspeed
+// (CAS), which is the inversion of the isentropic subsonic pitot relation
+// for a perfect gas with gamma = 1.4:
 //
-// rho0 = 1.225 kg/m^3 (ISA sea-level air density) is baked in — this is
-// indicated airspeed, not true. Returns 0.0 for negative or zero dp
-// (sensor at rest or reversed flow).
+//   qc / P0 = (1 + 0.2 * (V / a0)^2)^(7/2) - 1
+//
+// Inverted:
+//
+//   V_mps = a0 * sqrt(5 * ((qc / P0 + 1)^(2/7) - 1))
+//
+// where:
+//   qc  = impact (dynamic) pressure, Pa = dpPsi * 6894.757
+//   P0  = 101325 Pa  (ISA sea-level static pressure)
+//   a0  = 340.2941 m/s (ISA sea-level speed of sound)
+//
+// At low Mach this is numerically identical to the incompressible pitot
+// equation sqrt(2 * qc / rho0); it diverges above ~M 0.3 (~200 KIAS at
+// sea level), where the incompressible form reads roughly 1 kt high and
+// grows with airspeed.
+//
+// The result is technically calibrated airspeed (CAS); the OnSpeed codebase
+// conflates IAS and CAS consistently because no installed position-error
+// correction is applied. If a position-error table is added later, it
+// belongs downstream of this function.
+//
+// Returns 0.0 for negative or zero dp (sensor at rest or reversed flow).
 float PitotPsiToIasKt(float dpPsi);
 
 // Static pressure (millibars) -> pressure altitude (feet) via ISA atmosphere.

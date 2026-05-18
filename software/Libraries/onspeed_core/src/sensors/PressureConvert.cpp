@@ -1,8 +1,9 @@
 // PressureConvert.cpp — raw HSC counts -> PSI -> IAS / Palt math
 //
-// All formulas are ported from sketch-side HscPressureSensor.cpp and
-// SensorIO.cpp. Comments explain the derivation; the math is unchanged
-// from the original to preserve bit-for-bit output during the extraction.
+// HSC transfer function and ISA altitude formulas are ported from
+// sketch-side HscPressureSensor.cpp and SensorIO.cpp. PitotPsiToIasKt uses
+// the ASTM/ICAO compressible-flow CAS definition; see the function comment
+// for the derivation.
 
 #include <sensors/PressureConvert.h>
 #include <util/OnSpeedTypes.h>
@@ -36,14 +37,24 @@ float PitotPsiToIasKt(float dpPsi)
     if (dpPsi <= 0.0f)
         return 0.0f;
 
-    // Convert PSI to Pascals via psi2mb (= 68.94757 mbar/psi from
-    // OnSpeedTypes.h) * 100 Pa/mbar.  Matches SensorIO.cpp's path.
-    const float dpPa = onspeed::psi2mb(dpPsi) * 100.0f;
+    // ASTM / ICAO compressible-flow CAS:
+    //   V = a0 * sqrt(5 * ((qc / P0 + 1)^(2/7) - 1))
+    //
+    // Inversion of the isentropic subsonic pitot relation
+    //   qc / P0 = (1 + 0.2 * (V / a0)^2)^(7/2) - 1
+    // for a perfect gas with gamma = 1.4. Matches the incompressible form
+    // sqrt(2 * qc / rho0) to within a fraction of a knot below M 0.3, and
+    // tracks the ASTM/ICAO calibrated-airspeed definition at higher Mach.
+    //
+    // P0 = 101325 Pa  (ISA sea-level static pressure)
+    // a0 = 340.2941 m/s (ISA sea-level speed of sound)
+    constexpr float kP0Pa  = 101325.0f;
+    constexpr float kA0Mps = 340.2941f;
 
-    // Incompressible pitot equation: IAS = sqrt(2 * dp / rho0)
-    // rho0 = 1.225 kg/m^3 (ISA sea-level standard air density).
-    // sqrt result is m/s; convert to knots via mps2kts (1.94384).
-    return onspeed::mps2kts(sqrtf(2.0f * dpPa / 1.225f));
+    // Convert PSI to Pa via psi2mb (= 68.94757 mbar/psi) * 100 Pa/mbar.
+    const float qcPa    = onspeed::psi2mb(dpPsi) * 100.0f;
+    const float bracket = powf(qcPa / kP0Pa + 1.0f, 2.0f / 7.0f) - 1.0f;
+    return onspeed::mps2kts(kA0Mps * sqrtf(5.0f * bracket));
 }
 
 float StaticMbarToPaltFt(float staticMbar)

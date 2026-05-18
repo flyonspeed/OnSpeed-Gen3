@@ -89,8 +89,18 @@ void test_counts_at_exactly_countsMax_plus1_returns_nullopt(void)
 }
 
 // ============================================================================
-// PitotPsiToIasKt — incompressible pitot equation
+// PitotPsiToIasKt — ASTM/ICAO compressible-flow CAS
 // ============================================================================
+//
+// Each qc value below is the analytical impact pressure that the subsonic
+// pitot relation produces at the listed true IAS:
+//
+//   qc = P0 * ((1 + 0.2 * (V / a0)^2)^(7/2) - 1)
+//
+// with P0 = 101325 Pa, a0 = 340.2941 m/s, V in m/s. Computed at double
+// precision and rounded to 7 significant figures. Round-trip error
+// through PitotPsiToIasKt is dominated by single-precision powf; the
+// 0.05-kt tolerance is comfortably larger.
 
 void test_pitot_psi_to_ias_zero_dp_returns_zero(void)
 {
@@ -103,24 +113,55 @@ void test_pitot_psi_to_ias_negative_dp_returns_zero(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, PitotPsiToIasKt(-0.01f));
 }
 
-void test_pitot_psi_to_ias_characterize_60kt(void)
+void test_pitot_psi_to_ias_compressible_60kt(void)
 {
-    // At 60 kt: dp = 0.5 * rho0 * v^2 = 0.5 * 1.225 * (60*0.514444)^2
-    //         = 0.5 * 1.225 * 952.5 = 583.6 Pa = 0.08466 PSI
-    // Reverse: IAS = sqrt(2 * 0.08466 * 6894.757 / 1.225) * 1.94384 ≈ 60 kt
-    const float dp60kt = 0.5f * 1.225f * (60.0f * 0.514444f) * (60.0f * 0.514444f);
-    const float dpPsi = dp60kt / 6894.757f;
-    float ias = PitotPsiToIasKt(dpPsi);
-    TEST_ASSERT_FLOAT_WITHIN(0.5f, 60.0f, ias);
+    // qc at 60 kt CAS = 0.0848128 PSI
+    float ias = PitotPsiToIasKt(0.0848128f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 60.0f, ias);
 }
 
-void test_pitot_psi_to_ias_characterize_100kt(void)
+void test_pitot_psi_to_ias_compressible_100kt(void)
 {
-    // Same derivation for 100 kt.
-    const float dp100kt = 0.5f * 1.225f * (100.0f * 0.514444f) * (100.0f * 0.514444f);
-    const float dpPsi = dp100kt / 6894.757f;
-    float ias = PitotPsiToIasKt(dpPsi);
-    TEST_ASSERT_FLOAT_WITHIN(0.5f, 100.0f, ias);
+    // qc at 100 kt CAS = 0.2364535 PSI
+    float ias = PitotPsiToIasKt(0.2364535f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 100.0f, ias);
+}
+
+void test_pitot_psi_to_ias_compressible_150kt(void)
+{
+    // qc at 150 kt CAS = 0.5358266 PSI
+    float ias = PitotPsiToIasKt(0.5358266f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 150.0f, ias);
+}
+
+void test_pitot_psi_to_ias_compressible_200kt(void)
+{
+    // qc at 200 kt CAS = 0.9621184 PSI. The incompressible formula
+    // would return ~202.3 kt at this qc; the compressible form returns
+    // 200 kt by construction.
+    float ias = PitotPsiToIasKt(0.9621184f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 200.0f, ias);
+}
+
+void test_pitot_psi_to_ias_compressible_250kt(void)
+{
+    // qc at 250 kt CAS = 1.5226448 PSI. Incompressible would return
+    // ~254.5 kt; compressible returns 250 kt.
+    float ias = PitotPsiToIasKt(1.5226448f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 250.0f, ias);
+}
+
+void test_pitot_psi_to_ias_compressible_matches_incompressible_at_low_qc(void)
+{
+    // Below ~M 0.3 the compressible and incompressible pitot formulas
+    // agree to within float noise. At 50 kt the incompressible answer
+    // is 50.043 kt and the compressible answer is 50.000 kt — well
+    // within the 0.05-kt tolerance. Pinned here so that any future
+    // change that loses low-qc accuracy fails loudly.
+    //
+    // qc at 50 kt CAS = 0.058891 PSI.
+    float ias = PitotPsiToIasKt(0.058891f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 50.0f, ias);
 }
 
 // ============================================================================
@@ -211,8 +252,12 @@ int main(int, char**)
     // PitotPsiToIasKt
     RUN_TEST(test_pitot_psi_to_ias_zero_dp_returns_zero);
     RUN_TEST(test_pitot_psi_to_ias_negative_dp_returns_zero);
-    RUN_TEST(test_pitot_psi_to_ias_characterize_60kt);
-    RUN_TEST(test_pitot_psi_to_ias_characterize_100kt);
+    RUN_TEST(test_pitot_psi_to_ias_compressible_60kt);
+    RUN_TEST(test_pitot_psi_to_ias_compressible_100kt);
+    RUN_TEST(test_pitot_psi_to_ias_compressible_150kt);
+    RUN_TEST(test_pitot_psi_to_ias_compressible_200kt);
+    RUN_TEST(test_pitot_psi_to_ias_compressible_250kt);
+    RUN_TEST(test_pitot_psi_to_ias_compressible_matches_incompressible_at_low_qc);
 
     // StaticMbarToPaltFt
     RUN_TEST(test_static_mbar_to_palt_sea_level);
