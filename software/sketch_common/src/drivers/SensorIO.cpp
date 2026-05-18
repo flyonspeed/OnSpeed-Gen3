@@ -17,7 +17,7 @@
 //   xSensorMutex - guards the shared SPI bus (IMU + 3 pressure sensors +
 //                  MCP3202 ADC).  Held for microseconds at a time, only
 //                  for the duration of an SPI transaction.
-//   xAhrsMutex   - guards AHRS state (Madgwick / EKF6) AND the swap of
+//   xAhrsMutex   - guards AHRS state (Madgwick / EKFQ) AND the swap of
 //                  g_Config.aFlaps + the matching write to g_Flaps.iIndex
 //                  in HandleConfigSave.  Per-flap setpoints and the AOA
 //                  polynomial must therefore be snapshotted under

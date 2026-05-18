@@ -13,7 +13,7 @@
 namespace onspeed {
 
 struct AhrsOutputs {
-    // Smoothed attitude from the Madgwick or EKF6 filter (degrees).
+    // Smoothed attitude from the Madgwick or EKFQ filter (degrees).
     float pitchDeg = 0.0f;
     float rollDeg  = 0.0f;
 

@@ -275,8 +275,33 @@ XmlParseStatus ParseXml(std::string_view xml, OnSpeedConfig& cfg)
         GetFloat(pBias, "ROLL",    cfg.fRollBias);
     }
 
-    // AHRS algorithm — scalar top-level.
+    // AHRS algorithm — scalar top-level (0=Madgwick, 1=EKFQ).
     GetInt(root, "AHRS_ALGORITHM", cfg.iAhrsAlgorithm);
+
+    // EKFQ tuning section. Optional — if missing, defaults from
+    // OnSpeedConfig::LoadDefaults() (= EKFQ::Config::defaults(), Optuna
+    // best) are used.
+    XMLElement* pEkfq = root->FirstChildElement("EKFQ");
+    if (pEkfq != nullptr) {
+        GetFloat(pEkfq, "Q_QUAT",         cfg.fEkfqQQuat);
+        GetFloat(pEkfq, "Q_BIAS",         cfg.fEkfqQBias);
+        GetFloat(pEkfq, "Q_Z",            cfg.fEkfqQZ);
+        GetFloat(pEkfq, "Q_VZ",           cfg.fEkfqQVz);
+        GetFloat(pEkfq, "Q_B_AZ",         cfg.fEkfqQBaz);
+        GetFloat(pEkfq, "Q_BETA",         cfg.fEkfqQBeta);
+        GetFloat(pEkfq, "R_AX",           cfg.fEkfqRAx);
+        GetFloat(pEkfq, "R_AY",           cfg.fEkfqRAy);
+        GetFloat(pEkfq, "R_AZ",           cfg.fEkfqRAz);
+        GetFloat(pEkfq, "R_BARO",         cfg.fEkfqRBaro);
+        GetFloat(pEkfq, "R_BETA_PRIOR",   cfg.fEkfqRBetaPrior);
+        GetFloat(pEkfq, "R_BIAS_PRIOR",   cfg.fEkfqRBiasPrior);
+        GetFloat(pEkfq, "K_BETA_R",       cfg.fEkfqKBetaR);
+        GetFloat(pEkfq, "ACCEL_EMA_ALPHA",   cfg.fEkfqAccelEmaAlpha);
+        GetFloat(pEkfq, "COMP_FADE_TAU_SEC", cfg.fEkfqCompFadeTauSec);
+        GetFloat(pEkfq, "IAS_ALIVE_KT",      cfg.fEkfqIasAliveKt);
+        GetFloat(pEkfq, "TASDOT_EMA_ALPHA",  cfg.fEkfqTasdotEmaAlpha);
+        GetFloat(pEkfq, "TAS_MIN_MPS",       cfg.fEkfqTasMinMps);
+    }
 
     // ---------------- <LOAD_LIMIT> ---------------------------------------
 

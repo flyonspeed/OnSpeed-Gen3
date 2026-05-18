@@ -279,7 +279,7 @@
             <label for="id_ahrsAlgorithm">AHRS Algorithm</label>
             <select id="id_ahrsAlgorithm" name="ahrsAlgorithm">
                 <option value="0"{{ahrsMadgwickSel}}>Madgwick (default)</option>
-                <option value="1"{{ahrsEkf6Sel}}>EKF6</option>
+                <option value="1"{{ahrsEkfqSel}}>EKFQ (Quaternion EKF, Optuna-tuned)</option>
             </select>
         </div>
         <div id="volumeControlDiv" class="form-divs flex-col-{{volumeControlWidth}}">

@@ -156,6 +156,29 @@ std::string EmitXml(const OnSpeedConfig& cfg)
 
     AddInt(root, "AHRS_ALGORITHM", cfg.iAhrsAlgorithm);
 
+    // <EKFQ> tuning section (only meaningful when AHRS_ALGORITHM == 1,
+    // but always emitted so a downstream reader can see the current
+    // tuning).
+    XMLElement* ekfq = AddElem(root, "EKFQ");
+    AddFloat(ekfq, "Q_QUAT",          cfg.fEkfqQQuat);
+    AddFloat(ekfq, "Q_BIAS",          cfg.fEkfqQBias);
+    AddFloat(ekfq, "Q_Z",             cfg.fEkfqQZ);
+    AddFloat(ekfq, "Q_VZ",            cfg.fEkfqQVz);
+    AddFloat(ekfq, "Q_B_AZ",          cfg.fEkfqQBaz);
+    AddFloat(ekfq, "Q_BETA",          cfg.fEkfqQBeta);
+    AddFloat(ekfq, "R_AX",            cfg.fEkfqRAx);
+    AddFloat(ekfq, "R_AY",            cfg.fEkfqRAy);
+    AddFloat(ekfq, "R_AZ",            cfg.fEkfqRAz);
+    AddFloat(ekfq, "R_BARO",          cfg.fEkfqRBaro);
+    AddFloat(ekfq, "R_BETA_PRIOR",    cfg.fEkfqRBetaPrior);
+    AddFloat(ekfq, "R_BIAS_PRIOR",    cfg.fEkfqRBiasPrior);
+    AddFloat(ekfq, "K_BETA_R",        cfg.fEkfqKBetaR);
+    AddFloat(ekfq, "ACCEL_EMA_ALPHA", cfg.fEkfqAccelEmaAlpha);
+    AddFloat(ekfq, "COMP_FADE_TAU_SEC", cfg.fEkfqCompFadeTauSec);
+    AddFloat(ekfq, "IAS_ALIVE_KT",    cfg.fEkfqIasAliveKt);
+    AddFloat(ekfq, "TASDOT_EMA_ALPHA", cfg.fEkfqTasdotEmaAlpha);
+    AddFloat(ekfq, "TAS_MIN_MPS",     cfg.fEkfqTasMinMps);
+
     // <LOAD_LIMIT>
     XMLElement* load = AddElem(root, "LOAD_LIMIT");
     AddFloat(load, "POSITIVE",              cfg.fLoadLimitPositive);

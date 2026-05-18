@@ -189,8 +189,46 @@ public:
     float   fPitchBias;
     float   fRollBias;
 
-    // AHRS algorithm selection: 0=Madgwick (default), 1=EKF6
+    // AHRS algorithm selection: 0=Madgwick (default), 1=EKFQ.
     int     iAhrsAlgorithm;
+
+    // EKFQ (11-state quaternion EKF) tuning parameters.
+    //
+    // Defaults below reproduce the best Optuna trial against VN-300 truth
+    // (studies ekfq_v15 / ekfq_v16, cruise-AOA loss profile). When this
+    // filter is selected its z/vz outputs replace the standalone altitude
+    // KalmanFilter so the firmware publishes one consistent vertical
+    // channel — Madgwick mode still uses the standalone Kalman for VSI.
+    //
+    // All `f...` are in SI units. Process noise (`fEkfqQ...`) is
+    // continuous-time spectral density (variance per second). Measurement
+    // noise (`fEkfqR...`) is discrete variance. See EKFQ.h for the
+    // state-vector layout and units.
+    //
+    // Defaults match EKFQ::Config::defaults() — kept in sync so the
+    // firmware can start with the production-tuned values even if the
+    // cfg file is missing the [EKFQ] section.
+    float fEkfqQQuat;
+    float fEkfqQBias;
+    float fEkfqQZ;
+    float fEkfqQVz;
+    float fEkfqQBaz;
+    float fEkfqQBeta;
+    float fEkfqRAx;
+    float fEkfqRAy;
+    float fEkfqRAz;
+    float fEkfqRBaro;
+    float fEkfqRBetaPrior;
+    float fEkfqRBiasPrior;
+    float fEkfqKBetaR;
+    // Signal-chain overrides — only active when iAhrsAlgorithm == 1.
+    // These replace the Madgwick-tuned compile-time constants when EKFQ
+    // is selected.
+    float fEkfqAccelEmaAlpha;     ///< Overrides kAccSmoothing (208 Hz)
+    float fEkfqCompFadeTauSec;    ///< Overrides comp_fade τ (0.5 s legacy)
+    float fEkfqIasAliveKt;        ///< Override IAS-alive threshold (25 kt legacy)
+    float fEkfqTasdotEmaAlpha;    ///< IAS-derivative EMA α
+    float fEkfqTasMinMps;         ///< β-dynamics damping threshold
 
     // Serial inputs
     bool    bReadBoom;

@@ -125,8 +125,31 @@ bool OnSpeedConfig::LoadDefaults()
     fPitchBias          = 0.0f;
     fRollBias           = 0.0f;
 
-    // AHRS algorithm: 0=Madgwick (default), 1=EKF6
+    // AHRS algorithm: 0=Madgwick (default), 1=EKFQ.
     iAhrsAlgorithm      = 0;
+
+    // EKFQ defaults — keep in sync with EKFQ::Config::defaults() in
+    // ahrs/EKFQ.cpp. Optuna study ekfq_v15 best trial (cruise-AOA loss);
+    // these will be re-locked once the ekfq_v16 study with expanded
+    // bounds completes.
+    fEkfqQQuat          = 1.3876969636637712e-06f;
+    fEkfqQBias          = 0.08059835153457112f;
+    fEkfqQZ             = 0.000760923735397084f;
+    fEkfqQVz            = 0.00011863168292171215f;
+    fEkfqQBaz           = 0.00011126568311539455f;
+    fEkfqQBeta          = 3.525093877403027e-08f;
+    fEkfqRAx            = 16.594799559856998f;
+    fEkfqRAy            = 10.855551467684359f;
+    fEkfqRAz            = 12.758742327066178f;
+    fEkfqRBaro          = 5.015458731982534f;
+    fEkfqRBetaPrior     = 0.13441309019767658f;
+    fEkfqRBiasPrior     = 0.00035857919885685886f;
+    fEkfqKBetaR         = 6.79749216596058f;
+    fEkfqAccelEmaAlpha  = 0.052324843677354384f;
+    fEkfqCompFadeTauSec = 2.531734433346506f;
+    fEkfqIasAliveKt     = 33.66929039144636f;
+    fEkfqTasdotEmaAlpha = 0.20081238948995161f;
+    fEkfqTasMinMps      = 12.0f;
 
     // Serial inputs
     bReadBoom           = false;

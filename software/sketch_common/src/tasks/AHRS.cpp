@@ -29,9 +29,42 @@ namespace {
 
 onspeed::ahrs::Algorithm AlgorithmFromConfig(int iAhrsAlgorithm)
 {
-    return (iAhrsAlgorithm == 1)
-        ? onspeed::ahrs::Algorithm::Ekf6
-        : onspeed::ahrs::Algorithm::Madgwick;
+    // 0 = Madgwick (default), 1 = EKFQ.
+    if (iAhrsAlgorithm == 1) return onspeed::ahrs::Algorithm::Ekfq;
+    return onspeed::ahrs::Algorithm::Madgwick;
+}
+
+// Pack the EKFQ tuning parameters from g_Config into an EKFQ::Config.
+// Kept inline here (rather than buried in onspeed_core) because the
+// sketch is the only consumer that knows about both g_Config and
+// EKFQ::Config — onspeed_core stays platform-independent and config-free.
+onspeed::EKFQ::Config EkfqConfigFromConfig()
+{
+    onspeed::EKFQ::Config c;
+    c.q_quat       = g_Config.fEkfqQQuat;
+    c.q_bias       = g_Config.fEkfqQBias;
+    c.q_z          = g_Config.fEkfqQZ;
+    c.q_vz         = g_Config.fEkfqQVz;
+    c.q_b_az       = g_Config.fEkfqQBaz;
+    c.q_beta       = g_Config.fEkfqQBeta;
+    c.r_ax         = g_Config.fEkfqRAx;
+    c.r_ay         = g_Config.fEkfqRAy;
+    c.r_az         = g_Config.fEkfqRAz;
+    c.r_baro       = g_Config.fEkfqRBaro;
+    c.r_beta_prior = g_Config.fEkfqRBetaPrior;
+    c.r_bias_prior = g_Config.fEkfqRBiasPrior;
+    c.k_beta_R     = g_Config.fEkfqKBetaR;
+    // Initial covariance — not exposed to cfg (defaults are reasonable
+    // and the filter converges within a few seconds regardless).
+    const auto defs = onspeed::EKFQ::Config::defaults();
+    c.p_quat       = defs.p_quat;
+    c.p_bias       = defs.p_bias;
+    c.p_z          = defs.p_z;
+    c.p_vz         = defs.p_vz;
+    c.p_b_az       = defs.p_b_az;
+    c.p_beta       = defs.p_beta;
+    c.tas_min_mps  = g_Config.fEkfqTasMinMps;
+    return c;
 }
 
 }   // namespace
@@ -47,6 +80,12 @@ onspeed::ahrs::AhrsConfig AHRS::MakeCfg_() const
     cfg.gyroSmoothingWindow = iGyroSmoothing_;
     cfg.imuSampleRateHz  = fImuSampleRate;
     cfg.pressureSampleRateHz = static_cast<float>(kPressureSampleRateHz);
+    // EKFQ-specific tuning (only consulted when algorithm == Ekfq).
+    cfg.ekfqConfig          = EkfqConfigFromConfig();
+    cfg.ekfqAccelEmaAlpha   = g_Config.fEkfqAccelEmaAlpha;
+    cfg.ekfqCompFadeTauSec  = g_Config.fEkfqCompFadeTauSec;
+    cfg.ekfqIasAliveKt      = g_Config.fEkfqIasAliveKt;
+    cfg.ekfqTasdotEmaAlpha  = g_Config.fEkfqTasdotEmaAlpha;
     return cfg;
 }
 
@@ -185,7 +224,7 @@ void AHRS::Init(float fSampleRate)
 
     g_Log.printf(MsgLog::EnAHRS, MsgLog::EnWarning,
         "AHRS Init (%s, pitch bias %.1f, roll bias %.1f)\n",
-        g_Config.iAhrsAlgorithm == 1 ? "EKF6" : "Madgwick",
+        g_Config.iAhrsAlgorithm == 1 ? "EKFQ" : "Madgwick",
         g_Config.fPitchBias, g_Config.fRollBias);
 }
 

@@ -11,7 +11,7 @@
 //
 //   1. EMA-smooth raw accels (alpha = kAccSmoothing = 0.060899).
 //   2. Apply installation bias (precomputed sin/cos of pitch/roll bias).
-//   3. Run Madgwick or EKF6 algorithm to fuse gyro + accel into attitude.
+//   3. Run Madgwick or EKFQ algorithm to fuse gyro + accel into attitude.
 //   4. Compute density-corrected TAS from IAS + Palt + OAT — but only
 //      when the IAS-update timestamp advances (≈ 50 Hz, not 208 Hz).
 //   5. Compute TAS first derivative via a variable-rate EMA.
@@ -36,7 +36,7 @@
 
 #include <cstdint>
 
-#include <ahrs/EKF6.h>
+#include <ahrs/EKFQ.h>
 #include <ahrs/KalmanFilter.h>
 #include <ahrs/MadgwickFusion.h>
 #include <filters/EMAFilter.h>
@@ -53,14 +53,22 @@ namespace onspeed::ahrs {
 /// RateAdjustedAccelEma.h.
 inline constexpr float kAccSmoothing = 0.060899f;
 
-// AHRS algorithm choice.  Integer values match `Config::iAhrsAlgorithm`
-// in the sketch (0 = Madgwick, 1 = EKF6) so existing config files load
-// unchanged.
-enum class Algorithm : int { Madgwick = 0, Ekf6 = 1 };
+// AHRS algorithm choice. Two options:
+//   0 = Madgwick (existing) — paired with the standalone altitude
+//       KalmanFilter for VSI/altitude.
+//   1 = EKFQ    — 11-state quaternion EKF (attitude + sideslip +
+//       integrated z/vz/b_az). When selected, EKFQ's vertical channel
+//       publishes altitude/VSI directly and the standalone KalmanFilter
+//       is bypassed.
+//
+// The integer value of EKFQ stays 1 (same as the old EKF6 slot) so
+// config files that selected "EKF6" continue to select an EKF — they
+// just get the better-tuned EKFQ instead.
+enum class Algorithm : int { Madgwick = 0, Ekfq = 1 };
 
-// Constructor-time AHRS configuration.  Values that change rarely (or
-// only when the user toggles a setting and we re-init); per-frame values
-// live on AhrsInputs.
+// Constructor-time AHRS configuration. Values that change rarely (or
+// only when the user toggles a setting and we re-init); per-frame
+// values live on AhrsInputs.
 struct AhrsConfig {
     float pitchBiasDeg     = 0.0f;
     float rollBiasDeg      = 0.0f;
@@ -68,6 +76,16 @@ struct AhrsConfig {
     int   gyroSmoothingWindow = 30;     // RunningMean window
     float imuSampleRateHz  = 208.0f;
     float pressureSampleRateHz = 50.0f; // fallback dt for IAS derivative
+
+    // EKFQ tuning. Only consulted when algorithm == Algorithm::Ekfq.
+    // Sketch loads these from cfg.fEkfqXxx (see OnSpeedConfig.h).
+    onspeed::EKFQ::Config ekfqConfig = onspeed::EKFQ::Config::defaults();
+    // Signal-chain overrides for the EKFQ — when this algorithm is
+    // selected, these replace the legacy Madgwick-tuned constants.
+    float ekfqAccelEmaAlpha   = 0.052324843677354384f; ///< Overrides kAccSmoothing
+    float ekfqCompFadeTauSec  = 2.531734433346506f;    ///< Overrides 0.5 s
+    float ekfqIasAliveKt      = 33.66929039144636f;    ///< Overrides 25 kt
+    float ekfqTasdotEmaAlpha  = 0.20081238948995161f;  ///< TAS-derivative EMA
 };
 
 class Ahrs {
@@ -102,7 +120,7 @@ public:
     float accelVertSmoothedG() const { return accelVertFilter_.get(); }
 
     // Latest acceleration after smoothing AND centripetal/forward
-    // compensation (the values that go into the Madgwick/EKF6 update).
+    // compensation (the values that go into the Madgwick/EKFQ update).
     float accelFwdCompG()  const { return accelFwdComp_;  }
     float accelLatCompG()  const { return accelLatComp_;  }
     float accelVertCompG() const { return accelVertComp_; }
@@ -163,7 +181,7 @@ private:
     float accelLatCorr_  = 0.0f;
     float accelVertCorr_ = +1.0f;   // +1g for level (production reaction-force convention)
 
-    // Latest fully-compensated acceleration (in g) — Madgwick/EKF6 input.
+    // Latest fully-compensated acceleration (in g) — Madgwick/EKFQ input.
     float accelFwdComp_  = 0.0f;
     float accelLatComp_  = 0.0f;
     float accelVertComp_ = 0.0f;
@@ -176,9 +194,10 @@ private:
     // Attitude algorithms (only one is "active" depending on cfg.algorithm,
     // but we hold both so Reconfigure can re-seed from the same struct).
     Madgwick madgwick_;
-    EKF6     ekf6_;
+    EKFQ     ekfq_;
 
-    // Altitude/VSI Kalman.
+    // Altitude/VSI Kalman. Bypassed when algorithm == Algorithm::Ekfq
+    // (EKFQ produces its own z/vz from the unified state).
     KalmanFilter kalman_;
 
     // TAS state (m/s).

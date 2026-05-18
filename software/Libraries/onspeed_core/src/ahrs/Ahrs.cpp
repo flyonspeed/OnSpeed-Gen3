@@ -111,11 +111,14 @@ void Ahrs::Init(const AhrsInputs& seedFrame, float seedPaltFt)
 
     recomputeBiasTrig_();
 
-    if (cfg_.algorithm == Algorithm::Ekf6) {
-        // Note: EKF6 expects radians.  EKF6 theta convention (positive =
-        // nose up) matches SmoothedPitch — no negation needed.  Madgwick
-        // requires negated pitch (handled below).
-        ekf6_.init(onspeed::deg2rad(fSeedRoll), onspeed::deg2rad(fSeedPitch));
+    if (cfg_.algorithm == Algorithm::Ekfq) {
+        // EKFQ expects radians and a seed altitude (m). The sketch shim
+        // loaded the tuned ekfqConfig from cfg fields; push it in and
+        // reset the filter from the accel-derived seed attitude.
+        ekfq_.setConfig(cfg_.ekfqConfig);
+        ekfq_.init(onspeed::deg2rad(fSeedRoll),
+                   onspeed::deg2rad(fSeedPitch),
+                   onspeed::ft2m(seedPaltFt));
     } else {
         // Madgwick convention: begin() takes (sampleFreq, -pitch, roll)
         madgwick_.begin(cfg_.imuSampleRateHz, -fSeedPitch, fSeedRoll);
@@ -136,7 +139,7 @@ void Ahrs::Init(const AhrsInputs& seedFrame, float seedPaltFt)
     // UI on every config save (ConfigWebServer.cpp:2052,2363 and
     // Config.cpp:52), and zeroing TAS would inject a one-frame
     // forward-accel-comp glitch (~0.05g during deceleration) that would
-    // briefly perturb Madgwick/EKF6 attitude. The constructor initializes
+    // briefly perturb Madgwick/EKFQ attitude. The constructor initializes
     // these fields once at boot; we leave them alone on Init().
 }
 
@@ -275,13 +278,14 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
 
     // 4. Linear acceleration compensation: forward (TASdot), centripetal
     //    lateral (tas · yawRate), centripetal vertical (tas · pitchRate).
-    //    When EKF6 is active, use its bias-corrected rates from the
-    //    previous timestep for more consistent compensation.
+    //    Madgwick has no internal bias state so no per-step bias
+    //    correction is applied — EKFQ handles centripetal inside h(x)
+    //    and doesn't use this pre-compensated stream.
     //
     // Gated on in.sensors.iasAlive.  Below the pitot noise floor, tas_
     // and tasDotSmoothed_ are dominated by sensor noise; leaving the
     // comp factors active injects that noise directly into the smoothed
-    // accel that feeds Madgwick/EKF6.  The forward-comp path (TASdot)
+    // accel that feeds Madgwick/EKFQ.  The forward-comp path (TASdot)
     // is the heaviest hitter because small IAS jitter produces a large
     // derivative; lateral and vertical centripetal are smaller in
     // magnitude but share the same pathology.  Gating all three at the
@@ -290,21 +294,14 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     if (in.sensors.iasAlive) {
         const float AccelFwdCompFactor = onspeed::mps2g(tasDotSmoothed_);
 
-        float fYawRateForComp   = YawRateCorr;
-        float fPitchRateForComp = PitchRateCorr;
-        if (cfg_.algorithm == Algorithm::Ekf6) {
-            const onspeed::EKF6::State prevState = ekf6_.getState();
-            // EKF6's bq tracks the bias on its NEGATED q input (see the
-            // p/q negation in the EKF6 measurement adapter below), so
-            // bq in the firmware frame is -prevState.bq. r is fed
-            // un-negated so br is already in the firmware frame.
-            fYawRateForComp   = YawRateCorr   - onspeed::rad2deg(prevState.br);
-            fPitchRateForComp = PitchRateCorr + onspeed::rad2deg(prevState.bq);
-        }
+        // Centripetal pre-compensation only feeds the Madgwick branch —
+        // EKFQ models centripetal inside its own h(x) and takes the raw
+        // smoothed accels directly. Madgwick has no bias state, so no
+        // per-step rate correction is applied here.
         const float AccelLatCompFactor  =
-            onspeed::mps2g(onspeed::deg2rad(tas_ * fYawRateForComp));
+            onspeed::mps2g(onspeed::deg2rad(tas_ * YawRateCorr));
         const float AccelVertCompFactor =
-            onspeed::mps2g(onspeed::deg2rad(tas_ * fPitchRateForComp));
+            onspeed::mps2g(onspeed::deg2rad(tas_ * PitchRateCorr));
 
         // Ramp the comp factors in smoothly after the iasAlive rising
         // edge.  The variable-dt EMA form (α = dt / (τ + dt)) matches the
@@ -350,77 +347,48 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     float DerivedAOA    = outputs_.derivedAoaDeg;
     float EarthVertG    = outputs_.earthVertG;
 
-    if (cfg_.algorithm == Algorithm::Ekf6) {
-        // Sign convention plumbing from OnSpeed's IMU pipeline to EKF6.
-        // OnSpeed and EKF6 use opposite-sign conventions on three of
-        // the seven measurement components; the negations below
-        // bridge them. See EKF6.h's "OnSpeed convention mapping"
-        // section for the full derivation.
+    if (cfg_.algorithm == Algorithm::Ekfq) {
+        // EKFQ measurement build. We feed RAW post-EMA accels (NOT the
+        // centripetal-compensated stream) because EKFQ models centripetal
+        // and TASdot inside h(x) using its own bias-corrected gyros and
+        // a TAS input. The signs on each input are:
         //
-        // az: OnSpeed's accelVertComp_ is +1g for level flight — the
-        //   "reaction force" convention pilots see in the CSV
-        //   VerticalG column and on the web liveview. EKF6's
-        //   measurement model uses the standard inertial-frame view
-        //   where az = -g for level (the body is accelerating "up"
-        //   relative to free-fall). Negate accelVertComp_ on input.
+        //   ax, ay: raw post-EMA in g → m/s², no sign flip
+        //   az    : firmware +1g level → NED -g level (NEGATE)
+        //   p, q  : firmware internal IMU sign → aerospace standard
+        //           (NEGATE — aerospace standard inside EKFQ)
+        //   r     : no flip
         //
-        // p, q (roll, pitch rate): OnSpeed's internal IMU rates after
-        //   axis sign-mapping are "+gyroPitchDps means nose-DOWN" /
-        //   "+gyroRollDps means right-wing-UP" — opposite to EKF6's
-        //   `phi_dot = p + ...` and `theta_dot = q*cph - r*sph` which
-        //   expect "+p increases phi (right-wing-down)" / "+q
-        //   increases theta (nose-up)" in the standard aerospace
-        //   sense. Madgwick handles the same mismatch via its OUTPUT
-        //   negation (-madgwick_.getPitch() / -madgwick_.getRoll()) +
-        //   un-negated input; EKF6 doesn't negate output, so we
-        //   negate the INPUT rates instead. Mirrors the Gen2 Octave
-        //   reference's `-RollRateDegic` / `-PitchRateDegic` lines.
-        //
-        //   The CSV layer (LogCsv.cpp) emits PitchRate as
-        //   -imuPitchRateDps so pilots reading the log see "+ = nose
-        //   up" — same sign discipline as EKF6's, opposite of the
-        //   internal raw value.
-        //
-        // r (yaw rate): no negation. Yaw rate doesn't appear in the
-        //   accel measurement equations in OnSpeed's pre-compensated
-        //   gravity-only model, so the sign-vs-firmware-convention
-        //   only affects coupling of yaw rate into theta and phi via
-        //   the Euler kinematic terms. The Gen2 Octave reference also
-        //   leaves YawRateDegic un-negated.
-        //
-        // Accel: g → m/s². Gyro: deg/s → rad/s. gamma: deg → rad.
-        float gamma_rad = onspeed::deg2rad(outputs_.flightPathDeg);
-
-        onspeed::EKF6::Measurements meas = {
-            /* ax */    accelFwdComp_   * kEkfGravityMps2,
-            /* ay */    accelLatComp_   * kEkfGravityMps2,
-            /* az */   -accelVertComp_  * kEkfGravityMps2,
-            /* p  */   -onspeed::deg2rad(RollRateCorr),
-            /* q  */   -onspeed::deg2rad(PitchRateCorr),
-            /* r  */    onspeed::deg2rad(YawRateCorr),
-            /* gamma */ gamma_rad
+        // tas and tasdot are FADED by compFadeIn_ so they zero out on the
+        // ground. The pitot noise floor would otherwise inject spurious
+        // centripetal into the filter at rest (taxi pitch contamination
+        // that this gate fixed in the Python prototype).
+        onspeed::EKFQ::Measurements meas = {
+            /* ax */     accelFwdFilter_.get()  * kEkfGravityMps2,
+            /* ay */     accelLatFilter_.get()  * kEkfGravityMps2,
+            /* az */    -accelVertFilter_.get() * kEkfGravityMps2,
+            /* p  */    -onspeed::deg2rad(RollRateCorr),
+            /* q  */    -onspeed::deg2rad(PitchRateCorr),
+            /* r  */     onspeed::deg2rad(YawRateCorr),
+            /* baroAlt */ onspeed::ft2m(in.sensors.paltFt),
+            /* tas */     tas_      * compFadeIn_,
+            /* tasDot */  tasDotSmoothed_ * compFadeIn_,
+            /* updateBaro */ true,
         };
+        ekfq_.update(meas, dtSec);
+        const onspeed::EKFQ::State state = ekfq_.getState();
 
-        ekf6_.update(meas, dtSec);
-        const onspeed::EKF6::State state = ekf6_.getState();
-
-        SmoothedPitch = state.theta_deg();
-        SmoothedRoll  = state.phi_deg();
-        DerivedAOA    = state.alpha_deg();
-
-        const float sph = std::sin(state.phi);
-        const float cph = std::cos(state.phi);
-        const float sth = std::sin(state.theta);
-        const float cth = std::cos(state.theta);
-        // EarthVertG: rotate body-frame accel back to earth frame and
-        // subtract the level-state +1g, leaving the deviation from
-        // level (in g). The `- 1.0f` is what pins this whole pipeline
-        // to the +1g-for-level (production reaction-force) convention:
-        // for level flight (theta=phi=0, accelVertCorr_=+1g), the
-        // formula gives 0g of deviation.
-        EarthVertG = -sth * accelFwdCorr_
-                   + sph * cth * accelLatCorr_
-                   + cph * cth * accelVertCorr_ - 1.0f;
+        SmoothedPitch = state.pitch_deg();
+        SmoothedRoll  = state.roll_deg();
+        // Derived AOA: kinematic formula using filter state + current TAS.
+        DerivedAOA = onspeed::rad2deg(ekfq_.alphaKinematicRad(tas_));
+        // EarthVertG for downstream consumers (log row, display) — use
+        // the body→earth rotation from the filter's quaternion plus the
+        // legacy +1g-level subtraction so the value matches Madgwick.
+        EarthVertG = 2.0f * (state.q1*state.q3 - state.q0*state.q2)         * accelFwdCorr_ +
+                     2.0f * (state.q0*state.q1 + state.q2*state.q3)         * accelLatCorr_ +
+                            (state.q0*state.q0 - state.q1*state.q1
+                             - state.q2*state.q2 + state.q3*state.q3)       * accelVertCorr_ - 1.0f;
     } else {
         madgwick_.setDeltaTime(dtSec);
         madgwick_.UpdateIMU(RollRateCorr, PitchRateCorr, YawRateCorr,
@@ -432,7 +400,7 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         float q[4];
         madgwick_.getQuaternion(&q[0], &q[1], &q[2], &q[3]);
 
-        // Same level-state subtraction as the EKF6 branch above —
+        // Same level-state subtraction as the EKFQ branch above —
         // pinned to +1g-for-level production convention.
         EarthVertG = 2.0f * (q[1]*q[3] - q[0]*q[2])                         * accelFwdCorr_  +
                      2.0f * (q[0]*q[1] + q[2]*q[3])                         * accelLatCorr_  +
@@ -440,34 +408,46 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     }
 
     // 6. Kalman altitude/VSI from baro + earth-vertical-G.
+    //    BYPASSED when EKFQ is the active algorithm — EKFQ's vertical
+    //    channel (states Z, VZ, B_AZ) produces a consistent altitude
+    //    and VSI from the same accel+baro measurement model, so we
+    //    publish that directly instead of running a second filter in
+    //    parallel that would disagree slightly.
     volatile float kalmanAltMeters = 0.0f;
     volatile float kalmanVsiMps    = 0.0f;
-    kalman_.Update(onspeed::ft2m(in.sensors.paltFt),
-                   onspeed::g2mps(EarthVertG),
-                   dtSec,
-                   &kalmanAltMeters, &kalmanVsiMps);
+    if (cfg_.algorithm == Algorithm::Ekfq) {
+        const onspeed::EKFQ::State state = ekfq_.getState();
+        kalmanAltMeters = state.z;
+        kalmanVsiMps    = state.vz;
+    } else {
+        kalman_.Update(onspeed::ft2m(in.sensors.paltFt),
+                       onspeed::g2mps(EarthVertG),
+                       dtSec,
+                       &kalmanAltMeters, &kalmanVsiMps);
+    }
 
     // 7. Zero VSI when airspeed is not yet alive (rest-on-the-ground).
-    //    Side effect: in EKF6 mode, reset the alpha covariance on the
-    //    transition from below-threshold to above-threshold so the filter
-    //    re-learns alpha from real gamma measurements.
+    //    Side effect: in EKFQ mode, reset the vertical-channel covariance
+    //    on the transition from below-threshold to above-threshold so the
+    //    filter re-learns z/vz/b_az from baro+accel without dragging in
+    //    stale cross-correlations built up during taxi.
     //
-    //    Keyed off in.sensors.iasAlive rather than a raw 25 kt threshold so
+    //    Keyed off in.sensors.iasAlive rather than a raw kt threshold so
     //    VSI/FlightPath/alpha-observability all share the same hysteretic
     //    air-data validity state as the compensation gate above.
     float kalVsiMpsForFlightPath = static_cast<float>(kalmanVsiMps);
     if (!in.sensors.iasAlive) {
         kalVsiMpsForFlightPath = 0.0f;
         iasWasBelowThreshold_ = true;
-    } else if (iasWasBelowThreshold_ && cfg_.algorithm == Algorithm::Ekf6) {
-        ekf6_.resetAlphaCovariance();
+    } else if (iasWasBelowThreshold_ && cfg_.algorithm == Algorithm::Ekfq) {
+        ekfq_.resetVerticalCovariance(onspeed::ft2m(in.sensors.paltFt));
         iasWasBelowThreshold_ = false;
     } else {
         iasWasBelowThreshold_ = false;
     }
 
-    // 8. Flight-path and (Madgwick-only) DerivedAOA.  The EKF6 path set
-    //    DerivedAOA from its alpha state above.
+    // 8. Flight-path and (Madgwick-only) DerivedAOA. The EKFQ path set
+    //    DerivedAOA from its kinematic-α formula above.
     //
     //    The Kalman's VSI estimate may have built up while the gate was
     //    closed (baro keeps integrating during taxi), so unclamping in
@@ -484,7 +464,10 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         FlightPath = 0.0f;
     }
 
-    if (cfg_.algorithm != Algorithm::Ekf6) {
+    if (cfg_.algorithm != Algorithm::Ekfq) {
+        // Madgwick path — DerivedAOA from the Kalman-VSI flight-path
+        // formula. EKFQ already set DerivedAOA from its kinematic-α
+        // formula in the branch above.
         DerivedAOA = SmoothedPitch - FlightPath;
     }
 
