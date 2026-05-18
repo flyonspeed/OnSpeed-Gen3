@@ -17,30 +17,26 @@ indexer window.
 
 ## Step 1 — Flash M5 firmware
 
-!!! warning "Coming soon"
+The M5 firmware that ships in the latest GitHub release (v4.22.1 and
+later) includes USB-CDC autodetect.  If you already fly with an
+OnSpeed M5 in the panel running v4.22.1+, you're done — same firmware,
+no reflash needed.
 
-    The M5 firmware support for USB-CDC tethering is in source on
-    `master` but is not yet shipped as a published release binary.
-    Released M5 firmware will gain USB-CDC autodetect once issue
-    [#399](https://github.com/flyonspeed/OnSpeed-Gen3/issues/399)
-    lands — track that issue for the rollout.
+For a fresh M5 or one running older firmware:
 
-    Until #399 ships, only developers who can build from source
-    (PlatformIO + the `m5stack-core2` / `m5stack-core-esp32` env)
-    can flash a USB-CDC-capable M5.  See the appendix below.
+1. Download the M5 firmware `.bin` matching your hardware from the
+   [latest release page](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest):
+    - `onspeed-m5-X.Y.Z-basic-firmware.bin` (M5Stack Basic)
+    - `onspeed-m5-X.Y.Z-core2-firmware.bin` (M5Stack Core2)
+2. Flash it. The fastest path depends on whether the M5 has ever run
+   OnSpeed firmware:
+    - **Already-flashed M5** — use OTA update over WiFi.
+    - **Fresh M5** — flash via M5Burner or `esptool.py`.
 
-When release builds become available, the workflow will be:
-
-1. Download the latest M5 firmware `.bin` from the
-   [OnSpeed-Gen3 releases page](https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest)
-   matching your hardware (`m5stack-core2` or `m5stack-core-esp32`).
-2. Flash via M5Burner or `esptool.py` per the release notes.
-3. The M5 reboots into the OnSpeed splash, then enters serial-detect
-   mode.
-
-A pilot who already flies with an OnSpeed M5 in the panel reuses the
-same firmware they already have, just on a release build that
-includes USB-CDC support.
+   Full step-by-step for both paths is in
+   [External Display → Flashing the M5 firmware](../installation/external-display.md#flashing-the-m5-firmware).
+3. After reboot, the M5 cycles through the OnSpeed splash, then
+   enters serial-detect mode (covered in Step 2 below).
 
 ## Step 2 — What the M5 shows during boot
 
@@ -200,9 +196,8 @@ freshly enumerated list.
 
 ## Developer appendix — flashing M5 firmware from source
 
-For developers who want to test the USB-CDC tethering before the
-release artifact lands (issue
-[#399](https://github.com/flyonspeed/OnSpeed-Gen3/issues/399)):
+For developers building from `master` (e.g. testing changes to the
+M5 firmware itself):
 
 ```bash
 cd software/OnSpeed-M5-Display
@@ -213,4 +208,5 @@ pio run -e m5stack-core-esp32 -t upload    # M5Stack Basic
 
 PlatformIO auto-detects the connected device.  Requires
 [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html)
-installed locally.  Pilots should not need this path once #399 ships.
+installed locally.  Pilots flying released versions should use the
+flash path in Step 1 above.
