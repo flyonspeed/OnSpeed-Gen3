@@ -208,6 +208,47 @@ void test_config_clamps_inverted_bounds()
     TEST_ASSERT_TRUE(cfg.alphaMax >= cfg.alphaMin);
 }
 
+void test_very_heavy_smoothing_not_silently_floored()
+{
+    // alpha = 1/2000 = 0.0005 is a legitimate heavy-smoothing knob
+    // (sketch path: iAoaSmoothing=2000 -> alpha=0.0005). The filter
+    // must respect that, not silently bump it up.
+    AdaptiveEmaFilter f({0.0005f, 0.0005f, 0.0f});
+
+    AdaptiveEmaFilter::Config cfg = f.getConfig();
+    TEST_ASSERT_FLOAT_WITHIN(1e-9f, 0.0005f, cfg.alphaMin);
+    TEST_ASSERT_FLOAT_WITHIN(1e-9f, 0.0005f, cfg.alphaMax);
+
+    // And a step through it: prev=0, new=1000, alpha=0.0005 -> y=0.5
+    f.seed(0.0f);
+    float y = f.update(1000.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.5f, y);
+}
+
+void test_alpha_zero_holds_seed()
+{
+    // alpha=0 means "never update". The filter holds its seeded value
+    // regardless of input. This is the natural floor — the old EMAFilter
+    // had a 0.001 floor that quietly broke very-heavy smoothing.
+    AdaptiveEmaFilter f({0.0f, 0.0f, 0.0f});
+
+    f.seed(7.0f);
+    float y1 = f.update(100.0f);
+    float y2 = f.update(-50.0f);
+
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 7.0f, y1);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 7.0f, y2);
+}
+
+void test_lastAlpha_after_seed_is_one()
+{
+    // The first valid update seeds without blending: output == input.
+    // That's equivalent to alpha=1, so lastAlpha() should report 1.0.
+    AdaptiveEmaFilter f({0.05f, 0.6f, 0.3f});
+    f.update(10.0f);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, f.lastAlpha());
+}
+
 void test_config_clamps_negative_k()
 {
     AdaptiveEmaFilter f({0.05f, 0.6f, -1.0f});
@@ -244,6 +285,9 @@ int main()
     RUN_TEST(test_set_config_keeps_state);
     RUN_TEST(test_config_clamps_inverted_bounds);
     RUN_TEST(test_config_clamps_negative_k);
+    RUN_TEST(test_very_heavy_smoothing_not_silently_floored);
+    RUN_TEST(test_alpha_zero_holds_seed);
+    RUN_TEST(test_lastAlpha_after_seed_is_one);
 
     return UNITY_END();
 }

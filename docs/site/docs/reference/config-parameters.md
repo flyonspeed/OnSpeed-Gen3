@@ -6,7 +6,11 @@ Complete reference of all OnSpeed configuration parameters. Configuration is sto
 
 | XML Tag | Type | Default | Description |
 |---------|------|---------|-------------|
-| `AOA_SMOOTHING` | int | 20 | EMA filter window for AOA (samples) |
+| `AOA_SMOOTHING` | int | 20 | EMA filter window for AOA (samples). Used when `AOA_FILTER_ADAPTIVE` is false; alpha = 1/AOA_SMOOTHING. |
+| `AOA_FILTER_ADAPTIVE` | bool | false | Opt-in adaptive-EMA AOA smoother ([issue #566](https://github.com/flyonspeed/OnSpeed-Gen3/issues/566)). When true, the filter widens alpha on large per-frame AOA changes and tightens on steady cruise — overrides `AOA_SMOOTHING`. |
+| `AOA_FILTER_ALPHA_MIN` | float | 0.05 | Adaptive filter: steady-state alpha (heavy smoothing). Range [0, 1]. Active when `AOA_FILTER_ADAPTIVE` is true. |
+| `AOA_FILTER_ALPHA_MAX` | float | 0.60 | Adaptive filter: responsive alpha (light smoothing). Range [0, 1], must be ≥ `AOA_FILTER_ALPHA_MIN`. Active when `AOA_FILTER_ADAPTIVE` is true. |
+| `AOA_FILTER_K_BOOST` | float | 0.30 | Adaptive filter: per-degree alpha boost. Higher = filter opens up sooner on AOA changes. Range [0, 10]. Active when `AOA_FILTER_ADAPTIVE` is true. |
 | `PRESSURE_SMOOTHING` | int | 15 | EMA filter window for pressure sensors (samples) |
 | `DATASOURCE` | string | `SENSORS` | Data source: `SENSORS`, `TESTPOT`, `RANGESWEEP`, `REPLAYLOGFILE` |
 | `REPLAYLOGFILENAME` | string | (empty) | Log file to replay when DATASOURCE=REPLAYLOGFILE |

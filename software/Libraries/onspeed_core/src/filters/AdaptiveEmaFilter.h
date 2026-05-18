@@ -55,7 +55,10 @@ public:
         if (!_initialized) {
             _value = value;
             _initialized = true;
-            _lastAlpha = _cfg.alphaMax;
+            // Seeding is "alpha=1" by construction (output = input, no blend).
+            // Recording that here keeps lastAlpha() honest if a caller probes
+            // it right after the first sample.
+            _lastAlpha = 1.0f;
             return _value;
         }
 
@@ -99,14 +102,16 @@ public:
 private:
     static Config clamp(Config c)
     {
-        // Coerce into the valid (0, 1] x (0, 1] x [0, +inf) range.
-        // Keep alphaMin <= alphaMax so the clamp() in update() always has
-        // a non-empty interval.
-        if (c.alphaMin < 0.001f) c.alphaMin = 0.001f;
-        if (c.alphaMin > 1.0f)   c.alphaMin = 1.0f;
+        // Coerce into the valid [0, 1] x [0, 1] x [0, +inf) range.
+        // alpha=0 is legal — it means "never update; hold the seeded value."
+        // Keep alphaMin <= alphaMax so the per-update clamp interval is
+        // non-empty.  Reject NaN by passing through (the update path's NaN
+        // check handles the input side; the config side should never be NaN).
+        if (c.alphaMin < 0.0f) c.alphaMin = 0.0f;
+        if (c.alphaMin > 1.0f) c.alphaMin = 1.0f;
         if (c.alphaMax < c.alphaMin) c.alphaMax = c.alphaMin;
-        if (c.alphaMax > 1.0f)   c.alphaMax = 1.0f;
-        if (c.kBoost   < 0.0f)   c.kBoost   = 0.0f;
+        if (c.alphaMax > 1.0f) c.alphaMax = 1.0f;
+        if (c.kBoost   < 0.0f) c.kBoost   = 0.0f;
         return c;
     }
 

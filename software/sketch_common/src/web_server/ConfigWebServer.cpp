@@ -907,6 +907,21 @@ void HandleConfigSave()
     // arg means "off". AOACalculator only reads its config in InitSensors,
     // so flag rebootRequired when any of these change — same UX as the
     // legacy iAoaSmoothing knob above.
+    //
+    // Validation at the boundary: αmin, αmax in [0, 1]; kBoost in [0, 10].
+    // The AdaptiveEmaFilter's internal clamp() is defense-in-depth; doing
+    // it here keeps the displayed and persisted values consistent with
+    // the runtime filter behavior.
+    auto clamp01 = [](float v) -> float {
+        if (v < 0.0f) return 0.0f;
+        if (v > 1.0f) return 1.0f;
+        return v;
+    };
+    auto clampKBoost = [](float v) -> float {
+        if (v < 0.0f)  return 0.0f;
+        if (v > 10.0f) return 10.0f;
+        return v;
+    };
     {
         const bool newAdaptive = CfgServer.hasArg("aoaFilterAdaptive");
         if (g_Config.bAoaFilterAdaptive != newAdaptive) rebootRequired = true;
@@ -914,21 +929,31 @@ void HandleConfigSave()
     }
     if (CfgServer.hasArg("aoaFilterAlphaMin"))
     {
-        const float v = CfgServer.arg("aoaFilterAlphaMin").toFloat();
+        const float v = clamp01(CfgServer.arg("aoaFilterAlphaMin").toFloat());
         if (g_Config.fAoaFilterAlphaMin != v) rebootRequired = true;
         g_Config.fAoaFilterAlphaMin = v;
     }
     if (CfgServer.hasArg("aoaFilterAlphaMax"))
     {
-        const float v = CfgServer.arg("aoaFilterAlphaMax").toFloat();
+        const float v = clamp01(CfgServer.arg("aoaFilterAlphaMax").toFloat());
         if (g_Config.fAoaFilterAlphaMax != v) rebootRequired = true;
         g_Config.fAoaFilterAlphaMax = v;
     }
     if (CfgServer.hasArg("aoaFilterKBoost"))
     {
-        const float v = CfgServer.arg("aoaFilterKBoost").toFloat();
+        const float v = clampKBoost(CfgServer.arg("aoaFilterKBoost").toFloat());
         if (g_Config.fAoaFilterKBoost != v) rebootRequired = true;
         g_Config.fAoaFilterKBoost = v;
+    }
+    // If the user inverted bounds (αmax < αmin), swap rather than reject.
+    // Storing the swapped values keeps the persisted state matching the
+    // runtime filter behavior (AdaptiveEmaFilter coerces alphaMax to
+    // alphaMin internally).
+    if (g_Config.fAoaFilterAlphaMax < g_Config.fAoaFilterAlphaMin)
+    {
+        const float tmp = g_Config.fAoaFilterAlphaMin;
+        g_Config.fAoaFilterAlphaMin = g_Config.fAoaFilterAlphaMax;
+        g_Config.fAoaFilterAlphaMax = tmp;
     }
 
     if (CfgServer.hasArg("pressureSmoothing"))

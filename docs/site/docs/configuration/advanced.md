@@ -27,6 +27,30 @@ Controls the Exponential Moving Average (EMA) filter applied to the AOA signal.
 
 For most aircraft, the default of 20 provides a good balance.
 
+### Adaptive AOA Filter (experimental)
+
+OnSpeed v4.24 and later expose an opt-in adaptive smoother (issue
+[#566](https://github.com/flyonspeed/OnSpeed-Gen3/issues/566)) that
+widens its effective alpha when per-frame AOA change is large
+(pull-ups, aerobatic maneuvers) and tightens on steady cruise. The
+goal: track fast AOA changes without flutter at hold.
+
+When the **Enable adaptive filter** checkbox under "Adaptive AOA
+Filter" is on, the legacy AOA Smoothing field is ignored. Three
+tunables:
+
+- **α<sub>min</sub>** (default 0.05) — steady-state alpha. Smaller =
+  smoother at hold. Matches the legacy default at 1/20.
+- **α<sub>max</sub>** (default 0.60) — responsive alpha. Larger =
+  faster response on transients. The filter clamps to this ceiling.
+- **k** (default 0.30/deg) — rate boost. Effective alpha is
+  `clamp(α_min + k * |Δ_AOA|, α_min, α_max)`. Higher k means α<sub>max</sub>
+  engages sooner.
+
+A reboot is required after changing any of these values for the
+filter to pick them up. The legacy fixed-alpha mode is the default
+so existing pilots see no behavior change on upgrade.
+
 ## Pressure Smoothing
 
 Controls EMA filtering on the pitot, AOA, and static pressure readings.
