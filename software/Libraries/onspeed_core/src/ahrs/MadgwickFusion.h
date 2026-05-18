@@ -17,6 +17,7 @@
 #ifndef __Madgwick_h__
 #define __Madgwick_h__
 #include <math.h>
+#include <util/OnSpeedTypes.h>
 
 namespace onspeed {
 
@@ -54,19 +55,19 @@ public:
     float getRoll()
     {
         if (!anglesComputed) computeAngles();
-        return roll * 57.29578f;
+        return onspeed::rad2deg(roll);
     }
 
     float getPitch()
     {
         if (!anglesComputed) computeAngles();
-        return pitch * 57.29578f;
+        return onspeed::rad2deg(pitch);
     }
 
     float getYaw()
     {
         if (!anglesComputed) computeAngles();
-        return yaw * 57.29578f + 180.0f;
+        return onspeed::rad2deg(yaw) + 180.0f;
     }
 
     float getRollRadians()

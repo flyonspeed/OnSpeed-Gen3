@@ -44,11 +44,13 @@ inline float clampAOA(float aoa)
 // UNIT CONVERSION FUNCTIONS
 // ============================================================================
 
-/// Degrees to radians
-constexpr float deg2rad(float deg) { return deg * 0.0174533f; }
+/// Degrees to radians (float, single-precision representation of pi/180).
+/// Use this rather than rolling your own — the OnSpeedTypes helpers are the
+/// canonical unit-conversion path; see also g2mps, mps2kts, ft2m, etc.
+constexpr float deg2rad(float deg) { return deg * 0.01745329f; }
 
-/// Radians to degrees
-constexpr float rad2deg(float rad) { return rad * 57.2958f; }
+/// Radians to degrees (float, single-precision representation of 180/pi).
+constexpr float rad2deg(float rad) { return rad * 57.29578f; }
 
 /// Gravitational units to meters/second squared
 constexpr float g2mps(float gs) { return gs * 9.80665f; }

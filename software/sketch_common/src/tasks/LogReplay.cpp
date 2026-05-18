@@ -236,13 +236,9 @@ bool ReadLogLine()
             return false;
 
         // Parse the CSV line via the name-keyed HeaderIndex built in
-        // OpenReplayLog. The index carries the boom/EFIS/VN-300 feature
-        // flags discovered at header parse time.
+        // OpenReplayLog. The index drives which optional groups
+        // ParseRowByIndex unpacks — no row-side feature flags needed.
         onspeed::LogRow row;
-        row.boomEnabled = s_HeaderIndex.boomEnabled;
-        row.efisEnabled = s_HeaderIndex.efisEnabled;
-        row.efisIsVn300 = s_HeaderIndex.efisIsVn300;
-
         bool bOk = onspeed::proto::log_csv::ParseRowByIndex(
                 std::string_view(szInLine, (size_t)iCharsRead),
                 s_HeaderIndex, row);

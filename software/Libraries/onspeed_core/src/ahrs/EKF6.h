@@ -423,7 +423,8 @@ private:
      */
     void correct(float ax, float ay, float az, float gamma, float g);
 
-    /// Standard gravity (m/s^2)
+    /// Standard gravity (m/s^2). Same value as onspeed::g2mps(1.0f);
+    /// duplicated here as a class-local constexpr for use in tight loops.
     static constexpr float GRAVITY = 9.80665f;
 
     /// Threshold for tan(theta) singularity protection at ±90 deg

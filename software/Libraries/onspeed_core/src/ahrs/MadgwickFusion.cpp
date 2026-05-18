@@ -29,7 +29,6 @@
 
 #define sampleFreqDef   208.0f          // sample frequency in Hz
 #define betaDef         0.011617f            // 2 * proportional gain
-#define DEG2RAD(deg)    ((deg) * 0.0174533f)    // degrees to radians
 
 namespace onspeed {
 
@@ -59,12 +58,12 @@ void Madgwick::begin(float sampleFrequency, float Pitch, float Roll)
 
     // set initial pitch & roll
     float Yaw = 0;
-    float cr2 = cosf(DEG2RAD(Roll)  * 0.5f);
-    float cp2 = cosf(DEG2RAD(Pitch) * 0.5f);
-    float cy2 = cosf(DEG2RAD(Yaw)   * 0.5f);
-    float sr2 = sinf(DEG2RAD(Roll)  * 0.5f);
-    float sp2 = sinf(DEG2RAD(Pitch) * 0.5f);
-    float sy2 = sinf(DEG2RAD(Yaw)   * 0.5f);
+    float cr2 = cosf(onspeed::deg2rad(Roll)  * 0.5f);
+    float cp2 = cosf(onspeed::deg2rad(Pitch) * 0.5f);
+    float cy2 = cosf(onspeed::deg2rad(Yaw)   * 0.5f);
+    float sr2 = sinf(onspeed::deg2rad(Roll)  * 0.5f);
+    float sp2 = sinf(onspeed::deg2rad(Pitch) * 0.5f);
+    float sy2 = sinf(onspeed::deg2rad(Yaw)   * 0.5f);
 
     q0 = cr2*cp2*cy2 + sr2*sp2*sy2;
     q1 = sr2*cp2*cy2 - cr2*sp2*sy2;
@@ -95,9 +94,9 @@ void Madgwick::Update(float gx, float gy, float gz, float ax, float ay, float az
     }
 
     // Convert gyroscope degrees/sec to radians/sec
-    gx *= 0.0174533f;
-    gy *= 0.0174533f;
-    gz *= 0.0174533f;
+    gx = onspeed::deg2rad(gx);
+    gy = onspeed::deg2rad(gy);
+    gz = onspeed::deg2rad(gz);
 
     // Rate of change of quaternion from gyroscope
     qDot1 = 0.5f * (-q1 * gx - q2 * gy - q3 * gz);
@@ -196,9 +195,9 @@ void Madgwick::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float
     float _2q0, _2q1, _2q2, _2q3, _4q0, _4q1, _4q2 ,_8q1, _8q2, q0q0, q1q1, q2q2, q3q3;
 
     // Convert gyroscope degrees/sec to radians/sec
-    gx *= 0.0174533f;
-    gy *= 0.0174533f;
-    gz *= 0.0174533f;
+    gx = onspeed::deg2rad(gx);
+    gy = onspeed::deg2rad(gy);
+    gz = onspeed::deg2rad(gz);
 
     // Rate of change of quaternion from gyroscope
     qDot1 = 0.5f * (-q1 * gx - q2 * gy - q3 * gz);
