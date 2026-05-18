@@ -142,7 +142,7 @@ if (audiotestStatus) {
 
 const logs = loadMock('api-logs');
 if (logs) {
-  exactKeys(logs, ['activeLog', 'totalSize', 'files'], '/api/logs');
+  exactKeys(logs, ['activeLog', 'totalSize', 'files', 'coredumps'], '/api/logs');
   ok(isString(logs.activeLog), '/api/logs: activeLog is string');
   ok(isInt(logs.totalSize) && logs.totalSize >= 0,
      '/api/logs: totalSize is non-negative int');
@@ -151,6 +151,7 @@ if (logs) {
     ok(isString(f.name), `/api/logs.files[${i}].name is string`);
     ok(isInt(f.size) && f.size >= 0, `/api/logs.files[${i}].size is non-negative int`);
     ok(isBoolean(f.hasMeta), `/api/logs.files[${i}].hasMeta is bool`);
+    ok(isBoolean(f.hasDbg),  `/api/logs.files[${i}].hasDbg is bool`);
     if (f.hasMeta) {
       ok(f.meta && typeof f.meta === 'object', `/api/logs.files[${i}].meta is object`);
       const expectedMetaKeys = [
@@ -167,6 +168,14 @@ if (logs) {
       ok(isString(f.meta.efisType), `meta.efisType is string`);
       ok(isBoolean(f.meta.gpsFixSeen), `meta.gpsFixSeen is bool`);
     }
+  }
+  ok(Array.isArray(logs.coredumps), '/api/logs: coredumps is array');
+  for (const [i, c] of logs.coredumps.entries()) {
+    ok(isString(c.name), `/api/logs.coredumps[${i}].name is string`);
+    ok(isInt(c.size) && c.size >= 0, `/api/logs.coredumps[${i}].size is non-negative int`);
+    ok(isInt(c.boot), `/api/logs.coredumps[${i}].boot is int`);
+    ok(isString(c.firmware), `/api/logs.coredumps[${i}].firmware is string`);
+    ok(isString(c.task), `/api/logs.coredumps[${i}].task is string`);
   }
 }
 

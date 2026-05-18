@@ -100,6 +100,7 @@ void HandleLogs();
 void HandleDelete();
 void HandleDeleteBulk();
 void HandleDownload();
+void HandleDownloadCoredump();
 void HandleWifiReflash();
 void HandleUpgrade();
 void HandleUpgradeSuccess();
@@ -130,6 +131,26 @@ bool SendWithETag(const char* contentType);
 static bool IsSafeLogFilename(const String& s)
     {
     if (s.length() == 0 || s.length() > 32) return false;
+    if (s.indexOf('/')  >= 0) return false;
+    if (s.indexOf('\\') >= 0) return false;
+    if (s.indexOf("..") >= 0) return false;
+    for (size_t i = 0; i < s.length(); i++)
+        {
+        char c = s.charAt(i);
+        if (!(isalnum((unsigned char)c) || c == '_' || c == '.' || c == '-')) return false;
+        }
+    return true;
+    }
+
+// Coredump filenames are longer than root-level log files —
+// "coredump_NNNN_<firmware>_<task>.bin" easily exceeds 32 chars when
+// firmware version carries dev metadata (e.g. 4.23.1-dev.45). The
+// allow-list is the same as IsSafeLogFilename; only the cap differs.
+// The caller prepends the /coredumps/ prefix explicitly so user input
+// never appears in a path-traversal-sensitive position.
+static bool IsSafeCoredumpBasename(const String& s)
+    {
+    if (s.length() == 0 || s.length() > 96) return false;
     if (s.indexOf('/')  >= 0) return false;
     if (s.indexOf('\\') >= 0) return false;
     if (s.indexOf("..") >= 0) return false;
@@ -224,7 +245,8 @@ void CfgWebServerInit()
     CfgServer.on("/logs",            HTTP_GET,  HandleLogs);
     CfgServer.on("/delete",          HTTP_GET,  HandleDelete);
     CfgServer.on("/delete-bulk",     HTTP_POST, HandleDeleteBulk);
-    CfgServer.on("/download",        HTTP_GET,  HandleDownload);
+    CfgServer.on("/download",          HTTP_GET,  HandleDownload);
+    CfgServer.on("/download-coredump", HTTP_GET,  HandleDownloadCoredump);
 
 //    CfgServer.on("/wifireflash",     HTTP_GET,  HandleWifiReflash);
     CfgServer.on("/upgrade",         HTTP_GET,  HandleUpgrade);
@@ -1923,23 +1945,14 @@ void HandleDeleteBulk()
 
 // ----------------------------------------------------------------------------
 
-void HandleDownload()
+// Stream a file from the SD card to the HTTP client. `sFilename` is the
+// validated absolute path (server-controlled prefix + caller-supplied
+// basename); `sDisplayName` is what to surface in Content-Disposition
+// so the browser saves with the original basename even when the
+// in-server path differs.
+static void StreamFileDownload(const String& sFilename, const String& sDisplayName)
     {
     FsFile file;
-
-    if (!CfgServer.hasArg("file"))
-        {
-        CfgServer.send(400, "text/plain", "Missing file parameter");
-        return;
-        }
-
-    String sRawName = CfgServer.arg("file");
-    if (!IsSafeLogFilename(sRawName))
-        {
-        CfgServer.send(400, "text/plain", "Invalid filename");
-        return;
-        }
-    String sFilename = "/" + sRawName;
 
     // Pause logging during downloads to avoid SD mutex contention and
     // incomplete transfers (and to match the UI guidance on the index page).
@@ -1973,9 +1986,9 @@ void HandleDownload()
     // Send headers to trigger download
     CfgServer.setContentLength(fileSize);
     CfgServer.sendHeader("Content-Type", "application/octet-stream");
-    // Use the validated local, not a second CfgServer.arg() call, so the
-    // Content-Disposition header is guaranteed to reflect the validated name.
-    CfgServer.sendHeader("Content-Disposition", "attachment; filename=" + sRawName);
+    // Use the validated display name so Content-Disposition reflects the
+    // caller-validated basename even when the on-disk path differs.
+    CfgServer.sendHeader("Content-Disposition", "attachment; filename=" + sDisplayName);
     CfgServer.sendHeader("Connection", "close");
     CfgServer.send(200);
 //      CfgServer.send(200, "application/octet-stream", "");
@@ -2044,7 +2057,48 @@ void HandleDownload()
                       "HandleDownload close: xWriteMutex timeout; fd may leak");
         }
 
-    } // end HandleDownload()
+    } // end StreamFileDownload()
+
+
+// Public route: GET /download?file=<basename>. Validates against the
+// root-level filename allow-list, then streams /<basename> from the SD
+// card.
+void HandleDownload()
+    {
+    if (!CfgServer.hasArg("file"))
+        {
+        CfgServer.send(400, "text/plain", "Missing file parameter");
+        return;
+        }
+    String sRawName = CfgServer.arg("file");
+    if (!IsSafeLogFilename(sRawName))
+        {
+        CfgServer.send(400, "text/plain", "Invalid filename");
+        return;
+        }
+    StreamFileDownload("/" + sRawName, sRawName);
+    }
+
+
+// Public route: GET /download-coredump?file=<basename>. The /coredumps/
+// prefix is server-controlled — only the basename comes from the
+// request. Allow-list and length cap match IsSafeCoredumpBasename
+// (looser than IsSafeLogFilename to fit the longer coredump filenames).
+void HandleDownloadCoredump()
+    {
+    if (!CfgServer.hasArg("file"))
+        {
+        CfgServer.send(400, "text/plain", "Missing file parameter");
+        return;
+        }
+    String sRawName = CfgServer.arg("file");
+    if (!IsSafeCoredumpBasename(sRawName))
+        {
+        CfgServer.send(400, "text/plain", "Invalid filename");
+        return;
+        }
+    StreamFileDownload("/coredumps/" + sRawName, sRawName);
+    }
 
 
 // ----------------------------------------------------------------------------

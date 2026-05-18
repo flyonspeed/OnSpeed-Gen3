@@ -600,10 +600,22 @@ void HandleApiLogs() {
         String   sName;
         uint64_t uSize = 0;
         bool     bHaveMeta = false;
+        bool     bHaveDbg  = false;
         ::onspeed::log::LogMeta meta;
     };
     std::vector<Entry> entries;
     entries.reserve(32);
+
+    // Parsed coredump fields, surfaced as a separate JSON array so the
+    // UI can render a Diagnostics section distinct from the flight list.
+    struct CoredumpEntry {
+        String   sName;       // basename only; /coredumps/ prefix added at download time
+        uint64_t uSize = 0;
+        long     iBoot    = -1;
+        String   sFirmware;
+        String   sTask;
+    };
+    std::vector<CoredumpEntry> coredumps;
 
     // Wait up to 5 seconds for the writer mutex. Typical wait is <100 ms
     // even under load; 5s covers the worst case of a card-side stall
@@ -620,14 +632,23 @@ void HandleApiLogs() {
         }
         bListStatus = g_SdFileSys.FileList(&suFileList);
         if (bListStatus) {
-            std::vector<String> metaNames;
+            // Pass 1: collect sidecar base names so each surviving entry
+            // can declare hasMeta/hasDbg without re-scanning.
+            std::vector<String> metaNames, dbgNames;
             metaNames.reserve(suFileList.size());
+            dbgNames.reserve(suFileList.size());
             for (size_t i = 0; i < suFileList.size(); ++i) {
                 const char* name = suFileList[i].szFileName;
                 size_t nlen = strlen(name);
                 if (nlen >= 5 && strcasecmp(name + nlen - 5, ".meta") == 0)
                     metaNames.emplace_back(name);
+                else if (nlen >= 4 && strcasecmp(name + nlen - 4, ".dbg") == 0)
+                    dbgNames.emplace_back(name);
             }
+            // Pass 2: emit non-sidecar entries. Sidecars (.meta, .dbg,
+            // .meta.tmp) belong to their parent CSV and are surfaced via
+            // hasMeta/hasDbg flags + paired download links in the UI;
+            // they never appear as standalone rows.
             for (size_t i = 0; i < suFileList.size(); ++i) {
                 const char* name = suFileList[i].szFileName;
                 size_t nlen = strlen(name);
@@ -635,19 +656,65 @@ void HandleApiLogs() {
                     continue;
                 if (nlen >= 9 && strcasecmp(name + nlen - 9, ".meta.tmp") == 0)
                     continue;
+                if (nlen >= 4 && strcasecmp(name + nlen - 4, ".dbg") == 0)
+                    continue;
 
                 Entry e;
                 e.sName = name;
                 e.uSize = suFileList[i].uFileSize;
-                String sExpectedMeta = e.sName.substring(0, e.sName.length() - 4) + ".meta";
-                bool bMetaExists = false;
+                String sBase = e.sName;
+                int iDot = sBase.lastIndexOf('.');
+                if (iDot > 0) sBase = sBase.substring(0, iDot);
+                String sExpectedMeta = sBase + ".meta";
+                String sExpectedDbg  = sBase + ".dbg";
                 for (const String& mn : metaNames)
-                    if (mn.equalsIgnoreCase(sExpectedMeta)) { bMetaExists = true; break; }
-                if (bMetaExists)
+                    if (mn.equalsIgnoreCase(sExpectedMeta)) { e.bHaveMeta = true; break; }
+                for (const String& dn : dbgNames)
+                    if (dn.equalsIgnoreCase(sExpectedDbg))  { e.bHaveDbg  = true; break; }
+                if (e.bHaveMeta)
                     e.bHaveMeta = TryReadLogMeta(name, &e.meta);
 
                 uTotalSize += e.uSize;
                 entries.push_back(std::move(e));
+            }
+
+            // Enumerate /coredumps/. Empty (or absent) directory yields
+            // an empty array, which the UI renders as "No crash dumps."
+            SdFileSys::SuFileInfoList suCoredumpList;
+            if (g_SdFileSys.DirList("/coredumps", &suCoredumpList)) {
+                for (size_t i = 0; i < suCoredumpList.size(); ++i) {
+                    const char* name = suCoredumpList[i].szFileName;
+                    size_t nlen = strlen(name);
+                    if (nlen < 5 || strcasecmp(name + nlen - 4, ".bin") != 0)
+                        continue;
+                    CoredumpEntry ce;
+                    ce.sName = name;
+                    ce.uSize = suCoredumpList[i].uFileSize;
+                    // Parse "coredump_NNNN_<firmware>[_<task>].bin".
+                    // Task suffix is optional (BootDiagnostics omits it
+                    // when the panic summary parser failed). Firmware
+                    // contains dots/dashes; task is the trailing field
+                    // before .bin when present.
+                    String s(name);
+                    if (s.startsWith("coredump_")) {
+                        int p0 = 9;  // strlen("coredump_")
+                        int p1 = s.indexOf('_', p0);
+                        int pExt = s.lastIndexOf('.');
+                        int p2 = s.lastIndexOf('_', pExt > 0 ? pExt - 1 : -1);
+                        if (p1 > p0 && pExt > p1) {
+                            ce.iBoot     = s.substring(p0, p1).toInt();
+                            if (p2 > p1) {
+                                // Has task suffix: coredump_NNNN_<fw>_<task>.bin
+                                ce.sFirmware = s.substring(p1 + 1, p2);
+                                ce.sTask     = s.substring(p2 + 1, pExt);
+                            } else {
+                                // No task suffix: coredump_NNNN_<fw>.bin
+                                ce.sFirmware = s.substring(p1 + 1, pExt);
+                            }
+                        }
+                    }
+                    coredumps.push_back(std::move(ce));
+                }
             }
         }
         xSemaphoreGive(xWriteMutex);
@@ -664,7 +731,10 @@ void HandleApiLogs() {
     }
 
     String body;
-    body.reserve(2048);
+    // Estimate up front to avoid 3-4 String reallocations during assembly:
+    // each flight entry runs ~300 bytes (size + meta block); each coredump
+    // ~160 bytes. Wrong estimate just costs a single resize at the end.
+    body.reserve(64 + entries.size() * 300 + coredumps.size() * 160);
     body += F("{\"activeLog\":\"");
     body += JsonEscape(sActiveCsvName.c_str());
     body += F("\",\"totalSize\":");
@@ -681,6 +751,8 @@ void HandleApiLogs() {
         body += JsonInt(static_cast<long>(e.uSize));
         body += F(",\"hasMeta\":");
         body += e.bHaveMeta ? F("true") : F("false");
+        body += F(",\"hasDbg\":");
+        body += e.bHaveDbg ? F("true") : F("false");
         if (e.bHaveMeta) {
             body += F(",\"meta\":{");
             body += F("\"durationMs\":");
@@ -706,6 +778,23 @@ void HandleApiLogs() {
             body += F("\"}");
         }
         body += F("}");
+    }
+    body += F("],\"coredumps\":[");
+    bool firstCd = true;
+    for (const CoredumpEntry& ce : coredumps) {
+        if (!firstCd) body += ',';
+        firstCd = false;
+        body += F("{\"name\":\"");
+        body += JsonEscape(ce.sName.c_str());
+        body += F("\",\"size\":");
+        body += JsonInt(static_cast<long>(ce.uSize));
+        body += F(",\"boot\":");
+        body += JsonInt(ce.iBoot);
+        body += F(",\"firmware\":\"");
+        body += JsonEscape(ce.sFirmware.c_str());
+        body += F("\",\"task\":\"");
+        body += JsonEscape(ce.sTask.c_str());
+        body += F("\"}");
     }
     body += F("]}");
     SendJson(200, body);

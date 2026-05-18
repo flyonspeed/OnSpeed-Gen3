@@ -77,19 +77,33 @@ void SdFileSys::Info()
 
 bool SdFileSys::FileList(SuFileInfoList * psuFileInfoList)
     {
-    FsFile      hRootDir;
+    return DirList("/", psuFileInfoList);
+    }
+
+bool SdFileSys::DirList(const char * szPath, SuFileInfoList * psuFileInfoList)
+    {
+    FsFile      hDir;
     FsFile      hFileEntry;
     SuFileInfo  suFileInfo;
 
     psuFileInfoList->clear();
 
-    hRootDir = uSD_FAT.open("/");
-    if (!hRootDir.isOpen())
+    hDir = uSD_FAT.open(szPath);
+    if (!hDir.isOpen())
+        {
+        // Caller treats "directory missing" identically to "directory empty" —
+        // useful for /coredumps which only exists after the first archival.
+        return true;
+        }
+    if (!hDir.isDir())
+        {
+        hDir.close();
         return false;
+        }
 
     while(true)
         {
-        hFileEntry =  hRootDir.openNextFile();
+        hFileEntry =  hDir.openNextFile();
 
         if (!hFileEntry.isOpen())
             {
@@ -99,7 +113,7 @@ bool SdFileSys::FileList(SuFileInfoList * psuFileInfoList)
 
         if (!hFileEntry.isDirectory())
             {
-            // Only list files in root folder, no directories
+            // Only list files, not subdirectories.
             hFileEntry.getName(suFileInfo.szFileName, sizeof(suFileInfo.szFileName));
             suFileInfo.uFileSize = hFileEntry.fileSize();
             psuFileInfoList->push_back(suFileInfo);
@@ -108,7 +122,10 @@ bool SdFileSys::FileList(SuFileInfoList * psuFileInfoList)
         hFileEntry.close();
         }
 
-    // Put file names in order
+    hDir.close();
+
+    // Sort by filename so callers (and humans reading /api/logs) get a
+    // deterministic order.
     std::sort(psuFileInfoList->begin(), psuFileInfoList->end(), CompareByFileName);
 
     return true;

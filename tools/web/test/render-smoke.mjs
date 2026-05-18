@@ -357,9 +357,10 @@ test('LogsPage renders the delete-error banner', async () => {
   const initialBody = {
     activeLog: 'active.csv',
     files: [
-      { name: 'a.csv', size: 100 },
-      { name: 'active.csv', size: 200 },
+      { name: 'a.csv',      size: 100, hasMeta: false, hasDbg: false },
+      { name: 'active.csv', size: 200, hasMeta: false, hasDbg: false },
     ],
+    coredumps: [],
   };
   const deleteResponseBody = {
     deleted: [],
@@ -403,7 +404,11 @@ test('LogsPage renders the delete-error banner', async () => {
       throw new Error('timed out waiting for: ' + label);
     };
 
-    await waitFor(() => findFirst(root, 'tbody'),
+    // Wait until LogsPage has rendered the per-flight cards. The
+    // redesign replaced the table with `<div class="log-card">` per
+    // session; look for at least one card with the file's name in it.
+    await waitFor(() => [...walk(root)].some(n =>
+      n.localName === '#text' && n.data && n.data.includes('a.csv')),
                   'initial /api/logs fetch + render');
 
     // Find the trash button on the non-active row and fire its onClick.

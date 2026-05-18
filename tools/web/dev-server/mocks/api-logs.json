@@ -6,6 +6,7 @@
       "name": "log_042.csv",
       "size": 4521987,
       "hasMeta": true,
+      "hasDbg": true,
       "meta": {
         "durationMs": 1842000,
         "rowCount": 92100,
@@ -16,30 +17,60 @@
         "efisType": "dynon",
         "gpsFixSeen": true,
         "utcStart": "2026-04-30T18:32:11Z",
-        "timeOfDayStart": "11:32:11"
+        "timeOfDayStart": null
       }
     },
     {
       "name": "log_041.csv",
-      "size": 8123456,
+      "size": 178432011,
       "hasMeta": true,
+      "hasDbg": true,
       "meta": {
-        "durationMs": 3210000,
-        "rowCount": 160500,
+        "durationMs": 5410000,
+        "rowCount": 270500,
         "maxIasKt": 162.1,
-        "maxPaltFt": 9100,
+        "maxPaltFt": 12500,
         "firmware": "4.15.0",
         "firmwareSha": "9a3cce7",
         "efisType": "dynon",
-        "gpsFixSeen": true,
-        "utcStart": "2026-04-29T16:14:02Z",
-        "timeOfDayStart": "09:14:02"
+        "gpsFixSeen": false,
+        "utcStart": null,
+        "timeOfDayStart": null
       }
     },
     {
       "name": "log_040.csv",
       "size": 5682011,
-      "hasMeta": false
+      "hasMeta": false,
+      "hasDbg": true
+    },
+    {
+      "name": "onspeed2.cfg",
+      "size": 2664,
+      "hasMeta": false,
+      "hasDbg": false
+    },
+    {
+      "name": "boot_log.txt",
+      "size": 8451,
+      "hasMeta": false,
+      "hasDbg": false
+    }
+  ],
+  "coredumps": [
+    {
+      "name": "coredump_0123_4.23.1-dev.45_loopTask.bin",
+      "size": 49152,
+      "boot": 123,
+      "firmware": "4.23.1-dev.45",
+      "task": "loopTask"
+    },
+    {
+      "name": "coredump_0118_4.22.0_IDLE0.bin",
+      "size": 62464,
+      "boot": 118,
+      "firmware": "4.22.0",
+      "task": "IDLE0"
     }
   ]
 }
