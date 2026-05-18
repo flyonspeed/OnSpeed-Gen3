@@ -299,10 +299,10 @@ void test_known_payload(void)
 {
     // Deterministic vector for the spec doc.
     const char* s = "#124";
-    TEST_ASSERT_EQUAL_UINT8(0x9A, Crc8(reinterpret_cast<const uint8_t*>(s), 4));
-    // Note: this value was hand-computed via the reference algorithm;
-    // if the implementation produces something else, fix the impl, not
-    // this expected value.
+    TEST_ASSERT_EQUAL_UINT8(0x21, Crc8(reinterpret_cast<const uint8_t*>(s), 4));
+    // Note: this value was verified via the Python reference algorithm
+    // in step 3; if the implementation produces something else, fix the
+    // impl, not this expected value.
 }
 
 int main(int, char**)
@@ -345,11 +345,11 @@ print(f'{crc8(b\"123456789\"):02X}')
 
 Expected output:
 ```
-9A
+21
 F4
 ```
 
-If output is `9A` and `F4`, the test vectors are correct.
+If output is `21` and `F4`, the test vectors are correct.
 
 - [ ] **Step 4: Write implementation**
 

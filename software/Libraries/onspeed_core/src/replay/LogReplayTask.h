@@ -31,10 +31,10 @@
 //     DisplayBuildInputs            (renamed/scaled fields per
 //        |                            DisplaySerial.cpp's firmware fill-pass)
 //        v
-//     BuildDisplayFrame             (proto.DisplaySerial — produces 77 bytes)
+//     BuildDisplayFrame             (proto.DisplaySerial — produces 83 bytes)
 //        |
 //        v
-//     wire bytes (77, v4.23 #1 frame; M5 firmware decodes verbatim)
+//     wire bytes (83, v4.24 #1 frame; M5 firmware decodes verbatim)
 //
 // Stateful per replay session. The engine carries the AOA EMA, accel EMAs,
 // gOnset filter state, and (for old logs without flapsRawADC) the synth
@@ -47,13 +47,13 @@
 // Lifecycle:
 //   - Caller constructs once per (cfg, log) pair.
 //   - Caller invokes processRow(row) for each parsed CSV row in sequence.
-//     Returns std::vector<uint8_t> of size kDisplayFrameSizeBytes (77) on
+//     Returns std::vector<uint8_t> of size kDisplayFrameSizeBytes (83) on
 //     success, or empty when the synth path is still in lag (no wire
 //     output until the circular buffer fills, ~2 sec on 50 Hz).
 //   - At end-of-log, caller invokes flush() to drain the synth buffer
 //     tail (matching the firmware's sketch_common LogReplay.cpp
-//     end-of-file drain). Each entry in the returned vector is a 77-byte
-//     wire frame.
+//     end-of-file drain). Each entry in the returned vector is an
+//     83-byte wire frame.
 //
 // Threading: not thread-safe. Single-threaded use only (browser main
 // thread or sketch task). Mirrors LogReplayEngine's contract.
@@ -89,7 +89,7 @@ public:
                   int                                     logSampleRateHz,
                   bool                                    flapsRawAdcAvailable);
 
-    // Process one parsed CSV row. Returns the 77-byte wire frame the M5
+    // Process one parsed CSV row. Returns the 83-byte wire frame the M5
     // firmware would have received for this tick, or an empty vector
     // when the synth path is still buffering (the engine's step() returns
     // std::nullopt during the kSynthHalfWindowTicks_ lag period).
@@ -111,7 +111,7 @@ public:
     // processRow. Mirrors sketch_common/src/tasks/LogReplay.cpp's
     // end-of-file drain. For modern logs (flapsRawAdcAvailable=true)
     // returns an empty vector. For old logs returns the trailing
-    // ~kSynthHalfWindowTicks rows as 77-byte frames in arrival order.
+    // ~kSynthHalfWindowTicks rows as 83-byte frames in arrival order.
     std::vector<std::vector<uint8_t>> flush();
 
     // Reset all state (engine EMA filters, synth buffer, iasAlive_) so

@@ -119,23 +119,26 @@ value is trustworthy; consumers check the bit before treating an
 in-band sentinel value (IAS = 9999, percentLift = 0, `oatC` clamped to
 a boundary) as "render dashes" rather than a real reading.
 
-| Bit | Mask | Channel |
-| ---: | --- | --- |
-| 0 | `0x0001` | OAT raw (TAT from probe) |
-| 1 | `0x0002` | SAT (ram-rise corrected) |
-| 2 | `0x0004` | IAS |
-| 3 | `0x0008` | Palt |
-| 4 | `0x0010` | TAS |
-| 5 | `0x0020` | Density altitude |
-| 6 | `0x0040` | DerivedAOA |
-| 7 | `0x0080` | VSI |
-| 8 | `0x0100` | Pitch |
-| 9 | `0x0200` | Roll |
-| 10 | `0x0400` | Percent lift |
-| 11 | `0x0800` | Flap position |
-| 15 | `0x8000` | Frame self-consistent (reserved; producer marks this after all other bits are set) |
+| Bit | Mask | Channel | Populated by v4.24 producer? |
+| ---: | --- | --- | --- |
+| 0 | `0x0001` | OAT raw (TAT from probe) | Yes |
+| 1 | `0x0002` | SAT (ram-rise corrected) | Yes |
+| 2 | `0x0004` | IAS | Yes |
+| 3 | `0x0008` | Palt | Yes |
+| 4 | `0x0010` | TAS | Yes |
+| 5 | `0x0020` | Density altitude | Yes (set iff `kOatSat` + `kPalt`) |
+| 6 | `0x0040` | DerivedAOA | Yes (set iff `kTas` + value finite) |
+| 7 | `0x0080` | VSI | Yes |
+| 8 | `0x0100` | Pitch | Yes |
+| 9 | `0x0200` | Roll | Yes |
+| 10 | `0x0400` | Percent lift | Not yet — always reads 0 in v4.24 frames |
+| 11 | `0x0800` | Flap position | Not yet — always reads 0 in v4.24 frames |
+| 15 | `0x8000` | Frame self-consistent (cross-channel sanity) | Not yet — always reads 0 in v4.24 frames |
 
 Bits 12–14 are reserved and read as zero.
+
+!!! note "Unpopulated bits"
+    Three named bits (`percentLift`, `flapPosition`, `frameSelfConsistent`) are defined in the type but **not yet written by the v4.24 producer firmware**. Consumers that gate on them will always see "invalid" and should treat them as not-yet-implemented rather than authoritative. Future firmware revisions will populate them in lockstep with this documentation; until then, the wire field itself still reserves those bit positions so the format doesn't have to bump again.
 
 ### Checksum
 

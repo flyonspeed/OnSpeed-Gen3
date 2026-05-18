@@ -98,8 +98,13 @@ size_t BuildDisplayFrame(const DisplayBuildInputs& in,
 #if defined(__GNUC__)
 #  pragma GCC diagnostic pop
 #endif
+    // Clamp valid IAS to 9998 (one below the invalid sentinel) so the
+    // wire's "uIas10 == 9999" check unambiguously means "invalid."
+    // Without this, a pathological iasKt ≥ 999.85 kt would saturate
+    // SafeScaledUInt to 9999 while kIas is set, breaking the contract
+    // documented below that the sentinel never co-occurs with kIas.
     const unsigned uIas10      = iasIsValid
-        ? SafeScaledUInt(in.iasKt, 10.0f, 0, 9999)
+        ? SafeScaledUInt(in.iasKt, 10.0f, 0, 9998)
         : static_cast<unsigned>(kIasInvalidWireSentinel);
 
     // Effective validity bits to emit.  Start from the producer's
@@ -350,18 +355,15 @@ std::optional<DisplayFrame> ParseDisplayFrame(const uint8_t* buf, size_t len)
     f.pitchDeg           = static_cast<float>(iPitch10)  / 10.0f;
     f.rollDeg            = static_cast<float>(iRoll10)   / 10.0f;
     // iasKt: the raw decoded value is preserved (a diagnostic
-    // consumer can still see it) but iasIsValid is the contract.
-    // We mark IAS invalid when either (a) the producer cleared the
-    // kIas bit, or (b) the wire carries the legacy sentinel — the
-    // latter handles the case of a producer that saturated the
-    // %04u clamp to 9999 without setting the validity bit, which
-    // matches the v4.23 semantics ("treat saturating values as
-    // invalid").
+    // consumer can still see it) but the kIas bit drives iasIsValid.
+    // v4.24 producers honour the encoder's sentinel/bit-mirror
+    // contract (DisplaySerial.cpp:112-119): a frame with kIas set
+    // never carries the 9999 sentinel.  The parser therefore trusts
+    // the bit; it does not also test the sentinel value.
     f.valid.bits         = uValidFlags;
     f.iasKt              = static_cast<float>(uIas10)    / 10.0f;
     f.iasIsValid         =
-        f.valid.has(onspeed::types::AirDataValid::kIas) &&
-        (uIas10 != kIasInvalidWireSentinel);
+        f.valid.has(onspeed::types::AirDataValid::kIas);
     f.paltFt             = static_cast<float>(iPaltFt);
     f.turnRateDps        = static_cast<float>(iYaw10)    / 10.0f;
     f.lateralG           = static_cast<float>(iLatG100)  / 100.0f;

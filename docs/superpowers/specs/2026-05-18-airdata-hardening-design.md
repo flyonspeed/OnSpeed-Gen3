@@ -16,11 +16,12 @@ degrees Celsius; AFS reuses the Dynon binary wholesale.
 
 OnSpeed inherits the same gap. `Ahrs::updateTas_` accepts an in-band
 OAT (`oatInBand`, |T| < 100°C) and feeds it straight into the density
-correction. Above ~120 KIAS in cold air this is meaningfully wrong:
-N720AK cruise at 155 KTAS, +5°C TAT, K=0.75 → SAT is 2°C cooler than
-TAT, density-alt is ~245 ft higher than reported, TAS is ~0.4% low. A
-Lancair IV-P at FL250 200 KIAS sees a 3.3°C correction and 400 ft
-density-alt shift.
+correction. The correction grows with M² and with altitude (TAS/IAS
+grows as 1/√σ and a(SAT)/a₀ grows as √(T₀/SAT)). At N720AK 8000 ft
+cruise (147 KIAS, +5°C TAT, K=0.75) SAT is 2.75°C cooler than TAT
+and density-alt shifts ~330 ft. At Lancair FL250 (200 KIAS, −25°C
+TAT) SAT is 8.84°C cooler and density-alt shifts ~1060 ft — large
+enough to materially miscalibrate TAS.
 
 Independently, the firmware has three different conventions for
 signaling "this field is invalid" — `9999` for IAS, `0` for
@@ -36,8 +37,9 @@ This PR closes both gaps in one breaking wire change.
 1. **`onspeed::types::AirDataValid`** — single `uint32_t` flags type,
    one bit per channel. Producers set; consumers check.
 2. **`onspeed::sensors::CorrectSat()`** — pure helper applying the
-   ram-rise correction `SAT_K = TAT_K / (1 + K·0.2·M²)` with IAS-as-Mach
-   proxy.
+   ram-rise correction `SAT_K = TAT_K / (1 + K·0.2·M²)` where `M` is
+   the true Mach number, recovered by Newton-iterating from `IAS` and
+   `paltFt` via the local σ and `a(T_static)`.
 3. **`fOatRecoveryFactor`** config parameter, default 0.75, range
    [0.0, 1.0]. K=0 disables the correction (escape hatch).
 4. **Wire-format v4.23 → v4.24** breaking change, bundles three things:
@@ -117,14 +119,16 @@ namespace onspeed::sensors {
 //   - K = 0.75     bare/exposed thermistor (typical GA install)
 //   - K = 1.0      ideal TAT probe (Kiel/shielded)
 //
-// IAS-as-Mach proxy is accurate to <1% Mach at M < 0.4, which covers
-// every aircraft OnSpeed targets. Resulting SAT error <0.1°C across
-// the operating envelope.
+// Mach is computed from TAS/a(SAT), where TAS = IAS / sqrt(σ) and
+// σ depends on paltFt and SAT.  The helper Newton-iterates two
+// passes — empirically one suffices to bring relative SAT error
+// below 1e-5 across the subsonic envelope.
 //
-// Returns std::nullopt if any input is non-finite, IAS or TAT are out
-// of physical range, or the corrected SAT_K would be non-positive.
+// Returns std::nullopt if any input is non-finite, out of range, or
+// the corrected SAT_K would be non-positive.
 std::optional<float> CorrectSat(float tatCelsius,
                                 float iasKt,
+                                float paltFt,
                                 float recoveryFactorK);
 
 }
@@ -160,41 +164,42 @@ std::optional<float> CorrectSat(float tatCelsius,
 ### The formula
 
 ```
-M_proxy = IAS_mps / a0,   a0 = 340.294 m/s
-SAT_K = TAT_K / (1 + K · 0.2 · M_proxy²)
+TAS  = IAS / sqrt(σ(paltFt, SAT))
+a    = sqrt(γ · R · SAT_K),   γ = 1.4,  R = 287.058 J/(kg·K)
+M    = TAS / a
+SAT_K_new = TAT_K / (1 + K · 0.2 · M²)
 ```
 
-The chicken-and-egg between TAS-needs-SAT and SAT-needs-TAS dissolves
-under the IAS-as-Mach proxy: M < 0.4 across OnSpeed's operating
-envelope, so M_IAS within 1% of M_TAS, and the resulting SAT error
-(<0.1°C) is well below K-uncertainty (~0.05 per published-probe-spec
-to bare-thermistor range).
+SAT enters σ and a(SAT) on both sides of the equation.  The helper
+Newton-iterates: seed SAT = TAT, recompute TAS → M → SAT.  Two
+iterations produce relative SAT error below 1e-5 across the
+subsonic envelope (M < 0.8); one is empirically sufficient but two
+is forgiving for extreme inputs.  The K=0 fast path short-circuits
+to the TAT identity without iterating.
 
 ### Worked examples
 
-**N720AK at 8000 ft cruise, 155 KTAS (147 KIAS):**
+**N720AK at 8000 ft cruise, 147 KIAS, +5°C TAT, K=0.75:**
 
 ```
-IAS_mps = 147 × 0.5144 = 75.6 m/s
-M_proxy = 75.6 / 340.294 = 0.222
-TAT = +5°C → TAT_K = 278.15
-SAT_K = 278.15 / (1 + 0.75 × 0.2 × 0.222²) = 276.11 K
-SAT = +2.96°C  (2.04°C cooler than TAT)
-density-alt shift: ~245 ft
-TAS shift: ~0.4%
+seed: SAT_K = 278.15 (= TAT_K)
+iter 1: TAS = 168.7 kt → M = 0.258 → SAT_K = 275.40
+iter 2: TAS unchanged → SAT_K = 275.40 (converged)
+SAT = +2.25°C  (2.75°C cooler than TAT)
 ```
 
-**Lancair IV-P at FL250, 200 KIAS (~287 KTAS):**
+**Lancair IV-P at FL250, 200 KIAS, -25°C TAT, K=0.75:**
 
 ```
-IAS_mps = 200 × 0.5144 = 102.9 m/s
-M_proxy = 102.9 / 340.294 = 0.302
-TAT = -25°C → TAT_K = 248.15
-SAT_K = 248.15 / (1 + 0.75 × 0.2 × 0.302²) = 244.81 K
-SAT = -28.34°C  (3.34°C cooler than TAT)
-density-alt shift: ~400 ft
-TAS shift: ~0.6%
+seed: SAT_K = 248.15 (= TAT_K)
+iter 1: TAS = 295.7 kt → M = 0.496 → SAT_K = 239.31
+iter 2: TAS unchanged → SAT_K = 239.31 (converged)
+SAT = -33.84°C  (8.84°C cooler than TAT)
+density-alt shift: ~1060 ft cooler than panel TAT suggests
+TAS shift: ~1.6%
 ```
+
+The IAS-as-Mach proxy that an earlier draft of this spec used (M_proxy = IAS/a0, ignoring altitude) under-corrected the Lancair case to -28.34°C (only 3.34°C cooler than TAT).  The true-Mach calculation here is materially larger at altitude because TAS/IAS grows with `1/sqrt(σ)` and a(SAT)/a0 grows with `sqrt(T0/SAT)`; both amplify M_true over the sea-level proxy.
 
 ### Integration in `Ahrs::updateTas_`
 

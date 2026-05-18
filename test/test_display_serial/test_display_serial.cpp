@@ -473,21 +473,25 @@ void test_ias_invalid_wire_bytes_at_offset_13(void)
     TEST_ASSERT_EQUAL('9', frameBuf[16]);
 }
 
-// A valid 999.9 kt reading (the wire's saturated maximum from the
-// %04u clamp at SafeScaledUInt) is *visually identical* to the
-// sentinel.  This is acceptable: 999.9 kt is unphysical for any
-// aircraft this firmware targets, so a saturating producer producing
-// this exact value would itself indicate a data fault.  The parser
-// reports iasIsValid=false in either case, which is the correct
-// answer.
-void test_ias_at_saturation_reports_invalid(void)
+// The wire reserves 9999 as the IAS-invalid sentinel, so the encoder
+// clamps a valid IAS to 9998 (one below the sentinel) when kIas is
+// set.  A pathological iasKt ≥ 999.85 kt thus appears on the wire as
+// "9998" (not the 9999 sentinel), and the parser reports it as valid
+// IAS because kIas is set.  The bit and the sentinel cannot disagree.
+void test_ias_at_saturation_clamps_below_sentinel(void)
 {
     DisplayBuildInputs in = zeroInputs();
     in.valid.set(onspeed::types::AirDataValid::kIas);
-    in.iasKt    = 1500.0f;   // way above field; clamps to 9999
+    in.iasKt    = 1500.0f;   // way above field; encoder clamps to 9998
     buildOk(in);
+    // Wire bytes: iasKt at offset 13..16 = "9998", never "9999".
+    TEST_ASSERT_EQUAL('9', frameBuf[13]);
+    TEST_ASSERT_EQUAL('9', frameBuf[14]);
+    TEST_ASSERT_EQUAL('9', frameBuf[15]);
+    TEST_ASSERT_EQUAL('8', frameBuf[16]);
     DisplayFrame f = parseOk();
-    TEST_ASSERT_FALSE(f.iasIsValid);
+    TEST_ASSERT_TRUE(f.iasIsValid);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 999.8f, f.iasKt);
 }
 
 void test_percent_lift_zero(void)
@@ -1026,7 +1030,7 @@ int main(int, char**)
     RUN_TEST(test_ias_invalid_emits_sentinel);
     RUN_TEST(test_ias_valid_default_round_trips);
     RUN_TEST(test_ias_invalid_wire_bytes_at_offset_13);
-    RUN_TEST(test_ias_at_saturation_reports_invalid);
+    RUN_TEST(test_ias_at_saturation_clamps_below_sentinel);
     RUN_TEST(test_percent_lift_zero);
     RUN_TEST(test_percent_lift_5_0);
     RUN_TEST(test_percent_lift_9_9);

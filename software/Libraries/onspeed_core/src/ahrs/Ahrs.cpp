@@ -147,11 +147,10 @@ void Ahrs::Init(const AhrsInputs& seedFrame, float seedPaltFt)
 
 void Ahrs::updateTas_(const AhrsInputs& in)
 {
-    // Exact port of legacy AHRS::Process TAS block (lines 138-220 of the
-    // original AHRS.cpp).  The two density-correction `powf` calls are
-    // expensive on the ESP32-S3's single-precision FPU; computing them at
-    // 50 Hz instead of 208 Hz saves ~150 µs/cycle with no accuracy loss
-    // (IAS/Palt only update at 50 Hz).
+    // Density-correction `powf` calls are expensive on the ESP32-S3's
+    // single-precision FPU.  Gating on the IAS update timestamp keeps
+    // this block running at the 50 Hz pressure cadence instead of the
+    // 208 Hz IMU cadence; IAS/Palt only update at 50 Hz anyway.
     const uint32_t uIasUpdateUs = in.iasUpdateTimestampUs;
     if (uIasUpdateUs == lastIasUpdateUs_) {
         return;
@@ -183,7 +182,8 @@ void Ahrs::updateTas_(const AhrsInputs& in)
     float fSatC = fOatC;
     if (bHaveOat) {
         const auto satC = onspeed::sensors::CorrectSat(
-            fOatC, in.sensors.iasKt, cfg_.oatRecoveryFactor);
+            fOatC, in.sensors.iasKt, in.sensors.paltFt,
+            cfg_.oatRecoveryFactor);
         if (satC.has_value()) {
             fSatC = *satC;
             outputs_.valid.set(onspeed::types::AirDataValid::kOatSat);
@@ -536,6 +536,28 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     outputs_.gyroPitchFiltDps = gPitch;
     outputs_.gyroYawFiltDps   = gYaw;
     outputs_.timestampUs      = in.imu.timestampUs;
+
+    // Populate the remaining validity bits this producer can affirm.
+    // kOatRaw / kOatSat / kTas are set in updateTas_ above; the bits
+    // below cover the channels Step computes on every IMU tick.
+    using onspeed::types::AirDataValid;
+    auto setOrClear = [&](AirDataValid::Bit b, bool ok) {
+        if (ok) outputs_.valid.set(b); else outputs_.valid.clear(b);
+    };
+    setOrClear(AirDataValid::kPitch,       std::isfinite(SmoothedPitch));
+    setOrClear(AirDataValid::kRoll,        std::isfinite(SmoothedRoll));
+    setOrClear(AirDataValid::kPalt,
+               std::isfinite(in.sensors.paltFt));
+    setOrClear(AirDataValid::kIas,         in.sensors.iasAlive);
+    setOrClear(AirDataValid::kVsi,         std::isfinite(kalmanVsiMps_));
+    setOrClear(AirDataValid::kDerivedAoa,
+               std::isfinite(DerivedAOA) &&
+               outputs_.valid.has(AirDataValid::kTas));
+    // kDensityAlt mirrors kOatSat + kPalt: density-alt is only honest
+    // when both SAT and Palt are trusted.
+    setOrClear(AirDataValid::kDensityAlt,
+               outputs_.valid.has(AirDataValid::kOatSat) &&
+               outputs_.valid.has(AirDataValid::kPalt));
 
     return outputs_;
 }

@@ -560,14 +560,14 @@ private:
 // LogReplayTaskHandle (issue #514)
 //
 // Wraps onspeed::replay::LogReplayTask, the C++-side single-source
-// pipeline that takes a LogRow and produces 77-byte wire bytes ready
-// for the M5 firmware sim. Eliminates the JS-side rowObjAt /
+// pipeline that takes a LogRow and produces 83-byte v4.24 wire bytes
+// ready for the M5 firmware sim. Eliminates the JS-side rowObjAt /
 // buildDisplayInputs hand-derivations: the JS layer becomes pure glue
 // (file pickers, time control, render).
 //
 // Public surface mirrors LogReplayEngineHandle for symmetry:
 //   new Module.LogReplayTask(cfgVal, logSampleRateHz, flapsRawAdcAvailable)
-//   task.processRow(rowVal)  -> Uint8Array (77 bytes) or zero-length
+//   task.processRow(rowVal)  -> Uint8Array (83 bytes) or zero-length
 //                                array during synth-path lag
 //   task.flush()             -> Array<Uint8Array> tail
 //   task.reset()

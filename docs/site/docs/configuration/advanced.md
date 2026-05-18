@@ -98,6 +98,6 @@ where `K` is the **probe recovery factor**:
 
 Config parameter: `OAT_RECOVERY_FACTOR` (XML) / `oatRecoveryFactor` (JSON). Range `[0.0, 1.0]`; out-of-range values fall back to the default `0.75`.
 
-The correction is meaningful above ~120 KIAS in cold air. At cruise on an RV-10 (155 KTAS, +5°C TAT) it shifts SAT ~2°C cooler and TAS ~0.4%. At Lancair speeds (FL250, 200 KIAS, −25°C TAT) it shifts ~3°C and ~0.6%. Below ~80 KIAS the correction is well under 0.5°C.
+The correction grows with M² and with altitude (TAS/IAS grows with `1/√σ`, and a(SAT)/a₀ grows with `√(T₀/SAT)`). At an RV-10's 8000 ft cruise (147 KIAS, +5°C TAT) it shifts SAT ~2.75°C cooler. At Lancair speeds (FL250, 200 KIAS, −25°C TAT) it shifts ~8.8°C — large enough to matter for density-altitude and stall-margin calculations. Below ~80 KIAS at low altitude the correction is well under 0.5°C.
 
 Set `K = 0` if your EFIS supplies an already-corrected SAT through its serial wire — most don't, but if yours does (check vendor docs) you'd otherwise double-correct.
