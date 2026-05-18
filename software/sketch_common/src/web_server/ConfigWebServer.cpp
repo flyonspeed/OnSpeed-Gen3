@@ -1765,14 +1765,18 @@ void HandleDelete()
             else
                 {
                 g_SdFileSys.remove(sFilename.c_str());
-                // Also remove matching sidecar if it exists. Best-effort:
-                // absent sidecar is fine.
+                // Also remove matching sidecars (.meta schema, .dbg
+                // writer log). Best-effort: absent sidecar is fine.
                 int iDot = sFilename.lastIndexOf('.');
                 if (iDot > 0)
                     {
-                    String sMeta = sFilename.substring(0, iDot) + ".meta";
+                    String sBase = sFilename.substring(0, iDot);
+                    String sMeta = sBase + ".meta";
+                    String sDbg  = sBase + ".dbg";
                     if (g_SdFileSys.exists(sMeta.c_str()))
                         g_SdFileSys.remove(sMeta.c_str());
+                    if (g_SdFileSys.exists(sDbg.c_str()))
+                        g_SdFileSys.remove(sDbg.c_str());
                     }
                 }
             xSemaphoreGive(xWriteMutex);
@@ -1877,10 +1881,11 @@ void HandleDeleteBulk()
         } pauseGuard;
 
     // Delete each file one at a time, yielding between iterations. For
-    // each csv we attempt to remove the matching .meta unconditionally —
-    // SdFat's remove() on a missing file is a near no-op (single directory
-    // probe) and we avoid any snapshot-staleness concerns if a new sidecar
-    // lands between enumeration and delete.
+    // each csv we attempt to remove the matching sidecars (.meta schema
+    // and .dbg writer log) unconditionally — SdFat's remove() on a
+    // missing file is a near no-op (single directory probe) and we avoid
+    // any snapshot-staleness concerns if a new sidecar lands between
+    // enumeration and delete.
     //
     // The active-file guard is inside the mutex so the check and remove
     // are atomic w.r.t. LogSensor::Open/Close. If a log that was inactive
@@ -1898,9 +1903,11 @@ void HandleDeleteBulk()
                 int iDot = f.lastIndexOf('.');
                 if (iDot > 0)
                     {
-                    String sMeta = f.substring(0, iDot) + ".meta";
-                    // Ignore return value — absent sidecar is fine.
+                    String sBase = f.substring(0, iDot);
+                    String sMeta = sBase + ".meta";
+                    String sDbg  = sBase + ".dbg";
                     g_SdFileSys.remove(sMeta.c_str());
+                    g_SdFileSys.remove(sDbg.c_str());
                     }
                 }
             xSemaphoreGive(xWriteMutex);

@@ -193,6 +193,15 @@ enum class FormatState : uint8_t {
     Failed  = 3,
 };
 
+// Lock the private FormatState ordinals to the public FormatJobState
+// ordinals. GetFormatJobSnapshot() casts between them; if anyone adds
+// a state to one without the other these asserts will catch it at
+// compile time before the cast silently mis-translates.
+static_assert(static_cast<int>(FormatState::Idle)    == static_cast<int>(FormatJobState::Idle),    "FormatState::Idle must equal FormatJobState::Idle");
+static_assert(static_cast<int>(FormatState::Running) == static_cast<int>(FormatJobState::Running), "FormatState::Running must equal FormatJobState::Running");
+static_assert(static_cast<int>(FormatState::Done)    == static_cast<int>(FormatJobState::Done),    "FormatState::Done must equal FormatJobState::Done");
+static_assert(static_cast<int>(FormatState::Failed)  == static_cast<int>(FormatJobState::Failed),  "FormatState::Failed must equal FormatJobState::Failed");
+
 struct FormatJob {
     char         taskId[32]    = {};
     FormatState  state         = FormatState::Idle;
@@ -201,15 +210,25 @@ struct FormatJob {
     bool         configSaved   = false;  // true iff post-format SaveConfigurationToFile() returned true
 };
 
-// Single in-flight job.  HandleApiFormat overwrites it on each new
-// trigger; the prior taskId becomes invalid (status returns "unknown
-// task").
+// Single in-flight job. StartFormatAsync() refuses a concurrent request
+// while the prior worker is still Running, so the taskId slot is stable
+// for the duration of a job.
 FormatJob g_FormatJob;
 SemaphoreHandle_t g_FormatJobMutex = nullptr;
 
+// Race-safe lazy init via a portMUX critical section. Two callers on
+// different cores observing nullptr would otherwise both allocate and
+// leak one of the mutexes. Critical section covers only the pointer
+// check + alloc; the SD work itself runs without it. CfgWebServerInit()
+// also primes this at startup, which is the common case; this guards
+// the pathological "first call before CfgWebServerInit ran" path.
 void EnsureFormatMutex() {
+    static portMUX_TYPE s_initMux = portMUX_INITIALIZER_UNLOCKED;
+    if (g_FormatJobMutex != nullptr) return;
+    portENTER_CRITICAL(&s_initMux);
     if (g_FormatJobMutex == nullptr)
         g_FormatJobMutex = xSemaphoreCreateMutex();
+    portEXIT_CRITICAL(&s_initMux);
 }
 
 void RunFormatInline(FormatJob& job);
@@ -220,13 +239,13 @@ void RunFormatInline(FormatJob& job);
 // loop on Core 1. The producer is paused via g_bPause inside
 // RunFormatInline. IDLE0 is removed from the TWDT for the duration of
 // the format call (SdFat.format() saturates Core 0 for several seconds
-// on large cards), then restored. We don't add the Format task itself
+// on large cards), then restored. The Format task itself is not added
 // to the TWDT — SdFat doesn't call esp_task_wdt_reset() from this task's
-// context (calls land on SdFat-internal worker tasks instead), so a TWDT
-// registration here would just trigger the WDT from the inside.
-// Returning the HTTP response from the API handler before this task runs
-// lets the browser poll /api/format/status without the synchronous wedge
-// that previously crashed the box on TWDT timeout.
+// context (calls land on SdFat-internal worker tasks instead), so a
+// TWDT registration here would just trigger the WDT from the inside.
+// HTTP callers return the response from the API handler before this
+// task runs and then poll /api/format/status; serial callers spawn the
+// task and poll GetFormatJobSnapshot() with vTaskDelay between reads.
 static void FormatTaskEntry(void* /*pArg*/) {
     TaskHandle_t hIdle0 = xTaskGetIdleTaskHandleForCPU(0);
     if (hIdle0 != nullptr)
@@ -340,13 +359,27 @@ bool StartFormatAsync(char* taskIdOut, size_t taskIdOutLen) {
     std::snprintf(taskId, sizeof(taskId), "format-%lu",
                   static_cast<unsigned long>(millis()));
 
+    // Reject if a worker is already running. Two workers would both take
+    // xWriteMutex serially and format the card twice — annoying, and the
+    // second caller's taskId would clobber the first, hiding the first
+    // worker's result from its poller. One in-flight job at a time.
     if (xSemaphoreTake(g_FormatJobMutex, pdMS_TO_TICKS(100))) {
+        if (g_FormatJob.state == FormatState::Running) {
+            xSemaphoreGive(g_FormatJobMutex);
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnWarning,
+                          "Format: rejecting concurrent request; worker already running");
+            return false;
+        }
         std::snprintf(g_FormatJob.taskId, sizeof(g_FormatJob.taskId), "%s", taskId);
         g_FormatJob.state       = FormatState::Running;
         g_FormatJob.error[0]    = '\0';
         g_FormatJob.cardSizeGb  = 0.0f;
         g_FormatJob.configSaved = false;
         xSemaphoreGive(g_FormatJobMutex);
+    } else {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "Format: g_FormatJobMutex timeout claiming job slot");
+        return false;
     }
 
     // Spawn a one-shot task on Core 0 to run the format. Stack 8 KB is
@@ -758,10 +791,16 @@ void HandleApiLogsDeleteBulk() {
                 continue;
             }
             g_SdFileSys.remove(f.c_str());
+            // Paired sidecars (.meta schema, .dbg writer log) share the
+            // base name. Remove unconditionally — SdFat's remove() on a
+            // missing file is a near no-op.
             int iDot = f.lastIndexOf('.');
             if (iDot > 0) {
-                String sMeta = f.substring(0, iDot) + ".meta";
+                String sBase = f.substring(0, iDot);
+                String sMeta = sBase + ".meta";
+                String sDbg  = sBase + ".dbg";
                 g_SdFileSys.remove(sMeta.c_str());
+                g_SdFileSys.remove(sDbg.c_str());
             }
             xSemaphoreGive(xWriteMutex);
             appendItem(deleted, firstDeleted, f);
@@ -787,7 +826,14 @@ void HandleApiLogsDeleteBulk() {
 
 void HandleApiFormat() {
     char taskId[32] = {};
-    StartFormatAsync(taskId, sizeof(taskId));
+    if (!StartFormatAsync(taskId, sizeof(taskId))) {
+        // Two cases reject inside StartFormatAsync: a concurrent worker
+        // is already running, or the worker task failed to spawn. 503
+        // signals "ask again later" rather than 200 with an empty
+        // taskId (which the client would then poll into a 404).
+        SendError(503, "format", "format busy or failed to start");
+        return;
+    }
 
     String body;
     body.reserve(64);

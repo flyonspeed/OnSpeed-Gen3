@@ -358,12 +358,12 @@ void ConsoleSerialIO::Read()
 
             // FORMAT
             // ------
-            // Spawn the same async format worker the /api/format handler
-            // uses (ApiHandlers.cpp), then poll the job snapshot from this
-            // task with vTaskDelay() between reads. Calling SdFat.format()
-            // synchronously from here would pin the console task (loopTask,
-            // which is in TWDT) for several seconds on a large card and
-            // panic the box. See #556.
+            // Spawn the async format worker (ApiHandlers::StartFormatAsync)
+            // so SdFat.format() runs on a dedicated Core 0 task that
+            // manages its own TWDT exclusion, then poll the job snapshot
+            // from here with vTaskDelay() between reads. The vTaskDelay
+            // yields loopTask cleanly; the worker handles its own watchdog
+            // concerns. See #556.
             else if (strncasecmp(szCmdToken, "FORMAT", 6) == 0)
                 {
                 char taskId[32] = {};
