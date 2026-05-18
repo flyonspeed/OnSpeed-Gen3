@@ -62,6 +62,7 @@ def test_frame_header() -> None:
 
 
 def test_frame_crc_matches_firmware_convention() -> None:
+    from onspeed_py.frame import _crc8
     wire = Frame(
         pitch_deg=5.0,
         roll_deg=-2.0,
@@ -72,7 +73,7 @@ def test_frame_crc_matches_firmware_convention() -> None:
     payload = wire[:PAYLOAD_LEN]
     crc_str = wire[CRC_HEX_START:CRC_HEX_END].decode("ascii")
     crc_sent = int(crc_str, 16)
-    crc_actual = sum(payload) & 0xFF
+    crc_actual = _crc8(payload)
     assert crc_sent == crc_actual, f"CRC mismatch: sent {crc_sent:02X} actual {crc_actual:02X}"
 
 
@@ -110,31 +111,34 @@ def test_offsets_round_trip() -> None:
     wire = f.to_bytes()
     s = wire[:PAYLOAD_LEN].decode("ascii")
 
-    assert abs(int(s[2:6])  / 10 - f.pitch_deg) < 0.1
-    assert abs(int(s[6:11]) / 10 - f.roll_deg) < 0.1
-    assert abs(int(s[11:15]) / 10 - f.ias_kts) < 0.1
-    assert int(s[15:21]) == round(f.palt_ft)
-    assert abs(int(s[21:26]) / 10 - f.turnrate_dps) < 0.1
-    assert abs(int(s[26:29]) / 100 - f.lateral_g) < 0.01
-    assert abs(int(s[29:32]) / 10 - f.vertical_g) < 0.1
-    # percent_lift widened to 3 chars (tenths-of-a-percent) at v4.23;
-    # offsets from 32 onward are +1 from v4.22.  The Frame field is
-    # whole-percent float (e.g. 4.2); to_bytes scales ×10 and truncates.
-    assert int(s[32:35]) == int(f.percent_lift_pct * 10)
-    assert int(s[35:39]) * 10 == round(f.vsi_fpm / 10) * 10
-    assert int(s[39:42]) == f.oat_c
-    assert abs(int(s[42:46]) / 10 - f.flightpath_deg) < 0.1
-    assert int(s[46:49]) == f.flap_deg
-    assert int(s[49:51]) == f.tones_on_pct_lift
-    assert int(s[51:53]) == f.onspeed_fast_pct_lift
-    assert int(s[53:55]) == f.onspeed_slow_pct_lift
-    assert int(s[55:57]) == f.stall_warn_pct_lift
-    assert int(s[57:60]) == f.flaps_min_deg
-    assert int(s[60:63]) == f.flaps_max_deg
-    assert abs(int(s[63:67]) / 100 - f.g_onset_rate) < 0.01
-    assert int(s[67:69]) == f.spin_cue
-    assert int(s[69:71]) == f.data_mark
-    assert int(s[71:73]) == f.pip_pct_lift
+    # Offsets per onspeed_core/proto/DisplaySerial.h v4.24 table
+    # (shifted +2 from v4.23 by the wireVersion field insert at byte 2).
+    assert abs(int(s[4:8])   / 10 - f.pitch_deg) < 0.1
+    assert abs(int(s[8:13])  / 10 - f.roll_deg) < 0.1
+    assert abs(int(s[13:17]) / 10 - f.ias_kts) < 0.1
+    assert int(s[17:23]) == round(f.palt_ft)
+    assert abs(int(s[23:28]) / 10 - f.turnrate_dps) < 0.1
+    assert abs(int(s[28:31]) / 100 - f.lateral_g) < 0.01
+    assert abs(int(s[31:34]) / 10 - f.vertical_g) < 0.1
+    # percent_lift carries tenths-of-a-percent (0..999); the Frame field
+    # is whole-percent float (e.g. 4.2); to_bytes scales ×10 and truncates.
+    assert int(s[34:37]) == int(f.percent_lift_pct * 10)
+    assert int(s[37:41]) * 10 == round(f.vsi_fpm / 10) * 10
+    assert int(s[41:44]) == f.oat_c
+    assert abs(int(s[44:48]) / 10 - f.flightpath_deg) < 0.1
+    assert int(s[48:51]) == f.flap_deg
+    assert int(s[51:53]) == f.tones_on_pct_lift
+    assert int(s[53:55]) == f.onspeed_fast_pct_lift
+    assert int(s[55:57]) == f.onspeed_slow_pct_lift
+    assert int(s[57:59]) == f.stall_warn_pct_lift
+    assert int(s[59:62]) == f.flaps_min_deg
+    assert int(s[62:65]) == f.flaps_max_deg
+    assert abs(int(s[65:69]) / 100 - f.g_onset_rate) < 0.01
+    assert int(s[69:71]) == f.spin_cue
+    assert int(s[71:73]) == f.data_mark
+    assert int(s[73:75]) == f.pip_pct_lift
+    # validFlags %04X at offset 75–78 (v4.24+).
+    assert int(s[75:79], 16) == (getattr(f, "validity", 0) & 0xFFFF)
 
 
 def test_negative_values_sign_preserved() -> None:
@@ -144,10 +148,11 @@ def test_negative_values_sign_preserved() -> None:
     they don't have signs to preserve."""
     wire = Frame(pitch_deg=-5.0, flightpath_deg=-3.5).to_bytes()
     s = wire[:PAYLOAD_LEN].decode("ascii")
-    assert s[2]  == "-", f"pitch sign missing: {s[2:6]!r}"
-    # flightPath sign at offset 42 (was 41 at v4.22; shifted +1 by the
-    # percent_lift widen at v4.23).
-    assert s[42] == "-", f"flightPath sign missing: {s[42:46]!r}"
+    # pitch sign at offset 4 (shifted +2 from v4.23 by the wireVersion
+    # field insert at v4.24).
+    assert s[4]  == "-", f"pitch sign missing: {s[4:8]!r}"
+    # flightPath sign at offset 44 (shifted +2 from v4.23).
+    assert s[44] == "-", f"flightPath sign missing: {s[44:48]!r}"
 
 
 def test_compute_percent_lift_honest_formula() -> None:
@@ -178,11 +183,12 @@ def test_compute_percent_lift_honest_formula() -> None:
 
 
 def test_clamp_protects_against_out_of_range() -> None:
-    # pitch field is %+04i, valid range -99.9 to +99.9 degrees (scaled ×10)
+    # pitch field is %+04i, valid range -99.9 to +99.9 degrees (scaled ×10);
+    # at offset 4 (v4.24, shifted +2 from v4.23).
     wire = Frame(pitch_deg=999.0).to_bytes()
     assert len(wire) == FRAME_LEN
     s = wire[:PAYLOAD_LEN].decode("ascii")
-    assert int(s[2:6]) == 999
+    assert int(s[4:8]) == 999
 
 
 def test_nan_and_inf_dont_break() -> None:
@@ -417,12 +423,14 @@ def test_csv_frame_stream_v3_at_rest_does_not_emit_ias_zero() -> None:
         wire = fr.to_bytes()
         assert len(wire) == FRAME_LEN
         s = wire[:PAYLOAD_LEN].decode("ascii")
-        assert s[11:15] == "9999", (
+        # iasKt %04u at offset 13–16 (v4.24, shifted +2 from v4.23).
+        assert s[13:17] == "9999", (
             f"IAS field should carry the 9999 invalid-wire sentinel, "
-            f"got {s[11:15]!r}"
+            f"got {s[13:17]!r}"
         )
-        assert s[32:35] == "000", (
-            f"percent_lift field clamps NaN to 000, got {s[32:35]!r}"
+        # percentLift %03u at offset 34–36 (v4.24, shifted +2 from v4.23).
+        assert s[34:37] == "000", (
+            f"percent_lift field clamps NaN to 000, got {s[34:37]!r}"
         )
 
 
@@ -471,8 +479,8 @@ def test_firmware_parser_rejects_old_94_byte_frame() -> None:
     """A frame at a non-current wire size must NOT decode against the
     current parser.  Catches the regression where a stale builder is
     paired with new firmware.  (Test name still says "94"; the actual
-    test produces FRAME_LEN+20 = 97 bytes against the v4.23 77-byte
-    parser, which is still a non-current size.)
+    test produces FRAME_LEN+20 = 103 bytes against the v4.24 83-byte
+    parser, which is a non-current size.)
     """
     if not PARSE_BIN.exists():
         print("    SKIP  parse_frame binary not built; run `pio run -e native` first")

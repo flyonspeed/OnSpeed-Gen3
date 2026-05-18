@@ -1,12 +1,12 @@
 """Golden-bytes regression: verify the m5-replay synthetic stream still
-produces byte-for-byte identical frames after the migration to
-`onspeed_py`.
+produces byte-for-byte identical frames across refactors.
 
-The hash was captured from `tools/m5-replay/replay.py` BEFORE the
-import refactor. If a migration accidentally changes the output, the
-test fails loudly. If the wire format intentionally changes (e.g. PR
-#336 lands and adds `pip_pct_lift`), regenerate the hash by running
-`generate_golden()` below and pasting the new value.
+If a refactor accidentally changes the output, the test fails loudly.
+When the wire format intentionally changes (e.g. PR #336 added
+`pip_pct_lift`, or the airdata-hardening series moved to v4.24 with
+CRC-8 + validFlags), regenerate the hash by running `generate_golden()`
+below and pasting the new value.  Last updated for v4.24 (83-byte
+frame, CRC-8, validFlags).
 """
 
 from __future__ import annotations
@@ -25,8 +25,9 @@ sys.path.insert(0, str(M5_REPLAY_DIR))
 
 from onspeed_py.config import FlapSetpoints
 
-# Pinned pre-migration hash. See module docstring for regeneration.
-GOLDEN_SHA256 = "d29e44dc48d9f0920afa6b6786dd032f5372cb21d67e61d173f5bd87b0faec3a"
+# Pinned for v4.24 (83-byte frame, CRC-8, validFlags).  See module
+# docstring for regeneration on intentional wire-format changes.
+GOLDEN_SHA256 = "be5693eb4d9fcb2192b7c08b02d172dc7cfbdfca02391dd144b94604aeb040e7"
 GOLDEN_FRAME_COUNT = 100
 
 

@@ -1,0 +1,4 @@
+# Compiled artifact from gen_v424_fixture.cpp.  The .cpp and the
+# generated fixtures/v424_golden.bin are checked in; the binary is
+# a one-shot regeneration tool — rebuild on demand.
+gen_v424_fixture
