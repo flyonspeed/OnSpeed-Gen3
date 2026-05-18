@@ -81,7 +81,7 @@ uv run ./stress_web_handlers.py --duration 30 --no-downloads   # no paused_drops
 `--help` lists every option. The script:
 
 - Opens multiple WebSocket clients to the live data feed
-- Polls `GET /api/logs` on a fast cadence (the handler that used to 503 under contention)
+- Polls `GET /api/logs` on a fast cadence (this handler returns a `Retry-After: 1` 503 when the SD writer is busy; healthy behavior is fast 200s with the occasional retry-honored 503)
 - Loads main HTML pages periodically
 - Fetches static bundles to exercise the ETag cache
 - Posts occasional config saves (with a **full** form snapshot — partial POSTs wipe boolean defaults)
@@ -94,9 +94,9 @@ Ctrl-C exits cleanly with a per-endpoint summary.
 The script doesn't cover everything. While it's running, use the web UI to exercise:
 
 - **Log rate toggle** — 208 → 50 → 208 (this is a schema-affecting change and should rotate the log file)
-- **SD logging toggle** — OFF → save → ON → save (close/reopen lifecycle; this used to silently fail, [issue #550](https://github.com/flyonspeed/OnSpeed-Gen3/issues/550))
+- **SD logging toggle** — OFF → save → ON → save (close/reopen lifecycle; see [issue #550](https://github.com/flyonspeed/OnSpeed-Gen3/issues/550) for context)
 - **EFIS type change** — another schema-fingerprint trigger
-- **Format the SD card** — verify the async-task format pattern (the synchronous version used to crash the box on TWDT)
+- **Format the SD card** — verify the format completes via the async-task pattern (HTTP returns immediately with a taskId, browser polls `/api/format/status` while a dedicated FreeRTOS task runs SdFat's format on Core 0)
 - **Delete a log file** — exercises the mutex-retry path
 
 Each of those should produce a visible PERF blip or rotation message in the monitor. None should produce drops, discards, or crashes.

@@ -49,7 +49,7 @@ The V4P will brown-out on USB-only power if the audio amp + WiFi AP come up at t
 3. Flash: `pio run -e esp32s3-v4p -t upload --upload-port /dev/cu.usbserial-410` (substitute the actual device path).
 4. Start a serial monitor with a filter that keeps the PERF flood out of your context. The reference filter is captured in the script comments but the gist is:
    - Always show: `Format:`, `rotating log`, `Sensor log file`, `Boot #`, `BootDiag`, `BROWNOUT`, `task_wdt`, `Backtrace`, `Rebooting`, `panic`, `ERROR`, `Mount SD`, `CCMP`, `Loaded configuration`, `Loading onspeed2`, `Saved config`
-   - Drop PERF heartbeats with `drops=0 dbg_drops=0 short=0 paused_drops=0` AND `imu_lateMaxUs<5000` AND `write_max<80000`
+   - Drop PERF heartbeats with `drops=0 dbg_drops=0 short=0 paused_drops=0` AND `imu_lateMaxUs<5000` AND `write_max<80000` (PERF reports both fields in microseconds, so these thresholds are 5 ms and 80 ms respectively)
    - Pass everything else through (any WARNING/ERROR, any PERF with non-zero counters)
 5. Watch for the boot banner. Healthy boot looks like:
    ```
@@ -89,8 +89,8 @@ uv run ./stress_web_handlers.py --duration 30 --no-downloads    # no paused_drop
 
 What the script does, concurrently:
 - Opens multiple WebSocket clients to `/` and keeps them subscribed
-- Polls `GET /api/logs` on a fast cadence (this is the handler that used to 503)
-- Loads main pages (`/`, `/aoaconfig`, `/sensorconfig`) periodically
+- Polls `GET /api/logs` on a fast cadence (the handler returns 503 with `Retry-After: 1` when the SD writer is busy; the test exercises that contention path)
+- Loads main pages (`/`, `/aoaconfig`) periodically
 - Fetches static bundles (cache check)
 - Occasional `POST /aoaconfigsave` with a *full form snapshot* (NOT a partial — partial form posts wipe boolean defaults; see the LogRate stress-trash incident on 2026-05-17 that killed flap config)
 - `GET /download?file=log_NNN.csv` to exercise the `g_bPause` pathway and produce visible `paused_drops`
@@ -150,7 +150,7 @@ If any of these fail, report the failure (with the `.dbg` snippet) and **do not 
 | Symptom | Likely cause | Where to look |
 |---|---|---|
 | `Log file is not open; discarding queued log data` | Producer is enqueueing but SD/file failed to open or got closed and not reopened. Pre-PR-501 toggling SD logging from web UI did this (#550). | `LogSensor::Open()` / `Close()` call sites |
-| `task_wdt: ... did not reset the watchdog. CPU 0: WebServer` | A blocking call in a web handler exceeded 5 s. Format used to do this synchronously (#556 for serial path). | Whatever the handler was doing on Core 0 |
+| `task_wdt: ... did not reset the watchdog. CPU 0: WebServer` | A blocking call in a web handler exceeded 5 s. Web `/api/format` runs the format on a dedicated task to avoid this; serial `FORMAT` does not yet (see #556). | Whatever the handler was doing on Core 0 |
 | `task_wdt: ... IDLE0 (CPU 0)` during format | The format work starved IDLE0. PR #501 fix removes IDLE0 from TWDT during format. | `FormatTaskEntry` in `ApiHandlers.cpp` |
 | Steady `paused_drops` rising during normal logging | Some handler is holding `g_bPause=true` and not releasing. | `PauseGuard` call sites; suspect new code |
 | Ring stuck at 100 % then drops climbing | Writer is starved on `xWriteMutex` by web handlers. PR #501 added writer-yield to fix this. | `LogSensor::CommitTask` mutex hold time, web handler timeouts |

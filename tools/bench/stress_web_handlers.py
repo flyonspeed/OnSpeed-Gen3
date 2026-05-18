@@ -23,8 +23,11 @@ Endpoints exercised:
   - GET /download?file=...         (download — paused but must succeed)
   - WebSocket /                    (live feed — must stay connected)
 
-Run with:
-  pip install websockets requests
+Run with `uv` (recommended — PEP 723 metadata above resolves deps):
+  uv run ./stress_web_handlers.py
+
+Or with pip (deps must match the PEP 723 block above):
+  pip install "websockets>=12" "pyserial>=3.5"
   python3 stress_web_handlers.py
 
 Options:
@@ -333,10 +336,9 @@ def http_post_form(url, fields, timeout=15):
 def find_static_js_path(host):
     """Scrape the /aoaconfig HTML for the current static JS asset URL.
     Returns a path like /static/app-3a7f81b2.js, or None if not found."""
-    status, _, _, _ = http_get(f"http://{host}/aoaconfig", retry_503=True)
-    if status != 200: return None
     try:
-        with urllib.request.urlopen(f"http://{host}/aoaconfig", timeout=5) as resp:
+        with urllib.request.urlopen(f"http://{host}/aoaconfig", timeout=10) as resp:
+            if resp.status != 200: return None
             body = resp.read().decode('utf-8', errors='replace')
     except Exception: return None
     import re
@@ -449,10 +451,11 @@ def worker_save(host, end_time, cadence_range):
     """POST /aoaconfigsave with the form's current values, verbatim.
 
     Critical to use the full form snapshot rather than a partial body:
-    the handler treats missing booleans as 'user cleared them' (line 975:
-    `else g_Config.bReadBoom = false`), and missing flap fields would
-    wipe the flap config. A round-trip snapshot/POST is the only safe
-    way to stress the save endpoint without nuking the box.
+    the handler in HandleConfigSave() treats missing booleans as 'user
+    cleared them' (the boolean-default-false pattern visible across
+    ConfigWebServer.cpp's checkbox handlers), and missing flap fields
+    would wipe the flap config. A round-trip snapshot/POST is the only
+    safe way to stress the save endpoint without nuking the box.
 
     Refreshes the snapshot every N saves so it picks up any config
     drift mid-test.
@@ -493,7 +496,11 @@ async def worker_websocket(host, end_time, worker_id):
         try:
             log(f"WS#{worker_id} connecting", C.DIM)
             async with websockets.connect(uri, ping_interval=20) as ws:
-                stats['WebSocket'].ok += 1
+                # Do not increment stats['WebSocket'].ok here — that counter
+                # would conflate "successful connects" with "successful
+                # responses" (the meaning used by every other endpoint).
+                # WS health is reported separately via ws_frames + reconnect
+                # count in the summary.
                 log(f"WS#{worker_id} connected", C.GREEN)
                 while not stop and time.time() < end_time:
                     msg = await asyncio.wait_for(ws.recv(), timeout=15)
@@ -546,7 +553,7 @@ async def worker_websocket_chaos(host, end_time, cadence_range):
                     await ws.close()
                     log(f"WS chaos: closed cleanly after {got} frames", C.DIM)
                 else:
-                    log(f"WS chaos: dropping after {got} frames (uncloned)", C.DIM)
+                    log(f"WS chaos: dropping after {got} frames (no close)", C.DIM)
             ws_reconnects += 1
         except Exception as e:
             log(f"WS chaos error: {type(e).__name__}", C.YELLOW)
@@ -613,8 +620,15 @@ async def main():
         logs_cadence    = (2.0, 5.0)
         pages_cadence   = (4.0, 10.0)
         static_cadence  = (5.0, 12.0)
-        save_cadence    = (3600.0, 7200.0)  # effectively off
-        dl_cadence      = (3600.0, 7200.0)  # effectively off
+        # Realistic-flight mode actually disables the save / download
+        # workers — pilots don't save config or download logs in flight.
+        # Forcing the flags here keeps the banner ("workers: ...") in
+        # sync with what's actually running, instead of advertising
+        # workers that would tick once every two hours.
+        args.no_saves     = True
+        args.no_downloads = True
+        save_cadence    = (3600.0, 7200.0)  # unused in this mode
+        dl_cadence      = (3600.0, 7200.0)  # unused in this mode
     elif args.aggressive:
         logs_cadence    = (0.5, 1.5)
         pages_cadence   = (1.0, 2.5)
@@ -733,7 +747,8 @@ async def main():
     log("  - any 503 in summary?  →   check writer-yield path is actually running", C.DIM)
     log("  - paused_drops > 0     →   only acceptable during /download moments", C.DIM)
     log("  - drops > 0            →   ring overflowed; producer outran writer", C.DIM)
-    log("  - imu_lateMaxUs > 1000 →   IMU surrendered a sample (real loss)", C.DIM)
+    log("  - imu_lateMaxUs > 1000 →   IMU schedule reset (timing disrupted; sample loss starts above one IMU period ~4807 us)", C.DIM)
+    log("  - imu_lateMaxUs > 4807 →   IMU period exceeded (sample timing surrendered)", C.DIM)
 
 
 if __name__ == "__main__":
