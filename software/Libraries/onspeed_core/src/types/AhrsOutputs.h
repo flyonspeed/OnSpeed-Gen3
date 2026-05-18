@@ -9,6 +9,7 @@
 #define ONSPEED_CORE_TYPES_AHRS_OUTPUTS_H
 
 #include <cstdint>
+#include <types/AirDataValid.h>
 
 namespace onspeed {
 
@@ -44,6 +45,12 @@ struct AhrsOutputs {
     // Microsecond-resolution timestamp of the AHRS step.
     // Wraps ~71 minutes; consumers must diff with uint32_t arithmetic.
     uint32_t timestampUs = 0;
+
+    // Per-channel validity bitmap.  Producers (Ahrs::Step, SensorIO,
+    // EFIS parsers) set bits when their values are trustworthy;
+    // consumers (DisplaySerial encoder, log writer, tone calc) check
+    // before use.  Default-constructed == all clear: safe boot state.
+    onspeed::types::AirDataValid valid;
 };
 
 }   // namespace onspeed
