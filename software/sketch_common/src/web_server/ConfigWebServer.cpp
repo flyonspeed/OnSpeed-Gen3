@@ -33,6 +33,10 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+extern "C" {
+#include <miniz.h>              // ROM miniz: tdefl_init/compress, mz_crc32 (MINIZ_NO_ZLIB_APIS)
+}
+
 #include "src/Globals.h"
 
 #include "src/web_server/ApiHandlers.h"
@@ -349,9 +353,10 @@ void CfgWebServerInit()
             CfgServer.send(404, "text/plain", "File Not Found");
             }
         );
-    // Register request headers we need to inspect (ESP32 WebServer discards them by default)
-    const char* headersToCollect[] = { "If-None-Match" };
-    CfgServer.collectHeaders(headersToCollect, 1);
+    // Register request headers we need to inspect (ESP32 WebServer discards them by default).
+    // Accept-Encoding is read by StreamFileDownload to decide between the raw and gzip paths.
+    const char* headersToCollect[] = { "If-None-Match", "Accept-Encoding" };
+    CfgServer.collectHeaders(headersToCollect, 2);
 
     // Start server
     CfgServer.begin();
@@ -1945,12 +1950,25 @@ void HandleDeleteBulk()
 
 // ----------------------------------------------------------------------------
 
-// Stream a file from the SD card to the HTTP client. `sFilename` is the
-// validated absolute path (server-controlled prefix + caller-supplied
-// basename); `sDisplayName` is what to surface in Content-Disposition
-// so the browser saves with the original basename even when the
-// in-server path differs.
-static void StreamFileDownload(const String& sFilename, const String& sDisplayName)
+// Allocate a buffer in PSRAM if available, falling back to internal heap.
+// Returns nullptr on failure. Used by the gzip download path for the ~167 KB
+// tdefl_compressor and the 16 KB / 64 KB I/O buffers — comfortable in PSRAM,
+// tight against internal DRAM if PSRAM is unavailable for some reason.
+static void* AllocDownloadBuffer(size_t bytes)
+    {
+    void * p = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (p == nullptr)
+        p = malloc(bytes);
+    return p;
+    }
+
+
+// Stream a file from the SD card to the HTTP client in raw (uncompressed)
+// form. `sFilename` is the validated absolute path (server-controlled prefix
+// + caller-supplied basename); `sDisplayName` is what to surface in
+// Content-Disposition so the browser saves with the original basename
+// even when the in-server path differs.
+static void StreamFileDownloadRaw(const String& sFilename, const String& sDisplayName)
     {
     FsFile file;
 
@@ -2057,6 +2075,302 @@ static void StreamFileDownload(const String& sFilename, const String& sDisplayNa
                       "HandleDownload close: xWriteMutex timeout; fd may leak");
         }
 
+    } // end StreamFileDownloadRaw()
+
+
+// Stream a file from the SD card to the HTTP client as a gzip-encoded body
+// over chunked transfer encoding. Same SD/mutex/pause pattern as the raw
+// path; the additions are a streaming miniz deflate compressor wrapped in
+// the RFC 1952 gzip header/trailer (CRC32 + ISIZE mod 2^32). The browser
+// auto-inflates because we advertise Content-Encoding: gzip.
+//
+// Hardcoded choices (from bench measurements on a 57 MB CSV log):
+//   - Deflate probe count: 1 (the lowest non-Huffman-only setting). Level 6
+//     was only ~9% faster wall-clock at ~5x the CPU cost; SD-read dominates.
+//   - SD read buffer:  16 KB on heap. Each file.read() costs an
+//     xWriteMutex take/give, so larger reads amortize lock churn.
+//   - Deflate out buffer: 64 KB on heap. Large enough that
+//     tdefl_compress() rarely returns mid-block.
+//   - sendContent() flush threshold: 8 KB. Smaller wastes chunked
+//     framing overhead; larger inflates latency without measurable gain.
+static void StreamFileDownloadGzip(const String& sFilename, const String& sDisplayName)
+    {
+    constexpr size_t kSdReadBufBytes = 16 * 1024;
+    constexpr size_t kDeflateOutBytes = 64 * 1024;
+    constexpr size_t kSendCoalesceBytes = 8 * 1024;
+
+    FsFile file;
+
+    struct PauseGuard
+        {
+        bool bPrevPause;
+        PauseGuard() : bPrevPause(g_bPause) { g_bPause = true; }
+        ~PauseGuard() { g_bPause = bPrevPause; }
+        } pauseGuard;
+
+    // Validate SD-open and grab size under the mutex (matches the raw path).
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+        {
+        file = g_SdFileSys.open(sFilename.c_str(), O_READ);
+        xSemaphoreGive(xWriteMutex);
+        }
+    else
+        {
+        CfgServer.send(503, "text/plain", "SD busy");
+        return;
+        }
+
+    if (!file)
+        {
+        CfgServer.send(404, "text/plain", "File not found");
+        return;
+        }
+
+    // Allocate compressor state and I/O buffers. PSRAM-preferred. The
+    // compressor alone is ~167 KB so we don't want this on internal DRAM
+    // unless PSRAM is genuinely unavailable.
+    tdefl_compressor * pComp = static_cast<tdefl_compressor *>(
+        AllocDownloadBuffer(sizeof(tdefl_compressor)));
+    uint8_t * pSdBuf = static_cast<uint8_t *>(AllocDownloadBuffer(kSdReadBufBytes));
+    uint8_t * pOutBuf = static_cast<uint8_t *>(AllocDownloadBuffer(kDeflateOutBytes));
+    if (pComp == nullptr || pSdBuf == nullptr || pOutBuf == nullptr)
+        {
+        if (pComp)   free(pComp);
+        if (pSdBuf)  free(pSdBuf);
+        if (pOutBuf) free(pOutBuf);
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
+            {
+            file.close();
+            xSemaphoreGive(xWriteMutex);
+            }
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                      "StreamFileDownloadGzip: heap allocation failed");
+        CfgServer.send(503, "text/plain", "Out of memory");
+        return;
+        }
+
+    // Probe count in the low 12 bits; no TDEFL_WRITE_ZLIB_HEADER (we wrap
+    // with gzip ourselves). Note: tdefl_create_comp_flags_from_zip_params
+    // is unavailable on the ROM build (MINIZ_NO_ZLIB_APIS is defined).
+    mz_uint flags = 1;
+    if (tdefl_init(pComp, nullptr, nullptr, static_cast<int>(flags)) != TDEFL_STATUS_OKAY)
+        {
+        free(pComp);
+        free(pSdBuf);
+        free(pOutBuf);
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
+            {
+            file.close();
+            xSemaphoreGive(xWriteMutex);
+            }
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                      "StreamFileDownloadGzip: tdefl_init failed");
+        CfgServer.send(500, "text/plain", "Compressor init failed");
+        return;
+        }
+
+    // CONTENT_LENGTH_UNKNOWN tells the WebServer to use Transfer-Encoding:
+    // chunked. Do NOT pair this with Connection: close — combining the two
+    // is non-standard and triggers reset on some clients.
+    CfgServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    CfgServer.sendHeader("Content-Type", "application/octet-stream");
+    CfgServer.sendHeader("Content-Disposition",
+                         "attachment; filename=" + sDisplayName);
+    CfgServer.sendHeader("Content-Encoding", "gzip");
+    CfgServer.send(200);
+
+    // RFC 1952 gzip header: magic 1f 8b, deflate method (08), no flags,
+    // no mtime, no xflags, OS=unknown (ff).
+    static const uint8_t kGzipHeader[10] = {
+        0x1f, 0x8b, 0x08, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0xff
+        };
+    CfgServer.sendContent(reinterpret_cast<const char *>(kGzipHeader),
+                          sizeof(kGzipHeader));
+
+    uint32_t uCrc = mz_crc32(0, nullptr, 0);
+    uint32_t uIsize = 0;
+    size_t iOutFill = 0;
+    bool bClientGone = false;
+    bool bEof = false;
+
+    while (!bClientGone)
+        {
+        // Read a chunk from SD under the mutex. Same retry-on-busy pattern
+        // as the raw path so a mid-transfer mutex stall doesn't kill the
+        // download.
+        size_t iIn = 0;
+        if (bEof)
+            {
+            iIn = 0;
+            }
+        else if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(2000)))
+            {
+            int iRead = file.read(pSdBuf, kSdReadBufBytes);
+            xSemaphoreGive(xWriteMutex);
+            if (iRead < 0)
+                {
+                bClientGone = true;
+                break;
+                }
+            iIn = static_cast<size_t>(iRead);
+            if (iIn == 0)
+                bEof = true;
+            }
+        else
+            {
+            if (!CfgServer.client().connected())
+                {
+                bClientGone = true;
+                break;
+                }
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+            }
+
+        if (iIn > 0)
+            {
+            uCrc = mz_crc32(uCrc, pSdBuf, iIn);
+            uIsize += static_cast<uint32_t>(iIn);  // RFC 1952: original size mod 2^32
+            }
+
+        // Feed everything in pSdBuf through tdefl_compress, calling
+        // sendContent whenever the output buffer crosses the coalesce
+        // threshold. Use TDEFL_FINISH on the EOF read so the compressor
+        // emits the final deflate block.
+        size_t iInPos = 0;
+        const tdefl_flush enFlush = bEof ? TDEFL_FINISH : TDEFL_NO_FLUSH;
+        while (true)
+            {
+            size_t iInRemain = iIn - iInPos;
+            size_t iOutAvail = kDeflateOutBytes - iOutFill;
+            tdefl_status enStatus = tdefl_compress(
+                pComp,
+                iInRemain ? (pSdBuf + iInPos) : nullptr,
+                &iInRemain,
+                pOutBuf + iOutFill,
+                &iOutAvail,
+                enFlush);
+            iInPos += iInRemain;
+            iOutFill += iOutAvail;
+
+            if (enStatus == TDEFL_STATUS_BAD_PARAM ||
+                enStatus == TDEFL_STATUS_PUT_BUF_FAILED)
+                {
+                g_Log.printf(MsgLog::EnDisk, MsgLog::EnError,
+                             "StreamFileDownloadGzip: tdefl_compress error %d\n",
+                             static_cast<int>(enStatus));
+                bClientGone = true;
+                break;
+                }
+
+            const bool bForceFlush = (enStatus == TDEFL_STATUS_DONE) ||
+                                     (iOutFill == kDeflateOutBytes);
+            if (iOutFill >= kSendCoalesceBytes || bForceFlush)
+                {
+                if (iOutFill > 0)
+                    {
+                    CfgServer.sendContent(reinterpret_cast<const char *>(pOutBuf),
+                                          iOutFill);
+                    iOutFill = 0;
+                    if (!CfgServer.client().connected())
+                        {
+                        bClientGone = true;
+                        break;
+                        }
+                    }
+                }
+
+            // Yield periodically to keep WiFi/core-0 responsive.
+            delay(0);
+
+            if (enStatus == TDEFL_STATUS_DONE)
+                {
+                bEof = true;
+                break;
+                }
+            // Loop again only if the compressor still has work — either
+            // unconsumed input or its internal buffer is full and we just
+            // drained iOutFill. The TDEFL_FINISH path keeps spinning here
+            // until TDEFL_STATUS_DONE.
+            if (enFlush == TDEFL_FINISH)
+                continue;
+            if (iInPos >= iIn)
+                break;
+            }
+
+        if (bClientGone)
+            break;
+        if (bEof && iOutFill == 0)
+            break;
+        }
+
+    // Flush any tail bytes the inner loop didn't push.
+    if (!bClientGone && iOutFill > 0)
+        {
+        CfgServer.sendContent(reinterpret_cast<const char *>(pOutBuf), iOutFill);
+        iOutFill = 0;
+        }
+
+    // RFC 1952 trailer: 4 bytes CRC32 LE, 4 bytes ISIZE (orig size mod 2^32) LE.
+    if (!bClientGone)
+        {
+        uint8_t achTrailer[8];
+        achTrailer[0] = static_cast<uint8_t>(uCrc       & 0xff);
+        achTrailer[1] = static_cast<uint8_t>((uCrc >>  8) & 0xff);
+        achTrailer[2] = static_cast<uint8_t>((uCrc >> 16) & 0xff);
+        achTrailer[3] = static_cast<uint8_t>((uCrc >> 24) & 0xff);
+        achTrailer[4] = static_cast<uint8_t>(uIsize       & 0xff);
+        achTrailer[5] = static_cast<uint8_t>((uIsize >>  8) & 0xff);
+        achTrailer[6] = static_cast<uint8_t>((uIsize >> 16) & 0xff);
+        achTrailer[7] = static_cast<uint8_t>((uIsize >> 24) & 0xff);
+        CfgServer.sendContent(reinterpret_cast<const char *>(achTrailer),
+                              sizeof(achTrailer));
+
+        // Empty sendContent emits the final "0\r\n\r\n" chunked terminator.
+        // Without it browsers hang waiting for the last chunk.
+        CfgServer.sendContent("");
+        }
+
+    free(pComp);
+    free(pSdBuf);
+    free(pOutBuf);
+
+    if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
+        {
+        file.close();
+        xSemaphoreGive(xWriteMutex);
+        }
+    else
+        {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                      "StreamFileDownloadGzip close: xWriteMutex timeout; fd may leak");
+        }
+
+    } // end StreamFileDownloadGzip()
+
+
+// Dispatch a download to the raw or gzip path based on the request's
+// Accept-Encoding header. Modern browsers and `curl --compressed` send
+// "gzip" (typically alongside others, e.g. "gzip, deflate, br" or with
+// q-values like "gzip;q=1.0, deflate;q=0.5"); substring-match catches all
+// of them. Clients that omit Accept-Encoding or don't list gzip get the
+// bit-identical raw stream.
+static void StreamFileDownload(const String& sFilename, const String& sDisplayName)
+    {
+    bool bWantsGzip = false;
+    if (CfgServer.hasHeader("Accept-Encoding"))
+        {
+        String sEnc = CfgServer.header("Accept-Encoding");
+        if (sEnc.indexOf("gzip") >= 0)
+            bWantsGzip = true;
+        }
+
+    if (bWantsGzip)
+        StreamFileDownloadGzip(sFilename, sDisplayName);
+    else
+        StreamFileDownloadRaw(sFilename, sDisplayName);
     } // end StreamFileDownload()
 
 
