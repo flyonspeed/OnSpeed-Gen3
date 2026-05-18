@@ -373,6 +373,57 @@ void test_build_index_boom_partial_warns_no_enable(void)
     TEST_ASSERT_EQUAL_STRING("boomAge", g_lastWarn);
 }
 
+void test_build_index_efis_partial_warns_no_enable(void)
+{
+    // Standard EFIS group with one column dropped. Same contract as the
+    // boom partial-group test: warn naming the first missing column,
+    // leave efisEnabled false. Drop the tail column (efisTime).
+    static const char* kPartialEfis =
+        "efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG,efisPercentLift,"
+        "efisPalt,efisVSI,efisTAS,efisOAT,efisFuelRemaining,efisFuelFlow,"
+        "efisMAP,efisRPM,efisPercentPower,efisMagHeading,efisAge";  // missing efisTime
+    std::string hdr;
+    hdr.append(kCoreHead).append(",").append(kPartialEfis).append(",").append(kDerivedTail);
+
+    HeaderIndex idx;
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(idx.efisEnabled);
+    TEST_ASSERT_FALSE(idx.efisIsVn300);
+    TEST_ASSERT_EQUAL_INT(1, g_warnCount);
+    TEST_ASSERT_EQUAL_STRING("efisTime", g_lastWarn);
+}
+
+void test_build_index_vn300_partial_warns_no_enable(void)
+{
+    // VN-300 group with one column dropped. Same contract: warn naming
+    // the first missing column, leave efisIsVn300 + efisEnabled false.
+    // Drop the tail column (vnTimeUTC).
+    static const char* kPartialVn300 =
+        "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
+        "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
+        "vnAccelFwd,vnAccelLat,vnAccelVert,"
+        "vnYaw,vnPitch,vnRoll,"
+        "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
+        "vnYawSigma,vnRollSigma,vnPitchSigma,"
+        "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
+        "vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge";  // missing vnTimeUTC
+    std::string hdr;
+    hdr.append(kCoreHead).append(",").append(kPartialVn300).append(",").append(kDerivedTail);
+
+    HeaderIndex idx;
+    g_warnCount = 0; g_lastWarn = nullptr;
+    bool ok = BuildHeaderIndex(hdr, idx, CountingWarnSink);
+
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(idx.efisEnabled);
+    TEST_ASSERT_FALSE(idx.efisIsVn300);
+    TEST_ASSERT_EQUAL_INT(1, g_warnCount);
+    TEST_ASSERT_EQUAL_STRING("vnTimeUTC", g_lastWarn);
+}
+
 void test_parserowbyindex_canonical_roundtrip(void)
 {
     // Build a row, format it via the canonical writer, parse the header
@@ -908,6 +959,8 @@ int main(int, char**)
     RUN_TEST(test_build_index_vn300_enabled);
     RUN_TEST(test_build_index_vn300_without_est_alt_ft_still_enables);
     RUN_TEST(test_build_index_boom_partial_warns_no_enable);
+    RUN_TEST(test_build_index_efis_partial_warns_no_enable);
+    RUN_TEST(test_build_index_vn300_partial_warns_no_enable);
     RUN_TEST(test_parserowbyindex_canonical_roundtrip);
     RUN_TEST(test_parserowbyindex_old_log_without_timestampus);
     RUN_TEST(test_parserowbyindex_empty_field_fails);
