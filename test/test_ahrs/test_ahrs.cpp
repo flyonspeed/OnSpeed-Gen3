@@ -14,6 +14,7 @@
 #include <ahrs/Ahrs.h>
 #include <types/AhrsInputs.h>
 #include <types/AhrsOutputs.h>
+#include <types/AirDataValid.h>
 #include <util/OnSpeedTypes.h>
 
 using onspeed::AhrsInputs;
@@ -594,6 +595,98 @@ void test_tas_fallback_when_divisor_overflows_at_extreme_altitude(void)
     TEST_ASSERT_TRUE(a.tasMps() > 0.0f);
 }
 
+// ---------------------------------------------------------------------
+// SAT (ram-rise) correction
+//
+// updateTas_() now routes raw TAT through onspeed::sensors::CorrectSat
+// before feeding the density-altitude math.  The AirDataValid bits
+// communicate state to downstream consumers: kOatRaw is set when the
+// raw TAT cleared the validity band, kOatSat is set when the ram-rise
+// helper produced a finite SAT, kTas is set when the density formula
+// produced a usable TAS.  K=0 disables the correction; the resulting
+// TAS must match the uncorrected (raw-TAT) density math bit-for-bit.
+// ---------------------------------------------------------------------
+
+void test_updateTas_sets_kOatSat_when_correction_applies(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    cfg.oatRecoveryFactor = 0.75f;
+    Ahrs a{cfg};
+    AhrsInputs seed = levelSeed();
+    a.Init(seed, /*seedPaltFt*/ 0.0f);
+
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt        = 150.0f;
+    in.sensors.iasAlive     = true;
+    in.sensors.paltFt       = 8000.0f;
+    in.sensors.oatCelsius   = 5.0f;
+    in.useInternalOat       = true;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    a.Step(in, kDt);
+
+    TEST_ASSERT_TRUE(a.latest().valid.has(
+        onspeed::types::AirDataValid::kOatRaw));
+    TEST_ASSERT_TRUE(a.latest().valid.has(
+        onspeed::types::AirDataValid::kOatSat));
+    TEST_ASSERT_TRUE(a.latest().valid.has(
+        onspeed::types::AirDataValid::kTas));
+}
+
+void test_updateTas_clears_kOatSat_when_no_oat(void)
+{
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    cfg.oatRecoveryFactor = 0.75f;
+    Ahrs a{cfg};
+    AhrsInputs seed = levelSeed();
+    a.Init(seed, /*seedPaltFt*/ 0.0f);
+
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt        = 150.0f;
+    in.sensors.iasAlive     = true;
+    in.useInternalOat       = false;
+    in.useEfisOat           = false;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    a.Step(in, kDt);
+
+    TEST_ASSERT_FALSE(a.latest().valid.has(
+        onspeed::types::AirDataValid::kOatRaw));
+    TEST_ASSERT_FALSE(a.latest().valid.has(
+        onspeed::types::AirDataValid::kOatSat));
+}
+
+void test_updateTas_k_zero_matches_uncorrected_tas(void)
+{
+    // K=0 disables the SAT correction so TAS uses raw TAT in density math.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    cfg.oatRecoveryFactor = 0.0f;
+    Ahrs a{cfg};
+    AhrsInputs seed = levelSeed();
+    a.Init(seed, /*seedPaltFt*/ 0.0f);
+
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt        = 147.0f;
+    in.sensors.iasAlive     = true;
+    in.sensors.paltFt       = 8000.0f;
+    in.sensors.oatCelsius   = 5.0f;
+    in.useInternalOat       = true;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    a.Step(in, kDt);
+
+    // Hand-compute the uncorrected TAS path (raw TAT directly into the
+    // density formula).
+    const float kelvin = 273.15f;
+    const float tRate  = 0.00198119993f;
+    const float isaK   = 15.0f - tRate * 8000.0f + kelvin;
+    const float tatK   = 5.0f + kelvin;
+    const float da     = 8000.0f + (isaK / tRate)
+                         * (1.0f - std::pow(isaK / tatK, 0.2349690f));
+    const float divisor   = 1.0f - 6.8755856e-6f * da;
+    const float legacyTas = onspeed::kts2mps(147.0f)
+                            / std::pow(divisor, 2.12794f);
+
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, legacyTas, a.tasMps());
+}
+
 // EKF6 alpha-covariance reset on the IAS=25 kt transition (Ahrs.cpp:354-357).
 // When the aircraft accelerates through 25 kt in EKF6 mode, the filter's
 // alpha covariance is reset so it re-learns alpha from real gamma
@@ -998,6 +1091,11 @@ int main(void)
 
     RUN_TEST(test_tas_fallback_when_oat_out_of_band);
     RUN_TEST(test_tas_fallback_when_divisor_overflows_at_extreme_altitude);
+
+    RUN_TEST(test_updateTas_sets_kOatSat_when_correction_applies);
+    RUN_TEST(test_updateTas_clears_kOatSat_when_no_oat);
+    RUN_TEST(test_updateTas_k_zero_matches_uncorrected_tas);
+
     RUN_TEST(test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing);
 
     RUN_TEST(test_ias_alive_false_zeros_comp_factors);
