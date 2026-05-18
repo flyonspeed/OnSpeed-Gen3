@@ -203,6 +203,10 @@ static val parse_config(const std::string& xml_text)
     // output and the Replay tool's existing config.js conventions.
     val out = val::object();
     out.set("aoaSmoothing",       cfg.iAoaSmoothing);
+    out.set("aoaFilterAdaptive",  cfg.bAoaFilterAdaptive);
+    out.set("aoaFilterAlphaMin",  cfg.fAoaFilterAlphaMin);
+    out.set("aoaFilterAlphaMax",  cfg.fAoaFilterAlphaMax);
+    out.set("aoaFilterKBoost",    cfg.fAoaFilterKBoost);
     out.set("pressureSmoothing",  cfg.iPressureSmoothing);
     out.set("muteUnderIas",       cfg.iMuteAudioUnderIAS);
     out.set("dataSource",         std::string(cfg.suDataSrc.toCStr()));
@@ -337,6 +341,10 @@ static OnSpeedConfig ConfigFromVal(val cfgVal)
     };
 
     cfg.iAoaSmoothing       = getInt  ("aoaSmoothing",      cfg.iAoaSmoothing);
+    cfg.bAoaFilterAdaptive  = getBool ("aoaFilterAdaptive", cfg.bAoaFilterAdaptive);
+    cfg.fAoaFilterAlphaMin  = getFloat("aoaFilterAlphaMin", cfg.fAoaFilterAlphaMin);
+    cfg.fAoaFilterAlphaMax  = getFloat("aoaFilterAlphaMax", cfg.fAoaFilterAlphaMax);
+    cfg.fAoaFilterKBoost    = getFloat("aoaFilterKBoost",   cfg.fAoaFilterKBoost);
     cfg.iPressureSmoothing  = getInt  ("pressureSmoothing", cfg.iPressureSmoothing);
     cfg.iMuteAudioUnderIAS  = getInt  ("muteUnderIas",      cfg.iMuteAudioUnderIAS);
     cfg.fPitchBias          = getFloat("pitchBias",         cfg.fPitchBias);

@@ -2,6 +2,10 @@
   "_comment": "Mock g_Config for /aoaconfig dev-server preview. Drives the {{name}} substitutions in tools/web/legacy-pages/aoaconfig.html. Mirrors the firmware's config shape closely enough to render every visibility branch.",
 
   "aoaSmoothing": 60,
+  "aoaFilterAdaptive": false,
+  "aoaFilterAlphaMin": 0.05,
+  "aoaFilterAlphaMax": 0.6,
+  "aoaFilterKBoost": 0.3,
   "pressureSmoothing": 50,
   "dataSource": "SENSORS",
   "replayLogFileName": "",

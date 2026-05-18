@@ -71,6 +71,11 @@ std::string EmitXml(const OnSpeedConfig& cfg)
     doc.InsertEndChild(root);
 
     AddInt   (root, "AOA_SMOOTHING",      cfg.iAoaSmoothing);
+    // Adaptive-EMA AOA smoothing (issue #566). Opt-in.
+    AddBool  (root, "AOA_FILTER_ADAPTIVE",  cfg.bAoaFilterAdaptive);
+    AddFloat (root, "AOA_FILTER_ALPHA_MIN", cfg.fAoaFilterAlphaMin);
+    AddFloat (root, "AOA_FILTER_ALPHA_MAX", cfg.fAoaFilterAlphaMax);
+    AddFloat (root, "AOA_FILTER_K_BOOST",   cfg.fAoaFilterKBoost);
     AddInt   (root, "PRESSURE_SMOOTHING", cfg.iPressureSmoothing);
     AddString(root, "DATASOURCE",         cfg.suDataSrc.toCStr());
     AddString(root, "REPLAYLOGFILENAME",  cfg.sReplayLogFileName.c_str());

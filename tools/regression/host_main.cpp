@@ -855,6 +855,10 @@ int CmdParseConfig(int argc, const char* const* argv)
 
     std::printf("{\n");
     JsonInt("aoaSmoothing",      cfg.iAoaSmoothing);
+    JsonBool ("aoaFilterAdaptive", cfg.bAoaFilterAdaptive);
+    JsonFloat("aoaFilterAlphaMin", cfg.fAoaFilterAlphaMin);
+    JsonFloat("aoaFilterAlphaMax", cfg.fAoaFilterAlphaMax);
+    JsonFloat("aoaFilterKBoost",   cfg.fAoaFilterKBoost);
     JsonInt("pressureSmoothing", cfg.iPressureSmoothing);
     JsonInt("muteUnderIas",      cfg.iMuteAudioUnderIAS);
     JsonStr("dataSource",        std::string(cfg.suDataSrc.toCStr()));

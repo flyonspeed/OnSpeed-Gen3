@@ -64,7 +64,7 @@ LogReplayEngine::LogReplayEngine(const OnSpeedConfig& cfg,
     // (firmware enforces); the rate doesn't change mid-stream.
     , synthHalfWindowTicks_(static_cast<int>(kSynthHalfWindowSec *
                                              static_cast<float>(logSampleRateHz)))
-    , aoaCalc_(cfg.iAoaSmoothing)
+    , aoaCalc_(cfg.ResolveAoaFilterConfig())
     , accelLatEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
     , accelVertEma_(static_cast<float>(logSampleRateHz), kAccelEmaTauSec)
     , accelFwdEma_ (static_cast<float>(logSampleRateHz), kAccelEmaTauSec)

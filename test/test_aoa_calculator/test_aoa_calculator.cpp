@@ -15,6 +15,14 @@ static SuCalibrationCurve makeLinearCurve(float scale, float offset)
     return {{0.0f, 0.0f, scale, offset}, 1};
 }
 
+// Helper: degenerate adaptive-EMA config equivalent to fixed alpha=1/samples.
+// kBoost=0 keeps the filter at its alphaMin (= alphaMax) regardless of input.
+static AdaptiveEmaFilter::Config fixedAlphaSamples(int samples)
+{
+    float alpha = (samples <= 0) ? 1.0f : (1.0f / static_cast<float>(samples));
+    return {alpha, alpha, 0.0f};
+}
+
 // ============================================================================
 // CalcAOA
 // ============================================================================
@@ -68,7 +76,7 @@ void test_CalcAOA_not_clamped()
 
 void test_AOACalculator_no_smoothing()
 {
-    AOACalculator calc(0);  // No smoothing
+    AOACalculator calc;  // No smoothing (default ctor)
     SuCalibrationCurve curve = makeLinearCurve(10.0f, 5.0f);
 
     // Pfwd=100, P45=50 => coeffP=0.5 => AOA=10
@@ -83,7 +91,7 @@ void test_AOACalculator_no_smoothing()
 
 void test_AOACalculator_with_smoothing()
 {
-    AOACalculator calc(2);  // alpha = 0.5
+    AOACalculator calc(fixedAlphaSamples(2));  // alpha = 0.5
     SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
 
     // First value seeds: AOA = 10
@@ -96,7 +104,7 @@ void test_AOACalculator_with_smoothing()
 
 void test_AOACalculator_clamps_output()
 {
-    AOACalculator calc(0);
+    AOACalculator calc;
     SuCalibrationCurve curve = makeLinearCurve(100.0f, 0.0f);
 
     // Raw AOA would be 100, but should be clamped
@@ -106,7 +114,7 @@ void test_AOACalculator_clamps_output()
 
 void test_AOACalculator_reset()
 {
-    AOACalculator calc(10);  // Heavy smoothing
+    AOACalculator calc(fixedAlphaSamples(10));  // Heavy smoothing (alpha=0.1)
     SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
 
     // Build up state
@@ -127,7 +135,7 @@ void test_AOACalculator_reset()
 
 void test_AOACalculator_invalid_samples_preserve_ema_state()
 {
-    AOACalculator calc(4);  // alpha = 0.25 — moderate smoothing
+    AOACalculator calc(fixedAlphaSamples(4));  // alpha = 0.25 — moderate smoothing
     SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
 
     // Establish steady-state around 5° (coeffP=0.5 => AOA=5)
@@ -156,7 +164,7 @@ void test_AOACalculator_first_sample_invalid_returns_floor()
 {
     // If the very first sample is invalid (before EMA is seeded),
     // return AOA_MIN_VALUE (safe floor), not 0.0 degrees.
-    AOACalculator calc(4);
+    AOACalculator calc(fixedAlphaSamples(4));
     SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
 
     AOACalculatorResult r = calc.calculate(-100.0f, 500.0f, curve);  // invalid pfwd
@@ -166,7 +174,7 @@ void test_AOACalculator_first_sample_invalid_returns_floor()
 
 void test_AOACalculator_zero_pfwd_does_not_drag_ema()
 {
-    AOACalculator calc(2);  // alpha = 0.5
+    AOACalculator calc(fixedAlphaSamples(2));  // alpha = 0.5
     SuCalibrationCurve curve = makeLinearCurve(10.0f, 0.0f);
 
     // Seed with AOA = 10°

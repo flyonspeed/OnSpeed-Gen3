@@ -675,6 +675,11 @@ void HandleConfig()
     auto sel = [](bool b) -> String { return b ? String(" selected") : String(""); };
 
     sBody.replace("{{aoaSmoothing}}",      String(g_Config.iAoaSmoothing));
+    sBody.replace("{{aoaFilterAdaptive}}",
+                  g_Config.bAoaFilterAdaptive ? String("checked") : String(""));
+    sBody.replace("{{aoaFilterAlphaMin}}",  String(g_Config.fAoaFilterAlphaMin, 3));
+    sBody.replace("{{aoaFilterAlphaMax}}",  String(g_Config.fAoaFilterAlphaMax, 3));
+    sBody.replace("{{aoaFilterKBoost}}",    String(g_Config.fAoaFilterKBoost, 3));
     sBody.replace("{{pressureSmoothing}}", String(g_Config.iPressureSmoothing));
 
     sBody.replace("{{dataSrcSensorsSel}}",    sel(g_Config.suDataSrc.enSrc == SuDataSource::EnSensors));
@@ -896,6 +901,35 @@ void HandleConfigSave()
             rebootRequired = true;
         g_Config.iAoaSmoothing = CfgServer.arg("aoaSmoothing").toInt();
         }
+
+    // Adaptive-EMA AOA smoothing (issue #566). Checkbox is omitted from
+    // the form when unchecked (HTML form convention), so absence of the
+    // arg means "off". AOACalculator only reads its config in InitSensors,
+    // so flag rebootRequired when any of these change — same UX as the
+    // legacy iAoaSmoothing knob above.
+    {
+        const bool newAdaptive = CfgServer.hasArg("aoaFilterAdaptive");
+        if (g_Config.bAoaFilterAdaptive != newAdaptive) rebootRequired = true;
+        g_Config.bAoaFilterAdaptive = newAdaptive;
+    }
+    if (CfgServer.hasArg("aoaFilterAlphaMin"))
+    {
+        const float v = CfgServer.arg("aoaFilterAlphaMin").toFloat();
+        if (g_Config.fAoaFilterAlphaMin != v) rebootRequired = true;
+        g_Config.fAoaFilterAlphaMin = v;
+    }
+    if (CfgServer.hasArg("aoaFilterAlphaMax"))
+    {
+        const float v = CfgServer.arg("aoaFilterAlphaMax").toFloat();
+        if (g_Config.fAoaFilterAlphaMax != v) rebootRequired = true;
+        g_Config.fAoaFilterAlphaMax = v;
+    }
+    if (CfgServer.hasArg("aoaFilterKBoost"))
+    {
+        const float v = CfgServer.arg("aoaFilterKBoost").toFloat();
+        if (g_Config.fAoaFilterKBoost != v) rebootRequired = true;
+        g_Config.fAoaFilterKBoost = v;
+    }
 
     if (CfgServer.hasArg("pressureSmoothing"))
         {

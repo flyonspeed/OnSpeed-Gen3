@@ -60,6 +60,17 @@ bool OnSpeedConfig::LoadDefaults()
     // ALL config items should be initialised to reasonable values here.
 
     iAoaSmoothing       = 20;
+    // Adaptive-EMA AOA smoothing (issue #566). Opt-in.  When enabled:
+    //   αmin = 0.05 matches the historical fixed α (iAoaSmoothing=20) for
+    //   steady cruise. αmax = 0.6 opens the filter for big AOA changes.
+    //   k = 0.3/deg means αmax fully engages at |err| ≈ 1.83° per frame —
+    //   ~5× the p99 of busy-flight per-frame deltas on Vac's log_007
+    //   (RV-4, 2026-05-11), so real maneuvers open the filter and quiet
+    //   cruise stays calm.
+    bAoaFilterAdaptive  = false;
+    fAoaFilterAlphaMin  = 0.05f;
+    fAoaFilterAlphaMax  = 0.60f;
+    fAoaFilterKBoost    = 0.30f;
     iPressureSmoothing  = 15;
     iMuteAudioUnderIAS  = 30;
 

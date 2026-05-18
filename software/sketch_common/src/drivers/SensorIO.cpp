@@ -306,8 +306,10 @@ void SensorIO::Init()
     // Get initial pressure altitude
     ReadPressureAltMbars();
 
-    // Configure AOA calculator smoothing
-    AoaCalc.setSamples(g_Config.iAoaSmoothing);
+    // Configure AOA calculator smoothing. ResolveAoaFilterConfig branches
+    // on bAoaFilterAdaptive: false => fixed alpha=1/iAoaSmoothing (legacy);
+    // true => the three adaptive params.
+    AoaCalc.setConfig(g_Config.ResolveAoaFilterConfig());
 }
 
 // ----------------------------------------------------------------------------

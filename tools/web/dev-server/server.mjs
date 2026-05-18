@@ -811,6 +811,11 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
 
   // 4. Scalars + select markers.
   body = body.replaceAll('{{aoaSmoothing}}',      String(cfg.aoaSmoothing));
+  body = body.replaceAll('{{aoaFilterAdaptive}}',
+                          cfg.aoaFilterAdaptive ? 'checked' : '');
+  body = body.replaceAll('{{aoaFilterAlphaMin}}', String(cfg.aoaFilterAlphaMin ?? 0.05));
+  body = body.replaceAll('{{aoaFilterAlphaMax}}', String(cfg.aoaFilterAlphaMax ?? 0.6));
+  body = body.replaceAll('{{aoaFilterKBoost}}',   String(cfg.aoaFilterKBoost   ?? 0.3));
   body = body.replaceAll('{{pressureSmoothing}}', String(cfg.pressureSmoothing));
   body = body.replaceAll('{{dataSrcSensorsSel}}',    selAttr(cfg.dataSource === 'SENSORS'));
   body = body.replaceAll('{{dataSrcTestPotSel}}',    selAttr(cfg.dataSource === 'TESTPOT'));

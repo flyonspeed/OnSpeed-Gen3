@@ -139,6 +139,13 @@ XmlParseStatus ParseXml(std::string_view xml, OnSpeedConfig& cfg)
     // ---------------- Scalar top-level fields ----------------------------
 
     GetInt(root, "AOA_SMOOTHING",      cfg.iAoaSmoothing);
+    // Adaptive-EMA AOA smoothing (issue #566). Opt-in via
+    // AOA_FILTER_ADAPTIVE; the three float params persist regardless so a
+    // flight toggle is just the bool.
+    GetBool (root, "AOA_FILTER_ADAPTIVE",  cfg.bAoaFilterAdaptive);
+    GetFloat(root, "AOA_FILTER_ALPHA_MIN", cfg.fAoaFilterAlphaMin);
+    GetFloat(root, "AOA_FILTER_ALPHA_MAX", cfg.fAoaFilterAlphaMax);
+    GetFloat(root, "AOA_FILTER_K_BOOST",   cfg.fAoaFilterKBoost);
     GetInt(root, "PRESSURE_SMOOTHING", cfg.iPressureSmoothing);
 
     std::string sDataSource;

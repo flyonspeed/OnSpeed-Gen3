@@ -241,7 +241,8 @@ inline constexpr float kSynthHalfWindowSec = 2.0f;  // ±2 wall-clock seconds
 //     smoothstep synth.
 //
 // Constructor parameters:
-//   cfg                 — active OnSpeedConfig (aFlaps, iAoaSmoothing)
+//   cfg                 — active OnSpeedConfig (aFlaps + AOA filter config
+//                         via ResolveAoaFilterConfig)
 //   logSampleRateHz     — sample rate of the log (50 or 208 Hz).  Used to
 //                         construct the RateAdjustedAccelEma filters at
 //                         the correct rate.

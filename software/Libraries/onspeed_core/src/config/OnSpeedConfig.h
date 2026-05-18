@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <util/OnSpeedTypes.h>  // SuCalibrationCurve, MAX_AOA_CURVES, MAX_CURVE_COEFF
+#include <filters/AdaptiveEmaFilter.h>  // AdaptiveEmaFilter::Config
 
 namespace onspeed::config {
 
@@ -151,6 +152,17 @@ public:
     // ------------------------------------------------------------------------
 
     int             iAoaSmoothing;
+    // Adaptive-EMA AOA smoothing (issue #566). Opt-in for Vac to A/B-test
+    // against the legacy fixed-alpha path. When bAoaFilterAdaptive is true
+    // AOACalculator uses the three (alphaMin, alphaMax, kBoost) params and
+    // boosts effective alpha when |delta_AOA| per frame is large; when
+    // false (default) it runs at fixed alpha = 1.0 / iAoaSmoothing exactly
+    // as before. The three float params persist regardless so a flight
+    // toggle is just the bool.
+    bool            bAoaFilterAdaptive;
+    float           fAoaFilterAlphaMin;   ///< steady-state alpha (heavy smoothing)
+    float           fAoaFilterAlphaMax;   ///< responsive alpha (light smoothing)
+    float           fAoaFilterKBoost;     ///< |err|-to-alpha gain, units 1/deg
     int             iPressureSmoothing;
     int             iMuteAudioUnderIAS;
     SuDataSource    suDataSrc;
@@ -254,6 +266,25 @@ public:
     /// Reset every field to its compile-time default.  Called by the default
     /// constructor and again when the sketch detects a missing/corrupt config.
     bool LoadDefaults();
+
+    /// Resolve the active AOA-smoother config: adaptive when
+    /// bAoaFilterAdaptive is true, otherwise a degenerate (alphaMin=alphaMax)
+    /// AdaptiveEmaFilter::Config that exactly matches the legacy fixed-alpha
+    /// EMA at alpha = 1.0 / iAoaSmoothing (samples=0 => alpha=1 pass-through).
+    ///
+    /// Single source of truth for both the live (SensorIO) and replay
+    /// (LogReplayEngine) code paths so they always agree on what filter
+    /// shape is in use.
+    onspeed::AdaptiveEmaFilter::Config ResolveAoaFilterConfig() const
+    {
+        if (bAoaFilterAdaptive) {
+            return {fAoaFilterAlphaMin, fAoaFilterAlphaMax, fAoaFilterKBoost};
+        }
+        const float alpha = (iAoaSmoothing <= 0)
+                            ? 1.0f
+                            : (1.0f / static_cast<float>(iAoaSmoothing));
+        return {alpha, alpha, 0.0f};
+    }
 };
 
 // ============================================================================

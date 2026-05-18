@@ -4,7 +4,7 @@
 
 #include <util/OnSpeedTypes.h>
 #include <aoa/CurveCalc.h>
-#include <filters/EMAFilter.h>
+#include <filters/AdaptiveEmaFilter.h>
 
 namespace onspeed {
 
@@ -34,16 +34,27 @@ struct AOACalculatorResult {
     bool  valid;   ///< False if calculation failed
 };
 
-/// Stateful AOA calculator with built-in EMA smoothing.
+/// Stateful AOA calculator with built-in adaptive-EMA smoothing.
+///
+/// The filter dynamically widens its time constant when |delta_AOA| per
+/// frame grows large (pull-up, aerobatic maneuver) and falls back to a
+/// heavy smoothing α when the signal is steady. Three tunables per
+/// instance via AdaptiveEmaFilter::Config:
+///
+///   alphaMin — steady-state α (heavy smoothing). Sets the floor.
+///   alphaMax — responsive α (light smoothing). Sets the ceiling.
+///   kBoost   — error-to-alpha gain in units per degree of |err|.
 ///
 /// Each instance owns its smoother state, so different callers
 /// (live sensors vs log replay) can have independent smoothing.
 class AOACalculator {
 public:
-    /// Construct with smoothing factor.
-    /// @param smoothingSamples Number of samples for smoothing (0 = no smoothing)
-    explicit AOACalculator(int smoothingSamples = 0)
-        : _smoother(smoothingSamples)
+    /// Default constructor — no smoothing (pass-through).
+    AOACalculator() = default;
+
+    /// Construct with an adaptive-EMA configuration.
+    explicit AOACalculator(const AdaptiveEmaFilter::Config& cfg)
+        : _smoother(cfg)
     {
     }
 
@@ -62,14 +73,17 @@ public:
         _smoother.reset();
     }
 
-    /// Change smoothing factor.
-    void setSamples(int samples)
+    /// Change smoothing config without resetting state.
+    void setConfig(const AdaptiveEmaFilter::Config& cfg)
     {
-        _smoother.setSamples(samples);
+        _smoother.setConfig(cfg);
     }
 
+    /// The alpha applied on the last update() call — for diagnostics.
+    float lastAlpha() const { return _smoother.lastAlpha(); }
+
 private:
-    EMAFilter _smoother;
+    AdaptiveEmaFilter _smoother;
 };
 
 } // namespace onspeed

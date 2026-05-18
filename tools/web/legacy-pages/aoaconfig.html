@@ -22,6 +22,34 @@
             <label for="id_aoaSmoothing">AOA Smoothing</label>
             <input id="id_aoaSmoothing" name="aoaSmoothing" type="text" value="{{aoaSmoothing}}"/>
         </div>
+        <div class="form-divs flex-col-12" style="padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+            <h3 style="margin: 0 0 6px 0;">Adaptive AOA Filter (experimental, issue #566)</h3>
+            <p style="margin: 0 0 8px 0; font-size: 0.9em; opacity: 0.85;">
+                When enabled, the AOA smoother widens its alpha automatically
+                on large per-frame AOA changes (pull-ups, aerobatics) and
+                tightens on steady cruise. The plain "AOA Smoothing" above is
+                ignored while this is on. Try this in flight and compare against
+                the legacy fixed-alpha path.
+            </p>
+            <div class="form-divs flex-col-12">
+                <label>
+                    <input id="id_aoaFilterAdaptive" name="aoaFilterAdaptive" type="checkbox" {{aoaFilterAdaptive}}/>
+                    Enable adaptive filter
+                </label>
+            </div>
+            <div class="form-divs flex-col-12">
+                <label for="id_aoaFilterAlphaMin">&alpha;<sub>min</sub> (steady smoothing — smaller = smoother at hold)</label>
+                <input id="id_aoaFilterAlphaMin" name="aoaFilterAlphaMin" type="text" value="{{aoaFilterAlphaMin}}"/>
+            </div>
+            <div class="form-divs flex-col-12">
+                <label for="id_aoaFilterAlphaMax">&alpha;<sub>max</sub> (responsive smoothing — larger = faster on changes)</label>
+                <input id="id_aoaFilterAlphaMax" name="aoaFilterAlphaMax" type="text" value="{{aoaFilterAlphaMax}}"/>
+            </div>
+            <div class="form-divs flex-col-12">
+                <label for="id_aoaFilterKBoost">k (rate boost — how aggressively change opens the filter)</label>
+                <input id="id_aoaFilterKBoost" name="aoaFilterKBoost" type="text" value="{{aoaFilterKBoost}}"/>
+            </div>
+        </div>
         <div class="form-divs flex-col-12">
             <label for="id_pressureSmoothing">Pressure Smoothing</label>
             <input id="id_pressureSmoothing" name="pressureSmoothing" type="text" value="{{pressureSmoothing}}" />

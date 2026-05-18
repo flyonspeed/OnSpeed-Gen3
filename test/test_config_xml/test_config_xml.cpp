@@ -239,6 +239,10 @@ static bool FlapsEqual(const OnSpeedConfig::SuFlaps& a,
 static bool ConfigsEqual(const OnSpeedConfig& a, const OnSpeedConfig& b)
 {
     if (a.iAoaSmoothing      != b.iAoaSmoothing)      return false;
+    if (a.bAoaFilterAdaptive != b.bAoaFilterAdaptive) return false;
+    if (a.fAoaFilterAlphaMin != b.fAoaFilterAlphaMin) return false;
+    if (a.fAoaFilterAlphaMax != b.fAoaFilterAlphaMax) return false;
+    if (a.fAoaFilterKBoost   != b.fAoaFilterKBoost)   return false;
     if (a.iPressureSmoothing != b.iPressureSmoothing) return false;
     if (a.iMuteAudioUnderIAS != b.iMuteAudioUnderIAS) return false;
     if (a.suDataSrc.enSrc    != b.suDataSrc.enSrc)    return false;
@@ -1049,6 +1053,94 @@ void test_cal_source_efis_cache(void)
 }
 
 // ============================================================================
+// Adaptive AOA filter (#566)
+// ============================================================================
+
+void test_aoa_filter_roundtrip(void)
+{
+    OnSpeedConfig cfg;
+    cfg.bAoaFilterAdaptive = true;
+    cfg.fAoaFilterAlphaMin = 0.07f;
+    cfg.fAoaFilterAlphaMax = 0.55f;
+    cfg.fAoaFilterKBoost   = 0.4f;
+
+    std::string xml = EmitXml(cfg);
+
+    OnSpeedConfig cfg2;
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(ParseXml(xml, cfg2)));
+
+    TEST_ASSERT_TRUE(cfg2.bAoaFilterAdaptive);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.07f, cfg2.fAoaFilterAlphaMin);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.55f, cfg2.fAoaFilterAlphaMax);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.40f, cfg2.fAoaFilterKBoost);
+}
+
+void test_aoa_filter_missing_keys_preserve_defaults(void)
+{
+    // A V2 config that doesn't carry the new keys at all: the three
+    // adaptive params keep their LoadDefaults values, the bool stays
+    // false. This is the upgrade path for users who saved their config
+    // before this PR landed.
+    static constexpr const char* kNoAdaptiveKeys = R"XML(<CONFIG2>
+        <AOA_SMOOTHING>15</AOA_SMOOTHING>
+    </CONFIG2>)XML";
+
+    OnSpeedConfig cfg;
+    TEST_ASSERT_EQUAL(static_cast<int>(XmlParseStatus::Ok),
+                      static_cast<int>(ParseXml(kNoAdaptiveKeys, cfg)));
+
+    TEST_ASSERT_EQUAL_INT(15, cfg.iAoaSmoothing);
+    TEST_ASSERT_FALSE(cfg.bAoaFilterAdaptive);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.05f, cfg.fAoaFilterAlphaMin);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.60f, cfg.fAoaFilterAlphaMax);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.30f, cfg.fAoaFilterKBoost);
+}
+
+void test_resolve_aoa_filter_config_fixed_mode(void)
+{
+    OnSpeedConfig cfg;
+    cfg.iAoaSmoothing      = 10;
+    cfg.bAoaFilterAdaptive = false;
+    cfg.fAoaFilterAlphaMin = 0.05f;
+    cfg.fAoaFilterAlphaMax = 0.6f;
+    cfg.fAoaFilterKBoost   = 0.3f;
+
+    auto resolved = cfg.ResolveAoaFilterConfig();
+    // Fixed-alpha mode: alphaMin == alphaMax == 1/iAoaSmoothing, k=0.
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.1f, resolved.alphaMin);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.1f, resolved.alphaMax);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, resolved.kBoost);
+}
+
+void test_resolve_aoa_filter_config_fixed_mode_zero_samples(void)
+{
+    OnSpeedConfig cfg;
+    cfg.iAoaSmoothing      = 0;  // pass-through smoother
+    cfg.bAoaFilterAdaptive = false;
+
+    auto resolved = cfg.ResolveAoaFilterConfig();
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, resolved.alphaMin);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, resolved.alphaMax);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, resolved.kBoost);
+}
+
+void test_resolve_aoa_filter_config_adaptive_mode(void)
+{
+    OnSpeedConfig cfg;
+    cfg.iAoaSmoothing      = 20;          // ignored in adaptive mode
+    cfg.bAoaFilterAdaptive = true;
+    cfg.fAoaFilterAlphaMin = 0.07f;
+    cfg.fAoaFilterAlphaMax = 0.55f;
+    cfg.fAoaFilterKBoost   = 0.4f;
+
+    auto resolved = cfg.ResolveAoaFilterConfig();
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.07f, resolved.alphaMin);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.55f, resolved.alphaMax);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.40f, resolved.kBoost);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -1088,6 +1180,12 @@ int main(int argc, char** argv)
     RUN_TEST(test_parse_exactly_max_flaps_ok);
     RUN_TEST(test_ahrs_algorithm_parse);
     RUN_TEST(test_cal_source_efis_cache);
+
+    RUN_TEST(test_aoa_filter_roundtrip);
+    RUN_TEST(test_aoa_filter_missing_keys_preserve_defaults);
+    RUN_TEST(test_resolve_aoa_filter_config_fixed_mode);
+    RUN_TEST(test_resolve_aoa_filter_config_fixed_mode_zero_samples);
+    RUN_TEST(test_resolve_aoa_filter_config_adaptive_mode);
 
     return UNITY_END();
 }
