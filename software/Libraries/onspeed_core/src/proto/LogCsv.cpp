@@ -315,7 +315,7 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 ",vnLinAccFwd,vnLinAccLat,vnLinAccVert"
                 ",vnYawSigma,vnRollSigma,vnPitchSigma"
                 ",vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown"
-                ",vnWindSpdKt,vnWindDirDeg,vnWindVerticalKt"
+                ",vnWindSpd,vnWindDir,vnWindVertical"
                 ",vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,vnTimeUTC");
         } else {
             ok &= Appendf(out, outCapacity, &len,
@@ -421,11 +421,11 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 row.vnYawSigma,         row.vnRollSigma,        row.vnPitchSigma,
                 row.vnGnssVelNedNorth,  row.vnGnssVelNedEast,   row.vnGnssVelNedDown);
             ok &= AppendFloatOrEmpty(out, outCapacity, &len,
-                std::isfinite(row.vnWindSpdKt),      ",%.2f", row.vnWindSpdKt);
+                std::isfinite(row.vnWindSpd),      ",%.2f", row.vnWindSpd);
             ok &= AppendFloatOrEmpty(out, outCapacity, &len,
-                std::isfinite(row.vnWindDirDeg),     ",%.1f", row.vnWindDirDeg);
+                std::isfinite(row.vnWindDir),     ",%.1f", row.vnWindDir);
             ok &= AppendFloatOrEmpty(out, outCapacity, &len,
-                std::isfinite(row.vnWindVerticalKt), ",%.2f", row.vnWindVerticalKt);
+                std::isfinite(row.vnWindVertical), ",%.2f", row.vnWindVertical);
             ok &= Appendf(out, outCapacity, &len,
                 ",%.6f,%.6f,%.2f,%i,%i,%s",
                 row.vnGnssLat,          row.vnGnssLon,          row.vnEstAltFt,
@@ -560,9 +560,9 @@ bool ParseRow(std::string_view line, onspeed::LogRow& row)
             if (!tok.next(field) || !ParseFloat(field, row.vnGnssVelNedEast))   return false;
             if (!tok.next(field) || !ParseFloat(field, row.vnGnssVelNedDown))   return false;
             // Wind columns may be blank (NaN-emit); ParseFloatOrNan tolerates.
-            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindSpdKt))      return false;
-            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindDirDeg))     return false;
-            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindVerticalKt)) return false;
+            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindSpd))      return false;
+            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindDir))     return false;
+            if (!tok.next(field) || !ParseFloatOrNan(field, row.vnWindVertical)) return false;
             if (!tok.next(field) || !ParseDouble(field, row.vnGnssLat))         return false;
             if (!tok.next(field) || !ParseDouble(field, row.vnGnssLon))         return false;
             if (!tok.next(field) || !ParseFloat(field, row.vnEstAltFt))         return false;

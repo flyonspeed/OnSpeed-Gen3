@@ -99,12 +99,13 @@ public:
 
         // Wind triangle, computed from GnssVelNed + ownship attitude + TAS.
         // NaN when no valid wind solution (low TAS, NaN inputs, no GPS fix).
-        // Direction is the "from" bearing in [0, 360), measured CW from north
-        // in the same frame as Yaw (magnetic unless the VN-300 is configured
-        // with declination).  WindVerticalKt is positive for an updraft.
-        float   WindSpdKt;
-        float   WindDirDeg;
-        float   WindVerticalKt;
+        // WindDir is the "from" bearing in [0, 360), measured CW from north
+        // in the same frame as Yaw.  The analysis workbook assumes true; the
+        // VN-300 must be configured with WMM declination for that to hold.
+        // OnSpeed does not correct.  WindVertical is positive for an updraft.
+        float   WindSpd;        // knots
+        float   WindDir;        // degrees, true if VN-300 has declination configured
+        float   WindVertical;   // knots, positive = updraft
     };
 
     // Public data (accessed directly by callers in original code).

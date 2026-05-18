@@ -28,7 +28,7 @@
 //   vnLinAccFwd, vnLinAccLat, vnLinAccVert,
 //   vnYawSigma, vnRollSigma, vnPitchSigma,
 //   vnGnssVelNedNorth, vnGnssVelNedEast, vnGnssVelNedDown,
-//   vnWindSpdKt, vnWindDirDeg, vnWindVerticalKt,
+//   vnWindSpd, vnWindDir, vnWindVertical,
 //   vnGnssLat, vnGnssLon, vnEstAltFt, vnGPSFix, vnDataAge, vnTimeUTC,
 //
 //   [if EFIS enabled and type != VN-300]
@@ -83,7 +83,7 @@ namespace onspeed::proto::log_csv {
 // Version 4: added `vnEstAltFt` to the VN-300 column group (INS-estimated
 // altitude in feet, sourced from the wire's Common.Position LLA). The
 // header-index parser tolerates the column's absence in older logs.
-// Version 5: added `vnWindSpdKt`, `vnWindDirDeg`, `vnWindVerticalKt` to the
+// Version 5: added `vnWindSpd`, `vnWindDir`, `vnWindVertical` to the
 // VN-300 column group (wind triangle derived from GnssVelNed + VN-300 yaw +
 // ownship TAS).  All three columns are optional within the VN-300 group;
 // the header-index parser tolerates absence in older logs.

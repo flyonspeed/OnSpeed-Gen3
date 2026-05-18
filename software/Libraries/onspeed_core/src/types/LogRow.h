@@ -157,10 +157,10 @@ struct LogRow {
     // NaN when no valid solution (low TAS, NaN inputs, no GPS fix). Direction
     // is the "from" bearing in [0, 360) in the same frame as vnYawDeg
     // (magnetic unless the VN-300 is configured with declination).
-    // vnWindVerticalKt is positive for an updraft.
-    float vnWindSpdKt        = std::nanf("");
-    float vnWindDirDeg       = std::nanf("");
-    float vnWindVerticalKt   = std::nanf("");
+    // vnWindVertical is positive for an updraft.
+    float vnWindSpd        = std::nanf("");
+    float vnWindDir       = std::nanf("");
+    float vnWindVertical   = std::nanf("");
     double vnGnssLat         = 0.0;
     double vnGnssLon         = 0.0;
     // INS-estimated altitude (feet) from the VN-300 Common.Position LLA.

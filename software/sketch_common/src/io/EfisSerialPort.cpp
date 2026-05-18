@@ -71,9 +71,9 @@ EfisSerialPort::EfisSerialPort()
     suVN300.GnssLon          = 0.00;
     suVN300.EstAltMeters     = 0.00;
     suVN300.szTimeUTC[0]     = '\0';
-    suVN300.WindSpdKt        = std::nanf("");
-    suVN300.WindDirDeg       = std::nanf("");
-    suVN300.WindVerticalKt   = std::nanf("");
+    suVN300.WindSpd        = std::nanf("");
+    suVN300.WindDir       = std::nanf("");
+    suVN300.WindVertical   = std::nanf("");
 
     uTimestamp = millis();
 }
@@ -250,17 +250,17 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
             data.gnssVelNedNorth, data.gnssVelNedEast, data.gnssVelNedDown,
             data.yaw, data.pitch, ownshipTasMps);
         if (wind) {
-            suVN300.WindSpdKt      = wind->windSpeedMps    * kKtPerMps;
-            suVN300.WindDirDeg     = wind->windDirDeg;
-            suVN300.WindVerticalKt = wind->windVerticalMps * kKtPerMps;
+            suVN300.WindSpd      = wind->windSpeedMps    * kKtPerMps;
+            suVN300.WindDir     = wind->windDirDeg;
+            suVN300.WindVertical = wind->windVerticalMps * kKtPerMps;
         } else {
-            suVN300.WindSpdKt      = std::nanf("");
-            suVN300.WindDirDeg     = std::nanf("");
-            suVN300.WindVerticalKt = std::nanf("");
+            suVN300.WindSpd      = std::nanf("");
+            suVN300.WindDir     = std::nanf("");
+            suVN300.WindVertical = std::nanf("");
         }
     } else {
-        suVN300.WindSpdKt      = std::nanf("");
-        suVN300.WindDirDeg     = std::nanf("");
-        suVN300.WindVerticalKt = std::nanf("");
+        suVN300.WindSpd      = std::nanf("");
+        suVN300.WindDir     = std::nanf("");
+        suVN300.WindVertical = std::nanf("");
     }
 }

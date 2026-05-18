@@ -115,9 +115,9 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     if (name == "vnGnssVelNedNorth")  { out.idxVnGnssVelNedNorth = ordinal; return true; }
     if (name == "vnGnssVelNedEast")   { out.idxVnGnssVelNedEast = ordinal; return true; }
     if (name == "vnGnssVelNedDown")   { out.idxVnGnssVelNedDown = ordinal; return true; }
-    if (name == "vnWindSpdKt")        { out.idxVnWindSpdKt = ordinal; return true; }
-    if (name == "vnWindDirDeg")       { out.idxVnWindDirDeg = ordinal; return true; }
-    if (name == "vnWindVerticalKt")   { out.idxVnWindVerticalKt = ordinal; return true; }
+    if (name == "vnWindSpd")        { out.idxVnWindSpd = ordinal; return true; }
+    if (name == "vnWindDir")       { out.idxVnWindDir = ordinal; return true; }
+    if (name == "vnWindVertical")   { out.idxVnWindVertical = ordinal; return true; }
     if (name == "vnGnssLat")          { out.idxVnGnssLat = ordinal; return true; }
     if (name == "vnGnssLon")          { out.idxVnGnssLon = ordinal; return true; }
     if (name == "vnEstAltFt")         { out.idxVnEstAltFt = ordinal; return true; }
@@ -623,9 +623,9 @@ bool ParseRowByIndex(std::string_view line,
         // Wind columns are optional within the VN-300 group (format version 5+):
         // older logs lack them, so absence is not a schema error. Empty cells
         // decode to NaN (the producer emits empty when no valid wind solution).
-        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindSpdKt,      row.vnWindSpdKt))      return false;
-        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindDirDeg,     row.vnWindDirDeg))     return false;
-        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindVerticalKt, row.vnWindVerticalKt)) return false;
+        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindSpd,      row.vnWindSpd))      return false;
+        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindDir,     row.vnWindDir))     return false;
+        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindVertical, row.vnWindVertical)) return false;
         if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLat,          row.vnGnssLat))          return false;
         if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLon,          row.vnGnssLon))          return false;
         // vnEstAltFt is optional within the VN-300 group: older logs (format
