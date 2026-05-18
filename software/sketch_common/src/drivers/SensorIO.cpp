@@ -1,5 +1,6 @@
 
 
+#include <algorithm>
 #include <math.h>
 #include <type_traits>
 #include <OneWire.h>
@@ -419,7 +420,17 @@ void SensorIO::Read()
     // in sensors/IasAlive.h.
     {
         const bool bWasIasAlive = bIasAlive;
-        bIasAlive = onspeed::sensors::UpdateIasAlive(bIasAlive, IAS);
+        // EKFQ mode swaps in its Optuna-tuned rising-edge threshold and
+        // a matching 5-kt-hysteresis falling edge. Madgwick mode keeps
+        // the legacy 20 kt / 15 kt thresholds from IasAlive.h.
+        if (g_Config.iAhrsAlgorithm == 1) {
+            const float rising  = g_Config.fEkfqIasAliveKt;
+            const float falling = std::max(0.0f, rising - 5.0f);
+            bIasAlive = onspeed::sensors::UpdateIasAlive(
+                bIasAlive, IAS, rising, falling);
+        } else {
+            bIasAlive = onspeed::sensors::UpdateIasAlive(bIasAlive, IAS);
+        }
 
         // bIasAlive false→true transition (taxi→takeoff roll, IAS rising
         // through the deadband): the SavGol window holds ~15 frames of stale

@@ -63,6 +63,18 @@ Ahrs::Ahrs(const AhrsConfig& cfg)
 
     accelVertCorr_ = +1.0f;
 
+    // Push the per-algorithm accel-EMA α into the filters. The init-list
+    // above constructed them with kAccSmoothing (Madgwick-tuned); when
+    // EKFQ is the active algorithm we replace it with the Optuna-tuned
+    // value so the filters match the tuning that produced the v15/v16
+    // best-trial Q/R parameters.
+    if (cfg_.algorithm == Algorithm::Ekfq) {
+        const float a = cfg_.ekfqAccelEmaAlpha;
+        accelFwdFilter_.setAlpha(a);
+        accelLatFilter_.setAlpha(a);
+        accelVertFilter_.setAlpha(a);
+    }
+
     recomputeBiasTrig_();
 }
 
@@ -85,6 +97,15 @@ void Ahrs::Reconfigure(const AhrsConfig& cfg)
     cfg_ = cfg;
     imuDeltaTime_ = 1.0f / cfg.imuSampleRateHz;
     recomputeBiasTrig_();
+    // Push the per-algorithm signal-chain α into the accel EMA filters
+    // when EKFQ is active. Madgwick mode keeps the legacy kAccSmoothing
+    // (which the EMA filters were constructed with).
+    const float accelAlpha = (cfg_.algorithm == Algorithm::Ekfq)
+                                ? cfg_.ekfqAccelEmaAlpha
+                                : kAccSmoothing;
+    accelFwdFilter_.setAlpha(accelAlpha);
+    accelLatFilter_.setAlpha(accelAlpha);
+    accelVertFilter_.setAlpha(accelAlpha);
 }
 
 // ----------------------------------------------------------------------------
@@ -219,7 +240,14 @@ void Ahrs::updateTas_(const AhrsInputs& in)
         const float fTASdiff = tas_ - prevTas_;
         prevTas_ = tas_;
 
-        const float fIasTauSeconds = imuDeltaTime_ * kIasTauFactor;
+        // EKFQ mode overrides the TASdot EMA α with its Optuna-tuned
+        // value (the Python pipeline uses a fixed-α IMU-rate EMA; we
+        // convert to the variable-dt τ form here so the equivalent
+        // time constant is preserved across IAS-rate jitter).
+        const float fTasdotAlpha = (cfg_.algorithm == Algorithm::Ekfq)
+                                    ? cfg_.ekfqTasdotEmaAlpha
+                                    : kIasSmoothing;
+        const float fIasTauSeconds = imuDeltaTime_ * (1.0f / fTasdotAlpha - 1.0f);
         const float fAlpha   = fIasDtSeconds / (fIasTauSeconds + fIasDtSeconds);
         const float fTASdot  = fTASdiff / fIasDtSeconds;
         tasDotSmoothed_ = fAlpha * fTASdot + (1.0f - fAlpha) * tasDotSmoothed_;
@@ -307,7 +335,15 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         // edge.  The variable-dt EMA form (α = dt / (τ + dt)) matches the
         // updateTas_() pattern above and keeps the time constant
         // independent of IMU rate.  See issue #114.
-        const float fadeAlpha = dtSec / (kCompFadeTauSec + dtSec);
+        //
+        // EKFQ mode overrides the τ to its Optuna-tuned value (the
+        // Python pipeline that produced the tuning fades comp on the
+        // same time constant, so the firmware has to match for the
+        // tuning to mean anything in flight).
+        const float compTau = (cfg_.algorithm == Algorithm::Ekfq)
+                                ? cfg_.ekfqCompFadeTauSec
+                                : kCompFadeTauSec;
+        const float fadeAlpha = dtSec / (compTau + dtSec);
         compFadeIn_ += fadeAlpha * (1.0f - compFadeIn_);
 
         accelFwdComp_  = accelFwdFilter_.update(accelFwdCorr_)
@@ -416,9 +452,14 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     volatile float kalmanAltMeters = 0.0f;
     volatile float kalmanVsiMps    = 0.0f;
     if (cfg_.algorithm == Algorithm::Ekfq) {
+        // SIGN: EKFQ's `state.vz` is NED `+down`. The firmware/log/
+        // websocket VSI convention is `+climb` (matches what the
+        // standalone KalmanFilter integrates from +climb EarthVertG).
+        // Negate at the boundary so a climbing aircraft reads positive
+        // VSI on the wire, the log, and through `FlightPath` downstream.
         const onspeed::EKFQ::State state = ekfq_.getState();
-        kalmanAltMeters = state.z;
-        kalmanVsiMps    = state.vz;
+        kalmanAltMeters =  state.z;
+        kalmanVsiMps    = -state.vz;
     } else {
         kalman_.Update(onspeed::ft2m(in.sensors.paltFt),
                        onspeed::g2mps(EarthVertG),

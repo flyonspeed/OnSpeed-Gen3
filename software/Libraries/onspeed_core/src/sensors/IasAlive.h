@@ -45,14 +45,24 @@ inline constexpr float kPfwdDeadbandCounts = 3.0f;
 // Returns the new `iasAlive` state given the previous state and the
 // current IAS in knots.
 //
-//   previous = false, iasKt >= kIasAliveRisingKt  -> true
-//   previous = true,  iasKt <  kIasAliveFallingKt -> false
-//   otherwise                                     -> previous (unchanged)
+//   previous = false, iasKt >= risingKt  -> true
+//   previous = true,  iasKt <  fallingKt -> false
+//   otherwise                            -> previous (unchanged)
+//
+// The two-parameter overload uses the legacy 20 kt / 15 kt thresholds.
+// The four-parameter form lets the caller pin per-algorithm thresholds
+// (EKFQ's Optuna tuning produced a different rising-edge value).
+inline bool UpdateIasAlive(bool previous, float iasKt,
+                            float risingKt, float fallingKt)
+{
+    if (!previous && iasKt >= risingKt)  return true;
+    if ( previous && iasKt <  fallingKt) return false;
+    return previous;
+}
+
 inline bool UpdateIasAlive(bool previous, float iasKt)
 {
-    if (!previous && iasKt >= kIasAliveRisingKt)  return true;
-    if ( previous && iasKt <  kIasAliveFallingKt) return false;
-    return previous;
+    return UpdateIasAlive(previous, iasKt, kIasAliveRisingKt, kIasAliveFallingKt);
 }
 
 // Apply the pitot pressure deadband.

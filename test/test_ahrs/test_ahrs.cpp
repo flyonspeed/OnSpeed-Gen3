@@ -52,9 +52,9 @@ AhrsConfig makeCfg(Algorithm alg)
 // pilots read on a panel G-meter), NOT the standard inertial-frame
 // view (which would be -1g). The AHRS pipeline is built around the
 // +1g convention: the EarthVertG formula's `- 1.0f` removes the
-// level-state +1g to leave only deviations. EKF6 internally uses
-// the opposite convention; the Ahrs adapter negates accelVertComp_
-// on the way in. See EKF6.h's "OnSpeed convention mapping" section.
+// level-state +1g to leave only deviations. EKFQ internally uses
+// the opposite (standard NED-body) convention; the Ahrs adapter
+// negates accelVertComp_ on the way in.
 AhrsInputs levelSeed()
 {
     AhrsInputs in;
@@ -295,7 +295,7 @@ void test_step_ekf6_level_stable(void)
     // EKF6 at rest (level gravity) should converge to finite, stable
     // pitch/roll near zero.  (Tilt-tracking behavior is algorithm-
     // specific; snapshot harness covers numeric equivalence vs legacy.)
-    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfg = makeCfg(Algorithm::Ekfq);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     a.Init(in, 0.0f);
@@ -334,7 +334,7 @@ void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
     AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
     Ahrs aMad{cfgMad};
     aMad.Init(in, 0.0f);
-    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekfq);
     Ahrs aEkf{cfgEkf};
     aEkf.Init(in, 0.0f);
 
@@ -369,7 +369,7 @@ void test_step_ekf6_roll_rate_sign_matches_madgwick(void)
     AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
     Ahrs aMad{cfgMad};
     aMad.Init(in, 0.0f);
-    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekfq);
     Ahrs aEkf{cfgEkf};
     aEkf.Init(in, 0.0f);
 
@@ -404,7 +404,7 @@ void test_step_ekf6_static_tilt_converges_to_input_attitude(void)
     seed.imu.accelXG = std::sin(onspeed::deg2rad(10.0f));
     seed.imu.accelZG = +std::cos(onspeed::deg2rad(10.0f));
 
-    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfg = makeCfg(Algorithm::Ekfq);
     Ahrs a{cfg};
     a.Init(seed, 0.0f);
 
@@ -520,7 +520,7 @@ void test_reconfigure_algorithm_change(void)
     for (int i = 0; i < 100; ++i) a.Step(in, kDt);
 
     AhrsConfig cfg2 = cfg;
-    cfg2.algorithm = Algorithm::Ekf6;
+    cfg2.algorithm = Algorithm::Ekfq;
     a.Reconfigure(cfg2);
     // After reconfigure, caller is expected to re-Init; verify calling
     // Step without re-init doesn't crash (mirrors sketch behavior: Init
@@ -531,7 +531,7 @@ void test_reconfigure_algorithm_change(void)
     // No-crash assertion + pitch/roll sane.
     TEST_ASSERT_FALSE(std::isnan(a.latest().pitchDeg));
     TEST_ASSERT_FALSE(std::isnan(a.latest().rollDeg));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(Algorithm::Ekf6),
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(Algorithm::Ekfq),
                           static_cast<int>(a.algorithm()));
 }
 
@@ -601,7 +601,7 @@ void test_tas_fallback_when_divisor_overflows_at_extreme_altitude(void)
 // active iAhrsAlgorithm option.
 void test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing(void)
 {
-    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfg = makeCfg(Algorithm::Ekfq);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     a.Init(in, 0.0f);

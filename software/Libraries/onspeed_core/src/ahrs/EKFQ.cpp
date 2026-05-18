@@ -171,6 +171,14 @@ namespace {
 constexpr int N = EKFQ::N_STATES;
 
 /// H = e_idx (single 1.0f at column `idx`). PHt collapses to P's column.
+///
+/// Aliasing note for the in-place rank-1 downdate below: PHt[j] is read
+/// as `P[j][idx]` while we write `P[i][j]` with i ≤ j (upper triangle).
+/// `P[j][idx]` is only mutated at outer-iteration `i == j` (writing
+/// `P[i][j]` for the special case j == idx, or when the symmetric
+/// mirror pass below copies the upper triangle down). Both writes
+/// happen AFTER the read at outer-iteration `i = j` finishes — so
+/// every read of `P[j][idx]` precedes its own write. No aliasing hazard.
 inline void scalarUpdateUnit(float P[N][N], float x[N],
                              int idx, float innovation, float R_var) {
     const float S = P[idx][idx] + R_var;
