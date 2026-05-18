@@ -104,6 +104,7 @@ void HandleWifiReflash();
 void HandleUpgrade();
 void HandleUpgradeSuccess();
 void HandleUpgradeFailure();
+void HandleCaptiveProbe();
 
 // Static asset handlers (served with ETag caching)
 
@@ -239,6 +240,19 @@ void CfgWebServerInit()
     CfgServer.on("/api/sample/volume",     HTTP_GET,  onspeed::api::HandleApiSampleVolume);
     CfgServer.on("/api/sample/pfwd",       HTTP_GET,  onspeed::api::HandleApiSamplePfwd);
     CfgServer.on("/api/sample/p45",        HTTP_GET,  onspeed::api::HandleApiSampleP45);
+
+    // OS captive-probe URLs. Each phone hits its own probe right after
+    // associating; replying with a 302 (instead of the expected success
+    // payload) tells the OS this network has no internet, so it keeps
+    // cellular primary while still letting onspeed.local / 192.168.0.1
+    // work locally. No DNS hijack, no captive sheet — silent "no
+    // internet" badge only.
+    CfgServer.on("/generate_204",              HTTP_GET, HandleCaptiveProbe);  // Android / Chrome
+    CfgServer.on("/gen_204",                   HTTP_GET, HandleCaptiveProbe);
+    CfgServer.on("/hotspot-detect.html",       HTTP_GET, HandleCaptiveProbe);  // iOS / macOS
+    CfgServer.on("/library/test/success.html", HTTP_GET, HandleCaptiveProbe);
+    CfgServer.on("/connecttest.txt",           HTTP_GET, HandleCaptiveProbe);  // Windows
+    CfgServer.on("/ncsi.txt",                  HTTP_GET, HandleCaptiveProbe);
 
     CfgServer.on("/api/audiotest",         HTTP_POST, onspeed::api::HandleApiAudioTestStart);
     CfgServer.on("/api/audiotest/stop",    HTTP_POST, onspeed::api::HandleApiAudioTestStop);
@@ -420,6 +434,27 @@ void HandleIndex()
 void HandleFavicon()
     {
     CfgServer.send(404, "text/plain", "FileNotFound");
+    }
+
+// ----------------------------------------------------------------------------
+// OS captive-network probe handler.
+//
+// Returning a 302 (instead of the expected success payload — Android wants
+// HTTP 204, iOS/macOS wants the literal body "Success", Windows wants
+// "Microsoft Connect Test") tells the phone OS that this network has no
+// internet route. The OS then keeps cellular as the default route for other
+// apps while still allowing onspeed.local / 192.168.0.1 to resolve locally.
+//
+// No DNS catch-all is configured, so phones do NOT pop the Captive Network
+// Assistant sheet — they just show the "no internet" indicator on the WiFi
+// badge. A future lobby-page redesign (see issue: OnSpeed-Gen3 captive-portal
+// lobby follow-up) can revisit triggering CNA on purpose.
+
+void HandleCaptiveProbe()
+    {
+    CfgServer.sendHeader("Location", "/", true);
+    CfgServer.sendHeader("Cache-Control", "no-store");
+    CfgServer.send(302, "text/plain", "");
     }
 
 // ----------------------------------------------------------------------------
