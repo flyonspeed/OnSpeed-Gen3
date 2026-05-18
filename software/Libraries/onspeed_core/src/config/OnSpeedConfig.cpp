@@ -59,7 +59,11 @@ bool OnSpeedConfig::LoadDefaults()
 {
     // ALL config items should be initialised to reasonable values here.
 
-    iAoaSmoothing       = 20;
+    // 10 samples (alpha = 0.1) matches Vac's in-flight preference.  The
+    // pre-2026-05 default of 20 was set to favor calm cruise but lagged
+    // noticeably on rapid AOA changes (~60 ms behind the input at 50 Hz);
+    // 10 trades a little quiet-state RMS for ~3x faster tone response.
+    iAoaSmoothing       = 10;
     iPressureSmoothing  = 15;
     iMuteAudioUnderIAS  = 30;
 
