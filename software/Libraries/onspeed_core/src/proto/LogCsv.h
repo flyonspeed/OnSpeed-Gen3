@@ -123,8 +123,20 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity);
 //
 // Parses a single CSV data line (not the header) into `row`.  The parser
 // is header-agnostic: it expects columns in the exact order produced by
-// FormatRow, and uses the presence flags already set on `row` (boomEnabled,
-// efisEnabled, efisIsVn300) to decide how many optional columns to consume.
+// FormatRow at THIS revision of LogCsv.h, and uses the presence flags
+// already set on `row` (boomEnabled, efisEnabled, efisIsVn300) to decide
+// how many optional columns to consume.
+//
+// IMPORTANT: ParseRow is for SYMMETRIC callers only — the writer and reader
+// must share this exact LogCsv.h revision (i.e. the column set + order must
+// match).  This is fine for the round-trip unit tests (test_log_csv) but
+// NOT safe against older logs from earlier firmware versions: a v4-format
+// VN-300 log fed through this parser will silently mis-align columns
+// because v5 inserts three wind columns after vnGnssVelNedDown.
+//
+// For real-log readers (LogReplay, regression harness, tools), use
+// ParseRowByIndex in LogCsvHeaderIndex.h — that path is header-driven and
+// tolerates absent optional columns.
 //
 // Returns true on success, false on malformed input (too few fields, etc.).
 // Tolerates trailing CR/LF and empty trailing fields.

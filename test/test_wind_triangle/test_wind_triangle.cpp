@@ -149,6 +149,25 @@ void test_eastbound_with_south_wind(void)
     TEST_ASSERT_FLOAT_WITHIN(0.5f, 180.0f, w->windDirDeg);
 }
 
+// 11. Pitched descent in still air (approach geometry). Heading 0, pitch
+//     -5 deg, TAS 100 kt. Ground velocity = TAS rotated by pitch:
+//     (cos(-5)*100, 0, -sin(-5)*100) = (~99.6, 0, +8.72) — ground vector
+//     descends. Wind should be ~0 in all axes. This guards against a sign
+//     error in airD = -tas*sin(theta) for negative pitch.
+void test_pitched_descent_still_air(void)
+{
+    const float tasMps = 100.0f * kKtToMps;
+    const float pitchDeg = -5.0f;
+    const float pitchRad = pitchDeg * 3.14159265f / 180.0f;
+    auto w = ComputeWind(std::cos(pitchRad) * tasMps,
+                         0.0f,
+                         -std::sin(pitchRad) * tasMps,
+                         0.0f, pitchDeg, tasMps);
+    TEST_ASSERT_TRUE(w.has_value());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, w->windSpeedMps);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, w->windVerticalMps);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -162,5 +181,6 @@ int main(int, char**)
     RUN_TEST(test_negative_yaw_equivalent_to_positive);
     RUN_TEST(test_direction_range_zero_not_360);
     RUN_TEST(test_eastbound_with_south_wind);
+    RUN_TEST(test_pitched_descent_still_air);
     return UNITY_END();
 }

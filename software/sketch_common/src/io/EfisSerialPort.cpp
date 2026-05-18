@@ -240,9 +240,11 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
     strncpy(suVN300.szTimeUTC, data.szTimeUTC, sizeof(suVN300.szTimeUTC) - 1);
     suVN300.szTimeUTC[sizeof(suVN300.szTimeUTC) - 1] = '\0';
 
-    // Wind triangle.  Snapshot TAS without a mutex: a torn float read at
-    // 20 Hz is benign against an EMA-smoothed source running at 208 Hz.
-    // Gate on GPS fix; without it, GnssVelNed is noise.
+    // Wind triangle.  Snapshot TAS without a mutex: aligned 32-bit float
+    // DRAM loads are atomic on Xtensa LX7, so no torn-read is possible for
+    // this single scalar.  Do NOT extend this reasoning to multi-word reads
+    // (struct snapshots, double) — those are not atomic and would need the
+    // xAhrsMutex.  Gate on GPS fix; without it, GnssVelNed is noise.
     constexpr float kKtPerMps = 1.943844f;
     const float ownshipTasMps = g_AHRS.fTAS;
     if (data.gpsFix > 0) {
