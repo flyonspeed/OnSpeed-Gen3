@@ -1483,6 +1483,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wind-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wind columns
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3637,6 +3648,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#wind-columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wind columns
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3720,11 +3742,19 @@
 </tr>
 <tr>
 <td><strong>Time</strong></td>
-<td>UTC time from GPS</td>
+<td>UTC time from GPS (millisecond resolution)</td>
+</tr>
+<tr>
+<td><strong>Wind (derived)</strong></td>
+<td>Horizontal speed/direction and vertical component, solved on-board from GPS ground velocity, VN-300 attitude, and OnSpeed TAS</td>
 </tr>
 </tbody>
 </table>
 <p>All fields are logged to the SD card with <code>vn</code> prefix (e.g., <code>vnPitch</code>, <code>vnRoll</code>, <code>vnGnssLat</code>).</p>
+<h2 id="wind-columns">Wind columns<a class="headerlink" href="#wind-columns" title="Permanent link">&para;</a></h2>
+<p><code>vnWindSpd</code> (kt), <code>vnWindDir</code> (degrees), and <code>vnWindVertical</code> (kt, positive = updraft) are derived columns: the firmware solves the wind triangle each time a VN-300 frame arrives, using the GPS ground velocity (<code>vnGnssVelNed*</code>), the VN-300's yaw/pitch, and OnSpeed's own TAS. Cells are empty when there's no valid solution (below ~30 KIAS, no GPS fix, or any NaN input).</p>
+<p>The wind "from" direction is in the <strong>same frame as <code>vnYaw</code></strong>. The analysis workbook treats <code>vnWindDir</code> as <strong>true</strong> north; for that to hold, the VN-300 must be configured with WMM declination via its <code>ReferenceVectorConfiguration</code> register. OnSpeed does not apply declination correction itself — a misconfigured VN-300 will deliver a wind direction off by local declination (10–15° in the western US).</p>
+<p>TAS accuracy depends on a valid OAT source. With no OAT, TAS falls back to IAS and the wind solution will be slightly hot at altitude.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Configure the VN-300 binary output at 115200 baud (consult VectorNav documentation)</li>

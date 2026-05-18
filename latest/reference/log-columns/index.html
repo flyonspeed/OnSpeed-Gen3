@@ -4147,6 +4147,21 @@
 <td>GPS down velocity</td>
 </tr>
 <tr>
+<td><code>vnWindSpd</code></td>
+<td>kt</td>
+<td>Horizontal wind speed (derived; empty when below 30 KIAS or no GPS fix)</td>
+</tr>
+<tr>
+<td><code>vnWindDir</code></td>
+<td>degrees</td>
+<td>Wind "from" direction in [0, 360), same frame as <code>vnYaw</code> (true if VN-300 has WMM declination configured, magnetic otherwise)</td>
+</tr>
+<tr>
+<td><code>vnWindVertical</code></td>
+<td>kt</td>
+<td>Vertical wind component, positive = updraft</td>
+</tr>
+<tr>
 <td><code>vnGnssLat</code></td>
 <td>degrees</td>
 <td>GPS latitude</td>
@@ -4173,8 +4188,8 @@
 </tr>
 <tr>
 <td><code>vnTimeUTC</code></td>
-<td>HH:MM:SS.cc</td>
-<td>UTC time from VN-300</td>
+<td>HH:MM:SS.mmm</td>
+<td>UTC time from VN-300 GPS (millisecond resolution)</td>
 </tr>
 </tbody>
 </table>
