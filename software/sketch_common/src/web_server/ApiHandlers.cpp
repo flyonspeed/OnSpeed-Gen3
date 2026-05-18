@@ -690,19 +690,27 @@ void HandleApiLogs() {
                     CoredumpEntry ce;
                     ce.sName = name;
                     ce.uSize = suCoredumpList[i].uFileSize;
-                    // Parse "coredump_NNNN_<firmware>_<task>.bin". Firmware
+                    // Parse "coredump_NNNN_<firmware>[_<task>].bin".
+                    // Task suffix is optional (BootDiagnostics omits it
+                    // when the panic summary parser failed). Firmware
                     // contains dots/dashes; task is the trailing field
-                    // before .bin. Boot is between the first two underscores.
+                    // before .bin when present.
                     String s(name);
                     if (s.startsWith("coredump_")) {
                         int p0 = 9;  // strlen("coredump_")
                         int p1 = s.indexOf('_', p0);
                         int pExt = s.lastIndexOf('.');
                         int p2 = s.lastIndexOf('_', pExt > 0 ? pExt - 1 : -1);
-                        if (p1 > p0 && p2 > p1 && pExt > p2) {
+                        if (p1 > p0 && pExt > p1) {
                             ce.iBoot     = s.substring(p0, p1).toInt();
-                            ce.sFirmware = s.substring(p1 + 1, p2);
-                            ce.sTask     = s.substring(p2 + 1, pExt);
+                            if (p2 > p1) {
+                                // Has task suffix: coredump_NNNN_<fw>_<task>.bin
+                                ce.sFirmware = s.substring(p1 + 1, p2);
+                                ce.sTask     = s.substring(p2 + 1, pExt);
+                            } else {
+                                // No task suffix: coredump_NNNN_<fw>.bin
+                                ce.sFirmware = s.substring(p1 + 1, pExt);
+                            }
                         }
                     }
                     coredumps.push_back(std::move(ce));
@@ -723,7 +731,10 @@ void HandleApiLogs() {
     }
 
     String body;
-    body.reserve(2048);
+    // Estimate up front to avoid 3-4 String reallocations during assembly:
+    // each flight entry runs ~300 bytes (size + meta block); each coredump
+    // ~160 bytes. Wrong estimate just costs a single resize at the end.
+    body.reserve(64 + entries.size() * 300 + coredumps.size() * 160);
     body += F("{\"activeLog\":\"");
     body += JsonEscape(sActiveCsvName.c_str());
     body += F("\",\"totalSize\":");

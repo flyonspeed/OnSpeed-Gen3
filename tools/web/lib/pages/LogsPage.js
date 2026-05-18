@@ -151,29 +151,34 @@ const LogCard = ({ file, active, selected, busyDeleting, onToggle, onDelete }) =
 
 // Coredump row inside the (collapsible) Diagnostics section. Each card
 // surfaces what the filename already encodes: which boot, which firmware,
-// which task crashed.
-const CoredumpCard = ({ dump }) => html`
-  <div class="log-card log-card-diag">
-    <div class="log-card-left">
-      <div class="log-card-header">
-        <div class="log-card-name">
-          boot #${dump.boot} · ${dump.task}
+// which task crashed. Falls back to the raw filename when the parser
+// couldn't extract the structured fields (older / non-standard names).
+const CoredumpCard = ({ dump }) => {
+  const parsed = dump.boot > 0;
+  const title = parsed
+    ? (dump.task ? `boot #${dump.boot} · ${dump.task}` : `boot #${dump.boot}`)
+    : dump.name;
+  return html`
+    <div class="log-card log-card-diag">
+      <div class="log-card-left">
+        <div class="log-card-header">
+          <div class="log-card-name">${title}</div>
+        </div>
+        <div class="log-card-stats">
+          ${dump.firmware && html`<${Stat} label="Fw" value=${dump.firmware} />`}
+          <${Stat} label="Size" value=${formatBytes(dump.size)} />
         </div>
       </div>
-      <div class="log-card-stats">
-        <${Stat} label="Fw"   value=${dump.firmware} />
-        <${Stat} label="Size" value=${formatBytes(dump.size)} />
+      <div class="log-card-right">
+        <div class="log-card-downloads">
+          <a class="dl-pill dl-pill-primary"
+             href=${'/download-coredump?file=' + encodeURIComponent(dump.name)}>
+            <${DlIcon} />coredump
+          </a>
+        </div>
       </div>
-    </div>
-    <div class="log-card-right">
-      <div class="log-card-downloads">
-        <a class="dl-pill dl-pill-primary"
-           href=${'/download?file=' + encodeURIComponent('/coredumps/' + dump.name)}>
-          <${DlIcon} />coredump
-        </a>
-      </div>
-    </div>
-  </div>`;
+    </div>`;
+};
 
 export function LogsPage() {
   const [data, setData] = useState(null);
@@ -242,7 +247,12 @@ export function LogsPage() {
   const others = data ? data.files.filter(f => !isLogFile(f.name)
                                             && !f.name.toLowerCase().endsWith('.dbg')
                                             && !f.name.toLowerCase().endsWith('.meta')) : [];
-  const coredumps = data && Array.isArray(data.coredumps) ? data.coredumps : [];
+  // Distinguish "firmware doesn't report coredumps at all" (pre-PR
+  // backend) from "firmware reports zero coredumps" — only render the
+  // Diagnostics section in the latter case, so an old box doesn't
+  // mislead the pilot into thinking the panic record is missing.
+  const hasCoredumpSupport = !!(data && Object.prototype.hasOwnProperty.call(data, 'coredumps'));
+  const coredumps = hasCoredumpSupport && Array.isArray(data.coredumps) ? data.coredumps : [];
 
   const logsTotal   = logs.reduce((a, f) => a + (f.size || 0), 0);
   const othersTotal = others.reduce((a, f) => a + (f.size || 0), 0);
@@ -361,27 +371,28 @@ export function LogsPage() {
               </div>
             </section>`}
 
-          <section class="logs-section">
-            <header class="logs-section-head logs-section-collapsible"
-                    onClick=${() => setDiagOpen(o => !o)}>
-              <h2>
-                <span class="logs-disclosure">${diagOpen ? '▾' : '▸'}</span>
-                Diagnostics
-                <span class="logs-count-badge">${coredumps.length}</span>
-              </h2>
-              <div class="logs-section-meta">
-                ${coredumps.length === 0
-                  ? 'No crash dumps'
-                  : `${coredumps.length} crash dump${coredumps.length === 1 ? '' : 's'}`}
-              </div>
-            </header>
-            ${diagOpen && coredumps.length > 0 && html`
-              <div class="log-cards">
-                ${coredumps.map(d => html`<${CoredumpCard} dump=${d} />`)}
-              </div>`}
-            ${diagOpen && coredumps.length === 0 && html`
-              <p class="logs-empty">The box has not panicked since the last format.</p>`}
-          </section>`}
+          ${hasCoredumpSupport && html`
+            <section class="logs-section">
+              <header class="logs-section-head logs-section-collapsible"
+                      onClick=${() => setDiagOpen(o => !o)}>
+                <h2>
+                  <span class="logs-disclosure">${diagOpen ? '▾' : '▸'}</span>
+                  Diagnostics
+                  <span class="logs-count-badge">${coredumps.length}</span>
+                </h2>
+                <div class="logs-section-meta">
+                  ${coredumps.length === 0
+                    ? 'No crash dumps'
+                    : `${coredumps.length} crash dump${coredumps.length === 1 ? '' : 's'}`}
+                </div>
+              </header>
+              ${diagOpen && coredumps.length > 0 && html`
+                <div class="log-cards">
+                  ${coredumps.map(d => html`<${CoredumpCard} dump=${d} />`)}
+                </div>`}
+              ${diagOpen && coredumps.length === 0 && html`
+                <p class="logs-empty">The box has not panicked since the last format.</p>`}
+            </section>`}`}
       </div>
     <//>`;
 }
