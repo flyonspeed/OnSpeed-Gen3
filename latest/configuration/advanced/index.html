@@ -3774,11 +3774,11 @@
 <h2 id="aoa-smoothing">AOA Smoothing<a class="headerlink" href="#aoa-smoothing" title="Permanent link">&para;</a></h2>
 <p>Controls the Exponential Moving Average (EMA) filter applied to the AOA signal.</p>
 <ul>
-<li><strong>Default</strong>: 20 (samples)</li>
+<li><strong>Default</strong>: 10 (samples)</li>
 <li><strong>Lower values</strong>: More responsive but noisier — the tone will fluctuate more in turbulence</li>
 <li><strong>Higher values</strong>: Smoother but slower response — the tone may lag behind rapid AOA changes</li>
 </ul>
-<p>For most aircraft, the default of 20 provides a good balance.</p>
+<p>For most aircraft, the default of 10 provides a good balance of responsiveness against the audio path's natural smoothing through the DAC.</p>
 <h2 id="pressure-smoothing">Pressure Smoothing<a class="headerlink" href="#pressure-smoothing" title="Permanent link">&para;</a></h2>
 <p>Controls EMA filtering on the pitot, AOA, and static pressure readings.</p>
 <ul>
