@@ -41,20 +41,33 @@ extern M5Canvas gdraw;
 // NVS across reboots.
 bool g_speedInMph = false;
 
+// Public global — read by SerialRead.cpp's serialSetup() to decide
+// whether to skip USB-CDC probing (UART), skip all probing (USB), or
+// run the existing auto-detect (AUTO). Stored as int so MenuModel's
+// Choice item can cycle it; values are the DataSource enum below.
+int g_dataSource = 0;
+
 namespace {
+
+const char* const kDataSourceLabels[] = { "AUTO", "UART", "USB" };
+constexpr int kDataSourceCount =
+    sizeof(kDataSourceLabels) / sizeof(kDataSourceLabels[0]);
 
 // ---------------------------------------------------------------------------
 // Menu item table.
 //
 // Caller-owned static storage: MenuModel just holds a pointer. The Exit
 // action has a null callback — MenuModel treats that as the built-in Exit.
-// To add a new setting, add an entry here and (if it's a Toggle) wire the
-// flip in toggleCallback below.
+// To add a new setting, add an entry here, and on activate dispatch to
+// the right persist function from pollMenuInput().
 // ---------------------------------------------------------------------------
 MenuItem g_items[] = {
     { "Speed Units", ItemType::Toggle, &g_speedInMph, "KTS", "MPH",
       nullptr, nullptr,
       nullptr, 0, nullptr },
+    { "Data Source", ItemType::Choice, nullptr, nullptr, nullptr,
+      nullptr, nullptr,
+      &g_dataSource, kDataSourceCount, kDataSourceLabels },
     { "Exit",        ItemType::Action, nullptr, nullptr, nullptr,
       nullptr, nullptr,
       nullptr, 0, nullptr },
@@ -76,6 +89,26 @@ void persistSpeedUnits() {
     preferences.putBool("SpeedMph", g_speedInMph);
     preferences.end();
 #endif
+}
+
+void persistDataSource() {
+#if defined(ESP_PLATFORM)
+    preferences.begin("OnSpeed", false);
+    preferences.putUInt("DataSource", static_cast<uint32_t>(g_dataSource));
+    preferences.end();
+#endif
+}
+
+// Persist whichever row was just activated. Called from pollMenuInput
+// when MenuModel returns kToggled. The activated row is the one the
+// cursor sits on (Toggle/Choice activate doesn't move the cursor).
+void persistActiveRow() {
+    const MenuItem& item = g_model.itemAt(g_model.currentIndex());
+    if (item.toggleValue == &g_speedInMph) {
+        persistSpeedUnits();
+    } else if (item.choiceValue == &g_dataSource) {
+        persistDataSource();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +173,13 @@ void renderMenu() {
         if (item.type == ItemType::Toggle) {
             snprintf(rhs_buf, sizeof(rhs_buf), "[ %s ]",
                      toggleValueLabel(item));
+            rhs = rhs_buf;
+        } else if (item.type == ItemType::Choice && item.choiceValue &&
+                   item.choiceLabels && item.choiceCount > 0) {
+            int v = *item.choiceValue;
+            if (v < 0 || v >= item.choiceCount) v = 0;
+            snprintf(rhs_buf, sizeof(rhs_buf), "[ %s ]",
+                     item.choiceLabels[v]);
             rhs = rhs_buf;
         } else if (item.type == ItemType::Info && item.getInfoValue) {
             rhs = item.getInfoValue();
@@ -266,7 +306,7 @@ void pollMenuInput() {
     if (M5.BtnA.wasClicked()) g_model.onBackOrLongPressExit();
     if (M5.BtnB.wasClicked()) {
         auto r = g_model.onActivate();
-        if (r == MenuModel::ActivateResult::kToggled) persistSpeedUnits();
+        if (r == MenuModel::ActivateResult::kToggled) persistActiveRow();
     }
     if (M5.BtnC.wasClicked()) g_model.onDown();
     if (M5.BtnD.wasClicked()) g_model.onUp();
@@ -277,7 +317,7 @@ void pollMenuInput() {
     if (M5.BtnB.wasHold())    g_model.onBackOrLongPressExit();
     else if (M5.BtnB.wasClicked()) {
         auto r = g_model.onActivate();
-        if (r == MenuModel::ActivateResult::kToggled) persistSpeedUnits();
+        if (r == MenuModel::ActivateResult::kToggled) persistActiveRow();
     }
 #endif
 }
@@ -292,6 +332,14 @@ void initSettingsMenu() {
 #if defined(ESP_PLATFORM)
     preferences.begin("OnSpeed", true);   // read-only
     g_speedInMph = preferences.getBool("SpeedMph", false);  // default KTS
+    // DataSource: 0=AUTO (existing auto-detect), 1=UART (Serial2 only),
+    // 2=USB (skip probe, force USB-CDC). Default AUTO so a fresh box
+    // behaves like every prior release.
+    {
+        uint32_t v = preferences.getUInt("DataSource", 0);
+        if (v > 2) v = 0;
+        g_dataSource = static_cast<int>(v);
+    }
     preferences.end();
 #endif
 }

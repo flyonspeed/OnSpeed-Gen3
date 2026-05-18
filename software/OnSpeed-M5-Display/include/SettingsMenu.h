@@ -40,3 +40,10 @@ bool isSettingsMenuActive();
 // The runtime preference. Read by main.cpp's IAS-render block. Default
 // false (KTS) on a fresh device with no saved preference.
 extern bool g_speedInMph;
+
+// Data source: 0 = AUTO (auto-detect at boot, default), 1 = UART
+// (Serial2-only probe, ignore USB-CDC), 2 = USB (skip probe, force
+// USB-CDC). Read by SerialRead.cpp::serialSetup() to gate boot probing.
+// Loaded from NVS by initSettingsMenu(); changes via the settings menu
+// persist immediately. NVS key "DataSource" in namespace "OnSpeed".
+extern int g_dataSource;

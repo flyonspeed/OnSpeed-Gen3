@@ -16,6 +16,9 @@
 #include <filters/SavGolDerivative.h>
 #include <proto/DisplaySerial.h>
 #include "SerialRead.h"
+#ifndef XPLANE_PLUGIN_BUILD
+#include "SettingsMenu.h"
+#endif
 
 using onspeed::proto::ParseDisplayFrame;
 using onspeed::proto::kDisplayFrameSizeBytes;
@@ -454,21 +457,49 @@ void serialSetup()
     Preferences preferences;
     preferences.begin("OnSpeed", false);
     selectedPort=preferences.getUInt("SerialPort", 0);
-    unsigned long detectSerialStart=millis();
 
-    while (selectedPort==0 && millis()-detectSerialStart<30000) // allow 30 seconds to detect serial port
-    {
-        // check serial port
-        selectedPort=checkSerial();
-        // save serial port preference — but ONLY for hardware-UART
-        // selections (1, 2, 3).  selectedPort=4 (USB-CDC) is sim-only:
-        // a real OnSpeed installation MUST re-detect on each boot
-        // because the USB-CDC connection is transient (laptop plugged
-        // in for log retrieval can leave a stale port=4 in NVS,
-        // which would brick the in-airplane M5 on the next flight
-        // by skipping Serial2 detection entirely).
-        if (selectedPort!=0 && selectedPort!=4)
-            preferences.putUInt("SerialPort", selectedPort);
+    // Honor the pilot's explicit Data Source choice from the settings
+    // menu. AUTO (0) runs the existing auto-detect; UART (1) probes
+    // only Serial2 variants and never returns 4 (USB-CDC); USB (2)
+    // skips probing entirely and forces selectedPort=4. The persisted
+    // SerialPort key still wins for AUTO/UART pilots who've already
+    // captured a working hardware-UART number on a prior boot.
+    if (g_dataSource == 2) {
+        selectedPort = 4;
+    } else {
+        unsigned long detectSerialStart=millis();
+        while (selectedPort==0 && millis()-detectSerialStart<30000) // allow 30 seconds to detect serial port
+        {
+            if (g_dataSource == 1) {
+                // UART-only: skip the USB-CDC probe, run just the
+                // three Serial2 variants. checkSerialUart() still
+                // renders the "Looking for Serial data" splash via
+                // its own caller — render it here so the UART-only
+                // path shows the same boot UI as AUTO.
+                gdraw.setColorDepth(8);
+                gdraw.createSprite(WIDTH, HEIGHT);
+                gdraw.fillSprite (TFT_BLACK);
+                gdraw.setFont(FSS12);
+                gdraw.setTextDatum(MC_DATUM);
+                gdraw.setTextColor (TFT_WHITE);
+                gdraw.drawString("Looking for Serial data",160,120);
+                gdraw.drawString("Please wait...",160,190);
+                gdraw.pushSprite (0, 0);
+                gdraw.deleteSprite();
+                selectedPort=checkSerialUart();
+            } else {
+                selectedPort=checkSerial();
+            }
+            // save serial port preference — but ONLY for hardware-UART
+            // selections (1, 2, 3).  selectedPort=4 (USB-CDC) is sim-only:
+            // a real OnSpeed installation MUST re-detect on each boot
+            // because the USB-CDC connection is transient (laptop plugged
+            // in for log retrieval can leave a stale port=4 in NVS,
+            // which would brick the in-airplane M5 on the next flight
+            // by skipping Serial2 detection entirely).
+            if (selectedPort!=0 && selectedPort!=4)
+                preferences.putUInt("SerialPort", selectedPort);
+        }
     }
 
     preferences.end();
