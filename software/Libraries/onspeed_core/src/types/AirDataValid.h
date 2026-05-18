@@ -2,8 +2,7 @@
 //
 // One bit per channel.  Producers set when the value is trustworthy;
 // consumers check before use.  Default-constructed == all clear (safe
-// boot state).  Lifted from the Dynon adahrs_data_t per-channel flags
-// pattern (afs-audit/docs/ONSPEED_PRIOR_ART.md Tier-1 #1).
+// boot state).
 //
 // Low 16 bits ride the v4.24 wire format `validFlags` field.  Upper 16
 // bits are firmware-internal only (planned: cross-channel sanity layer,
@@ -33,14 +32,13 @@ struct AirDataValid {
         kPercentLift         = 1u << 10,
         kFlapsPos            = 1u << 11,
         // bits 12..14 reserved for future channels.
-        // Pre-allocated meaning; producer impl follows in a future PR.
         kFrameSelfConsistent = 1u << 15,
         // bits 16..31 are firmware-internal only.
     };
 
     constexpr bool has(Bit b) const { return (bits & b) != 0; }
-    constexpr void set(Bit b)       { bits |= b; }
-    constexpr void clear(Bit b)     { bits &= ~static_cast<uint32_t>(b); }
+    void set(Bit b)   { bits |= b; }
+    void clear(Bit b) { bits &= ~static_cast<uint32_t>(b); }
 };
 
 }   // namespace onspeed::types
