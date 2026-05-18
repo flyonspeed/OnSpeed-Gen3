@@ -361,9 +361,12 @@ void DisplaySerial::Write()
             g_Config.bOatSensor,
             g_EfisSerial.suEfis.OAT,
             g_Sensors.OatC);
-        // Proto's BuildFrame clamps to [-99, +99] before emitting the
-        // %+03d field.
-        const int iOATc = static_cast<int>(fOatC);
+        // Round to nearest integer so the M5 reads the same whole
+        // degrees the LiveView shows (which keeps the fractional part).
+        // Truncating would bias every reading half a degree colder than
+        // the JSON.  Proto's BuildFrame clamps the result to [-99, +99]
+        // before emitting the %+03d field.
+        const int iOATc = static_cast<int>(lroundf(fOatC));
 
         DisplayBuildInputs inputs;
         inputs.pitchDeg           = g_AHRS.SmoothedPitch;

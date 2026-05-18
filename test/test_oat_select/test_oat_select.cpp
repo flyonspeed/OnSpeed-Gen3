@@ -66,6 +66,16 @@ void test_efis_stale_falls_through_to_zero_when_internal_off(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, r);
 }
 
+void test_efis_read_disabled_no_internal_returns_zero(void)
+{
+    // Pin the "EFIS configured as cal source but feed disabled, no
+    // internal sensor" misconfiguration.  The pre-PR JSON returned a
+    // zero-init suEfis.OAT (which happens to be 0); the helper returns
+    // 0.0f through the explicit lockout path.
+    const float r = SelectDisplayOatC(true, false, true, false, 15.0f, -5.0f);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, r);
+}
+
 void test_efis_nan_falls_through_to_internal(void)
 {
     const float r = SelectDisplayOatC(true, true, true, true,
@@ -143,6 +153,7 @@ int main(int, char**)
     RUN_TEST(test_efis_read_disabled_falls_through_to_internal);
     RUN_TEST(test_efis_stale_falls_through_to_internal);
     RUN_TEST(test_efis_stale_falls_through_to_zero_when_internal_off);
+    RUN_TEST(test_efis_read_disabled_no_internal_returns_zero);
     RUN_TEST(test_efis_nan_falls_through_to_internal);
     RUN_TEST(test_efis_inf_falls_through_to_internal);
 
