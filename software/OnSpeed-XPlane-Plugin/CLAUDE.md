@@ -176,14 +176,18 @@ The M5 firmware reads from `Serial` (USB-CDC or USB-bridged UART) when
 - Boot probe: `checkSerial()` only runs the 2-s USB probe if
   `Serial.available()` is true at start.  Otherwise an in-airplane
   M5 with no laptop connected pays 2 s of pointless boot delay.
-- Late-binding: if any byte arrives on `Serial` post-detection,
-  switch to port=4 only on a full `#1` two-byte signature, not just
-  a single `#`.  A docked laptop emitting random USB-CDC noise can
-  contain `#` (0x23) — a single-byte trigger would brick the M5
-  in flight.
-- **`selectedPort=4` MUST NOT persist to NVS.**  Sim-only mode;
-  next boot must re-detect.  The `serialSetup()` save guard is
-  `if (selectedPort!=0 && selectedPort!=4)`.
+- Source selection at boot: `serialSetup()` honors the settings-menu
+  `Data Source` value (`g_dataSource`).  AUTO (0) runs the existing
+  auto-detect.  UART (1) probes only Serial2.  USB (2) skips probing
+  and forces selectedPort=4.  The runtime late-binding that used to
+  flip selectedPort to 4 mid-session on a `#1` match has been removed
+  — pilots set the menu explicitly instead.
+- **`selectedPort=4` from AUTO mode MUST NOT persist to NVS.**  The
+  USB-CDC connection is transient; next boot must re-detect.  The
+  `serialSetup()` save guard is
+  `if (selectedPort!=0 && selectedPort!=4)`.  Pilots who want sticky
+  USB-CDC set `Data Source: USB`, which lives in a separate NVS key
+  (`DataSource`).
 
 ## Per-aircraft settings file
 
@@ -268,10 +272,13 @@ were removed when the dead VBO+shader path was deleted.
 - `setTxTimeoutMs(0)` compile gate — must stay on the
   `CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3` test or
   the M5 firmware fails to build for ESP32 / Core2.
-- M5 firmware late-binding logic — must require the full `#1`
-  two-byte signature; relaxing to a single `#` reintroduces the
-  in-flight bricking risk.
-- NVS persistence guard — `selectedPort=4` must never persist.
+- M5 firmware no longer late-binds USB-CDC at runtime; data source is
+  decided at boot from the menu setting + auto-probe. The two-byte
+  `#1` matching that gated runtime switching has been removed.
+- NVS persistence guard — `selectedPort=4` from AUTO mode must never
+  persist (a transient laptop tether would otherwise brick the next
+  in-airplane boot). Sticky USB lives in the separate `DataSource`
+  menu setting.
 
 ## Useful issues / PRs
 

@@ -470,9 +470,17 @@ void setup()
     // regardless of which mode is active.
     Serial.begin(115200);
     delay (100);
+
+    // Load menu preferences BEFORE serialSetup() — that function reads
+    // g_dataSource to decide whether to skip the USB-CDC probe (UART),
+    // skip all probing (USB), or run the existing auto-detect (AUTO).
+#ifndef XPLANE_PLUGIN_BUILD
+    initSettingsMenu();   // reads SpeedMph + DataSource from NVS
+#endif
+
 #if !defined(DUMMY_SERIAL_DATA)
     // select serial port from preferences or detect it (Serial2 — the
-    // OnSpeed `#1` wire input).
+    // OnSpeed `#1` wire input). Honors g_dataSource loaded above.
     serialSetup();
 #endif
 
@@ -495,10 +503,6 @@ void setup()
     preferences.end();
     displayBrightness = constrain(displayBrightness, 1, 255);
     displayType       = constrain(displayType, 0, 4);
-
-#ifndef XPLANE_PLUGIN_BUILD
-    initSettingsMenu();   // reads SpeedMph from the same NVS namespace
-#endif
 #endif
 
 } // end setup()

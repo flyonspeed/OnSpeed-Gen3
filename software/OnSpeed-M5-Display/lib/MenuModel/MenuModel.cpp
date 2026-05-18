@@ -36,6 +36,11 @@ MenuModel::ActivateResult MenuModel::onActivate() {
             return ActivateResult::kExit;
         case ItemType::Info:
             return ActivateResult::kStayed;
+        case ItemType::Choice:
+            if (!item.choiceValue || item.choiceCount <= 0)
+                return ActivateResult::kStayed;
+            *item.choiceValue = (*item.choiceValue + 1) % item.choiceCount;
+            return ActivateResult::kToggled;
     }
     return ActivateResult::kStayed;
 }

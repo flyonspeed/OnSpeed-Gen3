@@ -8,7 +8,7 @@
 
 namespace m5menu {
 
-enum class ItemType { Toggle, Action, Info };
+enum class ItemType { Toggle, Action, Info, Choice };
 
 // Tagged-union item: extra fields are valid only for the matching type.
 struct MenuItem {
@@ -23,6 +23,13 @@ struct MenuItem {
     void      (*onActivate)();
     // Info-only: callback that returns a string to display on the right.
     const char* (*getInfoValue)();
+    // Choice-only: pointer to the int holding the current 0-based selection;
+    // choiceCount is the number of options; choiceLabels is an array of
+    // C-string labels of length choiceCount. Activate cycles the value
+    // modulo choiceCount and returns kToggled.
+    int*               choiceValue;
+    int                choiceCount;
+    const char* const* choiceLabels;
 };
 
 class MenuModel {

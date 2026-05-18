@@ -16,6 +16,9 @@
 #include <filters/SavGolDerivative.h>
 #include <proto/DisplaySerial.h>
 #include "SerialRead.h"
+#ifndef XPLANE_PLUGIN_BUILD
+#include "SettingsMenu.h"
+#endif
 
 using onspeed::proto::ParseDisplayFrame;
 using onspeed::proto::kDisplayFrameSizeBytes;
@@ -207,41 +210,6 @@ void SerialRead()
 {
 #ifndef DUMMY_SERIAL_DATA
 #ifdef ESP_PLATFORM
-    // Late-binding USB-CDC detection.  If the user has the M5 tethered
-    // to the X-Plane plugin and the host wasn't sending bytes during
-    // checkSerial()'s probe window, switch to USB-CDC (selectedPort=4)
-    // when we see the full "#1" frame-start signature.  ONE '#' byte
-    // is not enough to switch — the byte 0x23 appears in plenty of
-    // legitimate non-OnSpeed USB traffic (kernel debug output, package
-    // version strings, dmesg dumps).  A docked laptop on a real
-    // airplane could sneak any single byte into Serial; requiring the
-    // full "#1" raises the false-positive threshold to OnSpeed-only.
-    //
-    // We also do NOT persist the USB-CDC choice to NVS — it's a sim-
-    // only mode and must not survive a power cycle into a flight
-    // context.  Each boot re-detects.
-    if (selectedPort != 4) {
-        // Drain up to 256 bytes per tick scanning for "#1".  Same
-        // motivation as the main read loop below — one-byte-per-tick
-        // can't keep up with a 1520 B/s host stream and the buffer
-        // overflows.  Once we match "#1" we switch and break;
-        // remaining queued bytes are picked up by the selectedPort==4
-        // branch below on this same tick.
-        static char s_lastSerialByte = 0;
-        for (int i = 0; i < 256 && Serial.available(); ++i) {
-            const int b = Serial.read();
-            if (s_lastSerialByte == '#' && b == '1') {
-                selectedPort = 4;
-                // Re-inject both bytes of the matched frame start so
-                // the accumulator picks up from the real beginning.
-                InjectSerialByte('#');
-                InjectSerialByte('1');
-                break;
-            }
-            s_lastSerialByte = static_cast<char>(b);
-        }
-    }
-
     // Drain the entire RX buffer per call instead of reading just one
     // byte.  At 115200 8N1 the line rate is 11520 bytes/sec, and
     // OnSpeed sends 76 bytes × 20 Hz = 1520 bytes/sec.  loop() runs
@@ -378,20 +346,8 @@ void SerialProcess(float frameDtSec)
 
 // -----------------------------------------------
 
-unsigned int checkSerial()
+static unsigned int checkSerialUsb()
 {
-    gdraw.setColorDepth(8);
-    gdraw.createSprite(WIDTH, HEIGHT);
-    gdraw.fillSprite (TFT_BLACK);
-    gdraw.setFont(FSS12);
-    gdraw.setTextDatum(MC_DATUM);
-    gdraw.setTextColor (TFT_WHITE);
-    gdraw.drawString("Looking for Serial data",160,120);
-    gdraw.drawString("Please wait...",160,190);
-    gdraw.pushSprite (0, 0);
-    gdraw.deleteSprite();
-    String serialString;
-
     // USB-CDC (X-Plane plugin host).  Serial is always-on once the
     // USB host enumerates the M5; no Serial.begin needed for CDC.  We
     // probe it briefly before the hardware-UART variants so a sim-
@@ -401,15 +357,21 @@ unsigned int checkSerial()
     // traffic.  A real airplane M5 has nothing on Serial (no laptop
     // plugged in), and we'd otherwise add 2 s of dead boot time
     // every flight.
-    if (Serial.available()) {
-        serialString = "";
-        unsigned long t0 = millis();
-        while (millis() - t0 < 2000 && serialString.length() < 200) {
-            if (Serial.available()) serialString += (char)Serial.read();
-        }
-        if (serialString.indexOf("#1") >= 0)
-            return 4;
+    if (!Serial.available()) return 0;
+
+    String serialString;
+    unsigned long t0 = millis();
+    while (millis() - t0 < 2000 && serialString.length() < 200) {
+        if (Serial.available()) serialString += (char)Serial.read();
     }
+    if (serialString.indexOf("#1") >= 0)
+        return 4;
+    return 0;
+}
+
+static unsigned int checkSerialUart()
+{
+    String serialString;
 
     // TTL input (including v2 Onspeed with vern's power board)
     Serial2.begin(115200, SERIAL_8N1, PORTC_RX, PORTC_TX, false);
@@ -433,6 +395,23 @@ unsigned int checkSerial()
         return 3;
 
     return 0;
+}
+
+unsigned int checkSerial()
+{
+    gdraw.setColorDepth(8);
+    gdraw.createSprite(WIDTH, HEIGHT);
+    gdraw.fillSprite (TFT_BLACK);
+    gdraw.setFont(FSS12);
+    gdraw.setTextDatum(MC_DATUM);
+    gdraw.setTextColor (TFT_WHITE);
+    gdraw.drawString("Looking for Serial data",160,120);
+    gdraw.drawString("Please wait...",160,190);
+    gdraw.pushSprite (0, 0);
+    gdraw.deleteSprite();
+
+    unsigned int r = checkSerialUsb();
+    return r ? r : checkSerialUart();
 }
 
 
@@ -478,21 +457,49 @@ void serialSetup()
     Preferences preferences;
     preferences.begin("OnSpeed", false);
     selectedPort=preferences.getUInt("SerialPort", 0);
-    unsigned long detectSerialStart=millis();
 
-    while (selectedPort==0 && millis()-detectSerialStart<30000) // allow 30 seconds to detect serial port
-    {
-        // check serial port
-        selectedPort=checkSerial();
-        // save serial port preference — but ONLY for hardware-UART
-        // selections (1, 2, 3).  selectedPort=4 (USB-CDC) is sim-only:
-        // a real OnSpeed installation MUST re-detect on each boot
-        // because the USB-CDC connection is transient (laptop plugged
-        // in for log retrieval can leave a stale port=4 in NVS,
-        // which would brick the in-airplane M5 on the next flight
-        // by skipping Serial2 detection entirely).
-        if (selectedPort!=0 && selectedPort!=4)
-            preferences.putUInt("SerialPort", selectedPort);
+    // Honor the pilot's explicit Data Source choice from the settings
+    // menu. AUTO (0) runs the existing auto-detect; UART (1) probes
+    // only Serial2 variants and never returns 4 (USB-CDC); USB (2)
+    // skips probing entirely and forces selectedPort=4. The persisted
+    // SerialPort key still wins for AUTO/UART pilots who've already
+    // captured a working hardware-UART number on a prior boot.
+    if (g_dataSource == 2) {
+        selectedPort = 4;
+    } else {
+        unsigned long detectSerialStart=millis();
+        while (selectedPort==0 && millis()-detectSerialStart<30000) // allow 30 seconds to detect serial port
+        {
+            if (g_dataSource == 1) {
+                // UART-only: skip the USB-CDC probe, run just the
+                // three Serial2 variants. checkSerialUart() renders
+                // no UI; the splash is normally rendered by the
+                // checkSerial() wrapper, so render it inline here to
+                // give the UART-only path the same boot UI as AUTO.
+                gdraw.setColorDepth(8);
+                gdraw.createSprite(WIDTH, HEIGHT);
+                gdraw.fillSprite (TFT_BLACK);
+                gdraw.setFont(FSS12);
+                gdraw.setTextDatum(MC_DATUM);
+                gdraw.setTextColor (TFT_WHITE);
+                gdraw.drawString("Looking for Serial data",160,120);
+                gdraw.drawString("Please wait...",160,190);
+                gdraw.pushSprite (0, 0);
+                gdraw.deleteSprite();
+                selectedPort=checkSerialUart();
+            } else {
+                selectedPort=checkSerial();
+            }
+            // save serial port preference — but ONLY for hardware-UART
+            // selections (1, 2, 3).  selectedPort=4 (USB-CDC) is sim-only:
+            // a real OnSpeed installation MUST re-detect on each boot
+            // because the USB-CDC connection is transient (laptop plugged
+            // in for log retrieval can leave a stale port=4 in NVS,
+            // which would brick the in-airplane M5 on the next flight
+            // by skipping Serial2 detection entirely).
+            if (selectedPort!=0 && selectedPort!=4)
+                preferences.putUInt("SerialPort", selectedPort);
+        }
     }
 
     preferences.end();
