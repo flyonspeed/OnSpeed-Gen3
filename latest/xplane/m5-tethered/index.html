@@ -3919,29 +3919,29 @@ indexer window.</p>
 <li>The X-Plane plugin installed (see <a href="../install/">Install</a>).</li>
 </ul>
 <h2 id="step-1-flash-m5-firmware">Step 1 — Flash M5 firmware<a class="headerlink" href="#step-1-flash-m5-firmware" title="Permanent link">&para;</a></h2>
-<div class="admonition warning">
-<p class="admonition-title">Coming soon</p>
-<p>The M5 firmware support for USB-CDC tethering is in source on
-<code>master</code> but is not yet shipped as a published release binary.
-Released M5 firmware will gain USB-CDC autodetect once issue
-<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/399">#399</a>
-lands — track that issue for the rollout.</p>
-<p>Until #399 ships, only developers who can build from source
-(PlatformIO + the <code>m5stack-core2</code> / <code>m5stack-core-esp32</code> env)
-can flash a USB-CDC-capable M5.  See the appendix below.</p>
-</div>
-<p>When release builds become available, the workflow will be:</p>
+<p>The M5 firmware that ships in the latest GitHub release (v4.22.1 and
+later) includes USB-CDC autodetect.  If you already fly with an
+OnSpeed M5 in the panel running v4.22.1+, you're done — same firmware,
+no reflash needed.</p>
+<p>For a fresh M5 or one running older firmware:</p>
 <ol>
-<li>Download the latest M5 firmware <code>.bin</code> from the
-   <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">OnSpeed-Gen3 releases page</a>
-   matching your hardware (<code>m5stack-core2</code> or <code>m5stack-core-esp32</code>).</li>
-<li>Flash via M5Burner or <code>esptool.py</code> per the release notes.</li>
-<li>The M5 reboots into the OnSpeed splash, then enters serial-detect
-   mode.</li>
+<li>Download the M5 firmware <code>.bin</code> matching your hardware from the
+   <a href="https://github.com/flyonspeed/OnSpeed-Gen3/releases/latest">latest release page</a>:<ul>
+<li><code>onspeed-m5-X.Y.Z-basic-firmware.bin</code> (M5Stack Basic)</li>
+<li><code>onspeed-m5-X.Y.Z-core2-firmware.bin</code> (M5Stack Core2)</li>
+</ul>
+</li>
+<li>Flash it. The fastest path depends on whether the M5 has ever run
+   OnSpeed firmware:<ul>
+<li><strong>Already-flashed M5</strong> — use OTA update over WiFi.</li>
+<li><strong>Fresh M5</strong> — flash via M5Burner or <code>esptool.py</code>.</li>
+</ul>
+</li>
 </ol>
-<p>A pilot who already flies with an OnSpeed M5 in the panel reuses the
-same firmware they already have, just on a release build that
-includes USB-CDC support.</p>
+<p>Full step-by-step for both paths is in
+   <a href="../../installation/external-display/#flashing-the-m5-firmware">External Display → Flashing the M5 firmware</a>.
+3. After reboot, the M5 cycles through the OnSpeed splash, then
+   enters serial-detect mode (covered in Step 2 below).</p>
 <h2 id="step-2-what-the-m5-shows-during-boot">Step 2 — What the M5 shows during boot<a class="headerlink" href="#step-2-what-the-m5-shows-during-boot" title="Permanent link">&para;</a></h2>
 <p>After flash + reboot, the M5 cycles through three states:</p>
 <ol>
@@ -4076,9 +4076,8 @@ saved port path — the previously connected M5 is on a different
 node now. Pick <strong>Off</strong>, then re-pick the current port from the
 freshly enumerated list.</p>
 <h2 id="developer-appendix-flashing-m5-firmware-from-source">Developer appendix — flashing M5 firmware from source<a class="headerlink" href="#developer-appendix-flashing-m5-firmware-from-source" title="Permanent link">&para;</a></h2>
-<p>For developers who want to test the USB-CDC tethering before the
-release artifact lands (issue
-<a href="https://github.com/flyonspeed/OnSpeed-Gen3/issues/399">#399</a>):</p>
+<p>For developers building from <code>master</code> (e.g. testing changes to the
+M5 firmware itself):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>software/OnSpeed-M5-Display
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>m5stack-core2<span class="w"> </span>-t<span class="w"> </span>upload<span class="w">         </span><span class="c1"># M5Stack Core2</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># or</span>
@@ -4086,7 +4085,8 @@ release artifact lands (issue
 </code></pre></div>
 <p>PlatformIO auto-detects the connected device.  Requires
 <a href="https://docs.platformio.org/en/latest/core/installation/index.html">PlatformIO Core</a>
-installed locally.  Pilots should not need this path once #399 ships.</p>
+installed locally.  Pilots flying released versions should use the
+flash path in Step 1 above.</p>
 
 
 
