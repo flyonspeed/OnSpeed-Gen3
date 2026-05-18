@@ -77,3 +77,27 @@ Controls which IAS source the calibration wizard uses:
 - **EFIS** — use the EFIS-provided IAS
 
 If you have an EFIS connected with accurate IAS, using `EFIS` may give better calibration results.
+
+## OAT recovery factor (K)
+
+OAT probes installed in the airstream read **total air temperature (TAT)** — the freestream temperature plus a ram-heating component from kinetic energy at the probe surface. Density altitude, TAS, and the AOA derivation use **static air temperature (SAT)** — the freestream temperature.
+
+OnSpeed converts TAT → SAT using:
+
+```
+SAT = TAT_K / (1 + K · 0.2 · M²)
+```
+
+where `K` is the **probe recovery factor**:
+
+| K | Probe type |
+|---|---|
+| 0.0 | Disables the correction (TAS uses raw TAT) |
+| 0.75 | Bare / exposed thermistor (typical GA install, default) |
+| 1.0 | Shielded TAT probe (Kiel or similar) |
+
+Config parameter: `OAT_RECOVERY_FACTOR` (XML) / `oatRecoveryFactor` (JSON). Range `[0.0, 1.0]`; out-of-range values fall back to the default `0.75`.
+
+The correction is meaningful above ~120 KIAS in cold air. At cruise on an RV-10 (155 KTAS, +5°C TAT) it shifts SAT ~2°C cooler and TAS ~0.4%. At Lancair speeds (FL250, 200 KIAS, −25°C TAT) it shifts ~3°C and ~0.6%. Below ~80 KIAS the correction is well under 0.5°C.
+
+Set `K = 0` if your EFIS supplies an already-corrected SAT through its serial wire — most don't, but if yours does (check vendor docs) you'd otherwise double-correct.

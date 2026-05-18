@@ -223,7 +223,7 @@ Expected: `11/11 passed`.
 The tests run in two layers:
 
 **Layer 1 — Self-referential (Python only).** Fast checks of the Python
-builder: total length is 77 bytes (v4.23 wire), `#1` header, CRC
+builder: total length is 83 bytes (v4.24 wire), `#1` header, CRC
 matches the sum-of-payload-bytes convention, every field round-trips
 through the documented byte offsets, signed fields keep their signs,
 the honest percent-lift formula tracks `ComputePercentLift`,
@@ -246,7 +246,7 @@ Python builder.
 
 ## The wire protocol
 
-Frames are **77 bytes** total (v4.23 wire): 73-byte payload + 2-byte
+Frames are **83 bytes** total (v4.24 wire): 79-byte payload + 2-byte
 CRC + CRLF, at 115200 8N1. Full byte-level reference (offsets, scale
 factors, sign conventions, parser recommendations) lives in
 [`docs/site/docs/reference/serial-protocol.md`](../../docs/site/docs/reference/serial-protocol.md).
@@ -323,7 +323,7 @@ automatically in an ephemeral environment.
  OnSpeed .cfg ───►│  • parses flap setpoints    │
  SD-card CSV  ───►│  • reads rows at 20 Hz      │
                   │  • computes PercentLift     │
-                  │  • builds 77-byte frame     │
+                  │  • builds 83-byte frame     │
                   │  • writes to serial port    │
                   └──────────────┬──────────────┘
                                  │ /dev/cu.usbserial-XXXX

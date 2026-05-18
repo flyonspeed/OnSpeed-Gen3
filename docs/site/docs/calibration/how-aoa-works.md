@@ -56,6 +56,9 @@ This DerivedAOA measures the **fuselage-to-wind angle** — the angle between wh
 
 In straight-and-level, trimmed, unaccelerated flight, pitch attitude and AOA coincide (because flight path angle is zero). This is the specific condition used during calibration — slow, wings-level decelerations where pitch attitude is a reliable proxy for AOA.
 
+!!! note "OAT ram-rise correction"
+    OnSpeed corrects the OAT probe reading for ram heating before computing TAS, using the configured probe recovery factor (default `K = 0.75`). Above ~120 KIAS this matters: at Lancair cruise speeds the correction is ~3°C, shifting density altitude by ~400 ft. See [advanced configuration](../configuration/advanced.md#oat-recovery-factor-k).
+
 ## The Lift Equation Fit
 
 The key physics insight: in steady, wings-level flight, the lift equation gives us:

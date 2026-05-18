@@ -32,36 +32,38 @@ The OnSpeed firmware's `WriteDisplayDataTask` runs at the cadence above and re-a
 
 ### Frame structure
 
-Each frame is exactly **77 bytes** of ASCII (v4.23), terminated by CRLF. Field offsets, widths, and scale factors are fixed — there are no length prefixes, no variable-width fields, and no escapes inside the payload.
+Each frame is exactly **83 bytes** of ASCII (v4.24), terminated by CRLF. Field offsets, widths, and scale factors are fixed — there are no length prefixes, no variable-width fields, and no escapes inside the payload.
 
 | Offset | Width | Field | printf format | Wire scale | Engineering range | Wire range |
 | ---: | ---: | --- | --- | ---: | --- | --- |
 | 0 | 2 | `magic` | literal | — | `"#1"` | `"#1"` |
-| 2 | 4 | `pitchDeg` | `%+04d` | ×10 | ±99.9° | ±999 |
-| 6 | 5 | `rollDeg` | `%+05d` | ×10 | ±999.9° | ±9999 |
-| 11 | 4 | `iasKt` | `%04u` | ×10 | 0 – 999.9 kt | 0 – 9999 |
-| 15 | 6 | `paltFt` | `%+06d` | ×1 | ±99 999 ft | ±99999 |
-| 21 | 5 | `turnRateDps` | `%+05d` | ×10 | ±999.9°/s | ±9999 |
-| 26 | 3 | `lateralG` | `%+03d` | ×100 | ±0.99 g (body-frame, +rightward; see below) | ±99 |
-| 29 | 3 | `verticalG` | `%+03d` | ×10 | ±9.9 g (rounded to nearest 0.1 g) | ±99 |
-| 32 | 3 | `percentLift` | `%03u` | ×10 | 0.0 – 99.9 (current AOA, envelope fraction in tenths-of-a-percent) | 0 – 999 |
-| 35 | 4 | `vsiFpm10` | `%+04d` | ×1 | ±9 990 fpm | ±999 (already divided by 10) |
-| 39 | 3 | `oatC` | `%+03d` | ×1 | ±99 °C | ±99 |
-| 42 | 4 | `flightPathDeg` | `%+04d` | ×10 | ±99.9° | ±999 |
-| 46 | 3 | `flapsDeg` | `%+03d` | ×1 | ±99° | ±99 |
-| 49 | 2 | `tonesOnPctLift` | `%02u` | ×1 | 0 – 99 (active-detent L/D~MAX~; operational, audio gate) | 0 – 99 |
-| 51 | 2 | `onSpeedFastPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedFast percent for active flap) | 0 – 99 |
-| 53 | 2 | `onSpeedSlowPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedSlow percent for active flap) | 0 – 99 |
-| 55 | 2 | `stallWarnPctLift` | `%02u` | ×1 | 0 – 99 (StallWarn percent for active flap) | 0 – 99 |
-| 57 | 3 | `flapsMinDeg` | `%+03d` | ×1 | ±99° (full retract) | ±99 |
-| 60 | 3 | `flapsMaxDeg` | `%+03d` | ×1 | ±99° (full extend) | ±99 |
-| 63 | 4 | `gOnsetRate` | `%+04d` | ×100 | ±9.99 g/s | ±999 |
-| 67 | 2 | `spinRecoveryCue` | `%+02d` | ×1 | −9 to +9 | −9 to +9 |
-| 69 | 2 | `dataMark` | `%02u` | ×1 | 0 – 99 | 0 – 99 |
-| 71 | 2 | `pipPctLift` | `%02u` | ×1 | 0 – 99 (visual L/D~MAX~ pip; aerodynamic, lerp clean→fullflap) | 0 – 99 |
-| 73 | 2 | `checksum` | `%02X` | hex | sum of bytes 0–72, low byte | `00` – `FF` |
-| 75 | 1 | terminator | literal | — | CR (`0x0D`) | |
-| 76 | 1 | terminator | literal | — | LF (`0x0A`) | |
+| 2 | 2 | `wireVersion` | `%02u` | — | `24` (v4.24) | `24` |
+| 4 | 4 | `pitchDeg` | `%+04d` | ×10 | ±99.9° | ±999 |
+| 8 | 5 | `rollDeg` | `%+05d` | ×10 | ±999.9° | ±9999 |
+| 13 | 4 | `iasKt` | `%04u` | ×10 | 0 – 999.9 kt | 0 – 9999 (9999 = not valid; check `validFlags`) |
+| 17 | 6 | `paltFt` | `%+06d` | ×1 | ±99 999 ft | ±99999 |
+| 23 | 5 | `turnRateDps` | `%+05d` | ×10 | ±999.9°/s | ±9999 |
+| 28 | 3 | `lateralG` | `%+03d` | ×100 | ±0.99 g (body-frame, +rightward; see below) | ±99 |
+| 31 | 3 | `verticalG` | `%+03d` | ×10 | ±9.9 g (rounded to nearest 0.1 g) | ±99 |
+| 34 | 3 | `percentLift` | `%03u` | ×10 | 0.0 – 99.9 (current AOA, envelope fraction in tenths-of-a-percent) | 0 – 999 |
+| 37 | 4 | `vsiFpm10` | `%+04d` | ×1 | ±9 990 fpm | ±999 (already divided by 10) |
+| 41 | 3 | `oatC` | `%+03d` | ×1 | ±99 °C (raw TAT from probe; see validFlags for SAT availability) | ±99 |
+| 44 | 4 | `flightPathDeg` | `%+04d` | ×10 | ±99.9° | ±999 |
+| 48 | 3 | `flapsDeg` | `%+03d` | ×1 | ±99° | ±99 |
+| 51 | 2 | `tonesOnPctLift` | `%02u` | ×1 | 0 – 99 (active-detent L/D~MAX~; operational, audio gate) | 0 – 99 |
+| 53 | 2 | `onSpeedFastPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedFast percent for active flap) | 0 – 99 |
+| 55 | 2 | `onSpeedSlowPctLift` | `%02u` | ×1 | 0 – 99 (OnSpeedSlow percent for active flap) | 0 – 99 |
+| 57 | 2 | `stallWarnPctLift` | `%02u` | ×1 | 0 – 99 (StallWarn percent for active flap) | 0 – 99 |
+| 59 | 3 | `flapsMinDeg` | `%+03d` | ×1 | ±99° (full retract) | ±99 |
+| 62 | 3 | `flapsMaxDeg` | `%+03d` | ×1 | ±99° (full extend) | ±99 |
+| 65 | 4 | `gOnsetRate` | `%+04d` | ×100 | ±9.99 g/s | ±999 |
+| 69 | 2 | `spinRecoveryCue` | `%+02d` | ×1 | −9 to +9 | −9 to +9 |
+| 71 | 2 | `dataMark` | `%02u` | ×1 | 0 – 99 | 0 – 99 |
+| 73 | 2 | `pipPctLift` | `%02u` | ×1 | 0 – 99 (visual L/D~MAX~ pip; aerodynamic, lerp clean→fullflap) | 0 – 99 |
+| 75 | 4 | `validFlags` | `%04X` | hex | 16-bit channel-validity bitmap (see below) | `0000`–`FFFF` |
+| 79 | 2 | `checksum` | `%02X` | hex | CRC-8 of bytes 0–78 (poly 0x07) | `00`–`FF` |
+| 81 | 1 | terminator | literal | — | CR (`0x0D`) | |
+| 82 | 1 | terminator | literal | — | LF (`0x0A`) | |
 
 Sign and width invariants:
 
@@ -96,23 +98,67 @@ One field is part of the wire layout today but populated with a placeholder valu
 
 | Field | Status | What's the gap |
 | --- | --- | --- |
-| `spinRecoveryCue` (offset 66) | Always `0` from the producer today. Intended as a `−1 / 0 / +1` direction cue (left / none / right) for an upcoming spin-recovery indicator. No consumer renders it yet. | Both ends: producer needs the cue logic; M5 needs a render glyph. |
+| `spinRecoveryCue` (offset 69) | Always `0` from the producer today. Intended as a `−1 / 0 / +1` direction cue (left / none / right) for an upcoming spin-recovery indicator. No consumer renders it yet. | Both ends: producer needs the cue logic; M5 needs a render glyph. |
+
+### Version detection
+
+The `wireVersion` field at offset 2 carries `24` for v4.24+ frames.
+
+Consumers reading mixed-vintage feeds can dispatch on byte 4 of the
+incoming frame: a digit (`0`–`9`) marks v4.24+; the sign character
+(`+`/`-`) at the same offset marks a legacy 77-byte v4.23 frame
+(where byte 4 is the first character of the signed `pitchDeg` field).
+v4.25+ relies on the `wireVersion` field directly; the byte-4 fallback
+is a one-release bridge for mixed-vintage lab environments.
+
+### validFlags bit layout
+
+The 4-hex-char `validFlags` field at offset 75 carries a 16-bit bitmap
+with one bit per channel. The producer sets a bit when the corresponding
+value is trustworthy; consumers check the bit before treating an
+in-band sentinel value (IAS = 9999, percentLift = 0, `oatC` clamped to
+a boundary) as "render dashes" rather than a real reading.
+
+| Bit | Mask | Channel |
+| ---: | --- | --- |
+| 0 | `0x0001` | OAT raw (TAT from probe) |
+| 1 | `0x0002` | SAT (ram-rise corrected) |
+| 2 | `0x0004` | IAS |
+| 3 | `0x0008` | Palt |
+| 4 | `0x0010` | TAS |
+| 5 | `0x0020` | Density altitude |
+| 6 | `0x0040` | DerivedAOA |
+| 7 | `0x0080` | VSI |
+| 8 | `0x0100` | Pitch |
+| 9 | `0x0200` | Roll |
+| 10 | `0x0400` | Percent lift |
+| 11 | `0x0800` | Flap position |
+| 15 | `0x8000` | Frame self-consistent (reserved; producer marks this after all other bits are set) |
+
+Bits 12–14 are reserved and read as zero.
 
 ### Checksum
 
-Two uppercase ASCII hex digits at offset 72, computed over bytes 0–71 inclusive:
+Two uppercase ASCII hex digits at offset 79, computed as **CRC-8** over bytes 0–78 inclusive.
 
-```
-checksum = sum(payload[0..71]) & 0xFF
-```
+Algorithm parameters (SMBus convention):
 
-The reference implementation lives in `onspeed_core/util/Crc.h` (`util::Checksum8`). Lowercase hex is rejected by the parser.
+| Parameter | Value |
+| --- | --- |
+| Polynomial | `0x07` |
+| Initial value | `0x00` |
+| XOR-out | `0x00` |
+| Reflection | none |
+
+Reference test vector: CRC-8(`"123456789"`) = `0xF4`.
+
+The reference implementation lives in `onspeed_core/util/Crc.h` (`util::Crc8`). Lowercase hex is rejected by the parser.
 
 ## Parsing recommendations
 
 The `onspeed_core` library ships a reference parser at [`proto/DisplaySerial.h`](https://github.com/flyonspeed/OnSpeed-Gen3/blob/master/software/Libraries/onspeed_core/src/proto/DisplaySerial.h) that runs natively (no Arduino dependency). Two entry points:
 
-- `ParseDisplayFrame(const uint8_t* buf, size_t len)` — one-shot. Hand it a 77-byte buffer; receive an `optional<DisplayFrame>`. Fails closed on bad magic, bad CRC, or any field that fails to parse.
+- `ParseDisplayFrame(const uint8_t* buf, size_t len)` — one-shot. Hand it an 83-byte buffer; receive an `optional<DisplayFrame>`. Fails closed on bad magic, bad CRC, or any field that fails to parse.
 - `DisplayFrameAccumulator::Inject(uint8_t byte)` — byte-stream. Feed it whatever the UART hands you; it returns a parsed frame on the byte that completes a valid frame, or `nullopt` otherwise. Internally it resets to start-of-frame on any `#`, drops frames that don't end with LF, and clears its buffer between frames. The same struct is used by the M5 firmware and is exercised by the native test suite.
 
 If you implement your own parser, the failure modes worth handling are the ones the reference parser handles:
@@ -137,6 +183,7 @@ The `#1` format is a **hard versioned protocol**: there is no length prefix, no 
 | ≤ 4.20 | 80 bytes | Original layout — pitch through dataMark plus per-flap body-angle setpoints (`tonesOnAoaDeg`, `onSpeedFastAoaDeg`, `onSpeedSlowAoaDeg`, `stallWarnAoaDeg`) and `aoaDeg`. Consumers reproduced the percent-lift segments locally from the body-angle anchors. |
 | 4.21 | 74 bytes | **Wire becomes a percent-lift contract.** The body-angle setpoints and `aoaDeg` come off the wire; in their place the producer emits `tonesOnPctLift`, `onSpeedFastPctLift`, `onSpeedSlowPctLift`, `stallWarnPctLift` — each per-flap setpoint put through the canonical `ComputePercentLift`. Consumers render entirely in percent space. `ComputePercentLift` itself moves to the honest single-linear formula at the same time. `gOnsetRate` (offset 62) populates from `GOnsetFilter` instead of always-zero. See [PR #320](https://github.com/flyonspeed/OnSpeed-Gen3/pull/320) and [PR #328](https://github.com/flyonspeed/OnSpeed-Gen3/pull/328). |
 | 4.22 | 76 bytes | **Pip and audio threshold separated.** New field `pipPctLift` at offset 70 carries the visual L/D~MAX~ pip; it interpolates linearly across the entire pot range from cleanest to most-deployed detent (intermediate detents intentionally ignored). `tonesOnPctLift` reverts to PR #320's snap-per-active-detent behavior so the M5 bottom chevron and the audio low-tone gate fire from the same threshold, in lockstep. All existing field offsets unchanged; new field appended before checksum. Per Vac's design rule (`ld_max.pdf` §8): aerodynamic references and operational cues must remain independent. See [Indexer Spec](indexer-spec.md). **Coordinated reflash:** Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.21 receiver will fail the 76-byte parse and render NO DATA, and a v4.22 receiver will fail to assemble a 74-byte sender's frames. Same operational drill as the v4.20 → v4.21 transition. |
+| 4.24 | 83 bytes | **`wireVersion` field, `validFlags` bitmap, CRC-8 checksum.** Three coordinated additions ship in one bump. (1) A 2-character `wireVersion` field is inserted at offset 2, shifting all subsequent fields by +2 bytes; the field carries `24` for this version and allows version-detection without relying on the byte-4 heuristic. (2) A 4-hex-char `validFlags` field is appended before the checksum (offset 75), carrying a 16-bit channel-validity bitmap so consumers can distinguish "no OAT sensor" from "OAT sensor present, reading zero." (3) The sum-of-bytes checksum is replaced by CRC-8 (poly `0x07`, init `0x00`) over bytes 0–78; the field widens from 2 to 2 hex chars but its byte offset moves to 79 due to the preceding insertions. **Coordinated reflash:** Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.23 receiver will fail the 83-byte parse and render NO DATA. |
 | 4.23 | 77 bytes | **`percentLift` widens to tenths-of-a-percent + `lateralG` switches to body-frame.** Two coordinated wire changes ship in one bump. (1) `percentLift` (offset 32) widens from `%02u` (0..99, integer percent) to `%03u` (0..999, tenths) — the M5/huVVer-display index bar now advances at sub-pixel temporal smoothness off the 20 Hz frame cadence. Every field after it shifts +1: `vsiFpm10` 34→35, `pipPctLift` 70→71, checksum 72→73. The four band-edge percents stay at integer-percent because they only move on detent or config-save events. The Garmin G3X subset format (`SERIALOUTFORMAT=G3X`) keeps integer-percent on its own `=11` frame; producer divides by 10. (2) `lateralG` (offset 26) flips from ball-frame (positive = leftward) to **body-frame** (positive = airframe accelerating rightward), matching the IMU, SD log, and WebSocket JSON conventions. Frame size unchanged by this change — only the value's sign convention. Slip-skid ball renderers negate locally at the rendering site; the M5's `SerialRead::SerialProcess` does, the LiveView's `slipBall.js` already does. See [PR #386](https://github.com/flyonspeed/OnSpeed-Gen3/pull/386), [PR #383](https://github.com/flyonspeed/OnSpeed-Gen3/pull/383), and the [Lateral G glossary entry](glossary.md). **Coordinated reflash:** Gen3 main firmware and all M5 display board variants (Basic, Core2, huVVer-AVI) must be flashed together — a v4.22 receiver will fail the 77-byte parse and render NO DATA, and a v4.23 receiver will fail to assemble a 76-byte sender's frames. **A pre-v4.23 M5 paired with v4.23 main firmware would render the slip ball mirrored** — a coordination cue with the wrong sign. Same operational drill as the v4.21 → v4.22 transition; we're paying the wire-break cost once for both improvements. |
 
 ## G3X format (`=11` framing)
