@@ -2,6 +2,8 @@
 #include "src/Globals.h"
 #include "src/io/EfisSerialPort.h"
 
+#include <aero/WindTriangle.h>
+
 #include <cmath>
 
 // ---------------------------------------------------------------------------
@@ -69,6 +71,9 @@ EfisSerialPort::EfisSerialPort()
     suVN300.GnssLon          = 0.00;
     suVN300.EstAltMeters     = 0.00;
     suVN300.szTimeUTC[0]     = '\0';
+    suVN300.WindSpdKt        = std::nanf("");
+    suVN300.WindDirDeg       = std::nanf("");
+    suVN300.WindVerticalKt   = std::nanf("");
 
     uTimestamp = millis();
 }
@@ -234,4 +239,28 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
 
     strncpy(suVN300.szTimeUTC, data.szTimeUTC, sizeof(suVN300.szTimeUTC) - 1);
     suVN300.szTimeUTC[sizeof(suVN300.szTimeUTC) - 1] = '\0';
+
+    // Wind triangle.  Snapshot TAS without a mutex: a torn float read at
+    // 20 Hz is benign against an EMA-smoothed source running at 208 Hz.
+    // Gate on GPS fix; without it, GnssVelNed is noise.
+    constexpr float kKtPerMps = 1.943844f;
+    const float ownshipTasMps = g_AHRS.fTAS;
+    if (data.gpsFix > 0) {
+        auto wind = onspeed::aero::ComputeWind(
+            data.gnssVelNedNorth, data.gnssVelNedEast, data.gnssVelNedDown,
+            data.yaw, data.pitch, ownshipTasMps);
+        if (wind) {
+            suVN300.WindSpdKt      = wind->windSpeedMps    * kKtPerMps;
+            suVN300.WindDirDeg     = wind->windDirDeg;
+            suVN300.WindVerticalKt = wind->windVerticalMps * kKtPerMps;
+        } else {
+            suVN300.WindSpdKt      = std::nanf("");
+            suVN300.WindDirDeg     = std::nanf("");
+            suVN300.WindVerticalKt = std::nanf("");
+        }
+    } else {
+        suVN300.WindSpdKt      = std::nanf("");
+        suVN300.WindDirDeg     = std::nanf("");
+        suVN300.WindVerticalKt = std::nanf("");
+    }
 }

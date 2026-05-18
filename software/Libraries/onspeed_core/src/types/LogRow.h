@@ -18,6 +18,7 @@
 #ifndef ONSPEED_CORE_TYPES_LOG_ROW_H
 #define ONSPEED_CORE_TYPES_LOG_ROW_H
 
+#include <cmath>
 #include <cstdint>
 
 namespace onspeed {
@@ -152,6 +153,14 @@ struct LogRow {
     float vnGnssVelNedNorth  = 0.0f;
     float vnGnssVelNedEast   = 0.0f;
     float vnGnssVelNedDown   = 0.0f;
+    // Wind triangle derived from GnssVelNed + VN-300 attitude + ownship TAS.
+    // NaN when no valid solution (low TAS, NaN inputs, no GPS fix). Direction
+    // is the "from" bearing in [0, 360) in the same frame as vnYawDeg
+    // (magnetic unless the VN-300 is configured with declination).
+    // vnWindVerticalKt is positive for an updraft.
+    float vnWindSpdKt        = std::nanf("");
+    float vnWindDirDeg       = std::nanf("");
+    float vnWindVerticalKt   = std::nanf("");
     double vnGnssLat         = 0.0;
     double vnGnssLon         = 0.0;
     // INS-estimated altitude (feet) from the VN-300 Common.Position LLA.

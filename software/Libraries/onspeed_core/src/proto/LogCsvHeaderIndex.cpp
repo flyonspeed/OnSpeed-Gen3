@@ -115,6 +115,9 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     if (name == "vnGnssVelNedNorth")  { out.idxVnGnssVelNedNorth = ordinal; return true; }
     if (name == "vnGnssVelNedEast")   { out.idxVnGnssVelNedEast = ordinal; return true; }
     if (name == "vnGnssVelNedDown")   { out.idxVnGnssVelNedDown = ordinal; return true; }
+    if (name == "vnWindSpdKt")        { out.idxVnWindSpdKt = ordinal; return true; }
+    if (name == "vnWindDirDeg")       { out.idxVnWindDirDeg = ordinal; return true; }
+    if (name == "vnWindVerticalKt")   { out.idxVnWindVerticalKt = ordinal; return true; }
     if (name == "vnGnssLat")          { out.idxVnGnssLat = ordinal; return true; }
     if (name == "vnGnssLon")          { out.idxVnGnssLon = ordinal; return true; }
     if (name == "vnEstAltFt")         { out.idxVnEstAltFt = ordinal; return true; }
@@ -463,6 +466,19 @@ bool TakeUint16(const std::string_view* tokens, int tokenCount, int idx, uint16_
     if (idx >= tokenCount) return false;
     return ParseUint16Tok(tokens[idx], out);
 }
+// Empty-tolerant variant for v5+ wind columns. Empty token decodes to NaN;
+// non-empty must parse cleanly. Absent column (idx == -1) leaves the
+// destination at its caller-provided default (typically NaN).
+bool TakeFloatOrNan(const std::string_view* tokens, int tokenCount, int idx, float& out)
+{
+    if (idx < 0) return true;
+    if (idx >= tokenCount) return false;
+    if (tokens[idx].empty()) {
+        out = std::nanf("");
+        return true;
+    }
+    return ParseFloatTok(tokens[idx], out);
+}
 // Empty-tolerant variants for the four `bIasAlive`-gated columns
 // (IAS, AngleofAttack, DerivedAOA, efisPercentLift).  Empty token decodes
 // to NaN (float) or 0 (int) with `outValid` cleared; otherwise behaves
@@ -604,6 +620,12 @@ bool ParseRowByIndex(std::string_view line,
         if (!TakeFloat (tokens, tokenCount, idx.idxVnGnssVelNedNorth,  row.vnGnssVelNedNorth))  return false;
         if (!TakeFloat (tokens, tokenCount, idx.idxVnGnssVelNedEast,   row.vnGnssVelNedEast))   return false;
         if (!TakeFloat (tokens, tokenCount, idx.idxVnGnssVelNedDown,   row.vnGnssVelNedDown))   return false;
+        // Wind columns are optional within the VN-300 group (format version 5+):
+        // older logs lack them, so absence is not a schema error. Empty cells
+        // decode to NaN (the producer emits empty when no valid wind solution).
+        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindSpdKt,      row.vnWindSpdKt))      return false;
+        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindDirDeg,     row.vnWindDirDeg))     return false;
+        if (!TakeFloatOrNan(tokens, tokenCount, idx.idxVnWindVerticalKt, row.vnWindVerticalKt)) return false;
         if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLat,          row.vnGnssLat))          return false;
         if (!TakeDouble(tokens, tokenCount, idx.idxVnGnssLon,          row.vnGnssLon))          return false;
         // vnEstAltFt is optional within the VN-300 group: older logs (format

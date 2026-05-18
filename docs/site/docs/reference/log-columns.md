@@ -109,12 +109,15 @@ When EFIS type is `VN-300`:
 | `vnGnssVelNedNorth` | m/s | GPS north velocity |
 | `vnGnssVelNedEast` | m/s | GPS east velocity |
 | `vnGnssVelNedDown` | m/s | GPS down velocity |
+| `vnWindSpdKt` | kt | Horizontal wind speed (derived; empty when below 30 KIAS or no GPS fix) |
+| `vnWindDirDeg` | degrees | Wind "from" direction in [0, 360), same frame as `vnYaw` (magnetic unless VN-300 has declination configured) |
+| `vnWindVerticalKt` | kt | Vertical wind component, positive = updraft |
 | `vnGnssLat` | degrees | GPS latitude |
 | `vnGnssLon` | degrees | GPS longitude |
 | `vnEstAltFt` | feet | INS-estimated altitude from Common.Position (sensor-fused GPS+IMU) — filter on `vnGPSFix` |
 | `vnGPSFix` | enum | GPS fix quality |
 | `vnDataAge` | ms | Time since last VN-300 packet |
-| `vnTimeUTC` | HH:MM:SS.cc | UTC time from VN-300 |
+| `vnTimeUTC` | HH:MM:SS.mmm | UTC time from VN-300 GPS (millisecond resolution) |
 
 ## Tail-Optional Columns (Format Version 2)
 

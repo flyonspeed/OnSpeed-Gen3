@@ -96,6 +96,15 @@ public:
         double  GnssLon;
         double  EstAltMeters;   // INS-estimated altitude (Common.Position LLA)
         char    szTimeUTC[24];
+
+        // Wind triangle, computed from GnssVelNed + ownship attitude + TAS.
+        // NaN when no valid wind solution (low TAS, NaN inputs, no GPS fix).
+        // Direction is the "from" bearing in [0, 360), measured CW from north
+        // in the same frame as Yaw (magnetic unless the VN-300 is configured
+        // with declination).  WindVerticalKt is positive for an updraft.
+        float   WindSpdKt;
+        float   WindDirDeg;
+        float   WindVerticalKt;
     };
 
     // Public data (accessed directly by callers in original code).
