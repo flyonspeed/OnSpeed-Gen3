@@ -472,10 +472,10 @@ void serialSetup()
         {
             if (g_dataSource == 1) {
                 // UART-only: skip the USB-CDC probe, run just the
-                // three Serial2 variants. checkSerialUart() still
-                // renders the "Looking for Serial data" splash via
-                // its own caller — render it here so the UART-only
-                // path shows the same boot UI as AUTO.
+                // three Serial2 variants. checkSerialUart() renders
+                // no UI; the splash is normally rendered by the
+                // checkSerial() wrapper, so render it inline here to
+                // give the UART-only path the same boot UI as AUTO.
                 gdraw.setColorDepth(8);
                 gdraw.createSprite(WIDTH, HEIGHT);
                 gdraw.fillSprite (TFT_BLACK);
