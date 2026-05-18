@@ -21,11 +21,11 @@ OnSpeed supports two attitude estimation algorithms:
 
 Controls the Exponential Moving Average (EMA) filter applied to the AOA signal.
 
-- **Default**: 20 (samples)
+- **Default**: 10 (samples)
 - **Lower values**: More responsive but noisier — the tone will fluctuate more in turbulence
 - **Higher values**: Smoother but slower response — the tone may lag behind rapid AOA changes
 
-For most aircraft, the default of 20 provides a good balance.
+For most aircraft, the default of 10 provides a good balance of responsiveness against the audio path's natural smoothing through the DAC.
 
 ## Pressure Smoothing
 

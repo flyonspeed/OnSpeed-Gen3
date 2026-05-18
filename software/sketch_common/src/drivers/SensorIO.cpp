@@ -90,7 +90,7 @@ static inline float PressureAltitudeFeetFromMbar(float fStaticMbar)
 }
 
 // These from config
-//int     aoaSmoothing      = 20; // AOA smoothing window (number of samples to lag)
+//int     aoaSmoothing      = 10; // AOA smoothing window (number of samples to lag)
 //int     pressureSmoothing = 15; // median filter window for pressure smoothing/despiking
 
 // Timers to reduce read frequency for less critical sensors

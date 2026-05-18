@@ -6,7 +6,7 @@ Complete reference of all OnSpeed configuration parameters. Configuration is sto
 
 | XML Tag | Type | Default | Description |
 |---------|------|---------|-------------|
-| `AOA_SMOOTHING` | int | 20 | EMA filter window for AOA (samples) |
+| `AOA_SMOOTHING` | int | 10 | EMA filter window for AOA (samples) |
 | `PRESSURE_SMOOTHING` | int | 15 | EMA filter window for pressure sensors (samples) |
 | `DATASOURCE` | string | `SENSORS` | Data source: `SENSORS`, `TESTPOT`, `RANGESWEEP`, `REPLAYLOGFILE` |
 | `REPLAYLOGFILENAME` | string | (empty) | Log file to replay when DATASOURCE=REPLAYLOGFILE |
