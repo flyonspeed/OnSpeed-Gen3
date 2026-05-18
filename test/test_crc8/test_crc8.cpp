@@ -1,7 +1,8 @@
 // test_crc8.cpp — CRC-8 with poly 0x07, init 0x00 (SMBus).
 //
-// Reference vectors verified via Python (see commit history); 0xF4 is
-// the SMBus standard check value for "123456789".
+// 0xF4 is the SMBus standard check value for "123456789".  Other
+// vectors cross-checked with Python: poly 0x07, init 0x00, no
+// reflection, no XOR-out.
 
 #include <unity.h>
 #include <cstring>
