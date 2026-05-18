@@ -685,6 +685,42 @@ void test_updateTas_k_zero_matches_uncorrected_tas(void)
                             / std::pow(divisor, 2.12794f);
 
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, legacyTas, a.tasMps());
+
+    // K=0: CorrectSat returns the TAT identity, so kOatSat is set
+    // (SAT == TAT, the formula degenerates safely). kTas is set
+    // because the density formula ran successfully. This pins the
+    // K=0 semantics: "correction was applied; it's an identity."
+    TEST_ASSERT_TRUE(a.latest().valid.has(
+        onspeed::types::AirDataValid::kOatSat));
+    TEST_ASSERT_TRUE(a.latest().valid.has(
+        onspeed::types::AirDataValid::kTas));
+}
+
+void test_updateTas_soft_degrade_when_oat_present_but_ias_zero(void)
+{
+    // OAT live, IAS = 0 (e.g. parked with a temperature sensor).  CorrectSat
+    // returns nullopt because iasKt <= 0; we keep kOatRaw set (the probe
+    // reading is valid) but clear kOatSat (no usable correction).  TAS is
+    // still produced via the raw-TAT density path so consumers don't lose it.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    cfg.oatRecoveryFactor = 0.75f;
+    Ahrs ahrs(cfg);
+    AhrsInputs seed = levelSeed();
+    ahrs.Init(seed, /*seedPaltFt*/ 0.0f);
+
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt        = 0.0f;
+    in.sensors.paltFt       = 0.0f;
+    in.sensors.oatCelsius   = 5.0f;
+    in.useInternalOat       = true;
+    in.iasUpdateTimestampUs = 1'000'000u;
+    ahrs.Step(in, kDt);
+
+    TEST_ASSERT_TRUE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kOatRaw));
+    TEST_ASSERT_FALSE(ahrs.latest().valid.has(
+        onspeed::types::AirDataValid::kOatSat));
+    TEST_ASSERT_TRUE(std::isfinite(ahrs.tasMps()));
 }
 
 // EKF6 alpha-covariance reset on the IAS=25 kt transition (Ahrs.cpp:354-357).
@@ -1095,6 +1131,7 @@ int main(void)
     RUN_TEST(test_updateTas_sets_kOatSat_when_correction_applies);
     RUN_TEST(test_updateTas_clears_kOatSat_when_no_oat);
     RUN_TEST(test_updateTas_k_zero_matches_uncorrected_tas);
+    RUN_TEST(test_updateTas_soft_degrade_when_oat_present_but_ias_zero);
 
     RUN_TEST(test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing);
 
