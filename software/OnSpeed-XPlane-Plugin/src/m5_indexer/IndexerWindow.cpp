@@ -1216,6 +1216,20 @@ void GetCurrentState(PersistedState* out)
 void MarkDirtyIfChanged()
 {
     if (!s_window) return;
+
+    // In mounted mode, UpdateMounted3DGeometry rewrites the window
+    // geometry every Tick to the projection of the body-frame anchor.
+    // Reading that geometry back would diff against s_persisted's
+    // float coords (the last-saved floating position) and look like a
+    // change every poll, hammering SaveSettings 1 Hz and overwriting
+    // the saved float position with a screen-space projection.  The
+    // mount3D fields themselves change only during drag, where the
+    // handler sets s_dirty directly.
+    if (s_persisted.placementMode ==
+            onspeed_xplane::indexer::kPlacementMounted3D) {
+        return;
+    }
+
     PersistedState live;
     GetCurrentState(&live);
 
