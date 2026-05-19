@@ -83,3 +83,16 @@ target_include_directories(auto_setpoints PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
 add_test(NAME auto_setpoints COMMAND auto_setpoints)
+
+# indexer_3d_placement — pins the projection / inverse-projection math
+# used by mounted-mode anchor placement.  Pure C++; no XPLM linkage.
+add_executable(indexer_3d_placement
+    indexer_3d_placement.cpp
+    ../src/m5_indexer/Indexer3DPlacement.cpp)
+target_compile_features(indexer_3d_placement PRIVATE cxx_std_17)
+target_compile_options(indexer_3d_placement PRIVATE
+    -Wall -Wextra -Werror -Wshadow -Wformat=2)
+target_include_directories(indexer_3d_placement PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+
+add_test(NAME indexer_3d_placement COMMAND indexer_3d_placement)
