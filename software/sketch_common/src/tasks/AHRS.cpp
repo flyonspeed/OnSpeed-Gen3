@@ -30,7 +30,7 @@ namespace {
 onspeed::ahrs::Algorithm AlgorithmFromConfig(int iAhrsAlgorithm)
 {
     return (iAhrsAlgorithm == 1)
-        ? onspeed::ahrs::Algorithm::Ekf6
+        ? onspeed::ahrs::Algorithm::Ekfq
         : onspeed::ahrs::Algorithm::Madgwick;
 }
 

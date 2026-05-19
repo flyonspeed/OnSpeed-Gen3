@@ -96,6 +96,12 @@ public:
         float compFadeIn = 0.0f;
         /// Internal IAS gate state at end-of-frame. Exposed for tests.
         bool iasGate = false;
+        /// Madgwick does not track altitude or VSI — the standalone
+        /// KalmanFilter in Ahrs::Step's stage 3c handles those.  This
+        /// field mirrors the same name on EkfqPipeline::Outputs for a
+        /// uniform AHRS-stage seam (Ahrs::Step branches on it instead
+        /// of on the algorithm enum).
+        bool ownsVerticalChannel = false;
     };
 
     Madgwick();

@@ -7,7 +7,7 @@
 // Stage 1 — sensor (this file): rotation-correct raw IMU, density-
 // correct IAS → TAS, compute TASdot.
 //
-// Stage 2 — AHRS algorithm (Madgwick.h / Ekf6Pipeline.h): consume raw-
+// Stage 2 — AHRS algorithm (Madgwick.h / EkfqPipeline.h): consume raw-
 // corrected sensors, apply own internal pre-filtering / gating /
 // fusion math, emit attitude + algorithm-derived signals (pitch, roll,
 // derived AOA, earth-vert-G). Each algorithm owns its own constants;
@@ -38,7 +38,7 @@
 
 #include <cstdint>
 
-#include <ahrs/Ekf6Pipeline.h>
+#include <ahrs/EkfqPipeline.h>
 #include <ahrs/KalmanFilter.h>
 #include <ahrs/Madgwick.h>
 #include <filters/EMAFilter.h>
@@ -51,19 +51,24 @@ namespace onspeed::ahrs {
 /// Wire-spec accel-EMA smoothing alpha (IMU rate, 208 Hz).
 /// This is a property of the M5/huVVer display protocol contract;
 /// changing it changes what every wire receiver sees regardless of
-/// which AHRS algorithm is active. Algorithm-internal pre-filtering
-/// (see Madgwick::kAccelEmaAlpha, Ekf6Pipeline::kAccelEmaAlpha) is
-/// independent; the two happen to share a value today because Madgwick
-/// was tuned against the wire-side filter response.
+/// which AHRS algorithm is active.  Algorithm-internal pre-filtering
+/// (see Madgwick::kAccelEmaAlpha, EkfqPipeline::kAccelEmaAlpha) is
+/// independent; each pipeline owns its own EMA on raw-corrected
+/// accels.
 ///
 /// Replay (RateAdjustedAccelEma) derives its τ from this constant;
 /// the two are kept in sync via static_assert in RateAdjustedAccelEma.h.
 inline constexpr float kAccSmoothing = 0.060899f;
 
-// AHRS algorithm choice.  Integer values match `Config::iAhrsAlgorithm`
-// in the sketch (0 = Madgwick, 1 = EKF6) so existing config files load
-// unchanged.
-enum class Algorithm : int { Madgwick = 0, Ekf6 = 1 };
+// AHRS algorithm choice.  Integer value 1 selects an EKF; the same
+// slot historically pointed at the 6-state Euler EKF (EKF6) and now
+// points at the 11-state quaternion EKF (EKFQ), so cfg files with
+// iAhrsAlgorithm=1 continue to select an EKF after a firmware upgrade.
+// A firmware upgrade that swaps EKF6 → EKFQ requires recalibration:
+// EKFQ derives AOA via a kinematic formula (alphaKinematicRad) rather
+// than tracking alpha as a state, so per-flap AOA curves fit against
+// EKF6's DerivedAOA may need refitting against EKFQ's.
+enum class Algorithm : int { Madgwick = 0, Ekfq = 1 };
 
 // Constructor-time AHRS configuration.  Per-frame values live on
 // AhrsInputs.
@@ -182,7 +187,7 @@ private:
     // route to either without re-allocating.  Each owns its internal
     // pre-filtering, gating, and fusion state.
     Madgwick     madgwick_;
-    Ekf6Pipeline ekf6_;
+    EkfqPipeline ekfq_;
 
     // Altitude/VSI Kalman (stage 3 — smoothing on baro + earth-vert-G).
     KalmanFilter kalman_;

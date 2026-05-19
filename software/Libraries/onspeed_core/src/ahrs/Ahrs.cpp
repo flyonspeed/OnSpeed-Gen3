@@ -5,7 +5,7 @@
 //   raw sensors ──► AHRS algorithm ──► smoothing ──► outputs
 //
 // Ahrs::Step orchestrates the four stages; the algorithm itself
-// (Madgwick / EKF6 / future EKFQ) lives behind a uniform Inputs/Outputs
+// (Madgwick / EKFQ) lives behind a uniform Inputs/Outputs
 // seam and owns its internal pre-filtering and gating.
 
 #include <ahrs/Ahrs.h>
@@ -104,15 +104,20 @@ void Ahrs::Init(const AhrsInputs& seedFrame, float seedPaltFt)
     recomputeBiasTrig_();
 
     // Dispatch to the active algorithm's Init.
-    if (cfg_.algorithm == Algorithm::Ekf6) {
-        ekf6_.Init(fSeedPitch, fSeedRoll);
+    const float seedAltMeters = onspeed::ft2m(seedPaltFt);
+    if (cfg_.algorithm == Algorithm::Ekfq) {
+        ekfq_.Init(fSeedPitch, fSeedRoll, seedAltMeters);
     } else {
         madgwick_.Init(cfg_.imuSampleRateHz, fSeedPitch, fSeedRoll);
     }
 
-    // Seed the Kalman altitude/VSI filter with the supplied baro alt.
+    // Seed the standalone Kalman altitude/VSI filter with the supplied
+    // baro altitude.  Bypassed when EKFQ is active (its vertical
+    // channel publishes altitude/VSI directly), but still seeded so a
+    // mid-flight algorithm switch back to Madgwick starts from a
+    // sensible state.
     kalman_.Configure(kKalZVariance, kKalAccelVariance, kKalAccelBiasVar,
-                      onspeed::ft2m(seedPaltFt), 0.0f, 0.0f);
+                      seedAltMeters, 0.0f, 0.0f);
 
     // Seed published outputs so a consumer reading before the first
     // Step sees the level-on-the-ground attitude rather than zeros.
@@ -267,8 +272,20 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     float DerivedAOA    = outputs_.derivedAoaDeg;
     float EarthVertG    = outputs_.earthVertG;
 
-    if (cfg_.algorithm == Algorithm::Ekf6) {
-        const Ekf6Pipeline::Inputs ekfIn = {
+    // Each algorithm's Outputs struct carries an `ownsVerticalChannel`
+    // bool.  EKFQ tracks z/vz/b_az as filter states and sets it true,
+    // returning altitude/VSI on the same struct.  Madgwick sets it
+    // false and the standalone KalmanFilter in stage 3c handles it.
+    bool   algoOwnsVerticalChannel = false;
+    float  algoKalmanAltMeters     = 0.0f;
+    float  algoKalmanVsiMps        = 0.0f;
+
+    if (cfg_.algorithm == Algorithm::Ekfq) {
+        // EKFQ computes its own TASdot internally at IMU rate to
+        // match the Python pipeline's signal chain (Optuna tuned
+        // against that EMA, not the sensor-stage `tasDotSmoothed_`
+        // which runs at pressure cadence with α=kIasSmoothing).
+        const EkfqPipeline::Inputs ekfqIn = {
             /* accelFwdCorrG    */ accelFwdCorr_,
             /* accelLatCorrG    */ accelLatCorr_,
             /* accelVertCorrG   */ accelVertCorr_,
@@ -276,20 +293,22 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
             /* pitchRateCorrDps */ PitchRateCorr,
             /* yawRateCorrDps   */ YawRateCorr,
             /* tasMps           */ tas_,
-            /* tasDotMps2       */ tasDotSmoothed_,
             /* iasKt            */ in.sensors.iasKt,
-            /* gammaRad         */ onspeed::deg2rad(outputs_.flightPathDeg),
+            /* baroAltMeters    */ onspeed::ft2m(in.sensors.paltFt),
             /* dtSec            */ dtSec,
         };
-        const Ekf6Pipeline::Outputs ekfOut = ekf6_.Step(ekfIn);
-        SmoothedPitch   = ekfOut.pitchDeg;
-        SmoothedRoll    = ekfOut.rollDeg;
-        DerivedAOA      = ekfOut.derivedAoaDeg;
-        EarthVertG      = ekfOut.earthVertG;
-        algoCompFwdG_   = ekfOut.accelFwdCompG;
-        algoCompLatG_   = ekfOut.accelLatCompG;
-        algoCompVertG_  = ekfOut.accelVertCompG;
-        algoCompFadeIn_ = ekfOut.compFadeIn;
+        const EkfqPipeline::Outputs ekfqOut = ekfq_.Step(ekfqIn);
+        SmoothedPitch          = ekfqOut.pitchDeg;
+        SmoothedRoll           = ekfqOut.rollDeg;
+        DerivedAOA             = ekfqOut.derivedAoaDeg;
+        EarthVertG             = ekfqOut.earthVertG;
+        algoCompFwdG_          = ekfqOut.accelFwdCompG;
+        algoCompLatG_          = ekfqOut.accelLatCompG;
+        algoCompVertG_         = ekfqOut.accelVertCompG;
+        algoCompFadeIn_        = ekfqOut.compFadeIn;
+        algoOwnsVerticalChannel = ekfqOut.ownsVerticalChannel;
+        algoKalmanAltMeters    = ekfqOut.kalmanAltMeters;
+        algoKalmanVsiMps       = ekfqOut.kalmanVsiMps;
     } else {
         const Madgwick::Inputs madIn = {
             /* accelFwdCorrG    */ accelFwdCorr_,
@@ -333,16 +352,21 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     gyroYawAvg_.addValue(YawRateCorr);
     const float gYaw   = gyroYawAvg_.getFastAverage();
 
-    // 3c. Kalman altitude/VSI from baro + earth-vert-G. The
-    //     measurement-noise tuning here is wire/log-spec (a future
-    //     algorithm could bypass this Kalman entirely and produce its
-    //     own altitude/VSI; for now both algorithms feed it).
+    // 3c. Altitude / VSI.  If the active algorithm owns the vertical
+    //     channel (EKFQ tracks z / vz / b_az as filter states), use
+    //     its published values directly.  Otherwise run the
+    //     standalone Kalman on baro + earth-vert-G.
     volatile float kalmanAltMeters = 0.0f;
     volatile float kalmanVsiMps    = 0.0f;
-    kalman_.Update(onspeed::ft2m(in.sensors.paltFt),
-                   onspeed::g2mps(EarthVertG),
-                   dtSec,
-                   &kalmanAltMeters, &kalmanVsiMps);
+    if (algoOwnsVerticalChannel) {
+        kalmanAltMeters = algoKalmanAltMeters;
+        kalmanVsiMps    = algoKalmanVsiMps;
+    } else {
+        kalman_.Update(onspeed::ft2m(in.sensors.paltFt),
+                       onspeed::g2mps(EarthVertG),
+                       dtSec,
+                       &kalmanAltMeters, &kalmanVsiMps);
+    }
 
     // ================================================================
     // Stage 4 — Outputs.
@@ -368,10 +392,12 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         FlightPath = 0.0f;
     }
 
-    // 4c. DerivedAOA. Madgwick doesn't track alpha as a state, so it's
-    //     computed from SmoothedPitch − FlightPath. EKF6 tracks alpha
-    //     directly and set DerivedAOA above; leave it alone.
-    if (cfg_.algorithm != Algorithm::Ekf6) {
+    // 4c. DerivedAOA.  Madgwick doesn't track alpha as a state — it
+    //     gets computed from SmoothedPitch − FlightPath here.  EKFQ
+    //     computes DerivedAOA via its kinematic formula
+    //     (alphaKinematicRad) inside the pipeline and has already set
+    //     it above; leave it alone.
+    if (cfg_.algorithm != Algorithm::Ekfq) {
         DerivedAOA = SmoothedPitch - FlightPath;
     }
 

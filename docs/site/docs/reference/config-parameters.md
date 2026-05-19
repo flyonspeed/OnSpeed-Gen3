@@ -14,7 +14,7 @@ Complete reference of all OnSpeed configuration parameters. Configuration is sto
 | `SDLOGGING` | bool | false | Enable SD card data logging |
 | `LOGRATE` | int | 50 | Logging rate in Hz: 50 (pressure rate) or 208 (IMU rate) |
 | `CALWIZ_SOURCE` | string | `ONSPEED` | Calibration wizard IAS source: `ONSPEED` or `EFIS` |
-| `AHRS_ALGORITHM` | int | 0 | AHRS algorithm: 0=Madgwick, 1=EKF6. See [Advanced Settings](../configuration/advanced.md) before changing. |
+| `AHRS_ALGORITHM` | int | 0 | AHRS algorithm: 0=Madgwick, 1=EKFQ (11-state quaternion EKF). See [Advanced Settings](../configuration/advanced.md) before changing. |
 
 ## EFIS Settings
 
