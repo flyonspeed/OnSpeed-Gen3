@@ -104,11 +104,12 @@ int main()
 
         ProjectedQuad pq = ProjectAnchor(anchor, ac, cam, sd);
         check(pq.visible, "rolled-aircraft anchor still in FOV");
-        // The +X body offset rolls into a mix of +X and +Y world
-        // (and thus camera, since no camera roll).  Projection lands
-        // right of and above screen center.
+        // The +X body offset (right wing) rolls into a mix of +X and
+        // -Y world under X-Plane's phi=right-wing-down convention:
+        // a right-wing-tip anchor swings DOWN at positive roll.
+        // Projection lands right of and BELOW screen center.
         check(pq.centerX > 960.0f, "rolled-aircraft anchor moves right");
-        check(pq.centerY > 540.0f, "rolled-aircraft anchor moves up");
+        check(pq.centerY < 540.0f, "rolled-aircraft anchor moves down");
     }
 
     // ----------------------------------------------------------------
