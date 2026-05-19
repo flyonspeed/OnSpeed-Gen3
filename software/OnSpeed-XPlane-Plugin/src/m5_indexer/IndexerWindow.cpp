@@ -706,7 +706,38 @@ int HandleClick(XPLMWindowID, int x, int y,
 }
 void HandleKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
 XPLMCursorStatus HandleCursor(XPLMWindowID, int, int, void*) { return xplm_CursorDefault; }
-int  HandleWheel(XPLMWindowID, int, int, int, int, void*) { return 1; }
+// Mouse-wheel / trackpad two-finger-scroll on the indexer in mounted
+// mode pushes the anchor along the line from the pilot's eyepoint to
+// the current anchor.  Scroll up = push away (farther); scroll down =
+// pull closer.  Multiplicative scaling keeps the response feeling
+// proportional regardless of current distance.
+int HandleWheel(XPLMWindowID, int /*x*/, int /*y*/,
+                int /*wheel*/, int clicks, void* /*refcon*/)
+{
+    if (clicks == 0) return 1;
+    if (s_persisted.placementMode !=
+            onspeed_xplane::indexer::kPlacementMounted3D) {
+        return 1;
+    }
+
+    EnsureMount3DRefs();
+    const float eyeX = s_drEyepointX ? XPLMGetDataf(s_drEyepointX) : 0.0f;
+    const float eyeY = s_drEyepointY ? XPLMGetDataf(s_drEyepointY) : 0.0f;
+    const float eyeZ = s_drEyepointZ ? XPLMGetDataf(s_drEyepointZ) : 0.0f;
+
+    // 5% per click.  Positive clicks (scroll up on macOS trackpad) =
+    // push away from eyepoint.  Negative = pull toward eyepoint.
+    constexpr float kStep = 0.05f;
+    const float factor = (clicks > 0)
+        ? 1.0f + kStep * static_cast<float>(clicks)
+        : 1.0f / (1.0f + kStep * static_cast<float>(-clicks));
+
+    s_persisted.mount3D_X = eyeX + (s_persisted.mount3D_X - eyeX) * factor;
+    s_persisted.mount3D_Y = eyeY + (s_persisted.mount3D_Y - eyeY) * factor;
+    s_persisted.mount3D_Z = eyeZ + (s_persisted.mount3D_Z - eyeZ) * factor;
+    s_dirty = true;
+    return 1;
+}
 
 // Render a textured quad using GL 1.x client-side vertex arrays.
 // Modeled directly on imgui4xp's RenderImGui (open-source X-Plane plugin
