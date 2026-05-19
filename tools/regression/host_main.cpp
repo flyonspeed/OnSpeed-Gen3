@@ -6,7 +6,7 @@
 // Subcommands
 // -----------
 //   ahrs_tone  [--input PATH] [--output-format csv|jsonl]
-//              [--algorithm madgwick|ekf6]
+//              [--algorithm madgwick|ekfq]
 //     Stream simplified sensor CSV (ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz)
 //     through the AHRS + Madgwick + Kalman + ToneCalc pipeline.  This is
 //     the bedrock regression test (per PLAN_PYTHON_CONSOLIDATION.md line
@@ -296,7 +296,7 @@ onspeed::ahrs::AhrsConfig MakeProductionConfig(onspeed::ahrs::Algorithm algo)
     return cfg;
 }
 
-// Resolve `--algorithm madgwick|ekf6` (default: madgwick).
+// Resolve `--algorithm madgwick|ekfq` (default: madgwick).
 // Unknown values are an error.
 bool ParseAlgorithmFlag(int argc, const char* const* argv,
                        onspeed::ahrs::Algorithm& outAlgo)
@@ -306,12 +306,12 @@ bool ParseAlgorithmFlag(int argc, const char* const* argv,
         outAlgo = onspeed::ahrs::Algorithm::Madgwick;
         return true;
     }
-    if (std::strcmp(algo_str, "ekf6") == 0) {
-        outAlgo = onspeed::ahrs::Algorithm::Ekf6;
+    if (std::strcmp(algo_str, "ekfq") == 0) {
+        outAlgo = onspeed::ahrs::Algorithm::Ekfq;
         return true;
     }
     std::fprintf(stderr,
-        "host_main ahrs_tone: unknown --algorithm '%s' (madgwick|ekf6)\n",
+        "host_main ahrs_tone: unknown --algorithm '%s' (madgwick|ekfq)\n",
         algo_str);
     return false;
 }

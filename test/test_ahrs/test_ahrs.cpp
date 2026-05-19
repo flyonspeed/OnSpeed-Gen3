@@ -52,9 +52,10 @@ AhrsConfig makeCfg(Algorithm alg)
 // pilots read on a panel G-meter), NOT the standard inertial-frame
 // view (which would be -1g). The AHRS pipeline is built around the
 // +1g convention: the EarthVertG formula's `- 1.0f` removes the
-// level-state +1g to leave only deviations. EKF6 internally uses
-// the opposite convention; the Ahrs adapter negates accelVertComp_
-// on the way in. See EKF6.h's "OnSpeed convention mapping" section.
+// level-state +1g to leave only deviations. EKFQ internally uses
+// the opposite convention; the EkfqPipeline adapter negates the
+// post-EMA vertical accel on the way in.  See EKFQ.h's
+// "Sensor inputs (and sign conventions)" section.
 AhrsInputs levelSeed()
 {
     AhrsInputs in;
@@ -287,15 +288,15 @@ void test_step_guards_nan_dt(void)
 }
 
 // ---------------------------------------------------------------------
-// Step: EKF6 path produces non-zero pitch/roll on level-after-tilt
+// Step: EKFQ path produces non-zero pitch/roll on level-after-tilt
 // ---------------------------------------------------------------------
 
-void test_step_ekf6_level_stable(void)
+void test_step_ekfq_level_stable(void)
 {
-    // EKF6 at rest (level gravity) should converge to finite, stable
+    // EKFQ at rest (level gravity) should converge to finite, stable
     // pitch/roll near zero.  (Tilt-tracking behavior is algorithm-
     // specific; snapshot harness covers numeric equivalence vs legacy.)
-    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfg = makeCfg(Algorithm::Ekfq);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     a.Init(in, 0.0f);
@@ -310,7 +311,7 @@ void test_step_ekf6_level_stable(void)
     TEST_ASSERT_FLOAT_WITHIN(2.0f, 0.0f, a.latest().rollDeg);
 }
 
-void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
+void test_step_ekfq_pitch_rate_sign_matches_madgwick(void)
 {
     // Pitch rate convention: in OnSpeed firmware, +imuPitchRateDps
     // means "nose down" (the CSV emits -imuPitchRateDps so the
@@ -319,12 +320,12 @@ void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
     // (-madgwick_.getPitch()), so its published pitch correctly
     // decreases when imuPitchDps > 0.
     //
-    // EKF6 doesn't negate output, so the input rate must be negated
-    // to publish in the same convention. Without the negation, EKF6
+    // EKFQ doesn't negate output, so the input rate must be negated
+    // to publish in the same convention. Without the negation, EKFQ
     // and Madgwick disagree on the SIGN of pitch motion under a
-    // gyro-driven pitch rate — Madgwick says pitch falls, EKF6 says
+    // gyro-driven pitch rate — Madgwick says pitch falls, EKFQ says
     // it rises. Pin the post-fix invariant: under +imuPitchDps,
-    // EKF6 published pitch must move in the SAME direction as
+    // EKFQ published pitch must move in the SAME direction as
     // Madgwick's (both negative).
     AhrsInputs in = levelSeed();
     in.imu.gyroPitchDps = 5.0f;
@@ -334,7 +335,7 @@ void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
     AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
     Ahrs aMad{cfgMad};
     aMad.Init(in, 0.0f);
-    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekfq);
     Ahrs aEkf{cfgEkf};
     aEkf.Init(in, 0.0f);
 
@@ -345,8 +346,8 @@ void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
     const float pitchMad = aMad.latest().pitchDeg;
     const float pitchEkf = aEkf.latest().pitchDeg;
 
-    // Both must be finite, both must be negative, and EKF6 must not
-    // be on the opposite side of zero from Madgwick. EKF6's tuning
+    // Both must be finite, both must be negative, and EKFQ must not
+    // be on the opposite side of zero from Madgwick. EKFQ's tuning
     // makes accel dominate, so its magnitude is much smaller than
     // Madgwick's — but the SIGN must match.
     TEST_ASSERT_TRUE(std::isfinite(pitchMad));
@@ -354,12 +355,12 @@ void test_step_ekf6_pitch_rate_sign_matches_madgwick(void)
     TEST_ASSERT_TRUE_MESSAGE(pitchMad < 0.0f,
         "Madgwick pitch should be negative under +imuPitchDps");
     TEST_ASSERT_TRUE_MESSAGE(pitchEkf <= 0.0f,
-        "EKF6 pitch must move in same direction as Madgwick (negative)");
+        "EKFQ pitch must move in same direction as Madgwick (negative)");
 }
 
-void test_step_ekf6_roll_rate_sign_matches_madgwick(void)
+void test_step_ekfq_roll_rate_sign_matches_madgwick(void)
 {
-    // Same invariant for roll — Madgwick negates output, EKF6
+    // Same invariant for roll — Madgwick negates output, EKFQ
     // requires input negation to publish in matching convention.
     AhrsInputs in = levelSeed();
     in.imu.gyroRollDps = 5.0f;
@@ -369,7 +370,7 @@ void test_step_ekf6_roll_rate_sign_matches_madgwick(void)
     AhrsConfig cfgMad = makeCfg(Algorithm::Madgwick);
     Ahrs aMad{cfgMad};
     aMad.Init(in, 0.0f);
-    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfgEkf = makeCfg(Algorithm::Ekfq);
     Ahrs aEkf{cfgEkf};
     aEkf.Init(in, 0.0f);
 
@@ -385,18 +386,18 @@ void test_step_ekf6_roll_rate_sign_matches_madgwick(void)
     TEST_ASSERT_TRUE_MESSAGE(rollMad < 0.0f,
         "Madgwick roll should be negative under +imuRollDps");
     TEST_ASSERT_TRUE_MESSAGE(rollEkf <= 0.0f,
-        "EKF6 roll must move in same direction as Madgwick (negative)");
+        "EKFQ roll must move in same direction as Madgwick (negative)");
 }
 
-void test_step_ekf6_static_tilt_converges_to_input_attitude(void)
+void test_step_ekfq_static_tilt_converges_to_input_attitude(void)
 {
-    // EKF6 fed a static 10° nose-up accelerometer reading in
+    // EKFQ fed a static 10° nose-up accelerometer reading in
     // production convention (ax = +sin(10°), az = +cos(10°), so
     // accelVertComp_ ≈ +cos(10°) for a nose-up tilt — gravity reaction
     // along body-Z down). The Ahrs adapter negates accelVertComp_
-    // before handing it to EKF6 so the filter sees az = -cos(10°) in
+    // before handing it to EKFQ so the filter sees az = -cos(10°) in
     // its standard inertial-frame convention. Predicted az with
-    // theta=10° is also -cos(10°), so innovation is ~zero and EKF6
+    // theta=10° is also -cos(10°), so innovation is ~zero and EKFQ
     // converges to 10° pitch. A regression that drops the negation
     // pins ~2g of innovation per frame and runs the filter into
     // gimbal lock — this test would saturate around 170°.
@@ -404,7 +405,7 @@ void test_step_ekf6_static_tilt_converges_to_input_attitude(void)
     seed.imu.accelXG = std::sin(onspeed::deg2rad(10.0f));
     seed.imu.accelZG = +std::cos(onspeed::deg2rad(10.0f));
 
-    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfg = makeCfg(Algorithm::Ekfq);
     Ahrs a{cfg};
     a.Init(seed, 0.0f);
 
@@ -455,7 +456,7 @@ void test_init_does_not_reset_tas_state(void)
     // behavior. The web UI calls Init() on every config save; if Init()
     // zeroed TAS state, every save during flight would inject a
     // ~0.05g forward-accel-comp glitch that briefly perturbs Madgwick/
-    // EKF6 attitude. The constructor handles initial zero-init at boot.
+    // EKFQ attitude. The constructor handles initial zero-init at boot.
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
@@ -520,7 +521,7 @@ void test_reconfigure_algorithm_change(void)
     for (int i = 0; i < 100; ++i) a.Step(in, kDt);
 
     AhrsConfig cfg2 = cfg;
-    cfg2.algorithm = Algorithm::Ekf6;
+    cfg2.algorithm = Algorithm::Ekfq;
     a.Reconfigure(cfg2);
     // After reconfigure, caller is expected to re-Init; verify calling
     // Step without re-init doesn't crash (mirrors sketch behavior: Init
@@ -531,7 +532,7 @@ void test_reconfigure_algorithm_change(void)
     // No-crash assertion + pitch/roll sane.
     TEST_ASSERT_FALSE(std::isnan(a.latest().pitchDeg));
     TEST_ASSERT_FALSE(std::isnan(a.latest().rollDeg));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(Algorithm::Ekf6),
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(Algorithm::Ekfq),
                           static_cast<int>(a.algorithm()));
 }
 
@@ -594,25 +595,31 @@ void test_tas_fallback_when_divisor_overflows_at_extreme_altitude(void)
     TEST_ASSERT_TRUE(a.tasMps() > 0.0f);
 }
 
-// EKF6 alpha-covariance reset on the IAS=25 kt transition (Ahrs.cpp:354-357).
-// When the aircraft accelerates through 25 kt in EKF6 mode, the filter's
-// alpha covariance is reset so it re-learns alpha from real gamma
-// measurements. This path has no test coverage despite EKF6 being an
-// active iAhrsAlgorithm option.
-void test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing(void)
+// EKFQ owns its vertical channel (z, vz, b_az states).  On the
+// iasGate false→true rising edge inside EkfqPipeline,
+// EKFQ::resetVerticalCovariance() fires so the z/vz/b_az covariance
+// re-opens after a long gate-closed taxi.  Without this reset the
+// filter trusts its possibly-stale z/vz estimates and the published
+// altitude/VSI would lag the real ones for tens of seconds after the
+// gate opens.  This test sits the filter below the gate, crosses
+// upward, and asserts the filter stays finite and the vertical
+// channel publishes plausible values post-reset.
+void test_ekfq_vertical_covariance_reset_on_ias_gate_rising_edge(void)
 {
-    AhrsConfig cfg = makeCfg(Algorithm::Ekf6);
+    AhrsConfig cfg = makeCfg(Algorithm::Ekfq);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     a.Init(in, 0.0f);
 
-    // Below threshold: stay here a while so iasWasBelowThreshold_ is true.
+    // Below the algo gate (20 kt rising), stay here long enough that
+    // the gate state machine settles to closed.
     in.sensors.iasKt    = 10.0f;
     in.sensors.iasAlive = false;
     for (int i = 0; i < 50; ++i) a.Step(in, kDt);
     TEST_ASSERT_TRUE(std::isfinite(a.latest().pitchDeg));
 
-    // Cross the iasAlive gate — this triggers the alpha reset branch.
+    // Cross the algo gate's rising threshold (20 kt) — fires
+    // resetVerticalCovariance inside EkfqPipeline::Step.
     in.sensors.iasKt    = 30.0f;
     in.sensors.iasAlive = true;
     in.iasUpdateTimestampUs = 1'000'000u;
@@ -626,6 +633,8 @@ void test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing(void)
     TEST_ASSERT_TRUE(std::isfinite(a.latest().pitchDeg));
     TEST_ASSERT_TRUE(std::isfinite(a.latest().rollDeg));
     TEST_ASSERT_TRUE(std::isfinite(a.latest().derivedAoaDeg));
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().kalmanAltFt));
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().kalmanVsiFpm));
 }
 
 // ---------------------------------------------------------------------
@@ -635,7 +644,7 @@ void test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing(void)
 // AccelVertCompFactor must be suppressed.  Phantom IAS (from pitot
 // sensor noise at rest) would otherwise propagate through tas_ and
 // tasDotSmoothed_ into the comp factors and corrupt the smoothed
-// accels fed to Madgwick/EKF6, producing a slow pitch oscillation
+// accels fed to Madgwick/EKFQ, producing a slow pitch oscillation
 // in the hangar.  Pairs with the deadband in SensorIO (the first
 // line of defense); this is the second.
 // ---------------------------------------------------------------------
@@ -718,7 +727,7 @@ void test_rising_edge_transient_bounded_on_takeoff(void)
     //   (b) `tasDotSmoothed_` EMA-decays with τ ≈ 265 ms, so by ~1 s the
     //       pre- and post-fade comp factors have converged.
     // The fade's in-flight value is primarily on the accel signal itself
-    // (what logs, displays, and especially EKF6 — which uses measurement
+    // (what logs, displays, and especially EKFQ — which uses measurement
     // magnitudes — consume).  This test stays as a loose 3° regression
     // guard that would catch a change that dramatically worsens behaviour
     // (e.g. removing the gate, shortening IAS smoothing, or breaking the
@@ -878,7 +887,7 @@ void test_comp_fade_in_suppresses_rising_edge_accel_spike(void)
     //
     // Why assert on AccelFwdComp rather than on pitch: the accel spike
     // is what feeds every downstream consumer — logs, external displays,
-    // and especially EKF6 (which uses measurement magnitudes directly).
+    // and especially EKFQ (which uses measurement magnitudes directly).
     // Madgwick's UpdateIMU normalizes accel to unit length before its
     // gradient step, so in a sterile zero-gyro-noise unit test the
     // integrated pitch over ~1 s is dominated by beta, not by the spike
@@ -947,10 +956,10 @@ int main(void)
 
     RUN_TEST(test_tas_updates_only_when_ias_timestamp_advances);
     RUN_TEST(test_step_guards_nan_dt);
-    RUN_TEST(test_step_ekf6_level_stable);
-    RUN_TEST(test_step_ekf6_static_tilt_converges_to_input_attitude);
-    RUN_TEST(test_step_ekf6_pitch_rate_sign_matches_madgwick);
-    RUN_TEST(test_step_ekf6_roll_rate_sign_matches_madgwick);
+    RUN_TEST(test_step_ekfq_level_stable);
+    RUN_TEST(test_step_ekfq_static_tilt_converges_to_input_attitude);
+    RUN_TEST(test_step_ekfq_pitch_rate_sign_matches_madgwick);
+    RUN_TEST(test_step_ekfq_roll_rate_sign_matches_madgwick);
     RUN_TEST(test_step_gyro_averages_follow_input);
     RUN_TEST(test_init_does_not_reset_tas_state);
 
@@ -959,7 +968,7 @@ int main(void)
 
     RUN_TEST(test_tas_fallback_when_oat_out_of_band);
     RUN_TEST(test_tas_fallback_when_divisor_overflows_at_extreme_altitude);
-    RUN_TEST(test_ekf6_alpha_covariance_reset_on_ias_threshold_crossing);
+    RUN_TEST(test_ekfq_vertical_covariance_reset_on_ias_gate_rising_edge);
 
     RUN_TEST(test_ias_alive_false_zeros_comp_factors);
     RUN_TEST(test_ias_alive_true_applies_centripetal);
