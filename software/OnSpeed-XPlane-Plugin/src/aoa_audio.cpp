@@ -1231,6 +1231,19 @@ static void OnAircraftLoaded() {
         fONSPEEDSLOWAOA = kDefaultSettings.fONSPEEDSLOWAOA;
         fSTALLWARNAOA   = kDefaultSettings.fSTALLWARNAOA;
         fALPHASTALL     = kDefaultSettings.fALPHASTALL;
+
+        // Reset window state to compile-time defaults so a previous
+        // aircraft's state doesn't bleed through when the new .prf
+        // is absent or partial.  Without this, a fresh aircraft load
+        // inherits the prior aircraft's audio-window position +
+        // visibility + indexer state, and the first SaveSettings
+        // bakes those into the new .prf — looking like "settings
+        // carried across planes" rather than per-aircraft.
+        s_audioWindow = AudioWindowState{};
+#ifdef ENABLE_M5_INDEXER
+        indexerSettings = onspeed_xplane::indexer::PersistedState{};
+#endif
+
         const bool prfFound = LoadSettings();
 
         // No .prf yet for this aircraft: try importing settings from
