@@ -293,7 +293,13 @@ void SeedMount3DAnchor()
     const float eyeZ = s_drEyepointZ ? XPLMGetDataf(s_drEyepointZ) : 0.0f;
     s_persisted.mount3D_X = eyeX;
     s_persisted.mount3D_Y = eyeY;
-    s_persisted.mount3D_Z = eyeZ - 0.30f;   // 30 cm forward of eyepoint
+    // Default depth: 60 cm forward of eyepoint.  Closer feels good
+    // visually but amplifies the screen-shift response to head
+    // motion (Δscreen ≈ focal × Δhead / depth).  At 30 cm, 1 inch of
+    // head pan ≈ 100 px shift, easy to push the indexer off-screen.
+    // At 60 cm, same head motion ≈ 50 px shift, much more forgiving.
+    // Pilots can scroll closer/farther via mouse wheel.
+    s_persisted.mount3D_Z = eyeZ - 0.60f;
     s_persisted.mount3DSeeded = true;
     s_dirty = true;
 
