@@ -1,12 +1,12 @@
 // test_ias_alive.cpp — tests for the pressure deadband and hysteretic
-// IAS-alive state machine in sensors/IasAlive.h.
+// IAS-display state machine in sensors/IasAlive.h.
 //
 // Both helpers are shared between the sketch driver (SensorIO.cpp) and
 // the regression harness (tools/regression/host_main.cpp).  Pinning the
-// thresholds here keeps both call sites mechanically in sync — if the
-// rising/falling thresholds ever need to change, this test has to change
-// too and every other consumer will pick up the new constants
-// automatically.
+// thresholds + hysteresis here keeps both call sites mechanically in
+// sync — if the rising/falling thresholds ever need to change, this
+// test has to change too and every other consumer will pick up the new
+// constants automatically.
 
 #include <unity.h>
 #include <sensors/IasAlive.h>
@@ -17,43 +17,73 @@ void setUp(void) {}
 void tearDown(void) {}
 
 // ============================================================================
-// UpdateIasAlive — hysteretic state machine
+// UpdateIasDisplayable — hysteretic state machine
 // ============================================================================
 
 void test_ias_alive_rising_edge_crosses_threshold(void)
 {
     // Starts false; must only flip at or above the rising threshold.
-    TEST_ASSERT_FALSE(UpdateIasAlive(false, 0.0f));
-    TEST_ASSERT_FALSE(UpdateIasAlive(false, kIasAliveRisingKt - 0.01f));
-    TEST_ASSERT_TRUE (UpdateIasAlive(false, kIasAliveRisingKt));
-    TEST_ASSERT_TRUE (UpdateIasAlive(false, kIasAliveRisingKt + 50.0f));
+    constexpr float kRising = 20.0f;
+    TEST_ASSERT_FALSE(UpdateIasDisplayable(false, 0.0f,           kRising));
+    TEST_ASSERT_FALSE(UpdateIasDisplayable(false, kRising - 0.01f, kRising));
+    TEST_ASSERT_TRUE (UpdateIasDisplayable(false, kRising,         kRising));
+    TEST_ASSERT_TRUE (UpdateIasDisplayable(false, kRising + 50.0f, kRising));
 }
 
 void test_ias_alive_falling_edge_requires_hysteresis(void)
 {
     // Starts true; must NOT flip back until strictly below the falling
-    // threshold.  At exactly the falling threshold, stays true.
-    TEST_ASSERT_TRUE (UpdateIasAlive(true, 200.0f));
-    TEST_ASSERT_TRUE (UpdateIasAlive(true, kIasAliveFallingKt));
-    TEST_ASSERT_FALSE(UpdateIasAlive(true, kIasAliveFallingKt - 0.01f));
-    TEST_ASSERT_FALSE(UpdateIasAlive(true, 0.0f));
+    // threshold (rising - kIasDisplayHysteresisKt).  At exactly the
+    // falling threshold, stays true.
+    constexpr float kRising  = 20.0f;
+    const     float kFalling = kRising - kIasDisplayHysteresisKt;
+    TEST_ASSERT_TRUE (UpdateIasDisplayable(true, 200.0f,          kRising));
+    TEST_ASSERT_TRUE (UpdateIasDisplayable(true, kFalling,         kRising));
+    TEST_ASSERT_FALSE(UpdateIasDisplayable(true, kFalling - 0.01f, kRising));
+    TEST_ASSERT_FALSE(UpdateIasDisplayable(true, 0.0f,             kRising));
 }
 
 void test_ias_alive_hysteresis_band_holds_state(void)
 {
     // In the hysteresis band (between falling and rising), state is
     // preserved — this is what prevents chatter.
-    const float kMidband = 0.5f * (kIasAliveRisingKt + kIasAliveFallingKt);
-    TEST_ASSERT_FALSE(UpdateIasAlive(false, kMidband));
-    TEST_ASSERT_TRUE (UpdateIasAlive(true,  kMidband));
+    constexpr float kRising  = 20.0f;
+    const     float kFalling = kRising - kIasDisplayHysteresisKt;
+    const     float kMidband = 0.5f * (kRising + kFalling);
+    TEST_ASSERT_FALSE(UpdateIasDisplayable(false, kMidband, kRising));
+    TEST_ASSERT_TRUE (UpdateIasDisplayable(true,  kMidband, kRising));
 }
 
-void test_ias_alive_thresholds_provide_real_hysteresis(void)
+void test_ias_alive_hysteresis_band_is_positive(void)
 {
-    // Structural: falling must be strictly below rising.  A single-
-    // threshold design (rising == falling) would reintroduce the
-    // chatter this is designed to prevent.
-    TEST_ASSERT_TRUE(kIasAliveFallingKt < kIasAliveRisingKt);
+    // Structural: the hysteresis constant must be strictly positive so
+    // the falling edge sits below the rising edge.  A zero or negative
+    // value would reintroduce the chatter this is designed to prevent.
+    TEST_ASSERT_TRUE(kIasDisplayHysteresisKt > 0.0f);
+}
+
+void test_ias_alive_custom_threshold(void)
+{
+    // The threshold is pilot-tunable (OnSpeedConfig::
+    // iIasDisplayThresholdKt). Verify the function honours an
+    // arbitrary rising-edge value.
+    constexpr float kCustomRising  = 30.0f;
+    const     float kCustomFalling = kCustomRising - kIasDisplayHysteresisKt;
+    TEST_ASSERT_FALSE(UpdateIasDisplayable(false, kCustomRising - 0.01f,  kCustomRising));
+    TEST_ASSERT_TRUE (UpdateIasDisplayable(false, kCustomRising,          kCustomRising));
+    TEST_ASSERT_TRUE (UpdateIasDisplayable(true,  kCustomFalling,         kCustomRising));
+    TEST_ASSERT_FALSE(UpdateIasDisplayable(true,  kCustomFalling - 0.01f, kCustomRising));
+}
+
+void test_ias_alive_sentinel_zero_means_always_displayable(void)
+{
+    // Sentinel: rising == 0 means "never blank" — every call returns
+    // true regardless of input IAS or previous state.  Matches the
+    // iMuteAudioUnderIAS == 0 always-on convention.
+    TEST_ASSERT_TRUE(UpdateIasDisplayable(false, 0.0f,    0.0f));
+    TEST_ASSERT_TRUE(UpdateIasDisplayable(false, 100.0f, 0.0f));
+    TEST_ASSERT_TRUE(UpdateIasDisplayable(true,  0.0f,    0.0f));
+    TEST_ASSERT_TRUE(UpdateIasDisplayable(true,  100.0f, 0.0f));
 }
 
 // ============================================================================
@@ -104,7 +134,9 @@ int main(int, char**)
     RUN_TEST(test_ias_alive_rising_edge_crosses_threshold);
     RUN_TEST(test_ias_alive_falling_edge_requires_hysteresis);
     RUN_TEST(test_ias_alive_hysteresis_band_holds_state);
-    RUN_TEST(test_ias_alive_thresholds_provide_real_hysteresis);
+    RUN_TEST(test_ias_alive_hysteresis_band_is_positive);
+    RUN_TEST(test_ias_alive_custom_threshold);
+    RUN_TEST(test_ias_alive_sentinel_zero_means_always_displayable);
 
     RUN_TEST(test_pfwd_deadband_passes_through_positive_values);
     RUN_TEST(test_pfwd_deadband_passes_through_negative_values);

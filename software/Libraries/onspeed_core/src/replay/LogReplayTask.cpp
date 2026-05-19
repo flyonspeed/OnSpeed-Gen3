@@ -87,7 +87,9 @@ std::vector<uint8_t> LogReplayTask::processRow(const LogRow& row)
     // from row.iasKt. This handles both modern logs (where the empty-
     // column convention is faithful) and older logs that always
     // populated IAS (where empty-column inference would never trip).
-    iasAlive_ = onspeed::sensors::UpdateIasAlive(iasAlive_, row.iasKt);
+    iasAlive_ = onspeed::sensors::UpdateIasDisplayable(
+        iasAlive_, row.iasKt,
+        static_cast<float>(cfg_.iIasDisplayThresholdKt));
 
     // Copy and override row.iasValid so the engine and downstream
     // consumers see the same gate the firmware would have set.

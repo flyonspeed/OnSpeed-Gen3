@@ -908,7 +908,7 @@ if (typeof Module.tone_calc_muted !== 'function') {
 // Single-source CSV-row → wire-bytes pipeline. Validates the binding
 // surface and the iasAlive hysteresis (Bug 1 from the trial-run retro):
 // pass a row with row.iasValid=true at 5 kt; the task must emit
-// iasValid=false on the wire because UpdateIasAlive says no.
+// iasValid=false on the wire because UpdateIasDisplayable says no.
 // ---------------------------------------------------------------------------
 
 console.log('\n--- LogReplayTask ---');
@@ -946,7 +946,7 @@ if (typeof Module.LogReplayTask !== 'function') {
     assertEqual('frame[76] == LF (0x0A)', bytes1[76], 0x0A);
 
     // Adversarial test: row.iasValid=true at 5 kt — task must override
-    // and emit iasValid=false based on UpdateIasAlive's rising-threshold
+    // and emit iasValid=false based on UpdateIasDisplayable's rising-threshold
     // gate (20 kt). After resetting and feeding 5 kt, the wire iasKt
     // field should be the 9999 sentinel (1-byte position 6..9 in the
     // frame: see DisplaySerial.cpp wire layout). A simpler check: the
@@ -980,7 +980,7 @@ if (typeof Module.LogReplayTask !== 'function') {
     }
     if (!sawSentinel) {
         console.error('FAIL: low-IAS frame does not contain "9999" sentinel; ' +
-            'task may not be applying UpdateIasAlive correctly');
+            'task may not be applying UpdateIasDisplayable correctly');
         process.exit(1);
     }
     console.log('OK: LogReplayTask emits iasValid=false on low-IAS row ' +

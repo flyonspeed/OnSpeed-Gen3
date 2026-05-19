@@ -38,24 +38,29 @@ class AHRS
 public:
     AHRS(int gyroSmoothing);
 
-    // === Public fields kept for legacy consumer compatibility ===
+    // === Public fields mirroring core AhrsOutputs for sketch consumers ===
+    //
+    // These cover the four-stage AHRS pipeline (see
+    // onspeed_core/src/ahrs/Ahrs.h):
+    //   Stage 1 — sensor:    rotation-corrected IMU acceleration.
+    //   Stage 3 — smoothing: wire-spec accel EMA for display + log.
+    //
+    // The Stage 2 (algorithm) post-comp accel is owned internally by
+    // each AHRS algorithm class (Madgwick / Ekf6Pipeline) and not
+    // exposed at the sketch-side boundary.
 
-    // Step 1 - IMU raw acceleration corrected for installation bias
+    // Stage 1 — IMU acceleration after installation-bias rotation.
     float           AccelFwdCorr;
     float           AccelLatCorr;
     float           AccelVertCorr;
 
-    // Step 2 - Corrected accelerations smoothed (mirror of core EMA state).
-    // These filter objects are seeded each frame — `update()` is never
-    // called on them.  Consumers read `.get()` directly.
+    // Stage 3 — wire-side accel smoothing.  Mirrors the core's
+    // wire-spec EMA state for display / log / serial-protocol
+    // consumers.  These filter objects are seeded each frame —
+    // `update()` is never called on them.  Read `.get()`.
     EMAFilter       AccelFwdFilter;
     EMAFilter       AccelLatFilter;
     EMAFilter       AccelVertFilter;
-
-    // Step 3 - Smoothed acceleration with linear/centripetal compensation
-    float           AccelFwdComp;
-    float           AccelLatComp;
-    float           AccelVertComp;
 
     // Latest attitude estimate (degrees).
     float           SmoothedPitch;
@@ -90,10 +95,8 @@ public:
 
     float   PitchWithBias();
     float   PitchWithBiasSmth();
-    float   PitchWithBiasSmthComp();
     float   RollWithBias();
     float   RollWithBiasSmth();
-    float   RollWithBiasSmthComp();
 
 private:
     onspeed::ahrs::Ahrs core_;

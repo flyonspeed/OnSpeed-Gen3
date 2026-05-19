@@ -202,9 +202,10 @@ static val parse_config(const std::string& xml_text)
     // Build the JS result object — field names match host_main's JSON
     // output and the Replay tool's existing config.js conventions.
     val out = val::object();
-    out.set("aoaSmoothing",       cfg.iAoaSmoothing);
-    out.set("pressureSmoothing",  cfg.iPressureSmoothing);
-    out.set("muteUnderIas",       cfg.iMuteAudioUnderIAS);
+    out.set("aoaSmoothing",          cfg.iAoaSmoothing);
+    out.set("pressureSmoothing",     cfg.iPressureSmoothing);
+    out.set("muteUnderIas",          cfg.iMuteAudioUnderIAS);
+    out.set("iasDisplayThresholdKt", cfg.iIasDisplayThresholdKt);
     out.set("dataSource",         std::string(cfg.suDataSrc.toCStr()));
     out.set("volumeControl",      cfg.bVolumeControl);
     out.set("defaultVolume",      cfg.iDefaultVolume);
@@ -336,9 +337,10 @@ static OnSpeedConfig ConfigFromVal(val cfgVal)
         return (v.typeOf().as<std::string>() == "string") ? v.as<std::string>() : def;
     };
 
-    cfg.iAoaSmoothing       = getInt  ("aoaSmoothing",      cfg.iAoaSmoothing);
-    cfg.iPressureSmoothing  = getInt  ("pressureSmoothing", cfg.iPressureSmoothing);
-    cfg.iMuteAudioUnderIAS  = getInt  ("muteUnderIas",      cfg.iMuteAudioUnderIAS);
+    cfg.iAoaSmoothing          = getInt("aoaSmoothing",          cfg.iAoaSmoothing);
+    cfg.iPressureSmoothing     = getInt("pressureSmoothing",     cfg.iPressureSmoothing);
+    cfg.iMuteAudioUnderIAS     = getInt("muteUnderIas",          cfg.iMuteAudioUnderIAS);
+    cfg.iIasDisplayThresholdKt = getInt("iasDisplayThresholdKt", cfg.iIasDisplayThresholdKt);
     cfg.fPitchBias          = getFloat("pitchBias",         cfg.fPitchBias);
     cfg.fRollBias           = getFloat("rollBias",          cfg.fRollBias);
     cfg.fGxBias             = getFloat("gxBias",            cfg.fGxBias);

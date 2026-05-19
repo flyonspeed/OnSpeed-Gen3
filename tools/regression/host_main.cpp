@@ -6,6 +6,7 @@
 // Subcommands
 // -----------
 //   ahrs_tone  [--input PATH] [--output-format csv|jsonl]
+//              [--algorithm madgwick|ekf6]
 //     Stream simplified sensor CSV (ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz)
 //     through the AHRS + Madgwick + Kalman + ToneCalc pipeline.  This is
 //     the bedrock regression test (per PLAN_PYTHON_CONSOLIDATION.md line
@@ -283,16 +284,36 @@ constexpr float kPressureRateHz  = 50.0f;
 constexpr float kImuDtSec        = 1.0f / kImuRateHz;
 constexpr uint32_t kPressurePeriodUs = 1'000'000u / 50u;
 
-onspeed::ahrs::AhrsConfig MakeProductionConfig()
+onspeed::ahrs::AhrsConfig MakeProductionConfig(onspeed::ahrs::Algorithm algo)
 {
     onspeed::ahrs::AhrsConfig cfg;
     cfg.pitchBiasDeg          = 0.0f;
     cfg.rollBiasDeg           = 0.0f;
-    cfg.algorithm             = onspeed::ahrs::Algorithm::Madgwick;
+    cfg.algorithm             = algo;
     cfg.gyroSmoothingWindow   = 30;
     cfg.imuSampleRateHz       = kImuRateHz;
     cfg.pressureSampleRateHz  = kPressureRateHz;
     return cfg;
+}
+
+// Resolve `--algorithm madgwick|ekf6` (default: madgwick).
+// Unknown values are an error.
+bool ParseAlgorithmFlag(int argc, const char* const* argv,
+                       onspeed::ahrs::Algorithm& outAlgo)
+{
+    const char* algo_str = ArgGet(argc, argv, "--algorithm", "madgwick");
+    if (std::strcmp(algo_str, "madgwick") == 0) {
+        outAlgo = onspeed::ahrs::Algorithm::Madgwick;
+        return true;
+    }
+    if (std::strcmp(algo_str, "ekf6") == 0) {
+        outAlgo = onspeed::ahrs::Algorithm::Ekf6;
+        return true;
+    }
+    std::fprintf(stderr,
+        "host_main ahrs_tone: unknown --algorithm '%s' (madgwick|ekf6)\n",
+        algo_str);
+    return false;
 }
 
 struct InputRow {
@@ -381,6 +402,9 @@ int CmdAhrsTone(int argc, const char* const* argv)
         return 1;
     }
 
+    onspeed::ahrs::Algorithm algo;
+    if (!ParseAlgorithmFlag(argc, argv, algo)) return 1;
+
     // Open input — "-" means stdin.
     std::istream* in_stream = &std::cin;
     std::ifstream in_file;
@@ -404,7 +428,7 @@ int CmdAhrsTone(int argc, const char* const* argv)
         std::printf("%s\n", kAhrsToneOutputHeader);
     }
 
-    onspeed::ahrs::Ahrs ahrs{MakeProductionConfig()};
+    onspeed::ahrs::Ahrs ahrs{MakeProductionConfig(algo)};
 
     bool oatPresentInLog = false;
     std::vector<InputRow> rows;
@@ -425,14 +449,24 @@ int CmdAhrsTone(int argc, const char* const* argv)
         return 1;
     }
 
+    // IAS-display threshold: build a real OnSpeedConfig (which
+    // LoadDefaults-initialises iIasDisplayThresholdKt to the same 20
+    // kt the firmware ships with) and read the threshold from there,
+    // mirroring how SensorIO and LogReplayTask consume it in flight.
+    const onspeed::config::OnSpeedConfig pilotCfg;
+    const float kIasDisplayThresholdKt =
+        static_cast<float>(pilotCfg.iIasDisplayThresholdKt);
+
     bool iasAlive = false;
-    iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, rows.front().ias_kt);
+    iasAlive = onspeed::sensors::UpdateIasDisplayable(
+        iasAlive, rows.front().ias_kt, kIasDisplayThresholdKt);
     onspeed::AhrsInputs seed = BuildAhrsInputs(rows, 0, oatPresentInLog, iasAlive);
     ahrs.Init(seed, rows.front().palt_ft);
 
     for (size_t i = 0; i < rows.size(); ++i) {
         const InputRow& r = rows[i];
-        iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, r.ias_kt);
+        iasAlive = onspeed::sensors::UpdateIasDisplayable(
+            iasAlive, r.ias_kt, kIasDisplayThresholdKt);
         const onspeed::AhrsInputs in = BuildAhrsInputs(rows, i, oatPresentInLog, iasAlive);
         const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
 

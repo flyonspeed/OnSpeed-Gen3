@@ -85,7 +85,7 @@ const idx = Object.fromEntries(header.map((name, i) => [name, i]));
 
 // Required columns for the engine input. iasValid is optional —
 // older logs encode it as "IAS column empty when invalid" rather
-// than a separate column. The task's UpdateIasAlive re-derives it.
+// than a separate column. The task's UpdateIasDisplayable re-derives it.
 const REQUIRED = [
   'PfwdSmoothed', 'P45Smoothed', 'PStatic', 'Palt', 'IAS',
   'flapsPos', 'VerticalG', 'LateralG', 'ForwardG', 'RollRate', 'PitchRate', 'YawRate',
@@ -205,7 +205,7 @@ for (let i = 0; i < N; i++) {
     pStaticMbar:     log.PStatic[i],
     paltFt:          log.Palt[i],
     iasKt:           log.IAS[i],
-    iasValid:        false,                // task derives via UpdateIasAlive
+    iasValid:        false,                // task derives via UpdateIasDisplayable
     flapsPos:        log.flapsPos[i] >= 0 ? log.flapsPos[i] : 0,
     flapsRawAdc:     0,
     flapsRawAdcPresent: false,

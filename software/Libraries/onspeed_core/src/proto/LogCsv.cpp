@@ -164,11 +164,15 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
         row.p45Counts,  row.p45Smoothed,
         row.pStaticMbar, row.paltFt);
 
-    // IAS (column 8) and AngleofAttack (column 9): empty when !iasValid.
-    ok &= AppendFloatOrEmpty(out, outCapacity, &len, row.iasValid,
-                             ",%.2f", row.iasKt);
-    ok &= AppendFloatOrEmpty(out, outCapacity, &len, row.iasValid,
-                             ",%.2f", row.angleOfAttackDeg);
+    // IAS (column 8) and AngleofAttack (column 9).  The log carries
+    // the raw sensor reading regardless of whether the firmware's
+    // display gate (iasDisplayable, see SensorIO + OnSpeedConfig::
+    // iIasDisplayThresholdKt) would blank it on the screen.  Replay
+    // tools compute their own display gate from raw IAS + current
+    // cfg threshold, which lets pilots retune the threshold in replay
+    // without re-flying.
+    ok &= Appendf(out, outCapacity, &len, ",%.2f", row.iasKt);
+    ok &= Appendf(out, outCapacity, &len, ",%.2f", row.angleOfAttackDeg);
 
     //   ,%i,%i  (flapsPos, DataMark — always numeric)
     ok &= Appendf(out, outCapacity, &len, ",%i,%i",
@@ -265,8 +269,8 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
         row.earthVerticalG, row.flightPathDeg,
         row.vsiFpm, row.altitudeFt);
 
-    ok &= AppendFloatOrEmpty(out, outCapacity, &len, row.iasValid,
-                             ",%.4f", row.derivedAoaDeg);
+    // DerivedAOA: raw computed value (see IAS/AOA above for rationale).
+    ok &= Appendf(out, outCapacity, &len, ",%.4f", row.derivedAoaDeg);
     ok &= Appendf(out, outCapacity, &len, ",%.4f", row.coeffP);
 
     // Tail-optional flapsRawADC.  Mirrors WriteHeader; rows from sessions

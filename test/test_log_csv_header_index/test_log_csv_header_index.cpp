@@ -513,12 +513,12 @@ void test_parserowbyindex_old_log_without_timestampus(void)
     TEST_ASSERT_EQUAL_UINT64(0ull, dst.timeStampUs);  // absent → 0
 }
 
-void test_parserowbyindex_empty_field_fails(void)
+void test_parserowbyindex_mixed_empty_numeric_air_data_accepted(void)
 {
-    // Format-3: IAS, AngleofAttack, DerivedAOA share the iasValid gate and
-    // must all be empty together (or all numeric).  Empty IAS while
-    // AngleofAttack and DerivedAOA carry numeric values is a corrupt
-    // write and must be rejected.
+    // Mixed-state row: empty IAS while AngleofAttack and DerivedAOA
+    // are numeric.  Accepted — each air-data cell carries its own
+    // empty/numeric state, and downstream consumers decide how to
+    // treat IAS-invalid-but-AOA-valid rows.
     static const char kHeader[] =
         "timeStamp,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,IAS,"
         "AngleofAttack,flapsPos,DataMark,OAT,TAS,"
@@ -533,7 +533,10 @@ void test_parserowbyindex_empty_field_fails(void)
         "1.00,2.0,250.0,1300.0,4.3,0.123";
 
     onspeed::LogRow row{};
-    TEST_ASSERT_FALSE(ParseRowByIndex(kRow, idx, row));
+    TEST_ASSERT_TRUE(ParseRowByIndex(kRow, idx, row));
+    TEST_ASSERT_FALSE(row.iasValid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 4.2f, row.angleOfAttackDeg);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 4.3f, row.derivedAoaDeg);
 }
 
 void test_parserowbyindex_invalid_ias_round_trip(void)
@@ -963,7 +966,7 @@ int main(int, char**)
     RUN_TEST(test_build_index_vn300_partial_warns_no_enable);
     RUN_TEST(test_parserowbyindex_canonical_roundtrip);
     RUN_TEST(test_parserowbyindex_old_log_without_timestampus);
-    RUN_TEST(test_parserowbyindex_empty_field_fails);
+    RUN_TEST(test_parserowbyindex_mixed_empty_numeric_air_data_accepted);
     RUN_TEST(test_parserowbyindex_invalid_ias_round_trip);
     RUN_TEST(test_parserowbyindex_reordered_roundtrip);
     RUN_TEST(test_parserowbyindex_efis_roundtrip);

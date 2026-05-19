@@ -8,6 +8,7 @@ Complete reference of all OnSpeed configuration parameters. Configuration is sto
 |---------|------|---------|-------------|
 | `AOA_SMOOTHING` | int | 10 | EMA filter window for AOA (samples) |
 | `PRESSURE_SMOOTHING` | int | 15 | EMA filter window for pressure sensors (samples) |
+| `IAS_DISPLAY_THRESHOLD_KT` | int | 20 | Blank IAS / AOA display below this airspeed (knots), with a fixed 5 kt hysteresis band; 0 = always show |
 | `DATASOURCE` | string | `SENSORS` | Data source: `SENSORS`, `TESTPOT`, `RANGESWEEP`, `REPLAYLOGFILE` |
 | `REPLAYLOGFILENAME` | string | (empty) | Log file to replay when DATASOURCE=REPLAYLOGFILE |
 | `SDLOGGING` | bool | false | Enable SD card data logging |

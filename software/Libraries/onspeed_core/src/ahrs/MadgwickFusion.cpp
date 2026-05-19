@@ -38,7 +38,7 @@ namespace onspeed {
 //-----------------------------------------------------------------------------
 // AHRS algorithm update
 
-Madgwick::Madgwick()
+MadgwickFusion::MadgwickFusion()
     {
     beta           = betaDef;
     invSampleFreq  = 1.0f / sampleFreqDef;
@@ -52,7 +52,7 @@ Madgwick::Madgwick()
 
 //-----------------------------------------------------------------------------
 
-void Madgwick::begin(float sampleFrequency, float Pitch, float Roll)
+void MadgwickFusion::begin(float sampleFrequency, float Pitch, float Roll)
     {
     invSampleFreq = 1.0f / sampleFrequency;
 
@@ -74,12 +74,12 @@ void Madgwick::begin(float sampleFrequency, float Pitch, float Roll)
 //-----------------------------------------------------------------------------
 
 // LCOV_EXCL_START
-// Madgwick::Update is the 9-axis magnetometer-fusion path. OnSpeed has no
+// MadgwickFusion::Update is the 9-axis magnetometer-fusion path. OnSpeed has no
 // magnetometer; AHRS::Process only ever calls UpdateIMU (6-axis). Marking
 // as excluded from coverage rather than writing tests for code that
 // doesn't run on our hardware — if a future Gen2v4 port adds a mag
 // sensor, remove this LCOV_EXCL block and add tests then.
-void Madgwick::Update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz) {
+void MadgwickFusion::Update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz) {
     float recipNorm;
     float s0, s1, s2, s3;
     float qDot1, qDot2, qDot3, qDot4;
@@ -188,7 +188,7 @@ void Madgwick::Update(float gx, float gy, float gz, float ax, float ay, float az
 //-------------------------------------------------------------------------------------------
 // IMU algorithm update
 
-void Madgwick::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float az) {
+void MadgwickFusion::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float az) {
     float recipNorm;
     float s0, s1, s2, s3;
     float qDot1, qDot2, qDot3, qDot4;
@@ -269,7 +269,7 @@ void Madgwick::UpdateIMU(float gx, float gy, float gz, float ax, float ay, float
 // two memcpy calls for type-punning plus a Newton-Raphson step vs the FPU's
 // hardware-assisted sqrt + divide in ROM.  Also IEEE-754 exact vs ~0.175% error.
 
-float Madgwick::invSqrt(float x)
+float MadgwickFusion::invSqrt(float x)
 {
     if (x <= 0.0f) return 0.0f;
     return 1.0f / sqrtf(x);
@@ -277,7 +277,7 @@ float Madgwick::invSqrt(float x)
 
 //-------------------------------------------------------------------------------------------
 
-void Madgwick::computeAngles()
+void MadgwickFusion::computeAngles()
 {
     roll  = atan2f(q0*q1 + q2*q3, 0.5f - q1*q1 - q2*q2);
     pitch = safeAsin(-2.0f * (q1*q3 - q0*q2));

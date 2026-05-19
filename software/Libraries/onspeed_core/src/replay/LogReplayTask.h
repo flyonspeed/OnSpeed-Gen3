@@ -13,7 +13,7 @@
 //     LogRow (CSV-parsed)
 //        |
 //        v
-//     UpdateIasAlive   (sensors/IasAlive.h hysteretic state machine —
+//     UpdateIasDisplayable   (sensors/IasAlive.h hysteretic state machine —
 //        |               firmware-equivalent gate the JS port got wrong)
 //        v
 //     LogReplayEngine::step       (alpha smoothing, accel EMA, GOnsetFilter,

@@ -138,8 +138,9 @@ XmlParseStatus ParseXml(std::string_view xml, OnSpeedConfig& cfg)
 
     // ---------------- Scalar top-level fields ----------------------------
 
-    GetInt(root, "AOA_SMOOTHING",      cfg.iAoaSmoothing);
-    GetInt(root, "PRESSURE_SMOOTHING", cfg.iPressureSmoothing);
+    GetInt(root, "AOA_SMOOTHING",            cfg.iAoaSmoothing);
+    GetInt(root, "PRESSURE_SMOOTHING",       cfg.iPressureSmoothing);
+    GetInt(root, "IAS_DISPLAY_THRESHOLD_KT", cfg.iIasDisplayThresholdKt);
 
     std::string sDataSource;
     if (GetString(root, "DATASOURCE", sDataSource))

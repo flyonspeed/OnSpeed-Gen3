@@ -13,6 +13,8 @@
 
 #include "src/Globals.h"
 #include "src/config/Config.h"
+
+#include <sensors/IasAlive.h>
 #include "src/drivers/SensorIO.h"
 #include <filters/EMAFilter.h>
 #include <proto/LogCsv.h>
@@ -292,7 +294,12 @@ static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
 
     g_Sensors.Palt     = res.paltFt;
     g_Sensors.IAS      = res.iasKt;
-    g_Sensors.bIasAlive = res.iasValid;
+    // Display gate: re-derive from raw IAS against the current pilot
+    // threshold.  `res.iasValid` only says "was the source cell
+    // numeric?" — not "should this be displayed."
+    g_Sensors.bIasAlive = onspeed::sensors::UpdateIasDisplayable(
+        g_Sensors.bIasAlive, res.iasKt,
+        static_cast<float>(g_Config.iIasDisplayThresholdKt));
     g_iDataMark        = res.dataMark;
     g_AHRS.KalmanVSI   = res.kalmanVSI;
 

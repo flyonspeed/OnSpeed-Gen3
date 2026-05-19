@@ -66,6 +66,7 @@ bool OnSpeedConfig::LoadDefaults()
     iAoaSmoothing       = 10;
     iPressureSmoothing  = 15;
     iMuteAudioUnderIAS  = 30;
+    iIasDisplayThresholdKt = 20;
 
     suDataSrc.enSrc     = SuDataSource::EnSensors;
 

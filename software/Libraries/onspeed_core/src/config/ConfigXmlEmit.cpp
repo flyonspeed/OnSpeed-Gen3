@@ -70,8 +70,9 @@ std::string EmitXml(const OnSpeedConfig& cfg)
     XMLElement* root = doc.NewElement("CONFIG2");
     doc.InsertEndChild(root);
 
-    AddInt   (root, "AOA_SMOOTHING",      cfg.iAoaSmoothing);
-    AddInt   (root, "PRESSURE_SMOOTHING", cfg.iPressureSmoothing);
+    AddInt   (root, "AOA_SMOOTHING",          cfg.iAoaSmoothing);
+    AddInt   (root, "PRESSURE_SMOOTHING",     cfg.iPressureSmoothing);
+    AddInt   (root, "IAS_DISPLAY_THRESHOLD_KT", cfg.iIasDisplayThresholdKt);
     AddString(root, "DATASOURCE",         cfg.suDataSrc.toCStr());
     AddString(root, "REPLAYLOGFILENAME",  cfg.sReplayLogFileName.c_str());
 

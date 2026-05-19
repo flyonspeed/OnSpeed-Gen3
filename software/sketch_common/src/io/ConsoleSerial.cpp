@@ -472,7 +472,7 @@ void ConsoleSerialIO::Read()
                     g_Log.printf("Accel IMU  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->fAccelX,         g_pIMU->fAccelY,         g_pIMU->fAccelZ);
                     g_Log.printf("Accel A/C  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->Ax,              g_pIMU->Ay,              g_pIMU->Az);
                     g_Log.printf("Smoothed   X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdFilter.get(), g_AHRS.AccelLatFilter.get(), g_AHRS.AccelVertFilter.get());
-                    g_Log.printf("Comp       X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdComp,     g_AHRS.AccelLatComp,     g_AHRS.AccelVertComp);
+                    // (Post-comp accels are now algorithm-internal; the smoothed wire values are the right diagnostic.)
 
                     g_Log.printf("Pitch        : %5.2f\r\n", g_AHRS.SmoothedPitch);
                     g_Log.printf("Roll         : %5.2f\r\n", g_AHRS.SmoothedRoll);

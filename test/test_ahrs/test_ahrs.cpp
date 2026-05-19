@@ -830,14 +830,20 @@ void test_comp_fade_in_survives_init(void)
     TEST_ASSERT_EQUAL_FLOAT(fadeBefore, a.compFadeIn());
 }
 
-void test_comp_fade_in_resets_when_ias_alive_drops(void)
+void test_comp_fade_in_resets_when_raw_ias_drops_below_falling_threshold(void)
 {
+    // After the prep-refactor, Madgwick owns its own hysteretic IAS
+    // gate (rising/falling thresholds inside the algorithm). The gate
+    // is driven by raw IAS, not by in.sensors.iasAlive — so this test
+    // exercises the actual physical condition (raw IAS drops below
+    // the falling threshold), not the synthetic "iasAlive flipped
+    // false with raw IAS still high" scenario.
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     a.Init(in, 0.0f);
 
-    // Ramp fade toward 1 with iasAlive=true.
+    // Ramp fade toward 1 with raw IAS above the rising threshold.
     in.sensors.iasAlive = true;
     in.sensors.iasKt    = 25.0f;
     uint32_t iasTs = 1'000'000u;
@@ -848,7 +854,10 @@ void test_comp_fade_in_resets_when_ias_alive_drops(void)
     }
     TEST_ASSERT_TRUE(a.compFadeIn() > 0.95f);
 
-    // Drop iasAlive.  One step later, fade must be exactly zero.
+    // Drop raw IAS below Madgwick's internal falling threshold (15 kt).
+    // One step later, the algorithm's gate closes and fade must be
+    // exactly zero.
+    in.sensors.iasKt    = 5.0f;
     in.sensors.iasAlive = false;
     a.Step(in, kDt);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.compFadeIn());
@@ -909,62 +918,14 @@ void test_comp_fade_in_suppresses_rising_edge_accel_spike(void)
     TEST_ASSERT_TRUE_MESSAGE(maxFwdCompSpike < 0.5f, msg);
 }
 
-void test_comp_fade_in_suppresses_rising_edge_flightpath_spike(void)
-{
-    // Symmetric companion to the AccelFwdComp test above. The Kalman
-    // filter integrates altitude continuously regardless of iasAlive
-    // (Step 6, line 394 of Ahrs.cpp), so during a taxi where the baro
-    // is climbing — common after engine warm-up moves the aircraft
-    // onto a sloping runway, or with thermal-drifting baro — the
-    // filter accumulates a real VSI estimate while the publish path
-    // is gated to 0. When iasAlive flips true, the gate releases that
-    // accumulated estimate, and FlightPath = asin(VSI/TAS) jumps from
-    // 0 to its full value in a single frame.
-    //
-    // Pre-fade scenario in this synthetic harness: 5 s of taxi with
-    // baro climbing at 825 fpm produces a pre-edge VSI estimate near
-    // 829 fpm; FlightPath snaps to 23.75° (and saturates the safeAsin
-    // for higher VSI/TAS ratios) on the rising-edge frame. Multiplying
-    // the published VSI by compFadeIn_ before the asin reduces the
-    // first-frame value to ~0.22° (a ~100× cut), and FlightPath ramps
-    // smoothly toward the true climb angle over ~1.5 s.
-    //
-    // Assert on the first-frame step, not on a 10-frame window: after
-    // frame 0 the fade legitimately ramps and FlightPath legitimately
-    // climbs toward the true 4° gamma over ~1.5 s — that's the desired
-    // behavior. The pathology being fixed is the *one-frame* jump from
-    // 0° to ~24° at the rising edge. Bound: first-frame |FlightPath| <
-    // 1° (post-fade ≈ 0.22°; pre-fade ≈ 23.75°). A regression that
-    // removed the fade from this path would fail immediately.
-    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
-    Ahrs a{cfg};
-    AhrsInputs in = levelSeed();
-    a.Init(in, 0.0f);
-
-    // 5 s of taxi: iasAlive=false but baro climbing at 825 fpm so the
-    // Kalman builds up a real VSI estimate.
-    constexpr float kClimbFps = 13.75f;          // 825 fpm
-    uint32_t iasTs = 0;
-    for (int i = 0; i < 5 * 208; i++) {
-        in.sensors.paltFt += kClimbFps * kDt;
-        if (i % 4 == 0) { iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs; }
-        a.Step(in, kDt);
-    }
-
-    // Rising edge — gate opens.
-    in.sensors.iasAlive = true;
-    in.sensors.iasKt    = 20.3f;
-
-    in.sensors.paltFt += kClimbFps * kDt;
-    iasTs += 20'000u; in.iasUpdateTimestampUs = iasTs;
-    a.Step(in, kDt);
-    const float frame0Spike = std::fabs(a.latest().flightPathDeg);
-
-    char msg[160];
-    std::snprintf(msg, sizeof(msg),
-        "FlightPath frame-0 jump: %.3f° (bound 1.0°)", frame0Spike);
-    TEST_ASSERT_TRUE_MESSAGE(frame0Spike < 1.0f, msg);
-}
+// Note: a prior test here asserted that FlightPath was scaled by
+// compFadeIn_ on the rising-edge frame to suppress a single-frame
+// spike when the Kalman had accumulated a VSI estimate during
+// gated-closed taxi.  The ramp was removed (stage 4b now publishes
+// FlightPath = safeAsin(VSI/TAS) directly); the one-frame visual
+// step on a wire field is acceptable for a display-only readout.
+// If the ramp needs to come back, add it as an output-stage fade
+// keyed off the display gate, not the algorithm-internal gate.
 
 // ---------------------------------------------------------------------
 // test main
@@ -1006,9 +967,8 @@ int main(void)
 
     RUN_TEST(test_comp_fade_in_starts_at_zero_and_ramps_to_one);
     RUN_TEST(test_comp_fade_in_survives_init);
-    RUN_TEST(test_comp_fade_in_resets_when_ias_alive_drops);
+    RUN_TEST(test_comp_fade_in_resets_when_raw_ias_drops_below_falling_threshold);
     RUN_TEST(test_comp_fade_in_suppresses_rising_edge_accel_spike);
-    RUN_TEST(test_comp_fade_in_suppresses_rising_edge_flightpath_spike);
 
     return UNITY_END();
 }

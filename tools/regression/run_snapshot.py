@@ -68,9 +68,12 @@ import click
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures"
 
-# AHRS + ToneCalc golden — the bedrock regression test.
-AHRS_INPUT  = FIXTURES / "short_replay.csv"
-AHRS_GOLDEN = FIXTURES / "golden.csv"
+# AHRS + ToneCalc golden — the bedrock regression test.  One golden
+# per AHRS algorithm so regressions in either are caught against the
+# same input fixture.
+AHRS_INPUT          = FIXTURES / "short_replay.csv"
+AHRS_GOLDEN_MADGWICK = FIXTURES / "golden.csv"
+AHRS_GOLDEN_EKF6     = FIXTURES / "golden_ekf6.csv"
 
 # LogReplayEngine golden — the primary snapshot gate for LogReplayEngine.
 ENGINE_INPUT  = FIXTURES / "replay_engine_input.csv"
@@ -102,21 +105,23 @@ def build_shim() -> None:
         sys.exit(1)
 
 
-def run_ahrs_tone(input_csv: Path) -> str:
+def run_ahrs_tone(input_csv: Path, algorithm: str = "madgwick") -> str:
     """Run `host_main ahrs_tone` on the simplified sensor CSV, return stdout.
 
-    The `ahrs_tone` subcommand runs the AHRS + Madgwick + Kalman + ToneCalc
-    pipeline against the simplified fixture format (short_replay.csv).
-    Gates against fixtures/golden.csv — the bedrock regression test.
+    The `ahrs_tone` subcommand runs the AHRS + (selected algorithm) + Kalman
+    + ToneCalc pipeline against the simplified fixture format
+    (short_replay.csv).  Each algorithm has its own golden so regressions
+    in either are caught.
     """
     proc = subprocess.run(
         [str(EXECUTABLE), "ahrs_tone", "--input", str(input_csv),
+         "--algorithm", algorithm,
          "--output-format", "csv"],
         capture_output=True,
         text=True,
     )
     if proc.returncode != 0:
-        click.echo(f"Shim (ahrs_tone) exited with {proc.returncode}:", err=True)
+        click.echo(f"Shim (ahrs_tone {algorithm}) exited with {proc.returncode}:", err=True)
         click.echo(proc.stderr, err=True)
         sys.exit(1)
     return proc.stdout
@@ -312,17 +317,20 @@ def main(
         click.echo(f"Executable not found at {EXECUTABLE}", err=True)
         sys.exit(3)
 
-    # --- ahrs_tone golden (bedrock AHRS+ToneCalc regression) ---
+    # --- ahrs_tone goldens, one per algorithm ---
     if not AHRS_INPUT.exists():
         click.echo(f"AHRS input CSV not found: {AHRS_INPUT}", err=True)
         sys.exit(3)
 
-    ahrs_tone_output = run_ahrs_tone(AHRS_INPUT)
+    ahrs_tone_madgwick = run_ahrs_tone(AHRS_INPUT, algorithm="madgwick")
+    ahrs_tone_ekf6     = run_ahrs_tone(AHRS_INPUT, algorithm="ekf6")
 
     if update_golden:
-        AHRS_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
-        AHRS_GOLDEN.write_text(ahrs_tone_output, encoding="utf-8")
-        click.echo(f"Updated golden: {AHRS_GOLDEN}")
+        AHRS_GOLDEN_MADGWICK.parent.mkdir(parents=True, exist_ok=True)
+        AHRS_GOLDEN_MADGWICK.write_text(ahrs_tone_madgwick, encoding="utf-8")
+        click.echo(f"Updated golden: {AHRS_GOLDEN_MADGWICK}")
+        AHRS_GOLDEN_EKF6.write_text(ahrs_tone_ekf6, encoding="utf-8")
+        click.echo(f"Updated golden: {AHRS_GOLDEN_EKF6}")
 
     # --- LogReplayEngine golden ---
     if not ENGINE_INPUT.exists():
@@ -351,12 +359,14 @@ def main(
         click.echo(f"Updated golden: {SYNTH_ADC_GOLDEN}")
         sys.exit(0)
 
-    # Run all three checks; collect results without short-circuiting.
-    ok_ahrs      = check_golden("ahrs_tone",     ahrs_tone_output, AHRS_GOLDEN,      rtol, atol)
-    ok_engine    = check_golden("replay_engine", engine_output,    ENGINE_GOLDEN,    rtol, atol)
-    ok_synth_adc = check_golden("synth_adc",     synth_adc_output, SYNTH_ADC_GOLDEN, rtol, atol)
+    # Run all checks; collect results without short-circuiting so the
+    # operator sees every regression in one pass.
+    ok_madgwick  = check_golden("ahrs_tone(madgwick)", ahrs_tone_madgwick, AHRS_GOLDEN_MADGWICK, rtol, atol)
+    ok_ekf6      = check_golden("ahrs_tone(ekf6)",     ahrs_tone_ekf6,     AHRS_GOLDEN_EKF6,     rtol, atol)
+    ok_engine    = check_golden("replay_engine",       engine_output,      ENGINE_GOLDEN,        rtol, atol)
+    ok_synth_adc = check_golden("synth_adc",           synth_adc_output,   SYNTH_ADC_GOLDEN,     rtol, atol)
 
-    sys.exit(0 if (ok_ahrs and ok_engine and ok_synth_adc) else 2)
+    sys.exit(0 if (ok_madgwick and ok_ekf6 and ok_engine and ok_synth_adc) else 2)
 
 
 if __name__ == "__main__":
