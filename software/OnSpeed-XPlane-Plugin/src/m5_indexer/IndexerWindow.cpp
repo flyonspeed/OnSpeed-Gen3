@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -405,8 +406,39 @@ void UpdateMounted3DGeometry()
 
     const int halfW = s_persisted.floatWidth  / 2;
     const int halfH = s_persisted.floatHeight / 2;
-    const int cx    = static_cast<int>(pq.centerX);
-    const int cy    = static_cast<int>(pq.centerY);
+    // Round (not truncate) to nearest pixel to avoid bias.
+    const int cx    = static_cast<int>(std::lround(pq.centerX));
+    const int cy    = static_cast<int>(std::lround(pq.centerY));
+
+    // Deadband: only move the window when the projected center has
+    // shifted by more than kDeadbandPx pixels.  Aircraft physics
+    // noise (theta/phi/psi micro-drift on a parked plane) propagates
+    // through the matrix chain and produces a sub-pixel jitter in
+    // the projected position.  Truncating + writing-every-frame
+    // visualizes that jitter as a 1-pixel wiggle.  The deadband
+    // suppresses moves smaller than the noise floor without making
+    // intentional view-pan response feel sluggish.
+    //
+    // Drag bypasses the deadband: when a drag is in progress, the
+    // pilot WANTS sub-pixel-precision response.  s_drag.active is
+    // owned by the click handler.  (Even without that bypass, drag
+    // would still feel snappy because mouse motion is many pixels.)
+    constexpr int kDeadbandPx = 2;
+    static int s_lastCx = 0;
+    static int s_lastCy = 0;
+    static bool s_lastSet = false;
+    if (s_lastSet
+        && std::abs(cx - s_lastCx) <= kDeadbandPx
+        && std::abs(cy - s_lastCy) <= kDeadbandPx
+        && !s_drag.active)
+    {
+        // Within deadband; keep current geometry, ensure visible.
+        XPLMSetWindowIsVisible(s_window, 1);
+        return;
+    }
+    s_lastCx = cx;
+    s_lastCy = cy;
+    s_lastSet = true;
 
     XPLMSetWindowGeometry(s_window,
                           cx - halfW,         // left
