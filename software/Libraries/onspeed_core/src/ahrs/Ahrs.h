@@ -95,6 +95,19 @@ public:
     // frame to seed attitude.
     void Reconfigure(const AhrsConfig& cfg);
 
+    /// Replace EKFQ filter tuning and pipeline tuning. Only takes
+    /// effect when the active algorithm is EKFQ; for other algorithms
+    /// the values are stored but unused until EKFQ is selected.
+    /// Does NOT reset filter state — call Init() if you want a clean
+    /// start with the new tuning.
+    void SetEkfqConfig(const onspeed::EKFQ::Config& ekfqCfg,
+                       const EkfqPipeline::PipelineConfig& pipeCfg);
+
+    /// Direct access to the wrapped EkfqPipeline. Tests and the Optuna
+    /// substrate use this for per-trial config injection.
+    EkfqPipeline& GetEkfqPipeline() { return ekfq_; }
+    const EkfqPipeline& GetEkfqPipeline() const { return ekfq_; }
+
     // Run one IMU-rate frame.  `dtSec` is the time since the previous
     // Step (typically 1/208 s).  Returns the latest AhrsOutputs snapshot.
     AhrsOutputs Step(const AhrsInputs& in, float dtSec);

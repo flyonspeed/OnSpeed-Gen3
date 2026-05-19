@@ -141,6 +141,12 @@ public:
     void setPipelineConfig(const PipelineConfig& cfg);
     const PipelineConfig& getPipelineConfig() const { return pipeCfg_; }
 
+    /// Direct access to the wrapped filter for per-trial config
+    /// injection. Tests and the Optuna substrate use this; production
+    /// code goes through Init() / Step().
+    EKFQ& getEkfq() { return ekfq_; }
+    const EKFQ& getEkfq() const { return ekfq_; }
+
     /// Seed the filter with the supplied initial attitude (degrees)
     /// and baro altitude (meters, +up).
     void Init(float seedPitchDeg, float seedRollDeg, float seedAltMeters);
