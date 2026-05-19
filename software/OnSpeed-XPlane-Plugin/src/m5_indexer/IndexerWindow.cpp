@@ -207,6 +207,28 @@ PersistedState s_persisted;
 // hammering the .prf on every drag tick.
 bool s_dirty = false;
 
+// Drag state for mounted-mode click+drag placement.  In mounted
+// mode the indexer has no chrome, so left-button mouse events on
+// the window are interpreted as either a short tap (cycle mode)
+// or a drag (move the body-frame anchor).  Aircraft + camera
+// state are captured at MouseDown so the inverse-projection math
+// stays consistent for the duration of the drag even if the
+// pilot's view jitters slightly.
+struct DragState {
+    bool  active        = false;     // currently dragging?
+    int   downX         = 0;         // mouse pos at MouseDown
+    int   downY         = 0;
+    int   offsetX       = 0;         // (downX - projectedCenterX)
+    int   offsetY       = 0;
+    float depthMeters   = 0.0f;      // camera-frame depth at click time
+    onspeed_xplane::indexer::AircraftState ac{};   // captured at click time
+    onspeed_xplane::indexer::CameraState   cam{};
+    onspeed_xplane::indexer::ScreenDim     sd{};
+};
+DragState s_drag;
+
+constexpr int kDragThreshold = 5;    // pixels of motion to enter drag
+
 // ------------------------------------------------------------------
 // Mounted-mode helpers
 // ------------------------------------------------------------------
@@ -442,31 +464,113 @@ void DrawWindow(XPLMWindowID, void*)
     }
 }
 
-// Left-click on the indexer body cycles through display modes.  The
-// X-Plane RoundRectangle chrome reserves the titlebar for drag/move,
-// so clicks reach this handler only when the user clicked inside the
-// content area we paint into.  Fires on MouseDown so the mode change
-// is responsive — without waiting for MouseUp.
+// Mouse handler.  In floating / pop-out mode, a MouseDown inside the
+// MODE-button rect cycles the display mode (same behavior as before
+// mounted mode existed).  In mounted mode the window has no chrome,
+// so the handler runs a drag state machine: short tap cycles the
+// mode; drag past kDragThreshold inverse-projects the new screen
+// position back to a body-frame anchor and persists it.
 int HandleClick(XPLMWindowID, int x, int y,
                 XPLMMouseStatus status, void* /*refcon*/)
 {
-    // Only the MODE button cycles modes — body clicks are pass-through
-    // so the user can drag-focus the window without cycling.  Compute
-    // the button rect against the live geometry and check if the click
-    // landed inside.
-    if (status != xplm_MouseDown) return 1;
     if (!s_window) return 1;
 
-    int wL, wT, wR, wB;
-    XPLMGetWindowGeometry(s_window, &wL, &wT, &wR, &wB);
-    int bL, bT, bR, bB;
-    if (!ComputeButtonRect(wL, wT, wR, wB, &bL, &bT, &bR, &bB)) return 1;
+    // Only intercept drag for mounted mode.  Floating/pop-out keep
+    // legacy behavior: any MouseDown cycles modes if inside the
+    // MODE button rect.
+    const bool mounted = (s_persisted.placementMode ==
+        onspeed_xplane::indexer::kPlacementMounted3D);
 
-    // X-Plane window coords: y grows up (top > bottom), x grows right.
-    if (x >= bL && x <= bR && y >= bB && y <= bT) {
-        const int next = (static_cast<int>(displayType) + 1) % 5;
-        displayType = static_cast<int16_t>(next);
+    if (!mounted) {
+        if (status != xplm_MouseDown) return 1;
+        int wL, wT, wR, wB;
+        XPLMGetWindowGeometry(s_window, &wL, &wT, &wR, &wB);
+        int bL, bT, bR, bB;
+        if (!ComputeButtonRect(wL, wT, wR, wB, &bL, &bT, &bR, &bB))
+            return 1;
+        if (x >= bL && x <= bR && y >= bB && y <= bT) {
+            const int next = (static_cast<int>(displayType) + 1) % 5;
+            displayType = static_cast<int16_t>(next);
+        }
+        return 1;
     }
+
+    // Mounted-mode click handling.
+    if (status == xplm_MouseDown) {
+        s_drag.active = false;
+        s_drag.downX = x;
+        s_drag.downY = y;
+
+        // Capture aircraft + camera state at click time; reused for
+        // drag inverse-projection so the math is consistent across
+        // the drag duration even if the pilot's view jitters slightly.
+        EnsureMount3DRefs();
+        s_drag.ac.xWorld     = s_drAcLocalX   ? XPLMGetDataf(s_drAcLocalX)   : 0;
+        s_drag.ac.yWorld     = s_drAcLocalY   ? XPLMGetDataf(s_drAcLocalY)   : 0;
+        s_drag.ac.zWorld     = s_drAcLocalZ   ? XPLMGetDataf(s_drAcLocalZ)   : 0;
+        s_drag.ac.pitchDeg   = s_drAcPitch    ? XPLMGetDataf(s_drAcPitch)    : 0;
+        s_drag.ac.rollDeg    = s_drAcRoll     ? XPLMGetDataf(s_drAcRoll)     : 0;
+        s_drag.ac.headingDeg = s_drAcHeading  ? XPLMGetDataf(s_drAcHeading)  : 0;
+        s_drag.cam.xWorld     = s_drCamX       ? XPLMGetDataf(s_drCamX)       : 0;
+        s_drag.cam.yWorld     = s_drCamY       ? XPLMGetDataf(s_drCamY)       : 0;
+        s_drag.cam.zWorld     = s_drCamZ       ? XPLMGetDataf(s_drCamZ)       : 0;
+        s_drag.cam.pitchDeg   = s_drCamPitch   ? XPLMGetDataf(s_drCamPitch)   : 0;
+        s_drag.cam.rollDeg    = s_drCamRoll    ? XPLMGetDataf(s_drCamRoll)    : 0;
+        s_drag.cam.headingDeg = s_drCamHeading ? XPLMGetDataf(s_drCamHeading) : 0;
+        s_drag.cam.fovDeg     = s_drFovDeg     ? XPLMGetDataf(s_drFovDeg)     : 70.0f;
+        XPLMGetScreenSize(&s_drag.sd.wPx, &s_drag.sd.hPx);
+
+        // Project the current anchor to find depth + screen center.
+        const onspeed_xplane::indexer::Anchor3D a{s_persisted.mount3D_X,
+                                                  s_persisted.mount3D_Y,
+                                                  s_persisted.mount3D_Z};
+        const onspeed_xplane::indexer::ProjectedQuad pq =
+            onspeed_xplane::indexer::ProjectAnchor(a, s_drag.ac, s_drag.cam,
+                                                   s_drag.sd);
+        s_drag.depthMeters = pq.depthMeters;
+        s_drag.offsetX = x - static_cast<int>(pq.centerX);
+        s_drag.offsetY = y - static_cast<int>(pq.centerY);
+        return 1;
+    }
+
+    if (status == xplm_MouseDrag) {
+        if (!s_drag.active) {
+            if (std::abs(x - s_drag.downX) + std::abs(y - s_drag.downY) <
+                    kDragThreshold) {
+                return 1;
+            }
+            s_drag.active = true;
+        }
+        const float newCx = static_cast<float>(x - s_drag.offsetX);
+        const float newCy = static_cast<float>(y - s_drag.offsetY);
+        const onspeed_xplane::indexer::Anchor3D newAnchor =
+            onspeed_xplane::indexer::InverseProject(
+                newCx, newCy, s_drag.depthMeters,
+                s_drag.ac, s_drag.cam, s_drag.sd);
+        s_persisted.mount3D_X = newAnchor.xMeters;
+        s_persisted.mount3D_Y = newAnchor.yMeters;
+        s_persisted.mount3D_Z = newAnchor.zMeters;
+        s_dirty = true;
+        return 1;
+    }
+
+    if (status == xplm_MouseUp) {
+        if (!s_drag.active) {
+            // Tap, not drag.  Same MODE-cycle behavior as floating mode.
+            int wL, wT, wR, wB;
+            XPLMGetWindowGeometry(s_window, &wL, &wT, &wR, &wB);
+            int bL, bT, bR, bB;
+            if (ComputeButtonRect(wL, wT, wR, wB, &bL, &bT, &bR, &bB)
+                && x >= bL && x <= bR && y >= bB && y <= bT)
+            {
+                const int next = (static_cast<int>(displayType) + 1) % 5;
+                displayType = static_cast<int16_t>(next);
+            }
+        }
+        s_drag.active = false;
+        return 1;
+    }
+
     return 1;
 }
 void HandleKey(XPLMWindowID, char, XPLMKeyFlags, char, void*, int) {}
