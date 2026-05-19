@@ -521,6 +521,9 @@ int HandleClick(XPLMWindowID, int x, int y,
         XPLMGetScreenSize(&s_drag.sd.wPx, &s_drag.sd.hPx);
 
         // Project the current anchor to find depth + screen center.
+        // X-Plane only routes clicks to visible windows, and the window
+        // is hidden when the anchor projects behind the camera, so
+        // pq.visible is guaranteed true here.  No fallback needed.
         const onspeed_xplane::indexer::Anchor3D a{s_persisted.mount3D_X,
                                                   s_persisted.mount3D_Y,
                                                   s_persisted.mount3D_Z};
