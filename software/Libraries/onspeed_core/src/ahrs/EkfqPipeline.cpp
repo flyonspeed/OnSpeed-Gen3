@@ -14,10 +14,24 @@ namespace {
 constexpr float kEkfGravityMps2 = 9.80665f;
 }   // namespace
 
+EkfqPipeline::PipelineConfig EkfqPipeline::PipelineConfig::defaults() {
+    PipelineConfig c{};
+    c.accelEmaAlpha   = 0.052324843677354384f;
+    c.compFadeTauSec  = 2.531734433346506f;
+    c.iasGateRisingKt = 33.66929039144636f;
+    c.tasdotEmaAlpha  = 0.20081238948995161f;
+    return c;
+}
+
 EkfqPipeline::EkfqPipeline()
-    : accelFwdFilter_(kAccelEmaAlpha)
-    , accelLatFilter_(kAccelEmaAlpha)
-    , accelVertFilter_(kAccelEmaAlpha)
+    : EkfqPipeline(PipelineConfig::defaults())
+{}
+
+EkfqPipeline::EkfqPipeline(const PipelineConfig& cfg)
+    : pipeCfg_(cfg)
+    , accelFwdFilter_(cfg.accelEmaAlpha)
+    , accelLatFilter_(cfg.accelEmaAlpha)
+    , accelVertFilter_(cfg.accelEmaAlpha)
 {
     // Seed the accel pre-filter with the production "level on the
     // ground" rest state (Z = +1g, X = Y = 0) so frames before the
@@ -26,6 +40,26 @@ EkfqPipeline::EkfqPipeline()
     accelFwdFilter_.seed(0.0f);
     accelLatFilter_.seed(0.0f);
     accelVertFilter_.seed(+1.0f);
+}
+
+void EkfqPipeline::setPipelineConfig(const PipelineConfig& cfg) {
+    pipeCfg_ = cfg;
+    // EMAFilter exposes setAlpha() but not state-preserving α mutation —
+    // reconstructing is simpler and safe here. Re-seed to the
+    // level-on-ground rest state so the filter is ready for the next
+    // trial's Init() call.
+    accelFwdFilter_  = EMAFilter(cfg.accelEmaAlpha);
+    accelLatFilter_  = EMAFilter(cfg.accelEmaAlpha);
+    accelVertFilter_ = EMAFilter(cfg.accelEmaAlpha);
+    accelFwdFilter_.seed(0.0f);
+    accelLatFilter_.seed(0.0f);
+    accelVertFilter_.seed(+1.0f);
+    // Reset TASdot state so a per-trial tuning change starts clean.
+    // The accel EMA reset above and this one together give offline
+    // trials a deterministic starting point regardless of which trial
+    // ran previously.
+    prevTasMps_     = 0.0f;
+    tasdotSmoothed_ = 0.0f;
 }
 
 void EkfqPipeline::Init(float seedPitchDeg, float seedRollDeg, float seedAltMeters)
@@ -44,14 +78,16 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
 {
     Outputs out;
 
-    // 1) Hysteretic IAS gate.  Below kIasGateRisingKt, pitot noise
-    //    dominates tas / tasDot; feeding those through h(x)'s
+    const float fallingKt = pipeCfg_.iasGateRisingKt - PipelineConfig::kIasGateHysteresisKt;
+
+    // 1) Hysteretic IAS gate.  Below pipeCfg_.iasGateRisingKt, pitot
+    //    noise dominates tas / tasDot; feeding those through h(x)'s
     //    centripetal terms at rest pulls EKFQ pitch a few degrees off
     //    truth.  Hysteresis prevents chatter at the gate edge.
     const bool gateWasOpen = iasGate_;
-    if (!iasGate_ && in.iasKt >= kIasGateRisingKt) {
+    if (!iasGate_ && in.iasKt >= pipeCfg_.iasGateRisingKt) {
         iasGate_ = true;
-    } else if (iasGate_ && in.iasKt < kIasGateFallingKt) {
+    } else if (iasGate_ && in.iasKt < fallingKt) {
         iasGate_ = false;
     }
     out.iasGateRisingEdge = (!gateWasOpen && iasGate_);
@@ -62,7 +98,7 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     //    smoothly after iasGate opens (rather than stepping the
     //    pressure-noise jolt into the measurement model).
     if (iasGate_) {
-        const float fadeAlpha = in.dtSec / (kCompFadeTauSec + in.dtSec);
+        const float fadeAlpha = in.dtSec / (pipeCfg_.compFadeTauSec + in.dtSec);
         compFadeIn_ += fadeAlpha * (1.0f - compFadeIn_);
     } else {
         compFadeIn_ = 0.0f;
@@ -83,11 +119,11 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     // 4) Per-step TASdot smoothing at IMU rate.  Held-stale `tas`
     //    across the ~4 IMU frames between IAS-update events produces
     //    a sawtooth `raw = (tas - prev_tas) / dt`; the EMA at
-    //    kTasdotEmaAlpha averages the spikes.  Matches
+    //    pipeCfg_.tasdotEmaAlpha averages the spikes.  Matches
     //    `pipeline_quat.py` byte-for-byte (raw and smoothing both
     //    computed per-row at 208 Hz).
     const float tasdotRawMps2 = (in.tasMps - prevTasMps_) / in.dtSec;
-    tasdotSmoothed_ += kTasdotEmaAlpha * (tasdotRawMps2 - tasdotSmoothed_);
+    tasdotSmoothed_ += pipeCfg_.tasdotEmaAlpha * (tasdotRawMps2 - tasdotSmoothed_);
     prevTasMps_ = in.tasMps;
 
     // 5) On the gate's rising edge, reset EKFQ's vertical-channel

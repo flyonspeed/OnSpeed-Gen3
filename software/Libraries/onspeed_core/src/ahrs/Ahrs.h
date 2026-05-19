@@ -52,7 +52,7 @@ namespace onspeed::ahrs {
 /// This is a property of the M5/huVVer display protocol contract;
 /// changing it changes what every wire receiver sees regardless of
 /// which AHRS algorithm is active.  Algorithm-internal pre-filtering
-/// (see Madgwick::kAccelEmaAlpha, EkfqPipeline::kAccelEmaAlpha) is
+/// (see Madgwick::kAccelEmaAlpha, EkfqPipeline::PipelineConfig::accelEmaAlpha) is
 /// independent; each pipeline owns its own EMA on raw-corrected
 /// accels.
 ///
