@@ -788,49 +788,50 @@ void test_empty_ias_aoa_only_returns_false(void)
 }
 
 // ============================================================================
-// Test: format-version-3 air-data validity gate
+// Test: IAS / AngleofAttack / DerivedAOA always emit raw numeric values
 //
-// FormatRow emits empty cells for IAS, AngleofAttack, DerivedAOA, and
-// efisPercentLift when the producer's iasValid (resp. efisPercentLiftValid)
-// flag is false.  ParseRow round-trips the empty state to NaN / 0 + flag.
-// This is the same convention as the M5 wire / WebSocket JSON in PR #431.
+// FormatRow writes raw sensor readings to the log regardless of the
+// producer-side display gate (LogRow::iasValid).  Display gating for
+// replay tools is computed from raw IAS + the consumer's current
+// OnSpeedConfig::iIasDisplayThresholdKt at replay time, which lets
+// pilots retune the threshold in replay without re-flying.
+//
+// efisPercentLift retains its empty-cell sentinel because the EFIS
+// reading source carries its own validity bit independent of pitot
+// noise — when the EFIS reports invalid, there's no underlying number
+// to record.
 // ============================================================================
 
-// FormatRow with iasValid=false produces empty cells at column 8/9
-// (IAS / AngleofAttack) and the DerivedAOA position.
-void test_invalid_ias_emits_empty_ias_and_aoa_cells(void)
+// FormatRow with iasValid=false still emits numeric IAS / AOA cells.
+void test_iasvalid_false_does_not_blank_ias_or_aoa_cells(void)
 {
     LogRow r = MakeTestRow(false, false, false);
-    r.iasValid = false;
+    r.iasValid = false;   // producer-side display gate
 
     size_t fmtLen = csv::FormatRow(r, s_rowBuf, sizeof(s_rowBuf));
     TEST_ASSERT_GREATER_THAN(0u, fmtLen);
 
-    // Walk to the boundary between paltFt (col 7) and flapsPos.  In a
-    // valid row the IAS and AngleofAttack values sit there; in an
-    // invalid row both cells are empty, leaving four consecutive commas
-    // ",," after paltFt and before flapsPos.
+    // Walk past 8 commas to land at the start of the IAS cell, then
+    // assert that IAS and AOA both produced numeric content (the next
+    // character is a digit, '.', or sign — never an immediate comma).
     s_rowBuf[fmtLen] = '\0';
-    // After paltFt we expect ",,,<flapsPos>" — comma after paltFt, then
-    // empty IAS, empty AOA, comma before flapsPos.
-    // Walk past 8 commas to land at the start of IAS — was 7 before the
-    // timeStampUs insertion at position 2 (issue #551).
     const char* p = s_rowBuf;
     for (int i = 0; i < 8; ++i) {
         p = strchr(p, ',');
         TEST_ASSERT_NOT_NULL(p);
         ++p;
     }
-    // p points right after the 7th comma — start of IAS cell.
-    // Empty IAS + empty AOA = ",," (then the comma before flapsPos).
-    TEST_ASSERT_EQUAL_CHAR(',', p[0]);   // empty IAS, immediate comma
-    TEST_ASSERT_EQUAL_CHAR(',', p[1]);   // empty AOA, immediate comma
-    // The third character must NOT be a comma (flapsPos starts here).
-    TEST_ASSERT_NOT_EQUAL(',', p[2]);
+    TEST_ASSERT_NOT_EQUAL(',', p[0]);   // IAS cell has content
+    p = strchr(p, ',');
+    TEST_ASSERT_NOT_NULL(p);
+    ++p;
+    TEST_ASSERT_NOT_EQUAL(',', p[0]);   // AOA cell has content
 }
 
-// Round-trip: invalid producer state survives Format -> Parse.
-void test_invalid_ias_roundtrip(void)
+// Round-trip: even if the producer set iasValid=false, the consumer
+// parses the log row and sees iasValid=true (cells were numeric).
+// efisPercentLiftValid still round-trips via the empty-cell sentinel.
+void test_iasvalid_false_round_trips_as_numeric_with_efis_invalid(void)
 {
     LogRow original = MakeTestRow(false, true, false);   // EFIS, no boom
     original.iasValid             = false;
@@ -843,13 +844,14 @@ void test_invalid_ias_roundtrip(void)
     bool ok = ParseRowAgainstSchema(original, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
 
-    TEST_ASSERT_FALSE(parsed.iasValid);
+    // Raw values made it through verbatim.
+    TEST_ASSERT_TRUE(parsed.iasValid);    // cells were numeric → parsed valid
     TEST_ASSERT_FALSE(parsed.efisPercentLiftValid);
-    TEST_ASSERT_TRUE(std::isnan(parsed.iasKt));
-    TEST_ASSERT_TRUE(std::isnan(parsed.angleOfAttackDeg));
-    TEST_ASSERT_TRUE(std::isnan(parsed.derivedAoaDeg));
+    TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.iasKt, parsed.iasKt);
+    TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.angleOfAttackDeg, parsed.angleOfAttackDeg);
+    TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.derivedAoaDeg,    parsed.derivedAoaDeg);
     TEST_ASSERT_EQUAL_INT(0, parsed.efisPercentLift);
-    // CoeffP must remain numeric — it's a raw pressure ratio, not gated.
+    // CoeffP is a raw pressure ratio, also numeric.
     TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.coeffP, parsed.coeffP);
 }
 
@@ -883,9 +885,9 @@ void test_efis_percent_lift_invalid_only(void)
     TEST_ASSERT_EQUAL_INT(0, parsed.efisPercentLift);
 }
 
-// VN-300 row carries no efisPercentLift column; iasValid still applies
-// to IAS/AngleofAttack/DerivedAOA.
-void test_invalid_ias_roundtrip_vn300(void)
+// VN-300 row: no efisPercentLift column, but the same raw-emit
+// contract applies to IAS / AngleofAttack / DerivedAOA.
+void test_iasvalid_false_round_trips_as_numeric_vn300(void)
 {
     LogRow original = MakeTestRow(false, true, true);
     original.iasValid = false;
@@ -896,10 +898,53 @@ void test_invalid_ias_roundtrip_vn300(void)
     LogRow parsed;
     bool ok = ParseRowAgainstSchema(original, std::string_view(s_rowBuf, fmtLen), parsed);
     TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(parsed.iasValid);
+    TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.iasKt,            parsed.iasKt);
+    TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.angleOfAttackDeg, parsed.angleOfAttackDeg);
+    TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.derivedAoaDeg,    parsed.derivedAoaDeg);
+}
+
+// Backward compat: a log row that does carry empty IAS / AOA cells
+// (e.g. partial write from a power-loss event, or older firmware that
+// blanked those cells when iasAlive was false) still parses
+// successfully and surfaces iasValid=false via the parsed row.
+void test_legacy_empty_ias_cells_parse_to_iasvalid_false(void)
+{
+    LogRow original = MakeTestRow(false, false, false);
+
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // Hand-construct a row where IAS and AOA cells are empty.  Splice
+    // empty cells in at the IAS/AOA positions by replacing the cell
+    // contents with nothing.
+    s_rowBuf[fmtLen] = '\0';
+    std::string row(s_rowBuf, fmtLen);
+
+    // Walk past 8 commas to locate the IAS cell start; then locate the
+    // commas around IAS and AOA so we can erase their contents.
+    size_t pos = 0;
+    for (int i = 0; i < 8; ++i) {
+        pos = row.find(',', pos);
+        TEST_ASSERT_NOT_EQUAL(std::string::npos, pos);
+        ++pos;
+    }
+    const size_t iasStart = pos;
+    const size_t iasEnd   = row.find(',', iasStart);
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, iasEnd);
+    const size_t aoaEnd   = row.find(',', iasEnd + 1);
+    TEST_ASSERT_NOT_EQUAL(std::string::npos, aoaEnd);
+
+    // Erase the IAS and AOA cell contents.  Result: ",,,..." between
+    // paltFt and flapsPos.
+    std::string legacyRow = row.substr(0, iasStart) + "," + row.substr(aoaEnd);
+
+    LogRow parsed;
+    bool ok = ParseRowAgainstSchema(original,
+                                    std::string_view(legacyRow.data(), legacyRow.size()),
+                                    parsed);
+    TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_FALSE(parsed.iasValid);
-    TEST_ASSERT_TRUE(std::isnan(parsed.iasKt));
-    TEST_ASSERT_TRUE(std::isnan(parsed.angleOfAttackDeg));
-    TEST_ASSERT_TRUE(std::isnan(parsed.derivedAoaDeg));
 }
 
 // An empty cell in a non-gated column (e.g. paltFt) must still reject —
@@ -1131,11 +1176,12 @@ int main(int, char**)
     RUN_TEST(test_empty_palt_field_still_rejected);
 
     // Format-version-3 air-data validity gate
-    RUN_TEST(test_invalid_ias_emits_empty_ias_and_aoa_cells);
-    RUN_TEST(test_invalid_ias_roundtrip);
+    RUN_TEST(test_iasvalid_false_does_not_blank_ias_or_aoa_cells);
+    RUN_TEST(test_iasvalid_false_round_trips_as_numeric_with_efis_invalid);
+    RUN_TEST(test_legacy_empty_ias_cells_parse_to_iasvalid_false);
     RUN_TEST(test_valid_default_emits_numeric_cells);
     RUN_TEST(test_efis_percent_lift_invalid_only);
-    RUN_TEST(test_invalid_ias_roundtrip_vn300);
+    RUN_TEST(test_iasvalid_false_round_trips_as_numeric_vn300);
     RUN_TEST(test_truncated_boom_section_returns_false);
     RUN_TEST(test_truncated_efis_section_returns_false);
     RUN_TEST(test_truncated_vn300_section_returns_false);

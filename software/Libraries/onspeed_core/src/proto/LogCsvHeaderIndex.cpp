@@ -553,16 +553,25 @@ bool ParseRowByIndex(std::string_view line,
     if (!TakeFloat (tokens, tokenCount, idx.idxP45Smoothed,  row.p45Smoothed))     return false;
     if (!TakeFloat (tokens, tokenCount, idx.idxPStatic,      row.pStaticMbar))     return false;
     if (!TakeFloat (tokens, tokenCount, idx.idxPaltFt,       row.paltFt))          return false;
+    // IAS and AngleofAttack: parsed as numeric.  Some logs may carry
+    // empty cells where the firmware was unable to write a value
+    // (e.g. partial row from a power loss); the AllowEmpty form reads
+    // those as `valid=false, value=0` and surfaces the validity bit on
+    // `row.iasValid` so consumers can choose to skip or impute.
+    //
+    // Display gating for replay (whether to show IAS/AOA on a wire
+    // frame or display) is computed from raw IAS + the consumer's
+    // current `iIasDisplayThresholdKt` config — see
+    // LogReplayEngine::step / LogReplayTask::processRow.  `row.iasValid`
+    // is only "was the source cell numeric?" — not "should this be
+    // displayed."
     if (!TakeFloatAllowEmpty(tokens, tokenCount, idx.idxIasKt,
                              row.iasKt, row.iasValid))                            return false;
     {
-        // AngleofAttack shares the iasValid gate with IAS; reject mixed-state
-        // rows where one cell is empty and the other numeric (would mean a
-        // corrupt write).
         bool aoaValid = false;
         if (!TakeFloatAllowEmpty(tokens, tokenCount, idx.idxAoaDeg,
                                  row.angleOfAttackDeg, aoaValid))                 return false;
-        if (idx.idxAoaDeg >= 0 && aoaValid != row.iasValid)                       return false;
+        (void)aoaValid;
     }
     if (!TakeInt   (tokens, tokenCount, idx.idxFlapsPos,     row.flapsPos))        return false;
     if (!TakeInt   (tokens, tokenCount, idx.idxDataMark,     row.dataMark))        return false;
@@ -666,11 +675,12 @@ bool ParseRowByIndex(std::string_view line,
     if (!TakeFloat(tokens, tokenCount, idx.idxVsiFpm,         row.vsiFpm))          return false;
     if (!TakeFloat(tokens, tokenCount, idx.idxAltitude,       row.altitudeFt))      return false;
     {
-        // DerivedAOA shares the iasValid gate with IAS / AngleofAttack.
+        // DerivedAOA: numeric or empty (same shape as IAS / AOA above);
+        // validity bit is informational only.
         bool derivedValid = false;
         if (!TakeFloatAllowEmpty(tokens, tokenCount, idx.idxDerivedAoa,
                                  row.derivedAoaDeg, derivedValid))                return false;
-        if (idx.idxDerivedAoa >= 0 && derivedValid != row.iasValid)               return false;
+        (void)derivedValid;
     }
     if (!TakeFloat(tokens, tokenCount, idx.idxCoeffP,         row.coeffP))          return false;
 
