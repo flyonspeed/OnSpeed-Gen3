@@ -1960,6 +1960,7 @@ static void UpdateAOATextFields() {
 // "SerialOff" sentinel; subsequent entries hold detected port paths.
 static std::vector<std::string> g_SerialMenuRefcons;
 static XPLMMenuID g_SerialMenuId = nullptr;
+static XPLMMenuID g_PlacementMenuId = nullptr;
 
 // Rebuild the serial submenu from the OS's current port enumeration.
 // Called from XPluginStart and from the "Refresh ports" menu item.
@@ -2015,6 +2016,25 @@ static void SetSerialPort(const std::string& path)
     }
     SaveSettings();
 }
+
+// Update menu items' checkmarks to reflect the active placement
+// mode.  Called whenever placementMode changes.
+static void RefreshPlacementMenu()
+{
+    if (!g_PlacementMenuId) return;
+    using onspeed_xplane::indexer::kPlacementFloating;
+    using onspeed_xplane::indexer::kPlacementPopOut;
+    using onspeed_xplane::indexer::kPlacementMounted3D;
+    XPLMCheckMenuItem(g_PlacementMenuId, 0,
+        indexerSettings.placementMode == kPlacementFloating
+            ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+    XPLMCheckMenuItem(g_PlacementMenuId, 1,
+        indexerSettings.placementMode == kPlacementPopOut
+            ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+    XPLMCheckMenuItem(g_PlacementMenuId, 2,
+        indexerSettings.placementMode == kPlacementMounted3D
+            ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+}
 #endif
 
 // Add menu handler
@@ -2050,6 +2070,28 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
         else
             onspeed_xplane::indexer::Show();
         SaveIndexerWindowState();   // immediate persist of toggle
+        return;
+    }
+    auto applyMode = [](onspeed_xplane::indexer::PlacementMode mode) {
+        indexerSettings.placementMode = mode;
+        // ApplyPersistedState handles decoration + visibility/geometry
+        // changes.  Schedule it for the next flight-loop tick via the
+        // existing s_indexerRestorePending hook.
+        s_indexerRestorePending = true;
+        RefreshPlacementMenu();
+        SaveSettings();
+    };
+
+    if (!strcmp(tag, "PlacementFloating")) {
+        applyMode(onspeed_xplane::indexer::kPlacementFloating);
+        return;
+    }
+    if (!strcmp(tag, "PlacementPopOut")) {
+        applyMode(onspeed_xplane::indexer::kPlacementPopOut);
+        return;
+    }
+    if (!strcmp(tag, "PlacementMounted3D")) {
+        applyMode(onspeed_xplane::indexer::kPlacementMounted3D);
         return;
     }
     if (!strcmp(tag, "SerialOff")) {
@@ -2611,6 +2653,23 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
 #ifdef ENABLE_M5_INDEXER
     XPLMAppendMenuItem(menuId, "Indexer: Show/Hide",
                        static_cast<void*>(const_cast<char*>("IndexerToggle")), 1);
+
+    // Placement mode submenu — three radio-style items.  The
+    // AudioMenuHandler dispatches on the tag string.  Checkmarks are
+    // refreshed via RefreshPlacementMenu() on mode change.
+    XPLMAppendMenuSeparator(menuId);
+    int placementItem = XPLMAppendMenuItem(menuId, "Indexer position",
+                                           nullptr, 1);
+    g_PlacementMenuId = XPLMCreateMenu("Indexer position", menuId,
+                                       placementItem,
+                                       AudioMenuHandler, nullptr);
+    XPLMAppendMenuItem(g_PlacementMenuId, "Floating window",
+        static_cast<void*>(const_cast<char*>("PlacementFloating")), 1);
+    XPLMAppendMenuItem(g_PlacementMenuId, "Popped-out OS window",
+        static_cast<void*>(const_cast<char*>("PlacementPopOut")), 1);
+    XPLMAppendMenuItem(g_PlacementMenuId, "Mounted in 3D cockpit",
+        static_cast<void*>(const_cast<char*>("PlacementMounted3D")), 1);
+    RefreshPlacementMenu();
 
     // USB-serial submenu — routes the same wire frames to a physical
     // M5Stack so a Core2 plugged into a USB-C port behaves like a
