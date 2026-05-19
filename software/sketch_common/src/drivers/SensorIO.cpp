@@ -512,7 +512,7 @@ void SensorIO::Read()
             uLastDebugPrintMs = uNowMs;
             g_Log.printf("timeStamp: %lu,iPfwd: %i,PfwdSmoothed: %.2f,iP45: %i,P45Smoothed: %.2f,Pstatic: %.2f,Palt: %.2f,IAS: %.2f,AOA: %.2f,flapsPos: %i,VerticalG: %.2f,LateralG: %.2f,ForwardG: %.2f,RollRate: %.2f,PitchRate: %.2f,YawRate: %.2f, SmoothedPitch %.2f\n",
                 millis(), iPfwd, PfwdSmoothed, iP45, P45Smoothed, PStatic, Palt, IAS, AOA, g_Flaps.iPosition,
-                g_AHRS.AccelVertComp, g_AHRS.AccelLatComp, g_AHRS.AccelFwdComp,
+                g_AHRS.AccelVertFilter.get(), g_AHRS.AccelLatFilter.get(), g_AHRS.AccelFwdFilter.get(),
                 g_AHRS.gRoll, g_AHRS.gPitch, g_AHRS.gYaw, g_AHRS.SmoothedPitch);
         }
     } // end if debug print

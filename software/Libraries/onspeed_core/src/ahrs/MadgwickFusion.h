@@ -23,7 +23,7 @@ namespace onspeed {
 
 //--------------------------------------------------------------------------------------------
 // Variable declaration
-class Madgwick
+class MadgwickFusion
 {
 private:
     static float invSqrt(float x);
@@ -43,7 +43,7 @@ private:
 //-------------------------------------------------------------------------------------------
 // Function declarations
 public:
-    Madgwick(void);
+    MadgwickFusion(void);
     void begin(float sampleFrequency, float Pitch, float Roll);
     void setDeltaTime(float deltaTimeSeconds) { invSampleFreq = deltaTimeSeconds; }
 

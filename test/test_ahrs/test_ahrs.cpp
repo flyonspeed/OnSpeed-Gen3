@@ -830,14 +830,20 @@ void test_comp_fade_in_survives_init(void)
     TEST_ASSERT_EQUAL_FLOAT(fadeBefore, a.compFadeIn());
 }
 
-void test_comp_fade_in_resets_when_ias_alive_drops(void)
+void test_comp_fade_in_resets_when_raw_ias_drops_below_falling_threshold(void)
 {
+    // After the prep-refactor, Madgwick owns its own hysteretic IAS
+    // gate (rising/falling thresholds inside the algorithm). The gate
+    // is driven by raw IAS, not by in.sensors.iasAlive — so this test
+    // exercises the actual physical condition (raw IAS drops below
+    // the falling threshold), not the synthetic "iasAlive flipped
+    // false with raw IAS still high" scenario.
     AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
     Ahrs a{cfg};
     AhrsInputs in = levelSeed();
     a.Init(in, 0.0f);
 
-    // Ramp fade toward 1 with iasAlive=true.
+    // Ramp fade toward 1 with raw IAS above the rising threshold.
     in.sensors.iasAlive = true;
     in.sensors.iasKt    = 25.0f;
     uint32_t iasTs = 1'000'000u;
@@ -848,7 +854,10 @@ void test_comp_fade_in_resets_when_ias_alive_drops(void)
     }
     TEST_ASSERT_TRUE(a.compFadeIn() > 0.95f);
 
-    // Drop iasAlive.  One step later, fade must be exactly zero.
+    // Drop raw IAS below Madgwick's internal falling threshold (15 kt).
+    // One step later, the algorithm's gate closes and fade must be
+    // exactly zero.
+    in.sensors.iasKt    = 5.0f;
     in.sensors.iasAlive = false;
     a.Step(in, kDt);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.compFadeIn());
@@ -1006,7 +1015,7 @@ int main(void)
 
     RUN_TEST(test_comp_fade_in_starts_at_zero_and_ramps_to_one);
     RUN_TEST(test_comp_fade_in_survives_init);
-    RUN_TEST(test_comp_fade_in_resets_when_ias_alive_drops);
+    RUN_TEST(test_comp_fade_in_resets_when_raw_ias_drops_below_falling_threshold);
     RUN_TEST(test_comp_fade_in_suppresses_rising_edge_accel_spike);
     RUN_TEST(test_comp_fade_in_suppresses_rising_edge_flightpath_spike);
 

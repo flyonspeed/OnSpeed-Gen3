@@ -45,17 +45,18 @@ public:
     float           AccelLatCorr;
     float           AccelVertCorr;
 
-    // Step 2 - Corrected accelerations smoothed (mirror of core EMA state).
-    // These filter objects are seeded each frame — `update()` is never
-    // called on them.  Consumers read `.get()` directly.
+    // Step 2 - Corrected accelerations smoothed (mirror of core's
+    // wire-side EMA state).  These filter objects are seeded each frame
+    // — `update()` is never called on them.  Consumers read `.get()`
+    // directly.  The smoothing here is the wire/log/display protocol
+    // contract, not algorithm-internal pre-filtering.
     EMAFilter       AccelFwdFilter;
     EMAFilter       AccelLatFilter;
     EMAFilter       AccelVertFilter;
 
-    // Step 3 - Smoothed acceleration with linear/centripetal compensation
-    float           AccelFwdComp;
-    float           AccelLatComp;
-    float           AccelVertComp;
+    // Step 3 — Smoothed-and-comp-compensated accelerations are now
+    // owned internally by each AHRS algorithm (Madgwick / Ekf6Pipeline);
+    // they are no longer exposed at the AHRS-layer boundary.
 
     // Latest attitude estimate (degrees).
     float           SmoothedPitch;
@@ -90,10 +91,8 @@ public:
 
     float   PitchWithBias();
     float   PitchWithBiasSmth();
-    float   PitchWithBiasSmthComp();
     float   RollWithBias();
     float   RollWithBiasSmth();
-    float   RollWithBiasSmthComp();
 
 private:
     onspeed::ahrs::Ahrs core_;

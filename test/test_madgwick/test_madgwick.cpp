@@ -21,12 +21,12 @@
 #include <ahrs/MadgwickFusion.h>
 #include <cmath>
 
-using onspeed::Madgwick;
+using onspeed::MadgwickFusion;
 
 static const float SAMPLE_FREQ = 208.0f;
 static const float DEG2RAD = 3.14159265f / 180.0f;
 
-static Madgwick madgwick;
+static MadgwickFusion madgwick;
 
 void setUp(void) {
 }

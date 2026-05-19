@@ -101,10 +101,6 @@ void AHRS::PublishCoreState_()
     AccelLatCorr  = core_.accelLatCorrG();
     AccelVertCorr = core_.accelVertCorrG();
 
-    AccelFwdComp  = core_.accelFwdCompG();
-    AccelLatComp  = core_.accelLatCompG();
-    AccelVertComp = core_.accelVertCompG();
-
     // Mirror smoothed accel values into the legacy EMA filter objects so
     // consumers using `g_AHRS.AccelFwdFilter.get()` see the same numbers
     // they always did.  `seed()` overwrites the value without touching
@@ -139,9 +135,6 @@ AHRS::AHRS(int gyroSmoothing)
     AccelFwdCorr   = 0.0f;
     AccelLatCorr   = 0.0f;
     AccelVertCorr  = -1.0f;
-    AccelFwdComp   = 0.0f;
-    AccelLatComp   = 0.0f;
-    AccelVertComp  = 0.0f;
     SmoothedPitch  = 0.0f;
     SmoothedRoll   = 0.0f;
     TASdotSmoothed = 0.0f;
@@ -219,7 +212,5 @@ void AHRS::Process(float fDeltaTimeSeconds)
 
 float AHRS::PitchWithBias()         { return accelPitch(AccelFwdCorr,         AccelLatCorr,         AccelVertCorr); }
 float AHRS::PitchWithBiasSmth()     { return accelPitch(AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
-float AHRS::PitchWithBiasSmthComp() { return accelPitch(AccelFwdComp,         AccelLatComp,         AccelVertComp); }
 float AHRS::RollWithBias()          { return accelRoll (AccelFwdCorr,         AccelLatCorr,         AccelVertCorr); }
 float AHRS::RollWithBiasSmth()      { return accelRoll (AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
-float AHRS::RollWithBiasSmthComp()  { return accelRoll (AccelFwdComp,         AccelLatComp,         AccelVertComp); }
