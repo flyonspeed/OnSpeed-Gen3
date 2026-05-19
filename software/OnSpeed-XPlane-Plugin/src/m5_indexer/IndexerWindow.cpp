@@ -214,6 +214,12 @@ bool ComputeButtonRect(int winLeft, int winTop, int winRight, int winBottom,
 // puts the window where the old code did.
 PersistedState s_persisted;
 
+// Tracks the decoration the current s_window was created with.  Updated
+// by CreateXPlaneWindow on creation and by RecreateWindowWithDecorationInternal
+// on success.  Read by ApplyPersistedState to detect when a recreate is
+// needed.
+XPLMWindowDecoration s_currentDecoration = xplm_WindowDecorationRoundRectangle;
+
 // Dirty flag, flipped by MarkDirtyIfChanged when the live window
 // geometry diverges from s_persisted.  Polled by aoa_audio.cpp's
 // periodic save callback (1 Hz), which flushes SaveSettings if set.
@@ -351,6 +357,20 @@ void UpdateMounted3DGeometry()
     cam.rollDeg    = s_drViewRoll    ? XPLMGetDataf(s_drViewRoll)    : 0.0f;
     cam.headingDeg = s_drViewHeading ? XPLMGetDataf(s_drViewHeading) : 0.0f;
     cam.fovDeg     = s_drFovDeg      ? XPLMGetDataf(s_drFovDeg)      : 70.0f;
+
+    // Sanity check: camera should be within a few meters of the
+    // aircraft in cockpit views.  If view_* datarefs haven't been
+    // populated yet (early in plugin load), they can read garbage
+    // or stale values.  Hide the window for this frame and let the
+    // next tick try again with hopefully-real data.
+    const float dx = cam.xWorld - ac.xWorld;
+    const float dy = cam.yWorld - ac.yWorld;
+    const float dz = cam.zWorld - ac.zWorld;
+    const float distSq = dx*dx + dy*dy + dz*dz;
+    if (distSq > 1000.0f * 1000.0f) {
+        XPLMSetWindowIsVisible(s_window, 0);
+        return;
+    }
 
     onspeed_xplane::indexer::Anchor3D anchor{
         s_persisted.mount3D_X,
@@ -721,8 +741,6 @@ int HandleWheel(XPLMWindowID, int /*x*/, int /*y*/,
     }
 
     EnsureMount3DRefs();
-    const float eyeX = s_drEyepointX ? XPLMGetDataf(s_drEyepointX) : 0.0f;
-    const float eyeY = s_drEyepointY ? XPLMGetDataf(s_drEyepointY) : 0.0f;
     const float eyeZ = s_drEyepointZ ? XPLMGetDataf(s_drEyepointZ) : 0.0f;
 
     // 5% per click.  Positive clicks (scroll up on macOS trackpad) =
@@ -732,8 +750,12 @@ int HandleWheel(XPLMWindowID, int /*x*/, int /*y*/,
         ? 1.0f + kStep * static_cast<float>(clicks)
         : 1.0f / (1.0f + kStep * static_cast<float>(-clicks));
 
-    s_persisted.mount3D_X = eyeX + (s_persisted.mount3D_X - eyeX) * factor;
-    s_persisted.mount3D_Y = eyeY + (s_persisted.mount3D_Y - eyeY) * factor;
+    // Push/pull only along the body's forward axis (-Z body).  Lateral
+    // X and vertical Y stay put, so the indexer stays in the same
+    // screen position laterally and only changes apparent size.  Scaling
+    // along the full eyepoint→anchor vector caused diagonal drift
+    // because the eyepoint isn't centered in body frame (e.g. the C172
+    // eyepoint is body-frame (-0.3, 0.4, 0.2)).
     s_persisted.mount3D_Z = eyeZ + (s_persisted.mount3D_Z - eyeZ) * factor;
     s_dirty = true;
     return 1;
@@ -894,6 +916,7 @@ bool CreateXPlaneWindow(XPLMWindowDecoration decoration)
     params.layer                  = xplm_WindowLayerFloatingWindows;
     s_window = XPLMCreateWindowEx(&params);
     if (!s_window) return false;
+    s_currentDecoration = decoration;
 
     XPLMSetWindowTitle(s_window, "OnSpeed Indexer");
     return true;
@@ -938,7 +961,12 @@ static bool LazyInitOnFirstShow()
         return false;
     }
     XPLMDebugString("FlyOnSpeed: M5 indexer panel installed, creating window\n");
-    if (!CreateXPlaneWindow(xplm_WindowDecorationRoundRectangle)) {
+    const XPLMWindowDecoration initialDecoration =
+        (s_persisted.placementMode ==
+            onspeed_xplane::indexer::kPlacementMounted3D)
+        ? xplm_WindowDecorationSelfDecorated
+        : xplm_WindowDecorationRoundRectangle;
+    if (!CreateXPlaneWindow(initialDecoration)) {
         XPLMDebugString("FlyOnSpeed: M5 indexer CreateXPlaneWindow failed\n");
         return false;
     }
@@ -1241,15 +1269,13 @@ void ApplyPersistedState(const PersistedState& in)
         : xplm_WindowDecorationRoundRectangle;
 
     // If window already exists with wrong decoration, recreate.  X-Plane
-    // SDK provides no in-place decoration setter.  This static-local
-    // tracking is safe because ApplyPersistedState is documented to
-    // run only from the flight-loop callback context.
+    // SDK provides no in-place decoration setter.  s_currentDecoration
+    // is a file-scope tracker updated by CreateXPlaneWindow on every
+    // successful create/recreate.
     if (s_window) {
-        static XPLMWindowDecoration s_currentDecoration =
-            xplm_WindowDecorationRoundRectangle;
         if (s_currentDecoration != desiredDecoration) {
             if (RecreateWindowWithDecorationInternal(desiredDecoration)) {
-                s_currentDecoration = desiredDecoration;
+                // s_currentDecoration was updated by CreateXPlaneWindow
             } else {
                 XPLMDebugString("FlyOnSpeed: window recreate failed; "
                                 "indexer hidden until next Show()\n");
