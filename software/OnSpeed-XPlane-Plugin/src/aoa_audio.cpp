@@ -542,6 +542,11 @@ static bool SaveSettings() {
     std::fprintf(fp, "indexerPopTop = %d\n",      indexerSettings.popTop);
     std::fprintf(fp, "indexerPopWidth = %d\n",    indexerSettings.popWidth);
     std::fprintf(fp, "indexerPopHeight = %d\n",   indexerSettings.popHeight);
+    std::fprintf(fp, "indexerPlacementMode = %d\n",
+                 static_cast<int>(indexerSettings.placementMode));
+    std::fprintf(fp, "indexerMount3DX = %.6f\n", indexerSettings.mount3D_X);
+    std::fprintf(fp, "indexerMount3DY = %.6f\n", indexerSettings.mount3D_Y);
+    std::fprintf(fp, "indexerMount3DZ = %.6f\n", indexerSettings.mount3D_Z);
 #endif
     // fclose can return EOF if a buffered fprintf write hit an error
     // that fprintf itself didn't surface (full disk, broken NAS mount).
@@ -644,6 +649,22 @@ static bool LoadSettings() {
         else if (!std::strcmp(key, "indexerPopTop"))       indexerSettings.popTop       = std::atoi(val);
         else if (!std::strcmp(key, "indexerPopWidth"))     indexerSettings.popWidth     = std::atoi(val);
         else if (!std::strcmp(key, "indexerPopHeight"))    indexerSettings.popHeight    = std::atoi(val);
+        else if (!std::strcmp(key, "indexerPlacementMode")) {
+            const int m = std::atoi(val);
+            if (m >= 0 && m <= 2) {
+                indexerSettings.placementMode =
+                    static_cast<onspeed_xplane::indexer::PlacementMode>(m);
+            }
+        }
+        else if (!std::strcmp(key, "indexerMount3DX")) {
+            indexerSettings.mount3D_X = static_cast<float>(std::atof(val));
+        }
+        else if (!std::strcmp(key, "indexerMount3DY")) {
+            indexerSettings.mount3D_Y = static_cast<float>(std::atof(val));
+        }
+        else if (!std::strcmp(key, "indexerMount3DZ")) {
+            indexerSettings.mount3D_Z = static_cast<float>(std::atof(val));
+        }
 #endif
         else if (!std::strcmp(key, "serialPortPath")) {
             // Defensive trim: sscanf %127[^\n\r] captures any trailing
@@ -672,6 +693,25 @@ static bool LoadSettings() {
         XPLMDebugString("FlyOnSpeed: .prf had no fALPHASTALL key; "
                         "re-derived from fSTALLWARNAOA / 0.92\n");
     }
+
+#ifdef ENABLE_M5_INDEXER
+    // Migrate legacy indexerPoppedOut → indexerPlacementMode for .prfs
+    // written before the mounted-mode field existed.  If the new key
+    // was present in the file the loader already set placementMode;
+    // this only fires when it wasn't.  We detect that by checking
+    // whether placementMode is still its default (Floating).  A
+    // pop-out user's pre-migration .prf will have isPoppedOut=true
+    // but placementMode=Floating; we promote here.
+    if (indexerSettings.placementMode ==
+            onspeed_xplane::indexer::kPlacementFloating
+        && indexerSettings.isPoppedOut)
+    {
+        indexerSettings.placementMode =
+            onspeed_xplane::indexer::kPlacementPopOut;
+        XPLMDebugString("FlyOnSpeed: migrated indexerPoppedOut → "
+                        "indexerPlacementMode=PopOut\n");
+    }
+#endif
 
     s_settingsLoaded = true;
     // Always snap window height to the canonical value.  Past
