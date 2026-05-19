@@ -431,19 +431,18 @@ void UpdateMounted3DGeometry()
     const int cy    = static_cast<int>(std::lround(pq.centerY));
 
     // Deadband: only move the window when the projected center has
-    // shifted by more than kDeadbandPx pixels.  Aircraft physics
-    // noise (theta/phi/psi micro-drift on a parked plane) propagates
-    // through the matrix chain and produces a sub-pixel jitter in
-    // the projected position.  Truncating + writing-every-frame
-    // visualizes that jitter as a 1-pixel wiggle.  The deadband
-    // suppresses moves smaller than the noise floor without making
-    // intentional view-pan response feel sluggish.
+    // shifted by more than kDeadbandPx pixels.  X-Plane's view
+    // attitude (view_pitch/heading/roll) micro-dithers even on a
+    // parked aircraft; at typical FOV/screen sizes a 0.1° dither
+    // becomes a 2 pixel shift.  5 px filters that without making
+    // intentional view-pan response feel sluggish (a real head
+    // tilt is many degrees).
     //
     // Drag bypasses the deadband: when a drag is in progress, the
     // pilot WANTS sub-pixel-precision response.  s_drag.active is
     // owned by the click handler.  (Even without that bypass, drag
     // would still feel snappy because mouse motion is many pixels.)
-    constexpr int kDeadbandPx = 2;
+    constexpr int kDeadbandPx = 5;
     static int s_lastCx = 0;
     static int s_lastCy = 0;
     static bool s_lastSet = false;
