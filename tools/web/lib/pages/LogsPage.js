@@ -238,7 +238,19 @@ export function LogsPage() {
   // Logs and other-files split. Sidecars (.dbg/.meta) and coredumps are
   // surfaced through hasDbg/hasMeta and coredumps[] respectively, so they
   // don't show up here even if the firmware (transitionally) returns them.
-  const logs   = data ? data.files.filter(f => isLogFile(f.name)) : [];
+  //
+  // Sort newest-first by filename (log_NNN.csv naming sorts lex-correct
+  // for chronological order). Active log pins to the top of the list so
+  // the pilot always sees the in-flight session first.
+  const logs   = data
+    ? data.files
+        .filter(f => isLogFile(f.name))
+        .sort((a, b) => {
+          if (a.name === data.activeLog) return -1;
+          if (b.name === data.activeLog) return 1;
+          return b.name.localeCompare(a.name);
+        })
+    : [];
   const others = data ? data.files.filter(f => !isLogFile(f.name)
                                             && !f.name.toLowerCase().endsWith('.dbg')
                                             && !f.name.toLowerCase().endsWith('.meta')) : [];
