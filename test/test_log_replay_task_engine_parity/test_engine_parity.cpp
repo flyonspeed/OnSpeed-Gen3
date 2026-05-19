@@ -70,7 +70,7 @@ static LogRow MakeRow(int i) {
     row.pStaticMbar      = 1013.25f;
     row.paltFt           = 1500.0f + i * 2.0f;
     row.iasKt            = 25.0f + (i % 50);
-    row.iasValid         = false;        // task derives via UpdateIasAlive
+    row.iasValid         = false;        // task derives via UpdateIasDisplayable
     // Cycle through the three flap detents over the row sequence.
     row.flapsPos         = (i / 67) % 3 == 0 ? 0 : ((i / 67) % 3 == 1 ? 16 : 33);
     row.flapsRawAdc      = 0;
@@ -107,17 +107,19 @@ void test_engine_and_task_produce_identical_step_results() {
         LogRow row = MakeRow(i);
 
         // Engine-side: mirror what the task does internally (apply
-        // UpdateIasAlive before stepping). Otherwise the engine would
+        // UpdateIasDisplayable before stepping). Otherwise the engine would
         // see iasValid=false on every row and the comparison wouldn't
         // exercise the iasValid-dependent code paths.
-        taskIasAlive = ::onspeed::sensors::UpdateIasAlive(taskIasAlive, row.iasKt);
+        taskIasAlive = ::onspeed::sensors::UpdateIasDisplayable(
+            taskIasAlive, row.iasKt,
+            static_cast<float>(cfg.iIasDisplayThresholdKt));
         LogRow gatedRow = row;
         gatedRow.iasValid = taskIasAlive;
         const std::optional<ReplayStepResult> engOpt = engine.step(gatedRow);
 
         // Task-side: processRow returns wire bytes; we read its engine
         // result via lastStep() which mirrors what the task fed itself.
-        // The task internally calls UpdateIasAlive too, so it sees the
+        // The task internally calls UpdateIasDisplayable too, so it sees the
         // same iasValid as the engine path above.
         const std::vector<uint8_t> bytes = task.processRow(row);
 

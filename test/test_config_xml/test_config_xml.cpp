@@ -238,11 +238,12 @@ static bool FlapsEqual(const OnSpeedConfig::SuFlaps& a,
 
 static bool ConfigsEqual(const OnSpeedConfig& a, const OnSpeedConfig& b)
 {
-    if (a.iAoaSmoothing      != b.iAoaSmoothing)      return false;
-    if (a.iPressureSmoothing != b.iPressureSmoothing) return false;
-    if (a.iMuteAudioUnderIAS != b.iMuteAudioUnderIAS) return false;
-    if (a.suDataSrc.enSrc    != b.suDataSrc.enSrc)    return false;
-    if (a.sReplayLogFileName != b.sReplayLogFileName) return false;
+    if (a.iAoaSmoothing          != b.iAoaSmoothing)          return false;
+    if (a.iPressureSmoothing     != b.iPressureSmoothing)     return false;
+    if (a.iMuteAudioUnderIAS     != b.iMuteAudioUnderIAS)     return false;
+    if (a.iIasDisplayThresholdKt != b.iIasDisplayThresholdKt) return false;
+    if (a.suDataSrc.enSrc        != b.suDataSrc.enSrc)        return false;
+    if (a.sReplayLogFileName     != b.sReplayLogFileName)     return false;
 
     if (a.aFlaps.size() != b.aFlaps.size()) return false;
     for (std::size_t i = 0; i < a.aFlaps.size(); ++i)

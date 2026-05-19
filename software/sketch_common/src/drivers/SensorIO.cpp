@@ -452,7 +452,9 @@ void SensorIO::Read()
     // in sensors/IasAlive.h.
     {
         const bool bWasIasAlive = bIasAlive;
-        bIasAlive = onspeed::sensors::UpdateIasAlive(bIasAlive, IAS);
+        bIasAlive = onspeed::sensors::UpdateIasDisplayable(
+            bIasAlive, IAS,
+            static_cast<float>(g_Config.iIasDisplayThresholdKt));
 
         // bIasAlive false→true transition (taxi→takeoff roll, IAS rising
         // through the deadband): the SavGol window holds ~15 frames of stale

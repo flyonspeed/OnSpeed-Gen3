@@ -79,7 +79,7 @@ static LogRow MakeRow()
     row.pStaticMbar      = 1013.25f;
     row.paltFt           = 0.0f;
     row.iasKt            = 0.0f;
-    row.iasValid         = false;     // task ignores this; recomputed via UpdateIasAlive
+    row.iasValid         = false;     // task ignores this; recomputed via UpdateIasDisplayable
     row.flapsPos         = 0;
     row.flapsRawAdc      = 2048;
     row.flapsRawAdcPresent = true;
@@ -172,7 +172,7 @@ void test_ias_alive_ignores_input_iasValid()
 {
     // The task must IGNORE row.iasValid (parser-set) and re-derive
     // hysteretically. If the input row claimed iasValid=true at 5 kt,
-    // the task should still emit iasValid=false because UpdateIasAlive
+    // the task should still emit iasValid=false because UpdateIasDisplayable
     // says no.
     LogReplayTask task(MakeIdentityCfg(), 50, true);
     LogRow row = MakeRow();

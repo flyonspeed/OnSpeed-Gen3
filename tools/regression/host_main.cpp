@@ -425,14 +425,24 @@ int CmdAhrsTone(int argc, const char* const* argv)
         return 1;
     }
 
+    // IAS-display threshold: build a real OnSpeedConfig (which
+    // LoadDefaults-initialises iIasDisplayThresholdKt to the same 20
+    // kt the firmware ships with) and read the threshold from there,
+    // mirroring how SensorIO and LogReplayTask consume it in flight.
+    const onspeed::config::OnSpeedConfig pilotCfg;
+    const float kIasDisplayThresholdKt =
+        static_cast<float>(pilotCfg.iIasDisplayThresholdKt);
+
     bool iasAlive = false;
-    iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, rows.front().ias_kt);
+    iasAlive = onspeed::sensors::UpdateIasDisplayable(
+        iasAlive, rows.front().ias_kt, kIasDisplayThresholdKt);
     onspeed::AhrsInputs seed = BuildAhrsInputs(rows, 0, oatPresentInLog, iasAlive);
     ahrs.Init(seed, rows.front().palt_ft);
 
     for (size_t i = 0; i < rows.size(); ++i) {
         const InputRow& r = rows[i];
-        iasAlive = onspeed::sensors::UpdateIasAlive(iasAlive, r.ias_kt);
+        iasAlive = onspeed::sensors::UpdateIasDisplayable(
+            iasAlive, r.ias_kt, kIasDisplayThresholdKt);
         const onspeed::AhrsInputs in = BuildAhrsInputs(rows, i, oatPresentInLog, iasAlive);
         const onspeed::AhrsOutputs out = ahrs.Step(in, kImuDtSec);
 

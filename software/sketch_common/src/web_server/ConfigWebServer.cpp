@@ -1130,6 +1130,19 @@ void HandleConfigSave()
     // read muteAudioUnderIAS
     if (CfgServer.hasArg("muteAudioUnderIAS")) g_Config.iMuteAudioUnderIAS=CfgServer.arg("muteAudioUnderIAS").toInt();
 
+    // read iasDisplayThresholdKt
+    //   Clamp to [0, 100] knots.  Sentinel 0 == "always show, never
+    //   blank IAS / AOA".  Values above 100 are nonsensical for any
+    //   piston aircraft we support and likely a form-post error;
+    //   clamping is safer than blanking IAS forever on a stray entry.
+    if (CfgServer.hasArg("iasDisplayThresholdKt"))
+    {
+        int iThreshold = CfgServer.arg("iasDisplayThresholdKt").toInt();
+        if (iThreshold < 0)   iThreshold = 0;
+        if (iThreshold > 100) iThreshold = 100;
+        g_Config.iIasDisplayThresholdKt = iThreshold;
+    }
+
     // read 3d audio enabled/disabled
     if (CfgServer.hasArg("audio3D") && CfgServer.arg("audio3D")=="1") g_Config.bAudio3D=true;
     else                                                              g_Config.bAudio3D=false;

@@ -153,6 +153,13 @@ public:
     int             iAoaSmoothing;
     int             iPressureSmoothing;
     int             iMuteAudioUnderIAS;
+
+    // Threshold (knots) below which the firmware blanks the IAS / AOA
+    // readout on the display and log. Hysteretic: rises through this
+    // value, falls through (threshold - 5). Sentinel 0 = never blank
+    // (always-show, regardless of raw IAS). Default 20, matching the
+    // legacy hardcoded threshold.
+    int             iIasDisplayThresholdKt;
     SuDataSource    suDataSrc;
     std::string     sReplayLogFileName;
 
