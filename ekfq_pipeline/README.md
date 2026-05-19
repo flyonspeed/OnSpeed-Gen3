@@ -63,6 +63,39 @@ ekfq_pipeline/
    ```
    Outputs go to `analysis/out/<study-name>/{attitude,vertical,alpha,beta,biases,residuals}.csv`.
 
+## Driver: python vs host-main
+
+Two replay drivers are available, selected via `--driver`:
+
+### `--driver python` (default)
+
+In-process replay through `PipelineQuat.run()`. The reference Python
+implementation. Studies are stored as SQLite in `studies/<name>.db`.
+
+### `--driver host-main` (closes the C++ drift loop)
+
+Subprocesses the firmware's compiled `host_main` binary per trial,
+running the actual `EkfqPipeline.cpp` code that flies. Loss math
+stays in Python; the C++ binary is a pure replay engine.
+
+```bash
+python3 tune_ekf.py \
+  --driver host-main \
+  --host-main ../tools/regression/.pio/build/native/program \
+  --log log_007_fixed.csv \
+  --config-path onspeed2.cfg \
+  --trials 200 --loss-mode cruise-aoa
+```
+
+The host-main driver runs trials against the binary that flies, so
+any future Python↔C++ divergence in the EKFQ port surfaces as a
+tuning regression instead of a silent flight behaviour change.
+
+A 150-row smoke fixture lives at
+`tools/regression/fixtures/ekfq_substrate_smoke.{csv,cfg}` (with a
+committed golden) and is wired into `tools/regression/run_snapshot.py`
+so CI catches drift before a full tuning run picks it up.
+
 ## Loss profiles
 
 - `default` — 1:1:1 value weighting, 1.5 rate weights, 0.1 aerobatic

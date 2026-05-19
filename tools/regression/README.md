@@ -7,8 +7,8 @@ sketch, pure logic in `onspeed_core/`.
 ## What it does
 
 Builds `host_main.cpp` against the current `onspeed_core` (via PlatformIO
-`[env:native]`) and runs two golden checks. Both must pass; neither
-short-circuits the other.
+`[env:native]`) and runs a series of golden checks. All must pass; none
+short-circuits the others.
 
 ### 1. `ahrs_tone` — AHRS + ToneCalc regression (bedrock)
 
@@ -29,6 +29,48 @@ short-circuits the other.
 - Exercises `LogReplayEngine`: AOA smoothing, flap index lookup,
   pressure-coefficient computation, and all pass-through log fields.
 - The primary gate for PRs 2/3 of `PLAN_FIRMWARE_LOG_REPLAY_PARITY.md`.
+
+### 3. `ekfq_substrate_smoke` — Optuna substrate parity
+
+- Feeds `fixtures/ekfq_substrate_smoke.csv` (150-row extract of the
+  testbed flight log, real SD log format) + `fixtures/ekfq_substrate_smoke.cfg`
+  to `host_main ahrs_tone --algorithm ekfq --input-format sdlog`.
+- Diffs against `fixtures/ekfq_substrate_golden.csv`.
+- Exercises the same code path `ekfq_pipeline/tune_ekf.py --driver host-main`
+  drives per Optuna trial. Catches Python↔C++ drift in the EKFQ port
+  before it surfaces in a tuning run.
+
+## `ahrs_tone` input formats
+
+`ahrs_tone` accepts two CSV layouts via `--input-format`:
+
+- `simple` (default): the 9-column synthetic fixture format used by
+  `short_replay.csv` — `ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz`.
+- `sdlog`: real OnSpeed SD logs (same format as `replay_engine_input.csv`).
+  Used by the Optuna substrate (`ekfq_pipeline/`).
+
+### sdlog input format
+
+```bash
+host_main ahrs_tone \
+    --algorithm ekfq \
+    --input-format sdlog \
+    --input log_007_fixed.csv \
+    --config onspeed2.cfg \
+    --ekfq-config trial.kv \
+    --passthrough-cols vnPitch,vnRoll,vnVelNedDown
+```
+
+- `--config PATH`: per-aircraft OnSpeedConfig (V1 or V2). Provides
+  install bias (`pitchBiasDeg`, `rollBiasDeg`). Required with
+  `--input-format=sdlog`.
+- `--ekfq-config PATH`: per-trial Q/R/pipeline override kv file. See
+  `software/Libraries/onspeed_core/src/ahrs/EkfqConfigKv.h` for the
+  format. Optional; defaults if absent.
+- `--passthrough-cols A,B,C`: comma-separated input column names. The
+  raw values are appended to each output row as `passthrough_<name>`
+  columns. Used so a Python scorer can read truth columns aligned to
+  the per-row AHRS outputs.
 
 ## Tolerance model
 
@@ -85,7 +127,9 @@ Each PR that moves a new module into `onspeed_core` or changes LogReplayEngine
 behavior extends `host_main.cpp` and regenerates the affected golden(s) as
 part of its commit history.
 
-- `ahrs_tone` golden (`golden.csv`): update when AHRS, Kalman, or ToneCalc
-  math changes.
+- `ahrs_tone` goldens (`golden.csv`, `golden_ekfq.csv`): update when
+  AHRS, Kalman, or ToneCalc math changes.
 - `replay_engine` golden (`replay_engine_golden.csv`): update when
   LogReplayEngine, FlapsDetector, or AOA smoothing changes.
+- `ekfq_substrate` golden (`ekfq_substrate_golden.csv`): update when
+  the EKFQ + EkfqPipeline + sdlog input adapter behaviour changes.
