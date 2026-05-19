@@ -201,32 +201,28 @@ float mount3D_Z = 0.30f;    // meters, +Z forward (out the nose)
 
 Defaults place the indexer 30 cm forward and 5 cm above the pilot's eyepoint — a sensible starting spot.
 
-#### Draw callback
+#### Render path: reuse the per-window callback
 
-Register on plugin load:
+Critical constraint from `software/OnSpeed-XPlane-Plugin/CLAUDE.md`:
 
-```cpp
-XPLMRegisterDrawCallback(&DrawMounted3D, xplm_Phase_LastCockpit,
-                          /*before=*/0, /*refcon=*/nullptr);
-```
+> Draw INSIDE the per-window callback. NOT a global XPLMRegisterDrawCallback phase. X-Plane's matrices are set up to map window coords → clip space ONLY during the per-window callback.
 
-Naming note: the mode is called "Mounted in 3D cockpit" because that's the user-facing concept (the indexer feels mounted to the glareshield). The implementation runs in `xplm_Phase_LastCockpit` — X-Plane's *2D* drawing phase that fires on top of the 3D cockpit view. The projection math gives us the 3D-anchored feel; we never draw geometry in a true 3D phase, which is why this works on Apple Silicon Metal.
+This rules out `XPLMRegisterDrawCallback(xplm_Phase_LastCockpit)` as the render surface — even though it's a 2D phase, the matrix setup isn't right for plugin draws on Metal, and the existing `RenderTexturedQuadVA` would silently no-op.
 
-The callback fires once per frame after X-Plane finishes drawing the cockpit. It does nothing if:
+The fix: keep using the existing per-window draw callback. In mounted mode, instead of rendering at a static window position, we:
 
-- `placementMode != kPlacementMounted3D`, OR
-- The current view is external (not 3D-cockpit). Read via `sim/graphics/view/view_type` — accept only `1023` (forward with panel) and `1026` (forward 3D cockpit).
+1. Compute the projected screen rect once per flight loop (in `Tick`).
+2. Call `XPLMSetWindowGeometry(s_window, left, top, right, bottom)` to move the window to the projected rect.
+3. Switch the window's decoration to `xplm_WindowDecorationSelfDecorated` (no chrome — chrome would visually break the "mounted to the cockpit" effect).
+4. The existing per-window `DrawWindow` callback then renders the quad at the new geometry on the next frame. No new render path.
 
-When active, the callback:
+In essence, mounted mode is "floating window where geometry is driven by projection math instead of the pilot's drag." The MODE-button click handling carries over verbatim. Drag handling adds a small layer on top (see "Mouse drag" below).
 
-1. Reads aircraft world position and attitude.
-2. Reads camera world position and attitude (pilot eyepoint + view direction).
-3. Reads screen size and FOV.
-4. Projects the persisted 3D anchor through aircraft attitude → world → camera → screen coordinates.
-5. If the anchor is behind the camera or off-screen by more than the quad's half-width, suppresses the draw.
-6. Otherwise, draws the 320×240 indexer quad centered on the projected screen point using the existing `RenderTexturedQuadVA` path.
+When the placement mode is `kPlacementMounted3D` and the current view is external (not 3D-cockpit), the geometry update is skipped AND `XPLMSetWindowIsVisible(false)` hides the window. When the pilot returns to 3D-cockpit view, visibility is restored and geometry resumes tracking the projection.
 
-The X-Plane window object (`s_window`) is hidden via `XPLMSetWindowIsVisible(false)` while mounted mode is active. The M5 firmware's `loop()` still runs in the per-frame Tick to update the framebuffer; we just don't draw a window. Click handling moves from the window to the draw callback (see "Mouse drag" below).
+The view check uses `sim/graphics/view/view_type` — int dataref. Accept `1023` (forward with panel) and `1026` (forward 3D cockpit). Reject everything else.
+
+If the anchor projects behind the camera (camera-frame Z >= 0), the geometry update is skipped AND visibility is hidden. The visibility flip is the on/off switch; geometry move is the position update.
 
 #### Projection math
 
@@ -275,17 +271,11 @@ Anchor3D InverseProject(float screenX, float screenY, float depthMeters,
 
 #### Mouse drag
 
-The existing `HandleClick` callback (`IndexerWindow.cpp`) runs on the X-Plane window. In mounted mode the window is hidden, so we need a different click path.
+The existing `HandleClick` callback in `IndexerWindow.cpp` already runs on the X-Plane window. Since mounted mode reuses that window (just driving its geometry), the click handler keeps working for free — the MODE button still cycles modes.
 
 Key behavioral choice: when the pilot drags, the anchor moves on a plane parallel to the camera image plane at the *click-time* distance. The depth (camera-frame Z) of the anchor is captured on `xplm_MouseDown` and held constant for the duration of the drag. Without this, a small mouse motion at large distance produces a huge anchor jump (the indexer punches through the panel into infinity or shoots back to the horizon). With it, drag feels like sliding the indexer along the glareshield at the depth it was when the pilot grabbed it.
 
-Two options considered:
-
-1. **Resize the X-Plane window to match the projected screen rect each frame**, keep its click handler. Window is invisible-chrome but still in the SDK's click-routing path. Pros: zero new click-routing code; existing MODE-button logic still works. Cons: pixel-level coupling between projection and window geometry. Risk: window geometry updates fight with X-Plane's window-management every frame.
-
-2. **Custom click intercept in the draw callback.** Register a sniffer or use a transparent click-catching window above the cockpit. Pros: clean separation. Cons: more new code; click-routing nuance.
-
-**Decision: option 1.** Resize the existing window each frame to match the projected quad rect (`XPLMSetWindowGeometry(s_window, left, top, right, bottom)` with `xplm_WindowDecorationSelfDecorated` so no visible chrome), and keep the existing `HandleClick`. The window is "invisible" to the user but real to the click router. This reuses the proven MODE-button click logic verbatim.
+The current `HandleClick` only handles `xplm_MouseDown` and consumes other events with `return 1`. To support drag we extend it to recognize `xplm_MouseDrag` and `xplm_MouseUp` when placement mode is `kPlacementMounted3D`.
 
 **Drag handler addition to `HandleClick`:**
 
