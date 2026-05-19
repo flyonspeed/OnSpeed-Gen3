@@ -82,6 +82,13 @@ struct PersistedState {
 // invokes ApplyPersistedState on the next flight-loop tick.
 void ApplyPersistedState(const PersistedState& st);
 
+// Destroy and recreate the X-Plane window with a different decoration.
+// Used when switching between mounted (self-decorated) and floating/
+// pop-out (RoundRectangle).  No-op if no window exists yet.  Must be
+// called from a flight-loop callback context (same restriction as
+// ApplyPersistedState).
+void RecreateWindowWithDecoration(int decoration);
+
 // Snapshot current window state for saving.  Reads geometry from the
 // active positioning mode (floating vs popped-out) via the matching
 // SDK getter; the other mode's coords are held at their last persisted

@@ -589,7 +589,7 @@ bool InstallPanelAndRunSetup()
     return true;
 }
 
-bool CreateXPlaneWindow()
+bool CreateXPlaneWindow(XPLMWindowDecoration decoration)
 {
     // GL texture allocation is deferred to the first DrawWindow call —
     // see EnsureGLReady().  X-Plane's GL context is only bound during
@@ -624,13 +624,26 @@ bool CreateXPlaneWindow()
     // also paints a solid bg fill behind our content — but since our
     // texture is fully opaque (alpha=255 throughout) and exactly
     // covers the content area, the bg fill is invisible underneath.
-    params.decorateAsFloatingWindow = xplm_WindowDecorationRoundRectangle;
+    params.decorateAsFloatingWindow = decoration;
     params.layer                  = xplm_WindowLayerFloatingWindows;
     s_window = XPLMCreateWindowEx(&params);
     if (!s_window) return false;
 
     XPLMSetWindowTitle(s_window, "OnSpeed Indexer");
     return true;
+}
+
+// Destroy + recreate the window with a different decoration.  X-Plane
+// SDK provides no in-place decoration setter, so switching between
+// mounted-mode (self-decorated, no chrome) and floating / pop-out
+// (round-rectangle, drag handle + close box) requires this dance.
+void RecreateWindowWithDecorationInternal(XPLMWindowDecoration decoration)
+{
+    if (s_window) {
+        XPLMDestroyWindow(s_window);
+        s_window = nullptr;
+    }
+    CreateXPlaneWindow(decoration);
 }
 
 }  // namespace
@@ -659,7 +672,7 @@ static bool LazyInitOnFirstShow()
         return false;
     }
     XPLMDebugString("FlyOnSpeed: M5 indexer panel installed, creating window\n");
-    if (!CreateXPlaneWindow()) {
+    if (!CreateXPlaneWindow(xplm_WindowDecorationRoundRectangle)) {
         XPLMDebugString("FlyOnSpeed: M5 indexer CreateXPlaneWindow failed\n");
         return false;
     }
@@ -955,6 +968,25 @@ void ApplyPersistedState(const PersistedState& in)
     ClampPopOutGeom(&st);
     s_persisted = st;
 
+    const XPLMWindowDecoration desiredDecoration =
+        (st.placementMode ==
+            onspeed_xplane::indexer::kPlacementMounted3D)
+        ? xplm_WindowDecorationSelfDecorated
+        : xplm_WindowDecorationRoundRectangle;
+
+    // If window already exists with wrong decoration, recreate.  X-Plane
+    // SDK provides no in-place decoration setter.  This static-local
+    // tracking is safe because ApplyPersistedState is documented to
+    // run only from the flight-loop callback context.
+    if (s_window) {
+        static XPLMWindowDecoration s_currentDecoration =
+            xplm_WindowDecorationRoundRectangle;
+        if (s_currentDecoration != desiredDecoration) {
+            RecreateWindowWithDecorationInternal(desiredDecoration);
+            s_currentDecoration = desiredDecoration;
+        }
+    }
+
     // Logging is cheap and load-bearing for debugging the boot path —
     // keep it.  XPLMDebugString is safe from any non-render context.
     char dbuf[256];
@@ -987,23 +1019,30 @@ void ApplyPersistedState(const PersistedState& in)
         return;
     }
 
-    // Window exists.  Apply positioning mode first (X-Plane reparents
-    // the window into a new coord space), then geometry in that
-    // mode's space, then visibility.
-    if (st.isPoppedOut) {
+    // Window exists.  Apply positioning mode + geometry per the
+    // active placement mode.
+    using onspeed_xplane::indexer::kPlacementPopOut;
+    using onspeed_xplane::indexer::kPlacementFloating;
+    using onspeed_xplane::indexer::kPlacementMounted3D;
+
+    if (st.placementMode == kPlacementPopOut) {
         XPLMSetWindowPositioningMode(s_window, xplm_WindowPopOut, -1);
         XPLMSetWindowGeometryOS(s_window,
                                 st.popLeft,
                                 st.popTop,
                                 st.popLeft + st.popWidth,
                                 st.popTop  - st.popHeight);
-    } else {
+    } else if (st.placementMode == kPlacementFloating) {
         XPLMSetWindowPositioningMode(s_window, xplm_WindowPositionFree, -1);
         XPLMSetWindowGeometry(s_window,
                               st.floatLeft,
                               st.floatTop,
                               st.floatLeft + st.floatWidth,
                               st.floatTop  - st.floatHeight);
+    } else {
+        // Mounted3D: per-Tick projection sets geometry.  Just clear
+        // any pop-out state so it lives in the floating coord space.
+        XPLMSetWindowPositioningMode(s_window, xplm_WindowPositionFree, -1);
     }
 
     XPLMSetWindowIsVisible(s_window, st.visible ? 1 : 0);
@@ -1022,6 +1061,17 @@ void GetCurrentState(PersistedState* out)
 
     const bool poppedOut = (XPLMWindowIsPoppedOut(s_window) != 0);
     out->isPoppedOut = poppedOut;
+    // Also derive placementMode for forward-compat. Mounted3D is not
+    // detectable from XPLM window state (its geometry is overwritten
+    // every Tick), so the only reliable signal is s_persisted itself.
+    if (s_persisted.placementMode ==
+            onspeed_xplane::indexer::kPlacementMounted3D) {
+        out->placementMode = onspeed_xplane::indexer::kPlacementMounted3D;
+    } else {
+        out->placementMode = poppedOut
+            ? onspeed_xplane::indexer::kPlacementPopOut
+            : onspeed_xplane::indexer::kPlacementFloating;
+    }
     if (poppedOut) {
         int l, t, r, b;
         XPLMGetWindowGeometryOS(s_window, &l, &t, &r, &b);
@@ -1166,6 +1216,12 @@ bool IsSerialOutOpen()
 const std::string& SerialOutPath()
 {
     return s_serialOutPath;
+}
+
+void RecreateWindowWithDecoration(int decoration)
+{
+    RecreateWindowWithDecorationInternal(
+        static_cast<XPLMWindowDecoration>(decoration));
 }
 
 }  // namespace onspeed_xplane::indexer
