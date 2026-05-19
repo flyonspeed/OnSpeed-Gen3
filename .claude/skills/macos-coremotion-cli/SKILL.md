@@ -223,10 +223,3 @@ error in Console.
 Any one missing → `Abort trap: 6`. All four → first run shows the
 consent prompt; click Allow; tool runs.
 
-## A reference example in this repo
-
-`scratch/airpods_to_m5/` is the canonical example — a 200-line Swift
-program that reads `CMHeadphoneMotionManager` and emits OnSpeed `#1`
-frames over serial. The build dance is exactly what's described
-above. See its `README.md` for the user-facing instructions and
-`recenter.sh` for the SIGUSR1 pattern.

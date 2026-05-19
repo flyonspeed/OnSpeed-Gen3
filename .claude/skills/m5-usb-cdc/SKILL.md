@@ -1,6 +1,6 @@
 ---
 name: m5-usb-cdc
-description: Use when writing a host-side program (Python, Swift, Rust, C, anything) that drives the OnSpeed M5 / huVVer secondary display over USB by speaking the `#1` display-serial wire format. Covers port discovery, baud rate, the Data Source menu requirement, the canonical frame builder/parser, and the gotchas that have bitten every host-side bridge so far (X-Plane plugin, airpods_to_m5, m5-replay).
+description: Use when writing a host-side program (Python, Swift, Rust, C, anything) that drives the OnSpeed M5 / huVVer secondary display over USB by speaking the `#1` display-serial wire format. Covers port discovery, baud rate, the Data Source menu requirement, the canonical frame builder/parser, and the gotchas that have bitten every host-side bridge so far (X-Plane plugin, m5-replay).
 ---
 
 # Driving the M5 / huVVer over USB-CDC
@@ -8,7 +8,7 @@ description: Use when writing a host-side program (Python, Swift, Rust, C, anyth
 ## When to use this skill
 
 A host-side program needs to push live data onto the M5 (or huVVer-AVI)
-panel-mount display. Examples that already exist or have come up:
+panel-mount display. Examples that already exist:
 
 - The **X-Plane plugin** streams sim flight state to a tethered M5 so
   the pilot can fly the sim with the real M5 indicator in their hand
@@ -16,8 +16,6 @@ panel-mount display. Examples that already exist or have come up:
   `docs/site/docs/xplane/m5-tethered.md`).
 - The **m5-replay** tool replays an SD-card CSV through a USB-tethered
   M5 for bench triage (`tools/m5-replay/`).
-- The **airpods_to_m5** one-off feeds AirPods head-tracking pitch/roll
-  to the M5's attitude mode (`scratch/airpods_to_m5/`).
 
 In every case the recipe is the same: open the right `/dev/cu.*` at
 115200 8N1, emit valid 77-byte `#1` frames at 20 Hz, and make sure the
@@ -49,8 +47,7 @@ uppercase ASCII hex digits, append CR LF.
 **Pin the v4.23 frame in a comment.** Every host-side bridge that
 talks to the M5 should have a header comment that names the protocol
 version it targets, so a future protocol bump produces a build error
-or a visible mismatch instead of silently corrupting frames. See the
-top of `scratch/airpods_to_m5/airpods_to_m5.swift` for the pattern.
+or a visible mismatch instead of silently corrupting frames.
 
 ## Port discovery
 
@@ -168,8 +165,7 @@ confirm:
 4. The two ASCII hex digits at offsets 73–74 self-consistently match
    the byte sum over offsets 0–72 masked to 8 bits
 
-If those four checks pass, the M5's parser will accept the frame. See
-`scratch/airpods_to_m5/frame_smoke.swift` for a 30-line example. The
+If those four checks pass, the M5's parser will accept the frame. The
 M5 firmware's `test/test_display_serial/` unit tests pin the same
 invariants on the C++ side.
 
