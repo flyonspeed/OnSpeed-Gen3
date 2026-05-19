@@ -105,8 +105,15 @@ public:
         /// outputs_.kalmanVsiFpm via unit conversions.  vz is
         /// NED-down internally; the value here is already flipped to
         /// the firmware's +climb convention.
-        float kalmanAltMeters = 0.0f;
-        float kalmanVsiMps    = 0.0f;
+        ///
+        /// `ownsVerticalChannel = true` on this struct tells Ahrs::Step
+        /// to bypass the standalone KalmanFilter and use these values
+        /// directly.  Algorithms that don't track altitude (Madgwick)
+        /// leave `ownsVerticalChannel = false` and the standalone
+        /// Kalman runs on baro + earth-vert-G in stage 3c.
+        bool  ownsVerticalChannel = true;
+        float kalmanAltMeters     = 0.0f;
+        float kalmanVsiMps        = 0.0f;
 
         float compFadeIn = 0.0f;
         bool iasGate     = false;

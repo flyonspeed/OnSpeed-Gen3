@@ -272,9 +272,10 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     float DerivedAOA    = outputs_.derivedAoaDeg;
     float EarthVertG    = outputs_.earthVertG;
 
-    // EKFQ publishes altitude/VSI from its own state; Madgwick relies
-    // on the standalone Kalman in stage 3c.  Default to zeros and let
-    // the active algorithm overwrite if it owns the vertical channel.
+    // Each algorithm's Outputs struct carries an `ownsVerticalChannel`
+    // bool.  EKFQ tracks z/vz/b_az as filter states and sets it true,
+    // returning altitude/VSI on the same struct.  Madgwick sets it
+    // false and the standalone KalmanFilter in stage 3c handles it.
     bool   algoOwnsVerticalChannel = false;
     float  algoKalmanAltMeters     = 0.0f;
     float  algoKalmanVsiMps        = 0.0f;
@@ -305,7 +306,7 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         algoCompLatG_          = ekfqOut.accelLatCompG;
         algoCompVertG_         = ekfqOut.accelVertCompG;
         algoCompFadeIn_        = ekfqOut.compFadeIn;
-        algoOwnsVerticalChannel = true;
+        algoOwnsVerticalChannel = ekfqOut.ownsVerticalChannel;
         algoKalmanAltMeters    = ekfqOut.kalmanAltMeters;
         algoKalmanVsiMps       = ekfqOut.kalmanVsiMps;
     } else {
