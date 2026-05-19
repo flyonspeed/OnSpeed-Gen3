@@ -47,7 +47,10 @@ struct CameraState {
     float pitchDeg = 0.0f;
     float rollDeg  = 0.0f;
     float headingDeg = 0.0f;
-    float fovDeg = 70.0f;      // vertical FOV
+    float fovDeg = 70.0f;      // vertical FOV, expected in (0, 180);
+                               // values outside this range cause
+                               // ProjectAnchor to return visible=false
+                               // and InverseProject to return zero.
 };
 
 struct ScreenDim {

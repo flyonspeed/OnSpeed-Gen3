@@ -123,7 +123,15 @@ ProjectedQuad ProjectAnchor(const Anchor3D& anchor,
 
     pq.depthMeters = -pCam[2];
 
-    // 6. Pixel focal length from vertical FOV.
+    // 6. Pixel focal length from vertical FOV.  Guard against the
+    //    degenerate FOV values X-Plane's dataref can transiently
+    //    return during view transitions and sim init.  Without this,
+    //    focalPx becomes inf or NaN and propagates to the projected
+    //    screen coordinates.
+    if (camera.fovDeg <= 0.0f || camera.fovDeg >= 180.0f) {
+        pq.visible = false;
+        return pq;
+    }
     const float fovRad = deg2rad(camera.fovDeg);
     const float focalPx = static_cast<float>(screen.hPx) /
                           (2.0f * std::tan(fovRad * 0.5f));
@@ -151,8 +159,14 @@ Anchor3D InverseProject(float screenX,
                         const CameraState& camera,
                         const ScreenDim& screen)
 {
+    // Guard against degenerate FOV (see ProjectAnchor for context).
+    // InverseProject is invoked from the drag handler, which would
+    // otherwise push an inf/NaN anchor into the persisted state.
+    if (camera.fovDeg <= 0.0f || camera.fovDeg >= 180.0f) {
+        return Anchor3D{};
+    }
     // Reverse of step 7: recover camera-frame X/Y from screen and depth.
-    const float fovRad = camera.fovDeg * (kPi / 180.0f);
+    const float fovRad = deg2rad(camera.fovDeg);
     const float focalPx = static_cast<float>(screen.hPx) /
                           (2.0f * std::tan(fovRad * 0.5f));
 

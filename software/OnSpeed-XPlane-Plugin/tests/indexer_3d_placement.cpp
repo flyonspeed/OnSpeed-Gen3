@@ -153,6 +153,29 @@ int main()
         check(!pq.visible, "wildly-off-screen anchor is suppressed");
     }
 
+    // ----------------------------------------------------------------
+    // 7. Degenerate FOV → visible=false; no NaN/inf propagated.
+    //    X-Plane's FOV dataref can transiently read 0 during view
+    //    transitions; without a guard this would produce inf/NaN
+    //    screen coords.
+    // ----------------------------------------------------------------
+    {
+        Anchor3D      anchor{0.0f, 0.0f, -0.30f};
+        AircraftState ac{0,0,0, 0,0,0};
+        CameraState   cam{0,0,0, 0,0,0, 0.0f};   // degenerate FOV
+        ScreenDim     sd{1920, 1080};
+
+        ProjectedQuad pq = ProjectAnchor(anchor, ac, cam, sd);
+        check(!pq.visible, "FOV=0 produces visible=false");
+
+        Anchor3D recovered = InverseProject(100.0f, 100.0f, 0.30f,
+                                            ac, cam, sd);
+        check(std::isfinite(recovered.xMeters)
+              && std::isfinite(recovered.yMeters)
+              && std::isfinite(recovered.zMeters),
+              "FOV=0 InverseProject returns finite values");
+    }
+
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return EXIT_FAILURE;
