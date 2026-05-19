@@ -12,10 +12,9 @@ Madgwick::Madgwick()
     , accelVertFilter_(kAccelEmaAlpha)
 {
     // Seed accel filters with the production "level on the ground" rest
-    // state (Z = +1 g, X = Y = 0). Matches Ahrs's wire-side stage and
-    // the legacy single-EMA layout — first frames before the IMU has
-    // produced a sample yield a sane attitude rather than a degenerate
-    // (0, 0, 0).
+    // state (Z = +1 g, X = Y = 0).  Seeding here means the first
+    // frames — before the IMU has produced a real sample — yield a
+    // sane attitude rather than a degenerate (0, 0, 0).
     accelFwdFilter_.seed(0.0f);
     accelLatFilter_.seed(0.0f);
     accelVertFilter_.seed(+1.0f);

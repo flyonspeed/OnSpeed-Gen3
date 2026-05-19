@@ -18,10 +18,11 @@ namespace onspeed::ahrs {
 
 namespace {
 
-// IAS-derivative EMA alpha at the pressure-sensor cadence. Kept at the
-// legacy value so the regression-snapshot golden matches bit-for-bit.
-// Not algorithm-tunable; if an algorithm wants a different TASdot
-// smoothing it can apply its own EMA internally on `in.tasDotMps2`.
+// IAS-derivative EMA alpha at the pressure-sensor cadence. The
+// resulting smoothed TASdot is consumed by the AHRS algorithms for
+// their centripetal compensation; an algorithm that wants different
+// smoothing can apply its own EMA internally on the passed-in
+// `in.tasDotMps2`.
 constexpr float kIasSmoothing      = 0.0179f;
 constexpr float kIasTauFactor      = (1.0f / kIasSmoothing) - 1.0f;
 
@@ -30,7 +31,9 @@ constexpr float kKalZVariance      = 0.79078f;
 constexpr float kKalAccelVariance  = 1.0f;
 constexpr float kKalAccelBiasVar   = 1e-11f;
 
-// OAT validity window matches legacy logic: |T_C| < 100.
+// OAT validity window: |T_C| < 100.  Outside this range the reading
+// is treated as a sensor fault, and TAS density-correction falls
+// back to the no-OAT path.
 inline bool oatInBand(float c) { return c > -100.0f && c < 100.0f; }
 
 }   // namespace
@@ -86,12 +89,11 @@ void Ahrs::Reconfigure(const AhrsConfig& cfg)
 
 void Ahrs::Init(const AhrsInputs& seedFrame, float seedPaltFt)
 {
-    // Compute the seed pitch/roll from the supplied IMU sample using
-    // the same accelPitch/accelRoll helpers IMU::PitchAC / RollAC uses,
-    // then add the installation bias.  Mirrors the legacy AHRS::Init:
-    //
-    //   SmoothedPitch = g_pIMU->PitchAC() + g_Config.fPitchBias;
-    //   SmoothedRoll  = g_pIMU->RollAC()  + g_Config.fRollBias;
+    // Seed pitch/roll from the supplied IMU sample via accelPitch /
+    // accelRoll (the same helpers IMU::PitchAC / RollAC uses), then
+    // add the installation bias.  Hand the seed angles to the active
+    // algorithm so the fusion math starts from a non-degenerate
+    // attitude rather than identity.
     const float fSeedPitch = onspeed::accelPitch(
         seedFrame.imu.accelXG, seedFrame.imu.accelYG, seedFrame.imu.accelZG)
         + cfg_.pitchBiasDeg;
@@ -211,8 +213,9 @@ void Ahrs::updateTas_(const AhrsInputs& in)
 
 AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
 {
-    // Use measured dt when available; fall back to nominal sample rate
-    // if dt is invalid. Same NaN/inf/<=0/giant-step guards as legacy.
+    // Use measured dt when available; fall back to the nominal sample
+    // period when dt is invalid (NaN/inf/non-positive) or implausibly
+    // large (a stalled task should not integrate over the long delay).
     if (std::isnan(dtSec) || std::isinf(dtSec) || dtSec <= 0.0f) {
         dtSec = imuDeltaTime_;
     }
@@ -354,21 +357,13 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         kalVsiMpsForFlightPath = 0.0f;
     }
 
-    // 4b. FlightPath ramp-in. After the iasAlive rising edge, the
-    //     Kalman's VSI may have built up while the gate was closed;
-    //     unclamping in one frame produces an instant FlightPath step.
-    //     Scale by the active algorithm's compFadeIn (each algorithm
-    //     ramps its own comp factors with the same shape) so the
-    //     FlightPath ramps in over the algorithm's τ instead of
-    //     stepping. See issue #114 / PR #275.
-    //
-    //     Until A2's decoupling work lands, both algorithms use the
-    //     legacy compFadeIn shape against in.sensors.iasAlive, so the
-    //     ramp behaviour matches master bit-for-bit.
+    // 4b. FlightPath = asin(VSI / TAS), in degrees.  When the display
+    //     gate is closed (iasAlive=false), VSI is already zeroed in 4a,
+    //     so FlightPath naturally falls to 0 — the safeAsin clamps the
+    //     trivial case.
     float FlightPath;
     if (in.sensors.iasAlive) {
-        const float vsiFaded = kalVsiMpsForFlightPath * algoCompFadeIn_;
-        FlightPath = onspeed::rad2deg(onspeed::safeAsin(vsiFaded / tas_));
+        FlightPath = onspeed::rad2deg(onspeed::safeAsin(kalVsiMpsForFlightPath / tas_));
     } else {
         FlightPath = 0.0f;
     }

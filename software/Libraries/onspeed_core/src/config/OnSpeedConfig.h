@@ -154,11 +154,12 @@ public:
     int             iPressureSmoothing;
     int             iMuteAudioUnderIAS;
 
-    // Threshold (knots) below which the firmware blanks the IAS / AOA
-    // readout on the display and log. Hysteretic: rises through this
-    // value, falls through (threshold - 5). Sentinel 0 = never blank
-    // (always-show, regardless of raw IAS). Default 20, matching the
-    // legacy hardcoded threshold.
+    // Threshold (knots) below which the firmware blanks the IAS and
+    // AOA readout on the display.  Hysteretic: the bit rises through
+    // this value and falls through (threshold - 5).  Sentinel 0 means
+    // "never blank" (always show IAS/AOA regardless of raw value),
+    // matching the iMuteAudioUnderIAS == 0 always-on convention.
+    // Default 20 kt — chosen for a typical pitot's noise floor.
     int             iIasDisplayThresholdKt;
     SuDataSource    suDataSrc;
     std::string     sReplayLogFileName;

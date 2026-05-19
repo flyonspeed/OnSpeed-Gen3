@@ -38,25 +38,29 @@ class AHRS
 public:
     AHRS(int gyroSmoothing);
 
-    // === Public fields kept for legacy consumer compatibility ===
+    // === Public fields mirroring core AhrsOutputs for sketch consumers ===
+    //
+    // These cover the four-stage AHRS pipeline (see
+    // onspeed_core/src/ahrs/Ahrs.h):
+    //   Stage 1 — sensor:    rotation-corrected IMU acceleration.
+    //   Stage 3 — smoothing: wire-spec accel EMA for display + log.
+    //
+    // The Stage 2 (algorithm) post-comp accel is owned internally by
+    // each AHRS algorithm class (Madgwick / Ekf6Pipeline) and not
+    // exposed at the sketch-side boundary.
 
-    // Step 1 - IMU raw acceleration corrected for installation bias
+    // Stage 1 — IMU acceleration after installation-bias rotation.
     float           AccelFwdCorr;
     float           AccelLatCorr;
     float           AccelVertCorr;
 
-    // Step 2 - Corrected accelerations smoothed (mirror of core's
-    // wire-side EMA state).  These filter objects are seeded each frame
-    // — `update()` is never called on them.  Consumers read `.get()`
-    // directly.  The smoothing here is the wire/log/display protocol
-    // contract, not algorithm-internal pre-filtering.
+    // Stage 3 — wire-side accel smoothing.  Mirrors the core's
+    // wire-spec EMA state for display / log / serial-protocol
+    // consumers.  These filter objects are seeded each frame —
+    // `update()` is never called on them.  Read `.get()`.
     EMAFilter       AccelFwdFilter;
     EMAFilter       AccelLatFilter;
     EMAFilter       AccelVertFilter;
-
-    // Step 3 — Smoothed-and-comp-compensated accelerations are now
-    // owned internally by each AHRS algorithm (Madgwick / Ekf6Pipeline);
-    // they are no longer exposed at the AHRS-layer boundary.
 
     // Latest attitude estimate (degrees).
     float           SmoothedPitch;

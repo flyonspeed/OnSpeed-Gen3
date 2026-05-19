@@ -1,15 +1,16 @@
 // Ekf6Pipeline.h — AHRS-stage wrapper for the EKF6 6-state Euler EKF.
 //
-// Mirrors the Madgwick AHRS-stage wrapper: owns internal accel
-// pre-filtering, compFadeIn ramp, IAS-gate hysteresis state, and the
-// OnSpeed↔EKF6 sign-convention plumbing. The underlying EKF6 fusion
-// code (EKF6.h) is unchanged and continues to be the unit-testable
-// six-state filter; this class is just the AHRS-stage seam.
+// Owns internal accel pre-filtering, the compFadeIn ramp that softens
+// the iasGate rising-edge transient on the comp factors, the IAS-gate
+// hysteresis state, and the OnSpeed↔EKF6 sign-convention plumbing
+// (az/p/q negated on input to the filter's standard aerospace frame).
+// The underlying EKF6 fusion code (EKF6.h) is the unit-testable
+// six-state filter; this class is the AHRS-stage seam that adapts it
+// to the Ahrs::Step Inputs/Outputs contract.
 //
-// Constants are kept at the legacy Madgwick-tuned values for behaviour
-// parity with master. EKF6 is on death row (replaced by EKFQ in PR
-// #576); a future PR can promote these to a tunable config struct if
-// EKF6 outlives expectations.
+// Tuning constants are compile-time members of this class. Pilots do
+// not tune these; an algorithm developer who wants to retune EKF6 can
+// edit them directly.
 
 #ifndef ONSPEED_CORE_AHRS_EKF6_PIPELINE_H
 #define ONSPEED_CORE_AHRS_EKF6_PIPELINE_H
@@ -71,8 +72,9 @@ public:
         bool iasGate     = false;
 
         /// True on the frame where iasGate transitions false→true.
-        /// AHRS layer uses this to publish a "filter reset" signal so
-        /// downstream display can clear any iasGate=false visuals.
+        /// Step() uses this internally to fire
+        /// EKF6::resetAlphaCovariance(); exposed for tests + future
+        /// diagnostic consumers.
         bool iasGateRisingEdge = false;
     };
 

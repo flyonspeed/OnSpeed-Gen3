@@ -1,29 +1,24 @@
 // Madgwick.h — AHRS-stage Madgwick attitude pipeline.
 //
-// The OnSpeed AHRS layer is conceived as four stages:
+// The OnSpeed AHRS layer is structured as four stages:
 //
-//   raw sensors ──► AHRS (Madgwick / EKF6 / ...) ──► smoothing ──► outputs
+//   raw sensors ──► AHRS algorithm ──► smoothing ──► outputs
 //
-// The AHRS stage is owned by an algorithm class. Each algorithm class
-// (this file for Madgwick; EKF6.h for the legacy 6-state Euler EKF;
-// future EKFQ for the 11-state quaternion EKF) takes raw-corrected
-// sensor inputs and produces algorithm outputs — pitch, roll, derived
-// AOA, earth-vertical-G. Internal pre-filtering (accel smoothing,
-// compFadeIn ramp, comp-factor computation) and internal validity
-// decisions (when to apply centripetal compensation) live INSIDE the
-// algorithm class. Different algorithms get different constants and
-// different gates without retuning shared firmware-side state.
+// The AHRS stage is owned by an algorithm class — this file for
+// Madgwick; Ekf6Pipeline for EKF6.  An algorithm class takes raw-
+// corrected sensor inputs and produces algorithm outputs (pitch,
+// roll, derived AOA, earth-vertical-G).  Internal pre-filtering
+// (accel smoothing, compFadeIn ramp, comp-factor computation) and
+// the algorithm's own validity decisions (when to apply centripetal
+// compensation) live INSIDE the algorithm class.  Different
+// algorithms can use different constants and different gates without
+// sharing any retunable state at the Ahrs layer.
 //
-// The wire/log smoothing of accels for display purposes (the
-// `accelFwdSmoothed` / `accelLatSmoothed` / `accelVertSmoothed` fields
-// on the AhrsOutputs struct) is a SEPARATE stage owned by Ahrs::Step,
-// not by any algorithm. Those values track a wire-spec time constant
-// independent of which AHRS algorithm is active.
-//
-// Madgwick's internal accel EMA happens to use the same alpha as the
-// wire-spec EMA today (kAccelEmaAlpha == legacy kAccSmoothing). That's
-// historical — Madgwick was tuned against this exact filter response.
-// A future re-tune of either side can move independently.
+// The wire/log accel smoothing (`accelFwdSmoothed` /
+// `accelLatSmoothed` / `accelVertSmoothed` on AhrsOutputs) is a
+// SEPARATE stage owned by Ahrs::Step — it serves the wire-format
+// contract, runs algorithm-blind, and does not couple to the
+// algorithm-internal EMAs.
 
 #ifndef ONSPEED_CORE_AHRS_MADGWICK_H
 #define ONSPEED_CORE_AHRS_MADGWICK_H
@@ -45,9 +40,14 @@ public:
     /// Comp-fade ramp time constant (seconds).
     static constexpr float kCompFadeTauSec   = 0.5f;
     /// IAS rising-edge / falling-edge thresholds for the algorithm's
-    /// internal centripetal-comp gate. Currently mirror the firmware's
-    /// legacy display thresholds; a future PR may decouple if Madgwick
-    /// turns out to want different numbers from the display gate.
+    /// internal centripetal-comp gate.  Below the rising threshold,
+    /// tas and tasDot are dominated by pitot noise — applying comp
+    /// factors would inject that noise into the smoothed accel that
+    /// feeds the fusion algorithm.  Hysteresis prevents chatter near
+    /// the threshold.  Independent of the user-facing display gate
+    /// (OnSpeedConfig::iIasDisplayThresholdKt) — pilots tune the
+    /// display threshold for their airframe; this is the algorithm's
+    /// own view of the pitot's noise floor.
     static constexpr float kIasGateRisingKt  = 20.0f;
     static constexpr float kIasGateFallingKt = 15.0f;
 
