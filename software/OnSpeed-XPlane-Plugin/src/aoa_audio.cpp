@@ -785,15 +785,23 @@ static std::string buildLegacyJsonPath() {
     XPLMGetSystemPath(xpRoot);
 
     XPLMDataRef uiNameRef = XPLMFindDataRef("sim/aircraft/view/acf_ui_name");
-    if (!uiNameRef) return {};
+    if (!uiNameRef) {
+        XPLMDebugString("FlyOnSpeed: legacy-json: acf_ui_name dataref not found\n");
+        return {};
+    }
     char uiName[256] = {0};
     XPLMGetDatab(uiNameRef, uiName, 0, sizeof(uiName) - 1);
-    if (uiName[0] == '\0') return {};
+    if (uiName[0] == '\0') {
+        XPLMDebugString("FlyOnSpeed: legacy-json: acf_ui_name is empty\n");
+        return {};
+    }
 
     std::string path = xpRoot;
     path += "Custom Data/";
     path += uiName;
     path += ".json";
+
+    XPLMDebugString(("FlyOnSpeed: legacy-json: looking for " + path + "\n").c_str());
     return path;
 }
 
@@ -1223,6 +1231,19 @@ static void OnAircraftLoaded() {
         fONSPEEDSLOWAOA = kDefaultSettings.fONSPEEDSLOWAOA;
         fSTALLWARNAOA   = kDefaultSettings.fSTALLWARNAOA;
         fALPHASTALL     = kDefaultSettings.fALPHASTALL;
+
+        // Reset window state to compile-time defaults so a previous
+        // aircraft's state doesn't bleed through when the new .prf
+        // is absent or partial.  Without this, a fresh aircraft load
+        // inherits the prior aircraft's audio-window position +
+        // visibility + indexer state, and the first SaveSettings
+        // bakes those into the new .prf — looking like "settings
+        // carried across planes" rather than per-aircraft.
+        s_audioWindow = AudioWindowState{};
+#ifdef ENABLE_M5_INDEXER
+        indexerSettings = onspeed_xplane::indexer::PersistedState{};
+#endif
+
         const bool prfFound = LoadSettings();
 
         // No .prf yet for this aircraft: try importing settings from
@@ -1240,10 +1261,17 @@ static void OnAircraftLoaded() {
         // the .prf wins and seed-from-datarefs isn't called again
         // for this aircraft.
         if (!prfFound) {
+            XPLMDebugString("FlyOnSpeed: no .prf for this aircraft; "
+                            "trying legacy json import\n");
             const bool importedJson = TryImportLegacyJson();
             if (!importedJson) {
+                XPLMDebugString("FlyOnSpeed: legacy json import did "
+                                "not apply; falling back to dataref seed\n");
                 SeedSetpointsFromDatarefs();
             }
+        } else {
+            XPLMDebugString("FlyOnSpeed: .prf found for this aircraft; "
+                            "skipping legacy json import\n");
         }
     }
 
