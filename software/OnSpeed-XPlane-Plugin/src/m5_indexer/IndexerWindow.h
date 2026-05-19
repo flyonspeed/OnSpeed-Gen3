@@ -64,12 +64,17 @@ struct PersistedState {
     int  floatLeft = 100, floatTop = 600, floatWidth = 320, floatHeight = 240;
     int  popLeft = 100, popTop = 100, popWidth = 320, popHeight = 240;
     // Aircraft body frame: +X right, +Y up, +Z BACK (-Z forward / out
-    // the nose).  Matches Indexer3DPlacement.h's convention.  Defaults
-    // place the indexer 30 cm forward (-Z direction) and 5 cm above
-    // the cockpit reference point — visible from a typical eyepoint.
+    // the nose).  Matches Indexer3DPlacement.h's convention.
+    //
+    // Sentinel: mount3DSeeded=false → on first ApplyPersistedState in
+    // mounted mode, seed from pilots_head_x/y/z + 30 cm forward.  After
+    // the seed, the bool is set true and the actual mount3D_* are used.
+    // This lets the indexer land in front of the pilot for any aircraft
+    // without per-aircraft hand-tuning of defaults.
+    bool  mount3DSeeded = false;
     float mount3D_X = 0.0f;
-    float mount3D_Y = 0.05f;
-    float mount3D_Z = -0.30f;
+    float mount3D_Y = 0.0f;
+    float mount3D_Z = 0.0f;
 };
 
 // Apply persisted state.  MUST be called from a flight-loop callback,
@@ -88,6 +93,12 @@ void ApplyPersistedState(const PersistedState& st);
 // called from a flight-loop callback context (same restriction as
 // ApplyPersistedState).
 void RecreateWindowWithDecoration(int decoration);
+
+// Re-seed the mount3D anchor from the current pilot eyepoint.  Used
+// by the "Reset indexer position to default" menu item and triggered
+// automatically the first time a pilot enters mounted mode for an
+// aircraft that has no saved anchor.
+void ResetMount3DAnchor();
 
 // Snapshot current window state for saving.  Reads geometry from the
 // active positioning mode (floating vs popped-out) via the matching

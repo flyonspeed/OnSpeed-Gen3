@@ -547,6 +547,8 @@ static bool SaveSettings() {
     std::fprintf(fp, "indexerMount3DX = %.6f\n", indexerSettings.mount3D_X);
     std::fprintf(fp, "indexerMount3DY = %.6f\n", indexerSettings.mount3D_Y);
     std::fprintf(fp, "indexerMount3DZ = %.6f\n", indexerSettings.mount3D_Z);
+    std::fprintf(fp, "indexerMount3DSeeded = %d\n",
+                 indexerSettings.mount3DSeeded ? 1 : 0);
 #endif
     // fclose can return EOF if a buffered fprintf write hit an error
     // that fprintf itself didn't surface (full disk, broken NAS mount).
@@ -664,6 +666,9 @@ static bool LoadSettings() {
         }
         else if (!std::strcmp(key, "indexerMount3DZ")) {
             indexerSettings.mount3D_Z = static_cast<float>(std::atof(val));
+        }
+        else if (!std::strcmp(key, "indexerMount3DSeeded")) {
+            indexerSettings.mount3DSeeded = std::atoi(val) != 0;
         }
 #endif
         else if (!std::strcmp(key, "serialPortPath")) {
@@ -2094,6 +2099,11 @@ static void AudioMenuHandler([[maybe_unused]] void * mRef, void * iRef)
         applyMode(onspeed_xplane::indexer::kPlacementMounted3D);
         return;
     }
+    if (!strcmp(tag, "PlacementReset")) {
+        onspeed_xplane::indexer::ResetMount3DAnchor();
+        SaveSettings();
+        return;
+    }
     if (!strcmp(tag, "SerialOff")) {
         SetSerialPort("");
         return;
@@ -2669,6 +2679,9 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc) {
         static_cast<void*>(const_cast<char*>("PlacementPopOut")), 1);
     XPLMAppendMenuItem(g_PlacementMenuId, "Mounted in 3D cockpit",
         static_cast<void*>(const_cast<char*>("PlacementMounted3D")), 1);
+    XPLMAppendMenuSeparator(g_PlacementMenuId);
+    XPLMAppendMenuItem(g_PlacementMenuId, "Reset position to default",
+        static_cast<void*>(const_cast<char*>("PlacementReset")), 1);
     RefreshPlacementMenu();
 
     // USB-serial submenu — routes the same wire frames to a physical

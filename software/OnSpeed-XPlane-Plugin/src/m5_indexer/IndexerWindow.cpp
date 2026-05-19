@@ -87,6 +87,7 @@ extern void InjectSerialByte(char inChar);
 // (advanced on `serialDataFresh()`) doesn't keep accumulating samples
 // while the sim is frozen.
 #include "XPLMDataAccess.h"
+#include "XPLMCamera.h"
 extern XPLMDataRef pausedDataRef;
 
 namespace onspeed_xplane::indexer {
@@ -126,14 +127,26 @@ XPLMDataRef s_drAcLocalZ        = nullptr;
 XPLMDataRef s_drAcPitch         = nullptr;
 XPLMDataRef s_drAcRoll          = nullptr;
 XPLMDataRef s_drAcHeading       = nullptr;
-XPLMDataRef s_drCamX            = nullptr;
-XPLMDataRef s_drCamY            = nullptr;
-XPLMDataRef s_drCamZ            = nullptr;
-XPLMDataRef s_drCamPitch        = nullptr;
-XPLMDataRef s_drCamRoll         = nullptr;
-XPLMDataRef s_drCamHeading      = nullptr;
+// Camera position in OpenGL world coords (same frame as local_x/y/z).
+// sim/graphics/view/view_x/y/z and view_pitch/heading/roll are the
+// canonical "where is the camera looking" datarefs in world frame.
+// (pilots_head_* are aircraft-body-relative and were the wrong choice;
+// XPLMReadCameraPosition returned huge numbers suggesting a different
+// origin convention. view_* uses the same origin as local_*.)
+XPLMDataRef s_drViewX           = nullptr;
+XPLMDataRef s_drViewY           = nullptr;
+XPLMDataRef s_drViewZ           = nullptr;
+XPLMDataRef s_drViewPitch       = nullptr;
+XPLMDataRef s_drViewHeading     = nullptr;
+XPLMDataRef s_drViewRoll        = nullptr;
 XPLMDataRef s_drFovDeg          = nullptr;
 XPLMDataRef s_drViewType        = nullptr;
+// Pilot's eyepoint in aircraft body frame, used for seeding the
+// initial mount3D anchor.  These are body-relative (NOT world coords);
+// distinct from s_drViewX/Y/Z which are camera world position.
+XPLMDataRef s_drEyepointX       = nullptr;
+XPLMDataRef s_drEyepointY       = nullptr;
+XPLMDataRef s_drEyepointZ       = nullptr;
 bool        s_mount3DRefsInit   = false;
 
 // X-Plane window dimensions.  Native M5 panel is 320×240 — render
@@ -242,15 +255,51 @@ void EnsureMount3DRefs()
     s_drAcPitch    = XPLMFindDataRef("sim/flightmodel/position/theta");
     s_drAcRoll     = XPLMFindDataRef("sim/flightmodel/position/phi");
     s_drAcHeading  = XPLMFindDataRef("sim/flightmodel/position/psi");
-    s_drCamX       = XPLMFindDataRef("sim/graphics/view/pilots_head_x");
-    s_drCamY       = XPLMFindDataRef("sim/graphics/view/pilots_head_y");
-    s_drCamZ       = XPLMFindDataRef("sim/graphics/view/pilots_head_z");
-    s_drCamPitch   = XPLMFindDataRef("sim/graphics/view/pilots_head_the");
-    s_drCamRoll    = XPLMFindDataRef("sim/graphics/view/pilots_head_phi");
-    s_drCamHeading = XPLMFindDataRef("sim/graphics/view/pilots_head_psi");
-    s_drFovDeg     = XPLMFindDataRef("sim/graphics/view/field_of_view_deg");
+    s_drViewX       = XPLMFindDataRef("sim/graphics/view/view_x");
+    s_drViewY       = XPLMFindDataRef("sim/graphics/view/view_y");
+    s_drViewZ       = XPLMFindDataRef("sim/graphics/view/view_z");
+    s_drViewPitch   = XPLMFindDataRef("sim/graphics/view/view_pitch");
+    s_drViewHeading = XPLMFindDataRef("sim/graphics/view/view_heading");
+    s_drViewRoll    = XPLMFindDataRef("sim/graphics/view/view_roll");
+    s_drFovDeg      = XPLMFindDataRef("sim/graphics/view/field_of_view_deg");
     s_drViewType   = XPLMFindDataRef("sim/graphics/view/view_type");
+    s_drEyepointX   = XPLMFindDataRef("sim/graphics/view/pilots_head_x");
+    s_drEyepointY   = XPLMFindDataRef("sim/graphics/view/pilots_head_y");
+    s_drEyepointZ   = XPLMFindDataRef("sim/graphics/view/pilots_head_z");
     s_mount3DRefsInit = true;
+}
+
+// Seed s_persisted.mount3D_X/Y/Z from the pilot's eyepoint plus a
+// 30 cm forward offset.  Called on first ApplyPersistedState in
+// mounted mode (when mount3DSeeded is false), and on the
+// "Reset position to default" menu item.
+//
+// pilots_head_x/y/z is the eyepoint in aircraft body frame, in the
+// X-Plane convention: +X right, +Y up, +Z back.  Offset by -0.30 m
+// in Z to place the anchor 30 cm forward of the eyepoint, where a
+// glareshield instrument would naturally sit.
+void SeedMount3DAnchor()
+{
+    EnsureMount3DRefs();
+    const float eyeX = s_drEyepointX ? XPLMGetDataf(s_drEyepointX) : 0.0f;
+    const float eyeY = s_drEyepointY ? XPLMGetDataf(s_drEyepointY) : 0.0f;
+    const float eyeZ = s_drEyepointZ ? XPLMGetDataf(s_drEyepointZ) : 0.0f;
+    s_persisted.mount3D_X = eyeX;
+    s_persisted.mount3D_Y = eyeY;
+    s_persisted.mount3D_Z = eyeZ - 0.30f;   // 30 cm forward of eyepoint
+    s_persisted.mount3DSeeded = true;
+    s_dirty = true;
+
+    char dbg[160];
+    std::snprintf(dbg, sizeof(dbg),
+        "FlyOnSpeed: SeedMount3DAnchor — eye=(%.2f,%.2f,%.2f) "
+        "→ mount3D=(%.2f,%.2f,%.2f)\n",
+        static_cast<double>(eyeX), static_cast<double>(eyeY),
+        static_cast<double>(eyeZ),
+        static_cast<double>(s_persisted.mount3D_X),
+        static_cast<double>(s_persisted.mount3D_Y),
+        static_cast<double>(s_persisted.mount3D_Z));
+    XPLMDebugString(dbg);
 }
 
 bool IsInCockpitView()
@@ -270,6 +319,15 @@ void UpdateMounted3DGeometry()
     if (!s_window) return;
     EnsureMount3DRefs();
 
+    // Seed-on-first-use: pilots loading mounted mode for the first
+    // time per aircraft (or after a "Reset position" click) have
+    // mount3DSeeded=false.  Seed from the eyepoint so the indexer
+    // appears in front of the pilot rather than at the aircraft
+    // origin (which is often well off-screen).
+    if (!s_persisted.mount3DSeeded) {
+        SeedMount3DAnchor();
+    }
+
     if (!IsInCockpitView()) {
         XPLMSetWindowIsVisible(s_window, 0);
         return;
@@ -283,14 +341,15 @@ void UpdateMounted3DGeometry()
     ac.rollDeg    = s_drAcRoll     ? XPLMGetDataf(s_drAcRoll)     : 0.0f;
     ac.headingDeg = s_drAcHeading  ? XPLMGetDataf(s_drAcHeading)  : 0.0f;
 
+    // Camera position in OpenGL local frame (same origin as local_x/y/z).
     onspeed_xplane::indexer::CameraState cam{};
-    cam.xWorld     = s_drCamX       ? XPLMGetDataf(s_drCamX)       : 0.0f;
-    cam.yWorld     = s_drCamY       ? XPLMGetDataf(s_drCamY)       : 0.0f;
-    cam.zWorld     = s_drCamZ       ? XPLMGetDataf(s_drCamZ)       : 0.0f;
-    cam.pitchDeg   = s_drCamPitch   ? XPLMGetDataf(s_drCamPitch)   : 0.0f;
-    cam.rollDeg    = s_drCamRoll    ? XPLMGetDataf(s_drCamRoll)    : 0.0f;
-    cam.headingDeg = s_drCamHeading ? XPLMGetDataf(s_drCamHeading) : 0.0f;
-    cam.fovDeg     = s_drFovDeg     ? XPLMGetDataf(s_drFovDeg)     : 70.0f;
+    cam.xWorld     = s_drViewX       ? XPLMGetDataf(s_drViewX)       : 0.0f;
+    cam.yWorld     = s_drViewY       ? XPLMGetDataf(s_drViewY)       : 0.0f;
+    cam.zWorld     = s_drViewZ       ? XPLMGetDataf(s_drViewZ)       : 0.0f;
+    cam.pitchDeg   = s_drViewPitch   ? XPLMGetDataf(s_drViewPitch)   : 0.0f;
+    cam.rollDeg    = s_drViewRoll    ? XPLMGetDataf(s_drViewRoll)    : 0.0f;
+    cam.headingDeg = s_drViewHeading ? XPLMGetDataf(s_drViewHeading) : 0.0f;
+    cam.fovDeg     = s_drFovDeg      ? XPLMGetDataf(s_drFovDeg)      : 70.0f;
 
     onspeed_xplane::indexer::Anchor3D anchor{
         s_persisted.mount3D_X,
@@ -302,6 +361,43 @@ void UpdateMounted3DGeometry()
 
     const onspeed_xplane::indexer::ProjectedQuad pq =
         onspeed_xplane::indexer::ProjectAnchor(anchor, ac, cam, sd);
+
+    // One-shot diagnostic: log the projection inputs and result on
+    // the first call.  Helpful for debugging coord-frame issues.
+    static bool s_loggedFirstProjection = false;
+    if (!s_loggedFirstProjection) {
+        s_loggedFirstProjection = true;
+        char dbg[512];
+        std::snprintf(dbg, sizeof(dbg),
+            "FlyOnSpeed: Mount3D first projection — "
+            "ac=(%.1f,%.1f,%.1f) pyr=(%.1f,%.1f,%.1f) "
+            "cam=(%.1f,%.1f,%.1f) pyr=(%.1f,%.1f,%.1f) fov=%.1f "
+            "anchor=(%.3f,%.3f,%.3f) screen=%dx%d -> "
+            "vis=%d cx=%.1f cy=%.1f depth=%.3f\n",
+            static_cast<double>(ac.xWorld),
+            static_cast<double>(ac.yWorld),
+            static_cast<double>(ac.zWorld),
+            static_cast<double>(ac.pitchDeg),
+            static_cast<double>(ac.rollDeg),
+            static_cast<double>(ac.headingDeg),
+            static_cast<double>(cam.xWorld),
+            static_cast<double>(cam.yWorld),
+            static_cast<double>(cam.zWorld),
+            static_cast<double>(cam.pitchDeg),
+            static_cast<double>(cam.rollDeg),
+            static_cast<double>(cam.headingDeg),
+            static_cast<double>(cam.fovDeg),
+            static_cast<double>(anchor.xMeters),
+            static_cast<double>(anchor.yMeters),
+            static_cast<double>(anchor.zMeters),
+            sd.wPx, sd.hPx,
+            pq.visible ? 1 : 0,
+            static_cast<double>(pq.centerX),
+            static_cast<double>(pq.centerY),
+            static_cast<double>(pq.depthMeters));
+        XPLMDebugString(dbg);
+    }
+
     if (!pq.visible) {
         XPLMSetWindowIsVisible(s_window, 0);
         return;
@@ -511,13 +607,13 @@ int HandleClick(XPLMWindowID, int x, int y,
         s_drag.ac.pitchDeg   = s_drAcPitch    ? XPLMGetDataf(s_drAcPitch)    : 0;
         s_drag.ac.rollDeg    = s_drAcRoll     ? XPLMGetDataf(s_drAcRoll)     : 0;
         s_drag.ac.headingDeg = s_drAcHeading  ? XPLMGetDataf(s_drAcHeading)  : 0;
-        s_drag.cam.xWorld     = s_drCamX       ? XPLMGetDataf(s_drCamX)       : 0;
-        s_drag.cam.yWorld     = s_drCamY       ? XPLMGetDataf(s_drCamY)       : 0;
-        s_drag.cam.zWorld     = s_drCamZ       ? XPLMGetDataf(s_drCamZ)       : 0;
-        s_drag.cam.pitchDeg   = s_drCamPitch   ? XPLMGetDataf(s_drCamPitch)   : 0;
-        s_drag.cam.rollDeg    = s_drCamRoll    ? XPLMGetDataf(s_drCamRoll)    : 0;
-        s_drag.cam.headingDeg = s_drCamHeading ? XPLMGetDataf(s_drCamHeading) : 0;
-        s_drag.cam.fovDeg     = s_drFovDeg     ? XPLMGetDataf(s_drFovDeg)     : 70.0f;
+        s_drag.cam.xWorld     = s_drViewX       ? XPLMGetDataf(s_drViewX)       : 0.0f;
+        s_drag.cam.yWorld     = s_drViewY       ? XPLMGetDataf(s_drViewY)       : 0.0f;
+        s_drag.cam.zWorld     = s_drViewZ       ? XPLMGetDataf(s_drViewZ)       : 0.0f;
+        s_drag.cam.pitchDeg   = s_drViewPitch   ? XPLMGetDataf(s_drViewPitch)   : 0.0f;
+        s_drag.cam.rollDeg    = s_drViewRoll    ? XPLMGetDataf(s_drViewRoll)    : 0.0f;
+        s_drag.cam.headingDeg = s_drViewHeading ? XPLMGetDataf(s_drViewHeading) : 0.0f;
+        s_drag.cam.fovDeg     = s_drFovDeg      ? XPLMGetDataf(s_drFovDeg)      : 70.0f;
         XPLMGetScreenSize(&s_drag.sd.wPx, &s_drag.sd.hPx);
 
         // Project the current anchor to find depth + screen center.
@@ -1347,6 +1443,11 @@ void RecreateWindowWithDecoration(int decoration)
 {
     (void)RecreateWindowWithDecorationInternal(
         static_cast<XPLMWindowDecoration>(decoration));
+}
+
+void ResetMount3DAnchor()
+{
+    SeedMount3DAnchor();
 }
 
 }  // namespace onspeed_xplane::indexer
