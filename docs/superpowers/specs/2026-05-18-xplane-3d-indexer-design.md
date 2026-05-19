@@ -6,13 +6,14 @@ Owner: Sam (with feedback from Vac)
 
 ## Context
 
-Vac is using the OnSpeed X-Plane plugin and asked for three things in priority order:
+Vac is using the OnSpeed X-Plane plugin and asked for two things:
 
 1. **Place the indexer in 3D space, anchored to each aircraft.** Today the indexer is a floating 2D window in X-Plane's chrome (or popped out to its own OS window). Vac wants the equivalent of bolting it to the glareshield: when he pans the view, the indexer slides like a real instrument; when he switches aircraft, the position remembers where it was for that specific airframe.
-2. **Verify that settings actually stick per aircraft.** He reported that they don't. Reading the code, they should — there's already a `.prf` file per aircraft with full state. But the report needs empirical verification before extending the same machinery with new 3D-position fields.
-3. **Help find the L/D max angle for each aircraft, and at minimum set that point on the curve.** A stall mark would also be nice; the existing code already uses `acf_stall_warn_alpha` for that anchor.
+2. **Verify that settings actually stick per aircraft.** He reported that they don't. Reading the code, they should — there's already a `.prf` file per aircraft with full state. But the report needs empirical verification before extending the same machinery with new 3D-position fields. Sam will run this verification separately.
 
-This spec covers all three as three independent deliverables. They can ship in three separate PRs (A → B → C), with B as the headline feature and C as opt-in follow-on.
+An earlier draft included a third deliverable — an L/D max calibration wizard — but X-Plane exposes no aerodynamic-polar dataref we can build on, and the rule-of-thumb (Vbg ≈ 1.5·Vs) the auto-setpoint code already uses is the same approximation any wizard would have to start from. Pilots who want a measured number can tune `fLDMAXAOA` in the audio control window. Removed from scope.
+
+This spec covers deliverable B (mounted indexer) as the headline feature, plus a small side-task to support deliverable A (drop a legacy-format JSON in `Custom Data/` so the user can sanity-check the legacy-import path on a real aircraft load).
 
 ## Background: what's already in the plugin
 
@@ -69,11 +70,59 @@ OnSpeed development happens on Apple Silicon Macs where X-Plane runs Metal. **A 
 
 The path that works on Metal: render in `xplm_Phase_LastCockpit` (a 2D phase, on top of the cockpit view), with the screen position computed by hand-projecting a 3D anchor each frame. The indexer stays the same on-screen pixel size always, but its screen *position* moves as the camera rotates, exactly as if a real instrument were bolted to the glareshield.
 
-## Deliverable A — Verify per-aircraft persistence (~half day)
+## Deliverable A — Verify per-aircraft persistence (~half day, owned by Sam)
 
 ### Scope
 
-Empirical smoke-test of the existing `.prf` machinery to either confirm Vac's report or rule it out. No code changes unless a real bug is found.
+Empirical smoke-test of the existing `.prf` machinery to either confirm Vac's report or rule it out. No code changes unless a real bug is found. Sam owns this.
+
+### Side-task: legacy-JSON drop for sanity check
+
+The current plugin (master) already imports a legacy-format JSON at:
+
+```
+<X-Plane root>/Custom Data/<acf_ui_name>.json
+```
+
+on first aircraft load when no `.prf` exists yet. The format is a flat JSON object with five keys (see `aoa_audio.cpp::TryImportLegacyJson` and `buildLegacyJsonPath`):
+
+```json
+{
+  "Below LDMax":     5.5,
+  "Below OnSpeed":   7.0,
+  "OnSpeed Max":     8.5,
+  "Above OnSpeed":   11.0,
+  "IAS Tone Enable": 40
+}
+```
+
+Map to current plugin globals:
+
+| Legacy key | Current global |
+|---|---|
+| `Below LDMax` | `fLDMAXAOA` |
+| `Below OnSpeed` | `fONSPEEDFASTAOA` |
+| `OnSpeed Max` | `fONSPEEDSLOWAOA` |
+| `Above OnSpeed` | `fSTALLWARNAOA` |
+| `IAS Tone Enable` | `iMuteAudioUnderIAS` |
+
+Order constraint: `Below LDMax < Below OnSpeed < OnSpeed Max < Above OnSpeed`. If violated, the import is skipped and the legacy file is left in place.
+
+A test file has been written to `/Users/sritchie/X-Plane 12/Custom Data/Cessna 172 SP Skyhawk - 180HP.json` with the values shown above. The filename assumes `acf_ui_name` for the stock C172 SP equals `Cessna 172 SP Skyhawk - 180HP` (read from the `.acf` file's `acf/_descrip` field, which X-Plane uses as the UI name when no explicit `_ui_name` is set).
+
+To verify the import:
+
+1. Delete any existing `Output/preferences/AOA-Tone-FlyOnSpeed-Cessna_172SP.prf` (or whatever the .prf basename is for the stock C172 — `sanitizeAcfBasename` strips paths and extension).
+2. Load the stock C172 in X-Plane.
+3. Check X-Plane's `Log.txt`. On a successful import you'll see lines like:
+   ```
+   FlyOnSpeed: legacy json-config found at <path>.json — attempting import
+   FlyOnSpeed: imported legacy thresholds — ...
+   ```
+4. The `Custom Data/<name>.json` file is renamed to `<name>.json.imported` on successful import. If it's still there, the import was skipped (parse incomplete, thresholds out of order, or X-Plane reports a different `acf_ui_name` than guessed). The Log.txt will say which.
+5. If the path was wrong, copy `<X-Plane>/Custom Data/Cessna 172 SP Skyhawk - 180HP.json` to whatever path the log reports the plugin DID look at.
+
+This verifies both: (a) the legacy-import code path works end-to-end, and (b) `acf_ui_name` resolves to the expected string for the stock C172. Useful even if per-aircraft persistence otherwise turns out to be solid.
 
 ### Test matrix
 
@@ -341,44 +390,9 @@ This preserves Vac's existing configurations for both his aircraft.
 2. **B-2: Integration.** New `PlacementMode` enum, new .prf keys + migration, menu submenu, `xplm_Phase_LastCockpit` draw callback wired to the projection math, X-Plane window geometry tracking the projected rect. No drag yet — anchor stays at the default for B-2. ~1 day.
 3. **B-3: Mouse drag.** Add drag handling to `HandleClick`, inverse-project on drag, persist to .prf. ~1 day.
 
-## Deliverable C — L/D max calibration wizard (~1 day, optional)
-
-### Motivation
-
-X-Plane exposes no `acf_Vbg` or `acf_LDmax_alpha` dataref. The existing auto-setpoint code assumes LDmax sits at 0.45·alpha_stall (i.e., Vbg ≈ 1.5·Vs). For aircraft where that rule of thumb is off, the LDmax tone fires at the wrong AOA. A short in-sim glide test measures the actual L/D-max AOA in the X-Plane flight model for the loaded aircraft.
-
-### Workflow
-
-1. Menu: `Plugins → Fly On Speed → Calibrate LDmax from glide`
-2. Click opens a modal X-Plane widget: "Trim aircraft into a clean, stabilized glide at idle. Click Start when steady. Recording runs 30 s — vary AOA slowly between approximately 4° and 12°."
-3. Click **Start**: plugin samples `(alpha, vpath)` at 10 Hz for 30 s, storing 300 (alpha, vpath) tuples in a buffer.
-4. On completion, fit a quadratic `vpath = a·alpha² + b·alpha + c`. The vertex is `alpha* = -b / (2a)`.
-5. Show: "Measured LDmax AOA: 6.2°. Current LDmax setpoint: 4.9° (auto-derived). [Accept and overwrite] [Cancel]".
-6. On Accept: write `fLDMAXAOA = alpha*`, mark .prf dirty.
-
-### Caveats shown in the dialog
-
-- "Result depends on cleanliness of glide. Stabilize trim before clicking Start."
-- "Reflects Laminar's flight model for this aircraft, which may differ from the real airframe."
-- "Setpoint is per aircraft; calibrate each one you fly."
-
-### Edge cases
-
-- **Pilot doesn't actually glide.** If vpath stays > -1° (nearly level), the wizard reports "Sustain a glide of at least 3° before recording" and aborts.
-- **Insufficient AOA spread.** If alpha range in the recording is < 2°, the wizard reports "Vary AOA more during the recording" and discards.
-- **Quadratic fit fails.** If `a >= 0` (no minimum), fall back to: argmin alpha for which |vpath| is smallest. Report "Fit was non-convex; using empirical minimum at α = X.X°".
-
-### Code layout
-
-Single PR. Files touched:
-
-- `aoa_audio.cpp` — menu item, dialog, recorder, fit, setpoint write. ~150 LOC.
-- No new file needed unless the recorder grows beyond ~80 LOC, in which case `LDmaxWizard.cpp/h`.
-
-No new datarefs read at the plugin level (`alpha` and `vpath` are already read by `DataRefAdapter.cpp`).
-
 ## Scope explicitly out
 
+- **L/D max calibration wizard.** No `acf_Vbg` dataref exists and an in-sim derivation only refines a guess. Pilots can hand-tune `fLDMAXAOA` in the audio control window if the 0.45·alpha_stall default is off for their airframe.
 - **VR (`xplm_WindowVR`) placement.** Punted to a v2. The mounted-mode .prf schema is forward-compatible (a future `kPlacementVR` enum + VR-coords block won't break .prf parsing).
 - **Stall-mark logic changes.** Already correct — `acf_stall_warn_alpha` is the StallWarn anchor.
 - **Per-flap setpoint editing UI.** Tracked in issue #393, separate effort.
@@ -393,8 +407,8 @@ No new datarefs read at the plugin level (`alpha` and `vpath` are already read b
 | Anchor in aircraft body frame, not world frame | Indexer rolls with the aircraft, like a real glareshield instrument; correct under unusual attitudes |
 | `kDragThreshold = 5 px` | Standard UI deadband; large enough to absorb hand tremor on tap, small enough to feel responsive |
 | Default mount3D = (0, 0.05, 0.3) | 30 cm in front, 5 cm up — visible from a typical eyepoint without obscuring anything |
-| Quadratic fit for L/D wizard | Two minutes of CL/CD polar in steady glide is well-modeled by a quadratic over the alpha range of interest |
 | .prf migration: `indexerPoppedOut → indexerPlacementMode` | Preserves Vac's existing configs across the upgrade |
+| Drop deliverable C (L/D wizard) | No aerodynamic-polar dataref to build on; the in-sim measurement only refines a guess. Pilot tuning of `fLDMAXAOA` is the lighter answer. |
 
 ## Open questions for the user
 
