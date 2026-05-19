@@ -280,6 +280,10 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     float  algoKalmanVsiMps        = 0.0f;
 
     if (cfg_.algorithm == Algorithm::Ekfq) {
+        // EKFQ computes its own TASdot internally at IMU rate to
+        // match the Python pipeline's signal chain (Optuna tuned
+        // against that EMA, not the sensor-stage `tasDotSmoothed_`
+        // which runs at pressure cadence with α=kIasSmoothing).
         const EkfqPipeline::Inputs ekfqIn = {
             /* accelFwdCorrG    */ accelFwdCorr_,
             /* accelLatCorrG    */ accelLatCorr_,
@@ -288,7 +292,6 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
             /* pitchRateCorrDps */ PitchRateCorr,
             /* yawRateCorrDps   */ YawRateCorr,
             /* tasMps           */ tas_,
-            /* tasDotMps2       */ tasDotSmoothed_,
             /* iasKt            */ in.sensors.iasKt,
             /* baroAltMeters    */ onspeed::ft2m(in.sensors.paltFt),
             /* dtSec            */ dtSec,

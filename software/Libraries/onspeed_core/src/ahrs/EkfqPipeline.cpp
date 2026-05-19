@@ -45,9 +45,9 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     Outputs out;
 
     // 1) Hysteretic IAS gate.  Below kIasGateRisingKt, pitot noise
-    //    dominates tas / tasDot; feeding those into EKFQ at rest
-    //    contaminates the centripetal terms inside h(x).  Hysteresis
-    //    prevents chatter at the gate edge.
+    //    dominates tas / tasDot; feeding those through h(x)'s
+    //    centripetal terms at rest pulls EKFQ pitch a few degrees off
+    //    truth.  Hysteresis prevents chatter at the gate edge.
     const bool gateWasOpen = iasGate_;
     if (!iasGate_ && in.iasKt >= kIasGateRisingKt) {
         iasGate_ = true;
@@ -57,10 +57,10 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     out.iasGateRisingEdge = (!gateWasOpen && iasGate_);
 
     // 2) compFadeIn ramp.  Open gate → ramp to 1 over τ; closed gate →
-    //    snap to 0.  EKFQ consumes (tas * compFadeIn, tasDot *
-    //    compFadeIn) as its measurement inputs so the centripetal /
-    //    TASdot terms inside h(x) fade in smoothly after the iasGate
-    //    rising edge.
+    //    snap to 0.  EKFQ::correct() multiplies tas / tasdot by this
+    //    fade so the centripetal / TASdot terms in h(x) ramp in
+    //    smoothly after iasGate opens (rather than stepping the
+    //    pressure-noise jolt into the measurement model).
     if (iasGate_) {
         const float fadeAlpha = in.dtSec / (kCompFadeTauSec + in.dtSec);
         compFadeIn_ += fadeAlpha * (1.0f - compFadeIn_);
@@ -80,7 +80,17 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     out.accelLatCompG  = emaLatG;
     out.accelVertCompG = emaVertG;
 
-    // 4) On the gate's rising edge, reset EKFQ's vertical-channel
+    // 4) Per-step TASdot smoothing at IMU rate.  Held-stale `tas`
+    //    across the ~4 IMU frames between IAS-update events produces
+    //    a sawtooth `raw = (tas - prev_tas) / dt`; the EMA at
+    //    kTasdotEmaAlpha averages the spikes.  Matches
+    //    `pipeline_quat.py` byte-for-byte (raw and smoothing both
+    //    computed per-row at 208 Hz).
+    const float tasdotRawMps2 = (in.tasMps - prevTasMps_) / in.dtSec;
+    tasdotSmoothed_ += kTasdotEmaAlpha * (tasdotRawMps2 - tasdotSmoothed_);
+    prevTasMps_ = in.tasMps;
+
+    // 5) On the gate's rising edge, reset EKFQ's vertical-channel
     //    covariance so z/vz/b_az re-open after a long gate-closed
     //    taxi.  Without this, the filter trusts its possibly-stale
     //    z/vz estimates and would lag the real altitude/VSI for tens
@@ -89,28 +99,39 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
         ekfq_.resetVerticalCovariance(in.baroAltMeters);
     }
 
-    // 5) Run the EKFQ predict + correct.  Sign-convention plumbing:
+    // 6) Run EKFQ predict + correct as separate calls so predict()
+    //    sees the un-faded TAS (needed for beta-dynamics gating via
+    //    `tas > tas_min_mps`) while correct() sees the faded TAS
+    //    (centripetal / TASdot terms in h(x) ramp in smoothly).
+    //    Mirrors `pipeline_quat.py` which calls predict and correct
+    //    with the same split.
     //
-    //   ax, ay: raw post-EMA g → m/s², no sign flip.
-    //   az    : OnSpeed's +1g-level convention → NED -g-level.
-    //           Negate on input.
-    //   p, q  : OnSpeed's internal IMU sign → aerospace standard
-    //           (+p right-wing-down, +q nose-up).  Negate on input.
-    //   r     : no flip.
-    //   tas / tasDot: faded by compFadeIn so they zero at rest.
-    EKFQ::Measurements meas = {
-        /* ax */          emaFwdG  * kEkfGravityMps2,
-        /* ay */          emaLatG  * kEkfGravityMps2,
-        /* az */         -emaVertG * kEkfGravityMps2,
-        /* p  */         -onspeed::deg2rad(in.rollRateCorrDps),
-        /* q  */         -onspeed::deg2rad(in.pitchRateCorrDps),
-        /* r  */          onspeed::deg2rad(in.yawRateCorrDps),
-        /* baroAlt */     in.baroAltMeters,
-        /* tas */         in.tasMps      * compFadeIn_,
-        /* tasDot */      in.tasDotMps2  * compFadeIn_,
-        /* updateBaro */  true,
-    };
-    ekfq_.update(meas, in.dtSec);
+    //    Sign-convention plumbing:
+    //
+    //      ax, ay : raw post-EMA g → m/s², no sign flip.
+    //      az     : OnSpeed's +1g-level convention → NED -g-level.
+    //               Negate on input.
+    //      p, q   : OnSpeed's internal IMU sign → aerospace standard
+    //               (+p right-wing-down, +q nose-up).  Negate on input.
+    //      r      : no flip.
+    const float ax_raw =  emaFwdG  * kEkfGravityMps2;
+    const float ay_raw =  emaLatG  * kEkfGravityMps2;
+    const float az_raw = -emaVertG * kEkfGravityMps2;
+    const float p_rps  = -onspeed::deg2rad(in.rollRateCorrDps);
+    const float q_rps  = -onspeed::deg2rad(in.pitchRateCorrDps);
+    const float r_rps  =  onspeed::deg2rad(in.yawRateCorrDps);
+
+    ekfq_.predict(p_rps, q_rps, r_rps,
+                  ax_raw, ay_raw, az_raw,
+                  in.tasMps,                  // un-faded; beta-dynamics gate
+                  in.dtSec);
+
+    ekfq_.correct(ax_raw, ay_raw, az_raw,
+                  in.tasMps      * compFadeIn_,
+                  tasdotSmoothed_ * compFadeIn_,
+                  q_rps, r_rps,
+                  in.baroAltMeters,
+                  /* updateBaro */ true);
 
     const EKFQ::State state = ekfq_.getState();
     out.pitchDeg      = state.pitch_deg();

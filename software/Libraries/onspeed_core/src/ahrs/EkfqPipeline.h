@@ -29,19 +29,38 @@ namespace onspeed::ahrs {
 
 class EkfqPipeline {
 public:
-    // Pipeline-internal tuning constants. Identical to Madgwick's for
-    // behavioural parity at the AHRS-layer seam — algorithms differ
-    // in their fusion math, not in input pre-filtering.  The EKFQ
-    // fusion's own tuning (Q / R / p / etc.) lives compile-time in
-    // EKFQ::Config::defaults().
-    static constexpr float kAccelEmaAlpha    = 0.060899f;
-    static constexpr float kCompFadeTauSec   = 0.5f;
-    static constexpr float kIasGateRisingKt  = 20.0f;
-    static constexpr float kIasGateFallingKt = 15.0f;
+    // Pipeline-internal tuning constants, locked to the Optuna study
+    // `ekfq_v15` best-trial values (the same study that produced
+    // EKFQ::Config::defaults()).  These are NOT Madgwick's constants —
+    // EKFQ's signal chain was tuned against itself.  Pilots don't
+    // tune these; the Optuna pipeline does, and a future host_main
+    // eval subcommand will re-tune in firmware-native conditions.
+    static constexpr float kAccelEmaAlpha    = 0.052324843677354384f;
+    static constexpr float kCompFadeTauSec   = 2.531734433346506f;
+    static constexpr float kIasGateRisingKt  = 33.66929039144636f;
+    /// Fixed 5 kt hysteresis below the rising threshold, matching the
+    /// Python pipeline (`pipeline_quat.py`: `ias_now < ias_alive_kt - 5.0`).
+    static constexpr float kIasGateFallingKt = kIasGateRisingKt - 5.0f;
+    /// TASdot EMA alpha applied at IMU rate (per-step) inside Step().
+    /// Python equivalent: `tasdot_smoothed += tasdot_ema_alpha * (raw - smoothed)`
+    /// where raw = (tas - prev_tas) / dt computed every IMU step (208 Hz).
+    /// This is the fixed-α EMA at IMU rate — distinct from the firmware's
+    /// global `kIasSmoothing` which runs at pressure cadence (~50 Hz).
+    static constexpr float kTasdotEmaAlpha   = 0.20081238948995161f;
 
-    /// Per-frame inputs.  Same shape as Madgwick::Inputs by design,
-    /// plus baro altitude (EKFQ owns its vertical channel and ingests
-    /// baro directly).
+    /// Per-frame inputs.  Mirrors Madgwick::Inputs for the sensor-stage
+    /// fields, plus baro altitude (EKFQ owns its vertical channel and
+    /// ingests baro directly).
+    ///
+    /// Note: `tasMps` is the held-stale, density-corrected TAS from
+    /// the sensor stage — the same value Madgwick consumes — and is
+    /// repeated across the ~4 IMU frames between IAS-update events.
+    /// EkfqPipeline computes its own per-step TASdot from (tasMps -
+    /// prev_tasMps) / dtSec internally and smooths it at IMU rate with
+    /// kTasdotEmaAlpha, matching the Python pipeline's signal chain.
+    /// The sensor-stage `tasDotSmoothed_` (kIasSmoothing α=0.0179 at
+    /// pressure cadence) is ignored here — it's a different
+    /// characteristic from what the Optuna study used.
     struct Inputs {
         float accelFwdCorrG  = 0.0f;
         float accelLatCorrG  = 0.0f;
@@ -51,8 +70,7 @@ public:
         float pitchRateCorrDps = 0.0f;
         float yawRateCorrDps   = 0.0f;
 
-        float tasMps     = 0.0f;
-        float tasDotMps2 = 0.0f;
+        float tasMps = 0.0f;
 
         float iasKt = 0.0f;
 
@@ -119,6 +137,13 @@ private:
 
     float compFadeIn_ = 0.0f;
     bool iasGate_     = false;
+
+    /// Per-step TAS-derivative smoothing.  Held-stale `tas` from the
+    /// sensor stage drives a sawtooth `tasdot_raw = (tas - prev_tas) /
+    /// dt` at IMU rate; EMA at kTasdotEmaAlpha smooths the sawtooth.
+    /// Matches the Python pipeline `pipeline_quat.py` byte-for-byte.
+    float prevTasMps_       = 0.0f;
+    float tasdotSmoothed_   = 0.0f;
 };
 
 }   // namespace onspeed::ahrs

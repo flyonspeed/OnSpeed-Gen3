@@ -194,7 +194,24 @@ public:
               float initial_z = 0.0f);
 
     /// One predict + correct cycle. Call at IMU rate (~208 Hz).
+    /// Convenience wrapper around predict() + correct().
     void update(const Measurements& meas, float dt);
+
+    /// Propagate state and covariance forward one step.  `tas` is the
+    /// un-faded TAS used to gate beta-dynamics activation
+    /// (`tas > tas_min_mps`).
+    void predict(float p, float q, float r,
+                 float ax, float ay, float az,
+                 float tas, float dt);
+
+    /// Apply the measurement update.  `tas` and `tasDot` should be
+    /// faded by the pipeline's compFadeIn before this call so the
+    /// centripetal / TASdot terms in h(x) ramp in smoothly after the
+    /// iasGate rising edge.
+    void correct(float ax, float ay, float az,
+                 float tas, float tasDot,
+                 float pitchRate, float yawRate,
+                 float baroZ, bool updateBaro);
 
     /// Snapshot current state.
     State getState() const;
@@ -232,15 +249,6 @@ private:
     bool   initialized_;
 
     static constexpr float GRAVITY = 9.80665f;
-
-    void predict(float p, float q, float r,
-                 float ax, float ay, float az,
-                 float tas, float dt);
-
-    void correct(float ax, float ay, float az,
-                 float tas, float tasDot,
-                 float pitchRate, float yawRate,
-                 float baroZ, bool updateBaro);
 
     /// Renormalise the quaternion sub-vector after predict.
     void renormaliseQuaternion();
