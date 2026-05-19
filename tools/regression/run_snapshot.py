@@ -21,7 +21,7 @@ Builds the host_main shim (via pio) and runs two golden checks:
      against fixtures/replay_engine_golden.csv.  This is the primary gate
      that PRs 2/3 of PLAN_FIRMWARE_LOG_REPLAY_PARITY.md will update.
 
-Both checks must pass.  Neither short-circuits the other: all failures are
+All checks must pass.  None short-circuits the others: all failures are
 reported before the script exits non-zero.
 
 Usage:
@@ -86,6 +86,14 @@ SYNTH_ADC_INPUT  = FIXTURES / "synth_adc_input.csv"
 SYNTH_ADC_GOLDEN = FIXTURES / "synth_adc_golden.csv"
 SYNTH_ADC_CONFIG = FIXTURES / "synth_adc_config.cfg"
 
+# Optuna substrate smoke — 150-row extract of the testbed flight log
+# replayed through `ahrs_tone --algorithm ekfq --input-format sdlog`.
+# Guards against Python↔C++ drift in the EKFQ port before it surfaces
+# in a tuning run.
+EKFQ_SUBSTRATE_INPUT  = FIXTURES / "ekfq_substrate_smoke.csv"
+EKFQ_SUBSTRATE_CONFIG = FIXTURES / "ekfq_substrate_smoke.cfg"
+EKFQ_SUBSTRATE_GOLDEN = FIXTURES / "ekfq_substrate_golden.csv"
+
 BUILD_DIR  = HERE / ".pio" / "build" / "native"
 EXECUTABLE = BUILD_DIR / "program"
 
@@ -142,6 +150,31 @@ def run_engine_replay(input_csv: Path) -> str:
     )
     if proc.returncode != 0:
         click.echo(f"Shim (replay) exited with {proc.returncode}:", err=True)
+        click.echo(proc.stderr, err=True)
+        sys.exit(1)
+    return proc.stdout
+
+
+def run_ekfq_substrate(input_csv: Path, config: Path) -> str:
+    """Run `host_main ahrs_tone --input-format=sdlog` on the substrate smoke fixture.
+
+    The Optuna substrate (`ekfq_pipeline/` with --driver=host-main) drives
+    `ahrs_tone` in sdlog mode per trial.  Catching Python↔C++ drift in CI
+    via this committed fixture + golden is cheaper than catching it
+    mid-tuning-run.
+    """
+    proc = subprocess.run(
+        [str(EXECUTABLE), "ahrs_tone",
+         "--algorithm", "ekfq",
+         "--input-format", "sdlog",
+         "--input", str(input_csv),
+         "--config", str(config),
+         "--passthrough-cols", "vnPitch,vnRoll,vnVelNedDown"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        click.echo(f"Shim (ekfq_substrate) exited with {proc.returncode}:", err=True)
         click.echo(proc.stderr, err=True)
         sys.exit(1)
     return proc.stdout
@@ -349,6 +382,16 @@ def main(
 
     synth_adc_output = run_synth_adc(SYNTH_ADC_INPUT, SYNTH_ADC_CONFIG)
 
+    # --- EKFQ substrate smoke (Optuna substrate fixture) ---
+    if not EKFQ_SUBSTRATE_INPUT.exists():
+        click.echo(f"EKFQ substrate input CSV not found: {EKFQ_SUBSTRATE_INPUT}", err=True)
+        sys.exit(3)
+    if not EKFQ_SUBSTRATE_CONFIG.exists():
+        click.echo(f"EKFQ substrate config not found: {EKFQ_SUBSTRATE_CONFIG}", err=True)
+        sys.exit(3)
+
+    ekfq_substrate_output = run_ekfq_substrate(EKFQ_SUBSTRATE_INPUT, EKFQ_SUBSTRATE_CONFIG)
+
     if update_golden:
         ENGINE_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
         ENGINE_GOLDEN.write_text(engine_output, encoding="utf-8")
@@ -357,16 +400,21 @@ def main(
         SYNTH_ADC_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
         SYNTH_ADC_GOLDEN.write_text(synth_adc_output, encoding="utf-8")
         click.echo(f"Updated golden: {SYNTH_ADC_GOLDEN}")
+
+        EKFQ_SUBSTRATE_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+        EKFQ_SUBSTRATE_GOLDEN.write_text(ekfq_substrate_output, encoding="utf-8")
+        click.echo(f"Updated golden: {EKFQ_SUBSTRATE_GOLDEN}")
         sys.exit(0)
 
     # Run all checks; collect results without short-circuiting so the
     # operator sees every regression in one pass.
-    ok_madgwick  = check_golden("ahrs_tone(madgwick)", ahrs_tone_madgwick, AHRS_GOLDEN_MADGWICK, rtol, atol)
-    ok_ekfq      = check_golden("ahrs_tone(ekfq)",     ahrs_tone_ekfq,     AHRS_GOLDEN_EKFQ,     rtol, atol)
-    ok_engine    = check_golden("replay_engine",       engine_output,      ENGINE_GOLDEN,        rtol, atol)
-    ok_synth_adc = check_golden("synth_adc",           synth_adc_output,   SYNTH_ADC_GOLDEN,     rtol, atol)
+    ok_madgwick       = check_golden("ahrs_tone(madgwick)",  ahrs_tone_madgwick,    AHRS_GOLDEN_MADGWICK,  rtol, atol)
+    ok_ekfq           = check_golden("ahrs_tone(ekfq)",      ahrs_tone_ekfq,        AHRS_GOLDEN_EKFQ,      rtol, atol)
+    ok_engine         = check_golden("replay_engine",        engine_output,         ENGINE_GOLDEN,         rtol, atol)
+    ok_synth_adc      = check_golden("synth_adc",            synth_adc_output,      SYNTH_ADC_GOLDEN,      rtol, atol)
+    ok_ekfq_substrate = check_golden("ekfq_substrate_smoke", ekfq_substrate_output, EKFQ_SUBSTRATE_GOLDEN, rtol, atol)
 
-    sys.exit(0 if (ok_madgwick and ok_ekfq and ok_engine and ok_synth_adc) else 2)
+    sys.exit(0 if (ok_madgwick and ok_ekfq and ok_engine and ok_synth_adc and ok_ekfq_substrate) else 2)
 
 
 if __name__ == "__main__":
