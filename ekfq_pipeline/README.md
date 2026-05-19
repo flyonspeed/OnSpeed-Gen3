@@ -96,6 +96,24 @@ A 150-row smoke fixture lives at
 committed golden) and is wired into `tools/regression/run_snapshot.py`
 so CI catches drift before a full tuning run picks it up.
 
+### `--n-jobs`: parallel trial execution
+
+Each host-main trial is an independent subprocess, so Optuna can fan
+out across cores via `--n-jobs N` (or `--n-jobs -1` for all cores).
+The `python` driver shares the GIL and won't benefit; the flag is
+host-main-only in practice.
+
+Measured on a 14-core machine, 988k-row log:
+
+| Mode | Wall (10 trials) | 200-trial extrapolation |
+|---|---:|---:|
+| `--driver python` (serial) | ~9.2 min | ~3.0 hours |
+| `--driver host-main` (serial) | ~57 sec | ~19 min |
+| `--driver host-main --n-jobs -1` | ~11 sec | ~3.5 min |
+
+Per-trial time rises modestly under parallel load (cache + I/O
+contention), but wall time drops by ~5× over serial host-main.
+
 ## Loss profiles
 
 - `default` — 1:1:1 value weighting, 1.5 rate weights, 0.1 aerobatic

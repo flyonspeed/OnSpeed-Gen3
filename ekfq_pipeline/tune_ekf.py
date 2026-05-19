@@ -632,6 +632,11 @@ def main() -> None:
                     help="path to compiled host_main binary (default: regression harness build)")
     ap.add_argument("--config-path", default=None,
                     help="OnSpeed config file path (required with --driver=host-main)")
+    ap.add_argument("--n-jobs", type=int, default=1,
+                    help="parallel trial workers (-1 = use all cores). "
+                         "Only useful with --driver=host-main since each trial "
+                         "is a separate subprocess; --driver=python shares the "
+                         "GIL and won't speed up.")
     args = ap.parse_args()
 
     print(f"Loading {args.log} ...", flush=True)
@@ -722,7 +727,8 @@ def main() -> None:
     print(f"  loss profile: {args.loss_mode}", flush=True)
 
     t_start = time.time()
-    study.optimize(objective, n_trials=args.trials, show_progress_bar=True)
+    study.optimize(objective, n_trials=args.trials, n_jobs=args.n_jobs,
+                   show_progress_bar=True)
     elapsed = time.time() - t_start
 
     best = study.best_trial
