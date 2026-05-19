@@ -637,13 +637,13 @@ bool CreateXPlaneWindow(XPLMWindowDecoration decoration)
 // SDK provides no in-place decoration setter, so switching between
 // mounted-mode (self-decorated, no chrome) and floating / pop-out
 // (round-rectangle, drag handle + close box) requires this dance.
-void RecreateWindowWithDecorationInternal(XPLMWindowDecoration decoration)
+bool RecreateWindowWithDecorationInternal(XPLMWindowDecoration decoration)
 {
     if (s_window) {
         XPLMDestroyWindow(s_window);
         s_window = nullptr;
     }
-    CreateXPlaneWindow(decoration);
+    return CreateXPlaneWindow(decoration);
 }
 
 }  // namespace
@@ -982,8 +982,12 @@ void ApplyPersistedState(const PersistedState& in)
         static XPLMWindowDecoration s_currentDecoration =
             xplm_WindowDecorationRoundRectangle;
         if (s_currentDecoration != desiredDecoration) {
-            RecreateWindowWithDecorationInternal(desiredDecoration);
-            s_currentDecoration = desiredDecoration;
+            if (RecreateWindowWithDecorationInternal(desiredDecoration)) {
+                s_currentDecoration = desiredDecoration;
+            } else {
+                XPLMDebugString("FlyOnSpeed: window recreate failed; "
+                                "indexer hidden until next Show()\n");
+            }
         }
     }
 
@@ -1220,7 +1224,7 @@ const std::string& SerialOutPath()
 
 void RecreateWindowWithDecoration(int decoration)
 {
-    RecreateWindowWithDecorationInternal(
+    (void)RecreateWindowWithDecorationInternal(
         static_cast<XPLMWindowDecoration>(decoration));
 }
 
