@@ -35,7 +35,7 @@ The next production retune should use `host-main` unless there's a specific reas
 
 1. **Always use `--driver host-main` for production retunes unless you have a reason not to.** It runs against the firmware binary; the Python driver runs against a Python sibling that drifts.
 2. **Always pass `--config-path` with the per-aircraft `.cfg` file.** The cfg's `<BIAS><PITCH>` and `<BIAS><ROLL>` provide the install bias the EKF needs. Wrong cfg → wrong attitude reference → garbage tuning. The cfg lives next to the flight log on the OnSpeed shared drive.
-3. **Always pass `--n-jobs -1`** unless you're debugging. Parallel host-main trials are ~7× faster than serial on a 14-core Mac and the search quality is unchanged (Optuna's TPESampler is parallel-safe).
+3. **Always pass `--n-jobs -1`** unless you're debugging. Parallel host-main trials are ~5× faster than serial on a 14-core Mac (see the timing table below) and the search quality is unchanged (Optuna's TPESampler is parallel-safe).
 4. **Don't tune install bias.** `pitch_bias_deg` / `roll_bias_deg` come from the calibration wizard, not the EKF tuner. Lenny's `PipelineQuatConfig` has them as fields but they're pinned at cfg values for production runs. Don't add them to the search space.
 5. **Don't retune for a single flight log without validation data.** The TPE sampler will overfit to whatever maneuvers happen to be in the log. Use the train/val split (already wired by `build_train_val_split`) and compare val loss across runs.
 6. **Don't ship retuned defaults to firmware without re-verifying calibration.** The per-flap AOA curves were fit against EKFQ's old `DerivedAOA` output. Different `Config` → different `DerivedAOA` → curves need refitting. This is a separate process; document it.

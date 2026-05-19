@@ -520,13 +520,37 @@ def make_objective_host_main(
             df_out = run_host_main(
                 host_main_pth, _resolve_log_path(log),
                 cfg_pth, ekf_cfg, pipe_cfg,
-                passthrough_cols=["vnPitch", "vnRoll", "vnVelNedDown"],
+                # No passthrough cols: truth comes from df_slice below,
+                # aligned via the n_out invariant asserted below.
+                passthrough_cols=[],
             )
-        except RuntimeError:
+        except RuntimeError as e:
+            # Surface the failure on the first occurrence per study so
+            # the operator can diagnose (missing binary, bad kv, OOM,
+            # segfault). Subsequent trials swallow silently to keep the
+            # study moving — Optuna sees inf and marks the trial pruned.
+            if not getattr(make_objective_host_main, "_warned", False):
+                print(f"\n[tune_ekf] host_main trial failed: {e}", flush=True)
+                make_objective_host_main._warned = True
             return math.inf
 
         n_out = len(df_out)
         if n_out == 0:
+            return math.inf
+
+        # host_main consumes input row 0 as the seed (no output emitted)
+        # and emits exactly one row per subsequent input row.  Truth
+        # alignment below depends on this invariant: a mismatch means
+        # host_main silently dropped data (e.g. CSV row truncation) and
+        # the resulting trial loss would compare misaligned timestamps.
+        n_expected = n_full - 1
+        if n_out != n_expected:
+            if not getattr(make_objective_host_main, "_warned_align", False):
+                print(f"\n[tune_ekf] WARNING: host_main emitted {n_out} rows, "
+                      f"expected {n_expected} (n_full={n_full}). Truth "
+                      f"alignment may be off; treating this trial as failed.",
+                      flush=True)
+                make_objective_host_main._warned_align = True
             return math.inf
 
         # host_main emits rows [1..n_full-1] of the input. Build a

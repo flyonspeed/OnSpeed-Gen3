@@ -44,7 +44,7 @@ short-circuits the others.
 
 `ahrs_tone` accepts two CSV layouts via `--input-format`:
 
-- `simple` (default): the 9-column synthetic fixture format used by
+- `synthetic` (default): the 9-column fixture format used by
   `short_replay.csv` — `ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz`.
 - `sdlog`: real OnSpeed SD logs (same format as `replay_engine_input.csv`).
   Used by the Optuna substrate (`ekfq_pipeline/`).

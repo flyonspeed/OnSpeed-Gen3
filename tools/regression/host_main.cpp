@@ -659,8 +659,15 @@ int CmdAhrsTone(int argc, const char* const* argv)
         size_t pos = 0;
         while (pos < s.size()) {
             const size_t comma = s.find(',', pos);
-            const std::string tok = s.substr(
+            std::string tok = s.substr(
                 pos, (comma == std::string::npos) ? s.size() - pos : comma - pos);
+            // Trim leading/trailing ASCII whitespace so "vnPitch, vnRoll"
+            // (user-supplied with spaces) parses the same as "vnPitch,vnRoll".
+            size_t lo = 0;
+            while (lo < tok.size() && (tok[lo] == ' ' || tok[lo] == '\t')) ++lo;
+            size_t hi = tok.size();
+            while (hi > lo && (tok[hi-1] == ' ' || tok[hi-1] == '\t')) --hi;
+            tok = tok.substr(lo, hi - lo);
             if (!tok.empty()) passthroughCols.push_back(tok);
             if (comma == std::string::npos) break;
             pos = comma + 1;

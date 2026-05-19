@@ -174,13 +174,13 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     out.rollDeg       = state.roll_deg();
     out.derivedAoaDeg = onspeed::rad2deg(ekfq_.alphaKinematicRad(in.tasMps));
 
-    // 6) Vertical channel published from EKFQ's z / vz states.  vz is
+    // 7) Vertical channel published from EKFQ's z / vz states.  vz is
     //    NED-down internally; flip the sign here so consumers receive
     //    the firmware's +climb convention.
     out.kalmanAltMeters = state.z;
     out.kalmanVsiMps    = -state.vz;
 
-    // 7) EarthVertG via the filter's quaternion — body→earth rotation
+    // 8) EarthVertG via the filter's quaternion — body→earth rotation
     //    of the unsmoothed installation-corrected vertical accel,
     //    minus the +1g level reaction-force convention.  Same formula
     //    Madgwick / Ekf6Pipeline use; gives 0 at level flight.

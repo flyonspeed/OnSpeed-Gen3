@@ -49,6 +49,17 @@ class PipelineQuatConfig:
     # for future raw-pressure pipelines.
     pstatic_bias_mb: float = 0.56274414
     # Tunable signal-chain parameters (these CAN be Optuna params).
+    #
+    # NOTE: these defaults are NOT the production values baked into the
+    # firmware. The production v15-tuned defaults live in
+    # `software/Libraries/onspeed_core/src/ahrs/EkfqPipeline.cpp::
+    # PipelineConfig::defaults()`:
+    #   accelEmaAlpha=0.05232..., compFadeTauSec=2.5317...,
+    #   iasGateRisingKt=33.669..., tasdotEmaAlpha=0.20081...
+    # The Optuna tuner overrides these per trial, so the values below
+    # only matter when running PipelineQuat with bare defaults (e.g.
+    # for parity reference). If you need to compare against firmware
+    # behaviour, override these to the v15 values explicitly.
     accel_ema_alpha: float = 0.060899
     comp_fade_tau_sec: float = 0.5
     ias_alive_kt: float = 25.0

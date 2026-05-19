@@ -23,6 +23,11 @@ from onspeed_ekf import EKFQConfig, PipelineQuatConfig
 
 
 # Mapping from Python field names to the kv-file keys host_main expects.
+# tas_min_mps is intentionally omitted: it gates beta-dynamics activation
+# at low speed and isn't a TPE-search parameter today (pinned at 12 m/s
+# in both EKFQConfig and EKFQ::Config::defaults()). If a future study
+# wants to tune it, add ("tas_min_mps", "tas_min_mps") here and a
+# trial.suggest_float() call in make_objective_host_main.
 _KV_KEYS: tuple[tuple[str, str], ...] = (
     ("q_quat", "q_quat"),
     ("q_bias", "q_bias"),
@@ -43,7 +48,6 @@ _KV_KEYS: tuple[tuple[str, str], ...] = (
     ("p_vz", "p_vz"),
     ("p_b_az", "p_b_az"),
     ("p_beta", "p_beta"),
-    ("tas_min_mps", "tas_min_mps"),
 )
 
 _PIPE_KV_KEYS: tuple[tuple[str, str], ...] = (
@@ -84,8 +88,9 @@ def run_host_main(
             "--input", str(log_path),
             "--config", str(config_path),
             "--ekfq-config", str(kv_path),
-            "--passthrough-cols", ",".join(passthrough_cols),
         ]
+        if passthrough_cols:
+            argv += ["--passthrough-cols", ",".join(passthrough_cols)]
         proc = subprocess.run(argv, capture_output=True, text=True)
         if proc.returncode != 0:
             raise RuntimeError(
