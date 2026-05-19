@@ -1,6 +1,7 @@
 // IndexerWindow.cpp — see IndexerWindow.h.
 
 #include "IndexerWindow.h"
+#include "Indexer3DPlacement.h"
 #include "Panel_PluginCanvas.h"
 #include "DataRefAdapter.h"
 #include "../serial_port.h"
@@ -117,6 +118,23 @@ serial::SerialPort            s_serialOut;
 std::string                   s_serialOutPath;
 std::uint64_t                 s_serialErrCount = 0;
 
+// Datarefs for mounted-mode projection.  Looked up lazily on first
+// Tick where placementMode==kPlacementMounted3D, then cached.
+XPLMDataRef s_drAcLocalX        = nullptr;
+XPLMDataRef s_drAcLocalY        = nullptr;
+XPLMDataRef s_drAcLocalZ        = nullptr;
+XPLMDataRef s_drAcPitch         = nullptr;
+XPLMDataRef s_drAcRoll          = nullptr;
+XPLMDataRef s_drAcHeading       = nullptr;
+XPLMDataRef s_drCamX            = nullptr;
+XPLMDataRef s_drCamY            = nullptr;
+XPLMDataRef s_drCamZ            = nullptr;
+XPLMDataRef s_drCamPitch        = nullptr;
+XPLMDataRef s_drCamRoll         = nullptr;
+XPLMDataRef s_drCamHeading      = nullptr;
+XPLMDataRef s_drFovDeg          = nullptr;
+XPLMDataRef s_drViewType        = nullptr;
+bool        s_mount3DRefsInit   = false;
 
 // X-Plane window dimensions.  Native M5 panel is 320×240 — render
 // 1:1 by default; could pixel-double in a follow-up.
@@ -188,6 +206,97 @@ PersistedState s_persisted;
 // Replaces the old per-frame fopen/write in DrawWindow that was
 // hammering the .prf on every drag tick.
 bool s_dirty = false;
+
+// ------------------------------------------------------------------
+// Mounted-mode helpers
+// ------------------------------------------------------------------
+
+void EnsureMount3DRefs()
+{
+    if (s_mount3DRefsInit) return;
+    s_drAcLocalX   = XPLMFindDataRef("sim/flightmodel/position/local_x");
+    s_drAcLocalY   = XPLMFindDataRef("sim/flightmodel/position/local_y");
+    s_drAcLocalZ   = XPLMFindDataRef("sim/flightmodel/position/local_z");
+    s_drAcPitch    = XPLMFindDataRef("sim/flightmodel/position/theta");
+    s_drAcRoll     = XPLMFindDataRef("sim/flightmodel/position/phi");
+    s_drAcHeading  = XPLMFindDataRef("sim/flightmodel/position/psi");
+    s_drCamX       = XPLMFindDataRef("sim/graphics/view/pilots_head_x");
+    s_drCamY       = XPLMFindDataRef("sim/graphics/view/pilots_head_y");
+    s_drCamZ       = XPLMFindDataRef("sim/graphics/view/pilots_head_z");
+    s_drCamPitch   = XPLMFindDataRef("sim/graphics/view/pilots_head_the");
+    s_drCamRoll    = XPLMFindDataRef("sim/graphics/view/pilots_head_phi");
+    s_drCamHeading = XPLMFindDataRef("sim/graphics/view/pilots_head_psi");
+    s_drFovDeg     = XPLMFindDataRef("sim/graphics/view/field_of_view_deg");
+    s_drViewType   = XPLMFindDataRef("sim/graphics/view/view_type");
+    s_mount3DRefsInit = true;
+}
+
+bool IsInCockpitView()
+{
+    if (!s_drViewType) return false;
+    const int v = XPLMGetDatai(s_drViewType);
+    // 1023 = forward_with_panel (2D cockpit); 1026 = forward 3D cockpit.
+    return v == 1023 || v == 1026;
+}
+
+// Per-tick projection update for mounted mode.  Sets the existing
+// X-Plane window's geometry to the projected screen rect and toggles
+// visibility based on view type and whether the anchor is in front
+// of the camera.  No-op if the window doesn't exist yet.
+void UpdateMounted3DGeometry()
+{
+    if (!s_window) return;
+    EnsureMount3DRefs();
+
+    if (!IsInCockpitView()) {
+        XPLMSetWindowIsVisible(s_window, 0);
+        return;
+    }
+
+    onspeed_xplane::indexer::AircraftState ac{};
+    ac.xWorld     = s_drAcLocalX   ? XPLMGetDataf(s_drAcLocalX)   : 0.0f;
+    ac.yWorld     = s_drAcLocalY   ? XPLMGetDataf(s_drAcLocalY)   : 0.0f;
+    ac.zWorld     = s_drAcLocalZ   ? XPLMGetDataf(s_drAcLocalZ)   : 0.0f;
+    ac.pitchDeg   = s_drAcPitch    ? XPLMGetDataf(s_drAcPitch)    : 0.0f;
+    ac.rollDeg    = s_drAcRoll     ? XPLMGetDataf(s_drAcRoll)     : 0.0f;
+    ac.headingDeg = s_drAcHeading  ? XPLMGetDataf(s_drAcHeading)  : 0.0f;
+
+    onspeed_xplane::indexer::CameraState cam{};
+    cam.xWorld     = s_drCamX       ? XPLMGetDataf(s_drCamX)       : 0.0f;
+    cam.yWorld     = s_drCamY       ? XPLMGetDataf(s_drCamY)       : 0.0f;
+    cam.zWorld     = s_drCamZ       ? XPLMGetDataf(s_drCamZ)       : 0.0f;
+    cam.pitchDeg   = s_drCamPitch   ? XPLMGetDataf(s_drCamPitch)   : 0.0f;
+    cam.rollDeg    = s_drCamRoll    ? XPLMGetDataf(s_drCamRoll)    : 0.0f;
+    cam.headingDeg = s_drCamHeading ? XPLMGetDataf(s_drCamHeading) : 0.0f;
+    cam.fovDeg     = s_drFovDeg     ? XPLMGetDataf(s_drFovDeg)     : 70.0f;
+
+    onspeed_xplane::indexer::Anchor3D anchor{
+        s_persisted.mount3D_X,
+        s_persisted.mount3D_Y,
+        s_persisted.mount3D_Z};
+
+    onspeed_xplane::indexer::ScreenDim sd{};
+    XPLMGetScreenSize(&sd.wPx, &sd.hPx);
+
+    const onspeed_xplane::indexer::ProjectedQuad pq =
+        onspeed_xplane::indexer::ProjectAnchor(anchor, ac, cam, sd);
+    if (!pq.visible) {
+        XPLMSetWindowIsVisible(s_window, 0);
+        return;
+    }
+
+    const int halfW = s_persisted.floatWidth  / 2;
+    const int halfH = s_persisted.floatHeight / 2;
+    const int cx    = static_cast<int>(pq.centerX);
+    const int cy    = static_cast<int>(pq.centerY);
+
+    XPLMSetWindowGeometry(s_window,
+                          cx - halfW,         // left
+                          cy + halfH,         // top   (Y-up in X-Plane)
+                          cx + halfW,         // right
+                          cy - halfH);        // bottom
+    XPLMSetWindowIsVisible(s_window, 1);
+}
 
 // ------------------------------------------------------------------
 // X-Plane window callbacks
@@ -735,6 +844,12 @@ void Tick()
         if (verbose) XPLMDebugString("FlyOnSpeed: Tick F: loop() returned\n");
     }
     s_loopEverReturned = true;
+
+    if (s_persisted.placementMode ==
+            onspeed_xplane::indexer::kPlacementMounted3D)
+    {
+        UpdateMounted3DGeometry();
+    }
 }
 
 bool IsVisible()

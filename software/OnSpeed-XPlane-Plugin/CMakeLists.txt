@@ -331,6 +331,7 @@ if(ENABLE_M5_INDEXER)
     list(APPEND PLUGIN_SOURCES
         src/m5_indexer/Panel_PluginCanvas.cpp
         src/m5_indexer/IndexerWindow.cpp
+        src/m5_indexer/Indexer3DPlacement.cpp
         src/m5_indexer/DataRefAdapter.cpp
         # PercentLiftFill.cpp is already in the audio-only PLUGIN_SOURCES
         # list above (the audio path's V² synthesis depends on it), so
