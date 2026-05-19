@@ -81,6 +81,34 @@ position, so:
 - Quit X-Plane and relaunch in either mode → restores wherever
   you last had it.
 
+### Mounted in 3D cockpit
+
+For sim setups where you fly in 3D-cockpit view, you can mount the
+indexer to a fixed point in the cockpit instead of leaving it
+floating on the screen.  When you pan the view, the indexer slides
+like a real instrument bolted to the glareshield.
+
+To enable:
+
+1. **Plugins → Fly On Speed → Indexer position → Mounted in 3D cockpit**.
+2. The window loses its chrome (no titlebar, no close button) and
+   jumps to a default spot 30 cm forward and 5 cm above the pilot
+   eyepoint — visible from the default 3D cockpit camera.
+3. **Click and drag** the indexer to move it to a different spot on
+   the glareshield.  A short tap (no drag) still cycles the indexer
+   mode.
+
+The position is stored per aircraft in the same `.prf` file as the
+audio settings — the indexer remembers where you placed it for each
+airframe.
+
+Mounted mode hides the indexer in external views (chase, runway,
+tower, etc.) since the anchor is a cockpit-frame point.  Switch
+back to 3D cockpit and the indexer reappears at the saved spot.
+
+To return to a floating window, pick **Floating window** or
+**Popped-out OS window** in the same submenu.
+
 ## The five modes
 
 The same five modes the M5 firmware ships. For full descriptions of
