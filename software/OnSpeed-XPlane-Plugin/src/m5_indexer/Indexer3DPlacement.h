@@ -3,11 +3,25 @@
 // to body frame.  No X-Plane SDK linkage — testable as plain C++.
 //
 // Conventions:
-//   Aircraft body frame:  +X right, +Y up, +Z forward (out the nose).
-//   World frame:          OpenGL convention as used by sim/flightmodel/
-//                         position/local_{x,y,z}.
+//   Aircraft body frame:  +X right, +Y up, +Z BACK (-Z forward / out
+//                         the nose).  This matches X-Plane's structural
+//                         reference frame and the camera convention
+//                         (OpenGL -Z forward).  At zero attitudes,
+//                         body frame aligns with the world frame.
+//   World frame:          X-Plane OpenGL local: +X east, +Y up,
+//                         +Z south.  Same axes as
+//                         sim/flightmodel/position/local_{x,y,z}.
 //   Camera frame:         +X right, +Y up, -Z forward (OpenGL).
+//                         Same as body frame.
 //   Screen pixels:        origin bottom-left, +X right, +Y up.
+//
+// X-Plane attitude conventions (same for aircraft and camera):
+//   psi   (heading): clockwise from north positive.
+//   theta (pitch):   nose-up positive.
+//   phi   (roll):    right-wing-down positive.
+//
+// BuildAttitudeMatrix translates these into a standard right-hand
+// rotation matrix by negating psi and phi inside the trig functions.
 //
 // Angles in degrees on input; converted to radians inside.
 
@@ -18,7 +32,7 @@ namespace onspeed_xplane::indexer {
 struct Anchor3D {
     float xMeters = 0.0f;   // +X right of cockpit reference, body frame
     float yMeters = 0.0f;   // +Y up
-    float zMeters = 0.0f;   // +Z forward (out the nose)
+    float zMeters = 0.0f;   // +Z BACK (-Z out the nose)
 };
 
 struct AircraftState {

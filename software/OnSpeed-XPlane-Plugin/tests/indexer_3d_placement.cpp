@@ -42,7 +42,7 @@ int main()
     //    looking forward → projects to screen center.
     // ----------------------------------------------------------------
     {
-        Anchor3D      anchor{0.0f, 0.0f, 0.30f};
+        Anchor3D      anchor{0.0f, 0.0f, -0.30f};
         AircraftState ac{0,0,0, 0,0,0};
         CameraState   cam{0,0,0, 0,0,0, 70.0f};
         ScreenDim     sd{1920, 1080};
@@ -61,7 +61,7 @@ int main()
     // 2. Anchor behind camera → visible=false.
     // ----------------------------------------------------------------
     {
-        Anchor3D      anchor{0.0f, 0.0f, -0.30f};
+        Anchor3D      anchor{0.0f, 0.0f, 0.30f};
         AircraftState ac{0,0,0, 0,0,0};
         CameraState   cam{0,0,0, 0,0,0, 70.0f};
         ScreenDim     sd{1920, 1080};
@@ -80,7 +80,7 @@ int main()
     //    checks direction and bounds.
     // ----------------------------------------------------------------
     {
-        Anchor3D      anchor{0.0f, 0.0f, 0.30f};
+        Anchor3D      anchor{0.0f, 0.0f, -0.30f};
         AircraftState ac{0,0,0, 0,0,0};
         CameraState   cam{0,0,0, 0,0, 30.0f, 70.0f};
         ScreenDim     sd{1920, 1080};
@@ -97,7 +97,7 @@ int main()
     //    displaced diagonally.
     // ----------------------------------------------------------------
     {
-        Anchor3D      anchor{0.10f, 0.0f, 0.30f};
+        Anchor3D      anchor{0.10f, 0.0f, -0.30f};
         AircraftState ac{0,0,0, 0, 45.0f, 0};
         CameraState   cam{0,0,0, 0,0,0, 70.0f};
         ScreenDim     sd{1920, 1080};
@@ -117,7 +117,7 @@ int main()
     //    drag math.
     // ----------------------------------------------------------------
     {
-        Anchor3D      anchor{0.05f, 0.07f, 0.42f};
+        Anchor3D      anchor{0.05f, 0.07f, -0.42f};
         AircraftState ac{100.0f, 50.0f, 200.0f,
                          5.0f, -3.0f, 12.0f};
         CameraState   cam{100.1f, 50.05f, 200.2f,
@@ -143,7 +143,7 @@ int main()
     //    body offset, narrow FOV) is suppressed.
     // ----------------------------------------------------------------
     {
-        Anchor3D      anchor{5.0f, 0.0f, 0.30f};
+        Anchor3D      anchor{5.0f, 0.0f, -0.30f};
         AircraftState ac{0,0,0, 0,0,0};
         CameraState   cam{0,0,0, 0,0,0, 30.0f};  // narrow zoom
         ScreenDim     sd{1920, 1080};

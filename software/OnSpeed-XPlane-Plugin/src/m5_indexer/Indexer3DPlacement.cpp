@@ -12,24 +12,34 @@ constexpr float kPi = 3.14159265358979323846f;
 
 inline float deg2rad(float d) { return d * (kPi / 180.0f); }
 
-// Rotation matrix in the X-Plane / OpenGL convention.  Aircraft
-// attitude is applied as heading (yaw, ψ) → pitch (θ) → roll (φ)
-// using right-hand rotations about Y, X, and Z respectively.  We
-// avoid building a full 3x3 by inlining the multiplies.
+// Rotation matrix for X-Plane attitude conventions.
 //
-// Convention: applies R = Rψ · Rθ · Rφ to (x,y,z) where +Y is up.
+// X-Plane: psi clockwise-from-north, theta nose-up, phi right-wing-down.
+// We translate into a standard right-hand rotation matrix:
+//   M = Ry(-psi) · Rx(theta) · Rz(-phi)
+// applied to body-frame vectors to produce world-frame vectors.
+//
+// Body and world frames coincide at identity attitudes (both are
+// +X east, +Y up, +Z south in world / +X right, +Y up, +Z back in body).
 struct M3 {
     float r[3][3];
 };
 
 M3 BuildAttitudeMatrix(float headingDeg, float pitchDeg, float rollDeg)
 {
-    const float ch = std::cos(deg2rad(headingDeg));
-    const float sh = std::sin(deg2rad(headingDeg));
+    // X-Plane attitudes:
+    //   psi (heading) is clockwise-from-north positive → negate for
+    //     right-hand Y-rotation.
+    //   theta (pitch) is nose-up positive → matches right-hand
+    //     X-rotation directly.
+    //   phi (roll) is right-wing-down positive → negate for right-hand
+    //     Z-rotation.
+    const float ch = std::cos(deg2rad(-headingDeg));
+    const float sh = std::sin(deg2rad(-headingDeg));
     const float cp = std::cos(deg2rad(pitchDeg));
     const float sp = std::sin(deg2rad(pitchDeg));
-    const float cr = std::cos(deg2rad(rollDeg));
-    const float sr = std::sin(deg2rad(rollDeg));
+    const float cr = std::cos(deg2rad(-rollDeg));
+    const float sr = std::sin(deg2rad(-rollDeg));
 
     // R = Ry(heading) * Rx(pitch) * Rz(roll)
     M3 m{};
