@@ -42,16 +42,34 @@ void Hide();
 void SetMode(int mode);
 int  GetMode();
 
-// Persisted indexer state.  Two geometries are tracked independently
-// so that toggling pop-out mode and back returns the window to its
-// previous floating position (and vice versa).  Floating coords are
-// X-Plane global desktop boxels; pop-out coords are OS-monitor pixels.
+// Placement mode.  Persisted as `indexerPlacementMode` integer in the
+// .prf.  Old .prfs with `indexerPoppedOut = 1` migrate to PopOut;
+// old .prfs with `indexerPoppedOut = 0` migrate to Floating.
+enum PlacementMode : int {
+    kPlacementFloating  = 0,
+    kPlacementPopOut    = 1,
+    kPlacementMounted3D = 2,
+};
+
+// Persisted indexer state.  Three placement modes are tracked
+// independently so toggling between them returns the window to its
+// previous position in that mode.  Floating and pop-out coords are
+// 2D rects (window geometry); mount3D is a 3D anchor in the aircraft's
+// body frame, projected to screen each frame.
 struct PersistedState {
     bool visible      = false;
     int  mode         = 0;
-    bool isPoppedOut  = false;
+    PlacementMode placementMode = kPlacementFloating;
+    bool isPoppedOut  = false;     // legacy, kept for migration only
     int  floatLeft = 100, floatTop = 600, floatWidth = 320, floatHeight = 240;
     int  popLeft = 100, popTop = 100, popWidth = 320, popHeight = 240;
+    // Aircraft body frame: +X right, +Y up, +Z BACK (-Z forward / out
+    // the nose).  Matches Indexer3DPlacement.h's convention.  Defaults
+    // place the indexer 30 cm forward (-Z direction) and 5 cm above
+    // the cockpit reference point — visible from a typical eyepoint.
+    float mount3D_X = 0.0f;
+    float mount3D_Y = 0.05f;
+    float mount3D_Z = -0.30f;
 };
 
 // Apply persisted state.  MUST be called from a flight-loop callback,
