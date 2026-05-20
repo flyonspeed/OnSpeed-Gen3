@@ -11,7 +11,7 @@
 // h(x), so it consumes raw post-EMA accels — no centripetal-comp
 // pre-step like Madgwick.  The accelFwdCompG/etc. fields on Outputs
 // surface the post-EMA values that were actually fed to the filter,
-// for parity with the Madgwick / Ekf6Pipeline diagnostic surface.
+// for parity with the Madgwick diagnostic surface.
 //
 // EKFQ owns its own vertical channel (states z, vz, b_az) and
 // publishes altitude/VSI directly via kalmanAltMeters /

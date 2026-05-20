@@ -183,7 +183,7 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     // 8) EarthVertG via the filter's quaternion — body→earth rotation
     //    of the unsmoothed installation-corrected vertical accel,
     //    minus the +1g level reaction-force convention.  Same formula
-    //    Madgwick / Ekf6Pipeline use; gives 0 at level flight.
+    //    Madgwick uses; gives 0 at level flight.
     out.earthVertG =
         2.0f * (state.q1 * state.q3 - state.q0 * state.q2)                         * in.accelFwdCorrG +
         2.0f * (state.q0 * state.q1 + state.q2 * state.q3)                         * in.accelLatCorrG +

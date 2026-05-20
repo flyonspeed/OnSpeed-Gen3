@@ -178,7 +178,7 @@ void AHRS::Init(float fSampleRate)
 
     g_Log.printf(MsgLog::EnAHRS, MsgLog::EnWarning,
         "AHRS Init (%s, pitch bias %.1f, roll bias %.1f)\n",
-        g_Config.iAhrsAlgorithm == 1 ? "EKF6" : "Madgwick",
+        g_Config.iAhrsAlgorithm == 1 ? "EKFQ" : "Madgwick",
         g_Config.fPitchBias, g_Config.fRollBias);
 }
 

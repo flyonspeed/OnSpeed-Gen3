@@ -197,7 +197,7 @@ public:
     float   fPitchBias;
     float   fRollBias;
 
-    // AHRS algorithm selection: 0=Madgwick (default), 1=EKF6
+    // AHRS algorithm selection: 0=Madgwick (default), 1=EKFQ
     int     iAhrsAlgorithm;
 
     // Serial inputs
