@@ -1095,18 +1095,21 @@ void HandleConfigSave()
     if (CfgServer.hasArg("readEfisData") && CfgServer.arg("readEfisData")=="1") g_Config.bReadEfisData=true;
     else                                                                        g_Config.bReadEfisData=false;
 
-    // read efis Type. If it actually changed, re-init g_EfisSerial so
-    // the parser_ switches to the new protocol AND the (boot-only)
-    // header-build path picks up the right column set on the next log
-    // rotation. Without this, sEfisType updates in cfg but the live
-    // driver keeps decoding the previous protocol's framing until reboot.
+    // EFIS type change. RequestTypeChange updates g_EfisSerial.enType
+    // synchronously (so the log-rotation block below reads the new
+    // value when it builds the new file's header) and defers the
+    // UART + parser-state reset to the next g_EfisSerial.Read() call
+    // on loopTask. The deferral keeps the UART teardown off the
+    // WebServer task — pSerial->end() / begin() racing a concurrent
+    // Read on another core is undefined behavior, and Read() runs on
+    // loopTask not WebServer.
     if (CfgServer.hasArg("efisType")) {
         const std::string sNew = CfgServer.arg("efisType").c_str();
         if (sNew != g_Config.sEfisType) {
             g_Config.sEfisType = sNew;
-            g_EfisSerial.Init(EfisTypeFromConfigString(sNew), &Serial2);
+            g_EfisSerial.RequestTypeChange(EfisTypeFromConfigString(sNew));
             g_Log.printf(MsgLog::EnConfig, MsgLog::EnDebug,
-                "EFIS type changed via web UI: %s\n", sNew.c_str());
+                "EFIS type change requested via web UI: %s\n", sNew.c_str());
         }
     }
 

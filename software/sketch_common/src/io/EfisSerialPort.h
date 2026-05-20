@@ -122,8 +122,33 @@ public:
     bool IsDataFresh(unsigned long maxAgeMs) const
         { return (millis() - uTimestamp) < maxAgeMs; }
 
+    // Request a type change to be applied on the next Read() call. Safe to
+    // call from any task: the cheap part (enType update, so other readers
+    // of g_EfisSerial.enType see the new value immediately) runs inline,
+    // and the expensive part (UART teardown + parser-state reset) is
+    // deferred to Read() so it can't race a concurrent read on another
+    // task. A pending request that matches the current enType is a no-op.
+    void RequestTypeChange(EnEfisType enNewType) {
+        // Update enType immediately so any caller that snapshots
+        // g_EfisSerial.enType (LogSensor::Open's header-build path,
+        // DataServer's VN-300 gating, etc.) sees the new value at once.
+        // The actual parser_ + UART reset is deferred — until Read()
+        // runs it, the driver still parses bytes as the OLD protocol.
+        // That's acceptable: the driver will produce garbage frames for
+        // ~one loopTask cycle (a few ms) until Read picks up the
+        // pending request.
+        enType = enNewType;
+        pendingType_ = enNewType;
+    }
+
 private:
     onspeed::efis::EfisParser  parser_;
+
+    // Cross-task pending-reinit slot. Sentinel value (-1 cast to enum) means
+    // "no pending request". WebServer task writes; loopTask reads + clears.
+    // Single-word aligned writes on ESP32 are atomic; no mutex needed.
+    static constexpr int kNoPendingType = -1;
+    volatile int pendingType_ = kNoPendingType;
 
     // Convert EfisType enum to onspeed core enum
     static onspeed::efis::EfisType toCoreType(EnEfisType t);

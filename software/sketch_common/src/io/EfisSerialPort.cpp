@@ -119,6 +119,20 @@ void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
 
 void EfisSerialPort::Read()
 {
+    // Apply any pending type change here, on the same task as the rest of
+    // Read(), so the UART teardown / parser-state reset can't race a
+    // concurrent read on another task. Web-handler / console paths request
+    // the change via RequestTypeChange(); loopTask picks it up between
+    // iterations.
+    const int pending = pendingType_;
+    if (pending != kNoPendingType) {
+        pendingType_ = kNoPendingType;
+        const EnEfisType newType = static_cast<EnEfisType>(pending);
+        if (newType != enType) {
+            Init(newType, pSerial);
+        }
+    }
+
     if (!g_Config.bReadEfisData)
         return;
 
