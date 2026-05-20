@@ -4,7 +4,6 @@
 #include <algorithm>
 
 #include "src/Globals.h"
-#include "../web_server/DataServer.h"
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 #include <efis/OatSelect.h>

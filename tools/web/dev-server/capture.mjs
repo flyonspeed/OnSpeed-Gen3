@@ -125,9 +125,9 @@ function parseFrames() {
       // Send pong.  Header byte 0x8A (FIN + opcode 0xA), no mask, len=0.
       sock.write(Buffer.from([0x8a, 0x00]));
     }
-    // Other opcodes (binary, continuation, pong) are ignored — the
-    // OnSpeed feed only mixes JSON text frames with binary M5 frames,
-    // and we want only the text.
+    // Other opcodes (binary, continuation, pong) are ignored. The
+    // OnSpeed feed is JSON text only; the non-text skip is defensive
+    // against any future binary producer on this socket.
   }
 }
 
