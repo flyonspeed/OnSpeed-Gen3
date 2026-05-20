@@ -58,7 +58,13 @@ static void ApplyPostParseSideEffects(FOSConfig& cfg)
     if (!cfg.bVolumeControl)
         g_AudioPlay.SetVolume(cfg.iDefaultVolume);
 
-    g_EfisSerial.enType = EfisTypeFromConfigString(cfg.sEfisType);
+    // Route through RequestTypeChange so any runtime config reload
+    // (e.g. console "load" command, web config-file upload) triggers
+    // the deferred parser + UART reinit in Read().  The boot path also
+    // exercises this code, but the .ino calls g_EfisSerial.Init()
+    // directly right after LoadConfig — Init() clears pendingType_ so
+    // the first Read() afterward is a no-op.
+    g_EfisSerial.RequestTypeChange(EfisTypeFromConfigString(cfg.sEfisType));
 
     if (g_pIMU != nullptr)
         {
