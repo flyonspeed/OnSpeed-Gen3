@@ -4,7 +4,7 @@ This document is a **contract** for how OnSpeed firmware should be structured as
 
 It is not a reorganization plan. Migration sequencing belongs in its own document; this one defines what we are reorganizing toward.
 
-> **Last reconciled with master:** 2026-05-18, against tip `54679f65` (post-v4.22.1; no v4.23 release tag yet, though wire v4.23 has been in production since v4.22). Major releases v4.21 (audio engine port, percent-lift honesty, EKF6 correctness) and v4.22 (Web UI rewrite, X-Plane indexer window, wire v4.23) shipped before the May 6 reconciliation; the 12 days since brought substantial post-release reliability work (silent-data-loss fixes, bench protocol, M5 renderer unification) without a new release tag yet. See **"What's already moving in this direction"** below for the running scoreboard, and **"Next priority"** at the bottom for the leverage call.
+> **Last reconciled with master:** 2026-05-20, against tip `130b84aa`. Two more days brought a *major* architectural shift: **PR #590 made the AHRS pipeline a named four-stage stream processor** (Sensor → AHRS algorithm → Smoothing → Outputs), PR #591 replaced EKF6 with EKFQ (11-state quaternion, AOA derived kinematically rather than tracked), and PR #595 turned `host_main` into an Optuna-tunable substrate that scores the C++ pipeline directly against recorded logs. **The stream-processing philosophy this doc has been advocating is now in production on the upstream half (PR #590) and the downstream-web-UI half (PR #526); the C++ sink-side closure (`LiveDataFrame`) is the only piece left.** See **"The pipeline is now real upstream"** below for what changed, **"What's already moving in this direction"** for the running scoreboard, and **"Next priority"** at the bottom.
 
 ## The model
 
@@ -48,6 +48,34 @@ OnSpeed is **a stream-processing system, not a sensor reader with extras bolted 
 3. **Estimators are parallel and named.** AOA can be computed multiple ways from the same sensor stream. Each is a stateful object, not a global. A fusion or selection layer lives downstream and names its inputs. This is the foundation for live calibration monitoring and auto-calibration.
 
 The architecture matches what the user is describing. **What we have not internalized yet** is rule 2 — schemas as first-class artifacts — and rule 3 — estimators as parallel, named, swappable.
+
+## The pipeline is now real upstream (PR #590, 2026-05-20)
+
+When this doc was first drafted, the "stream processing" framing was an architectural argument. Two days ago it became code. **PR #590** ("AHRS prep refactor: four-stage pipeline") landed on master with this principle stated in its commit message verbatim:
+
+> *"The single principle: **stream-processing model. Sensor → AHRS algorithm → smoothing → outputs.** Each stage owns its concerns; no shared retunable state between AHRS algorithms."*
+
+The C++ AHRS step (`software/Libraries/onspeed_core/src/ahrs/Ahrs.cpp:240-449`) is now structured exactly that way. Stage markers are named in source comments:
+
+```
+// Stage 1 — Sensor.        (TAS update, installation-bias rotation)
+// Stage 2 — AHRS algorithm. (Madgwick or EKFQ, owns its own EMA + gates + alpha)
+// Stage 3 — Smoothing.      (wire-spec τ accel/gyro smoothing, Kalman alt/VSI for Madgwick)
+// Stage 4 — Outputs.        (assemble AhrsOutputs struct)
+```
+
+Each algorithm is a wrapper class (`onspeed::ahrs::Madgwick`, `EkfqPipeline`) that owns its own internal pre-filtering, IAS gating, and comp-fade ramp. They are not interchangeable at the field level — each algorithm's tuning constants are its own — but they expose a uniform handoff: input is sensor-stage state, output is `AhrsOutputs`. The standalone `KalmanFilter` is bypassed when EKFQ owns the vertical channel (z/vz as filter states).
+
+**This is the doc's argument, in production**, applied to the upstream half (sensors → algorithm → smoothing → outputs).
+
+What the in-production pipeline does NOT yet have:
+
+- **Stage 5 — Sink-tier composition.** What this doc has been calling `LiveDataFrame`. After Stage 4 hands off `AhrsOutputs`, the data scatters into `g_AHRS`, `g_Sensors`, `g_EfisSerial`, `g_Flaps`, `g_Config`, and the sink layer (DataServer, DisplaySerial, LogSensor) reads each one ad-hoc. The pipeline discipline ends at Stage 4.
+- **Parallel estimators.** Stage 2 picks one algorithm (config-driven Madgwick vs EKFQ). Today they don't run in parallel; EKF6's per-tick alpha-tracking is gone (PR #591 moved AOA derivation to a kinematic formula post-step). The doc's "parallel AOA estimators" vision needs explicit upstream support to land — see §6 and step #7 below.
+
+**The richer framing** for this doc, going forward:
+
+> The C++ side has shipped the stream-processing pattern at the upstream half (PR #590, four-stage AHRS). The JS side has shipped it at the downstream half (PR #526, M5State + per-source adapters + one renderer family). The Python side declared its half explicitly (PR #380, `LiveSnapshot` citing this doc by name). **The missing seam is the C++ sink-side closure — Stage 5, the `LiveDataFrame` snapshot that hands a single typed value off to every sink.** This is no longer "the doc invented an abstraction"; it's "we shipped the philosophy in three places, the firmware sinks haven't caught up."
 
 ## Where we succeed
 
@@ -220,9 +248,24 @@ This section tracks landed work that pulls in the model's direction. It's intent
 - **PR #493/#555** Indexer StaleOverlay actually renders when feed goes stale; threshold dropped 3 s → 0.3 s.
 - **Issue #366 closed (2026-05-17)** — the cal wizard EKF6 bug from §4 of this doc is closed. PR #373 fixed it in code in v4.22; the ticket bookkeeping caught up after the May 6 reconciliation noted the gap.
 
-**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. The 12 days since v4.22.1 fixed the reliability around the surfaces, and the web side started ratifying the canonical-shape pattern this doc has been pointing at. Schema discipline at the WS layer (#369), wire-version discipline at the M5 layer (#386), an external-facing protocol reference (#345), the X-Plane plugin as a complete frontend (#394–#420), the cal wizard ported off the legacy path (#373), the Python tooling formalizing the shape (#380), the JS side actually shipping the canonical-shape pattern (#526), and the snapshot-discipline payoff getting demonstrated in reverse via PR #530's silent-data-loss fixes — all converging toward step 1.
+**Two more days (May 18 → May 20) — the upstream pipeline lands:**
 
-What still has *not* landed: the C++ `LiveDataFrame` snapshot in DataServer (§2), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). **The case for step 1 is stronger than it was on May 6.** The Python side committed to the shape, the JS side now ships an equivalent of it, and PR #530 shows the cost of getting cross-task concurrency wrong by other means.
+- **PR #590** *AHRS prep refactor: four-stage pipeline.* See **"The pipeline is now real upstream"** above. This is the architectural news. `onspeed::ahrs::Madgwick` and `EkfqPipeline` algorithm wrappers each own their internal pre-filtering / IAS gating / comp-fade ramp; `Ahrs::Step()` becomes pure stage dispatch. Companion commit: log writer now always emits raw IAS/AOA/DerivedAOA (no validity-blanked cells); validity gating moved to display-consumer side via new `iIasDisplayThresholdKt` config. *This decouples sensed-value from displayed-value at the right layer.* Regression harness extended to score per-algorithm goldens (Madgwick + EKF6 + replay_engine + synth_adc), 200 rows match each.
+- **PR #591** *AHRS: replace EKF6 with EKFQ (11-state quaternion EKF).* State vector grew 6 → 11: `[q0..q3, bp,bq,br, z, vz, b_az, β]`. **Alpha is no longer in the state vector** — EKFQ derives AOA via kinematic formula post-step: `α = atan2(sin θ, cos φ cos θ) + asin(corr)` from current (φ, θ, vz, TAS, β). When EKFQ is the active algorithm, the standalone `KalmanFilter` (Stage 3c) is bypassed; EKFQ produces z/vz directly from the state. Adds sideslip-β as a tracked quantity — a new dimension the firmware estimates that wasn't there before.
+- **PR #595** *EKFQ: Optuna substrate — tune C++ directly via host_main.* Promotes `EkfqPipeline`'s pre-filter constants to a `PipelineConfig` struct; adds `EkfqConfigKv` parser for per-trial overrides; `host_main ahrs_tone --algorithm ekfq --config X.cfg` consumes real SD logs via `BuildHeaderIndex`. **New `replay::LogRowToAhrsInputs` bridge:** canonical LogRow → AhrsInputs translation that any future replay caller can use. **This means the AHRS pipeline is now an offline-tunable unit-under-test, scored against recorded flight data.** New customer for Stage 5 (`LiveDataFrame`): if the post-AHRS sink path is similarly clean, host_main can score sink-rate behavior the same way it scores AHRS-rate behavior — wire bytes, displayed values, audio decisions, all from a recorded log.
+- **PR #569** *M5 Data Source menu (AUTO/UART/USB), remove SerialRead late-binding.* Explicit `g_dataSource` NVS-persisted menu choice locked at boot. The data-source-adapter pattern at the sketch boundary — small but ratifies the model.
+- **PR #582** *Per-flight log cards with sidecar rollup + coredump surface.* Sidecar rollup merges `.dbg` and `.meta` into parent CSV entries; coredump enumeration via new `SdFileSys::DirList()`. UX, mostly orthogonal to pipeline shape.
+- **PR #580** *Compressible-flow CAS in `PitotPsiToIasKt`.* Lapse-rate-corrected indicated airspeed. Extends the sensor stage's airspeed semantics.
+- **PR #585** AOA smoothing default 20 → 10. Config-only.
+- **PR #587/#588** Log download gzipped, log cards sorted newest-first with active log pinned. UX.
+- **PR #568** VN-300: derive wind columns (speed/direction/vertical) on-board.
+- **PR #575** Align display-OAT gating across M5 wire and JSON (closes #361). Removes a JSON-vs-M5 disagreement of the kind §1 of this doc complains about.
+- **PR #572** Delete positional `ParseRow`; consolidate onspeed_core unit helpers. Cleanup.
+- **PR #561** Post-#501 fixups (serial FORMAT TWDT, StaleOverlay flicker, sidecar guard).
+
+**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. The 12 days through May 18 fixed the reliability around the surfaces and ratified the canonical-shape pattern on the web side. **The two days since (May 18 → 20) ratified the upstream half of the pattern in firmware code, replaced the AHRS estimator with one that has a richer state, and turned the AHRS step into an offline-tunable unit.** Schema discipline at the WS layer (#369), wire-version discipline at the M5 layer (#386), an external-facing protocol reference (#345), the X-Plane plugin as a complete frontend (#394–#420), the cal wizard ported off the legacy path (#373), the Python tooling formalizing the shape (#380), the JS side actually shipping the canonical-shape pattern (#526), the snapshot-discipline payoff demonstrated in reverse via PR #530's silent-data-loss fixes, and now **the four-stage pipeline shipping on the upstream side (PR #590) and the AHRS-as-tunable-unit shipping for offline analysis (PR #595)** — all converging toward step 1.
+
+What still has *not* landed: the C++ `LiveDataFrame` snapshot in DataServer (§2), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). **The case for step 1 is the strongest it has been at any reconciliation.** The Python side committed to the shape (#380). The JS side ships the equivalent (#526). The C++ upstream half ships the equivalent (#590). The post-AHRS scoring path needs Stage 5 to extend host_main's reach (#595). The C++ sink-side closure is the only piece left.
 
 ## Data sources: what's complete, what's missing
 
@@ -514,25 +557,43 @@ Each step is independently reviewable and shippable. None require a top-down rew
 
 The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it, and reaches for an existing protocol before inventing one.
 
-## Next priority (as of 2026-05-18)
+## Next priority (as of 2026-05-20)
 
-Same headline as the May 6 read: **step 1 — the C++ `LiveDataFrame` snapshot in `onspeed_core/proto/`** — is the single highest-leverage move. The case has gotten stronger since the last reconciliation, not weaker.
+Same headline as the May 6 and May 18 reads: **step 1 — the C++ `LiveDataFrame` snapshot in `onspeed_core/proto/`** — is the single highest-leverage move. The argument is now structurally complete.
 
-What changed in the 12 days since May 6:
-- **The JS side ratified the pattern** (PR #526). `packages/ui-core/state-shape.js`'s `M5State` is the canonical struct; `wsRecordToState` and `m5sim→state` are the per-source adapters; `m5modes/` is the unified renderer family. Two adapters, one shape, one renderer — in production on the web side. The C++ side is the only remaining place where the shape isn't ratified.
-- **PR #530 demonstrated the cost of getting cross-task concurrency wrong by other means.** Three silent-data-loss paths in the SD writer, each one a kind of bug the snapshot pattern prevents structurally. 2.07% missing-rows in Vac's flight log → 0% after fix.
-- **The replay tooling matured into a full data pipeline** (#543/#544/#545/#548) consuming `LogRow` through the same `M5State`-shaped adapter that drives the live page. The "one renderer, many sources" payoff is already real on the web side; the firmware side inherits it when LogReplay produces `LiveDataFrame`.
-- **PR #559 formalized the bench protocol** that catches concurrency bugs before they ship. The instrumentation it relies on (microsecond timestamps, paused-drops counter, overflow-bytes counter) is exactly what `LiveDataFrame`'s per-stream timestamps make universally observable.
+### Why this is the right call, restated for the 2026-05-20 state
 
-Why still step 1:
-- The Python (`LiveSnapshot`, PR #380) and JS (`M5State`, PR #526) sides have both committed to the canonical-shape pattern. Naming, units, fields, validity gating, cadence conventions are settled.
-- The schema-pin half of the contract (PR #369's `LiveDataJsonKeys.h`) is in place.
-- `DisplayBuildInputs` is a working sibling shape, cross-platform-exercised.
-- Every downstream step (#4 MAVLink emit, #5 indexer-as-generic-HUD, #7 `AoaEstimates` parallel estimators, #10 BLE GATT) takes a `LiveDataFrame` as input. Without it, each of those steps re-invents its own snapshot.
+The stream-processing model isn't a doc opinion anymore. It's the in-production AHRS pipeline (PR #590, four named stages, no shared retunable state between algorithms). The downstream-web-UI half (PR #526's M5State + adapters + unified renderer) is in production. The Python tooling half (PR #380's `LiveSnapshot`, citing this doc by name) is committed. **The C++ sink-side closure — Stage 5 of the upstream pipeline, the same shape the JS side already has — is the only piece left.**
 
-What's *not* the next priority, and why:
-- **MAVLink emit (#4)** is tempting because it unlocks the most external compatibility, but doing it before step 1 means the MAVLink emitter has to read 25 globals directly — duplicating DataServer's tangling rather than fixing it.
-- **OAT / boom re-injection in LogReplay (#3)** is small and worth doing soon, but it's not the architectural bottleneck. **Caveat:** when step 1 lands and firmware LogReplay produces a `LiveDataFrame`, the OAT/boom gap closes mechanically — re-injection becomes "set `frame.sensors.oatCelsius = row.oatCelsius`" inside the snapshot adapter, not a separate refactor.
-- **Parallel estimators (#7)** is the largest leverage for the OnSpeed mission long term, but it depends on `LiveDataFrame` (or a sibling `AoaEstimates` struct routed the same way) to land first without re-inventing the snapshot pattern.
+Stage 4 (`AhrsOutputs`) hands off cleanly. Stage 5 needs to:
+1. Hold the snapshot of state across all the upstream streams (IMU, sensors, AHRS, EFIS, boom, flap), composed from sub-structs that already exist or are minor additions.
+2. Compute display-tier derived state (percent anchors, pip) once at snapshot time.
+3. Provide a `LiveDataView` accessor with selection-policy fusion (`PreferEfis` / `PreferInternal` / `EfisOnly` / `InternalOnly`) and freshness gating, so the four ad-hoc fusion sites in DataServer/DisplaySerial/audio/cal-wizard collapse into one tested layer.
 
-**Honest framing:** the work is now overdue. Two adjacent communities (Python tooling, web UI) have shipped the pattern; the firmware is the lagging piece. Every PR that adds a new sink, fixes a concurrency bug in the existing sinks, or extends the wire format pays a tax for the missing struct. The longer we wait, the more sinks will have been written against the unstructured globals — making the eventual migration more expensive, not less.
+That's it. The shape is the composed-snapshot design from step 1's current spec; it doesn't need re-litigating.
+
+### The two new customers that PR #590 / PR #595 created
+
+The Optuna substrate (#595) makes `Ahrs::Step()` an offline-tunable unit. `host_main ahrs_tone --algorithm ekfq --config X.cfg` consumes recorded SD logs via `BuildHeaderIndex` and `replay::LogRowToAhrsInputs`, then scores AHRS outputs against truth columns. **When `LiveDataFrame` lands, this scoring extends to sink-rate behavior** — replay → Stage 5 frame → encoder → byte-equal-or-not against the original log's M5 wire bytes. That's a level of offline validation the firmware has never had.
+
+Second customer: EKFQ now estimates β (sideslip), and derives AOA kinematically rather than tracking it as state. **There are already three concurrent AOA-related quantities the firmware can produce:** pressure-polynomial AOA (`g_Sensors.AoaCalc`), EKFQ's kinematic-derived AOA, and EKFQ's β. Today they collapse into `g_AHRS.DerivedAOA` plus an unused β. The doc's `AoaEstimates` proposal (step #7) is overdue for what already exists, not just speculation about future estimators.
+
+### What's *not* the next priority, with one important nuance
+
+- **MAVLink emit (#4)** is tempting because it unlocks the most external compatibility, but doing it before step 1 means the MAVLink emitter reads 25 globals directly — duplicating DataServer's tangling rather than fixing it.
+- **OAT / boom re-injection in LogReplay (#3)** closes mechanically once step 1 lands. Re-injection becomes `frame.sensors.oatCelsius = row.oatCelsius` inside the snapshot adapter, not a separate refactor.
+- **Parallel estimators (#7)** depends on step 1 to land first. **But:** with EKFQ in place, step #7 has *more* upstream work to do than the doc previously implied. Today EKFQ and Madgwick are mutually exclusive (config switch, not parallel). Producing simultaneous estimates from both would require running them in parallel, which the four-stage pipeline allows in principle but doesn't do today. Honest scope: step #7 is now bigger than just "add a struct," because the upstream needs to produce parallel signal before there's anything to fuse. Step #1 is the foundation; step #7 is its own design exercise.
+
+### Recommendation — what to do next
+
+Three options ordered by increasing scope:
+
+**(a) Doc updates only.** What we just did. Doc reflects the new landscape; no code change. Useful if the user wants to noodle more before committing to the work.
+
+**(b) Doc + design artifact PR.** Worktree off master, write `LiveDataFrame.h` and `LiveDataView.h` as design artifacts (the composed sub-struct layout, the accessor signatures, comments per field with units and cadence). Wire nothing. ~150 lines of header-only design. Lets the next person react to a concrete shape instead of an empty diff.
+
+**(c) Doc + initial migration PR.** Worktree off master, follow the PR #373 model: write `LiveDataFrame.h` + `BuildLiveDataFrame()` reading from globals under mutex + `FormatLiveDataJson(const LiveDataFrame&, char*, size_t)` in `onspeed_core/proto/`. Then change `DataServer::UpdateLiveDataJson()` to call those two functions instead of doing the work inline. **Pin the change with a byte-equality differential test** against the current JSON output (the way `test_calwiz_save_diff` pins PR #373's mutation logic). Behavior-preserving by construction; no sink migration yet; everything downstream still works.
+
+Option (c) is the right call. The PR #373 differential-test pattern has shipped successfully. The byte-equality test makes the change provably safe. Once `LiveDataFrame` exists, every subsequent migration (M5 wire, MAVLink emit, BLE, OAT/boom re-injection, parallel estimators) is incremental and reviewable on its own merits.
+
+**Honest framing:** the work is overdue. Three communities have shipped the pattern (Python tooling, web UI, the AHRS pipeline itself). Every PR that lands while the C++ sink-side closure is missing — every new sink, every concurrency fix, every wire-format extension — pays a tax for the missing struct. PR #591 (EKFQ) and PR #595 (Optuna) already navigated this; tomorrow's MAVLink emit or BLE producer will too unless step 1 closes the seam first.
