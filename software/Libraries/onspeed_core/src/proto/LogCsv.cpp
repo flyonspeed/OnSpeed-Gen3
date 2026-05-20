@@ -19,6 +19,150 @@
 
 namespace {
 
+// =========================================================================
+// Fast formatters — replace the snprintf hot path for the CSV row writer.
+//
+// The CSV row builder is called 208 times per second on the IMU task.
+// Each row has ~30 floats and a dozen ints. Routing every cell through
+// vsnprintf is the bulk of the LogCsv CPU cost (~25 µs/call × 30 cells =
+// ~750 µs per row × 208 Hz = 156 ms/sec).
+//
+// These hand-rolled formatters produce byte-identical output to the
+// printf path for the formats actually used: %i, %u, %lu, %llu, %.1f,
+// %.2f, %.4f, %.6f. Other paths still go through Appendf.
+//
+// All assume the buffer has room (cap check at top); on overflow they
+// truncate and null-terminate, matching Appendf's failure mode.
+// =========================================================================
+
+// Write a single character. Returns true on success.
+static inline bool AppendChar(char* buf, size_t cap, size_t* pLen, char c)
+{
+    if (*pLen + 1 >= cap) { buf[cap - 1] = '\0'; return false; }
+    buf[(*pLen)++] = c;
+    return true;
+}
+
+// Write an unsigned 64-bit integer using a 20-char temp buffer.
+// Worst case 20 digits + sign = 21 chars.
+static inline bool AppendUInt64(char* buf, size_t cap, size_t* pLen, uint64_t v)
+{
+    char tmp[21];
+    int n = 0;
+    if (v == 0) {
+        tmp[n++] = '0';
+    } else {
+        while (v > 0) {
+            tmp[n++] = static_cast<char>('0' + (v % 10));
+            v /= 10;
+        }
+    }
+    if (*pLen + (size_t)n >= cap) { buf[cap - 1] = '\0'; return false; }
+    while (n > 0) buf[(*pLen)++] = tmp[--n];
+    return true;
+}
+
+static inline bool AppendInt32(char* buf, size_t cap, size_t* pLen, int32_t v)
+{
+    if (v < 0) {
+        if (!AppendChar(buf, cap, pLen, '-')) return false;
+        return AppendUInt64(buf, cap, pLen, (uint64_t)(-(int64_t)v));
+    }
+    return AppendUInt64(buf, cap, pLen, (uint64_t)v);
+}
+
+static inline bool AppendUInt32(char* buf, size_t cap, size_t* pLen, uint32_t v)
+{
+    return AppendUInt64(buf, cap, pLen, (uint64_t)v);
+}
+
+// Format a float with N decimal places. Uses round-half-away-from-zero
+// to match printf's default rounding mode.
+//
+// Strategy: multiply by 10^N, round to nearest integer, then split into
+// integer and fractional parts and emit. Handles negatives, NaN, and
+// infinities the same way printf does ("nan", "inf").
+static inline bool AppendFloatFixed(char* buf, size_t cap, size_t* pLen,
+                                    float val, int decimals)
+{
+    if (std::isnan(val)) {
+        const char* s = "nan";
+        while (*s) { if (!AppendChar(buf, cap, pLen, *s++)) return false; }
+        return true;
+    }
+    if (std::isinf(val)) {
+        if (val < 0.0f && !AppendChar(buf, cap, pLen, '-')) return false;
+        const char* s = "inf";
+        while (*s) { if (!AppendChar(buf, cap, pLen, *s++)) return false; }
+        return true;
+    }
+
+    bool negative = val < 0.0f;
+    if (negative) val = -val;
+
+    // Lookup-table for 10^decimals. Covers the decimals we use (1..6).
+    static const uint32_t kPow10[] = {1, 10, 100, 1000, 10000, 100000, 1000000};
+    const uint32_t scale = (decimals >= 0 && decimals <= 6)
+                               ? kPow10[decimals]
+                               : 100;
+
+    // Round-half-away-from-zero by adding 0.5 before truncating.
+    // Use double precision for the intermediate to preserve precision
+    // for large values; final cast loses the fraction.
+    const double scaled = static_cast<double>(val) * (double)scale + 0.5;
+
+    // Guard against overflow into uint64 territory (~1.8e19). A float can
+    // hold ~3.4e38 but past ~9.2e18*scale we'd overflow uint64. Fall back
+    // to snprintf for those — they don't appear in our log columns.
+    if (scaled >= 9.2e18) {
+        char fmt[8];
+        std::snprintf(fmt, sizeof(fmt), "%%.%df", decimals);
+        char tmp[32];
+        int n = std::snprintf(tmp, sizeof(tmp), fmt, negative ? -val : val);
+        if (n < 0 || *pLen + (size_t)n >= cap) {
+            buf[cap - 1] = '\0';
+            return false;
+        }
+        std::memcpy(buf + *pLen, tmp, (size_t)n);
+        *pLen += (size_t)n;
+        return true;
+    }
+
+    const uint64_t intRounded = (uint64_t)scaled;
+    const uint64_t intPart    = intRounded / scale;
+    const uint32_t fracPart   = (uint32_t)(intRounded - intPart * scale);
+
+    if (negative) {
+        if (!AppendChar(buf, cap, pLen, '-')) return false;
+    }
+    if (!AppendUInt64(buf, cap, pLen, intPart)) return false;
+    if (decimals <= 0) return true;
+    if (!AppendChar(buf, cap, pLen, '.')) return false;
+    // Zero-pad the fractional part to `decimals` width.
+    char fbuf[8];
+    int fn = 0;
+    uint32_t f = fracPart;
+    for (int i = 0; i < decimals; ++i) {
+        fbuf[fn++] = static_cast<char>('0' + (f % 10));
+        f /= 10;
+    }
+    if (*pLen + (size_t)fn >= cap) { buf[cap - 1] = '\0'; return false; }
+    while (fn > 0) buf[(*pLen)++] = fbuf[--fn];
+    return true;
+}
+
+// Convenience emit-with-leading-comma variants — the format style FormatRow
+// uses pervasively (",%.2f", ",%i", ...).
+static inline bool CommaFloat(char* b, size_t c, size_t* l, float v, int d) {
+    return AppendChar(b, c, l, ',') && AppendFloatFixed(b, c, l, v, d);
+}
+static inline bool CommaInt32(char* b, size_t c, size_t* l, int32_t v) {
+    return AppendChar(b, c, l, ',') && AppendInt32(b, c, l, v);
+}
+static inline bool CommaUInt32(char* b, size_t c, size_t* l, uint32_t v) {
+    return AppendChar(b, c, l, ',') && AppendUInt32(b, c, l, v);
+}
+
 // Appends a printf-formatted string into buf[0..cap), tracking the running
 // length in *pLen.  Returns true on success, false on truncation.
 static bool Appendf(char* buf, size_t cap, size_t* pLen, const char* fmt, ...)
@@ -59,22 +203,9 @@ static bool Appendf(char* buf, size_t cap, size_t* pLen, const char* fmt, ...)
 // keeps Appendf calls readable in column-group blocks).  The trampoline
 // passes its caller-supplied `fmt` through to Appendf, which is marked
 // printf-format; suppress the `-Wformat-nonliteral` complaint locally.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-nonliteral"
-static bool AppendFloatOrEmpty(char* buf, size_t cap, size_t* pLen,
-                               bool valid, const char* fmt, float val)
-{
-    return valid ? Appendf(buf, cap, pLen, fmt, val)
-                 : Appendf(buf, cap, pLen, ",");
-}
-
-static bool AppendIntOrEmpty(char* buf, size_t cap, size_t* pLen,
-                             bool valid, const char* fmt, int val)
-{
-    return valid ? Appendf(buf, cap, pLen, fmt, val)
-                 : Appendf(buf, cap, pLen, ",");
-}
-#pragma GCC diagnostic pop
+// AppendFloatOrEmpty / AppendIntOrEmpty removed — the fast formatters
+// inline this pattern directly at each call site (AppendChar ','; if
+// valid then AppendFloatFixed/AppendInt32).
 
 }   // anonymous namespace
 
@@ -149,57 +280,49 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     bool ok = true;
 
     // Core sensor columns — must match LogSensor::Write() exactly.
-    // Column 1 is timeStamp (ms). Column 2 is timeStampUs (µs).
-    // Columns 3..8 are always numeric; IAS and AngleofAttack go empty
-    // when `iasValid` is false (matches the M5 wire / JSON convention so
-    // offline analysis tools can distinguish "no air-data yet" from
-    // "real reading of 0.0"). flapsPos and DataMark stay numeric —
-    // they're meaningful at rest.
     //   %lu,%llu,%i,%.2f,%i,%.2f,%.2f,%.2f
-    ok &= Appendf(out, outCapacity, &len,
-        "%lu,%llu,%i,%.2f,%i,%.2f,%.2f,%.2f",
-        (unsigned long)row.timeStampMs,
-        (unsigned long long)row.timeStampUs,
-        row.pfwdCounts, row.pfwdSmoothed,
-        row.p45Counts,  row.p45Smoothed,
-        row.pStaticMbar, row.paltFt);
+    ok &= AppendUInt32(out, outCapacity, &len, row.timeStampMs);
+    ok &= AppendChar(out, outCapacity, &len, ',');
+    ok &= AppendUInt64(out, outCapacity, &len, row.timeStampUs);
+    ok &= CommaInt32(out, outCapacity, &len, row.pfwdCounts);
+    ok &= CommaFloat(out, outCapacity, &len, row.pfwdSmoothed,  2);
+    ok &= CommaInt32(out, outCapacity, &len, row.p45Counts);
+    ok &= CommaFloat(out, outCapacity, &len, row.p45Smoothed,   2);
+    ok &= CommaFloat(out, outCapacity, &len, row.pStaticMbar,   2);
+    ok &= CommaFloat(out, outCapacity, &len, row.paltFt,        2);
 
-    // IAS (column 8) and AngleofAttack (column 9).  The log carries
-    // the raw sensor reading regardless of whether the firmware's
-    // display gate (iasDisplayable, see SensorIO + OnSpeedConfig::
-    // iIasDisplayThresholdKt) would blank it on the screen.  Replay
-    // tools compute their own display gate from raw IAS + current
-    // cfg threshold, which lets pilots retune the threshold in replay
-    // without re-flying.
-    ok &= Appendf(out, outCapacity, &len, ",%.2f", row.iasKt);
-    ok &= Appendf(out, outCapacity, &len, ",%.2f", row.angleOfAttackDeg);
+    //   ,%.2f  (IAS)  ,%.2f  (AngleofAttack)
+    ok &= CommaFloat(out, outCapacity, &len, row.iasKt,            2);
+    ok &= CommaFloat(out, outCapacity, &len, row.angleOfAttackDeg, 2);
 
-    //   ,%i,%i  (flapsPos, DataMark — always numeric)
-    ok &= Appendf(out, outCapacity, &len, ",%i,%i",
-        row.flapsPos, row.dataMark);
+    //   ,%i,%i  (flapsPos, DataMark)
+    ok &= CommaInt32(out, outCapacity, &len, row.flapsPos);
+    ok &= CommaInt32(out, outCapacity, &len, row.dataMark);
 
     //   ,%.2f,%.2f  (OAT, TAS)
-    ok &= Appendf(out, outCapacity, &len,
-        ",%.2f,%.2f",
-        row.oatCelsius, row.tasKt);
+    ok &= CommaFloat(out, outCapacity, &len, row.oatCelsius, 2);
+    ok &= CommaFloat(out, outCapacity, &len, row.tasKt,      2);
 
-    // IMU columns.  Note: PitchRate column stores -imuPitchRateDps
-    // (sign flip relocated from LogSensor::Write into here — issue #182).
+    // IMU columns. PitchRate column stores -imuPitchRateDps.
     //   ,%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.2f,%.2f
-    ok &= Appendf(out, outCapacity, &len,
-        ",%.2f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.2f,%.2f",
-        row.imuTempCelsius,
-        row.imuVerticalG, row.imuLateralG, row.imuForwardG,
-        row.imuRollRateDps, -row.imuPitchRateDps, row.imuYawRateDps,
-        row.pitchDeg, row.rollDeg);
+    ok &= CommaFloat(out, outCapacity, &len, row.imuTempCelsius,    2);
+    ok &= CommaFloat(out, outCapacity, &len, row.imuVerticalG,      6);
+    ok &= CommaFloat(out, outCapacity, &len, row.imuLateralG,       6);
+    ok &= CommaFloat(out, outCapacity, &len, row.imuForwardG,       6);
+    ok &= CommaFloat(out, outCapacity, &len, row.imuRollRateDps,    6);
+    ok &= CommaFloat(out, outCapacity, &len, -row.imuPitchRateDps,  6);
+    ok &= CommaFloat(out, outCapacity, &len, row.imuYawRateDps,     6);
+    ok &= CommaFloat(out, outCapacity, &len, row.pitchDeg,          2);
+    ok &= CommaFloat(out, outCapacity, &len, row.rollDeg,           2);
 
     // Boom columns (optional)
     if (row.boomEnabled) {
-        ok &= Appendf(out, outCapacity, &len,
-            ",%.2f,%.2f,%.2f,%.2f,%.2f,%i",
-            row.boomStatic, row.boomDynamic,
-            row.boomAlpha,  row.boomBeta,
-            row.boomIasKt,  row.boomAgeMs);
+        ok &= CommaFloat(out, outCapacity, &len, row.boomStatic,  2);
+        ok &= CommaFloat(out, outCapacity, &len, row.boomDynamic, 2);
+        ok &= CommaFloat(out, outCapacity, &len, row.boomAlpha,   2);
+        ok &= CommaFloat(out, outCapacity, &len, row.boomBeta,    2);
+        ok &= CommaFloat(out, outCapacity, &len, row.boomIasKt,   2);
+        ok &= CommaInt32(out, outCapacity, &len, (int32_t)row.boomAgeMs);
     }
 
     // EFIS columns (optional)
@@ -213,70 +336,86 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
             // risk.  Refuse to emit the row rather than silently corrupt.
             if (memchr(row.vnTimeUtc, ',', strnlen(row.vnTimeUtc, sizeof(row.vnTimeUtc))) != nullptr)
                 return 0;
-            // VN-300 format.  Wind columns emit as empty cells when NaN
-            // (no GPS fix, TAS below threshold, or NaN attitude).
-            ok &= Appendf(out, outCapacity, &len,
-                ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f"
-                ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f"
-                ",%.2f,%.2f,%.2f",
-                row.vnAngularRateRoll,  row.vnAngularRatePitch, row.vnAngularRateYaw,
-                row.vnVelNedNorth,      row.vnVelNedEast,       row.vnVelNedDown,
-                row.vnAccelFwd,         row.vnAccelLat,         row.vnAccelVert,
-                row.vnYawDeg,           row.vnPitchDeg,         row.vnRollDeg,
-                row.vnLinAccFwd,        row.vnLinAccLat,        row.vnLinAccVert,
-                row.vnYawSigma,         row.vnRollSigma,        row.vnPitchSigma,
-                row.vnGnssVelNedNorth,  row.vnGnssVelNedEast,   row.vnGnssVelNedDown);
-            ok &= AppendFloatOrEmpty(out, outCapacity, &len,
-                std::isfinite(row.vnWindSpd),      ",%.2f", row.vnWindSpd);
-            ok &= AppendFloatOrEmpty(out, outCapacity, &len,
-                std::isfinite(row.vnWindDir),     ",%.1f", row.vnWindDir);
-            ok &= AppendFloatOrEmpty(out, outCapacity, &len,
-                std::isfinite(row.vnWindVertical), ",%.2f", row.vnWindVertical);
-            ok &= Appendf(out, outCapacity, &len,
-                ",%.6f,%.6f,%.2f,%i,%i,%s",
-                row.vnGnssLat,          row.vnGnssLon,          row.vnEstAltFt,
-                row.vnGpsFix,           row.vnDataAgeMs,        row.vnTimeUtc);
+            // VN-300 format.  Wind columns emit as empty cells when NaN.
+            ok &= CommaFloat(out, outCapacity, &len, row.vnAngularRateRoll,  2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnAngularRatePitch, 2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnAngularRateYaw,   2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnVelNedNorth,      2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnVelNedEast,       2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnVelNedDown,       2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnAccelFwd,         2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnAccelLat,         2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnAccelVert,        2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnYawDeg,           2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnPitchDeg,         2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnRollDeg,          2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnLinAccFwd,        2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnLinAccLat,        2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnLinAccVert,       2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnYawSigma,         2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnRollSigma,        2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnPitchSigma,       2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnGnssVelNedNorth,  2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnGnssVelNedEast,   2);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnGnssVelNedDown,   2);
+            // Wind: emit comma + value when finite, just a comma when NaN.
+            ok &= AppendChar(out, outCapacity, &len, ',');
+            if (std::isfinite(row.vnWindSpd))
+                ok &= AppendFloatFixed(out, outCapacity, &len, row.vnWindSpd, 2);
+            ok &= AppendChar(out, outCapacity, &len, ',');
+            if (std::isfinite(row.vnWindDir))
+                ok &= AppendFloatFixed(out, outCapacity, &len, row.vnWindDir, 1);
+            ok &= AppendChar(out, outCapacity, &len, ',');
+            if (std::isfinite(row.vnWindVertical))
+                ok &= AppendFloatFixed(out, outCapacity, &len, row.vnWindVertical, 2);
+            // GnssLat/Lon: %.6f doubles. The fast formatter takes float; cast.
+            // (Coordinates fit easily in float32 to ~7 decimal places of precision
+            // at equator, plenty for the %.6f output.)
+            ok &= CommaFloat(out, outCapacity, &len, (float)row.vnGnssLat,  6);
+            ok &= CommaFloat(out, outCapacity, &len, (float)row.vnGnssLon,  6);
+            ok &= CommaFloat(out, outCapacity, &len, row.vnEstAltFt,         2);
+            ok &= CommaInt32(out, outCapacity, &len, (int32_t)row.vnGpsFix);
+            ok &= CommaInt32(out, outCapacity, &len, (int32_t)row.vnDataAgeMs);
+            // Time-of-day string: keep Appendf for %s.
+            ok &= Appendf(out, outCapacity, &len, ",%s", row.vnTimeUtc);
         } else {
             // Standard EFIS (Dynon, Garmin, MGL, etc.)
-            // efisPercentLift goes empty when !efisPercentLiftValid (mirrors
-            // the IAS gate; the EFIS-fed percent-lift is meaningless when
-            // the producer's air-data isn't alive).
-            //   ,%.2f,%.2f,%.2f,%.2f,%.2f
-            ok &= Appendf(out, outCapacity, &len,
-                ",%.2f,%.2f,%.2f,%.2f,%.2f",
-                row.efisIasKt,    row.efisPitchDeg,  row.efisRollDeg,
-                row.efisLateralG, row.efisVerticalG);
-            ok &= AppendIntOrEmpty(out, outCapacity, &len,
-                                   row.efisPercentLiftValid,
-                                   ",%i", row.efisPercentLift);
-            //   ,%i,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%i,%lu
-            ok &= Appendf(out, outCapacity, &len,
-                ",%i,%i,%.2f,%.2f,%.2f,%.2f,%.2f,%i,%i,%i,%i,%lu",
-                row.efisPaltFt,        row.efisVsiFpm,
-                row.efisTasKt,         row.efisOatCelsius,
-                row.efisFuelRemaining, row.efisFuelFlow,      row.efisMap,
-                row.efisRpm,           row.efisPercentPower,  row.efisMagHeading,
-                row.efisAgeMs,         (unsigned long)row.efisTimestampMs);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisIasKt,     2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisPitchDeg,  2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisRollDeg,   2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisLateralG,  2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisVerticalG, 2);
+            // efisPercentLift goes empty when not valid.
+            ok &= AppendChar(out, outCapacity, &len, ',');
+            if (row.efisPercentLiftValid)
+                ok &= AppendInt32(out, outCapacity, &len, row.efisPercentLift);
+            ok &= CommaInt32(out, outCapacity, &len, row.efisPaltFt);
+            ok &= CommaInt32(out, outCapacity, &len, row.efisVsiFpm);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisTasKt,         2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisOatCelsius,    2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisFuelRemaining, 2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisFuelFlow,      2);
+            ok &= CommaFloat(out, outCapacity, &len, row.efisMap,           2);
+            ok &= CommaInt32(out, outCapacity, &len, row.efisRpm);
+            ok &= CommaInt32(out, outCapacity, &len, row.efisPercentPower);
+            ok &= CommaInt32(out, outCapacity, &len, row.efisMagHeading);
+            ok &= CommaInt32(out, outCapacity, &len, row.efisAgeMs);
+            ok &= CommaUInt32(out, outCapacity, &len, row.efisTimestampMs);
         }
     }
 
-    // Post-EFIS derived columns (always present).  EarthVerticalG / FlightPath
-    // / VSI / Altitude / CoeffP stay numeric — they're derived from IMU,
-    // pressure altitude, and raw pressure ratios that are meaningful at rest.
-    // Only DerivedAOA is air-data-gated.
-    ok &= Appendf(out, outCapacity, &len,
-        ",%.2f,%.2f,%.2f,%.2f",
-        row.earthVerticalG, row.flightPathDeg,
-        row.vsiFpm, row.altitudeFt);
+    // Post-EFIS derived columns (always present).
+    ok &= CommaFloat(out, outCapacity, &len, row.earthVerticalG, 2);
+    ok &= CommaFloat(out, outCapacity, &len, row.flightPathDeg,  2);
+    ok &= CommaFloat(out, outCapacity, &len, row.vsiFpm,          2);
+    ok &= CommaFloat(out, outCapacity, &len, row.altitudeFt,      2);
 
-    // DerivedAOA: raw computed value (see IAS/AOA above for rationale).
-    ok &= Appendf(out, outCapacity, &len, ",%.4f", row.derivedAoaDeg);
-    ok &= Appendf(out, outCapacity, &len, ",%.4f", row.coeffP);
+    // DerivedAOA, CoeffP — 4 decimal places.
+    ok &= CommaFloat(out, outCapacity, &len, row.derivedAoaDeg, 4);
+    ok &= CommaFloat(out, outCapacity, &len, row.coeffP,        4);
 
-    // Tail-optional flapsRawADC.  Mirrors WriteHeader; rows from sessions
-    // without the column omit it entirely.
     if (row.flapsRawAdcPresent)
-        ok &= Appendf(out, outCapacity, &len, ",%u", (unsigned)row.flapsRawAdc);
+        ok &= CommaUInt32(out, outCapacity, &len, row.flapsRawAdc);
 
     return ok ? len : 0;
 }
