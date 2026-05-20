@@ -4,7 +4,6 @@
 #include <algorithm>
 
 #include "src/Globals.h"
-#include "../web_server/DataServer.h"
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 #include <efis/OatSelect.h>
@@ -129,7 +128,6 @@ void DisplaySerial::Write()
     char    serialOutString[200];
 
     float   fPercentLiftPct;      // 0.0..99.9, whole percent (wire encoder scales ×10 to tenths)
-    float   fDisplayAOA;
     float   fDisplayIAS;
     int     iDisplayVerticalG;
 
@@ -283,12 +281,6 @@ void DisplaySerial::Write()
                                                          iActiveFlapIdx,
                                                          true);
 
-    if (bIasValidForOutput)
-        fDisplayAOA = g_Sensors.AOA;
-    else
-        fDisplayAOA = 0;
-    (void)fDisplayAOA;   // body-angle AOA is no longer on the wire
-
     // Output the data in the appropriate format
 
     if (g_Config.enSerialOutFormat == FOSConfig::EnSerialFmtG3X)
@@ -426,12 +418,6 @@ void DisplaySerial::Write()
 
         // Write the complete frame (already includes CRC + CRLF).
         pSerial->write(frameBuf, kDisplayFrameSizeBytes);
-
-        // Mirror the same bytes onto the live-data WebSocket so a phone
-        // or tablet on `onspeed.local` can drive the WASM indexer with
-        // the identical wire frame the M5 hardware is processing.  The
-        // call is a no-op when no clients are connected.
-        BroadcastDisplayFrame(frameBuf, kDisplayFrameSizeBytes);
         } // end if ONSPEED
 
     } // end Write()

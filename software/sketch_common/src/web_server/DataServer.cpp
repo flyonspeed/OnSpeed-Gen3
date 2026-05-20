@@ -101,23 +101,6 @@ void DataServerInit()
 
 // ----------------------------------------------------------------------------
 
-void BroadcastDisplayFrame(const uint8_t* frame, size_t len)
-    {
-    if (frame == nullptr || len == 0)
-        return;
-    // Skip the broadcast (and the per-call alloc inside arduinoWebSockets)
-    // when nobody's listening — DisplaySerial::Write runs at 20 Hz on
-    // every device whether the indexer tab is open or not.
-    if (DataServer.connectedClients(false) == 0)
-        return;
-    // const_cast: arduinoWebSockets 2.1.3's broadcastBIN takes a non-const
-    // pointer but does not mutate the buffer (it copies into its own
-    // per-client send queue). Safe.
-    DataServer.broadcastBIN(const_cast<uint8_t*>(frame), len);
-    }
-
-// ----------------------------------------------------------------------------
-
 // There really isn't much to do on events. There is some debug code but in production
 // it should all be commented out.
 
