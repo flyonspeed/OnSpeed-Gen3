@@ -215,6 +215,7 @@ static val parse_config(const std::string& xml_text)
     out.set("serialOutFormat",    cfg.sSerialOutFormat);
     out.set("pitchBias",          cfg.fPitchBias);
     out.set("rollBias",           cfg.fRollBias);
+    out.set("oatRecoveryFactor",  cfg.fOatRecoveryFactor);
     out.set("gxBias",             cfg.fGxBias);
     out.set("gyBias",             cfg.fGyBias);
     out.set("gzBias",             cfg.fGzBias);
@@ -343,6 +344,12 @@ static OnSpeedConfig ConfigFromVal(val cfgVal)
     cfg.iIasDisplayThresholdKt = getInt("iasDisplayThresholdKt", cfg.iIasDisplayThresholdKt);
     cfg.fPitchBias          = getFloat("pitchBias",         cfg.fPitchBias);
     cfg.fRollBias           = getFloat("rollBias",          cfg.fRollBias);
+    {
+        float fRf = getFloat("oatRecoveryFactor", cfg.fOatRecoveryFactor);
+        if (fRf >= 0.0f && fRf <= 1.0f) {
+            cfg.fOatRecoveryFactor = fRf;
+        }
+    }
     cfg.fGxBias             = getFloat("gxBias",            cfg.fGxBias);
     cfg.fGyBias             = getFloat("gyBias",            cfg.fGyBias);
     cfg.fGzBias             = getFloat("gzBias",            cfg.fGzBias);

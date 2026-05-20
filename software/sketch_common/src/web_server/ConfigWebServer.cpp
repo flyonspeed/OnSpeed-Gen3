@@ -1662,6 +1662,8 @@ void HandleSensorConfig()
         sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Current True AC Roll:</td><td style=\"text-align: right;\">"  + String(g_AHRS.RollWithBias())  + "</td><td>Degrees</td></tr>\n";
         sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Roll Bias:</td><td style=\"text-align: right;\">"             + String(g_Config.fRollBias)     + "</td><td>Degrees</td></tr>\n";
 
+        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">OAT Recovery Factor:</td><td style=\"text-align: right;\">" + String(g_Config.fOatRecoveryFactor, 2) + "</td><td>K (0=disabled, 0.75=bare probe, 1.0=TAT probe)</td></tr>\n";
+
         sCurrentConfig +=" </table>\n";
 
         sPage += sCurrentConfig;

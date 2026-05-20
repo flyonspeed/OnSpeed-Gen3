@@ -47,6 +47,7 @@ onspeed::ahrs::AhrsConfig AHRS::MakeCfg_() const
     cfg.gyroSmoothingWindow = iGyroSmoothing_;
     cfg.imuSampleRateHz  = fImuSampleRate;
     cfg.pressureSampleRateHz = static_cast<float>(kPressureSampleRateHz);
+    cfg.oatRecoveryFactor    = g_Config.fOatRecoveryFactor;
     return cfg;
 }
 

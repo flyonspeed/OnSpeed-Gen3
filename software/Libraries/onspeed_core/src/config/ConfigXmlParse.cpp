@@ -250,6 +250,17 @@ XmlParseStatus ParseXml(std::string_view xml, OnSpeedConfig& cfg)
     GetBool  (root, "SERIALEFISDATA",  cfg.bReadEfisData);
     GetString(root, "EFISTYPE",        cfg.sEfisType);
     GetBool  (root, "OATSENSOR",       cfg.bOatSensor);
+    // OAT_RECOVERY_FACTOR: range [0.0, 1.0] enforced at parse time; an
+    // out-of-range or absent value falls through to the LoadDefaults()
+    // value (0.75).  This guards against a silently disabled SAT
+    // correction from a malformed config file.
+    {
+        float fRf = cfg.fOatRecoveryFactor;
+        GetFloat(root, "OAT_RECOVERY_FACTOR", fRf);
+        if (fRf >= 0.0f && fRf <= 1.0f) {
+            cfg.fOatRecoveryFactor = fRf;
+        }
+    }
 
     GetString(root, "SERIALOUTFORMAT", cfg.sSerialOutFormat);
     cfg.enSerialOutFormat = OnSpeedConfig::ParseSerialFmt(cfg.sSerialOutFormat);

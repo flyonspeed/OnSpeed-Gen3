@@ -12,6 +12,7 @@
 
 #include <cmath>
 
+#include <sensors/SatCorrect.h>
 #include <util/OnSpeedTypes.h>
 
 namespace onspeed::ahrs {
@@ -169,18 +170,36 @@ void Ahrs::updateTas_(const AhrsInputs& in)
         bHaveOat = oatInBand(fOatC);
     }
 
+    // Apply the ram-rise correction (TAT → SAT) before feeding the
+    // density math.  OAT probes installed in the airstream read total
+    // air temperature; TAS / density-alt want static.  CorrectSat
+    // Newton-iterates SAT ↔ TAS ↔ M to recover the local σ and a(T).
+    // If the helper returns nullopt (IAS not alive yet, K disabled,
+    // pathological inputs) we fall back to raw TAT for one frame —
+    // the resulting TAS is degraded but finite, consistent with the
+    // pre-PR behaviour at low speeds.
+    float fSatC = fOatC;
+    if (bHaveOat) {
+        const auto satC = onspeed::sensors::CorrectSat(
+            fOatC, in.sensors.iasKt, in.sensors.paltFt,
+            cfg_.oatRecoveryFactor);
+        if (satC.has_value()) {
+            fSatC = *satC;
+        }
+    }
+
     if (bHaveOat) {
         const float Kelvin    = 273.15f;
         const float Temp_rate = 0.00198119993f;
         float fISA_temp_k = 15.0f - Temp_rate * in.sensors.paltFt + Kelvin;
-        float fOAT_k      = fOatC + Kelvin;
+        float fSAT_k      = fSatC + Kelvin;
 
         // Guard pow() base values: a negative/zero base with a fractional
-        // exponent returns NaN. Bad OAT could make fOAT_k <= 0; extreme
+        // exponent returns NaN. Bad SAT could make fSAT_k <= 0; extreme
         // density altitude could make the IAS divisor <= 0.
-        if (fOAT_k > 0.0f) {
+        if (fSAT_k > 0.0f) {
             float fDA      = in.sensors.paltFt + (fISA_temp_k / Temp_rate)
-                             * (1.0f - std::pow(fISA_temp_k / fOAT_k, 0.2349690f));
+                             * (1.0f - std::pow(fISA_temp_k / fSAT_k, 0.2349690f));
             float fDivisor = 1.0f - 6.8755856e-6f * fDA;
             if (fDivisor > 0.0f) {
                 tas_ = onspeed::kts2mps(in.sensors.iasKt

@@ -129,6 +129,7 @@ bool OnSpeedConfig::LoadDefaults()
     fGzBias             = 0.0f;
     fPitchBias          = 0.0f;
     fRollBias           = 0.0f;
+    fOatRecoveryFactor  = 0.75f;   // default K — bare/exposed thermistor
 
     // AHRS algorithm: 0=Madgwick (default), 1=EKFQ
     iAhrsAlgorithm      = 0;
