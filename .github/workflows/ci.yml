@@ -196,6 +196,9 @@ jobs:
       - name: Run smoothedField ring-buffer tests
         run: node tools/web/test/smoothedField.mjs
 
+      - name: Run calwiz-fit numerical regression test
+        run: node tools/web/test/calwiz-fit.mjs
+
   build-m5-display:
     name: Build M5 Display Firmware (${{ matrix.board }})
     runs-on: ubuntu-latest
