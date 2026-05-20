@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include <util/OnSpeedTypes.h>
+#include <util/Perf.h>
 
 namespace onspeed::ahrs {
 
@@ -157,22 +158,34 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     const float q_rps  = -onspeed::deg2rad(in.pitchRateCorrDps);
     const float r_rps  =  onspeed::deg2rad(in.yawRateCorrDps);
 
-    ekfq_.predict(p_rps, q_rps, r_rps,
-                  ax_raw, ay_raw, az_raw,
-                  in.tasMps,                  // un-faded; beta-dynamics gate
-                  in.dtSec);
+    {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::EkfqPredict);
+        ekfq_.predict(p_rps, q_rps, r_rps,
+                      ax_raw, ay_raw, az_raw,
+                      in.tasMps,                  // un-faded; beta-dynamics gate
+                      in.dtSec);
+    }
 
-    ekfq_.correct(ax_raw, ay_raw, az_raw,
-                  in.tasMps      * compFadeIn_,
-                  tasdotSmoothed_ * compFadeIn_,
-                  q_rps, r_rps,
-                  in.baroAltMeters,
-                  /* updateBaro */ true);
+    {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::EkfqCorrect);
+        ekfq_.correct(ax_raw, ay_raw, az_raw,
+                      in.tasMps      * compFadeIn_,
+                      tasdotSmoothed_ * compFadeIn_,
+                      q_rps, r_rps,
+                      in.baroAltMeters,
+                      /* updateBaro */ true);
+    }
 
     const EKFQ::State state = ekfq_.getState();
     out.pitchDeg      = state.pitch_deg();
     out.rollDeg       = state.roll_deg();
-    out.derivedAoaDeg = onspeed::rad2deg(ekfq_.alphaKinematicRad(in.tasMps));
+    {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::EkfqAlpha);
+        out.derivedAoaDeg = onspeed::rad2deg(ekfq_.alphaKinematicRad(in.tasMps));
+    }
 
     // 7) Vertical channel published from EKFQ's z / vz states.  vz is
     //    NED-down internally; flip the sign here so consumers receive

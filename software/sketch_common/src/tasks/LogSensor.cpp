@@ -12,6 +12,7 @@
 #include <log/LogMetaFile.h>
 #include <proto/LogCsv.h>
 #include <types/LogRow.h>
+#include <util/Perf.h>
 
 using onspeed::m2ft;
 using onspeed::mps2fpm;
@@ -194,6 +195,10 @@ void LogSensorCommitTask(void *pvParams)
 
     while (true)
     {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Log,
+            uxTaskGetStackHighWaterMark(nullptr));
+
         // Ring-drop reporting moved into the PERF tick at the end of
         // this loop body — same counter, single emit path, with full
         // context (write/sync max, ring depth, short writes, heap).

@@ -5,6 +5,7 @@
 #include "src/drivers/Mcp3202Adc.h"
 
 #include <audio/Panning.h>
+#include <util/Perf.h>
 
 // Volume smoothing
 static const float fVolumeSmoothingFactor = 0.5f;
@@ -34,6 +35,10 @@ void HousekeepingTask(void * pvParams)
 
     while (true)
     {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Housekeeping,
+            uxTaskGetStackHighWaterMark(nullptr));
+
         vTaskDelay(pdMS_TO_TICKS(100));
         uTick++;
 

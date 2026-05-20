@@ -16,6 +16,7 @@
 #include "src/util/Helpers.h"
 
 #include "src/web_server/ApiHandlers.h"
+#include "src/tasks/PerfDump.h"
 
 
 std::string Base64_Decode(std::string sEncodedString);
@@ -88,6 +89,9 @@ void ConsoleSerialIO::DisplayConsoleHelp()
         pSerial->println("TASKS                - Show info about running tasks");
         pSerial->println("BOOTLOG              - Show last 20 lines of /boot_log.txt");
         pSerial->println("CRASHME              - Force a panic (StoreProhibited) for diag testing");
+#ifdef ONSPEED_PERF_ENABLED
+        pSerial->println("PERF [on|off|dump|status] - PERF telemetry over USB serial");
+#endif
         pSerial->println("COOKIE");
         pSerial->println("");
 
@@ -593,6 +597,45 @@ void ConsoleSerialIO::Read()
                 // unreachable, but keep the compiler honest
                 g_Log.println("CRASHME: huh, didn't crash?");
                 } // end CRASHME
+
+            // PERF
+            // ----
+            // Toggle / one-shot the perf telemetry stream over USB serial.
+            // Only active when firmware was built with ONSPEED_PERF_ENABLED
+            // (env: esp32s3-v4p-perf). Production builds reply "not compiled in".
+            else if (strncasecmp(szCmdToken, "PERF", 4) == 0)
+                {
+#ifdef ONSPEED_PERF_ENABLED
+                szCmdToken = strtok(NULL, " ");
+                if (szCmdToken == NULL ||
+                    strncasecmp(szCmdToken, "STATUS", 6) == 0)
+                    {
+                    g_Log.printf("perf streaming=%s\n",
+                        onspeed::perf_dump::IsStreaming() ? "on" : "off");
+                    }
+                else if (strncasecmp(szCmdToken, "ON", 2) == 0)
+                    {
+                    onspeed::perf_dump::SetStreaming(true);
+                    g_Log.println("perf: streaming on (1Hz over USB serial)");
+                    }
+                else if (strncasecmp(szCmdToken, "OFF", 3) == 0)
+                    {
+                    onspeed::perf_dump::SetStreaming(false);
+                    g_Log.println("perf: streaming off");
+                    }
+                else if (strncasecmp(szCmdToken, "DUMP", 4) == 0)
+                    {
+                    onspeed::perf_dump::EmitOneShot();
+                    g_Log.println("perf: one-shot snapshot queued");
+                    }
+                else
+                    {
+                    g_Log.println("perf: usage: perf [on|off|dump|status]");
+                    }
+#else
+                g_Log.println("perf: not compiled in (build env: esp32s3-v4p-perf)");
+#endif
+                } // end PERF
 
             // HELP
             // ----

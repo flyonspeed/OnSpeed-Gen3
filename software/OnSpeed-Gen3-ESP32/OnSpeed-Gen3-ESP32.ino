@@ -20,6 +20,7 @@ Do a text search for comments starting with "////"
 #define MAIN
 #include "src/Globals.h"
 #include <buildinfo.h>
+#include <util/Perf.h>
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -43,6 +44,9 @@ void WebServerTask(void * pvParams)
 {
     for(;;)
     {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::WebServer,
+            uxTaskGetStackHighWaterMark(nullptr));
         CfgWebServerPoll();
         // Poll at 200 Hz when a client is connected, 20 Hz when idle
         unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;
@@ -55,6 +59,9 @@ void DataServerTask(void * pvParams)
 {
     for(;;)
     {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::DataServer,
+            uxTaskGetStackHighWaterMark(nullptr));
         DataServerPoll();
         // Poll at 200 Hz when a client is connected, 20 Hz when idle
         unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;

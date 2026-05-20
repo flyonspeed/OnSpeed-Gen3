@@ -41,6 +41,8 @@
 
 #include "src/Globals.h"
 #include "src/util/Helpers.h"
+
+#include <util/Perf.h>
 #include <audio/AudioMixer.h>
 #include <audio/AudioOrchestrator.h>
 #include <audio/AudioTestSweep.h>
@@ -181,6 +183,10 @@ void AudioPlayTask(void * psuParams)
     (void)psuParams;
     while (true)
     {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Audio,
+            uxTaskGetStackHighWaterMark(nullptr));
+
         if (!s_bI2sOk)
             {
             // If I2S init failed, don't spin at high priority.

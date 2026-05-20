@@ -9,6 +9,7 @@
 #include <aoa/PercentLift.h>
 #include <efis/OatSelect.h>
 #include <proto/DisplaySerial.h>
+#include <util/Perf.h>
 
 using onspeed::m2ft;
 using onspeed::mps2fpm;
@@ -75,6 +76,10 @@ void WriteDisplayDataTask(void * pvParams)
 
     while (true)
         {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Display,
+            uxTaskGetStackHighWaterMark(nullptr));
+
         // No delay happening is a design error so flag it if it happens
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kDisplaySerialPeriodMs));
         if (xWasDelayed == pdFALSE)

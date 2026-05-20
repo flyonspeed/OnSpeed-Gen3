@@ -11,6 +11,7 @@
 #include <sensors/IasAlive.h>
 #include <sensors/PressureConvert.h>
 #include <sensors/OatConvert.h>
+#include <util/Perf.h>
 
 // ============================================================================
 // Mutex graph for SensorIO and downstream readers:
@@ -121,6 +122,10 @@ void SensorReadTask(void *pvParams)
 
     while (true)
     {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Sensors,
+            uxTaskGetStackHighWaterMark(nullptr));
+
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
@@ -187,6 +192,9 @@ void ImuReadTask(void *pvParams)
 
     while (true)
     {
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Imu,
+            uxTaskGetStackHighWaterMark(nullptr));
         // Schedule the next tick.
         uNextWakeUs += uBasePeriodUs;
         uRemainderAcc += uRemainderUs;
