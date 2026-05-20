@@ -1095,8 +1095,20 @@ void HandleConfigSave()
     if (CfgServer.hasArg("readEfisData") && CfgServer.arg("readEfisData")=="1") g_Config.bReadEfisData=true;
     else                                                                        g_Config.bReadEfisData=false;
 
-    // read efis Type
-    if (CfgServer.hasArg("efisType")) g_Config.sEfisType=CfgServer.arg("efisType").c_str();
+    // read efis Type. If it actually changed, re-init g_EfisSerial so
+    // the parser_ switches to the new protocol AND the (boot-only)
+    // header-build path picks up the right column set on the next log
+    // rotation. Without this, sEfisType updates in cfg but the live
+    // driver keeps decoding the previous protocol's framing until reboot.
+    if (CfgServer.hasArg("efisType")) {
+        const std::string sNew = CfgServer.arg("efisType").c_str();
+        if (sNew != g_Config.sEfisType) {
+            g_Config.sEfisType = sNew;
+            g_EfisSerial.Init(EfisTypeFromConfigString(sNew), &Serial2);
+            g_Log.printf(MsgLog::EnConfig, MsgLog::EnDebug,
+                "EFIS type changed via web UI: %s\n", sNew.c_str());
+        }
+    }
 
     // OAT sensor enabled/disabled
     if (CfgServer.hasArg("oatSensor") && CfgServer.arg("oatSensor")=="1") g_Config.bOatSensor = true;
