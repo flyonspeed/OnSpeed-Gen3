@@ -426,12 +426,6 @@ void DisplaySerial::Write()
 
         // Write the complete frame (already includes CRC + CRLF).
         pSerial->write(frameBuf, kDisplayFrameSizeBytes);
-
-        // Mirror the same bytes onto the live-data WebSocket so a phone
-        // or tablet on `onspeed.local` can drive the WASM indexer with
-        // the identical wire frame the M5 hardware is processing.  The
-        // call is a no-op when no clients are connected.
-        BroadcastDisplayFrame(frameBuf, kDisplayFrameSizeBytes);
         } // end if ONSPEED
 
     } // end Write()

@@ -2,9 +2,9 @@
 //
 // Connection lifecycle: 3 s staleness fallback, retry-storm protection
 // on close, blob-frame skipping (the DataServer broadcasts JSON text
-// frames AND binary M5 display frames on the same socket; this client
-// only consumes JSON).  Maps the firmware's JSON schema to a record
-// shape the page components consume.
+// frames; the blob-skip guard is defensive against any future binary
+// frame producer).  Maps the firmware's JSON schema to a record shape
+// the page components consume.
 
 import { useEffect, useState } from '../../../../packages/ui-core/vendor/preact-standalone.js';
 
