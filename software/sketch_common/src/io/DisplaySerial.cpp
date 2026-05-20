@@ -128,7 +128,6 @@ void DisplaySerial::Write()
     char    serialOutString[200];
 
     float   fPercentLiftPct;      // 0.0..99.9, whole percent (wire encoder scales ×10 to tenths)
-    float   fDisplayAOA;
     float   fDisplayIAS;
     int     iDisplayVerticalG;
 
@@ -281,12 +280,6 @@ void DisplaySerial::Write()
                                                          nFlapsSnapshot,
                                                          iActiveFlapIdx,
                                                          true);
-
-    if (bIasValidForOutput)
-        fDisplayAOA = g_Sensors.AOA;
-    else
-        fDisplayAOA = 0;
-    (void)fDisplayAOA;   // body-angle AOA is no longer on the wire
 
     // Output the data in the appropriate format
 
