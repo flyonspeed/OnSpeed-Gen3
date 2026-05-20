@@ -19,6 +19,19 @@
 #include <config/OnSpeedConfig.h>
 #include <util/OnSpeedTypes.h>  // Core types: SuCalibrationCurve, MAX_CURVE_COEFF, etc.
 
+#include "src/io/EfisSerialPort.h"
+
+// Translate a configured EFIS-type string (as written in onspeed2.cfg
+// under <EFISTYPE>) into the EfisSerialPort enum the driver consumes.
+// Recognised strings: "VN-300", "ADVANCED" (Dynon SkyView), "DYNOND10",
+// "GARMING5", "GARMING3X", "MGL"; anything else returns EnNone.
+//
+// Two callers in the firmware: ApplyPostParseSideEffects() at config-
+// load time, and HandleConfigSave() when the pilot saves a new EFIS
+// type via the web UI (so the driver picks up the change without a
+// reboot).
+EfisSerialPort::EnEfisType EfisTypeFromConfigString(const std::string& s);
+
 // Re-export core types at global scope so legacy call sites that reference
 // SuFlaps / SuDataSource / EnDataSource / SuIntArray / SuFloatArray without
 // any namespace qualifier keep compiling.

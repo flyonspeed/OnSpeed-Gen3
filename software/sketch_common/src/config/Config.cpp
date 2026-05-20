@@ -33,6 +33,17 @@
 // Apply post-parse side effects that touch global state — factored out so
 // both the V2 (core) parse and the V1 (legacy, still here) path can call
 // the same helper after updating the member fields.
+EfisSerialPort::EnEfisType EfisTypeFromConfigString(const std::string& s)
+{
+    if      (s == "VN-300")    return EfisSerialPort::EnVN300;
+    else if (s == "ADVANCED")  return EfisSerialPort::EnDynonSkyview;
+    else if (s == "DYNOND10")  return EfisSerialPort::EnDynonD10;
+    else if (s == "GARMING5")  return EfisSerialPort::EnGarminG5;
+    else if (s == "GARMING3X") return EfisSerialPort::EnGarminG3X;
+    else if (s == "MGL")       return EfisSerialPort::EnMglBinary;
+    else                       return EfisSerialPort::EnNone;
+}
+
 static void ApplyPostParseSideEffects(FOSConfig& cfg)
 {
     // Defend against a parsed config that left aFlaps empty (corrupt
@@ -47,13 +58,13 @@ static void ApplyPostParseSideEffects(FOSConfig& cfg)
     if (!cfg.bVolumeControl)
         g_AudioPlay.SetVolume(cfg.iDefaultVolume);
 
-    if      (cfg.sEfisType == "VN-300")    g_EfisSerial.enType = EfisSerialPort::EnVN300;
-    else if (cfg.sEfisType == "ADVANCED")  g_EfisSerial.enType = EfisSerialPort::EnDynonSkyview;
-    else if (cfg.sEfisType == "DYNOND10")  g_EfisSerial.enType = EfisSerialPort::EnDynonD10;
-    else if (cfg.sEfisType == "GARMING5")  g_EfisSerial.enType = EfisSerialPort::EnGarminG5;
-    else if (cfg.sEfisType == "GARMING3X") g_EfisSerial.enType = EfisSerialPort::EnGarminG3X;
-    else if (cfg.sEfisType == "MGL")       g_EfisSerial.enType = EfisSerialPort::EnMglBinary;
-    else                                   g_EfisSerial.enType = EfisSerialPort::EnNone;
+    // Route through RequestTypeChange so any runtime config reload
+    // (e.g. console "load" command, web config-file upload) triggers
+    // the deferred parser + UART reinit in Read().  The boot path also
+    // exercises this code, but the .ino calls g_EfisSerial.Init()
+    // directly right after LoadConfig — Init() clears pendingType_ so
+    // the first Read() afterward is a no-op.
+    g_EfisSerial.RequestTypeChange(EfisTypeFromConfigString(cfg.sEfisType));
 
     if (g_pIMU != nullptr)
         {

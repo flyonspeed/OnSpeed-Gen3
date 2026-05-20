@@ -105,6 +105,14 @@ void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
     enType  = enEfisType;
     pSerial = pEfisSerial;
 
+    // Consume any pending request so a deferred Init triggered by a
+    // prior RequestTypeChange is satisfied by this explicit Init.
+    // Without this, the boot path's setup() Init followed by the
+    // first loopTask Read() would fire Init twice (boot path calls
+    // RequestTypeChange via LoadConfig → ApplyPostParseSideEffects,
+    // then setup() calls Init directly).  Harmless but wasteful.
+    pendingType_ = kNoPendingType;
+
     parser_.ChangeType(toCoreType(enType));
 
     pSerial->end();
@@ -119,6 +127,30 @@ void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
 
 void EfisSerialPort::Read()
 {
+    // Apply any pending type change here, on the same task as the rest of
+    // Read(), so the UART teardown / parser-state reset can't race a
+    // concurrent read on another task. Web-handler / console paths request
+    // the change via RequestTypeChange(); loopTask picks it up between
+    // iterations. The flag-not-sentinel check is the only condition for
+    // running Init — comparing the pending value against enType would be
+    // self-defeating because RequestTypeChange already wrote enType
+    // synchronously (so the schema-rotation log-header path reads the new
+    // value), so the two are always equal by the time we get here.
+    //
+    // Consume window: if a RequestTypeChange call on another task lands
+    // between the local read of pendingType_ and the clear two lines
+    // below, the second request's pending value is overwritten by the
+    // clear and the parser-reset for it is silently dropped. In
+    // practice, two distinct EFIS-type changes seconds apart from each
+    // other are vanishingly unlikely (config saves are user-initiated,
+    // not automated), so accept the window rather than reach for an
+    // atomic exchange.
+    const int pending = pendingType_;
+    if (pending != kNoPendingType) {
+        pendingType_ = kNoPendingType;
+        Init(static_cast<EnEfisType>(pending), pSerial);
+    }
+
     if (!g_Config.bReadEfisData)
         return;
 
