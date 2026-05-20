@@ -11,7 +11,7 @@
 // h(x), so it consumes raw post-EMA accels — no centripetal-comp
 // pre-step like Madgwick.  The accelFwdCompG/etc. fields on Outputs
 // surface the post-EMA values that were actually fed to the filter,
-// for parity with the Madgwick / Ekf6Pipeline diagnostic surface.
+// for parity with the Madgwick diagnostic surface.
 //
 // EKFQ owns its own vertical channel (states z, vz, b_az) and
 // publishes altitude/VSI directly via kalmanAltMeters /
@@ -29,24 +29,27 @@ namespace onspeed::ahrs {
 
 class EkfqPipeline {
 public:
-    // Pipeline-internal tuning constants, locked to the Optuna study
-    // `ekfq_v15` best-trial values (the same study that produced
-    // EKFQ::Config::defaults()).  These are NOT Madgwick's constants —
-    // EKFQ's signal chain was tuned against itself.  Pilots don't
-    // tune these; the Optuna pipeline does, and a future host_main
-    // eval subcommand will re-tune in firmware-native conditions.
-    static constexpr float kAccelEmaAlpha    = 0.052324843677354384f;
-    static constexpr float kCompFadeTauSec   = 2.531734433346506f;
-    static constexpr float kIasGateRisingKt  = 33.66929039144636f;
-    /// Fixed 5 kt hysteresis below the rising threshold, matching the
-    /// Python pipeline (`pipeline_quat.py`: `ias_now < ias_alive_kt - 5.0`).
-    static constexpr float kIasGateFallingKt = kIasGateRisingKt - 5.0f;
-    /// TASdot EMA alpha applied at IMU rate (per-step) inside Step().
-    /// Python equivalent: `tasdot_smoothed += tasdot_ema_alpha * (raw - smoothed)`
-    /// where raw = (tas - prev_tas) / dt computed every IMU step (208 Hz).
-    /// This is the fixed-α EMA at IMU rate — distinct from the firmware's
-    /// global `kIasSmoothing` which runs at pressure cadence (~50 Hz).
-    static constexpr float kTasdotEmaAlpha   = 0.20081238948995161f;
+    /// Pipeline-internal tuning. Each field's default reproduces the
+    /// Optuna study `ekfq_v15` best-trial values (the same study that
+    /// produced EKFQ::Config::defaults()).  These are NOT Madgwick's
+    /// constants — EKFQ's signal chain was tuned against itself.
+    struct PipelineConfig {
+        float accelEmaAlpha;     ///< Per-axis accel EMA α applied at IMU rate
+        float compFadeTauSec;    ///< compFadeIn ramp τ on iasGate transitions
+        float iasGateRisingKt;   ///< IAS hysteresis rising threshold (kt)
+        float tasdotEmaAlpha;    ///< TASdot EMA α at IMU rate
+
+        /// Falling-edge threshold = iasGateRisingKt - kIasGateHysteresisKt.
+        /// 5 kt fixed hysteresis matches Python pipeline_quat.py.
+        static constexpr float kIasGateHysteresisKt = 5.0f;
+
+        /// Production defaults from Optuna v15 best trial.
+        static PipelineConfig defaults();
+    };
+
+    // Instance members holding the pipeline tuning. Initialised from
+    // PipelineConfig::defaults() by the default ctor; replaceable via
+    // the PipelineConfig-taking ctor or setPipelineConfig().
 
     /// Per-frame inputs.  Mirrors Madgwick::Inputs for the sensor-stage
     /// fields, plus baro altitude (EKFQ owns its vertical channel and
@@ -57,7 +60,7 @@ public:
     /// repeated across the ~4 IMU frames between IAS-update events.
     /// EkfqPipeline computes its own per-step TASdot from (tasMps -
     /// prev_tasMps) / dtSec internally and smooths it at IMU rate with
-    /// kTasdotEmaAlpha, matching the Python pipeline's signal chain.
+    /// pipeCfg_.tasdotEmaAlpha, matching the Python pipeline's signal chain.
     /// The sensor-stage `tasDotSmoothed_` (kIasSmoothing α=0.0179 at
     /// pressure cadence) is ignored here — it's a different
     /// characteristic from what the Optuna study used.
@@ -126,7 +129,23 @@ public:
         bool iasGateRisingEdge = false;
     };
 
+    /// Default-construct with PipelineConfig::defaults() values.
     EkfqPipeline();
+    /// Construct with explicit pipeline tuning.
+    explicit EkfqPipeline(const PipelineConfig& cfg);
+
+    /// Replace the pipeline tuning and re-seat the accel EMA filters
+    /// to the level-on-ground state (ax=0, ay=0, az=+1g). Safe for
+    /// offline Optuna trials (which start from a cold pipeline);
+    /// calling mid-flight will inject a transient in the accel EMA.
+    void setPipelineConfig(const PipelineConfig& cfg);
+    const PipelineConfig& getPipelineConfig() const { return pipeCfg_; }
+
+    /// Direct access to the wrapped filter for per-trial config
+    /// injection. Tests and the Optuna substrate use this; production
+    /// code goes through Init() / Step().
+    EKFQ& getEkfq() { return ekfq_; }
+    const EKFQ& getEkfq() const { return ekfq_; }
 
     /// Seed the filter with the supplied initial attitude (degrees)
     /// and baro altitude (meters, +up).
@@ -138,6 +157,8 @@ public:
 private:
     EKFQ ekfq_;
 
+    PipelineConfig pipeCfg_;
+
     EMAFilter accelFwdFilter_;
     EMAFilter accelLatFilter_;
     EMAFilter accelVertFilter_;
@@ -147,8 +168,9 @@ private:
 
     /// Per-step TAS-derivative smoothing.  Held-stale `tas` from the
     /// sensor stage drives a sawtooth `tasdot_raw = (tas - prev_tas) /
-    /// dt` at IMU rate; EMA at kTasdotEmaAlpha smooths the sawtooth.
-    /// Matches the Python pipeline `pipeline_quat.py` byte-for-byte.
+    /// dt` at IMU rate; EMA at pipeCfg_.tasdotEmaAlpha smooths the
+    /// sawtooth. Matches the Python pipeline `pipeline_quat.py`
+    /// byte-for-byte.
     float prevTasMps_       = 0.0f;
     float tasdotSmoothed_   = 0.0f;
 };

@@ -62,6 +62,7 @@
 #include <vector>
 
 #include <ahrs/Ahrs.h>
+#include <ahrs/EkfqConfigKv.h>
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 #include <audio/ToneCalc.h>
@@ -71,6 +72,7 @@
 #include <proto/DisplaySerial.h>
 #include <proto/LogCsvHeaderIndex.h>
 #include <replay/LogReplayEngine.h>
+#include <replay/LogRowToAhrsInputs.h>
 #include <sensors/FlapsDetector.h>
 #include <sensors/IasAlive.h>
 #include <types/AhrsInputs.h>
@@ -386,6 +388,192 @@ onspeed::AhrsInputs BuildAhrsInputs(const std::vector<InputRow>& rows,
     return in;
 }
 
+// RunAhrsToneSdlog — sdlog-format path for ahrs_tone.
+//
+// Reads a real OnSpeed SD log via BuildHeaderIndex/ParseRowByIndex,
+// maps LogRow → AhrsInputs, drives Ahrs::Step with --algorithm,
+// applies --config install bias and --ekfq-config tuning, and emits
+// an output CSV with the standard ahrs_tone columns plus appended
+// passthrough columns.
+static int RunAhrsToneSdlog(std::istream& in,
+                            onspeed::ahrs::Algorithm algo,
+                            const onspeed::config::OnSpeedConfig& pilotCfg,
+                            const onspeed::EKFQ::Config& ekfqCfg,
+                            const onspeed::ahrs::EkfqPipeline::PipelineConfig& pipeCfg,
+                            const std::vector<std::string>& passthroughCols,
+                            OutputFormat fmt)
+{
+    if (fmt != OutputFormat::Csv) {
+        std::fprintf(stderr,
+            "host_main ahrs_tone: --input-format=sdlog only supports --output-format=csv\n");
+        return 1;
+    }
+
+    // Parse header.
+    std::string headerLine;
+    if (!std::getline(in, headerLine)) {
+        std::fprintf(stderr, "host_main ahrs_tone: empty input\n");
+        return 1;
+    }
+
+    onspeed::proto::log_csv::HeaderIndex hdrIdx;
+    auto warnHdr = [](const char* col) {
+        std::fprintf(stderr,
+            "host_main ahrs_tone: header missing column '%s'\n", col);
+    };
+    if (!onspeed::proto::log_csv::BuildHeaderIndex(headerLine, hdrIdx, warnHdr)) {
+        std::fprintf(stderr, "host_main ahrs_tone: header parse failed\n");
+        return 1;
+    }
+
+    // Resolve passthrough column indices into the raw CSV row.
+    // We tokenize each row twice: once for ParseRowByIndex → LogRow,
+    // once for raw-string extraction of passthrough fields. This is
+    // ~5% slower than a single-pass tokenize but keeps the change
+    // surface tiny.
+    //
+    // BuildHeaderIndex maps named columns to integer ordinals on the
+    // HeaderIndex struct. We need ordinals for the user's passthrough
+    // names — re-parse the header line directly to build the lookup.
+    std::vector<int> passthroughIdx(passthroughCols.size(), -1);
+    {
+        std::vector<std::string> headerCols;
+        std::string h(headerLine);
+        if (!h.empty() && h.back() == '\r') h.pop_back();
+        size_t p = 0;
+        while (p < h.size()) {
+            const size_t c = h.find(',', p);
+            headerCols.push_back(h.substr(
+                p, (c == std::string::npos) ? h.size() - p : c - p));
+            if (c == std::string::npos) break;
+            p = c + 1;
+        }
+        for (size_t i = 0; i < passthroughCols.size(); ++i) {
+            for (size_t j = 0; j < headerCols.size(); ++j) {
+                if (headerCols[j] == passthroughCols[i]) {
+                    passthroughIdx[i] = (int)j;
+                    break;
+                }
+            }
+            if (passthroughIdx[i] < 0) {
+                std::fprintf(stderr,
+                    "host_main ahrs_tone: passthrough column '%s' not in log header\n",
+                    passthroughCols[i].c_str());
+                return 1;
+            }
+        }
+    }
+
+    // Build AhrsConfig from the pilot cfg's install bias.
+    onspeed::ahrs::AhrsConfig ahrsCfg;
+    ahrsCfg.pitchBiasDeg         = pilotCfg.fPitchBias;
+    ahrsCfg.rollBiasDeg          = pilotCfg.fRollBias;
+    ahrsCfg.algorithm            = algo;
+    ahrsCfg.gyroSmoothingWindow  = 30;
+    ahrsCfg.imuSampleRateHz      = kImuRateHz;
+    ahrsCfg.pressureSampleRateHz = kPressureRateHz;
+    onspeed::ahrs::Ahrs ahrs(ahrsCfg);
+    ahrs.SetEkfqConfig(ekfqCfg, pipeCfg);
+
+    // Emit output header: standard ahrs_tone columns + passthrough names.
+    std::printf("%s", kAhrsToneOutputHeader);
+    for (const auto& name : passthroughCols) {
+        std::printf(",passthrough_%s", name.c_str());
+    }
+    std::printf("\n");
+
+    // Row bridge — owns dt + fresh-pressure state across rows.
+    onspeed::replay::LogRowToAhrsInputs bridge;
+
+    std::string line;
+    size_t rowIdx = 0;
+    onspeed::LogRow row;
+    row.boomEnabled        = hdrIdx.boomEnabled;
+    row.efisEnabled        = hdrIdx.efisEnabled;
+    row.efisIsVn300        = hdrIdx.efisIsVn300;
+    row.flapsRawAdcPresent = (hdrIdx.idxFlapsRawAdc >= 0);
+
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty()) continue;
+
+        if (!onspeed::proto::log_csv::ParseRowByIndex(line, hdrIdx, row)) {
+            std::fprintf(stderr,
+                "host_main ahrs_tone: parse error at row %zu\n", rowIdx);
+            return 1;
+        }
+
+        const auto br = bridge.translate(row);
+
+        if (br.isSeedFrame) {
+            ahrs.Init(br.inputs, row.paltFt);
+            ++rowIdx;
+            continue;
+        }
+
+        const onspeed::AhrsOutputs out = ahrs.Step(br.inputs, br.dtSec);
+
+        // ToneCalc (same defaults as the synthetic path).
+        const onspeed::ToneResult result =
+            onspeed::calculateTone(out.derivedAoaDeg, kCleanThresholds);
+        float tone_freq_hz = 0.0f;
+        int   tone_level   = 0;
+        switch (result.enTone) {
+        case onspeed::EnToneType::None:
+            tone_freq_hz = 0.0f; tone_level = 0; break;
+        case onspeed::EnToneType::Low:
+            tone_freq_hz = result.fPulseFreq; tone_level = 1; break;
+        case onspeed::EnToneType::High:
+            tone_freq_hz = result.fPulseFreq; tone_level = 2; break;
+        }
+
+        // Emit row — same column order as kAhrsToneOutputHeader.
+        std::printf("%.4f,%.4f,%.4f,"
+                    "%.4f,%.4f,%.4f,%.4f,"
+                    "%.4f,%.4f,%.4f,%.4f,"
+                    "%.4f,%d",
+            (double)br.inputs.sensors.iasKt,
+            (double)br.inputs.sensors.paltFt,
+            (double)br.inputs.sensors.oatCelsius,
+            (double)out.pitchDeg,
+            (double)out.rollDeg,
+            (double)out.flightPathDeg,
+            (double)out.derivedAoaDeg,
+            (double)out.tasMps,
+            (double)out.kalmanAltFt,
+            (double)out.kalmanVsiFpm,
+            (double)out.earthVertG,
+            (double)tone_freq_hz,
+            tone_level);
+
+        // Append passthrough columns by re-tokenizing the raw line.
+        if (!passthroughIdx.empty()) {
+            std::vector<std::string_view> toks;
+            toks.reserve(96);
+            size_t p = 0;
+            while (p <= line.size()) {
+                const size_t c = line.find(',', p);
+                toks.emplace_back(line.data() + p,
+                    (c == std::string::npos) ? line.size() - p : c - p);
+                if (c == std::string::npos) break;
+                p = c + 1;
+            }
+            for (int idx : passthroughIdx) {
+                if (idx < (int)toks.size()) {
+                    std::printf(",%.*s", (int)toks[idx].size(), toks[idx].data());
+                } else {
+                    std::printf(",");   // missing → empty cell
+                }
+            }
+        }
+        std::printf("\n");
+        ++rowIdx;
+    }
+
+    std::fprintf(stderr, "host_main ahrs_tone: %zu rows processed (sdlog)\n", rowIdx);
+    return 0;
+}
+
 int CmdAhrsTone(int argc, const char* const* argv)
 {
     const char* input_path  = ArgGet(argc, argv, "--input",  "-");
@@ -405,6 +593,87 @@ int CmdAhrsTone(int argc, const char* const* argv)
     onspeed::ahrs::Algorithm algo;
     if (!ParseAlgorithmFlag(argc, argv, algo)) return 1;
 
+    // --input-format {synthetic|sdlog}. Default 'synthetic' is the
+    // 9-column fixture format the regression goldens use. 'sdlog'
+    // consumes a real OnSpeed SD log via BuildHeaderIndex.
+    const char* fmt_in = ArgGet(argc, argv, "--input-format", "synthetic");
+    const bool input_is_sdlog = (std::strcmp(fmt_in, "sdlog") == 0);
+    if (!input_is_sdlog && std::strcmp(fmt_in, "synthetic") != 0) {
+        std::fprintf(stderr,
+            "host_main ahrs_tone: --input-format must be 'synthetic' or 'sdlog'\n");
+        return 1;
+    }
+
+    // --config PATH: per-aircraft OnSpeedConfig (V1 or V2). Used to
+    // populate AhrsConfig install-bias fields. Required when
+    // --input-format=sdlog so we replay through the firmware's actual
+    // install-bias rotation; ignored when --input-format=synthetic.
+    const char* config_path = ArgGet(argc, argv, "--config");
+    onspeed::config::OnSpeedConfig pilotCfg;
+    pilotCfg.LoadDefaults();
+    if (config_path != nullptr) {
+        if (!LoadConfig(config_path, pilotCfg)) return 1;
+    } else if (input_is_sdlog) {
+        std::fprintf(stderr,
+            "host_main ahrs_tone: --config is required with --input-format=sdlog\n");
+        return 1;
+    }
+
+    // --ekfq-config PATH: per-trial EKFQ + pipeline overrides (kv format).
+    // Applied via Ahrs::SetEkfqConfig after Init. Optional; defaults if absent.
+    const char* ekfq_cfg_path = ArgGet(argc, argv, "--ekfq-config");
+    onspeed::EKFQ::Config ekfqCfg = onspeed::EKFQ::Config::defaults();
+    onspeed::ahrs::EkfqPipeline::PipelineConfig pipeCfg =
+        onspeed::ahrs::EkfqPipeline::PipelineConfig::defaults();
+    if (ekfq_cfg_path != nullptr) {
+        std::ifstream kf(ekfq_cfg_path);
+        if (!kf.is_open()) {
+            std::fprintf(stderr,
+                "host_main ahrs_tone: cannot open --ekfq-config '%s'\n",
+                ekfq_cfg_path);
+            return 1;
+        }
+        const std::string kvText{std::istreambuf_iterator<char>(kf),
+                                  std::istreambuf_iterator<char>()};
+        auto warnSink = [](const char* m) {
+            std::fprintf(stderr, "host_main ahrs_tone: %s\n", m);
+        };
+        if (!onspeed::ahrs::ParseEkfqConfigKv(kvText, ekfqCfg, pipeCfg, warnSink)) {
+            return 1;
+        }
+    }
+
+    // --passthrough-cols A,B,C: comma-separated input column names whose
+    // raw values get appended to the output CSV. Required for Optuna
+    // scoring (Python tuner reads truth columns out of these). Only
+    // valid with --input-format=sdlog.
+    const char* passthrough_str = ArgGet(argc, argv, "--passthrough-cols");
+    std::vector<std::string> passthroughCols;
+    if (passthrough_str != nullptr) {
+        if (!input_is_sdlog) {
+            std::fprintf(stderr,
+                "host_main ahrs_tone: --passthrough-cols requires --input-format=sdlog\n");
+            return 1;
+        }
+        std::string s(passthrough_str);
+        size_t pos = 0;
+        while (pos < s.size()) {
+            const size_t comma = s.find(',', pos);
+            std::string tok = s.substr(
+                pos, (comma == std::string::npos) ? s.size() - pos : comma - pos);
+            // Trim leading/trailing ASCII whitespace so "vnPitch, vnRoll"
+            // (user-supplied with spaces) parses the same as "vnPitch,vnRoll".
+            size_t lo = 0;
+            while (lo < tok.size() && (tok[lo] == ' ' || tok[lo] == '\t')) ++lo;
+            size_t hi = tok.size();
+            while (hi > lo && (tok[hi-1] == ' ' || tok[hi-1] == '\t')) --hi;
+            tok = tok.substr(lo, hi - lo);
+            if (!tok.empty()) passthroughCols.push_back(tok);
+            if (comma == std::string::npos) break;
+            pos = comma + 1;
+        }
+    }
+
     // Open input — "-" means stdin.
     std::istream* in_stream = &std::cin;
     std::ifstream in_file;
@@ -416,6 +685,12 @@ int CmdAhrsTone(int argc, const char* const* argv)
         }
         in_stream = &in_file;
     }
+
+    if (input_is_sdlog) {
+        return RunAhrsToneSdlog(*in_stream, algo, pilotCfg, ekfqCfg, pipeCfg,
+                                passthroughCols, fmt);
+    }
+    // Else fall through to the existing synthetic-format path.
 
     std::string line;
 
@@ -449,11 +724,10 @@ int CmdAhrsTone(int argc, const char* const* argv)
         return 1;
     }
 
-    // IAS-display threshold: build a real OnSpeedConfig (which
-    // LoadDefaults-initialises iIasDisplayThresholdKt to the same 20
-    // kt the firmware ships with) and read the threshold from there,
+    // IAS-display threshold: read from the OnSpeedConfig already loaded
+    // at the top of CmdAhrsTone (LoadDefaults-initialises
+    // iIasDisplayThresholdKt to the same 20 kt the firmware ships with),
     // mirroring how SensorIO and LogReplayTask consume it in flight.
-    const onspeed::config::OnSpeedConfig pilotCfg;
     const float kIasDisplayThresholdKt =
         static_cast<float>(pilotCfg.iIasDisplayThresholdKt);
 

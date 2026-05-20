@@ -87,6 +87,16 @@ void Ahrs::Reconfigure(const AhrsConfig& cfg)
 
 // ----------------------------------------------------------------------------
 
+void Ahrs::SetEkfqConfig(const onspeed::EKFQ::Config& ekfqCfg,
+                         const EkfqPipeline::PipelineConfig& pipeCfg)
+{
+    // EkfqPipeline owns the EKFQ instance — go through it for both.
+    ekfq_.getEkfq().setConfig(ekfqCfg);
+    ekfq_.setPipelineConfig(pipeCfg);
+}
+
+// ----------------------------------------------------------------------------
+
 void Ahrs::Init(const AhrsInputs& seedFrame, float seedPaltFt)
 {
     // Seed pitch/roll from the supplied IMU sample via accelPitch /

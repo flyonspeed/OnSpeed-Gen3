@@ -130,7 +130,7 @@ bool OnSpeedConfig::LoadDefaults()
     fPitchBias          = 0.0f;
     fRollBias           = 0.0f;
 
-    // AHRS algorithm: 0=Madgwick (default), 1=EKF6
+    // AHRS algorithm: 0=Madgwick (default), 1=EKFQ
     iAhrsAlgorithm      = 0;
 
     // Serial inputs

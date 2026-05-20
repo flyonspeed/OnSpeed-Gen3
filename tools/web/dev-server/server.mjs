@@ -865,7 +865,7 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
   body = body.replaceAll('{{calSrcEfisSel}}', selAttr(cfg.calSource === 'EFIS'));
 
   body = body.replaceAll('{{ahrsMadgwickSel}}', selAttr(cfg.ahrsAlgorithm === 0));
-  body = body.replaceAll('{{ahrsEkf6Sel}}',     selAttr(cfg.ahrsAlgorithm === 1));
+  body = body.replaceAll('{{ahrsEkfqSel}}',     selAttr(cfg.ahrsAlgorithm === 1));
 
   body = body.replaceAll('{{volumeEnabledSel}}',  selAttr(!!cfg.volumeControl));
   body = body.replaceAll('{{volumeDisabledSel}}', selAttr(!cfg.volumeControl));

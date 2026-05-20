@@ -30,7 +30,7 @@
 //
 // Smoothing source: poll /api/sensors/biases at 10 Hz rather than
 // subscribing to the WebSocket.  The WS frame's `pitchDeg` is the AHRS-
-// smoothed pitch (Madgwick / EKF6 output), but the cal handler computes
+// smoothed pitch (Madgwick / EKFQ output), but the cal handler computes
 // biases from `g_AHRS.PitchWithBias()` (a direct accel-pitch with bias
 // applied).  /api/sensors/biases exposes `live.truePitchDeg` /
 // `live.trueRollDeg`, which are exactly that quantity, so smoothing

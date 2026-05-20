@@ -159,7 +159,7 @@ void InjectSerialByte(char inChar)
     // The main firmware's display serial task runs at
     // kDisplaySerialPeriodMs (currently 20 Hz), but hardcoding that here is
     // a fragility we don't want — this mirrors how the main firmware's AHRS
-    // (Madgwick, EKF6) also uses measured dt each tick.
+    // (Madgwick, EKFQ) also uses measured dt each tick.
     static uint32_t lastFrameMicros = 0;
     uint32_t nowMicros = micros();
     float frameDtSec = (lastFrameMicros == 0)

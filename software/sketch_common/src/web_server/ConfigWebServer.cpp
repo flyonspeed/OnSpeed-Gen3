@@ -791,7 +791,7 @@ void HandleConfig()
     sBody.replace("{{calSrcEfisSel}}", sel(g_Config.sCalSource == "EFIS"));
 
     sBody.replace("{{ahrsMadgwickSel}}", sel(g_Config.iAhrsAlgorithm == 0));
-    sBody.replace("{{ahrsEkf6Sel}}",     sel(g_Config.iAhrsAlgorithm == 1));
+    sBody.replace("{{ahrsEkfqSel}}",     sel(g_Config.iAhrsAlgorithm == 1));
 
     sBody.replace("{{volumeEnabledSel}}",  sel(g_Config.bVolumeControl));
     sBody.replace("{{volumeDisabledSel}}", sel(!g_Config.bVolumeControl));
@@ -1068,7 +1068,7 @@ void HandleConfigSave()
     // Track whether any AHRS-relevant input changed so we only reseed
     // the attitude filter when the new value differs from the old.  An
     // unconditional reseed in flight (e.g. saving an unrelated setting
-    // like sdLogging or grossWeight) would re-snapshot Madgwick / EKF6
+    // like sdLogging or grossWeight) would re-snapshot Madgwick / EKFQ
     // state from instantaneous, G-loaded accelerometer reads and snap
     // SmoothedPitch/Roll to wildly wrong values for several seconds.
     bool bAhrsInputChanged = false;

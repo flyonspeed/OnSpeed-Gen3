@@ -12,6 +12,7 @@
 
 #include <unity.h>
 #include <ahrs/EKFQ.h>
+#include <ahrs/EkfqPipeline.h>
 #include <cmath>
 
 using namespace onspeed;
@@ -125,6 +126,30 @@ void test_ekfq_defaults_finite(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 12.0f, c.tas_min_mps);
 }
 
+void test_ekfq_pipeline_config_override(void) {
+    // Default-constructed pipeline matches PipelineConfig::defaults()
+    onspeed::ahrs::EkfqPipeline pipe;
+    const auto def = pipe.getPipelineConfig();
+    const auto refDef = onspeed::ahrs::EkfqPipeline::PipelineConfig::defaults();
+    TEST_ASSERT_EQUAL_FLOAT(refDef.accelEmaAlpha,   def.accelEmaAlpha);
+    TEST_ASSERT_EQUAL_FLOAT(refDef.compFadeTauSec,  def.compFadeTauSec);
+    TEST_ASSERT_EQUAL_FLOAT(refDef.iasGateRisingKt, def.iasGateRisingKt);
+    TEST_ASSERT_EQUAL_FLOAT(refDef.tasdotEmaAlpha,  def.tasdotEmaAlpha);
+
+    // Override via setPipelineConfig is visible in getPipelineConfig
+    onspeed::ahrs::EkfqPipeline::PipelineConfig custom{};
+    custom.accelEmaAlpha   = 0.10f;
+    custom.compFadeTauSec  = 1.5f;
+    custom.iasGateRisingKt = 40.0f;
+    custom.tasdotEmaAlpha  = 0.05f;
+    pipe.setPipelineConfig(custom);
+    const auto got = pipe.getPipelineConfig();
+    TEST_ASSERT_EQUAL_FLOAT(custom.accelEmaAlpha,   got.accelEmaAlpha);
+    TEST_ASSERT_EQUAL_FLOAT(custom.compFadeTauSec,  got.compFadeTauSec);
+    TEST_ASSERT_EQUAL_FLOAT(custom.iasGateRisingKt, got.iasGateRisingKt);
+    TEST_ASSERT_EQUAL_FLOAT(custom.tasdotEmaAlpha,  got.tasdotEmaAlpha);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_ekfq_init_default);
@@ -133,5 +158,6 @@ int main(int, char**) {
     RUN_TEST(test_ekfq_pitched_static);
     RUN_TEST(test_ekfq_quaternion_stays_unit);
     RUN_TEST(test_ekfq_defaults_finite);
+    RUN_TEST(test_ekfq_pipeline_config_override);
     return UNITY_END();
 }

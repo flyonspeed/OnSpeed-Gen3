@@ -342,7 +342,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
 
     const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
     // Lateral G: smoothed by AccelLatFilter, raw sign (positive = right
-    // per the EKF6 body-axis convention).  The legacy /live AOA tab and
+    // per the EKFQ body-axis convention).  The legacy /live AOA tab and
     // the new /indexer data-table both display this number as "Lat G"
     // unmodified, so the JSON layer carries the engineering convention.
     // The M5 wire-format builder applies its own negation (DisplaySerial.cpp:

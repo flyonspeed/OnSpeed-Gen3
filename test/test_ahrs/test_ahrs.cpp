@@ -936,6 +936,32 @@ void test_comp_fade_in_suppresses_rising_edge_accel_spike(void)
 // If the ramp needs to come back, add it as an output-stage fade
 // keyed off the display gate, not the algorithm-internal gate.
 
+void test_ahrs_set_ekfq_config_round_trip(void) {
+    onspeed::ahrs::AhrsConfig cfg;
+    cfg.algorithm = onspeed::ahrs::Algorithm::Ekfq;
+    cfg.imuSampleRateHz = 208.0f;
+    cfg.pressureSampleRateHz = 50.0f;
+    onspeed::ahrs::Ahrs ahrs(cfg);
+
+    onspeed::EKFQ::Config custom = onspeed::EKFQ::Config::defaults();
+    custom.q_quat = 1.0e-3f;   // distinct from default
+    custom.r_baro = 9.999f;
+
+    onspeed::ahrs::EkfqPipeline::PipelineConfig pipeCustom =
+        onspeed::ahrs::EkfqPipeline::PipelineConfig::defaults();
+    pipeCustom.accelEmaAlpha = 0.10f;
+
+    ahrs.SetEkfqConfig(custom, pipeCustom);
+
+    // Read back through the public chain — round-trip check.
+    const onspeed::EKFQ::Config& got = ahrs.GetEkfqPipeline().getEkfq().getConfig();
+    TEST_ASSERT_EQUAL_FLOAT(custom.q_quat, got.q_quat);
+    TEST_ASSERT_EQUAL_FLOAT(custom.r_baro, got.r_baro);
+
+    const auto& gotPipe = ahrs.GetEkfqPipeline().getPipelineConfig();
+    TEST_ASSERT_EQUAL_FLOAT(0.10f, gotPipe.accelEmaAlpha);
+}
+
 // ---------------------------------------------------------------------
 // test main
 // ---------------------------------------------------------------------
@@ -978,6 +1004,8 @@ int main(void)
     RUN_TEST(test_comp_fade_in_survives_init);
     RUN_TEST(test_comp_fade_in_resets_when_raw_ias_drops_below_falling_threshold);
     RUN_TEST(test_comp_fade_in_suppresses_rising_edge_accel_spike);
+
+    RUN_TEST(test_ahrs_set_ekfq_config_round_trip);
 
     return UNITY_END();
 }

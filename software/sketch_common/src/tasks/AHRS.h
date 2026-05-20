@@ -46,7 +46,7 @@ public:
     //   Stage 3 — smoothing: wire-spec accel EMA for display + log.
     //
     // The Stage 2 (algorithm) post-comp accel is owned internally by
-    // each AHRS algorithm class (Madgwick / Ekf6Pipeline) and not
+    // each AHRS algorithm class (Madgwick / EkfqPipeline) and not
     // exposed at the sketch-side boundary.
 
     // Stage 1 — IMU acceleration after installation-bias rotation.

@@ -5,7 +5,7 @@
 //   raw sensors ──► AHRS algorithm ──► smoothing ──► outputs
 //
 // The AHRS stage is owned by an algorithm class — this file for
-// Madgwick; Ekf6Pipeline for EKF6.  An algorithm class takes raw-
+// Madgwick; EkfqPipeline for EKFQ.  An algorithm class takes raw-
 // corrected sensor inputs and produces algorithm outputs (pitch,
 // roll, derived AOA, earth-vertical-G).  Internal pre-filtering
 // (accel smoothing, compFadeIn ramp, comp-factor computation) and
