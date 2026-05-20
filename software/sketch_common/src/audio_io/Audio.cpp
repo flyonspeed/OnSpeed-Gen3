@@ -41,6 +41,8 @@
 
 #include "src/Globals.h"
 #include "src/util/Helpers.h"
+
+#include <util/Perf.h>
 #include <audio/AudioMixer.h>
 #include <audio/AudioOrchestrator.h>
 #include <audio/AudioTestSweep.h>
@@ -196,6 +198,11 @@ void AudioPlayTask(void * psuParams)
             g_AudioPlay.enVoice == enVoiceNone &&
             s_ToneEnvelope.IsIdle())
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+
+        // PERF: time only the work after any sleep / notify-wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Audio,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // Voice clip plays once and resets.  Blocks until done.
         if (g_AudioPlay.enVoice != enVoiceNone)

@@ -2,6 +2,8 @@
 #include "src/Globals.h"
 #include "src/util/Helpers.h"
 
+#include <util/Perf.h>
+
 // Switch State — volatile because set in OneButton ISR callbacks and
 // read/cleared in the SwitchCheckTask RTOS task.
 volatile bool   bSwitchDoSingleClick = false;
@@ -44,6 +46,11 @@ void SwitchCheckTask(void * pvParams)
     {
         // Run every 10 msec
         vTaskDelay(pdMS_TO_TICKS(10));
+
+        // PERF: time only the work after the sleep.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Switch,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // Let OneButton do its thing
         g_Switch.tick();

@@ -20,6 +20,7 @@ Do a text search for comments starting with "////"
 #define MAIN
 #include "src/Globals.h"
 #include <buildinfo.h>
+#include <util/Perf.h>
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -43,10 +44,15 @@ void WebServerTask(void * pvParams)
 {
     for(;;)
     {
-        CfgWebServerPoll();
         // Poll at 200 Hz when a client is connected, 20 Hz when idle
         unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;
         vTaskDelay(pdMS_TO_TICKS(uDelay));
+
+        // PERF: time only the work after the sleep.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::WebServer,
+            uxTaskGetStackHighWaterMark(nullptr));
+        CfgWebServerPoll();
     }
 }
 
@@ -55,10 +61,15 @@ void DataServerTask(void * pvParams)
 {
     for(;;)
     {
-        DataServerPoll();
         // Poll at 200 Hz when a client is connected, 20 Hz when idle
         unsigned uDelay = (WiFi.softAPgetStationNum() > 0) ? 5 : 50;
         vTaskDelay(pdMS_TO_TICKS(uDelay));
+
+        // PERF: time only the work after the sleep.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::DataServer,
+            uxTaskGetStackHighWaterMark(nullptr));
+        DataServerPoll();
     }
 }
 
@@ -375,10 +386,25 @@ void loop()
     // function, again doing nothing. So do serial I/O the old fashioned way.
     // That is, in line with everything else that needs a chance to run.
 
+    // PERF: wrap the loop body. loop() is Arduino's task (Core 1, prio 1)
+    // and it does the EFIS and Boom UART reads — the parser + CRC work is
+    // hidden here without instrumentation.
+    onspeed::util::perf::PerfLoop perfGuard(
+        onspeed::util::perf::TaskId::ArduinoLoop,
+        uxTaskGetStackHighWaterMark(nullptr));
+
 //    readWifiSerial();
     g_ConsoleSerial.Read();
-    g_EfisSerial.Read();
-    g_BoomSerial.Read();
+    {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::EfisRead);
+        g_EfisSerial.Read();
+    }
+    {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::BoomRead);
+        g_BoomSerial.Read();
+    }
 
 #if 0
 

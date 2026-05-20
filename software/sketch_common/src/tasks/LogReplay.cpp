@@ -21,6 +21,7 @@
 #include <proto/LogCsvHeaderIndex.h>
 #include <replay/LogReplayEngine.h>
 #include <types/LogRow.h>
+#include <util/Perf.h>
 
 FsFile                      hReplayFile;
 static char                 szInLine[onspeed::proto::log_csv::kRowMaxBytes + 4];
@@ -82,6 +83,11 @@ void LogReplayTask(void *pvParams)
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
+
+        // PERF: time only the work after the wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::LogReplay,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // If this task wasn't delayed before it ran again it means it
         // it ran long for some reason (like the CPU is overloaded) or
@@ -359,6 +365,11 @@ void TestPotTask(void *pvParams)
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
 
+        // PERF: time only the work after the wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::TestPot,
+            uxTaskGetStackHighWaterMark(nullptr));
+
         if (xWasDelayed == pdFALSE)
         {
             xLastWakeTime = xLAST_TICK_TIME(kPressureIntervalMs);
@@ -461,6 +472,11 @@ void RangeSweepTask(void *pvParams)
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(RANGESWEEP_INTERVAL_MS));
+
+        // PERF: time only the work after the wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::RangeSweep,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         if (xWasDelayed == pdFALSE)
         {

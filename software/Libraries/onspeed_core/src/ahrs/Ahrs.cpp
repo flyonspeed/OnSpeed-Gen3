@@ -13,6 +13,7 @@
 #include <cmath>
 
 #include <util/OnSpeedTypes.h>
+#include <util/Perf.h>
 
 namespace onspeed::ahrs {
 
@@ -332,7 +333,12 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
             /* iasKt            */ in.sensors.iasKt,
             /* dtSec            */ dtSec,
         };
-        const Madgwick::Outputs madOut = madgwick_.Step(madIn);
+        Madgwick::Outputs madOut;
+        {
+            onspeed::util::perf::PerfScope guard(
+                onspeed::util::perf::ScopeId::Madgwick);
+            madOut = madgwick_.Step(madIn);
+        }
         SmoothedPitch   = madOut.pitchDeg;
         SmoothedRoll    = madOut.rollDeg;
         EarthVertG      = madOut.earthVertG;
@@ -372,6 +378,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         kalmanAltMeters = algoKalmanAltMeters;
         kalmanVsiMps    = algoKalmanVsiMps;
     } else {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::Kalman);
         kalman_.Update(onspeed::ft2m(in.sensors.paltFt),
                        onspeed::g2mps(EarthVertG),
                        dtSec,
