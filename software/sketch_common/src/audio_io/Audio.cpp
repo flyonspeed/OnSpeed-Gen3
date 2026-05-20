@@ -183,10 +183,6 @@ void AudioPlayTask(void * psuParams)
     (void)psuParams;
     while (true)
     {
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::Audio,
-            uxTaskGetStackHighWaterMark(nullptr));
-
         if (!s_bI2sOk)
             {
             // If I2S init failed, don't spin at high priority.
@@ -202,6 +198,11 @@ void AudioPlayTask(void * psuParams)
             g_AudioPlay.enVoice == enVoiceNone &&
             s_ToneEnvelope.IsIdle())
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+
+        // PERF: time only the work after any sleep / notify-wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Audio,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // Voice clip plays once and resets.  Blocks until done.
         if (g_AudioPlay.enVoice != enVoiceNone)

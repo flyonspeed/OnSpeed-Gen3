@@ -45,7 +45,9 @@ constexpr ScopeId kTimingScopes[] = {
     ScopeId::EkfqPredict, ScopeId::EkfqCorrect, ScopeId::EkfqAlpha,
     ScopeId::Madgwick,    ScopeId::Kalman,      ScopeId::TasCompute,
     ScopeId::ImuRead,     ScopeId::PressureRead,
-    ScopeId::DisplaySerial, ScopeId::WebSocketFrame, ScopeId::LogWrite,
+    ScopeId::DisplaySerial, ScopeId::WebSocketFrame,
+    ScopeId::LogWrite,    ScopeId::LogSync,
+    ScopeId::EfisRead,    ScopeId::BoomRead,
 };
 
 void emitSnapshot()

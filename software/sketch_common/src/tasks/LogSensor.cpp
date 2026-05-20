@@ -195,9 +195,10 @@ void LogSensorCommitTask(void *pvParams)
 
     while (true)
     {
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::Log,
-            uxTaskGetStackHighWaterMark(nullptr));
+        // NOTE: this task spends most of its time blocked in
+        // xRingbufferReceive() waiting for data. PerfLoop wraps only the
+        // post-receive work (SD write + mutex acquisition) so the
+        // reported total CPU% reflects actual write cost, not idle wait.
 
         // Ring-drop reporting moved into the PERF tick at the end of
         // this loop body — same counter, single emit path, with full
@@ -226,6 +227,11 @@ void LogSensorCommitTask(void *pvParams)
                 vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
             continue;
             }
+
+        // PERF: scope wraps the actual write/mutex/IO work that follows.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Log,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // Take the write mutex for the full drain+write cycle. Both the
         // staging buffer (szWriteBuf/uBufUsed) and the log file handle
@@ -349,7 +355,16 @@ void LogSensorCommitTask(void *pvParams)
             if (uAligned > 0)
                 {
                 uWriteStart = micros();
-                const size_t uActual = m_hLogFile.write(szWriteBuf, uAligned);
+                size_t uActual;
+                {
+                    // PERF: scope ONLY the SD write call. This is the
+                    // actual disk I/O the firmware's `write_max` already
+                    // tracks; PerfLoop on the surrounding task includes
+                    // ring receive + mutex hold which is mostly idle.
+                    onspeed::util::perf::PerfScope guard(
+                        onspeed::util::perf::ScopeId::LogWrite);
+                    uActual = m_hLogFile.write(szWriteBuf, uAligned);
+                }
                 uWriteEnd   = micros();
                 uWriteDur   = uWriteEnd - uWriteStart;
                 uWriteMax   = uWriteDur > uWriteMax ? uWriteDur : uWriteMax;
@@ -367,7 +382,12 @@ void LogSensorCommitTask(void *pvParams)
             {
                 FlushStagingBufferLocked();
                 uSyncStart = micros();
-                m_hLogFile.sync();
+                {
+                    // PERF: scope the SD fsync (blocking; runs every 5s).
+                    onspeed::util::perf::PerfScope guard(
+                        onspeed::util::perf::ScopeId::LogSync);
+                    m_hLogFile.sync();
+                }
                 uSyncEnd   = micros();
                 uSyncDur   = uSyncEnd - uSyncStart;
                 uSyncMax   = uSyncDur  > uSyncMax  ? uSyncDur  : uSyncMax;

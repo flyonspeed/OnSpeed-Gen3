@@ -122,13 +122,14 @@ void SensorReadTask(void *pvParams)
 
     while (true)
     {
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::Sensors,
-            uxTaskGetStackHighWaterMark(nullptr));
-
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
+
+        // PERF: time only the work after the wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Sensors,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // If this task wasn't delayed before it ran again it means it
         // it ran long for some reason (like the CPU is overloaded) or
@@ -192,9 +193,6 @@ void ImuReadTask(void *pvParams)
 
     while (true)
     {
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::Imu,
-            uxTaskGetStackHighWaterMark(nullptr));
         // Schedule the next tick.
         uNextWakeUs += uBasePeriodUs;
         uRemainderAcc += uRemainderUs;
@@ -212,6 +210,12 @@ void ImuReadTask(void *pvParams)
         iWaitUs = int32_t(uNextWakeUs - micros());
         if (iWaitUs > 0)
             delayMicroseconds(uint32_t(iWaitUs));
+
+        // PERF: time only the work after the wait. Loop period is fixed
+        // by the schedule above; we want CPU spent, not wall time.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::Imu,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // Track lateness on every iteration so the noise floor is
         // visible in PERF, not just the >1ms outliers. uImuMaxLateUs

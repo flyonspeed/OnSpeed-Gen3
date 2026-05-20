@@ -64,8 +64,10 @@ constexpr const char* kScopeNames[] = {
     "display_ser",
     "ws_frame",
     "log_write",
-    "spare0", "spare1", "spare2", "spare3",
-    "spare4", "spare5", "spare6", "spare7",
+    "log_sync",
+    "efis_read",
+    "boom_read",
+    "spare0", "spare1", "spare2", "spare3", "spare4",
 };
 static_assert(sizeof(kScopeNames) / sizeof(kScopeNames[0]) == kScopeCount,
               "kScopeNames size mismatch with ScopeId::Count");
@@ -74,6 +76,7 @@ constexpr const char* kTaskNames[] = {
     "Imu", "Sensors", "Audio", "Display", "Switch",
     "Log", "LogReplay", "TestPot", "RangeSweep",
     "Housekeeping", "WebServer", "DataServer",
+    "ArduinoLoop",
 };
 static_assert(sizeof(kTaskNames) / sizeof(kTaskNames[0]) == kTaskCount,
               "kTaskNames size mismatch with TaskId::Count");
@@ -109,6 +112,13 @@ uint64_t nowUs() {
 namespace {
 
 Ring g_rings[kTaskCount];
+
+// SPI counters: direct atomic accumulators, not events in a ring.
+// Sized per-scope (one slot per ScopeId, but only SPI scopes used).
+// Drained read-and-reset by the consumer 1× per snapshot.
+std::atomic<uint64_t> g_spi_bytes_[kScopeCount];
+std::atomic<uint64_t> g_spi_xfers_[kScopeCount];
+std::atomic<uint32_t> g_spi_max_xfer_us_[kScopeCount];
 
 std::atomic<bool> g_perfEnabled{false};
 
@@ -163,13 +173,22 @@ void setPerfEnabled(bool e) {
 
 void recordSpiTransfer(ScopeId scopeId, uint32_t bytes, uint32_t durationUs) {
     if (!perfEnabled()) return;
-    Ring* r = getTlsRing();
-    if (!r) return;  // SPI called from a non-task context — drop silently.
-    // Encode bytes in the upper 16 bits of stackHighWaterWords field.
-    // Cap at 65535 — SPI single xfers are nowhere near that.
-    const uint16_t bytesU16 = (bytes > 0xFFFFu) ? 0xFFFFu : static_cast<uint16_t>(bytes);
-    pushEvent(r, PerfEvent{
-        durationUs, static_cast<uint8_t>(scopeId), /*flags=*/0u, bytesU16});
+    const auto i = static_cast<size_t>(scopeId);
+    if (i >= kScopeCount) return;
+    // Direct atomic counters — SPI traffic is too high-rate (304 xfers/sec
+    // just for IMU at 208 Hz) to route through the per-task ring without
+    // overflowing it. Three relaxed atomic ops; no contention since each
+    // ScopeId has its own counter slot.
+    g_spi_bytes_[i].fetch_add(bytes, std::memory_order_relaxed);
+    g_spi_xfers_[i].fetch_add(1, std::memory_order_relaxed);
+    // Atomic max via CAS loop. Cheap when value isn't a new max.
+    uint32_t prev = g_spi_max_xfer_us_[i].load(std::memory_order_relaxed);
+    while (durationUs > prev &&
+           !g_spi_max_xfer_us_[i].compare_exchange_weak(
+               prev, durationUs,
+               std::memory_order_relaxed,
+               std::memory_order_relaxed)) {
+    }
 }
 
 // ===========================================================================
@@ -185,18 +204,44 @@ void Histogram::reset() {
 }
 
 namespace {
+
+// Map a duration in µs to its bucket index.
+//   - 0..1023 µs → linear 16-µs bins (buckets 0..63)
+//   - 1024..65535 µs → exponential √2-step bins (buckets 64..95)
 inline size_t bucketIndex(uint32_t v) {
-    // Bucket k covers [2^(k/2), 2^((k+1)/2)). Compute floor(2·log2(v)).
-    if (v == 0) return 0;
-    // __builtin_clz returns leading zeros of a 32-bit. log2 floor = 31 - clz.
-    const int log2v = 31 - __builtin_clz(v);
-    // Within each integer log2 bin, the √2-midpoint splits "low" from
-    // "high". v has top bit at position log2v; the bit one below tells
-    // us if we're past 1.5×.
-    const uint32_t mid = (1u << log2v) + (1u << (log2v > 0 ? log2v - 1 : 0));
-    const size_t k = static_cast<size_t>(log2v) * 2u + (v >= mid ? 1u : 0u);
+    if (v < kLinearMaxUs) {
+        return v / kLinearStepUs;        // 0..63
+    }
+    // Exponential region. We want bucket k=64 to cover [1024, 1448),
+    // k=65 to cover [1448, 2048), and so on (√2 steps). Compute the
+    // index relative to kLinearMaxUs.
+    const int log2v = 31 - __builtin_clz(v);   // floor(log2(v))
+    // For v >= 1024 (= 2^10), log2v >= 10. Each integer log2 bin contributes
+    // 2 buckets (low / high half). Offset so log2v=10 corresponds to bucket 64.
+    const uint32_t mid = (1u << log2v) + (1u << (log2v - 1));
+    size_t k = kLinearBuckets
+        + static_cast<size_t>(log2v - 10) * 2u
+        + (v >= mid ? 1u : 0u);
     return (k < kHistogramBuckets) ? k : kHistogramBuckets - 1;
 }
+
+// Upper bound (exclusive) of the value range covered by bucket k.
+// Used by Histogram::percentile() to report bucket boundaries.
+inline uint32_t bucketUpperBound(size_t k) {
+    if (k < kLinearBuckets) {
+        return (k + 1) * kLinearStepUs;  // 16, 32, ..., 1024
+    }
+    const size_t expIdx = k - kLinearBuckets;          // 0..31
+    const int log2v = 10 + static_cast<int>(expIdx / 2);
+    // Even expIdx → upper at the √2 midpoint of that log2 bin.
+    // Odd  expIdx → upper at the next integer power of two.
+    if ((expIdx & 1u) == 0) {
+        return (1u << log2v) + (1u << (log2v - 1));    // 1.5 × 2^log2v
+    } else {
+        return 1u << (log2v + 1);                      // next power of two
+    }
+}
+
 }  // namespace
 
 void Histogram::add(uint32_t v) {
@@ -216,15 +261,7 @@ uint32_t Histogram::percentile(double p) const {
     for (size_t k = 0; k < kHistogramBuckets; ++k) {
         cum += buckets[k];
         if (cum >= target) {
-            // Bucket k upper bound = 2^((k+1)/2). For odd k we'd want
-            // 2^((k+1)/2) which is the same; for even k same. Use the
-            // upper bound of the bin.
-            const int upperLog = static_cast<int>((k + 1) / 2);
-            uint32_t upper = 1u << upperLog;
-            // Half-bins get √2 multiplier — approximate as upper*1.5 / 1
-            // For an unbiased estimate, the bucket midpoint is closer
-            // to the truth, but the upper bound is conservative.
-            return std::min<uint32_t>(upper, maxUs);
+            return std::min<uint32_t>(bucketUpperBound(k), maxUs);
         }
     }
     return maxUs;
@@ -248,12 +285,6 @@ uint32_t    g_task_stack_min[kTaskCount];
 uint32_t    g_task_drops[kTaskCount];
 SpiCounter  g_spi_counters[kScopeCount];
 
-inline bool isSpiScope(ScopeId id) {
-    return id == ScopeId::SpiImu  || id == ScopeId::SpiAoa ||
-           id == ScopeId::SpiPitot || id == ScopeId::SpiStatic ||
-           id == ScopeId::SpiSd;
-}
-
 }  // namespace
 
 void Consumer::reset() {
@@ -265,6 +296,7 @@ void Consumer::reset() {
 }
 
 void Consumer::drainAll() {
+    // Drain per-task rings → task/scope histograms.
     for (size_t ti = 0; ti < kTaskCount; ++ti) {
         Ring& r = g_rings[ti];
         const uint32_t head = r.head.load(std::memory_order_acquire);
@@ -277,25 +309,29 @@ void Consumer::drainAll() {
                     g_task_stack_min[ti] = ev.stackHighWaterWords;
                 }
             } else {
-                const auto sid = static_cast<ScopeId>(ev.scopeId);
                 const size_t si = ev.scopeId;
                 if (si < kScopeCount) {
-                    if (isSpiScope(sid)) {
-                        // stackHighWaterWords field carries byte count for SPI.
-                        g_spi_counters[si].bytes += ev.stackHighWaterWords;
-                        g_spi_counters[si].transfers++;
-                        if (ev.durationUs > g_spi_counters[si].maxXferUs) {
-                            g_spi_counters[si].maxXferUs = ev.durationUs;
-                        }
-                    } else {
-                        g_scope_hist[si].add(ev.durationUs);
-                    }
+                    g_scope_hist[si].add(ev.durationUs);
                 }
             }
             tail++;
         }
         r.tail.store(tail, std::memory_order_release);
         g_task_drops[ti] += r.drops.exchange(0, std::memory_order_acq_rel);
+    }
+
+    // Drain SPI direct-counter accumulators (separate from rings).
+    for (size_t si = 0; si < kScopeCount; ++si) {
+        const uint64_t b = g_spi_bytes_[si].exchange(0, std::memory_order_acq_rel);
+        const uint64_t x = g_spi_xfers_[si].exchange(0, std::memory_order_acq_rel);
+        const uint32_t m = g_spi_max_xfer_us_[si].exchange(0, std::memory_order_acq_rel);
+        if (x > 0) {
+            g_spi_counters[si].bytes     += b;
+            g_spi_counters[si].transfers += x;
+            if (m > g_spi_counters[si].maxXferUs) {
+                g_spi_counters[si].maxXferUs = m;
+            }
+        }
     }
 }
 

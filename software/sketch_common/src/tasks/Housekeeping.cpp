@@ -35,11 +35,12 @@ void HousekeepingTask(void * pvParams)
 
     while (true)
     {
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        // PERF: time only the work after the sleep.
         onspeed::util::perf::PerfLoop perfGuard(
             onspeed::util::perf::TaskId::Housekeeping,
             uxTaskGetStackHighWaterMark(nullptr));
-
-        vTaskDelay(pdMS_TO_TICKS(100));
         uTick++;
 
         // Boot diagnostics heartbeat — poll every 20 ticks (2 s); Heartbeat

@@ -80,13 +80,14 @@ void LogReplayTask(void *pvParams)
 
     while (bReadStatus == true)
     {
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::LogReplay,
-            uxTaskGetStackHighWaterMark(nullptr));
-
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
+
+        // PERF: time only the work after the wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::LogReplay,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         // If this task wasn't delayed before it ran again it means it
         // it ran long for some reason (like the CPU is overloaded) or
@@ -360,13 +361,14 @@ void TestPotTask(void *pvParams)
 
     while (true)
     {
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::TestPot,
-            uxTaskGetStackHighWaterMark(nullptr));
-
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kPressureIntervalMs));
+
+        // PERF: time only the work after the wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::TestPot,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         if (xWasDelayed == pdFALSE)
         {
@@ -467,13 +469,14 @@ void RangeSweepTask(void *pvParams)
 
     while (true)
     {
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::RangeSweep,
-            uxTaskGetStackHighWaterMark(nullptr));
-
         // No delay happening is a design flaw so flag it if it happens, or
         // rather doesn't happen.
         xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(RANGESWEEP_INTERVAL_MS));
+
+        // PERF: time only the work after the wait.
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::RangeSweep,
+            uxTaskGetStackHighWaterMark(nullptr));
 
         if (xWasDelayed == pdFALSE)
         {

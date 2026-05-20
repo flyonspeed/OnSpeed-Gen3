@@ -76,12 +76,13 @@ void WriteDisplayDataTask(void * pvParams)
 
     while (true)
         {
+        // No delay happening is a design error so flag it if it happens
+        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kDisplaySerialPeriodMs));
+
+        // PERF: time only the work after the wait.
         onspeed::util::perf::PerfLoop perfGuard(
             onspeed::util::perf::TaskId::Display,
             uxTaskGetStackHighWaterMark(nullptr));
-
-        // No delay happening is a design error so flag it if it happens
-        xWasDelayed = xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(kDisplaySerialPeriodMs));
         if (xWasDelayed == pdFALSE)
             {
             // If this task runs late, don't "catch up" by running back-to-back and

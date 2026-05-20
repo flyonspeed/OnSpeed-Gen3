@@ -44,12 +44,13 @@ void SwitchCheckTask(void * pvParams)
 
     while (true)
     {
+        // Run every 10 msec
+        vTaskDelay(pdMS_TO_TICKS(10));
+
+        // PERF: time only the work after the sleep.
         onspeed::util::perf::PerfLoop perfGuard(
             onspeed::util::perf::TaskId::Switch,
             uxTaskGetStackHighWaterMark(nullptr));
-
-        // Run every 10 msec
-        vTaskDelay(pdMS_TO_TICKS(10));
 
         // Let OneButton do its thing
         g_Switch.tick();

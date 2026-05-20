@@ -178,20 +178,16 @@ void test_multi_producer_no_crosstalk(void)
 void test_ring_overflow_increments_drops(void)
 {
     PerfLoop loop(TaskId::Imu, 2000);  // bind ring
-    // kRingCapacity = 1024. Push >1024 events without draining.
-    // Each PerfScope pushes 1 event; PerfLoop ctor counts as a TLS
-    // binding (no event from ctor — only dtor). After the outer
-    // PerfLoop closes (later), it pushes its own event.
-    for (int i = 0; i < 1100; ++i) {
+    // Push well beyond kRingCapacity without draining. Need
+    // kRingCapacity + 100 minimum to be sure overflow happens.
+    const size_t overflowBy = 200;
+    const size_t pushes = onspeed::util::perf::kRingCapacity + overflowBy;
+    for (size_t i = 0; i < pushes; ++i) {
         PerfScope guard(ScopeId::EkfqCorrect);
-        // No sleep — fast push to maximize chance of overflow.
     }
-    // Don't read drops directly; the Consumer surfaces them per-task.
     Consumer consumer;
     consumer.drainAll();
-    // Drops are accumulated when the ring was full.
-    // We pushed 1100 events; ring holds 1024; so ≥ 76 should drop.
-    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(50, consumer.taskDrops(TaskId::Imu));
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(100, consumer.taskDrops(TaskId::Imu));
 }
 
 void test_names(void)

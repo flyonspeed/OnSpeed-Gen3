@@ -1,5 +1,44 @@
 // util/Perf.h — Lightweight scoped profiler for hot embedded paths.
 //
+// =================================================================
+// STANDARD PATTERN FOR INSTRUMENTING A FREERTOS TASK
+// =================================================================
+//
+//   void MyTask(void *pvParams) {
+//       // 1. one-time init (NOT inside the loop body)
+//       ...
+//       for (;;) {
+//           // 2. SLEEP / WAIT first.
+//           //    This is where the task is blocked waiting for its
+//           //    next tick. vTaskDelay, vTaskDelayUntil, ulTaskNotifyTake,
+//           //    xQueueReceive — all sleep primitives go HERE, OUTSIDE
+//           //    the PERF scope.
+//           vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(50));
+//
+//           // 3. PERF SCOPE — wraps ONLY the work that follows.
+//           //    Its destructor records (work_end - work_start) into
+//           //    the ring. This is what tells you CPU% and theoretical
+//           //    headroom; the wake-to-wake period is fixed by the
+//           //    schedule above and doesn't need measuring.
+//           PerfLoop perfGuard(TaskId::Foo,
+//                              uxTaskGetStackHighWaterMark(nullptr));
+//
+//           // 4. work
+//           DoStuff();
+//       }
+//   }
+//
+// The invariant: **PerfLoop wraps work, never sleep.** If a task has
+// early-continue error paths with their own sleeps, those sleeps also
+// go OUTSIDE the perf scope (they're not work either).
+//
+// Why this matters: a 20 Hz task that sleeps 50 ms then does 200 µs of
+// work, if the scope wraps both, reports "max=53ms" — the period, not
+// the cost. You can't answer "how much CPU does this consume?" or
+// "how fast can I go theoretically?" from period data.
+//
+// =================================================================
+//
 // Design (SPSC ring → consumer histogram):
 //
 //   Producer side (hot path, one per FreeRTOS task):
@@ -68,9 +107,11 @@ enum class ScopeId : uint8_t {
     SpiSd,
     DisplaySerial,
     WebSocketFrame,
-    LogWrite,
-    Spare0, Spare1, Spare2, Spare3,
-    Spare4, Spare5, Spare6, Spare7,
+    LogWrite,    ///< SD write — `m_hLogFile.write(buf, aligned)` only.
+    LogSync,     ///< SD fsync — `m_hLogFile.sync()` only. Periodic, ~200ms.
+    EfisRead,    ///< g_EfisSerial.Read() — UART drain + parser + CRC + apply.
+    BoomRead,    ///< g_BoomSerial.Read() — UART drain + ASCII parse.
+    Spare0, Spare1, Spare2, Spare3, Spare4,
     Count,
 };
 
@@ -87,6 +128,9 @@ enum class TaskId : uint8_t {
     Housekeeping,
     WebServer,
     DataServer,
+    ArduinoLoop,    ///< Arduino's `loop()` task — drives g_EfisSerial.Read(),
+                    ///< g_BoomSerial.Read(), g_ConsoleSerial.Read(). Spins
+                    ///< at low priority on Core 1.
     Count,
 };
 
@@ -122,6 +166,16 @@ constexpr uint8_t kLoopSentinelScopeId = 0xFF;  // unused as scope; marks loop
 // monotonic uint32_t (never wrap in practice within a multi-decade
 // uptime); the bitmask handles physical index.
 // ===========================================================================
+// 1024 entries × 8 B = 8 KB per task ring. 12 task rings = 96 KB,
+// fits in internal DRAM. SPI events route through the lock-free
+// SpiCounter (NOT the ring), so the ring only carries scope timing
+// + loop events — ~4/sec for slow tasks, ~830/sec for the IMU task at
+// 208 Hz (PerfLoop + predict + correct + alpha = 4 events/step).
+// Comfortable; ~20% headroom against the 1 Hz consumer drain.
+//
+// If we ever push IMU to 1.66 kHz, this needs to grow to 2048 — and
+// then we'll need to either drop some other big DRAM consumer or
+// move other instrumentation out of DRAM.
 constexpr size_t kRingCapacity = 1024;
 constexpr size_t kRingMask     = kRingCapacity - 1;
 static_assert((kRingCapacity & kRingMask) == 0, "ring capacity must be 2^n");
@@ -229,10 +283,19 @@ void recordSpiTransfer(ScopeId scopeId, uint32_t bytes, uint32_t durationUs);
 // ===========================================================================
 // Consumer side — histograms.
 //
-// Exponential buckets: bucket k covers [2^(k/2), 2^((k+1)/2)) μs.
-// 32 buckets → 1 μs .. 65 ms in √2 steps (~6% precision).
+// Log-linear bucketing for honest sub-millisecond resolution:
+//   buckets[0..63]   linear, 16 µs wide   →  covers 0..1024 µs
+//   buckets[64..95]  exponential √2 steps →  covers 1 ms..64 ms
+//
+// Tight where it matters (EKFQ scopes are ~30..500 µs), loose where
+// it doesn't (task loop work is 1..50 ms; coarse buckets fine).
+// 96 buckets × 4 B = 384 B per histogram.
 // ===========================================================================
-constexpr size_t kHistogramBuckets = 32;
+constexpr size_t kLinearBuckets   = 64;   // 16 µs each → 0..1024 µs
+constexpr size_t kLinearStepUs    = 16;
+constexpr size_t kLinearMaxUs     = kLinearBuckets * kLinearStepUs;  // 1024
+constexpr size_t kExpBuckets      = 32;   // √2 steps from 1024 µs
+constexpr size_t kHistogramBuckets = kLinearBuckets + kExpBuckets;
 
 struct Histogram {
     uint64_t count;
