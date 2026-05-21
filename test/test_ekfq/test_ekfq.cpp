@@ -150,6 +150,108 @@ void test_ekfq_pipeline_config_override(void) {
     TEST_ASSERT_EQUAL_FLOAT(custom.tasdotEmaAlpha,  got.tasdotEmaAlpha);
 }
 
+// ============================================================
+// Cholesky-failure counter tests (issue #593 item #1)
+// ============================================================
+
+void test_ekfq_counter_starts_at_zero(void) {
+    EKFQ ekfq;
+    ekfq.init();
+    TEST_ASSERT_EQUAL_UINT32(0u, ekfq.getUpdateCallCount());
+    TEST_ASSERT_EQUAL_UINT32(0u, ekfq.getFailedUpdateCount());
+    TEST_ASSERT_EQUAL_UINT32(0u, ekfq.getLastFailedCallNum());
+}
+
+void test_ekfq_counter_unchanged_on_normal_update(void) {
+    EKFQ ekfq;
+    ekfq.init();
+    EKFQ::Measurements meas{};
+    meas.ax = 0.0f;
+    meas.ay = 0.0f;
+    meas.az = -G;
+    meas.p  = 0.0f;
+    meas.q  = 0.0f;
+    meas.r  = 0.0f;
+    meas.tasMps       = 0.0f;
+    meas.tasDotMps2   = 0.0f;
+    meas.baroAltMeters = 0.0f;
+    meas.updateBaro    = true;
+    for (int i = 0; i < 10; ++i) {
+        ekfq.update(meas, DT);
+    }
+    TEST_ASSERT_EQUAL_UINT32(10u, ekfq.getUpdateCallCount());
+    TEST_ASSERT_EQUAL_UINT32(0u,  ekfq.getFailedUpdateCount());
+    TEST_ASSERT_EQUAL_UINT32(0u,  ekfq.getLastFailedCallNum());
+}
+
+void test_ekfq_counter_bumps_on_degenerate_S(void) {
+    // Poison r_baro to drive the Cholesky diagonal negative on the
+    // baro row. With a strongly negative R diagonal entry, the
+    // corresponding row of S = H·P·H^T + R sums into a negative
+    // diagonal entry within the j-loop, triggering sum<=0.0f.
+    EKFQ::Config cfg = EKFQ::Config::defaults();
+    cfg.r_baro = -1.0e9f;
+    EKFQ ekfq(cfg);
+    ekfq.init();
+    EKFQ::Measurements meas{};
+    meas.ax = 0.0f;
+    meas.ay = 0.0f;
+    meas.az = -G;
+    meas.baroAltMeters = 0.0f;
+    meas.updateBaro    = true;
+    ekfq.update(meas, DT);
+    TEST_ASSERT_EQUAL_UINT32(1u, ekfq.getUpdateCallCount());
+    TEST_ASSERT_EQUAL_UINT32(1u, ekfq.getFailedUpdateCount());
+    TEST_ASSERT_EQUAL_UINT32(1u, ekfq.getLastFailedCallNum());
+}
+
+void test_ekfq_counter_persists_across_init(void) {
+    // Bump the counter via a degenerate-S update, then reseed via
+    // init(). Counters must survive — a failure burst right before a
+    // reseed is the kind of pattern we want post-flight reviewers
+    // to spot.
+    EKFQ::Config cfg = EKFQ::Config::defaults();
+    cfg.r_baro = -1.0e9f;
+    EKFQ ekfq(cfg);
+    ekfq.init();
+    EKFQ::Measurements meas{};
+    meas.az = -G;
+    meas.baroAltMeters = 0.0f;
+    meas.updateBaro    = true;
+    ekfq.update(meas, DT);
+    TEST_ASSERT_EQUAL_UINT32(1u, ekfq.getFailedUpdateCount());
+    const uint32_t failBefore = ekfq.getFailedUpdateCount();
+    const uint32_t lastBefore = ekfq.getLastFailedCallNum();
+    const uint32_t callBefore = ekfq.getUpdateCallCount();
+    ekfq.init(0.0f, 0.0f, 0.0f);
+    TEST_ASSERT_EQUAL_UINT32(failBefore, ekfq.getFailedUpdateCount());
+    TEST_ASSERT_EQUAL_UINT32(lastBefore, ekfq.getLastFailedCallNum());
+    TEST_ASSERT_EQUAL_UINT32(callBefore, ekfq.getUpdateCallCount());
+}
+
+void test_ekfq_counter_increments_by_one_on_batch_failure(void) {
+    // Master's EKFQ::correct() is a pure batch update — one Cholesky
+    // guard for all 8 measurements. Even with every R_diag entry
+    // poisoned, a single failed update() must bump
+    // failedUpdateCount_ by exactly 1, not 8. This test documents the
+    // batch semantics so a future port back to scalar updates won't
+    // silently change counter semantics without also changing this
+    // test.
+    EKFQ::Config cfg = EKFQ::Config::defaults();
+    cfg.r_ax   = -1.0e9f;
+    cfg.r_ay   = -1.0e9f;
+    cfg.r_az   = -1.0e9f;
+    cfg.r_baro = -1.0e9f;
+    EKFQ ekfq(cfg);
+    ekfq.init();
+    EKFQ::Measurements meas{};
+    meas.az = -G;
+    meas.baroAltMeters = 0.0f;
+    meas.updateBaro    = true;
+    ekfq.update(meas, DT);
+    TEST_ASSERT_EQUAL_UINT32(1u, ekfq.getFailedUpdateCount());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_ekfq_init_default);
@@ -159,5 +261,10 @@ int main(int, char**) {
     RUN_TEST(test_ekfq_quaternion_stays_unit);
     RUN_TEST(test_ekfq_defaults_finite);
     RUN_TEST(test_ekfq_pipeline_config_override);
+    RUN_TEST(test_ekfq_counter_starts_at_zero);
+    RUN_TEST(test_ekfq_counter_unchanged_on_normal_update);
+    RUN_TEST(test_ekfq_counter_bumps_on_degenerate_S);
+    RUN_TEST(test_ekfq_counter_persists_across_init);
+    RUN_TEST(test_ekfq_counter_increments_by_one_on_batch_failure);
     return UNITY_END();
 }
