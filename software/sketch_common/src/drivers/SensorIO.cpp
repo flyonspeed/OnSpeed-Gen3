@@ -255,15 +255,18 @@ void ImuReadTask(void *pvParams)
             uRemainderAcc = 0;
         }
 
-        // Read IMU over SPI (guard the bus).
+        // Read IMU over SPI (guard the bus). Static-pressure read lives
+        // in SensorReadTask now — at IMU rates >208 Hz, holding the
+        // mutex for both IMU (~67us) + static (~200us) per iteration
+        // caused ~12% of IMU iterations to block waiting on
+        // SensorReadTask's pressure reads for up to ~970us (measured
+        // during the 833 Hz characterization work). Static pressure
+        // changes far slower than IMU rate; 50 Hz updates are plenty
+        // for altitude. See #627 item 1 for the empirical data.
         xSemaphoreTake(xSensorMutex, portMAX_DELAY);
         const uint32_t uImuReadUs = micros();
         g_pIMU->Read();
-        const float fStaticMbar = g_pStatic->ReadPressureMillibars();
         xSemaphoreGive(xSensorMutex);
-
-        g_Sensors.PStatic = fStaticMbar;
-        g_Sensors.Palt    = PressureAltitudeFeetFromMbar(fStaticMbar);
 
         const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
         uLastImuReadUs = uImuReadUs;
@@ -328,11 +331,19 @@ void SensorIO::Init()
 
 void SensorIO::Read()
 {
-    // Read pressure sensors
+    // Read pressure sensors — pitot, AOA, and static all share the SPI
+    // bus, so batch them under one mutex acquire. Static was previously
+    // read inside ImuReadTask's mutex hold, which at IMU rates >208 Hz
+    // caused mutex contention with this task's pressure reads (see
+    // #627 item 1). Static pressure changes slowly; 50 Hz is plenty.
     xSemaphoreTake(xSensorMutex, portMAX_DELAY);
-    iPfwd    = g_pPitot->ReadPressureCounts() - g_Config.iPFwdBias;
-    iP45     = g_pAOA->ReadPressureCounts()   - g_Config.iP45Bias;
+    iPfwd                   = g_pPitot ->ReadPressureCounts()   - g_Config.iPFwdBias;
+    iP45                    = g_pAOA   ->ReadPressureCounts()   - g_Config.iP45Bias;
+    const float fStaticMbar = g_pStatic->ReadPressureMillibars();
     xSemaphoreGive(xSensorMutex);
+
+    PStatic = fStaticMbar;
+    Palt    = PressureAltitudeFeetFromMbar(fStaticMbar);
 
     // Update flaps position about once per second.  Flaps::Read() takes
     // xSensorMutex itself for its SPI transaction, and Flaps::Update()
