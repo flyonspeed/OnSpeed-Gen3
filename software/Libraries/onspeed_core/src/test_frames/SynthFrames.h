@@ -47,7 +47,8 @@ const Frame* SkyviewFrames();
 constexpr std::size_t kSkyviewFrameCount = 2;
 constexpr uint32_t   kSkyviewPeriodMs   = 50;   // ~10 Hz combined
 
-// Boom probe $BOOM,...,XX\r\n line. 50 Hz native.
+// Boom probe $AIRDAQ,deviceId,tag,N,N,N,N,XX\r\n line. 50 Hz native.
+// Format mirrors a live AirDAQ boom; see SynthFrames.cpp::BuildBoom.
 const Frame& BoomFrame();
 constexpr uint32_t kBoomPeriodMs = 20;
 

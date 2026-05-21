@@ -169,30 +169,37 @@ void BuildSkyviewEms(uint8_t* buf) {
 }
 
 // ===========================================================================
-// Boom — $BOOM,YYMMDDHHMMSS,SSSSS,DDDDD,AAAAA,BBBBB*XX\r\n
+// Boom — $AIRDAQ,64.12.B8,ADC,SSSS,DDDD,AAAA,BBBB,XX\r\n
 // ===========================================================================
 //
-// Parser (BoomSerial.cpp) needs:
-//   buf[0] == '$', BufferIndex >= 21
-//   strtok(buf+21, ",") parses 4 ints
-//   "*XX" precedes the terminating \n; XX is hex of sum over bytes [0..*-1)
+// Matches the real-world wire format from Sam's bench captures (see
+// ~/Downloads/boomchecksum.txt). The legacy synth used a fictional
+// "$BOOM,...,*XX" format with '*' as the CRC separator; real boom
+// hardware uses ',' as the separator and the prefix is "$AIRDAQ".
+// Both forms parse correctly via onspeed::boom::Decode (which is
+// agnostic to the separator byte — it just reads CRC at [len-2..len-1]
+// after stripping CR/LF, with the byte at [len-3] being whatever
+// separator the producer chose).
 //
-// '$BOOM,260520120000,' is exactly 19 chars; we add a 1-char field plus
-// a comma to land the first int at offset 21. Going with the convention
-// the prototype in #607 used: '$BOOM,260520120000,' (19 chars) + 2-char
-// stamp '01' + ',' = position 22 first int. Hmm — let me anchor to 21.
-// Easier: '$BOOM,YYMMDDHHMMSSFF,' = 1 + 4 + 1 + 14 + 1 = 21 chars
-// (positions 0..20). First int starts at position 21.
+// Frame anchor: BoomSerial.cpp / onspeed::boom::Decode require:
+//   buf[0] == '$', total length >= 21, then 4 comma-separated ASCII
+//   integer fields starting at byte 21, CRC at bytes [len-2..len-1].
+//
+// Prefix "$AIRDAQ,64.12.B8,ADC," is exactly 21 chars (positions 0..20),
+// so the first integer field starts at position 21 — matching the
+// parser anchor.
 
 constexpr std::size_t kBoomMaxLen = 64;
 
 std::size_t BuildBoom(uint8_t* buf) {
     // Prefix is exactly 21 chars (positions 0..20). First int at pos 21.
+    // Trailing ',' before the CRC matches real $AIRDAQ wire format.
     const int n = std::snprintf(
         reinterpret_cast<char*>(buf), kBoomMaxLen,
-        "$BOOM,260520120000FF,"     // 21 chars (note: 14-digit timestamp + FF)
-        "10000,05000,08200,08100*");
-    // Parser sums buf[0..n-2] (everything before '*'); '*' is at n-1.
+        "$AIRDAQ,64.12.B8,ADC,"     // 21 chars
+        "9842,8152,3942,4006,");    // 4 cruise-ish ADC counts + trailing ','
+    // Parser sums buf[0..n-2] (everything before the separator). The
+    // separator ',' is at index n-1. CRC follows as 2 hex chars.
     int crc = 0;
     for (int i = 0; i < n - 1; i++) crc += buf[i];
     crc &= 0xFF;
