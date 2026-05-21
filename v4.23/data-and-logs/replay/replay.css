@@ -1,0 +1,765 @@
+/* Replay tool styles — extracted from tools/web/lib/shell/PageShell.css.
+ * Drop-in for the docs-site embed. Self-contained: no dependencies
+ * on the firmware-bundle's shell chrome.
+ */
+
+/* Avionics palette tokens, scoped to the replay tool so they don't
+ * leak into the Material theme's own custom-property graph. The SVG
+ * components in packages/ui-core/ reference these as `var(--panel-bg)`,
+ * `var(--white)`, etc. via the `colors` map in core/colors.js. Without
+ * this block the variables are unset and SVG fills resolve to
+ * `transparent`, producing the "outlines only" rendering bug.
+ *
+ * Values match tools/web/lib/shell/PageShell.css :root so the docs-site
+ * replay overlay looks identical to the live `/indexer` page.
+ */
+.replay-page {
+  --bg: #111;
+  --ink: #eee;
+  --panel-bg: #000;
+  --white: #ffffff;
+  --green: #00ff3a;
+  --yellow: #fffd40;
+  --red: #ff0018;
+  --grey: #888;
+  --dark-grey: #6b6d54;
+  --light-grey: #aaa;
+  --sky: #00fffe;
+  --ground: #954511;
+  --magenta: #ff00ff;
+  --orange: #ff8800;
+  --blue: #0000ff;
+  --font-numeric: 'B612', 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ---------- ReplayPage ---------------------------------------------------
+   Dev-server-only video overlay tool. Pilot loads a flight video and the
+   matching SD-log CSV; the page time-syncs them via a single takeoff
+   anchor and overlays the existing indexer SVG over the video frames.
+   Layout: toolbar at top, large video stage, controls strip + log
+   timeline at bottom.
+*/
+.replay-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.replay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #1a2026;
+  border-radius: 6px;
+  color: #eee;
+}
+.replay-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  /* Each file-picker cell flexes to share row width. min-width: 0 lets
+     it shrink past its intrinsic content width when the toolbar is
+     squeezed (e.g. by the MkDocs content column at ~720px). Without
+     this, the row overflows the dark container. */
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.replay-file > span {
+  font-weight: 600;
+  color: #a8b3bd;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.replay-file input[type="file"] {
+  font-size: 12px;
+  color: #e0e6eb;
+  /* Same min-width: 0 trick — the native file input ships with an
+     implicit min-content size that ignores its parent's width. */
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.replay-error {
+  margin-left: auto;
+  color: #ff6680;
+  font-size: 13px;
+}
+.replay-stage {
+  /* Sized to the video. The stage is the bounding box for both the
+     <video> and the absolutely-positioned overlay; if it's taller
+     than the video element, the overlay pokes into the letterbox
+     bands. Letting the stage shrink-wrap to the <video>'s intrinsic
+     height keeps overlay-bottom == video-bottom regardless of the
+     source aspect ratio. */
+  position: relative;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  /* `display: flex; flex-direction: column` lets the stage track the
+     video's auto-height. Without it the absolute overlay forces the
+     stage to a height of 0 and the video appears outside the box. */
+  display: flex;
+  flex-direction: column;
+}
+.replay-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #000;
+}
+.replay-global-clock {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: #cfd6dd;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.replay-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 360px;
+  color: #6b7780;
+  font-style: italic;
+}
+.replay-help-link {
+  color: #7dd3fc;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  font-style: normal;
+  font-size: 13px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.replay-help-link:hover {
+  color: #b0e3ff;
+  border-bottom-color: #7dd3fc;
+}
+.replay-overlay {
+  /* The overlay div doesn't lay out anything visible — the SVG it
+     contains is absolutely positioned within the stage. Keeping
+     this wrapper as a position:absolute / 0-size element avoids
+     the flex container interaction that was forcing the SVG to
+     stretch to the stage height. */
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* M5 inset slots sit ABOVE the HUD (z-index 2) and the video
+     (z-index 1) — the HUD is full-frame, so the corner inset must
+     stack on top to remain visible. */
+  z-index: 3;
+}
+.replay-hud {
+  /* Full-frame HUD layer. Renders BEFORE .replay-overlay in the DOM
+     so the M5 panel (corner-anchored, opaque) paints on top in any
+     overlap area — see PLAN_HUD_OVERLAY.md "Layering model". The HUD
+     SVG fills the stage; preserveAspectRatio in the SVG keeps the
+     content centered if the stage aspect differs from 16:9. */
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Carve out the native <video> controls strip (≈ 40-48 px tall)
+     so the slip ball / FPM tail aren't covered by the scrubber. */
+  bottom: 48px;
+  /* Explicit z-index so the HUD stays ABOVE the <video> in stacking
+     order regardless of DOM source position. Native <video> creates
+     its own stacking context in some browsers (Chrome's hardware-
+     accelerated video layer) and can win over absolutely-positioned
+     siblings even with DOM order in our favor. */
+  z-index: 2;
+}
+.replay-video {
+  /* Keep video at z-index 1 so the HUD reliably stacks above. */
+  position: relative;
+  z-index: 1;
+}
+.replay-hud > svg.hud-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Drop-shadow halo is rendered inline via an SVG <filter> element
+     in HudOverlay so both the live page and the MP4 export raster
+     get the same legibility treatment. (CSS class filters don't
+     follow the SVG into the export blob's isolated document.) */
+}
+.replay-overlay-frame {
+  /* One inset slot. Two slots (left + right) are rendered as siblings
+     inside .replay-overlay. Each pins to a bottom corner above the
+     native <video> controls bar so the overlay never sits under the
+     scrubber. The SVG fills the wrapper; divs honor `aspect-ratio`
+     reliably while SVGs do not (their intrinsic size comes from
+     `viewBox`). The left/right corner is picked by the
+     .replay-overlay-left / .replay-overlay-right modifier. */
+  position: absolute;
+  bottom: 56px;       /* clears the video controls (≈ 40-48 px tall) */
+  width: 22%;
+  max-width: 280px;
+  aspect-ratio: 4 / 3;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.7));
+}
+.replay-overlay-frame.replay-overlay-left  { left:  12px; }
+.replay-overlay-frame.replay-overlay-right { right: 12px; }
+.replay-overlay-frame.paused {
+  /* Yellow border tells the pilot the overlay is frozen for re-sync.
+     See pauseIndexer/attachHere in ReplayPage. */
+  outline: 3px solid #ffcc00;
+  outline-offset: 2px;
+}
+.replay-status-attention {
+  color: #ffcc00 !important;
+  font-weight: 600;
+}
+.replay-overlay-frame > svg {
+  /* Fill the wrapper. The SVG's preserveAspectRatio defaults to
+     "xMidYMid meet" so the 320x240 content scales to fit and
+     centers inside whatever box we hand it. */
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.replay-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: #1a2026;
+  border-radius: 6px;
+  color: #eee;
+}
+.replay-control-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.replay-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #a8b3bd;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+.replay-mode-btn,
+.replay-btn,
+.replay-btn-primary,
+.replay-btn-ghost {
+  border: 1px solid #2d3942;
+  background: #232c33;
+  color: #e0e6eb;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.replay-mode-btn:hover,
+.replay-btn:hover,
+.replay-btn-ghost:hover {
+  background: #2d3942;
+}
+.replay-mode-btn.active {
+  background: #0a84ff;
+  border-color: #0a84ff;
+  color: white;
+}
+.replay-btn-primary {
+  background: #0a84ff;
+  border-color: #0a84ff;
+  color: white;
+}
+.replay-btn-primary:hover { background: #006edc; }
+.replay-btn-primary:disabled,
+.replay-btn:disabled,
+.replay-btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.replay-btn-ghost {
+  background: transparent;
+  color: #a8b3bd;
+}
+.replay-spacer {
+  flex: 1 1 auto;
+}
+.replay-toggle {
+  font-size: 13px;
+  color: #a8b3bd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.replay-inset-select {
+  font-size: 13px;
+  color: #a8b3bd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.replay-inset-select select {
+  background: #232c33;
+  color: #e0e6eb;
+  border: 1px solid #2d3942;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.replay-pitch-offset {
+  font-size: 13px;
+  color: #a8b3bd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.replay-pitch-offset input[type="range"] {
+  width: 160px;
+  vertical-align: middle;
+}
+.replay-pitch-offset span {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  min-width: 4em;
+  text-align: right;
+}
+.replay-status {
+  font-size: 12px;
+  color: #a8b3bd;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.replay-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.replay-timeline.empty {
+  height: 88px;
+  background: #0e1418;
+  border-radius: 4px;
+}
+.replay-timeline-hint {
+  font-size: 11px;
+  color: #6b7780;
+  text-align: center;
+}
+.replay-timeline-clip {
+  fill: rgba(10, 132, 255, 0.25);
+  stroke: #0a84ff;
+  stroke-width: 1;
+  rx: 2;
+}
+.replay-timeline-clip-label {
+  font-size: 9px;
+  fill: #7dd3fc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+.replay-btn-nudge {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: transparent;
+  border: 1px solid #444;
+  color: #ccc;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.replay-btn-nudge:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.replay-btn-nudge:hover:not(:disabled) {
+  background: #2a2a2a;
+}
+
+/* ---------- Replay: DataMark + Clip panels --------------------------- */
+
+.replay-marks,
+.replay-clips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #1a2026;
+  border-radius: 6px;
+  color: #eee;
+  margin-top: 8px;
+}
+.replay-marks-header,
+.replay-clips-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* DataMarkPanel collapses on header click — show pointer over the
+   whole bar; ClipBuilder only collapses on the disclosure/label
+   because the bar carries action buttons that should still respond
+   when expanded. */
+.replay-section-header {
+  cursor: pointer;
+  user-select: none;
+}
+.replay-section-disclosure {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  color: #8aa;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-clips-label-clickable {
+  cursor: pointer;
+  user-select: none;
+}
+.replay-marks-list,
+.replay-clips-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Viewport-relative so narrow windows still get a usable list.
+     Pilots with many marks need to scroll a lot; cap at 60vh so the
+     panel doesn't push the rest of the page off-screen on tall
+     windows. */
+  max-height: 60vh;
+  min-height: 220px;
+  overflow-y: auto;
+}
+.replay-mark-row,
+.replay-clip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background: #232c33;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.replay-mark-row,
+.replay-clip-row {
+  /* Row stacks: head (always visible) + expanded editor (toggled).
+     Switching to a column lets the editor sit under the head while
+     the head retains its horizontal flex layout via .row-head. */
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.replay-mark-row.is-expanded,
+.replay-clip-row.is-expanded {
+  background: #2a343c;
+  outline: 1px solid #3a4654;
+}
+.replay-mark-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-clip-row-head {
+  /* Clip-row head is horizontally flex like the mark-row head, but
+     the disclosure triangle is the only click-to-toggle surface — the
+     label input and buttons handle their own clicks. So no cursor:
+     pointer at the head level. */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.replay-clip-row-head .replay-mark-disclosure {
+  cursor: pointer;
+}
+.replay-mark-disclosure {
+  color: #7dd3fc;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.replay-mark-label {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-weight: 600;
+  color: #7dd3fc;
+  min-width: 30px;
+}
+.replay-mark-name {
+  color: #e0e6eb;
+  font-size: 12px;
+  /* Truncate when the row is narrow; the full name is in the expanded
+     editor. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.replay-mark-dot {
+  color: #7dd3fc;
+  font-size: 16px;
+  line-height: 1;
+  /* Sit between label and name so the eye lands on annotated marks
+     without scanning for the disclosure triangle. */
+  margin-left: -2px;
+}
+.replay-mark-time {
+  color: #a8b3bd;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.replay-mark-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 22px 4px;
+}
+.replay-mark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.replay-mark-field > span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a8b3bd;
+}
+.replay-mark-field input[type="text"],
+.replay-mark-field textarea {
+  background: #0e1418;
+  border: 1px solid #2d3942;
+  color: #e0e6eb;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  resize: vertical;
+}
+.replay-mark-field input[type="text"]:focus,
+.replay-mark-field textarea:focus {
+  outline: none;
+  border-color: #0a84ff;
+  background: #111a22;
+}
+.replay-clips-empty {
+  color: #6b7780;
+  font-size: 12px;
+  font-style: italic;
+  padding: 4px 0;
+}
+/* Expanded clip-row layout mirrors .replay-mark-expanded so the two
+   journal surfaces feel like one family. */
+.replay-clip-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 22px 4px;
+}
+.replay-clip-contains {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: #a8b3bd;
+}
+.replay-clip-contains-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a8b3bd;
+}
+.replay-clip-contains-sep {
+  color: #4a5662;
+}
+.replay-clip-contains-link {
+  /* Clickable mark name. Renders as a quiet button — same color as
+     the mark label in the data-marks panel, underline on hover so the
+     pilot reads it as a hyperlink. */
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  color: #7dd3fc;
+  cursor: pointer;
+}
+.replay-clip-contains-link:hover {
+  text-decoration: underline;
+}
+
+.replay-recent-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: #2a2418;
+  border: 1px solid var(--yellow, #fffd40);
+  border-radius: 4px;
+  color: var(--ink, #eee);
+  font-size: 12px;
+}
+.replay-recent-text {
+  flex: 1 1 auto;
+  color: #d8c97a;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.replay-recent-dismiss {
+  flex: 0 0 auto;
+  border: 1px solid #4a3f1f;
+  background: transparent;
+  color: #d8c97a;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 3px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.replay-recent-dismiss:hover {
+  background: #4a3f1f;
+  color: var(--yellow, #fffd40);
+}
+.replay-recent-resume {
+  flex: 0 0 auto;
+  border: 1px solid var(--yellow, #fffd40);
+  background: #4a3f1f;
+  color: var(--yellow, #fffd40);
+  padding: 4px 12px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.replay-recent-resume:hover {
+  background: var(--yellow, #fffd40);
+  color: #1a1410;
+}
+
+/* File-picker buttons (FSA path). Render in place of the native
+   <input type="file"> on browsers with showOpenFilePicker. Sized to
+   match the input's intrinsic flex behavior so the toolbar row holds
+   its shape across both code paths. */
+.replay-file-btn {
+  font-size: 12px;
+  color: #e0e6eb;
+  background: #2a3340;
+  border: 1px solid #3a4654;
+  border-radius: 3px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.replay-file-btn:hover {
+  background: #3a4654;
+  color: var(--white, #fff);
+}
+
+.replay-overlay-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 8px;
+  font-size: 12px;
+  color: #a8b3bd;
+}
+.replay-overlay-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  cursor: pointer;
+  user-select: none;
+}
+.replay-overlay-mode-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.replay-overlay-mode-toggle input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+.replay-progress {
+  flex: 0 1 200px;
+  height: 8px;
+}
+.replay-progress::-webkit-progress-bar {
+  background: #0e1418;
+  border-radius: 4px;
+  border: 1px solid #2d3942;
+}
+.replay-progress::-webkit-progress-value {
+  background: #0a84ff;
+  border-radius: 3px;
+}
+.replay-progress::-moz-progress-bar {
+  background: #0a84ff;
+  border-radius: 3px;
+}
+
+/* ---------- Replay: Clip-row editable label + inline progress ----------
+ * The ClipBuilder component renders per-clip rows with:
+ *   - editable label input (commits on blur/Enter)
+ *   - scrub/set-in/set-out/delete buttons
+ *   - inline progress bar (replaces the Export button while encoding)
+ * Styling keeps the row compact and the label input recognisable so the
+ * pilot doesn't have to hunt for the rename surface.
+ */
+.replay-clip-label-input {
+  background: #0e1418;
+  border: 1px solid #2d3942;
+  color: #7dd3fc;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  min-width: 90px;
+  max-width: 160px;
+}
+.replay-clip-label-input:focus {
+  outline: none;
+  border-color: #0a84ff;
+  background: #111a22;
+}
+.replay-clip-label-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.replay-clip-row.is-exporting {
+  outline: 1px dashed #0a84ff;
+  outline-offset: -1px;
+}
+.replay-clip-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+}
+.replay-clip-progress-pct {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #a8b3bd;
+  min-width: 32px;
+  text-align: right;
+}

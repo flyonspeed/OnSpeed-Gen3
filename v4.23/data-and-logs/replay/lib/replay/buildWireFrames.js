@@ -1,0 +1,131 @@
+// buildWireFrames.js — pre-pass a parsed log through the LogReplayTask
+// and return a per-row array of 77-byte wire frames.
+//
+// The single-source C++ pipeline (issue #514) handles iasAlive
+// hysteresis, engine smoothing, anchors, percent-lift, and wire
+// encoding internally. JS callers just feed parsed LogRow shapes in
+// row order and inject the resulting bytes into the M5 sim.
+//
+// This is the C++-engine arm of the M5-accurate path's A/B toggle.
+// The JS-engine arm uses replayCtx.results[] + buildWireFrame from
+// wireBridge.js. Both paths feed sim.injectBytes — the M5 firmware
+// decode is unchanged.
+
+import { LogReplayTask } from './logReplayTask.js';
+import { reassembleResults } from './reassemble.js';
+import { detectLogSampleRate, hasFlapsRawAdc } from './parseLog.js';
+
+// Build a plain JS row object from the columnar log at index i.
+// Mirrors rowObjAt in ReplayPage.js minus the iasValid threading —
+// the C++ task IGNORES row.iasValid and re-derives it hysteretically
+// (closes Bug 1 from the trial-run retro by construction).
+function rowAt(log, i) {
+  const g  = (arr) => (arr ? arr[i] : NaN);
+  const gi = (arr) => (arr ? arr[i] : 0);
+  // DataMark per firmware (Switch.cpp:61) is a monotonically-
+  // incrementing int that the M5 wire/panel display mod-100. Some
+  // real-world SD logs contain misaligned CSV rows where the
+  // DataMark cell holds a timestamp, pressure reading, etc. Those
+  // values were leaking into the wire frame and producing garbage
+  // overlay digits. Cap at 9999 to filter the torn-row signature
+  // without rejecting legitimate high-counter presses on long flights
+  // (the firmware-side `% 100` will still reduce ≥100 values to a
+  // two-digit display).
+  const gMark = (arr) => {
+    if (!arr) return 0;
+    const v = arr[i];
+    if (Number.isInteger(v) && v >= 0 && v <= 9999) return v;
+    return 0;
+  };
+  return {
+    pfwdSmoothed:    g(log.PfwdSmoothed),
+    p45Smoothed:     g(log.P45Smoothed),
+    pStaticMbar:     g(log.PStatic),
+    paltFt:          g(log.Palt),
+    iasKt:           g(log.IAS),
+    iasValid:        false,                  // task overrides via UpdateIasAlive
+    flapsPos:        gi(log.flapsPos),
+    flapsRawAdc:     gi(log.flapsRawADC),
+    flapsRawAdcPresent: !!(log.flapsRawADC),
+    imuVerticalG:    g(log.VerticalG),
+    imuLateralG:     g(log.LateralG),
+    imuForwardG:     g(log.ForwardG),
+    imuRollRateDps:  g(log.RollRate),
+    imuPitchRateDps: g(log.PitchRate),
+    imuYawRateDps:   g(log.YawRate),
+    pitchDeg:        g(log.Pitch),
+    rollDeg:         g(log.Roll),
+    flightPathDeg:   g(log.FlightPath),
+    vsiFpm:          g(log.VSI),
+    dataMark:        gMark(log.DataMark),
+    oatCelsius:      g(log.OAT),
+  };
+}
+
+// Pre-pass the log through a fresh LogReplayTask and return a
+// per-row array of Uint8Arrays. The result has length = log.Length;
+// each entry is either a 77-byte frame or null (synth-path lag).
+//
+// Synth-path lag handling: the task returns empty arrays during the
+// first ~kSynthHalfWindowTicks rows and at end-of-log returns the
+// trailing rows via flush(). reassembleResults aligns these with
+// original log indices so we can index by row directly.
+//
+// Returns { frames, engineResults } where engineResults[i] is the
+// C++ engine's ReplayStepResult at row i (or null on synth lag).
+// engineResults is provided so the diagnostic mode can compare the
+// C++ engine's per-row aoa against the JS engine's per-row aoaDeg.
+export async function buildWireFramesFromTask(log, cfg, onProgress, isCancelled) {
+  if (!log || !cfg) return null;
+
+  const sampleRateHz = detectLogSampleRate(log);
+  const hasPot       = hasFlapsRawAdc(log);
+  const N            = log.Length;
+
+  const task = await LogReplayTask.create(cfg, sampleRateHz, hasPot);
+  // Snapshot the cfg's flap detent order as the C++ task internally
+  // sees it. Diagnostic only — verifies the cfg round-trip didn't
+  // shuffle flap entries.
+  let cfgFlapsDeg = null;
+  try { cfgFlapsDeg = task.cfgFlapsDegrees(); } catch (_) { /* binding may be missing */ }
+  // eslint-disable-next-line no-console
+  console.log('LogReplayTask cfg.aFlaps[*].iDegrees =', cfgFlapsDeg,
+              ' hasPot=', hasPot, ' sampleRateHz=', sampleRateHz);
+
+  let frames;
+  let engineResults;
+  try {
+    const immediates = [];
+    const engImmediates = [];
+    const CHUNK = 5000;
+    for (let start = 0; start < N; start += CHUNK) {
+      if (isCancelled && isCancelled()) return null;
+      const end = Math.min(start + CHUNK, N);
+      for (let i = start; i < end; i++) {
+        const bytes = task.processRow(rowAt(log, i));
+        if (bytes.length > 0) {
+          immediates.push(bytes);
+          // Capture the engine result that produced these bytes.
+          engImmediates.push(task.lastStep());
+        } else {
+          immediates.push(null);
+          engImmediates.push(null);
+        }
+      }
+      if (onProgress) onProgress(end / N);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    const tail = task.flush();   // Array<Uint8Array>; non-77-length impossible
+    // For synth-path tail rows we don't have engine results captured
+    // (flush doesn't yield them through the binding today). Pad with
+    // null; the diagnostic just won't have engineResults for the
+    // last ~kSynthHalfWindowTicks rows of an old-style log.
+    const tailEng = new Array(tail.length).fill(null);
+    frames = reassembleResults(immediates, tail, N, hasPot);
+    engineResults = reassembleResults(engImmediates, tailEng, N, hasPot);
+  } finally {
+    task.delete();
+  }
+
+  return { frames, engineResults };
+}
