@@ -152,11 +152,17 @@ void StartTask()
     // dump task can be starved for >1 second under heavy Core 0 load —
     // and when that happens, the histogram reset window stretches and
     // "loops/s" appears proportionally LOWER than the actual producer
-    // rate. (That's the bug behind the "208 Hz fixed point" we kept
-    // hitting at 833 Hz IMU experiments: producer was actually running
-    // at 833 but PerfDump was running every ~4 sec under load, so the
-    // drain population was 833 events from the last 1 sec of a 4-sec
-    // window — and the "loops/s = count" report read as 208.)
+    // rate.
+    //
+    // This was one of two distinct measurement bugs the high-rate IMU
+    // experiments surfaced, with similar-looking symptoms:
+    //   - "loops/s = 256 with drops > 0": ring saturation. The 1024-entry
+    //     universal ring × 4 events per IMU iteration capped reportable
+    //     loops at 256/sec. Fixed by per-task ring sizing (this PR).
+    //   - "loops/s = 208 with drops == 0": consumer-side starvation.
+    //     PerfDump priority 0 starved by other Core 0 tasks; histogram
+    //     reset every ~4 sec instead of every 1 sec; reported count was
+    //     833/4 = 208. Fixed by this priority bump.
     //
     // Priority 1 puts PerfDump on equal footing with WebServer (1) and
     // LogSensorCommit (1). All Core 1 flight-critical tasks live at

@@ -20,9 +20,20 @@
 #include "Perf.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
 
 #ifdef ARDUINO_ARCH_ESP32
+// esp_attr.h must be included at namespace scope, NOT inside the
+// anonymous namespace where it would give every declaration it
+// transitively imports internal linkage. Today the header is macros +
+// extern "C" typedefs only, so a misplaced include compiles cleanly —
+// but the moment someone adds an extern variable, an inside-namespace
+// include silently becomes an ODR violation. Define our PSRAM-BSS
+// alias here once, before any code that uses it.
+#include "esp_attr.h"
+#define ONSPEED_PSRAM_BSS_ATTR EXT_RAM_BSS_ATTR
+
 extern "C" {
     int64_t esp_timer_get_time(void);
 }
@@ -62,6 +73,7 @@ extern "C" {
 #include <chrono>
 #include <thread>
 #include <unordered_map>
+#define ONSPEED_PSRAM_BSS_ATTR
 #endif
 
 namespace onspeed::util::perf {
@@ -139,26 +151,39 @@ namespace {
 
 Ring g_rings[kTaskCount];
 
-// Per-task event buffers, placed in PSRAM so they don't compete with
-// the 76%-used internal DRAM. IMU gets the big one; everyone else uses
-// the smaller default size.
+// Per-task event buffers. IMU gets the big one; everyone else uses the
+// smaller default size.
 //
-// On ESP32 the EXT_RAM_BSS_ATTR macro (from esp_attr.h) places the
-// symbol in the .ext_ram.bss section, which is PSRAM-backed BSS. On
-// native builds we fall back to plain BSS.
-#ifdef ARDUINO_ARCH_ESP32
-#include "esp_attr.h"
-#define ONSPEED_PSRAM_BSS_ATTR EXT_RAM_BSS_ATTR
-#else
-#define ONSPEED_PSRAM_BSS_ATTR
-#endif
-
+// Memory placement: tagged with ONSPEED_PSRAM_BSS_ATTR (= EXT_RAM_BSS_ATTR
+// on ESP32, empty on native). EXT_RAM_BSS_ATTR places the symbol in
+// the .ext_ram.bss section, which is PSRAM-backed BSS *if* the SDK is
+// built with CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y.
+//
+// Today, the Arduino-ESP32 SDK we link against has that config OFF
+// (verified by `grep CONFIG_SPIRAM_ALLOW_BSS_SEG ...sdkconfig`), so
+// the attribute is a no-op and these buffers live in regular DRAM.
+// The build still shrinks DIRAM use (~16 KB) because the per-task
+// buffers are smaller in aggregate than the prior 12 × 1024-entry rings.
+//
+// Keeping the attribute means the buffers migrate to PSRAM automatically
+// the day the SDK enables ALLOW_BSS_SEG_EXTERNAL_MEMORY (or we swap to
+// vanilla ESP-IDF) — no code change needed. If you're chasing DRAM, that
+// SDK config flip is the lever.
 ONSPEED_PSRAM_BSS_ATTR PerfEvent g_imu_events  [kImuRingCapacity];
 ONSPEED_PSRAM_BSS_ATTR PerfEvent g_other_events[kTaskCount - 1][kDefaultRingCapacity];
 
 // Static initializer: wires each Ring's events pointer + mask + capacity
-// at module construction time. Runs before any task calls pushEvent
-// because the rings are global statics with no dynamic dependencies.
+// at module construction time. C++ initialises static-storage objects in
+// declaration order within a TU, so g_rings[] (zero-init for its trivial
+// members) is set up before this ctor runs. After this ctor, each Ring
+// has its full per-task config.
+//
+// Defense in depth: if anything calls pushEvent BEFORE this ctor fires
+// (e.g. a hypothetical extern-linkage call from another TU's static init
+// — not currently the case, but cheap to guard), pushEvent sees
+// capacity == 0 and drops the event instead of dereferencing a null
+// events pointer. Zero-init of POD static storage gives us this for
+// free.
 struct PerfRingsInit {
     PerfRingsInit() {
         // Imu task gets the big buffer.
@@ -167,8 +192,10 @@ struct PerfRingsInit {
         g_rings[imuIdx].capacity = kImuRingCapacity;
         g_rings[imuIdx].mask     = kImuRingCapacity - 1;
 
-        // All other tasks share the small-buffer pool. The buffer index
-        // is "task ordinal minus 1 if past Imu, else task ordinal".
+        // All other tasks share the small-buffer pool. We walk task
+        // ordinals 0..kTaskCount-1, skip the IMU slot, and assign each
+        // remaining task a row of g_other_events. Ends with
+        // otherIdx == kTaskCount - 1, which we assert below.
         size_t otherIdx = 0;
         for (size_t t = 0; t < kTaskCount; ++t) {
             if (t == imuIdx) continue;
@@ -177,6 +204,11 @@ struct PerfRingsInit {
             g_rings[t].mask     = kDefaultRingCapacity - 1;
             ++otherIdx;
         }
+        // g_other_events is sized for kTaskCount-1 rows. If a new TaskId
+        // is added and this count drifts, the assignments above would
+        // index past the buffer. Catch it here instead of as a silent
+        // OOB at first PERF emit.
+        assert(otherIdx == kTaskCount - 1);
     }
 };
 static PerfRingsInit s_perfRingsInit;

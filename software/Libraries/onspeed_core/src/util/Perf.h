@@ -184,26 +184,28 @@ constexpr uint8_t kLoopSentinelScopeId = 0xFF;  // unused as scope; marks loop
 // else gets a small one.
 //
 // Memory placement: the events array is plain memory (no atomic access
-// to individual slots — SPSC ordering is via head/tail). Placed in
-// PSRAM (~70 ns access) on ESP32-S3 to keep all event buffers out of
-// internal DRAM (which is precious — 76% used as of perf-2026-05-20).
-// head/tail/drops stay in DRAM where atomics are cheap.
+// to individual slots — SPSC ordering is via head/tail). Tagged with
+// EXT_RAM_BSS_ATTR (see Perf.cpp) so it moves to PSRAM the day the SDK
+// enables CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY. Today that
+// config is off in Arduino-ESP32, so buffers live in DRAM. head/tail/drops
+// stay in DRAM where atomics are cheap.
 // ===========================================================================
 
 // Default capacity for tasks that don't override. 256 entries × 8 B =
 // 2 KB per task. Adequate for everything except the IMU task.
 constexpr size_t kDefaultRingCapacity = 256;
 
-// IMU task capacity. 8192 entries × 8 B = 64 KB. Supports IMU rates up
-// to ~2 kHz before drops at the 1 Hz consumer drain. Sized for the
-// 833 Hz ODR step (next above 416 Hz on the ISM330DHCX) with a comfortable
-// margin so we're not at the edge.
+// IMU task capacity. 8192 entries × 8 B = 64 KB. At 833 Hz IMU × 4
+// events/iteration = 3332 events/sec, this holds ~2.46 s of events
+// before the 1 Hz consumer drain — adequate margin for the chip's
+// 833 Hz ODR step. Going higher (e.g. 1666 Hz) needs a bigger ring
+// AND an EKF predict/correct split (per issue #627) to fit the work.
 constexpr size_t kImuRingCapacity = 8192;
 
 struct Ring {
-    PerfEvent*            events;     ///< Points at per-task PSRAM buffer.
+    PerfEvent*            events;     ///< Per-task buffer (DRAM today; see Perf.cpp).
     uint32_t              mask;       ///< capacity - 1 (capacity is 2^n).
-    uint32_t              capacity;   ///< Number of slots in events[].
+    uint32_t              capacity;   ///< Number of slots in events[]. Stored alongside mask for hot-path clarity; the 4-byte cost across 12 rings is negligible.
     std::atomic<uint32_t> head{0};    ///< Producer-only write.
     std::atomic<uint32_t> tail{0};    ///< Consumer-only write.
     std::atomic<uint32_t> drops{0};   ///< Producer increments when full.

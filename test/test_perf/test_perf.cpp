@@ -192,6 +192,25 @@ void test_ring_overflow_increments_drops(void)
     TEST_ASSERT_GREATER_OR_EQUAL_UINT32(100, consumer.taskDrops(TaskId::Imu));
 }
 
+void test_default_ring_overflow_increments_drops(void)
+{
+    // Non-IMU tasks share the smaller kDefaultRingCapacity buffers. A
+    // bug in PerfRingsInit (wrong index into g_other_events, off-by-one,
+    // etc.) would manifest as either silent OOB or wrong overflow
+    // behavior on these tasks — neither of which the IMU test catches.
+    // Use Audio as the canary: it's a non-IMU TaskId so it gets a
+    // small-ring assignment.
+    PerfLoop loop(TaskId::Audio, 2000);  // bind ring
+    const size_t overflowBy = 200;
+    const size_t pushes = onspeed::util::perf::kDefaultRingCapacity + overflowBy;
+    for (size_t i = 0; i < pushes; ++i) {
+        PerfScope guard(ScopeId::EkfqCorrect);
+    }
+    Consumer consumer;
+    consumer.drainAll();
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(100, consumer.taskDrops(TaskId::Audio));
+}
+
 void test_names(void)
 {
     TEST_ASSERT_EQUAL_STRING("ekfq.correct", scopeName(ScopeId::EkfqCorrect));
@@ -210,6 +229,7 @@ int main(int, char**)
     RUN_TEST(test_spi_routes_to_counters_not_histogram);
     RUN_TEST(test_multi_producer_no_crosstalk);
     RUN_TEST(test_ring_overflow_increments_drops);
+    RUN_TEST(test_default_ring_overflow_increments_drops);
     RUN_TEST(test_names);
     return UNITY_END();
 }
