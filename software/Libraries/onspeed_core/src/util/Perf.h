@@ -129,9 +129,16 @@ enum class TaskId : uint8_t {
     Housekeeping,
     WebServer,
     DataServer,
-    ArduinoLoop,    ///< Arduino's `loop()` task — drives g_EfisSerial.Read(),
-                    ///< g_BoomSerial.Read(), g_ConsoleSerial.Read(). Spins
-                    ///< at low priority on Core 1.
+    ArduinoLoop,    ///< Arduino's `loop()` task — drives g_ConsoleSerial.Read().
+                    ///< Spins at low priority on Core 1. Prior to PR #609 also
+                    ///< drove g_EfisSerial.Read() and g_BoomSerial.Read(); both
+                    ///< moved to dedicated tasks below.
+    EfisRead,       ///< Dedicated EFIS UART task on Core 0. Blocks on the
+                    ///< IDF uart_driver event queue (wake-on-data); calls
+                    ///< g_EfisSerial.Read() per UART_DATA event.
+    BoomRead,       ///< Dedicated boom UART task on Core 0. Serial1 is
+                    ///< shared with Display TX so this task uses Arduino
+                    ///< HardwareSerial + 1 ms polling rather than raw IDF.
     Count,
 };
 

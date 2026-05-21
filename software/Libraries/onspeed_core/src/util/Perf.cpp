@@ -102,7 +102,7 @@ constexpr const char* kTaskNames[] = {
     "Imu", "Sensors", "Audio", "Display", "Switch",
     "Log", "LogReplay", "TestPot", "RangeSweep",
     "Housekeeping", "WebServer", "DataServer",
-    "ArduinoLoop",
+    "ArduinoLoop", "EfisRead", "BoomRead",
 };
 static_assert(sizeof(kTaskNames) / sizeof(kTaskNames[0]) == kTaskCount,
               "kTaskNames size mismatch with TaskId::Count");
