@@ -24,7 +24,15 @@ SdFileSys::SdFileSys() :
         // spiStop() and tries to give paramLock from a task that doesn't own
         // it, tripping the FreeRTOS `xTaskPriorityDisinherit` assert and
         // crashing the board.
-        SpiConfig(kSdCs, USER_SPI_BEGIN, SD_SCK_MHZ(10), &uSD_SPI)
+        // 20 MHz: bench measurement on Phil's V4P shows ~4pp Core 0 win
+        // and 64% faster log_sync vs 10 MHz, with no drops and no tail
+        // regression.  25 MHz tested but adds tail-latency noise (Log
+        // task loops/s range widens from 182..208 to 79..208 — a real
+        // SD stall) without buying meaningful steady-state improvement,
+        // so 20 MHz is the sweet spot for this card on this board.
+        // SdFat auto-negotiates down at init if a card can't sustain
+        // this clock; worst case is fallback to a lower speed.
+        SpiConfig(kSdCs, USER_SPI_BEGIN, SD_SCK_MHZ(20), &uSD_SPI)
     {
     }
 
